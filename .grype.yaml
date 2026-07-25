@@ -39,3 +39,33 @@ ignore:
       name: google.golang.org/grpc
       version: "v1.81.1"
       type: go-module
+
+  # ── golang.org/x/text v0.38.0 embedded in gh CLI binary ──────────────────────
+  #
+  # GO-2026-5970 / CVE-2026-56852 (golang.org/x/text v0.38.0 -> 0.39.0, HIGH):
+  #   A norm.Iter can enter an infinite loop when handling input containing
+  #   invalid UTF-8 bytes (denial of service).
+  #
+  #   Risk acceptance — NOT REACHABLE in our usage:
+  #     x/text v0.38.0 is a transitive dependency compiled into the `gh` CLI
+  #     binary. We never feed attacker-controlled, invalid-UTF-8 input through
+  #     gh's text-normalization path; gh is invoked with our own arguments
+  #     against the GitHub API, so the vulnerable norm.Iter loop is not
+  #     exercised. The finding is present but not exploitable here.
+  #   Present in the agent image (gh via the GitHub CLI apt repo, pinned
+  #   gh=2.96.0) and the cli-proxy image (gh 2.96.0 from the official release
+  #   tarball). The api-proxy image has no gh and is unaffected.
+  #
+  #   No fix is shippable today: gh 2.96.0 (latest release as of 2026-07-24)
+  #   still bundles x/text v0.38.0, and building gh from unreleased trunk would
+  #   ship an untagged, non-official binary (worse supply-chain risk than a
+  #   non-reachable finding).
+  #   Revisit: once a gh CLI release bundling x/text >= v0.39.0 is available,
+  #   bump the `gh=` pin in agent/Dockerfile and the GH_VERSION in
+  #   cli-proxy/Dockerfile and DELETE this entry. Tracked in
+  #   github/gh-aw-firewall.
+  - vulnerability: GO-2026-5970
+    package:
+      name: golang.org/x/text
+      version: "v0.38.0"
+      type: go-module
