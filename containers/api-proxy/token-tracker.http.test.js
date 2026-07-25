@@ -106,15 +106,31 @@ describe('trackTokenUsage', () => {
     })));
     proxyRes.emit('end');
 
-    setTimeout(() => {
-      expect(fs.existsSync(TOKEN_LOG_FILE)).toBe(true);
-      const lines = fs.readFileSync(TOKEN_LOG_FILE, 'utf8')
-        .split('\n')
-        .filter(Boolean);
-      const matchingLine = lines.find((line) => line.includes('"request_id":"test-incremental-write"'));
-      expect(matchingLine).toBeTruthy();
-      done();
-    }, 20);
+    // The write goes through an async createWriteStream, whose file open +
+    // flush can take longer than a single fixed delay under CI load. Poll for
+    // the record instead of asserting after one short timeout, so the test is
+    // deterministic and fast without being flaky.
+    const deadline = Date.now() + 4000;
+    const poll = () => {
+      const matchingLine = fs.existsSync(TOKEN_LOG_FILE)
+        && fs.readFileSync(TOKEN_LOG_FILE, 'utf8')
+          .split('\n')
+          .filter(Boolean)
+          .find((line) => line.includes('"request_id":"test-incremental-write"'));
+      if (matchingLine) {
+        expect(matchingLine).toBeTruthy();
+        done();
+        return;
+      }
+      if (Date.now() >= deadline) {
+        // Force a clear assertion failure rather than a timeout.
+        expect(matchingLine).toBeTruthy();
+        done();
+        return;
+      }
+      setTimeout(poll, 20);
+    };
+    poll();
   });
 
   test('extracts usage from streaming SSE response', (done) => {
