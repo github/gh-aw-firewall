@@ -12,7 +12,6 @@ const readyForCiLockFiles = [
   'smoke-copilot-byok-aoai-apikey.lock.yml',
   'smoke-copilot-byok-aoai-entra.lock.yml',
   'smoke-copilot-byok.lock.yml',
-  'smoke-copilot-pat.lock.yml',
   'smoke-copilot.lock.yml',
   'smoke-copilot-network-isolation.lock.yml',
   'smoke-gemini.lock.yml',
