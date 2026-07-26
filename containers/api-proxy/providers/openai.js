@@ -17,8 +17,7 @@ const {
 const { validateAuthHeaderEnv } = require('../oidc-adapter-utils');
 const { bearerAuthHeaders, providerKeyHeaders } = require('./auth-headers');
 
-const { createProviderAuthScaffold, createAdapterMethods, buildProviderAdapter } = require('../adapter-factory');
-const { createProviderOidcHeaderStrategy } = require('./cloud-oidc-init');
+const { createProviderAuthScaffold, createOidcAwareProviderAdapter } = require('../adapter-factory');
 const { OPENAI_ENV, COPILOT_ENV } = require('../provider-env-constants');
 
 /**
@@ -71,63 +70,52 @@ function createOpenAIAdapter(env, deps = {}) {
     return bearerAuthHeaders(key);
   }
   const buildStaticAuthHeaders = () => buildTokenAuthHeaders(apiKey);
-  const {
-    authProvider, oidcConfigured,
-    runtimeMethods: oidcRuntimeMethods,
-    validationSkip,
-    skipModelsFetch,
-    resolveHeaders: resolveOidcHeaders,
-  } = createProviderOidcHeaderStrategy(env, { staticAuthToken: apiKey }, {
+  return createOidcAwareProviderAdapter({
+    env,
+    oidcAuthOptions: { staticAuthToken: apiKey },
     buildOidcHeaders: buildTokenAuthHeaders,
     buildStaticHeaders: buildStaticAuthHeaders,
-  });
-
-  const adapterMethods = createAdapterMethods({
-    apiKey,
-    rawTarget,
-    basePath,
-    provider: 'openai',
-    port: 10000,
-    defaultTarget: 'api.openai.com',
-    validationPath: '/v1/models',
-    validationHeaders: buildStaticAuthHeaders,
-    validationSkip,
-    skipModelsFetch,
-    modelsPath: '/v1/models',
-    modelsFetchHeaders: buildStaticAuthHeaders,
-    reflectionConfigured: !!apiKey || oidcConfigured,
-    reflectionModelsPath: '/v1/models',
-    reflectionExtra: () => ({
-      auth_type: oidcConfigured ? `github-oidc/${authProvider}` : 'static-key',
+    createAdapterMethodsOptions: ({ authProvider, oidcConfigured, validationSkip, skipModelsFetch }) => ({
+      apiKey,
+      rawTarget,
+      basePath,
+      provider: 'openai',
+      port: 10000,
+      defaultTarget: 'api.openai.com',
+      validationPath: '/v1/models',
+      validationHeaders: buildStaticAuthHeaders,
+      validationSkip,
+      skipModelsFetch,
+      modelsPath: '/v1/models',
+      modelsFetchHeaders: buildStaticAuthHeaders,
+      reflectionConfigured: !!apiKey || oidcConfigured,
+      reflectionModelsPath: '/v1/models',
+      reflectionExtra: () => ({
+        auth_type: oidcConfigured ? `github-oidc/${authProvider}` : 'static-key',
+      }),
     }),
-  });
-
-  return buildProviderAdapter({
-    name: 'openai',
-    port: 10000,
-    isManagementPort: true,
-    adapterMethods,
-    getAuthHeaders() {
-      return resolveOidcHeaders();
-    },
-    bodyTransform,
-    missingCredentialResponse: {
-      kind: 'plain_error',
-      statusCode: 404,
-      message: 'OpenAI proxy not configured (no OPENAI_API_KEY/COPILOT_PROVIDER_API_KEY or OIDC auth)',
-    },
-    unconfiguredResponseWhen: () => (oidcConfigured
-      ? {
-          kind: 'plain_error',
-          statusCode: 503,
-          message: 'OpenAI OIDC token unavailable; retry shortly',
-        }
-      : null),
-    extra: {
-      ...oidcRuntimeMethods,
-      /** Port 10000 always counts toward the startup validation latch. */
-      participatesInValidation: true,
-    },
+    buildAdapterOptions: ({ oidcConfigured }) => ({
+      name: 'openai',
+      port: 10000,
+      isManagementPort: true,
+      bodyTransform,
+      missingCredentialResponse: {
+        kind: 'plain_error',
+        statusCode: 404,
+        message: 'OpenAI proxy not configured (no OPENAI_API_KEY/COPILOT_PROVIDER_API_KEY or OIDC auth)',
+      },
+      unconfiguredResponseWhen: () => (oidcConfigured
+        ? {
+            kind: 'plain_error',
+            statusCode: 503,
+            message: 'OpenAI OIDC token unavailable; retry shortly',
+          }
+        : null),
+      extra: {
+        /** Port 10000 always counts toward the startup validation latch. */
+        participatesInValidation: true,
+      },
+    }),
   });
 }
 

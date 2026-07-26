@@ -212,6 +212,73 @@ function createProviderAuthScaffold(env, deps = {}, { keyEnvVar, targetEnvVar, b
 }
 
 /**
+ * Create an OIDC-aware adapter using the shared auth/header/runtime scaffold.
+ *
+ * @param {object} opts
+ * @param {Record<string, string|undefined>} opts.env
+ * @param {object} [opts.oidcAuthOptions]
+ * @param {(token: string) => Record<string,string>} opts.buildOidcHeaders
+ * @param {() => Record<string,string>} opts.buildStaticHeaders
+ * @param {object|((ctx: object) => object)} opts.createAdapterMethodsOptions
+ * @param {object|((ctx: object) => object)} opts.buildAdapterOptions
+ * @param {(ctx: object) => Record<string,string>} [opts.getAuthHeaders]
+ * @returns {import('./providers/index').ProviderAdapter}
+ */
+function createOidcAwareProviderAdapter({
+  env,
+  oidcAuthOptions = {},
+  buildOidcHeaders,
+  buildStaticHeaders,
+  createAdapterMethodsOptions,
+  buildAdapterOptions,
+  getAuthHeaders,
+}) {
+  const { createProviderOidcHeaderStrategy } = require('./providers/cloud-oidc-init');
+  const oidc = createProviderOidcHeaderStrategy(env, oidcAuthOptions, {
+    buildOidcHeaders,
+    buildStaticHeaders,
+  });
+  const {
+    authProvider,
+    oidcProvider,
+    awsOidcProvider,
+    oidcConfigured,
+    runtimeMethods,
+    validationSkip,
+    skipModelsFetch,
+    resolveHeaders,
+  } = oidc;
+  const context = {
+    authProvider,
+    oidcProvider,
+    awsOidcProvider,
+    oidcConfigured,
+    runtimeMethods,
+    validationSkip,
+    skipModelsFetch,
+    resolveHeaders,
+  };
+  const adapterMethods = createAdapterMethods(typeof createAdapterMethodsOptions === 'function'
+    ? createAdapterMethodsOptions(context)
+    : createAdapterMethodsOptions);
+  const adapterOptions = typeof buildAdapterOptions === 'function'
+    ? buildAdapterOptions({ ...context, adapterMethods })
+    : buildAdapterOptions;
+
+  return buildProviderAdapter({
+    ...adapterOptions,
+    adapterMethods,
+    getAuthHeaders: getAuthHeaders
+      ? (req) => getAuthHeaders({ ...context, req })
+      : (() => resolveHeaders()),
+    extra: {
+      ...runtimeMethods,
+      ...(adapterOptions.extra || {}),
+    },
+  });
+}
+
+/**
  * Assemble a provider adapter object from its constituent parts.
  *
  * Every provider adapter returns the same outer object shape:
@@ -338,6 +405,7 @@ function buildProviderAdapter({
 module.exports = {
   createBaseAdapterConfig,
   createProviderAuthScaffold,
+  createOidcAwareProviderAdapter,
   createAdapterMethods,
   buildProviderAdapter,
 };

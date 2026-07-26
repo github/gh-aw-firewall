@@ -21,7 +21,7 @@ const {
   normalizeBasePath,
   composeBodyTransforms,
 } = require('../proxy-utils');
-const { createAdapterMethods, buildProviderAdapter } = require('../adapter-factory');
+const { createOidcAwareProviderAdapter } = require('../adapter-factory');
 const { sanitizeNullToolCallTypes } = require('../body-transform');
 const {
   parseByokExtraHeaders,
@@ -35,7 +35,6 @@ const {
   deriveCopilotApiTarget,
   copilotTargetRequiresGitHubTokenPrefix,
 } = require('./copilot-auth');
-const { createProviderOidcHeaderStrategy } = require('./cloud-oidc-init');
 const { bearerAuthHeaders, withCopilotIntegration } = require('./auth-headers');
 const { URL } = require('url');
 const { COPILOT_ENV } = require('../provider-env-constants');
@@ -99,18 +98,6 @@ function createCopilotAdapter(env, deps = {}) {
   const bodyTransform = composeBodyTransforms(sanitizedBodyTransform, byokBodyFieldTransform);
   const requiresGitHubTokenPrefix = copilotTargetRequiresGitHubTokenPrefix(rawTarget, env);
   const authPrefix = (requiresGitHubTokenPrefix && !apiKey) ? 'token' : 'Bearer';
-  const {
-    authProvider, oidcProvider, awsOidcProvider, oidcConfigured,
-    runtimeMethods: oidcRuntimeMethods,
-    resolveHeaders: resolveInferenceHeaders,
-  } = createProviderOidcHeaderStrategy(env, { staticAuthToken: authToken, skipWhen: !!staticAuthToken }, {
-    buildOidcHeaders: (token) => withCopilotIntegration(bearerAuthHeaders(token), integrationId),
-    buildStaticHeaders: () => withCopilotIntegration({
-      ...(apiKey ? byokExtraHeaders : {}),
-      'Authorization': authPrefix + ' ' + authToken,
-    }, integrationId),
-  });
-
   // Pre-computed models path used by getModelsFetchConfig and getReflectionInfo.
   // For BYOK/custom providers the base path prefix is included (e.g. /api/v1/models
   // for COPILOT_PROVIDER_BASE_URL=https://openrouter.ai/api/v1).
@@ -127,96 +114,127 @@ function createCopilotAdapter(env, deps = {}) {
    *   to merge into the returned object (e.g. `{ cacheKey: 'copilot' }`).
    * @returns {{ url: string, opts: { method: string, headers: Record<string,string> } } & Record<string, unknown>}
    */
-function buildCopilotModelsRequest(extra = {}) {
-  const prefix = requiresGitHubTokenPrefix ? 'token' : 'Bearer';
-  return {
-    url: `https://${rawTarget}/models`,
-    opts: {
-      method: 'GET',
-      headers: withCopilotIntegration({ 'Authorization': prefix + ' ' + githubToken }, integrationId),
-    },
-    ...extra,
-  };
-}
+ function buildCopilotModelsRequest(extra = {}) {
+   const prefix = requiresGitHubTokenPrefix ? 'token' : 'Bearer';
+   return {
+     url: `https://${rawTarget}/models`,
+     opts: {
+       method: 'GET',
+       headers: withCopilotIntegration({ 'Authorization': prefix + ' ' + githubToken }, integrationId),
+     },
+     ...extra,
+   };
+ }
 
   // Copilot has dual auth modes (GitHub OAuth vs BYOK) with different validation
   // and model-fetch rules, so we override those two methods while still sharing
   // the common reflection method shape from createAdapterMethods.
-  const adapterMethods = createAdapterMethods({
-    apiKey: authToken,
-    rawTarget,
-    basePath,
-    provider: 'copilot',
-    port: 10002,
-    modelsPath,
-    reflectionConfigured: !!authToken || oidcConfigured,
-    reflectionModelsPath: modelsPath,
-    getValidationProbe() {
-      if (oidcConfigured) {
-        return { skip: true, reason: `OIDC auth (${authProvider}); validation via token acquisition` };
-      }
-      if (!authToken) return null;
+  return createOidcAwareProviderAdapter({
+    env,
+    oidcAuthOptions: { staticAuthToken: authToken, skipWhen: !!staticAuthToken },
+    buildOidcHeaders: (token) => withCopilotIntegration(bearerAuthHeaders(token), integrationId),
+    buildStaticHeaders: () => withCopilotIntegration({
+      ...(apiKey ? byokExtraHeaders : {}),
+      'Authorization': authPrefix + ' ' + authToken,
+    }, integrationId),
+    createAdapterMethodsOptions: ({ oidcConfigured, authProvider }) => ({
+      apiKey: authToken,
+      rawTarget,
+      basePath,
+      provider: 'copilot',
+      port: 10002,
+      modelsPath,
+      reflectionConfigured: !!authToken || oidcConfigured,
+      reflectionModelsPath: modelsPath,
+      getValidationProbe() {
+        if (oidcConfigured) {
+          return { skip: true, reason: `OIDC auth (${authProvider}); validation via token acquisition` };
+        }
+        if (!authToken) return null;
 
-      // Only COPILOT_GITHUB_TOKEN has a probe endpoint (/models).
-      // COPILOT_PROVIDER_API_KEY alone cannot be validated at startup.
-      if (!githubToken) {
+        // Only COPILOT_GITHUB_TOKEN has a probe endpoint (/models).
+        // COPILOT_PROVIDER_API_KEY alone cannot be validated at startup.
+        if (!githubToken) {
+          return {
+            skip: true,
+            reason: 'COPILOT_PROVIDER_API_KEY configured but startup validation is not supported for this auth mode',
+          };
+        }
+
+        if (rawTarget !== 'api.githubcopilot.com') {
+          return { skip: true, reason: `Custom target ${rawTarget}; validation skipped` };
+        }
+
+        return buildCopilotModelsRequest();
+      },
+      getModelsFetchConfig() {
+        // OIDC mode: skip startup model fetch — the token isn't available yet at this
+        // point and the upstream BYOK target typically isn't api.githubcopilot.com.
+        if (oidcConfigured) return null;
+        if (!authToken) return null;
+
+        // Standard Copilot API (api.githubcopilot.com):
+        // The /models endpoint only accepts GitHub OAuth tokens (COPILOT_GITHUB_TOKEN).
+        // Skip startup model fetch when only a BYOK API key is configured.
+        if (rawTarget === 'api.githubcopilot.com') {
+          if (!githubToken) return null;
+          return buildCopilotModelsRequest({ cacheKey: 'copilot' });
+        }
+
+        // BYOK / custom provider (e.g. OpenRouter):
+        // Use the explicit BYOK API key (COPILOT_PROVIDER_API_KEY) rather than authToken
+        // to ensure we never send a GitHub OAuth token to third-party providers.
+        // Skip the fetch when no BYOK key is configured.
+        if (!apiKey) return null;
         return {
-          skip: true,
-          reason: 'COPILOT_PROVIDER_API_KEY configured but startup validation is not supported for this auth mode',
+          url: `https://${rawTarget}${modelsPath}`,
+          opts: {
+            method: 'GET',
+            headers: bearerAuthHeaders(apiKey),
+          },
+          cacheKey: 'copilot',
         };
-      }
-
-      if (rawTarget !== 'api.githubcopilot.com') {
-        return { skip: true, reason: `Custom target ${rawTarget}; validation skipped` };
-      }
-
-      return buildCopilotModelsRequest();
-    },
-    getModelsFetchConfig() {
-      // OIDC mode: skip startup model fetch — the token isn't available yet at this
-      // point and the upstream BYOK target typically isn't api.githubcopilot.com.
-      if (oidcConfigured) return null;
-      if (!authToken) return null;
-
-      // Standard Copilot API (api.githubcopilot.com):
-      // The /models endpoint only accepts GitHub OAuth tokens (COPILOT_GITHUB_TOKEN).
-      // Skip startup model fetch when only a BYOK API key is configured.
-      if (rawTarget === 'api.githubcopilot.com') {
-        if (!githubToken) return null;
-        return buildCopilotModelsRequest({ cacheKey: 'copilot' });
-      }
-
-      // BYOK / custom provider (e.g. OpenRouter):
-      // Use the explicit BYOK API key (COPILOT_PROVIDER_API_KEY) rather than authToken
-      // to ensure we never send a GitHub OAuth token to third-party providers.
-      // Skip the fetch when no BYOK key is configured.
-      if (!apiKey) return null;
-      return {
-        url: `https://${rawTarget}${modelsPath}`,
-        opts: {
-          method: 'GET',
-          headers: bearerAuthHeaders(apiKey),
-        },
-        cacheKey: 'copilot',
-      };
-    },
-  });
-
-  return buildProviderAdapter({
-    name: 'copilot',
-    port: 10002,
-    isManagementPort: false,
-    adapterMethods,
+      },
+    }),
+    buildAdapterOptions: ({ authProvider, oidcConfigured, oidcProvider, awsOidcProvider }) => ({
+      name: 'copilot',
+      port: 10002,
+      isManagementPort: false,
+      bodyTransform,
+      missingCredentialResponse: {
+        kind: 'provider_not_configured',
+        message: 'Credentials for GitHub Copilot (port 10002) are not configured. Set COPILOT_GITHUB_TOKEN or COPILOT_PROVIDER_API_KEY to enable this provider.',
+      },
+      unconfiguredResponseWhen: () => (oidcConfigured
+        ? {
+            kind: 'provider_not_configured',
+            message: `Copilot OIDC token (${authProvider}) unavailable; retry shortly`,
+          }
+        : null),
+      healthServiceName: 'awf-api-proxy-copilot',
+      missingCredentialMessage: 'COPILOT_GITHUB_TOKEN or COPILOT_PROVIDER_API_KEY not configured in api-proxy sidecar',
+      unavailableWhen: () => oidcConfigured ? { message: `Copilot OIDC token (${authProvider}) not yet available in api-proxy sidecar` } : null,
+      extra: {
+        // Exposed for introspection / testing
+        _githubToken: githubToken,
+        _apiKey: apiKey,
+        _integrationId: integrationId,
+        _rawTarget: rawTarget,
+        _basePath: basePath,
+        _oidcProvider: oidcProvider,
+        _awsOidcProvider: awsOidcProvider,
+      },
+    }),
     /**
      * Build Copilot auth headers for this request.
      *
      * The Copilot /models endpoint only accepts COPILOT_GITHUB_TOKEN (GitHub OAuth).
      * All other requests use the resolved auth token (COPILOT_PROVIDER_API_KEY when real, otherwise COPILOT_GITHUB_TOKEN).
      *
-     * @param {import('http').IncomingMessage} req
+     * @param {{ req: import('http').IncomingMessage, resolveHeaders: () => Record<string,string> }} params
      * @returns {Record<string, string>}
      */
-    getAuthHeaders(req) {
+    getAuthHeaders({ req, resolveHeaders }) {
       let reqPathname;
       try {
         reqPathname = new URL(req.url, 'http://localhost').pathname;
@@ -234,32 +252,7 @@ function buildCopilotModelsRequest(extra = {}) {
         return withCopilotIntegration({ 'Authorization': prefix + ' ' + githubToken }, integrationId);
       }
 
-      return resolveInferenceHeaders();
-    },
-    bodyTransform,
-    missingCredentialResponse: {
-      kind: 'provider_not_configured',
-      message: 'Credentials for GitHub Copilot (port 10002) are not configured. Set COPILOT_GITHUB_TOKEN or COPILOT_PROVIDER_API_KEY to enable this provider.',
-    },
-    unconfiguredResponseWhen: () => (oidcConfigured
-      ? {
-          kind: 'provider_not_configured',
-          message: `Copilot OIDC token (${authProvider}) unavailable; retry shortly`,
-        }
-      : null),
-    healthServiceName: 'awf-api-proxy-copilot',
-    missingCredentialMessage: 'COPILOT_GITHUB_TOKEN or COPILOT_PROVIDER_API_KEY not configured in api-proxy sidecar',
-    unavailableWhen: () => oidcConfigured ? { message: `Copilot OIDC token (${authProvider}) not yet available in api-proxy sidecar` } : null,
-    extra: {
-      ...oidcRuntimeMethods,
-      // Exposed for introspection / testing
-      _githubToken: githubToken,
-      _apiKey: apiKey,
-      _integrationId: integrationId,
-      _rawTarget: rawTarget,
-      _basePath: basePath,
-      _oidcProvider: oidcProvider,
-      _awsOidcProvider: awsOidcProvider,
+      return resolveHeaders();
     },
   });
 }
