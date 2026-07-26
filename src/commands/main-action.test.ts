@@ -47,6 +47,7 @@ import * as preflight from './preflight';
 import * as signalHandler from './signal-handler';
 import * as validateOptions from './validate-options';
 import * as sbxManager from '../sbx-manager';
+import { MAIN_ACTION_STUB_CONFIG, setupMainActionTestHarness } from './main-action.test-utils';
 
 const mockedLogger = logger as jest.Mocked<typeof logger>;
 const mockedDockerManager = dockerManager as jest.Mocked<typeof dockerManager>;
@@ -61,60 +62,27 @@ const mockedSignalHandler = signalHandler as jest.Mocked<typeof signalHandler>;
 const mockedValidateOptions = validateOptions as jest.Mocked<typeof validateOptions>;
 const mockedSbxManager = sbxManager as jest.Mocked<typeof sbxManager>;
 
-/** Minimal WrapperConfig returned by the validateOptions mock. */
-const STUB_CONFIG = {
-  allowedDomains: ['github.com'],
-  blockedDomains: undefined,
-  agentCommand: 'echo hi',
-  logLevel: 'info',
-  keepContainers: false,
-  workDir: '/tmp/awf-test',
-  imageRegistry: 'ghcr.io/github/gh-aw-firewall',
-  imageTag: 'latest',
-  buildLocal: false,
-  dnsServers: ['8.8.8.8'],
-  awfDockerHost: undefined,
-  proxyLogsDir: undefined,
-  auditDir: undefined,
-  sessionStateDir: undefined,
-} as unknown as import('../types').WrapperConfig;
-
 describe('createMainAction', () => {
   let processExitSpy: jest.SpyInstance;
   let consoleErrorSpy: jest.SpyInstance;
   let getOptionValueSource: jest.Mock;
 
   beforeEach(() => {
-    jest.clearAllMocks();
-    processExitSpy = jest.spyOn(process, 'exit').mockImplementation((code?: string | number | null) => {
-      if (code === 1) {
-        throw new Error(`process.exit: ${code}`);
-      }
-      return undefined as never;
+    const harness = setupMainActionTestHarness({
+      mockedPreflight,
+      mockedValidateOptions,
+      mockedDockerManager,
+      mockedRedactSecrets,
+      mockedOptionParsers,
+      mockedDindProbe,
+      mockedDindBootstrap,
+      mockedSignalHandler,
+      mockedCliWorkflow,
+      mockedSbxManager,
     });
-    consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
-    getOptionValueSource = jest.fn().mockReturnValue(undefined);
-
-    // Default mock implementations
-    mockedPreflight.applyConfigFilePrecedence.mockImplementation(() => {});
-    mockedValidateOptions.validateOptions.mockImplementation(
-      () => ({ ...STUB_CONFIG } as unknown as import('../types').WrapperConfig)
-    );
-    mockedDockerManager.setAwfDockerHost.mockImplementation(() => {});
-    mockedRedactSecrets.redactSecrets.mockImplementation((s: string) => s);
-    mockedOptionParsers.joinShellArgs.mockImplementation((args: string[]) => args.join(' '));
-    mockedDindProbe.probeSplitFilesystem.mockResolvedValue({
-      prefix: undefined,
-      splitDetected: false,
-      inconclusive: false,
-    });
-    mockedDindBootstrap.runDindBootstrap.mockResolvedValue(undefined);
-    mockedSignalHandler.registerSignalHandlers.mockImplementation(() => {});
-    mockedCliWorkflow.runMainWorkflow.mockResolvedValue(0);
-    mockedSbxManager.isSbxAvailable.mockResolvedValue(true);
-    mockedSbxManager.createSandbox.mockResolvedValue('awf-agent-test');
-    mockedSbxManager.execInSandbox.mockResolvedValue({ exitCode: 0 });
-    mockedSbxManager.removeSandbox.mockResolvedValue(undefined);
+    processExitSpy = harness.processExitSpy;
+    consoleErrorSpy = harness.consoleErrorSpy;
+    getOptionValueSource = harness.getOptionValueSource;
   });
 
   afterEach(() => {
@@ -183,7 +151,7 @@ describe('createMainAction', () => {
     });
 
     it('calls setAwfDockerHost with config.awfDockerHost', async () => {
-      const configWithDockerHost = { ...STUB_CONFIG, awfDockerHost: '/var/run/docker.sock' };
+      const configWithDockerHost = { ...MAIN_ACTION_STUB_CONFIG, awfDockerHost: '/var/run/docker.sock' };
       mockedValidateOptions.validateOptions.mockReturnValue(
         configWithDockerHost as unknown as import('../types').WrapperConfig
       );
@@ -194,7 +162,7 @@ describe('createMainAction', () => {
 
     it('passes containerRuntime through to runAgentCommand', async () => {
       mockedValidateOptions.validateOptions.mockReturnValue({
-        ...STUB_CONFIG,
+        ...MAIN_ACTION_STUB_CONFIG,
         containerRuntime: 'gvisor',
       } as unknown as import('../types').WrapperConfig);
       mockedCliWorkflow.runMainWorkflow.mockImplementation(async (_config, deps) => {
@@ -223,12 +191,12 @@ describe('createMainAction', () => {
     it('runs DinD bootstrap before workflow execution', async () => {
       const action = createMainAction(getOptionValueSource);
       await action(['echo hi'], {});
-      expect(mockedDindBootstrap.runDindBootstrap).toHaveBeenCalledWith(STUB_CONFIG);
+      expect(mockedDindBootstrap.runDindBootstrap).toHaveBeenCalledWith(MAIN_ACTION_STUB_CONFIG);
     });
 
     it('skips probe and DinD bootstrap when dockerHostPathPrefix is already set', async () => {
       mockedValidateOptions.validateOptions.mockReturnValue({
-        ...STUB_CONFIG,
+        ...MAIN_ACTION_STUB_CONFIG,
         dockerHostPathPrefix: '/host',
       } as unknown as import('../types').WrapperConfig);
 
@@ -271,7 +239,7 @@ describe('createMainAction', () => {
 
     it('logs empty DNS servers when dnsServers is undefined', async () => {
       mockedValidateOptions.validateOptions.mockReturnValue({
-        ...STUB_CONFIG,
+        ...MAIN_ACTION_STUB_CONFIG,
         dnsServers: undefined,
       } as unknown as import('../types').WrapperConfig);
 
@@ -291,7 +259,7 @@ describe('createMainAction', () => {
 
     it('logs blocked domains when present', async () => {
       const configWithBlocked = {
-        ...STUB_CONFIG,
+        ...MAIN_ACTION_STUB_CONFIG,
         blockedDomains: ['evil.com'],
       };
       mockedValidateOptions.validateOptions.mockReturnValue(
@@ -325,7 +293,7 @@ describe('createMainAction', () => {
     describe('sbx runtime wiring', () => {
       it('passes configured mounts/workdir/environment into sbx create/exec', async () => {
         const sbxConfig = {
-          ...STUB_CONFIG,
+          ...MAIN_ACTION_STUB_CONFIG,
           containerRuntime: 'sbx',
           containerWorkDir: '/home/runner/work/repo/repo',
           volumeMounts: ['/tmp/tooling:/tmp/tooling:ro'],
@@ -372,15 +340,15 @@ describe('createMainAction', () => {
         expect.any(Error)
       );
       expect(mockedDockerManager.cleanup).toHaveBeenCalledWith(
-        STUB_CONFIG.workDir,
+        MAIN_ACTION_STUB_CONFIG.workDir,
         false,
-        STUB_CONFIG.proxyLogsDir,
-        STUB_CONFIG.auditDir,
-        STUB_CONFIG.sessionStateDir,
-        STUB_CONFIG.dockerHostPathPrefix,
-        STUB_CONFIG.imageRegistry,
-        STUB_CONFIG.imageTag,
-        STUB_CONFIG.agentImage,
+        MAIN_ACTION_STUB_CONFIG.proxyLogsDir,
+        MAIN_ACTION_STUB_CONFIG.auditDir,
+        MAIN_ACTION_STUB_CONFIG.sessionStateDir,
+        MAIN_ACTION_STUB_CONFIG.dockerHostPathPrefix,
+        MAIN_ACTION_STUB_CONFIG.imageRegistry,
+        MAIN_ACTION_STUB_CONFIG.imageTag,
+        MAIN_ACTION_STUB_CONFIG.agentImage,
       );
       expect(mockedHostIptables.cleanupHostIptables).not.toHaveBeenCalled();
       expect(processExitSpy).toHaveBeenCalledWith(1);
@@ -389,7 +357,7 @@ describe('createMainAction', () => {
 
   describe('performCleanup with keepContainers=true', () => {
     it('logs preserved paths and skips cleanup when keepContainers is true', async () => {
-      const configWithKeep = { ...STUB_CONFIG, keepContainers: true };
+      const configWithKeep = { ...MAIN_ACTION_STUB_CONFIG, keepContainers: true };
       mockedValidateOptions.validateOptions.mockReturnValue(
         configWithKeep as unknown as import('../types').WrapperConfig
       );
@@ -409,7 +377,7 @@ describe('createMainAction', () => {
 
   describe('performCleanup with containers started', () => {
     it('stops containers and cleans host iptables when both flags are set', async () => {
-      const configWithFlags = { ...STUB_CONFIG, keepContainers: false };
+      const configWithFlags = { ...MAIN_ACTION_STUB_CONFIG, keepContainers: false };
       mockedValidateOptions.validateOptions.mockReturnValue(
         configWithFlags as unknown as import('../types').WrapperConfig
       );
@@ -498,7 +466,7 @@ describe('createMainAction', () => {
   describe('redaction of sensitive config fields', () => {
     it('does not log API keys in debug output', async () => {
       const configWithKeys = {
-        ...STUB_CONFIG,
+        ...MAIN_ACTION_STUB_CONFIG,
         openaiApiKey: 'sk-secret',
         anthropicApiKey: 'ant-secret',
         copilotGithubToken: 'ghp-secret',
@@ -538,7 +506,7 @@ describe('createMainAction', () => {
 
     it('writes awf-resolved-config.json to audit dir when set', async () => {
       const configWithAudit = {
-        ...STUB_CONFIG,
+        ...MAIN_ACTION_STUB_CONFIG,
         auditDir: '/tmp/awf-audit',
       };
       mockedValidateOptions.validateOptions.mockReturnValue(
@@ -566,7 +534,7 @@ describe('createMainAction', () => {
     it('redacts secret values in agentCommand in the artifact', async () => {
       const secretValue = 'super-secret-token-12345';
       const configWithSecret = {
-        ...STUB_CONFIG,
+        ...MAIN_ACTION_STUB_CONFIG,
         auditDir: '/tmp/awf-audit',
         agentCommand: `my-agent --token ${secretValue}`,
       };
@@ -591,7 +559,7 @@ describe('createMainAction', () => {
     });
 
     it('falls back to workDir/audit when auditDir is not set', async () => {
-      mockedValidateOptions.validateOptions.mockReturnValue(STUB_CONFIG);
+      mockedValidateOptions.validateOptions.mockReturnValue(MAIN_ACTION_STUB_CONFIG);
       const action = createMainAction(getOptionValueSource);
       await action(['echo hi'], {});
 
@@ -611,7 +579,7 @@ describe('createMainAction', () => {
     it('redactConfigForLogging removes sensitive keys and redacts agentCommand', () => {
       const secretValue = 'secret-123';
       const configWithSecrets = {
-        ...STUB_CONFIG,
+        ...MAIN_ACTION_STUB_CONFIG,
         agentCommand: `agent --token ${secretValue}`,
         openaiApiKey: 'sk-secret',
       } as unknown as import('../types').WrapperConfig;
@@ -628,7 +596,7 @@ describe('createMainAction', () => {
 
     it('redactConfigForLogging redacts additionalEnv object values', () => {
       const redacted = testHelpers.redactConfigForLogging({
-        ...STUB_CONFIG,
+        ...MAIN_ACTION_STUB_CONFIG,
         additionalEnv: { ANTHROPIC_API_KEY: 'sk-real', GH_TOKEN: 'token123' },
       } as unknown as import('../types').WrapperConfig);
 
@@ -640,7 +608,7 @@ describe('createMainAction', () => {
 
     it('redactConfigForLogging preserves null additionalEnv', () => {
       const redacted = testHelpers.redactConfigForLogging({
-        ...STUB_CONFIG,
+        ...MAIN_ACTION_STUB_CONFIG,
         additionalEnv: null as unknown as Record<string, string>,
       } as unknown as import('../types').WrapperConfig);
 
@@ -649,7 +617,7 @@ describe('createMainAction', () => {
 
     it('redactConfigForLogging preserves non-object additionalEnv values', () => {
       const redacted = testHelpers.redactConfigForLogging({
-        ...STUB_CONFIG,
+        ...MAIN_ACTION_STUB_CONFIG,
         additionalEnv: 'raw-env-string' as unknown as Record<string, string>,
       } as unknown as import('../types').WrapperConfig);
 
@@ -661,7 +629,7 @@ describe('createMainAction', () => {
         throw new Error('write failed');
       });
 
-      testHelpers.persistConfigAuditArtifact(STUB_CONFIG, { foo: 'bar' });
+      testHelpers.persistConfigAuditArtifact(MAIN_ACTION_STUB_CONFIG, { foo: 'bar' });
 
       expect(mockedLogger.debug).toHaveBeenCalledWith(
         expect.stringContaining('Failed to write resolved config artifact:')
@@ -670,7 +638,7 @@ describe('createMainAction', () => {
 
     it('buildCleanupFn runs cleanup using provided state getters', async () => {
       const performCleanup = testHelpers.buildCleanupFn(
-        STUB_CONFIG,
+        MAIN_ACTION_STUB_CONFIG,
         () => true,
         () => true,
       );
@@ -678,12 +646,12 @@ describe('createMainAction', () => {
       await performCleanup();
 
       expect(mockedDockerManager.preserveIptablesAudit).toHaveBeenCalledWith(
-        STUB_CONFIG.workDir,
-        STUB_CONFIG.auditDir
+        MAIN_ACTION_STUB_CONFIG.workDir,
+        MAIN_ACTION_STUB_CONFIG.auditDir
       );
       expect(mockedDockerManager.stopContainers).toHaveBeenCalledWith(
-        STUB_CONFIG.workDir,
-        STUB_CONFIG.keepContainers
+        MAIN_ACTION_STUB_CONFIG.workDir,
+        MAIN_ACTION_STUB_CONFIG.keepContainers
       );
       expect(mockedHostIptables.cleanupHostIptables).toHaveBeenCalled();
       expect(mockedDockerManager.cleanup).toHaveBeenCalled();

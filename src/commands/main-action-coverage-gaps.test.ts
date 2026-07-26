@@ -50,6 +50,7 @@ import * as signalHandler from './signal-handler';
 import * as validateOptions from './validate-options';
 import * as sbxManager from '../sbx-manager';
 import { DOH_PROXY_IP } from '../host-iptables-shared';
+import { MAIN_ACTION_STUB_CONFIG, setupMainActionTestHarness } from './main-action.test-utils';
 
 const mockedLogger = logger as jest.Mocked<typeof logger>;
 const mockedDockerManager = dockerManager as jest.Mocked<typeof dockerManager>;
@@ -63,23 +64,6 @@ const mockedSignalHandler = signalHandler as jest.Mocked<typeof signalHandler>;
 const mockedValidateOptions = validateOptions as jest.Mocked<typeof validateOptions>;
 const mockedSbxManager = sbxManager as jest.Mocked<typeof sbxManager>;
 
-const STUB_CONFIG = {
-  allowedDomains: ['github.com'],
-  blockedDomains: undefined,
-  agentCommand: 'echo hi',
-  logLevel: 'info',
-  keepContainers: false,
-  workDir: '/tmp/awf-test',
-  imageRegistry: 'ghcr.io/github/gh-aw-firewall',
-  imageTag: 'latest',
-  buildLocal: false,
-  dnsServers: ['8.8.8.8'],
-  awfDockerHost: undefined,
-  proxyLogsDir: undefined,
-  auditDir: undefined,
-  sessionStateDir: undefined,
-} as unknown as import('../types').WrapperConfig;
-
 describe('createMainAction coverage gaps', () => {
   let processExitSpy: jest.SpyInstance;
   let consoleErrorSpy: jest.SpyInstance;
@@ -87,35 +71,21 @@ describe('createMainAction coverage gaps', () => {
   const savedGithubWorkspace = process.env.GITHUB_WORKSPACE;
 
   beforeEach(() => {
-    jest.clearAllMocks();
-    processExitSpy = jest.spyOn(process, 'exit').mockImplementation((code?: string | number | null) => {
-      if (code === 1) {
-        throw new Error(`process.exit: ${code}`);
-      }
-      return undefined as never;
+    const harness = setupMainActionTestHarness({
+      mockedPreflight,
+      mockedValidateOptions,
+      mockedDockerManager,
+      mockedRedactSecrets,
+      mockedOptionParsers,
+      mockedDindProbe,
+      mockedDindBootstrap,
+      mockedSignalHandler,
+      mockedCliWorkflow,
+      mockedSbxManager,
     });
-    consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
-    getOptionValueSource = jest.fn().mockReturnValue(undefined);
-
-    mockedPreflight.applyConfigFilePrecedence.mockImplementation(() => {});
-    mockedValidateOptions.validateOptions.mockImplementation(
-      () => ({ ...STUB_CONFIG } as unknown as import('../types').WrapperConfig)
-    );
-    mockedDockerManager.setAwfDockerHost.mockImplementation(() => {});
-    mockedRedactSecrets.redactSecrets.mockImplementation((s: string) => s);
-    mockedOptionParsers.joinShellArgs.mockImplementation((args: string[]) => args.join(' '));
-    mockedDindProbe.probeSplitFilesystem.mockResolvedValue({
-      prefix: undefined,
-      splitDetected: false,
-      inconclusive: false,
-    });
-    mockedDindBootstrap.runDindBootstrap.mockResolvedValue(undefined);
-    mockedSignalHandler.registerSignalHandlers.mockImplementation(() => {});
-    mockedCliWorkflow.runMainWorkflow.mockResolvedValue(0);
-    mockedSbxManager.isSbxAvailable.mockResolvedValue(true);
-    mockedSbxManager.createSandbox.mockResolvedValue('awf-agent-test');
-    mockedSbxManager.execInSandbox.mockResolvedValue({ exitCode: 0 });
-    mockedSbxManager.removeSandbox.mockResolvedValue(undefined);
+    processExitSpy = harness.processExitSpy;
+    consoleErrorSpy = harness.consoleErrorSpy;
+    getOptionValueSource = harness.getOptionValueSource;
   });
 
   afterEach(() => {
@@ -131,7 +101,7 @@ describe('createMainAction coverage gaps', () => {
   describe('sbx: isSbxAvailable false throws', () => {
     it('throws when sbx CLI is not found', async () => {
       const sbxConfig = {
-        ...STUB_CONFIG,
+        ...MAIN_ACTION_STUB_CONFIG,
         containerRuntime: 'sbx',
       } as unknown as import('../types').WrapperConfig;
       mockedValidateOptions.validateOptions.mockReturnValue(sbxConfig);
@@ -153,7 +123,7 @@ describe('createMainAction coverage gaps', () => {
   describe('sbx: api-proxy health check failure proceeds anyway', () => {
     it('logs warning when api-proxy health check fails but continues', async () => {
       const sbxConfig = {
-        ...STUB_CONFIG,
+        ...MAIN_ACTION_STUB_CONFIG,
         containerRuntime: 'sbx',
         enableApiProxy: true,
         containerWorkDir: '/workspace',
@@ -181,7 +151,7 @@ describe('createMainAction coverage gaps', () => {
   describe('sbx: runAgentCommand logs api-proxy diagnostics on non-zero exit', () => {
     it('dumps api-proxy logs when agent exits non-zero with enableApiProxy', async () => {
       const sbxConfig = {
-        ...STUB_CONFIG,
+        ...MAIN_ACTION_STUB_CONFIG,
         containerRuntime: 'sbx',
         enableApiProxy: true,
         containerWorkDir: '/workspace',
@@ -232,7 +202,7 @@ describe('createMainAction coverage gaps', () => {
   describe('sbx cleanup: keepContainers=false removes sandbox', () => {
     it('calls removeSandbox during cleanup when not keepContainers', async () => {
       const sbxConfig = {
-        ...STUB_CONFIG,
+        ...MAIN_ACTION_STUB_CONFIG,
         containerRuntime: 'sbx',
         keepContainers: false,
       } as unknown as import('../types').WrapperConfig;
@@ -252,7 +222,7 @@ describe('createMainAction coverage gaps', () => {
   describe('sbx cleanup: keepContainers=true skips removeSandbox', () => {
     it('does not call removeSandbox when keepContainers is true', async () => {
       const sbxConfig = {
-        ...STUB_CONFIG,
+        ...MAIN_ACTION_STUB_CONFIG,
         containerRuntime: 'sbx',
         keepContainers: true,
       } as unknown as import('../types').WrapperConfig;
@@ -272,7 +242,7 @@ describe('createMainAction coverage gaps', () => {
   describe('non-sbx runAgentCommand uses containerRuntime', () => {
     it('passes containerRuntime to runAgentCommand for non-sbx config', async () => {
       const dockerConfig = {
-        ...STUB_CONFIG,
+        ...MAIN_ACTION_STUB_CONFIG,
         containerRuntime: 'docker',
       } as unknown as import('../types').WrapperConfig;
       mockedValidateOptions.validateOptions.mockReturnValue(dockerConfig);
@@ -298,7 +268,7 @@ describe('createMainAction coverage gaps', () => {
   describe('sbx: dnsOverHttps and difcProxyHost wiring', () => {
     it('sets dohProxyIp when dnsOverHttps is enabled', async () => {
       const sbxConfig = {
-        ...STUB_CONFIG,
+        ...MAIN_ACTION_STUB_CONFIG,
         containerRuntime: 'sbx',
         dnsOverHttps: true,
         containerWorkDir: '/workspace',
@@ -331,7 +301,7 @@ describe('createMainAction coverage gaps', () => {
     it('falls back to cwd when GITHUB_WORKSPACE is not set', async () => {
       delete process.env.GITHUB_WORKSPACE;
       const sbxConfig = {
-        ...STUB_CONFIG,
+        ...MAIN_ACTION_STUB_CONFIG,
         containerRuntime: 'sbx',
         containerWorkDir: '/workspace',
       } as unknown as import('../types').WrapperConfig;
@@ -354,7 +324,7 @@ describe('createMainAction coverage gaps', () => {
     it('uses GITHUB_WORKSPACE when set', async () => {
       process.env.GITHUB_WORKSPACE = '/github/workspace';
       const sbxConfig = {
-        ...STUB_CONFIG,
+        ...MAIN_ACTION_STUB_CONFIG,
         containerRuntime: 'sbx',
         containerWorkDir: '/workspace',
       } as unknown as import('../types').WrapperConfig;
