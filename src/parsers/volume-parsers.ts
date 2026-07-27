@@ -1,6 +1,45 @@
 import * as fs from 'fs';
 
 /**
+ * Expands `${VAR_NAME}` and `$VAR_NAME` references in a string using the
+ * current process environment.  Returns `null` if any referenced variable is
+ * not set (so callers can produce a precise error message).
+ *
+ * @internal
+ */
+export function expandEnvVarsInMount(
+  value: string
+): { expanded: string; undefinedVar: null } | { expanded: null; undefinedVar: string } {
+  let undefinedVar: string | null = null;
+
+  const expanded = value
+    // First pass: ${VAR_NAME}
+    .replace(/\$\{([^}]+)\}/g, (_match, varName: string) => {
+      const val = process.env[varName];
+      if (val === undefined) {
+        undefinedVar = varName;
+        return _match;
+      }
+      return val;
+    })
+    // Second pass: $VAR_NAME (only if first pass found no undefined vars)
+    .replace(/\$([a-zA-Z_][a-zA-Z0-9_]*)/g, (_match, varName: string) => {
+      if (undefinedVar !== null) return _match; // propagate earlier failure
+      const val = process.env[varName];
+      if (val === undefined) {
+        undefinedVar = varName;
+        return _match;
+      }
+      return val;
+    });
+
+  if (undefinedVar !== null) {
+    return { expanded: null, undefinedVar };
+  }
+  return { expanded, undefinedVar: null };
+}
+
+/**
  * Parses and validates volume mount specifications
  */
 export function parseVolumeMounts(
@@ -9,8 +48,22 @@ export function parseVolumeMounts(
   const result: string[] = [];
 
   for (const mount of mounts) {
+    // Expand environment variable references (e.g. ${TERRAFORM_CLI_PATH})
+    // before splitting and validating.  The gh-aw compiler wraps mounts in
+    // single quotes which prevents the shell from expanding them, so AWF must
+    // handle expansion itself.
+    const envExpansion = expandEnvVarsInMount(mount);
+    if (envExpansion.undefinedVar !== null) {
+      return {
+        success: false,
+        invalidMount: mount,
+        reason: 'Environment variable is not set: ${' + envExpansion.undefinedVar + '}'
+      };
+    }
+    const expandedMount = envExpansion.expanded;
+
     // Parse mount specification: host_path:container_path[:mode]
-    const parts = mount.split(':');
+    const parts = expandedMount.split(':');
 
     if (parts.length < 2 || parts.length > 3) {
       return {
@@ -84,8 +137,8 @@ export function parseVolumeMounts(
       };
     }
 
-    // Add to result list
-    result.push(mount);
+    // Add the expanded mount spec to the result so Docker receives resolved paths
+    result.push(expandedMount);
   }
 
   return { success: true, mounts: result };

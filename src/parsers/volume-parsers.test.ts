@@ -1,15 +1,70 @@
 import * as fs from 'fs';
-import { parseVolumeMounts } from './volume-parsers';
+import { parseVolumeMounts, expandEnvVarsInMount } from './volume-parsers';
 
 jest.mock('fs');
 
 const mockFs = fs as jest.Mocked<typeof fs>;
 
+describe('expandEnvVarsInMount', () => {
+  const originalEnv = process.env;
+
+  beforeEach(() => {
+    process.env = { ...originalEnv };
+  });
+
+  afterEach(() => {
+    process.env = originalEnv;
+  });
+
+  it('returns the string unchanged when there are no variables', () => {
+    const result = expandEnvVarsInMount('/usr/local/bin:/container/bin:ro');
+    expect(result).toEqual({ expanded: '/usr/local/bin:/container/bin:ro', undefinedVar: null });
+  });
+
+  it('expands a ${VAR_NAME} reference', () => {
+    process.env.TERRAFORM_CLI_PATH = '/opt/terraform';
+    const result = expandEnvVarsInMount('${TERRAFORM_CLI_PATH}/terraform:/container/terraform:ro');
+    expect(result).toEqual({ expanded: '/opt/terraform/terraform:/container/terraform:ro', undefinedVar: null });
+  });
+
+  it('expands a $VAR_NAME reference', () => {
+    process.env.MY_TOOL_DIR = '/opt/my-tool';
+    const result = expandEnvVarsInMount('$MY_TOOL_DIR/bin:/container/bin:ro');
+    expect(result).toEqual({ expanded: '/opt/my-tool/bin:/container/bin:ro', undefinedVar: null });
+  });
+
+  it('expands multiple variable references in one mount spec', () => {
+    process.env.HOST_DIR = '/mnt/data';
+    process.env.CNT_DIR = '/data';
+    const result = expandEnvVarsInMount('${HOST_DIR}:${CNT_DIR}:rw');
+    expect(result).toEqual({ expanded: '/mnt/data:/data:rw', undefinedVar: null });
+  });
+
+  it('returns undefinedVar for an unset ${VAR_NAME}', () => {
+    delete process.env.UNSET_VAR;
+    const result = expandEnvVarsInMount('${UNSET_VAR}/bin:/container/bin:ro');
+    expect(result).toEqual({ expanded: null, undefinedVar: 'UNSET_VAR' });
+  });
+
+  it('returns undefinedVar for an unset $VAR_NAME', () => {
+    delete process.env.MISSING_VAR;
+    const result = expandEnvVarsInMount('$MISSING_VAR/bin:/container/bin:ro');
+    expect(result).toEqual({ expanded: null, undefinedVar: 'MISSING_VAR' });
+  });
+});
+
 describe('parseVolumeMounts', () => {
+  const originalEnv = process.env;
+
   beforeEach(() => {
     jest.resetAllMocks();
     // Default: host paths exist
     mockFs.existsSync.mockReturnValue(true);
+    process.env = { ...originalEnv };
+  });
+
+  afterEach(() => {
+    process.env = originalEnv;
   });
 
   it('returns empty success for empty array', () => {
@@ -126,5 +181,42 @@ describe('parseVolumeMounts', () => {
       invalidMount: 'bad-path:/cnt/b',
       reason: 'Host path must be absolute (start with /)',
     });
+  });
+
+  it('expands ${VAR_NAME} in a mount spec before validation', () => {
+    process.env.TERRAFORM_CLI_PATH = '/opt/terraform';
+    const result = parseVolumeMounts(['${TERRAFORM_CLI_PATH}/terraform:/container/terraform:ro']);
+    expect(result).toEqual({
+      success: true,
+      mounts: ['/opt/terraform/terraform:/container/terraform:ro'],
+    });
+  });
+
+  it('expands $VAR_NAME in a mount spec before validation', () => {
+    process.env.TOOL_DIR = '/usr/local/tools';
+    const result = parseVolumeMounts(['$TOOL_DIR/bin:/container/bin:rw']);
+    expect(result).toEqual({
+      success: true,
+      mounts: ['/usr/local/tools/bin:/container/bin:rw'],
+    });
+  });
+
+  it('returns error with original mount spec when env var is not set', () => {
+    delete process.env.MISSING_VAR;
+    const result = parseVolumeMounts(['${MISSING_VAR}/bin:/container/bin:ro']);
+    expect(result).toEqual({
+      success: false,
+      invalidMount: '${MISSING_VAR}/bin:/container/bin:ro',
+      reason: 'Environment variable is not set: ${MISSING_VAR}',
+    });
+  });
+
+  it('returns expanded mount spec in results (not the original with variables)', () => {
+    process.env.MY_PATH = '/resolved/path';
+    const result = parseVolumeMounts(['${MY_PATH}:/container/path:ro']);
+    expect(result).toEqual({ success: true, mounts: ['/resolved/path:/container/path:ro'] });
+    if (result.success) {
+      expect(result.mounts[0]).not.toContain('${MY_PATH}');
+    }
   });
 });
