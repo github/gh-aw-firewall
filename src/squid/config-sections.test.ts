@@ -186,8 +186,7 @@ describe('buildConfigSections', () => {
 
     it('uses custom DNS servers when provided', () => {
       const { dnsSection } = buildWithDefaults({ dnsServers: ['1.1.1.1', '1.0.0.1'] });
-      expect(dnsSection).toContain('1.1.1.1');
-      expect(dnsSection).toContain('1.0.0.1');
+expect(dnsSection).toBe('dns_nameservers 1.1.1.1 1.0.0.1');
     });
   });
 
