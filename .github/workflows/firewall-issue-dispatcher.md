@@ -23,9 +23,9 @@ jobs:
     steps:
       - name: Fetch open awf issues from github/gh-aw
         env:
-          GH_TOKEN: ${{ secrets.GH_AW_CROSS_REPO_PAT }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          mkdir -p "${{ runner.temp }}/awf-data"
+          mkdir -p "$RUNNER_TEMP/awf-data"
           gh api graphql -f query='
             query {
               repository(owner: "github", name: "gh-aw") {
@@ -42,7 +42,7 @@ jobs:
                 }
               }
             }
-          ' > "${{ runner.temp }}/awf-data/awf-issues.json"
+          ' > "$RUNNER_TEMP/awf-data/awf-issues.json"
       - uses: actions/upload-artifact@v7.0.1
         with:
           name: awf-issues-${{ github.run_id }}
