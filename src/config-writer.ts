@@ -252,6 +252,10 @@ function writeAuditArtifacts(
     ...(config.enableApiProxy && networkConfig.proxyIp ? {
       apiProxyIp: networkConfig.proxyIp,
     } : {}),
+    // Include topology peer allow rules so the audit log correctly attributes
+    // allowed connections to topology-attached containers (e.g. awmg-mcpg:8080)
+    // rather than misidentifying them as "unknown" or blocked.
+    topologyPeers: resolveTopologyPeerHosts(config),
   });
   fs.writeFileSync(
     path.join(auditDir, 'policy-manifest.json'),

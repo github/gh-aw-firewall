@@ -27,6 +27,22 @@ function pushRule(state: PolicyRuleState, rule: Omit<PolicyRule, 'order'>): void
   });
 }
 
+export function addTopologyPeerAllowRules(state: PolicyRuleState, topologyPeers?: string[]): void {
+  if (!topologyPeers || topologyPeers.length === 0) return;
+
+  for (const peer of topologyPeers) {
+    const aclName = `topology_peer_${peer.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    pushRule(state, {
+      id: `allow-topology-peer-${peer}`,
+      action: 'allow',
+      aclName,
+      protocol: 'both',
+      domains: [formatDomainForSquid(peer)],
+      description: `Allow trusted topology peer "${peer}" on any port (network-isolation mode, before Safe_ports deny)`,
+    });
+  }
+}
+
 export function addPortSafetyRules(state: PolicyRuleState): void {
   pushRule(state, {
     id: 'deny-unsafe-ports',
