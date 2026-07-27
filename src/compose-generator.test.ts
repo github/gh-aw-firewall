@@ -311,6 +311,18 @@ describe('generateDockerCompose', () => {
         expect(result.services.agent.dns).toEqual(['127.0.0.11']);
       });
 
+      it('keeps host gateway off the agent proxy bypass list in topology mode', () => {
+        const result = generateDockerCompose(
+          { ...mockConfig, networkIsolation: true, enableHostAccess: true },
+          mockNetworkConfig,
+        );
+
+        const noProxy = String(result.services.agent.environment?.NO_PROXY ?? '').split(',');
+        expect(noProxy).not.toContain('host.docker.internal');
+        expect(noProxy).not.toContain('172.30.0.1');
+        expect(result.services.agent.extra_hosts?.['host.docker.internal']).toBeUndefined();
+      });
+
       it('should still build the iptables-init service in default (iptables) mode', () => {
         const result = generateDockerCompose(mockConfig, mockNetworkConfig);
 

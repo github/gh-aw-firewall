@@ -192,6 +192,19 @@ describe('applySecurityMode', () => {
         applySecurityMode(config);
         expect(config.enableApiProxy).toBe(true);
       });
+
+      it('should suppress enableHostAccess for microVM runtimes even when networkIsolation is true', () => {
+        const config = makeConfig({
+          containerRuntime: 'sbx',
+          networkIsolation: true,
+          enableHostAccess: true,
+        });
+        applySecurityMode(config);
+        expect(config.enableHostAccess).toBe(false);
+        expect(logger.warn).toHaveBeenCalledWith(
+          expect.stringContaining('--enable-host-access was ignored'),
+        );
+      });
     });
   });
 

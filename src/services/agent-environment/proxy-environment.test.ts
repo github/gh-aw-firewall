@@ -36,6 +36,16 @@ describe('buildProxyEnvironment', () => {
     expect(env.NO_PROXY.split(',')).toContain('host.docker.internal');
   });
 
+  it('does not add host gateway entries to NO_PROXY in topology mode', () => {
+    const env = run({
+      ...baseConfig,
+      networkIsolation: true,
+      enableHostAccess: true,
+    });
+    expect(env.NO_PROXY.split(',')).not.toContain('172.30.0.1');
+    expect(env.NO_PROXY.split(',')).not.toContain('host.docker.internal');
+  });
+
   describe('topology-attached peers', () => {
     it('exempts topology peers from proxy routing for a compose agent in isolation mode', () => {
       const env = run({

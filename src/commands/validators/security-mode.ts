@@ -63,7 +63,11 @@ export function applySecurityMode(config: WrapperConfig): void {
   // NOTE: at this point in the pipeline, networkIsolation has already been
   // forced to true above (for non-microVM runtimes), so
   // !config.networkIsolation is false for standard Docker-compose runs.
-  if (config.enableHostAccess && !config.networkIsolation) {
+  //
+  // For microVM runtimes, networkIsolation does not imply topology routing
+  // support (the compose agent is not used), so host access remains
+  // incompatible and is still suppressed in strict mode.
+  if (config.enableHostAccess && (isMicroVmRuntime || !config.networkIsolation)) {
     logger.warn(
       '⚠️  --enable-host-access was ignored (incompatible with strict security, the default).\n' +
       '   Pass --legacy-security to enable host access.',

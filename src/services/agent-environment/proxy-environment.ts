@@ -51,7 +51,11 @@ export function buildProxyEnvironment(params: ProxyEnvironmentParams): void {
   // whose netstack can't use host-netns iptables (e.g. gVisor) have no such
   // bypass, so add the gateway to NO_PROXY so proxy-aware clients (rmcp) connect
   // to it directly instead of being routed through Squid and rejected.
-  const gatewayNeedsNoProxy = config.enableHostAccess || !runtimeUsesIptables(config.containerRuntime);
+  const gatewayNeedsNoProxy = (
+    !config.networkIsolation &&
+    config.enableHostAccess &&
+    runtimeUsesComposeAgent(config.containerRuntime)
+  ) || !runtimeUsesIptables(config.containerRuntime);
   if (gatewayNeedsNoProxy) {
     const subnetBase = networkConfig.subnet.split('/')[0];
     const parts = subnetBase.split('.');

@@ -4,6 +4,7 @@ import * as path from 'path';
 import execa from 'execa';
 import { logger } from '../../logger';
 import { WrapperConfig } from '../../types';
+import { runtimeUsesComposeAgent } from '../../container-runtime';
 import { getDockerHostStageRoot, shouldUseDockerHostStaging } from './docker-host-staging';
 
 const STALE_CHROOT_STAGE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
@@ -38,7 +39,9 @@ export function generateHostsFileMount(config: WrapperConfig): string {
     }
   }
 
-  if (config.enableHostAccess) {
+  const shouldInjectHostGateway = config.enableHostAccess &&
+    !(config.networkIsolation && runtimeUsesComposeAgent(config.containerRuntime));
+  if (shouldInjectHostGateway) {
     try {
       const { stdout } = execa.sync('docker', [
         'network', 'inspect', 'bridge',
