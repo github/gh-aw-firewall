@@ -70,6 +70,10 @@ RUN set -eux; \
     apt_install_retry $PKGS && \
     # Install gosu 1.19 from GitHub releases (compiled with Go 1.24.6 — avoids Ubuntu's
     # apt gosu which is compiled with Go 1.18 and carries 44 stdlib CVEs including Critical ones).
+    # GO-2026-4337 (TLS session resumption in Go stdlib) is reported against this binary by
+    # Grype, but is NOT REACHABLE: gosu is a pure setuid/exec privilege-drop tool with no
+    # network or TLS code. It is suppressed in .grype.yaml with a full justification.
+    # See also: tianon/gosu#176 for the upstream govulncheck reachability policy.
     # Checksums sourced from https://github.com/tianon/gosu/releases/tag/1.19
     GOSU_VERSION="1.19" && \
     GOSU_ARCH="$(dpkg --print-architecture)" && \

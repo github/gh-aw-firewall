@@ -97,6 +97,39 @@ ignore:
       type: go-module
       location: "/usr/local/bin/gh"
 
+  # ── stdlib@go1.24.6 embedded in gosu binary ──────────────────────────────────
+  #
+  # GO-2026-4337 (stdlib go1.24.6 -> 1.24.13 / 1.25.7 / 1.26.0-rc.3, CRITICAL):
+  #   Unexpected TLS session resumption: a client can resume a TLS 1.3 session
+  #   even when the server has disabled session tickets or PSK resumption,
+  #   bypassing connection-level security policies.
+  #
+  #   Risk acceptance — NOT REACHABLE in gosu:
+  #     gosu is a minimal setuid/exec privilege-drop binary (github.com/tianon/gosu
+  #     v1.19.0). It accepts a user specification and a command, sets up credentials
+  #     via setuid(2)/setgid(2), and calls execve(2). It contains no network code,
+  #     opens no TLS connections, and never calls any crypto/tls function. The
+  #     affected TLS resumption path is entirely unreachable in this binary.
+  #     govulncheck analysis confirms: gosu does not import or exercise any
+  #     crypto/tls code paths (upstream tracking: tianon/gosu#176).
+  #
+  #   No fix is shippable today:
+  #     gosu 1.19.0 is the latest upstream release; no newer official release
+  #     rebuilt with Go >= 1.24.13 exists as of 2026-07-27. Building gosu from
+  #     unreleased source would ship an untagged, unofficial binary (worse
+  #     supply-chain posture than accepting a non-reachable CVE finding).
+  #
+  #   Revisit: once a new official gosu release (> 1.19.0) built with Go >= 1.24.13
+  #   is published, update the GOSU_VERSION pin and per-architecture SHA256
+  #   checksums in containers/agent/Dockerfile and DELETE this entry.
+  #   Tracked in github/gh-aw-firewall#6640.
+  - vulnerability: GO-2026-4337
+    package:
+      name: stdlib
+      version: "go1.24.6"
+      type: go-module
+      location: "/usr/local/bin/gosu"
+
   # ── brace-expansion bundled inside the vendored npm CLI ──────────────────────
   #
   # GHSA-mh99-v99m-4gvg (brace-expansion <=5.0.7 -> 5.0.8, HIGH):
