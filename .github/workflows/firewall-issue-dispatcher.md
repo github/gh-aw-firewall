@@ -49,8 +49,6 @@ jobs:
           path: ${{ runner.temp }}/awf-data/awf-issues.json
           retention-days: 1
 
-if: needs['fetch-awf-issues'].result == 'success'
-
 sandbox:
   agent:
     id: awf
