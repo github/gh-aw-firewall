@@ -2,36 +2,30 @@ import * as fs from 'fs';
 
 /**
  * Expands `${VAR_NAME}` and `$VAR_NAME` references in a string using the
- * current process environment.  Returns `null` if any referenced variable is
- * not set (so callers can produce a precise error message).
- *
- * @internal
+ * current process environment.  Returns `{ expanded: string, undefinedVar: null }`
+ * on success or `{ expanded: null, undefinedVar: string }` when a referenced
+ * variable is not set (so callers can produce a precise error message).
  */
-export function expandEnvVarsInMount(
+function expandEnvVarsInMount(
   value: string
 ): { expanded: string; undefinedVar: null } | { expanded: null; undefinedVar: string } {
   let undefinedVar: string | null = null;
 
-  const expanded = value
-    // First pass: ${VAR_NAME}
-    .replace(/\$\{([^}]+)\}/g, (_match, varName: string) => {
-      const val = process.env[varName];
-      if (val === undefined) {
-        undefinedVar = varName;
-        return _match;
-      }
-      return val;
-    })
-    // Second pass: $VAR_NAME (only if first pass found no undefined vars)
-    .replace(/\$([a-zA-Z_][a-zA-Z0-9_]*)/g, (_match, varName: string) => {
+  // Single pass: match ${VAR} and $VAR in one alternation so that values
+  // substituted by an earlier match are never re-scanned.
+  const expanded = value.replace(
+    /\$\{([^}]+)\}|\$([a-zA-Z_][a-zA-Z0-9_]*)/g,
+    (_match, braced: string | undefined, bare: string | undefined) => {
       if (undefinedVar !== null) return _match; // propagate earlier failure
+      const varName = braced ?? bare!;
       const val = process.env[varName];
       if (val === undefined) {
         undefinedVar = varName;
         return _match;
       }
       return val;
-    });
+    }
+  );
 
   if (undefinedVar !== null) {
     return { expanded: null, undefinedVar };
@@ -143,3 +137,7 @@ export function parseVolumeMounts(
 
   return { success: true, mounts: result };
 }
+
+/** @internal Exposed only for unit tests — not part of the public API. */
+// ts-prune-ignore-next
+export const volumeParsersTestHelpers = { expandEnvVarsInMount };

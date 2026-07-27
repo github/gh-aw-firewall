@@ -1,9 +1,10 @@
 import * as fs from 'fs';
-import { parseVolumeMounts, expandEnvVarsInMount } from './volume-parsers';
+import { parseVolumeMounts, volumeParsersTestHelpers } from './volume-parsers';
 
 jest.mock('fs');
 
 const mockFs = fs as jest.Mocked<typeof fs>;
+const { expandEnvVarsInMount } = volumeParsersTestHelpers;
 
 describe('expandEnvVarsInMount', () => {
   const originalEnv = process.env;
