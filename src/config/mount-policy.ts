@@ -16,10 +16,10 @@ import rawPolicy from './sandbox-mount-policy.json';
  */
 
 /** How a credential entry's path is masked. */
-export type CredentialType = 'file' | 'dir';
+type CredentialType = 'file' | 'dir';
 
 /** A single on-disk credential/token store to keep out of the sandbox. */
-export interface CredentialEntry {
+interface CredentialEntry {
   /** `$HOME`-relative path to the credential store (file or directory). */
   readonly path: string;
   /** Whether {@link path} is a single file or a directory of secrets. */
@@ -36,7 +36,7 @@ export interface CredentialEntry {
 }
 
 /** The fully-typed, validated mount policy. */
-export interface MountPolicy {
+interface MountPolicy {
   readonly system: {
     readonly directories: {
       readonly default: readonly string[];
