@@ -109,11 +109,13 @@ export function validateFeatureFlagCompatibility(config: WrapperConfig): void {
       logger.error('   The DoH proxy needs direct external connectivity, which the internal network does not provide.');
       process.exit(1);
     }
-    if (config.enableHostAccess) {
-      logger.error('❌ --network-isolation is not supported with --enable-host-access.');
-      logger.error('   Host access relies on host-level iptables, which network-isolation mode does not configure.');
-      process.exit(1);
-    }
+    // --enable-host-access is intentionally allowed with --network-isolation:
+    // in topology mode the agent is on an internal Docker network with no direct
+    // host route, so no host-level iptables are configured for host access.
+    // Instead, trusted services are reachable via topology peers
+    // (--topology-attach) attached to awf-net, and --enable-host-access drives
+    // Squid port ACLs and the hosts-file entry for host.docker.internal that
+    // make those peers discoverable.
   } else if (config.topologyAttach && config.topologyAttach.length > 0) {
     logger.error('❌ --topology-attach requires --network-isolation.');
     logger.error('   Trusted containers can only be attached to the internal topology network in network-isolation mode.');

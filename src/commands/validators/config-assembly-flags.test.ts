@@ -41,16 +41,14 @@ describe('config-assembly', () => {
       );
     });
 
-    it('should exit if --network-isolation is combined with --enable-host-access', () => {
+    it('should accept --enable-host-access combined with --network-isolation', () => {
       mockBuildConfigOnce({ networkIsolation: true, enableHostAccess: true });
 
       expect(() => {
         callAssembleWith();
-      }).toThrow('process.exit(1)');
+      }).not.toThrow();
 
-      expect(logger.error).toHaveBeenCalledWith(
-        expect.stringContaining('--network-isolation is not supported with --enable-host-access'),
-      );
+      expect(getMockExit()).not.toHaveBeenCalled();
     });
 
     it('should exit if --topology-attach is used without --network-isolation', () => {

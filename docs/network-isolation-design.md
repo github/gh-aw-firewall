@@ -211,9 +211,11 @@ error: --network-isolation requires a reachable Docker daemon, but none was foun
 > because it is entangled with the gh-aw §8.2 handshake decisions.
 
 - ✅ **`src/commands/validators/config-assembly.ts`** — `--network-isolation` still rejects
-  `--dns-over-https` and `--enable-host-access` (genuine host-iptables features), but
-  `--enable-api-proxy` and `--difc-proxy-host` are accepted (never rejected). Added a guard
-  so `--topology-attach` requires `--network-isolation`.
+  `--dns-over-https` (genuine host-iptables feature that needs direct external connectivity),
+  but now **accepts `--enable-host-access`**: in topology mode host access drives Squid port
+  ACLs and the `host.docker.internal` hosts-file entry for topology peers rather than
+  iptables, making the combination valid. Added a guard so `--topology-attach` requires
+  `--network-isolation`.
 - ✅ **`src/cli-workflow.ts`** — added the **late network-attach** step: after
   `startContainers` succeeds, when `config.topologyAttach` is non-empty it calls
   `connectTopologyContainers('awf-net', names)` (`docker network connect awf-net <container>`,

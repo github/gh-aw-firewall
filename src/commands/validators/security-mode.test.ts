@@ -102,11 +102,15 @@ describe('applySecurityMode', () => {
       expect(config.enableApiProxy).toBe(true);
     });
 
-    it('should override enableHostAccess with warning', () => {
+    it('should preserve enableHostAccess in network-isolation (topology) mode', () => {
+      // In strict mode, networkIsolation is forced to true before the
+      // enableHostAccess check runs.  Host access is valid in topology mode
+      // because the agent reaches services via topology peers on awf-net,
+      // not via host-level iptables.
       const config = makeConfig({ enableHostAccess: true });
       applySecurityMode(config);
-      expect(config.enableHostAccess).toBe(false);
-      expect(logger.warn).toHaveBeenCalledWith(
+      expect(config.enableHostAccess).toBe(true);
+      expect(logger.warn).not.toHaveBeenCalledWith(
         expect.stringContaining('--enable-host-access was ignored'),
       );
     });
@@ -120,15 +124,19 @@ describe('applySecurityMode', () => {
       );
     });
 
-    it('should clear allowHostServicePorts and allowHostPorts alongside enableHostAccess', () => {
+    it('should preserve enableHostAccess and allowHostPorts but still clear allowHostServicePorts', () => {
+      // enableHostAccess and allowHostPorts are topology-compatible (drive Squid
+      // port ACLs / hosts-file), so they are preserved in strict+topology mode.
+      // allowHostServicePorts is iptables-based (GitHub Actions services) and
+      // is still suppressed.
       const config = makeConfig({
         enableHostAccess: true,
         allowHostPorts: '3000,8080',
         allowHostServicePorts: '5432',
       });
       applySecurityMode(config);
-      expect(config.enableHostAccess).toBe(false);
-      expect(config.allowHostPorts).toBeUndefined();
+      expect(config.enableHostAccess).toBe(true);
+      expect(config.allowHostPorts).toBe('3000,8080');
       expect(config.allowHostServicePorts).toBeUndefined();
     });
 
