@@ -23,7 +23,7 @@ jobs:
     steps:
       - name: Fetch open awf issues from github/gh-aw
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_AW_CROSS_REPO_PAT }}
         run: |
           mkdir -p "$RUNNER_TEMP/awf-data"
           gh api graphql -f query='
