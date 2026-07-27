@@ -59,7 +59,7 @@ export function applyConfigFilePrecedence(
  *
  * Calls `process.exit(1)` on parse/merge failures.
  */
-export function parseDomainOptions(options: Record<string, unknown>): string[] {
+function parseDomainOptions(options: Record<string, unknown>): string[] {
   let allowedDomains: string[] = [];
 
   if (options.allowDomains) {
@@ -93,7 +93,7 @@ export function parseDomainOptions(options: Record<string, unknown>): string[] {
  *
  * Calls `process.exit(1)` on validation failures.
  */
-export function validateAllowedDomains(domains: string[]): void {
+function validateAllowedDomains(domains: string[]): void {
   for (const domain of domains) {
     try {
       validateDomainOrPattern(domain);
@@ -246,3 +246,10 @@ export function resolveBlockedDomains(options: Record<string, unknown>): string[
 
   return blockedDomains;
 }
+
+/** @internal Exposed only for unit tests — not part of the public API. */
+// ts-prune-ignore-next
+export const testHelpers = {
+  parseDomainOptions,
+  validateAllowedDomains,
+};

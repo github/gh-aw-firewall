@@ -96,8 +96,8 @@ an `executionModel` of either `compose` or `microvm`:
 
 ```ts
 const RUNTIME_REGISTRY = {
-  gvisor: { executionModel: 'compose', dockerRuntime: 'runsc', needsStaticDns: true },
-  sbx:    { executionModel: 'microvm', dockerRuntime: undefined, needsStaticDns: false },
+  gvisor: { executionModel: 'compose', dockerRuntime: 'runsc', needsStaticDns: true,  usesIptables: false },
+  sbx:    { executionModel: 'microvm', dockerRuntime: undefined, needsStaticDns: false, usesIptables: false },
 };
 ```
 
@@ -320,6 +320,7 @@ myvm: {
   executionModel: 'microvm',
   dockerRuntime: undefined,     // not a Docker OCI runtime
   needsStaticDns: false,        // set true only if the VM can't reach an expected DNS
+  usesIptables: false,          // microVM manages its own network egress
 },
 ```
 

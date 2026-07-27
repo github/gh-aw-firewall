@@ -15,7 +15,7 @@ import { prepareChrootHomeMountpoint, prepareChrootHomeMounts } from './chroot-h
  * Returns the path so callers (e.g. compose-generator) can reference it
  * without duplicating the derivation logic.
  */
-export function ensureInitSignalDir(workDir: string): string {
+function ensureInitSignalDir(workDir: string): string {
   const initSignalDir = path.join(workDir, 'init-signal');
   ensureDirectory(initSignalDir);
   return initSignalDir;

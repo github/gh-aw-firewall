@@ -6,7 +6,7 @@ import { parseDifcProxyHost } from './host-env';
  * Deliberately structural so both raw CLI options (preflight) and the resolved
  * {@link WrapperConfig} (config-writer) can be passed without adapters.
  */
-export interface TopologyPeerOptions {
+interface TopologyPeerOptions {
   networkIsolation?: unknown;
   containerRuntime?: string;
   topologyAttach?: unknown;
