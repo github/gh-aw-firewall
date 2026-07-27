@@ -4,7 +4,7 @@ import { WrapperConfig } from './types';
 /**
  * Options for {@link copyEnvEntries}.
  */
-export interface CopyEnvEntriesOptions {
+interface CopyEnvEntriesOptions {
   /**
    * Keys to skip.  An entry whose key is in this set is omitted unless it
    * also appears in `allowKeys`.

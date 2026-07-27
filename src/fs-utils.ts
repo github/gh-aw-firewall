@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-export interface EnsureDirectoryOptions {
+interface EnsureDirectoryOptions {
   mode?: number;
   onCreate?: () => void;
   onExists?: () => void;
