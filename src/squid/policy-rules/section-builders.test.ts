@@ -172,7 +172,7 @@ describe('addBlockedDomainRules', () => {
   it('strips protocol prefix from blocked domains', () => {
     const state = makeState();
     addBlockedDomainRules(state, ['https://evil.com/']);
-    expect(state.rules.some(r => r.id === 'deny-blocked-plain')).toBe(true);
+expect(state.rules.find(r => r.id === 'deny-blocked-plain')?.domains).toEqual(['.evil.com']);
   });
 });
 
