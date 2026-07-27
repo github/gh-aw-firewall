@@ -74,9 +74,11 @@ jest.mock('./api-proxy-config');
 
 import {
   applyConfigFilePrecedence,
-  parseDomainOptions,
   resolveBlockedDomains,
+  testHelpers,
 } from './commands/preflight';
+
+const { parseDomainOptions } = testHelpers;
 import { logger } from './logger';
 import * as configFile from './config-file';
 import * as domainUtils from './domain-utils';

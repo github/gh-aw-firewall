@@ -21,8 +21,10 @@ jest.mock('./logger', () => jest.requireActual('./test-helpers/mock-logger.test-
 
 import {
   resolveBlockedDomains,
-  validateAllowedDomains,
+  testHelpers,
 } from './commands/preflight';
+
+const { validateAllowedDomains } = testHelpers;
 import { logger } from './logger';
 import * as domainUtils from './domain-utils';
 import * as domainValidation from './domain-validation';

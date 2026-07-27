@@ -1,10 +1,11 @@
 import {
   applyConfigFilePrecedence,
-  parseDomainOptions,
   resolveAllowedDomains,
   resolveBlockedDomains,
-  validateAllowedDomains,
+  testHelpers,
 } from './preflight';
+
+const { parseDomainOptions, validateAllowedDomains } = testHelpers;
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 jest.mock('../logger', () => require('../test-helpers/mock-logger.test-utils').loggerMockFactory());
