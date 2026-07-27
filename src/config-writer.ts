@@ -313,7 +313,10 @@ export async function writeConfigs(config: WrapperConfig): Promise<void> {
 
   // Note: Use container path for SSL database since it's mounted at /var/spool/squid_ssl_db
   const squidConfig = generateSquidConfig({
-    domains: config.allowedDomains,
+    // Combine non-sensitive and sensitive (secret-derived) domains so Squid allows
+    // all necessary egress without exposing the sensitive hostnames in logs or
+    // the audit artifact (where only config.allowedDomains is serialised).
+    domains: [...config.allowedDomains, ...(config.sensitiveAllowedDomains ?? [])],
     blockedDomains: config.blockedDomains,
     port: SQUID_PORT,
     sslBump: config.sslBump,

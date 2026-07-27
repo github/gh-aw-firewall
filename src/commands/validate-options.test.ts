@@ -143,6 +143,7 @@ describe('validateOptions', () => {
     // --- Preflight / network defaults ---
     mockedPreflight.resolveAllowedDomains.mockReturnValue({
       allowedDomains: ['github.com'],
+      sensitiveAllowedDomains: [],
       localhostResult: {
         localhostDetected: false,
         allowedDomains: ['github.com'],
@@ -572,6 +573,7 @@ describe('validateOptions', () => {
       });
       mockedPreflight.resolveAllowedDomains.mockReturnValue({
         allowedDomains: ['host.docker.internal'],
+        sensitiveAllowedDomains: [],
         localhostResult: {
           localhostDetected: false,
           allowedDomains: ['host.docker.internal'],

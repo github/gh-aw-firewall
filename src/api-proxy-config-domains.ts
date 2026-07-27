@@ -105,6 +105,13 @@ function extractGhesDomainsFromEngineApiTarget(
  * @param allowedDomains - The current list of allowed domains (mutated in place)
  * @param env - Environment variables (defaults to process.env)
  * @param debug - Optional debug logging function
+ * @param sensitiveAllowedDomains - Optional separate array for sensitive (secret-derived) domains.
+ *   When provided, domains derived from `OPENAI_ENDPOINT_OVERRIDE` are pushed here instead of
+ *   into `allowedDomains` so they are never logged or included in audit artifacts.
+ * @param openaiEndpointOverride - Optional pre-resolved value of OPENAI_ENDPOINT_OVERRIDE,
+ *   already read from all config sources (additionalEnv, envFile, process.env). When provided,
+ *   it takes precedence over `env['OPENAI_ENDPOINT_OVERRIDE']` so that overrides supplied via
+ *   `--env` or `--env-file` are honoured by allowlist expansion as well as sidecar routing.
  * @returns The updated allowedDomains array (same reference, mutated)
  */
 export function resolveApiTargetsToAllowedDomains(
@@ -117,7 +124,9 @@ export function resolveApiTargetsToAllowedDomains(
   },
   allowedDomains: string[],
   env: Record<string, string | undefined> = process.env,
-  debug: (msg: string) => void = () => {}
+  debug: (msg: string) => void = () => {},
+  sensitiveAllowedDomains?: string[],
+  openaiEndpointOverride?: string,
 ): string[] {
   const apiTargets: Array<{ value: string; sensitive?: boolean }> = [];
 
@@ -131,8 +140,13 @@ export function resolveApiTargetsToAllowedDomains(
     apiTargets.push({ value: options.openaiApiTarget });
   } else if (env['OPENAI_API_TARGET']) {
     apiTargets.push({ value: env['OPENAI_API_TARGET'] });
-  } else if (env['OPENAI_ENDPOINT_OVERRIDE']) {
-    apiTargets.push({ value: env['OPENAI_ENDPOINT_OVERRIDE'], sensitive: true });
+  } else {
+    // Prefer the pre-resolved override (from additionalEnv / envFile / process.env),
+    // falling back to the raw env lookup for backward-compat callers that don't pass it.
+    const endpointOverride = openaiEndpointOverride ?? env['OPENAI_ENDPOINT_OVERRIDE'];
+    if (endpointOverride) {
+      apiTargets.push({ value: endpointOverride, sensitive: true });
+    }
   }
 
   if (options.anthropicApiTarget) {
@@ -202,8 +216,13 @@ export function resolveApiTargetsToAllowedDomains(
   if (normalizedApiTargets.length > 0) {
     for (const { hostname, scheme, sensitive } of normalizedApiTargets) {
       const urlEntry = `${scheme}://${hostname}`;
-      if (!allowedDomains.includes(urlEntry)) {
-        allowedDomains.push(urlEntry);
+      // Route sensitive (secret-derived) entries to sensitiveAllowedDomains when the
+      // caller supplies that array so the value never appears in allowedDomains (which
+      // is logged and written to the audit artifact).  Fall back to allowedDomains for
+      // callers that don't supply the array (backward compatibility).
+      const targetList = (sensitive && sensitiveAllowedDomains) ? sensitiveAllowedDomains : allowedDomains;
+      if (!targetList.includes(urlEntry)) {
+        targetList.push(urlEntry);
         if (!sensitive) {
           debug(`Automatically added API target to allowlist: ${urlEntry}`);
         }

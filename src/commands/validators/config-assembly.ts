@@ -40,6 +40,7 @@ export function assembleAndValidateConfig(
     agentCommand,
     logLevel: logAndLimits.logLevel,
     allowedDomains: networkOptions.allowedDomains,
+    sensitiveAllowedDomains: networkOptions.sensitiveAllowedDomains,
     blockedDomains: networkOptions.blockedDomains,
     localhostDetected: networkOptions.localhostResult.localhostDetected,
     additionalEnv: agentOptions.additionalEnv,

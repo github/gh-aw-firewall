@@ -48,6 +48,8 @@ const SENSITIVE_CONFIG_KEYS = new Set([
   'geminiApiKey',
   'googleApiKey',
   'githubToken',
+  // Secret-derived allowlist entries must not appear in logs or the audit artifact.
+  'sensitiveAllowedDomains',
 ]);
 
 function redactConfigForLogging(config: WrapperConfig): Record<string, unknown> {

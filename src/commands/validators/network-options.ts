@@ -14,6 +14,7 @@ export interface NetworkOptionsResult {
   dockerHostCheck: ReturnType<typeof checkDockerHost>;
   dockerHostPathPrefixResolution: ReturnType<typeof resolveDockerHostPathPrefix>;
   allowedDomains: string[];
+  sensitiveAllowedDomains: string[];
   blockedDomains: string[];
   localhostResult: ReturnType<typeof resolveAllowedDomains>['localhostResult'];
   resolvedCopilotApiTarget: string | undefined;
@@ -95,6 +96,7 @@ export function validateNetworkOptions(options: Record<string, unknown>): Networ
   // Resolve allowed and blocked domains (parse, merge, validate)
   const {
     allowedDomains,
+    sensitiveAllowedDomains,
     localhostResult,
     resolvedCopilotApiTarget,
     resolvedCopilotApiBasePath,
@@ -111,6 +113,7 @@ export function validateNetworkOptions(options: Record<string, unknown>): Networ
     dockerHostCheck,
     dockerHostPathPrefixResolution,
     allowedDomains,
+    sensitiveAllowedDomains,
     blockedDomains,
     localhostResult,
     resolvedCopilotApiTarget,

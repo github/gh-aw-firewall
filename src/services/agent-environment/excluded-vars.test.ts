@@ -121,6 +121,10 @@ describe('buildExclusionSet', () => {
     it('should exclude GITHUB_PERSONAL_ACCESS_TOKEN (credential isolation)', () => {
       expect(buildExclusionSet(config).has('GITHUB_PERSONAL_ACCESS_TOKEN')).toBe(true);
     });
+
+    it('should exclude OPENAI_ENDPOINT_OVERRIDE (sidecar endpoint isolation)', () => {
+      expect(buildExclusionSet(config).has('OPENAI_ENDPOINT_OVERRIDE')).toBe(true);
+    });
   });
 
   describe('when enableApiProxy is false', () => {
@@ -156,6 +160,10 @@ describe('buildExclusionSet', () => {
 
     it('should NOT exclude GITHUB_PERSONAL_ACCESS_TOKEN', () => {
       expect(buildExclusionSet(config).has('GITHUB_PERSONAL_ACCESS_TOKEN')).toBe(false);
+    });
+
+    it('should NOT exclude OPENAI_ENDPOINT_OVERRIDE', () => {
+      expect(buildExclusionSet(config).has('OPENAI_ENDPOINT_OVERRIDE')).toBe(false);
     });
   });
 

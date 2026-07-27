@@ -41,6 +41,9 @@ export function buildExclusionSet(config: WrapperConfig): Set<string> {
     excludedEnvVars.add('GITHUB_TOKEN');
     excludedEnvVars.add('GH_TOKEN');
     excludedEnvVars.add('GITHUB_PERSONAL_ACCESS_TOKEN');
+    // Exclude the OpenAI endpoint override so the sidecar-isolated endpoint
+    // URL is never visible to the untrusted agent via its environment.
+    excludedEnvVars.add('OPENAI_ENDPOINT_OVERRIDE');
   }
 
   if (config.difcProxyHost) {

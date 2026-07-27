@@ -18,6 +18,9 @@ jest.mock('../domain-validation');
 jest.mock('../option-parsers');
 jest.mock('../copilot-api-resolver');
 jest.mock('../api-proxy-config');
+jest.mock('../github-env', () => ({
+  readEnvFile: jest.fn().mockReturnValue({}),
+}));
 
 import { logger } from '../logger';
 import * as configFile from '../config-file';
@@ -29,6 +32,7 @@ import * as domainValidation from '../domain-validation';
 import * as optionParsers from '../option-parsers';
 import * as copilotResolver from '../copilot-api-resolver';
 import * as apiProxyConfig from '../api-proxy-config';
+import * as githubEnv from '../github-env';
 
 const mockedLogger = logger as jest.Mocked<typeof logger>;
 const mockedConfigFile = configFile as jest.Mocked<typeof configFile>;
@@ -40,6 +44,7 @@ const mockedDomainValidation = domainValidation as jest.Mocked<typeof domainVali
 const mockedOptionParsers = optionParsers as jest.Mocked<typeof optionParsers>;
 const mockedCopilotResolver = copilotResolver as jest.Mocked<typeof copilotResolver>;
 const mockedApiProxyConfig = apiProxyConfig as jest.Mocked<typeof apiProxyConfig>;
+const mockedGithubEnv = githubEnv as jest.Mocked<typeof githubEnv>;
 
 describe('applyConfigFilePrecedence', () => {
   let processExitSpy: jest.SpyInstance;
@@ -137,6 +142,7 @@ describe('resolveAllowedDomains', () => {
       copilotApiBasePath: undefined,
     });
     mockedApiProxyConfig.resolveApiTargetsToAllowedDomains.mockReturnValue([]);
+    mockedGithubEnv.readEnvFile.mockReturnValue({});
   });
 
   afterEach(() => {
@@ -369,6 +375,51 @@ describe('resolveAllowedDomains', () => {
       difcProxyHost: 'https://awmg-cli-proxy:18443',
     });
     expect(result.allowedDomains).toContain('awmg-cli-proxy');
+  });
+
+  it('always returns sensitiveAllowedDomains in the result', () => {
+    const result = resolveAllowedDomains({});
+    expect(result).toHaveProperty('sensitiveAllowedDomains');
+    expect(Array.isArray(result.sensitiveAllowedDomains)).toBe(true);
+  });
+
+  it('passes OPENAI_ENDPOINT_OVERRIDE from additionalEnv to resolveApiTargetsToAllowedDomains', () => {
+    resolveAllowedDomains({
+      additionalEnv: { OPENAI_ENDPOINT_OVERRIDE: 'https://additional-env.example.com' },
+    });
+    expect(mockedApiProxyConfig.resolveApiTargetsToAllowedDomains).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.any(Array),
+      expect.any(Object),
+      expect.any(Function),
+      expect.any(Array),
+      'https://additional-env.example.com',
+    );
+  });
+
+  it('passes OPENAI_ENDPOINT_OVERRIDE from envFile to resolveApiTargetsToAllowedDomains', () => {
+    mockedGithubEnv.readEnvFile.mockReturnValue({ OPENAI_ENDPOINT_OVERRIDE: 'https://envfile.example.com' });
+    resolveAllowedDomains({ envFile: '/path/to/.env' });
+    expect(mockedApiProxyConfig.resolveApiTargetsToAllowedDomains).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.any(Array),
+      expect.any(Object),
+      expect.any(Function),
+      expect.any(Array),
+      'https://envfile.example.com',
+    );
+  });
+
+  it('passes undefined openaiEndpointOverride when not set in any source', () => {
+    resolveAllowedDomains({});
+    expect(mockedApiProxyConfig.resolveApiTargetsToAllowedDomains).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.any(Array),
+      expect.any(Object),
+      expect.any(Function),
+      expect.any(Array),
+      undefined,
+    );
   });
 });
 

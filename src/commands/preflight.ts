@@ -9,6 +9,7 @@ import { processLocalhostKeyword } from '../option-parsers';
 import { resolveCopilotApiRouting } from '../copilot-api-resolver';
 import { resolveApiTargetsToAllowedDomains } from '../api-proxy-config';
 import { resolveTopologyPeerHosts } from '../topology-peers';
+import { readEnvFile } from '../github-env';
 
 /**
  * Resolves the Commander option-value source for a given option name.
@@ -21,6 +22,7 @@ type OptionSourceResolver = (optionName: string) => string | undefined;
  */
 interface AllowedDomainsResult {
   allowedDomains: string[];
+  sensitiveAllowedDomains: string[];
   localhostResult: ReturnType<typeof processLocalhostKeyword>;
   resolvedCopilotApiTarget: string | undefined;
   resolvedCopilotApiBasePath: string | undefined;
@@ -162,9 +164,21 @@ export function resolveAllowedDomains(options: Record<string, unknown>): Allowed
     process.env
   );
 
-  // Automatically add API target values to allowlist when specified
-  // This ensures that when engine.api-target is set in GitHub Agentic Workflows,
-  // the target domain is automatically accessible through the firewall
+  // Resolve OPENAI_ENDPOINT_OVERRIDE from all config sources so that values
+  // supplied via --env or --env-file reach the allowlist (not just process.env).
+  // Priority matches getConfigEnvValue: additionalEnv > envFile > process.env.
+  const additionalEnv = options.additionalEnv as Record<string, string> | undefined;
+  const envFilePath = options.envFile as string | undefined;
+  const openaiEndpointOverride: string | undefined = (
+    additionalEnv?.['OPENAI_ENDPOINT_OVERRIDE']
+    ?? (envFilePath ? readEnvFile(envFilePath)['OPENAI_ENDPOINT_OVERRIDE'] : undefined)
+    ?? process.env['OPENAI_ENDPOINT_OVERRIDE']
+  ) || undefined;
+
+  // Automatically add API target values to allowlist when specified.
+  // Secret-derived entries (OPENAI_ENDPOINT_OVERRIDE) go into sensitiveAllowedDomains
+  // so they are never logged or included in the audit config artifact.
+  const sensitiveAllowedDomains: string[] = [];
   resolveApiTargetsToAllowedDomains(
     {
       copilotApiTarget: resolvedCopilotApiTarget,
@@ -174,7 +188,9 @@ export function resolveAllowedDomains(options: Record<string, unknown>): Allowed
     },
     allowedDomains,
     process.env,
-    logger.debug.bind(logger)
+    logger.debug.bind(logger),
+    sensitiveAllowedDomains,
+    openaiEndpointOverride,
   );
 
   // In network-isolation (topology) mode, automatically add trusted topology
@@ -203,7 +219,7 @@ export function resolveAllowedDomains(options: Record<string, unknown>): Allowed
 
   validateAllowedDomains(allowedDomains);
 
-  return { allowedDomains, localhostResult, resolvedCopilotApiTarget, resolvedCopilotApiBasePath };
+  return { allowedDomains, sensitiveAllowedDomains, localhostResult, resolvedCopilotApiTarget, resolvedCopilotApiBasePath };
 }
 
 /**

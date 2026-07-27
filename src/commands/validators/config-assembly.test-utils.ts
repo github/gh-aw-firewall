@@ -100,6 +100,7 @@ export const createMinimalLogAndLimits = (): LogAndLimitsResult => ({
 export const createMinimalNetworkOptions = (): NetworkOptionsResult => ({
   dockerHostCheck: { valid: true },
   allowedDomains: ['example.com'],
+  sensitiveAllowedDomains: [],
   blockedDomains: [],
   localhostResult: {
     allowedDomains: ['example.com'],

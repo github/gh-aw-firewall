@@ -17,6 +17,19 @@ export interface NetworkOptions {
   allowedDomains: string[];
 
   /**
+   * Secret-derived domains that must be allowed in Squid but must never appear
+   * in log output or the audit config artifact. Currently used to allow the
+   * host resolved from `OPENAI_ENDPOINT_OVERRIDE` through Squid without leaking
+   * the endpoint URL to workflow logs.
+   *
+   * These entries are combined with `allowedDomains` only at Squid-config
+   * generation time; all logging/audit paths read `allowedDomains` exclusively.
+   *
+   * @internal Not exposed to end-users; populated internally during option resolution.
+   */
+  sensitiveAllowedDomains?: string[];
+
+  /**
    * List of blocked domains for HTTP/HTTPS egress traffic
    * 
    * Blocked domains take precedence over allowed domains. If a domain matches

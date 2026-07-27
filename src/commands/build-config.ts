@@ -44,6 +44,7 @@ interface BuildConfigInputs {
   agentCommand: string;
   logLevel: LogLevel;
   allowedDomains: string[];
+  sensitiveAllowedDomains?: string[];
   blockedDomains: string[];
   localhostDetected: boolean;
   additionalEnv: Record<string, string>;
@@ -81,6 +82,7 @@ export function buildConfig(inputs: BuildConfigInputs): WrapperConfig {
     agentCommand,
     logLevel,
     allowedDomains,
+    sensitiveAllowedDomains = [],
     blockedDomains,
     localhostDetected,
     additionalEnv,
@@ -116,6 +118,7 @@ export function buildConfig(inputs: BuildConfigInputs): WrapperConfig {
 
   return {
     allowedDomains,
+    sensitiveAllowedDomains: sensitiveAllowedDomains.length > 0 ? sensitiveAllowedDomains : undefined,
     blockedDomains: blockedDomains.length > 0 ? blockedDomains : undefined,
     agentCommand,
     logLevel,
