@@ -135,6 +135,34 @@ describe('buildProviderRoutingEnv', () => {
     const env = buildProviderRoutingEnv({ ...baseConfig, workDir: '/tmp/awf-test' });
     expect(env.AWF_API_PROXY_SHUTDOWN_TIMEOUT_MS).toBe('8000');
   });
+
+  it('forwards OPENAI_ENDPOINT_OVERRIDE from process.env when set', () => {
+    const saved = process.env.OPENAI_ENDPOINT_OVERRIDE;
+    process.env.OPENAI_ENDPOINT_OVERRIDE = '  https://secret-router.example.com/internal/path  ';
+    try {
+      const env = buildProviderRoutingEnv({ ...baseConfig, workDir: '/tmp/awf-test' });
+      expect(env.OPENAI_ENDPOINT_OVERRIDE).toBe('https://secret-router.example.com/internal/path');
+    } finally {
+      if (saved !== undefined) process.env.OPENAI_ENDPOINT_OVERRIDE = saved;
+      else delete process.env.OPENAI_ENDPOINT_OVERRIDE;
+    }
+  });
+
+  it('prefers OPENAI_ENDPOINT_OVERRIDE from additionalEnv over process.env', () => {
+    const saved = process.env.OPENAI_ENDPOINT_OVERRIDE;
+    process.env.OPENAI_ENDPOINT_OVERRIDE = 'https://process-env-router.example.com';
+    try {
+      const env = buildProviderRoutingEnv({
+        ...baseConfig,
+        workDir: '/tmp/awf-test',
+        additionalEnv: { OPENAI_ENDPOINT_OVERRIDE: 'https://additional-env-router.example.com' },
+      });
+      expect(env.OPENAI_ENDPOINT_OVERRIDE).toBe('https://additional-env-router.example.com');
+    } finally {
+      if (saved !== undefined) process.env.OPENAI_ENDPOINT_OVERRIDE = saved;
+      else delete process.env.OPENAI_ENDPOINT_OVERRIDE;
+    }
+  });
 });
 
 describe('resolveApiProxyShutdownTimeoutMs', () => {

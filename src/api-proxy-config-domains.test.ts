@@ -47,6 +47,33 @@ describe('resolveApiTargetsToAllowedDomains', () => {
     expect(domains).toContain('https://env.openai.com');
   });
 
+  it('should read OPENAI_ENDPOINT_OVERRIDE from env when OPENAI_API_TARGET is not set', () => {
+    const domains: string[] = [];
+    const env = { OPENAI_ENDPOINT_OVERRIDE: 'https://secret.openai.internal/path' };
+    resolveApiTargetsToAllowedDomains({}, domains, env);
+    expect(domains).toContain('https://secret.openai.internal');
+  });
+
+  it('should not include OPENAI_ENDPOINT_OVERRIDE host value in debug logs', () => {
+    const domains: string[] = [];
+    const debugMessages: string[] = [];
+    const env = { OPENAI_ENDPOINT_OVERRIDE: 'https://secret.openai.internal/path' };
+    resolveApiTargetsToAllowedDomains({}, domains, env, (msg) => debugMessages.push(msg));
+    expect(debugMessages.some(msg => msg.includes('secret.openai.internal'))).toBe(false);
+    expect(debugMessages).toContain('Auto-added OpenAI endpoint override host to allowed domains');
+  });
+
+  it('should prefer OPENAI_API_TARGET over OPENAI_ENDPOINT_OVERRIDE', () => {
+    const domains: string[] = [];
+    const env = {
+      OPENAI_API_TARGET: 'env.openai.com',
+      OPENAI_ENDPOINT_OVERRIDE: 'secret.openai.internal',
+    };
+    resolveApiTargetsToAllowedDomains({}, domains, env);
+    expect(domains).toContain('https://env.openai.com');
+    expect(domains).not.toContain('https://secret.openai.internal');
+  });
+
   it('should read ANTHROPIC_API_TARGET from env when flag not set', () => {
     const domains: string[] = [];
     const env = { ANTHROPIC_API_TARGET: 'env.anthropic.com' };

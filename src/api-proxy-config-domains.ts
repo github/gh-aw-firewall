@@ -119,36 +119,38 @@ export function resolveApiTargetsToAllowedDomains(
   env: Record<string, string | undefined> = process.env,
   debug: (msg: string) => void = () => {}
 ): string[] {
-  const apiTargets: string[] = [];
+  const apiTargets: Array<{ value: string; sensitive?: boolean }> = [];
 
   if (options.copilotApiTarget) {
-    apiTargets.push(options.copilotApiTarget);
+    apiTargets.push({ value: options.copilotApiTarget });
   } else if (env['COPILOT_API_TARGET']) {
-    apiTargets.push(env['COPILOT_API_TARGET']);
+    apiTargets.push({ value: env['COPILOT_API_TARGET'] });
   }
 
   if (options.openaiApiTarget) {
-    apiTargets.push(options.openaiApiTarget);
+    apiTargets.push({ value: options.openaiApiTarget });
   } else if (env['OPENAI_API_TARGET']) {
-    apiTargets.push(env['OPENAI_API_TARGET']);
+    apiTargets.push({ value: env['OPENAI_API_TARGET'] });
+  } else if (env['OPENAI_ENDPOINT_OVERRIDE']) {
+    apiTargets.push({ value: env['OPENAI_ENDPOINT_OVERRIDE'], sensitive: true });
   }
 
   if (options.anthropicApiTarget) {
-    apiTargets.push(options.anthropicApiTarget);
+    apiTargets.push({ value: options.anthropicApiTarget });
   } else if (env['ANTHROPIC_API_TARGET']) {
-    apiTargets.push(env['ANTHROPIC_API_TARGET']);
+    apiTargets.push({ value: env['ANTHROPIC_API_TARGET'] });
   }
 
   if (options.geminiApiTarget) {
-    apiTargets.push(options.geminiApiTarget);
+    apiTargets.push({ value: options.geminiApiTarget });
   } else if (env['GEMINI_API_TARGET']) {
-    apiTargets.push(env['GEMINI_API_TARGET']);
+    apiTargets.push({ value: env['GEMINI_API_TARGET'] });
   }
 
   if (options.vertexApiTarget) {
-    apiTargets.push(options.vertexApiTarget);
+    apiTargets.push({ value: options.vertexApiTarget });
   } else if (env['VERTEX_API_TARGET']) {
-    apiTargets.push(env['VERTEX_API_TARGET']);
+    apiTargets.push({ value: env['VERTEX_API_TARGET'] });
   }
 
   // Auto-populate GHEC domains when GITHUB_SERVER_URL points to a *.ghe.com tenant
@@ -176,10 +178,12 @@ export function resolveApiTargetsToAllowedDomains(
   // Merge API target values into the allowedDomains list so that later checks/logs about
   // "no allowed domains" see the final, expanded allowlist.
   // API targets may be provided as full URLs; only the hostname is relevant to Squid allowlisting.
+  type NormalizedApiTarget = { hostname: string; scheme: 'http' | 'https'; sensitive?: boolean };
   const normalizedApiTargets = apiTargets
-    .map((t) => (typeof t === 'string' ? t.trim() : ''))
-    .filter((t) => t.length > 0)
-    .map((raw) => {
+    .map(({ value, sensitive }) => ({ value: (typeof value === 'string' ? value.trim() : ''), sensitive }))
+    .filter(({ value }) => value.length > 0)
+    .flatMap(({ value, sensitive }): NormalizedApiTarget[] => {
+      const raw = value;
       const hasScheme = /^[a-zA-Z][a-zA-Z\d+\-.]*:\/\//.test(raw);
       const candidate = hasScheme ? raw : `https://${raw}`;
 
@@ -189,22 +193,30 @@ export function resolveApiTargetsToAllowedDomains(
       } catch {
         // Let domain-validation surface a clear error later.
       }
-      if (!hostname) return null;
+      if (!hostname) return [];
 
       const scheme: 'http' | 'https' = /^http:\/\//i.test(raw) ? 'http' : 'https';
-      return { hostname, scheme } as const;
-    })
-    .filter((t): t is { hostname: string; scheme: 'http' | 'https' } => t !== null);
+      return [{ hostname, scheme, sensitive }];
+    });
 
   if (normalizedApiTargets.length > 0) {
-    for (const { hostname, scheme } of normalizedApiTargets) {
+    for (const { hostname, scheme, sensitive } of normalizedApiTargets) {
       const urlEntry = `${scheme}://${hostname}`;
       if (!allowedDomains.includes(urlEntry)) {
         allowedDomains.push(urlEntry);
-        debug(`Automatically added API target to allowlist: ${urlEntry}`);
+        if (!sensitive) {
+          debug(`Automatically added API target to allowlist: ${urlEntry}`);
+        }
       }
     }
-    debug(`Auto-added API target hostnames to allowed domains: ${normalizedApiTargets.map(t => t.hostname).join(', ')}`);
+
+    const nonSensitiveHosts = normalizedApiTargets.filter(t => !t.sensitive).map(t => t.hostname);
+    if (nonSensitiveHosts.length > 0) {
+      debug(`Auto-added API target hostnames to allowed domains: ${nonSensitiveHosts.join(', ')}`);
+    }
+    if (normalizedApiTargets.some(t => t.sensitive)) {
+      debug('Auto-added OpenAI endpoint override host to allowed domains');
+    }
   }
 
   return allowedDomains;
