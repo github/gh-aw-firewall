@@ -100,9 +100,9 @@ ignore:
   # ── stdlib@go1.24.6 embedded in gosu binary ──────────────────────────────────
   #
   # GO-2026-4337 (stdlib go1.24.6 -> 1.24.13 / 1.25.7 / 1.26.0-rc.3, CRITICAL):
-  #   Unexpected TLS session resumption: a client can resume a TLS 1.3 session
-  #   even when the server has disabled session tickets or PSK resumption,
-  #   bypassing connection-level security policies.
+  #   During TLS session resumption, changes to ClientCAs or RootCAs between
+  #   the original and resumed handshakes may be ignored, allowing a peer
+  #   whose certificate is no longer trusted to resume the session.
   #
   #   Risk acceptance — NOT REACHABLE in gosu:
   #     gosu is a minimal setuid/exec privilege-drop binary (github.com/tianon/gosu
