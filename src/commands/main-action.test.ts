@@ -1,23 +1,6 @@
-// Module-level mock functions for fs — must be declared before jest.mock('fs')
-// so the factory can close over them. jest.mock is hoisted but the factory runs
-// lazily after module initialisation, when these variables are defined.
-const mockMkdirSync = jest.fn();
-const mockWriteFileSync = jest.fn();
-const mockChmodSync = jest.fn();
-const mockOpenSync = jest.fn().mockReturnValue(42);
-const mockCloseSync = jest.fn();
+import { mainActionFsMockFactory, mainActionFsMocks } from './main-action-fs-mock.test-utils';
 
-jest.mock('fs', () => {
-  const actual = jest.requireActual<typeof import('fs')>('fs');
-  return {
-    ...actual,
-    mkdirSync: (...args: unknown[]) => mockMkdirSync(...args),
-    writeFileSync: (...args: unknown[]) => mockWriteFileSync(...args),
-    chmodSync: (...args: unknown[]) => mockChmodSync(...args),
-    openSync: (...args: unknown[]) => mockOpenSync(...args),
-    closeSync: (...args: unknown[]) => mockCloseSync(...args),
-  };
-});
+jest.mock('fs', () => mainActionFsMockFactory());
 
 import { createMainAction, testHelpers } from './main-action';
 
@@ -48,6 +31,14 @@ import * as signalHandler from './signal-handler';
 import * as validateOptions from './validate-options';
 import * as sbxManager from '../sbx-manager';
 import { MAIN_ACTION_STUB_CONFIG, setupMainActionTestHarness } from './main-action.test-utils';
+
+const {
+  mkdirSync: mockMkdirSync,
+  writeFileSync: mockWriteFileSync,
+  chmodSync: mockChmodSync,
+  openSync: mockOpenSync,
+  closeSync: mockCloseSync,
+} = mainActionFsMocks;
 
 const mockedLogger = logger as jest.Mocked<typeof logger>;
 const mockedDockerManager = dockerManager as jest.Mocked<typeof dockerManager>;
