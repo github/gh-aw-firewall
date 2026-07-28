@@ -165,7 +165,16 @@ function buildUsageFromSource(usageSource) {
   if (typeof reasoningTokens === 'number') usage.reasoning_tokens = reasoningTokens;
 
   const cacheReadTokens = extractCacheReadTokens(usageSource);
-  if (typeof cacheReadTokens === 'number') usage.cache_read_input_tokens = cacheReadTokens;
+  if (typeof cacheReadTokens === 'number') {
+    usage.cache_read_input_tokens = cacheReadTokens;
+    if (
+      typeof usageSource.prompt_tokens === 'number' ||
+      (typeof usageSource.input_tokens === 'number' &&
+        (usageSource.input_tokens_details || usageSource.prompt_tokens_details))
+    ) {
+      usage.input_tokens_include_cache = true;
+    }
+  }
 
   return Object.keys(usage).length > 0 ? usage : null;
 }
@@ -178,12 +187,14 @@ function mergeCopilotBreakdown(usage, json) {
   if (copilotBreakdown.input_tokens !== undefined) {
     // Copilot gave us a precise input split: drop the lumped prompt_tokens.
     delete merged.prompt_tokens;
+    delete merged.input_tokens_include_cache;
   } else if (copilotBreakdown.cache_creation_input_tokens !== undefined
              && typeof merged.prompt_tokens === 'number') {
     // cache_write present but input absent: infer input = prompt_tokens - cache_write
     // to avoid double-counting cache_write in normalizeUsage.
     merged.input_tokens = Math.max(0, merged.prompt_tokens - copilotBreakdown.cache_creation_input_tokens);
     delete merged.prompt_tokens;
+    delete merged.input_tokens_include_cache;
   }
   return merged;
 }
@@ -213,7 +224,10 @@ function buildResponseCompletionUsage(usage) {
   const reasoningTokens = extractReasoningTokens(usage);
   if (typeof reasoningTokens === 'number') out.reasoning_tokens = reasoningTokens;
   const cacheReadTokens = extractCacheReadTokens(usage);
-  if (typeof cacheReadTokens === 'number') out.cache_read_input_tokens = cacheReadTokens;
+  if (typeof cacheReadTokens === 'number') {
+    out.cache_read_input_tokens = cacheReadTokens;
+    out.input_tokens_include_cache = true;
+  }
   return out;
 }
 
@@ -225,7 +239,10 @@ function buildStreamingFinalChunkUsage(usage) {
   const reasoningTokens = extractReasoningTokens(usage);
   if (typeof reasoningTokens === 'number') out.reasoning_tokens = reasoningTokens;
   const cacheReadTokens = extractCacheReadTokens(usage);
-  if (typeof cacheReadTokens === 'number') out.cache_read_input_tokens = cacheReadTokens;
+  if (typeof cacheReadTokens === 'number') {
+    out.cache_read_input_tokens = cacheReadTokens;
+    out.input_tokens_include_cache = true;
+  }
   return out;
 }
 
@@ -451,12 +468,20 @@ function parseSseDataLines(text) {
 function normalizeUsage(usage) {
   if (!usage) return null;
 
+  const cacheReadTokens = extractCacheReadTokens(usage) ?? 0;
+  const inputTokensIncludeCache = usage.input_tokens_include_cache === true ||
+    (cacheReadTokens > 0 && (
+    typeof usage.prompt_tokens === 'number' ||
+    (typeof usage.input_tokens === 'number' &&
+      (usage.input_tokens_details || usage.prompt_tokens_details))
+    ));
   return {
     input_tokens: usage.input_tokens ?? usage.prompt_tokens ?? 0,
     output_tokens: usage.output_tokens ?? usage.completion_tokens ?? 0,
-    cache_read_tokens: extractCacheReadTokens(usage) ?? 0,
+    cache_read_tokens: cacheReadTokens,
     cache_write_tokens: usage.cache_creation_input_tokens ?? 0,
     reasoning_tokens: usage.reasoning_tokens ?? 0,
+    ...(inputTokensIncludeCache ? { input_tokens_include_cache: true } : {}),
   };
 }
 

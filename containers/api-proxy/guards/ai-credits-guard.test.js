@@ -242,6 +242,102 @@ describe('ai-credits-guard', () => {
     });
   });
 
+  it('fills missing runtime fields from lower-priority curated pricing', () => {
+    replaceRuntimeModels('copilot', parseProviderModelMetadata('copilot', {
+      data: [{
+        id: 'claude-sonnet-4-6',
+        billing: {
+          token_prices: {
+            batch_size: 1_000_000,
+            default: { input_price: 100, output_price: 600 },
+          },
+        },
+      }],
+    }, { format: 'copilot' }));
+
+    const usage = applyAiCreditsUsage({
+      input_tokens: 1000,
+      cache_read_tokens: 1000,
+      cache_write_tokens: 1000,
+      output_tokens: 1000,
+    }, 'claude-sonnet-4-6', PROVIDER_COPILOT);
+
+    expect(usage).toMatchObject({
+      inputCreditsThisResponse: 0.1,
+      cachedInputCreditsThisResponse: 0.03,
+      cacheWriteCreditsThisResponse: 0.375,
+      outputCreditsThisResponse: 0.6,
+      pricingSource: 'provider',
+    });
+  });
+
+  it('fails closed when incomplete runtime pricing has no lower-priority fallback', () => {
+    process.env.AWF_MAX_AI_CREDITS = '10';
+    resetAiCreditsGuardForTests();
+    replaceRuntimeModels('copilot', parseProviderModelMetadata('copilot', {
+      data: [{
+        id: 'new-runtime-model',
+        billing: {
+          token_prices: {
+            batch_size: 1_000_000,
+            default: {
+              input_price: 100,
+              output_price: 600,
+              cache_read_price: 10,
+              cache_write_price: 20,
+              max_prompt_tokens: 1000,
+            },
+            long_context: { input_price: 200, output_price: 900 },
+          },
+        },
+      }],
+    }, { format: 'copilot' }));
+
+    expect(checkUnknownModelRejection('new-runtime-model', PROVIDER_COPILOT))
+      .toMatchObject({ rejected: true, model: 'new-runtime-model' });
+  });
+
+  it('does not double-count cached Copilot input or select long context for inclusive usage', () => {
+    replaceRuntimeModels('copilot', parseProviderModelMetadata('copilot', {
+      data: [{
+        id: 'gpt-5.4',
+        billing: {
+          token_prices: {
+            batch_size: 1_000_000,
+            default: {
+              input_price: 100,
+              cache_read_price: 10,
+              cache_write_price: 0,
+              output_price: 600,
+              max_prompt_tokens: 1000,
+            },
+            long_context: {
+              input_price: 200,
+              cache_read_price: 20,
+              cache_write_price: 0,
+              output_price: 900,
+            },
+          },
+        },
+      }],
+    }, { format: 'copilot' }));
+
+    const usage = applyAiCreditsUsage({
+      input_tokens: 800,
+      cache_read_tokens: 300,
+      cache_write_tokens: 0,
+      output_tokens: 100,
+      input_tokens_include_cache: true,
+    }, 'gpt-5.4', PROVIDER_COPILOT);
+
+    expect(usage).toMatchObject({
+      inputCreditsThisResponse: 0.05,
+      cachedInputCreditsThisResponse: 0.003,
+      outputCreditsThisResponse: 0.06,
+      pricingTier: 'default',
+    });
+  });
+
   it('prefers an operator provider overlay over runtime and curated pricing', () => {
     process.env.AWF_API_PROXY_PROVIDERS = JSON.stringify({
       'github-copilot': {

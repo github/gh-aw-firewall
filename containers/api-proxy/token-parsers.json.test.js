@@ -108,6 +108,7 @@ describe('extractUsageFromJson', () => {
       completion_tokens: 256,
       total_tokens: 41600,
       cache_read_input_tokens: 36500,
+      input_tokens_include_cache: true,
     });
   });
 
@@ -178,6 +179,7 @@ describe('extractUsageFromJson', () => {
       output_tokens: 64,
       total_tokens: 40064,
       cache_read_input_tokens: 32128,
+      input_tokens_include_cache: true,
     });
   });
 
@@ -206,6 +208,7 @@ describe('extractUsageFromJson', () => {
       output_tokens: 30,
       total_tokens: 150,
       cache_read_input_tokens: 77,
+      input_tokens_include_cache: true,
     });
   });
 
@@ -240,6 +243,7 @@ describe('extractUsageFromJson', () => {
       output_tokens: 30,
       total_tokens: 150,
       cache_read_input_tokens: 77,
+      input_tokens_include_cache: true,
     });
   });
 
@@ -273,6 +277,7 @@ describe('extractUsageFromJson', () => {
       total_tokens: 719397,
       reasoning_tokens: 7715,
       cache_read_input_tokens: 672256,
+      input_tokens_include_cache: true,
     });
   });
 });
@@ -342,6 +347,7 @@ describe('extractUsageFromJson with copilot_usage', () => {
       cache_read_tokens: 30,
       cache_write_tokens: 0,
       reasoning_tokens: 0,
+      input_tokens_include_cache: true,
     });
   });
 

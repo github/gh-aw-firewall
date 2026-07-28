@@ -108,6 +108,7 @@ describe('extractUsageFromSseLine', () => {
       total_tokens: 125,
       reasoning_tokens: 7,
       cache_read_input_tokens: 33,
+      input_tokens_include_cache: true,
     });
   });
 
@@ -135,6 +136,7 @@ describe('extractUsageFromSseLine', () => {
       output_tokens: 25,
       total_tokens: 125,
       cache_read_input_tokens: 55,
+      input_tokens_include_cache: true,
     });
   });
 
@@ -166,6 +168,7 @@ describe('extractUsageFromSseLine', () => {
       total_tokens: 38103,
       reasoning_tokens: 128,
       cache_read_input_tokens: 34816,
+      input_tokens_include_cache: true,
     });
   });
 
@@ -214,6 +217,7 @@ describe('extractUsageFromSseLine', () => {
       completion_tokens: 24,
       total_tokens: 44001,
       cache_read_input_tokens: 43894,
+      input_tokens_include_cache: true,
     });
   });
 

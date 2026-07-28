@@ -69,19 +69,23 @@ describe('runtime model catalog', () => {
     expect(resolveRuntimePricing('copilot', 'claude-sonnet-4-6', 1000).pricing).toEqual({
       input: 3,
       cachedInput: 0.3,
-      cacheWrite: null,
       output: 15,
     });
   });
 
-  it('applies an advertised promotion and exposes sanitized provenance', () => {
+  it('exposes an advertised promotion without applying it to pricing', () => {
     const records = parseProviderModelMetadata('copilot', {
       data: [{
         id: 'gpt-test',
         billing: {
           token_prices: {
             batch_size: 500_000,
-            default: { input_price: 100, output_price: 400 },
+            default: {
+              input_price: 100,
+              output_price: 400,
+              cache_read_price: 10,
+              cache_write_price: 0,
+            },
           },
           promo: { discount_percent: 25, message: 'not retained' },
         },
@@ -90,13 +94,124 @@ describe('runtime model catalog', () => {
     replaceRuntimeModels('copilot', records);
 
     expect(resolveRuntimePricing('copilot', 'gpt-test').pricing).toEqual({
-      input: 1.5,
-      cachedInput: 0.15,
-      cacheWrite: null,
-      output: 6,
+      input: 2,
+      cachedInput: 0.2,
+      cacheWrite: 0,
+      output: 8,
+    });
+    expect(getRuntimeCatalogSnapshot().copilot[0].promotion).toEqual({
+      discount_percent: 25,
     });
     expect(getRuntimeCatalogSnapshot().copilot[0]).not.toHaveProperty('billing');
     expect(JSON.stringify(getRuntimeCatalogSnapshot())).not.toContain('not retained');
+  });
+
+  it('retains complete pricing when a later refresh omits billing fields', () => {
+    const initial = parseProviderModelMetadata('copilot', {
+      data: [{
+        id: 'gpt-test',
+        billing: {
+          token_prices: {
+            batch_size: 1_000_000,
+            default: {
+              input_price: 100,
+              output_price: 400,
+              cache_read_price: 10,
+              cache_write_price: 20,
+            },
+          },
+        },
+      }],
+    }, { format: 'copilot', observedAt: '2026-07-28T00:00:00Z' });
+    replaceRuntimeModels('copilot', initial);
+
+    const incomplete = parseProviderModelMetadata('copilot', {
+      data: [{
+        id: 'gpt-test',
+        billing: {
+          token_prices: {
+            batch_size: 1_000_000,
+            default: { input_price: 200, output_price: 800 },
+          },
+        },
+      }],
+    }, { format: 'copilot', observedAt: '2026-07-28T01:00:00Z' });
+    replaceRuntimeModels('copilot', incomplete);
+
+    expect(resolveRuntimePricing('copilot', 'gpt-test').pricing).toEqual({
+      input: 1,
+      cachedInput: 0.1,
+      cacheWrite: 0.2,
+      output: 4,
+    });
+    expect(resolveRuntimePricing('copilot', 'gpt-test').observedAt)
+      .toBe('2026-07-28T00:00:00Z');
+  });
+
+  it('tracks provenance separately when only one refreshed tier is complete', () => {
+    const initial = parseProviderModelMetadata('copilot', {
+      data: [{
+        id: 'gpt-test',
+        billing: {
+          token_prices: {
+            batch_size: 1_000_000,
+            default: {
+              input_price: 100,
+              output_price: 400,
+              cache_read_price: 10,
+              cache_write_price: 20,
+              max_prompt_tokens: 1000,
+            },
+            long_context: {
+              input_price: 200,
+              output_price: 800,
+              cache_read_price: 20,
+              cache_write_price: 40,
+            },
+          },
+        },
+      }],
+    }, {
+      format: 'copilot',
+      apiVersion: 'old',
+      observedAt: '2026-07-28T00:00:00Z',
+    });
+    replaceRuntimeModels('copilot', initial);
+
+    const mixed = parseProviderModelMetadata('copilot', {
+      data: [{
+        id: 'gpt-test',
+        billing: {
+          token_prices: {
+            batch_size: 1_000_000,
+            default: {
+              input_price: 300,
+              output_price: 1200,
+              cache_read_price: 30,
+              cache_write_price: 60,
+              max_prompt_tokens: 1000,
+            },
+            long_context: { input_price: 400, output_price: 1600 },
+          },
+        },
+      }],
+    }, {
+      format: 'copilot',
+      apiVersion: 'new',
+      observedAt: '2026-07-28T01:00:00Z',
+    });
+    replaceRuntimeModels('copilot', mixed);
+
+    expect(resolveRuntimePricing('copilot', 'gpt-test', 500)).toMatchObject({
+      observedAt: '2026-07-28T01:00:00Z',
+      apiVersion: 'new',
+      pricing: { input: 3, cachedInput: 0.3, cacheWrite: 0.6, output: 12 },
+    });
+    expect(resolveRuntimePricing('copilot', 'gpt-test', 1500)).toMatchObject({
+      observedAt: '2026-07-28T00:00:00Z',
+      apiVersion: 'old',
+      pricing: { input: 2, cachedInput: 0.2, cacheWrite: 0.4, output: 8 },
+    });
   });
 
   it('preserves generic provider availability without inventing pricing', () => {

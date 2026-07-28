@@ -192,11 +192,16 @@ export function validateCopilotModelOption(
       if (firstConcrete !== undefined) {
         const aliasValidation = validateCopilotModel(firstConcrete);
         if (!aliasValidation.valid) {
-          logger.error(
-            `Error: alias '${copilotModel}' resolves to model '${firstConcrete}' which is ${aliasValidation.reason === 'retired' ? 'retired or unsupported' : 'unsupported or unrecognized by this AWF version'}.`,
+          if (aliasValidation.reason === 'retired' || !config.enableApiProxy) {
+            logger.error(
+              `Error: alias '${copilotModel}' resolves to model '${firstConcrete}' which is ${aliasValidation.reason === 'retired' ? 'retired or unsupported' : 'unsupported or unrecognized by this AWF version'}.`,
+            );
+            logger.error(aliasValidation.message);
+            process.exit(1);
+          }
+          logger.info(
+            `Alias '${copilotModel}' targets model '${firstConcrete}', which is not in this AWF version's offline catalog; deferring validation to runtime provider discovery`,
           );
-          logger.error(aliasValidation.message);
-          process.exit(1);
         }
       }
       // Alias is valid (or all paths are wildcards/provider-scoped) — leave

@@ -46,9 +46,9 @@ function normalizeTier(rawTier, batchSize, unit) {
   const threshold = Number(rawTier.max_prompt_tokens ?? rawTier.context_max);
   return {
     input,
-    cachedInput: cachedInput ?? input * 0.1,
-    cacheWrite,
     output,
+    ...(cachedInput !== null ? { cachedInput } : {}),
+    ...(cacheWrite !== null ? { cacheWrite } : {}),
     ...(Number.isFinite(threshold) && threshold > 0 ? { threshold } : {}),
   };
 }
@@ -69,13 +69,22 @@ function normalizeCopilotPricing(entry) {
   }
   if (!defaultTier) return null;
 
-  const discountPercent = Number(entry?.billing?.promo?.discount_percent);
   return {
     default: defaultTier,
     ...(longContext ? { longContext } : {}),
-    ...(Number.isFinite(discountPercent) && discountPercent >= 0 && discountPercent <= 100
-      ? { discountPercent }
-      : {}),
+  };
+}
+
+function normalizePromotion(entry) {
+  const promo = entry?.billing?.promo;
+  const discountPercent = Number(promo?.discount_percent);
+  if (!promo || !Number.isFinite(discountPercent) || discountPercent < 0 || discountPercent > 100) {
+    return null;
+  }
+  return {
+    discountPercent,
+    ...(typeof promo.id === 'string' ? { id: promo.id } : {}),
+    ...(typeof promo.ends_at === 'string' ? { endsAt: promo.ends_at } : {}),
   };
 }
 
@@ -95,6 +104,7 @@ function parseProviderModelMetadata(provider, json, options = {}) {
     const id = normalizeModelId(entry, format);
     if (!id) return null;
     const pricing = format === 'copilot' ? normalizeCopilotPricing(entry) : null;
+    const promotion = format === 'copilot' ? normalizePromotion(entry) : null;
     return {
       provider,
       id,
@@ -105,6 +115,7 @@ function parseProviderModelMetadata(provider, json, options = {}) {
         ? { capabilities: entry.capabilities }
         : {}),
       ...(pricing ? { pricing } : {}),
+      ...(promotion ? { promotion } : {}),
     };
   }).filter(Boolean);
 
@@ -114,8 +125,59 @@ function parseProviderModelMetadata(provider, json, options = {}) {
 
 function replaceRuntimeModels(provider, records) {
   if (!Array.isArray(records) || records.length === 0) return false;
-  runtimeCatalog[provider] = records;
+  const previousById = new Map(
+    (runtimeCatalog[provider] || []).map(record => [canonicalizeModel(record.id), record]),
+  );
+  runtimeCatalog[provider] = records.map(record => {
+    const previous = previousById.get(canonicalizeModel(record.id));
+    if (!previous?.pricing) return record;
+    const defaultTier = chooseTier(record.pricing?.default, previous.pricing.default);
+    const longContext = chooseTier(record.pricing?.longContext, previous.pricing.longContext);
+    const pricingProvenance = {
+      default: getTierProvenance(
+        defaultTier === previous.pricing.default ? previous : record,
+        'default',
+      ),
+      ...(longContext ? {
+        longContext: getTierProvenance(
+          longContext === previous.pricing.longContext ? previous : record,
+          'longContext',
+        ),
+      } : {}),
+    };
+    return {
+      ...record,
+      pricing: {
+        default: defaultTier,
+        ...(longContext ? { longContext } : {}),
+      },
+      pricingProvenance,
+    };
+  });
   return true;
+}
+
+function getTierProvenance(record, tierName) {
+  return record.pricingProvenance?.[tierName] || {
+    observedAt: record.pricingObservedAt || record.observedAt,
+    ...(record.pricingApiVersion || record.apiVersion
+      ? { apiVersion: record.pricingApiVersion || record.apiVersion }
+      : {}),
+  };
+}
+
+function chooseTier(current, previous) {
+  if (isCompleteTier(current)) return current;
+  if (isCompleteTier(previous)) return previous;
+  return current || previous;
+}
+
+function isCompleteTier(tier) {
+  return !!tier &&
+    Object.hasOwn(tier, 'input') &&
+    Object.hasOwn(tier, 'output') &&
+    Object.hasOwn(tier, 'cachedInput') &&
+    Object.hasOwn(tier, 'cacheWrite');
 }
 
 function clearRuntimeModels() {
@@ -136,18 +198,6 @@ function findRuntimeModel(provider, model) {
   return records.find(record => canonicalizeModel(record.id) === canonical) || null;
 }
 
-function applyDiscount(pricing, discountPercent) {
-  if (!Number.isFinite(discountPercent) || discountPercent <= 0) return pricing;
-  const multiplier = 1 - (discountPercent / 100);
-  const discounted = value => Math.round(value * multiplier * 1e12) / 1e12;
-  return {
-    input: discounted(pricing.input),
-    cachedInput: discounted(pricing.cachedInput),
-    cacheWrite: pricing.cacheWrite === null ? null : discounted(pricing.cacheWrite),
-    output: discounted(pricing.output),
-  };
-}
-
 function resolveRuntimePricing(provider, model, inputTokens = 0) {
   const record = findRuntimeModel(provider, model);
   if (!record?.pricing?.default) return null;
@@ -155,14 +205,14 @@ function resolveRuntimePricing(provider, model, inputTokens = 0) {
   const threshold = record.pricing.default.threshold;
   const useLongContext = !!longContext && !!threshold && inputTokens > threshold;
   const tier = useLongContext ? longContext : record.pricing.default;
-  const discountPercent = record.pricing.discountPercent ?? 0;
+  const tierName = useLongContext ? 'longContext' : 'default';
+  const provenance = getTierProvenance(record, tierName);
   return {
-    pricing: applyDiscount(tier, discountPercent),
+    pricing: tier,
     source: 'provider',
     tier: useLongContext ? 'long_context' : 'default',
-    observedAt: record.observedAt,
-    apiVersion: record.apiVersion,
-    discountPercent,
+    observedAt: provenance.observedAt,
+    apiVersion: provenance.apiVersion,
   };
 }
 
@@ -178,9 +228,13 @@ function getRuntimeCatalogSnapshot() {
         pricing: {
           default: record.pricing.default,
           ...(record.pricing.longContext ? { long_context: record.pricing.longContext } : {}),
-          ...(record.pricing.discountPercent !== undefined
-            ? { discount_percent: record.pricing.discountPercent }
-            : {}),
+        },
+      } : {}),
+      ...(record.promotion ? {
+        promotion: {
+          discount_percent: record.promotion.discountPercent,
+          ...(record.promotion.id ? { id: record.promotion.id } : {}),
+          ...(record.promotion.endsAt ? { ends_at: record.promotion.endsAt } : {}),
         },
       } : {}),
     }));

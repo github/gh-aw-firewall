@@ -98,8 +98,26 @@ function resolveModelPricing(model, state = aiCreditsState, provider = undefined
   if (operatorPricing) return operatorPricing;
 
   const runtime = provider ? resolveRuntimePricing(provider, model, inputTokens) : null;
-  if (runtime) return runtime;
+  if (runtime && ['input', 'cachedInput', 'cacheWrite', 'output']
+    .every(field => Object.hasOwn(runtime.pricing, field))) {
+    return runtime;
+  }
+  const fallback = resolveLowerPriorityPricing(model, state);
+  if (!runtime) return fallback;
+  const mergedPricing = {};
+  for (const field of ['input', 'cachedInput', 'cacheWrite', 'output']) {
+    if (Object.hasOwn(runtime.pricing, field)) {
+      mergedPricing[field] = runtime.pricing[field];
+    } else if (fallback?.pricing && Object.hasOwn(fallback.pricing, field)) {
+      mergedPricing[field] = fallback.pricing[field];
+    } else {
+      return null;
+    }
+  }
+  return { ...runtime, pricing: mergedPricing };
+}
 
+function resolveLowerPriorityPricing(model, state) {
   if (Object.hasOwn(pricingByModel, model)) {
     return { pricing: pricingByModel[model], source: 'curated', tier: 'default' };
   }
@@ -166,8 +184,14 @@ function checkUnknownModelRejection(model, provider = undefined) {
   if (!config.max) return null; // guard not active, don't reject
   if (!model) return null; // no model in request body, can't check
   if (config.defaultPricing) return null; // has fallback, don't reject
-  const pricingResolution = resolveModelPricing(model, aiCreditsState, provider);
-  if (pricingResolution) return null; // model resolved, don't reject
+  const defaultPricing = resolveModelPricing(model, aiCreditsState, provider);
+  const highestTierPricing = resolveModelPricing(
+    model,
+    aiCreditsState,
+    provider,
+    Number.MAX_SAFE_INTEGER,
+  );
+  if (defaultPricing && highestTierPricing) return null; // every selectable tier resolved
 
   return {
     rejected: true,
@@ -186,7 +210,10 @@ function calculateAiCredits(normalizedUsage, model, state = aiCreditsState, prov
   const reportedInput = normalizedUsage.input_tokens || 0;
   const cacheReadTokens = normalizedUsage.cache_read_tokens || 0;
   const cacheWriteTokens = normalizedUsage.cache_write_tokens || 0;
-  const totalInputForTier = provider === PROVIDER_ANTHROPIC || provider === PROVIDER_COPILOT
+  const inputIncludesCache = normalizedUsage.input_tokens_include_cache === true;
+  const additiveInput = provider === PROVIDER_ANTHROPIC ||
+    (provider === PROVIDER_COPILOT && !inputIncludesCache);
+  const totalInputForTier = additiveInput
     ? reportedInput + cacheReadTokens + cacheWriteTokens
     : reportedInput;
   const pricingResolution = resolveModelPricing(model, state, provider, totalInputForTier);
@@ -194,14 +221,16 @@ function calculateAiCredits(normalizedUsage, model, state = aiCreditsState, prov
   const { pricing } = pricingResolution;
 
   // input_tokens semantics differ by provider:
-  //  - Anthropic and Copilot report input_tokens as the NON-cached input only;
+  //  - Anthropic and Copilot's precise copilot_usage report input_tokens as the
+  //    NON-cached input only;
   //    cache_read_input_tokens and cache_creation_input_tokens are reported
   //    separately and are ADDITIVE to input_tokens. Subtracting them here would
   //    over-subtract and undercount the genuinely-fresh input tokens.
-  //  - OpenAI (and OpenAI-compatible providers) report prompt_tokens/input_tokens
+  //  - OpenAI-style usage (including Copilot responses without copilot_usage)
+  //    reports prompt_tokens/input_tokens
   //    as the TOTAL input, with cached tokens being a SUBSET. Those must be
   //    subtracted before applying the full input rate to avoid double-counting.
-  const nonCachedInput = provider === PROVIDER_ANTHROPIC || provider === PROVIDER_COPILOT
+  const nonCachedInput = additiveInput
     ? reportedInput
     : Math.max(0, reportedInput - cacheReadTokens - cacheWriteTokens);
 

@@ -785,7 +785,9 @@ models with zero AI credit impact, so they are never rejected as "unknown".
 Runtime tiered pricing uses the provider's default-tier prompt threshold. When
 the total input exceeds that threshold, all token categories use the
 long-context tier. Pricing source, API version, observation time, selected
-tier, and any provider-advertised discount are retained in usage provenance.
+tier, and any provider-advertised promotion are retained in provenance.
+Promotions are informational only because provider discovery does not prove
+that a discount applies to a specific request; they never reduce accounting.
 Failed or empty discovery responses do not replace the last successful runtime
 snapshot.
 
