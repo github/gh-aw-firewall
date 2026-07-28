@@ -78,8 +78,20 @@ function prepareDirectories(paths: SealedProbePaths): void {
 
 /** Writes the broker's repo → opaque seed map. */
 function writeSeedMap(paths: SealedProbePaths, seedMap: SealedProbeSeedMap): void {
-  fs.writeFileSync(paths.seedMapPath, JSON.stringify(seedMap, null, 2) + '\n', { mode: 0o644 });
-  fs.chmodSync(paths.seedMapPath, 0o644);
+  const content = JSON.stringify(seedMap, null, 2) + '\n';
+  // O_EXCL | O_NOFOLLOW: atomically create; fail if a symlink or existing file
+  // is already at this path (insecure-temp-file guard).
+  const fd = fs.openSync(
+    paths.seedMapPath,
+    fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_NOFOLLOW,
+    0o644,
+  );
+  try {
+    fs.writeSync(fd, content);
+    fs.fchmodSync(fd, 0o644);
+  } finally {
+    fs.closeSync(fd);
+  }
 }
 
 export interface PrepareSealedProbesDeps {

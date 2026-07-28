@@ -133,7 +133,19 @@ invocation.
  */
 export function writeSealedProbeSkill(paths: SealedProbePaths, params: SealedProbeSkillParams): string {
   fs.mkdirSync(paths.agentDir, { recursive: true, mode: 0o755 });
-  fs.writeFileSync(paths.skillPath, generateSealedProbeSkill(params), { mode: 0o644 });
-  fs.chmodSync(paths.skillPath, 0o644);
+  const content = generateSealedProbeSkill(params);
+  // O_EXCL | O_NOFOLLOW: atomically create; fail if a symlink or existing file
+  // is already at this path (insecure-temp-file guard).
+  const fd = fs.openSync(
+    paths.skillPath,
+    fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_NOFOLLOW,
+    0o644,
+  );
+  try {
+    fs.writeSync(fd, content);
+    fs.fchmodSync(fd, 0o644);
+  } finally {
+    fs.closeSync(fd);
+  }
   return AGENT_SKILL_PATH;
 }
