@@ -17,6 +17,8 @@ const WORK_DIR = '/srv/awf/work';
 const SEED_MAP_PATH = '/srv/awf/seed-map.json';
 const SOCKET_DIR = '/run/awf-sealed-probe';
 const SOCKET_PATH = path.join(SOCKET_DIR, 'broker.sock');
+/** Broker writes this file after the socket is ready; the healthcheck reads it. */
+const READY_PATH = path.join(SOCKET_DIR, 'broker.ready');
 const AUDIT_DIR = '/var/log/awf-sealed-probe';
 const PROBE_SECCOMP_PATH = '/opt/awf/probe-seccomp.json';
 
@@ -63,6 +65,7 @@ function loadConfig() {
     seedMapPath: SEED_MAP_PATH,
     socketDir: SOCKET_DIR,
     socketPath: SOCKET_PATH,
+    readyPath: READY_PATH,
     auditDir: AUDIT_DIR,
     probeSeccompPath: PROBE_SECCOMP_PATH,
     probeMountDir: PROBE_MOUNT_DIR,

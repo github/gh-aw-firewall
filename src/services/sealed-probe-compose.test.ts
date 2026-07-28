@@ -78,9 +78,11 @@ describe('sealed-probe broker in generated Docker Compose', () => {
       const agent = result.services['agent'] as unknown as Record<string, unknown>;
       const sealedMounts = (agent.volumes as string[]).filter((v) => v.includes('sealed-probe'));
 
-      expect(sealedMounts).toHaveLength(4);
+      // 2 masking mounts (hide the sealed-probe root) + 2 socket mounts + 2 skill mounts = 6
+      expect(sealedMounts).toHaveLength(6);
+      // Masking mounts are read-only; socket mounts are read-write; skill mounts are read-only
       expect(sealedMounts.filter((v) => v.endsWith(':rw'))).toHaveLength(2);
-      expect(sealedMounts.filter((v) => v.endsWith(':ro'))).toHaveLength(2);
+      expect(sealedMounts.filter((v) => v.endsWith(':ro'))).toHaveLength(4);
       expect(sealedMounts.join(' ')).not.toContain('/seeds');
       expect(sealedMounts.join(' ')).not.toContain('docker.sock');
     });

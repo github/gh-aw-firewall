@@ -58,6 +58,12 @@ function createBroker(params) {
       return CANONICAL_ERROR_RESULT_JSON;
     }
 
+    // Start the per-invocation deadline now, before workspace creation.
+    // createInvocationWorkspace is synchronous (fs.cpSync) and can block for
+    // the full seed copy duration — the deadline must cover that too.
+    const deadlineMs = config.timeoutSeconds * 1000;
+    const deadlineStart = Date.now();
+
     let layout;
     try {
       layout = workspace.createInvocationWorkspace({
@@ -72,9 +78,17 @@ function createBroker(params) {
       return CANONICAL_ERROR_RESULT_JSON;
     }
 
+    const elapsedMs = Date.now() - deadlineStart;
+    if (elapsedMs >= deadlineMs) {
+      audit.failure(invocationId, 'timeout', 'workspace-creation-overran-deadline');
+      safeDestroy(invocationId);
+      return CANONICAL_ERROR_RESULT_JSON;
+    }
+    const remainingMs = deadlineMs - elapsedMs;
+
     let result = CANONICAL_ERROR_RESULT_JSON;
     try {
-      const run = await runner.runProbeContainer({ config, runId, invocationId });
+      const run = await runner.runProbeContainer({ config, runId, invocationId, timeoutMs: remainingMs });
 
       if (run.timedOut) {
         audit.failure(invocationId, 'timeout');

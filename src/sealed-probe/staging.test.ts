@@ -117,16 +117,17 @@ describe('buildCloneUrl', () => {
 
 describe('buildStagingGitEnv', () => {
   const env = buildStagingGitEnv({
-    token: TOKEN,
+    tokenFilePath: '/work/staging-token',
     askpassPath: '/work/askpass.sh',
     isolatedHome: '/work/staging-home',
   });
 
-  it('passes the credential only through the askpass environment variable', () => {
-    expect(env[stagingTestHelpers.ASKPASS_TOKEN_ENV]).toBe(TOKEN);
+  it('passes only the token file PATH (not the token itself) through the environment', () => {
+    expect(env[stagingTestHelpers.ASKPASS_TOKEN_FILE_ENV]).toBe('/work/staging-token');
     const otherValues = Object.entries(env)
-      .filter(([key]) => key !== stagingTestHelpers.ASKPASS_TOKEN_ENV)
+      .filter(([key]) => key !== stagingTestHelpers.ASKPASS_TOKEN_FILE_ENV)
       .map(([, value]) => String(value));
+    // The token itself must not appear anywhere in the git environment.
     expect(otherValues.some((value) => value.includes(TOKEN))).toBe(false);
   });
 
@@ -142,7 +143,7 @@ describe('buildStagingGitEnv', () => {
 
   it('does not forward unrelated host environment variables', () => {
     expect(Object.keys(env).sort()).toEqual([
-      stagingTestHelpers.ASKPASS_TOKEN_ENV,
+      stagingTestHelpers.ASKPASS_TOKEN_FILE_ENV,
       'GIT_ASKPASS',
       'GIT_CONFIG_COUNT',
       'GIT_CONFIG_KEY_0',
@@ -179,6 +180,20 @@ describe('stageSealedProbeSeeds', () => {
     }
   });
 
+  it('never places the token itself in git environment variables', async () => {
+    const { runner, calls } = createFakeGit();
+    await stage(workDir, runner);
+
+    for (const call of calls) {
+      for (const [key, value] of Object.entries(call.env)) {
+        // The token file PATH env var is expected; the token VALUE must not be.
+        if (key !== stagingTestHelpers.ASKPASS_TOKEN_FILE_ENV) {
+          expect(String(value)).not.toContain(TOKEN);
+        }
+      }
+    }
+  });
+
   it('clones from an AWF-constructed URL with no embedded credential', async () => {
     const { runner, calls } = createFakeGit();
     await stage(workDir, runner);
@@ -188,11 +203,12 @@ describe('stageSealedProbeSeeds', () => {
     expect(clone?.args).toContain('--recurse-submodules=no');
   });
 
-  it('removes the askpass helper and isolated home once staging finishes', async () => {
+  it('removes the askpass helper, token file, and isolated home once staging finishes', async () => {
     const { runner } = createFakeGit();
     const { paths } = await stage(workDir, runner);
 
     expect(fs.existsSync(path.join(paths.root, 'askpass.sh'))).toBe(false);
+    expect(fs.existsSync(path.join(paths.root, 'staging-token'))).toBe(false);
     expect(fs.existsSync(path.join(paths.root, 'staging-home'))).toBe(false);
   });
 
@@ -209,7 +225,20 @@ describe('stageSealedProbeSeeds', () => {
         for (const entry of fs.readdirSync(target)) walk(path.join(target, entry));
         return;
       }
-      if (fs.readFileSync(target, 'utf8').includes(TOKEN)) offenders.push(target);
+      // Open with O_NOFOLLOW so a race-replaced symlink cannot redirect the read.
+      let fd: number;
+      try {
+        fd = fs.openSync(target, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+      } catch {
+        return;
+      }
+      try {
+        if (fs.readFileSync(fd, 'utf8').includes(TOKEN)) offenders.push(target);
+      } catch {
+        // skip unreadable entries
+      } finally {
+        fs.closeSync(fd);
+      }
     };
     walk(paths.root);
 

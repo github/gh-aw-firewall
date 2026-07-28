@@ -128,10 +128,11 @@ describe('buildSealedProbeService', () => {
         config: buildConfig(),
         imageConfig: imageConfig(false),
       });
-      expect(localService.image).toBe('awf-sealed-probe:local');
+      expect(localService.image).toBe('awf-sealed-probe-broker:local');
       expect(localService.build).toEqual({
         context: path.join('/opt/awf', 'containers', 'sealed-probe'),
         dockerfile: 'Dockerfile',
+        target: 'broker',
       });
       expect((localService.environment as Record<string, string>).AWF_SEALED_PROBE_IMAGE)
         .toBe('awf-sealed-probe:local');
@@ -154,8 +155,13 @@ describe('buildSealedProbeService', () => {
 
     it('mounts the socket read-write and the skill read-only, for chroot and non-chroot paths', () => {
       expect(agentVolumes).toEqual([
+        // Masking mounts first — hide the sealed-probe root visible through /tmp.
+        `${paths.maskDir}:${paths.root}:ro`,
+        `${paths.maskDir}:/host${paths.root}:ro`,
+        // Socket mounts.
         `${paths.runDir}:${AGENT_SOCKET_DIR}:rw`,
         `${paths.runDir}:/host${AGENT_SOCKET_DIR}:rw`,
+        // Skill mounts.
         `${paths.agentDir}:${AGENT_SKILL_DIR}:ro`,
         `${paths.agentDir}:/host${AGENT_SKILL_DIR}:ro`,
       ]);
@@ -182,8 +188,9 @@ describe('buildSealedProbeService', () => {
     });
 
     it('prefixes the agent socket and skill mounts symmetrically', () => {
-      expect(agentVolumes[0]).toBe(`/host${paths.runDir}:${AGENT_SOCKET_DIR}:rw`);
-      expect(agentVolumes[2]).toBe(`/host${paths.agentDir}:${AGENT_SKILL_DIR}:ro`);
+      // Masking mounts are at [0] and [1]; socket mounts start at [2].
+      expect(agentVolumes[2]).toBe(`/host${paths.runDir}:${AGENT_SOCKET_DIR}:rw`);
+      expect(agentVolumes[4]).toBe(`/host${paths.agentDir}:${AGENT_SKILL_DIR}:ro`);
     });
 
     it('hands the daemon-visible work directory to the broker for probe mounts', () => {

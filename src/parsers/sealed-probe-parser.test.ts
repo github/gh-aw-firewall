@@ -41,7 +41,7 @@ describe('normalizeSealedProbesConfig', () => {
     const config = normalizeSealedProbesConfig({
       enabled: true,
       privateRepos: ['octo/repo'],
-      runtime: 'sbx',
+      runtime: 'gvisor',
       timeout: 120,
       memoryLimit: '2g',
       interpreter: 'python3',
@@ -51,7 +51,7 @@ describe('normalizeSealedProbesConfig', () => {
     expect(config).toEqual({
       enabled: true,
       privateRepos: ['octo/repo'],
-      runtime: 'sbx',
+      runtime: 'gvisor',
       timeout: 120,
       memoryLimit: '2g',
       interpreter: 'python3',

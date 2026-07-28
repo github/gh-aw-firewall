@@ -9,7 +9,7 @@
  */
 
 /** Sandbox runtime backends supported for sealed-probe execution. */
-export type SealedProbeRuntime = 'docker' | 'gvisor' | 'sbx';
+export type SealedProbeRuntime = 'docker' | 'gvisor';
 
 /** Script interpreters supported for sealed-probe execution. */
 export type SealedProbeInterpreter = 'python3';

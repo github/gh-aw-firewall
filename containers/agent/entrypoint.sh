@@ -646,6 +646,22 @@ copy_agent_helper_scripts() {
       fi
     fi
   fi
+
+  # Install the sealed-probe SKILL.md at the standard GitHub Copilot skill
+  # discovery path so agents find it via the same scan that discovers other
+  # skills in ~/.github/skills/.  The source file is bind-mounted read-only
+  # from the host; we copy it into the chroot home so it is discovered inside
+  # the chroot without leaving host state modified.
+  if [ -n "$AWF_SEALED_PROBE_SKILL" ] && [ -f "$AWF_SEALED_PROBE_SKILL" ] && \
+     [ -n "$SYNTH_HOME" ]; then
+    SKILL_DEST_DIR="/host${SYNTH_HOME}/.github/skills/sealed-probe"
+    if mkdir -p "$SKILL_DEST_DIR" 2>/dev/null && \
+       cp "$AWF_SEALED_PROBE_SKILL" "$SKILL_DEST_DIR/SKILL.md" 2>/dev/null; then
+      echo "[entrypoint] sealed-probe SKILL.md installed at ${SYNTH_HOME}/.github/skills/sealed-probe/SKILL.md (inside chroot)"
+    else
+      echo "[entrypoint][WARN] Could not install sealed-probe SKILL.md"
+    fi
+  fi
 }
 
 copy_dind_runner_binary() {
@@ -1376,6 +1392,19 @@ run_non_chroot_command() {
       echo "[entrypoint] sealed-probe CLI installed at /tmp/awf-lib/sealed-probe"
     else
       echo "[entrypoint][WARN] Could not install sealed-probe CLI"
+    fi
+  fi
+
+  # Install the sealed-probe SKILL.md at the standard GitHub Copilot skill
+  # discovery path so agents find it via the same scan that discovers other
+  # skills in ~/.github/skills/ (non-chroot mode).
+  if [ -n "$AWF_SEALED_PROBE_SKILL" ] && [ -f "$AWF_SEALED_PROBE_SKILL" ]; then
+    SKILL_DEST_DIR="${HOME}/.github/skills/sealed-probe"
+    if mkdir -p "$SKILL_DEST_DIR" 2>/dev/null && \
+       cp "$AWF_SEALED_PROBE_SKILL" "$SKILL_DEST_DIR/SKILL.md" 2>/dev/null; then
+      echo "[entrypoint] sealed-probe SKILL.md installed at ${SKILL_DEST_DIR}/SKILL.md"
+    else
+      echo "[entrypoint][WARN] Could not install sealed-probe SKILL.md"
     fi
   fi
 

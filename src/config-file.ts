@@ -171,7 +171,7 @@ export interface AwfFileConfig {
   sealedProbes?: {
     enabled?: boolean;
     privateRepos?: string[];
-    runtime?: 'docker' | 'gvisor' | 'sbx';
+    runtime?: 'docker' | 'gvisor';
     timeout?: number;
     memoryLimit?: string;
     interpreter?: 'python3';

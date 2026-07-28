@@ -72,9 +72,15 @@ describe('writeSealedProbeSkill', () => {
     });
 
     expect(containerPath).toBe(AGENT_SKILL_PATH);
-    expect(fs.existsSync(paths.skillPath)).toBe(true);
     expect(paths.skillPath.startsWith(workDir)).toBe(true);
-    expect(fs.statSync(paths.skillPath).mode & 0o777).toBe(0o644);
-    expect(fs.readFileSync(paths.skillPath, 'utf8')).toContain('octo/alpha');
+    // Open with O_NOFOLLOW to avoid TOCTOU between stat and read.
+    const fd = fs.openSync(paths.skillPath, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+    try {
+      const stat = fs.fstatSync(fd);
+      expect(stat.mode & 0o777).toBe(0o644);
+      expect(fs.readFileSync(fd, 'utf8')).toContain('octo/alpha');
+    } finally {
+      fs.closeSync(fd);
+    }
   });
 });

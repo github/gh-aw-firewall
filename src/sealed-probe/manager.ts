@@ -50,6 +50,12 @@ function ensureModeDirectory(target: string, mode: number): void {
  * The socket and skill directories are handed to the host user because the
  * agent process runs under the host UID/GID; everything else stays
  * root-owned (0700) inside the already-hardened work directory.
+ *
+ * The mask directory is created as an empty, read-only-to-others directory.
+ * It is bind-mounted into the agent at the sealed-probe root path, replacing
+ * the agent's view of the entire sealed-probe subtree (including seeds, work,
+ * and audit) through the broad `/tmp` bind mount. Only the socket and skill
+ * (mounted at separate container paths) remain agent-visible.
  */
 function prepareDirectories(paths: SealedProbePaths): void {
   ensureModeDirectory(paths.root, 0o700);
@@ -58,6 +64,9 @@ function prepareDirectories(paths: SealedProbePaths): void {
   ensureModeDirectory(paths.auditDir, 0o700);
   ensureModeDirectory(paths.runDir, 0o770);
   ensureModeDirectory(paths.agentDir, 0o755);
+  // Empty directory used as a masking mount in the agent container.
+  // Mode 0o755 so Docker can bind-mount it without special privileges.
+  ensureModeDirectory(paths.maskDir, 0o755);
 
   try {
     fs.chownSync(paths.runDir, parseInt(getSafeHostUid(), 10), parseInt(getSafeHostGid(), 10));
@@ -109,6 +118,23 @@ export async function prepareSealedProbes(
   }
 
   const paths = resolveSealedProbePaths(config.workDir);
+
+  // Guard against symlink injection before writing any credential-bearing state.
+  // The generic work-directory check in config-writer.ts runs later (during
+  // writeConfigs), so we apply the same symlink rejection here explicitly.
+  try {
+    const lstat = fs.lstatSync(config.workDir);
+    if (lstat.isSymbolicLink()) {
+      throw new Error(`Refusing to stage into a symlink work directory: ${config.workDir}`);
+    }
+  } catch (error: unknown) {
+    // If lstatSync throws because the directory doesn't exist yet, that is
+    // fine — prepareDirectories will create it.  Any other error propagates.
+    if (error instanceof Error && (error as NodeJS.ErrnoException).code !== 'ENOENT') {
+      throw error;
+    }
+  }
+
   prepareDirectories(paths);
 
   const runId = generateSealedProbeRunId();

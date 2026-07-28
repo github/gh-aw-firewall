@@ -7,25 +7,29 @@ const { MAX_RESULT_BYTES } = require('./protocol');
 /**
  * Per-invocation private workspace management.
  *
- * Every invocation receives a *fresh, full, writable copy* of exactly one
- * immutable seed. The seed itself is mounted read-only into the broker and is
- * never handed to a probe, so a probe can neither observe nor mutate it, nor
- * reach any other repository.
+ * Every invocation receives a *fresh, full, read-only copy* of exactly one
+ * immutable seed mounted at `/probe/repo`. The seed itself is mounted
+ * read-only into the broker and is never handed to a probe, so a probe can
+ * neither observe nor mutate it, nor reach any other repository.
  *
- * Copy-on-write is deliberately not used: a full copy is the safe fallback and
- * this repository has no proof that a CoW snapshot cannot share metadata or
- * object storage across repositories/invocations.
+ * `/probe` is backed by a size-limited tmpfs so the probe cannot create
+ * unbounded numbers of files on the Docker host. The probe writes its
+ * answer to `/probe/out`, which is a pre-created bind-mounted file whose
+ * contents the broker reads back from the host filesystem after the
+ * container exits.
  */
 
 /** Layout of one invocation directory, relative to the broker's work dir. */
 function invocationLayout(workDir, invocationId) {
   const root = path.join(workDir, invocationId);
-  const probeDir = path.join(root, 'probe');
   return {
     root,
-    probeDir,
-    repoDir: path.join(probeDir, 'repo'),
-    outPath: path.join(probeDir, 'out'),
+    // The seed copy is mounted read-only into the probe at probeMountDir/repo.
+    repoDir: path.join(root, 'repo'),
+    // Pre-created empty file bound at probeMountDir/out so the probe can write
+    // its answer to the host filesystem; the broker reads it back after exit.
+    outPath: path.join(root, 'out'),
+    // The submitted script is bound read-only at probeScriptPath.
     scriptPath: path.join(root, 'script.py'),
   };
 }
@@ -49,18 +53,25 @@ function grantProbeOwnership(target, uid, gid) {
 }
 
 /**
- * Materializes the invocation workspace: a private writable copy of the seed
- * plus the submitted script at its own path.
+ * Materializes the invocation workspace: a read-only copy of the seed repo,
+ * the submitted script, and a pre-created empty output file.
+ *
+ * The seed repo is mounted read-only into the probe container (no aggregate
+ * storage impact from repo reads). The output file is a bind-mounted regular
+ * file owned by the probe uid so the probe can write its answer there.
+ * `/probe` itself is backed by a size-limited tmpfs (see probe-runner.js).
  */
 function createInvocationWorkspace(params) {
   const { config, invocationId, seedId, script } = params;
   const layout = invocationLayout(config.workDir, invocationId);
 
-  fs.mkdirSync(layout.probeDir, { recursive: true, mode: 0o700 });
+  fs.mkdirSync(layout.root, { recursive: true, mode: 0o700 });
 
-  // Symlinks are copied as symlinks, never dereferenced: dereferencing would
-  // let a seed's symlink pull in broker-container files, and inside the probe
-  // a dangling/absolute symlink resolves within the probe's own rootfs.
+  // Copy the seed to layout.repoDir. The copy is mounted read-only into
+  // the probe (:ro flag in probe-runner.js), but the broker-side copy
+  // must be writable so the broker can delete it after the probe exits.
+  // FS permissions on the host do NOT enforce the probe's read-only
+  // constraint — the Docker mount flag does.
   fs.cpSync(path.join(config.seedsDir, seedId), layout.repoDir, {
     recursive: true,
     dereference: false,
@@ -69,10 +80,34 @@ function createInvocationWorkspace(params) {
     errorOnExist: false,
   });
 
+  // Ensure every entry in the repo copy is owner-writable so the broker
+  // can remove it cleanly after the probe exits. The seed is read-locked;
+  // without this, rmSync on the invocation root would fail with EACCES.
+  const makeOwnerWritable = (p) => {
+    try {
+      const stat = fs.lstatSync(p);
+      if (stat.isSymbolicLink()) return;
+      fs.chmodSync(p, stat.mode | (stat.isDirectory() ? 0o700 : 0o200));
+      if (stat.isDirectory()) {
+        for (const entry of fs.readdirSync(p)) {
+          makeOwnerWritable(path.join(p, entry));
+        }
+      }
+    } catch {
+      // best-effort
+    }
+  };
+  makeOwnerWritable(layout.repoDir);
+
+  // Script: broker-owned read-only on the host, mounted ro into the probe.
   fs.writeFileSync(layout.scriptPath, script, { mode: 0o444 });
   fs.chmodSync(layout.scriptPath, 0o444);
 
-  grantProbeOwnership(layout.probeDir, config.probeUid, config.probeGid);
+  // Output file: pre-created as an empty file so Docker can bind-mount it
+  // into the tmpfs-backed /probe directory. Owned by the probe uid so the
+  // probe process (--user probeUid:probeGid) can write to it.
+  fs.writeFileSync(layout.outPath, '', { mode: 0o600 });
+  fs.chownSync(layout.outPath, config.probeUid, config.probeGid);
 
   return layout;
 }

@@ -64,7 +64,7 @@ describe('validateAwfFileConfig — sealedProbes', () => {
     expect(errors.length).toBeGreaterThan(0);
   });
 
-  it.each(['docker', 'gvisor', 'sbx'])('accepts runtime %s', (runtime) => {
+  it.each(['docker', 'gvisor'])('accepts runtime %s', (runtime) => {
     expect(validateAwfFileConfig({ sealedProbes: { runtime } })).toEqual([]);
   });
 

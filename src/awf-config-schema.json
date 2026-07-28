@@ -856,10 +856,9 @@
           "type": "string",
           "enum": [
             "docker",
-            "gvisor",
-            "sbx"
+            "gvisor"
           ],
-          "description": "Sandbox runtime backend used to execute the probe script, selected independently of the primary agent runtime. \"docker\" uses the daemon default runtime; \"gvisor\" requires the runsc OCI runtime and fails closed when it is unavailable. \"sbx\" is rejected at preflight: AWF has no no-network per-invocation sealed-probe launcher for it and never downgrades. Default: \"docker\".",
+          "description": "Sandbox runtime backend used to execute the probe script, selected independently of the primary agent runtime. \"docker\" uses the daemon default runtime; \"gvisor\" requires the runsc OCI runtime and fails closed when it is unavailable. Default: \"docker\".",
           "default": "docker"
         },
         "timeout": {

@@ -39,6 +39,17 @@ export interface SealedProbePaths {
   socketPath: string;
   /** Host path of the generated skill document. */
   skillPath: string;
+  /**
+   * Empty directory used to mask the entire sealed-probe root from the agent's
+   * broad `/tmp` bind mount.
+   *
+   * The agent receives `run/` (socket) and `agent/` (skill) as separate,
+   * more-specific bind mounts at different container paths. The parent
+   * `<workDir>/sealed-probes/` is masked with this empty directory so the
+   * agent cannot enumerate seeds, work, audit, or the seed-map through `/tmp`.
+   * Located OUTSIDE the sealed-probe root to avoid self-referential masking.
+   */
+  maskDir: string;
 }
 
 /** Name of the broker's Unix domain socket inside {@link SealedProbePaths.runDir}. */
@@ -104,6 +115,9 @@ export function resolveSealedProbePaths(awfWorkDir: string): SealedProbePaths {
     seedMapPath: path.join(root, 'seed-map.json'),
     socketPath: path.join(runDir, SEALED_PROBE_SOCKET_FILENAME),
     skillPath: path.join(agentDir, SEALED_PROBE_SKILL_FILENAME),
+    // Sibling of the sealed-probe root — never inside it — so the mask mount
+    // does not accidentally mask itself.
+    maskDir: path.join(awfWorkDir, 'sealed-probes-mask'),
   };
 }
 

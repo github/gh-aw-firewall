@@ -42,10 +42,16 @@ import type { ImageBuildConfig } from './squid-service';
  *   vector.
  */
 
-/** Local image tag used when building the sealed-probe image from source. */
+/** Local image tag used when building the sealed-probe broker image from source. */
+const LOCAL_SEALED_PROBE_BROKER_IMAGE = 'awf-sealed-probe-broker:local';
+
+/** Local image tag used when building the sealed-probe probe image from source. */
 const LOCAL_SEALED_PROBE_IMAGE = 'awf-sealed-probe:local';
 
-/** Image name published to the container registry. */
+/** Broker image name published to the container registry. */
+const SEALED_PROBE_BROKER_IMAGE_NAME = 'sealed-probe-broker';
+
+/** Probe image name published to the container registry. */
 const SEALED_PROBE_IMAGE_NAME = 'sealed-probe';
 
 interface SealedProbeServiceParams {
@@ -63,36 +69,55 @@ interface SealedProbeBuildResult {
 }
 
 /**
- * Resolves the image reference used for both the broker and the probe
- * sandbox.
+ * Resolves the image references for the broker and probe sandbox separately.
  *
- * Reusing one image guarantees the probe image is already present locally
- * when the broker starts (compose pulled or built it), so an invocation never
- * triggers a registry pull — the broker has no network to perform one with.
+ * The broker and probe are built from separate Dockerfile stages and published
+ * as separate images (`sealed-probe-broker` and `sealed-probe`). Using two
+ * images keeps the probe environment minimal (Python 3 only — no Node, no
+ * docker-cli) while still guaranteeing the probe image is local when the
+ * broker starts: the release workflow pushes both and compose pulls the broker
+ * image which declares a dependency on the probe image.
  */
-function resolveSealedProbeImage(imageConfig: ImageBuildConfig): {
-  imageRef: string;
-  source: Record<string, unknown>;
+function resolveSealedProbeImages(imageConfig: ImageBuildConfig): {
+  probeImageRef: string;
+  brokerSource: Record<string, unknown>;
 } {
   const { useGHCR, registry, parsedTag, projectRoot } = imageConfig;
 
   if (useGHCR) {
-    const imageRef = buildRuntimeImageRef(registry, SEALED_PROBE_IMAGE_NAME, parsedTag);
-    return { imageRef, source: { image: imageRef } };
+    const probeImageRef = buildRuntimeImageRef(registry, SEALED_PROBE_IMAGE_NAME, parsedTag);
+    const brokerImageRef = buildRuntimeImageRef(registry, SEALED_PROBE_BROKER_IMAGE_NAME, parsedTag);
+    return { probeImageRef, brokerSource: { image: brokerImageRef } };
   }
 
   // Local builds pin an explicit `image:` alongside `build:` so the built
   // image gets a deterministic tag the broker can pass to `docker run`.
   return {
-    imageRef: LOCAL_SEALED_PROBE_IMAGE,
-    source: {
-      image: LOCAL_SEALED_PROBE_IMAGE,
+    probeImageRef: LOCAL_SEALED_PROBE_IMAGE,
+    brokerSource: {
+      image: LOCAL_SEALED_PROBE_BROKER_IMAGE,
       build: {
         context: `${projectRoot}/containers/sealed-probe`,
         dockerfile: 'Dockerfile',
+        // Build the broker (default) stage; probe is a separate target.
+        target: 'broker',
       },
     },
   };
+}
+
+/**
+ * Resolves the image reference for the probe image only (legacy single-image
+ * helper preserved for the test-helpers export).
+ *
+ * @internal
+ */
+function resolveSealedProbeImage(imageConfig: ImageBuildConfig): {
+  imageRef: string;
+  source: Record<string, unknown>;
+} {
+  const { probeImageRef, brokerSource } = resolveSealedProbeImages(imageConfig);
+  return { imageRef: probeImageRef, source: brokerSource };
 }
 
 /**
@@ -117,12 +142,12 @@ export function buildSealedProbeService(params: SealedProbeServiceParams): Seale
   }
 
   const paths = resolveSealedProbePaths(config.workDir);
-  const { imageRef, source } = resolveSealedProbeImage(imageConfig);
+  const { probeImageRef, brokerSource } = resolveSealedProbeImages(imageConfig);
   const dockerSocketPath = resolveDockerSocketPath(config);
 
   const service: Record<string, unknown> = {
     container_name: SEALED_PROBE_BROKER_CONTAINER_NAME,
-    ...source,
+    ...brokerSource,
     // SECURITY: no networks key at all. `none` gives the broker a loopback-only
     // namespace: no awf-net, no awf-ext, no DNS, no Squid, no host gateway.
     network_mode: 'none',
@@ -138,7 +163,7 @@ export function buildSealedProbeService(params: SealedProbeServiceParams): Seale
       config.dockerHostPathPrefix,
     ),
     environment: {
-      AWF_SEALED_PROBE_IMAGE: imageRef,
+      AWF_SEALED_PROBE_IMAGE: probeImageRef,
       // "docker" means the daemon's default OCI runtime. Passing
       // `--runtime docker` would fail because Docker has no runtime by that
       // name; only non-default runtimes get an explicit value.
@@ -177,13 +202,29 @@ export function buildSealedProbeService(params: SealedProbeServiceParams): Seale
     AWF_SEALED_PROBE_REPOS: sealedProbes.privateRepos.join(','),
   };
 
-  // The agent receives exactly two sealed-probe mounts: the broker socket
-  // (read-write, required to connect) and the generated skill (read-only).
-  // Both paths are mounted twice because the agent runs chrooted into /host.
+  // The agent receives four sealed-probe mounts:
+  //
+  //  1+2. Masking mounts: an empty directory is mounted at the sealed-probe
+  //       root as seen through the agent's broad /tmp bind mount. This hides
+  //       seeds, work, audit, and the seed-map from the agent even in rootless
+  //       mode where directory permissions alone are insufficient.
+  //
+  //  3+4. Socket mount: the broker's Unix socket directory at its contract path.
+  //
+  //  5+6. Skill mount: the generated SKILL.md at its contract path.
+  //
+  // Paths are duplicated (bare and /host-prefixed) because the agent runs
+  // chrooted into /host. The masking mounts come first; Docker applies mounts
+  // in order, so the more-specific socket/skill mounts take precedence.
   const agentVolumes = applyHostPathPrefixToVolumes(
     [
+      // Masking mounts — cover the sealed-probe root visible through /tmp.
+      `${paths.maskDir}:${paths.root}:ro`,
+      `${paths.maskDir}:/host${paths.root}:ro`,
+      // Socket mounts.
       `${paths.runDir}:${AGENT_SOCKET_DIR}:rw`,
       `${paths.runDir}:/host${AGENT_SOCKET_DIR}:rw`,
+      // Skill mounts.
       `${paths.agentDir}:${AGENT_SKILL_DIR}:ro`,
       `${paths.agentDir}:/host${AGENT_SKILL_DIR}:ro`,
     ],
@@ -201,21 +242,30 @@ export function buildSealedProbeService(params: SealedProbeServiceParams): Seale
  * True when a volume entry is one of the sealed-probe agent mounts.
  *
  * The ARC/DinD sysroot filter drops bind mounts sourced from `workDir`; the
- * sealed-probe socket and skill mounts are sourced there but are mandatory,
- * so they are exempted explicitly rather than silently disappearing.
+ * sealed-probe socket, skill, and masking mounts are sourced there but are
+ * mandatory, so they are exempted explicitly rather than silently disappearing.
  */
 export function isSealedProbeAgentMount(volume: string): boolean {
   const target = volume.split(':')[1];
   if (!target) return false;
   const normalized = target.startsWith('/host') ? target.slice('/host'.length) : target;
-  return normalized === AGENT_SOCKET_DIR || normalized === AGENT_SKILL_DIR;
+  return (
+    normalized === AGENT_SOCKET_DIR ||
+    normalized === AGENT_SKILL_DIR ||
+    // The masking mount's target is the sealed-probe root itself (paths.root).
+    // We check by suffix since paths.root includes the dynamic workDir prefix.
+    normalized.endsWith('/sealed-probes')
+  );
 }
 
 /** @internal Exported for focused unit tests. */
 // ts-prune-ignore-next
 export const sealedProbeServiceTestHelpers = {
   LOCAL_SEALED_PROBE_IMAGE,
+  LOCAL_SEALED_PROBE_BROKER_IMAGE,
   SEALED_PROBE_IMAGE_NAME,
+  SEALED_PROBE_BROKER_IMAGE_NAME,
+  resolveSealedProbeImages,
   resolveSealedProbeImage,
   toDaemonVisiblePath,
 };

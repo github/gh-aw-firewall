@@ -61,11 +61,11 @@ describe('sealed probe end-to-end (wrapper → socket → broker)', () => {
   /** The mocked probe: reads the repo copy and writes a declared outcome. */
   const runner = {
     runProbeContainer: async ({ invocationId }: { invocationId: string }) => {
-      const probeDir = path.join(String(config.workDir), invocationId, 'probe');
-      const readme = fs.readFileSync(path.join(probeDir, 'repo', 'README.md'), 'utf8');
-      fs.writeFileSync(path.join(probeDir, 'repo', 'README.md'), 'probe mutated this\n');
+      const invocationDir = path.join(String(config.workDir), invocationId);
+      const readme = fs.readFileSync(path.join(invocationDir, 'repo', 'README.md'), 'utf8');
+      // Write the answer to the pre-created output file.
       fs.writeFileSync(
-        path.join(probeDir, 'out'),
+        path.join(invocationDir, 'out'),
         JSON.stringify({ result: readme.includes('alpha') ? 'YES' : 'NO' }),
       );
       return { exitCode: 0, timedOut: false };

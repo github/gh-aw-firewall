@@ -16,9 +16,13 @@ const { assertProbeImageAvailable } = require('./probe-runner');
  * `network_mode: none`, so this socket — shared with the agent through one
  * bind mount — is the broker's entire attack surface.
  *
- * Two routes exist:
- *   GET  /health  liveness for the compose healthcheck (broker-local only)
+ * One route exists:
  *   POST /probe   the sealed-probe API
+ *
+ * The agent-visible socket has no `/health` route. The compose healthcheck
+ * instead polls for a broker-internal ready file written by `main()` after
+ * the socket starts accepting connections. This removes a distinguishable
+ * fifth response (the health status body) from the agent-observable surface.
  *
  * `/probe` always answers `200` with a canonical result body. Status codes,
  * headers, and bodies are identical for success and for every failure class,
@@ -40,16 +44,9 @@ function createServer(deps) {
   const { broker, audit } = deps;
 
   return http.createServer((req, res) => {
-    if (req.method === 'GET' && req.url === '/health') {
-      const body = JSON.stringify({ status: 'ok' });
-      res.writeHead(200, { ...RESULT_HEADERS, 'content-length': Buffer.byteLength(body) });
-      res.end(body);
-      return;
-    }
-
     if (req.method !== 'POST' || req.url !== '/probe') {
       // Not part of the API. Answer with the canonical error rather than a
-      // distinguishable 404 so probing the surface yields no extra signal.
+      // distinguishable 404/405 so probing the surface yields no extra signal.
       sendResult(res, CANONICAL_ERROR_RESULT_JSON);
       req.resume();
       return;
@@ -113,6 +110,12 @@ async function main() {
   const server = createServer({ broker, audit });
 
   await listenOnSocket(server, config, audit);
+
+  // Write the ready file AFTER the socket is accepting connections. The
+  // compose healthcheck polls this file — it is broker-internal and not
+  // accessible on the agent-visible socket.
+  fs.writeFileSync(config.readyPath, '', { mode: 0o644 });
+
   audit.lifecycle('listening', {
     socket: config.socketPath,
     repos: seeds.size,

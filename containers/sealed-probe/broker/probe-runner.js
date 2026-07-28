@@ -14,8 +14,16 @@ const { execFile } = require('child_process');
 /** Extra grace beyond the probe's wall-clock budget for docker CLI overhead. */
 const CLI_GRACE_MS = 5_000;
 
-/** Maximum file size a probe may create, in bytes. */
+/** Maximum file size a probe may create, in bytes (per-file RLIMIT_FSIZE). */
 const PROBE_MAX_FILE_BYTES = 64 * 1024 * 1024;
+
+/**
+ * Aggregate size limit for the probe's writable tmpfs workspace in bytes.
+ *
+ * `/probe` is backed by a tmpfs of this size, bounding the total amount of
+ * new data the probe can write outside the pre-seeded repo copy.
+ */
+const PROBE_WORKSPACE_TMPFS_BYTES = 256 * 1024 * 1024;
 
 function runDocker(args, timeoutMs) {
   return new Promise((resolve) => {
@@ -73,17 +81,25 @@ function buildProbeArgs(params) {
     '--pids-limit', '128',
     '--ulimit', `fsize=${PROBE_MAX_FILE_BYTES}`,
     '--ulimit', 'nofile=1024:1024',
+    // /tmp: small tmpfs for Python's own scratch (cached imports, etc.)
     '--tmpfs', '/tmp:rw,noexec,nosuid,nodev,size=16m',
+    // /probe: size-limited tmpfs as the aggregate workspace.  New files the
+    // probe creates here cannot exceed PROBE_WORKSPACE_TMPFS_BYTES in total,
+    // which bounds host filesystem consumption beyond the pre-seeded repo.
+    '--tmpfs', `/probe:rw,nosuid,nodev,size=${PROBE_WORKSPACE_TMPFS_BYTES}`,
     '--hostname', 'probe',
     '--workdir', config.probeMountDir,
     '--env', 'HOME=/tmp',
     '--env', 'PYTHONDONTWRITEBYTECODE=1',
     '--env', 'PYTHONUNBUFFERED=1',
-    // Exactly two mounts: the invocation's private writable tree (which
-    // contains the repo copy and receives the output) and the submitted
-    // script at a fixed read-only path. No seed parent, no other repository,
-    // no Docker socket, no workspace, no credentials.
-    '-v', `${hostInvocationDir}/probe:${config.probeMountDir}:rw`,
+    // Mount the seed repo read-only: the probe reads the repository but
+    // cannot add files to the host-side copy.  This mounts over the tmpfs
+    // at /probe/repo — Docker applies the more-specific mount last.
+    '-v', `${hostInvocationDir}/repo:${config.probeMountDir}/repo:ro`,
+    // Mount the pre-created output file: the probe writes its answer here
+    // and it persists on the host for the broker to read back.
+    '-v', `${hostInvocationDir}/out:${config.probeMountDir}/out:rw`,
+    // The submitted script at its fixed read-only path.
     '-v', `${hostInvocationDir}/script.py:${config.probeScriptPath}:ro`,
   ];
 
@@ -112,8 +128,12 @@ async function runProbeContainer(params) {
   const containerName = `awf-probe-${params.invocationId}`;
   const args = buildProbeArgs({ ...params, containerName });
 
+  // Use the caller-supplied remaining budget (which already excludes workspace
+  // creation time) rather than the raw config timeout.
+  const containerTimeoutMs = (params.timeoutMs ?? config.timeoutSeconds * 1000) + CLI_GRACE_MS;
+
   try {
-    return await runDocker(args, config.timeoutSeconds * 1000 + CLI_GRACE_MS);
+    return await runDocker(args, containerTimeoutMs);
   } finally {
     // `docker run` was not given --rm so that a timeout kill of the CLI
     // cannot leave a half-removed container; remove it unconditionally.
@@ -131,6 +151,7 @@ async function assertProbeImageAvailable(image) {
 
 module.exports = {
   PROBE_MAX_FILE_BYTES,
+  PROBE_WORKSPACE_TMPFS_BYTES,
   buildProbeArgs,
   runProbeContainer,
   assertProbeImageAvailable,

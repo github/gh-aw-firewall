@@ -58,8 +58,9 @@ describe('validateSealedProbeConfig', () => {
     expect(errors.join('\n')).toContain('duplicate entry');
   });
 
-  it('fails closed for the sbx probe runtime instead of downgrading', () => {
-    const errors = validateSealedProbeConfig(buildConfig({ runtime: 'sbx' }), envWithToken);
+  it('fails closed for an unsupported probe runtime instead of downgrading', () => {
+    // Cast to bypass the type check — JSON parsing at runtime can produce any string.
+    const errors = validateSealedProbeConfig(buildConfig({ runtime: 'vmware' as 'docker' }), envWithToken);
     expect(errors.join('\n')).toContain('is not supported');
     expect(errors.join('\n')).toContain('never downgrade');
   });

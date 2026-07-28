@@ -132,14 +132,19 @@ describe('sealed-probe broker', () => {
   }
 
   /** Mock runner that behaves like a probe script executing inside the sandbox. */
-  function probeRunner(behaviour: (probeDir: string) => void, overrides: Record<string, unknown> = {}) {
+  function probeRunner(behaviour: (invocationDir: string) => void, overrides: Record<string, unknown> = {}) {
     const seen: string[] = [];
     return {
       seen,
       runProbeContainer: async ({ invocationId }: { invocationId: string }) => {
-        const probeDir = path.join(String(config.workDir), invocationId, 'probe');
-        seen.push(probeDir);
-        behaviour(probeDir);
+        // The invocation root contains repo/ (read-only seed copy), out (output
+        // file), and script.py (the submitted script). In Docker the probe sees
+        // /probe/repo (read-only bind mount) and /probe/out (bind mount), with
+        // /probe backed by a size-limited tmpfs. The mock operates on the host
+        // filesystem directly, so it uses the host invocation directory.
+        const invocationDir = path.join(String(config.workDir), invocationId);
+        seen.push(invocationDir);
+        behaviour(invocationDir);
         return { exitCode: 0, timedOut: false, stdout: '', stderr: '', ...overrides };
       },
     } as unknown as { runProbeContainer: (params: never) => Promise<unknown> } & { seen: string[] };
@@ -152,36 +157,34 @@ describe('sealed-probe broker', () => {
   });
 
   it('returns the canonically re-serialized declared outcome', async () => {
-    const runner = probeRunner((probeDir) => {
-      fs.writeFileSync(path.join(probeDir, 'out'), '  {"result": "YES"}  ');
+    const runner = probeRunner((invocationDir) => {
+      fs.writeFileSync(path.join(invocationDir, 'out'), '  {"result": "YES"}  ');
     });
     const { broker } = build(runner);
 
     await expect(broker.handle(validRequest())).resolves.toBe('{"result":"YES"}');
   });
 
-  it('gives the probe a writable copy and leaves the seed unchanged', async () => {
+  it('gives the probe a read-only copy of the repo and leaves the seed unchanged', async () => {
     let observed = '';
-    const runner = probeRunner((probeDir) => {
-      const repoDir = path.join(probeDir, 'repo');
-      observed = fs.readFileSync(path.join(repoDir, 'README.md'), 'utf8');
-      fs.writeFileSync(path.join(repoDir, 'README.md'), 'mutated\n');
-      fs.writeFileSync(path.join(repoDir, 'new-file'), 'created by probe\n');
-      fs.rmSync(path.join(repoDir, 'src'), { recursive: true });
-      fs.writeFileSync(path.join(probeDir, 'out'), '{"result":"NO"}');
+    const runner = probeRunner((invocationDir) => {
+      // Probe reads from the repo copy (mounted :ro in Docker).
+      observed = fs.readFileSync(path.join(invocationDir, 'repo', 'README.md'), 'utf8');
+      // Probe writes its answer to the pre-created out file.
+      fs.writeFileSync(path.join(invocationDir, 'out'), '{"result":"NO"}');
     });
     const { broker } = build(runner);
 
     await expect(broker.handle(validRequest())).resolves.toBe('{"result":"NO"}');
     expect(observed).toBe('repo A secret\n');
+    // The seed itself is untouched.
     expect(fs.readFileSync(path.join(seedPath(seedIdA), 'README.md'), 'utf8')).toBe('repo A secret\n');
     expect(fs.existsSync(path.join(seedPath(seedIdA), 'src'))).toBe(true);
-    expect(fs.existsSync(path.join(seedPath(seedIdA), 'new-file'))).toBe(false);
   });
 
   it('destroys the per-invocation copy afterwards', async () => {
-    const runner = probeRunner((probeDir) => {
-      fs.writeFileSync(path.join(probeDir, 'out'), '{"result":"YES"}');
+    const runner = probeRunner((invocationDir) => {
+      fs.writeFileSync(path.join(invocationDir, 'out'), '{"result":"YES"}');
     });
     const { broker } = build(runner);
 
@@ -193,17 +196,23 @@ describe('sealed-probe broker', () => {
   it('never exposes another repository or the seed parent to a probe', async () => {
     let repoContents = '';
     let siblings: string[] = [];
-    const runner = probeRunner((probeDir) => {
-      repoContents = fs.readFileSync(path.join(probeDir, 'repo', 'README.md'), 'utf8');
-      fs.writeFileSync(path.join(probeDir, 'out'), '{"result":"YES"}');
-      siblings = fs.readdirSync(probeDir).sort();
+    const runner = probeRunner((invocationDir) => {
+      repoContents = fs.readFileSync(path.join(invocationDir, 'repo', 'README.md'), 'utf8');
+      fs.writeFileSync(path.join(invocationDir, 'out'), '{"result":"YES"}');
+      // In Docker the probe sees /probe/ containing only repo/ and out (tmpfs).
+      // On the host the invocation root also holds script.py (mounted at
+      // probeScriptPath, outside /probe in Docker). Verify no private data leaks.
+      siblings = fs.readdirSync(invocationDir).sort();
     });
     const { broker } = build(runner);
 
     await broker.handle(validRequest('octo/beta'));
 
     expect(repoContents).toBe('repo B secret\n');
-    expect(siblings).toEqual(['out', 'repo']);
+    // script.py is the submitted (non-secret) script; out and repo are expected.
+    expect(siblings).toEqual(['out', 'repo', 'script.py']);
+    // No trace of the other seed.
+    expect(repoContents).not.toContain('repo A');
   });
 
   it('rejects a repository outside the AWF-generated map without launching', async () => {
@@ -235,65 +244,75 @@ describe('sealed-probe broker', () => {
   });
 
   it.each([
-    ['no output file', (): void => {}, 'unreadable-output'],
+    [
+      'no output file',
+      (invocationDir: string): void => {
+        // Remove the pre-created output file to simulate a probe that never wrote.
+        fs.unlinkSync(path.join(invocationDir, 'out'));
+      },
+      'unreadable-output',
+    ],
     [
       'oversized output',
-      (probeDir: string): void => {
-        fs.writeFileSync(path.join(probeDir, 'out'), 'x'.repeat(4096));
+      (invocationDir: string): void => {
+        fs.writeFileSync(path.join(invocationDir, 'out'), 'x'.repeat(4096));
       },
       'unreadable-output',
     ],
     [
       'symlinked output',
-      (probeDir: string): void => {
-        fs.symlinkSync('/etc/hosts', path.join(probeDir, 'out'));
+      (invocationDir: string): void => {
+        // Replace the pre-created output file with a symlink to test that
+        // readProbeOutput rejects symlinks (O_NOFOLLOW defence).
+        fs.unlinkSync(path.join(invocationDir, 'out'));
+        fs.symlinkSync('/etc/hosts', path.join(invocationDir, 'out'));
       },
       'unreadable-output',
     ],
     [
       'undeclared outcome',
-      (probeDir: string): void => {
-        fs.writeFileSync(path.join(probeDir, 'out'), '{"result":"MAYBE"}');
+      (invocationDir: string): void => {
+        fs.writeFileSync(path.join(invocationDir, 'out'), '{"result":"MAYBE"}');
       },
       'nonconformant-output',
     ],
     [
       'extra fields',
-      (probeDir: string): void => {
-        fs.writeFileSync(path.join(probeDir, 'out'), '{"result":"YES","leak":"secret"}');
+      (invocationDir: string): void => {
+        fs.writeFileSync(path.join(invocationDir, 'out'), '{"result":"YES","leak":"secret"}');
       },
       'nonconformant-output',
     ],
     [
       'duplicate keys',
-      (probeDir: string): void => {
-        fs.writeFileSync(path.join(probeDir, 'out'), '{"result":"YES","result":"NO"}');
+      (invocationDir: string): void => {
+        fs.writeFileSync(path.join(invocationDir, 'out'), '{"result":"YES","result":"NO"}');
       },
       'nonconformant-output',
     ],
     [
       'trailing bytes',
-      (probeDir: string): void => {
-        fs.writeFileSync(path.join(probeDir, 'out'), '{"result":"YES"} leaked');
+      (invocationDir: string): void => {
+        fs.writeFileSync(path.join(invocationDir, 'out'), '{"result":"YES"} leaked');
       },
       'nonconformant-output',
     ],
     [
       'invalid UTF-8',
-      (probeDir: string): void => {
-        fs.writeFileSync(path.join(probeDir, 'out'), Buffer.from([0x7b, 0xff, 0xfe, 0x7d]));
+      (invocationDir: string): void => {
+        fs.writeFileSync(path.join(invocationDir, 'out'), Buffer.from([0x7b, 0xff, 0xfe, 0x7d]));
       },
       'unreadable-output',
     ],
     [
       'script-written ERROR',
-      (probeDir: string): void => {
-        fs.writeFileSync(path.join(probeDir, 'out'), '{"result":"ERROR"}');
+      (invocationDir: string): void => {
+        fs.writeFileSync(path.join(invocationDir, 'out'), '{"result":"ERROR"}');
       },
       'nonconformant-output',
     ],
   ])('maps %s to the canonical error', async (_name, behaviour, reason) => {
-    const runner = probeRunner(behaviour as (probeDir: string) => void);
+    const runner = probeRunner(behaviour as (invocationDir: string) => void);
     const { broker, audit } = build(runner);
 
     await expect(broker.handle(validRequest())).resolves.toBe(CANONICAL_ERROR);
@@ -302,8 +321,8 @@ describe('sealed-probe broker', () => {
   });
 
   it('maps a timeout to the canonical error', async () => {
-    const runner = probeRunner((probeDir) => {
-      fs.writeFileSync(path.join(probeDir, 'out'), '{"result":"YES"}');
+    const runner = probeRunner((invocationDir) => {
+      fs.writeFileSync(path.join(invocationDir, 'out'), '{"result":"YES"}');
     }, { timedOut: true, exitCode: 137 });
     const { broker, audit } = build(runner);
 
@@ -312,8 +331,8 @@ describe('sealed-probe broker', () => {
   });
 
   it('maps a non-zero probe exit to the canonical error even when output is valid', async () => {
-    const runner = probeRunner((probeDir) => {
-      fs.writeFileSync(path.join(probeDir, 'out'), '{"result":"YES"}');
+    const runner = probeRunner((invocationDir) => {
+      fs.writeFileSync(path.join(invocationDir, 'out'), '{"result":"YES"}');
     }, { exitCode: 2 });
     const { broker, audit } = build(runner);
 
@@ -322,8 +341,8 @@ describe('sealed-probe broker', () => {
   });
 
   it('maps cleanup failure to the canonical error instead of returning a valid outcome', async () => {
-    const runner = probeRunner((probeDir) => {
-      fs.writeFileSync(path.join(probeDir, 'out'), '{"result":"YES"}');
+    const runner = probeRunner((invocationDir) => {
+      fs.writeFileSync(path.join(invocationDir, 'out'), '{"result":"YES"}');
     });
     const cleanupFailingWorkspace = {
       ...workspace,
@@ -368,8 +387,8 @@ describe('sealed-probe broker', () => {
     const runner = {
       runProbeContainer: async ({ invocationId }: { invocationId: string }) => {
         launches.push(invocationId);
-        const probeDir = path.join(String(config.workDir), invocationId, 'probe');
-        fs.writeFileSync(path.join(probeDir, 'out'), '{"result":"YES"}');
+        const invocationDir = path.join(String(config.workDir), invocationId);
+        fs.writeFileSync(path.join(invocationDir, 'out'), '{"result":"YES"}');
         return { exitCode: 0, timedOut: false };
       },
     } as unknown as { runProbeContainer: (params: never) => Promise<unknown> };
@@ -386,7 +405,10 @@ describe('sealed-probe broker', () => {
   });
 
   it('records failure reasons only in the protected audit log, never in the response', async () => {
-    const runner = probeRunner(() => {});
+    // Probe deletes the output file so the broker cannot read it.
+    const runner = probeRunner((invocationDir) => {
+      fs.unlinkSync(path.join(invocationDir, 'out'));
+    });
     const { broker, audit } = build(runner);
 
     const response = await broker.handle(validRequest());
@@ -461,9 +483,18 @@ describe('probe container arguments', () => {
     }, []);
 
     expect(mounts).toEqual([
-      '/daemon/work/inv-1/probe:/probe:rw',
+      '/daemon/work/inv-1/repo:/probe/repo:ro',
+      '/daemon/work/inv-1/out:/probe/out:rw',
       '/daemon/work/inv-1/script.py:/awf/probe-script.py:ro',
     ]);
+  });
+
+  it('backs /probe with a size-limited tmpfs for aggregate storage enforcement', () => {
+    const joined = args().join(' ');
+    expect(joined).toMatch(/--tmpfs \/probe:rw,nosuid,nodev,size=\d+/);
+    // No writable bind mount for the full /probe dir: a probe cannot fill the host FS
+    expect(joined).not.toContain(':/probe:rw');
+    expect(joined).not.toContain(':/probe/repo:rw');
   });
 
   it('never mounts the Docker socket, the seeds root, or a workspace', () => {
