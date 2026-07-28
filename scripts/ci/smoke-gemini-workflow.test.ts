@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { applyGeneralWorkflowPatches } from './apply-general-workflow-patches';
 
 const workflowsDir = path.resolve(__dirname, '../../.github/workflows');
 const smokeGeminiSourcePath = path.join(workflowsDir, 'smoke-gemini.md');
@@ -35,10 +36,11 @@ describe('smoke gemini workflow output requirements', () => {
     expect(lock).toContain('--exclude-env GEMINI_API_KEY');
   });
 
-  it('lock file installs AWF binary', () => {
+  it('postprocessed lock file installs AWF binary locally', () => {
     const lock = fs.readFileSync(smokeGeminiLockPath, 'utf-8');
+    const { content: postprocessedLock } = applyGeneralWorkflowPatches(lock, smokeGeminiLockPath);
 
-    expect(lock).toContain('Install AWF binary');
-    expect(lock).toContain('install_awf_binary.sh');
+    expect(postprocessedLock).toContain('--build-local');
+    expect(postprocessedLock).toContain('Install awf binary (local)');
   });
 });
