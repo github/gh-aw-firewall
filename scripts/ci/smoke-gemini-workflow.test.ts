@@ -38,7 +38,7 @@ describe('smoke gemini workflow output requirements', () => {
   it('lock file installs AWF binary', () => {
     const lock = fs.readFileSync(smokeGeminiLockPath, 'utf-8');
 
-    expect(lock).toContain('--build-local');
-    expect(lock).toContain('Install awf binary (local)');
+    expect(lock).toContain('Install AWF binary');
+    expect(lock).toContain('install_awf_binary.sh');
   });
 });
