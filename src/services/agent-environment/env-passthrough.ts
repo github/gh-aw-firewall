@@ -43,6 +43,8 @@ export function passthroughHostEnvironment(params: EnvPassthroughParams): void {
     'GITHUB_API_URL',
     'ACTIONS_ID_TOKEN_REQUEST_URL',
     'ACTIONS_ID_TOKEN_REQUEST_TOKEN',
+    'AZURE_CONFIG_DIR',
+    'ADO_MCP_AUTH_TOKEN',
     'DOCKER_HOST',
     'DOCKER_TLS',
     'DOCKER_TLS_VERIFY',

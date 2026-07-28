@@ -250,7 +250,7 @@ export async function createSandbox(config: {
   // is to curate which $HOME subdirs are mounted. The central mount policy
   // (HOME_TOOL_SUBDIRS) lists the allowed tool-state dirs including agent-state
   // dirs (.copilot, .gemini). Credential stores such as ~/.aws, ~/.ssh,
-  // ~/.docker, ~/.kube, ~/.azure, ~/.gnupg, ~/.netrc and ~/.gitconfig are never
+  // ~/.docker, ~/.kube, ~/.gnupg, ~/.netrc and ~/.gitconfig are never
   // whitelisted, so they never enter the sandbox. Only paths that exist on the
   // host are mounted, because sbx requires the mount source to exist.
   //

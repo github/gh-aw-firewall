@@ -157,8 +157,9 @@ describe('mount-policy', () => {
     expect(mountPolicy.credentials).toBe(CREDENTIAL_ENTRIES);
   });
 
-  it('includes .copilot and .gemini in home.toolSubdirs', () => {
+  it('includes .copilot, .gemini, and .azure in home.toolSubdirs', () => {
     expect(HOME_TOOL_SUBDIRS).toContain('.copilot');
     expect(HOME_TOOL_SUBDIRS).toContain('.gemini');
+    expect(HOME_TOOL_SUBDIRS).toContain('.azure');
   });
 });

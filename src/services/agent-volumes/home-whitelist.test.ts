@@ -3,7 +3,16 @@ import { HOME_TOOL_SUBDIRS, HOME_FORBIDDEN_SUBDIRS } from './home-whitelist';
 describe('home-whitelist (mount-policy shim)', () => {
   it('re-exports the shared home allow list', () => {
     expect(HOME_TOOL_SUBDIRS).toEqual(
-      expect.arrayContaining(['.cache', '.config', '.local', '.cargo', '.npm', '.copilot', '.gemini']),
+      expect.arrayContaining([
+        '.cache',
+        '.config',
+        '.local',
+        '.azure',
+        '.cargo',
+        '.npm',
+        '.copilot',
+        '.gemini',
+      ]),
     );
   });
 
@@ -15,7 +24,7 @@ describe('home-whitelist (mount-policy shim)', () => {
 
   it('lists the well-known top-level credential store dirs as forbidden', () => {
     expect(HOME_FORBIDDEN_SUBDIRS).toEqual(
-      expect.arrayContaining(['.aws', '.ssh', '.docker', '.kube', '.azure', '.gnupg']),
+      expect.arrayContaining(['.aws', '.ssh', '.docker', '.kube', '.gnupg']),
     );
   });
 });

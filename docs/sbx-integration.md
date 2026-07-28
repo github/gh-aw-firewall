@@ -177,10 +177,10 @@ What `createSandbox()` shares, in order:
    - **`/tmp`** — agent runtime files (rendered prompts, logs).
    - **`$HOME` tool dirs** — a **curated whitelist** of writable agent dirs, not
      the whole home directory. The manager mounts only the subdirs that exist on
-     the host from `HOME_TOOL_SUBDIRS` (`.cache`, `.config`, `.local`,
+     the host from `HOME_TOOL_SUBDIRS` (`.cache`, `.config`, `.local`, `.azure`,
      `.anthropic`, `.claude`, `.cargo`, `.rustup`, `.npm`, `.nvm`) plus the agent
      state dirs `.copilot` and `.gemini`. Credential-store dirs such as `.aws`,
-     `.ssh`, `.docker`, `.kube`, `.azure` and `.gnupg` are **never** whitelisted,
+     `.ssh`, `.docker`, `.kube`, and `.gnupg` are **never** whitelisted,
      so they never enter the VM. Each whitelisted dir is mounted **wholesale** (as
      a directory — sbx positional mounts cannot target an individual file, so its
      loose files like `~/.copilot/mcp-config.json` are preserved).

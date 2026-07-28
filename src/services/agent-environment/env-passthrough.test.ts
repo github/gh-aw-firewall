@@ -144,5 +144,35 @@ describe('passthroughHostEnvironment', () => {
       expect(environment).not.toHaveProperty('GH_TOKEN');
       expect(environment).not.toHaveProperty('GITHUB_PERSONAL_ACCESS_TOKEN');
     });
+
+    it('forwards AZURE_CONFIG_DIR when it is NOT in the exclusion set', () => {
+      const environment: Record<string, string> = {};
+      const excludedEnvVars = new Set<string>();
+
+      withEnv({ AZURE_CONFIG_DIR: '/home/runner/.azure' }, () => {
+        passthroughHostEnvironment({
+          config: makeConfig({ enableApiProxy: true }),
+          environment,
+          excludedEnvVars,
+        });
+      });
+
+      expect(environment).toHaveProperty('AZURE_CONFIG_DIR', '/home/runner/.azure');
+    });
+
+    it('forwards ADO_MCP_AUTH_TOKEN when it is NOT in the exclusion set', () => {
+      const environment: Record<string, string> = {};
+      const excludedEnvVars = new Set<string>();
+
+      withEnv({ ADO_MCP_AUTH_TOKEN: 'ado-auth-token' }, () => {
+        passthroughHostEnvironment({
+          config: makeConfig({ enableApiProxy: true }),
+          environment,
+          excludedEnvVars,
+        });
+      });
+
+      expect(environment).toHaveProperty('ADO_MCP_AUTH_TOKEN', 'ado-auth-token');
+    });
   });
 });
