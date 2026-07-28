@@ -82,6 +82,7 @@ following top-level properties. All are OPTIONAL:
 | `logging` | object | Logging and diagnostics |
 | `rateLimiting` | object | Egress rate limiting |
 | `platform` | object | GitHub platform deployment type declaration |
+| `sealedProbes` | object | Sealed-probe sandbox subsystem (see §14) |
 
 Property-level constraints, types, and descriptions are defined
 normatively by `docs/awf-config.schema.json`.
@@ -211,6 +212,13 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 - `platform.type` → *(config-only; maps to `AWF_PLATFORM_TYPE`)*
 - `runner.topology` → *(config-only; sets runner deployment model — `standard` or `arc-dind`; when `arc-dind`, enables sysroot staging and emits RUNNER_TOOL_CACHE warnings)*
 - `runner.sysrootImage` → *(config-only; sysroot init-container image for `arc-dind` topology; defaults to `<container.imageRegistry>/build-tools:<container.imageTag>`, where `container.imageRegistry` defaults to `ghcr.io/github/gh-aw-firewall`)*
+- `sealedProbes.enabled` → *(config-only; no CLI equivalent, see §14)*
+- `sealedProbes.privateRepos[]` → *(config-only; no CLI equivalent, see §14)*
+- `sealedProbes.runtime` → *(config-only; no CLI equivalent, see §14)*
+- `sealedProbes.timeout` → *(config-only; no CLI equivalent, see §14)*
+- `sealedProbes.memoryLimit` → *(config-only; no CLI equivalent, see §14)*
+- `sealedProbes.interpreter` → *(config-only; no CLI equivalent, see §14)*
+- `sealedProbes.maxInvocations` → *(config-only; no CLI equivalent, see §14)*
 
 When `container.dockerHostPathPrefix` points at a daemon-visible shared `/tmp` path, the implementation stages the invoking CLI binary together with `/etc/passwd`, `/etc/group`, and the generated chroot `/etc/hosts` under that shared path so chroot mode can bootstrap on split-filesystem ARC/DinD hosts.
 
@@ -1493,6 +1501,245 @@ Each record follows the `blocked-request-diag/v<version>` schema:
   Use only for private runs and rotate or delete the artifact promptly.
 - The file is written to `AWF_TOKEN_LOG_DIR` alongside `token-usage.jsonl`
   and is governed by the same artifact-retention policy.
+
+## 14. Sealed Probes
+
+### 14.1 Purpose
+
+A *sealed probe* lets an agent ask a trusted broker to run a short,
+agent-authored Python 3 script against a private repository and report back
+one of a small, closed set of outcomes — without the agent ever gaining
+network or filesystem access to that repository.
+
+The agent observes exactly one of four symbols per invocation: one of the
+three outcomes it declared, or the reserved value `"ERROR"`. That bounds the
+content a single invocation can convey to at most 2 bits.
+`sealedProbes.maxInvocations` bounds the cumulative disclosure for the run.
+Completion timing remains an acknowledged residual side channel (§14.9).
+
+### 14.2 Configuration
+
+The root object MAY contain a `sealedProbes` section:
+
+```json
+{
+  "sealedProbes": {
+    "enabled": true,
+    "privateRepos": ["my-org/my-private-repo"],
+    "runtime": "docker",
+    "timeout": 30,
+    "memoryLimit": "512m",
+    "interpreter": "python3",
+    "maxInvocations": 32
+  }
+}
+```
+
+| Field | Type | Constraints | Default |
+|-------|------|-------------|---------|
+| `enabled` | boolean | — | `false` |
+| `privateRepos` | string[] | Non-empty and unique when `enabled` is `true`. Each entry MUST be a bare `owner/repo` slug — no scheme/host (`://`), path traversal (`..`), query string (`?`), fragment (`#`), wildcard (`*`), or extra path segments. | `[]` |
+| `runtime` | string | One of `"docker"`, `"gvisor"`, `"sbx"` | `"docker"` |
+| `timeout` | integer | `1`–`3600` seconds | `30` |
+| `memoryLimit` | string | Docker-style memory limit, e.g. `"512m"`, `"1g"` | `"512m"` |
+| `interpreter` | string | Only `"python3"` is currently supported | `"python3"` |
+| `maxInvocations` | integer | `1`–`10000` | `32` |
+
+Property-level constraints are defined normatively by the `sealedProbes`
+subschema in `docs/awf-config.schema.json`.
+
+**Mapping:** every `sealedProbes.*` field is *(config-only; no CLI
+equivalent)*. There is no `--sealed-probes-*` CLI flag family. The config-file
+value is passed through `config-mapper.ts` and normalized (defaults applied
+via `src/types/sealed-probe-options.ts`'s `SEALED_PROBE_DEFAULTS`, in
+`src/parsers/sealed-probe-parser.ts`) into `WrapperConfig.sealedProbes`. Only
+an explicit `enabled: true` normalizes to an enabled config; omission or any
+other value normalizes to `enabled: false`.
+
+When `enabled` is `false` or the section is absent, AWF stages nothing, starts
+no broker, mounts no socket, sets no environment variable, installs no CLI,
+and generates no skill: behaviour is byte-identical to a run without the
+section.
+
+**Preflight (fail-closed).** With `enabled: true`, AWF aborts before the
+primary agent starts when: `privateRepos` is empty or contains an unsafe or
+duplicated slug; `runtime` is `"sbx"` (AWF has no no-network per-invocation
+sealed-probe launcher for it and never downgrades — see §14.8); `runtime` is
+`"gvisor"` and the `runsc` OCI runtime is not registered with the Docker
+daemon; `container.containerRuntime` is a microVM backend, which cannot
+receive the broker socket; the resolved Docker host is not a `unix://` socket,
+which a `network_mode: none` broker cannot reach; the interpreter or a limit is
+unsupported; no staging credential is present in `GH_TOKEN`/`GITHUB_TOKEN`; or
+any seed cannot be materialized and verified.
+
+### 14.3 Request/Result Protocol
+
+`src/sealed-probe/protocol.ts` defines the wire protocol. The broker restates
+it in `containers/sealed-probe/broker/protocol.js` because it runs from its
+own container image and cannot import AWF's TypeScript sources; the two
+implementations are pinned together by `src/sealed-probe/protocol-parity.test.ts`,
+which runs one shared vector table through both.
+
+**Request.** A sealed-probe request is a JSON object with exactly three
+fields:
+
+```json
+{
+  "privateRepo": "my-org/my-private-repo",
+  "outcomes": ["found", "not_found", "rate_limited"],
+  "script": "<probe script source>"
+}
+```
+
+- `privateRepo` MUST match the same `owner/repo` slug rule as
+  `sealedProbes.privateRepos` entries (§14.2).
+- `outcomes` MUST be an array of exactly three unique ASCII identifiers. Each
+  identifier MUST start with a letter, contain only letters, digits, `_`, or
+  `-`, be at most 64 bytes, and MUST NOT equal the reserved value `"ERROR"`
+  (§14.4).
+- `script` MUST be non-empty and at most 64 KiB (`MAX_SCRIPT_BYTES`). The
+  overall serialized request MUST be at most 256 KiB (`MAX_REQUEST_BYTES`),
+  as a defense-in-depth cap independent of the per-field limits.
+
+**Result.** A probe reports its outcome as the closed JSON object
+`{"result": "<one of the three declared outcomes>"}` — no other keys are
+permitted.
+
+### 14.4 The Reserved `"ERROR"` Outcome
+
+`"ERROR"` is reserved by the protocol and MUST NOT appear in a request's
+`outcomes` array. It is the sentinel value produced by the result parser
+itself (never by a well-behaved script) whenever a result cannot be trusted.
+
+### 14.5 Strict, Non-Schema Result Parsing
+
+Result parsing intentionally does **not** execute a general-purpose JSON
+Schema validator against the (potentially attacker-influenced) result text.
+Because a valid result has exactly one fixed shape — a single `"result"` key
+whose value is one of at most three known strings — `parseSealedProbeResult`
+enforces that shape with a small, linear-time, non-backtracking hand-written
+grammar instead. This rejects, and canonicalizes to `{"result":"ERROR"}`
+rather than throwing:
+
+- malformed JSON of any kind;
+- duplicate `"result"` keys (the grammar only accepts a single key/value
+  pair, so a second key is trailing data);
+- any extra fields;
+- any leading or trailing content outside the single JSON object; and
+- a value that is not a string, or is a string outside the declared
+  `outcomes` enum (including the literal string `"ERROR"`, which is never a
+  legitimately-declared outcome per §14.4).
+
+`buildSealedProbeResultSchema()` constructs a plain data representation of
+the closed schema (`{type: "object", additionalProperties: false, required:
+["result"], properties: {result: {type: "string", enum: [...outcomes]}}}`).
+It is the broker-constructed schema — callers can never supply one — and is
+used for documentation and introspection; enforcement is performed by the
+hand-written parser above, never by a schema engine.
+
+### 14.6 Offline Staging
+
+Before any configuration is generated and before any container exists, AWF
+runs a trusted host-side staging phase (`src/sealed-probe/staging.ts`):
+
+1. resolves the staging credential from `GH_TOKEN` or `GITHUB_TOKEN`;
+2. clones each configured repository from an AWF-constructed
+   `https://github.com/<owner>/<repo>.git` URL into a run-unique, opaque seed
+   directory under `<workDir>/sealed-probes/seeds/`. The credential is passed
+   only through a `GIT_ASKPASS` helper reading it from the child process
+   environment — never in argv, never in the URL, never in a log line, and
+   never in the generated compose file;
+3. records the staged commit for protected audit state;
+4. scrubs the seed: remotes, remote-tracking refs, credential helpers, hooks,
+   alternates, worktree links, reflogs, and `FETCH_HEAD` are removed and
+   `.git/config` is replaced with a minimal, credential-free file;
+5. rejects repositories that declare submodules (`.gitmodules` or
+   `.git/modules`) and any checkout whose `.git` is a symlink or a gitdir
+   pointer — both are external references a probe must never resolve;
+6. strips every write bit from the seed and verifies the result;
+7. deletes the askpass helper and the isolated staging `HOME`, so no staging
+   artifact survives into the broker/agent phase.
+
+Staging failure aborts the run. There is no fallback clone or fetch anywhere
+else in the system: neither the broker nor a probe has a network path.
+
+### 14.7 Trusted Broker and Probe Sandbox
+
+The broker runs as an optional Docker Compose service
+(`sealed-probe-broker`, container `awf-sealed-probe-broker`) with
+`network_mode: none`: no `awf-net`, no external bridge, no DNS, no Squid, no
+api-proxy/cli-proxy, and no host-network path. Its entire surface is one Unix
+socket in a directory bind-mounted into the agent. It also receives the
+resolved Docker socket so it can launch probes; that path is never placed in
+the agent's environment or volumes.
+
+The broker maps a normalized `owner/repo` id through the AWF-generated seed
+map to an opaque seed directory. Callers never supply a path, URL, ref, mount,
+image, command, environment, runtime, or limit. For each valid request the
+broker creates a fresh, full, private writable copy of exactly one seed and
+launches one probe container with a fixed argument vector:
+
+- `--network none`, `--read-only`, `--user 65534:65534`, `--cap-drop ALL`,
+  `--security-opt no-new-privileges:true`, and a restrictive seccomp profile
+  (`containers/sealed-probe/probe-seccomp.json`);
+- memory, swap, CPU, PID, open-file, and file-size bounds plus the configured
+  wall-clock timeout;
+- exactly two mounts: the invocation's private tree at `/probe` (containing
+  `repo/`, and where the probe writes `out`) and the submitted script at the
+  fixed read-only path `/awf/probe-script.py`;
+- no Docker socket, no seed parent, no other repository, no workspace, no
+  credentials, and no prior invocation's data.
+
+The copy is destroyed after the result is validated, so repository mutations
+are ephemeral and are never returned or persisted. The result file is opened
+with `O_NOFOLLOW` and must be a regular file within the size cap, so replacing
+`/probe/out` with a symlink, FIFO, device, or socket cannot make the broker
+read anything else.
+
+Probe stdout/stderr is capped and discarded. Failure reasons are written only
+to `<workDir>/sealed-probes/audit/`, which is mounted into the broker alone.
+
+### 14.8 Agent Interface
+
+When sealed probes are enabled, the agent receives exactly two bind mounts —
+the broker socket directory (read-write) and a generated skill directory
+(read-only) — plus three environment variables
+(`AWF_SEALED_PROBE_SOCKET`, `AWF_SEALED_PROBE_SKILL`,
+`AWF_SEALED_PROBE_REPOS`). GitHub tokens are removed from the agent
+environment whenever sealed probes are enabled, independently of the API and
+DIFC proxies.
+
+`containers/agent/sealed-probe-wrapper.sh` is installed on the agent's `PATH`
+as `sealed-probe`. It accepts only `--repo` once, `--outcome` exactly three
+times, and the script on stdin; every other option, the `--flag=value` form,
+and positional arguments are rejected. It always prints exactly one canonical
+JSON line, writes nothing to stderr, and exits `0` — for outcomes and for
+every failure, including transport failures, which produce
+`{"result":"ERROR"}` locally.
+
+The generated `SKILL.md` is written under `<workDir>/sealed-probes/agent/` and
+mounted read-only at `/run/awf-sealed-probe-skill/SKILL.md`. AWF deliberately
+does **not** mount it into `$HOME/.copilot/skills` or the workspace's
+`.github/skills`: Docker would create the mount point inside host user state
+or inside the checked-out workspace. Agents therefore discover it through
+`AWF_SEALED_PROBE_SKILL` rather than through automatic skill discovery. This
+is a documented limitation, not an oversight.
+
+For the same reason, a microVM primary agent runtime (`sbx`) is rejected at
+preflight: it does not receive Compose bind mounts, so the socket and skill
+could not be exposed. Sealed probes are never partially enabled.
+
+### 14.9 Residual Channels and Limits
+
+- Each invocation reveals one of four symbols — at most 2 bits.
+- `maxInvocations` counts every response, including rejections, because each
+  response is itself one of the four symbols.
+- Completion timing is not mitigated in v1 and remains observable.
+- Per-invocation aggregate disk usage is bounded by the wall-clock timeout and
+  a per-file size limit rather than a hard filesystem quota.
+- The probe rootfs is the broker image, so it also contains a Node runtime and
+  the Docker CLI. Both are inert inside a probe: there is no network, no
+  Docker socket, no capability, and the entrypoint is fixed to `python3`.
 
 ## Normative References
 

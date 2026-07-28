@@ -570,4 +570,23 @@ describe('mapAwfFileConfigToCliOptions', () => {
     const result = mapAwfFileConfigToCliOptions({});
     expect(result.runnerTopology).toBeUndefined();
   });
+
+  it('passes sealedProbes through unchanged (no CLI flags exist for it)', () => {
+    const sealedProbes = {
+      enabled: true,
+      privateRepos: ['octo/repo'],
+      runtime: 'gvisor' as const,
+      timeout: 60,
+      memoryLimit: '1g',
+      interpreter: 'python3' as const,
+      maxInvocations: 10,
+    };
+    const result = mapAwfFileConfigToCliOptions({ sealedProbes });
+    expect(result.sealedProbes).toEqual(sealedProbes);
+  });
+
+  it('leaves sealedProbes undefined when not set', () => {
+    const result = mapAwfFileConfigToCliOptions({});
+    expect(result.sealedProbes).toBeUndefined();
+  });
 });

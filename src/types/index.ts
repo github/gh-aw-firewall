@@ -40,3 +40,11 @@ export {
 export {
   type PidTrackResult,
 } from './pid';
+
+export {
+  type SealedProbeRuntime,
+  type SealedProbeInterpreter,
+  type SealedProbesConfig,
+  type SealedProbeOptions,
+  SEALED_PROBE_DEFAULTS,
+} from './sealed-probe-options';

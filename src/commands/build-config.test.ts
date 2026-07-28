@@ -406,6 +406,52 @@ describe('buildConfig', () => {
       expect(config.modelAliases).toEqual(aliases);
     });
 
+    it('should leave sealedProbes undefined when not set in options', () => {
+      const config = buildConfig(makeInputs());
+      expect(config.sealedProbes).toBeUndefined();
+    });
+
+    it('should normalize sealedProbes with centralized defaults when present', () => {
+      const config = buildConfig(makeInputs({
+        options: { ...makeInputs().options, sealedProbes: {} },
+      }));
+      expect(config.sealedProbes).toEqual({
+        enabled: false,
+        privateRepos: [],
+        runtime: 'docker',
+        timeout: 30,
+        memoryLimit: '512m',
+        interpreter: 'python3',
+        maxInvocations: 32,
+      });
+    });
+
+    it('should preserve explicit sealedProbes values over defaults', () => {
+      const config = buildConfig(makeInputs({
+        options: {
+          ...makeInputs().options,
+          sealedProbes: {
+            enabled: true,
+            privateRepos: ['octo/repo'],
+            runtime: 'sbx',
+            timeout: 90,
+            memoryLimit: '2g',
+            interpreter: 'python3',
+            maxInvocations: 5,
+          },
+        },
+      }));
+      expect(config.sealedProbes).toEqual({
+        enabled: true,
+        privateRepos: ['octo/repo'],
+        runtime: 'sbx',
+        timeout: 90,
+        memoryLimit: '2g',
+        interpreter: 'python3',
+        maxInvocations: 5,
+      });
+    });
+
     it('should pass through resolvedCopilotApiTarget', () => {
       const config = buildConfig(makeInputs({ resolvedCopilotApiTarget: 'https://copilot.example.com' }));
       expect(config.copilotApiTarget).toBe('https://copilot.example.com');

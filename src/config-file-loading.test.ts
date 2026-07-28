@@ -49,6 +49,19 @@ describe('loadAwfFileConfig', () => {
     expect(result.network?.allowDomains).toEqual(['github.com']);
   });
 
+  it('loads sealedProbes config from stdin (proves the generic stdin path needs no special-casing)', () => {
+    const result = loadAwfFileConfig(
+      '-',
+      () => '{"sealedProbes":{"enabled":true,"privateRepos":["octo/repo"],"runtime":"gvisor"}}',
+    );
+
+    expect(result.sealedProbes).toEqual({
+      enabled: true,
+      privateRepos: ['octo/repo'],
+      runtime: 'gvisor',
+    });
+  });
+
   it('loads YAML from stdin when JSON parse fails', () => {
     const yamlContent = 'network:\n  allowDomains:\n    - example.com\n';
     const result = loadAwfFileConfig('-', () => yamlContent);

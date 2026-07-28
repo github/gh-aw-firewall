@@ -191,6 +191,38 @@ describe('buildExclusionSet', () => {
     });
   });
 
+  describe('when sealed probes are enabled (repository credential isolation)', () => {
+    const sealedProbes = {
+      enabled: true,
+      privateRepos: ['octo/private'],
+      runtime: 'docker' as const,
+      timeout: 30,
+      memoryLimit: '512m',
+      interpreter: 'python3' as const,
+      maxInvocations: 32,
+    };
+
+    it.each(['GITHUB_TOKEN', 'GH_TOKEN', 'GITHUB_PERSONAL_ACCESS_TOKEN'])(
+      'should exclude %s even without the API or DIFC proxies',
+      (name) => {
+        const config = makeConfig({ sealedProbes, enableApiProxy: false, difcProxyHost: undefined });
+        expect(buildExclusionSet(config).has(name)).toBe(true);
+      },
+    );
+
+    it.each(['GITHUB_TOKEN', 'GH_TOKEN', 'GITHUB_PERSONAL_ACCESS_TOKEN'])(
+      'should NOT exclude %s when sealed probes are configured but disabled',
+      (name) => {
+        const config = makeConfig({
+          sealedProbes: { ...sealedProbes, enabled: false },
+          enableApiProxy: false,
+          difcProxyHost: undefined,
+        });
+        expect(buildExclusionSet(config).has(name)).toBe(false);
+      },
+    );
+  });
+
   describe('when excludeEnv is set', () => {
     it('should exclude all custom env vars', () => {
       const config = makeConfig({ excludeEnv: ['MY_SECRET', 'ANOTHER_VAR'] });

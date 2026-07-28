@@ -162,6 +162,21 @@ export interface AwfFileConfig {
     topology?: 'standard' | 'arc-dind';
     sysrootImage?: string;
   };
+  /**
+   * Sealed-probe sandbox configuration.
+   *
+   * Foundation only — configuration/protocol surface, no broker or sandbox
+   * runtime is implemented yet. See docs/awf-config-spec.md §14.
+   */
+  sealedProbes?: {
+    enabled?: boolean;
+    privateRepos?: string[];
+    runtime?: 'docker' | 'gvisor' | 'sbx';
+    timeout?: number;
+    memoryLimit?: string;
+    interpreter?: 'python3';
+    maxInvocations?: number;
+  };
 }
 
 /**

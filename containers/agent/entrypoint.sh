@@ -628,6 +628,24 @@ copy_agent_helper_scripts() {
       fi
     fi
   fi
+
+  # Activate the sealed-probe CLI when the sealed-probe broker socket is present.
+  # The wrapper is copied to /tmp/awf-lib/sealed-probe so it resolves inside the
+  # chroot on the same PATH entry used for the gh wrapper.
+  if [ -n "$AWF_SEALED_PROBE_SOCKET" ] && [ -f /usr/local/bin/sealed-probe-wrapper.sh ]; then
+    if mkdir -p /host/tmp/awf-lib 2>/dev/null; then
+      if cp /usr/local/bin/sealed-probe-wrapper.sh /host/tmp/awf-lib/sealed-probe 2>/dev/null && \
+         chmod +x /host/tmp/awf-lib/sealed-probe 2>/dev/null; then
+        echo "[entrypoint] sealed-probe CLI installed at /tmp/awf-lib/sealed-probe (inside chroot)"
+        case ":${AWF_HOST_PATH:-$PATH}:" in
+          *":/tmp/awf-lib:"*) ;;
+          *) export AWF_HOST_PATH="/tmp/awf-lib:${AWF_HOST_PATH:-$PATH}" ;;
+        esac
+      else
+        echo "[entrypoint][WARN] Could not install sealed-probe CLI"
+      fi
+    fi
+  fi
 }
 
 copy_dind_runner_binary() {
@@ -1343,6 +1361,21 @@ run_non_chroot_command() {
       echo "[entrypoint] gh CLI proxy wrapper installed at /tmp/awf-lib/gh"
     else
       echo "[entrypoint][WARN] Could not install gh CLI proxy wrapper"
+    fi
+  fi
+
+  # Activate the sealed-probe CLI in non-chroot mode.
+  if [ -n "$AWF_SEALED_PROBE_SOCKET" ] && [ -f /usr/local/bin/sealed-probe-wrapper.sh ]; then
+    mkdir -p /tmp/awf-lib
+    if cp /usr/local/bin/sealed-probe-wrapper.sh /tmp/awf-lib/sealed-probe 2>/dev/null && \
+       chmod +x /tmp/awf-lib/sealed-probe 2>/dev/null; then
+      case ":${PATH}:" in
+        *":/tmp/awf-lib:"*) ;;
+        *) export PATH="/tmp/awf-lib:${PATH}" ;;
+      esac
+      echo "[entrypoint] sealed-probe CLI installed at /tmp/awf-lib/sealed-probe"
+    else
+      echo "[entrypoint][WARN] Could not install sealed-probe CLI"
     fi
   fi
 

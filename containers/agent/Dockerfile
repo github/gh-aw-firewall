@@ -268,14 +268,16 @@ RUN if ! getent group awfuser >/dev/null 2>&1; then \
     chown -R awfuser:awfuser /home/awfuser
 
 # Copy iptables setup script, PID logger, API proxy health check, Claude key helper,
-# and gh CLI proxy wrapper (used when --enable-cli-proxy is active)
+# gh CLI proxy wrapper (used when --enable-cli-proxy is active), and the
+# sealed-probe wrapper (installed as `sealed-probe` when sealed probes are enabled)
 COPY setup-iptables.sh /usr/local/bin/setup-iptables.sh
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY pid-logger.sh /usr/local/bin/pid-logger.sh
 COPY api-proxy-health-check.sh /usr/local/bin/api-proxy-health-check.sh
 COPY get-claude-key.sh /usr/local/bin/get-claude-key.sh
 COPY gh-cli-proxy-wrapper.sh /usr/local/bin/gh-cli-proxy-wrapper.sh
-RUN chmod +x /usr/local/bin/setup-iptables.sh /usr/local/bin/entrypoint.sh /usr/local/bin/pid-logger.sh /usr/local/bin/api-proxy-health-check.sh /usr/local/bin/get-claude-key.sh /usr/local/bin/gh-cli-proxy-wrapper.sh
+COPY sealed-probe-wrapper.sh /usr/local/bin/sealed-probe-wrapper.sh
+RUN chmod +x /usr/local/bin/setup-iptables.sh /usr/local/bin/entrypoint.sh /usr/local/bin/pid-logger.sh /usr/local/bin/api-proxy-health-check.sh /usr/local/bin/get-claude-key.sh /usr/local/bin/gh-cli-proxy-wrapper.sh /usr/local/bin/sealed-probe-wrapper.sh
 
 # Copy pre-built one-shot-token library from rust-builder stage
 # This prevents tokens from being read multiple times (e.g., by malicious code)

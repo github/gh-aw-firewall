@@ -3,7 +3,13 @@ import { WrapperConfig } from '../../types';
 
 const DEFAULT_DOCKER_SOCKET_PATH = '/var/run/docker.sock';
 
-function resolveDockerSocketPath(config: WrapperConfig): string {
+/**
+ * Resolves the host path of the Docker socket AWF itself talks to.
+ *
+ * Shared with the sealed-probe broker service, which needs the same daemon —
+ * and must never leak that path into the agent when `--enable-dind` is off.
+ */
+export function resolveDockerSocketPath(config: WrapperConfig): string {
   const dockerHost = config.awfDockerHost ?? process.env.DOCKER_HOST;
   if (!dockerHost) {
     return DEFAULT_DOCKER_SOCKET_PATH;

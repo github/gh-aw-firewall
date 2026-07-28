@@ -1,7 +1,7 @@
 import path from 'path';
 import { parseImageTag, buildRuntimeImageRef, assignImageSource } from './image-tag';
 
-const IMAGE_DIGEST_KEYS = ['squid', 'agent', 'agent-act', 'api-proxy', 'cli-proxy', 'build-tools'] as const;
+const IMAGE_DIGEST_KEYS = ['squid', 'agent', 'agent-act', 'api-proxy', 'cli-proxy', 'build-tools', 'sealed-probe'] as const;
 
 const VALID_DIGEST = 'sha256:' + 'a'.repeat(64);
 

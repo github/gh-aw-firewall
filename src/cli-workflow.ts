@@ -31,6 +31,15 @@ interface WorkflowDependencies {
   ) => Promise<{ exitCode: number }>;
   collectDiagnosticLogs?: (workDir: string) => Promise<void>;
   /**
+   * Trusted sealed-probe staging. Runs before any configuration is generated
+   * and before any container exists, so the staging credential is consumed and
+   * discarded before the broker, the agent, or a probe can observe anything.
+   *
+   * Rejecting aborts the run: the primary agent must never start when staging
+   * failed.
+   */
+  prepareSealedProbes?: (config: WrapperConfig) => Promise<void>;
+  /**
    * Fail-stop preflight for network-isolation mode. Aborts (process exit) when
    * topology enforcement cannot be supported on the current platform.
    */
@@ -68,6 +77,26 @@ export async function runMainWorkflow(
   options: WorkflowOptions
 ): Promise<number> {
   const { logger, performCleanup, onHostIptablesSetup, onContainersStarted } = options;
+
+  // Step -1: Sealed-probe staging (trusted, host-side, credential-bearing).
+  //
+  // Runs first so that:
+  //  - a staging failure aborts before any container is created;
+  //  - the staging credential is gone before the broker, the agent, or any
+  //    probe exists;
+  //  - compose generation (Step 1) can rely on the seed/socket/skill layout
+  //    already being present on disk.
+  if (config.sealedProbes?.enabled) {
+    if (!dependencies.prepareSealedProbes) {
+      // Fail loudly rather than generating a broker service whose seeds and
+      // socket were never staged — sealed probes are never half-enabled.
+      throw new Error(
+        'Sealed probes are enabled but no staging implementation was provided to runMainWorkflow',
+      );
+    }
+    logger.info('Staging sealed-probe repository seeds...');
+    await dependencies.prepareSealedProbes(config);
+  }
 
   // Step 0: Setup host-level network and iptables
   //
