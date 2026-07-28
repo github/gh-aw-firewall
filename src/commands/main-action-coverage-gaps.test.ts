@@ -1,8 +1,7 @@
-import { mainActionFsMockFactory } from './main-action-fs-mock.test-utils';
-
 const mockExecSync = jest.fn();
 
-jest.mock('fs', () => mainActionFsMockFactory());
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+jest.mock('fs', () => require('./main-action-fs-mock.test-utils').mainActionFsMockFactory());
 
 jest.mock('child_process', () => ({
   execSync: (...args: unknown[]) => mockExecSync(...args),

@@ -1,6 +1,7 @@
-import { mainActionFsMockFactory, mainActionFsMocks } from './main-action-fs-mock.test-utils';
+import { mainActionFsMocks } from './main-action-fs-mock.test-utils';
 
-jest.mock('fs', () => mainActionFsMockFactory());
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+jest.mock('fs', () => require('./main-action-fs-mock.test-utils').mainActionFsMockFactory());
 
 import { createMainAction, testHelpers } from './main-action';
 
