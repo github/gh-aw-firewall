@@ -3,6 +3,7 @@ import * as path from 'path';
 import { BlockedTarget } from './types';
 import { logger } from './logger';
 import { parseLogLine } from './logs/log-parser';
+import { isInternalAwfDomain } from './logs/internal-domain-filter';
 
 /**
  * Checks Squid logs for access denials to provide better error context
@@ -37,9 +38,18 @@ export async function checkSquidLogs(workDir: string, proxyLogsDir?: string): Pr
         }
 
         const target = extractBlockedTarget(parsedLine.method, parsedLine.host, parsedLine.url);
+        const parsed = parseTarget(target);
+
+        // Skip AWF-internal addresses (Docker network IPs and container hostnames).
+        // These are container-to-container connections, not missing external
+        // dependencies — surfacing them as blocked external domains is noise.
+        if (isInternalAwfDomain(parsed.domain)) {
+          continue;
+        }
+
         if (!seenTargets.has(target)) {
           seenTargets.add(target);
-          blockedTargets.push(parseTarget(target));
+          blockedTargets.push(parsed);
         }
       }
     }

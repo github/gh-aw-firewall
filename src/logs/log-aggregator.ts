@@ -8,6 +8,7 @@ import execa from 'execa';
 import { LogSource, ParsedLogEntry } from '../types';
 import { parseLogLine, parseAuditJsonlLine } from './log-parser';
 import { logger } from '../logger';
+import { isInternalAwfDomain } from './internal-domain-filter';
 
 /**
  * Statistics for a single domain
@@ -97,6 +98,16 @@ function aggregateLogs(entries: ParsedLogEntry[]): AggregatedStats {
       continue;
     }
 
+    // Skip denied entries for AWF-internal addresses (Docker network IPs and
+    // container hostnames). These are container-to-container connections that
+    // were blocked by Squid because they bypassed NO_PROXY or lacked an ACL
+    // entry — they are never missing external dependencies and surfacing them
+    // as blocked external domains in reports is spurious noise.
+    const domain = entry.domain || '-';
+    if (!entry.isAllowed && isInternalAwfDomain(domain)) {
+      continue;
+    }
+
     // Count this as a real request
     totalRequests++;
 
@@ -108,7 +119,6 @@ function aggregateLogs(entries: ParsedLogEntry[]): AggregatedStats {
     }
 
     // Group by domain
-    const domain = entry.domain || '-';
     let domainStats = byDomain.get(domain);
     if (!domainStats) {
       domainStats = {
