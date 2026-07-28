@@ -84,11 +84,11 @@ function writeSeedMap(paths: SealedProbePaths, seedMap: SealedProbeSeedMap): voi
   const fd = fs.openSync(
     paths.seedMapPath,
     fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_NOFOLLOW,
-    0o644,
+    0o600,
   );
   try {
     fs.writeSync(fd, content);
-    fs.fchmodSync(fd, 0o644);
+    fs.fchmodSync(fd, 0o600);
   } finally {
     fs.closeSync(fd);
   }

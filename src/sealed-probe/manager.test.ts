@@ -94,6 +94,7 @@ describe('prepareSealedProbes', () => {
     expect(seedMap.version).toBe(1);
     expect(seedMap.runId).toMatch(/^[0-9a-f]{32}$/);
     expect(seedMap.seeds).toEqual([{ repo: 'octo/private', seedId: expect.stringMatching(/^[0-9a-f]{32}$/) }]);
+    expect(fs.statSync(paths.seedMapPath).mode & 0o777).toBe(0o600);
   });
 
   it('keeps the seed map free of host paths and credentials', async () => {

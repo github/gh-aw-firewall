@@ -127,9 +127,9 @@ invocation.
 /**
  * Writes the generated skill into the agent-visible artifact directory.
  *
- * The file is created 0644 under an AWF-owned directory inside `workDir`; it is
- * mounted read-only into the agent. Nothing is written to the host user's home
- * directory or to the workspace.
+ * The file is securely created 0600 under an AWF-owned directory inside
+ * `workDir`, then made 0644 for the agent's read-only bind mount. Nothing is
+ * written to the host user's home directory or to the workspace.
  */
 export function writeSealedProbeSkill(paths: SealedProbePaths, params: SealedProbeSkillParams): string {
   fs.mkdirSync(paths.agentDir, { recursive: true, mode: 0o755 });
@@ -139,10 +139,12 @@ export function writeSealedProbeSkill(paths: SealedProbePaths, params: SealedPro
   const fd = fs.openSync(
     paths.skillPath,
     fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_NOFOLLOW,
-    0o644,
+    0o600,
   );
   try {
     fs.writeSync(fd, content);
+    // The protected 0755 parent exposes only this non-sensitive generated
+    // guidance file; world-readability is required across the agent UID mount.
     fs.fchmodSync(fd, 0o644);
   } finally {
     fs.closeSync(fd);
