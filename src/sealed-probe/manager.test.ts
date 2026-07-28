@@ -1,10 +1,28 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import execa from 'execa';
 import type { SealedProbesConfig, WrapperConfig } from '../types';
 import { resolveSealedProbePaths } from './paths';
-import { isSealedProbesEnabled, prepareSealedProbes, teardownSealedProbes } from './manager';
+import {
+  SEALED_PROBE_RUN_LABEL,
+  isSealedProbesEnabled,
+  managerTestHelpers,
+  prepareSealedProbes,
+  teardownSealedProbes,
+} from './manager';
 import { releaseSeedPermissions, type GitRunner } from './staging';
+
+jest.mock('execa', () => ({ __esModule: true, default: jest.fn() }));
+jest.mock('./staging', () => {
+  const actual = jest.requireActual('./staging');
+  return {
+    ...actual,
+    releaseSeedPermissions: jest.fn(actual.releaseSeedPermissions),
+  };
+});
+const mockExeca = execa as unknown as jest.Mock;
+const mockReleaseSeedPermissions = releaseSeedPermissions as jest.MockedFunction<typeof releaseSeedPermissions>;
 
 const sealedProbes: SealedProbesConfig = {
   enabled: true,
@@ -44,6 +62,11 @@ describe('prepareSealedProbes', () => {
   let workDir: string;
 
   beforeEach(() => {
+    mockExeca.mockReset();
+    mockExeca.mockResolvedValue({ exitCode: 0, stdout: '' });
+    mockReleaseSeedPermissions.mockImplementation(
+      jest.requireActual<typeof import('./staging')>('./staging').releaseSeedPermissions,
+    );
     workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-sealed-manager-'));
   });
 
@@ -103,6 +126,32 @@ describe('prepareSealedProbes', () => {
     ).rejects.toThrow(/GH_TOKEN or GITHUB_TOKEN/);
   });
 
+  it('aborts if the staging credential disappears after validation', async () => {
+    let reads = 0;
+    const env = {
+      get GH_TOKEN() {
+        reads += 1;
+        return reads === 1 ? 't' : undefined;
+      },
+    } as NodeJS.ProcessEnv;
+
+    await expect(prepareSealedProbes(buildConfig(workDir), { env, gitRunner }))
+      .rejects.toThrow(/credential disappeared/);
+  });
+
+  it('rejects a symlink work directory before staging', async () => {
+    const target = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-sealed-manager-target-'));
+    const link = path.join(os.tmpdir(), `awf-sealed-manager-link-${process.pid}-${Date.now()}`);
+    fs.symlinkSync(target, link);
+    try {
+      await expect(prepareSealedProbes(buildConfig(link), { env: { GH_TOKEN: 't' }, gitRunner }))
+        .rejects.toThrow(/symlink work directory/);
+    } finally {
+      fs.unlinkSync(link);
+      fs.rmSync(target, { recursive: true, force: true });
+    }
+  });
+
   it('aborts when a seed cannot be staged', async () => {
     const failing: GitRunner = async () => {
       throw new Error('fatal: repository not found');
@@ -115,6 +164,11 @@ describe('prepareSealedProbes', () => {
 });
 
 describe('teardownSealedProbes', () => {
+  beforeEach(() => {
+    mockExeca.mockReset();
+    mockExeca.mockResolvedValue({ exitCode: 0, stdout: '' });
+  });
+
   it('is a no-op when sealed probes were never enabled', async () => {
     await expect(teardownSealedProbes({ workDir: '/nonexistent' } as WrapperConfig)).resolves.toBeUndefined();
   });
@@ -149,6 +203,85 @@ describe('teardownSealedProbes', () => {
       expect(() => fs.rmSync(paths.seedsDir, { recursive: true })).toThrow();
     } finally {
       releaseSeedPermissions(resolveSealedProbePaths(workDir).seedsDir);
+      fs.rmSync(workDir, { recursive: true, force: true });
+    }
+  });
+
+  it('removes every orphaned probe container for the staged run', async () => {
+    mockExeca
+      .mockResolvedValueOnce({ exitCode: 0, stdout: 'probe-a\nprobe-b\n' })
+      .mockResolvedValueOnce({ exitCode: 0, stdout: '' });
+
+    await managerTestHelpers.removeOrphanProbeContainers('run-id');
+
+    expect(mockExeca).toHaveBeenNthCalledWith(
+      1,
+      'docker',
+      ['ps', '-aq', '--filter', `label=${SEALED_PROBE_RUN_LABEL}=run-id`],
+      expect.objectContaining({ reject: false }),
+    );
+    expect(mockExeca).toHaveBeenNthCalledWith(
+      2,
+      'docker',
+      ['rm', '-f', 'probe-a', 'probe-b'],
+      expect.objectContaining({ reject: false }),
+    );
+  });
+
+  it('does not remove containers when the Docker listing fails', async () => {
+    mockExeca.mockResolvedValueOnce({ exitCode: 1, stdout: 'probe-a' });
+
+    await managerTestHelpers.removeOrphanProbeContainers('run-id');
+
+    expect(mockExeca).toHaveBeenCalledTimes(1);
+  });
+
+  it('is a no-op when the sealed-probe root is absent', async () => {
+    await teardownSealedProbes(buildConfig('/nonexistent/sealed-probe-work-dir'));
+    expect(mockExeca).not.toHaveBeenCalled();
+  });
+
+  it('handles unreadable or unusable seed maps without attempting Docker cleanup', async () => {
+    const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-sealed-bad-map-'));
+    const paths = resolveSealedProbePaths(workDir);
+    fs.mkdirSync(paths.root, { recursive: true });
+    fs.writeFileSync(paths.seedMapPath, '{bad json');
+    try {
+      await teardownSealedProbes(buildConfig(workDir));
+      expect(mockExeca).not.toHaveBeenCalled();
+    } finally {
+      fs.rmSync(workDir, { recursive: true, force: true });
+    }
+  });
+
+  it('continues cleanup when orphan container removal fails', async () => {
+    const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-sealed-orphan-failure-'));
+    try {
+      await prepareSealedProbes(buildConfig(workDir), { env: { GH_TOKEN: 't' }, gitRunner });
+      mockExeca.mockRejectedValueOnce(new Error('docker unavailable'));
+
+      await expect(teardownSealedProbes(buildConfig(workDir))).resolves.toBeUndefined();
+      expect(() => fs.rmSync(resolveSealedProbePaths(workDir).seedsDir, { recursive: true })).not.toThrow();
+    } finally {
+      releaseSeedPermissions(resolveSealedProbePaths(workDir).seedsDir);
+      fs.rmSync(workDir, { recursive: true, force: true });
+    }
+  });
+
+  it('does not fail teardown when seed permissions cannot be restored', async () => {
+    const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-sealed-permission-failure-'));
+    const paths = resolveSealedProbePaths(workDir);
+    try {
+      fs.mkdirSync(paths.root, { recursive: true });
+      fs.writeFileSync(paths.seedMapPath, JSON.stringify({ runId: '' }));
+      fs.writeFileSync(paths.seedsDir, 'not a directory');
+      mockReleaseSeedPermissions.mockImplementationOnce(() => {
+        throw new Error('permission denied');
+      });
+
+      await expect(teardownSealedProbes(buildConfig(workDir))).resolves.toBeUndefined();
+      expect(mockReleaseSeedPermissions).toHaveBeenCalledWith(paths.seedsDir);
+    } finally {
       fs.rmSync(workDir, { recursive: true, force: true });
     }
   });

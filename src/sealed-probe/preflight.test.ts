@@ -1,6 +1,10 @@
 import type { WrapperConfig } from '../types';
-import { assertProbeRuntimeAvailable, validateSealedProbeConfig } from './preflight';
+import execa from 'execa';
+import { assertProbeRuntimeAvailable, preflightTestHelpers, validateSealedProbeConfig } from './preflight';
 import type { SealedProbesConfig } from '../types';
+
+jest.mock('execa', () => ({ __esModule: true, default: jest.fn() }));
+const mockExeca = execa as unknown as jest.Mock;
 
 const baseSealedProbes: SealedProbesConfig = {
   enabled: true,
@@ -145,5 +149,23 @@ describe('assertProbeRuntimeAvailable', () => {
     await expect(
       assertProbeRuntimeAvailable({ ...baseSealedProbes, runtime: 'gvisor' }, probe),
     ).rejects.toThrow(/runsc.*not available|not available.*fall back/s);
+  });
+
+  it('detects registered runtimes through Docker info', async () => {
+    mockExeca.mockResolvedValue({ exitCode: 0, stdout: '{"runc":{},"runsc":{}}' });
+    await expect(preflightTestHelpers.defaultDockerRuntimeProbe('runsc')).resolves.toBe(true);
+    expect(mockExeca).toHaveBeenCalledWith(
+      'docker',
+      ['info', '--format', '{{json .Runtimes}}'],
+      expect.objectContaining({ reject: false }),
+    );
+  });
+
+  it('fails closed when Docker info fails or returns malformed JSON', async () => {
+    mockExeca.mockResolvedValueOnce({ exitCode: 1, stdout: '' });
+    await expect(preflightTestHelpers.defaultDockerRuntimeProbe('runsc')).resolves.toBe(false);
+
+    mockExeca.mockResolvedValueOnce({ exitCode: 0, stdout: 'not-json' });
+    await expect(preflightTestHelpers.defaultDockerRuntimeProbe('runsc')).resolves.toBe(false);
   });
 });

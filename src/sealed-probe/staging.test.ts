@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import execa from 'execa';
 import { resolveSealedProbePaths, type SealedProbePaths } from './paths';
 import {
   buildCloneUrl,
@@ -13,6 +14,9 @@ import {
   stagingTestHelpers,
   type GitRunner,
 } from './staging';
+
+jest.mock('execa', () => ({ __esModule: true, default: jest.fn() }));
+const mockExeca = execa as unknown as jest.Mock;
 
 const TOKEN = 'ghs_super_secret_value';
 
@@ -102,6 +106,17 @@ describe('resolveStagingToken', () => {
     expect(resolveStagingToken({ GH_TOKEN: '' })).toBeUndefined();
     expect(resolveStagingToken({})).toBeUndefined();
   });
+
+  it('uses the process environment by default', () => {
+    const previous = process.env.GH_TOKEN;
+    process.env.GH_TOKEN = 'from-process';
+    try {
+      expect(resolveStagingToken()).toBe('from-process');
+    } finally {
+      if (previous === undefined) delete process.env.GH_TOKEN;
+      else process.env.GH_TOKEN = previous;
+    }
+  });
 });
 
 describe('buildCloneUrl', () => {
@@ -155,12 +170,27 @@ describe('buildStagingGitEnv', () => {
       'XDG_CONFIG_HOME',
     ].sort());
   });
+
+  it('uses a safe PATH when the host PATH is absent', () => {
+    const previous = process.env.PATH;
+    delete process.env.PATH;
+    try {
+      expect(buildStagingGitEnv({
+        tokenFilePath: '/token',
+        askpassPath: '/askpass',
+        isolatedHome: '/home',
+      }).PATH).toBe('/usr/local/bin:/usr/bin:/bin');
+    } finally {
+      if (previous !== undefined) process.env.PATH = previous;
+    }
+  });
 });
 
 describe('stageSealedProbeSeeds', () => {
   let workDir: string;
 
   beforeEach(() => {
+    mockExeca.mockReset();
     workDir = makeTempWorkDir();
   });
 
@@ -319,6 +349,47 @@ describe('stageSealedProbeSeeds', () => {
     expect(result.seeds).toHaveLength(2);
     expect(new Set(result.seeds.map((seed) => seed.seedId)).size).toBe(2);
   });
+
+  it('rejects duplicate repositories before overwriting an existing seed', async () => {
+    const { runner } = createFakeGit();
+    await expect(stage(workDir, runner, ['octo/private', 'octo/private']))
+      .rejects.toThrow(/already exists/);
+  });
+
+  it('uses the production git runner when no test runner is supplied', async () => {
+    mockExeca.mockImplementation(async (_command: string, args: string[]) => {
+      if (args.includes('clone')) {
+        const dest = args[args.length - 1];
+        fs.mkdirSync(path.join(dest, '.git'), { recursive: true });
+        fs.writeFileSync(path.join(dest, '.git', 'config'), '[core]\n');
+        fs.writeFileSync(path.join(dest, 'README.md'), 'contents\n');
+        return { stdout: '' };
+      }
+      return { stdout: `${'a'.repeat(40)}\n` };
+    });
+
+    const paths = resolveSealedProbePaths(workDir);
+    fs.mkdirSync(paths.root, { recursive: true, mode: 0o700 });
+
+    const result = await stageSealedProbeSeeds({
+      repos: ['octo/private'],
+      paths,
+      runId: 'f'.repeat(32),
+      token: TOKEN,
+    });
+
+    expect(result.seeds[0].commit).toBe('a'.repeat(40));
+    expect(mockExeca).toHaveBeenCalledWith(
+      'git',
+      expect.any(Array),
+      expect.objectContaining({ extendEnv: false, timeout: expect.any(Number) }),
+    );
+  });
+
+  it('canonicalizes a non-Error staging failure', async () => {
+    const failing: GitRunner = async () => Promise.reject('clone rejected');
+    await expect(stage(workDir, failing)).rejects.toThrow(/clone rejected/);
+  });
 });
 
 describe('releaseSeedPermissions', () => {
@@ -364,6 +435,37 @@ describe('scrubSeed', () => {
 
       expect(() => scrubSeed(seed)).toThrow(/submodule/i);
     } finally {
+      fs.rmSync(workDir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('staging read-only verification', () => {
+  it('reports writable paths left in a seed', () => {
+    const workDir = makeTempWorkDir();
+    try {
+      const seed = path.join(workDir, 'seed');
+      fs.mkdirSync(seed, { mode: 0o700 });
+      fs.writeFileSync(path.join(seed, 'writable'), 'contents', { mode: 0o600 });
+
+      expect(() => stagingTestHelpers.verifySeedReadOnly(seed))
+        .toThrow(/2 writable path\(s\)/);
+    } finally {
+      fs.rmSync(workDir, { recursive: true, force: true });
+    }
+  });
+
+  it('ignores symlinks when checking write permissions', () => {
+    const workDir = makeTempWorkDir();
+    const seed = path.join(workDir, 'seed');
+    try {
+      fs.mkdirSync(seed, { mode: 0o700 });
+      fs.symlinkSync('/tmp', path.join(seed, 'link'));
+      fs.chmodSync(seed, 0o500);
+
+      expect(() => stagingTestHelpers.verifySeedReadOnly(seed)).not.toThrow();
+    } finally {
+      fs.chmodSync(seed, 0o700);
       fs.rmSync(workDir, { recursive: true, force: true });
     }
   });

@@ -2,7 +2,11 @@ import * as path from 'path';
 import type { SealedProbesConfig, WrapperConfig } from '../types';
 import { parseImageTag } from '../image-tag';
 import { AGENT_SKILL_DIR, AGENT_SOCKET_DIR, AGENT_SOCKET_PATH, resolveSealedProbePaths } from '../sealed-probe/paths';
-import { buildSealedProbeService, isSealedProbeAgentMount } from './sealed-probe-service';
+import {
+  buildSealedProbeService,
+  isSealedProbeAgentMount,
+  sealedProbeServiceTestHelpers,
+} from './sealed-probe-service';
 import type { ImageBuildConfig } from './squid-service';
 
 const WORK_DIR = '/tmp/awf-1700000000';
@@ -145,6 +149,7 @@ describe('buildSealedProbeService', () => {
         config: buildConfig(),
         imageConfig: imageConfig(false),
       });
+
       expect(localService.image).toBe('awf-sealed-probe-broker:local');
       expect(localService.build).toEqual({
         context: path.join('/opt/awf', 'containers', 'sealed-probe'),
@@ -161,6 +166,13 @@ describe('buildSealedProbeService', () => {
           target: 'probe',
         },
         entrypoint: ['/bin/true'],
+      });
+    });
+
+    it('keeps the legacy image helper aligned with the split image resolver', () => {
+      expect(sealedProbeServiceTestHelpers.resolveSealedProbeImage(imageConfig())).toEqual({
+        imageRef: 'ghcr.io/github/gh-aw-firewall/sealed-probe:v1.2.3',
+        source: { image: 'ghcr.io/github/gh-aw-firewall/sealed-probe-broker:v1.2.3' },
       });
     });
   });

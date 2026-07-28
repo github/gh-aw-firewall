@@ -190,9 +190,20 @@ describe('validateSealedProbeRequest', () => {
       ...validRequest,
       runtime: 'docker',
     });
+
     expect(result).toEqual({
       valid: false,
       errors: expect.arrayContaining(['request.runtime is not supported']),
+    });
+  });
+
+  it('rejects a request that cannot be serialized', () => {
+    const cyclic: Record<string, unknown> = { ...validRequest };
+    cyclic.self = cyclic;
+    const result = validateSealedProbeRequest(cyclic);
+    expect(result).toEqual({
+      valid: false,
+      errors: expect.arrayContaining(['request.self is not supported', 'request must be JSON-serializable']),
     });
   });
 
@@ -311,6 +322,29 @@ describe('parseSealedProbeResult', () => {
 
   it('rejects raw control characters embedded in the string', () => {
     expect(parseSealedProbeResult('{"result":"line\nbreak"}', OUTCOMES)).toEqual({ result: RESERVED_ERROR_OUTCOME });
+  });
+
+  it.each([
+    '{"result":"s\\"uccess"}',
+    '{"result":"s\\\\uccess"}',
+    '{"result":"s\\/uccess"}',
+    '{"result":"s\\buccess"}',
+    '{"result":"s\\fuccess"}',
+    '{"result":"s\\nuccess"}',
+    '{"result":"s\\ruccess"}',
+    '{"result":"s\\tuccess"}',
+    '{"result":"\\u0073uccess"}',
+  ])('parses standard JSON escapes before enforcing the outcome enum: %s', (raw) => {
+    const expected = raw.includes('\\u0073') ? 'success' : RESERVED_ERROR_OUTCOME;
+    expect(parseSealedProbeResult(raw, OUTCOMES)).toEqual({ result: expected });
+  });
+
+  it.each([
+    '{"result":"\\x73uccess"}',
+    '{"result":"\\uZZZZ"}',
+    '{"result":"trailing\\\\',
+  ])('rejects invalid JSON string escapes: %s', (raw) => {
+    expect(parseSealedProbeResult(raw, OUTCOMES)).toEqual({ result: RESERVED_ERROR_OUTCOME });
   });
 });
 
