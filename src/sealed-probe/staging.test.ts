@@ -219,13 +219,6 @@ describe('stageSealedProbeSeeds', () => {
 
     const offenders: string[] = [];
     const walk = (target: string): void => {
-      const stat = fs.lstatSync(target);
-      if (stat.isSymbolicLink()) return;
-      if (stat.isDirectory()) {
-        for (const entry of fs.readdirSync(target)) walk(path.join(target, entry));
-        return;
-      }
-      // Open with O_NOFOLLOW so a race-replaced symlink cannot redirect the read.
       let fd: number;
       try {
         fd = fs.openSync(target, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
@@ -233,11 +226,21 @@ describe('stageSealedProbeSeeds', () => {
         return;
       }
       try {
+        const stat = fs.fstatSync(fd);
+        if (stat.isDirectory()) {
+          fs.closeSync(fd);
+          for (const entry of fs.readdirSync(target)) walk(path.join(target, entry));
+          return;
+        }
         if (fs.readFileSync(fd, 'utf8').includes(TOKEN)) offenders.push(target);
       } catch {
         // skip unreadable entries
       } finally {
-        fs.closeSync(fd);
+        try {
+          fs.closeSync(fd);
+        } catch {
+          // already closed before directory traversal
+        }
       }
     };
     walk(paths.root);
