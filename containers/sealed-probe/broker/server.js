@@ -112,8 +112,7 @@ async function main() {
   await listenOnSocket(server, config, audit);
 
   // Write the ready file AFTER the socket is accepting connections. The
-  // compose healthcheck polls this file — it is broker-internal and not
-  // accessible on the agent-visible socket.
+  // compose healthcheck polls this file in the broker-only audit mount.
   fs.writeFileSync(config.readyPath, '', { mode: 0o644 });
 
   audit.lifecycle('listening', {

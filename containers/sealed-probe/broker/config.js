@@ -17,9 +17,9 @@ const WORK_DIR = '/srv/awf/work';
 const SEED_MAP_PATH = '/srv/awf/seed-map.json';
 const SOCKET_DIR = '/run/awf-sealed-probe';
 const SOCKET_PATH = path.join(SOCKET_DIR, 'broker.sock');
-/** Broker writes this file after the socket is ready; the healthcheck reads it. */
-const READY_PATH = path.join(SOCKET_DIR, 'broker.ready');
 const AUDIT_DIR = '/var/log/awf-sealed-probe';
+/** Broker-private readiness marker; the audit directory is never agent-mounted. */
+const READY_PATH = path.join(AUDIT_DIR, 'broker.ready');
 const PROBE_SECCOMP_PATH = '/opt/awf/probe-seccomp.json';
 
 /** Mount points inside the probe container. Fixed, never caller-supplied. */
@@ -117,4 +117,4 @@ function loadSeedMap(seedMapPath) {
   return { runId: parsed.runId, seeds };
 }
 
-module.exports = { loadConfig, loadSeedMap };
+module.exports = { READY_PATH, loadConfig, loadSeedMap };

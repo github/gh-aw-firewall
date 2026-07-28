@@ -238,11 +238,17 @@ function assembleSealedProbeService(params: AssembleOptionalServicesParams): voi
 
   if (!config.sealedProbes?.enabled) return;
 
-  const { service, agentEnvAdditions, agentVolumes: probeVolumes } = buildSealedProbeService({
+  const {
+    probeImageService,
+    service,
+    agentEnvAdditions,
+    agentVolumes: probeVolumes,
+  } = buildSealedProbeService({
     config,
     imageConfig,
   });
 
+  services['sealed-probe-image'] = probeImageService;
   services['sealed-probe-broker'] = service;
   Object.assign(environment, agentEnvAdditions);
   agentVolumes.push(...probeVolumes);

@@ -86,16 +86,17 @@ function buildProbeArgs(params) {
     // /probe: size-limited tmpfs as the aggregate workspace.  New files the
     // probe creates here cannot exceed PROBE_WORKSPACE_TMPFS_BYTES in total,
     // which bounds host filesystem consumption beyond the pre-seeded repo.
-    '--tmpfs', `/probe:rw,nosuid,nodev,size=${PROBE_WORKSPACE_TMPFS_BYTES}`,
+    '--tmpfs', `/probe:rw,nosuid,nodev,size=${PROBE_WORKSPACE_TMPFS_BYTES},uid=${config.probeUid},gid=${config.probeGid},mode=0700`,
     '--hostname', 'probe',
     '--workdir', config.probeMountDir,
     '--env', 'HOME=/tmp',
     '--env', 'PYTHONDONTWRITEBYTECODE=1',
     '--env', 'PYTHONUNBUFFERED=1',
-    // Mount the seed repo read-only: the probe reads the repository but
-    // cannot add files to the host-side copy.  This mounts over the tmpfs
-    // at /probe/repo — Docker applies the more-specific mount last.
-    '-v', `${hostInvocationDir}/repo:${config.probeMountDir}/repo:ro`,
+    // Mount the assigned seed copy read-only at a broker-chosen internal path.
+    // The fixed image entrypoint copies it into the bounded tmpfs at
+    // /probe/repo before executing the submitted script, giving the script a
+    // writable ephemeral repository without unbounded host filesystem writes.
+    '-v', `${hostInvocationDir}/repo:/awf/seed:ro`,
     // Mount the pre-created output file: the probe writes its answer here
     // and it persists on the host for the broker to read back.
     '-v', `${hostInvocationDir}/out:${config.probeMountDir}/out:rw`,
@@ -108,11 +109,8 @@ function buildProbeArgs(params) {
   }
 
   args.push(
-    '--entrypoint', '/usr/bin/python3',
+    '--entrypoint', '/usr/local/bin/run-probe',
     config.probeImage,
-    '-I',
-    '-B',
-    config.probeScriptPath,
   );
 
   return args;

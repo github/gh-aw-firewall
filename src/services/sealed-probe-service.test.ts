@@ -44,7 +44,10 @@ describe('buildSealedProbeService', () => {
   });
 
   describe('broker service', () => {
-    const { service } = buildSealedProbeService({ config: buildConfig(), imageConfig: imageConfig() });
+    const { probeImageService, service } = buildSealedProbeService({
+      config: buildConfig(),
+      imageConfig: imageConfig(),
+    });
     const volumes = service.volumes as string[];
     const environment = service.environment as Record<string, string>;
 
@@ -103,6 +106,20 @@ describe('buildSealedProbeService', () => {
       ]);
     });
 
+    it('waits for a networkless one-shot service to make the probe image available', () => {
+      expect(service.depends_on).toEqual({
+        'sealed-probe-image': { condition: 'service_completed_successfully' },
+      });
+      expect(probeImageService).toMatchObject({
+        image: 'ghcr.io/github/gh-aw-firewall/sealed-probe:v1.2.3',
+        network_mode: 'none',
+        entrypoint: ['/bin/true'],
+        cap_drop: ['ALL'],
+        restart: 'no',
+      });
+      expect(probeImageService).not.toHaveProperty('volumes');
+    });
+
     it('maps the gvisor runtime to the runsc OCI runtime for probes', () => {
       const { service: gvisorService } = buildSealedProbeService({
         config: buildConfig({}, { runtime: 'gvisor' }),
@@ -124,7 +141,7 @@ describe('buildSealedProbeService', () => {
     });
 
     it('pins a deterministic local image tag when building from source', () => {
-      const { service: localService } = buildSealedProbeService({
+      const { probeImageService: localProbeService, service: localService } = buildSealedProbeService({
         config: buildConfig(),
         imageConfig: imageConfig(false),
       });
@@ -136,6 +153,15 @@ describe('buildSealedProbeService', () => {
       });
       expect((localService.environment as Record<string, string>).AWF_SEALED_PROBE_IMAGE)
         .toBe('awf-sealed-probe:local');
+      expect(localProbeService).toMatchObject({
+        image: 'awf-sealed-probe:local',
+        build: {
+          context: path.join('/opt/awf', 'containers', 'sealed-probe'),
+          dockerfile: 'Dockerfile',
+          target: 'probe',
+        },
+        entrypoint: ['/bin/true'],
+      });
     });
   });
 

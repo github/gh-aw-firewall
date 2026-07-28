@@ -7,10 +7,10 @@ const { MAX_RESULT_BYTES } = require('./protocol');
 /**
  * Per-invocation private workspace management.
  *
- * Every invocation receives a *fresh, full, read-only copy* of exactly one
- * immutable seed mounted at `/probe/repo`. The seed itself is mounted
- * read-only into the broker and is never handed to a probe, so a probe can
- * neither observe nor mutate it, nor reach any other repository.
+ * Every invocation receives a fresh copy of exactly one immutable seed. The
+ * copy is mounted read-only at an internal path and materialized by the fixed
+ * probe entrypoint into the size-limited tmpfs at `/probe/repo`, where the
+ * submitted script may modify it freely.
  *
  * `/probe` is backed by a size-limited tmpfs so the probe cannot create
  * unbounded numbers of files on the Docker host. The probe writes its
@@ -24,7 +24,7 @@ function invocationLayout(workDir, invocationId) {
   const root = path.join(workDir, invocationId);
   return {
     root,
-    // The seed copy is mounted read-only into the probe at probeMountDir/repo.
+    // The seed copy is mounted read-only at /awf/seed for the fixed entrypoint.
     repoDir: path.join(root, 'repo'),
     // Pre-created empty file bound at probeMountDir/out so the probe can write
     // its answer to the host filesystem; the broker reads it back after exit.
@@ -53,13 +53,12 @@ function grantProbeOwnership(target, uid, gid) {
 }
 
 /**
- * Materializes the invocation workspace: a read-only copy of the seed repo,
+ * Materializes the invocation workspace: a private copy of the seed repo,
  * the submitted script, and a pre-created empty output file.
  *
- * The seed repo is mounted read-only into the probe container (no aggregate
- * storage impact from repo reads). The output file is a bind-mounted regular
+ * The seed copy is mounted read-only for the fixed entrypoint, which copies it
+ * into the bounded `/probe` tmpfs. The output file is a bind-mounted regular
  * file owned by the probe uid so the probe can write its answer there.
- * `/probe` itself is backed by a size-limited tmpfs (see probe-runner.js).
  */
 function createInvocationWorkspace(params) {
   const { config, invocationId, seedId, script } = params;
@@ -67,8 +66,8 @@ function createInvocationWorkspace(params) {
 
   fs.mkdirSync(layout.root, { recursive: true, mode: 0o700 });
 
-  // Copy the seed to layout.repoDir. The copy is mounted read-only into
-  // the probe (:ro flag in probe-runner.js), but the broker-side copy
+  // Copy the seed to layout.repoDir. The copy is mounted read-only for
+  // the fixed probe entrypoint, but the broker-side copy
   // must be writable so the broker can delete it after the probe exits.
   // FS permissions on the host do NOT enforce the probe's read-only
   // constraint — the Docker mount flag does.

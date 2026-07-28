@@ -23,16 +23,20 @@
 FROM python:3.12-alpine3.21 AS probe
 
 RUN python3 -c 'import json, pathlib, sys; sys.exit(0)' \
-    && test -x /usr/bin/python3
+    && test -x /usr/local/bin/python3 \
+    && rm -f /sbin/apk
+
+COPY probe-entrypoint.py /usr/local/bin/run-probe
+RUN chmod 0555 /usr/local/bin/run-probe
 
 # Pre-create mount points used by the probe container so a missing bind
 # mount fails loudly rather than silently materialising an empty directory.
-RUN mkdir -p /probe /awf
+RUN mkdir -p /probe /awf/seed
 
 # ──────────────────────────────────────────────────────────────────────────
 # broker stage: trusted broker with Node + docker-cli (default build target)
 # ──────────────────────────────────────────────────────────────────────────
-FROM node:22.23.1-alpine3.24
+FROM node:22.23.1-alpine3.24 AS broker
 
 # docker-cli  — used by the broker to launch probe containers
 RUN apk add --no-cache docker-cli \

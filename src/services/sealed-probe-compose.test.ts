@@ -40,6 +40,7 @@ describe('sealed-probe broker in generated Docker Compose', () => {
       const agent = result.services['agent'] as unknown as Record<string, unknown>;
 
       expect(result.services['sealed-probe-broker']).toBeUndefined();
+      expect(result.services['sealed-probe-image']).toBeUndefined();
       expect((agent.depends_on as Record<string, unknown>)['sealed-probe-broker']).toBeUndefined();
       expect(JSON.stringify(agent.volumes)).not.toContain('sealed-probe');
       expect(JSON.stringify(agent.environment)).not.toContain('SEALED_PROBE');
@@ -51,6 +52,7 @@ describe('sealed-probe broker in generated Docker Compose', () => {
         mockNetworkConfig,
       );
       expect(result.services['sealed-probe-broker']).toBeUndefined();
+      expect(result.services['sealed-probe-image']).toBeUndefined();
     });
   });
 
@@ -63,6 +65,19 @@ describe('sealed-probe broker in generated Docker Compose', () => {
       expect(broker.container_name).toBe('awf-sealed-probe-broker');
       expect(broker.network_mode).toBe('none');
       expect(broker.networks).toBeUndefined();
+    });
+
+    it('adds a one-shot networkless probe-image dependency', () => {
+      const result = generateDockerCompose(enabled(), mockNetworkConfig);
+      const imageService = result.services['sealed-probe-image'] as unknown as Record<string, unknown>;
+      const broker = result.services['sealed-probe-broker'] as unknown as Record<string, unknown>;
+
+      expect(imageService.network_mode).toBe('none');
+      expect(imageService.entrypoint).toEqual(['/bin/true']);
+      expect(imageService.volumes).toBeUndefined();
+      expect(broker.depends_on).toEqual({
+        'sealed-probe-image': { condition: 'service_completed_successfully' },
+      });
     });
 
     it('gates the agent on broker health', () => {

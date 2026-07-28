@@ -137,11 +137,9 @@ describe('sealed-probe broker', () => {
     return {
       seen,
       runProbeContainer: async ({ invocationId }: { invocationId: string }) => {
-        // The invocation root contains repo/ (read-only seed copy), out (output
-        // file), and script.py (the submitted script). In Docker the probe sees
-        // /probe/repo (read-only bind mount) and /probe/out (bind mount), with
-        // /probe backed by a size-limited tmpfs. The mock operates on the host
-        // filesystem directly, so it uses the host invocation directory.
+        // The invocation root contains the assigned seed copy, output file, and
+        // submitted script. The fixed entrypoint copies the read-only seed
+        // mount into bounded tmpfs before running the script.
         const invocationDir = path.join(String(config.workDir), invocationId);
         seen.push(invocationDir);
         behaviour(invocationDir);
@@ -483,7 +481,7 @@ describe('probe container arguments', () => {
     }, []);
 
     expect(mounts).toEqual([
-      '/daemon/work/inv-1/repo:/probe/repo:ro',
+      '/daemon/work/inv-1/repo:/awf/seed:ro',
       '/daemon/work/inv-1/out:/probe/out:rw',
       '/daemon/work/inv-1/script.py:/awf/probe-script.py:ro',
     ]);
@@ -491,7 +489,7 @@ describe('probe container arguments', () => {
 
   it('backs /probe with a size-limited tmpfs for aggregate storage enforcement', () => {
     const joined = args().join(' ');
-    expect(joined).toMatch(/--tmpfs \/probe:rw,nosuid,nodev,size=\d+/);
+    expect(joined).toMatch(/--tmpfs \/probe:rw,nosuid,nodev,size=\d+,uid=65534,gid=65534,mode=0700/);
     // No writable bind mount for the full /probe dir: a probe cannot fill the host FS
     expect(joined).not.toContain(':/probe:rw');
     expect(joined).not.toContain(':/probe/repo:rw');
@@ -505,12 +503,12 @@ describe('probe container arguments', () => {
     expect(joined).not.toContain('/host');
   });
 
-  it('runs the fixed python3 entrypoint against the mounted script', () => {
+  it('runs the fixed entrypoint that materializes the writable repo before the script', () => {
     const argv = args();
     expect(argv).toContain('--entrypoint');
-    expect(argv[argv.indexOf('--entrypoint') + 1]).toBe('/usr/bin/python3');
-    expect(argv[argv.length - 1]).toBe('/awf/probe-script.py');
-    expect(argv).toContain('-I');
+    expect(argv[argv.indexOf('--entrypoint') + 1]).toBe('/usr/local/bin/run-probe');
+    expect(argv[argv.length - 1]).toBe('ghcr.io/example/sealed-probe:1');
+    expect(argv).not.toContain('-I');
   });
 
   it('labels the container for orphan cleanup', () => {

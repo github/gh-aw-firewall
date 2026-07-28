@@ -60,6 +60,8 @@ interface SealedProbeServiceParams {
 }
 
 interface SealedProbeBuildResult {
+  /** One-shot service that makes the probe image locally available. */
+  probeImageService: Record<string, unknown>;
   /** Compose service definition for the broker. */
   service: Record<string, unknown>;
   /** Environment additions merged into the agent container. */
@@ -80,6 +82,7 @@ interface SealedProbeBuildResult {
  */
 function resolveSealedProbeImages(imageConfig: ImageBuildConfig): {
   probeImageRef: string;
+  probeSource: Record<string, unknown>;
   brokerSource: Record<string, unknown>;
 } {
   const { useGHCR, registry, parsedTag, projectRoot } = imageConfig;
@@ -87,13 +90,25 @@ function resolveSealedProbeImages(imageConfig: ImageBuildConfig): {
   if (useGHCR) {
     const probeImageRef = buildRuntimeImageRef(registry, SEALED_PROBE_IMAGE_NAME, parsedTag);
     const brokerImageRef = buildRuntimeImageRef(registry, SEALED_PROBE_BROKER_IMAGE_NAME, parsedTag);
-    return { probeImageRef, brokerSource: { image: brokerImageRef } };
+    return {
+      probeImageRef,
+      probeSource: { image: probeImageRef },
+      brokerSource: { image: brokerImageRef },
+    };
   }
 
   // Local builds pin an explicit `image:` alongside `build:` so the built
   // image gets a deterministic tag the broker can pass to `docker run`.
   return {
     probeImageRef: LOCAL_SEALED_PROBE_IMAGE,
+    probeSource: {
+      image: LOCAL_SEALED_PROBE_IMAGE,
+      build: {
+        context: `${projectRoot}/containers/sealed-probe`,
+        dockerfile: 'Dockerfile',
+        target: 'probe',
+      },
+    },
     brokerSource: {
       image: LOCAL_SEALED_PROBE_BROKER_IMAGE,
       build: {
@@ -142,8 +157,19 @@ export function buildSealedProbeService(params: SealedProbeServiceParams): Seale
   }
 
   const paths = resolveSealedProbePaths(config.workDir);
-  const { probeImageRef, brokerSource } = resolveSealedProbeImages(imageConfig);
+  const { probeImageRef, probeSource, brokerSource } = resolveSealedProbeImages(imageConfig);
   const dockerSocketPath = resolveDockerSocketPath(config);
+
+  // Compose must pull/build the probe target before starting the offline
+  // broker. The one-shot service has no mounts or network and exits only after
+  // Docker has made the exact image reference available to the daemon.
+  const probeImageService: Record<string, unknown> = {
+    ...probeSource,
+    network_mode: 'none',
+    entrypoint: ['/bin/true'],
+    ...buildContainerSecurityHardening({ memLimit: '32m', pidsLimit: 16, cpuShares: 64 }),
+    restart: 'no',
+  };
 
   const service: Record<string, unknown> = {
     container_name: SEALED_PROBE_BROKER_CONTAINER_NAME,
@@ -179,6 +205,11 @@ export function buildSealedProbeService(params: SealedProbeServiceParams): Seale
       AWF_SEALED_PROBE_HOST_WORK_DIR: toDaemonVisiblePath(paths.workDir, config.dockerHostPathPrefix),
       AWF_SEALED_PROBE_SOCKET_UID: getSafeHostUid(),
       AWF_SEALED_PROBE_SOCKET_GID: getSafeHostGid(),
+    },
+    depends_on: {
+      'sealed-probe-image': {
+        condition: 'service_completed_successfully',
+      },
     },
     healthcheck: {
       test: ['CMD', 'node', '/opt/awf/broker/healthcheck.js'],
@@ -235,7 +266,7 @@ export function buildSealedProbeService(params: SealedProbeServiceParams): Seale
     `Sealed probes enabled - offline broker (network_mode: none) exposed to the agent at ${AGENT_SOCKET_PATH}`,
   );
 
-  return { service, agentEnvAdditions, agentVolumes };
+  return { probeImageService, service, agentEnvAdditions, agentVolumes };
 }
 
 /**
