@@ -3,6 +3,8 @@
 const { logRequest, sanitizeForLog } = require('../logging');
 const pricingByModel = require('../ai-credits-pricing');
 const { resolveCatalogModel } = require('../models-dev-catalog');
+const { resolveRuntimePricing } = require('../runtime-model-catalog');
+const { resolveProviderPricingOverlay } = require('../provider-pricing-overlays');
 const { parsePositiveNumber } = require('./guard-utils');
 const { PROVIDER_ANTHROPIC, PROVIDER_COPILOT } = require('../provider-names');
 
@@ -91,15 +93,23 @@ function canonicalizeModel(model) {
   return withoutDateSuffix.replace(/[._]/g, '-');
 }
 
-function resolveModelPricing(model, state = aiCreditsState) {
-  if (Object.hasOwn(pricingByModel, model)) return pricingByModel[model];
+function resolveModelPricing(model, state = aiCreditsState, provider = undefined, inputTokens = 0) {
+  const operatorPricing = provider ? resolveProviderPricingOverlay(provider, model) : null;
+  if (operatorPricing) return operatorPricing;
+
+  const runtime = provider ? resolveRuntimePricing(provider, model, inputTokens) : null;
+  if (runtime) return runtime;
+
+  if (Object.hasOwn(pricingByModel, model)) {
+    return { pricing: pricingByModel[model], source: 'curated', tier: 'default' };
+  }
 
   const canonical = canonicalizeModel(model);
 
   // Try canonical form against canonicalized pricing keys
   for (const [configuredModel, pricing] of Object.entries(pricingByModel)) {
     const canonicalKey = canonicalizeModel(configuredModel);
-    if (canonical === canonicalKey) return pricing;
+    if (canonical === canonicalKey) return { pricing, source: 'curated', tier: 'default' };
   }
 
   // Prefix match: canonical model starts with a canonical pricing key
@@ -112,10 +122,12 @@ function resolveModelPricing(model, state = aiCreditsState) {
       }
     }
   }
-  if (prefixMatch) return prefixMatch.pricing;
+  if (prefixMatch) return { pricing: prefixMatch.pricing, source: 'curated', tier: 'default' };
 
   const catalogModel = resolveCatalogModel(model);
-  if (catalogModel.pricing) return catalogModel.pricing;
+  if (catalogModel.pricing) {
+    return { pricing: catalogModel.pricing, source: 'models.dev', tier: 'default' };
+  }
 
   if (!state.warnedUnknownModels.has(model)) {
     logRequest('warn', 'unknown_model_ai_credits_pricing', {
@@ -126,13 +138,17 @@ function resolveModelPricing(model, state = aiCreditsState) {
 
   // Fall back to configured default pricing if available
   const config = getAiCreditsConfig();
-  if (config.defaultPricing) return config.defaultPricing;
+  if (config.defaultPricing) {
+    return { pricing: config.defaultPricing, source: 'configured_default', tier: 'default' };
+  }
 
   // When the model is the 'unknown' sentinel (response omitted model and
   // request body didn't contain one either), use conservative fallback pricing
   // so AI credits are never silently lost. This is NOT applied to truly unknown
   // model names which should still be rejected by checkUnknownModelRejection.
-  if (model === 'unknown') return BUILTIN_FALLBACK_PRICING;
+  if (model === 'unknown') {
+    return { pricing: BUILTIN_FALLBACK_PRICING, source: 'builtin_fallback', tier: 'default' };
+  }
 
   return null;
 }
@@ -150,10 +166,8 @@ function checkUnknownModelRejection(model, provider = undefined) {
   if (!config.max) return null; // guard not active, don't reject
   if (!model) return null; // no model in request body, can't check
   if (config.defaultPricing) return null; // has fallback, don't reject
-  if (provider === PROVIDER_COPILOT && model.toLowerCase() === 'auto') return null;
-
-  const pricing = resolveModelPricing(model);
-  if (pricing) return null; // model resolved, don't reject
+  const pricingResolution = resolveModelPricing(model, aiCreditsState, provider);
+  if (pricingResolution) return null; // model resolved, don't reject
 
   return {
     rejected: true,
@@ -169,8 +183,15 @@ function checkUnknownModelRejection(model, provider = undefined) {
 }
 
 function calculateAiCredits(normalizedUsage, model, state = aiCreditsState, provider = undefined) {
-  const pricing = resolveModelPricing(model, state);
-  if (!pricing) return null;
+  const reportedInput = normalizedUsage.input_tokens || 0;
+  const cacheReadTokens = normalizedUsage.cache_read_tokens || 0;
+  const cacheWriteTokens = normalizedUsage.cache_write_tokens || 0;
+  const totalInputForTier = provider === PROVIDER_ANTHROPIC || provider === PROVIDER_COPILOT
+    ? reportedInput + cacheReadTokens + cacheWriteTokens
+    : reportedInput;
+  const pricingResolution = resolveModelPricing(model, state, provider, totalInputForTier);
+  if (!pricingResolution) return null;
+  const { pricing } = pricingResolution;
 
   // input_tokens semantics differ by provider:
   //  - Anthropic and Copilot report input_tokens as the NON-cached input only;
@@ -180,9 +201,6 @@ function calculateAiCredits(normalizedUsage, model, state = aiCreditsState, prov
   //  - OpenAI (and OpenAI-compatible providers) report prompt_tokens/input_tokens
   //    as the TOTAL input, with cached tokens being a SUBSET. Those must be
   //    subtracted before applying the full input rate to avoid double-counting.
-  const reportedInput = normalizedUsage.input_tokens || 0;
-  const cacheReadTokens = normalizedUsage.cache_read_tokens || 0;
-  const cacheWriteTokens = normalizedUsage.cache_write_tokens || 0;
   const nonCachedInput = provider === PROVIDER_ANTHROPIC || provider === PROVIDER_COPILOT
     ? reportedInput
     : Math.max(0, reportedInput - cacheReadTokens - cacheWriteTokens);
@@ -201,6 +219,11 @@ function calculateAiCredits(normalizedUsage, model, state = aiCreditsState, prov
     cacheWriteCredits,
     outputCredits,
     totalCredits,
+    pricingSource: pricingResolution.source,
+    pricingTier: pricingResolution.tier,
+    pricingObservedAt: pricingResolution.observedAt,
+    pricingApiVersion: pricingResolution.apiVersion,
+    pricingDiscountPercent: pricingResolution.discountPercent,
   };
 }
 
@@ -217,6 +240,8 @@ function applyAiCreditsUsage(normalizedUsage, model, provider = undefined) {
       cacheWriteCredits: 0,
       outputCredits: 0,
       totalCredits: 0,
+      pricingSource: calc.pricingSource,
+      pricingTier: calc.pricingTier,
     };
   }
 
@@ -226,6 +251,8 @@ function applyAiCreditsUsage(normalizedUsage, model, provider = undefined) {
   modelBucket.cacheWriteCredits += calc.cacheWriteCredits;
   modelBucket.outputCredits += calc.outputCredits;
   modelBucket.totalCredits += calc.totalCredits;
+  modelBucket.pricingSource = calc.pricingSource;
+  modelBucket.pricingTier = calc.pricingTier;
   aiCreditsState.totalAiCredits += calc.totalCredits;
 
   process.env.AWF_AI_CREDITS_USED = String(roundCredits(aiCreditsState.totalAiCredits));
@@ -237,6 +264,13 @@ function applyAiCreditsUsage(normalizedUsage, model, provider = undefined) {
     cacheWriteCreditsThisResponse: roundCredits(calc.cacheWriteCredits),
     outputCreditsThisResponse: roundCredits(calc.outputCredits),
     totalAiCredits: roundCredits(aiCreditsState.totalAiCredits),
+    pricingSource: calc.pricingSource,
+    pricingTier: calc.pricingTier,
+    ...(calc.pricingObservedAt ? { pricingObservedAt: calc.pricingObservedAt } : {}),
+    ...(calc.pricingApiVersion ? { pricingApiVersion: calc.pricingApiVersion } : {}),
+    ...(calc.pricingDiscountPercent !== undefined
+      ? { pricingDiscountPercent: calc.pricingDiscountPercent }
+      : {}),
   };
 }
 
@@ -249,6 +283,8 @@ function getAiCreditsReflectState() {
       cache_write_credits: roundCredits(usage.cacheWriteCredits),
       output_credits: roundCredits(usage.outputCredits),
       total: roundCredits(usage.totalCredits),
+      pricing_source: usage.pricingSource,
+      pricing_tier: usage.pricingTier,
     };
   }
   return {

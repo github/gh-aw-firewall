@@ -200,6 +200,9 @@ function buildRateLimitEnv(config: WrapperConfig): Record<string, string> {
     ...(config.defaultAiCreditsPricing && {
       AWF_DEFAULT_AI_CREDITS_PRICING: JSON.stringify(config.defaultAiCreditsPricing),
     }),
+    ...(config.apiProxyProviders && {
+      AWF_API_PROXY_PROVIDERS: JSON.stringify(config.apiProxyProviders),
+    }),
     ...(config.effectiveTokenModelMultipliers && {
       AWF_EFFECTIVE_TOKEN_MODEL_MULTIPLIERS: JSON.stringify(config.effectiveTokenModelMultipliers),
     }),

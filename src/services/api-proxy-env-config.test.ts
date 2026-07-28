@@ -291,6 +291,18 @@ describe('buildRateLimitEnv', () => {
     expect(env.AWF_MAX_AI_CREDITS).toBe('1.25');
   });
 
+  it('sets AWF_API_PROXY_PROVIDERS when provider pricing overlays are configured', () => {
+    const providers = {
+      anthropic: {
+        models: {
+          'custom-model': { cost: { input: '3e-06', output: '1.5e-05' } },
+        },
+      },
+    };
+    const env = buildRateLimitEnv({ ...baseConfig, workDir: '/tmp/awf-test', apiProxyProviders: providers });
+    expect(JSON.parse(env.AWF_API_PROXY_PROVIDERS)).toEqual(providers);
+  });
+
   it('sets AWF_MAX_RUNS when configured', () => {
     const env = buildRateLimitEnv({ ...baseConfig, workDir: '/tmp/awf-test', maxRuns: 25 });
     expect(env.AWF_MAX_RUNS).toBe('25');

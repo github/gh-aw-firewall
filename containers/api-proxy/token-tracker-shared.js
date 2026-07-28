@@ -42,6 +42,15 @@ function mergeBudgetFields(record, budgetResult) {
   if (budgetResult.ai_credits_total != null) {
     record.ai_credits_total = budgetResult.ai_credits_total;
   }
+  for (const field of [
+    'ai_credits_pricing_source',
+    'ai_credits_pricing_tier',
+    'ai_credits_pricing_observed_at',
+    'ai_credits_pricing_api_version',
+    'ai_credits_pricing_discount_percent',
+  ]) {
+    if (budgetResult[field] != null) record[field] = budgetResult[field];
+  }
 }
 
 module.exports = {

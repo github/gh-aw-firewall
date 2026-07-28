@@ -1,4 +1,6 @@
 import { buildConfig } from './build-config';
+import { mapAwfFileConfigToCliOptions } from '../config-mapper';
+import { testHelpers as apiProxyEnvTestHelpers } from '../services/api-proxy-env-config';
 
 /** Minimal valid inputs for buildConfig */
 function makeInputs(overrides: Partial<Parameters<typeof buildConfig>[0]> = {}): Parameters<typeof buildConfig>[0] {
@@ -112,6 +114,28 @@ describe('buildConfig', () => {
         }));
         expect(config.allowedModels).toEqual(['gpt-5.6-sol']);
         expect(config.disallowedModels).toEqual(['gpt-5.6-luna']);
+      });
+
+      it('carries pricing configuration from config-file mapping into proxy environment', () => {
+        const providers = {
+          anthropic: {
+            models: {
+              'custom-model': { cost: { input: '3e-06', output: '1.5e-05' } },
+            },
+          },
+        };
+        const defaultPricing = { input: 3, output: 15, cachedInput: 0.3 };
+        const options = mapAwfFileConfigToCliOptions({
+          apiProxy: {
+            providers,
+            defaultAiCreditsPricing: defaultPricing,
+          },
+        });
+        const config = buildConfig(makeInputs({ options: { ...makeInputs().options, ...options } }));
+        const env = apiProxyEnvTestHelpers.buildRateLimitEnv(config);
+
+        expect(JSON.parse(env.AWF_API_PROXY_PROVIDERS)).toEqual(providers);
+        expect(JSON.parse(env.AWF_DEFAULT_AI_CREDITS_PRICING)).toEqual(defaultPricing);
       });
     });
 

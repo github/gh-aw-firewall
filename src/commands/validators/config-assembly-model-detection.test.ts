@@ -349,7 +349,7 @@ describe('config-assembly', () => {
       expect(logger.error).not.toHaveBeenCalled();
     });
 
-    it('should still reject unsupported COPILOT_MODEL values that are not runtime aliases', () => {
+    it('should defer unknown COPILOT_MODEL values to runtime provider discovery', () => {
       mockBuildConfigOnce({
         copilotGithubToken: 'github_pat_testtoken',
         modelAliases: { small: ['gpt-4o-mini'] },
@@ -369,10 +369,10 @@ describe('config-assembly', () => {
           createMinimalNetworkOptions(),
           agentOptions,
         );
-      }).toThrow('process.exit(1)');
+      }).not.toThrow();
 
-      expect(logger.error).toHaveBeenCalledWith(
-        expect.stringContaining("model 'not-a-real-model-xyz' is unsupported or unrecognized"),
+      expect(logger.info).toHaveBeenCalledWith(
+        expect.stringContaining("deferring validation to runtime provider discovery"),
       );
     });
 

@@ -186,6 +186,15 @@ describe('createCopilotAdapter — BYOK getAuthHeaders', () => {
     expect(headers['Authorization']).toBe(bearerGithubToken);
   });
 
+  it('requests versioned runtime pricing metadata from the standard Copilot models endpoint', () => {
+    const adapter = createCopilotAdapter({ COPILOT_GITHUB_TOKEN: githubToken });
+    const config = adapter.getModelsFetchConfig();
+
+    expect(config.opts.headers['X-GitHub-Api-Version']).toBe('2026-07-01');
+    expect(config.modelMetadataFormat).toBe('copilot');
+    expect(config.apiVersion).toBe('2026-07-01');
+  });
+
   it('uses COPILOT_PROVIDER_API_KEY (not COPILOT_GITHUB_TOKEN) for inference in BYOK+token mode', () => {
     const adapter = createCopilotAdapter({
       COPILOT_GITHUB_TOKEN: githubToken,

@@ -55,6 +55,8 @@ describe('computeTokenBudgetUsage', () => {
     expect(result).toMatchObject({
       ai_credits_this_response: expect.any(Number),
       ai_credits_total: expect.any(Number),
+      ai_credits_pricing_source: 'curated',
+      ai_credits_pricing_tier: 'default',
     });
     expect(logRequest).toHaveBeenCalledWith('info', 'token_budget_usage', expect.objectContaining({
       request_id: 'req-2',

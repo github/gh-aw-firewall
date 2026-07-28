@@ -92,6 +92,14 @@ function getModelPolicyBlockState(model) {
   if (!model) return null;
   if (!ALLOWED_MODELS && !DISALLOWED_MODELS) return null;
 
+  if (
+    model.toLowerCase() === 'auto' &&
+    DISALLOWED_MODELS &&
+    !(ALLOWED_MODELS && ALLOWED_MODELS.some(pattern => globMatch(pattern, model)))
+  ) {
+    return { model, reason: 'dynamic_model_unverifiable' };
+  }
+
   if (DISALLOWED_MODELS && DISALLOWED_MODELS.some(pattern => globMatch(pattern, model))) {
     return { model, reason: 'disallowed' };
   }
@@ -110,7 +118,9 @@ function getModelPolicyBlockState(model) {
  * @returns {{ error: object }}
  */
 function buildModelPolicyError(state) {
-  const message = state.reason === 'disallowed'
+  const message = state.reason === 'dynamic_model_unverifiable'
+    ? `Model '${state.model}' selects a concrete model at runtime, so the configured denylist cannot be proven. Explicitly allow 'auto' to opt in.`
+    : state.reason === 'disallowed'
     ? `Model '${state.model}' is not permitted: it is explicitly disallowed by the model policy.`
     : `Model '${state.model}' is not permitted: it does not match the allowed models policy.`;
   return {

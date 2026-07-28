@@ -1,6 +1,11 @@
 'use strict';
 
-const { fetchJson, httpProbe, extractModelIds } = require('./model-discovery');
+const { fetchJson, httpProbe, extractModelIds, extractModelMetadata } = require('./model-discovery');
+const {
+  replaceRuntimeModels,
+  clearRuntimeModels,
+  getRuntimeCatalogSnapshot,
+} = require('./runtime-model-catalog');
 const { logRequest } = require('./logging');
 const { resolveModel } = require('./model-resolver');
 
@@ -24,6 +29,7 @@ function resetModelCacheState() {
   for (const key of Object.keys(cachedModels)) {
     delete cachedModels[key];
   }
+  clearRuntimeModels();
   modelFetchComplete = false;
 }
 
@@ -58,8 +64,13 @@ async function refreshProviderModelsForResolution(provider) {
   try {
     const json = await fetchJson(config.url, config.opts, 10_000);
     const extracted = extractModelIds(json);
+    const metadata = extractModelMetadata(provider, json, {
+      format: config.modelMetadataFormat,
+      apiVersion: config.apiVersion,
+    });
     if (Array.isArray(extracted) && extracted.length > 0) {
       cachedModels[config.cacheKey] = extracted;
+      replaceRuntimeModels(provider, metadata);
       logRequest('debug', 'model_cache_refresh', {
         provider,
         cache_key: config.cacheKey,
@@ -167,7 +178,17 @@ async function fetchStartupModels(adapters = []) {
 
     fetches.push(
       fetchJson(config.url, config.opts, TIMEOUT_MS).then((json) => {
-        cachedModels[config.cacheKey] = extractModelIds(json);
+        const extracted = extractModelIds(json);
+        const metadata = extractModelMetadata(adapter.name, json, {
+          format: config.modelMetadataFormat,
+          apiVersion: config.apiVersion,
+        });
+        if (Array.isArray(extracted) && extracted.length > 0) {
+          cachedModels[config.cacheKey] = extracted;
+          replaceRuntimeModels(adapter.name, metadata);
+        } else if (cachedModels[config.cacheKey] === undefined) {
+          cachedModels[config.cacheKey] = null;
+        }
       })
     );
   }
@@ -255,6 +276,7 @@ const testHelpers = { _resolveModelForValidation };
 module.exports = {
   keyValidationResults,
   cachedModels,
+  getRuntimeCatalogSnapshot,
   configureKeyValidation,
   resetKeyValidationState,
   resetModelCacheState,

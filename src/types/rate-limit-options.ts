@@ -46,6 +46,9 @@ export interface RateLimitOptions {
    */
   defaultAiCreditsPricing?: { input: number; output: number; cachedInput?: number; cacheWrite?: number | null };
 
+  /** Provider/model pricing overlays in models.dev provider format. */
+  apiProxyProviders?: Record<string, unknown>;
+
   /**
    * Model-specific multipliers used by effective token accounting.
    *

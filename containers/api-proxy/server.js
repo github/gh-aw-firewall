@@ -24,6 +24,7 @@ const {
 const {
   keyValidationResults,
   cachedModels,
+  getRuntimeCatalogSnapshot,
   configureKeyValidation,
   resetKeyValidationState,
   resetModelCacheState,
@@ -116,6 +117,7 @@ configureKeyValidation({
 const { healthResponse, reflectEndpoints, handleManagementEndpoint } = createManagementHandlers({
   getAdapters: () => registeredAdapters,
   getCachedModels: () => cachedModels,
+  getRuntimeModelMetadata: () => getRuntimeCatalogSnapshot(),
   isModelFetchComplete: () => isModelFetchComplete(),
   getKeyValidationState: () => ({ complete: isKeyValidationComplete(), results: keyValidationResults }),
   getLimiter: () => limiter,
@@ -137,14 +139,20 @@ function buildModelsJson() {
   const filteredAliases = MODEL_ALIASES
     ? { models: filterResolvableAliases(MODEL_ALIASES.models, cachedModels) }
     : null;
-  return _buildModelsJson(registeredAdapters, cachedModels, filteredAliases);
+  return _buildModelsJson(registeredAdapters, cachedModels, filteredAliases, getRuntimeCatalogSnapshot());
 }
 
 function writeModelsJson(logDir) {
   const filteredAliases = MODEL_ALIASES
     ? { models: filterResolvableAliases(MODEL_ALIASES.models, cachedModels) }
     : null;
-  return _writeModelsJson(registeredAdapters, cachedModels, filteredAliases, logDir);
+  const modelsJson = _buildModelsJson(
+    registeredAdapters,
+    cachedModels,
+    filteredAliases,
+    getRuntimeCatalogSnapshot(),
+  );
+  return _writeModelsJson(registeredAdapters, cachedModels, filteredAliases, logDir, modelsJson);
 }
 
 function createProviderServer(adapter) {

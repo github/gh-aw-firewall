@@ -138,7 +138,8 @@ function resolveAliasToFirstConcrete(
 /**
  * Resolves the effective `COPILOT_MODEL` value (from `--env`, env-file, or host
  * env when `--env-all` is active), warns on classic-PAT usage, and validates
- * the model identifier against the known-models list.
+ * against the offline catalog. Unknown active models are deferred to runtime
+ * provider discovery when the API proxy is enabled.
  * Calls `process.exit(1)` on any failure.
  */
 export function validateCopilotModelOption(
@@ -204,8 +205,18 @@ export function validateCopilotModelOption(
       // Not an alias: validate and normalise the concrete model name directly.
       const validation = validateCopilotModel(copilotModel);
       if (!validation.valid) {
-        logger.error(validation.message);
-        process.exit(1);
+        if (validation.reason === 'retired' || !config.enableApiProxy) {
+          logger.error(validation.message);
+          process.exit(1);
+        }
+        logger.info(
+          `COPILOT_MODEL '${copilotModel}' is not in this AWF version's offline catalog; deferring validation to runtime provider discovery`,
+        );
+        config.additionalEnv = {
+          ...(config.additionalEnv ?? {}),
+          COPILOT_MODEL: copilotModel,
+        };
+        return;
       }
 
       if (validation.resolvedModel !== copilotModel) {

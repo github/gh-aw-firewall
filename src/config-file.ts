@@ -23,6 +23,7 @@ export interface AwfFileConfig {
     maxEffectiveTokens?: number;
     maxAiCredits?: number;
     defaultAiCreditsPricing?: { input: number; output: number; cachedInput?: number; cacheWrite?: number | null };
+    providers?: Record<string, unknown>;
     modelMultipliers?: Record<string, number>;
     defaultModelMultiplier?: number;
     maxModelMultiplierCap?: number;

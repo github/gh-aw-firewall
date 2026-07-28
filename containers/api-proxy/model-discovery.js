@@ -20,6 +20,7 @@ const http = require('http');
 const https = require('https');
 const { URL } = require('url');
 const { sanitizeForLog, logRequest } = require('./logging');
+const { parseProviderModelMetadata } = require('./runtime-model-catalog');
 
 // ── Shared proxy agent ────────────────────────────────────────────────────────
 const { proxyAgent } = require('./http-client');
@@ -209,6 +210,10 @@ function extractModelIds(json) {
   return null;
 }
 
+function extractModelMetadata(provider, json, options = {}) {
+  return parseProviderModelMetadata(provider, json, options);
+}
+
 // ── buildModelsJson ───────────────────────────────────────────────────────────
 /**
  * Build the models.json payload from current cached state.
@@ -218,7 +223,7 @@ function extractModelIds(json) {
  * @param {object|null} modelAliases - Parsed MODEL_ALIASES (or null)
  * @returns {object}
  */
-function buildModelsJson(adapters, cachedModels, modelAliases) {
+function buildModelsJson(adapters, cachedModels, modelAliases, runtimeModelMetadata = {}) {
   const providers = {};
   for (const adapter of adapters) {
     const info = adapter.getReflectionInfo();
@@ -227,6 +232,7 @@ function buildModelsJson(adapters, cachedModels, modelAliases) {
       models: info.models_cache_key !== null
         ? (cachedModels[info.models_cache_key] !== undefined ? cachedModels[info.models_cache_key] : null)
         : null,
+      model_metadata: runtimeModelMetadata[adapter.name] || null,
       target: adapter.isEnabled() ? adapter.getTargetHost() : null,
     };
   }
@@ -246,11 +252,11 @@ function buildModelsJson(adapters, cachedModels, modelAliases) {
  * @param {object|null} modelAliases - Parsed MODEL_ALIASES (or null)
  * @param {string} [logDir] - Directory to write models.json to (default: MODELS_LOG_DIR)
  */
-function writeModelsJson(adapters, cachedModels, modelAliases, logDir = MODELS_LOG_DIR) {
+function writeModelsJson(adapters, cachedModels, modelAliases, logDir = MODELS_LOG_DIR, payload = null) {
   const filePath = path.join(logDir, 'models.json');
   try {
     fs.mkdirSync(logDir, { recursive: true });
-    fs.writeFileSync(filePath, JSON.stringify(buildModelsJson(adapters, cachedModels, modelAliases), null, 2) + '\n', 'utf8');
+    fs.writeFileSync(filePath, JSON.stringify(payload || buildModelsJson(adapters, cachedModels, modelAliases), null, 2) + '\n', 'utf8');
     logRequest('info', 'models_json_written', { path: filePath });
   } catch (err) {
     logRequest('warn', 'models_json_write_failed', {
@@ -265,6 +271,7 @@ module.exports = {
   fetchJson,
   httpProbe,
   extractModelIds,
+  extractModelMetadata,
   getModelCapabilityTier,
   getTierSortedModels,
   buildModelsJson,

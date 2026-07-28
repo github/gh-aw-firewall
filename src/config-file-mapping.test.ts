@@ -158,6 +158,13 @@ describe('mapAwfFileConfigToCliOptions', () => {
       apiProxy: {
         maxEffectiveTokens: 6000,
         maxAiCredits: 1.2,
+        providers: {
+          anthropic: {
+            models: {
+              'custom-model': { cost: { input: '3e-06', output: '1.5e-05' } },
+            },
+          },
+        },
         modelMultipliers: {
           'gpt-4o': 2,
           'claude-sonnet-4': 1.5,
@@ -168,6 +175,13 @@ describe('mapAwfFileConfigToCliOptions', () => {
     });
     expect(result.maxEffectiveTokens).toBe(6000);
     expect(result.maxAiCredits).toBe(1.2);
+    expect(result.apiProxyProviders).toEqual({
+      anthropic: {
+        models: {
+          'custom-model': { cost: { input: '3e-06', output: '1.5e-05' } },
+        },
+      },
+    });
     expect(result.effectiveTokenModelMultipliers).toEqual({
       'gpt-4o': 2,
       'claude-sonnet-4': 1.5,

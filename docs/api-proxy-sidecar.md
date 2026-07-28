@@ -549,6 +549,23 @@ curl http://172.30.0.30:10000/reflect
       "base_url": "http://api-proxy:10002",
       "configured": true,
       "models": ["gpt-4o", "claude-3.5-sonnet"],
+      "model_metadata": [
+        {
+          "id": "gpt-4o",
+          "source": "provider",
+          "observed_at": "2026-07-28T00:00:00.000Z",
+          "api_version": "2026-07-01",
+          "pricing": {
+            "default": {
+              "input": 2.5,
+              "cachedInput": 0.25,
+              "cacheWrite": null,
+              "output": 10,
+              "threshold": 272000
+            }
+          }
+        }
+      ],
       "models_url": "http://api-proxy:10002/models"
     },
     {
@@ -567,8 +584,19 @@ curl http://172.30.0.30:10000/reflect
 Fields:
 - `configured` — `true` if an API key for this provider was found at startup
 - `models` — list of model IDs fetched from the provider at startup; `null` if the provider is not configured or model fetch failed
+- `model_metadata` — sanitized provider metadata, including pricing and provenance when the provider supplies it; currently Copilot supplies runtime pricing
 - `models_fetch_complete` — `true` once the startup model-fetch pass has finished
 - `models_url` — URL to query for the live model list
+
+Copilot discovery requests use API version `2026-07-01`. Runtime Copilot prices
+override bundled prices, including default and long-context tiers. Other
+providers continue to use bundled pricing because their model-list APIs do not
+currently advertise token prices. Failed or empty refreshes retain the last
+successful snapshot.
+
+Explicit `apiProxy.providers` model-cost overlays take precedence over runtime
+and bundled pricing. Overlay costs use the models.dev format (dollars per token)
+and are normalized to dollars per million tokens inside the proxy.
 
 ## Troubleshooting
 

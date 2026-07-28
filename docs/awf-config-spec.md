@@ -112,6 +112,7 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 - `apiProxy.maxEffectiveTokens` → *(config-only; no CLI equivalent)*
 - `apiProxy.maxAiCredits` → *(config-only; maps to `AWF_MAX_AI_CREDITS`)*
 - `apiProxy.defaultAiCreditsPricing` → *(config-only; maps to `AWF_DEFAULT_AI_CREDITS_PRICING`)*
+- `apiProxy.providers` → *(config-only; maps to `AWF_API_PROXY_PROVIDERS`)*
 - `apiProxy.modelMultipliers` → `--max-model-multiplier <model:multiplier,...>`
 - `apiProxy.defaultModelMultiplier` → *(config-only; maps to `AWF_EFFECTIVE_TOKEN_DEFAULT_MODEL_MULTIPLIER`)*
 - `apiProxy.maxTurns` → *(config-only; no CLI equivalent)*
@@ -761,10 +762,14 @@ Setting `maxAiCredits` above 10,000 MUST NOT raise the effective limit.
 
 ### 10.7.1 Model Name Resolution for Pricing
 
-The AI credits guard resolves model names using a two-step lookup:
+The AI credits guard resolves model names using this lookup order:
 
-1. **Curated pricing table** — a built-in table of known models with exact pricing.
-2. **Bundled models.dev catalog** — a bundled snapshot of the models.dev catalog used as a fallback when the model is not found in the curated table.
+1. **Operator provider overlay** — model prices configured under
+   `apiProxy.providers`.
+2. **Runtime provider metadata** — authoritative token prices discovered from
+   the configured provider. Copilot supports this today.
+3. **Curated pricing table** — a built-in table of known models with exact pricing.
+4. **Bundled models.dev catalog** — a bundled snapshot of the models.dev catalog used as a fallback when the model is not found in the curated table.
 
 Model names are **canonicalized** before lookup: provider prefixes
 (e.g. `copilot/`) are stripped, and separators (`.`, `_`, `-`) are treated
@@ -772,10 +777,37 @@ as interchangeable. For example, `copilot/claude-sonnet-4.6`,
 `claude_sonnet_4_6`, and `claude-sonnet-4-6` all resolve to the same pricing
 entry.
 
-If neither source resolves the model, the `defaultAiCreditsPricing` fallback
+If none of these sources resolves the model, the `defaultAiCreditsPricing` fallback
 (if configured) is used. If that is also absent, the request is rejected.
 Models whose catalog entry carries zero-cost pricing are recognized as known
 models with zero AI credit impact, so they are never rejected as "unknown".
+
+Runtime tiered pricing uses the provider's default-tier prompt threshold. When
+the total input exceeds that threshold, all token categories use the
+long-context tier. Pricing source, API version, observation time, selected
+tier, and any provider-advertised discount are retained in usage provenance.
+Failed or empty discovery responses do not replace the last successful runtime
+snapshot.
+
+Provider overlays use the models.dev provider structure and per-token dollar
+rates:
+
+```yaml
+apiProxy:
+  providers:
+    github-copilot:
+      models:
+        custom-model:
+          cost:
+            input: "3e-06"
+            output: "1.5e-05"
+            cache_read: "3e-07"
+            cache_write: "3.75e-06"
+```
+
+The overlay is passed to both normal and threat-detection API proxy instances
+through `AWF_API_PROXY_PROVIDERS`. Provider aliases `github-copilot` and
+`copilot` resolve to the Copilot proxy.
 
 ### 10.7.2 Default AI Credits Pricing (Fallback)
 

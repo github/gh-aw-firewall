@@ -36,6 +36,7 @@ export function mapAwfFileConfigToCliOptions(config: AwfFileConfig): Record<stri
     maxEffectiveTokens: config.apiProxy?.maxEffectiveTokens,
     maxAiCredits: config.apiProxy?.maxAiCredits,
     defaultAiCreditsPricing: config.apiProxy?.defaultAiCreditsPricing,
+    apiProxyProviders: config.apiProxy?.providers,
     effectiveTokenModelMultipliers: config.apiProxy?.modelMultipliers,
     effectiveTokenDefaultModelMultiplier: config.apiProxy?.defaultModelMultiplier,
     maxModelMultiplierCap: config.apiProxy?.maxModelMultiplierCap,

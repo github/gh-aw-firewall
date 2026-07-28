@@ -39,6 +39,8 @@ const { bearerAuthHeaders, withCopilotIntegration } = require('./auth-headers');
 const { URL } = require('url');
 const { COPILOT_ENV } = require('../provider-env-constants');
 
+const COPILOT_MODELS_API_VERSION = '2026-07-01';
+
 /**
  * Create the GitHub Copilot provider adapter.
  *
@@ -120,8 +122,13 @@ function createCopilotAdapter(env, deps = {}) {
      url: `https://${rawTarget}/models`,
      opts: {
        method: 'GET',
-       headers: withCopilotIntegration({ 'Authorization': prefix + ' ' + githubToken }, integrationId),
+       headers: withCopilotIntegration({
+         'Authorization': prefix + ' ' + githubToken,
+         'X-GitHub-Api-Version': COPILOT_MODELS_API_VERSION,
+       }, integrationId),
      },
+     modelMetadataFormat: 'copilot',
+     apiVersion: COPILOT_MODELS_API_VERSION,
      ...extra,
    };
  }
@@ -193,6 +200,7 @@ function createCopilotAdapter(env, deps = {}) {
             headers: bearerAuthHeaders(apiKey),
           },
           cacheKey: 'copilot',
+          modelMetadataFormat: 'openai',
         };
       },
     }),
