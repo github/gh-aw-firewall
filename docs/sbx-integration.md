@@ -185,10 +185,23 @@ What `createSandbox()` shares, in order:
      a directory — sbx positional mounts cannot target an individual file, so its
      loose files like `~/.copilot/mcp-config.json` are preserved).
 
+     :::note `.azure` is a credential-bearing exception
+     `.azure` is mounted to provide Azure CLI config and account metadata. However,
+     its live token caches (`msal_token_cache.bin`, `msal_token_cache.json`,
+     `accessTokens.json`, `service_principal_entries.json`) are treated as
+     credential stores and scrubbed before sandbox creation (sbx) or masked with
+     `/dev/null` overlays (compose). Agents cannot read host Azure auth tokens
+     directly. Azure authentication must be obtained at runtime via OIDC
+     (`ACTIONS_ID_TOKEN_REQUEST_URL`/`TOKEN`, already forwarded) or via the
+     `ADO_MCP_AUTH_TOKEN` environment variable.
+     :::
+
 **Scrubbing nested credential stores.** Several whitelisted dirs legitimately
 hold tool settings but also stash a secret in a well-known child — e.g.
 `.config/gh`, `.config/gcloud`, `.cargo/credentials`, `.claude/.credentials.json`,
-`.gemini/oauth_creds.json`. Because the parent is mounted
+`.gemini/oauth_creds.json`, and the Azure CLI token caches under `.azure`
+(`msal_token_cache.bin`, `msal_token_cache.json`, `accessTokens.json`,
+`service_principal_entries.json`). Because the parent is mounted
 wholesale and sbx cannot overlay or mask a nested path, the manager instead
 **moves those credential paths aside on the host before `sbx create` and restores
 them after the sandbox is torn down** (`scrubHomeCredentials` /
@@ -196,10 +209,10 @@ them after the sandbox is torn down** (`scrubHomeCredentials` /
 `.awf-sbx-cred-backup-<pid>` dir at the home root — never a mounted subdir — so
 the secrets are absent from the VM while the benign tool state stays available.
 This is the sbx analog of compose mode's `/dev/null` credential overlays, and the
-per-parent list (`CREDENTIAL_PATHS_BY_PARENT` in
-`services/agent-volumes/home-whitelist.ts`) is shared to prevent drift. The agent
-receives whatever credentials it needs through the api-proxy or environment, not
-by reading the host's on-disk auth store, so removing these paths is safe.
+central credential list in `sandbox-mount-policy.json` is shared between backends
+to prevent drift. The agent receives whatever credentials it needs through the
+api-proxy or environment (e.g. `ADO_MCP_AUTH_TOKEN`, OIDC tokens), not by reading
+the host's on-disk auth store, so removing these paths is safe.
 
 A `seenPaths` set deduplicates so no path is mounted twice, and
 `execInSandbox(..., { workDir })` passes `--workdir` so commands run inside the

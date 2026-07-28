@@ -84,6 +84,13 @@ describe('agent environment: credentials', () => {
     expect(env.AWF_ONE_SHOT_TOKENS).toContain('ANTHROPIC_AUTH_TOKEN');
   });
 
+  it('should include ADO_MCP_AUTH_TOKEN in AWF_ONE_SHOT_TOKENS', () => {
+    const result = generateDockerCompose(mockConfig, mockNetworkConfig);
+    const env = result.services.agent.environment as Record<string, string>;
+
+    expect(env.AWF_ONE_SHOT_TOKENS).toContain('ADO_MCP_AUTH_TOKEN');
+  });
+
   it('should pass through GITHUB_TOKEN when present in environment', () => {
     const originalEnv = process.env.GITHUB_TOKEN;
     process.env.GITHUB_TOKEN = 'ghp_testtoken123';
