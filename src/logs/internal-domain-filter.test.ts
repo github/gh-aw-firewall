@@ -56,6 +56,39 @@ describe('isInternalAwfDomain', () => {
     });
   });
 
+  describe('known topology peers (dotted names from policy manifest)', () => {
+    it('returns true for a dotted topology peer when present in the known set', () => {
+      const peers = new Set(['mcp.gateway-01']);
+      expect(isInternalAwfDomain('mcp.gateway-01', peers)).toBe(true);
+    });
+
+    it('matching is case-insensitive', () => {
+      const peers = new Set(['mcp.gateway-01']);
+      expect(isInternalAwfDomain('MCP.Gateway-01', peers)).toBe(true);
+    });
+
+    it('returns false for a dotted name NOT in the known set', () => {
+      const peers = new Set(['mcp.gateway-01']);
+      expect(isInternalAwfDomain('evil.com', peers)).toBe(false);
+    });
+
+    it('returns false for a dotted peer name when no known set is provided', () => {
+      // Without a manifest, dotted names are not filtered — the single-label
+      // heuristic cannot catch them. This is the gap fixed by passing peers.
+      expect(isInternalAwfDomain('mcp.gateway-01')).toBe(false);
+    });
+
+    it('returns true for a single-label peer even without the known set (heuristic)', () => {
+      expect(isInternalAwfDomain('awmg-mcpg')).toBe(true);
+    });
+
+    it('returns true for a dotted peer with an empty known set (falls through to single-label check)', () => {
+      // Empty set → no topology peer match; 'awmg-mcpg' still matched by heuristic
+      const emptyPeers = new Set<string>();
+      expect(isInternalAwfDomain('awmg-mcpg', emptyPeers)).toBe(true);
+    });
+  });
+
   describe('public internet domains (should not be filtered)', () => {
     it('returns false for standard external domains', () => {
       expect(isInternalAwfDomain('github.com')).toBe(false);

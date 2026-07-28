@@ -56,4 +56,11 @@ export interface PolicyManifest {
   hostAccessEnabled: boolean;
   /** Additional allowed ports (from --allow-host-ports), if any */
   allowHostPorts: string | null;
+  /**
+   * Topology peer hostnames that are explicitly allowed through Squid
+   * (from --topology-attach or --difc-proxy-host in network-isolation mode).
+   * Used by log analysis to suppress spurious blocked-domain warnings for
+   * inter-container traffic that was denied because it bypassed NO_PROXY.
+   */
+  topologyPeers?: string[];
 }

@@ -88,5 +88,6 @@ export function generatePolicyManifest(config: SquidConfig): PolicyManifest {
     dlpEnabled: enableDlp ?? false,
     hostAccessEnabled: enableHostAccess ?? false,
     allowHostPorts: allowHostPorts ?? null,
+    ...(topologyPeers && topologyPeers.length > 0 ? { topologyPeers } : {}),
   };
 }
