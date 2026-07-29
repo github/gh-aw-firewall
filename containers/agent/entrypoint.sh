@@ -629,37 +629,37 @@ copy_agent_helper_scripts() {
     fi
   fi
 
-  # Activate the sealed-probe CLI when the sealed-probe broker socket is present.
-  # The wrapper is copied to /tmp/awf-lib/sealed-probe so it resolves inside the
+  # Activate the bounded-query CLI when the bounded-query broker socket is present.
+  # The wrapper is copied to /tmp/awf-lib/bounded-query so it resolves inside the
   # chroot on the same PATH entry used for the gh wrapper.
-  if [ -n "$AWF_SEALED_PROBE_SOCKET" ] && [ -f /usr/local/bin/sealed-probe-wrapper.sh ]; then
+  if [ -n "$AWF_BOUNDED_QUERY_SOCKET" ] && [ -f /usr/local/bin/bounded-query-wrapper.sh ]; then
     if mkdir -p /host/tmp/awf-lib 2>/dev/null; then
-      if cp /usr/local/bin/sealed-probe-wrapper.sh /host/tmp/awf-lib/sealed-probe 2>/dev/null && \
-         chmod +x /host/tmp/awf-lib/sealed-probe 2>/dev/null; then
-        echo "[entrypoint] sealed-probe CLI installed at /tmp/awf-lib/sealed-probe (inside chroot)"
+      if cp /usr/local/bin/bounded-query-wrapper.sh /host/tmp/awf-lib/bounded-query 2>/dev/null && \
+         chmod +x /host/tmp/awf-lib/bounded-query 2>/dev/null; then
+        echo "[entrypoint] bounded-query CLI installed at /tmp/awf-lib/bounded-query (inside chroot)"
         case ":${AWF_HOST_PATH:-$PATH}:" in
           *":/tmp/awf-lib:"*) ;;
           *) export AWF_HOST_PATH="/tmp/awf-lib:${AWF_HOST_PATH:-$PATH}" ;;
         esac
       else
-        echo "[entrypoint][WARN] Could not install sealed-probe CLI"
+        echo "[entrypoint][WARN] Could not install bounded-query CLI"
       fi
     fi
   fi
 
-  # Install the sealed-probe SKILL.md at the standard GitHub Copilot skill
+  # Install the bounded-query SKILL.md at the standard GitHub Copilot skill
   # discovery path so agents find it via the same scan that discovers other
   # skills in ~/.github/skills/.  The source file is bind-mounted read-only
   # from the host; we copy it into the chroot home so it is discovered inside
   # the chroot without leaving host state modified.
-  if [ -n "$AWF_SEALED_PROBE_SKILL" ] && [ -f "$AWF_SEALED_PROBE_SKILL" ] && \
+  if [ -n "$AWF_BOUNDED_QUERY_SKILL" ] && [ -f "$AWF_BOUNDED_QUERY_SKILL" ] && \
      [ -n "$SYNTH_HOME" ]; then
-    SKILL_DEST_DIR="/host${SYNTH_HOME}/.github/skills/sealed-probe"
+    SKILL_DEST_DIR="/host${SYNTH_HOME}/.github/skills/bounded-query"
     if mkdir -p "$SKILL_DEST_DIR" 2>/dev/null && \
-       cp "$AWF_SEALED_PROBE_SKILL" "$SKILL_DEST_DIR/SKILL.md" 2>/dev/null; then
-      echo "[entrypoint] sealed-probe SKILL.md installed at ${SYNTH_HOME}/.github/skills/sealed-probe/SKILL.md (inside chroot)"
+       cp "$AWF_BOUNDED_QUERY_SKILL" "$SKILL_DEST_DIR/SKILL.md" 2>/dev/null; then
+      echo "[entrypoint] bounded-query SKILL.md installed at ${SYNTH_HOME}/.github/skills/bounded-query/SKILL.md (inside chroot)"
     else
-      echo "[entrypoint][WARN] Could not install sealed-probe SKILL.md"
+      echo "[entrypoint][WARN] Could not install bounded-query SKILL.md"
     fi
   fi
 }
@@ -1380,31 +1380,31 @@ run_non_chroot_command() {
     fi
   fi
 
-  # Activate the sealed-probe CLI in non-chroot mode.
-  if [ -n "$AWF_SEALED_PROBE_SOCKET" ] && [ -f /usr/local/bin/sealed-probe-wrapper.sh ]; then
+  # Activate the bounded-query CLI in non-chroot mode.
+  if [ -n "$AWF_BOUNDED_QUERY_SOCKET" ] && [ -f /usr/local/bin/bounded-query-wrapper.sh ]; then
     mkdir -p /tmp/awf-lib
-    if cp /usr/local/bin/sealed-probe-wrapper.sh /tmp/awf-lib/sealed-probe 2>/dev/null && \
-       chmod +x /tmp/awf-lib/sealed-probe 2>/dev/null; then
+    if cp /usr/local/bin/bounded-query-wrapper.sh /tmp/awf-lib/bounded-query 2>/dev/null && \
+       chmod +x /tmp/awf-lib/bounded-query 2>/dev/null; then
       case ":${PATH}:" in
         *":/tmp/awf-lib:"*) ;;
         *) export PATH="/tmp/awf-lib:${PATH}" ;;
       esac
-      echo "[entrypoint] sealed-probe CLI installed at /tmp/awf-lib/sealed-probe"
+      echo "[entrypoint] bounded-query CLI installed at /tmp/awf-lib/bounded-query"
     else
-      echo "[entrypoint][WARN] Could not install sealed-probe CLI"
+      echo "[entrypoint][WARN] Could not install bounded-query CLI"
     fi
   fi
 
-  # Install the sealed-probe SKILL.md at the standard GitHub Copilot skill
+  # Install the bounded-query SKILL.md at the standard GitHub Copilot skill
   # discovery path so agents find it via the same scan that discovers other
   # skills in ~/.github/skills/ (non-chroot mode).
-  if [ -n "$AWF_SEALED_PROBE_SKILL" ] && [ -f "$AWF_SEALED_PROBE_SKILL" ]; then
-    SKILL_DEST_DIR="${HOME}/.github/skills/sealed-probe"
+  if [ -n "$AWF_BOUNDED_QUERY_SKILL" ] && [ -f "$AWF_BOUNDED_QUERY_SKILL" ]; then
+    SKILL_DEST_DIR="${HOME}/.github/skills/bounded-query"
     if mkdir -p "$SKILL_DEST_DIR" 2>/dev/null && \
-       cp "$AWF_SEALED_PROBE_SKILL" "$SKILL_DEST_DIR/SKILL.md" 2>/dev/null; then
-      echo "[entrypoint] sealed-probe SKILL.md installed at ${SKILL_DEST_DIR}/SKILL.md"
+       cp "$AWF_BOUNDED_QUERY_SKILL" "$SKILL_DEST_DIR/SKILL.md" 2>/dev/null; then
+      echo "[entrypoint] bounded-query SKILL.md installed at ${SKILL_DEST_DIR}/SKILL.md"
     else
-      echo "[entrypoint][WARN] Could not install sealed-probe SKILL.md"
+      echo "[entrypoint][WARN] Could not install bounded-query SKILL.md"
     fi
   fi
 

@@ -1,7 +1,7 @@
 import { WrapperConfig, LogLevel, UpstreamProxyConfig } from '../types';
 import type { AwfFileConfig } from '../config-file';
 import { resolveApiCredentials } from './resolve-credentials';
-import { normalizeSealedProbesConfig } from '../parsers/sealed-probe-parser';
+import { normalizeBoundedQueriesConfig } from '../parsers/bounded-query-parser';
 import { logger } from '../logger';
 
 /**
@@ -215,8 +215,8 @@ export function buildConfig(inputs: BuildConfigInputs): WrapperConfig {
     chrootBinariesSourcePath: options.chrootBinariesSourcePath as string | undefined,
     chrootIdentity,
     dind,
-    sealedProbes: normalizeSealedProbesConfig(
-      options.sealedProbes as AwfFileConfig['sealedProbes'] | undefined,
+    boundedQueries: normalizeBoundedQueriesConfig(
+      options.boundedQueries as AwfFileConfig['boundedQueries'] | undefined,
     ),
   };
 }

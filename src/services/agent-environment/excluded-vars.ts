@@ -54,12 +54,12 @@ export function buildExclusionSet(config: WrapperConfig): Set<string> {
     excludedEnvVars.add('GITHUB_PERSONAL_ACCESS_TOKEN');
   }
 
-  if (config.sealedProbes?.enabled) {
-    // Sealed probes read private repositories on the agent's behalf precisely
+  if (config.boundedQueries?.enabled) {
+    // Bounded queries read private repositories on the agent's behalf precisely
     // because the agent is not trusted with access to them. A GitHub token in
     // the agent environment would let the agent read those repositories
     // directly, defeating the subsystem — so the tokens are stripped whenever
-    // sealed probes are enabled, independently of the API/DIFC proxies.
+    // bounded queries are enabled, independently of the API/DIFC proxies.
     excludedEnvVars.add('GITHUB_TOKEN');
     excludedEnvVars.add('GH_TOKEN');
     excludedEnvVars.add('GITHUB_PERSONAL_ACCESS_TOKEN');

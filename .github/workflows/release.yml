@@ -349,15 +349,15 @@ jobs:
             --type spdxjson \
             ghcr.io/${{ github.repository }}/cli-proxy@${{ steps.build_cli_proxy.outputs.digest }}
 
-  # Build the minimal probe sandbox and trusted broker from separate Dockerfile
+  # Build the minimal query sandbox and trusted broker from separate Dockerfile
   # targets. The runtime pulls both before the offline broker starts.
-  build-sealed-probe:
-    name: Build Sealed Probe Image
+  build-bounded-query:
+    name: Build Bounded Query Image
     runs-on: ubuntu-latest
     needs: bump-version
     outputs:
-      probe_digest: ${{ steps.build_sealed_probe.outputs.digest }}
-      broker_digest: ${{ steps.build_sealed_probe_broker.outputs.digest }}
+      query_digest: ${{ steps.build_bounded_query.outputs.digest }}
+      broker_digest: ${{ steps.build_bounded_query_broker.outputs.digest }}
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
@@ -382,71 +382,71 @@ jobs:
       - name: Install cosign
         uses: sigstore/cosign-installer@59acb6260d9c0ba8f4a2f9d9b48431a222b68e20 # v3.5.0
 
-      - name: Build and push Sealed Probe image
-        id: build_sealed_probe
+      - name: Build and push Bounded Query image
+        id: build_bounded_query
         uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5
         with:
-          context: ./containers/sealed-probe
-          target: probe
+          context: ./containers/bounded-query
+          target: query
           push: true
           platforms: linux/amd64,linux/arm64
           tags: |
-            ghcr.io/${{ github.repository }}/sealed-probe:${{ needs.bump-version.outputs.version_number }}
-            ghcr.io/${{ github.repository }}/sealed-probe:latest
-          cache-from: type=gha,scope=sealed-probe
-          cache-to: type=gha,mode=max,scope=sealed-probe
+            ghcr.io/${{ github.repository }}/bounded-query:${{ needs.bump-version.outputs.version_number }}
+            ghcr.io/${{ github.repository }}/bounded-query:latest
+          cache-from: type=gha,scope=bounded-query
+          cache-to: type=gha,mode=max,scope=bounded-query
 
-      - name: Sign Sealed Probe image with cosign
+      - name: Sign Bounded Query image with cosign
         run: |
           cosign sign --yes \
-            ghcr.io/${{ github.repository }}/sealed-probe@${{ steps.build_sealed_probe.outputs.digest }}
+            ghcr.io/${{ github.repository }}/bounded-query@${{ steps.build_bounded_query.outputs.digest }}
 
-      - name: Generate SBOM for Sealed Probe image
+      - name: Generate SBOM for Bounded Query image
         uses: anchore/sbom-action@28d71544de8eaf1b958d335707167c5f783590ad # v0.22.2
         with:
-          image: ghcr.io/${{ github.repository }}/sealed-probe@${{ steps.build_sealed_probe.outputs.digest }}
+          image: ghcr.io/${{ github.repository }}/bounded-query@${{ steps.build_bounded_query.outputs.digest }}
           format: spdx-json
-          output-file: sealed-probe-sbom.spdx.json
+          output-file: bounded-query-sbom.spdx.json
 
-      - name: Attest SBOM for Sealed Probe image
+      - name: Attest SBOM for Bounded Query image
         run: |
           cosign attest --yes \
-            --predicate sealed-probe-sbom.spdx.json \
+            --predicate bounded-query-sbom.spdx.json \
             --type spdxjson \
-            ghcr.io/${{ github.repository }}/sealed-probe@${{ steps.build_sealed_probe.outputs.digest }}
+            ghcr.io/${{ github.repository }}/bounded-query@${{ steps.build_bounded_query.outputs.digest }}
 
-      - name: Build and push Sealed Probe Broker image
-        id: build_sealed_probe_broker
+      - name: Build and push Bounded Query Broker image
+        id: build_bounded_query_broker
         uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5
         with:
-          context: ./containers/sealed-probe
+          context: ./containers/bounded-query
           target: broker
           push: true
           platforms: linux/amd64,linux/arm64
           tags: |
-            ghcr.io/${{ github.repository }}/sealed-probe-broker:${{ needs.bump-version.outputs.version_number }}
-            ghcr.io/${{ github.repository }}/sealed-probe-broker:latest
-          cache-from: type=gha,scope=sealed-probe-broker
-          cache-to: type=gha,mode=max,scope=sealed-probe-broker
+            ghcr.io/${{ github.repository }}/bounded-query-broker:${{ needs.bump-version.outputs.version_number }}
+            ghcr.io/${{ github.repository }}/bounded-query-broker:latest
+          cache-from: type=gha,scope=bounded-query-broker
+          cache-to: type=gha,mode=max,scope=bounded-query-broker
 
-      - name: Sign Sealed Probe Broker image with cosign
+      - name: Sign Bounded Query Broker image with cosign
         run: |
           cosign sign --yes \
-            ghcr.io/${{ github.repository }}/sealed-probe-broker@${{ steps.build_sealed_probe_broker.outputs.digest }}
+            ghcr.io/${{ github.repository }}/bounded-query-broker@${{ steps.build_bounded_query_broker.outputs.digest }}
 
-      - name: Generate SBOM for Sealed Probe Broker image
+      - name: Generate SBOM for Bounded Query Broker image
         uses: anchore/sbom-action@28d71544de8eaf1b958d335707167c5f783590ad # v0.22.2
         with:
-          image: ghcr.io/${{ github.repository }}/sealed-probe-broker@${{ steps.build_sealed_probe_broker.outputs.digest }}
+          image: ghcr.io/${{ github.repository }}/bounded-query-broker@${{ steps.build_bounded_query_broker.outputs.digest }}
           format: spdx-json
-          output-file: sealed-probe-broker-sbom.spdx.json
+          output-file: bounded-query-broker-sbom.spdx.json
 
-      - name: Attest SBOM for Sealed Probe Broker image
+      - name: Attest SBOM for Bounded Query Broker image
         run: |
           cosign attest --yes \
-            --predicate sealed-probe-broker-sbom.spdx.json \
+            --predicate bounded-query-broker-sbom.spdx.json \
             --type spdxjson \
-            ghcr.io/${{ github.repository }}/sealed-probe-broker@${{ steps.build_sealed_probe_broker.outputs.digest }}
+            ghcr.io/${{ github.repository }}/bounded-query-broker@${{ steps.build_bounded_query_broker.outputs.digest }}
 
   # Build agent-act image with catthehacker/ubuntu:act-24.04 base for GitHub Actions parity
   # amd64-only: catthehacker/ubuntu:act-24.04 does not publish arm64 manifests
@@ -684,7 +684,7 @@ jobs:
   release:
     name: Create Release
     runs-on: ubuntu-latest
-    needs: [bump-version, build-squid, build-agent, build-api-proxy, build-cli-proxy, build-agent-act, build-build-tools, build-sealed-probe, build-gh-aw-node]
+    needs: [bump-version, build-squid, build-agent, build-api-proxy, build-cli-proxy, build-agent-act, build-build-tools, build-bounded-query, build-gh-aw-node]
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
@@ -784,8 +784,8 @@ jobs:
             "ghcr.io/${{ github.repository }}/agent-act@${{ needs['build-agent-act'].outputs.digest }}" \
             "ghcr.io/${{ github.repository }}/api-proxy@${{ needs['build-api-proxy'].outputs.digest }}" \
             "ghcr.io/${{ github.repository }}/cli-proxy@${{ needs['build-cli-proxy'].outputs.digest }}" \
-            "ghcr.io/${{ github.repository }}/sealed-probe@${{ needs['build-sealed-probe'].outputs.probe_digest }}" \
-            "ghcr.io/${{ github.repository }}/sealed-probe-broker@${{ needs['build-sealed-probe'].outputs.broker_digest }}" \
+            "ghcr.io/${{ github.repository }}/bounded-query@${{ needs['build-bounded-query'].outputs.query_digest }}" \
+            "ghcr.io/${{ github.repository }}/bounded-query-broker@${{ needs['build-bounded-query'].outputs.broker_digest }}" \
             "ghcr.io/${{ github.repository }}/gh-aw-node@${{ needs['build-gh-aw-node'].outputs.digest }}" \
             > release/containers.txt
           echo "Generated containers.txt:"

@@ -49,13 +49,13 @@ describe('loadAwfFileConfig', () => {
     expect(result.network?.allowDomains).toEqual(['github.com']);
   });
 
-  it('loads sealedProbes config from stdin (proves the generic stdin path needs no special-casing)', () => {
+  it('loads boundedQueries config from stdin (proves the generic stdin path needs no special-casing)', () => {
     const result = loadAwfFileConfig(
       '-',
-      () => '{"sealedProbes":{"enabled":true,"privateRepos":["octo/repo"],"runtime":"gvisor"}}',
+      () => '{"boundedQueries":{"enabled":true,"privateRepos":["octo/repo"],"runtime":"gvisor"}}',
     );
 
-    expect(result.sealedProbes).toEqual({
+    expect(result.boundedQueries).toEqual({
       enabled: true,
       privateRepos: ['octo/repo'],
       runtime: 'gvisor',

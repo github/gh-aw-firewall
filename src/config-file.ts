@@ -164,12 +164,12 @@ export interface AwfFileConfig {
     sysrootImage?: string;
   };
   /**
-   * Sealed-probe sandbox configuration.
+   * Bounded-query sandbox configuration.
    *
    * Foundation only — configuration/protocol surface, no broker or sandbox
    * runtime is implemented yet. See docs/awf-config-spec.md §14.
    */
-  sealedProbes?: {
+  boundedQueries?: {
     enabled?: boolean;
     /**
      * Each entry is either a trusted repository descriptor, or (for one

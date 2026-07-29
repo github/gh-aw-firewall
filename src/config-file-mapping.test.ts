@@ -585,8 +585,8 @@ describe('mapAwfFileConfigToCliOptions', () => {
     expect(result.runnerTopology).toBeUndefined();
   });
 
-  it('passes sealedProbes through unchanged (no CLI flags exist for it)', () => {
-    const sealedProbes = {
+  it('passes boundedQueries through unchanged (no CLI flags exist for it)', () => {
+    const boundedQueries = {
       enabled: true,
       privateRepos: ['octo/repo'],
       runtime: 'gvisor' as const,
@@ -595,12 +595,12 @@ describe('mapAwfFileConfigToCliOptions', () => {
       interpreter: 'python3' as const,
       maxInvocations: 10,
     };
-    const result = mapAwfFileConfigToCliOptions({ sealedProbes });
-    expect(result.sealedProbes).toEqual(sealedProbes);
+    const result = mapAwfFileConfigToCliOptions({ boundedQueries });
+    expect(result.boundedQueries).toEqual(boundedQueries);
   });
 
-  it('leaves sealedProbes undefined when not set', () => {
+  it('leaves boundedQueries undefined when not set', () => {
     const result = mapAwfFileConfigToCliOptions({});
-    expect(result.sealedProbes).toBeUndefined();
+    expect(result.boundedQueries).toBeUndefined();
   });
 });

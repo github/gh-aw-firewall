@@ -199,8 +199,8 @@ describe('buildExclusionSet', () => {
     });
   });
 
-  describe('when sealed probes are enabled (repository credential isolation)', () => {
-    const sealedProbes = {
+  describe('when bounded queries are enabled (repository credential isolation)', () => {
+    const boundedQueries = {
       enabled: true,
       privateRepos: [{ repo: 'octo/private', sensitivity: 'internal' as const }],
       runtime: 'docker' as const,
@@ -213,16 +213,16 @@ describe('buildExclusionSet', () => {
     it.each(['GITHUB_TOKEN', 'GH_TOKEN', 'GITHUB_PERSONAL_ACCESS_TOKEN'])(
       'should exclude %s even without the API or DIFC proxies',
       (name) => {
-        const config = makeConfig({ sealedProbes, enableApiProxy: false, difcProxyHost: undefined });
+        const config = makeConfig({ boundedQueries, enableApiProxy: false, difcProxyHost: undefined });
         expect(buildExclusionSet(config).has(name)).toBe(true);
       },
     );
 
     it.each(['GITHUB_TOKEN', 'GH_TOKEN', 'GITHUB_PERSONAL_ACCESS_TOKEN'])(
-      'should NOT exclude %s when sealed probes are configured but disabled',
+      'should NOT exclude %s when bounded queries are configured but disabled',
       (name) => {
         const config = makeConfig({
-          sealedProbes: { ...sealedProbes, enabled: false },
+          boundedQueries: { ...boundedQueries, enabled: false },
           enableApiProxy: false,
           difcProxyHost: undefined,
         });

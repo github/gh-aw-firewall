@@ -145,8 +145,8 @@ export function mapAwfFileConfigToCliOptions(config: AwfFileConfig): Record<stri
     runnerTopology: config.runner?.topology,
     sysrootImage: config.runner?.sysrootImage,
 
-    // No CLI flags exist for sealed probes yet — passed through as a raw
+    // No CLI flags exist for bounded queries yet — passed through as a raw
     // object and normalized (defaults applied) in commands/build-config.ts.
-    sealedProbes: config.sealedProbes,
+    boundedQueries: config.boundedQueries,
   };
 }

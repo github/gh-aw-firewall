@@ -5,7 +5,7 @@ import { buildIptablesInitService } from './agent-service';
 import { buildApiProxyService } from './api-proxy-service';
 import { buildDohProxyService } from './doh-proxy-service';
 import { buildCliProxyService } from './cli-proxy-service';
-import { buildSealedProbeService, isSealedProbeAgentMount } from './sealed-probe-service';
+import { buildBoundedQueryService, isBoundedQueryAgentMount } from './bounded-query-service';
 import { buildSysrootStageService, isSysrootEnabled } from './sysroot-service';
 import { resolveDockerHostGateway } from './host-gateway';
 import { runtimeUsesIptables } from '../container-runtime';
@@ -77,10 +77,10 @@ function filterAgentVolumesForSysroot(
     const source = parts[0];
     const target = parts[1];
 
-    // Sealed-probe mounts are sourced from workDir but are mandatory: dropping
-    // them would leave sealed probes half-enabled (wrapper present, broker
+    // Bounded-query mounts are sourced from workDir but are mandatory: dropping
+    // them would leave bounded queries half-enabled (wrapper present, broker
     // unreachable) instead of failing loudly.
-    if (isSealedProbeAgentMount(volume)) return true;
+    if (isBoundedQueryAgentMount(volume)) return true;
 
     // Drop sysroot-shadowed targets (system binaries provided by volume)
     if (sysrootShadowedTargets.has(target)) return false;
@@ -233,26 +233,26 @@ function assembleCliProxyService(params: AssembleOptionalServicesParams): void {
   };
 }
 
-function assembleSealedProbeService(params: AssembleOptionalServicesParams): void {
+function assembleBoundedQueryService(params: AssembleOptionalServicesParams): void {
   const { services, agentService, agentVolumes, environment, config, imageConfig } = params;
 
-  if (!config.sealedProbes?.enabled) return;
+  if (!config.boundedQueries?.enabled) return;
 
   const {
-    probeImageService,
+    queryImageService,
     service,
     agentEnvAdditions,
-    agentVolumes: probeVolumes,
-  } = buildSealedProbeService({
+    agentVolumes: queryVolumes,
+  } = buildBoundedQueryService({
     config,
     imageConfig,
   });
 
-  services['sealed-probe-image'] = probeImageService;
-  services['sealed-probe-broker'] = service;
+  services['bounded-query-image'] = queryImageService;
+  services['bounded-query-broker'] = service;
   Object.assign(environment, agentEnvAdditions);
-  agentVolumes.push(...probeVolumes);
-  agentService.depends_on['sealed-probe-broker'] = {
+  agentVolumes.push(...queryVolumes);
+  agentService.depends_on['bounded-query-broker'] = {
     condition: 'service_healthy',
   };
 }
@@ -295,7 +295,7 @@ export function assembleOptionalServices(
 
   presetSidecarIpEnvVars(environment, config, networkConfig);
   if (includeComposeAgent) {
-    assembleSealedProbeService(params);
+    assembleBoundedQueryService(params);
     assembleSysrootService(params, imageConfig.registry, imageConfig.parsedTag, sysrootActive);
     assembleIptablesInitService(params, skipIptables);
   }

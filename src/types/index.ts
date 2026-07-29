@@ -42,13 +42,13 @@ export {
 } from './pid';
 
 export {
-  type SealedProbeRuntime,
-  type SealedProbeInterpreter,
-  type SealedProbeSensitivity,
-  type SealedProbeRepository,
-  type SealedProbesConfig,
-  type SealedProbeOptions,
-  SEALED_PROBE_DEFAULTS,
-  SEALED_PROBE_SENSITIVITIES,
-  SEALED_PROBE_SENSITIVITY_RUN_BITS,
-} from './sealed-probe-options';
+  type BoundedQueryRuntime,
+  type BoundedQueryInterpreter,
+  type BoundedQuerySensitivity,
+  type BoundedQueryRepository,
+  type BoundedQueriesConfig,
+  type BoundedQueryOptions,
+  BOUNDED_QUERY_DEFAULTS,
+  BOUNDED_QUERY_SENSITIVITIES,
+  BOUNDED_QUERY_SENSITIVITY_RUN_BITS,
+} from './bounded-query-options';

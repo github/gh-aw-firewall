@@ -43,7 +43,7 @@ describe('awf-config.schema.json', () => {
         'logging',
         'rateLimiting',
         'platform',
-        'sealedProbes',
+        'boundedQueries',
       ])
     );
   });

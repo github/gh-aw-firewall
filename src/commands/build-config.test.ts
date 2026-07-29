@@ -430,16 +430,16 @@ describe('buildConfig', () => {
       expect(config.modelAliases).toEqual(aliases);
     });
 
-    it('should leave sealedProbes undefined when not set in options', () => {
+    it('should leave boundedQueries undefined when not set in options', () => {
       const config = buildConfig(makeInputs());
-      expect(config.sealedProbes).toBeUndefined();
+      expect(config.boundedQueries).toBeUndefined();
     });
 
-    it('should normalize sealedProbes with centralized defaults when present', () => {
+    it('should normalize boundedQueries with centralized defaults when present', () => {
       const config = buildConfig(makeInputs({
-        options: { ...makeInputs().options, sealedProbes: {} },
+        options: { ...makeInputs().options, boundedQueries: {} },
       }));
-      expect(config.sealedProbes).toEqual({
+      expect(config.boundedQueries).toEqual({
         enabled: false,
         privateRepos: [],
         runtime: 'docker',
@@ -450,11 +450,11 @@ describe('buildConfig', () => {
       });
     });
 
-    it('should preserve explicit sealedProbes values over defaults', () => {
+    it('should preserve explicit boundedQueries values over defaults', () => {
       const config = buildConfig(makeInputs({
         options: {
           ...makeInputs().options,
-          sealedProbes: {
+          boundedQueries: {
             enabled: true,
             privateRepos: [{ repo: 'octo/repo', sensitivity: 'confidential' }],
             runtime: 'sbx',
@@ -465,7 +465,7 @@ describe('buildConfig', () => {
           },
         },
       }));
-      expect(config.sealedProbes).toEqual({
+      expect(config.boundedQueries).toEqual({
         enabled: true,
         privateRepos: [{ repo: 'octo/repo', sensitivity: 'confidential' }],
         runtime: 'sbx',

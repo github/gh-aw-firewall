@@ -28,7 +28,7 @@ import { assertTopologySupported, connectTopologyContainers } from '../topology'
 import { runDindBootstrap } from '../dind-bootstrap';
 import { runtimeUsesComposeAgent } from '../container-runtime';
 import { createSandbox, execInSandbox, removeSandbox, isSbxAvailable, SBX_DEFAULT_NAME } from '../sbx-manager';
-import { prepareSealedProbes, teardownSealedProbes } from '../sealed-probe/manager';
+import { prepareBoundedQueries, teardownBoundedQueries } from '../bounded-query/manager';
 import type { WrapperConfig } from '../types';
 import { buildAgentEnvironment } from '../services/agent-service';
 import { buildAgentCredentialEnv } from '../services/api-proxy-credential-env';
@@ -127,7 +127,7 @@ function buildCleanupFn(
     // write permissions on the immutable seeds. Must run before the generic
     // work-directory cleanup: `rm -rf` cannot unlink entries inside a
     // directory whose write bit was stripped during staging.
-    await teardownSealedProbes(config);
+    await teardownBoundedQueries(config);
 
     if (!config.keepContainers) {
       await cleanup(
@@ -413,7 +413,7 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
         collectDiagnosticLogs,
         assertTopologySupported,
         connectTopologyContainers,
-        prepareSealedProbes,
+        prepareBoundedQueries,
       },
       {
         logger,

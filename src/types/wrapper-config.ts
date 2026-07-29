@@ -15,7 +15,7 @@ import type { RateLimitOptions } from './rate-limit-options';
 import type { RuntimeOptions } from './runtime-options';
 import type { PlatformOptions } from './platform-options';
 import type { RunnerOptions } from './runner-options';
-import type { SealedProbeOptions } from './sealed-probe-options';
+import type { BoundedQueryOptions } from './bounded-query-options';
 
 export type WrapperConfig =
   ContainerImageOptions
@@ -28,4 +28,4 @@ export type WrapperConfig =
   & RuntimeOptions
   & PlatformOptions
   & RunnerOptions
-  & SealedProbeOptions;
+  & BoundedQueryOptions;

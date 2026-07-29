@@ -82,7 +82,7 @@ following top-level properties. All are OPTIONAL:
 | `logging` | object | Logging and diagnostics |
 | `rateLimiting` | object | Egress rate limiting |
 | `platform` | object | GitHub platform deployment type declaration |
-| `sealedProbes` | object | Sealed-probe sandbox subsystem (see §14) |
+| `boundedQueries` | object | Bounded-query sandbox subsystem (see §14) |
 
 Property-level constraints, types, and descriptions are defined
 normatively by `docs/awf-config.schema.json`.
@@ -213,13 +213,13 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 - `platform.type` → *(config-only; maps to `AWF_PLATFORM_TYPE`)*
 - `runner.topology` → *(config-only; sets runner deployment model — `standard` or `arc-dind`; when `arc-dind`, enables sysroot staging and emits RUNNER_TOOL_CACHE warnings)*
 - `runner.sysrootImage` → *(config-only; sysroot init-container image for `arc-dind` topology; defaults to `<container.imageRegistry>/build-tools:<container.imageTag>`, where `container.imageRegistry` defaults to `ghcr.io/github/gh-aw-firewall`)*
-- `sealedProbes.enabled` → *(config-only; no CLI equivalent, see §14)*
-- `sealedProbes.privateRepos[]` → *(config-only; no CLI equivalent, see §14)*
-- `sealedProbes.runtime` → *(config-only; no CLI equivalent, see §14)*
-- `sealedProbes.timeout` → *(config-only; no CLI equivalent, see §14)*
-- `sealedProbes.memoryLimit` → *(config-only; no CLI equivalent, see §14)*
-- `sealedProbes.interpreter` → *(config-only; no CLI equivalent, see §14)*
-- `sealedProbes.maxInvocations` → *(config-only; no CLI equivalent, see §14)*
+- `boundedQueries.enabled` → *(config-only; no CLI equivalent, see §14)*
+- `boundedQueries.privateRepos[]` → *(config-only; no CLI equivalent, see §14)*
+- `boundedQueries.runtime` → *(config-only; no CLI equivalent, see §14)*
+- `boundedQueries.timeout` → *(config-only; no CLI equivalent, see §14)*
+- `boundedQueries.memoryLimit` → *(config-only; no CLI equivalent, see §14)*
+- `boundedQueries.interpreter` → *(config-only; no CLI equivalent, see §14)*
+- `boundedQueries.maxInvocations` → *(config-only; no CLI equivalent, see §14)*
 
 When `container.dockerHostPathPrefix` points at a daemon-visible shared `/tmp` path, the implementation stages the invoking CLI binary together with `/etc/passwd`, `/etc/group`, and the generated chroot `/etc/hosts` under that shared path so chroot mode can bootstrap on split-filesystem ARC/DinD hosts.
 
@@ -1536,17 +1536,17 @@ Each record follows the `blocked-request-diag/v<version>` schema:
 - The file is written to `AWF_TOKEN_LOG_DIR` alongside `token-usage.jsonl`
   and is governed by the same artifact-retention policy.
 
-## 14. Sealed Probes
+## 14. Bounded Queries
 
 ### 14.1 Purpose
 
-A *sealed probe* lets an agent ask a trusted broker to run a short,
+A *bounded query* lets an agent ask a trusted broker to run a short,
 agent-authored Python 3 script against a private repository and get back a
 value conforming to a finite response schema the agent declares up front —
 without the agent ever gaining network or filesystem access to that
 repository.
 
-Every private repository configured for sealed probes carries one of four
+Every private repository configured for bounded queries carries one of four
 fixed **sensitivity categories**, each with an immutable maximum number of
 bits the broker may reveal about that repository across an entire AWF run
 (not per query):
@@ -1566,16 +1566,16 @@ An invocation is allowed iff its charge fits the remaining balance — a cheap
 boolean question and an expensive high-cardinality question both draw from
 the same budget, just at different rates. Charges are never refunded,
 regardless of outcome (success, failure, or timeout).
-`sealedProbes.maxInvocations` is a separate, independent operational limit
+`boundedQueries.maxInvocations` is a separate, independent operational limit
 (§14.2) unrelated to the bit ledger.
 
 ### 14.2 Configuration
 
-The root object MAY contain a `sealedProbes` section:
+The root object MAY contain a `boundedQueries` section:
 
 ```json
 {
-  "sealedProbes": {
+  "boundedQueries": {
     "enabled": true,
     "privateRepos": [
       { "repo": "my-org/my-private-repo", "sensitivity": "internal" },
@@ -1600,23 +1600,23 @@ The root object MAY contain a `sealedProbes` section:
 | `interpreter` | string | Only `"python3"` is currently supported | `"python3"` |
 | `maxInvocations` | integer | `1`–`10000`; an independent operational cap, unrelated to the per-repository bit ledger | `32` |
 
-Property-level constraints are defined normatively by the `sealedProbes`
+Property-level constraints are defined normatively by the `boundedQueries`
 subschema in `docs/awf-config.schema.json`.
 
 **Legacy `privateRepos` string entries.** A bare `owner/repo` string is
 accepted for one release for backward compatibility and is normalized to
 `{ repo, sensitivity: "internal" }`, emitting a warning
-(`sealedProbes.privateRepos entry "..." is a legacy bare string...`) through
+(`boundedQueries.privateRepos entry "..." is a legacy bare string...`) through
 the same warning channel other config normalization uses. New configuration
 SHOULD use the explicit object form so the intended sensitivity is never
 left implicit.
 
-**Mapping:** every `sealedProbes.*` field is *(config-only; no CLI
-equivalent)*. There is no `--sealed-probes-*` CLI flag family. The config-file
+**Mapping:** every `boundedQueries.*` field is *(config-only; no CLI
+equivalent)*. There is no `--bounded-queries-*` CLI flag family. The config-file
 value is passed through `config-mapper.ts` and normalized (defaults applied
-via `src/types/sealed-probe-options.ts`'s `SEALED_PROBE_DEFAULTS`, legacy
-string entries normalized in `src/parsers/sealed-probe-parser.ts`) into
-`WrapperConfig.sealedProbes`. Only an explicit `enabled: true` normalizes to
+via `src/types/bounded-query-options.ts`'s `BOUNDED_QUERY_DEFAULTS`, legacy
+string entries normalized in `src/parsers/bounded-query-parser.ts`) into
+`WrapperConfig.boundedQueries`. Only an explicit `enabled: true` normalizes to
 an enabled config; omission or any other value normalizes to
 `enabled: false`.
 
@@ -1644,36 +1644,36 @@ repository's sensitivity or run budget.
 
 ### 14.3 Request/Result Protocol (v2)
 
-`src/sealed-probe/protocol.ts` defines the wire protocol. The broker restates
-it in `containers/sealed-probe/broker/protocol.js` because it runs from its
+`src/bounded-query/protocol.ts` defines the wire protocol. The broker restates
+it in `containers/bounded-query/broker/protocol.js` because it runs from its
 own container image and cannot import AWF's TypeScript sources; the two
 implementations are pinned together by
-`src/sealed-probe/protocol-parity.test.ts`, which runs one large shared
-vector table (schemas, values, requests, and probe results) through both.
+`src/bounded-query/protocol-parity.test.ts`, which runs one large shared
+vector table (schemas, values, requests, and query results) through both.
 
-**Request.** A sealed-probe request is a JSON object with exactly three
+**Request.** A bounded-query request is a JSON object with exactly three
 fields:
 
 ```json
 {
   "privateRepo": "my-org/my-private-repo",
   "schema": { "type": "boolean" },
-  "script": "<probe script source>"
+  "script": "<query script source>"
 }
 ```
 
 - `privateRepo` MUST match the same `owner/repo` slug rule as
-  `sealedProbes.privateRepos` entries (§14.2).
+  `boundedQueries.privateRepos` entries (§14.2).
 - `schema` MUST be a valid document in the finite schema DSL below.
 - `script` MUST be non-empty and at most 64 KiB (`MAX_SCRIPT_BYTES`). Script
   and schema sizes are enforced independently on their raw UTF-8 bytes; JSON
   escaping does not reduce either allowance.
 
-**Result.** A successful probe result is the canonical envelope
+**Result.** A successful query result is the canonical envelope
 `{"status":"ok","result":<value>}`, where `<value>` conforms exactly to the
 request's declared `schema`. Every failure mode — invalid request,
 disallowed repository, exhausted bit budget, launch failure, timeout, crash,
-non-conformant probe output, or internal error — collapses to the single
+non-conformant query output, or internal error — collapses to the single
 canonical `{"status":"error"}`, indistinguishable from one another by
 design.
 
@@ -1754,7 +1754,7 @@ that many bits of signal the moment it decided to run.
 
 #### 14.3.1 Response-timing buckets
 
-A probe's raw completion latency is itself a secret-dependent signal — a
+A query's raw completion latency is itself a secret-dependent signal — a
 script that raises early on one code path and runs to completion on another
 leaks information purely through wall-clock time, independent of the
 declared schema. The broker makes every *launched* invocation's observable
@@ -1785,7 +1785,7 @@ observe a preceding invocation's unaccounted cleanup duration. Cleanup
 failure maps to canonical error and is recorded only in the protected audit
 log.
 
-**Fail-closed timing overflow.** `sealedProbes.timeout` is capped at 540
+**Fail-closed timing overflow.** `boundedQueries.timeout` is capped at 540
 seconds, reserving the final minute before the 600-second boundary for Docker
 termination, result validation, container removal, and workspace cleanup. If
 pathological infrastructure overhead nevertheless pushes total processing or
@@ -1797,7 +1797,7 @@ deliberate, tested (`broker.test.ts`) fallback, not a normal code path.
 
 Every failure mode — an invalid request, a disallowed repository, an
 exhausted bit budget, an exhausted `maxInvocations` count, a launch failure,
-a timeout, a script crash, non-conformant probe output, a timing-bucket
+a timeout, a script crash, non-conformant query output, a timing-bucket
 overflow, or an internal broker error — collapses to the single canonical
 `{"status":"error"}`. Failures are indistinguishable from each other by
 design: the agent cannot infer which failure mode occurred from the
@@ -1806,7 +1806,7 @@ response alone.
 ### 14.5 Strict, Non-Schema Result Parsing and Post-Execution Validation
 
 Result parsing intentionally does **not** execute a general-purpose JSON
-Schema validator against the (potentially attacker-influenced) raw probe
+Schema validator against the (potentially attacker-influenced) raw query
 output text. `strictParseJson` enforces well-formedness with a small,
 linear-time, non-backtracking hand-written grammar — rejecting, rather than
 throwing, on:
@@ -1822,22 +1822,22 @@ an undeclared enum member, extra or missing object fields, the wrong
 tuple/array length, or an unrecognized union tag are all rejected. A value
 that passes validation is canonically re-serialized
 (`canonicalizeSchemaValue`) before being wrapped in the `{"status":"ok",...}`
-envelope, so the exact byte layout the probe wrote (whitespace, key order,
+envelope, so the exact byte layout the query wrote (whitespace, key order,
 duplicate-safe encoding) never reaches the agent — only a canonical
 re-encoding of the validated value does.
 
-Raw probe bytes, stdout, stderr, and exit status never reach the agent under
+Raw query bytes, stdout, stderr, and exit status never reach the agent under
 any circumstance, success or failure.
 
 ### 14.6 Offline Staging
 
 Before any configuration is generated and before any container exists, AWF
-runs a trusted host-side staging phase (`src/sealed-probe/staging.ts`):
+runs a trusted host-side staging phase (`src/bounded-query/staging.ts`):
 
 1. resolves the staging credential from `GH_TOKEN` or `GITHUB_TOKEN`;
 2. clones each configured repository from an AWF-constructed
    `https://github.com/<owner>/<repo>.git` URL into a run-unique, opaque seed
-   directory under `<workDir>/sealed-probes/seeds/`. The credential is passed
+   directory under `<workDir>/bounded-queries/seeds/`. The credential is passed
    only through a `GIT_ASKPASS` helper reading it from the child process
    environment — never in argv, never in the URL, never in a log line, and
    never in the generated compose file;
@@ -1847,7 +1847,7 @@ runs a trusted host-side staging phase (`src/sealed-probe/staging.ts`):
    `.git/config` is replaced with a minimal, credential-free file;
 5. rejects repositories that declare submodules (`.gitmodules` or
    `.git/modules`) and any checkout whose `.git` is a symlink or a gitdir
-   pointer — both are external references a probe must never resolve;
+   pointer — both are external references a query must never resolve;
 6. strips every write bit from the seed and verifies the result;
 7. deletes the askpass helper and the isolated staging `HOME`, so no staging
    artifact survives into the broker/agent phase.
@@ -1858,19 +1858,19 @@ map is the broker's *only* source of sensitivity information — a request
 field can never supply or override it.
 
 Staging failure aborts the run. There is no fallback clone or fetch anywhere
-else in the system: neither the broker nor a probe has a network path. A
+else in the system: neither the broker nor a query has a network path. A
 `sealed` (0-bit) repository is still staged like any other (so its
 configuration is validated the same way), but its run budget structurally
 guarantees the broker never copies that seed or launches Python for it.
 
-### 14.7 Trusted Broker and Probe Sandbox
+### 14.7 Trusted Broker and Query Sandbox
 
 The broker runs as an optional Docker Compose service
-(`sealed-probe-broker`, container `awf-sealed-probe-broker`) with
+(`bounded-query-broker`, container `awf-bounded-query-broker`) with
 `network_mode: none`: no `awf-net`, no external bridge, no DNS, no Squid, no
 api-proxy/cli-proxy, and no host-network path. Its entire surface is one Unix
 socket in a directory bind-mounted into the agent. It also receives the
-resolved Docker socket so it can launch probes; that path is never placed in
+resolved Docker socket so it can launch queries; that path is never placed in
 the agent's environment or volumes.
 
 The broker maps a normalized `owner/repo` id through the AWF-generated seed
@@ -1880,16 +1880,16 @@ or sensitivity. For each request that passes schema validation and clears
 its repository's remaining bit ledger (in that order — an invalid schema or
 an unaffordable charge is rejected before any seed is touched), the broker
 creates a fresh, full, private writable copy of exactly one seed and
-launches one probe container with a fixed argument vector:
+launches one query container with a fixed argument vector:
 
 - `--network none`, `--read-only`, `--user 65534:65534`, `--cap-drop ALL`,
   `--security-opt no-new-privileges:true`, and a restrictive seccomp profile
-  (`containers/sealed-probe/probe-seccomp.json`);
+  (`containers/bounded-query/query-seccomp.json`);
 - memory, swap, CPU, PID, open-file, and file-size bounds plus the configured
   wall-clock timeout;
-- exactly two mounts: the invocation's private tree at `/probe` (containing
-  `repo/`, and where the probe writes `out`) and the submitted script at the
-  fixed read-only path `/awf/probe-script.py`;
+- exactly two mounts: the invocation's private tree at `/query` (containing
+  `repo/`, and where the query writes `out`) and the submitted script at the
+  fixed read-only path `/awf/query-script.py`;
 - no Docker socket, no seed parent, no other repository, no workspace, no
   credentials, and no prior invocation's data.
 
@@ -1899,29 +1899,29 @@ channel. A cleanup failure produces canonical error and is recorded in the
 protected audit log (`reason: 'cleanup-failed'`). Repository mutations are
 ephemeral and are never returned or persisted. The result file is opened
 with `O_NOFOLLOW` and must
-be a regular file within the size cap, so replacing `/probe/out` with a
+be a regular file within the size cap, so replacing `/query/out` with a
 symlink, FIFO, device, or socket cannot make the broker read anything else.
 
-Probe stdout/stderr is capped and discarded — never parsed, never returned,
+Query stdout/stderr is capped and discarded — never parsed, never returned,
 never logged in a form reachable by the agent. Failure reasons (with
 protected detail, e.g. `repo-not-allowed`, `bit-budget-exhausted`,
-`invalid-request`, `probe-launch-failed`, `timing-bucket-overflow`,
-`cleanup-failed`) are written only to `<workDir>/sealed-probes/audit/`,
+`invalid-request`, `query-launch-failed`, `timing-bucket-overflow`,
+`cleanup-failed`) are written only to `<workDir>/bounded-queries/audit/`,
 which is mounted into the broker alone.
 
 ### 14.8 Agent Interface
 
-When sealed probes are enabled, the agent receives exactly two bind mounts —
+When bounded queries are enabled, the agent receives exactly two bind mounts —
 the broker socket directory (read-write) and a generated skill directory
 (read-only) — plus three environment variables
-(`AWF_SEALED_PROBE_SOCKET`, `AWF_SEALED_PROBE_SKILL`,
-`AWF_SEALED_PROBE_REPOS`, the last a comma-separated list of configured repo
+(`AWF_BOUNDED_QUERY_SOCKET`, `AWF_BOUNDED_QUERY_SKILL`,
+`AWF_BOUNDED_QUERY_REPOS`, the last a comma-separated list of configured repo
 slugs only — never sensitivities or budgets). GitHub tokens are removed from
-the agent environment whenever sealed probes are enabled, independently of
+the agent environment whenever bounded queries are enabled, independently of
 the API and DIFC proxies.
 
-`containers/agent/sealed-probe-wrapper.sh` is installed on the agent's `PATH`
-as `sealed-probe` (protocol v2). It accepts only `--repo` once, `--schema`
+`containers/agent/bounded-query-wrapper.sh` is installed on the agent's `PATH`
+as `bounded-query` (protocol v2). It accepts only `--repo` once, `--schema`
 once (a JSON document, at most `MAX_SCHEMA_BYTES` bytes), and the script on
 stdin; every other option, the `--flag=value` form, and positional arguments
 are rejected without contacting the broker. It always prints exactly one
@@ -1934,8 +1934,8 @@ responsibilities are enforcing the fixed CLI shape, base64url-encoding the
 schema into a request header, transporting the script body unmodified, and
 passing the broker's response through unmodified.
 
-The generated `SKILL.md` is written under `<workDir>/sealed-probes/agent/` and
-mounted read-only at `/run/awf-sealed-probe-skill/SKILL.md`. It documents,
+The generated `SKILL.md` is written under `<workDir>/bounded-queries/agent/` and
+mounted read-only at `/run/awf-bounded-query-skill/SKILL.md`. It documents,
 per configured repository, its sensitivity and run budget (e.g. `` `octo/alpha`
 — 64 bits/run (`internal`) ``), the finite schema DSL, the bit-charge
 formula, the timing buckets, and the operational `maxInvocations` limit —
@@ -1943,12 +1943,12 @@ so an agent can design informed, low-cardinality questions. AWF deliberately
 does **not** mount it into `$HOME/.copilot/skills` or the workspace's
 `.github/skills`: Docker would create the mount point inside host user state
 or inside the checked-out workspace. Agents therefore discover it through
-`AWF_SEALED_PROBE_SKILL` rather than through automatic skill discovery. This
+`AWF_BOUNDED_QUERY_SKILL` rather than through automatic skill discovery. This
 is a documented limitation, not an oversight.
 
 For the same reason, a microVM primary agent runtime (`sbx`) is rejected at
 preflight: it does not receive Compose bind mounts, so the socket and skill
-could not be exposed. Sealed probes are never partially enabled.
+could not be exposed. Bounded queries are never partially enabled.
 
 ### 14.9 Protocol v1 Compatibility
 
@@ -1956,7 +1956,7 @@ Protocol v1 (three fixed outcomes plus the reserved `"ERROR"` sentinel, no
 schema, no sensitivity, no bit ledger) is superseded by v2. There is no
 runtime v1/v2 auto-negotiation in the current wrapper or broker — both are
 deployed together as part of the same AWF release, and the wrapper always
-sends `X-AWF-Probe-Version: 2`. A safe compatibility translation for legacy
+sends `X-AWF-Query-Version: 2`. A safe compatibility translation for legacy
 v1 three-outcome calls (mapping a fixed three-value `enum` schema to the old
 `outcomes` shape) is a natural extension point if a future release needs to
 accept both wire versions from mismatched wrapper/broker builds, but is not
@@ -1976,8 +1976,8 @@ matched pair.
   before the bucket is selected (§14.3.1, §14.7).
 - Per-invocation aggregate disk usage is bounded by the wall-clock timeout and
   a per-file size limit rather than a hard filesystem quota.
-- The probe rootfs is the broker image, so it also contains a Node runtime and
-  the Docker CLI. Both are inert inside a probe: there is no network, no
+- The query rootfs is the broker image, so it also contains a Node runtime and
+  the Docker CLI. Both are inert inside a query: there is no network, no
   Docker socket, no capability, and the entrypoint is fixed to `python3`.
 
 ## Normative References
