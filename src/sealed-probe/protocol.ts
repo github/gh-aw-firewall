@@ -75,13 +75,6 @@ export const MAX_UNION_VARIANTS = 16;
 /** Maximum size, in UTF-8 bytes, of a probe script. */
 export const MAX_SCRIPT_BYTES = 64 * 1024;
 
-/**
- * Maximum size, in UTF-8 bytes, of the assembled `{privateRepo, schema,
- * script}` request object considered as a whole (sanity bound; the schema
- * and script are already independently bounded above).
- */
-export const MAX_REQUEST_BYTES = MAX_SCRIPT_BYTES + MAX_SCHEMA_BYTES + 1024;
-
 /** Maximum size, in UTF-8 bytes, of the probe's raw output file. */
 export const MAX_RESULT_BYTES = 8 * 1024;
 
@@ -90,6 +83,17 @@ export const MAX_PRIVATE_REPO_LENGTH = 140;
 
 /** Number of observable response-timing buckets (see `docs/awf-config-spec.md` §14). */
 export const TIMING_BUCKETS_MS: readonly number[] = [10, 100, 1_000, 10_000, 60_000, 600_000];
+
+/**
+ * Time reserved inside the final bucket for Docker termination, result
+ * validation, container removal, and workspace cleanup after the script's
+ * configured wall-clock budget expires.
+ */
+export const FINAL_TIMING_BUCKET_PROCESSING_MARGIN_MS = 60_000;
+
+/** Largest configurable script timeout while preserving the final-bucket margin. */
+export const MAX_PROBE_TIMEOUT_SECONDS =
+  (TIMING_BUCKETS_MS[TIMING_BUCKETS_MS.length - 1] - FINAL_TIMING_BUCKET_PROCESSING_MARGIN_MS) / 1000;
 
 /**
  * Bits reserved for the timing side channel: `ceil(log2(TIMING_BUCKETS_MS.length))`.
@@ -407,14 +411,14 @@ export function validateSchema(raw: unknown): SealedProbeSchemaValidation {
   } catch {
     return { valid: false, errors: ['schema must be JSON-serializable'] };
   }
-  if (raw === undefined || utf8ByteLength(serialized) > MAX_SCHEMA_BYTES) {
-    return { valid: false, errors: [`schema must be a JSON value of at most ${MAX_SCHEMA_BYTES} bytes`] };
-  }
 
   const ctx: SchemaParseContext = { errors: [], nodeCount: 0 };
   const schema = buildSchemaNode(raw, ctx, 0);
   if (!schema || ctx.errors.length > 0) {
     return { valid: false, errors: ctx.errors.length > 0 ? ctx.errors : ['invalid schema'] };
+  }
+  if (raw === undefined || utf8ByteLength(serialized) > MAX_SCHEMA_BYTES) {
+    return { valid: false, errors: [`schema must be a JSON value of at most ${MAX_SCHEMA_BYTES} bytes`] };
   }
   return { valid: true, schema };
 }
@@ -789,16 +793,6 @@ export function validateSealedProbeRequest(raw: unknown): SealedProbeValidation 
     errors.push('script must be a non-empty string');
   } else if (utf8ByteLength(script) > MAX_SCRIPT_BYTES) {
     errors.push(`script must be at most ${MAX_SCRIPT_BYTES} bytes`);
-  }
-
-  let serialized: string | undefined;
-  try {
-    serialized = JSON.stringify(raw);
-  } catch {
-    errors.push('request must be JSON-serializable');
-  }
-  if (serialized !== undefined && utf8ByteLength(serialized) > MAX_REQUEST_BYTES) {
-    errors.push(`request must be at most ${MAX_REQUEST_BYTES} bytes`);
   }
 
   if (

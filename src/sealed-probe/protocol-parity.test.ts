@@ -5,7 +5,7 @@ import {
   MAX_ENUM_VALUES,
   MAX_OBJECT_FIELDS,
   MAX_PRIVATE_REPO_LENGTH,
-  MAX_REQUEST_BYTES,
+  MAX_PROBE_TIMEOUT_SECONDS,
   MAX_RESULT_BYTES,
   MAX_SCHEMA_BYTES,
   MAX_SCHEMA_DEPTH,
@@ -15,6 +15,7 @@ import {
   MAX_UNION_VARIANTS,
   PROBE_PROTOCOL_VERSION,
   RESULT_STATUS_BIT_COST,
+  FINAL_TIMING_BUCKET_PROCESSING_MARGIN_MS,
   SEALED_PROBE_REPO_PATTERN,
   TIMING_BUCKETS_MS,
   TIMING_BUCKET_BITS,
@@ -30,6 +31,10 @@ import {
   validateValueAgainstSchema,
   type SealedProbeSchemaNode,
 } from './protocol';
+import {
+  SEALED_PROBE_SENSITIVITIES,
+  SEALED_PROBE_SENSITIVITY_RUN_BITS,
+} from '../types/sealed-probe-options';
 
 /**
  * The broker runs in its own container image and cannot import AWF's
@@ -42,6 +47,10 @@ import {
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const brokerProtocol = require(
   path.join(__dirname, '..', '..', 'containers', 'sealed-probe', 'broker', 'protocol.js'),
+);
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const brokerSensitivity = require(
+  path.join(__dirname, '..', '..', 'containers', 'sealed-probe', 'broker', 'sensitivity.js'),
 );
 
 const SCHEMA_VECTORS: Array<{ name: string; schema: unknown }> = [
@@ -257,14 +266,23 @@ describe('sealed-probe protocol parity (TypeScript vs broker JavaScript)', () =>
     expect(brokerProtocol.MAX_ARRAY_LENGTH).toBe(MAX_ARRAY_LENGTH);
     expect(brokerProtocol.MAX_UNION_VARIANTS).toBe(MAX_UNION_VARIANTS);
     expect(brokerProtocol.MAX_SCRIPT_BYTES).toBe(MAX_SCRIPT_BYTES);
-    expect(brokerProtocol.MAX_REQUEST_BYTES).toBe(MAX_REQUEST_BYTES);
     expect(brokerProtocol.MAX_RESULT_BYTES).toBe(MAX_RESULT_BYTES);
     expect(brokerProtocol.MAX_PRIVATE_REPO_LENGTH).toBe(MAX_PRIVATE_REPO_LENGTH);
     expect(brokerProtocol.TIMING_BUCKETS_MS).toEqual(TIMING_BUCKETS_MS);
+    expect(brokerProtocol.FINAL_TIMING_BUCKET_PROCESSING_MARGIN_MS)
+      .toBe(FINAL_TIMING_BUCKET_PROCESSING_MARGIN_MS);
+    expect(brokerProtocol.MAX_PROBE_TIMEOUT_SECONDS).toBe(MAX_PROBE_TIMEOUT_SECONDS);
     expect(brokerProtocol.TIMING_BUCKET_BITS).toBe(TIMING_BUCKET_BITS);
     expect(brokerProtocol.RESULT_STATUS_BIT_COST).toBe(RESULT_STATUS_BIT_COST);
     expect(brokerProtocol.SEALED_PROBE_REPO_PATTERN.source).toBe(SEALED_PROBE_REPO_PATTERN.source);
     expect(brokerProtocol.CANONICAL_ERROR_JSON).toBe(CANONICAL_ERROR_JSON);
+  });
+
+  it('keeps broker sensitivity categories and run budgets aligned with host policy', () => {
+    expect(brokerSensitivity.SEALED_PROBE_SENSITIVITIES).toEqual(SEALED_PROBE_SENSITIVITIES);
+    expect(brokerSensitivity.SEALED_PROBE_SENSITIVITY_RUN_BITS).toEqual(
+      SEALED_PROBE_SENSITIVITY_RUN_BITS,
+    );
   });
 
   it.each(SCHEMA_VECTORS)('agrees on schema validity: $name', ({ schema }) => {

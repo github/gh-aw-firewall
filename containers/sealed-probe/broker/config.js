@@ -2,7 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { TIMING_BUCKETS_MS } = require('./protocol');
+const { MAX_PROBE_TIMEOUT_SECONDS } = require('./protocol');
 const { SEALED_PROBE_SENSITIVITY_RUN_BITS } = require('./sensitivity');
 
 /**
@@ -53,16 +53,15 @@ function parsePositiveInt(name, fallback) {
 /**
  * Parses the per-invocation timeout, additionally re-enforcing (defense in
  * depth; AWF's host-side preflight already rejects an out-of-range value
- * before this container ever starts) that it cannot exceed the largest
- * response-timing bucket. See `./scheduler` for why that ceiling matters.
+ * before this container ever starts) that it preserves the final response
+ * bucket's post-processing margin.
  */
 function parseTimeoutSeconds() {
-  const maxSeconds = TIMING_BUCKETS_MS[TIMING_BUCKETS_MS.length - 1] / 1000;
   const parsed = parsePositiveInt('AWF_SEALED_PROBE_TIMEOUT', 30);
-  if (parsed > maxSeconds) {
+  if (parsed > MAX_PROBE_TIMEOUT_SECONDS) {
     throw new Error(
-      `Environment variable AWF_SEALED_PROBE_TIMEOUT must be at most ${maxSeconds} ` +
-      '(the largest response-timing bucket, in seconds)',
+      `Environment variable AWF_SEALED_PROBE_TIMEOUT must be at most ${MAX_PROBE_TIMEOUT_SECONDS} seconds ` +
+      '(the final response bucket reserves one minute for termination, validation, and cleanup)',
     );
   }
   return parsed;

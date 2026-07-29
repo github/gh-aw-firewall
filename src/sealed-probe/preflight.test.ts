@@ -125,14 +125,14 @@ describe('validateSealedProbeConfig', () => {
     expect(errors.join('\n')).toContain('is not a Docker memory limit');
   });
 
-  it('accepts a timeout at exactly the largest timing bucket (600s)', () => {
-    expect(validateSealedProbeConfig(buildConfig({ timeout: 600 }), envWithToken)).toEqual([]);
+  it('accepts a timeout that preserves the final one-minute processing margin (540s)', () => {
+    expect(validateSealedProbeConfig(buildConfig({ timeout: 540 }), envWithToken)).toEqual([]);
   });
 
-  it('rejects a timeout beyond the largest timing bucket, which could leak unbucketed timing', () => {
-    const errors = validateSealedProbeConfig(buildConfig({ timeout: 601 }), envWithToken);
-    expect(errors.join('\n')).toContain('timeout must be at most 600 seconds');
-    expect(errors.join('\n')).toContain('unbucketed secret-dependent information');
+  it('rejects a timeout that consumes the final timing bucket processing margin', () => {
+    const errors = validateSealedProbeConfig(buildConfig({ timeout: 541 }), envWithToken);
+    expect(errors.join('\n')).toContain('timeout must be at most 540 seconds');
+    expect(errors.join('\n')).toContain('reserves its final minute');
   });
 
   it('rejects an unsupported interpreter', () => {

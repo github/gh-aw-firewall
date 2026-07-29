@@ -205,12 +205,16 @@ describe('sealed probe end-to-end (wrapper → socket → broker)', () => {
     expect(audit.some((record) => record.reason === 'bit-budget-exhausted')).toBe(true);
   });
 
-  it('rejects an oversized script with the canonical error', async () => {
+  it('rejects an oversized script and charges it against maxInvocations', async () => {
     const result = await runWrapper(socketPath, args('octo/alpha'), 'x'.repeat(64 * 1024 + 10));
+    const admitted = await runWrapper(socketPath, args('octo/alpha'));
+    const exhausted = await runWrapper(socketPath, args('octo/alpha'));
 
     expect(result.stdout).toBe(`${CANONICAL_ERROR}\n`);
     expect(result.stderr).toBe('');
     expect(result.status).toBe(0);
+    expect(admitted.stdout).toBe('{"status":"ok","result":"YES"}\n');
+    expect(exhausted.stdout).toBe(`${CANONICAL_ERROR}\n`);
   });
 
   it('rejects a request whose probe output does not conform to its own declared schema', async () => {

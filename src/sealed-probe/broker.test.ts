@@ -385,6 +385,25 @@ describe('sealed-probe broker', () => {
     expect(audit.records[audit.records.length - 1]).toMatchObject({ reason: 'cleanup-failed' });
   });
 
+  it('destroys a partial workspace when workspace creation throws', async () => {
+    const partialWorkspace = {
+      ...workspace,
+      createInvocationWorkspace: (params: { config: { workDir: string }; invocationId: string }) => {
+        fs.mkdirSync(path.join(params.config.workDir, params.invocationId), { recursive: true });
+        fs.writeFileSync(path.join(params.config.workDir, params.invocationId, 'partial'), 'data');
+        throw new Error('copy failed');
+      },
+    };
+    const runner = probeRunner(() => {
+      throw new Error('probe must not launch');
+    });
+    const { broker, audit } = build(runner, { workspace: partialWorkspace });
+
+    expect(await invoke(broker, validRequest())).toBe(CANONICAL_ERROR);
+    expect(audit.records[audit.records.length - 1]).toMatchObject({ reason: 'workspace-create-failed' });
+    expect(fs.readdirSync(String(config.workDir))).toEqual([]);
+  });
+
   it('maps a launch failure to the canonical error', async () => {
     const runner = {
       runProbeContainer: async () => {
@@ -614,7 +633,7 @@ describe('sealed-probe broker', () => {
       const runner = probeRunner((invocationDir) => {
         // Pathological infrastructure latency far beyond the largest bucket
         // (600_000ms) — never possible from the script itself, which is
-        // capped at sealedProbes.timeout <= 600s by preflight.ts.
+        // capped at sealedProbes.timeout <= 540s by preflight.ts.
         advance(TIMING_BUCKETS_MS[TIMING_BUCKETS_MS.length - 1] + 1);
         fs.writeFileSync(path.join(invocationDir, 'out'), '{"result":"YES"}');
       });

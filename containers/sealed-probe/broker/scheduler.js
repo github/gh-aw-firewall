@@ -26,13 +26,20 @@ const { TIMING_BUCKETS_MS } = require('./protocol');
  *    unaccounted cleanup delay from the preceding invocation.
  *  - If processing latency already exceeds the *last* bucket boundary
  *    (only possible if infrastructure overhead — not the script itself,
- *    which is bounded by `sealedProbes.timeout <= 600s`, see preflight.ts —
- *    pushes total processing past 10 minutes), the broker fails closed: it
+ *    whose timeout preserves a final-minute processing margin — pushes total
+ *    processing past 10 minutes), the broker fails closed: it
  *    treats the invocation as a canonical error and responds immediately
  *    rather than waiting indefinitely for a nonexistent next boundary. This
  *    is a deliberately safe fail-closed fallback for a pathological
  *    infrastructure-latency edge case, not a normal code path.
  */
+
+/**
+ * Public host-scheduler tolerance after a requested wake-up. Delays beyond
+ * this bound are padded to the next fixed boundary instead of being returned
+ * at a continuously varying late time.
+ */
+const TIMER_WAKE_TOLERANCE_MS = 5;
 
 /** Resolves the smallest configured bucket at or after `elapsedMs`. */
 function resolveTimingBucket(elapsedMs) {
@@ -62,15 +69,36 @@ function createRealClock() {
  *   caller must fail closed (canonical error) rather than waiting further.
  */
 async function waitForBucket(startMs, elapsedMs, clock) {
-  const { bucketMs, overflowed } = resolveTimingBucket(elapsedMs);
-  if (overflowed) return { bucketMs, overflowed };
+  let observedElapsedMs = Math.max(elapsedMs, clock.nowMs() - startMs);
 
-  const targetMs = startMs + bucketMs;
-  const remainingMs = targetMs - clock.nowMs();
-  if (remainingMs > 0) {
+  while (true) {
+    const { bucketMs, overflowed } = resolveTimingBucket(observedElapsedMs);
+    if (overflowed) return { bucketMs, overflowed };
+
+    const targetMs = startMs + bucketMs;
+    const remainingMs = targetMs - clock.nowMs();
+    if (remainingMs === 0) {
+      return { bucketMs, overflowed: false };
+    }
+    if (remainingMs < 0) {
+      observedElapsedMs = clock.nowMs() - startMs;
+      continue;
+    }
+
     await clock.sleep(remainingMs);
+    const wakeMs = clock.nowMs();
+    if (wakeMs <= targetMs + TIMER_WAKE_TOLERANCE_MS) {
+      return { bucketMs, overflowed: false };
+    }
+
+    observedElapsedMs = wakeMs - startMs;
   }
-  return { bucketMs, overflowed };
 }
 
-module.exports = { TIMING_BUCKETS_MS, resolveTimingBucket, createRealClock, waitForBucket };
+module.exports = {
+  TIMING_BUCKETS_MS,
+  TIMER_WAKE_TOLERANCE_MS,
+  resolveTimingBucket,
+  createRealClock,
+  waitForBucket,
+};

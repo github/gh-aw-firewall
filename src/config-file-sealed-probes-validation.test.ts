@@ -114,9 +114,9 @@ describe('validateAwfFileConfig — sealedProbes', () => {
     expect(validateAwfFileConfig({ sealedProbes: { timeout: 30 } })).toEqual([]);
   });
 
-  it('accepts the maximum timeout of 600 seconds (the largest timing bucket) and rejects one second above it', () => {
-    expect(validateAwfFileConfig({ sealedProbes: { timeout: 600 } })).toEqual([]);
-    expect(validateAwfFileConfig({ sealedProbes: { timeout: 601 } }).length).toBeGreaterThan(0);
+  it('accepts the maximum timeout of 540 seconds and rejects one second above it', () => {
+    expect(validateAwfFileConfig({ sealedProbes: { timeout: 540 } })).toEqual([]);
+    expect(validateAwfFileConfig({ sealedProbes: { timeout: 541 } }).length).toBeGreaterThan(0);
   });
 
   it('rejects an invalid memoryLimit format', () => {

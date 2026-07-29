@@ -1595,7 +1595,7 @@ The root object MAY contain a `sealedProbes` section:
 | `enabled` | boolean | — | `false` |
 | `privateRepos` | array | Non-empty and unique (by repo slug, case-insensitively) when `enabled` is `true`. Each entry is either an object `{ "repo": "owner/repo", "sensitivity": "public" \| "internal" \| "confidential" \| "sealed" }`, or (one-release legacy compatibility) a bare `owner/repo` string, normalized to `{ repo, sensitivity: "internal" }` with a warning. Each `repo` MUST be a bare `owner/repo` slug — no scheme/host (`://`), path traversal (`..`), query string (`?`), fragment (`#`), wildcard (`*`), or extra path segments. | `[]` |
 | `runtime` | string | One of `"docker"`, `"gvisor"` | `"docker"` |
-| `timeout` | integer | `1`–`600` seconds (bounded by the largest response-timing bucket, §14.3) | `30` |
+| `timeout` | integer | `1`–`540` seconds (the final minute of the 10-minute response bucket is reserved for termination, validation, and cleanup; §14.3) | `30` |
 | `memoryLimit` | string | Docker-style memory limit, e.g. `"512m"`, `"1g"` | `"512m"` |
 | `interpreter` | string | Only `"python3"` is currently supported | `"python3"` |
 | `maxInvocations` | integer | `1`–`10000`; an independent operational cap, unrelated to the per-repository bit ledger | `32` |
@@ -1631,10 +1631,10 @@ duplicated slug; `runtime` is `"gvisor"` and the `runsc` OCI runtime is not
 registered with the Docker daemon; `container.containerRuntime` is a
 microVM backend, which cannot receive the broker socket; the resolved Docker
 host is not a `unix://` socket, which a `network_mode: none` broker cannot
-reach; the interpreter or a limit is unsupported; `timeout` exceeds 600
-seconds — the largest response-timing bucket (§14.3) — because a longer
-timeout could let an invocation's completion time itself leak unbucketed
-secret-dependent information; no staging credential is present in
+reach; the interpreter or a limit is unsupported; `timeout` exceeds 540
+seconds — the 10-minute response bucket reserves its final minute for Docker
+termination, result validation, container removal, and workspace cleanup; no
+staging credential is present in
 `GH_TOKEN`/`GITHUB_TOKEN`; or any seed cannot be materialized and verified.
 
 The seed map the broker reads carries each repository's trusted
@@ -1665,10 +1665,9 @@ fields:
 - `privateRepo` MUST match the same `owner/repo` slug rule as
   `sealedProbes.privateRepos` entries (§14.2).
 - `schema` MUST be a valid document in the finite schema DSL below.
-- `script` MUST be non-empty and at most 64 KiB (`MAX_SCRIPT_BYTES`). The
-  overall serialized request MUST be at most `MAX_SCRIPT_BYTES +
-  MAX_SCHEMA_BYTES + 1024` bytes (`MAX_REQUEST_BYTES`), as a defense-in-depth
-  cap independent of the per-field limits.
+- `script` MUST be non-empty and at most 64 KiB (`MAX_SCRIPT_BYTES`). Script
+  and schema sizes are enforced independently on their raw UTF-8 bytes; JSON
+  escaping does not reduce either allowance.
 
 **Result.** A successful probe result is the canonical envelope
 `{"status":"ok","result":<value>}`, where `<value>` conforms exactly to the
@@ -1769,7 +1768,10 @@ TIMING_BUCKETS_MS = [10ms, 100ms, 1s, 10s, 60s, 600s]
 
 The broker returns at the first bucket boundary at or after the invocation's
 processing (execution + output validation + container removal + workspace
-teardown) actually completes. This is
+teardown) actually completes. A public 5ms host-scheduler tolerance covers
+ordinary timer jitter. If a selected boundary has already passed, or a timer
+wakes more than 5ms late, the broker re-resolves and pads to the next fixed
+boundary rather than responding at the late, continuously varying time. This is
 included in the information budget as `TIMING_BUCKET_BITS` (3 bits — for six
 buckets) whether or not the script's own answer would otherwise convey any
 signal, because latency alone is observable and must be paid for like any
@@ -1783,15 +1785,13 @@ observe a preceding invocation's unaccounted cleanup duration. Cleanup
 failure maps to canonical error and is recorded only in the protected audit
 log.
 
-**Fail-closed timing overflow.** `sealedProbes.timeout` is capped at 600
-seconds (the largest bucket) at preflight for exactly this reason: the
-script itself can never make processing exceed 600 seconds. If
-infrastructure overhead (not the script) ever pushed total processing past
-600 seconds, the broker treats the invocation as the canonical error and
-responds immediately, discarding even an otherwise-valid successful result,
-rather than waiting for a nonexistent next boundary or leaking an
-unbucketed excess duration. This is a deliberate, tested (`broker.test.ts`)
-safe fallback for a pathological latency edge case, not a normal code path.
+**Fail-closed timing overflow.** `sealedProbes.timeout` is capped at 540
+seconds, reserving the final minute before the 600-second boundary for Docker
+termination, result validation, container removal, and workspace cleanup. If
+pathological infrastructure overhead nevertheless pushes total processing or
+a late scheduler wake past the last boundary, the broker discards even an
+otherwise-valid successful result and returns the canonical error. This is a
+deliberate, tested (`broker.test.ts`) fallback, not a normal code path.
 
 ### 14.4 Canonical Failure Closure
 

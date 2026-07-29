@@ -156,8 +156,9 @@ function createBroker(params) {
 
     // Teardown is part of the observable operation: repository size and tree
     // shape can affect deletion time, and queued requests must not expose that
-    // duration outside the charged timing bucket.
-    if (layout && !safeDestroy(invocationId)) {
+    // duration outside the charged timing bucket. Destroy by invocation id
+    // even when creation threw after materializing only part of the workspace.
+    if (!safeDestroy(invocationId)) {
       failureReason = ['cleanup-failed'];
       canonicalResult = undefined;
     }
@@ -166,9 +167,9 @@ function createBroker(params) {
     const { bucketMs, overflowed } = await waitForBucket(startMs, elapsedMs, clock);
 
     if (overflowed) {
-      // Fail closed: processing (not the script itself, which is bounded by
-      // `sealedProbes.timeout <= largest bucket`) overran every configured
-      // bucket — pathological infrastructure latency. Never emit a
+      // Fail closed: processing (not the script itself, whose timeout
+      // preserves a final-bucket post-processing margin) overran every
+      // configured bucket — pathological infrastructure latency. Never emit a
       // successful result at unbucketed timing.
       audit.failure(invocationId, 'timing-bucket-overflow', failureReason ? failureReason.join(':') : undefined);
       safeRespond(CANONICAL_ERROR_JSON);

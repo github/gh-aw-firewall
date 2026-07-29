@@ -59,15 +59,13 @@ function createServer(deps) {
       .then((body) => {
         if (body.error !== undefined) {
           audit.failure('framing', 'body-rejected', body.error);
-          sendResult(res, CANONICAL_ERROR_JSON);
-          return undefined;
+          return broker.handle(undefined, (result) => sendResult(res, result));
         }
 
         const framed = buildRequestFromFrame(req.headers, req.rawHeaders, body.script);
         if (framed.error !== undefined) {
           audit.failure('framing', 'frame-rejected', framed.error);
-          sendResult(res, CANONICAL_ERROR_JSON);
-          return undefined;
+          return broker.handle(undefined, (result) => sendResult(res, result));
         }
 
         return broker.handle(framed.request, (result) => sendResult(res, result));

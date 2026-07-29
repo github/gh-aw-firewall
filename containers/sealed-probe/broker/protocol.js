@@ -24,11 +24,13 @@ const MAX_TUPLE_ITEMS = 16;
 const MAX_ARRAY_LENGTH = 64;
 const MAX_UNION_VARIANTS = 16;
 const MAX_SCRIPT_BYTES = 64 * 1024;
-const MAX_REQUEST_BYTES = MAX_SCRIPT_BYTES + MAX_SCHEMA_BYTES + 1024;
 const MAX_RESULT_BYTES = 8 * 1024;
 const MAX_PRIVATE_REPO_LENGTH = 140;
 
 const TIMING_BUCKETS_MS = [10, 100, 1_000, 10_000, 60_000, 600_000];
+const FINAL_TIMING_BUCKET_PROCESSING_MARGIN_MS = 60_000;
+const MAX_PROBE_TIMEOUT_SECONDS =
+  (TIMING_BUCKETS_MS[TIMING_BUCKETS_MS.length - 1] - FINAL_TIMING_BUCKET_PROCESSING_MARGIN_MS) / 1000;
 
 function ceilLog2(n) {
   return ceilLog2BigInt(BigInt(n));
@@ -246,14 +248,14 @@ function validateSchema(raw) {
   } catch {
     return { valid: false, errors: ['schema must be JSON-serializable'] };
   }
-  if (raw === undefined || utf8ByteLength(serialized) > MAX_SCHEMA_BYTES) {
-    return { valid: false, errors: [`schema must be a JSON value of at most ${MAX_SCHEMA_BYTES} bytes`] };
-  }
 
   const ctx = { errors: [], nodeCount: 0 };
   const schema = buildSchemaNode(raw, ctx, 0);
   if (!schema || ctx.errors.length > 0) {
     return { valid: false, errors: ctx.errors.length > 0 ? ctx.errors : ['invalid schema'] };
+  }
+  if (raw === undefined || utf8ByteLength(serialized) > MAX_SCHEMA_BYTES) {
+    return { valid: false, errors: [`schema must be a JSON value of at most ${MAX_SCHEMA_BYTES} bytes`] };
   }
   return { valid: true, schema };
 }
@@ -557,16 +559,6 @@ function validateSealedProbeRequest(raw) {
     errors.push(`script must be at most ${MAX_SCRIPT_BYTES} bytes`);
   }
 
-  let serialized;
-  try {
-    serialized = JSON.stringify(raw);
-  } catch {
-    errors.push('request must be JSON-serializable');
-  }
-  if (serialized !== undefined && utf8ByteLength(serialized) > MAX_REQUEST_BYTES) {
-    errors.push(`request must be at most ${MAX_REQUEST_BYTES} bytes`);
-  }
-
   if (
     errors.length > 0
     || !schemaValidation.valid
@@ -605,10 +597,11 @@ module.exports = {
   MAX_ARRAY_LENGTH,
   MAX_UNION_VARIANTS,
   MAX_SCRIPT_BYTES,
-  MAX_REQUEST_BYTES,
   MAX_RESULT_BYTES,
   MAX_PRIVATE_REPO_LENGTH,
   TIMING_BUCKETS_MS,
+  FINAL_TIMING_BUCKET_PROCESSING_MARGIN_MS,
+  MAX_PROBE_TIMEOUT_SECONDS,
   TIMING_BUCKET_BITS,
   RESULT_STATUS_BIT_COST,
   SEALED_PROBE_REPO_PATTERN,

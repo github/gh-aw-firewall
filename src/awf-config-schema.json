@@ -897,8 +897,8 @@
         "timeout": {
           "type": "integer",
           "minimum": 1,
-          "maximum": 600,
-          "description": "Maximum wall-clock time in seconds allowed for a single probe invocation. Exceeding it returns the canonical error. Capped at 600 (the largest response-timing bucket) so every invocation's completion always lands inside a bucket. Default: 30.",
+          "maximum": 540,
+          "description": "Maximum wall-clock time in seconds allowed for a single probe invocation. Exceeding it returns the canonical error. Capped at 540 so the 10-minute response bucket reserves its final minute for termination, validation, container removal, and workspace cleanup. Default: 30.",
           "default": 30
         },
         "memoryLimit": {

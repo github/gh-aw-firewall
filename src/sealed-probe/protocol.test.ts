@@ -5,7 +5,6 @@ import {
   MAX_LITERAL_STRING_BYTES,
   MAX_OBJECT_FIELDS,
   MAX_PRIVATE_REPO_LENGTH,
-  MAX_REQUEST_BYTES,
   MAX_RESULT_BYTES,
   MAX_SCHEMA_BYTES,
   MAX_SCHEMA_DEPTH,
@@ -30,6 +29,11 @@ import {
   validateValueAgainstSchema,
   type SealedProbeSchemaNode,
 } from './protocol';
+import {
+  SEALED_PROBE_DEFAULTS as EXPORTED_DEFAULTS,
+  SEALED_PROBE_SENSITIVITIES as EXPORTED_SENSITIVITIES,
+  SEALED_PROBE_SENSITIVITY_RUN_BITS as EXPORTED_RUN_BITS,
+} from '../types';
 
 describe('protocol constants', () => {
   it('fixes the wire protocol version at 2', () => {
@@ -43,6 +47,12 @@ describe('protocol constants', () => {
 
   it('charges 1 bit for the ok/error distinction', () => {
     expect(RESULT_STATUS_BIT_COST).toBe(1);
+  });
+
+  it('exposes sealed-probe policy constants through the public types barrel', () => {
+    expect(EXPORTED_DEFAULTS.timeout).toBe(30);
+    expect(EXPORTED_SENSITIVITIES).toEqual(['public', 'internal', 'confidential', 'sealed']);
+    expect(EXPORTED_RUN_BITS).toEqual({ public: null, internal: 64, confidential: 8, sealed: 0 });
   });
 });
 
@@ -105,6 +115,23 @@ describe('validateSchema', () => {
 
   it('rejects a const schema with extra properties', () => {
     expect(validateSchema({ type: 'const', value: 'ok', extra: 1 }).valid).toBe(false);
+  });
+
+  it('rejects malformed literal and schema-node shapes', () => {
+    expect(validateSchema({ type: 'const' }).valid).toBe(false);
+    expect(validateSchema({ type: 'const', value: { arbitrary: 'object' } }).valid).toBe(false);
+    expect(validateSchema({ type: 'const', value: 'line\nbreak' }).valid).toBe(false);
+    expect(validateSchema({ type: 'enum' }).valid).toBe(false);
+    expect(validateSchema({ type: 'enum', values: [undefined] }).valid).toBe(false);
+    expect(validateSchema({ type: 'enum', values: [null] }).valid).toBe(true);
+    expect(validateSchema({ type: 'integer', minimum: 0 }).valid).toBe(false);
+    expect(validateSchema({ type: 'object' }).valid).toBe(false);
+    expect(validateSchema({ type: 'object', fields: [] }).valid).toBe(false);
+    expect(validateSchema({ type: 'tuple' }).valid).toBe(false);
+    expect(validateSchema({ type: 'array', items: { type: 'boolean' } }).valid).toBe(false);
+    expect(validateSchema({ type: 'union' }).valid).toBe(false);
+    expect(validateSchema({ type: 'union', variants: [] }).valid).toBe(false);
+    expect(validateSchema({ type: 'union', variants: { bad: { type: 'unknown' } } }).valid).toBe(false);
   });
 
   it('accepts a boolean schema and rejects extra properties', () => {
@@ -231,10 +258,15 @@ describe('validateSchema', () => {
   });
 
   it(`rejects a schema exceeding ${MAX_SCHEMA_NODES} total nodes`, () => {
-    // A tuple of many boolean leaves quickly exceeds the node-count bound
-    // (root + N leaves) independent of depth.
-    const items = Array.from({ length: MAX_SCHEMA_NODES }, () => ({ type: 'boolean' }));
-    expect(validateSchema({ type: 'tuple', items }).valid).toBe(false);
+    const fields = Object.fromEntries(
+      Array.from({ length: 16 }, (_, i) => [
+        `f${i}`,
+        { type: 'tuple', items: Array.from({ length: 4 }, () => ({ type: 'boolean' })) },
+      ]),
+    );
+    const result = validateSchema({ type: 'object', fields });
+    expect(result.valid).toBe(false);
+    if (!result.valid) expect(result.errors.join(' ')).toContain('maximum node count');
   });
 
   it(`rejects a const literal string exceeding ${MAX_LITERAL_STRING_BYTES} bytes`, () => {
@@ -456,6 +488,7 @@ describe('canonicalizeSchemaValue', () => {
       variants: [{ tag: 'a', schema: { type: 'boolean' } }],
     };
     expect(canonicalizeSchemaValue(schema, { tag: 'a', value: true })).toBe('{"tag":"a","value":true}');
+    expect(canonicalizeSchemaValue(schema, { tag: 'missing', value: true })).toBe('null');
   });
 });
 
@@ -491,9 +524,36 @@ describe('strictParseJson', () => {
   it.each([
     ['{"a":"s\\"uccess"}', { a: 's"uccess' }],
     ['{"a":"s\\\\uccess"}', { a: 's\\uccess' }],
+    ['{"a":"s\\/uccess"}', { a: 's/uccess' }],
+    ['{"a":"\\b\\f\\n\\r\\t"}', { a: '\b\f\n\r\t' }],
     ['{"a":"\\u0073"}', { a: 's' }],
   ])('parses standard JSON escapes: %s', (raw, expected) => {
     expect(strictParseJson(raw)).toEqual({ value: expected });
+  });
+
+  it.each([
+    ['0', 0],
+    ['-1', -1],
+    ['12.5', 12.5],
+    ['1e3', 1000],
+    ['1E+3', 1000],
+    ['1e-3', 0.001],
+    ['{}', {}],
+    ['[]', []],
+    ['false', false],
+  ])('parses JSON number and empty-container form %s', (raw, expected) => {
+    expect(strictParseJson(raw)).toEqual({ value: expected });
+  });
+
+  it.each(['01', '-', '1.', '1e', '1e+', '1e999', '{"a" 1}', '{"a":}', '[1', '[1,]', '{"a":1,}'])(
+    'rejects malformed number or container syntax: %s',
+    (raw) => {
+      expect(strictParseJson(raw)).toBeUndefined();
+    },
+  );
+
+  it('rejects JSON nesting beyond the parser depth bound', () => {
+    expect(strictParseJson(`${'['.repeat(40)}0${']'.repeat(40)}`)).toBeUndefined();
   });
 
   it.each(['{"a":"\\x41"}', '{"a":"\\uZZZZ"}', '{"a":"trailing\\\\'])(
@@ -566,16 +626,10 @@ describe('validateSealedProbeRequest', () => {
     expect(validateSealedProbeRequest({ ...validRequest, script: 'x'.repeat(MAX_SCRIPT_BYTES) }).valid).toBe(true);
   });
 
-  it('rejects a request whose overall serialized size exceeds the request cap', () => {
-    const result = validateSealedProbeRequest({
-      ...validRequest,
-      extraPadding: 'x'.repeat(MAX_REQUEST_BYTES),
-    });
-    expect(result.valid).toBe(false);
-    if (!result.valid) {
-      expect(result.errors.some((e) => e.includes('request must be at most'))).toBe(true);
-      expect(result.errors.some((e) => e.includes('extraPadding is not supported'))).toBe(true);
-    }
+  it('accepts an escape-heavy script at the raw script cap', () => {
+    expect(
+      validateSealedProbeRequest({ ...validRequest, script: '\n'.repeat(MAX_SCRIPT_BYTES) }).valid,
+    ).toBe(true);
   });
 
   it('rejects unsupported request fields before launch', () => {
@@ -586,15 +640,13 @@ describe('validateSealedProbeRequest', () => {
     });
   });
 
-  it('rejects a request that cannot be serialized', () => {
+  it('rejects a cyclic request through its unsupported field', () => {
     const cyclic: Record<string, unknown> = { ...validRequest };
     cyclic.self = cyclic;
     const result = validateSealedProbeRequest(cyclic);
     expect(result.valid).toBe(false);
     if (!result.valid) {
-      expect(result.errors).toEqual(
-        expect.arrayContaining(['request.self is not supported', 'request must be JSON-serializable']),
-      );
+      expect(result.errors).toEqual(expect.arrayContaining(['request.self is not supported']));
     }
   });
 

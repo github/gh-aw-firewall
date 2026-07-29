@@ -12,7 +12,13 @@ import * as path from 'path';
  */
 /* eslint-disable @typescript-eslint/no-require-imports */
 const brokerDir = path.join(__dirname, '..', '..', 'containers', 'sealed-probe', 'broker');
-const { TIMING_BUCKETS_MS, resolveTimingBucket, createRealClock, waitForBucket } = require(
+const {
+  TIMING_BUCKETS_MS,
+  TIMER_WAKE_TOLERANCE_MS,
+  resolveTimingBucket,
+  createRealClock,
+  waitForBucket,
+} = require(
   path.join(brokerDir, 'scheduler.js'),
 );
 /* eslint-enable @typescript-eslint/no-require-imports */
@@ -105,16 +111,32 @@ describe('waitForBucket (fake clock — fully deterministic, no real time elapse
     expect(clock.nowMs()).toBe(5100);
   });
 
-  it('does not sleep (and does not go negative) when clock drift makes remaining time negative', async () => {
-    // elapsedMs=3 resolves to the 10ms bucket, but if `clock.nowMs()` has
-    // somehow already advanced past startMs+bucketMs by the time
-    // waitForBucket computes the remainder, it must not call sleep with a
-    // negative duration.
+  it('re-resolves to a later fixed boundary when the initially selected boundary has passed', async () => {
     const clock = createFakeClock(1000);
     clock.advance(50); // now = 1050, past startMs(1000) + bucket(10) = 1010
     const result = await waitForBucket(1000, 3, clock);
-    expect(result).toEqual({ bucketMs: 10, overflowed: false });
-    expect(clock.sleepCalls).toEqual([]);
+    expect(result).toEqual({ bucketMs: 100, overflowed: false });
+    expect(clock.sleepCalls).toEqual([50]);
+    expect(clock.nowMs()).toBe(1100);
+  });
+
+  it('re-buckets a timer wake-up later than the public scheduler tolerance', async () => {
+    let now = 3;
+    const sleepCalls: number[] = [];
+    const clock = {
+      nowMs: () => now,
+      sleep: (ms: number) => {
+        sleepCalls.push(ms);
+        now += ms + (sleepCalls.length === 1 ? TIMER_WAKE_TOLERANCE_MS + 1 : 0);
+        return Promise.resolve();
+      },
+    };
+
+    const result = await waitForBucket(0, 3, clock);
+
+    expect(result).toEqual({ bucketMs: 100, overflowed: false });
+    expect(sleepCalls).toEqual([7, 84]);
+    expect(now).toBe(100);
   });
 
   it('selects successively larger buckets as elapsed time grows', async () => {
