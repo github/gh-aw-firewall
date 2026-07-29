@@ -14,15 +14,15 @@ name: Supply Chain Scan
 #
 # Blocking vs. report-only:
 #   * BLOCKING gate = "Build and scan PR container images". It rebuilds the
-#     first-party images (agent, api-proxy, cli-proxy) from the Dockerfiles in
-#     the PR and fails on any High/Critical CVE. This is the only step that
-#     reflects the changes in a PR, so it is the one that gates merges.
+#     first-party images (agent, api-proxy, cli-proxy, gh-aw-node) from the
+#     Dockerfiles in the PR and fails on any High/Critical CVE. This is the
+#     only step that reflects the changes in a PR, so it is the one that gates merges.
 #   * REPORT-ONLY = the Grype and Grant scans of the `gh-aw-manifest` digests.
 #     Those digests are IMMUTABLE already-published first-party images plus
-#     upstream third-party images (playwright, github-mcp-server, gh-aw-node,
-#     mcpg, ...). A PR cannot rebuild or patch them, so their findings are
-#     surfaced as warnings but never fail the job (that would make the gate
-#     permanently red until the next release / upstream bump).
+#     upstream third-party images (playwright, github-mcp-server, mcpg, ...).
+#     A PR cannot rebuild or patch them, so their findings are surfaced as
+#     warnings but never fail the job (that would make the gate permanently red
+#     until the next release / upstream bump).
 #
 # All scanners run via Docker (pre-installed on `ubuntu-latest`).
 #
@@ -157,8 +157,8 @@ jobs:
           PYEOF
 
       - name: Build and scan PR container images (BLOCKING gate, Grype v0.116.0)
-        # Builds agent, api-proxy, and cli-proxy from the Dockerfiles in this PR
-        # and scans them with --fail-on high. This is the BLOCKING supply-chain
+        # Builds agent, api-proxy, cli-proxy, and gh-aw-node from the Dockerfiles in
+        # this PR and scans them with --fail-on high. This is the BLOCKING supply-chain
         # gate: it is the only scan that reflects the CVE fixes in a PR, so a
         # High/Critical finding here fails the job.
         env:
@@ -169,9 +169,10 @@ jobs:
           cwd = os.getcwd()
           db_cache = os.environ['GRYPE_DB']
           containers = [
-              ('agent',     'containers/agent'),
-              ('api-proxy', 'containers/api-proxy'),
-              ('cli-proxy', 'containers/cli-proxy'),
+              ('agent',       'containers/agent'),
+              ('api-proxy',   'containers/api-proxy'),
+              ('cli-proxy',   'containers/cli-proxy'),
+              ('gh-aw-node',  'containers/gh-aw-node'),
           ]
           rc = 0
           for name, context in containers:
