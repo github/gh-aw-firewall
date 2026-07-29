@@ -77,7 +77,6 @@ jobs:
         run: node scripts/ci/check-token-usage.js --artifact-root /tmp/gh-aw-agent --engine copilot
 steps:
   - name: Smoke test data
-    id: smoke-data
     run: |
       echo "::group::Fetching last 2 merged PRs"
       PR_DATA=$(gh pr list --repo "$GITHUB_REPOSITORY" --state merged --limit 2 \
@@ -100,14 +99,12 @@ steps:
       echo "Wrote and read back: $FILE_CONTENT"
       echo "::endgroup::"
 
-      {
-        echo "SMOKE_PR_DATA<<SMOKE_EOF"
-        echo "$PR_DATA"
-        echo "SMOKE_EOF"
-        echo "SMOKE_HTTP_CODE=$HTTP_CODE"
-        echo "SMOKE_FILE_CONTENT=$FILE_CONTENT"
-        echo "SMOKE_FILE_PATH=$TEST_FILE"
-      } >> "$GITHUB_OUTPUT"
+      # Write results to files for agent context
+      mkdir -p /tmp/gh-aw/agent
+      echo "$HTTP_CODE" > /tmp/gh-aw/agent/smoke-http-code.txt
+      echo "$FILE_CONTENT" > /tmp/gh-aw/agent/smoke-file-content.txt
+      echo "$TEST_FILE" > /tmp/gh-aw/agent/smoke-file-path.txt
+      echo "$PR_DATA" > /tmp/gh-aw/agent/smoke-pr-data.txt
     env:
       GH_TOKEN: ${{ github.token }}
 post-steps:
@@ -164,12 +161,12 @@ If `/proc/version` contains `gVisor`, mark runtime as confirmed; otherwise mark 
 Verify MCP connectivity by calling `github-list_pull_requests` for ${{ github.repository }} (limit 1, state merged). Confirm the result matches the pre-fetched data below.
 
 ### 3. GitHub.com Connectivity
-Pre-step result: HTTP ${{ steps.smoke-data.outputs.SMOKE_HTTP_CODE }} from github.com.
+Pre-step result: HTTP (see `/tmp/gh-aw/agent/smoke-http-code.txt`) from github.com.
 ✅ if HTTP 200 or 301, ❌ otherwise.
 
 ### 4. File Write/Read Test
-Pre-step wrote and read back: "${{ steps.smoke-data.outputs.SMOKE_FILE_CONTENT }}"
-File path: ${{ steps.smoke-data.outputs.SMOKE_FILE_PATH }}
+Pre-step wrote and read back: "(see `/tmp/gh-aw/agent/smoke-file-content.txt`)"
+File path: (see `/tmp/gh-aw/agent/smoke-file-path.txt`)
 Verify by running `cat` on the file path using bash to confirm it exists.
 
 ### 5. Network Isolation Verification
@@ -177,7 +174,7 @@ Run `curl -s -o /dev/null -w "%{http_code}" --max-time 5 https://example.com` �
 
 ## Pre-Fetched PR Data
 
-    ${{ steps.smoke-data.outputs.SMOKE_PR_DATA }}
+    (see `/tmp/gh-aw/agent/smoke-pr-data.txt`)
 
 ## Output (MANDATORY)
 

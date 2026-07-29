@@ -19,7 +19,7 @@ describe('security guard workflow optimization config', () => {
     expect(source).toContain('Do NOT call `gh pr diff`, `gh pr view`, `gh api`, `git diff`, `git log`, or `git show`.');
     expect(source).toContain('Do NOT read files from the checkout.');
     expect(source).toContain('Fetch PR metadata');
-    expect(source).toContain('${{ steps.pr-meta.outputs.PR_META }}');
+    expect(source).toContain('/tmp/gh-aw/agent/pr-meta.txt');
     expect(source).toContain('## Security Checks');
     expect(source).toContain('DROP/REJECT');
     expect(source).toContain('egress expansion');

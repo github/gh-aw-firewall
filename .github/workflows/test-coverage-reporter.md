@@ -178,10 +178,9 @@ steps:
       } >> "$GITHUB_OUTPUT"
 
   - name: Identify top coverage gaps for agent brief
-    id: coverage-gaps-brief
     run: |
+      mkdir -p /tmp/gh-aw/agent
       {
-        echo "COVERAGE_GAPS_BRIEF<<EOF"
         node -e "
           const fs = require('fs');
           const d = JSON.parse(fs.readFileSync('coverage/coverage-summary.json','utf8'));
@@ -206,8 +205,7 @@ steps:
             });
           }
         " 2>/dev/null || echo "Coverage data unavailable"
-        echo "EOF"
-      } >> "$GITHUB_OUTPUT"
+      } > /tmp/gh-aw/agent/coverage-gaps-brief.txt
 
   - name: Pre-build discussion template
     id: discussion-template
@@ -286,7 +284,7 @@ The test suite has already run and all coverage metrics were pre-computed. Use t
 
 The top coverage gaps (pre-identified) are:
 
-${{ steps.coverage-gaps-brief.outputs.COVERAGE_GAPS_BRIEF }}
+(read from `/tmp/gh-aw/agent/coverage-gaps-brief.txt` via `cat /tmp/gh-aw/agent/coverage-gaps-brief.txt`)
 
 Using only this brief, write a complete coverage discussion that follows this structure:
 

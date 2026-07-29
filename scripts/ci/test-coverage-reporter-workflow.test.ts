@@ -89,7 +89,7 @@ describe('test coverage reporter workflow token optimization config', () => {
     expect(lock).toContain('if-branches:');
 
     // Expression variables are passed via env entries that expand at runtime
-    const exprEnvLines = lock.match(/GH_AW_EXPR_[A-F0-9]+: \$\{\{.+\}\}/g) || [];
-    expect(exprEnvLines.length).toBeGreaterThan(0);
+    // The compiler uses GH_AW_GITHUB_REPOSITORY for ${{ github.repository }} references
+    expect(lock).toContain('GH_AW_GITHUB_REPOSITORY: ${{ github.repository }}');
   });
 });

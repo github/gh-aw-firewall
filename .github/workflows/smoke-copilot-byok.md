@@ -62,7 +62,6 @@ sandbox:
 strict: true
 steps:
   - name: Pre-compute BYOK smoke test data
-    id: smoke-data
     run: |
       echo "::group::Verify BYOK configuration"
       echo "COPILOT_API_TARGET=${COPILOT_API_TARGET:-api.githubcopilot.com (default)}"
@@ -90,14 +89,12 @@ steps:
       echo "Wrote and read back: $FILE_CONTENT"
       echo "::endgroup::"
 
-      {
-        echo "SMOKE_PR_DATA<<SMOKE_EOF"
-        echo "$PR_DATA"
-        echo "SMOKE_EOF"
-        echo "SMOKE_HTTP_CODE=$HTTP_CODE"
-        echo "SMOKE_FILE_CONTENT=$FILE_CONTENT"
-        echo "SMOKE_FILE_PATH=$TEST_FILE"
-      } >> "$GITHUB_OUTPUT"
+      # Write results to files for agent context
+      mkdir -p /tmp/gh-aw/agent
+      echo "$HTTP_CODE" > /tmp/gh-aw/agent/smoke-http-code.txt
+      echo "$FILE_CONTENT" > /tmp/gh-aw/agent/smoke-file-content.txt
+      echo "$TEST_FILE" > /tmp/gh-aw/agent/smoke-file-path.txt
+      echo "$PR_DATA" > /tmp/gh-aw/agent/smoke-pr-data.txt
     env:
       GH_TOKEN: ${{ github.token }}
 post-steps:
@@ -175,10 +172,10 @@ If all tests pass on a pull request trigger:
 
 <!-- Dynamic section — keep all template substitutions here at the end to maximize prefix caching above -->
 
-- HTTP code: `${{ steps.smoke-data.outputs.SMOKE_HTTP_CODE }}`
-- File path: `${{ steps.smoke-data.outputs.SMOKE_FILE_PATH }}`
-- File content: `${{ steps.smoke-data.outputs.SMOKE_FILE_CONTENT }}`
+- HTTP code: `(see `/tmp/gh-aw/agent/smoke-http-code.txt`)`
+- File path: `(see `/tmp/gh-aw/agent/smoke-file-path.txt`)`
+- File content: `(see `/tmp/gh-aw/agent/smoke-file-content.txt`)`
 - PR data:
   ```
-  ${{ steps.smoke-data.outputs.SMOKE_PR_DATA }}
+  (see `/tmp/gh-aw/agent/smoke-pr-data.txt`)
   ```

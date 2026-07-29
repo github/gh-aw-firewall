@@ -36,12 +36,12 @@ safe-outputs:
 timeout-minutes: 20
 steps:
   - name: Compute scan window
-    id: window
     run: |
       # Look back two days so a missed daily run does not create a coverage gap.
       # Overlap is de-duplicated by checking existing knowledge-base citations.
       SINCE=$(date -u -d '2 days ago' +%Y-%m-%d)
-      echo "since=$SINCE" >> "$GITHUB_OUTPUT"
+      mkdir -p /tmp/gh-aw/agent
+      echo "$SINCE" > /tmp/gh-aw/agent/scan-since.txt
       echo "Scanning for self-hosted runner lessons updated since $SINCE"
 ---
 
@@ -54,13 +54,13 @@ You do **not** edit files yourself. Your only output is a single proposed-change
 ## Scan window
 
 - **Repository:** ${{ github.repository }}
-- **Since (UTC date):** `${{ steps.window.outputs.since }}`
+- **Since (UTC date):** (read from `/tmp/gh-aw/agent/scan-since.txt` via `cat /tmp/gh-aw/agent/scan-since.txt`)
 
 Consider issues and pull requests **updated on or after** the scan window. The window deliberately overlaps the previous daily run, so de-duplicate against lessons that are already captured.
 
 ## Step 1 — Find relevant issues and PRs
 
-Search this repository for items updated since the scan window that involve non-hosted runner environments. Combine the date qualifier `updated:>=${{ steps.window.outputs.since }}` with these signals (search several; do not assume one query is enough):
+Search this repository for items updated since the scan window that involve non-hosted runner environments. First read the scan date with `cat /tmp/gh-aw/agent/scan-since.txt`, then combine the date qualifier `updated:>=<SINCE_DATE>` with these signals (search several; do not assume one query is enough):
 
 `ARC`, `DinD`, `self-hosted`, `GHES`, `GHEC`, `ghe.com`, `DOCKER_HOST`, `docker-host-path-prefix`, `chroot`, `musl`, `Alpine`, `IPv6`, `corporate proxy`, `cache_peer`, `GH_HOST`, `resolv.conf`, `toolcache`, `_tool`, `one-shot-token`, `capsh`, `passwd`.
 

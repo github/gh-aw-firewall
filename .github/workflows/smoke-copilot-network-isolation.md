@@ -66,7 +66,6 @@ jobs:
         run: node scripts/ci/check-token-usage.js --artifact-root /tmp/gh-aw-agent --engine copilot
 steps:
   - name: Pre-compute smoke test data
-    id: smoke-data
     run: |
       echo "::group::Fetching last 2 merged PRs"
       PR_DATA=$(gh pr list --repo "$GITHUB_REPOSITORY" --state merged --limit 2 \
@@ -75,12 +74,9 @@ steps:
       echo "$PR_DATA"
       echo "::endgroup::"
 
-      # Export results for agent context
-      {
-        echo "SMOKE_PR_DATA<<SMOKE_EOF"
-        echo "$PR_DATA"
-        echo "SMOKE_EOF"
-      } >> "$GITHUB_OUTPUT"
+      # Write results to file for agent context
+      mkdir -p /tmp/gh-aw/agent
+      echo "$PR_DATA" > /tmp/gh-aw/agent/smoke-pr-data.txt
     env:
       GH_TOKEN: ${{ github.token }}
 post-steps:
@@ -184,7 +180,7 @@ Report the real observed results — do not hard-code `pass`.
 ## Pre-Fetched PR Data
 
 ```
-${{ steps.smoke-data.outputs.SMOKE_PR_DATA }}
+(see `/tmp/gh-aw/agent/smoke-pr-data.txt`)
 ```
 
 ## Output (MANDATORY)

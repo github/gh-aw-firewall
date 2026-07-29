@@ -64,10 +64,8 @@ safe-outputs:
 timeout-minutes: 15
 steps:
   - name: Fetch PR changed files
-    id: pr-diff
     if: github.event.pull_request.number
     run: |
-      DELIM="GHAW_PR_FILES_$(date +%s)"
       DIFF_LIMIT=100000
       SECURITY_RE='host-iptables|setup-iptables|squid-config|docker-manager|seccomp-profile|domain-patterns|entrypoint\.sh|Dockerfile|(^|/)containers/'
       TEST_EXCLUDE_RE='(^|/)tests?/|\.test\.'
@@ -88,15 +86,13 @@ steps:
                 else empty end )
         ' > "$DIFF_TMP" || true
       DIFF_SIZE="$(wc -c < "$DIFF_TMP" | tr -d ' ')"
+      mkdir -p /tmp/gh-aw/agent
       {
-        echo "PR_FILES<<${DELIM}"
         head -c "$DIFF_LIMIT" "$DIFF_TMP" || true
         if [ "$DIFF_SIZE" -gt "$DIFF_LIMIT" ]; then
           echo -e "\n[DIFF TRUNCATED at ${DIFF_LIMIT} bytes — security-relevant patches are shown first; if one is still missing, fetch the full PR diff once via mcp__github__get_pull_request_diff and locate that file section]"
         fi
-        echo ""
-        echo "${DELIM}"
-      } >> "$GITHUB_OUTPUT"
+      } > /tmp/gh-aw/agent/pr-diff.txt
       rm -f "$DIFF_TMP"
     env:
       GH_TOKEN: ${{ github.token }}
@@ -104,29 +100,24 @@ steps:
       GH_REPO: ${{ github.repository }}
 
   - name: Fetch PR metadata
-    id: pr-meta
     if: github.event.pull_request.number
     run: |
-      DELIM="GHAW_PR_META_$(date +%s)"
       PR_INFO=$(gh pr view "$PR_NUMBER" --repo "$GH_REPO" \
         --json title,author,baseRefName,headRefName \
         --jq '"**Title:** " + .title + "\n**Author:** " + .author.login + "\n**Base→Head:** " + .baseRefName + "→" + .headRefName')
-      {
-        echo "PR_META<<${DELIM}"
-        printf '%s\n' "$PR_INFO"
-        echo "${DELIM}"
-      } >> "$GITHUB_OUTPUT"
+      mkdir -p /tmp/gh-aw/agent
+      printf '%s\n' "$PR_INFO" > /tmp/gh-aw/agent/pr-meta.txt
     env:
       GH_TOKEN: ${{ github.token }}
       PR_NUMBER: ${{ github.event.pull_request.number }}
       GH_REPO: ${{ github.repository }}
 
   - name: Set security relevance count
-    id: security-relevance
     env:
       EXPR_NEEDS_CHECK_SECURITY_RELEVANCE_OUTPUTS_SECURITY_FILES_CHANGED: ${{ needs.check_security_relevance.outputs.security_files_changed }}
     run: |
-      echo "security_files_changed=$EXPR_NEEDS_CHECK_SECURITY_RELEVANCE_OUTPUTS_SECURITY_FILES_CHANGED" >> "$GITHUB_OUTPUT"
+      mkdir -p /tmp/gh-aw/agent
+      echo "$EXPR_NEEDS_CHECK_SECURITY_RELEVANCE_OUTPUTS_SECURITY_FILES_CHANGED" > /tmp/gh-aw/agent/security-files-changed.txt
 
 ---
 
@@ -135,8 +126,8 @@ steps:
 ## Security Relevance Check
 
 <!-- markdownlint-disable-next-line MD050 -->
-**Security-critical files changed in this PR:** __GH_AW_EXPR_66EB691F__
-<!-- gh-aw compile marker: ${{ steps.security-relevance.outputs.security_files_changed }} -->
+**Security-critical files changed in this PR:** (see `/tmp/gh-aw/agent/security-files-changed.txt`)
+<!-- gh-aw compile marker: (see `/tmp/gh-aw/agent/security-files-changed.txt`) -->
 
 > If this value is `0`, the workflow skips the agent job.
 
@@ -185,9 +176,8 @@ If no security issues are found:
 
 The following PR diff has been pre-computed. Focus your security analysis on these changes:
 
-${{ steps.pr-meta.outputs.PR_META }}
+Read the pre-fetched PR metadata from `/tmp/gh-aw/agent/pr-meta.txt` (one bash call: `cat /tmp/gh-aw/agent/pr-meta.txt`).
 
 ```
-__GH_AW_EXPR_BAA3A6C6__
-<!-- gh-aw compile marker: ${{ steps.pr-diff.outputs.PR_FILES }} -->
+Read the pre-fetched diff from `/tmp/gh-aw/agent/pr-diff.txt` (one bash call: `cat /tmp/gh-aw/agent/pr-diff.txt`).
 ```
