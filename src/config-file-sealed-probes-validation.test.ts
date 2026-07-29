@@ -5,11 +5,14 @@ describe('validateAwfFileConfig — sealedProbes', () => {
     expect(validateAwfFileConfig({ sealedProbes: {} })).toEqual([]);
   });
 
-  it('accepts a fully-specified valid sealedProbes section', () => {
+  it('accepts a fully-specified valid sealedProbes section using object-form privateRepos', () => {
     const errors = validateAwfFileConfig({
       sealedProbes: {
         enabled: true,
-        privateRepos: ['octo-org/octo-repo', 'octo-org/other.repo'],
+        privateRepos: [
+          { repo: 'octo-org/octo-repo', sensitivity: 'internal' },
+          { repo: 'octo-org/other.repo', sensitivity: 'confidential' },
+        ],
         runtime: 'gvisor',
         timeout: 60,
         memoryLimit: '1g',
@@ -21,6 +24,40 @@ describe('validateAwfFileConfig — sealedProbes', () => {
     expect(errors).toEqual([]);
   });
 
+  it('accepts a legacy bare-string privateRepos entry (one-release compatibility)', () => {
+    expect(validateAwfFileConfig({ sealedProbes: { privateRepos: ['octo-org/octo-repo'] } })).toEqual([]);
+  });
+
+  it('accepts a mix of legacy string and object-form privateRepos entries', () => {
+    const errors = validateAwfFileConfig({
+      sealedProbes: {
+        privateRepos: ['octo/legacy', { repo: 'octo/object-form', sensitivity: 'sealed' }],
+      },
+    });
+    expect(errors).toEqual([]);
+  });
+
+  it('rejects an object-form privateRepos entry with an invalid sensitivity value', () => {
+    const errors = validateAwfFileConfig({
+      sealedProbes: { privateRepos: [{ repo: 'octo/repo', sensitivity: 'top-secret' }] },
+    });
+    expect(errors.length).toBeGreaterThan(0);
+  });
+
+  it('rejects an object-form privateRepos entry missing sensitivity', () => {
+    const errors = validateAwfFileConfig({
+      sealedProbes: { privateRepos: [{ repo: 'octo/repo' }] },
+    });
+    expect(errors.length).toBeGreaterThan(0);
+  });
+
+  it('rejects an object-form privateRepos entry with unsupported extra properties', () => {
+    const errors = validateAwfFileConfig({
+      sealedProbes: { privateRepos: [{ repo: 'octo/repo', sensitivity: 'internal', extra: true }] },
+    });
+    expect(errors.length).toBeGreaterThan(0);
+  });
+
   it('accepts privateRepos without enabled (not required unless enabled)', () => {
     expect(validateAwfFileConfig({ sealedProbes: { privateRepos: ['octo/repo'] } })).toEqual([]);
   });
@@ -30,12 +67,10 @@ describe('validateAwfFileConfig — sealedProbes', () => {
     expect(validateAwfFileConfig({ sealedProbes: { enabled: true, privateRepos: [] } }).length).toBeGreaterThan(0);
   });
 
-  it('rejects duplicate privateRepos entries', () => {
-    const errors = validateAwfFileConfig({
-      sealedProbes: { privateRepos: ['octo/repo', 'octo/repo'] },
-    });
-    expect(errors.length).toBeGreaterThan(0);
-  });
+  // Duplicate-entry rejection depends on comparing normalized repo keys
+  // across entries (which may mix legacy strings and objects), so it lives
+  // in `src/sealed-probe/preflight.ts` (see preflight.test.ts) rather than
+  // in the raw JSON Schema, which validates one array item at a time.
 
   it.each([
     ['a URL', 'https://github.com/octo/repo'],
@@ -77,6 +112,11 @@ describe('validateAwfFileConfig — sealedProbes', () => {
 
   it('accepts a timeout within bounds', () => {
     expect(validateAwfFileConfig({ sealedProbes: { timeout: 30 } })).toEqual([]);
+  });
+
+  it('accepts the maximum timeout of 600 seconds (the largest timing bucket) and rejects one second above it', () => {
+    expect(validateAwfFileConfig({ sealedProbes: { timeout: 600 } })).toEqual([]);
+    expect(validateAwfFileConfig({ sealedProbes: { timeout: 601 } }).length).toBeGreaterThan(0);
   });
 
   it('rejects an invalid memoryLimit format', () => {

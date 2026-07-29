@@ -230,7 +230,7 @@ export function buildSealedProbeService(params: SealedProbeServiceParams): Seale
   const agentEnvAdditions: Record<string, string> = {
     AWF_SEALED_PROBE_SOCKET: AGENT_SOCKET_PATH,
     AWF_SEALED_PROBE_SKILL: AGENT_SKILL_PATH,
-    AWF_SEALED_PROBE_REPOS: sealedProbes.privateRepos.join(','),
+    AWF_SEALED_PROBE_REPOS: sealedProbes.privateRepos.map((repository) => repository.repo).join(','),
   };
 
   // The agent receives four sealed-probe mounts:

@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import execa from 'execa';
+import type { SealedProbeRepository } from '../types/sealed-probe-options';
 import { resolveSealedProbePaths, type SealedProbePaths } from './paths';
 import {
   buildCloneUrl,
@@ -79,7 +80,7 @@ function createFakeGit(options: { onClone?: (dest: string) => void } = {}): {
 async function stage(
   workDir: string,
   runner: GitRunner,
-  repos: string[] = ['octo/private'],
+  repos: SealedProbeRepository[] = [{ repo: 'octo/private', sensitivity: 'internal' }],
 ): Promise<{ paths: SealedProbePaths; result: Awaited<ReturnType<typeof stageSealedProbeSeeds>> }> {
   const paths = resolveSealedProbePaths(workDir);
   fs.mkdirSync(paths.root, { recursive: true, mode: 0o700 });
@@ -302,6 +303,7 @@ describe('stageSealedProbeSeeds', () => {
     expect(result.seeds[0].commit).toBe('0123456789abcdef0123456789abcdef01234567');
     expect(result.seeds[0].seedId).toMatch(/^[0-9a-f]{32}$/);
     expect(result.seeds[0].repoKey).toBe('octo/private');
+    expect(result.seeds[0].sensitivity).toBe('internal');
   });
 
   it('makes every staged path read-only', async () => {
@@ -344,16 +346,24 @@ describe('stageSealedProbeSeeds', () => {
 
   it('stages every configured repository into its own seed', async () => {
     const { runner } = createFakeGit();
-    const { result } = await stage(workDir, runner, ['octo/one', 'octo/two']);
+    const { result } = await stage(workDir, runner, [
+      { repo: 'octo/one', sensitivity: 'internal' },
+      { repo: 'octo/two', sensitivity: 'confidential' },
+    ]);
 
     expect(result.seeds).toHaveLength(2);
     expect(new Set(result.seeds.map((seed) => seed.seedId)).size).toBe(2);
+    expect(result.seeds.map((seed) => seed.sensitivity)).toEqual(['internal', 'confidential']);
   });
 
   it('rejects duplicate repositories before overwriting an existing seed', async () => {
     const { runner } = createFakeGit();
-    await expect(stage(workDir, runner, ['octo/private', 'octo/private']))
-      .rejects.toThrow(/already exists/);
+    await expect(
+      stage(workDir, runner, [
+        { repo: 'octo/private', sensitivity: 'internal' },
+        { repo: 'octo/private', sensitivity: 'internal' },
+      ]),
+    ).rejects.toThrow(/already exists/);
   });
 
   it('uses the production git runner when no test runner is supplied', async () => {
@@ -372,7 +382,7 @@ describe('stageSealedProbeSeeds', () => {
     fs.mkdirSync(paths.root, { recursive: true, mode: 0o700 });
 
     const result = await stageSealedProbeSeeds({
-      repos: ['octo/private'],
+      repos: [{ repo: 'octo/private', sensitivity: 'internal' }],
       paths,
       runId: 'f'.repeat(32),
       token: TOKEN,

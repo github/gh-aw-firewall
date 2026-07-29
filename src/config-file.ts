@@ -171,7 +171,12 @@ export interface AwfFileConfig {
    */
   sealedProbes?: {
     enabled?: boolean;
-    privateRepos?: string[];
+    /**
+     * Each entry is either a trusted repository descriptor, or (for one
+     * release only) a legacy bare `owner/repo` string, normalized to
+     * `{ repo, sensitivity: 'internal' }` with a warning.
+     */
+    privateRepos?: Array<string | { repo: string; sensitivity: 'public' | 'internal' | 'confidential' | 'sealed' }>;
     runtime?: 'docker' | 'gvisor';
     timeout?: number;
     memoryLimit?: string;

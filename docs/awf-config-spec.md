@@ -1541,15 +1541,33 @@ Each record follows the `blocked-request-diag/v<version>` schema:
 ### 14.1 Purpose
 
 A *sealed probe* lets an agent ask a trusted broker to run a short,
-agent-authored Python 3 script against a private repository and report back
-one of a small, closed set of outcomes — without the agent ever gaining
-network or filesystem access to that repository.
+agent-authored Python 3 script against a private repository and get back a
+value conforming to a finite response schema the agent declares up front —
+without the agent ever gaining network or filesystem access to that
+repository.
 
-The agent observes exactly one of four symbols per invocation: one of the
-three outcomes it declared, or the reserved value `"ERROR"`. That bounds the
-content a single invocation can convey to at most 2 bits.
-`sealedProbes.maxInvocations` bounds the cumulative disclosure for the run.
-Completion timing remains an acknowledged residual side channel (§14.9).
+Every private repository configured for sealed probes carries one of four
+fixed **sensitivity categories**, each with an immutable maximum number of
+bits the broker may reveal about that repository across an entire AWF run
+(not per query):
+
+| Sensitivity | Run budget | Notes |
+|-------------|-----------:|-------|
+| `public` | unmetered | Still schema/operationally bounded, but responses are never debited against a ledger. |
+| `internal` | 64 bits/run | Default for legacy bare-string entries (§14.2). |
+| `confidential` | 8 bits/run | |
+| `sealed` | 0 bits/run | Can never fund even the cheapest possible query — never copies a seed or launches Python. |
+
+There is **no per-query cap**. Every invocation may declare an arbitrarily
+different response schema; the broker computes that invocation's maximum
+complete-transcript information charge (§14.3) and debits it from the
+repository's shared run balance *before* copying a seed or launching Python.
+An invocation is allowed iff its charge fits the remaining balance — a cheap
+boolean question and an expensive high-cardinality question both draw from
+the same budget, just at different rates. Charges are never refunded,
+regardless of outcome (success, failure, or timeout).
+`sealedProbes.maxInvocations` is a separate, independent operational limit
+(§14.2) unrelated to the bit ledger.
 
 ### 14.2 Configuration
 
@@ -1559,7 +1577,10 @@ The root object MAY contain a `sealedProbes` section:
 {
   "sealedProbes": {
     "enabled": true,
-    "privateRepos": ["my-org/my-private-repo"],
+    "privateRepos": [
+      { "repo": "my-org/my-private-repo", "sensitivity": "internal" },
+      { "repo": "my-org/public-docs", "sensitivity": "public" }
+    ],
     "runtime": "docker",
     "timeout": 30,
     "memoryLimit": "512m",
@@ -1572,23 +1593,32 @@ The root object MAY contain a `sealedProbes` section:
 | Field | Type | Constraints | Default |
 |-------|------|-------------|---------|
 | `enabled` | boolean | — | `false` |
-| `privateRepos` | string[] | Non-empty and unique when `enabled` is `true`. Each entry MUST be a bare `owner/repo` slug — no scheme/host (`://`), path traversal (`..`), query string (`?`), fragment (`#`), wildcard (`*`), or extra path segments. | `[]` |
-| `runtime` | string | One of `"docker"`, `"gvisor"`, `"sbx"` | `"docker"` |
-| `timeout` | integer | `1`–`3600` seconds | `30` |
+| `privateRepos` | array | Non-empty and unique (by repo slug, case-insensitively) when `enabled` is `true`. Each entry is either an object `{ "repo": "owner/repo", "sensitivity": "public" \| "internal" \| "confidential" \| "sealed" }`, or (one-release legacy compatibility) a bare `owner/repo` string, normalized to `{ repo, sensitivity: "internal" }` with a warning. Each `repo` MUST be a bare `owner/repo` slug — no scheme/host (`://`), path traversal (`..`), query string (`?`), fragment (`#`), wildcard (`*`), or extra path segments. | `[]` |
+| `runtime` | string | One of `"docker"`, `"gvisor"` | `"docker"` |
+| `timeout` | integer | `1`–`600` seconds (bounded by the largest response-timing bucket, §14.3) | `30` |
 | `memoryLimit` | string | Docker-style memory limit, e.g. `"512m"`, `"1g"` | `"512m"` |
 | `interpreter` | string | Only `"python3"` is currently supported | `"python3"` |
-| `maxInvocations` | integer | `1`–`10000` | `32` |
+| `maxInvocations` | integer | `1`–`10000`; an independent operational cap, unrelated to the per-repository bit ledger | `32` |
 
 Property-level constraints are defined normatively by the `sealedProbes`
 subschema in `docs/awf-config.schema.json`.
 
+**Legacy `privateRepos` string entries.** A bare `owner/repo` string is
+accepted for one release for backward compatibility and is normalized to
+`{ repo, sensitivity: "internal" }`, emitting a warning
+(`sealedProbes.privateRepos entry "..." is a legacy bare string...`) through
+the same warning channel other config normalization uses. New configuration
+SHOULD use the explicit object form so the intended sensitivity is never
+left implicit.
+
 **Mapping:** every `sealedProbes.*` field is *(config-only; no CLI
 equivalent)*. There is no `--sealed-probes-*` CLI flag family. The config-file
 value is passed through `config-mapper.ts` and normalized (defaults applied
-via `src/types/sealed-probe-options.ts`'s `SEALED_PROBE_DEFAULTS`, in
-`src/parsers/sealed-probe-parser.ts`) into `WrapperConfig.sealedProbes`. Only
-an explicit `enabled: true` normalizes to an enabled config; omission or any
-other value normalizes to `enabled: false`.
+via `src/types/sealed-probe-options.ts`'s `SEALED_PROBE_DEFAULTS`, legacy
+string entries normalized in `src/parsers/sealed-probe-parser.ts`) into
+`WrapperConfig.sealedProbes`. Only an explicit `enabled: true` normalizes to
+an enabled config; omission or any other value normalizes to
+`enabled: false`.
 
 When `enabled` is `false` or the section is absent, AWF stages nothing, starts
 no broker, mounts no socket, sets no environment variable, installs no CLI,
@@ -1597,22 +1627,29 @@ section.
 
 **Preflight (fail-closed).** With `enabled: true`, AWF aborts before the
 primary agent starts when: `privateRepos` is empty or contains an unsafe or
-duplicated slug; `runtime` is `"sbx"` (AWF has no no-network per-invocation
-sealed-probe launcher for it and never downgrades — see §14.8); `runtime` is
-`"gvisor"` and the `runsc` OCI runtime is not registered with the Docker
-daemon; `container.containerRuntime` is a microVM backend, which cannot
-receive the broker socket; the resolved Docker host is not a `unix://` socket,
-which a `network_mode: none` broker cannot reach; the interpreter or a limit is
-unsupported; no staging credential is present in `GH_TOKEN`/`GITHUB_TOKEN`; or
-any seed cannot be materialized and verified.
+duplicated slug; `runtime` is `"gvisor"` and the `runsc` OCI runtime is not
+registered with the Docker daemon; `container.containerRuntime` is a
+microVM backend, which cannot receive the broker socket; the resolved Docker
+host is not a `unix://` socket, which a `network_mode: none` broker cannot
+reach; the interpreter or a limit is unsupported; `timeout` exceeds 600
+seconds — the largest response-timing bucket (§14.3) — because a longer
+timeout could let an invocation's completion time itself leak unbucketed
+secret-dependent information; no staging credential is present in
+`GH_TOKEN`/`GITHUB_TOKEN`; or any seed cannot be materialized and verified.
 
-### 14.3 Request/Result Protocol
+The seed map the broker reads carries each repository's trusted
+`sensitivity` alongside its opaque seed id — the map is built entirely from
+AWF configuration, so a request can never choose or override its own
+repository's sensitivity or run budget.
+
+### 14.3 Request/Result Protocol (v2)
 
 `src/sealed-probe/protocol.ts` defines the wire protocol. The broker restates
 it in `containers/sealed-probe/broker/protocol.js` because it runs from its
 own container image and cannot import AWF's TypeScript sources; the two
-implementations are pinned together by `src/sealed-probe/protocol-parity.test.ts`,
-which runs one shared vector table through both.
+implementations are pinned together by
+`src/sealed-probe/protocol-parity.test.ts`, which runs one large shared
+vector table (schemas, values, requests, and probe results) through both.
 
 **Request.** A sealed-probe request is a JSON object with exactly three
 fields:
@@ -1620,56 +1657,177 @@ fields:
 ```json
 {
   "privateRepo": "my-org/my-private-repo",
-  "outcomes": ["found", "not_found", "rate_limited"],
+  "schema": { "type": "boolean" },
   "script": "<probe script source>"
 }
 ```
 
 - `privateRepo` MUST match the same `owner/repo` slug rule as
   `sealedProbes.privateRepos` entries (§14.2).
-- `outcomes` MUST be an array of exactly three unique ASCII identifiers. Each
-  identifier MUST start with a letter, contain only letters, digits, `_`, or
-  `-`, be at most 64 bytes, and MUST NOT equal the reserved value `"ERROR"`
-  (§14.4).
+- `schema` MUST be a valid document in the finite schema DSL below.
 - `script` MUST be non-empty and at most 64 KiB (`MAX_SCRIPT_BYTES`). The
-  overall serialized request MUST be at most 256 KiB (`MAX_REQUEST_BYTES`),
-  as a defense-in-depth cap independent of the per-field limits.
+  overall serialized request MUST be at most `MAX_SCRIPT_BYTES +
+  MAX_SCHEMA_BYTES + 1024` bytes (`MAX_REQUEST_BYTES`), as a defense-in-depth
+  cap independent of the per-field limits.
 
-**Result.** A probe reports its outcome as the closed JSON object
-`{"result": "<one of the three declared outcomes>"}` — no other keys are
-permitted.
+**Result.** A successful probe result is the canonical envelope
+`{"status":"ok","result":<value>}`, where `<value>` conforms exactly to the
+request's declared `schema`. Every failure mode — invalid request,
+disallowed repository, exhausted bit budget, launch failure, timeout, crash,
+non-conformant probe output, or internal error — collapses to the single
+canonical `{"status":"error"}`, indistinguishable from one another by
+design.
 
-### 14.4 The Reserved `"ERROR"` Outcome
+#### The finite schema DSL
 
-`"ERROR"` is reserved by the protocol and MUST NOT appear in a request's
-`outcomes` array. It is the sentinel value produced by the result parser
-itself (never by a well-behaved script) whenever a result cannot be trusted.
+The response schema is a deliberately finite, agent-authored algebra — **not**
+general JSON Schema. Every invocation may use a different schema. Supported
+node types:
 
-### 14.5 Strict, Non-Schema Result Parsing
+| type | shape | notes |
+|------|-------|-------|
+| `const` | `{"type":"const","value":<literal>}` | exactly one fixed value |
+| `boolean` | `{"type":"boolean"}` | `true` or `false` |
+| `enum` | `{"type":"enum","values":[<literal>,...]}` | unique literals, all the same JSON type |
+| `integer` | `{"type":"integer","minimum":N,"maximum":M}` | inclusive bounded range, safe-integer bounds only |
+| `object` | `{"type":"object","fields":{"name":<schema>,...}}` | every declared field required; no extra properties |
+| `tuple` | `{"type":"tuple","items":[<schema>,...]}` | fixed-length, independently-typed positions |
+| `array` | `{"type":"array","items":<schema>,"length":N}` | fixed length, single uniform item schema |
+| `union` | `{"type":"union","variants":{"tag":<schema>,...}}` | value is `{"tag":"<name>","value":<...>}`; variants are disjoint by tag |
+
+A literal (in `const`/`enum`) is a JSON string (at most `MAX_LITERAL_STRING_BYTES`
+= 64 bytes UTF-8, no control characters), a safe integer, a boolean, or
+`null`. There is no way to express an unbounded string, a float, a regex,
+recursion, `$ref`, an optional field, `additionalProperties`, or an
+untagged/overlapping union — these are structurally impossible to write, not
+merely disallowed by a validator.
+
+This is a deliberately safe *subset* of what a general schema language could
+express, chosen so every schema has a computable, bounded cardinality and a
+linear-time validator with no backtracking. If a future requirement needs a
+richer construct, it must justify a new bounded primitive rather than
+weakening these bounds. Every schema is additionally bounded structurally:
+
+| Bound | Constant | Value |
+|-------|----------|------:|
+| Max nesting depth | `MAX_SCHEMA_DEPTH` | 6 |
+| Max total schema nodes | `MAX_SCHEMA_NODES` | 64 |
+| Max serialized schema size | `MAX_SCHEMA_BYTES` | 4096 bytes |
+| Max `enum` values | `MAX_ENUM_VALUES` | 4096 |
+| Max `object` fields | `MAX_OBJECT_FIELDS` | 16 |
+| Max `tuple` items | `MAX_TUPLE_ITEMS` | 16 |
+| Max `array` length | `MAX_ARRAY_LENGTH` | 64 |
+| Max `union` variants | `MAX_UNION_VARIANTS` | 16 |
+| Max literal string length | `MAX_LITERAL_STRING_BYTES` | 64 bytes |
+
+In practice, `MAX_SCHEMA_BYTES` is often the binding constraint for wide
+`enum`/`object`/`tuple` schemas well before the corresponding count bound is
+reached (e.g. a numeric `enum` of exactly `MAX_ENUM_VALUES` values already
+exceeds `MAX_SCHEMA_BYTES` once serialized).
+
+#### Budget: cardinality and bit charge
+
+"Schema cardinality" is the number of distinguishable values a schema
+admits — 2 for `boolean`, `N` for an `N`-member `enum`, the product of field
+cardinalities for `object`/`tuple`/`array`, the sum of variant cardinalities
+for `union`, and 1 for `const`. Cardinality is computed with unbounded
+(`BigInt`) arithmetic so no schema can overflow it into an incorrect small
+number.
+
+Every accepted invocation's information charge is:
+
+```text
+charge = RESULT_STATUS_BIT_COST            (1  — ok/error is itself observable)
+       + ceil(log2(schema cardinality))    (the declared response schema)
+       + TIMING_BUCKET_BITS                (3  — six timing buckets, §14.3.1)
+```
+
+`RESULT_STATUS_BIT_COST` is `1`; `TIMING_BUCKET_BITS` is
+`ceil(log2(TIMING_BUCKETS_MS.length))` = `ceil(log2(6))` = `3`. The cheapest
+possible schema (`const`, cardinality 1) still charges `1 + 0 + 3 = 4` bits —
+this is the practical floor a repository's remaining balance is checked
+against to decide whether it can fund *any* further invocation at all.
+
+The charge is computed and the ledger is debited **before** a seed is
+copied or Python is launched (§14.2, §14.7); it is never refunded regardless
+of the invocation's outcome, because the broker committed to revealing up to
+that many bits of signal the moment it decided to run.
+
+#### 14.3.1 Response-timing buckets
+
+A probe's raw completion latency is itself a secret-dependent signal — a
+script that raises early on one code path and runs to completion on another
+leaks information purely through wall-clock time, independent of the
+declared schema. The broker makes every *launched* invocation's observable
+response time land on one of six fixed boundaries, using a monotonic clock
+(`process.hrtime.bigint()`, never `Date.now()`, so system clock adjustments
+cannot shift a response across a boundary):
+
+```text
+TIMING_BUCKETS_MS = [10ms, 100ms, 1s, 10s, 60s, 600s]
+```
+
+The broker returns at the first bucket boundary at or after the invocation's
+processing (execution + output validation + container removal + workspace
+teardown) actually completes. This is
+included in the information budget as `TIMING_BUCKET_BITS` (3 bits — for six
+buckets) whether or not the script's own answer would otherwise convey any
+signal, because latency alone is observable and must be paid for like any
+other channel.
+
+**Cleanup is included in the bucketed measurement.** Repository size and
+tree shape can affect container and workspace teardown, so the broker
+completes cleanup before measuring elapsed time and selecting the response
+bucket. Invocations are serialized; consequently a queued request cannot
+observe a preceding invocation's unaccounted cleanup duration. Cleanup
+failure maps to canonical error and is recorded only in the protected audit
+log.
+
+**Fail-closed timing overflow.** `sealedProbes.timeout` is capped at 600
+seconds (the largest bucket) at preflight for exactly this reason: the
+script itself can never make processing exceed 600 seconds. If
+infrastructure overhead (not the script) ever pushed total processing past
+600 seconds, the broker treats the invocation as the canonical error and
+responds immediately, discarding even an otherwise-valid successful result,
+rather than waiting for a nonexistent next boundary or leaking an
+unbucketed excess duration. This is a deliberate, tested (`broker.test.ts`)
+safe fallback for a pathological latency edge case, not a normal code path.
+
+### 14.4 Canonical Failure Closure
+
+Every failure mode — an invalid request, a disallowed repository, an
+exhausted bit budget, an exhausted `maxInvocations` count, a launch failure,
+a timeout, a script crash, non-conformant probe output, a timing-bucket
+overflow, or an internal broker error — collapses to the single canonical
+`{"status":"error"}`. Failures are indistinguishable from each other by
+design: the agent cannot infer which failure mode occurred from the
+response alone.
+
+### 14.5 Strict, Non-Schema Result Parsing and Post-Execution Validation
 
 Result parsing intentionally does **not** execute a general-purpose JSON
-Schema validator against the (potentially attacker-influenced) result text.
-Because a valid result has exactly one fixed shape — a single `"result"` key
-whose value is one of at most three known strings — `parseSealedProbeResult`
-enforces that shape with a small, linear-time, non-backtracking hand-written
-grammar instead. This rejects, and canonicalizes to `{"result":"ERROR"}`
-rather than throwing:
+Schema validator against the (potentially attacker-influenced) raw probe
+output text. `strictParseJson` enforces well-formedness with a small,
+linear-time, non-backtracking hand-written grammar — rejecting, rather than
+throwing, on:
 
 - malformed JSON of any kind;
-- duplicate `"result"` keys (the grammar only accepts a single key/value
-  pair, so a second key is trailing data);
-- any extra fields;
-- any leading or trailing content outside the single JSON object; and
-- a value that is not a string, or is a string outside the declared
-  `outcomes` enum (including the literal string `"ERROR"`, which is never a
-  legitimately-declared outcome per §14.4).
+- duplicate object keys;
+- any leading or trailing content outside the single JSON value; and
+- invalid UTF-8 or invalid JSON string escapes.
 
-`buildSealedProbeResultSchema()` constructs a plain data representation of
-the closed schema (`{type: "object", additionalProperties: false, required:
-["result"], properties: {result: {type: "string", enum: [...outcomes]}}}`).
-It is the broker-constructed schema — callers can never supply one — and is
-used for documentation and introspection; enforcement is performed by the
-hand-written parser above, never by a schema engine.
+The parsed value is then validated against the **exact** schema the request
+declared (`validateValueAgainstSchema`) — wrong type, out-of-range integer,
+an undeclared enum member, extra or missing object fields, the wrong
+tuple/array length, or an unrecognized union tag are all rejected. A value
+that passes validation is canonically re-serialized
+(`canonicalizeSchemaValue`) before being wrapped in the `{"status":"ok",...}`
+envelope, so the exact byte layout the probe wrote (whitespace, key order,
+duplicate-safe encoding) never reaches the agent — only a canonical
+re-encoding of the validated value does.
+
+Raw probe bytes, stdout, stderr, and exit status never reach the agent under
+any circumstance, success or failure.
 
 ### 14.6 Offline Staging
 
@@ -1694,8 +1852,16 @@ runs a trusted host-side staging phase (`src/sealed-probe/staging.ts`):
 7. deletes the askpass helper and the isolated staging `HOME`, so no staging
    artifact survives into the broker/agent phase.
 
+The generated seed map (`{ repo, seedId, sensitivity }` per entry) carries
+each repository's trusted `sensitivity` alongside its opaque seed id; this
+map is the broker's *only* source of sensitivity information — a request
+field can never supply or override it.
+
 Staging failure aborts the run. There is no fallback clone or fetch anywhere
-else in the system: neither the broker nor a probe has a network path.
+else in the system: neither the broker nor a probe has a network path. A
+`sealed` (0-bit) repository is still staged like any other (so its
+configuration is validated the same way), but its run budget structurally
+guarantees the broker never copies that seed or launches Python for it.
 
 ### 14.7 Trusted Broker and Probe Sandbox
 
@@ -1708,9 +1874,12 @@ resolved Docker socket so it can launch probes; that path is never placed in
 the agent's environment or volumes.
 
 The broker maps a normalized `owner/repo` id through the AWF-generated seed
-map to an opaque seed directory. Callers never supply a path, URL, ref, mount,
-image, command, environment, runtime, or limit. For each valid request the
-broker creates a fresh, full, private writable copy of exactly one seed and
+map to an opaque seed directory and its trusted sensitivity. Callers never
+supply a path, URL, ref, mount, image, command, environment, runtime, limit,
+or sensitivity. For each request that passes schema validation and clears
+its repository's remaining bit ledger (in that order — an invalid schema or
+an unaffordable charge is rejected before any seed is touched), the broker
+creates a fresh, full, private writable copy of exactly one seed and
 launches one probe container with a fixed argument vector:
 
 - `--network none`, `--read-only`, `--user 65534:65534`, `--cap-drop ALL`,
@@ -1724,14 +1893,21 @@ launches one probe container with a fixed argument vector:
 - no Docker socket, no seed parent, no other repository, no workspace, no
   credentials, and no prior invocation's data.
 
-The copy is destroyed after the result is validated, so repository mutations
-are ephemeral and are never returned or persisted. The result file is opened
-with `O_NOFOLLOW` and must be a regular file within the size cap, so replacing
-`/probe/out` with a symlink, FIFO, device, or socket cannot make the broker
-read anything else.
+The invocation's workspace is torn down before the fixed timing bucket is
+selected (§14.3.1), so cleanup duration remains inside the charged timing
+channel. A cleanup failure produces canonical error and is recorded in the
+protected audit log (`reason: 'cleanup-failed'`). Repository mutations are
+ephemeral and are never returned or persisted. The result file is opened
+with `O_NOFOLLOW` and must
+be a regular file within the size cap, so replacing `/probe/out` with a
+symlink, FIFO, device, or socket cannot make the broker read anything else.
 
-Probe stdout/stderr is capped and discarded. Failure reasons are written only
-to `<workDir>/sealed-probes/audit/`, which is mounted into the broker alone.
+Probe stdout/stderr is capped and discarded — never parsed, never returned,
+never logged in a form reachable by the agent. Failure reasons (with
+protected detail, e.g. `repo-not-allowed`, `bit-budget-exhausted`,
+`invalid-request`, `probe-launch-failed`, `timing-bucket-overflow`,
+`cleanup-failed`) are written only to `<workDir>/sealed-probes/audit/`,
+which is mounted into the broker alone.
 
 ### 14.8 Agent Interface
 
@@ -1739,20 +1915,31 @@ When sealed probes are enabled, the agent receives exactly two bind mounts —
 the broker socket directory (read-write) and a generated skill directory
 (read-only) — plus three environment variables
 (`AWF_SEALED_PROBE_SOCKET`, `AWF_SEALED_PROBE_SKILL`,
-`AWF_SEALED_PROBE_REPOS`). GitHub tokens are removed from the agent
-environment whenever sealed probes are enabled, independently of the API and
-DIFC proxies.
+`AWF_SEALED_PROBE_REPOS`, the last a comma-separated list of configured repo
+slugs only — never sensitivities or budgets). GitHub tokens are removed from
+the agent environment whenever sealed probes are enabled, independently of
+the API and DIFC proxies.
 
 `containers/agent/sealed-probe-wrapper.sh` is installed on the agent's `PATH`
-as `sealed-probe`. It accepts only `--repo` once, `--outcome` exactly three
-times, and the script on stdin; every other option, the `--flag=value` form,
-and positional arguments are rejected. It always prints exactly one canonical
-JSON line, writes nothing to stderr, and exits `0` — for outcomes and for
-every failure, including transport failures, which produce
-`{"result":"ERROR"}` locally.
+as `sealed-probe` (protocol v2). It accepts only `--repo` once, `--schema`
+once (a JSON document, at most `MAX_SCHEMA_BYTES` bytes), and the script on
+stdin; every other option, the `--flag=value` form, and positional arguments
+are rejected without contacting the broker. It always prints exactly one
+canonical JSON line, writes nothing to stderr, and exits `0` — for both
+outcomes and for every failure, including transport failures, which produce
+`{"status":"error"}` locally. The wrapper cannot itself validate the
+schema's structure, cardinality, or bit charge (that is the trusted
+broker's job, enforced before it copies a seed or launches Python); its only
+responsibilities are enforcing the fixed CLI shape, base64url-encoding the
+schema into a request header, transporting the script body unmodified, and
+passing the broker's response through unmodified.
 
 The generated `SKILL.md` is written under `<workDir>/sealed-probes/agent/` and
-mounted read-only at `/run/awf-sealed-probe-skill/SKILL.md`. AWF deliberately
+mounted read-only at `/run/awf-sealed-probe-skill/SKILL.md`. It documents,
+per configured repository, its sensitivity and run budget (e.g. `` `octo/alpha`
+— 64 bits/run (`internal`) ``), the finite schema DSL, the bit-charge
+formula, the timing buckets, and the operational `maxInvocations` limit —
+so an agent can design informed, low-cardinality questions. AWF deliberately
 does **not** mount it into `$HOME/.copilot/skills` or the workspace's
 `.github/skills`: Docker would create the mount point inside host user state
 or inside the checked-out workspace. Agents therefore discover it through
@@ -1763,12 +1950,30 @@ For the same reason, a microVM primary agent runtime (`sbx`) is rejected at
 preflight: it does not receive Compose bind mounts, so the socket and skill
 could not be exposed. Sealed probes are never partially enabled.
 
-### 14.9 Residual Channels and Limits
+### 14.9 Protocol v1 Compatibility
 
-- Each invocation reveals one of four symbols — at most 2 bits.
-- `maxInvocations` counts every response, including rejections, because each
-  response is itself one of the four symbols.
-- Completion timing is not mitigated in v1 and remains observable.
+Protocol v1 (three fixed outcomes plus the reserved `"ERROR"` sentinel, no
+schema, no sensitivity, no bit ledger) is superseded by v2. There is no
+runtime v1/v2 auto-negotiation in the current wrapper or broker — both are
+deployed together as part of the same AWF release, and the wrapper always
+sends `X-AWF-Probe-Version: 2`. A safe compatibility translation for legacy
+v1 three-outcome calls (mapping a fixed three-value `enum` schema to the old
+`outcomes` shape) is a natural extension point if a future release needs to
+accept both wire versions from mismatched wrapper/broker builds, but is not
+implemented today because AWF always deploys the wrapper and broker as a
+matched pair.
+
+### 14.10 Residual Channels and Limits
+
+- Every launched invocation's disclosure is bounded by its own declared
+  schema's charge (§14.3) — not a fixed per-invocation cap — debited from its
+  repository's run budget; `public` repositories are schema/operationally
+  bounded but not bit-metered.
+- `maxInvocations` counts every response, including rejections, as an
+  independent operational limit unrelated to the bit ledger.
+- Response timing is bucketed to one of six fixed boundaries and charged as
+  part of the budget (§14.3.1); container and workspace cleanup complete
+  before the bucket is selected (§14.3.1, §14.7).
 - Per-invocation aggregate disk usage is bounded by the wall-clock timeout and
   a per-file size limit rather than a hard filesystem quota.
 - The probe rootfs is the broker image, so it also contains a Node runtime and

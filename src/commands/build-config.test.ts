@@ -456,7 +456,7 @@ describe('buildConfig', () => {
           ...makeInputs().options,
           sealedProbes: {
             enabled: true,
-            privateRepos: ['octo/repo'],
+            privateRepos: [{ repo: 'octo/repo', sensitivity: 'confidential' }],
             runtime: 'sbx',
             timeout: 90,
             memoryLimit: '2g',
@@ -467,7 +467,7 @@ describe('buildConfig', () => {
       }));
       expect(config.sealedProbes).toEqual({
         enabled: true,
-        privateRepos: ['octo/repo'],
+        privateRepos: [{ repo: 'octo/repo', sensitivity: 'confidential' }],
         runtime: 'sbx',
         timeout: 90,
         memoryLimit: '2g',

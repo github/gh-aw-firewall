@@ -13,7 +13,10 @@ const WORK_DIR = '/tmp/awf-1700000000';
 
 const sealedProbes: SealedProbesConfig = {
   enabled: true,
-  privateRepos: ['octo/alpha', 'octo/beta'],
+  privateRepos: [
+    { repo: 'octo/alpha', sensitivity: 'internal' },
+    { repo: 'octo/beta', sensitivity: 'confidential' },
+  ],
   runtime: 'docker',
   timeout: 45,
   memoryLimit: '256m',

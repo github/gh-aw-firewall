@@ -848,14 +848,42 @@
         },
         "privateRepos": {
           "type": "array",
-          "description": "Private repositories the sealed-probe broker may run probes against. Each entry must be a bare `owner/repo` slug — no scheme, host, credentials, path traversal, query string, fragment, or wildcard. AWF stages one immutable seed per entry before the primary agent starts.",
+          "description": "Private repositories the sealed-probe broker may run probes against, each with a trusted confidentiality category that fixes its per-run information budget (`public` unmetered, `internal` 64 bits/run, `confidential` 8 bits/run, `sealed` 0 bits/run — never launches a probe). A legacy bare `owner/repo` string is accepted for one release only and normalized to `{ repo, sensitivity: \"internal\" }` with a warning; update it to the object form. Each `repo` must be a bare `owner/repo` slug — no scheme, host, credentials, path traversal, query string, fragment, or wildcard. Repository names must be unique case-insensitively. AWF stages one immutable seed per entry before the primary agent starts.",
           "items": {
-            "type": "string",
-            "maxLength": 140,
-            "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})/(?!\\.\\.?$)(?!.*\\.\\.)[A-Za-z0-9._-]{1,100}$"
+            "oneOf": [
+              {
+                "type": "string",
+                "maxLength": 140,
+                "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})/(?!\\.\\.?$)(?!.*\\.\\.)[A-Za-z0-9._-]{1,100}$"
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "repo",
+                  "sensitivity"
+                ],
+                "properties": {
+                  "repo": {
+                    "type": "string",
+                    "maxLength": 140,
+                    "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})/(?!\\.\\.?$)(?!.*\\.\\.)[A-Za-z0-9._-]{1,100}$"
+                  },
+                  "sensitivity": {
+                    "type": "string",
+                    "enum": [
+                      "public",
+                      "internal",
+                      "confidential",
+                      "sealed"
+                    ],
+                    "description": "Confidentiality category, which fixes this repository's immutable per-run information budget. Cannot be increased by configuration."
+                  }
+                }
+              }
+            ]
           },
-          "minItems": 1,
-          "uniqueItems": true
+          "minItems": 1
         },
         "runtime": {
           "type": "string",
@@ -869,8 +897,8 @@
         "timeout": {
           "type": "integer",
           "minimum": 1,
-          "maximum": 3600,
-          "description": "Maximum wall-clock time in seconds allowed for a single probe invocation. Exceeding it returns the canonical ERROR. Default: 30.",
+          "maximum": 600,
+          "description": "Maximum wall-clock time in seconds allowed for a single probe invocation. Exceeding it returns the canonical error. Capped at 600 (the largest response-timing bucket) so every invocation's completion always lands inside a bucket. Default: 30.",
           "default": 30
         },
         "memoryLimit": {

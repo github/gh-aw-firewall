@@ -10,9 +10,11 @@ import type { Server } from 'http';
  *   real `sealed-probe` wrapper → real Unix socket → real broker server →
  *   real workspace/seed handling → (mocked) probe container.
  *
- * Only the Docker launch is mocked, so this covers the framing, the protocol,
- * the writable-copy semantics, repository isolation, the invocation budget,
- * and the uniform failure closure without needing a Docker daemon or a real
+ * Only the Docker launch is mocked, so this covers the v2 framing (repo +
+ * base64url schema header), the finite schema DSL, the writable-copy
+ * semantics, repository isolation, the per-repository sensitivity/bit
+ * ledger (no per-query cap), the operational invocation budget, and the
+ * uniform failure closure — without needing a Docker daemon or a real
  * private repository.
  */
 /* eslint-disable @typescript-eslint/no-require-imports */
@@ -23,7 +25,8 @@ const workspace = require(path.join(brokerDir, 'workspace.js'));
 /* eslint-enable @typescript-eslint/no-require-imports */
 
 const WRAPPER = path.join(__dirname, '..', '..', 'containers', 'agent', 'sealed-probe-wrapper.sh');
-const CANONICAL_ERROR = '{"result":"ERROR"}';
+const CANONICAL_ERROR = '{"status":"error"}';
+const OUTCOME_SCHEMA = JSON.stringify({ type: 'enum', values: ['YES', 'NO'] });
 
 interface WrapperResult {
   stdout: string;
@@ -63,11 +66,8 @@ describe('sealed probe end-to-end (wrapper → socket → broker)', () => {
     runProbeContainer: async ({ invocationId }: { invocationId: string }) => {
       const invocationDir = path.join(String(config.workDir), invocationId);
       const readme = fs.readFileSync(path.join(invocationDir, 'repo', 'README.md'), 'utf8');
-      // Write the answer to the pre-created output file.
-      fs.writeFileSync(
-        path.join(invocationDir, 'out'),
-        JSON.stringify({ result: readme.includes('alpha') ? 'YES' : 'NO' }),
-      );
+      // Write the answer to the pre-created output file, conforming to the enum schema above.
+      fs.writeFileSync(path.join(invocationDir, 'out'), JSON.stringify(readme.includes('alpha') ? 'YES' : 'NO'));
       return { exitCode: 0, timedOut: false };
     },
   };
@@ -129,7 +129,10 @@ describe('sealed probe end-to-end (wrapper → socket → broker)', () => {
 
     const broker = createBroker({
       config,
-      seedMap: new Map([['octo/alpha', seedIdA], ['octo/beta', seedIdB]]),
+      seedMap: new Map([
+        ['octo/alpha', { seedId: seedIdA, sensitivity: 'internal' }],
+        ['octo/beta', { seedId: seedIdB, sensitivity: 'confidential' }],
+      ]),
       runId: 'e2e-run',
       audit: auditLog,
       workspace,
@@ -146,18 +149,18 @@ describe('sealed probe end-to-end (wrapper → socket → broker)', () => {
     fs.rmSync(root, { recursive: true, force: true });
   });
 
-  const args = (repo: string) => ['--repo', repo, '--outcome', 'YES', '--outcome', 'NO', '--outcome', 'UNKNOWN'];
+  const args = (repo: string, schema = OUTCOME_SCHEMA) => ['--repo', repo, '--schema', schema];
 
   it('returns the outcome the probe computed from its own repository copy', async () => {
     const result = await runWrapper(socketPath, args('octo/alpha'));
 
-    expect(result.stdout).toBe('{"result":"YES"}\n');
+    expect(result.stdout).toBe('{"status":"ok","result":"YES"}\n');
     expect(result.stderr).toBe('');
     expect(result.status).toBe(0);
   });
 
   it('gives each repository its own contents and never the other one', async () => {
-    expect((await runWrapper(socketPath, args('octo/beta'))).stdout).toBe('{"result":"NO"}\n');
+    expect((await runWrapper(socketPath, args('octo/beta'))).stdout).toBe('{"status":"ok","result":"NO"}\n');
   });
 
   it('leaves the immutable seed untouched after the probe mutates its copy', async () => {
@@ -177,16 +180,29 @@ describe('sealed probe end-to-end (wrapper → socket → broker)', () => {
     expect(audit.some((record) => record.reason === 'repo-not-allowed')).toBe(true);
   });
 
-  it('enforces the invocation budget across the socket', async () => {
+  it('enforces the operational invocation budget across the socket, independent of the bit budget', async () => {
     const first = await runWrapper(socketPath, args('octo/alpha'));
     const second = await runWrapper(socketPath, args('octo/alpha'));
     const third = await runWrapper(socketPath, args('octo/alpha'));
 
-    expect(first.stdout).toBe('{"result":"YES"}\n');
-    expect(second.stdout).toBe('{"result":"YES"}\n');
+    expect(first.stdout).toBe('{"status":"ok","result":"YES"}\n');
+    expect(second.stdout).toBe('{"status":"ok","result":"YES"}\n');
     expect(third.stdout).toBe(`${CANONICAL_ERROR}\n`);
     expect(third.stderr).toBe('');
     expect(third.status).toBe(0);
+  });
+
+  it('enforces the confidential (8-bit) per-repository run budget across the socket', async () => {
+    // octo/beta is "confidential" (8 bits/run). A 2-value enum costs
+    // 1 + 1 + 3 = 5 bits, so two invocations (10 bits) exceed the budget —
+    // the second must be denied even though maxInvocations (2) alone would
+    // still allow it.
+    const first = await runWrapper(socketPath, args('octo/beta'));
+    const second = await runWrapper(socketPath, args('octo/beta'));
+
+    expect(first.stdout).toBe('{"status":"ok","result":"NO"}\n');
+    expect(second.stdout).toBe(`${CANONICAL_ERROR}\n`);
+    expect(audit.some((record) => record.reason === 'bit-budget-exhausted')).toBe(true);
   });
 
   it('rejects an oversized script with the canonical error', async () => {
@@ -194,6 +210,37 @@ describe('sealed probe end-to-end (wrapper → socket → broker)', () => {
 
     expect(result.stdout).toBe(`${CANONICAL_ERROR}\n`);
     expect(result.stderr).toBe('');
+    expect(result.status).toBe(0);
+  });
+
+  it('rejects a request whose probe output does not conform to its own declared schema', async () => {
+    const nonConformingRunner = {
+      runProbeContainer: async ({ invocationId }: { invocationId: string }) => {
+        const invocationDir = path.join(String(config.workDir), invocationId);
+        fs.writeFileSync(path.join(invocationDir, 'out'), '"MAYBE"'); // not in the declared enum
+        return { exitCode: 0, timedOut: false };
+      },
+    };
+    const auditLog = {
+      invocation: () => { /* not asserted */ },
+      failure: (invocationId: string, reason: string) => audit.push({ kind: 'failure', invocationId, reason }),
+      lifecycle: () => { /* not asserted */ },
+    };
+    const broker = createBroker({
+      config,
+      seedMap: new Map([['octo/alpha', { seedId: seedIdA, sensitivity: 'internal' }]]),
+      runId: 'e2e-run-2',
+      audit: auditLog,
+      workspace,
+      runner: nonConformingRunner,
+    });
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    server = createServer({ broker, audit: auditLog });
+    await listenOnSocket(server, config, auditLog);
+
+    const result = await runWrapper(socketPath, args('octo/alpha'));
+
+    expect(result.stdout).toBe(`${CANONICAL_ERROR}\n`);
     expect(result.status).toBe(0);
   });
 });

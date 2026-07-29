@@ -24,7 +24,7 @@ jest.mock('../container-runtime', () => ({
 
 const sealedProbes: SealedProbesConfig = {
   enabled: true,
-  privateRepos: ['octo/private'],
+  privateRepos: [{ repo: 'octo/private', sensitivity: 'internal' }],
   runtime: 'docker',
   timeout: 30,
   memoryLimit: '512m',

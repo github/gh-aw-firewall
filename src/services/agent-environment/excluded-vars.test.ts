@@ -202,7 +202,7 @@ describe('buildExclusionSet', () => {
   describe('when sealed probes are enabled (repository credential isolation)', () => {
     const sealedProbes = {
       enabled: true,
-      privateRepos: ['octo/private'],
+      privateRepos: [{ repo: 'octo/private', sensitivity: 'internal' as const }],
       runtime: 'docker' as const,
       timeout: 30,
       memoryLimit: '512m',

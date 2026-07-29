@@ -26,7 +26,7 @@ const mockReleaseSeedPermissions = releaseSeedPermissions as jest.MockedFunction
 
 const sealedProbes: SealedProbesConfig = {
   enabled: true,
-  privateRepos: ['octo/private'],
+  privateRepos: [{ repo: 'octo/private', sensitivity: 'internal' }],
   runtime: 'docker',
   timeout: 30,
   memoryLimit: '512m',
@@ -91,9 +91,11 @@ describe('prepareSealedProbes', () => {
     expect(fs.existsSync(paths.skillPath)).toBe(true);
 
     const seedMap = JSON.parse(fs.readFileSync(paths.seedMapPath, 'utf8'));
-    expect(seedMap.version).toBe(1);
+    expect(seedMap.version).toBe(2);
     expect(seedMap.runId).toMatch(/^[0-9a-f]{32}$/);
-    expect(seedMap.seeds).toEqual([{ repo: 'octo/private', seedId: expect.stringMatching(/^[0-9a-f]{32}$/) }]);
+    expect(seedMap.seeds).toEqual([
+      { repo: 'octo/private', seedId: expect.stringMatching(/^[0-9a-f]{32}$/), sensitivity: 'internal' },
+    ]);
     expect(fs.statSync(paths.seedMapPath).mode & 0o777).toBe(0o600);
   });
 

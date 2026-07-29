@@ -6,16 +6,23 @@ import * as path from 'path';
 
 /**
  * Behavioural tests for `containers/agent/sealed-probe-wrapper.sh`, the only
- * sealed-probe capability the agent receives.
+ * sealed-probe capability the agent receives (protocol v2).
  *
  * The wrapper is executed for real against a stub broker on a Unix socket, so
- * these assertions cover the actual shell semantics: accepted options, the
- * exact request framing, and — critically — that every failure produces the
- * identical canonical result on stdout, nothing on stderr, and exit status 0.
+ * these assertions cover the actual shell semantics: accepted options
+ * (`--repo`, `--schema`), the exact request framing (version header, repo
+ * header, base64url-encoded schema header, raw script body), and —
+ * critically — that every failure produces the identical canonical
+ * `{"status":"error"}` on stdout, nothing on stderr, and exit status 0.
  */
 
 const WRAPPER = path.join(__dirname, '..', '..', 'containers', 'agent', 'sealed-probe-wrapper.sh');
-const CANONICAL_ERROR = '{"result":"ERROR"}';
+const CANONICAL_ERROR = '{"status":"error"}';
+const BOOLEAN_SCHEMA = '{"type":"boolean"}';
+
+function base64url(text: string): string {
+  return Buffer.from(text, 'utf8').toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
 
 interface StubRequest {
   method?: string;
@@ -107,15 +114,15 @@ function runWrapper(
   });
 }
 
-const VALID_ARGS = ['--repo', 'octo/private', '--outcome', 'YES', '--outcome', 'NO', '--outcome', 'UNKNOWN'];
+const VALID_ARGS = ['--repo', 'octo/private', '--schema', BOOLEAN_SCHEMA];
 
 describe('sealed-probe wrapper', () => {
   it('forwards a valid request and prints the broker result verbatim', async () => {
-    const harness = await startStubBroker(() => '{"result":"YES"}');
+    const harness = await startStubBroker(() => '{"status":"ok","result":true}');
     try {
       const result = await runWrapper(VALID_ARGS, { socketPath: harness.socketPath });
 
-      expect(result.stdout).toBe('{"result":"YES"}\n');
+      expect(result.stdout).toBe('{"status":"ok","result":true}\n');
       expect(result.stderr).toBe('');
       expect(result.status).toBe(0);
     } finally {
@@ -123,8 +130,8 @@ describe('sealed-probe wrapper', () => {
     }
   });
 
-  it('sends only the fixed framing: version, repo, three outcomes, raw script body', async () => {
-    const harness = await startStubBroker(() => '{"result":"NO"}');
+  it('sends only the fixed v2 framing: version, repo, base64url schema, raw script body', async () => {
+    const harness = await startStubBroker(() => '{"status":"ok","result":false}');
     try {
       await runWrapper(VALID_ARGS, { socketPath: harness.socketPath, script: 'import json\n' });
 
@@ -133,26 +140,35 @@ describe('sealed-probe wrapper', () => {
       expect(request.method).toBe('POST');
       expect(request.url).toBe('/probe');
       expect(request.body).toBe('import json\n');
-      expect(request.headers['x-awf-probe-version']).toBe('1');
+      expect(request.headers['x-awf-probe-version']).toBe('2');
       expect(request.headers['x-awf-repo']).toBe('octo/private');
-      expect(request.headers['x-awf-outcome-1']).toBe('YES');
-      expect(request.headers['x-awf-outcome-2']).toBe('NO');
-      expect(request.headers['x-awf-outcome-3']).toBe('UNKNOWN');
+      expect(request.headers['x-awf-schema-b64']).toBe(base64url(BOOLEAN_SCHEMA));
 
       const awfHeaders = Object.keys(request.headers).filter((name) => name.startsWith('x-awf-'));
-      expect(awfHeaders.sort()).toEqual([
-        'x-awf-outcome-1',
-        'x-awf-outcome-2',
-        'x-awf-outcome-3',
-        'x-awf-probe-version',
-        'x-awf-repo',
-      ]);
+      expect(awfHeaders.sort()).toEqual(['x-awf-probe-version', 'x-awf-repo', 'x-awf-schema-b64']);
     } finally {
       await harness.close();
     }
   });
 
-  it('passes through the reserved ERROR result', async () => {
+  it('base64url-encodes a schema containing +, /, and padding-triggering lengths without leaking raw JSON in headers', async () => {
+    const harness = await startStubBroker(() => '{"status":"ok","result":"A"}');
+    try {
+      const schema = JSON.stringify({ type: 'enum', values: ['A', 'B', 'C'] });
+      await runWrapper(['--repo', 'octo/private', '--schema', schema], { socketPath: harness.socketPath });
+
+      const request = harness.requests[0];
+      const headerValue = String(request.headers['x-awf-schema-b64']);
+      expect(headerValue).toBe(base64url(schema));
+      // base64url must never contain the standard-base64 `+`, `/`, or `=` characters.
+      expect(headerValue).not.toMatch(/[+/=]/);
+      expect(Buffer.from(headerValue, 'base64').toString('utf8')).toBe(schema);
+    } finally {
+      await harness.close();
+    }
+  });
+
+  it('passes through the canonical error result unmodified', async () => {
     const harness = await startStubBroker(() => CANONICAL_ERROR);
     try {
       const result = await runWrapper(VALID_ARGS, { socketPath: harness.socketPath });
@@ -165,12 +181,12 @@ describe('sealed-probe wrapper', () => {
   });
 
   it.each([
-    ['an undeclared outcome', '{"result":"MAYBE"}'],
-    ['extra fields', '{"result":"YES","leak":"secret"}'],
-    ['a non-canonical encoding', '{ "result" : "YES" }'],
-    ['malformed JSON', '{"result":'],
+    ['a result missing the ok/error envelope', '{"result":true}'],
+    ['a non-canonical encoding', '{ "status" : "ok", "result" : true }'],
+    ['malformed JSON', '{"status":'],
     ['an empty body', ''],
     ['unexpected prose', 'boom'],
+    ['an unknown status value', '{"status":"maybe","result":true}'],
   ])('replaces %s from the broker with the canonical error', async (_name, body) => {
     const harness = await startStubBroker(() => body);
     try {
@@ -191,22 +207,21 @@ describe('sealed-probe wrapper', () => {
   });
 
   describe('rejects unsupported input without contacting the broker', () => {
+    const oversizedSchema = JSON.stringify({ type: 'enum', values: Array.from({ length: 700 }, (_, i) => `v${i}`) });
+
     const cases: Array<[string, string[]]> = [
       ['no arguments', []],
-      ['missing repo', ['--outcome', 'A', '--outcome', 'B', '--outcome', 'C']],
-      ['two outcomes', ['--repo', 'octo/private', '--outcome', 'A', '--outcome', 'B']],
-      ['four outcomes', ['--repo', 'octo/private', '--outcome', 'A', '--outcome', 'B', '--outcome', 'C', '--outcome', 'D']],
-      ['duplicate outcomes', ['--repo', 'octo/private', '--outcome', 'A', '--outcome', 'A', '--outcome', 'B']],
-      ['reserved outcome', ['--repo', 'octo/private', '--outcome', 'A', '--outcome', 'B', '--outcome', 'ERROR']],
-      ['empty outcome', ['--repo', 'octo/private', '--outcome', '', '--outcome', 'B', '--outcome', 'C']],
-      ['oversized outcome', ['--repo', 'octo/private', '--outcome', 'x'.repeat(65), '--outcome', 'B', '--outcome', 'C']],
-      ['outcome with a control character', ['--repo', 'octo/private', '--outcome', 'A\nB', '--outcome', 'B', '--outcome', 'C']],
-      ['outcome with a quote', ['--repo', 'octo/private', '--outcome', 'A"B', '--outcome', 'B', '--outcome', 'C']],
-      ['repeated repo', ['--repo', 'octo/a', '--repo', 'octo/b', '--outcome', 'A', '--outcome', 'B', '--outcome', 'C']],
-      ['url repo', ['--repo', 'https://github.com/octo/private', '--outcome', 'A', '--outcome', 'B', '--outcome', 'C']],
-      ['traversal repo', ['--repo', 'octo/../etc', '--outcome', 'A', '--outcome', 'B', '--outcome', 'C']],
-      ['wildcard repo', ['--repo', 'octo/*', '--outcome', 'A', '--outcome', 'B', '--outcome', 'C']],
-      ['equals-form option', ['--repo=octo/private', '--outcome', 'A', '--outcome', 'B', '--outcome', 'C']],
+      ['missing repo', ['--schema', BOOLEAN_SCHEMA]],
+      ['missing schema', ['--repo', 'octo/private']],
+      ['empty schema', ['--repo', 'octo/private', '--schema', '']],
+      ['oversized schema (over MAX_SCHEMA_BYTES)', ['--repo', 'octo/private', '--schema', oversizedSchema]],
+      ['repeated repo', ['--repo', 'octo/a', '--repo', 'octo/b', '--schema', BOOLEAN_SCHEMA]],
+      ['repeated schema', ['--repo', 'octo/private', '--schema', BOOLEAN_SCHEMA, '--schema', BOOLEAN_SCHEMA]],
+      ['url repo', ['--repo', 'https://github.com/octo/private', '--schema', BOOLEAN_SCHEMA]],
+      ['traversal repo', ['--repo', 'octo/../etc', '--schema', BOOLEAN_SCHEMA]],
+      ['wildcard repo', ['--repo', 'octo/*', '--schema', BOOLEAN_SCHEMA]],
+      ['equals-form repo option', ['--repo=octo/private', '--schema', BOOLEAN_SCHEMA]],
+      ['equals-form schema option', ['--repo', 'octo/private', `--schema=${BOOLEAN_SCHEMA}`]],
       ['positional argument', [...VALID_ARGS, 'extra']],
       ['unsupported --image', [...VALID_ARGS, '--image', 'evil']],
       ['unsupported --timeout', [...VALID_ARGS, '--timeout', '9999']],
@@ -215,11 +230,11 @@ describe('sealed-probe wrapper', () => {
       ['unsupported --env', [...VALID_ARGS, '--env', 'GH_TOKEN=x']],
       ['unsupported --ref', [...VALID_ARGS, '--ref', 'main']],
       ['dangling --repo', ['--repo']],
-      ['dangling --outcome', ['--repo', 'octo/private', '--outcome']],
+      ['dangling --schema', ['--repo', 'octo/private', '--schema']],
     ];
 
     it.each(cases)('%s', async (_name, args) => {
-      const harness = await startStubBroker(() => '{"result":"YES"}');
+      const harness = await startStubBroker(() => '{"status":"ok","result":true}');
       try {
         const result = await runWrapper(args, { socketPath: harness.socketPath });
 
@@ -239,7 +254,7 @@ describe('sealed-probe wrapper', () => {
       const outputs = await Promise.all([
         runWrapper(VALID_ARGS, { socketPath: harness.socketPath }),
         runWrapper([...VALID_ARGS, '--image', 'evil'], { socketPath: harness.socketPath }),
-        runWrapper(['--repo', 'octo/*', '--outcome', 'A', '--outcome', 'B', '--outcome', 'C']),
+        runWrapper(['--repo', 'octo/*', '--schema', BOOLEAN_SCHEMA]),
         runWrapper(VALID_ARGS),
       ]);
 

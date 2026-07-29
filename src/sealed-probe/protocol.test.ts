@@ -1,34 +1,58 @@
 import {
-  OUTCOME_COUNT,
-  RESERVED_ERROR_OUTCOME,
-  MAX_OUTCOME_BYTES,
-  MAX_SCRIPT_BYTES,
+  CANONICAL_ERROR_JSON,
+  MAX_ARRAY_LENGTH,
+  MAX_ENUM_VALUES,
+  MAX_LITERAL_STRING_BYTES,
+  MAX_OBJECT_FIELDS,
+  MAX_PRIVATE_REPO_LENGTH,
   MAX_REQUEST_BYTES,
   MAX_RESULT_BYTES,
-  OUTCOME_PATTERN,
+  MAX_SCHEMA_BYTES,
+  MAX_SCHEMA_DEPTH,
+  MAX_SCHEMA_NODES,
+  MAX_SCRIPT_BYTES,
+  MAX_TUPLE_ITEMS,
+  MAX_UNION_VARIANTS,
+  PROBE_PROTOCOL_VERSION,
+  RESULT_STATUS_BIT_COST,
   SEALED_PROBE_REPO_PATTERN,
-  validateOutcome,
-  validateOutcomes,
+  TIMING_BUCKETS_MS,
+  TIMING_BUCKET_BITS,
+  canonicalOkJson,
+  canonicalizeSchemaValue,
+  ceilLog2BigInt,
+  parseAndValidateProbeOutput,
+  queryBitsForSchema,
+  schemaCardinality,
+  strictParseJson,
+  validateSchema,
   validateSealedProbeRequest,
-  buildSealedProbeResultSchema,
-  canonicalizeSealedProbeResult,
-  CANONICAL_ERROR_RESULT_JSON,
-  parseSealedProbeResult,
-  parseSealedProbeResultJson,
-  type SealedProbeOutcomes,
+  validateValueAgainstSchema,
+  type SealedProbeSchemaNode,
 } from './protocol';
 
-const OUTCOMES: SealedProbeOutcomes = ['success', 'timeout', 'blocked'];
+describe('protocol constants', () => {
+  it('fixes the wire protocol version at 2', () => {
+    expect(PROBE_PROTOCOL_VERSION).toBe(2);
+  });
+
+  it('has exactly six timing buckets and 3 timing bits', () => {
+    expect(TIMING_BUCKETS_MS).toEqual([10, 100, 1_000, 10_000, 60_000, 600_000]);
+    expect(TIMING_BUCKET_BITS).toBe(3);
+  });
+
+  it('charges 1 bit for the ok/error distinction', () => {
+    expect(RESULT_STATUS_BIT_COST).toBe(1);
+  });
+});
 
 describe('SEALED_PROBE_REPO_PATTERN', () => {
-  it.each([
-    'octo/repo',
-    'octo-org/octo-repo',
-    'my-org/my.repo-name_2',
-    'a/b',
-  ])('accepts a valid owner/repo slug: %s', (slug) => {
-    expect(SEALED_PROBE_REPO_PATTERN.test(slug)).toBe(true);
-  });
+  it.each(['octo/repo', 'octo-org/octo-repo', 'my-org/my.repo-name_2', 'a/b'])(
+    'accepts a valid owner/repo slug: %s',
+    (slug) => {
+      expect(SEALED_PROBE_REPO_PATTERN.test(slug)).toBe(true);
+    },
+  );
 
   it.each([
     ['a full URL', 'https://github.com/octo/repo'],
@@ -49,96 +73,456 @@ describe('SEALED_PROBE_REPO_PATTERN', () => {
   });
 });
 
-describe('validateOutcome', () => {
-  it('accepts a normal short label', () => {
-    expect(validateOutcome('success')).toBeUndefined();
+describe('ceilLog2BigInt', () => {
+  it.each([
+    [0n, 0],
+    [1n, 0],
+    [2n, 1],
+    [3n, 2],
+    [4n, 2],
+    [5n, 3],
+    [8n, 3],
+    [9n, 4],
+    [1024n, 10],
+    [1025n, 11],
+  ])('ceilLog2BigInt(%s) === %s', (n, expected) => {
+    expect(ceilLog2BigInt(n)).toBe(expected);
   });
 
-  it('rejects non-strings', () => {
-    expect(validateOutcome(42)).toMatch(/must be a string/);
-    expect(validateOutcome(null)).toMatch(/must be a string/);
-    expect(validateOutcome(undefined)).toMatch(/must be a string/);
-  });
-
-  it('rejects the empty string', () => {
-    expect(validateOutcome('')).toMatch(/must not be empty/);
-  });
-
-  it('rejects the reserved ERROR sentinel', () => {
-    expect(validateOutcome('ERROR')).toMatch(/reserved/);
-  });
-
-  it('rejects strings containing control characters', () => {
-    expect(validateOutcome('bad\nvalue')).toMatch(/control characters/);
-    expect(validateOutcome('bad\tvalue')).toMatch(/control characters/);
-    expect(validateOutcome('bad\x00value')).toMatch(/control characters/);
-  });
-
-  it('accepts an identifier at exactly the byte cap', () => {
-    const label = 'a'.repeat(MAX_OUTCOME_BYTES);
-    expect(validateOutcome(label)).toBeUndefined();
-  });
-
-  it('rejects a label exceeding the UTF-8 byte cap', () => {
-    const label = 'a'.repeat(MAX_OUTCOME_BYTES + 1);
-    expect(validateOutcome(label)).toMatch(/64 UTF-8 bytes/);
-  });
-
-  it('rejects values that cannot be transported as safe enum identifiers', () => {
-    expect(validateOutcome('has space')).toMatch(/ASCII identifier/);
-    expect(validateOutcome('💥')).toMatch(/ASCII identifier/);
-    expect(validateOutcome('1STARTS_WITH_DIGIT')).toMatch(/ASCII identifier/);
-    expect(validateOutcome('HAS.DOT')).toMatch(/ASCII identifier/);
-    expect(OUTCOME_PATTERN.test('YES_1')).toBe(true);
+  it('handles very large cardinalities without floating-point overflow', () => {
+    // 2^100, computed without ever going through a floating-point log.
+    const huge = 2n ** 100n;
+    expect(ceilLog2BigInt(huge)).toBe(100);
+    expect(ceilLog2BigInt(huge + 1n)).toBe(101);
   });
 });
 
-describe('validateOutcomes', () => {
-  it('accepts exactly three unique valid outcomes', () => {
-    expect(validateOutcomes(['a', 'b', 'c'])).toEqual([]);
+describe('validateSchema', () => {
+  it('accepts a const schema', () => {
+    const result = validateSchema({ type: 'const', value: 'ok' });
+    expect(result).toEqual({ valid: true, schema: { type: 'const', value: 'ok' } });
   });
 
-  it('rejects a non-array', () => {
-    expect(validateOutcomes('not-an-array').length).toBeGreaterThan(0);
+  it('rejects a const schema with extra properties', () => {
+    expect(validateSchema({ type: 'const', value: 'ok', extra: 1 }).valid).toBe(false);
   });
 
-  it(`rejects fewer or more than ${OUTCOME_COUNT} entries`, () => {
-    expect(validateOutcomes(['a', 'b']).length).toBeGreaterThan(0);
-    expect(validateOutcomes(['a', 'b', 'c', 'd']).length).toBeGreaterThan(0);
+  it('accepts a boolean schema and rejects extra properties', () => {
+    expect(validateSchema({ type: 'boolean' })).toEqual({ valid: true, schema: { type: 'boolean' } });
+    expect(validateSchema({ type: 'boolean', extra: 1 }).valid).toBe(false);
   });
 
-  it('rejects duplicate outcomes', () => {
-    const errors = validateOutcomes(['a', 'a', 'b']);
-    expect(errors).toContain('outcomes must be unique');
+  it('accepts a unique enum schema of a single JSON type', () => {
+    const result = validateSchema({ type: 'enum', values: ['a', 'b', 'c'] });
+    expect(result).toEqual({ valid: true, schema: { type: 'enum', values: ['a', 'b', 'c'] } });
   });
 
-  it('rejects a reserved ERROR outcome anywhere in the tuple', () => {
-    const errors = validateOutcomes(['a', RESERVED_ERROR_OUTCOME, 'b']);
-    expect(errors.some((e) => e.includes('reserved'))).toBe(true);
+  it('rejects an enum with duplicate values', () => {
+    expect(validateSchema({ type: 'enum', values: ['a', 'a'] }).valid).toBe(false);
   });
 
-  it('aggregates multiple per-item errors', () => {
-    const errors = validateOutcomes(['', 'ok', 42]);
-    expect(errors.some((e) => e.includes('outcomes[0]'))).toBe(true);
-    expect(errors.some((e) => e.includes('outcomes[2]'))).toBe(true);
+  it('rejects an enum mixing JSON types', () => {
+    expect(validateSchema({ type: 'enum', values: ['a', 1] }).valid).toBe(false);
   });
+
+  it('rejects an empty enum', () => {
+    expect(validateSchema({ type: 'enum', values: [] }).valid).toBe(false);
+  });
+
+  it(`rejects an enum exceeding ${MAX_ENUM_VALUES} values`, () => {
+    const values = Array.from({ length: MAX_ENUM_VALUES + 1 }, (_, i) => i);
+    const result = validateSchema({ type: 'enum', values });
+    expect(result.valid).toBe(false);
+    if (!result.valid) {
+      expect(result.errors.join(' ')).toMatch(/at most 4096 entries|4096 bytes/);
+    }
+  });
+
+  it('accepts a moderately sized enum comfortably under both the count and byte caps', () => {
+    const values = Array.from({ length: 200 }, (_, i) => i);
+    expect(validateSchema({ type: 'enum', values }).valid).toBe(true);
+  });
+
+  it('accepts a bounded integer schema and rejects maximum < minimum', () => {
+    expect(validateSchema({ type: 'integer', minimum: 0, maximum: 10 }).valid).toBe(true);
+    expect(validateSchema({ type: 'integer', minimum: 10, maximum: 0 }).valid).toBe(false);
+  });
+
+  it('rejects a non-integer or unsafe integer bound', () => {
+    expect(validateSchema({ type: 'integer', minimum: 0.5, maximum: 10 }).valid).toBe(false);
+    expect(validateSchema({ type: 'integer', minimum: 0, maximum: Number.MAX_SAFE_INTEGER + 1 }).valid).toBe(false);
+  });
+
+  it('accepts a required fixed object schema', () => {
+    const result = validateSchema({
+      type: 'object',
+      fields: { ok: { type: 'boolean' }, count: { type: 'integer', minimum: 0, maximum: 3 } },
+    });
+    expect(result.valid).toBe(true);
+  });
+
+  it('rejects an object schema with zero fields or too many fields', () => {
+    expect(validateSchema({ type: 'object', fields: {} }).valid).toBe(false);
+    const tooMany: Record<string, unknown> = {};
+    for (let i = 0; i < MAX_OBJECT_FIELDS + 1; i++) tooMany[`f${i}`] = { type: 'boolean' };
+    expect(validateSchema({ type: 'object', fields: tooMany }).valid).toBe(false);
+  });
+
+  it('rejects an object field name that is not a bounded ASCII identifier', () => {
+    expect(validateSchema({ type: 'object', fields: { 'bad name': { type: 'boolean' } } }).valid).toBe(false);
+    expect(validateSchema({ type: 'object', fields: { '1bad': { type: 'boolean' } } }).valid).toBe(false);
+  });
+
+  it('accepts a tuple schema and rejects an empty or oversized one', () => {
+    expect(validateSchema({ type: 'tuple', items: [{ type: 'boolean' }, { type: 'boolean' }] }).valid).toBe(true);
+    expect(validateSchema({ type: 'tuple', items: [] }).valid).toBe(false);
+    const tooMany = Array.from({ length: MAX_TUPLE_ITEMS + 1 }, () => ({ type: 'boolean' }));
+    expect(validateSchema({ type: 'tuple', items: tooMany }).valid).toBe(false);
+  });
+
+  it('accepts a fixed-length array schema and rejects an out-of-range length', () => {
+    expect(validateSchema({ type: 'array', items: { type: 'boolean' }, length: 3 }).valid).toBe(true);
+    expect(validateSchema({ type: 'array', items: { type: 'boolean' }, length: 0 }).valid).toBe(true);
+    expect(validateSchema({ type: 'array', items: { type: 'boolean' }, length: -1 }).valid).toBe(false);
+    expect(validateSchema({ type: 'array', items: { type: 'boolean' }, length: MAX_ARRAY_LENGTH + 1 }).valid).toBe(
+      false,
+    );
+  });
+
+  it('accepts a tagged disjoint union schema and rejects an empty or oversized one', () => {
+    expect(
+      validateSchema({
+        type: 'union',
+        variants: { a: { type: 'boolean' }, b: { type: 'integer', minimum: 0, maximum: 1 } },
+      }).valid,
+    ).toBe(true);
+    expect(validateSchema({ type: 'union', variants: {} }).valid).toBe(false);
+    const tooMany: Record<string, unknown> = {};
+    for (let i = 0; i < MAX_UNION_VARIANTS + 1; i++) tooMany[`v${i}`] = { type: 'boolean' };
+    expect(validateSchema({ type: 'union', variants: tooMany }).valid).toBe(false);
+  });
+
+  it('rejects a union tag that is not a bounded ASCII identifier', () => {
+    expect(validateSchema({ type: 'union', variants: { '1bad': { type: 'boolean' } } }).valid).toBe(false);
+  });
+
+  it('rejects an unknown schema node type', () => {
+    expect(validateSchema({ type: 'string' }).valid).toBe(false);
+    expect(validateSchema({}).valid).toBe(false);
+    expect(validateSchema(null).valid).toBe(false);
+    expect(validateSchema('not an object').valid).toBe(false);
+    expect(validateSchema([1, 2]).valid).toBe(false);
+  });
+
+  it(`rejects a schema exceeding maximum depth of ${MAX_SCHEMA_DEPTH}`, () => {
+    let deep: unknown = { type: 'boolean' };
+    for (let i = 0; i <= MAX_SCHEMA_DEPTH; i++) {
+      deep = { type: 'array', items: deep, length: 1 };
+    }
+    expect(validateSchema(deep).valid).toBe(false);
+  });
+
+  it('accepts a schema at exactly the maximum depth', () => {
+    let atLimit: unknown = { type: 'boolean' };
+    for (let i = 0; i < MAX_SCHEMA_DEPTH; i++) {
+      atLimit = { type: 'array', items: atLimit, length: 1 };
+    }
+    expect(validateSchema(atLimit).valid).toBe(true);
+  });
+
+  it(`rejects a schema exceeding ${MAX_SCHEMA_NODES} total nodes`, () => {
+    // A tuple of many boolean leaves quickly exceeds the node-count bound
+    // (root + N leaves) independent of depth.
+    const items = Array.from({ length: MAX_SCHEMA_NODES }, () => ({ type: 'boolean' }));
+    expect(validateSchema({ type: 'tuple', items }).valid).toBe(false);
+  });
+
+  it(`rejects a const literal string exceeding ${MAX_LITERAL_STRING_BYTES} bytes`, () => {
+    expect(validateSchema({ type: 'const', value: 'a'.repeat(MAX_LITERAL_STRING_BYTES) }).valid).toBe(true);
+    expect(validateSchema({ type: 'const', value: 'a'.repeat(MAX_LITERAL_STRING_BYTES + 1) }).valid).toBe(false);
+  });
+
+  it(`rejects a schema serialization exceeding ${MAX_SCHEMA_BYTES} bytes`, () => {
+    // An enum of many small distinct strings is a compact way to blow the
+    // byte cap without hitting node/field/tuple-count bounds first.
+    const values = Array.from({ length: 2000 }, (_, i) => `v${i}`);
+    expect(validateSchema({ type: 'enum', values }).valid).toBe(false);
+  });
+
+  it('rejects a schema that is not JSON-serializable', () => {
+    const cyclic: Record<string, unknown> = { type: 'boolean' };
+    cyclic.self = cyclic;
+    expect(validateSchema(cyclic).valid).toBe(false);
+  });
+
+  it('rejects undefined', () => {
+    expect(validateSchema(undefined).valid).toBe(false);
+  });
+});
+
+describe('schemaCardinality and queryBitsForSchema', () => {
+  it('computes cardinality 1 for const (0 bits)', () => {
+    const schema: SealedProbeSchemaNode = { type: 'const', value: 'ok' };
+    expect(schemaCardinality(schema)).toBe(1n);
+    expect(queryBitsForSchema(schema)).toBe(RESULT_STATUS_BIT_COST + 0 + TIMING_BUCKET_BITS);
+  });
+
+  it('computes cardinality 2 for boolean (1 bit)', () => {
+    const schema: SealedProbeSchemaNode = { type: 'boolean' };
+    expect(schemaCardinality(schema)).toBe(2n);
+    expect(queryBitsForSchema(schema)).toBe(RESULT_STATUS_BIT_COST + 1 + TIMING_BUCKET_BITS);
+  });
+
+  it('computes cardinality equal to the enum length', () => {
+    const schema: SealedProbeSchemaNode = { type: 'enum', values: ['a', 'b', 'c', 'd'] };
+    expect(schemaCardinality(schema)).toBe(4n);
+    expect(queryBitsForSchema(schema)).toBe(RESULT_STATUS_BIT_COST + 2 + TIMING_BUCKET_BITS);
+  });
+
+  it('computes cardinality as the inclusive integer range size', () => {
+    const schema: SealedProbeSchemaNode = { type: 'integer', minimum: 0, maximum: 255 };
+    expect(schemaCardinality(schema)).toBe(256n);
+    expect(queryBitsForSchema(schema)).toBe(RESULT_STATUS_BIT_COST + 8 + TIMING_BUCKET_BITS);
+  });
+
+  it('multiplies cardinality across object fields', () => {
+    const schema: SealedProbeSchemaNode = {
+      type: 'object',
+      fields: [
+        { name: 'a', schema: { type: 'boolean' } },
+        { name: 'b', schema: { type: 'integer', minimum: 0, maximum: 3 } },
+      ],
+    };
+    // 2 * 4 = 8
+    expect(schemaCardinality(schema)).toBe(8n);
+  });
+
+  it('multiplies cardinality across tuple items', () => {
+    const schema: SealedProbeSchemaNode = {
+      type: 'tuple',
+      items: [{ type: 'boolean' }, { type: 'boolean' }, { type: 'boolean' }],
+    };
+    expect(schemaCardinality(schema)).toBe(8n);
+  });
+
+  it('raises item cardinality to the fixed array length', () => {
+    const schema: SealedProbeSchemaNode = { type: 'array', items: { type: 'boolean' }, length: 10 };
+    expect(schemaCardinality(schema)).toBe(1024n);
+  });
+
+  it('handles a zero-length array as cardinality 1', () => {
+    const schema: SealedProbeSchemaNode = { type: 'array', items: { type: 'boolean' }, length: 0 };
+    expect(schemaCardinality(schema)).toBe(1n);
+  });
+
+  it('sums cardinality across disjoint union variants', () => {
+    const schema: SealedProbeSchemaNode = {
+      type: 'union',
+      variants: [
+        { tag: 'a', schema: { type: 'boolean' } },
+        { tag: 'b', schema: { type: 'integer', minimum: 0, maximum: 9 } },
+      ],
+    };
+    // 2 + 10 = 12
+    expect(schemaCardinality(schema)).toBe(12n);
+  });
+
+  it('never overflows even for a schema near the configured bounds', () => {
+    // Cardinality far beyond Number.MAX_SAFE_INTEGER — must stay exact as a BigInt.
+    const schema: SealedProbeSchemaNode = { type: 'array', items: { type: 'integer', minimum: 0, maximum: 65535 }, length: 8 };
+    const expected = 65536n ** 8n;
+    expect(schemaCardinality(schema)).toBe(expected);
+    expect(queryBitsForSchema(schema)).toBe(
+      RESULT_STATUS_BIT_COST + ceilLog2BigInt(expected) + TIMING_BUCKET_BITS,
+    );
+  });
+
+  it('charges exactly 4 bits for the cheapest possible schema (const)', () => {
+    // 1 (status) + 0 (const) + 3 (timing) = 4 — the floor for every invocation.
+    expect(queryBitsForSchema({ type: 'const', value: 1 })).toBe(4);
+  });
+});
+
+describe('validateValueAgainstSchema', () => {
+  it('validates const by exact value equality', () => {
+    expect(validateValueAgainstSchema({ type: 'const', value: 'ok' }, 'ok')).toBe(true);
+    expect(validateValueAgainstSchema({ type: 'const', value: 'ok' }, 'not-ok')).toBe(false);
+    expect(validateValueAgainstSchema({ type: 'const', value: null }, null)).toBe(true);
+    expect(validateValueAgainstSchema({ type: 'const', value: 1 }, 1)).toBe(true);
+    expect(validateValueAgainstSchema({ type: 'const', value: 1 }, '1')).toBe(false);
+  });
+
+  it('validates boolean by strict type', () => {
+    const schema: SealedProbeSchemaNode = { type: 'boolean' };
+    expect(validateValueAgainstSchema(schema, true)).toBe(true);
+    expect(validateValueAgainstSchema(schema, false)).toBe(true);
+    expect(validateValueAgainstSchema(schema, 1)).toBe(false);
+    expect(validateValueAgainstSchema(schema, 'true')).toBe(false);
+  });
+
+  it('validates enum membership only, rejecting unknown members', () => {
+    const schema: SealedProbeSchemaNode = { type: 'enum', values: ['a', 'b'] };
+    expect(validateValueAgainstSchema(schema, 'a')).toBe(true);
+    expect(validateValueAgainstSchema(schema, 'c')).toBe(false);
+  });
+
+  it('validates integer range and rejects non-integers', () => {
+    const schema: SealedProbeSchemaNode = { type: 'integer', minimum: 0, maximum: 10 };
+    expect(validateValueAgainstSchema(schema, 5)).toBe(true);
+    expect(validateValueAgainstSchema(schema, 0)).toBe(true);
+    expect(validateValueAgainstSchema(schema, 10)).toBe(true);
+    expect(validateValueAgainstSchema(schema, 11)).toBe(false);
+    expect(validateValueAgainstSchema(schema, -1)).toBe(false);
+    expect(validateValueAgainstSchema(schema, 5.5)).toBe(false);
+  });
+
+  it('validates fixed object shape: no missing, no extra fields', () => {
+    const schema: SealedProbeSchemaNode = {
+      type: 'object',
+      fields: [{ name: 'ok', schema: { type: 'boolean' } }],
+    };
+    expect(validateValueAgainstSchema(schema, { ok: true })).toBe(true);
+    expect(validateValueAgainstSchema(schema, {})).toBe(false);
+    expect(validateValueAgainstSchema(schema, { ok: true, extra: 1 })).toBe(false);
+    expect(validateValueAgainstSchema(schema, { ok: 'not-a-bool' })).toBe(false);
+    expect(validateValueAgainstSchema(schema, null)).toBe(false);
+    expect(validateValueAgainstSchema(schema, [true])).toBe(false);
+  });
+
+  it('validates fixed-length tuples exactly', () => {
+    const schema: SealedProbeSchemaNode = { type: 'tuple', items: [{ type: 'boolean' }, { type: 'boolean' }] };
+    expect(validateValueAgainstSchema(schema, [true, false])).toBe(true);
+    expect(validateValueAgainstSchema(schema, [true])).toBe(false);
+    expect(validateValueAgainstSchema(schema, [true, false, true])).toBe(false);
+  });
+
+  it('validates fixed-length arrays exactly', () => {
+    const schema: SealedProbeSchemaNode = { type: 'array', items: { type: 'boolean' }, length: 2 };
+    expect(validateValueAgainstSchema(schema, [true, false])).toBe(true);
+    expect(validateValueAgainstSchema(schema, [true])).toBe(false);
+    expect(validateValueAgainstSchema(schema, [true, false, true])).toBe(false);
+  });
+
+  it('validates a tagged union: exact tag/value shape, no untagged escape', () => {
+    const schema: SealedProbeSchemaNode = {
+      type: 'union',
+      variants: [
+        { tag: 'a', schema: { type: 'boolean' } },
+        { tag: 'b', schema: { type: 'integer', minimum: 0, maximum: 9 } },
+      ],
+    };
+    expect(validateValueAgainstSchema(schema, { tag: 'a', value: true })).toBe(true);
+    expect(validateValueAgainstSchema(schema, { tag: 'b', value: 5 })).toBe(true);
+    expect(validateValueAgainstSchema(schema, { tag: 'b', value: true })).toBe(false);
+    expect(validateValueAgainstSchema(schema, { tag: 'c', value: true })).toBe(false);
+    expect(validateValueAgainstSchema(schema, { tag: 'a', value: true, extra: 1 })).toBe(false);
+    expect(validateValueAgainstSchema(schema, true)).toBe(false);
+  });
+});
+
+describe('canonicalizeSchemaValue', () => {
+  it('re-serializes const to its declared literal, ignoring the input value', () => {
+    expect(canonicalizeSchemaValue({ type: 'const', value: 'ok' }, 'ok')).toBe('"ok"');
+  });
+
+  it('re-serializes boolean/enum/integer values directly', () => {
+    expect(canonicalizeSchemaValue({ type: 'boolean' }, true)).toBe('true');
+    expect(canonicalizeSchemaValue({ type: 'enum', values: ['a', 'b'] }, 'b')).toBe('"b"');
+    expect(canonicalizeSchemaValue({ type: 'integer', minimum: 0, maximum: 10 }, 7)).toBe('7');
+  });
+
+  it('re-serializes an object in declared field order regardless of input key order', () => {
+    const schema: SealedProbeSchemaNode = {
+      type: 'object',
+      fields: [
+        { name: 'b', schema: { type: 'boolean' } },
+        { name: 'a', schema: { type: 'boolean' } },
+      ],
+    };
+    expect(canonicalizeSchemaValue(schema, { a: false, b: true })).toBe('{"b":true,"a":false}');
+  });
+
+  it('re-serializes tuples and arrays positionally', () => {
+    const tuple: SealedProbeSchemaNode = { type: 'tuple', items: [{ type: 'boolean' }, { type: 'boolean' }] };
+    expect(canonicalizeSchemaValue(tuple, [true, false])).toBe('[true,false]');
+
+    const array: SealedProbeSchemaNode = { type: 'array', items: { type: 'boolean' }, length: 2 };
+    expect(canonicalizeSchemaValue(array, [false, true])).toBe('[false,true]');
+  });
+
+  it('re-serializes a tagged union as {"tag":...,"value":...}', () => {
+    const schema: SealedProbeSchemaNode = {
+      type: 'union',
+      variants: [{ tag: 'a', schema: { type: 'boolean' } }],
+    };
+    expect(canonicalizeSchemaValue(schema, { tag: 'a', value: true })).toBe('{"tag":"a","value":true}');
+  });
+});
+
+describe('strictParseJson', () => {
+  it('parses valid JSON values', () => {
+    expect(strictParseJson('{"a":1}')).toEqual({ value: { a: 1 } });
+    expect(strictParseJson('[1,2,3]')).toEqual({ value: [1, 2, 3] });
+    expect(strictParseJson('true')).toEqual({ value: true });
+    expect(strictParseJson('null')).toEqual({ value: null });
+    expect(strictParseJson('  "spaced"  ')).toEqual({ value: 'spaced' });
+  });
+
+  it('rejects duplicate object keys instead of silently keeping the last', () => {
+    expect(strictParseJson('{"a":1,"a":2}')).toBeUndefined();
+  });
+
+  it('rejects trailing data after the value', () => {
+    expect(strictParseJson('{"a":1} extra')).toBeUndefined();
+    expect(strictParseJson('{"a":1}{}')).toBeUndefined();
+  });
+
+  it('rejects malformed JSON', () => {
+    expect(strictParseJson('not json')).toBeUndefined();
+    expect(strictParseJson("{'a':1}")).toBeUndefined();
+    expect(strictParseJson('{"a":1')).toBeUndefined();
+    expect(strictParseJson('')).toBeUndefined();
+  });
+
+  it('rejects raw control characters embedded in a string', () => {
+    expect(strictParseJson('{"a":"line\nbreak"}')).toBeUndefined();
+  });
+
+  it.each([
+    ['{"a":"s\\"uccess"}', { a: 's"uccess' }],
+    ['{"a":"s\\\\uccess"}', { a: 's\\uccess' }],
+    ['{"a":"\\u0073"}', { a: 's' }],
+  ])('parses standard JSON escapes: %s', (raw, expected) => {
+    expect(strictParseJson(raw)).toEqual({ value: expected });
+  });
+
+  it.each(['{"a":"\\x41"}', '{"a":"\\uZZZZ"}', '{"a":"trailing\\\\'])(
+    'rejects invalid escapes: %s',
+    (raw) => {
+      expect(strictParseJson(raw)).toBeUndefined();
+    },
+  );
 });
 
 describe('validateSealedProbeRequest', () => {
   const validRequest = {
     privateRepo: 'octo/repo',
-    outcomes: OUTCOMES,
+    schema: { type: 'boolean' },
     script: 'print("hello")',
   };
 
   it('accepts a well-formed request', () => {
-    expect(validateSealedProbeRequest(validRequest)).toEqual({ valid: true });
+    const result = validateSealedProbeRequest(validRequest);
+    expect(result).toEqual({
+      valid: true,
+      request: { privateRepo: 'octo/repo', schema: { type: 'boolean' }, script: 'print("hello")' },
+    });
   });
 
   it('rejects non-object requests', () => {
-    expect(validateSealedProbeRequest(null)).toEqual({ valid: false, errors: expect.any(Array) });
-    expect(validateSealedProbeRequest('string')).toEqual({ valid: false, errors: expect.any(Array) });
-    expect(validateSealedProbeRequest([1, 2, 3])).toEqual({ valid: false, errors: expect.any(Array) });
+    expect(validateSealedProbeRequest(null).valid).toBe(false);
+    expect(validateSealedProbeRequest('string').valid).toBe(false);
+    expect(validateSealedProbeRequest([1, 2, 3]).valid).toBe(false);
   });
 
   it('rejects a privateRepo that looks like a URL', () => {
@@ -146,16 +530,28 @@ describe('validateSealedProbeRequest', () => {
     expect(result.valid).toBe(false);
   });
 
-  it('rejects a missing privateRepo', () => {
-    const rest: Record<string, unknown> = { ...validRequest };
-    delete rest.privateRepo;
-    const result = validateSealedProbeRequest(rest);
+  it(`rejects a privateRepo exceeding ${MAX_PRIVATE_REPO_LENGTH} characters`, () => {
+    const long = `octo/${'r'.repeat(MAX_PRIVATE_REPO_LENGTH)}`;
+    const result = validateSealedProbeRequest({ ...validRequest, privateRepo: long });
     expect(result.valid).toBe(false);
   });
 
-  it('rejects an empty script', () => {
-    const result = validateSealedProbeRequest({ ...validRequest, script: '' });
+  it('rejects a missing privateRepo', () => {
+    const rest: Record<string, unknown> = { ...validRequest };
+    delete rest.privateRepo;
+    expect(validateSealedProbeRequest(rest).valid).toBe(false);
+  });
+
+  it('rejects an invalid schema', () => {
+    const result = validateSealedProbeRequest({ ...validRequest, schema: { type: 'nope' } });
     expect(result.valid).toBe(false);
+    if (!result.valid) {
+      expect(result.errors.some((e) => e.startsWith('schema:'))).toBe(true);
+    }
+  });
+
+  it('rejects an empty script', () => {
+    expect(validateSealedProbeRequest({ ...validRequest, script: '' }).valid).toBe(false);
   });
 
   it('rejects a script exceeding the size cap', () => {
@@ -167,30 +563,23 @@ describe('validateSealedProbeRequest', () => {
   });
 
   it('accepts a script at exactly the size cap', () => {
-    const result = validateSealedProbeRequest({ ...validRequest, script: 'x'.repeat(MAX_SCRIPT_BYTES) });
-    expect(result.valid).toBe(true);
+    expect(validateSealedProbeRequest({ ...validRequest, script: 'x'.repeat(MAX_SCRIPT_BYTES) }).valid).toBe(true);
   });
 
-  it('rejects a request whose overall serialized size exceeds the request cap even though every declared field is within its own cap', () => {
-    // Attach an oversized extra property so the whole-request size guard
-    // (independent of the per-field script/outcome/privateRepo caps) triggers.
+  it('rejects a request whose overall serialized size exceeds the request cap', () => {
     const result = validateSealedProbeRequest({
       ...validRequest,
       extraPadding: 'x'.repeat(MAX_REQUEST_BYTES),
     });
-
     expect(result.valid).toBe(false);
     if (!result.valid) {
       expect(result.errors.some((e) => e.includes('request must be at most'))).toBe(true);
+      expect(result.errors.some((e) => e.includes('extraPadding is not supported'))).toBe(true);
     }
   });
 
   it('rejects unsupported request fields before launch', () => {
-    const result = validateSealedProbeRequest({
-      ...validRequest,
-      runtime: 'docker',
-    });
-
+    const result = validateSealedProbeRequest({ ...validRequest, runtime: 'docker' });
     expect(result).toEqual({
       valid: false,
       errors: expect.arrayContaining(['request.runtime is not supported']),
@@ -201,19 +590,16 @@ describe('validateSealedProbeRequest', () => {
     const cyclic: Record<string, unknown> = { ...validRequest };
     cyclic.self = cyclic;
     const result = validateSealedProbeRequest(cyclic);
-    expect(result).toEqual({
-      valid: false,
-      errors: expect.arrayContaining(['request.self is not supported', 'request must be JSON-serializable']),
-    });
-  });
-
-  it('rejects invalid outcomes on the request', () => {
-    const result = validateSealedProbeRequest({ ...validRequest, outcomes: ['a', 'a', 'b'] });
     expect(result.valid).toBe(false);
+    if (!result.valid) {
+      expect(result.errors).toEqual(
+        expect.arrayContaining(['request.self is not supported', 'request must be JSON-serializable']),
+      );
+    }
   });
 
   it('aggregates errors across multiple invalid fields', () => {
-    const result = validateSealedProbeRequest({ privateRepo: '', outcomes: ['a'], script: '' });
+    const result = validateSealedProbeRequest({ privateRepo: '', schema: { type: 'nope' }, script: '' });
     expect(result.valid).toBe(false);
     if (!result.valid) {
       expect(result.errors.length).toBeGreaterThan(1);
@@ -221,140 +607,65 @@ describe('validateSealedProbeRequest', () => {
   });
 });
 
-describe('buildSealedProbeResultSchema', () => {
-  it('builds the exact closed-schema representation', () => {
-    expect(buildSealedProbeResultSchema(OUTCOMES)).toEqual({
-      type: 'object',
-      additionalProperties: false,
-      required: ['result'],
-      properties: {
-        result: {
-          type: 'string',
-          enum: ['success', 'timeout', 'blocked', 'ERROR'],
-        },
-      },
+describe('canonical envelopes', () => {
+  it('exposes the exact canonical error JSON', () => {
+    expect(CANONICAL_ERROR_JSON).toBe('{"status":"error"}');
+  });
+
+  it('wraps an already-canonicalized result value into the ok envelope', () => {
+    expect(canonicalOkJson('true')).toBe('{"status":"ok","result":true}');
+    expect(canonicalOkJson('"ok"')).toBe('{"status":"ok","result":"ok"}');
+  });
+});
+
+describe('parseAndValidateProbeOutput', () => {
+  const schema: SealedProbeSchemaNode = { type: 'enum', values: ['success', 'timeout', 'blocked'] };
+
+  it('accepts and canonicalizes a valid result', () => {
+    expect(parseAndValidateProbeOutput('{"result":"success"}', { type: 'object', fields: [{ name: 'result', schema }] }))
+      .toEqual({ ok: true, canonical: '{"result":"success"}' });
+  });
+
+  it('accepts a bare schema value directly (no envelope object required by the schema itself)', () => {
+    expect(parseAndValidateProbeOutput('"success"', schema)).toEqual({ ok: true, canonical: '"success"' });
+  });
+
+  it('rejects malformed JSON', () => {
+    expect(parseAndValidateProbeOutput('not json', schema)).toEqual({ ok: false });
+  });
+
+  it('rejects a value outside the enum', () => {
+    expect(parseAndValidateProbeOutput('"not-a-declared-outcome"', schema)).toEqual({ ok: false });
+  });
+
+  it(`rejects output exceeding ${MAX_RESULT_BYTES} bytes`, () => {
+    const oversized = `"${'x'.repeat(MAX_RESULT_BYTES)}"`;
+    expect(parseAndValidateProbeOutput(oversized, { type: 'enum', values: [oversized.slice(1, -1)] })).toEqual({
+      ok: false,
     });
   });
 
-  it('includes the reserved ERROR sentinel as the fourth enum value', () => {
-    const schema = buildSealedProbeResultSchema(OUTCOMES);
-    expect(schema.properties.result.enum).toEqual([
-      'success',
-      'timeout',
-      'blocked',
-      RESERVED_ERROR_OUTCOME,
-    ]);
-  });
-});
-
-describe('canonicalizeSealedProbeResult', () => {
-  it('produces the exact canonical JSON shape', () => {
-    expect(canonicalizeSealedProbeResult('success')).toBe('{"result":"success"}');
+  it('rejects duplicate-key JSON', () => {
+    expect(
+      parseAndValidateProbeOutput('{"a":1,"a":2}', { type: 'object', fields: [{ name: 'a', schema: { type: 'boolean' } }] }),
+    ).toEqual({ ok: false });
   });
 
-  it('exposes a precomputed canonical error result constant', () => {
-    expect(CANONICAL_ERROR_RESULT_JSON).toBe('{"result":"ERROR"}');
-  });
-});
-
-describe('parseSealedProbeResult', () => {
-  it('accepts an exact match to a declared outcome', () => {
-    expect(parseSealedProbeResult('{"result":"success"}', OUTCOMES)).toEqual({ result: 'success' });
+  it('rejects an empty string', () => {
+    expect(parseAndValidateProbeOutput('', schema)).toEqual({ ok: false });
   });
 
-  it('tolerates surrounding whitespace', () => {
-    expect(parseSealedProbeResult('  \n{ "result" : "success" }\t\n', OUTCOMES)).toEqual({ result: 'success' });
-  });
-
-  it('maps malformed JSON to the reserved ERROR result', () => {
-    expect(parseSealedProbeResult('not json at all', OUTCOMES)).toEqual({ result: RESERVED_ERROR_OUTCOME });
-  });
-
-  it('maps duplicate "result" keys to the reserved ERROR result', () => {
-    expect(parseSealedProbeResult('{"result":"success","result":"timeout"}', OUTCOMES))
-      .toEqual({ result: RESERVED_ERROR_OUTCOME });
-  });
-
-  it('maps trailing data after the object to the reserved ERROR result', () => {
-    expect(parseSealedProbeResult('{"result":"success"} extra', OUTCOMES)).toEqual({ result: RESERVED_ERROR_OUTCOME });
-    expect(parseSealedProbeResult('{"result":"success"}{}', OUTCOMES)).toEqual({ result: RESERVED_ERROR_OUTCOME });
-  });
-
-  it('maps extra fields to the reserved ERROR result', () => {
-    expect(parseSealedProbeResult('{"result":"success","extra":1}', OUTCOMES)).toEqual({ result: RESERVED_ERROR_OUTCOME });
-  });
-
-  it('maps a non-enum result value to the reserved ERROR result', () => {
-    expect(parseSealedProbeResult('{"result":"not-a-declared-outcome"}', OUTCOMES)).toEqual({ result: RESERVED_ERROR_OUTCOME });
-  });
-
-  it('maps a literal ERROR value to the (already reserved) ERROR result', () => {
-    expect(parseSealedProbeResult('{"result":"ERROR"}', OUTCOMES)).toEqual({ result: RESERVED_ERROR_OUTCOME });
-  });
-
-  it('maps a non-string result value to the reserved ERROR result', () => {
-    expect(parseSealedProbeResult('{"result":42}', OUTCOMES)).toEqual({ result: RESERVED_ERROR_OUTCOME });
-    expect(parseSealedProbeResult('{"result":null}', OUTCOMES)).toEqual({ result: RESERVED_ERROR_OUTCOME });
-    expect(parseSealedProbeResult('{"result":true}', OUTCOMES)).toEqual({ result: RESERVED_ERROR_OUTCOME });
-  });
-
-  it('maps an empty string to the reserved ERROR result', () => {
-    expect(parseSealedProbeResult('', OUTCOMES)).toEqual({ result: RESERVED_ERROR_OUTCOME });
-  });
-
-  it('maps an oversized result to the reserved ERROR result', () => {
-    const oversized = `{"result":"${'x'.repeat(MAX_RESULT_BYTES)}"}`;
-    expect(parseSealedProbeResult(oversized, OUTCOMES))
-      .toEqual({ result: RESERVED_ERROR_OUTCOME });
-  });
-
-  it('maps an array instead of an object to the reserved ERROR result', () => {
-    expect(parseSealedProbeResult('["success"]', OUTCOMES)).toEqual({ result: RESERVED_ERROR_OUTCOME });
-  });
-
-  it('rejects single-quoted strings as malformed JSON', () => {
-    expect(parseSealedProbeResult("{'result':'success'}", OUTCOMES)).toEqual({ result: RESERVED_ERROR_OUTCOME });
-  });
-
-  it('rejects unterminated strings', () => {
-    expect(parseSealedProbeResult('{"result":"success', OUTCOMES)).toEqual({ result: RESERVED_ERROR_OUTCOME });
-  });
-
-  it('rejects raw control characters embedded in the string', () => {
-    expect(parseSealedProbeResult('{"result":"line\nbreak"}', OUTCOMES)).toEqual({ result: RESERVED_ERROR_OUTCOME });
-  });
-
-  it.each([
-    '{"result":"s\\"uccess"}',
-    '{"result":"s\\\\uccess"}',
-    '{"result":"s\\/uccess"}',
-    '{"result":"s\\buccess"}',
-    '{"result":"s\\fuccess"}',
-    '{"result":"s\\nuccess"}',
-    '{"result":"s\\ruccess"}',
-    '{"result":"s\\tuccess"}',
-    '{"result":"\\u0073uccess"}',
-  ])('parses standard JSON escapes before enforcing the outcome enum: %s', (raw) => {
-    const expected = raw.includes('\\u0073') ? 'success' : RESERVED_ERROR_OUTCOME;
-    expect(parseSealedProbeResult(raw, OUTCOMES)).toEqual({ result: expected });
-  });
-
-  it.each([
-    '{"result":"\\x73uccess"}',
-    '{"result":"\\uZZZZ"}',
-    '{"result":"trailing\\\\',
-  ])('rejects invalid JSON string escapes: %s', (raw) => {
-    expect(parseSealedProbeResult(raw, OUTCOMES)).toEqual({ result: RESERVED_ERROR_OUTCOME });
-  });
-});
-
-describe('parseSealedProbeResultJson', () => {
-  it('returns canonical JSON for a valid result', () => {
-    expect(parseSealedProbeResultJson('{"result":"success"}', OUTCOMES)).toBe('{"result":"success"}');
-  });
-
-  it('returns the canonical error JSON for any invalid input', () => {
-    expect(parseSealedProbeResultJson('garbage', OUTCOMES)).toBe(CANONICAL_ERROR_RESULT_JSON);
-    expect(parseSealedProbeResultJson('{"result":"success","result":"timeout"}', OUTCOMES)).toBe(CANONICAL_ERROR_RESULT_JSON);
+  it('normalizes canonical output regardless of source whitespace/key order', () => {
+    const objSchema: SealedProbeSchemaNode = {
+      type: 'object',
+      fields: [
+        { name: 'a', schema: { type: 'boolean' } },
+        { name: 'b', schema: { type: 'boolean' } },
+      ],
+    };
+    expect(parseAndValidateProbeOutput('{ "b" : true , "a" : false }', objSchema)).toEqual({
+      ok: true,
+      canonical: '{"a":false,"b":true}',
+    });
   });
 });

@@ -6,7 +6,12 @@ import { generateSealedProbeSkill, writeSealedProbeSkill } from './skill';
 
 describe('generateSealedProbeSkill', () => {
   const skill = generateSealedProbeSkill({
-    repos: ['octo/alpha', 'octo/beta'],
+    repos: [
+      { repo: 'octo/alpha', sensitivity: 'internal' },
+      { repo: 'octo/beta', sensitivity: 'confidential' },
+      { repo: 'octo/gamma', sensitivity: 'public' },
+      { repo: 'octo/delta', sensitivity: 'sealed' },
+    ],
     timeoutSeconds: 45,
     maxInvocations: 9,
   });
@@ -17,17 +22,27 @@ describe('generateSealedProbeSkill', () => {
     expect(skill).toContain('description:');
   });
 
-  it('lists exactly the configured repositories', () => {
-    expect(skill).toContain('- `octo/alpha`');
-    expect(skill).toContain('- `octo/beta`');
+  it('lists exactly the configured repositories with their sensitivity and run budget', () => {
+    expect(skill).toContain('- `octo/alpha` — 64 bits/run (`internal`)');
+    expect(skill).toContain('- `octo/beta` — 8 bits/run (`confidential`)');
+    expect(skill).toContain('- `octo/gamma` — unmetered (`public`)');
+    expect(skill).toContain('- `octo/delta` — 0 bits/run (`sealed` — never runs a script)');
     expect(skill).toContain('Any other repository is rejected.');
   });
 
-  it('documents the fixed CLI contract and its refusals', () => {
+  it('documents the fixed v2 CLI contract and its refusals', () => {
     expect(skill).toContain('--repo owner/repo');
-    expect(skill).toContain('--outcome');
+    expect(skill).toContain('--schema');
     expect(skill).toContain('exactly one `--repo`');
-    expect(skill).toContain('You cannot choose the image, command, interpreter,');
+    expect(skill).toContain('exactly one `--schema`');
+    expect(skill).toMatch(/You cannot choose the image, command,\s+interpreter,/);
+  });
+
+  it('documents every finite schema construct', () => {
+    for (const kind of ['const', 'boolean', 'enum', 'integer', 'object', 'tuple', 'array', 'union']) {
+      expect(skill).toContain(`\`${kind}\``);
+    }
+    expect(skill).toContain('not** general\nJSON Schema');
   });
 
   it('documents the script contract against /probe/repo and /probe/out', () => {
@@ -36,15 +51,15 @@ describe('generateSealedProbeSkill', () => {
     expect(skill).toContain('standard library only');
   });
 
-  it('states the configured budget and the two-bit capacity', () => {
+  it('states the configured operational budget and the per-invocation bit charge formula', () => {
     expect(skill).toContain('at most 45 second(s)');
     expect(skill).toContain('At most 9 invocation(s)');
-    expect(skill).toContain('at most 2 bits');
+    expect(skill).toContain('1 (ok/error) + ceil(log2(schema cardinality)) + 3 (timing)');
   });
 
-  it('warns that all failures are indistinguishable', () => {
-    expect(skill).toContain('{"result":"ERROR"}');
-    expect(skill).toContain('indistinguishable from each other by design');
+  it('documents the canonical error and that failures are indistinguishable', () => {
+    expect(skill).toContain('{"status":"error"}');
+    expect(skill).toMatch(/indistinguishable from\s+each other by design/);
   });
 
   it('never suggests the agent can read the repository directly', () => {
@@ -66,7 +81,7 @@ describe('writeSealedProbeSkill', () => {
   it('writes the skill into the AWF-owned agent artifact directory only', () => {
     const paths = resolveSealedProbePaths(workDir);
     const containerPath = writeSealedProbeSkill(paths, {
-      repos: ['octo/alpha'],
+      repos: [{ repo: 'octo/alpha', sensitivity: 'internal' }],
       timeoutSeconds: 30,
       maxInvocations: 32,
     });

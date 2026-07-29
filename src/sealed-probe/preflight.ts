@@ -3,7 +3,7 @@ import { getLocalDockerEnv } from '../host-env';
 import { runtimeUsesComposeAgent } from '../container-runtime';
 import type { SealedProbesConfig, WrapperConfig } from '../types';
 import { normalizeRepoKey } from './paths';
-import { SEALED_PROBE_REPO_PATTERN } from './protocol';
+import { SEALED_PROBE_REPO_PATTERN, TIMING_BUCKETS_MS } from './protocol';
 import { resolveStagingToken } from './staging';
 
 /**
@@ -63,7 +63,8 @@ export function validateSealedProbeConfig(
   }
 
   const seenKeys = new Set<string>();
-  for (const repo of sealedProbes.privateRepos) {
+  for (const entry of sealedProbes.privateRepos) {
+    const repo = entry.repo;
     if (!SEALED_PROBE_REPO_PATTERN.test(repo)) {
       errors.push(
         `sealedProbes.privateRepos entry "${repo}" is not a bare owner/repo slug ` +
@@ -90,8 +91,21 @@ export function validateSealedProbeConfig(
     errors.push(`sealedProbes.interpreter "${sealedProbes.interpreter}" is not supported`);
   }
 
+  // The largest observable timing bucket bounds how long the broker can ever
+  // wait before answering (see `TIMING_BUCKETS_MS` in ./protocol). Capping the
+  // configured timeout at that same ceiling guarantees every completed
+  // invocation — success, failure, or timeout — always lands inside a
+  // bucket, so response latency alone can never distinguish a timeout from a
+  // merely slow-but-successful script.
+  const maxTimeoutSeconds = TIMING_BUCKETS_MS[TIMING_BUCKETS_MS.length - 1] / 1000;
   if (!Number.isInteger(sealedProbes.timeout) || sealedProbes.timeout < 1) {
     errors.push('sealedProbes.timeout must be a positive integer number of seconds');
+  } else if (sealedProbes.timeout > maxTimeoutSeconds) {
+    errors.push(
+      `sealedProbes.timeout must be at most ${maxTimeoutSeconds} seconds ` +
+      `(the largest response-timing bucket); a longer timeout could let an invocation's ` +
+      'completion time itself leak unbucketed secret-dependent information',
+    );
   }
 
   if (!Number.isInteger(sealedProbes.maxInvocations) || sealedProbes.maxInvocations < 1) {

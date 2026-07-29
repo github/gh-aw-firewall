@@ -9,7 +9,7 @@ let mockConfig: WrapperConfig;
 
 const sealedProbes: SealedProbesConfig = {
   enabled: true,
-  privateRepos: ['octo/alpha'],
+  privateRepos: [{ repo: 'octo/alpha', sensitivity: 'internal' }],
   runtime: 'docker',
   timeout: 30,
   memoryLimit: '512m',

@@ -1,26 +1,36 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { EventEmitter } from 'events';
 
 /**
- * Behavioural tests for the trusted broker, exercised through its real
- * filesystem workspace code with a mocked Docker runner.
+ * Behavioural tests for the trusted broker (protocol v2), exercised through
+ * its real filesystem workspace code with a mocked Docker runner and an
+ * injectable clock.
  *
- * These stand in for a full end-to-end probe run: they prove the writable-copy
- * semantics, the seed's immutability, repository isolation, the invocation
- * budget, workspace teardown, and — most importantly — that every failure path
- * produces the byte-identical canonical `ERROR` with no extra signal.
+ * These stand in for a full end-to-end probe run: they prove the
+ * writable-copy semantics, the seed's immutability, repository isolation,
+ * the operational invocation budget, the per-repository *bit* ledger (no
+ * per-query cap — every invocation's schema-derived charge is computed and
+ * debited before launch), the timing-bucket response discipline (via a fake
+ * monotonic clock, never real time), workspace teardown, and — most
+ * importantly — that every failure path produces the byte-identical
+ * canonical `{"status":"error"}` with no extra signal.
  */
 /* eslint-disable @typescript-eslint/no-require-imports */
 const brokerDir = path.join(__dirname, '..', '..', 'containers', 'sealed-probe', 'broker');
 const { createBroker } = require(path.join(brokerDir, 'broker.js'));
 const workspace = require(path.join(brokerDir, 'workspace.js'));
 const { buildProbeArgs } = require(path.join(brokerDir, 'probe-runner.js'));
-const { buildRequestFromFrame } = require(path.join(brokerDir, 'framing.js'));
+const { buildRequestFromFrame, readBoundedBody } = require(path.join(brokerDir, 'framing.js'));
+const { TIMING_BUCKETS_MS } = require(path.join(brokerDir, 'scheduler.js'));
 /* eslint-enable @typescript-eslint/no-require-imports */
 
-const CANONICAL_ERROR = '{"result":"ERROR"}';
-const OUTCOMES = ['YES', 'NO', 'UNKNOWN'];
+const CANONICAL_ERROR = '{"status":"error"}';
+// A fixed-shape object schema (one enum-valued field) keeps most vectors
+// structurally identical to the old three-outcome protocol while exercising
+// the new schema-carrying request and ok/error envelope.
+const OUTCOME_SCHEMA = { type: 'object', fields: { result: { type: 'enum', values: ['YES', 'NO', 'UNKNOWN'] } } };
 
 interface AuditRecord {
   kind: string;
@@ -41,10 +51,42 @@ function createAudit(): { records: AuditRecord[]; log: Record<string, (...args: 
   };
 }
 
+/** A fake monotonic clock the tests fully control — no real time ever elapses. */
+function createFakeClock() {
+  let value = 0;
+  const sleeps: number[] = [];
+  return {
+    clock: {
+      nowMs: () => value,
+      sleep: (ms: number) => {
+        sleeps.push(ms);
+        value += ms;
+        return Promise.resolve();
+      },
+    },
+    advance(ms: number): void {
+      value += ms;
+    },
+    sleeps,
+  };
+}
+
+/** Awaits `broker.handle`, capturing the single callback response. */
+async function invoke(
+  broker: { handle: (request: unknown, respond: (json: string) => void) => Promise<void> },
+  request: unknown,
+): Promise<string> {
+  let response = '';
+  await broker.handle(request, (json: string) => {
+    response = json;
+  });
+  return response;
+}
+
 describe('sealed-probe broker', () => {
   let root: string;
   let config: Record<string, unknown>;
-  let seedMap: Map<string, string>;
+  let seedMap: Map<string, { seedId: string; sensitivity: string }>;
   const seedIdA = 'a'.repeat(32);
   const seedIdB = 'b'.repeat(32);
 
@@ -105,8 +147,8 @@ describe('sealed-probe broker', () => {
     createSeed(seedIdA, { 'README.md': 'repo A secret\n' });
     createSeed(seedIdB, { 'README.md': 'repo B secret\n' });
     seedMap = new Map([
-      ['octo/alpha', seedIdA],
-      ['octo/beta', seedIdB],
+      ['octo/alpha', { seedId: seedIdA, sensitivity: 'internal' }],
+      ['octo/beta', { seedId: seedIdB, sensitivity: 'confidential' }],
     ]);
   });
 
@@ -117,16 +159,21 @@ describe('sealed-probe broker', () => {
 
   function build(
     runner: { runProbeContainer: (params: never) => Promise<unknown> },
-    workspaceOverride = workspace,
+    opts: {
+      workspace?: typeof workspace;
+      clock?: { nowMs: () => number; sleep: (ms: number) => Promise<void> };
+      seeds?: Map<string, { seedId: string; sensitivity: string }>;
+    } = {},
   ) {
     const audit = createAudit();
     const broker = createBroker({
       config,
-      seedMap,
+      seedMap: opts.seeds || seedMap,
       runId: 'run-1234abcd',
       audit: audit.log,
-      workspace: workspaceOverride,
+      workspace: opts.workspace || workspace,
       runner,
+      clock: opts.clock,
     });
     return { broker, audit };
   }
@@ -150,17 +197,17 @@ describe('sealed-probe broker', () => {
 
   const validRequest = (repo = 'octo/alpha') => ({
     privateRepo: repo,
-    outcomes: [...OUTCOMES],
+    schema: OUTCOME_SCHEMA,
     script: 'probe',
   });
 
-  it('returns the canonically re-serialized declared outcome', async () => {
+  it('returns the canonically re-serialized declared outcome inside the ok envelope', async () => {
     const runner = probeRunner((invocationDir) => {
       fs.writeFileSync(path.join(invocationDir, 'out'), '  {"result": "YES"}  ');
     });
     const { broker } = build(runner);
 
-    await expect(broker.handle(validRequest())).resolves.toBe('{"result":"YES"}');
+    expect(await invoke(broker, validRequest())).toBe('{"status":"ok","result":{"result":"YES"}}');
   });
 
   it('gives the probe a read-only copy of the repo and leaves the seed unchanged', async () => {
@@ -173,7 +220,7 @@ describe('sealed-probe broker', () => {
     });
     const { broker } = build(runner);
 
-    await expect(broker.handle(validRequest())).resolves.toBe('{"result":"NO"}');
+    expect(await invoke(broker, validRequest())).toBe('{"status":"ok","result":{"result":"NO"}}');
     expect(observed).toBe('repo A secret\n');
     // The seed itself is untouched.
     expect(fs.readFileSync(path.join(seedPath(seedIdA), 'README.md'), 'utf8')).toBe('repo A secret\n');
@@ -186,7 +233,7 @@ describe('sealed-probe broker', () => {
     });
     const { broker } = build(runner);
 
-    await broker.handle(validRequest());
+    await invoke(broker, validRequest());
 
     expect(fs.readdirSync(String(config.workDir))).toEqual([]);
   });
@@ -197,19 +244,14 @@ describe('sealed-probe broker', () => {
     const runner = probeRunner((invocationDir) => {
       repoContents = fs.readFileSync(path.join(invocationDir, 'repo', 'README.md'), 'utf8');
       fs.writeFileSync(path.join(invocationDir, 'out'), '{"result":"YES"}');
-      // In Docker the probe sees /probe/ containing only repo/ and out (tmpfs).
-      // On the host the invocation root also holds script.py (mounted at
-      // probeScriptPath, outside /probe in Docker). Verify no private data leaks.
       siblings = fs.readdirSync(invocationDir).sort();
     });
     const { broker } = build(runner);
 
-    await broker.handle(validRequest('octo/beta'));
+    await invoke(broker, validRequest('octo/beta'));
 
     expect(repoContents).toBe('repo B secret\n');
-    // script.py is the submitted (non-secret) script; out and repo are expected.
     expect(siblings).toEqual(['out', 'repo', 'script.py']);
-    // No trace of the other seed.
     expect(repoContents).not.toContain('repo A');
   });
 
@@ -219,24 +261,23 @@ describe('sealed-probe broker', () => {
     });
     const { broker, audit } = build(runner);
 
-    await expect(broker.handle(validRequest('octo/not-configured'))).resolves.toBe(CANONICAL_ERROR);
+    expect(await invoke(broker, validRequest('octo/not-configured'))).toBe(CANONICAL_ERROR);
     expect(audit.records[audit.records.length - 1]).toMatchObject({ kind: 'failure', reason: 'repo-not-allowed' });
     expect(fs.readdirSync(String(config.workDir))).toEqual([]);
   });
 
   it.each([
-    ['extra launch control', { ...{ privateRepo: 'octo/alpha', outcomes: [...OUTCOMES], script: 'x' }, image: 'evil' }],
-    ['caller-supplied schema', { privateRepo: 'octo/alpha', outcomes: [...OUTCOMES], script: 'x', schema: {} }],
-    ['four outcomes', { privateRepo: 'octo/alpha', outcomes: ['A', 'B', 'C', 'D'], script: 'x' }],
-    ['reserved outcome', { privateRepo: 'octo/alpha', outcomes: ['A', 'B', 'ERROR'], script: 'x' }],
-    ['path selector', { privateRepo: '../../seeds', outcomes: [...OUTCOMES], script: 'x' }],
+    ['extra launch control field', { ...validRequest(), image: 'evil' }],
+    ['a smuggled sensitivity override (requests cannot choose sensitivity)', { ...validRequest(), sensitivity: 'public' }],
+    ['invalid schema construct', { ...validRequest(), schema: { type: 'nope' } }],
+    ['path traversal repo selector', { privateRepo: '../../seeds', schema: OUTCOME_SCHEMA, script: 'x' }],
   ])('rejects %s before copying or launching', async (_name, request) => {
     const runner = probeRunner(() => {
       throw new Error('probe must not launch');
     });
     const { broker, audit } = build(runner);
 
-    await expect(broker.handle(request)).resolves.toBe(CANONICAL_ERROR);
+    expect(await invoke(broker, request)).toBe(CANONICAL_ERROR);
     expect(audit.records[audit.records.length - 1]).toMatchObject({ reason: 'invalid-request' });
     expect(fs.readdirSync(String(config.workDir))).toEqual([]);
   });
@@ -245,7 +286,6 @@ describe('sealed-probe broker', () => {
     [
       'no output file',
       (invocationDir: string): void => {
-        // Remove the pre-created output file to simulate a probe that never wrote.
         fs.unlinkSync(path.join(invocationDir, 'out'));
       },
       'unreadable-output',
@@ -253,22 +293,20 @@ describe('sealed-probe broker', () => {
     [
       'oversized output',
       (invocationDir: string): void => {
-        fs.writeFileSync(path.join(invocationDir, 'out'), 'x'.repeat(4096));
+        fs.writeFileSync(path.join(invocationDir, 'out'), 'x'.repeat(8193));
       },
       'unreadable-output',
     ],
     [
       'symlinked output',
       (invocationDir: string): void => {
-        // Replace the pre-created output file with a symlink to test that
-        // readProbeOutput rejects symlinks (O_NOFOLLOW defence).
         fs.unlinkSync(path.join(invocationDir, 'out'));
         fs.symlinkSync('/etc/hosts', path.join(invocationDir, 'out'));
       },
       'unreadable-output',
     ],
     [
-      'undeclared outcome',
+      'undeclared enum value',
       (invocationDir: string): void => {
         fs.writeFileSync(path.join(invocationDir, 'out'), '{"result":"MAYBE"}');
       },
@@ -302,18 +340,11 @@ describe('sealed-probe broker', () => {
       },
       'unreadable-output',
     ],
-    [
-      'script-written ERROR',
-      (invocationDir: string): void => {
-        fs.writeFileSync(path.join(invocationDir, 'out'), '{"result":"ERROR"}');
-      },
-      'nonconformant-output',
-    ],
   ])('maps %s to the canonical error', async (_name, behaviour, reason) => {
     const runner = probeRunner(behaviour as (invocationDir: string) => void);
     const { broker, audit } = build(runner);
 
-    await expect(broker.handle(validRequest())).resolves.toBe(CANONICAL_ERROR);
+    expect(await invoke(broker, validRequest())).toBe(CANONICAL_ERROR);
     expect(audit.records[audit.records.length - 1]).toMatchObject({ reason });
     expect(fs.readdirSync(String(config.workDir))).toEqual([]);
   });
@@ -324,7 +355,7 @@ describe('sealed-probe broker', () => {
     }, { timedOut: true, exitCode: 137 });
     const { broker, audit } = build(runner);
 
-    await expect(broker.handle(validRequest())).resolves.toBe(CANONICAL_ERROR);
+    expect(await invoke(broker, validRequest())).toBe(CANONICAL_ERROR);
     expect(audit.records[audit.records.length - 1]).toMatchObject({ reason: 'timeout' });
   });
 
@@ -334,11 +365,11 @@ describe('sealed-probe broker', () => {
     }, { exitCode: 2 });
     const { broker, audit } = build(runner);
 
-    await expect(broker.handle(validRequest())).resolves.toBe(CANONICAL_ERROR);
+    expect(await invoke(broker, validRequest())).toBe(CANONICAL_ERROR);
     expect(audit.records[audit.records.length - 1]).toMatchObject({ reason: 'non-zero-exit' });
   });
 
-  it('maps cleanup failure to the canonical error instead of returning a valid outcome', async () => {
+  it('includes cleanup before the response and maps cleanup failure to canonical error', async () => {
     const runner = probeRunner((invocationDir) => {
       fs.writeFileSync(path.join(invocationDir, 'out'), '{"result":"YES"}');
     });
@@ -348,9 +379,9 @@ describe('sealed-probe broker', () => {
         throw new Error('cleanup failed');
       },
     };
-    const { broker, audit } = build(runner, cleanupFailingWorkspace);
+    const { broker, audit } = build(runner, { workspace: cleanupFailingWorkspace });
 
-    await expect(broker.handle(validRequest())).resolves.toBe(CANONICAL_ERROR);
+    expect(await invoke(broker, validRequest())).toBe(CANONICAL_ERROR);
     expect(audit.records[audit.records.length - 1]).toMatchObject({ reason: 'cleanup-failed' });
   });
 
@@ -362,22 +393,18 @@ describe('sealed-probe broker', () => {
     } as unknown as { runProbeContainer: (params: never) => Promise<unknown> };
     const { broker, audit } = build(runner);
 
-    await expect(broker.handle(validRequest())).resolves.toBe(CANONICAL_ERROR);
+    expect(await invoke(broker, validRequest())).toBe(CANONICAL_ERROR);
     expect(audit.records[audit.records.length - 1]).toMatchObject({ reason: 'launch-failed' });
     expect(fs.readdirSync(String(config.workDir))).toEqual([]);
   });
 
-  it('produces byte-identical responses for success-shaped and every failure-shaped answer', async () => {
+  it('produces byte-identical responses for every failure-shaped answer', async () => {
     const failures = await Promise.all([
-      build(probeRunner(() => {})).broker.handle(validRequest()),
-      build(probeRunner(() => {})).broker.handle(validRequest('octo/nope')),
-      build(probeRunner(() => {})).broker.handle({ privateRepo: 'octo/alpha', outcomes: ['A'], script: 'x' }),
+      invoke(build(probeRunner(() => {})).broker, validRequest('octo/nope')),
+      invoke(build(probeRunner(() => {})).broker, { privateRepo: 'octo/alpha', schema: { type: 'nope' }, script: 'x' }),
     ]);
 
     expect(new Set(failures)).toEqual(new Set([CANONICAL_ERROR]));
-    for (const failure of failures) {
-      expect(failure).toBe(CANONICAL_ERROR);
-    }
   });
 
   it('enforces the per-run invocation budget atomically and without launching', async () => {
@@ -392,24 +419,21 @@ describe('sealed-probe broker', () => {
     } as unknown as { runProbeContainer: (params: never) => Promise<unknown> };
     const { broker, audit } = build(runner);
 
-    const results = await Promise.all(
-      Array.from({ length: 5 }, () => broker.handle(validRequest())),
-    );
+    const results = await Promise.all(Array.from({ length: 5 }, () => invoke(broker, validRequest())));
 
-    expect(results.filter((r) => r === '{"result":"YES"}')).toHaveLength(3);
+    expect(results.filter((r) => r === '{"status":"ok","result":{"result":"YES"}}')).toHaveLength(3);
     expect(results.filter((r) => r === CANONICAL_ERROR)).toHaveLength(2);
     expect(launches).toHaveLength(3);
-    expect(audit.records.filter((r) => r.reason === 'budget-exhausted')).toHaveLength(2);
+    expect(audit.records.filter((r) => r.reason === 'invocation-count-exhausted')).toHaveLength(2);
   });
 
   it('records failure reasons only in the protected audit log, never in the response', async () => {
-    // Probe deletes the output file so the broker cannot read it.
     const runner = probeRunner((invocationDir) => {
       fs.unlinkSync(path.join(invocationDir, 'out'));
     });
     const { broker, audit } = build(runner);
 
-    const response = await broker.handle(validRequest());
+    const response = await invoke(broker, validRequest());
 
     expect(response).toBe(CANONICAL_ERROR);
     expect(JSON.stringify(audit.records)).toContain('unreadable-output');
@@ -429,6 +453,176 @@ describe('sealed-probe broker', () => {
     });
 
     expect(fs.readlinkSync(path.join(layout.repoDir, 'README-link'))).toBe('README.md');
+  });
+
+  describe('per-repository bit ledger (no per-query cap)', () => {
+    it("debits an invocation's exact schema charge before copying a seed or launching Python", async () => {
+      const runner = probeRunner((invocationDir) => {
+        fs.writeFileSync(path.join(invocationDir, 'out'), '{"result":"YES"}');
+      });
+      const { broker } = build(runner);
+
+      // 1 (status) + 2 (ceil(log2(3)) for the 3-valued enum) + 3 (timing) = 6 bits.
+      const before = broker.ledger.remainingBits('octo/alpha');
+      await invoke(broker, validRequest());
+      expect(broker.ledger.remainingBits('octo/alpha')).toBe(before - 6);
+    });
+
+    it('never debits the ledger for a request rejected before validation succeeds', async () => {
+      const runner = probeRunner(() => {
+        throw new Error('probe must not launch');
+      });
+      const { broker } = build(runner);
+
+      const before = broker.ledger.remainingBits('octo/alpha');
+      await invoke(broker, { ...validRequest(), schema: { type: 'nope' } });
+      expect(broker.ledger.remainingBits('octo/alpha')).toBe(before);
+    });
+
+    it('denies (without launching) an invocation whose schema charge exceeds the remaining balance', async () => {
+      const runner = probeRunner(() => {
+        throw new Error('probe must not launch: charge exceeds confidential (8-bit) budget');
+      });
+      const { broker, audit } = build(runner);
+
+      // A 256-value enum costs 1 + 8 + 3 = 12 bits — more than octo/beta's
+      // 8-bit "confidential" run budget.
+      const expensiveSchema = { type: 'enum', values: Array.from({ length: 256 }, (_, i) => i) };
+      const response = await invoke(broker, { privateRepo: 'octo/beta', schema: expensiveSchema, script: 'x' });
+
+      expect(response).toBe(CANONICAL_ERROR);
+      expect(audit.records[audit.records.length - 1]).toMatchObject({ reason: 'bit-budget-exhausted' });
+      expect(fs.readdirSync(String(config.workDir))).toEqual([]);
+    });
+
+    it('a sealed-sensitivity repository (0-bit run budget) can never afford even the cheapest schema', async () => {
+      const sealedSeedMap = new Map([['octo/sealed', { seedId: seedIdA, sensitivity: 'sealed' }]]);
+      const runner = probeRunner(() => {
+        throw new Error('a sealed repo must never launch a probe');
+      });
+      const { broker, audit } = build(runner, { seeds: sealedSeedMap });
+
+      // The cheapest possible schema (const) still costs 1 + 0 + 3 = 4 bits > 0.
+      const response = await invoke(broker, {
+        privateRepo: 'octo/sealed',
+        schema: { type: 'const', value: 'x' },
+        script: 'x',
+      });
+
+      expect(response).toBe(CANONICAL_ERROR);
+      expect(audit.records[audit.records.length - 1]).toMatchObject({ reason: 'bit-budget-exhausted' });
+      expect(fs.readdirSync(String(config.workDir))).toEqual([]);
+    });
+
+    it('a public-sensitivity repository is unmetered and never runs out of budget', async () => {
+      const publicSeedMap = new Map([['octo/public', { seedId: seedIdA, sensitivity: 'public' }]]);
+      config.maxInvocations = 20;
+      const runner = probeRunner((invocationDir) => {
+        fs.writeFileSync(path.join(invocationDir, 'out'), '[0,0,0,0,0,0,0,0]');
+      });
+      const { broker } = build(runner, { seeds: publicSeedMap });
+
+      // A tuple of eight 16-bit integers costs 1 + 128 + 3 = 132 bits — far
+      // beyond even "internal"'s 64-bit run budget, many times over. Only
+      // "public" (unmetered, `null` in the ledger) could ever afford it more
+      // than zero times.
+      const bigSchema = {
+        type: 'tuple',
+        items: Array.from({ length: 8 }, () => ({ type: 'integer', minimum: 0, maximum: 65535 })),
+      };
+      for (let i = 0; i < 10; i++) {
+        // eslint-disable-next-line no-await-in-loop
+        expect(await invoke(broker, { privateRepo: 'octo/public', schema: bigSchema, script: 'x' })).not.toBe(
+          CANONICAL_ERROR,
+        );
+      }
+      expect(broker.ledger.remainingBits('octo/public')).toBeNull();
+    });
+  });
+
+  describe('response-timing bucketing (fake monotonic clock — no real time elapses)', () => {
+    it('buckets a fast-completing invocation to the smallest boundary at or after elapsed processing time', async () => {
+      const { clock, advance, sleeps } = createFakeClock();
+      const runner = probeRunner((invocationDir) => {
+        advance(50); // Simulate 50ms of processing — falls in the 100ms bucket.
+        fs.writeFileSync(path.join(invocationDir, 'out'), '{"result":"YES"}');
+      });
+      const { broker, audit } = build(runner, { clock });
+
+      await invoke(broker, validRequest());
+
+      const invocationRecord = audit.records.find((r) => r.kind === 'invocation');
+      expect(invocationRecord).toMatchObject({ bucketMs: 100 });
+      // Waited the remaining 50ms to reach the 100ms boundary.
+      expect(sleeps).toEqual([50]);
+    });
+
+    it('does not wait at all when processing already lands exactly on a bucket boundary', async () => {
+      const { clock, advance, sleeps } = createFakeClock();
+      const runner = probeRunner((invocationDir) => {
+        advance(10); // Exactly the smallest bucket.
+        fs.writeFileSync(path.join(invocationDir, 'out'), '{"result":"YES"}');
+      });
+      const { broker, audit } = build(runner, { clock });
+
+      await invoke(broker, validRequest());
+
+      expect(audit.records.find((r) => r.kind === 'invocation')).toMatchObject({ bucketMs: 10 });
+      expect(sleeps).toEqual([]);
+    });
+
+    it('buckets a failure response exactly like a success response', async () => {
+      const { clock, advance } = createFakeClock();
+      const runner = probeRunner((invocationDir) => {
+        advance(500); // Falls in the 1000ms bucket.
+        fs.writeFileSync(path.join(invocationDir, 'out'), 'not valid json');
+      });
+      const { broker, audit } = build(runner, { clock });
+
+      expect(await invoke(broker, validRequest())).toBe(CANONICAL_ERROR);
+      const failureRecord = [...audit.records].reverse().find((r) => r.kind === 'failure');
+      // Failure records don't currently carry bucketMs (only invocation
+      // records do), but the wait itself must still have occurred — this is
+      // implicitly proven by the overflow test below reaching a different
+      // code path only when elapsed exceeds every bucket.
+      expect(failureRecord).toMatchObject({ reason: 'nonconformant-output' });
+    });
+
+    it('includes workspace cleanup latency when selecting the timing bucket', async () => {
+      const { clock, advance, sleeps } = createFakeClock();
+      const runner = probeRunner((invocationDir) => {
+        advance(5);
+        fs.writeFileSync(path.join(invocationDir, 'out'), '{"result":"YES"}');
+      });
+      const cleanupWorkspace = {
+        ...workspace,
+        destroyInvocationWorkspace: (workDir: string, invocationId: string) => {
+          advance(50);
+          workspace.destroyInvocationWorkspace(workDir, invocationId);
+        },
+      };
+      const { broker, audit } = build(runner, { clock, workspace: cleanupWorkspace });
+
+      await invoke(broker, validRequest());
+
+      expect(audit.records.find((r) => r.kind === 'invocation')).toMatchObject({ bucketMs: 100 });
+      expect(sleeps).toEqual([45]);
+    });
+
+    it('fails closed with the canonical error when processing overruns every configured bucket, even for an otherwise-valid result', async () => {
+      const { clock, advance } = createFakeClock();
+      const runner = probeRunner((invocationDir) => {
+        // Pathological infrastructure latency far beyond the largest bucket
+        // (600_000ms) — never possible from the script itself, which is
+        // capped at sealedProbes.timeout <= 600s by preflight.ts.
+        advance(TIMING_BUCKETS_MS[TIMING_BUCKETS_MS.length - 1] + 1);
+        fs.writeFileSync(path.join(invocationDir, 'out'), '{"result":"YES"}');
+      });
+      const { broker, audit } = build(runner, { clock });
+
+      expect(await invoke(broker, validRequest())).toBe(CANONICAL_ERROR);
+      expect(audit.records[audit.records.length - 1]).toMatchObject({ reason: 'timing-bucket-overflow' });
+    });
   });
 });
 
@@ -490,7 +684,6 @@ describe('probe container arguments', () => {
   it('backs /probe with a size-limited tmpfs for aggregate storage enforcement', () => {
     const joined = args().join(' ');
     expect(joined).toMatch(/--tmpfs \/probe:rw,nosuid,nodev,size=\d+,uid=65534,gid=65534,mode=0700/);
-    // No writable bind mount for the full /probe dir: a probe cannot fill the host FS
     expect(joined).not.toContain(':/probe:rw');
     expect(joined).not.toContain(':/probe/repo:rw');
   });
@@ -521,24 +714,27 @@ describe('probe container arguments', () => {
   });
 });
 
-describe('request framing', () => {
+describe('request framing (protocol v2)', () => {
+  function base64url(text: string): string {
+    return Buffer.from(text, 'utf8').toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+
+  const schema = { type: 'boolean' };
   const headers = {
-    'x-awf-probe-version': '1',
+    'x-awf-probe-version': '2',
     'x-awf-repo': 'octo/alpha',
-    'x-awf-outcome-1': 'YES',
-    'x-awf-outcome-2': 'NO',
-    'x-awf-outcome-3': 'UNKNOWN',
+    'x-awf-schema-b64': base64url(JSON.stringify(schema)),
   };
   const rawHeaders = Object.entries(headers).flat();
 
-  it('assembles the canonical request object', () => {
+  it('assembles the canonical request object, decoding the schema header', () => {
     expect(buildRequestFromFrame(headers, rawHeaders, 'print(1)')).toEqual({
-      request: { privateRepo: 'octo/alpha', outcomes: ['YES', 'NO', 'UNKNOWN'], script: 'print(1)' },
+      request: { privateRepo: 'octo/alpha', schema, script: 'print(1)' },
     });
   });
 
   it('rejects an unsupported protocol version', () => {
-    expect(buildRequestFromFrame({ ...headers, 'x-awf-probe-version': '2' }, rawHeaders, 'x').error)
+    expect(buildRequestFromFrame({ ...headers, 'x-awf-probe-version': '1' }, rawHeaders, 'x').error)
       .toMatch(/protocol version/);
   });
 
@@ -547,8 +743,8 @@ describe('request framing', () => {
     expect(buildRequestFromFrame(headers, withExtra, 'x').error).toMatch(/unsupported request control header/);
   });
 
-  it('rejects duplicated headers so outcomes cannot be smuggled', () => {
-    const duplicated = [...rawHeaders, 'X-AWF-Outcome-1', 'SNEAKY'];
+  it('rejects duplicated headers so the repo or schema cannot be smuggled', () => {
+    const duplicated = [...rawHeaders, 'X-AWF-Repo', 'octo/sneaky'];
     expect(buildRequestFromFrame(headers, duplicated, 'x').error).toMatch(/duplicate request header/);
   });
 
@@ -556,13 +752,60 @@ describe('request framing', () => {
     return Object.fromEntries(Object.entries(headers).filter(([key]) => key !== name));
   }
 
-  it('rejects a missing outcome', () => {
-    expect(buildRequestFromFrame(omit('x-awf-outcome-3'), rawHeaders, 'x').error)
-      .toMatch(/missing outcome header/);
+  it('rejects a missing schema header', () => {
+    expect(buildRequestFromFrame(omit('x-awf-schema-b64'), rawHeaders, 'x').error)
+      .toMatch(/missing or malformed schema header/);
   });
 
   it('rejects a missing repository selector', () => {
     expect(buildRequestFromFrame(omit('x-awf-repo'), rawHeaders, 'x').error)
       .toMatch(/missing repository selector/);
+  });
+
+  it('rejects a schema header that is not valid base64url', () => {
+    expect(buildRequestFromFrame({ ...headers, 'x-awf-schema-b64': 'not base64url!!' }, rawHeaders, 'x').error)
+      .toMatch(/missing or malformed schema header/);
+  });
+
+  it('rejects a schema header that decodes to invalid JSON', () => {
+    const badSchema = base64url('not json at all');
+    expect(buildRequestFromFrame({ ...headers, 'x-awf-schema-b64': badSchema }, rawHeaders, 'x').error)
+      .toMatch(/not valid JSON/);
+  });
+
+  it('rejects a schema header that decodes to invalid UTF-8', () => {
+    const invalidUtf8 = Buffer.from([0xff, 0xfe]).toString('base64url');
+    expect(buildRequestFromFrame({ ...headers, 'x-awf-schema-b64': invalidUtf8 }, rawHeaders, 'x').error)
+      .toMatch(/missing or malformed schema header/);
+  });
+});
+
+describe('bounded request body reading', () => {
+  function fakeRequest(chunks: (Buffer | string)[]): EventEmitter & { pause: () => void } {
+    const emitter = new EventEmitter() as EventEmitter & { pause: () => void };
+    emitter.pause = jest.fn();
+    process.nextTick(() => {
+      for (const chunk of chunks) emitter.emit('data', Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      emitter.emit('end');
+    });
+    return emitter;
+  }
+
+  it('reads a well-formed script body', async () => {
+    const req = fakeRequest(['print', '(1)']);
+    await expect(readBoundedBody(req)).resolves.toEqual({ script: 'print(1)' });
+  });
+
+  it('rejects a body exceeding the script size cap while streaming', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { MAX_SCRIPT_BYTES } = require(path.join(brokerDir, 'protocol.js'));
+    const req = fakeRequest(['x'.repeat(MAX_SCRIPT_BYTES + 1)]);
+    const result = await readBoundedBody(req);
+    expect(result).toEqual({ error: 'script exceeds maximum size' });
+  });
+
+  it('rejects a body that is not valid UTF-8', async () => {
+    const req = fakeRequest([Buffer.from([0xff, 0xfe])]);
+    await expect(readBoundedBody(req)).resolves.toEqual({ error: 'script is not valid UTF-8' });
   });
 });

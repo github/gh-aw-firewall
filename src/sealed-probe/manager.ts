@@ -161,7 +161,11 @@ export async function prepareSealedProbes(
   writeSeedMap(paths, {
     version: SEALED_PROBE_SEED_MAP_VERSION,
     runId: staging.runId,
-    seeds: staging.seeds.map((seed) => ({ repo: seed.repoKey, seedId: seed.seedId })),
+    seeds: staging.seeds.map((seed) => ({
+      repo: seed.repoKey,
+      seedId: seed.seedId,
+      sensitivity: seed.sensitivity,
+    })),
   });
 
   writeSealedProbeSkill(paths, {

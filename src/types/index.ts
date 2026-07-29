@@ -44,7 +44,11 @@ export {
 export {
   type SealedProbeRuntime,
   type SealedProbeInterpreter,
+  type SealedProbeSensitivity,
+  type SealedProbeRepository,
   type SealedProbesConfig,
   type SealedProbeOptions,
   SEALED_PROBE_DEFAULTS,
+  SEALED_PROBE_SENSITIVITIES,
+  SEALED_PROBE_SENSITIVITY_RUN_BITS,
 } from './sealed-probe-options';

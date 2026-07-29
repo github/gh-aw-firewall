@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import execa from 'execa';
 import { logger } from '../logger';
+import type { SealedProbeRepository } from '../types/sealed-probe-options';
 import { deriveSeedId, normalizeRepoKey, type SealedProbePaths } from './paths';
 import { SEALED_PROBE_REPO_PATTERN } from './protocol';
 import type { SealedProbeSeed, SealedProbeStagingResult } from './types';
@@ -82,8 +83,8 @@ const defaultGitRunner: GitRunner = async (args, options) => {
 };
 
 export interface StageSealedProbeSeedsParams {
-  /** Repository slugs exactly as configured (already schema-validated). */
-  repos: string[];
+  /** Trusted repository descriptors exactly as configured (already schema-validated). */
+  repos: SealedProbeRepository[];
   /** Resolved sealed-probe filesystem layout. */
   paths: SealedProbePaths;
   /** Run-unique id used to derive opaque seed directory names. */
@@ -331,13 +332,14 @@ export function scrubSeed(seedPath: string): void {
 }
 
 async function stageOneSeed(
-  repo: string,
+  repository: SealedProbeRepository,
   params: Required<Pick<StageSealedProbeSeedsParams, 'paths' | 'runId'>> & {
     gitRunner: GitRunner;
     gitEnv: NodeJS.ProcessEnv;
   },
 ): Promise<SealedProbeSeed> {
   const { paths, runId, gitRunner, gitEnv } = params;
+  const { repo, sensitivity } = repository;
   const seedId = deriveSeedId(runId, repo);
   const seedPath = path.join(paths.seedsDir, seedId);
 
@@ -376,6 +378,9 @@ async function stageOneSeed(
     seedId,
     seedPath,
     commit: commit.trim(),
+    // Trusted AWF configuration state, carried unmodified — staging never
+    // derives sensitivity from anything the clone/checkout produced.
+    sensitivity,
   };
 }
 
@@ -403,9 +408,9 @@ export async function stageSealedProbeSeeds(
 
   const seeds: SealedProbeSeed[] = [];
   try {
-    for (const repo of repos) {
-      logger.info(`Sealed probes: staging seed for ${repo}...`);
-      seeds.push(await stageOneSeed(repo, { paths, runId, gitRunner, gitEnv }));
+    for (const repository of repos) {
+      logger.info(`Sealed probes: staging seed for ${repository.repo} (sensitivity: ${repository.sensitivity})...`);
+      seeds.push(await stageOneSeed(repository, { paths, runId, gitRunner, gitEnv }));
     }
   } catch (error) {
     releaseSeedPermissions(paths.seedsDir);

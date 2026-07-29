@@ -6,7 +6,7 @@ const { createAuditLog } = require('./audit');
 const { createBroker } = require('./broker');
 const { loadConfig, loadSeedMap } = require('./config');
 const { buildRequestFromFrame, readBoundedBody } = require('./framing');
-const { CANONICAL_ERROR_RESULT_JSON } = require('./protocol');
+const { CANONICAL_ERROR_JSON } = require('./protocol');
 const { assertProbeImageAvailable } = require('./probe-runner');
 
 /**
@@ -22,12 +22,15 @@ const { assertProbeImageAvailable } = require('./probe-runner');
  * The agent-visible socket has no `/health` route. The compose healthcheck
  * instead polls for a broker-internal ready file written by `main()` after
  * the socket starts accepting connections. This removes a distinguishable
- * fifth response (the health status body) from the agent-observable surface.
+ * extra response (the health status body) from the agent-observable surface.
  *
- * `/probe` always answers `200` with a canonical result body. Status codes,
- * headers, and bodies are identical for success and for every failure class,
- * so the response carries exactly one of the four permitted symbols and
- * nothing else.
+ * `/probe` always answers `200` with a canonical result body: `{"status":
+ * "ok","result":<value>}` or `{"status":"error"}` — status code and headers
+ * are identical either way, and every failure class collapses to the same
+ * error body. For any invocation that reached workspace creation, the
+ * response is additionally held until a fixed timing-bucket boundary (see
+ * `./scheduler`) before being sent, so response latency does not leak
+ * unbucketed secret-dependent signal either.
  */
 
 const RESULT_HEADERS = {
@@ -47,7 +50,7 @@ function createServer(deps) {
     if (req.method !== 'POST' || req.url !== '/probe') {
       // Not part of the API. Answer with the canonical error rather than a
       // distinguishable 404/405 so probing the surface yields no extra signal.
-      sendResult(res, CANONICAL_ERROR_RESULT_JSON);
+      sendResult(res, CANONICAL_ERROR_JSON);
       req.resume();
       return;
     }
@@ -56,22 +59,22 @@ function createServer(deps) {
       .then((body) => {
         if (body.error !== undefined) {
           audit.failure('framing', 'body-rejected', body.error);
-          sendResult(res, CANONICAL_ERROR_RESULT_JSON);
+          sendResult(res, CANONICAL_ERROR_JSON);
           return undefined;
         }
 
         const framed = buildRequestFromFrame(req.headers, req.rawHeaders, body.script);
         if (framed.error !== undefined) {
           audit.failure('framing', 'frame-rejected', framed.error);
-          sendResult(res, CANONICAL_ERROR_RESULT_JSON);
+          sendResult(res, CANONICAL_ERROR_JSON);
           return undefined;
         }
 
-        return broker.handle(framed.request).then((result) => sendResult(res, result));
+        return broker.handle(framed.request, (result) => sendResult(res, result));
       })
       .catch((error) => {
         audit.failure('server', 'unhandled-error', error && error.message);
-        if (!res.headersSent) sendResult(res, CANONICAL_ERROR_RESULT_JSON);
+        if (!res.headersSent) sendResult(res, CANONICAL_ERROR_JSON);
       });
   });
 }
