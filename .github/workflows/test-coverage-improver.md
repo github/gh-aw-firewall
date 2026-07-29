@@ -39,6 +39,12 @@ tools:
     - "./node_modules/.bin/eslint:*"
     - "cat:jest.config.js"
     - "cat:jest.config.ts"
+    - "cat:/tmp/gh-aw/agent/target-file.txt"
+    - "cat:/tmp/gh-aw/agent/target-test-file.txt"
+    - "cat:/tmp/gh-aw/agent/source-content.txt"
+    - "cat:/tmp/gh-aw/agent/test-content.txt"
+    - "cat:/tmp/gh-aw/agent/coverage-md.txt"
+    - "cat:/tmp/gh-aw/agent/low-coverage.txt"
 
 safe-outputs:
   threat-detection:
@@ -128,42 +134,35 @@ This is **gh-aw-firewall**, a network firewall for GitHub Copilot CLI that provi
 
 ## Turn Budget
 
-**Complete this task in ≤ 6 tool calls.** The target file and its current tests are already injected below — do not re-read them unless the injected section is unexpectedly empty. The coverage summary is already provided. Jump directly to writing tests.
+**Complete this task in ≤ 7 tool calls.** Start with one batched read of all staged files before writing tests.
 
 Expected sequence:
-1. Write the new/updated test file (1 call)
-2. Targeted rerun only when needed: `./node_modules/.bin/jest --testPathPattern=<file> --no-coverage 2>&1 | tail -60`
-3. Optional targeted lint for changed test file only: `./node_modules/.bin/eslint <file> --max-warnings=0`
-4. Create PR (1 call)
+1. Read all staged files (1 call): `cat /tmp/gh-aw/agent/target-file.txt /tmp/gh-aw/agent/source-content.txt /tmp/gh-aw/agent/test-content.txt /tmp/gh-aw/agent/coverage-md.txt /tmp/gh-aw/agent/low-coverage.txt`
+2. Write the new/updated test file (1 call)
+3. Targeted rerun only when needed: `./node_modules/.bin/jest --testPathPattern=<file> --no-coverage 2>&1 | tail -60`
+4. Optional targeted lint for changed test file only: `./node_modules/.bin/eslint <file> --max-warnings=0`
+5. Create PR (1 call)
 
 ## Your Task
 
-The target file is pre-selected below. Write Jest unit tests that:
+The target file is pre-selected below. Read the staged files first (see Turn Budget step 1), then write Jest unit tests that:
 - Cover uncovered functions and branches identified in the coverage data
 - Use `jest.mock()` for Docker/iptables/fs dependencies — no real Docker or iptables calls
-- Follow the style of `(see `/tmp/gh-aw/agent/target-test-file.txt`)` when it exists. Do not glob-read `src/*.test.ts` for style reference.
+- Follow the style of the existing test file when it exists. Do not glob-read `src/*.test.ts` for style reference.
 - Focus on error-handling paths and edge cases (empty input, malformed domains, failures)
 - Do NOT modify or remove existing passing tests
-
-If the injected target section below is unexpectedly empty, use `cat` to read `(see `/tmp/gh-aw/agent/target-file.txt`)` directly before writing tests.
 
 Run targeted Jest reruns only when fixing failures, do not run full-suite `npm run test` or `npm run lint` in this workflow, and open a draft PR titled `[Test Coverage] <target-file>`.
 
 ## Target File (pre-selected)
 
-**File to improve:** `(see `/tmp/gh-aw/agent/target-file.txt`)`
+**File to improve:** read from `/tmp/gh-aw/agent/target-file.txt`
 
-The source file content and existing test file content are injected below. Do not use `cat` tools to re-read them.
+Read all staged files with a single batched cat command (see Turn Budget step 1):
 
-### Source: `(see `/tmp/gh-aw/agent/target-file.txt`)`
-```typescript
-(see `/tmp/gh-aw/agent/source-content.txt`)
-```
-
-### Existing tests (if any)
-```typescript
-(see `/tmp/gh-aw/agent/test-content.txt`)
-```
+- Source implementation: `/tmp/gh-aw/agent/source-content.txt`
+- Existing test file (if any): `/tmp/gh-aw/agent/test-content.txt`
+- Test file path: `/tmp/gh-aw/agent/target-test-file.txt`
 
 ## Current Coverage Status
 

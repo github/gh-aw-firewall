@@ -34,7 +34,8 @@ network:
 
 tools:
   github: false
-  bash: false
+  bash:
+    - "cat:/tmp/gh-aw/agent/coverage-gaps-brief.txt"
 
 model: summarization
 engine:
@@ -282,11 +283,7 @@ The test suite has already run and all coverage metrics were pre-computed. Use t
 
 ## Your Task
 
-The top coverage gaps (pre-identified) are:
-
-(read from `/tmp/gh-aw/agent/coverage-gaps-brief.txt` via `cat /tmp/gh-aw/agent/coverage-gaps-brief.txt`)
-
-Using only this brief, write a complete coverage discussion that follows this structure:
+Run `cat /tmp/gh-aw/agent/coverage-gaps-brief.txt` to obtain the top coverage gaps (pre-identified), then use that brief to write a complete coverage discussion that follows this structure:
 
 - `## 📊 Test Coverage Report — YYYY-MM-DD`
 - `### Overall Coverage`

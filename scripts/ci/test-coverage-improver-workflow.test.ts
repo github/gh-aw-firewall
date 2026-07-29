@@ -23,8 +23,8 @@ describe('test coverage improver workflow token optimization config', () => {
     expect(source).toContain('Verify injected context');
     expect(source).toContain('target-test-file.txt');
     expect(source).toContain('## Turn Budget');
-    expect(source).toContain('Complete this task in ≤ 6 tool calls.');
-    expect(source).toContain('unless the injected section is unexpectedly empty');
+    expect(source).toContain('Complete this task in ≤ 7 tool calls.');
+    expect(source).toContain('Start with one batched read of all staged files');
     expect(source).toContain('./node_modules/.bin/jest --testPathPattern=<file> --no-coverage 2>&1 | tail -60');
     expect(source).toContain('./node_modules/.bin/eslint <file> --max-warnings=0');
     expect(source).toContain('## Target File (pre-selected)');
@@ -32,6 +32,11 @@ describe('test coverage improver workflow token optimization config', () => {
     expect(source).toContain('/tmp/gh-aw/agent/target-test-file.txt');
     expect(source).toContain('/tmp/gh-aw/agent/source-content.txt');
     expect(source).toContain('/tmp/gh-aw/agent/test-content.txt');
+    expect(source).toContain('cat:/tmp/gh-aw/agent/source-content.txt');
+    expect(source).toContain('cat:/tmp/gh-aw/agent/test-content.txt');
+    expect(source).toContain('cat:/tmp/gh-aw/agent/target-file.txt');
+    expect(source).toContain('cat:/tmp/gh-aw/agent/coverage-md.txt');
+    expect(source).toContain('cat:/tmp/gh-aw/agent/low-coverage.txt');
     expect(source).toContain('Do not glob-read `src/*.test.ts` for style reference.');
     expect(source).toContain('Run targeted Jest reruns only when fixing failures');
     expect(source).toContain('do not run full-suite `npm run test` or `npm run lint`');
@@ -60,6 +65,11 @@ describe('test coverage improver workflow token optimization config', () => {
     expect(lock).toContain("shell(node:*)");
     expect(lock).toContain("shell(./node_modules/.bin/jest:*)");
     expect(lock).toContain("shell(./node_modules/.bin/eslint:*)");
+    expect(lock).toContain("shell(cat:/tmp/gh-aw/agent/source-content.txt)");
+    expect(lock).toContain("shell(cat:/tmp/gh-aw/agent/test-content.txt)");
+    expect(lock).toContain("shell(cat:/tmp/gh-aw/agent/target-file.txt)");
+    expect(lock).toContain("shell(cat:/tmp/gh-aw/agent/coverage-md.txt)");
+    expect(lock).toContain("shell(cat:/tmp/gh-aw/agent/low-coverage.txt)");
     expect(lock).toContain('name: Select target file and inject content');
     expect(lock).toContain('target-file.txt');
     expect(lock).toContain('target-test-file.txt');
