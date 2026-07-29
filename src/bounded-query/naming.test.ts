@@ -1,41 +1,41 @@
-import { execFileSync } from 'child_process';
-import * as fs from 'fs';
-import * as path from 'path';
+import { spawnSync } from 'child_process';
 
 describe('bounded-query naming', () => {
   it('does not retain the previous feature name in tracked paths or text', () => {
-    const repositoryRoot = path.resolve(__dirname, '..', '..');
     const oldPrefix = 'sealed';
     const oldNoun = 'probe';
-    const forbidden = [
-      new RegExp(`${oldPrefix}[-_ ]${oldNoun}s?`, 'i'),
-      new RegExp(`${oldPrefix}${oldNoun}`, 'i'),
-      new RegExp(`${oldPrefix}[-_ ]query`, 'i'),
+    const forbiddenFragments = [
+      `${oldPrefix}-${oldNoun}`,
+      `${oldPrefix}_${oldNoun}`,
+      `${oldPrefix} ${oldNoun}`,
+      `${oldPrefix}${oldNoun}`,
+      `${oldPrefix}-query`,
+      `${oldPrefix}_query`,
+      `${oldPrefix} query`,
     ];
-    const trackedFiles = execFileSync('git', ['ls-files', '-z'], {
-      cwd: repositoryRoot,
+    const trackedFilesResult = spawnSync('git', ['ls-files', '-z'], {
       encoding: 'utf8',
-    })
+    });
+    expect(trackedFilesResult.status).toBe(0);
+    const trackedFiles = trackedFilesResult.stdout
       .split('\0')
       .filter(Boolean);
-    const matches: string[] = [];
+    const pathMatches = trackedFiles.filter((file) => {
+      const normalized = file.toLowerCase();
+      return forbiddenFragments.some((fragment) => normalized.includes(fragment));
+    });
 
-    for (const relativePath of trackedFiles) {
-      if (forbidden.some((pattern) => pattern.test(relativePath))) {
-        matches.push(relativePath);
-        continue;
-      }
-
-      const absolutePath = path.join(repositoryRoot, relativePath);
-      if (!fs.lstatSync(absolutePath).isFile()) continue;
-      const contents = fs.readFileSync(absolutePath);
-      if (contents.includes(0)) continue;
-      const text = contents.toString('utf8');
-      if (forbidden.some((pattern) => pattern.test(text))) {
-        matches.push(relativePath);
-      }
+    const grepArgs = ['grep', '-I', '-l', '-i', '-z'];
+    for (const fragment of forbiddenFragments) {
+      grepArgs.push('-e', fragment);
     }
+    grepArgs.push('--');
+    const contentMatchesResult = spawnSync('git', grepArgs, { encoding: 'utf8' });
+    expect([0, 1]).toContain(contentMatchesResult.status);
+    const contentMatches = contentMatchesResult.status === 0
+      ? contentMatchesResult.stdout.split('\0').filter(Boolean)
+      : [];
 
-    expect(matches).toEqual([]);
+    expect([...new Set([...pathMatches, ...contentMatches])]).toEqual([]);
   });
 });
