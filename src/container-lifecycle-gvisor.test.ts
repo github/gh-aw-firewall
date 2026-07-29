@@ -7,10 +7,9 @@
  *   3. isGvisorStartupCrash – docker inspect throws (exception in try/catch)
  *   4. isGvisorStartupCrash – runtimeMs is NOT within startup window (long-running agent)
  *   5. runAgentCommand gVisor – retry skipped when crash is NOT a startup crash
- *   6. startContainers – onNetworkReady callback is invoked between squid-only up and full up
  */
 
-import { runAgentCommand, startContainers } from './container-lifecycle';
+import { runAgentCommand } from './container-lifecycle';
 import { containerLifecycleTestHelpers } from './container-lifecycle.test-utils';
 import { mockExecaFn } from './test-helpers/mock-execa.test-utils';
 import { useTempDir } from './test-helpers/docker-test-fixtures.test-utils';
@@ -162,88 +161,5 @@ describe('runAgentCommand – gVisor does not retry non-retryable exit codes', (
       (c: unknown[]) => c[0] === 'docker' && Array.isArray(c[1]) && (c[1] as string[])[0] === 'inspect'
     );
     expect(inspectCalls).toHaveLength(0);
-  });
-});
-
-// ─── startContainers – onNetworkReady callback invocation ────────────────────
-
-describe('startContainers – onNetworkReady callback (topology mode)', () => {
-  const { getDir } = useTempDir();
-
-  it('calls onNetworkReady between squid-only up and full compose up', async () => {
-    // 1. docker rm (initial cleanup)
-    mockExecaFn.mockResolvedValueOnce(ok() as any);
-    // 2. docker compose up --no-deps squid-proxy (phase 1: squid only)
-    mockExecaFn.mockResolvedValueOnce(ok() as any);
-    // 3. docker compose up (full bring-up)
-    mockExecaFn.mockResolvedValueOnce(ok() as any);
-
-    const onNetworkReady = jest.fn().mockResolvedValue(undefined);
-
-    await expect(
-      startContainers(getDir(), ['github.com'], undefined, undefined, onNetworkReady)
-    ).resolves.toBeUndefined();
-
-    expect(onNetworkReady).toHaveBeenCalledTimes(1);
-
-    // Verify phase 1 used --no-deps squid-proxy
-    const composeCalls = mockExecaFn.mock.calls.filter(
-      (c: unknown[]) => c[0] === 'docker' && Array.isArray(c[1]) && (c[1] as string[]).includes('up')
-    );
-    expect(composeCalls).toHaveLength(2);
-    expect(composeCalls[0][1]).toContain('--no-deps');
-    expect(composeCalls[0][1]).toContain('squid-proxy');
-    // Second compose up does not have --no-deps
-    expect(composeCalls[1][1]).not.toContain('--no-deps');
-  });
-
-  it('does not call onNetworkReady when callback is not provided', async () => {
-    mockExecaFn.mockResolvedValueOnce(ok() as any); // docker rm
-    mockExecaFn.mockResolvedValueOnce(ok() as any); // docker compose up
-
-    await expect(
-      startContainers(getDir(), ['github.com'])
-    ).resolves.toBeUndefined();
-
-    // Only one compose up call (no topology split)
-    const composeCalls = mockExecaFn.mock.calls.filter(
-      (c: unknown[]) => c[0] === 'docker' && Array.isArray(c[1]) && (c[1] as string[]).includes('up')
-    );
-    expect(composeCalls).toHaveLength(1);
-    expect(composeCalls[0][1]).not.toContain('--no-deps');
-  });
-
-  it('propagates error from onNetworkReady callback', async () => {
-    mockExecaFn.mockResolvedValueOnce(ok() as any); // docker rm
-    mockExecaFn.mockResolvedValueOnce(ok() as any); // docker compose up --no-deps squid-proxy
-
-    const onNetworkReady = jest.fn().mockRejectedValue(new Error('peer attach failed'));
-
-    await expect(
-      startContainers(getDir(), ['github.com'], undefined, undefined, onNetworkReady)
-    ).rejects.toThrow('peer attach failed');
-  });
-});
-
-// ─── startContainers – onNetworkReady with skip-pull ─────────────────────────
-
-describe('startContainers – onNetworkReady with skipPull=true', () => {
-  const { getDir } = useTempDir();
-
-  it('passes --pull never to both phase-1 and phase-2 compose up when skipPull=true', async () => {
-    mockExecaFn.mockResolvedValueOnce(ok() as any); // docker rm
-    mockExecaFn.mockResolvedValueOnce(ok() as any); // phase-1 compose up
-    mockExecaFn.mockResolvedValueOnce(ok() as any); // phase-2 compose up
-
-    const onNetworkReady = jest.fn().mockResolvedValue(undefined);
-
-    await startContainers(getDir(), ['github.com'], undefined, true, onNetworkReady);
-
-    const composeCalls = mockExecaFn.mock.calls.filter(
-      (c: unknown[]) => c[0] === 'docker' && Array.isArray(c[1]) && (c[1] as string[]).includes('up')
-    );
-    // phase-1 squid-only call should include --pull never
-    expect(composeCalls[0][1]).toContain('--pull');
-    expect(composeCalls[0][1]).toContain('never');
   });
 });
