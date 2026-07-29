@@ -10,6 +10,8 @@ import { UpstreamProxyConfig } from '../types';
 interface NetworkSetupResult {
   upstreamProxy: UpstreamProxyConfig | undefined;
   dnsServers: string[];
+  /** True when DNS servers were supplied explicitly (--dns-servers / config file); false when auto-detected. */
+  dnsServersExplicit: boolean;
   dnsOverHttps: string | undefined;
 }
 
@@ -26,15 +28,18 @@ interface NetworkSetupResult {
 export function resolveNetworkConfig(options: Record<string, unknown>): NetworkSetupResult {
   // Parse and validate DNS servers (auto-detect if not explicitly provided)
   let dnsServers: string[];
+  let dnsServersExplicit: boolean;
   if (options.dnsServers) {
     try {
       dnsServers = parseDnsServers(options.dnsServers as string);
+      dnsServersExplicit = true;
     } catch (error) {
       logger.error(`Invalid DNS servers: ${error instanceof Error ? error.message : error}`);
       process.exit(1);
     }
   } else {
     dnsServers = detectHostDnsServers(logger);
+    dnsServersExplicit = false;
   }
 
   // Parse and validate --dns-over-https
@@ -73,5 +78,5 @@ export function resolveNetworkConfig(options: Record<string, unknown>): NetworkS
     }
   }
 
-  return { upstreamProxy, dnsServers, dnsOverHttps };
+  return { upstreamProxy, dnsServers, dnsServersExplicit, dnsOverHttps };
 }

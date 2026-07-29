@@ -53,6 +53,7 @@ interface BuildConfigInputs {
   volumeMounts: string[] | undefined;
   upstreamProxy: UpstreamProxyConfig | undefined;
   dnsServers: string[];
+  dnsServersExplicit?: boolean;
   dnsOverHttps: string | undefined;
   allowedUrls: string[] | undefined;
   memoryLimit: string | undefined;
@@ -91,6 +92,7 @@ export function buildConfig(inputs: BuildConfigInputs): WrapperConfig {
     volumeMounts,
     upstreamProxy,
     dnsServers,
+    dnsServersExplicit,
     dnsOverHttps,
     allowedUrls,
     memoryLimit,
@@ -142,6 +144,7 @@ export function buildConfig(inputs: BuildConfigInputs): WrapperConfig {
     volumeMounts,
     containerWorkDir: options.containerWorkdir as string | undefined,
     dnsServers,
+    dnsServersExplicit,
     dnsOverHttps,
     memoryLimit,
     proxyLogsDir: options.proxyLogsDir as string | undefined,

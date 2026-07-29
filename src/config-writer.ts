@@ -215,7 +215,8 @@ function writeAuditArtifacts(
   config: WrapperConfig,
   networkConfig: NetworkConfig,
   dockerCompose: DockerComposeConfig,
-  squidConfig: string
+  squidConfig: string,
+  squidDnsServers?: string[]
 ): void {
   const auditDir = config.auditDir || path.join(config.workDir, 'audit');
   fs.mkdirSync(auditDir, { recursive: true, mode: 0o755 });
@@ -249,7 +250,7 @@ function writeAuditArtifacts(
     enableHostAccess: config.enableHostAccess,
     allowHostPorts: config.allowHostPorts,
     enableDlp: config.enableDlp,
-    dnsServers: config.dnsServers,
+    dnsServers: squidDnsServers ?? config.dnsServers,
     ...(config.enableApiProxy && networkConfig.proxyIp ? {
       apiProxyIp: networkConfig.proxyIp,
     } : {}),
@@ -324,11 +325,12 @@ export async function writeConfigs(config: WrapperConfig): Promise<void> {
   // DNS server address), DNS servers that depend on host-specific routing — such
   // as Azure DHCP DNS (168.63.129.16) or Tailscale Magic DNS (100.100.100.100) —
   // can become unreachable from the Docker bridge, causing every Squid DNS lookup
-  // to fail with TCP_TUNNEL:HIER_NONE 503. Filter them out in isolation mode so
-  // Squid falls back to publicly-routable servers that are not affected by VPN
-  // route changes.
+  // to fail with TCP_TUNNEL:HIER_NONE 503. Filter them out in isolation mode when
+  // the DNS list was auto-detected (not explicitly supplied by the operator via
+  // --dns-servers), so Squid falls back to publicly-routable servers that are not
+  // affected by VPN route changes. Explicitly-specified servers are trusted as-is.
   const resolvedDnsServers = config.dnsServers ?? DEFAULT_DNS_SERVERS;
-  const squidDnsServers = config.networkIsolation
+  const squidDnsServers = config.networkIsolation && !config.dnsServersExplicit
     ? filterForNetworkIsolation(resolvedDnsServers, logger)
     : resolvedDnsServers;
 
@@ -380,7 +382,7 @@ export async function writeConfigs(config: WrapperConfig): Promise<void> {
   // These files contain no secrets (redacted compose, domain ACLs, policy rules)
   // and are made world-readable so the gh-aw post-run audit step (running as
   // non-root runner user) can stat/read them even if AWF cleanup is interrupted.
-  writeAuditArtifacts(config, networkConfig, dockerCompose, squidConfig);
+  writeAuditArtifacts(config, networkConfig, dockerCompose, squidConfig, squidDnsServers);
 }
 
 /** @internal Exposed only for unit tests — not part of the public API. */

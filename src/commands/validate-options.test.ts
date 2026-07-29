@@ -156,6 +156,7 @@ describe('validateOptions', () => {
     mockedNetworkSetup.resolveNetworkConfig.mockReturnValue({
       upstreamProxy: undefined,
       dnsServers: ['8.8.8.8'],
+      dnsServersExplicit: false,
       dnsOverHttps: undefined,
     });
 

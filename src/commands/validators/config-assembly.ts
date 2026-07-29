@@ -47,6 +47,7 @@ export function assembleAndValidateConfig(
     volumeMounts: agentOptions.volumeMounts,
     upstreamProxy: networkOptions.upstreamProxy,
     dnsServers: networkOptions.dnsServers,
+    dnsServersExplicit: networkOptions.dnsServersExplicit,
     dnsOverHttps: networkOptions.dnsOverHttps,
     allowedUrls: agentOptions.allowedUrls,
     memoryLimit: logAndLimits.memoryLimit,

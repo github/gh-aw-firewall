@@ -59,6 +59,20 @@ export interface NetworkOptions {
   dnsServers?: string[];
 
   /**
+   * Whether the DNS server list was supplied explicitly by the operator
+   * (via `--dns-servers` or `network.dnsServers` in the config file) rather
+   * than auto-detected from the host's resolv.conf.
+   *
+   * When `false` or absent, the list was auto-detected and may be filtered in
+   * network-isolation mode to remove host-specific resolvers (e.g. Azure DHCP
+   * DNS or Tailscale Magic DNS) that can become unreachable from Docker bridge
+   * containers. When `true`, the operator's choice is respected as-is.
+   *
+   * @internal Not exposed to end-users; set during option resolution.
+   */
+  dnsServersExplicit?: boolean;
+
+  /**
    * DNS-over-HTTPS resolver URL
    *
    * When specified, a DoH proxy sidecar is deployed that encrypts DNS queries
