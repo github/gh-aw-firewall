@@ -33,11 +33,11 @@ The system is orchestrated by `src/cli.ts` and managed by `src/docker-manager.ts
 - The only AWF service with `network_mode: none`: no `awf-net`, no external bridge, no DNS, no Squid, no host gateway
 - Reachable only through one Unix socket in `<workDir>/bounded-queries/run/`, bind-mounted into the agent at `/run/awf-bounded-query/broker.sock`
 - Receives the resolved Docker socket so it can launch per-invocation query containers; that path never enters the agent's env or volumes
-- The same image is used for the query sandbox, which guarantees the query image is already local (the broker cannot pull — it has no network)
+- The broker (`bounded-query-broker`) and query sandbox (`bounded-query`) are separate published images; a one-shot networkless Compose service pulls the sandbox image before broker startup so the broker (which has no network) can launch query containers
 - Queries run `python3` with `--network none`, `--read-only`, non-root, `--cap-drop ALL`, `no-new-privileges`, a seccomp profile, and time/memory/CPU/PID/file-size bounds
-- Agent surface: `/usr/local/bin/bounded-query` (from `containers/agent/bounded-query-wrapper.sh`) plus a generated read-only `SKILL.md`; the wrapper always prints one canonical JSON line, writes nothing to stderr, and exits `0`
+- Agent surface: `bounded-query` command at `/tmp/awf-lib/bounded-query` (inside chroot, added to PATH by `entrypoint.sh`; the source file in the container is `/usr/local/bin/bounded-query-wrapper.sh`) plus a generated read-only `SKILL.md`; the wrapper always prints one canonical JSON line, writes nothing to stderr, and exits `0`
 - Trusted host staging (`src/bounded-query/staging.ts`) materializes an immutable seed per configured repo *before* the agent starts, using `GH_TOKEN`/`GITHUB_TOKEN` only in a child-process env — never in argv, a URL, a log, or the compose file
-- See [docs/awf-config-spec.md](docs/awf-config-spec.md) §14 for the full model, including the two-bit disclosure bound and residual channels
+- See [docs/awf-config-spec.md](docs/awf-config-spec.md) §14 for the full model, including per-repository information-budget accounting and residual channels
 
 ### Documentation Files
 
