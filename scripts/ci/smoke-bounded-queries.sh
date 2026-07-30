@@ -12,9 +12,9 @@ fail() {
 }
 
 run_inside_agent() {
-  command -v sealed-probe >/dev/null || fail "sealed-probe is not installed"
-  [[ "${AWF_SEALED_PROBE_REPOS:-}" == "$TARGET_REPO" ]] ||
-    fail "unexpected AWF_SEALED_PROBE_REPOS: ${AWF_SEALED_PROBE_REPOS:-<unset>}"
+  command -v bounded-query >/dev/null || fail "bounded-query is not installed"
+  [[ "${AWF_BOUNDED_QUERY_REPOS:-}" == "$TARGET_REPO" ]] ||
+    fail "unexpected AWF_BOUNDED_QUERY_REPOS: ${AWF_BOUNDED_QUERY_REPOS:-<unset>}"
   [[ -z "${GH_TOKEN:-}" && -z "${GITHUB_TOKEN:-}" ]] ||
     fail "staging credentials reached the agent environment"
 
@@ -57,7 +57,7 @@ run_inside_agent() {
   for attempt in 0 1 2; do
     if [[ "$result_kind" == "array" ]]; then
       response="$(
-        sealed-probe --repo "$TARGET_REPO" --schema "$schema" <<'PY'
+        bounded-query --repo "$TARGET_REPO" --schema "$schema" <<'PY'
 import json
 from pathlib import Path
 
@@ -67,7 +67,7 @@ PY
       )"
     else
       response="$(
-        sealed-probe --repo "$TARGET_REPO" --schema "$schema" <<'PY'
+        bounded-query --repo "$TARGET_REPO" --schema "$schema" <<'PY'
 import json
 from pathlib import Path
 
@@ -96,7 +96,7 @@ elif status == "error":
     if payload != {"status": "error"}:
         raise SystemExit("error response was not canonical")
 else:
-    raise SystemExit(f"unexpected sealed-probe response: {payload!r}")
+    raise SystemExit(f"unexpected bounded-query response: {payload!r}")
 
 print(status)
 PY
@@ -134,7 +134,7 @@ run_on_host() {
   "logging": {
     "auditDir": "$audit_dir"
   },
-  "sealedProbes": {
+  "boundedQueries": {
     "enabled": true,
     "privateRepos": [
       {
