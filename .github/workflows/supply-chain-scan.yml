@@ -65,7 +65,14 @@ jobs:
       - name: Compile + generate SBOMs (Syft)
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh aw compile --syft
+        run: |
+          # This source requires unreleased gh-aw bounded-query frontmatter.
+          # Its committed lock manifest is still scanned by the steps below.
+          mapfile -t workflows < <(
+            find .github/workflows -maxdepth 1 -name '*.md' \
+              ! -name 'smoke-bounded-queries.md' -print
+          )
+          gh aw compile --syft "${workflows[@]}"
 
       - name: Authenticate to GHCR for image scanning
         run: echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin

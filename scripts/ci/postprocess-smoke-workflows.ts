@@ -31,11 +31,9 @@ const codexWorkflowPaths = [
 // with a source build, which is incompatible (e.g. the standalone awf bundle
 // rejects --build-local: "requires a full repository checkout").
 //
-// Currently empty: all workflows (including the network-isolation variants)
-// build awf/firewall from the repo's own source and use the compiler-default
-// mcp gateway version. The full-repo checkout injected by the post-processor
-// makes --build-local valid everywhere.
-const releaseModeLockFiles = new Set<string>([]);
+const releaseModeLockFiles = new Set<string>([
+  'smoke-bounded-queries.lock.yml',
+]);
 
 // Auto-discover all lock files so new workflows are automatically included.
 // This avoids the recurring bug where adding a new workflow .md file and
