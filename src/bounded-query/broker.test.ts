@@ -20,6 +20,7 @@ import { EventEmitter } from 'events';
 /* eslint-disable @typescript-eslint/no-require-imports */
 const brokerDir = path.join(__dirname, '..', '..', 'containers', 'bounded-query', 'broker');
 const { createBroker } = require(path.join(brokerDir, 'broker.js'));
+const { createAuditLog } = require(path.join(brokerDir, 'audit.js'));
 const workspace = require(path.join(brokerDir, 'workspace.js'));
 const {
   QUERY_MAX_FILE_BYTES,
@@ -36,6 +37,29 @@ const CANONICAL_ERROR = '{"status":"error"}';
 // structurally identical to the old three-outcome protocol while exercising
 // the new schema-carrying request and ok/error envelope.
 const OUTCOME_SCHEMA = { type: 'object', fields: { result: { type: 'enum', values: ['YES', 'NO', 'UNKNOWN'] } } };
+
+it('persists audit records before returning to the caller', () => {
+  const auditDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-audit-'));
+  try {
+    const audit = createAuditLog(auditDir);
+    audit.failure('invocation-1', 'query-error', 'container failed');
+
+    const records = fs.readFileSync(path.join(auditDir, 'bounded-query.jsonl'), 'utf8')
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line));
+    expect(records).toEqual([
+      expect.objectContaining({
+        kind: 'failure',
+        invocationId: 'invocation-1',
+        reason: 'query-error',
+        detail: 'container failed',
+      }),
+    ]);
+  } finally {
+    fs.rmSync(auditDir, { recursive: true, force: true });
+  }
+});
 
 interface AuditRecord {
   kind: string;

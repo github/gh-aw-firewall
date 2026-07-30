@@ -18,36 +18,38 @@ const path = require('path');
 const MAX_REASON_LENGTH = 500;
 
 function createAuditLog(auditDir) {
-  let stream;
+  let fd;
   try {
     fs.mkdirSync(auditDir, { recursive: true, mode: 0o700 });
     const auditPath = path.join(auditDir, 'bounded-query.jsonl');
-    const fd = fs.openSync(auditPath, 'a', 0o600);
-    stream = fs.createWriteStream(null, {
-      fd,
-      flags: 'a',
-      mode: 0o600,
-      autoClose: true,
-    });
-    stream.on('error', (error) => {
-      process.stderr.write(`[bounded-query] audit log unavailable: ${error.message}\n`);
-      stream = undefined;
-    });
+    fd = fs.openSync(auditPath, 'a', 0o600);
   } catch (error) {
-    // Losing the audit stream must not take the broker down; fall back to
+    // Losing the audit file must not take the broker down; fall back to
     // stderr, which is captured by `docker logs` on the broker container
     // (also outside the agent's reach).
     process.stderr.write(`[bounded-query] audit log unavailable: ${error.message}\n`);
-    stream = undefined;
+    fd = undefined;
   }
 
   function write(record) {
-    const line = JSON.stringify({ ts: new Date().toISOString(), ...record });
-    if (stream && !stream.destroyed) {
-      stream.write(line + '\n');
-    } else {
-      process.stderr.write(line + '\n');
+    const line = `${JSON.stringify({ ts: new Date().toISOString(), ...record })}\n`;
+    if (fd !== undefined) {
+      try {
+        // Keep diagnostics durable when the broker is stopped immediately
+        // after an invocation fails.
+        fs.writeSync(fd, line);
+        return;
+      } catch (error) {
+        process.stderr.write(`[bounded-query] audit log unavailable: ${error.message}\n`);
+        try {
+          fs.closeSync(fd);
+        } catch {
+          // The original write error is the useful diagnostic.
+        }
+        fd = undefined;
+      }
     }
+    process.stderr.write(line);
   }
 
   return {
