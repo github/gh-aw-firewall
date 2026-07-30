@@ -14,7 +14,7 @@ For a deep dive into how AWF handles authentication tokens and credential isolat
 When enabled, the API proxy sidecar:
 - **Isolates credentials**: API keys are never exposed to the agent container
 - **Auto-authentication**: Automatically injects Bearer tokens and API keys
-- **Dual provider support**: Supports both OpenAI (Codex) and Anthropic (Claude) APIs
+- **Multi-provider support**: Supports OpenAI, Anthropic, Copilot, and Gemini APIs
 - **Transparent proxying**: Agent code uses standard SDK environment variables
 - **Squid routing**: All traffic routes through Squid to respect domain whitelisting
 
