@@ -4,6 +4,10 @@ import * as os from 'os';
 import execa from 'execa';
 import { logger } from './logger';
 import { fixArtifactPermissionsForRootless } from './artifact-permissions';
+import { getLocalDockerEnv } from './host-env';
+
+const BOUNDED_QUERY_AUDIT_CONTAINER_PATH =
+  'awf-bounded-query-broker:/var/log/awf-bounded-query/bounded-query.jsonl';
 
 /**
  * Copies the iptables audit dump from the init-signal volume to the audit directory.
@@ -12,7 +16,7 @@ import { fixArtifactPermissionsForRootless } from './artifact-permissions';
  */
 export function preserveIptablesAudit(workDir: string, auditDir?: string): void {
   const iptablesAuditSrc = path.join(workDir, 'init-signal', 'iptables-audit.txt');
-  const boundedQueryAuditSrc = path.join(workDir, 'bounded-queries', 'audit', 'bounded-query.jsonl');
+  const boundedQueryRoot = path.join(workDir, 'bounded-queries');
   const targetAuditDir = auditDir || path.join(workDir, 'audit');
   if (!fs.existsSync(targetAuditDir)) return;
 
@@ -26,11 +30,19 @@ export function preserveIptablesAudit(workDir: string, auditDir?: string): void 
     }
   }
 
-  if (fs.existsSync(boundedQueryAuditSrc)) {
+  if (fs.existsSync(boundedQueryRoot)) {
     try {
-      fs.copyFileSync(boundedQueryAuditSrc, path.join(targetAuditDir, 'bounded-query.jsonl'));
-      fs.chmodSync(path.join(targetAuditDir, 'bounded-query.jsonl'), 0o644);
-      logger.debug('Copied bounded-query broker audit to audit directory');
+      const destination = path.join(targetAuditDir, 'bounded-query.jsonl');
+      const result = execa.sync(
+        'docker',
+        ['cp', BOUNDED_QUERY_AUDIT_CONTAINER_PATH, destination],
+        { env: getLocalDockerEnv(), reject: false },
+      );
+      if (result.exitCode === 0) {
+        logger.debug('Copied bounded-query broker audit to audit directory');
+      } else {
+        logger.debug('Could not copy bounded-query audit file:', result.stderr);
+      }
     } catch (error) {
       logger.debug('Could not copy bounded-query audit file:', error);
     }

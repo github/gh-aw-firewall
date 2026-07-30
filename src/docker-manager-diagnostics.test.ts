@@ -3,7 +3,7 @@ import { collectDiagnosticLogs } from './diagnostic-collector';
 import * as fs from 'fs';
 import * as path from 'path';
 
-import { mockExecaFn } from './test-helpers/mock-execa.test-utils';
+import { mockExecaFn, mockExecaSync } from './test-helpers/mock-execa.test-utils';
 import { useTempDir } from './test-helpers/docker-test-fixtures.test-utils';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 jest.mock('execa', () => require('./test-helpers/mock-execa.test-utils').execaMockFactory());
@@ -173,8 +173,14 @@ describe('docker-manager diagnostics', () => {
 
       preserveIptablesAudit(getDir(), auditDir);
 
-      expect(fs.readFileSync(path.join(auditDir, 'bounded-query.jsonl'), 'utf8')).toBe(
-        '{"kind":"failure","reason":"non-zero-exit"}\n',
+      expect(mockExecaSync).toHaveBeenCalledWith(
+        'docker',
+        [
+          'cp',
+          'awf-bounded-query-broker:/var/log/awf-bounded-query/bounded-query.jsonl',
+          path.join(auditDir, 'bounded-query.jsonl'),
+        ],
+        expect.objectContaining({ reject: false }),
       );
     });
   });
