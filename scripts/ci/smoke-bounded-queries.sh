@@ -144,7 +144,7 @@ run_on_host() {
     ],
     "runtime": "docker",
     "timeout": 30,
-    "memoryLimit": "512m",
+    "memoryLimit": "2g",
     "interpreter": "python3",
     "maxInvocations": 10
   }

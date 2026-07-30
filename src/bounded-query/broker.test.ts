@@ -21,7 +21,12 @@ import { EventEmitter } from 'events';
 const brokerDir = path.join(__dirname, '..', '..', 'containers', 'bounded-query', 'broker');
 const { createBroker } = require(path.join(brokerDir, 'broker.js'));
 const workspace = require(path.join(brokerDir, 'workspace.js'));
-const { buildQueryArgs, normalizeTimeoutMs } = require(path.join(brokerDir, 'query-runner.js'));
+const {
+  QUERY_MAX_FILE_BYTES,
+  QUERY_WORKSPACE_TMPFS_BYTES,
+  buildQueryArgs,
+  normalizeTimeoutMs,
+} = require(path.join(brokerDir, 'query-runner.js'));
 const { buildRequestFromFrame, readBoundedBody } = require(path.join(brokerDir, 'framing.js'));
 const { TIMING_BUCKETS_MS } = require(path.join(brokerDir, 'scheduler.js'));
 /* eslint-enable @typescript-eslint/no-require-imports */
@@ -683,7 +688,7 @@ describe('query container arguments', () => {
     expect(joined).toContain('--memory-swap 256m');
     expect(joined).toContain('--cpus 1');
     expect(joined).toContain('--pids-limit 128');
-    expect(joined).toContain('--ulimit fsize=');
+    expect(joined).toContain(`--ulimit fsize=${512 * 1024 * 1024}`);
     expect(joined).toContain('--ulimit nofile=1024:1024');
   });
 
@@ -702,9 +707,16 @@ describe('query container arguments', () => {
 
   it('backs /query with a size-limited tmpfs for aggregate storage enforcement', () => {
     const joined = args().join(' ');
-    expect(joined).toMatch(/--tmpfs \/query:rw,nosuid,nodev,size=\d+,uid=65534,gid=65534,mode=0700/);
+    expect(joined).toContain(
+      `--tmpfs /query:rw,nosuid,nodev,size=${1024 * 1024 * 1024},uid=65534,gid=65534,mode=0700`,
+    );
     expect(joined).not.toContain(':/query:rw');
     expect(joined).not.toContain(':/query/repo:rw');
+  });
+
+  it('fits the bounded github/gh-aw smoke-test seed', () => {
+    expect(QUERY_MAX_FILE_BYTES).toBe(512 * 1024 * 1024);
+    expect(QUERY_WORKSPACE_TMPFS_BYTES).toBe(1024 * 1024 * 1024);
   });
 
   it('never mounts the Docker socket, the seeds root, or a workspace', () => {
