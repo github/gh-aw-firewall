@@ -31,6 +31,8 @@ sandbox:
   agent:
     id: awf
     version: v0.28.0
+    args:
+      - --build-local
 steps:
   - name: Build unreleased AWF
     run: |
