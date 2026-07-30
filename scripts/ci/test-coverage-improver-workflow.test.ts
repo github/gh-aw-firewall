@@ -78,7 +78,7 @@ describe('test coverage improver workflow token optimization config', () => {
     expect(lock).toContain('name: Verify injected context');
     expect(lock).toContain('target-test-file.txt');
     expect(lock).toContain('test-content.txt empty');
-    expect(lock).toContain("COPILOT_MODEL: ${{ vars.GH_AW_MODEL_AGENT_COPILOT || vars.GH_AW_DEFAULT_MODEL_COPILOT || 'claude-sonnet-5' }}");
+    expect(lock).toContain("COPILOT_MODEL: ${{ vars.GH_AW_MODEL_AGENT_COPILOT || vars.GH_AW_DEFAULT_MODEL_COPILOT || 'auto' }}");
     expect(lock).not.toContain('pull_requests');
     expect(lock).not.toContain("shell(cat:src/*.test.ts)");
     expect(lock).not.toContain("shell(npm run lint)");

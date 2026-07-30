@@ -22,7 +22,7 @@ tools:
         - repo: github/gh-aw
           sensitivity: internal
       runtime: docker
-      memory-limit: 512m
+      memory-limit: 2g
       interpreter: python3
 sandbox:
   agent:
@@ -44,7 +44,7 @@ The query must:
 
 1. Use a boolean JSON schema.
 2. Run a Python script inside the bounded-query environment that checks
-   `/probe/repo/go.mod`.
+   `/query/repo/go.mod`.
 3. Return `true`.
 
 Do not use GitHub tools, network requests, or the current checkout to answer the

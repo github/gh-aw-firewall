@@ -3,7 +3,7 @@ import { collectDiagnosticLogs } from './diagnostic-collector';
 import * as fs from 'fs';
 import * as path from 'path';
 
-import { mockExecaFn } from './test-helpers/mock-execa.test-utils';
+import { mockExecaFn, mockExecaSync } from './test-helpers/mock-execa.test-utils';
 import { useTempDir } from './test-helpers/docker-test-fixtures.test-utils';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 jest.mock('execa', () => require('./test-helpers/mock-execa.test-utils').execaMockFactory());
@@ -158,6 +158,30 @@ describe('docker-manager diagnostics', () => {
       preserveIptablesAudit(getDir());
 
       expect(fs.existsSync(path.join(defaultAuditDir, 'iptables-audit.txt'))).toBe(true);
+    });
+
+    it('should copy the bounded-query broker audit before work directory cleanup', () => {
+      const brokerAuditDir = path.join(getDir(), 'bounded-queries', 'audit');
+      fs.mkdirSync(brokerAuditDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(brokerAuditDir, 'bounded-query.jsonl'),
+        '{"kind":"failure","reason":"non-zero-exit"}\n',
+      );
+
+      const auditDir = path.join(getDir(), 'audit');
+      fs.mkdirSync(auditDir);
+
+      preserveIptablesAudit(getDir(), auditDir);
+
+      expect(mockExecaSync).toHaveBeenCalledWith(
+        'docker',
+        [
+          'cp',
+          'awf-bounded-query-broker:/var/log/awf-bounded-query/bounded-query.jsonl',
+          path.join(auditDir, 'bounded-query.jsonl'),
+        ],
+        expect.objectContaining({ reject: false }),
+      );
     });
   });
 });

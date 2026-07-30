@@ -15,7 +15,7 @@ const { execFile } = require('child_process');
 const CLI_GRACE_MS = 5_000;
 
 /** Maximum file size a query may create, in bytes (per-file RLIMIT_FSIZE). */
-const QUERY_MAX_FILE_BYTES = 64 * 1024 * 1024;
+const QUERY_MAX_FILE_BYTES = 512 * 1024 * 1024;
 
 /**
  * Aggregate size limit for the query's writable tmpfs workspace in bytes.
@@ -23,7 +23,12 @@ const QUERY_MAX_FILE_BYTES = 64 * 1024 * 1024;
  * `/query` is backed by a tmpfs of this size, bounding the total amount of
  * new data the query can write outside the pre-seeded repo copy.
  */
-const QUERY_WORKSPACE_TMPFS_BYTES = 256 * 1024 * 1024;
+const QUERY_WORKSPACE_TMPFS_BYTES = 1024 * 1024 * 1024;
+
+/** Converts a monotonic-clock duration to the integer milliseconds Node requires. */
+function normalizeTimeoutMs(timeoutMs) {
+  return Math.max(1, Math.ceil(timeoutMs));
+}
 
 function runDocker(args, timeoutMs) {
   return new Promise((resolve) => {
@@ -128,7 +133,9 @@ async function runQueryContainer(params) {
 
   // Use the caller-supplied remaining budget (which already excludes workspace
   // creation time) rather than the raw config timeout.
-  const containerTimeoutMs = (params.timeoutMs ?? config.timeoutSeconds * 1000) + CLI_GRACE_MS;
+  const containerTimeoutMs = normalizeTimeoutMs(
+    (params.timeoutMs ?? config.timeoutSeconds * 1000) + CLI_GRACE_MS,
+  );
 
   try {
     return await runDocker(args, containerTimeoutMs);
@@ -151,6 +158,7 @@ module.exports = {
   QUERY_MAX_FILE_BYTES,
   QUERY_WORKSPACE_TMPFS_BYTES,
   buildQueryArgs,
+  normalizeTimeoutMs,
   runQueryContainer,
   assertQueryImageAvailable,
 };
