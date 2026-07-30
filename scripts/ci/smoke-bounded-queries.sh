@@ -119,7 +119,7 @@ run_on_host() {
   root="${RUNNER_TEMP:-/tmp}/smoke-bounded-queries-${GITHUB_RUN_ID:-local}"
   mkdir -p "$root"
 
-  local sensitivity config work_dir audit_dir workspace
+  local sensitivity config work_dir audit_dir audit_log workspace
   workspace="${GITHUB_WORKSPACE:-$(pwd)}"
   for sensitivity in public internal confidential sealed; do
     config="$root/$sensitivity.json"
@@ -152,13 +152,21 @@ run_on_host() {
 JSON
 
     echo "::group::bounded queries: $sensitivity"
-    awf \
-      --build-local \
-      --config "$config" \
-      --work-dir "$work_dir" \
-      --container-workdir "$workspace" \
-      --env "SMOKE_SENSITIVITY=$sensitivity" \
-      -- bash "$workspace/scripts/ci/smoke-bounded-queries.sh" --inside-agent
+    if ! awf \
+        --build-local \
+        --config "$config" \
+        --work-dir "$work_dir" \
+        --container-workdir "$workspace" \
+        --env "SMOKE_SENSITIVITY=$sensitivity" \
+        -- bash "$workspace/scripts/ci/smoke-bounded-queries.sh" --inside-agent; then
+      audit_log="$work_dir/bounded-queries/audit/bounded-query.jsonl"
+      if [[ -f "$audit_log" ]]; then
+        echo "::group::bounded query broker audit"
+        sudo cat "$audit_log"
+        echo "::endgroup::"
+      fi
+      fail "$sensitivity bounded-query run failed"
+    fi
     echo "::endgroup::"
   done
 }
