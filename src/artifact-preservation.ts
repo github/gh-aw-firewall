@@ -12,14 +12,27 @@ import { fixArtifactPermissionsForRootless } from './artifact-permissions';
  */
 export function preserveIptablesAudit(workDir: string, auditDir?: string): void {
   const iptablesAuditSrc = path.join(workDir, 'init-signal', 'iptables-audit.txt');
+  const boundedQueryAuditSrc = path.join(workDir, 'bounded-queries', 'audit', 'bounded-query.jsonl');
   const targetAuditDir = auditDir || path.join(workDir, 'audit');
-  if (fs.existsSync(iptablesAuditSrc) && fs.existsSync(targetAuditDir)) {
+  if (!fs.existsSync(targetAuditDir)) return;
+
+  if (fs.existsSync(iptablesAuditSrc)) {
     try {
       fs.copyFileSync(iptablesAuditSrc, path.join(targetAuditDir, 'iptables-audit.txt'));
       fs.chmodSync(path.join(targetAuditDir, 'iptables-audit.txt'), 0o644);
       logger.debug('Copied iptables audit state to audit directory');
     } catch (error) {
       logger.debug('Could not copy iptables audit file:', error);
+    }
+  }
+
+  if (fs.existsSync(boundedQueryAuditSrc)) {
+    try {
+      fs.copyFileSync(boundedQueryAuditSrc, path.join(targetAuditDir, 'bounded-query.jsonl'));
+      fs.chmodSync(path.join(targetAuditDir, 'bounded-query.jsonl'), 0o644);
+      logger.debug('Copied bounded-query broker audit to audit directory');
+    } catch (error) {
+      logger.debug('Could not copy bounded-query audit file:', error);
     }
   }
 }

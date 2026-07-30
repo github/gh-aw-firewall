@@ -159,5 +159,23 @@ describe('docker-manager diagnostics', () => {
 
       expect(fs.existsSync(path.join(defaultAuditDir, 'iptables-audit.txt'))).toBe(true);
     });
+
+    it('should copy the bounded-query broker audit before work directory cleanup', () => {
+      const brokerAuditDir = path.join(getDir(), 'bounded-queries', 'audit');
+      fs.mkdirSync(brokerAuditDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(brokerAuditDir, 'bounded-query.jsonl'),
+        '{"kind":"failure","reason":"non-zero-exit"}\n',
+      );
+
+      const auditDir = path.join(getDir(), 'audit');
+      fs.mkdirSync(auditDir);
+
+      preserveIptablesAudit(getDir(), auditDir);
+
+      expect(fs.readFileSync(path.join(auditDir, 'bounded-query.jsonl'), 'utf8')).toBe(
+        '{"kind":"failure","reason":"non-zero-exit"}\n',
+      );
+    });
   });
 });

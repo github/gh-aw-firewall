@@ -159,7 +159,7 @@ JSON
         --container-workdir "$workspace" \
         --env "SMOKE_SENSITIVITY=$sensitivity" \
         -- bash "$workspace/scripts/ci/smoke-bounded-queries.sh" --inside-agent; then
-      audit_log="$work_dir/bounded-queries/audit/bounded-query.jsonl"
+      audit_log="$audit_dir/bounded-query.jsonl"
       if [[ -f "$audit_log" ]]; then
         echo "::group::bounded query broker audit"
         sudo cat "$audit_log"
