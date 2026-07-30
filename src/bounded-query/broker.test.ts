@@ -21,7 +21,7 @@ import { EventEmitter } from 'events';
 const brokerDir = path.join(__dirname, '..', '..', 'containers', 'bounded-query', 'broker');
 const { createBroker } = require(path.join(brokerDir, 'broker.js'));
 const workspace = require(path.join(brokerDir, 'workspace.js'));
-const { buildQueryArgs } = require(path.join(brokerDir, 'query-runner.js'));
+const { buildQueryArgs, normalizeTimeoutMs } = require(path.join(brokerDir, 'query-runner.js'));
 const { buildRequestFromFrame, readBoundedBody } = require(path.join(brokerDir, 'framing.js'));
 const { TIMING_BUCKETS_MS } = require(path.join(brokerDir, 'scheduler.js'));
 /* eslint-enable @typescript-eslint/no-require-imports */
@@ -730,6 +730,10 @@ describe('query container arguments', () => {
   it('passes an explicit OCI runtime only when one is configured', () => {
     expect(args().includes('--runtime')).toBe(false);
     expect(args({ dockerRuntime: 'runsc' }).join(' ')).toContain('--runtime runsc');
+  });
+
+  it('normalizes fractional monotonic durations for Node child-process timeouts', () => {
+    expect(normalizeTimeoutMs(31_872.77068800002)).toBe(31_873);
   });
 });
 
