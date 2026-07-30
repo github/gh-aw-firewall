@@ -31,6 +31,18 @@ sandbox:
   agent:
     id: awf
     version: v0.28.0
+steps:
+  - name: Build unreleased AWF
+    run: |
+      npm ci
+      npm run build
+pre-agent-steps:
+  - name: Replace release bootstrap with current AWF build
+    run: |
+      mkdir -p "$HOME/.local/bin"
+      printf '#!/bin/bash\nexec "%s" "%s/dist/cli.js" "$@"\n' \
+        "$(command -v node)" "$GITHUB_WORKSPACE" > "$HOME/.local/bin/awf"
+      chmod +x "$HOME/.local/bin/awf"
 safe-outputs:
   threat-detection:
     enabled: false
