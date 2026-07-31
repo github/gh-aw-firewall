@@ -18,6 +18,7 @@ name: Smoke Docker Sbx
 engine:
   id: copilot
   version: 1.0.34
+model: claude-sonnet-5
 network:
   allowed:
     - defaults
