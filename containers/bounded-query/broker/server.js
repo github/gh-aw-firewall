@@ -66,7 +66,34 @@ function canonicalRawResponse() {
 }
 
 function createHardenedServer(listener, audit) {
-  const server = http.createServer({ maxHeaderSize: MAX_HEADER_BYTES }, listener);
+  let accepting = true;
+  let pendingAdmissions = 0;
+  const admissionWaiters = [];
+  const resolveAdmissionWaiters = () => {
+    if (pendingAdmissions !== 0) return;
+    while (admissionWaiters.length > 0) {
+      admissionWaiters.shift()();
+    }
+  };
+
+  const server = http.createServer({ maxHeaderSize: MAX_HEADER_BYTES }, (req, res) => {
+    if (!accepting) {
+      sendResult(res, CANONICAL_ERROR_JSON);
+      req.resume();
+      return;
+    }
+
+    pendingAdmissions += 1;
+    Promise.resolve(listener(req, res, () => accepting))
+      .catch((error) => {
+        audit.failure('server', 'unhandled-error', error && error.message);
+        if (!res.headersSent) sendResult(res, CANONICAL_ERROR_JSON);
+      })
+      .finally(() => {
+        pendingAdmissions -= 1;
+        resolveAdmissionWaiters();
+      });
+  });
   server.headersTimeout = 5_000;
   server.requestTimeout = 0;
   server.keepAliveTimeout = 1_000;
@@ -89,18 +116,39 @@ function createHardenedServer(listener, audit) {
       if (socket.writable) socket.end(canonicalRawResponse());
     }, PROBE_RESPONSE_DELAY_MS);
   });
+  server.freezeAdmissions = () => {
+    accepting = false;
+  };
+  server.drainAdmissions = () => (
+    pendingAdmissions === 0
+      ? Promise.resolve()
+      : new Promise((resolve) => admissionWaiters.push(resolve))
+  );
   return server;
 }
 
-function processRequest(req, res, broker, audit, framedHeaders = req.headers, framedRawHeaders = req.rawHeaders) {
+function processRequest(
+  req,
+  res,
+  broker,
+  audit,
+  framedHeaders = req.headers,
+  framedRawHeaders = req.rawHeaders,
+  isAccepting = () => true,
+) {
   if (req.method !== 'POST' || req.url !== '/query') {
     sendResult(res, CANONICAL_ERROR_JSON);
     req.resume();
-    return;
+    return Promise.resolve();
   }
 
-  readBoundedBody(req)
+  return readBoundedBody(req)
     .then((body) => {
+      if (!isAccepting()) {
+        sendResult(res, CANONICAL_ERROR_JSON);
+        return;
+      }
+
       if (body.error !== undefined) {
         audit.failure('framing', 'body-rejected', body.error);
         return broker.handle(undefined, (result) => sendResult(res, result));
@@ -123,7 +171,15 @@ function processRequest(req, res, broker, audit, framedHeaders = req.headers, fr
 function createServer(deps) {
   const { broker, audit } = deps;
   return createHardenedServer(
-    (req, res) => processRequest(req, res, broker, audit),
+    (req, res, isAccepting) => processRequest(
+      req,
+      res,
+      broker,
+      audit,
+      req.headers,
+      req.rawHeaders,
+      isAccepting,
+    ),
     audit,
   );
 }
@@ -150,7 +206,7 @@ function stripCapabilityHeader(req) {
 function createTcpServer(deps) {
   const { broker, audit, capabilities } = deps;
   let probeAvailable = true;
-  return createHardenedServer((req, res) => {
+  return createHardenedServer((req, res, isAccepting) => {
     const capabilityHeaders = req.rawHeaders.filter(
       (_value, index) => index % 2 === 0 && req.rawHeaders[index].toLowerCase() === 'x-awf-capability',
     );
@@ -166,19 +222,31 @@ function createTcpServer(deps) {
       probeAvailable = false;
       audit.lifecycle('sbx-ingress-probe');
       req.resume();
-      setTimeout(() => sendResult(res, CANONICAL_ERROR_JSON), PROBE_RESPONSE_DELAY_MS);
-      return;
+      return new Promise((resolve) => {
+        setTimeout(() => {
+          sendResult(res, CANONICAL_ERROR_JSON);
+          resolve();
+        }, PROBE_RESPONSE_DELAY_MS);
+      });
     }
 
     if (!isQuery) {
       audit.failure('transport', 'auth-rejected');
       req.resume();
       sendResult(res, CANONICAL_ERROR_JSON);
-      return;
+      return Promise.resolve();
     }
 
     const framed = stripCapabilityHeader(req);
-    processRequest(req, res, broker, audit, framed.headers, framed.rawHeaders);
+    return processRequest(
+      req,
+      res,
+      broker,
+      audit,
+      framed.headers,
+      framed.rawHeaders,
+      isAccepting,
+    );
   }, audit);
 }
 
@@ -254,12 +322,19 @@ async function main() {
   const shutdown = async () => {
     if (shuttingDown) return;
     shuttingDown = true;
-    for (const server of servers) server.close();
+    broker.close();
+    for (const server of servers) {
+      server.freezeAdmissions();
+      server.close();
+    }
     const forcedExit = setTimeout(() => process.exit(1), 5000);
     forcedExit.unref();
     try {
       await Promise.race([
-        broker.drain(),
+        Promise.all([
+          ...servers.map((server) => server.drainAdmissions()),
+          broker.drain(),
+        ]),
         new Promise((resolve) => setTimeout(resolve, SHUTDOWN_GRACE_MS)),
       ]);
       await runner.reconcileRun(runId);
