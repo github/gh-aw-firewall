@@ -56,9 +56,20 @@ function createBroker(params) {
   const runner = params.runner;
   const clock = params.clock || createRealClock();
   const ledger = params.ledger || createLedger(seedMap);
+  const telemetry = params.telemetry || { emit() {} };
 
   let invocationsUsed = 0;
   let tail = Promise.resolve();
+
+  function emitQueryTelemetry(category) {
+    telemetry.emit({
+      primaryBackend: config.primaryBackend,
+      queryBackend: config.queryBackend,
+      lifecycleClass: 'query',
+      capabilityState: 'supported',
+      category,
+    });
+  }
 
   /**
    * Executes one request and reports its canonical result through
@@ -79,6 +90,7 @@ function createBroker(params) {
     const validation = validateBoundedQueryRequest(request);
     if (!validation.valid) {
       audit.failure(invocationId, 'invalid-request', validation.errors.join('; '));
+      emitQueryTelemetry('invalid-request');
       safeRespond(CANONICAL_ERROR_JSON);
       return;
     }
@@ -88,6 +100,7 @@ function createBroker(params) {
     const seed = seedMap.get(repoKey);
     if (!seed) {
       audit.failure(invocationId, 'repo-not-allowed', privateRepo);
+      emitQueryTelemetry('repo-not-allowed');
       safeRespond(CANONICAL_ERROR_JSON);
       return;
     }
@@ -99,6 +112,7 @@ function createBroker(params) {
     const charge = queryBitsForSchema(schema);
     if (!ledger.tryDebit(repoKey, charge)) {
       audit.failure(invocationId, 'bit-budget-exhausted', `repo=${privateRepo} charge=${charge}`);
+      emitQueryTelemetry('bit-budget-exhausted');
       safeRespond(CANONICAL_ERROR_JSON);
       return;
     }
@@ -174,6 +188,7 @@ function createBroker(params) {
       // configured bucket — pathological infrastructure latency. Never emit a
       // successful result at unbucketed timing.
       audit.failure(invocationId, 'timing-bucket-overflow', failureReason ? failureReason.join(':') : undefined);
+      emitQueryTelemetry('timing-bucket-overflow');
       safeRespond(CANONICAL_ERROR_JSON);
     } else if (canonicalResult !== undefined) {
       audit.invocation({
@@ -183,9 +198,12 @@ function createBroker(params) {
         bits: charge,
         bucketMs,
       });
+      emitQueryTelemetry('success');
       safeRespond(canonicalOkJson(canonicalResult));
     } else {
-      audit.failure(invocationId, failureReason ? failureReason[0] : 'unknown', failureReason ? failureReason[1] : undefined);
+      const category = failureReason ? failureReason[0] : 'unknown';
+      audit.failure(invocationId, category, failureReason ? failureReason[1] : undefined);
+      emitQueryTelemetry(category);
       safeRespond(CANONICAL_ERROR_JSON);
     }
 
@@ -227,6 +245,7 @@ function createBroker(params) {
       // against it.
       if (invocationsUsed >= config.maxInvocations) {
         audit.failure('budget', 'invocation-count-exhausted', `max=${config.maxInvocations}`);
+        emitQueryTelemetry('invocation-count-exhausted');
         safeRespond(CANONICAL_ERROR_JSON);
         return Promise.resolve();
       }
@@ -234,6 +253,7 @@ function createBroker(params) {
 
       const queued = tail.then(() => execute(request, safeRespond)).catch((error) => {
         audit.failure('queue', 'unexpected-error', error && error.message);
+        emitQueryTelemetry('unexpected-error');
         safeRespond(CANONICAL_ERROR_JSON);
       });
       tail = queued.then(

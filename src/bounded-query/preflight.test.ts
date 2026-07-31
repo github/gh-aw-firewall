@@ -1,6 +1,11 @@
 import type { WrapperConfig } from '../types';
 import execa from 'execa';
-import { assertQueryRuntimeAvailable, preflightTestHelpers, validateBoundedQueryConfig } from './preflight';
+import {
+  assertPrimaryRuntimeAvailable,
+  assertQueryRuntimeAvailable,
+  preflightTestHelpers,
+  validateBoundedQueryConfig,
+} from './preflight';
 import type { BoundedQueriesConfig } from '../types';
 import type { BoundedQueryRepository } from '../types/bounded-query-options';
 
@@ -157,10 +162,25 @@ describe('validateBoundedQueryConfig', () => {
 });
 
 describe('assertQueryRuntimeAvailable', () => {
-  it('does not query Docker for the default runtime', async () => {
-    const query = jest.fn();
-    await expect(assertQueryRuntimeAvailable(baseBoundedQueries, query)).resolves.toBeUndefined();
-    expect(query).not.toHaveBeenCalled();
+  it('requires a reachable Docker daemon for the default query runtime', async () => {
+    const runtimeQuery = jest.fn();
+    const dockerAvailable = jest.fn().mockResolvedValue(true);
+    await expect(
+      assertQueryRuntimeAvailable(baseBoundedQueries, runtimeQuery, jest.fn(), dockerAvailable),
+    ).resolves.toBeUndefined();
+    expect(runtimeQuery).not.toHaveBeenCalled();
+    expect(dockerAvailable).toHaveBeenCalledTimes(1);
+  });
+
+  it('fails closed when the Docker query daemon is unavailable', async () => {
+    await expect(
+      assertQueryRuntimeAvailable(
+        baseBoundedQueries,
+        jest.fn(),
+        jest.fn(),
+        jest.fn().mockResolvedValue(false),
+      ),
+    ).rejects.toThrow(/Docker daemon.*not available.*never fall back/s);
   });
 
   it('accepts gvisor when runsc is registered with the daemon', async () => {
@@ -250,6 +270,36 @@ describe('assertQueryRuntimeAvailable', () => {
         'sbx create --ulimit-fsize',
         'sbx create --mount-target',
       ]),
+    });
+  });
+
+  describe('assertPrimaryRuntimeAvailable', () => {
+    it.each([
+      [undefined, 'docker'],
+      ['gvisor', 'gvisor'],
+      ['runsc', 'gvisor'],
+      ['sbx', 'sbx'],
+    ] as const)('accepts an available %s primary backend (%s)', async (runtime, _backend) => {
+      await expect(assertPrimaryRuntimeAvailable(
+        runtime,
+        jest.fn().mockResolvedValue(true),
+        jest.fn().mockResolvedValue(true),
+        jest.fn().mockResolvedValue(true),
+      )).resolves.toBeUndefined();
+    });
+
+    it.each([
+      [undefined, /Docker primary-agent runtime is unavailable/],
+      ['gvisor', /Primary-agent runtime "gvisor".*runsc.*never fall back/s],
+      ['sbx', /Primary-agent runtime "sbx" is unavailable.*never fall back/s],
+      ['kata', /OCI runtime "kata" is not registered.*never fall back/s],
+    ] as const)('fails %s before staging when its primary capability is unavailable', async (runtime, message) => {
+      await expect(assertPrimaryRuntimeAvailable(
+        runtime,
+        jest.fn().mockResolvedValue(false),
+        jest.fn().mockResolvedValue(false),
+        jest.fn().mockResolvedValue(false),
+      )).rejects.toThrow(message);
     });
   });
 });

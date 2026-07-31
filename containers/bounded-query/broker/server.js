@@ -9,6 +9,7 @@ const { loadConfig, loadSeedMap } = require('./config');
 const { buildRequestFromFrame, readBoundedBody } = require('./framing');
 const { CANONICAL_ERROR_JSON } = require('./protocol');
 const { createQueryRunner } = require('./query-runner');
+const { createRuntimeTelemetry } = require('./runtime-telemetry');
 
 /**
  * Bounded-query broker server.
@@ -214,6 +215,7 @@ function listenOnTcp(server, config) {
 async function main() {
   const config = loadConfig();
   const audit = createAuditLog(config.auditDir);
+  const telemetry = createRuntimeTelemetry(config.auditDir);
   const { runId, seeds } = loadSeedMap(config.seedMapPath);
   const runner = createQueryRunner(config);
 
@@ -221,8 +223,15 @@ async function main() {
   // prior broker process for this exact run. Queries never pull or fall back.
   await runner.assertAvailable();
   await runner.reconcileRun(runId);
+  telemetry.emit({
+    primaryBackend: config.primaryBackend,
+    queryBackend: config.queryBackend,
+    lifecycleClass: 'startup',
+    capabilityState: 'supported',
+    category: 'ready',
+  });
 
-  const broker = createBroker({ config, seedMap: seeds, runId, audit, runner });
+  const broker = createBroker({ config, seedMap: seeds, runId, audit, runner, telemetry });
   const unixServer = createServer({ broker, audit });
   const servers = [unixServer];
 
@@ -263,9 +272,23 @@ async function main() {
         new Promise((resolve) => setTimeout(resolve, SHUTDOWN_GRACE_MS)),
       ]);
       await runner.reconcileRun(runId);
+      telemetry.emit({
+        primaryBackend: config.primaryBackend,
+        queryBackend: config.queryBackend,
+        lifecycleClass: 'cleanup',
+        capabilityState: 'supported',
+        category: 'success',
+      });
       process.exit(0);
     } catch (error) {
       audit.lifecycle('shutdown-cleanup-failed', error.message);
+      telemetry.emit({
+        primaryBackend: config.primaryBackend,
+        queryBackend: config.queryBackend,
+        lifecycleClass: 'cleanup',
+        capabilityState: 'supported',
+        category: 'cleanup-failed',
+      });
       process.exit(1);
     }
   };

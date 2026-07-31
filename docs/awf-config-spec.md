@@ -1653,6 +1653,33 @@ sbx credential to the broker, and never falls back to Docker/gVisor. Enabling
 launch requires all missing controls plus a digest-pinned, Python
 standard-library-only AWF query template/bootstrap.
 
+**Independent runtime matrix.** `container.containerRuntime` selects the primary
+agent while `boundedQueries.runtime` independently selects a fresh query
+sandbox. Every accepted invocation creates one new sandbox and destroys it
+before response. The current capability matrix is:
+
+| Primary agent | Docker query | gVisor query | sbx query |
+|---|---|---|---|
+| Docker | Supported with Docker | Supported with registered `runsc` | Blocked |
+| gVisor | Supported with primary `runsc` | Supported with registered `runsc` | Blocked |
+| sbx | Supported after primary ingress probe | Supported after primary ingress and `runsc` probes | Blocked |
+
+Unavailable cells abort at preflight and never stage. A blocked sbx query is an
+expected security result, not runtime success. `"runtime": "sbx"` is both the
+explicit experimental selection and a requirement to pass every executable
+probe; it never authorizes fallback.
+
+**Runtime telemetry.** Telemetry records contain exactly `primaryBackend`,
+`queryBackend`, `lifecycleClass`, `capabilityState`, and `category`. They MUST
+NOT contain repository data or identifiers, scripts, outputs, paths, tokens,
+ingress capabilities, or daemon credentials.
+
+Promotion of sbx queries requires real-VM proof of no network/lateral access,
+all resource bounds, mount-target isolation, credential/state separation,
+canonical output behavior, and cleanup after timeout, resource failure, and
+interruption, plus a digest-pinned AWF Python-only template. Version/help
+probing alone is insufficient.
+
 The seed map the broker reads carries each repository's trusted
 `sensitivity` alongside its opaque seed id — the map is built entirely from
 AWF configuration, so a request can never choose or override its own

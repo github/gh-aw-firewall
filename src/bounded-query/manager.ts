@@ -10,7 +10,11 @@ import {
   resolveBoundedQueryPaths,
   type BoundedQueryPaths,
 } from './paths';
-import { assertQueryRuntimeAvailable, validateBoundedQueryConfig } from './preflight';
+import {
+  assertPrimaryRuntimeAvailable,
+  assertQueryRuntimeAvailable,
+  validateBoundedQueryConfig,
+} from './preflight';
 import { writeBoundedQuerySkill } from './skill';
 import { writeBoundedQueryWrapper } from './wrapper-artifact';
 import { releaseSeedPermissions, resolveStagingToken, stageBoundedQuerySeeds, type GitRunner } from './staging';
@@ -19,6 +23,10 @@ import { assertBoundedQueryPrivateRootIsolated } from './mount-policy';
 import { fixArtifactPermissionsForRootless } from '../artifact-permissions';
 import { runtimeUsesComposeAgent } from '../container-runtime';
 import { probeSbxUnixSocketMount } from '../sbx-manager';
+import {
+  resolveBoundedQueryPrimaryBackend,
+  serializeBoundedQueryRuntimeTelemetry,
+} from './runtime-matrix';
 
 /**
  * Bounded-query lifecycle orchestration.
@@ -138,6 +146,10 @@ export interface PrepareBoundedQueriesDeps {
   env?: NodeJS.ProcessEnv;
   /** Override the sbx Unix-socket passthrough probe (tests). */
   probeSbxUnixSocket?: () => Promise<boolean>;
+  /** Override query-runtime capability preflight (tests). */
+  assertRuntimeAvailable?: typeof assertQueryRuntimeAvailable;
+  /** Override primary-runtime capability preflight (tests). */
+  assertPrimaryAvailable?: typeof assertPrimaryRuntimeAvailable;
 }
 
 interface SbxIngressCapabilities {
@@ -194,7 +206,45 @@ export async function prepareBoundedQueries(
   const paths = resolveBoundedQueryPaths(config.workDir);
   assertBoundedQueryPrivateRootIsolated(config, paths, env);
 
-  await assertQueryRuntimeAvailable(boundedQueries);
+  const primaryBackend = resolveBoundedQueryPrimaryBackend(config.containerRuntime);
+  const telemetryBase = {
+    primaryBackend,
+    queryBackend: boundedQueries.runtime,
+    lifecycleClass: 'preflight' as const,
+  };
+  const assertRuntimeAvailable = deps.assertRuntimeAvailable ?? assertQueryRuntimeAvailable;
+  const assertPrimaryAvailable = deps.assertPrimaryAvailable ?? assertPrimaryRuntimeAvailable;
+  try {
+    await assertPrimaryAvailable(config.containerRuntime);
+  } catch (error) {
+    logger.info(
+      `Bounded-query runtime telemetry: ${serializeBoundedQueryRuntimeTelemetry({
+        ...telemetryBase,
+        capabilityState: 'unavailable',
+        category: 'primary-runtime-unavailable',
+      })}`,
+    );
+    throw error;
+  }
+  try {
+    await assertRuntimeAvailable(boundedQueries);
+  } catch (error) {
+    logger.info(
+      `Bounded-query runtime telemetry: ${serializeBoundedQueryRuntimeTelemetry({
+        ...telemetryBase,
+        capabilityState: boundedQueries.runtime === 'sbx' ? 'blocked' : 'unavailable',
+        category: boundedQueries.runtime === 'sbx' ? 'query-security-block' : 'query-runtime-unavailable',
+      })}`,
+    );
+    throw error;
+  }
+  logger.info(
+    `Bounded-query runtime telemetry: ${serializeBoundedQueryRuntimeTelemetry({
+      ...telemetryBase,
+      capabilityState: 'supported',
+      category: 'ready',
+    })}`,
+  );
 
   const token = resolveStagingToken(env);
   if (!token) {
