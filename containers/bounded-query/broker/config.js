@@ -97,6 +97,10 @@ function loadConfig() {
   if (queryBackend !== 'docker' && queryBackend !== 'gvisor' && queryBackend !== 'sbx') {
     throw new Error(`Unsupported AWF_BOUNDED_QUERY_BACKEND: ${queryBackend}`);
   }
+  const primaryBackend = requireEnv('AWF_BOUNDED_QUERY_PRIMARY_BACKEND');
+  if (primaryBackend !== 'docker' && primaryBackend !== 'gvisor' && primaryBackend !== 'sbx') {
+    throw new Error(`Unsupported AWF_BOUNDED_QUERY_PRIMARY_BACKEND: ${primaryBackend}`);
+  }
 
   const tcpPortRaw = process.env.AWF_BOUNDED_QUERY_TCP_PORT;
   const tcpPort = tcpPortRaw === undefined ? undefined : parsePositiveInt('AWF_BOUNDED_QUERY_TCP_PORT');
@@ -131,6 +135,7 @@ function loadConfig() {
     // Never reuse the Docker-daemon-visible path for sbx mounts.
     sbxWorkDir,
     queryBackend,
+    primaryBackend,
     timeoutSeconds: parseTimeoutSeconds(),
     maxInvocations: parsePositiveInt('AWF_BOUNDED_QUERY_MAX_INVOCATIONS', 32),
     memoryLimit,

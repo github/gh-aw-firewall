@@ -164,6 +164,8 @@ JSON
     fi
     echo "::endgroup::"
   done
+
+  node "$workspace/scripts/ci/report-bounded-query-runtime-matrix.js" --require docker/docker
 }
 
 if [[ "${1:-}" == "--inside-agent" ]]; then

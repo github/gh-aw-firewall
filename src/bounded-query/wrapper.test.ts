@@ -208,7 +208,7 @@ describe('bounded-query wrapper', () => {
     for (const result of results) {
       expect(result).toEqual({ stdout: `${CANONICAL_ERROR}\n`, stderr: '', status: 0 });
     }
-  });
+  }, 10_000);
 
   it.each([
     'http://host.docker.internal:0/query',

@@ -115,6 +115,105 @@ capability in JSON. Support remains blocked until sbx provides enforceable
 versions of all controls and AWF publishes a digest-pinned standard-library-only
 Python template/bootstrap.
 
+### Primary-agent and query runtime matrix
+
+The primary agent and each bounded query are separate sandbox decisions:
+
+- `container.containerRuntime` / `--container-runtime` selects the **primary
+  agent** runtime.
+- `boundedQueries.runtime` selects the **single-use query** runtime.
+
+The broker never reuses the primary agent sandbox. Every accepted query creates
+a new container or VM with a unique run/invocation identity and destroys it
+before returning. No combination falls back to a weaker backend.
+
+| Primary agent | Docker query | gVisor query | sbx query |
+|---|---|---|---|
+| Docker | Supported when Docker is available | Supported when `runsc` is registered | **Blocked** by mandatory sbx query probes |
+| gVisor | Supported when the primary `runsc` runtime is available | Supported when `runsc` is registered | **Blocked** by mandatory sbx query probes |
+| sbx | Supported when primary sbx and broker ingress probes pass | Supported when primary sbx, ingress, and `runsc` probes pass | **Blocked** by mandatory sbx query probes |
+
+“Supported” is capability-dependent, not an instruction to downgrade. An
+unavailable primary runtime fails at primary preflight. An unavailable query
+runtime fails at query preflight before the private root is created or any
+repository is staged. Selecting `"runtime": "sbx"` is the explicit experimental
+gate; the additional executable capability proof must also pass. With Docker
+Sandboxes `v0.37.1`, all three sbx-query cells remain blocked.
+
+Examples of independent selection:
+
+```json
+{
+  "container": { "containerRuntime": "gvisor" },
+  "boundedQueries": {
+    "enabled": true,
+    "privateRepos": [
+      { "repo": "my-org/private-service", "sensitivity": "internal" }
+    ],
+    "runtime": "docker"
+  }
+}
+```
+
+```json
+{
+  "container": { "containerRuntime": "sbx" },
+  "boundedQueries": {
+    "enabled": true,
+    "privateRepos": [
+      { "repo": "my-org/private-service", "sensitivity": "confidential" }
+    ],
+    "runtime": "gvisor"
+  }
+}
+```
+
+The second example starts only when sbx primary-agent ingress and Docker
+`runsc` query probes both pass.
+
+### Runtime telemetry
+
+AWF emits a deliberately narrow runtime telemetry record. It contains exactly:
+primary backend, query backend, lifecycle class, capability state, and
+success/failure category. It never contains repository identifiers or contents,
+scripts, raw outputs, host/container paths, tokens, ingress capabilities, or
+daemon credentials. Broker records are written to the protected
+`runtime-telemetry.jsonl` file beside the protected audit log and are never
+mounted into the agent.
+
+### Troubleshooting runtime selection
+
+| Symptom | Meaning | Action |
+|---|---|---|
+| `runsc ... not available; no fallback` | The gVisor query backend is not registered with Docker | Register `runsc`, verify it appears in `docker info --format '{{json .Runtimes}}'`, and rerun |
+| `sbx ... blocked ... mandatory query-isolation controls` | The sbx query security probe failed as designed | Read the complete missing-control list; do not substitute local policy or a weaker runtime |
+| sbx primary ingress probe fails | The primary VM cannot reach the broker through either proven ingress | Verify sbx Unix passthrough or authenticated host-loopback ingress; the agent must not start |
+| Docker host must be `unix://` | The networkless broker cannot reach a TCP daemon | Use a local Unix socket; AWF will not attach the broker to a network |
+| Matrix report says `BLOCKED` | Capability or security preflight prevented launch | Treat this as expected fail-closed status, not successful runtime execution |
+
+Run `node scripts/ci/report-bounded-query-runtime-matrix.js` after `npm run
+build` to print all nine local capability results. Use `--require
+docker/docker` (or another pair) when a smoke job must require one executable
+combination.
+
+### sbx query promotion criteria
+
+The experimental sbx query backend MUST remain blocked until all of these are
+demonstrated in real VMs, not only deterministic fakes:
+
+1. A digest-pinned AWF Python standard-library-only template/bootstrap exists.
+2. Per-VM network-none and lateral-connectivity denial are enforceable and
+   cannot be replaced by organization policy.
+3. CPU, memory, PID, aggregate disk, and per-file size limits are enforceable.
+4. Read-only seed/script mounts have explicit guest targets and expose no broker
+   state, credentials, sibling repository, or prior invocation.
+5. Timeout, OOM, PID, disk, file-size, malformed/oversized output, and
+   interruption cleanup tests all pass.
+6. Unix and authenticated sbx ingress retain byte-identical protocol behavior.
+
+Passing a version check alone, or passing only the CLI help probe, is not enough
+to promote the backend.
+
 ## Sensitivity categories
 
 Every repository carries a fixed sensitivity that sets an immutable maximum number of bits the broker may reveal about that repository across the entire AWF run. The budget is per-run only; the broker has no durable state across runs.

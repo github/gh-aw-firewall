@@ -222,6 +222,46 @@ describe('prepareBoundedQueries', () => {
       prepareBoundedQueries(buildConfig(workDir), { env: { GH_TOKEN: 't' }, gitRunner: failing }),
     ).rejects.toThrow(/staging failed/);
   });
+
+  it.each(['docker', 'gvisor', 'sbx'] as const)(
+    'fails query runtime %s capability preflight before directories or staging',
+    async (runtime) => {
+      const assertRuntimeAvailable = jest.fn().mockRejectedValue(new Error(`${runtime} unavailable`));
+      const probeSbxUnixSocket = jest.fn();
+      const config = buildConfig(workDir, { runtime });
+      await expect(prepareBoundedQueries(config, {
+        env: { GH_TOKEN: 't' },
+        gitRunner,
+        assertRuntimeAvailable,
+        probeSbxUnixSocket,
+      })).rejects.toThrow(`${runtime} unavailable`);
+      expect(assertRuntimeAvailable).toHaveBeenCalledTimes(1);
+      expect(probeSbxUnixSocket).not.toHaveBeenCalled();
+      expect(fs.existsSync(resolveBoundedQueryPaths(workDir).root)).toBe(false);
+    },
+  );
+
+  it.each([undefined, 'gvisor', 'sbx'] as const)(
+    'fails primary runtime %s capability preflight before query preflight or staging',
+    async (containerRuntime) => {
+      const assertPrimaryAvailable = jest.fn().mockRejectedValue(new Error('primary unavailable'));
+      const assertRuntimeAvailable = jest.fn();
+      const probeSbxUnixSocket = jest.fn();
+      await expect(prepareBoundedQueries(
+        { ...buildConfig(workDir), containerRuntime },
+        {
+          env: { GH_TOKEN: 't' },
+          gitRunner,
+          assertPrimaryAvailable,
+          assertRuntimeAvailable,
+          probeSbxUnixSocket,
+        },
+      )).rejects.toThrow('primary unavailable');
+      expect(assertRuntimeAvailable).not.toHaveBeenCalled();
+      expect(probeSbxUnixSocket).not.toHaveBeenCalled();
+      expect(fs.existsSync(resolveBoundedQueryPaths(workDir).root)).toBe(false);
+    },
+  );
 });
 
 describe('teardownBoundedQueries', () => {

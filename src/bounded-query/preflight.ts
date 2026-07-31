@@ -26,6 +26,10 @@ const GVISOR_DOCKER_RUNTIME = 'runsc';
 
 /** Detects whether the Docker daemon exposes a named OCI runtime. */
 export type DockerRuntimeQuery = (runtimeName: string) => Promise<boolean>;
+/** Detects whether the Docker daemon required by a primary/query backend is reachable. */
+export type DockerAvailabilityQuery = () => Promise<boolean>;
+/** Detects whether the sbx primary-agent runtime is installed and authenticated. */
+export type SbxAvailabilityQuery = () => Promise<boolean>;
 
 export interface SbxCapabilityReport {
   supported: boolean;
@@ -46,6 +50,31 @@ const defaultDockerRuntimeQuery: DockerRuntimeQuery = async (runtimeName) => {
   try {
     const runtimes = JSON.parse(result.stdout) as Record<string, unknown>;
     return Object.prototype.hasOwnProperty.call(runtimes, runtimeName);
+  } catch {
+    return false;
+  }
+};
+
+const defaultDockerAvailabilityQuery: DockerAvailabilityQuery = async () => {
+  const result = await execa('docker', ['info', '--format', '{{.ServerVersion}}'], {
+    env: getLocalDockerEnv(),
+    reject: false,
+    timeout: 30_000,
+  });
+  return result.exitCode === 0;
+};
+
+const defaultSbxAvailabilityQuery: SbxAvailabilityQuery = async () => {
+  try {
+    const managementEnv = { ...process.env };
+    delete managementEnv.DOCKER_SANDBOXES_PROXY;
+    delete managementEnv.XDG_CONFIG_HOME;
+    const result = await execa('sbx', ['ls'], {
+      reject: false,
+      timeout: 10_000,
+      env: managementEnv,
+    });
+    return result.exitCode === 0;
   } catch {
     return false;
   }
@@ -218,6 +247,7 @@ export async function assertQueryRuntimeAvailable(
   boundedQueries: BoundedQueriesConfig,
   queryDockerRuntime: DockerRuntimeQuery = defaultDockerRuntimeQuery,
   querySbxCapabilities: SbxCapabilityQuery = defaultSbxCapabilityQuery,
+  queryDockerAvailable: DockerAvailabilityQuery = defaultDockerAvailabilityQuery,
 ): Promise<void> {
   if (boundedQueries.runtime === 'sbx') {
     const report = await querySbxCapabilities();
@@ -231,7 +261,15 @@ export async function assertQueryRuntimeAvailable(
     return;
   }
 
-  if (boundedQueries.runtime !== 'gvisor') return;
+  if (boundedQueries.runtime === 'docker') {
+    if (!(await queryDockerAvailable())) {
+      throw new Error(
+        'boundedQueries.runtime "docker" requires a reachable Docker daemon. It is not available, ' +
+        'and bounded queries never fall back to another runtime.',
+      );
+    }
+    return;
+  }
 
   if (!(await queryDockerRuntime(GVISOR_DOCKER_RUNTIME))) {
     throw new Error(
@@ -242,12 +280,55 @@ export async function assertQueryRuntimeAvailable(
   }
 }
 
+/** Verifies the primary-agent runtime before bounded-query repository staging. */
+export async function assertPrimaryRuntimeAvailable(
+  containerRuntime: string | undefined,
+  queryDockerRuntime: DockerRuntimeQuery = defaultDockerRuntimeQuery,
+  queryDockerAvailable: DockerAvailabilityQuery = defaultDockerAvailabilityQuery,
+  querySbxAvailable: SbxAvailabilityQuery = defaultSbxAvailabilityQuery,
+): Promise<void> {
+  if (containerRuntime === 'sbx') {
+    if (!(await querySbxAvailable())) {
+      throw new Error(
+        'Primary-agent runtime "sbx" is unavailable. Bounded queries abort before staging and never ' +
+        'fall back to a Docker or gVisor primary agent.',
+      );
+    }
+    return;
+  }
+  if (containerRuntime === 'gvisor' || containerRuntime === 'runsc') {
+    if (!(await queryDockerRuntime(GVISOR_DOCKER_RUNTIME))) {
+      throw new Error(
+        `Primary-agent runtime "${containerRuntime}" requires the "${GVISOR_DOCKER_RUNTIME}" OCI runtime. ` +
+        'It is not available, so bounded queries abort before staging and never fall back.',
+      );
+    }
+    return;
+  }
+  if (containerRuntime) {
+    if (!(await queryDockerRuntime(containerRuntime))) {
+      throw new Error(
+        `Primary-agent OCI runtime "${containerRuntime}" is not registered with Docker. ` +
+        'Bounded queries abort before staging and never fall back.',
+      );
+    }
+    return;
+  }
+  if (!(await queryDockerAvailable())) {
+    throw new Error(
+      'The Docker primary-agent runtime is unavailable. Bounded queries abort before staging and never fall back.',
+    );
+  }
+}
+
 /** @internal Exported for focused unit tests. */
 // ts-prune-ignore-next
 export const preflightTestHelpers = {
   SUPPORTED_QUERY_RUNTIMES,
   GVISOR_DOCKER_RUNTIME,
   defaultDockerRuntimeQuery,
+  defaultDockerAvailabilityQuery,
+  defaultSbxAvailabilityQuery,
   defaultSbxCapabilityQuery,
   SBX_AUDITED_VERSION,
   SBX_REQUIRED_CREATE_FLAGS,

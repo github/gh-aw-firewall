@@ -161,7 +161,7 @@ describe('docker-manager diagnostics', () => {
       expect(fs.existsSync(path.join(defaultAuditDir, 'iptables-audit.txt'))).toBe(true);
     });
 
-    it('should copy the bounded-query broker audit before work directory cleanup', () => {
+    it('should copy bounded-query audit and safe telemetry before work directory cleanup', () => {
       const brokerAuditDir = resolveBoundedQueryPaths(getDir()).auditDir;
       fs.mkdirSync(brokerAuditDir, { recursive: true });
       fs.writeFileSync(
@@ -180,6 +180,15 @@ describe('docker-manager diagnostics', () => {
           'cp',
           'awf-bounded-query-broker:/var/log/awf-bounded-query/bounded-query.jsonl',
           path.join(auditDir, 'bounded-query.jsonl'),
+        ],
+        expect.objectContaining({ reject: false }),
+      );
+      expect(mockExecaSync).toHaveBeenCalledWith(
+        'docker',
+        [
+          'cp',
+          'awf-bounded-query-broker:/var/log/awf-bounded-query/runtime-telemetry.jsonl',
+          path.join(auditDir, 'runtime-telemetry.jsonl'),
         ],
         expect.objectContaining({ reject: false }),
       );
