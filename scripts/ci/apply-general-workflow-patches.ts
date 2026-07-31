@@ -147,7 +147,8 @@ export function applyGeneralWorkflowPatches(
     log.push(`  Replaced ${imageTagMatches.length} --image-tag/--skip-pull with --build-local`);
   }
 
-  // Replace standalone --skip-pull (no --image-tag present) with --build-local
+  // Replace standalone --skip-pull, including an incompatible generated
+  // "--skip-pull --build-local" pair, with one local-build flag.
   standaloneSkipPullRegex.lastIndex = 0;
   const skipPullMatches = content.match(standaloneSkipPullRegex);
   if (skipPullMatches) {

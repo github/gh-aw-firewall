@@ -66,11 +66,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # This source requires unreleased gh-aw bounded-query frontmatter.
-          # Its committed lock manifest is still scanned by the steps below.
+          # These sources require unreleased gh-aw bounded-query frontmatter.
+          # Their committed lock manifests are still scanned by the steps below.
           mapfile -t workflows < <(
             find .github/workflows -maxdepth 1 -name '*.md' \
-              ! -name 'smoke-bounded-queries.md' -print
+              ! -name 'smoke-bounded-queries.md' \
+              ! -name 'smoke-bounded-queries-gvisor.md' \
+              ! -name 'smoke-bounded-queries-sbx.md' -print
           )
           gh aw compile --syft "${workflows[@]}"
 

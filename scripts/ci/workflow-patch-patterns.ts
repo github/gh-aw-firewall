@@ -31,7 +31,7 @@ export const imageTagRegex = /--image-tag\s+[0-9.]+\s+--skip-pull/g;
 
 // When no --image-tag is present, the compiler still emits --skip-pull alone.
 // Replace standalone --skip-pull with --build-local.
-export const standaloneSkipPullRegex = /--skip-pull(?!\s+--build-local)/g;
+export const standaloneSkipPullRegex = /--skip-pull(?:\s+--build-local)?/g;
 
 // Inject --session-state-dir into AWF invocations so Copilot CLI session-state
 // (events.jsonl) is written to a predictable host path that artifact upload can

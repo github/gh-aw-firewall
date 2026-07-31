@@ -5,6 +5,7 @@ set -euo pipefail
 readonly TARGET_REPO="github/gh-aw"
 readonly ARRAY_SCHEMA='{"type":"array","items":{"type":"boolean"},"length":28}'
 readonly BOOLEAN_SCHEMA='{"type":"boolean"}'
+readonly QUERY_RUNTIME="${SMOKE_QUERY_RUNTIME:-docker}"
 
 fail() {
   echo "::error::$*" >&2
@@ -109,10 +110,60 @@ run_on_host() {
   command -v awf >/dev/null || fail "awf is not installed"
   [[ -n "${GH_TOKEN:-${GITHUB_TOKEN:-}}" ]] ||
     fail "GH_TOKEN or GITHUB_TOKEN is required for trusted repository staging"
+  [[ "$QUERY_RUNTIME" == "docker" || "$QUERY_RUNTIME" == "gvisor" || "$QUERY_RUNTIME" == "sbx" ]] ||
+    fail "unsupported query runtime: $QUERY_RUNTIME"
 
   local root
-  root="${RUNNER_TEMP:-/tmp}/smoke-bounded-queries-${GITHUB_RUN_ID:-local}"
+  root="${RUNNER_TEMP:-/tmp}/smoke-bounded-queries-${QUERY_RUNTIME}-${GITHUB_RUN_ID:-local}"
   mkdir -p "$root"
+
+  if [[ "${SMOKE_EXPECT_BLOCKED:-false}" == "true" ]]; then
+    [[ "$QUERY_RUNTIME" == "sbx" ]] ||
+      fail "expected-blocked smoke is only valid for the sbx query runtime"
+    local blocked_config blocked_log blocked_status
+    blocked_config="$root/blocked.json"
+    blocked_log="$root/blocked.log"
+    cat > "$blocked_config" <<JSON
+{
+  "network": {
+    "isolation": true
+  },
+  "boundedQueries": {
+    "enabled": true,
+    "privateRepos": [
+      {
+        "repo": "$TARGET_REPO",
+        "sensitivity": "internal"
+      }
+    ],
+    "runtime": "$QUERY_RUNTIME",
+    "timeout": 30,
+    "memoryLimit": "2g",
+    "interpreter": "python3",
+    "maxInvocations": 10
+  }
+}
+JSON
+
+    set +e
+    awf \
+      --build-local \
+      --config "$blocked_config" \
+      --work-dir "$root/blocked-work" \
+      --container-workdir "${GITHUB_WORKSPACE:-$(pwd)}" \
+      -- true >"$blocked_log" 2>&1
+    blocked_status=$?
+    set -e
+
+    [[ "$blocked_status" -ne 0 ]] ||
+      fail "$QUERY_RUNTIME unexpectedly passed mandatory bounded-query preflight"
+    grep -F 'boundedQueries.runtime "sbx" is blocked' "$blocked_log" >/dev/null ||
+      fail "$QUERY_RUNTIME did not report the expected security block"
+    grep -F 'AWF will not launch a query VM and will never fall back to Docker or gVisor' "$blocked_log" >/dev/null ||
+      fail "$QUERY_RUNTIME did not confirm that fallback is disabled"
+    echo "$QUERY_RUNTIME: expected fail-closed preflight PASS"
+    return
+  fi
 
   local sensitivity config work_dir audit_dir audit_log workspace
   workspace="${GITHUB_WORKSPACE:-$(pwd)}"
@@ -137,7 +188,7 @@ run_on_host() {
         "sensitivity": "$sensitivity"
       }
     ],
-    "runtime": "docker",
+    "runtime": "$QUERY_RUNTIME",
     "timeout": 30,
     "memoryLimit": "2g",
     "interpreter": "python3",
@@ -165,7 +216,7 @@ JSON
     echo "::endgroup::"
   done
 
-  node "$workspace/scripts/ci/report-bounded-query-runtime-matrix.js" --require docker/docker
+  node "$workspace/scripts/ci/report-bounded-query-runtime-matrix.js" --require "docker/$QUERY_RUNTIME"
 }
 
 if [[ "${1:-}" == "--inside-agent" ]]; then
