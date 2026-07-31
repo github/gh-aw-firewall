@@ -6,12 +6,19 @@ const SBX_OUTPUT_LIMIT = 64 * 1024;
 const SBX_SAFE_PATH = '/usr/local/bin:/usr/bin:/bin';
 
 /**
- * Executes the sbx CLI without forwarding host credentials or proxy settings.
+ * Executes an sbx management command with the broker's narrowly provisioned
+ * daemon credentials. The broker container never receives staging credentials,
+ * and this environment is not forwarded to query execution inside the VM.
  *
- * A future supported deployment must provide daemon transport separately at
- * the container boundary. Query invocations never receive this environment.
+ * Proxy variables and XDG_CONFIG_HOME are removed for parity with the primary
+ * sbx management path: they can redirect daemon/credential lookup.
  */
 function runSbx(args, timeoutMs) {
+  const env = { ...process.env };
+  delete env.DOCKER_SANDBOXES_PROXY;
+  delete env.XDG_CONFIG_HOME;
+  env.PATH = process.env.PATH || SBX_SAFE_PATH;
+
   return new Promise((resolve) => {
     execFile(
       'sbx',
@@ -20,7 +27,7 @@ function runSbx(args, timeoutMs) {
         timeout: timeoutMs,
         killSignal: 'SIGKILL',
         maxBuffer: SBX_OUTPUT_LIMIT,
-        env: { PATH: process.env.PATH || SBX_SAFE_PATH },
+        env,
       },
       (error, stdout, stderr) => {
         resolve({

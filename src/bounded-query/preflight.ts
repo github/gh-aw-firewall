@@ -71,21 +71,28 @@ function helpIncludesFlag(help: string, flag: string): boolean {
 }
 
 const defaultSbxCapabilityQuery: SbxCapabilityQuery = async () => {
+  const managementEnv = { ...process.env };
+  delete managementEnv.DOCKER_SANDBOXES_PROXY;
+  delete managementEnv.XDG_CONFIG_HOME;
+
   const run = async (args: string[]): Promise<{ exitCode: number; stdout: string }> => {
     const result = await execa('sbx', args, {
       reject: false,
       timeout: 10_000,
-      env: { PATH: process.env.PATH },
+      env: managementEnv,
     });
     return { exitCode: result.exitCode ?? 1, stdout: result.stdout };
   };
 
   let versionResult: { exitCode: number; stdout: string };
+  let daemonResult: { exitCode: number; stdout: string };
   let createHelp: { exitCode: number; stdout: string };
   let execHelp: { exitCode: number; stdout: string };
   try {
-    [versionResult, createHelp, execHelp] = await Promise.all([
+    [versionResult, daemonResult, createHelp, execHelp] = await Promise.all([
       run(['version']),
+      // sbx has no auth-status command; listing is authenticated and non-mutating.
+      run(['ls']),
       run(['create', '--help']),
       run(['exec', '--help']),
     ]);
@@ -95,7 +102,9 @@ const defaultSbxCapabilityQuery: SbxCapabilityQuery = async () => {
 
   const version = /\bv?(\d+\.\d+\.\d+)\b/.exec(versionResult.stdout)?.[1];
   const missing: string[] = ['pinned AWF Python query template and bootstrap'];
-  if (versionResult.exitCode !== 0 || !version) missing.push('authenticated sbx CLI/daemon');
+  if (versionResult.exitCode !== 0 || !version || daemonResult.exitCode !== 0) {
+    missing.push('authenticated sbx CLI/daemon');
+  }
   if (version && version !== SBX_AUDITED_VERSION) {
     missing.push(`audited sbx version ${SBX_AUDITED_VERSION} (found ${version})`);
   }

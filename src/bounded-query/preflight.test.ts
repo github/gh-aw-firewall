@@ -230,6 +230,7 @@ describe('assertQueryRuntimeAvailable', () => {
   it('reports the current sbx CLI as unsupported when essential controls are absent', async () => {
     mockExeca
       .mockResolvedValueOnce({ exitCode: 0, stdout: 'Docker Sandboxes v0.37.1' })
+      .mockResolvedValueOnce({ exitCode: 0, stdout: '[]' })
       .mockResolvedValueOnce({
         exitCode: 0,
         stdout: '--name --cpus --memory --template',
@@ -251,5 +252,41 @@ describe('assertQueryRuntimeAvailable', () => {
         'sbx create --mount-target',
       ]),
     });
+  });
+
+  it('requires authenticated sbx daemon reachability and preserves only its management environment', async () => {
+    const savedToken = process.env.SBX_AUTH_TOKEN;
+    const savedProxy = process.env.DOCKER_SANDBOXES_PROXY;
+    const savedXdg = process.env.XDG_CONFIG_HOME;
+    process.env.SBX_AUTH_TOKEN = 'daemon-credential';
+    process.env.DOCKER_SANDBOXES_PROXY = 'http://proxy.invalid';
+    process.env.XDG_CONFIG_HOME = '/wrong/config';
+    mockExeca
+      .mockResolvedValueOnce({ exitCode: 0, stdout: 'Docker Sandboxes v0.37.1' })
+      .mockResolvedValueOnce({ exitCode: 1, stdout: '' })
+      .mockResolvedValueOnce({ exitCode: 0, stdout: '' })
+      .mockResolvedValueOnce({ exitCode: 0, stdout: '' });
+
+    try {
+      const report = await preflightTestHelpers.defaultSbxCapabilityQuery();
+      expect(report.missing).toContain('authenticated sbx CLI/daemon');
+      expect(mockExeca).toHaveBeenCalledWith(
+        'sbx',
+        ['ls'],
+        expect.objectContaining({
+          env: expect.objectContaining({ SBX_AUTH_TOKEN: 'daemon-credential' }),
+        }),
+      );
+      const lsOptions = mockExeca.mock.calls.find((call) => call[1][0] === 'ls')?.[2];
+      expect(lsOptions.env).not.toHaveProperty('DOCKER_SANDBOXES_PROXY');
+      expect(lsOptions.env).not.toHaveProperty('XDG_CONFIG_HOME');
+    } finally {
+      if (savedToken === undefined) delete process.env.SBX_AUTH_TOKEN;
+      else process.env.SBX_AUTH_TOKEN = savedToken;
+      if (savedProxy === undefined) delete process.env.DOCKER_SANDBOXES_PROXY;
+      else process.env.DOCKER_SANDBOXES_PROXY = savedProxy;
+      if (savedXdg === undefined) delete process.env.XDG_CONFIG_HOME;
+      else process.env.XDG_CONFIG_HOME = savedXdg;
+    }
   });
 });

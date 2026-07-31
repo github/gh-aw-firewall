@@ -41,6 +41,7 @@ async function inspectHelp(sbx, command) {
 
 async function probeSbxCapabilities(sbx = defaultSbxClient) {
   const versionResult = await sbx.runSbx(['version'], 10_000);
+  const daemonResult = await sbx.runSbx(['ls'], 10_000);
   const createHelp = await inspectHelp(sbx, 'create');
   const execHelp = await inspectHelp(sbx, 'exec');
   const versionMatch = /\bv?(\d+\.\d+\.\d+)\b/.exec(versionResult.stdout);
@@ -51,7 +52,9 @@ async function probeSbxCapabilities(sbx = defaultSbxClient) {
   // because current sbx cannot yet enforce the controls below.
   missing.push('pinned AWF Python query template and bootstrap');
 
-  if (versionResult.exitCode !== 0 || !version) missing.push('authenticated sbx CLI/daemon');
+  if (versionResult.exitCode !== 0 || !version || daemonResult.exitCode !== 0) {
+    missing.push('authenticated sbx CLI/daemon');
+  }
   if (version && version !== AUDITED_SBX_VERSION) {
     missing.push(`audited sbx version ${AUDITED_SBX_VERSION} (found ${version})`);
   }

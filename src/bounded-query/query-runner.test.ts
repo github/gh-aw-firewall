@@ -41,6 +41,7 @@ const config = {
   queryBackend: 'docker',
   workDir: '/srv/awf/work',
   hostWorkDir: '/daemon/private/work',
+  sbxWorkDir: '/sbx-daemon/private/work',
   queryMountDir: '/query',
   queryScriptPath: '/awf/query-script.py',
   querySeccompPath: '/opt/awf/query-seccomp.json',
@@ -155,6 +156,7 @@ describe('trusted bounded-query runner contract', () => {
   });
 
   it('derives a unique immutable sbx VM spec only from trusted identifiers', () => {
+    const runId = 'abcd1234abcd1234abcd1234abcd1234';
     const maliciousRequest = {
       name: 'awf-agent-primary',
       template: 'attacker/image',
@@ -165,14 +167,14 @@ describe('trusted bounded-query runner contract', () => {
     };
     const first = deriveSbxQuerySpec({
       config,
-      runId: 'abcd1234',
-      invocationId: '1111111111111111',
+      runId,
+      invocationId: '111111111111111111111111',
       request: maliciousRequest,
     });
     const second = deriveSbxQuerySpec({
       config,
-      runId: 'abcd1234',
-      invocationId: '2222222222222222',
+      runId,
+      invocationId: '222222222222222222222222',
       request: maliciousRequest,
     });
 
@@ -186,8 +188,14 @@ describe('trusted bounded-query runner contract', () => {
       expect(first.createArgs).toContain(flag);
     }
     expect(first.createArgs.join(' ')).not.toMatch(/attacker|\/etc|GH_TOKEN|secret|network host/);
-    expect(first.createArgs.join(' ')).toContain('/1111111111111111/repo:/awf/seed:ro');
-    expect(second.createArgs.join(' ')).toContain('/2222222222222222/repo:/awf/seed:ro');
+    expect(first.runPrefix).toBe(`awf-query-sbx-${runId}-`);
+    expect(first.createArgs.join(' ')).toContain(
+      '/sbx-daemon/private/work/111111111111111111111111/repo:/awf/seed:ro',
+    );
+    expect(second.createArgs.join(' ')).toContain(
+      '/sbx-daemon/private/work/222222222222222222222222/repo:/awf/seed:ro',
+    );
+    expect(first.createArgs.join(' ')).not.toContain(config.hostWorkDir);
     expect(first.execArgs).toContain('65534:65534');
     expect(first.execArgs).toContain('/query');
     expect(first.execArgs.slice(-1)).toEqual(['/usr/local/bin/awf-run-query']);
@@ -210,6 +218,22 @@ describe('trusted bounded-query runner contract', () => {
     await expect(runner.assertAvailable()).rejects.toThrow(/blocked.*No fallback/s);
   });
 
+  it('blocks sbx when the CLI exists but its authenticated daemon is unavailable', async () => {
+    const { client } = createSbx((args) => {
+      if (args[0] === 'version') return ok({ stdout: 'Docker Sandboxes v0.37.1' });
+      if (args[0] === 'ls') return ok({ exitCode: 1, stderr: 'not authenticated' });
+      if (args[0] === 'create') {
+        return ok({ stdout: [...REQUIRED_CREATE_FLAGS, ...REQUIRED_HARD_ISOLATION_FLAGS].join(' ') });
+      }
+      if (args[0] === 'exec') return ok({ stdout: REQUIRED_EXEC_FLAGS.join(' ') });
+      return ok();
+    });
+
+    const report = await probeSbxCapabilities(client);
+    expect(report.supported).toBe(false);
+    expect(report.missing).toContain('authenticated sbx CLI/daemon');
+  });
+
   it('keeps host and broker sbx capability contracts byte-for-byte aligned', () => {
     expect(preflightTestHelpers.SBX_REQUIRED_CREATE_FLAGS).toEqual([
       ...REQUIRED_CREATE_FLAGS,
@@ -219,6 +243,8 @@ describe('trusted bounded-query runner contract', () => {
   });
 
   it('always force-removes a uniquely named sbx VM before returning', async () => {
+    const runId = 'abcd1234abcd1234abcd1234abcd1234';
+    const invocationId = '111111111111111111111111';
     const { calls, client } = createSbx((args) => {
       if (args[0] === 'ls' && args[1] === '--quiet') return ok({ stdout: '' });
       return ok();
@@ -233,11 +259,11 @@ describe('trusted bounded-query runner contract', () => {
     );
     await runner.assertAvailable();
     await expect(runner.runQueryContainer({
-      runId: 'abcd1234',
-      invocationId: '1111111111111111',
+      runId,
+      invocationId,
     })).resolves.toMatchObject({ exitCode: 0, timedOut: false });
 
-    const name = runner.spec('abcd1234', '1111111111111111').sandboxName;
+    const name = runner.spec(runId, invocationId).sandboxName;
     expect(calls.find((args) => args[0] === 'create')).toContain(name);
     expect(calls.find((args) => args[0] === 'exec')).toContain(name);
     expect(calls).toContainEqual(['stop', name]);
@@ -246,11 +272,13 @@ describe('trusted bounded-query runner contract', () => {
   });
 
   it('reconciles only sbx VMs with the current trusted run prefix', async () => {
+    const runId = 'abcd1234abcd1234abcd1234abcd1234';
+    const staleName = `awf-query-sbx-${runId}-111111111111111111111111`;
     const { calls, client } = createSbx((args) => {
       if (args[0] === 'ls' && args[1] === '--json') {
         return ok({
           stdout: JSON.stringify([
-            { name: 'awf-query-sbx-abcd1234-stale' },
+            { name: staleName },
             { name: 'awf-query-sbx-other-run' },
             { name: 'awf-agent-primary' },
           ]),
@@ -259,10 +287,10 @@ describe('trusted bounded-query runner contract', () => {
       return ok();
     });
     const runner = createQueryRunner({ ...config, queryBackend: 'sbx' }, { sbx: client });
-    await runner.reconcileRun('abcd1234');
+    await runner.reconcileRun(runId);
 
-    expect(calls).toContainEqual(['stop', 'awf-query-sbx-abcd1234-stale']);
-    expect(calls).toContainEqual(['rm', '--force', 'awf-query-sbx-abcd1234-stale']);
+    expect(calls).toContainEqual(['stop', staleName]);
+    expect(calls).toContainEqual(['rm', '--force', staleName]);
     expect(calls.join(' ')).not.toContain('awf-query-sbx-other-run');
     expect(calls.join(' ')).not.toContain('awf-agent-primary');
   });
@@ -272,7 +300,9 @@ describe('trusted bounded-query runner contract', () => {
       args[0] === 'ls' ? ok({ stdout: '[{"name":"--all"}]' }) : ok()
     ));
     const runner = createQueryRunner({ ...config, queryBackend: 'sbx' }, { sbx: client });
-    await expect(runner.reconcileRun('abcd1234')).rejects.toThrow(/invalid sandbox name/);
+    await expect(
+      runner.reconcileRun('abcd1234abcd1234abcd1234abcd1234'),
+    ).rejects.toThrow(/invalid sandbox name/);
   });
 
   it('fails closed for unknown and unavailable runtimes', async () => {

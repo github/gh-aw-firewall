@@ -61,7 +61,7 @@ class SbxQueryRunner {
   }
 
   async listRunSandboxes(runId) {
-    const spec = this.spec(runId, 'reconcile');
+    const spec = this.spec(runId, '000000000000000000000000');
     const listed = await this.sbx.runSbx(spec.listArgs, 30_000);
     if (listed.exitCode !== 0) throw new Error('Failed to reconcile bounded-query sbx VMs');
     return parseSandboxNames(listed.stdout).filter((name) => name.startsWith(spec.runPrefix));

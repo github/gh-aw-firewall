@@ -9,10 +9,11 @@ const { REQUIRED_HARD_ISOLATION_FLAGS } = require('./sbx-capability-probe');
 
 const SBX_CLI_GRACE_MS = 15_000;
 const SBX_QUERY_TEMPLATE = 'docker/sandbox-templates:shell-docker@sha256:unsupported-until-pinned';
-const TRUSTED_ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/;
+const TRUSTED_RUN_ID_PATTERN = /^[0-9a-f]{32}$/;
+const TRUSTED_INVOCATION_ID_PATTERN = /^[0-9a-f]{24}$/;
 
-function assertTrustedId(name, value) {
-  if (typeof value !== 'string' || !TRUSTED_ID_PATTERN.test(value)) {
+function assertTrustedId(name, value, pattern) {
+  if (typeof value !== 'string' || !pattern.test(value)) {
     throw new Error(`${name} is not a broker-generated identifier`);
   }
 }
@@ -29,12 +30,12 @@ function freeze(values) {
  * API needed by the runner without accepting any request-owned launch data.
  */
 function deriveSbxQuerySpec({ config, runId, invocationId }) {
-  assertTrustedId('runId', runId);
-  assertTrustedId('invocationId', invocationId);
+  assertTrustedId('runId', runId, TRUSTED_RUN_ID_PATTERN);
+  assertTrustedId('invocationId', invocationId, TRUSTED_INVOCATION_ID_PATTERN);
 
-  const runPrefix = `awf-query-sbx-${runId.slice(0, 12)}-`;
+  const runPrefix = `awf-query-sbx-${runId}-`;
   const sandboxName = `${runPrefix}${invocationId}`;
-  const hostInvocationDir = `${config.hostWorkDir}/${invocationId}`;
+  const hostInvocationDir = `${config.sbxWorkDir}/${invocationId}`;
   const workspaceDir = `${hostInvocationDir}/sbx-workspace`;
   const outPath = `${hostInvocationDir}/out`;
   const repoDir = `${hostInvocationDir}/repo`;
