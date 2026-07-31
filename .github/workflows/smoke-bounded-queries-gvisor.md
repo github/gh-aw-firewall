@@ -31,8 +31,6 @@ sandbox:
   agent:
     id: awf
     version: v0.28.0
-    runtime: gvisor
-    sudo: true
     args:
       - --build-local
 steps:
@@ -129,7 +127,7 @@ post-steps:
       }
 
       const successfulQueries = readJsonLines(telemetryPath).filter(
-        (record) => record.primaryBackend === "gvisor" &&
+        (record) => record.primaryBackend === "docker" &&
           record.queryBackend === "gvisor" &&
           record.lifecycleClass === "query" &&
           record.capabilityState === "supported" &&
