@@ -49,8 +49,18 @@ function sendResult(res, body) {
 
 function createServer(deps) {
   const { broker, audit } = deps;
+  let accepting = true;
+  let pendingAdmissions = 0;
+  const admissionWaiters = [];
 
-  return http.createServer((req, res) => {
+  const resolveAdmissionWaiters = () => {
+    if (pendingAdmissions !== 0) return;
+    while (admissionWaiters.length > 0) {
+      admissionWaiters.shift()();
+    }
+  };
+
+  const server = http.createServer((req, res) => {
     if (req.method !== 'POST' || req.url !== '/query') {
       // Not part of the API. Answer with the canonical error rather than a
       // distinguishable 404/405 so probing the surface yields no extra signal.
@@ -59,8 +69,20 @@ function createServer(deps) {
       return;
     }
 
+    if (!accepting) {
+      sendResult(res, CANONICAL_ERROR_JSON);
+      req.resume();
+      return;
+    }
+
+    pendingAdmissions += 1;
     readBoundedBody(req)
       .then((body) => {
+        if (!accepting) {
+          sendResult(res, CANONICAL_ERROR_JSON);
+          return;
+        }
+
         if (body.error !== undefined) {
           audit.failure('framing', 'body-rejected', body.error);
           return broker.handle(undefined, (result) => sendResult(res, result));
@@ -77,8 +99,22 @@ function createServer(deps) {
       .catch((error) => {
         audit.failure('server', 'unhandled-error', error && error.message);
         if (!res.headersSent) sendResult(res, CANONICAL_ERROR_JSON);
+      })
+      .finally(() => {
+        pendingAdmissions -= 1;
+        resolveAdmissionWaiters();
       });
   });
+
+  server.freezeAdmissions = () => {
+    accepting = false;
+  };
+  server.drainAdmissions = () => (
+    pendingAdmissions === 0
+      ? Promise.resolve()
+      : new Promise((resolve) => admissionWaiters.push(resolve))
+  );
+  return server;
 }
 
 function listenOnSocket(server, config, audit) {
@@ -134,12 +170,17 @@ async function main() {
   const shutdown = async () => {
     if (shuttingDown) return;
     shuttingDown = true;
+    broker.close();
+    server.freezeAdmissions();
     server.close();
     const forcedExit = setTimeout(() => process.exit(1), 5000);
     forcedExit.unref();
     try {
       await Promise.race([
-        broker.drain(),
+        Promise.all([
+          server.drainAdmissions(),
+          broker.drain(),
+        ]),
         new Promise((resolve) => setTimeout(resolve, SHUTDOWN_GRACE_MS)),
       ]);
       await runner.reconcileRun(runId);
