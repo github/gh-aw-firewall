@@ -22,6 +22,7 @@ import { resolveDockerSocketPath } from './agent-volumes/docker-socket';
 import { applyHostPathPrefixToVolumes } from './host-path-prefix';
 import { buildContainerSecurityHardening } from './service-security';
 import type { ImageBuildConfig } from './squid-service';
+import { resolveDockerHostGateway } from './host-gateway';
 import {
   BOUNDED_QUERY_INGRESS_NETWORK,
   BOUNDED_QUERY_TCP_PORT,
@@ -166,6 +167,10 @@ export function buildBoundedQueryService(params: BoundedQueryServiceParams): Bou
   const dockerSocketPath = resolveDockerSocketPath(config);
   const ingressTransport = config.boundedQueryIngressTransport
     ?? (runtimeUsesComposeAgent(config.containerRuntime) ? 'unix' : 'sbx-http');
+  const sbxIngressHostIp = ingressTransport === 'sbx-http' ? resolveDockerHostGateway() : undefined;
+  if (ingressTransport === 'sbx-http' && !sbxIngressHostIp) {
+    throw new Error('Could not resolve the Docker host-gateway IP for bounded-query sbx ingress');
+  }
 
   // Compose must pull/build the query target before starting the offline
   // broker. The one-shot service has no mounts or network and exits only after
@@ -187,10 +192,11 @@ export function buildBoundedQueryService(params: BoundedQueryServiceParams): Bou
           network_mode: 'none',
         }
       : {
-          // sbx reaches a loopback-published port. This dedicated Docker
+          // sbx reaches the broker through host.docker.internal, which maps to
+          // the host-gateway IP rather than loopback. This dedicated Docker
           // `internal` network has no external route and no other member.
           networks: [BOUNDED_QUERY_INGRESS_NETWORK],
-          ports: [`127.0.0.1::${BOUNDED_QUERY_TCP_PORT}`],
+          ports: [`${sbxIngressHostIp}::${BOUNDED_QUERY_TCP_PORT}`],
         }),
     volumes: applyHostPathPrefixToVolumes(
       [

@@ -1,12 +1,13 @@
 import * as fs from 'fs';
 import * as http from 'http';
+import * as net from 'net';
 import * as os from 'os';
 import * as path from 'path';
 import type { AddressInfo } from 'net';
 
 /* eslint-disable @typescript-eslint/no-require-imports */
 const brokerDir = path.join(__dirname, '..', '..', 'containers', 'bounded-query', 'broker');
-const { createServer, createTcpServer, listenOnSocket, listenOnTcp } = require(
+const { createServer, createTcpServer, listenOnSocket, listenOnTcp, MAX_CONNECTIONS } = require(
   path.join(brokerDir, 'server.js'),
 );
 /* eslint-enable @typescript-eslint/no-require-imports */
@@ -172,5 +173,41 @@ describe('bounded-query ingress conformance', () => {
       tcpRequest(),
     ]);
     expect(results.map((result) => result.body)).toEqual(Array(4).fill(CANONICAL_OK));
+  });
+
+  it('does not dispatch broker work for a request that arrives on an over-limit socket', async () => {
+    const holders = await Promise.all(Array.from({ length: MAX_CONNECTIONS }, () => new Promise<net.Socket>((resolve, reject) => {
+      const socket = net.createConnection({ host: '127.0.0.1', port: tcpPort }, () => resolve(socket));
+      socket.on('error', reject);
+    })));
+
+    try {
+      const rawResponse = await new Promise<string>((resolve, reject) => {
+        const socket = net.createConnection({ host: '127.0.0.1', port: tcpPort }, () => {
+          socket.write([
+            'POST /query HTTP/1.1',
+            'Host: 127.0.0.1',
+            `X-AWF-Capability: ${CAPABILITY}`,
+            'Content-Type: application/octet-stream',
+            'X-AWF-Query-Version: 2',
+            'X-AWF-Repo: octo/private',
+            `X-AWF-Schema-B64: ${SCHEMA}`,
+            'Content-Length: 0',
+            '',
+            '',
+          ].join('\r\n'));
+        });
+        const chunks: Uint8Array[] = [];
+        socket.on('data', (chunk) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
+        socket.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+        socket.on('error', reject);
+      });
+
+      expect(rawResponse).toContain(CANONICAL_ERROR);
+      expect(handled).toHaveLength(0);
+      expect(audit.failure).toHaveBeenCalledWith('transport', 'connection-limit');
+    } finally {
+      for (const socket of holders) socket.destroy();
+    }
   });
 });

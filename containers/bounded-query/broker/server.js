@@ -17,7 +17,7 @@ const { createQueryRunner } = require('./query-runner');
  * over authenticated HTTP only when a disposable capability probe proves that
  * sbx cannot connect through a mounted host socket. In that mode the broker is
  * attached only to a dedicated internal Docker network and published on an
- * ephemeral host-loopback port.
+ * ephemeral host-gateway-only port.
  *
  * One route exists:
  *   POST /query   the bounded-query API
@@ -79,7 +79,9 @@ function createHardenedServer(listener, audit) {
       activeConnections -= 1;
     });
     if (activeConnections > MAX_CONNECTIONS) {
+      socket.awfRejected = true;
       audit.failure('transport', 'connection-limit');
+      socket.pause();
       socket.end(canonicalRawResponse());
     }
   });
@@ -93,6 +95,11 @@ function createHardenedServer(listener, audit) {
 }
 
 function processRequest(req, res, broker, audit, framedHeaders = req.headers, framedRawHeaders = req.rawHeaders) {
+  if (req.socket.awfRejected) {
+    req.resume();
+    res.destroy();
+    return;
+  }
   if (req.method !== 'POST' || req.url !== '/query') {
     sendResult(res, CANONICAL_ERROR_JSON);
     req.resume();
