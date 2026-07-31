@@ -139,6 +139,25 @@ describe('waitForBucket (fake clock — fully deterministic, no real time elapse
     expect(now).toBe(100);
   });
 
+  it('preserves the final bucket when only the public scheduler wake is late', async () => {
+    let now = 500_000;
+    const sleepCalls: number[] = [];
+    const clock = {
+      nowMs: () => now,
+      sleep: (ms: number) => {
+        sleepCalls.push(ms);
+        now += ms + TIMER_WAKE_TOLERANCE_MS + 1;
+        return Promise.resolve();
+      },
+    };
+
+    const result = await waitForBucket(0, 500_000, clock);
+
+    expect(result).toEqual({ bucketMs: 600_000, overflowed: false });
+    expect(sleepCalls).toEqual([100_000]);
+    expect(now).toBe(600_000 + TIMER_WAKE_TOLERANCE_MS + 1);
+  });
+
   it('selects successively larger buckets as elapsed time grows', async () => {
     const cases: Array<[number, number]> = [
       [5, 10],

@@ -73,7 +73,7 @@ PY
       )"
     else
       response="$(
-        sh "$(command -v bounded-query)" --repo "$TARGET_REPO" --schema "$schema" <<'PY'
+        bounded-query --repo "$TARGET_REPO" --schema "$schema" <<'PY'
 import json
 from pathlib import Path
 

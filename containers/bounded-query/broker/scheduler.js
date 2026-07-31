@@ -32,6 +32,10 @@ const { TIMING_BUCKETS_MS } = require('./protocol');
  *    rather than waiting indefinitely for a nonexistent next boundary. This
  *    is a deliberately safe fail-closed fallback for a pathological
  *    infrastructure-latency edge case, not a normal code path.
+ *  - A late host-scheduler wake after waiting for the final bucket does not
+ *    turn an already completed invocation into an overflow. That delay occurs
+ *    only after secret-dependent processing has finished and is attributable
+ *    to public host scheduling; there is no later fixed bucket to pad to.
  */
 
 /**
@@ -87,7 +91,8 @@ async function waitForBucket(startMs, elapsedMs, clock) {
 
     await clock.sleep(remainingMs);
     const wakeMs = clock.nowMs();
-    if (wakeMs <= targetMs + TIMER_WAKE_TOLERANCE_MS) {
+    const isFinalBucket = bucketMs === TIMING_BUCKETS_MS[TIMING_BUCKETS_MS.length - 1];
+    if (wakeMs <= targetMs + TIMER_WAKE_TOLERANCE_MS || isFinalBucket) {
       return { bucketMs, overflowed: false };
     }
 
