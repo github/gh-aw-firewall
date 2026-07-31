@@ -1,4 +1,5 @@
 import { spawn } from 'child_process';
+import * as http from 'http';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -34,6 +35,11 @@ interface WrapperResult {
   status: number | null;
 }
 
+type AdmissionAwareServer = Server & {
+  freezeAdmissions: () => void;
+  drainAdmissions: () => Promise<void>;
+};
+
 function runWrapper(socketPath: string, args: string[], script = 'query'): Promise<WrapperResult> {
   return new Promise((resolve, reject) => {
     const child = spawn('sh', [WRAPPER, ...args], {
@@ -54,7 +60,7 @@ function runWrapper(socketPath: string, args: string[], script = 'query'): Promi
 
 describe('bounded query end-to-end (wrapper → socket → broker)', () => {
   let root: string;
-  let server: Server;
+  let server: AdmissionAwareServer;
   let socketPath: string;
   let config: Record<string, unknown>;
   const seedIdA = 'a'.repeat(32);
@@ -139,7 +145,7 @@ describe('bounded query end-to-end (wrapper → socket → broker)', () => {
       runner,
     });
 
-    server = createServer({ broker, audit: auditLog });
+    server = createServer({ broker, audit: auditLog }) as AdmissionAwareServer;
     await listenOnSocket(server, config, auditLog);
   });
 
@@ -239,12 +245,61 @@ describe('bounded query end-to-end (wrapper → socket → broker)', () => {
       runner: nonConformingRunner,
     });
     await new Promise<void>((resolve) => server.close(() => resolve()));
-    server = createServer({ broker, audit: auditLog });
+    server = createServer({ broker, audit: auditLog }) as AdmissionAwareServer;
     await listenOnSocket(server, config, auditLog);
 
     const result = await runWrapper(socketPath, args('octo/alpha'));
 
     expect(result.stdout).toBe(`${CANONICAL_ERROR}\n`);
     expect(result.status).toBe(0);
+  });
+
+  it('does not admit a partially read request after shutdown freezes admissions', async () => {
+    const handle = jest.fn(async () => {
+      throw new Error('broker.handle must not run after shutdown admission freeze');
+    });
+    const auditLog = {
+      invocation: () => { /* not asserted */ },
+      failure: () => { /* not asserted */ },
+      lifecycle: () => { /* not asserted */ },
+    };
+    const broker = { handle, drain: async () => undefined, close: () => undefined };
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    server = createServer({ broker, audit: auditLog }) as AdmissionAwareServer;
+    await listenOnSocket(server, config, auditLog);
+
+    const schemaB64 = Buffer.from(OUTCOME_SCHEMA, 'utf8').toString('base64url');
+    const requestSeen = new Promise<void>((resolve) => {
+      server.once('request', () => resolve());
+    });
+    const response = new Promise<string>((resolve, reject) => {
+      const req = http.request({
+        socketPath,
+        path: '/query',
+        method: 'POST',
+        headers: {
+          'content-type': 'text/plain; charset=utf-8',
+          'x-awf-query-version': '2',
+          'x-awf-repo': 'octo/alpha',
+          'x-awf-schema-b64': schemaB64,
+        },
+      }, (res) => {
+        let body = '';
+        res.setEncoding('utf8');
+        res.on('data', (chunk) => { body += chunk; });
+        res.on('end', () => resolve(body));
+      });
+      req.on('error', reject);
+      req.write('partial');
+      void requestSeen.then(() => {
+        server.freezeAdmissions();
+        server.close();
+        req.end('-body');
+      });
+    });
+
+    await expect(response).resolves.toBe(CANONICAL_ERROR);
+    await server.drainAdmissions();
+    expect(handle).not.toHaveBeenCalled();
   });
 });

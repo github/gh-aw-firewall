@@ -7,8 +7,10 @@ import { fixArtifactPermissionsForRootless } from './artifact-permissions';
 import { getLocalDockerEnv } from './host-env';
 import { resolveBoundedQueryPaths } from './bounded-query/paths';
 
-const BOUNDED_QUERY_AUDIT_CONTAINER_PATH =
-  'awf-bounded-query-broker:/var/log/awf-bounded-query/bounded-query.jsonl';
+const BOUNDED_QUERY_AUDIT_FILES = [
+  'bounded-query.jsonl',
+  'runtime-telemetry.jsonl',
+] as const;
 
 /**
  * Copies the iptables audit dump from the init-signal volume to the audit directory.
@@ -32,20 +34,23 @@ export function preserveIptablesAudit(workDir: string, auditDir?: string): void 
   }
 
   if (fs.existsSync(boundedQueryRoot)) {
-    try {
-      const destination = path.join(targetAuditDir, 'bounded-query.jsonl');
-      const result = execa.sync(
-        'docker',
-        ['cp', BOUNDED_QUERY_AUDIT_CONTAINER_PATH, destination],
-        { env: getLocalDockerEnv(), reject: false },
-      );
-      if (result.exitCode === 0) {
-        logger.debug('Copied bounded-query broker audit to audit directory');
-      } else {
-        logger.debug('Could not copy bounded-query audit file:', result.stderr);
+    for (const auditFile of BOUNDED_QUERY_AUDIT_FILES) {
+      try {
+        const source = `awf-bounded-query-broker:/var/log/awf-bounded-query/${auditFile}`;
+        const destination = path.join(targetAuditDir, auditFile);
+        const result = execa.sync(
+          'docker',
+          ['cp', source, destination],
+          { env: getLocalDockerEnv(), reject: false },
+        );
+        if (result.exitCode === 0) {
+          logger.debug(`Copied bounded-query broker ${auditFile} to audit directory`);
+        } else {
+          logger.debug(`Could not copy bounded-query ${auditFile}:`, result.stderr);
+        }
+      } catch (error) {
+        logger.debug(`Could not copy bounded-query ${auditFile}:`, error);
       }
-    } catch (error) {
-      logger.debug('Could not copy bounded-query audit file:', error);
     }
   }
 }

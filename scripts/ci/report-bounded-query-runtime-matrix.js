@@ -29,7 +29,9 @@ function collectCapabilities(commandRunner = run) {
     }
   }
   const gvisor = Object.prototype.hasOwnProperty.call(runtimes, 'runsc');
-  const sbxPrimary = commandRunner('sbx', ['version']).ok;
+  // `sbx version` only proves that the binary exists. Listing is authenticated
+  // and non-mutating, so it also proves daemon and credential availability.
+  const sbxPrimary = commandRunner('sbx', ['ls']).ok;
   const sbxQuery = commandRunner(
     process.execPath,
     ['containers/bounded-query/broker/sbx-capability-probe.js'],

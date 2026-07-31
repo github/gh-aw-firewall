@@ -13,6 +13,7 @@ describe('bounded-query runtime capability report', () => {
         return { ok: true, stdout: '{"runc":{},"runsc":{}}' };
       }
       if (command === 'sbx') {
+        expect(args).toEqual(['ls']);
         return { ok: true, stdout: 'Docker Sandboxes v0.37.1' };
       }
       if (args.includes('sbx-capability-probe.js')) {

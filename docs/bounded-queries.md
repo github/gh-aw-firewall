@@ -286,8 +286,8 @@ When bounded queries are enabled a Compose agent receives:
 An sbx primary agent is probed before staging to determine whether its
 filesystem passthrough supports connecting to a host Unix socket. When it does,
 the same Unix protocol is used. Otherwise the broker listens on a dedicated
-Docker `internal` network with one ephemeral port published to `127.0.0.1`;
-sbx reaches that host-loopback service through `host.docker.internal`. The
+Docker `internal` network with one ephemeral port published only on the Docker
+host-gateway address; sbx reaches that service through `host.docker.internal`. The
 agent receives only the endpoint and a random per-run capability. The
 capability is not written to the generated skill, Compose/audit artifacts,
 query environments, or logs. A one-shot pre-agent probe proves the selected

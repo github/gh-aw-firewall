@@ -108,6 +108,11 @@ function loadConfig() {
     throw new Error('AWF_BOUNDED_QUERY_TCP_PORT must be a valid TCP port');
   }
 
+  const hostWorkDir = requireEnv('AWF_BOUNDED_QUERY_HOST_WORK_DIR');
+  const sbxWorkDir = queryBackend === 'sbx'
+    ? requireEnv('AWF_BOUNDED_QUERY_SBX_WORK_DIR')
+    : undefined;
+
   return {
     seedsDir: SEEDS_DIR,
     workDir: WORK_DIR,
@@ -125,7 +130,10 @@ function loadConfig() {
     queryImage: requireEnv('AWF_BOUNDED_QUERY_IMAGE'),
     // The daemon resolves query bind-mount sources in *its* filesystem view,
     // which is not necessarily the broker's (ARC/DinD split filesystems).
-    hostWorkDir: requireEnv('AWF_BOUNDED_QUERY_HOST_WORK_DIR'),
+    hostWorkDir,
+    // sbx and Docker daemons can have different filesystem namespaces (ARC/DinD).
+    // Never reuse the Docker-daemon-visible path for sbx mounts.
+    sbxWorkDir,
     queryBackend,
     primaryBackend,
     timeoutSeconds: parseTimeoutSeconds(),

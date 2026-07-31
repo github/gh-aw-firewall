@@ -60,6 +60,7 @@ function createBroker(params) {
 
   let invocationsUsed = 0;
   let tail = Promise.resolve();
+  let accepting = true;
 
   function emitQueryTelemetry(category) {
     telemetry.emit({
@@ -220,6 +221,11 @@ function createBroker(params) {
   }
 
   return {
+    /** Stops admitting new invocations while letting admitted work drain. */
+    close() {
+      accepting = false;
+    },
+
     /**
      * Handles one request. `respond` is called exactly once with the
      * canonical result JSON, as soon as it is ready to send (which, for any
@@ -238,6 +244,11 @@ function createBroker(params) {
         responded = true;
         respond(json);
       };
+
+      if (!accepting) {
+        safeRespond(CANONICAL_ERROR_JSON);
+        return Promise.resolve();
+      }
 
       // The invocation-count cap is operational and independent of the bit
       // ledger: it is consumed per *response*, not per launch, so every

@@ -196,16 +196,6 @@ export async function prepareBoundedQueries(
     throw new Error(`Bounded-query configuration is invalid:\n  - ${errors.join('\n  - ')}`);
   }
 
-  if (runtimeUsesComposeAgent(config.containerRuntime)) {
-    config.boundedQueryIngressTransport = 'unix';
-  } else {
-    const probe = deps.probeSbxUnixSocket ?? probeSbxUnixSocketMount;
-    config.boundedQueryIngressTransport = (await probe()) ? 'unix' : 'sbx-http';
-  }
-
-  const paths = resolveBoundedQueryPaths(config.workDir);
-  assertBoundedQueryPrivateRootIsolated(config, paths, env);
-
   const primaryBackend = resolveBoundedQueryPrimaryBackend(config.containerRuntime);
   const telemetryBase = {
     primaryBackend,
@@ -245,6 +235,16 @@ export async function prepareBoundedQueries(
       category: 'ready',
     })}`,
   );
+
+  if (runtimeUsesComposeAgent(config.containerRuntime)) {
+    config.boundedQueryIngressTransport = 'unix';
+  } else {
+    const probe = deps.probeSbxUnixSocket ?? probeSbxUnixSocketMount;
+    config.boundedQueryIngressTransport = (await probe()) ? 'unix' : 'sbx-http';
+  }
+
+  const paths = resolveBoundedQueryPaths(config.workDir);
+  assertBoundedQueryPrivateRootIsolated(config, paths, env);
 
   const token = resolveStagingToken(env);
   if (!token) {

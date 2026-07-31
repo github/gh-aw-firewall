@@ -310,7 +310,8 @@ reachable** — the VM is on its own network. AWF compensates with two indirecti
 - **The bounded-query broker** uses a mounted Unix socket when an executable
   disposable-sandbox probe proves sbx passthrough supports host sockets.
   Otherwise it uses an authenticated HTTP endpoint on an ephemeral
-  loopback-only host port. The broker is attached only to a dedicated Docker
+  host-gateway-only port that `host.docker.internal` can reach from inside the
+  VM. The broker is attached only to a dedicated Docker
   `internal` network, not `awf-net` or `awf-ext`, so this ingress does not add
   broker egress. The actual primary sandbox must pass a one-shot endpoint probe
   before its agent command starts.

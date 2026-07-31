@@ -1,4 +1,5 @@
 import {
+  assertSbxBoundedQueryIngress,
   createSandbox,
   execInSandbox,
   isSbxAvailable,
@@ -11,7 +12,12 @@ import * as fs from 'fs';
 import { mockExecaFn } from './test-helpers/mock-execa.test-utils';
 import { logger } from './logger';
 
-const { restoreHomeCredentials, sanitizeEnvForSbx, withLocalBinOnPath } = testHelpers;
+const {
+  restoreHomeCredentials,
+  sanitizeEnvForSbx,
+  withCreateSandboxEnvironment,
+  withLocalBinOnPath,
+} = testHelpers;
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 jest.mock('execa', () => require('./test-helpers/mock-execa.test-utils').execaMockFactory());
@@ -94,6 +100,38 @@ describe('sbx-manager', () => {
     });
   });
 
+  describe('withCreateSandboxEnvironment', () => {
+    afterEach(() => {
+      delete process.env.DOCKER_SANDBOXES_PROXY;
+      delete process.env.XDG_CONFIG_HOME;
+    });
+
+    it('temporarily removes DOCKER_SANDBOXES_PROXY and XDG_CONFIG_HOME and restores them on success', async () => {
+      process.env.DOCKER_SANDBOXES_PROXY = 'http://old-proxy:3128';
+      process.env.XDG_CONFIG_HOME = '/home/runner';
+
+      await withCreateSandboxEnvironment(async () => {
+        expect(process.env.DOCKER_SANDBOXES_PROXY).toBeUndefined();
+        expect(process.env.XDG_CONFIG_HOME).toBeUndefined();
+      });
+
+      expect(process.env.DOCKER_SANDBOXES_PROXY).toBe('http://old-proxy:3128');
+      expect(process.env.XDG_CONFIG_HOME).toBe('/home/runner');
+    });
+
+    it('restores DOCKER_SANDBOXES_PROXY and XDG_CONFIG_HOME after failure', async () => {
+      process.env.DOCKER_SANDBOXES_PROXY = 'http://old-proxy:3128';
+      process.env.XDG_CONFIG_HOME = '/home/runner';
+
+      await expect(withCreateSandboxEnvironment(async () => {
+        throw new Error('boom');
+      })).rejects.toThrow('boom');
+
+      expect(process.env.DOCKER_SANDBOXES_PROXY).toBe('http://old-proxy:3128');
+      expect(process.env.XDG_CONFIG_HOME).toBe('/home/runner');
+    });
+  });
+
   describe('SBX_DEFAULT_NAME', () => {
     it('has awf-agent prefix and process pid', () => {
       expect(SBX_DEFAULT_NAME).toMatch(/^awf-agent-\d+$/);
@@ -148,6 +186,29 @@ describe('sbx-manager', () => {
       restoreHomeCredentials();
       mockedRenameSync.mockReset();
       mockedRenameSync.mockReturnValue(undefined);
+    });
+
+    describe('assertSbxBoundedQueryIngress', () => {
+      it('proves Unix ingress with an HTTP exchange over the mounted socket', async () => {
+        mockExecaFn.mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' });
+
+        await expect(assertSbxBoundedQueryIngress(
+          'awf-agent-test',
+          { transport: 'unix', socketPath: '/var/tmp/broker.sock' },
+          {},
+          '/workspace',
+        )).resolves.toBeUndefined();
+
+        expect(mockExecaFn).toHaveBeenCalledWith('sbx', expect.arrayContaining([
+          'exec',
+          'awf-agent-test',
+          'bash',
+          '-lc',
+          expect.stringContaining('--unix-socket "$AWF_BOUNDED_QUERY_SOCKET"'),
+        ]), expect.objectContaining({
+          env: expect.any(Object),
+        }));
+      });
     });
 
     it('uses shell agent, configured mounts, and sanitized env', async () => {
