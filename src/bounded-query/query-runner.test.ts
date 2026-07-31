@@ -311,11 +311,26 @@ describe('trusted bounded-query runner contract', () => {
     );
 
     const { client } = createDocker((args) => {
-      if (args[0] === 'info') return ok({ stdout: '{"runc":{}}' });
+      if (args[0] === 'info') return ok({ stdout: 'runc\n' });
       return ok();
     });
     const runner = createQueryRunner({ ...config, queryBackend: 'gvisor' }, { docker: client });
     await expect(runner.assertAvailable()).rejects.toThrow(/runsc OCI runtime; no fallback/);
+  });
+
+  it('detects runsc from the bounded Docker runtime-name listing', async () => {
+    const { calls, client } = createDocker((args) => {
+      if (args[0] === 'info') return ok({ stdout: 'io.containerd.runc.v2\nrunc\nrunsc\n' });
+      return ok();
+    });
+    const runner = createQueryRunner({ ...config, queryBackend: 'gvisor' }, { docker: client });
+
+    await expect(runner.assertAvailable()).resolves.toBeUndefined();
+    expect(calls).toContainEqual([
+      'info',
+      '--format',
+      '{{range $name, $_ := .Runtimes}}{{println $name}}{{end}}',
+    ]);
   });
 
   it.each([
