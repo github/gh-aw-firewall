@@ -70,9 +70,7 @@ jobs:
           # Their committed lock manifests are still scanned by the steps below.
           mapfile -t workflows < <(
             find .github/workflows -maxdepth 1 -name '*.md' \
-              ! -name 'smoke-bounded-queries.md' \
-              ! -name 'smoke-bounded-queries-gvisor.md' \
-              ! -name 'smoke-bounded-queries-sbx.md' -print
+              ! -name 'smoke-bounded-queries*.md' -print
           )
           gh aw compile --syft "${workflows[@]}"
 
