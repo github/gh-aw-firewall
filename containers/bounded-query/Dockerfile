@@ -53,6 +53,10 @@ RUN chmod -R a-w /opt/awf \
     && node --check /opt/awf/broker/framing.js \
     && node --check /opt/awf/broker/workspace.js \
     && node --check /opt/awf/broker/query-runner.js \
+    && node --check /opt/awf/broker/query-runner-spec.js \
+    && node --check /opt/awf/broker/docker-client.js \
+    && node --check /opt/awf/broker/docker-query-runner.js \
+    && node --check /opt/awf/broker/gvisor-query-runner.js \
     && node --check /opt/awf/broker/healthcheck.js
 
 # Fixed broker-only mount points.

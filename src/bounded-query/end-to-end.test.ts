@@ -102,7 +102,7 @@ describe('bounded query end-to-end (wrapper → socket → broker)', () => {
       queryScriptPath: '/awf/query-script.py',
       querySeccompPath: '/opt/awf/query-seccomp.json',
       queryImage: 'bounded-query:test',
-      dockerRuntime: '',
+      queryBackend: 'docker',
       memoryLimit: '512m',
       timeoutSeconds: 30,
       maxInvocations: 2,

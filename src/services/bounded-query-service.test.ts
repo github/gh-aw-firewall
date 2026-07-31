@@ -96,7 +96,7 @@ describe('buildBoundedQueryService', () => {
       expect(environment.AWF_BOUNDED_QUERY_TIMEOUT).toBe('45');
       expect(environment.AWF_BOUNDED_QUERY_MEMORY).toBe('256m');
       expect(environment.AWF_BOUNDED_QUERY_MAX_INVOCATIONS).toBe('9');
-      expect(environment.AWF_BOUNDED_QUERY_RUNTIME).toBe('');
+      expect(environment.AWF_BOUNDED_QUERY_BACKEND).toBe('docker');
       expect(environment.AWF_BOUNDED_QUERY_HOST_WORK_DIR).toBe(paths.workDir);
     });
 
@@ -136,7 +136,7 @@ describe('buildBoundedQueryService', () => {
         config: buildConfig({}, { runtime: 'gvisor' }),
         imageConfig: imageConfig(),
       });
-      expect((gvisorService.environment as Record<string, string>).AWF_BOUNDED_QUERY_RUNTIME).toBe('runsc');
+      expect((gvisorService.environment as Record<string, string>).AWF_BOUNDED_QUERY_BACKEND).toBe('gvisor');
     });
 
     it('uses the AWF Docker host socket when overridden, without leaking it to the agent', () => {

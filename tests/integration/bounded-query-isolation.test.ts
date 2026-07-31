@@ -83,7 +83,7 @@ describe('bounded-query Docker isolation', () => {
         queryScriptPath: '/awf/query-script.py',
         querySeccompPath: path.resolve(__dirname, '../../containers/bounded-query/query-seccomp.json'),
         queryImage: image,
-        dockerRuntime: '',
+        queryBackend: 'docker',
         memoryLimit: '256m',
         queryUid: 65534,
         queryGid: 65534,

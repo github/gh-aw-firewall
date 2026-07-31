@@ -1,6 +1,5 @@
 import { logger } from '../logger';
 import { buildRuntimeImageRef } from '../image-tag';
-import { resolveDockerRuntime } from '../container-runtime';
 import { getSafeHostGid, getSafeHostUid } from '../host-identity';
 import { BOUNDED_QUERY_BROKER_CONTAINER_NAME } from '../constants';
 import type { WrapperConfig } from '../types';
@@ -192,13 +191,9 @@ export function buildBoundedQueryService(params: BoundedQueryServiceParams): Bou
     ),
     environment: {
       AWF_BOUNDED_QUERY_IMAGE: queryImageRef,
-      // "docker" means the daemon's default OCI runtime. Passing
-      // `--runtime docker` would fail because Docker has no runtime by that
-      // name; only non-default runtimes get an explicit value.
-      AWF_BOUNDED_QUERY_RUNTIME:
-        boundedQueries.runtime === 'docker'
-          ? ''
-          : resolveDockerRuntime(boundedQueries.runtime) ?? '',
+      // The broker selects a fixed QueryRunner from this normalized value.
+      // Runtime flags are never accepted from an invocation.
+      AWF_BOUNDED_QUERY_BACKEND: boundedQueries.runtime,
       AWF_BOUNDED_QUERY_TIMEOUT: String(boundedQueries.timeout),
       AWF_BOUNDED_QUERY_MEMORY: boundedQueries.memoryLimit,
       AWF_BOUNDED_QUERY_MAX_INVOCATIONS: String(boundedQueries.maxInvocations),

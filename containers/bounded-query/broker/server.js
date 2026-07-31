@@ -7,7 +7,7 @@ const { createBroker } = require('./broker');
 const { loadConfig, loadSeedMap } = require('./config');
 const { buildRequestFromFrame, readBoundedBody } = require('./framing');
 const { CANONICAL_ERROR_JSON } = require('./protocol');
-const { assertQueryImageAvailable } = require('./query-runner');
+const { createQueryRunner } = require('./query-runner');
 
 /**
  * Bounded-query broker server.
@@ -37,6 +37,10 @@ const RESULT_HEADERS = {
   'content-type': 'application/json',
   'cache-control': 'no-store',
 };
+// Give a nearly-complete invocation a chance to finish broker cleanup before
+// force-removing this run's containers. Longer queries are interrupted so
+// Compose shutdown remains bounded; host teardown owns private-root removal.
+const SHUTDOWN_GRACE_MS = 1_000;
 
 function sendResult(res, body) {
   res.writeHead(200, { ...RESULT_HEADERS, 'content-length': Buffer.byteLength(body) });
@@ -102,12 +106,14 @@ async function main() {
   const config = loadConfig();
   const audit = createAuditLog(config.auditDir);
   const { runId, seeds } = loadSeedMap(config.seedMapPath);
+  const runner = createQueryRunner(config);
 
-  // Fail closed before accepting a single request: an invocation must never
-  // trigger a registry pull, and the broker has no network to perform one.
-  await assertQueryImageAvailable(config.queryImage);
+  // Fail closed before accepting requests and reconcile containers left by a
+  // prior broker process for this exact run. Queries never pull or fall back.
+  await runner.assertAvailable();
+  await runner.reconcileRun(runId);
 
-  const broker = createBroker({ config, seedMap: seeds, runId, audit });
+  const broker = createBroker({ config, seedMap: seeds, runId, audit, runner });
   const server = createServer({ broker, audit });
 
   await listenOnSocket(server, config, audit);
@@ -120,13 +126,28 @@ async function main() {
   audit.lifecycle('listening', {
     socket: config.socketPath,
     repos: seeds.size,
-    runtime: config.dockerRuntime || 'default',
+    backend: config.queryBackend,
     maxInvocations: config.maxInvocations,
   });
 
-  const shutdown = () => {
-    server.close(() => process.exit(0));
-    setTimeout(() => process.exit(0), 3000).unref();
+  let shuttingDown = false;
+  const shutdown = async () => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    server.close();
+    const forcedExit = setTimeout(() => process.exit(1), 5000);
+    forcedExit.unref();
+    try {
+      await Promise.race([
+        broker.drain(),
+        new Promise((resolve) => setTimeout(resolve, SHUTDOWN_GRACE_MS)),
+      ]);
+      await runner.reconcileRun(runId);
+      process.exit(0);
+    } catch (error) {
+      audit.lifecycle('shutdown-cleanup-failed', error.message);
+      process.exit(1);
+    }
   };
   process.on('SIGTERM', shutdown);
   process.on('SIGINT', shutdown);

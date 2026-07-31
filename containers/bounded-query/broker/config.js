@@ -74,9 +74,9 @@ function loadConfig() {
     throw new Error('AWF_BOUNDED_QUERY_MEMORY must be a Docker memory limit (e.g. "512m")');
   }
 
-  const dockerRuntime = process.env.AWF_BOUNDED_QUERY_RUNTIME || '';
-  if (dockerRuntime && !/^[A-Za-z0-9_.-]+$/.test(dockerRuntime)) {
-    throw new Error('AWF_BOUNDED_QUERY_RUNTIME contains unexpected characters');
+  const queryBackend = requireEnv('AWF_BOUNDED_QUERY_BACKEND');
+  if (queryBackend !== 'docker' && queryBackend !== 'gvisor') {
+    throw new Error(`Unsupported AWF_BOUNDED_QUERY_BACKEND: ${queryBackend}`);
   }
 
   return {
@@ -97,7 +97,7 @@ function loadConfig() {
     // The daemon resolves query bind-mount sources in *its* filesystem view,
     // which is not necessarily the broker's (ARC/DinD split filesystems).
     hostWorkDir: requireEnv('AWF_BOUNDED_QUERY_HOST_WORK_DIR'),
-    dockerRuntime,
+    queryBackend,
     timeoutSeconds: parseTimeoutSeconds(),
     maxInvocations: parsePositiveInt('AWF_BOUNDED_QUERY_MAX_INVOCATIONS', 32),
     memoryLimit,
