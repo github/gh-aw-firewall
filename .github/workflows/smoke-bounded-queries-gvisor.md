@@ -64,7 +64,7 @@ pre-agent-steps:
 safe-outputs:
   threat-detection:
     enabled: false
-timeout-minutes: 15
+timeout-minutes: 30
 strict: false
 concurrency:
   group: smoke-bounded-queries-gvisor
@@ -171,6 +171,9 @@ The query must:
 2. Run a Python script inside the bounded-query environment that checks
    `/query/repo/go.mod`.
 3. Return `true`.
+4. Wait for the command to finish without interrupting it. Internal queries
+   intentionally return on a 10-minute confidentiality timing bucket, so this
+   latency is expected and is not a hang.
 
 No GitHub API tools are available to the agent. Do not use network requests or
 the current checkout to answer the question. The test passes only when the
