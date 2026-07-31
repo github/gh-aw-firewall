@@ -70,10 +70,10 @@
     "eslint": "^10.8.0",
     "eslint-plugin-security": "^3.0.1",
     "glob": "^13.0.6",
-    "globals": "^17.7.0",
+    "globals": "^17.8.0",
     "husky": "^9.1.7",
     "jest": "^30.4.2",
-    "markdownlint-cli2": "^0.23.1",
+    "markdownlint-cli2": "^0.23.2",
     "ts-jest": "^29.4.12",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.65.0"
