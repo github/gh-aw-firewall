@@ -10,6 +10,9 @@ import {
 import { resolveBoundedQueryPaths } from './paths';
 
 jest.mock('execa', () => ({ __esModule: true, default: jest.fn() }));
+jest.mock('../services/host-gateway', () => ({
+  resolveDockerHostGateway: jest.fn(() => '172.17.0.1'),
+}));
 const mockExeca = execa as unknown as jest.Mock;
 
 describe('sbx bounded-query ingress resolution', () => {
@@ -32,7 +35,7 @@ describe('sbx bounded-query ingress resolution', () => {
     mockExeca.mockReset();
     mockExeca.mockResolvedValue({
       exitCode: 0,
-      stdout: '127.0.0.1:49152\n',
+      stdout: 'healthy|172.17.0.1:49152\n',
       stderr: '',
     });
   });
@@ -63,12 +66,22 @@ describe('sbx bounded-query ingress resolution', () => {
   it.each([
     '0.0.0.0:49152',
     '[::1]:49152',
-    '127.0.0.1:0',
-    '127.0.0.1:70000',
+    '172.17.0.1:0',
+    '172.17.0.1:70000',
     '',
   ])('rejects a broad or malformed publication: %s', async (published) => {
-    mockExeca.mockResolvedValue({ exitCode: 0, stdout: published, stderr: '' });
+    mockExeca.mockResolvedValue({ exitCode: 0, stdout: `healthy|${published}`, stderr: '' });
     await expect(resolveSbxIngress(config)).rejects.toThrow(/narrowly published/);
+  });
+
+  it('waits for broker health before returning the endpoint', async () => {
+    mockExeca
+      .mockResolvedValueOnce({ exitCode: 0, stdout: 'starting|', stderr: '' })
+      .mockResolvedValueOnce({ exitCode: 0, stdout: 'healthy|172.17.0.1:49152', stderr: '' });
+
+    const result = await resolveSbxIngress(config);
+    expect(result.endpoint).toBe('http://host.docker.internal:49152/query');
+    expect(mockExeca.mock.calls.length).toBeGreaterThanOrEqual(2);
   });
 
   it('removes the private capability file after broker startup and sbx probing', () => {

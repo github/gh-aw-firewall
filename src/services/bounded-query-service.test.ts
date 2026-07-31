@@ -9,6 +9,10 @@ import {
 } from './bounded-query-service';
 import type { ImageBuildConfig } from './squid-service';
 
+jest.mock('./host-gateway', () => ({
+  resolveDockerHostGateway: jest.fn(() => '172.17.0.1'),
+}));
+
 const WORK_DIR = '/tmp/awf-1700000000';
 
 const boundedQueries: BoundedQueriesConfig = {

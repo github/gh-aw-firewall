@@ -23,48 +23,17 @@ ignore:
   #     binary. `gh` is a client: it does not run a gRPC server, use xDS RBAC,
   #     or accept HTTP/2 from untrusted peers, so none of the vulnerable code
   #     paths are exercised. The finding is present but not exploitable here.
-  #   Present in the agent image (gh via the GitHub CLI apt repo) and the
-  #   cli-proxy image (gh from the official release tarball).
+  #   Present in the cli-proxy image (gh from the official release tarball).
   #
-  #   No fix is shippable today: gh 2.96.0 (latest release as of 2026-07-23)
-  #   still pins grpc v1.81.1, and building gh from unreleased trunk would ship
-  #   an untagged, non-official binary (worse supply-chain risk than a
-  #   non-reachable finding). The fix (grpc v1.82.1) is already merged on gh
-  #   trunk, so the next tagged gh release will carry it.
-  #   Revisit: once gh CLI >= v2.97.0 (grpc >= 1.82.1) is released, bump the
-  #   `gh=` pin in agent/Dockerfile and cli-proxy/Dockerfile and DELETE this
-  #   entry. Tracked in github/gh-aw-firewall.
+  #   gh 2.97.0 fixes this in the agent image. The cli-proxy image remains on
+  #   gh 2.96.0, so this exception remains narrowly scoped to that binary.
+  #   Revisit: bump GH_VERSION in cli-proxy/Dockerfile to >= 2.97.0 and DELETE
+  #   this entry. Tracked in github/gh-aw-firewall.
   - vulnerability: GHSA-hrxh-6v49-42gf
     package:
       name: google.golang.org/grpc
       version: "v1.81.1"
       type: go-module
-
-  # ── golang.org/x/text v0.38.0 embedded in gh CLI binary (agent image) ────────
-  #
-  # GO-2026-5970 / CVE-2026-56852 (golang.org/x/text v0.38.0 -> 0.39.0, HIGH):
-  #   A norm.Iter can enter an infinite loop when handling input containing
-  #   invalid UTF-8 bytes (denial of service).
-  #
-  #   Risk acceptance — BOUNDED DoS only, no other impact:
-  #     x/text v0.38.0 is compiled into the `gh` CLI binary. In the agent image,
-  #     `gh` is a client tool invoked by the agent; the worst-case outcome if
-  #     invalid UTF-8 reaches gh's text-normalization path is a hang of that gh
-  #     process — no privilege escalation, data exfiltration, or RCE vector.
-  #   Scoped to /usr/bin/gh (agent image, installed via apt repo, gh=2.96.0).
-  #
-  #   No fix is shippable today: gh 2.96.0 (latest release as of 2026-07-24)
-  #   still bundles x/text v0.38.0, and building gh from unreleased trunk would
-  #   ship an untagged, non-official binary (worse supply-chain risk).
-  #   Revisit: once a gh CLI release bundling x/text >= v0.39.0 is available,
-  #   bump the `gh=` pin in agent/Dockerfile and DELETE this entry. Tracked in
-  #   github/gh-aw-firewall.
-  - vulnerability: GO-2026-5970
-    package:
-      name: golang.org/x/text
-      version: "v0.38.0"
-      type: go-module
-      location: "/usr/bin/gh"
 
   # ── golang.org/x/text v0.38.0 embedded in gh CLI binary (cli-proxy image) ────
   #

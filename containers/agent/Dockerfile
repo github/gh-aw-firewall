@@ -28,7 +28,7 @@ RUN if getent hosts azure.archive.ubuntu.com >/dev/null 2>&1; then \
       echo "Azure apt mirror not reachable, using default archive.ubuntu.com"; \
     fi
 
-# Install required packages, GitHub CLI 2.96.0, Node.js 22.23.1, and npm 11.18.0
+# Install required packages, GitHub CLI 2.97.0, Node.js 22.23.1, and npm 11.18.0
 # Note: Some packages may already exist in runner-like base images, apt handles this gracefully
 # apt_update_retry: retries up to 3 times with backoff; if all fail, reverts to archive.ubuntu.com
 RUN set -eux; \
@@ -95,7 +95,7 @@ RUN set -eux; \
     gosu --version && \
     # Prefer system binaries over runner toolcache (e.g., act images) for Node checks.
     export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH" && \
-    # Install GitHub CLI 2.96.0 from the official GitHub CLI apt repository
+    # Install GitHub CLI 2.97.0 from the official GitHub CLI apt repository
     # (Ubuntu's bundled gh package is 2.4.0 compiled with Go 1.18 — vulnerable)
     curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
         | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg && \
@@ -103,7 +103,7 @@ RUN set -eux; \
     echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
         > /etc/apt/sources.list.d/github-cli.list && \
     apt-get update && \
-    apt_install_retry gh=2.96.0 && \
+    apt_install_retry gh=2.97.0 && \
     # Install Node.js 22.23.1 from the official Node.js binary distribution
     # (nodejs.org), NOT the NodeSource apt repo. The NodeSource .deb is tracked by
     # a Debian/NodeSource security feed that yields false-positive CVE matches
@@ -117,7 +117,7 @@ RUN set -eux; \
     UNDER_QEMU=false && \
     if [ -f /dev/.buildkit_qemu_emulator ] || [ -n "${QEMU_CPU:-}" ]; then UNDER_QEMU=true; fi && \
     # Remove any existing nodejs packages first to avoid conflicting detections
-    apt-get remove -y nodejs npm || true && \
+    (apt-get remove -y nodejs npm || true) && \
     NODE_VERSION="v22.23.1" && \
     NODE_DPKG_ARCH="$(dpkg --print-architecture)" && \
     case "$NODE_DPKG_ARCH" in \

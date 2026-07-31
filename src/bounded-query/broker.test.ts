@@ -267,6 +267,19 @@ describe('bounded-query broker', () => {
     expect(fs.readdirSync(String(config.workDir))).toEqual([]);
   });
 
+  it('rejects new invocations after shutdown starts without consuming budget or launching', async () => {
+    const runner = queryRunner(() => {
+      throw new Error('query must not launch');
+    });
+    const { broker } = build(runner);
+
+    broker.close();
+
+    expect(await invoke(broker, validRequest())).toBe(CANONICAL_ERROR);
+    expect(broker.invocationsUsed).toBe(0);
+    expect(runner.seen).toEqual([]);
+  });
+
   it('never exposes another repository or the seed parent to a query', async () => {
     let repoContents = '';
     let siblings: string[] = [];

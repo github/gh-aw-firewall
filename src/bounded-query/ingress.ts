@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import execa from 'execa';
 import { BOUNDED_QUERY_BROKER_CONTAINER_NAME } from '../constants';
 import { getLocalDockerEnv } from '../host-env';
+import { resolveDockerHostGateway } from '../services/host-gateway';
 import type { WrapperConfig } from '../types';
 import { resolveBoundedQueryPaths } from './paths';
 
@@ -40,40 +41,63 @@ function readCapabilities(config: WrapperConfig): SbxIngressCapabilities {
   return parsed as SbxIngressCapabilities;
 }
 
-/** Resolves the loopback-only ephemeral host port without logging capabilities. */
+/** Resolves the healthy host-gateway publication without logging capabilities. */
 export async function resolveSbxIngress(config: WrapperConfig): Promise<ResolvedSbxIngress> {
   if (config.boundedQueryIngressTransport !== 'sbx-http') {
     throw new Error('resolveSbxIngress called for a non-HTTP bounded-query transport');
   }
-  const result = await execa(
-    'docker',
-    [
-      'inspect',
-      '--format',
-      `{{(index (index .NetworkSettings.Ports "${BOUNDED_QUERY_TCP_PORT}/tcp") 0).HostIp}}:{{(index (index .NetworkSettings.Ports "${BOUNDED_QUERY_TCP_PORT}/tcp") 0).HostPort}}`,
-      BOUNDED_QUERY_BROKER_CONTAINER_NAME,
-    ],
-    {
-      env: getLocalDockerEnv(),
-      reject: false,
-      timeout: 30_000,
-    },
-  );
-  const published = result.stdout.trim();
-  const match = /^127\.0\.0\.1:([1-9][0-9]{0,4})$/.exec(published);
-  if (result.exitCode !== 0 || !match || Number(match[1]) > 65535) {
-    throw new Error('Bounded-query sbx ingress is not narrowly published on host loopback');
+  const expectedHostIp = resolveDockerHostGateway();
+  if (!expectedHostIp) {
+    throw new Error('Could not resolve the Docker host-gateway IP for bounded-query sbx ingress');
   }
 
-  const paths = resolveBoundedQueryPaths(config.workDir);
-  const capabilities = readCapabilities(config);
-  return {
-    endpoint: `http://${SBX_HOST_ALIAS}:${match[1]}/query`,
-    queryCapability: capabilities.query,
-    probeCapability: capabilities.probe,
-    skillPath: paths.skillPath,
-    wrapperDir: paths.agentDir,
-  };
+  const deadline = Date.now() + 30_000;
+  let lastPublished = '';
+  let lastHealth = '';
+  while (Date.now() < deadline) {
+    const result = await execa(
+      'docker',
+      [
+        'inspect',
+        '--format',
+        `{{if .State.Health}}{{.State.Health.Status}}{{end}}|{{with index (index .NetworkSettings.Ports "${BOUNDED_QUERY_TCP_PORT}/tcp") 0}}{{.HostIp}}:{{.HostPort}}{{end}}`,
+        BOUNDED_QUERY_BROKER_CONTAINER_NAME,
+      ],
+      {
+        env: getLocalDockerEnv(),
+        reject: false,
+        timeout: 5_000,
+      },
+    );
+    const [health = '', published = ''] = result.stdout.trim().split('|', 2);
+    lastHealth = health;
+    lastPublished = published;
+    const separator = published.lastIndexOf(':');
+    const publishedHostIp = separator === -1 ? '' : published.slice(0, separator);
+    const publishedPort = separator === -1 ? '' : published.slice(separator + 1);
+    const publishedPortNumber = Number(publishedPort);
+    const hasValidPort = /^[1-9][0-9]{0,4}$/.test(publishedPort) && publishedPortNumber <= 65535;
+    if (result.exitCode === 0 && health === 'healthy' && publishedHostIp === expectedHostIp && hasValidPort) {
+      const paths = resolveBoundedQueryPaths(config.workDir);
+      const capabilities = readCapabilities(config);
+      return {
+        endpoint: `http://${SBX_HOST_ALIAS}:${publishedPort}/query`,
+        queryCapability: capabilities.query,
+        probeCapability: capabilities.probe,
+        skillPath: paths.skillPath,
+        wrapperDir: paths.agentDir,
+      };
+    }
+    if (result.exitCode === 0 && health === 'healthy') {
+      throw new Error(`Bounded-query sbx ingress is not narrowly published on host-gateway ${expectedHostIp}`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+  }
+
+  throw new Error(
+    `Bounded-query sbx ingress did not become healthy on host-gateway ${expectedHostIp} ` +
+    `(health=${lastHealth || 'unknown'}, published=${lastPublished || 'none'})`,
+  );
 }
 
 /** Deletes the on-disk secret after the running broker has loaded it. */

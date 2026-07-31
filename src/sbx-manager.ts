@@ -72,6 +72,34 @@ function sanitizeEnvForSbx(
   return { ...clean, ...overrides };
 }
 
+/**
+ * Runs an sbx management command with create-time environment fixes applied.
+ *
+ * `DOCKER_SANDBOXES_PROXY` must be absent before AWF's containers are ready,
+ * and `XDG_CONFIG_HOME` must not redirect the sbx CLI away from its normal
+ * credential store. Both variables are always restored, even on failure.
+ */
+async function withCreateSandboxEnvironment<T>(fn: () => Promise<T>): Promise<T> {
+  const savedProxy = process.env.DOCKER_SANDBOXES_PROXY;
+  const savedXdg = process.env.XDG_CONFIG_HOME;
+  delete process.env.DOCKER_SANDBOXES_PROXY;
+  delete process.env.XDG_CONFIG_HOME;
+  try {
+    return await fn();
+  } finally {
+    if (savedProxy !== undefined) {
+      process.env.DOCKER_SANDBOXES_PROXY = savedProxy;
+    } else {
+      delete process.env.DOCKER_SANDBOXES_PROXY;
+    }
+    if (savedXdg !== undefined) {
+      process.env.XDG_CONFIG_HOME = savedXdg;
+    } else {
+      delete process.env.XDG_CONFIG_HOME;
+    }
+  }
+}
+
 /** Records a credential path that was moved aside before `sbx create`. */
 interface ScrubbedCredential {
   /** Original host path (inside a wholesale-mounted home dir). */
@@ -301,25 +329,12 @@ export async function createSandbox(config: {
   // XDG_CONFIG_HOME must also be removed — the Copilot harness sets it to $HOME,
   // which makes the sbx CLI look for credentials in $HOME/ instead of the
   // default $HOME/.config/ where `sbx login` stored them.
-  const savedProxy = process.env.DOCKER_SANDBOXES_PROXY;
-  const savedXdg = process.env.XDG_CONFIG_HOME;
-  delete process.env.DOCKER_SANDBOXES_PROXY;
-  delete process.env.XDG_CONFIG_HOME;
-
-  const createResult = await execa('sbx', args, {
+  const createResult = await withCreateSandboxEnvironment(() => execa('sbx', args, {
     input: 'y\n',
     stdio: ['pipe', 'pipe', 'pipe'],
     reject: false,
     timeout: 120_000, // 2 minute timeout for sandbox creation
-  });
-
-  // Restore env vars
-  if (savedProxy !== undefined) {
-    process.env.DOCKER_SANDBOXES_PROXY = savedProxy;
-  }
-  if (savedXdg !== undefined) {
-    process.env.XDG_CONFIG_HOME = savedXdg;
-  }
+  }));
 
   const stdout = (createResult.stdout || '').trim();
   const stderr = (createResult.stderr || '').trim();
@@ -361,6 +376,7 @@ function withLocalBinOnPath(command: string): string {
 export const testHelpers = {
   sanitizeEnvForSbx,
   restoreHomeCredentials,
+  withCreateSandboxEnvironment,
   withLocalBinOnPath,
 };
 
@@ -376,6 +392,7 @@ export const testHelpers = {
  */
 export async function probeSbxUnixSocketMount(): Promise<boolean> {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-sbx-socket-probe-'));
+  fs.chmodSync(root, 0o700);
   const socketPath = path.join(root, 'probe.sock');
   const response = '{"status":"error"}';
   const server = http.createServer((_req, res) => {
@@ -396,7 +413,7 @@ export async function probeSbxUnixSocketMount(): Promise<boolean> {
   let probeError: unknown;
   let supported = false;
   try {
-    const createResult = await execa(
+    const createResult = await withCreateSandboxEnvironment(() => execa(
       'sbx',
       ['create', '--name', SBX_SOCKET_PROBE_NAME, 'shell', root],
       {
@@ -405,7 +422,7 @@ export async function probeSbxUnixSocketMount(): Promise<boolean> {
         reject: false,
         timeout: 120_000,
       },
-    );
+    ));
     created = (createResult.exitCode ?? 1) === 0 || (createResult.stdout || '').includes('Created sandbox');
     if (!created) {
       throw new Error(
@@ -534,7 +551,12 @@ export async function assertSbxBoundedQueryIngress(
   let command: string;
   if (ingress.transport === 'unix') {
     probeEnvironment.AWF_BOUNDED_QUERY_SOCKET = ingress.socketPath;
-    command = 'test -S "$AWF_BOUNDED_QUERY_SOCKET"';
+    command = [
+      'response=$(curl --silent --show-error --max-time 15 --unix-socket "$AWF_BOUNDED_QUERY_SOCKET"',
+      '-X POST -H "Expect:"',
+      'http://localhost/query 2>/dev/null) &&',
+      '[ "$response" = \'{"status":"error"}\' ]',
+    ].join(' ');
   } else {
     probeEnvironment.AWF_BOUNDED_QUERY_ENDPOINT = ingress.endpoint;
     probeEnvironment.AWF_BOUNDED_QUERY_PROBE_CAPABILITY = ingress.probeCapability;
