@@ -40,6 +40,45 @@ export interface SbxCapabilityReport {
 /** Executes the minimum host-side capability proof for the sbx query backend. */
 export type SbxCapabilityQuery = () => Promise<SbxCapabilityReport>;
 
+type RuntimeAvailabilityCase = 'sbx' | 'docker' | 'gvisor' | 'custom' | 'default-docker';
+
+function classifyRuntimeAvailability(runtime: string | undefined): RuntimeAvailabilityCase {
+  if (runtime === 'sbx') return 'sbx';
+  if (runtime === 'docker') return 'docker';
+  if (runtime === 'gvisor' || runtime === 'runsc') return 'gvisor';
+  if (runtime) return 'custom';
+  return 'default-docker';
+}
+
+interface RuntimeAvailabilityChecks {
+  sbx: () => Promise<void>;
+  docker: () => Promise<void>;
+  gvisor: (runtime: string) => Promise<void>;
+  custom: (runtime: string) => Promise<void>;
+  defaultDocker: () => Promise<void>;
+}
+
+async function assertRuntimeAvailability(
+  runtime: string | undefined,
+  checks: RuntimeAvailabilityChecks,
+): Promise<void> {
+  const runtimeCase = classifyRuntimeAvailability(runtime);
+  switch (runtimeCase) {
+    case 'sbx':
+      return checks.sbx();
+    case 'docker':
+      return checks.docker();
+    case 'gvisor':
+      return checks.gvisor(runtime!);
+    case 'custom':
+      return checks.custom(runtime!);
+    case 'default-docker':
+      return checks.defaultDocker();
+    default:
+      throw new Error(`Unreachable runtime case: ${runtimeCase satisfies never}`);
+  }
+}
+
 const defaultDockerRuntimeQuery: DockerRuntimeQuery = async (runtimeName) => {
   const result = await execa('docker', ['info', '--format', '{{json .Runtimes}}'], {
     env: getLocalDockerEnv(),
@@ -249,35 +288,52 @@ export async function assertQueryRuntimeAvailable(
   querySbxCapabilities: SbxCapabilityQuery = defaultSbxCapabilityQuery,
   queryDockerAvailable: DockerAvailabilityQuery = defaultDockerAvailabilityQuery,
 ): Promise<void> {
-  if (boundedQueries.runtime === 'sbx') {
-    const report = await querySbxCapabilities();
-    if (!report.supported) {
-      throw new Error(
-        'boundedQueries.runtime "sbx" is blocked because the installed sbx runtime cannot enforce all ' +
-        `mandatory query-isolation controls: ${report.missing.join(', ')}. ` +
-        'AWF will not launch a query VM and will never fall back to Docker or gVisor.',
-      );
-    }
-    return;
-  }
-
-  if (boundedQueries.runtime === 'docker') {
-    if (!(await queryDockerAvailable())) {
-      throw new Error(
-        'boundedQueries.runtime "docker" requires a reachable Docker daemon. It is not available, ' +
-        'and bounded queries never fall back to another runtime.',
-      );
-    }
-    return;
-  }
-
-  if (!(await queryDockerRuntime(GVISOR_DOCKER_RUNTIME))) {
-    throw new Error(
-      `boundedQueries.runtime "gvisor" requires the "${GVISOR_DOCKER_RUNTIME}" OCI runtime to be ` +
-      'registered with the Docker daemon. It is not available, and bounded queries never fall back ' +
-      'to a weaker runtime.',
-    );
-  }
+  await assertRuntimeAvailability(boundedQueries.runtime, {
+    sbx: async () => {
+      const report = await querySbxCapabilities();
+      if (!report.supported) {
+        throw new Error(
+          'boundedQueries.runtime "sbx" is blocked because the installed sbx runtime cannot enforce all ' +
+          `mandatory query-isolation controls: ${report.missing.join(', ')}. ` +
+          'AWF will not launch a query VM and will never fall back to Docker or gVisor.',
+        );
+      }
+    },
+    docker: async () => {
+      if (!(await queryDockerAvailable())) {
+        throw new Error(
+          'boundedQueries.runtime "docker" requires a reachable Docker daemon. It is not available, ' +
+          'and bounded queries never fall back to another runtime.',
+        );
+      }
+    },
+    gvisor: async () => {
+      if (!(await queryDockerRuntime(GVISOR_DOCKER_RUNTIME))) {
+        throw new Error(
+          `boundedQueries.runtime "gvisor" requires the "${GVISOR_DOCKER_RUNTIME}" OCI runtime to be ` +
+          'registered with the Docker daemon. It is not available, and bounded queries never fall back ' +
+          'to a weaker runtime.',
+        );
+      }
+    },
+    custom: async () => {
+      if (!(await queryDockerRuntime(GVISOR_DOCKER_RUNTIME))) {
+        throw new Error(
+          `boundedQueries.runtime "gvisor" requires the "${GVISOR_DOCKER_RUNTIME}" OCI runtime to be ` +
+          'registered with the Docker daemon. It is not available, and bounded queries never fall back ' +
+          'to a weaker runtime.',
+        );
+      }
+    },
+    defaultDocker: async () => {
+      if (!(await queryDockerAvailable())) {
+        throw new Error(
+          'boundedQueries.runtime "docker" requires a reachable Docker daemon. It is not available, ' +
+          'and bounded queries never fall back to another runtime.',
+        );
+      }
+    },
+  });
 }
 
 /** Verifies the primary-agent runtime before bounded-query repository staging. */
@@ -287,38 +343,47 @@ export async function assertPrimaryRuntimeAvailable(
   queryDockerAvailable: DockerAvailabilityQuery = defaultDockerAvailabilityQuery,
   querySbxAvailable: SbxAvailabilityQuery = defaultSbxAvailabilityQuery,
 ): Promise<void> {
-  if (containerRuntime === 'sbx') {
-    if (!(await querySbxAvailable())) {
-      throw new Error(
-        'Primary-agent runtime "sbx" is unavailable. Bounded queries abort before staging and never ' +
-        'fall back to a Docker or gVisor primary agent.',
-      );
-    }
-    return;
-  }
-  if (containerRuntime === 'gvisor' || containerRuntime === 'runsc') {
-    if (!(await queryDockerRuntime(GVISOR_DOCKER_RUNTIME))) {
-      throw new Error(
-        `Primary-agent runtime "${containerRuntime}" requires the "${GVISOR_DOCKER_RUNTIME}" OCI runtime. ` +
-        'It is not available, so bounded queries abort before staging and never fall back.',
-      );
-    }
-    return;
-  }
-  if (containerRuntime) {
-    if (!(await queryDockerRuntime(containerRuntime))) {
-      throw new Error(
-        `Primary-agent OCI runtime "${containerRuntime}" is not registered with Docker. ` +
-        'Bounded queries abort before staging and never fall back.',
-      );
-    }
-    return;
-  }
-  if (!(await queryDockerAvailable())) {
-    throw new Error(
-      'The Docker primary-agent runtime is unavailable. Bounded queries abort before staging and never fall back.',
-    );
-  }
+  await assertRuntimeAvailability(containerRuntime, {
+    sbx: async () => {
+      if (!(await querySbxAvailable())) {
+        throw new Error(
+          'Primary-agent runtime "sbx" is unavailable. Bounded queries abort before staging and never ' +
+          'fall back to a Docker or gVisor primary agent.',
+        );
+      }
+    },
+    docker: async () => {
+      if (!(await queryDockerRuntime('docker'))) {
+        throw new Error(
+          'Primary-agent OCI runtime "docker" is not registered with Docker. ' +
+          'Bounded queries abort before staging and never fall back.',
+        );
+      }
+    },
+    gvisor: async (runtime) => {
+      if (!(await queryDockerRuntime(GVISOR_DOCKER_RUNTIME))) {
+        throw new Error(
+          `Primary-agent runtime "${runtime}" requires the "${GVISOR_DOCKER_RUNTIME}" OCI runtime. ` +
+          'It is not available, so bounded queries abort before staging and never fall back.',
+        );
+      }
+    },
+    custom: async (runtime) => {
+      if (!(await queryDockerRuntime(runtime))) {
+        throw new Error(
+          `Primary-agent OCI runtime "${runtime}" is not registered with Docker. ` +
+          'Bounded queries abort before staging and never fall back.',
+        );
+      }
+    },
+    defaultDocker: async () => {
+      if (!(await queryDockerAvailable())) {
+        throw new Error(
+          'The Docker primary-agent runtime is unavailable. Bounded queries abort before staging and never fall back.',
+        );
+      }
+    },
+  });
 }
 
 /** @internal Exported for focused unit tests. */

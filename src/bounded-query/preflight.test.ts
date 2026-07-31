@@ -277,6 +277,7 @@ describe('assertQueryRuntimeAvailable', () => {
   describe('assertPrimaryRuntimeAvailable', () => {
     it.each([
       [undefined, 'docker'],
+      ['docker', 'docker'],
       ['gvisor', 'gvisor'],
       ['runsc', 'gvisor'],
       ['sbx', 'sbx'],
@@ -291,6 +292,7 @@ describe('assertQueryRuntimeAvailable', () => {
 
     it.each([
       [undefined, /Docker primary-agent runtime is unavailable/],
+      ['docker', /OCI runtime "docker" is not registered.*never fall back/s],
       ['gvisor', /Primary-agent runtime "gvisor".*runsc.*never fall back/s],
       ['sbx', /Primary-agent runtime "sbx" is unavailable.*never fall back/s],
       ['kata', /OCI runtime "kata" is not registered.*never fall back/s],
@@ -301,6 +303,19 @@ describe('assertQueryRuntimeAvailable', () => {
         jest.fn().mockResolvedValue(false),
         jest.fn().mockResolvedValue(false),
       )).rejects.toThrow(message);
+    });
+
+    it('checks explicit docker runtime registration instead of Docker daemon availability', async () => {
+      const runtimeQuery = jest.fn().mockResolvedValue(true);
+      const dockerAvailable = jest.fn().mockResolvedValue(false);
+      await expect(assertPrimaryRuntimeAvailable(
+        'docker',
+        runtimeQuery,
+        dockerAvailable,
+        jest.fn().mockResolvedValue(true),
+      )).resolves.toBeUndefined();
+      expect(runtimeQuery).toHaveBeenCalledWith('docker');
+      expect(dockerAvailable).not.toHaveBeenCalled();
     });
   });
 
