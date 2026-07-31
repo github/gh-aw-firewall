@@ -72,12 +72,16 @@ export async function resolveSbxIngress(config: WrapperConfig): Promise<Resolved
     const [health = '', published = ''] = result.stdout.trim().split('|', 2);
     lastHealth = health;
     lastPublished = published;
-    const match = new RegExp(`^${expectedHostIp.replace(/\./g, '\\.')}:([1-9][0-9]{0,4})$`).exec(published);
-    if (result.exitCode === 0 && health === 'healthy' && match && Number(match[1]) <= 65535) {
+    const separator = published.lastIndexOf(':');
+    const publishedHostIp = separator === -1 ? '' : published.slice(0, separator);
+    const publishedPort = separator === -1 ? '' : published.slice(separator + 1);
+    const publishedPortNumber = Number(publishedPort);
+    const hasValidPort = /^[1-9][0-9]{0,4}$/.test(publishedPort) && publishedPortNumber <= 65535;
+    if (result.exitCode === 0 && health === 'healthy' && publishedHostIp === expectedHostIp && hasValidPort) {
       const paths = resolveBoundedQueryPaths(config.workDir);
       const capabilities = readCapabilities(config);
       return {
-        endpoint: `http://${SBX_HOST_ALIAS}:${match[1]}/query`,
+        endpoint: `http://${SBX_HOST_ALIAS}:${publishedPort}/query`,
         queryCapability: capabilities.query,
         probeCapability: capabilities.probe,
         skillPath: paths.skillPath,
