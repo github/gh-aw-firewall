@@ -59,7 +59,7 @@ run_inside_agent() {
   local -a expected
   read -r -a expected <<< "$expected_sequence"
 
-  local attempt response actual
+  local attempt response actual trace_file
   for attempt in "${!expected[@]}"; do
     if [[ "$result_kind" == "array" ]]; then
       response="$(
@@ -72,8 +72,9 @@ Path("/query/out").write_text(json.dumps([go_mod_exists] * 28))
 PY
       )"
     else
+      trace_file="$(mktemp)"
       response="$(
-        bounded-query --repo "$TARGET_REPO" --schema "$schema" <<'PY'
+        sh -x "$(command -v bounded-query)" --repo "$TARGET_REPO" --schema "$schema" 2>"$trace_file" <<'PY'
 import json
 from pathlib import Path
 
@@ -81,6 +82,12 @@ go_mod_exists = Path("/query/repo/go.mod").is_file()
 Path("/query/out").write_text(json.dumps(go_mod_exists))
 PY
       )"
+      if [[ "$response" == '{"status":"error"}' ]]; then
+        echo "::group::bounded-query wrapper trace"
+        cat "$trace_file"
+        echo "::endgroup::"
+      fi
+      rm -f "$trace_file"
     fi
 
     actual="$(
