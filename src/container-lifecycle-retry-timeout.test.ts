@@ -127,6 +127,28 @@ describe('container-lifecycle retry and timeout branches', () => {
       expectComposeUpAttempts(1);
     });
 
+    describe('startContainers – bounded-query broker fails on first attempt', () => {
+      it('surfaces broker logs without retrying', async () => {
+        const startupError = new Error(
+          'dependency failed to start: container awf-bounded-query-broker exited (1)',
+        );
+        mockExecaFn
+          .mockResolvedValueOnce(ok() as any) // docker rm -f
+          .mockRejectedValueOnce(startupError); // docker compose up
+
+        mockDidContainerFailStartup
+          .mockResolvedValueOnce(false) // api-proxy
+          .mockResolvedValueOnce(false) // squid
+          .mockResolvedValueOnce(false) // cli-proxy
+          .mockResolvedValueOnce(true); // bounded-query broker
+
+        await expect(startContainers(getDir(), ['github.com'])).rejects.toThrow(startupError);
+        expect(mockLogContainerLogsToStderr)
+          .toHaveBeenCalledWith('awf-bounded-query-broker');
+        expectComposeUpAttempts(1);
+      });
+    });
+
     it('includes the "agent was never invoked" note in the error', async () => {
       mockExecaFn
         .mockResolvedValueOnce(ok() as any)

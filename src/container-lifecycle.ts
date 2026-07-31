@@ -141,6 +141,10 @@ async function handleRetryStartupFailure(
     const dnsFailureHost = await detectDnsResolutionFailure(CLI_PROXY_CONTAINER_NAME);
     throw createCliProxyStartupError(dnsFailureHost);
   }
+  if (await didContainerFailStartup(retryErrorMsg, BOUNDED_QUERY_BROKER_CONTAINER_NAME)) {
+    await logContainerLogsToStderr(BOUNDED_QUERY_BROKER_CONTAINER_NAME);
+    throw retryError;
+  }
   // Any remaining retry error (e.g. squid healthcheck or domain blockage) falls
   // through to the Squid log diagnostic path below as if it were the first error.
   await handleHealthcheckError(retryErrorMsg, retryError, workDir, proxyLogsDir, allowedDomains);
@@ -165,6 +169,10 @@ async function handleStartupFailure(
   const firstAttemptCliProxyStartupFailure = !firstAttemptApiProxyStartupFailure
     && !firstAttemptSquidStartupFailure
     && await didContainerFailStartup(errorMsg, CLI_PROXY_CONTAINER_NAME);
+  const firstAttemptBoundedQueryBrokerFailure = !firstAttemptApiProxyStartupFailure
+    && !firstAttemptSquidStartupFailure
+    && !firstAttemptCliProxyStartupFailure
+    && await didContainerFailStartup(errorMsg, BOUNDED_QUERY_BROKER_CONTAINER_NAME);
 
   // When api-proxy or squid specifically fails to start, retry once.
   // Both containers are occasionally flaky on slow or busy CI runners:
@@ -202,6 +210,11 @@ async function handleStartupFailure(
     await logContainerLogsToStderr(CLI_PROXY_CONTAINER_NAME);
     const dnsFailureHost = await detectDnsResolutionFailure(CLI_PROXY_CONTAINER_NAME);
     throw createCliProxyStartupError(dnsFailureHost);
+  }
+
+  if (firstAttemptBoundedQueryBrokerFailure) {
+    await logContainerLogsToStderr(BOUNDED_QUERY_BROKER_CONTAINER_NAME);
+    throw error;
   }
 
   await handleHealthcheckError(errorMsg, error, workDir, proxyLogsDir, allowedDomains);
