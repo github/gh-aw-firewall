@@ -152,11 +152,28 @@ The three timing bits are charged as part of every accepted invocation's budget 
 
 ## Agent interface
 
-When bounded queries are enabled the agent container receives:
+When bounded queries are enabled a Compose agent receives:
 
 - A Unix socket directory (read-write) mounted at `$AWF_BOUNDED_QUERY_SOCKET`
-- A generated skill file (read-only) at `$AWF_BOUNDED_QUERY_SKILL`
+- A generated skill and `bounded-query` executable in one read-only directory
 - `AWF_BOUNDED_QUERY_REPOS` -- a comma-separated list of configured repo slugs
+
+An sbx primary agent is probed before staging to determine whether its
+filesystem passthrough supports connecting to a host Unix socket. When it does,
+the same Unix protocol is used. Otherwise the broker listens on a dedicated
+Docker `internal` network with one ephemeral port published to `127.0.0.1`;
+sbx reaches that host-loopback service through `host.docker.internal`. The
+agent receives only the endpoint and a random per-run capability. The
+capability is not written to the generated skill, Compose/audit artifacts,
+query environments, or logs. A one-shot pre-agent probe proves the selected
+path is reachable; failure aborts before the primary agent starts.
+
+The sbx transport uses the same `/query` framing, body/header caps, canonical
+response bytes, serialized scheduler, timing buckets, and protected audit
+semantics as the Unix transport. It has no health or diagnostic route.
+Authentication failures return the same canonical error as every other
+failure. The broker remains absent from `awf-net` and `awf-ext`; its dedicated
+network is internal and has no outbound route.
 
 The generated skill lists each repository's configured sensitivity and initial run budget. It does not expose the broker's remaining ledger balance.
 

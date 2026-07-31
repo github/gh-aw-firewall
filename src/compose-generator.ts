@@ -13,6 +13,7 @@ import { buildComposeNetworks } from './compose-network';
 import { runtimeUsesComposeAgent } from './container-runtime';
 import { API_PROXY_PORTS } from './types/ports';
 import { EXTERNAL_BRIDGE_NAME } from './config/network-policy';
+import { BOUNDED_QUERY_INGRESS_NETWORK } from './bounded-query/ingress';
 
 /**
  * Generates Docker Compose configuration
@@ -161,7 +162,7 @@ export function generateDockerCompose(
 
   // ── Assemble and return the compose result ─────────────────────────────────
 
-  return buildComposeNetworks({
+  const compose = buildComposeNetworks({
     services,
     squidService,
     agentService,
@@ -169,6 +170,19 @@ export function generateDockerCompose(
     networkConfig,
     namedVolumes,
   });
+  if (
+    config.boundedQueries?.enabled
+    && (
+      config.boundedQueryIngressTransport === 'sbx-http'
+      || (config.boundedQueryIngressTransport === undefined && !includeAgent)
+    )
+  ) {
+    compose.networks[BOUNDED_QUERY_INGRESS_NETWORK] = {
+      driver: 'bridge',
+      internal: true,
+    };
+  }
+  return compose;
 }
 
 /**

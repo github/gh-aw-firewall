@@ -27,13 +27,25 @@ import { probeSplitFilesystem } from '../dind-probe';
 import { assertTopologySupported, connectTopologyContainers } from '../topology';
 import { runDindBootstrap } from '../dind-bootstrap';
 import { runtimeUsesComposeAgent } from '../container-runtime';
-import { createSandbox, execInSandbox, removeSandbox, isSbxAvailable, SBX_DEFAULT_NAME } from '../sbx-manager';
+import {
+  assertSbxBoundedQueryIngress,
+  createSandbox,
+  execInSandbox,
+  removeSandbox,
+  isSbxAvailable,
+  SBX_DEFAULT_NAME,
+} from '../sbx-manager';
 import { prepareBoundedQueries, teardownBoundedQueries } from '../bounded-query/manager';
 import type { WrapperConfig } from '../types';
 import { buildAgentEnvironment } from '../services/agent-service';
 import { buildAgentCredentialEnv } from '../services/api-proxy-credential-env';
 import { DEFAULT_DNS_SERVERS } from '../dns-resolver';
 import { AGENT_IP, CLI_PROXY_IP, DOH_PROXY_IP, NETWORK_SUBNET, SQUID_IP } from '../host-iptables-shared';
+import {
+  removeSbxIngressCapabilityFile,
+  resolveSbxIngress,
+} from '../bounded-query/ingress';
+import { resolveBoundedQueryPaths } from '../bounded-query/paths';
 
 /** Report whether a secret is set (and its length) without exposing the value. */
 function redactSecret(value: string | undefined): string {
@@ -284,6 +296,36 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
           // bridge IP, typically 172.17.0.1).
           const SBX_GATEWAY_IP = '172.17.0.0';
           const SBX_HOST_DOCKER_INTERNAL = 'host.docker.internal';
+          const boundedQueryPaths = resolveBoundedQueryPaths(config.workDir);
+          const sbxMounts = [...(config.volumeMounts ?? [])];
+          let sbxBoundedQueryIngress:
+            | { transport: 'unix'; socketPath: string }
+            | {
+                transport: 'sbx-http';
+                endpoint: string;
+                queryCapability: string;
+                probeCapability: string;
+              }
+            | undefined;
+
+          if (config.boundedQueries?.enabled) {
+            sbxMounts.push(`${boundedQueryPaths.agentDir}:ro`);
+            if (config.boundedQueryIngressTransport === 'unix') {
+              sbxMounts.push(`${boundedQueryPaths.runDir}:ro`);
+              sbxBoundedQueryIngress = {
+                transport: 'unix',
+                socketPath: boundedQueryPaths.socketPath,
+              };
+            } else {
+              const ingress = await resolveSbxIngress(config);
+              sbxBoundedQueryIngress = {
+                transport: 'sbx-http',
+                endpoint: ingress.endpoint,
+                queryCapability: ingress.queryCapability,
+                probeCapability: ingress.probeCapability,
+              };
+            }
+          }
 
           sbxEnvironment = buildAgentEnvironment({
             config,
@@ -328,8 +370,40 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
           sbxName = await createSandbox({
             workspaceDir,
             squidIp: SQUID_IP,
-            extraMounts: config.volumeMounts,
+            extraMounts: sbxMounts,
           });
+
+          if (sbxBoundedQueryIngress) {
+            await assertSbxBoundedQueryIngress(
+              sbxName,
+              sbxBoundedQueryIngress.transport === 'unix'
+                ? sbxBoundedQueryIngress
+                : {
+                    transport: 'sbx-http',
+                    endpoint: sbxBoundedQueryIngress.endpoint,
+                    probeCapability: sbxBoundedQueryIngress.probeCapability,
+                  },
+              sbxEnvironment,
+              config.containerWorkDir,
+            );
+
+            Object.assign(sbxEnvironment, {
+              AWF_BOUNDED_QUERY_SKILL: boundedQueryPaths.skillPath,
+              AWF_BOUNDED_QUERY_REPOS: config.boundedQueries!.privateRepos
+                .map((repository) => repository.repo)
+                .join(','),
+              AWF_BOUNDED_QUERY_BIN_DIR: boundedQueryPaths.agentDir,
+              ...(sbxBoundedQueryIngress.transport === 'unix'
+                ? { AWF_BOUNDED_QUERY_SOCKET: sbxBoundedQueryIngress.socketPath }
+                : {
+                    AWF_BOUNDED_QUERY_ENDPOINT: sbxBoundedQueryIngress.endpoint,
+                    AWF_BOUNDED_QUERY_CAPABILITY: sbxBoundedQueryIngress.queryCapability,
+                  }),
+            });
+            if (sbxBoundedQueryIngress.transport === 'sbx-http') {
+              removeSbxIngressCapabilityFile(config);
+            }
+          }
 
           // Wait for api-proxy to be healthy before launching agent.
           // In Docker mode, depends_on: service_healthy gates this; for sbx we poll

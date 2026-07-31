@@ -26,8 +26,10 @@ describe('bounded-query paths', () => {
     expect(paths.controlDir.startsWith(paths.root)).toBe(true);
     expect(paths.auditDir.startsWith(paths.root)).toBe(true);
     expect(paths.seedMapPath.startsWith(paths.root)).toBe(true);
+    expect(paths.capabilityPath.startsWith(paths.controlDir)).toBe(true);
     expect(paths.runDir.startsWith(paths.ingressRoot)).toBe(true);
     expect(paths.agentDir.startsWith(paths.ingressRoot)).toBe(true);
+    expect(paths.wrapperPath.startsWith(paths.agentDir)).toBe(true);
   });
 
   it('places the socket and skill inside their advertised directories', () => {

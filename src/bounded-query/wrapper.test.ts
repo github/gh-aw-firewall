@@ -37,6 +37,13 @@ interface Harness {
   close: () => Promise<void>;
 }
 
+interface TcpHarness {
+  endpoint: string;
+  curlPathDir: string;
+  requests: StubRequest[];
+  close: () => Promise<void>;
+}
+
 async function startStubBroker(respond: (request: StubRequest) => string): Promise<Harness> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'awfsp-'));
   const socketPath = path.join(dir, 'b.sock');
@@ -74,6 +81,45 @@ async function startStubBroker(respond: (request: StubRequest) => string): Promi
   };
 }
 
+async function startStubTcpBroker(respond: (request: StubRequest) => string): Promise<TcpHarness> {
+  const requests: StubRequest[] = [];
+  const server = http.createServer((req, res) => {
+    const chunks: Buffer[] = [];
+    req.on('data', (chunk) => chunks.push(chunk));
+    req.on('end', () => {
+      const record = {
+        method: req.method,
+        url: req.url,
+        headers: req.headers,
+        body: Buffer.concat(chunks).toString('utf8'),
+      };
+      requests.push(record);
+      const body = respond(record);
+      res.writeHead(200, { 'content-type': 'application/json', 'content-length': Buffer.byteLength(body) });
+      res.end(body);
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new Error('TCP stub did not bind');
+  const curlPathDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-curl-'));
+  const curlPath = path.join(curlPathDir, 'curl');
+  fs.writeFileSync(
+    curlPath,
+    `#!/bin/sh\nexec /usr/bin/curl --resolve host.docker.internal:${address.port}:127.0.0.1 "$@"\n`,
+    { mode: 0o700 },
+  );
+  return {
+    endpoint: `http://host.docker.internal:${address.port}/query`,
+    curlPathDir,
+    requests,
+    close: () => new Promise<void>((resolve) => server.close(() => {
+      fs.rmSync(curlPathDir, { recursive: true, force: true });
+      resolve();
+    })),
+  };
+}
+
 interface WrapperResult {
   stdout: string;
   stderr: string;
@@ -87,13 +133,26 @@ interface WrapperResult {
  */
 function runWrapper(
   args: string[],
-  options: { socketPath?: string; script?: string } = {},
+  options: {
+    socketPath?: string;
+    endpoint?: string;
+    capability?: string;
+    script?: string;
+    pathPrefix?: string;
+  } = {},
 ): Promise<WrapperResult> {
   return new Promise((resolve, reject) => {
     const child = spawn('sh', [WRAPPER, ...args], {
       env: {
-        PATH: process.env.PATH ?? '/usr/bin:/bin',
-        AWF_BOUNDED_QUERY_SOCKET: options.socketPath ?? '/nonexistent/awf-bounded-query.sock',
+        PATH: [
+          options.pathPrefix,
+          process.env.PATH ?? '/usr/bin:/bin',
+        ].filter(Boolean).join(':'),
+        AWF_BOUNDED_QUERY_SOCKET: options.endpoint
+          ? ''
+          : (options.socketPath ?? '/nonexistent/awf-bounded-query.sock'),
+        AWF_BOUNDED_QUERY_ENDPOINT: options.endpoint ?? '',
+        AWF_BOUNDED_QUERY_CAPABILITY: options.capability ?? '',
         // Deliberately hostile proxy settings: the wrapper must ignore them.
         HTTP_PROXY: 'http://127.0.0.1:1',
         HTTPS_PROXY: 'http://127.0.0.1:1',
@@ -117,6 +176,54 @@ function runWrapper(
 const VALID_ARGS = ['--repo', 'octo/private', '--schema', BOOLEAN_SCHEMA];
 
 describe('bounded-query wrapper', () => {
+  it('uses authenticated HTTP framing for an sbx agent', async () => {
+    const capability = 'a'.repeat(64);
+    const harness = await startStubTcpBroker(() => '{"status":"ok","result":true}');
+    try {
+      const result = await runWrapper(VALID_ARGS, {
+        endpoint: harness.endpoint,
+        capability,
+        pathPrefix: harness.curlPathDir,
+      });
+
+      expect(result.stdout).toBe('{"status":"ok","result":true}\n');
+      expect(harness.requests[0].headers['x-awf-capability']).toBe(capability);
+      expect(result.stderr).toBe('');
+      expect(result.status).toBe(0);
+    } finally {
+      await harness.close();
+    }
+  });
+
+  it('rejects incomplete or ambiguous transport configuration locally', async () => {
+    const results = await Promise.all([
+      runWrapper(VALID_ARGS, { endpoint: 'http://host.docker.internal:12345/query' }),
+      runWrapper(VALID_ARGS, { capability: 'a'.repeat(64) }),
+      runWrapper(VALID_ARGS, {
+        socketPath: '/tmp/broker.sock',
+        endpoint: 'http://host.docker.internal:12345/query',
+        capability: 'a'.repeat(64),
+      }),
+    ]);
+    for (const result of results) {
+      expect(result).toEqual({ stdout: `${CANONICAL_ERROR}\n`, stderr: '', status: 0 });
+    }
+  });
+
+  it.each([
+    'http://host.docker.internal:0/query',
+    'http://host.docker.internal:65536/query',
+    'http://host.docker.internal:12345/query/extra',
+    'http://host.docker.internal:12345x/query',
+    'http://127.0.0.1:12345/query',
+    'https://host.docker.internal:12345/query',
+  ])('rejects an untrusted sbx endpoint shape: %s', async (endpoint) => {
+    await expect(runWrapper(VALID_ARGS, {
+      endpoint,
+      capability: 'a'.repeat(64),
+    })).resolves.toEqual({ stdout: `${CANONICAL_ERROR}\n`, stderr: '', status: 0 });
+  });
+
   it('forwards a valid request and prints the broker result verbatim', async () => {
     const harness = await startStubBroker(() => '{"status":"ok","result":true}');
     try {

@@ -3,8 +3,9 @@
 #
 # Agent-facing bounded-query CLI (protocol v2).
 #
-# Forwards a *narrow* request to the trusted bounded-query broker over a
-# dedicated Unix socket. It is analogous to gh-cli-proxy-wrapper.sh, but the
+# Forwards a *narrow* request to the trusted bounded-query broker over either
+# the Compose Unix socket or the authenticated sbx HTTP ingress. It is
+# analogous to gh-cli-proxy-wrapper.sh, but the
 # API is deliberately far narrower: this wrapper cannot express a command, an
 # image, a path, a URL, a ref, a mount, a runtime, a timeout, an environment,
 # or a credential. It accepts exactly:
@@ -29,7 +30,9 @@
 # image).
 
 CANONICAL_ERROR='{"status":"error"}'
-SOCKET="${AWF_BOUNDED_QUERY_SOCKET:-/run/awf-bounded-query/broker.sock}"
+SOCKET="${AWF_BOUNDED_QUERY_SOCKET:-}"
+ENDPOINT="${AWF_BOUNDED_QUERY_ENDPOINT:-}"
+CAPABILITY="${AWF_BOUNDED_QUERY_CAPABILITY:-}"
 PROTOCOL_VERSION=2
 # Keep in sync with MAX_SCHEMA_BYTES in src/bounded-query/protocol.ts and
 # containers/bounded-query/broker/protocol.js.
@@ -87,26 +90,51 @@ SCHEMA_B64=$(printf '%s' "$SCHEMA" | base64 | tr -d '\n' | tr '+/' '-_' | tr -d 
 # The script must arrive on stdin; an interactive terminal means no script.
 [ ! -t 0 ] || emit_error
 
-[ -S "$SOCKET" ] || emit_error
-
-# --noproxy '*' keeps HTTP(S)_PROXY from redirecting a Unix-socket request.
-# --max-time bounds the wait comfortably above the largest timing bucket (10
-# minutes); the broker always answers at a fixed bucket boundary, so this
-# only guards a dead socket.
-RESPONSE=$(
-  curl --silent --show-error \
-    --noproxy '*' \
-    --unix-socket "$SOCKET" \
-    --max-time 660 \
-    -X POST \
-    -H "Expect:" \
-    -H "Content-Type: application/octet-stream" \
-    -H "X-AWF-Query-Version: ${PROTOCOL_VERSION}" \
-    -H "X-AWF-Repo: ${REPO}" \
-    -H "X-AWF-Schema-B64: ${SCHEMA_B64}" \
-    --data-binary @- \
-    "http://localhost/query" 2>/dev/null
-) || emit_error
+if [ -n "$SOCKET" ] && [ -z "$ENDPOINT" ] && [ -z "$CAPABILITY" ]; then
+  [ -S "$SOCKET" ] || emit_error
+  RESPONSE=$(
+    curl --silent --show-error \
+      --noproxy '*' \
+      --unix-socket "$SOCKET" \
+      --max-time 660 \
+      -X POST \
+      -H "Expect:" \
+      -H "Content-Type: application/octet-stream" \
+      -H "X-AWF-Query-Version: ${PROTOCOL_VERSION}" \
+      -H "X-AWF-Repo: ${REPO}" \
+      -H "X-AWF-Schema-B64: ${SCHEMA_B64}" \
+      --data-binary @- \
+      "http://localhost/query" 2>/dev/null
+  ) || emit_error
+elif [ -z "$SOCKET" ] && [ -n "$ENDPOINT" ] && [ -n "$CAPABILITY" ]; then
+  case "$ENDPOINT" in
+    http://host.docker.internal:*/query)
+      PORT="${ENDPOINT#http://host.docker.internal:}"
+      PORT="${PORT%/query}"
+      printf '%s' "$PORT" | LC_ALL=C grep -Eq '^[0-9]{1,5}$' || emit_error
+      [ "$PORT" -ge 1 ] 2>/dev/null || emit_error
+      [ "$PORT" -le 65535 ] 2>/dev/null || emit_error
+      ;;
+    *) emit_error ;;
+  esac
+  printf '%s' "$CAPABILITY" | LC_ALL=C grep -Eq '^[0-9a-f]{64}$' || emit_error
+  RESPONSE=$(
+    curl --silent --show-error \
+      --noproxy '*' \
+      --max-time 660 \
+      -X POST \
+      -H "Expect:" \
+      -H "Content-Type: application/octet-stream" \
+      -H "X-AWF-Capability: ${CAPABILITY}" \
+      -H "X-AWF-Query-Version: ${PROTOCOL_VERSION}" \
+      -H "X-AWF-Repo: ${REPO}" \
+      -H "X-AWF-Schema-B64: ${SCHEMA_B64}" \
+      --data-binary @- \
+      "$ENDPOINT" 2>/dev/null
+  ) || emit_error
+else
+  emit_error
+fi
 
 # Pass the broker's canonical response through unmodified, but only if it has
 # one of the two shapes the protocol ever produces. Anything else (a dead or

@@ -3,6 +3,7 @@ import { buildRuntimeImageRef } from '../image-tag';
 import { getSafeHostGid, getSafeHostUid } from '../host-identity';
 import { BOUNDED_QUERY_BROKER_CONTAINER_NAME } from '../constants';
 import type { WrapperConfig } from '../types';
+import { runtimeUsesComposeAgent } from '../container-runtime';
 import {
   AGENT_SKILL_DIR,
   AGENT_SKILL_PATH,
@@ -21,6 +22,10 @@ import { resolveDockerSocketPath } from './agent-volumes/docker-socket';
 import { applyHostPathPrefixToVolumes } from './host-path-prefix';
 import { buildContainerSecurityHardening } from './service-security';
 import type { ImageBuildConfig } from './squid-service';
+import {
+  BOUNDED_QUERY_INGRESS_NETWORK,
+  BOUNDED_QUERY_TCP_PORT,
+} from '../bounded-query/ingress';
 
 /**
  * Compose assembly for the trusted bounded-query broker.
@@ -159,6 +164,8 @@ export function buildBoundedQueryService(params: BoundedQueryServiceParams): Bou
   const paths = resolveBoundedQueryPaths(config.workDir);
   const { queryImageRef, querySource, brokerSource } = resolveBoundedQueryImages(imageConfig);
   const dockerSocketPath = resolveDockerSocketPath(config);
+  const ingressTransport = config.boundedQueryIngressTransport
+    ?? (runtimeUsesComposeAgent(config.containerRuntime) ? 'unix' : 'sbx-http');
 
   // Compose must pull/build the query target before starting the offline
   // broker. The one-shot service has no mounts or network and exits only after
@@ -174,9 +181,17 @@ export function buildBoundedQueryService(params: BoundedQueryServiceParams): Bou
   const service: Record<string, unknown> = {
     container_name: BOUNDED_QUERY_BROKER_CONTAINER_NAME,
     ...brokerSource,
-    // SECURITY: no networks key at all. `none` gives the broker a loopback-only
-    // namespace: no awf-net, no awf-ext, no DNS, no Squid, no host gateway.
-    network_mode: 'none',
+    ...(ingressTransport === 'unix'
+      ? {
+          // Compose agents need no network at all.
+          network_mode: 'none',
+        }
+      : {
+          // sbx reaches a loopback-published port. This dedicated Docker
+          // `internal` network has no external route and no other member.
+          networks: [BOUNDED_QUERY_INGRESS_NETWORK],
+          ports: [`127.0.0.1::${BOUNDED_QUERY_TCP_PORT}`],
+        }),
     volumes: applyHostPathPrefixToVolumes(
       [
         `${paths.seedsDir}:${BROKER_SEEDS_DIR}:ro`,
@@ -202,6 +217,9 @@ export function buildBoundedQueryService(params: BoundedQueryServiceParams): Bou
       AWF_BOUNDED_QUERY_HOST_WORK_DIR: toDaemonVisiblePath(paths.workDir, config.dockerHostPathPrefix),
       AWF_BOUNDED_QUERY_SOCKET_UID: getSafeHostUid(),
       AWF_BOUNDED_QUERY_SOCKET_GID: getSafeHostGid(),
+      ...(ingressTransport === 'sbx-http'
+        ? { AWF_BOUNDED_QUERY_TCP_PORT: String(BOUNDED_QUERY_TCP_PORT) }
+        : {}),
     },
     depends_on: {
       'bounded-query-image': {
@@ -225,7 +243,7 @@ export function buildBoundedQueryService(params: BoundedQueryServiceParams): Bou
   };
 
   const agentEnvAdditions: Record<string, string> = {
-    AWF_BOUNDED_QUERY_SOCKET: AGENT_SOCKET_PATH,
+    ...(ingressTransport === 'unix' ? { AWF_BOUNDED_QUERY_SOCKET: AGENT_SOCKET_PATH } : {}),
     AWF_BOUNDED_QUERY_SKILL: AGENT_SKILL_PATH,
     AWF_BOUNDED_QUERY_REPOS: boundedQueries.privateRepos.map((repository) => repository.repo).join(','),
   };
@@ -242,9 +260,7 @@ export function buildBoundedQueryService(params: BoundedQueryServiceParams): Bou
     config.dockerHostPathPrefix,
   );
 
-  logger.info(
-    `Bounded queries enabled - offline broker (network_mode: none) exposed to the agent at ${AGENT_SOCKET_PATH}`,
-  );
+  logger.info(`Bounded queries enabled - broker ingress transport: ${ingressTransport}`);
 
   return { queryImageService, service, agentEnvAdditions, agentVolumes };
 }

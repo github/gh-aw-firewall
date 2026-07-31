@@ -11,6 +11,9 @@
 /** Sandbox runtime backends supported for bounded-query execution. */
 export type BoundedQueryRuntime = 'docker' | 'gvisor';
 
+/** Primary-agent transport selected by trusted preflight. */
+export type BoundedQueryIngressTransport = 'unix' | 'sbx-http';
+
 /** Script interpreters supported for bounded-query execution. */
 export type BoundedQueryInterpreter = 'python3';
 
@@ -168,4 +171,15 @@ export interface BoundedQueryOptions {
    * @default undefined
    */
   boundedQueries?: BoundedQueriesConfig;
+
+  /**
+   * Trusted runtime state selected by bounded-query preflight.
+   *
+   * This is not a user-configurable field and is never accepted from the AWF
+   * config file. Compose agents always use `unix`; sbx uses `unix` only when
+   * an executable passthrough probe succeeds, otherwise `sbx-http`.
+   *
+   * @internal
+   */
+  boundedQueryIngressTransport?: BoundedQueryIngressTransport;
 }

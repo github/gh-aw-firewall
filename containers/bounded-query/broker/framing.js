@@ -2,6 +2,9 @@
 
 const { MAX_SCHEMA_BYTES, MAX_SCRIPT_BYTES, strictParseJson } = require('./protocol');
 
+/** A peer that stops sending a request body cannot pin a broker connection. */
+const BODY_READ_TIMEOUT_MS = 5_000;
+
 /**
  * Wire framing for the agent → broker request (protocol v2).
  *
@@ -120,10 +123,16 @@ function readBoundedBody(req) {
     const chunks = [];
     let total = 0;
     let settled = false;
+    const timer = setTimeout(() => {
+      req.pause();
+      finish({ error: 'request body deadline exceeded' });
+    }, BODY_READ_TIMEOUT_MS);
+    timer.unref();
 
     const finish = (value) => {
       if (settled) return;
       settled = true;
+      clearTimeout(timer);
       resolve(value);
     };
 
@@ -160,4 +169,5 @@ module.exports = {
   SCHEMA_HEADER,
   buildRequestFromFrame,
   readBoundedBody,
+  BODY_READ_TIMEOUT_MS,
 };

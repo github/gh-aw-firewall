@@ -18,10 +18,9 @@ const boundedQueries: BoundedQueriesConfig = {
 };
 
 /**
- * End-to-end compose assembly checks for bounded queries: the broker must appear
- * as an optional, network-less service, gate the agent, and inject only ingress
- * mounts plus three environment variables into the agent — and nothing at all
- * when the feature is off.
+ * End-to-end compose assembly checks for bounded queries: Compose agents use a
+ * networkless broker, while sbx HTTP ingress uses only its dedicated internal
+ * network. In either case the broker exposes no private state to the agent.
  */
 describe('bounded-query broker in generated Docker Compose', () => {
   useTempWorkDir(
@@ -137,5 +136,32 @@ describe('bounded-query broker in generated Docker Compose', () => {
       expect(broker.network_mode).toBe('none');
       expect(broker.networks).toBeUndefined();
     });
+
+    it.each(['docker', 'gvisor'] as const)(
+      'pairs an sbx primary agent with the %s query runner over internal HTTP ingress',
+      (runtime) => {
+        const result = generateDockerCompose({
+          ...enabled(),
+          containerRuntime: 'sbx',
+          boundedQueryIngressTransport: 'sbx-http',
+          boundedQueries: { ...boundedQueries, runtime },
+        }, mockNetworkConfig);
+        const broker = result.services['bounded-query-broker'] as unknown as Record<string, unknown>;
+        const environment = broker.environment as Record<string, string>;
+
+        expect(result.services.agent).toBeUndefined();
+        expect(broker.network_mode).toBeUndefined();
+        expect(broker.networks).toEqual(['awf-bounded-query-ingress']);
+        expect(broker.ports).toEqual(['127.0.0.1::18080']);
+        expect(result.networks['awf-bounded-query-ingress']).toEqual({
+          driver: 'bridge',
+          internal: true,
+        });
+        expect(environment.AWF_BOUNDED_QUERY_BACKEND).toBe(runtime);
+        expect(environment.AWF_BOUNDED_QUERY_TCP_PORT).toBe('18080');
+        expect(JSON.stringify(broker)).not.toContain('awf-net');
+        expect(JSON.stringify(broker)).not.toContain('awf-ext');
+      },
+    );
   });
 });

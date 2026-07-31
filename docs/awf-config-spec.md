@@ -1868,12 +1868,26 @@ guarantees the broker never copies that seed or launches Python for it.
 ### 14.7 Trusted Broker and Query Sandbox
 
 The broker runs as an optional Docker Compose service
-(`bounded-query-broker`, container `awf-bounded-query-broker`) with
-`network_mode: none`: no `awf-net`, no external bridge, no DNS, no Squid, no
-api-proxy/cli-proxy, and no host-network path. Its entire surface is one Unix
-socket in a directory bind-mounted into the agent. It also receives the
-resolved Docker socket so it can launch queries; that path is never placed in
-the agent's environment or volumes.
+(`bounded-query-broker`, container `awf-bounded-query-broker`). For Compose
+agents it uses `network_mode: none`; its entire surface is one Unix socket in a
+directory bind-mounted into the agent. For an sbx primary agent, trusted
+preflight first executes a disposable-sandbox probe of Unix-socket passthrough.
+If that probe succeeds, the same socket transport is used. Otherwise the
+broker is attached only to a dedicated Docker `internal` network with one
+ephemeral port narrowly published on host `127.0.0.1`. It is never attached to
+`awf-net`, `awf-ext`, Squid, DNS, or an internet-routed network. It also
+receives the resolved Docker socket so it can launch queries; that path is
+never placed in the agent's environment or volumes.
+
+The sbx endpoint requires a random per-run capability read by the broker from
+broker-private control state. A separate one-shot probe capability proves the
+actual sandbox can reach the endpoint before the primary agent starts. Both
+capabilities are absent from generated skills, Compose and audit artifacts,
+logs, query environments, and query launch arguments. The broker exposes no
+health or diagnostic route: both transports use the exact same `POST /query`
+framing, limits, canonical result bytes, scheduler/timing buckets, and audit
+path. Authentication, malformed framing, oversized requests, and internal
+failures all collapse to `{"status":"error"}`.
 
 The broker maps a normalized `owner/repo` id through the AWF-generated seed
 map to an opaque seed directory and its trusted sensitivity. Callers never
@@ -1913,9 +1927,9 @@ which is mounted into the broker alone.
 
 ### 14.8 Agent Interface
 
-When bounded queries are enabled, the agent receives exactly two bind mounts —
-the broker socket directory (read-write) and a generated skill directory
-(read-only) — plus three environment variables
+When bounded queries are enabled, a Compose agent receives exactly two bind
+mounts — the broker socket directory (read-write) and a generated skill/wrapper
+directory (read-only) — plus three environment variables
 (`AWF_BOUNDED_QUERY_SOCKET`, `AWF_BOUNDED_QUERY_SKILL`,
 `AWF_BOUNDED_QUERY_REPOS`, the last a comma-separated list of configured repo
 slugs only — never sensitivities or budgets). GitHub tokens are removed from
@@ -1936,6 +1950,13 @@ responsibilities are enforcing the fixed CLI shape, base64url-encoding the
 schema into a request header, transporting the script body unmodified, and
 passing the broker's response through unmodified.
 
+An sbx agent receives only the generated skill/wrapper directory as a read-only
+mount. If Unix passthrough was proven, it additionally receives the socket
+directory read-only and `AWF_BOUNDED_QUERY_SOCKET`. Otherwise it receives
+`AWF_BOUNDED_QUERY_ENDPOINT` and `AWF_BOUNDED_QUERY_CAPABILITY`. It never
+receives the broker-private root, Docker socket, seeds, work/control/audit
+state, seed map, probe capability, or query launch authority.
+
 The generated `SKILL.md` is written under the run-specific ingress root and
 mounted read-only at `/run/awf-bounded-query-skill/SKILL.md`. It documents,
 per configured repository, its sensitivity and run budget (e.g. `` `octo/alpha`
@@ -1951,8 +1972,9 @@ is a documented limitation, not an oversight.
 All seeds, invocation workspaces, the seed map, broker control state, and
 protected audit data live below
 `/var/tmp/awf-bounded-query-private-<uid>-<workDir digest>/`. Only the disjoint
-`/var/tmp/awf-bounded-query-ingress-<uid>-<workDir digest>/run/` and generated
-skill directory are agent-visible through explicit bind mounts. Before
+`/var/tmp/awf-bounded-query-ingress-<uid>-<workDir digest>/run/` (when Unix
+transport is selected) and generated skill/wrapper directory are agent-visible
+through explicit bind mounts. Before
 credential-bearing staging, AWF resolves each path through
 its longest existing ancestor (following symlinks) and rejects any private-root
 overlap with the union of Docker, gVisor, and sbx agent-visible mounts,
@@ -1960,9 +1982,11 @@ including `/tmp`, the workspace, custom volumes, and whitelisted home tool
 directories. Docker-in-Docker host-path translation is checked and applied to
 the private broker mounts and ingress mounts symmetrically.
 
-For the same reason, a microVM primary agent runtime (`sbx`) is rejected at
-preflight: it does not receive Compose bind mounts, so the socket and skill
-could not be exposed. Bounded queries are never partially enabled.
+An sbx host that cannot create the disposable capability probe or cannot reach
+the selected ingress from the actual primary sandbox fails preflight before
+the agent command starts. Transport never silently downgrades after selection.
+Query execution remains limited to the Docker and gVisor runners; this ingress
+support does not execute query sandboxes inside sbx.
 
 ### 14.9 Protocol v1 Compatibility
 

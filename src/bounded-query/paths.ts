@@ -17,10 +17,11 @@ import * as path from 'path';
  *   control/            broker readiness and other private control state
  *   audit/              protected broker diagnostics (never agent-visible)
  *   seed-map.json       normalized repo -> opaque seed id map (broker input)
+ *   control/sbx-ingress.json  ephemeral sbx ingress capabilities
  *
  * /var/tmp/awf-bounded-query-ingress-<uid>-<workDir digest>/
  *   run/                broker Unix socket, shared read-write with the agent
- *   skill/              generated SKILL.md, shared read-only with the agent
+ *   skill/              generated SKILL.md and wrapper, shared read-only
  * ```
  */
 export interface BoundedQueryPaths {
@@ -46,6 +47,10 @@ export interface BoundedQueryPaths {
   socketPath: string;
   /** Host path of the generated skill document. */
   skillPath: string;
+  /** Host path of the agent-facing bounded-query executable. */
+  wrapperPath: string;
+  /** Broker-private path containing ephemeral sbx ingress capabilities. */
+  capabilityPath: string;
 }
 
 /** Broker-private state is deliberately outside the agent's broad `/tmp` mount. */
@@ -56,6 +61,12 @@ export const BOUNDED_QUERY_SOCKET_FILENAME = 'broker.sock';
 
 /** Name of the generated skill document inside {@link BoundedQueryPaths.agentDir}. */
 export const BOUNDED_QUERY_SKILL_FILENAME = 'SKILL.md';
+
+/** Name of the generated agent-facing executable. */
+export const BOUNDED_QUERY_WRAPPER_FILENAME = 'bounded-query';
+
+/** Name of the broker-private sbx ingress capability file. */
+export const BOUNDED_QUERY_CAPABILITY_FILENAME = 'sbx-ingress.json';
 
 // ── Fixed container paths ────────────────────────────────────────────────────
 //
@@ -135,6 +146,8 @@ export function resolveBoundedQueryPaths(
     seedMapPath: path.join(root, 'seed-map.json'),
     socketPath: path.join(runDir, BOUNDED_QUERY_SOCKET_FILENAME),
     skillPath: path.join(agentDir, BOUNDED_QUERY_SKILL_FILENAME),
+    wrapperPath: path.join(agentDir, BOUNDED_QUERY_WRAPPER_FILENAME),
+    capabilityPath: path.join(root, 'control', BOUNDED_QUERY_CAPABILITY_FILENAME),
   };
 }
 

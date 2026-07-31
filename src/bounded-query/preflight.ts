@@ -1,6 +1,5 @@
 import execa from 'execa';
 import { getLocalDockerEnv } from '../host-env';
-import { runtimeUsesComposeAgent } from '../container-runtime';
 import type { BoundedQueriesConfig, WrapperConfig } from '../types';
 import { normalizeRepoKey } from './paths';
 import { MAX_QUERY_TIMEOUT_SECONDS, BOUNDED_QUERY_REPO_PATTERN } from './protocol';
@@ -109,14 +108,6 @@ export function validateBoundedQueryConfig(
 
   if (!/^[1-9][0-9]*[bkmgBKMG]$/.test(boundedQueries.memoryLimit)) {
     errors.push(`boundedQueries.memoryLimit "${boundedQueries.memoryLimit}" is not a Docker memory limit`);
-  }
-
-  if (!runtimeUsesComposeAgent(config.containerRuntime)) {
-    errors.push(
-      `bounded queries cannot be exposed to a "${config.containerRuntime}" primary agent: ` +
-      'the broker socket is shared through a Docker Compose bind mount, which a microVM agent ' +
-      'does not receive. Disable boundedQueries or use a Compose-based container runtime.',
-    );
   }
 
   const dockerHost = config.awfDockerHost ?? env.DOCKER_HOST;

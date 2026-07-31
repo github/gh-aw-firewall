@@ -82,7 +82,7 @@ describe('prepareBoundedQueries', () => {
     expect(fs.existsSync(resolveBoundedQueryPaths(workDir).root)).toBe(false);
   });
 
-  it('creates the directory layout, seed map, and skill artifact', async () => {
+  it('creates the directory layout, seed map, skill, and wrapper artifacts', async () => {
     await prepareBoundedQueries(buildConfig(workDir), { env: { GH_TOKEN: 't' }, gitRunner });
     const paths = resolveBoundedQueryPaths(workDir);
 
@@ -92,6 +92,8 @@ describe('prepareBoundedQueries', () => {
     expect(fs.existsSync(paths.auditDir)).toBe(true);
     expect(fs.existsSync(paths.controlDir)).toBe(true);
     expect(fs.existsSync(paths.skillPath)).toBe(true);
+    expect(fs.existsSync(paths.wrapperPath)).toBe(true);
+    expect(fs.statSync(paths.wrapperPath).mode & 0o777).toBe(0o555);
     expect(paths.root.startsWith(workDir)).toBe(false);
 
     const seedMap = JSON.parse(fs.readFileSync(paths.seedMapPath, 'utf8'));
@@ -101,6 +103,38 @@ describe('prepareBoundedQueries', () => {
       { repo: 'octo/private', seedId: expect.stringMatching(/^[0-9a-f]{32}$/), sensitivity: 'internal' },
     ]);
     expect(fs.statSync(paths.seedMapPath).mode & 0o777).toBe(0o600);
+  });
+
+  it.each([
+    [true, 'unix'],
+    [false, 'sbx-http'],
+  ] as const)('selects sbx ingress from the executable socket probe (%s)', async (supported, expected) => {
+    const config = {
+      ...buildConfig(workDir),
+      containerRuntime: 'sbx',
+    };
+    const probe = jest.fn().mockResolvedValue(supported);
+
+    await prepareBoundedQueries(config, {
+      env: { GH_TOKEN: 't' },
+      gitRunner,
+      probeSbxUnixSocket: probe,
+    });
+
+    const paths = resolveBoundedQueryPaths(workDir);
+    expect(config.boundedQueryIngressTransport).toBe(expected);
+    expect(probe).toHaveBeenCalledTimes(1);
+    expect(fs.existsSync(paths.capabilityPath)).toBe(!supported);
+    if (!supported) {
+      const raw = fs.readFileSync(paths.capabilityPath, 'utf8');
+      expect(raw).not.toContain('GH_TOKEN');
+      expect(JSON.parse(raw)).toEqual({
+        version: 1,
+        query: expect.stringMatching(/^[0-9a-f]{64}$/),
+        probe: expect.stringMatching(/^[0-9a-f]{64}$/),
+      });
+      expect(fs.statSync(paths.capabilityPath).mode & 0o777).toBe(0o600);
+    }
   });
 
   it('keeps the seed map free of host paths and credentials', async () => {
@@ -174,7 +208,7 @@ describe('prepareBoundedQueries', () => {
       await expect(prepareBoundedQueries(buildConfig(workDir), { env: { GH_TOKEN: 't' }, gitRunner }))
         .rejects.toThrow(/EEXIST|file already exists/);
     } finally {
-      fs.rmSync(paths.ingressRoot, { force: true });
+      fs.rmSync(paths.ingressRoot, { recursive: true, force: true });
       fs.rmSync(target, { recursive: true, force: true });
     }
   });

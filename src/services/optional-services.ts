@@ -234,7 +234,15 @@ function assembleCliProxyService(params: AssembleOptionalServicesParams): void {
 }
 
 function assembleBoundedQueryService(params: AssembleOptionalServicesParams): void {
-  const { services, agentService, agentVolumes, environment, config, imageConfig } = params;
+  const {
+    services,
+    agentService,
+    agentVolumes,
+    environment,
+    config,
+    imageConfig,
+    includeComposeAgent = true,
+  } = params;
 
   if (!config.boundedQueries?.enabled) return;
 
@@ -250,11 +258,13 @@ function assembleBoundedQueryService(params: AssembleOptionalServicesParams): vo
 
   services['bounded-query-image'] = queryImageService;
   services['bounded-query-broker'] = service;
-  Object.assign(environment, agentEnvAdditions);
-  agentVolumes.push(...queryVolumes);
-  agentService.depends_on['bounded-query-broker'] = {
-    condition: 'service_healthy',
-  };
+  if (includeComposeAgent) {
+    Object.assign(environment, agentEnvAdditions);
+    agentVolumes.push(...queryVolumes);
+    agentService.depends_on['bounded-query-broker'] = {
+      condition: 'service_healthy',
+    };
+  }
 }
 
 function finalizeSysrootVolumes(
@@ -294,8 +304,8 @@ export function assembleOptionalServices(
   const skipIptables = networkIsolation || !runtimeUsesIptables(config.containerRuntime);
 
   presetSidecarIpEnvVars(environment, config, networkConfig);
+  assembleBoundedQueryService(params);
   if (includeComposeAgent) {
-    assembleBoundedQueryService(params);
     assembleSysrootService(params, imageConfig.registry, imageConfig.parsedTag, sysrootActive);
     assembleIptablesInitService(params, skipIptables);
   }

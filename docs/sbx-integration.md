@@ -248,10 +248,13 @@ and, when true, substitutes two functions into the shared workflow runner:
   2. Builds the agent environment (`buildAgentEnvironment`) using microVM-specific
      network targets (see below), merging credential env
      (`buildAgentCredentialEnv`) when the api-proxy is enabled.
-  3. Calls `createSandbox({ workspaceDir, squidIp: SQUID_IP, extraMounts })`.
-  4. Polls api-proxy health (via `host.docker.internal:10000/health`) since
+  3. When bounded queries are enabled, resolves the trusted broker ingress,
+     mounts only its skill/wrapper directory (plus the socket directory when
+     Unix passthrough was proven), and probes reachability before agent startup.
+  4. Calls `createSandbox({ workspaceDir, squidIp: SQUID_IP, extraMounts })`.
+  5. Polls api-proxy health (via `host.docker.internal:10000/health`) since
      there is no compose `depends_on` gate across the VM boundary.
-  5. Runs a Squid connectivity diagnostic (`curl --proxy ... https://api.github.com`).
+  6. Runs a Squid connectivity diagnostic (`curl --proxy ... https://api.github.com`).
 - **`sbxRunAgentCommand`** runs the actual agent command with `execInSandbox`,
   honoring the agent timeout, workdir, TTY, and computed environment, and dumps
   api-proxy logs on non-zero exit for debugging.
@@ -276,6 +279,13 @@ reachable** — the VM is on its own network. AWF compensates with two indirecti
   `host.docker.internal`, which resolves to the docker0 bridge from inside the
   VM. `COPILOT_*` / proxy env vars are pointed there instead of at
   `172.30.0.30`.
+- **The bounded-query broker** uses a mounted Unix socket when an executable
+  disposable-sandbox probe proves sbx passthrough supports host sockets.
+  Otherwise it uses an authenticated HTTP endpoint on an ephemeral
+  loopback-only host port. The broker is attached only to a dedicated Docker
+  `internal` network, not `awf-net` or `awf-ext`, so this ingress does not add
+  broker egress. The actual primary sandbox must pass a one-shot endpoint probe
+  before its agent command starts.
 
 The net effect: agent tools that respect `HTTP_PROXY`/`HTTPS_PROXY` route through
 AWF's Squid domain ACL; credentials are injected by AWF's api-proxy. Tools that

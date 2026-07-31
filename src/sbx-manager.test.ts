@@ -2,6 +2,7 @@ import {
   createSandbox,
   execInSandbox,
   isSbxAvailable,
+  probeSbxUnixSocketMount,
   removeSandbox,
   SBX_DEFAULT_NAME,
   testHelpers,
@@ -96,6 +97,40 @@ describe('sbx-manager', () => {
   describe('SBX_DEFAULT_NAME', () => {
     it('has awf-agent prefix and process pid', () => {
       expect(SBX_DEFAULT_NAME).toMatch(/^awf-agent-\d+$/);
+    });
+
+    describe('probeSbxUnixSocketMount', () => {
+      it('returns true only after an executable HTTP exchange over the mounted socket', async () => {
+        mockExecaFn
+          .mockResolvedValueOnce({ exitCode: 0, stdout: 'Created sandbox', stderr: '' })
+          .mockResolvedValueOnce({ exitCode: 0, stdout: '{"status":"error"}', stderr: '' })
+          .mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' });
+
+        await expect(probeSbxUnixSocketMount()).resolves.toBe(true);
+        expect(mockExecaFn.mock.calls[1][1]).toEqual(expect.arrayContaining([
+          'curl',
+          '--unix-socket',
+        ]));
+        expect(mockExecaFn.mock.calls[2][1]).toEqual(expect.arrayContaining(['rm', '--force']));
+      });
+
+      it('returns false when the mount does not carry a connectable Unix socket', async () => {
+        mockExecaFn
+          .mockResolvedValueOnce({ exitCode: 0, stdout: 'Created sandbox', stderr: '' })
+          .mockResolvedValueOnce({ exitCode: 7, stdout: '', stderr: 'connect failed' })
+          .mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' });
+
+        await expect(probeSbxUnixSocketMount()).resolves.toBe(false);
+      });
+
+      it('fails closed when the disposable probe sandbox cannot be removed', async () => {
+        mockExecaFn
+          .mockResolvedValueOnce({ exitCode: 0, stdout: 'Created sandbox', stderr: '' })
+          .mockResolvedValueOnce({ exitCode: 7, stdout: '', stderr: 'connect failed' })
+          .mockResolvedValueOnce({ exitCode: 1, stdout: '', stderr: 'busy' });
+
+        await expect(probeSbxUnixSocketMount()).rejects.toThrow(/could not be removed/);
+      });
     });
   });
 
@@ -559,7 +594,7 @@ describe('sbx-manager', () => {
       expect(args).toContain('-lc');
       const shellCommand = args[args.length - 1];
       expect(shellCommand).toBe(
-        'export PATH="$HOME/.local/bin${PATH:+:$PATH}"; copilot --version',
+        'export PATH="${AWF_BOUNDED_QUERY_BIN_DIR:+$AWF_BOUNDED_QUERY_BIN_DIR:}$HOME/.local/bin${PATH:+:$PATH}"; copilot --version',
       );
       expect(shellCommand.indexOf('.local/bin')).toBeLessThan(
         shellCommand.indexOf('copilot --version'),
@@ -579,7 +614,7 @@ describe('sbx-manager', () => {
   describe('withLocalBinOnPath', () => {
     it('prepends ~/.local/bin using the runtime $HOME', () => {
       expect(withLocalBinOnPath('copilot')).toBe(
-        'export PATH="$HOME/.local/bin${PATH:+:$PATH}"; copilot',
+        'export PATH="${AWF_BOUNDED_QUERY_BIN_DIR:+$AWF_BOUNDED_QUERY_BIN_DIR:}$HOME/.local/bin${PATH:+:$PATH}"; copilot',
       );
     });
 

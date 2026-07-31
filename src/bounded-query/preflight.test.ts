@@ -78,9 +78,8 @@ describe('validateBoundedQueryConfig', () => {
     expect(validateBoundedQueryConfig(buildConfig({ runtime: 'gvisor' }), envWithToken)).toEqual([]);
   });
 
-  it('rejects a microVM primary agent runtime, which cannot receive the socket', () => {
-    const errors = validateBoundedQueryConfig(buildConfig({}, { containerRuntime: 'sbx' }), envWithToken);
-    expect(errors.join('\n')).toContain('cannot be exposed to a "sbx" primary agent');
+  it('accepts an sbx primary agent; trusted preflight selects and probes its ingress', () => {
+    expect(validateBoundedQueryConfig(buildConfig({}, { containerRuntime: 'sbx' }), envWithToken)).toEqual([]);
   });
 
   it('allows a gvisor primary agent runtime (still a Compose service)', () => {

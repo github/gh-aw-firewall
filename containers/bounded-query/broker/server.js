@@ -1,6 +1,7 @@
 'use strict';
 
 const fs = require('fs');
+const crypto = require('crypto');
 const http = require('http');
 const { createAuditLog } = require('./audit');
 const { createBroker } = require('./broker');
@@ -12,9 +13,11 @@ const { createQueryRunner } = require('./query-runner');
 /**
  * Bounded-query broker server.
  *
- * Listens on a single Unix domain socket. The container has
- * `network_mode: none`, so this socket — shared with the agent through one
- * bind mount — is the broker's entire attack surface.
+ * Compose agents use a Unix domain socket. sbx agents use the same protocol
+ * over authenticated HTTP only when a disposable capability probe proves that
+ * sbx cannot connect through a mounted host socket. In that mode the broker is
+ * attached only to a dedicated internal Docker network and published on an
+ * ephemeral host-loopback port.
  *
  * One route exists:
  *   POST /query   the bounded-query API
@@ -41,44 +44,142 @@ const RESULT_HEADERS = {
 // force-removing this run's containers. Longer queries are interrupted so
 // Compose shutdown remains bounded; host teardown owns private-root removal.
 const SHUTDOWN_GRACE_MS = 1_000;
+const MAX_HEADER_BYTES = 8 * 1024;
+const MAX_CONNECTIONS = 32;
+const PROBE_RESPONSE_DELAY_MS = 10;
 
 function sendResult(res, body) {
   res.writeHead(200, { ...RESULT_HEADERS, 'content-length': Buffer.byteLength(body) });
   res.end(body);
 }
 
+function canonicalRawResponse() {
+  return [
+    'HTTP/1.1 200 OK',
+    'content-type: application/json',
+    'cache-control: no-store',
+    `content-length: ${Buffer.byteLength(CANONICAL_ERROR_JSON)}`,
+    'connection: close',
+    '',
+    CANONICAL_ERROR_JSON,
+  ].join('\r\n');
+}
+
+function createHardenedServer(listener, audit) {
+  const server = http.createServer({ maxHeaderSize: MAX_HEADER_BYTES }, listener);
+  server.headersTimeout = 5_000;
+  server.requestTimeout = 0;
+  server.keepAliveTimeout = 1_000;
+  server.maxRequestsPerSocket = 1;
+
+  let activeConnections = 0;
+  server.on('connection', (socket) => {
+    activeConnections += 1;
+    socket.once('close', () => {
+      activeConnections -= 1;
+    });
+    if (activeConnections > MAX_CONNECTIONS) {
+      audit.failure('transport', 'connection-limit');
+      socket.end(canonicalRawResponse());
+    }
+  });
+  server.on('clientError', (error, socket) => {
+    audit.failure('framing', 'header-rejected', error && error.message);
+    setTimeout(() => {
+      if (socket.writable) socket.end(canonicalRawResponse());
+    }, PROBE_RESPONSE_DELAY_MS);
+  });
+  return server;
+}
+
+function processRequest(req, res, broker, audit, framedHeaders = req.headers, framedRawHeaders = req.rawHeaders) {
+  if (req.method !== 'POST' || req.url !== '/query') {
+    sendResult(res, CANONICAL_ERROR_JSON);
+    req.resume();
+    return;
+  }
+
+  readBoundedBody(req)
+    .then((body) => {
+      if (body.error !== undefined) {
+        audit.failure('framing', 'body-rejected', body.error);
+        return broker.handle(undefined, (result) => sendResult(res, result));
+      }
+
+      const framed = buildRequestFromFrame(framedHeaders, framedRawHeaders, body.script);
+      if (framed.error !== undefined) {
+        audit.failure('framing', 'frame-rejected', framed.error);
+        return broker.handle(undefined, (result) => sendResult(res, result));
+      }
+
+      return broker.handle(framed.request, (result) => sendResult(res, result));
+    })
+    .catch((error) => {
+      audit.failure('server', 'unhandled-error', error && error.message);
+      if (!res.headersSent) sendResult(res, CANONICAL_ERROR_JSON);
+    });
+}
+
 function createServer(deps) {
   const { broker, audit } = deps;
+  return createHardenedServer(
+    (req, res) => processRequest(req, res, broker, audit),
+    audit,
+  );
+}
 
-  return http.createServer((req, res) => {
-    if (req.method !== 'POST' || req.url !== '/query') {
-      // Not part of the API. Answer with the canonical error rather than a
-      // distinguishable 404/405 so probing the surface yields no extra signal.
-      sendResult(res, CANONICAL_ERROR_JSON);
+function safeCapabilityEquals(actual, expected) {
+  if (typeof actual !== 'string') return false;
+  const actualBytes = Buffer.from(actual, 'utf8');
+  const expectedBytes = Buffer.from(expected, 'utf8');
+  return actualBytes.length === expectedBytes.length
+    && crypto.timingSafeEqual(actualBytes, expectedBytes);
+}
+
+function stripCapabilityHeader(req) {
+  const headers = { ...req.headers };
+  delete headers['x-awf-capability'];
+  const rawHeaders = [];
+  for (let i = 0; i < req.rawHeaders.length; i += 2) {
+    if (req.rawHeaders[i].toLowerCase() === 'x-awf-capability') continue;
+    rawHeaders.push(req.rawHeaders[i], req.rawHeaders[i + 1]);
+  }
+  return { headers, rawHeaders };
+}
+
+function createTcpServer(deps) {
+  const { broker, audit, capabilities } = deps;
+  let probeAvailable = true;
+  return createHardenedServer((req, res) => {
+    const capabilityHeaders = req.rawHeaders.filter(
+      (_value, index) => index % 2 === 0 && req.rawHeaders[index].toLowerCase() === 'x-awf-capability',
+    );
+    const supplied = req.headers['x-awf-capability'];
+    const isQuery = capabilityHeaders.length === 1 && safeCapabilityEquals(supplied, capabilities.query);
+    const isProbe = (
+      probeAvailable
+      && capabilityHeaders.length === 1
+      && safeCapabilityEquals(supplied, capabilities.probe)
+    );
+
+    if (isProbe) {
+      probeAvailable = false;
+      audit.lifecycle('sbx-ingress-probe');
       req.resume();
+      setTimeout(() => sendResult(res, CANONICAL_ERROR_JSON), PROBE_RESPONSE_DELAY_MS);
       return;
     }
 
-    readBoundedBody(req)
-      .then((body) => {
-        if (body.error !== undefined) {
-          audit.failure('framing', 'body-rejected', body.error);
-          return broker.handle(undefined, (result) => sendResult(res, result));
-        }
+    if (!isQuery) {
+      audit.failure('transport', 'auth-rejected');
+      req.resume();
+      sendResult(res, CANONICAL_ERROR_JSON);
+      return;
+    }
 
-        const framed = buildRequestFromFrame(req.headers, req.rawHeaders, body.script);
-        if (framed.error !== undefined) {
-          audit.failure('framing', 'frame-rejected', framed.error);
-          return broker.handle(undefined, (result) => sendResult(res, result));
-        }
-
-        return broker.handle(framed.request, (result) => sendResult(res, result));
-      })
-      .catch((error) => {
-        audit.failure('server', 'unhandled-error', error && error.message);
-        if (!res.headersSent) sendResult(res, CANONICAL_ERROR_JSON);
-      });
-  });
+    const framed = stripCapabilityHeader(req);
+    processRequest(req, res, broker, audit, framed.headers, framed.rawHeaders);
+  }, audit);
 }
 
 function listenOnSocket(server, config, audit) {
@@ -97,8 +198,16 @@ function listenOnSocket(server, config, audit) {
         audit.lifecycle('socket-ownership-fallback', error.message);
         fs.chmodSync(config.socketPath, 0o666);
       }
+
       resolve();
     });
+  });
+}
+
+function listenOnTcp(server, config) {
+  return new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(config.tcpPort, '0.0.0.0', resolve);
   });
 }
 
@@ -114,9 +223,19 @@ async function main() {
   await runner.reconcileRun(runId);
 
   const broker = createBroker({ config, seedMap: seeds, runId, audit, runner });
-  const server = createServer({ broker, audit });
+  const unixServer = createServer({ broker, audit });
+  const servers = [unixServer];
 
-  await listenOnSocket(server, config, audit);
+  await listenOnSocket(unixServer, config, audit);
+  if (config.tcpPort !== undefined) {
+    const tcpServer = createTcpServer({
+      broker,
+      audit,
+      capabilities: config.sbxIngressCapabilities,
+    });
+    await listenOnTcp(tcpServer, config);
+    servers.push(tcpServer);
+  }
 
   // Write the ready file AFTER the socket is accepting connections. The
   // compose healthcheck polls this file in the broker-only control mount.
@@ -127,6 +246,7 @@ async function main() {
     socket: config.socketPath,
     repos: seeds.size,
     backend: config.queryBackend,
+    ingress: config.tcpPort === undefined ? 'unix' : 'unix+sbx-http',
     maxInvocations: config.maxInvocations,
   });
 
@@ -134,7 +254,7 @@ async function main() {
   const shutdown = async () => {
     if (shuttingDown) return;
     shuttingDown = true;
-    server.close();
+    for (const server of servers) server.close();
     const forcedExit = setTimeout(() => process.exit(1), 5000);
     forcedExit.unref();
     try {
@@ -160,4 +280,11 @@ if (require.main === module) {
   });
 }
 
-module.exports = { createServer, listenOnSocket };
+module.exports = {
+  createServer,
+  createTcpServer,
+  listenOnSocket,
+  listenOnTcp,
+  MAX_HEADER_BYTES,
+  MAX_CONNECTIONS,
+};
