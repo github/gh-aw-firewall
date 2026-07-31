@@ -184,6 +184,12 @@ function checkUnknownModelRejection(model, provider = undefined) {
   if (!config.max) return null; // guard not active, don't reject
   if (!model) return null; // no model in request body, can't check
   if (config.defaultPricing) return null; // has fallback, don't reject
+  // 'auto' is a Copilot-specific selector resolved by the Copilot API at
+  // runtime to a concrete priced model. AI credits are tracked correctly once
+  // the response returns the resolved model. Blocking 'auto' pre-flight breaks
+  // isolated agent runtimes (gVisor, docker-sbx) where /reflect is unreachable
+  // and the harness cannot substitute the model alias before sending the request.
+  if (provider === PROVIDER_COPILOT && model.toLowerCase() === 'auto') return null;
   const defaultPricing = resolveModelPricing(model, aiCreditsState, provider);
   const highestTierPricing = resolveModelPricing(
     model,

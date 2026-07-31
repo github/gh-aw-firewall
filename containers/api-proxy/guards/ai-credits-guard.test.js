@@ -664,11 +664,19 @@ describe('ai-credits-guard', () => {
       expect(sonnet5).toBeNull();
     });
 
-    it('rejects the Copilot auto selector when runtime pricing cannot be proven', () => {
+    it('passes through the Copilot auto selector (resolved to a priced model at runtime)', () => {
       process.env.AWF_MAX_AI_CREDITS = '10';
       resetAiCreditsGuardForTests();
 
-      expect(checkUnknownModelRejection('auto', PROVIDER_COPILOT)).not.toBeNull();
+      // 'auto' is resolved by the Copilot API to a concrete priced model; AI credits
+      // are tracked correctly from the response, so pre-flight rejection is not needed.
+      expect(checkUnknownModelRejection('auto', PROVIDER_COPILOT)).toBeNull();
+    });
+
+    it('rejects the auto selector for non-Copilot providers where it is not a special sentinel', () => {
+      process.env.AWF_MAX_AI_CREDITS = '10';
+      resetAiCreditsGuardForTests();
+
       expect(checkUnknownModelRejection('auto', PROVIDER_OPENAI)).not.toBeNull();
     });
   });
