@@ -54,6 +54,15 @@ describe('buildBoundedQueryService', () => {
     ).toThrow(/must be enabled/);
   });
 
+  it('refuses to wire sbx management access while its capability proof is blocked', () => {
+    expect(() =>
+      buildBoundedQueryService({
+        config: buildConfig({}, { runtime: 'sbx' }),
+        imageConfig: imageConfig(),
+      }),
+    ).toThrow(/sbx.*capability proof.*blocked.*no Docker socket.*fallback/s);
+  });
+
   describe('broker service', () => {
     const { queryImageService, service } = buildBoundedQueryService({
       config: buildConfig(),
@@ -101,6 +110,7 @@ describe('buildBoundedQueryService', () => {
       expect(environment.AWF_BOUNDED_QUERY_MEMORY).toBe('256m');
       expect(environment.AWF_BOUNDED_QUERY_MAX_INVOCATIONS).toBe('9');
       expect(environment.AWF_BOUNDED_QUERY_BACKEND).toBe('docker');
+      expect(environment.AWF_BOUNDED_QUERY_PRIMARY_BACKEND).toBe('docker');
       expect(environment.AWF_BOUNDED_QUERY_HOST_WORK_DIR).toBe(paths.workDir);
     });
 
@@ -141,6 +151,20 @@ describe('buildBoundedQueryService', () => {
         imageConfig: imageConfig(),
       });
       expect((gvisorService.environment as Record<string, string>).AWF_BOUNDED_QUERY_BACKEND).toBe('gvisor');
+    });
+
+    it.each([
+      [undefined, 'docker'],
+      ['gvisor', 'gvisor'],
+      ['runsc', 'gvisor'],
+      ['sbx', 'sbx'],
+    ])('records primary runtime %s independently from the query backend', (containerRuntime, expected) => {
+      const { service: matrixService } = buildBoundedQueryService({
+        config: buildConfig({ containerRuntime }, { runtime: 'docker' }),
+        imageConfig: imageConfig(),
+      });
+      expect((matrixService.environment as Record<string, string>).AWF_BOUNDED_QUERY_PRIMARY_BACKEND).toBe(expected);
+      expect((matrixService.environment as Record<string, string>).AWF_BOUNDED_QUERY_BACKEND).toBe('docker');
     });
 
     it('uses the AWF Docker host socket when overridden, without leaking it to the agent', () => {

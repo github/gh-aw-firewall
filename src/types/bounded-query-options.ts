@@ -9,7 +9,7 @@
  */
 
 /** Sandbox runtime backends supported for bounded-query execution. */
-export type BoundedQueryRuntime = 'docker' | 'gvisor';
+export type BoundedQueryRuntime = 'docker' | 'gvisor' | 'sbx';
 
 /** Primary-agent transport selected by trusted preflight. */
 export type BoundedQueryIngressTransport = 'unix' | 'sbx-http';

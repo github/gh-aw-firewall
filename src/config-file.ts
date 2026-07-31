@@ -181,7 +181,7 @@ export interface AwfFileConfig {
      * `{ repo, sensitivity: 'internal' }` with a warning.
      */
     privateRepos?: Array<string | { repo: string; sensitivity: 'public' | 'internal' | 'confidential' | 'sealed' }>;
-    runtime?: 'docker' | 'gvisor';
+    runtime?: 'docker' | 'gvisor' | 'sbx';
     timeout?: number;
     memoryLimit?: string;
     interpreter?: 'python3';

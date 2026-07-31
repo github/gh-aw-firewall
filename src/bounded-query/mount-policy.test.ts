@@ -138,7 +138,7 @@ describe('bounded-query private-root mount policy', () => {
     fs.mkdirSync(target);
     fs.symlinkSync(target, alias);
     expect(resolvePathThroughExistingAncestor(path.join(alias, 'missing', 'leaf')))
-      .toBe(path.join(target, 'missing', 'leaf'));
+      .toBe(path.join(fs.realpathSync.native(target), 'missing', 'leaf'));
   });
 
   it('rejects relative paths before filesystem resolution', () => {

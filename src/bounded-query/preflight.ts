@@ -19,13 +19,26 @@ import { resolveStagingToken } from './staging';
  */
 
 /** Query sandbox runtimes with a safe, implemented no-network launcher. */
-const SUPPORTED_QUERY_RUNTIMES = new Set(['docker', 'gvisor']);
+const SUPPORTED_QUERY_RUNTIMES = new Set(['docker', 'gvisor', 'sbx']);
 
 /** Docker OCI runtime name required for the `gvisor` query runtime. */
 const GVISOR_DOCKER_RUNTIME = 'runsc';
 
 /** Detects whether the Docker daemon exposes a named OCI runtime. */
 export type DockerRuntimeQuery = (runtimeName: string) => Promise<boolean>;
+/** Detects whether the Docker daemon required by a primary/query backend is reachable. */
+export type DockerAvailabilityQuery = () => Promise<boolean>;
+/** Detects whether the sbx primary-agent runtime is installed and authenticated. */
+export type SbxAvailabilityQuery = () => Promise<boolean>;
+
+export interface SbxCapabilityReport {
+  supported: boolean;
+  version?: string;
+  missing: string[];
+}
+
+/** Executes the minimum host-side capability proof for the sbx query backend. */
+export type SbxCapabilityQuery = () => Promise<SbxCapabilityReport>;
 
 const defaultDockerRuntimeQuery: DockerRuntimeQuery = async (runtimeName) => {
   const result = await execa('docker', ['info', '--format', '{{json .Runtimes}}'], {
@@ -40,6 +53,101 @@ const defaultDockerRuntimeQuery: DockerRuntimeQuery = async (runtimeName) => {
   } catch {
     return false;
   }
+};
+
+const defaultDockerAvailabilityQuery: DockerAvailabilityQuery = async () => {
+  const result = await execa('docker', ['info', '--format', '{{.ServerVersion}}'], {
+    env: getLocalDockerEnv(),
+    reject: false,
+    timeout: 30_000,
+  });
+  return result.exitCode === 0;
+};
+
+const defaultSbxAvailabilityQuery: SbxAvailabilityQuery = async () => {
+  try {
+    const managementEnv = { ...process.env };
+    delete managementEnv.DOCKER_SANDBOXES_PROXY;
+    delete managementEnv.XDG_CONFIG_HOME;
+    const result = await execa('sbx', ['ls'], {
+      reject: false,
+      timeout: 10_000,
+      env: managementEnv,
+    });
+    return result.exitCode === 0;
+  } catch {
+    return false;
+  }
+};
+
+const SBX_AUDITED_VERSION = '0.37.1';
+const SBX_REQUIRED_CREATE_FLAGS = [
+  '--cpus',
+  '--memory',
+  '--name',
+  '--template',
+  '--network=none',
+  '--pids-limit',
+  '--disk-limit',
+  '--ulimit-fsize',
+  '--mount-target',
+] as const;
+const SBX_REQUIRED_EXEC_FLAGS = ['--user', '--workdir'] as const;
+
+function helpIncludesFlag(help: string, flag: string): boolean {
+  const escaped = flag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(^|[\\s,])${escaped}(?=([=\\s,]|$))`, 'm').test(help);
+}
+
+const defaultSbxCapabilityQuery: SbxCapabilityQuery = async () => {
+  const managementEnv = { ...process.env };
+  delete managementEnv.DOCKER_SANDBOXES_PROXY;
+  delete managementEnv.XDG_CONFIG_HOME;
+
+  const run = async (args: string[]): Promise<{ exitCode: number; stdout: string }> => {
+    const result = await execa('sbx', args, {
+      reject: false,
+      timeout: 10_000,
+      env: managementEnv,
+    });
+    return { exitCode: result.exitCode ?? 1, stdout: result.stdout };
+  };
+
+  let versionResult: { exitCode: number; stdout: string };
+  let daemonResult: { exitCode: number; stdout: string };
+  let createHelp: { exitCode: number; stdout: string };
+  let execHelp: { exitCode: number; stdout: string };
+  try {
+    [versionResult, daemonResult, createHelp, execHelp] = await Promise.all([
+      run(['version']),
+      // sbx has no auth-status command; listing is authenticated and non-mutating.
+      run(['ls']),
+      run(['create', '--help']),
+      run(['exec', '--help']),
+    ]);
+  } catch {
+    return { supported: false, missing: ['authenticated sbx CLI/daemon'] };
+  }
+
+  const version = /\bv?(\d+\.\d+\.\d+)\b/.exec(versionResult.stdout)?.[1];
+  const missing: string[] = ['pinned AWF Python query template and bootstrap'];
+  if (versionResult.exitCode !== 0 || !version || daemonResult.exitCode !== 0) {
+    missing.push('authenticated sbx CLI/daemon');
+  }
+  if (version && version !== SBX_AUDITED_VERSION) {
+    missing.push(`audited sbx version ${SBX_AUDITED_VERSION} (found ${version})`);
+  }
+  for (const flag of SBX_REQUIRED_CREATE_FLAGS) {
+    if (createHelp.exitCode !== 0 || !helpIncludesFlag(createHelp.stdout, flag)) {
+      missing.push(`sbx create ${flag}`);
+    }
+  }
+  for (const flag of SBX_REQUIRED_EXEC_FLAGS) {
+    if (execHelp.exitCode !== 0 || !helpIncludesFlag(execHelp.stdout, flag)) {
+      missing.push(`sbx exec ${flag}`);
+    }
+  }
+  return { supported: missing.length === 0, version, missing };
 };
 
 /**
@@ -82,7 +190,7 @@ export function validateBoundedQueryConfig(
     errors.push(
       `boundedQueries.runtime "${boundedQueries.runtime}" is not supported. ` +
       'AWF has no no-network, per-invocation bounded-query launcher for it, and bounded queries ' +
-      'never downgrade to a weaker runtime. Use "docker" or "gvisor".',
+      'never downgrade to a weaker runtime. Use "docker", "gvisor", or "sbx".',
     );
   }
 
@@ -111,7 +219,7 @@ export function validateBoundedQueryConfig(
   }
 
   const dockerHost = config.awfDockerHost ?? env.DOCKER_HOST;
-  if (dockerHost && !dockerHost.startsWith('unix://')) {
+  if (boundedQueries.runtime !== 'sbx' && dockerHost && !dockerHost.startsWith('unix://')) {
     errors.push(
       `bounded queries require a Unix-socket Docker host, but the resolved host is "${dockerHost}". ` +
       'The broker runs with network_mode: none so it can only reach the daemon over a bind-mounted ' +
@@ -138,8 +246,30 @@ export function validateBoundedQueryConfig(
 export async function assertQueryRuntimeAvailable(
   boundedQueries: BoundedQueriesConfig,
   queryDockerRuntime: DockerRuntimeQuery = defaultDockerRuntimeQuery,
+  querySbxCapabilities: SbxCapabilityQuery = defaultSbxCapabilityQuery,
+  queryDockerAvailable: DockerAvailabilityQuery = defaultDockerAvailabilityQuery,
 ): Promise<void> {
-  if (boundedQueries.runtime !== 'gvisor') return;
+  if (boundedQueries.runtime === 'sbx') {
+    const report = await querySbxCapabilities();
+    if (!report.supported) {
+      throw new Error(
+        'boundedQueries.runtime "sbx" is blocked because the installed sbx runtime cannot enforce all ' +
+        `mandatory query-isolation controls: ${report.missing.join(', ')}. ` +
+        'AWF will not launch a query VM and will never fall back to Docker or gVisor.',
+      );
+    }
+    return;
+  }
+
+  if (boundedQueries.runtime === 'docker') {
+    if (!(await queryDockerAvailable())) {
+      throw new Error(
+        'boundedQueries.runtime "docker" requires a reachable Docker daemon. It is not available, ' +
+        'and bounded queries never fall back to another runtime.',
+      );
+    }
+    return;
+  }
 
   if (!(await queryDockerRuntime(GVISOR_DOCKER_RUNTIME))) {
     throw new Error(
@@ -150,10 +280,57 @@ export async function assertQueryRuntimeAvailable(
   }
 }
 
+/** Verifies the primary-agent runtime before bounded-query repository staging. */
+export async function assertPrimaryRuntimeAvailable(
+  containerRuntime: string | undefined,
+  queryDockerRuntime: DockerRuntimeQuery = defaultDockerRuntimeQuery,
+  queryDockerAvailable: DockerAvailabilityQuery = defaultDockerAvailabilityQuery,
+  querySbxAvailable: SbxAvailabilityQuery = defaultSbxAvailabilityQuery,
+): Promise<void> {
+  if (containerRuntime === 'sbx') {
+    if (!(await querySbxAvailable())) {
+      throw new Error(
+        'Primary-agent runtime "sbx" is unavailable. Bounded queries abort before staging and never ' +
+        'fall back to a Docker or gVisor primary agent.',
+      );
+    }
+    return;
+  }
+  if (containerRuntime === 'gvisor' || containerRuntime === 'runsc') {
+    if (!(await queryDockerRuntime(GVISOR_DOCKER_RUNTIME))) {
+      throw new Error(
+        `Primary-agent runtime "${containerRuntime}" requires the "${GVISOR_DOCKER_RUNTIME}" OCI runtime. ` +
+        'It is not available, so bounded queries abort before staging and never fall back.',
+      );
+    }
+    return;
+  }
+  if (containerRuntime) {
+    if (!(await queryDockerRuntime(containerRuntime))) {
+      throw new Error(
+        `Primary-agent OCI runtime "${containerRuntime}" is not registered with Docker. ` +
+        'Bounded queries abort before staging and never fall back.',
+      );
+    }
+    return;
+  }
+  if (!(await queryDockerAvailable())) {
+    throw new Error(
+      'The Docker primary-agent runtime is unavailable. Bounded queries abort before staging and never fall back.',
+    );
+  }
+}
+
 /** @internal Exported for focused unit tests. */
 // ts-prune-ignore-next
 export const preflightTestHelpers = {
   SUPPORTED_QUERY_RUNTIMES,
   GVISOR_DOCKER_RUNTIME,
   defaultDockerRuntimeQuery,
+  defaultDockerAvailabilityQuery,
+  defaultSbxAvailabilityQuery,
+  defaultSbxCapabilityQuery,
+  SBX_AUDITED_VERSION,
+  SBX_REQUIRED_CREATE_FLAGS,
+  SBX_REQUIRED_EXEC_FLAGS,
 };

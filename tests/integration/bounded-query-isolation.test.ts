@@ -9,6 +9,7 @@ const { buildQueryArgs } = require('../../containers/bounded-query/broker/query-
 
 describe('bounded-query Docker isolation', () => {
   const image = `awf-bounded-query-integration:${process.pid}`;
+  const queryBackend = process.env.AWF_BOUNDED_QUERY_TEST_RUNTIME === 'gvisor' ? 'gvisor' : 'docker';
   let root: string;
 
   beforeAll(() => {
@@ -34,7 +35,7 @@ describe('bounded-query Docker isolation', () => {
   });
 
   it('executes against a writable bounded copy with no network or broker tools', () => {
-    const invocationId = 'integration';
+    const invocationId = `integration-${process.pid}`;
     const invocationDir = path.join(root, invocationId);
     const repoDir = path.join(invocationDir, 'repo');
     const outPath = path.join(invocationDir, 'out');
@@ -83,19 +84,23 @@ describe('bounded-query Docker isolation', () => {
         queryScriptPath: '/awf/query-script.py',
         querySeccompPath: path.resolve(__dirname, '../../containers/bounded-query/query-seccomp.json'),
         queryImage: image,
-        queryBackend: 'docker',
+        queryBackend,
         memoryLimit: '256m',
         queryUid: 65534,
         queryGid: 65534,
       },
       runId: 'integration-run',
       invocationId,
-      containerName: `awf-query-integration-${process.pid}`,
+      runtimeName: queryBackend === 'gvisor' ? 'runsc' : undefined,
     });
+    const containerName = args[args.indexOf('--name') + 1];
 
-    execFileSync('docker', args, { stdio: 'pipe', timeout: 30_000 });
-
-    expect(fs.readFileSync(outPath, 'utf8')).toBe('{"result":"YES"}');
-    expect(fs.existsSync(path.join(repoDir, 'mutation.txt'))).toBe(false);
+    try {
+      execFileSync('docker', args, { stdio: 'pipe', timeout: 30_000 });
+      expect(fs.readFileSync(outPath, 'utf8')).toBe('{"result":"YES"}');
+      expect(fs.existsSync(path.join(repoDir, 'mutation.txt'))).toBe(false);
+    } finally {
+      execFileSync('docker', ['rm', '--force', containerName], { stdio: 'ignore' });
+    }
   }, 60_000);
 });

@@ -27,6 +27,7 @@ import {
   BOUNDED_QUERY_INGRESS_NETWORK,
   BOUNDED_QUERY_TCP_PORT,
 } from '../bounded-query/ingress';
+import { resolveBoundedQueryPrimaryBackend } from '../bounded-query/runtime-matrix';
 
 /**
  * Compose assembly for the trusted bounded-query broker.
@@ -161,6 +162,12 @@ export function buildBoundedQueryService(params: BoundedQueryServiceParams): Bou
   if (!boundedQueries?.enabled) {
     throw new Error('buildBoundedQueryService: boundedQueries must be enabled');
   }
+  if (boundedQueries.runtime === 'sbx') {
+    throw new Error(
+      'buildBoundedQueryService: sbx bounded-query capability proof must pass before broker wiring; ' +
+      'current sbx support is blocked and no Docker socket or sbx credential fallback is permitted',
+    );
+  }
 
   const paths = resolveBoundedQueryPaths(config.workDir);
   const { queryImageRef, querySource, brokerSource } = resolveBoundedQueryImages(imageConfig);
@@ -215,6 +222,7 @@ export function buildBoundedQueryService(params: BoundedQueryServiceParams): Bou
       // The broker selects a fixed QueryRunner from this normalized value.
       // Runtime flags are never accepted from an invocation.
       AWF_BOUNDED_QUERY_BACKEND: boundedQueries.runtime,
+      AWF_BOUNDED_QUERY_PRIMARY_BACKEND: resolveBoundedQueryPrimaryBackend(config.containerRuntime),
       AWF_BOUNDED_QUERY_TIMEOUT: String(boundedQueries.timeout),
       AWF_BOUNDED_QUERY_MEMORY: boundedQueries.memoryLimit,
       AWF_BOUNDED_QUERY_MAX_INVOCATIONS: String(boundedQueries.maxInvocations),

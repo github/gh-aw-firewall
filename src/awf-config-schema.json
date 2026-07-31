@@ -889,9 +889,10 @@
           "type": "string",
           "enum": [
             "docker",
-            "gvisor"
+            "gvisor",
+            "sbx"
           ],
-          "description": "Sandbox runtime backend used to execute the query script, selected independently of the primary agent runtime. \"docker\" uses the daemon default runtime; \"gvisor\" requires the runsc OCI runtime and fails closed when it is unavailable. Default: \"docker\".",
+          "description": "Sandbox runtime backend used to execute the query script, selected independently of the primary agent runtime. \"docker\" uses the daemon default runtime; \"gvisor\" requires the runsc OCI runtime; \"sbx\" is a fail-closed preview and is blocked until the installed sbx CLI proves mandatory no-network, PID, disk, file-size, target-mount, CPU, and memory controls. No backend ever falls back. Default: \"docker\".",
           "default": "docker"
         },
         "timeout": {
