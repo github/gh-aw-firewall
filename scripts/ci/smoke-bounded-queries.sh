@@ -226,6 +226,11 @@ JSON
         sudo cat "$audit_log"
         echo "::endgroup::"
       fi
+      if [[ -f "$audit_dir/runtime-telemetry.jsonl" ]]; then
+        echo "::group::bounded query runtime telemetry"
+        sudo cat "$audit_dir/runtime-telemetry.jsonl"
+        echo "::endgroup::"
+      fi
       fail "$sensitivity bounded-query run failed"
     fi
     echo "::endgroup::"
