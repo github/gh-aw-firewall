@@ -392,6 +392,7 @@ export const testHelpers = {
  */
 export async function probeSbxUnixSocketMount(): Promise<boolean> {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-sbx-socket-probe-'));
+  fs.chmodSync(root, 0o700);
   const socketPath = path.join(root, 'probe.sock');
   const response = '{"status":"error"}';
   const server = http.createServer((_req, res) => {
