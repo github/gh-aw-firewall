@@ -18,6 +18,21 @@ run_inside_agent() {
     fail "unexpected AWF_BOUNDED_QUERY_REPOS: ${AWF_BOUNDED_QUERY_REPOS:-<unset>}"
   [[ -z "${GH_TOKEN:-}" && -z "${GITHUB_TOKEN:-}" ]] ||
     fail "staging credentials reached the agent environment"
+  [[ -n "${AWF_BOUNDED_QUERY_SOCKET:-}" && -S "$AWF_BOUNDED_QUERY_SOCKET" ]] ||
+    fail "bounded-query broker socket is unavailable"
+
+  local transport_probe
+  transport_probe="$(
+    curl --silent --show-error --noproxy '*' \
+      --unix-socket "$AWF_BOUNDED_QUERY_SOCKET" \
+      --max-time 5 \
+      -X POST \
+      -H "Expect:" \
+      --data-binary '' \
+      http://localhost/query
+  )" || fail "bounded-query broker socket is not connectable"
+  [[ "$transport_probe" == '{"status":"error"}' ]] ||
+    fail "bounded-query broker returned a noncanonical transport probe response"
 
   local schema expected_sequence result_kind
   case "${SMOKE_SENSITIVITY:-}" in
