@@ -119,4 +119,9 @@ describe('normalizeBoundedQueriesConfig', () => {
     expect(config?.interpreter).toBe(BOUNDED_QUERY_DEFAULTS.interpreter);
     expect(config?.maxInvocations).toBe(BOUNDED_QUERY_DEFAULTS.maxInvocations);
   });
+
+  it('preserves the sbx query runtime independently of the primary-agent runtime', () => {
+    const config = normalizeBoundedQueriesConfig({ runtime: 'sbx' });
+    expect(config?.runtime).toBe('sbx');
+  });
 });

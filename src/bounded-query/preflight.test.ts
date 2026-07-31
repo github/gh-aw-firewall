@@ -78,6 +78,10 @@ describe('validateBoundedQueryConfig', () => {
     expect(validateBoundedQueryConfig(buildConfig({ runtime: 'gvisor' }), envWithToken)).toEqual([]);
   });
 
+  it('accepts the sbx query runtime at the configuration layer for executable preflight', () => {
+    expect(validateBoundedQueryConfig(buildConfig({ runtime: 'sbx' }), envWithToken)).toEqual([]);
+  });
+
   it('accepts an sbx primary agent; trusted preflight selects and probes its ingress', () => {
     expect(validateBoundedQueryConfig(buildConfig({}, { containerRuntime: 'sbx' }), envWithToken)).toEqual([]);
   });
@@ -107,6 +111,15 @@ describe('validateBoundedQueryConfig', () => {
   it('accepts an explicit Unix-socket Docker host', () => {
     expect(
       validateBoundedQueryConfig(buildConfig({}, { awfDockerHost: 'unix:///run/user/1001/docker.sock' }), envWithToken),
+    ).toEqual([]);
+  });
+
+  it('does not apply Docker-daemon transport requirements to the independent sbx query runtime', () => {
+    expect(
+      validateBoundedQueryConfig(
+        buildConfig({ runtime: 'sbx' }, { awfDockerHost: 'tcp://localhost:2375' }),
+        envWithToken,
+      ),
     ).toEqual([]);
   });
 
@@ -165,6 +178,37 @@ describe('assertQueryRuntimeAvailable', () => {
     ).rejects.toThrow(/runsc.*not available|not available.*fall back/s);
   });
 
+  it('fails closed when sbx lacks any mandatory query isolation capability', async () => {
+    const query = jest.fn().mockResolvedValue({
+      supported: false,
+      version: '0.37.1',
+      missing: ['sbx create --network=none', 'sbx create --pids-limit'],
+    });
+    await expect(
+      assertQueryRuntimeAvailable(
+        { ...baseBoundedQueries, runtime: 'sbx' },
+        jest.fn(),
+        query,
+      ),
+    ).rejects.toThrow(/sbx.*blocked.*network=none.*pids-limit.*never fall back/s);
+  });
+
+  it('accepts sbx only when the complete executable capability proof succeeds', async () => {
+    const query = jest.fn().mockResolvedValue({
+      supported: true,
+      version: '0.37.1',
+      missing: [],
+    });
+    await expect(
+      assertQueryRuntimeAvailable(
+        { ...baseBoundedQueries, runtime: 'sbx' },
+        jest.fn(),
+        query,
+      ),
+    ).resolves.toBeUndefined();
+    expect(query).toHaveBeenCalledTimes(1);
+  });
+
   it('detects registered runtimes through Docker info', async () => {
     mockExeca.mockResolvedValue({ exitCode: 0, stdout: '{"runc":{},"runsc":{}}' });
     await expect(preflightTestHelpers.defaultDockerRuntimeQuery('runsc')).resolves.toBe(true);
@@ -181,5 +225,31 @@ describe('assertQueryRuntimeAvailable', () => {
 
     mockExeca.mockResolvedValueOnce({ exitCode: 0, stdout: 'not-json' });
     await expect(preflightTestHelpers.defaultDockerRuntimeQuery('runsc')).resolves.toBe(false);
+  });
+
+  it('reports the current sbx CLI as unsupported when essential controls are absent', async () => {
+    mockExeca
+      .mockResolvedValueOnce({ exitCode: 0, stdout: 'Docker Sandboxes v0.37.1' })
+      .mockResolvedValueOnce({
+        exitCode: 0,
+        stdout: '--name --cpus --memory --template',
+      })
+      .mockResolvedValueOnce({
+        exitCode: 0,
+        stdout: '--user --workdir',
+      });
+
+    await expect(preflightTestHelpers.defaultSbxCapabilityQuery()).resolves.toEqual({
+      supported: false,
+      version: '0.37.1',
+      missing: expect.arrayContaining([
+        'pinned AWF Python query template and bootstrap',
+        'sbx create --network=none',
+        'sbx create --pids-limit',
+        'sbx create --disk-limit',
+        'sbx create --ulimit-fsize',
+        'sbx create --mount-target',
+      ]),
+    });
   });
 });

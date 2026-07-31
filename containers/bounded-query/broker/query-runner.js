@@ -2,6 +2,7 @@
 
 const { DockerQueryRunner } = require('./docker-query-runner');
 const { GvisorQueryRunner } = require('./gvisor-query-runner');
+const { SbxQueryRunner } = require('./sbx-query-runner');
 const {
   QUERY_MAX_FILE_BYTES,
   QUERY_WORKSPACE_TMPFS_BYTES,
@@ -37,6 +38,9 @@ function createQueryRunner(config, deps = {}) {
   }
   if (config.queryBackend === 'gvisor') {
     return new GvisorQueryRunner(config, deps);
+  }
+  if (config.queryBackend === 'sbx') {
+    return new SbxQueryRunner(config, deps);
   }
   throw new Error(`Unsupported bounded-query backend: ${config.queryBackend}`);
 }

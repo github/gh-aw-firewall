@@ -36,7 +36,7 @@ The trust boundary operates in four stages:
 
 1. **Trusted host staging.** Before any container starts, AWF clones each configured repository using `GH_TOKEN`/`GITHUB_TOKEN`, strips all credentials, remotes, hooks, and write bits from the resulting seed, and records the resolved commit in trusted staging metadata. Submodules and gitdir pointers are rejected. The staging credential is scrubbed after this phase and never reaches the broker or agent.
 
-2. **Trusted broker over Unix socket.** A dedicated `awf-bounded-query-broker` container with `network_mode: none` serves requests over a Unix socket mounted into the agent. It receives no network, no Squid proxy, and no external bridge. Its only connections are the Unix socket and the Docker socket (agent-invisible), used to launch queries. The broker holds the seed map -- including each repository's trusted sensitivity -- which the agent can never read or modify.
+2. **Trusted broker over Unix socket.** A dedicated `awf-bounded-query-broker` container with `network_mode: none` serves requests over a Unix socket mounted into the agent. It receives no network, no Squid proxy, and no external bridge. Docker/gVisor query runtimes give it the agent-invisible Docker socket used to launch queries. The blocked sbx preview receives no daemon access. The broker holds the seed map -- including each repository's trusted sensitivity -- which the agent can never read or modify.
 
 3. **Fresh, no-network query sandbox.** For each accepted request the broker creates a private writable copy of exactly one seed, then launches a single-use container with no network, a read-only root filesystem with bounded writable tmpfs mounts at `/tmp` and `/query`, no capabilities, a restrictive seccomp profile, and fixed memory, CPU, PID, and timeout limits. The agent-authored script runs at `/awf/query-script.py` and must write its result to `/query/out`. Stdout, stderr, and exit status are discarded.
 
@@ -69,7 +69,7 @@ Add a `boundedQueries` section to your AWF JSON config file:
 |---|---|---|---|
 | `enabled` | boolean | Only explicit `true` enables the feature; omission normalizes to `false` | `false` |
 | `privateRepos` | array | Required non-empty when `enabled: true`; entries must be unique by slug (case-insensitive) | `[]` |
-| `runtime` | string | `"docker"` or `"gvisor"` (gvisor requires `runsc` registered with the Docker daemon) | `"docker"` |
+| `runtime` | string | `"docker"`, `"gvisor"`, or fail-closed preview `"sbx"` | `"docker"` |
 | `timeout` | integer | `1`-`540` seconds; the final 60 seconds before the 600-second bucket boundary are reserved for termination, validation, and cleanup | `30` |
 | `memoryLimit` | string | Docker memory format, e.g. `"512m"`, `"1g"` | `"512m"` |
 | `interpreter` | string | Only `"python3"` is currently supported | `"python3"` |
@@ -87,7 +87,33 @@ The `sensitivity` value must be `public`, `internal`, `confidential`, or `sealed
 
 **Disabled behavior.** When `enabled` is `false` or the section is absent, AWF stages nothing, starts no broker, mounts no socket, sets no environment variable, installs no CLI, and generates no skill.
 
-**Preflight failures** (all fail before the primary agent starts): `privateRepos` is empty, contains an invalid slug, or has duplicates; `runtime` is `"gvisor"` and `runsc` is not registered; the container runtime is a microVM backend (which cannot receive Compose bind mounts); the Docker host is not a `unix://` socket; `timeout` exceeds 540; no staging credential is present; or any seed cannot be materialized and verified.
+**Preflight failures** (all fail before the primary agent starts): `privateRepos` is empty, contains an invalid slug, or has duplicates; `runtime` is `"gvisor"` and `runsc` is not registered; `runtime` is `"sbx"` and its executable capability proof is incomplete; a Docker/gVisor query uses a non-Unix Docker host; `timeout` exceeds 540; no staging credential is present; or any seed cannot be materialized and verified.
+
+### sbx query runtime status
+
+`"runtime": "sbx"` is a fail-closed preview surface. It is independent of the
+primary-agent runtime: selecting it never reuses the primary agent's VM,
+transport capability, or credentials, and it never falls back to Docker or
+gVisor.
+
+The broker contains a dedicated `SbxQueryRunner` and executable
+`sbx-capability-probe.js`. The audited CLI is Docker Sandboxes `v0.37.1`, using
+the exact management surface `sbx version`, `sbx create`, `sbx exec`,
+`sbx ls --json`, `sbx stop`, and `sbx rm --force`. AWF requires a unique
+`awf-query-sbx-<run>-<invocation>` VM, one CPU, the configured memory bound, an
+immutable digest-pinned Python template, read-only seed/script target mounts,
+an unprivileged fixed exec, and deterministic stop/delete scoped to that run.
+
+Current `sbx create` supports `--cpus`, `--memory`, `--name`, `--template`, and
+read-only same-path mounts, but it does **not** expose the hard controls AWF
+needs for `--network=none`, PID limits, disk limits, per-file size limits, or
+explicit guest mount targets. Local and kit network denies are not equivalent:
+organization governance can replace them. AWF therefore rejects this runtime
+before staging or broker assembly and mounts neither the Docker socket nor any
+sbx daemon credential. The probe exits non-zero and reports every missing
+capability in JSON. Support remains blocked until sbx provides enforceable
+versions of all controls and AWF publishes a digest-pinned standard-library-only
+Python template/bootstrap.
 
 ## Sensitivity categories
 

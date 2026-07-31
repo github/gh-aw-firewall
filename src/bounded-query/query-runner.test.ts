@@ -1,4 +1,5 @@
 import * as path from 'path';
+import { preflightTestHelpers } from './preflight';
 
 /* eslint-disable @typescript-eslint/no-require-imports */
 const brokerDir = path.join(__dirname, '..', '..', 'containers', 'bounded-query', 'broker');
@@ -8,6 +9,17 @@ const {
 } = require(path.join(brokerDir, 'query-runner.js'));
 const { DockerQueryRunner } = require(path.join(brokerDir, 'docker-query-runner.js'));
 const { GvisorQueryRunner } = require(path.join(brokerDir, 'gvisor-query-runner.js'));
+const { SbxQueryRunner } = require(path.join(brokerDir, 'sbx-query-runner.js'));
+const {
+  deriveSbxQuerySpec,
+  SBX_QUERY_TEMPLATE,
+} = require(path.join(brokerDir, 'sbx-query-runner-spec.js'));
+const {
+  probeSbxCapabilities,
+  REQUIRED_CREATE_FLAGS,
+  REQUIRED_EXEC_FLAGS,
+  REQUIRED_HARD_ISOLATION_FLAGS,
+} = require(path.join(brokerDir, 'sbx-capability-probe.js'));
 /* eslint-enable @typescript-eslint/no-require-imports */
 
 interface DockerResult {
@@ -27,6 +39,7 @@ const ok = (overrides: Partial<DockerResult> = {}): DockerResult => ({
 
 const config = {
   queryBackend: 'docker',
+  workDir: '/srv/awf/work',
   hostWorkDir: '/daemon/private/work',
   queryMountDir: '/query',
   queryScriptPath: '/awf/query-script.py',
@@ -46,6 +59,21 @@ function createDocker(
     calls,
     client: {
       runDocker: async (args: readonly string[]) => {
+        calls.push([...args]);
+        return handler(args);
+      },
+    },
+  };
+}
+
+function createSbx(
+  handler: (args: readonly string[]) => DockerResult | Promise<DockerResult> = () => ok(),
+) {
+  const calls: string[][] = [];
+  return {
+    calls,
+    client: {
+      runSbx: async (args: readonly string[]) => {
         calls.push([...args]);
         return handler(args);
       },
@@ -115,6 +143,136 @@ describe('trusted bounded-query runner contract', () => {
     const gvisorArgs = gvisorRunner.spec('abcd1234', '1111111111111111').launchArgs;
     expect(gvisorArgs.slice(gvisorArgs.indexOf('--runtime'), gvisorArgs.indexOf('--runtime') + 2))
       .toEqual(['--runtime', 'runsc']);
+  });
+
+  it('selects the independent sbx runner without reusing a Docker adapter', () => {
+    const { client } = createSbx();
+    const runner = createQueryRunner(
+      { ...config, queryBackend: 'sbx' },
+      { sbx: client, docker: { runDocker: () => Promise.reject(new Error('must not run')) } },
+    );
+    expect(runner).toBeInstanceOf(SbxQueryRunner);
+  });
+
+  it('derives a unique immutable sbx VM spec only from trusted identifiers', () => {
+    const maliciousRequest = {
+      name: 'awf-agent-primary',
+      template: 'attacker/image',
+      command: ['sh'],
+      paths: ['/etc'],
+      network: 'host',
+      environment: { GH_TOKEN: 'secret' },
+    };
+    const first = deriveSbxQuerySpec({
+      config,
+      runId: 'abcd1234',
+      invocationId: '1111111111111111',
+      request: maliciousRequest,
+    });
+    const second = deriveSbxQuerySpec({
+      config,
+      runId: 'abcd1234',
+      invocationId: '2222222222222222',
+      request: maliciousRequest,
+    });
+
+    expect(Object.isFrozen(first)).toBe(true);
+    expect(Object.isFrozen(first.createArgs)).toBe(true);
+    expect(first.sandboxName).not.toBe(second.sandboxName);
+    expect(first.sandboxName).toMatch(/^awf-query-sbx-/);
+    expect(first.sandboxName).not.toContain('awf-agent');
+    expect(first.createArgs).toContain(SBX_QUERY_TEMPLATE);
+    for (const flag of REQUIRED_HARD_ISOLATION_FLAGS) {
+      expect(first.createArgs).toContain(flag);
+    }
+    expect(first.createArgs.join(' ')).not.toMatch(/attacker|\/etc|GH_TOKEN|secret|network host/);
+    expect(first.createArgs.join(' ')).toContain('/1111111111111111/repo:/awf/seed:ro');
+    expect(second.createArgs.join(' ')).toContain('/2222222222222222/repo:/awf/seed:ro');
+    expect(first.execArgs).toContain('65534:65534');
+    expect(first.execArgs).toContain('/query');
+    expect(first.execArgs.slice(-1)).toEqual(['/usr/local/bin/awf-run-query']);
+  });
+
+  it('blocks the audited sbx CLI because hard isolation controls are absent', async () => {
+    const { client } = createSbx((args) => {
+      if (args[0] === 'version') return ok({ stdout: 'Docker Sandboxes v0.37.1' });
+      if (args[0] === 'create') return ok({ stdout: '--name --cpus --memory --template' });
+      if (args[0] === 'exec') return ok({ stdout: '--user --workdir' });
+      return ok();
+    });
+
+    const report = await probeSbxCapabilities(client);
+    expect(report.supported).toBe(false);
+    for (const flag of REQUIRED_HARD_ISOLATION_FLAGS) {
+      expect(report.missing).toContain(`sbx create ${flag}`);
+    }
+    const runner = createQueryRunner({ ...config, queryBackend: 'sbx' }, { sbx: client });
+    await expect(runner.assertAvailable()).rejects.toThrow(/blocked.*No fallback/s);
+  });
+
+  it('keeps host and broker sbx capability contracts byte-for-byte aligned', () => {
+    expect(preflightTestHelpers.SBX_REQUIRED_CREATE_FLAGS).toEqual([
+      ...REQUIRED_CREATE_FLAGS,
+      ...REQUIRED_HARD_ISOLATION_FLAGS,
+    ]);
+    expect(preflightTestHelpers.SBX_REQUIRED_EXEC_FLAGS).toEqual(REQUIRED_EXEC_FLAGS);
+  });
+
+  it('always force-removes a uniquely named sbx VM before returning', async () => {
+    const { calls, client } = createSbx((args) => {
+      if (args[0] === 'ls' && args[1] === '--quiet') return ok({ stdout: '' });
+      return ok();
+    });
+    const runner = createQueryRunner(
+      { ...config, queryBackend: 'sbx' },
+      {
+        sbx: client,
+        probe: async () => ({ supported: true, missing: [] }),
+        files: { mkdirSync: jest.fn() },
+      },
+    );
+    await runner.assertAvailable();
+    await expect(runner.runQueryContainer({
+      runId: 'abcd1234',
+      invocationId: '1111111111111111',
+    })).resolves.toMatchObject({ exitCode: 0, timedOut: false });
+
+    const name = runner.spec('abcd1234', '1111111111111111').sandboxName;
+    expect(calls.find((args) => args[0] === 'create')).toContain(name);
+    expect(calls.find((args) => args[0] === 'exec')).toContain(name);
+    expect(calls).toContainEqual(['stop', name]);
+    expect(calls).toContainEqual(['rm', '--force', name]);
+    expect(calls[calls.length - 1]).toEqual(['rm', '--force', name]);
+  });
+
+  it('reconciles only sbx VMs with the current trusted run prefix', async () => {
+    const { calls, client } = createSbx((args) => {
+      if (args[0] === 'ls' && args[1] === '--json') {
+        return ok({
+          stdout: JSON.stringify([
+            { name: 'awf-query-sbx-abcd1234-stale' },
+            { name: 'awf-query-sbx-other-run' },
+            { name: 'awf-agent-primary' },
+          ]),
+        });
+      }
+      return ok();
+    });
+    const runner = createQueryRunner({ ...config, queryBackend: 'sbx' }, { sbx: client });
+    await runner.reconcileRun('abcd1234');
+
+    expect(calls).toContainEqual(['stop', 'awf-query-sbx-abcd1234-stale']);
+    expect(calls).toContainEqual(['rm', '--force', 'awf-query-sbx-abcd1234-stale']);
+    expect(calls.join(' ')).not.toContain('awf-query-sbx-other-run');
+    expect(calls.join(' ')).not.toContain('awf-agent-primary');
+  });
+
+  it('rejects malformed sbx inventory rather than accepting cleanup injection', async () => {
+    const { client } = createSbx((args) => (
+      args[0] === 'ls' ? ok({ stdout: '[{"name":"--all"}]' }) : ok()
+    ));
+    const runner = createQueryRunner({ ...config, queryBackend: 'sbx' }, { sbx: client });
+    await expect(runner.reconcileRun('abcd1234')).rejects.toThrow(/invalid sandbox name/);
   });
 
   it('fails closed for unknown and unavailable runtimes', async () => {
@@ -234,4 +392,14 @@ describe('trusted bounded-query runner contract', () => {
 
     await expect(runner.reconcileRun('abcd1234')).rejects.toThrow(/invalid.*container id/);
   });
+});
+
+const realSbxCapabilityTest = process.env.AWF_TEST_REAL_SBX_QUERY_CAPABILITIES === '1' ? it : it.skip;
+realSbxCapabilityTest('probes the installed sbx CLI/daemon without launching a query VM', async () => {
+  const report = await probeSbxCapabilities();
+  expect(report).toEqual(expect.objectContaining({
+    supported: expect.any(Boolean),
+    auditedVersion: '0.37.1',
+    missing: expect.any(Array),
+  }));
 });

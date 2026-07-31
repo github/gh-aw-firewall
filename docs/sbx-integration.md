@@ -80,6 +80,22 @@ it lets AWF interpose its own Squid proxy *underneath* Docker's sandbox proxy.
 
 VMs persist until explicitly removed; stopping an agent does not delete the VM.
 
+### Bounded-query runtime is independent
+
+`container.containerRuntime: "sbx"` selects the primary agent's execution
+model. `boundedQueries.runtime: "sbx"` is a separate backend behind the trusted
+broker's `QueryRunner` boundary and must never reuse the primary agent VM,
+agent-ingress capability, or agent credentials.
+
+The bounded-query sbx backend is currently a fail-closed preview. Docker
+Sandboxes `v0.37.1` has CPU/memory limits and read-only same-path mounts, but
+does not expose enforceable per-VM network-none, PID, disk, per-file size, or
+guest mount-target controls. Local/kit network denies can also be replaced by
+organization governance. AWF's executable capability probe therefore blocks
+this query backend before staging or Compose assembly; no sbx daemon access is
+passed to the broker and there is no Docker/gVisor fallback. See
+[Bounded Queries](bounded-queries.md#sbx-query-runtime-status).
+
 ## Part 2 — How AWF uses `sbx`
 
 AWF's default backend runs the agent as a **Docker Compose service** alongside

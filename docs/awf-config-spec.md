@@ -1594,7 +1594,7 @@ The root object MAY contain a `boundedQueries` section:
 |-------|------|-------------|---------|
 | `enabled` | boolean | — | `false` |
 | `privateRepos` | array | Non-empty and unique (by repo slug, case-insensitively) when `enabled` is `true`. Each entry is either an object `{ "repo": "owner/repo", "sensitivity": "public" \| "internal" \| "confidential" \| "sealed" }`, or (one-release legacy compatibility) a bare `owner/repo` string, normalized to `{ repo, sensitivity: "internal" }` with a warning. Each `repo` MUST be a bare `owner/repo` slug — no scheme/host (`://`), path traversal (`..`), query string (`?`), fragment (`#`), wildcard (`*`), or extra path segments. | `[]` |
-| `runtime` | string | One of `"docker"`, `"gvisor"` | `"docker"` |
+| `runtime` | string | One of `"docker"`, `"gvisor"`, `"sbx"`. The `sbx` value is a fail-closed preview blocked unless its executable capability proof satisfies every mandatory isolation control. | `"docker"` |
 | `timeout` | integer | `1`–`540` seconds (the final minute of the 10-minute response bucket is reserved for termination, validation, and cleanup; §14.3) | `30` |
 | `memoryLimit` | string | Docker-style memory limit, e.g. `"512m"`, `"1g"` | `"512m"` |
 | `interpreter` | string | Only `"python3"` is currently supported | `"python3"` |
@@ -1628,14 +1628,30 @@ section.
 **Preflight (fail-closed).** With `enabled: true`, AWF aborts before the
 primary agent starts when: `privateRepos` is empty or contains an unsafe or
 duplicated slug; `runtime` is `"gvisor"` and the `runsc` OCI runtime is not
-registered with the Docker daemon; `container.containerRuntime` is a
-microVM backend, which cannot receive the broker socket; the resolved Docker
-host is not a `unix://` socket, which a `network_mode: none` broker cannot
-reach; the interpreter or a limit is unsupported; `timeout` exceeds 540
+registered with the Docker daemon; `runtime` is `"sbx"` and the executable
+capability proof cannot establish every mandatory no-network and resource
+bound; a Docker/gVisor query resolves to a non-`unix://` Docker host, which a
+`network_mode: none` broker cannot reach; the interpreter or a limit is
+unsupported; `timeout` exceeds 540
 seconds — the 10-minute response bucket reserves its final minute for Docker
 termination, result validation, container removal, and workspace cleanup; no
 staging credential is present in
 `GH_TOKEN`/`GITHUB_TOKEN`; or any seed cannot be materialized and verified.
+
+**`sbx` query backend status.** The configuration value and broker-owned
+`SbxQueryRunner` boundary are present, but support is fail-closed as of the
+audited Docker Sandboxes CLI `v0.37.1`. The executable broker capability probe
+uses `sbx version`, `sbx create --help`, and `sbx exec --help`, exits non-zero,
+and reports missing guarantees as JSON. Although this release supports
+`sbx create --name --cpus --memory --template`, read-only same-path mounts,
+`sbx exec --user --workdir`, `sbx ls --json`, `sbx stop`, and
+`sbx rm --force`, it has no enforceable per-VM `network=none`, PID, disk,
+per-file size, or explicit guest mount-target control. Local/kit network denies
+are not sufficient because organization governance can replace them. AWF
+therefore aborts before staging or Compose assembly, passes no Docker socket or
+sbx credential to the broker, and never falls back to Docker/gVisor. Enabling
+launch requires all missing controls plus a digest-pinned, Python
+standard-library-only AWF query template/bootstrap.
 
 The seed map the broker reads carries each repository's trusted
 `sensitivity` alongside its opaque seed id — the map is built entirely from

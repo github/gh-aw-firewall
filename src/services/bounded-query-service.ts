@@ -160,6 +160,12 @@ export function buildBoundedQueryService(params: BoundedQueryServiceParams): Bou
   if (!boundedQueries?.enabled) {
     throw new Error('buildBoundedQueryService: boundedQueries must be enabled');
   }
+  if (boundedQueries.runtime === 'sbx') {
+    throw new Error(
+      'buildBoundedQueryService: sbx bounded-query capability proof must pass before broker wiring; ' +
+      'current sbx support is blocked and no Docker socket or sbx credential fallback is permitted',
+    );
+  }
 
   const paths = resolveBoundedQueryPaths(config.workDir);
   const { queryImageRef, querySource, brokerSource } = resolveBoundedQueryImages(imageConfig);

@@ -50,6 +50,15 @@ describe('buildBoundedQueryService', () => {
     ).toThrow(/must be enabled/);
   });
 
+  it('refuses to wire sbx management access while its capability proof is blocked', () => {
+    expect(() =>
+      buildBoundedQueryService({
+        config: buildConfig({}, { runtime: 'sbx' }),
+        imageConfig: imageConfig(),
+      }),
+    ).toThrow(/sbx.*capability proof.*blocked.*no Docker socket.*fallback/s);
+  });
+
   describe('broker service', () => {
     const { queryImageService, service } = buildBoundedQueryService({
       config: buildConfig(),

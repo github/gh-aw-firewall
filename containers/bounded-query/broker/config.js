@@ -94,7 +94,7 @@ function loadConfig() {
   }
 
   const queryBackend = requireEnv('AWF_BOUNDED_QUERY_BACKEND');
-  if (queryBackend !== 'docker' && queryBackend !== 'gvisor') {
+  if (queryBackend !== 'docker' && queryBackend !== 'gvisor' && queryBackend !== 'sbx') {
     throw new Error(`Unsupported AWF_BOUNDED_QUERY_BACKEND: ${queryBackend}`);
   }
 
