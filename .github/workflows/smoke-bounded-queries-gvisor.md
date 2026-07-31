@@ -39,6 +39,22 @@ steps:
       npm ci
       npm run build
 pre-agent-steps:
+  - name: Install gVisor
+    run: |
+      set -euo pipefail
+      arch="$(uname -m)"
+      url="https://storage.googleapis.com/gvisor/releases/release/20250707.0/${arch}"
+      curl -fsSL "${url}/runsc" -o /tmp/runsc
+      curl -fsSL "${url}/runsc.sha512" -o /tmp/runsc.sha512
+      (cd /tmp && sha512sum -c runsc.sha512)
+      curl -fsSL "${url}/containerd-shim-runsc-v1" -o /tmp/containerd-shim-runsc-v1
+      curl -fsSL "${url}/containerd-shim-runsc-v1.sha512" -o /tmp/containerd-shim-runsc-v1.sha512
+      (cd /tmp && sha512sum -c containerd-shim-runsc-v1.sha512)
+      sudo install -m 755 /tmp/runsc /usr/local/bin/runsc
+      sudo install -m 755 /tmp/containerd-shim-runsc-v1 /usr/local/bin/containerd-shim-runsc-v1
+      sudo runsc install
+      sudo systemctl restart docker
+      docker info --format '{{json .Runtimes}}' | grep -F '"runsc"'
   - name: Replace release bootstrap with current AWF build
     run: |
       mkdir -p "$HOME/.local/bin"
