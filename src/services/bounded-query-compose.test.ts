@@ -4,6 +4,9 @@ import type { BoundedQueriesConfig } from '../types';
 // Mock execa module (must remain per-file — jest.mock() is hoisted before imports)
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 jest.mock('execa', () => require('../test-helpers/mock-execa.test-utils').execaMockFactory());
+jest.mock('./host-gateway', () => ({
+  resolveDockerHostGateway: jest.fn(() => '172.17.0.1'),
+}));
 
 let mockConfig: WrapperConfig;
 
@@ -152,7 +155,7 @@ describe('bounded-query broker in generated Docker Compose', () => {
         expect(result.services.agent).toBeUndefined();
         expect(broker.network_mode).toBeUndefined();
         expect(broker.networks).toEqual(['awf-bounded-query-ingress']);
-        expect(broker.ports).toEqual(['127.0.0.1::18080']);
+        expect(broker.ports).toEqual(['172.17.0.1::18080']);
         expect(result.networks['awf-bounded-query-ingress']).toEqual({
           driver: 'bridge',
           internal: true,
