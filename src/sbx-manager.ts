@@ -617,7 +617,7 @@ export async function assertSbxApiProxyReflect(
     'umask 077',
     'printf "api-proxy localhost\\n" > "$HOSTALIASES"',
     `printf %s ${encodedBridge} | base64 --decode > /tmp/awf-reflect-bridge.cjs`,
-    'nohup node /tmp/awf-reflect-bridge.cjs >/tmp/awf-reflect-bridge.log 2>&1 &',
+    'nohup node /tmp/awf-reflect-bridge.cjs >/tmp/awf-reflect-bridge.log 2>&1 & true',
     [
       '{',
       'for attempt in $(seq 1 30); do',

@@ -10,6 +10,7 @@ import {
   testHelpers,
 } from './sbx-manager';
 import * as fs from 'fs';
+import { spawnSync } from 'child_process';
 import { mockExecaFn } from './test-helpers/mock-execa.test-utils';
 import { logger } from './logger';
 
@@ -241,6 +242,7 @@ describe('sbx-manager', () => {
           expect(command).toContain('for attempt in $(seq 1 30)');
           expect(command).toContain('exit 1; }');
           expect(command).not.toContain('/etc/hosts');
+          expect(spawnSync('bash', ['-n', '-c', command]).status).toBe(0);
         });
 
         it('fails closed when the reflection endpoint is unreachable', async () => {
