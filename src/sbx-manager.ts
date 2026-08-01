@@ -591,9 +591,33 @@ export async function assertSbxApiProxyReflect(
   workDir?: string,
 ): Promise<void> {
   environment.HOSTALIASES = '/tmp/awf-hostaliases';
+  const bridgeSource = [
+    'const http = require("node:http");',
+    'const upstreamHost = "host.docker.internal";',
+    'http.createServer((request, response) => {',
+    'const upstream = http.request({',
+    'hostname: upstreamHost,',
+    'port: 10000,',
+    'method: request.method,',
+    'path: request.url,',
+    'headers: { ...request.headers, host: `${upstreamHost}:10000` },',
+    '}, upstreamResponse => {',
+    'response.writeHead(upstreamResponse.statusCode || 502, upstreamResponse.headers);',
+    'upstreamResponse.pipe(response);',
+    '});',
+    'upstream.on("error", error => {',
+    'if (!response.headersSent) response.writeHead(502);',
+    'response.end(error.message);',
+    '});',
+    'request.pipe(upstream);',
+    '}).listen(10000, "127.0.0.1");',
+  ].join('\n');
+  const encodedBridge = Buffer.from(bridgeSource).toString('base64');
   const command = [
     'umask 077',
-    'printf "api-proxy host.docker.internal\\n" > "$HOSTALIASES"',
+    'printf "api-proxy localhost\\n" > "$HOSTALIASES"',
+    `printf %s ${encodedBridge} | base64 --decode > /tmp/awf-reflect-bridge.cjs`,
+    'nohup node /tmp/awf-reflect-bridge.cjs >/tmp/awf-reflect-bridge.log 2>&1 &',
     [
       '{',
       'for attempt in $(seq 1 30); do',

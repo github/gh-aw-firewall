@@ -281,10 +281,11 @@ and, when true, substitutes two functions into the shared workflow runner:
      Unix passthrough was proven), and probes reachability before agent startup.
   4. Calls `createSandbox({ workspaceDir, squidIp: SQUID_IP, extraMounts })`.
   5. When the api-proxy is enabled, runs `assertSbxApiProxyReflect`: creates a
-     private `HOSTALIASES` resolver file mapping `api-proxy` to
-     `host.docker.internal`, then probes `http://api-proxy:10000/reflect` with
-     Node's built-in `fetch` and up to 30 retries. Startup **aborts**
-     (fail-closed) if the endpoint is
+     private `HOSTALIASES` resolver file mapping `api-proxy` to a loopback HTTP
+     bridge. The bridge forwards to `host.docker.internal:10000` with the host
+     header expected by docker-sbx, then AWF probes
+     `http://api-proxy:10000/reflect` with Node's built-in `fetch` and up to 30
+     retries. Startup **aborts** (fail-closed) if the endpoint is
      unreachable after all retries, because an isolated runtime that cannot reach
      `/reflect` cannot do model auto-resolution or credit accounting.
   6. Runs a Squid connectivity diagnostic (`curl --proxy ... https://api.github.com`).
