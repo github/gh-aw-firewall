@@ -10,6 +10,7 @@ import {
   testHelpers,
 } from './sbx-manager';
 import * as fs from 'fs';
+import * as path from 'path';
 import { mockExecaFn } from './test-helpers/mock-execa.test-utils';
 import { logger } from './logger';
 
@@ -33,7 +34,11 @@ jest.mock('fs', () => {
     readdirSync: jest.fn(() => []),
     renameSync: jest.fn(() => undefined),
     mkdirSync: jest.fn(() => undefined),
-    rmSync: jest.fn(() => undefined),
+    rmSync: jest.fn((target: fs.PathLike, options?: fs.RmOptions) => {
+      if (String(target).includes('sbx-hostaliases-')) {
+        actual.rmSync(target, options);
+      }
+    }),
   };
 });
 
@@ -212,21 +217,28 @@ describe('sbx-manager', () => {
       });
 
       describe('assertSbxApiProxyReflect', () => {
-        it('installs the api-proxy alias and probes the reflection endpoint', async () => {
+        it('installs a resolver alias and probes the reflection endpoint with Node fetch', async () => {
           mockExecaFn.mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' });
+          const environment: Record<string, string> = { NO_PROXY: 'api-proxy' };
 
           await expect(assertSbxApiProxyReflect(
             'awf-agent-test',
-            { NO_PROXY: 'api-proxy' },
+            environment,
             '/workspace',
           )).resolves.toBeUndefined();
 
           const args: string[] = mockExecaFn.mock.calls[0][1];
           const command = args[args.length - 1];
-          expect(command).toContain('host.docker.internal');
-          expect(command).toContain('api-proxy');
+          expect(environment.HOSTALIASES).toMatch(/sbx-hostaliases-.*\/hosts$/);
+          expect(fs.readFileSync(environment.HOSTALIASES!, 'utf8'))
+            .toBe('api-proxy host.docker.internal\n');
           expect(command).toContain('http://api-proxy:10000/reflect');
+          expect(command).toContain('node -e');
           expect(command).toContain('for attempt in $(seq 1 30)');
+          jest.requireActual<typeof import('fs')>('fs').rmSync(
+            path.dirname(environment.HOSTALIASES!),
+            { recursive: true, force: true },
+          );
         });
 
         it('fails closed when the reflection endpoint is unreachable', async () => {

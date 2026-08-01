@@ -184,10 +184,6 @@ function checkUnknownModelRejection(model, provider = undefined) {
   if (!config.max) return null; // guard not active, don't reject
   if (!model) return null; // no model in request body, can't check
   if (config.defaultPricing) return null; // has fallback, don't reject
-  // The Copilot API resolves 'auto' to a concrete priced model at inference time;
-  // credit accounting uses the response's model field, so pre-flight rejection is
-  // unnecessary and would break isolated runtimes where /reflect is unreachable.
-  if (provider === PROVIDER_COPILOT && model.toLowerCase() === 'auto') return null;
   const defaultPricing = resolveModelPricing(model, aiCreditsState, provider);
   const highestTierPricing = resolveModelPricing(
     model,
