@@ -341,13 +341,27 @@ describe('proxyRequest max-ai-credits guard', () => {
     expect(payload.error.total_ai_credits).toBeGreaterThanOrEqual(0.1);
   });
 
-  it('rejects Copilot auto when its concrete runtime price cannot be proven', async () => {
+  it('passes Copilot auto model through to upstream without rejection', async () => {
+    const cycle = createMockUpstreamCycle(https);
+
+    const req = makeModelReq(JSON.stringify({ model: 'auto', messages: [] }));
+    const res = makeRes();
+    proxyRequest(req, res, 'api.githubcopilot.com', { Authorization: '******' }, 'copilot');
+    req.emit('end');
+    await flushPromises();
+
+    // Copilot resolves 'auto' at inference time; the guard must not block the request.
+    expect(cycle.spy).toHaveBeenCalledTimes(1);
+    expect(res.writeHead).not.toHaveBeenCalledWith(400, expect.anything());
+  });
+
+  it('rejects non-Copilot auto when its concrete runtime price cannot be proven', async () => {
     const upstreamRequest = makeProxyReq();
     const httpsRequestSpy = jest.spyOn(https, 'request').mockImplementation(() => upstreamRequest);
 
     const req = makeModelReq(JSON.stringify({ model: 'auto', messages: [] }));
     const res = makeRes();
-    proxyRequest(req, res, 'api.githubcopilot.com', { Authorization: '******' }, 'copilot');
+    proxyRequest(req, res, 'api.openai.com', { Authorization: '******' }, 'openai');
     req.emit('end');
     await flushPromises();
 

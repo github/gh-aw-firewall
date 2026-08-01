@@ -34,6 +34,9 @@ export function generateHostsFileMount(
       const parts = stdout.trim().split(/\s+/);
       const ip = parts[0];
       if (ip) {
+        if (hostsContent.length > 0 && !hostsContent.endsWith('\n')) {
+          hostsContent += '\n';
+        }
         hostsContent += `${ip}\t${domain}\n`;
         logger.debug(`Pre-resolved ${domain} -> ${ip} for chroot /etc/hosts`);
       }
@@ -49,6 +52,9 @@ export function generateHostsFileMount(
       return trimmed.split(/\s+/).slice(1).includes(hostname);
     });
     if (!alreadyPresent) {
+      if (hostsContent.length > 0 && !hostsContent.endsWith('\n')) {
+        hostsContent += '\n';
+      }
       hostsContent += `${ip}\t${hostname}\n`;
     }
   }
