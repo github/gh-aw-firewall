@@ -57,9 +57,6 @@ export const SBX_DEFAULT_NAME = `${SBX_NAME_PREFIX}-${process.pid}`;
 /** Name used by the isolated, short-lived Unix-socket passthrough probe. */
 const SBX_SOCKET_PROBE_NAME = `${SBX_NAME_PREFIX}-socket-probe-${process.pid}`;
 
-/** Private resolver directories that must remain mounted for each live sandbox. */
-const sbxHostAliasDirs = new Map<string, string>();
-
 /**
  * Strips secret-bearing env vars from process.env so they never reach
  * the sbx CLI or the sandbox interior.  Returns a shallow copy with
@@ -593,20 +590,12 @@ export async function assertSbxApiProxyReflect(
   environment: Record<string, string>,
   workDir?: string,
 ): Promise<void> {
-  const previousAliasDir = sbxHostAliasDirs.get(name);
-  if (previousAliasDir) {
-    fs.rmSync(previousAliasDir, { recursive: true, force: true });
-  }
-
-  const aliasDir = fs.mkdtempSync('/tmp/awf-sbx-hostaliases-');
-  const aliasPath = path.join(aliasDir, 'hosts');
-  try {
-    fs.chmodSync(aliasDir, 0o700);
-    fs.writeFileSync(aliasPath, 'api-proxy host.docker.internal\n', { mode: 0o600 });
-    sbxHostAliasDirs.set(name, aliasDir);
-    environment.HOSTALIASES = aliasPath;
-
-    const command = [
+  environment.HOSTALIASES = '/tmp/awf-hostaliases';
+  const command = [
+    'umask 077',
+    'printf "api-proxy host.docker.internal\\n" > "$HOSTALIASES"',
+    [
+      '{',
       'for attempt in $(seq 1 30); do',
       'if node -e',
       '\'fetch("http://api-proxy:10000/reflect").then(',
@@ -616,21 +605,17 @@ export async function assertSbxApiProxyReflect(
       'sleep 1;',
       'done;',
       'exit 1',
-    ].join(' ');
+      '}',
+    ].join(' '),
+  ].join(' && ');
 
-    const result = await execInSandbox(name, command, {
-      timeoutMinutes: 1,
-      workDir,
-      environment,
-    });
-    if (result.exitCode !== 0) {
-      throw new Error('sbx sandbox cannot reach the API proxy /reflect endpoint');
-    }
-  } catch (error) {
-    delete environment.HOSTALIASES;
-    sbxHostAliasDirs.delete(name);
-    fs.rmSync(aliasDir, { recursive: true, force: true });
-    throw error;
+  const result = await execInSandbox(name, command, {
+    timeoutMinutes: 1,
+    workDir,
+    environment,
+  });
+  if (result.exitCode !== 0) {
+    throw new Error('sbx sandbox cannot reach the API proxy /reflect endpoint');
   }
 }
 
@@ -659,11 +644,6 @@ export async function removeSandbox(name: string): Promise<void> {
     stdio: ['ignore', 'pipe', 'pipe'],
     reject: false,
   });
-  const aliasDir = sbxHostAliasDirs.get(name);
-  if (aliasDir) {
-    sbxHostAliasDirs.delete(name);
-    fs.rmSync(aliasDir, { recursive: true, force: true });
-  }
   if ((rmResult.exitCode ?? 1) !== 0) {
     const stderr = rmResult.stderr?.trim();
     logger.warn(

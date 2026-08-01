@@ -10,7 +10,6 @@ import {
   testHelpers,
 } from './sbx-manager';
 import * as fs from 'fs';
-import * as path from 'path';
 import { mockExecaFn } from './test-helpers/mock-execa.test-utils';
 import { logger } from './logger';
 
@@ -34,11 +33,7 @@ jest.mock('fs', () => {
     readdirSync: jest.fn(() => []),
     renameSync: jest.fn(() => undefined),
     mkdirSync: jest.fn(() => undefined),
-    rmSync: jest.fn((target: fs.PathLike, options?: fs.RmOptions) => {
-      if (String(target).includes('sbx-hostaliases-')) {
-        actual.rmSync(target, options);
-      }
-    }),
+    rmSync: jest.fn(() => undefined),
   };
 });
 
@@ -229,16 +224,14 @@ describe('sbx-manager', () => {
 
           const args: string[] = mockExecaFn.mock.calls[0][1];
           const command = args[args.length - 1];
-          expect(environment.HOSTALIASES).toMatch(/sbx-hostaliases-.*\/hosts$/);
-          expect(fs.readFileSync(environment.HOSTALIASES!, 'utf8'))
-            .toBe('api-proxy host.docker.internal\n');
+          expect(environment.HOSTALIASES).toBe('/tmp/awf-hostaliases');
+          expect(command).toContain(
+            'printf "api-proxy host.docker.internal\\n" > "$HOSTALIASES"',
+          );
           expect(command).toContain('http://api-proxy:10000/reflect');
           expect(command).toContain('node -e');
           expect(command).toContain('for attempt in $(seq 1 30)');
-          jest.requireActual<typeof import('fs')>('fs').rmSync(
-            path.dirname(environment.HOSTALIASES!),
-            { recursive: true, force: true },
-          );
+          expect(command).not.toContain('/etc/hosts');
         });
 
         it('fails closed when the reflection endpoint is unreachable', async () => {
