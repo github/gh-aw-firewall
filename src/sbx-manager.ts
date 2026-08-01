@@ -582,6 +582,48 @@ export async function assertSbxBoundedQueryIngress(
 }
 
 /**
+ * Adds the published API proxy to the sandbox's host map and proves that the
+ * hard-coded gh-aw reflection endpoint is reachable before the agent starts.
+ */
+export async function assertSbxApiProxyReflect(
+  name: string,
+  environment: Record<string, string>,
+  workDir?: string,
+): Promise<void> {
+  const command = [
+    'host_ip=$(getent ahostsv4 host.docker.internal | awk \'NR == 1 { print $1 }\')',
+    '[ -n "$host_ip" ] || exit 1',
+    [
+      'if ! getent hosts api-proxy >/dev/null 2>&1; then',
+      'if [ "$(id -u)" -eq 0 ]; then',
+      'printf "%s\\tapi-proxy\\n" "$host_ip" >> /etc/hosts;',
+      'elif command -v sudo >/dev/null 2>&1; then',
+      'printf "%s\\tapi-proxy\\n" "$host_ip" | sudo tee -a /etc/hosts >/dev/null;',
+      'else exit 1;',
+      'fi;',
+      'fi',
+    ].join(' '),
+    [
+      'for attempt in $(seq 1 30); do',
+      'if curl --silent --show-error --fail --noproxy "*" --max-time 2',
+      'http://api-proxy:10000/reflect >/dev/null 2>&1; then exit 0; fi;',
+      'sleep 1;',
+      'done;',
+      'exit 1',
+    ].join(' '),
+  ].join(' && ');
+
+  const result = await execInSandbox(name, command, {
+    timeoutMinutes: 1,
+    workDir,
+    environment,
+  });
+  if (result.exitCode !== 0) {
+    throw new Error('sbx sandbox cannot reach the API proxy /reflect endpoint');
+  }
+}
+
+/**
  * Stops and removes the sandbox.
  */
 export async function removeSandbox(name: string): Promise<void> {

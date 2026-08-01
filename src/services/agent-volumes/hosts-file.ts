@@ -9,7 +9,10 @@ import { getDockerHostStageRoot, shouldUseDockerHostStaging } from './docker-hos
 
 const STALE_CHROOT_STAGE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
-export function generateHostsFileMount(config: WrapperConfig): string {
+export function generateHostsFileMount(
+  config: WrapperConfig,
+  internalServiceHosts: Record<string, string> = {},
+): string {
   let hostsContent = '127.0.0.1 localhost\n';
   try {
     hostsContent = fs.readFileSync('/etc/hosts', 'utf-8');
@@ -36,6 +39,17 @@ export function generateHostsFileMount(config: WrapperConfig): string {
       }
     } catch {
       logger.debug(`Could not pre-resolve ${domain} for chroot /etc/hosts (will use DNS at runtime)`);
+    }
+  }
+
+  for (const [hostname, ip] of Object.entries(internalServiceHosts)) {
+    const alreadyPresent = hostsContent.split('\n').some(line => {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) return false;
+      return trimmed.split(/\s+/).slice(1).includes(hostname);
+    });
+    if (!alreadyPresent) {
+      hostsContent += `${ip}\t${hostname}\n`;
     }
   }
 

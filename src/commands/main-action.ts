@@ -28,6 +28,7 @@ import { assertTopologySupported, connectTopologyContainers } from '../topology'
 import { runDindBootstrap } from '../dind-bootstrap';
 import { runtimeUsesComposeAgent } from '../container-runtime';
 import {
+  assertSbxApiProxyReflect,
   assertSbxBoundedQueryIngress,
   createSandbox,
   execInSandbox,
@@ -405,29 +406,16 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
             }
           }
 
-          // Wait for api-proxy to be healthy before launching agent.
-          // In Docker mode, depends_on: service_healthy gates this; for sbx we poll
-          // via host.docker.internal which resolves to the docker0 bridge from the VM.
+          // gh-aw fetches reflection data from the fixed api-proxy hostname. The
+          // microVM reaches the sidecar through its published host ports, so install
+          // that alias and prove the real endpoint before launching the agent.
           if (config.enableApiProxy) {
-            logger.info('[sbx] Polling api-proxy health via host.docker.internal...');
-            const healthCmd = [
-              'for i in $(seq 1 30); do',
-              `  if curl -sf --max-time 2 http://${SBX_HOST_DOCKER_INTERNAL}:10000/health >/dev/null 2>&1; then`,
-              '    echo "api-proxy healthy after ${i}s"; exit 0;',
-              '  fi;',
-              '  sleep 1;',
-              'done;',
-              'echo "api-proxy health timeout"; exit 1',
-            ].join(' ');
-
-            const healthResult = await execInSandbox(sbxName, healthCmd, {
-              timeoutMinutes: 1,
-              workDir: config.containerWorkDir,
-              environment: sbxEnvironment,
-            });
-            if (healthResult.exitCode !== 0) {
-              logger.warn('[sbx] api-proxy health check failed — proceeding anyway');
-            }
+            logger.info('[sbx] Verifying api-proxy /reflect access...');
+            await assertSbxApiProxyReflect(
+              sbxName,
+              sbxEnvironment,
+              config.containerWorkDir,
+            );
           }
 
           // Verify squid proxy is reachable from sandbox

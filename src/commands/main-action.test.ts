@@ -308,6 +308,13 @@ describe('createMainAction', () => {
         expect(mockedSbxManager.createSandbox).toHaveBeenCalledWith(expect.objectContaining({
           extraMounts: ['/tmp/tooling:/tmp/tooling:ro'],
         }));
+        expect(mockedSbxManager.assertSbxApiProxyReflect).toHaveBeenCalledWith(
+          'awf-agent-test',
+          expect.objectContaining({
+            NO_PROXY: expect.stringContaining('api-proxy'),
+          }),
+          '/home/runner/work/repo/repo',
+        );
         expect(mockedSbxManager.execInSandbox).toHaveBeenCalledWith(
           'awf-agent-test',
           'echo hi',

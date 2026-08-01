@@ -105,8 +105,8 @@ describe('createMainAction coverage gaps', () => {
     });
   });
 
-  describe('sbx: api-proxy health check failure proceeds anyway', () => {
-    it('logs warning when api-proxy health check fails but continues', async () => {
+  describe('sbx: api-proxy reflection preflight failure', () => {
+    it('fails closed when /reflect is unreachable', async () => {
       const sbxConfig = {
         ...MAIN_ACTION_STUB_CONFIG,
         containerRuntime: 'sbx',
@@ -114,21 +114,22 @@ describe('createMainAction coverage gaps', () => {
         containerWorkDir: '/workspace',
       } as unknown as import('../types').WrapperConfig;
       mockedValidateOptions.validateOptions.mockReturnValue(sbxConfig);
-      mockedSbxManager.execInSandbox
-        .mockResolvedValueOnce({ exitCode: 1 }) // api-proxy health check fails
-        .mockResolvedValueOnce({ exitCode: 1 }) // squid connectivity check
-        .mockResolvedValueOnce({ exitCode: 0 }); // agent command
+      mockedSbxManager.assertSbxApiProxyReflect.mockRejectedValue(
+        new Error('sbx sandbox cannot reach the API proxy /reflect endpoint'),
+      );
       mockedCliWorkflow.runMainWorkflow.mockImplementation(async (_config, deps) => {
         await deps.startContainers('/tmp/awf-test', ['github.com']);
-        const result = await deps.runAgentCommand('/tmp/awf-test', ['github.com'], undefined, 5);
-        return result.exitCode;
+        return 0;
       });
 
       const action = createMainAction(getOptionValueSource);
-      await action(['echo hi'], {});
+      await expect(action(['echo hi'], {})).rejects.toThrow('process.exit: 1');
 
-      expect(mockedLogger.warn).toHaveBeenCalledWith(
-        expect.stringContaining('api-proxy health check failed'),
+      expect(mockedLogger.error).toHaveBeenCalledWith(
+        'Fatal error:',
+        expect.objectContaining({
+          message: expect.stringContaining('/reflect'),
+        }),
       );
     });
   });
@@ -143,9 +144,8 @@ describe('createMainAction coverage gaps', () => {
       } as unknown as import('../types').WrapperConfig;
       mockedValidateOptions.validateOptions.mockReturnValue(sbxConfig);
 
-      // api-proxy health check succeeds, squid diag succeeds, agent fails
+      // Reflection preflight is mocked separately; squid diag succeeds, agent fails.
       mockedSbxManager.execInSandbox
-        .mockResolvedValueOnce({ exitCode: 0 }) // api-proxy health
         .mockResolvedValueOnce({ exitCode: 0 }) // squid diag
         .mockResolvedValueOnce({ exitCode: 42 }); // agent command fails
       mockExecSync

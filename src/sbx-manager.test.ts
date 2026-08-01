@@ -1,4 +1,5 @@
 import {
+  assertSbxApiProxyReflect,
   assertSbxBoundedQueryIngress,
   createSandbox,
   execInSandbox,
@@ -208,6 +209,34 @@ describe('sbx-manager', () => {
         ]), expect.objectContaining({
           env: expect.any(Object),
         }));
+      });
+
+      describe('assertSbxApiProxyReflect', () => {
+        it('installs the api-proxy alias and probes the reflection endpoint', async () => {
+          mockExecaFn.mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' });
+
+          await expect(assertSbxApiProxyReflect(
+            'awf-agent-test',
+            { NO_PROXY: 'api-proxy' },
+            '/workspace',
+          )).resolves.toBeUndefined();
+
+          const args: string[] = mockExecaFn.mock.calls[0][1];
+          const command = args[args.length - 1];
+          expect(command).toContain('host.docker.internal');
+          expect(command).toContain('api-proxy');
+          expect(command).toContain('http://api-proxy:10000/reflect');
+          expect(command).toContain('for attempt in $(seq 1 30)');
+        });
+
+        it('fails closed when the reflection endpoint is unreachable', async () => {
+          mockExecaFn.mockResolvedValueOnce({ exitCode: 1, stdout: '', stderr: '' });
+
+          await expect(assertSbxApiProxyReflect(
+            'awf-agent-test',
+            {},
+          )).rejects.toThrow('cannot reach the API proxy /reflect endpoint');
+        });
       });
     });
 

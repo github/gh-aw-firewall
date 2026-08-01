@@ -147,4 +147,23 @@ describe('agent service', () => {
     expect(hostsVolume).toBeDefined();
     expect(hostsVolume).toMatch(/chroot-.*\/hosts:\/host\/etc\/hosts:ro/);
   });
+
+  it('should inject api-proxy into chroot hosts for gVisor', () => {
+    const config = {
+      ...getConfig(),
+      containerRuntime: 'gvisor',
+      enableApiProxy: true,
+    };
+    const networkConfig = {
+      ...mockNetworkConfig,
+      proxyIp: '172.30.0.30',
+    };
+    const result = generateDockerCompose(config, networkConfig);
+    const hostsVolume = (result.services.agent.volumes as string[])
+      .find((volume) => volume.includes('/host/etc/hosts'));
+
+    expect(hostsVolume).toBeDefined();
+    const hostsPath = hostsVolume!.split(':')[0];
+    expect(fs.readFileSync(hostsPath, 'utf8')).toContain('172.30.0.30\tapi-proxy');
+  });
 });

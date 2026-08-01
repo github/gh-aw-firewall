@@ -341,7 +341,7 @@ describe('proxyRequest max-ai-credits guard', () => {
     expect(payload.error.total_ai_credits).toBeGreaterThanOrEqual(0.1);
   });
 
-  it('passes Copilot auto through to upstream (resolved to a priced model at runtime)', async () => {
+  it('rejects Copilot auto when its concrete runtime price cannot be proven', async () => {
     const upstreamRequest = makeProxyReq();
     const httpsRequestSpy = jest.spyOn(https, 'request').mockImplementation(() => upstreamRequest);
 
@@ -351,10 +351,11 @@ describe('proxyRequest max-ai-credits guard', () => {
     req.emit('end');
     await flushPromises();
 
-    // 'auto' is a Copilot sentinel resolved to a priced model at runtime.
-    // The AI credits guard should let it through rather than rejecting pre-flight.
-    expect(httpsRequestSpy).toHaveBeenCalledTimes(1);
-    expect(res.writeHead).not.toHaveBeenCalledWith(400, expect.anything());
+    expect(httpsRequestSpy).not.toHaveBeenCalled();
+    expect(res.writeHead).toHaveBeenCalledWith(400, expect.objectContaining({
+      'Content-Type': 'application/json',
+    }));
+    expect(JSON.parse(res.end.mock.calls[0][0]).type).toBe('unknown_model_ai_credits');
   });
 });
 

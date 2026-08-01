@@ -37,7 +37,10 @@ interface MainActionHarnessDeps {
   mockedDindBootstrap: Pick<jest.Mocked<typeof dindBootstrap>, 'runDindBootstrap'>;
   mockedSignalHandler: Pick<jest.Mocked<typeof signalHandler>, 'registerSignalHandlers'>;
   mockedCliWorkflow: Pick<jest.Mocked<typeof cliWorkflow>, 'runMainWorkflow'>;
-  mockedSbxManager: Pick<jest.Mocked<typeof sbxManager>, 'isSbxAvailable' | 'createSandbox' | 'execInSandbox' | 'removeSandbox'>;
+  mockedSbxManager: Pick<
+    jest.Mocked<typeof sbxManager>,
+    'isSbxAvailable' | 'createSandbox' | 'assertSbxApiProxyReflect' | 'execInSandbox' | 'removeSandbox'
+  >;
 }
 
 export interface MainActionTestHarness {
@@ -79,6 +82,7 @@ export function setupMainActionTestHarness(deps: MainActionHarnessDeps): MainAct
   deps.mockedCliWorkflow.runMainWorkflow.mockResolvedValue(0);
   deps.mockedSbxManager.isSbxAvailable.mockResolvedValue(true);
   deps.mockedSbxManager.createSandbox.mockResolvedValue('awf-agent-test');
+  deps.mockedSbxManager.assertSbxApiProxyReflect.mockResolvedValue(undefined);
   deps.mockedSbxManager.execInSandbox.mockResolvedValue({ exitCode: 0 });
   deps.mockedSbxManager.removeSandbox.mockResolvedValue(undefined);
 
