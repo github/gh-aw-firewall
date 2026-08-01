@@ -604,7 +604,7 @@ export async function assertSbxApiProxyReflect(
       '; then exit 0; fi;',
       'sleep 1;',
       'done;',
-      'exit 1',
+      'exit 1;',
       '}',
     ].join(' '),
   ].join(' && ');

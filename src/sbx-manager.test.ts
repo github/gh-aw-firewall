@@ -231,6 +231,7 @@ describe('sbx-manager', () => {
           expect(command).toContain('http://api-proxy:10000/reflect');
           expect(command).toContain('node -e');
           expect(command).toContain('for attempt in $(seq 1 30)');
+          expect(command).toContain('exit 1; }');
           expect(command).not.toContain('/etc/hosts');
         });
 
