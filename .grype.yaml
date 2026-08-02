@@ -10,62 +10,6 @@
 # Format reference: https://github.com/anchore/grype?tab=readme-ov-file#configuration
 
 ignore:
-  # ── grpc v1.81.1 embedded in gh CLI binary ───────────────────────────────────
-  #
-  # GHSA-hrxh-6v49-42gf (google.golang.org/grpc v1.81.1 -> 1.82.1, CRITICAL,
-  # CVSS 9.1):
-  #   Three server-side grpc-go issues: an xDS RBAC authorization bypass
-  #   (fail-open on unsupported matchers), an HTTP/2 rapid-reset mitigation
-  #   bypass (DoS), and a panic on crafted xDS RBAC policies.
-  #
-  #   Risk acceptance — NOT REACHABLE in our usage:
-  #     grpc v1.81.1 is a transitive dependency compiled into the `gh` CLI
-  #     binary. `gh` is a client: it does not run a gRPC server, use xDS RBAC,
-  #     or accept HTTP/2 from untrusted peers, so none of the vulnerable code
-  #     paths are exercised. The finding is present but not exploitable here.
-  #   Present in the cli-proxy image (gh from the official release tarball).
-  #
-  #   gh 2.97.0 fixes this in the agent image. The cli-proxy image remains on
-  #   gh 2.96.0, so this exception remains narrowly scoped to that binary.
-  #   Revisit: bump GH_VERSION in cli-proxy/Dockerfile to >= 2.97.0 and DELETE
-  #   this entry. Tracked in github/gh-aw-firewall.
-  - vulnerability: GHSA-hrxh-6v49-42gf
-    package:
-      name: google.golang.org/grpc
-      version: "v1.81.1"
-      type: go-module
-
-  # ── golang.org/x/text v0.38.0 embedded in gh CLI binary (cli-proxy image) ────
-  #
-  # GO-2026-5970 / CVE-2026-56852 (golang.org/x/text v0.38.0 -> 0.39.0, HIGH):
-  #   A norm.Iter can enter an infinite loop when handling input containing
-  #   invalid UTF-8 bytes (denial of service).
-  #
-  #   Risk acceptance — BOUNDED DoS only, mitigated by process timeout:
-  #     x/text v0.38.0 is compiled into the `gh` CLI binary in the cli-proxy
-  #     image. The cli-proxy server forwards agent-supplied args and
-  #     base64-decoded stdin directly to `gh` (containers/cli-proxy/server.js,
-  #     gh-runner.js). Any norm.Iter loop triggered by invalid UTF-8 in those
-  #     inputs would be killed by the COMMAND_TIMEOUT_MS guard (default 30 s,
-  #     gh-runner.js:5), bounding the impact to a single timed-out request.
-  #     There is no privilege escalation, data exfiltration, or RCE vector —
-  #     the vulnerability is DoS only.
-  #   Scoped to /usr/local/bin/gh (cli-proxy image, installed from release
-  #   tarball, gh=2.96.0).
-  #
-  #   No fix is shippable today: gh 2.96.0 (latest release as of 2026-07-24)
-  #   still bundles x/text v0.38.0, and building gh from unreleased trunk would
-  #   ship an untagged, non-official binary (worse supply-chain risk).
-  #   Revisit: once a gh CLI release bundling x/text >= v0.39.0 is available,
-  #   bump the GH_VERSION in cli-proxy/Dockerfile and DELETE this entry.
-  #   Tracked in github/gh-aw-firewall.
-  - vulnerability: GO-2026-5970
-    package:
-      name: golang.org/x/text
-      version: "v0.38.0"
-      type: go-module
-      location: "/usr/local/bin/gh"
-
   # ── stdlib@go1.24.6 embedded in gosu binary ──────────────────────────────────
   #
   # GO-2026-4337 (stdlib go1.24.6 -> 1.24.13 / 1.25.7 / 1.26.0-rc.3, CRITICAL):

@@ -18,17 +18,17 @@ RUN apk add --no-cache \
     ca-certificates \
     bash
 
-# Install gh CLI 2.96.0 from the official GitHub CLI release.
-# This binary is compiled with Go 1.26.4 (fixing GO-2026-5037 / stdlib 1.26.3->1.26.4)
-# and ships with sigstore/rekor v1.5.2 (fixing GHSA-47q9-m4ww-924m).
-# Checksums sourced from https://github.com/cli/cli/releases/tag/v2.96.0
+# Install gh CLI 2.97.0 from the official GitHub CLI release.
+# This binary is compiled with Go 1.26.5 and ships with grpc v1.82.1 and
+# golang.org/x/text v0.40.0.
+# Checksums sourced from https://github.com/cli/cli/releases/tag/v2.97.0
 RUN set -eux; \
-    GH_VERSION="2.96.0"; \
+    GH_VERSION="2.97.0"; \
     ARCH="$(uname -m)"; \
     case "$ARCH" in \
-      x86_64)  GH_ARCH="amd64"; GH_SHA256="83d5c2ccad5498f58bf6368acb1ab32588cf43ab3a4b1c301bf36328b1c8bd60" ;; \
-      aarch64) GH_ARCH="arm64"; GH_SHA256="06f86ec7103d41993b76cd78072f43595c34aaa56506d971d9860e67140bf909" ;; \
-      armv6l|armv7l) GH_ARCH="armv6"; GH_SHA256="14ff25ec64823415086214fb05b3e85aef21deba6a8d723a7ef8ead1cb977826" ;; \
+      x86_64)  GH_ARCH="amd64"; GH_SHA256="a2c9b8497e1f85b1ad0dfcb78b5a622e098801b8e461e459e88e1ee12f018112" ;; \
+      aarch64) GH_ARCH="arm64"; GH_SHA256="73ea440ecad9c9e284429997ee6f93577bc6f7bc6fba357ef62c53ad8fb641a5" ;; \
+      armv6l|armv7l) GH_ARCH="armv6"; GH_SHA256="83698de1d91d201cc3b9d9b0beb346c221cadb53a68fb82f741ef0a0efc4502c" ;; \
       *) echo "Unsupported architecture: $ARCH" >&2; exit 1 ;; \
     esac; \
     GH_TGZ="gh_${GH_VERSION}_linux_${GH_ARCH}.tar.gz"; \
