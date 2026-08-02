@@ -174,5 +174,26 @@ describe('passthroughHostEnvironment', () => {
 
       expect(environment).toHaveProperty('ADO_MCP_AUTH_TOKEN', 'ado-auth-token');
     });
+
+    it('forwards OTEL trace context variables needed by nested api-proxy tracing', () => {
+      const environment: Record<string, string> = {};
+      const excludedEnvVars = new Set<string>();
+
+      withEnv({
+        GH_AW_OTLP_ENDPOINTS: '[{"url":"https://otel.example.com"}]',
+        GITHUB_AW_OTEL_TRACE_ID: 'trace-id-abc123',
+        GITHUB_AW_OTEL_PARENT_SPAN_ID: 'span-id-xyz789',
+      }, () => {
+        passthroughHostEnvironment({
+          config: makeConfig({ enableApiProxy: true }),
+          environment,
+          excludedEnvVars,
+        });
+      });
+
+      expect(environment).toHaveProperty('GH_AW_OTLP_ENDPOINTS', '[{"url":"https://otel.example.com"}]');
+      expect(environment).toHaveProperty('GITHUB_AW_OTEL_TRACE_ID', 'trace-id-abc123');
+      expect(environment).toHaveProperty('GITHUB_AW_OTEL_PARENT_SPAN_ID', 'span-id-xyz789');
+    });
   });
 });

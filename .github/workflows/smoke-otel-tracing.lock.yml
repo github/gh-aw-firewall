@@ -543,7 +543,7 @@ jobs:
             }
           "
       - name: Validate OTEL env var forwarding
-        run: "echo \"Checking api-proxy-service.ts for OTEL env var forwarding...\"\nif grep -q 'OTEL_EXPORTER_OTLP_ENDPOINT\\|GITHUB_AW_OTEL_TRACE_ID' src/services/api-proxy-service.ts; then\n  echo \"✅ OTEL env vars are forwarded to api-proxy container\"\nelse\n  echo \"⚠️ OTEL env vars not yet forwarded (expected during development)\"\nfi\n"
+        run: "echo \"Checking agent and api-proxy OTEL env var forwarding...\"\nif grep -q 'GH_AW_OTLP_ENDPOINTS\\|GITHUB_AW_OTEL_TRACE_ID\\|GITHUB_AW_OTEL_PARENT_SPAN_ID' src/services/agent-environment/env-passthrough.ts \\\n  && grep -q 'GH_AW_OTLP_ENDPOINTS\\|OTEL_EXPORTER_OTLP_ENDPOINT\\|GITHUB_AW_OTEL_TRACE_ID' src/services/api-proxy-env-config.ts; then\n  echo \"✅ OTEL env vars are forwarded through agent passthrough and into api-proxy\"\nelse\n  echo \"⚠️ OTEL env vars not yet forwarded through the full agent → api-proxy path (expected during development)\"\nfi\n"
       - name: Validate token-tracker OTEL integration
         run: |-
           cd containers/api-proxy
