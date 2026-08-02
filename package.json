@@ -50,7 +50,7 @@
     "chalk": "^4.1.2",
     "commander": "^12.1.0",
     "execa": "^5.1.1",
-    "js-yaml": "^4.3.0"
+    "js-yaml": "^4.3.1"
   },
   "devDependencies": {
     "@babel/core": "^7.29.7",
@@ -83,7 +83,7 @@
     "minimatch": ">=10.2.1",
     "brace-expansion": ">=5.0.7",
     "markdownlint-cli2": {
-      "js-yaml": "^4.3.0"
+      "js-yaml": "^4.3.1"
     }
   },
   "engines": {
