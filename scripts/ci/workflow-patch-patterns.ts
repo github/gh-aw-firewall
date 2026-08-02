@@ -33,7 +33,7 @@ export const imageTagRegex = /--image-tag\s+[0-9.]+\s+--skip-pull/g;
 // Replace standalone --skip-pull with --build-local.
 export const standaloneSkipPullRegex = /--skip-pull(?:\s+--build-local)?/g;
 export const localAwfImageDownloadRegex =
-  /\s+ghcr\.io\/github\/gh-aw-firewall\/(?:agent|api-proxy|squid):[0-9.]+/g;
+  /\s+ghcr\.io\/github\/gh-aw-firewall\/(?:agent|api-proxy|squid):[0-9.]+(?:@sha256:[a-f0-9]{64})?/g;
 
 // Inject --session-state-dir into AWF invocations so Copilot CLI session-state
 // (events.jsonl) is written to a predictable host path that artifact upload can
