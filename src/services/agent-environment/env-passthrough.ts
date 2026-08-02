@@ -54,7 +54,6 @@ export function passthroughHostEnvironment(params: EnvPassthroughParams): void {
     'DOCKER_API_VERSION',
     'DOCKER_DEFAULT_PLATFORM',
     'COPILOT_OTEL_FILE_EXPORTER_PATH',
-    'GH_AW_OTLP_ENDPOINTS',
     'GITHUB_AW_OTEL_TRACE_ID',
     'GITHUB_AW_OTEL_PARENT_SPAN_ID',
   ] as const;
