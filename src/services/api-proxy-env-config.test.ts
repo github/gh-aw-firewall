@@ -246,6 +246,12 @@ describe('buildOtelEnv', () => {
     expect(env.OTEL_EXPORTER_OTLP_ENDPOINT).toBe('https://otel.example.com');
   });
 
+  it('forwards GH_AW_OTLP_ENDPOINTS when set', () => {
+    process.env.GH_AW_OTLP_ENDPOINTS = '[{"url":"https://otel.example.com"}]';
+    const env = buildOtelEnv();
+    expect(env.GH_AW_OTLP_ENDPOINTS).toBe('[{"url":"https://otel.example.com"}]');
+  });
+
   it('forwards GITHUB_AW_OTEL_TRACE_ID and GITHUB_AW_OTEL_PARENT_SPAN_ID when set', () => {
     process.env.GITHUB_AW_OTEL_TRACE_ID = 'trace-abc';
     process.env.GITHUB_AW_OTEL_PARENT_SPAN_ID = 'span-xyz';

@@ -270,7 +270,7 @@ describe('bounded-query runtime conformance matrix', () => {
         runDocker: async (args: readonly string[]) => {
           dockerCalls.push([...args]);
           if (args[0] === 'info') {
-            return { exitCode: 0, timedOut: false, stdout: '{"runsc":{}}', stderr: '' };
+            return { exitCode: 0, timedOut: false, stdout: 'runc\nrunsc\n', stderr: '' };
           }
           return { exitCode: 0, timedOut: false, stdout: '', stderr: '' };
         },

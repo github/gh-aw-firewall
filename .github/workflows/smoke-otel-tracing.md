@@ -89,12 +89,25 @@ steps:
       "
   - name: Validate OTEL env var forwarding
     run: |
-      echo "Checking api-proxy-service.ts for OTEL env var forwarding..."
-      if grep -q 'OTEL_EXPORTER_OTLP_ENDPOINT\|GITHUB_AW_OTEL_TRACE_ID' src/services/api-proxy-service.ts; then
-        echo "✅ OTEL env vars are forwarded to api-proxy container"
-      else
-        echo "⚠️ OTEL env vars not yet forwarded (expected during development)"
-      fi
+      echo "Checking agent and api-proxy OTEL env var forwarding..."
+
+      # Agent passthrough: trace context identifiers only (no collector credentials)
+      grep -q 'GITHUB_AW_OTEL_TRACE_ID' src/services/agent-environment/env-passthrough.ts \
+        || { echo "❌ GITHUB_AW_OTEL_TRACE_ID missing from env-passthrough.ts"; exit 1; }
+      grep -q 'GITHUB_AW_OTEL_PARENT_SPAN_ID' src/services/agent-environment/env-passthrough.ts \
+        || { echo "❌ GITHUB_AW_OTEL_PARENT_SPAN_ID missing from env-passthrough.ts"; exit 1; }
+
+      # api-proxy env config: collector endpoint and full trace context
+      grep -q 'GH_AW_OTLP_ENDPOINTS' src/services/api-proxy-env-config.ts \
+        || { echo "❌ GH_AW_OTLP_ENDPOINTS missing from api-proxy-env-config.ts"; exit 1; }
+      grep -q 'OTEL_EXPORTER_OTLP_ENDPOINT' src/services/api-proxy-env-config.ts \
+        || { echo "❌ OTEL_EXPORTER_OTLP_ENDPOINT missing from api-proxy-env-config.ts"; exit 1; }
+      grep -q 'GITHUB_AW_OTEL_TRACE_ID' src/services/api-proxy-env-config.ts \
+        || { echo "❌ GITHUB_AW_OTEL_TRACE_ID missing from api-proxy-env-config.ts"; exit 1; }
+      grep -q 'GITHUB_AW_OTEL_PARENT_SPAN_ID' src/services/api-proxy-env-config.ts \
+        || { echo "❌ GITHUB_AW_OTEL_PARENT_SPAN_ID missing from api-proxy-env-config.ts"; exit 1; }
+
+      echo "✅ All required OTEL env vars forwarded through the correct paths"
   - name: Validate token-tracker OTEL integration
     run: |
       cd containers/api-proxy
@@ -178,7 +191,9 @@ If no OTEL tests exist yet, note that as expected during development.
 ### Scenario 3: Env Var Forwarding
 
 Check the output from "Validate OTEL env var forwarding" step. Confirm that
-`src/services/api-proxy-service.ts` forwards OTEL env vars to the api-proxy container.
+`src/services/agent-environment/env-passthrough.ts` forwards the trace context into the
+agent container and `src/services/api-proxy-env-config.ts` forwards the OTEL vars into the
+api-proxy container.
 
 ### Scenario 4: Token Tracker Integration
 

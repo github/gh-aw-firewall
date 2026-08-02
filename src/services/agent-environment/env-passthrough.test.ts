@@ -174,5 +174,30 @@ describe('passthroughHostEnvironment', () => {
 
       expect(environment).toHaveProperty('ADO_MCP_AUTH_TOKEN', 'ado-auth-token');
     });
+
+    it('forwards OTEL trace context variables to agent but withholds collector credentials', () => {
+      const environment: Record<string, string> = {};
+      const excludedEnvVars = new Set<string>();
+
+      withEnv({
+        GH_AW_OTLP_ENDPOINTS: '[{"url":"https://otel.example.com","headers":"x-sentry-auth=secret"}]',
+        GITHUB_AW_OTEL_TRACE_ID: 'trace-id-abc123',
+        GITHUB_AW_OTEL_PARENT_SPAN_ID: 'span-id-xyz789',
+      }, () => {
+        passthroughHostEnvironment({
+          config: makeConfig({ enableApiProxy: true }),
+          environment,
+          excludedEnvVars,
+        });
+      });
+
+      // Trace context propagates so nested AWF runs can link spans correctly
+      expect(environment).toHaveProperty('GITHUB_AW_OTEL_TRACE_ID', 'trace-id-abc123');
+      expect(environment).toHaveProperty('GITHUB_AW_OTEL_PARENT_SPAN_ID', 'span-id-xyz789');
+      // GH_AW_OTLP_ENDPOINTS contains collector credentials ({url, headers}) and MUST NOT
+      // reach the untrusted agent container — it is forwarded only to the api-proxy sidecar
+      // via api-proxy-env-config (spec §9.2)
+      expect(environment).not.toHaveProperty('GH_AW_OTLP_ENDPOINTS');
+    });
   });
 });
