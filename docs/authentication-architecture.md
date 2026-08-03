@@ -10,13 +10,13 @@ All LLM providers use identical credential isolation architecture. API keys are 
 
 | Port  | Provider           | Auth header                     |
 |-------|--------------------|---------------------------------|
-| 10000 | OpenAI             | `Authorization: Bearer` (static or OIDC) |
+| 10000 | OpenAI             | `Authorization: Bearer` (static/Azure/GCP), or AWS SigV4 |
 | 10001 | Anthropic (Claude) | `x-api-key` (static) or `Authorization: Bearer` (OIDC/WIF) |
-| 10002 | GitHub Copilot     | `Authorization: Bearer` or `token` (see note below), or `api-key` (Azure BYOK) |
+| 10002 | GitHub Copilot     | `Authorization: Bearer` or `token`, `api-key` (Azure BYOK), or AWS SigV4 |
 | 10003 | Google Gemini      | `x-goog-api-key` (static key only) |
 | 10004 | Google Vertex AI   | `x-goog-api-key` (static key only) |
 
-Only the OpenAI, Anthropic, and Copilot adapters support `AWF_AUTH_TYPE=github-oidc`. Gemini and Vertex AI are static-API-key only in the current implementation. See [`docs/auth-matrix.md`](./auth-matrix.md) for the full per-provider auth matrix, including the enterprise/business Copilot `token`-prefix requirement and known gaps (for example, AWS OIDC for Bedrock currently mints credentials but does not sign outgoing requests).
+Only the OpenAI, Anthropic, and Copilot adapters support `AWF_AUTH_TYPE=github-oidc`. Gemini and Vertex AI are static-API-key only in the current implementation. See [`docs/auth-matrix.md`](./auth-matrix.md) for the full per-provider auth matrix, including the enterprise/business Copilot `token`-prefix requirement and AWS OIDC SigV4 support for Bedrock Runtime.
 :::
 
 ## Architecture components
@@ -640,9 +640,8 @@ AWF moves the entire OIDC exchange into the api-proxy sidecar, so the agent neve
                                                     │
                                                     ▼
                                           Cloud API endpoint
-                            (Azure OpenAI, GCP-fronted OpenAI/Copilot targets, Anthropic;
-                             AWS Bedrock credential exchange works, but see the AWS
-                             SigV4 caveat in Step 5 below — requests are not yet signed)
+                            (Azure OpenAI, GCP-fronted OpenAI/Copilot targets,
+                             Anthropic, and AWS Bedrock Runtime)
 ```
 
 ### OIDC token flow: step by step
@@ -735,12 +734,12 @@ When the agent sends a request to the sidecar, the provider adapter injects the 
 | Azure | `Authorization` header |
 | GCP | `Authorization` header |
 | Anthropic | `Authorization: Bearer` plus `anthropic-beta: oauth-2025-04-20` |
-| AWS | *(none — see caution below)* |
+| AWS | SigV4 `Authorization`, `x-amz-date`, payload hash, and STS session token |
 
 For Anthropic bearer requests, AWF merges the OAuth beta with client-supplied `anthropic-beta` values and the optional auto-cache beta, deduplicating exact values. Static `x-api-key` requests do not receive OAuth or federation beta values.
 
-:::danger[AWS OIDC: credentials are minted but never used to sign requests]
-`AwsOidcTokenProvider` exchanges the GitHub JWT for temporary STS credentials (`AccessKeyId`/`SecretAccessKey`/`SessionToken`) and caches/refreshes them like the other providers, but **no code in the request pipeline signs outgoing requests with SigV4**. There is no AWS SDK or `aws4`-style signing dependency in `containers/api-proxy/package.json`, and `resolveOidcAuthHeaders()` returns an empty header object for the AWS provider. In practice, selecting `AWF_AUTH_PROVIDER=aws` currently produces STS credentials that are never applied to any request — AWS Bedrock (which requires SigV4 with the `bedrock-runtime` service) would reject a request sent this way for lack of an `Authorization` header. Treat this as a credential-lifecycle-only capability until request signing is implemented.
+:::note[AWS OIDC requests are signed at final dispatch]
+`AwsOidcTokenProvider` keeps `AccessKeyId`, `SecretAccessKey`, and `SessionToken` inside the sidecar. After all URL and body transforms, the request layer signs the method, canonical path/query, final body hash, regional Bedrock Runtime host, and `bedrock-runtime` service with Node's built-in cryptography. Retries are re-signed, expired or unavailable credentials produce `503` without contacting upstream, and signing is restricted to `bedrock-runtime.<region>.amazonaws.com` (or the corresponding China endpoint).
 :::
 
 ### Comparison: static keys vs OIDC
@@ -752,7 +751,7 @@ For Anthropic bearer requests, AWF merges the OAuth beta with client-supplied `a
 | Agent sees secret | No (api-proxy only) | No (api-proxy only) |
 | GitHub Actions requirement | API key in secrets | `permissions: id-token: write` |
 | Cloud provider setup | Generate API key | Configure trust policy/federation |
-| Supported providers | OpenAI, Anthropic, Copilot, Gemini, Vertex AI | Azure (OpenAI/Copilot), GCP (OpenAI/Copilot adapters only — not the native Vertex/Gemini adapters), Anthropic WIF, AWS (credential exchange only; request signing not implemented) |
+| Supported providers | OpenAI, Anthropic, Copilot, Gemini, Vertex AI | Azure (OpenAI/Copilot), GCP (OpenAI/Copilot adapters only — not the native Vertex/Gemini adapters), Anthropic WIF, AWS Bedrock Runtime via OpenAI/Copilot adapters |
 
 ### Configuration reference
 
@@ -772,7 +771,7 @@ OIDC authentication is configured via `apiProxy.auth` in the AWF config file or 
 | `containers/api-proxy/server.js` | API proxy implementation (credential injection, header stripping) |
 | `containers/api-proxy/github-oidc.js` | Shared GitHub Actions OIDC token minting utility |
 | `containers/api-proxy/oidc-token-provider.js` | Azure AD token exchange via workload identity federation |
-| `containers/api-proxy/aws-oidc-token-provider.js` | AWS STS AssumeRoleWithWebIdentity credential exchange |
+| `containers/api-proxy/aws-oidc-token-provider.js`, `aws-sigv4.js` | AWS STS AssumeRoleWithWebIdentity exchange and Bedrock Runtime SigV4 signing |
 | `containers/api-proxy/gcp-oidc-token-provider.js` | GCP STS token exchange + optional SA impersonation |
 | `containers/api-proxy/anthropic-oidc-token-provider.js` | Anthropic OAuth token exchange for workload identity federation |
 | `containers/api-proxy/providers/openai.js` | OpenAI adapter — selects OIDC provider based on `AWF_AUTH_PROVIDER` |

@@ -444,12 +444,30 @@ describe('Auth Matrix — Copilot', () => {
         ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'runtime-token',
         AWF_AUTH_AWS_ROLE_ARN: 'arn:aws:iam::123456:role/test',
         AWF_AUTH_AWS_REGION: 'us-east-1',
+        COPILOT_API_TARGET: 'bedrock-runtime.us-east-1.amazonaws.com',
         COPILOT_PROVIDER_BASE_URL: 'https://bedrock-runtime.us-east-1.amazonaws.com',
       });
       const awsProvider = adapter.getAwsOidcProvider();
       expect(awsProvider).toBeTruthy();
-      // AWS uses SigV4 — no static auth header returned
+      expect(adapter.getRequestSigner()).toEqual(expect.any(Function));
+      // AWS uses SigV4 at final dispatch, so no credential is exposed here.
       expect(adapter.getAuthHeaders(fakeReq())).toEqual({});
+      awsProvider._cachedCredentials = {
+        accessKeyId: 'COPILOTKEY',
+        secretAccessKey: 'secret',
+        sessionToken: 'copilot-session',
+      };
+      awsProvider._expiresAt = Math.floor(Date.now() / 1000) + 3600;
+      const signed = adapter.getRequestSigner()({
+        method: 'POST',
+        path: '/model/test/invoke',
+        headers: {},
+        body: Buffer.from('{}'),
+        targetHost: adapter.getTargetHost(),
+        now: new Date('2024-01-02T03:04:05.000Z'),
+      });
+      expect(signed.Authorization).toContain('Credential=COPILOTKEY/');
+      expect(signed['x-amz-security-token']).toBe('copilot-session');
       awsProvider.shutdown();
     });
   });
