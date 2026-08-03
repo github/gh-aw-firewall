@@ -747,7 +747,7 @@ Azure OpenAI deployments use a different base URL format from OpenAI. Set `--ope
 
 ### AWS Bedrock
 
-Exchanges the GitHub OIDC JWT for temporary AWS credentials via STS `AssumeRoleWithWebIdentity`, and caches/refreshes them like the other providers.
+Exchanges the GitHub OIDC JWT for temporary AWS credentials via STS `AssumeRoleWithWebIdentity`, caches/refreshes them, and signs outbound Bedrock Runtime requests with SigV4.
 
 #### AWS-specific environment variables
 
@@ -759,11 +759,13 @@ Exchanges the GitHub OIDC JWT for temporary AWS credentials via STS `AssumeRoleW
 
 Default OIDC audience: `sts.amazonaws.com`
 
-:::danger[SigV4 request signing is not implemented]
-AWS Bedrock requires every request to be signed with SigV4 (using the `bedrock-runtime` service name), not a bearer token. **The current implementation does not do this.** `AwsOidcTokenProvider` mints and caches temporary STS credentials, but no code in the request pipeline (`proxy-request.js`, `http-client.js`, `upstream-http.js`) signs outgoing requests with them, and this project has no SigV4/AWS-SDK signing dependency. Requests sent through this path go upstream with no `Authorization` header and will be rejected by AWS. Treat AWS OIDC as **credential-exchange-only** — it is not currently a working path to Bedrock. See the [Limitations](#limitations) section below.
+:::note[SigV4 signing]
+The OpenAI and Copilot adapters sign each final outbound HTTP request with the temporary STS access key, secret key, and session token. Signing covers the method, canonical path/query, transformed body hash, regional target host, `AWF_AUTH_AWS_REGION`, and the `bedrock-runtime` service. Credentials remain inside the sidecar, retries are re-signed, and requests fail closed with `503` while credentials are unavailable.
+
+For credential-leak prevention, the target must exactly match `bedrock-runtime.<region>.amazonaws.com` (or `bedrock-runtime.<region>.amazonaws.com.cn` in China). Configure that host through `OPENAI_API_TARGET` or `COPILOT_PROVIDER_BASE_URL` and include it in the AWF domain allowlist.
 :::
 
-No Bedrock invocation example is provided because the current request path cannot authenticate successfully.
+SigV4 support applies to buffered HTTP requests, including streaming HTTP responses. WebSocket upgrades in AWS OIDC mode are rejected rather than forwarded unsigned.
 
 ### GCP Vertex AI
 
@@ -1306,7 +1308,7 @@ into the api-proxy container, so no extra configuration is needed.
 
 - Keys must be set as environment variables (not file-based)
 - No request/response logging (by design, for security)
-- **AWS Bedrock OIDC is credential-exchange only**: the sidecar mints and caches temporary AWS credentials via STS but does not sign requests with SigV4. See [OIDC Authentication > AWS Bedrock](#aws-bedrock) for details.
+- **AWS Bedrock OIDC signs HTTP requests only**: WebSocket upgrades are rejected, and the signing target is restricted to the exact regional Bedrock Runtime hostname. See [OIDC Authentication > AWS Bedrock](#aws-bedrock).
 - **Vertex AI adapter has no OIDC/WIF support**: the native Vertex adapter (port 10004) only accepts a static `GOOGLE_API_KEY`. To use GCP workload identity federation with Vertex-hosted models, point the OpenAI adapter (port 10000) at a Vertex OpenAI-compatible endpoint instead — see [OIDC Authentication > GCP Vertex AI](#gcp-vertex-ai).
 - **GitHub Copilot Business tier target is never auto-derived**: set `COPILOT_API_TARGET=api.business.githubcopilot.com` explicitly (or `--copilot-api-target`); it is not inferred from `GITHUB_SERVER_URL`.
 

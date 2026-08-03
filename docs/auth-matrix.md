@@ -197,10 +197,10 @@ When `AWF_AUTH_TYPE=github-oidc` with Copilot:
 |----------|--------|-------|
 | Azure | `Authorization: Bearer <entra_token>` | Via `oidc-token-provider.js` |
 | GCP | `Authorization: Bearer <gcp_token>` | Via `gcp-oidc-token-provider.js` |
-| AWS | *(none — see caution below)* | Via `aws-oidc-token-provider.js` |
+| AWS | SigV4 `Authorization` plus `x-amz-*` signing headers | Via `aws-oidc-token-provider.js` and `aws-sigv4.js` |
 
-:::caution[AWS OIDC + Copilot: no SigV4 signing implemented]
-Selecting `AWF_AUTH_PROVIDER=aws` for the Copilot adapter mints and caches temporary STS credentials, but **no code path signs the outgoing request with them**. This mirrors the same gap documented in [AWS (STS)](#aws-sts) below — see that section for details. Requests sent this way have no upstream `Authorization` header and will be rejected by any AWS-fronted target.
+:::note[AWS OIDC + Copilot]
+Selecting `AWF_AUTH_PROVIDER=aws` signs Copilot-adapter HTTP requests at final dispatch with the cached temporary STS credentials. The target must be the exact regional Bedrock Runtime hostname; credentials are never returned by `getAuthHeaders()` or exposed to the agent.
 :::
 
 **Official docs:**
@@ -296,13 +296,15 @@ All OIDC flows require GitHub Actions runtime tokens:
 
 **Token exchange:** `GET https://sts.<region>.amazonaws.com/?Action=AssumeRoleWithWebIdentity`  
 **Result:** Temporary credentials (AccessKeyId, SecretAccessKey, SessionToken), cached and refreshed by `AwsOidcTokenProvider`
-**Implementation:** `containers/api-proxy/aws-oidc-token-provider.js`  
+
+**Request signing:** SigV4 with service `bedrock-runtime`, applied after body transforms and repeated for retries
+
+**Implementation:** `containers/api-proxy/aws-oidc-token-provider.js`, `containers/api-proxy/aws-sigv4.js`
+
 **Official docs:** https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_providers_oidc.html
 
-:::danger[SigV4 request signing is not implemented]
-AWS Bedrock requires every request to be signed with [SigV4](https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_sigv4.html) using the `bedrock-runtime` service name. The current implementation mints and caches STS credentials via `AwsOidcTokenProvider`, but **no code in the request pipeline (`proxy-request.js`, `http-client.js`, `upstream-http.js`) signs outgoing requests with them**, and the project has no SigV4/AWS-SDK signing dependency. `resolveOidcAuthHeaders()` returns an empty header set for the AWS provider with a comment stating signing happens "later" — that later step does not exist yet.
-
-**Practical effect:** requests routed through this AWS OIDC path go upstream with no `Authorization` header and will be rejected by AWS. Treat AWS OIDC support as **credential-lifecycle-only** (useful for testing STS role assumption) until request signing is implemented. Do not rely on it to reach AWS Bedrock today.
+:::note[Signing boundary and fail-closed behavior]
+The request layer signs the HTTP method, canonical path and sorted query, final body SHA-256, exact regional Bedrock Runtime host, region, and `bedrock-runtime` service. It includes the STS session token and re-signs retries. Missing/expired credentials return `503` without opening an upstream connection. To prevent credential disclosure, other target hosts and WebSocket upgrades are rejected.
 :::
 
 ### GCP (Workload Identity Federation)
@@ -401,7 +403,7 @@ Adds `x-session-id` header automatically in BYOK mode unless already present.
 | OpenAI | Static key | — | ✅ | `openai.js` |
 | OpenAI | Azure BYOK | — | ✅ | `openai.js` |
 | OpenAI | Azure OIDC | — | ✅ | `openai.js`, `oidc-token-provider.js` |
-| OpenAI | AWS OIDC (credential exchange only, no request signing) | — | ✅ (exchange) / ❌ (signing) | `openai.js`, `aws-oidc-token-provider.js` |
+| OpenAI | AWS Bedrock OIDC + SigV4 | — | ✅ | `openai.js`, `aws-oidc-token-provider.js`, `aws-sigv4.test.js` |
 | OpenAI | GCP OIDC | — | ✅ | `openai.js`, `gcp-oidc-token-provider.js` |
 | Anthropic | Static key | — | ✅ | `anthropic.js` |
 | Anthropic | WIF | — | ✅ | `anthropic.js`, `anthropic-oidc-token-provider.js` |
@@ -413,7 +415,7 @@ Adds `x-session-id` header automatically in BYOK mode unless already present.
 | Copilot | BYOK key | — | ✅ | `copilot.js`, `copilot-byok.js` |
 | Copilot | Azure BYOK | — | ✅ | via OpenAI adapter |
 | Copilot | Azure OIDC | — | ✅ | `copilot-adapter-enterprise.test.js` |
-| Copilot | AWS OIDC (credential exchange only, no request signing) | — | ✅ (exchange) / ❌ (signing) | `aws-oidc-token-provider.js`, `server.auth-matrix.test.js` |
+| Copilot | AWS Bedrock OIDC + SigV4 | — | ✅ | `aws-oidc-token-provider.js`, `server.auth-matrix.test.js` |
 | Copilot | GCP OIDC | — | ✅ | `gcp-oidc-token-provider.js`, `server.auth-matrix.test.js` |
 | Copilot | GHES + BYOK | GHES | ✅ | `server.auth-matrix.test.js` |
 | Gemini | Static key | — | ✅ | `gemini.js`, `google-adapter.js` |

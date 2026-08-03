@@ -211,8 +211,9 @@ const sendUpstreamRequest = createSendUpstreamRequest({
  * @param {string} provider - Provider name for logging and metrics
  * @param {string} [basePath=''] - Optional base-path prefix
  * @param {((body: Buffer) => (Buffer | null | Promise<Buffer | null>)) | null} [bodyTransform=null]
+ * @param {((request: object) => Record<string,string>) | null} [requestSigner=null]
  */
-function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = '', bodyTransform = null) {
+function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = '', bodyTransform = null, requestSigner = null) {
   const clientRequestId = req.headers['x-request-id'];
   const requestId = isValidRequestId(clientRequestId) ? clientRequestId : generateRequestId();
   const startTime = Date.now();
@@ -274,7 +275,7 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
     if (enforceGuards({ body, provider, req, res, requestId, startTime, span, inboundBytes })) return;
 
     sendUpstreamRequest(headers, {
-      body, targetHost, upstreamPath, req, res, provider, requestId, startTime, span, requestBytes,
+      body, targetHost, upstreamPath, req, res, provider, requestId, startTime, span, requestBytes, requestSigner,
     });
   });
 }

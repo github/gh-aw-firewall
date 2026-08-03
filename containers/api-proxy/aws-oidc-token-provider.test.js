@@ -179,6 +179,114 @@ describe('AwsOidcTokenProvider', () => {
     provider.shutdown();
   });
 
+  it('should sign Bedrock requests with cached temporary credentials', () => {
+    const provider = new AwsOidcTokenProvider({
+      requestUrl: 'http://localhost/token',
+      requestToken: 'test',
+      roleArn: 'arn:aws:iam::123456789012:role/my-role',
+      region: 'us-east-1',
+    });
+    provider._cachedCredentials = {
+      accessKeyId: 'AKIDEXAMPLE',
+      secretAccessKey: 'secret',
+      sessionToken: 'session-token',
+    };
+    provider._expiresAt = Math.floor(Date.now() / 1000) + 3600;
+
+    const headers = provider.signRequest({
+      method: 'POST',
+      path: '/model/test/invoke',
+      headers: { 'content-type': 'application/json' },
+      body: Buffer.from('{}'),
+      targetHost: 'bedrock-runtime.us-east-1.amazonaws.com',
+      now: new Date('2024-01-02T03:04:05.000Z'),
+    });
+
+    expect(headers.Authorization).toContain(
+      'Credential=AKIDEXAMPLE/20240102/us-east-1/bedrock-runtime/aws4_request',
+    );
+    expect(headers['x-amz-security-token']).toBe('session-token');
+    provider.shutdown();
+  });
+
+  it('should fail closed and trigger refresh when credentials are unavailable', () => {
+    const provider = new AwsOidcTokenProvider({
+      requestUrl: 'http://localhost/token',
+      requestToken: 'test',
+      roleArn: 'arn:aws:iam::123456789012:role/my-role',
+      region: 'us-east-1',
+    });
+    provider._scheduleRefresh = jest.fn();
+
+    expect(() => provider.signRequest({
+      method: 'POST',
+      path: '/model/test/invoke',
+      headers: {},
+      body: Buffer.from('{}'),
+      targetHost: 'bedrock-runtime.us-east-1.amazonaws.com',
+    })).toThrow('AWS temporary credentials are unavailable');
+    expect(provider._scheduleRefresh).toHaveBeenCalledWith(0);
+    provider.shutdown();
+  });
+
+  it('should use refreshed credentials for subsequent signatures', () => {
+    const provider = new AwsOidcTokenProvider({
+      requestUrl: 'http://localhost/token',
+      requestToken: 'test',
+      roleArn: 'arn:aws:iam::123456789012:role/my-role',
+      region: 'us-east-1',
+    });
+    const request = {
+      method: 'POST',
+      path: '/model/test/invoke',
+      headers: {},
+      body: Buffer.from('{}'),
+      targetHost: 'bedrock-runtime.us-east-1.amazonaws.com',
+      now: new Date('2024-01-02T03:04:05.000Z'),
+    };
+    provider._expiresAt = Math.floor(Date.now() / 1000) + 3600;
+    provider._cachedCredentials = {
+      accessKeyId: 'FIRSTKEY',
+      secretAccessKey: 'first-secret',
+      sessionToken: 'first-token',
+    };
+    expect(provider.signRequest(request).Authorization).toContain('Credential=FIRSTKEY/');
+
+    provider._cachedCredentials = {
+      accessKeyId: 'REFRESHEDKEY',
+      secretAccessKey: 'refreshed-secret',
+      sessionToken: 'refreshed-token',
+    };
+    const refreshed = provider.signRequest(request);
+    expect(refreshed.Authorization).toContain('Credential=REFRESHEDKEY/');
+    expect(refreshed['x-amz-security-token']).toBe('refreshed-token');
+    provider.shutdown();
+  });
+
+  it('should refuse to sign credentials for a non-Bedrock host', () => {
+    const provider = new AwsOidcTokenProvider({
+      requestUrl: 'http://localhost/token',
+      requestToken: 'test',
+      roleArn: 'arn:aws:iam::123456789012:role/my-role',
+      region: 'us-east-1',
+    });
+    provider._cachedCredentials = {
+      accessKeyId: 'AKIDEXAMPLE',
+      secretAccessKey: 'secret',
+      sessionToken: 'session-token',
+    };
+    provider._expiresAt = Math.floor(Date.now() / 1000) + 3600;
+
+    expect(() => provider.signRequest({
+      method: 'POST',
+      path: '/',
+      headers: {},
+      body: Buffer.alloc(0),
+      targetHost: 'example.com',
+    })).toThrow('AWS SigV4 signing is restricted');
+    provider.shutdown();
+  });
+
   it('should handle initialization failure gracefully', async () => {
     await testInitializationFailure(
       AwsOidcTokenProvider,
@@ -226,13 +334,47 @@ describe('OpenAI adapter with AWS OIDC', () => {
       ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'test-token',
       AWF_AUTH_AWS_ROLE_ARN: 'arn:aws:iam::123456789012:role/my-role',
       AWF_AUTH_AWS_REGION: 'us-east-1',
+      OPENAI_API_TARGET: 'bedrock-runtime.us-east-1.amazonaws.com',
     });
 
     expect(adapter.getOidcProvider()).toBeNull();
     expect(adapter.getAwsOidcProvider()).not.toBeNull();
+    expect(adapter.getRequestSigner()).toEqual(expect.any(Function));
     expect(adapter.getReflectionInfo().auth_type).toBe('github-oidc/aws');
 
     adapter.getAwsOidcProvider().shutdown();
+  });
+
+  it('should sign OpenAI-adapter requests without exposing credentials as auth headers', () => {
+    const adapter = createOpenAIAdapter({
+      AWF_AUTH_TYPE: 'github-oidc',
+      AWF_AUTH_PROVIDER: 'aws',
+      ACTIONS_ID_TOKEN_REQUEST_URL: 'http://localhost/token',
+      ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'test-token',
+      AWF_AUTH_AWS_ROLE_ARN: 'arn:aws:iam::123456789012:role/my-role',
+      AWF_AUTH_AWS_REGION: 'us-east-1',
+      OPENAI_API_TARGET: 'bedrock-runtime.us-east-1.amazonaws.com',
+    });
+    const provider = adapter.getAwsOidcProvider();
+    provider._cachedCredentials = {
+      accessKeyId: 'OPENAIKEY',
+      secretAccessKey: 'secret',
+      sessionToken: 'openai-session',
+    };
+    provider._expiresAt = Math.floor(Date.now() / 1000) + 3600;
+
+    expect(adapter.getAuthHeaders({ url: '/', method: 'POST' })).toEqual({});
+    const signed = adapter.getRequestSigner()({
+      method: 'POST',
+      path: '/model/test/invoke',
+      headers: {},
+      body: Buffer.from('{}'),
+      targetHost: adapter.getTargetHost(),
+      now: new Date('2024-01-02T03:04:05.000Z'),
+    });
+    expect(signed.Authorization).toContain('Credential=OPENAIKEY/');
+    expect(signed['x-amz-security-token']).toBe('openai-session');
+    provider.shutdown();
   });
 
   it('should not create AWS provider when required vars are missing', () => {

@@ -23,6 +23,7 @@ const { mintGitHubOidcToken, httpGet } = require('./github-oidc');
 const {
   BaseOidcTokenProvider,
 } = require('./oidc-token-provider-base');
+const { signAwsRequest } = require('./aws-sigv4');
 
 /**
  * @typedef {Object} AwsCredentials
@@ -82,6 +83,37 @@ class AwsOidcTokenProvider extends BaseOidcTokenProvider {
    */
   getRegion() {
     return this._region;
+  }
+
+  /**
+   * Return the only upstream host to which this provider will sign credentials.
+   * @returns {string}
+   */
+  getBedrockRuntimeHost() {
+    const suffix = this._region.startsWith('cn-') ? 'amazonaws.com.cn' : 'amazonaws.com';
+    return `bedrock-runtime.${this._region}.${suffix}`;
+  }
+
+  /**
+   * Sign a complete outbound Bedrock request without exposing credentials.
+   * @param {object} request
+   * @returns {Record<string, string>}
+   */
+  signRequest(request) {
+    const credentials = this.getCredentials();
+    if (!credentials) {
+      throw new Error('AWS temporary credentials are unavailable');
+    }
+    const expectedHost = this.getBedrockRuntimeHost();
+    if (typeof request?.targetHost !== 'string' || request.targetHost.toLowerCase() !== expectedHost) {
+      throw new Error(`AWS SigV4 signing is restricted to ${expectedHost}`);
+    }
+    return signAwsRequest({
+      ...request,
+      credentials,
+      region: this._region,
+      service: 'bedrock-runtime',
+    });
   }
 
   /**

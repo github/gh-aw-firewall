@@ -78,6 +78,7 @@ const { createVertexAdapter } = require('./vertex');
  * @property {(req?: import('http').IncomingMessage) => string} getTargetHost - Upstream hostname
  * @property {(req?: import('http').IncomingMessage) => string} getBasePath - Base path prefix
  * @property {(req: import('http').IncomingMessage) => Record<string,string>} getAuthHeaders - Auth headers
+ * @property {() => (((request: object) => Record<string,string>)|null)} [getRequestSigner] - Optional final-request signer
  * @property {((url: string) => string) | undefined} transformRequestUrl - Optional URL transform
  * @property {() => ((body: Buffer) => Buffer|null)|null} getBodyTransform - Optional body transform
  *

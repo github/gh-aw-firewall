@@ -33,7 +33,8 @@ function createProxyHandler(adapter, checkRateLimit, proxyRequest) {
       adapter.getAuthHeaders(req),
       adapter.name,
       adapter.getBasePath(req),
-      adapter.getBodyTransform()
+      adapter.getBodyTransform(),
+      adapter.getRequestSigner ? adapter.getRequestSigner() : null
     );
   };
 }
@@ -82,6 +83,14 @@ function createWebSocketUpgradeHandler(adapter, proxyWebSocket) {
 
   const handler = (req, socket, head) => {
     if (!adapter.isEnabled()) {
+      socket.write('HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n');
+      socket.destroy();
+      return;
+    }
+
+    // Bedrock SigV4 is implemented for buffered HTTP requests. Never allow an
+    // unsigned WebSocket upgrade to escape through an AWS-authenticated adapter.
+    if (adapter.getRequestSigner?.()) {
       socket.write('HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n');
       socket.destroy();
       return;
