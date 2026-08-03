@@ -238,11 +238,11 @@ them after the sandbox is torn down** (`scrubHomeCredentials` /
 the secrets are absent from the VM while the benign tool state stays available.
 This is the sbx analog of compose mode's `/dev/null` credential overlays, and the
 central credential list in `sandbox-mount-policy.json` is shared between backends
-to prevent drift. The agent receives whatever credentials it needs through the
-api-proxy or environment (e.g. `ADO_MCP_AUTH_TOKEN`, OIDC tokens), not by reading
-the host's on-disk auth store. Provider credentials and Actions OIDC
-request variables remain in the api-proxy or another trusted external
-service, so removing these paths is safe.
+to prevent drift. The agent accesses OIDC-backed providers through requests
+routed to the api-proxy, or receives separately allowed environment credentials
+such as `ADO_MCP_AUTH_TOKEN`, not by reading the host's on-disk auth store.
+Provider credentials and Actions OIDC request variables remain in the api-proxy
+or another trusted external service, so removing these paths is safe.
 
 A `seenPaths` set deduplicates so no path is mounted twice, and
 `execInSandbox(..., { workDir })` passes `--workdir` so commands run inside the
