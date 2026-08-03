@@ -1,11 +1,11 @@
 ---
 name: Auth Doctor Updater
-description: Daily workflow that reviews provider authentication guidance, repository changes, and related issues and proposes documentation updates for AWF authentication and API-proxy behavior.
+description: Daily workflow that reviews provider authentication guidance and repository changes, updates approved AWF authentication and API-proxy docs, and opens a pull request.
 on:
   schedule: daily
   workflow_dispatch:
   skip-if-match:
-    query: 'is:issue is:open label:documentation in:title "Auth Doctor Update"'
+    query: 'is:pr is:open in:title "[docs] auth:"'
     max: 1
 permissions:
   copilot-requests: write
@@ -18,6 +18,7 @@ tools:
   web-fetch:
   bash: true
   cache-memory: true
+  edit:
 sandbox:
   agent:
     id: awf
@@ -35,13 +36,21 @@ network:
 safe-outputs:
   threat-detection:
     enabled: false
-  mentions: false
-  allowed-github-references: []
-  create-issue:
-    title-prefix: "🩺 Auth Doctor Update"
-    labels: [documentation, automated]
-    max: 1
-    expires: 30d
+  create-pull-request:
+    title-prefix: "[docs] auth: "
+    labels: [documentation, ai-generated]
+    reviewers: copilot
+    draft: false
+    allowed-files:
+      - README.md
+      - docs/api-proxy-sidecar.md
+      - docs/auth-matrix.md
+      - docs/authentication-architecture.md
+      - docs/awf-config-spec.md
+      - docs/environment.md
+      - docs/github_actions.md
+      - docs/security.md
+      - docs/usage.md
 timeout-minutes: 20
 steps:
   - name: Compute scan window
@@ -56,16 +65,16 @@ steps:
 
 # Auth Doctor Updater
 
-You maintain this repository's documentation for AWF authentication, API-proxy routing, and related gh-aw HTTP MCP GitHub OIDC behavior. Each day, reconcile current repository implementation and recent changes with official provider guidance, then propose precise documentation corrections.
+You maintain this repository's documentation for AWF authentication, API-proxy routing, and related gh-aw HTTP MCP GitHub OIDC behavior. Each day, reconcile current repository implementation and recent changes with official provider guidance, apply precise corrections to approved documentation files, and open one pull request.
 
-You do **not** edit files yourself. Your only output is one proposed-changes issue or a `noop`.
+Your only visible output is one documentation pull request through the configured safe output, or a `noop`.
 
 ## Scan Window
 
 - **Repository:** ${{ github.repository }}
 - **Since (UTC date):** read from `/tmp/gh-aw/agent/scan-since.txt`
 
-Consider relevant issues, pull requests, releases, and documentation updates on or after the scan window. The window overlaps the previous daily run; de-duplicate anything already documented or proposed.
+Consider relevant issues, pull requests, releases, and documentation updates on or after the scan window. The window overlaps the previous daily run; de-duplicate anything already documented or covered by an open updater pull request.
 
 ## Step 1 — Read the Current Documentation and Implementation
 
@@ -144,49 +153,59 @@ Keep the API proxy and MCP gateway as separate trust paths:
 For every candidate, choose one:
 
 - **Already accurate** — implementation and official guidance match the docs; skip.
-- **Shipped behavior missing from docs** — propose the narrowest addition and cite the merged source.
-- **Stale or incorrect claim** — provide replacement wording and evidence.
+- **Shipped behavior missing from docs** — make the narrowest addition and cite the merged source.
+- **Stale or incorrect claim** — replace it with evidence-backed wording.
 - **Pending behavior presented as shipped** — add a current-main caveat and link the pending work.
 - **Cross-document inconsistency** — identify every file that must change together.
 - **Unverified provider change** — do not propose an update; state what evidence is missing.
 
 Do not infer support from an unmerged pull request, a feature request, or provider documentation alone. AWF support requires current default-branch implementation and tests.
 
-## Step 6 — Avoid Duplicate Proposals
+## Step 6 — Avoid Duplicate Pull Requests
 
-Search open issues with the `documentation` label and `Auth Doctor Update` in the title. If an existing proposal covers the same findings, call `noop` instead of opening another issue.
+Search open pull requests with `[docs] auth:` in the title. If an existing updater pull request covers the same findings, call `noop` instead of opening another pull request.
+
+## Step 7 — Apply and Validate Documentation Changes
+
+Edit only the files allowed by `safe-outputs.create-pull-request.allowed-files`. Do not modify source code, tests, schemas, workflow files, generated files, or dependencies.
+
+Before creating the pull request:
+
+1. Review the diff and remove unrelated or cosmetic changes.
+2. Confirm every factual change has current-main implementation evidence and an official or repository source.
+3. Keep terminology and links consistent across every affected auth document.
+4. Check Markdown structure, relative links, code fences, tables, and examples.
+5. Search the diff for token/key/JWT values and credential-bearing URLs. Remove any such content.
 
 ## Output
 
-If concrete, not-yet-captured corrections exist, call `create-issue` once with:
+If concrete corrections were applied, call `create-pull-request` once. The title prefix, labels, reviewer, draft state, and file allowlist are already configured.
+
+Use this pull request body:
 
 ### Summary
 
-- scan window
-- sources reviewed
-- number of required documentation corrections
+- scan window and sources reviewed
+- corrected authentication paths
+- current-main versus pending behavior clarified
 
-### Current-Main Findings
+### Documentation Changes
 
-For each finding: affected auth path, shipped/pending status, implementation evidence, and official documentation evidence.
+List each changed file and the factual correction made.
 
-### Proposed Documentation Changes
+### Validation
 
-Group exact replacement or insertion text by file. Include only files that genuinely need changes, and keep terminology consistent across all affected documents.
-
-### Validation Plan
-
-List the targeted source/tests to re-check, Markdown lint, docs build, and any schema or workflow compilation needed for the proposed edits.
+List the implementation/tests checked, Markdown/link review performed, and credential-leakage diff review.
 
 ### Sources
 
 Link every repository issue/pull request and official provider page used. Use full URLs and do not include credential-bearing URLs or copied headers.
 
-If no concrete corrections exist, call `noop` with the scan window and a one-line explanation. Never open an empty, speculative, or prose-only issue.
+If no concrete corrections were applied, call `noop` with the scan window and a one-line explanation. Never open an empty, speculative, or prose-only pull request.
 
 ## Guardrails
 
-- Propose documentation edits only; never modify code, create a branch, or open a pull request.
+- Modify approved documentation files only. Use the safe output for branch, commit, and pull-request creation; never run `git commit`, `git push`, or `gh pr create`.
 - Never print, inspect, request, decode, hash, or reproduce secret values, Actions OIDC request tokens, minted JWTs, exchanged cloud credentials, API keys, cookies, or authorization headers.
 - Never run credential probes, token exchanges, inference requests, broad environment dumps, `docker inspect`, or `docker compose config`.
 - Treat identifiers such as tenant IDs, client IDs, role ARNs, service-account emails, and federation resource names as configuration metadata, but redact user-specific values in proposals.

@@ -600,7 +600,7 @@ and are normalized to dollars per million tokens inside the proxy.
 
 ## Troubleshooting
 
-The [Auth Doctor Updater workflow](../.github/workflows/auth-doctor-updater.md) periodically audits this guide against current implementation, recent repository changes, and official provider guidance. It proposes documentation updates without probing credentials, exchanging tokens, or calling inference APIs.
+The [Auth Doctor Updater workflow](../.github/workflows/auth-doctor-updater.md) periodically audits this guide against current implementation, recent repository changes, and official provider guidance. It opens file-bounded documentation pull requests without probing credentials, exchanging tokens, or calling inference APIs.
 
 ### Gemini proxy returns 503
 

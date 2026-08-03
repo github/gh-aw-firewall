@@ -2,7 +2,7 @@
 
 This document describes every authentication combination supported by AWF's api-proxy sidecar, including how each provider's auth works, what configuration is required, and how the proxy transforms credentials before forwarding to upstream APIs.
 
-The [Auth Doctor Updater workflow](../.github/workflows/auth-doctor-updater.md) periodically compares this matrix with current default-branch implementation, recent issues and pull requests, and official provider guidance. It opens a deduplicated proposal issue only when an evidence-backed documentation correction is needed.
+The [Auth Doctor Updater workflow](../.github/workflows/auth-doctor-updater.md) periodically compares this matrix with current default-branch implementation, recent issues and pull requests, and official provider guidance. It opens a deduplicated, file-bounded pull request only when an evidence-backed documentation correction is needed.
 
 ## Table of Contents
 
