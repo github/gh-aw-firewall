@@ -29,16 +29,13 @@ function collectCapabilities(commandRunner = run) {
     }
   }
   const gvisor = Object.prototype.hasOwnProperty.call(runtimes, 'runsc');
-  // `sbx ls` only proves the CLI/daemon is installed, authenticated, and
-  // reachable. It is deliberately NOT reported as `supported`: this static CI
-  // report never starts a sandbox, mounts the broker's Unix socket, or drives
-  // the authenticated HTTP capability exchange, so it cannot execute the
-  // ingress proof (`assertSbxBoundedAgentIngress` in `main-action.ts`) that
-  // this PR's "supported after ingress proof" condition requires. Promoting
-  // primary sbx to `supported` from this alone would be a false positive.
-  // It is reported as `available`: CLI/daemon reachability confirmed, ingress
-  // unproven.
-  const sbxPrimary = commandRunner('sbx', ['ls']).ok;
+  // Primary sbx is supported only after a disposable sandbox proves the actual
+  // bounded-agent Unix-socket ingress path. CLI/daemon availability alone is
+  // not an ingress proof and must never produce a SUPPORTED matrix cell.
+  const sbxPrimary = commandRunner(
+    process.execPath,
+    ['scripts/ci/probe-bounded-agent-primary-sbx.js'],
+  ).ok;
   const sbxBoundedAgent = commandRunner(
     process.execPath,
     ['containers/bounded-agent/broker/sbx-capability-probe.js'],
@@ -55,7 +52,7 @@ function collectCapabilities(commandRunner = run) {
     primary: {
       docker: docker.ok ? 'supported' : 'unavailable',
       gvisor: gvisor ? 'supported' : 'unavailable',
-      sbx: sbxPrimary ? 'available' : 'unavailable',
+      sbx: sbxPrimary ? 'supported' : 'unavailable',
     },
     boundedAgent: {
       docker: docker.ok ? 'supported' : 'unavailable',
@@ -66,15 +63,10 @@ function collectCapabilities(commandRunner = run) {
 }
 
 /**
- * Evaluates one primary/bounded-agent combination without ever promoting a
- * primary sbx CLI/daemon reachability check (`available`) to `SUPPORTED`.
- *
- * A primary sbx combination can only reach `SUPPORTED` once its capability is
- * literally `supported` — a value this static reporter never assigns to
- * primary sbx (see {@link collectCapabilities}) because it cannot execute the
- * pre-agent ingress proof. `available` is therefore always reported as
- * `BLOCKED` at a distinct `primary-sbx-ingress-unproven` phase so it is never
- * confused with an outright-unavailable CLI/daemon.
+ * Evaluates one primary/bounded-agent combination. Primary sbx reaches
+ * `supported` only when the collector's disposable sandbox has completed the
+ * real Unix-socket broker-ingress exchange; CLI/daemon availability alone
+ * remains `unavailable`.
  */
 function evaluate(primary, boundedAgent, capabilities) {
   const primaryState = capabilities.primary[primary];
@@ -125,10 +117,9 @@ function renderMatrix(capabilities) {
     '> The bounded-agent sbx enclave is BLOCKED unconditionally today: the audited sbx CLI cannot yet ' +
     'prove the mandatory API-proxy-only network, RO-targeted-mount, pids/disk/fsize, or lifecycle ' +
     'isolation primitives this enclave requires.',
-    '> Primary capability `available` (sbx only) means the CLI/daemon is installed, authenticated, and ' +
-    'reachable, but the pre-agent ingress proof this static report cannot execute has not run — it is ' +
-    'never promoted to SUPPORTED here. Primary sbx becomes SUPPORTED only after ' +
-    '`assertSbxBoundedAgentIngress` proves the selected ingress during an actual run.',
+    '> Primary sbx is SUPPORTED here only after a disposable sandbox proves the Unix-socket broker ' +
+    'ingress path. Authenticated HTTP fallback is proven only by `assertSbxBoundedAgentIngress` ' +
+    'during an actual run.',
   );
   return `${lines.join('\n')}\n`;
 }

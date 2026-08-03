@@ -169,6 +169,47 @@ describe('prepareBoundedAgents', () => {
     expect(skill).not.toContain('ghs_super_secret');
   });
 
+  it('gives staging git no GitHub Actions, OIDC, or inherited credential environment', async () => {
+    const observed: NodeJS.ProcessEnv[] = [];
+    const capturingGitRunner: GitRunner = async (args, options) => {
+      observed.push(options.env);
+      return gitRunner(args, options);
+    };
+    await prepareBoundedAgents(buildConfig(workDir), {
+      env: {
+        GH_TOKEN: 'ghs_super_secret',
+        GITHUB_TOKEN: 'github-fallback',
+        ACTIONS_ID_TOKEN_REQUEST_URL: 'https://oidc.invalid',
+        ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'oidc-secret',
+        GITHUB_ACTIONS: 'true',
+        GITHUB_WORKSPACE: '/sensitive/workspace',
+      },
+      gitRunner: capturingGitRunner,
+      assertRuntimeAvailable,
+    });
+    expect(observed.length).toBeGreaterThan(0);
+    for (const env of observed) {
+      expect(env).not.toHaveProperty('GH_TOKEN');
+      expect(env).not.toHaveProperty('GITHUB_TOKEN');
+      expect(env).not.toHaveProperty('ACTIONS_ID_TOKEN_REQUEST_URL');
+      expect(env).not.toHaveProperty('ACTIONS_ID_TOKEN_REQUEST_TOKEN');
+      expect(env).not.toHaveProperty('GITHUB_ACTIONS');
+      expect(env).not.toHaveProperty('GITHUB_WORKSPACE');
+      expect(Object.keys(env).sort()).toEqual([
+        'GIT_ASKPASS',
+        'GIT_CONFIG_COUNT',
+        'GIT_CONFIG_KEY_0',
+        'GIT_CONFIG_NOSYSTEM',
+        'GIT_CONFIG_VALUE_0',
+        'GIT_TERMINAL_PROMPT',
+        'HOME',
+        'PATH',
+        'XDG_CONFIG_HOME',
+        'AWF_BOUNDED_QUERY_STAGING_TOKEN_FILE',
+      ].sort());
+    }
+  });
+
   it('writes a seed map with opaque seed ids and trusted sensitivity only', async () => {
     await prepareBoundedAgents(buildConfig(workDir), {
       env: { GH_TOKEN: 't' },
