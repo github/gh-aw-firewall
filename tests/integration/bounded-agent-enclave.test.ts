@@ -238,6 +238,18 @@ describe('bounded-agent enclave against a fake API proxy', () => {
       expect(request.headers['x-api-key']).toBeUndefined();
       expect(request.body.model).toBe('test-model');
       expect(request.body.max_tokens).toBe(256);
+      const tools = request.body.tools as Array<{
+        function: {
+          name: string;
+          parameters: { properties: { result: unknown } };
+        };
+      }>;
+      expect(tools.find((tool) => tool.function.name === 'finish')?.function.parameters)
+        .toMatchObject({
+          properties: { result: { type: 'boolean' } },
+          required: ['result'],
+          additionalProperties: false,
+        });
     }
     expect(forbidden.connections).toBe(0);
 

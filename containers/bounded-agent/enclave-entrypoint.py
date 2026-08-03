@@ -193,6 +193,82 @@ TOOL_DESCRIPTIONS = [
 ]
 
 
+def _provider_result_schema(schema: dict) -> dict:
+    """Converts the finite-disclosure schema into provider tool JSON Schema."""
+    schema_type = schema["type"]
+    if schema_type == "const":
+        return {"const": schema["value"]}
+    if schema_type == "boolean":
+        return {"type": "boolean"}
+    if schema_type == "enum":
+        return {"enum": schema["values"]}
+    if schema_type == "integer":
+        return {
+            "type": "integer",
+            "minimum": schema["minimum"],
+            "maximum": schema["maximum"],
+        }
+    if schema_type == "object":
+        fields = schema["fields"]
+        return {
+            "type": "object",
+            "properties": {
+                name: _provider_result_schema(child) for name, child in fields.items()
+            },
+            "required": list(fields),
+            "additionalProperties": False,
+        }
+    if schema_type == "tuple":
+        items = [_provider_result_schema(item) for item in schema["items"]]
+        return {
+            "type": "array",
+            "prefixItems": items,
+            "minItems": len(items),
+            "maxItems": len(items),
+        }
+    if schema_type == "array":
+        length = schema["length"]
+        return {
+            "type": "array",
+            "items": _provider_result_schema(schema["items"]),
+            "minItems": length,
+            "maxItems": length,
+        }
+    if schema_type == "union":
+        return {
+            "oneOf": [
+                {
+                    "type": "object",
+                    "properties": {
+                        "tag": {"const": tag},
+                        "value": _provider_result_schema(child),
+                    },
+                    "required": ["tag", "value"],
+                    "additionalProperties": False,
+                }
+                for tag, child in schema["variants"].items()
+            ]
+        }
+    raise ValueError("unsupported finite-disclosure schema")
+
+
+def tool_descriptions(schema_text: str) -> list:
+    """Binds the caller's validated finite schema to the terminal finish tool."""
+    result_schema = _provider_result_schema(json.loads(schema_text))
+    return TOOL_DESCRIPTIONS[:-1] + [
+        {
+            "name": "finish",
+            "description": TOOL_DESCRIPTIONS[-1]["description"],
+            "parameters": {
+                "type": "object",
+                "properties": {"result": result_schema},
+                "required": ["result"],
+                "additionalProperties": False,
+            },
+        }
+    ]
+
+
 def system_prompt(schema_text: str) -> str:
     return (
         "You are a bounded analysis agent running inside an isolated enclave.\n"
@@ -229,8 +305,10 @@ class OpenAiProfile:
         self.url = f"{endpoint}/v1/chat/completions"
         self.model = model
         self.max_tokens = max_tokens
+        self.tools = TOOL_DESCRIPTIONS
 
     def initial_messages(self, schema_text: str, task: str) -> list:
+        self.tools = tool_descriptions(schema_text)
         return [
             {"role": "system", "content": system_prompt(schema_text)},
             {"role": "user", "content": task},
@@ -242,7 +320,7 @@ class OpenAiProfile:
             "messages": messages,
             "max_tokens": self.max_tokens,
             "tools": [
-                {"type": "function", "function": tool} for tool in TOOL_DESCRIPTIONS
+                {"type": "function", "function": tool} for tool in self.tools
             ],
         }
         return _post_json(self.url, payload, {})
@@ -280,9 +358,11 @@ class AnthropicProfile:
         self.model = model
         self.max_tokens = max_tokens
         self.system = ""
+        self.tools = TOOL_DESCRIPTIONS
 
     def initial_messages(self, schema_text: str, task: str) -> list:
         self.system = system_prompt(schema_text)
+        self.tools = tool_descriptions(schema_text)
         return [{"role": "user", "content": task}]
 
     def request(self, messages: list) -> dict:
@@ -297,7 +377,7 @@ class AnthropicProfile:
                     "description": tool["description"],
                     "input_schema": tool["parameters"],
                 }
-                for tool in TOOL_DESCRIPTIONS
+                for tool in self.tools
             ],
         }
         return _post_json(self.url, payload, {"anthropic-version": "2023-06-01"})
