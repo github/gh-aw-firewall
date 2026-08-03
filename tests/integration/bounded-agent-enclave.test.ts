@@ -238,6 +238,7 @@ describe('bounded-agent enclave against a fake API proxy', () => {
       expect(request.headers['x-api-key']).toBeUndefined();
       expect(request.body.model).toBe('test-model');
       expect(request.body.max_tokens).toBe(256);
+      expect(request.body.tool_choice).toBe('required');
       const tools = request.body.tools as Array<{
         function: {
           name: string;
@@ -363,7 +364,19 @@ describe('bounded-agent enclave against a fake API proxy', () => {
     expect(proxy.requests[0].url).toBe('/v1/messages');
     expect(proxy.requests[0].headers['anthropic-version']).toBe('2023-06-01');
     expect(proxy.requests[0].headers.authorization).toBeUndefined();
+    expect(proxy.requests[0].body.tool_choice).toEqual({ type: 'any' });
     expect(fs.readFileSync(layout.outPath, 'utf8')).toBe('true');
+  });
+
+  test('fails closed if a provider ignores required tool use', async () => {
+    proxy.enqueue({
+      choices: [{ message: { role: 'assistant', content: 'The answer is true.' } }],
+    });
+
+    const result = await runEnclave(layout, baseEnv());
+    expect(result.exitCode).toBe(1);
+    expect(proxy.requests[0].body.tool_choice).toBe('required');
+    expect(fs.readFileSync(layout.outPath, 'utf8')).toBe('');
   });
 
   test('rejects an oversized result rather than truncating it', async () => {

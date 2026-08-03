@@ -319,6 +319,7 @@ class OpenAiProfile:
             "model": self.model,
             "messages": messages,
             "max_tokens": self.max_tokens,
+            "tool_choice": "required",
             "tools": [
                 {"type": "function", "function": tool} for tool in self.tools
             ],
@@ -371,6 +372,7 @@ class AnthropicProfile:
             "system": self.system,
             "messages": messages,
             "max_tokens": self.max_tokens,
+            "tool_choice": {"type": "any"},
             "tools": [
                 {
                     "name": tool["name"],
