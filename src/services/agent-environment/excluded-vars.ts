@@ -14,6 +14,8 @@ export function buildExclusionSet(config: WrapperConfig): Set<string> {
     'SUDO_GID',
     'ACTIONS_RUNTIME_TOKEN',
     'ACTIONS_RESULTS_URL',
+    'ACTIONS_ID_TOKEN_REQUEST_URL',
+    'ACTIONS_ID_TOKEN_REQUEST_TOKEN',
     ...PROXY_ENV_VARS,
     'AWF_PREFLIGHT_BINARY',
     'AWF_STAGED_RUNNER_BINARY_NAME',

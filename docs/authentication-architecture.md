@@ -570,7 +570,7 @@ AWF does not provide this mode. The diagram shows the risk that the always-on si
 
 ## OIDC authentication (keyless credential exchange)
 
-AWF also supports **keyless authentication** via GitHub Actions OIDC workload identity federation. Instead of static API keys, the api-proxy sidecar exchanges a short-lived GitHub-issued JWT for provider-specific credentials — without the agent ever seeing any secret.
+AWF also supports **keyless authentication** via GitHub Actions OIDC workload identity federation. Instead of static API keys, the api-proxy sidecar exchanges a short-lived GitHub-issued JWT for provider-specific credentials. The Actions token-minting variables, minted JWT, and exchanged credentials remain outside the agent container.
 
 ### How native GitHub Actions OIDC works
 
@@ -609,7 +609,7 @@ In a standard GitHub Actions workflow (without AWF), OIDC federation works like 
 
 ### How AWF OIDC works (credential isolation)
 
-AWF keeps the minted GitHub JWT and exchanged cloud credential in the api-proxy sidecar. However, the Actions runtime URL and token used to request a JWT are currently forwarded to the agent as well as the sidecar:
+AWF keeps the Actions OIDC request capability, minted GitHub JWT, and exchanged cloud credential in the api-proxy sidecar:
 
 ```
 ┌─────────────────────────────┐     ┌───────────────────────────────────────┐
@@ -617,7 +617,7 @@ AWF keeps the minted GitHub JWT and exchanged cloud credential in the api-proxy 
 │ 172.30.0.20                 │     │ 172.30.0.30                           │
 │                             │     │                                       │
 │ Environment:                │     │ Environment:                          │
-│ ✓ ACTIONS_ID_TOKEN_*        │     │ ✓ ACTIONS_ID_TOKEN_REQUEST_URL        │
+│ ✗ No ACTIONS_ID_TOKEN_*     │     │ ✓ ACTIONS_ID_TOKEN_REQUEST_URL        │
 │ ✗ No cloud credentials      │     │ ✓ ACTIONS_ID_TOKEN_REQUEST_TOKEN      │
 │ ✗ No API keys               │     │ ✓ AWF_AUTH_TYPE=github-oidc           │
 │ ✓ OPENAI_BASE_URL=          │     │ ✓ AWF_AUTH_PROVIDER=azure|aws|gcp|anthropic │
@@ -648,7 +648,7 @@ AWF keeps the minted GitHub JWT and exchanged cloud credential in the api-proxy 
 
 #### Step 1: Configuration forwarding
 
-The AWF CLI forwards `AWF_AUTH_*` configuration only to the api-proxy sidecar. The Actions runtime OIDC request URL and token are different: `passthroughHostEnvironment()` currently forwards both to the agent as well as `buildOidcEnv()` forwarding them to the sidecar.
+The AWF CLI forwards `AWF_AUTH_*` configuration and the Actions runtime OIDC request URL and token only to the api-proxy sidecar. `buildOidcEnv()` conditionally adds the runtime variables to the sidecar in `github-oidc` mode, while `buildExclusionSet()` prevents every agent environment input path from adding them.
 
 ```
 Host environment                    Sidecar container          Agent container
@@ -656,11 +656,11 @@ Host environment                    Sidecar container          Agent container
 AWF_AUTH_TYPE=github-oidc    ──►    AWF_AUTH_TYPE ✓            ✗ (excluded)
 AWF_AUTH_PROVIDER=azure      ──►    AWF_AUTH_PROVIDER ✓        ✗ (excluded)
 AWF_AUTH_AZURE_TENANT_ID=... ──►    AWF_AUTH_AZURE_TENANT_ID ✓ ✗ (excluded)
-ACTIONS_ID_TOKEN_REQUEST_URL ──►    forwarded when type=oidc ✓ ✓ (forwarded)
+ACTIONS_ID_TOKEN_REQUEST_URL ──►    forwarded when type=oidc ✓ ✗ (excluded)
 ```
 
-:::caution[OIDC minting capability is visible to the agent]
-With `permissions: id-token: write`, `ACTIONS_ID_TOKEN_REQUEST_URL` and `ACTIONS_ID_TOKEN_REQUEST_TOKEN` let agent code request a GitHub OIDC JWT for an audience. AWF keeps the resulting provider credential in the sidecar, but it does not currently isolate this token-minting capability from the agent. Scope federation trust policies narrowly to the repository, workflow, ref, and expected audience.
+:::note[OIDC-authenticated MCP servers]
+Stdio MCP servers launched as agent child processes do not receive the Actions OIDC variables. Run an OIDC-dependent MCP server behind a trusted external MCP gateway or in a dedicated sidecar, give that component the runtime variables directly, and expose only its MCP endpoint to the agent. This preserves OIDC support without placing token-minting capability in the untrusted agent container.
 :::
 
 #### Step 2: GitHub OIDC token minting
@@ -752,7 +752,7 @@ For Anthropic bearer requests, AWF merges the OAuth beta with client-supplied `a
 |----------|----------------|-----------------|
 | Credential type | Long-lived secret | Short-lived token (~1h) |
 | Rotation | Manual | Automatic (proactive refresh) |
-| Agent sees credential material | No real provider key | No minted JWT or exchanged provider credential, but the Actions OIDC request token/URL are currently forwarded to the agent |
+| Agent sees credential material | No real provider key | No Actions OIDC request token, minted JWT, or exchanged provider credential |
 | GitHub Actions requirement | API key in secrets | `permissions: id-token: write` |
 | Cloud provider setup | Generate API key | Configure trust policy/federation |
 | Supported providers | OpenAI, Anthropic, Copilot, Gemini, Vertex AI | Azure (OpenAI/Copilot), GCP (OpenAI/Copilot adapters only — not the native Vertex/Gemini adapters), Anthropic WIF, AWS Bedrock Runtime via OpenAI/Copilot adapters |

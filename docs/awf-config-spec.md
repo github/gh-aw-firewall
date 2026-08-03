@@ -298,7 +298,7 @@ passthrough. A conforming implementation MUST NOT inherit them from the host:
 |----------|-----------|
 | System | `PATH`, `PWD`, `OLDPWD`, `SHLVL`, `_`, `SUDO_COMMAND`, `SUDO_USER`, `SUDO_UID`, `SUDO_GID` |
 | Proxy | `HTTP_PROXY`, `HTTPS_PROXY`, `http_proxy`, `https_proxy`, `NO_PROXY`, `no_proxy`, `ALL_PROXY`, `all_proxy`, `FTP_PROXY`, `ftp_proxy` |
-| Actions artifact tokens | `ACTIONS_RUNTIME_TOKEN`, `ACTIONS_RESULTS_URL` |
+| Actions runtime credentials | `ACTIONS_RUNTIME_TOKEN`, `ACTIONS_RESULTS_URL`, `ACTIONS_ID_TOKEN_REQUEST_URL`, `ACTIONS_ID_TOKEN_REQUEST_TOKEN` |
 | AWF internal controls | `AWF_PREFLIGHT_BINARY`, `AWF_GEMINI_ENABLED` |
 
 > **Note:** Host proxy variables are read for upstream proxy auto-detection
@@ -314,12 +314,15 @@ the following host variables into the agent container:
 |----------|-----------|
 | GitHub authentication | `GITHUB_TOKEN`, `GH_TOKEN`, `GITHUB_PERSONAL_ACCESS_TOKEN` |
 | GitHub enterprise | `GITHUB_SERVER_URL`, `GITHUB_API_URL` |
-| Actions OIDC | `ACTIONS_ID_TOKEN_REQUEST_URL`, `ACTIONS_ID_TOKEN_REQUEST_TOKEN` |
 | Docker client | `DOCKER_HOST`, `DOCKER_TLS`, `DOCKER_TLS_VERIFY`, `DOCKER_CERT_PATH`, `DOCKER_CONFIG`, `DOCKER_CONTEXT`, `DOCKER_API_VERSION`, `DOCKER_DEFAULT_PLATFORM` |
 | User environment | `USER`, `XDG_CONFIG_HOME` |
 
 When `--env-all` IS active, all host variables not in the excluded set
 (§8.3) SHALL be forwarded, subject to credential isolation rules (§9).
+
+Actions OIDC request variables MUST be forwarded directly to the api-proxy
+sidecar when `apiProxy.auth.type` is `github-oidc` and MUST NOT be forwarded
+to the agent through any environment input path.
 
 ### 8.5 Explicit Overrides
 

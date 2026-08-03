@@ -147,45 +147,11 @@ describe('agent environment: credentials', () => {
     expect(env.GH_TOKEN).not.toBe('ghp_real_secret_token_12345');
   });
 
-  it('should pass through ACTIONS_ID_TOKEN_REQUEST_URL when present in environment', () => {
-    const originalEnv = process.env.ACTIONS_ID_TOKEN_REQUEST_URL;
-    process.env.ACTIONS_ID_TOKEN_REQUEST_URL = 'https://token.actions.githubusercontent.com/abc';
-
-    try {
-      const result = generateDockerCompose(mockConfig, mockNetworkConfig);
-      const env = result.services.agent.environment as Record<string, string>;
-      expect(env.ACTIONS_ID_TOKEN_REQUEST_URL).toBe('https://token.actions.githubusercontent.com/abc');
-    } finally {
-      if (originalEnv !== undefined) {
-        process.env.ACTIONS_ID_TOKEN_REQUEST_URL = originalEnv;
-      } else {
-        delete process.env.ACTIONS_ID_TOKEN_REQUEST_URL;
-      }
-    }
-  });
-
-  it('should pass through ACTIONS_ID_TOKEN_REQUEST_TOKEN when present in environment', () => {
-    const originalEnv = process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
-    process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN = 'test-oidc-token-value';
-
-    try {
-      const result = generateDockerCompose(mockConfig, mockNetworkConfig);
-      const env = result.services.agent.environment as Record<string, string>;
-      expect(env.ACTIONS_ID_TOKEN_REQUEST_TOKEN).toBe('test-oidc-token-value');
-    } finally {
-      if (originalEnv !== undefined) {
-        process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN = originalEnv;
-      } else {
-        delete process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
-      }
-    }
-  });
-
-  it('should not pass through OIDC variables when not in environment', () => {
+  it('should never pass Actions OIDC minting variables to the agent', () => {
     const origUrl = process.env.ACTIONS_ID_TOKEN_REQUEST_URL;
     const origToken = process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
-    delete process.env.ACTIONS_ID_TOKEN_REQUEST_URL;
-    delete process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
+    process.env.ACTIONS_ID_TOKEN_REQUEST_URL = 'https://token.actions.githubusercontent.com/abc';
+    process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN = 'test-oidc-token-value';
 
     try {
       const result = generateDockerCompose(mockConfig, mockNetworkConfig);
@@ -204,6 +170,44 @@ describe('agent environment: credentials', () => {
         delete process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
       }
     }
+  });
+
+  it('should exclude Actions OIDC minting variables from --env-all', () => {
+    const origUrl = process.env.ACTIONS_ID_TOKEN_REQUEST_URL;
+    const origToken = process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
+    process.env.ACTIONS_ID_TOKEN_REQUEST_URL = 'https://token.actions.githubusercontent.com/abc';
+    process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN = 'test-oidc-token-value';
+
+    try {
+      const result = generateDockerCompose({ ...mockConfig, envAll: true }, mockNetworkConfig);
+      const env = result.services.agent.environment as Record<string, string>;
+      expect(env.ACTIONS_ID_TOKEN_REQUEST_URL).toBeUndefined();
+      expect(env.ACTIONS_ID_TOKEN_REQUEST_TOKEN).toBeUndefined();
+    } finally {
+      if (origUrl !== undefined) {
+        process.env.ACTIONS_ID_TOKEN_REQUEST_URL = origUrl;
+      } else {
+        delete process.env.ACTIONS_ID_TOKEN_REQUEST_URL;
+      }
+      if (origToken !== undefined) {
+        process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN = origToken;
+      } else {
+        delete process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
+      }
+    }
+  });
+
+  it('should reject explicit Actions OIDC minting variables in additionalEnv', () => {
+    const result = generateDockerCompose({
+      ...mockConfig,
+      additionalEnv: {
+        ACTIONS_ID_TOKEN_REQUEST_URL: 'https://token.actions.githubusercontent.com/abc',
+        ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'test-oidc-token-value',
+      },
+    }, mockNetworkConfig);
+    const env = result.services.agent.environment as Record<string, string>;
+    expect(env.ACTIONS_ID_TOKEN_REQUEST_URL).toBeUndefined();
+    expect(env.ACTIONS_ID_TOKEN_REQUEST_TOKEN).toBeUndefined();
   });
 
   it('should never pass ACTIONS_RUNTIME_TOKEN to agent container', () => {
