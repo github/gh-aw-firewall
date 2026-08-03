@@ -396,7 +396,9 @@ export const testHelpers = {
  * failures are fatal so preflight never silently downgrades an unsupported
  * host.
  */
-export async function probeSbxUnixSocketMount(): Promise<boolean> {
+export async function probeSbxUnixSocketMount(
+  subsystem: 'bounded-query' | 'bounded-agent' = 'bounded-query',
+): Promise<boolean> {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-sbx-socket-probe-'));
   fs.chmodSync(root, 0o700);
   const socketPath = path.join(root, 'probe.sock');
@@ -432,7 +434,7 @@ export async function probeSbxUnixSocketMount(): Promise<boolean> {
     created = (createResult.exitCode ?? 1) === 0 || (createResult.stdout || '').includes('Created sandbox');
     if (!created) {
       throw new Error(
-        `sbx bounded-query ingress probe could not create a sandbox: ${
+        `sbx ${subsystem} ingress probe could not create a sandbox: ${
           (createResult.stderr || createResult.stdout || 'unknown error').trim()
         }`,
       );
@@ -470,7 +472,7 @@ export async function probeSbxUnixSocketMount(): Promise<boolean> {
         timeout: 30_000,
       });
       if ((removed.exitCode ?? 1) !== 0) {
-        cleanupError = new Error('sbx bounded-query ingress probe sandbox could not be removed');
+        cleanupError = new Error(`sbx ${subsystem} ingress probe sandbox could not be removed`);
       }
     }
     await new Promise<void>((resolve) => server.close(() => resolve()));

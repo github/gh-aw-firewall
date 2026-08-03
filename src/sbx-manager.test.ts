@@ -175,6 +175,17 @@ describe('sbx-manager', () => {
         await expect(probeSbxUnixSocketMount()).rejects.toThrow(/could not be removed/);
       });
 
+      it('identifies bounded-agent probe cleanup failures without bounded-query wording', async () => {
+        mockExecaFn
+          .mockResolvedValueOnce({ exitCode: 0, stdout: 'Created sandbox', stderr: '' })
+          .mockResolvedValueOnce({ exitCode: 7, stdout: '', stderr: 'connect failed' })
+          .mockResolvedValueOnce({ exitCode: 1, stdout: '', stderr: 'busy' });
+
+        await expect(probeSbxUnixSocketMount('bounded-agent')).rejects.toThrow(
+          'sbx bounded-agent ingress probe sandbox could not be removed',
+        );
+      });
+
       it('fails closed when the disposable probe sandbox cannot be created', async () => {
         mockExecaFn.mockResolvedValueOnce({
           exitCode: 1,
@@ -184,6 +195,18 @@ describe('sbx-manager', () => {
 
         await expect(probeSbxUnixSocketMount()).rejects.toThrow(
           /could not create a sandbox.*sandbox service unavailable/,
+        );
+      });
+
+      it('identifies bounded-agent probe creation failures without bounded-query wording', async () => {
+        mockExecaFn.mockResolvedValueOnce({
+          exitCode: 1,
+          stdout: '',
+          stderr: 'sandbox service unavailable',
+        });
+
+        await expect(probeSbxUnixSocketMount('bounded-agent')).rejects.toThrow(
+          /sbx bounded-agent ingress probe could not create a sandbox/,
         );
       });
 

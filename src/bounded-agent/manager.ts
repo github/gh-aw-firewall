@@ -156,7 +156,7 @@ export interface PrepareBoundedAgentsDeps {
   /** Override the host environment the staging credential is read from. */
   env?: NodeJS.ProcessEnv;
   /** Override the sbx Unix-socket passthrough probe (tests). */
-  probeSbxUnixSocket?: () => Promise<boolean>;
+  probeSbxUnixSocket?: typeof probeSbxUnixSocketMount;
   /** Override enclave-runtime capability preflight (tests). */
   assertRuntimeAvailable?: typeof assertEnclaveRuntimeAvailable;
   /** Override primary-runtime capability preflight (tests). */
@@ -271,7 +271,7 @@ export async function prepareBoundedAgents(
   } else {
     const probe = deps.probeSbxUnixSocket ?? probeSbxUnixSocketMount;
     try {
-      config.boundedAgentIngressTransport = (await probe()) ? 'unix' : 'sbx-http';
+      config.boundedAgentIngressTransport = (await probe('bounded-agent')) ? 'unix' : 'sbx-http';
     } catch (error) {
       reportBoundedAgentSbxIngressResult(config, 'failed');
       throw error;

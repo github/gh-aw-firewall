@@ -473,6 +473,7 @@ describe('prepareBoundedAgents', () => {
   });
 
   it('creates private sbx-http ingress capabilities only after transport preflight', async () => {
+    const probeSbxUnixSocket = jest.fn(async () => false);
     await prepareBoundedAgents(
       { ...buildConfig(workDir), containerRuntime: 'sbx' } as WrapperConfig,
       {
@@ -480,7 +481,7 @@ describe('prepareBoundedAgents', () => {
         gitRunner,
         assertRuntimeAvailable,
         assertPrimaryAvailable: jest.fn(async () => undefined),
-        probeSbxUnixSocket: jest.fn(async () => false),
+        probeSbxUnixSocket,
       },
     );
 
@@ -492,6 +493,7 @@ describe('prepareBoundedAgents', () => {
       probe: expect.stringMatching(/^[0-9a-f]{64}$/),
     });
     expect(capabilities.query).not.toBe(capabilities.probe);
+    expect(probeSbxUnixSocket).toHaveBeenCalledWith('bounded-agent');
   });
 });
 

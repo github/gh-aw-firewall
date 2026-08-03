@@ -53,8 +53,12 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         length = int(self.headers.get("content-length", "0"))
-        self.rfile.read(length)
-        payload = json.dumps({"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"live","type":"function","function":{"name":"finish","arguments":"{\"result\":true}"}}]}}]}).encode()
+        request = self.rfile.read(length).decode("utf-8", errors="replace")
+        if "LIVE-SMOKE-MARKER" in request:
+            function = {"name":"finish","arguments":"{\"result\":true}"}
+        else:
+            function = {"name":"read_file","arguments":"{\"path\":\"SECURITY.md\"}"}
+        payload = json.dumps({"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"live","type":"function","function":function}]}}]}).encode()
         self.send_response(200)
         self.send_header("content-type", "application/json")
         self.send_header("content-length", str(len(payload)))
