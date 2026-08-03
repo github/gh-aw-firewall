@@ -71,6 +71,11 @@ RUN chmod -R a-w /opt/awf \
     && node --check /opt/awf/broker/docker-client.js \
     && node --check /opt/awf/broker/docker-enclave-runner.js \
     && node --check /opt/awf/broker/gvisor-enclave-runner.js \
+    && node --check /opt/awf/broker/sbx-client.js \
+    && node --check /opt/awf/broker/sbx-capability-probe.js \
+    && node --check /opt/awf/broker/sbx-enclave-runner-spec.js \
+    && node --check /opt/awf/broker/sbx-enclave-runner.js \
+    && node --check /opt/awf/broker/runtime-telemetry.js \
     && node --check /opt/awf/broker/healthcheck.js \
     && node --check /opt/awf/bounded-execution/finite-disclosure.js \
     && node --check /opt/awf/bounded-execution/sensitivity-ledger.js \

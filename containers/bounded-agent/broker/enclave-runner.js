@@ -2,6 +2,7 @@
 
 const { DockerEnclaveRunner } = require('./docker-enclave-runner');
 const { GvisorEnclaveRunner } = require('./gvisor-enclave-runner');
+const { SbxEnclaveRunner } = require('./sbx-enclave-runner');
 const {
   ENCLAVE_MAX_FILE_BYTES,
   buildEnclaveArgs,
@@ -28,8 +29,11 @@ const {
  *
  * Unknown values fail closed. In particular, gVisor never falls back to the
  * daemon's default OCI runtime when runsc is unavailable, and the `sbx`
- * backend has no launcher at all — it is rejected by host-side preflight long
- * before this code runs, and rejected again here.
+ * backend's `assertAvailable` always throws for the currently audited sbx CLI
+ * (see `./sbx-capability-probe.js`) — host-side preflight already blocks sbx
+ * long before this code runs, so reaching this branch at all would mean the
+ * defense-in-depth check inside the runner is the only thing standing between
+ * the request and an unproven enclave, and it fails closed too.
  *
  * @returns {EnclaveRunner}
  */
@@ -39,6 +43,9 @@ function createEnclaveRunner(config, deps = {}) {
   }
   if (config.backend === 'gvisor') {
     return new GvisorEnclaveRunner(config, deps);
+  }
+  if (config.backend === 'sbx') {
+    return new SbxEnclaveRunner(config, deps);
   }
   throw new Error(`Unsupported bounded-agent backend: ${config.backend}`);
 }

@@ -9,28 +9,42 @@ import {
   MAX_TASK_BYTES,
 } from './protocol';
 import { resolveStagingToken } from '../bounded-query/staging';
-import { runtimeUsesComposeAgent } from '../container-runtime';
+import {
+  defaultBoundedAgentSbxCapabilityQuery,
+  type BoundedAgentSbxCapabilityQuery,
+} from './sbx-capability';
 
 /**
  * Fail-closed preflight for bounded agents.
  *
  * JSON Schema already constrains the *shape* of `boundedAgents`. This module
  * covers everything the schema cannot: credential availability, the mandatory
- * API-proxy model route, sandbox runtime availability, and combinations of AWF
- * settings under which a bounded agent cannot be exposed securely.
+ * API-proxy model route, sandbox runtime availability — for *both* the
+ * primary agent and the bounded-agent enclave, evaluated as independent
+ * matrix axes — and combinations of AWF settings under which a bounded agent
+ * cannot be exposed securely.
  *
  * Every check here is fatal. A bounded-agent run that cannot satisfy its
- * isolation guarantees must abort before the primary agent starts rather than
- * silently downgrading — in particular, an unavailable `runsc` never falls
- * back to the default Docker runtime, and the not-yet-implemented `sbx`
- * backend never falls back to Docker or gVisor.
+ * isolation guarantees must abort before the primary agent starts and before
+ * any repository is staged, rather than silently downgrading — in
+ * particular, an unavailable `runsc` never falls back to the default Docker
+ * runtime, and the `sbx` enclave backend never falls back to Docker or
+ * gVisor when its capability proof fails (which it always currently does;
+ * see `./sbx-capability.ts`).
+ *
+ * The *primary* agent runtime is a completely separate axis from the
+ * *enclave* runtime: a primary `sbx` microVM can be paired with a `docker` or
+ * `gvisor` bounded-agent enclave once the primary-sbx ingress is proven (see
+ * `./ingress.ts`), and a `docker`/`gvisor` primary can never be paired with a
+ * `sbx` enclave while sbx's capability report is incomplete. See
+ * `./runtime-matrix.ts` for the full evaluation of all nine combinations.
  */
 
 /** Enclave runtimes with a safe, implemented launcher. */
 const IMPLEMENTED_ENCLAVE_RUNTIMES = new Set(['docker', 'gvisor']);
 
-/** Enclave runtimes the schema accepts but preflight blocks. */
-const BLOCKED_ENCLAVE_RUNTIMES = new Set(['sbx']);
+/** Every enclave runtime the schema accepts, implemented or capability-gated. */
+const SUPPORTED_ENCLAVE_RUNTIMES = new Set(['docker', 'gvisor', 'sbx']);
 
 /** Docker OCI runtime name required for the `gvisor` enclave runtime. */
 const GVISOR_DOCKER_RUNTIME = 'runsc';
@@ -40,6 +54,9 @@ export type DockerRuntimeQuery = (runtimeName: string) => Promise<boolean>;
 
 /** Detects whether the Docker daemon required by the enclave backend is reachable. */
 export type DockerAvailabilityQuery = () => Promise<boolean>;
+
+/** Detects whether the sbx primary-agent runtime is installed and authenticated. */
+export type SbxAvailabilityQuery = () => Promise<boolean>;
 
 const defaultDockerRuntimeQuery: DockerRuntimeQuery = async (runtimeName) => {
   const result = await execa('docker', ['info', '--format', '{{json .Runtimes}}'], {
@@ -64,6 +81,38 @@ const defaultDockerAvailabilityQuery: DockerAvailabilityQuery = async () => {
   });
   return result.exitCode === 0;
 };
+
+/**
+ * Executes the minimum host-side primary-agent capability proof for sbx: an
+ * authenticated, non-mutating `sbx ls`. This is deliberately narrower than
+ * {@link defaultBoundedAgentSbxCapabilityQuery}, which proves the *enclave*
+ * axis; the primary axis only needs to know the CLI/daemon is reachable.
+ */
+const defaultSbxAvailabilityQuery: SbxAvailabilityQuery = async () => {
+  try {
+    const managementEnv = { ...process.env };
+    delete managementEnv.DOCKER_SANDBOXES_PROXY;
+    delete managementEnv.XDG_CONFIG_HOME;
+    const result = await execa('sbx', ['ls'], {
+      reject: false,
+      timeout: 10_000,
+      env: managementEnv,
+    });
+    return result.exitCode === 0;
+  } catch {
+    return false;
+  }
+};
+
+type PrimaryRuntimeCase = 'sbx' | 'docker' | 'gvisor' | 'custom' | 'default-docker';
+
+function classifyPrimaryRuntime(runtime: string | undefined): PrimaryRuntimeCase {
+  if (runtime === 'sbx') return 'sbx';
+  if (runtime === 'docker') return 'docker';
+  if (runtime === 'gvisor' || runtime === 'runsc') return 'gvisor';
+  if (runtime) return 'custom';
+  return 'default-docker';
+}
 
 /**
  * Resolves whether the configured profile has a usable API-proxy model route.
@@ -111,13 +160,10 @@ export function validateBoundedAgentConfig(
 
   const errors: string[] = [];
 
-  if (!runtimeUsesComposeAgent(config.containerRuntime)) {
-    errors.push(
-      `bounded agents require a Docker Compose primary agent, but container runtime ` +
-      `"${config.containerRuntime}" uses an external microVM agent. No audited bounded-agent ` +
-      'ingress exists for that execution model, so AWF fails closed before staging.',
-    );
-  }
+  // The primary-agent runtime (docker / gvisor / sbx) is validated as its own
+  // matrix axis by assertPrimaryRuntimeAvailable, not rejected here. A primary
+  // sbx microVM is supported once its bounded-agent ingress is proven (see
+  // ./ingress.ts and ./manager.ts).
 
   if (config.enableDind) {
     errors.push(
@@ -148,15 +194,11 @@ export function validateBoundedAgentConfig(
     seenKeys.add(key);
   }
 
-  if (BLOCKED_ENCLAVE_RUNTIMES.has(boundedAgents.runtime)) {
+  if (!SUPPORTED_ENCLAVE_RUNTIMES.has(boundedAgents.runtime)) {
     errors.push(
-      `boundedAgents.runtime "${boundedAgents.runtime}" is not yet implemented. AWF has no audited ` +
-      'single-use, API-proxy-only enclave launcher for it, and bounded agents never downgrade to a ' +
-      'weaker runtime. Use "docker" or "gvisor".',
-    );
-  } else if (!IMPLEMENTED_ENCLAVE_RUNTIMES.has(boundedAgents.runtime)) {
-    errors.push(
-      `boundedAgents.runtime "${boundedAgents.runtime}" is not supported. Use "docker" or "gvisor".`,
+      `boundedAgents.runtime "${boundedAgents.runtime}" is not supported. ` +
+      'AWF has no audited, single-use, API-proxy-only enclave launcher for it, and bounded agents ' +
+      'never downgrade to a weaker runtime. Use "docker", "gvisor", or "sbx".',
     );
   }
 
@@ -227,8 +269,13 @@ export function validateBoundedAgentConfig(
     errors.push(`boundedAgents.cpuLimit "${boundedAgents.cpuLimit}" is not a positive Docker --cpus value`);
   }
 
+  // The broker/enclave subsystem always runs via Docker Compose (Squid and
+  // the API proxy are always compose services), independent of the primary
+  // agent's own runtime. sbx *enclave* runtime is exempted because the sbx
+  // enclave runner never mounts the Docker socket into the broker at all —
+  // see buildBoundedAgentService and containers/bounded-agent/broker/config.js.
   const dockerHost = config.awfDockerHost ?? env.DOCKER_HOST;
-  if (dockerHost && !dockerHost.startsWith('unix://')) {
+  if (boundedAgents.runtime !== 'sbx' && dockerHost && !dockerHost.startsWith('unix://')) {
     errors.push(
       `bounded agents require a Unix-socket Docker host, but the resolved host is "${dockerHost}". ` +
       'The broker has no route to a TCP daemon and AWF will not weaken that isolation.',
@@ -249,13 +296,17 @@ export function validateBoundedAgentConfig(
  * Verifies that the requested enclave runtime is actually available.
  *
  * Only reached after {@link validateBoundedAgentConfig} accepted the runtime
- * name, so the only remaining question is daemon support. gVisor requires an
- * exact `runsc` registration and is never downgraded.
+ * name, so the only remaining question is capability. gVisor requires an
+ * exact `runsc` registration and is never downgraded. The `sbx` enclave
+ * backend runs a full capability proof — {@link defaultBoundedAgentSbxCapabilityQuery}
+ * — and is blocked with the exact missing controls whenever the proof is
+ * incomplete, which it always currently is for audited sbx 0.37.1.
  */
 export async function assertEnclaveRuntimeAvailable(
   boundedAgents: BoundedAgentsConfig,
   queryDockerRuntime: DockerRuntimeQuery = defaultDockerRuntimeQuery,
   queryDockerAvailable: DockerAvailabilityQuery = defaultDockerAvailabilityQuery,
+  querySbxCapabilities: BoundedAgentSbxCapabilityQuery = defaultBoundedAgentSbxCapabilityQuery,
 ): Promise<void> {
   if (boundedAgents.runtime === 'gvisor') {
     if (!(await queryDockerRuntime(GVISOR_DOCKER_RUNTIME))) {
@@ -278,19 +329,100 @@ export async function assertEnclaveRuntimeAvailable(
     return;
   }
 
+  if (boundedAgents.runtime === 'sbx') {
+    const report = await querySbxCapabilities();
+    if (!report.supported) {
+      throw new Error(
+        'boundedAgents.runtime "sbx" is blocked because the installed sbx runtime cannot enforce all ' +
+        `mandatory enclave-isolation controls: ${report.missing.join(', ')}. ` +
+        'AWF will not launch an enclave VM and will never fall back to Docker or gVisor.',
+      );
+    }
+    return;
+  }
+
   throw new Error(
     `boundedAgents.runtime "${boundedAgents.runtime}" has no implemented enclave launcher. ` +
     'Bounded agents fail closed rather than downgrading to Docker or gVisor.',
   );
 }
 
+/**
+ * Verifies the primary-agent runtime before bounded-agent repository staging.
+ *
+ * The primary-agent runtime (`docker` / `gvisor` / `sbx`, independent of the
+ * `boundedAgents.runtime` enclave axis) is proven by a bounded-agent-specific
+ * check with bounded-agent wording in every failure, rather than reusing
+ * bounded queries' implementation: reusing it would surface bounded-query
+ * error text (e.g. "Bounded queries abort before staging") on a run that may
+ * not even have bounded queries enabled. The underlying capability probes
+ * (Docker runtime registration, Docker daemon reachability, sbx CLI/daemon
+ * reachability) are identical in substance to bounded queries' own primary
+ * check; only the identifying language differs. Bounded agents and bounded
+ * queries can be enabled independently or together, and neither ever falls
+ * back to a weaker runtime.
+ */
+export async function assertPrimaryRuntimeAvailable(
+  containerRuntime: string | undefined,
+  queryDockerRuntime: DockerRuntimeQuery = defaultDockerRuntimeQuery,
+  queryDockerAvailable: DockerAvailabilityQuery = defaultDockerAvailabilityQuery,
+  querySbxAvailable: SbxAvailabilityQuery = defaultSbxAvailabilityQuery,
+): Promise<void> {
+  const runtimeCase = classifyPrimaryRuntime(containerRuntime);
+  switch (runtimeCase) {
+    case 'sbx':
+      if (!(await querySbxAvailable())) {
+        throw new Error(
+          'Primary-agent runtime "sbx" is unavailable. Bounded agents abort before staging and never ' +
+          'fall back to a Docker or gVisor primary agent.',
+        );
+      }
+      return;
+    case 'docker':
+      if (!(await queryDockerRuntime('docker'))) {
+        throw new Error(
+          'Primary-agent OCI runtime "docker" is not registered with Docker. ' +
+          'Bounded agents abort before staging and never fall back.',
+        );
+      }
+      return;
+    case 'gvisor':
+      if (!(await queryDockerRuntime(GVISOR_DOCKER_RUNTIME))) {
+        throw new Error(
+          `Primary-agent runtime "${containerRuntime}" requires the "${GVISOR_DOCKER_RUNTIME}" OCI ` +
+          'runtime. It is not available, so bounded agents abort before staging and never fall back.',
+        );
+      }
+      return;
+    case 'custom':
+      if (!(await queryDockerRuntime(containerRuntime!))) {
+        throw new Error(
+          `Primary-agent OCI runtime "${containerRuntime}" is not registered with Docker. ` +
+          'Bounded agents abort before staging and never fall back.',
+        );
+      }
+      return;
+    case 'default-docker':
+      if (!(await queryDockerAvailable())) {
+        throw new Error(
+          'The Docker primary-agent runtime is unavailable. ' +
+          'Bounded agents abort before staging and never fall back.',
+        );
+      }
+      return;
+    default:
+      throw new Error(`Unreachable primary runtime case: ${runtimeCase satisfies never}`);
+  }
+}
+
 /** @internal Exported for focused unit tests. */
 // ts-prune-ignore-next
 export const boundedAgentPreflightTestHelpers = {
   IMPLEMENTED_ENCLAVE_RUNTIMES,
-  BLOCKED_ENCLAVE_RUNTIMES,
+  SUPPORTED_ENCLAVE_RUNTIMES,
   GVISOR_DOCKER_RUNTIME,
   defaultDockerRuntimeQuery,
   defaultDockerAvailabilityQuery,
+  defaultSbxAvailabilityQuery,
   isDockerSize,
 };

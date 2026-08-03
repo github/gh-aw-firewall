@@ -56,12 +56,20 @@ Four trust stages, mirroring bounded queries:
    and gitdir pointers. The staging credential is scrubbed before any container
    exists. A run that could never launch an enclave never clones anything.
 
-2. **Trusted broker over a Unix socket.** A dedicated `awf-bounded-agent-broker`
+2. **Trusted broker over a private ingress.** A dedicated `awf-bounded-agent-broker`
    container with `network_mode: none` serves requests over a Unix socket
    mounted into the agent. It has no network at all — not even the enclave
    network it launches enclaves onto. It holds the seed map (including each
    repository's trusted sensitivity), which the agent can never read or modify,
-   and it keeps a ledger **separate** from bounded queries.
+   and it keeps a ledger **separate** from bounded queries. When the primary
+   agent itself runs under `containerRuntime: "sbx"`, AWF first probes whether
+   the microVM's filesystem passthrough can bind the broker's Unix socket
+   directly; when it cannot, the broker instead listens on a dedicated Docker
+   `internal` network with one ephemeral port published only on the Docker
+   host-gateway address, and the agent is given only the endpoint plus a
+   random, single-run capability token proven reachable before the agent
+   starts (see [Primary-agent and bounded-agent runtime
+   matrix](#primary-agent-and-bounded-agent-runtime-matrix)).
 
 3. **Single-use enclave on an API-proxy-only network.** For each accepted
    request the broker launches one fresh, uniquely named, labelled container
@@ -110,7 +118,7 @@ Four trust stages, mirroring bounded queries:
 |-------|---------|---------|
 | `enabled` | `false` | Only an explicit `true` enables the subsystem. |
 | `privateRepos` | — | Required when enabled. `{ repo, sensitivity }` entries; `repo` must be a bare `owner/repo` slug, unique case-insensitively. |
-| `runtime` | `docker` | `docker` or `gvisor`. `sbx` is accepted by the schema but fails closed (see below). |
+| `runtime` | `docker` | `docker` or `gvisor`. `sbx` is accepted by the schema but remains capability-blocked (see below). |
 | `profile` | `openai` | Provider protocol the enclave speaks to the API proxy: `openai` (`POST /v1/chat/completions`) or `anthropic` (`POST /v1/messages`). |
 | `model` | — | Required when enabled. A request can never choose or override it. |
 | `timeout` | `120` | Wall-clock seconds for one invocation (max 540). |
@@ -139,7 +147,13 @@ unless all of the following hold:
 - `model` is set;
 - a staging credential is present in `GH_TOKEN` or `GITHUB_TOKEN`;
 - the Docker host is a Unix socket;
-- the selected runtime is actually available.
+- the **primary agent** runtime is actually available (`docker`, `runsc`
+  registration for `gvisor`, or a proven sbx ingress path for `sbx` — see
+  [Primary-agent and bounded-agent runtime
+  matrix](#primary-agent-and-bounded-agent-runtime-matrix)); a blanket
+  rejection of a primary `sbx` runtime is no longer applied — availability is
+  proven, not assumed;
+- the selected **bounded-agent enclave** runtime is actually available.
 
 ## Docker and gVisor
 
@@ -158,14 +172,128 @@ run aborts instead.
 Nothing else about the topology, mounts, budgets, or protocol changes between
 the two backends.
 
-## `sbx` fails closed
+## `sbx` capability-blocked
 
-`runtime: "sbx"` is accepted by the JSON Schema so configurations can be written
-ahead of support landing, but it **fails closed** with an explicit
-not-yet-implemented capability error at preflight, and is rejected again by
-compose assembly and by the broker's runner factory. AWF has no audited
-single-use, API-proxy-only enclave launcher for `sbx`; support is deliberately
-deferred.
+`runtime: "sbx"` is accepted by the JSON Schema so configurations can be
+written ahead of support landing, but it is **capability-blocked** — never a
+blanket "not yet implemented" refusal, and never a false pass. AWF ships a
+dedicated bounded-agent sbx capability probe
+(`src/bounded-agent/sbx-capability.ts`, mirrored in
+`containers/bounded-agent/broker/sbx-capability-probe.js`) that inspects the
+exact audited Docker Sandboxes CLI (`v0.37.1`) surface with `sbx version`, the
+authenticated non-mutating `sbx ls`, and `create --help` / `exec --help`.
+Lifecycle commands belong to the blocked runner and are not claimed as an
+executed proof. The probe reports every missing capability in structured JSON
+rather than a single boolean.
+
+The enclave requirement is strictly harder than a bounded query's: an
+enclave must reach *exactly one* peer (the dedicated API proxy), not "no
+network at all". Current `sbx create` supports `--cpus`, `--memory`, `--name`,
+`--template`, and read-only same-path mounts, but does **not** expose the hard
+controls AWF requires for a mandatory, enforceable API-proxy-only network
+policy (not an advisory `HTTP_PROXY`), PID limits, disk limits, per-file size
+limits, or a pinned, digest-verified AWF bounded-agent template/bootstrap.
+The probe therefore always reports these as missing and `supported` can never
+be `true` for the currently audited version — by design, not by omission.
+
+AWF rejects this runtime before staging or compose assembly, mounts neither
+the Docker socket nor any sbx daemon credential, and the broker's
+`SbxEnclaveRunner` throws immediately if ever invoked. Support remains blocked
+until sbx provides enforceable versions of all controls and AWF publishes a
+digest-pinned, standard-library-only bootstrap for the enclave — the same
+promotion bar as bounded queries.
+
+## Primary-agent and bounded-agent runtime matrix
+
+The primary agent and the bounded-agent enclave are separate sandbox
+decisions, each with its own availability proof:
+
+- `container.containerRuntime` / `--container-runtime` selects the **primary
+  agent** runtime.
+- `boundedAgents.runtime` selects the **single-use enclave** runtime.
+
+The broker never reuses the primary agent sandbox. Every accepted invocation
+creates a new container with a unique run identity and destroys it before
+returning. No combination ever falls back to a weaker or different backend.
+
+| Primary agent | Docker enclave | gVisor enclave | sbx enclave |
+|---|---|---|---|
+| Docker | Supported when Docker is available | Supported when `runsc` is registered | **Blocked** by mandatory sbx enclave probes |
+| gVisor | Supported when the primary `runsc` runtime is available | Supported when `runsc` is registered | **Blocked** by mandatory sbx enclave probes |
+| sbx | Supported when primary sbx ingress (Unix passthrough or authenticated `sbx-http`) is proven | Supported when primary sbx ingress and `runsc` are proven | **Blocked** by mandatory sbx enclave probes |
+
+"Supported" is capability-dependent, not an instruction to downgrade. An
+unavailable primary runtime fails at primary preflight, before any repository
+is staged. An unavailable enclave runtime fails at enclave preflight, for the
+same reason. Selecting `"runtime": "sbx"` for the enclave is an explicit,
+still-experimental gate; the additional executable capability proof must also
+pass. With Docker Sandboxes `v0.37.1`, all three sbx-enclave cells remain
+blocked — six of the nine combinations are supported once the relevant
+runtime(s) are proven available, and the three `sbx`-enclave cells are not.
+
+`src/bounded-agent/runtime-matrix.ts` evaluates all nine combinations
+independently (`primaryBackend` × `boundedAgentBackend`) and records
+`lifecycleClass`, `capabilityState`, and `category` per cell for telemetry —
+never the task, repository name, or provider payload.
+`scripts/ci/report-bounded-agent-runtime-matrix.js` renders the same matrix
+from live host probes for CI/local use; it reports an explicit `BLOCKED`
+result (and exits non-zero under `--require`) rather than a false pass when no
+real sbx binary is present.
+
+Examples of independent selection:
+
+```json
+{ "container": { "containerRuntime": "sbx" },
+  "boundedAgents": { "enabled": true, "runtime": "docker", "model": "gpt-4o-mini",
+  "privateRepos": [{ "repo": "my-org/private-service", "sensitivity": "internal" }] } }
+```
+
+### Troubleshooting runtime selection
+
+| Symptom | Meaning | Action |
+|---|---|---|
+| `runsc ... not available; no fallback` | The gVisor enclave backend is not registered with Docker | Register `runsc`, verify it appears in `docker info --format '{{json .Runtimes}}'`, and rerun |
+| `sbx ... blocked ... mandatory` capability error | The sbx enclave capability probe failed as designed | Read the complete missing-capability list; do not substitute local policy or a weaker runtime |
+| sbx primary ingress probe fails | The primary VM cannot reach the broker through either proven ingress | Verify sbx Unix passthrough or authenticated `sbx-http` ingress; the agent must not start |
+| Docker host must be `unix://` | The networkless broker cannot reach a TCP daemon | Use a local Unix socket; AWF will not attach the broker to a network |
+| `bounded agents cannot be combined with enableDind` | Docker-socket exposure to the primary agent would bypass every finite-disclosure boundary | Disable `enableDind`; there is no runtime combination in which this is safe |
+| Matrix report says `BLOCKED` | Capability or security preflight prevented launch | Treat this as expected fail-closed status, not successful runtime execution |
+
+Run `node scripts/ci/report-bounded-agent-runtime-matrix.js` after `npm run
+build` to print all nine local capability results. Use `--require
+docker/docker` (or another pair) when a smoke job must require one executable
+combination.
+
+### sbx enclave promotion criteria
+
+The experimental sbx enclave backend MUST remain blocked until all of these are
+demonstrated in real VMs, not only deterministic fakes:
+
+1. A digest-pinned AWF bounded-agent template/bootstrap exists.
+2. A mandatory, enforceable API-proxy-only network policy is available and
+   enforced by the sbx runtime itself — not an advisory `HTTP_PROXY` env var,
+   and not organization-level network policy that can be replaced.
+3. CPU, memory, PID, aggregate disk, and per-file size limits are enforceable.
+4. Read-only seed/task/schema/result mounts have explicit guest targets and
+   expose no broker state, credentials, sibling repository, or prior
+   invocation.
+5. Timeout, OOM, PID, disk, file-size, malformed/oversized output, and
+   interruption cleanup tests all pass.
+6. Unix and authenticated `sbx-http` primary ingress retain byte-identical
+   protocol behavior.
+7. Direct and lateral reachability to anything other than the dedicated API
+   proxy is proven denied, not merely unconfigured.
+
+Passing a version check alone, or passing only the CLI help probe, is not
+enough to promote the backend.
+
+The locally available `docker sandbox` plugin (`v0.12.0`) was also inspected
+through its executable `create shell`, `exec`, `network proxy`, `stop`, and
+`rm` interfaces. It offers same-path workspace mounts and host/CIDR proxy
+policy, but no explicit guest mount targets, create-time CPU/memory/PID/disk/
+file-size bounds, or digest-enforced AWF bootstrap contract. Those are
+mandatory controls, so this older interface is reported as capability-blocked;
+its help text is not treated as execution evidence.
 
 ## Agent interface
 
@@ -192,6 +320,13 @@ Inside the enclave the model gets three read-only repository tools (list, read,
 search) confined to the immutable seed, plus one terminal tool that records the
 final answer. There is no shell, no `gh`, no git, no package manager, no host
 state, no safe outputs, and no MCP.
+
+That exclusion is deliberate: authenticated `gh`, safe outputs, the CLI proxy,
+and MCP gateways are authority-bearing interfaces whose output is not covered
+by the finite result schema. `mcpg` may become an enclave implementation detail
+only after it can preserve this fixed authority-free tool set and canonical
+result boundary. Its raw Podman arguments, logs, stdio, and `jq` filters are not
+the result boundary and must never be exposed to the caller.
 
 ## Budget
 

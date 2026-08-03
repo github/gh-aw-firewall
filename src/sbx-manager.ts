@@ -366,9 +366,15 @@ export async function createSandbox(config: {
  * installed rootless to ~/.local/bin (install_copilot_cli.sh --rootless) stays
  * resolvable by name. `$HOME` resolves to the injected HOME (getRealUserHome),
  * which matches the wholesale-mounted home tool dirs.
+ *
+ * Also prepends the bounded-query and/or bounded-agent wrapper directories
+ * (`AWF_BOUNDED_QUERY_BIN_DIR` / `AWF_BOUNDED_AGENT_BIN_DIR`) when those
+ * subsystems are enabled, since a primary sbx microVM has no `/tmp/awf-lib`
+ * chroot-relative PATH entry to fall back on. Either variable is empty (and
+ * therefore a no-op) unless its subsystem is enabled for this run.
  */
 function withLocalBinOnPath(command: string): string {
-  return `export PATH="\${AWF_BOUNDED_QUERY_BIN_DIR:+$AWF_BOUNDED_QUERY_BIN_DIR:}$HOME/.local/bin\${PATH:+:$PATH}"; ${command}`;
+  return `export PATH="\${AWF_BOUNDED_QUERY_BIN_DIR:+$AWF_BOUNDED_QUERY_BIN_DIR:}\${AWF_BOUNDED_AGENT_BIN_DIR:+$AWF_BOUNDED_AGENT_BIN_DIR:}$HOME/.local/bin\${PATH:+:$PATH}"; ${command}`;
 }
 
 /** @internal Exposed for unit tests only. */
@@ -577,6 +583,57 @@ export async function assertSbxBoundedQueryIngress(
   if (result.exitCode !== 0) {
     throw new Error(
       `sbx host does not support the selected bounded-query ${ingress.transport} ingress`,
+    );
+  }
+}
+
+/**
+ * Proves the selected bounded-agent broker ingress is reachable from the
+ * actual primary sandbox before the agent command starts. Mirrors
+ * {@link assertSbxBoundedQueryIngress} exactly (same `/query` route and
+ * canonical `{"status":"error"}` body), against the bounded-agent broker's
+ * own env var names and capability. The HTTP probe uses a separate one-shot
+ * capability distinct from the query capability that is injected only after
+ * this proof succeeds.
+ */
+export async function assertSbxBoundedAgentIngress(
+  name: string,
+  ingress:
+    | { transport: 'unix'; socketPath: string }
+    | { transport: 'sbx-http'; endpoint: string; probeCapability: string },
+  environment: Record<string, string>,
+  workDir?: string,
+): Promise<void> {
+  const probeEnvironment = { ...environment };
+  let command: string;
+  if (ingress.transport === 'unix') {
+    probeEnvironment.AWF_BOUNDED_AGENT_SOCKET = ingress.socketPath;
+    command = [
+      'response=$(curl --silent --show-error --max-time 15 --unix-socket "$AWF_BOUNDED_AGENT_SOCKET"',
+      '-X POST -H "Expect:"',
+      'http://localhost/query 2>/dev/null) &&',
+      '[ "$response" = \'{"status":"error"}\' ]',
+    ].join(' ');
+  } else {
+    probeEnvironment.AWF_BOUNDED_AGENT_ENDPOINT = ingress.endpoint;
+    probeEnvironment.AWF_BOUNDED_AGENT_PROBE_CAPABILITY = ingress.probeCapability;
+    command = [
+      'response=$(curl --silent --show-error --noproxy "*" --max-time 15',
+      '-X POST -H "Expect:"',
+      '-H "X-AWF-Capability: $AWF_BOUNDED_AGENT_PROBE_CAPABILITY"',
+      '"$AWF_BOUNDED_AGENT_ENDPOINT" 2>/dev/null) &&',
+      '[ "$response" = \'{"status":"error"}\' ]',
+    ].join(' ');
+  }
+
+  const result = await execInSandbox(name, command, {
+    timeoutMinutes: 1,
+    workDir,
+    environment: probeEnvironment,
+  });
+  if (result.exitCode !== 0) {
+    throw new Error(
+      `sbx host does not support the selected bounded-agent ${ingress.transport} ingress`,
     );
   }
 }

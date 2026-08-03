@@ -122,6 +122,40 @@ describe('bounded-agent broker in generated Docker Compose', () => {
       }
     });
 
+    it('gives the dedicated proxy only the selected provider credential and no external telemetry authority', () => {
+      const result = generateDockerCompose(
+        {
+          ...enabled(),
+          anthropicApiKey: 'sk-ant-unused',
+          copilotGithubToken: 'gh-unused',
+          geminiApiKey: 'gemini-unused',
+          additionalEnv: {
+            ACTIONS_ID_TOKEN_REQUEST_URL: 'https://oidc.invalid',
+            ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'oidc-secret',
+            OTEL_EXPORTER_OTLP_ENDPOINT: 'https://telemetry.invalid',
+            OTEL_EXPORTER_OTLP_HEADERS: 'authorization=secret',
+          },
+        },
+        networkConfig,
+      );
+      const proxy = result.services['bounded-agent-api-proxy'] as unknown as Record<string, unknown>;
+      const env = proxy.environment as Record<string, string>;
+      expect(env.OPENAI_API_KEY).toBe('sk-real');
+      for (const forbidden of [
+        'ANTHROPIC_API_KEY',
+        'COPILOT_GITHUB_TOKEN',
+        'GEMINI_API_KEY',
+        'ACTIONS_ID_TOKEN_REQUEST_URL',
+        'ACTIONS_ID_TOKEN_REQUEST_TOKEN',
+        'OTEL_EXPORTER_OTLP_ENDPOINT',
+        'OTEL_EXPORTER_OTLP_HEADERS',
+        'HTTP_PROXY',
+        'HTTPS_PROXY',
+      ]) {
+        expect(env).not.toHaveProperty(forbidden);
+      }
+    });
+
     it('keeps squid, the primary agent, and the broker off the enclave network', () => {
       const result = generateDockerCompose(enabled(), networkConfig);
       for (const name of ['squid-proxy', 'agent', 'bounded-agent-broker']) {
@@ -257,7 +291,7 @@ describe('buildBoundedAgentService guards', () => {
     ).toThrow(/must be enabled/);
   });
 
-  it('fails closed for the not-yet-implemented sbx backend', () => {
+  it('fails closed for boundedAgents.runtime "sbx" because current sbx cannot prove mandatory isolation controls', () => {
     expect(() =>
       buildBoundedAgentService({
         config: {
@@ -268,7 +302,7 @@ describe('buildBoundedAgentService guards', () => {
         imageConfig,
         networkConfig,
       }),
-    ).toThrow(/sbx bounded-agent backend is not implemented/);
+    ).toThrow(/boundedAgents\.runtime "sbx" is capability-blocked/);
   });
 
   it('refuses to wire an enclave with no API proxy to talk to', () => {

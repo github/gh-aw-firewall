@@ -1,4 +1,5 @@
 import * as fs from 'fs';
+import * as crypto from 'crypto';
 import execa from 'execa';
 import { logger } from '../logger';
 import { getLocalDockerEnv } from '../host-env';
@@ -9,7 +10,11 @@ import {
   resolveBoundedAgentPaths,
   type BoundedAgentPaths,
 } from './paths';
-import { assertEnclaveRuntimeAvailable, validateBoundedAgentConfig } from './preflight';
+import {
+  assertEnclaveRuntimeAvailable,
+  assertPrimaryRuntimeAvailable,
+  validateBoundedAgentConfig,
+} from './preflight';
 import { writeBoundedAgentSkill } from './skill';
 import { writeBoundedAgentWrapper } from './wrapper-artifact';
 import { releaseSeedPermissions, resolveStagingToken, stageBoundedAgentSeeds, type GitRunner } from './staging';
@@ -20,6 +25,12 @@ import {
 } from '../bounded-execution/repository-staging';
 import { assertBoundedAgentPrivateRootIsolated } from './mount-policy';
 import { fixArtifactPermissionsForRootless } from '../artifact-permissions';
+import { runtimeUsesComposeAgent } from '../container-runtime';
+import { probeSbxUnixSocketMount } from '../sbx-manager';
+import {
+  resolveBoundedAgentPrimaryBackend,
+  serializeBoundedAgentRuntimeTelemetry,
+} from './runtime-matrix';
 
 /**
  * Bounded-agent lifecycle orchestration.
@@ -144,18 +155,51 @@ export interface PrepareBoundedAgentsDeps {
   gitRunner?: GitRunner;
   /** Override the host environment the staging credential is read from. */
   env?: NodeJS.ProcessEnv;
+  /** Override the sbx Unix-socket passthrough probe (tests). */
+  probeSbxUnixSocket?: () => Promise<boolean>;
   /** Override enclave-runtime capability preflight (tests). */
   assertRuntimeAvailable?: typeof assertEnclaveRuntimeAvailable;
+  /** Override primary-runtime capability preflight (tests). */
+  assertPrimaryAvailable?: typeof assertPrimaryRuntimeAvailable;
+}
+
+interface SbxIngressCapabilities {
+  version: 1;
+  query: string;
+  probe: string;
+}
+
+function writeSbxIngressCapabilities(paths: BoundedAgentPaths): void {
+  const capabilities: SbxIngressCapabilities = {
+    version: 1,
+    query: crypto.randomBytes(32).toString('hex'),
+    probe: crypto.randomBytes(32).toString('hex'),
+  };
+  const fd = fs.openSync(
+    paths.capabilityPath,
+    fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_NOFOLLOW,
+    0o600,
+  );
+  try {
+    fs.writeSync(fd, JSON.stringify(capabilities));
+    fs.fchmodSync(fd, 0o600);
+  } finally {
+    fs.closeSync(fd);
+  }
 }
 
 /**
- * Validates configuration, proves the enclave runtime is available, stages one
- * immutable seed per configured repository, and writes the broker/agent
- * artifacts.
+ * Validates configuration, proves both the primary-agent runtime and the
+ * enclave runtime are independently available, stages one immutable seed per
+ * configured repository, and writes the broker/agent artifacts.
  *
  * Ordering is a security property: preflight runs *before* staging, so a run
  * that could never launch an enclave never clones a private repository, and
- * the staging credential is discarded before any container exists.
+ * the staging credential is discarded before any container exists. Each
+ * preflight axis is proven independently and neither ever falls back to a
+ * weaker backend on failure; every terminal state is reported as narrow,
+ * content-free runtime telemetry (backend names and capability state only —
+ * never secrets, paths, prompts, repo names, or model payloads).
  *
  * Throws on any failure — the caller must abort the run.
  */
@@ -172,8 +216,67 @@ export async function prepareBoundedAgents(
     throw new Error(`Bounded-agent configuration is invalid:\n  - ${errors.join('\n  - ')}`);
   }
 
+  const primaryBackend = resolveBoundedAgentPrimaryBackend(config.containerRuntime);
+  const telemetryBase = {
+    primaryBackend,
+    boundedAgentBackend: boundedAgents.runtime,
+    lifecycleClass: 'preflight' as const,
+  };
   const assertRuntimeAvailable = deps.assertRuntimeAvailable ?? assertEnclaveRuntimeAvailable;
-  await assertRuntimeAvailable(boundedAgents);
+  const assertPrimaryAvailable = deps.assertPrimaryAvailable ?? assertPrimaryRuntimeAvailable;
+  try {
+    await assertPrimaryAvailable(config.containerRuntime);
+  } catch (error) {
+    logger.info(
+      `Bounded-agent runtime telemetry: ${serializeBoundedAgentRuntimeTelemetry({
+        ...telemetryBase,
+        capabilityState: 'unavailable',
+        category: 'primary-runtime-unavailable',
+      })}`,
+    );
+    throw error;
+  }
+  try {
+    await assertRuntimeAvailable(boundedAgents);
+  } catch (error) {
+    logger.info(
+      `Bounded-agent runtime telemetry: ${serializeBoundedAgentRuntimeTelemetry({
+        ...telemetryBase,
+        capabilityState: boundedAgents.runtime === 'sbx' ? 'blocked' : 'unavailable',
+        category: boundedAgents.runtime === 'sbx' ? 'enclave-security-block' : 'enclave-runtime-unavailable',
+      })}`,
+    );
+    throw error;
+  }
+  // A primary-sbx run is never reported `ready` here: preflight only proves the
+  // sbx CLI and enclave capability exist, not that the selected ingress
+  // transport (unix-in-sbx or sbx-http) is actually reachable from inside the
+  // sandbox. That executable proof happens later in `main-action`, after the
+  // sandbox is created, via `assertSbxBoundedAgentIngress`. Reporting `ready`
+  // here would be a false promotion — see
+  // `reportBoundedAgentSbxIngressResult` for the deferred terminal event.
+  // Compose primaries (docker/gvisor) have no equivalent later proof step —
+  // Compose either mounts the broker socket successfully or fails outright —
+  // so `ready` is accurate immediately after preflight for those backends.
+  logger.info(
+    `Bounded-agent runtime telemetry: ${serializeBoundedAgentRuntimeTelemetry({
+      ...telemetryBase,
+      capabilityState: 'supported',
+      category: primaryBackend === 'sbx' ? 'primary-sbx-ingress-pending' : 'ready',
+    })}`,
+  );
+
+  if (runtimeUsesComposeAgent(config.containerRuntime)) {
+    config.boundedAgentIngressTransport = 'unix';
+  } else {
+    const probe = deps.probeSbxUnixSocket ?? probeSbxUnixSocketMount;
+    try {
+      config.boundedAgentIngressTransport = (await probe()) ? 'unix' : 'sbx-http';
+    } catch (error) {
+      reportBoundedAgentSbxIngressResult(config, 'failed');
+      throw error;
+    }
+  }
 
   const paths = resolveBoundedAgentPaths(config.workDir);
   assertBoundedAgentPrivateRootIsolated(config, paths, env);
@@ -198,6 +301,9 @@ export async function prepareBoundedAgents(
   }
 
   prepareDirectories(paths);
+  if (config.boundedAgentIngressTransport === 'sbx-http') {
+    writeSbxIngressCapabilities(paths);
+  }
 
   const runId = generateBoundedAgentRunId();
   const staging = await stageBoundedAgentSeeds({
@@ -230,6 +336,48 @@ export async function prepareBoundedAgents(
 
   logger.info(
     `Bounded agents: staged ${staging.seeds.length} immutable seed(s); staging credential discarded.`,
+  );
+}
+
+/**
+ * Emits the terminal bounded-agent runtime telemetry for a primary-sbx run,
+ * once `assertSbxBoundedAgentIngress` has actually been attempted in
+ * `main-action` after the sandbox exists.
+ *
+ * `prepareBoundedAgents` deliberately never reports `ready` for a primary-sbx
+ * run by itself (see the `primary-sbx-ingress-pending` telemetry emitted
+ * there): preflight only proves the sbx CLI and enclave capability are
+ * present, not that the selected ingress transport is reachable from inside
+ * the sandbox. This function is the only place that reports the outcome of
+ * that later, executable proof — `ready`/`supported` only on success, a
+ * distinct terminal `unavailable` category on failure. It is a no-op when
+ * bounded agents are disabled or the primary backend is not sbx, so callers
+ * may invoke it unconditionally around the ingress-proof call site.
+ */
+export function reportBoundedAgentSbxIngressResult(
+  config: WrapperConfig,
+  outcome: 'proven' | 'failed',
+): void {
+  const boundedAgents = config.boundedAgents;
+  if (!boundedAgents?.enabled) return;
+  const primaryBackend = resolveBoundedAgentPrimaryBackend(config.containerRuntime);
+  if (primaryBackend !== 'sbx') return;
+
+  const telemetryBase = {
+    primaryBackend,
+    boundedAgentBackend: boundedAgents.runtime,
+    lifecycleClass: 'startup' as const,
+  };
+  logger.info(
+    `Bounded-agent runtime telemetry: ${serializeBoundedAgentRuntimeTelemetry(
+      outcome === 'proven'
+        ? { ...telemetryBase, capabilityState: 'supported', category: 'ready' }
+        : {
+            ...telemetryBase,
+            capabilityState: 'unavailable',
+            category: 'primary-sbx-ingress-unproven',
+          },
+    )}`,
   );
 }
 
@@ -319,4 +467,5 @@ export const boundedAgentManagerTestHelpers = {
   readRunId,
   removeOrphanEnclaveContainers,
   removePrivateState,
+  writeSbxIngressCapabilities,
 };

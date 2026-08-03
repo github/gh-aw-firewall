@@ -100,8 +100,10 @@ export interface BoundedAgentsConfig {
    * Sandbox runtime backend used to execute the enclave.
    *
    * `docker` and `gvisor` are implemented. `sbx` is accepted by the schema
-   * but fails closed at preflight with an explicit not-yet-implemented
-   * capability error — no backend ever downgrades.
+   * but is capability-gated: preflight probes the installed sbx CLI and
+   * blocks before any repository is staged unless every mandatory
+   * isolation and API-proxy-only network primitive can be proven. No
+   * backend ever downgrades.
    *
    * @default 'docker'
    */
@@ -228,6 +230,18 @@ export const BOUNDED_AGENT_DEFAULTS: Readonly<
   maxModelTokens: 1024,
 };
 
+/**
+ * Transport used between the primary agent and the bounded-agent broker.
+ *
+ * Compose agents (docker, gvisor) always use `unix`: the broker's socket is
+ * bind-mounted directly into the agent container. A primary sbx microVM
+ * cannot receive that bind mount, so it uses `unix` only when an executable
+ * passthrough probe proves the microVM can reach a host-mounted Unix socket;
+ * otherwise it falls back to `sbx-http`, an authenticated loopback-only HTTP
+ * transport on a dedicated internal network (see `./ingress.ts`).
+ */
+export type BoundedAgentIngressTransport = 'unix' | 'sbx-http';
+
 export interface BoundedAgentOptions {
   /**
    * Normalized bounded-agent enclave configuration.
@@ -239,4 +253,15 @@ export interface BoundedAgentOptions {
    * @default undefined
    */
   boundedAgents?: BoundedAgentsConfig;
+
+  /**
+   * Trusted runtime state selected by bounded-agent preflight.
+   *
+   * This is not a user-configurable field and is never accepted from the AWF
+   * config file. Compose agents always use `unix`; sbx uses `unix` only when
+   * an executable passthrough probe succeeds, otherwise `sbx-http`.
+   *
+   * @internal
+   */
+  boundedAgentIngressTransport?: BoundedAgentIngressTransport;
 }

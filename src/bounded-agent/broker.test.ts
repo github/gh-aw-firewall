@@ -9,6 +9,7 @@ const {
 } = require(path.join(brokerDir, 'enclave-runner.js'));
 const { DockerEnclaveRunner } = require(path.join(brokerDir, 'docker-enclave-runner.js'));
 const { GvisorEnclaveRunner } = require(path.join(brokerDir, 'gvisor-enclave-runner.js'));
+const { SbxEnclaveRunner } = require(path.join(brokerDir, 'sbx-enclave-runner.js'));
 const { createLedger } = require(path.join(brokerDir, 'ledger.js'));
 const { CANONICAL_ERROR_JSON } = require(path.join(brokerDir, 'protocol.js'));
 const { BOUNDED_AGENT_AUDIT_FILENAME } = require(path.join(brokerDir, 'audit.js'));
@@ -574,8 +575,12 @@ describe('bounded-agent enclave runner selection', () => {
     expect(createEnclaveRunner({ ...config, backend: 'gvisor' })).toBeInstanceOf(GvisorEnclaveRunner);
   });
 
-  it('fails closed for any other backend, including sbx', () => {
-    expect(() => createEnclaveRunner({ ...config, backend: 'sbx' })).toThrow(/Unsupported/);
+  it('selects the sbx runner for the sbx backend, which fails closed on assertAvailable', () => {
+    const runner = createEnclaveRunner({ ...config, backend: 'sbx' });
+    expect(runner).toBeInstanceOf(SbxEnclaveRunner);
+  });
+
+  it('fails closed for any other backend, not sbx', () => {
     expect(() => createEnclaveRunner({ ...config, backend: 'firecracker' })).toThrow(/Unsupported/);
   });
 
