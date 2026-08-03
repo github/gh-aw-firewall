@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import execa from 'execa';
+import { logger } from '../logger';
 import type { WrapperConfig } from '../types';
 import { BOUNDED_AGENT_DEFAULTS, type BoundedAgentsConfig } from '../types/bounded-agent-options';
 import { resolveBoundedAgentPaths } from './paths';
@@ -10,6 +11,7 @@ import {
   boundedAgentManagerTestHelpers,
   isBoundedAgentsEnabled,
   prepareBoundedAgents,
+  reportBoundedAgentSbxIngressResult,
   teardownBoundedAgents,
 } from './manager';
 import { releaseSeedPermissions, type GitRunner } from './staging';
@@ -274,6 +276,150 @@ describe('prepareBoundedAgents', () => {
     await expect(
       prepareBoundedAgents(buildConfig(workDir), { env: { GH_TOKEN: 't' }, gitRunner, assertRuntimeAvailable }),
     ).rejects.toThrow(/EEXIST/);
+  });
+
+  describe('runtime telemetry lifecycle (never `ready` before sbx ingress is proven)', () => {
+    function collectTelemetry(infoSpy: jest.SpyInstance): Array<Record<string, unknown>> {
+      return infoSpy.mock.calls
+        .map((call) => String(call[0]))
+        .filter((line) => line.startsWith('Bounded-agent runtime telemetry: '))
+        .map((line) => JSON.parse(line.slice('Bounded-agent runtime telemetry: '.length)));
+    }
+
+    it('reports `ready` immediately after preflight for a compose (docker) primary', async () => {
+      const infoSpy = jest.spyOn(logger, 'info').mockImplementation(() => undefined);
+      try {
+        await prepareBoundedAgents(buildConfig(workDir), {
+          env: { GH_TOKEN: 't' },
+          gitRunner,
+          assertRuntimeAvailable,
+        });
+        const events = collectTelemetry(infoSpy);
+        const terminal = events[events.length - 1];
+        expect(terminal).toEqual(expect.objectContaining({
+          primaryBackend: 'docker',
+          capabilityState: 'supported',
+          category: 'ready',
+        }));
+      } finally {
+        infoSpy.mockRestore();
+      }
+    });
+
+    it('never reports `ready` for a primary-sbx run before ingress is proven', async () => {
+      const infoSpy = jest.spyOn(logger, 'info').mockImplementation(() => undefined);
+      try {
+        await prepareBoundedAgents(
+          { ...buildConfig(workDir), containerRuntime: 'sbx' } as WrapperConfig,
+          {
+            env: { GH_TOKEN: 't' },
+            gitRunner,
+            assertRuntimeAvailable,
+            probeSbxUnixSocket: async () => true,
+          },
+        );
+        const events = collectTelemetry(infoSpy);
+        expect(events.some((event) => event.category === 'ready')).toBe(false);
+        const terminal = events[events.length - 1];
+        expect(terminal).toEqual(expect.objectContaining({
+          primaryBackend: 'sbx',
+          capabilityState: 'supported',
+          category: 'primary-sbx-ingress-pending',
+        }));
+      } finally {
+        infoSpy.mockRestore();
+      }
+    });
+
+    it('reports ingress unavailable when primary-sbx transport selection fails', async () => {
+      const infoSpy = jest.spyOn(logger, 'info').mockImplementation(() => undefined);
+      try {
+        await expect(prepareBoundedAgents(
+          { ...buildConfig(workDir), containerRuntime: 'sbx' } as WrapperConfig,
+          {
+            env: { GH_TOKEN: 't' },
+            gitRunner,
+            assertRuntimeAvailable,
+            probeSbxUnixSocket: async () => {
+              throw new Error('socket probe failed');
+            },
+          },
+        )).rejects.toThrow('socket probe failed');
+
+        const events = collectTelemetry(infoSpy);
+        expect(events.some((event) => event.category === 'ready')).toBe(false);
+        expect(events[events.length - 1]).toEqual(expect.objectContaining({
+          primaryBackend: 'sbx',
+          lifecycleClass: 'startup',
+          capabilityState: 'unavailable',
+          category: 'primary-sbx-ingress-unproven',
+        }));
+      } finally {
+        infoSpy.mockRestore();
+      }
+    });
+
+    it('reportBoundedAgentSbxIngressResult reports `ready` only once ingress proof succeeds', () => {
+      const infoSpy = jest.spyOn(logger, 'info').mockImplementation(() => undefined);
+      try {
+        const config = { ...buildConfig(workDir), containerRuntime: 'sbx' } as WrapperConfig;
+        reportBoundedAgentSbxIngressResult(config, 'proven');
+        const events = collectTelemetry(infoSpy);
+        expect(events).toHaveLength(1);
+        expect(events[0]).toEqual(expect.objectContaining({
+          primaryBackend: 'sbx',
+          lifecycleClass: 'startup',
+          capabilityState: 'supported',
+          category: 'ready',
+        }));
+      } finally {
+        infoSpy.mockRestore();
+      }
+    });
+
+    it('reportBoundedAgentSbxIngressResult reports a terminal unavailable event when ingress proof fails', () => {
+      const infoSpy = jest.spyOn(logger, 'info').mockImplementation(() => undefined);
+      try {
+        const config = { ...buildConfig(workDir), containerRuntime: 'sbx' } as WrapperConfig;
+        reportBoundedAgentSbxIngressResult(config, 'failed');
+        const events = collectTelemetry(infoSpy);
+        expect(events).toHaveLength(1);
+        expect(events[0]).toEqual(expect.objectContaining({
+          primaryBackend: 'sbx',
+          lifecycleClass: 'startup',
+          capabilityState: 'unavailable',
+          category: 'primary-sbx-ingress-unproven',
+        }));
+        expect(events.some((event) => event.category === 'ready')).toBe(false);
+      } finally {
+        infoSpy.mockRestore();
+      }
+    });
+
+    it('reportBoundedAgentSbxIngressResult is a no-op for a non-sbx primary', () => {
+      const infoSpy = jest.spyOn(logger, 'info').mockImplementation(() => undefined);
+      try {
+        const config = { ...buildConfig(workDir), containerRuntime: 'gvisor' } as WrapperConfig;
+        reportBoundedAgentSbxIngressResult(config, 'proven');
+        expect(collectTelemetry(infoSpy)).toHaveLength(0);
+      } finally {
+        infoSpy.mockRestore();
+      }
+    });
+
+    it('reportBoundedAgentSbxIngressResult is a no-op when bounded agents are disabled', () => {
+      const infoSpy = jest.spyOn(logger, 'info').mockImplementation(() => undefined);
+      try {
+        const config = {
+          ...buildConfig(workDir, { enabled: false }),
+          containerRuntime: 'sbx',
+        } as WrapperConfig;
+        reportBoundedAgentSbxIngressResult(config, 'proven');
+        expect(collectTelemetry(infoSpy)).toHaveLength(0);
+      } finally {
+        infoSpy.mockRestore();
+      }
+    });
   });
 });
 

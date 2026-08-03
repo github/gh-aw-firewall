@@ -40,7 +40,7 @@ import {
 import { prepareBoundedQueries, teardownBoundedQueries } from '../bounded-query/manager';
 import {
   prepareBoundedAgents,
-  recordBoundedAgentRuntimeTelemetry,
+  reportBoundedAgentSbxIngressResult,
   teardownBoundedAgents,
 } from '../bounded-agent/manager';
 import type { WrapperConfig } from '../types';
@@ -462,10 +462,16 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
                 config.containerWorkDir,
               );
             } catch (error) {
-              recordBoundedAgentRuntimeTelemetry(config, 'unavailable', 'primary-ingress-unavailable');
+              // Preflight only proved the sbx CLI and enclave capability exist;
+              // this is the executable proof that the selected ingress
+              // transport is actually reachable from inside the sandbox. Never
+              // report `ready` telemetry when that proof fails.
+              reportBoundedAgentSbxIngressResult(config, 'failed');
               throw error;
             }
-            recordBoundedAgentRuntimeTelemetry(config, 'supported', 'ready');
+            // Ingress is proven reachable now — this is the only point a
+            // primary-sbx run is ever reported `ready`.
+            reportBoundedAgentSbxIngressResult(config, 'proven');
 
             Object.assign(sbxEnvironment, {
               AWF_BOUNDED_AGENT_SKILL: boundedAgentPaths.skillPath,

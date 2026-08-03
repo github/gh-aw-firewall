@@ -12,11 +12,25 @@ const { createServer, createTcpServer, listenOnSocket, listenOnTcp, MAX_CONNECTI
 );
 /* eslint-enable @typescript-eslint/no-require-imports */
 
+/**
+ * TCP ingress conformance tests for the bounded-agent broker, mirroring the
+ * coverage bounded queries already have
+ * (`src/bounded-query/ingress-conformance.test.ts`): missing/duplicate/wrong
+ * capability rejection, one-shot probe retirement, capability-header
+ * stripping before framing, byte-identical Unix/TCP canonical responses, body
+ * size limits, and connection-limit behavior.
+ *
+ * Only `server.js`'s existing exports (`createServer`, `createTcpServer`,
+ * `listenOnSocket`, `listenOnTcp`, `MAX_CONNECTIONS`) are used — no
+ * production surface is widened for these tests.
+ */
+
 const CAPABILITY = 'a'.repeat(64);
 const PROBE_CAPABILITY = 'b'.repeat(64);
 const CANONICAL_ERROR = '{"status":"error"}';
 const CANONICAL_OK = '{"status":"ok","result":true}';
 const SCHEMA = Buffer.from('{"type":"boolean"}').toString('base64url');
+const MAX_TASK_BYTES = 64 * 1024;
 
 interface Response {
   status: number | undefined;
@@ -34,7 +48,7 @@ function stableResponse(response: Response) {
   };
 }
 
-function request(options: http.RequestOptions, body = 'is it true?'): Promise<Response> {
+function request(options: http.RequestOptions, body = 'do the task'): Promise<Response> {
   return new Promise((resolve, reject) => {
     const req = http.request({
       method: 'POST',
@@ -74,7 +88,7 @@ describe('bounded-agent ingress conformance', () => {
   };
 
   beforeEach(async () => {
-    root = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-agent-ingress-test-'));
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-bounded-agent-ingress-test-'));
     socketPath = path.join(root, 'broker.sock');
     handled = [];
     const broker = {
@@ -116,7 +130,7 @@ describe('bounded-agent ingress conformance', () => {
     headers: { 'x-awf-capability': capability },
   }, body);
 
-  it('returns byte-identical canonical responses and strips the capability before framing', async () => {
+  it('returns byte-identical status, headers, and canonical result bytes across transports', async () => {
     const [unix, tcp] = await Promise.all([unixRequest(), tcpRequest()]);
     expect(stableResponse(tcp)).toEqual(stableResponse(unix));
     expect(stableResponse(tcp)).toEqual(expect.objectContaining({
@@ -131,46 +145,83 @@ describe('bounded-agent ingress conformance', () => {
     expect(handled[0]).not.toHaveProperty('capability');
   });
 
-  it('collapses missing, wrong, and duplicated capabilities to the same failure', async () => {
-    const responses = await Promise.all([
-      request({ host: '127.0.0.1', port: tcpPort }),
-      tcpRequest(undefined, 'c'.repeat(64)),
-      request({
-        host: '127.0.0.1',
-        port: tcpPort,
-        headers: { 'x-awf-capability': [CAPABILITY, CAPABILITY] },
-      }),
-    ]);
+  it('collapses missing, wrong, and duplicated authentication to canonical failure bytes', async () => {
+    const missing = request({ host: '127.0.0.1', port: tcpPort });
+    const wrong = tcpRequest(undefined, 'c'.repeat(64));
+    const duplicated = request({
+      host: '127.0.0.1',
+      port: tcpPort,
+      headers: { 'x-awf-capability': [CAPABILITY, CAPABILITY] },
+    });
+    const responses = await Promise.all([missing, wrong, duplicated]);
     for (const response of responses) {
       expect(response.status).toBe(200);
       expect(response.body).toBe(CANONICAL_ERROR);
     }
     expect(handled).toHaveLength(0);
+    expect(audit.failure).toHaveBeenCalledWith('transport', 'auth-rejected');
   });
 
-  it('retires the one-shot probe without dispatching broker work', async () => {
+  it('uses a one-shot probe capability without launching or consuming a request, then permanently retires it', async () => {
+    const before = handled.length;
     const first = await tcpRequest('', PROBE_CAPABILITY);
     const second = await tcpRequest('', PROBE_CAPABILITY);
     expect(first.body).toBe(CANONICAL_ERROR);
     expect(second.body).toBe(CANONICAL_ERROR);
-    expect(handled).toHaveLength(0);
-    expect(audit.lifecycle).toHaveBeenCalledTimes(1);
+    expect(handled.length).toBe(before);
     expect(audit.lifecycle).toHaveBeenCalledWith('sbx-ingress-probe');
+    expect(audit.lifecycle).toHaveBeenCalledTimes(1);
+    // The second attempt with the same (now-retired) probe capability must be
+    // rejected as an ordinary auth failure, not treated as another probe.
+    expect(audit.failure).toHaveBeenCalledWith('transport', 'auth-rejected');
   });
 
-  it('keeps oversized-body behavior identical across transports', async () => {
-    const oversized = 'x'.repeat(64 * 1024 + 1);
-    const [unix, tcp] = await Promise.all([unixRequest(oversized), tcpRequest(oversized)]);
-    expect(unix.body).toBe(CANONICAL_ERROR);
-    expect(stableResponse(tcp)).toEqual(stableResponse(unix));
+  it('strips the capability header before handing the request to framing/broker logic', async () => {
+    await tcpRequest();
+    expect(handled).toHaveLength(1);
+    expect(handled[0]).not.toHaveProperty('capability');
+    expect(JSON.stringify(handled[0])).not.toContain(CAPABILITY);
   });
 
-  it('does not dispatch work for an over-limit connection', async () => {
-    const holders = await Promise.all(Array.from({ length: MAX_CONNECTIONS }, () =>
-      new Promise<net.Socket>((resolve, reject) => {
-        const socket = net.createConnection({ host: '127.0.0.1', port: tcpPort }, () => resolve(socket));
-        socket.on('error', reject);
-      })));
+  it('keeps oversized and parallel request behavior identical across transports', async () => {
+    const oversized = 'x'.repeat(MAX_TASK_BYTES + 1);
+    const [unixOversized, tcpOversized] = await Promise.all([
+      unixRequest(oversized),
+      tcpRequest(oversized),
+    ]);
+    expect(unixOversized.body).toBe(CANONICAL_ERROR);
+    expect(stableResponse(tcpOversized)).toEqual(stableResponse(unixOversized));
+
+    const results = await Promise.all([
+      unixRequest(),
+      unixRequest(),
+      tcpRequest(),
+      tcpRequest(),
+    ]);
+    expect(results.map((result) => result.body)).toEqual(Array(4).fill(CANONICAL_OK));
+  });
+
+  it('accepts a task body exactly at the size limit and rejects one byte over it, identically on both transports', async () => {
+    const atLimit = 'x'.repeat(MAX_TASK_BYTES);
+    const overLimit = 'x'.repeat(MAX_TASK_BYTES + 1);
+    const [unixAtLimit, tcpAtLimit] = await Promise.all([unixRequest(atLimit), tcpRequest(atLimit)]);
+    expect(unixAtLimit.body).toBe(CANONICAL_OK);
+    expect(tcpAtLimit.body).toBe(CANONICAL_OK);
+
+    const [unixOverLimit, tcpOverLimit] = await Promise.all([
+      unixRequest(overLimit),
+      tcpRequest(overLimit),
+    ]);
+    expect(unixOverLimit.body).toBe(CANONICAL_ERROR);
+    expect(tcpOverLimit.body).toBe(CANONICAL_ERROR);
+  });
+
+  it('does not dispatch broker work for a request that arrives on an over-limit socket', async () => {
+    const holders = await Promise.all(Array.from({ length: MAX_CONNECTIONS }, () => new Promise<net.Socket>((resolve, reject) => {
+      const socket = net.createConnection({ host: '127.0.0.1', port: tcpPort }, () => resolve(socket));
+      socket.on('error', reject);
+    })));
+
     try {
       const rawResponse = await new Promise<string>((resolve, reject) => {
         const socket = net.createConnection({ host: '127.0.0.1', port: tcpPort }, () => {
@@ -192,6 +243,7 @@ describe('bounded-agent ingress conformance', () => {
         socket.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
         socket.on('error', reject);
       });
+
       expect(rawResponse).toContain(CANONICAL_ERROR);
       expect(handled).toHaveLength(0);
       expect(audit.failure).toHaveBeenCalledWith('transport', 'connection-limit');

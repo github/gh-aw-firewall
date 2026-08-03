@@ -138,10 +138,10 @@ describe('validateBoundedAgentConfig', () => {
   });
 
   it('no longer rejects a primary sbx microVM at the config-validation level', () => {
-    // The primary-agent runtime axis is proven independently by
-    // assertPrimaryRuntimeAvailable (delegated to bounded-query's
-    // implementation), not blanket-rejected here: a primary sbx microVM is
-    // supported once its bounded-agent ingress is proven (see ./ingress.ts).
+    // The primary-agent runtime axis is proven independently by the
+    // bounded-agent-specific assertPrimaryRuntimeAvailable, not blanket-rejected
+    // here: a primary sbx microVM is supported once its bounded-agent ingress
+    // is proven (see ./ingress.ts).
     expect(validateBoundedAgentConfig(config({ containerRuntime: 'sbx' }), env)).toEqual([]);
   });
 
@@ -275,14 +275,73 @@ describe('assertEnclaveRuntimeAvailable', () => {
 });
 
 describe('assertPrimaryRuntimeAvailable', () => {
-  it('reuses the shared check without leaking bounded-query-specific errors', async () => {
-    const sharedCheck = jest.fn(async () => {
-      throw new Error('Bounded queries abort before staging and bounded queries never fall back');
-    });
-    await expect(assertPrimaryRuntimeAvailable('sbx', sharedCheck)).rejects.toThrow(
-      'Bounded agents abort before staging and bounded agents never fall back',
-    );
-    expect(sharedCheck).toHaveBeenCalledWith('sbx');
+  it('is not the bounded-query implementation: bounded-agent errors must never leak bounded-query wording', () => {
     expect(assertPrimaryRuntimeAvailable).not.toBe(boundedQueryPreflight.assertPrimaryRuntimeAvailable);
+  });
+
+  it.each([
+    [undefined, 'docker'],
+    ['docker', 'docker'],
+    ['gvisor', 'gvisor'],
+    ['runsc', 'gvisor'],
+    ['sbx', 'sbx'],
+  ] as const)('accepts an available %s primary backend (%s)', async (runtime, _backend) => {
+    await expect(assertPrimaryRuntimeAvailable(
+      runtime,
+      jest.fn().mockResolvedValue(true),
+      jest.fn().mockResolvedValue(true),
+      jest.fn().mockResolvedValue(true),
+    )).resolves.toBeUndefined();
+  });
+
+  it.each([
+    [undefined, /Docker primary-agent runtime is unavailable/],
+    ['docker', /OCI runtime "docker" is not registered.*never fall back/s],
+    ['gvisor', /Primary-agent runtime "gvisor".*runsc.*never fall back/s],
+    ['sbx', /Primary-agent runtime "sbx" is unavailable.*never fall back/s],
+    ['kata', /OCI runtime "kata" is not registered.*never fall back/s],
+  ] as const)('fails %s before staging when its primary capability is unavailable', async (runtime, message) => {
+    await expect(assertPrimaryRuntimeAvailable(
+      runtime,
+      jest.fn().mockResolvedValue(false),
+      jest.fn().mockResolvedValue(false),
+      jest.fn().mockResolvedValue(false),
+    )).rejects.toThrow(message);
+  });
+
+  it('always identifies failures as bounded-agent, never bounded-query', async () => {
+    await expect(assertPrimaryRuntimeAvailable(
+      undefined,
+      jest.fn().mockResolvedValue(false),
+      jest.fn().mockResolvedValue(false),
+      jest.fn().mockResolvedValue(false),
+    )).rejects.toThrow(/Bounded agents abort before staging/);
+
+    let sbxError: Error | undefined;
+    try {
+      await assertPrimaryRuntimeAvailable(
+        'sbx',
+        jest.fn().mockResolvedValue(false),
+        jest.fn().mockResolvedValue(false),
+        jest.fn().mockResolvedValue(false),
+      );
+    } catch (error) {
+      sbxError = error as Error;
+    }
+    expect(sbxError?.message).toMatch(/Bounded agents abort before staging/);
+    expect(sbxError?.message).not.toMatch(/[Bb]ounded quer(y|ies)/);
+  });
+
+  it('checks explicit docker runtime registration instead of Docker daemon availability', async () => {
+    const runtimeQuery = jest.fn().mockResolvedValue(true);
+    const dockerAvailable = jest.fn().mockResolvedValue(false);
+    await expect(assertPrimaryRuntimeAvailable(
+      'docker',
+      runtimeQuery,
+      dockerAvailable,
+      jest.fn().mockResolvedValue(true),
+    )).resolves.toBeUndefined();
+    expect(runtimeQuery).toHaveBeenCalledWith('docker');
+    expect(dockerAvailable).not.toHaveBeenCalled();
   });
 });

@@ -62,11 +62,25 @@ function collectCapabilities(commandRunner = run) {
   };
 }
 
+/**
+ * Evaluates one primary/bounded-agent combination. Primary sbx reaches
+ * `supported` only when the collector's disposable sandbox has completed the
+ * real Unix-socket broker-ingress exchange; CLI/daemon availability alone
+ * remains `unavailable`.
+ */
 function evaluate(primary, boundedAgent, capabilities) {
-  if (capabilities.primary[primary] !== 'supported') {
+  const primaryState = capabilities.primary[primary];
+  if (primaryState === 'available') {
     return {
       status: 'BLOCKED',
-      capability: capabilities.primary[primary],
+      capability: primaryState,
+      phase: 'primary-sbx-ingress-unproven',
+    };
+  }
+  if (primaryState !== 'supported') {
+    return {
+      status: 'BLOCKED',
+      capability: primaryState,
       phase: 'primary-preflight',
     };
   }
@@ -103,6 +117,9 @@ function renderMatrix(capabilities) {
     '> The bounded-agent sbx enclave is BLOCKED unconditionally today: the audited sbx CLI cannot yet ' +
     'prove the mandatory API-proxy-only network, RO-targeted-mount, pids/disk/fsize, or lifecycle ' +
     'isolation primitives this enclave requires.',
+    '> Primary sbx is SUPPORTED here only after a disposable sandbox proves the Unix-socket broker ' +
+    'ingress path. Authenticated HTTP fallback is proven only by `assertSbxBoundedAgentIngress` ' +
+    'during an actual run.',
   );
   return `${lines.join('\n')}\n`;
 }

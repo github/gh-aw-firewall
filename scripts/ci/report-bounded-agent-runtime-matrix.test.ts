@@ -24,7 +24,7 @@ describe('bounded-agent runtime capability report', () => {
     const rows = report.split('\n').filter((line: string) => /^\| (docker|gvisor|sbx) /.test(line));
     expect(rows).toHaveLength(9);
     expect(report).toContain(
-      '| sbx | sbx | BLOCKED | unavailable | blocked | primary-preflight |',
+      '| sbx | sbx | BLOCKED | supported | blocked | bounded-agent-preflight |',
     );
     expect(report).toContain('BLOCKED is an expected fail-closed security result, not runtime success');
     expect(report).toContain('bounded-agent sbx enclave is BLOCKED unconditionally today');
@@ -53,6 +53,7 @@ describe('bounded-agent runtime capability report', () => {
   });
 
   it('supports primary sbx paired with docker/gvisor bounded-agent enclaves once primary sbx is proven', () => {
+    // `supported` means the collector's executable ingress probe completed.
     const capabilities = {
       primary: { docker: 'supported', gvisor: 'supported', sbx: 'supported' },
       boundedAgent: { docker: 'supported', gvisor: 'supported', sbx: 'blocked' },
