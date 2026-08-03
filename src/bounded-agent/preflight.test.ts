@@ -5,8 +5,17 @@ import {
   validateBoundedAgentConfig,
 } from './preflight';
 import { BOUNDED_AGENT_DEFAULTS, type BoundedAgentsConfig } from '../types/bounded-agent-options';
-import type { WrapperConfig } from '../types';
+import {
+  BOUNDED_AGENT_PROFILES,
+  BOUNDED_AGENT_SENSITIVITIES,
+  BOUNDED_AGENT_SENSITIVITY_RUN_BITS,
+  type WrapperConfig,
+} from '../types';
 import * as boundedQueryPreflight from '../bounded-query/preflight';
+import execa from 'execa';
+
+jest.mock('execa', () => ({ __esModule: true, default: jest.fn() }));
+const mockExeca = execa as unknown as jest.Mock;
 
 /**
  * Fail-closed preflight coverage.
@@ -34,8 +43,25 @@ const config = (overrides: Partial<WrapperConfig> = {}): WrapperConfig => ({
 const env = { GH_TOKEN: 'ghs_token' } as NodeJS.ProcessEnv;
 
 describe('validateBoundedAgentConfig', () => {
+  it('exports the bounded-agent defaults and finite sensitivity policy', () => {
+    expect(BOUNDED_AGENT_PROFILES).toEqual(['openai', 'anthropic']);
+    expect(BOUNDED_AGENT_SENSITIVITIES).toEqual(['public', 'internal', 'confidential', 'sealed']);
+    expect(BOUNDED_AGENT_SENSITIVITY_RUN_BITS.confidential).toBeGreaterThan(0);
+  });
+
   it('accepts a complete, minimal configuration', () => {
     expect(validateBoundedAgentConfig(config(), env)).toEqual([]);
+  });
+
+  it('uses the host environment by default', () => {
+    const previous = process.env.GH_TOKEN;
+    process.env.GH_TOKEN = 'ghs_test';
+    try {
+      expect(validateBoundedAgentConfig(config())).toEqual([]);
+    } finally {
+      if (previous === undefined) delete process.env.GH_TOKEN;
+      else process.env.GH_TOKEN = previous;
+    }
   });
 
   it('is a no-op when bounded agents are not enabled', () => {
@@ -192,6 +218,42 @@ describe('resolveApiProxyRoute', () => {
 });
 
 describe('assertEnclaveRuntimeAvailable', () => {
+  beforeEach(() => {
+    mockExeca.mockReset();
+  });
+
+  it('uses Docker daemon probes by default', async () => {
+    mockExeca
+      .mockResolvedValueOnce({ exitCode: 0, stdout: '{"runsc":{}}' })
+      .mockResolvedValueOnce({ exitCode: 0, stdout: '27.0.0' });
+
+    await expect(assertEnclaveRuntimeAvailable(boundedAgents({ runtime: 'gvisor' }))).resolves.toBeUndefined();
+    await expect(assertEnclaveRuntimeAvailable(boundedAgents({ runtime: 'docker' }))).resolves.toBeUndefined();
+  });
+
+  it('fails closed when default Docker probes return malformed or unsuccessful results', async () => {
+    mockExeca
+      .mockResolvedValueOnce({ exitCode: 0, stdout: '{' })
+      .mockResolvedValueOnce({ exitCode: 1, stdout: '' });
+
+    await expect(assertEnclaveRuntimeAvailable(boundedAgents({ runtime: 'gvisor' }))).rejects.toThrow(
+      /runsc/,
+    );
+    await expect(assertEnclaveRuntimeAvailable(boundedAgents({ runtime: 'docker' }))).rejects.toThrow(
+      /reachable Docker daemon/,
+    );
+  });
+
+  it('rejects an unsuccessful default runtime query and unknown runtime', async () => {
+    mockExeca.mockResolvedValueOnce({ exitCode: 1, stdout: '' });
+    await expect(assertEnclaveRuntimeAvailable(boundedAgents({ runtime: 'gvisor' }))).rejects.toThrow(
+      /runsc/,
+    );
+    await expect(
+      assertEnclaveRuntimeAvailable(boundedAgents({ runtime: 'unknown' as BoundedAgentsConfig['runtime'] })),
+    ).rejects.toThrow(/no implemented enclave launcher/);
+  });
+
   it('accepts docker when the daemon is reachable', async () => {
     await expect(
       assertEnclaveRuntimeAvailable(boundedAgents(), async () => false, async () => true),

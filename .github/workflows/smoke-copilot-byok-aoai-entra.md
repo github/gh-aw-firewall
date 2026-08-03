@@ -130,8 +130,18 @@ steps:
       echo "$FILE_CONTENT" > /tmp/gh-aw/agent/smoke-file-content.txt
       echo "$TEST_FILE" > /tmp/gh-aw/agent/smoke-file-path.txt
       echo "$PR_DATA" > /tmp/gh-aw/agent/smoke-pr-data.txt
+      {
+        echo "event=${GITHUB_EVENT_NAME}"
+        echo "item_number=${PR_NUMBER:-}"
+        echo "http_code=${HTTP_CODE}"
+        echo "file_path=${TEST_FILE}"
+        echo "file_content=${FILE_CONTENT}"
+        echo "recent_prs:"
+        echo "$PR_DATA"
+      } > /tmp/gh-aw/agent/smoke-context.txt
     env:
       GH_TOKEN: ${{ github.token }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
 post-steps:
   - name: Validate safe outputs were invoked
     run: |
@@ -180,9 +190,11 @@ This smoke test validates that Copilot CLI runs in **direct BYOK mode against Az
 The following tests were already executed in a deterministic pre-agent step. Your job is to verify the results and produce the summary comment.
 
 ### 1. GitHub MCP Testing
+First read `/tmp/gh-aw/agent/smoke-context.txt` once. It contains the event type, pull request item number, HTTP result, file path/content, and pre-fetched PR data.
+
 Verify MCP connectivity via the GitHub MCP tool `github-list_pull_requests` for ${{ github.repository }} (limit 2, state merged).
 - If the tool responds successfully, confirm the result matches the Pre-Fetched PR Data below. ✅
-- If the tool is unavailable (missing from context), skip the live call and validate the Pre-Fetched PR Data instead. Mark ✅ (pre-fetched data validated). Do **not** call `missing_tool` for this optional skip.
+- If the tool is unavailable or its response is filtered by secrecy policy, validate the Pre-Fetched PR Data instead. Mark ✅ (pre-fetched data validated). Filtering is expected isolation, not a test failure. Do **not** call `missing_tool` for this optional fallback.
 - If the tool is available but the call fails for another reason, mark ❌ and include the error.
 Either way, continue to the **Output** section below and follow the required output rules.
 
@@ -206,7 +218,7 @@ You are running in direct BYOK mode against Azure OpenAI (Foundry) right now, us
 
 ## Output
 
-**If triggered by a pull request**, call `add_comment` to post a **very brief** comment (max 5-10 lines) on the current pull request with:
+**If triggered by a pull request** (`event=pull_request` in the context file), call the `add_comment` safe-output exactly once with `item_number` set to the context file's numeric item number and a **very brief** body (max 5-10 lines) containing:
 - PR titles only (no descriptions)
 - ✅ or ❌ for each test result
 - Note: "Running in direct BYOK mode (AWF_AUTH_TYPE=github-oidc + AWF_AUTH_AZURE_* + COPILOT_PROVIDER_BASE_URL) via api-proxy → Azure OpenAI (Foundry, o4-mini-aw) authenticated via Microsoft Entra"
@@ -215,5 +227,7 @@ You are running in direct BYOK mode against Azure OpenAI (Foundry) right now, us
 
 If all tests pass on a pull request trigger:
 - Use the `add_labels` safe-output tool to add the label `smoke-copilot-byok-aoai-entra` to the pull request
+
+On a pull request trigger, never call `noop`, even when a test fails; the required final action is always `add_comment`. Do not pass `pr_number` to `add_comment`; the required target field is `item_number`.
 
 **If triggered by workflow_dispatch or schedule** (no PR context), call `noop` with a concise PASS/FAIL summary instead. Do NOT attempt to add pull request comments or labels when there is no pull request.

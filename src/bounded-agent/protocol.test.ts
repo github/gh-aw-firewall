@@ -4,13 +4,21 @@ import {
   ALLOWED_REQUEST_KEYS,
   CANONICAL_ERROR_JSON,
   FORBIDDEN_REQUEST_KEYS,
+  MAX_PRIVATE_REPO_LENGTH,
+  MAX_RESULT_BYTES,
+  MAX_SCHEMA_BYTES,
   MAX_TASK_BYTES,
   RESULT_STATUS_BIT_COST,
   TIMING_BUCKETS_MS,
   TIMING_BUCKET_BITS,
   canonicalOkJson,
+  canonicalizeSchemaValue,
   parseAndValidateQueryOutput,
   queryBitsForSchema,
+  schemaCardinality,
+  strictParseJson,
+  validateSchema,
+  validateValueAgainstSchema,
   validateBoundedAgentRequest,
   type BoundedAgentSchemaNode,
 } from './protocol';
@@ -91,6 +99,9 @@ describe('validateBoundedAgentRequest', () => {
     ]) {
       expect(validateBoundedAgentRequest(request({ privateRepo })).valid).toBe(false);
     }
+    expect(
+      validateBoundedAgentRequest(request({ privateRepo: `a/${'b'.repeat(MAX_PRIVATE_REPO_LENGTH)}` })).valid,
+    ).toBe(false);
   });
 
   it('rejects a non-finite result schema', () => {
@@ -129,6 +140,17 @@ describe('validateBoundedAgentRequest', () => {
 });
 
 describe('canonical envelopes and timing buckets (PR1 primitives)', () => {
+  it('re-exports the complete finite-disclosure boundary', () => {
+    expect(MAX_RESULT_BYTES).toBeGreaterThan(0);
+    expect(MAX_SCHEMA_BYTES).toBeGreaterThan(0);
+    expect(MAX_PRIVATE_REPO_LENGTH).toBeGreaterThan(0);
+    expect(schemaCardinality({ type: 'boolean' })).toBe(2n);
+    expect(strictParseJson('true')).toEqual({ value: true });
+    expect(validateSchema(booleanSchema).valid).toBe(true);
+    expect(validateValueAgainstSchema(booleanSchema, true)).toBe(true);
+    expect(canonicalizeSchemaValue(booleanSchema, true)).toBe('true');
+  });
+
   it('uses the shared canonical error shape', () => {
     expect(CANONICAL_ERROR_JSON).toBe('{"status":"error"}');
   });

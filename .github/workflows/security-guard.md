@@ -118,6 +118,20 @@ steps:
     run: |
       mkdir -p /tmp/gh-aw/agent
       echo "$EXPR_NEEDS_CHECK_SECURITY_RELEVANCE_OUTPUTS_SECURITY_FILES_CHANGED" > /tmp/gh-aw/agent/security-files-changed.txt
+      test -f /tmp/gh-aw/agent/pr-meta.txt \
+        || echo "(no pull request metadata for this trigger)" > /tmp/gh-aw/agent/pr-meta.txt
+      test -f /tmp/gh-aw/agent/pr-diff.txt \
+        || echo "(no pull request diff for this trigger)" > /tmp/gh-aw/agent/pr-diff.txt
+      {
+        echo "# PR metadata"
+        cat /tmp/gh-aw/agent/pr-meta.txt
+        echo
+        echo "# Security-relevant files changed"
+        cat /tmp/gh-aw/agent/security-files-changed.txt
+        echo
+        echo "# Changed files"
+        cat /tmp/gh-aw/agent/pr-diff.txt
+      } > /tmp/gh-aw/agent/security-review-context.txt
 
 ---
 
@@ -133,7 +147,7 @@ steps:
 
 ## ⚡ Fast Path
 
-Read the pre-fetched diff below first. Security-relevant files are included in full; other changed files are listed by name only. If you see `[DIFF TRUNCATED ...]` and a **security-relevant** patch is missing, fetch the full PR diff once with `mcp__github__get_pull_request_diff` and locate that file section before deciding to noop. Only use the fast path when the security-relevant changes contain **no** security-weakening changes: no weakened DROP/REJECT or expanded ACCEPT, no egress/domain allowlist expansion, no firewall chain changes, no capability additions, no ACL regressions, no seccomp relaxations, no DNS/wildcard bypass, no input validation weakening, and no secrets. Then call `safeoutputs noop` immediately — do not read additional files or make further tool calls.
+Read `/tmp/gh-aw/agent/security-review-context.txt` once. It contains PR metadata, the security relevance count, and the pre-fetched diff. Security-relevant files are included in full; other changed files are listed by name only. If you see `[DIFF TRUNCATED ...]` and a **security-relevant** patch is missing, fetch the full PR diff once with `mcp__github__get_pull_request_diff` and locate that file section before deciding to noop. Only use the fast path when the security-relevant changes contain **no** security-weakening changes: no weakened DROP/REJECT or expanded ACCEPT, no egress/domain allowlist expansion, no firewall chain changes, no capability additions, no ACL regressions, no seccomp relaxations, no DNS/wildcard bypass, no input validation weakening, and no secrets. Then call `safeoutputs noop` immediately — do not read additional files or make further tool calls.
 
 ## Repository Context
 
@@ -144,10 +158,9 @@ Security-critical files: `src/host-iptables.ts`, `containers/agent/setup-iptable
 
 Analyze PR #${{ github.event.pull_request.number }} in repository ${{ github.repository }}.
 
-1. **Review the pre-fetched diff below** (security-relevant files in full; other files listed by name)
-2. **Batch all independent reads** in a single tool-use block rather than making sequential calls
-3. **Use ONLY the pre-fetched diff below.** Do NOT call `gh pr diff`, `gh pr view`, `gh api`, `git diff`, `git log`, or `git show`. Do NOT read files from the checkout. If `[DIFF TRUNCATED ...]` appears and a security-relevant patch is missing, call `mcp__github__get_pull_request_diff` once (it returns the full PR diff), locate the missing security-relevant file section, then stop making tool calls and analyze inline.
-4. **Collect evidence** with specific file names, line numbers, and code snippets
+1. **Read the pre-fetched context file once** (security-relevant files in full; other files listed by name)
+2. **Use ONLY the pre-fetched context.** Do NOT call `gh pr diff`, `gh pr view`, `gh api`, `git diff`, `git log`, or `git show`. Do NOT read files from the checkout. If `[DIFF TRUNCATED ...]` appears and a security-relevant patch is missing, call `mcp__github__get_pull_request_diff` once (it returns the full PR diff), locate the missing security-relevant file section, then stop making tool calls and analyze inline.
+3. **Collect evidence** with specific file names, line numbers, and code snippets
 
 ## Security Checks
 
@@ -176,8 +189,4 @@ If no security issues are found:
 
 The following PR diff has been pre-computed. Focus your security analysis on these changes:
 
-Read the pre-fetched PR metadata from `/tmp/gh-aw/agent/pr-meta.txt` (one bash call: `cat /tmp/gh-aw/agent/pr-meta.txt`).
-
-```
-Read the pre-fetched diff from `/tmp/gh-aw/agent/pr-diff.txt` (one bash call: `cat /tmp/gh-aw/agent/pr-diff.txt`).
-```
+Read `/tmp/gh-aw/agent/security-review-context.txt` in one tool call. Do not split it into line ranges or make additional file reads.

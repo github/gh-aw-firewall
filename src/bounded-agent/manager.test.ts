@@ -5,7 +5,7 @@ import execa from 'execa';
 import { logger } from '../logger';
 import type { WrapperConfig } from '../types';
 import { BOUNDED_AGENT_DEFAULTS, type BoundedAgentsConfig } from '../types/bounded-agent-options';
-import { resolveBoundedAgentPaths } from './paths';
+import { deriveSeedId, resolveBoundedAgentPaths } from './paths';
 import {
   BOUNDED_AGENT_RUN_LABEL,
   boundedAgentManagerTestHelpers,
@@ -15,6 +15,7 @@ import {
   teardownBoundedAgents,
 } from './manager';
 import { releaseSeedPermissions, type GitRunner } from './staging';
+import * as staging from './staging';
 import { resolveBoundedQueryPaths } from '../bounded-query/paths';
 
 jest.mock('execa', () => ({ __esModule: true, default: jest.fn() }));
@@ -57,6 +58,25 @@ describe('isBoundedAgentsEnabled', () => {
     expect(isBoundedAgentsEnabled(buildConfig('/tmp/x', { enabled: false }))).toBe(false);
     expect(isBoundedAgentsEnabled(buildConfig('/tmp/x'))).toBe(true);
   });
+
+  describe('deriveSeedId', () => {
+    it('derives a stable opaque id from the run and normalized repository', () => {
+      const runId = 'a'.repeat(32);
+      expect(deriveSeedId(runId, 'Octo/Private')).toBe(deriveSeedId(runId, 'octo/private'));
+      expect(deriveSeedId(runId, 'octo/private')).toMatch(/^[0-9a-f]{32}$/);
+    });
+
+    it('uses an unprivileged root identity fallback when getuid is unavailable', () => {
+      const getuid = jest.spyOn(process, 'getuid').mockReturnValue(undefined as unknown as number);
+      try {
+        expect(path.basename(resolveBoundedAgentPaths('/tmp/example').root)).toMatch(
+          /^awf-bounded-agent-private-0-/,
+        );
+      } finally {
+        getuid.mockRestore();
+      }
+    });
+  });
 });
 
 describe('prepareBoundedAgents', () => {
@@ -79,11 +99,7 @@ describe('prepareBoundedAgents', () => {
   });
 
   it('does nothing when bounded agents are disabled', async () => {
-    await prepareBoundedAgents(buildConfig(workDir, { enabled: false }), {
-      env: { GH_TOKEN: 't' },
-      gitRunner,
-      assertRuntimeAvailable,
-    });
+    await prepareBoundedAgents(buildConfig(workDir, { enabled: false }));
     expect(fs.existsSync(resolveBoundedAgentPaths(workDir).root)).toBe(false);
   });
 
@@ -421,6 +437,40 @@ describe('prepareBoundedAgents', () => {
       }
     });
   });
+
+  it('rejects a symlink work directory before creating private state', async () => {
+    const target = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-bounded-agent-target-'));
+    fs.rmSync(workDir, { recursive: true, force: true });
+    fs.symlinkSync(target, workDir);
+    try {
+      await expect(
+        prepareBoundedAgents(buildConfig(workDir), {
+          env: { GH_TOKEN: 't' },
+          gitRunner,
+          assertRuntimeAvailable,
+        }),
+      ).rejects.toThrow(/symlink work directory/);
+    } finally {
+      fs.unlinkSync(workDir);
+      fs.rmSync(target, { recursive: true, force: true });
+      workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-bounded-agent-cleanup-'));
+    }
+  });
+
+  it('fails closed if the staging credential disappears after validation', async () => {
+    const token = jest.spyOn(staging, 'resolveStagingToken').mockReturnValueOnce(undefined);
+    try {
+      await expect(
+        prepareBoundedAgents(buildConfig(workDir), {
+          env: { GH_TOKEN: 't' },
+          gitRunner,
+          assertRuntimeAvailable,
+        }),
+      ).rejects.toThrow(/credential disappeared/);
+    } finally {
+      token.mockRestore();
+    }
+  });
 });
 
 describe('teardownBoundedAgents', () => {
@@ -507,12 +557,120 @@ describe('teardownBoundedAgents', () => {
     await teardownBoundedAgents(buildConfig(workDir));
     expect(fs.existsSync(paths.ingressRoot)).toBe(false);
   });
+
+  it('preserves a stale ingress root under --keep-containers', async () => {
+    const paths = resolveBoundedAgentPaths(workDir);
+    fs.mkdirSync(paths.runDir, { recursive: true });
+
+    await teardownBoundedAgents({ ...buildConfig(workDir), keepContainers: true } as WrapperConfig);
+    expect(fs.existsSync(paths.ingressRoot)).toBe(true);
+  });
+
+  it('handles missing run ids and seed-permission restoration failures', async () => {
+    const paths = resolveBoundedAgentPaths(workDir);
+    fs.mkdirSync(paths.root, { recursive: true });
+    fs.mkdirSync(paths.ingressRoot, { recursive: true });
+    fs.writeFileSync(paths.seedMapPath, '{}');
+    const release = jest.spyOn(staging, 'releaseSeedPermissions').mockImplementationOnce(() => {
+      throw new Error('permission restore failed');
+    });
+    try {
+      await expect(teardownBoundedAgents(buildConfig(workDir))).resolves.toBeUndefined();
+      expect(mockExeca).not.toHaveBeenCalled();
+    } finally {
+      release.mockRestore();
+    }
+  });
+
+  it('continues cleanup when orphan enumeration fails', async () => {
+    await prepareBoundedAgents(buildConfig(workDir), {
+      env: { GH_TOKEN: 't' },
+      gitRunner,
+      assertRuntimeAvailable,
+    });
+    mockExeca.mockRejectedValueOnce(new Error('docker unavailable'));
+
+    await expect(teardownBoundedAgents(buildConfig(workDir))).resolves.toBeUndefined();
+  });
 });
 
 describe('boundedAgentManagerTestHelpers.readRunId', () => {
   it('returns undefined for a missing or malformed seed map', () => {
     const paths = resolveBoundedAgentPaths('/nonexistent-work-dir-for-tests');
     expect(boundedAgentManagerTestHelpers.readRunId(paths)).toBeUndefined();
+  });
+
+  describe('boundedAgentManagerTestHelpers.removePrivateState', () => {
+    it('repairs rootless permissions and retries both private roots after EACCES', () => {
+      const config = buildConfig('/tmp/work');
+      const paths = resolveBoundedAgentPaths('/tmp/work');
+      const removeTree = jest.fn()
+        .mockImplementationOnce(() => {
+          const error = new Error('denied') as NodeJS.ErrnoException;
+          error.code = 'EACCES';
+          throw error;
+        })
+        .mockImplementation(() => undefined);
+      const repairPermissions = jest.fn();
+
+      boundedAgentManagerTestHelpers.removePrivateState(config, paths, {
+        removeTree,
+        repairPermissions,
+      });
+
+      expect(repairPermissions).toHaveBeenCalledWith(
+        [paths.root, paths.ingressRoot],
+        config.dockerHostPathPrefix,
+        config.imageRegistry,
+        config.imageTag,
+        config.agentImage,
+      );
+      expect(removeTree).toHaveBeenCalledTimes(3);
+    });
+
+    it('does not repair permissions for non-EACCES cleanup failures', () => {
+      const config = buildConfig('/tmp/work');
+      const paths = resolveBoundedAgentPaths('/tmp/work');
+      const removeTree = jest.fn(() => {
+        throw new Error('unexpected cleanup failure');
+      });
+      const repairPermissions = jest.fn();
+
+      expect(() => boundedAgentManagerTestHelpers.removePrivateState(config, paths, {
+        removeTree,
+        repairPermissions,
+      })).not.toThrow();
+      expect(repairPermissions).not.toHaveBeenCalled();
+    });
+
+    it('contains a permission-repair retry failure', () => {
+      const config = buildConfig('/tmp/work');
+      const paths = resolveBoundedAgentPaths('/tmp/work');
+      const removeTree = jest.fn(() => {
+        const error = new Error('denied') as NodeJS.ErrnoException;
+        error.code = 'EACCES';
+        throw error;
+      });
+
+      expect(() => boundedAgentManagerTestHelpers.removePrivateState(config, paths, {
+        removeTree,
+        repairPermissions: jest.fn(),
+      })).not.toThrow();
+      expect(removeTree).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('boundedAgentManagerTestHelpers.removeOrphanEnclaveContainers', () => {
+    it('returns when Docker enumeration fails or finds no containers', async () => {
+      mockExeca.mockReset();
+      mockExeca
+        .mockResolvedValueOnce({ exitCode: 1, stdout: '' })
+        .mockResolvedValueOnce({ exitCode: 0, stdout: '\n' });
+
+      await boundedAgentManagerTestHelpers.removeOrphanEnclaveContainers('a'.repeat(32));
+      await boundedAgentManagerTestHelpers.removeOrphanEnclaveContainers('b'.repeat(32));
+      expect(mockExeca).toHaveBeenCalledTimes(2);
+    });
   });
 
   describe('boundedAgentManagerTestHelpers.prepareDirectories', () => {

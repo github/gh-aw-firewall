@@ -198,6 +198,49 @@ describe('assertQueryRuntimeAvailable', () => {
     ).rejects.toThrow(/runsc.*not available|not available.*fall back/s);
   });
 
+  it('routes custom and omitted runtimes through their fixed Docker capability checks', async () => {
+    const runtimeQuery = jest.fn().mockResolvedValue(true);
+    const dockerAvailable = jest.fn().mockResolvedValue(true);
+
+    await expect(
+      assertQueryRuntimeAvailable(
+        { ...baseBoundedQueries, runtime: 'custom' } as unknown as BoundedQueriesConfig,
+        runtimeQuery,
+        jest.fn(),
+        dockerAvailable,
+      ),
+    ).resolves.toBeUndefined();
+    expect(runtimeQuery).toHaveBeenCalledWith('runsc');
+
+    await expect(
+      assertQueryRuntimeAvailable(
+        { ...baseBoundedQueries, runtime: undefined } as unknown as BoundedQueriesConfig,
+        runtimeQuery,
+        jest.fn(),
+        dockerAvailable,
+      ),
+    ).resolves.toBeUndefined();
+    expect(dockerAvailable).toHaveBeenCalledTimes(1);
+  });
+
+  it('fails closed when custom and omitted runtime capability checks fail', async () => {
+    await expect(
+      assertQueryRuntimeAvailable(
+        { ...baseBoundedQueries, runtime: 'custom' } as unknown as BoundedQueriesConfig,
+        jest.fn().mockResolvedValue(false),
+      ),
+    ).rejects.toThrow(/runsc.*not available|not available.*fall back/s);
+
+    await expect(
+      assertQueryRuntimeAvailable(
+        { ...baseBoundedQueries, runtime: undefined } as unknown as BoundedQueriesConfig,
+        jest.fn(),
+        jest.fn(),
+        jest.fn().mockResolvedValue(false),
+      ),
+    ).rejects.toThrow(/Docker daemon.*not available.*never fall back/s);
+  });
+
   it('fails closed when sbx lacks any mandatory query isolation capability', async () => {
     const query = jest.fn().mockResolvedValue({
       supported: false,
