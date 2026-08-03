@@ -12,7 +12,7 @@
 #
 #   --repo owner/repo        (exactly once)
 #   --schema '<json>'        (exactly once; a finite response schema, see
-#                             src/bounded-query/protocol.ts)
+#                             src/bounded-execution/finite-disclosure.ts)
 #   the query script on stdin
 #
 # Output contract: exactly one line of canonical JSON on stdout, nothing on
@@ -34,8 +34,8 @@ SOCKET="${AWF_BOUNDED_QUERY_SOCKET:-}"
 ENDPOINT="${AWF_BOUNDED_QUERY_ENDPOINT:-}"
 CAPABILITY="${AWF_BOUNDED_QUERY_CAPABILITY:-}"
 PROTOCOL_VERSION=2
-# Keep in sync with MAX_SCHEMA_BYTES in src/bounded-query/protocol.ts and
-# containers/bounded-query/broker/protocol.js.
+# Keep in sync with MAX_SCHEMA_BYTES in src/bounded-execution/finite-disclosure.ts
+# and containers/bounded-query/bounded-execution/finite-disclosure.js.
 MAX_SCHEMA_BYTES=4096
 
 emit_error() {

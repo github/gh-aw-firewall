@@ -44,12 +44,19 @@ RUN apk add --no-cache docker-cli \
 
 WORKDIR /opt/awf/broker
 COPY broker/ /opt/awf/broker/
+COPY bounded-execution/ /opt/awf/bounded-execution/
 COPY query-seccomp.json /opt/awf/query-seccomp.json
 
 RUN chmod -R a-w /opt/awf \
     && node --check /opt/awf/broker/server.js \
     && node --check /opt/awf/broker/broker.js \
     && node --check /opt/awf/broker/protocol.js \
+    && node --check /opt/awf/bounded-execution/finite-disclosure.js \
+    && node --check /opt/awf/bounded-execution/sensitivity-ledger.js \
+    && node --check /opt/awf/bounded-execution/fixed-timing.js \
+    && node --check /opt/awf/bounded-execution/protected-audit.js \
+    && node --check /opt/awf/bounded-execution/repository-staging.js \
+    && node --check /opt/awf/bounded-execution/index.js \
     && node --check /opt/awf/broker/framing.js \
     && node --check /opt/awf/broker/workspace.js \
     && node --check /opt/awf/broker/query-runner.js \

@@ -38,20 +38,33 @@ import {
 
 /**
  * The broker runs in its own container image and cannot import AWF's
- * TypeScript sources, so `containers/bounded-query/broker/protocol.js`
- * restates the entire v2 protocol (finite schema algebra, cardinality/bit
+ * TypeScript sources, so
+ * `containers/bounded-query/bounded-execution/finite-disclosure.js` restates
+ * the entire v2 protocol (finite schema algebra, cardinality/bit
  * charge, strict JSON parsing, request/result validation, canonicalization).
  * This suite runs one shared vector table through *both* implementations and
  * fails the moment they disagree, which is what makes the duplication safe.
  */
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const brokerProtocol = require(
-  path.join(__dirname, '..', '..', 'containers', 'bounded-query', 'broker', 'protocol.js'),
-);
+const brokerProtocol = require(path.join(
+  __dirname,
+  '..',
+  '..',
+  'containers',
+  'bounded-query',
+  'bounded-execution',
+  'finite-disclosure.js',
+));
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const brokerSensitivity = require(
-  path.join(__dirname, '..', '..', 'containers', 'bounded-query', 'broker', 'sensitivity.js'),
-);
+const brokerSensitivity = require(path.join(
+  __dirname,
+  '..',
+  '..',
+  'containers',
+  'bounded-query',
+  'bounded-execution',
+  'sensitivity-policy.js',
+));
 
 const SCHEMA_VECTORS: Array<{ name: string; schema: unknown }> = [
   { name: 'const string', schema: { type: 'const', value: 'ok' } },

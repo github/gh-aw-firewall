@@ -5,7 +5,7 @@
  * of `boundedQueries` config, its normalized runtime representation, and the
  * centralized defaults applied when a field is not explicitly set. No
  * broker or sandbox runtime is implemented yet — see docs/awf-config-spec.md
- * §14 and src/bounded-query/protocol.ts for the request/result protocol.
+ * §14 and src/bounded-execution/finite-disclosure.ts for the request/result protocol.
  */
 
 /** Sandbox runtime backends supported for bounded-query execution. */

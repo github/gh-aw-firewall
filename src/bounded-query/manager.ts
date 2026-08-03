@@ -18,7 +18,11 @@ import {
 import { writeBoundedQuerySkill } from './skill';
 import { writeBoundedQueryWrapper } from './wrapper-artifact';
 import { releaseSeedPermissions, resolveStagingToken, stageBoundedQuerySeeds, type GitRunner } from './staging';
-import { BOUNDED_QUERY_SEED_MAP_VERSION, type BoundedQuerySeedMap } from './types';
+import {
+  BOUNDED_QUERY_SEED_MAP_VERSION,
+  serializePrivateRepositorySeedMap,
+  type BoundedQuerySeedMap,
+} from './types';
 import { assertBoundedQueryPrivateRootIsolated } from './mount-policy';
 import { fixArtifactPermissionsForRootless } from '../artifact-permissions';
 import { runtimeUsesComposeAgent } from '../container-runtime';
@@ -123,7 +127,7 @@ function removePrivateState(
 
 /** Writes the broker's repo → opaque seed map. */
 function writeSeedMap(paths: BoundedQueryPaths, seedMap: BoundedQuerySeedMap): void {
-  const content = JSON.stringify(seedMap, null, 2) + '\n';
+  const content = serializePrivateRepositorySeedMap(seedMap);
   // O_EXCL | O_NOFOLLOW: atomically create; fail if a symlink or existing file
   // is already at this path (insecure-temp-file guard).
   const fd = fs.openSync(

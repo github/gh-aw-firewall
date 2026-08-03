@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const { MAX_QUERY_TIMEOUT_SECONDS } = require('./protocol');
 const { BOUNDED_QUERY_SENSITIVITY_RUN_BITS } = require('./sensitivity');
+const { parsePrivateRepositorySeedMap } = require('../bounded-execution/repository-staging');
 
 /**
  * Broker configuration.
@@ -158,33 +159,10 @@ function loadConfig() {
  * a request — a request cannot choose or override its repository's budget.
  */
 function loadSeedMap(seedMapPath) {
-  const parsed = JSON.parse(fs.readFileSync(seedMapPath, 'utf8'));
-  if (!parsed || parsed.version !== 2 || !Array.isArray(parsed.seeds)) {
-    throw new Error('Seed map is malformed or is an unsupported version');
-  }
-  if (typeof parsed.runId !== 'string' || !/^[0-9a-f]{8,}$/.test(parsed.runId)) {
-    throw new Error('Seed map has no usable runId');
-  }
-
-  const seeds = new Map();
-  for (const entry of parsed.seeds) {
-    if (
-      !entry
-      || typeof entry.repo !== 'string'
-      || typeof entry.seedId !== 'string'
-      || !Object.prototype.hasOwnProperty.call(BOUNDED_QUERY_SENSITIVITY_RUN_BITS, entry.sensitivity)
-    ) {
-      throw new Error('Seed map entry is malformed');
-    }
-    // Seed ids are AWF-generated opaque hex names. Re-validating here means a
-    // corrupted map can never turn into a path traversal.
-    if (!/^[0-9a-f]{16,64}$/.test(entry.seedId)) {
-      throw new Error('Seed map entry has an unexpected seed id');
-    }
-    seeds.set(entry.repo.toLowerCase(), { seedId: entry.seedId, sensitivity: entry.sensitivity });
-  }
-
-  return { runId: parsed.runId, seeds };
+  return parsePrivateRepositorySeedMap(
+    fs.readFileSync(seedMapPath, 'utf8'),
+    BOUNDED_QUERY_SENSITIVITY_RUN_BITS,
+  );
 }
 
 module.exports = { READY_PATH, SBX_CAPABILITY_PATH, loadConfig, loadSeedMap, loadSbxIngressCapabilities };
