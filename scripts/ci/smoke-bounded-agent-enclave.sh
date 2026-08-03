@@ -81,6 +81,14 @@ if [[ "$proxy_ready" != true ]]; then
   echo "FAIL: bounded-agent fake API proxy did not become ready" >&2
   exit 1
 fi
+proxy_ip="$(
+  docker inspect "$proxy" \
+    --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}'
+)"
+if [[ -z "$proxy_ip" ]]; then
+  echo "FAIL: bounded-agent fake API proxy has no enclave-network address" >&2
+  exit 1
+fi
 
 set +e
 logs="$(
@@ -98,7 +106,7 @@ logs="$(
     -v "$root/task.txt:/awf/task.txt:ro" \
     -v "$root/schema.json:/awf/schema.json:ro" \
     -v "$root/out:/agent/out:rw" \
-    -e AWF_BOUNDED_AGENT_API_ENDPOINT=http://api-proxy:10000 \
+    -e AWF_BOUNDED_AGENT_API_ENDPOINT="http://${proxy_ip}:10000" \
     -e AWF_BOUNDED_AGENT_PROFILE=openai \
     -e AWF_BOUNDED_AGENT_MODEL=live-smoke \
     -e AWF_BOUNDED_AGENT_MAX_MODEL_REQUESTS=2 \
@@ -112,19 +120,20 @@ logs="$(
 status=$?
 set -e
 if [[ $status -ne 0 || -n "$logs" || "$(cat "$root/out")" != "true" ]]; then
-  echo "FAIL: $runtime enclave did not produce one silent canonical result" >&2
+  echo "FAIL: $runtime enclave did not produce one silent canonical result" \
+    "(status=$status, streamBytes=${#logs}, resultBytes=$(wc -c < "$root/out"))" >&2
   exit 1
 fi
 
 docker run --rm "${runtime_args[@]}" --network "$network" --entrypoint python3 "$image" -c '
 import socket, sys, urllib.request
-socket.create_connection(("api-proxy", 10000), 2).close()
+socket.create_connection((sys.argv[1], 10000), 2).close()
 try:
     urllib.request.urlopen("https://example.com", timeout=2)
 except Exception:
     sys.exit(0)
 sys.exit(1)
-'
+' "$proxy_ip"
 
 peers="$(docker network inspect "$network" --format '{{len .Containers}}')"
 if [[ "$peers" != "1" ]]; then
