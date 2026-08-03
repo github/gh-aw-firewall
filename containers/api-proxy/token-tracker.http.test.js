@@ -106,15 +106,31 @@ describe('trackTokenUsage', () => {
     })));
     proxyRes.emit('end');
 
-    setTimeout(() => {
-      expect(fs.existsSync(TOKEN_LOG_FILE)).toBe(true);
-      const lines = fs.readFileSync(TOKEN_LOG_FILE, 'utf8')
-        .split('\n')
-        .filter(Boolean);
-      const matchingLine = lines.find((line) => line.includes('"request_id":"test-incremental-write"'));
-      expect(matchingLine).toBeTruthy();
-      done();
-    }, 20);
+    // The write goes through an async createWriteStream, whose file open +
+    // flush can take longer than a single fixed delay under CI load. Poll for
+    // the record instead of asserting after one short timeout, so the test is
+    // deterministic and fast without being flaky.
+    const deadline = Date.now() + 4000;
+    const poll = () => {
+      const matchingLine = fs.existsSync(TOKEN_LOG_FILE)
+        && fs.readFileSync(TOKEN_LOG_FILE, 'utf8')
+          .split('\n')
+          .filter(Boolean)
+          .find((line) => line.includes('"request_id":"test-incremental-write"'));
+      if (matchingLine) {
+        expect(matchingLine).toBeTruthy();
+        done();
+        return;
+      }
+      if (Date.now() >= deadline) {
+        // Force a clear assertion failure rather than a timeout.
+        expect(matchingLine).toBeTruthy();
+        done();
+        return;
+      }
+      setTimeout(poll, 20);
+    };
+    poll();
   });
 
   test('extracts usage from streaming SSE response', (done) => {
@@ -208,6 +224,240 @@ describe('trackTokenUsage', () => {
         'output_tokens_total',
         { provider: 'openai' },
         567,
+      );
+      done();
+    }, 10);
+  });
+
+  test('records usage from a streaming response that closes without a clean end', (done) => {
+    // SSE clients (e.g. Codex/OpenAI /responses) often tear down the socket
+    // after the final event, so proxyRes emits 'close'/'aborted' but never
+    // 'end'. The accumulated usage must still be recorded.
+    const proxyRes = new EventEmitter();
+    proxyRes.headers = { 'content-type': 'text/event-stream' };
+    proxyRes.statusCode = 200;
+
+    const metricsRef = {
+      increment: jest.fn(),
+    };
+
+    trackTokenUsage(proxyRes, {
+      requestId: 'test-openai-responses-aborted',
+      provider: 'openai',
+      path: '/v1/responses',
+      startTime: Date.now(),
+      metrics: metricsRef,
+    });
+
+    const chunk = 'event: response.completed\ndata: ' + JSON.stringify({
+      type: 'response.completed',
+      response: {
+        model: 'gpt-5',
+        usage: { input_tokens: 800, output_tokens: 120, total_tokens: 920 },
+      },
+    }) + '\n\n';
+
+    proxyRes.emit('data', Buffer.from(chunk));
+    // No 'end' — the connection is torn down mid-stream.
+    proxyRes.emit('aborted');
+    proxyRes.emit('close');
+
+    setTimeout(() => {
+      expect(metricsRef.increment).toHaveBeenCalledWith(
+        'input_tokens_total',
+        { provider: 'openai' },
+        800,
+      );
+      expect(metricsRef.increment).toHaveBeenCalledWith(
+        'output_tokens_total',
+        { provider: 'openai' },
+        120,
+      );
+      done();
+    }, 10);
+  });
+
+  test('does not double-count usage when close follows a clean end', (done) => {
+    const proxyRes = new EventEmitter();
+    proxyRes.headers = { 'content-type': 'text/event-stream' };
+    proxyRes.statusCode = 200;
+
+    const metricsRef = {
+      increment: jest.fn(),
+    };
+
+    trackTokenUsage(proxyRes, {
+      requestId: 'test-openai-responses-end-then-close',
+      provider: 'openai',
+      path: '/v1/responses',
+      startTime: Date.now(),
+      metrics: metricsRef,
+    });
+
+    const chunk = 'event: response.completed\ndata: ' + JSON.stringify({
+      type: 'response.completed',
+      response: {
+        model: 'gpt-5',
+        usage: { input_tokens: 300, output_tokens: 50, total_tokens: 350 },
+      },
+    }) + '\n\n';
+
+    proxyRes.emit('data', Buffer.from(chunk));
+    proxyRes.emit('end');
+    // Node emits 'close' after 'end' on a normal completion — must be ignored.
+    proxyRes.emit('close');
+
+    setTimeout(() => {
+      const inputCalls = metricsRef.increment.mock.calls.filter(
+        (c) => c[0] === 'input_tokens_total',
+      );
+      expect(inputCalls).toHaveLength(1);
+      expect(inputCalls[0][2]).toBe(300);
+      done();
+    }, 10);
+  });
+
+  test('records usage when the downstream client closes but proxyRes never ends', (done) => {
+    // Codex/OpenAI /responses reads until the terminal `response.completed`
+    // event, then tears down the DOWNSTREAM socket (res) and ends its turn —
+    // taking the sandbox (and this proxy) down before the UPSTREAM keep-alive
+    // socket (proxyRes) emits 'end'/'close'/'aborted'. A plain pipe does not
+    // propagate the downstream close to proxyRes, so finalization must be
+    // driven off the downstream `res` close or the usage is dropped.
+    const proxyRes = new EventEmitter();
+    proxyRes.headers = { 'content-type': 'text/event-stream' };
+    proxyRes.statusCode = 200;
+
+    const res = new EventEmitter();
+
+    const metricsRef = {
+      increment: jest.fn(),
+    };
+
+    trackTokenUsage(proxyRes, {
+      requestId: 'test-openai-responses-downstream-close',
+      provider: 'openai',
+      path: '/v1/responses',
+      startTime: Date.now(),
+      metrics: metricsRef,
+      res,
+    });
+
+    const chunk = 'event: response.completed\ndata: ' + JSON.stringify({
+      type: 'response.completed',
+      response: {
+        model: 'gpt-5',
+        usage: { input_tokens: 640, output_tokens: 90, total_tokens: 730 },
+      },
+    }) + '\n\n';
+
+    proxyRes.emit('data', Buffer.from(chunk));
+    // proxyRes never emits 'end'/'close'/'aborted' — only the client bails.
+    res.emit('close');
+
+    setTimeout(() => {
+      expect(metricsRef.increment).toHaveBeenCalledWith(
+        'input_tokens_total',
+        { provider: 'openai' },
+        640,
+      );
+      expect(metricsRef.increment).toHaveBeenCalledWith(
+        'output_tokens_total',
+        { provider: 'openai' },
+        90,
+      );
+      done();
+    }, 10);
+  });
+
+  test('does not double-count usage when downstream close follows a clean end', (done) => {
+    const proxyRes = new EventEmitter();
+    proxyRes.headers = { 'content-type': 'text/event-stream' };
+    proxyRes.statusCode = 200;
+
+    const res = new EventEmitter();
+
+    const metricsRef = {
+      increment: jest.fn(),
+    };
+
+    trackTokenUsage(proxyRes, {
+      requestId: 'test-openai-responses-end-then-downstream-close',
+      provider: 'openai',
+      path: '/v1/responses',
+      startTime: Date.now(),
+      metrics: metricsRef,
+      res,
+    });
+
+    const chunk = 'event: response.completed\ndata: ' + JSON.stringify({
+      type: 'response.completed',
+      response: {
+        model: 'gpt-5',
+        usage: { input_tokens: 300, output_tokens: 50, total_tokens: 350 },
+      },
+    }) + '\n\n';
+
+    proxyRes.emit('data', Buffer.from(chunk));
+    proxyRes.emit('end');
+    // Node emits 'close' on the client socket after the response is flushed —
+    // must be ignored because the upstream already ended cleanly.
+    res.emit('close');
+
+    setTimeout(() => {
+      const inputCalls = metricsRef.increment.mock.calls.filter(
+        (c) => c[0] === 'input_tokens_total',
+      );
+      expect(inputCalls).toHaveLength(1);
+      expect(inputCalls[0][2]).toBe(300);
+      done();
+    }, 10);
+  });
+
+  test('waits for upstream usage if downstream closes before usage arrives', (done) => {
+    const proxyRes = new EventEmitter();
+    proxyRes.headers = { 'content-type': 'text/event-stream' };
+    proxyRes.statusCode = 200;
+
+    const res = new EventEmitter();
+
+    const metricsRef = {
+      increment: jest.fn(),
+    };
+
+    trackTokenUsage(proxyRes, {
+      requestId: 'test-openai-responses-downstream-close-before-usage',
+      provider: 'openai',
+      path: '/v1/responses',
+      startTime: Date.now(),
+      metrics: metricsRef,
+      res,
+    });
+
+    // Downstream closes first, before any usage has been observed.
+    res.emit('close');
+
+    const chunk = 'event: response.completed\ndata: ' + JSON.stringify({
+      type: 'response.completed',
+      response: {
+        model: 'gpt-5',
+        usage: { input_tokens: 111, output_tokens: 22, total_tokens: 133 },
+      },
+    }) + '\n\n';
+
+    proxyRes.emit('data', Buffer.from(chunk));
+    proxyRes.emit('end');
+
+    setTimeout(() => {
+      expect(metricsRef.increment).toHaveBeenCalledWith(
+        'input_tokens_total',
+        { provider: 'openai' },
+        111,
+      );
+      expect(metricsRef.increment).toHaveBeenCalledWith(
+        'output_tokens_total',
+        { provider: 'openai' },
+        22,
       );
       done();
     }, 10);

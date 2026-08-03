@@ -5,6 +5,7 @@ on:
   schedule: daily around 06:00 UTC
   workflow_dispatch:
 permissions:
+  copilot-requests: write
   contents: read
   pull-requests: read
   issues: read

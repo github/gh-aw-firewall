@@ -11,6 +11,7 @@ import {
   addPortSafetyRules,
   addProtocolAllowRules,
   addRawIpBlockRules,
+  addTopologyPeerAllowRules,
   type PolicyRuleState,
 } from './policy-rules/section-builders';
 
@@ -55,13 +56,18 @@ export const DANGEROUS_PORTS = [
  * enricher skips them and attributes those denials to "unknown".
  */
 export function generatePolicyManifest(config: SquidConfig): PolicyManifest {
-  const { domains, blockedDomains, sslBump, enableHostAccess, allowHostPorts, enableDlp, dnsServers, apiProxyIp } = config;
+  const { domains, blockedDomains, sslBump, enableHostAccess, allowHostPorts, enableDlp, dnsServers, apiProxyIp, topologyPeers } = config;
 
   // Parse, deduplicate, and group domains by protocol (shared logic with generateSquidConfig)
   const { domainsByProto, patternsByProto } = parseDomainConfig(domains);
 
   const state: PolicyRuleState = { rules: [], order: 0 };
 
+  // Topology peer allow rules must fire BEFORE the port-safety deny rules so
+  // that proxy clients reaching e.g. awmg-mcpg:8080 through Squid are allowed
+  // even though port 8080 is not in Safe_ports. This mirrors the rule ordering
+  // in generateSquidConfig / generateTopologyPeersSection.
+  addTopologyPeerAllowRules(state, topologyPeers);
   addPortSafetyRules(state);
   addApiProxyAllowRules(state, apiProxyIp);
   addAllowedIpRules(state, domains);
@@ -82,5 +88,6 @@ export function generatePolicyManifest(config: SquidConfig): PolicyManifest {
     dlpEnabled: enableDlp ?? false,
     hostAccessEnabled: enableHostAccess ?? false,
     allowHostPorts: allowHostPorts ?? null,
+    ...(topologyPeers && topologyPeers.length > 0 ? { topologyPeers } : {}),
   };
 }

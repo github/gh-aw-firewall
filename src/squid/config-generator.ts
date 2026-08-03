@@ -32,7 +32,7 @@ const { version: AWF_VERSION } = require('../../package.json') as { version: str
  * // Blocked: internal.example.com -> acl blocked_domains dstdomain .internal.example.com
  */
 export function generateSquidConfig(config: SquidConfig): string {
-  const { domains, blockedDomains, port, sslBump, caFiles, sslDbPath, urlPatterns, enableHostAccess, allowHostPorts, enableDlp, dnsServers, upstreamProxy, apiProxyIp, apiProxyPorts } = config;
+  const { domains, blockedDomains, port, sslBump, caFiles, sslDbPath, urlPatterns, enableHostAccess, allowHostPorts, enableDlp, dnsServers, upstreamProxy, apiProxyIp, apiProxyPorts, topologyPeers } = config;
 
   validateApiProxyIp(apiProxyIp);
 
@@ -61,6 +61,7 @@ export function generateSquidConfig(config: SquidConfig): string {
     apiProxySection,
     allowedIpSection,
     dnsSection,
+    topologyPeersSection,
   } = buildConfigSections({
     enableDlp,
     port,
@@ -76,6 +77,7 @@ export function generateSquidConfig(config: SquidConfig): string {
     apiProxyPorts,
     apiProxyIp,
     dnsServers,
+    topologyPeers,
   });
 
   return `# Squid configuration for egress traffic control
@@ -119,7 +121,7 @@ acl localnet src 192.168.0.0/16
 acl localnet src fc00::/7
 acl localnet src fe80::/10
 
-${portAclsAndRules}
+${topologyPeersSection}${portAclsAndRules}
 ${apiProxySection}
 ${allowedIpSection}# Deny CONNECT to raw IP addresses (IPv4 and IPv6)
 # Prevents bypassing domain-based filtering via direct IP connections

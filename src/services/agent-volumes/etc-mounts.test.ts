@@ -16,6 +16,10 @@ function createMinimalConfig(overrides: Partial<WrapperConfig> = {}): WrapperCon
 }
 
 describe('buildEtcMounts', () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
   describe('sysroot gating by runnerTopology', () => {
     it('returns empty array when runnerTopology is arc-dind (sysroot provides /etc)', () => {
       const config = createMinimalConfig({ runnerTopology: 'arc-dind' });
@@ -51,7 +55,41 @@ describe('buildEtcMounts', () => {
       const mounts = buildEtcMounts(config);
       expect(mounts).toContain('/etc/ssl:/host/etc/ssl:ro');
       expect(mounts).toContain('/etc/ca-certificates:/host/etc/ca-certificates:ro');
+      if (fs.existsSync('/etc/pki/ca-trust/extracted')) {
+        expect(mounts).toContain('/etc/pki/ca-trust/extracted:/host/etc/pki/ca-trust/extracted:ro');
+      } else {
+        expect(mounts).not.toContain('/etc/pki/ca-trust/extracted:/host/etc/pki/ca-trust/extracted:ro');
+      }
+      if (fs.existsSync('/etc/pki/tls/certs')) {
+        expect(mounts).toContain('/etc/pki/tls/certs:/host/etc/pki/tls/certs:ro');
+      } else {
+        expect(mounts).not.toContain('/etc/pki/tls/certs:/host/etc/pki/tls/certs:ro');
+      }
       expect(mounts).toContain('/etc/nsswitch.conf:/host/etc/nsswitch.conf:ro');
+    });
+
+    it('omits optional RHEL CA mounts when host sources are unavailable', () => {
+      if (fs.existsSync('/etc/pki/ca-trust/extracted') || fs.existsSync('/etc/pki/tls/certs')) {
+        return;
+      }
+      const config = createMinimalConfig({ dockerHostPathPrefix: undefined });
+      const mounts = buildEtcMounts(config);
+      expect(mounts).not.toContain('/etc/pki/ca-trust/extracted:/host/etc/pki/ca-trust/extracted:ro');
+      expect(mounts).not.toContain('/etc/pki/tls/certs:/host/etc/pki/tls/certs:ro');
+    });
+
+    it('keeps optional RHEL CA mounts when split-fs prefixed sources exist', () => {
+      const prefixRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-prefix-'));
+      try {
+        fs.mkdirSync(path.join(prefixRoot, 'etc/pki/ca-trust/extracted'), { recursive: true });
+        fs.mkdirSync(path.join(prefixRoot, 'etc/pki/tls/certs'), { recursive: true });
+        const config = createMinimalConfig({ dockerHostPathPrefix: prefixRoot });
+        const mounts = buildEtcMounts(config);
+        expect(mounts).toContain('/etc/pki/ca-trust/extracted:/host/etc/pki/ca-trust/extracted:ro');
+        expect(mounts).toContain('/etc/pki/tls/certs:/host/etc/pki/tls/certs:ro');
+      } finally {
+        fs.rmSync(prefixRoot, { recursive: true, force: true });
+      }
     });
   });
 

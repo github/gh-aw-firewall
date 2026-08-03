@@ -8,6 +8,7 @@ on:
     events: [pull_request]
     remove_label: false
 permissions:
+  copilot-requests: write
   contents: read
   pull-requests: read
   issues: read
@@ -15,9 +16,9 @@ max-turns: 4
 concurrency:
   group: "contribution-check-${{ github.event.pull_request.number || github.ref }}"
   cancel-in-progress: true
+model: gpt-5.4-mini
 engine:
   id: copilot
-  model: gpt-5.4-mini
 tools:
   edit:
   github: false

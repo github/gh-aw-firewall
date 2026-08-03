@@ -7,6 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
+  copilot-requests: write
   contents: read
   issues: read
   pull-requests: read
@@ -24,7 +25,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GH_AW_CROSS_REPO_PAT }}
         run: |
-          mkdir -p "${{ runner.temp }}/awf-data"
+          mkdir -p "$RUNNER_TEMP/awf-data"
           gh api graphql -f query='
             query {
               repository(owner: "github", name: "gh-aw") {
@@ -41,14 +42,12 @@ jobs:
                 }
               }
             }
-          ' > "${{ runner.temp }}/awf-data/awf-issues.json"
+          ' > "$RUNNER_TEMP/awf-data/awf-issues.json"
       - uses: actions/upload-artifact@v7.0.1
         with:
           name: awf-issues-${{ github.run_id }}
           path: ${{ runner.temp }}/awf-data/awf-issues.json
           retention-days: 1
-
-if: needs['fetch-awf-issues'].result == 'success'
 
 sandbox:
   agent:

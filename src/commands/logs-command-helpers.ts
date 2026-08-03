@@ -129,10 +129,18 @@ async function loadLogsWithErrorHandling(
   source: LogSource
 ): Promise<AggregatedStats> {
   try {
-    const stats = await loadAndAggregate(source);
-
-    // Try to enrich with policy rule stats
+    // Read the policy manifest first so topology peers can be passed to the
+    // aggregator. This suppresses spurious denied-domain entries for peers with
+    // dots in their name (e.g. mcp.gateway-01) that the single-label heuristic
+    // cannot detect.
     const manifest = findPolicyManifestForSource(source);
+    const knownTopologyPeers = manifest && Array.isArray(manifest.topologyPeers) && manifest.topologyPeers.length > 0
+      ? new Set(manifest.topologyPeers.map(p => p.toLowerCase()))
+      : undefined;
+
+    const stats = await loadAndAggregate(source, knownTopologyPeers);
+
+    // Enrich with policy rule stats when a manifest is available
     if (manifest) {
       const entries = await loadAllLogs(source);
       const enriched = enrichWithPolicyRules(entries, manifest);

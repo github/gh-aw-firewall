@@ -225,6 +225,27 @@ describe('config-assembly', () => {
       );
     });
 
+    it('should allow COPILOT_MODEL=auto', () => {
+      mockBuildConfigOnce({
+        copilotGithubToken: 'github_pat_testtoken',
+      });
+
+      const agentOptions = createMinimalAgentOptions();
+      agentOptions.additionalEnv = { COPILOT_MODEL: 'auto' };
+
+      expect(() => {
+        assembleAndValidateConfig(
+          {},
+          'echo test',
+          createMinimalLogAndLimits(),
+          createMinimalNetworkOptions(),
+          agentOptions,
+        );
+      }).not.toThrow();
+
+      expect(logger.error).not.toHaveBeenCalled();
+    });
+
     it('should allow COPILOT_MODEL that matches a runtime alias key and resolves to a valid concrete model', () => {
       mockBuildConfigOnce({
         copilotGithubToken: 'github_pat_testtoken',
@@ -276,7 +297,7 @@ describe('config-assembly', () => {
       expect(logger.error).not.toHaveBeenCalled();
     });
 
-    it('should reject alias whose first concrete pattern resolves to an unsupported model', () => {
+    it('should defer an alias with an unknown concrete target to runtime discovery', () => {
       mockBuildConfigOnce({
         copilotGithubToken: 'github_pat_testtoken',
         modelAliases: { bad: ['not-a-real-model-xyz'] },
@@ -296,10 +317,37 @@ describe('config-assembly', () => {
           createMinimalNetworkOptions(),
           agentOptions,
         );
+      }).not.toThrow();
+
+      expect(logger.info).toHaveBeenCalledWith(
+        expect.stringContaining("Alias 'bad' targets model 'not-a-real-model-xyz'"),
+      );
+    });
+
+    it('should reject an alias whose concrete target is retired', () => {
+      mockBuildConfigOnce({
+        copilotGithubToken: 'github_pat_testtoken',
+        modelAliases: { old: ['gpt-5-codex'] },
+      });
+
+      const logAndLimits = createMinimalLogAndLimits();
+      logAndLimits.modelAliases = { old: ['gpt-5-codex'] };
+
+      const agentOptions = createMinimalAgentOptions();
+      agentOptions.additionalEnv = { COPILOT_MODEL: 'old' };
+
+      expect(() => {
+        assembleAndValidateConfig(
+          {},
+          'echo test',
+          logAndLimits,
+          createMinimalNetworkOptions(),
+          agentOptions,
+        );
       }).toThrow('process.exit(1)');
 
       expect(logger.error).toHaveBeenCalledWith(
-        expect.stringContaining("alias 'bad' resolves to model 'not-a-real-model-xyz'"),
+        expect.stringContaining("alias 'old' resolves to model 'gpt-5-codex' which is retired"),
       );
     });
 
@@ -328,7 +376,7 @@ describe('config-assembly', () => {
       expect(logger.error).not.toHaveBeenCalled();
     });
 
-    it('should still reject unsupported COPILOT_MODEL values that are not runtime aliases', () => {
+    it('should defer unknown COPILOT_MODEL values to runtime provider discovery', () => {
       mockBuildConfigOnce({
         copilotGithubToken: 'github_pat_testtoken',
         modelAliases: { small: ['gpt-4o-mini'] },
@@ -348,10 +396,10 @@ describe('config-assembly', () => {
           createMinimalNetworkOptions(),
           agentOptions,
         );
-      }).toThrow('process.exit(1)');
+      }).not.toThrow();
 
-      expect(logger.error).toHaveBeenCalledWith(
-        expect.stringContaining("model 'not-a-real-model-xyz' is unsupported or unrecognized"),
+      expect(logger.info).toHaveBeenCalledWith(
+        expect.stringContaining("deferring validation to runtime provider discovery"),
       );
     });
 
@@ -381,7 +429,7 @@ describe('config-assembly', () => {
       expect(logger.error).not.toHaveBeenCalled();
     });
 
-    it('should reject a recursive alias chain that resolves to an unsupported model', () => {
+    it('should defer a recursive alias chain with an unknown target to runtime discovery', () => {
       const aliases = { inner: ['not-a-real-model-xyz'], outer: ['inner'] };
       mockBuildConfigOnce({
         copilotGithubToken: 'github_pat_testtoken',
@@ -402,10 +450,10 @@ describe('config-assembly', () => {
           createMinimalNetworkOptions(),
           agentOptions,
         );
-      }).toThrow('process.exit(1)');
+      }).not.toThrow();
 
-      expect(logger.error).toHaveBeenCalledWith(
-        expect.stringContaining("alias 'outer' resolves to model 'not-a-real-model-xyz'"),
+      expect(logger.info).toHaveBeenCalledWith(
+        expect.stringContaining("Alias 'outer' targets model 'not-a-real-model-xyz'"),
       );
     });
 

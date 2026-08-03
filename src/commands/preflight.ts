@@ -8,6 +8,8 @@ import { parseDomains, parseDomainsFile } from '../domain-utils';
 import { processLocalhostKeyword } from '../option-parsers';
 import { resolveCopilotApiRouting } from '../copilot-api-resolver';
 import { resolveApiTargetsToAllowedDomains } from '../api-proxy-config';
+import { resolveTopologyPeerHosts } from '../topology-peers';
+import { readEnvFile } from '../github-env';
 
 /**
  * Resolves the Commander option-value source for a given option name.
@@ -20,6 +22,7 @@ type OptionSourceResolver = (optionName: string) => string | undefined;
  */
 interface AllowedDomainsResult {
   allowedDomains: string[];
+  sensitiveAllowedDomains: string[];
   localhostResult: ReturnType<typeof processLocalhostKeyword>;
   resolvedCopilotApiTarget: string | undefined;
   resolvedCopilotApiBasePath: string | undefined;
@@ -58,7 +61,7 @@ export function applyConfigFilePrecedence(
  *
  * Calls `process.exit(1)` on parse/merge failures.
  */
-export function parseDomainOptions(options: Record<string, unknown>): string[] {
+function parseDomainOptions(options: Record<string, unknown>): string[] {
   let allowedDomains: string[] = [];
 
   if (options.allowDomains) {
@@ -92,7 +95,7 @@ export function parseDomainOptions(options: Record<string, unknown>): string[] {
  *
  * Calls `process.exit(1)` on validation failures.
  */
-export function validateAllowedDomains(domains: string[]): void {
+function validateAllowedDomains(domains: string[]): void {
   for (const domain of domains) {
     try {
       validateDomainOrPattern(domain);
@@ -161,9 +164,21 @@ export function resolveAllowedDomains(options: Record<string, unknown>): Allowed
     process.env
   );
 
-  // Automatically add API target values to allowlist when specified
-  // This ensures that when engine.api-target is set in GitHub Agentic Workflows,
-  // the target domain is automatically accessible through the firewall
+  // Resolve OPENAI_ENDPOINT_OVERRIDE from all config sources so that values
+  // supplied via --env or --env-file reach the allowlist (not just process.env).
+  // Priority matches getConfigEnvValue: additionalEnv > envFile > process.env.
+  const additionalEnv = options.additionalEnv as Record<string, string> | undefined;
+  const envFilePath = options.envFile as string | undefined;
+  const openaiEndpointOverride: string | undefined = (
+    additionalEnv?.['OPENAI_ENDPOINT_OVERRIDE']
+    ?? (envFilePath ? readEnvFile(envFilePath)['OPENAI_ENDPOINT_OVERRIDE'] : undefined)
+    ?? process.env['OPENAI_ENDPOINT_OVERRIDE']
+  ) || undefined;
+
+  // Automatically add API target values to allowlist when specified.
+  // Secret-derived entries (OPENAI_ENDPOINT_OVERRIDE) go into sensitiveAllowedDomains
+  // so they are never logged or included in the audit config artifact.
+  const sensitiveAllowedDomains: string[] = [];
   resolveApiTargetsToAllowedDomains(
     {
       copilotApiTarget: resolvedCopilotApiTarget,
@@ -173,12 +188,38 @@ export function resolveAllowedDomains(options: Record<string, unknown>): Allowed
     },
     allowedDomains,
     process.env,
-    logger.debug.bind(logger)
+    logger.debug.bind(logger),
+    sensitiveAllowedDomains,
+    openaiEndpointOverride,
   );
+
+  // In network-isolation (topology) mode, automatically add trusted topology
+  // peer hostnames to the Squid allowed-domain ACL. NO_PROXY is also set for
+  // these peers (in proxy-environment.ts) so that proxy-aware clients
+  // (undici/rmcp) connect directly; adding them here ensures Squid does not
+  // block requests from tools that honour HTTP(S)_PROXY but ignore NO_PROXY.
+  //
+  // This covers the standard-port (80/443) path. Non-standard MCP ports (e.g.
+  // http://awmg-mcpg:8080) and Squid's DNS resolution of these Docker-only
+  // hostnames are handled separately via SquidConfig.topologyPeers and the
+  // squid-proxy extra_hosts patch (see config-writer.ts / topology.ts).
+  //
+  // NOTE ON SQUID SEMANTICS: these names are emitted as dstdomain ACL entries
+  // via formatDomainForSquid, which prepends a leading dot (e.g. "awmg-mcpg" ->
+  // ".awmg-mcpg"). Squid therefore matches the host itself *and* any subdomain
+  // (*.awmg-mcpg). This is safe for internal Docker hostnames (a bare label
+  // like "github" matches host "github", not "github.com"), but operators
+  // should avoid topology names that collide with trusted public labels.
+  for (const peer of resolveTopologyPeerHosts(options)) {
+    if (!allowedDomains.includes(peer)) {
+      allowedDomains.push(peer);
+      logger.debug(`Network-isolation: auto-allowing topology peer "${peer}" in Squid ACL`);
+    }
+  }
 
   validateAllowedDomains(allowedDomains);
 
-  return { allowedDomains, localhostResult, resolvedCopilotApiTarget, resolvedCopilotApiBasePath };
+  return { allowedDomains, sensitiveAllowedDomains, localhostResult, resolvedCopilotApiTarget, resolvedCopilotApiBasePath };
 }
 
 /**
@@ -221,3 +262,10 @@ export function resolveBlockedDomains(options: Record<string, unknown>): string[
 
   return blockedDomains;
 }
+
+/** @internal Exposed only for unit tests — not part of the public API. */
+// ts-prune-ignore-next
+export const testHelpers = {
+  parseDomainOptions,
+  validateAllowedDomains,
+};

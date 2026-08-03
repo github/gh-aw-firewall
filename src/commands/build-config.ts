@@ -1,5 +1,7 @@
 import { WrapperConfig, LogLevel, UpstreamProxyConfig } from '../types';
+import type { AwfFileConfig } from '../config-file';
 import { resolveApiCredentials } from './resolve-credentials';
+import { normalizeBoundedQueriesConfig } from '../parsers/bounded-query-parser';
 import { logger } from '../logger';
 
 /**
@@ -44,12 +46,14 @@ interface BuildConfigInputs {
   agentCommand: string;
   logLevel: LogLevel;
   allowedDomains: string[];
+  sensitiveAllowedDomains?: string[];
   blockedDomains: string[];
   localhostDetected: boolean;
   additionalEnv: Record<string, string>;
   volumeMounts: string[] | undefined;
   upstreamProxy: UpstreamProxyConfig | undefined;
   dnsServers: string[];
+  dnsServersExplicit?: boolean;
   dnsOverHttps: string | undefined;
   allowedUrls: string[] | undefined;
   memoryLimit: string | undefined;
@@ -81,12 +85,14 @@ export function buildConfig(inputs: BuildConfigInputs): WrapperConfig {
     agentCommand,
     logLevel,
     allowedDomains,
+    sensitiveAllowedDomains = [],
     blockedDomains,
     localhostDetected,
     additionalEnv,
     volumeMounts,
     upstreamProxy,
     dnsServers,
+    dnsServersExplicit,
     dnsOverHttps,
     allowedUrls,
     memoryLimit,
@@ -116,6 +122,7 @@ export function buildConfig(inputs: BuildConfigInputs): WrapperConfig {
 
   return {
     allowedDomains,
+    sensitiveAllowedDomains: sensitiveAllowedDomains.length > 0 ? sensitiveAllowedDomains : undefined,
     blockedDomains: blockedDomains.length > 0 ? blockedDomains : undefined,
     agentCommand,
     logLevel,
@@ -137,6 +144,7 @@ export function buildConfig(inputs: BuildConfigInputs): WrapperConfig {
     volumeMounts,
     containerWorkDir: options.containerWorkdir as string | undefined,
     dnsServers,
+    dnsServersExplicit,
     dnsOverHttps,
     memoryLimit,
     proxyLogsDir: options.proxyLogsDir as string | undefined,
@@ -166,6 +174,8 @@ export function buildConfig(inputs: BuildConfigInputs): WrapperConfig {
     disallowedModels,
     maxEffectiveTokens,
     maxAiCredits,
+    defaultAiCreditsPricing: options.defaultAiCreditsPricing as WrapperConfig['defaultAiCreditsPricing'],
+    apiProxyProviders: options.apiProxyProviders as WrapperConfig['apiProxyProviders'],
     effectiveTokenModelMultipliers,
     effectiveTokenDefaultModelMultiplier,
     maxModelMultiplierCap,
@@ -205,6 +215,9 @@ export function buildConfig(inputs: BuildConfigInputs): WrapperConfig {
     chrootBinariesSourcePath: options.chrootBinariesSourcePath as string | undefined,
     chrootIdentity,
     dind,
+    boundedQueries: normalizeBoundedQueriesConfig(
+      options.boundedQueries as AwfFileConfig['boundedQueries'] | undefined,
+    ),
   };
 }
 

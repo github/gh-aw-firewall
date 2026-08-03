@@ -317,6 +317,69 @@ describe('fetchStartupModels', () => {
     expect(cachedModels.copilot).toEqual(['gpt-4o', 'o3-mini']);
   });
 
+  it('should preserve Copilot runtime pricing metadata', async () => {
+    mockHttpsRequestWithBody(200, JSON.stringify({
+      data: [{
+        id: 'gpt-runtime',
+        billing: {
+          token_prices: {
+            batch_size: 1_000_000,
+            default: { input_price: 100, output_price: 600 },
+          },
+        },
+      }],
+    }));
+    await fetchStartupModels([createModelsAdapter('copilot', {
+      cacheKey: 'copilot',
+      url: 'https://api.githubcopilot.com/models',
+      opts: { method: 'GET', headers: { Authorization: '******' } },
+      modelMetadataFormat: 'copilot',
+      apiVersion: '2026-07-01',
+    })]);
+
+    const { getRuntimeCatalogSnapshot } = require('./key-validation');
+    expect(getRuntimeCatalogSnapshot().copilot[0]).toMatchObject({
+      id: 'gpt-runtime',
+      api_version: '2026-07-01',
+      pricing: {
+        default: {
+          input: 1,
+          output: 6,
+        },
+      },
+    });
+  });
+
+  it('should retain the last successful snapshot when a later fetch fails', async () => {
+    const adapter = createModelsAdapter('copilot', {
+      cacheKey: 'copilot',
+      url: 'https://api.githubcopilot.com/models',
+      opts: { method: 'GET', headers: { Authorization: '******' } },
+      modelMetadataFormat: 'copilot',
+      apiVersion: '2026-07-01',
+    });
+    const successMock = mockHttpsRequestWithBody(200, JSON.stringify({
+      data: [{
+        id: 'gpt-runtime',
+        billing: {
+          token_prices: {
+            batch_size: 1_000_000,
+            default: { input_price: 100, output_price: 600 },
+          },
+        },
+      }],
+    }));
+    await fetchStartupModels([adapter]);
+    successMock.mockRestore();
+
+    mockHttpsRequestWithBody(503, '{"error":"unavailable"}');
+    await fetchStartupModels([adapter]);
+
+    const { getRuntimeCatalogSnapshot } = require('./key-validation');
+    expect(cachedModels.copilot).toEqual(['gpt-runtime']);
+    expect(getRuntimeCatalogSnapshot().copilot[0].id).toBe('gpt-runtime');
+  });
+
   it('should populate cachedModels.gemini when Gemini key is configured', async () => {
     mockHttpsRequestWithBody(200, '{"models":[{"name":"models/gemini-1.5-pro"},{"name":"models/gemini-1.5-flash"}]}');
     await fetchStartupModels([createModelsAdapter('gemini', {

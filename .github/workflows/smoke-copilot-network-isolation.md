@@ -42,8 +42,6 @@ safe-outputs:
     run-failure: "🛡️ [{workflow_name}]({run_url}) reports {status} while checking network isolation. Investigate the egress model."
 timeout-minutes: 15
 sandbox:
-  mcp:
-    version: v0.3.32
   agent:
     sudo: false
 strict: false
@@ -56,7 +54,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout repository
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
       - name: Download agent artifact
@@ -68,7 +66,6 @@ jobs:
         run: node scripts/ci/check-token-usage.js --artifact-root /tmp/gh-aw-agent --engine copilot
 steps:
   - name: Pre-compute smoke test data
-    id: smoke-data
     run: |
       echo "::group::Fetching last 2 merged PRs"
       PR_DATA=$(gh pr list --repo "$GITHUB_REPOSITORY" --state merged --limit 2 \
@@ -77,12 +74,9 @@ steps:
       echo "$PR_DATA"
       echo "::endgroup::"
 
-      # Export results for agent context
-      {
-        echo "SMOKE_PR_DATA<<SMOKE_EOF"
-        echo "$PR_DATA"
-        echo "SMOKE_EOF"
-      } >> "$GITHUB_OUTPUT"
+      # Write results to file for agent context
+      mkdir -p /tmp/gh-aw/agent
+      echo "$PR_DATA" > /tmp/gh-aw/agent/smoke-pr-data.txt
     env:
       GH_TOKEN: ${{ github.token }}
 post-steps:
@@ -186,7 +180,7 @@ Report the real observed results — do not hard-code `pass`.
 ## Pre-Fetched PR Data
 
 ```
-${{ steps.smoke-data.outputs.SMOKE_PR_DATA }}
+(see `/tmp/gh-aw/agent/smoke-pr-data.txt`)
 ```
 
 ## Output (MANDATORY)

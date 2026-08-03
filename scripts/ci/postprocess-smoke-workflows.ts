@@ -30,9 +30,9 @@ const codexWorkflowPaths = [
 // and --skip-pull -> --build-local rewrites would replace the released bundle
 // with a source build, which is incompatible (e.g. the standalone awf bundle
 // rejects --build-local: "requires a full repository checkout").
+//
 const releaseModeLockFiles = new Set<string>([
-  'network-isolation-test.lock.yml',
-  'build-test-network-isolation.lock.yml',
+  'smoke-bounded-queries.lock.yml',
 ]);
 
 // Auto-discover all lock files so new workflows are automatically included.

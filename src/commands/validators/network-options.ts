@@ -14,12 +14,15 @@ export interface NetworkOptionsResult {
   dockerHostCheck: ReturnType<typeof checkDockerHost>;
   dockerHostPathPrefixResolution: ReturnType<typeof resolveDockerHostPathPrefix>;
   allowedDomains: string[];
+  sensitiveAllowedDomains: string[];
   blockedDomains: string[];
   localhostResult: ReturnType<typeof resolveAllowedDomains>['localhostResult'];
   resolvedCopilotApiTarget: string | undefined;
   resolvedCopilotApiBasePath: string | undefined;
   upstreamProxy: UpstreamProxyConfig | undefined;
   dnsServers: string[];
+  /** True when DNS servers were supplied explicitly; false when auto-detected. */
+  dnsServersExplicit: boolean;
   dnsOverHttps: string | undefined;
 }
 
@@ -95,6 +98,7 @@ export function validateNetworkOptions(options: Record<string, unknown>): Networ
   // Resolve allowed and blocked domains (parse, merge, validate)
   const {
     allowedDomains,
+    sensitiveAllowedDomains,
     localhostResult,
     resolvedCopilotApiTarget,
     resolvedCopilotApiBasePath,
@@ -105,18 +109,20 @@ export function validateNetworkOptions(options: Record<string, unknown>): Networ
   // --- Network configuration -----------------------------------------------
 
   // Resolve network configuration (upstream proxy, DNS servers, DNS-over-HTTPS)
-  const { upstreamProxy, dnsServers, dnsOverHttps } = resolveNetworkConfig(options);
+  const { upstreamProxy, dnsServers, dnsServersExplicit, dnsOverHttps } = resolveNetworkConfig(options);
 
   return {
     dockerHostCheck,
     dockerHostPathPrefixResolution,
     allowedDomains,
+    sensitiveAllowedDomains,
     blockedDomains,
     localhostResult,
     resolvedCopilotApiTarget,
     resolvedCopilotApiBasePath,
     upstreamProxy,
     dnsServers,
+    dnsServersExplicit,
     dnsOverHttps,
   };
 }

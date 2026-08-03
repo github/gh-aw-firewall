@@ -628,6 +628,40 @@ copy_agent_helper_scripts() {
       fi
     fi
   fi
+
+  # Activate the bounded-query CLI when the bounded-query broker socket is present.
+  # The wrapper is copied to /tmp/awf-lib/bounded-query so it resolves inside the
+  # chroot on the same PATH entry used for the gh wrapper.
+  if [ -n "$AWF_BOUNDED_QUERY_SOCKET" ] && [ -f /usr/local/bin/bounded-query-wrapper.sh ]; then
+    if mkdir -p /host/tmp/awf-lib 2>/dev/null; then
+      if cp /usr/local/bin/bounded-query-wrapper.sh /host/tmp/awf-lib/bounded-query 2>/dev/null && \
+         chmod +x /host/tmp/awf-lib/bounded-query 2>/dev/null; then
+        echo "[entrypoint] bounded-query CLI installed at /tmp/awf-lib/bounded-query (inside chroot)"
+        case ":${AWF_HOST_PATH:-$PATH}:" in
+          *":/tmp/awf-lib:"*) ;;
+          *) export AWF_HOST_PATH="/tmp/awf-lib:${AWF_HOST_PATH:-$PATH}" ;;
+        esac
+      else
+        echo "[entrypoint][WARN] Could not install bounded-query CLI"
+      fi
+    fi
+  fi
+
+  # Install the bounded-query SKILL.md at the standard GitHub Copilot skill
+  # discovery path so agents find it via the same scan that discovers other
+  # skills in ~/.github/skills/.  The source file is bind-mounted read-only
+  # from the host; we copy it into the chroot home so it is discovered inside
+  # the chroot without leaving host state modified.
+  if [ -n "$AWF_BOUNDED_QUERY_SKILL" ] && [ -f "$AWF_BOUNDED_QUERY_SKILL" ] && \
+     [ -n "$SYNTH_HOME" ]; then
+    SKILL_DEST_DIR="/host${SYNTH_HOME}/.github/skills/bounded-query"
+    if mkdir -p "$SKILL_DEST_DIR" 2>/dev/null && \
+       cp "$AWF_BOUNDED_QUERY_SKILL" "$SKILL_DEST_DIR/SKILL.md" 2>/dev/null; then
+      echo "[entrypoint] bounded-query SKILL.md installed at ${SYNTH_HOME}/.github/skills/bounded-query/SKILL.md (inside chroot)"
+    else
+      echo "[entrypoint][WARN] Could not install bounded-query SKILL.md"
+    fi
+  fi
 }
 
 copy_dind_runner_binary() {
@@ -705,9 +739,10 @@ copy_awf_ca_cert() {
 
 copy_system_ca_bundle() {
   # Detect and copy the host system CA bundle to a chroot-accessible path.
-  # On Amazon Linux / RHEL-family systems, the CA bundle lives under /etc/pki/
-  # which is not mounted into the chroot. This function finds the system bundle
-  # and copies it to /tmp/awf-lib/ so TLS works regardless of distro.
+  # On Amazon Linux / RHEL-family systems, the CA bundle often lives under
+  # /etc/pki/. This function finds the system bundle and, when it is not already
+  # accessible in the chroot, copies it to /tmp/awf-lib/ so TLS works regardless
+  # of distro.
   #
   # In SSL Bump mode, the AWF CA must remain the active trust bundle for MITM
   # proxy validation. We only append the system bundle to that staged AWF CA.
@@ -762,11 +797,11 @@ copy_system_ca_bundle() {
   fi
 
   # Check if the bundle is already accessible inside the chroot via existing mounts.
-  # AWF mounts /etc/ssl and /etc/ca-certificates into the chroot; paths under those
-  # prefixes are already visible. Paths under /etc/pki (RHEL/Amazon Linux) are not.
+  # AWF mounts the common CA roots under /etc/ssl, /etc/ca-certificates, and the
+  # RHEL/Amazon Linux CA roots under /etc/pki/ca-trust/extracted and /etc/pki/tls/certs.
   local CHROOT_RELATIVE="${SYSTEM_BUNDLE#/host}"
   case "$CHROOT_RELATIVE" in
-    /etc/ssl/*|/etc/ca-certificates/*)
+    /etc/ssl/*|/etc/ca-certificates/*|/etc/pki/ca-trust/extracted/*|/etc/pki/tls/certs/*)
       # Already accessible via existing bind mounts
       export SSL_CERT_FILE="$CHROOT_RELATIVE"
       export NODE_EXTRA_CA_CERTS="$CHROOT_RELATIVE"
@@ -778,7 +813,7 @@ copy_system_ca_bundle() {
       ;;
   esac
 
-  # Bundle is not accessible in chroot (e.g., /etc/pki paths). Copy it.
+  # Bundle is not accessible in chroot. Copy it.
   if mkdir -p /host/tmp/awf-lib 2>/dev/null; then
     if cp "$SYSTEM_BUNDLE" /host/tmp/awf-lib/system-ca-certificates.crt 2>/dev/null && \
        [ -s /host/tmp/awf-lib/system-ca-certificates.crt ]; then
@@ -1342,6 +1377,34 @@ run_non_chroot_command() {
       echo "[entrypoint] gh CLI proxy wrapper installed at /tmp/awf-lib/gh"
     else
       echo "[entrypoint][WARN] Could not install gh CLI proxy wrapper"
+    fi
+  fi
+
+  # Activate the bounded-query CLI in non-chroot mode.
+  if [ -n "$AWF_BOUNDED_QUERY_SOCKET" ] && [ -f /usr/local/bin/bounded-query-wrapper.sh ]; then
+    mkdir -p /tmp/awf-lib
+    if cp /usr/local/bin/bounded-query-wrapper.sh /tmp/awf-lib/bounded-query 2>/dev/null && \
+       chmod +x /tmp/awf-lib/bounded-query 2>/dev/null; then
+      case ":${PATH}:" in
+        *":/tmp/awf-lib:"*) ;;
+        *) export PATH="/tmp/awf-lib:${PATH}" ;;
+      esac
+      echo "[entrypoint] bounded-query CLI installed at /tmp/awf-lib/bounded-query"
+    else
+      echo "[entrypoint][WARN] Could not install bounded-query CLI"
+    fi
+  fi
+
+  # Install the bounded-query SKILL.md at the standard GitHub Copilot skill
+  # discovery path so agents find it via the same scan that discovers other
+  # skills in ~/.github/skills/ (non-chroot mode).
+  if [ -n "$AWF_BOUNDED_QUERY_SKILL" ] && [ -f "$AWF_BOUNDED_QUERY_SKILL" ]; then
+    SKILL_DEST_DIR="${HOME}/.github/skills/bounded-query"
+    if mkdir -p "$SKILL_DEST_DIR" 2>/dev/null && \
+       cp "$AWF_BOUNDED_QUERY_SKILL" "$SKILL_DEST_DIR/SKILL.md" 2>/dev/null; then
+      echo "[entrypoint] bounded-query SKILL.md installed at ${SKILL_DEST_DIR}/SKILL.md"
+    else
+      echo "[entrypoint][WARN] Could not install bounded-query SKILL.md"
     fi
   fi
 

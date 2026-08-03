@@ -34,11 +34,12 @@ describe('model-api-mapping', () => {
       expect(result.endpoints).toContain('responses');
     });
 
-    it('finds GPT-5.5 as responses-only', () => {
+    it('finds GPT-5.5 as supporting both endpoints', () => {
       const result = lookupModelEndpoints('gpt-5.5', 'openai');
       expect(result).not.toBeNull();
       expect(result.family).toBe('gpt-5.5');
-      expect(result.endpoints).toEqual(['responses']);
+      expect(result.endpoints).toContain('chat_completions');
+      expect(result.endpoints).toContain('responses');
     });
 
     it('finds GPT-5.1 as supporting both endpoints', () => {
@@ -70,10 +71,11 @@ describe('model-api-mapping', () => {
       expect(result.endpoints).toEqual(['responses']);
     });
 
-    it('finds GPT-5.5-turbo as responses-only', () => {
+    it('finds GPT-5.5-turbo as supporting both endpoints', () => {
       const result = lookupModelEndpoints('gpt-5.5-turbo', 'openai');
       expect(result).not.toBeNull();
-      expect(result.endpoints).toEqual(['responses']);
+      expect(result.endpoints).toContain('chat_completions');
+      expect(result.endpoints).toContain('responses');
     });
 
     it('finds GPT-4o as supporting both endpoints', () => {
@@ -96,6 +98,13 @@ describe('model-api-mapping', () => {
       expect(result.endpoints).toEqual(['messages']);
     });
 
+    it('finds Claude Opus 5 as messages endpoint', () => {
+      const result = lookupModelEndpoints('claude-opus-5', 'anthropic');
+      expect(result).not.toBeNull();
+      expect(result.family).toBe('claude-opus-5');
+      expect(result.endpoints).toEqual(['messages']);
+    });
+
     it('finds Claude 3.7 Sonnet as messages endpoint', () => {
       const result = lookupModelEndpoints('claude-3-7-sonnet-latest', 'anthropic');
       expect(result).not.toBeNull();
@@ -106,7 +115,8 @@ describe('model-api-mapping', () => {
     it('finds models without provider hint', () => {
       const result = lookupModelEndpoints('gpt-5.5');
       expect(result).not.toBeNull();
-      expect(result.endpoints).toEqual(['responses']);
+      expect(result.endpoints).toContain('chat_completions');
+      expect(result.endpoints).toContain('responses');
     });
 
     it('returns null for unknown models', () => {
@@ -126,7 +136,8 @@ describe('model-api-mapping', () => {
       expect(reflect.available).toBe(true);
       expect(reflect.providers).toContain('openai');
       expect(reflect.providers).toContain('anthropic');
-      expect(reflect.last_updated).toBe('2026-07-16T06:03:36Z');
+      expect(reflect.last_updated).toBe('2026-07-25T06:01:17Z');
+      expect(reflect.models.anthropic.models[0].family).toBe('claude-opus-5');
       expect(reflect.error).toBeNull();
     });
   });

@@ -14,7 +14,7 @@ For a deep dive into how AWF handles authentication tokens and credential isolat
 When enabled, the API proxy sidecar:
 - **Isolates credentials**: API keys are never exposed to the agent container
 - **Auto-authentication**: Automatically injects Bearer tokens and API keys
-- **Dual provider support**: Supports both OpenAI (Codex) and Anthropic (Claude) APIs
+- **Multi-provider support**: Supports OpenAI, Anthropic, Copilot, and Gemini APIs
 - **Transparent proxying**: Agent code uses standard SDK environment variables
 - **Squid routing**: All traffic routes through Squid to respect domain whitelisting
 
@@ -318,7 +318,7 @@ If the key is present only in `secrets.*` but not exported into the step's `env:
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--openai-api-target <host>` | `api.openai.com` | Custom upstream for OpenAI API requests (e.g. Azure OpenAI or an internal LLM router). Can also be set via `OPENAI_API_TARGET` env var. |
+| `--openai-api-target <host>` | `api.openai.com` | Custom upstream for OpenAI API requests (e.g. Azure OpenAI or an internal LLM router). Can also be set via `OPENAI_API_TARGET` env var (or `OPENAI_ENDPOINT_OVERRIDE` for runtime secret-backed endpoint injection). |
 | `--anthropic-api-target <host>` | `api.anthropic.com` | Custom upstream for Anthropic API requests (e.g. an internal Claude router). Can also be set via `ANTHROPIC_API_TARGET` env var. |
 | `--copilot-api-target <host>` | auto-derived | Custom upstream for GitHub Copilot API requests (useful for GHES). Can also be set via `COPILOT_API_TARGET` env var. |
 | `--vertex-api-target <host>` | `aiplatform.googleapis.com` | Custom upstream for Vertex API requests. Can also be set via `VERTEX_API_TARGET` env var. |
@@ -549,6 +549,23 @@ curl http://172.30.0.30:10000/reflect
       "base_url": "http://api-proxy:10002",
       "configured": true,
       "models": ["gpt-4o", "claude-3.5-sonnet"],
+      "model_metadata": [
+        {
+          "id": "gpt-4o",
+          "source": "provider",
+          "observed_at": "2026-07-28T00:00:00.000Z",
+          "api_version": "2026-07-01",
+          "pricing": {
+            "default": {
+              "input": 2.5,
+              "cachedInput": 0.25,
+              "cacheWrite": null,
+              "output": 10,
+              "threshold": 272000
+            }
+          }
+        }
+      ],
       "models_url": "http://api-proxy:10002/models"
     },
     {
@@ -567,8 +584,19 @@ curl http://172.30.0.30:10000/reflect
 Fields:
 - `configured` — `true` if an API key for this provider was found at startup
 - `models` — list of model IDs fetched from the provider at startup; `null` if the provider is not configured or model fetch failed
+- `model_metadata` — sanitized provider metadata, including pricing and provenance when the provider supplies it; currently Copilot supplies runtime pricing
 - `models_fetch_complete` — `true` once the startup model-fetch pass has finished
 - `models_url` — URL to query for the live model list
+
+Copilot discovery requests use API version `2026-07-01`. Runtime Copilot prices
+override bundled prices, including default and long-context tiers. Other
+providers continue to use bundled pricing because their model-list APIs do not
+currently advertise token prices. Failed or empty refreshes retain the last
+successful snapshot.
+
+Explicit `apiProxy.providers` model-cost overlays take precedence over runtime
+and bundled pricing. Overlay costs use the models.dev format (dollars per token)
+and are normalized to dollars per million tokens inside the proxy.
 
 ## Troubleshooting
 

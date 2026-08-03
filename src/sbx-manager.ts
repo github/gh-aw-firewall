@@ -24,6 +24,8 @@
 
 import execa from 'execa';
 import * as fs from 'fs';
+import * as http from 'http';
+import * as os from 'os';
 import * as path from 'path';
 import { copyEnvEntries } from './env-utils';
 import { logger } from './logger';
@@ -52,32 +54,15 @@ const SECRET_ENV_PATTERNS = [
 /** Default sandbox name (single-sandbox-per-run model). */
 export const SBX_DEFAULT_NAME = `${SBX_NAME_PREFIX}-${process.pid}`;
 
-export interface SbxConfig {
-  /** Sandbox name (defaults to `awf-agent-<pid>`). */
-  name?: string;
-  /** Workspace directory to mount into the sandbox. */
-  workspaceDir: string;
-  /** Squid proxy IP for DOCKER_SANDBOXES_PROXY. */
-  squidIp: string;
-  /** Squid proxy port (default 3128). */
-  squidPort?: number;
-  /** Additional workspace mounts (read-only paths). */
-  extraMounts?: string[];
-}
-
-export interface SbxExecOptions {
-  timeoutMinutes?: number;
-  workDir?: string;
-  environment?: Record<string, string>;
-  tty?: boolean;
-}
+/** Name used by the isolated, short-lived Unix-socket passthrough probe. */
+const SBX_SOCKET_PROBE_NAME = `${SBX_NAME_PREFIX}-socket-probe-${process.pid}`;
 
 /**
  * Strips secret-bearing env vars from process.env so they never reach
  * the sbx CLI or the sandbox interior.  Returns a shallow copy with
  * only non-secret entries plus any explicit overrides.
  */
-export function sanitizeEnvForSbx(
+function sanitizeEnvForSbx(
   overrides: Record<string, string> = {},
 ): Record<string, string | undefined> {
   const clean: Record<string, string | undefined> = {};
@@ -85,6 +70,34 @@ export function sanitizeEnvForSbx(
     keyPredicate: (key) => !SECRET_ENV_PATTERNS.some((p) => p.test(key)),
   });
   return { ...clean, ...overrides };
+}
+
+/**
+ * Runs an sbx management command with create-time environment fixes applied.
+ *
+ * `DOCKER_SANDBOXES_PROXY` must be absent before AWF's containers are ready,
+ * and `XDG_CONFIG_HOME` must not redirect the sbx CLI away from its normal
+ * credential store. Both variables are always restored, even on failure.
+ */
+async function withCreateSandboxEnvironment<T>(fn: () => Promise<T>): Promise<T> {
+  const savedProxy = process.env.DOCKER_SANDBOXES_PROXY;
+  const savedXdg = process.env.XDG_CONFIG_HOME;
+  delete process.env.DOCKER_SANDBOXES_PROXY;
+  delete process.env.XDG_CONFIG_HOME;
+  try {
+    return await fn();
+  } finally {
+    if (savedProxy !== undefined) {
+      process.env.DOCKER_SANDBOXES_PROXY = savedProxy;
+    } else {
+      delete process.env.DOCKER_SANDBOXES_PROXY;
+    }
+    if (savedXdg !== undefined) {
+      process.env.XDG_CONFIG_HOME = savedXdg;
+    } else {
+      delete process.env.XDG_CONFIG_HOME;
+    }
+  }
 }
 
 /** Records a credential path that was moved aside before `sbx create`. */
@@ -157,7 +170,7 @@ function scrubHomeCredentials(homePath: string): void {
  * MUST run only after the sandbox is removed, because the home dirs are live
  * mounts — restoring while the VM is running would re-expose the secrets.
  */
-export function restoreHomeCredentials(): void {
+function restoreHomeCredentials(): void {
   for (const { original, backup } of scrubbedCredentials) {
     try {
       if (fs.existsSync(backup)) {
@@ -186,7 +199,18 @@ export function restoreHomeCredentials(): void {
  * Creates a Docker sbx sandbox with workspace mounts.
  * Sets `DOCKER_SANDBOXES_PROXY` to chain all egress through AWF's Squid.
  */
-export async function createSandbox(config: SbxConfig): Promise<string> {
+export async function createSandbox(config: {
+  /** Sandbox name (defaults to `awf-agent-<pid>`). */
+  name?: string;
+  /** Workspace directory to mount into the sandbox. */
+  workspaceDir: string;
+  /** Squid proxy IP for DOCKER_SANDBOXES_PROXY. */
+  squidIp: string;
+  /** Squid proxy port (default 3128). */
+  squidPort?: number;
+  /** Additional workspace mounts (read-only paths). */
+  extraMounts?: string[];
+}): Promise<string> {
   const name = config.name || SBX_DEFAULT_NAME;
   const squidPort = config.squidPort || 3128;
   const proxyUrl = `http://${config.squidIp}:${squidPort}`;
@@ -259,7 +283,7 @@ export async function createSandbox(config: SbxConfig): Promise<string> {
   // is to curate which $HOME subdirs are mounted. The central mount policy
   // (HOME_TOOL_SUBDIRS) lists the allowed tool-state dirs including agent-state
   // dirs (.copilot, .gemini). Credential stores such as ~/.aws, ~/.ssh,
-  // ~/.docker, ~/.kube, ~/.azure, ~/.gnupg, ~/.netrc and ~/.gitconfig are never
+  // ~/.docker, ~/.kube, ~/.gnupg, ~/.netrc and ~/.gitconfig are never
   // whitelisted, so they never enter the sandbox. Only paths that exist on the
   // host are mounted, because sbx requires the mount source to exist.
   //
@@ -305,25 +329,12 @@ export async function createSandbox(config: SbxConfig): Promise<string> {
   // XDG_CONFIG_HOME must also be removed — the Copilot harness sets it to $HOME,
   // which makes the sbx CLI look for credentials in $HOME/ instead of the
   // default $HOME/.config/ where `sbx login` stored them.
-  const savedProxy = process.env.DOCKER_SANDBOXES_PROXY;
-  const savedXdg = process.env.XDG_CONFIG_HOME;
-  delete process.env.DOCKER_SANDBOXES_PROXY;
-  delete process.env.XDG_CONFIG_HOME;
-
-  const createResult = await execa('sbx', args, {
+  const createResult = await withCreateSandboxEnvironment(() => execa('sbx', args, {
     input: 'y\n',
     stdio: ['pipe', 'pipe', 'pipe'],
     reject: false,
     timeout: 120_000, // 2 minute timeout for sandbox creation
-  });
-
-  // Restore env vars
-  if (savedProxy !== undefined) {
-    process.env.DOCKER_SANDBOXES_PROXY = savedProxy;
-  }
-  if (savedXdg !== undefined) {
-    process.env.XDG_CONFIG_HOME = savedXdg;
-  }
+  }));
 
   const stdout = (createResult.stdout || '').trim();
   const stderr = (createResult.stderr || '').trim();
@@ -356,8 +367,112 @@ export async function createSandbox(config: SbxConfig): Promise<string> {
  * resolvable by name. `$HOME` resolves to the injected HOME (getRealUserHome),
  * which matches the wholesale-mounted home tool dirs.
  */
-export function withLocalBinOnPath(command: string): string {
-  return `export PATH="$HOME/.local/bin\${PATH:+:$PATH}"; ${command}`;
+function withLocalBinOnPath(command: string): string {
+  return `export PATH="\${AWF_BOUNDED_QUERY_BIN_DIR:+$AWF_BOUNDED_QUERY_BIN_DIR:}$HOME/.local/bin\${PATH:+:$PATH}"; ${command}`;
+}
+
+/** @internal Exposed for unit tests only. */
+// ts-prune-ignore-next
+export const testHelpers = {
+  sanitizeEnvForSbx,
+  restoreHomeCredentials,
+  withCreateSandboxEnvironment,
+  withLocalBinOnPath,
+};
+
+/**
+ * Executes a real host-Unix-socket passthrough probe in a disposable sandbox.
+ *
+ * sbx workspace mounts are filesystem passthroughs, but Unix socket forwarding
+ * is host/version dependent. A successful HTTP exchange over the mounted
+ * socket is stronger than checking `test -S`: it proves connect semantics.
+ * Failure selects the authenticated HTTP fallback; sandbox create/cleanup
+ * failures are fatal so preflight never silently downgrades an unsupported
+ * host.
+ */
+export async function probeSbxUnixSocketMount(): Promise<boolean> {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-sbx-socket-probe-'));
+  fs.chmodSync(root, 0o700);
+  const socketPath = path.join(root, 'probe.sock');
+  const response = '{"status":"error"}';
+  const server = http.createServer((_req, res) => {
+    res.writeHead(200, {
+      'content-type': 'application/json',
+      'content-length': Buffer.byteLength(response),
+      'cache-control': 'no-store',
+    });
+    res.end(response);
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(socketPath, resolve);
+  });
+
+  let created = false;
+  let cleanupError: Error | undefined;
+  let probeError: unknown;
+  let supported = false;
+  try {
+    const createResult = await withCreateSandboxEnvironment(() => execa(
+      'sbx',
+      ['create', '--name', SBX_SOCKET_PROBE_NAME, 'shell', root],
+      {
+        input: 'y\n',
+        stdio: ['pipe', 'pipe', 'pipe'],
+        reject: false,
+        timeout: 120_000,
+      },
+    ));
+    created = (createResult.exitCode ?? 1) === 0 || (createResult.stdout || '').includes('Created sandbox');
+    if (!created) {
+      throw new Error(
+        `sbx bounded-query ingress probe could not create a sandbox: ${
+          (createResult.stderr || createResult.stdout || 'unknown error').trim()
+        }`,
+      );
+    }
+
+    const result = await execa(
+      'sbx',
+      [
+        'exec',
+        SBX_SOCKET_PROBE_NAME,
+        'curl',
+        '--silent',
+        '--show-error',
+        '--max-time',
+        '5',
+        '--unix-socket',
+        socketPath,
+        'http://localhost/probe',
+      ],
+      {
+        env: sanitizeEnvForSbx(),
+        stdio: ['ignore', 'pipe', 'pipe'],
+        reject: false,
+        timeout: 15_000,
+      },
+    );
+    supported = (result.exitCode ?? 1) === 0 && result.stdout === response;
+  } catch (error: unknown) {
+    probeError = error;
+  } finally {
+    if (created) {
+      const removed = await execa('sbx', ['rm', '--force', SBX_SOCKET_PROBE_NAME], {
+        stdio: ['ignore', 'pipe', 'pipe'],
+        reject: false,
+        timeout: 30_000,
+      });
+      if ((removed.exitCode ?? 1) !== 0) {
+        cleanupError = new Error('sbx bounded-query ingress probe sandbox could not be removed');
+      }
+    }
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+  if (cleanupError) throw cleanupError;
+  if (probeError) throw probeError;
+  return supported;
 }
 
 /**
@@ -367,7 +482,12 @@ export function withLocalBinOnPath(command: string): string {
 export async function execInSandbox(
   name: string,
   command: string,
-  options?: SbxExecOptions,
+  options?: {
+    timeoutMinutes?: number;
+    workDir?: string;
+    environment?: Record<string, string>;
+    tty?: boolean;
+  },
 ): Promise<{ exitCode: number }> {
   logger.info(`Executing in sandbox "${name}": ${command}`);
 
@@ -375,6 +495,7 @@ export async function execInSandbox(
   if (options?.workDir) {
     args.push('--workdir', options.workDir);
   }
+
   if (options?.tty) {
     args.push('--tty');
   }
@@ -410,6 +531,123 @@ export async function execInSandbox(
     }
     logger.error(`Sandbox exec failed: ${error.message}`);
     return { exitCode: 1 };
+  }
+}
+
+/**
+ * Proves the selected ingress is reachable from the actual primary sandbox
+ * before the agent command starts. The HTTP probe uses a separate one-shot
+ * capability and receives only the canonical error body from `/query`.
+ */
+export async function assertSbxBoundedQueryIngress(
+  name: string,
+  ingress:
+    | { transport: 'unix'; socketPath: string }
+    | { transport: 'sbx-http'; endpoint: string; probeCapability: string },
+  environment: Record<string, string>,
+  workDir?: string,
+): Promise<void> {
+  const probeEnvironment = { ...environment };
+  let command: string;
+  if (ingress.transport === 'unix') {
+    probeEnvironment.AWF_BOUNDED_QUERY_SOCKET = ingress.socketPath;
+    command = [
+      'response=$(curl --silent --show-error --max-time 15 --unix-socket "$AWF_BOUNDED_QUERY_SOCKET"',
+      '-X POST -H "Expect:"',
+      'http://localhost/query 2>/dev/null) &&',
+      '[ "$response" = \'{"status":"error"}\' ]',
+    ].join(' ');
+  } else {
+    probeEnvironment.AWF_BOUNDED_QUERY_ENDPOINT = ingress.endpoint;
+    probeEnvironment.AWF_BOUNDED_QUERY_PROBE_CAPABILITY = ingress.probeCapability;
+    command = [
+      'response=$(curl --silent --show-error --noproxy "*" --max-time 15',
+      '-X POST -H "Expect:"',
+      '-H "X-AWF-Capability: $AWF_BOUNDED_QUERY_PROBE_CAPABILITY"',
+      '"$AWF_BOUNDED_QUERY_ENDPOINT" 2>/dev/null) &&',
+      '[ "$response" = \'{"status":"error"}\' ]',
+    ].join(' ');
+  }
+
+  const result = await execInSandbox(name, command, {
+    timeoutMinutes: 1,
+    workDir,
+    environment: probeEnvironment,
+  });
+  if (result.exitCode !== 0) {
+    throw new Error(
+      `sbx host does not support the selected bounded-query ${ingress.transport} ingress`,
+    );
+  }
+}
+
+/**
+ * Adds a resolver alias for the published API proxy and proves that the
+ * hard-coded gh-aw reflection endpoint is reachable before the agent starts.
+ */
+export async function assertSbxApiProxyReflect(
+  name: string,
+  environment: Record<string, string>,
+  workDir?: string,
+): Promise<void> {
+  environment.HOSTALIASES = '/tmp/awf-hostaliases';
+  const bridgeSource = [
+    'const http = require("node:http");',
+    'const upstreamHost = "host.docker.internal";',
+    'http.createServer((request, response) => {',
+    'const upstream = http.request({',
+    'hostname: upstreamHost,',
+    'port: 10000,',
+    'method: request.method,',
+    'path: request.url,',
+    'headers: { ...request.headers, host: `${upstreamHost}:10000` },',
+    '}, upstreamResponse => {',
+    'response.writeHead(upstreamResponse.statusCode || 502, upstreamResponse.headers);',
+    'upstreamResponse.pipe(response);',
+    '});',
+    'upstream.on("error", error => {',
+    'if (!response.headersSent) response.writeHead(502);',
+    'response.end(error.message);',
+    '});',
+    'request.pipe(upstream);',
+    '}).listen(10000, "127.0.0.1");',
+  ].join('\n');
+  const encodedBridge = Buffer.from(bridgeSource).toString('base64');
+  const command = [
+    'umask 077',
+    'printf "api-proxy localhost\\n" > "$HOSTALIASES"',
+    `printf %s ${encodedBridge} | base64 --decode > /tmp/awf-reflect-bridge.cjs`,
+    '{ nohup node /tmp/awf-reflect-bridge.cjs >/tmp/awf-reflect-bridge.log 2>&1 & }',
+    [
+      '{',
+      'for attempt in $(seq 1 30); do',
+      'if AWF_REFLECT_ATTEMPT="$attempt" node -e',
+      '\'fetch("http://api-proxy:10000/reflect", { signal: AbortSignal.timeout(500) }).then(',
+      'async response => {',
+      'if (!response.ok && process.env.AWF_REFLECT_ATTEMPT === "30")',
+      'console.error(`HTTP ${response.status}: ${await response.text()}`);',
+      'process.exit(response.ok ? 0 : 1);',
+      '}',
+      ').catch(error => {',
+      'if (process.env.AWF_REFLECT_ATTEMPT === "30") console.error(error, error.cause);',
+      'process.exit(1);',
+      '})\'',
+      '; then exit 0; fi;',
+      'sleep 1;',
+      'done;',
+      'cat /tmp/awf-reflect-bridge.log >&2 || true;',
+      'exit 1;',
+      '}',
+    ].join(' '),
+  ].join(' && ');
+
+  const result = await execInSandbox(name, command, {
+    timeoutMinutes: 1,
+    workDir,
+    environment,
+  });
+  if (result.exitCode !== 0) {
+    throw new Error('sbx sandbox cannot reach the API proxy /reflect endpoint');
   }
 }
 

@@ -10,7 +10,10 @@ describe('test coverage reporter workflow token optimization config', () => {
     const source = fs.readFileSync(sourcePath, 'utf-8');
 
     expect(source).toContain('github: false');
-    expect(source).toContain('bash: false');
+    expect(source).not.toContain('bash: false');
+    expect(source).not.toContain('bash: true');
+    // Narrowly scoped read access for coverage brief (compatible with no general bash access)
+    expect(source).toContain('cat:/tmp/gh-aw/agent/coverage-gaps-brief.txt');
     expect(source).toContain('model: summarization');
     expect(source).not.toContain('toolsets: [repos, discussions]');
     expect(source).not.toContain('bash: true');
@@ -58,10 +61,14 @@ describe('test coverage reporter workflow token optimization config', () => {
     expect(lock).not.toContain('ghcr.io/github/github-mcp-server');
     expect(lock).not.toContain('GITHUB_TOOLSETS');
     expect(lock).not.toContain('github_mcp_tools_with_safeoutputs_prompt.md');
-    expect(lock).toContain('GH_AW_MCP_CLI_SERVERS_LIST: \'- `safeoutputs` — run `safeoutputs --help` to see available tools\'');
+    expect(lock).toContain("GH_AW_MCP_CLI_SERVERS_LIST: '- `safeoutputs` — run `safeoutputs --help` to see available tools'");
     expect(lock).toContain('"safeoutputs": {');
     expect(lock).not.toContain('"github": {');
-    expect(lock).not.toContain('shell(');
+    // Narrowly scoped cat access; no general bash/npm/node shell tools
+    expect(lock).toContain("shell(cat:/tmp/gh-aw/agent/coverage-gaps-brief.txt)");
+    expect(lock).not.toContain("shell(npm");
+    expect(lock).not.toContain("shell(node");
+    expect(lock).not.toContain("shell(bash");
     expect(lock).toContain('const SECURITY_CRITICAL = [');
     expect(lock).toContain('.filter(r => r.stmts < 80 || SECURITY_CRITICAL.some(s => r.file.includes(s)))');
     expect(lock).toContain('.slice(0, 20);');
@@ -89,7 +96,7 @@ describe('test coverage reporter workflow token optimization config', () => {
     expect(lock).toContain('if-branches:');
 
     // Expression variables are passed via env entries that expand at runtime
-    const exprEnvLines = lock.match(/GH_AW_EXPR_[A-F0-9]+: \$\{\{.+\}\}/g) || [];
-    expect(exprEnvLines.length).toBeGreaterThan(0);
+    // The compiler uses GH_AW_GITHUB_REPOSITORY for ${{ github.repository }} references
+    expect(lock).toContain('GH_AW_GITHUB_REPOSITORY: ${{ github.repository }}');
   });
 });

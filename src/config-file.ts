@@ -23,6 +23,7 @@ export interface AwfFileConfig {
     maxEffectiveTokens?: number;
     maxAiCredits?: number;
     defaultAiCreditsPricing?: { input: number; output: number; cachedInput?: number; cacheWrite?: number | null };
+    providers?: Record<string, unknown>;
     modelMultipliers?: Record<string, number>;
     defaultModelMultiplier?: number;
     maxModelMultiplierCap?: number;
@@ -161,6 +162,30 @@ export interface AwfFileConfig {
   runner?: {
     topology?: 'standard' | 'arc-dind';
     sysrootImage?: string;
+  };
+  /**
+   * Bounded-query sandbox configuration.
+   *
+   * When enabled, AWF starts a network-isolated broker container that
+   * executes per-invocation query sandboxes on behalf of the agent. The
+   * broker has no network access and communicates with the agent through a
+   * Unix socket. See docs/awf-config-spec.md §14 for the full model,
+   * including the per-repository information-budget accounting and residual
+   * channels.
+   */
+  boundedQueries?: {
+    enabled?: boolean;
+    /**
+     * Each entry is either a trusted repository descriptor, or (for one
+     * release only) a legacy bare `owner/repo` string, normalized to
+     * `{ repo, sensitivity: 'internal' }` with a warning.
+     */
+    privateRepos?: Array<string | { repo: string; sensitivity: 'public' | 'internal' | 'confidential' | 'sealed' }>;
+    runtime?: 'docker' | 'gvisor' | 'sbx';
+    timeout?: number;
+    memoryLimit?: string;
+    interpreter?: 'python3';
+    maxInvocations?: number;
   };
 }
 

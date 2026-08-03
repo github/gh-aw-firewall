@@ -15,6 +15,7 @@
  */
 
 import * as path from 'path';
+import * as fs from 'fs';
 import { testHelpers } from './copilot-model';
 
 /** Mirrors the full canonicalization in copilot-model.ts: lowercase then replace separators. */
@@ -61,6 +62,37 @@ const INTENTIONALLY_EXCLUDED_FROM_SUPPORTED = new Set([
   'raptor-mini', // internal model; not a public Copilot CLI model
 ]);
 
+const SUPPORTED_WITHOUT_CURATED_PRICING = new Set([
+  'gpt-4',
+  'gpt-4-1',
+  'gpt-4-5',
+  'gpt-4o',
+  'gpt-4o-mini',
+  'gpt-5-1',
+  'o3',
+  'o3-mini',
+  'gemini-3-1-pro-preview',
+]);
+
+const MAPPING_FAMILIES_NOT_EXPOSED_BY_COPILOT_CLI = new Set([
+  'gpt-5-1-codex-max',
+  'gpt-5-codex/pro',
+  'o4-mini-deep-research',
+  'o4',
+  'o3-pro/deep-research',
+  'o1-pro',
+  'o1',
+  'computer-use-preview',
+  'codex-mini',
+  'chatgpt-4o-latest',
+  'gpt-4-turbo',
+  'gpt-3-5-turbo',
+  'claude-3-5-sonnet',
+  'claude-3-5-haiku',
+  'claude-3-7-sonnet',
+  'claude-3-opus',
+]);
+
 describe('SUPPORTED_COPILOT_MODELS ↔ ai-credits-pricing catalog sync', () => {
   const pricingPath = path.resolve(
     __dirname,
@@ -100,5 +132,35 @@ describe('SUPPORTED_COPILOT_MODELS ↔ ai-credits-pricing catalog sync', () => {
           `in src/copilot-model-catalog-sync.test.ts with a comment explaining why.`,
       );
     }
+  });
+
+  it('every supported model has curated pricing or an explicit static-catalog fallback', () => {
+    const normalizedPricing = new Set(pricingModels.map(normalizeSeparators));
+    const missing = [...testHelpers.supportedCopilotModels]
+      .map(normalizeSeparators)
+      .filter(model => model !== 'auto')
+      .filter(model => !SUPPORTED_WITHOUT_CURATED_PRICING.has(model))
+      .filter(model => !normalizedPricing.has(model));
+    expect(missing).toEqual([]);
+  });
+
+  it('every mapped completion family is represented or explicitly excluded', () => {
+    const mappingPath = path.resolve(__dirname, '..', 'docs', 'model-api-mapping.json');
+    const mapping = JSON.parse(fs.readFileSync(mappingPath, 'utf8')) as {
+      providers: Record<string, { models?: Array<{ family?: string }> }>;
+    };
+    const normalizedSupported = [...testHelpers.supportedCopilotModels].map(normalizeSeparators);
+    const missing: string[] = [];
+    for (const provider of Object.values(mapping.providers)) {
+      for (const entry of provider.models || []) {
+        if (!entry.family) continue;
+        const family = normalizeSeparators(entry.family);
+        if (MAPPING_FAMILIES_NOT_EXPOSED_BY_COPILOT_CLI.has(family)) continue;
+        if (!normalizedSupported.some(model => model === family || model.startsWith(`${family}-`))) {
+          missing.push(entry.family);
+        }
+      }
+    }
+    expect(missing).toEqual([]);
   });
 });

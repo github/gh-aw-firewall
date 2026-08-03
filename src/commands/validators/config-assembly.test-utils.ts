@@ -100,6 +100,7 @@ export const createMinimalLogAndLimits = (): LogAndLimitsResult => ({
 export const createMinimalNetworkOptions = (): NetworkOptionsResult => ({
   dockerHostCheck: { valid: true },
   allowedDomains: ['example.com'],
+  sensitiveAllowedDomains: [],
   blockedDomains: [],
   localhostResult: {
     allowedDomains: ['example.com'],
@@ -108,6 +109,7 @@ export const createMinimalNetworkOptions = (): NetworkOptionsResult => ({
   },
   upstreamProxy: undefined,
   dnsServers: ['8.8.8.8'],
+  dnsServersExplicit: false,
   dnsOverHttps: undefined,
   resolvedCopilotApiTarget: undefined,
   resolvedCopilotApiBasePath: undefined,

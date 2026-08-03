@@ -11,13 +11,14 @@ on:
   workflow_dispatch:
 
 permissions:
+  copilot-requests: write
   contents: read
   issues: read
 
 max-turns: 6
+model: claude-sonnet-4.5
 engine:
   id: copilot
-  model: claude-sonnet-4.5
 sandbox:
   agent:
     id: awf

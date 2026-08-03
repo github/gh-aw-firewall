@@ -27,12 +27,26 @@ import { probeSplitFilesystem } from '../dind-probe';
 import { assertTopologySupported, connectTopologyContainers } from '../topology';
 import { runDindBootstrap } from '../dind-bootstrap';
 import { runtimeUsesComposeAgent } from '../container-runtime';
-import { createSandbox, execInSandbox, removeSandbox, isSbxAvailable, SBX_DEFAULT_NAME } from '../sbx-manager';
+import {
+  assertSbxApiProxyReflect,
+  assertSbxBoundedQueryIngress,
+  createSandbox,
+  execInSandbox,
+  removeSandbox,
+  isSbxAvailable,
+  SBX_DEFAULT_NAME,
+} from '../sbx-manager';
+import { prepareBoundedQueries, teardownBoundedQueries } from '../bounded-query/manager';
 import type { WrapperConfig } from '../types';
 import { buildAgentEnvironment } from '../services/agent-service';
 import { buildAgentCredentialEnv } from '../services/api-proxy-credential-env';
 import { DEFAULT_DNS_SERVERS } from '../dns-resolver';
 import { AGENT_IP, CLI_PROXY_IP, DOH_PROXY_IP, NETWORK_SUBNET, SQUID_IP } from '../host-iptables-shared';
+import {
+  removeSbxIngressCapabilityFile,
+  resolveSbxIngress,
+} from '../bounded-query/ingress';
+import { resolveBoundedQueryPaths } from '../bounded-query/paths';
 
 /** Report whether a secret is set (and its length) without exposing the value. */
 function redactSecret(value: string | undefined): string {
@@ -48,6 +62,8 @@ const SENSITIVE_CONFIG_KEYS = new Set([
   'geminiApiKey',
   'googleApiKey',
   'githubToken',
+  // Secret-derived allowlist entries must not appear in logs or the audit artifact.
+  'sensitiveAllowedDomains',
 ]);
 
 function redactConfigForLogging(config: WrapperConfig): Record<string, unknown> {
@@ -119,6 +135,12 @@ function buildCleanupFn(
     if (getHostIptablesSetup() && !config.keepContainers) {
       await cleanupHostIptables();
     }
+
+    // Remove any probe container still labelled with this run and restore
+    // write permissions on the immutable seeds. Must run before the generic
+    // work-directory cleanup: `rm -rf` cannot unlink entries inside a
+    // directory whose write bit was stripped during staging.
+    await teardownBoundedQueries(config);
 
     if (!config.keepContainers) {
       await cleanup(
@@ -275,6 +297,36 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
           // bridge IP, typically 172.17.0.1).
           const SBX_GATEWAY_IP = '172.17.0.0';
           const SBX_HOST_DOCKER_INTERNAL = 'host.docker.internal';
+          const boundedQueryPaths = resolveBoundedQueryPaths(config.workDir);
+          const sbxMounts = [...(config.volumeMounts ?? [])];
+          let sbxBoundedQueryIngress:
+            | { transport: 'unix'; socketPath: string }
+            | {
+                transport: 'sbx-http';
+                endpoint: string;
+                queryCapability: string;
+                probeCapability: string;
+              }
+            | undefined;
+
+          if (config.boundedQueries?.enabled) {
+            sbxMounts.push(`${boundedQueryPaths.agentDir}:ro`);
+            if (config.boundedQueryIngressTransport === 'unix') {
+              sbxMounts.push(`${boundedQueryPaths.runDir}:ro`);
+              sbxBoundedQueryIngress = {
+                transport: 'unix',
+                socketPath: boundedQueryPaths.socketPath,
+              };
+            } else {
+              const ingress = await resolveSbxIngress(config);
+              sbxBoundedQueryIngress = {
+                transport: 'sbx-http',
+                endpoint: ingress.endpoint,
+                queryCapability: ingress.queryCapability,
+                probeCapability: ingress.probeCapability,
+              };
+            }
+          }
 
           sbxEnvironment = buildAgentEnvironment({
             config,
@@ -319,32 +371,51 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
           sbxName = await createSandbox({
             workspaceDir,
             squidIp: SQUID_IP,
-            extraMounts: config.volumeMounts,
+            extraMounts: sbxMounts,
           });
 
-          // Wait for api-proxy to be healthy before launching agent.
-          // In Docker mode, depends_on: service_healthy gates this; for sbx we poll
-          // via host.docker.internal which resolves to the docker0 bridge from the VM.
-          if (config.enableApiProxy) {
-            logger.info('[sbx] Polling api-proxy health via host.docker.internal...');
-            const healthCmd = [
-              'for i in $(seq 1 30); do',
-              `  if curl -sf --max-time 2 http://${SBX_HOST_DOCKER_INTERNAL}:10000/health >/dev/null 2>&1; then`,
-              '    echo "api-proxy healthy after ${i}s"; exit 0;',
-              '  fi;',
-              '  sleep 1;',
-              'done;',
-              'echo "api-proxy health timeout"; exit 1',
-            ].join(' ');
+          if (sbxBoundedQueryIngress) {
+            await assertSbxBoundedQueryIngress(
+              sbxName,
+              sbxBoundedQueryIngress.transport === 'unix'
+                ? sbxBoundedQueryIngress
+                : {
+                    transport: 'sbx-http',
+                    endpoint: sbxBoundedQueryIngress.endpoint,
+                    probeCapability: sbxBoundedQueryIngress.probeCapability,
+                  },
+              sbxEnvironment,
+              config.containerWorkDir,
+            );
 
-            const healthResult = await execInSandbox(sbxName, healthCmd, {
-              timeoutMinutes: 1,
-              workDir: config.containerWorkDir,
-              environment: sbxEnvironment,
+            Object.assign(sbxEnvironment, {
+              AWF_BOUNDED_QUERY_SKILL: boundedQueryPaths.skillPath,
+              AWF_BOUNDED_QUERY_REPOS: config.boundedQueries!.privateRepos
+                .map((repository) => repository.repo)
+                .join(','),
+              AWF_BOUNDED_QUERY_BIN_DIR: boundedQueryPaths.agentDir,
+              ...(sbxBoundedQueryIngress.transport === 'unix'
+                ? { AWF_BOUNDED_QUERY_SOCKET: sbxBoundedQueryIngress.socketPath }
+                : {
+                    AWF_BOUNDED_QUERY_ENDPOINT: sbxBoundedQueryIngress.endpoint,
+                    AWF_BOUNDED_QUERY_CAPABILITY: sbxBoundedQueryIngress.queryCapability,
+                  }),
             });
-            if (healthResult.exitCode !== 0) {
-              logger.warn('[sbx] api-proxy health check failed — proceeding anyway');
+            if (sbxBoundedQueryIngress.transport === 'sbx-http') {
+              removeSbxIngressCapabilityFile(config);
             }
+          }
+
+          // gh-aw fetches reflection data from the fixed api-proxy hostname. The
+          // microVM reaches the sidecar through its published host ports, so install
+          // that alias and prove the real endpoint before launching the agent.
+          if (config.enableApiProxy) {
+            logger.info('[sbx] Verifying api-proxy /reflect access...');
+            await assertSbxApiProxyReflect(
+              sbxName,
+              sbxEnvironment,
+              config.containerWorkDir,
+            );
           }
 
           // Verify squid proxy is reachable from sandbox
@@ -364,7 +435,7 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
         }
       : startContainers;
 
-    const sbxRunAgentCommand = useSbx
+    const workflowRunAgentCommand = useSbx
       ? async (_workDir: string, _allowedDomains: string[], _proxyLogsDir?: string, agentTimeoutMinutes?: number) => {
           if (!sbxName) throw new Error('Sandbox not created');
           logger.info(`[sbx] Launching agent command in sandbox "${sbxName}" (timeout: ${agentTimeoutMinutes ?? 'none'} min)`);
@@ -390,7 +461,8 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
 
           return { exitCode: result.exitCode, blockedDomains: [] as string[] };
         }
-      : runAgentCommand;
+      : (workDir: string, allowedDomains: string[], proxyLogsDir?: string, agentTimeoutMinutes?: number) =>
+          runAgentCommand(workDir, allowedDomains, proxyLogsDir, agentTimeoutMinutes, config.containerRuntime);
 
     exitCode = await runMainWorkflow(
       config,
@@ -399,10 +471,11 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
         setupHostIptables,
         writeConfigs,
         startContainers: sbxStartContainers,
-        runAgentCommand: sbxRunAgentCommand,
+        runAgentCommand: workflowRunAgentCommand,
         collectDiagnosticLogs,
         assertTopologySupported,
         connectTopologyContainers,
+        prepareBoundedQueries,
       },
       {
         logger,

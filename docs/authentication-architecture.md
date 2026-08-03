@@ -133,7 +133,7 @@ agent:
 ```
 
 :::danger[Security design]
-API keys are intentionally excluded from the agent container environment. When `--enable-api-proxy` is set, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, and related keys are added to the excluded environment variables list in `docker-manager.ts`.
+API credentials are intentionally excluded from the agent container environment. The API proxy is always enabled, and `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, and related credentials are added to the excluded environment variables list in `src/services/agent-environment/excluded-vars.ts`.
 :::
 
 ### 3. API proxy: credential injection layer

@@ -37,6 +37,20 @@ describe('API proxy sidecar: API targets and auth forwarding', () => {
         expect(env.OPENAI_API_TARGET).toBeUndefined();
       });
 
+      it('should pass OPENAI_ENDPOINT_OVERRIDE to api-proxy when provided via additionalEnv', () => {
+        const configWithProxy = {
+          ...mockConfig,
+          enableApiProxy: true,
+          openaiApiKey: 'sk-test-key',
+          additionalEnv: { OPENAI_ENDPOINT_OVERRIDE: 'https://secret-router.internal/path' },
+        };
+        const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+        const proxy = result.services['api-proxy'];
+        const env = proxy.environment as Record<string, string>;
+        expect(env.OPENAI_ENDPOINT_OVERRIDE).toBe('https://secret-router.internal/path');
+        expect(env.OPENAI_API_TARGET).toBe('secret-router.internal');
+      });
+
       it('should set OPENAI_API_BASE_PATH in api-proxy when openaiApiBasePath is provided', () => {
         const configWithProxy = { ...mockConfig, enableApiProxy: true, openaiApiKey: 'sk-test-key', openaiApiBasePath: '/serving-endpoints' };
         const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);

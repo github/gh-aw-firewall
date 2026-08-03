@@ -124,6 +124,14 @@ describe('getModelPolicyBlockState', () => {
       expect(guard.getModelPolicyBlockState('claude-sonnet-4.6')).toBeNull();
     });
 
+    it('should fail closed for auto because its selected model cannot be checked', () => {
+      const guard = loadGuard();
+      expect(guard.getModelPolicyBlockState('auto')).toEqual({
+        model: 'auto',
+        reason: 'dynamic_model_unverifiable',
+      });
+    });
+
     it('should handle multiple disallowed patterns', () => {
       process.env.AWF_DISALLOWED_MODELS = JSON.stringify(['*opus*', 'gpt-5*']);
       const guard = loadGuard();
@@ -162,6 +170,15 @@ describe('getModelPolicyBlockState', () => {
     beforeEach(() => {
       process.env.AWF_ALLOWED_MODELS = JSON.stringify(['*claude*']);
       process.env.AWF_DISALLOWED_MODELS = JSON.stringify(['*opus*']);
+    });
+
+    describe('explicit auto opt-in', () => {
+      it('should allow auto when it is explicitly allowed alongside a denylist', () => {
+        process.env.AWF_ALLOWED_MODELS = JSON.stringify(['auto', '*sonnet*']);
+        process.env.AWF_DISALLOWED_MODELS = JSON.stringify(['*opus*']);
+        const guard = loadGuard();
+        expect(guard.getModelPolicyBlockState('auto')).toBeNull();
+      });
     });
 
     it('should block a model in the disallowed list even if it matches allowed', () => {

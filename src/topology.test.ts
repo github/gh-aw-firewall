@@ -252,6 +252,36 @@ describe('topology', () => {
       });
     });
 
+    it('also patches the squid-proxy service extra_hosts so Squid can resolve peers', () => {
+      const compose = {
+        services: {
+          agent: { container_name: 'awf-agent' },
+          'squid-proxy': { container_name: 'awf-squid' },
+        },
+      };
+      fs.writeFileSync(path.join(tmpDir, 'docker-compose.yml'), yaml.dump(compose));
+      const log = { info: jest.fn(), warn: jest.fn() };
+
+      const peerIps = new Map([['awmg-mcpg', '172.30.0.40']]);
+      patchComposeWithTopologyHosts(tmpDir, peerIps, log);
+
+      const patched = yaml.load(fs.readFileSync(path.join(tmpDir, 'docker-compose.yml'), 'utf8')) as any;
+      expect(patched.services['squid-proxy'].extra_hosts).toEqual({ 'awmg-mcpg': '172.30.0.40' });
+      expect(patched.services.agent.extra_hosts).toEqual({ 'awmg-mcpg': '172.30.0.40' });
+    });
+
+    it('warns when squid-proxy service is missing but still patches the agent', () => {
+      const compose = { services: { agent: { container_name: 'awf-agent' } } };
+      fs.writeFileSync(path.join(tmpDir, 'docker-compose.yml'), yaml.dump(compose));
+      const log = { info: jest.fn(), warn: jest.fn() };
+
+      patchComposeWithTopologyHosts(tmpDir, new Map([['awmg-mcpg', '172.30.0.40']]), log);
+
+      const patched = yaml.load(fs.readFileSync(path.join(tmpDir, 'docker-compose.yml'), 'utf8')) as any;
+      expect(patched.services.agent.extra_hosts).toEqual({ 'awmg-mcpg': '172.30.0.40' });
+      expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('Could not find squid-proxy service'));
+    });
+
     it('warns and returns when agent service is not found', () => {
       const compose = { services: { squid: {} } };
       fs.writeFileSync(path.join(tmpDir, 'docker-compose.yml'), yaml.dump(compose));

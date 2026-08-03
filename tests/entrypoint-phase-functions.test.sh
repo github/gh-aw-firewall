@@ -149,6 +149,56 @@ else
   fail "copy_system_ca_bundle() does not safely append system roots to the staged AWF CA bundle"
 fi
 
+if printf '%s\n' "${COPY_SYSTEM_CA_BUNDLE_BLOCK}" | grep -Fq '/etc/pki/ca-trust/extracted/*|/etc/pki/tls/certs/*)'; then
+  pass "copy_system_ca_bundle() treats mounted RHEL/Amazon Linux CA paths as chroot-accessible"
+else
+  fail "copy_system_ca_bundle() does not recognize mounted RHEL/Amazon Linux CA paths as chroot-accessible"
+fi
+
+run_copy_system_ca_bundle_fixture() {
+  local tmp_dir
+  tmp_dir="$(mktemp -d)"
+  local host_root="${tmp_dir}/host-root"
+  local fixture_entrypoint="${tmp_dir}/entrypoint-fixture.sh"
+  mkdir -p "${host_root}/etc/pki/tls/certs" "${host_root}/etc/ssl/certs"
+  printf '%s\n' "fixture-ca-cert" > "${host_root}/etc/pki/tls/certs/ca-bundle.crt"
+
+  awk '$0 != "main \"$@\""' "${ENTRYPOINT}" > "${fixture_entrypoint}"
+  sed -i "s#/host#\${AWF_TEST_HOST_ROOT}#g" "${fixture_entrypoint}"
+
+  (
+    set -e
+    # shellcheck disable=SC1090
+    . "${fixture_entrypoint}"
+
+    AWF_SSL_BUMP_ENABLED="false"
+    AWF_CA_CHROOT=""
+    AWF_TEST_HOST_ROOT="${host_root}"
+
+    unset SSL_CERT_FILE NODE_EXTRA_CA_CERTS REQUESTS_CA_BUNDLE CURL_CA_BUNDLE GIT_SSL_CAINFO SYSTEM_CA_CHROOT
+    copy_system_ca_bundle
+    [ "${SSL_CERT_FILE}" = "/etc/pki/tls/certs/ca-bundle.crt" ]
+    [ -r "${AWF_TEST_HOST_ROOT}${SSL_CERT_FILE}" ]
+    [ "${NODE_EXTRA_CA_CERTS}" = "${SSL_CERT_FILE}" ]
+
+    ln -sf ../../pki/tls/certs/ca-bundle.crt "${host_root}/etc/ssl/certs/ca-certificates.crt"
+    unset SSL_CERT_FILE NODE_EXTRA_CA_CERTS REQUESTS_CA_BUNDLE CURL_CA_BUNDLE GIT_SSL_CAINFO SYSTEM_CA_CHROOT
+    copy_system_ca_bundle
+    [ "${SSL_CERT_FILE}" = "/etc/ssl/certs/ca-certificates.crt" ]
+    [ -r "${AWF_TEST_HOST_ROOT}${SSL_CERT_FILE}" ]
+    [ "${NODE_EXTRA_CA_CERTS}" = "${SSL_CERT_FILE}" ]
+  )
+  local result=$?
+  rm -rf "${tmp_dir}"
+  return "${result}"
+}
+
+if run_copy_system_ca_bundle_fixture; then
+  pass "copy_system_ca_bundle() exports chroot-readable CA paths for direct RHEL bundles and /etc/ssl symlink targets"
+else
+  fail "copy_system_ca_bundle() does not export chroot-readable CA paths for RHEL bundle fixtures"
+fi
+
 if grep -Eq '\[ -n "\$\{SYSTEM_CA_CHROOT\}" \]' "${ENTRYPOINT}"; then
   pass "run_chroot_command() cleans up copied system CA bundles"
 else

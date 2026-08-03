@@ -3,6 +3,7 @@ import { generateDlpSquidConfig } from '../dlp';
 import { DEFAULT_DNS_SERVERS } from '../dns-resolver';
 import { generateSslBumpSection } from './ssl-bump';
 import { validateAndSanitizeHostAccessPort, validateApiProxyPort } from './validation';
+import { formatDomainForSquid } from './domain-acl';
 
 type DomainsByProto = ReturnType<typeof import('./domain-acl').parseDomainConfig>['domainsByProto'];
 type PatternsByProto = ReturnType<typeof import('./domain-acl').parseDomainConfig>['patternsByProto'];
@@ -142,6 +143,37 @@ http_access allow from_api_proxy
 const IPV4_REGEX = /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/;
 
 /**
+ * Generate allow rules for trusted topology-peer hostnames in network-isolation
+ * (topology) mode.
+ *
+ * Docker-internal peers such as an MCP gateway (`awmg-mcpg`) are typically
+ * served on non-standard ports (e.g. 8080). The normal domain allowlist cannot
+ * reach them because `http_access deny !Safe_ports` (80/443) fires first. These
+ * peers are operator-attached and trusted (the same trust level as the direct
+ * NO_PROXY connection), so we emit an explicit `http_access allow` per peer
+ * *before* the Safe_ports and raw-IP deny rules, permitting any port.
+ *
+ * Scoped by dstdomain to the exact peer hostnames, so this does not widen access
+ * to arbitrary internet destinations.
+ */
+function generateTopologyPeersSection(topologyPeers?: string[]): string {
+  if (!topologyPeers || topologyPeers.length === 0) return '';
+
+  const lines = [
+    '# Allow trusted topology peers (network-isolation mode) on any port before',
+    '# the Safe_ports and raw-IP deny rules. These are operator-attached',
+    '# containers (e.g. an MCP gateway) served on non-standard ports; clients',
+    '# that honour HTTP(S)_PROXY but ignore NO_PROXY reach them through Squid.',
+  ];
+  for (const peer of topologyPeers) {
+    const aclName = `topology_peer_${peer.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    lines.push(`acl ${aclName} dstdomain ${formatDomainForSquid(peer)}`);
+    lines.push(`http_access allow ${aclName}`);
+  }
+  return lines.join('\n') + '\n\n';
+}
+
+/**
  * Generate allow rules for raw IP addresses that appear in the allowed domains list.
  *
  * Squid's raw-IP deny rules (`http_access deny dst_ipv4/dst_ipv6`) block all
@@ -185,6 +217,7 @@ function generateConfigSections(options: {
   apiProxyPorts?: number[];
   apiProxyIp?: string;
   dnsServers?: string[];
+  topologyPeers?: string[];
 }): {
   dlpAclSection: string;
   dlpAccessSection: string;
@@ -195,6 +228,7 @@ function generateConfigSections(options: {
   apiProxySection: string;
   allowedIpSection: string;
   dnsSection: string;
+  topologyPeersSection: string;
 } {
   const {
     enableDlp,
@@ -211,6 +245,7 @@ function generateConfigSections(options: {
     apiProxyPorts,
     apiProxyIp,
     dnsServers,
+    topologyPeers,
   } = options;
 
   const { aclSection: dlpAclSection, accessSection: dlpAccessSection } = generateDlpSections(enableDlp);
@@ -226,6 +261,7 @@ function generateConfigSections(options: {
   const portAclsAndRules = generatePortAclsAndRules(enableHostAccess, allowHostPorts, apiProxyPorts);
   const apiProxySection = generateApiProxySection(apiProxyIp);
   const allowedIpSection = generateAllowedIpSection(domains ?? []);
+  const topologyPeersSection = generateTopologyPeersSection(topologyPeers);
   const dnsSection = generateDnsSection(dnsServers);
 
   return {
@@ -238,6 +274,7 @@ function generateConfigSections(options: {
     apiProxySection,
     allowedIpSection,
     dnsSection,
+    topologyPeersSection,
   };
 }
 

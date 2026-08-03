@@ -144,6 +144,26 @@ describe('generateHostsFileMount – localhostDetected branch', () => {
     // localhost entry should not have been replaced with gateway IP
     expect(content).not.toContain(`${gatewayIp}\tlocalhost`);
   });
+
+  it('does not inject host gateway mappings in topology mode', () => {
+    const gatewayIp = '172.17.0.1';
+    mockExecaSync.mockReturnValue({ stdout: gatewayIp, stderr: '' });
+
+    const config = makeConfig({
+      workDir: getTmpDir(),
+      allowedDomains: [],
+      enableHostAccess: true,
+      localhostDetected: true,
+      networkIsolation: true,
+    });
+
+    const mount = generateHostsFileMount(config);
+    const hostsPath = mount.split(':')[0];
+    const content = fs.readFileSync(hostsPath, 'utf8');
+
+    expect(content).not.toContain(`${gatewayIp}\thost.docker.internal`);
+    expect(content).not.toContain(`${gatewayIp}\tlocalhost`);
+  });
 });
 
 describe('pruneStaleChrootStageDirs – error handling', () => {

@@ -28,6 +28,8 @@ function computeTokenBudgetUsage({ logRequest, requestId, provider }, normalized
       model: model || 'unknown',
       ai_credits_this_response: aiCreditsUsage.aiCreditsThisResponse,
       ai_credits_total: aiCreditsUsage.totalAiCredits,
+      pricing_source: aiCreditsUsage.pricingSource,
+      pricing_tier: aiCreditsUsage.pricingTier,
     });
   }
   const budgetFields = {};
@@ -39,6 +41,17 @@ function computeTokenBudgetUsage({ logRequest, requestId, provider }, normalized
   if (aiCreditsUsage) {
     budgetFields.ai_credits_this_response = aiCreditsUsage.aiCreditsThisResponse;
     budgetFields.ai_credits_total = aiCreditsUsage.totalAiCredits;
+    budgetFields.ai_credits_pricing_source = aiCreditsUsage.pricingSource;
+    budgetFields.ai_credits_pricing_tier = aiCreditsUsage.pricingTier;
+    if (aiCreditsUsage.pricingObservedAt) {
+      budgetFields.ai_credits_pricing_observed_at = aiCreditsUsage.pricingObservedAt;
+    }
+    if (aiCreditsUsage.pricingApiVersion) {
+      budgetFields.ai_credits_pricing_api_version = aiCreditsUsage.pricingApiVersion;
+    }
+    if (aiCreditsUsage.pricingDiscountPercent !== undefined) {
+      budgetFields.ai_credits_pricing_discount_percent = aiCreditsUsage.pricingDiscountPercent;
+    }
   }
   return Object.keys(budgetFields).length > 0 ? budgetFields : undefined;
 }

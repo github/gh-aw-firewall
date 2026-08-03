@@ -80,6 +80,10 @@ describe('parseProxyUrl', () => {
     expect(() => parseProxyUrl("http://proxy'host.com:3128")).toThrow('invalid characters');
   });
 
+  it('rejects port 0 as out-of-range', () => {
+    expect(() => parseProxyUrl('http://proxy.corp.com:0')).toThrow('Invalid upstream proxy port');
+  });
+
   it('accepts valid IP addresses', () => {
     expect(parseProxyUrl('http://10.0.0.1:3128')).toEqual({
       host: '10.0.0.1',

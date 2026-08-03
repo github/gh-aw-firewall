@@ -11,9 +11,9 @@ permissions:
   copilot-requests: write
 tracker-id: test-hard-cap-ai-credits
 name: Test Hard Cap AI Credits
+model: claude-opus-4.8
 engine:
   id: copilot
-  model: claude-opus-4.8
 max-turns: 200
 network:
   allowed:
@@ -29,9 +29,6 @@ safe-outputs:
   noop:
     max: 1
 timeout-minutes: 60
-sandbox:
-  mcp:
-    version: v0.3.32
 strict: false
 steps:
   - name: Prepare analysis workspace

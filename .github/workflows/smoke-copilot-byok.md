@@ -10,6 +10,7 @@ on:
     remove_label: false
   reaction: "rocket"
 permissions:
+  copilot-requests: write
   contents: read
   pull-requests: read
   issues: read
@@ -22,15 +23,15 @@ engine:
     # the COPILOT_GITHUB_TOKEN path (auto-injected by gh-aw under the MCP
     # sandbox); this workflow instead drives the COPILOT_PROVIDER_API_KEY code
     # path (via the AWF sandbox + api-proxy sidecar) so both BYOK auth surfaces
-    # have CI coverage. We reuse the COPILOT_GITHUB_TOKEN secret value because
-    # the target upstream is still api.githubcopilot.com (CAPI), which accepts
+    # have CI coverage. We reuse the workflow's github.token value because the
+    # target upstream is still api.githubcopilot.com (CAPI), which accepts
     # the same Bearer token regardless of variable name. The value is wired in
     # under engine.env (rather than the workflow-level env) because gh-aw's
     # strict mode allowlists this exact variable here to keep the secret out of
     # the agent container — AWF then forwards it to the api-proxy sidecar and
     # injects a placeholder into the agent env (see
     # src/services/api-proxy-credential-env.ts).
-    COPILOT_PROVIDER_API_KEY: ${{ secrets.COPILOT_GITHUB_TOKEN }}
+    COPILOT_PROVIDER_API_KEY: ${{ github.token }}
 network:
   allowed:
     - defaults
@@ -61,7 +62,6 @@ sandbox:
 strict: true
 steps:
   - name: Pre-compute BYOK smoke test data
-    id: smoke-data
     run: |
       echo "::group::Verify BYOK configuration"
       echo "COPILOT_API_TARGET=${COPILOT_API_TARGET:-api.githubcopilot.com (default)}"
@@ -89,14 +89,12 @@ steps:
       echo "Wrote and read back: $FILE_CONTENT"
       echo "::endgroup::"
 
-      {
-        echo "SMOKE_PR_DATA<<SMOKE_EOF"
-        echo "$PR_DATA"
-        echo "SMOKE_EOF"
-        echo "SMOKE_HTTP_CODE=$HTTP_CODE"
-        echo "SMOKE_FILE_CONTENT=$FILE_CONTENT"
-        echo "SMOKE_FILE_PATH=$TEST_FILE"
-      } >> "$GITHUB_OUTPUT"
+      # Write results to files for agent context
+      mkdir -p /tmp/gh-aw/agent
+      echo "$HTTP_CODE" > /tmp/gh-aw/agent/smoke-http-code.txt
+      echo "$FILE_CONTENT" > /tmp/gh-aw/agent/smoke-file-content.txt
+      echo "$TEST_FILE" > /tmp/gh-aw/agent/smoke-file-path.txt
+      echo "$PR_DATA" > /tmp/gh-aw/agent/smoke-pr-data.txt
     env:
       GH_TOKEN: ${{ github.token }}
 post-steps:
@@ -174,10 +172,10 @@ If all tests pass on a pull request trigger:
 
 <!-- Dynamic section — keep all template substitutions here at the end to maximize prefix caching above -->
 
-- HTTP code: `${{ steps.smoke-data.outputs.SMOKE_HTTP_CODE }}`
-- File path: `${{ steps.smoke-data.outputs.SMOKE_FILE_PATH }}`
-- File content: `${{ steps.smoke-data.outputs.SMOKE_FILE_CONTENT }}`
+- HTTP code: `(see `/tmp/gh-aw/agent/smoke-http-code.txt`)`
+- File path: `(see `/tmp/gh-aw/agent/smoke-file-path.txt`)`
+- File content: `(see `/tmp/gh-aw/agent/smoke-file-content.txt`)`
 - PR data:
   ```
-  ${{ steps.smoke-data.outputs.SMOKE_PR_DATA }}
+  (see `/tmp/gh-aw/agent/smoke-pr-data.txt`)
   ```

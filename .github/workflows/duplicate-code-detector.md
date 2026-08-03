@@ -10,6 +10,7 @@ on:
   workflow_dispatch:
 
 permissions:
+  copilot-requests: write
   contents: read
   issues: read
 
@@ -25,10 +26,9 @@ tools:
     toolsets: [issues]
   bash: true
 
+model: gpt-5.4-mini
 engine:
   id: copilot
-  model: gpt-5.4-mini
-
 safe-outputs:
   threat-detection:
     enabled: false

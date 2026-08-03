@@ -4,11 +4,15 @@ import * as path from 'path';
 import execa from 'execa';
 import { logger } from '../../logger';
 import { WrapperConfig } from '../../types';
+import { runtimeUsesComposeAgent } from '../../container-runtime';
 import { getDockerHostStageRoot, shouldUseDockerHostStaging } from './docker-host-staging';
 
 const STALE_CHROOT_STAGE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
-export function generateHostsFileMount(config: WrapperConfig): string {
+export function generateHostsFileMount(
+  config: WrapperConfig,
+  internalServiceHosts: Record<string, string> = {},
+): string {
   let hostsContent = '127.0.0.1 localhost\n';
   try {
     hostsContent = fs.readFileSync('/etc/hosts', 'utf-8');
@@ -30,6 +34,9 @@ export function generateHostsFileMount(config: WrapperConfig): string {
       const parts = stdout.trim().split(/\s+/);
       const ip = parts[0];
       if (ip) {
+        if (hostsContent.length > 0 && !hostsContent.endsWith('\n')) {
+          hostsContent += '\n';
+        }
         hostsContent += `${ip}\t${domain}\n`;
         logger.debug(`Pre-resolved ${domain} -> ${ip} for chroot /etc/hosts`);
       }
@@ -38,7 +45,23 @@ export function generateHostsFileMount(config: WrapperConfig): string {
     }
   }
 
-  if (config.enableHostAccess) {
+  for (const [hostname, ip] of Object.entries(internalServiceHosts)) {
+    const alreadyPresent = hostsContent.split('\n').some(line => {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) return false;
+      return trimmed.split(/\s+/).slice(1).includes(hostname);
+    });
+    if (!alreadyPresent) {
+      if (hostsContent.length > 0 && !hostsContent.endsWith('\n')) {
+        hostsContent += '\n';
+      }
+      hostsContent += `${ip}\t${hostname}\n`;
+    }
+  }
+
+  const shouldInjectHostGateway = config.enableHostAccess &&
+    !(config.networkIsolation && runtimeUsesComposeAgent(config.containerRuntime));
+  if (shouldInjectHostGateway) {
     try {
       const { stdout } = execa.sync('docker', [
         'network', 'inspect', 'bridge',

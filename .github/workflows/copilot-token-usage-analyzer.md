@@ -4,6 +4,7 @@ on:
   schedule: daily
   workflow_dispatch:
 permissions:
+  copilot-requests: write
   contents: read
   actions: read
   issues: read
@@ -29,9 +30,9 @@ safe-outputs:
     title-prefix: "\U0001F4CA Copilot Token Usage Report"
     labels: [token-usage-report]
     close-older-issues: true
+model: gpt-5.4-mini
 engine:
   id: copilot
-  model: gpt-5.4-mini
 max-ai-credits: 2500
 timeout-minutes: 15
 steps:

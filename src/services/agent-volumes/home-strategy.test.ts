@@ -47,6 +47,14 @@ describe('buildHomeMounts', () => {
     jest.restoreAllMocks();
   });
 
+  it('includes ~/.azure in the mounted tool directories', () => {
+    (fs.existsSync as jest.Mock).mockImplementation(() => false);
+
+    const mounts = buildHomeMounts(makeParams());
+
+    expect(mounts).toContain('/home/runner/.azure:/host/home/runner/.azure:rw');
+  });
+
   describe('~/.copilot access error handling', () => {
     it('includes error.message in warning when accessSync throws an Error instance', () => {
       mockExistsForCopilot();

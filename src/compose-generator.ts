@@ -10,9 +10,11 @@ import { buildSquidService } from './services/squid-service';
 import { buildAgentEnvironment, buildAgentVolumes, buildAgentService } from './services/agent-service';
 import { assembleOptionalServices } from './services/optional-services';
 import { buildComposeNetworks } from './compose-network';
-import { runtimeUsesComposeAgent } from './container-runtime';
+import { runtimeNeedsStaticDns, runtimeUsesComposeAgent } from './container-runtime';
 import { API_PROXY_PORTS } from './types/ports';
 import { EXTERNAL_BRIDGE_NAME } from './config/network-policy';
+import { BOUNDED_QUERY_INGRESS_NETWORK } from './bounded-query/ingress';
+import { buildInternalServiceHosts } from './services/internal-service-hosts';
 
 /**
  * Generates Docker Compose configuration
@@ -88,6 +90,13 @@ export function generateDockerCompose(
 
   const agentVolumes = buildAgentVolumes({
     config,
+    internalServiceHosts: runtimeNeedsStaticDns(config.containerRuntime)
+      ? buildInternalServiceHosts({
+          squidIp: networkConfig.squidIp,
+          apiProxyIp: networkConfig.proxyIp,
+          cliProxyIp: networkConfig.cliProxyIp,
+        })
+      : undefined,
     sslConfig,
     projectRoot,
     effectiveHome,
@@ -161,7 +170,7 @@ export function generateDockerCompose(
 
   // ── Assemble and return the compose result ─────────────────────────────────
 
-  return buildComposeNetworks({
+  const compose = buildComposeNetworks({
     services,
     squidService,
     agentService,
@@ -169,6 +178,19 @@ export function generateDockerCompose(
     networkConfig,
     namedVolumes,
   });
+  if (
+    config.boundedQueries?.enabled
+    && (
+      config.boundedQueryIngressTransport === 'sbx-http'
+      || (config.boundedQueryIngressTransport === undefined && !includeAgent)
+    )
+  ) {
+    compose.networks[BOUNDED_QUERY_INGRESS_NETWORK] = {
+      driver: 'bridge',
+      internal: true,
+    };
+  }
+  return compose;
 }
 
 /**

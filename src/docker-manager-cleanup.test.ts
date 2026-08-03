@@ -134,6 +134,14 @@ describe('docker-manager cleanup', () => {
       }
     });
 
+    it('should skip squid log chmod when proxyLogsDir does not exist', async () => {
+      const proxyLogsDir = path.join(os.tmpdir(), `awf-missing-proxy-logs-${Date.now()}`);
+
+      await cleanup(getDir(), false, proxyLogsDir);
+
+      expect(mockExecaSync).not.toHaveBeenCalledWith('chmod', ['-R', 'a+rX', proxyLogsDir]);
+    });
+
     it('should chmod api-proxy-logs subdirectory when proxyLogsDir is specified', async () => {
       // proxyLogsDir must be OUTSIDE workDir since cleanup deletes workDir
       const externalDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-proxy-logs-test-'));

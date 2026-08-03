@@ -93,6 +93,10 @@ describe('mount-policy', () => {
       // dir entry expanded
       expect(files).toContain('.config/gh/hosts.yml');
       expect(files).toContain('.config/gcloud/credentials.db');
+      // Azure CLI token caches are masked as file entries
+      expect(files).toContain('.azure/msal_token_cache.bin');
+      expect(files).toContain('.azure/msal_token_cache.json');
+      expect(files).toContain('.azure/accessTokens.json');
       // dir entry with no known files is omitted (compose can't mask a dir)
       expect(files).not.toContain('.config/heroku');
       expect(files.some((f) => f.startsWith('.config/heroku'))).toBe(false);
@@ -111,13 +115,18 @@ describe('mount-policy', () => {
 
   describe('credentialEntriesUnderMountedParents', () => {
     it('includes only entries whose top-level parent is mounted', () => {
-      const mounted = new Set(['.config', '.cargo', '.claude', '.copilot', '.gemini']);
+      const mounted = new Set(['.config', '.cargo', '.claude', '.copilot', '.gemini', '.azure']);
       const entries = credentialEntriesUnderMountedParents(mounted);
       const paths = entries.map((e) => e.path);
 
       expect(paths).toContain('.config/gh');
       expect(paths).toContain('.cargo/credentials');
       expect(paths).toContain('.claude/.credentials.json');
+      // .azure token caches are masked when .azure is mounted
+      expect(paths).toContain('.azure/msal_token_cache.bin');
+      expect(paths).toContain('.azure/msal_token_cache.json');
+      expect(paths).toContain('.azure/accessTokens.json');
+      expect(paths).toContain('.azure/service_principal_entries.json');
       // Never-mounted parents are excluded.
       expect(paths).not.toContain('.ssh/id_rsa');
       expect(paths).not.toContain('.aws/credentials');
@@ -141,7 +150,13 @@ describe('mount-policy', () => {
 
     it('exposes the always-mounted /etc allow list', () => {
       expect(etcAllowlist()).toEqual(
-        expect.arrayContaining(['/etc/ssl', '/etc/ca-certificates', '/etc/nsswitch.conf']),
+        expect.arrayContaining([
+          '/etc/ssl',
+          '/etc/ca-certificates',
+          '/etc/pki/ca-trust/extracted',
+          '/etc/pki/tls/certs',
+          '/etc/nsswitch.conf',
+        ]),
       );
     });
   });
@@ -151,8 +166,9 @@ describe('mount-policy', () => {
     expect(mountPolicy.credentials).toBe(CREDENTIAL_ENTRIES);
   });
 
-  it('includes .copilot and .gemini in home.toolSubdirs', () => {
+  it('includes .copilot, .gemini, and .azure in home.toolSubdirs', () => {
     expect(HOME_TOOL_SUBDIRS).toContain('.copilot');
     expect(HOME_TOOL_SUBDIRS).toContain('.gemini');
+    expect(HOME_TOOL_SUBDIRS).toContain('.azure');
   });
 });

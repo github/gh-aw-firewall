@@ -13,6 +13,86 @@ type Logger = typeof defaultLogger;
 export { DEFAULT_DNS_SERVERS };
 
 /**
+ * DNS servers that are reachable only via host-specific network paths which
+ * may be disrupted by VPN tools like Tailscale that modify host routing after
+ * AWF starts.
+ *
+ * - Azure DHCP DNS (168.63.129.16): intercepted by Azure hypervisor; unreachable
+ *   outside Azure VNet or when policy-routing routes 0.0.0.0/0 via a Tailscale
+ *   exit node or accepted subnet route.
+ * - Tailscale Magic DNS (100.100.100.100): only reachable via the tailscale0
+ *   interface; Docker bridge containers cannot reach it.
+ */
+const AZURE_DHCP_DNS = '168.63.129.16';
+const TAILSCALE_MAGIC_DNS = '100.100.100.100';
+
+/**
+ * Returns true for DNS servers that are host-specific and may become unreachable
+ * from Docker bridge containers when the host's routing is modified by tools
+ * like Tailscale (e.g. when an exit node or accepted subnet route captures the
+ * default route or the path to these servers).
+ *
+ * Non-portable servers include:
+ * - Azure DHCP DNS (168.63.129.16)
+ * - Tailscale Magic DNS (100.100.100.100)
+ * - Link-local addresses (169.254.x.x / RFC 3927) — not routable over bridges
+ */
+export function isNonPortableDns(ip: string): boolean {
+  if (ip === AZURE_DHCP_DNS) return true;
+  if (ip === TAILSCALE_MAGIC_DNS) return true;
+  if (ip.startsWith('169.254.')) return true;
+  return false;
+}
+
+/**
+ * Filters DNS servers for use in network-isolation (topology) mode.
+ *
+ * In isolation mode the Squid proxy container is dual-homed: it has a static IP
+ * on the internal `awf-net` network and an auto-assigned IP on the external
+ * `awf-ext` Docker bridge. All DNS queries and upstream TCP connections leave
+ * through `awf-ext`. When the host's routing is later modified by a VPN tool
+ * such as Tailscale (e.g. via an accepted exit-node or subnet-route that covers
+ * `0.0.0.0/0` or the specific DNS server address), DNS queries from the Docker
+ * bridge to host-specific servers like Azure DNS (168.63.129.16) or Tailscale
+ * Magic DNS (100.100.100.100) can be black-holed, causing every Squid lookup to
+ * fail with `TCP_TUNNEL:HIER_NONE 503`.
+ *
+ * This function removes non-portable servers from the list. If no portable
+ * servers remain, it falls back to DEFAULT_DNS_SERVERS (8.8.8.8, 8.8.4.4),
+ * which are publicly routable and independent of host-specific network paths.
+ *
+ * @param servers - The resolved DNS server list (from --dns-servers or auto-detection).
+ * @param logger  - Optional logger for diagnostic output.
+ * @returns A filtered list of DNS servers safe for use from a Docker bridge.
+ */
+export function filterForNetworkIsolation(servers: string[], logger?: Logger): string[] {
+  const log = logger ?? defaultLogger;
+
+  const nonPortable = servers.filter(isNonPortableDns);
+  const portable = servers.filter(s => !isNonPortableDns(s));
+
+  if (nonPortable.length > 0) {
+    log.warn(
+      `Network-isolation: removing ${nonPortable.length} non-portable DNS server(s) ` +
+      `that may become unreachable from Docker bridge containers when host routing ` +
+      `is modified by tools like Tailscale: ${nonPortable.join(', ')}`
+    );
+  }
+
+  if (portable.length > 0) {
+    return portable;
+  }
+
+  // All detected servers are non-portable — fall back to public DNS.
+  log.warn(
+    `Network-isolation: no portable DNS servers remain after filtering; ` +
+    `falling back to ${DEFAULT_DNS_SERVERS.join(', ')}. ` +
+    `If your environment requires specific DNS, use --dns-servers to override.`
+  );
+  return [...DEFAULT_DNS_SERVERS];
+}
+
+/**
  * Paths to try for resolv.conf, in priority order.
  * systemd-resolved's upstream config first (has real upstream servers),
  * then the standard resolv.conf (may contain 127.0.0.53 stub).

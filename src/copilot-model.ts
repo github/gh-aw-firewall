@@ -42,6 +42,7 @@ const RETIRED_COPILOT_MODEL_ALIASES: Record<string, string> = {
  * explicitly listed as a non-CLI model in the test's exclusion set).
  */
 const SUPPORTED_COPILOT_MODELS = new Set([
+  'auto',
   'gpt-4',
   'gpt-4.1',
   'gpt-4.5',
@@ -54,6 +55,9 @@ const SUPPORTED_COPILOT_MODELS = new Set([
   'gpt-5.4',
   'gpt-5.4-mini',
   'gpt-5.5',
+  'gpt-5.6-luna',
+  'gpt-5.6-sol',
+  'gpt-5.6-terra',
   'gpt-5-mini',
   'o3',
   'o3-mini',
@@ -61,6 +65,7 @@ const SUPPORTED_COPILOT_MODELS = new Set([
   'claude-haiku-4.5',
   'claude-mythos-5',
   'claude-opus-4.8',
+  'claude-opus-5',
   'claude-sonnet-5',
   'claude-sonnet-4.5',
   'claude-sonnet-4.6',

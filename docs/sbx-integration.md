@@ -80,6 +80,34 @@ it lets AWF interpose its own Squid proxy *underneath* Docker's sandbox proxy.
 
 VMs persist until explicitly removed; stopping an agent does not delete the VM.
 
+### Bounded-query runtime is independent
+
+`container.containerRuntime: "sbx"` selects the primary agent's execution
+model. `boundedQueries.runtime: "sbx"` is a separate backend behind the trusted
+broker's `QueryRunner` boundary and must never reuse the primary agent VM,
+agent-ingress capability, or agent credentials.
+
+The bounded-query sbx backend is currently a fail-closed preview. Docker
+Sandboxes `v0.37.1` has CPU/memory limits and read-only same-path mounts, but
+does not expose enforceable per-VM network-none, PID, disk, per-file size, or
+guest mount-target controls. Local/kit network denies can also be replaced by
+organization governance. AWF's executable capability probe therefore blocks
+this query backend before staging or Compose assembly; no sbx daemon access is
+passed to the broker and there is no Docker/gVisor fallback. See
+[Bounded Queries](bounded-queries.md#sbx-query-runtime-status).
+
+The full 3×3 primary/query matrix is documented in
+[Bounded Queries](bounded-queries.md#primary-agent-and-query-runtime-matrix).
+All sbx-query cells are intentionally blocked; Docker and gVisor query
+backends may run under an sbx primary agent only after its independent broker
+ingress probe passes. Every query gets a new sandbox and no backend falls back.
+
+Promotion is gated on a digest-pinned Python-only template and real-VM proof of
+network/lateral denial, PID/memory/CPU/disk/file-size enforcement, explicit
+guest mount targets, credential and cross-invocation isolation, canonical
+failure bytes, timing buckets, and interruption cleanup. Docker Sandboxes
+`v0.37.1` cannot satisfy those controls.
+
 ## Part 2 — How AWF uses `sbx`
 
 AWF's default backend runs the agent as a **Docker Compose service** alongside
@@ -96,8 +124,8 @@ an `executionModel` of either `compose` or `microvm`:
 
 ```ts
 const RUNTIME_REGISTRY = {
-  gvisor: { executionModel: 'compose', dockerRuntime: 'runsc', needsStaticDns: true },
-  sbx:    { executionModel: 'microvm', dockerRuntime: undefined, needsStaticDns: false },
+  gvisor: { executionModel: 'compose', dockerRuntime: 'runsc', needsStaticDns: true,  usesIptables: false },
+  sbx:    { executionModel: 'microvm', dockerRuntime: undefined, needsStaticDns: false, usesIptables: false },
 };
 ```
 
@@ -177,18 +205,31 @@ What `createSandbox()` shares, in order:
    - **`/tmp`** — agent runtime files (rendered prompts, logs).
    - **`$HOME` tool dirs** — a **curated whitelist** of writable agent dirs, not
      the whole home directory. The manager mounts only the subdirs that exist on
-     the host from `HOME_TOOL_SUBDIRS` (`.cache`, `.config`, `.local`,
+     the host from `HOME_TOOL_SUBDIRS` (`.cache`, `.config`, `.local`, `.azure`,
      `.anthropic`, `.claude`, `.cargo`, `.rustup`, `.npm`, `.nvm`) plus the agent
      state dirs `.copilot` and `.gemini`. Credential-store dirs such as `.aws`,
-     `.ssh`, `.docker`, `.kube`, `.azure` and `.gnupg` are **never** whitelisted,
+     `.ssh`, `.docker`, `.kube`, and `.gnupg` are **never** whitelisted,
      so they never enter the VM. Each whitelisted dir is mounted **wholesale** (as
      a directory — sbx positional mounts cannot target an individual file, so its
      loose files like `~/.copilot/mcp-config.json` are preserved).
 
+     :::note `.azure` is a credential-bearing exception
+     `.azure` is mounted to provide Azure CLI config and account metadata. However,
+     its live token caches (`msal_token_cache.bin`, `msal_token_cache.json`,
+     `accessTokens.json`, `service_principal_entries.json`) are treated as
+     credential stores and scrubbed before sandbox creation (sbx) or masked with
+     `/dev/null` overlays (compose). Agents cannot read host Azure auth tokens
+     directly. Azure authentication must be obtained at runtime via OIDC
+     (`ACTIONS_ID_TOKEN_REQUEST_URL`/`TOKEN`, already forwarded) or via the
+     `ADO_MCP_AUTH_TOKEN` environment variable.
+     :::
+
 **Scrubbing nested credential stores.** Several whitelisted dirs legitimately
 hold tool settings but also stash a secret in a well-known child — e.g.
 `.config/gh`, `.config/gcloud`, `.cargo/credentials`, `.claude/.credentials.json`,
-`.gemini/oauth_creds.json`. Because the parent is mounted
+`.gemini/oauth_creds.json`, and the Azure CLI token caches under `.azure`
+(`msal_token_cache.bin`, `msal_token_cache.json`, `accessTokens.json`,
+`service_principal_entries.json`). Because the parent is mounted
 wholesale and sbx cannot overlay or mask a nested path, the manager instead
 **moves those credential paths aside on the host before `sbx create` and restores
 them after the sandbox is torn down** (`scrubHomeCredentials` /
@@ -196,10 +237,10 @@ them after the sandbox is torn down** (`scrubHomeCredentials` /
 `.awf-sbx-cred-backup-<pid>` dir at the home root — never a mounted subdir — so
 the secrets are absent from the VM while the benign tool state stays available.
 This is the sbx analog of compose mode's `/dev/null` credential overlays, and the
-per-parent list (`CREDENTIAL_PATHS_BY_PARENT` in
-`services/agent-volumes/home-whitelist.ts`) is shared to prevent drift. The agent
-receives whatever credentials it needs through the api-proxy or environment, not
-by reading the host's on-disk auth store, so removing these paths is safe.
+central credential list in `sandbox-mount-policy.json` is shared between backends
+to prevent drift. The agent receives whatever credentials it needs through the
+api-proxy or environment (e.g. `ADO_MCP_AUTH_TOKEN`, OIDC tokens), not by reading
+the host's on-disk auth store, so removing these paths is safe.
 
 A `seenPaths` set deduplicates so no path is mounted twice, and
 `execInSandbox(..., { workDir })` passes `--workdir` so commands run inside the
@@ -235,10 +276,19 @@ and, when true, substitutes two functions into the shared workflow runner:
   2. Builds the agent environment (`buildAgentEnvironment`) using microVM-specific
      network targets (see below), merging credential env
      (`buildAgentCredentialEnv`) when the api-proxy is enabled.
-  3. Calls `createSandbox({ workspaceDir, squidIp: SQUID_IP, extraMounts })`.
-  4. Polls api-proxy health (via `host.docker.internal:10000/health`) since
-     there is no compose `depends_on` gate across the VM boundary.
-  5. Runs a Squid connectivity diagnostic (`curl --proxy ... https://api.github.com`).
+  3. When bounded queries are enabled, resolves the trusted broker ingress,
+     mounts only its skill/wrapper directory (plus the socket directory when
+     Unix passthrough was proven), and probes reachability before agent startup.
+  4. Calls `createSandbox({ workspaceDir, squidIp: SQUID_IP, extraMounts })`.
+  5. When the api-proxy is enabled, runs `assertSbxApiProxyReflect`: creates a
+     private `HOSTALIASES` resolver file mapping `api-proxy` to a loopback HTTP
+     bridge. The bridge forwards to `host.docker.internal:10000` with the host
+     header expected by docker-sbx, then AWF probes
+     `http://api-proxy:10000/reflect` with Node's built-in `fetch` and up to 30
+     retries. Startup **aborts** (fail-closed) if the endpoint is
+     unreachable after all retries, because an isolated runtime that cannot reach
+     `/reflect` cannot do model auto-resolution or credit accounting.
+  6. Runs a Squid connectivity diagnostic (`curl --proxy ... https://api.github.com`).
 - **`sbxRunAgentCommand`** runs the actual agent command with `execInSandbox`,
   honoring the agent timeout, workdir, TTY, and computed environment, and dumps
   api-proxy logs on non-zero exit for debugging.
@@ -263,6 +313,14 @@ reachable** — the VM is on its own network. AWF compensates with two indirecti
   `host.docker.internal`, which resolves to the docker0 bridge from inside the
   VM. `COPILOT_*` / proxy env vars are pointed there instead of at
   `172.30.0.30`.
+- **The bounded-query broker** uses a mounted Unix socket when an executable
+  disposable-sandbox probe proves sbx passthrough supports host sockets.
+  Otherwise it uses an authenticated HTTP endpoint on an ephemeral
+  host-gateway-only port that `host.docker.internal` can reach from inside the
+  VM. The broker is attached only to a dedicated Docker
+  `internal` network, not `awf-net` or `awf-ext`, so this ingress does not add
+  broker egress. The actual primary sandbox must pass a one-shot endpoint probe
+  before its agent command starts.
 
 The net effect: agent tools that respect `HTTP_PROXY`/`HTTPS_PROXY` route through
 AWF's Squid domain ACL; credentials are injected by AWF's api-proxy. Tools that
@@ -320,6 +378,7 @@ myvm: {
   executionModel: 'microvm',
   dockerRuntime: undefined,     // not a Docker OCI runtime
   needsStaticDns: false,        // set true only if the VM can't reach an expected DNS
+  usesIptables: false,          // microVM manages its own network egress
 },
 ```
 

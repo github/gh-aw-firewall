@@ -1,8 +1,28 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { BlockedTarget } from './types';
+import { BlockedTarget, PolicyManifest } from './types';
 import { logger } from './logger';
 import { parseLogLine } from './logs/log-parser';
+import { isInternalAwfDomain } from './logs/internal-domain-filter';
+
+/**
+ * Reads topology peer hostnames from the policy manifest in workDir, if present.
+ * Returns an empty Set when the manifest is absent or unreadable.
+ */
+function loadTopologyPeers(workDir: string): ReadonlySet<string> {
+  const manifestPath = path.join(workDir, 'audit', 'policy-manifest.json');
+  try {
+    if (fs.existsSync(manifestPath)) {
+      const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8')) as PolicyManifest;
+      if (Array.isArray(manifest.topologyPeers) && manifest.topologyPeers.length > 0) {
+        return new Set(manifest.topologyPeers.map(p => p.toLowerCase()));
+      }
+    }
+  } catch {
+    logger.debug(`Could not read topology peers from policy manifest: ${manifestPath}`);
+  }
+  return new Set();
+}
 
 /**
  * Checks Squid logs for access denials to provide better error context
@@ -24,6 +44,10 @@ export async function checkSquidLogs(workDir: string, proxyLogsDir?: string): Pr
       return { hasDenials: false, blockedTargets: [] };
     }
 
+    // Load topology peers from the policy manifest so that dotted peer names
+    // (e.g. mcp.gateway-01) are suppressed in addition to single-label names.
+    const knownTopologyPeers = loadTopologyPeers(workDir);
+
     const blockedTargets: BlockedTarget[] = [];
     const seenTargets = new Set<string>();
     const lines = logContent.split('\n');
@@ -37,9 +61,18 @@ export async function checkSquidLogs(workDir: string, proxyLogsDir?: string): Pr
         }
 
         const target = extractBlockedTarget(parsedLine.method, parsedLine.host, parsedLine.url);
+        const parsed = parseTarget(target);
+
+        // Skip AWF-internal addresses (Docker network IPs and container hostnames).
+        // These are container-to-container connections, not missing external
+        // dependencies — surfacing them as blocked external domains is noise.
+        if (isInternalAwfDomain(parsed.domain, knownTopologyPeers)) {
+          continue;
+        }
+
         if (!seenTargets.has(target)) {
           seenTargets.add(target);
-          blockedTargets.push(parseTarget(target));
+          blockedTargets.push(parsed);
         }
       }
     }

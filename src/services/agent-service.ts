@@ -6,7 +6,7 @@ import {
 } from '../constants';
 import { ACT_PRESET_BASE_IMAGE, getSafeHostUid, getSafeHostGid } from '../host-identity';
 import { buildRuntimeImageRef } from '../image-tag';
-import { resolveDockerRuntime, runtimeNeedsStaticDns } from '../container-runtime';
+import { resolveDockerRuntime, runtimeNeedsStaticDns, runtimeUsesComposeAgent } from '../container-runtime';
 import { buildInternalServiceHosts } from './internal-service-hosts';
 import { logger } from '../logger';
 import { WrapperConfig } from '../types';
@@ -155,7 +155,9 @@ export function buildAgentService(params: AgentServiceParams): any {
   }
 
   // Enable host.docker.internal for agent when --enable-host-access is set
-  if (config.enableHostAccess) {
+  const shouldInjectHostGateway = config.enableHostAccess &&
+    !(config.networkIsolation && runtimeUsesComposeAgent(config.containerRuntime));
+  if (shouldInjectHostGateway) {
     agentService.extra_hosts = { 'host.docker.internal': 'host-gateway' };
     environment.AWF_ENABLE_HOST_ACCESS = '1';
   }

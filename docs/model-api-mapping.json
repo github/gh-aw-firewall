@@ -1,7 +1,7 @@
 {
   "title": "Model-to-API Endpoint Mapping",
   "description": "Maps AI model families to their supported API endpoints. Used to determine which endpoint (chat/completions vs responses vs messages) a model requires.",
-  "lastUpdated": "2026-07-17T06:00:00Z",
+  "lastUpdated": "2026-07-27T06:16:15Z",
   "sources": {
     "openai": "https://platform.openai.com/docs/models",
     "anthropic": "https://docs.anthropic.com/en/docs/about-claude/models"
@@ -28,8 +28,8 @@
         {
           "family": "gpt-5.5",
           "patterns": ["gpt-5.5*"],
-          "endpoints": ["responses"],
-          "notes": "Responses API only. Not present in OpenAI OpenAPI spec v2.3.0; reserved for future gpt-5.5 family models."
+          "endpoints": ["chat_completions", "responses"],
+          "notes": "Supports both endpoints. Listed on the official GPT-5.5 model page."
         },
         {
           "family": "gpt-5.4",
@@ -173,6 +173,12 @@
         }
       },
       "models": [
+        {
+          "family": "claude-opus-5",
+          "patterns": ["claude-opus-5*"],
+          "endpoints": ["messages"],
+          "notes": "Flagship Opus generation 5. 1M token context."
+        },
         {
           "family": "claude-fable-5",
           "patterns": ["claude-fable-5*"],

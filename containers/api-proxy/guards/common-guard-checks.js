@@ -38,9 +38,10 @@
  * @param {Function} deps.buildModelPolicyError
  * @param {string|null} model - Model name extracted from the request, or null
  *   to skip model-specific guards.
+ * @param {string|null} [provider=null] - Provider handling the request.
  * @returns {Array<object>} Array of guard descriptor objects.
  */
-function buildCommonGuardChecks(deps, model) {
+function buildCommonGuardChecks(deps, model, provider = null) {
   const {
     getEffectiveTokenBlockState,
     buildEffectiveTokenLimitError,
@@ -164,7 +165,7 @@ function buildCommonGuardChecks(deps, model) {
         }),
       },
       {
-        block: checkUnknownModelRejection(model),
+        block: checkUnknownModelRejection(model, provider),
         isBlocked: block => !!block,
         statusCode: 400,
         eventName: 'unknown_model_ai_credits',

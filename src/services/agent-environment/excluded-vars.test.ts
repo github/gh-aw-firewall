@@ -121,6 +121,10 @@ describe('buildExclusionSet', () => {
     it('should exclude GITHUB_PERSONAL_ACCESS_TOKEN (credential isolation)', () => {
       expect(buildExclusionSet(config).has('GITHUB_PERSONAL_ACCESS_TOKEN')).toBe(true);
     });
+
+    it('should exclude OPENAI_ENDPOINT_OVERRIDE (sidecar endpoint isolation)', () => {
+      expect(buildExclusionSet(config).has('OPENAI_ENDPOINT_OVERRIDE')).toBe(true);
+    });
   });
 
   describe('when enableApiProxy is false', () => {
@@ -157,6 +161,10 @@ describe('buildExclusionSet', () => {
     it('should NOT exclude GITHUB_PERSONAL_ACCESS_TOKEN', () => {
       expect(buildExclusionSet(config).has('GITHUB_PERSONAL_ACCESS_TOKEN')).toBe(false);
     });
+
+    it('should NOT exclude OPENAI_ENDPOINT_OVERRIDE', () => {
+      expect(buildExclusionSet(config).has('OPENAI_ENDPOINT_OVERRIDE')).toBe(false);
+    });
   });
 
   describe('when difcProxyHost is set (DIFC proxy security)', () => {
@@ -189,6 +197,38 @@ describe('buildExclusionSet', () => {
     it('should NOT exclude GITHUB_PERSONAL_ACCESS_TOKEN', () => {
       expect(buildExclusionSet(config).has('GITHUB_PERSONAL_ACCESS_TOKEN')).toBe(false);
     });
+  });
+
+  describe('when bounded queries are enabled (repository credential isolation)', () => {
+    const boundedQueries = {
+      enabled: true,
+      privateRepos: [{ repo: 'octo/private', sensitivity: 'internal' as const }],
+      runtime: 'docker' as const,
+      timeout: 30,
+      memoryLimit: '512m',
+      interpreter: 'python3' as const,
+      maxInvocations: 32,
+    };
+
+    it.each(['GITHUB_TOKEN', 'GH_TOKEN', 'GITHUB_PERSONAL_ACCESS_TOKEN'])(
+      'should exclude %s even without the API or DIFC proxies',
+      (name) => {
+        const config = makeConfig({ boundedQueries, enableApiProxy: false, difcProxyHost: undefined });
+        expect(buildExclusionSet(config).has(name)).toBe(true);
+      },
+    );
+
+    it.each(['GITHUB_TOKEN', 'GH_TOKEN', 'GITHUB_PERSONAL_ACCESS_TOKEN'])(
+      'should NOT exclude %s when bounded queries are configured but disabled',
+      (name) => {
+        const config = makeConfig({
+          boundedQueries: { ...boundedQueries, enabled: false },
+          enableApiProxy: false,
+          difcProxyHost: undefined,
+        });
+        expect(buildExclusionSet(config).has(name)).toBe(false);
+      },
+    );
   });
 
   describe('when excludeEnv is set', () => {

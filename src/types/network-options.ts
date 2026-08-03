@@ -17,6 +17,19 @@ export interface NetworkOptions {
   allowedDomains: string[];
 
   /**
+   * Secret-derived domains that must be allowed in Squid but must never appear
+   * in log output or the audit config artifact. Currently used to allow the
+   * host resolved from `OPENAI_ENDPOINT_OVERRIDE` through Squid without leaking
+   * the endpoint URL to workflow logs.
+   *
+   * These entries are combined with `allowedDomains` only at Squid-config
+   * generation time; all logging/audit paths read `allowedDomains` exclusively.
+   *
+   * @internal Not exposed to end-users; populated internally during option resolution.
+   */
+  sensitiveAllowedDomains?: string[];
+
+  /**
    * List of blocked domains for HTTP/HTTPS egress traffic
    * 
    * Blocked domains take precedence over allowed domains. If a domain matches
@@ -44,6 +57,20 @@ export interface NetworkOptions {
    * @example ['8.8.8.8', '2001:4860:4860::8888'] (Google DNS with IPv6)
    */
   dnsServers?: string[];
+
+  /**
+   * Whether the DNS server list was supplied explicitly by the operator
+   * (via `--dns-servers` or `network.dnsServers` in the config file) rather
+   * than auto-detected from the host's resolv.conf.
+   *
+   * When `false` or absent, the list was auto-detected and may be filtered in
+   * network-isolation mode to remove host-specific resolvers (e.g. Azure DHCP
+   * DNS or Tailscale Magic DNS) that can become unreachable from Docker bridge
+   * containers. When `true`, the operator's choice is respected as-is.
+   *
+   * @internal Not exposed to end-users; set during option resolution.
+   */
+  dnsServersExplicit?: boolean;
 
   /**
    * DNS-over-HTTPS resolver URL

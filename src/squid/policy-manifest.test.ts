@@ -176,3 +176,75 @@ describe('generatePolicyManifest - regex pattern rules', () => {
     });
   });
 });
+
+describe('generatePolicyManifest - topology peers', () => {
+  const port = 3128;
+
+  it('emits no topology peer rules when topologyPeers is undefined', () => {
+    const manifest = generatePolicyManifest({ domains: ['github.com'], port });
+    expect(manifest.rules.filter(r => r.id.startsWith('allow-topology-peer-'))).toHaveLength(0);
+  });
+
+  it('emits no topology peer rules when topologyPeers is empty', () => {
+    const manifest = generatePolicyManifest({ domains: ['github.com'], port, topologyPeers: [] });
+    expect(manifest.rules.filter(r => r.id.startsWith('allow-topology-peer-'))).toHaveLength(0);
+  });
+
+  it('emits an allow rule for each topology peer', () => {
+    const manifest = generatePolicyManifest({
+      domains: ['github.com'],
+      port,
+      topologyPeers: ['awmg-mcpg', 'awmg-cli-proxy'],
+    });
+
+    const peerRules = manifest.rules.filter(r => r.id.startsWith('allow-topology-peer-'));
+    expect(peerRules).toHaveLength(2);
+
+    const mcpgRule = peerRules.find(r => r.id === 'allow-topology-peer-awmg-mcpg');
+    expect(mcpgRule).toBeDefined();
+    expect(mcpgRule!.action).toBe('allow');
+    expect(mcpgRule!.protocol).toBe('both');
+    expect(mcpgRule!.domains).toContain('.awmg-mcpg');
+
+    const cliProxyRule = peerRules.find(r => r.id === 'allow-topology-peer-awmg-cli-proxy');
+    expect(cliProxyRule).toBeDefined();
+    expect(cliProxyRule!.action).toBe('allow');
+    expect(cliProxyRule!.domains).toContain('.awmg-cli-proxy');
+  });
+
+  it('places topology peer allow rules before the port-safety deny rules', () => {
+    const manifest = generatePolicyManifest({
+      domains: ['github.com'],
+      port,
+      topologyPeers: ['awmg-mcpg'],
+    });
+
+    const peerRule = manifest.rules.find(r => r.id === 'allow-topology-peer-awmg-mcpg');
+    const portSafetyRule = manifest.rules.find(r => r.id === 'deny-unsafe-ports');
+    expect(peerRule).toBeDefined();
+    expect(portSafetyRule).toBeDefined();
+    expect(peerRule!.order).toBeLessThan(portSafetyRule!.order);
+  });
+
+  it('topology peer allow rules are first in the rule list', () => {
+    const manifest = generatePolicyManifest({
+      domains: ['github.com'],
+      port,
+      topologyPeers: ['awmg-mcpg'],
+    });
+
+    expect(manifest.rules[0].id).toBe('allow-topology-peer-awmg-mcpg');
+  });
+
+  it('keeps sequential rule numbering when topology peers are present', () => {
+    const manifest = generatePolicyManifest({
+      domains: ['github.com'],
+      port,
+      topologyPeers: ['awmg-mcpg', 'awmg-cli-proxy'],
+    });
+
+    expect(manifest.rules.map(rule => rule.order)).toEqual(
+      manifest.rules.map((_, index) => index + 1)
+    );
+  });
+});

@@ -142,6 +142,11 @@
           },
           "additionalProperties": false
         },
+        "providers": {
+          "type": "object",
+          "description": "Per-provider model pricing catalog overlays merged into the API proxy model pricing table for AI-credits accounting.",
+          "additionalProperties": true
+        },
         "modelMultipliers": {
           "type": "object",
           "description": "Per-model multipliers for effective token accounting. Each model's weighted tokens are multiplied by this value before accumulation. Unlisted models use defaultModelMultiplier when set, otherwise the highest configured multiplier. See spec §10.2.",
@@ -829,6 +834,110 @@
           "type": "string",
           "description": "Container image providing system-level build tools (gcc, make, libraries) for the agent's chroot base. Used as an init container that copies its filesystem into a named volume mounted at /host. Only used when runner.topology is 'arc-dind'. Defaults to 'ghcr.io/github/gh-aw-firewall/build-tools:<imageTag>'."
         }
+      }
+    },
+    "boundedQueries": {
+      "type": "object",
+      "description": "Bounded-query sandbox configuration. When enabled, AWF stages an immutable seed per configured private repository, starts an offline broker (network_mode: none), and exposes a fixed `bounded-query` CLI plus a generated skill to the agent. See docs/awf-config-spec.md §14.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable bounded queries for this run. Requires a staging credential in GH_TOKEN or GITHUB_TOKEN on the AWF host and a Compose-based container runtime. Default: false.",
+          "default": false
+        },
+        "privateRepos": {
+          "type": "array",
+          "description": "Private repositories the bounded-query broker may run queries against, each with a trusted confidentiality category that fixes its per-run information budget (`public` unmetered, `internal` 64 bits/run, `confidential` 8 bits/run, `sealed` 0 bits/run — never launches a query). A legacy bare `owner/repo` string is accepted for one release only and normalized to `{ repo, sensitivity: \"internal\" }` with a warning; update it to the object form. Each `repo` must be a bare `owner/repo` slug — no scheme, host, credentials, path traversal, query string, fragment, or wildcard. Repository names must be unique case-insensitively. AWF stages one immutable seed per entry before the primary agent starts.",
+          "items": {
+            "oneOf": [
+              {
+                "type": "string",
+                "maxLength": 140,
+                "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})/(?!\\.\\.?$)(?!.*\\.\\.)[A-Za-z0-9._-]{1,100}$"
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "repo",
+                  "sensitivity"
+                ],
+                "properties": {
+                  "repo": {
+                    "type": "string",
+                    "maxLength": 140,
+                    "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})/(?!\\.\\.?$)(?!.*\\.\\.)[A-Za-z0-9._-]{1,100}$"
+                  },
+                  "sensitivity": {
+                    "type": "string",
+                    "enum": [
+                      "public",
+                      "internal",
+                      "confidential",
+                      "sealed"
+                    ],
+                    "description": "Confidentiality category, which fixes this repository's immutable per-run information budget. Cannot be increased by configuration."
+                  }
+                }
+              }
+            ]
+          },
+          "minItems": 1
+        },
+        "runtime": {
+          "type": "string",
+          "enum": [
+            "docker",
+            "gvisor",
+            "sbx"
+          ],
+          "description": "Sandbox runtime backend used to execute the query script, selected independently of the primary agent runtime. \"docker\" uses the daemon default runtime; \"gvisor\" requires the runsc OCI runtime; \"sbx\" is a fail-closed preview and is blocked until the installed sbx CLI proves mandatory no-network, PID, disk, file-size, target-mount, CPU, and memory controls. No backend ever falls back. Default: \"docker\".",
+          "default": "docker"
+        },
+        "timeout": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 540,
+          "description": "Maximum wall-clock time in seconds allowed for a single query invocation. Exceeding it returns the canonical error. Capped at 540 so the 10-minute response bucket reserves its final minute for termination, validation, container removal, and workspace cleanup. Default: 30.",
+          "default": 30
+        },
+        "memoryLimit": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]*[bkmgBKMG]$",
+          "description": "Docker-style memory limit applied to the query sandbox (e.g. \"512m\", \"1g\"). Swap is disabled at the same value. Default: \"512m\".",
+          "default": "512m"
+        },
+        "interpreter": {
+          "type": "string",
+          "enum": [
+            "python3"
+          ],
+          "description": "Script interpreter used to run the query. Only \"python3\" (standard library only, no package installation) is supported.",
+          "default": "python3"
+        },
+        "maxInvocations": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000,
+          "description": "Maximum number of query responses permitted for the current AWF run. Every response — including a rejection — counts, because each one reveals one of the four permitted symbols. Exhaustion returns the canonical ERROR without launching a query. Default: 32.",
+          "default": 32
+        }
+      },
+      "if": {
+        "properties": {
+          "enabled": {
+            "const": true
+          }
+        },
+        "required": [
+          "enabled"
+        ]
+      },
+      "then": {
+        "required": [
+          "privateRepos"
+        ]
       }
     }
   },

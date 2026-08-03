@@ -69,6 +69,15 @@ function getModelMultiplierCapBlockState(model) {
   const config = getMaxModelMultiplierConfig();
   if (!config.cap || !model) return null;
 
+  if (model.toLowerCase() === 'auto' && !Object.hasOwn(config.multipliers, model)) {
+    return {
+      model: sanitizeForLog(model),
+      multiplier: null,
+      maxModelMultiplier: config.cap,
+      reason: 'dynamic_model_unverifiable',
+    };
+  }
+
   const multiplier = resolveMultiplierForModel(model, config);
   if (multiplier <= config.cap) return null;
 
@@ -86,6 +95,17 @@ function getModelMultiplierCapBlockState(model) {
  * @returns {{ error: object }}
  */
 function buildModelMultiplierCapError(state) {
+  if (state.reason === 'dynamic_model_unverifiable') {
+    return {
+      error: {
+        type: 'model_multiplier_cap_unverifiable',
+        message: 'Model "auto" selects a concrete model at runtime, so its multiplier cannot be proven to be within the configured cap. Configure an explicit multiplier for "auto" to opt in.',
+        model: state.model,
+        model_multiplier: null,
+        max_model_multiplier: state.maxModelMultiplier,
+      },
+    };
+  }
   return {
     error: {
       type: 'model_multiplier_cap_exceeded',

@@ -148,4 +148,22 @@ export interface SquidConfig {
    * do not block connections to the api-proxy before the allow rule fires.
    */
   apiProxyPorts?: number[];
+
+  /**
+   * Trusted topology-peer hostnames reachable through Squid in network-isolation
+   * (topology) mode — the `--topology-attach` container names plus the DIFC/
+   * cli-proxy host.
+   *
+   * These Docker-internal peers (e.g. an MCP gateway `awmg-mcpg`) are served on
+   * non-standard ports (e.g. 8080) and cannot be reached via the normal
+   * domain allowlist, which is gated behind `http_access deny !Safe_ports`
+   * (80/443 only). For each peer an explicit `http_access allow` (dstdomain) is
+   * emitted *before* the Safe_ports and raw-IP deny rules, so proxy clients that
+   * honour `HTTP(S)_PROXY` but ignore `NO_PROXY` can reach the peer on any port.
+   *
+   * DNS resolution of these Docker-only names is provided separately by patching
+   * the squid-proxy container's `extra_hosts` (see topology.ts), since Squid's
+   * external `dns_nameservers` cannot resolve them.
+   */
+  topologyPeers?: string[];
 }

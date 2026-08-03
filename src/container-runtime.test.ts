@@ -1,5 +1,7 @@
 import { resolveDockerRuntime, runtimeNeedsStaticDns, runtimeUsesComposeAgent, runtimeUsesIptables, isGvisorRuntime } from './container-runtime';
-import { sanitizeEnvForSbx } from './sbx-manager';
+import { testHelpers } from './sbx-manager';
+
+const { sanitizeEnvForSbx } = testHelpers;
 
 describe('container-runtime', () => {
   describe('resolveDockerRuntime', () => {

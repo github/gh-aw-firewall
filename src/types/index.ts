@@ -40,3 +40,15 @@ export {
 export {
   type PidTrackResult,
 } from './pid';
+
+export {
+  type BoundedQueryRuntime,
+  type BoundedQueryInterpreter,
+  type BoundedQuerySensitivity,
+  type BoundedQueryRepository,
+  type BoundedQueriesConfig,
+  type BoundedQueryOptions,
+  BOUNDED_QUERY_DEFAULTS,
+  BOUNDED_QUERY_SENSITIVITIES,
+  BOUNDED_QUERY_SENSITIVITY_RUN_BITS,
+} from './bounded-query-options';

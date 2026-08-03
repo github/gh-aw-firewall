@@ -4,6 +4,13 @@ import * as os from 'os';
 import execa from 'execa';
 import { logger } from './logger';
 import { fixArtifactPermissionsForRootless } from './artifact-permissions';
+import { getLocalDockerEnv } from './host-env';
+import { resolveBoundedQueryPaths } from './bounded-query/paths';
+
+const BOUNDED_QUERY_AUDIT_FILES = [
+  'bounded-query.jsonl',
+  'runtime-telemetry.jsonl',
+] as const;
 
 /**
  * Copies the iptables audit dump from the init-signal volume to the audit directory.
@@ -12,14 +19,38 @@ import { fixArtifactPermissionsForRootless } from './artifact-permissions';
  */
 export function preserveIptablesAudit(workDir: string, auditDir?: string): void {
   const iptablesAuditSrc = path.join(workDir, 'init-signal', 'iptables-audit.txt');
+  const boundedQueryRoot = resolveBoundedQueryPaths(workDir).root;
   const targetAuditDir = auditDir || path.join(workDir, 'audit');
-  if (fs.existsSync(iptablesAuditSrc) && fs.existsSync(targetAuditDir)) {
+  if (!fs.existsSync(targetAuditDir)) return;
+
+  if (fs.existsSync(iptablesAuditSrc)) {
     try {
       fs.copyFileSync(iptablesAuditSrc, path.join(targetAuditDir, 'iptables-audit.txt'));
       fs.chmodSync(path.join(targetAuditDir, 'iptables-audit.txt'), 0o644);
       logger.debug('Copied iptables audit state to audit directory');
     } catch (error) {
       logger.debug('Could not copy iptables audit file:', error);
+    }
+  }
+
+  if (fs.existsSync(boundedQueryRoot)) {
+    for (const auditFile of BOUNDED_QUERY_AUDIT_FILES) {
+      try {
+        const source = `awf-bounded-query-broker:/var/log/awf-bounded-query/${auditFile}`;
+        const destination = path.join(targetAuditDir, auditFile);
+        const result = execa.sync(
+          'docker',
+          ['cp', source, destination],
+          { env: getLocalDockerEnv(), reject: false },
+        );
+        if (result.exitCode === 0) {
+          logger.debug(`Copied bounded-query broker ${auditFile} to audit directory`);
+        } else {
+          logger.debug(`Could not copy bounded-query ${auditFile}:`, result.stderr);
+        }
+      } catch (error) {
+        logger.debug(`Could not copy bounded-query ${auditFile}:`, error);
+      }
     }
   }
 }
@@ -36,7 +67,6 @@ type PreserveDirectoryOptions = {
   permissionErrorMessage: string;
   preserveErrorMessage: string;
   chmodPreservedDir?: boolean;
-  runtimeDirMustExist?: boolean;
 };
 
 function preserveDirectory({
@@ -51,11 +81,10 @@ function preserveDirectory({
   permissionErrorMessage,
   preserveErrorMessage,
   chmodPreservedDir = false,
-  runtimeDirMustExist = true,
 }: PreserveDirectoryOptions): void {
   if (runtimeDir) {
     const targetDir = runtimeSubdir ? path.join(runtimeDir, runtimeSubdir) : runtimeDir;
-    if (!runtimeDirMustExist || fs.existsSync(targetDir)) {
+    if (fs.existsSync(targetDir)) {
       try {
         execa.sync('chmod', ['-R', 'a+rX', targetDir]);
         logger.info(`${availableLabel} available at: ${targetDir}`);
@@ -156,7 +185,6 @@ export function preserveCleanupArtifacts(
     permissionErrorMessage: 'Could not fix squid log permissions:',
     preserveErrorMessage: 'Could not preserve squid logs:',
     chmodPreservedDir: true,
-    runtimeDirMustExist: false,
   });
 
   if (auditDir) {

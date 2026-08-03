@@ -1,4 +1,6 @@
 import { buildConfig } from './build-config';
+import { mapAwfFileConfigToCliOptions } from '../config-mapper';
+import { testHelpers as apiProxyEnvTestHelpers } from '../services/api-proxy-env-config';
 
 /** Minimal valid inputs for buildConfig */
 function makeInputs(overrides: Partial<Parameters<typeof buildConfig>[0]> = {}): Parameters<typeof buildConfig>[0] {
@@ -112,6 +114,28 @@ describe('buildConfig', () => {
         }));
         expect(config.allowedModels).toEqual(['gpt-5.6-sol']);
         expect(config.disallowedModels).toEqual(['gpt-5.6-luna']);
+      });
+
+      it('carries pricing configuration from config-file mapping into proxy environment', () => {
+        const providers = {
+          anthropic: {
+            models: {
+              'custom-model': { cost: { input: '3e-06', output: '1.5e-05' } },
+            },
+          },
+        };
+        const defaultPricing = { input: 3, output: 15, cachedInput: 0.3 };
+        const options = mapAwfFileConfigToCliOptions({
+          apiProxy: {
+            providers,
+            defaultAiCreditsPricing: defaultPricing,
+          },
+        });
+        const config = buildConfig(makeInputs({ options: { ...makeInputs().options, ...options } }));
+        const env = apiProxyEnvTestHelpers.buildRateLimitEnv(config);
+
+        expect(JSON.parse(env.AWF_API_PROXY_PROVIDERS)).toEqual(providers);
+        expect(JSON.parse(env.AWF_DEFAULT_AI_CREDITS_PRICING)).toEqual(defaultPricing);
       });
     });
 
@@ -404,6 +428,52 @@ describe('buildConfig', () => {
       const aliases = { 'gpt-4': ['gpt-4-turbo'] };
       const config = buildConfig(makeInputs({ modelAliases: aliases }));
       expect(config.modelAliases).toEqual(aliases);
+    });
+
+    it('should leave boundedQueries undefined when not set in options', () => {
+      const config = buildConfig(makeInputs());
+      expect(config.boundedQueries).toBeUndefined();
+    });
+
+    it('should normalize boundedQueries with centralized defaults when present', () => {
+      const config = buildConfig(makeInputs({
+        options: { ...makeInputs().options, boundedQueries: {} },
+      }));
+      expect(config.boundedQueries).toEqual({
+        enabled: false,
+        privateRepos: [],
+        runtime: 'docker',
+        timeout: 30,
+        memoryLimit: '512m',
+        interpreter: 'python3',
+        maxInvocations: 32,
+      });
+    });
+
+    it('should preserve explicit boundedQueries values over defaults', () => {
+      const config = buildConfig(makeInputs({
+        options: {
+          ...makeInputs().options,
+          boundedQueries: {
+            enabled: true,
+            privateRepos: [{ repo: 'octo/repo', sensitivity: 'confidential' }],
+            runtime: 'sbx',
+            timeout: 90,
+            memoryLimit: '2g',
+            interpreter: 'python3',
+            maxInvocations: 5,
+          },
+        },
+      }));
+      expect(config.boundedQueries).toEqual({
+        enabled: true,
+        privateRepos: [{ repo: 'octo/repo', sensitivity: 'confidential' }],
+        runtime: 'sbx',
+        timeout: 90,
+        memoryLimit: '2g',
+        interpreter: 'python3',
+        maxInvocations: 5,
+      });
     });
 
     it('should pass through resolvedCopilotApiTarget', () => {

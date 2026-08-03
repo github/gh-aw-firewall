@@ -9,6 +9,7 @@ import {
   shallowDepthRegex,
   imageTagRegex,
   standaloneSkipPullRegex,
+  localAwfImageDownloadRegex,
   sessionStateDirInjectionRegex,
   SESSION_STATE_DIR,
   legacyApiProxyLogsDirRegex,
@@ -147,12 +148,24 @@ export function applyGeneralWorkflowPatches(
     log.push(`  Replaced ${imageTagMatches.length} --image-tag/--skip-pull with --build-local`);
   }
 
-  // Replace standalone --skip-pull (no --image-tag present) with --build-local
+  // Replace standalone --skip-pull, including an incompatible generated
+  // "--skip-pull --build-local" pair, with one local-build flag.
   standaloneSkipPullRegex.lastIndex = 0;
   const skipPullMatches = content.match(standaloneSkipPullRegex);
   if (skipPullMatches) {
     content = content.replace(standaloneSkipPullRegex, '--build-local');
     log.push(`  Replaced ${skipPullMatches.length} standalone --skip-pull with --build-local`);
+  }
+
+  // The compiler's eager image-download step runs before the local AWF build.
+  // Remove only AWF's unreleased images; digest-pinned tool images still pull.
+  if (content.includes('--build-local')) {
+    localAwfImageDownloadRegex.lastIndex = 0;
+    const localAwfImageMatches = content.match(localAwfImageDownloadRegex);
+    if (localAwfImageMatches) {
+      content = content.replace(localAwfImageDownloadRegex, '');
+      log.push(`  Removed ${localAwfImageMatches.length} local AWF image download(s)`);
+    }
   }
 
   // Inject --session-state-dir into AWF invocations so Copilot CLI session-state

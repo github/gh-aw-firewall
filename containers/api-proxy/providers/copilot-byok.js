@@ -15,6 +15,49 @@ const PROTECTED_HEADER_NAMES = new Set([
 ]);
 
 /**
+ * Parse a JSON object whose values must be strings.
+ *
+ * @param {string|undefined} raw
+ * @param {string} invalidJsonMessage
+ * @param {string} expectedObjectMessage
+ * @param {(name: string) => string|null} validateName
+ * @param {(name: string) => string} invalidValueMessage
+ * @returns {Record<string, string>}
+ */
+function parseJsonStringMap(raw, invalidJsonMessage, expectedObjectMessage, validateName, invalidValueMessage) {
+  if (!raw || !raw.trim()) return {};
+
+  let parsed;
+  try {
+    parsed = JSON.parse(raw.trim());
+  } catch {
+    console.warn(invalidJsonMessage);
+    return {};
+  }
+
+  if (typeof parsed !== 'object' || Array.isArray(parsed) || parsed === null) {
+    console.warn(expectedObjectMessage);
+    return {};
+  }
+
+  const result = {};
+  for (const [name, value] of Object.entries(parsed)) {
+    const invalidNameMessage = validateName(name);
+    if (invalidNameMessage) {
+      console.warn(invalidNameMessage);
+      continue;
+    }
+    if (typeof value !== 'string') {
+      console.warn(invalidValueMessage(name));
+      continue;
+    }
+    result[name] = value;
+  }
+
+  return result;
+}
+
+/**
  * Parse the AWF_BYOK_EXTRA_HEADERS environment variable into a plain header map.
  *
  * The value must be a JSON object whose keys are valid HTTP header names and
@@ -28,47 +71,28 @@ const PROTECTED_HEADER_NAMES = new Set([
  * @returns {Record<string, string>} Validated header map (may be empty)
  */
 function parseByokExtraHeaders(raw) {
-  if (!raw || !raw.trim()) return {};
+  return parseJsonStringMap(
+    raw,
+    'AWF_BYOK_EXTRA_HEADERS: invalid JSON; ignoring extra headers',
+    'AWF_BYOK_EXTRA_HEADERS: expected a JSON object; ignoring extra headers',
+    (name) => {
+      const lowerName = name.toLowerCase();
 
-  let parsed;
-  try {
-    parsed = JSON.parse(raw.trim());
-  } catch {
-    console.warn('AWF_BYOK_EXTRA_HEADERS: invalid JSON; ignoring extra headers');
-    return {};
-  }
+      // Prevent prototype pollution / special keys in header maps.
+      if (lowerName === '__proto__' || lowerName === 'constructor' || lowerName === 'prototype') {
+        return `AWF_BYOK_EXTRA_HEADERS: "${name}" is not an allowed header name; skipping`;
+      }
 
-  if (typeof parsed !== 'object' || Array.isArray(parsed) || parsed === null) {
-    console.warn('AWF_BYOK_EXTRA_HEADERS: expected a JSON object; ignoring extra headers');
-    return {};
-  }
-
-  const result = {};
-  for (const [name, value] of Object.entries(parsed)) {
-    const lowerName = name.toLowerCase();
-
-    // Prevent prototype pollution / special keys in header maps.
-    if (lowerName === '__proto__' || lowerName === 'constructor' || lowerName === 'prototype') {
-      console.warn(`AWF_BYOK_EXTRA_HEADERS: "${name}" is not an allowed header name; skipping`);
-      continue;
-    }
-
-    if (PROTECTED_HEADER_NAMES.has(lowerName)) {
-      console.warn(`AWF_BYOK_EXTRA_HEADERS: "${name}" is an auth-critical header and cannot be overridden; skipping`);
-      continue;
-    }
-    if (!isValidHeaderName(name)) {
-      console.warn(`AWF_BYOK_EXTRA_HEADERS: "${name}" is not a valid HTTP header name; skipping`);
-      continue;
-    }
-    if (typeof value !== 'string') {
-      console.warn(`AWF_BYOK_EXTRA_HEADERS: value for "${name}" must be a string; skipping`);
-      continue;
-    }
-    result[name] = value;
-  }
-
-  return result;
+      if (PROTECTED_HEADER_NAMES.has(lowerName)) {
+        return `AWF_BYOK_EXTRA_HEADERS: "${name}" is an auth-critical header and cannot be overridden; skipping`;
+      }
+      if (!isValidHeaderName(name)) {
+        return `AWF_BYOK_EXTRA_HEADERS: "${name}" is not a valid HTTP header name; skipping`;
+      }
+      return null;
+    },
+    (name) => `AWF_BYOK_EXTRA_HEADERS: value for "${name}" must be a string; skipping`,
+  );
 }
 
 /**
@@ -78,35 +102,18 @@ function parseByokExtraHeaders(raw) {
  * @returns {Record<string, string>} Validated body field map (may be empty)
  */
 function parseByokExtraBodyFields(raw) {
-  if (!raw || !raw.trim()) return {};
-
-  let parsed;
-  try {
-    parsed = JSON.parse(raw.trim());
-  } catch {
-    console.warn('AWF_BYOK_EXTRA_BODY_FIELDS: invalid JSON; ignoring extra body fields');
-    return {};
-  }
-
-  if (typeof parsed !== 'object' || Array.isArray(parsed) || parsed === null) {
-    console.warn('AWF_BYOK_EXTRA_BODY_FIELDS: expected a JSON object; ignoring extra body fields');
-    return {};
-  }
-
-  const result = {};
-  for (const [name, value] of Object.entries(parsed)) {
-    if (name === '__proto__' || name === 'constructor' || name === 'prototype') {
-      console.warn(`AWF_BYOK_EXTRA_BODY_FIELDS: "${name}" is not an allowed field name; skipping`);
-      continue;
-    }
-    if (typeof value !== 'string') {
-      console.warn(`AWF_BYOK_EXTRA_BODY_FIELDS: value for "${name}" must be a string; skipping`);
-      continue;
-    }
-    result[name] = value;
-  }
-
-  return result;
+  return parseJsonStringMap(
+    raw,
+    'AWF_BYOK_EXTRA_BODY_FIELDS: invalid JSON; ignoring extra body fields',
+    'AWF_BYOK_EXTRA_BODY_FIELDS: expected a JSON object; ignoring extra body fields',
+    (name) => {
+      if (name === '__proto__' || name === 'constructor' || name === 'prototype') {
+        return `AWF_BYOK_EXTRA_BODY_FIELDS: "${name}" is not an allowed field name; skipping`;
+      }
+      return null;
+    },
+    (name) => `AWF_BYOK_EXTRA_BODY_FIELDS: value for "${name}" must be a string; skipping`,
+  );
 }
 
 /**

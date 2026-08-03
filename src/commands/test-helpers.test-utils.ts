@@ -116,8 +116,7 @@ export function createLogCommandTests<TOptions extends { format: string; source?
 
       expect(harness.mockedDiscovery.discoverLogSources).toHaveBeenCalled();
       expect(harness.mockedDiscovery.selectMostRecent).toHaveBeenCalled();
-      expect(harness.mockedAggregator.loadAndAggregate).toHaveBeenCalledWith(mockSource);
-      expect(harness.mockedFormatter.formatStats).toHaveBeenCalled();
+      expect(harness.mockedAggregator.loadAndAggregate).toHaveBeenCalledWith(mockSource, undefined);
       expect(harness.mockConsoleLog).toHaveBeenCalledWith('formatted output');
     });
 
@@ -144,7 +143,7 @@ export function createLogCommandTests<TOptions extends { format: string; source?
       );
 
       expect(harness.mockedDiscovery.validateSource).toHaveBeenCalledWith('/custom/path');
-      expect(harness.mockedAggregator.loadAndAggregate).toHaveBeenCalledWith(mockSource);
+      expect(harness.mockedAggregator.loadAndAggregate).toHaveBeenCalledWith(mockSource, undefined);
     });
 
     it('should exit with error if no sources found', async () => {

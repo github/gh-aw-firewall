@@ -21,6 +21,7 @@ const { getModelApiMappingReflect } = require('./model-api-mapping');
  * @typedef {object} ManagementDeps
  * @property {() => Array<object>}  getAdapters           - Returns registered adapters array
  * @property {() => Record<string, string[]|null>} getCachedModels - Returns model cache object
+ * @property {() => Record<string, object[]>} getRuntimeModelMetadata - Returns sanitized runtime metadata
  * @property {() => boolean}        isModelFetchComplete  - Whether startup model fetch has run
  * @property {() => { complete: boolean, results: Record<string, object> }} getKeyValidationState
  * @property {() => import('./rate-limiter').RateLimiter} getLimiter
@@ -46,6 +47,7 @@ function createManagementHandlers(deps) {
   const {
     getAdapters,
     getCachedModels,
+    getRuntimeModelMetadata = () => ({}),
     isModelFetchComplete,
     getKeyValidationState,
     getLimiter,
@@ -89,6 +91,7 @@ function createManagementHandlers(deps) {
    */
   function reflectEndpoints() {
     const cachedModels = getCachedModels();
+    const runtimeModelMetadata = getRuntimeModelMetadata();
     const modelAliases = getModelAliases();
     return {
       endpoints: getAdapters().map(adapter => {
@@ -99,6 +102,7 @@ function createManagementHandlers(deps) {
           base_url:   info.base_url,
           configured: info.configured,
           models:     info.models_cache_key !== null ? (cachedModels[info.models_cache_key] || null) : null,
+          model_metadata: runtimeModelMetadata[adapter.name] || null,
           models_url: info.models_url,
         };
       }),

@@ -505,3 +505,71 @@ describe('createProviderAuthScaffold', () => {
     expect(result.rawTarget).toBe('custom.example.com');
   });
 });
+
+describe('createOidcAwareProviderAdapter', () => {
+  const { createOidcAwareProviderAdapter } = require('./adapter-factory');
+
+  it('wires static auth headers and runtime methods into a provider adapter', () => {
+    const adapter = createOidcAwareProviderAdapter({
+      env: {},
+      oidcAuthOptions: { staticAuthToken: 'static-key' },
+      buildOidcHeaders: (token) => ({ Authorization: ['Bearer', token].join(' ') }),
+      buildStaticHeaders: () => ({ 'x-api-key': 'static-key' }),
+      createAdapterMethodsOptions: ({ validationSkip, skipModelsFetch }) => ({
+        apiKey: 'static-key',
+        rawTarget: 'api.example.com',
+        basePath: '',
+        provider: 'test',
+        port: 10099,
+        modelsPath: '/v1/models',
+        validationPath: '/v1/models',
+        validationHeaders: () => ({ 'x-api-key': 'static-key' }),
+        validationSkip,
+        skipModelsFetch,
+      }),
+      buildAdapterOptions: {
+        name: 'test',
+        port: 10099,
+        isManagementPort: false,
+      },
+    });
+
+    expect(adapter.isEnabled()).toBe(true);
+    expect(adapter.getAuthHeaders()).toEqual({ 'x-api-key': 'static-key' });
+    expect(adapter.getTargetHost()).toBe('api.example.com');
+  });
+
+  it('uses custom getAuthHeaders and exposes OIDC runtime methods when configured', () => {
+    const adapter = createOidcAwareProviderAdapter({
+      env: {},
+      oidcAuthOptions: {
+        oidcProviderFactory: () => ({ isReady: () => true, getToken: () => 'oidc-token' }),
+      },
+      buildOidcHeaders: (token) => ({ Authorization: ['Bearer', token].join(' ') }),
+      buildStaticHeaders: () => ({ 'x-api-key': 'static-key' }),
+      createAdapterMethodsOptions: ({ oidcConfigured }) => ({
+        apiKey: undefined,
+        rawTarget: 'api.example.com',
+        basePath: '',
+        provider: 'test',
+        port: 10099,
+        modelsPath: '/v1/models',
+        reflectionConfigured: oidcConfigured,
+      }),
+      buildAdapterOptions: {
+        name: 'test',
+        port: 10099,
+        isManagementPort: false,
+      },
+      getAuthHeaders: ({ resolveHeaders }) => ({
+        ...resolveHeaders(),
+        'x-extra': '1',
+      }),
+    });
+
+    expect(adapter.isEnabled()).toBe(true);
+    const headers = adapter.getAuthHeaders();
+    expect(headers['x-extra']).toBe('1');
+    expect(typeof headers.Authorization).toBe('string');
+  });
+});

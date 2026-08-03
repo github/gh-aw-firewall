@@ -13,6 +13,7 @@ import { buildCustomVolumeMounts, buildWorkspaceMounts } from './workspace-mount
 
 interface AgentVolumesParams {
   config: WrapperConfig;
+  internalServiceHosts?: Record<string, string>;
   sslConfig?: SslConfig;
   projectRoot: string;
   effectiveHome: string;
@@ -23,7 +24,17 @@ interface AgentVolumesParams {
 }
 
 export function buildAgentVolumes(params: AgentVolumesParams): string[] {
-  const { config, sslConfig, projectRoot, effectiveHome, workspaceDir, agentLogsPath, sessionStatePath, initSignalDir } = params;
+  const {
+    config,
+    internalServiceHosts,
+    sslConfig,
+    projectRoot,
+    effectiveHome,
+    workspaceDir,
+    agentLogsPath,
+    sessionStatePath,
+    initSignalDir,
+  } = params;
 
   const agentVolumes: string[] = [];
   agentVolumes.push(...buildWorkspaceMounts({
@@ -47,7 +58,7 @@ export function buildAgentVolumes(params: AgentVolumesParams): string[] {
   // Docker daemon cannot see on split-fs. DNS pre-resolution is skipped;
   // the agent resolves domains at runtime via the container's DNS config.
   if (!useSysroot) {
-    agentVolumes.push(generateHostsFileMount(config));
+    agentVolumes.push(generateHostsFileMount(config, internalServiceHosts));
   }
   agentVolumes.push(...buildDockerSocketMount(config));
   agentVolumes.push(...buildSslMounts(sslConfig));

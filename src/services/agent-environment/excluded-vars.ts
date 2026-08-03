@@ -41,11 +41,25 @@ export function buildExclusionSet(config: WrapperConfig): Set<string> {
     excludedEnvVars.add('GITHUB_TOKEN');
     excludedEnvVars.add('GH_TOKEN');
     excludedEnvVars.add('GITHUB_PERSONAL_ACCESS_TOKEN');
+    // Exclude the OpenAI endpoint override so the sidecar-isolated endpoint
+    // URL is never visible to the untrusted agent via its environment.
+    excludedEnvVars.add('OPENAI_ENDPOINT_OVERRIDE');
   }
 
   if (config.difcProxyHost) {
     // Redundant with enableApiProxy block above, kept for explicit documentation:
     // when DIFC proxy handles GitHub auth, tokens must never reach the agent.
+    excludedEnvVars.add('GITHUB_TOKEN');
+    excludedEnvVars.add('GH_TOKEN');
+    excludedEnvVars.add('GITHUB_PERSONAL_ACCESS_TOKEN');
+  }
+
+  if (config.boundedQueries?.enabled) {
+    // Bounded queries read private repositories on the agent's behalf precisely
+    // because the agent is not trusted with access to them. A GitHub token in
+    // the agent environment would let the agent read those repositories
+    // directly, defeating the subsystem — so the tokens are stripped whenever
+    // bounded queries are enabled, independently of the API/DIFC proxies.
     excludedEnvVars.add('GITHUB_TOKEN');
     excludedEnvVars.add('GH_TOKEN');
     excludedEnvVars.add('GITHUB_PERSONAL_ACCESS_TOKEN');

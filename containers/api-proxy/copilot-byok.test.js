@@ -106,10 +106,21 @@ describe('parseByokExtraBodyFields', () => {
     expect(parseByokExtraBodyFields(undefined)).toEqual({});
   });
 
+  it('returns empty object for whitespace-only string', () => {
+    expect(parseByokExtraBodyFields('   ')).toEqual({});
+  });
+
   it('returns empty object for invalid JSON', () => {
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
     expect(parseByokExtraBodyFields('{bad-json}')).toEqual({});
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('invalid JSON'));
+    warnSpy.mockRestore();
+  });
+
+  it('returns empty object and warns when value is not a JSON object', () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    expect(parseByokExtraBodyFields('["session_id","run-42"]')).toEqual({});
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('expected a JSON object'));
     warnSpy.mockRestore();
   });
 
@@ -118,6 +129,14 @@ describe('parseByokExtraBodyFields', () => {
       session_id: 'run-42',
       user_id: 'octocat',
     });
+  });
+
+  it('skips reserved field names with a warning', () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const result = parseByokExtraBodyFields('{"__proto__":"x","session_id":"run-42"}');
+    expect(result).toEqual({ session_id: 'run-42' });
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('not an allowed field name'));
+    warnSpy.mockRestore();
   });
 
   it('skips entries with non-string values', () => {
@@ -165,6 +184,15 @@ describe('createCopilotAdapter — BYOK getAuthHeaders', () => {
     });
     const headers = adapter.getAuthHeaders(fakeModelsReq);
     expect(headers['Authorization']).toBe(bearerGithubToken);
+  });
+
+  it('requests versioned runtime pricing metadata from the standard Copilot models endpoint', () => {
+    const adapter = createCopilotAdapter({ COPILOT_GITHUB_TOKEN: githubToken });
+    const config = adapter.getModelsFetchConfig();
+
+    expect(config.opts.headers['X-GitHub-Api-Version']).toBe('2026-07-01');
+    expect(config.modelMetadataFormat).toBe('copilot');
+    expect(config.apiVersion).toBe('2026-07-01');
   });
 
   it('uses COPILOT_PROVIDER_API_KEY (not COPILOT_GITHUB_TOKEN) for inference in BYOK+token mode', () => {

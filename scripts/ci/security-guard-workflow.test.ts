@@ -19,7 +19,7 @@ describe('security guard workflow optimization config', () => {
     expect(source).toContain('Do NOT call `gh pr diff`, `gh pr view`, `gh api`, `git diff`, `git log`, or `git show`.');
     expect(source).toContain('Do NOT read files from the checkout.');
     expect(source).toContain('Fetch PR metadata');
-    expect(source).toContain('${{ steps.pr-meta.outputs.PR_META }}');
+    expect(source).toContain('/tmp/gh-aw/agent/pr-meta.txt');
     expect(source).toContain('## Security Checks');
     expect(source).toContain('DROP/REJECT');
     expect(source).toContain('egress expansion');
@@ -42,6 +42,6 @@ describe('security guard workflow optimization config', () => {
     expect(lock).toContain('GH_AW_MAX_TURNS: 6');
     expect(lock).toMatch(/github\/gh-aw(?:-actions\/|\/actions\/)setup@[a-f0-9]{40}/);
     expect(lock).not.toContain('github/gh-aw-actions/setup@v0.80.6');
-    expect(lock).toContain('ghcr.io/github/github-mcp-server:v1.6.0');
+    expect(lock).toContain('ghcr.io/github/github-mcp-server:v1.8.0');
   });
 });

@@ -85,6 +85,26 @@ describe('max-model-multiplier-guard', () => {
       expect(getModelMultiplierCapBlockState('unknown-model')).toBeNull();
     });
 
+    it('fails closed for auto unless an explicit multiplier is configured', () => {
+      process.env.AWF_MAX_MODEL_MULTIPLIER = '5';
+
+      const state = getModelMultiplierCapBlockState('auto');
+      expect(state).toMatchObject({
+        model: 'auto',
+        multiplier: null,
+        maxModelMultiplier: 5,
+        reason: 'dynamic_model_unverifiable',
+      });
+      expect(buildModelMultiplierCapError(state).error.type).toBe('model_multiplier_cap_unverifiable');
+    });
+
+    it('allows auto when its explicit multiplier is within the cap', () => {
+      process.env.AWF_MAX_MODEL_MULTIPLIER = '5';
+      process.env.AWF_EFFECTIVE_TOKEN_MODEL_MULTIPLIERS = JSON.stringify({ auto: 5 });
+
+      expect(getModelMultiplierCapBlockState('auto')).toBeNull();
+    });
+
     it('blocks when configured default multiplier for unknown model exceeds cap', () => {
       process.env.AWF_MAX_MODEL_MULTIPLIER = '5';
       process.env.AWF_EFFECTIVE_TOKEN_MODEL_MULTIPLIERS = JSON.stringify({ 'gpt-4o': 2 });

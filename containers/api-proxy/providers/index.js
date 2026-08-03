@@ -32,6 +32,8 @@ const { createVertexAdapter } = require('./vertex');
  * @property {string} url - URL to fetch
  * @property {{ method: string, headers: Record<string,string> }} opts - Request options
  * @property {string} cacheKey - Key in cachedModels to store the result
+ * @property {string} [modelMetadataFormat] - Provider-specific response format
+ * @property {string} [apiVersion] - API version used to obtain model metadata
  */
 
 /**

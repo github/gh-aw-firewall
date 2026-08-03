@@ -1,4 +1,4 @@
-# AGENTS.md
+# CLAUDE.md
 
 This file provides guidance to coding agent when working with code in this repository.
 
@@ -27,6 +27,17 @@ The system is orchestrated by `src/cli.ts` and managed by `src/docker-manager.ts
 - Injects real API credentials (OpenAI, Anthropic, Copilot) that the agent never sees
 - Agent calls the sidecar with no auth (e.g., `http://172.30.0.30:10001` for Anthropic); sidecar injects the real key and forwards via Squid
 - Ports: 10000 (OpenAI), 10001 (Anthropic), 10002 (Copilot), 10003 (Gemini) — these are discrete ports, not a contiguous range
+
+**4. Bounded-Query Broker (optional)** — `containers/bounded-query/`, no network
+- Enabled via `boundedQueries.enabled` in the AWF config file (config-only; there is no CLI flag family)
+- The only AWF service with `network_mode: none`: no `awf-net`, no external bridge, no DNS, no Squid, no host gateway
+- Reachable only through one Unix socket in a run-specific `/var/tmp` ingress root, bind-mounted into the agent at `/run/awf-bounded-query/broker.sock`; all seeds, workspaces, maps, control state, and audits live in a disjoint broker-private `/var/tmp` root
+- Receives the resolved Docker socket so it can launch per-invocation query containers; that path never enters the agent's env or volumes
+- The broker (`bounded-query-broker`) and query sandbox (`bounded-query`) are separate published images; a one-shot networkless Compose service pulls the sandbox image before broker startup so the broker (which has no network) can launch query containers
+- Queries run `python3` with `--network none`, `--read-only`, non-root, `--cap-drop ALL`, `no-new-privileges`, a seccomp profile, and time/memory/CPU/PID/file-size bounds
+- Agent surface: `bounded-query` command at `/tmp/awf-lib/bounded-query` (inside chroot, added to PATH by `entrypoint.sh`; the source file in the container is `/usr/local/bin/bounded-query-wrapper.sh`) plus a generated read-only `SKILL.md`; the wrapper always prints one canonical JSON line, writes nothing to stderr, and exits `0`
+- Trusted host staging (`src/bounded-query/staging.ts`) materializes an immutable seed per configured repo *before* the agent starts, using `GH_TOKEN`/`GITHUB_TOKEN` only in a child-process env — never in argv, a URL, a log, or the compose file
+- See [docs/awf-config-spec.md](docs/awf-config-spec.md) §14 for the full model, including per-repository information-budget accounting and residual channels
 
 ### Documentation Files
 

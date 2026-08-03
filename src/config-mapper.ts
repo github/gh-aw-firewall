@@ -36,6 +36,7 @@ export function mapAwfFileConfigToCliOptions(config: AwfFileConfig): Record<stri
     maxEffectiveTokens: config.apiProxy?.maxEffectiveTokens,
     maxAiCredits: config.apiProxy?.maxAiCredits,
     defaultAiCreditsPricing: config.apiProxy?.defaultAiCreditsPricing,
+    apiProxyProviders: config.apiProxy?.providers,
     effectiveTokenModelMultipliers: config.apiProxy?.modelMultipliers,
     effectiveTokenDefaultModelMultiplier: config.apiProxy?.defaultModelMultiplier,
     maxModelMultiplierCap: config.apiProxy?.maxModelMultiplierCap,
@@ -143,5 +144,9 @@ export function mapAwfFileConfigToCliOptions(config: AwfFileConfig): Record<stri
 
     runnerTopology: config.runner?.topology,
     sysrootImage: config.runner?.sysrootImage,
+
+    // No CLI flags exist for bounded queries yet — passed through as a raw
+    // object and normalized (defaults applied) in commands/build-config.ts.
+    boundedQueries: config.boundedQueries,
   };
 }

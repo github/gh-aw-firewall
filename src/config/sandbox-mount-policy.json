@@ -6,14 +6,15 @@
       "default": ["/usr", "/bin", "/sbin", "/lib", "/lib64", "/opt", "/sys", "/dev"],
       "sysroot": ["/sys", "/dev"]
     },
-    "etc": ["/etc/ssl", "/etc/ca-certificates", "/etc/alternatives", "/etc/ld.so.cache", "/etc/nsswitch.conf"]
+    "etc": ["/etc/ssl", "/etc/ca-certificates", "/etc/pki/ca-trust/extracted", "/etc/pki/tls/certs", "/etc/alternatives", "/etc/ld.so.cache", "/etc/nsswitch.conf"]
   },
   "home": {
-    "$comment": "Agent $HOME exposure. `toolSubdirs` is the ALLOW list: tool caches, language toolchains and agent state the agent legitimately needs. `forbiddenSubdirs` is a DENY guard: dirs whose primary purpose is storing credentials and which must NEVER be added to the allow list. Compose mounts an empty home + binds toolSubdirs on top; sbx mounts toolSubdirs wholesale instead of the whole $HOME.",
+    "$comment": "Agent $HOME exposure. `toolSubdirs` is the ALLOW list: tool caches, language toolchains and agent state the agent legitimately needs. `forbiddenSubdirs` is a DENY guard: dirs whose primary purpose is storing credentials and which must NEVER be added to the allow list. Compose mounts an empty home + binds toolSubdirs on top; sbx mounts toolSubdirs wholesale instead of the whole $HOME. EXCEPTION: `.azure` is credential-bearing — it is intentionally mounted to provide Azure CLI config and account metadata, but its live token caches (msal_token_cache.bin, msal_token_cache.json, accessTokens.json, service_principal_entries.json) are masked by the credentials deny list so agents cannot read host auth tokens directly. Azure auth must come via OIDC (ACTIONS_ID_TOKEN_REQUEST_URL/TOKEN) or the ADO_MCP_AUTH_TOKEN env var.",
     "toolSubdirs": [
       ".cache",
       ".config",
       ".local",
+      ".azure",
       ".anthropic",
       ".claude",
       ".cargo",
@@ -28,7 +29,6 @@
       ".ssh",
       ".docker",
       ".kube",
-      ".azure",
       ".gnupg",
       ".netrc",
       ".gitconfig",
@@ -49,6 +49,10 @@
       { "path": ".aws/config", "type": "file", "reason": "AWS config (may embed SSO/credentials)" },
       { "path": ".kube/config", "type": "file", "reason": "Kubernetes cluster credentials" },
       { "path": ".azure/credentials", "type": "file", "reason": "Azure credentials" },
+      { "path": ".azure/msal_token_cache.bin", "type": "file", "reason": "Azure CLI MSAL token cache (live bearer tokens)" },
+      { "path": ".azure/msal_token_cache.json", "type": "file", "reason": "Azure CLI MSAL token cache JSON (live bearer tokens)" },
+      { "path": ".azure/accessTokens.json", "type": "file", "reason": "Azure CLI legacy access tokens" },
+      { "path": ".azure/service_principal_entries.json", "type": "file", "reason": "Azure CLI service principal credentials" },
       { "path": ".cargo/credentials", "type": "file", "reason": "crates.io registry token" },
       { "path": ".cargo/credentials.toml", "type": "file", "reason": "crates.io registry token (newer cargo)" },
       { "path": ".claude/.credentials.json", "type": "file", "reason": "Claude Code OAuth tokens" },

@@ -355,6 +355,84 @@ describe('log-aggregator', () => {
     });
   });
 
+  describe('AWF-internal domain filtering', () => {
+    it('should filter denied entries for AWF Docker network IPs', () => {
+      const entries: ParsedLogEntry[] = [
+        createLogEntry({ domain: 'github.com', isAllowed: true }),
+        createLogEntry({ domain: '172.30.0.30', isAllowed: false, decision: 'TCP_DENIED:HIER_NONE', statusCode: 403 }),
+        createLogEntry({ domain: '172.30.0.1', isAllowed: false, decision: 'TCP_DENIED:HIER_NONE', statusCode: 403 }),
+      ];
+
+      const stats = aggregateLogs(entries);
+
+      expect(stats.totalRequests).toBe(1);
+      expect(stats.allowedRequests).toBe(1);
+      expect(stats.deniedRequests).toBe(0);
+      expect(stats.byDomain.has('172.30.0.30')).toBe(false);
+      expect(stats.byDomain.has('172.30.0.1')).toBe(false);
+    });
+
+    it('should filter denied entries for MCP Gateway hostname (awmgmcpg)', () => {
+      const entries: ParsedLogEntry[] = [
+        createLogEntry({ domain: 'github.com', isAllowed: true }),
+        createLogEntry({ domain: 'awmgmcpg', isAllowed: false, decision: 'TCP_DENIED:HIER_NONE', statusCode: 403 }),
+        createLogEntry({ domain: 'awmg-mcpg', isAllowed: false, decision: 'TCP_DENIED:HIER_NONE', statusCode: 403 }),
+        createLogEntry({ domain: 'evil.com', isAllowed: false, decision: 'TCP_DENIED:HIER_NONE', statusCode: 403 }),
+      ];
+
+      const stats = aggregateLogs(entries);
+
+      expect(stats.totalRequests).toBe(2); // github.com + evil.com
+      expect(stats.allowedRequests).toBe(1);
+      expect(stats.deniedRequests).toBe(1);
+      expect(stats.byDomain.has('awmgmcpg')).toBe(false);
+      expect(stats.byDomain.has('awmg-mcpg')).toBe(false);
+      expect(stats.byDomain.has('evil.com')).toBe(true);
+    });
+
+    it('should not filter ALLOWED entries for internal domains (explicit allowlist)', () => {
+      // When an operator explicitly adds a topology peer to the allowlist,
+      // allowed traffic to that peer should still appear in stats.
+      const entries: ParsedLogEntry[] = [
+        createLogEntry({ domain: 'awmg-mcpg', isAllowed: true }),
+      ];
+
+      const stats = aggregateLogs(entries);
+
+      // Allowed internal-domain traffic is NOT filtered — only denied entries are
+      expect(stats.totalRequests).toBe(1);
+      expect(stats.byDomain.has('awmg-mcpg')).toBe(true);
+    });
+
+    it('should still track time range from filtered internal-domain entries', () => {
+      const entries: ParsedLogEntry[] = [
+        createLogEntry({ timestamp: 1000.0, domain: 'github.com', isAllowed: true }),
+        createLogEntry({ timestamp: 1500.0, domain: 'awmgmcpg', isAllowed: false, decision: 'TCP_DENIED:HIER_NONE', statusCode: 403 }),
+        createLogEntry({ timestamp: 2000.0, domain: 'npmjs.org', isAllowed: true }),
+      ];
+
+      const stats = aggregateLogs(entries);
+
+      // Time range includes all entries, even filtered ones
+      expect(stats.timeRange).toEqual({ start: 1000.0, end: 2000.0 });
+      // But filtered entries don't count toward requests
+      expect(stats.totalRequests).toBe(2);
+    });
+
+    it('should produce zero deniedRequests when all blocked traffic is AWF-internal', () => {
+      const entries: ParsedLogEntry[] = [
+        createLogEntry({ domain: 'github.com', isAllowed: true }),
+        createLogEntry({ domain: 'awmgmcpg', isAllowed: false, decision: 'TCP_DENIED:HIER_NONE', statusCode: 403 }),
+        createLogEntry({ domain: '172.30.0.30', isAllowed: false, decision: 'TCP_DENIED:HIER_NONE', statusCode: 403 }),
+      ];
+
+      const stats = aggregateLogs(entries);
+
+      expect(stats.deniedRequests).toBe(0);
+      expect(stats.totalRequests).toBe(1);
+    });
+  });
+
   describe('loadAndAggregate', () => {
     it('should correctly detect blocked domains from real log lines', async () => {
       const mockLogContent = [

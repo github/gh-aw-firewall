@@ -15,14 +15,13 @@ on:
   workflow_dispatch:
 
 permissions:
+  copilot-requests: write
   contents: read
   actions: read
   issues: read
   discussions: read
 
 sandbox:
-  mcp:
-    version: "latest"
   agent:
     id: awf
 strict: false
@@ -35,12 +34,12 @@ network:
 
 tools:
   github: false
-  bash: false
+  bash:
+    - "cat:/tmp/gh-aw/agent/coverage-gaps-brief.txt"
 
+model: summarization
 engine:
   id: copilot
-  model: summarization
-
 safe-outputs:
   threat-detection:
     enabled: false
@@ -180,10 +179,9 @@ steps:
       } >> "$GITHUB_OUTPUT"
 
   - name: Identify top coverage gaps for agent brief
-    id: coverage-gaps-brief
     run: |
+      mkdir -p /tmp/gh-aw/agent
       {
-        echo "COVERAGE_GAPS_BRIEF<<EOF"
         node -e "
           const fs = require('fs');
           const d = JSON.parse(fs.readFileSync('coverage/coverage-summary.json','utf8'));
@@ -208,8 +206,7 @@ steps:
             });
           }
         " 2>/dev/null || echo "Coverage data unavailable"
-        echo "EOF"
-      } >> "$GITHUB_OUTPUT"
+      } > /tmp/gh-aw/agent/coverage-gaps-brief.txt
 
   - name: Pre-build discussion template
     id: discussion-template
@@ -286,11 +283,7 @@ The test suite has already run and all coverage metrics were pre-computed. Use t
 
 ## Your Task
 
-The top coverage gaps (pre-identified) are:
-
-${{ steps.coverage-gaps-brief.outputs.COVERAGE_GAPS_BRIEF }}
-
-Using only this brief, write a complete coverage discussion that follows this structure:
+Run `cat /tmp/gh-aw/agent/coverage-gaps-brief.txt` to obtain the top coverage gaps (pre-identified), then use that brief to write a complete coverage discussion that follows this structure:
 
 - `## 📊 Test Coverage Report — YYYY-MM-DD`
 - `### Overall Coverage`

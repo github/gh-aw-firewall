@@ -10,6 +10,7 @@ on:
   workflow_dispatch:
 
 permissions:
+  copilot-requests: write
   contents: read
   issues: read
 
@@ -39,24 +40,20 @@ timeout-minutes: 20
 
 steps:
   - name: Measure file sizes
-    id: file-sizes
     run: |
+      mkdir -p /tmp/gh-aw/agent
       {
-        echo "FILE_SIZES<<EOF"
         echo "=== TypeScript source files (sorted by line count) ==="
         find src -name "*.ts" ! -name "*.test.ts" -exec wc -l {} + 2>/dev/null | sort -rn | head -20
         echo "=== Test files (sorted by line count) ==="
         find src -name "*.test.ts" -exec wc -l {} + 2>/dev/null | sort -rn | head -10
         echo "=== Container JS files (sorted by line count) ==="
         find containers -name "*.js" -exec wc -l {} + 2>/dev/null | sort -rn | head -15
-        echo "EOF"
-      } >> "$GITHUB_OUTPUT"
+      } > /tmp/gh-aw/agent/file-sizes.txt
 
   - name: Count functions per file
-    id: function-counts
     run: |
       {
-        echo "FUNCTION_COUNTS<<EOF"
         for f in src/*.ts; do
           [ -f "$f" ] || continue
           count=$(grep -c "^[[:space:]]*\(export \)\?\(async \)\?function\|^[[:space:]]*\(export \)\?const [a-zA-Z].*=[[:space:]]*\(async \)\?(" "$f" 2>/dev/null || echo 0)
@@ -64,8 +61,7 @@ steps:
             echo "$count functions: $f"
           fi
         done | sort -rn
-        echo "EOF"
-      } >> "$GITHUB_OUTPUT"
+      } > /tmp/gh-aw/agent/function-counts.txt
 ---
 
 # Refactoring Opportunity Scanner
@@ -84,14 +80,9 @@ This is **gh-aw-firewall**, a network firewall for GitHub Copilot CLI. Known lar
 
 File sizes are already available from the pre-steps above. Use these — **do not re-run wc**.
 
-```
-${{ steps.file-sizes.outputs.FILE_SIZES }}
-```
-
-Function density per file:
-```
-${{ steps.function-counts.outputs.FUNCTION_COUNTS }}
-```
+Read the pre-computed data from files (one bash call each):
+- File sizes: `cat /tmp/gh-aw/agent/file-sizes.txt`
+- Function counts: `cat /tmp/gh-aw/agent/function-counts.txt`
 
 ## Phase 1: Identify Oversized Files
 

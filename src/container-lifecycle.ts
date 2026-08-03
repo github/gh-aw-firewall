@@ -7,6 +7,7 @@ import {
   IPTABLES_INIT_CONTAINER_NAME,
   API_PROXY_CONTAINER_NAME,
   CLI_PROXY_CONTAINER_NAME,
+  BOUNDED_QUERY_BROKER_CONTAINER_NAME,
 } from './constants';
 import { getLocalDockerEnv } from './docker-host';
 import { isAgentExternallyKilled, markAgentExternallyKilled } from './container-lifecycle-state';
@@ -18,6 +19,13 @@ import {
   detectDnsResolutionFailure,
 } from './container-startup-diagnostics';
 import { checkSquidLogs } from './squid-log-reader';
+import { isGvisorRuntime } from './container-runtime';
+
+const GVISOR_RETRYABLE_AGENT_EXIT_CODES = new Set([134, 139]);
+const MAX_GVISOR_AGENT_RETRIES = 1;
+// Containers that exit within this window are assumed to have crashed during
+// Node/V8 initialisation (before any agent work began) and are safe to restart.
+const GVISOR_STARTUP_CRASH_WINDOW_MS = 30_000;
 
 function getComposeUpArgs(skipPull?: boolean): string[] {
   const composeArgs = ['compose', 'up', '-d'];
@@ -133,6 +141,10 @@ async function handleRetryStartupFailure(
     const dnsFailureHost = await detectDnsResolutionFailure(CLI_PROXY_CONTAINER_NAME);
     throw createCliProxyStartupError(dnsFailureHost);
   }
+  if (await didContainerFailStartup(retryErrorMsg, BOUNDED_QUERY_BROKER_CONTAINER_NAME)) {
+    await logContainerLogsToStderr(BOUNDED_QUERY_BROKER_CONTAINER_NAME);
+    throw retryError;
+  }
   // Any remaining retry error (e.g. squid healthcheck or domain blockage) falls
   // through to the Squid log diagnostic path below as if it were the first error.
   await handleHealthcheckError(retryErrorMsg, retryError, workDir, proxyLogsDir, allowedDomains);
@@ -157,6 +169,10 @@ async function handleStartupFailure(
   const firstAttemptCliProxyStartupFailure = !firstAttemptApiProxyStartupFailure
     && !firstAttemptSquidStartupFailure
     && await didContainerFailStartup(errorMsg, CLI_PROXY_CONTAINER_NAME);
+  const firstAttemptBoundedQueryBrokerFailure = !firstAttemptApiProxyStartupFailure
+    && !firstAttemptSquidStartupFailure
+    && !firstAttemptCliProxyStartupFailure
+    && await didContainerFailStartup(errorMsg, BOUNDED_QUERY_BROKER_CONTAINER_NAME);
 
   // When api-proxy or squid specifically fails to start, retry once.
   // Both containers are occasionally flaky on slow or busy CI runners:
@@ -196,6 +212,11 @@ async function handleStartupFailure(
     throw createCliProxyStartupError(dnsFailureHost);
   }
 
+  if (firstAttemptBoundedQueryBrokerFailure) {
+    await logContainerLogsToStderr(BOUNDED_QUERY_BROKER_CONTAINER_NAME);
+    throw error;
+  }
+
   await handleHealthcheckError(errorMsg, error, workDir, proxyLogsDir, allowedDomains);
 }
 
@@ -228,7 +249,7 @@ export async function startContainers(workDir: string, allowedDomains: string[],
   // This handles orphaned containers from failed/interrupted previous runs
   logger.debug('Removing any existing containers with conflicting names...');
   try {
-    await execa('docker', ['rm', '-f', SQUID_CONTAINER_NAME, AGENT_CONTAINER_NAME, IPTABLES_INIT_CONTAINER_NAME, API_PROXY_CONTAINER_NAME, CLI_PROXY_CONTAINER_NAME], {
+    await execa('docker', ['rm', '-f', SQUID_CONTAINER_NAME, AGENT_CONTAINER_NAME, IPTABLES_INIT_CONTAINER_NAME, API_PROXY_CONTAINER_NAME, CLI_PROXY_CONTAINER_NAME, BOUNDED_QUERY_BROKER_CONTAINER_NAME], {
       reject: false,
       env: getLocalDockerEnv(),
     });
@@ -249,57 +270,127 @@ export async function startContainers(workDir: string, allowedDomains: string[],
 }
 
 /**
+ * Returns `true` when a container's measured runtime is short enough to
+ * indicate a Node/V8 startup crash (i.e. no agent work was performed yet).
+ * Uses `docker inspect` to obtain the container's start/finish timestamps.
+ * Returns `false` conservatively when the timing cannot be determined.
+ */
+async function isGvisorStartupCrash(containerName: string): Promise<boolean> {
+  try {
+    const { stdout } = await execa(
+      'docker',
+      ['inspect', '--format', '{{.State.StartedAt}} {{.State.FinishedAt}}', containerName],
+      { reject: false, env: getLocalDockerEnv() }
+    );
+    const parts = stdout.trim().split(' ');
+    if (parts.length !== 2) return false;
+    const runtimeMs = new Date(parts[1]).getTime() - new Date(parts[0]).getTime();
+    return runtimeMs >= 0 && runtimeMs < GVISOR_STARTUP_CRASH_WINDOW_MS;
+  } catch {
+    // Cannot determine — do not retry
+    return false;
+  }
+}
+
+/**
  * Runs the agent command in the container and reports any blocked domains
  */
-export async function runAgentCommand(workDir: string, allowedDomains: string[], proxyLogsDir?: string, agentTimeoutMinutes?: number): Promise<{ exitCode: number; blockedDomains: string[] }> {
+export async function runAgentCommand(workDir: string, allowedDomains: string[], proxyLogsDir?: string, agentTimeoutMinutes?: number, containerRuntime?: string): Promise<{ exitCode: number; blockedDomains: string[] }> {
   logger.info('Executing agent command...');
 
   try {
-    // Stream logs in real-time using docker logs -f (follow mode)
-    // Run this in the background and wait for the container to exit separately
-    const logsProcess = execa('docker', ['logs', '-f', AGENT_CONTAINER_NAME], {
-      stdio: 'inherit',
-      reject: false,
-      env: getLocalDockerEnv(),
-    });
+    // Compute the absolute deadline once so the retry shares the same budget.
+    const overallDeadlineMs = agentTimeoutMinutes ? Date.now() + agentTimeoutMinutes * 60 * 1000 : undefined;
 
-    let exitCode: number;
-
-    if (agentTimeoutMinutes) {
-      const timeoutMs = agentTimeoutMinutes * 60 * 1000;
-      logger.info(`Agent timeout: ${agentTimeoutMinutes} minutes`);
-
-      // Race docker wait against a timeout
-      const waitPromise = execa('docker', ['wait', AGENT_CONTAINER_NAME], { env: getLocalDockerEnv() }).then(result => ({
-        type: 'completed' as const,
-        exitCodeStr: result.stdout,
-      }));
-
-      let timeoutTimer: ReturnType<typeof setTimeout>;
-      const timeoutPromise = new Promise<{ type: 'timeout' }>(resolve => {
-        timeoutTimer = setTimeout(() => resolve({ type: 'timeout' }), timeoutMs);
+    const executeAgentAttempt = async (logsSince?: string): Promise<number> => {
+      // Stream logs in real-time using docker logs -f (follow mode)
+      // Run this in the background and wait for the container to exit separately
+      const logArgs = ['logs', ...(logsSince ? ['--since', logsSince] : []), '-f', AGENT_CONTAINER_NAME];
+      const logsProcess = execa('docker', logArgs, {
+        stdio: 'inherit',
+        reject: false,
+        env: getLocalDockerEnv(),
       });
 
-      const raceResult = await Promise.race([waitPromise, timeoutPromise]);
+      let exitCode: number;
 
-      if (raceResult.type === 'timeout') {
-        logger.warn(`Agent command timed out after ${agentTimeoutMinutes} minutes, stopping container...`);
-        // Stop the container gracefully (10 second grace period before SIGKILL)
-        await execa('docker', ['stop', '-t', '10', AGENT_CONTAINER_NAME], { reject: false, env: getLocalDockerEnv() });
-        exitCode = 124; // Standard timeout exit code (same as coreutils timeout)
+      if (overallDeadlineMs !== undefined) {
+        const remainingMs = overallDeadlineMs - Date.now();
+
+        if (remainingMs <= 0) {
+          // No time left (budget exhausted by a previous attempt).
+          logger.warn(`Agent command timed out after ${agentTimeoutMinutes} minutes, stopping container...`);
+          await execa('docker', ['stop', '-t', '10', AGENT_CONTAINER_NAME], { reject: false, env: getLocalDockerEnv() });
+          await logsProcess;
+          return 124;
+        }
+
+        logger.info(`Agent timeout: ${agentTimeoutMinutes} minutes`);
+
+        // Race docker wait against the remaining budget.
+        const waitPromise = execa('docker', ['wait', AGENT_CONTAINER_NAME], { env: getLocalDockerEnv() }).then(result => ({
+          type: 'completed' as const,
+          exitCodeStr: result.stdout,
+        }));
+
+        let timeoutTimer: ReturnType<typeof setTimeout>;
+        const timeoutPromise = new Promise<{ type: 'timeout' }>(resolve => {
+          timeoutTimer = setTimeout(() => resolve({ type: 'timeout' }), remainingMs);
+        });
+
+        const raceResult = await Promise.race([waitPromise, timeoutPromise]);
+
+        if (raceResult.type === 'timeout') {
+          logger.warn(`Agent command timed out after ${agentTimeoutMinutes} minutes, stopping container...`);
+          // Stop the container gracefully (10 second grace period before SIGKILL)
+          await execa('docker', ['stop', '-t', '10', AGENT_CONTAINER_NAME], { reject: false, env: getLocalDockerEnv() });
+          exitCode = 124; // Standard timeout exit code (same as coreutils timeout)
+        } else {
+          // Clear the timeout timer so it doesn't keep the event loop alive
+          clearTimeout(timeoutTimer!);
+          exitCode = parseInt(raceResult.exitCodeStr.trim(), 10);
+        }
       } else {
-        // Clear the timeout timer so it doesn't keep the event loop alive
-        clearTimeout(timeoutTimer!);
-        exitCode = parseInt(raceResult.exitCodeStr.trim(), 10);
+        // No timeout - wait indefinitely
+        const { stdout: exitCodeStr } = await execa('docker', ['wait', AGENT_CONTAINER_NAME], { env: getLocalDockerEnv() });
+        exitCode = parseInt(exitCodeStr.trim(), 10);
       }
-    } else {
-      // No timeout - wait indefinitely
-      const { stdout: exitCodeStr } = await execa('docker', ['wait', AGENT_CONTAINER_NAME], { env: getLocalDockerEnv() });
-      exitCode = parseInt(exitCodeStr.trim(), 10);
-    }
 
-    // Wait for the logs process to finish (it should exit automatically when container stops)
-    await logsProcess;
+      // Wait for the logs process to finish (it should exit automatically when container stops)
+      await logsProcess;
+      return exitCode;
+    };
+
+    let exitCode = await executeAgentAttempt();
+
+    if (isGvisorRuntime(containerRuntime)) {
+      for (let attempt = 1; attempt <= MAX_GVISOR_AGENT_RETRIES; attempt++) {
+        if (!GVISOR_RETRYABLE_AGENT_EXIT_CODES.has(exitCode)) {
+          break;
+        }
+
+        // Only retry when there is concrete evidence that the crash occurred
+        // before the agent began any work (i.e. it was a pure startup crash).
+        const startupCrash = await isGvisorStartupCrash(AGENT_CONTAINER_NAME);
+        if (!startupCrash) {
+          logger.debug(
+            `gVisor agent exited with code ${exitCode} but ran longer than the startup window (${GVISOR_STARTUP_CRASH_WINDOW_MS / 1000}s); not retrying`
+          );
+          break;
+        }
+
+        logger.warn(
+          `gVisor agent exited with code ${exitCode} before startup completed; retrying container launch (${attempt}/${MAX_GVISOR_AGENT_RETRIES})...`
+        );
+        const logsSince = new Date().toISOString();
+        await execa('docker', ['start', AGENT_CONTAINER_NAME], {
+          stdout: process.stderr,
+          stderr: 'inherit',
+          env: getLocalDockerEnv(),
+        });
+        exitCode = await executeAgentAttempt(logsSince);
+      }
+    }
 
     // If the container was killed externally (e.g. by fastKillAgentContainer in a
     // signal handler), skip the remaining log analysis — the container state is

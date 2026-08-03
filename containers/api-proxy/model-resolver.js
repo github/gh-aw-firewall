@@ -270,6 +270,18 @@ function resolveModel(requestedModel, aliases, availableModels, currentProvider,
   const key = requestedModel.toLowerCase();
   const fallbackConfig = normalizeFallbackConfig(modelFallbackConfig);
 
+  if (currentProvider === 'copilot' && key === 'auto') {
+    log.push('[model-resolver] special pass-through: "auto"');
+    return {
+      resolvedModel: requestedModel,
+      candidates: [requestedModel],
+      log,
+      fallback: fallbackConfig.enabled
+        ? { activated: false, selection_method: 'middle_power_median', reason: 'direct_match' }
+        : undefined,
+    };
+  }
+
   // Loop detection
   if (chain.includes(key)) {
     log.push(`[model-resolver] loop detected: "${requestedModel}" already in chain [${chain.join(' → ')}]`);
