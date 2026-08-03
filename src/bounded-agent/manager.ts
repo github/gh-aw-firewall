@@ -248,11 +248,21 @@ export async function prepareBoundedAgents(
     );
     throw error;
   }
+  // A primary-sbx run is never reported `ready` here: preflight only proves the
+  // sbx CLI and enclave capability exist, not that the selected ingress
+  // transport (unix-in-sbx or sbx-http) is actually reachable from inside the
+  // sandbox. That executable proof happens later in `main-action`, after the
+  // sandbox is created, via `assertSbxBoundedAgentIngress`. Reporting `ready`
+  // here would be a false promotion — see
+  // `reportBoundedAgentSbxIngressResult` for the deferred terminal event.
+  // Compose primaries (docker/gvisor) have no equivalent later proof step —
+  // Compose either mounts the broker socket successfully or fails outright —
+  // so `ready` is accurate immediately after preflight for those backends.
   logger.info(
     `Bounded-agent runtime telemetry: ${serializeBoundedAgentRuntimeTelemetry({
       ...telemetryBase,
       capabilityState: 'supported',
-      category: 'ready',
+      category: primaryBackend === 'sbx' ? 'primary-sbx-ingress-pending' : 'ready',
     })}`,
   );
 
@@ -260,7 +270,12 @@ export async function prepareBoundedAgents(
     config.boundedAgentIngressTransport = 'unix';
   } else {
     const probe = deps.probeSbxUnixSocket ?? probeSbxUnixSocketMount;
-    config.boundedAgentIngressTransport = (await probe()) ? 'unix' : 'sbx-http';
+    try {
+      config.boundedAgentIngressTransport = (await probe()) ? 'unix' : 'sbx-http';
+    } catch (error) {
+      reportBoundedAgentSbxIngressResult(config, 'failed');
+      throw error;
+    }
   }
 
   const paths = resolveBoundedAgentPaths(config.workDir);
@@ -321,6 +336,48 @@ export async function prepareBoundedAgents(
 
   logger.info(
     `Bounded agents: staged ${staging.seeds.length} immutable seed(s); staging credential discarded.`,
+  );
+}
+
+/**
+ * Emits the terminal bounded-agent runtime telemetry for a primary-sbx run,
+ * once `assertSbxBoundedAgentIngress` has actually been attempted in
+ * `main-action` after the sandbox exists.
+ *
+ * `prepareBoundedAgents` deliberately never reports `ready` for a primary-sbx
+ * run by itself (see the `primary-sbx-ingress-pending` telemetry emitted
+ * there): preflight only proves the sbx CLI and enclave capability are
+ * present, not that the selected ingress transport is reachable from inside
+ * the sandbox. This function is the only place that reports the outcome of
+ * that later, executable proof — `ready`/`supported` only on success, a
+ * distinct terminal `unavailable` category on failure. It is a no-op when
+ * bounded agents are disabled or the primary backend is not sbx, so callers
+ * may invoke it unconditionally around the ingress-proof call site.
+ */
+export function reportBoundedAgentSbxIngressResult(
+  config: WrapperConfig,
+  outcome: 'proven' | 'failed',
+): void {
+  const boundedAgents = config.boundedAgents;
+  if (!boundedAgents?.enabled) return;
+  const primaryBackend = resolveBoundedAgentPrimaryBackend(config.containerRuntime);
+  if (primaryBackend !== 'sbx') return;
+
+  const telemetryBase = {
+    primaryBackend,
+    boundedAgentBackend: boundedAgents.runtime,
+    lifecycleClass: 'startup' as const,
+  };
+  logger.info(
+    `Bounded-agent runtime telemetry: ${serializeBoundedAgentRuntimeTelemetry(
+      outcome === 'proven'
+        ? { ...telemetryBase, capabilityState: 'supported', category: 'ready' }
+        : {
+            ...telemetryBase,
+            capabilityState: 'unavailable',
+            category: 'primary-sbx-ingress-unproven',
+          },
+    )}`,
   );
 }
 

@@ -472,9 +472,78 @@ describe('createMainAction', () => {
         ];
         expect(JSON.stringify(logCalls)).not.toContain(capability);
         expect(mockedBoundedAgentIngress.removeSbxIngressCapabilityFile).toHaveBeenCalledWith(sbxConfig);
+
+        // Thread 4: telemetry must never report `ready` before the sbx ingress
+        // proof (assertSbxBoundedAgentIngress) actually succeeds.
+        const telemetryEvents = mockedLogger.info.mock.calls
+          .map((call) => String(call[0]))
+          .filter((line) => line.startsWith('Bounded-agent runtime telemetry: '))
+          .map((line) => JSON.parse(line.slice('Bounded-agent runtime telemetry: '.length)));
+        expect(telemetryEvents).toContainEqual(expect.objectContaining({
+          primaryBackend: 'sbx',
+          capabilityState: 'supported',
+          category: 'ready',
+        }));
+      });
+
+      it('reports a terminal unproven event and never `ready` when sbx ingress proof fails', async () => {
+        const sbxConfig = {
+          ...MAIN_ACTION_STUB_CONFIG,
+          containerRuntime: 'sbx',
+          containerWorkDir: '/workspace',
+          enableApiProxy: true,
+          boundedAgentIngressTransport: 'sbx-http',
+          boundedAgents: {
+            enabled: true,
+            privateRepos: [{ repo: 'octo/private', sensitivity: 'internal' }],
+            runtime: 'docker',
+            profile: 'openai',
+            model: 'gpt-4o-mini',
+            timeout: 120,
+            memoryLimit: '512m',
+            tmpfsLimit: '64m',
+            cpuLimit: '1',
+            pidsLimit: 128,
+            maxInvocations: 8,
+            maxModelRequests: 8,
+            maxModelTokens: 1024,
+            maxOutputBytes: 8192,
+            maxTaskBytes: 4096,
+          },
+        } as unknown as import('../types').WrapperConfig;
+        mockedValidateOptions.validateOptions.mockReturnValue(sbxConfig);
+        mockedBoundedAgentIngress.resolveSbxIngress.mockResolvedValue({
+          endpoint: 'http://host.docker.internal:49154/query',
+          queryCapability: 'e'.repeat(64),
+          probeCapability: 'f'.repeat(64),
+          skillPath: '/var/tmp/bounded-agent-ingress/skill/SKILL.md',
+          wrapperDir: '/var/tmp/bounded-agent-ingress/skill',
+        });
+        mockedSbxManager.assertSbxBoundedAgentIngress.mockRejectedValueOnce(
+          new Error('sbx host does not support the selected bounded-agent sbx-http ingress'),
+        );
+        mockedCliWorkflow.runMainWorkflow.mockImplementation(async (_config, deps) => {
+          await deps.startContainers('/tmp/awf-test', ['github.com']);
+          return (await deps.runAgentCommand('/tmp/awf-test', ['github.com'])).exitCode;
+        });
+
+        const action = createMainAction(getOptionValueSource);
+        await expect(action(['bounded-agent --repo octo/private'], {})).rejects.toThrow('process.exit: 1');
+
+        const telemetryEvents = mockedLogger.info.mock.calls
+          .map((call) => String(call[0]))
+          .filter((line) => line.startsWith('Bounded-agent runtime telemetry: '))
+          .map((line) => JSON.parse(line.slice('Bounded-agent runtime telemetry: '.length)));
+        expect(telemetryEvents.some((event) => event.category === 'ready')).toBe(false);
+        expect(telemetryEvents).toContainEqual(expect.objectContaining({
+          primaryBackend: 'sbx',
+          capabilityState: 'unavailable',
+          category: 'primary-sbx-ingress-unproven',
+        }));
       });
     });
   });
+
 
   describe('when runMainWorkflow throws', () => {
     it('calls performCleanup and exits with code 1', async () => {

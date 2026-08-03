@@ -38,7 +38,11 @@ import {
   SBX_DEFAULT_NAME,
 } from '../sbx-manager';
 import { prepareBoundedQueries, teardownBoundedQueries } from '../bounded-query/manager';
-import { prepareBoundedAgents, teardownBoundedAgents } from '../bounded-agent/manager';
+import {
+  prepareBoundedAgents,
+  reportBoundedAgentSbxIngressResult,
+  teardownBoundedAgents,
+} from '../bounded-agent/manager';
 import type { WrapperConfig } from '../types';
 import { buildAgentEnvironment } from '../services/agent-service';
 import { buildAgentCredentialEnv } from '../services/api-proxy-credential-env';
@@ -444,18 +448,30 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
           }
 
           if (sbxBoundedAgentIngress) {
-            await assertSbxBoundedAgentIngress(
-              sbxName,
-              sbxBoundedAgentIngress.transport === 'unix'
-                ? sbxBoundedAgentIngress
-                : {
-                    transport: 'sbx-http',
-                    endpoint: sbxBoundedAgentIngress.endpoint,
-                    probeCapability: sbxBoundedAgentIngress.probeCapability,
-                  },
-              sbxEnvironment,
-              config.containerWorkDir,
-            );
+            try {
+              await assertSbxBoundedAgentIngress(
+                sbxName,
+                sbxBoundedAgentIngress.transport === 'unix'
+                  ? sbxBoundedAgentIngress
+                  : {
+                      transport: 'sbx-http',
+                      endpoint: sbxBoundedAgentIngress.endpoint,
+                      probeCapability: sbxBoundedAgentIngress.probeCapability,
+                    },
+                sbxEnvironment,
+                config.containerWorkDir,
+              );
+            } catch (error) {
+              // Preflight only proved the sbx CLI and enclave capability exist;
+              // this is the executable proof that the selected ingress
+              // transport is actually reachable from inside the sandbox. Never
+              // report `ready` telemetry when that proof fails.
+              reportBoundedAgentSbxIngressResult(config, 'failed');
+              throw error;
+            }
+            // Ingress is proven reachable now — this is the only point a
+            // primary-sbx run is ever reported `ready`.
+            reportBoundedAgentSbxIngressResult(config, 'proven');
 
             Object.assign(sbxEnvironment, {
               AWF_BOUNDED_AGENT_SKILL: boundedAgentPaths.skillPath,

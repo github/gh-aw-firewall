@@ -179,10 +179,16 @@ written ahead of support landing, but it is **capability-blocked** — never a
 blanket "not yet implemented" refusal, and never a false pass. AWF ships a
 dedicated bounded-agent sbx capability probe
 (`src/bounded-agent/sbx-capability.ts`, mirrored in
-`containers/bounded-agent/broker/sbx-capability-probe.js`) that runs the exact
-audited Docker Sandboxes CLI (`v0.37.1`) surface — `sbx version`, `sbx create`,
-`sbx exec`, `sbx ls --json`, `sbx stop`, and `sbx rm --force` — and reports
-every missing capability in structured JSON rather than a single boolean.
+`containers/bounded-agent/broker/sbx-capability-probe.js`) that inspects the
+audited Docker Sandboxes CLI (`v0.37.1`) version/auth/help surface —
+`sbx version`, `sbx ls` (authenticated, non-mutating daemon reachability), and
+the `sbx create --help` / `sbx exec --help` flag listings — and reports every
+missing capability in structured JSON rather than a single boolean. This is
+help-surface inspection, not an executed lifecycle proof: the probe never
+runs `sbx create`, `sbx exec`, `sbx stop`, or `sbx rm`. Those lifecycle
+commands exist only in the broker's `SbxEnclaveRunner`, which the
+unconditional capability block below keeps unreachable — they are covered by
+runner contract tests, not by preflight.
 
 The enclave requirement is strictly harder than a bounded query's: an
 enclave must reach *exactly one* peer (the dedicated API proxy), not "no

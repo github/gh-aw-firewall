@@ -25,10 +25,29 @@ describe('bounded-agent runtime capability report', () => {
     const rows = report.split('\n').filter((line: string) => /^\| (docker|gvisor|sbx) /.test(line));
     expect(rows).toHaveLength(9);
     expect(report).toContain(
-      '| sbx | sbx | BLOCKED | supported | blocked | bounded-agent-preflight |',
+      '| sbx | sbx | BLOCKED | available | blocked | primary-sbx-ingress-unproven |',
     );
     expect(report).toContain('BLOCKED is an expected fail-closed security result, not runtime success');
     expect(report).toContain('bounded-agent sbx enclave is BLOCKED unconditionally today');
+  });
+
+  it('never reports SUPPORTED for primary sbx from `sbx ls` alone, only `available`', () => {
+    const capabilities = collectCapabilities((command: string) => {
+      if (command === 'docker') return { ok: true, stdout: '{"runc":{}}' };
+      // `sbx ls` succeeds: the CLI/daemon is installed, authenticated, and
+      // reachable, but no ingress proof was executed by this static report.
+      if (command === 'sbx') return { ok: true, stdout: 'Docker Sandboxes v0.37.1' };
+      return { ok: false, stdout: '' };
+    });
+    expect(capabilities.primary.sbx).toBe('available');
+    expect(capabilities.primary.sbx).not.toBe('supported');
+
+    for (const boundedAgent of ['docker', 'gvisor', 'sbx']) {
+      const result = evaluate('sbx', boundedAgent, capabilities);
+      expect(result.status).toBe('BLOCKED');
+      expect(result.phase).toBe('primary-sbx-ingress-unproven');
+      expect(result.capability).toBe('available');
+    }
   });
 
   it('never promotes an unavailable primary or bounded-agent runtime through fallback', () => {
@@ -54,6 +73,11 @@ describe('bounded-agent runtime capability report', () => {
   });
 
   it('supports primary sbx paired with docker/gvisor bounded-agent enclaves once primary sbx is proven', () => {
+    // `evaluate` only reaches SUPPORTED for a primary sbx combination once the
+    // capability is literally `supported` — a value this collector never
+    // assigns to primary sbx. This exercises that promotion path directly with
+    // a hand-built capabilities object, standing in for a future collector
+    // (or a live run) that has actually executed the ingress proof.
     const capabilities = {
       primary: { docker: 'supported', gvisor: 'supported', sbx: 'supported' },
       boundedAgent: { docker: 'supported', gvisor: 'supported', sbx: 'blocked' },
