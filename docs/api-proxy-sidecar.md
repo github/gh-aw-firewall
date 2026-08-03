@@ -600,7 +600,7 @@ and are normalized to dollars per million tokens inside the proxy.
 
 ## Troubleshooting
 
-For a report that checks permissions, provider-field presence, route availability, and allowlists without returning credentials, comment `/auth-doctor` on an issue. The [Auth Doctor workflow](../.github/workflows/auth-doctor.md) treats a reachable listener as route evidence only and never probes a token endpoint or inference API.
+The [Auth Doctor Updater workflow](../.github/workflows/auth-doctor-updater.md) periodically audits this guide against current implementation, recent repository changes, and official provider guidance. It proposes documentation updates without probing credentials, exchanging tokens, or calling inference APIs.
 
 ### Gemini proxy returns 503
 
@@ -686,7 +686,7 @@ AWF supports OIDC-based credential exchange with multiple cloud providers via Gi
 | `ACTIONS_ID_TOKEN_REQUEST_URL` | ✅ | Provided automatically by the GitHub Actions runtime |
 | `ACTIONS_ID_TOKEN_REQUEST_TOKEN` | ✅ | Provided automatically by the GitHub Actions runtime |
 
-Never print or inspect either Actions OIDC variable. Auth Doctor checks the `id-token: write` permission and the presence/consistency of non-secret provider configuration instead.
+Never print or inspect either Actions OIDC variable. Documentation audits should verify the `id-token: write` permission and the presence/consistency of non-secret provider configuration instead.
 
 On current `main`, AWF forwards these variables to the API-proxy sidecar when OIDC is active, while the general agent passthrough can also expose them to the agent. [PR #6894](https://github.com/github/gh-aw-firewall/pull/6894) is the related isolation change. [github/gh-aw#50053](https://github.com/github/gh-aw/issues/50053) tracks the separate gh-aw runner-to-mcpg path and compatibility for existing lock files; do not pass OIDC variables to the agent as an MCP workaround.
 

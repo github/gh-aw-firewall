@@ -2,7 +2,7 @@
 
 This document describes every authentication combination supported by AWF's api-proxy sidecar, including how each provider's auth works, what configuration is required, and how the proxy transforms credentials before forwarding to upstream APIs.
 
-For a presence-only diagnosis of a workflow or run, comment `/auth-doctor` on an issue in this repository. The [Auth Doctor workflow](../.github/workflows/auth-doctor.md) checks permissions, provider fields, route availability, and allowlists without returning credential values.
+The [Auth Doctor Updater workflow](../.github/workflows/auth-doctor-updater.md) periodically compares this matrix with current default-branch implementation, recent issues and pull requests, and official provider guidance. It opens a deduplicated proposal issue only when an evidence-backed documentation correction is needed.
 
 ## Table of Contents
 
@@ -206,7 +206,7 @@ All OIDC flows require GitHub Actions runtime tokens:
 - `ACTIONS_ID_TOKEN_REQUEST_URL` — endpoint to mint OIDC JWTs
 - `ACTIONS_ID_TOKEN_REQUEST_TOKEN` — auth token for the OIDC endpoint
 
-The Auth Doctor treats both as non-observable credentials: it checks `id-token: write` and sidecar configuration but never requests or prints either value, a minted JWT, or exchanged cloud credentials. On current `main`, these variables are forwarded to the API-proxy sidecar for OIDC and may also reach the agent through the current passthrough behavior. [PR #6894](https://github.com/github/gh-aw-firewall/pull/6894) is the related isolation change, while [github/gh-aw#50053](https://github.com/github/gh-aw/issues/50053) tracks compiler/runtime and existing-lock compatibility.
+Documentation audits treat both as non-observable credentials: they verify `id-token: write` and sidecar configuration but never request or print either value, a minted JWT, or exchanged cloud credentials. On current `main`, these variables are forwarded to the API-proxy sidecar for OIDC and may also reach the agent through the current passthrough behavior. [PR #6894](https://github.com/github/gh-aw-firewall/pull/6894) is the related isolation change, while [github/gh-aw#50053](https://github.com/github/gh-aw/issues/50053) tracks compiler/runtime and existing-lock compatibility.
 
 HTTP MCP `auth.type: github-oidc` is separate from this matrix: gh-aw launches mcpg from a runner-owned step and passes OIDC capability directly to that gateway. AWF does not launch or configure mcpg, and the OIDC request variables should not be exposed to the AWF agent to support MCP authentication.
 

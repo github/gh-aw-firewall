@@ -68,7 +68,3 @@ agent and use it to diagnose my failure.
   the failure is clearly on a GitHub-hosted runner with no ARC/DinD/GHES/GHEC,
   custom `DOCKER_HOST`, or corporate-proxy involvement, the Doctor will say so
   and stop.
-
-## Authentication and API-proxy failures
-
-For authentication, API-proxy routing, provider OIDC, or HTTP MCP GitHub OIDC failures, comment `/auth-doctor` on the relevant issue instead. The [Auth Doctor workflow](../.github/workflows/auth-doctor.md) mirrors the Runner Doctor's issue/comment reporting model but uses presence-only configuration checks, redacted evidence, and non-secret health fields. It never returns API keys, authorization headers, Actions OIDC request tokens, minted JWTs, or exchanged cloud credentials.

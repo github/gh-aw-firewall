@@ -48,7 +48,7 @@ Using `--env-all` passes all host environment variables to the container, which 
 
 **Excluded variables** (even with `--env-all`): `PATH`, `PWD`, `OLDPWD`, `SHLVL`, `_`, `SUDO_*`
 
-`--env-all` is not a safe way to troubleshoot authentication. Use the [Auth Doctor workflow](../.github/workflows/auth-doctor.md), which reports only configuration presence and route status. In particular, do not expose Actions OIDC request variables to the agent to support HTTP MCP `auth.type: github-oidc`: gh-aw launches mcpg separately from a runner-owned step, and [github/gh-aw#50053](https://github.com/github/gh-aw/issues/50053) tracks that boundary and existing-lock compatibility.
+`--env-all` is not a safe way to troubleshoot authentication. Do not expose Actions OIDC request variables to the agent to support HTTP MCP `auth.type: github-oidc`: gh-aw launches mcpg separately from a runner-owned step, and [github/gh-aw#50053](https://github.com/github/gh-aw/issues/50053) tracks that boundary and existing-lock compatibility. The [Auth Doctor Updater workflow](../.github/workflows/auth-doctor-updater.md) audits this guidance without running credential probes.
 
 **Proxy variables:** `HTTP_PROXY`, `HTTPS_PROXY`, `http_proxy`, `https_proxy`, `NO_PROXY`, `no_proxy`, `ALL_PROXY`, and `FTP_PROXY` (all case variants) from the host are **excluded from container passthrough** when using `--env-all`. The firewall sets its own proxy variables pointing to Squid inside the container. However, host proxy variables **are read** for upstream proxy auto-detection — if the host has `https_proxy`/`http_proxy` set, AWF configures Squid to chain outbound traffic through that corporate proxy (see [Upstream Proxy Support](#upstream-corporate-proxy-support)).
 

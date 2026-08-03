@@ -774,7 +774,7 @@ This architecture provides **transparent operation** (SDKs work without code cha
 
 ## Related documentation
 
-- [Auth Doctor workflow](../.github/workflows/auth-doctor.md) — non-secret authentication and route diagnostics via `/auth-doctor`
+- [Auth Doctor Updater workflow](../.github/workflows/auth-doctor-updater.md) — recurring audit of authentication and API-proxy documentation against implementation and official guidance
 - [API Proxy Sidecar](./api-proxy-sidecar.md) — user-facing guide for enabling the API proxy
 - [Security](./security.md) — overall security model
 - [Architecture](./architecture.md) — overall system architecture
