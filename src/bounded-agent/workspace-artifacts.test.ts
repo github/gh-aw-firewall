@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { spawnSync } from 'child_process';
 import { generateBoundedAgentSkill, writeBoundedAgentSkill } from './skill';
 import { writeBoundedAgentWrapper } from './wrapper-artifact';
 import { resolveBoundedAgentPaths } from './paths';
@@ -207,10 +208,54 @@ describe('bounded-agent CLI wrapper source', () => {
     expect(wrapper).not.toMatch(/exit\s+[1-9]/);
   });
 
-  it('never forwards a proxy, credential, endpoint, or runtime control', () => {
+  it('never forwards a proxy, credential, or runtime control', () => {
     expect(wrapper).toContain("--noproxy '*'");
-    for (const forbidden of ['AWF_BOUNDED_AGENT_MODEL', 'Authorization', 'X-AWF-Runtime', 'X-AWF-Capability']) {
+    for (const forbidden of ['AWF_BOUNDED_AGENT_MODEL', 'Authorization', 'X-AWF-Runtime']) {
       expect(wrapper).not.toContain(forbidden);
+    }
+  });
+
+  it('uses the authenticated host-gateway endpoint only when the sbx transport is complete', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-bounded-agent-wrapper-'));
+    const argsPath = path.join(root, 'curl.args');
+    const fakeCurl = path.join(root, 'curl');
+    fs.writeFileSync(
+      fakeCurl,
+      `#!/bin/sh\nprintf '%s\\n' "$@" > "$AWF_TEST_CURL_ARGS"\nprintf '%s' '{"status":"error"}'\n`,
+      { mode: 0o755 },
+    );
+    try {
+      const capability = 'a'.repeat(64);
+      const result = spawnSync(
+        '/bin/sh',
+        [
+          path.join(__dirname, '..', '..', 'containers', 'agent', 'bounded-agent-wrapper.sh'),
+          '--repo',
+          'octo/alpha',
+          '--schema',
+          '{"type":"boolean"}',
+        ],
+        {
+          input: 'bounded task',
+          encoding: 'utf8',
+          env: {
+            PATH: `${root}:${process.env.PATH ?? ''}`,
+            AWF_TEST_CURL_ARGS: argsPath,
+            AWF_BOUNDED_AGENT_ENDPOINT: 'http://host.docker.internal:18081/query',
+            AWF_BOUNDED_AGENT_CAPABILITY: capability,
+          },
+        },
+      );
+
+      expect(result.status).toBe(0);
+      expect(result.stdout).toBe('{"status":"error"}\n');
+      expect(result.stderr).toBe('');
+      const curlArgs = fs.readFileSync(argsPath, 'utf8');
+      expect(curlArgs).toContain('X-AWF-Capability: ' + capability);
+      expect(curlArgs).toContain('http://host.docker.internal:18081/query');
+      expect(curlArgs).toContain('--noproxy');
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
