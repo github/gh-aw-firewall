@@ -23,6 +23,8 @@ awf --env-file /tmp/runtime-paths.env -e MY_VAR=override 'command'
 
 When using `sudo -E`, these host variables are automatically passed: `GITHUB_TOKEN`, `GH_TOKEN`, `GITHUB_PERSONAL_ACCESS_TOKEN`, `USER`, `TERM`, `HOME`, `XDG_CONFIG_HOME`.
 
+On current `main`, GitHub Actions also supplies `ACTIONS_ID_TOKEN_REQUEST_URL` and `ACTIONS_ID_TOKEN_REQUEST_TOKEN` when the job grants `id-token: write`, and AWF's default passthrough can place them in the agent environment. Never print or inspect either value. The API-proxy sidecar receives them directly when `AWF_AUTH_TYPE=github-oidc`; [PR #6894](https://github.com/github/gh-aw-firewall/pull/6894) is the related agent-isolation change.
+
 The following are always set/overridden: `PATH` (container values).
 
 ### Self-hosted runner home directory support
@@ -45,6 +47,8 @@ Using `--env-all` passes all host environment variables to the container, which 
 4. **Accidental Sharing**: Easy to forget what's in your environment when sharing commands
 
 **Excluded variables** (even with `--env-all`): `PATH`, `PWD`, `OLDPWD`, `SHLVL`, `_`, `SUDO_*`
+
+`--env-all` is not a safe way to troubleshoot authentication. Use the [Auth Doctor workflow](../.github/workflows/auth-doctor.md), which reports only configuration presence and route status. In particular, do not expose Actions OIDC request variables to the agent to support HTTP MCP `auth.type: github-oidc`: gh-aw launches mcpg separately from a runner-owned step, and [github/gh-aw#50053](https://github.com/github/gh-aw/issues/50053) tracks that boundary and existing-lock compatibility.
 
 **Proxy variables:** `HTTP_PROXY`, `HTTPS_PROXY`, `http_proxy`, `https_proxy`, `NO_PROXY`, `no_proxy`, `ALL_PROXY`, and `FTP_PROXY` (all case variants) from the host are **excluded from container passthrough** when using `--env-all`. The firewall sets its own proxy variables pointing to Squid inside the container. However, host proxy variables **are read** for upstream proxy auto-detection — if the host has `https_proxy`/`http_proxy` set, AWF configures Squid to chain outbound traffic through that corporate proxy (see [Upstream Proxy Support](#upstream-corporate-proxy-support)).
 

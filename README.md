@@ -80,6 +80,7 @@ See [GitHub Actions](docs/github_actions.md) for advanced setup and `awf logs su
 - [Chroot mode](docs/chroot-mode.md) — use host binaries with network isolation (glibc-based daemon hosts)
 - [API proxy sidecar](docs/api-proxy-sidecar.md) — secure credential management for LLM APIs
 - [Authentication architecture](docs/authentication-architecture.md) — deep dive into token handling and credential isolation
+- [Authentication matrix](docs/auth-matrix.md) — supported static, BYOK, and OIDC provider combinations
 - [SSL Bump](docs/ssl-bump.md) — HTTPS content inspection for URL path filtering
 - [GitHub Actions](docs/github_actions.md) — CI/CD integration and MCP server setup
 - [Environment variables](docs/environment.md) — passing environment variables to containers
@@ -89,6 +90,7 @@ See [GitHub Actions](docs/github_actions.md) for advanced setup and `awf logs su
 - [Compatibility](docs/compatibility.md) — supported Node.js, OS, and Docker versions
 - [Troubleshooting](docs/troubleshooting.md) — common issues and fixes
 - [Diagnosing AWF failures](docs/diagnosing-awf-failures.md) — use the Self-Hosted Runner Doctor agent to triage self-hosted/ARC/GHES/GHEC failures
+- [Auth Doctor workflow](.github/workflows/auth-doctor.md) — comment `/auth-doctor` on an issue to diagnose authentication and API-proxy configuration without exposing credentials
 - [Image verification](docs/image-verification.md) — cosign signature verification
 
 ## Development

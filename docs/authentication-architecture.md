@@ -587,7 +587,7 @@ In a standard GitHub Actions workflow (without AWF), OIDC federation works like 
 
 ### How AWF OIDC works (credential isolation)
 
-AWF moves the entire OIDC exchange into the api-proxy sidecar, so the agent never sees any credential:
+AWF moves the OIDC mint/exchange operation into the api-proxy sidecar, so provider credentials do not need to enter the agent. On current `main`, the Actions OIDC request variables are still part of the default agent passthrough even though the sidecar also receives them. Do not inspect or log those values. [PR #6894](https://github.com/github/gh-aw-firewall/pull/6894) is the related isolation change and [github/gh-aw#50053](https://github.com/github/gh-aw/issues/50053) tracks gh-aw compatibility, including existing compiled lock files.
 
 ```
 ┌─────────────────────────────┐     ┌───────────────────────────────────────┐
@@ -595,8 +595,9 @@ AWF moves the entire OIDC exchange into the api-proxy sidecar, so the agent neve
 │ 172.30.0.20                 │     │ 172.30.0.30                           │
 │                             │     │                                       │
 │ Environment:                │     │ Environment:                          │
-│ ✗ No ACTIONS_ID_TOKEN_*     │     │ ✓ ACTIONS_ID_TOKEN_REQUEST_URL        │
-│ ✗ No cloud credentials      │     │ ✓ ACTIONS_ID_TOKEN_REQUEST_TOKEN      │
+│ ⚠ Current main may receive  │     │ ✓ ACTIONS_ID_TOKEN_REQUEST_URL        │
+│   ACTIONS_ID_TOKEN_*        │     │ ✓ ACTIONS_ID_TOKEN_REQUEST_TOKEN      │
+│ ✗ No cloud credentials      │     │ ✓ Provider-specific configuration     │
 │ ✗ No API keys               │     │ ✓ AWF_AUTH_TYPE=github-oidc           │
 │ ✓ OPENAI_BASE_URL=          │     │ ✓ AWF_AUTH_PROVIDER=azure|aws|gcp|anthropic │
 │   http://172.30.0.30:10000  │     │ ✓ Provider-specific config            │
@@ -633,8 +634,10 @@ Host environment                    Sidecar container          Agent container
 AWF_AUTH_TYPE=github-oidc    ──►    AWF_AUTH_TYPE ✓            ✗ (excluded)
 AWF_AUTH_PROVIDER=azure      ──►    AWF_AUTH_PROVIDER ✓        ✗ (excluded)
 AWF_AUTH_AZURE_TENANT_ID=... ──►    AWF_AUTH_AZURE_TENANT_ID ✓ ✗ (excluded)
-ACTIONS_ID_TOKEN_REQUEST_URL ──►    forwarded when type=oidc ✓ ✗ (excluded)
+ACTIONS_ID_TOKEN_REQUEST_URL ──►    forwarded when type=oidc ✓ ⚠ current passthrough
 ```
+
+The table above describes the intended provider-config boundary. Current `main` still permits the two `ACTIONS_ID_TOKEN_REQUEST_*` variables through the general agent environment path; it does not exclude them in `buildExclusionSet()`. Treat their values as secrets and use only presence/configuration checks until the isolation and compiler compatibility work linked above is on `main`.
 
 #### Step 2: GitHub OIDC token minting
 
@@ -710,6 +713,12 @@ When the agent sends a request to the sidecar, the provider adapter injects the 
 | Anthropic | Authorization header |
 | AWS | SigV4 request signing (method, path, headers, body hash) |
 
+### MCP gateway OIDC is a separate trust path
+
+For an HTTP MCP server configured with `auth.type: github-oidc`, gh-aw starts mcpg in a runner-owned workflow step. The runner supplies the Actions OIDC variables directly to that gateway; the gateway mints an audience-bound JWT and injects it into the remote MCP request. AWF does not launch or configure mcpg, and its API proxy is not involved in that flow.
+
+The generated gateway configuration should contain only auth type/audience metadata, never the Actions request URL/token values. Do not expose those variables to the AWF agent as an MCP authentication workaround. See [github/gh-aw#50053](https://github.com/github/gh-aw/issues/50053) for compatibility validation and rollout status.
+
 ### Comparison: static keys vs OIDC
 
 | Property | Static API keys | OIDC federation |
@@ -765,6 +774,7 @@ This architecture provides **transparent operation** (SDKs work without code cha
 
 ## Related documentation
 
+- [Auth Doctor workflow](../.github/workflows/auth-doctor.md) — non-secret authentication and route diagnostics via `/auth-doctor`
 - [API Proxy Sidecar](./api-proxy-sidecar.md) — user-facing guide for enabling the API proxy
 - [Security](./security.md) — overall security model
 - [Architecture](./architecture.md) — overall system architecture
