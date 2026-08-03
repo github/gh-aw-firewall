@@ -66,7 +66,6 @@ describe.each(workflows)('$source', ({ source, lock, runtime }) => {
         'process.stdout.write(fs.readFileSync(process.argv[index + 1], "utf8"));',
       ].join('\n'),
     );
-    fs.writeFileSync(configPath, '{"apiProxy":{"enabled":true}}\n');
 
     const env = {
       ...process.env,
@@ -76,6 +75,7 @@ describe.each(workflows)('$source', ({ source, lock, runtime }) => {
 
     try {
       execFileSync('bash', ['-c', setup ?? 'exit 1'], { env });
+      fs.writeFileSync(configPath, '{"apiProxy":{"enabled":true}}\n');
       const output = execFileSync(
         path.join(tempDir, '.local/bin/awf'),
         ['--config', configPath],
