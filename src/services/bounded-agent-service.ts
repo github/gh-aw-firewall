@@ -28,6 +28,13 @@ import { applyHostPathPrefixToVolumes } from './host-path-prefix';
 import { buildContainerSecurityHardening } from './service-security';
 import type { ImageBuildConfig, NetworkConfig } from './squid-service';
 import { buildApiProxyServiceConfig } from './api-proxy-service-config';
+import { resolveDockerHostGateway } from './host-gateway';
+import {
+  BOUNDED_AGENT_INGRESS_NETWORK,
+  BOUNDED_AGENT_TCP_PORT,
+} from '../bounded-agent/ingress';
+import { resolveBoundedAgentPrimaryBackend } from '../bounded-agent/runtime-matrix';
+import { runtimeUsesComposeAgent } from '../container-runtime';
 import {
   ANTHROPIC_ENV,
   COPILOT_ENV,
@@ -162,8 +169,10 @@ export function buildBoundedAgentService(params: BoundedAgentServiceParams): Bou
   }
   if (boundedAgents.runtime === 'sbx') {
     throw new Error(
-      'buildBoundedAgentService: the sbx bounded-agent backend is not implemented; bounded agents ' +
-      'fail closed rather than downgrading to a Docker or gVisor enclave',
+      'buildBoundedAgentService: boundedAgents.runtime "sbx" is capability-blocked — the installed sbx ' +
+      'runtime cannot yet prove all mandatory enclave-isolation controls (see assertEnclaveRuntimeAvailable ' +
+      'and BoundedAgentSbxCapabilityReport.missing), so no enclave broker wiring is generated and there is ' +
+      'no Docker-socket or credential fallback',
     );
   }
   if (!config.enableApiProxy) {
@@ -177,6 +186,12 @@ export function buildBoundedAgentService(params: BoundedAgentServiceParams): Bou
   const { enclaveImageRef, enclaveSource, brokerSource } = resolveBoundedAgentImages(imageConfig);
   const dockerSocketPath = resolveDockerSocketPath(config);
   const apiPort = resolveBoundedAgentApiPort(boundedAgents.profile);
+  const ingressTransport = config.boundedAgentIngressTransport
+    ?? (runtimeUsesComposeAgent(config.containerRuntime) ? 'unix' : 'sbx-http');
+  const sbxIngressHostIp = ingressTransport === 'sbx-http' ? resolveDockerHostGateway() : undefined;
+  if (ingressTransport === 'sbx-http' && !sbxIngressHostIp) {
+    throw new Error('Could not resolve the Docker host-gateway IP for bounded-agent sbx ingress');
+  }
 
   const apiProxyService = buildApiProxyServiceConfig({
     config,
@@ -226,9 +241,19 @@ export function buildBoundedAgentService(params: BoundedAgentServiceParams): Bou
   const service: Record<string, unknown> = {
     container_name: BOUNDED_AGENT_BROKER_CONTAINER_NAME,
     ...brokerSource,
-    // The broker is deliberately networkless: it never joins the enclave
-    // network it launches enclaves onto.
-    network_mode: 'none',
+    // The broker is deliberately networkless when the primary agent shares a
+    // Unix-socket-mountable host with it: it never joins the enclave network
+    // it launches enclaves onto. When the primary agent is a microVM that
+    // cannot receive that bind mount (sbx-http transport), the broker instead
+    // joins a *separate*, dedicated `internal` ingress bridge — distinct from
+    // BOUNDED_AGENT_NETWORK — so it still never shares a network with an
+    // enclave, the primary agent's own network, Squid, or the API proxy.
+    ...(ingressTransport === 'unix'
+      ? { network_mode: 'none' }
+      : {
+          networks: [BOUNDED_AGENT_INGRESS_NETWORK],
+          ports: [`${sbxIngressHostIp}::${BOUNDED_AGENT_TCP_PORT}`],
+        }),
     volumes: applyHostPathPrefixToVolumes(
       [
         `${paths.seedsDir}:${BROKER_SEEDS_DIR}:ro`,
@@ -246,6 +271,7 @@ export function buildBoundedAgentService(params: BoundedAgentServiceParams): Bou
       // The broker selects a fixed EnclaveRunner from this normalized value.
       // Runtime flags are never accepted from an invocation.
       AWF_BOUNDED_AGENT_BACKEND: boundedAgents.runtime,
+      AWF_BOUNDED_AGENT_PRIMARY_BACKEND: resolveBoundedAgentPrimaryBackend(config.containerRuntime),
       AWF_BOUNDED_AGENT_NETWORK: BOUNDED_AGENT_NETWORK,
       AWF_BOUNDED_AGENT_API_ENDPOINT: `http://${BOUNDED_AGENT_API_PROXY_IP}:${apiPort}`,
       AWF_BOUNDED_AGENT_PROFILE: boundedAgents.profile,
@@ -266,6 +292,9 @@ export function buildBoundedAgentService(params: BoundedAgentServiceParams): Bou
       AWF_BOUNDED_AGENT_HOST_SEEDS_DIR: toDaemonVisiblePath(paths.seedsDir, config.dockerHostPathPrefix),
       AWF_BOUNDED_AGENT_SOCKET_UID: getSafeHostUid(),
       AWF_BOUNDED_AGENT_SOCKET_GID: getSafeHostGid(),
+      ...(ingressTransport === 'sbx-http'
+        ? { AWF_BOUNDED_AGENT_TCP_PORT: String(BOUNDED_AGENT_TCP_PORT) }
+        : {}),
     },
     depends_on: {
       'bounded-agent-image': {
@@ -292,7 +321,7 @@ export function buildBoundedAgentService(params: BoundedAgentServiceParams): Bou
   };
 
   const agentEnvAdditions: Record<string, string> = {
-    AWF_BOUNDED_AGENT_SOCKET: AGENT_SOCKET_PATH,
+    ...(ingressTransport === 'unix' ? { AWF_BOUNDED_AGENT_SOCKET: AGENT_SOCKET_PATH } : {}),
     AWF_BOUNDED_AGENT_SKILL: AGENT_SKILL_PATH,
     AWF_BOUNDED_AGENT_REPOS: boundedAgents.privateRepos.map((repository) => repository.repo).join(','),
   };
@@ -311,7 +340,8 @@ export function buildBoundedAgentService(params: BoundedAgentServiceParams): Bou
 
   logger.info(
     `Bounded agents enabled - enclave runtime: ${boundedAgents.runtime}, ` +
-    `profile: ${boundedAgents.profile}, enclave network: ${BOUNDED_AGENT_NETWORK} (API proxy only)`,
+    `profile: ${boundedAgents.profile}, enclave network: ${BOUNDED_AGENT_NETWORK} (API proxy only), ` +
+    `broker ingress transport: ${ingressTransport}`,
   );
 
   return { enclaveImageService, service, apiProxyService, agentEnvAdditions, agentVolumes };

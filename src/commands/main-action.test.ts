@@ -19,6 +19,7 @@ jest.mock('./signal-handler');
 jest.mock('./validate-options');
 jest.mock('../sbx-manager');
 jest.mock('../bounded-query/ingress');
+jest.mock('../bounded-agent/ingress');
 
 import { logger } from '../logger';
 import * as dockerManager from '../docker-manager';
@@ -33,6 +34,7 @@ import * as signalHandler from './signal-handler';
 import * as validateOptions from './validate-options';
 import * as sbxManager from '../sbx-manager';
 import * as boundedQueryIngress from '../bounded-query/ingress';
+import * as boundedAgentIngress from '../bounded-agent/ingress';
 import { MAIN_ACTION_STUB_CONFIG, setupMainActionTestHarness } from './main-action.test-utils';
 
 const {
@@ -56,6 +58,7 @@ const mockedSignalHandler = signalHandler as jest.Mocked<typeof signalHandler>;
 const mockedValidateOptions = validateOptions as jest.Mocked<typeof validateOptions>;
 const mockedSbxManager = sbxManager as jest.Mocked<typeof sbxManager>;
 const mockedBoundedQueryIngress = boundedQueryIngress as jest.Mocked<typeof boundedQueryIngress>;
+const mockedBoundedAgentIngress = boundedAgentIngress as jest.Mocked<typeof boundedAgentIngress>;
 
 describe('createMainAction', () => {
   let processExitSpy: jest.SpyInstance;
@@ -394,6 +397,81 @@ describe('createMainAction', () => {
         ];
         expect(JSON.stringify(logCalls)).not.toContain(capability);
         expect(mockedBoundedQueryIngress.removeSbxIngressCapabilityFile).toHaveBeenCalledWith(sbxConfig);
+      });
+
+      it('mounts only bounded-agent agent artifacts and injects the HTTP capability without logging it', async () => {
+        const capability = 'c'.repeat(64);
+        const sbxConfig = {
+          ...MAIN_ACTION_STUB_CONFIG,
+          containerRuntime: 'sbx',
+          containerWorkDir: '/workspace',
+          enableApiProxy: true,
+          boundedAgentIngressTransport: 'sbx-http',
+          boundedAgents: {
+            enabled: true,
+            privateRepos: [{ repo: 'octo/private', sensitivity: 'internal' }],
+            runtime: 'docker',
+            profile: 'openai',
+            model: 'gpt-4o-mini',
+            timeout: 120,
+            memoryLimit: '512m',
+            tmpfsLimit: '64m',
+            cpuLimit: '1',
+            pidsLimit: 128,
+            maxInvocations: 8,
+            maxModelRequests: 8,
+            maxModelTokens: 1024,
+            maxOutputBytes: 8192,
+            maxTaskBytes: 4096,
+          },
+        } as unknown as import('../types').WrapperConfig;
+        mockedValidateOptions.validateOptions.mockReturnValue(sbxConfig);
+        mockedBoundedAgentIngress.resolveSbxIngress.mockResolvedValue({
+          endpoint: 'http://host.docker.internal:49153/query',
+          queryCapability: capability,
+          probeCapability: 'd'.repeat(64),
+          skillPath: '/var/tmp/bounded-agent-ingress/skill/SKILL.md',
+          wrapperDir: '/var/tmp/bounded-agent-ingress/skill',
+        });
+        mockedCliWorkflow.runMainWorkflow.mockImplementation(async (_config, deps) => {
+          await deps.startContainers('/tmp/awf-test', ['github.com']);
+          return (await deps.runAgentCommand('/tmp/awf-test', ['github.com'])).exitCode;
+        });
+
+        const action = createMainAction(getOptionValueSource);
+        await action(['bounded-agent --repo octo/private'], {});
+
+        const createOptions = mockedSbxManager.createSandbox.mock.calls[0][0];
+        const mounts = createOptions.extraMounts ?? [];
+        expect(mounts).toHaveLength(1);
+        expect(mounts[0]).toMatch(/awf-bounded-agent-ingress-.*\/skill:ro$/);
+        expect(mounts.join(' ')).not.toMatch(/seeds|work|control|audit|docker\.sock|seed-map/);
+
+        expect(mockedSbxManager.assertSbxBoundedAgentIngress).toHaveBeenCalledWith(
+          expect.any(String),
+          expect.objectContaining({
+            transport: 'sbx-http',
+            endpoint: 'http://host.docker.internal:49153/query',
+            probeCapability: 'd'.repeat(64),
+          }),
+          expect.any(Object),
+          '/workspace',
+        );
+        const execCalls = mockedSbxManager.execInSandbox.mock.calls;
+        const agentEnvironment = execCalls[execCalls.length - 1]?.[2]?.environment;
+        expect(agentEnvironment).toEqual(expect.objectContaining({
+          AWF_BOUNDED_AGENT_ENDPOINT: 'http://host.docker.internal:49153/query',
+          AWF_BOUNDED_AGENT_CAPABILITY: capability,
+          AWF_BOUNDED_AGENT_BIN_DIR: expect.stringMatching(/\/skill$/),
+        }));
+        const logCalls = [
+          ...mockedLogger.debug.mock.calls,
+          ...mockedLogger.info.mock.calls,
+          ...mockedLogger.warn.mock.calls,
+          ...mockedLogger.error.mock.calls,
+        ];
+        expect(JSON.stringify(logCalls)).not.toContain(capability);
+        expect(mockedBoundedAgentIngress.removeSbxIngressCapabilityFile).toHaveBeenCalledWith(sbxConfig);
       });
     });
   });

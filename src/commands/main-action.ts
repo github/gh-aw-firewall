@@ -30,6 +30,7 @@ import { runtimeUsesComposeAgent } from '../container-runtime';
 import {
   assertSbxApiProxyReflect,
   assertSbxBoundedQueryIngress,
+  assertSbxBoundedAgentIngress,
   createSandbox,
   execInSandbox,
   removeSandbox,
@@ -48,6 +49,11 @@ import {
   resolveSbxIngress,
 } from '../bounded-query/ingress';
 import { resolveBoundedQueryPaths } from '../bounded-query/paths';
+import {
+  removeSbxIngressCapabilityFile as removeBoundedAgentSbxIngressCapabilityFile,
+  resolveSbxIngress as resolveBoundedAgentSbxIngress,
+} from '../bounded-agent/ingress';
+import { resolveBoundedAgentPaths } from '../bounded-agent/paths';
 
 /** Report whether a secret is set (and its length) without exposing the value. */
 function redactSecret(value: string | undefined): string {
@@ -300,8 +306,18 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
           const SBX_GATEWAY_IP = '172.17.0.0';
           const SBX_HOST_DOCKER_INTERNAL = 'host.docker.internal';
           const boundedQueryPaths = resolveBoundedQueryPaths(config.workDir);
+          const boundedAgentPaths = resolveBoundedAgentPaths(config.workDir);
           const sbxMounts = [...(config.volumeMounts ?? [])];
           let sbxBoundedQueryIngress:
+            | { transport: 'unix'; socketPath: string }
+            | {
+                transport: 'sbx-http';
+                endpoint: string;
+                queryCapability: string;
+                probeCapability: string;
+              }
+            | undefined;
+          let sbxBoundedAgentIngress:
             | { transport: 'unix'; socketPath: string }
             | {
                 transport: 'sbx-http';
@@ -322,6 +338,25 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
             } else {
               const ingress = await resolveSbxIngress(config);
               sbxBoundedQueryIngress = {
+                transport: 'sbx-http',
+                endpoint: ingress.endpoint,
+                queryCapability: ingress.queryCapability,
+                probeCapability: ingress.probeCapability,
+              };
+            }
+          }
+
+          if (config.boundedAgents?.enabled) {
+            sbxMounts.push(`${boundedAgentPaths.agentDir}:ro`);
+            if (config.boundedAgentIngressTransport === 'unix') {
+              sbxMounts.push(`${boundedAgentPaths.runDir}:ro`);
+              sbxBoundedAgentIngress = {
+                transport: 'unix',
+                socketPath: boundedAgentPaths.socketPath,
+              };
+            } else {
+              const ingress = await resolveBoundedAgentSbxIngress(config);
+              sbxBoundedAgentIngress = {
                 transport: 'sbx-http',
                 endpoint: ingress.endpoint,
                 queryCapability: ingress.queryCapability,
@@ -405,6 +440,38 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
             });
             if (sbxBoundedQueryIngress.transport === 'sbx-http') {
               removeSbxIngressCapabilityFile(config);
+            }
+          }
+
+          if (sbxBoundedAgentIngress) {
+            await assertSbxBoundedAgentIngress(
+              sbxName,
+              sbxBoundedAgentIngress.transport === 'unix'
+                ? sbxBoundedAgentIngress
+                : {
+                    transport: 'sbx-http',
+                    endpoint: sbxBoundedAgentIngress.endpoint,
+                    probeCapability: sbxBoundedAgentIngress.probeCapability,
+                  },
+              sbxEnvironment,
+              config.containerWorkDir,
+            );
+
+            Object.assign(sbxEnvironment, {
+              AWF_BOUNDED_AGENT_SKILL: boundedAgentPaths.skillPath,
+              AWF_BOUNDED_AGENT_REPOS: config.boundedAgents!.privateRepos
+                .map((repository) => repository.repo)
+                .join(','),
+              AWF_BOUNDED_AGENT_BIN_DIR: boundedAgentPaths.agentDir,
+              ...(sbxBoundedAgentIngress.transport === 'unix'
+                ? { AWF_BOUNDED_AGENT_SOCKET: sbxBoundedAgentIngress.socketPath }
+                : {
+                    AWF_BOUNDED_AGENT_ENDPOINT: sbxBoundedAgentIngress.endpoint,
+                    AWF_BOUNDED_AGENT_CAPABILITY: sbxBoundedAgentIngress.queryCapability,
+                  }),
+            });
+            if (sbxBoundedAgentIngress.transport === 'sbx-http') {
+              removeBoundedAgentSbxIngressCapabilityFile(config);
             }
           }
 

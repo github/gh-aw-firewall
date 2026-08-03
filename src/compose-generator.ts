@@ -14,6 +14,7 @@ import { runtimeNeedsStaticDns, runtimeUsesComposeAgent } from './container-runt
 import { API_PROXY_PORTS } from './types/ports';
 import { EXTERNAL_BRIDGE_NAME } from './config/network-policy';
 import { BOUNDED_QUERY_INGRESS_NETWORK } from './bounded-query/ingress';
+import { BOUNDED_AGENT_INGRESS_NETWORK } from './bounded-agent/ingress';
 import {
   BOUNDED_AGENT_EGRESS_NETWORK,
   BOUNDED_AGENT_NETWORK,
@@ -216,6 +217,19 @@ export function generateDockerCompose(
       name: BOUNDED_AGENT_EGRESS_NETWORK,
       driver: 'bridge',
     };
+    if (
+      config.boundedAgentIngressTransport === 'sbx-http'
+      || (config.boundedAgentIngressTransport === undefined && !includeAgent)
+    ) {
+      // Distinct from BOUNDED_AGENT_NETWORK (the enclave/API-proxy network):
+      // this is a dedicated `internal` bridge whose only members are the
+      // broker and, transiently, the primary sbx microVM's host-gateway
+      // route — never an enclave, never the primary agent's own network.
+      compose.networks[BOUNDED_AGENT_INGRESS_NETWORK] = {
+        driver: 'bridge',
+        internal: true,
+      };
+    }
   }
   return compose;
 }

@@ -1,10 +1,12 @@
 import {
   assertEnclaveRuntimeAvailable,
+  assertPrimaryRuntimeAvailable,
   resolveApiProxyRoute,
   validateBoundedAgentConfig,
 } from './preflight';
 import { BOUNDED_AGENT_DEFAULTS, type BoundedAgentsConfig } from '../types/bounded-agent-options';
 import type { WrapperConfig } from '../types';
+import * as boundedQueryPreflight from '../bounded-query/preflight';
 
 /**
  * Fail-closed preflight coverage.
@@ -111,26 +113,36 @@ describe('validateBoundedAgentConfig', () => {
     ).toMatch(/bare owner\/repo slug/);
   });
 
-  it('fails closed on the not-yet-implemented sbx backend with an explicit capability error', () => {
-    const errors = validateBoundedAgentConfig(
-      config({ boundedAgents: boundedAgents({ runtime: 'sbx' }) }),
-      env,
-    );
-    expect(errors.join('\n')).toMatch(/"sbx" is not yet implemented/);
-    expect(errors.join('\n')).toMatch(/never downgrade/);
+  it('accepts sbx as a schema-level enclave runtime (capability-gated, not config-rejected)', () => {
+    // sbx is fully schema-accepted at the configuration level: whether it is
+    // actually usable is decided later by assertEnclaveRuntimeAvailable's
+    // capability proof, never by blanket config rejection.
+    expect(validateBoundedAgentConfig(config({ boundedAgents: boundedAgents({ runtime: 'sbx' }) }), env))
+      .toEqual([]);
   });
 
-  it('accepts the implemented docker and gvisor backends', () => {
-    for (const runtime of ['docker', 'gvisor'] as const) {
+  it('accepts every implemented and capability-gated backend', () => {
+    for (const runtime of ['docker', 'gvisor', 'sbx'] as const) {
       expect(validateBoundedAgentConfig(config({ boundedAgents: boundedAgents({ runtime }) }), env))
         .toEqual([]);
     }
   });
 
-  it('fails closed before staging for a primary microVM agent runtime', () => {
-    const errors = validateBoundedAgentConfig(config({ containerRuntime: 'sbx' }), env);
-    expect(errors.join('\n')).toMatch(/require a Docker Compose primary agent/);
-    expect(errors.join('\n')).toMatch(/fails closed before staging/);
+  it('rejects an unknown enclave runtime name with no downgrade', () => {
+    const errors = validateBoundedAgentConfig(
+      config({ boundedAgents: boundedAgents({ runtime: 'wasm' as unknown as BoundedAgentsConfig['runtime'] }) }),
+      env,
+    );
+    expect(errors.join('\n')).toMatch(/"wasm" is not supported/);
+    expect(errors.join('\n')).toMatch(/never downgrade/);
+  });
+
+  it('no longer rejects a primary sbx microVM at the config-validation level', () => {
+    // The primary-agent runtime axis is proven independently by
+    // assertPrimaryRuntimeAvailable (delegated to bounded-query's
+    // implementation), not blanket-rejected here: a primary sbx microVM is
+    // supported once its bounded-agent ingress is proven (see ./ingress.ts).
+    expect(validateBoundedAgentConfig(config({ containerRuntime: 'sbx' }), env)).toEqual([]);
   });
 
   it('rejects exposing the enclave Docker daemon to the primary agent', () => {
@@ -218,9 +230,52 @@ describe('assertEnclaveRuntimeAvailable', () => {
     ).rejects.toThrow(/never fall back to a weaker runtime/);
   });
 
-  it('has no launcher for sbx', async () => {
+  it('accepts sbx when the capability probe reports full support', async () => {
+    const querySbxCapabilities = jest.fn(async () => ({ supported: true, missing: [], auditedVersion: '0.37.1' }));
     await expect(
-      assertEnclaveRuntimeAvailable(boundedAgents({ runtime: 'sbx' }), async () => true, async () => true),
+      assertEnclaveRuntimeAvailable(
+        boundedAgents({ runtime: 'sbx' }),
+        async () => true,
+        async () => true,
+        querySbxCapabilities,
+      ),
+    ).resolves.toBeUndefined();
+    expect(querySbxCapabilities).toHaveBeenCalledTimes(1);
+  });
+
+  it('blocks sbx with the exact missing capabilities and never falls back, honestly reflecting audited 0.37.1', async () => {
+    const missing = ['pinned AWF bounded-agent sbx template and bootstrap', 'sbx create --network'];
+    await expect(
+      assertEnclaveRuntimeAvailable(
+        boundedAgents({ runtime: 'sbx' }),
+        async () => true,
+        async () => true,
+        async () => ({ supported: false, missing, auditedVersion: '0.37.1' }),
+      ),
+    ).rejects.toThrow(/pinned AWF bounded-agent sbx template and bootstrap.*sbx create --network/);
+    await expect(
+      assertEnclaveRuntimeAvailable(
+        boundedAgents({ runtime: 'sbx' }),
+        async () => true,
+        async () => true,
+        async () => ({ supported: false, missing, auditedVersion: '0.37.1' }),
+      ),
+    ).rejects.toThrow(/never fall back to Docker or gVisor/);
+  });
+
+  it('rejects an unrecognized runtime with no implemented launcher', async () => {
+    await expect(
+      assertEnclaveRuntimeAvailable(
+        { ...boundedAgents(), runtime: 'wasm' as unknown as BoundedAgentsConfig['runtime'] },
+        async () => true,
+        async () => true,
+      ),
     ).rejects.toThrow(/no implemented enclave launcher/);
+  });
+});
+
+describe('assertPrimaryRuntimeAvailable', () => {
+  it('is the bounded-query implementation, reused rather than duplicated', () => {
+    expect(assertPrimaryRuntimeAvailable).toBe(boundedQueryPreflight.assertPrimaryRuntimeAvailable);
   });
 });

@@ -39,8 +39,10 @@ const ENCLAVE_GID = 65534;
 /** Hard ceiling on the caller-supplied task text, mirrored from the TS protocol. */
 const MAX_TASK_BYTES = 64 * 1024;
 
-const SUPPORTED_BACKENDS = new Set(['docker', 'gvisor']);
+const SUPPORTED_BACKENDS = new Set(['docker', 'gvisor', 'sbx']);
 const SUPPORTED_PROFILES = new Set(['openai', 'anthropic']);
+const PRIMARY_BACKENDS = new Set(['docker', 'gvisor', 'sbx']);
+const SBX_CAPABILITY_PATH = path.join(CONTROL_DIR, 'sbx-ingress.json');
 
 function requireEnv(name) {
   const value = process.env[name];
@@ -93,6 +95,30 @@ function parseDockerSize(name, fallback) {
   return value;
 }
 
+/**
+ * Loads the two capability tokens the broker's TCP listener requires on
+ * every request when reachability is via authenticated primary-sbx ingress
+ * (never used for the Unix-socket transport). Generated fresh per run on the
+ * trusted host only after runtime proofs succeed; never logged, telemetered,
+ * or written to any audit/skill surface.
+ */
+function loadSbxIngressCapabilities(capabilityPath) {
+  const parsed = JSON.parse(fs.readFileSync(capabilityPath, 'utf8'));
+  const pattern = /^[0-9a-f]{64}$/;
+  if (
+    !parsed
+    || parsed.version !== 1
+    || typeof parsed.query !== 'string'
+    || typeof parsed.probe !== 'string'
+    || !pattern.test(parsed.query)
+    || !pattern.test(parsed.probe)
+    || parsed.query === parsed.probe
+  ) {
+    throw new Error('SBX ingress capability file is malformed');
+  }
+  return { query: parsed.query, probe: parsed.probe };
+}
+
 function loadConfig() {
   const backend = requireEnv('AWF_BOUNDED_AGENT_BACKEND');
   if (!SUPPORTED_BACKENDS.has(backend)) {
@@ -113,6 +139,22 @@ function loadConfig() {
   if (!/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$/.test(network)) {
     throw new Error('AWF_BOUNDED_AGENT_NETWORK is not a Docker network name');
   }
+
+  const primaryBackend = requireEnv('AWF_BOUNDED_AGENT_PRIMARY_BACKEND');
+  if (!PRIMARY_BACKENDS.has(primaryBackend)) {
+    throw new Error(`Unsupported AWF_BOUNDED_AGENT_PRIMARY_BACKEND: ${primaryBackend}`);
+  }
+
+  const tcpPortRaw = process.env.AWF_BOUNDED_AGENT_TCP_PORT;
+  const tcpPort = tcpPortRaw === undefined ? undefined : parsePositiveInt('AWF_BOUNDED_AGENT_TCP_PORT');
+  if (tcpPort !== undefined && tcpPort > 65535) {
+    throw new Error('AWF_BOUNDED_AGENT_TCP_PORT must be a valid TCP port');
+  }
+
+  // sbx and Docker daemons can have different filesystem namespaces
+  // (ARC/DinD); never reuse the Docker-daemon-visible paths for sbx mounts.
+  const sbxWorkDir = backend === 'sbx' ? requireEnv('AWF_BOUNDED_AGENT_SBX_WORK_DIR') : undefined;
+  const sbxSeedsDir = backend === 'sbx' ? requireEnv('AWF_BOUNDED_AGENT_SBX_SEEDS_DIR') : undefined;
 
   return {
     seedsDir: SEEDS_DIR,
@@ -140,6 +182,13 @@ function loadConfig() {
     // which is not necessarily the broker's (ARC/DinD split filesystems).
     hostWorkDir: requireEnv('AWF_BOUNDED_AGENT_HOST_WORK_DIR'),
     hostSeedsDir: requireEnv('AWF_BOUNDED_AGENT_HOST_SEEDS_DIR'),
+    sbxWorkDir,
+    sbxSeedsDir,
+    primaryBackend,
+    tcpPort,
+    sbxIngressCapabilities: tcpPort === undefined
+      ? undefined
+      : loadSbxIngressCapabilities(SBX_CAPABILITY_PATH),
     timeoutSeconds: parseTimeoutSeconds(),
     memoryLimit: parseDockerSize('AWF_BOUNDED_AGENT_MEMORY', '512m'),
     tmpfsLimit: parseDockerSize('AWF_BOUNDED_AGENT_TMPFS', '64m'),
@@ -174,9 +223,12 @@ function loadSeedMap(seedMapPath) {
 
 module.exports = {
   READY_PATH,
+  SBX_CAPABILITY_PATH,
   MAX_TASK_BYTES,
   SUPPORTED_BACKENDS,
   SUPPORTED_PROFILES,
+  PRIMARY_BACKENDS,
   loadConfig,
   loadSeedMap,
+  loadSbxIngressCapabilities,
 };

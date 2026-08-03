@@ -1,6 +1,7 @@
 'use strict';
 
 const fs = require('fs');
+const crypto = require('crypto');
 const http = require('http');
 const { createAuditLog } = require('./audit');
 const { createBroker } = require('./broker');
@@ -8,15 +9,20 @@ const { loadConfig, loadSeedMap } = require('./config');
 const { buildRequestFromFrame, readBoundedBody } = require('./framing');
 const { CANONICAL_ERROR_JSON } = require('./protocol');
 const { createEnclaveRunner } = require('./enclave-runner');
+const { createRuntimeTelemetry } = require('./runtime-telemetry');
 
 /**
  * Bounded-agent broker server.
  *
- * The broker itself has `network_mode: none`: it is not on `awf-net`, not on
- * `awf-ext`, and not on the dedicated bounded-agent enclave network. Its whole
- * agent-facing surface is one Unix domain socket shared through a tightly
- * scoped bind mount. It receives the Docker socket only because it launches
- * enclave containers.
+ * Compose agents (docker/gvisor primary) reach the broker over a Unix domain
+ * socket shared through a tightly scoped bind mount; the broker itself has
+ * `network_mode: none` in that mode -- not on `awf-net`, not on `awf-ext`, and
+ * not on the dedicated bounded-agent enclave network. sbx primary agents use
+ * the same protocol over authenticated HTTP only when a disposable capability
+ * probe proves that sbx cannot connect through a mounted host socket. In that
+ * mode the broker is attached only to a dedicated internal Docker network and
+ * published on an ephemeral host-gateway-only port; it is never on the
+ * enclave egress network either way.
  *
  * One route exists:
  *   POST /query   the bounded-agent API
@@ -27,7 +33,7 @@ const { createEnclaveRunner } = require('./enclave-runner');
  * response on the agent-observable surface.
  *
  * `/query` always answers `200` with a canonical result body:
- * `{"status":"ok","result":<value>}` or `{"status":"error"}` — status code and
+ * `{"status":"ok","result":<value>}` or `{"status":"error"}` -- status code and
  * headers are identical either way, and every failure class collapses to the
  * same error body. For any invocation that reached workspace creation, the
  * response is additionally held until a fixed timing-bucket boundary.
@@ -37,6 +43,9 @@ const RESULT_HEADERS = {
   'content-type': 'application/json',
   'cache-control': 'no-store',
 };
+// Give a nearly-complete invocation a chance to finish broker cleanup before
+// force-removing this run's enclaves. Longer invocations are interrupted so
+// Compose shutdown remains bounded; host teardown owns private-root removal.
 const SHUTDOWN_GRACE_MS = 1_000;
 const MAX_HEADER_BYTES = 8 * 1024;
 const MAX_CONNECTIONS = 32;
@@ -123,7 +132,15 @@ function createHardenedServer(listener, audit) {
   return server;
 }
 
-function processRequest(req, res, broker, audit, isAccepting = () => true) {
+function processRequest(
+  req,
+  res,
+  broker,
+  audit,
+  framedHeaders = req.headers,
+  framedRawHeaders = req.rawHeaders,
+  isAccepting = () => true,
+) {
   if (req.socket.awfRejected) {
     req.resume();
     res.destroy();
@@ -147,7 +164,7 @@ function processRequest(req, res, broker, audit, isAccepting = () => true) {
         return broker.handle(undefined, (result) => sendResult(res, result));
       }
 
-      const framed = buildRequestFromFrame(req.headers, req.rawHeaders, body.task);
+      const framed = buildRequestFromFrame(framedHeaders, framedRawHeaders, body.task);
       if (framed.error !== undefined) {
         audit.failure('framing', 'frame-rejected', framed.error);
         return broker.handle(undefined, (result) => sendResult(res, result));
@@ -164,9 +181,92 @@ function processRequest(req, res, broker, audit, isAccepting = () => true) {
 function createServer(deps) {
   const { broker, audit } = deps;
   return createHardenedServer(
-    (req, res, isAccepting) => processRequest(req, res, broker, audit, isAccepting),
+    (req, res, isAccepting) => processRequest(
+      req,
+      res,
+      broker,
+      audit,
+      req.headers,
+      req.rawHeaders,
+      isAccepting,
+    ),
     audit,
   );
+}
+
+function safeCapabilityEquals(actual, expected) {
+  if (typeof actual !== 'string') return false;
+  const actualBytes = Buffer.from(actual, 'utf8');
+  const expectedBytes = Buffer.from(expected, 'utf8');
+  return actualBytes.length === expectedBytes.length
+    && crypto.timingSafeEqual(actualBytes, expectedBytes);
+}
+
+function stripCapabilityHeader(req) {
+  const headers = { ...req.headers };
+  delete headers['x-awf-capability'];
+  const rawHeaders = [];
+  for (let i = 0; i < req.rawHeaders.length; i += 2) {
+    if (req.rawHeaders[i].toLowerCase() === 'x-awf-capability') continue;
+    rawHeaders.push(req.rawHeaders[i], req.rawHeaders[i + 1]);
+  }
+  return { headers, rawHeaders };
+}
+
+/**
+ * Authenticated HTTP listener for sbx-primary reachability only. Every
+ * request must carry exactly one `x-awf-capability` header matching the
+ * broker-generated `query` token; the distinct `probe` token is accepted
+ * exactly once (pre-agent reachability proof), then permanently retired for
+ * the lifetime of this process. Neither token is ever logged, telemetered, or
+ * written to the audit ledger -- only the fixed category strings
+ * `'auth-rejected'` / `'sbx-ingress-probe'` are.
+ */
+function createTcpServer(deps) {
+  const { broker, audit, capabilities } = deps;
+  let probeAvailable = true;
+  return createHardenedServer((req, res, isAccepting) => {
+    const capabilityHeaders = req.rawHeaders.filter(
+      (_value, index) => index % 2 === 0 && req.rawHeaders[index].toLowerCase() === 'x-awf-capability',
+    );
+    const supplied = req.headers['x-awf-capability'];
+    const isQuery = capabilityHeaders.length === 1 && safeCapabilityEquals(supplied, capabilities.query);
+    const isProbe = (
+      probeAvailable
+      && capabilityHeaders.length === 1
+      && safeCapabilityEquals(supplied, capabilities.probe)
+    );
+
+    if (isProbe) {
+      probeAvailable = false;
+      audit.lifecycle('sbx-ingress-probe');
+      req.resume();
+      return new Promise((resolve) => {
+        setTimeout(() => {
+          sendResult(res, CANONICAL_ERROR_JSON);
+          resolve();
+        }, PROBE_RESPONSE_DELAY_MS);
+      });
+    }
+
+    if (!isQuery) {
+      audit.failure('transport', 'auth-rejected');
+      req.resume();
+      sendResult(res, CANONICAL_ERROR_JSON);
+      return Promise.resolve();
+    }
+
+    const framed = stripCapabilityHeader(req);
+    return processRequest(
+      req,
+      res,
+      broker,
+      audit,
+      framed.headers,
+      framed.rawHeaders,
+      isAccepting,
+    );
+  }, audit);
 }
 
 function listenOnSocket(server, config, audit) {
@@ -191,22 +291,47 @@ function listenOnSocket(server, config, audit) {
   });
 }
 
+function listenOnTcp(server, config) {
+  return new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(config.tcpPort, '0.0.0.0', resolve);
+  });
+}
+
 async function main() {
   const config = loadConfig();
   const audit = createAuditLog(config.auditDir);
+  const telemetry = createRuntimeTelemetry(config.auditDir);
   const { runId, seeds } = loadSeedMap(config.seedMapPath);
   const runner = createEnclaveRunner(config);
 
   // Fail closed before accepting requests and deterministically reconcile
-  // containers left by a prior broker process for this exact run. Enclaves
+  // enclaves left by a prior broker process for this exact run. Enclaves
   // never pull and never fall back.
   await runner.assertAvailable();
   await runner.reconcileRun(runId);
+  telemetry.emit({
+    primaryBackend: config.primaryBackend,
+    boundedAgentBackend: config.backend,
+    lifecycleClass: 'startup',
+    capabilityState: 'supported',
+    category: 'ready',
+  });
 
-  const broker = createBroker({ config, seedMap: seeds, runId, audit, runner });
-  const server = createServer({ broker, audit });
+  const broker = createBroker({ config, seedMap: seeds, runId, audit, runner, telemetry });
+  const unixServer = createServer({ broker, audit });
+  const servers = [unixServer];
 
-  await listenOnSocket(server, config, audit);
+  await listenOnSocket(unixServer, config, audit);
+  if (config.tcpPort !== undefined) {
+    const tcpServer = createTcpServer({
+      broker,
+      audit,
+      capabilities: config.sbxIngressCapabilities,
+    });
+    await listenOnTcp(tcpServer, config);
+    servers.push(tcpServer);
+  }
 
   // Write the ready file AFTER the socket is accepting connections. The compose
   // healthcheck polls this file in the broker-only control mount.
@@ -219,6 +344,7 @@ async function main() {
     repos: seeds.size,
     backend: config.backend,
     profile: config.profile,
+    ingress: config.tcpPort === undefined ? 'unix' : 'unix+sbx-http',
     maxInvocations: config.maxInvocations,
   });
 
@@ -227,20 +353,39 @@ async function main() {
     if (shuttingDown) return;
     shuttingDown = true;
     broker.close();
-    server.freezeAdmissions();
-    server.close();
+    for (const server of servers) {
+      server.freezeAdmissions();
+      server.close();
+    }
     const forcedExit = setTimeout(() => process.exit(1), 5000);
     forcedExit.unref();
     try {
       await Promise.race([
-        Promise.all([server.drainAdmissions(), broker.drain()]),
+        Promise.all([
+          ...servers.map((server) => server.drainAdmissions()),
+          broker.drain(),
+        ]),
         new Promise((resolve) => setTimeout(resolve, SHUTDOWN_GRACE_MS)),
       ]);
       // Interrupted invocations leave no enclave behind: reconcile again.
       await runner.reconcileRun(runId);
+      telemetry.emit({
+        primaryBackend: config.primaryBackend,
+        boundedAgentBackend: config.backend,
+        lifecycleClass: 'cleanup',
+        capabilityState: 'supported',
+        category: 'success',
+      });
       process.exit(0);
     } catch (error) {
       audit.lifecycle('shutdown-cleanup-failed', error.message);
+      telemetry.emit({
+        primaryBackend: config.primaryBackend,
+        boundedAgentBackend: config.backend,
+        lifecycleClass: 'cleanup',
+        capabilityState: 'supported',
+        category: 'cleanup-failed',
+      });
       process.exit(1);
     }
   };
@@ -257,7 +402,9 @@ if (require.main === module) {
 
 module.exports = {
   createServer,
+  createTcpServer,
   listenOnSocket,
+  listenOnTcp,
   MAX_HEADER_BYTES,
   MAX_CONNECTIONS,
 };

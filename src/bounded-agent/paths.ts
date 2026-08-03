@@ -52,6 +52,8 @@ export interface BoundedAgentPaths {
   skillPath: string;
   /** Host path of the agent-facing bounded-agent executable. */
   wrapperPath: string;
+  /** Broker-private path containing ephemeral sbx ingress capabilities. */
+  capabilityPath: string;
 }
 
 /** Broker-private state is deliberately outside the agent's broad `/tmp` mount. */
@@ -65,6 +67,9 @@ export const BOUNDED_AGENT_SKILL_FILENAME = 'SKILL.md';
 
 /** Name of the generated agent-facing executable. */
 export const BOUNDED_AGENT_WRAPPER_FILENAME = 'bounded-agent';
+
+/** Name of the broker-private sbx ingress capability file. */
+export const BOUNDED_AGENT_CAPABILITY_FILENAME = 'sbx-ingress.json';
 
 // ── Fixed container paths ────────────────────────────────────────────────────
 //
@@ -152,6 +157,7 @@ export function resolveBoundedAgentPaths(
     socketPath: path.join(runDir, BOUNDED_AGENT_SOCKET_FILENAME),
     skillPath: path.join(agentDir, BOUNDED_AGENT_SKILL_FILENAME),
     wrapperPath: path.join(agentDir, BOUNDED_AGENT_WRAPPER_FILENAME),
+    capabilityPath: path.join(root, 'control', BOUNDED_AGENT_CAPABILITY_FILENAME),
   };
 }
 

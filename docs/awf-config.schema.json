@@ -987,7 +987,7 @@
             "gvisor",
             "sbx"
           ],
-          "description": "Sandbox runtime backend used to execute the enclave. \"docker\" uses the daemon default runtime; \"gvisor\" requires the runsc OCI runtime; \"sbx\" is accepted by this schema but fails closed at preflight with an explicit not-yet-implemented capability error. No backend ever falls back. Default: \"docker\".",
+          "description": "Sandbox runtime backend used to execute the bounded-agent enclave, selected independently of the primary agent runtime. \"docker\" uses the daemon default runtime; \"gvisor\" requires the runsc OCI runtime; \"sbx\" is a fail-closed preview and is blocked until the installed sbx CLI proves the mandatory API-proxy-only network policy, read-only targeted mounts, unprivileged exec/workdir, and pids/disk/fsize/lifecycle controls this enclave requires. No backend ever falls back. Default: \"docker\".",
           "default": "docker"
         },
         "profile": {

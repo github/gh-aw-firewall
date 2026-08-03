@@ -257,7 +257,7 @@ describe('buildBoundedAgentService guards', () => {
     ).toThrow(/must be enabled/);
   });
 
-  it('fails closed for the not-yet-implemented sbx backend', () => {
+  it('fails closed for boundedAgents.runtime "sbx" because current sbx cannot prove mandatory isolation controls', () => {
     expect(() =>
       buildBoundedAgentService({
         config: {
@@ -268,7 +268,7 @@ describe('buildBoundedAgentService guards', () => {
         imageConfig,
         networkConfig,
       }),
-    ).toThrow(/sbx bounded-agent backend is not implemented/);
+    ).toThrow(/boundedAgents\.runtime "sbx" is capability-blocked/);
   });
 
   it('refuses to wire an enclave with no API proxy to talk to', () => {
