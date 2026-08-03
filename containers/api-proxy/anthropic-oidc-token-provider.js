@@ -85,10 +85,8 @@ class AnthropicOidcTokenProvider extends BaseOidcTokenProvider {
     const headers = {
       'Content-Type': 'application/json',
       'Accept': 'application/json',
+      'anthropic-beta': `${OAUTH_API_BETA},${OIDC_FEDERATION_BETA}`,
     };
-    if (new URL(this._tokenEndpoint).pathname === '/v1/oauth/token') {
-      headers['anthropic-beta'] = `${OAUTH_API_BETA},${OIDC_FEDERATION_BETA}`;
-    }
 
     const response = await this._httpPost(
       this._tokenEndpoint,

@@ -131,7 +131,7 @@ describe('AnthropicOidcTokenProvider', () => {
     provider.shutdown();
   });
 
-  it('should not send federation routing headers to unrelated token paths', async () => {
+  it('should send federation routing headers to custom token path endpoints', async () => {
     const provider = new AnthropicOidcTokenProvider({
       ...BASE_CONFIG,
       tokenEndpoint: 'https://anthropic.internal.example/oauth/token',
@@ -144,7 +144,7 @@ describe('AnthropicOidcTokenProvider', () => {
     await provider._exchangeForAnthropicToken('fake-jwt');
 
     const [, , headers] = mockHttpPost.mock.calls[0];
-    expect(headers['anthropic-beta']).toBeUndefined();
+    expect(headers['anthropic-beta']).toBe('oauth-2025-04-20,oidc-federation-2026-04-01');
     provider.shutdown();
   });
 
