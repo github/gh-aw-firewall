@@ -462,6 +462,70 @@ export function schemaCardinality(schema: BoundedQuerySchemaNode): bigint {
 }
 
 /**
+ * Computes cardinality only up to a bounded, already-unaffordable result.
+ *
+ * Materializing the exact cardinality of deeply nested fixed arrays can create
+ * multi-megabyte BigInts from a tiny request. The exact value above this cap is
+ * irrelevant once it exceeds this threshold: every metered sensitivity has at
+ * most 64 bits per run, while the fixed status/timing channels already cost 4
+ * bits. The larger 1024-bit cap preserves exact charges for ordinary schemas.
+ */
+const MAX_EXACT_SCHEMA_CARDINALITY = 1n << 1024n;
+const CAPPED_SCHEMA_CARDINALITY = MAX_EXACT_SCHEMA_CARDINALITY + 1n;
+
+function cappedMultiply(left: bigint, right: bigint): bigint {
+  if (left === 0n || right === 0n) return 0n;
+  if (left > MAX_EXACT_SCHEMA_CARDINALITY / right) return CAPPED_SCHEMA_CARDINALITY;
+  return left * right;
+}
+
+function cappedPower(base: bigint, exponent: number): bigint {
+  let result = 1n;
+  let factor = base;
+  let remaining = exponent;
+  while (remaining > 0) {
+    if ((remaining & 1) === 1) result = cappedMultiply(result, factor);
+    if (result > MAX_EXACT_SCHEMA_CARDINALITY) return result;
+    remaining = Math.floor(remaining / 2);
+    if (remaining > 0) factor = cappedMultiply(factor, factor);
+  }
+  return result;
+}
+
+function cappedSchemaCardinality(schema: BoundedQuerySchemaNode): bigint {
+  switch (schema.type) {
+    case 'const':
+      return 1n;
+    case 'boolean':
+      return 2n;
+    case 'enum':
+      return BigInt(schema.values.length);
+    case 'integer':
+      return BigInt(schema.maximum) - BigInt(schema.minimum) + 1n;
+    case 'object':
+      return schema.fields.reduce(
+        (acc, field) => cappedMultiply(acc, cappedSchemaCardinality(field.schema)),
+        1n,
+      );
+    case 'tuple':
+      return schema.items.reduce(
+        (acc, item) => cappedMultiply(acc, cappedSchemaCardinality(item)),
+        1n,
+      );
+    case 'array':
+      return cappedPower(cappedSchemaCardinality(schema.items), schema.length);
+    case 'union': {
+      let total = 0n;
+      for (const variant of schema.variants) {
+        total += cappedSchemaCardinality(variant.schema);
+        if (total > MAX_EXACT_SCHEMA_CARDINALITY) return CAPPED_SCHEMA_CARDINALITY;
+      }
+      return total;
+    }
+  }
+}
+
+/**
  * The maximum complete-transcript information charge, in bits, for one
  * invocation using this schema:
  *
@@ -474,7 +538,7 @@ export function schemaCardinality(schema: BoundedQuerySchemaNode): bigint {
  * actual result or completion bucket.
  */
 export function queryBitsForSchema(schema: BoundedQuerySchemaNode): number {
-  return RESULT_STATUS_BIT_COST + ceilLog2BigInt(schemaCardinality(schema)) + TIMING_BUCKET_BITS;
+  return RESULT_STATUS_BIT_COST + ceilLog2BigInt(cappedSchemaCardinality(schema)) + TIMING_BUCKET_BITS;
 }
 
 function jsonLiteralEquals(value: unknown, literal: JsonLiteral): boolean {

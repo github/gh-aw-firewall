@@ -2061,6 +2061,266 @@ matched pair.
   the Docker CLI. Both are inert inside a query: there is no network, no
   Docker socket, no capability, and the entrypoint is fixed to `python3`.
 
+## 15. Bounded Agents
+
+### 15.1 Purpose
+
+A *bounded agent* is the agentic sibling of a bounded query (§14). Instead of
+running an agent-authored Python script, a trusted broker runs a **fixed,
+AWF-authored model loop** inside a single-use *enclave* that reads one
+immutable repository seed read-only, may call a configured model a bounded
+number of times through the AWF API proxy, and must reduce its work to one
+value conforming to a finite response schema the caller declared up front.
+
+Bounded agents exist for questions that need judgment or multi-step reading
+rather than a deterministic script, while keeping exactly the same disclosure
+bound: the caller observes only `{"status":"ok","result":<value>}` or
+`{"status":"error"}`.
+
+Bounded agents reuse §14's sensitivity categories and budget table verbatim,
+but they never share a **ledger**: each subsystem runs its own broker with its
+own seed map in its own private root, so spending on one can never consume the
+other's remaining balance. The remaining balance is never disclosed to the
+caller in any form.
+
+The feature is **config-only**: there are no `--bounded-agents-*` CLI flags.
+
+### 15.2 Configuration
+
+The root object MAY contain a `boundedAgents` section:
+
+```json
+{
+  "boundedAgents": {
+    "enabled": true,
+    "privateRepos": [
+      { "repo": "my-org/private-service", "sensitivity": "internal" }
+    ],
+    "runtime": "docker",
+    "profile": "openai",
+    "model": "gpt-4o-mini",
+    "timeout": 120,
+    "memoryLimit": "512m",
+    "cpuLimit": "1",
+    "pidsLimit": 128,
+    "tmpfsLimit": "64m",
+    "maxOutputBytes": 8192,
+    "maxTaskBytes": 4096,
+    "maxInvocations": 8,
+    "maxModelRequests": 8,
+    "maxModelTokens": 1024
+  }
+}
+```
+
+| Field | Type | Default | Notes |
+|-------|------|---------|-------|
+| `enabled` | boolean | `false` | Only an explicit `true` enables the subsystem. |
+| `privateRepos` | array | — | Required when enabled. Each entry is `{ repo, sensitivity }`; `repo` MUST be a bare `owner/repo` slug and MUST be unique case-insensitively. There is no legacy bare-string form. |
+| `runtime` | `docker` \| `gvisor` \| `sbx` | `docker` | `docker` and `gvisor` are implemented; `sbx` fails closed (§15.7). |
+| `profile` | `openai` \| `anthropic` | `openai` | Trusted provider protocol the enclave speaks to the API proxy. |
+| `model` | string | — | Required when enabled. A request can never choose or override it. |
+| `timeout` | integer (1–540) | `120` | Wall-clock bound for one enclave invocation. Capped so the 10-minute response bucket reserves its final minute for termination, validation, and cleanup. |
+| `memoryLimit` | string | `"512m"` | Docker memory limit; swap disabled at the same value. |
+| `cpuLimit` | string | `"1"` | Docker `--cpus`. |
+| `pidsLimit` | integer | `128` | Docker `--pids-limit`. |
+| `tmpfsLimit` | string | `"64m"` | Size bound for each writable tmpfs (`/tmp` and the `/agent` work/result root). |
+| `maxOutputBytes` | integer (1–8192) | `8192` | Exact size bound on the dedicated result file. |
+| `maxTaskBytes` | integer (1–65536) | `4096` | Byte bound on the caller-supplied task text. |
+| `maxInvocations` | integer | `8` | Per-run response cap; every response, including a rejection, counts. |
+| `maxModelRequests` | integer (1–64) | `8` | Model requests one invocation may issue. |
+| `maxModelTokens` | integer (1–32768) | `1024` | `max_tokens` per model call. |
+
+Every default is deliberately conservative: a bounded agent is a *model*
+reading confidential source, so the safe posture is a small, short-lived,
+low-token enclave that an operator must explicitly widen.
+
+Bounded agents additionally REQUIRE, at preflight:
+
+- the AWF API proxy to be enabled — the enclave holds no credentials and the
+  API proxy is its only permitted upstream egress;
+- a supported configured API target for the selected `profile` (an OpenAI
+  credential for `openai`, an Anthropic credential for `anthropic`);
+- a staging credential in `GH_TOKEN`/`GITHUB_TOKEN` on the AWF host;
+- a Unix-socket Docker host;
+- `enableDind` to be disabled, because primary-agent access to the enclave's
+  Docker daemon would bypass every finite-disclosure boundary.
+
+Any failure aborts the run before the primary agent starts.
+
+### 15.3 Request/Result Protocol
+
+A bounded-agent request selects exactly three things:
+
+| Field | Meaning |
+|-------|---------|
+| `privateRepo` | One configured repository, by `owner/repo` slug. |
+| `schema` | A finite response schema, using the same algebra as §14.3. |
+| `task` | Byte-bounded task text, forwarded verbatim into the enclave prompt. |
+
+The `task` is byte-bounded *input*, never configuration: it cannot add a tool,
+change the model, reach an endpoint, or alter any limit.
+
+Everything else is fixed trusted configuration and MUST be rejected if it
+appears in a request — image, command, executable, mount, path, environment,
+endpoint, network, proxy, credential, timeout, resource limit, runtime, or
+tool definition — as MUST any unknown key. Rejecting explicitly named controls
+in addition to the generic unknown-key rule is redundant by construction; it
+is retained so an accidental future widening of the accepted key set fails a
+test rather than silently granting a capability.
+
+The canonical success/error envelopes, the finite schema algebra, the
+information charge (`1` status bit + `ceil(log2(cardinality))` + `3` timing
+bits), the six fixed timing buckets, strict JSON parsing, and canonical
+re-serialization are all the shared bounded-execution primitives introduced
+for bounded queries (§14.3–§14.5) and are reused unchanged.
+
+The charge is debited from the repository's run balance **before** any
+workspace is materialized or any container is created, and is never refunded.
+
+### 15.4 Trusted Host Lifecycle
+
+Identical in shape to §14.6, against a disjoint private root:
+
+1. **Preflight before staging.** Configuration validation and the enclave
+   runtime capability proof run first, so a run that could never launch an
+   enclave never clones a private repository.
+2. **Sanitized seeds.** One immutable seed per configured repository is cloned
+   with the staging credential, scrubbed of remotes, credential helpers,
+   hooks, alternates, worktree links, and reflogs, rejected outright if it
+   declares submodules, made read-only, and verified read-only.
+3. **Credential scrub before launch.** The `GIT_ASKPASS` helper, the 0600
+   token file, and the isolated staging `HOME` are removed before any
+   container exists. The credential never appears in argv, a URL, a log line,
+   the compose file, or any container environment.
+4. **Protected directories and audit.** Seeds, per-invocation workspaces,
+   control state, and the audit log live under a `0700` broker-private root at
+   `/var/tmp/awf-bounded-agent-private-<uid>-<digest>`, which is asserted not
+   to alias, contain, or be contained by any path visible to a primary agent
+   in any supported backend. Only a separate ingress root (broker socket +
+   generated `SKILL.md`/wrapper) is mounted into the agent.
+5. **Deterministic orphan cleanup.** Every enclave carries
+   `awf.bounded-agent.run=<runId>`; teardown force-removes every container with
+   that label, including under `--keep-containers`, and the broker reconciles
+   the same label at startup and shutdown.
+
+### 15.5 Enclave Execution
+
+For each accepted request the broker launches a fresh, uniquely named,
+labelled container with a frozen argument vector:
+
+- `--network <bounded-agent network>` — the enclave joins **only** the
+  dedicated network (§15.6);
+- `--read-only` root filesystem, with the immutable seed bind-mounted `ro` at
+  `/awf/seed` (there is no writable copy of private source anywhere);
+- the caller's task and schema bind-mounted `ro`; the result file bind-mounted
+  `rw`;
+- bounded `--tmpfs` mounts for `/tmp` and the `/agent` work/result root;
+- fixed non-root uid/gid `65534:65534`, `--cap-drop ALL`,
+  `--security-opt no-new-privileges:true`, a seccomp profile, and
+  memory/memory-swap/CPU/PID/`RLIMIT_FSIZE`/`RLIMIT_NOFILE` bounds plus the
+  wall-clock timeout;
+- `--pull never`.
+
+Cleanup runs before the response: the container is force-removed and the
+workspace destroyed, and only then is the timing bucket selected.
+
+The result MUST be a single JSON value in the dedicated bounded result file,
+of at most `maxOutputBytes`. The broker reads it with `O_NOFOLLOW` plus an
+explicit regular-file check, rejects invalid UTF-8, validates it strictly
+against the declared schema, and canonically re-serializes it before
+returning. Enclave stdout and stderr are captured only so the child cannot
+block on a full pipe, and are then discarded.
+
+The protected audit log never records the task, the repository name, the
+transcript, the raw result, host paths, tokens, or provider payloads — only an
+invocation id, the trusted sensitivity class, the charge, the timing bucket,
+and a failure category.
+
+### 15.6 Network Topology
+
+Bounded agents introduce one dedicated Docker network, `awf-bounded-agent`,
+declared `internal: true` with an explicit `name:` (the broker launches
+enclaves with a fixed `docker run --network <name>` argument and must not have
+to derive a Compose project prefix at runtime).
+
+- The **enclave** is a member of that network and of nothing else. It is not on
+  `awf-net` or `awf-ext`, has no Squid route and no general proxy, and cannot
+  reach the primary agent, the broker, the safe-outputs collector, the MCP
+  gateway, or the CLI proxy.
+- A **dedicated API-proxy instance** joins `awf-bounded-agent` at a fixed
+  address/alias and a separate egress bridge that no agent can join. It is the
+  enclave's only upstream egress and the sole holder of a real provider
+  credential. Its token logs, metrics, and quota state live under the
+  bounded-agent private root, so enclave request metadata cannot form a side
+  channel through the primary agent's API-proxy telemetry.
+- The **broker** runs with `network_mode: none` and never joins the enclave
+  network. It receives the Docker socket only because it launches enclaves;
+  that path never enters the agent's environment or volumes.
+
+### 15.7 Runtime Backends
+
+`docker` uses the daemon's default OCI runtime. `gvisor` requires the `runsc`
+OCI runtime to be registered with the daemon; availability is proven exactly at
+preflight and again at broker startup, and an unavailable `runsc` NEVER
+downgrades to the default runtime.
+
+`sbx` is accepted by the JSON Schema but **fails closed** at preflight with an
+explicit not-yet-implemented capability error, and is rejected again by compose
+assembly and by the broker's runner factory. AWF has no audited single-use,
+API-proxy-only enclave launcher for it. Implementing it is deliberately out of
+scope for this release.
+
+### 15.8 Agent Interface
+
+When enabled, AWF generates two agent-visible artifacts in the ingress root:
+
+- a `bounded-agent` CLI (installed at `/tmp/awf-lib/bounded-agent`, added to
+  `PATH` by the agent entrypoint), and
+- a read-only `SKILL.md` installed under `~/.github/skills/bounded-agent/`.
+
+The CLI accepts exactly `--repo owner/repo`, `--schema '<json>'`, and the task
+text on stdin. It always prints exactly one line of canonical JSON, writes
+nothing to stderr, and exits `0` — for every outcome and every failure.
+
+The enclave image is minimal and fixed: standard-library Python 3 plus one
+AWF-authored bootstrap. There is no shell tooling for the model to reach, no
+`gh`, no git, no package manager, no host state, and no credential. The model
+gets three read-only repository tools (list, read, search) confined to the
+seed, plus one terminal tool that records the final answer. Safe outputs and
+MCP are not available inside the enclave.
+
+### 15.9 Provider Disclosure Caveat
+
+A bounded agent necessarily sends repository-derived content — file listings,
+file excerpts, and search hits selected by the model — to the configured model
+provider through the AWF API proxy. **The information-budget ledger bounds what
+the *calling agent* learns, not what the *provider* sees.**
+
+This is a materially different exposure from a bounded query, whose Python
+sandbox has no network at all. Operators MUST treat the configured provider as
+an authorized recipient of repository contents before enabling bounded agents
+for a repository, and SHOULD prefer bounded queries when a deterministic script
+can answer the question.
+
+### 15.10 Residual Channels and Limits
+
+- Disclosure to the calling agent is bounded by the declared schema's charge
+  plus the status and timing channels, debited before any workspace or
+  container exists; `public` repositories are schema/operationally bounded but
+  not bit-metered.
+- `maxInvocations` counts every response, including rejections.
+- Response timing is bucketed to one of six fixed boundaries and charged;
+  container and workspace cleanup complete before the bucket is selected.
+- Model requests per invocation, completion tokens per request, task bytes, and
+  result bytes are all separately bounded, but a model that is told to encode
+  data in its final answer is still limited only by the declared schema's
+  cardinality — which is exactly what the ledger charges for.
+- Provider-side exposure is out of scope for the ledger (§15.9).
+- The enclave shares the audited no-network sandbox seccomp profile with
+  bounded queries; unlike a bounded query it does have a network interface, to
+  the API proxy only.
+
 ## Normative References
 
 - [RFC 2119](https://www.rfc-editor.org/rfc/rfc2119) — Key words for use in

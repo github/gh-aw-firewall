@@ -37,6 +37,7 @@ import {
   SBX_DEFAULT_NAME,
 } from '../sbx-manager';
 import { prepareBoundedQueries, teardownBoundedQueries } from '../bounded-query/manager';
+import { prepareBoundedAgents, teardownBoundedAgents } from '../bounded-agent/manager';
 import type { WrapperConfig } from '../types';
 import { buildAgentEnvironment } from '../services/agent-service';
 import { buildAgentCredentialEnv } from '../services/api-proxy-credential-env';
@@ -141,6 +142,7 @@ function buildCleanupFn(
     // work-directory cleanup: `rm -rf` cannot unlink entries inside a
     // directory whose write bit was stripped during staging.
     await teardownBoundedQueries(config);
+    await teardownBoundedAgents(config);
 
     if (!config.keepContainers) {
       await cleanup(
@@ -476,6 +478,7 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
         assertTopologySupported,
         connectTopologyContainers,
         prepareBoundedQueries,
+        prepareBoundedAgents,
       },
       {
         logger,

@@ -2,6 +2,7 @@ import { WrapperConfig, LogLevel, UpstreamProxyConfig } from '../types';
 import type { AwfFileConfig } from '../config-file';
 import { resolveApiCredentials } from './resolve-credentials';
 import { normalizeBoundedQueriesConfig } from '../parsers/bounded-query-parser';
+import { normalizeBoundedAgentsConfig } from '../parsers/bounded-agent-parser';
 import { logger } from '../logger';
 
 /**
@@ -217,6 +218,9 @@ export function buildConfig(inputs: BuildConfigInputs): WrapperConfig {
     dind,
     boundedQueries: normalizeBoundedQueriesConfig(
       options.boundedQueries as AwfFileConfig['boundedQueries'] | undefined,
+    ),
+    boundedAgents: normalizeBoundedAgentsConfig(
+      options.boundedAgents as AwfFileConfig['boundedAgents'] | undefined,
     ),
   };
 }

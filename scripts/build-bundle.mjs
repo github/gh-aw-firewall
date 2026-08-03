@@ -34,6 +34,9 @@ try {
 const boundedQueryWrapperPath = join(projectRoot, 'containers', 'agent', 'bounded-query-wrapper.sh');
 const boundedQueryWrapperContent = readFileSync(boundedQueryWrapperPath, 'utf-8');
 
+const boundedAgentWrapperPath = join(projectRoot, 'containers', 'agent', 'bounded-agent-wrapper.sh');
+const boundedAgentWrapperContent = readFileSync(boundedAgentWrapperPath, 'utf-8');
+
 // Ensure output directory exists
 mkdirSync(join(projectRoot, 'release'), { recursive: true });
 
@@ -51,6 +54,7 @@ await build({
   define: {
     __AWF_SECCOMP_PROFILE__: JSON.stringify(seccompContent),
     __AWF_BOUNDED_QUERY_WRAPPER__: JSON.stringify(boundedQueryWrapperContent),
+    __AWF_BOUNDED_AGENT_WRAPPER__: JSON.stringify(boundedAgentWrapperContent),
   },
   // Mark native/optional deps as external if needed
   // (none expected — all deps are pure JS)

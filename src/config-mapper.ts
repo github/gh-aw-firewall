@@ -148,5 +148,9 @@ export function mapAwfFileConfigToCliOptions(config: AwfFileConfig): Record<stri
     // No CLI flags exist for bounded queries yet — passed through as a raw
     // object and normalized (defaults applied) in commands/build-config.ts.
     boundedQueries: config.boundedQueries,
+
+    // Bounded agents are config-only for the same reason: the surface is a
+    // trusted enclave contract, not an operator-tunable command line.
+    boundedAgents: config.boundedAgents,
   };
 }

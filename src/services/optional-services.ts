@@ -6,6 +6,7 @@ import { buildApiProxyService } from './api-proxy-service';
 import { buildDohProxyService } from './doh-proxy-service';
 import { buildCliProxyService } from './cli-proxy-service';
 import { buildBoundedQueryService, isBoundedQueryAgentMount } from './bounded-query-service';
+import { buildBoundedAgentService, isBoundedAgentAgentMount } from './bounded-agent-service';
 import { buildSysrootStageService, isSysrootEnabled } from './sysroot-service';
 import { resolveDockerHostGateway } from './host-gateway';
 import { runtimeUsesIptables } from '../container-runtime';
@@ -77,10 +78,11 @@ function filterAgentVolumesForSysroot(
     const source = parts[0];
     const target = parts[1];
 
-    // Bounded-query ingress mounts are mandatory: dropping them would leave
-    // bounded queries half-enabled (wrapper present, broker unreachable)
-    // instead of failing loudly.
+    // Bounded-query and bounded-agent ingress mounts are mandatory: dropping
+    // them would leave the subsystem half-enabled (wrapper present, broker
+    // unreachable) instead of failing loudly.
     if (isBoundedQueryAgentMount(volume)) return true;
+    if (isBoundedAgentAgentMount(volume)) return true;
 
     // Drop sysroot-shadowed targets (system binaries provided by volume)
     if (sysrootShadowedTargets.has(target)) return false;
@@ -267,6 +269,43 @@ function assembleBoundedQueryService(params: AssembleOptionalServicesParams): vo
   }
 }
 
+function assembleBoundedAgentService(params: AssembleOptionalServicesParams): void {
+  const {
+    services,
+    agentService,
+    agentVolumes,
+    environment,
+    config,
+    imageConfig,
+    includeComposeAgent = true,
+  } = params;
+
+  if (!config.boundedAgents?.enabled) return;
+
+  const {
+    enclaveImageService,
+    service,
+    apiProxyService,
+    agentEnvAdditions,
+    agentVolumes: enclaveVolumes,
+  } = buildBoundedAgentService({
+    config,
+    imageConfig,
+    networkConfig: params.networkConfig,
+  });
+
+  services['bounded-agent-image'] = enclaveImageService;
+  services['bounded-agent-api-proxy'] = apiProxyService;
+  services['bounded-agent-broker'] = service;
+  if (includeComposeAgent) {
+    Object.assign(environment, agentEnvAdditions);
+    agentVolumes.push(...enclaveVolumes);
+    agentService.depends_on['bounded-agent-broker'] = {
+      condition: 'service_healthy',
+    };
+  }
+}
+
 function finalizeSysrootVolumes(
   agentVolumes: string[],
   sysrootActive: boolean,
@@ -305,6 +344,7 @@ export function assembleOptionalServices(
 
   presetSidecarIpEnvVars(environment, config, networkConfig);
   assembleBoundedQueryService(params);
+  assembleBoundedAgentService(params);
   if (includeComposeAgent) {
     assembleSysrootService(params, imageConfig.registry, imageConfig.parsedTag, sysrootActive);
     assembleIptablesInitService(params, skipIptables);

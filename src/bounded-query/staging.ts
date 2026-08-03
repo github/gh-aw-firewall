@@ -85,14 +85,22 @@ const defaultGitRunner: GitRunner = async (args, options) => {
 export interface StageBoundedQuerySeedsParams {
   /** Trusted repository descriptors exactly as configured (already schema-validated). */
   repos: BoundedQueryRepository[];
-  /** Resolved bounded-query filesystem layout. */
-  paths: BoundedQueryPaths;
+  /**
+   * Resolved private-root layout.
+   *
+   * Structurally typed (rather than the full {@link BoundedQueryPaths}) so the
+   * bounded-agent subsystem can reuse this trusted staging implementation
+   * against its own disjoint private root without duplicating it.
+   */
+  paths: Pick<BoundedQueryPaths, 'root' | 'seedsDir'>;
   /** Run-unique id used to derive opaque seed directory names. */
   runId: string;
   /** Staging credential. Never logged, never forwarded past this module. */
   token: string;
   /** Override the git runner (tests). */
   gitRunner?: GitRunner;
+  /** Log prefix identifying the calling subsystem. */
+  label?: string;
 }
 
 /** Thrown for every staging failure. Messages never contain the token. */
@@ -396,6 +404,7 @@ export async function stageBoundedQuerySeeds(
 ): Promise<BoundedQueryStagingResult> {
   const { repos, paths, runId, token } = params;
   const gitRunner = params.gitRunner ?? defaultGitRunner;
+  const label = params.label ?? 'Bounded queries';
 
   const isolatedHome = path.join(paths.root, 'staging-home');
   fs.mkdirSync(isolatedHome, { recursive: true, mode: 0o700 });
@@ -409,14 +418,14 @@ export async function stageBoundedQuerySeeds(
   const seeds: BoundedQuerySeed[] = [];
   try {
     for (const repository of repos) {
-      logger.info(`Bounded queries: staging seed for ${repository.repo} (sensitivity: ${repository.sensitivity})...`);
+      logger.info(`${label}: staging seed for ${repository.repo} (sensitivity: ${repository.sensitivity})...`);
       seeds.push(await stageOneSeed(repository, { paths, runId, gitRunner, gitEnv }));
     }
   } catch (error) {
     releaseSeedPermissions(paths.seedsDir);
     fs.rmSync(paths.seedsDir, { recursive: true, force: true });
     const message = error instanceof Error ? error.message : String(error);
-    throw new BoundedQueryStagingError(`Bounded-query staging failed: ${message}`);
+    throw new BoundedQueryStagingError(`${label}: staging failed: ${message}`);
   } finally {
     // The helper, token file, and isolated HOME are only needed for the
     // duration of staging. Removing them leaves no staging artifact behind

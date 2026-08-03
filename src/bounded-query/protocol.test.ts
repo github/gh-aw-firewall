@@ -293,6 +293,27 @@ describe('validateSchema', () => {
 });
 
 describe('schemaCardinality and queryBitsForSchema', () => {
+  it('bounds charge calculation for pathological nested arrays without materializing huge BigInts', () => {
+    const schema: BoundedQuerySchemaNode = {
+      type: 'array',
+      length: 64,
+      items: {
+        type: 'array',
+        length: 64,
+        items: {
+          type: 'array',
+          length: 64,
+          items: {
+            type: 'array',
+            length: 64,
+            items: { type: 'boolean' },
+          },
+        },
+      },
+    };
+    expect(queryBitsForSchema(schema)).toBe(1029);
+  });
+
   it('computes cardinality 1 for const (0 bits)', () => {
     const schema: BoundedQuerySchemaNode = { type: 'const', value: 'ok' };
     expect(schemaCardinality(schema)).toBe(1n);

@@ -14,6 +14,11 @@ import { runtimeNeedsStaticDns, runtimeUsesComposeAgent } from './container-runt
 import { API_PROXY_PORTS } from './types/ports';
 import { EXTERNAL_BRIDGE_NAME } from './config/network-policy';
 import { BOUNDED_QUERY_INGRESS_NETWORK } from './bounded-query/ingress';
+import {
+  BOUNDED_AGENT_EGRESS_NETWORK,
+  BOUNDED_AGENT_NETWORK,
+  BOUNDED_AGENT_SUBNET,
+} from './bounded-agent/network';
 import { buildInternalServiceHosts } from './services/internal-service-hosts';
 
 /**
@@ -188,6 +193,28 @@ export function generateDockerCompose(
     compose.networks[BOUNDED_QUERY_INGRESS_NETWORK] = {
       driver: 'bridge',
       internal: true,
+    };
+  }
+  if (config.boundedAgents?.enabled) {
+    // Dedicated `internal` network whose only members are bounded-agent
+    // enclaves and the dual-homed API proxy. An explicit `name:` is required
+    // because the broker launches enclaves with a fixed
+    // `docker run --network <name>` argument and must not have to derive a
+    // Compose project prefix at runtime.
+    compose.networks[BOUNDED_AGENT_NETWORK] = {
+      name: BOUNDED_AGENT_NETWORK,
+      driver: 'bridge',
+      internal: true,
+      ipam: {
+        config: [{ subnet: BOUNDED_AGENT_SUBNET }],
+      },
+    };
+    // Only the dedicated credential sidecar joins this bridge. It receives
+    // direct upstream egress while enclaves remain confined to the internal
+    // network and the primary agent cannot observe its metrics or state.
+    compose.networks[BOUNDED_AGENT_EGRESS_NETWORK] = {
+      name: BOUNDED_AGENT_EGRESS_NETWORK,
+      driver: 'bridge',
     };
   }
   return compose;

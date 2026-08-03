@@ -939,6 +939,157 @@
           "privateRepos"
         ]
       }
+    },
+    "boundedAgents": {
+      "type": "object",
+      "description": "Bounded-agent enclave configuration. When enabled, AWF stages an immutable seed per configured private repository, starts an offline broker, and exposes a fixed `bounded-agent` CLI plus a generated skill to the agent. Each invocation runs a fixed, AWF-authored model loop inside a single-use enclave that joins only a dedicated `internal` bounded-agent Docker network whose sole other member is the AWF API proxy. Requires the API proxy and a supported configured model route. See docs/awf-config-spec.md §15.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable bounded agents for this run. Requires a staging credential in GH_TOKEN or GITHUB_TOKEN on the AWF host, an enabled API proxy, and a configured `profile`/`model` route. Default: false.",
+          "default": false
+        },
+        "privateRepos": {
+          "type": "array",
+          "description": "Private repositories a bounded agent may reason about, each with a trusted confidentiality category that fixes its per-run information budget (`public` unmetered, `internal` 64 bits/run, `confidential` 8 bits/run, `sealed` 0 bits/run — never launches an enclave). Each `repo` must be a bare `owner/repo` slug — no scheme, host, credentials, path traversal, query string, fragment, or wildcard. Repository names must be unique case-insensitively. Bounded agents keep a ledger separate from bounded queries.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "repo",
+              "sensitivity"
+            ],
+            "properties": {
+              "repo": {
+                "type": "string",
+                "maxLength": 140,
+                "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})/(?!\\.\\.?$)(?!.*\\.\\.)[A-Za-z0-9._-]{1,100}$"
+              },
+              "sensitivity": {
+                "type": "string",
+                "enum": [
+                  "public",
+                  "internal",
+                  "confidential",
+                  "sealed"
+                ],
+                "description": "Confidentiality category, which fixes this repository's immutable per-run information budget. Cannot be increased by configuration."
+              }
+            }
+          },
+          "minItems": 1
+        },
+        "runtime": {
+          "type": "string",
+          "enum": [
+            "docker",
+            "gvisor",
+            "sbx"
+          ],
+          "description": "Sandbox runtime backend used to execute the enclave. \"docker\" uses the daemon default runtime; \"gvisor\" requires the runsc OCI runtime; \"sbx\" is accepted by this schema but fails closed at preflight with an explicit not-yet-implemented capability error. No backend ever falls back. Default: \"docker\".",
+          "default": "docker"
+        },
+        "profile": {
+          "type": "string",
+          "enum": [
+            "openai",
+            "anthropic"
+          ],
+          "description": "Trusted provider protocol the enclave speaks to the AWF API proxy: \"openai\" uses POST /v1/chat/completions, \"anthropic\" uses POST /v1/messages. The API proxy injects the real credential; the enclave never holds one. A request can never choose the profile. Default: \"openai\".",
+          "default": "openai"
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,199}$",
+          "description": "Model identifier sent on every enclave request. Required when enabled. A request can never choose or override it."
+        },
+        "timeout": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 540,
+          "description": "Maximum wall-clock time in seconds allowed for a single enclave invocation. Capped at 540 so the 10-minute response bucket reserves its final minute for termination, validation, container removal, and workspace cleanup. Default: 120.",
+          "default": 120
+        },
+        "memoryLimit": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]*[bkmgBKMG]$",
+          "description": "Docker-style memory limit applied to the enclave (e.g. \"512m\"). Swap is disabled at the same value. Default: \"512m\".",
+          "default": "512m"
+        },
+        "cpuLimit": {
+          "type": "string",
+          "pattern": "^(?:[0-9]{1,2})(?:\\.[0-9]{1,3})?$",
+          "description": "Fractional CPU limit applied to the enclave (Docker --cpus). Default: \"1\".",
+          "default": "1"
+        },
+        "pidsLimit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4096,
+          "description": "Maximum number of processes/threads the enclave may create. Default: 128.",
+          "default": 128
+        },
+        "tmpfsLimit": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]*[bkmgBKMG]$",
+          "description": "Docker-style size limit for each of the enclave's writable tmpfs mounts (/tmp and the /agent work/result root). Default: \"64m\".",
+          "default": "64m"
+        },
+        "maxOutputBytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 8192,
+          "description": "Maximum size in bytes of the enclave's dedicated result file. The broker reads back at most this many bytes and requires exactly one JSON value conforming to the declared finite schema. Default: 8192.",
+          "default": 8192
+        },
+        "maxTaskBytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65536,
+          "description": "Maximum size in bytes of the caller-supplied bounded task text. The task is byte-bounded input forwarded verbatim into the enclave prompt; it is never interpreted as configuration. Default: 4096.",
+          "default": 4096
+        },
+        "maxInvocations": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000,
+          "description": "Maximum number of enclave responses permitted for the current AWF run. Every response — including a rejection — counts. Exhaustion returns the canonical error without launching an enclave. Default: 8.",
+          "default": 8
+        },
+        "maxModelRequests": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 64,
+          "description": "Maximum number of model requests one enclave invocation may issue through the API proxy. Default: 8.",
+          "default": 8
+        },
+        "maxModelTokens": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 32768,
+          "description": "Maximum completion tokens requested per model call (max_tokens). Default: 1024.",
+          "default": 1024
+        }
+      },
+      "if": {
+        "properties": {
+          "enabled": {
+            "const": true
+          }
+        },
+        "required": [
+          "enabled"
+        ]
+      },
+      "then": {
+        "required": [
+          "privateRepos",
+          "model"
+        ]
+      }
     }
   },
   "$defs": {

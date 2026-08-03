@@ -16,6 +16,7 @@ import type { RuntimeOptions } from './runtime-options';
 import type { PlatformOptions } from './platform-options';
 import type { RunnerOptions } from './runner-options';
 import type { BoundedQueryOptions } from './bounded-query-options';
+import type { BoundedAgentOptions } from './bounded-agent-options';
 
 export type WrapperConfig =
   ContainerImageOptions
@@ -28,4 +29,5 @@ export type WrapperConfig =
   & RuntimeOptions
   & PlatformOptions
   & RunnerOptions
-  & BoundedQueryOptions;
+  & BoundedQueryOptions
+  & BoundedAgentOptions;

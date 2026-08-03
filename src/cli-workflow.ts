@@ -40,6 +40,14 @@ interface WorkflowDependencies {
    */
   prepareBoundedQueries?: (config: WrapperConfig) => Promise<void>;
   /**
+   * Trusted bounded-agent preflight and staging. Runs in the same phase as
+   * bounded-query staging and for the same reasons: a failure must abort before
+   * any container exists, and the staging credential must be consumed and
+   * discarded before the broker, the enclave, or the primary agent can observe
+   * anything.
+   */
+  prepareBoundedAgents?: (config: WrapperConfig) => Promise<void>;
+  /**
    * Fail-stop preflight for network-isolation mode. Aborts (process exit) when
    * topology enforcement cannot be supported on the current platform.
    */
@@ -96,6 +104,18 @@ export async function runMainWorkflow(
     }
     logger.info('Staging bounded-query repository seeds...');
     await dependencies.prepareBoundedQueries(config);
+  }
+
+  if (config.boundedAgents?.enabled) {
+    if (!dependencies.prepareBoundedAgents) {
+      // Fail loudly rather than generating a broker service whose seeds and
+      // socket were never staged — bounded agents are never half-enabled.
+      throw new Error(
+        'Bounded agents are enabled but no staging implementation was provided to runMainWorkflow',
+      );
+    }
+    logger.info('Staging bounded-agent repository seeds...');
+    await dependencies.prepareBoundedAgents(config);
   }
 
   // Step 0: Setup host-level network and iptables

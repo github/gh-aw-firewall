@@ -662,6 +662,35 @@ copy_agent_helper_scripts() {
       echo "[entrypoint][WARN] Could not install bounded-query SKILL.md"
     fi
   fi
+
+  # Activate the bounded-agent CLI when the bounded-agent broker socket is
+  # present.  Same mechanism and PATH entry as the bounded-query CLI.
+  if [ -n "$AWF_BOUNDED_AGENT_SOCKET" ] && [ -f /usr/local/bin/bounded-agent-wrapper.sh ]; then
+    if mkdir -p /host/tmp/awf-lib 2>/dev/null; then
+      if cp /usr/local/bin/bounded-agent-wrapper.sh /host/tmp/awf-lib/bounded-agent 2>/dev/null && \
+         chmod +x /host/tmp/awf-lib/bounded-agent 2>/dev/null; then
+        echo "[entrypoint] bounded-agent CLI installed at /tmp/awf-lib/bounded-agent (inside chroot)"
+        case ":${AWF_HOST_PATH:-$PATH}:" in
+          *":/tmp/awf-lib:"*) ;;
+          *) export AWF_HOST_PATH="/tmp/awf-lib:${AWF_HOST_PATH:-$PATH}" ;;
+        esac
+      else
+        echo "[entrypoint][WARN] Could not install bounded-agent CLI"
+      fi
+    fi
+  fi
+
+  # Install the bounded-agent SKILL.md alongside the bounded-query one.
+  if [ -n "$AWF_BOUNDED_AGENT_SKILL" ] && [ -f "$AWF_BOUNDED_AGENT_SKILL" ] && \
+     [ -n "$SYNTH_HOME" ]; then
+    AGENT_SKILL_DEST_DIR="/host${SYNTH_HOME}/.github/skills/bounded-agent"
+    if mkdir -p "$AGENT_SKILL_DEST_DIR" 2>/dev/null && \
+       cp "$AWF_BOUNDED_AGENT_SKILL" "$AGENT_SKILL_DEST_DIR/SKILL.md" 2>/dev/null; then
+      echo "[entrypoint] bounded-agent SKILL.md installed at ${SYNTH_HOME}/.github/skills/bounded-agent/SKILL.md (inside chroot)"
+    else
+      echo "[entrypoint][WARN] Could not install bounded-agent SKILL.md"
+    fi
+  fi
 }
 
 copy_dind_runner_binary() {
@@ -1405,6 +1434,32 @@ run_non_chroot_command() {
       echo "[entrypoint] bounded-query SKILL.md installed at ${SKILL_DEST_DIR}/SKILL.md"
     else
       echo "[entrypoint][WARN] Could not install bounded-query SKILL.md"
+    fi
+  fi
+
+  # Activate the bounded-agent CLI in non-chroot mode.
+  if [ -n "$AWF_BOUNDED_AGENT_SOCKET" ] && [ -f /usr/local/bin/bounded-agent-wrapper.sh ]; then
+    mkdir -p /tmp/awf-lib
+    if cp /usr/local/bin/bounded-agent-wrapper.sh /tmp/awf-lib/bounded-agent 2>/dev/null && \
+       chmod +x /tmp/awf-lib/bounded-agent 2>/dev/null; then
+      case ":${PATH}:" in
+        *":/tmp/awf-lib:"*) ;;
+        *) export PATH="/tmp/awf-lib:${PATH}" ;;
+      esac
+      echo "[entrypoint] bounded-agent CLI installed at /tmp/awf-lib/bounded-agent"
+    else
+      echo "[entrypoint][WARN] Could not install bounded-agent CLI"
+    fi
+  fi
+
+  # Install the bounded-agent SKILL.md (non-chroot mode).
+  if [ -n "$AWF_BOUNDED_AGENT_SKILL" ] && [ -f "$AWF_BOUNDED_AGENT_SKILL" ]; then
+    AGENT_SKILL_DEST_DIR="${HOME}/.github/skills/bounded-agent"
+    if mkdir -p "$AGENT_SKILL_DEST_DIR" 2>/dev/null && \
+       cp "$AWF_BOUNDED_AGENT_SKILL" "$AGENT_SKILL_DEST_DIR/SKILL.md" 2>/dev/null; then
+      echo "[entrypoint] bounded-agent SKILL.md installed at ${AGENT_SKILL_DEST_DIR}/SKILL.md"
+    else
+      echo "[entrypoint][WARN] Could not install bounded-agent SKILL.md"
     fi
   fi
 

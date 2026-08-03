@@ -22,11 +22,14 @@ function redactAuditDetail(detail) {
   return detail === undefined ? undefined : String(detail).slice(0, MAX_REASON_LENGTH);
 }
 
-function createAuditLog(auditDir) {
+/** Default audit filename, kept for bounded-query compatibility. */
+const DEFAULT_AUDIT_FILENAME = 'bounded-query.jsonl';
+
+function createAuditLog(auditDir, fileName = DEFAULT_AUDIT_FILENAME) {
   let fd;
   try {
     fs.mkdirSync(auditDir, { recursive: true, mode: 0o700 });
-    const auditPath = path.join(auditDir, 'bounded-query.jsonl');
+    const auditPath = path.join(auditDir, fileName);
     fd = fs.openSync(auditPath, 'a', 0o600);
   } catch (error) {
     // Losing the audit file must not take the broker down; fall back to
@@ -79,6 +82,7 @@ function createAuditLog(auditDir) {
 }
 
 module.exports = {
+  DEFAULT_AUDIT_FILENAME,
   createAuditLog,
   createProtectedAuditLog: createAuditLog,
   redactAuditDetail,
