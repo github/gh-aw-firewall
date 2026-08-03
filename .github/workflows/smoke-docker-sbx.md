@@ -145,13 +145,13 @@ Verify by running `cat` on the file path using bash to confirm it exists.
 
 ## Output (MANDATORY)
 
-**If triggered by a pull request** (check: `${{ github.event_name }}` equals "pull_request"), you MUST call `add_comment` to post a **very brief** comment (max 5-10 lines) on the current pull request with:
+**If triggered by a pull request** (check: `${{ github.event_name }}` equals "pull_request"), you MUST call `add_comment` with `item_number: ${{ github.event.pull_request.number }}` to post a **very brief** comment (max 5-10 lines) on the current pull request. Do not rely on implicit triggering context, because Docker sbx may not propagate the event name into the safe-outputs gateway. Include:
 - PR titles only (no descriptions)
 - ✅ or ❌ for each test result
 - Overall status: PASS or FAIL
 - Mention the pull request author and any assignees
 
 If all tests pass on a pull request trigger:
-- Use the `add_labels` safe-output tool to add the label `smoke-docker-sbx` to the pull request
+- Use the `add_labels` safe-output tool with `item_number: ${{ github.event.pull_request.number }}` to add the label `smoke-docker-sbx` to the pull request
 
 **If triggered by workflow_dispatch or schedule** (no PR context), call `noop` with a concise PASS/FAIL summary instead. Do NOT attempt to add pull request comments or labels when there is no pull request.
