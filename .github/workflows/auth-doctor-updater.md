@@ -110,7 +110,7 @@ Read the scan date, then search this repository for issues and pull requests upd
 
 `authentication`, `api-proxy`, `OIDC`, `WIF`, `OpenAI`, `Anthropic`, `Copilot`, `BYOK`, `Gemini`, `Vertex`, `Azure`, `Entra`, `AWS`, `Bedrock`, `GCP`, `workload identity`, `ACTIONS_ID_TOKEN`, `mcpg`, `github-oidc`, `authorization header`, `credential isolation`, `health`, `reflect`.
 
-Include open and closed issues plus merged pull requests. Read bodies and key comments to establish whether behavior is shipped on `main`, pending on another branch, or still unresolved. In particular, do not assume github/gh-aw-firewall#6894 or github/gh-aw#50053 is on the current default branch without verifying it.
+Include open and closed issues plus merged pull requests. Read bodies and key comments to establish whether behavior is shipped on `main`, pending on another branch, or still unresolved. In particular, verify the current status of github/gh-aw-firewall#6894 and github/gh-aw#50053 before describing their behavior or compatibility work.
 
 ## Step 3 — Check Official Provider Guidance
 

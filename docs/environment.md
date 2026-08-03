@@ -23,7 +23,7 @@ awf --env-file /tmp/runtime-paths.env -e MY_VAR=override 'command'
 
 When using `sudo -E`, these host variables are automatically passed: `GITHUB_TOKEN`, `GH_TOKEN`, `GITHUB_PERSONAL_ACCESS_TOKEN`, `USER`, `TERM`, `HOME`, `XDG_CONFIG_HOME`.
 
-On current `main`, GitHub Actions also supplies `ACTIONS_ID_TOKEN_REQUEST_URL` and `ACTIONS_ID_TOKEN_REQUEST_TOKEN` when the job grants `id-token: write`, and AWF's default passthrough can place them in the agent environment. Never print or inspect either value. The API-proxy sidecar receives them directly when `AWF_AUTH_TYPE=github-oidc`; [PR #6894](https://github.com/github/gh-aw-firewall/pull/6894) is the related agent-isolation change.
+GitHub Actions supplies `ACTIONS_ID_TOKEN_REQUEST_URL` and `ACTIONS_ID_TOKEN_REQUEST_TOKEN` when the job grants `id-token: write`. Never print or inspect either value. AWF excludes them from the agent environment and forwards them directly to the API-proxy sidecar only when `AWF_AUTH_TYPE=github-oidc`.
 
 The following are always set/overridden: `PATH` (container values).
 
@@ -46,7 +46,7 @@ Using `--env-all` passes all host environment variables to the container, which 
 3. **Unnecessary Access**: Extra variables increase attack surface (violates least privilege)
 4. **Accidental Sharing**: Easy to forget what's in your environment when sharing commands
 
-**Excluded variables** (even with `--env-all`): `PATH`, `PWD`, `OLDPWD`, `SHLVL`, `_`, `SUDO_*`
+**Excluded variables** (even with `--env-all`): `PATH`, `PWD`, `OLDPWD`, `SHLVL`, `_`, `SUDO_*`, `ACTIONS_RUNTIME_TOKEN`, `ACTIONS_RESULTS_URL`, `ACTIONS_ID_TOKEN_REQUEST_URL`, and `ACTIONS_ID_TOKEN_REQUEST_TOKEN`. Actions OIDC variables are forwarded directly to the api-proxy sidecar in `github-oidc` mode, never to the agent.
 
 `--env-all` is not a safe way to troubleshoot authentication. Do not expose Actions OIDC request variables to the agent to support HTTP MCP `auth.type: github-oidc`: gh-aw launches mcpg separately from a runner-owned step, and [github/gh-aw#50053](https://github.com/github/gh-aw/issues/50053) tracks that boundary and existing-lock compatibility. The [Auth Doctor Updater workflow](../.github/workflows/auth-doctor-updater.md) audits this guidance without running credential probes.
 
@@ -68,7 +68,7 @@ Using `--env-all` passes all host environment variables to the container, which 
 3. `--env-file` variables
 4. `--env` / `-e` explicit variables (highest priority)
 
-**Excluded variables** in `--env-file` (same list as `--env-all`): `PATH`, `PWD`, `HOME`, `SUDO_*`, etc.
+**Excluded variables** in `--env-file` (same list as `--env-all`): `PATH`, `PWD`, `HOME`, `SUDO_*`, Actions runtime credentials, etc. Explicit `--env` cannot override credential exclusions.
 
 **Example use case — Safe Outputs MCP:**
 ```bash

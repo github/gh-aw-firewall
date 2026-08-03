@@ -23,6 +23,8 @@ const { AnthropicOidcTokenProvider } = require('../anthropic-oidc-token-provider
 const { ANTHROPIC_ENV } = require('../provider-env-constants');
 const { bearerAuthHeaders, providerKeyHeaders } = require('./auth-headers');
 
+const OAUTH_API_BETA = 'oauth-2025-04-20';
+
 let makeAnthropicTransform, loadCustomTransform, EXTENDED_CACHE_BETA;
 try {
   ({ makeAnthropicTransform, loadCustomTransform, EXTENDED_CACHE_BETA } = require('../anthropic-transforms'));
@@ -34,6 +36,22 @@ try {
   } else {
     throw err;
   }
+}
+
+function mergeAnthropicBetas(...values) {
+  const merged = [];
+  const seen = new Set();
+  for (const value of values) {
+    const normalized = Array.isArray(value) ? value.join(',') : value;
+    if (!normalized) continue;
+    for (const beta of normalized.split(',').map(item => item.trim()).filter(Boolean)) {
+      if (!seen.has(beta)) {
+        seen.add(beta);
+        merged.push(beta);
+      }
+    }
+  }
+  return merged.join(',');
 }
 
 /**
@@ -106,10 +124,13 @@ function createAnthropicAdapter(env, deps = {}) {
         });
       } : null,
     },
-    buildOidcHeaders: (token) => bearerAuthHeaders(token),
+    buildOidcHeaders: (token) => bearerAuthHeaders(token, {
+      'anthropic-beta': OAUTH_API_BETA,
+    }),
     buildStaticHeaders: () => providerKeyHeaders(authHeaderName, apiKey),
     createAdapterMethodsOptions: ({ oidcConfigured, oidcProvider, resolveHeaders }) => ({
       apiKey,
+      credentialConfigured: !!apiKey || oidcConfigured,
       rawTarget,
       basePath,
       provider: 'anthropic',
@@ -177,8 +198,8 @@ function createAnthropicAdapter(env, deps = {}) {
     },
     /**
      * Build Anthropic auth headers for this request.
-     * Merges in the anthropic-version default and anthropic-beta (for auto-cache)
-     * as needed, without overwriting values already set by the client.
+     * Merges in the anthropic-version default and required anthropic-beta
+     * values without dropping values already set by the client.
      *
      * @param {{ resolveHeaders: () => Record<string,string>, req: import('http').IncomingMessage }} params
      * @returns {Record<string, string>}
@@ -191,22 +212,20 @@ function createAnthropicAdapter(env, deps = {}) {
         return {};
       }
       const mergedHeaders = { ...headers };
+      const authBeta = mergedHeaders['anthropic-beta'];
+      delete mergedHeaders['anthropic-beta'];
 
       if (!req.headers['anthropic-version']) {
         mergedHeaders['anthropic-version'] = '2023-06-01';
       }
 
-      if (autoCache && EXTENDED_CACHE_BETA) {
-        const existing = req.headers['anthropic-beta'];
-        if (!existing) {
-          mergedHeaders['anthropic-beta'] = EXTENDED_CACHE_BETA;
-        } else {
-          const normalizedExisting = Array.isArray(existing) ? existing.join(',') : existing;
-          const existingBetas = normalizedExisting.split(',').map(s => s.trim()).filter(Boolean);
-          if (!existingBetas.includes(EXTENDED_CACHE_BETA)) {
-            mergedHeaders['anthropic-beta'] = `${normalizedExisting},${EXTENDED_CACHE_BETA}`;
-          }
-        }
+      const mergedBeta = mergeAnthropicBetas(
+        req.headers['anthropic-beta'],
+        authBeta,
+        autoCache ? EXTENDED_CACHE_BETA : undefined
+      );
+      if (authBeta || (autoCache && EXTENDED_CACHE_BETA)) {
+        mergedHeaders['anthropic-beta'] = mergedBeta;
       }
 
       return mergedHeaders;

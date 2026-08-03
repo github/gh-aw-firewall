@@ -8,6 +8,18 @@ const { parseBodyAsObject } = require('./body-utils');
  */
 const MODEL_NOT_SUPPORTED_RETRY_DELAYS_MS = [1000, 2000];
 
+function rebuildBodyFramingHeaders(headers, bodyLength) {
+  const reframedHeaders = {};
+  for (const [name, value] of Object.entries(headers)) {
+    const lowerName = name.toLowerCase();
+    if (lowerName !== 'content-length' && lowerName !== 'transfer-encoding') {
+      reframedHeaders[name] = value;
+    }
+  }
+  reframedHeaders['content-length'] = String(bodyLength);
+  return reframedHeaders;
+}
+
 /**
  * Create and dispatch the upstream HTTPS request.
  * Sets up the proxyReq error handler, writes the body, and delegates response
@@ -27,22 +39,47 @@ function createSendUpstreamRequest({
 }) {
   return function sendUpstreamRequest(requestHeaders, {
     body, targetHost, upstreamPath, req, res, provider, requestId, startTime, span, requestBytes,
+    requestSigner = null,
     hasRetried = false,
     modelNotSupportedRetryCount = 0,
   }) {
+    let outboundHeaders = requestHeaders;
+    if (requestSigner) {
+      try {
+        outboundHeaders = requestSigner({
+          method: req.method,
+          path: upstreamPath,
+          headers: requestHeaders,
+          body,
+          targetHost,
+        });
+      } catch (err) {
+        otel.endSpanError(span, err, 503);
+        handleRequestError(err, {
+          res, requestId, provider, req, targetHost, startTime,
+          statusCode: 503,
+          clientMessage: 'AWS request signing unavailable',
+          extraMetrics: () => {
+            metrics.increment('requests_total', { provider, method: req.method, status_class: '5xx' });
+          },
+        });
+        return;
+      }
+    }
+
     const options = {
       hostname: targetHost, port: 443, path: upstreamPath,
-      method: req.method, headers: requestHeaders,
+      method: req.method, headers: outboundHeaders,
       agent: proxyAgent,
     };
 
     const proxyReq = https.request(options, (proxyRes) => {
-      handleUpstreamResponse(proxyRes, requestHeaders, {
+      handleUpstreamResponse(proxyRes, outboundHeaders, {
         body, res, provider, requestId, req, targetHost, startTime, span, requestBytes,
         hasRetried,
         modelNotSupportedRetryCount,
         onRetry: (retryHeaders) => sendUpstreamRequest(retryHeaders, {
-          body, targetHost, upstreamPath, req, res, provider, requestId, startTime, span, requestBytes,
+          body, targetHost, upstreamPath, req, res, provider, requestId, startTime, span, requestBytes, requestSigner,
           hasRetried: true,
           modelNotSupportedRetryCount,
         }),
@@ -50,7 +87,7 @@ function createSendUpstreamRequest({
           const delayMs = MODEL_NOT_SUPPORTED_RETRY_DELAYS_MS[modelNotSupportedRetryCount] ?? 2000;
           sleep(delayMs).then(() => {
             sendUpstreamRequest(requestHeaders, {
-              body, targetHost, upstreamPath, req, res, provider, requestId, startTime, span, requestBytes,
+              body, targetHost, upstreamPath, req, res, provider, requestId, startTime, span, requestBytes, requestSigner,
               hasRetried,
               modelNotSupportedRetryCount: modelNotSupportedRetryCount + 1,
             });
@@ -78,11 +115,13 @@ function createSendUpstreamRequest({
           if (!newParsed) return false;
           newParsed.model = nextModel;
           const newBody = Buffer.from(JSON.stringify(newParsed), 'utf8');
+          const retryHeaders = rebuildBodyFramingHeaders(requestHeaders, newBody.length);
 
           // Update the candidates list so if the next model also fails we can
           // continue falling back (by shifting the current index forward).
-          sendUpstreamRequest(requestHeaders, {
-            body: newBody, targetHost, upstreamPath, req, res, provider, requestId, startTime, span, requestBytes,
+          sendUpstreamRequest(retryHeaders, {
+            body: newBody, targetHost, upstreamPath, req, res, provider, requestId, startTime, span,
+            requestBytes: newBody.length, requestSigner,
             hasRetried,
             modelNotSupportedRetryCount,
           });
@@ -110,5 +149,6 @@ function createSendUpstreamRequest({
 
 module.exports = {
   MODEL_NOT_SUPPORTED_RETRY_DELAYS_MS,
+  rebuildBodyFramingHeaders,
   createSendUpstreamRequest,
 };

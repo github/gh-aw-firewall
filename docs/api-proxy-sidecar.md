@@ -3,7 +3,7 @@ title: API Proxy Sidecar
 description: Secure LLM API credential management using an isolated proxy sidecar container.
 ---
 
-The AWF firewall supports an optional Node.js-based API proxy sidecar that securely holds LLM API credentials and automatically injects authentication headers while routing all traffic through Squid to respect domain whitelisting.
+The AWF firewall includes a Node.js-based API proxy sidecar that securely holds LLM API credentials, automatically injects authentication headers, and routes outbound HTTP/HTTPS through Squid. The sidecar is a trusted component and is explicitly exempt from Squid's domain allowlist.
 
 :::note
 For a deep dive into how AWF handles authentication tokens and credential isolation, see the [Authentication Architecture](./authentication-architecture.md) guide.
@@ -11,12 +11,16 @@ For a deep dive into how AWF handles authentication tokens and credential isolat
 
 ## Overview
 
-When enabled, the API proxy sidecar:
+The API proxy sidecar is **always enabled**. It:
 - **Isolates credentials**: API keys are never exposed to the agent container
 - **Auto-authentication**: Automatically injects Bearer tokens and API keys
-- **Multi-provider support**: Supports OpenAI, Anthropic, Copilot, and Gemini APIs
+- **Multi-provider support**: Supports OpenAI, Anthropic, Copilot, Gemini, and Google Vertex AI
 - **Transparent proxying**: Agent code uses standard SDK environment variables
-- **Squid routing**: All traffic routes through Squid to respect domain whitelisting
+- **Squid routing**: Outbound HTTP/HTTPS routes through Squid, with the trusted sidecar exempt from domain ACLs
+
+:::note[Implementation vs. provider documentation]
+The `--enable-api-proxy` CLI flag is deprecated and ignored — it is kept only so existing command lines and workflows continue to work. `--no-enable-api-proxy` is rejected as a runtime error; the API proxy cannot be disabled. Do not add the deprecated flag to new commands.
+:::
 
 ## Architecture
 
@@ -39,7 +43,7 @@ When enabled, the API proxy sidecar:
 │         │  └──────────────────────────────┘
 │         │
 └─────────┼─────────────────────────────────────┘
-          │ (Domain whitelist enforced)
+          │ (Trusted sidecar: domain ACL bypass)
           ↓
   api.openai.com or api.anthropic.com
 ```
@@ -48,7 +52,7 @@ When enabled, the API proxy sidecar:
 1. Agent makes a request to `172.30.0.30:10000` (OpenAI) or `172.30.0.30:10001` (Anthropic)
 2. API proxy strips any client-supplied auth headers and injects the real credentials
 3. API proxy routes the request through Squid via `HTTP_PROXY`/`HTTPS_PROXY`
-4. Squid enforces the domain whitelist (only allowed domains pass)
+4. Squid recognizes the trusted sidecar source IP and bypasses domain ACL evaluation
 5. Request reaches `api.openai.com` or `api.anthropic.com`
 
 ## Usage
@@ -60,8 +64,8 @@ When enabled, the API proxy sidecar:
 export OPENAI_API_KEY="sk-..."
 export ANTHROPIC_API_KEY="sk-ant-..."
 
-# Enable API proxy sidecar
-sudo awf --enable-api-proxy \
+# The API proxy sidecar is always active; no flag is needed to enable it
+sudo awf \
   --allow-domains api.openai.com,api.anthropic.com \
   -- your-command
 ```
@@ -71,7 +75,7 @@ sudo awf --enable-api-proxy \
 ```bash
 export OPENAI_API_KEY="sk-..."
 
-sudo awf --enable-api-proxy \
+sudo awf \
   --allow-domains api.openai.com \
   -- npx @openai/codex -p "write a hello world function"
 ```
@@ -83,7 +87,7 @@ The agent container automatically uses `http://172.30.0.30:10000` as the OpenAI 
 ```bash
 export ANTHROPIC_API_KEY="sk-ant-..."
 
-sudo awf --enable-api-proxy \
+sudo awf \
   --allow-domains api.anthropic.com \
   -- claude-code "write a hello world function"
 ```
@@ -96,7 +100,7 @@ The agent container automatically uses `http://172.30.0.30:10001` as the Anthrop
 export OPENAI_API_KEY="sk-..."
 export ANTHROPIC_API_KEY="sk-ant-..."
 
-sudo awf --enable-api-proxy \
+sudo awf \
   --allow-domains api.openai.com,api.anthropic.com \
   -- your-multi-llm-tool
 ```
@@ -120,15 +124,15 @@ The API proxy sidecar receives **real credentials** and routing configuration:
 
 | Variable | Value | When set | Description |
 |----------|-------|----------|-------------|
-| `OPENAI_API_KEY` | Real API key | `--enable-api-proxy` and env set | OpenAI API key (injected into requests) |
-| `ANTHROPIC_API_KEY` | Real API key | `--enable-api-proxy` and env set | Anthropic API key (injected into requests) |
-| `COPILOT_GITHUB_TOKEN` | Real token | `--enable-api-proxy` and env set | GitHub Copilot token — sidecar uses it to talk to `api.githubcopilot.com` (CAPI BYOK / offline mode). Triggers Copilot sidecar routing. |
-| `COPILOT_PROVIDER_API_KEY` | Real API key | `--enable-api-proxy` and env set | BYOK provider API key (e.g. Azure / OpenRouter) injected into upstream requests. **Independently** triggers Copilot sidecar routing (no `COPILOT_GITHUB_TOKEN` required); typically combined with `COPILOT_PROVIDER_BASE_URL` to point at an arbitrary upstream. |
-| `COPILOT_PROVIDER_BASE_URL` | Real upstream URL | `--enable-api-proxy` and env set | User-supplied upstream URL for direct-BYOK mode; sidecar forwards Copilot CLI requests there instead of `api.githubcopilot.com`. |
-| `GEMINI_API_KEY` | Real API key | `--enable-api-proxy` and env set | Google Gemini API key (injected into requests) |
-| `GOOGLE_API_KEY` | Real API key | `--enable-api-proxy` and env set | Google Vertex AI API key (injected into `x-goog-api-key` header) |
-| `HTTP_PROXY` | `http://172.30.0.10:3128` | Always | Routes through Squid for domain filtering |
-| `HTTPS_PROXY` | `http://172.30.0.10:3128` | Always | Routes through Squid for domain filtering |
+| `OPENAI_API_KEY` | Real API key | env set on host | OpenAI API key (injected into requests) |
+| `ANTHROPIC_API_KEY` | Real API key | env set on host | Anthropic API key (injected into requests) |
+| `COPILOT_GITHUB_TOKEN` | Real token | env set on host | GitHub Copilot token — sidecar uses it to talk to `api.githubcopilot.com` (CAPI BYOK / offline mode). Triggers Copilot sidecar routing. |
+| `COPILOT_PROVIDER_API_KEY` | Real API key | env set on host | BYOK provider API key (e.g. Azure / OpenRouter) injected into upstream requests. **Independently** triggers Copilot sidecar routing (no `COPILOT_GITHUB_TOKEN` required); typically combined with `COPILOT_PROVIDER_BASE_URL` to point at an arbitrary upstream. |
+| `COPILOT_PROVIDER_BASE_URL` | Real upstream URL | env set on host | User-supplied upstream URL for direct-BYOK mode; sidecar forwards Copilot CLI requests there instead of `api.githubcopilot.com`. |
+| `GEMINI_API_KEY` | Real API key | env set on host | Google Gemini API key (injected into requests) |
+| `GOOGLE_API_KEY` | Real API key | env set on host | Google Vertex AI API key (injected into `x-goog-api-key` header) |
+| `HTTP_PROXY` | `http://172.30.0.10:3128` | Always | Routes through Squid; sidecar traffic is exempt from domain ACLs |
+| `HTTPS_PROXY` | `http://172.30.0.10:3128` | Always | Routes through Squid; sidecar traffic is exempt from domain ACLs |
 
 :::danger[Real credentials in api-proxy]
 The api-proxy container holds **real, unredacted credentials**. These are used to authenticate requests to LLM providers. This container is isolated from the agent and has all capabilities dropped for security.
@@ -142,7 +146,7 @@ The agent container receives **redacted placeholders** and proxy URLs:
 |----------|-------|----------|-------------|
 | `OPENAI_BASE_URL` | `http://172.30.0.30:10000` | `OPENAI_API_KEY` provided to host | Redirects OpenAI SDK to proxy |
 | `ANTHROPIC_BASE_URL` | `http://172.30.0.30:10001` | `ANTHROPIC_API_KEY` provided to host | Redirects Anthropic SDK to proxy |
-| `ANTHROPIC_AUTH_TOKEN` | `placeholder-token-for-credential-isolation` | `ANTHROPIC_API_KEY` provided to host | Placeholder token (real auth via BASE_URL) |
+| `ANTHROPIC_AUTH_TOKEN` | `sk-ant-placeholder-key-for-credential-isolation` | `ANTHROPIC_API_KEY` provided to host, or Anthropic WIF configured | Non-secret placeholder accepted by Claude clients (real auth via `ANTHROPIC_BASE_URL`) |
 | `CLAUDE_CODE_API_KEY_HELPER` | `/usr/local/bin/get-claude-key.sh` | `ANTHROPIC_API_KEY` provided to host | Helper script for Claude Code CLI |
 | `COPILOT_API_URL` | `http://172.30.0.30:10002` | `COPILOT_GITHUB_TOKEN` or `COPILOT_PROVIDER_API_KEY` provided to host | Redirects Copilot CLI to sidecar |
 | `COPILOT_TOKEN` | `ghu_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa` | `COPILOT_GITHUB_TOKEN` or `COPILOT_PROVIDER_API_KEY` provided to host | Placeholder token (real auth via API_URL) |
@@ -155,12 +159,13 @@ The agent container receives **redacted placeholders** and proxy URLs:
 | `GEMINI_API_KEY` | `gemini-api-key-placeholder-for-credential-isolation` | `GEMINI_API_KEY` provided to host | Placeholder so Gemini CLI auth check passes (real key in sidecar) |
 | `GOOGLE_VERTEX_BASE_URL` | `http://172.30.0.30:10004` | `GOOGLE_API_KEY` provided to host | Redirects Vertex AI requests to proxy |
 | `GOOGLE_API_KEY` | `google-api-key-placeholder-for-credential-isolation` | `GOOGLE_API_KEY` provided to host | Placeholder so Vertex mode auth checks pass (real key in sidecar) |
-| `OPENAI_API_KEY` | Not set | `--enable-api-proxy` | Excluded from agent (held in api-proxy) |
-| `ANTHROPIC_API_KEY` | Not set | `--enable-api-proxy` | Excluded from agent (held in api-proxy) |
+| `OPENAI_API_KEY` | `sk-placeholder-for-api-proxy` | `OPENAI_API_KEY` provided to host | Non-secret placeholder required by newer Codex clients; the real host value is excluded and held in the sidecar |
+| `CODEX_API_KEY` | `sk-placeholder-for-api-proxy` | `OPENAI_API_KEY` provided to host | Non-secret placeholder for Codex routing; the sidecar replaces its auth header |
+| `ANTHROPIC_API_KEY` | Not set | Always | Excluded from agent (held in api-proxy) |
 | `HTTP_PROXY` | `http://172.30.0.10:3128` | Always | Routes through Squid proxy |
 | `HTTPS_PROXY` | `http://172.30.0.10:3128` | Always | Routes through Squid proxy |
-| `NO_PROXY` | `localhost,127.0.0.1,172.30.0.30` | `--enable-api-proxy` | Bypass proxy for localhost and api-proxy |
-| `AWF_API_PROXY_IP` | `172.30.0.30` | `--enable-api-proxy` | Used by iptables setup script |
+| `NO_PROXY` | `localhost,127.0.0.1,172.30.0.30` | Always | Bypass proxy for localhost and api-proxy |
+| `AWF_API_PROXY_IP` | `172.30.0.30` | Always | Used by iptables setup script |
 | `AWF_ONE_SHOT_TOKENS` | `COPILOT_GITHUB_TOKEN,GITHUB_TOKEN,...` | Always | Tokens protected by one-shot-token library |
 
 :::note[Gemini setup is conditional]
@@ -177,6 +182,10 @@ Token variables in the agent are set to placeholder values (for Copilot, `ghu_aa
 - CLI tools that check for token presence still work
 - Real authentication happens via the `*_BASE_URL` or `*_API_URL` environment variables
 - The one-shot-token library protects placeholder values from being read more than once
+:::
+
+:::note[Implementation vs. provider documentation]
+`ANTHROPIC_AUTH_TOKEN` is an official Anthropic SDK environment variable for bearer-token authentication. AWF does not currently consume it as a host-side source credential. AWF accepts `ANTHROPIC_API_KEY` for static auth, or Anthropic WIF configuration for short-lived bearer auth, and overwrites any host `ANTHROPIC_AUTH_TOKEN` with the non-secret agent placeholder shown above.
 :::
 
 These environment variables are recognized by:
@@ -207,11 +216,16 @@ API keys are stored in the sidecar container's environment and in the Docker Com
 
 ### Network isolation
 
-The proxy enforces domain-level egress control:
+AWF separates agent egress control from trusted sidecar routing:
 - The agent can only reach the API proxy IP (`172.30.0.30`) for API calls
 - The sidecar routes all traffic through Squid proxy
-- Squid enforces the domain whitelist (L7 filtering)
+- Squid enforces domain ACLs for agent-originated traffic
+- Squid explicitly allows all traffic from the trusted api-proxy source IP before domain ACL evaluation
 - iptables rules prevent the agent from bypassing the proxy
+
+:::danger[The sidecar is allowlist-exempt]
+The api-proxy holds live credentials and has unrestricted outbound HTTP/HTTPS access through Squid. It is part of AWF's trusted computing base. The agent domain allowlist does not contain a compromised sidecar.
+:::
 
 :::note[Squid allow rule for api-proxy IP]
 Squid includes an explicit `allow_api_proxy_ip` ACL that permits traffic to the api-proxy IP **before** the raw-IP deny rules. This is required because some HTTP clients (such as Node.js `fetch`/`undici` with a `ProxyAgent`) route requests to the api-proxy through `HTTP_PROXY` without honouring `NO_PROXY` for raw IP addresses. Without this rule, those requests would be rejected by Squid's raw-IP deny rules even though `NO_PROXY=172.30.0.30` is set in the agent container.
@@ -229,7 +243,7 @@ The sidecar has strict resource constraints:
 
 ### 1. Container startup
 
-When you pass `--enable-api-proxy`:
+The API proxy sidecar is always started:
 1. AWF starts a Node.js API proxy at `172.30.0.30`
 2. API keys are passed to the sidecar via environment variables
 3. `HTTP_PROXY`/`HTTPS_PROXY` in the sidecar are configured to route through Squid
@@ -245,7 +259,7 @@ Node.js API Proxy
   ↓ (injects Authorization: Bearer $OPENAI_API_KEY)
   ↓ (routes via HTTPS_PROXY to Squid)
 Squid Proxy
-  ↓ (enforces domain whitelist)
+  ↓ (trusted sidecar bypasses domain ACLs)
   ↓ (TLS connection to api.openai.com)
 OpenAI API
 ```
@@ -274,20 +288,22 @@ The proxy enforces a 10 MB request body size limit to prevent denial-of-service 
 ### 4. Pre-flight health check
 
 Before running the user command, the agent container runs a health check script (`api-proxy-health-check.sh`) that verifies:
-- API keys are **not** present in the agent environment (credential isolation working)
+- Real API keys are **not** present in the agent environment; expected placeholders are allowed
 - The API proxy is reachable and responding (connectivity established)
 
-If either check fails, the agent exits immediately without running the user command.
+The script currently checks configured Anthropic, OpenAI, and Copilot routes. It does not pre-flight the Gemini or Vertex listeners. If a checked route fails credential-isolation or TCP-connectivity validation, the agent exits without running the user command.
 
 ## Configuration reference
 
 ### CLI options
 
 ```bash
-sudo awf --enable-api-proxy [OPTIONS] -- COMMAND
+sudo awf [OPTIONS] -- COMMAND
 ```
 
-**Required environment variables** (at least one):
+`--enable-api-proxy` is accepted but deprecated (no-op) — see the note at the top of this document.
+
+**Provider credential environment variables** (configure at least one to use an LLM provider):
 - `OPENAI_API_KEY` — OpenAI API key
 - `ANTHROPIC_API_KEY` — Anthropic API key
 - `GEMINI_API_KEY` — Google Gemini API key
@@ -302,7 +318,7 @@ When running AWF in a GitHub Actions workflow, API keys must be available as **r
 - name: Run agent
   env:
     GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-  run: sudo --preserve-env=GEMINI_API_KEY awf --enable-api-proxy ...
+  run: sudo --preserve-env=GEMINI_API_KEY awf ...
 ```
 
 > **Note:** `sudo` strips most environment variables by default. Use `--preserve-env=VAR` (or `sudo -E` to preserve all) to ensure API keys are visible to the AWF process.
@@ -310,9 +326,11 @@ When running AWF in a GitHub Actions workflow, API keys must be available as **r
 If the key is present only in `secrets.*` but not exported into the step's `env:`, AWF will warn that no Gemini key was found and the api-proxy Gemini listener will return `503`.
 :::
 
-**Recommended domain whitelist**:
+**Recommended agent domain policy**:
 - `api.openai.com` — for OpenAI/Codex
 - `api.anthropic.com` — for Anthropic/Claude
+
+These entries document and constrain agent-originated traffic. They do not constrain the trusted api-proxy, whose source IP bypasses Squid's domain ACLs.
 
 **Optional flags for custom upstream endpoints**:
 
@@ -321,8 +339,12 @@ If the key is present only in `secrets.*` but not exported into the step's `env:
 | `--openai-api-target <host>` | `api.openai.com` | Custom upstream for OpenAI API requests (e.g. Azure OpenAI or an internal LLM router). Can also be set via `OPENAI_API_TARGET` env var (or `OPENAI_ENDPOINT_OVERRIDE` for runtime secret-backed endpoint injection). |
 | `--anthropic-api-target <host>` | `api.anthropic.com` | Custom upstream for Anthropic API requests (e.g. an internal Claude router). Can also be set via `ANTHROPIC_API_TARGET` env var. |
 | `--copilot-api-target <host>` | auto-derived | Custom upstream for GitHub Copilot API requests (useful for GHES). Can also be set via `COPILOT_API_TARGET` env var. |
+| `--gemini-api-target <host>` | `generativelanguage.googleapis.com` | Custom upstream for Gemini API requests. Can also be set via `GEMINI_API_TARGET` env var. |
+| `--gemini-api-base-path <path>` | empty | Base path prefix for Gemini API requests. Can also be set via `GEMINI_API_BASE_PATH` env var. |
 | `--vertex-api-target <host>` | `aiplatform.googleapis.com` | Custom upstream for Vertex API requests. Can also be set via `VERTEX_API_TARGET` env var. |
 | `--vertex-api-base-path <path>` | empty | Base path prefix for Vertex API requests. Can also be set via `VERTEX_API_BASE_PATH` env var. |
+| `--openai-api-auth-header <name>` | `Authorization` (with `Bearer` prefix) | Custom auth header name for OpenAI requests — sends the raw key/token value with no prefix. Can also be set via `AWF_OPENAI_AUTH_HEADER` env var. |
+| `--anthropic-api-auth-header <name>` | `x-api-key` | Custom auth header name for Anthropic requests — sends the raw key/token value with no prefix. Can also be set via `AWF_ANTHROPIC_AUTH_HEADER` env var. |
 
 > **Important**: When using a custom `--openai-api-target` or `--anthropic-api-target`, you must add the target domain to `--allow-domains` so the firewall permits outbound traffic. AWF will emit a warning if a custom target is set but not in the allowlist.
 
@@ -337,7 +359,7 @@ Use `--anthropic-auto-cache` to enable automatic Anthropic prompt-caching in the
 This typically saves ~90% on Anthropic API input costs for repeated or long-running agentic sessions.
 
 ```bash
-sudo awf --enable-api-proxy \
+sudo awf \
   --anthropic-auto-cache \
   --allow-domains api.anthropic.com \
   -- claude --dangerously-skip-permissions
@@ -352,7 +374,7 @@ Use `--anthropic-cache-tail-ttl` to control the TTL for the rolling-tail cache b
 
 ```bash
 # Long-running agentic task — use 1h TTL for maximum cache reuse
-sudo awf --enable-api-proxy \
+sudo awf \
   --anthropic-auto-cache \
   --anthropic-cache-tail-ttl 1h \
   --allow-domains api.anthropic.com \
@@ -604,7 +626,7 @@ The [Auth Doctor Updater workflow](../.github/workflows/auth-doctor-updater.md) 
 
 ### Gemini proxy returns 503
 
-When `--enable-api-proxy` is active **and `GEMINI_API_KEY` is provided to the AWF runner**, `GOOGLE_GEMINI_BASE_URL`, `GEMINI_API_BASE_URL`, and a placeholder `GEMINI_API_KEY` are injected into the agent container. If the real `GEMINI_API_KEY` was not set in the AWF runner environment, the Gemini routing vars are never set and the api-proxy Gemini listener (port 10003) responds with **503** to any requests that do reach it.
+When `GEMINI_API_KEY` is provided to the AWF runner, `GOOGLE_GEMINI_BASE_URL`, `GEMINI_API_BASE_URL`, and a placeholder `GEMINI_API_KEY` are injected into the agent container. If the real `GEMINI_API_KEY` was not set in the AWF runner environment, the Gemini routing vars are never set and the api-proxy Gemini listener (port 10003) responds with **503** to any requests that do reach it.
 
 **Solution**: Export `GEMINI_API_KEY` in the runner environment before invoking AWF. In GitHub Actions, add it to the step's `env:` block and use `sudo --preserve-env`:
 
@@ -614,12 +636,12 @@ When `--enable-api-proxy` is active **and `GEMINI_API_KEY` is provided to the AW
     GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
   run: |
     sudo --preserve-env=GEMINI_API_KEY \
-      awf --enable-api-proxy \
+      awf \
           --allow-domains generativelanguage.googleapis.com \
           -- gemini ...
 ```
 
-> **Note:** Exit code 41 ("no auth method") should no longer occur with `--enable-api-proxy` since the placeholder key satisfies the CLI's pre-flight check. If you see exit 41, ensure `--enable-api-proxy` is active.
+> **Note:** Exit code 41 ("no auth method") should no longer occur since the placeholder key satisfies the CLI's pre-flight check. If you see exit 41, verify `GEMINI_API_KEY` is exported in the AWF runner environment.
 
 ### Gemini requests blocked by Squid (connection refused / raw-IP denied)
 
@@ -631,7 +653,7 @@ Some versions of the Gemini CLI use the Node.js `undici` HTTP client, which rout
 
 ```
 ⚠️  API proxy enabled but no API keys found in environment
-   Set OPENAI_API_KEY, ANTHROPIC_API_KEY, COPILOT_GITHUB_TOKEN, COPILOT_PROVIDER_API_KEY, or GEMINI_API_KEY to use the proxy
+   Set OPENAI_API_KEY, ANTHROPIC_API_KEY, COPILOT_GITHUB_TOKEN, COPILOT_PROVIDER_API_KEY, GEMINI_API_KEY, or GOOGLE_API_KEY to use the proxy
 ```
 
 **Solution**: Export API keys before running awf (use `sudo --preserve-env` in CI):
@@ -661,7 +683,7 @@ docker logs awf-api-proxy
 Ensure the API domains are whitelisted:
 
 ```bash
-sudo awf --enable-api-proxy \
+sudo awf \
   --allow-domains api.openai.com,api.anthropic.com \
   -- your-command
 ```
@@ -688,7 +710,11 @@ AWF supports OIDC-based credential exchange with multiple cloud providers via Gi
 
 Never print or inspect either Actions OIDC variable. Documentation audits should verify the `id-token: write` permission and the presence/consistency of non-secret provider configuration instead.
 
-On current `main`, AWF forwards these variables to the API-proxy sidecar when OIDC is active, while the general agent passthrough can also expose them to the agent. [PR #6894](https://github.com/github/gh-aw-firewall/pull/6894) is the related isolation change. [github/gh-aw#50053](https://github.com/github/gh-aw/issues/50053) tracks the separate gh-aw runner-to-mcpg path and compatibility for existing lock files; do not pass OIDC variables to the agent as an MCP workaround.
+:::note[OIDC request capability is sidecar-only]
+AWF forwards `ACTIONS_ID_TOKEN_REQUEST_URL` and `ACTIONS_ID_TOKEN_REQUEST_TOKEN` only to the api-proxy sidecar when `AWF_AUTH_TYPE=github-oidc`. The variables are excluded from the agent even when `--env-all`, `--env-file`, or explicit `--env` options request them. The minted GitHub JWT and exchanged provider credentials also remain inside the sidecar.
+
+GitHub Agentic Workflows handles HTTP MCP `auth.type: github-oidc` separately: the compiler-generated, runner-owned **Start MCP Gateway** step passes the Actions variables directly to the MCP gateway, which mints an audience-bound JWT for the remote server. AWF neither launches nor configures that gateway, and the variables do not need to pass through the agent. Recompile older workflow lock files that do not use this direct runner-to-gateway path; compatibility tracking is available in [github/gh-aw#50053](https://github.com/github/gh-aw/issues/50053).
+:::
 
 When `AWF_AUTH_TYPE=github-oidc` is set but `ACTIONS_ID_TOKEN_REQUEST_URL`/`ACTIONS_ID_TOKEN_REQUEST_TOKEN` are not available in the sidecar, Anthropic OIDC requests fail closed with:
 
@@ -709,36 +735,13 @@ Exchanges the GitHub OIDC JWT for an Azure AD access token via workload identity
 
 Default OIDC audience: `api://AzureADTokenExchange`
 
-#### GitHub Actions example (Azure)
-
-```yaml
-jobs:
-  agent:
-    permissions:
-      id-token: write   # required for OIDC token request
-      contents: read
-    steps:
-      - name: Run agent with Azure OpenAI
-        env:
-          AWF_AUTH_TYPE: github-oidc
-          AWF_AUTH_AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
-          AWF_AUTH_AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
-          OPENAI_API_TARGET: my-deployment.openai.azure.com
-        run: |
-          sudo --preserve-env=AWF_AUTH_TYPE,AWF_AUTH_AZURE_TENANT_ID,AWF_AUTH_AZURE_CLIENT_ID,OPENAI_API_TARGET \
-            awf --enable-api-proxy \
-                --openai-api-target my-deployment.openai.azure.com \
-                --allow-domains my-deployment.openai.azure.com \
-                -- your-agent-command
-```
-
-:::caution
-Azure OpenAI deployments use a different base URL format from OpenAI. Set `--openai-api-target` to your Azure endpoint hostname and add it to `--allow-domains`.
+:::caution[Agent routing is not automatically configured]
+Azure OIDC can initialize in the sidecar, but OIDC configuration alone does not set `OPENAI_BASE_URL` or OpenAI compatibility placeholders in the agent. `buildOpenAiCredentialEnv()` currently enables agent routing only when `OPENAI_API_KEY` is configured. Until OIDC-aware OpenAI routing is implemented, AWF does not provide a complete keyless Azure OpenAI invocation path.
 :::
 
 ### AWS Bedrock
 
-Exchanges the GitHub OIDC JWT for temporary AWS credentials via STS `AssumeRoleWithWebIdentity`. The sidecar uses these credentials to sign requests to AWS Bedrock using SigV4.
+Exchanges the GitHub OIDC JWT for temporary AWS credentials via STS `AssumeRoleWithWebIdentity`, caches/refreshes them, and signs outbound Bedrock Runtime requests with SigV4.
 
 #### AWS-specific environment variables
 
@@ -750,31 +753,13 @@ Exchanges the GitHub OIDC JWT for temporary AWS credentials via STS `AssumeRoleW
 
 Default OIDC audience: `sts.amazonaws.com`
 
-#### GitHub Actions example (AWS)
+:::note[SigV4 signing]
+The OpenAI and Copilot adapters sign each final outbound HTTP request with the temporary STS access key, secret key, and session token. Signing covers the method, canonical path/query, transformed body hash, regional target host, `AWF_AUTH_AWS_REGION`, and the `bedrock-runtime` service. Credentials remain inside the sidecar, retries are re-signed, and requests fail closed with `503` while credentials are unavailable.
 
-```yaml
-jobs:
-  agent:
-    permissions:
-      id-token: write
-      contents: read
-    steps:
-      - name: Run agent with AWS Bedrock
-        env:
-          AWF_AUTH_TYPE: github-oidc
-          AWF_AUTH_PROVIDER: aws
-          AWF_AUTH_AWS_ROLE_ARN: ${{ vars.AWS_ROLE_ARN }}
-          AWF_AUTH_AWS_REGION: us-east-1
-        run: |
-          sudo --preserve-env=AWF_AUTH_TYPE,AWF_AUTH_PROVIDER,AWF_AUTH_AWS_ROLE_ARN,AWF_AUTH_AWS_REGION \
-            awf --enable-api-proxy \
-                --allow-domains bedrock-runtime.us-east-1.amazonaws.com,sts.us-east-1.amazonaws.com \
-                -- your-agent-command
-```
-
-:::note
-AWS Bedrock uses IAM/SigV4 request signing rather than Bearer tokens. The sidecar signs the complete request (method, path, headers, body hash) with the temporary credentials.
+For credential-leak prevention, the target must exactly match `bedrock-runtime.<region>.amazonaws.com` (or `bedrock-runtime.<region>.amazonaws.com.cn` in China). Configure that host through `OPENAI_API_TARGET` or `COPILOT_PROVIDER_BASE_URL`. Adding it to the agent allowlist may document the intended policy, but does not constrain sidecar egress.
 :::
+
+SigV4 support applies to buffered HTTP requests, including streaming HTTP responses. WebSocket upgrades in AWS OIDC mode are rejected rather than forwarded unsigned.
 
 ### GCP Vertex AI
 
@@ -790,34 +775,22 @@ Exchanges the GitHub OIDC JWT for a GCP access token via the Security Token Serv
 
 Default OIDC audience: the `gcpWorkloadIdentityProvider` value
 
-#### GitHub Actions example (GCP)
-
-```yaml
-jobs:
-  agent:
-    permissions:
-      id-token: write
-      contents: read
-    steps:
-      - name: Run agent with GCP Vertex AI
-        env:
-          AWF_AUTH_TYPE: github-oidc
-          AWF_AUTH_PROVIDER: gcp
-          AWF_AUTH_GCP_WORKLOAD_IDENTITY_PROVIDER: projects/123456/locations/global/workloadIdentityPools/my-pool/providers/github
-          AWF_AUTH_GCP_SERVICE_ACCOUNT: my-sa@my-project.iam.gserviceaccount.com
-        run: |
-          sudo --preserve-env=AWF_AUTH_TYPE,AWF_AUTH_PROVIDER,AWF_AUTH_GCP_WORKLOAD_IDENTITY_PROVIDER,AWF_AUTH_GCP_SERVICE_ACCOUNT \
-            awf --enable-api-proxy \
-                --allow-domains sts.googleapis.com,iamcredentials.googleapis.com,us-central1-aiplatform.googleapis.com \
-                -- your-agent-command
-```
-
 :::note
-`ACTIONS_ID_TOKEN_REQUEST_URL` and `ACTIONS_ID_TOKEN_REQUEST_TOKEN` are injected by the Actions runner automatically; AWF forwards them to the sidecar when `AWF_AUTH_TYPE=github-oidc`.
+`ACTIONS_ID_TOKEN_REQUEST_URL` and `ACTIONS_ID_TOKEN_REQUEST_TOKEN` are injected by the Actions runner automatically. AWF forwards them to the sidecar when `AWF_AUTH_TYPE=github-oidc` and excludes them from the agent container.
 :::
 
 :::tip
 When `gcpServiceAccount` is omitted, the federated token is used directly without service account impersonation. This requires that the federated principal has direct access grants on the target resource.
+:::
+
+:::note[Implementation vs. provider documentation]
+GCP OIDC with Vertex-hosted models is served through the **OpenAI adapter** (`OPENAI_API_TARGET`/`--openai-api-target` pointed at a Vertex AI OpenAI-compatible endpoint), not through the native Vertex AI adapter (port 10004). The native Vertex adapter is static-`GOOGLE_API_KEY`-only and has no OIDC/WIF support today — see the [auth matrix](./auth-matrix.md#provider-google-vertex-ai) for details.
+
+The OpenAI-compatible Vertex endpoint also requires a resource-specific base path such as `/v1/projects/PROJECT_ID/locations/LOCATION/endpoints/openapi`. Set it with `OPENAI_API_BASE_PATH` or `--openai-api-base-path`; replace the example project and location with your own values.
+:::
+
+:::caution[Agent routing is not automatically configured]
+GCP OIDC can initialize in the sidecar, but OIDC configuration alone does not set `OPENAI_BASE_URL` or OpenAI compatibility placeholders in the agent. `buildOpenAiCredentialEnv()` currently enables agent routing only when `OPENAI_API_KEY` is configured. Until OIDC-aware OpenAI routing is implemented, AWF does not provide a complete keyless Vertex OpenAI-compatible invocation path.
 :::
 
 ### Anthropic API
@@ -837,6 +810,10 @@ Exchanges the GitHub OIDC JWT for an Anthropic Workload Identity Federation acce
 
 Default OIDC audience: `https://api.anthropic.com`
 
+For compatibility with Anthropic's official SDKs, AWF sends `anthropic-beta: oauth-2025-04-20,oidc-federation-2026-04-01` only on its JWT-bearer `POST /v1/oauth/token` exchange. Requests authenticated with the resulting bearer token send `oauth-2025-04-20`; they do not send the federation beta. Static `x-api-key` requests receive neither value, and forwarded refresh-token exchanges never receive the federation beta. AWF merges required values with client-supplied `anthropic-beta` values and the optional auto-cache beta without duplicates.
+
+**Official references:** [Anthropic WIF documentation](https://platform.claude.com/docs/en/manage-claude/workload-identity-federation) · [Anthropic TypeScript SDK federation exchange](https://github.com/anthropics/anthropic-sdk-typescript/blob/3b45cd3b69c956ac63384fdb09ce1d8109f3fa80/src/lib/credentials/oidc-federation.ts) · [credential beta constants](https://github.com/anthropics/anthropic-sdk-typescript/blob/3b45cd3b69c956ac63384fdb09ce1d8109f3fa80/src/lib/credentials/types.ts)
+
 #### GitHub Actions example (Anthropic)
 
 ```yaml
@@ -855,8 +832,8 @@ jobs:
           AWF_AUTH_ANTHROPIC_SERVICE_ACCOUNT_ID: svac_...
           # AWF_AUTH_ANTHROPIC_WORKSPACE_ID: wrkspc_...  # required for multi-workspace rules
         run: |
-          sudo --preserve-env=AWF_AUTH_TYPE,AWF_AUTH_PROVIDER,AWF_AUTH_ANTHROPIC_FEDERATION_RULE_ID,AWF_AUTH_ANTHROPIC_ORGANIZATION_ID,AWF_AUTH_ANTHROPIC_SERVICE_ACCOUNT_ID,AWF_AUTH_ANTHROPIC_WORKSPACE_ID \
-            awf --enable-api-proxy \
+          sudo --preserve-env=AWF_AUTH_TYPE,AWF_AUTH_PROVIDER,AWF_AUTH_ANTHROPIC_FEDERATION_RULE_ID,AWF_AUTH_ANTHROPIC_ORGANIZATION_ID,AWF_AUTH_ANTHROPIC_SERVICE_ACCOUNT_ID,AWF_AUTH_ANTHROPIC_WORKSPACE_ID,ACTIONS_ID_TOKEN_REQUEST_URL,ACTIONS_ID_TOKEN_REQUEST_TOKEN \
+            awf \
                 --allow-domains api.anthropic.com \
                 -- your-agent-command
 ```
@@ -1235,7 +1212,7 @@ When the variable is absent, the api-proxy uses a best-effort local NDJSON fallb
 
 | Mode | When | Behaviour |
 |------|------|-----------|
-| **OTLP/HTTP export** | `OTEL_EXPORTER_OTLP_ENDPOINT` is set | Spans exported via HTTP POST routed through the Squid proxy (so the domain whitelist is respected). |
+| **OTLP/HTTP export** | `OTEL_EXPORTER_OTLP_ENDPOINT` is set | Spans exported via HTTP POST routed through Squid; trusted sidecar traffic is exempt from domain ACLs. |
 | **File fallback** | Endpoint not set | Spans appended as NDJSON to `/var/log/api-proxy/otel.jsonl`. |
 
 ### Environment variables
@@ -1288,8 +1265,9 @@ Each proxied request produces a single span:
 
 ### Proxy routing for OTLP export
 
-OTLP/HTTP exports are routed through the Squid proxy (`HTTPS_PROXY` / `HTTP_PROXY`) so that
-they respect the domain allowlist. Add the OTEL collector hostname to your allowlist:
+OTLP/HTTP exports are routed through the Squid proxy (`HTTPS_PROXY` / `HTTP_PROXY`), but
+the trusted sidecar bypasses domain ACLs. You can still list the collector hostname to
+document the intended agent network policy:
 
 ```yaml
 # awf-config.yml
@@ -1308,10 +1286,14 @@ into the api-proxy container, so no extra configuration is needed.
 
 - Keys must be set as environment variables (not file-based)
 - No request/response logging (by design, for security)
+- **AWS Bedrock OIDC signs HTTP requests only**: WebSocket upgrades are rejected, and the signing target is restricted to the exact regional Bedrock Runtime hostname. See [OIDC Authentication > AWS Bedrock](#aws-bedrock).
+- **Vertex AI adapter has no OIDC/WIF support**: the native Vertex adapter (port 10004) only accepts a static `GOOGLE_API_KEY`. To use GCP workload identity federation with Vertex-hosted models, point the OpenAI adapter (port 10000) at a Vertex OpenAI-compatible endpoint instead — see [OIDC Authentication > GCP Vertex AI](#gcp-vertex-ai).
+- **GitHub Copilot Business tier target is never auto-derived**: set `COPILOT_API_TARGET=api.business.githubcopilot.com` explicitly (or `--copilot-api-target`); it is not inferred from `GITHUB_SERVER_URL`.
 
 ## Related documentation
 
 - [Authentication Architecture](./authentication-architecture.md) — detailed credential isolation internals
+- [Auth Matrix](./auth-matrix.md) — per-provider auth combination reference (static keys, OIDC, custom headers)
 - [Security](./security.md) — overall security model
 - [Environment Variables](./environment.md) — environment variable configuration
 - [Troubleshooting](./troubleshooting.md) — common issues and solutions
