@@ -42,6 +42,8 @@ jest.mock('fs', () => {
 const mockedExistsSync = fs.existsSync as jest.Mock;
 const mockedReaddirSync = fs.readdirSync as jest.Mock;
 const mockedRenameSync = fs.renameSync as jest.Mock;
+const mockedMkdirSync = fs.mkdirSync as jest.Mock;
+const mockedRmSync = fs.rmSync as jest.Mock;
 
 const mockedLogger = jest.mocked(logger);
 
@@ -171,6 +173,28 @@ describe('sbx-manager', () => {
           .mockResolvedValueOnce({ exitCode: 1, stdout: '', stderr: 'busy' });
 
         await expect(probeSbxUnixSocketMount()).rejects.toThrow(/could not be removed/);
+      });
+
+      it('fails closed when the disposable probe sandbox cannot be created', async () => {
+        mockExecaFn.mockResolvedValueOnce({
+          exitCode: 1,
+          stdout: '',
+          stderr: 'sandbox service unavailable',
+        });
+
+        await expect(probeSbxUnixSocketMount()).rejects.toThrow(
+          /could not create a sandbox.*sandbox service unavailable/,
+        );
+      });
+
+      it('cleans up and propagates an unexpected socket probe failure', async () => {
+        mockExecaFn
+          .mockResolvedValueOnce({ exitCode: 0, stdout: 'Created sandbox', stderr: '' })
+          .mockRejectedValueOnce(new Error('exec unavailable'))
+          .mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' });
+
+        await expect(probeSbxUnixSocketMount()).rejects.toThrow('exec unavailable');
+        expect(mockExecaFn.mock.calls[2][1]).toEqual(expect.arrayContaining(['rm', '--force']));
       });
     });
   });
@@ -469,6 +493,48 @@ describe('sbx-manager', () => {
       restoreHomeCredentials();
     });
 
+    it('continues without mutating credentials when the backup directory cannot be created', async () => {
+      const homePath = process.env.HOME || '/home/runner';
+      const secret = `${homePath}/.claude/.credentials.json`;
+      mockedExistsSync.mockImplementation(
+        (p: fs.PathLike) => String(p) === `${homePath}/.claude` || String(p) === secret,
+      );
+      mockedMkdirSync.mockImplementationOnce(() => {
+        throw new Error('read-only home');
+      });
+      mockExecaFn
+        .mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' })
+        .mockResolvedValueOnce({ exitCode: 0, stdout: 'Created sandbox', stderr: '' });
+
+      await createSandbox({ workspaceDir: '/workspace', squidIp: '172.30.0.10' });
+
+      expect(mockedRenameSync).not.toHaveBeenCalled();
+      expect(mockedLogger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('Could not create credential backup dir'),
+      );
+    });
+
+    it('continues after a credential path cannot be moved aside', async () => {
+      const homePath = process.env.HOME || '/home/runner';
+      const secret = `${homePath}/.claude/.credentials.json`;
+      mockedExistsSync.mockImplementation(
+        (p: fs.PathLike) => String(p) === `${homePath}/.claude` || String(p) === secret,
+      );
+      mockedRenameSync.mockImplementationOnce(() => {
+        throw new Error('busy');
+      });
+      mockExecaFn
+        .mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' })
+        .mockResolvedValueOnce({ exitCode: 0, stdout: 'Created sandbox', stderr: '' });
+
+      await createSandbox({ workspaceDir: '/workspace', squidIp: '172.30.0.10' });
+
+      expect(mockedLogger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('Could not hide credential path'),
+      );
+      restoreHomeCredentials();
+    });
+
     it('restores scrubbed credentials after the sandbox is removed', async () => {
       const homePath = process.env.HOME || '/home/runner';
       const secret = `${homePath}/.claude/.credentials.json`;
@@ -501,6 +567,33 @@ describe('sbx-manager', () => {
       // The backup is moved back to its original location after teardown.
       const restoreMoves = mockedRenameSync.mock.calls.map((c) => [String(c[0]), String(c[1])]);
       expect(restoreMoves).toContainEqual([backupPath, secret]);
+    });
+
+    it('preserves the backup when credential restoration fails', async () => {
+      const homePath = process.env.HOME || '/home/runner';
+      const secret = `${homePath}/.claude/.credentials.json`;
+      mockedExistsSync.mockImplementation(
+        (p: fs.PathLike) =>
+          String(p) === `${homePath}/.claude` ||
+          String(p) === secret ||
+          String(p).includes('.awf-sbx-cred-backup'),
+      );
+      mockExecaFn
+        .mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' })
+        .mockResolvedValueOnce({ exitCode: 0, stdout: 'Created sandbox', stderr: '' });
+      await createSandbox({ workspaceDir: '/workspace', squidIp: '172.30.0.10' });
+      mockedRenameSync.mockImplementationOnce(() => {
+        throw new Error('restore denied');
+      });
+      mockedRmSync.mockImplementationOnce(() => {
+        throw new Error('not empty');
+      });
+
+      restoreHomeCredentials();
+
+      expect(mockedLogger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('Could not restore credential path'),
+      );
     });
 
     it('skips whitelisted home subdirs that do not exist on the host', async () => {
@@ -577,6 +670,19 @@ describe('sbx-manager', () => {
 
       await expect(createSandbox({ workspaceDir: '/ws', squidIp: '172.30.0.10' })).rejects.toThrow(
         /sbx is not authenticated/,
+      );
+    });
+
+    it('reports an authentication failure when the probes return no diagnostics', async () => {
+      mockExecaFn
+        .mockResolvedValueOnce({ exitCode: 1, stdout: '', stderr: '' })
+        .mockResolvedValueOnce({ exitCode: 1, stdout: '', stderr: '' });
+
+      await expect(createSandbox({ workspaceDir: '/ws', squidIp: '172.30.0.10' })).rejects.toThrow(
+        /sbx is not authenticated/,
+      );
+      expect(mockedLogger.error).toHaveBeenCalledWith(
+        expect.stringContaining('daemon status: '),
       );
     });
 

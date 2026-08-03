@@ -332,6 +332,27 @@ describe('buildBoundedAgentService guards', () => {
       target: 'broker',
     });
   });
+
+  it('uses a host-gateway-only broker ingress for an sbx primary', () => {
+    const { service, agentEnvAdditions } = buildBoundedAgentService({
+      config: {
+        ...mockConfig,
+        containerRuntime: 'sbx',
+        boundedAgentIngressTransport: 'sbx-http',
+        enableApiProxy: true,
+        boundedAgents,
+      },
+      imageConfig: { ...imageConfig, useGHCR: false },
+      networkConfig,
+    });
+    const broker = service as Record<string, any>;
+
+    expect(broker.network_mode).toBeUndefined();
+    expect(broker.networks).toEqual(['awf-bounded-agent-ingress']);
+    expect(broker.ports).toEqual(['172.17.0.1::18081']);
+    expect(broker.environment.AWF_BOUNDED_AGENT_TCP_PORT).toBe('18081');
+    expect(agentEnvAdditions.AWF_BOUNDED_AGENT_SOCKET).toBeUndefined();
+  });
 });
 
 describe('resolveBoundedAgentApiPort', () => {

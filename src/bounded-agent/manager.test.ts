@@ -471,6 +471,28 @@ describe('prepareBoundedAgents', () => {
       token.mockRestore();
     }
   });
+
+  it('creates private sbx-http ingress capabilities only after transport preflight', async () => {
+    await prepareBoundedAgents(
+      { ...buildConfig(workDir), containerRuntime: 'sbx' } as WrapperConfig,
+      {
+        env: { GH_TOKEN: 't' },
+        gitRunner,
+        assertRuntimeAvailable,
+        assertPrimaryAvailable: jest.fn(async () => undefined),
+        probeSbxUnixSocket: jest.fn(async () => false),
+      },
+    );
+
+    const capabilityPath = resolveBoundedAgentPaths(workDir).capabilityPath;
+    const capabilities = JSON.parse(fs.readFileSync(capabilityPath, 'utf8'));
+    expect(capabilities).toEqual({
+      version: 1,
+      query: expect.stringMatching(/^[0-9a-f]{64}$/),
+      probe: expect.stringMatching(/^[0-9a-f]{64}$/),
+    });
+    expect(capabilities.query).not.toBe(capabilities.probe);
+  });
 });
 
 describe('teardownBoundedAgents', () => {
