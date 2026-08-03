@@ -220,6 +220,21 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 - `boundedQueries.memoryLimit` → *(config-only; no CLI equivalent, see §14)*
 - `boundedQueries.interpreter` → *(config-only; no CLI equivalent, see §14)*
 - `boundedQueries.maxInvocations` → *(config-only; no CLI equivalent, see §14)*
+- `boundedAgents.enabled` → *(config-only; no CLI equivalent, see §15)*
+- `boundedAgents.privateRepos[]` → *(config-only; no CLI equivalent, see §15)*
+- `boundedAgents.runtime` → *(config-only; no CLI equivalent, see §15)*
+- `boundedAgents.profile` → *(config-only; no CLI equivalent, see §15)*
+- `boundedAgents.model` → *(config-only; no CLI equivalent, see §15)*
+- `boundedAgents.timeout` → *(config-only; no CLI equivalent, see §15)*
+- `boundedAgents.memoryLimit` → *(config-only; no CLI equivalent, see §15)*
+- `boundedAgents.cpuLimit` → *(config-only; no CLI equivalent, see §15)*
+- `boundedAgents.pidsLimit` → *(config-only; no CLI equivalent, see §15)*
+- `boundedAgents.tmpfsLimit` → *(config-only; no CLI equivalent, see §15)*
+- `boundedAgents.maxOutputBytes` → *(config-only; no CLI equivalent, see §15)*
+- `boundedAgents.maxTaskBytes` → *(config-only; no CLI equivalent, see §15)*
+- `boundedAgents.maxInvocations` → *(config-only; no CLI equivalent, see §15)*
+- `boundedAgents.maxModelRequests` → *(config-only; no CLI equivalent, see §15)*
+- `boundedAgents.maxModelTokens` → *(config-only; no CLI equivalent, see §15)*
 
 When `container.dockerHostPathPrefix` points at a daemon-visible shared `/tmp` path, the implementation stages the invoking CLI binary together with `/etc/passwd`, `/etc/group`, and the generated chroot `/etc/hosts` under that shared path so chroot mode can bootstrap on split-filesystem ARC/DinD hosts.
 
