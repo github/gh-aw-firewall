@@ -48,24 +48,43 @@ pre-agent-steps:
   - name: Replace release bootstrap with current AWF build
     run: |
       mkdir -p "$HOME/.local/bin"
-      printf '#!/bin/bash\nexec "%s" "%s/dist/cli.js" "$@"\n' \
-        "$(command -v node)" "$GITHUB_WORKSPACE" > "$HOME/.local/bin/awf"
-      chmod +x "$HOME/.local/bin/awf"
-      node <<'NODE'
+      cat > "$HOME/.local/bin/configure-bounded-agent.cjs" <<'NODE'
       const fs = require("fs");
-      const file = `${process.env.RUNNER_TEMP}/gh-aw/awf-config.json`;
+      const [file, runtime] = process.argv.slice(2);
+      if (!file || !runtime) {
+        throw new Error("usage: configure-bounded-agent.cjs <config> <runtime>");
+      }
       const config = JSON.parse(fs.readFileSync(file, "utf8"));
       config.apiProxy = { ...(config.apiProxy || {}), targets: { openai: {} } };
       config.boundedAgents = {
         enabled: true,
         privateRepos: [{ repo: "github/gh-aw", sensitivity: "internal" }],
-        runtime: "gvisor",
+        runtime,
         profile: "openai",
         model: "gpt-4o-mini",
         memoryLimit: "512m"
       };
       fs.writeFileSync(file, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
       NODE
+      cat > "$HOME/.local/bin/awf" <<'SH'
+      #!/bin/bash
+      set -euo pipefail
+      config_path=""
+      args=("$@")
+      for ((index = 0; index < ${#args[@]}; index++)); do
+        if [[ "${args[$index]}" == "--config" && $((index + 1)) -lt ${#args[@]} ]]; then
+          config_path="${args[$((index + 1))]}"
+          break
+        fi
+      done
+      if [[ -z "$config_path" ]]; then
+        echo "bounded-agent smoke wrapper requires --config" >&2
+        exit 2
+      fi
+      node "$HOME/.local/bin/configure-bounded-agent.cjs" "$config_path" gvisor
+      exec node "$GITHUB_WORKSPACE/dist/cli.js" "$@"
+      SH
+      chmod +x "$HOME/.local/bin/awf"
 safe-outputs:
   threat-detection:
     enabled: false
