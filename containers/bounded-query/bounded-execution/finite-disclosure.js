@@ -295,8 +295,65 @@ function schemaCardinality(schema) {
   }
 }
 
+const MAX_EXACT_SCHEMA_CARDINALITY = 1n << 1024n;
+const CAPPED_SCHEMA_CARDINALITY = MAX_EXACT_SCHEMA_CARDINALITY + 1n;
+
+function cappedMultiply(left, right) {
+  if (left === 0n || right === 0n) return 0n;
+  if (left > MAX_EXACT_SCHEMA_CARDINALITY / right) return CAPPED_SCHEMA_CARDINALITY;
+  return left * right;
+}
+
+function cappedPower(base, exponent) {
+  let result = 1n;
+  let factor = base;
+  let remaining = exponent;
+  while (remaining > 0) {
+    if ((remaining & 1) === 1) result = cappedMultiply(result, factor);
+    if (result > MAX_EXACT_SCHEMA_CARDINALITY) return result;
+    remaining = Math.floor(remaining / 2);
+    if (remaining > 0) factor = cappedMultiply(factor, factor);
+  }
+  return result;
+}
+
+function cappedSchemaCardinality(schema) {
+  switch (schema.type) {
+    case 'const':
+      return 1n;
+    case 'boolean':
+      return 2n;
+    case 'enum':
+      return BigInt(schema.values.length);
+    case 'integer':
+      return BigInt(schema.maximum) - BigInt(schema.minimum) + 1n;
+    case 'object':
+      return schema.fields.reduce(
+        (acc, field) => cappedMultiply(acc, cappedSchemaCardinality(field.schema)),
+        1n,
+      );
+    case 'tuple':
+      return schema.items.reduce(
+        (acc, item) => cappedMultiply(acc, cappedSchemaCardinality(item)),
+        1n,
+      );
+    case 'array':
+      return cappedPower(cappedSchemaCardinality(schema.items), schema.length);
+    case 'union': {
+      let total = 0n;
+      for (const variant of schema.variants) {
+        total += cappedSchemaCardinality(variant.schema);
+        if (total > MAX_EXACT_SCHEMA_CARDINALITY) return CAPPED_SCHEMA_CARDINALITY;
+      }
+      return total;
+    }
+    default:
+      throw new Error(`unreachable schema type: ${schema.type}`);
+  }
+}
+
 function queryBitsForSchema(schema) {
-  return RESULT_STATUS_BIT_COST + ceilLog2BigInt(schemaCardinality(schema)) + TIMING_BUCKET_BITS;
+  return RESULT_STATUS_BIT_COST + ceilLog2BigInt(cappedSchemaCardinality(schema)) + TIMING_BUCKET_BITS;
 }
 
 function jsonLiteralEquals(value, literal) {

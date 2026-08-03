@@ -111,22 +111,27 @@ function collectAgentVisiblePaths(
 }
 
 /**
- * Fails closed when the broker-private root aliases, contains, or is contained
+ * Fails closed when a broker-private root aliases, contains, or is contained
  * by any path visible to a primary agent in any supported sandbox backend.
+ *
+ * Shared by every bounded-execution subsystem (bounded queries, bounded
+ * agents): the agent-visible path union is backend-independent and identical
+ * for all of them, so only the roots and the diagnostic label differ.
  */
-export function assertBoundedQueryPrivateRootIsolated(
+export function assertPrivateRootIsolated(
   config: WrapperConfig,
-  paths: BoundedQueryPaths,
+  roots: Pick<BoundedQueryPaths, 'root' | 'ingressRoot'>,
   env: NodeJS.ProcessEnv = process.env,
   cwd = process.cwd(),
+  label = 'bounded-query',
 ): void {
-  const privateRoot = resolvePathThroughExistingAncestor(paths.root);
+  const privateRoot = resolvePathThroughExistingAncestor(roots.root);
   const privateDaemonRoot = resolvePathThroughExistingAncestor(
-    daemonVisiblePath(paths.root, config.dockerHostPathPrefix),
+    daemonVisiblePath(roots.root, config.dockerHostPathPrefix),
   );
   const visiblePaths = [
     ...collectAgentVisiblePaths(config, env, cwd),
-    { label: 'bounded-query ingress', source: paths.ingressRoot },
+    { label: `${label} ingress`, source: roots.ingressRoot },
   ];
 
   for (const visible of visiblePaths) {
@@ -139,11 +144,24 @@ export function assertBoundedQueryPrivateRootIsolated(
       || pathsOverlap(privateDaemonRoot, resolvedDaemonVisible)
     ) {
       throw new Error(
-        `Unsafe bounded-query private root "${paths.root}" overlaps agent-visible ${visible.label} ` +
+        `Unsafe ${label} private root "${roots.root}" overlaps agent-visible ${visible.label} ` +
         `"${visible.source}" after path and symlink resolution`,
       );
     }
   }
+}
+
+/**
+ * Fails closed when the broker-private root aliases, contains, or is contained
+ * by any path visible to a primary agent in any supported sandbox backend.
+ */
+export function assertBoundedQueryPrivateRootIsolated(
+  config: WrapperConfig,
+  paths: BoundedQueryPaths,
+  env: NodeJS.ProcessEnv = process.env,
+  cwd = process.cwd(),
+): void {
+  assertPrivateRootIsolated(config, paths, env, cwd, 'bounded-query');
 }
 
 /** @internal Exported for focused adversarial tests. */

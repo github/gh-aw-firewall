@@ -14,6 +14,12 @@ import { runtimeNeedsStaticDns, runtimeUsesComposeAgent } from './container-runt
 import { API_PROXY_PORTS } from './types/ports';
 import { EXTERNAL_BRIDGE_NAME } from './config/network-policy';
 import { BOUNDED_QUERY_INGRESS_NETWORK } from './bounded-query/ingress';
+import { BOUNDED_AGENT_INGRESS_NETWORK } from './bounded-agent/ingress';
+import {
+  BOUNDED_AGENT_EGRESS_NETWORK,
+  BOUNDED_AGENT_NETWORK,
+  BOUNDED_AGENT_SUBNET,
+} from './bounded-agent/network';
 import { buildInternalServiceHosts } from './services/internal-service-hosts';
 
 /**
@@ -189,6 +195,41 @@ export function generateDockerCompose(
       driver: 'bridge',
       internal: true,
     };
+  }
+  if (config.boundedAgents?.enabled) {
+    // Dedicated `internal` network whose only members are bounded-agent
+    // enclaves and the dual-homed API proxy. An explicit `name:` is required
+    // because the broker launches enclaves with a fixed
+    // `docker run --network <name>` argument and must not have to derive a
+    // Compose project prefix at runtime.
+    compose.networks[BOUNDED_AGENT_NETWORK] = {
+      name: BOUNDED_AGENT_NETWORK,
+      driver: 'bridge',
+      internal: true,
+      ipam: {
+        config: [{ subnet: BOUNDED_AGENT_SUBNET }],
+      },
+    };
+    // Only the dedicated credential sidecar joins this bridge. It receives
+    // direct upstream egress while enclaves remain confined to the internal
+    // network and the primary agent cannot observe its metrics or state.
+    compose.networks[BOUNDED_AGENT_EGRESS_NETWORK] = {
+      name: BOUNDED_AGENT_EGRESS_NETWORK,
+      driver: 'bridge',
+    };
+    if (
+      config.boundedAgentIngressTransport === 'sbx-http'
+      || (config.boundedAgentIngressTransport === undefined && !includeAgent)
+    ) {
+      // Distinct from BOUNDED_AGENT_NETWORK (the enclave/API-proxy network):
+      // this is a dedicated `internal` bridge whose only members are the
+      // broker and, transiently, the primary sbx microVM's host-gateway
+      // route — never an enclave, never the primary agent's own network.
+      compose.networks[BOUNDED_AGENT_INGRESS_NETWORK] = {
+        driver: 'bridge',
+        internal: true,
+      };
+    }
   }
   return compose;
 }

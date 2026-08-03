@@ -52,3 +52,16 @@ export {
   BOUNDED_QUERY_SENSITIVITIES,
   BOUNDED_QUERY_SENSITIVITY_RUN_BITS,
 } from './bounded-query-options';
+
+export {
+  type BoundedAgentRuntime,
+  type BoundedAgentProfile,
+  type BoundedAgentSensitivity,
+  type BoundedAgentRepository,
+  type BoundedAgentsConfig,
+  type BoundedAgentOptions,
+  BOUNDED_AGENT_DEFAULTS,
+  BOUNDED_AGENT_PROFILES,
+  BOUNDED_AGENT_SENSITIVITIES,
+  BOUNDED_AGENT_SENSITIVITY_RUN_BITS,
+} from './bounded-agent-options';

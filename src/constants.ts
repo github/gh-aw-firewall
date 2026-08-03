@@ -10,6 +10,8 @@ export const API_PROXY_CONTAINER_NAME = 'awf-api-proxy';
 export const DOH_PROXY_CONTAINER_NAME = 'awf-doh-proxy';
 export const CLI_PROXY_CONTAINER_NAME = 'awf-cli-proxy';
 export const BOUNDED_QUERY_BROKER_CONTAINER_NAME = 'awf-bounded-query-broker';
+export const BOUNDED_AGENT_BROKER_CONTAINER_NAME = 'awf-bounded-agent-broker';
+export const BOUNDED_AGENT_API_PROXY_CONTAINER_NAME = 'awf-bounded-agent-api-proxy';
 
 // SQUID_PORT is centralized in src/config/sandbox-network-policy.json and
 // re-exported here so existing import sites keep working unchanged.

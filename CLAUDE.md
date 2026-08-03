@@ -39,6 +39,20 @@ The system is orchestrated by `src/cli.ts` and managed by `src/docker-manager.ts
 - Trusted host staging (`src/bounded-query/staging.ts`) materializes an immutable seed per configured repo *before* the agent starts, using `GH_TOKEN`/`GITHUB_TOKEN` only in a child-process env — never in argv, a URL, a log, or the compose file
 - See [docs/awf-config-spec.md](docs/awf-config-spec.md) §14 for the full model, including per-repository information-budget accounting and residual channels
 
+**5. Bounded-Agent Enclave (optional)** — `containers/bounded-agent/`, API-proxy-only network
+- Enabled via `boundedAgents.enabled` in the AWF config file (config-only; there is no CLI flag family)
+- Agentic sibling of bounded queries: a trusted broker runs a **fixed, AWF-authored model loop** in a single-use enclave instead of an agent-authored script
+- Requires `--enable-api-proxy` plus a configured `profile`/`model` route (`openai` or `anthropic`); preflight fails closed otherwise
+- Broker (`awf-bounded-agent-broker`) is `network_mode: none` and never joins the enclave network; it receives the Docker socket only to launch enclaves
+- Enclaves join **only** the dedicated `internal` `awf-bounded-agent` network (172.31.0.0/24). A dedicated API-proxy instance with private telemetry joins it at a fixed address/alias and is the enclave's only upstream egress. No primary agent, Squid, general proxy, broker, safe outputs, MCP gateway, or CLI proxy is on that network.
+- Enclaves run `--read-only` with the immutable seed bind-mounted `ro`, bounded tmpfs for work/result/`/tmp`, fixed non-root UID/GID, `--cap-drop ALL`, `no-new-privileges`, seccomp, and memory/CPU/PID/file-size/timeout bounds; every container is labelled `awf.bounded-agent.run=<runId>` for deterministic orphan cleanup
+- Separate private root (`/var/tmp/awf-bounded-agent-private-*`) and a **separate ledger** from bounded queries
+- Agent surface: `bounded-agent` command at `/tmp/awf-lib/bounded-agent` plus a generated read-only `SKILL.md`; accepts only `--repo`, `--schema`, and task text on stdin
+- Image build context is `containers/` (not `containers/bounded-agent/`) because the broker reuses the shared PR1 `bounded-execution` foundation and sandbox seccomp profile under `containers/bounded-query/`
+- `runtime: "sbx"` is schema-accepted but fails closed with a not-yet-implemented capability error; `gvisor` requires an exactly registered `runsc` and never downgrades
+- **Provider disclosure caveat:** repository-derived content reaches the configured model provider through the API proxy. The ledger bounds what the *calling agent* learns, not what the *provider* sees.
+- See [docs/bounded-agents.md](docs/bounded-agents.md) and [docs/awf-config-spec.md](docs/awf-config-spec.md) §15
+
 ### Documentation Files
 
 - **[README.md](README.md)** - Main project documentation and usage guide
@@ -47,6 +61,8 @@ The system is orchestrated by `src/cli.ts` and managed by `src/docker-manager.ts
 - **[docs/logging_quickref.md](docs/logging_quickref.md)** - Quick reference for log queries and monitoring
 - **[docs/releasing.md](docs/releasing.md)** - Release process and versioning instructions
 - **[docs/INTEGRATION-TESTS.md](docs/INTEGRATION-TESTS.md)** - Integration test coverage guide with gap analysis
+- **[docs/bounded-queries.md](docs/bounded-queries.md)** - Bounded-query (no-network script sandbox) guide
+- **[docs/bounded-agents.md](docs/bounded-agents.md)** - Bounded-agent (API-proxy-only enclave) guide and threat model
 
 ## Development Workflow
 

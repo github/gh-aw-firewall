@@ -1,0 +1,125 @@
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
+import execa from 'execa';
+import type { WrapperConfig } from '../types';
+import { resolveDockerHostGateway } from '../services/host-gateway';
+import {
+  removeSbxIngressCapabilityFile,
+  resolveSbxIngress,
+} from './ingress';
+import { resolveBoundedAgentPaths } from './paths';
+
+jest.mock('execa', () => ({ __esModule: true, default: jest.fn() }));
+jest.mock('../services/host-gateway', () => ({
+  resolveDockerHostGateway: jest.fn(() => '172.17.0.1'),
+}));
+const mockExeca = execa as unknown as jest.Mock;
+const mockResolveDockerHostGateway = resolveDockerHostGateway as jest.Mock;
+
+describe('sbx bounded-agent ingress resolution', () => {
+  let workDir: string;
+  let config: WrapperConfig;
+
+  beforeEach(() => {
+    workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-bounded-agent-ingress-resolution-'));
+    config = {
+      workDir,
+      boundedAgentIngressTransport: 'sbx-http',
+    } as WrapperConfig;
+    const paths = resolveBoundedAgentPaths(workDir);
+    fs.mkdirSync(paths.controlDir, { recursive: true, mode: 0o700 });
+    fs.writeFileSync(paths.capabilityPath, JSON.stringify({
+      version: 1,
+      query: 'a'.repeat(64),
+      probe: 'b'.repeat(64),
+    }), { mode: 0o600 });
+    mockExeca.mockReset();
+    mockResolveDockerHostGateway.mockReturnValue('172.17.0.1');
+    mockExeca.mockResolvedValue({
+      exitCode: 0,
+      stdout: 'healthy|172.17.0.1:49152\n',
+      stderr: '',
+    });
+  });
+
+  afterEach(() => {
+    const paths = resolveBoundedAgentPaths(workDir);
+    fs.rmSync(paths.root, { recursive: true, force: true });
+    fs.rmSync(paths.ingressRoot, { recursive: true, force: true });
+    fs.rmSync(workDir, { recursive: true, force: true });
+  });
+
+  it('rejects a transport other than sbx-http', async () => {
+    await expect(resolveSbxIngress({ ...config, boundedAgentIngressTransport: 'unix' } as WrapperConfig))
+      .rejects.toThrow(/non-HTTP bounded-agent transport/);
+  });
+
+  it('fails closed when the Docker host gateway cannot be resolved', async () => {
+    mockResolveDockerHostGateway.mockReturnValue(undefined);
+    await expect(resolveSbxIngress(config)).rejects.toThrow(/Could not resolve the Docker host-gateway/);
+  });
+
+  it('returns only the endpoint, two capabilities, and agent-visible artifact paths', async () => {
+    const result = await resolveSbxIngress(config);
+    const paths = resolveBoundedAgentPaths(workDir);
+
+    expect(result).toEqual({
+      endpoint: 'http://host.docker.internal:49152/query',
+      queryCapability: 'a'.repeat(64),
+      probeCapability: 'b'.repeat(64),
+      skillPath: paths.skillPath,
+      wrapperDir: paths.agentDir,
+    });
+    const dockerArgs = mockExeca.mock.calls[0][1] as string[];
+    expect(dockerArgs.join(' ')).not.toContain('a'.repeat(64));
+    expect(dockerArgs.join(' ')).not.toContain('b'.repeat(64));
+  });
+
+  it.each([
+    '0.0.0.0:49152',
+    '[::1]:49152',
+    '172.17.0.1:0',
+    '172.17.0.1:70000',
+    '',
+  ])('rejects a broad or malformed publication: %s', async (published) => {
+    mockExeca.mockResolvedValue({ exitCode: 0, stdout: `healthy|${published}`, stderr: '' });
+    await expect(resolveSbxIngress(config)).rejects.toThrow(/narrowly published/);
+  });
+
+  it('waits for broker health before returning the endpoint', async () => {
+    mockExeca
+      .mockResolvedValueOnce({ exitCode: 0, stdout: 'starting|', stderr: '' })
+      .mockResolvedValueOnce({ exitCode: 0, stdout: 'healthy|172.17.0.1:49152', stderr: '' });
+
+    const result = await resolveSbxIngress(config);
+    expect(result.endpoint).toBe('http://host.docker.internal:49152/query');
+    expect(mockExeca.mock.calls.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('rejects a malformed on-disk capability file', async () => {
+    const paths = resolveBoundedAgentPaths(workDir);
+    fs.writeFileSync(paths.capabilityPath, JSON.stringify({ version: 1, query: 'not-hex', probe: 'b'.repeat(64) }));
+    await expect(resolveSbxIngress(config)).rejects.toThrow(/malformed/);
+  });
+
+  it.each([
+    { version: 2, query: 'a'.repeat(64), probe: 'b'.repeat(64) },
+    { version: 1, query: 1, probe: 'b'.repeat(64) },
+    { version: 1, query: 'a'.repeat(64), probe: 1 },
+    { version: 1, query: 'not-hex', probe: 'b'.repeat(64) },
+    { version: 1, query: 'a'.repeat(64), probe: 'not-hex' },
+    { version: 1, query: 'a'.repeat(64), probe: 'a'.repeat(64) },
+  ])('rejects malformed capability field combinations: %j', async (capabilities) => {
+    const paths = resolveBoundedAgentPaths(workDir);
+    fs.writeFileSync(paths.capabilityPath, JSON.stringify(capabilities));
+    await expect(resolveSbxIngress(config)).rejects.toThrow(/malformed/);
+  });
+
+  it('removes the private capability file after broker startup and sbx probing', () => {
+    const capabilityPath = resolveBoundedAgentPaths(workDir).capabilityPath;
+    expect(fs.existsSync(capabilityPath)).toBe(true);
+    removeSbxIngressCapabilityFile(config);
+    expect(fs.existsSync(capabilityPath)).toBe(false);
+  });
+});

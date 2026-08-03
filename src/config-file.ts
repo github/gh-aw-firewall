@@ -187,6 +187,33 @@ export interface AwfFileConfig {
     interpreter?: 'python3';
     maxInvocations?: number;
   };
+  /**
+   * Bounded-agent enclave configuration.
+   *
+   * When enabled, AWF starts a network-isolated broker container that runs a
+   * fixed, AWF-authored model loop inside a per-invocation enclave. The
+   * enclave joins only a dedicated `internal` bounded-agent network whose sole
+   * other member is a dedicated AWF API proxy — no Squid, no general proxy, no primary
+   * agent, no broker, no MCP gateway, no CLI proxy, and no host state. See
+   * docs/awf-config-spec.md §15 for the full model.
+   */
+  boundedAgents?: {
+    enabled?: boolean;
+    privateRepos?: Array<{ repo: string; sensitivity: 'public' | 'internal' | 'confidential' | 'sealed' }>;
+    runtime?: 'docker' | 'gvisor' | 'sbx';
+    profile?: 'openai' | 'anthropic';
+    model?: string;
+    timeout?: number;
+    memoryLimit?: string;
+    cpuLimit?: string;
+    pidsLimit?: number;
+    tmpfsLimit?: string;
+    maxOutputBytes?: number;
+    maxTaskBytes?: number;
+    maxInvocations?: number;
+    maxModelRequests?: number;
+    maxModelTokens?: number;
+  };
 }
 
 /**

@@ -86,6 +86,27 @@ steps:
       PR_NUMBER: ${{ github.event.pull_request.number || github.event.inputs.item_number }}
       GH_REPO: ${{ github.repository }}
 
+  - name: Assemble contribution review context
+    run: |
+      CONTEXT_DIR=/tmp/gh-aw/contribution-check-context
+      mkdir -p "$CONTEXT_DIR"
+      test -f "$CONTEXT_DIR/pr-meta.md" \
+        || echo "(no pull request metadata for this trigger)" > "$CONTEXT_DIR/pr-meta.md"
+      test -f "$CONTEXT_DIR/contributing.md" \
+        || echo "(CONTRIBUTING.md not found)" > "$CONTEXT_DIR/contributing.md"
+      test -f "$CONTEXT_DIR/pr-files.md" \
+        || echo "(no pull request diff for this trigger)" > "$CONTEXT_DIR/pr-files.md"
+      {
+        echo "# PR metadata"
+        cat "$CONTEXT_DIR/pr-meta.md"
+        echo
+        echo "# CONTRIBUTING.md"
+        cat "$CONTEXT_DIR/contributing.md"
+        echo
+        echo "# Changed files"
+        cat "$CONTEXT_DIR/pr-files.md"
+      } > "$CONTEXT_DIR/review-context.md"
+
 ---
 
 # Contribution Check
@@ -96,12 +117,9 @@ You are a contribution guidelines reviewer for the `gh-aw-firewall` (AWF) reposi
 
 Review PR #${{ github.event.pull_request.number || github.event.inputs.item_number }} in repository ${{ github.repository }}.
 
-Read the following pre-fetched context files before proceeding:
-- `/tmp/gh-aw/contribution-check-context/pr-meta.md` — PR metadata (title, author, base/head branch, description)
-- `/tmp/gh-aw/contribution-check-context/pr-files.md` — Changed files with diffs
-- `/tmp/gh-aw/contribution-check-context/contributing.md` — CONTRIBUTING.md content
+Read `/tmp/gh-aw/contribution-check-context/review-context.md` once. It contains the PR metadata, CONTRIBUTING.md, and changed-file patches in that order.
 
-**Use ONLY the pre-fetched data in these context files.** Do NOT call `gh pr diff`, `gh pr view`, `gh api`, `git diff`, `git log`, or `git show`. Do not read other files from the checkout. After reading the three context files, your only tool calls should be `add_comment` (at most one) or `noop` — do not call any other tools.
+**Use ONLY that pre-fetched context file.** Do NOT call `gh pr diff`, `gh pr view`, `gh api`, `git diff`, `git log`, or `git show`. Do not read other files from the checkout. Read the context in one tool call; your only subsequent tool call must be `add_comment` (at most one) or `noop`.
 
 ## Review Checklist
 

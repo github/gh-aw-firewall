@@ -23,7 +23,7 @@ Bypass techniques are well-documented:
 - **SSLH multiplexing**: Same port serves SSH and HTTPS based on protocol detection
 - **HTTP tunneling tools**: chisel, wstunnel, cloudflared work over "allowed" ports
 
-Even [Nmap's documentation](https://nmap.org/book/firewall-subversion.html) notes historical firewall flaws—Zone Alarm allowed any UDP from port 53, Windows IPsec filters allowed all traffic from port 88.
+Even [Nmap's reference-guide source](https://github.com/nmap/nmap/blob/d5645bf76da55c056082a99593de1b5ef645bfa8/docs/refguide.xml#L3394-L3401) notes historical firewall flaws—Zone Alarm allowed any UDP from port 53, Windows IPsec filters allowed all traffic from port 88.
 
 ## Why Port Restrictions Still Matter (Supporting Arguments)
 

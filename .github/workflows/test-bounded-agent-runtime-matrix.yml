@@ -1,0 +1,93 @@
+name: Bounded-Agent Runtime Matrix
+
+on:
+  pull_request:
+    paths:
+      - 'containers/bounded-agent/**'
+      - 'scripts/ci/report-bounded-agent-runtime-matrix*'
+      - 'scripts/ci/probe-bounded-agent-primary-sbx.js'
+      - 'scripts/ci/smoke-bounded-agent-enclave.sh'
+      - 'src/bounded-agent/**'
+      - '.github/workflows/test-bounded-agent-runtime-matrix.yml'
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  docker:
+    name: Docker enclave matrix
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - run: npm ci
+      - run: npm run build
+      - name: Report all nine cells and require Docker/Docker
+        run: node scripts/ci/report-bounded-agent-runtime-matrix.js --require docker/docker
+      - name: Run live Docker enclave smoke
+        run: bash scripts/ci/smoke-bounded-agent-enclave.sh docker
+
+  gvisor:
+    name: gVisor enclave matrix
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install registered runsc
+        run: |
+          set -euo pipefail
+          arch="$(uname -m)"
+          url="https://storage.googleapis.com/gvisor/releases/release/20250707.0/${arch}"
+          curl -fsSL "${url}/runsc" -o "$RUNNER_TEMP/runsc"
+          curl -fsSL "${url}/runsc.sha512" -o "$RUNNER_TEMP/runsc.sha512"
+          (cd "$RUNNER_TEMP" && sha512sum -c runsc.sha512)
+          sudo install -m 755 "$RUNNER_TEMP/runsc" /usr/local/bin/runsc
+          sudo runsc install
+          sudo systemctl restart docker
+          docker info --format '{{json .Runtimes}}' | grep -F '"runsc"'
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - run: npm ci
+      - run: npm run build
+      - name: Report all nine cells and require Docker/gVisor
+        run: node scripts/ci/report-bounded-agent-runtime-matrix.js --require docker/gvisor
+      - name: Run live gVisor enclave smoke
+        run: bash scripts/ci/smoke-bounded-agent-enclave.sh gvisor
+
+  sbx-capability:
+    name: Docker Sandbox capability gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - run: npm ci
+      - run: npm run build
+      - name: Require explicit blocked result without fallback
+        run: |
+          set -euo pipefail
+          report="$(node scripts/ci/report-bounded-agent-runtime-matrix.js)"
+          printf '%s\n' "$report"
+          rows="$(printf '%s\n' "$report" | grep -cE '^\| (docker|gvisor|sbx) \|')"
+          test "$rows" -eq 9
+          printf '%s\n' "$report" | grep -F '| docker | sbx | BLOCKED |'
+          printf '%s\n' "$report" | grep -F '| gvisor | sbx | BLOCKED |'
+          printf '%s\n' "$report" | grep -F '| sbx | sbx | BLOCKED |'

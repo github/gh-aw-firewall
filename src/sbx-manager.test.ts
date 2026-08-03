@@ -1,5 +1,6 @@
 import {
   assertSbxApiProxyReflect,
+  assertSbxBoundedAgentIngress,
   assertSbxBoundedQueryIngress,
   createSandbox,
   execInSandbox,
@@ -41,6 +42,8 @@ jest.mock('fs', () => {
 const mockedExistsSync = fs.existsSync as jest.Mock;
 const mockedReaddirSync = fs.readdirSync as jest.Mock;
 const mockedRenameSync = fs.renameSync as jest.Mock;
+const mockedMkdirSync = fs.mkdirSync as jest.Mock;
+const mockedRmSync = fs.rmSync as jest.Mock;
 
 const mockedLogger = jest.mocked(logger);
 
@@ -171,6 +174,51 @@ describe('sbx-manager', () => {
 
         await expect(probeSbxUnixSocketMount()).rejects.toThrow(/could not be removed/);
       });
+
+      it('identifies bounded-agent probe cleanup failures without bounded-query wording', async () => {
+        mockExecaFn
+          .mockResolvedValueOnce({ exitCode: 0, stdout: 'Created sandbox', stderr: '' })
+          .mockResolvedValueOnce({ exitCode: 7, stdout: '', stderr: 'connect failed' })
+          .mockResolvedValueOnce({ exitCode: 1, stdout: '', stderr: 'busy' });
+
+        await expect(probeSbxUnixSocketMount('bounded-agent')).rejects.toThrow(
+          'sbx bounded-agent ingress probe sandbox could not be removed',
+        );
+      });
+
+      it('fails closed when the disposable probe sandbox cannot be created', async () => {
+        mockExecaFn.mockResolvedValueOnce({
+          exitCode: 1,
+          stdout: '',
+          stderr: 'sandbox service unavailable',
+        });
+
+        await expect(probeSbxUnixSocketMount()).rejects.toThrow(
+          /could not create a sandbox.*sandbox service unavailable/,
+        );
+      });
+
+      it('identifies bounded-agent probe creation failures without bounded-query wording', async () => {
+        mockExecaFn.mockResolvedValueOnce({
+          exitCode: 1,
+          stdout: '',
+          stderr: 'sandbox service unavailable',
+        });
+
+        await expect(probeSbxUnixSocketMount('bounded-agent')).rejects.toThrow(
+          /sbx bounded-agent ingress probe could not create a sandbox/,
+        );
+      });
+
+      it('cleans up and propagates an unexpected socket probe failure', async () => {
+        mockExecaFn
+          .mockResolvedValueOnce({ exitCode: 0, stdout: 'Created sandbox', stderr: '' })
+          .mockRejectedValueOnce(new Error('exec unavailable'))
+          .mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' });
+
+        await expect(probeSbxUnixSocketMount()).rejects.toThrow('exec unavailable');
+        expect(mockExecaFn.mock.calls[2][1]).toEqual(expect.arrayContaining(['rm', '--force']));
+      });
     });
   });
 
@@ -210,6 +258,90 @@ describe('sbx-manager', () => {
         ]), expect.objectContaining({
           env: expect.any(Object),
         }));
+      });
+
+      it('proves sbx-http ingress with a capability-authenticated HTTP exchange', async () => {
+        mockExecaFn.mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' });
+
+        await expect(assertSbxBoundedQueryIngress(
+          'awf-agent-test',
+          { transport: 'sbx-http', endpoint: 'http://host.docker.internal:49152/query', probeCapability: 'p'.repeat(64) },
+          {},
+          '/workspace',
+        )).resolves.toBeUndefined();
+
+        const args: string[] = mockExecaFn.mock.calls[0][1];
+        const command = args[args.length - 1];
+        expect(command).toContain('$AWF_BOUNDED_QUERY_ENDPOINT');
+        expect(command).toContain('X-AWF-Capability: $AWF_BOUNDED_QUERY_PROBE_CAPABILITY');
+        expect(command).not.toContain('p'.repeat(64));
+      });
+
+      it('fails closed when the probe exchange does not return the canonical error body', async () => {
+        mockExecaFn.mockResolvedValueOnce({ exitCode: 1, stdout: '', stderr: '' });
+
+        await expect(assertSbxBoundedQueryIngress(
+          'awf-agent-test',
+          { transport: 'unix', socketPath: '/var/tmp/broker.sock' },
+          {},
+        )).rejects.toThrow(/sbx host does not support the selected bounded-query unix ingress/);
+      });
+
+      describe('assertSbxBoundedAgentIngress', () => {
+        it('proves Unix ingress with an HTTP exchange over the mounted socket, using its own env vars', async () => {
+          mockExecaFn.mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' });
+
+          await expect(assertSbxBoundedAgentIngress(
+            'awf-agent-test',
+            { transport: 'unix', socketPath: '/var/tmp/bounded-agent-broker.sock' },
+            {},
+            '/workspace',
+          )).resolves.toBeUndefined();
+
+          const args: string[] = mockExecaFn.mock.calls[0][1];
+          const command = args[args.length - 1];
+          expect(command).toContain('--unix-socket "$AWF_BOUNDED_AGENT_SOCKET"');
+          expect(command).toContain('http://localhost/query');
+          expect(command).toContain('{"status":"error"}');
+          // Must never reuse the bounded-query env var names.
+          expect(command).not.toContain('AWF_BOUNDED_QUERY_SOCKET');
+        });
+
+        it('proves sbx-http ingress with a capability-authenticated HTTP exchange, distinct from bounded queries', async () => {
+          mockExecaFn.mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' });
+          const environment: Record<string, string> = {};
+
+          await expect(assertSbxBoundedAgentIngress(
+            'awf-agent-test',
+            {
+              transport: 'sbx-http',
+              endpoint: 'http://host.docker.internal:49153/query',
+              probeCapability: 'q'.repeat(64),
+            },
+            environment,
+            '/workspace',
+          )).resolves.toBeUndefined();
+
+          const args: string[] = mockExecaFn.mock.calls[0][1];
+          const command = args[args.length - 1];
+          expect(command).toContain('$AWF_BOUNDED_AGENT_ENDPOINT');
+          expect(command).toContain('X-AWF-Capability: $AWF_BOUNDED_AGENT_PROBE_CAPABILITY');
+          expect(command).not.toContain('AWF_BOUNDED_QUERY_SOCKET');
+          expect(command).not.toContain('AWF_BOUNDED_QUERY_ENDPOINT');
+          // The capability value itself is passed only via the execInSandbox
+          // environment map, never inlined into the shell command string.
+          expect(command).not.toContain('q'.repeat(64));
+        });
+
+        it('fails closed when the bounded-agent probe exchange fails, with a distinct error message', async () => {
+          mockExecaFn.mockResolvedValueOnce({ exitCode: 1, stdout: '', stderr: '' });
+
+          await expect(assertSbxBoundedAgentIngress(
+            'awf-agent-test',
+            { transport: 'unix', socketPath: '/var/tmp/bounded-agent-broker.sock' },
+            {},
+          )).rejects.toThrow(/sbx host does not support the selected bounded-agent unix ingress/);
+        });
       });
 
       describe('assertSbxApiProxyReflect', () => {
@@ -384,6 +516,48 @@ describe('sbx-manager', () => {
       restoreHomeCredentials();
     });
 
+    it('continues without mutating credentials when the backup directory cannot be created', async () => {
+      const homePath = process.env.HOME || '/home/runner';
+      const secret = `${homePath}/.claude/.credentials.json`;
+      mockedExistsSync.mockImplementation(
+        (p: fs.PathLike) => String(p) === `${homePath}/.claude` || String(p) === secret,
+      );
+      mockedMkdirSync.mockImplementationOnce(() => {
+        throw new Error('read-only home');
+      });
+      mockExecaFn
+        .mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' })
+        .mockResolvedValueOnce({ exitCode: 0, stdout: 'Created sandbox', stderr: '' });
+
+      await createSandbox({ workspaceDir: '/workspace', squidIp: '172.30.0.10' });
+
+      expect(mockedRenameSync).not.toHaveBeenCalled();
+      expect(mockedLogger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('Could not create credential backup dir'),
+      );
+    });
+
+    it('continues after a credential path cannot be moved aside', async () => {
+      const homePath = process.env.HOME || '/home/runner';
+      const secret = `${homePath}/.claude/.credentials.json`;
+      mockedExistsSync.mockImplementation(
+        (p: fs.PathLike) => String(p) === `${homePath}/.claude` || String(p) === secret,
+      );
+      mockedRenameSync.mockImplementationOnce(() => {
+        throw new Error('busy');
+      });
+      mockExecaFn
+        .mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' })
+        .mockResolvedValueOnce({ exitCode: 0, stdout: 'Created sandbox', stderr: '' });
+
+      await createSandbox({ workspaceDir: '/workspace', squidIp: '172.30.0.10' });
+
+      expect(mockedLogger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('Could not hide credential path'),
+      );
+      restoreHomeCredentials();
+    });
+
     it('restores scrubbed credentials after the sandbox is removed', async () => {
       const homePath = process.env.HOME || '/home/runner';
       const secret = `${homePath}/.claude/.credentials.json`;
@@ -416,6 +590,33 @@ describe('sbx-manager', () => {
       // The backup is moved back to its original location after teardown.
       const restoreMoves = mockedRenameSync.mock.calls.map((c) => [String(c[0]), String(c[1])]);
       expect(restoreMoves).toContainEqual([backupPath, secret]);
+    });
+
+    it('preserves the backup when credential restoration fails', async () => {
+      const homePath = process.env.HOME || '/home/runner';
+      const secret = `${homePath}/.claude/.credentials.json`;
+      mockedExistsSync.mockImplementation(
+        (p: fs.PathLike) =>
+          String(p) === `${homePath}/.claude` ||
+          String(p) === secret ||
+          String(p).includes('.awf-sbx-cred-backup'),
+      );
+      mockExecaFn
+        .mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' })
+        .mockResolvedValueOnce({ exitCode: 0, stdout: 'Created sandbox', stderr: '' });
+      await createSandbox({ workspaceDir: '/workspace', squidIp: '172.30.0.10' });
+      mockedRenameSync.mockImplementationOnce(() => {
+        throw new Error('restore denied');
+      });
+      mockedRmSync.mockImplementationOnce(() => {
+        throw new Error('not empty');
+      });
+
+      restoreHomeCredentials();
+
+      expect(mockedLogger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('Could not restore credential path'),
+      );
     });
 
     it('skips whitelisted home subdirs that do not exist on the host', async () => {
@@ -492,6 +693,19 @@ describe('sbx-manager', () => {
 
       await expect(createSandbox({ workspaceDir: '/ws', squidIp: '172.30.0.10' })).rejects.toThrow(
         /sbx is not authenticated/,
+      );
+    });
+
+    it('reports an authentication failure when the probes return no diagnostics', async () => {
+      mockExecaFn
+        .mockResolvedValueOnce({ exitCode: 1, stdout: '', stderr: '' })
+        .mockResolvedValueOnce({ exitCode: 1, stdout: '', stderr: '' });
+
+      await expect(createSandbox({ workspaceDir: '/ws', squidIp: '172.30.0.10' })).rejects.toThrow(
+        /sbx is not authenticated/,
+      );
+      expect(mockedLogger.error).toHaveBeenCalledWith(
+        expect.stringContaining('daemon status: '),
       );
     });
 
@@ -702,7 +916,7 @@ describe('sbx-manager', () => {
       expect(args).toContain('-lc');
       const shellCommand = args[args.length - 1];
       expect(shellCommand).toBe(
-        'export PATH="${AWF_BOUNDED_QUERY_BIN_DIR:+$AWF_BOUNDED_QUERY_BIN_DIR:}$HOME/.local/bin${PATH:+:$PATH}"; copilot --version',
+        'export PATH="${AWF_BOUNDED_QUERY_BIN_DIR:+$AWF_BOUNDED_QUERY_BIN_DIR:}${AWF_BOUNDED_AGENT_BIN_DIR:+$AWF_BOUNDED_AGENT_BIN_DIR:}$HOME/.local/bin${PATH:+:$PATH}"; copilot --version',
       );
       expect(shellCommand.indexOf('.local/bin')).toBeLessThan(
         shellCommand.indexOf('copilot --version'),
@@ -722,7 +936,7 @@ describe('sbx-manager', () => {
   describe('withLocalBinOnPath', () => {
     it('prepends ~/.local/bin using the runtime $HOME', () => {
       expect(withLocalBinOnPath('copilot')).toBe(
-        'export PATH="${AWF_BOUNDED_QUERY_BIN_DIR:+$AWF_BOUNDED_QUERY_BIN_DIR:}$HOME/.local/bin${PATH:+:$PATH}"; copilot',
+        'export PATH="${AWF_BOUNDED_QUERY_BIN_DIR:+$AWF_BOUNDED_QUERY_BIN_DIR:}${AWF_BOUNDED_AGENT_BIN_DIR:+$AWF_BOUNDED_AGENT_BIN_DIR:}$HOME/.local/bin${PATH:+:$PATH}"; copilot',
       );
     });
 

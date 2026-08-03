@@ -420,5 +420,6 @@ Bounded queries provide a **quantitative information bound**, not a semantic app
 
 ## See also
 
+- [Bounded agents](bounded-agents.md) - The agentic sibling: a fixed AWF-authored model loop in an enclave whose only reachable peer is the AWF API proxy. Prefer a bounded query whenever a deterministic script can answer the question, because a bounded agent necessarily discloses repository-derived content to the configured model provider.
 - [Security Architecture](/gh-aw-firewall/reference/security-architecture) - Firewall trust model and isolation layers
 - [AWF config spec section 14](https://github.com/github/gh-aw-firewall/blob/main/docs/awf-config-spec.md#14-bounded-queries) - Normative specification with full field constraints, protocol details, and staging implementation notes
