@@ -706,8 +706,10 @@ AWF supports OIDC-based credential exchange with multiple cloud providers via Gi
 | `ACTIONS_ID_TOKEN_REQUEST_URL` | ✅ | Provided automatically by the GitHub Actions runtime |
 | `ACTIONS_ID_TOKEN_REQUEST_TOKEN` | ✅ | Provided automatically by the GitHub Actions runtime |
 
-:::caution[OIDC request capability reaches the agent]
-AWF forwards `ACTIONS_ID_TOKEN_REQUEST_URL` and `ACTIONS_ID_TOKEN_REQUEST_TOKEN` to both the sidecar and the agent container. These values let code request a GitHub OIDC JWT when the job has `permissions: id-token: write`. Exchanged provider credentials remain isolated in the sidecar, but the token-minting capability itself is not isolated. Restrict provider federation policies to the expected repository, workflow, ref, and audience.
+:::note[OIDC request capability is sidecar-only]
+AWF forwards `ACTIONS_ID_TOKEN_REQUEST_URL` and `ACTIONS_ID_TOKEN_REQUEST_TOKEN` only to the api-proxy sidecar when `AWF_AUTH_TYPE=github-oidc`. The variables are excluded from the agent even when `--env-all`, `--env-file`, or explicit `--env` options request them. The minted GitHub JWT and exchanged provider credentials also remain inside the sidecar.
+
+GitHub Agentic Workflows handles HTTP MCP `auth.type: github-oidc` separately: the compiler-generated, runner-owned **Start MCP Gateway** step passes the Actions variables directly to the MCP gateway, which mints an audience-bound JWT for the remote server. AWF neither launches nor configures that gateway, and the variables do not need to pass through the agent. Recompile older workflow lock files that do not use this direct runner-to-gateway path; compatibility tracking is available in [github/gh-aw#50053](https://github.com/github/gh-aw/issues/50053).
 :::
 
 When `AWF_AUTH_TYPE=github-oidc` is set but `ACTIONS_ID_TOKEN_REQUEST_URL`/`ACTIONS_ID_TOKEN_REQUEST_TOKEN` are not available in the sidecar, Anthropic OIDC requests fail closed with:
@@ -770,7 +772,7 @@ Exchanges the GitHub OIDC JWT for a GCP access token via the Security Token Serv
 Default OIDC audience: the `gcpWorkloadIdentityProvider` value
 
 :::note
-`ACTIONS_ID_TOKEN_REQUEST_URL` and `ACTIONS_ID_TOKEN_REQUEST_TOKEN` are injected by the Actions runner automatically. AWF forwards them to the sidecar when `AWF_AUTH_TYPE=github-oidc` and currently also passes them through to the agent.
+`ACTIONS_ID_TOKEN_REQUEST_URL` and `ACTIONS_ID_TOKEN_REQUEST_TOKEN` are injected by the Actions runner automatically. AWF forwards them to the sidecar when `AWF_AUTH_TYPE=github-oidc` and excludes them from the agent container.
 :::
 
 :::tip

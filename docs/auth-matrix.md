@@ -277,6 +277,8 @@ All OIDC flows require GitHub Actions runtime tokens:
 - `ACTIONS_ID_TOKEN_REQUEST_URL` — endpoint to mint OIDC JWTs
 - `ACTIONS_ID_TOKEN_REQUEST_TOKEN` — auth token for the OIDC endpoint
 
+AWF forwards these variables only to the api-proxy sidecar in `github-oidc` mode and excludes them from the agent container. GitHub Agentic Workflows independently passes them from its runner-owned **Start MCP Gateway** step directly to the MCP gateway when a remote HTTP MCP server uses `auth.type: github-oidc`; AWF does not launch or configure that gateway. See [github/gh-aw#50053](https://github.com/github/gh-aw/issues/50053) for lock-file compatibility tracking.
+
 ### Azure (Entra ID)
 
 | Config | Env Var | Required |

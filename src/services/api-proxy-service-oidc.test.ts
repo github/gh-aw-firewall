@@ -37,8 +37,11 @@ describe('API proxy sidecar: OIDC env forwarding', () => {
           const config = { ...mockConfig, enableApiProxy: true, openaiApiKey: 'sk-openai-test' };
           const result = generateDockerCompose(config, mockNetworkConfigWithProxy);
           const env = result.services['api-proxy'].environment as Record<string, string>;
+          const agentEnv = result.services.agent.environment as Record<string, string>;
           expect(env.ACTIONS_ID_TOKEN_REQUEST_URL).toBe('https://actions.local/token');
           expect(env.ACTIONS_ID_TOKEN_REQUEST_TOKEN).toBe('runtime-token');
+          expect(agentEnv.ACTIONS_ID_TOKEN_REQUEST_URL).toBeUndefined();
+          expect(agentEnv.ACTIONS_ID_TOKEN_REQUEST_TOKEN).toBeUndefined();
         });
 
         it('should forward ACTIONS_ID_TOKEN_REQUEST_* when config.authType is github-oidc (config-file path)', () => {
