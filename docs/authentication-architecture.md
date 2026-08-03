@@ -3,22 +3,25 @@ title: Authentication Architecture
 description: How AWF isolates LLM API tokens using a multi-container credential separation architecture.
 ---
 
-AWF implements a multi-layered security architecture to protect LLM API authentication tokens while providing transparent proxying for AI agent calls. This document explains the complete authentication flow, token isolation mechanisms, and network routing for both OpenAI/Codex and Anthropic/Claude APIs.
+AWF implements a multi-layered security architecture to protect LLM API authentication tokens while providing transparent proxying for AI agent calls. This document explains credential isolation, token exchange, and network routing for every API-proxy provider.
 
 :::note
 All LLM providers use identical credential isolation architecture. API keys are held exclusively in the api-proxy sidecar container (never in the agent container), and all providers route through the same Squid proxy for domain filtering. Providers are differentiated by port number and authentication header format:
 
 | Port  | Provider           | Auth header                     |
 |-------|--------------------|---------------------------------|
-| 10000 | OpenAI             | `Authorization: Bearer`         |
-| 10001 | Anthropic (Claude) | `x-api-key` (static) or `Authorization: Bearer` (OIDC) |
-| 10002 | GitHub Copilot     | `Authorization: Bearer`         |
-| 10003 | Google Gemini      | `x-goog-api-key`                |
+| 10000 | OpenAI             | `Authorization: Bearer` (static or OIDC) |
+| 10001 | Anthropic (Claude) | `x-api-key` (static) or `Authorization: Bearer` (OIDC/WIF) |
+| 10002 | GitHub Copilot     | `Authorization: Bearer` or `token` (see note below), or `api-key` (Azure BYOK) |
+| 10003 | Google Gemini      | `x-goog-api-key` (static key only) |
+| 10004 | Google Vertex AI   | `x-goog-api-key` (static key only) |
+
+Only the OpenAI, Anthropic, and Copilot adapters support `AWF_AUTH_TYPE=github-oidc`. Gemini and Vertex AI are static-API-key only in the current implementation. See [`docs/auth-matrix.md`](./auth-matrix.md) for the full per-provider auth matrix, including the enterprise/business Copilot `token`-prefix requirement and known gaps (for example, AWS OIDC for Bedrock currently mints credentials but does not sign outgoing requests).
 :::
 
 ## Architecture components
 
-AWF uses a **3-container architecture** when API proxy mode is enabled:
+AWF uses a **3-container architecture**. The API proxy sidecar is always enabled (see [Configuration requirements](#configuration-requirements) below):
 
 1. **Squid Proxy Container** (`172.30.0.10`) — L7 HTTP/HTTPS domain filtering
 2. **API Proxy Sidecar Container** (`172.30.0.30`) — credential injection and isolation
@@ -44,7 +47,8 @@ AWF uses a **3-container architecture** when API proxy mode is enabled:
 │                                  │       │                                  │
 │ Environment:                     │       │ Environment:                     │
 │ ✓ OPENAI_API_KEY=sk-...         │       │ ✗ No ANTHROPIC_API_KEY          │
-│ ✓ ANTHROPIC_API_KEY=sk-ant-...  │       │ ✗ No OPENAI_API_KEY             │
+│ ✓ ANTHROPIC_API_KEY=sk-ant-...  │       │ ✓ OPENAI_API_KEY=                │
+│                                  │       │   sk-placeholder-for-api-proxy   │
 │ ✓ HTTP_PROXY=172.30.0.10:3128   │       │ ✓ ANTHROPIC_BASE_URL=            │
 │ ✓ HTTPS_PROXY=172.30.0.10:3128  │       │     http://172.30.0.30:10001    │
 │                                  │       │ ✓ OPENAI_BASE_URL=               │
@@ -53,6 +57,7 @@ AWF uses a **3-container architecture** when API proxy mode is enabled:
 │ - 10001 (Anthropic proxy)       │       │     http://172.30.0.30:10002    │
 │ - 10002 (Copilot proxy)         │       │ ✗ GITHUB_TOKEN — excluded        │
 │ - 10003 (Gemini proxy)          │       │   (not present in agent env)     │
+│ - 10004 (Vertex AI proxy)       │       │                                  │
 │ Injects auth headers:            │       │ User command execution:          │
 │ - x-api-key: sk-ant-...         │       │   claude-code, copilot, etc.     │
 │ - Authorization: Bearer sk-...   │       └──────────────────────────────────┘
@@ -80,13 +85,13 @@ AWF uses a **3-container architecture** when API proxy mode is enabled:
 
 **Source:** `src/cli.ts`
 
-When AWF is invoked with `--enable-api-proxy`:
+The API proxy is always active. Set source credentials in the host environment before invoking AWF:
 
 ```bash
 export ANTHROPIC_API_KEY="sk-ant-..."
 export OPENAI_API_KEY="sk-..."
 
-sudo awf --enable-api-proxy --allow-domains api.anthropic.com \
+sudo awf --allow-domains api.anthropic.com \
   "claude-code --prompt 'write hello world'"
 ```
 
@@ -119,12 +124,15 @@ api-proxy:
 ```yaml
 agent:
   environment:
-    # NO API KEYS - only base URLs pointing to api-proxy
+    # No real API keys: only proxy URLs and non-secret compatibility placeholders
     - ANTHROPIC_BASE_URL=http://172.30.0.30:10001
     - OPENAI_BASE_URL=http://172.30.0.30:10000
+    - OPENAI_API_KEY=sk-placeholder-for-api-proxy
+    - CODEX_API_KEY=sk-placeholder-for-api-proxy
     - COPILOT_API_URL=http://172.30.0.30:10002
     - GOOGLE_GEMINI_BASE_URL=http://172.30.0.30:10003
     - GEMINI_API_BASE_URL=http://172.30.0.30:10003
+    - GOOGLE_VERTEX_BASE_URL=http://172.30.0.30:10004
     # GITHUB_TOKEN / GH_TOKEN are NOT present — excluded by the API-proxy
     # exclusion set to prevent credential extraction via /proc/self/environ
   networks:
@@ -133,23 +141,26 @@ agent:
 ```
 
 :::danger[Security design]
-API credentials are intentionally excluded from the agent container environment. The API proxy is always enabled, and `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, and related credentials are added to the excluded environment variables list in `src/services/agent-environment/excluded-vars.ts`.
+Real API credentials are intentionally excluded from the agent container environment. The API proxy is always enabled. Source values such as `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, and `ANTHROPIC_AUTH_TOKEN` are excluded before AWF adds any non-secret compatibility placeholders required by client tools. For example, the agent receives `OPENAI_API_KEY=sk-placeholder-for-api-proxy` and `ANTHROPIC_AUTH_TOKEN=sk-ant-placeholder-key-for-credential-isolation`, never the host values.
 :::
 
 ### 3. API proxy: credential injection layer
 
-**Source:** `containers/api-proxy/server.js`
+**Source:** `containers/api-proxy/server.js` (facade), `containers/api-proxy/server-factory.js` (shared HTTP handler logic), `containers/api-proxy/providers/*.js` (one adapter module per provider)
 
-The api-proxy container runs five HTTP servers:
+The api-proxy container runs five HTTP servers, one per provider adapter:
 
 #### Port 10000: OpenAI proxy
 
+Simplified illustration of the request-handling logic (the real implementation lives in `providers/openai.js` and `server-factory.js`, and is provider-agnostic — this snippet is illustrative, not a literal excerpt):
+
 ```javascript
-// Stripped headers — never forwarded from client
+// Stripped headers — never forwarded from client (containers/api-proxy/proxy-utils.js)
 const STRIPPED_HEADERS = new Set([
   'host', 'authorization', 'proxy-authorization',
-  'x-api-key', 'forwarded', 'via',
+  'x-api-key', 'x-goog-api-key', 'forwarded', 'via',
 ]);
+// Header names starting with 'x-forwarded-' are also stripped.
 
 // OpenAI proxy handler
 http.createServer((req, res) => {
@@ -181,7 +192,11 @@ Handles requests from the agent using `COPILOT_API_URL`. Injects the resolved Co
 
 #### Port 10003: Google Gemini proxy
 
-Handles requests from the agent using `GOOGLE_GEMINI_BASE_URL` (read by the Gemini CLI) and `GEMINI_API_BASE_URL` (read by older SDK versions). Injects `x-goog-api-key` from `GEMINI_API_KEY`, forwarding to `generativelanguage.googleapis.com`. Returns `503` if `GEMINI_API_KEY` is not configured.
+Handles requests from the agent using `GOOGLE_GEMINI_BASE_URL` (read by the Gemini CLI) and `GEMINI_API_BASE_URL` (read by older SDK versions). Injects `x-goog-api-key` from `GEMINI_API_KEY`, forwarding to `generativelanguage.googleapis.com`. Returns `503` if `GEMINI_API_KEY` is not configured. Static-key only — no OIDC/WIF support.
+
+#### Port 10004: Google Vertex AI proxy
+
+Handles requests from the agent using `GOOGLE_VERTEX_BASE_URL` (read by the Gemini CLI when `GOOGLE_GENAI_USE_VERTEXAI=true`). Injects `x-goog-api-key` from `GOOGLE_API_KEY`, forwarding to `aiplatform.googleapis.com`. Returns `503` if `GOOGLE_API_KEY` is not configured. Shares its adapter factory (`providers/google-adapter.js`) with the Gemini adapter, but is a distinct always-bound port with its own target and env vars. Static-key only — no OIDC/WIF support (see [`docs/auth-matrix.md`](./auth-matrix.md#provider-google-vertex-ai) for the implementation-vs-provider-docs caveat on API-key auth against Vertex AI).
 
 The `proxyRequest` function copies incoming headers, strips sensitive/proxy headers, injects the authentication headers, and forwards the request to the target API through Squid using `HttpsProxyAgent`.
 
@@ -199,6 +214,7 @@ OPENAI_BASE_URL=http://172.30.0.30:10000
 COPILOT_API_URL=http://172.30.0.30:10002
 GOOGLE_GEMINI_BASE_URL=http://172.30.0.30:10003
 GEMINI_API_BASE_URL=http://172.30.0.30:10003
+GOOGLE_VERTEX_BASE_URL=http://172.30.0.30:10004
 ```
 
 These are standard environment variables recognized by the official SDKs:
@@ -209,7 +225,7 @@ These are standard environment variables recognized by the official SDKs:
 - Claude Code CLI
 - Codex CLI
 - GitHub Copilot CLI (`gh copilot`)
-- Google Gemini CLI (reads `GOOGLE_GEMINI_BASE_URL`)
+- Google Gemini CLI (reads `GOOGLE_GEMINI_BASE_URL`, or `GOOGLE_VERTEX_BASE_URL` when `GOOGLE_GENAI_USE_VERTEXAI=true`)
 
 When the agent code makes an API call:
 
@@ -298,7 +314,7 @@ environment:
 Squid's domain whitelist ACLs control which API domains the sidecar can reach. For example, if only `api.anthropic.com` is whitelisted, the sidecar can only connect to that domain — even if a compromised sidecar tried to connect to a malicious domain, Squid would block it.
 
 :::note
-The api-proxy connects to the real APIs (e.g., `api.openai.com`) over standard HTTPS (port 443) through Squid. Ports 10000–10003 are only used for internal agent-to-proxy communication within the Docker network.
+The api-proxy connects to the real APIs (e.g., `api.openai.com`) over standard HTTPS (port 443) through Squid. Ports 10000–10004 are only used for internal agent-to-proxy communication within the Docker network.
 :::
 
 ## Additional token protection mechanisms
@@ -307,7 +323,7 @@ The api-proxy connects to the real APIs (e.g., `api.openai.com`) over standard H
 
 **Source:** `containers/agent/one-shot-token/`
 
-While API keys don't exist in the agent container, other tokens may still be present. AWF uses an `LD_PRELOAD` library as defense-in-depth for any token that does reach the container:
+While real provider keys do not exist in the agent container, non-secret compatibility placeholders and other tokens may still be present. AWF uses an `LD_PRELOAD` library as defense-in-depth for protected variable names:
 
 ```c
 // Intercept getenv() calls
@@ -329,9 +345,9 @@ char* getenv(const char* name) {
 ```
 
 **Protected tokens by default:**
-- `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_API_KEY` (`ANTHROPIC_AUTH_TOKEN` is usually a placeholder in agent mode, but stays protected in case a real value is forwarded)
+- `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_API_KEY` (`ANTHROPIC_AUTH_TOKEN` contains AWF's placeholder when Anthropic proxying is configured)
 - `OPENAI_API_KEY`, `OPENAI_KEY`
-- `GITHUB_TOKEN`, `GH_TOKEN`, `COPILOT_GITHUB_TOKEN` (not passed to agent when api-proxy is enabled)
+- `GITHUB_TOKEN`, `GH_TOKEN`, `COPILOT_GITHUB_TOKEN` (source values are excluded; Copilot may receive a placeholder)
 - `GITHUB_API_TOKEN`, `GITHUB_PAT`, `GH_ACCESS_TOKEN`
 - `CODEX_API_KEY`
 - `COPILOT_PROVIDER_API_KEY` (Copilot BYOK upstream provider key)
@@ -442,14 +458,18 @@ Even if exploited, the api-proxy has no elevated privileges and limited resource
 
 ## Configuration requirements
 
-### Enabling API proxy mode
+### API proxy behavior
+
+:::note[Implementation vs. provider documentation]
+The API proxy is **always enabled** — it cannot be turned off. The historical `--enable-api-proxy` CLI flag is deprecated and ignored (kept only for backward-compatible command lines), and `--no-enable-api-proxy` is rejected as a runtime error. The `apiProxy.enabled` config-file field is likewise deprecated and ignored. Do not add `--enable-api-proxy` to new commands.
+:::
 
 **Example 1: Using with Claude Code**
 
 ```bash
 export ANTHROPIC_API_KEY="sk-ant-api03-..."
 
-sudo awf --enable-api-proxy \
+sudo awf \
     --allow-domains api.anthropic.com \
     "claude-code --prompt 'Hello world'"
 ```
@@ -459,7 +479,7 @@ sudo awf --enable-api-proxy \
 ```bash
 export OPENAI_API_KEY="sk-..."
 
-sudo awf --enable-api-proxy \
+sudo awf \
     --allow-domains api.openai.com \
     "codex --prompt 'Hello world'"
 ```
@@ -470,7 +490,7 @@ sudo awf --enable-api-proxy \
 export ANTHROPIC_API_KEY="sk-ant-api03-..."
 export OPENAI_API_KEY="sk-..."
 
-sudo awf --enable-api-proxy \
+sudo awf \
     --allow-domains api.anthropic.com,api.openai.com \
     "your-multi-llm-agent"
 ```
@@ -500,9 +520,11 @@ This ensures:
 - The agent can reach api-proxy directly without going through Squid
 - Container-to-container communication works properly
 
-## Comparison: with vs without API proxy
+## Why credential isolation matters
 
-### Without API proxy (direct authentication)
+### Hypothetical direct authentication
+
+AWF does not provide this mode. The diagram shows the risk that the always-on sidecar avoids:
 
 ```
 ┌─────────────────┐
@@ -525,7 +547,7 @@ This ensures:
 
 **Security risk:** If the agent is compromised, the attacker can read the API key from environment variables.
 
-### With API proxy (credential isolation)
+### AWF API proxy (credential isolation)
 
 ```
 ┌─────────────────┐     ┌────────────────┐
@@ -618,7 +640,9 @@ AWF moves the entire OIDC exchange into the api-proxy sidecar, so the agent neve
                                                     │
                                                     ▼
                                           Cloud API endpoint
-                                    (Azure OpenAI / AWS Bedrock / GCP Vertex / Anthropic)
+                            (Azure OpenAI, GCP-fronted OpenAI/Copilot targets, Anthropic;
+                             AWS Bedrock credential exchange works, but see the AWS
+                             SigV4 caveat in Step 5 below — requests are not yet signed)
 ```
 
 ### OIDC token flow: step by step
@@ -705,10 +729,14 @@ When the agent sends a request to the sidecar, the provider adapter injects the 
 
 | Provider | Auth injection method |
 |----------|----------------------|
-| Azure | Authorization header |
-| GCP | Authorization header |
-| Anthropic | Authorization header |
-| AWS | SigV4 request signing (method, path, headers, body hash) |
+| Azure | `Authorization` header |
+| GCP | `Authorization` header |
+| Anthropic | `Authorization` header |
+| AWS | *(none — see caution below)* |
+
+:::danger[AWS OIDC: credentials are minted but never used to sign requests]
+`AwsOidcTokenProvider` exchanges the GitHub JWT for temporary STS credentials (`AccessKeyId`/`SecretAccessKey`/`SessionToken`) and caches/refreshes them like the other providers, but **no code in the request pipeline signs outgoing requests with SigV4**. There is no AWS SDK or `aws4`-style signing dependency in `containers/api-proxy/package.json`, and `resolveOidcAuthHeaders()` returns an empty header object for the AWS provider. In practice, selecting `AWF_AUTH_PROVIDER=aws` currently produces STS credentials that are never applied to any request — AWS Bedrock (which requires SigV4 with the `bedrock-runtime` service) would reject a request sent this way for lack of an `Authorization` header. Treat this as a credential-lifecycle-only capability until request signing is implemented.
+:::
 
 ### Comparison: static keys vs OIDC
 
@@ -719,7 +747,7 @@ When the agent sends a request to the sidecar, the provider adapter injects the 
 | Agent sees secret | No (api-proxy only) | No (api-proxy only) |
 | GitHub Actions requirement | API key in secrets | `permissions: id-token: write` |
 | Cloud provider setup | Generate API key | Configure trust policy/federation |
-| Supported providers | OpenAI, Anthropic, Copilot, Gemini | Azure OpenAI, AWS Bedrock, GCP Vertex AI, Anthropic WIF |
+| Supported providers | OpenAI, Anthropic, Copilot, Gemini, Vertex AI | Azure (OpenAI/Copilot), GCP (OpenAI/Copilot adapters only — not the native Vertex/Gemini adapters), Anthropic WIF, AWS (credential exchange only; request signing not implemented) |
 
 ### Configuration reference
 
@@ -743,6 +771,9 @@ OIDC authentication is configured via `apiProxy.auth` in the AWF config file or 
 | `containers/api-proxy/gcp-oidc-token-provider.js` | GCP STS token exchange + optional SA impersonation |
 | `containers/api-proxy/anthropic-oidc-token-provider.js` | Anthropic OAuth token exchange for workload identity federation |
 | `containers/api-proxy/providers/openai.js` | OpenAI adapter — selects OIDC provider based on `AWF_AUTH_PROVIDER` |
+| `containers/api-proxy/providers/anthropic.js` | Anthropic adapter — static `x-api-key` or WIF `Authorization: Bearer` |
+| `containers/api-proxy/providers/copilot.js`, `copilot-auth.js`, `copilot-byok.js` | Copilot adapter — GitHub token, BYOK, and OIDC handling, `token`/`Bearer` prefix logic |
+| `containers/api-proxy/providers/gemini.js`, `vertex.js`, `google-adapter.js` | Gemini and Vertex AI adapters — static `x-goog-api-key` only, no OIDC |
 | `containers/agent/setup-iptables.sh` | iptables rules for api-proxy routing |
 | `containers/agent/entrypoint.sh` | Entrypoint token cleanup, capability drop |
 | `containers/agent/api-proxy-health-check.sh` | Pre-flight credential isolation verification |
@@ -765,6 +796,7 @@ This architecture provides **transparent operation** (SDKs work without code cha
 
 ## Related documentation
 
+- [Auth Matrix](./auth-matrix.md) — per-provider auth combination reference (static keys, OIDC, custom headers)
 - [API Proxy Sidecar](./api-proxy-sidecar.md) — user-facing guide for enabling the API proxy
 - [Security](./security.md) — overall security model
 - [Architecture](./architecture.md) — overall system architecture
