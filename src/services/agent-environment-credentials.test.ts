@@ -1,3 +1,6 @@
+import fs from 'fs';
+import path from 'path';
+
 import { generateDockerCompose, WrapperConfig, baseConfig, mockNetworkConfig, useTempWorkDir } from './service-test-setup.test-utils';
 
 // Create mock functions (must remain per-file — jest.mock() is hoisted before imports)
@@ -205,6 +208,19 @@ describe('agent environment: credentials', () => {
         ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'test-oidc-token-value',
       },
     }, mockNetworkConfig);
+    const env = result.services.agent.environment as Record<string, string>;
+    expect(env.ACTIONS_ID_TOKEN_REQUEST_URL).toBeUndefined();
+    expect(env.ACTIONS_ID_TOKEN_REQUEST_TOKEN).toBeUndefined();
+  });
+
+  it('should exclude Actions OIDC minting variables from env files', () => {
+    const envFile = path.join(mockConfig.workDir, 'oidc.env');
+    fs.writeFileSync(envFile, [
+      'ACTIONS_ID_TOKEN_REQUEST_URL=https://token.actions.githubusercontent.com/abc',
+      'ACTIONS_ID_TOKEN_REQUEST_TOKEN=test-oidc-token-value',
+    ].join('\n'));
+
+    const result = generateDockerCompose({ ...mockConfig, envFile }, mockNetworkConfig);
     const env = result.services.agent.environment as Record<string, string>;
     expect(env.ACTIONS_ID_TOKEN_REQUEST_URL).toBeUndefined();
     expect(env.ACTIONS_ID_TOKEN_REQUEST_TOKEN).toBeUndefined();

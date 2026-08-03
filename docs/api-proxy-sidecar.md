@@ -709,7 +709,7 @@ AWF supports OIDC-based credential exchange with multiple cloud providers via Gi
 :::note[OIDC request capability is sidecar-only]
 AWF forwards `ACTIONS_ID_TOKEN_REQUEST_URL` and `ACTIONS_ID_TOKEN_REQUEST_TOKEN` only to the api-proxy sidecar when `AWF_AUTH_TYPE=github-oidc`. The variables are excluded from the agent even when `--env-all`, `--env-file`, or explicit `--env` options request them. The minted GitHub JWT and exchanged provider credentials also remain inside the sidecar.
 
-OIDC-dependent MCP servers must run outside the agent container, such as behind a trusted MCP gateway or in a dedicated sidecar that receives the Actions variables directly. The agent should connect to that service over MCP rather than receiving the token-minting capability.
+GitHub Agentic Workflows handles HTTP MCP `auth.type: github-oidc` separately: the compiler-generated, runner-owned **Start MCP Gateway** step passes the Actions variables directly to the MCP gateway, which mints an audience-bound JWT for the remote server. AWF neither launches nor configures that gateway, and the variables do not need to pass through the agent. Recompile older workflow lock files that do not use this direct runner-to-gateway path; compatibility tracking is available in [github/gh-aw#50053](https://github.com/github/gh-aw/issues/50053).
 :::
 
 When `AWF_AUTH_TYPE=github-oidc` is set but `ACTIONS_ID_TOKEN_REQUEST_URL`/`ACTIONS_ID_TOKEN_REQUEST_TOKEN` are not available in the sidecar, Anthropic OIDC requests fail closed with:
