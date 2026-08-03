@@ -86,17 +86,27 @@ post-steps:
     if: always()
     env:
       AUDIT_LOG: /tmp/gh-aw/sandbox/firewall/audit/bounded-agent.jsonl
+      TELEMETRY_LOG: /tmp/gh-aw/sandbox/firewall/audit/bounded-agent-runtime.jsonl
       OUTPUTS_FILE: ${{ steps.set-runtime-paths.outputs.GH_AW_SAFE_OUTPUTS }}
     run: |
-      node - "$AUDIT_LOG" "$OUTPUTS_FILE" <<'NODE'
+      node - "$AUDIT_LOG" "$TELEMETRY_LOG" "$OUTPUTS_FILE" <<'NODE'
       const fs = require("fs");
-      const [auditPath, outputsPath] = process.argv.slice(2);
-      const records = fs.readFileSync(auditPath, "utf8").trim().split("\n")
+      const [auditPath, telemetryPath, outputsPath] = process.argv.slice(2);
+      const read = (file) => fs.readFileSync(file, "utf8").trim().split("\n")
         .filter(Boolean).map((line) => JSON.parse(line));
+      const records = read(auditPath);
       const invocations = records.filter((record) =>
         record.kind === "invocation" && record.sensitivity === "internal");
-      if (invocations.length !== 1 || invocations[0].outcome !== "ok") {
+      if (invocations.length !== 1) {
         throw new Error(`expected one successful bounded-agent invocation, found ${invocations.length}`);
+      }
+      const successes = read(telemetryPath).filter((record) =>
+        record.primaryBackend === "docker" &&
+        record.boundedAgentBackend === "docker" &&
+        record.lifecycleClass === "invocation" &&
+        record.category === "success");
+      if (successes.length !== 1) {
+        throw new Error(`expected one successful Docker telemetry record, found ${successes.length}`);
       }
       const serialized = JSON.stringify(records);
       if (serialized.includes("github/gh-aw") || serialized.includes("SECURITY.md")) {

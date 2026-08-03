@@ -20,6 +20,14 @@ const workflows = [
 ];
 
 describe.each(workflows)('$source', ({ source, lock, runtime }) => {
+  it('validates successful invocations using protected audit and runtime telemetry', () => {
+    const sourceText = fs.readFileSync(path.join(workflowsDir, source), 'utf-8');
+
+    expect(sourceText).not.toContain('invocations[0].outcome');
+    expect(sourceText).toContain('record.kind === "invocation"');
+    expect(sourceText).toContain('record.category === "success"');
+  });
+
   it('configures bounded agents only after gh-aw generates the AWF config', () => {
     const sourceText = fs.readFileSync(path.join(workflowsDir, source), 'utf-8');
     const lockText = fs.readFileSync(path.join(workflowsDir, lock), 'utf-8');
