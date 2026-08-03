@@ -77,6 +77,7 @@ describe('createAnthropicAdapter — custom auth header', () => {
     const headers = adapter.getAuthHeaders(fakeReq);
     expect(headers).toEqual({
       Authorization: 'Bearer oidc-token',
+      'anthropic-beta': 'oauth-2025-04-20',
       'anthropic-version': '2023-06-01',
     });
     expect(headers['api-key']).toBeUndefined();

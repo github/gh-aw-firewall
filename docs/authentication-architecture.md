@@ -710,8 +710,11 @@ GitHub JWT  ──►  sts.googleapis.com/v1/token
 GitHub JWT  ──►  api.anthropic.com/v1/oauth/token
                 grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer
                 assertion={github_jwt}
+                anthropic-beta=oauth-2025-04-20,oidc-federation-2026-04-01
             ◄──  { access_token: "sk-ant-oat01-...", expires_in: 3600 }
 ```
+
+The federation beta is a routing switch used only for the JWT-bearer exchange. It is not added to static-key requests, forwarded refresh-token exchanges, or subsequent API calls. See Anthropic's [WIF documentation](https://platform.claude.com/docs/en/manage-claude/workload-identity-federation) and [TypeScript SDK exchange implementation](https://github.com/anthropics/anthropic-sdk-typescript/blob/3b45cd3b69c956ac63384fdb09ce1d8109f3fa80/src/lib/credentials/oidc-federation.ts).
 
 #### Step 4: Credential caching and auto-refresh
 
@@ -730,8 +733,10 @@ When the agent sends a request to the sidecar, the provider adapter injects the 
 |----------|----------------------|
 | Azure | `Authorization` header |
 | GCP | `Authorization` header |
-| Anthropic | `Authorization` header |
+| Anthropic | `Authorization: Bearer` plus `anthropic-beta: oauth-2025-04-20` |
 | AWS | SigV4 `Authorization`, `x-amz-date`, payload hash, and STS session token |
+
+For Anthropic bearer requests, AWF merges the OAuth beta with client-supplied `anthropic-beta` values and the optional auto-cache beta, deduplicating exact values. Static `x-api-key` requests do not receive OAuth or federation beta values.
 
 :::note[AWS OIDC requests are signed at final dispatch]
 `AwsOidcTokenProvider` keeps `AccessKeyId`, `SecretAccessKey`, and `SessionToken` inside the sidecar. After all URL and body transforms, the request layer signs the method, canonical path/query, final body hash, regional Bedrock Runtime host, and `bedrock-runtime` service with Node's built-in cryptography. Retries are re-signed, expired or unavailable credentials produce `503` without contacting upstream, and signing is restricted to `bedrock-runtime.<region>.amazonaws.com` (or the corresponding China endpoint).
