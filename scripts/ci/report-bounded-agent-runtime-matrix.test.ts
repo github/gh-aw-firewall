@@ -12,7 +12,7 @@ describe('bounded-agent runtime capability report', () => {
       if (command === 'docker') {
         return { ok: true, stdout: '{"runc":{},"runsc":{}}' };
       }
-      if (args.includes('probe-bounded-agent-primary-sbx.js')) {
+      if (args.includes('scripts/ci/probe-bounded-agent-primary-sbx.js')) {
         return { ok: true, stdout: 'Docker Sandboxes v0.37.1' };
       }
       if (args.includes('sbx-capability-probe.js')) {
