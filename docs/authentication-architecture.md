@@ -6,13 +6,13 @@ description: How AWF isolates LLM API tokens using a multi-container credential 
 AWF implements a multi-layered security architecture to protect LLM API authentication tokens while providing transparent proxying for AI agent calls. This document explains credential isolation, token exchange, and network routing for every API-proxy provider.
 
 :::note
-All LLM providers use identical credential isolation architecture. API keys are held exclusively in the api-proxy sidecar container (never in the agent container), and all providers route through the same Squid proxy for domain filtering. Providers are differentiated by port number and authentication header format:
+All LLM providers use the same credential-isolation architecture. API keys are held exclusively in the api-proxy sidecar container (never in the agent container), and all providers route through Squid. The sidecar is a trusted component whose source IP is explicitly exempt from Squid's domain ACLs; the agent allowlist does not constrain sidecar-originated traffic. Providers are differentiated by port number and authentication header format:
 
 | Port  | Provider           | Auth header                     |
 |-------|--------------------|---------------------------------|
 | 10000 | OpenAI             | `Authorization: Bearer` (static/Azure/GCP), or AWS SigV4 |
 | 10001 | Anthropic (Claude) | `x-api-key` (static) or `Authorization: Bearer` (OIDC/WIF) |
-| 10002 | GitHub Copilot     | `Authorization: Bearer` or `token`, `api-key` (Azure BYOK), or AWS SigV4 |
+| 10002 | GitHub Copilot     | `Authorization: Bearer` or `token`, or AWS SigV4 |
 | 10003 | Google Gemini      | `x-goog-api-key` (static key only) |
 | 10004 | Google Vertex AI   | `x-goog-api-key` (static key only) |
 
@@ -68,10 +68,10 @@ AWF uses a **3-container architecture**. The API proxy sidecar is always enabled
 │ Squid Proxy Container            │
 │ 172.30.0.10:3128                 │
 │                                  │
-│ Domain whitelist enforcement:    │
-│ ✓ api.anthropic.com             │
-│ ✓ api.openai.com                │
-│ ✗ *.exfiltration.com (blocked)  │
+│ Trusted api-proxy source:        │
+│ ✓ Routed through Squid          │
+│ ✓ Exempt from domain ACLs       │
+│   (unrestricted outbound)       │
 │                                  │
 └────────────────┬─────────────────┘
                  │
@@ -286,7 +286,7 @@ Without the NAT `RETURN` rule, traffic to `172.30.0.30` would be redirected to S
 3. API proxy receives request on port 10001
 4. API proxy injects `x-api-key: sk-ant-...` header
 5. API proxy forwards to `api.anthropic.com` via Squid (using `HttpsProxyAgent`)
-6. Squid enforces domain whitelist (only `api.anthropic.com` allowed)
+6. Squid recognizes the trusted api-proxy source IP and bypasses domain ACL evaluation
 7. Squid forwards to real API endpoint
 8. Response flows back: API → Squid → api-proxy → agent
 
@@ -297,11 +297,11 @@ Without the NAT `RETURN` rule, traffic to `172.30.0.30` would be redirected to S
 3. API proxy receives request on port 10000
 4. API proxy injects `Authorization: Bearer sk-...` header
 5. API proxy forwards to `api.openai.com` via Squid (using `HttpsProxyAgent`)
-6. Squid enforces domain whitelist (only `api.openai.com` allowed)
+6. Squid recognizes the trusted api-proxy source IP and bypasses domain ACL evaluation
 7. Squid forwards to real API endpoint
 8. Response flows back: API → Squid → api-proxy → agent
 
-### 6. Squid proxy: domain filtering
+### 6. Squid proxy routing and trusted sidecar exemption
 
 The api-proxy container routes all outbound traffic through Squid via its `HTTP_PROXY`/`HTTPS_PROXY` environment variables:
 
@@ -311,7 +311,7 @@ environment:
   HTTPS_PROXY: http://172.30.0.10:3128
 ```
 
-Squid's domain whitelist ACLs control which API domains the sidecar can reach. For example, if only `api.anthropic.com` is whitelisted, the sidecar can only connect to that domain — even if a compromised sidecar tried to connect to a malicious domain, Squid would block it.
+Squid routes the sidecar's outbound HTTP/HTTPS connections, but it does not apply the agent domain allowlist to them. `generateApiProxySection()` adds `http_access allow from_api_proxy` before domain ACL evaluation because OIDC exchanges and custom API targets may not appear in the agent allowlist. The api-proxy is therefore part of AWF's trusted computing base and has unrestricted outbound HTTP/HTTPS access through Squid. A compromised sidecar is not contained by the domain allowlist.
 
 :::note
 The api-proxy connects to the real APIs (e.g., `api.openai.com`) over standard HTTPS (port 443) through Squid. Ports 10000–10004 are only used for internal agent-to-proxy communication within the Docker network.
@@ -408,8 +408,8 @@ This prevents tokens from being visible in `/proc/1/environ` after the agent sta
 
 1. **Layer 1:** Agent cannot make direct internet connections (iptables blocks non-whitelisted traffic)
 2. **Layer 2:** Agent can only reach api-proxy IP (`172.30.0.30`) for API calls
-3. **Layer 3:** API proxy routes all traffic through Squid (enforced via `HTTP_PROXY` env)
-4. **Layer 4:** Squid enforces the domain whitelist (only explicitly allowed domains, e.g., `api.anthropic.com`, `api.openai.com`, `api.githubcopilot.com`)
+3. **Layer 3:** API proxy routes outbound HTTP/HTTPS through Squid (enforced via `HTTP_PROXY` env)
+4. **Layer 4:** Squid enforces the domain allowlist for agent-originated traffic; the trusted api-proxy source IP is explicitly exempt
 5. **Layer 5:** Host-level iptables provide additional egress control
 
 **Attack scenario: what if the agent tries to bypass the proxy?**
@@ -495,15 +495,15 @@ sudo awf \
     "your-multi-llm-agent"
 ```
 
-### Domain whitelist
+### Provider domains and the agent allowlist
 
-When using api-proxy, you must allow the API domains:
+Provider domains may still be listed to express the intended network policy:
 
 ```bash
 --allow-domains api.anthropic.com,api.openai.com
 ```
 
-Without these, Squid blocks the api-proxy's outbound connections.
+This allowlist constrains agent-originated traffic, not the api-proxy. The trusted sidecar source IP bypasses Squid's domain ACLs, so these entries are not an egress boundary for sidecar requests.
 
 ### NO_PROXY configuration
 
@@ -609,7 +609,7 @@ In a standard GitHub Actions workflow (without AWF), OIDC federation works like 
 
 ### How AWF OIDC works (credential isolation)
 
-AWF moves the entire OIDC exchange into the api-proxy sidecar, so the agent never sees any credential:
+AWF keeps the minted GitHub JWT and exchanged cloud credential in the api-proxy sidecar. However, the Actions runtime URL and token used to request a JWT are currently forwarded to the agent as well as the sidecar:
 
 ```
 ┌─────────────────────────────┐     ┌───────────────────────────────────────┐
@@ -617,7 +617,7 @@ AWF moves the entire OIDC exchange into the api-proxy sidecar, so the agent neve
 │ 172.30.0.20                 │     │ 172.30.0.30                           │
 │                             │     │                                       │
 │ Environment:                │     │ Environment:                          │
-│ ✗ No ACTIONS_ID_TOKEN_*     │     │ ✓ ACTIONS_ID_TOKEN_REQUEST_URL        │
+│ ✓ ACTIONS_ID_TOKEN_*        │     │ ✓ ACTIONS_ID_TOKEN_REQUEST_URL        │
 │ ✗ No cloud credentials      │     │ ✓ ACTIONS_ID_TOKEN_REQUEST_TOKEN      │
 │ ✗ No API keys               │     │ ✓ AWF_AUTH_TYPE=github-oidc           │
 │ ✓ OPENAI_BASE_URL=          │     │ ✓ AWF_AUTH_PROVIDER=azure|aws|gcp|anthropic │
@@ -648,7 +648,7 @@ AWF moves the entire OIDC exchange into the api-proxy sidecar, so the agent neve
 
 #### Step 1: Configuration forwarding
 
-The AWF CLI (`src/services/api-proxy-service.ts`) reads `AWF_AUTH_*` environment variables from the host and forwards them **only to the api-proxy sidecar**, not to the agent container:
+The AWF CLI forwards `AWF_AUTH_*` configuration only to the api-proxy sidecar. The Actions runtime OIDC request URL and token are different: `passthroughHostEnvironment()` currently forwards both to the agent as well as `buildOidcEnv()` forwarding them to the sidecar.
 
 ```
 Host environment                    Sidecar container          Agent container
@@ -656,8 +656,12 @@ Host environment                    Sidecar container          Agent container
 AWF_AUTH_TYPE=github-oidc    ──►    AWF_AUTH_TYPE ✓            ✗ (excluded)
 AWF_AUTH_PROVIDER=azure      ──►    AWF_AUTH_PROVIDER ✓        ✗ (excluded)
 AWF_AUTH_AZURE_TENANT_ID=... ──►    AWF_AUTH_AZURE_TENANT_ID ✓ ✗ (excluded)
-ACTIONS_ID_TOKEN_REQUEST_URL ──►    forwarded when type=oidc ✓ ✗ (excluded)
+ACTIONS_ID_TOKEN_REQUEST_URL ──►    forwarded when type=oidc ✓ ✓ (forwarded)
 ```
+
+:::caution[OIDC minting capability is visible to the agent]
+With `permissions: id-token: write`, `ACTIONS_ID_TOKEN_REQUEST_URL` and `ACTIONS_ID_TOKEN_REQUEST_TOKEN` let agent code request a GitHub OIDC JWT for an audience. AWF keeps the resulting provider credential in the sidecar, but it does not currently isolate this token-minting capability from the agent. Scope federation trust policies narrowly to the repository, workflow, ref, and expected audience.
+:::
 
 #### Step 2: GitHub OIDC token minting
 
@@ -748,7 +752,7 @@ For Anthropic bearer requests, AWF merges the OAuth beta with client-supplied `a
 |----------|----------------|-----------------|
 | Credential type | Long-lived secret | Short-lived token (~1h) |
 | Rotation | Manual | Automatic (proactive refresh) |
-| Agent sees secret | No (api-proxy only) | No (api-proxy only) |
+| Agent sees credential material | No real provider key | No minted JWT or exchanged provider credential, but the Actions OIDC request token/URL are currently forwarded to the agent |
 | GitHub Actions requirement | API key in secrets | `permissions: id-token: write` |
 | Cloud provider setup | Generate API key | Configure trust policy/federation |
 | Supported providers | OpenAI, Anthropic, Copilot, Gemini, Vertex AI | Azure (OpenAI/Copilot), GCP (OpenAI/Copilot adapters only — not the native Vertex/Gemini adapters), Anthropic WIF, AWS Bedrock Runtime via OpenAI/Copilot adapters |
@@ -792,7 +796,7 @@ AWF implements **credential isolation** through architectural separation:
 1. **API keys live in api-proxy container only** (never in agent environment)
 2. **Agent uses standard SDK environment variables** (`*_BASE_URL`) to redirect traffic
 3. **API proxy injects credentials** and routes through Squid
-4. **Squid enforces the domain whitelist** (only allowed API domains)
+4. **Squid routes sidecar traffic** (the trusted sidecar is exempt from domain ACLs)
 5. **iptables enforces network isolation** (agent cannot bypass proxy)
 6. **Multiple token cleanup mechanisms** protect other credentials (GitHub tokens, etc.)
 

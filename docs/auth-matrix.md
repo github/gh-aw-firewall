@@ -183,11 +183,13 @@ The `/models` endpoint prefers `COPILOT_GITHUB_TOKEN` (GitHub OAuth) over BYOK k
 | Header | `Authorization: Bearer <key>` (always Bearer, even on GHES) |
 | Target | From `COPILOT_PROVIDER_BASE_URL` or `COPILOT_API_TARGET` |
 
-### Azure BYOK
+### Azure BYOK through the OpenAI adapter
 
-When `COPILOT_PROVIDER_TYPE=azure`:
+When `COPILOT_PROVIDER_TYPE=azure`, the OpenAI adapter on port 10000:
 - Header switches to `api-key: <value>` (Azure convention)
 - Unless OIDC is active, in which case it's `Authorization: Bearer`
+
+The Copilot adapter on port 10002 does not emit `api-key`; its BYOK requests use `Authorization: Bearer`.
 
 ### Copilot OIDC (Azure Entra / GCP / AWS)
 
@@ -198,6 +200,10 @@ When `AWF_AUTH_TYPE=github-oidc` with Copilot:
 | Azure | `Authorization: Bearer <entra_token>` | Via `oidc-token-provider.js` |
 | GCP | `Authorization: Bearer <gcp_token>` | Via `gcp-oidc-token-provider.js` |
 | AWS | SigV4 `Authorization` plus `x-amz-*` signing headers | Via `aws-oidc-token-provider.js` and `aws-sigv4.js` |
+
+:::caution[Agent routing is credential-triggered]
+Cloud OIDC configuration can initialize credentials in the sidecar, but the agent's OpenAI and Copilot base URLs/placeholders are currently configured only when the corresponding static OpenAI/Copilot credential is present. Anthropic WIF is the exception: its credential environment explicitly recognizes Anthropic OIDC. Treat Azure, GCP, and AWS OIDC support as sidecar authentication capability rather than a complete keyless agent-routing path until OIDC-aware agent routing is implemented.
+:::
 
 :::note[AWS OIDC + Copilot]
 Selecting `AWF_AUTH_PROVIDER=aws` signs Copilot-adapter HTTP requests at final dispatch with the cached temporary STS credentials. The target must be the exact regional Bedrock Runtime hostname; credentials are never returned by `getAuthHeaders()` or exposed to the agent.

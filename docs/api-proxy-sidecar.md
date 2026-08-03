@@ -3,7 +3,7 @@ title: API Proxy Sidecar
 description: Secure LLM API credential management using an isolated proxy sidecar container.
 ---
 
-The AWF firewall includes a Node.js-based API proxy sidecar that securely holds LLM API credentials and automatically injects authentication headers while routing all traffic through Squid to respect domain whitelisting.
+The AWF firewall includes a Node.js-based API proxy sidecar that securely holds LLM API credentials, automatically injects authentication headers, and routes outbound HTTP/HTTPS through Squid. The sidecar is a trusted component and is explicitly exempt from Squid's domain allowlist.
 
 :::note
 For a deep dive into how AWF handles authentication tokens and credential isolation, see the [Authentication Architecture](./authentication-architecture.md) guide.
@@ -16,7 +16,7 @@ The API proxy sidecar is **always enabled**. It:
 - **Auto-authentication**: Automatically injects Bearer tokens and API keys
 - **Multi-provider support**: Supports OpenAI, Anthropic, Copilot, Gemini, and Google Vertex AI
 - **Transparent proxying**: Agent code uses standard SDK environment variables
-- **Squid routing**: All traffic routes through Squid to respect domain whitelisting
+- **Squid routing**: Outbound HTTP/HTTPS routes through Squid, with the trusted sidecar exempt from domain ACLs
 
 :::note[Implementation vs. provider documentation]
 The `--enable-api-proxy` CLI flag is deprecated and ignored — it is kept only so existing command lines and workflows continue to work. `--no-enable-api-proxy` is rejected as a runtime error; the API proxy cannot be disabled. Do not add the deprecated flag to new commands.
@@ -43,7 +43,7 @@ The `--enable-api-proxy` CLI flag is deprecated and ignored — it is kept only 
 │         │  └──────────────────────────────┘
 │         │
 └─────────┼─────────────────────────────────────┘
-          │ (Domain whitelist enforced)
+          │ (Trusted sidecar: domain ACL bypass)
           ↓
   api.openai.com or api.anthropic.com
 ```
@@ -52,7 +52,7 @@ The `--enable-api-proxy` CLI flag is deprecated and ignored — it is kept only 
 1. Agent makes a request to `172.30.0.30:10000` (OpenAI) or `172.30.0.30:10001` (Anthropic)
 2. API proxy strips any client-supplied auth headers and injects the real credentials
 3. API proxy routes the request through Squid via `HTTP_PROXY`/`HTTPS_PROXY`
-4. Squid enforces the domain whitelist (only allowed domains pass)
+4. Squid recognizes the trusted sidecar source IP and bypasses domain ACL evaluation
 5. Request reaches `api.openai.com` or `api.anthropic.com`
 
 ## Usage
@@ -131,8 +131,8 @@ The API proxy sidecar receives **real credentials** and routing configuration:
 | `COPILOT_PROVIDER_BASE_URL` | Real upstream URL | env set on host | User-supplied upstream URL for direct-BYOK mode; sidecar forwards Copilot CLI requests there instead of `api.githubcopilot.com`. |
 | `GEMINI_API_KEY` | Real API key | env set on host | Google Gemini API key (injected into requests) |
 | `GOOGLE_API_KEY` | Real API key | env set on host | Google Vertex AI API key (injected into `x-goog-api-key` header) |
-| `HTTP_PROXY` | `http://172.30.0.10:3128` | Always | Routes through Squid for domain filtering |
-| `HTTPS_PROXY` | `http://172.30.0.10:3128` | Always | Routes through Squid for domain filtering |
+| `HTTP_PROXY` | `http://172.30.0.10:3128` | Always | Routes through Squid; sidecar traffic is exempt from domain ACLs |
+| `HTTPS_PROXY` | `http://172.30.0.10:3128` | Always | Routes through Squid; sidecar traffic is exempt from domain ACLs |
 
 :::danger[Real credentials in api-proxy]
 The api-proxy container holds **real, unredacted credentials**. These are used to authenticate requests to LLM providers. This container is isolated from the agent and has all capabilities dropped for security.
@@ -216,11 +216,16 @@ API keys are stored in the sidecar container's environment and in the Docker Com
 
 ### Network isolation
 
-The proxy enforces domain-level egress control:
+AWF separates agent egress control from trusted sidecar routing:
 - The agent can only reach the API proxy IP (`172.30.0.30`) for API calls
 - The sidecar routes all traffic through Squid proxy
-- Squid enforces the domain whitelist (L7 filtering)
+- Squid enforces domain ACLs for agent-originated traffic
+- Squid explicitly allows all traffic from the trusted api-proxy source IP before domain ACL evaluation
 - iptables rules prevent the agent from bypassing the proxy
+
+:::danger[The sidecar is allowlist-exempt]
+The api-proxy holds live credentials and has unrestricted outbound HTTP/HTTPS access through Squid. It is part of AWF's trusted computing base. The agent domain allowlist does not contain a compromised sidecar.
+:::
 
 :::note[Squid allow rule for api-proxy IP]
 Squid includes an explicit `allow_api_proxy_ip` ACL that permits traffic to the api-proxy IP **before** the raw-IP deny rules. This is required because some HTTP clients (such as Node.js `fetch`/`undici` with a `ProxyAgent`) route requests to the api-proxy through `HTTP_PROXY` without honouring `NO_PROXY` for raw IP addresses. Without this rule, those requests would be rejected by Squid's raw-IP deny rules even though `NO_PROXY=172.30.0.30` is set in the agent container.
@@ -254,7 +259,7 @@ Node.js API Proxy
   ↓ (injects Authorization: Bearer $OPENAI_API_KEY)
   ↓ (routes via HTTPS_PROXY to Squid)
 Squid Proxy
-  ↓ (enforces domain whitelist)
+  ↓ (trusted sidecar bypasses domain ACLs)
   ↓ (TLS connection to api.openai.com)
 OpenAI API
 ```
@@ -321,9 +326,11 @@ When running AWF in a GitHub Actions workflow, API keys must be available as **r
 If the key is present only in `secrets.*` but not exported into the step's `env:`, AWF will warn that no Gemini key was found and the api-proxy Gemini listener will return `503`.
 :::
 
-**Recommended domain whitelist**:
+**Recommended agent domain policy**:
 - `api.openai.com` — for OpenAI/Codex
 - `api.anthropic.com` — for Anthropic/Claude
+
+These entries document and constrain agent-originated traffic. They do not constrain the trusted api-proxy, whose source IP bypasses Squid's domain ACLs.
 
 **Optional flags for custom upstream endpoints**:
 
@@ -699,6 +706,10 @@ AWF supports OIDC-based credential exchange with multiple cloud providers via Gi
 | `ACTIONS_ID_TOKEN_REQUEST_URL` | ✅ | Provided automatically by the GitHub Actions runtime |
 | `ACTIONS_ID_TOKEN_REQUEST_TOKEN` | ✅ | Provided automatically by the GitHub Actions runtime |
 
+:::caution[OIDC request capability reaches the agent]
+AWF forwards `ACTIONS_ID_TOKEN_REQUEST_URL` and `ACTIONS_ID_TOKEN_REQUEST_TOKEN` to both the sidecar and the agent container. These values let code request a GitHub OIDC JWT when the job has `permissions: id-token: write`. Exchanged provider credentials remain isolated in the sidecar, but the token-minting capability itself is not isolated. Restrict provider federation policies to the expected repository, workflow, ref, and audience.
+:::
+
 When `AWF_AUTH_TYPE=github-oidc` is set but `ACTIONS_ID_TOKEN_REQUEST_URL`/`ACTIONS_ID_TOKEN_REQUEST_TOKEN` are not available in the sidecar, Anthropic OIDC requests fail closed with:
 
 - `503 Anthropic OIDC requires ACTIONS_ID_TOKEN_REQUEST_URL and ACTIONS_ID_TOKEN_REQUEST_TOKEN (permissions: id-token: write).`
@@ -718,31 +729,8 @@ Exchanges the GitHub OIDC JWT for an Azure AD access token via workload identity
 
 Default OIDC audience: `api://AzureADTokenExchange`
 
-#### GitHub Actions example (Azure)
-
-```yaml
-jobs:
-  agent:
-    permissions:
-      id-token: write   # required for OIDC token request
-      contents: read
-    steps:
-      - name: Run agent with Azure OpenAI
-        env:
-          AWF_AUTH_TYPE: github-oidc
-          AWF_AUTH_AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
-          AWF_AUTH_AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
-          OPENAI_API_TARGET: my-deployment.openai.azure.com
-        run: |
-          sudo --preserve-env=AWF_AUTH_TYPE,AWF_AUTH_AZURE_TENANT_ID,AWF_AUTH_AZURE_CLIENT_ID,OPENAI_API_TARGET,ACTIONS_ID_TOKEN_REQUEST_URL,ACTIONS_ID_TOKEN_REQUEST_TOKEN \
-            awf \
-                --openai-api-target my-deployment.openai.azure.com \
-                --allow-domains my-deployment.openai.azure.com \
-                -- your-agent-command
-```
-
-:::caution
-Azure OpenAI deployments use a different base URL format from OpenAI. Set `--openai-api-target` to your Azure endpoint hostname and add it to `--allow-domains`.
+:::caution[Agent routing is not automatically configured]
+Azure OIDC can initialize in the sidecar, but OIDC configuration alone does not set `OPENAI_BASE_URL` or OpenAI compatibility placeholders in the agent. `buildOpenAiCredentialEnv()` currently enables agent routing only when `OPENAI_API_KEY` is configured. Until OIDC-aware OpenAI routing is implemented, AWF does not provide a complete keyless Azure OpenAI invocation path.
 :::
 
 ### AWS Bedrock
@@ -762,7 +750,7 @@ Default OIDC audience: `sts.amazonaws.com`
 :::note[SigV4 signing]
 The OpenAI and Copilot adapters sign each final outbound HTTP request with the temporary STS access key, secret key, and session token. Signing covers the method, canonical path/query, transformed body hash, regional target host, `AWF_AUTH_AWS_REGION`, and the `bedrock-runtime` service. Credentials remain inside the sidecar, retries are re-signed, and requests fail closed with `503` while credentials are unavailable.
 
-For credential-leak prevention, the target must exactly match `bedrock-runtime.<region>.amazonaws.com` (or `bedrock-runtime.<region>.amazonaws.com.cn` in China). Configure that host through `OPENAI_API_TARGET` or `COPILOT_PROVIDER_BASE_URL` and include it in the AWF domain allowlist.
+For credential-leak prevention, the target must exactly match `bedrock-runtime.<region>.amazonaws.com` (or `bedrock-runtime.<region>.amazonaws.com.cn` in China). Configure that host through `OPENAI_API_TARGET` or `COPILOT_PROVIDER_BASE_URL`. Adding it to the agent allowlist may document the intended policy, but does not constrain sidecar egress.
 :::
 
 SigV4 support applies to buffered HTTP requests, including streaming HTTP responses. WebSocket upgrades in AWS OIDC mode are rejected rather than forwarded unsigned.
@@ -781,33 +769,8 @@ Exchanges the GitHub OIDC JWT for a GCP access token via the Security Token Serv
 
 Default OIDC audience: the `gcpWorkloadIdentityProvider` value
 
-#### GitHub Actions example (GCP)
-
-```yaml
-jobs:
-  agent:
-    permissions:
-      id-token: write
-      contents: read
-    steps:
-      - name: Run agent with GCP Vertex AI
-        env:
-          AWF_AUTH_TYPE: github-oidc
-          AWF_AUTH_PROVIDER: gcp
-          AWF_AUTH_GCP_WORKLOAD_IDENTITY_PROVIDER: projects/123456/locations/global/workloadIdentityPools/my-pool/providers/github
-          AWF_AUTH_GCP_SERVICE_ACCOUNT: my-sa@my-project.iam.gserviceaccount.com
-          OPENAI_API_TARGET: aiplatform.googleapis.com
-          OPENAI_API_BASE_PATH: /v1/projects/my-project/locations/global/endpoints/openapi
-        run: |
-          sudo --preserve-env=AWF_AUTH_TYPE,AWF_AUTH_PROVIDER,AWF_AUTH_GCP_WORKLOAD_IDENTITY_PROVIDER,AWF_AUTH_GCP_SERVICE_ACCOUNT,OPENAI_API_TARGET,OPENAI_API_BASE_PATH,ACTIONS_ID_TOKEN_REQUEST_URL,ACTIONS_ID_TOKEN_REQUEST_TOKEN \
-            awf --openai-api-target aiplatform.googleapis.com \
-                --openai-api-base-path /v1/projects/my-project/locations/global/endpoints/openapi \
-                --allow-domains sts.googleapis.com,iamcredentials.googleapis.com,aiplatform.googleapis.com \
-                -- your-agent-command
-```
-
 :::note
-`ACTIONS_ID_TOKEN_REQUEST_URL` and `ACTIONS_ID_TOKEN_REQUEST_TOKEN` are injected by the Actions runner automatically; AWF forwards them to the sidecar when `AWF_AUTH_TYPE=github-oidc`.
+`ACTIONS_ID_TOKEN_REQUEST_URL` and `ACTIONS_ID_TOKEN_REQUEST_TOKEN` are injected by the Actions runner automatically. AWF forwards them to the sidecar when `AWF_AUTH_TYPE=github-oidc` and currently also passes them through to the agent.
 :::
 
 :::tip
@@ -818,6 +781,10 @@ When `gcpServiceAccount` is omitted, the federated token is used directly withou
 GCP OIDC with Vertex-hosted models is served through the **OpenAI adapter** (`OPENAI_API_TARGET`/`--openai-api-target` pointed at a Vertex AI OpenAI-compatible endpoint), not through the native Vertex AI adapter (port 10004). The native Vertex adapter is static-`GOOGLE_API_KEY`-only and has no OIDC/WIF support today — see the [auth matrix](./auth-matrix.md#provider-google-vertex-ai) for details.
 
 The OpenAI-compatible Vertex endpoint also requires a resource-specific base path such as `/v1/projects/PROJECT_ID/locations/LOCATION/endpoints/openapi`. Set it with `OPENAI_API_BASE_PATH` or `--openai-api-base-path`; replace the example project and location with your own values.
+:::
+
+:::caution[Agent routing is not automatically configured]
+GCP OIDC can initialize in the sidecar, but OIDC configuration alone does not set `OPENAI_BASE_URL` or OpenAI compatibility placeholders in the agent. `buildOpenAiCredentialEnv()` currently enables agent routing only when `OPENAI_API_KEY` is configured. Until OIDC-aware OpenAI routing is implemented, AWF does not provide a complete keyless Vertex OpenAI-compatible invocation path.
 :::
 
 ### Anthropic API
@@ -1239,7 +1206,7 @@ When the variable is absent, the api-proxy uses a best-effort local NDJSON fallb
 
 | Mode | When | Behaviour |
 |------|------|-----------|
-| **OTLP/HTTP export** | `OTEL_EXPORTER_OTLP_ENDPOINT` is set | Spans exported via HTTP POST routed through the Squid proxy (so the domain whitelist is respected). |
+| **OTLP/HTTP export** | `OTEL_EXPORTER_OTLP_ENDPOINT` is set | Spans exported via HTTP POST routed through Squid; trusted sidecar traffic is exempt from domain ACLs. |
 | **File fallback** | Endpoint not set | Spans appended as NDJSON to `/var/log/api-proxy/otel.jsonl`. |
 
 ### Environment variables
@@ -1292,8 +1259,9 @@ Each proxied request produces a single span:
 
 ### Proxy routing for OTLP export
 
-OTLP/HTTP exports are routed through the Squid proxy (`HTTPS_PROXY` / `HTTP_PROXY`) so that
-they respect the domain allowlist. Add the OTEL collector hostname to your allowlist:
+OTLP/HTTP exports are routed through the Squid proxy (`HTTPS_PROXY` / `HTTP_PROXY`), but
+the trusted sidecar bypasses domain ACLs. You can still list the collector hostname to
+document the intended agent network policy:
 
 ```yaml
 # awf-config.yml
