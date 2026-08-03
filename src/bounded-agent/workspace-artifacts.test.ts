@@ -174,8 +174,14 @@ describe('bounded-agent agent artifacts', () => {
     writeBoundedAgentWrapper(paths);
 
     expect(fs.statSync(paths.skillPath).mode & 0o777).toBe(0o644);
-    expect(fs.statSync(paths.wrapperPath).mode & 0o777).toBe(0o555);
-    expect(fs.readFileSync(paths.wrapperPath, 'utf8')).toContain('AWF_BOUNDED_AGENT_SOCKET');
+    // Open with O_NOFOLLOW to avoid TOCTOU between stat and read.
+    const wrapperFd = fs.openSync(paths.wrapperPath, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+    try {
+      expect(fs.fstatSync(wrapperFd).mode & 0o777).toBe(0o555);
+      expect(fs.readFileSync(wrapperFd, 'utf8')).toContain('AWF_BOUNDED_AGENT_SOCKET');
+    } finally {
+      fs.closeSync(wrapperFd);
+    }
     // Nothing is written into the broker-private root.
     expect(fs.existsSync(paths.root)).toBe(false);
   });
