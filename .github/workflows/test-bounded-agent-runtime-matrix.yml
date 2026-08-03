@@ -6,6 +6,7 @@ on:
       - 'containers/bounded-agent/**'
       - 'scripts/ci/report-bounded-agent-runtime-matrix*'
       - 'scripts/ci/probe-bounded-agent-primary-sbx.js'
+      - 'scripts/ci/smoke-bounded-agent-enclave.sh'
       - 'src/bounded-agent/**'
       - '.github/workflows/test-bounded-agent-runtime-matrix.yml'
   push:
