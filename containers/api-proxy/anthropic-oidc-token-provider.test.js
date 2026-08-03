@@ -95,9 +95,12 @@ describe('AnthropicOidcTokenProvider', () => {
       await provider._exchangeForAnthropicToken('fake-github-jwt');
 
       expect(mockHttpPost).toHaveBeenCalledTimes(1);
-      const [url, rawBody] = mockHttpPost.mock.calls[0];
+      const [url, rawBody, headers] = mockHttpPost.mock.calls[0];
       const sent = JSON.parse(rawBody);
       expect(url).toBe('https://api.anthropic.com/v1/oauth/token');
+      expect(headers['anthropic-beta']).toBe(
+        'oauth-2025-04-20,oidc-federation-2026-04-01'
+      );
       expect(sent.grant_type).toBe('urn:ietf:params:oauth:grant-type:jwt-bearer');
       expect(sent.assertion).toBe('fake-github-jwt');
       expect(sent.federation_rule_id).toBe('fdrl_myrule');
@@ -125,6 +128,23 @@ describe('AnthropicOidcTokenProvider', () => {
     const [url] = mockHttpPost.mock.calls[0];
     expect(url).toBe('https://anthropic.internal.example/v1/oauth/token');
 
+    provider.shutdown();
+  });
+
+  it('should not send federation routing headers to unrelated token paths', async () => {
+    const provider = new AnthropicOidcTokenProvider({
+      ...BASE_CONFIG,
+      tokenEndpoint: 'https://anthropic.internal.example/oauth/token',
+    });
+    const mockHttpPost = jest.spyOn(provider, '_httpPost').mockResolvedValue({
+      statusCode: 200,
+      body: JSON.stringify({ access_token: 'sk-ant-oat01-custom', expires_in: 3600 }),
+    });
+
+    await provider._exchangeForAnthropicToken('fake-jwt');
+
+    const [, , headers] = mockHttpPost.mock.calls[0];
+    expect(headers['anthropic-beta']).toBeUndefined();
     provider.shutdown();
   });
 

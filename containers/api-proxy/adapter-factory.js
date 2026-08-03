@@ -85,6 +85,7 @@ function createBaseAdapterConfig(env, { keyEnvVar, targetEnvVar, basePathEnvVar,
  * @param {() => boolean} [opts.skipModelsFetch]
  * @param {Record<string,string>|(() => Record<string,string>)} [opts.modelsFetchHeaders]
  * @param {string|null} [opts.modelsCacheKey]
+ * @param {boolean} [opts.credentialConfigured]
  * @param {boolean} [opts.participatesInValidation]
  * @param {boolean} [opts.reflectionConfigured]
  * @param {string|null} [opts.reflectionModelsPath]
@@ -118,7 +119,8 @@ function createAdapterMethods(opts) {
     skipModelsFetch,
     modelsFetchHeaders = validationHeaders,
     modelsCacheKey = provider,
-    participatesInValidation = !!apiKey,
+    credentialConfigured = !!apiKey,
+    participatesInValidation = credentialConfigured,
     reflectionConfigured = !!apiKey,
     reflectionModelsPath = modelsPath,
     reflectionExtra = {},
@@ -132,7 +134,7 @@ function createAdapterMethods(opts) {
   const builtValidationProbe = getValidationProbe || (() => {
     const skip = validationSkip ? validationSkip() : null;
     if (skip) return skip;
-    if (!apiKey) return null;
+    if (!credentialConfigured) return null;
     if (defaultTarget && rawTarget !== defaultTarget) {
       return { skip: true, reason: `Custom target ${rawTarget}; validation skipped` };
     }
@@ -148,7 +150,7 @@ function createAdapterMethods(opts) {
 
   const builtModelsFetchConfig = getModelsFetchConfig || (() => {
     if (skipModelsFetch && skipModelsFetch()) return null;
-    if (!apiKey || !modelsPath || !modelsCacheKey) return null;
+    if (!credentialConfigured || !modelsPath || !modelsCacheKey) return null;
     // Startup model fetch follows provider behavior of honoring explicit basePath
     // prefixes for OpenAI-compatible gateways, while validation probes use the
     // canonical default-target endpoint path.

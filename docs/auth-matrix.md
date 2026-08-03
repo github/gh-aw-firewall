@@ -139,11 +139,11 @@ When `AWF_AUTH_TYPE=github-oidc` and `AWF_AUTH_PROVIDER=anthropic`:
 
 **Key behavior change:** When OIDC is active, the auth header switches from `x-api-key` to `Authorization: Bearer`.
 
-:::caution[Anthropic beta-header ambiguity]
-Anthropic's current public WIF cURL examples omit `anthropic-beta`, and AWF follows those examples. However, Anthropic's current Python SDK source declares `oauth-2025-04-20` for bearer-authenticated API calls and `oidc-federation-2026-04-01` for JWT-bearer exchanges. AWF sends neither value. Treat this as a compatibility risk between the public raw-HTTP examples and SDK behavior; if Anthropic rejects an exchange or bearer request for a missing beta header, AWF's WIF implementation must be updated.
+:::note[Anthropic beta headers]
+AWF follows Anthropic's SDK behavior: JWT-bearer `POST /v1/oauth/token` exchanges send `oauth-2025-04-20,oidc-federation-2026-04-01`, while API requests authenticated with the resulting bearer token send `oauth-2025-04-20`. The federation beta is never added to static `x-api-key` requests or forwarded refresh-token exchanges. Client-supplied `anthropic-beta` values are preserved and deduplicated with AWF-required values and the optional auto-cache beta.
 :::
 
-**Official docs:** https://platform.claude.com/docs/en/manage-claude/workload-identity-federation
+**Official references:** [Anthropic WIF documentation](https://platform.claude.com/docs/en/manage-claude/workload-identity-federation) · [Anthropic TypeScript SDK federation exchange](https://github.com/anthropics/anthropic-sdk-typescript/blob/3b45cd3b69c956ac63384fdb09ce1d8109f3fa80/src/lib/credentials/oidc-federation.ts)
 
 ### Custom Auth Header
 
@@ -332,9 +332,13 @@ AWS Bedrock requires every request to be signed with [SigV4](https://docs.aws.am
 | Token URL | `AWF_AUTH_ANTHROPIC_TOKEN_URL` | ❌ (default: `https://api.anthropic.com/v1/oauth/token`) |
 | Audience | `AWF_AUTH_OIDC_AUDIENCE` | ❌ (default: `https://api.anthropic.com`) |
 
-**Token exchange:** `POST https://api.anthropic.com/v1/oauth/token` (RFC 7523 jwt-bearer)  
-**Implementation:** `containers/api-proxy/anthropic-oidc-token-provider.js`  
-**Official docs:** https://platform.claude.com/docs/en/manage-claude/workload-identity-federation
+**Token exchange:** `POST https://api.anthropic.com/v1/oauth/token` (RFC 7523 jwt-bearer), with `anthropic-beta: oauth-2025-04-20,oidc-federation-2026-04-01`
+
+**Bearer API requests:** `anthropic-beta: oauth-2025-04-20` (merged with client and auto-cache beta values)
+
+**Implementation:** `containers/api-proxy/anthropic-oidc-token-provider.js`
+
+**Official references:** [Anthropic WIF documentation](https://platform.claude.com/docs/en/manage-claude/workload-identity-federation) · [Anthropic TypeScript SDK credential constants](https://github.com/anthropics/anthropic-sdk-typescript/blob/3b45cd3b69c956ac63384fdb09ce1d8109f3fa80/src/lib/credentials/types.ts)
 
 ---
 

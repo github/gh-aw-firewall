@@ -835,6 +835,10 @@ Exchanges the GitHub OIDC JWT for an Anthropic Workload Identity Federation acce
 
 Default OIDC audience: `https://api.anthropic.com`
 
+For compatibility with Anthropic's official SDKs, AWF sends `anthropic-beta: oauth-2025-04-20,oidc-federation-2026-04-01` only on its JWT-bearer `POST /v1/oauth/token` exchange. Requests authenticated with the resulting bearer token send `oauth-2025-04-20`; they do not send the federation beta. Static `x-api-key` requests receive neither value, and forwarded refresh-token exchanges never receive the federation beta. AWF merges required values with client-supplied `anthropic-beta` values and the optional auto-cache beta without duplicates.
+
+**Official references:** [Anthropic WIF documentation](https://platform.claude.com/docs/en/manage-claude/workload-identity-federation) · [Anthropic TypeScript SDK federation exchange](https://github.com/anthropics/anthropic-sdk-typescript/blob/3b45cd3b69c956ac63384fdb09ce1d8109f3fa80/src/lib/credentials/oidc-federation.ts) · [credential beta constants](https://github.com/anthropics/anthropic-sdk-typescript/blob/3b45cd3b69c956ac63384fdb09ce1d8109f3fa80/src/lib/credentials/types.ts)
+
 #### GitHub Actions example (Anthropic)
 
 ```yaml

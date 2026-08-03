@@ -5,6 +5,9 @@ const {
   BaseOidcTokenProvider,
 } = require('./oidc-token-provider-base');
 
+const OAUTH_API_BETA = 'oauth-2025-04-20';
+const OIDC_FEDERATION_BETA = 'oidc-federation-2026-04-01';
+
 function stringifyError(error) {
   if (error instanceof Error && error.message) {
     return error.message;
@@ -79,13 +82,18 @@ class AnthropicOidcTokenProvider extends BaseOidcTokenProvider {
       body.workspace_id = this._workspaceId;
     }
 
+    const headers = {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+    };
+    if (new URL(this._tokenEndpoint).pathname === '/v1/oauth/token') {
+      headers['anthropic-beta'] = `${OAUTH_API_BETA},${OIDC_FEDERATION_BETA}`;
+    }
+
     const response = await this._httpPost(
       this._tokenEndpoint,
       JSON.stringify(body),
-      {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-      }
+      headers
     );
 
     if (response.statusCode !== 200) {
