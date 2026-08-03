@@ -3,6 +3,7 @@ import { collectDiagnosticLogs } from './diagnostic-collector';
 import * as fs from 'fs';
 import * as path from 'path';
 import { resolveBoundedQueryPaths } from './bounded-query/paths';
+import { resolveBoundedAgentPaths } from './bounded-agent/paths';
 
 import { mockExecaFn, mockExecaSync } from './test-helpers/mock-execa.test-utils';
 import { useTempDir } from './test-helpers/docker-test-fixtures.test-utils';
@@ -193,6 +194,37 @@ describe('docker-manager diagnostics', () => {
         expect.objectContaining({ reject: false }),
       );
       fs.rmSync(resolveBoundedQueryPaths(getDir()).root, { recursive: true, force: true });
+    });
+
+    it('should copy bounded-agent protected audit and runtime telemetry before cleanup', () => {
+      const brokerAuditDir = resolveBoundedAgentPaths(getDir()).auditDir;
+      fs.mkdirSync(brokerAuditDir, { recursive: true });
+
+      const auditDir = path.join(getDir(), 'audit');
+      fs.mkdirSync(auditDir);
+
+      preserveIptablesAudit(getDir(), auditDir);
+
+      expect(mockExecaSync).toHaveBeenCalledWith(
+        'docker',
+        [
+          'cp',
+          'awf-bounded-agent-broker:/var/log/awf-bounded-agent/bounded-agent.jsonl',
+          path.join(auditDir, 'bounded-agent.jsonl'),
+        ],
+        expect.objectContaining({ reject: false }),
+      );
+      expect(mockExecaSync).toHaveBeenCalledWith(
+        'docker',
+        [
+          'cp',
+          'awf-bounded-agent-broker:/var/log/awf-bounded-agent/runtime-telemetry.jsonl',
+          path.join(auditDir, 'bounded-agent-runtime.jsonl'),
+        ],
+        expect.objectContaining({ reject: false }),
+      );
+      fs.rmSync(resolveBoundedAgentPaths(getDir()).root, { recursive: true, force: true });
+      fs.rmSync(resolveBoundedAgentPaths(getDir()).ingressRoot, { recursive: true, force: true });
     });
   });
 });
