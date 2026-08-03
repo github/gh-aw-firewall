@@ -29,10 +29,13 @@ function collectCapabilities(commandRunner = run) {
     }
   }
   const gvisor = Object.prototype.hasOwnProperty.call(runtimes, 'runsc');
-  // `sbx ls` only proves that the binary exists and is reachable. It is
-  // authenticated and non-mutating, so it also proves daemon and credential
-  // availability for the primary microVM axis.
-  const sbxPrimary = commandRunner('sbx', ['ls']).ok;
+  // Primary sbx is supported only after a disposable sandbox proves the actual
+  // bounded-agent Unix-socket ingress path. CLI/daemon availability alone is
+  // not an ingress proof and must never produce a SUPPORTED matrix cell.
+  const sbxPrimary = commandRunner(
+    process.execPath,
+    ['scripts/ci/probe-bounded-agent-primary-sbx.js'],
+  ).ok;
   const sbxBoundedAgent = commandRunner(
     process.execPath,
     ['containers/bounded-agent/broker/sbx-capability-probe.js'],

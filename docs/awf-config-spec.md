@@ -2282,11 +2282,13 @@ downgrades to the default runtime.
 `sbx` is accepted by the JSON Schema but is **capability-blocked**: AWF ships a
 dedicated bounded-agent sbx capability probe (host-side
 `src/bounded-agent/sbx-capability.ts`, container-side
-`containers/bounded-agent/broker/sbx-capability-probe.js`) that runs the exact
-audited Docker Sandboxes CLI surface (`sbx version`, `sbx create`, `sbx exec`,
-`sbx ls --json`, `sbx stop`, `sbx rm --force`) against the audited version
-(`v0.37.1`) and reports every missing capability in structured JSON — never a
-single collapsed boolean, and never a "not yet implemented" placeholder.
+`containers/bounded-agent/broker/sbx-capability-probe.js`) that inspects the
+exact audited Docker Sandboxes CLI surface using `sbx version`, authenticated
+non-mutating `sbx ls`, and `create --help` / `exec --help` against the audited
+version (`v0.37.1`). It reports every missing capability in structured JSON —
+never a single collapsed boolean, and never a "not yet implemented"
+placeholder. The blocked runner defines `create`, `exec`, `stop`, and
+`rm --force`, but preflight does not claim to execute that lifecycle.
 
 The bounded-agent enclave's network requirement is strictly harder than a
 bounded query's: it must reach *exactly one* peer (the dedicated API proxy),

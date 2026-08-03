@@ -275,7 +275,14 @@ describe('assertEnclaveRuntimeAvailable', () => {
 });
 
 describe('assertPrimaryRuntimeAvailable', () => {
-  it('is the bounded-query implementation, reused rather than duplicated', () => {
-    expect(assertPrimaryRuntimeAvailable).toBe(boundedQueryPreflight.assertPrimaryRuntimeAvailable);
+  it('reuses the shared check without leaking bounded-query-specific errors', async () => {
+    const sharedCheck = jest.fn(async () => {
+      throw new Error('Bounded queries abort before staging and bounded queries never fall back');
+    });
+    await expect(assertPrimaryRuntimeAvailable('sbx', sharedCheck)).rejects.toThrow(
+      'Bounded agents abort before staging and bounded agents never fall back',
+    );
+    expect(sharedCheck).toHaveBeenCalledWith('sbx');
+    expect(assertPrimaryRuntimeAvailable).not.toBe(boundedQueryPreflight.assertPrimaryRuntimeAvailable);
   });
 });

@@ -179,10 +179,12 @@ written ahead of support landing, but it is **capability-blocked** — never a
 blanket "not yet implemented" refusal, and never a false pass. AWF ships a
 dedicated bounded-agent sbx capability probe
 (`src/bounded-agent/sbx-capability.ts`, mirrored in
-`containers/bounded-agent/broker/sbx-capability-probe.js`) that runs the exact
-audited Docker Sandboxes CLI (`v0.37.1`) surface — `sbx version`, `sbx create`,
-`sbx exec`, `sbx ls --json`, `sbx stop`, and `sbx rm --force` — and reports
-every missing capability in structured JSON rather than a single boolean.
+`containers/bounded-agent/broker/sbx-capability-probe.js`) that inspects the
+exact audited Docker Sandboxes CLI (`v0.37.1`) surface with `sbx version`, the
+authenticated non-mutating `sbx ls`, and `create --help` / `exec --help`.
+Lifecycle commands belong to the blocked runner and are not claimed as an
+executed proof. The probe reports every missing capability in structured JSON
+rather than a single boolean.
 
 The enclave requirement is strictly harder than a bounded query's: an
 enclave must reach *exactly one* peer (the dedicated API proxy), not "no
@@ -285,6 +287,14 @@ demonstrated in real VMs, not only deterministic fakes:
 Passing a version check alone, or passing only the CLI help probe, is not
 enough to promote the backend.
 
+The locally available `docker sandbox` plugin (`v0.12.0`) was also inspected
+through its executable `create shell`, `exec`, `network proxy`, `stop`, and
+`rm` interfaces. It offers same-path workspace mounts and host/CIDR proxy
+policy, but no explicit guest mount targets, create-time CPU/memory/PID/disk/
+file-size bounds, or digest-enforced AWF bootstrap contract. Those are
+mandatory controls, so this older interface is reported as capability-blocked;
+its help text is not treated as execution evidence.
+
 ## Agent interface
 
 When enabled, the agent gets a `bounded-agent` CLI on its `PATH` and a
@@ -310,6 +320,13 @@ Inside the enclave the model gets three read-only repository tools (list, read,
 search) confined to the immutable seed, plus one terminal tool that records the
 final answer. There is no shell, no `gh`, no git, no package manager, no host
 state, no safe outputs, and no MCP.
+
+That exclusion is deliberate: authenticated `gh`, safe outputs, the CLI proxy,
+and MCP gateways are authority-bearing interfaces whose output is not covered
+by the finite result schema. `mcpg` may become an enclave implementation detail
+only after it can preserve this fixed authority-free tool set and canonical
+result boundary. Its raw Podman arguments, logs, stdio, and `jq` filters are not
+the result boundary and must never be exposed to the caller.
 
 ## Budget
 

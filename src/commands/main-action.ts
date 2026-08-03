@@ -38,7 +38,11 @@ import {
   SBX_DEFAULT_NAME,
 } from '../sbx-manager';
 import { prepareBoundedQueries, teardownBoundedQueries } from '../bounded-query/manager';
-import { prepareBoundedAgents, teardownBoundedAgents } from '../bounded-agent/manager';
+import {
+  prepareBoundedAgents,
+  recordBoundedAgentRuntimeTelemetry,
+  teardownBoundedAgents,
+} from '../bounded-agent/manager';
 import type { WrapperConfig } from '../types';
 import { buildAgentEnvironment } from '../services/agent-service';
 import { buildAgentCredentialEnv } from '../services/api-proxy-credential-env';
@@ -444,18 +448,24 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
           }
 
           if (sbxBoundedAgentIngress) {
-            await assertSbxBoundedAgentIngress(
-              sbxName,
-              sbxBoundedAgentIngress.transport === 'unix'
-                ? sbxBoundedAgentIngress
-                : {
-                    transport: 'sbx-http',
-                    endpoint: sbxBoundedAgentIngress.endpoint,
-                    probeCapability: sbxBoundedAgentIngress.probeCapability,
-                  },
-              sbxEnvironment,
-              config.containerWorkDir,
-            );
+            try {
+              await assertSbxBoundedAgentIngress(
+                sbxName,
+                sbxBoundedAgentIngress.transport === 'unix'
+                  ? sbxBoundedAgentIngress
+                  : {
+                      transport: 'sbx-http',
+                      endpoint: sbxBoundedAgentIngress.endpoint,
+                      probeCapability: sbxBoundedAgentIngress.probeCapability,
+                    },
+                sbxEnvironment,
+                config.containerWorkDir,
+              );
+            } catch (error) {
+              recordBoundedAgentRuntimeTelemetry(config, 'unavailable', 'primary-ingress-unavailable');
+              throw error;
+            }
+            recordBoundedAgentRuntimeTelemetry(config, 'supported', 'ready');
 
             Object.assign(sbxEnvironment, {
               AWF_BOUNDED_AGENT_SKILL: boundedAgentPaths.skillPath,

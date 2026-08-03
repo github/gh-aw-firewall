@@ -248,16 +248,9 @@ export async function prepareBoundedAgents(
     );
     throw error;
   }
-  logger.info(
-    `Bounded-agent runtime telemetry: ${serializeBoundedAgentRuntimeTelemetry({
-      ...telemetryBase,
-      capabilityState: 'supported',
-      category: 'ready',
-    })}`,
-  );
-
   if (runtimeUsesComposeAgent(config.containerRuntime)) {
     config.boundedAgentIngressTransport = 'unix';
+    recordBoundedAgentRuntimeTelemetry(config, 'supported', 'ready');
   } else {
     const probe = deps.probeSbxUnixSocket ?? probeSbxUnixSocketMount;
     config.boundedAgentIngressTransport = (await probe()) ? 'unix' : 'sbx-http';
@@ -321,6 +314,29 @@ export async function prepareBoundedAgents(
 
   logger.info(
     `Bounded agents: staged ${staging.seeds.length} immutable seed(s); staging credential discarded.`,
+  );
+}
+
+/**
+ * Records only the content-free runtime-matrix fields after ingress proof.
+ *
+ * Primary sbx callers invoke this after the actual primary sandbox completes
+ * its Unix-socket or authenticated HTTP reachability exchange.
+ */
+export function recordBoundedAgentRuntimeTelemetry(
+  config: WrapperConfig,
+  capabilityState: 'supported' | 'unavailable' | 'blocked',
+  category: string,
+): void {
+  if (!config.boundedAgents?.enabled) return;
+  logger.info(
+    `Bounded-agent runtime telemetry: ${serializeBoundedAgentRuntimeTelemetry({
+      primaryBackend: resolveBoundedAgentPrimaryBackend(config.containerRuntime),
+      boundedAgentBackend: config.boundedAgents.runtime,
+      lifecycleClass: 'preflight',
+      capabilityState,
+      category,
+    })}`,
   );
 }
 

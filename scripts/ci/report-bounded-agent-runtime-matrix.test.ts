@@ -12,8 +12,7 @@ describe('bounded-agent runtime capability report', () => {
       if (command === 'docker') {
         return { ok: true, stdout: '{"runc":{},"runsc":{}}' };
       }
-      if (command === 'sbx') {
-        expect(args).toEqual(['ls']);
+      if (args.includes('probe-bounded-agent-primary-sbx.js')) {
         return { ok: true, stdout: 'Docker Sandboxes v0.37.1' };
       }
       if (args.includes('sbx-capability-probe.js')) {
@@ -25,7 +24,7 @@ describe('bounded-agent runtime capability report', () => {
     const rows = report.split('\n').filter((line: string) => /^\| (docker|gvisor|sbx) /.test(line));
     expect(rows).toHaveLength(9);
     expect(report).toContain(
-      '| sbx | sbx | BLOCKED | supported | blocked | bounded-agent-preflight |',
+      '| sbx | sbx | BLOCKED | unavailable | blocked | primary-preflight |',
     );
     expect(report).toContain('BLOCKED is an expected fail-closed security result, not runtime success');
     expect(report).toContain('bounded-agent sbx enclave is BLOCKED unconditionally today');
@@ -61,6 +60,20 @@ describe('bounded-agent runtime capability report', () => {
     expect(evaluate('sbx', 'docker', capabilities).status).toBe('SUPPORTED');
     expect(evaluate('sbx', 'gvisor', capabilities).status).toBe('SUPPORTED');
     expect(evaluate('sbx', 'sbx', capabilities).status).toBe('BLOCKED');
+  });
+
+  it('does not promote primary sbx when only its CLI and daemon are available', () => {
+    const capabilities = collectCapabilities((command: string, args: string[]) => {
+      if (command === 'docker') return { ok: true, stdout: '{"runc":{}}' };
+      if (command === 'sbx' && args[0] === 'ls') return { ok: true, stdout: '[]' };
+      return { ok: false, stdout: '' };
+    });
+    expect(capabilities.primary.sbx).toBe('unavailable');
+    expect(evaluate('sbx', 'docker', capabilities)).toEqual({
+      status: 'BLOCKED',
+      capability: 'unavailable',
+      phase: 'primary-preflight',
+    });
   });
 
   it('emits an explicit capability-blocked report (not a false pass) when no real sbx binary is present', () => {

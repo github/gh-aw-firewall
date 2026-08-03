@@ -328,7 +328,22 @@ export async function assertEnclaveRuntimeAvailable(
  * primary runtime actually exist? Bounded agents and bounded queries can be
  * enabled independently or together, and neither ever falls back.
  */
-export const assertPrimaryRuntimeAvailable = assertBoundedQueryPrimaryRuntimeAvailable;
+export async function assertPrimaryRuntimeAvailable(
+  containerRuntime: string | undefined,
+  assertAvailable: (runtime: string | undefined) => Promise<void> =
+    assertBoundedQueryPrimaryRuntimeAvailable,
+): Promise<void> {
+  try {
+    await assertAvailable(containerRuntime);
+  } catch (error) {
+    if (!(error instanceof Error)) throw error;
+    throw new Error(
+      error.message
+        .replace(/Bounded queries/g, 'Bounded agents')
+        .replace(/bounded queries/g, 'bounded agents'),
+    );
+  }
+}
 
 /** @internal Exported for focused unit tests. */
 // ts-prune-ignore-next
