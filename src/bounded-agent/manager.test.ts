@@ -327,4 +327,34 @@ describe('boundedAgentManagerTestHelpers.readRunId', () => {
     const paths = resolveBoundedAgentPaths('/nonexistent-work-dir-for-tests');
     expect(boundedAgentManagerTestHelpers.readRunId(paths)).toBeUndefined();
   });
+
+  describe('boundedAgentManagerTestHelpers.prepareDirectories', () => {
+    it('hands private proxy logs to the safe host identity under sudo', () => {
+      const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-bounded-agent-owner-'));
+      const paths = resolveBoundedAgentPaths(workDir);
+      const getuid = jest.spyOn(process, 'getuid').mockReturnValue(0);
+      const getgid = jest.spyOn(process, 'getgid').mockReturnValue(0);
+      const chown = jest.fn();
+      const previousUid = process.env.SUDO_UID;
+      const previousGid = process.env.SUDO_GID;
+      process.env.SUDO_UID = '1234';
+      process.env.SUDO_GID = '5678';
+
+      try {
+        boundedAgentManagerTestHelpers.prepareDirectories(paths, chown);
+        expect(chown).toHaveBeenCalledWith(paths.runDir, 1234, 5678);
+        expect(chown).toHaveBeenCalledWith(paths.apiProxyLogsDir, 1234, 5678);
+      } finally {
+        getuid.mockRestore();
+        getgid.mockRestore();
+        if (previousUid === undefined) delete process.env.SUDO_UID;
+        else process.env.SUDO_UID = previousUid;
+        if (previousGid === undefined) delete process.env.SUDO_GID;
+        else process.env.SUDO_GID = previousGid;
+        fs.rmSync(paths.root, { recursive: true, force: true });
+        fs.rmSync(paths.ingressRoot, { recursive: true, force: true });
+        fs.rmSync(workDir, { recursive: true, force: true });
+      }
+    });
+  });
 });

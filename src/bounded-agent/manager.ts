@@ -57,7 +57,10 @@ function ensureModeDirectory(target: string, mode: number): void {
  * The private root is created without `recursive` so a pre-existing path,
  * including a symlink planted between preflight and creation, fails closed.
  */
-function prepareDirectories(paths: BoundedAgentPaths): void {
+function prepareDirectories(
+  paths: BoundedAgentPaths,
+  chown: typeof fs.chownSync = fs.chownSync,
+): void {
   fs.mkdirSync(paths.root, { mode: 0o700 });
   fs.mkdirSync(paths.ingressRoot, { mode: 0o700 });
   ensureModeDirectory(paths.seedsDir, 0o700);
@@ -68,10 +71,13 @@ function prepareDirectories(paths: BoundedAgentPaths): void {
   ensureModeDirectory(paths.runDir, 0o770);
   ensureModeDirectory(paths.agentDir, 0o755);
 
-  try {
-    fs.chownSync(paths.runDir, parseInt(getSafeHostUid(), 10), parseInt(getSafeHostGid(), 10));
-  } catch {
-    // Non-root host: the broker chowns/chmods the socket itself once bound.
+  // Under sudo these directories start root-owned. Hand the socket and private
+  // proxy log directories to the non-root identity used by their containers.
+  if (process.getuid?.() === 0) {
+    const hostUid = parseInt(getSafeHostUid(), 10);
+    const hostGid = parseInt(getSafeHostGid(), 10);
+    chown(paths.runDir, hostUid, hostGid);
+    chown(paths.apiProxyLogsDir, hostUid, hostGid);
   }
 }
 

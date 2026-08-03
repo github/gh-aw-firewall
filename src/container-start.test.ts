@@ -20,7 +20,18 @@ describe('startContainers', () => {
 
     expect(mockExecaFn).toHaveBeenCalledWith(
       'docker',
-      ['rm', '-f', 'awf-squid', 'awf-agent', 'awf-iptables-init', 'awf-api-proxy', 'awf-cli-proxy', 'awf-bounded-query-broker'],
+      [
+        'rm',
+        '-f',
+        'awf-squid',
+        'awf-agent',
+        'awf-iptables-init',
+        'awf-api-proxy',
+        'awf-cli-proxy',
+        'awf-bounded-query-broker',
+        'awf-bounded-agent-broker',
+        'awf-bounded-agent-api-proxy',
+      ],
       expect.objectContaining({ reject: false })
     );
   });

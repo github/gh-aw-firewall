@@ -124,15 +124,20 @@ def tool_search(layout: Layout, args: dict) -> str:
     for path in sorted(root.rglob("*")):
         if len(results) >= MAX_SEARCH_RESULTS:
             break
-        if not path.is_file():
+        try:
+            relative_path = path.relative_to(layout.seed_dir)
+        except ValueError:
+            continue
+        target = _safe_repo_path(layout, str(relative_path))
+        if target is None or not target.is_file():
             continue
         try:
-            text = path.read_bytes()[:MAX_READ_BYTES].decode("utf-8", errors="replace")
+            text = target.read_bytes()[:MAX_READ_BYTES].decode("utf-8", errors="replace")
         except OSError:
             continue
         for lineno, line in enumerate(text.splitlines(), start=1):
             if matcher.search(line):
-                results.append(f"{path.relative_to(layout.seed_dir)}:{lineno}")
+                results.append(f"{relative_path}:{lineno}")
                 break
     return "\n".join(results) if results else "(no matches)"
 
