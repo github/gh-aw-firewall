@@ -491,7 +491,7 @@ jobs:
           chmod +x assets/compare.py
 
       - name: Upload shared assets
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: egress-battery-assets
           path: assets/
@@ -508,7 +508,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Download shared assets
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: egress-battery-assets
           path: assets
@@ -584,7 +584,7 @@ jobs:
 
       - name: Upload baseline results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: egress-results-baseline
           path: results/
@@ -613,7 +613,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Download shared assets
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: egress-battery-assets
           path: assets
@@ -742,7 +742,7 @@ jobs:
 
       - name: Upload candidate results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: egress-results-candidate
           path: results/
@@ -759,17 +759,17 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Download assets (for compare.py)
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: egress-battery-assets
           path: assets
       - name: Download baseline results
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: egress-results-baseline
           path: results/baseline
       - name: Download candidate results
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: egress-results-candidate
           path: results/candidate
