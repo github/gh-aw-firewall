@@ -711,8 +711,11 @@ GitHub JWT  ──►  sts.googleapis.com/v1/token
 GitHub JWT  ──►  api.anthropic.com/v1/oauth/token
                 grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer
                 assertion={github_jwt}
+                anthropic-beta=oauth-2025-04-20,oidc-federation-2026-04-01
             ◄──  { access_token: "sk-ant-oat01-...", expires_in: 3600 }
 ```
+
+The federation beta is a routing switch used only for the JWT-bearer exchange. It is not added to static-key requests, forwarded refresh-token exchanges, or subsequent API calls. See Anthropic's [WIF documentation](https://platform.claude.com/docs/en/manage-claude/workload-identity-federation) and [TypeScript SDK exchange implementation](https://github.com/anthropics/anthropic-sdk-typescript/blob/3b45cd3b69c956ac63384fdb09ce1d8109f3fa80/src/lib/credentials/oidc-federation.ts).
 
 #### Step 4: Credential caching and auto-refresh
 
@@ -731,8 +734,10 @@ When the agent sends a request to the sidecar, the provider adapter injects the 
 |----------|----------------------|
 | Azure | `Authorization` header |
 | GCP | `Authorization` header |
-| Anthropic | `Authorization` header |
+| Anthropic | `Authorization: Bearer` plus `anthropic-beta: oauth-2025-04-20` |
 | AWS | *(none — see caution below)* |
+
+For Anthropic bearer requests, AWF merges the OAuth beta with client-supplied `anthropic-beta` values and the optional auto-cache beta, deduplicating exact values. Static `x-api-key` requests do not receive OAuth or federation beta values.
 
 :::danger[AWS OIDC: credentials are minted but never used to sign requests]
 `AwsOidcTokenProvider` exchanges the GitHub JWT for temporary STS credentials (`AccessKeyId`/`SecretAccessKey`/`SessionToken`) and caches/refreshes them like the other providers, but **no code in the request pipeline signs outgoing requests with SigV4**. There is no AWS SDK or `aws4`-style signing dependency in `containers/api-proxy/package.json`, and `resolveOidcAuthHeaders()` returns an empty header object for the AWS provider. In practice, selecting `AWF_AUTH_PROVIDER=aws` currently produces STS credentials that are never applied to any request — AWS Bedrock (which requires SigV4 with the `bedrock-runtime` service) would reject a request sent this way for lack of an `Authorization` header. Treat this as a credential-lifecycle-only capability until request signing is implemented.
