@@ -1,7 +1,10 @@
 import { logger } from '../logger';
 import { buildRuntimeImageRef } from '../image-tag';
 import { getSafeHostGid, getSafeHostUid } from '../host-identity';
-import { BOUNDED_AGENT_BROKER_CONTAINER_NAME } from '../constants';
+import {
+  BOUNDED_AGENT_API_PROXY_CONTAINER_NAME,
+  BOUNDED_AGENT_BROKER_CONTAINER_NAME,
+} from '../constants';
 import type { WrapperConfig } from '../types';
 import { API_PROXY_PORTS } from '../types/ports';
 import {
@@ -199,7 +202,7 @@ export function buildBoundedAgentService(params: BoundedAgentServiceParams): Bou
     apiProxyLogsPath: paths.apiProxyLogsDir,
     imageConfig,
   }) as Record<string, any>;
-  apiProxyService.container_name = 'awf-bounded-agent-api-proxy';
+  apiProxyService.container_name = BOUNDED_AGENT_API_PROXY_CONTAINER_NAME;
   apiProxyService.networks = {
     [BOUNDED_AGENT_NETWORK]: {
       ipv4_address: BOUNDED_AGENT_API_PROXY_IP,

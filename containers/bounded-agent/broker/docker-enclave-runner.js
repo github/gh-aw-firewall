@@ -110,9 +110,7 @@ class DockerEnclaveRunner {
     try {
       await this.cleanupInvocation(params.runId, params.invocationId);
     } catch (cleanupError) {
-      if (!result || result.timedOut || result.exitCode !== 0) {
-        throw cleanupError;
-      }
+      throw cleanupError;
     }
 
     if (runError) throw runError;

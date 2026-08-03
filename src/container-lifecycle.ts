@@ -7,6 +7,8 @@ import {
   IPTABLES_INIT_CONTAINER_NAME,
   API_PROXY_CONTAINER_NAME,
   CLI_PROXY_CONTAINER_NAME,
+  BOUNDED_AGENT_API_PROXY_CONTAINER_NAME,
+  BOUNDED_AGENT_BROKER_CONTAINER_NAME,
   BOUNDED_QUERY_BROKER_CONTAINER_NAME,
 } from './constants';
 import { getLocalDockerEnv } from './docker-host';
@@ -249,7 +251,18 @@ export async function startContainers(workDir: string, allowedDomains: string[],
   // This handles orphaned containers from failed/interrupted previous runs
   logger.debug('Removing any existing containers with conflicting names...');
   try {
-    await execa('docker', ['rm', '-f', SQUID_CONTAINER_NAME, AGENT_CONTAINER_NAME, IPTABLES_INIT_CONTAINER_NAME, API_PROXY_CONTAINER_NAME, CLI_PROXY_CONTAINER_NAME, BOUNDED_QUERY_BROKER_CONTAINER_NAME], {
+    await execa('docker', [
+      'rm',
+      '-f',
+      SQUID_CONTAINER_NAME,
+      AGENT_CONTAINER_NAME,
+      IPTABLES_INIT_CONTAINER_NAME,
+      API_PROXY_CONTAINER_NAME,
+      CLI_PROXY_CONTAINER_NAME,
+      BOUNDED_QUERY_BROKER_CONTAINER_NAME,
+      BOUNDED_AGENT_BROKER_CONTAINER_NAME,
+      BOUNDED_AGENT_API_PROXY_CONTAINER_NAME,
+    ], {
       reject: false,
       env: getLocalDockerEnv(),
     });

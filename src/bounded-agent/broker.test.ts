@@ -666,4 +666,23 @@ describe('bounded-agent enclave runner selection', () => {
       }),
     ).rejects.toThrow(/reconcile bounded-agent containers/);
   });
+
+  it('fails closed when cleanup fails after a successful enclave', async () => {
+    const docker = {
+      runDocker: async (args: string[]) => {
+        if (args[0] === 'run') return { exitCode: 0, stdout: '', stderr: '', timedOut: false };
+        if (args[0] === 'ps') return { exitCode: 1, stdout: '', stderr: '', timedOut: false };
+        return { exitCode: 0, stdout: '', stderr: '', timedOut: false };
+      },
+    };
+    const runner = new DockerEnclaveRunner(config, { docker });
+    await expect(
+      runner.runEnclaveContainer({
+        runId: RUN_ID,
+        invocationId: 'c'.repeat(24),
+        seedId: SEED_ID,
+        timeoutMs: 1000,
+      }),
+    ).rejects.toThrow(/reconcile bounded-agent containers/);
+  });
 });

@@ -255,6 +255,24 @@ describe('bounded-agent enclave against a fake API proxy', () => {
     expect(result.stderr).toBe('');
   });
 
+  test('search refuses repository symlinks that resolve outside the seed', async () => {
+    const outside = path.join(workDir, 'outside-secret.txt');
+    fs.writeFileSync(outside, 'OUTSIDE-SEED-MARKER\n');
+    fs.symlinkSync(outside, path.join(seedDir, 'escape.txt'));
+    proxy.enqueue(
+      openAiToolCall('call-1', 'search', { path: '.', pattern: 'OUTSIDE-SEED-MARKER' }),
+      openAiToolCall('call-2', 'finish', { result: false }),
+    );
+
+    const result = await runEnclave(layout, baseEnv());
+    expect(result.exitCode).toBe(0);
+    const toolMessages = lastTranscript()
+      .filter((message) => message.role === 'tool')
+      .map((message) => String(message.content));
+    expect(toolMessages.join('\n')).not.toContain('escape.txt');
+    expect(toolMessages.join('\n')).not.toContain('OUTSIDE-SEED-MARKER');
+  });
+
   test('confines repository tools to the seed', async () => {
     proxy.enqueue(
       openAiToolCall('call-1', 'read_file', { path: '../../../etc/passwd' }),
