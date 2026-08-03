@@ -1,6 +1,21 @@
-const { createSendUpstreamRequest, MODEL_NOT_SUPPORTED_RETRY_DELAYS_MS } = require('./upstream-http');
+const {
+  createSendUpstreamRequest,
+  MODEL_NOT_SUPPORTED_RETRY_DELAYS_MS,
+  rebuildBodyFramingHeaders,
+} = require('./upstream-http');
 
 describe('upstream-http', () => {
+  test('rebuilds body framing headers case-insensitively', () => {
+    expect(rebuildBodyFramingHeaders({
+      'Content-Length': '10',
+      'Transfer-Encoding': 'chunked',
+      authorization: 'signed',
+    }, 42)).toEqual({
+      authorization: 'signed',
+      'content-length': '42',
+    });
+  });
+
   function createContext(overrides = {}) {
     return {
       body: Buffer.from('{"ok":true}'),
@@ -137,6 +152,62 @@ describe('upstream-http', () => {
     expect(handleRequestError).toHaveBeenCalledWith(error, expect.objectContaining({
       statusCode: 503,
       clientMessage: 'AWS request signing unavailable',
+    }));
+  });
+
+  test('reframes and re-signs endpoint-blocked fallback bodies', () => {
+    const proxyReq = { on: jest.fn(), write: jest.fn(), end: jest.fn() };
+    const responseCallbacks = [];
+    const httpsRequest = jest.fn((_options, cb) => {
+      responseCallbacks.push(cb);
+      return proxyReq;
+    });
+    const handleUpstreamResponse = jest.fn();
+    const requestSigner = jest.fn(({ headers }) => ({
+      ...headers,
+      authorization: 'fresh-signature',
+    }));
+    const sendUpstreamRequest = createSendUpstreamRequest({
+      https: { request: httpsRequest },
+      proxyAgent: {},
+      handleUpstreamResponse,
+      sleep: jest.fn(),
+      otel: { endSpanError: jest.fn() },
+      handleRequestError: jest.fn(),
+      metrics: { increment: jest.fn(), observe: jest.fn() },
+    });
+    const originalBody = Buffer.from('{"model":"a","messages":[]}');
+    const req = {
+      method: 'POST',
+      awfModelCandidates: ['a', 'much-longer-model-name'],
+    };
+
+    sendUpstreamRequest({
+      'content-length': String(originalBody.length),
+      'transfer-encoding': 'chunked',
+    }, createContext({
+      body: originalBody,
+      requestBytes: originalBody.length,
+      req,
+      requestSigner,
+    }));
+    responseCallbacks[0]({ statusCode: 400, headers: {} });
+    const retried = handleUpstreamResponse.mock.calls[0][2].onModelEndpointBlockedRetry();
+
+    const retryBody = Buffer.from('{"model":"much-longer-model-name","messages":[]}');
+    expect(retried).toBe(true);
+    expect(httpsRequest).toHaveBeenCalledTimes(2);
+    responseCallbacks[1]({ statusCode: 200, headers: {} });
+    expect(httpsRequest.mock.calls[1][0].headers).toEqual(expect.objectContaining({
+      'content-length': String(retryBody.length),
+      authorization: 'fresh-signature',
+    }));
+    expect(httpsRequest.mock.calls[1][0].headers).not.toHaveProperty('transfer-encoding');
+    expect(proxyReq.write).toHaveBeenLastCalledWith(retryBody);
+    expect(handleUpstreamResponse.mock.calls[1][2].requestBytes).toBe(retryBody.length);
+    expect(requestSigner).toHaveBeenLastCalledWith(expect.objectContaining({
+      body: retryBody,
+      headers: expect.objectContaining({ 'content-length': String(retryBody.length) }),
     }));
   });
 });
