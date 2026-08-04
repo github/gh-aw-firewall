@@ -1,6 +1,17 @@
 #!/bin/bash
 set -e
 
+configure_output_routing() {
+# Keep entrypoint diagnostics off the command's stdout. File descriptor 3
+# preserves the original stdout exclusively for the user command.
+exec 3>&1
+exec 1>&2
+}
+
+run_command_with_stdout() {
+"$@" >&3 3>&-
+}
+
 print_banner() {
 echo "[entrypoint] Agentic Workflow Firewall - Agent Container"
 echo "[entrypoint] =================================="
@@ -1383,7 +1394,7 @@ run_chroot_command() {
     LD_PRELOAD_CMD="export LD_PRELOAD=${ONE_SHOT_TOKEN_LIB};"
   fi
 
-  run_agent_with_token_protection chroot /host /bin/bash -c "
+  run_command_with_stdout run_agent_with_token_protection chroot /host /bin/bash -c "
     cd '${CHROOT_WORKDIR}' 2>/dev/null || cd / 2>/dev/null || true
     trap '${CLEANUP_CMD}' EXIT
     ${LD_PRELOAD_CMD}
@@ -1476,14 +1487,15 @@ run_non_chroot_command() {
   export LD_PRELOAD=/usr/local/lib/one-shot-token.so
 
   if [ -n "$CAPS_TO_DROP" ]; then
-    run_agent_with_token_protection capsh --drop=$CAPS_TO_DROP -- -c "exec gosu awfuser $(printf '%q ' "$@")"
+    run_command_with_stdout run_agent_with_token_protection capsh --drop=$CAPS_TO_DROP -- -c "exec gosu awfuser $(printf '%q ' "$@")"
   else
     # No capabilities to drop - just switch to unprivileged user
-    run_agent_with_token_protection gosu awfuser "$@"
+    run_command_with_stdout run_agent_with_token_protection gosu awfuser "$@"
   fi
 }
 
 main() {
+configure_output_routing
 print_banner
 setup_user_identity
 configure_dns
@@ -1502,4 +1514,6 @@ else
 fi
 }
 
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
 main "$@"
+fi
