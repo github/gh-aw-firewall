@@ -298,9 +298,13 @@ def tool_descriptions(schema_text: str) -> list:
 def system_prompt(schema_text: str) -> str:
     return (
         "You are a bounded analysis agent running inside an isolated enclave.\n"
-        "You can read one private repository at /awf/seed through the provided "
-        "read-only tools. You have no network access other than this API, no shell, "
-        "no write access, and no host access.\n\n"
+        "Mount points: one private repository is mounted read-only at /awf/seed; "
+        "/agent is private invocation state managed by AWF; /tmp is ephemeral. "
+        "Only the provided read-only repository tools can access repository content. "
+        "Their `path` arguments are relative to /awf/seed: use `.` for the repository "
+        "root, `go.mod` for a root file, and `src/file.py` for a nested file. Never "
+        "include `/awf/seed` in a tool path. You have no network access other than "
+        "this API, no shell, no write access, and no host access.\n\n"
         "Answer the user's task by calling tools, then call `finish` exactly once "
         "with a `result` that conforms EXACTLY to this finite response schema:\n"
         f"{schema_text}\n\n"

@@ -224,6 +224,11 @@ describe('bounded-agent enclave against a fake API proxy', () => {
     const result = await runEnclave(layout, baseEnv());
     expect(result.exitCode).toBe(0);
 
+    const systemMessage = lastTranscript().find((message) => message.role === 'system');
+    expect(systemMessage?.content).toContain('repository is mounted read-only at /awf/seed');
+    expect(systemMessage?.content).toContain('use `.` for the repository root');
+    expect(systemMessage?.content).toContain('Never include `/awf/seed` in a tool path');
+
     // 1. The enclave read the immutable seed through its read-only tools and
     //    fed the contents back to the model.
     const toolMessages = lastTranscript()
