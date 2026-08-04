@@ -71,3 +71,38 @@ ignore:
     package:
       name: brace-expansion
       type: npm
+
+  # GHSA-rgw5-rvv9-x895 (brace-expansion <5.0.9, HIGH) is a follow-on DoS
+  # affecting the same npm-vendored package and threat surface described above.
+  # AWF does not pass remote input to npm's brace expansion code. npm 12.0.1,
+  # the latest official release as of 2026-08-04, still bundles 5.0.7; retain
+  # this acceptance only until an official npm release bundles >=5.0.9.
+  - vulnerability: GHSA-rgw5-rvv9-x895
+    package:
+      name: brace-expansion
+      type: npm
+
+  # ── ip-address bundled inside the vendored npm CLI ───────────────────────────
+  #
+  # GHSA-mwp4-54f8-5fhr (ip-address <=10.3.0 -> 10.3.1, HIGH):
+  #   IPv4 octets with leading zeroes can be interpreted inconsistently, which
+  #   can bypass an SSRF guard that trusts ip-address classification.
+  #
+  #   Risk acceptance — NOT USED AS A SECURITY BOUNDARY:
+  #     This copy is bundled inside the npm CLI, not an AWF application
+  #     dependency. AWF's proxy, firewall, and network policy do not use it for
+  #     address classification or SSRF decisions. npm is a local CLI in these
+  #     images and its vendored copy is not exposed as a request handler.
+  #
+  #   No official npm release contains the fix yet: npm 12.0.1, the latest
+  #   release as of 2026-08-04, still bundles ip-address 10.2.0. Hand-patching
+  #   npm's internal dependency tree would replace a verified upstream artifact
+  #   with a locally modified distribution.
+  #
+  #   Revisit: once an official npm release bundles ip-address >=10.3.1, update
+  #   the npm tarball pin and SHA256 in all four container Dockerfiles and DELETE
+  #   this entry.
+  - vulnerability: GHSA-mwp4-54f8-5fhr
+    package:
+      name: ip-address
+      type: npm
