@@ -29,6 +29,10 @@ describe('native Copilot bounded-agent adapter', () => {
 
     const fakeCopilot = path.join(root, 'copilot');
     fs.writeFileSync(fakeCopilot, `#!/bin/sh
+if [ ! -f ${JSON.stringify(path.join(root, 'attempted'))} ]; then
+  touch ${JSON.stringify(path.join(root, 'attempted'))}
+  kill -ABRT $$
+fi
 printf '%s\\n' "$@" > ${JSON.stringify(path.join(root, 'args.txt'))}
 printf '%s\\n' "$COPILOT_GITHUB_TOKEN" "$COPILOT_API_URL" > ${JSON.stringify(path.join(root, 'env.txt'))}
 printf 'True\\n'
@@ -82,6 +86,8 @@ sys.exit(module.main())
     );
     const transcript = fs.readFileSync(path.join(agent, 'session.jsonl'), 'utf8');
     expect(transcript).toContain('"engine":"copilot"');
+    expect(transcript).toContain('"event":"engine-retry"');
+    expect(transcript).toContain('"signal":6');
     expect(transcript).toContain('"event":"success"');
     expect(transcript).not.toContain('github_pat_');
   });

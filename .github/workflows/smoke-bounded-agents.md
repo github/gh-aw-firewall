@@ -51,7 +51,7 @@ pre-agent-steps:
         engine: "copilot",
         profile: "openai",
         model: "gpt-4o-mini",
-        timeout: 300,
+        timeout: 540,
         memoryLimit: "512m"
       };
       fs.writeFileSync(file, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
@@ -78,7 +78,7 @@ pre-agent-steps:
 safe-outputs:
   threat-detection:
     enabled: false
-timeout-minutes: 20
+timeout-minutes: 30
 strict: false
 concurrency:
   group: smoke-bounded-agents

@@ -4,9 +4,11 @@
 import json
 import os
 import re
+import signal
 import stat
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 SEED_DIR = Path("/awf/seed")
@@ -21,6 +23,8 @@ MAX_INPUT_BYTES = 64 * 1024
 MAX_TRANSCRIPT_BYTES = 1024 * 1024
 MAX_DIAGNOSTIC_BYTES = 256 * 1024
 MAX_DIAGNOSTIC_FILES = 32
+MAX_STARTUP_RETRIES = 2
+STARTUP_CRASH_WINDOW_SECONDS = 30
 EXIT_CONFIGURATION_INVALID = 10
 EXIT_INPUT_INVALID = 11
 EXIT_DEADLINE_EXCEEDED = 20
@@ -124,6 +128,18 @@ def normalize_copilot_output(stdout: str, schema_text: str) -> str:
     return result
 
 
+def append_engine_result(completed: subprocess.CompletedProcess) -> tuple[str, str]:
+    stdout = completed.stdout.decode("utf-8", errors="replace").strip()
+    stderr = completed.stderr.decode("utf-8", errors="replace")
+    append_event({
+        "event": "engine-result",
+        "exitCode": completed.returncode,
+        "stdout": stdout[:MAX_TRANSCRIPT_BYTES // 2],
+        "stderr": stderr[:MAX_TRANSCRIPT_BYTES // 2],
+    })
+    return stdout, stderr
+
+
 def main() -> int:
     if os.environ.get("AWF_BOUNDED_AGENT_ENGINE") != "copilot":
         append_event({"event": "failure", "category": "configuration-invalid"})
@@ -167,31 +183,61 @@ def main() -> int:
         "--log-level", "all",
         "--log-dir", str(copilot_logs),
     ]
-    try:
-        completed = subprocess.run(
-            command,
-            cwd=SEED_DIR,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            timeout=timeout,
-            check=False,
+    deadline = time.monotonic() + timeout
+    completed = None
+    stdout = ""
+    for attempt in range(MAX_STARTUP_RETRIES + 1):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        started = time.monotonic()
+        try:
+            completed = subprocess.run(
+                command,
+                cwd=SEED_DIR,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=remaining,
+                check=False,
+            )
+        except subprocess.TimeoutExpired as error:
+            partial_stdout = (error.stdout or b"").decode("utf-8", errors="replace").strip()
+            partial_stderr = (error.stderr or b"").decode("utf-8", errors="replace")
+            append_event({
+                "event": "engine-result",
+                "exitCode": None,
+                "stdout": partial_stdout[:MAX_TRANSCRIPT_BYTES // 2],
+                "stderr": partial_stderr[:MAX_TRANSCRIPT_BYTES // 2],
+            })
+            diagnostics = read_copilot_diagnostics(copilot_logs)
+            if diagnostics:
+                append_event({"event": "engine-diagnostics", "log": diagnostics})
+            append_event({"event": "failure", "category": "deadline-exceeded"})
+            return EXIT_DEADLINE_EXCEEDED
+        except OSError:
+            append_event({"event": "failure", "category": "engine-failed"})
+            return EXIT_ENGINE_FAILED
+
+        stdout, _ = append_engine_result(completed)
+        runtime = time.monotonic() - started
+        startup_crash = (
+            completed.returncode in {-signal.SIGABRT, -signal.SIGSEGV}
+            and not stdout
+            and runtime < STARTUP_CRASH_WINDOW_SECONDS
         )
-    except subprocess.TimeoutExpired:
+        if not startup_crash or attempt == MAX_STARTUP_RETRIES:
+            break
+        append_event({
+            "event": "engine-retry",
+            "category": "startup-crash",
+            "signal": -completed.returncode,
+        })
+
+    if completed is None:
         append_event({"event": "failure", "category": "deadline-exceeded"})
         return EXIT_DEADLINE_EXCEEDED
-    except OSError:
-        append_event({"event": "failure", "category": "engine-failed"})
-        return EXIT_ENGINE_FAILED
 
-    stdout = completed.stdout.decode("utf-8", errors="replace").strip()
-    stderr = completed.stderr.decode("utf-8", errors="replace")
-    append_event({
-        "event": "engine-result",
-        "exitCode": completed.returncode,
-        "stdout": stdout[:MAX_TRANSCRIPT_BYTES // 2],
-        "stderr": stderr[:MAX_TRANSCRIPT_BYTES // 2],
-    })
     if completed.returncode != 0:
         diagnostics = read_copilot_diagnostics(copilot_logs)
         if diagnostics:
