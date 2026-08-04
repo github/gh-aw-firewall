@@ -252,9 +252,10 @@ function _resolveAliasPatterns(aliasKey, aliasDefinition, requestedModel, aliase
  *
  * Resolution algorithm:
  * 1. Loop detection — bail out if key already visited.
- * 2. Alias lookup (case-insensitive); family alias fallback for gpt-5.<minor>.
- * 3. No alias found → _resolveDirectMatch (direct, family-version, or middle-power).
- * 4. Alias found → _resolveAliasPatterns (pattern expansion + best-candidate selection).
+ * 2. Direct match — preserve an explicitly available provider model.
+ * 3. Alias lookup (case-insensitive); family alias fallback for gpt-5.<minor>.
+ * 4. No alias found → _resolveDirectMatch (family-version or middle-power fallback).
+ * 5. Alias found → _resolveAliasPatterns (pattern expansion + best-candidate selection).
  *
  * @param {string} requestedModel - Model name from the request body (or "" for default)
  * @param {Record<string, string[]|{patterns: string[], fallback?: boolean}>} aliases - Alias map from parseModelAliases()
@@ -289,32 +290,31 @@ function resolveModel(requestedModel, aliases, availableModels, currentProvider,
   }
   const newChain = [...chain, key];
 
+  // An explicit model available from this provider is authoritative over any
+  // matching alias. This prevents an alias with the same name from silently
+  // steering a request away from the configured provider.
+  const providerModels = (availableModels[currentProvider] || []);
+  const direct = providerModels.find(m => m.toLowerCase() === key);
+  if (direct) {
+    if (!_isModelPermittedByPolicy(direct, modelPolicyConfig)) {
+      log.push(`[model-resolver] model policy blocked direct match: "${direct}"`);
+      return null;
+    }
+    log.push(`[model-resolver] direct match: "${requestedModel}" → "${direct}"`);
+    return {
+      resolvedModel: direct,
+      candidates: [direct],
+      log,
+      fallback: fallbackConfig.enabled
+        ? { activated: false, selection_method: 'middle_power_median', reason: 'direct_match' }
+        : undefined,
+    };
+  }
+
   // Find alias entry (case-insensitive)
   let aliasEntry = Object.entries(aliases).find(([k]) => k.toLowerCase() === key);
 
   if (!aliasEntry) {
-    // Prefer exact provider-advertised model names over family-alias fallback.
-    // This avoids silently rewriting a concrete user request (e.g. gpt-5.6-sol)
-    // to another family member when that exact model is already available.
-    const providerModels = (availableModels[currentProvider] || []);
-    const direct = providerModels.find(m => m.toLowerCase() === key);
-    if (direct) {
-      if (!_isModelPermittedByPolicy(direct, modelPolicyConfig)) {
-        // Model is advertised but blocked by policy — treat as terminal to prevent
-        // a denied model from being silently rewritten to a permitted family member.
-        log.push(`[model-resolver] model policy blocked direct match: "${direct}"`);
-        return null;
-      }
-      log.push(`[model-resolver] direct match: "${requestedModel}" → "${direct}"`);
-      return {
-        resolvedModel: direct,
-        log,
-        fallback: fallbackConfig.enabled
-          ? { activated: false, selection_method: 'middle_power_median', reason: 'direct_match' }
-          : undefined,
-      };
-    }
-
     // Family fallback: treat gpt-5.<minor> as gpt-5 when only the family alias
     // exists. This keeps versioned IDs like gpt-5.4 compatible with configs that
     // define "gpt-5" alias patterns.

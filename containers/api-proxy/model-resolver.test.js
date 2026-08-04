@@ -162,6 +162,22 @@ describe('resolveModel', () => {
     expect(result.resolvedModel).toBe('gpt-5.6-sol');
   });
 
+  it('preserves an explicit provider model when an alias has the same name', () => {
+    const result = resolveModel(
+      'claude-sonnet-5',
+      { 'claude-sonnet-5': ['copilot/claude-sonnet-6*'] },
+      {
+        anthropic: ['claude-sonnet-5'],
+        copilot: ['claude-sonnet-6'],
+      },
+      'anthropic'
+    );
+    expect(result).not.toBeNull();
+    expect(result.resolvedModel).toBe('claude-sonnet-5');
+    expect(result.candidates).toEqual(['claude-sonnet-5']);
+    expect(result.log).toContain('[model-resolver] direct match: "claude-sonnet-5" → "claude-sonnet-5"');
+  });
+
   it('returns null (terminal) when the exact advertised model is denied by policy — does not fall through to family alias', () => {
     // gpt-5.6-sol is advertised by the provider AND has a gpt-5 family alias.
     // When gpt-5.6-sol is explicitly denylisted, resolution must stop (null) rather

@@ -255,13 +255,9 @@ function validateRequestedModel() {
     for (const line of resolution.log) {
       logRequest('debug', 'model_validation_step', { message: line, provider: resolution.provider });
     }
-    // resolved_via is 'alias' when: the model name matches an alias key (alias lookup
-    // takes precedence in resolveModel) OR the resolved name differs from the request.
+    // An explicit provider model takes precedence over a matching alias key.
     const requestedKey = requestedModel.toLowerCase();
-    const isAlias = modelAliases
-      ? Object.keys(modelAliases.models).some(k => k.toLowerCase() === requestedKey)
-      : false;
-    const resolvedVia = isAlias || resolution.resolvedModel.toLowerCase() !== requestedKey ? 'alias' : 'direct';
+    const resolvedVia = resolution.resolvedModel.toLowerCase() !== requestedKey ? 'alias' : 'direct';
     logRequest('info', 'model_validation', {
       requested_model: requestedModel,
       resolved_via: resolvedVia,
