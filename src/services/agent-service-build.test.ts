@@ -72,7 +72,7 @@ describe('agent service', () => {
       expect(agent.build).toBeDefined();
       expect(agent.build.dockerfile).toBe('Dockerfile');
       expect(agent.build.args.BASE_IMAGE).toBe('ubuntu:24.04');
-      expect(agent.image).toBeUndefined();
+      expect(agent.image).toBe('awf-agent:local');
     });
 
     it('should build locally with full Dockerfile when buildLocal is true', () => {
@@ -86,7 +86,7 @@ describe('agent service', () => {
       // Should use full Dockerfile for feature parity
       expect(agent.build).toBeDefined();
       expect(agent.build.dockerfile).toBe('Dockerfile');
-      expect(agent.image).toBeUndefined();
+      expect(agent.image).toBe('awf-agent:local');
     });
 
     it('should set agent to depend on healthy squid', () => {

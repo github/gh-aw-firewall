@@ -4,7 +4,7 @@ import * as os from 'os';
 import * as path from 'path';
 
 const repoRoot = path.join(__dirname, '..', '..');
-const entrypoint = path.join(repoRoot, 'containers', 'bounded-agent', 'copilot-entrypoint.py');
+const entrypoint = path.join(repoRoot, 'containers', 'agent', 'copilot-entrypoint.py');
 
 describe('native Copilot bounded-agent adapter', () => {
   let root: string;

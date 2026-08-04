@@ -278,7 +278,7 @@ describe('buildBoundedAgentService guards', () => {
   const imageConfig = {
     useGHCR: true,
     registry: 'ghcr.io/github/gh-aw-firewall',
-    parsedTag: { tag: 'latest' } as never,
+    parsedTag: { tag: 'latest', digests: {} },
     projectRoot: '/repo',
   };
 
@@ -316,22 +316,38 @@ describe('buildBoundedAgentService guards', () => {
     ).toThrow(/require the API proxy/);
   });
 
-  it('builds both images from the shared containers context when building locally', () => {
+  it('uses the primary agent image for the enclave and builds the broker locally', () => {
     const { service, enclaveImageService } = buildBoundedAgentService({
-      config: { ...mockConfig, enableApiProxy: true, boundedAgents },
+      config: { ...mockConfig, buildLocal: true, enableApiProxy: true, boundedAgents },
       imageConfig: { ...imageConfig, useGHCR: false },
       networkConfig,
     });
     expect((enclaveImageService as Record<string, unknown>).build).toEqual({
-      context: '/repo/containers',
-      dockerfile: 'bounded-agent/Dockerfile',
-      target: 'enclave-copilot',
+      context: '/repo/containers/agent',
+      dockerfile: 'Dockerfile',
+      args: {
+        USER_UID: expect.any(String),
+        USER_GID: expect.any(String),
+      },
     });
+    expect((enclaveImageService as Record<string, unknown>).image).toBe('awf-agent:local');
     expect((service as Record<string, unknown>).build).toEqual({
       context: '/repo/containers',
       dockerfile: 'bounded-agent/Dockerfile',
       target: 'broker',
     });
+  });
+
+  it('uses the published primary agent image for the enclave', () => {
+    const { enclaveImageService } = buildBoundedAgentService({
+      config: { ...mockConfig, enableApiProxy: true, boundedAgents },
+      imageConfig,
+      networkConfig,
+    });
+    expect((enclaveImageService as Record<string, unknown>).image).toBe(
+      'ghcr.io/github/gh-aw-firewall/agent:latest',
+    );
+    expect((enclaveImageService as Record<string, unknown>).build).toBeUndefined();
   });
 
   it('uses a host-gateway-only broker ingress for an sbx primary', () => {

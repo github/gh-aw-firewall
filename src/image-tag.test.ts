@@ -11,7 +11,6 @@ const IMAGE_DIGEST_KEYS = [
   'bounded-query',
   'bounded-query-broker',
   'bounded-agent',
-  'bounded-agent-copilot',
   'bounded-agent-broker',
 ] as const;
 

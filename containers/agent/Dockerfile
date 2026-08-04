@@ -7,6 +7,12 @@
 # NOTE: ARG declared before first FROM is global and available in all FROM statements
 ARG BASE_IMAGE=ubuntu:22.04
 
+FROM node:22.23.1-bookworm-slim AS copilot-installer
+
+ARG COPILOT_CLI_VERSION=1.0.34
+RUN npm_config_ignore_scripts=false npm install -g "@github/copilot@${COPILOT_CLI_VERSION}" \
+    && copilot --version
+
 FROM ${BASE_IMAGE}
 
 # Optionally switch to Azure apt mirror for faster package fetches in CI
@@ -283,7 +289,13 @@ COPY get-claude-key.sh /usr/local/bin/get-claude-key.sh
 COPY gh-cli-proxy-wrapper.sh /usr/local/bin/gh-cli-proxy-wrapper.sh
 COPY bounded-query-wrapper.sh /usr/local/bin/bounded-query-wrapper.sh
 COPY bounded-agent-wrapper.sh /usr/local/bin/bounded-agent-wrapper.sh
-RUN chmod +x /usr/local/bin/setup-iptables.sh /usr/local/bin/entrypoint.sh /usr/local/bin/pid-logger.sh /usr/local/bin/api-proxy-health-check.sh /usr/local/bin/get-claude-key.sh /usr/local/bin/gh-cli-proxy-wrapper.sh /usr/local/bin/bounded-query-wrapper.sh /usr/local/bin/bounded-agent-wrapper.sh
+COPY copilot-entrypoint.py /usr/local/bin/run-bounded-agent
+COPY --from=copilot-installer /usr/local/lib/node_modules/@github/copilot /usr/local/lib/node_modules/@github/copilot
+COPY --from=copilot-installer /usr/local/bin/copilot /usr/local/bin/copilot
+RUN chmod +x /usr/local/bin/setup-iptables.sh /usr/local/bin/entrypoint.sh /usr/local/bin/pid-logger.sh /usr/local/bin/api-proxy-health-check.sh /usr/local/bin/get-claude-key.sh /usr/local/bin/gh-cli-proxy-wrapper.sh /usr/local/bin/bounded-query-wrapper.sh /usr/local/bin/bounded-agent-wrapper.sh /usr/local/bin/run-bounded-agent \
+    && python3 -m py_compile /usr/local/bin/run-bounded-agent \
+    && rm -rf /usr/local/bin/__pycache__ \
+    && test -r /etc/ssl/certs/ca-certificates.crt
 
 # Copy pre-built one-shot-token library from rust-builder stage
 # This prevents tokens from being read multiple times (e.g., by malicious code)

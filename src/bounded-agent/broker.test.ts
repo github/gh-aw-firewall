@@ -24,7 +24,7 @@ const config = {
   hostWorkDir: '/var/tmp/private/work',
   hostSeedsDir: '/var/tmp/private/seeds',
   auditDir: '/var/log/awf-bounded-agent',
-  enclaveImage: 'ghcr.io/github/gh-aw-firewall/bounded-agent-copilot:latest',
+  enclaveImage: 'ghcr.io/github/gh-aw-firewall/agent:latest',
   enclaveSeccompPath: '/opt/awf/enclave-seccomp.json',
   enclaveMountDir: '/agent',
   enclaveSeedPath: '/awf/seed',
@@ -550,7 +550,7 @@ describe('bounded-agent enclave container spec', () => {
     expect(args.slice(-3)).toEqual([
       '--entrypoint',
       '/usr/local/bin/run-bounded-agent',
-      'ghcr.io/github/gh-aw-firewall/bounded-agent-copilot:latest',
+      'ghcr.io/github/gh-aw-firewall/agent:latest',
     ]);
   });
 

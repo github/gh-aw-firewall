@@ -28,6 +28,8 @@ interface AgentServiceParams {
   imageConfig: ImageBuildConfig;
 }
 
+export const LOCAL_AGENT_IMAGE = 'awf-agent:local';
+
 /**
  * Builds the security and capability configuration for the agent container.
  *
@@ -200,14 +202,13 @@ export function buildAgentService(params: AgentServiceParams): any {
  *
  * Priority: GHCR preset images > local build (when requested or non-preset) > custom image passthrough
  *
- * Returns either `{ image: string }` (pull from registry) or
- * `{ build: { context, dockerfile, args } }` (local build), suitable for
- * spreading onto a Docker Compose service object.
+ * Returns an image reference and, for local images, the build definition.
+ * Naming local builds lets the bounded enclave launch the exact same image.
  */
-function resolveAgentImageConfig(
+export function resolveAgentImageConfig(
   config: WrapperConfig,
   imageConfig: ImageBuildConfig,
-): { image: string } | { build: { context: string; dockerfile: string; args?: Record<string, string> } } {
+): { image: string; build?: { context: string; dockerfile: string; args?: Record<string, string> } } {
   const { useGHCR, registry, parsedTag, projectRoot } = imageConfig;
   const agentImage = config.agentImage || 'default';
   const isPreset = agentImage === 'default' || agentImage === 'act';
@@ -246,6 +247,7 @@ function resolveAgentImageConfig(
     // For 'default' preset with --build-local, use the Dockerfile's default (ubuntu:22.04)
 
     return {
+      image: LOCAL_AGENT_IMAGE,
       build: {
         context: path.join(projectRoot, 'containers/agent'),
         dockerfile,
