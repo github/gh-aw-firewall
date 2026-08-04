@@ -44,7 +44,7 @@ RUN mkdir -p /agent /awf/seed
 # Native Copilot CLI enclave. The CLI owns its normal built-in tools (including
 # shell/bash); the container boundary supplies the read-only seed, bounded
 # tmpfs, non-root identity, API-proxy-only network, and finite result adapter.
-FROM node:22.23.1-alpine3.22 AS enclave-copilot
+FROM node:22.23.1-alpine3.24 AS enclave-copilot
 
 ARG COPILOT_CLI_VERSION=1.0.34
 RUN apk add --no-cache bash git python3 ripgrep \
