@@ -942,12 +942,12 @@
     },
     "boundedAgents": {
       "type": "object",
-      "description": "Bounded-agent enclave configuration. When enabled, AWF stages an immutable seed per configured private repository, starts an offline broker, and exposes a fixed `bounded-agent` CLI plus a generated skill to the agent. Each invocation runs a fixed, AWF-authored model loop inside a single-use enclave that joins only a dedicated `internal` bounded-agent Docker network whose sole other member is the AWF API proxy. Requires the API proxy and a supported configured model route. See docs/awf-config-spec.md §15.",
+      "description": "Bounded-agent enclave configuration. When enabled, AWF stages an immutable seed per configured private repository, starts an offline broker, and exposes a fixed `bounded-agent` CLI plus a generated skill to the agent. Each invocation runs the configured native coding-agent engine inside a single-use enclave that joins only a dedicated `internal` bounded-agent Docker network whose sole other member is the AWF API proxy. Requires the API proxy and a supported configured engine/model route. See docs/awf-config-spec.md §15.",
       "additionalProperties": false,
       "properties": {
         "enabled": {
           "type": "boolean",
-          "description": "Enable bounded agents for this run. Requires a staging credential in GH_TOKEN or GITHUB_TOKEN on the AWF host, an enabled API proxy, and a configured `profile`/`model` route. Default: false.",
+          "description": "Enable bounded agents for this run. Requires a staging credential in GH_TOKEN or GITHUB_TOKEN on the AWF host, an enabled API proxy, and a configured `engine`/`model` route. Default: false.",
           "default": false
         },
         "privateRepos": {
@@ -990,13 +990,24 @@
           "description": "Sandbox runtime backend used to execute the bounded-agent enclave, selected independently of the primary agent runtime. \"docker\" uses the daemon default runtime; \"gvisor\" requires the runsc OCI runtime; \"sbx\" is a fail-closed preview and is blocked until the installed sbx CLI proves the mandatory API-proxy-only network policy, read-only targeted mounts, unprivileged exec/workdir, and pids/disk/fsize/lifecycle controls this enclave requires. No backend ever falls back. Default: \"docker\".",
           "default": "docker"
         },
+        "engine": {
+          "type": "string",
+          "enum": [
+            "copilot",
+            "claude",
+            "codex",
+            "gemini"
+          ],
+          "description": "Native coding-agent runtime executed inside each single-use enclave. \"copilot\" is implemented with a dedicated pinned Copilot CLI image. Other accepted engine names fail closed until their dedicated images are implemented. The caller cannot choose or override this value.",
+          "default": "copilot"
+        },
         "profile": {
           "type": "string",
           "enum": [
             "openai",
             "anthropic"
           ],
-          "description": "Trusted provider protocol the enclave speaks to the AWF API proxy: \"openai\" uses POST /v1/chat/completions, \"anthropic\" uses POST /v1/messages. The API proxy injects the real credential; the enclave never holds one. A request can never choose the profile. Default: \"openai\".",
+          "description": "Legacy provider-loop compatibility field. Native engines select their fixed API-proxy route from `engine`; callers cannot override it. Default: \"openai\".",
           "default": "openai"
         },
         "model": {
@@ -1087,6 +1098,7 @@
       "then": {
         "required": [
           "privateRepos",
+          "engine",
           "model"
         ]
       }

@@ -90,13 +90,13 @@ describe.each(workflows)('$source', ({ source, lock, runtime }) => {
         { encoding: 'utf-8', env },
       );
       const config = JSON.parse(output) as {
-        apiProxy: { enabled: boolean; targets?: { openai?: object } };
-        boundedAgents: { enabled: boolean; runtime: string };
+        apiProxy: { enabled: boolean; targets?: { copilot?: object } };
+        boundedAgents: { enabled: boolean; engine: string; runtime: string };
       };
 
       expect(config.apiProxy.enabled).toBe(true);
-      expect(config.apiProxy.targets?.openai).toEqual({});
-      expect(config.boundedAgents).toMatchObject({ enabled: true, runtime });
+      expect(config.apiProxy.targets?.copilot).toEqual({});
+      expect(config.boundedAgents).toMatchObject({ enabled: true, engine: 'copilot', runtime });
     } finally {
       fs.rmSync(tempDir, { recursive: true, force: true });
     }

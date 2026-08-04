@@ -24,7 +24,7 @@ const config = {
   hostWorkDir: '/var/tmp/private/work',
   hostSeedsDir: '/var/tmp/private/seeds',
   auditDir: '/var/log/awf-bounded-agent',
-  enclaveImage: 'ghcr.io/github/gh-aw-firewall/bounded-agent:latest',
+  enclaveImage: 'ghcr.io/github/gh-aw-firewall/bounded-agent-copilot:latest',
   enclaveSeccompPath: '/opt/awf/enclave-seccomp.json',
   enclaveMountDir: '/agent',
   enclaveSeedPath: '/awf/seed',
@@ -33,9 +33,10 @@ const config = {
   enclaveUid: 65534,
   enclaveGid: 65534,
   backend: 'docker',
+  engine: 'copilot',
   profile: 'openai',
   model: 'gpt-4o-mini',
-  apiEndpoint: 'http://172.31.0.30:10000',
+  apiEndpoint: 'http://172.31.0.30:10002',
   network: 'awf-bounded-agent',
   timeoutSeconds: 120,
   memoryLimit: '512m',
@@ -515,23 +516,32 @@ describe('bounded-agent enclave container spec', () => {
 
   it('passes only the fixed trusted enclave environment', () => {
     expect(flagValues('--env').sort()).toEqual([
-      'AWF_BOUNDED_AGENT_API_ENDPOINT=http://172.31.0.30:10000',
+      'AWF_BOUNDED_AGENT_API_ENDPOINT=http://172.31.0.30:10002',
       'AWF_BOUNDED_AGENT_DEADLINE_SECONDS=120',
+      'AWF_BOUNDED_AGENT_ENGINE=copilot',
       'AWF_BOUNDED_AGENT_MAX_MODEL_REQUESTS=8',
       'AWF_BOUNDED_AGENT_MAX_MODEL_TOKENS=1024',
       'AWF_BOUNDED_AGENT_MAX_OUTPUT_BYTES=8192',
       'AWF_BOUNDED_AGENT_MODEL=gpt-4o-mini',
       'AWF_BOUNDED_AGENT_PROFILE=openai',
-      'HOME=/tmp',
+      'COPILOT_API_URL=http://172.31.0.30:10002',
+      'COPILOT_GITHUB_TOKEN=******',
+      'COPILOT_HOME=/agent/copilot',
+      'COPILOT_MODEL=gpt-4o-mini',
+      'COPILOT_OFFLINE=true',
+      'COPILOT_PROVIDER_BASE_URL=http://172.31.0.30:10002',
+      'COPILOT_TOKEN=******',
+      'HOME=/agent/home',
       'PYTHONDONTWRITEBYTECODE=1',
       'PYTHONUNBUFFERED=1',
     ]);
   });
 
-  it('never leaks a credential, token, or proxy setting into the enclave environment', () => {
-    const envNames = flagValues('--env').map((entry) => entry.split('=')[0]);
-    for (const name of envNames) {
-      expect(name).not.toMatch(/API_KEY|_TOKEN$|^GH_|^GITHUB_|AUTHORIZATION|SECRET|CREDENTIAL/i);
+  it('never leaks a real credential or general proxy setting into the enclave environment', () => {
+    for (const entry of flagValues('--env')) {
+      const [name, value] = entry.split('=');
+      if (/_TOKEN$/.test(name)) expect(value).toBe('******');
+      expect(entry).not.toMatch(/github_pat_|gh[opsu]_|sk-|AUTHORIZATION|SECRET|CREDENTIAL/i);
       expect(name).not.toMatch(/^(?:HTTP|HTTPS|NO)_PROXY$/i);
     }
   });
@@ -540,7 +550,7 @@ describe('bounded-agent enclave container spec', () => {
     expect(args.slice(-3)).toEqual([
       '--entrypoint',
       '/usr/local/bin/run-bounded-agent',
-      'ghcr.io/github/gh-aw-firewall/bounded-agent:latest',
+      'ghcr.io/github/gh-aw-firewall/bounded-agent-copilot:latest',
     ]);
   });
 

@@ -43,11 +43,12 @@ pre-agent-steps:
         throw new Error("usage: configure-bounded-agent.cjs <config> <runtime>");
       }
       const config = JSON.parse(fs.readFileSync(file, "utf8"));
-      config.apiProxy = { ...(config.apiProxy || {}), targets: { openai: {} } };
+      config.apiProxy = { ...(config.apiProxy || {}), targets: { copilot: {} } };
       config.boundedAgents = {
         enabled: true,
         privateRepos: [{ repo: "github/gh-aw", sensitivity: "internal" }],
         runtime,
+        engine: "copilot",
         profile: "openai",
         model: "gpt-4o-mini",
         memoryLimit: "512m"

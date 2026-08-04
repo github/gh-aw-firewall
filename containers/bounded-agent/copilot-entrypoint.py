@@ -1,0 +1,144 @@
+#!/usr/bin/env python3
+"""Run the pinned native Copilot CLI inside a bounded-agent enclave."""
+
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+SEED_DIR = Path("/awf/seed")
+TASK_PATH = Path("/awf/task.txt")
+SCHEMA_PATH = Path("/awf/schema.json")
+OUT_PATH = Path("/agent/out")
+SESSION_LOG_PATH = Path("/agent/session.jsonl")
+AGENT_DIR = Path("/agent")
+COPILOT_BIN = "/usr/local/bin/copilot"
+
+MAX_INPUT_BYTES = 64 * 1024
+MAX_TRANSCRIPT_BYTES = 1024 * 1024
+EXIT_CONFIGURATION_INVALID = 10
+EXIT_INPUT_INVALID = 11
+EXIT_DEADLINE_EXCEEDED = 20
+EXIT_ENGINE_FAILED = 24
+EXIT_RESULT_WRITE_FAILED = 30
+
+
+def append_event(event: dict) -> None:
+    try:
+        encoded = (json.dumps(event, separators=(",", ":"), ensure_ascii=False) + "\n").encode()
+        current = SESSION_LOG_PATH.stat().st_size
+        if len(encoded) <= MAX_TRANSCRIPT_BYTES and current + len(encoded) <= MAX_TRANSCRIPT_BYTES:
+            with SESSION_LOG_PATH.open("ab") as handle:
+                handle.write(encoded)
+    except (OSError, TypeError, ValueError):
+        pass
+
+
+def read_bounded(path: Path) -> str:
+    data = path.read_bytes()
+    if not data or len(data) > MAX_INPUT_BYTES:
+        raise ValueError("invalid bounded input")
+    return data.decode("utf-8")
+
+
+def build_prompt(task: str, schema_text: str) -> str:
+    return (
+        "You are the native GitHub Copilot CLI running in an AWF bounded-agent enclave.\n"
+        "The repository root is your current directory and is mounted read-only at /awf/seed. "
+        "/agent and /tmp are bounded writable tmpfs storage. You may use your built-in shell, "
+        "bash, file-reading, and search tools. You have no GitHub MCP, no credentials, no host "
+        "filesystem, and no network route except the AWF API proxy used for model inference.\n\n"
+        "Complete this task:\n"
+        f"{task}\n\n"
+        "Your final response MUST be exactly one JSON value conforming to this finite schema, "
+        "with no Markdown fence, explanation, or surrounding text:\n"
+        f"{schema_text}\n"
+    )
+
+
+def main() -> int:
+    if os.environ.get("AWF_BOUNDED_AGENT_ENGINE") != "copilot":
+        append_event({"event": "failure", "category": "configuration-invalid"})
+        return EXIT_CONFIGURATION_INVALID
+    try:
+        task = read_bounded(TASK_PATH)
+        schema_text = read_bounded(SCHEMA_PATH)
+        json.loads(schema_text)
+        max_output = int(os.environ["AWF_BOUNDED_AGENT_MAX_OUTPUT_BYTES"])
+        timeout = int(os.environ["AWF_BOUNDED_AGENT_DEADLINE_SECONDS"])
+        model = os.environ["AWF_BOUNDED_AGENT_MODEL"]
+    except (KeyError, OSError, UnicodeDecodeError, ValueError, json.JSONDecodeError):
+        append_event({"event": "failure", "category": "input-invalid"})
+        return EXIT_INPUT_INVALID
+
+    (AGENT_DIR / "home").mkdir(mode=0o700, exist_ok=True)
+    (AGENT_DIR / "copilot").mkdir(mode=0o700, exist_ok=True)
+    copilot_logs = AGENT_DIR / "copilot-logs"
+    copilot_logs.mkdir(mode=0o700, exist_ok=True)
+    append_event({
+        "event": "session",
+        "engine": "copilot",
+        "model": model,
+        "task": task,
+        "schema": json.loads(schema_text),
+    })
+
+    command = [
+        COPILOT_BIN,
+        "--prompt", build_prompt(task, schema_text),
+        "--model", model,
+        "--silent",
+        "--no-color",
+        "--no-ask-user",
+        "--no-auto-update",
+        "--no-custom-instructions",
+        "--no-remote",
+        "--disable-builtin-mcps",
+        "--allow-all-tools",
+        "--allow-all-paths",
+        "--log-level", "all",
+        "--log-dir", str(copilot_logs),
+    ]
+    try:
+        completed = subprocess.run(
+            command,
+            cwd=SEED_DIR,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=timeout,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        append_event({"event": "failure", "category": "deadline-exceeded"})
+        return EXIT_DEADLINE_EXCEEDED
+    except OSError:
+        append_event({"event": "failure", "category": "engine-failed"})
+        return EXIT_ENGINE_FAILED
+
+    stdout = completed.stdout.decode("utf-8", errors="replace").strip()
+    stderr = completed.stderr.decode("utf-8", errors="replace")
+    append_event({
+        "event": "engine-result",
+        "exitCode": completed.returncode,
+        "stdout": stdout[:MAX_TRANSCRIPT_BYTES // 2],
+        "stderr": stderr[:MAX_TRANSCRIPT_BYTES // 2],
+    })
+    if completed.returncode != 0:
+        append_event({"event": "failure", "category": "engine-failed"})
+        return EXIT_ENGINE_FAILED
+    if not stdout or len(stdout.encode("utf-8")) > max_output:
+        append_event({"event": "failure", "category": "result-write-failed"})
+        return EXIT_RESULT_WRITE_FAILED
+    try:
+        OUT_PATH.write_text(stdout, encoding="utf-8")
+    except OSError:
+        append_event({"event": "failure", "category": "result-write-failed"})
+        return EXIT_RESULT_WRITE_FAILED
+    append_event({"event": "success"})
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

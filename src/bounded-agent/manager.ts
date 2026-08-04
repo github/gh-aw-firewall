@@ -329,8 +329,7 @@ export async function prepareBoundedAgents(
     timeoutSeconds: boundedAgents.timeout,
     maxInvocations: boundedAgents.maxInvocations,
     maxTaskBytes: boundedAgents.maxTaskBytes,
-    profile: boundedAgents.profile,
-    maxModelRequests: boundedAgents.maxModelRequests,
+    engine: boundedAgents.engine,
   });
   writeBoundedAgentWrapper(paths);
 

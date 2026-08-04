@@ -2069,11 +2069,11 @@ matched pair.
 ### 15.1 Purpose
 
 A *bounded agent* is the agentic sibling of a bounded query (§14). Instead of
-running an agent-authored Python script, a trusted broker runs a **fixed,
-AWF-authored model loop** inside a single-use *enclave* that reads one
-immutable repository seed read-only, may call a configured model a bounded
-number of times through the AWF API proxy, and must reduce its work to one
-value conforming to a finite response schema the caller declared up front.
+running an agent-authored Python script, a trusted broker runs a configured,
+pinned native coding-agent engine inside a single-use *enclave* that reads one
+immutable repository seed read-only, reaches its model only through the AWF API
+proxy, and must reduce its work to one value conforming to a finite response
+schema the caller declared up front.
 
 Bounded agents exist for questions that need judgment or multi-step reading
 rather than a deterministic script, while keeping exactly the same disclosure
@@ -2100,7 +2100,7 @@ The root object MAY contain a `boundedAgents` section:
       { "repo": "my-org/private-service", "sensitivity": "internal" }
     ],
     "runtime": "docker",
-    "profile": "openai",
+    "engine": "copilot",
     "model": "gpt-4o-mini",
     "timeout": 120,
     "memoryLimit": "512m",
@@ -2109,9 +2109,7 @@ The root object MAY contain a `boundedAgents` section:
     "tmpfsLimit": "64m",
     "maxOutputBytes": 8192,
     "maxTaskBytes": 4096,
-    "maxInvocations": 8,
-    "maxModelRequests": 8,
-    "maxModelTokens": 1024
+    "maxInvocations": 8
   }
 }
 ```
@@ -2121,7 +2119,8 @@ The root object MAY contain a `boundedAgents` section:
 | `enabled` | boolean | `false` | Only an explicit `true` enables the subsystem. |
 | `privateRepos` | array | — | Required when enabled. Each entry is `{ repo, sensitivity }`; `repo` MUST be a bare `owner/repo` slug and MUST be unique case-insensitively. There is no legacy bare-string form. |
 | `runtime` | `docker` \| `gvisor` \| `sbx` | `docker` | `docker` and `gvisor` are implemented; `sbx` is capability-blocked (§15.7). |
-| `profile` | `openai` \| `anthropic` | `openai` | Trusted provider protocol the enclave speaks to the API proxy. |
+| `engine` | `copilot` \| `claude` \| `codex` \| `gemini` | `copilot` | Native enclave agent. `copilot` is implemented; the other accepted values fail closed in preflight until their dedicated images land. Required when enabled. |
+| `profile` | `openai` \| `anthropic` | `openai` | Legacy provider-loop compatibility field. Native engines select a fixed API-proxy route from `engine`; callers cannot override it. |
 | `model` | string | — | Required when enabled. A request can never choose or override it. |
 | `timeout` | integer (1–540) | `120` | Wall-clock bound for one enclave invocation. Capped so the 10-minute response bucket reserves its final minute for termination, validation, and cleanup. |
 | `memoryLimit` | string | `"512m"` | Docker memory limit; swap disabled at the same value. |
@@ -2131,8 +2130,8 @@ The root object MAY contain a `boundedAgents` section:
 | `maxOutputBytes` | integer (1–8192) | `8192` | Exact size bound on the dedicated result file. |
 | `maxTaskBytes` | integer (1–65536) | `4096` | Byte bound on the caller-supplied task text. |
 | `maxInvocations` | integer | `8` | Per-run response cap; every response, including a rejection, counts. |
-| `maxModelRequests` | integer (1–64) | `8` | Model requests one invocation may issue. |
-| `maxModelTokens` | integer (1–32768) | `1024` | `max_tokens` per model call. |
+| `maxModelRequests` | integer (1–64) | `8` | Legacy provider-loop compatibility field. The native Copilot CLI does not expose a request-count control, so this is not an enforcement boundary for `engine: "copilot"`. |
+| `maxModelTokens` | integer (1–32768) | `1024` | Legacy provider-loop compatibility field. The native Copilot CLI does not expose a per-call token control, so this is not an enforcement boundary for `engine: "copilot"`. |
 
 Every default is deliberately conservative: a bounded agent is a *model*
 reading confidential source, so the safe posture is a small, short-lived,
@@ -2142,8 +2141,8 @@ Bounded agents additionally REQUIRE, at preflight:
 
 - the AWF API proxy to be enabled — the enclave holds no credentials and the
   API proxy is its only permitted upstream egress;
-- a supported configured API target for the selected `profile` (an OpenAI
-  credential for `openai`, an Anthropic credential for `anthropic`);
+- a supported configured API target for the selected `engine` (`copilot`
+  requires a Copilot GitHub-token or BYOK route);
 - a staging credential in `GH_TOKEN`/`GITHUB_TOKEN` on the AWF host;
 - a Unix-socket Docker host;
 - the **primary agent** runtime to be proven available — `docker`,
@@ -2356,12 +2355,13 @@ The CLI accepts exactly `--repo owner/repo`, `--schema '<json>'`, and the task
 text on stdin. It always prints exactly one line of canonical JSON, writes
 nothing to stderr, and exits `0` — for every outcome and every failure.
 
-The enclave image is minimal and fixed: standard-library Python 3 plus one
-AWF-authored bootstrap. There is no shell tooling for the model to reach, no
-`gh`, no git, no package manager, no host state, and no credential. The model
-gets three read-only repository tools (list, read, search) confined to the
-seed, plus one terminal tool that records the final answer. Safe outputs and
-MCP are not available inside the enclave.
+`boundedAgents.engine` selects a dedicated native coding-agent enclave image.
+`copilot` is implemented; `claude`, `codex`, and `gemini` are schema-recognized
+but fail closed in preflight until their pinned images and adapters land. The
+Copilot image runs the native CLI with built-in shell/Bash tools. The immutable
+seed remains read-only, writable state is confined to bounded tmpfs mounts, and
+the only network peer is the dedicated API proxy. No credential, host state,
+safe outputs, or GitHub MCP is available inside the enclave.
 
 ### 15.9 Provider Disclosure Caveat
 

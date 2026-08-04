@@ -28,6 +28,7 @@ describe('normalizeBoundedAgentsConfig', () => {
       enabled: true,
       privateRepos: [{ repo: 'octo/Alpha', sensitivity: 'confidential' }],
       runtime: 'gvisor',
+      engine: 'copilot',
       profile: 'anthropic',
       model: 'claude-sonnet-4',
       timeout: 240,
@@ -46,6 +47,7 @@ describe('normalizeBoundedAgentsConfig', () => {
       enabled: true,
       privateRepos: [{ repo: 'octo/Alpha', sensitivity: 'confidential' }],
       runtime: 'gvisor',
+      engine: 'copilot',
       profile: 'anthropic',
       model: 'claude-sonnet-4',
       timeout: 240,
@@ -67,6 +69,7 @@ describe('boundedAgents JSON Schema', () => {
     boundedAgents: {
       enabled: true,
       privateRepos: [{ repo: 'octo/alpha', sensitivity: 'internal' }],
+      engine: 'copilot',
       model: 'gpt-4o-mini',
     },
   };
@@ -75,7 +78,7 @@ describe('boundedAgents JSON Schema', () => {
     expect(validateAwfFileConfig(valid)).toEqual([]);
   });
 
-  it('requires privateRepos and model when enabled', () => {
+  it('requires privateRepos, engine, and model when enabled', () => {
     expect(validateAwfFileConfig({ boundedAgents: { enabled: true } }).length).toBeGreaterThan(0);
     expect(
       validateAwfFileConfig({ boundedAgents: { enabled: true, model: 'gpt-4o-mini' } }).length,
@@ -84,6 +87,15 @@ describe('boundedAgents JSON Schema', () => {
       validateAwfFileConfig({
         boundedAgents: { enabled: true, privateRepos: valid.boundedAgents.privateRepos },
       }).length,
+    ).toBeGreaterThan(0);
+  });
+
+  it('accepts known native engines and rejects unknown engines', () => {
+    for (const engine of ['copilot', 'claude', 'codex', 'gemini']) {
+      expect(validateAwfFileConfig({ boundedAgents: { ...valid.boundedAgents, engine } })).toEqual([]);
+    }
+    expect(
+      validateAwfFileConfig({ boundedAgents: { ...valid.boundedAgents, engine: 'custom' } }).length,
     ).toBeGreaterThan(0);
   });
 

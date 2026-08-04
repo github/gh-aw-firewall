@@ -55,12 +55,14 @@ export {
 
 export {
   type BoundedAgentRuntime,
+  type BoundedAgentEngine,
   type BoundedAgentProfile,
   type BoundedAgentSensitivity,
   type BoundedAgentRepository,
   type BoundedAgentsConfig,
   type BoundedAgentOptions,
   BOUNDED_AGENT_DEFAULTS,
+  BOUNDED_AGENT_ENGINES,
   BOUNDED_AGENT_PROFILES,
   BOUNDED_AGENT_SENSITIVITIES,
   BOUNDED_AGENT_SENSITIVITY_RUN_BITS,

@@ -44,7 +44,7 @@ function buildConfig(workDir: string, overrides: Partial<BoundedAgentsConfig> = 
   return {
     workDir,
     enableApiProxy: true,
-    openaiApiKey: 'sk-real',
+    copilotGithubToken: 'gh-real',
     boundedAgents: { ...boundedAgents, ...overrides },
   } as unknown as WrapperConfig;
 }

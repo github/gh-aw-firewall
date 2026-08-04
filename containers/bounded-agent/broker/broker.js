@@ -19,6 +19,7 @@ const ENCLAVE_EXIT_CATEGORIES = Object.freeze({
   21: 'enclave-provider-http-error',
   22: 'enclave-provider-transport-error',
   23: 'enclave-provider-response-invalid',
+  24: 'enclave-engine-failed',
   30: 'enclave-result-write-failed',
   31: 'enclave-model-loop-exhausted',
 });

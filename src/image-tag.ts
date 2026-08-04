@@ -1,6 +1,6 @@
 import path from 'path';
 
-const IMAGE_DIGEST_KEYS = ['squid', 'agent', 'agent-act', 'api-proxy', 'cli-proxy', 'build-tools', 'bounded-query', 'bounded-query-broker', 'bounded-agent', 'bounded-agent-broker'] as const;
+const IMAGE_DIGEST_KEYS = ['squid', 'agent', 'agent-act', 'api-proxy', 'cli-proxy', 'build-tools', 'bounded-query', 'bounded-query-broker', 'bounded-agent', 'bounded-agent-copilot', 'bounded-agent-broker'] as const;
 
 type ImageDigestKey = typeof IMAGE_DIGEST_KEYS[number];
 

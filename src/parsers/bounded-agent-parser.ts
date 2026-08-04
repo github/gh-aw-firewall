@@ -41,6 +41,7 @@ export function normalizeBoundedAgentsConfig(
     enabled: raw.enabled === true,
     privateRepos,
     runtime: raw.runtime ?? BOUNDED_AGENT_DEFAULTS.runtime,
+    engine: raw.engine ?? BOUNDED_AGENT_DEFAULTS.engine,
     profile: raw.profile ?? BOUNDED_AGENT_DEFAULTS.profile,
     model: raw.model ?? BOUNDED_AGENT_DEFAULTS.model,
     timeout: raw.timeout ?? BOUNDED_AGENT_DEFAULTS.timeout,

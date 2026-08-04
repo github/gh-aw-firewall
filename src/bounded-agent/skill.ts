@@ -28,10 +28,8 @@ interface BoundedAgentSkillParams {
   maxInvocations: number;
   /** Maximum size of the caller-supplied task text, in bytes. */
   maxTaskBytes: number;
-  /** Trusted provider protocol the enclave speaks to the API proxy. */
-  profile: BoundedAgentsConfig['profile'];
-  /** Maximum model requests one invocation may issue. */
-  maxModelRequests: number;
+  /** Trusted native coding-agent engine selected for the enclave. */
+  engine: BoundedAgentsConfig['engine'];
 }
 
 function formatRunBudget(repo: BoundedAgentRepository): string {
@@ -42,7 +40,7 @@ function formatRunBudget(repo: BoundedAgentRepository): string {
 }
 
 export function generateBoundedAgentSkill(params: BoundedAgentSkillParams): string {
-  const { repos, timeoutSeconds, maxInvocations, maxTaskBytes, profile, maxModelRequests } = params;
+  const { repos, timeoutSeconds, maxInvocations, maxTaskBytes, engine } = params;
   const repoList = repos.map((repo) => `- \`${repo.repo}\` — ${formatRunBudget(repo)}`).join('\n');
   const bucketList = TIMING_BUCKETS_MS.map((ms) => (ms >= 1000 ? `${ms / 1000}s` : `${ms}ms`)).join(', ');
 
@@ -59,9 +57,9 @@ description: >-
 
 # Bounded agent
 
-A bounded agent runs a fixed, AWF-authored model loop inside a single-use
-enclave. The enclave reads a read-only copy of exactly one pre-approved private
-repository, may call the configured model a bounded number of times through the
+A bounded agent runs the configured native coding-agent engine inside a
+single-use enclave. The enclave reads a read-only copy of exactly one
+pre-approved private repository, reaches its configured model only through the
 AWF API proxy, and must reduce its work to one value conforming to the finite
 schema you declared.
 
@@ -103,7 +101,7 @@ Rules enforced by the CLI:
 - exactly one \`--schema\`: a finite response schema (see below);
 - the task text is read from stdin and must be at most ${maxTaskBytes} bytes;
 - there are no other options. You cannot choose the image, command,
-  executable, model, provider, profile, tools, system prompt, runtime,
+  executable, engine, model, provider, profile, tools, system prompt, runtime,
   timeout, mount, path, network, proxy, endpoint, resource limit, environment,
   or credentials. Supplying any of them is rejected.
 
@@ -137,11 +135,11 @@ The task text is prompt input for the enclave, nothing else. It is never
 interpreted as configuration: it cannot add a tool, change the model, reach a
 network endpoint, or alter any limit.
 
-Inside the enclave the model has read-only repository tools (list, read,
-search) over the immutable seed, and a single terminal tool that records the
-final answer. It runs the \`${profile}\`-protocol route through the AWF API
-proxy and may issue at most ${maxModelRequests} model request(s) per
-invocation. Anything else in the output — wrong type, out-of-range value,
+Inside the enclave the configured native agent has its built-in tools, including
+shell/Bash for the Copilot engine. The immutable seed remains read-only and all
+writable state is bounded tmpfs. The \`${engine}\` engine reaches its fixed
+model route through the AWF API proxy. Anything else in the output — wrong type,
+out-of-range value,
 unknown enum member, extra/missing fields, wrong length, malformed or
 duplicate-key JSON, an oversized result, no result at all — is reported to you
 as \`${CANONICAL_ERROR_JSON}\`.

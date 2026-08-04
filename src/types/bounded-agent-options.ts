@@ -3,12 +3,11 @@
  *
  * A bounded agent is the *agentic* sibling of a bounded query (see
  * `./bounded-query-options.ts`): instead of running an agent-authored Python
- * script, a trusted broker runs a fixed, AWF-authored model loop inside a
- * network-isolated enclave whose only reachable peer is the AWF API proxy.
+ * script, a trusted broker runs a configured native coding-agent engine inside
+ * a network-isolated enclave whose only reachable peer is the AWF API proxy.
  * The enclave reads one immutable repository seed read-only, may call the
- * configured model route a bounded number of times, and must reduce its work
- * to a single value conforming to a finite response schema the caller
- * declared up front.
+ * configured model route and must reduce its work to a single value conforming
+ * to a finite response schema the caller declared up front.
  *
  * Everything the caller can influence is listed in
  * `src/bounded-agent/protocol.ts`; everything else — image, command, mounts,
@@ -28,6 +27,17 @@ import {
 
 /** Sandbox runtime backends recognized for bounded-agent enclave execution. */
 export type BoundedAgentRuntime = 'docker' | 'gvisor' | 'sbx';
+
+/** Native coding-agent runtime baked into the single-use enclave image. */
+export type BoundedAgentEngine = 'copilot' | 'claude' | 'codex' | 'gemini';
+
+/** Every engine name accepted by configuration. Unimplemented engines fail closed in preflight. */
+export const BOUNDED_AGENT_ENGINES: readonly BoundedAgentEngine[] = [
+  'copilot',
+  'claude',
+  'codex',
+  'gemini',
+];
 
 /**
  * Trusted provider protocol the enclave speaks to the AWF API proxy.
@@ -108,6 +118,16 @@ export interface BoundedAgentsConfig {
    * @default 'docker'
    */
   runtime: BoundedAgentRuntime;
+
+  /**
+   * Native coding-agent runtime executed inside each enclave.
+   *
+   * `copilot` is implemented. Other schema-recognized engines fail closed until
+   * their dedicated, pinned enclave images and adapters are available.
+   *
+   * @default 'copilot'
+   */
+  engine: BoundedAgentEngine;
 
   /**
    * Trusted provider protocol the enclave speaks to the API proxy.
@@ -216,6 +236,7 @@ export const BOUNDED_AGENT_DEFAULTS: Readonly<
 > = {
   enabled: false,
   runtime: 'docker',
+  engine: 'copilot',
   profile: 'openai',
   model: '',
   timeout: 120,

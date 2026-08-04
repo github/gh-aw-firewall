@@ -133,8 +133,7 @@ describe('generated bounded-agent skill', () => {
     timeoutSeconds: 120,
     maxInvocations: 8,
     maxTaskBytes: 4096,
-    profile: 'openai' as const,
-    maxModelRequests: 8,
+    engine: 'copilot' as const,
   };
 
   it('lists each repository with its fixed run budget', () => {
@@ -155,7 +154,7 @@ describe('generated bounded-agent skill', () => {
   it('states that no capability-bearing option exists', () => {
     const skill = generateBoundedAgentSkill(params);
     for (const forbidden of [
-      'image', 'command', 'executable', 'model', 'provider', 'profile', 'tools', 'system prompt',
+      'image', 'command', 'executable', 'engine', 'model', 'provider', 'profile', 'tools', 'system prompt',
       'runtime', 'timeout', 'mount', 'path', 'network', 'proxy', 'endpoint', 'resource limit',
       'environment', 'credentials',
     ]) {
@@ -194,8 +193,7 @@ describe('bounded-agent agent artifacts', () => {
       timeoutSeconds: 120,
       maxInvocations: 8,
       maxTaskBytes: 4096,
-      profile: 'openai',
-      maxModelRequests: 8,
+      engine: 'copilot',
     });
     writeBoundedAgentWrapper(paths);
 

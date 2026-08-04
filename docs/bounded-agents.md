@@ -10,8 +10,8 @@ the enclave's transcript, its tool calls, its diagnostics, or its exit status.
 
 Bounded agents are the agentic sibling of [bounded queries](bounded-queries.md).
 A bounded query runs an agent-authored Python script in a sandbox with **no
-network at all**. A bounded agent runs a **fixed, AWF-authored model loop** in an
-enclave that can reach exactly one thing: the AWF API proxy.
+network at all**. A bounded agent runs a pinned native coding-agent CLI in an
+engine-specific enclave that can reach exactly one thing: the AWF API proxy.
 
 The feature is config-only: there are no `--bounded-agents-*` CLI flags.
 Everything is expressed in the AWF JSON configuration file.
@@ -20,7 +20,7 @@ Everything is expressed in the AWF JSON configuration file.
 
 | | Bounded query | Bounded agent |
 |---|---|---|
-| Work is | an agent-authored Python script | a fixed AWF-authored model loop |
+| Work is | an agent-authored Python script | a configured native coding-agent CLI |
 | Enclave network | none | the API proxy, and nothing else |
 | Repository access | writable private copy | read-only immutable seed |
 | Provider sees repo content | never | **yes** — see [Provider disclosure](#provider-disclosure) |
@@ -49,7 +49,7 @@ Four trust stages, mirroring bounded queries:
 
 1. **Trusted host preflight, then staging.** Preflight runs *first*: AWF
    validates the configuration, rejects Docker-socket exposure to the primary
-   agent, requires the API proxy plus a configured `profile`/`model` route, and
+   agent, requires the API proxy plus a configured `engine`/`model` route, and
    proves the enclave runtime is available. Only
    then does it clone each configured repository using `GH_TOKEN`/`GITHUB_TOKEN`,
    strip all credentials, remotes, hooks, and write bits, and reject submodules
@@ -91,14 +91,14 @@ Four trust stages, mirroring bounded queries:
 
 ```json
 {
-  "apiProxy": { "targets": { "openai": {} } },
+  "apiProxy": { "targets": { "copilot": {} } },
   "boundedAgents": {
     "enabled": true,
     "privateRepos": [
       { "repo": "my-org/private-service", "sensitivity": "internal" }
     ],
     "runtime": "docker",
-    "profile": "openai",
+    "engine": "copilot",
     "model": "gpt-4o-mini",
     "timeout": 120,
     "memoryLimit": "512m",
@@ -107,9 +107,7 @@ Four trust stages, mirroring bounded queries:
     "tmpfsLimit": "64m",
     "maxOutputBytes": 8192,
     "maxTaskBytes": 4096,
-    "maxInvocations": 8,
-    "maxModelRequests": 8,
-    "maxModelTokens": 1024
+    "maxInvocations": 8
   }
 }
 ```
@@ -119,7 +117,8 @@ Four trust stages, mirroring bounded queries:
 | `enabled` | `false` | Only an explicit `true` enables the subsystem. |
 | `privateRepos` | — | Required when enabled. `{ repo, sensitivity }` entries; `repo` must be a bare `owner/repo` slug, unique case-insensitively. |
 | `runtime` | `docker` | `docker` or `gvisor`. `sbx` is accepted by the schema but remains capability-blocked (see below). |
-| `profile` | `openai` | Provider protocol the enclave speaks to the API proxy: `openai` (`POST /v1/chat/completions`) or `anthropic` (`POST /v1/messages`). |
+| `engine` | `copilot` | Native enclave agent. `copilot` is implemented; `claude`, `codex`, and `gemini` fail closed until their dedicated images land. Required when enabled. |
+| `profile` | `openai` | Legacy provider-loop compatibility field. Native engines select their fixed API-proxy route from `engine`; callers cannot override it. |
 | `model` | — | Required when enabled. A request can never choose or override it. |
 | `timeout` | `120` | Wall-clock seconds for one invocation (max 540). |
 | `memoryLimit` | `"512m"` | Docker memory limit; swap disabled at the same value. |
@@ -129,8 +128,8 @@ Four trust stages, mirroring bounded queries:
 | `maxOutputBytes` | `8192` | Exact size bound on the result file. |
 | `maxTaskBytes` | `4096` | Byte bound on the task text. |
 | `maxInvocations` | `8` | Per-run response cap; rejections count. |
-| `maxModelRequests` | `8` | Model requests per invocation. |
-| `maxModelTokens` | `1024` | `max_tokens` per model call. |
+| `maxModelRequests` | `8` | Legacy provider-loop compatibility field; the native Copilot engine does not expose a request-count control, so this is not an enforcement boundary for `engine: "copilot"`. |
+| `maxModelTokens` | `1024` | Legacy provider-loop compatibility field; the native Copilot engine does not expose a per-call token control, so this is not an enforcement boundary for `engine: "copilot"`. |
 
 Every default is deliberately conservative. Widen them explicitly, and only as
 far as a task actually needs.
@@ -142,8 +141,8 @@ unless all of the following hold:
 
 - the AWF API proxy is enabled (the enclave holds no credentials, and the proxy
   is its only permitted upstream egress);
-- the selected `profile` has a configured API target (an OpenAI credential for
-  `openai`, an Anthropic credential for `anthropic`);
+- the selected `engine` has a configured API target (`copilot` requires a
+  Copilot GitHub-token or BYOK route);
 - `model` is set;
 - a staging credential is present in `GH_TOKEN` or `GITHUB_TOKEN`;
 - the Docker host is a Unix socket;
@@ -165,7 +164,7 @@ startup. **An unavailable `runsc` never downgrades to the default runtime** — 
 run aborts instead.
 
 ```json
-{ "boundedAgents": { "enabled": true, "runtime": "gvisor", "model": "gpt-4o-mini",
+{ "boundedAgents": { "enabled": true, "runtime": "gvisor", "engine": "copilot", "model": "gpt-4o-mini",
   "privateRepos": [{ "repo": "my-org/private-service", "sensitivity": "internal" }] } }
 ```
 
@@ -244,7 +243,7 @@ Examples of independent selection:
 
 ```json
 { "container": { "containerRuntime": "sbx" },
-  "boundedAgents": { "enabled": true, "runtime": "docker", "model": "gpt-4o-mini",
+  "boundedAgents": { "enabled": true, "runtime": "docker", "engine": "copilot", "model": "gpt-4o-mini",
   "privateRepos": [{ "repo": "my-org/private-service", "sensitivity": "internal" }] } }
 ```
 
@@ -316,10 +315,12 @@ mount, path, network, proxy, endpoint, resource limit, environment variable, or
 credential. It always prints exactly one line of canonical JSON, writes nothing
 to stderr, and exits `0`.
 
-Inside the enclave the model gets three read-only repository tools (list, read,
-search) confined to the immutable seed, plus one terminal tool that records the
-final answer. There is no shell, no `gh`, no git, no package manager, no host
-state, no safe outputs, and no MCP.
+Inside a Copilot enclave, the pinned native Copilot CLI gets its built-in tools,
+including shell and Bash. Those tools remain confined by the enclave boundary:
+the immutable repository seed is read-only, `/agent` and `/tmp` are bounded
+tmpfs mounts, the process is non-root with no capabilities, and the only
+reachable network peer is the dedicated API proxy. There is no host state, safe
+outputs, GitHub MCP, or credential in the enclave.
 
 That exclusion is deliberate: authenticated `gh`, safe outputs, the CLI proxy,
 and MCP gateways are authority-bearing interfaces whose output is not covered

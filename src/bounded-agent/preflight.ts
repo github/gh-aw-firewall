@@ -46,6 +46,9 @@ const IMPLEMENTED_ENCLAVE_RUNTIMES = new Set(['docker', 'gvisor']);
 /** Every enclave runtime the schema accepts, implemented or capability-gated. */
 const SUPPORTED_ENCLAVE_RUNTIMES = new Set(['docker', 'gvisor', 'sbx']);
 
+/** Native engine adapters with a published, audited enclave image. */
+const IMPLEMENTED_ENGINES = new Set(['copilot']);
+
 /** Docker OCI runtime name required for the `gvisor` enclave runtime. */
 const GVISOR_DOCKER_RUNTIME = 'runsc';
 
@@ -126,9 +129,19 @@ function classifyPrimaryRuntime(runtime: string | undefined): PrimaryRuntimeCase
  */
 export function resolveApiProxyRoute(
   config: WrapperConfig,
-  profile: BoundedAgentsConfig['profile'],
+  boundedAgents: Pick<BoundedAgentsConfig, 'engine' | 'profile'>,
 ): { routed: boolean; detail: string } {
-  if (profile === 'anthropic') {
+  if (boundedAgents.engine === 'copilot') {
+    return {
+      routed: Boolean(
+        config.copilotGithubToken
+        || config.copilotProviderApiKey
+        || config.copilotProviderBaseUrl
+      ),
+      detail: 'apiProxy.targets.copilot (COPILOT_GITHUB_TOKEN or Copilot BYOK route) is not configured',
+    };
+  }
+  if (boundedAgents.profile === 'anthropic') {
     return {
       routed: Boolean(config.anthropicApiKey),
       detail: 'apiProxy.targets.anthropic (ANTHROPIC_API_KEY) is not configured',
@@ -202,6 +215,13 @@ export function validateBoundedAgentConfig(
     );
   }
 
+  if (!IMPLEMENTED_ENGINES.has(boundedAgents.engine)) {
+    errors.push(
+      `boundedAgents.engine "${boundedAgents.engine}" is not implemented. ` +
+      'Only "copilot" currently has a pinned native CLI enclave image; AWF never falls back to a different engine.',
+    );
+  }
+
   if (!config.enableApiProxy) {
     errors.push(
       'bounded agents require the AWF API proxy to be enabled: the enclave holds no credentials and ' +
@@ -213,10 +233,10 @@ export function validateBoundedAgentConfig(
     errors.push('boundedAgents.model is required when boundedAgents.enabled is true');
   }
 
-  const route = resolveApiProxyRoute(config, boundedAgents.profile);
+  const route = resolveApiProxyRoute(config, boundedAgents);
   if (!route.routed) {
     errors.push(
-      `bounded agents require a supported configured API target for profile "${boundedAgents.profile}": ` +
+      `bounded agents require a supported configured API target for engine "${boundedAgents.engine}": ` +
       `${route.detail}`,
     );
   }

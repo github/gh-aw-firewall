@@ -35,7 +35,7 @@ const boundedAgents = (overrides: Partial<BoundedAgentsConfig> = {}): BoundedAge
 
 const config = (overrides: Partial<WrapperConfig> = {}): WrapperConfig => ({
   enableApiProxy: true,
-  openaiApiKey: 'sk-real',
+  copilotGithubToken: 'github-token',
   boundedAgents: boundedAgents(),
   ...overrides,
 } as WrapperConfig);
@@ -76,25 +76,18 @@ describe('validateBoundedAgentConfig', () => {
     expect(errors.join('\n')).toMatch(/require the AWF API proxy/);
   });
 
-  it('requires a configured API target for the selected profile', () => {
-    const openaiMissing = validateBoundedAgentConfig(config({ openaiApiKey: undefined }), env);
-    expect(openaiMissing.join('\n')).toMatch(/supported configured API target for profile "openai"/);
+  it('requires a configured API target for the selected engine', () => {
+    const missing = validateBoundedAgentConfig(config({ copilotGithubToken: undefined }), env);
+    expect(missing.join('\n')).toMatch(/supported configured API target for engine "copilot"/);
+  });
 
-    const anthropic = config({
-      boundedAgents: boundedAgents({ profile: 'anthropic', model: 'claude-sonnet-4' }),
-      openaiApiKey: undefined,
-      anthropicApiKey: undefined,
-    });
-    expect(validateBoundedAgentConfig(anthropic, env).join('\n')).toMatch(
-      /supported configured API target for profile "anthropic"/,
-    );
-
-    const anthropicOk = config({
-      boundedAgents: boundedAgents({ profile: 'anthropic', model: 'claude-sonnet-4' }),
-      openaiApiKey: undefined,
-      anthropicApiKey: 'sk-ant-real',
-    });
-    expect(validateBoundedAgentConfig(anthropicOk, env)).toEqual([]);
+  it('fails closed for schema-recognized engines without native enclave images', () => {
+    for (const engine of ['claude', 'codex', 'gemini'] as const) {
+      expect(validateBoundedAgentConfig(
+        config({ boundedAgents: boundedAgents({ engine }) }),
+        env,
+      ).join('\n')).toMatch(/is not implemented/);
+    }
   });
 
   it('requires a model', () => {
@@ -210,10 +203,10 @@ describe('validateBoundedAgentConfig', () => {
 });
 
 describe('resolveApiProxyRoute', () => {
-  it('maps each profile to its provider credential', () => {
-    expect(resolveApiProxyRoute({ openaiApiKey: 'k' } as WrapperConfig, 'openai').routed).toBe(true);
-    expect(resolveApiProxyRoute({ openaiApiKey: 'k' } as WrapperConfig, 'anthropic').routed).toBe(false);
-    expect(resolveApiProxyRoute({ anthropicApiKey: 'k' } as WrapperConfig, 'anthropic').routed).toBe(true);
+  it('maps the native engine to its provider credential', () => {
+    const selected = { engine: 'copilot', profile: 'openai' } as const;
+    expect(resolveApiProxyRoute({ copilotGithubToken: 'k' } as WrapperConfig, selected).routed).toBe(true);
+    expect(resolveApiProxyRoute({ openaiApiKey: 'k' } as WrapperConfig, selected).routed).toBe(false);
   });
 });
 

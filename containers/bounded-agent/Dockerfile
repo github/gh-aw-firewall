@@ -1,10 +1,9 @@
-# Bounded-agent image — multi-stage build producing two images:
+# Bounded-agent image — multi-stage build producing engine and broker images:
 #
-#  1. `enclave` stage — minimal Python 3-only enclave rootfs published as
-#     `bounded-agent:*`.  It contains exactly one AWF-authored program
-#     (`/usr/local/bin/run-bounded-agent`) and the Python standard library.
-#     There is no Node runtime, no docker-cli, no package manager, no `gh`, no
-#     git, no credential helper, and no host state.  The enclave runs
+#  1. Engine stages — `enclave-copilot` is published as
+#     `bounded-agent-copilot:*` and contains the pinned native Copilot CLI plus
+#     its AWF result adapter. The legacy `enclave` stage remains available for
+#     compatibility but is not selected by a native engine. Every enclave runs
 #     --read-only, --cap-drop ALL, unprivileged (UID 65534), with a seccomp
 #     profile and memory/CPU/PID/file-size bounds, and joins only the dedicated
 #     `internal` bounded-agent network whose sole other member is the AWF API
@@ -41,6 +40,23 @@ RUN chmod 0555 /usr/local/bin/run-bounded-agent \
 # Pre-create mount points used by the enclave container so a missing bind
 # mount fails loudly rather than silently materialising an empty directory.
 RUN mkdir -p /agent /awf/seed
+
+# Native Copilot CLI enclave. The CLI owns its normal built-in tools (including
+# shell/bash); the container boundary supplies the read-only seed, bounded
+# tmpfs, non-root identity, API-proxy-only network, and finite result adapter.
+FROM node:22.23.1-alpine3.22 AS enclave-copilot
+
+ARG COPILOT_CLI_VERSION=1.0.34
+RUN apk add --no-cache bash git python3 ripgrep \
+    && npm_config_ignore_scripts=false npm install -g "@github/copilot@${COPILOT_CLI_VERSION}" \
+    && copilot version \
+    && rm -f /sbin/apk /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack
+
+COPY bounded-agent/copilot-entrypoint.py /usr/local/bin/run-bounded-agent
+RUN chmod 0555 /usr/local/bin/run-bounded-agent \
+    && python3 -m py_compile /usr/local/bin/run-bounded-agent \
+    && rm -rf /usr/local/bin/__pycache__ \
+    && mkdir -p /agent /awf/seed
 
 # ──────────────────────────────────────────────────────────────────────────
 # broker stage: trusted broker with Node + docker-cli (default build target)

@@ -40,6 +40,7 @@ const ENCLAVE_GID = 65534;
 const MAX_TASK_BYTES = 64 * 1024;
 
 const SUPPORTED_BACKENDS = new Set(['docker', 'gvisor', 'sbx']);
+const SUPPORTED_ENGINES = new Set(['copilot']);
 const SUPPORTED_PROFILES = new Set(['openai', 'anthropic']);
 const PRIMARY_BACKENDS = new Set(['docker', 'gvisor', 'sbx']);
 const SBX_CAPABILITY_PATH = path.join(CONTROL_DIR, 'sbx-ingress.json');
@@ -125,6 +126,11 @@ function loadConfig() {
     throw new Error(`Unsupported AWF_BOUNDED_AGENT_BACKEND: ${backend}`);
   }
 
+  const engine = requireEnv('AWF_BOUNDED_AGENT_ENGINE');
+  if (!SUPPORTED_ENGINES.has(engine)) {
+    throw new Error(`Unsupported AWF_BOUNDED_AGENT_ENGINE: ${engine}`);
+  }
+
   const profile = requireEnv('AWF_BOUNDED_AGENT_PROFILE');
   if (!SUPPORTED_PROFILES.has(profile)) {
     throw new Error(`Unsupported AWF_BOUNDED_AGENT_PROFILE: ${profile}`);
@@ -174,6 +180,7 @@ function loadConfig() {
     enclaveGid: ENCLAVE_GID,
     enclaveImage: requireEnv('AWF_BOUNDED_AGENT_IMAGE'),
     backend,
+    engine,
     profile,
     model: requireEnv('AWF_BOUNDED_AGENT_MODEL'),
     apiEndpoint,
@@ -226,6 +233,7 @@ module.exports = {
   SBX_CAPABILITY_PATH,
   MAX_TASK_BYTES,
   SUPPORTED_BACKENDS,
+  SUPPORTED_ENGINES,
   SUPPORTED_PROFILES,
   PRIMARY_BACKENDS,
   loadConfig,
