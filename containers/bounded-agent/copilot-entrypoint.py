@@ -88,6 +88,19 @@ def read_copilot_diagnostics(log_dir: Path) -> str:
 
 
 def build_prompt(task: str, schema_text: str) -> str:
+    schema = json.loads(schema_text)
+    if schema.get("type") == "boolean":
+        output_contract = (
+            "Your final response MUST be exactly the lowercase JSON literal true or false. "
+            "Do not use quotes, a JSON object, a Markdown fence, an explanation, or any "
+            "surrounding text.\n"
+        )
+    else:
+        output_contract = (
+            "Your final response MUST be exactly one JSON value conforming to this finite "
+            "schema, with no Markdown fence, explanation, surrounding text, or repeated "
+            f"schema:\n{schema_text}\n"
+        )
     return (
         "You are the native GitHub Copilot CLI running in an AWF bounded-agent enclave.\n"
         "The repository root is your current directory and is mounted read-only at /awf/seed. "
@@ -96,10 +109,7 @@ def build_prompt(task: str, schema_text: str) -> str:
         "filesystem, and no network route except the AWF API proxy used for model inference.\n\n"
         "Complete this task:\n"
         f"{task}\n\n"
-        "Your final response MUST be exactly one JSON value conforming to this finite schema, "
-        "with no Markdown fence, explanation, surrounding text, or repeated schema. JSON "
-        "booleans must be the lowercase literals true or false:\n"
-        f"{schema_text}\n"
+        f"{output_contract}"
     )
 
 
