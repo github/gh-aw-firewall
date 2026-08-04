@@ -44,13 +44,16 @@ RUN mkdir -p /agent /awf/seed
 # Native Copilot CLI enclave. The CLI owns its normal built-in tools (including
 # shell/bash); the container boundary supplies the read-only seed, bounded
 # tmpfs, non-root identity, API-proxy-only network, and finite result adapter.
-FROM node:22.23.1-alpine3.24 AS enclave-copilot
+FROM node:22.23.1-bookworm-slim AS enclave-copilot
 
 ARG COPILOT_CLI_VERSION=1.0.34
-RUN apk add --no-cache bash git python3 ripgrep \
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends bash git python3 ripgrep \
     && npm_config_ignore_scripts=false npm install -g "@github/copilot@${COPILOT_CLI_VERSION}" \
     && copilot --version \
-    && rm -f /sbin/apk /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack
+    && rm -rf /var/lib/apt/lists/* \
+    && rm -f /usr/bin/apt /usr/bin/apt-get /usr/bin/apt-cache \
+             /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack
 
 COPY bounded-agent/copilot-entrypoint.py /usr/local/bin/run-bounded-agent
 RUN chmod 0555 /usr/local/bin/run-bounded-agent \
