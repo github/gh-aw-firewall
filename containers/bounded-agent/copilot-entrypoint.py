@@ -3,6 +3,8 @@
 
 import json
 import os
+import re
+import stat
 import subprocess
 import sys
 from pathlib import Path
@@ -17,6 +19,8 @@ COPILOT_BIN = "/usr/local/bin/copilot"
 
 MAX_INPUT_BYTES = 64 * 1024
 MAX_TRANSCRIPT_BYTES = 1024 * 1024
+MAX_DIAGNOSTIC_BYTES = 256 * 1024
+MAX_DIAGNOSTIC_FILES = 32
 EXIT_CONFIGURATION_INVALID = 10
 EXIT_INPUT_INVALID = 11
 EXIT_DEADLINE_EXCEEDED = 20
@@ -40,6 +44,47 @@ def read_bounded(path: Path) -> str:
     if not data or len(data) > MAX_INPUT_BYTES:
         raise ValueError("invalid bounded input")
     return data.decode("utf-8")
+
+
+def redact_diagnostics(value: str) -> str:
+    redacted = re.sub(
+        r"(?im)^(\s*(?:authorization|proxy-authorization)\s*[:=]\s*).*$",
+        r"\1[REDACTED]",
+        value,
+    )
+    redacted = re.sub(r"(?i)\bbearer\s+\S+", "Bearer [REDACTED]", redacted)
+    redacted = re.sub(
+        r"\b(?:github_pat_[A-Za-z0-9_]+|gh[pousr]_[A-Za-z0-9_]+|sk-[A-Za-z0-9_-]+)\b",
+        "[REDACTED]",
+        redacted,
+    )
+    for name, secret in os.environ.items():
+        if secret and secret != "******" and re.search(r"(?:TOKEN|KEY|SECRET|CREDENTIAL)", name):
+            redacted = redacted.replace(secret, "[REDACTED]")
+    return redacted
+
+
+def read_copilot_diagnostics(log_dir: Path) -> str:
+    chunks = []
+    remaining = MAX_DIAGNOSTIC_BYTES
+    try:
+        candidates = sorted(log_dir.rglob("*"))
+    except OSError:
+        return ""
+    for path in candidates[:MAX_DIAGNOSTIC_FILES]:
+        try:
+            if not stat.S_ISREG(path.lstat().st_mode):
+                continue
+            with path.open("rb") as handle:
+                data = handle.read(remaining + 1)[:remaining]
+        except OSError:
+            continue
+        relative = path.relative_to(log_dir)
+        chunks.append(f"--- {relative}\n{data.decode('utf-8', errors='replace')}")
+        remaining -= len(data)
+        if remaining <= 0:
+            break
+    return redact_diagnostics("\n".join(chunks))
 
 
 def build_prompt(task: str, schema_text: str) -> str:
@@ -126,6 +171,9 @@ def main() -> int:
         "stderr": stderr[:MAX_TRANSCRIPT_BYTES // 2],
     })
     if completed.returncode != 0:
+        diagnostics = read_copilot_diagnostics(copilot_logs)
+        if diagnostics:
+            append_event({"event": "engine-diagnostics", "log": diagnostics})
         append_event({"event": "failure", "category": "engine-failed"})
         return EXIT_ENGINE_FAILED
     if not stdout or len(stdout.encode("utf-8")) > max_output:
