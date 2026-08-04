@@ -238,7 +238,7 @@ describe('bounded-agent enclave against a fake API proxy', () => {
       expect(request.headers['x-api-key']).toBeUndefined();
       expect(request.body.model).toBe('test-model');
       expect(request.body.max_tokens).toBe(256);
-      expect(request.body.tool_choice).toBe('required');
+      expect(request.body.tool_choice).toBeUndefined();
       const tools = request.body.tools as Array<{
         function: {
           name: string;
@@ -364,18 +364,60 @@ describe('bounded-agent enclave against a fake API proxy', () => {
     expect(proxy.requests[0].url).toBe('/v1/messages');
     expect(proxy.requests[0].headers['anthropic-version']).toBe('2023-06-01');
     expect(proxy.requests[0].headers.authorization).toBeUndefined();
-    expect(proxy.requests[0].body.tool_choice).toEqual({ type: 'any' });
+    expect(proxy.requests[0].body.tool_choice).toBeUndefined();
     expect(fs.readFileSync(layout.outPath, 'utf8')).toBe('true');
   });
 
-  test('fails closed if a provider ignores required tool use', async () => {
-    proxy.enqueue({
-      choices: [{ message: { role: 'assistant', content: 'The answer is true.' } }],
-    });
+  test('forces only finish after a prose-only OpenAI response', async () => {
+    proxy.enqueue(
+      { choices: [{ message: { role: 'assistant', content: 'The answer is true.' } }] },
+      openAiToolCall('call-1', 'finish', { result: true }),
+    );
 
     const result = await runEnclave(layout, baseEnv());
+    expect(result.exitCode).toBe(0);
+    expect(proxy.requests[0].body.tool_choice).toBeUndefined();
+    expect(proxy.requests[1].body.tool_choice).toEqual({
+      type: 'function',
+      function: { name: 'finish' },
+    });
+    expect(transcriptOf([proxy.requests[1]])).toContainEqual({
+      role: 'user',
+      content: 'Call `finish` now with the finite result.',
+    });
+    expect(fs.readFileSync(layout.outPath, 'utf8')).toBe('true');
+  });
+
+  test('forces only finish after a prose-only Anthropic response', async () => {
+    proxy.enqueue(
+      { content: [{ type: 'text', text: 'The answer is true.' }] },
+      { content: [{ type: 'tool_use', id: 'call-1', name: 'finish', input: { result: true } }] },
+    );
+
+    const result = await runEnclave(layout, { ...baseEnv(), AWF_BOUNDED_AGENT_PROFILE: 'anthropic' });
+    expect(result.exitCode).toBe(0);
+    expect(proxy.requests[0].body.tool_choice).toBeUndefined();
+    expect(proxy.requests[1].body.tool_choice).toEqual({ type: 'tool', name: 'finish' });
+    expect(transcriptOf([proxy.requests[1]])).toContainEqual({
+      role: 'user',
+      content: 'Call `finish` now with the finite result.',
+    });
+    expect(fs.readFileSync(layout.outPath, 'utf8')).toBe('true');
+  });
+
+  test('fails closed if a provider ignores forced finish', async () => {
+    const prose = { choices: [{ message: { role: 'assistant', content: 'The answer is true.' } }] };
+    proxy.enqueue(prose, prose);
+
+    const result = await runEnclave(layout, {
+      ...baseEnv(),
+      AWF_BOUNDED_AGENT_MAX_MODEL_REQUESTS: '2',
+    });
     expect(result.exitCode).toBe(1);
-    expect(proxy.requests[0].body.tool_choice).toBe('required');
+    expect(proxy.requests[1].body.tool_choice).toEqual({
+      type: 'function',
+      function: { name: 'finish' },
+    });
     expect(fs.readFileSync(layout.outPath, 'utf8')).toBe('');
   });
 

@@ -314,16 +314,20 @@ class OpenAiProfile:
             {"role": "user", "content": task},
         ]
 
-    def request(self, messages: list) -> dict:
+    def request(self, messages: list, force_finish: bool = False) -> dict:
         payload = {
             "model": self.model,
             "messages": messages,
             "max_tokens": self.max_tokens,
-            "tool_choice": "required",
             "tools": [
                 {"type": "function", "function": tool} for tool in self.tools
             ],
         }
+        if force_finish:
+            payload["tool_choice"] = {
+                "type": "function",
+                "function": {"name": "finish"},
+            }
         return _post_json(self.url, payload, {})
 
     def parse(self, response: dict) -> "tuple[list, list]":
@@ -350,6 +354,9 @@ class OpenAiProfile:
             for call_id, _name, content in results
         ]
 
+    def finish_recovery_messages(self) -> list:
+        return [{"role": "user", "content": "Call `finish` now with the finite result."}]
+
 
 class AnthropicProfile:
     """Narrow Anthropic-compatible messages loop."""
@@ -366,13 +373,12 @@ class AnthropicProfile:
         self.tools = tool_descriptions(schema_text)
         return [{"role": "user", "content": task}]
 
-    def request(self, messages: list) -> dict:
+    def request(self, messages: list, force_finish: bool = False) -> dict:
         payload = {
             "model": self.model,
             "system": self.system,
             "messages": messages,
             "max_tokens": self.max_tokens,
-            "tool_choice": {"type": "any"},
             "tools": [
                 {
                     "name": tool["name"],
@@ -382,6 +388,8 @@ class AnthropicProfile:
                 for tool in self.tools
             ],
         }
+        if force_finish:
+            payload["tool_choice"] = {"type": "tool", "name": "finish"}
         return _post_json(self.url, payload, {"anthropic-version": "2023-06-01"})
 
     def parse(self, response: dict) -> "tuple[list, list]":
@@ -405,6 +413,9 @@ class AnthropicProfile:
                 ],
             }
         ]
+
+    def finish_recovery_messages(self) -> list:
+        return [{"role": "user", "content": "Call `finish` now with the finite result."}]
 
 
 def build_profile(endpoint: str, model: str, max_tokens: int):
@@ -456,21 +467,25 @@ def run(layout: Layout) -> int:
         return _fail()
 
     messages = profile.initial_messages(schema_text, task)
+    force_finish = False
 
     for _ in range(max_requests):
         if time.monotonic() >= deadline:
             return _fail()
         try:
-            response = profile.request(messages)
+            response = profile.request(messages, force_finish)
         except (urllib.error.URLError, urllib.error.HTTPError, ValueError, OSError, TimeoutError):
             return _fail()
 
         appended, calls = profile.parse(response)
         messages.extend(appended)
         if not calls:
-            # A model that stops calling tools without finishing produces no
-            # result; the broker reports the canonical error.
-            return _fail()
+            # Recover from prose-only output with a fixed user turn and a
+            # bounded request that can call only the finite terminal tool.
+            messages.extend(profile.finish_recovery_messages())
+            force_finish = True
+            continue
+        force_finish = False
 
         results = []
         for call_id, name, args in calls:
