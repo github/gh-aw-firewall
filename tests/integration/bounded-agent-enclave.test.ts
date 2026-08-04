@@ -309,14 +309,16 @@ describe('bounded-agent enclave against a fake API proxy', () => {
   test('rejects an unknown tool instead of executing anything', async () => {
     proxy.enqueue(
       openAiToolCall('call-1', 'run_shell', { command: 'id' }),
-      openAiToolCall('call-2', 'finish', { result: true }),
+      openAiToolCall('call-2', 'list_files', { path: '.' }),
+      openAiToolCall('call-3', 'finish', { result: true }),
     );
 
     await runEnclave(layout, baseEnv());
     const toolMessages = lastTranscript()
       .filter((message) => message.role === 'tool')
       .map((message) => String(message.content));
-    expect(toolMessages).toEqual(['error: unknown tool']);
+    expect(toolMessages[0]).toBe('error: unknown tool');
+    expect(toolMessages.join('\n')).toContain('SECURITY.md');
   });
 
   test('bounds the number of model requests', async () => {
@@ -348,16 +350,25 @@ describe('bounded-agent enclave against a fake API proxy', () => {
   });
 
   test('never reaches a non-proxy destination even when one is reachable', async () => {
-    proxy.enqueue(openAiToolCall('call-1', 'finish', { result: true }));
+    proxy.enqueue(
+      openAiToolCall('call-1', 'finish', { result: true }),
+      openAiToolCall('call-2', 'list_files', { path: '.' }),
+      openAiToolCall('call-3', 'finish', { result: true }),
+    );
     await runEnclave(layout, baseEnv());
+    const toolMessages = lastTranscript()
+      .filter((message) => message.role === 'tool')
+      .map((message) => String(message.content));
+    expect(toolMessages).toContain('error: inspect repository before finishing');
     expect(forbidden.connections).toBe(0);
     expect(forbiddenPort).toBeGreaterThan(0);
   });
 
   test('speaks the Anthropic-compatible route when that profile is configured', async () => {
-    proxy.enqueue({
-      content: [{ type: 'tool_use', id: 'call-1', name: 'finish', input: { result: true } }],
-    });
+    proxy.enqueue(
+      { content: [{ type: 'tool_use', id: 'call-1', name: 'list_files', input: { path: '.' } }] },
+      { content: [{ type: 'tool_use', id: 'call-2', name: 'finish', input: { result: true } }] },
+    );
 
     const result = await runEnclave(layout, { ...baseEnv(), AWF_BOUNDED_AGENT_PROFILE: 'anthropic' });
     expect(result.exitCode).toBe(0);
@@ -368,37 +379,51 @@ describe('bounded-agent enclave against a fake API proxy', () => {
     expect(fs.readFileSync(layout.outPath, 'utf8')).toBe('true');
   });
 
-  test('forces only finish after a prose-only OpenAI response', async () => {
+  test('requires repository evidence before forcing finish for OpenAI', async () => {
     proxy.enqueue(
       { choices: [{ message: { role: 'assistant', content: 'The answer is true.' } }] },
-      openAiToolCall('call-1', 'finish', { result: true }),
+      openAiToolCall('call-1', 'list_files', { path: '.' }),
+      { choices: [{ message: { role: 'assistant', content: 'The answer is true.' } }] },
+      openAiToolCall('call-2', 'finish', { result: true }),
     );
 
     const result = await runEnclave(layout, baseEnv());
     expect(result.exitCode).toBe(0);
     expect(proxy.requests[0].body.tool_choice).toBeUndefined();
-    expect(proxy.requests[1].body.tool_choice).toEqual({
+    expect(proxy.requests[1].body.tool_choice).toBeUndefined();
+    expect(transcriptOf([proxy.requests[1]])).toContainEqual({
+      role: 'user',
+      content: 'Inspect the repository with a read-only tool before answering.',
+    });
+    expect(proxy.requests[3].body.tool_choice).toEqual({
       type: 'function',
       function: { name: 'finish' },
     });
-    expect(transcriptOf([proxy.requests[1]])).toContainEqual({
+    expect(transcriptOf([proxy.requests[3]])).toContainEqual({
       role: 'user',
       content: 'Call `finish` now with the finite result.',
     });
     expect(fs.readFileSync(layout.outPath, 'utf8')).toBe('true');
   });
 
-  test('forces only finish after a prose-only Anthropic response', async () => {
+  test('requires repository evidence before forcing finish for Anthropic', async () => {
     proxy.enqueue(
       { content: [{ type: 'text', text: 'The answer is true.' }] },
-      { content: [{ type: 'tool_use', id: 'call-1', name: 'finish', input: { result: true } }] },
+      { content: [{ type: 'tool_use', id: 'call-1', name: 'list_files', input: { path: '.' } }] },
+      { content: [{ type: 'text', text: 'The answer is true.' }] },
+      { content: [{ type: 'tool_use', id: 'call-2', name: 'finish', input: { result: true } }] },
     );
 
     const result = await runEnclave(layout, { ...baseEnv(), AWF_BOUNDED_AGENT_PROFILE: 'anthropic' });
     expect(result.exitCode).toBe(0);
     expect(proxy.requests[0].body.tool_choice).toBeUndefined();
-    expect(proxy.requests[1].body.tool_choice).toEqual({ type: 'tool', name: 'finish' });
+    expect(proxy.requests[1].body.tool_choice).toBeUndefined();
     expect(transcriptOf([proxy.requests[1]])).toContainEqual({
+      role: 'user',
+      content: 'Inspect the repository with a read-only tool before answering.',
+    });
+    expect(proxy.requests[3].body.tool_choice).toEqual({ type: 'tool', name: 'finish' });
+    expect(transcriptOf([proxy.requests[3]])).toContainEqual({
       role: 'user',
       content: 'Call `finish` now with the finite result.',
     });
@@ -407,14 +432,14 @@ describe('bounded-agent enclave against a fake API proxy', () => {
 
   test('fails closed if a provider ignores forced finish', async () => {
     const prose = { choices: [{ message: { role: 'assistant', content: 'The answer is true.' } }] };
-    proxy.enqueue(prose, prose);
+    proxy.enqueue(openAiToolCall('call-1', 'list_files', { path: '.' }), prose, prose);
 
     const result = await runEnclave(layout, {
       ...baseEnv(),
-      AWF_BOUNDED_AGENT_MAX_MODEL_REQUESTS: '2',
+      AWF_BOUNDED_AGENT_MAX_MODEL_REQUESTS: '3',
     });
     expect(result.exitCode).toBe(31);
-    expect(proxy.requests[1].body.tool_choice).toEqual({
+    expect(proxy.requests[2].body.tool_choice).toEqual({
       type: 'function',
       function: { name: 'finish' },
     });
@@ -422,7 +447,10 @@ describe('bounded-agent enclave against a fake API proxy', () => {
   });
 
   test('rejects an oversized result rather than truncating it', async () => {
-    proxy.enqueue(openAiToolCall('call-1', 'finish', { result: true }));
+    proxy.enqueue(
+      openAiToolCall('call-1', 'list_files', { path: '.' }),
+      openAiToolCall('call-2', 'finish', { result: true }),
+    );
     const result = await runEnclave(layout, { ...baseEnv(), AWF_BOUNDED_AGENT_MAX_OUTPUT_BYTES: '1' });
 
     expect(result.exitCode).toBe(30);
@@ -430,7 +458,10 @@ describe('bounded-agent enclave against a fake API proxy', () => {
   });
 
   test('produces output the broker rejects when the model ignores the schema', async () => {
-    proxy.enqueue(openAiToolCall('call-1', 'finish', { result: 'definitely maybe' }));
+    proxy.enqueue(
+      openAiToolCall('call-1', 'list_files', { path: '.' }),
+      openAiToolCall('call-2', 'finish', { result: 'definitely maybe' }),
+    );
     await runEnclave(layout, baseEnv());
 
     const raw = fs.readFileSync(layout.outPath, 'utf8');

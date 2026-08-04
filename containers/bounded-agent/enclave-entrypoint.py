@@ -365,6 +365,9 @@ class OpenAiProfile:
     def finish_recovery_messages(self) -> list:
         return [{"role": "user", "content": "Call `finish` now with the finite result."}]
 
+    def repository_recovery_messages(self) -> list:
+        return [{"role": "user", "content": "Inspect the repository with a read-only tool before answering."}]
+
 
 class AnthropicProfile:
     """Narrow Anthropic-compatible messages loop."""
@@ -425,6 +428,9 @@ class AnthropicProfile:
     def finish_recovery_messages(self) -> list:
         return [{"role": "user", "content": "Call `finish` now with the finite result."}]
 
+    def repository_recovery_messages(self) -> list:
+        return [{"role": "user", "content": "Inspect the repository with a read-only tool before answering."}]
+
 
 def build_profile(endpoint: str, model: str, max_tokens: int):
     profile = os.environ.get("AWF_BOUNDED_AGENT_PROFILE", "")
@@ -476,6 +482,7 @@ def run(layout: Layout) -> int:
 
     messages = profile.initial_messages(schema_text, task)
     force_finish = False
+    repository_tool_called = False
 
     for _ in range(max_requests):
         if time.monotonic() >= deadline:
@@ -492,16 +499,21 @@ def run(layout: Layout) -> int:
         appended, calls = profile.parse(response)
         messages.extend(appended)
         if not calls:
-            # Recover from prose-only output with a fixed user turn and a
-            # bounded request that can call only the finite terminal tool.
-            messages.extend(profile.finish_recovery_messages())
-            force_finish = True
+            if repository_tool_called:
+                messages.extend(profile.finish_recovery_messages())
+                force_finish = True
+            else:
+                messages.extend(profile.repository_recovery_messages())
+                force_finish = False
             continue
         force_finish = False
 
         results = []
         for call_id, name, args in calls:
             if name == "finish":
+                if not repository_tool_called:
+                    results.append((call_id, name, "error: inspect repository before finishing"))
+                    continue
                 if write_result(layout, args.get("result"), max_output_bytes):
                     return 0
                 return _fail(EXIT_RESULT_WRITE_FAILED)
@@ -509,6 +521,7 @@ def run(layout: Layout) -> int:
             if handler is None:
                 results.append((call_id, name, "error: unknown tool"))
                 continue
+            repository_tool_called = True
             try:
                 output = handler(layout, args)
             except Exception:  # noqa: BLE001 - never leak a traceback
