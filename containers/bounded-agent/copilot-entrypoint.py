@@ -172,6 +172,7 @@ def main() -> int:
         "--prompt", build_prompt(task, schema_text),
         "--model", model,
         "--silent",
+        "--stream", "off",
         "--no-color",
         "--no-ask-user",
         "--no-auto-update",

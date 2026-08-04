@@ -78,6 +78,7 @@ sys.exit(module.main())
     expect(args).toContain('--allow-all-tools');
     expect(args).toContain('--allow-all-paths');
     expect(args).toContain('--disable-builtin-mcps');
+    expect(args).toMatch(/--stream\noff/);
     expect(args).toContain('built-in shell, bash');
     expect(args).toContain('lowercase JSON literal true or false');
     expect(args).not.toContain('{"type":"boolean"}');
