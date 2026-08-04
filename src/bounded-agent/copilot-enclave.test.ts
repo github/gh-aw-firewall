@@ -31,7 +31,7 @@ describe('native Copilot bounded-agent adapter', () => {
     fs.writeFileSync(fakeCopilot, `#!/bin/sh
 printf '%s\\n' "$@" > ${JSON.stringify(path.join(root, 'args.txt'))}
 printf '%s\\n' "$COPILOT_GITHUB_TOKEN" "$COPILOT_API_URL" > ${JSON.stringify(path.join(root, 'env.txt'))}
-printf 'true\\n'
+printf 'True{"type":"boolean"}\\n'
 `);
     fs.chmodSync(fakeCopilot, 0o755);
 
@@ -75,6 +75,7 @@ sys.exit(module.main())
     expect(args).toContain('--allow-all-paths');
     expect(args).toContain('--disable-builtin-mcps');
     expect(args).toContain('built-in shell, bash');
+    expect(args).toContain('lowercase literals true or false');
     expect(fs.readFileSync(path.join(root, 'env.txt'), 'utf8')).toBe(
       '******\nhttp://172.31.0.30:10002\n',
     );

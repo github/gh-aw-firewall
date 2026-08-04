@@ -63,6 +63,7 @@ pre-agent-steps:
         engine: "copilot",
         profile: "openai",
         model: "gpt-4o-mini",
+        timeout: 300,
         memoryLimit: "512m"
       };
       fs.writeFileSync(file, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });

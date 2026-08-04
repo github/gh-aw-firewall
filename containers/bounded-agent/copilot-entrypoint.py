@@ -97,9 +97,21 @@ def build_prompt(task: str, schema_text: str) -> str:
         "Complete this task:\n"
         f"{task}\n\n"
         "Your final response MUST be exactly one JSON value conforming to this finite schema, "
-        "with no Markdown fence, explanation, or surrounding text:\n"
+        "with no Markdown fence, explanation, surrounding text, or repeated schema. JSON "
+        "booleans must be the lowercase literals true or false:\n"
         f"{schema_text}\n"
     )
+
+
+def normalize_copilot_output(stdout: str, schema_text: str) -> str:
+    result = stdout.strip()
+    schema_suffix = schema_text.strip()
+    if len(result) > len(schema_suffix) and result.endswith(schema_suffix):
+        result = result[:-len(schema_suffix)].strip()
+    schema = json.loads(schema_text)
+    if schema.get("type") == "boolean" and result in {"True", "False"}:
+        result = result.lower()
+    return result
 
 
 def main() -> int:
@@ -176,11 +188,12 @@ def main() -> int:
             append_event({"event": "engine-diagnostics", "log": diagnostics})
         append_event({"event": "failure", "category": "engine-failed"})
         return EXIT_ENGINE_FAILED
-    if not stdout or len(stdout.encode("utf-8")) > max_output:
+    result = normalize_copilot_output(stdout, schema_text)
+    if not result or len(result.encode("utf-8")) > max_output:
         append_event({"event": "failure", "category": "result-write-failed"})
         return EXIT_RESULT_WRITE_FAILED
     try:
-        OUT_PATH.write_text(stdout, encoding="utf-8")
+        OUT_PATH.write_text(result, encoding="utf-8")
     except OSError:
         append_event({"event": "failure", "category": "result-write-failed"})
         return EXIT_RESULT_WRITE_FAILED
