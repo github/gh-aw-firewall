@@ -39,6 +39,7 @@ describe('createOtlpWorkloadIdentity', () => {
       provider: 'gcp',
       audience: 'projects/123/locations/global/workloadIdentityPools/pool/providers/github',
       'service-account': 'telemetry@example.iam.gserviceaccount.com',
+      endpoint: 'https://telemetry.googleapis.com/',
     }));
 
     expect(mockGcpOidcTokenProvider).toHaveBeenCalledWith({
@@ -49,6 +50,8 @@ describe('createOtlpWorkloadIdentity', () => {
       serviceAccount: 'telemetry@example.iam.gserviceaccount.com',
     });
     expect(await identity.getHeaders()).toEqual({ Authorization: 'Bearer ' + 'exchanged-token' });
+    expect(identity.matchesEndpoint('https://telemetry.googleapis.com')).toBe(true);
+    expect(identity.matchesEndpoint('https://other.example.com')).toBe(false);
     identity.shutdown();
     expect(mockShutdown).toHaveBeenCalled();
   });
@@ -57,6 +60,11 @@ describe('createOtlpWorkloadIdentity', () => {
     'not-json',
     JSON.stringify({ provider: 'azure', audience: 'audience' }),
     JSON.stringify({ provider: 'gcp' }),
+    JSON.stringify({
+      provider: 'gcp',
+      audience: 'projects/123/providers/github',
+      endpoint: 'http://telemetry.googleapis.com',
+    }),
   ])('fails closed for invalid workload identity config: %s', (config) => {
     expect(() => createOtlpWorkloadIdentity(config)).toThrow('OTLP workload identity');
     expect(mockGcpOidcTokenProvider).not.toHaveBeenCalled();
@@ -67,9 +75,22 @@ describe('createOtlpWorkloadIdentity', () => {
     const identity = createOtlpWorkloadIdentity(JSON.stringify({
       provider: 'google',
       audience: 'projects/123/locations/global/workloadIdentityPools/pool/providers/github',
+      endpoint: 'https://telemetry.googleapis.com',
     }));
 
     await expect(identity.getHeaders()).rejects.toThrow('OTLP workload identity token is unavailable');
     identity.shutdown();
+  });
+
+  it('normalizes only insignificant trailing slashes when matching endpoints', () => {
+    const identity = createOtlpWorkloadIdentity(JSON.stringify({
+      provider: 'gcp',
+      audience: 'projects/123/locations/global/workloadIdentityPools/pool/providers/github',
+      endpoint: 'https://collector.example.com/custom/',
+    }));
+
+    expect(identity.matchesEndpoint('https://collector.example.com/custom')).toBe(true);
+    expect(identity.matchesEndpoint('https://collector.example.com/other')).toBe(false);
+    expect(identity.matchesEndpoint('not-a-url')).toBe(false);
   });
 });

@@ -111,6 +111,16 @@ function _init() {
 
   let exporter;
   const endpoints = _parseEndpoints();
+  const configuredEndpointUrls = endpoints.length > 0
+    ? endpoints.map(endpoint => endpoint.url)
+    : (OTLP_ENDPOINT ? [OTLP_ENDPOINT] : []);
+  if (_workloadIdentity
+    && !configuredEndpointUrls.some(endpoint => _workloadIdentity.matchesEndpoint(endpoint))) {
+    throw new Error('OTLP workload identity endpoint does not match any configured OTLP endpoint');
+  }
+  const headerProviderFor = endpoint => (
+    _workloadIdentity?.matchesEndpoint(endpoint) ? _workloadIdentity : null
+  );
 
   if (endpoints.length > 1) {
     // Fan-out: send spans to all configured endpoints concurrently
@@ -119,7 +129,7 @@ function _init() {
       headers: ep.headers || {},
       httpsProxy: HTTPS_PROXY_URL || null,
       resource,
-      headerProvider: _workloadIdentity,
+      headerProvider: headerProviderFor(ep.url),
     }));
     exporter = new FanOutSpanExporter(exporters);
   } else if (endpoints.length === 1) {
@@ -128,7 +138,7 @@ function _init() {
       headers: endpoints[0].headers || {},
       httpsProxy: HTTPS_PROXY_URL || null,
       resource,
-      headerProvider: _workloadIdentity,
+      headerProvider: headerProviderFor(endpoints[0].url),
     });
   } else if (OTLP_ENDPOINT) {
     // Legacy single-endpoint fallback
@@ -137,7 +147,7 @@ function _init() {
       headers:    parseOtlpHeaders(OTLP_HEADERS_RAW),
       httpsProxy: HTTPS_PROXY_URL || null,
       resource,
-      headerProvider: _workloadIdentity,
+      headerProvider: headerProviderFor(OTLP_ENDPOINT),
     });
   } else {
     exporter = new FileSpanExporter(OTEL_LOG_FILE);

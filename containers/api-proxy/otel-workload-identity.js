@@ -2,6 +2,21 @@
 
 const { GcpOidcTokenProvider } = require('./gcp-oidc-token-provider');
 
+function normalizeEndpoint(rawEndpoint) {
+  let endpoint;
+  try {
+    endpoint = new URL(rawEndpoint);
+  } catch {
+    throw new Error('OTLP workload identity requires a valid HTTPS endpoint');
+  }
+  if (endpoint.protocol !== 'https:') {
+    throw new Error('OTLP workload identity requires a valid HTTPS endpoint');
+  }
+  endpoint.hash = '';
+  endpoint.pathname = endpoint.pathname.replace(/\/+$/, '') || '/';
+  return endpoint.toString();
+}
+
 /**
  * Creates an OTLP Authorization header provider from the workflow-generated
  * workload identity configuration. The GitHub Actions runtime credentials stay
@@ -22,9 +37,11 @@ function createOtlpWorkloadIdentity(rawConfig) {
 
   if (!config || typeof config !== 'object'
     || !['gcp', 'google'].includes(config.provider)
-    || typeof config.audience !== 'string' || !config.audience.trim()) {
-    throw new Error('OTLP workload identity requires provider "gcp" and a non-empty audience');
+    || typeof config.audience !== 'string' || !config.audience.trim()
+    || typeof config.endpoint !== 'string' || !config.endpoint.trim()) {
+    throw new Error('OTLP workload identity requires provider "gcp", a non-empty audience, and an HTTPS endpoint');
   }
+  const endpoint = normalizeEndpoint(config.endpoint.trim());
   if (!process.env.ACTIONS_ID_TOKEN_REQUEST_URL || !process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN) {
     throw new Error('OTLP workload identity requires GitHub Actions OIDC runtime credentials');
   }
@@ -41,6 +58,13 @@ function createOtlpWorkloadIdentity(rawConfig) {
   const initialized = provider.initialize();
 
   return {
+    matchesEndpoint(candidate) {
+      try {
+        return normalizeEndpoint(candidate) === endpoint;
+      } catch {
+        return false;
+      }
+    },
     async getHeaders() {
       await initialized;
       const token = provider.getToken();
@@ -55,4 +79,4 @@ function createOtlpWorkloadIdentity(rawConfig) {
   };
 }
 
-module.exports = { createOtlpWorkloadIdentity };
+module.exports = { createOtlpWorkloadIdentity, normalizeEndpoint };
