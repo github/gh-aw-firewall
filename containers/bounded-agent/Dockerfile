@@ -49,7 +49,7 @@ FROM node:22.23.1-alpine3.24 AS enclave-copilot
 ARG COPILOT_CLI_VERSION=1.0.34
 RUN apk add --no-cache bash git python3 ripgrep \
     && npm_config_ignore_scripts=false npm install -g "@github/copilot@${COPILOT_CLI_VERSION}" \
-    && copilot version \
+    && copilot --version \
     && rm -f /sbin/apk /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack
 
 COPY bounded-agent/copilot-entrypoint.py /usr/local/bin/run-bounded-agent
