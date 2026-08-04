@@ -19,10 +19,13 @@
 FROM node:24-bookworm-slim AS enclave
 
 ARG COPILOT_CLI_VERSION=1.0.34
+# The optional standalone launcher exits silently under the enclave seccomp
+# profile. Removing it makes npm-loader use the package's Node.js 24 runtime.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends bash ca-certificates git python3 ripgrep \
     && test -r /etc/ssl/certs/ca-certificates.crt \
     && npm_config_ignore_scripts=false npm install -g "@github/copilot@${COPILOT_CLI_VERSION}" \
+    && rm -rf /usr/local/lib/node_modules/@github/copilot-linux-* \
     && node --version | grep -qE '^v24\.' \
     && copilot --version \
     && rm -rf /var/lib/apt/lists/* \
