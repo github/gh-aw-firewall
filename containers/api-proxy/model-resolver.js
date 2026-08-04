@@ -182,7 +182,16 @@ function _resolveAliasPatterns(aliasKey, aliasDefinition, requestedModel, aliase
 
     if (slashIdx === -1) {
       // Recursive alias reference (no provider prefix)
-      const sub = resolveModel(pattern, aliases, availableModels, currentProvider, newChain, fallbackConfig, modelPolicyConfig);
+      const sub = resolveModel(
+        pattern,
+        aliases,
+        availableModels,
+        currentProvider,
+        newChain,
+        fallbackConfig,
+        modelPolicyConfig,
+        false
+      );
       if (sub) {
         log.push(...sub.log);
         candidates.push(sub.resolvedModel);
@@ -264,9 +273,19 @@ function _resolveAliasPatterns(aliasKey, aliasDefinition, requestedModel, aliase
  * @param {string[]} [chain=[]] - Accumulates visited alias names for loop detection
  * @param {{ enabled?: boolean, strategy?: string }} [modelFallbackConfig]
  * @param {{ allowedModels?: string[]|null, disallowedModels?: string[]|null }|null} [modelPolicyConfig]
+ * @param {boolean} [preferDirectRequest=true] - Prefer an exact provider model over a same-named alias for top-level requests
  * @returns {{ resolvedModel: string, candidates: string[], log: string[], fallback?: object } | null}
  */
-function resolveModel(requestedModel, aliases, availableModels, currentProvider, chain = [], modelFallbackConfig = DEFAULT_MODEL_FALLBACK, modelPolicyConfig = null) {
+function resolveModel(
+  requestedModel,
+  aliases,
+  availableModels,
+  currentProvider,
+  chain = [],
+  modelFallbackConfig = DEFAULT_MODEL_FALLBACK,
+  modelPolicyConfig = null,
+  preferDirectRequest = true
+) {
   const log = [];
   const key = requestedModel.toLowerCase();
   const fallbackConfig = normalizeFallbackConfig(modelFallbackConfig);
@@ -293,22 +312,24 @@ function resolveModel(requestedModel, aliases, availableModels, currentProvider,
   // An explicit model available from this provider is authoritative over any
   // matching alias. This prevents an alias with the same name from silently
   // steering a request away from the configured provider.
-  const providerModels = (availableModels[currentProvider] || []);
-  const direct = providerModels.find(m => m.toLowerCase() === key);
-  if (direct) {
-    if (!_isModelPermittedByPolicy(direct, modelPolicyConfig)) {
-      log.push(`[model-resolver] model policy blocked direct match: "${direct}"`);
-      return null;
+  if (preferDirectRequest) {
+    const providerModels = (availableModels[currentProvider] || []);
+    const direct = providerModels.find(m => m.toLowerCase() === key);
+    if (direct) {
+      if (!_isModelPermittedByPolicy(direct, modelPolicyConfig)) {
+        log.push(`[model-resolver] model policy blocked direct match: "${direct}"`);
+        return null;
+      }
+      log.push(`[model-resolver] direct match: "${requestedModel}" → "${direct}"`);
+      return {
+        resolvedModel: direct,
+        candidates: [direct],
+        log,
+        fallback: fallbackConfig.enabled
+          ? { activated: false, selection_method: 'middle_power_median', reason: 'direct_match' }
+          : undefined,
+      };
     }
-    log.push(`[model-resolver] direct match: "${requestedModel}" → "${direct}"`);
-    return {
-      resolvedModel: direct,
-      candidates: [direct],
-      log,
-      fallback: fallbackConfig.enabled
-        ? { activated: false, selection_method: 'middle_power_median', reason: 'direct_match' }
-        : undefined,
-    };
   }
 
   // Find alias entry (case-insensitive)
@@ -368,7 +389,7 @@ function filterResolvableAliases(aliases, availableModels) {
 
   for (const aliasKey of Object.keys(aliases)) {
     const canResolve = providersWithData.some(provider => {
-      const resolution = resolveModel(aliasKey, aliases, availableModels, provider, [], noFallback);
+      const resolution = resolveModel(aliasKey, aliases, availableModels, provider, [], noFallback, null, false);
       return resolution !== null;
     });
 
