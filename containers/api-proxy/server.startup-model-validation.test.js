@@ -134,6 +134,35 @@ describe('validateRequestedModel', () => {
     }
   });
 
+  it('logs an explicit provider model as direct when it shares an alias name', () => {
+    const prevAliases = process.env.AWF_MODEL_ALIASES;
+    process.env.AWF_MODEL_ALIASES = JSON.stringify({
+      models: { 'claude-sonnet-5': ['copilot/claude-sonnet-6*'] },
+    });
+
+    let isolatedServer;
+    jest.isolateModules(() => {
+      jest.mock('./logging', () => ({ logRequest: jest.fn() }));
+      isolatedServer = require('./server');
+    });
+
+    const { logRequest: isolatedLog } = require('./logging');
+
+    try {
+      isolatedServer.resetModelCacheState();
+      isolatedServer.cachedModels.anthropic = ['claude-sonnet-5'];
+      process.env.AWF_REQUESTED_MODEL = 'claude-sonnet-5';
+      isolatedServer.validateRequestedModel();
+      expect(isolatedLog).toHaveBeenCalledWith('info', 'model_validation', expect.objectContaining({
+        requested_model: 'claude-sonnet-5',
+        resolved_via: 'direct',
+      }));
+    } finally {
+      if (prevAliases === undefined) delete process.env.AWF_MODEL_ALIASES;
+      else process.env.AWF_MODEL_ALIASES = prevAliases;
+    }
+  });
+
   it('does not emit model_validation via alias when fallback would fire but model is absent', () => {
     const prevAliases = process.env.AWF_MODEL_ALIASES;
     const prevFallback = process.env.AWF_MODEL_FALLBACK;

@@ -27,8 +27,9 @@ class ProxyAwareOtlpExporter {
    * @param {Record<string,string>} opts.headers - Extra request headers (auth etc.)
    * @param {string|null} opts.httpsProxy - Squid proxy URL, or falsy to connect directly
    * @param {import('@opentelemetry/resources').Resource} opts.resource
+   * @param {{getHeaders: () => Promise<Record<string, string>>}|null} [opts.headerProvider]
    */
-  constructor({ url, headers, httpsProxy, resource }) {
+  constructor({ url, headers, httpsProxy, resource, headerProvider = null }) {
     const parsed = new URL(url);
     const trimmedPath = parsed.pathname.replace(/\/+$/, '');
     if (trimmedPath === '' || trimmedPath === '/') {
@@ -42,6 +43,7 @@ class ProxyAwareOtlpExporter {
     this._headers = headers || {};
     this._agent = httpsProxy ? new HttpsProxyAgent(httpsProxy) : undefined;
     this._resource = resource;
+    this._headerProvider = headerProvider;
   }
 
   /**
@@ -73,39 +75,44 @@ class ProxyAwareOtlpExporter {
       ? parseInt(this._parsedUrl.port, 10)
       : (isHttps ? 443 : 80);
 
-    const reqOptions = {
-      hostname: this._parsedUrl.hostname,
-      port,
-      path: `${this._parsedUrl.pathname}${this._parsedUrl.search || ''}`,
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Content-Length': bodyBuf.length,
-        ...this._headers,
-      },
-    };
-    if (this._agent) reqOptions.agent = this._agent;
+    Promise.resolve(this._headerProvider ? this._headerProvider.getHeaders() : {})
+      .then((dynamicHeaders) => {
+        const reqOptions = {
+          hostname: this._parsedUrl.hostname,
+          port,
+          path: `${this._parsedUrl.pathname}${this._parsedUrl.search || ''}`,
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Content-Length': bodyBuf.length,
+            ...this._headers,
+            ...dynamicHeaders,
+          },
+        };
+        if (this._agent) reqOptions.agent = this._agent;
 
-    let req;
-    try {
-      req = Transport.request(reqOptions, (res) => {
-        res.on('data', () => {});
-        res.on('error', (err) => { settle({ code: 1, error: err }); });
-        res.on('end', () => {
-          const ok = res.statusCode >= 200 && res.statusCode < 300;
-          settle({ code: ok ? 0 : 1 });
+        let req;
+        try {
+          req = Transport.request(reqOptions, (res) => {
+            res.on('data', () => {});
+            res.on('error', (err) => { settle({ code: 1, error: err }); });
+            res.on('end', () => {
+              const ok = res.statusCode >= 200 && res.statusCode < 300;
+              settle({ code: ok ? 0 : 1 });
+            });
+          });
+        } catch (err) {
+          settle({ code: 1, error: err });
+          return;
+        }
+        req.setTimeout(EXPORT_TIMEOUT_MS, () => {
+          req.destroy(new Error(`OTLP export timeout after ${EXPORT_TIMEOUT_MS}ms`));
         });
-      });
-    } catch (err) {
-      settle({ code: 1, error: err });
-      return;
-    }
-    req.setTimeout(EXPORT_TIMEOUT_MS, () => {
-      req.destroy(new Error(`OTLP export timeout after ${EXPORT_TIMEOUT_MS}ms`));
-    });
-    req.on('error', (err) => { settle({ code: 1, error: err }); });
-    req.write(bodyBuf);
-    req.end();
+        req.on('error', (err) => { settle({ code: 1, error: err }); });
+        req.write(bodyBuf);
+        req.end();
+      })
+      .catch((err) => settle({ code: 1, error: err }));
   }
 
   shutdown() { return Promise.resolve(); }

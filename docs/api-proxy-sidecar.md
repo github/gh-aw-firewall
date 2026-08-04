@@ -18,6 +18,24 @@ The API proxy sidecar is **always enabled**. It:
 - **Transparent proxying**: Agent code uses standard SDK environment variables
 - **Squid routing**: Outbound HTTP/HTTPS routes through Squid, with the trusted sidecar exempt from domain ACLs
 
+### OTLP workload identity federation
+
+For Google Cloud OTLP collectors, gh-aw can supply
+`GH_AW_OTLP_WORKLOAD_IDENTITY` as a JSON object with `provider: gcp` (or
+`google`), the Workload Identity Provider resource in `audience`, and an
+optional `service-account`. The required `endpoint` field binds the exchanged
+credential to one exact HTTPS collector endpoint. In fan-out mode, other
+collectors retain their endpoint-specific headers and never receive the Google
+access token. AWF forwards the GitHub Actions OIDC runtime credentials only to
+the api-proxy sidecar. The sidecar exchanges the JWT via `sts.googleapis.com`,
+optionally impersonates the service account, and injects the short-lived bearer
+token into OTLP export requests for that endpoint. The sidecar is trusted and
+already exempt from the agent egress allowlist, so its STS calls are not blocked.
+
+This authenticates only spans exported by the api-proxy sidecar. It does not
+configure cloud-token exchange for separate gh-aw jobs such as activation,
+conclusion, or safe outputs; gh-aw must implement that per-job exchange.
+
 :::note[Implementation vs. provider documentation]
 The `--enable-api-proxy` CLI flag is deprecated and ignored — it is kept only so existing command lines and workflows continue to work. `--no-enable-api-proxy` is rejected as a runtime error; the API proxy cannot be disabled. Do not add the deprecated flag to new commands.
 :::

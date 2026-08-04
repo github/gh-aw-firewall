@@ -52,7 +52,7 @@ COPY server.js logging.js metrics.js rate-limiter.js rate-limiter-window.js \
      websocket-guards.js websocket-tunnel.js \
      deprecated-header-tracker.js billing-headers.js upstream-response.js \
      upstream-log.js upstream-retry.js upstream-token.js \
-     anthropic-cache.js otel.js otel-exporters.js otel-serialization.js \
+     anthropic-cache.js otel.js otel-exporters.js otel-serialization.js otel-workload-identity.js \
      token-budget-log.js blocked-request-diagnostics.js \
      provider-env-constants.js provider-env-constants.json provider-names.js \
      model-api-mapping.js model-api-mapping.json ./

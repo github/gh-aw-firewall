@@ -211,6 +211,9 @@ describe('buildOtelEnv', () => {
     'OTEL_EXPORTER_OTLP_HEADERS',
     'GITHUB_AW_OTEL_TRACE_ID',
     'GITHUB_AW_OTEL_PARENT_SPAN_ID',
+    'GH_AW_OTLP_WORKLOAD_IDENTITY',
+    'ACTIONS_ID_TOKEN_REQUEST_URL',
+    'ACTIONS_ID_TOKEN_REQUEST_TOKEN',
     'OTEL_SERVICE_NAME',
   ];
 
@@ -250,6 +253,18 @@ describe('buildOtelEnv', () => {
     process.env.GH_AW_OTLP_ENDPOINTS = '[{"url":"https://otel.example.com"}]';
     const env = buildOtelEnv();
     expect(env.GH_AW_OTLP_ENDPOINTS).toBe('[{"url":"https://otel.example.com"}]');
+  });
+
+  it('forwards workload identity and GitHub OIDC runtime credentials together', () => {
+    process.env.GH_AW_OTLP_WORKLOAD_IDENTITY = '{"provider":"gcp","audience":"projects/123/providers/github"}';
+    process.env.ACTIONS_ID_TOKEN_REQUEST_URL = 'https://actions.example/oidc';
+    process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN = 'runtime-token';
+
+    const env = buildOtelEnv();
+
+    expect(env.GH_AW_OTLP_WORKLOAD_IDENTITY).toBe(process.env.GH_AW_OTLP_WORKLOAD_IDENTITY);
+    expect(env.ACTIONS_ID_TOKEN_REQUEST_URL).toBe('https://actions.example/oidc');
+    expect(env.ACTIONS_ID_TOKEN_REQUEST_TOKEN).toBe('runtime-token');
   });
 
   it('forwards GITHUB_AW_OTEL_TRACE_ID and GITHUB_AW_OTEL_PARENT_SPAN_ID when set', () => {

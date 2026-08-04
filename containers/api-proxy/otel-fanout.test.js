@@ -7,6 +7,16 @@
 const { FanOutSpanExporter } = require('./otel-exporters');
 const { loadOtelModule } = require('./test-helpers/otel-test-utils');
 
+const mockWorkloadIdentity = {
+  matchesEndpoint: jest.fn(endpoint => endpoint === 'https://google.example.com:4318'),
+  getHeaders: jest.fn().mockResolvedValue({ Authorization: 'Bearer exchanged-token' }),
+  shutdown: jest.fn(),
+};
+
+jest.mock('./otel-workload-identity', () => ({
+  createOtlpWorkloadIdentity: jest.fn(rawConfig => rawConfig ? mockWorkloadIdentity : null),
+}));
+
 // ── FanOutSpanExporter unit tests ─────────────────────────────────────────────
 
 describe('FanOutSpanExporter', () => {
@@ -220,6 +230,40 @@ describe('otel fan-out initialization', () => {
       OTEL_EXPORTER_OTLP_ENDPOINT: 'https://legacy.example.com',
     });
     expect(otel.isEnabled()).toBe(true);
+  });
+
+  test('attaches workload identity only to its configured fan-out endpoint', () => {
+    const endpoints = [
+      { url: 'https://google.example.com:4318' },
+      { url: 'https://other.example.com:4318', headers: { Authorization: 'Other secret' } },
+    ];
+    const otel = loadOtelFresh({
+      GH_AW_OTLP_ENDPOINTS: JSON.stringify(endpoints),
+      GH_AW_OTLP_WORKLOAD_IDENTITY: JSON.stringify({
+        provider: 'gcp',
+        audience: 'projects/123/providers/github',
+        endpoint: endpoints[0].url,
+      }),
+    });
+    const processor = otel._provider.activeSpanProcessor._spanProcessors[0];
+    const exporters = processor._exporter._exporters;
+
+    expect(exporters[0]._headerProvider).toBe(mockWorkloadIdentity);
+    expect(exporters[1]._headerProvider).toBeNull();
+    expect(exporters[1]._headers).toEqual({ Authorization: 'Other secret' });
+  });
+
+  test('fails closed when workload identity matches no configured endpoint', () => {
+    expect(() => loadOtelFresh({
+      GH_AW_OTLP_ENDPOINTS: JSON.stringify([
+        { url: 'https://other.example.com:4318' },
+      ]),
+      GH_AW_OTLP_WORKLOAD_IDENTITY: JSON.stringify({
+        provider: 'gcp',
+        audience: 'projects/123/providers/github',
+        endpoint: 'https://google.example.com:4318',
+      }),
+    })).toThrow('does not match any configured OTLP endpoint');
   });
 
   test('uses FileSpanExporter when no OTLP config at all', () => {

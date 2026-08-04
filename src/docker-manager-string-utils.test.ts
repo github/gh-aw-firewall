@@ -110,5 +110,17 @@ describe('docker-manager string/network utilities', () => {
     it('should not strip scheme-like substrings in the middle', () => {
       expect(stripScheme('api.https.example.com')).toBe('api.https.example.com');
     });
+
+    it('should strip query and fragment', () => {
+      expect(stripScheme('https://example.com/path?x=1#frag')).toBe('example.com');
+    });
+
+    it('should strip credentials and port', () => {
+      expect(stripScheme('https://user:pass@example.com:8443/path')).toBe('example.com');
+    });
+
+    it('should trim surrounding whitespace before processing', () => {
+      expect(stripScheme('  api.openai.com  ')).toBe('api.openai.com');
+    });
   });
 });

@@ -162,6 +162,36 @@ describe('resolveModel', () => {
     expect(result.resolvedModel).toBe('gpt-5.6-sol');
   });
 
+  it('preserves an explicit provider model when an alias has the same name', () => {
+    const result = resolveModel(
+      'claude-sonnet-5',
+      { 'claude-sonnet-5': ['copilot/claude-sonnet-6*'] },
+      {
+        anthropic: ['claude-sonnet-5'],
+        copilot: ['claude-sonnet-6'],
+      },
+      'anthropic'
+    );
+    expect(result).not.toBeNull();
+    expect(result.resolvedModel).toBe('claude-sonnet-5');
+    expect(result.candidates).toEqual(['claude-sonnet-5']);
+    expect(result.log).toContain('[model-resolver] direct match: "claude-sonnet-5" → "claude-sonnet-5"');
+  });
+
+  it('expands a same-named alias when referenced recursively', () => {
+    const result = resolveModel(
+      'coding',
+      {
+        coding: ['claude-sonnet-5'],
+        'claude-sonnet-5': ['anthropic/claude-sonnet-6*'],
+      },
+      { anthropic: ['claude-sonnet-5', 'claude-sonnet-6'] },
+      'anthropic'
+    );
+    expect(result).not.toBeNull();
+    expect(result.resolvedModel).toBe('claude-sonnet-6');
+  });
+
   it('returns null (terminal) when the exact advertised model is denied by policy — does not fall through to family alias', () => {
     // gpt-5.6-sol is advertised by the provider AND has a gpt-5 family alias.
     // When gpt-5.6-sol is explicitly denylisted, resolution must stop (null) rather
@@ -477,6 +507,15 @@ describe('filterResolvableAliases', () => {
     expect(result).not.toHaveProperty('sonnet');
     // 'gpt-5-codex' has no match
     expect(result).not.toHaveProperty('gpt-5-codex');
+  });
+
+  it('should not keep an alias solely because its key is an available model', () => {
+    const collidingAliases = {
+      'claude-sonnet-5': ['anthropic/claude-sonnet-6*'],
+    };
+    const availableModels = { anthropic: ['claude-sonnet-5'] };
+    const result = filterResolvableAliases(collidingAliases, availableModels);
+    expect(result).not.toHaveProperty('claude-sonnet-5');
     // '' → 'sonnet' → no match → filtered out too
     expect(result).not.toHaveProperty('');
   });

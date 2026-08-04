@@ -163,6 +163,7 @@ function buildProxyRoutingEnv(networkConfig: NetworkConfig): Record<string, stri
  * api-proxy spans are children of the workflow trace.
  */
 function buildOtelEnv(): Record<string, string> {
+  const workloadIdentityConfigured = Boolean(process.env.GH_AW_OTLP_WORKLOAD_IDENTITY?.trim());
   return {
     // GH_AW_OTLP_ENDPOINTS (JSON array) enables fan-out to multiple collectors.
     // OTEL_EXPORTER_OTLP_ENDPOINT is kept for backward compat (single-endpoint fallback).
@@ -173,7 +174,12 @@ function buildOtelEnv(): Record<string, string> {
       'OTEL_EXPORTER_OTLP_HEADERS',
       'GITHUB_AW_OTEL_TRACE_ID',
       'GITHUB_AW_OTEL_PARENT_SPAN_ID',
+      'GH_AW_OTLP_WORKLOAD_IDENTITY',
     ),
+    ...(workloadIdentityConfigured && pickEnvVars(
+      'ACTIONS_ID_TOKEN_REQUEST_URL',
+      'ACTIONS_ID_TOKEN_REQUEST_TOKEN',
+    )),
     OTEL_SERVICE_NAME: process.env.OTEL_SERVICE_NAME || 'awf-api-proxy',
   };
 }
