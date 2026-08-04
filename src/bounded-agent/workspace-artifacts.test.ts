@@ -24,7 +24,7 @@ describe('bounded-agent invocation workspace', () => {
     fs.rmSync(root, { recursive: true, force: true });
   });
 
-  it('materializes only the task, schema, and result file — never a repository copy', () => {
+  it('materializes only task, schema, result, and session files — never a repository copy', () => {
     const layout = workspace.createInvocationWorkspace({
       config,
       invocationId: 'abc123',
@@ -32,10 +32,11 @@ describe('bounded-agent invocation workspace', () => {
       schema: { type: 'boolean' },
     });
 
-    expect(fs.readdirSync(layout.root).sort()).toEqual(['out', 'schema.json', 'task.txt']);
+    expect(fs.readdirSync(layout.root).sort()).toEqual(['out', 'schema.json', 'session.jsonl', 'task.txt']);
     expect(fs.readFileSync(layout.taskPath, 'utf8')).toBe('the task');
     expect(JSON.parse(fs.readFileSync(layout.schemaPath, 'utf8'))).toEqual({ type: 'boolean' });
     expect(fs.readFileSync(layout.outPath, 'utf8')).toBe('');
+    expect(fs.readFileSync(layout.sessionLogPath, 'utf8')).toBe('');
   });
 
   it('makes the task and schema read-only inside the enclave mount source', () => {
@@ -83,6 +84,30 @@ describe('bounded-agent invocation workspace', () => {
     const out = path.join(root, 'out');
     fs.writeFileSync(out, Buffer.from([0xff, 0xfe, 0xfd]));
     expect(workspace.readEnclaveOutput(out, 100)).toBeUndefined();
+  });
+
+  it('preserves a bounded regular session log in the private audit directory', () => {
+    const layout = workspace.createInvocationWorkspace({
+      config,
+      invocationId: 'abc123',
+      task: 't',
+      schema: { type: 'boolean' },
+    });
+    fs.writeFileSync(layout.sessionLogPath, '{"event":"session"}\n');
+    const auditDir = path.join(root, 'audit');
+
+    expect(workspace.preserveInvocationSession(layout.sessionLogPath, auditDir, 'abc123')).toBe(true);
+    const preserved = path.join(auditDir, 'sessions', 'abc123.jsonl');
+    expect(fs.readFileSync(preserved, 'utf8')).toBe('{"event":"session"}\n');
+    expect(fs.statSync(preserved).mode & 0o777).toBe(0o600);
+  });
+
+  it('refuses to preserve a symlinked session log', () => {
+    const target = path.join(root, 'private');
+    const link = path.join(root, 'session.jsonl');
+    fs.writeFileSync(target, 'private');
+    fs.symlinkSync(target, link);
+    expect(workspace.preserveInvocationSession(link, path.join(root, 'audit'), 'abc123')).toBe(false);
   });
 
   it('destroys the workspace idempotently', () => {

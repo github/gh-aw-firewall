@@ -181,6 +181,13 @@ function createBroker(params) {
 
     // Teardown is part of the observable operation and must complete before the
     // timing bucket is chosen.
+    if (layout) {
+      workspace.preserveInvocationSession(
+        layout.sessionLogPath,
+        config.auditDir,
+        invocationId,
+      );
+    }
     if (!safeDestroy(invocationId)) {
       failureReason = ['cleanup-failed'];
       canonicalResult = undefined;

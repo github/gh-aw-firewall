@@ -17,6 +17,7 @@ const BOUNDED_AGENT_AUDIT_FILES = [
   { source: 'bounded-agent.jsonl', destination: 'bounded-agent.jsonl' },
   { source: 'runtime-telemetry.jsonl', destination: 'bounded-agent-runtime.jsonl' },
 ] as const;
+const BOUNDED_AGENT_SESSION_DIR = 'sessions';
 
 /**
  * Copies the iptables audit dump from the init-signal volume to the audit directory.
@@ -79,6 +80,25 @@ export function preserveIptablesAudit(workDir: string, auditDir?: string): void 
       } catch (error) {
         logger.debug(`Could not copy bounded-agent ${auditFile.source}:`, error);
       }
+    }
+    try {
+      const destination = path.join(targetAuditDir, 'bounded-agent-sessions');
+      const result = execa.sync(
+        'docker',
+        [
+          'cp',
+          `awf-bounded-agent-broker:/var/log/awf-bounded-agent/${BOUNDED_AGENT_SESSION_DIR}`,
+          destination,
+        ],
+        { env: getLocalDockerEnv(), reject: false },
+      );
+      if (result.exitCode === 0) {
+        logger.debug('Copied bounded-agent sessions to audit directory');
+      } else {
+        logger.debug('Could not copy bounded-agent sessions:', result.stderr);
+      }
+    } catch (error) {
+      logger.debug('Could not copy bounded-agent sessions:', error);
     }
   }
 }

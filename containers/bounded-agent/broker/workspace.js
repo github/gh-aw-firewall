@@ -15,6 +15,7 @@ const path = require('path');
  *  - `schema.json` the caller's finite response schema (read-only in the enclave)
  *  - `out`        a pre-created, size-bounded regular file the enclave writes
  *                 its single JSON answer to
+ *  - `session.jsonl` a bounded transcript copied only to broker-private audit
  */
 
 /** Layout of one invocation directory, relative to the broker's work dir. */
@@ -25,6 +26,7 @@ function invocationLayout(workDir, invocationId) {
     taskPath: path.join(root, 'task.txt'),
     schemaPath: path.join(root, 'schema.json'),
     outPath: path.join(root, 'out'),
+    sessionLogPath: path.join(root, 'session.jsonl'),
   };
 }
 
@@ -49,8 +51,34 @@ function createInvocationWorkspace(params) {
 
   fs.writeFileSync(layout.outPath, '', { mode: 0o600 });
   fs.chownSync(layout.outPath, config.enclaveUid, config.enclaveGid);
+  fs.writeFileSync(layout.sessionLogPath, '', { mode: 0o600 });
+  fs.chownSync(layout.sessionLogPath, config.enclaveUid, config.enclaveGid);
 
   return layout;
+}
+
+function preserveInvocationSession(sessionLogPath, auditDir, invocationId) {
+  let sourceFd;
+  try {
+    sourceFd = fs.openSync(
+      sessionLogPath,
+      fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK,
+    );
+    const stat = fs.fstatSync(sourceFd);
+    if (!stat.isFile() || stat.size > 1024 * 1024) return false;
+    const sessionsDir = path.join(auditDir, 'sessions');
+    fs.mkdirSync(sessionsDir, { recursive: true, mode: 0o700 });
+    const destination = path.join(sessionsDir, `${invocationId}.jsonl`);
+    const data = Buffer.alloc(stat.size);
+    const bytesRead = fs.readSync(sourceFd, data, 0, stat.size, 0);
+    fs.writeFileSync(destination, data.subarray(0, bytesRead), { mode: 0o600 });
+    fs.chmodSync(destination, 0o600);
+    return true;
+  } catch {
+    return false;
+  } finally {
+    if (sourceFd !== undefined) fs.closeSync(sourceFd);
+  }
 }
 
 /**
@@ -100,5 +128,6 @@ module.exports = {
   invocationLayout,
   createInvocationWorkspace,
   readEnclaveOutput,
+  preserveInvocationSession,
   destroyInvocationWorkspace,
 };

@@ -82,6 +82,7 @@ function deriveSbxEnclaveSpec({ config, runId, invocationId, seedId }) {
       '--mount-target', `${taskPath}:${config.enclaveTaskPath}:ro`,
       '--mount-target', `${schemaPath}:${config.enclaveSchemaPath}:ro`,
       '--mount-target', `${outPath}:${config.enclaveMountDir}/out:rw`,
+      '--mount-target', `${hostInvocationDir}/session.jsonl:${config.enclaveMountDir}/session.jsonl:rw`,
       'shell',
       workspaceDir,
     ]),

@@ -119,7 +119,8 @@ function runEnclave(layout: Record<string, string>, env: Record<string, string>)
     'module = importlib.util.module_from_spec(spec)',
     'spec.loader.exec_module(module)',
     `layout = module.Layout(${JSON.stringify(layout.seedDir)}, ${JSON.stringify(layout.taskPath)}, ` +
-      `${JSON.stringify(layout.schemaPath)}, ${JSON.stringify(layout.outPath)})`,
+      `${JSON.stringify(layout.schemaPath)}, ${JSON.stringify(layout.outPath)}, ` +
+      `${JSON.stringify(layout.sessionLogPath)})`,
     'sys.exit(module.run(layout))',
   ].join('\n');
 
@@ -191,10 +192,12 @@ describe('bounded-agent enclave against a fake API proxy', () => {
       taskPath: path.join(workDir, 'task.txt'),
       schemaPath: path.join(workDir, 'schema.json'),
       outPath: path.join(workDir, 'out'),
+      sessionLogPath: path.join(workDir, 'session.jsonl'),
     };
     fs.writeFileSync(layout.taskPath, 'Does this repository declare a SECURITY.md at its root?');
     fs.writeFileSync(layout.schemaPath, JSON.stringify({ type: 'boolean' }));
     fs.writeFileSync(layout.outPath, '');
+    fs.writeFileSync(layout.sessionLogPath, '');
     proxy.reset();
     forbidden.connections = 0;
   });
@@ -266,6 +269,15 @@ describe('bounded-agent enclave against a fake API proxy', () => {
     // Nothing was written to the observable streams.
     expect(result.stdout).toBe('');
     expect(result.stderr).toBe('');
+    const events = fs.readFileSync(layout.sessionLogPath, 'utf8').trim().split('\n')
+      .map((line) => JSON.parse(line));
+    expect(events).toEqual(expect.arrayContaining([
+      expect.objectContaining({ event: 'session', task: expect.any(String) }),
+      expect.objectContaining({ event: 'provider-response', response: expect.any(Object) }),
+      expect.objectContaining({ event: 'tool-result', name: 'read_file', output: expect.stringContaining('SEED-MARKER-CONTENT') }),
+    ]));
+    expect(JSON.stringify(events)).not.toContain('authorization');
+    expect(JSON.stringify(events)).not.toContain('x-api-key');
   });
 
   test('search refuses repository symlinks that resolve outside the seed', async () => {

@@ -108,6 +108,7 @@ function deriveEnclaveContainerSpec({ config, runId, invocationId, seedId, runti
     '-v', `${hostInvocationDir}/task.txt:${config.enclaveTaskPath}:ro`,
     '-v', `${hostInvocationDir}/schema.json:${config.enclaveSchemaPath}:ro`,
     '-v', `${hostInvocationDir}/out:${config.enclaveMountDir}/out:rw`,
+    '-v', `${hostInvocationDir}/session.jsonl:${config.enclaveMountDir}/session.jsonl:rw`,
   ];
 
   if (runtimeName !== undefined) {

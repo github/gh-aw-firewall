@@ -96,12 +96,13 @@ function createHarness(
       task: string;
     }) => {
       expect(task).not.toMatch(/TOKEN|PASSWORD|docker\.sock|broker\/private/);
-      return { outPath: invocationId };
+      return { outPath: invocationId, sessionLogPath: `${invocationId}.jsonl` };
     },
     readEnclaveOutput: (outPath: string) => {
       const output = outputs.get(outPath);
       return output !== undefined && Buffer.byteLength(output) <= 8192 ? output : undefined;
     },
+    preserveInvocationSession: () => true,
     destroyInvocationWorkspace: (_workDir: string, invocationId: string) => {
       destroyed.push(invocationId);
       outputs.delete(invocationId);

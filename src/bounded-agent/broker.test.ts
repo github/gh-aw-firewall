@@ -23,6 +23,7 @@ const config = {
   seedsDir: '/srv/awf/seeds',
   hostWorkDir: '/var/tmp/private/work',
   hostSeedsDir: '/var/tmp/private/seeds',
+  auditDir: '/var/log/awf-bounded-agent',
   enclaveImage: 'ghcr.io/github/gh-aw-firewall/bounded-agent:latest',
   enclaveSeccompPath: '/opt/awf/enclave-seccomp.json',
   enclaveMountDir: '/agent',
@@ -82,6 +83,7 @@ interface WorkspaceStub {
   createInvocationWorkspace: (params: Record<string, unknown>) => Record<string, unknown>;
   readEnclaveOutput: (outPath: string, maxOutputBytes: number) => string | undefined;
   destroyInvocationWorkspace: (workDir: string, invocationId: string) => void;
+  preserveInvocationSession: (sessionLogPath: string, auditDir: string, invocationId: string) => boolean;
 }
 
 function makeWorkspace(output: string | undefined = 'true'): WorkspaceStub {
@@ -91,12 +93,16 @@ function makeWorkspace(output: string | undefined = 'true'): WorkspaceStub {
     output,
     createInvocationWorkspace: (params) => {
       stub.created.push(params.invocationId as string);
-      return { outPath: `/srv/awf/work/${params.invocationId}/out` };
+      return {
+        outPath: `/srv/awf/work/${params.invocationId}/out`,
+        sessionLogPath: `/srv/awf/work/${params.invocationId}/session.jsonl`,
+      };
     },
     readEnclaveOutput: () => stub.output,
     destroyInvocationWorkspace: (_workDir, invocationId) => {
       stub.destroyed.push(invocationId);
     },
+    preserveInvocationSession: () => true,
   };
   return stub;
 }
@@ -458,12 +464,13 @@ describe('bounded-agent enclave container spec', () => {
     expect(args).toContain('--read-only');
   });
 
-  it('mounts the task and schema read-only and the result file read-write', () => {
+  it('mounts inputs read-only and result/session files read-write', () => {
     const volumes = flagValues('-v');
     expect(volumes).toContain(`/var/tmp/private/work/${'c'.repeat(24)}/task.txt:/awf/task.txt:ro`);
     expect(volumes).toContain(`/var/tmp/private/work/${'c'.repeat(24)}/schema.json:/awf/schema.json:ro`);
     expect(volumes).toContain(`/var/tmp/private/work/${'c'.repeat(24)}/out:/agent/out:rw`);
-    expect(volumes).toHaveLength(4);
+    expect(volumes).toContain(`/var/tmp/private/work/${'c'.repeat(24)}/session.jsonl:/agent/session.jsonl:rw`);
+    expect(volumes).toHaveLength(5);
   });
 
   it('never mounts the Docker socket, the workspace, or host state into the enclave', () => {

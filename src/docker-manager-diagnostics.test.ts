@@ -223,6 +223,15 @@ describe('docker-manager diagnostics', () => {
         ],
         expect.objectContaining({ reject: false }),
       );
+      expect(mockExecaSync).toHaveBeenCalledWith(
+        'docker',
+        [
+          'cp',
+          'awf-bounded-agent-broker:/var/log/awf-bounded-agent/sessions',
+          path.join(auditDir, 'bounded-agent-sessions'),
+        ],
+        expect.objectContaining({ reject: false }),
+      );
       fs.rmSync(resolveBoundedAgentPaths(getDir()).root, { recursive: true, force: true });
       fs.rmSync(resolveBoundedAgentPaths(getDir()).ingressRoot, { recursive: true, force: true });
     });
