@@ -207,6 +207,35 @@ describe('bounded-agent broker', () => {
     expect(audit.records[0].detail).toBeUndefined();
   });
 
+  it.each([
+    [10, 'enclave-configuration-invalid'],
+    [11, 'enclave-input-invalid'],
+    [20, 'enclave-deadline-exceeded'],
+    [21, 'enclave-provider-http-error'],
+    [22, 'enclave-provider-transport-error'],
+    [23, 'enclave-provider-response-invalid'],
+    [30, 'enclave-result-write-failed'],
+    [31, 'enclave-model-loop-exhausted'],
+  ])('records fixed diagnostic category for enclave exit %i', async (exitCode, reason) => {
+    const audit = makeAudit();
+    const broker = createBroker({
+      config,
+      seedMap: seedMap(),
+      runId: RUN_ID,
+      audit,
+      runner: makeRunner({ runEnclaveContainer: async () => ({ exitCode, timedOut: false }) }),
+      workspace: makeWorkspace('true'),
+      clock: makeClock(),
+    });
+
+    expect(await invoke(broker, request())).toBe(CANONICAL_ERROR_JSON);
+    expect(audit.records).toEqual([
+      expect.objectContaining({ kind: 'failure', reason }),
+    ]);
+    expect(audit.records[0]).not.toHaveProperty('exitCode');
+    expect(audit.records[0].detail).toBeUndefined();
+  });
+
   it('debits the sensitivity budget before any workspace or container exists', async () => {
     const workspace = makeWorkspace('true');
     const runner = makeRunner();

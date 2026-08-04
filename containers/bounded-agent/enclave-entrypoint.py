@@ -61,11 +61,19 @@ MAX_SEARCH_RESULTS = 40
 MAX_SEARCH_PATTERN = 200
 MAX_TOOL_RESULT_BYTES = 12000
 HTTP_TIMEOUT_SECONDS = 60
+EXIT_CONFIGURATION_INVALID = 10
+EXIT_INPUT_INVALID = 11
+EXIT_DEADLINE_EXCEEDED = 20
+EXIT_PROVIDER_HTTP_ERROR = 21
+EXIT_PROVIDER_TRANSPORT_ERROR = 22
+EXIT_PROVIDER_RESPONSE_INVALID = 23
+EXIT_RESULT_WRITE_FAILED = 30
+EXIT_MODEL_LOOP_EXHAUSTED = 31
 
 
-def _fail() -> "int":
-    """Exits without writing a result. The broker maps this to canonical ERROR."""
-    return 1
+def _fail(code: int) -> "int":
+    """Exits with one fixed diagnostic code and without writing a result."""
+    return code
 
 
 def _env_int(name: str, default: int) -> int:
@@ -448,7 +456,7 @@ def run(layout: Layout) -> int:
     endpoint = os.environ.get("AWF_BOUNDED_AGENT_API_ENDPOINT", "")
     model = os.environ.get("AWF_BOUNDED_AGENT_MODEL", "")
     if not endpoint or not model:
-        return _fail()
+        return _fail(EXIT_CONFIGURATION_INVALID)
 
     max_requests = _env_int("AWF_BOUNDED_AGENT_MAX_MODEL_REQUESTS", 8)
     max_tokens = _env_int("AWF_BOUNDED_AGENT_MAX_MODEL_TOKENS", 1024)
@@ -460,22 +468,26 @@ def run(layout: Layout) -> int:
         schema_text = layout.schema_path.read_text(encoding="utf-8")
         json.loads(schema_text)
     except (OSError, ValueError):
-        return _fail()
+        return _fail(EXIT_INPUT_INVALID)
 
     profile = build_profile(endpoint, model, max_tokens)
     if profile is None:
-        return _fail()
+        return _fail(EXIT_CONFIGURATION_INVALID)
 
     messages = profile.initial_messages(schema_text, task)
     force_finish = False
 
     for _ in range(max_requests):
         if time.monotonic() >= deadline:
-            return _fail()
+            return _fail(EXIT_DEADLINE_EXCEEDED)
         try:
             response = profile.request(messages, force_finish)
-        except (urllib.error.URLError, urllib.error.HTTPError, ValueError, OSError, TimeoutError):
-            return _fail()
+        except urllib.error.HTTPError:
+            return _fail(EXIT_PROVIDER_HTTP_ERROR)
+        except (urllib.error.URLError, OSError, TimeoutError):
+            return _fail(EXIT_PROVIDER_TRANSPORT_ERROR)
+        except ValueError:
+            return _fail(EXIT_PROVIDER_RESPONSE_INVALID)
 
         appended, calls = profile.parse(response)
         messages.extend(appended)
@@ -492,7 +504,7 @@ def run(layout: Layout) -> int:
             if name == "finish":
                 if write_result(layout, args.get("result"), max_output_bytes):
                     return 0
-                return _fail()
+                return _fail(EXIT_RESULT_WRITE_FAILED)
             handler = LOCAL_TOOLS.get(name)
             if handler is None:
                 results.append((call_id, name, "error: unknown tool"))
@@ -505,7 +517,7 @@ def run(layout: Layout) -> int:
 
         messages.extend(profile.tool_result_messages(results))
 
-    return _fail()
+    return _fail(EXIT_MODEL_LOOP_EXHAUSTED)
 
 
 def main() -> int:

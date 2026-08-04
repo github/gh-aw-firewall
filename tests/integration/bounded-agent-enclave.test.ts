@@ -325,7 +325,7 @@ describe('bounded-agent enclave against a fake API proxy', () => {
     }
 
     const result = await runEnclave(layout, { ...baseEnv(), AWF_BOUNDED_AGENT_MAX_MODEL_REQUESTS: '2' });
-    expect(result.exitCode).toBe(1);
+    expect(result.exitCode).toBe(31);
     expect(proxy.requests).toHaveLength(2);
     expect(fs.readFileSync(layout.outPath, 'utf8')).toBe('');
   });
@@ -339,7 +339,7 @@ describe('bounded-agent enclave against a fake API proxy', () => {
       AWF_BOUNDED_AGENT_API_ENDPOINT: `http://127.0.0.1:${deadPort}`,
     });
 
-    expect(result.exitCode).toBe(1);
+    expect(result.exitCode).toBe(22);
     expect(fs.readFileSync(layout.outPath, 'utf8')).toBe('');
     expect(proxy.requests).toHaveLength(0);
     expect(forbidden.connections).toBe(0);
@@ -413,7 +413,7 @@ describe('bounded-agent enclave against a fake API proxy', () => {
       ...baseEnv(),
       AWF_BOUNDED_AGENT_MAX_MODEL_REQUESTS: '2',
     });
-    expect(result.exitCode).toBe(1);
+    expect(result.exitCode).toBe(31);
     expect(proxy.requests[1].body.tool_choice).toEqual({
       type: 'function',
       function: { name: 'finish' },
@@ -425,7 +425,7 @@ describe('bounded-agent enclave against a fake API proxy', () => {
     proxy.enqueue(openAiToolCall('call-1', 'finish', { result: true }));
     const result = await runEnclave(layout, { ...baseEnv(), AWF_BOUNDED_AGENT_MAX_OUTPUT_BYTES: '1' });
 
-    expect(result.exitCode).toBe(1);
+    expect(result.exitCode).toBe(30);
     expect(fs.readFileSync(layout.outPath, 'utf8')).toBe('');
   });
 
