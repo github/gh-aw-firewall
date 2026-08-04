@@ -50,7 +50,6 @@
     "chalk": "^4.1.2",
     "commander": "^12.1.0",
     "execa": "^5.1.1",
-    "https-proxy-agent": "^9.1.0",
     "js-yaml": "^4.3.1"
   },
   "devDependencies": {
