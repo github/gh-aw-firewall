@@ -35,7 +35,7 @@ if [ ! -f ${JSON.stringify(path.join(root, 'attempted'))} ]; then
 fi
 printf '%s\\n' "$@" > ${JSON.stringify(path.join(root, 'args.txt'))}
 printf '%s\\n' "$COPILOT_GITHUB_TOKEN" "$COPILOT_API_URL" > ${JSON.stringify(path.join(root, 'env.txt'))}
-printf 'True\\n'
+printf '● True\\n'
 `);
     fs.chmodSync(fakeCopilot, 0o755);
 

@@ -119,6 +119,7 @@ def build_prompt(task: str, schema_text: str) -> str:
 
 def normalize_copilot_output(stdout: str, schema_text: str) -> str:
     result = stdout.strip()
+    result = re.sub(r"^●\s*", "", result, count=1)
     schema_suffix = schema_text.strip()
     if len(result) > len(schema_suffix) and result.endswith(schema_suffix):
         result = result[:-len(schema_suffix)].strip()
