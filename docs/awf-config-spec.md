@@ -2119,7 +2119,7 @@ The root object MAY contain a `boundedAgents` section:
 | `enabled` | boolean | `false` | Only an explicit `true` enables the subsystem. |
 | `privateRepos` | array | — | Required when enabled. Each entry is `{ repo, sensitivity }`; `repo` MUST be a bare `owner/repo` slug and MUST be unique case-insensitively. There is no legacy bare-string form. |
 | `runtime` | `docker` \| `gvisor` \| `sbx` | `docker` | `docker` and `gvisor` are implemented; `sbx` is capability-blocked (§15.7). |
-| `engine` | `copilot` \| `claude` \| `codex` \| `gemini` | `copilot` | Native enclave agent. `copilot` is implemented in the same agent image used by the primary; the other accepted values fail closed in preflight until their adapters land. Required when enabled. |
+| `engine` | `copilot` \| `claude` \| `codex` \| `gemini` | `copilot` | Native enclave agent. `copilot` is preinstalled in the standard bounded-agent image; the other accepted values fail closed in preflight until their adapters land. Required when enabled. |
 | `profile` | `openai` \| `anthropic` | `openai` | Legacy provider-loop compatibility field. Native engines select a fixed API-proxy route from `engine`; callers cannot override it. |
 | `model` | string | — | Required when enabled. A request can never choose or override it. |
 | `timeout` | integer (1–540) | `120` | Wall-clock bound for one enclave invocation. Capped so the 10-minute response bucket reserves its final minute for termination, validation, and cleanup. |
@@ -2355,10 +2355,10 @@ The CLI accepts exactly `--repo owner/repo`, `--schema '<json>'`, and the task
 text on stdin. It always prints exactly one line of canonical JSON, writes
 nothing to stderr, and exits `0` — for every outcome and every failure.
 
-`boundedAgents.engine` selects the native coding-agent adapter in the same
-container image used by the primary agent. `copilot` is implemented; `claude`,
-`codex`, and `gemini` are schema-recognized but fail closed in preflight until
-their pinned adapters land. Copilot runs the native CLI with built-in shell/Bash tools. The immutable
+`boundedAgents.engine` selects the native coding-agent adapter in the standard
+bounded-agent image. `copilot` is preinstalled; `claude`, `codex`, and `gemini`
+are schema-recognized but fail closed in preflight until their pinned adapters
+land. Copilot runs the native CLI with built-in shell/Bash tools. The immutable
 seed remains read-only, writable state is confined to bounded tmpfs mounts, and
 the only network peer is the dedicated API proxy. No credential, host state,
 safe outputs, or GitHub MCP is available inside the enclave.

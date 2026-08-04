@@ -43,7 +43,7 @@ describe('resolveAgentImageConfig', () => {
     expect(result.build.dockerfile).toBe('Dockerfile');
     expect(result.build.context).toBe(nodePath.join(projectRoot, 'containers/agent'));
     expect(result.build.args.BASE_IMAGE).toBeUndefined();
-    expect(result.image).toBe('awf-agent:local');
+    expect(result.image).toBeUndefined();
   });
 
   it('returns build config for act preset with --build-local', () => {

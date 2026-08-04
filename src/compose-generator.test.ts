@@ -47,7 +47,7 @@ describe('generateDockerCompose', () => {
       expect(result.services['squid-proxy'].build).toBeDefined();
       expect(result.services.agent.build).toBeDefined();
       expect(result.services['squid-proxy'].image).toBeUndefined();
-      expect(result.services.agent.image).toBe('awf-agent:local');
+      expect(result.services.agent.image).toBeUndefined();
     });
 
     it('should pass BASE_IMAGE build arg when custom agentImage is specified with --build-local', () => {
@@ -214,7 +214,7 @@ describe('generateDockerCompose', () => {
 
       expect(result.services.agent.build).toBeDefined();
       expect(result.services.agent.build?.args?.BASE_IMAGE).toBe('ghcr.io/catthehacker/ubuntu:full-24.04');
-      expect(result.services.agent.image).toBe('awf-agent:local');
+      expect(result.services.agent.image).toBeUndefined();
     });
 
     it('should build locally with custom ubuntu image', () => {

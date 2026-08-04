@@ -1,5 +1,6 @@
-# Bounded-agent broker image:
+# Standard bounded-agent enclave and broker images:
 #
+# `enclave` is published as `bounded-agent:*` with the pinned Copilot CLI.
 # `broker` is published as `bounded-agent-broker:*`.
 #     Has Node + docker-cli to run the server and launch enclave containers.
 #     It runs with `network_mode: none` and is never a member of the enclave
@@ -11,6 +12,28 @@
 # context is preferred over duplicating a security-critical implementation.
 #
 #   docker build -f bounded-agent/Dockerfile --target broker containers/
+
+# ──────────────────────────────────────────────────────────────────────────
+# Standard self-contained bounded-agent image.
+# ──────────────────────────────────────────────────────────────────────────
+FROM node:24-bookworm-slim AS enclave
+
+ARG COPILOT_CLI_VERSION=1.0.34
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends bash ca-certificates git python3 ripgrep \
+    && test -r /etc/ssl/certs/ca-certificates.crt \
+    && npm_config_ignore_scripts=false npm install -g "@github/copilot@${COPILOT_CLI_VERSION}" \
+    && node --version | grep -qE '^v24\.' \
+    && copilot --version \
+    && rm -rf /var/lib/apt/lists/* \
+    && rm -f /usr/bin/apt /usr/bin/apt-get /usr/bin/apt-cache \
+             /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack
+
+COPY bounded-agent/copilot-entrypoint.py /usr/local/bin/run-bounded-agent
+RUN chmod 0555 /usr/local/bin/run-bounded-agent \
+    && python3 -m py_compile /usr/local/bin/run-bounded-agent \
+    && rm -rf /usr/local/bin/__pycache__ \
+    && mkdir -p /agent /awf/seed
 
 # ──────────────────────────────────────────────────────────────────────────
 # broker stage: trusted broker with Node + docker-cli (default build target)

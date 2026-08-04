@@ -458,6 +458,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: bump-version
     outputs:
+      enclave_digest: ${{ steps.build_bounded_agent.outputs.digest }}
       broker_digest: ${{ steps.build_bounded_agent_broker.outputs.digest }}
     steps:
       - name: Checkout code
@@ -482,6 +483,40 @@ jobs:
 
       - name: Install cosign
         uses: sigstore/cosign-installer@59acb6260d9c0ba8f4a2f9d9b48431a222b68e20 # v3.5.0
+
+      - name: Build and push Bounded Agent image
+        id: build_bounded_agent
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5
+        with:
+          context: ./containers
+          file: ./containers/bounded-agent/Dockerfile
+          target: enclave
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: |
+            ghcr.io/${{ github.repository }}/bounded-agent:${{ needs.bump-version.outputs.version_number }}
+            ghcr.io/${{ github.repository }}/bounded-agent:latest
+          cache-from: type=gha,scope=bounded-agent
+          cache-to: type=gha,mode=max,scope=bounded-agent
+
+      - name: Sign Bounded Agent image with cosign
+        run: |
+          cosign sign --yes \
+            ghcr.io/${{ github.repository }}/bounded-agent@${{ steps.build_bounded_agent.outputs.digest }}
+
+      - name: Generate SBOM for Bounded Agent image
+        uses: anchore/sbom-action@28d71544de8eaf1b958d335707167c5f783590ad # v0.22.2
+        with:
+          image: ghcr.io/${{ github.repository }}/bounded-agent@${{ steps.build_bounded_agent.outputs.digest }}
+          format: spdx-json
+          output-file: bounded-agent-sbom.spdx.json
+
+      - name: Attest SBOM for Bounded Agent image
+        run: |
+          cosign attest --yes \
+            --predicate bounded-agent-sbom.spdx.json \
+            --type spdxjson \
+            ghcr.io/${{ github.repository }}/bounded-agent@${{ steps.build_bounded_agent.outputs.digest }}
 
       - name: Build and push Bounded Agent Broker image
         id: build_bounded_agent_broker
@@ -855,6 +890,7 @@ jobs:
             "ghcr.io/${{ github.repository }}/cli-proxy@${{ needs['build-cli-proxy'].outputs.digest }}" \
             "ghcr.io/${{ github.repository }}/bounded-query@${{ needs['build-bounded-query'].outputs.query_digest }}" \
             "ghcr.io/${{ github.repository }}/bounded-query-broker@${{ needs['build-bounded-query'].outputs.broker_digest }}" \
+            "ghcr.io/${{ github.repository }}/bounded-agent@${{ needs['build-bounded-agent'].outputs.enclave_digest }}" \
             "ghcr.io/${{ github.repository }}/bounded-agent-broker@${{ needs['build-bounded-agent'].outputs.broker_digest }}" \
             "ghcr.io/${{ github.repository }}/gh-aw-node@${{ needs['build-gh-aw-node'].outputs.digest }}" \
             > release/containers.txt

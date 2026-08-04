@@ -117,7 +117,7 @@ Four trust stages, mirroring bounded queries:
 | `enabled` | `false` | Only an explicit `true` enables the subsystem. |
 | `privateRepos` | — | Required when enabled. `{ repo, sensitivity }` entries; `repo` must be a bare `owner/repo` slug, unique case-insensitively. |
 | `runtime` | `docker` | `docker` or `gvisor`. `sbx` is accepted by the schema but remains capability-blocked (see below). |
-| `engine` | `copilot` | Native enclave agent. `copilot` is implemented in the same agent image used by the primary; `claude`, `codex`, and `gemini` fail closed until their adapters land. Required when enabled. |
+| `engine` | `copilot` | Native enclave agent. `copilot` is preinstalled in the standard bounded-agent image; `claude`, `codex`, and `gemini` fail closed until their adapters land. Required when enabled. |
 | `profile` | `openai` | Legacy provider-loop compatibility field. Native engines select their fixed API-proxy route from `engine`; callers cannot override it. |
 | `model` | — | Required when enabled. A request can never choose or override it. |
 | `timeout` | `120` | Wall-clock seconds for one invocation (max 540). |

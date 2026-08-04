@@ -316,21 +316,18 @@ describe('buildBoundedAgentService guards', () => {
     ).toThrow(/require the API proxy/);
   });
 
-  it('uses the primary agent image for the enclave and builds the broker locally', () => {
+  it('builds the standard bounded-agent image and broker locally', () => {
     const { service, enclaveImageService } = buildBoundedAgentService({
       config: { ...mockConfig, buildLocal: true, enableApiProxy: true, boundedAgents },
       imageConfig: { ...imageConfig, useGHCR: false },
       networkConfig,
     });
     expect((enclaveImageService as Record<string, unknown>).build).toEqual({
-      context: '/repo/containers/agent',
-      dockerfile: 'Dockerfile',
-      args: {
-        USER_UID: expect.any(String),
-        USER_GID: expect.any(String),
-      },
+      context: '/repo/containers',
+      dockerfile: 'bounded-agent/Dockerfile',
+      target: 'enclave',
     });
-    expect((enclaveImageService as Record<string, unknown>).image).toBe('awf-agent:local');
+    expect((enclaveImageService as Record<string, unknown>).image).toBe('awf-bounded-agent:local');
     expect((service as Record<string, unknown>).build).toEqual({
       context: '/repo/containers',
       dockerfile: 'bounded-agent/Dockerfile',
@@ -338,14 +335,14 @@ describe('buildBoundedAgentService guards', () => {
     });
   });
 
-  it('uses the published primary agent image for the enclave', () => {
+  it('uses the published standard bounded-agent image for the enclave', () => {
     const { enclaveImageService } = buildBoundedAgentService({
       config: { ...mockConfig, enableApiProxy: true, boundedAgents },
       imageConfig,
       networkConfig,
     });
     expect((enclaveImageService as Record<string, unknown>).image).toBe(
-      'ghcr.io/github/gh-aw-firewall/agent:latest',
+      'ghcr.io/github/gh-aw-firewall/bounded-agent:latest',
     );
     expect((enclaveImageService as Record<string, unknown>).build).toBeUndefined();
   });

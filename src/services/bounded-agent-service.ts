@@ -1,6 +1,5 @@
 import { logger } from '../logger';
 import { buildRuntimeImageRef } from '../image-tag';
-import { resolveAgentImageConfig } from './agent-service';
 import { getSafeHostGid, getSafeHostUid } from '../host-identity';
 import {
   BOUNDED_AGENT_API_PROXY_CONTAINER_NAME,
@@ -70,8 +69,14 @@ import {
 /** Local image tag used when building the bounded-agent broker image from source. */
 const LOCAL_BOUNDED_AGENT_BROKER_IMAGE = 'awf-bounded-agent-broker:local';
 
+/** Local image tag used for the standard bounded-agent enclave. */
+const LOCAL_BOUNDED_AGENT_IMAGE = 'awf-bounded-agent:local';
+
 /** Broker image name published to the container registry. */
 const BOUNDED_AGENT_BROKER_IMAGE_NAME = 'bounded-agent-broker';
+
+/** Standard bounded-agent enclave image name published to the registry. */
+const BOUNDED_AGENT_IMAGE_NAME = 'bounded-agent';
 
 interface BoundedAgentServiceParams {
   config: WrapperConfig;
@@ -93,14 +98,13 @@ interface BoundedAgentBuildResult {
 }
 
 /**
- * Resolves the shared primary/enclave agent image and the separate broker image.
+ * Resolves the self-contained bounded-agent enclave and separate broker images.
  *
  * Local builds use the `containers/` build context because the broker reuses
  * the shared PR1 bounded-execution foundation and the audited sandbox seccomp
  * profile that live under `containers/bounded-query/`.
  */
 function resolveBoundedAgentImages(
-  config: WrapperConfig,
   imageConfig: ImageBuildConfig,
   engine: BoundedAgentEngine = 'copilot',
 ): {
@@ -112,11 +116,21 @@ function resolveBoundedAgentImages(
     throw new Error(`No bounded-agent enclave image is implemented for engine "${engine}"`);
   }
   const { useGHCR, registry, parsedTag, projectRoot } = imageConfig;
-  const enclaveSource = resolveAgentImageConfig(config, imageConfig);
 
   return {
-    enclaveImageRef: enclaveSource.image,
-    enclaveSource,
+    enclaveImageRef: useGHCR
+      ? buildRuntimeImageRef(registry, BOUNDED_AGENT_IMAGE_NAME, parsedTag)
+      : LOCAL_BOUNDED_AGENT_IMAGE,
+    enclaveSource: useGHCR
+      ? { image: buildRuntimeImageRef(registry, BOUNDED_AGENT_IMAGE_NAME, parsedTag) }
+      : {
+          image: LOCAL_BOUNDED_AGENT_IMAGE,
+          build: {
+            context: `${projectRoot}/containers`,
+            dockerfile: 'bounded-agent/Dockerfile',
+            target: 'enclave',
+          },
+        },
     brokerSource: useGHCR
       ? { image: buildRuntimeImageRef(registry, BOUNDED_AGENT_BROKER_IMAGE_NAME, parsedTag) }
       : {
@@ -176,7 +190,7 @@ export function buildBoundedAgentService(params: BoundedAgentServiceParams): Bou
 
   const paths = resolveBoundedAgentPaths(config.workDir);
   const { enclaveImageRef, enclaveSource, brokerSource } =
-    resolveBoundedAgentImages(config, imageConfig, boundedAgents.engine);
+    resolveBoundedAgentImages(imageConfig, boundedAgents.engine);
   const dockerSocketPath = resolveDockerSocketPath(config);
   const apiPort = resolveBoundedAgentApiPort(boundedAgents.engine, boundedAgents.profile);
   const ingressTransport = config.boundedAgentIngressTransport
@@ -360,7 +374,9 @@ export function isBoundedAgentAgentMount(volume: string): boolean {
 /** @internal Exported for focused unit tests. */
 // ts-prune-ignore-next
 export const boundedAgentServiceTestHelpers = {
+  LOCAL_BOUNDED_AGENT_IMAGE,
   LOCAL_BOUNDED_AGENT_BROKER_IMAGE,
+  BOUNDED_AGENT_IMAGE_NAME,
   BOUNDED_AGENT_BROKER_IMAGE_NAME,
   resolveBoundedAgentImages,
   toDaemonVisiblePath,
