@@ -32,8 +32,11 @@ export function isBenignArtifactPermissionError(error: unknown): boolean {
     }
   }
 
-  return /(?:^|\n)(?:chown|chmod):.*(?:operation not permitted|permission denied|\bEPERM\b|\bEACCES\b)/i.test(
-    details.join('\n'),
+  const combinedDetails = details.join('\n');
+  return (
+    /(?:^|\n)(?:chown|chmod):.*(?:operation not permitted|permission denied|\bEPERM\b|\bEACCES\b)/i.test(
+      combinedDetails,
+    ) || /(?:^|\n)\s*(?:EPERM|EACCES)\s*(?:\n|$)/i.test(combinedDetails)
   );
 }
 

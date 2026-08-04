@@ -216,6 +216,33 @@ describe('artifact-preservation – error paths', () => {
       }
     });
 
+    it('keeps the primary failure as the last visible diagnostic when auditDir chmod is denied', () => {
+      const auditDir = makeTempDir('awf-audit-');
+      const workDir = makeTempDir();
+      const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        getuidSpy = jest.spyOn(process, 'getuid').mockReturnValue(0);
+        mockExecaSync.mockImplementationOnce(() => {
+          throw Object.assign(new Error('Command failed with EACCES: chmod -R a+rX'), {
+            code: 'EACCES',
+          });
+        });
+
+        logger.error('Fatal error: primary topology startup failure');
+        expect(() => preserveCleanupArtifacts(workDir, { auditDir })).not.toThrow();
+        expect(errorSpy.mock.calls[errorSpy.mock.calls.length - 1]?.[0]).toEqual(
+          expect.stringContaining('[ERROR] Fatal error: primary topology startup failure'),
+        );
+        expect(errorSpy.mock.calls.flat().join('\n')).not.toContain(
+          'Could not fix audit dir permissions as non-root user',
+        );
+      } finally {
+        errorSpy.mockRestore();
+        realFs.rmSync(auditDir, { recursive: true, force: true });
+        realFs.rmSync(workDir, { recursive: true, force: true });
+      }
+    });
+
     it('runs rootless permission repair with translated mount paths', () => {
       const auditDir = makeTempDir('awf-audit-');
       const workDir = makeTempDir();

@@ -8,7 +8,10 @@ jest.mock('execa', () => {
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { fixArtifactPermissionsForRootless } from './artifact-permissions';
+import {
+  fixArtifactPermissionsForRootless,
+  isBenignArtifactPermissionError,
+} from './artifact-permissions';
 import { mockExecaSync } from './test-helpers/mock-execa.test-utils';
 
 function makeTempDir(prefix = 'awf-artifact-perms-'): string {
@@ -113,6 +116,13 @@ describe('artifact-permissions', () => {
       errorSpy?.mockRestore();
       fs.rmSync(auditDir, { recursive: true, force: true });
     }
+  });
+
+  it('treats standalone execa permission codes as benign permission errors', () => {
+    expect(isBenignArtifactPermissionError({
+      code: 'EACCES',
+      message: 'Command failed with EACCES: chmod -R a+rX /tmp/awf-audit',
+    })).toBe(true);
   });
 
   it('runs rootless permission repair with translated mount paths', () => {

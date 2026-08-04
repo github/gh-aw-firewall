@@ -203,7 +203,14 @@ export function preserveCleanupArtifacts(
         execa.sync('chmod', ['-R', 'a+rX', auditDir]);
         logger.info(`Audit artifacts available at: ${auditDir}`);
       } catch (error) {
-        logger.warn('Could not fix audit dir permissions as non-root user; rootless repair will be attempted:', error);
+        if (isBenignArtifactPermissionError(error)) {
+          logger.debug(
+            `Could not fix audit dir permissions as non-root user. Permission repair was denied for ${auditDir}; ` +
+              'this is expected on restricted runners and rootless repair will be attempted.',
+          );
+        } else {
+          logger.warn('Could not fix audit dir permissions as non-root user; rootless repair will be attempted:', error);
+        }
       }
     }
   } else {
