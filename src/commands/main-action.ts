@@ -77,6 +77,8 @@ const SENSITIVE_CONFIG_KEYS = new Set([
   'sensitiveAllowedDomains',
 ]);
 
+const REFLECT_COMMAND = 'curl --fail --silent --show-error --noproxy "*" http://api-proxy:10000/reflect';
+
 function redactConfigForLogging(config: WrapperConfig): Record<string, unknown> {
   const redactedConfig: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(config)) {
@@ -192,10 +194,16 @@ type OptionSourceResolver = (optionName: string) => string | undefined;
  */
 export function createMainAction(getOptionValueSource: OptionSourceResolver) {
   return async function mainAction(args: string[], options: Record<string, unknown>): Promise<void> {
+  const reflect = options.reflect === true;
+
   // Require -- separator for passing command arguments
-  if (args.length === 0) {
+  if (args.length === 0 && !reflect) {
     console.error('Error: No command specified. Use -- to separate command from options.');
     console.error('Example: awf --allow-domains github.com -- curl https://api.github.com');
+    process.exit(1);
+  }
+  if (reflect && args.length > 0) {
+    console.error('Error: --reflect cannot be used with a command.');
     process.exit(1);
   }
 
@@ -225,7 +233,9 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
   // - We need variables to expand in CONTAINER ($HOME → /root or /home/runner)
   // - The $$$$  escaping pattern requires literal $ preservation
   //
-  const agentCommand = args.length === 1 ? args[0] : joinShellArgs(args);
+  const agentCommand = reflect
+    ? REFLECT_COMMAND
+    : args.length === 1 ? args[0] : joinShellArgs(args);
 
   applyConfigFilePrecedence(options as Record<string, unknown>, getOptionValueSource);
 

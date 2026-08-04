@@ -472,4 +472,9 @@ program
     '                                       Written to <workDir>/diagnostics/ (or <audit-dir>/diagnostics/ when set).',
     false
   )
+  .option(
+    '--reflect',
+    'Start AWF, query the API proxy /reflect endpoint, and print its JSON response',
+    false
+  )
   .argument('[args...]', 'Command and arguments to execute (use -- to separate from options)');

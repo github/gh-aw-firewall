@@ -33,6 +33,9 @@ sudo awf --allow-domains github.com -- curl https://api.github.com
 
 The `--` separator divides firewall options from the command to run.
 
+To inspect the API proxy endpoints and models without running an agent command,
+use `awf --reflect`. It prints the `/reflect` JSON response to stdout.
+
 ## Feature highlights
 
 - **Declarative config support**: `--config <path>` with JSON/YAML + published JSON Schema
