@@ -223,6 +223,7 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 - `boundedAgents.enabled` → *(config-only; no CLI equivalent, see §15)*
 - `boundedAgents.privateRepos[]` → *(config-only; no CLI equivalent, see §15)*
 - `boundedAgents.runtime` → *(config-only; no CLI equivalent, see §15)*
+- `boundedAgents.engine` → *(config-only; no CLI equivalent, see §15)*
 - `boundedAgents.profile` → *(config-only; no CLI equivalent, see §15)*
 - `boundedAgents.model` → *(config-only; no CLI equivalent, see §15)*
 - `boundedAgents.timeout` → *(config-only; no CLI equivalent, see §15)*
