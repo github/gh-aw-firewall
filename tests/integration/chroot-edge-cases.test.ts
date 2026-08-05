@@ -210,13 +210,16 @@ describe('Chroot Edge Cases', () => {
         // pivot_root - blocked in seccomp profile
         { name: 'pivot_root', command: 'mkdir -p /tmp/newroot /tmp/putold && pivot_root /tmp/newroot /tmp/putold 2>&1 || unshare --mount pivot_root /tmp/newroot /tmp/putold 2>&1' },
         // mount after capability drop - mount syscall allowed in seccomp but CAP_SYS_ADMIN should be dropped
-        { name: 'mount_tmpfs', command: 'mount -t tmpfs tmpfs /tmp/test-mount-$$ 2>&1' },
+        { name: 'mount_tmpfs', command: 'target=$(mktemp -d) && mount -t tmpfs tmpfs "$target" 2>&1' },
         // unshare namespace creation - requires CAP_SYS_ADMIN
         { name: 'unshare_mount', command: 'unshare --mount /bin/true 2>&1' },
         // nsenter - requires CAP_SYS_ADMIN
         { name: 'nsenter', command: 'nsenter --mount --target 1 /bin/true 2>&1' },
-        // umount - blocked in seccomp profile
-        { name: 'umount', command: 'umount /tmp 2>&1' },
+        // Call umount2 directly so utility preflight checks cannot mask the seccomp denial.
+        {
+          name: 'umount',
+          command: `python3 -c 'import ctypes, os, sys; libc = ctypes.CDLL(None, use_errno=True); result = libc.umount2(b"/proc", 0); error = ctypes.get_errno(); print(os.strerror(error)); sys.exit(0 if result == 0 else error)' 2>&1`,
+        },
         // setuid escalation - no-new-privileges should prevent
         { name: 'no_new_privs', command: 'cat /proc/self/status | grep NoNewPrivs 2>&1' },
       ], {
