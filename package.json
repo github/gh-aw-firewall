@@ -46,7 +46,7 @@
   "author": "GitHub",
   "license": "MIT",
   "dependencies": {
-    "ajv": "8.16.0",
+    "ajv": "8.20.0",
     "chalk": "^4.1.2",
     "commander": "^12.1.0",
     "execa": "^5.1.1",
@@ -63,20 +63,20 @@
     "@types/jest": "^30.0.0",
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^25.9.5",
-    "@typescript-eslint/eslint-plugin": "^8.65.0",
-    "@typescript-eslint/parser": "^8.65.0",
+    "@typescript-eslint/eslint-plugin": "^8.66.0",
+    "@typescript-eslint/parser": "^8.66.0",
     "babel-jest": "^30.2.0",
     "esbuild": "^0.28.1",
     "eslint": "^10.8.0",
     "eslint-plugin-security": "^3.0.1",
     "glob": "^13.0.6",
-    "globals": "^17.7.0",
+    "globals": "^17.9.0",
     "husky": "^9.1.7",
     "jest": "^30.4.2",
     "markdownlint-cli2": "^0.23.2",
     "ts-jest": "^29.4.12",
     "typescript": "^5.9.3",
-    "typescript-eslint": "^8.65.0"
+    "typescript-eslint": "^8.66.0"
   },
   "overrides": {
     "test-exclude": "^7.0.1",
