@@ -210,6 +210,7 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 - `rateLimiting.requestsPerMinute` → `--rate-limit-rpm`
 - `rateLimiting.requestsPerHour` → `--rate-limit-rph`
 - `rateLimiting.bytesPerMinute` → `--rate-limit-bytes-pm`
+- *(no config equivalent)* → `--reflect` *(CLI-only; starts AWF, queries the API proxy `/reflect` endpoint, and prints its JSON response instead of running a command; mutually exclusive with a command argument)*
 - `platform.type` → *(config-only; maps to `AWF_PLATFORM_TYPE`)*
 - `runner.topology` → *(config-only; sets runner deployment model — `standard` or `arc-dind`; when `arc-dind`, enables sysroot staging and emits RUNNER_TOOL_CACHE warnings)*
 - `runner.sysrootImage` → *(config-only; sysroot init-container image for `arc-dind` topology; defaults to `<container.imageRegistry>/build-tools:<container.imageTag>`, where `container.imageRegistry` defaults to `ghcr.io/github/gh-aw-firewall`)*
