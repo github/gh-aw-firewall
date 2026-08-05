@@ -31,6 +31,10 @@ import {
   resolveBoundedAgentPrimaryBackend,
   serializeBoundedAgentRuntimeTelemetry,
 } from './runtime-matrix';
+import {
+  type SbxIngressCapabilities,
+  writeSbxIngressCapabilitiesFile,
+} from '../bounded-execution/sbx-ingress-capabilities';
 
 /**
  * Bounded-agent lifecycle orchestration.
@@ -163,29 +167,13 @@ export interface PrepareBoundedAgentsDeps {
   assertPrimaryAvailable?: typeof assertPrimaryRuntimeAvailable;
 }
 
-interface SbxIngressCapabilities {
-  version: 1;
-  query: string;
-  probe: string;
-}
-
 function writeSbxIngressCapabilities(paths: BoundedAgentPaths): void {
   const capabilities: SbxIngressCapabilities = {
     version: 1,
     query: crypto.randomBytes(32).toString('hex'),
     probe: crypto.randomBytes(32).toString('hex'),
   };
-  const fd = fs.openSync(
-    paths.capabilityPath,
-    fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_NOFOLLOW,
-    0o600,
-  );
-  try {
-    fs.writeSync(fd, JSON.stringify(capabilities));
-    fs.fchmodSync(fd, 0o600);
-  } finally {
-    fs.closeSync(fd);
-  }
+  writeSbxIngressCapabilitiesFile(paths.capabilityPath, capabilities);
 }
 
 /**

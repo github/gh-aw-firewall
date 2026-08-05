@@ -493,6 +493,7 @@ describe('prepareBoundedAgents', () => {
       probe: expect.stringMatching(/^[0-9a-f]{64}$/),
     });
     expect(capabilities.query).not.toBe(capabilities.probe);
+    expect(fs.statSync(capabilityPath).mode & 0o777).toBe(0o600);
     expect(probeSbxUnixSocket).toHaveBeenCalledWith('bounded-agent');
   });
 });

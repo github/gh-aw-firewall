@@ -127,12 +127,14 @@ describe('prepareBoundedQueries', () => {
     expect(fs.existsSync(paths.capabilityPath)).toBe(!supported);
     if (!supported) {
       const raw = fs.readFileSync(paths.capabilityPath, 'utf8');
+      const capabilities = JSON.parse(raw);
       expect(raw).not.toContain('GH_TOKEN');
-      expect(JSON.parse(raw)).toEqual({
+      expect(capabilities).toEqual({
         version: 1,
         query: expect.stringMatching(/^[0-9a-f]{64}$/),
         probe: expect.stringMatching(/^[0-9a-f]{64}$/),
       });
+      expect(capabilities.query).not.toBe(capabilities.probe);
       expect(fs.statSync(paths.capabilityPath).mode & 0o777).toBe(0o600);
     }
   });
