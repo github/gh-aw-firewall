@@ -551,10 +551,11 @@ describe('provider adapter alwaysBind', () => {
     expect(adapter.alwaysBind).toBe(true);
   });
 
-  it('anthropic getUnconfiguredResponse returns 503 with structured error', () => {
+  it('anthropic getUnconfiguredResponse returns a non-retryable 403 with structured error', () => {
     const adapter = createAnthropicAdapter({});
     const { statusCode, body } = adapter.getUnconfiguredResponse();
-    expect(statusCode).toBe(503);
+    expect(statusCode).toBe(403);
+    expect(body.error.retryable).toBe(false);
     expect(body.error.type).toBe('provider_not_configured');
     expect(body.error.provider).toBe('anthropic');
     expect(body.error.port).toBe(10001);
@@ -631,10 +632,11 @@ describe('provider adapter alwaysBind', () => {
     });
   });
 
-  it('copilot getUnconfiguredResponse returns 503 with structured error', () => {
+  it('copilot getUnconfiguredResponse returns a non-retryable 403 with structured error', () => {
     const adapter = createCopilotAdapter({});
     const { statusCode, body } = adapter.getUnconfiguredResponse();
-    expect(statusCode).toBe(503);
+    expect(statusCode).toBe(403);
+    expect(body.error.retryable).toBe(false);
     expect(body.error.type).toBe('provider_not_configured');
     expect(body.error.provider).toBe('copilot');
     expect(body.error.port).toBe(10002);

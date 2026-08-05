@@ -955,6 +955,8 @@ apiProxy:
 
 When disabled (the default), thresholds are still tracked and exposed via `/reflect`, but no warning messages are injected into request bodies.
 
+To opt a workflow out explicitly, set `apiProxy.enableTokenSteering: false` (or omit the field). The CLI/config value is the only source of the sidecar's `AWF_ENABLE_TOKEN_STEERING` env var, which is emitted only when steering is enabled.
+
 #### How steering messages are injected
 
 When a threshold is crossed, the proxy modifies the outgoing request body of the *next* API call to include a system-level warning. This ensures the agent receives budget information even if it doesn't parse headers or error responses. The message format is:

@@ -199,13 +199,14 @@ describe('buildProviderAdapter', () => {
       });
 
       expect(adapter.getUnconfiguredResponse()).toEqual({
-        statusCode: 503,
+        statusCode: 403,
         body: {
           error: {
             message: 'TEST_API_KEY not configured',
             type: 'provider_not_configured',
             provider: 'test',
             port: 10099,
+            retryable: false,
           },
         },
       });

@@ -241,20 +241,31 @@ function composeBodyTransforms(first, second) {
 /**
  * Build a standard provider-not-configured proxy response payload.
  *
+ * Missing credentials are a **terminal** run-level misconfiguration: the slot
+ * cannot become configured mid-run, so every retry is guaranteed to fail again.
+ * A 503 invites LLM SDK clients to retry with backoff, which has produced
+ * multi-minute non-terminating retry loops. Such responses therefore use HTTP
+ * `403` and carry `retryable: false` so clients fast-fail. Genuinely transient
+ * states (e.g. an OIDC token that is not minted yet) pass `retryable: true` and
+ * keep the retry-friendly `503`.
+ *
  * @param {string} provider
  * @param {number} port
  * @param {string} message
- * @returns {{ statusCode: number, body: { error: { message: string, type: string, provider: string, port: number } } }}
+ * @param {{ retryable?: boolean }} [opts]
+ * @returns {{ statusCode: number, body: { error: { message: string, type: string, provider: string, port: number, retryable: boolean } } }}
  */
-function makeProviderNotConfiguredResponse(provider, port, message) {
+function makeProviderNotConfiguredResponse(provider, port, message, opts = {}) {
+  const retryable = opts.retryable === true;
   return {
-    statusCode: 503,
+    statusCode: retryable ? 503 : 403,
     body: {
       error: {
         message,
         type: 'provider_not_configured',
         provider,
         port,
+        retryable,
       },
     },
   };

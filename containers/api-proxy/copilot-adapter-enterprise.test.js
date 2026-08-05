@@ -318,6 +318,9 @@ describe('createCopilotAdapter — Azure OIDC (Entra) getAuthHeaders', () => {
     const resp = adapter.getUnconfiguredResponse();
     const body = typeof resp.body === 'string' ? JSON.parse(resp.body) : resp.body;
     expect(body.error.message).toMatch(/OIDC token \(azure\) unavailable/);
+    // A pending OIDC token is genuinely transient, so this stays retryable.
+    expect(resp.statusCode).toBe(503);
+    expect(body.error.retryable).toBe(true);
 
     adapter.getOidcProvider().shutdown();
   });

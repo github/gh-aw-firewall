@@ -106,7 +106,7 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 - `network.isolation` → `--network-isolation` *(experimental; enforces egress via Docker network topology instead of host iptables)*
 - `network.topologyAttach[]` → `--topology-attach <name>` *(repeatable; requires `network.isolation: true`)*
 - `apiProxy.enabled` → `--enable-api-proxy` *([DEPRECATED] API proxy is always enabled; this flag is ignored)*
-- `apiProxy.enableTokenSteering` → `--enable-token-steering`
+- `apiProxy.enableTokenSteering` → `--enable-token-steering` *(maps to `AWF_ENABLE_TOKEN_STEERING`; omit or set to `false` to opt out)*
 - `apiProxy.anthropicAutoCache` → `--anthropic-auto-cache`
 - `apiProxy.anthropicCacheTailTtl` → `--anthropic-cache-tail-ttl <5m|1h>`
 - `apiProxy.maxEffectiveTokens` → *(config-only; no CLI equivalent)*
@@ -702,8 +702,11 @@ Each threshold MUST be recorded at most once per run.
 ### 10.5 Token Steering
 
 Token steering is **opt-in**. It is active only when `apiProxy.enableTokenSteering`
-is `true` (CLI: `--enable-token-steering`). When disabled (the default), thresholds
-are still tracked (for introspection) but no warning messages are injected.
+is `true` (CLI: `--enable-token-steering`), which sets `AWF_ENABLE_TOKEN_STEERING=true`
+in the api-proxy sidecar. When disabled (the default), thresholds are still tracked
+(for introspection) but no warning messages are injected. Setting the field to
+`false`, or omitting it, opts a workflow out; the env var is only emitted when the
+value is `true`.
 
 When token steering is enabled and a threshold is first crossed, the proxy MUST
 inject a budget-warning system message into the **body** of the very next eligible
@@ -1345,6 +1348,24 @@ that the specified model is available in at least one provider's model catalogue
 This enables workflow authors to get clear, early feedback when a retired or
 misspelled model is specified, rather than waiting for the first API request to
 fail with an opaque error.
+
+### 12.1 Alias Candidates Are Restricted to Configured Providers
+
+Alias resolution MUST only consider provider slots that are actually configured
+for the run. Before an alias is expanded (and before aliases are advertised via
+`/reflect` and `models.json`), the cached model lists of providers that report
+`configured: false` are treated as empty. A provider-scoped pattern such as
+`copilot/*sonnet*` therefore yields no candidate when no Copilot credential is
+present, even if a model list was cached earlier in the run.
+
+Without this filter, a Copilot-first alias group would steer every request to a
+slot that answers `provider_not_configured`, producing a 100% call-failure rate
+and, for retry-happy clients, a non-terminating retry loop.
+
+A `provider_not_configured` response is a terminal run-level misconfiguration:
+it is returned with HTTP `403` and `"retryable": false` so clients fail fast.
+The only exception is a transient state such as an OIDC token that has not been
+minted yet, which keeps HTTP `503` and `"retryable": true`.
 
 ## 13. Model Alias Logging
 

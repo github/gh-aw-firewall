@@ -401,8 +401,46 @@ function filterResolvableAliases(aliases, availableModels) {
   return result;
 }
 
+/**
+ * Restrict a provider→models map to the providers that are actually configured
+ * for this run.
+ *
+ * Alias resolution treats any provider with a populated model list as a valid
+ * steering target. When a provider slot has no credentials (the proxy reports
+ * `configured: false` for it and answers every request with
+ * `provider_not_configured`), steering a request there guarantees a 100% failure
+ * rate. Blanking those providers' model lists before resolution makes them
+ * invisible to the alias table, so candidates are only ever drawn from provider
+ * slots that can actually serve a request.
+ *
+ * When `configuredProviders` is not a usable set (null/undefined) or is empty
+ * (no provider slot is configured at all — an unknown/degenerate state), the map
+ * is returned unchanged: an unknown configuration state must not silently drop
+ * every candidate.
+ *
+ * @param {Record<string, string[]|null>} availableModels
+ * @param {Set<string>|string[]|null|undefined} configuredProviders - Provider cache keys that are configured
+ * @returns {Record<string, string[]|null>}
+ */
+function filterAvailableModelsToConfiguredProviders(availableModels, configuredProviders) {
+  if (!availableModels || typeof availableModels !== 'object') return availableModels;
+  if (configuredProviders === null || configuredProviders === undefined) return availableModels;
+
+  const configured = configuredProviders instanceof Set
+    ? configuredProviders
+    : new Set(Array.isArray(configuredProviders) ? configuredProviders : []);
+  if (configured.size === 0) return availableModels;
+
+  const result = {};
+  for (const [provider, models] of Object.entries(availableModels)) {
+    result[provider] = configured.has(provider) ? models : null;
+  }
+  return result;
+}
+
 module.exports = {
   parseModelAliases,
+  filterAvailableModelsToConfiguredProviders,
   globMatch,
   extractVersionNumbers,
   compareByVersion,

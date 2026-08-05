@@ -168,15 +168,31 @@ describe('createAdapterMethods', () => {
 });
 
 describe('makeProviderNotConfiguredResponse', () => {
-  it('builds a standard provider_not_configured 503 payload', () => {
+  it('builds a non-retryable provider_not_configured 403 payload by default', () => {
     expect(makeProviderNotConfiguredResponse('anthropic', 10001, 'missing key')).toEqual({
-      statusCode: 503,
+      statusCode: 403,
       body: {
         error: {
           message: 'missing key',
           type: 'provider_not_configured',
           provider: 'anthropic',
           port: 10001,
+          retryable: false,
+        },
+      },
+    });
+  });
+
+  it('builds a retryable provider_not_configured 503 payload when opted in', () => {
+    expect(makeProviderNotConfiguredResponse('copilot', 10002, 'token not ready', { retryable: true })).toEqual({
+      statusCode: 503,
+      body: {
+        error: {
+          message: 'token not ready',
+          type: 'provider_not_configured',
+          provider: 'copilot',
+          port: 10002,
+          retryable: true,
         },
       },
     });

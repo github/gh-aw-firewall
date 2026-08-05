@@ -29,7 +29,8 @@ const {
  * }|{
  *   kind: 'provider_not_configured',
  *   message: string,
- *   statusCode?: number
+ *   statusCode?: number,
+ *   retryable?: boolean
  * }} spec
  * @returns {import('./providers/index').UnconfiguredResponse}
  */
@@ -37,7 +38,9 @@ function buildUnconfiguredResponse(provider, port, spec) {
   if (spec.kind === 'plain_error') {
     return { statusCode: spec.statusCode, body: { error: spec.message } };
   }
-  const response = makeProviderNotConfiguredResponse(provider, port, spec.message);
+  const response = makeProviderNotConfiguredResponse(provider, port, spec.message, {
+    retryable: spec.retryable === true,
+  });
   if (spec.statusCode !== undefined) {
     response.statusCode = spec.statusCode;
   }

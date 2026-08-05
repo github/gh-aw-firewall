@@ -217,6 +217,7 @@ function createCopilotAdapter(env, deps = {}) {
         ? {
             kind: 'provider_not_configured',
             message: `Copilot OIDC token (${authProvider}) unavailable; retry shortly`,
+            retryable: true,
           }
         : null),
       healthServiceName: 'awf-api-proxy-copilot',

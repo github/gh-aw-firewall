@@ -9,6 +9,7 @@ const {
   parseModelAliases,
   selectMiddlePowerFallback,
   filterResolvableAliases,
+  filterAvailableModelsToConfiguredProviders,
   resolveModel,
 } = require('./model-resolver');
 const { rewriteModelInBody } = require('./model-body-rewriter');
@@ -874,5 +875,64 @@ describe('resolveModel — complex alias trees', () => {
     const result = resolveModel('mixed', aliases, baseModels, 'copilot', [], noFallback);
     expect(result).not.toBeNull();
     expect(result.resolvedModel).toBe('gpt-5.2');
+  });
+});
+
+// ── filterAvailableModelsToConfiguredProviders ────────────────────────────────
+
+describe('filterAvailableModelsToConfiguredProviders', () => {
+  const availableModels = {
+    copilot: ['claude-sonnet-4.5', 'gpt-5.4'],
+    anthropic: ['claude-sonnet-5'],
+  };
+
+  it('blanks the model list of providers that are not configured', () => {
+    const result = filterAvailableModelsToConfiguredProviders(
+      availableModels,
+      new Set(['anthropic']),
+    );
+    expect(result.copilot).toBeNull();
+    expect(result.anthropic).toEqual(['claude-sonnet-5']);
+  });
+
+  it('accepts an array of configured provider keys', () => {
+    const result = filterAvailableModelsToConfiguredProviders(availableModels, ['copilot']);
+    expect(result.copilot).toEqual(['claude-sonnet-4.5', 'gpt-5.4']);
+    expect(result.anthropic).toBeNull();
+  });
+
+  it('returns the map unchanged when the configured set is unknown', () => {
+    expect(filterAvailableModelsToConfiguredProviders(availableModels, null)).toBe(availableModels);
+    expect(filterAvailableModelsToConfiguredProviders(availableModels, undefined)).toBe(availableModels);
+  });
+
+  it('returns the map unchanged when no provider is reported as configured', () => {
+    expect(filterAvailableModelsToConfiguredProviders(availableModels, new Set())).toBe(availableModels);
+  });
+
+  it('prevents alias resolution from steering to an unconfigured provider', () => {
+    // Copilot-first alias group, but only Anthropic has credentials this run.
+    const aliases = { 'sonnet-6x': ['copilot/*sonnet*', 'anthropic/*sonnet*'] };
+    const configuredOnly = filterAvailableModelsToConfiguredProviders(
+      availableModels,
+      new Set(['anthropic']),
+    );
+
+    // Copilot is unreachable: its own port must not resolve any candidate.
+    expect(resolveModel('sonnet-6x', aliases, configuredOnly, 'copilot', [], { enabled: false })).toBeNull();
+    // Anthropic still resolves normally.
+    const anthropicResolution = resolveModel(
+      'sonnet-6x', aliases, configuredOnly, 'anthropic', [], { enabled: false },
+    );
+    expect(anthropicResolution.resolvedModel).toBe('claude-sonnet-5');
+  });
+
+  it('drops aliases that only resolve on unconfigured providers', () => {
+    const aliases = { 'copilot-only': ['copilot/gpt-5*'] };
+    const configuredOnly = filterAvailableModelsToConfiguredProviders(
+      availableModels,
+      new Set(['anthropic']),
+    );
+    expect(filterResolvableAliases(aliases, configuredOnly)).not.toHaveProperty('copilot-only');
   });
 });
