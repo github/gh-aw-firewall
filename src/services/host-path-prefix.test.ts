@@ -41,6 +41,15 @@ describe('applyHostPathPrefixToVolumes', () => {
     expect(result).toEqual(['/host/data:/data']);
   });
 
+  it('translates already-prefixed runner paths when explicitly requested', () => {
+    const result = applyHostPathPrefixToVolumes(
+      ['/tmp/gh-aw:/tmp/gh-aw:rw'],
+      '/tmp/gh-aw',
+      { translateAlreadyPrefixedPaths: true },
+    );
+    expect(result).toEqual(['/tmp/gh-aw/tmp/gh-aw:/tmp/gh-aw:rw']);
+  });
+
   it('does not prefix /dev/null (security: credential hiding overlay)', () => {
     const result = applyHostPathPrefixToVolumes(['/dev/null:/secret/path:ro'], '/host');
     expect(result).toEqual(['/dev/null:/secret/path:ro']);

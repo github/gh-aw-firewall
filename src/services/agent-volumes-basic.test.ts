@@ -71,6 +71,22 @@ describe('agent service', () => {
     expect(volumes).not.toContain('/daemon-root/sys:/host/sys:ro');
   });
 
+  it('should translate the safeoutputs mount when its source equals dockerHostPathPrefix', () => {
+    const safeOutputsPath = '/tmp/gh-aw';
+    const result = generateDockerCompose(
+      {
+        ...getConfig(),
+        dockerHostPathPrefix: safeOutputsPath,
+        volumeMounts: [`${safeOutputsPath}:${safeOutputsPath}:rw`],
+      },
+      mockNetworkConfig,
+    );
+    const volumes = result.services.agent.volumes as string[];
+
+    expect(volumes).toContain('/tmp/gh-aw/tmp/gh-aw:/host/tmp/gh-aw:rw');
+    expect(volumes).not.toContain('/tmp/gh-aw:/host/tmp/gh-aw:rw');
+  });
+
   it('should mount chroot binaries source path at /host/tmp/awf-runner-bin', () => {
     const configWithBinariesOverlay = {
       ...getConfig(),

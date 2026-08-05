@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { logger } from '../../logger';
 import { WrapperConfig } from '../../types';
+import { applyHostPathPrefixToVolumes } from '../host-path-prefix';
 import {
   extractCommandBinaryName,
   shouldUseDockerHostStaging,
@@ -88,14 +89,26 @@ function isExecutableFile(candidate: string): boolean {
   }
 }
 
-export function buildCustomVolumeMounts(volumeMounts?: string[]): string[] {
+export function buildCustomVolumeMounts(
+  volumeMounts?: string[],
+  dockerHostPathPrefix?: string,
+): string[] {
   if (!volumeMounts || volumeMounts.length === 0) {
     return [];
   }
 
   logger.debug(`Adding ${volumeMounts.length} custom volume mount(s)`);
 
-  return volumeMounts.map(mount => {
+  // Custom mount sources always use the runner's filesystem view. Translate
+  // them even when a source already starts with the daemon-side prefix; this
+  // is required when both are /tmp/gh-aw in ARC/DinD safeoutputs workflows.
+  const translatedMounts = applyHostPathPrefixToVolumes(
+    volumeMounts,
+    dockerHostPathPrefix,
+    { translateAlreadyPrefixedPaths: true },
+  );
+
+  return translatedMounts.map((mount, index) => {
     const parts = mount.split(':');
     if (parts.length >= 2) {
       const hostPath = parts[0];
@@ -105,7 +118,7 @@ export function buildCustomVolumeMounts(volumeMounts?: string[]): string[] {
       const transformedMount = mode
         ? `${hostPath}:${chrootContainerPath}:${mode}`
         : `${hostPath}:${chrootContainerPath}`;
-      logger.debug(`Adding custom volume mount: ${mount} -> ${transformedMount} (chroot-adjusted)`);
+      logger.debug(`Adding custom volume mount: ${volumeMounts[index]} -> ${transformedMount} (chroot-adjusted)`);
       return transformedMount;
     }
 

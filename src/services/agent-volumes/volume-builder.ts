@@ -62,7 +62,7 @@ export function buildAgentVolumes(params: AgentVolumesParams): string[] {
   }
   agentVolumes.push(...buildDockerSocketMount(config));
   agentVolumes.push(...buildSslMounts(sslConfig));
-  agentVolumes.push(...buildCustomVolumeMounts(config.volumeMounts));
+  agentVolumes.push(...buildCustomVolumeMounts(config.volumeMounts, config.dockerHostPathPrefix));
 
   logger.debug('Using selective mounting for security (credential files hidden)');
 

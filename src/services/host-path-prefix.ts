@@ -27,7 +27,15 @@ function shouldPreserveUnprefixedEtcIdentityFile(hostPath: string, dockerHostPat
   );
 }
 
-function translateBindMountHostPath(mount: string, dockerHostPathPrefix: string): string {
+interface HostPathPrefixOptions {
+  translateAlreadyPrefixedPaths?: boolean;
+}
+
+function translateBindMountHostPath(
+  mount: string,
+  dockerHostPathPrefix: string,
+  options: HostPathPrefixOptions = {},
+): string {
   const parts = mount.split(':');
   if (parts.length < 2 || parts.length > 3) {
     return mount;
@@ -57,7 +65,10 @@ function translateBindMountHostPath(mount: string, dockerHostPathPrefix: string)
     return mount;
   }
 
-  if (hostPath === dockerHostPathPrefix || hostPath.startsWith(`${dockerHostPathPrefix}/`)) {
+  if (
+    !options.translateAlreadyPrefixedPaths
+    && (hostPath === dockerHostPathPrefix || hostPath.startsWith(`${dockerHostPathPrefix}/`))
+  ) {
     return mount;
   }
 
@@ -72,9 +83,13 @@ function translateBindMountHostPath(mount: string, dockerHostPathPrefix: string)
 // Returns the input unchanged when no prefix is set or the prefix normalises
 // to an empty string. Service builders call this at the end of their volume
 // list construction so the rewrite is consistent across the compose stack.
-export function applyHostPathPrefixToVolumes(volumes: string[], dockerHostPathPrefix: string | undefined): string[] {
+export function applyHostPathPrefixToVolumes(
+  volumes: string[],
+  dockerHostPathPrefix: string | undefined,
+  options: HostPathPrefixOptions = {},
+): string[] {
   if (!dockerHostPathPrefix) return volumes;
   const normalized = normalizeDockerHostPathPrefix(dockerHostPathPrefix);
   if (!normalized) return volumes;
-  return volumes.map(mount => translateBindMountHostPath(mount, normalized));
+  return volumes.map(mount => translateBindMountHostPath(mount, normalized, options));
 }
