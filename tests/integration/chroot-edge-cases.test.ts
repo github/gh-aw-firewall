@@ -209,8 +209,11 @@ describe('Chroot Edge Cases', () => {
       batch = await runBatch(runner, [
         // pivot_root - blocked in seccomp profile
         { name: 'pivot_root', command: 'mkdir -p /tmp/newroot /tmp/putold && pivot_root /tmp/newroot /tmp/putold 2>&1 || unshare --mount pivot_root /tmp/newroot /tmp/putold 2>&1' },
-        // mount after capability drop - mount syscall allowed in seccomp but CAP_SYS_ADMIN should be dropped
-        { name: 'mount_tmpfs', command: 'target=$(mktemp -d) && mount -t tmpfs tmpfs "$target" 2>&1' },
+        // Call mount directly so utility preflight checks cannot mask the capability denial.
+        {
+          name: 'mount_tmpfs',
+          command: `python3 -c 'import ctypes, os, sys, tempfile; target = tempfile.mkdtemp(); libc = ctypes.CDLL(None, use_errno=True); result = libc.mount(b"tmpfs", target.encode(), b"tmpfs", 0, None); error = ctypes.get_errno(); os.rmdir(target) if result != 0 else None; print(os.strerror(error)); sys.exit(0 if result == 0 else error)' 2>&1`,
+        },
         // unshare namespace creation - requires CAP_SYS_ADMIN
         { name: 'unshare_mount', command: 'unshare --mount /bin/true 2>&1' },
         // nsenter - requires CAP_SYS_ADMIN
