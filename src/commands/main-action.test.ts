@@ -107,6 +107,15 @@ describe('createMainAction', () => {
         'curl --fail --silent --show-error --noproxy "*" http://api-proxy:10000/reflect'
       );
       expect(mockedOptionParsers.joinShellArgs).not.toHaveBeenCalled();
+      expect(mockedCliWorkflow.runMainWorkflow).toHaveBeenCalledWith(
+        expect.objectContaining({
+          additionalEnv: expect.objectContaining({
+            AWF_COMMAND_STDOUT_ONLY: '1',
+          }),
+        }),
+        expect.anything(),
+        expect.anything(),
+      );
     });
   });
 

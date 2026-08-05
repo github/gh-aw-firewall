@@ -242,6 +242,12 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
   // Validate all options and assemble the config.
   // Calls process.exit(1) on any validation failure.
   const config = validateOptions(options as Record<string, unknown>, agentCommand);
+  if (reflect) {
+    config.additionalEnv = {
+      ...config.additionalEnv,
+      AWF_COMMAND_STDOUT_ONLY: '1',
+    };
+  }
 
   // Apply --docker-host override for AWF's own container operations.
   // This must be called before startContainers/stopContainers/runAgentCommand.

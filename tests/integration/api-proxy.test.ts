@@ -254,15 +254,13 @@ describe('API Proxy Sidecar', () => {
     expect(result.stdout).toContain('"copilot":true');
   }, 180000);
 
-  test('should exclude GITHUB_API_URL from agent when api-proxy is enabled (GHES fix)', async () => {
+  test('should preserve GITHUB_API_URL while routing Copilot through api-proxy', async () => {
     // On GHES, workflows set GITHUB_API_URL to the GHES API endpoint (e.g., https://api.ghes-host).
-    // When api-proxy is enabled, GITHUB_API_URL should NOT be passed to the agent container,
-    // because Copilot CLI would use it for Copilot API requests, which don't exist on GHES API.
-    // Instead, the agent should use COPILOT_API_URL pointing to the proxy, which correctly
-    // routes to api.enterprise.githubcopilot.com.
+    // The agent still needs that endpoint for GitHub API operations. Copilot-specific calls
+    // use COPILOT_API_URL, which points to the proxy and routes to the Copilot API.
     // See: github/gh-aw#20875
     const result = await runner.run(
-      'bash -c "if [ -z \\"$GITHUB_API_URL\\" ]; then echo GITHUB_API_URL_NOT_SET; else echo GITHUB_API_URL=$GITHUB_API_URL; fi"',
+      'bash -c "echo GITHUB_API_URL=$GITHUB_API_URL; echo COPILOT_API_URL=$COPILOT_API_URL"',
       {
         allowDomains: ['api.githubcopilot.com'],
         enableApiProxy: true,
@@ -278,9 +276,7 @@ describe('API Proxy Sidecar', () => {
     );
 
     expect(result).toSucceed();
-    // GITHUB_API_URL should NOT be set in agent container when api-proxy is enabled
-    expect(result.stdout).toContain('GITHUB_API_URL_NOT_SET');
-    // COPILOT_API_URL should point to the proxy instead
+    expect(result.stdout).toContain('GITHUB_API_URL=https://api.ghes-host.example.com');
     expect(result.stdout).toContain(`COPILOT_API_URL=http://${API_PROXY_IP}:10002`);
   }, 180000);
 

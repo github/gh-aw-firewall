@@ -2,6 +2,9 @@
 set -e
 
 configure_output_routing() {
+if [ "${AWF_COMMAND_STDOUT_ONLY:-}" != "1" ]; then
+  return
+fi
 # Keep entrypoint diagnostics off the command's stdout. File descriptor 3
 # preserves the original stdout exclusively for the user command.
 exec 3>&1
@@ -9,7 +12,11 @@ exec 1>&2
 }
 
 run_command_with_stdout() {
-"$@" >&3 3>&-
+if [ "${AWF_COMMAND_STDOUT_ONLY:-}" = "1" ]; then
+  "$@" >&3 3>&-
+else
+  "$@"
+fi
 }
 
 print_banner() {
