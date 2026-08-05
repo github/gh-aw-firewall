@@ -340,6 +340,7 @@ describe('assertPrimaryRuntimeAvailable', () => {
     ['gvisor', 'gvisor'],
     ['runsc', 'gvisor'],
     ['sbx', 'sbx'],
+    ['kata', 'custom'],
   ] as const)('accepts an available %s primary backend (%s)', async (runtime, _backend) => {
     await expect(assertPrimaryRuntimeAvailable(
       runtime,
