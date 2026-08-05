@@ -54,6 +54,16 @@ describe('createOidcRuntimeAdapterMethods', () => {
     expect(methods.getOidcProvider()).toEqual({ isReady: expect.any(Function) });
     expect(methods.getAwsOidcProvider()).toEqual({ isReady: expect.any(Function) });
   });
+
+  it('is disabled while selected OIDC auth is pending even when a static key exists', () => {
+    const methods = createOidcRuntimeAdapterMethods({
+      staticAuthToken: 'static-token',
+      oidcProvider: { isReady: () => false },
+      awsOidcProvider: null,
+    });
+
+    expect(methods.isEnabled()).toBe(false);
+  });
 });
 
 describe('resolveOidcAuthHeaders', () => {

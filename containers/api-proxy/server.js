@@ -104,19 +104,15 @@ const { createAllAdapters } = require('./providers');
  * run. Alias resolution must never steer a request to a provider that reports
  * `configured: false` — every such call fails with `provider_not_configured`.
  */
-function getConfiguredModelCacheKeys() {
+function getConfiguredModelCacheKeys(adapters = registeredAdapters) {
   const keys = new Set();
-  for (const adapter of registeredAdapters) {
-    if (!adapter.isEnabled()) continue;
-    const cacheKey = adapter.getReflectionInfo().models_cache_key;
+  for (const adapter of adapters) {
+    const reflection = adapter.getReflectionInfo();
+    if (!reflection.configured) continue;
+    const cacheKey = reflection.models_cache_key;
     if (cacheKey) keys.add(cacheKey);
   }
   return keys;
-}
-
-/** Cached models restricted to configured provider slots. */
-function getResolvableModels() {
-  return filterAvailableModelsToConfiguredProviders(cachedModels, getConfiguredModelCacheKeys());
 }
 
 function makeModelBodyTransform(provider) {
@@ -150,7 +146,14 @@ const { healthResponse, reflectEndpoints, handleManagementEndpoint } = createMan
   httpsProxy: HTTPS_PROXY,
   getModelAliases: () => {
     if (!MODEL_ALIASES) return null;
-    return { models: filterResolvableAliases(MODEL_ALIASES.models, getResolvableModels()) };
+    const configuredProviders = getConfiguredModelCacheKeys();
+    return {
+      models: filterResolvableAliases(
+        MODEL_ALIASES.models,
+        filterAvailableModelsToConfiguredProviders(cachedModels, configuredProviders),
+        configuredProviders,
+      ),
+    };
   },
   getModelFallback: () => MODEL_FALLBACK,
   getEffectiveModelFallback: () => getEffectiveModelFallbackForReflect(registeredAdapters),
@@ -162,16 +165,26 @@ const { healthResponse, reflectEndpoints, handleManagementEndpoint } = createMan
 });
 
 function buildModelsJson() {
-  const filteredAliases = MODEL_ALIASES
-    ? { models: filterResolvableAliases(MODEL_ALIASES.models, getResolvableModels()) }
-    : null;
+  const configuredProviders = getConfiguredModelCacheKeys();
+  const filteredAliases = MODEL_ALIASES ? {
+    models: filterResolvableAliases(
+      MODEL_ALIASES.models,
+      filterAvailableModelsToConfiguredProviders(cachedModels, configuredProviders),
+      configuredProviders,
+    ),
+  } : null;
   return _buildModelsJson(registeredAdapters, cachedModels, filteredAliases, getRuntimeCatalogSnapshot());
 }
 
 function writeModelsJson(logDir) {
-  const filteredAliases = MODEL_ALIASES
-    ? { models: filterResolvableAliases(MODEL_ALIASES.models, getResolvableModels()) }
-    : null;
+  const configuredProviders = getConfiguredModelCacheKeys();
+  const filteredAliases = MODEL_ALIASES ? {
+    models: filterResolvableAliases(
+      MODEL_ALIASES.models,
+      filterAvailableModelsToConfiguredProviders(cachedModels, configuredProviders),
+      configuredProviders,
+    ),
+  } : null;
   const modelsJson = _buildModelsJson(
     registeredAdapters,
     cachedModels,
@@ -233,6 +246,7 @@ module.exports = {
   healthResponse,
   buildModelsJson,
   writeModelsJson,
+  getConfiguredModelCacheKeys,
   extractBillingHeaders,
   createProviderServer,
 };

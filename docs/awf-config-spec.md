@@ -1358,14 +1358,21 @@ for the run. Before an alias is expanded (and before aliases are advertised via
 `copilot/*sonnet*` therefore yields no candidate when no Copilot credential is
 present, even if a model list was cached earlier in the run.
 
+Configuration is determined from each provider's reflected `configured` slot,
+not from request readiness. A configured OIDC provider remains eligible while
+its token is being minted. When configured providers have no model catalogue
+yet, aliases scoped only to unconfigured providers are still omitted, while
+aliases that can target a configured provider remain advertised until model
+data is available.
+
 Without this filter, a Copilot-first alias group would steer every request to a
 slot that answers `provider_not_configured`, producing a 100% call-failure rate
 and, for retry-happy clients, a non-terminating retry loop.
 
 A `provider_not_configured` response is a terminal run-level misconfiguration:
 it is returned with HTTP `403` and `"retryable": false` so clients fail fast.
-The only exception is a transient state such as an OIDC token that has not been
-minted yet, which keeps HTTP `503` and `"retryable": true`.
+Only transient OIDC readiness states, such as a token that has not been minted
+yet, use HTTP `503` and `"retryable": true`.
 
 ## 13. Model Alias Logging
 

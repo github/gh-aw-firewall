@@ -4,7 +4,16 @@
  * Extracted from server.test.js during test-file refactoring.
  */
 
-const { cachedModels, resetModelCacheState, makeModelBodyTransform, MODEL_ALIASES, buildModelsJson, writeModelsJson } = require('./server');
+const {
+  cachedModels,
+  resetModelCacheState,
+  makeModelBodyTransform,
+  MODEL_ALIASES,
+  buildModelsJson,
+  writeModelsJson,
+  getConfiguredModelCacheKeys,
+} = require('./server');
+const { buildModelsJson: buildModelsPayload } = require('./model-discovery');
 const { composeBodyTransforms } = require('./proxy-utils');
 
 describe('makeModelBodyTransform', () => {
@@ -170,10 +179,12 @@ describe('makeModelBodyTransform', () => {
     const prevDebugTokens = process.env.AWF_DEBUG_TOKENS;
     const prevLogDir = process.env.AWF_TOKEN_LOG_DIR;
     const prevAliases = process.env.AWF_MODEL_ALIASES;
+    const prevCopilotToken = process.env.COPILOT_GITHUB_TOKEN;
 
     process.env.AWF_DEBUG_TOKENS = '1';
     process.env.AWF_TOKEN_LOG_DIR = tmpDir;
     process.env.AWF_MODEL_ALIASES = JSON.stringify({ models: { sonnet: ['copilot/*sonnet*'] } });
+    process.env.COPILOT_GITHUB_TOKEN = 'test-token';
 
     let isolatedServer;
     let tokenPersistence;
@@ -221,6 +232,8 @@ describe('makeModelBodyTransform', () => {
 
       if (prevAliases === undefined) delete process.env.AWF_MODEL_ALIASES;
       else process.env.AWF_MODEL_ALIASES = prevAliases;
+      if (prevCopilotToken === undefined) delete process.env.COPILOT_GITHUB_TOKEN;
+      else process.env.COPILOT_GITHUB_TOKEN = prevCopilotToken;
 
       try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* ignore */ }
     }
@@ -229,8 +242,10 @@ describe('makeModelBodyTransform', () => {
   it('emits model_fallback_activated and model_fallback_candidates logs when middle fallback is used', async () => {
     const prevAliases = process.env.AWF_MODEL_ALIASES;
     const prevFallback = process.env.AWF_MODEL_FALLBACK;
+    const prevOpenAiKey = process.env.OPENAI_API_KEY;
     process.env.AWF_MODEL_ALIASES = JSON.stringify({ models: { sonnet: ['openai/*sonnet*'] } });
     process.env.AWF_MODEL_FALLBACK = JSON.stringify({ enabled: true, strategy: 'middle_power' });
+    process.env.OPENAI_API_KEY = 'test-key';
 
     const stdoutSpy = jest.spyOn(process.stdout, 'write').mockImplementation(() => true);
 
@@ -261,14 +276,18 @@ describe('makeModelBodyTransform', () => {
       else process.env.AWF_MODEL_ALIASES = prevAliases;
       if (prevFallback === undefined) delete process.env.AWF_MODEL_FALLBACK;
       else process.env.AWF_MODEL_FALLBACK = prevFallback;
+      if (prevOpenAiKey === undefined) delete process.env.OPENAI_API_KEY;
+      else process.env.OPENAI_API_KEY = prevOpenAiKey;
     }
   });
 
   it('emits model_fallback_skipped log when normal resolution succeeds', async () => {
     const prevAliases = process.env.AWF_MODEL_ALIASES;
     const prevFallback = process.env.AWF_MODEL_FALLBACK;
+    const prevOpenAiKey = process.env.OPENAI_API_KEY;
     process.env.AWF_MODEL_ALIASES = JSON.stringify({ models: { sonnet: ['openai/*sonnet*'] } });
     process.env.AWF_MODEL_FALLBACK = JSON.stringify({ enabled: true, strategy: 'middle_power' });
+    process.env.OPENAI_API_KEY = 'test-key';
 
     const stdoutSpy = jest.spyOn(process.stdout, 'write').mockImplementation(() => true);
 
@@ -298,6 +317,8 @@ describe('makeModelBodyTransform', () => {
       else process.env.AWF_MODEL_ALIASES = prevAliases;
       if (prevFallback === undefined) delete process.env.AWF_MODEL_FALLBACK;
       else process.env.AWF_MODEL_FALLBACK = prevFallback;
+      if (prevOpenAiKey === undefined) delete process.env.OPENAI_API_KEY;
+      else process.env.OPENAI_API_KEY = prevOpenAiKey;
     }
   });
 
@@ -410,6 +431,7 @@ describe('buildModelsJson', () => {
     // This test requires an isolated module with specific AWF_MODEL_ALIASES config.
     const prevAliases = process.env.AWF_MODEL_ALIASES;
     const prevFallback = process.env.AWF_MODEL_FALLBACK;
+    const prevCopilotToken = process.env.COPILOT_GITHUB_TOKEN;
     process.env.AWF_MODEL_ALIASES = JSON.stringify({
       models: {
         sonnet: ['copilot/*sonnet*'],
@@ -417,6 +439,7 @@ describe('buildModelsJson', () => {
       },
     });
     process.env.AWF_MODEL_FALLBACK = JSON.stringify({ enabled: false });
+    process.env.COPILOT_GITHUB_TOKEN = 'test-token';
 
     try {
       let isolatedServer;
@@ -436,17 +459,21 @@ describe('buildModelsJson', () => {
       else process.env.AWF_MODEL_ALIASES = prevAliases;
       if (prevFallback === undefined) delete process.env.AWF_MODEL_FALLBACK;
       else process.env.AWF_MODEL_FALLBACK = prevFallback;
+      if (prevCopilotToken === undefined) delete process.env.COPILOT_GITHUB_TOKEN;
+      else process.env.COPILOT_GITHUB_TOKEN = prevCopilotToken;
     }
   });
 
   it('should keep all model_aliases when no provider has model data yet', () => {
     const prevAliases = process.env.AWF_MODEL_ALIASES;
+    const prevCopilotToken = process.env.COPILOT_GITHUB_TOKEN;
     process.env.AWF_MODEL_ALIASES = JSON.stringify({
       models: {
         sonnet: ['copilot/*sonnet*'],
         'no-match': ['copilot/nonexistent-model'],
       },
     });
+    process.env.COPILOT_GITHUB_TOKEN = 'test-token';
 
     try {
       let isolatedServer;
@@ -462,9 +489,71 @@ describe('buildModelsJson', () => {
     } finally {
       if (prevAliases === undefined) delete process.env.AWF_MODEL_ALIASES;
       else process.env.AWF_MODEL_ALIASES = prevAliases;
+      if (prevCopilotToken === undefined) delete process.env.COPILOT_GITHUB_TOKEN;
+      else process.env.COPILOT_GITHUB_TOKEN = prevCopilotToken;
     }
   });
 
+  it('filters aliases by configured reflection slots before model data is available', () => {
+    const previous = {
+      aliases: process.env.AWF_MODEL_ALIASES,
+      anthropicKey: process.env.ANTHROPIC_API_KEY,
+    };
+    process.env.AWF_MODEL_ALIASES = JSON.stringify({
+      models: {
+        'copilot-only': ['copilot/*sonnet*'],
+        'anthropic-only': ['anthropic/*sonnet*'],
+      },
+    });
+    process.env.ANTHROPIC_API_KEY = 'test-key';
+
+    try {
+      let isolatedServer;
+      jest.isolateModules(() => { isolatedServer = require('./server'); });
+      isolatedServer.resetModelCacheState();
+
+      expect(isolatedServer.buildModelsJson().model_aliases).toEqual({
+        'anthropic-only': ['anthropic/*sonnet*'],
+      });
+    } finally {
+      if (previous.aliases === undefined) delete process.env.AWF_MODEL_ALIASES;
+      else process.env.AWF_MODEL_ALIASES = previous.aliases;
+      if (previous.anthropicKey === undefined) delete process.env.ANTHROPIC_API_KEY;
+      else process.env.ANTHROPIC_API_KEY = previous.anthropicKey;
+    }
+  });
+
+});
+
+describe('getConfiguredModelCacheKeys', () => {
+  it('uses reflected configuration rather than transient adapter readiness', () => {
+    const pendingOidcAdapter = {
+      isEnabled: () => false,
+      getReflectionInfo: () => ({
+        configured: true,
+        models_cache_key: 'copilot',
+      }),
+    };
+
+    expect(getConfiguredModelCacheKeys([pendingOidcAdapter])).toEqual(new Set(['copilot']));
+  });
+});
+
+describe('model discovery configuration', () => {
+  it('reports reflected OIDC configuration while the token is still pending', () => {
+    const pendingOidcAdapter = {
+      name: 'copilot',
+      isEnabled: () => false,
+      getTargetHost: () => 'api.githubcopilot.com',
+      getReflectionInfo: () => ({
+        configured: true,
+        models_cache_key: 'copilot',
+      }),
+    };
+
+    expect(buildModelsPayload([pendingOidcAdapter], { copilot: null }, null).providers.copilot)
+      .toMatchObject({ configured: true, models: null });
+  });
 });
 
 // ── writeModelsJson ────────────────────────────────────────────────────────

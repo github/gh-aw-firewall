@@ -156,7 +156,7 @@ function createAnthropicAdapter(env, deps = {}) {
         ...resolveHeaders(),
         'anthropic-version': '2023-06-01',
       }),
-      reflectionConfigured: !!apiKey || oidcRequested,
+      reflectionConfigured: !!apiKey || oidcConfigured,
       reflectionExtra: () => ({
         auth_type: oidcRequested ? 'github-oidc/anthropic' : 'static-key',
       }),
@@ -176,9 +176,9 @@ function createAnthropicAdapter(env, deps = {}) {
         },
         unconfiguredResponseWhen: () => (oidcRequested
           ? {
-              kind: 'plain_error',
-              statusCode: 503,
+              kind: 'provider_not_configured',
               message: oidcUnavailableError,
+              retryable: oidcConfigured,
             }
           : null),
         healthServiceName: 'awf-api-proxy-anthropic',

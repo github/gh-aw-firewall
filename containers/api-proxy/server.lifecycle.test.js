@@ -590,7 +590,15 @@ describe('provider adapter alwaysBind', () => {
     expect(adapter.getReflectionInfo().auth_type).toBe('github-oidc/anthropic');
     expect(adapter.getUnconfiguredResponse()).toEqual({
       statusCode: 503,
-      body: { error: 'Anthropic OIDC token unavailable; retry shortly' },
+      body: {
+        error: {
+          message: 'Anthropic OIDC token unavailable; retry shortly',
+          type: 'provider_not_configured',
+          provider: 'anthropic',
+          port: 10001,
+          retryable: true,
+        },
+      },
     });
     expect(adapter.getUnconfiguredHealthResponse()).toEqual({
       statusCode: 503,
@@ -612,14 +620,20 @@ describe('provider adapter alwaysBind', () => {
 
     expect(adapter.getOidcProvider()).toBeNull();
     expect(adapter.isEnabled()).toBe(false);
-    expect(adapter.getReflectionInfo().configured).toBe(true);
+    expect(adapter.getReflectionInfo().configured).toBe(false);
     expect(adapter.getReflectionInfo().auth_type).toBe('github-oidc/anthropic');
     expect(adapter.getValidationProbe()).toBeNull();
     expect(adapter.getModelsFetchConfig()).toBeNull();
     expect(adapter.getUnconfiguredResponse()).toEqual({
-      statusCode: 503,
+      statusCode: 403,
       body: {
-        error: 'Anthropic OIDC requires ACTIONS_ID_TOKEN_REQUEST_URL and ACTIONS_ID_TOKEN_REQUEST_TOKEN (permissions: id-token: write).',
+        error: {
+          message: 'Anthropic OIDC requires ACTIONS_ID_TOKEN_REQUEST_URL and ACTIONS_ID_TOKEN_REQUEST_TOKEN (permissions: id-token: write).',
+          type: 'provider_not_configured',
+          provider: 'anthropic',
+          port: 10001,
+          retryable: false,
+        },
       },
     });
     expect(adapter.getUnconfiguredHealthResponse()).toEqual({

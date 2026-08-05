@@ -106,9 +106,9 @@ function createOpenAIAdapter(env, deps = {}) {
       },
       unconfiguredResponseWhen: () => (oidcConfigured
         ? {
-            kind: 'plain_error',
-            statusCode: 503,
+            kind: 'provider_not_configured',
             message: 'OpenAI OIDC token unavailable; retry shortly',
+            retryable: true,
           }
         : null),
       extra: {

@@ -906,8 +906,11 @@ describe('filterAvailableModelsToConfiguredProviders', () => {
     expect(filterAvailableModelsToConfiguredProviders(availableModels, undefined)).toBe(availableModels);
   });
 
-  it('returns the map unchanged when no provider is reported as configured', () => {
-    expect(filterAvailableModelsToConfiguredProviders(availableModels, new Set())).toBe(availableModels);
+  it('blanks every model list when no provider is configured', () => {
+    expect(filterAvailableModelsToConfiguredProviders(availableModels, new Set())).toEqual({
+      copilot: null,
+      anthropic: null,
+    });
   });
 
   it('prevents alias resolution from steering to an unconfigured provider', () => {
@@ -934,5 +937,49 @@ describe('filterAvailableModelsToConfiguredProviders', () => {
       new Set(['anthropic']),
     );
     expect(filterResolvableAliases(aliases, configuredOnly)).not.toHaveProperty('copilot-only');
+  });
+
+  it('drops disabled-provider aliases before configured provider models are fetched', () => {
+    const aliases = {
+      'copilot-only': ['copilot/gpt-5*'],
+      'anthropic-only': ['anthropic/*sonnet*'],
+      default: ['anthropic-only'],
+    };
+    const noModelData = filterAvailableModelsToConfiguredProviders(
+      { copilot: ['stale-model'], anthropic: null },
+      new Set(['anthropic']),
+    );
+
+    expect(filterResolvableAliases(aliases, noModelData, new Set(['anthropic']))).toEqual({
+      'anthropic-only': aliases['anthropic-only'],
+      default: aliases.default,
+    });
+  });
+
+  it('keeps aliases for configured providers whose model catalogue is still pending', () => {
+    const aliases = {
+      'openai-model': ['openai/gpt-*'],
+      'anthropic-model': ['anthropic/claude-*'],
+      'copilot-model': ['copilot/gpt-*'],
+    };
+    const configured = new Set(['openai', 'anthropic']);
+    const models = filterAvailableModelsToConfiguredProviders({
+      openai: ['gpt-5.4'],
+      anthropic: null,
+      copilot: ['stale-model'],
+    }, configured);
+
+    expect(filterResolvableAliases(aliases, models, configured)).toEqual({
+      'openai-model': aliases['openai-model'],
+      'anthropic-model': aliases['anthropic-model'],
+    });
+  });
+
+  it('drops all provider aliases when no provider is configured', () => {
+    expect(filterResolvableAliases(
+      { sonnet: ['copilot/*sonnet*'], default: ['sonnet'] },
+      { copilot: null },
+      new Set(),
+    )).toEqual({});
   });
 });

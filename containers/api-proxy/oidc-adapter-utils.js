@@ -56,7 +56,10 @@ function validateAuthHeaderEnv(envVarName, rawValue, defaultHeader) {
 function createOidcRuntimeAdapterMethods({ staticAuthToken, oidcProvider, awsOidcProvider }) {
   return {
     isEnabled() {
-      return !!staticAuthToken || !!oidcProvider?.isReady() || !!awsOidcProvider?.isReady();
+      if (oidcProvider || awsOidcProvider) {
+        return !!oidcProvider?.isReady() || !!awsOidcProvider?.isReady();
+      }
+      return !!staticAuthToken;
     },
     getOidcProvider() { return oidcProvider; },
     getAwsOidcProvider() { return awsOidcProvider; },

@@ -620,6 +620,18 @@ describe('Auth Matrix — isEnabled with OIDC', () => {
       AWF_AUTH_AZURE_CLIENT_ID: 'client',
     });
     expect(adapter.isEnabled()).toBe(false);
+    expect(adapter.getUnconfiguredResponse()).toEqual({
+      statusCode: 503,
+      body: {
+        error: {
+          message: 'OpenAI OIDC token unavailable; retry shortly',
+          type: 'provider_not_configured',
+          provider: 'openai',
+          port: 10000,
+          retryable: true,
+        },
+      },
+    });
     adapter.getOidcProvider().shutdown();
   });
 

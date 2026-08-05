@@ -228,7 +228,7 @@ function buildModelsJson(adapters, cachedModels, modelAliases, runtimeModelMetad
   for (const adapter of adapters) {
     const info = adapter.getReflectionInfo();
     providers[adapter.name] = {
-      configured: adapter.isEnabled(),
+      configured: info.configured,
       models: info.models_cache_key !== null
         ? (cachedModels[info.models_cache_key] !== undefined ? cachedModels[info.models_cache_key] : null)
         : null,
