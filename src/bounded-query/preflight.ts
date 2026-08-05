@@ -1,6 +1,13 @@
 import execa from 'execa';
-import { getLocalDockerEnv } from '../host-env';
 import type { BoundedQueriesConfig, WrapperConfig } from '../types';
+import {
+  defaultDockerAvailabilityQuery,
+  defaultDockerRuntimeQuery,
+  defaultSbxAvailabilityQuery,
+  type DockerAvailabilityQuery,
+  type DockerRuntimeQuery,
+  type SbxAvailabilityQuery,
+} from '../bounded-execution/runtime-probes';
 import { normalizeRepoKey } from './paths';
 import { MAX_QUERY_TIMEOUT_SECONDS, BOUNDED_QUERY_REPO_PATTERN } from './protocol';
 import { resolveStagingToken } from './staging';
@@ -24,12 +31,11 @@ const SUPPORTED_QUERY_RUNTIMES = new Set(['docker', 'gvisor', 'sbx']);
 /** Docker OCI runtime name required for the `gvisor` query runtime. */
 const GVISOR_DOCKER_RUNTIME = 'runsc';
 
-/** Detects whether the Docker daemon exposes a named OCI runtime. */
-export type DockerRuntimeQuery = (runtimeName: string) => Promise<boolean>;
-/** Detects whether the Docker daemon required by a primary/query backend is reachable. */
-export type DockerAvailabilityQuery = () => Promise<boolean>;
-/** Detects whether the sbx primary-agent runtime is installed and authenticated. */
-export type SbxAvailabilityQuery = () => Promise<boolean>;
+export type {
+  DockerAvailabilityQuery,
+  DockerRuntimeQuery,
+  SbxAvailabilityQuery,
+} from '../bounded-execution/runtime-probes';
 
 export interface SbxCapabilityReport {
   supported: boolean;
@@ -78,46 +84,6 @@ async function assertRuntimeAvailability(
       throw new Error(`Unreachable runtime case: ${runtimeCase satisfies never}`);
   }
 }
-
-const defaultDockerRuntimeQuery: DockerRuntimeQuery = async (runtimeName) => {
-  const result = await execa('docker', ['info', '--format', '{{json .Runtimes}}'], {
-    env: getLocalDockerEnv(),
-    reject: false,
-    timeout: 30_000,
-  });
-  if (result.exitCode !== 0) return false;
-  try {
-    const runtimes = JSON.parse(result.stdout) as Record<string, unknown>;
-    return Object.prototype.hasOwnProperty.call(runtimes, runtimeName);
-  } catch {
-    return false;
-  }
-};
-
-const defaultDockerAvailabilityQuery: DockerAvailabilityQuery = async () => {
-  const result = await execa('docker', ['info', '--format', '{{.ServerVersion}}'], {
-    env: getLocalDockerEnv(),
-    reject: false,
-    timeout: 30_000,
-  });
-  return result.exitCode === 0;
-};
-
-const defaultSbxAvailabilityQuery: SbxAvailabilityQuery = async () => {
-  try {
-    const managementEnv = { ...process.env };
-    delete managementEnv.DOCKER_SANDBOXES_PROXY;
-    delete managementEnv.XDG_CONFIG_HOME;
-    const result = await execa('sbx', ['ls'], {
-      reject: false,
-      timeout: 10_000,
-      env: managementEnv,
-    });
-    return result.exitCode === 0;
-  } catch {
-    return false;
-  }
-};
 
 const SBX_AUDITED_VERSION = '0.37.1';
 const SBX_REQUIRED_CREATE_FLAGS = [

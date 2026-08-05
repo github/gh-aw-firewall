@@ -1,6 +1,12 @@
-import execa from 'execa';
-import { getLocalDockerEnv } from '../host-env';
 import type { BoundedAgentsConfig, WrapperConfig } from '../types';
+import {
+  defaultDockerAvailabilityQuery,
+  defaultDockerRuntimeQuery,
+  defaultSbxAvailabilityQuery,
+  type DockerAvailabilityQuery,
+  type DockerRuntimeQuery,
+  type SbxAvailabilityQuery,
+} from '../bounded-execution/runtime-probes';
 import { normalizeRepoKey } from './paths';
 import {
   BOUNDED_AGENT_REPO_PATTERN,
@@ -52,60 +58,11 @@ const IMPLEMENTED_ENGINES = new Set(['copilot']);
 /** Docker OCI runtime name required for the `gvisor` enclave runtime. */
 const GVISOR_DOCKER_RUNTIME = 'runsc';
 
-/** Detects whether the Docker daemon exposes a named OCI runtime. */
-export type DockerRuntimeQuery = (runtimeName: string) => Promise<boolean>;
-
-/** Detects whether the Docker daemon required by the enclave backend is reachable. */
-export type DockerAvailabilityQuery = () => Promise<boolean>;
-
-/** Detects whether the sbx primary-agent runtime is installed and authenticated. */
-export type SbxAvailabilityQuery = () => Promise<boolean>;
-
-const defaultDockerRuntimeQuery: DockerRuntimeQuery = async (runtimeName) => {
-  const result = await execa('docker', ['info', '--format', '{{json .Runtimes}}'], {
-    env: getLocalDockerEnv(),
-    reject: false,
-    timeout: 30_000,
-  });
-  if (result.exitCode !== 0) return false;
-  try {
-    const runtimes = JSON.parse(result.stdout) as Record<string, unknown>;
-    return Object.prototype.hasOwnProperty.call(runtimes, runtimeName);
-  } catch {
-    return false;
-  }
-};
-
-const defaultDockerAvailabilityQuery: DockerAvailabilityQuery = async () => {
-  const result = await execa('docker', ['info', '--format', '{{.ServerVersion}}'], {
-    env: getLocalDockerEnv(),
-    reject: false,
-    timeout: 30_000,
-  });
-  return result.exitCode === 0;
-};
-
-/**
- * Executes the minimum host-side primary-agent capability proof for sbx: an
- * authenticated, non-mutating `sbx ls`. This is deliberately narrower than
- * {@link defaultBoundedAgentSbxCapabilityQuery}, which proves the *enclave*
- * axis; the primary axis only needs to know the CLI/daemon is reachable.
- */
-const defaultSbxAvailabilityQuery: SbxAvailabilityQuery = async () => {
-  try {
-    const managementEnv = { ...process.env };
-    delete managementEnv.DOCKER_SANDBOXES_PROXY;
-    delete managementEnv.XDG_CONFIG_HOME;
-    const result = await execa('sbx', ['ls'], {
-      reject: false,
-      timeout: 10_000,
-      env: managementEnv,
-    });
-    return result.exitCode === 0;
-  } catch {
-    return false;
-  }
-};
+export type {
+  DockerAvailabilityQuery,
+  DockerRuntimeQuery,
+  SbxAvailabilityQuery,
+} from '../bounded-execution/runtime-probes';
 
 type PrimaryRuntimeCase = 'sbx' | 'docker' | 'gvisor' | 'custom' | 'default-docker';
 
