@@ -10,7 +10,7 @@ const { sanitizeForLog, logRequest } = require('./logging');
 const { diag } = require('./token-persistence');
 const { getCopilotModelFallbackPolicy } = require('./providers/copilot-auth');
 const { ALLOWED_MODELS, DISALLOWED_MODELS } = require('./guards/model-policy-guard');
-const { checkUnknownModelRejection } = require('./guards/ai-credits-guard');
+const { isModelPriceable } = require('./guards/ai-credits-guard');
 
 const MODEL_ALIASES_RAW = (process.env.AWF_MODEL_ALIASES || '').trim() || undefined;
 const MODEL_ALIASES = parseModelAliases(MODEL_ALIASES_RAW);
@@ -86,7 +86,7 @@ logRequest('info', 'startup', {
 function makeIsModelPriceable(provider) {
   if (!process.env.AWF_MAX_AI_CREDITS) return null;
   if (process.env.AWF_DEFAULT_AI_CREDITS_PRICING) return null;
-  return (model) => checkUnknownModelRejection(model, provider) === null;
+  return (model) => isModelPriceable(model, provider);
 }
 
 function getModelFallbackPolicyForProvider(provider) {

@@ -1039,7 +1039,7 @@ describe('cross-provider alias fan-out', () => {
     expect(result.fallback.activated).toBe(true);
   });
 
-  it('marks fallback activated when only synthesized candidates exist', () => {
+  it('yields no candidate when every nested alias targets another provider', () => {
     const aliases = {
       onlyremote: ['haiku', 'gemini-flash-lite'],
       haiku: ['copilot/*haiku*', 'anthropic/*haiku*'],
@@ -1047,6 +1047,34 @@ describe('cross-provider alias fan-out', () => {
     };
     const result = resolveModel('onlyremote', aliases, { openai: openaiCatalog }, 'openai');
     expect(result).toBeNull();
+  });
+
+  it('marks fallback activated when only synthesized candidates exist', () => {
+    // The nested alias DOES name the current provider, so it is eligible for
+    // middle-power fallback — its pattern simply matches nothing. The parent then
+    // has no genuine candidate and must fall through to the synthesized one.
+    const aliases = {
+      parent: ['missing-on-openai'],
+      'missing-on-openai': ['openai/no-such-model-*'],
+    };
+    const result = resolveModel('parent', aliases, { openai: openaiCatalog }, 'openai');
+    expect(result).not.toBeNull();
+    expect(result.fallback.activated).toBe(true);
+    expect(result.fallback.reason).toBe('no_alias_match_and_not_in_available_models');
+  });
+
+  it('prefers a genuine match over a synthesized one from a sibling pattern', () => {
+    // One child synthesizes (names openai, matches nothing); the other matches for real.
+    const aliases = {
+      parent: ['missing-on-openai', 'gpt-5-nano'],
+      'missing-on-openai': ['openai/no-such-model-*'],
+      'gpt-5-nano': ['openai/gpt-5*nano*'],
+    };
+    const result = resolveModel('parent', aliases, { openai: openaiCatalog }, 'openai');
+    expect(result).not.toBeNull();
+    expect(result.resolvedModel).toBe('gpt-5-nano-2025-08-07');
+    expect(result.fallback.activated).toBe(false);
+    expect(result.log.some(l => l.includes('ignoring 1 synthesized fallback candidate'))).toBe(true);
   });
 });
 
