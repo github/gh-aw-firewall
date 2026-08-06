@@ -57,6 +57,11 @@ function createBroker(params) {
   const clock = params.clock || createRealClock();
   const ledger = params.ledger || createLedger(seedMap);
   const telemetry = params.telemetry || { emit() {} };
+  const executorKind = params.executorKind || 'script';
+  const uniformTiming = params.uniformTiming === true;
+  if (executorKind !== 'script' && executorKind !== 'agent') {
+    throw new Error('createBroker requires a known executor kind');
+  }
 
   let invocationsUsed = 0;
   let tail = Promise.resolve();
@@ -81,18 +86,25 @@ function createBroker(params) {
    */
   async function execute(request, respond) {
     const invocationId = crypto.randomBytes(12).toString('hex');
+    const admissionStartMs = uniformTiming ? clock.nowMs() : undefined;
     let responded = false;
     const safeRespond = (json) => {
       if (responded) return;
       responded = true;
       respond(json);
     };
+    const rejectBeforeExecution = async (reason, detail, telemetryCategory = reason) => {
+      audit.failure(invocationId, reason, detail);
+      emitQueryTelemetry(telemetryCategory);
+      if (admissionStartMs !== undefined) {
+        await waitForBucket(admissionStartMs, clock.nowMs() - admissionStartMs, clock);
+      }
+      safeRespond(CANONICAL_ERROR_JSON);
+    };
 
     const validation = validateBoundedQueryRequest(request);
     if (!validation.valid) {
-      audit.failure(invocationId, 'invalid-request', validation.errors.join('; '));
-      emitQueryTelemetry('invalid-request');
-      safeRespond(CANONICAL_ERROR_JSON);
+      await rejectBeforeExecution('invalid-request', validation.errors.join('; '));
       return;
     }
     const { privateRepo, schema, script } = validation.request;
@@ -100,9 +112,7 @@ function createBroker(params) {
 
     const seed = seedMap.get(repoKey);
     if (!seed) {
-      audit.failure(invocationId, 'repo-not-allowed', privateRepo);
-      emitQueryTelemetry('repo-not-allowed');
-      safeRespond(CANONICAL_ERROR_JSON);
+      await rejectBeforeExecution('repo-not-allowed', privateRepo);
       return;
     }
 
@@ -111,10 +121,8 @@ function createBroker(params) {
     // different schema; there is no separate per-query cap — only whether
     // this charge fits the repository's remaining run balance.
     const charge = queryBitsForSchema(schema);
-    if (!ledger.tryDebit(repoKey, charge)) {
-      audit.failure(invocationId, 'bit-budget-exhausted', `repo=${privateRepo} charge=${charge}`);
-      emitQueryTelemetry('bit-budget-exhausted');
-      safeRespond(CANONICAL_ERROR_JSON);
+    if (!ledger.tryDebit(repoKey, charge, executorKind)) {
+      await rejectBeforeExecution('bit-budget-exhausted', `repo=${privateRepo} charge=${charge}`);
       return;
     }
 
@@ -122,7 +130,7 @@ function createBroker(params) {
     // response must be time-bucketed: workspace creation and query
     // execution both run against secret repository content, so their
     // latency alone is a signal.
-    const startMs = clock.nowMs();
+    const startMs = admissionStartMs ?? clock.nowMs();
 
     let layout;
     let failureReason;
@@ -151,7 +159,7 @@ function createBroker(params) {
           } else if (run.exitCode !== 0) {
             failureReason = ['non-zero-exit', `exit=${run.exitCode}`];
           } else {
-            const raw = workspace.readQueryOutput(layout.outPath);
+            const raw = workspace.readQueryOutput(layout.outPath, config.maxOutputBytes);
             if (raw === undefined) {
               // Covers a missing file, an oversized file, invalid UTF-8, and
               // any non-regular replacement (symlink/FIFO/device/socket).
@@ -257,6 +265,18 @@ function createBroker(params) {
       if (invocationsUsed >= config.maxInvocations) {
         audit.failure('budget', 'invocation-count-exhausted', `max=${config.maxInvocations}`);
         emitQueryTelemetry('invocation-count-exhausted');
+        if (uniformTiming) {
+          const startMs = clock.nowMs();
+          const queued = tail.then(async () => {
+            await waitForBucket(startMs, clock.nowMs() - startMs, clock);
+            safeRespond(CANONICAL_ERROR_JSON);
+          });
+          tail = queued.then(
+            () => undefined,
+            () => undefined,
+          );
+          return queued;
+        }
         safeRespond(CANONICAL_ERROR_JSON);
         return Promise.resolve();
       }

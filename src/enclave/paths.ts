@@ -1,0 +1,61 @@
+import * as crypto from 'crypto';
+import * as path from 'path';
+
+export interface EnclavePaths {
+  root: string;
+  seedsDir: string;
+  workDir: string;
+  controlDir: string;
+  auditDir: string;
+  seedMapPath: string;
+  ingressRoot: string;
+  runDir: string;
+  socketPath: string;
+  capabilityPath: string;
+}
+
+export const ENCLAVE_PRIVATE_BASE_DIR = '/var/tmp';
+export const ENCLAVE_SOCKET_FILENAME = 'server.sock';
+export const ENCLAVE_CAPABILITY_FILENAME = 'auth-token';
+
+export const ENCLAVE_BROKER_SEEDS_DIR = '/srv/awf/seeds';
+export const ENCLAVE_BROKER_WORK_DIR = '/srv/awf/work';
+export const ENCLAVE_BROKER_SEED_MAP_PATH = '/srv/awf/seed-map.json';
+export const ENCLAVE_BROKER_SOCKET_DIR = '/run/awf-enclave-mcp';
+export const ENCLAVE_BROKER_SOCKET_PATH = `${ENCLAVE_BROKER_SOCKET_DIR}/${ENCLAVE_SOCKET_FILENAME}`;
+export const ENCLAVE_BROKER_CAPABILITY_PATH = `${ENCLAVE_BROKER_SOCKET_DIR}/${ENCLAVE_CAPABILITY_FILENAME}`;
+export const ENCLAVE_BROKER_CONTROL_DIR = '/run/awf-enclave-mcp-control';
+export const ENCLAVE_BROKER_AUDIT_DIR = '/var/log/awf-enclave';
+export const ENCLAVE_BROKER_DOCKER_SOCKET_PATH = '/var/run/docker.sock';
+
+function deriveRootIdentity(awfWorkDir: string): string {
+  const uid = process.getuid?.() ?? 0;
+  const digest = crypto.createHash('sha256').update(path.resolve(awfWorkDir), 'utf8').digest('hex').slice(0, 20);
+  return `${uid}-${digest}`;
+}
+
+export function resolveEnclavePaths(
+  awfWorkDir: string,
+  privateBaseDir = ENCLAVE_PRIVATE_BASE_DIR,
+): EnclavePaths {
+  const identity = deriveRootIdentity(awfWorkDir);
+  const root = path.join(privateBaseDir, `awf-enclave-private-${identity}`);
+  const ingressRoot = path.join(privateBaseDir, `awf-enclave-control-${identity}`);
+  const runDir = path.join(ingressRoot, 'run');
+  return {
+    root,
+    seedsDir: path.join(root, 'seeds'),
+    workDir: path.join(root, 'work'),
+    controlDir: path.join(root, 'control'),
+    auditDir: path.join(root, 'audit'),
+    seedMapPath: path.join(root, 'seed-map.json'),
+    ingressRoot,
+    runDir,
+    socketPath: path.join(runDir, ENCLAVE_SOCKET_FILENAME),
+    capabilityPath: path.join(runDir, ENCLAVE_CAPABILITY_FILENAME),
+  };
+}
+
+export function generateEnclaveRunId(): string {
+  return crypto.randomBytes(16).toString('hex');
+}

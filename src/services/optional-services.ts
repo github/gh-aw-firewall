@@ -7,6 +7,7 @@ import { buildDohProxyService } from './doh-proxy-service';
 import { buildCliProxyService } from './cli-proxy-service';
 import { buildBoundedQueryService, isBoundedQueryAgentMount } from './bounded-query-service';
 import { buildBoundedAgentService, isBoundedAgentAgentMount } from './bounded-agent-service';
+import { buildEnclaveMcpService } from './enclave-mcp-service';
 import { buildSysrootStageService, isSysrootEnabled } from './sysroot-service';
 import { resolveDockerHostGateway } from './host-gateway';
 import { runtimeUsesIptables } from '../container-runtime';
@@ -304,6 +305,18 @@ function assembleBoundedAgentService(params: AssembleOptionalServicesParams): vo
       condition: 'service_healthy',
     };
   }
+
+}
+
+function assembleEnclaveMcpService(params: AssembleOptionalServicesParams): void {
+  const { services, config, imageConfig } = params;
+  if (!config.enclaves?.enabled || !config.enclaves.executors.script.enabled) return;
+  const { scriptImageService, service } = buildEnclaveMcpService({ config, imageConfig });
+  services['enclave-script-image'] = scriptImageService;
+  services['enclave-mcp-server'] = service;
+  // Layer 2 intentionally does not mount the MCP socket/capability into the
+  // primary agent or make agent startup depend on this service. gh-aw-mcpg owns
+  // that attachment in layer 4.
 }
 
 function finalizeSysrootVolumes(
@@ -345,6 +358,7 @@ export function assembleOptionalServices(
   presetSidecarIpEnvVars(environment, config, networkConfig);
   assembleBoundedQueryService(params);
   assembleBoundedAgentService(params);
+  assembleEnclaveMcpService(params);
   if (includeComposeAgent) {
     assembleSysrootService(params, imageConfig.registry, imageConfig.parsedTag, sysrootActive);
     assembleIptablesInitService(params, skipIptables);

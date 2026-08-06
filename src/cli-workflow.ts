@@ -48,6 +48,8 @@ interface WorkflowDependencies {
    * anything.
    */
   prepareBoundedAgents?: (config: WrapperConfig) => Promise<void>;
+  /** Trusted unified enclave preflight and staging. */
+  prepareEnclaves?: (config: WrapperConfig) => Promise<void>;
   /**
    * Fail-stop preflight for network-isolation mode. Aborts (process exit) when
    * topology enforcement cannot be supported on the current platform.
@@ -120,8 +122,17 @@ export async function runMainWorkflow(
         'Bounded agents are enabled but no staging implementation was provided to runMainWorkflow',
       );
     }
+
     logger.info('Staging bounded-agent repository seeds...');
     await dependencies.prepareBoundedAgents(config);
+  }
+
+  if (config.enclaves?.enabled) {
+    if (!dependencies.prepareEnclaves) {
+      throw new Error('Enclaves are enabled but no staging implementation was provided to runMainWorkflow');
+    }
+    logger.info('Staging enclave repository seeds...');
+    await dependencies.prepareEnclaves(config);
   }
 
   // Step 0: Setup host-level network and iptables

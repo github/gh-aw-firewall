@@ -1,6 +1,8 @@
 import type { WrapperConfig } from '../types';
 import type { EnclavesConfig } from '../types/enclave-options';
 import {
+  MAX_RESULT_BYTES,
+  MAX_SCRIPT_BYTES,
   MAX_BOUNDED_EXECUTION_TIMEOUT_SECONDS,
   PRIVATE_REPOSITORY_PATTERN,
 } from '../bounded-execution';
@@ -55,6 +57,12 @@ export function validateEnclavesConfig(config: WrapperConfig): string[] {
     }
     validateResourceLimits('enclaves.executors.script', script, errors);
     validatePositiveInteger('enclaves.executors.script.maxScriptBytes', script.maxScriptBytes, errors);
+    if (script.maxScriptBytes > MAX_SCRIPT_BYTES) {
+      errors.push(`enclaves.executors.script.maxScriptBytes must be at most ${MAX_SCRIPT_BYTES}`);
+    }
+    if (script.maxOutputBytes > MAX_RESULT_BYTES) {
+      errors.push(`enclaves.executors.script.maxOutputBytes must be at most ${MAX_RESULT_BYTES}`);
+    }
     validatePositiveInteger('enclaves.executors.script.maxInvocations', script.maxInvocations, errors);
   }
 

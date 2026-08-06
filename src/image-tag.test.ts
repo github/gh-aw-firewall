@@ -12,6 +12,8 @@ const IMAGE_DIGEST_KEYS = [
   'bounded-query-broker',
   'bounded-agent',
   'bounded-agent-broker',
+  'enclave-script',
+  'enclave-mcp-server',
 ] as const;
 
 const VALID_DIGEST = 'sha256:' + 'a'.repeat(64);

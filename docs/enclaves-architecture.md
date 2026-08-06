@@ -2,9 +2,9 @@
 
 ## Status
 
-Foundation accepted for staged migration. This document describes the target
-architecture; the first implementation layer adds configuration and shared
-contracts without changing either legacy runtime.
+Layer 2 of the staged migration implements the AWF-owned MCP server and the
+script executor. It remains deliberately disconnected from the primary agent
+until the `gh-aw-mcpg` attachment layer. Both legacy runtimes remain unchanged.
 
 ## Decision
 
@@ -54,6 +54,34 @@ primary agent learns; it does not bound what the provider sees.
 
 ## Startup and readiness
 
+The script service is an offline Compose service. AWF stages immutable seeds and
+creates a run-unique private root before Compose generation. Compose pre-pulls or
+builds the script image, then starts the MCP server with `network_mode: none`.
+The server owns the Docker socket, seed map, shared ledger, protected audit
+state, and a private Unix socket plus capability token. Neither the socket nor
+the token is mounted into the primary agent in this layer.
+
+The server exposes one static MCP tool:
+
+```text
+enclave_run_script({
+  privateRepo: "owner/repo",
+  schema: <finite disclosure schema>,
+  script: <bounded UTF-8 Python source>
+})
+```
+
+No image, runtime, interpreter path, command, mount, network, credential,
+timeout, or resource setting is accepted in a tool call. `tools/list` is static
+and does not reveal repositories, sensitivity, remaining budget, runtime, or
+model configuration. Admitted executions debit the unified per-repository
+ledger under executor kind `script`.
+
+Executor outcomes return successful JSON-RPC tool results whose
+`structuredContent` is exactly canonical `{"status":"ok","result":...}` or
+`{"status":"error"}`. Secret-dependent failures never use JSON-RPC errors or
+`isError`. Cleanup remains inside the fixed timing bucket.
+
 `gh-aw-mcpg` startup may precede AWF's enclave server startup. The configured MCP
 server connection timeout and retry policy are the synchronization mechanism;
 neither component may silently downgrade or bypass the gateway while waiting.
@@ -70,27 +98,29 @@ fails the run before repository staging is exposed or the primary agent starts.
 
 ## Migration sequence
 
-1. **Foundation (this layer).** Add strict `enclaves` config, neutral finite
+1. **Foundation.** Add strict `enclaves` config, neutral finite
    disclosure/staging/budget contracts, shared-ledger semantics, and compatibility
    exports. Keep both legacy systems fully functional and reject simultaneous
    enablement of a unified and legacy surface.
-2. **AWF-owned MCP server.** Implement the server over the shared contracts,
-   retaining trusted executor launchers behind adapters. Add authenticated local
-   transport and readiness proof; do not expose direct broker ingress.
-3. **`gh-aw-mcpg` integration.** Register and guard the AWF-owned server, wire
+2. **AWF-owned script MCP server (this layer).** Implement the authenticated,
+   offline local server and hardened script executor over the shared contracts;
+   do not expose its private transport to the primary agent.
+3. **Agent executor.** Add the fixed model loop and API-proxy-only enclave
+   network behind the same MCP server and shared ledger.
+4. **`gh-aw-mcpg` integration.** Register and guard the AWF-owned server, wire
    startup retry/timeouts, require end-to-end readiness before primary-agent
    startup, and route both executor tools exclusively through the gateway.
-4. **Runtime cutover.** Move staging, auditing, timing, and the shared ledger to
+5. **Runtime cutover.** Move all callers to the unified MCP surface and
    the unified server. Remove direct `bounded-query` and `bounded-agent` agent
    surfaces after parity tests demonstrate canonical response and isolation
    equivalence.
-5. **Legacy removal.** Remove `boundedQueries`, `boundedAgents`, their brokers,
+6. **Legacy removal.** Remove `boundedQueries`, `boundedAgents`, their brokers,
    compatibility exports, images, docs, and tests only after the unified path is
    the sole supported runtime.
 
 ## Compatibility
 
-This foundation layer is behavior-preserving. It does not launch an MCP server,
-change primary-agent mounts or environment, combine live broker ledgers, or
+This layer does not change primary-agent mounts or environment and does not
 alter legacy protocol bytes. Existing `boundedQueries` and `boundedAgents`
-configurations continue to run as before.
+configurations continue to run as before. Unified and legacy configurations
+remain mutually exclusive and fail closed before staging.
