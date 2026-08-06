@@ -2527,9 +2527,10 @@ All four names are unconditionally excluded from primary-agent environment
 passthrough. The mcpg upstream is named `awf-enclave`, uses
 `http://awf-enclave-mcp:8080/mcp`, supplies
 `Authorization: Bearer ${AWF_ENCLAVE_MCP_CAPABILITY}`, allowlists exactly the
-enabled enclave tool names, uses at least a 120-second HTTP connection retry
-window, and sets the per-tool timeout to 30 seconds more than the largest enabled
-executor timeout.
+enabled enclave tool names, sets each upstream attempt's `connectTimeout` to 120
+seconds, and sets the per-tool timeout to 30 seconds more than the largest
+enabled executor timeout. `gateway.startupTimeout` is stdio-only and MUST NOT be
+used as the HTTP recovery bound.
 
 The compiler must also enable `network.isolation` and include the configured
 gateway container in `network.topologyAttach`. The enclave server itself is not
@@ -2542,6 +2543,13 @@ exactly those two members, then performs `initialize` and `tools/list` through
 the gateway route. The complete static tool contracts must match. Failure,
 timeout, authentication failure, identity mismatch, or tool mismatch aborts
 before Compose starts the agent or sbx creates its sandbox.
+
+This integration requires MCP Gateway specification 1.15.0 and the first mcpg
+release after v0.4.8 containing github/gh-aw-mcpg#10784. Until the upstream is
+available, mcpg returns retryable HTTP 503 `backend_unavailable`; AWF retries
+`initialize` with a bounded 500 ms backoff until
+`AWF_ENCLAVE_MCP_READINESS_TIMEOUT_MS` expires. AWF does not log the 503 response
+body, request headers, bearer capability, or other secret material.
 
 On shutdown AWF stops the primary-agent work first, sends the server a bounded
 graceful stop to close admissions and drain calls, disconnects but does not stop

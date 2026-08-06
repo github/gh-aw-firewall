@@ -47,8 +47,14 @@ function env(endpoint = 'http://127.0.0.1:8080/mcp/awf-enclave'): NodeJS.Process
 
 function listen(
   tools: unknown[],
-): Promise<{ endpoint: string; close: () => Promise<void> }> {
+  unavailableInitializations = 0,
+): Promise<{
+  endpoint: string;
+  initializeAttempts: () => number;
+  close: () => Promise<void>;
+}> {
   return new Promise((resolve) => {
+    let initializeAttempts = 0;
     const server = http.createServer((request, response) => {
       const chunks: Buffer[] = [];
       request.on('data', (chunk: Buffer) => chunks.push(chunk));
@@ -59,6 +65,18 @@ function listen(
         };
         response.setHeader('content-type', 'application/json');
         response.setHeader('mcp-session-id', 'session-1');
+        if (message.method === 'initialize') {
+          initializeAttempts += 1;
+          if (initializeAttempts <= unavailableInitializations) {
+            response.statusCode = 503;
+            response.end(JSON.stringify({
+              error: 'backend_unavailable',
+              message: 'Backend MCP server is not ready; retry initialization',
+              retryable: true,
+            }));
+            return;
+          }
+        }
         if (message.method === 'notifications/initialized') {
           response.statusCode = 202;
           response.end();
@@ -79,6 +97,7 @@ function listen(
       if (!address || typeof address === 'string') throw new Error('test server did not bind');
       resolve({
         endpoint: `http://127.0.0.1:${address.port}/mcp/awf-enclave`,
+        initializeAttempts: () => initializeAttempts,
         close: () => new Promise<void>((done) => server.close(() => done())),
       });
     });
@@ -198,6 +217,22 @@ describe('enclave mcpg handoff', () => {
       await expect(assertEnclaveGatewayReady(config(), env(server.endpoint), 1000))
         .resolves.toBeUndefined();
       expect(contract.server.tools).toEqual(['enclave_run_script']);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('retries mcpg backend_unavailable responses until initialize succeeds', async () => {
+    const server = await listen([enclaveProtocol.TOOL], 1);
+    try {
+      await expect(assertEnclaveGatewayReady(
+        config(),
+        {
+          ...env(server.endpoint),
+          AWF_ENCLAVE_MCP_READINESS_TIMEOUT_MS: '2000',
+        },
+      )).resolves.toBeUndefined();
+      expect(server.initializeAttempts()).toBe(2);
     } finally {
       await server.close();
     }

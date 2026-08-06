@@ -137,10 +137,14 @@ Executor outcomes return successful JSON-RPC tool results whose
 `{"status":"error"}`. Secret-dependent failures never use JSON-RPC errors or
 `isError`. Cleanup remains inside the fixed timing bucket.
 
-`gh-aw-mcpg` startup may precede AWF's enclave server startup. The compiler must
-configure the HTTP upstream before launching mcpg and give it sufficient
-connection timeout/retry behavior for AWF staging and startup. Neither component
-may silently downgrade or bypass the gateway while waiting.
+`gh-aw-mcpg` startup may precede AWF's enclave server startup. Each upstream
+attempt is bounded by the server's `connectTimeout`; `gateway.startupTimeout`
+applies only to stdio process startup and does not extend HTTP attempts. While
+the HTTP upstream is unavailable, mcpg returns retryable HTTP 503
+`backend_unavailable`. AWF retries the complete `initialize` handshake with a
+bounded 500 ms backoff until `AWF_ENCLAVE_MCP_READINESS_TIMEOUT_MS` expires.
+Neither component may silently downgrade or bypass the gateway while waiting,
+and readiness errors never log response bodies, headers, or capabilities.
 
 The primary agent must not start until AWF has proved readiness end to end:
 
@@ -191,8 +195,8 @@ AWF host process, and never pass it to the primary agent. It must also:
   ending in `/mcp/awf-enclave`;
 - optionally set `AWF_ENCLAVE_MCP_READINESS_TIMEOUT_MS` to a bounded
   1000-600000 ms value (default 120000);
-- configure gateway HTTP-upstream startup timeout/retry semantics for at least
-  120 seconds.
+- configure the upstream `connectTimeout` to 120 seconds; do not rely on the
+  stdio-only `gateway.startupTimeout` for HTTP recovery.
 - enable AWF network isolation and include `awmg-mcpg` in `topologyAttach`, so
   Compose agents reach only the gateway on `awf-net` while AWF separately
   attaches the same verified container to the enclave control network.
@@ -201,7 +205,9 @@ AWF host process, and never pass it to the primary agent. It must also:
 for the static entry and handoff names. AWF excludes all handoff variables from
 agent environment passthrough, including `--env-all`.
 
-The current gh-aw compiler does not yet emit this enclave upstream, capability,
+This contract requires MCP Gateway specification 1.15.0 and the first mcpg
+release after v0.4.8 containing github/gh-aw-mcpg#10784. The current gh-aw
+compiler does not yet emit this enclave upstream, capability,
 identity label, or readiness endpoint. It requires a companion change in
 `pkg/workflow/mcp_setup_gateway.go`, `mcp_gateway_config.go`,
 `mcp_renderer.go`, and `awf_config.go`. Current mcpg releases must also support
