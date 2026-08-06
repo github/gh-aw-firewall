@@ -1,6 +1,6 @@
 'use strict';
 
-const { BOUNDED_QUERY_SENSITIVITY_RUN_BITS } = require('./sensitivity-policy');
+const { ENCLAVE_INFORMATION_BUDGET_POLICY } = require('./sensitivity-policy');
 
 /**
  * Per-repository information-budget ledger.
@@ -24,10 +24,10 @@ const { BOUNDED_QUERY_SENSITIVITY_RUN_BITS } = require('./sensitivity-policy');
  * @param seeds `Map<normalizedRepoKey, { seedId, sensitivity }>` as returned
  *   by `config.loadSeedMap`.
  */
-function createLedger(seeds) {
+function createLedger(seeds, policy = ENCLAVE_INFORMATION_BUDGET_POLICY) {
   const remaining = new Map();
   for (const [repoKey, seed] of seeds) {
-    remaining.set(repoKey, BOUNDED_QUERY_SENSITIVITY_RUN_BITS[seed.sensitivity]);
+    remaining.set(repoKey.toLowerCase(), policy.runBits[seed.sensitivity]);
   }
 
   return {
@@ -38,20 +38,27 @@ function createLedger(seeds) {
      * to call synchronously with no intervening `await` — Node's
      * single-threaded event loop makes this indivisible.
      */
-    tryDebit(repoKey, bits) {
-      if (!remaining.has(repoKey)) return false;
-      const current = remaining.get(repoKey);
+    tryDebit(repoKey, bits, executorKind = 'script') {
+      if (executorKind !== 'script' && executorKind !== 'agent') return false;
+      if (!Number.isSafeInteger(bits) || bits < 0) return false;
+      const normalizedRepoKey = repoKey.toLowerCase();
+      if (!remaining.has(normalizedRepoKey)) return false;
+      const current = remaining.get(normalizedRepoKey);
       if (current === null) return true; // unmetered (public)
       if (bits > current) return false;
-      remaining.set(repoKey, current - bits);
+      remaining.set(normalizedRepoKey, current - bits);
       return true;
     },
 
     /** Returns the remaining balance for a repo, or `undefined` if unknown. */
     remainingBits(repoKey) {
-      return remaining.get(repoKey);
+      return remaining.get(repoKey.toLowerCase());
     },
   };
 }
 
-module.exports = { createLedger, createSensitivityLedger: createLedger };
+module.exports = {
+  createEnclaveInformationBudgetLedger: createLedger,
+  createLedger,
+  createSensitivityLedger: createLedger,
+};

@@ -11,6 +11,8 @@ const QUERY_WORKSPACE_TMPFS_BYTES = 1024 * 1024 * 1024;
 
 const RUN_LABEL = 'awf.bounded-query.run';
 const INVOCATION_LABEL = 'awf.bounded-query.invocation';
+const ENCLAVE_RUN_LABEL = 'awf.enclave.run';
+const ENCLAVE_INVOCATION_LABEL = 'awf.enclave.invocation';
 const TRUSTED_ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/;
 
 /** Converts a monotonic-clock duration to the integer milliseconds Node requires. */
@@ -39,10 +41,16 @@ function deriveQueryContainerSpec({ config, runId, invocationId, runtimeName }) 
     throw new Error(`Unsupported OCI runtime in query runner: ${runtimeName}`);
   }
 
-  const containerName = `awf-query-${runId.slice(0, 12)}-${invocationId}`;
+  const runLabelKey = config.runLabelKey || RUN_LABEL;
+  const invocationLabelKey = config.invocationLabelKey || INVOCATION_LABEL;
+  const containerPrefix = config.containerPrefix || 'awf-query';
+  const containerName = `${containerPrefix}-${runId.slice(0, 12)}-${invocationId}`;
   const hostInvocationDir = `${config.hostWorkDir}/${invocationId}`;
-  const runLabel = `${RUN_LABEL}=${runId}`;
-  const invocationLabel = `${INVOCATION_LABEL}=${invocationId}`;
+  const runLabel = `${runLabelKey}=${runId}`;
+  const invocationLabel = `${invocationLabelKey}=${invocationId}`;
+  const cpuLimit = config.cpuLimit || '1';
+  const pidsLimit = config.pidsLimit || 128;
+  const tmpfsLimit = config.tmpfsLimit;
   const launchArgs = [
     'run',
     '--pull', 'never',
@@ -57,12 +65,12 @@ function deriveQueryContainerSpec({ config, runId, invocationId, runtimeName }) 
     '--security-opt', `seccomp=${config.querySeccompPath}`,
     '--memory', config.memoryLimit,
     '--memory-swap', config.memoryLimit,
-    '--cpus', '1',
-    '--pids-limit', '128',
+    '--cpus', cpuLimit,
+    '--pids-limit', String(pidsLimit),
     '--ulimit', `fsize=${QUERY_MAX_FILE_BYTES}`,
     '--ulimit', 'nofile=1024:1024',
-    '--tmpfs', '/tmp:rw,noexec,nosuid,nodev,size=16m',
-    '--tmpfs', `/query:rw,nosuid,nodev,size=${QUERY_WORKSPACE_TMPFS_BYTES},uid=${config.queryUid},gid=${config.queryGid},mode=0700`,
+    '--tmpfs', `/tmp:rw,noexec,nosuid,nodev,size=${tmpfsLimit || '16m'}`,
+    '--tmpfs', `/query:rw,nosuid,nodev,size=${tmpfsLimit || QUERY_WORKSPACE_TMPFS_BYTES},uid=${config.queryUid},gid=${config.queryGid},mode=0700`,
     '--hostname', 'query',
     '--workdir', config.queryMountDir,
     '--env', 'HOME=/tmp',
@@ -105,6 +113,8 @@ function buildRemoveArgs(containerIds) {
 
 module.exports = {
   CLI_GRACE_MS,
+  ENCLAVE_INVOCATION_LABEL,
+  ENCLAVE_RUN_LABEL,
   INVOCATION_LABEL,
   QUERY_MAX_FILE_BYTES,
   QUERY_WORKSPACE_TMPFS_BYTES,

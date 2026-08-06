@@ -119,7 +119,10 @@ function createInvocationWorkspace(params) {
  * FIFO, device, or socket. Anything unexpected returns `undefined`, which the
  * caller maps to the canonical error result.
  */
-function readQueryOutput(outPath) {
+function readQueryOutput(outPath, maxResultBytes = MAX_RESULT_BYTES) {
+  if (!Number.isSafeInteger(maxResultBytes) || maxResultBytes < 1 || maxResultBytes > MAX_RESULT_BYTES) {
+    return undefined;
+  }
   let fd;
   try {
     fd = fs.openSync(outPath, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
@@ -130,10 +133,10 @@ function readQueryOutput(outPath) {
   try {
     const stat = fs.fstatSync(fd);
     if (!stat.isFile()) return undefined;
-    if (stat.size > MAX_RESULT_BYTES) return undefined;
+    if (stat.size > maxResultBytes) return undefined;
 
-    const buffer = Buffer.alloc(MAX_RESULT_BYTES);
-    const bytesRead = fs.readSync(fd, buffer, 0, MAX_RESULT_BYTES, 0);
+    const buffer = Buffer.alloc(maxResultBytes);
+    const bytesRead = fs.readSync(fd, buffer, 0, maxResultBytes, 0);
     const slice = buffer.subarray(0, bytesRead);
 
     // Reject anything that is not valid UTF-8 before it reaches the parser.

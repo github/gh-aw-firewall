@@ -38,6 +38,7 @@ import {
   SBX_DEFAULT_NAME,
 } from '../sbx-manager';
 import { prepareBoundedQueries, teardownBoundedQueries } from '../bounded-query/manager';
+import { prepareEnclaves, teardownEnclaves } from '../enclave/manager';
 import {
   prepareBoundedAgents,
   reportBoundedAgentSbxIngressResult,
@@ -155,6 +156,7 @@ function buildCleanupFn(
     // directory whose write bit was stripped during staging.
     await teardownBoundedQueries(config);
     await teardownBoundedAgents(config);
+    await teardownEnclaves(config);
 
     if (!config.keepContainers) {
       await cleanup(
@@ -578,6 +580,7 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
         connectTopologyContainers,
         prepareBoundedQueries,
         prepareBoundedAgents,
+        prepareEnclaves,
       },
       {
         logger,
