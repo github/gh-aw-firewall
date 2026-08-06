@@ -58,6 +58,22 @@ export const MAX_TASK_BYTES = 64 * 1024;
 export const ALLOWED_REQUEST_KEYS: readonly string[] = ['privateRepo', 'schema', 'task'];
 
 /**
+ * Every accepted spelling of the single free-form payload field.
+ *
+ * Exactly one is accepted per caller surface (`task` for the legacy
+ * bounded-agent wrapper protocol, `prompt` for the unified enclave MCP tool);
+ * the other is an explicitly forbidden control so a request can never smuggle
+ * a second payload past the finite-disclosure charge.
+ */
+export const PAYLOAD_REQUEST_KEYS: readonly string[] = ['task', 'prompt'];
+
+/** The payload spelling this legacy bounded-agent protocol accepts. */
+const PAYLOAD_KEY = 'task';
+
+/** The alternate payload spellings this surface must reject. */
+const FORBIDDEN_PAYLOAD_KEYS = PAYLOAD_REQUEST_KEYS.filter((key) => key !== PAYLOAD_KEY);
+
+/**
  * Controls a request may never express.
  *
  * These are all fixed trusted configuration. Naming them explicitly makes the
@@ -117,6 +133,7 @@ export const FORBIDDEN_REQUEST_KEYS: readonly string[] = [
   'resources',
   'runtime',
   'backend',
+  'engine',
   'sandbox',
   'profile',
   'model',
@@ -131,6 +148,7 @@ export const FORBIDDEN_REQUEST_KEYS: readonly string[] = [
   'systemPrompt',
   'system',
   'messages',
+  ...FORBIDDEN_PAYLOAD_KEYS,
 ];
 
 /** A validated bounded-agent request. */

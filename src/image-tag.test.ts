@@ -13,6 +13,7 @@ const IMAGE_DIGEST_KEYS = [
   'bounded-agent',
   'bounded-agent-broker',
   'enclave-script',
+  'enclave-agent',
   'enclave-mcp-server',
 ] as const;
 

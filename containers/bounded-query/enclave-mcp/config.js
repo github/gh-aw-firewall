@@ -13,6 +13,7 @@ const {
   ENCLAVE_INVOCATION_LABEL,
   ENCLAVE_RUN_LABEL,
 } = require('../broker/query-runner-spec');
+const { MAX_TASK_BYTES } = require('../agent-broker/framing');
 
 const SEEDS_DIR = '/srv/awf/seeds';
 const WORK_DIR = '/srv/awf/work';
@@ -22,6 +23,25 @@ const CAPABILITY_PATH = path.join(SOCKET_DIR, 'auth-token');
 const CONTROL_DIR = '/run/awf-enclave-mcp-control';
 const AUDIT_DIR = '/var/log/awf-enclave';
 const READY_PATH = path.join(CONTROL_DIR, 'server.ready');
+
+/**
+ * Fixed agent-enclave mount points and identity. Never caller-supplied.
+ *
+ * The seccomp profile is the audited no-network sandbox profile the script
+ * executor already uses, shipped into the server image a second time under an
+ * enclave-specific name so both executors stay pinned to one reviewed policy.
+ */
+const AGENT_SECCOMP_PATH = '/opt/awf/enclave-seccomp.json';
+const AGENT_MOUNT_DIR = '/agent';
+const AGENT_SEED_PATH = '/awf/seed';
+const AGENT_TASK_PATH = '/awf/task.txt';
+const AGENT_SCHEMA_PATH = '/awf/schema.json';
+const AGENT_UID = 65534;
+const AGENT_GID = 65534;
+const AGENT_SUPPORTED_BACKENDS = new Set(['docker', 'gvisor']);
+const AGENT_SUPPORTED_ENGINES = new Set(['copilot']);
+const AGENT_SUPPORTED_PROFILES = new Set(['openai', 'anthropic']);
+const AGENT_CONTAINER_PREFIX = 'awf-enclave-agent';
 
 function requireEnv(name) {
   const value = process.env[name];
@@ -115,6 +135,120 @@ function loadConfig(files = fs) {
   };
 }
 
+/** True when this run exposes the bounded-script executor. */
+function isScriptExecutorEnabled() {
+  return process.env.AWF_ENCLAVE_SCRIPT_ENABLED === 'true';
+}
+
+/** True when this run exposes the bounded-agent executor. */
+function isAgentExecutorEnabled() {
+  return process.env.AWF_ENCLAVE_AGENT_ENABLED === 'true';
+}
+
+/**
+ * Loads the shared, executor-independent server settings.
+ *
+ * Used on every start, including agent-only runs where no script-executor
+ * environment is present at all.
+ */
+function loadServerConfig(files = fs) {
+  const primaryBackend = requireEnv('AWF_ENCLAVE_PRIMARY_BACKEND');
+  if (primaryBackend !== 'docker' && primaryBackend !== 'gvisor' && primaryBackend !== 'sbx') {
+    throw new Error('AWF_ENCLAVE_PRIMARY_BACKEND is unsupported');
+  }
+  const capability = files.readFileSync(CAPABILITY_PATH, 'utf8').trim();
+  if (!/^[0-9a-f]{64}$/.test(capability)) {
+    throw new Error('Enclave capability file does not contain an AWF capability');
+  }
+  return {
+    seedMapPath: SEED_MAP_PATH,
+    socketDir: SOCKET_DIR,
+    socketPath: path.join(SOCKET_DIR, 'server.sock'),
+    controlDir: CONTROL_DIR,
+    readyPath: READY_PATH,
+    auditDir: AUDIT_DIR,
+    primaryBackend,
+    socketUid: nonnegativeInt('AWF_ENCLAVE_SOCKET_UID', 0),
+    socketGid: nonnegativeInt('AWF_ENCLAVE_SOCKET_GID', 0),
+    capability,
+  };
+}
+
+/**
+ * Loads the trusted bounded-agent executor configuration.
+ *
+ * Every value here is AWF configuration delivered through the server's own
+ * environment: image, runtime backend, engine, profile, model, API-proxy
+ * endpoint, dedicated network, mount points, identity, resource bounds, and
+ * disclosure bounds. A request can express none of them.
+ */
+function loadAgentConfig(server) {
+  const backend = requireEnv('AWF_ENCLAVE_AGENT_BACKEND');
+  if (!AGENT_SUPPORTED_BACKENDS.has(backend)) {
+    throw new Error(`Unsupported AWF_ENCLAVE_AGENT_BACKEND: ${backend}`);
+  }
+  const engine = requireEnv('AWF_ENCLAVE_AGENT_ENGINE');
+  if (!AGENT_SUPPORTED_ENGINES.has(engine)) {
+    throw new Error(`Unsupported AWF_ENCLAVE_AGENT_ENGINE: ${engine}`);
+  }
+  const profile = requireEnv('AWF_ENCLAVE_AGENT_PROFILE');
+  if (!AGENT_SUPPORTED_PROFILES.has(profile)) {
+    throw new Error(`Unsupported AWF_ENCLAVE_AGENT_PROFILE: ${profile}`);
+  }
+  const apiEndpoint = requireEnv('AWF_ENCLAVE_AGENT_API_ENDPOINT');
+  if (!/^http:\/\/[0-9a-zA-Z.:-]+$/.test(apiEndpoint)) {
+    throw new Error('AWF_ENCLAVE_AGENT_API_ENDPOINT must be a bare http origin');
+  }
+  const network = requireEnv('AWF_ENCLAVE_AGENT_NETWORK');
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$/.test(network)) {
+    throw new Error('AWF_ENCLAVE_AGENT_NETWORK is not a Docker network name');
+  }
+  const cpuLimit = process.env.AWF_ENCLAVE_AGENT_CPU || '1';
+  if (!/^(?:[0-9]{1,2})(?:\.[0-9]{1,3})?$/.test(cpuLimit) || Number(cpuLimit) <= 0) {
+    throw new Error('AWF_ENCLAVE_AGENT_CPU must be a positive decimal');
+  }
+
+  return {
+    seedsDir: SEEDS_DIR,
+    workDir: WORK_DIR,
+    auditDir: server.auditDir,
+    hostWorkDir: requireEnv('AWF_ENCLAVE_AGENT_HOST_WORK_DIR'),
+    hostSeedsDir: requireEnv('AWF_ENCLAVE_AGENT_HOST_SEEDS_DIR'),
+    enclaveSeccompPath: AGENT_SECCOMP_PATH,
+    enclaveMountDir: AGENT_MOUNT_DIR,
+    enclaveSeedPath: AGENT_SEED_PATH,
+    enclaveTaskPath: AGENT_TASK_PATH,
+    enclaveSchemaPath: AGENT_SCHEMA_PATH,
+    enclaveUid: AGENT_UID,
+    enclaveGid: AGENT_GID,
+    enclaveHostname: 'enclave-agent',
+    enclaveImage: requireEnv('AWF_ENCLAVE_AGENT_IMAGE'),
+    backend,
+    // Mirrored under the shared broker's telemetry field name so both
+    // executors emit one narrow, content-free runtime shape.
+    queryBackend: backend,
+    primaryBackend: server.primaryBackend,
+    engine,
+    profile,
+    model: requireEnv('AWF_ENCLAVE_AGENT_MODEL'),
+    apiEndpoint,
+    network,
+    timeoutSeconds: positiveInt('AWF_ENCLAVE_AGENT_TIMEOUT', 120, MAX_QUERY_TIMEOUT_SECONDS),
+    memoryLimit: dockerSize('AWF_ENCLAVE_AGENT_MEMORY', '512m'),
+    cpuLimit,
+    pidsLimit: positiveInt('AWF_ENCLAVE_AGENT_PIDS', 128),
+    tmpfsLimit: dockerSize('AWF_ENCLAVE_AGENT_TMPFS', '64m'),
+    maxOutputBytes: positiveInt('AWF_ENCLAVE_AGENT_MAX_OUTPUT_BYTES', MAX_RESULT_BYTES, MAX_RESULT_BYTES),
+    maxPromptBytes: positiveInt('AWF_ENCLAVE_AGENT_MAX_PROMPT_BYTES', 4096, MAX_TASK_BYTES),
+    maxInvocations: positiveInt('AWF_ENCLAVE_AGENT_MAX_INVOCATIONS', 8),
+    maxModelRequests: positiveInt('AWF_ENCLAVE_AGENT_MAX_MODEL_REQUESTS', 8, 64),
+    maxModelTokens: positiveInt('AWF_ENCLAVE_AGENT_MAX_MODEL_TOKENS', 1024, 32768),
+    runLabelKey: ENCLAVE_RUN_LABEL,
+    invocationLabelKey: ENCLAVE_INVOCATION_LABEL,
+    containerPrefix: AGENT_CONTAINER_PREFIX,
+  };
+}
+
 function loadSeedMap(seedMapPath) {
   return parsePrivateRepositorySeedMap(
     fs.readFileSync(seedMapPath, 'utf8'),
@@ -123,6 +257,11 @@ function loadSeedMap(seedMapPath) {
 }
 
 module.exports = {
+  AGENT_CONTAINER_PREFIX,
+  AGENT_SECCOMP_PATH,
+  AGENT_SUPPORTED_BACKENDS,
+  AGENT_SUPPORTED_ENGINES,
+  AGENT_SUPPORTED_PROFILES,
   AUDIT_DIR,
   CAPABILITY_PATH,
   CONTROL_DIR,
@@ -131,6 +270,10 @@ module.exports = {
   SEEDS_DIR,
   SOCKET_DIR,
   WORK_DIR,
+  isAgentExecutorEnabled,
+  isScriptExecutorEnabled,
+  loadAgentConfig,
   loadConfig,
   loadSeedMap,
+  loadServerConfig,
 };

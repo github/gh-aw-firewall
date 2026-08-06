@@ -62,9 +62,21 @@ function createBroker(params) {
   if (executorKind !== 'script' && executorKind !== 'agent') {
     throw new Error('createBroker requires a known executor kind');
   }
+  // Trusted, executor-specific request grammar. The default is the bounded
+  // *script* grammar, so the legacy bounded-query broker is unchanged.
+  const validateRequest = params.validateRequest || validateBoundedQueryRequest;
+  // Name of the single free-form payload field this executor accepts.
+  const payloadKey = params.payloadKey || 'script';
+  // Optional trusted exit-status → protected-audit category map. Categories
+  // never reach the caller; every failure is still the canonical error.
+  const exitCategories = params.exitCategories || {};
+
+  // Optional shared serialization lane. When several executors are exposed by
+  // one server they share a lane so at most one sandbox — script or agent —
+  // holds private repository content at a time.
+  const lane = params.lane || { tail: Promise.resolve() };
 
   let invocationsUsed = 0;
-  let tail = Promise.resolve();
   let accepting = true;
 
   function emitQueryTelemetry(category) {
@@ -102,12 +114,13 @@ function createBroker(params) {
       safeRespond(CANONICAL_ERROR_JSON);
     };
 
-    const validation = validateBoundedQueryRequest(request);
+    const validation = validateRequest(request);
     if (!validation.valid) {
       await rejectBeforeExecution('invalid-request', validation.errors.join('; '));
       return;
     }
-    const { privateRepo, schema, script } = validation.request;
+    const { privateRepo, schema } = validation.request;
+    const payload = validation.request[payloadKey];
     const repoKey = privateRepo.toLowerCase();
 
     const seed = seedMap.get(repoKey);
@@ -141,7 +154,8 @@ function createBroker(params) {
         config,
         invocationId,
         seedId: seed.seedId,
-        script,
+        schema,
+        [payloadKey]: payload,
       });
     } catch (error) {
       failureReason = ['workspace-create-failed', error.message];
@@ -153,11 +167,20 @@ function createBroker(params) {
         failureReason = ['timeout', 'workspace-creation-overran-deadline'];
       } else {
         try {
-          const run = await runner.runQueryContainer({ config, runId, invocationId, timeoutMs: remainingMs });
+          const run = await runner.runQueryContainer({
+            config,
+            runId,
+            invocationId,
+            seedId: seed.seedId,
+            timeoutMs: remainingMs,
+          });
           if (run.timedOut) {
             failureReason = ['timeout'];
           } else if (run.exitCode !== 0) {
-            failureReason = ['non-zero-exit', `exit=${run.exitCode}`];
+            failureReason = [
+              exitCategories[run.exitCode] || 'non-zero-exit',
+              `exit=${run.exitCode}`,
+            ];
           } else {
             const raw = workspace.readQueryOutput(layout.outPath, config.maxOutputBytes);
             if (raw === undefined) {
@@ -183,6 +206,20 @@ function createBroker(params) {
     // shape can affect deletion time, and queued requests must not expose that
     // duration outside the charged timing bucket. Destroy by invocation id
     // even when creation threw after materializing only part of the workspace.
+    // Executor-specific protected artifacts (never agent-visible) are captured
+    // before teardown and inside the charged timing bucket.
+    if (layout && typeof workspace.preserveInvocationArtifacts === 'function') {
+      try {
+        workspace.preserveInvocationArtifacts({ layout, config, invocationId });
+      } catch (error) {
+        if (failureReason === undefined) {
+          failureReason = ['artifact-preservation-failed', error.message];
+        } else {
+          audit.failure(invocationId, 'artifact-preservation-failed', error.message);
+        }
+        canonicalResult = undefined;
+      }
+    }
     if (!safeDestroy(invocationId)) {
       failureReason = ['cleanup-failed'];
       canonicalResult = undefined;
@@ -267,11 +304,11 @@ function createBroker(params) {
         emitQueryTelemetry('invocation-count-exhausted');
         if (uniformTiming) {
           const startMs = clock.nowMs();
-          const queued = tail.then(async () => {
+          const queued = lane.tail.then(async () => {
             await waitForBucket(startMs, clock.nowMs() - startMs, clock);
             safeRespond(CANONICAL_ERROR_JSON);
           });
-          tail = queued.then(
+          lane.tail = queued.then(
             () => undefined,
             () => undefined,
           );
@@ -282,12 +319,12 @@ function createBroker(params) {
       }
       invocationsUsed += 1;
 
-      const queued = tail.then(() => execute(request, safeRespond)).catch((error) => {
+      const queued = lane.tail.then(() => execute(request, safeRespond)).catch((error) => {
         audit.failure('queue', 'unexpected-error', error && error.message);
         emitQueryTelemetry('unexpected-error');
         safeRespond(CANONICAL_ERROR_JSON);
       });
-      tail = queued.then(
+      lane.tail = queued.then(
         () => undefined,
         () => undefined,
       );
@@ -296,7 +333,7 @@ function createBroker(params) {
 
     /** Resolves when every admitted invocation has finished broker-side work. */
     drain() {
-      return tail;
+      return lane.tail;
     },
 
     /** @internal Exposed for tests. */

@@ -8,6 +8,7 @@ const {
 
 const MCP_PROTOCOL_VERSION = '2025-06-18';
 const TOOL_NAME = 'enclave_run_script';
+const AGENT_TOOL_NAME = 'enclave_run_agent';
 const JSONRPC_ERROR = Object.freeze({ status: 'error' });
 
 const FINITE_SCHEMA_INPUT = Object.freeze({
@@ -39,7 +40,88 @@ const TOOL = Object.freeze({
   }),
 });
 
+/**
+ * Static prompt-driven agent tool.
+ *
+ * The caller supplies exactly a configured repository selector, a finite
+ * response schema, and the prompt text. Everything else about the enclave —
+ * runtime, engine, model, provider, profile, endpoints, mounts, network,
+ * tools, credentials, resource bounds, system prompt, and message construction
+ * — is trusted AWF configuration and an AWF-authored fixed model loop. The
+ * schema deliberately forbids additional properties so an unknown control is
+ * rejected rather than ignored.
+ */
+const AGENT_TOOL = Object.freeze({
+  name: AGENT_TOOL_NAME,
+  description:
+    'Run a bounded, single-use agent enclave against one configured private repository and return '
+    + 'one finite value.',
+  inputSchema: Object.freeze({
+    type: 'object',
+    properties: Object.freeze({
+      privateRepo: Object.freeze({ type: 'string', description: 'Bare configured owner/repository selector.' }),
+      schema: FINITE_SCHEMA_INPUT,
+      prompt: Object.freeze({ type: 'string', description: 'Bounded UTF-8 task prompt.' }),
+    }),
+    required: Object.freeze(['privateRepo', 'schema', 'prompt']),
+    additionalProperties: false,
+  }),
+  outputSchema: Object.freeze({
+    type: 'object',
+    properties: Object.freeze({
+      status: Object.freeze({ enum: Object.freeze(['ok', 'error']) }),
+      result: Object.freeze({}),
+    }),
+    required: Object.freeze(['status']),
+    additionalProperties: false,
+  }),
+});
+
+/** Every tool the server can publish, keyed by its wire name. */
+const TOOLS_BY_NAME = Object.freeze({
+  [TOOL_NAME]: TOOL,
+  [AGENT_TOOL_NAME]: AGENT_TOOL,
+});
+
+/** Byte bound applied to a tool's single free-form payload argument. */
+const TOOL_PAYLOAD_KEYS = Object.freeze({
+  [TOOL_NAME]: 'script',
+  [AGENT_TOOL_NAME]: 'prompt',
+});
+
 const TOOLS_LIST_RESULT = Object.freeze({ tools: Object.freeze([TOOL]) });
+
+/**
+ * Resolves the brokers this server exposes.
+ *
+ * `deps.brokers` is the unified form: a map from tool name to the trusted
+ * broker for that executor. `deps.broker` remains supported as the
+ * script-executor-only shorthand.
+ */
+function resolveBrokers(deps) {
+  if (deps.brokers) return deps.brokers;
+  return deps.broker ? { [TOOL_NAME]: deps.broker } : {};
+}
+
+/**
+ * Publishes exactly the tools whose executor is enabled for this run.
+ *
+ * The listing carries no repository, budget, sensitivity, model, engine,
+ * profile, endpoint, or runtime information: it is a fixed, static document
+ * per tool.
+ */
+function toolsListResult(deps) {
+  const brokers = resolveBrokers(deps);
+  const tools = Object.keys(TOOLS_BY_NAME)
+    .filter((name) => brokers[name] !== undefined)
+    .map((name) => TOOLS_BY_NAME[name]);
+  return { tools };
+}
+
+/** Per-tool byte bound for the single free-form payload argument. */
+function payloadLimitFor(name, deps) {
+  return name === AGENT_TOOL_NAME ? deps.maxPromptBytes : deps.maxScriptBytes;
+}
 
 function rpcError(id, code, message) {
   return { jsonrpc: '2.0', id: id ?? null, error: { code, message } };
@@ -107,23 +189,34 @@ async function dispatchJsonRpc(message, deps) {
     if (message.params !== undefined && !hasOnlyKeys(message.params, new Set())) {
       return rpcError(message.id, -32602, 'Invalid params');
     }
-    return rpcResult(message.id, TOOLS_LIST_RESULT);
+    return rpcResult(message.id, toolsListResult(deps));
   }
 
   if (message.method === 'tools/call') {
+    const brokers = resolveBrokers(deps);
     if (!hasOnlyKeys(message.params, new Set(['name', 'arguments']))
-        || message.params.name !== TOOL_NAME
+        || typeof message.params.name !== 'string'
+        || !Object.prototype.hasOwnProperty.call(brokers, message.params.name)
         || !Object.prototype.hasOwnProperty.call(message.params, 'arguments')) {
       return rpcError(message.id, -32602, 'Invalid params');
     }
+    const name = message.params.name;
     const args = message.params.arguments;
+    if (!Object.prototype.hasOwnProperty.call(TOOL_PAYLOAD_KEYS, name)) {
+      return rpcError(message.id, -32602, 'Invalid params');
+    }
+    const payloadKey = TOOL_PAYLOAD_KEYS[name];
+    const limit = payloadLimitFor(name, deps);
+    // An oversized payload is dropped here so the broker never buffers it; the
+    // caller still observes only the canonical error the broker emits.
     const tooLarge = (
       args
-      && typeof args.script === 'string'
-      && Buffer.byteLength(args.script, 'utf8') > deps.maxScriptBytes
+      && typeof args[payloadKey] === 'string'
+      && typeof limit === 'number'
+      && Buffer.byteLength(args[payloadKey], 'utf8') > limit
     );
     const request = tooLarge ? undefined : args;
-    return rpcResult(message.id, await brokerCall(deps.broker, request));
+    return rpcResult(message.id, await brokerCall(brokers[name], request));
   }
 
   return rpcError(message.id, -32601, 'Method not found');
@@ -138,10 +231,15 @@ function parseJsonRpcBody(buffer) {
 }
 
 module.exports = {
+  AGENT_TOOL,
+  AGENT_TOOL_NAME,
   MCP_PROTOCOL_VERSION,
   TOOL,
+  TOOLS_BY_NAME,
   TOOL_NAME,
+  TOOL_PAYLOAD_KEYS,
   TOOLS_LIST_RESULT,
   dispatchJsonRpc,
   parseJsonRpcBody,
+  toolsListResult,
 };

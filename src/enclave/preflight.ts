@@ -1,15 +1,54 @@
 import type { WrapperConfig } from '../types';
-import type { EnclavesConfig } from '../types/enclave-options';
+import type { EnclaveAgentExecutorConfig, EnclavesConfig } from '../types/enclave-options';
 import {
   MAX_RESULT_BYTES,
   MAX_SCRIPT_BYTES,
   MAX_BOUNDED_EXECUTION_TIMEOUT_SECONDS,
   PRIVATE_REPOSITORY_PATTERN,
 } from '../bounded-execution';
+import { MAX_TASK_BYTES } from '../bounded-agent/protocol';
 import { normalizePrivateRepositoryKey } from '../bounded-execution/repository-staging';
 
 const RUNTIMES = new Set(['docker', 'gvisor', 'sbx']);
 const ENGINES = new Set(['copilot', 'claude', 'codex', 'gemini']);
+
+/** Engines with a published, audited enclave image and a fixed AWF model loop. */
+const IMPLEMENTED_AGENT_ENGINES = new Set(['copilot']);
+
+/**
+ * Resolves whether the configured agent profile has a usable API-proxy route.
+ *
+ * An agent enclave holds no credentials: it can only reach a model through the
+ * dedicated AWF API proxy, which injects the real key. If the profile's
+ * provider is not routed for this run the enclave would sit on an internal
+ * network with nothing to talk to, so the run is rejected rather than started
+ * in a state where every invocation returns the canonical error.
+ */
+export function resolveEnclaveAgentApiRoute(
+  config: WrapperConfig,
+  agent: Pick<EnclaveAgentExecutorConfig, 'engine' | 'profile'>,
+): { routed: boolean; detail: string } {
+  if (agent.engine === 'copilot') {
+    return {
+      routed: Boolean(
+        config.copilotGithubToken
+        || config.copilotProviderApiKey
+        || config.copilotProviderBaseUrl,
+      ),
+      detail: 'apiProxy.targets.copilot (COPILOT_GITHUB_TOKEN or Copilot BYOK route) is not configured',
+    };
+  }
+  if (agent.profile === 'anthropic') {
+    return {
+      routed: Boolean(config.anthropicApiKey),
+      detail: 'apiProxy.targets.anthropic (ANTHROPIC_API_KEY) is not configured',
+    };
+  }
+  return {
+    routed: Boolean(config.openaiApiKey),
+    detail: 'apiProxy.targets.openai (OPENAI_API_KEY) is not configured',
+  };
+}
 
 function validateRepositoryList(enclaves: EnclavesConfig, errors: string[]): void {
   if (enclaves.privateRepos.length === 0) {
@@ -67,13 +106,36 @@ export function validateEnclavesConfig(config: WrapperConfig): string[] {
 
   if (agent.enabled) {
     if (!RUNTIMES.has(agent.runtime)) errors.push(`enclaves.executors.agent.runtime "${agent.runtime}" is not supported`);
-    if (!ENGINES.has(agent.engine)) errors.push(`enclaves.executors.agent.engine "${agent.engine}" is not supported`);
+    if (!ENGINES.has(agent.engine)) {
+      errors.push(`enclaves.executors.agent.engine "${agent.engine}" is not supported`);
+    } else if (!IMPLEMENTED_AGENT_ENGINES.has(agent.engine)) {
+      errors.push(
+        `enclaves.executors.agent.engine "${agent.engine}" is not implemented. Only "copilot" has a ` +
+        'pinned native enclave image and an AWF-authored model loop; enclaves never fall back to a ' +
+        'different engine.',
+      );
+    }
     if (agent.network !== 'api-proxy-only') {
       errors.push('enclaves.executors.agent.network must be "api-proxy-only"');
     }
     if (!agent.model) errors.push('enclaves.executors.agent.model is required when the agent executor is enabled');
     if (!config.enableApiProxy) {
       errors.push('enclaves agent executor requires the AWF API proxy');
+    } else {
+      const route = resolveEnclaveAgentApiRoute(config, agent);
+      if (!route.routed) {
+        errors.push(
+          `enclaves agent executor requires a configured API target for engine "${agent.engine}": ` +
+          `${route.detail}`,
+        );
+      }
+    }
+    if (config.enableDind) {
+      errors.push(
+        'enclaves agent executor cannot be combined with enableDind: exposing the Docker socket to the ' +
+        'primary agent would allow it to inspect credentials, mount private seeds, join the enclave ' +
+        'network, and bypass the finite-disclosure ledger',
+      );
     }
     if (!Number.isInteger(agent.timeout) || agent.timeout < 1 || agent.timeout > MAX_BOUNDED_EXECUTION_TIMEOUT_SECONDS) {
       errors.push(
@@ -82,9 +144,21 @@ export function validateEnclavesConfig(config: WrapperConfig): string[] {
     }
     validateResourceLimits('enclaves.executors.agent', agent, errors);
     validatePositiveInteger('enclaves.executors.agent.maxTaskBytes', agent.maxTaskBytes, errors);
+    if (agent.maxTaskBytes > MAX_TASK_BYTES) {
+      errors.push(`enclaves.executors.agent.maxTaskBytes must be at most ${MAX_TASK_BYTES}`);
+    }
+    if (agent.maxOutputBytes > MAX_RESULT_BYTES) {
+      errors.push(`enclaves.executors.agent.maxOutputBytes must be at most ${MAX_RESULT_BYTES}`);
+    }
     validatePositiveInteger('enclaves.executors.agent.maxInvocations', agent.maxInvocations, errors);
     validatePositiveInteger('enclaves.executors.agent.maxModelRequests', agent.maxModelRequests, errors);
+    if (agent.maxModelRequests > 64) {
+      errors.push('enclaves.executors.agent.maxModelRequests must be at most 64');
+    }
     validatePositiveInteger('enclaves.executors.agent.maxModelTokens', agent.maxModelTokens, errors);
+    if (agent.maxModelTokens > 32768) {
+      errors.push('enclaves.executors.agent.maxModelTokens must be at most 32768');
+    }
   }
 
   return errors;

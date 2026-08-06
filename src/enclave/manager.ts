@@ -10,9 +10,15 @@ import {
 import { assertPrimaryRuntimeAvailable, assertQueryRuntimeAvailable } from '../bounded-query/preflight';
 import { releaseSeedPermissions, resolveStagingToken, stageBoundedQuerySeeds, type GitRunner } from '../bounded-query/staging';
 import { getLocalDockerEnv } from '../host-env';
+import { getSafeHostGid, getSafeHostUid } from '../host-identity';
 import { logger } from '../logger';
 import type { BoundedQueriesConfig, WrapperConfig } from '../types';
-import type { EnclaveScriptExecutorConfig } from '../types/enclave-options';
+import type {
+  EnclaveAgentExecutorConfig,
+  EnclaveScriptExecutorConfig,
+} from '../types/enclave-options';
+import { assertEnclaveRuntimeAvailable } from '../bounded-agent/preflight';
+import type { BoundedAgentsConfig } from '../types';
 import { assertPrivateRootIsolated } from '../bounded-query/mount-policy';
 import { validateEnclavesConfig } from './preflight';
 import { generateEnclaveRunId, resolveEnclavePaths, type EnclavePaths } from './paths';
@@ -21,6 +27,10 @@ export const ENCLAVE_RUN_LABEL = 'awf.enclave.run';
 
 export function isEnclaveScriptEnabled(config: WrapperConfig): boolean {
   return config.enclaves?.enabled === true && config.enclaves.executors.script.enabled === true;
+}
+
+export function isEnclaveAgentEnabled(config: WrapperConfig): boolean {
+  return config.enclaves?.enabled === true && config.enclaves.executors.agent.enabled === true;
 }
 
 export function isEnclavesEnabled(config: WrapperConfig): boolean {
@@ -32,14 +42,24 @@ function ensureDirectory(target: string, mode: number): void {
   fs.chmodSync(target, mode);
 }
 
-function prepareDirectories(paths: EnclavePaths): void {
+function prepareDirectories(
+  paths: EnclavePaths,
+  chown: typeof fs.chownSync = fs.chownSync,
+): void {
   fs.mkdirSync(paths.root, { mode: 0o700 });
   fs.mkdirSync(paths.ingressRoot, { mode: 0o700 });
   ensureDirectory(paths.seedsDir, 0o700);
   ensureDirectory(paths.workDir, 0o700);
   ensureDirectory(paths.controlDir, 0o700);
   ensureDirectory(paths.auditDir, 0o700);
-  ensureDirectory(paths.runDir, 0o700);
+  ensureDirectory(paths.apiProxyLogsDir, 0o700);
+  ensureDirectory(paths.runDir, 0o770);
+  if (process.getuid?.() === 0) {
+    const hostUid = parseInt(getSafeHostUid(), 10);
+    const hostGid = parseInt(getSafeHostGid(), 10);
+    chown(paths.runDir, hostUid, hostGid);
+    chown(paths.apiProxyLogsDir, hostUid, hostGid);
+  }
 }
 
 function writeExclusive(target: string, content: string, mode: number): void {
@@ -60,6 +80,7 @@ export interface PrepareEnclavesDeps {
   gitRunner?: GitRunner;
   env?: NodeJS.ProcessEnv;
   assertScriptRuntimeAvailable?: (config: EnclaveScriptExecutorConfig) => Promise<void>;
+  assertAgentRuntimeAvailable?: (config: EnclaveAgentExecutorConfig) => Promise<void>;
   assertPrimaryAvailable?: typeof assertPrimaryRuntimeAvailable;
 }
 
@@ -71,18 +92,20 @@ export async function prepareEnclaves(
   const enclaves = config.enclaves!;
   const env = deps.env ?? process.env;
   const errors = validateEnclavesConfig(config);
-  if (enclaves.executors.agent.enabled) {
-    errors.push('enclaves.executors.agent is reserved for migration layer 3 and is not implemented');
-  }
-  if (!enclaves.executors.script.enabled) {
-    errors.push('this migration layer requires enclaves.executors.script.enabled');
-  }
-  if (enclaves.executors.script.runtime === 'sbx') {
+  if (enclaves.executors.script.enabled && enclaves.executors.script.runtime === 'sbx') {
     errors.push('enclaves.executors.script.runtime "sbx" is not implemented and never falls back');
+  }
+  if (enclaves.executors.agent.enabled && enclaves.executors.agent.runtime === 'sbx') {
+    errors.push(
+      'enclaves.executors.agent.runtime "sbx" is not implemented: the installed sbx runtime cannot ' +
+      'prove every mandatory enclave-isolation control, and enclaves never fall back to Docker or gVisor',
+    );
   }
   const dockerHost = config.awfDockerHost ?? env.DOCKER_HOST;
   if (dockerHost && !dockerHost.startsWith('unix://')) {
-    errors.push('enclave script execution requires a Unix-socket Docker host because its MCP server has no network');
+    errors.push(
+      'enclave execution requires a Unix-socket Docker host because the enclave MCP server has no network',
+    );
   }
   const token = resolveStagingToken(env);
   if (!token) {
@@ -96,11 +119,23 @@ export async function prepareEnclaves(
   }
 
   await (deps.assertPrimaryAvailable ?? assertPrimaryRuntimeAvailable)(config.containerRuntime);
-  const assertRuntime = deps.assertScriptRuntimeAvailable
-    ?? ((script: EnclaveScriptExecutorConfig) => (
-      assertQueryRuntimeAvailable(script as unknown as BoundedQueriesConfig)
-    ));
-  await assertRuntime(enclaves.executors.script);
+  if (enclaves.executors.script.enabled) {
+    const assertScriptRuntime = deps.assertScriptRuntimeAvailable
+      ?? ((script: EnclaveScriptExecutorConfig) => (
+        assertQueryRuntimeAvailable(script as unknown as BoundedQueriesConfig)
+      ));
+    await assertScriptRuntime(enclaves.executors.script);
+  }
+  if (enclaves.executors.agent.enabled) {
+    // The agent executor reuses the audited bounded-agent runtime proof: an
+    // unregistered `runsc` aborts the run and never downgrades to the daemon's
+    // default OCI runtime, and `sbx` stays blocked until every control is proven.
+    const assertAgentRuntime = deps.assertAgentRuntimeAvailable
+      ?? ((agent: EnclaveAgentExecutorConfig) => (
+        assertEnclaveRuntimeAvailable(agent as unknown as BoundedAgentsConfig)
+      ));
+    await assertAgentRuntime(enclaves.executors.agent);
+  }
 
   const paths = resolveEnclavePaths(config.workDir);
   assertPrivateRootIsolated(config, paths, env, process.cwd(), 'enclave');
@@ -148,6 +183,13 @@ function readRunId(paths: EnclavePaths): string | undefined {
   }
 }
 
+/**
+ * Removes every orphaned enclave container for this run.
+ *
+ * Script and agent enclaves share the `awf.enclave.run` label, so one pass
+ * reconciles both executors without AWF having to know which one created a
+ * container.
+ */
 async function removeOrphanEnclaveContainers(runId: string): Promise<void> {
   const listed = await execa('docker', ['ps', '-aq', '--filter', `label=${ENCLAVE_RUN_LABEL}=${runId}`], {
     env: getLocalDockerEnv(),
@@ -155,7 +197,7 @@ async function removeOrphanEnclaveContainers(runId: string): Promise<void> {
     timeout: 30_000,
   });
   if (listed.exitCode !== 0) {
-    throw new Error('Failed to list orphaned enclave script containers');
+    throw new Error('Failed to list orphaned enclave containers');
   }
   const ids = listed.stdout.split('\n').map((id) => id.trim()).filter(Boolean);
   if (ids.length === 0) return;
@@ -165,7 +207,7 @@ async function removeOrphanEnclaveContainers(runId: string): Promise<void> {
     timeout: 60_000,
   });
   if (removed.exitCode !== 0) {
-    throw new Error('Failed to remove orphaned enclave script containers');
+    throw new Error('Failed to remove orphaned enclave containers');
   }
 }
 

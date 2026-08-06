@@ -7,6 +7,8 @@ export interface EnclavePaths {
   workDir: string;
   controlDir: string;
   auditDir: string;
+  /** Dedicated agent-enclave API-proxy telemetry. Never agent-visible. */
+  apiProxyLogsDir: string;
   seedMapPath: string;
   ingressRoot: string;
   runDir: string;
@@ -48,6 +50,7 @@ export function resolveEnclavePaths(
     workDir: path.join(root, 'work'),
     controlDir: path.join(root, 'control'),
     auditDir: path.join(root, 'audit'),
+    apiProxyLogsDir: path.join(root, 'api-proxy-logs'),
     seedMapPath: path.join(root, 'seed-map.json'),
     ingressRoot,
     runDir,
