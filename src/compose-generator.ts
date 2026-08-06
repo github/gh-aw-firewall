@@ -20,6 +20,11 @@ import {
   BOUNDED_AGENT_NETWORK,
   BOUNDED_AGENT_SUBNET,
 } from './bounded-agent/network';
+import {
+  ENCLAVE_AGENT_EGRESS_NETWORK,
+  ENCLAVE_AGENT_NETWORK,
+  ENCLAVE_AGENT_SUBNET,
+} from './enclave/network';
 import { buildInternalServiceHosts } from './services/internal-service-hosts';
 
 /**
@@ -230,6 +235,28 @@ export function generateDockerCompose(
         internal: true,
       };
     }
+  }
+  if (config.enclaves?.enabled && config.enclaves.executors.agent.enabled) {
+    // Dedicated `internal` network whose only members are unified-enclave
+    // agent enclaves and the dual-homed dedicated API proxy. An explicit
+    // `name:` is required because the enclave MCP server launches enclaves
+    // with a fixed `docker run --network <name>` argument and must not have to
+    // derive a Compose project prefix at runtime.
+    compose.networks[ENCLAVE_AGENT_NETWORK] = {
+      name: ENCLAVE_AGENT_NETWORK,
+      driver: 'bridge',
+      internal: true,
+      ipam: {
+        config: [{ subnet: ENCLAVE_AGENT_SUBNET }],
+      },
+    };
+    // Only the dedicated credential sidecar joins this bridge. It receives
+    // direct upstream egress while enclaves remain confined to the internal
+    // network and the primary agent cannot observe its metrics or state.
+    compose.networks[ENCLAVE_AGENT_EGRESS_NETWORK] = {
+      name: ENCLAVE_AGENT_EGRESS_NETWORK,
+      driver: 'bridge',
+    };
   }
   return compose;
 }

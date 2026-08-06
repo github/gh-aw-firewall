@@ -1,3 +1,5 @@
+import * as fs from 'fs';
+import * as path from 'path';
 import { normalizeEnclavesConfig } from '../parsers/enclave-parser';
 import { parseImageTag } from '../image-tag';
 import type { WrapperConfig } from '../types';
@@ -28,7 +30,7 @@ const ghcr = {
 describe('buildEnclaveMcpService', () => {
   it('builds a no-egress server without exposing it to the primary agent', () => {
     const result = buildEnclaveMcpService({ config: config(), imageConfig: ghcr });
-    expect(result.scriptImageService).toMatchObject({
+    expect(result.scriptImageService!).toMatchObject({
       image: 'ghcr.io/github/gh-aw-firewall/enclave-script:v1',
       network_mode: 'none',
       entrypoint: ['/bin/true'],
@@ -96,14 +98,26 @@ describe('buildEnclaveMcpService', () => {
   });
 
   it('assembles the service without primary-agent mounts or dependency wiring', () => {
-    const compose = generateDockerCompose(config(), {
-      subnet: '172.30.0.0/24',
-      squidIp: '172.30.0.10',
-      agentIp: '172.30.0.20',
-    });
+    // generateDockerCompose materializes a chroot hosts stage under the work
+    // directory, so this assertion needs a real one.
+    const workDir = fs.mkdtempSync(path.join(__dirname, 'awf-enclave-script-compose-'));
+    let compose;
+    try {
+      compose = generateDockerCompose(config({
+        workDir,
+        agentCommand: 'echo enclave',
+        allowedDomains: [],
+      } as Partial<WrapperConfig>), {
+        subnet: '172.30.0.0/24',
+        squidIp: '172.30.0.10',
+        agentIp: '172.30.0.20',
+      });
+    } finally {
+      fs.rmSync(workDir, { recursive: true, force: true });
+    }
     expect(compose.services['enclave-script-image']).toBeDefined();
     expect(compose.services['enclave-mcp-server']).toBeDefined();
-    const agent = compose.services.agent as Record<string, unknown>;
+    const agent = compose.services.agent as unknown as Record<string, unknown>;
     expect((agent.depends_on as Record<string, unknown>)['enclave-mcp-server']).toBeUndefined();
     expect(JSON.stringify(agent.volumes)).not.toContain('awf-enclave-control');
     expect(JSON.stringify(agent.environment)).not.toContain('AWF_ENCLAVE');

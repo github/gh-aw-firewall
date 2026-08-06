@@ -40,23 +40,41 @@ const ALLOWED_AWF_HEADERS = new Set([VERSION_HEADER, REPO_HEADER, SCHEMA_HEADER]
 const ALLOWED_REQUEST_KEYS = ['privateRepo', 'schema', 'task'];
 
 /**
+ * Every accepted spelling of the single free-form payload field.
+ *
+ * Exactly one of these is accepted per caller surface (`task` for the legacy
+ * bounded-agent wrapper protocol, `prompt` for the unified enclave MCP tool);
+ * the other is an explicitly forbidden control so a request can never smuggle
+ * a second payload past the finite-disclosure charge.
+ */
+const PAYLOAD_KEYS = ['task', 'prompt'];
+
+/**
  * Controls a request may never express.
  *
  * Redundant with the unknown-key rule below by construction; kept explicit so
  * an accidental future widening of the accepted key set fails a test instead of
  * silently granting a capability.
  */
-const FORBIDDEN_REQUEST_KEYS = [
+const BASE_FORBIDDEN_REQUEST_KEYS = [
   'image', 'images', 'command', 'cmd', 'args', 'argv', 'entrypoint', 'executable',
   'interpreter', 'script', 'shell', 'mount', 'mounts', 'volume', 'volumes', 'bind',
   'path', 'paths', 'workdir', 'env', 'environment', 'endpoint', 'endpoints', 'baseUrl',
   'url', 'host', 'network', 'networks', 'dns', 'proxy', 'httpProxy', 'httpsProxy',
   'credential', 'credentials', 'apiKey', 'token', 'authorization', 'headers',
   'timeout', 'timeoutSeconds', 'deadline', 'memory', 'memoryLimit', 'cpu', 'cpuLimit',
-  'pids', 'pidsLimit', 'tmpfs', 'ulimit', 'resources', 'runtime', 'backend', 'sandbox',
+  'pids', 'pidsLimit', 'tmpfs', 'ulimit', 'resources', 'runtime', 'backend', 'engine', 'sandbox',
   'profile', 'model', 'provider', 'temperature', 'maxTokens', 'maxModelRequests',
   'tool', 'tools', 'toolChoice', 'functions', 'systemPrompt', 'system', 'messages',
 ];
+
+/** Forbidden controls for one caller surface: everything plus the other payload spelling. */
+function forbiddenKeysFor(payloadKey) {
+  return BASE_FORBIDDEN_REQUEST_KEYS.concat(PAYLOAD_KEYS.filter((key) => key !== payloadKey));
+}
+
+/** Forbidden controls for the legacy `task` wrapper surface. */
+const FORBIDDEN_REQUEST_KEYS = forbiddenKeysFor('task');
 
 /** Base64url alphabet only (no padding, no `+`/`/`). */
 const BASE64URL_PATTERN = /^[A-Za-z0-9_-]+$/;
@@ -155,19 +173,24 @@ function validateBoundedAgentRequest(raw, options = {}) {
     return { valid: false, errors: ['request must be a JSON object'] };
   }
 
-  const forbidden = FORBIDDEN_REQUEST_KEYS.filter(
+  // Trusted caller-surface selection, never request data. Exactly one payload
+  // spelling is accepted; the others stay forbidden controls.
+  const payloadKey = PAYLOAD_KEYS.includes(options.payloadKey) ? options.payloadKey : 'task';
+  const allowedKeys = ['privateRepo', 'schema', payloadKey];
+  const forbidden = forbiddenKeysFor(payloadKey).filter(
     (key) => Object.prototype.hasOwnProperty.call(raw, key),
   );
   for (const key of forbidden) {
     errors.push(`request may not specify "${key}"`);
   }
   for (const key of Object.keys(raw)) {
-    if (!ALLOWED_REQUEST_KEYS.includes(key) && !forbidden.includes(key)) {
+    if (!allowedKeys.includes(key) && !forbidden.includes(key)) {
       errors.push(`unknown request key: "${key}"`);
     }
   }
 
-  const { privateRepo, schema, task } = raw;
+  const { privateRepo, schema } = raw;
+  const task = raw[payloadKey];
 
   if (typeof privateRepo !== 'string') {
     errors.push('privateRepo must be a string');
@@ -187,18 +210,18 @@ function validateBoundedAgentRequest(raw, options = {}) {
     : MAX_TASK_BYTES;
   const taskLimit = Math.min(configuredLimit, MAX_TASK_BYTES);
   if (typeof task !== 'string') {
-    errors.push('task must be a string');
+    errors.push(`${payloadKey} must be a string`);
   } else if (task.length === 0) {
-    errors.push('task must not be empty');
+    errors.push(`${payloadKey} must not be empty`);
   } else if (Buffer.byteLength(task, 'utf8') > taskLimit) {
-    errors.push('task exceeds the maximum size');
+    errors.push(`${payloadKey} exceeds the maximum size`);
   }
 
   if (errors.length > 0) return { valid: false, errors };
 
   return {
     valid: true,
-    request: { privateRepo, schema: schemaValidation.schema, task },
+    request: { privateRepo, schema: schemaValidation.schema, [payloadKey]: task },
   };
 }
 
@@ -252,8 +275,11 @@ function readBoundedBody(req) {
 module.exports = {
   AGENT_PROTOCOL_VERSION,
   ALLOWED_REQUEST_KEYS,
+  MAX_TASK_BYTES,
+  PAYLOAD_KEYS,
   BODY_READ_TIMEOUT_MS,
   FORBIDDEN_REQUEST_KEYS,
+  forbiddenKeysFor,
   REPO_HEADER,
   SCHEMA_HEADER,
   VERSION_HEADER,

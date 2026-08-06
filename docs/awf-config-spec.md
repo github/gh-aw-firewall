@@ -2442,10 +2442,12 @@ can answer the question.
 ## 16. Unified Enclaves
 
 The optional `enclaves` object is the successor configuration model for bounded
-private-repository execution. The script executor launches an AWF-owned,
-no-egress MCP service and hardened single-use script containers. The service is
-not yet attached to the primary agent; a later migration layer registers it
-exclusively through `gh-aw-mcpg`. See
+private-repository execution. One AWF-owned, no-egress MCP service exposes the
+enabled executors: the script executor launches hardened single-use script
+containers with no network, and the agent executor launches hardened single-use
+enclaves that run a fixed, AWF-authored model loop on a dedicated
+API-proxy-only network. The service is not yet attached to the primary agent; a
+later migration layer registers it exclusively through `gh-aw-mcpg`. See
 [Unified Enclave Architecture and Migration](enclaves-architecture.md).
 
 `enclaves.privateRepos` is the single trusted repository list for every
@@ -2461,16 +2463,26 @@ defaults preserve the bounded-agent limits (`docker`, API-proxy-only network,
 Copilot/OpenAI profile, 120 seconds, 512 MiB, 8 invocations, 8 model requests,
 1024 completion tokens). Neither executor is enabled by omission.
 
-Layer 2 implements script execution for `docker` and exactly registered
-`gvisor`/`runsc`. The schema reserves `sbx`, but preflight fails closed because
-the unified MCP script launcher has not yet proved that backend; it never
-downgrades to Docker or gVisor.
+Both executors are implemented for `docker` and exactly registered
+`gvisor`/`runsc`. The schema reserves `sbx`, but preflight fails closed for
+either executor because the unified launchers have not proved that backend; it
+never downgrades to Docker or gVisor. The agent executor is implemented only for
+`engine: copilot`, which is the sole engine with a published, audited enclave
+image; another engine fails closed rather than falling back.
 
-Images, runtimes, interpreters, engines, provider profiles, models, networks,
-timeouts, resource limits, and operational limits are trusted configuration.
-The `enclave_run_script` MCP tool accepts exactly `privateRepo`, a finite
-response `schema`, and bounded `script` bytes. It rejects trusted controls and
-unknown aliases for them. An enabled agent executor requires a configured model.
+An enabled agent executor additionally requires `enableApiProxy` and a
+configured provider route for its engine/profile (Copilot token or BYOK route,
+`ANTHROPIC_API_KEY`, or `OPENAI_API_KEY`), a configured `model`, and the absence
+of `enableDind`. All of these are validated before repository staging.
+
+Images, runtimes, interpreters, engines, provider profiles, models, endpoints,
+networks, mounts, tool sets, system prompts, credentials, timeouts, resource
+limits, and operational limits are trusted configuration. The
+`enclave_run_script` MCP tool accepts exactly `privateRepo`, a finite response
+`schema`, and bounded `script` bytes; the `enclave_run_agent` MCP tool accepts
+exactly `privateRepo`, a finite response `schema`, and a bounded `prompt`. Both
+reject trusted controls, unknown aliases for them, and the other tool's payload
+key.
 
 When `enclaves.enabled` is `true`, at least one executor and one repository are
 required. `boundedQueries.enabled` or `boundedAgents.enabled` MUST NOT also be
@@ -2478,10 +2490,33 @@ true. AWF rejects that mixed configuration before any legacy broker, enclave
 server, repository staging, or primary agent starts. Disabled sections may
 coexist because they do not activate a runtime.
 
-The AWF-owned MCP server enforces the unified per-repository ledger for script
-calls. The later agent executor will debit this same ledger rather than creating
-an executor-specific balance. Legacy brokers retain their existing independent
-behavior until runtime cutover.
+The AWF-owned MCP server enforces the unified per-repository ledger for both
+executors: a script call and an agent call debit the same live balance, and
+switching executor kinds never resets or forks it. Both executors also share one
+serialization lane inside the server. Legacy brokers retain their existing
+independent behavior until runtime cutover.
+
+### 16.1 Agent executor topology and disclosure
+
+Agent enclaves join only the dedicated `internal` `awf-enclave-agent` network
+(172.31.0.0/24). Its only other member is a dedicated API proxy that also joins
+a separate egress bridge and is the only holder of a real provider credential.
+The MCP server runs `network_mode: none` and is never on that network; neither
+is the primary agent, Squid, the general API proxy, the safe-outputs collector,
+the MCP gateway, or the CLI proxy. The dedicated proxy's credentials are
+minimized to the configured route, its external telemetry export and Actions
+OIDC token-exchange state are removed, and its logs stay in the enclave-private
+root.
+
+Each enclave is single-use: immutable seed mounted read-only, `--read-only`
+root, bounded `tmpfs`, fixed non-root uid/gid, `--cap-drop ALL`,
+`no-new-privileges`, seccomp, and memory/CPU/PID/file-size/timeout bounds. Every
+enclave container carries `awf.enclave.run` and `awf.enclave.invocation` labels
+so one AWF reconciliation pass removes orphans from either executor.
+
+**Provider disclosure caveat.** Repository-derived content reaches the
+configured model provider through the dedicated API proxy. The ledger bounds
+what the *calling agent* learns, not what the *provider* sees.
 
 ## Normative References
 

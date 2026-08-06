@@ -35,6 +35,34 @@ function config(workDir: string, overrides: Parameters<typeof normalizeEnclavesC
   } as WrapperConfig;
 }
 
+/** A configuration whose agent executor has a routed API-proxy model target. */
+function agentConfig(
+  workDir: string,
+  overrides: Parameters<typeof normalizeEnclavesConfig>[0] = {},
+): WrapperConfig {
+  return {
+    ...config(workDir, overrides),
+    enableApiProxy: true,
+    copilotGithubToken: 'copilot-token',
+  } as WrapperConfig;
+}
+
+/**
+ * Runs staging but tolerates a sandboxed host that cannot create the private
+ * `/var/tmp` root. Every other failure still fails the test, and the ordering
+ * assertions below run either way because runtime proofs precede staging.
+ */
+async function prepareToleratingPrivateRootIo(
+  wrapperConfig: WrapperConfig,
+  deps: Parameters<typeof prepareEnclaves>[1],
+): Promise<void> {
+  try {
+    await prepareEnclaves(wrapperConfig, deps);
+  } catch (error) {
+    if (!/EPERM|EACCES/.test(String(error))) throw error;
+  }
+}
+
 describe('prepareEnclaves fail-closed preflight', () => {
   let workDir: string;
 
@@ -60,17 +88,67 @@ describe('prepareEnclaves fail-closed preflight', () => {
     })).rejects.toThrow(/Unix-socket Docker host/);
   });
 
-  it('rejects the future agent executor rather than half-enabling it', async () => {
-    await expect(prepareEnclaves(config(workDir, {
+  it('proves both executor runtimes before staging when both are enabled', async () => {
+    const assertScriptRuntimeAvailable = jest.fn().mockResolvedValue(undefined);
+    const assertAgentRuntimeAvailable = jest.fn().mockResolvedValue(undefined);
+    await prepareToleratingPrivateRootIo(agentConfig(workDir, {
       executors: {
         script: { enabled: true },
-        agent: { enabled: true, model: 'future-model' },
+        agent: { enabled: true, model: 'gpt-test' },
       },
+    }), {
+      env: { GH_TOKEN: 'secret' },
+      gitRunner,
+      assertPrimaryAvailable: jest.fn().mockResolvedValue(undefined),
+      assertScriptRuntimeAvailable,
+      assertAgentRuntimeAvailable,
+    });
+    expect(assertScriptRuntimeAvailable).toHaveBeenCalledTimes(1);
+    expect(assertAgentRuntimeAvailable).toHaveBeenCalledWith(
+      expect.objectContaining({ enabled: true, runtime: 'docker', model: 'gpt-test' }),
+    );
+  });
+
+  it('never probes a disabled executor runtime', async () => {
+    const assertScriptRuntimeAvailable = jest.fn().mockResolvedValue(undefined);
+    const assertAgentRuntimeAvailable = jest.fn().mockResolvedValue(undefined);
+    await prepareToleratingPrivateRootIo(agentConfig(workDir, {
+      executors: { agent: { enabled: true, model: 'gpt-test' } },
+    }), {
+      env: { GH_TOKEN: 'secret' },
+      gitRunner,
+      assertPrimaryAvailable: jest.fn().mockResolvedValue(undefined),
+      assertScriptRuntimeAvailable,
+      assertAgentRuntimeAvailable,
+    });
+    expect(assertScriptRuntimeAvailable).not.toHaveBeenCalled();
+    expect(assertAgentRuntimeAvailable).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects the unproven sbx agent runtime before staging and never downgrades', async () => {
+    const assertAgentRuntimeAvailable = jest.fn();
+    await expect(prepareEnclaves(agentConfig(workDir, {
+      executors: { agent: { enabled: true, model: 'gpt-test', runtime: 'sbx' } },
     }), {
       env: { GH_TOKEN: 'secret' },
       assertPrimaryAvailable: jest.fn(),
       assertScriptRuntimeAvailable: jest.fn(),
-    })).rejects.toThrow(/reserved for migration layer 3/);
+      assertAgentRuntimeAvailable,
+    })).rejects.toThrow(/agent.runtime "sbx" is not implemented/);
+    expect(assertAgentRuntimeAvailable).not.toHaveBeenCalled();
+  });
+
+  it('rejects an agent executor without the mandatory API proxy', async () => {
+    await expect(prepareEnclaves({
+      ...agentConfig(workDir, {
+        executors: { agent: { enabled: true, model: 'gpt-test' } },
+      }),
+      enableApiProxy: false,
+    } as WrapperConfig, {
+      env: { GH_TOKEN: 'secret' },
+      assertPrimaryAvailable: jest.fn(),
+      assertAgentRuntimeAvailable: jest.fn(),
+    })).rejects.toThrow(/agent executor requires the AWF API proxy/);
   });
 
   it('rejects the unimplemented sbx script runtime before staging', async () => {
@@ -158,7 +236,7 @@ describe('prepareEnclaves fail-closed preflight', () => {
     mockExeca.mockResolvedValueOnce({ exitCode: 1, stdout: '', stderr: 'daemon unavailable' });
     const paths = resolveEnclavePaths(workDir);
     await expect(teardownEnclaves(wrapperConfig)).rejects.toThrow(
-      /Failed to list orphaned enclave script containers/,
+      /Failed to list orphaned enclave containers/,
     );
     expect(fs.existsSync(paths.root)).toBe(true);
     expect(fs.existsSync(paths.ingressRoot)).toBe(true);

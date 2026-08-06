@@ -310,13 +310,22 @@ function assembleBoundedAgentService(params: AssembleOptionalServicesParams): vo
 
 function assembleEnclaveMcpService(params: AssembleOptionalServicesParams): void {
   const { services, config, imageConfig } = params;
-  if (!config.enclaves?.enabled || !config.enclaves.executors.script.enabled) return;
-  const { scriptImageService, service } = buildEnclaveMcpService({ config, imageConfig });
-  services['enclave-script-image'] = scriptImageService;
+  const executors = config.enclaves?.executors;
+  if (!config.enclaves?.enabled) return;
+  if (!executors?.script.enabled && !executors?.agent.enabled) return;
+  const {
+    scriptImageService,
+    agentImageService,
+    agentApiProxyService,
+    service,
+  } = buildEnclaveMcpService({ config, imageConfig, networkConfig: params.networkConfig });
+  if (scriptImageService) services['enclave-script-image'] = scriptImageService;
+  if (agentImageService) services['enclave-agent-image'] = agentImageService;
+  if (agentApiProxyService) services['enclave-agent-api-proxy'] = agentApiProxyService;
   services['enclave-mcp-server'] = service;
-  // Layer 2 intentionally does not mount the MCP socket/capability into the
-  // primary agent or make agent startup depend on this service. gh-aw-mcpg owns
-  // that attachment in layer 4.
+  // This migration layer intentionally does not mount the MCP socket/capability
+  // into the primary agent or make agent startup depend on this service.
+  // gh-aw-mcpg owns that attachment in a later layer.
 }
 
 function finalizeSysrootVolumes(

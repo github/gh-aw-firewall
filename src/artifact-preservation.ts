@@ -11,6 +11,7 @@ import { getLocalDockerEnv } from './host-env';
 import { resolveBoundedQueryPaths } from './bounded-query/paths';
 import { resolveBoundedAgentPaths } from './bounded-agent/paths';
 import { resolveEnclavePaths } from './enclave/paths';
+import { ENCLAVE_MCP_SERVER_CONTAINER_NAME } from './constants';
 
 const BOUNDED_QUERY_AUDIT_FILES = [
   'bounded-query.jsonl',
@@ -115,7 +116,7 @@ export function preserveIptablesAudit(workDir: string, auditDir?: string): void 
   if (fs.existsSync(enclaveRoot)) {
     for (const auditFile of ENCLAVE_AUDIT_FILES) {
       try {
-        const source = `awf-enclave-mcp-server:/var/log/awf-enclave/${auditFile.source}`;
+        const source = `${ENCLAVE_MCP_SERVER_CONTAINER_NAME}:/var/log/awf-enclave/${auditFile.source}`;
         const destination = path.join(targetAuditDir, auditFile.destination);
         const result = execa.sync(
           'docker',
@@ -130,6 +131,25 @@ export function preserveIptablesAudit(workDir: string, auditDir?: string): void 
       } catch (error) {
         logger.debug(`Could not copy enclave ${auditFile.source}:`, error);
       }
+    }
+    try {
+      const destination = path.join(targetAuditDir, 'enclave-agent-sessions');
+      const result = execa.sync(
+        'docker',
+        [
+          'cp',
+          `${ENCLAVE_MCP_SERVER_CONTAINER_NAME}:/var/log/awf-enclave/${BOUNDED_AGENT_SESSION_DIR}`,
+          destination,
+        ],
+        { env: getLocalDockerEnv(), reject: false },
+      );
+      if (result.exitCode === 0) {
+        logger.debug('Copied enclave agent sessions to audit directory');
+      } else {
+        logger.debug('Could not copy enclave agent sessions:', result.stderr);
+      }
+    } catch (error) {
+      logger.debug('Could not copy enclave agent sessions:', error);
     }
   }
 }

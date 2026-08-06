@@ -30,6 +30,17 @@ const ENCLAVE_MAX_FILE_BYTES = 32 * 1024 * 1024;
 
 const RUN_LABEL = 'awf.bounded-agent.run';
 const INVOCATION_LABEL = 'awf.bounded-agent.invocation';
+
+/**
+ * Unified-enclave labels.
+ *
+ * The unified enclave MCP server launches agent enclaves with these labels so
+ * one AWF-side reconciliation pass (`awf.enclave.run=<runId>`) deterministically
+ * removes every orphaned enclave container, script or agent, without knowing
+ * which executor created it. Legacy bounded agents keep the labels above.
+ */
+const ENCLAVE_RUN_LABEL = 'awf.enclave.run';
+const ENCLAVE_INVOCATION_LABEL = 'awf.enclave.invocation';
 const TRUSTED_ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/;
 
 /** Converts a monotonic-clock duration to the integer milliseconds Node requires. */
@@ -65,11 +76,17 @@ function deriveEnclaveContainerSpec({ config, runId, invocationId, seedId, runti
     throw new Error(`Unsupported OCI runtime in enclave runner: ${runtimeName}`);
   }
 
-  const containerName = `awf-bounded-agent-${runId.slice(0, 12)}-${invocationId}`;
+  // Label keys and the container prefix are trusted broker configuration, not
+  // request data. Omitting them preserves the legacy bounded-agent naming
+  // byte-for-byte.
+  const runLabelKey = config.runLabelKey || RUN_LABEL;
+  const invocationLabelKey = config.invocationLabelKey || INVOCATION_LABEL;
+  const containerPrefix = config.containerPrefix || 'awf-bounded-agent';
+  const containerName = `${containerPrefix}-${runId.slice(0, 12)}-${invocationId}`;
   const hostInvocationDir = `${config.hostWorkDir}/${invocationId}`;
   const hostSeedDir = `${config.hostSeedsDir}/${seedId}`;
-  const runLabel = `${RUN_LABEL}=${runId}`;
-  const invocationLabel = `${INVOCATION_LABEL}=${invocationId}`;
+  const runLabel = `${runLabelKey}=${runId}`;
+  const invocationLabel = `${invocationLabelKey}=${invocationId}`;
   const launchArgs = [
     'run',
     '--pull', 'never',
@@ -92,7 +109,7 @@ function deriveEnclaveContainerSpec({ config, runId, invocationId, seedId, runti
     '--tmpfs',
     `${config.enclaveMountDir}:rw,nosuid,nodev,size=${config.tmpfsLimit},` +
       `uid=${config.enclaveUid},gid=${config.enclaveGid},mode=0700`,
-    '--hostname', 'bounded-agent',
+    '--hostname', config.enclaveHostname || 'bounded-agent',
     '--workdir', config.enclaveSeedPath,
     '--env', `AWF_BOUNDED_AGENT_ENGINE=${config.engine}`,
     '--env', `HOME=${config.enclaveMountDir}/home`,
@@ -148,7 +165,9 @@ function buildRemoveArgs(containerIds) {
 
 module.exports = {
   CLI_GRACE_MS,
+  ENCLAVE_INVOCATION_LABEL,
   ENCLAVE_MAX_FILE_BYTES,
+  ENCLAVE_RUN_LABEL,
   INVOCATION_LABEL,
   RUN_LABEL,
   buildEnclaveArgs,

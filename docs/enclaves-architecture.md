@@ -2,9 +2,11 @@
 
 ## Status
 
-Layer 2 of the staged migration implements the AWF-owned MCP server and the
-script executor. It remains deliberately disconnected from the primary agent
-until the `gh-aw-mcpg` attachment layer. Both legacy runtimes remain unchanged.
+Layer 3 of the staged migration adds the **agent executor** to the same
+AWF-owned MCP server, behind the same authenticated private socket and the same
+shared per-repository ledger. The subsystem remains deliberately disconnected
+from the primary agent until the `gh-aw-mcpg` attachment layer. Both legacy
+runtimes remain unchanged.
 
 ## Decision
 
@@ -61,7 +63,12 @@ The server owns the Docker socket, seed map, shared ledger, protected audit
 state, and a private Unix socket plus capability token. Neither the socket nor
 the token is mounted into the primary agent in this layer.
 
-The server exposes one static MCP tool:
+When the agent executor is enabled, AWF additionally pre-pulls or builds the
+`enclave-agent` image, creates the dedicated `internal` `awf-enclave-agent`
+network (172.31.0.0/24), and starts a dedicated API proxy on that network plus a
+separate egress bridge. The MCP server itself never joins either network.
+
+The server exposes one static MCP tool per **enabled** executor:
 
 ```text
 enclave_run_script({
@@ -69,13 +76,57 @@ enclave_run_script({
   schema: <finite disclosure schema>,
   script: <bounded UTF-8 Python source>
 })
+
+enclave_run_agent({
+  privateRepo: "owner/repo",
+  schema: <finite disclosure schema>,
+  prompt: <bounded UTF-8 task prompt>
+})
 ```
 
-No image, runtime, interpreter path, command, mount, network, credential,
-timeout, or resource setting is accepted in a tool call. `tools/list` is static
-and does not reveal repositories, sensitivity, remaining budget, runtime, or
-model configuration. Admitted executions debit the unified per-repository
-ledger under executor kind `script`.
+Both tool schemas set `additionalProperties: false`. No image, runtime, engine,
+model, provider, profile, endpoint, mount, network, tool definition, system
+prompt, message list, credential, timeout, or resource setting is accepted in a
+tool call, and the alternate payload spelling (`task` for the agent tool,
+`prompt` for the script tool) is an explicitly forbidden control so a second
+payload can never be smuggled past the finite-disclosure charge. The agent
+executor runs a fixed, AWF-authored model loop inside the enclave — the caller
+supplies a prompt, never a system prompt, a message list, or a tool set.
+
+`tools/list` publishes exactly the enabled tools and does not reveal
+repositories, sensitivity, remaining budget, invocation counts, runtime, engine,
+profile, or model configuration. Admitted executions debit the *same* live
+per-repository ledger under executor kind `script` or `agent`; both executors
+also share one serialization lane, so at most one enclave holds private
+repository content at a time.
+
+### Agent executor isolation
+
+Every agent invocation gets a fresh, single-use, labelled enclave with:
+
+- the immutable repository seed bind-mounted read-only and a `--read-only` root;
+- bounded `tmpfs` for `/tmp` and the `/agent` work/result root;
+- a fixed non-root uid/gid, `--cap-drop ALL`, `no-new-privileges`, and the
+  audited sandbox seccomp profile;
+- memory, CPU, PID, per-file size, and wall-clock timeout bounds;
+- `--network awf-enclave-agent` as its only network, whose only other member is
+  the dedicated API proxy — no primary agent, Squid, general API proxy, MCP
+  server, safe-outputs collector, MCP gateway, or CLI proxy is on it.
+
+Containers carry the `awf.enclave.run` and `awf.enclave.invocation` labels, so
+one AWF-side reconciliation pass deterministically removes orphans from both
+executors. `runtime: "sbx"` is schema-accepted but fails closed before staging;
+`gvisor` requires an exactly registered `runsc` and never downgrades.
+
+### Credential and provider disclosure
+
+The dedicated API proxy is the only component that holds a real provider
+credential. The MCP server, the enclave, and the primary agent never do. That
+proxy's environment is minimized to the single provider route the configured
+engine/profile uses, and external telemetry export (OTLP endpoints/headers,
+trace propagation) plus Actions OIDC token-exchange state are removed from it,
+exactly as for legacy bounded agents. Its telemetry is written only to the
+enclave-private log root.
 
 Executor outcomes return successful JSON-RPC tool results whose
 `structuredContent` is exactly canonical `{"status":"ok","result":...}` or
@@ -102,11 +153,13 @@ fails the run before repository staging is exposed or the primary agent starts.
    disclosure/staging/budget contracts, shared-ledger semantics, and compatibility
    exports. Keep both legacy systems fully functional and reject simultaneous
    enablement of a unified and legacy surface.
-2. **AWF-owned script MCP server (this layer).** Implement the authenticated,
-   offline local server and hardened script executor over the shared contracts;
-   do not expose its private transport to the primary agent.
-3. **Agent executor.** Add the fixed model loop and API-proxy-only enclave
-   network behind the same MCP server and shared ledger.
+2. **AWF-owned script MCP server.** Implement the authenticated, offline local
+   server and hardened script executor over the shared contracts; do not expose
+   its private transport to the primary agent.
+3. **Agent executor (this layer).** Add the fixed model loop, the dedicated
+   API-proxy-only enclave network, and the `enclave_run_agent` tool behind the
+   same MCP server, the same private socket, and the same shared ledger. The
+   private transport still is not exposed to the primary agent.
 4. **`gh-aw-mcpg` integration.** Register and guard the AWF-owned server, wire
    startup retry/timeouts, require end-to-end readiness before primary-agent
    startup, and route both executor tools exclusively through the gateway.

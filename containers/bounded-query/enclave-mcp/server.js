@@ -8,8 +8,21 @@ const { createEnclaveInformationBudgetLedger } = require('../bounded-execution/s
 const { createBroker } = require('../broker/broker');
 const { createQueryRunner } = require('../broker/query-runner');
 const { createRuntimeTelemetry } = require('../broker/runtime-telemetry');
-const { loadConfig, loadSeedMap } = require('./config');
-const { dispatchJsonRpc, parseJsonRpcBody } = require('./mcp-protocol');
+const {
+  isAgentExecutorEnabled,
+  isScriptExecutorEnabled,
+  loadAgentConfig,
+  loadConfig,
+  loadSeedMap,
+  loadServerConfig,
+} = require('./config');
+const {
+  ENCLAVE_EXIT_CATEGORIES,
+  agentWorkspaceAdapter,
+  createAgentRequestValidator,
+  createAgentRunner,
+} = require('./agent-executor');
+const { AGENT_TOOL_NAME, TOOL_NAME, dispatchJsonRpc, parseJsonRpcBody } = require('./mcp-protocol');
 
 const MAX_HTTP_BODY_BYTES = 420 * 1024;
 const RESPONSE_HEADERS = {
@@ -90,7 +103,17 @@ function createMcpServer(deps) {
       return;
     }
 
-    const response = await dispatchJsonRpc(message, deps);
+    let response;
+    try {
+      response = await dispatchJsonRpc(message, deps);
+    } catch {
+      jsonResponse(res, 200, {
+        jsonrpc: '2.0',
+        id: Object.prototype.hasOwnProperty.call(message, 'id') ? message.id : null,
+        error: { code: -32603, message: 'Internal error' },
+      });
+      return;
+    }
     if (response === undefined) {
       res.writeHead(202, { 'cache-control': 'no-store', 'content-length': '0' });
       res.end();
@@ -123,67 +146,122 @@ function listenOnSocket(server, config) {
 }
 
 async function main() {
-  const config = loadConfig();
-  fs.rmSync(config.readyPath, { force: true });
-  const audit = createProtectedAuditLog(config.auditDir, 'enclave.jsonl');
-  const telemetry = createRuntimeTelemetry(config.auditDir);
-  const { runId, seeds } = loadSeedMap(config.seedMapPath);
-  const runner = createQueryRunner(config);
-  await runner.assertAvailable();
-  await runner.reconcileRun(runId);
+  const serverConfig = loadServerConfig();
+  fs.rmSync(serverConfig.readyPath, { force: true });
+  const audit = createProtectedAuditLog(serverConfig.auditDir, 'enclave.jsonl');
+  const telemetry = createRuntimeTelemetry(serverConfig.auditDir);
+  const { runId, seeds } = loadSeedMap(serverConfig.seedMapPath);
+
+  const scriptEnabled = isScriptExecutorEnabled();
+  const agentEnabled = isAgentExecutorEnabled();
+  if (!scriptEnabled && !agentEnabled) {
+    throw new Error('No enclave executor is enabled');
+  }
+
+  // One ledger for the whole run. Script and agent invocations debit the same
+  // live per-repository balance, so switching executor kinds can never reset or
+  // fork a repository's disclosure budget.
+  const ledger = createEnclaveInformationBudgetLedger(seeds);
+  // One serialization lane for the whole run: at most one enclave — script or
+  // agent — holds private repository content at a time.
+  const lane = { tail: Promise.resolve() };
+  const brokers = {};
+  const runners = [];
+  const executors = [];
+  let maxScriptBytes;
+  let maxPromptBytes;
+
+  if (scriptEnabled) {
+    const config = loadConfig();
+    const runner = createQueryRunner(config);
+    await runner.assertAvailable();
+    await runner.reconcileRun(runId);
+    runners.push({ runner, config });
+    maxScriptBytes = config.maxScriptBytes;
+    brokers[TOOL_NAME] = createBroker({
+      config,
+      seedMap: seeds,
+      runId,
+      audit,
+      runner,
+      ledger,
+      telemetry,
+      lane,
+      executorKind: 'script',
+      uniformTiming: true,
+    });
+    executors.push('script');
+  }
+
+  if (agentEnabled) {
+    const config = loadAgentConfig(serverConfig);
+    const runner = createAgentRunner(config);
+    await runner.assertAvailable();
+    await runner.reconcileRun(runId);
+    runners.push({ runner, config });
+    maxPromptBytes = config.maxPromptBytes;
+    brokers[AGENT_TOOL_NAME] = createBroker({
+      config,
+      seedMap: seeds,
+      runId,
+      audit,
+      runner,
+      ledger,
+      telemetry,
+      lane,
+      workspace: agentWorkspaceAdapter,
+      validateRequest: createAgentRequestValidator(config.maxPromptBytes),
+      payloadKey: 'prompt',
+      exitCategories: ENCLAVE_EXIT_CATEGORIES,
+      executorKind: 'agent',
+      uniformTiming: true,
+    });
+    executors.push('agent');
+  }
+
+  const backends = runners[0].config;
   telemetry.emit({
-    primaryBackend: config.primaryBackend,
-    queryBackend: config.queryBackend,
+    primaryBackend: serverConfig.primaryBackend,
+    queryBackend: backends.queryBackend,
     lifecycleClass: 'startup',
     capabilityState: 'supported',
     category: 'ready',
   });
 
-  const ledger = createEnclaveInformationBudgetLedger(seeds);
-  const broker = createBroker({
-    config,
-    seedMap: seeds,
-    runId,
-    audit,
-    runner,
-    ledger,
-    telemetry,
-    executorKind: 'script',
-    uniformTiming: true,
-  });
   const server = createMcpServer({
-    broker,
-    capability: config.capability,
-    maxScriptBytes: config.maxScriptBytes,
+    brokers,
+    capability: serverConfig.capability,
+    maxScriptBytes,
+    maxPromptBytes,
   });
-  await listenOnSocket(server, config);
-  fs.mkdirSync(config.controlDir, { recursive: true, mode: 0o700 });
-  fs.writeFileSync(config.readyPath, '', { mode: 0o600 });
-  audit.lifecycle('listening', { executor: 'script' });
+  await listenOnSocket(server, serverConfig);
+  fs.mkdirSync(serverConfig.controlDir, { recursive: true, mode: 0o700 });
+  fs.writeFileSync(serverConfig.readyPath, '', { mode: 0o600 });
+  audit.lifecycle('listening', { executors });
 
   let stopping = false;
   const shutdown = async () => {
     if (stopping) return;
     stopping = true;
-    broker.close();
+    for (const broker of Object.values(brokers)) broker.close();
     server.close();
     try {
-      await broker.drain();
-      await runner.reconcileRun(runId);
+      await lane.tail;
+      for (const { runner } of runners) await runner.reconcileRun(runId);
       telemetry.emit({
-        primaryBackend: config.primaryBackend,
-        queryBackend: config.queryBackend,
+        primaryBackend: serverConfig.primaryBackend,
+        queryBackend: backends.queryBackend,
         lifecycleClass: 'cleanup',
         capabilityState: 'supported',
         category: 'success',
       });
-      fs.rmSync(config.readyPath, { force: true });
+      fs.rmSync(serverConfig.readyPath, { force: true });
       process.exit(0);
     } catch (error) {
       audit.lifecycle('shutdown-cleanup-failed', error.message);
       telemetry.emit({
-        primaryBackend: config.primaryBackend,
-        queryBackend: config.queryBackend,
+        primaryBackend: serverConfig.primaryBackend,
+        queryBackend: backends.queryBackend,
         lifecycleClass: 'cleanup',
         capabilityState: 'supported',
         category: 'cleanup-failed',

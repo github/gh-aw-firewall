@@ -4,7 +4,9 @@ const { DockerEnclaveRunner } = require('./docker-enclave-runner');
 const { GvisorEnclaveRunner } = require('./gvisor-enclave-runner');
 const { SbxEnclaveRunner } = require('./sbx-enclave-runner');
 const {
+  ENCLAVE_INVOCATION_LABEL,
   ENCLAVE_MAX_FILE_BYTES,
+  ENCLAVE_RUN_LABEL,
   buildEnclaveArgs,
   deriveEnclaveContainerSpec,
   normalizeTimeoutMs,
@@ -51,7 +53,9 @@ function createEnclaveRunner(config, deps = {}) {
 }
 
 module.exports = {
+  ENCLAVE_INVOCATION_LABEL,
   ENCLAVE_MAX_FILE_BYTES,
+  ENCLAVE_RUN_LABEL,
   buildEnclaveArgs,
   createEnclaveRunner,
   deriveEnclaveContainerSpec,
