@@ -10,6 +10,7 @@ const { sanitizeForLog, logRequest } = require('./logging');
 const { diag } = require('./token-persistence');
 const { getCopilotModelFallbackPolicy } = require('./providers/copilot-auth');
 const { ALLOWED_MODELS, DISALLOWED_MODELS } = require('./guards/model-policy-guard');
+const { checkUnknownModelRejection } = require('./guards/ai-credits-guard');
 
 const MODEL_ALIASES_RAW = (process.env.AWF_MODEL_ALIASES || '').trim() || undefined;
 const MODEL_ALIASES = parseModelAliases(MODEL_ALIASES_RAW);
@@ -71,6 +72,23 @@ logRequest('info', 'startup', {
   model_fallback: MODEL_FALLBACK,
 });
 
+/**
+ * Build a predicate that reports whether the AI-credits guard can price a model.
+ *
+ * Used to keep the middle-power fallback from synthesizing a model that the
+ * guard would immediately reject. Returns null (no filtering) unless the guard
+ * is actually active — i.e. a credit cap is set with no configured default
+ * pricing — so pricing coverage never constrains resolution otherwise.
+ *
+ * @param {string} provider
+ * @returns {((model: string) => boolean)|null}
+ */
+function makeIsModelPriceable(provider) {
+  if (!process.env.AWF_MAX_AI_CREDITS) return null;
+  if (process.env.AWF_DEFAULT_AI_CREDITS_PRICING) return null;
+  return (model) => checkUnknownModelRejection(model, provider) === null;
+}
+
 function getModelFallbackPolicyForProvider(provider) {
   if (MODEL_FALLBACK.excludeEngines && MODEL_FALLBACK.excludeEngines.includes(provider.toLowerCase())) {
     return {
@@ -86,7 +104,8 @@ function getModelFallbackPolicyForProvider(provider) {
 }
 
 function getModelFallbackForProvider(provider) {
-  return getModelFallbackPolicyForProvider(provider).effective;
+  const effective = getModelFallbackPolicyForProvider(provider).effective;
+  return { ...effective, isModelPriceable: makeIsModelPriceable(provider) };
 }
 
 function getEffectiveModelFallbackForReflect(adapters) {

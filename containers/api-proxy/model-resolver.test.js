@@ -983,3 +983,116 @@ describe('filterAvailableModelsToConfiguredProviders', () => {
     )).toEqual({});
   });
 });
+
+// ── Cross-provider fan-out regression ──────────────────────────────────────
+//
+// Regression coverage for alias fan-outs that resolve against a single-provider
+// proxy. A nested alias scoped to *other* providers (e.g. "haiku" on an OpenAI
+// proxy) previously triggered middle-power fallback, synthesizing an unrelated
+// model from the full live catalog that then out-ranked its legitimate siblings.
+
+describe('cross-provider alias fan-out', () => {
+  // Mirrors gh-aw's built-in table (pkg/workflow/data/model_aliases.json).
+  const ghAwAliases = {
+    detection: ['small'],
+    small: ['mini'],
+    mini: ['haiku', 'gpt-5-mini', 'gpt-5-nano', 'gemini-flash-lite'],
+    haiku: ['copilot/*haiku*', 'anthropic/*haiku*'],
+    'gpt-5-mini': ['copilot/gpt-5*mini*', 'openai/gpt-5*mini*'],
+    'gpt-5-nano': ['copilot/gpt-5*nano*', 'openai/gpt-5*nano*'],
+    'gemini-flash-lite': ['copilot/gemini-*flash*lite*', 'gemini/gemini-*flash*lite*'],
+  };
+
+  // A live OpenAI catalog containing internal staging models alongside real ones.
+  const openaiCatalog = [
+    'crest-alpha-0416-block-a-cy4-after-40-calls',
+    'crest-alpha-0418-block-cy4.5',
+    'crest-alpha-0420-block-z-cy4.9',
+    'gpt-5-mini-2025-08-07',
+    'gpt-5-nano-2025-08-07',
+    'gpt-4-turbo',
+  ];
+
+  it('resolves a nested fan-out to a legitimate sibling, not a synthesized model', () => {
+    const result = resolveModel('detection', ghAwAliases, { openai: openaiCatalog }, 'openai');
+    expect(result).not.toBeNull();
+    expect(result.resolvedModel).not.toMatch(/^crest-alpha/);
+    expect(['gpt-5-mini-2025-08-07', 'gpt-5-nano-2025-08-07']).toContain(result.resolvedModel);
+  });
+
+  it('does not let a provider-mismatched nested alias contribute a candidate', () => {
+    const result = resolveModel('mini', ghAwAliases, { openai: openaiCatalog }, 'openai');
+    expect(result).not.toBeNull();
+    expect(result.candidates.every(c => !c.startsWith('crest-alpha'))).toBe(true);
+  });
+
+  it('still reports fallback as not activated when a genuine match wins', () => {
+    const result = resolveModel('detection', ghAwAliases, { openai: openaiCatalog }, 'openai');
+    expect(result.fallback.activated).toBe(false);
+  });
+
+  it('preserves top-level graceful degradation for a directly requested model', () => {
+    // "haiku" requested directly on an OpenAI proxy still substitutes something
+    // rather than failing outright — only nested references are skipped.
+    const result = resolveModel('haiku', ghAwAliases, { openai: openaiCatalog }, 'openai');
+    expect(result).not.toBeNull();
+    expect(result.fallback.activated).toBe(true);
+  });
+
+  it('marks fallback activated when only synthesized candidates exist', () => {
+    const aliases = {
+      onlyremote: ['haiku', 'gemini-flash-lite'],
+      haiku: ['copilot/*haiku*', 'anthropic/*haiku*'],
+      'gemini-flash-lite': ['gemini/gemini-*flash*lite*'],
+    };
+    const result = resolveModel('onlyremote', aliases, { openai: openaiCatalog }, 'openai');
+    expect(result).toBeNull();
+  });
+});
+
+// ── Middle-power price filtering ───────────────────────────────────────────
+
+describe('selectMiddlePowerFallback price filtering', () => {
+  const catalog = [
+    'crest-alpha-0416-block-a',
+    'crest-alpha-0418-block-b',
+    'crest-alpha-0420-block-c',
+    'crest-alpha-0422-block-d',
+    'gpt-4-turbo',
+  ];
+  const isPriceable = m => !m.startsWith('crest-alpha');
+
+  it('excludes unpriceable models from the fallback pool', () => {
+    const result = selectMiddlePowerFallback(
+      'something', { openai: catalog }, 'openai', 'test',
+      { enabled: true, strategy: 'middle_power', isModelPriceable: isPriceable }
+    );
+    expect(result.resolvedModel).toBe('gpt-4-turbo');
+    expect(result.fallback.used_price_filter).toBe(true);
+  });
+
+  it('falls back to the unfiltered pool when nothing is priceable', () => {
+    const result = selectMiddlePowerFallback(
+      'something', { openai: catalog }, 'openai', 'test',
+      { enabled: true, strategy: 'middle_power', isModelPriceable: () => false }
+    );
+    expect(result).not.toBeNull();
+    expect(result.fallback.used_price_filter).toBe(false);
+  });
+
+  it('is a no-op when no predicate is supplied', () => {
+    const withOut = selectMiddlePowerFallback(
+      'something', { openai: catalog }, 'openai', 'test',
+      { enabled: true, strategy: 'middle_power' }
+    );
+    expect(withOut.fallback.used_price_filter).toBe(false);
+  });
+
+  it('treats a throwing predicate as priceable rather than failing resolution', () => {
+    const result = selectMiddlePowerFallback(
+      'something', { openai: catalog }, 'openai', 'test',
+      { enabled: true, strategy: 'middle_power', isModelPriceable: () => { throw new Error('boom'); } }
+    );
+    expect(result).not.toBeNull();
+  });
+});
