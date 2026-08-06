@@ -1,5 +1,4 @@
 import { buildRuntimeImageRef } from '../image-tag';
-import { getSafeHostGid, getSafeHostUid } from '../host-identity';
 import {
   ENCLAVE_AGENT_API_PROXY_CONTAINER_NAME,
   ENCLAVE_MCP_SERVER_CONTAINER_NAME,
@@ -14,7 +13,7 @@ import {
   ENCLAVE_BROKER_DOCKER_SOCKET_PATH,
   ENCLAVE_BROKER_SEED_MAP_PATH,
   ENCLAVE_BROKER_SEEDS_DIR,
-  ENCLAVE_BROKER_SOCKET_DIR,
+  ENCLAVE_BROKER_CAPABILITY_DIR,
   ENCLAVE_BROKER_WORK_DIR,
   resolveEnclavePaths,
 } from '../enclave/paths';
@@ -23,6 +22,8 @@ import {
   ENCLAVE_AGENT_API_PROXY_IP,
   ENCLAVE_AGENT_EGRESS_NETWORK,
   ENCLAVE_AGENT_NETWORK,
+  ENCLAVE_MCP_CONTROL_ALIAS,
+  ENCLAVE_MCP_CONTROL_NETWORK,
 } from '../enclave/network';
 import { resolveBoundedQueryPrimaryBackend } from '../bounded-query/runtime-matrix';
 import { resolveDockerSocketPath } from './agent-volumes/docker-socket';
@@ -44,8 +45,9 @@ import {
  *
  * Topology, which is the whole point of the feature:
  *
- * - the **MCP server** runs with `network_mode: none` — no `awf-net`, no
- *   `awf-ext`, no agent-enclave network, no DNS, no Squid, no host gateway.
+ * - the **MCP server** joins only the dedicated internal enclave control
+ *   network — no `awf-net`, no `awf-ext`, no agent-enclave network, no Squid,
+ *   no host gateway.
  *   It holds the Docker socket and the private seed/work/audit mounts, and it
  *   never holds a provider credential.
  * - **script enclaves** run with `--network none`.
@@ -55,8 +57,9 @@ import {
  *   this subsystem. No primary agent, Squid, general proxy, MCP server, safe
  *   outputs, MCP gateway, or CLI proxy is on that network, and the API proxy
  *   is the only holder of a real credential.
- * - the **primary agent** receives nothing at all in this migration layer:
- *   gh-aw-mcpg owns attaching the private socket in a later layer.
+ * - the **primary agent** receives no socket, capability, direct URL, private
+ *   mount, repository list, ledger state, or control metadata. It reaches the
+ *   tools only through the externally launched trusted MCP gateway.
  */
 
 const LOCAL_ENCLAVE_SCRIPT_IMAGE = 'awf-enclave-script:local';
@@ -262,9 +265,8 @@ export function buildEnclaveMcpService(params: EnclaveMcpServiceParams): Enclave
   const environment: Record<string, string> = {
     AWF_ENCLAVE_PRIMARY_BACKEND: primaryBackend,
     AWF_ENCLAVE_HOST_WORK_DIR: toDaemonVisiblePath(paths.workDir, config.dockerHostPathPrefix),
-    AWF_ENCLAVE_SOCKET_UID: getSafeHostUid(),
-    AWF_ENCLAVE_SOCKET_GID: getSafeHostGid(),
     AWF_ENCLAVE_CAPABILITY_PATH: ENCLAVE_BROKER_CAPABILITY_PATH,
+    AWF_ENCLAVE_LISTEN_HOST: '0.0.0.0',
     AWF_ENCLAVE_SCRIPT_ENABLED: String(script?.enabled === true),
     AWF_ENCLAVE_AGENT_ENABLED: String(agent?.enabled === true),
   };
@@ -348,12 +350,16 @@ export function buildEnclaveMcpService(params: EnclaveMcpServiceParams): Enclave
   result.service = {
     container_name: ENCLAVE_MCP_SERVER_CONTAINER_NAME,
     ...resolveServerImage(imageConfig),
-    network_mode: 'none',
+    networks: {
+      [ENCLAVE_MCP_CONTROL_NETWORK]: {
+        aliases: [ENCLAVE_MCP_CONTROL_ALIAS],
+      },
+    },
     volumes: applyHostPathPrefixToVolumes(
       [
         `${paths.seedsDir}:${ENCLAVE_BROKER_SEEDS_DIR}:ro`,
         `${paths.workDir}:${ENCLAVE_BROKER_WORK_DIR}:rw`,
-        `${paths.runDir}:${ENCLAVE_BROKER_SOCKET_DIR}:rw`,
+        `${paths.runDir}:${ENCLAVE_BROKER_CAPABILITY_DIR}:rw`,
         `${paths.controlDir}:${ENCLAVE_BROKER_CONTROL_DIR}:rw`,
         `${paths.auditDir}:${ENCLAVE_BROKER_AUDIT_DIR}:rw`,
         `${paths.seedMapPath}:${ENCLAVE_BROKER_SEED_MAP_PATH}:ro`,

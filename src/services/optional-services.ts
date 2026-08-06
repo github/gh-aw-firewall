@@ -323,9 +323,8 @@ function assembleEnclaveMcpService(params: AssembleOptionalServicesParams): void
   if (agentImageService) services['enclave-agent-image'] = agentImageService;
   if (agentApiProxyService) services['enclave-agent-api-proxy'] = agentApiProxyService;
   services['enclave-mcp-server'] = service;
-  // This migration layer intentionally does not mount the MCP socket/capability
-  // into the primary agent or make agent startup depend on this service.
-  // gh-aw-mcpg owns that attachment in a later layer.
+  // The gateway readiness gate is host-orchestrated before agent startup. There
+  // is deliberately no agent dependency, mount, environment, or direct URL.
 }
 
 function finalizeSysrootVolumes(

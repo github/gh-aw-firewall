@@ -40,6 +40,11 @@ import {
 import { prepareBoundedQueries, teardownBoundedQueries } from '../bounded-query/manager';
 import { prepareEnclaves, teardownEnclaves } from '../enclave/manager';
 import {
+  assertEnclaveGatewayReady,
+  connectEnclaveGateway,
+  shutdownEnclaveGateway,
+} from '../enclave/gateway';
+import {
   prepareBoundedAgents,
   reportBoundedAgentSbxIngressResult,
   teardownBoundedAgents,
@@ -143,6 +148,11 @@ function buildCleanupFn(
     // Copy iptables audit BEFORE stopping containers (volumes are destroyed by `docker compose down -v`)
     if (getContainersStarted()) {
       preserveIptablesAudit(config.workDir, config.auditDir);
+      try {
+        await shutdownEnclaveGateway(config);
+      } catch (error) {
+        logger.warn('Failed to stop the enclave gateway control path; continuing cleanup.', error);
+      }
       await stopContainers(config.workDir, config.keepContainers);
     }
 
@@ -311,9 +321,23 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
     let sbxEnvironment: Record<string, string> | undefined;
 
     const sbxStartContainers = useSbx
-      ? async (workDir: string, allowedDomains: string[], proxyLogsDir?: string, skipPull?: boolean, onNetworkReady?: () => Promise<void>) => {
+      ? async (
+          workDir: string,
+          allowedDomains: string[],
+          proxyLogsDir?: string,
+          skipPull?: boolean,
+          onNetworkReady?: () => Promise<void>,
+          onInfrastructureReady?: () => Promise<void>,
+        ) => {
           // Start infra-only compose (squid, api-proxy — no agent service)
-          await startContainers(workDir, allowedDomains, proxyLogsDir, skipPull, onNetworkReady);
+          await startContainers(
+            workDir,
+            allowedDomains,
+            proxyLogsDir,
+            skipPull,
+            onNetworkReady,
+            onInfrastructureReady,
+          );
 
           // Verify sbx is available
           if (!await isSbxAvailable()) {
@@ -578,6 +602,8 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
         collectDiagnosticLogs,
         assertTopologySupported,
         connectTopologyContainers,
+        connectEnclaveGateway,
+        assertEnclaveGatewayReady,
         prepareBoundedQueries,
         prepareBoundedAgents,
         prepareEnclaves,

@@ -1105,7 +1105,7 @@
     },
     "enclaves": {
       "type": "object",
-      "description": "Unified private-repository enclaves. Repositories and sensitivities are shared by the script and agent executors, and every invocation debits one live per-repository information budget regardless of executor kind. AWF exposes the enabled executors through one AWF-owned, no-egress MCP server; that server is not yet attached to the primary agent.",
+      "description": "Unified private-repository enclaves. Repositories and sensitivities are shared by the script and agent executors, and every invocation debits one live per-repository information budget regardless of executor kind. AWF exposes enabled executors only through an AWF-owned MCP server and the compiler-launched trusted mcpg gateway.",
       "additionalProperties": false,
       "properties": {
         "enabled": {

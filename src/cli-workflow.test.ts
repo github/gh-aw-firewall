@@ -1,6 +1,7 @@
 import { runMainWorkflow } from './cli-workflow';
 import { WrapperConfig } from './types';
 import { HostAccessConfig } from './host-iptables';
+import { normalizeEnclavesConfig } from './parsers/enclave-parser';
 
 jest.mock('./topology', () => ({
   TOPOLOGY_NETWORK_NAME: 'awf-net',
@@ -26,6 +27,17 @@ const baseConfig: WrapperConfig = {
   imageRegistry: 'registry',
   imageTag: 'latest',
   buildLocal: false,
+};
+
+const enclaveConfig: WrapperConfig = {
+  ...baseConfig,
+  networkIsolation: true,
+  topologyAttach: ['awmg-mcpg'],
+  enclaves: normalizeEnclavesConfig({
+    enabled: true,
+    privateRepos: [{ repo: 'octo/private', sensitivity: 'internal' }],
+    executors: { script: { enabled: true } },
+  }),
 };
 
 const createLogger = () => ({
@@ -352,6 +364,73 @@ describe('runMainWorkflow', () => {
 
     expect(connectTopologyContainers).not.toHaveBeenCalled();
     expect(exitCode).toBe(0);
+  });
+
+  it('proves the enclave server through mcpg before primary-agent startup', async () => {
+    const order: string[] = [];
+    const prepareEnclaves = jest.fn().mockImplementation(async () => order.push('stage'));
+    const connectEnclaveGateway = jest.fn().mockImplementation(async () => order.push('connect'));
+    const assertEnclaveGatewayReady = jest.fn().mockImplementation(async () => order.push('ready'));
+    const startContainers = jest.fn().mockImplementation(
+      async (
+        _workDir: string,
+        _allowedDomains: string[],
+        _proxyLogsDir?: string,
+        _skipPull?: boolean,
+        _onNetworkReady?: () => Promise<void>,
+        onInfrastructureReady?: () => Promise<void>,
+      ) => {
+        order.push('infrastructure');
+        await onInfrastructureReady?.();
+        order.push('agent-started');
+      },
+    );
+    const runAgentCommand = jest.fn().mockImplementation(async () => {
+      order.push('agent-run');
+      return { exitCode: 0 };
+    });
+
+    await runMainWorkflow(enclaveConfig, createWorkflowDependencies({
+      prepareEnclaves,
+      connectEnclaveGateway,
+      assertEnclaveGatewayReady,
+      startContainers,
+      runAgentCommand,
+    }), createWorkflowOptions());
+
+    expect(order).toEqual([
+      'stage',
+      'infrastructure',
+      'connect',
+      'ready',
+      'agent-started',
+      'agent-run',
+    ]);
+  });
+
+  it('aborts before primary-agent startup when gateway readiness fails', async () => {
+    const runAgentCommand = jest.fn();
+    const startContainers = jest.fn().mockImplementation(
+      async (
+        _workDir: string,
+        _allowedDomains: string[],
+        _proxyLogsDir?: string,
+        _skipPull?: boolean,
+        _onNetworkReady?: () => Promise<void>,
+        onInfrastructureReady?: () => Promise<void>,
+      ) => {
+        await onInfrastructureReady?.();
+        throw new Error('agent must not be started');
+      },
+    );
+    await expect(runMainWorkflow(enclaveConfig, createWorkflowDependencies({
+      prepareEnclaves: jest.fn(),
+      connectEnclaveGateway: jest.fn(),
+      assertEnclaveGatewayReady: jest.fn().mockRejectedValue(new Error('tool mismatch')),
+      startContainers,
+      runAgentCommand,
+    }), createWorkflowOptions())).rejects.toThrow(/tool mismatch/);
+    expect(runAgentCommand).not.toHaveBeenCalled();
   });
 
   it('passes agentTimeout to runAgentCommand', async () => {

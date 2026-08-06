@@ -10,8 +10,8 @@
  * metrics, and quota state are private to this subsystem.
  *
  * The enclave MCP server that *launches* these enclaves never joins this
- * network: it runs `network_mode: none` and reaches the Docker daemon only
- * through a bind-mounted Unix socket.
+ * network. It joins only the separate internal MCP control network and reaches
+ * the Docker daemon through a bind-mounted Unix socket.
  *
  * The network is created by Compose with an explicit `name:` so the server —
  * which launches enclaves with a fixed `docker run --network <name>` argument
@@ -23,6 +23,18 @@ export const ENCLAVE_AGENT_NETWORK = 'awf-enclave-agent';
 
 /** Egress bridge joined only by the dedicated agent-enclave API proxy. */
 export const ENCLAVE_AGENT_EGRESS_NETWORK = 'awf-enclave-agent-egress';
+
+/**
+ * Private control network shared only by the AWF-owned enclave MCP server and
+ * the externally launched trusted MCP gateway.
+ */
+export const ENCLAVE_MCP_CONTROL_NETWORK = 'awf-enclave-mcp-control';
+
+/** Stable upstream identity used in compiler-generated mcpg configuration. */
+export const ENCLAVE_MCP_CONTROL_ALIAS = 'awf-enclave-mcp';
+
+/** Streamable HTTP port reachable only on {@link ENCLAVE_MCP_CONTROL_NETWORK}. */
+export const ENCLAVE_MCP_CONTROL_PORT = 8080;
 
 /**
  * Fixed subnet for the agent-enclave network.

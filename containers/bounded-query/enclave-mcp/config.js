@@ -18,11 +18,12 @@ const { MAX_TASK_BYTES } = require('../agent-broker/framing');
 const SEEDS_DIR = '/srv/awf/seeds';
 const WORK_DIR = '/srv/awf/work';
 const SEED_MAP_PATH = '/srv/awf/seed-map.json';
-const SOCKET_DIR = '/run/awf-enclave-mcp';
-const CAPABILITY_PATH = path.join(SOCKET_DIR, 'auth-token');
+const CAPABILITY_DIR = '/run/awf-enclave-mcp';
+const CAPABILITY_PATH = path.join(CAPABILITY_DIR, 'auth-token');
 const CONTROL_DIR = '/run/awf-enclave-mcp-control';
 const AUDIT_DIR = '/var/log/awf-enclave';
 const READY_PATH = path.join(CONTROL_DIR, 'server.ready');
+const MCP_PORT = 8080;
 
 /**
  * Fixed agent-enclave mount points and identity. Never caller-supplied.
@@ -55,16 +56,6 @@ function positiveInt(name, fallback, maximum = Number.MAX_SAFE_INTEGER) {
   const value = Number(raw);
   if (!Number.isSafeInteger(value) || value < 1 || value > maximum) {
     throw new Error(`${name} must be an integer between 1 and ${maximum}`);
-  }
-  return value;
-}
-
-function nonnegativeInt(name, fallback) {
-  const raw = process.env[name];
-  if (raw === undefined || raw === '') return fallback;
-  const value = Number(raw);
-  if (!Number.isSafeInteger(value) || value < 0) {
-    throw new Error(`${name} must be a non-negative integer`);
   }
   return value;
 }
@@ -105,8 +96,8 @@ function loadConfig(files = fs) {
     workDir: WORK_DIR,
     seedMapPath: SEED_MAP_PATH,
     hostWorkDir: requireEnv('AWF_ENCLAVE_HOST_WORK_DIR'),
-    socketDir: SOCKET_DIR,
-    socketPath: path.join(SOCKET_DIR, 'server.sock'),
+    listenHost: process.env.AWF_ENCLAVE_LISTEN_HOST || '0.0.0.0',
+    listenPort: MCP_PORT,
     controlDir: CONTROL_DIR,
     readyPath: READY_PATH,
     auditDir: AUDIT_DIR,
@@ -126,8 +117,6 @@ function loadConfig(files = fs) {
     tmpfsLimit: dockerSize('AWF_ENCLAVE_TMPFS', '64m'),
     maxOutputBytes: positiveInt('AWF_ENCLAVE_MAX_OUTPUT_BYTES', MAX_RESULT_BYTES, MAX_RESULT_BYTES),
     maxScriptBytes: positiveInt('AWF_ENCLAVE_MAX_SCRIPT_BYTES', MAX_SCRIPT_BYTES, MAX_SCRIPT_BYTES),
-    socketUid: nonnegativeInt('AWF_ENCLAVE_SOCKET_UID', 0),
-    socketGid: nonnegativeInt('AWF_ENCLAVE_SOCKET_GID', 0),
     capability,
     runLabelKey: ENCLAVE_RUN_LABEL,
     invocationLabelKey: ENCLAVE_INVOCATION_LABEL,
@@ -162,14 +151,12 @@ function loadServerConfig(files = fs) {
   }
   return {
     seedMapPath: SEED_MAP_PATH,
-    socketDir: SOCKET_DIR,
-    socketPath: path.join(SOCKET_DIR, 'server.sock'),
+    listenHost: process.env.AWF_ENCLAVE_LISTEN_HOST || '0.0.0.0',
+    listenPort: MCP_PORT,
     controlDir: CONTROL_DIR,
     readyPath: READY_PATH,
     auditDir: AUDIT_DIR,
     primaryBackend,
-    socketUid: nonnegativeInt('AWF_ENCLAVE_SOCKET_UID', 0),
-    socketGid: nonnegativeInt('AWF_ENCLAVE_SOCKET_GID', 0),
     capability,
   };
 }
@@ -268,7 +255,7 @@ module.exports = {
   READY_PATH,
   SEED_MAP_PATH,
   SEEDS_DIR,
-  SOCKET_DIR,
+  CAPABILITY_DIR,
   WORK_DIR,
   isAgentExecutorEnabled,
   isScriptExecutorEnabled,

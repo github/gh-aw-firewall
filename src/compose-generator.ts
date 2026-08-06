@@ -24,6 +24,7 @@ import {
   ENCLAVE_AGENT_EGRESS_NETWORK,
   ENCLAVE_AGENT_NETWORK,
   ENCLAVE_AGENT_SUBNET,
+  ENCLAVE_MCP_CONTROL_NETWORK,
 } from './enclave/network';
 import { buildInternalServiceHosts } from './services/internal-service-hosts';
 
@@ -256,6 +257,13 @@ export function generateDockerCompose(
     compose.networks[ENCLAVE_AGENT_EGRESS_NETWORK] = {
       name: ENCLAVE_AGENT_EGRESS_NETWORK,
       driver: 'bridge',
+    };
+  }
+  if (config.enclaves?.enabled) {
+    compose.networks[ENCLAVE_MCP_CONTROL_NETWORK] = {
+      name: ENCLAVE_MCP_CONTROL_NETWORK,
+      driver: 'bridge',
+      internal: true,
     };
   }
   return compose;

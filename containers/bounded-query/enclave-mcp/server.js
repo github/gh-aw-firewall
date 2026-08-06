@@ -128,20 +128,10 @@ function createMcpServer(deps) {
   return server;
 }
 
-function listenOnSocket(server, config) {
-  fs.rmSync(config.socketPath, { force: true });
-  fs.mkdirSync(config.socketDir, { recursive: true, mode: 0o700 });
+function listenOnPrivateNetwork(server, config) {
   return new Promise((resolve, reject) => {
     server.once('error', reject);
-    server.listen(config.socketPath, () => {
-      try {
-        fs.chownSync(config.socketPath, config.socketUid, config.socketGid);
-        fs.chmodSync(config.socketPath, 0o660);
-        resolve();
-      } catch (error) {
-        reject(error);
-      }
-    });
+    server.listen(config.listenPort, config.listenHost, resolve);
   });
 }
 
@@ -234,7 +224,7 @@ async function main() {
     maxScriptBytes,
     maxPromptBytes,
   });
-  await listenOnSocket(server, serverConfig);
+  await listenOnPrivateNetwork(server, serverConfig);
   fs.mkdirSync(serverConfig.controlDir, { recursive: true, mode: 0o700 });
   fs.writeFileSync(serverConfig.readyPath, '', { mode: 0o600 });
   audit.lifecycle('listening', { executors });
@@ -283,6 +273,6 @@ if (require.main === module) {
 module.exports = {
   MAX_HTTP_BODY_BYTES,
   createMcpServer,
-  listenOnSocket,
+  listenOnPrivateNetwork,
   safeCapabilityEquals,
 };

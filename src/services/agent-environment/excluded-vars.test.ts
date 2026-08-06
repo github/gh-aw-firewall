@@ -17,6 +17,19 @@ describe('buildExclusionSet', () => {
       expect(set.has('PATH')).toBe(true);
     });
 
+    it('never passes enclave gateway handoff material to the primary agent', () => {
+      const excluded = buildExclusionSet(makeConfig({ envAll: true }));
+      for (const name of [
+        'AWF_ENCLAVE_MCP_CAPABILITY',
+        'AWF_ENCLAVE_MCP_GATEWAY_IDENTITY',
+        'AWF_ENCLAVE_MCP_GATEWAY_ENDPOINT',
+        'AWF_ENCLAVE_MCP_GATEWAY_CONTAINER',
+        'AWF_ENCLAVE_MCP_READINESS_TIMEOUT_MS',
+      ]) {
+        expect(excluded.has(name)).toBe(true);
+      }
+    });
+
     it('should always exclude shell state variables', () => {
       const set = buildExclusionSet(makeConfig());
       expect(set.has('PWD')).toBe(true);

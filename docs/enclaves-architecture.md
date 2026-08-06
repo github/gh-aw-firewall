@@ -2,11 +2,10 @@
 
 ## Status
 
-Layer 3 of the staged migration adds the **agent executor** to the same
-AWF-owned MCP server, behind the same authenticated private socket and the same
-shared per-repository ledger. The subsystem remains deliberately disconnected
-from the primary agent until the `gh-aw-mcpg` attachment layer. Both legacy
-runtimes remain unchanged.
+Layer 4 of the staged migration connects the AWF-owned MCP server exclusively
+through `gh-aw-mcpg`. The primary agent receives no enclave socket, capability,
+direct URL, repository list, control root, ledger, or private state. Both legacy
+runtimes remain unchanged for the final cutover layer.
 
 ## Decision
 
@@ -58,10 +57,15 @@ primary agent learns; it does not bound what the provider sees.
 
 The script service is an offline Compose service. AWF stages immutable seeds and
 creates a run-unique private root before Compose generation. Compose pre-pulls or
-builds the script image, then starts the MCP server with `network_mode: none`.
+builds the script image, then starts the MCP server only on the internal control
+network.
 The server owns the Docker socket, seed map, shared ledger, protected audit
-state, and a private Unix socket plus capability token. Neither the socket nor
-the token is mounted into the primary agent in this layer.
+state and a run-scoped capability token. The server joins only the dedicated
+`internal` `awf-enclave-mcp-control` network under the stable
+`awf-enclave-mcp:8080` identity. There is no published host port. AWF attaches
+only the compiler-labelled external gateway to that network after verifying its
+run identity. Neither the capability nor any direct transport is mounted into or
+exported to the primary agent.
 
 When the agent executor is enabled, AWF additionally pre-pulls or builds the
 `enclave-agent` image, creates the dedicated `internal` `awf-enclave-agent`
@@ -133,19 +137,91 @@ Executor outcomes return successful JSON-RPC tool results whose
 `{"status":"error"}`. Secret-dependent failures never use JSON-RPC errors or
 `isError`. Cleanup remains inside the fixed timing bucket.
 
-`gh-aw-mcpg` startup may precede AWF's enclave server startup. The configured MCP
-server connection timeout and retry policy are the synchronization mechanism;
-neither component may silently downgrade or bypass the gateway while waiting.
+`gh-aw-mcpg` startup may precede AWF's enclave server startup. The compiler must
+configure the HTTP upstream before launching mcpg and give it sufficient
+connection timeout/retry behavior for AWF staging and startup. Neither component
+may silently downgrade or bypass the gateway while waiting.
 
 The primary agent must not start until AWF has proved readiness end to end:
 
-1. the AWF-owned enclave MCP server is healthy;
-2. `gh-aw-mcpg` has connected to that exact configured server;
-3. a guarded readiness call has traversed `gh-aw-mcpg` to the server and returned
-   the expected proof.
+1. the AWF-owned enclave MCP server is healthy on its private control network;
+2. the running gateway name and `com.github.gh-aw.mcpg.run` label match the
+   compiler handoff;
+3. AWF attaches that gateway to the control network and proves it is the only
+   member besides the server;
+4. `initialize`, `notifications/initialized`, and `tools/list` traverse the
+   gateway's published route;
+5. the returned server identity and complete tool contracts exactly match the
+   enabled executor set.
 
 A timeout, identity mismatch, failed proof, or unavailable executor capability
 fails the run before repository staging is exposed or the primary agent starts.
+
+### Compiler-generated mcpg handoff
+
+The compiler must generate this upstream entry before starting `awmg-mcpg`:
+
+```json
+{
+  "awf-enclave": {
+    "type": "http",
+    "url": "http://awf-enclave-mcp:8080/mcp",
+    "headers": {
+      "Authorization": "Bearer ${AWF_ENCLAVE_MCP_CAPABILITY}"
+    },
+    "tools": ["enclave_run_script", "enclave_run_agent"],
+    "connectTimeout": 120,
+    "toolTimeout": 150
+  }
+}
+```
+
+The `tools` array must contain only enabled executor tools. `toolTimeout` is 30
+seconds greater than the largest enabled executor timeout (150 in the example).
+The compiler must
+generate a fresh 64-character lowercase hexadecimal
+`AWF_ENCLAVE_MCP_CAPABILITY`, pass it to mcpg for header substitution and to the
+AWF host process, and never pass it to the primary agent. It must also:
+
+- launch the externally owned gateway as `awmg-mcpg`;
+- label it `com.github.gh-aw.mcpg.run=<run-unique identity>`;
+- set `AWF_ENCLAVE_MCP_GATEWAY_IDENTITY` to that exact identity for AWF;
+- set `AWF_ENCLAVE_MCP_GATEWAY_CONTAINER=awmg-mcpg`;
+- set `AWF_ENCLAVE_MCP_GATEWAY_ENDPOINT` to the host-reachable gateway route
+  ending in `/mcp/awf-enclave`;
+- optionally set `AWF_ENCLAVE_MCP_READINESS_TIMEOUT_MS` to a bounded
+  1000-600000 ms value (default 120000);
+- configure gateway HTTP-upstream startup timeout/retry semantics for at least
+  120 seconds.
+- enable AWF network isolation and include `awmg-mcpg` in `topologyAttach`, so
+  Compose agents reach only the gateway on `awf-net` while AWF separately
+  attaches the same verified container to the enclave control network.
+
+`buildEnclaveMcpgUpstreamContract()` is the machine-readable AWF source of truth
+for the static entry and handoff names. AWF excludes all handoff variables from
+agent environment passthrough, including `--env-all`.
+
+The current gh-aw compiler does not yet emit this enclave upstream, capability,
+identity label, or readiness endpoint. It requires a companion change in
+`pkg/workflow/mcp_setup_gateway.go`, `mcp_gateway_config.go`,
+`mcp_renderer.go`, and `awf_config.go`. Current mcpg releases must also support
+retrying an initially unavailable HTTP upstream without permanently omitting its
+tools; otherwise the compiler must delay/restart mcpg after AWF infrastructure
+readiness. AWF does not restart or take ownership of mcpg.
+
+The enclave server alias never enters the primary agent's `NO_PROXY`, Squid ACL,
+static hosts, mounts, or environment. Only `awmg-mcpg` remains an agent-visible
+topology peer. Thus proxy-aware and proxy-ignoring clients cannot use Squid as an
+alternate path to the enclave server.
+
+### Shutdown
+
+After primary-agent work stops, AWF sends the enclave server `SIGTERM`. The
+server closes admissions, drains the single execution lane within Docker's
+bounded stop grace, reconciles labelled enclaves, and exits. AWF then disconnects
+the external gateway from `awf-enclave-mcp-control`; Compose removes the
+AWF-owned server and network, and host cleanup removes the private roots. AWF
+never stops or removes `awmg-mcpg`.
 
 ## Migration sequence
 
@@ -156,24 +232,23 @@ fails the run before repository staging is exposed or the primary agent starts.
 2. **AWF-owned script MCP server.** Implement the authenticated, offline local
    server and hardened script executor over the shared contracts; do not expose
    its private transport to the primary agent.
-3. **Agent executor (this layer).** Add the fixed model loop, the dedicated
+3. **Agent executor.** Add the fixed model loop, the dedicated
    API-proxy-only enclave network, and the `enclave_run_agent` tool behind the
-   same MCP server, the same private socket, and the same shared ledger. The
-   private transport still is not exposed to the primary agent.
-4. **`gh-aw-mcpg` integration.** Register and guard the AWF-owned server, wire
+   same MCP server, authenticated private transport, and shared ledger. The
+   private transport is not exposed to the primary agent.
+4. **`gh-aw-mcpg` integration (this layer).** Register and guard the AWF-owned server, wire
    startup retry/timeouts, require end-to-end readiness before primary-agent
    startup, and route both executor tools exclusively through the gateway.
-5. **Runtime cutover.** Move all callers to the unified MCP surface and
-   the unified server. Remove direct `bounded-query` and `bounded-agent` agent
-   surfaces after parity tests demonstrate canonical response and isolation
-   equivalence.
-6. **Legacy removal.** Remove `boundedQueries`, `boundedAgents`, their brokers,
-   compatibility exports, images, docs, and tests only after the unified path is
+5. **Runtime cutover and legacy removal.** Move all callers to the unified MCP
+   surface, prove canonical-response and isolation parity, then remove
+   `boundedQueries`, `boundedAgents`, their direct agent surfaces, brokers,
+   compatibility exports, images, docs, and tests. The unified mcpg path becomes
    the sole supported runtime.
 
 ## Compatibility
 
-This layer does not change primary-agent mounts or environment and does not
-alter legacy protocol bytes. Existing `boundedQueries` and `boundedAgents`
-configurations continue to run as before. Unified and legacy configurations
-remain mutually exclusive and fail closed before staging.
+This layer adds no primary-agent enclave mount, environment variable, wrapper,
+skill, direct URL, or fallback and does not alter legacy protocol bytes.
+Existing `boundedQueries` and `boundedAgents` configurations continue to run as
+before. Unified and legacy configurations remain mutually exclusive and fail
+closed before staging.

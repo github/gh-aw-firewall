@@ -1,9 +1,9 @@
 /**
  * Unified trusted configuration for private-repository enclaves.
  *
- * This is a foundation-only surface: later layers will expose the configured
- * executors through an AWF-owned MCP server. Executor controls are trusted AWF
- * configuration and are never accepted from an invocation request.
+ * Executors are exposed only through an AWF-owned MCP server behind the trusted
+ * gateway. Executor controls are trusted AWF configuration and are never
+ * accepted from an invocation request.
  */
 
 export type EnclaveSensitivity = 'public' | 'internal' | 'confidential' | 'sealed';

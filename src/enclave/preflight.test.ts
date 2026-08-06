@@ -207,6 +207,12 @@ describe('validateEnclavesConfig', () => {
     })).join('\n')).toMatch(/enclaves cannot be combined with enableDind/);
   });
 
+  it('rejects script-only enclaves when the primary agent receives the Docker socket', () => {
+    expect(validateEnclavesConfig(config({ enableDind: true }))).toEqual(
+      expect.arrayContaining([expect.stringContaining('cannot be combined with enableDind')]),
+    );
+  });
+
   it('rejects an agent executor that cannot reach a model or drops its network', () => {
     const enclaves = normalizeEnclavesConfig({
       enabled: true,

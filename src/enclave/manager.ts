@@ -1,4 +1,3 @@
-import * as crypto from 'crypto';
 import * as fs from 'fs';
 import execa from 'execa';
 import { fixArtifactPermissionsForRootless } from '../artifact-permissions';
@@ -22,6 +21,10 @@ import type { BoundedAgentsConfig } from '../types';
 import { assertPrivateRootIsolated } from '../bounded-query/mount-policy';
 import { validateEnclavesConfig } from './preflight';
 import { generateEnclaveRunId, resolveEnclavePaths, type EnclavePaths } from './paths';
+import {
+  ENCLAVE_MCP_CAPABILITY_ENV,
+  resolveEnclaveGatewayContract,
+} from './gateway';
 
 export const ENCLAVE_RUN_LABEL = 'awf.enclave.run';
 
@@ -92,6 +95,19 @@ export async function prepareEnclaves(
   const enclaves = config.enclaves!;
   const env = deps.env ?? process.env;
   const errors = validateEnclavesConfig(config);
+  try {
+    const gateway = resolveEnclaveGatewayContract(config, env);
+    if (!config.networkIsolation) {
+      errors.push('enclaves require networkIsolation so the externally launched gateway is attachable');
+    }
+    if (!config.topologyAttach?.includes(gateway.containerName)) {
+      errors.push(
+        `enclaves require topologyAttach to include the trusted gateway container "${gateway.containerName}"`,
+      );
+    }
+  } catch (error) {
+    errors.push(error instanceof Error ? error.message : 'enclave gateway handoff is invalid');
+  }
   if (enclaves.executors.script.enabled && enclaves.executors.script.runtime === 'sbx') {
     errors.push('enclaves.executors.script.runtime "sbx" is not implemented and never falls back');
   }
@@ -176,7 +192,7 @@ export async function prepareEnclaves(
     })),
   };
   writeExclusive(paths.seedMapPath, serializePrivateRepositorySeedMap(seedMap), 0o600);
-  writeExclusive(paths.capabilityPath, `${crypto.randomBytes(32).toString('hex')}\n`, 0o600);
+  writeExclusive(paths.capabilityPath, `${env[ENCLAVE_MCP_CAPABILITY_ENV]}\n`, 0o600);
   logger.info(`Enclaves: staged ${staging.seeds.length} immutable seed(s); staging credential discarded.`);
 }
 

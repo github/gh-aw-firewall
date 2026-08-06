@@ -78,9 +78,9 @@ export function validateEnclavesConfig(config: WrapperConfig): string[] {
   }
   if (config.enableDind) {
     errors.push(
-      'enclaves cannot be combined with enableDind: exposing the Docker socket to the primary agent ' +
-      'would allow it to inspect private seed mounts, join enclave networks, and bypass the ' +
-      'finite-disclosure ledger',
+      'enclaves cannot be combined with enableDind: exposing the Docker socket to the primary ' +
+      'agent would allow it to inspect the gateway capability, private seeds, control network, ' +
+      'and ledger state',
     );
   }
 

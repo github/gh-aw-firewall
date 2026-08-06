@@ -12,20 +12,17 @@ export interface EnclavePaths {
   seedMapPath: string;
   ingressRoot: string;
   runDir: string;
-  socketPath: string;
   capabilityPath: string;
 }
 
 export const ENCLAVE_PRIVATE_BASE_DIR = '/var/tmp';
-export const ENCLAVE_SOCKET_FILENAME = 'server.sock';
 export const ENCLAVE_CAPABILITY_FILENAME = 'auth-token';
 
 export const ENCLAVE_BROKER_SEEDS_DIR = '/srv/awf/seeds';
 export const ENCLAVE_BROKER_WORK_DIR = '/srv/awf/work';
 export const ENCLAVE_BROKER_SEED_MAP_PATH = '/srv/awf/seed-map.json';
-export const ENCLAVE_BROKER_SOCKET_DIR = '/run/awf-enclave-mcp';
-export const ENCLAVE_BROKER_SOCKET_PATH = `${ENCLAVE_BROKER_SOCKET_DIR}/${ENCLAVE_SOCKET_FILENAME}`;
-export const ENCLAVE_BROKER_CAPABILITY_PATH = `${ENCLAVE_BROKER_SOCKET_DIR}/${ENCLAVE_CAPABILITY_FILENAME}`;
+export const ENCLAVE_BROKER_CAPABILITY_DIR = '/run/awf-enclave-mcp';
+export const ENCLAVE_BROKER_CAPABILITY_PATH = `${ENCLAVE_BROKER_CAPABILITY_DIR}/${ENCLAVE_CAPABILITY_FILENAME}`;
 export const ENCLAVE_BROKER_CONTROL_DIR = '/run/awf-enclave-mcp-control';
 export const ENCLAVE_BROKER_AUDIT_DIR = '/var/log/awf-enclave';
 export const ENCLAVE_BROKER_DOCKER_SOCKET_PATH = '/var/run/docker.sock';
@@ -54,7 +51,6 @@ export function resolveEnclavePaths(
     seedMapPath: path.join(root, 'seed-map.json'),
     ingressRoot,
     runDir,
-    socketPath: path.join(runDir, ENCLAVE_SOCKET_FILENAME),
     capabilityPath: path.join(runDir, ENCLAVE_CAPABILITY_FILENAME),
   };
 }

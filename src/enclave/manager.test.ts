@@ -23,9 +23,21 @@ const gitRunner: GitRunner = async (args) => {
 jest.mock('execa', () => ({ __esModule: true, default: jest.fn() }));
 const mockExeca = execa as unknown as jest.Mock;
 
+function enclaveEnv(overrides: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
+  return {
+    GH_TOKEN: 'secret',
+    AWF_ENCLAVE_MCP_CAPABILITY: 'a'.repeat(64),
+    AWF_ENCLAVE_MCP_GATEWAY_IDENTITY: 'test-run-identity',
+    AWF_ENCLAVE_MCP_GATEWAY_ENDPOINT: 'http://127.0.0.1:8080/mcp/awf-enclave',
+    ...overrides,
+  };
+}
+
 function config(workDir: string, overrides: Parameters<typeof normalizeEnclavesConfig>[0] = {}): WrapperConfig {
   return {
     workDir,
+    networkIsolation: true,
+    topologyAttach: ['awmg-mcpg'],
     enclaves: normalizeEnclavesConfig({
       enabled: true,
       privateRepos: [{ repo: 'octo/private', sensitivity: 'internal' }],
@@ -82,10 +94,31 @@ describe('prepareEnclaves fail-closed preflight', () => {
 
   it('rejects a network Docker daemon before staging', async () => {
     await expect(prepareEnclaves(config(workDir), {
-      env: { GH_TOKEN: 'secret', DOCKER_HOST: 'tcp://daemon:2375' },
+      env: enclaveEnv({ DOCKER_HOST: 'tcp://daemon:2375' }),
       assertPrimaryAvailable: jest.fn(),
       assertScriptRuntimeAvailable: jest.fn(),
     })).rejects.toThrow(/Unix-socket Docker host/);
+  });
+
+  it('requires the compiler topology handoff before staging', async () => {
+    const wrapperConfig = config(workDir);
+    wrapperConfig.networkIsolation = false;
+    wrapperConfig.topologyAttach = [];
+    await expect(prepareEnclaves(wrapperConfig, {
+      env: enclaveEnv(),
+      assertPrimaryAvailable: jest.fn(),
+      assertScriptRuntimeAvailable: jest.fn(),
+    })).rejects.toThrow(/require networkIsolation/);
+  });
+
+  it('rejects a gateway container omitted from topologyAttach', async () => {
+    const wrapperConfig = config(workDir);
+    wrapperConfig.topologyAttach = ['another-peer'];
+    await expect(prepareEnclaves(wrapperConfig, {
+      env: enclaveEnv(),
+      assertPrimaryAvailable: jest.fn(),
+      assertScriptRuntimeAvailable: jest.fn(),
+    })).rejects.toThrow(/topologyAttach to include/);
   });
 
   it('proves both executor runtimes before staging when both are enabled', async () => {
@@ -97,7 +130,7 @@ describe('prepareEnclaves fail-closed preflight', () => {
         agent: { enabled: true, model: 'gpt-test' },
       },
     }), {
-      env: { GH_TOKEN: 'secret' },
+      env: enclaveEnv(),
       gitRunner,
       assertPrimaryAvailable: jest.fn().mockResolvedValue(undefined),
       assertScriptRuntimeAvailable,
@@ -115,7 +148,7 @@ describe('prepareEnclaves fail-closed preflight', () => {
     await prepareToleratingPrivateRootIo(agentConfig(workDir, {
       executors: { agent: { enabled: true, model: 'gpt-test' } },
     }), {
-      env: { GH_TOKEN: 'secret' },
+      env: enclaveEnv(),
       gitRunner,
       assertPrimaryAvailable: jest.fn().mockResolvedValue(undefined),
       assertScriptRuntimeAvailable,
@@ -130,7 +163,7 @@ describe('prepareEnclaves fail-closed preflight', () => {
     await expect(prepareEnclaves(agentConfig(workDir, {
       executors: { agent: { enabled: true, model: 'gpt-test', runtime: 'sbx' } },
     }), {
-      env: { GH_TOKEN: 'secret' },
+      env: enclaveEnv(),
       assertPrimaryAvailable: jest.fn(),
       assertScriptRuntimeAvailable: jest.fn(),
       assertAgentRuntimeAvailable,
@@ -145,7 +178,7 @@ describe('prepareEnclaves fail-closed preflight', () => {
       }),
       enableApiProxy: false,
     } as WrapperConfig, {
-      env: { GH_TOKEN: 'secret' },
+      env: enclaveEnv(),
       assertPrimaryAvailable: jest.fn(),
       assertAgentRuntimeAvailable: jest.fn(),
     })).rejects.toThrow(/agent executor requires the AWF API proxy/);
@@ -155,7 +188,7 @@ describe('prepareEnclaves fail-closed preflight', () => {
     await expect(prepareEnclaves(config(workDir, {
       executors: { script: { enabled: true, runtime: 'sbx' } },
     }), {
-      env: { GH_TOKEN: 'secret' },
+      env: enclaveEnv(),
       assertPrimaryAvailable: jest.fn(),
       assertScriptRuntimeAvailable: jest.fn(),
     })).rejects.toThrow(/runtime "sbx" is not implemented/);
@@ -164,7 +197,7 @@ describe('prepareEnclaves fail-closed preflight', () => {
   it('requires a staging credential before runtime probes', async () => {
     const assertPrimaryAvailable = jest.fn();
     await expect(prepareEnclaves(config(workDir), {
-      env: {},
+      env: enclaveEnv({ GH_TOKEN: undefined }),
       assertPrimaryAvailable,
       assertScriptRuntimeAvailable: jest.fn(),
     })).rejects.toThrow(/staging credential/);
@@ -173,7 +206,7 @@ describe('prepareEnclaves fail-closed preflight', () => {
 
   it('stages immutable seeds and a private MCP capability before Compose starts', async () => {
     await prepareEnclaves(config(workDir), {
-      env: { GH_TOKEN: 'secret' },
+      env: enclaveEnv(),
       gitRunner,
       assertPrimaryAvailable: jest.fn().mockResolvedValue(undefined),
       assertScriptRuntimeAvailable: jest.fn().mockResolvedValue(undefined),
@@ -189,7 +222,7 @@ describe('prepareEnclaves fail-closed preflight', () => {
         sensitivity: 'internal',
       }],
     });
-    expect(fs.readFileSync(paths.capabilityPath, 'utf8').trim()).toMatch(/^[0-9a-f]{64}$/);
+    expect(fs.readFileSync(paths.capabilityPath, 'utf8').trim()).toBe('a'.repeat(64));
     expect(fs.statSync(paths.capabilityPath).mode & 0o777).toBe(0o600);
     expect(paths.root.startsWith(workDir)).toBe(false);
     expect(paths.ingressRoot.startsWith(workDir)).toBe(false);
@@ -198,7 +231,7 @@ describe('prepareEnclaves fail-closed preflight', () => {
   it('removes labelled orphan containers and both private roots on teardown', async () => {
     const wrapperConfig = config(workDir);
     await prepareEnclaves(wrapperConfig, {
-      env: { GH_TOKEN: 'secret' },
+      env: enclaveEnv(),
       gitRunner,
       assertPrimaryAvailable: jest.fn().mockResolvedValue(undefined),
       assertScriptRuntimeAvailable: jest.fn().mockResolvedValue(undefined),
@@ -228,7 +261,7 @@ describe('prepareEnclaves fail-closed preflight', () => {
   it('preserves private state and fails loudly when orphan cleanup fails', async () => {
     const wrapperConfig = config(workDir);
     await prepareEnclaves(wrapperConfig, {
-      env: { GH_TOKEN: 'secret' },
+      env: enclaveEnv(),
       gitRunner,
       assertPrimaryAvailable: jest.fn().mockResolvedValue(undefined),
       assertScriptRuntimeAvailable: jest.fn().mockResolvedValue(undefined),

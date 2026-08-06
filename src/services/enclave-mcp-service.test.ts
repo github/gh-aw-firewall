@@ -34,7 +34,7 @@ const ghcr = {
 describe('buildEnclaveMcpService', () => {
   afterAll(() => fs.rmSync(workDir, { recursive: true, force: true }));
 
-  it('builds a no-egress server without exposing it to the primary agent', () => {
+  it('builds a gateway-only no-egress server without exposing it to the primary agent', () => {
     const result = buildEnclaveMcpService({ config: config(), imageConfig: ghcr });
     expect(result.scriptImageService!).toMatchObject({
       image: 'ghcr.io/github/gh-aw-firewall/enclave-script:v1',
@@ -44,12 +44,16 @@ describe('buildEnclaveMcpService', () => {
     expect(result.service).toMatchObject({
       container_name: 'awf-enclave-mcp-server',
       image: 'ghcr.io/github/gh-aw-firewall/enclave-mcp-server:v1',
-      network_mode: 'none',
       depends_on: {
         'enclave-script-image': { condition: 'service_completed_successfully' },
       },
+      networks: {
+        'awf-enclave-mcp-control': {
+          aliases: ['awf-enclave-mcp'],
+        },
+      },
     });
-    expect(result.service).not.toHaveProperty('networks');
+    expect(result.service).not.toHaveProperty('network_mode');
     expect(result.service).not.toHaveProperty('ports');
     const environment = result.service.environment as Record<string, string>;
     expect(environment.AWF_ENCLAVE_MAX_SCRIPT_BYTES).toBe('65536');
@@ -123,9 +127,17 @@ describe('buildEnclaveMcpService', () => {
     }
     expect(compose.services['enclave-script-image']).toBeDefined();
     expect(compose.services['enclave-mcp-server']).toBeDefined();
+    expect(compose.networks['awf-enclave-mcp-control']).toMatchObject({
+      name: 'awf-enclave-mcp-control',
+      internal: true,
+    });
     const agent = compose.services.agent as unknown as Record<string, unknown>;
     expect((agent.depends_on as Record<string, unknown>)['enclave-mcp-server']).toBeUndefined();
     expect(JSON.stringify(agent.volumes)).not.toContain('awf-enclave-control');
     expect(JSON.stringify(agent.environment)).not.toContain('AWF_ENCLAVE');
+    expect(JSON.stringify(agent)).not.toContain('awf-enclave-mcp');
+    expect(JSON.stringify((agent as { networks?: unknown }).networks)).not.toContain(
+      'awf-enclave-mcp-control',
+    );
   });
 });

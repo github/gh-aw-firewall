@@ -216,10 +216,7 @@ export interface AwfFileConfig {
     maxModelRequests?: number;
     maxModelTokens?: number;
   };
-  /**
-   * Unified enclave configuration. This foundation is parsed and validated but
-   * does not expose a primary-agent runtime surface yet.
-   */
+  /** Unified enclave configuration exposed only through the trusted MCP gateway. */
   enclaves?: RawEnclavesConfig;
 }
 

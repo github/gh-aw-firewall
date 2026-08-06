@@ -2446,8 +2446,9 @@ private-repository execution. One AWF-owned, no-egress MCP service exposes the
 enabled executors: the script executor launches hardened single-use script
 containers with no network, and the agent executor launches hardened single-use
 enclaves that run a fixed, AWF-authored model loop on a dedicated
-API-proxy-only network. The service is not yet attached to the primary agent; a
-later migration layer registers it exclusively through `gh-aw-mcpg`. See
+API-proxy-only network. The service is reachable exclusively through a
+compiler-launched, run-labelled `gh-aw-mcpg` gateway on an AWF-owned private
+control network. See
 [Unified Enclave Architecture and Migration](enclaves-architecture.md).
 
 `enclaves.privateRepos` is the single trusted repository list for every
@@ -2501,12 +2502,51 @@ independent behavior until runtime cutover.
 Agent enclaves join only the dedicated `internal` `awf-enclave-agent` network
 (172.31.0.0/24). Its only other member is a dedicated API proxy that also joins
 a separate egress bridge and is the only holder of a real provider credential.
-The MCP server runs `network_mode: none` and is never on that network; neither
-is the primary agent, Squid, the general API proxy, the safe-outputs collector,
-the MCP gateway, or the CLI proxy. The dedicated proxy's credentials are
+The MCP server is never on that network. It joins only the separate `internal`
+`awf-enclave-mcp-control` network with the externally launched MCP gateway; the
+primary agent, Squid, general API proxy, safe-outputs collector, CLI proxy, and
+all enclave executors are excluded. The server publishes no host port. The
+dedicated agent-enclave proxy's credentials are
 minimized to the configured route, its external telemetry export and Actions
 OIDC token-exchange state are removed, and its logs stay in the enclave-private
 root.
+
+### 16.2 Exclusive MCP gateway handoff
+
+Enclaves require a compiler-generated handoff before staging:
+
+| Variable | Contract |
+|----------|----------|
+| `AWF_ENCLAVE_MCP_CAPABILITY` | Fresh 64-character lowercase hexadecimal bearer capability passed only to mcpg and AWF |
+| `AWF_ENCLAVE_MCP_GATEWAY_CONTAINER` | External gateway container name; `awmg-mcpg` by default |
+| `AWF_ENCLAVE_MCP_GATEWAY_IDENTITY` | Run-unique value equal to the gateway's `com.github.gh-aw.mcpg.run` label |
+| `AWF_ENCLAVE_MCP_GATEWAY_ENDPOINT` | Host-reachable gateway route ending in `/mcp/awf-enclave` |
+| `AWF_ENCLAVE_MCP_READINESS_TIMEOUT_MS` | Optional bounded AWF end-to-end readiness window, 1000-600000 ms; default 120000 |
+
+All four names are unconditionally excluded from primary-agent environment
+passthrough. The mcpg upstream is named `awf-enclave`, uses
+`http://awf-enclave-mcp:8080/mcp`, supplies
+`Authorization: Bearer ${AWF_ENCLAVE_MCP_CAPABILITY}`, allowlists exactly the
+enabled enclave tool names, uses at least a 120-second HTTP connection retry
+window, and sets the per-tool timeout to 30 seconds more than the largest enabled
+executor timeout.
+
+The compiler must also enable `network.isolation` and include the configured
+gateway container in `network.topologyAttach`. The enclave server itself is not
+a topology peer: its alias is never added to agent `NO_PROXY`, Squid ACLs, or
+static hosts.
+
+AWF starts Compose infrastructure without the primary agent, attaches only the
+label-matching gateway to `awf-enclave-mcp-control`, verifies the network has
+exactly those two members, then performs `initialize` and `tools/list` through
+the gateway route. The complete static tool contracts must match. Failure,
+timeout, authentication failure, identity mismatch, or tool mismatch aborts
+before Compose starts the agent or sbx creates its sandbox.
+
+On shutdown AWF stops the primary-agent work first, sends the server a bounded
+graceful stop to close admissions and drain calls, disconnects but does not stop
+the externally owned gateway, then lets Compose remove the AWF-owned control
+network and private service.
 
 Each enclave is single-use: immutable seed mounted read-only, `--read-only`
 root, bounded `tmpfs`, fixed non-root uid/gid, `--cap-drop ALL`,

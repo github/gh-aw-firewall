@@ -232,7 +232,8 @@ describe('unified enclave agent server configuration', () => {
     );
     expect(loadServerConfig({ readFileSync: () => 'a'.repeat(64) })).toMatchObject({
       primaryBackend: 'docker',
-      socketPath: '/run/awf-enclave-mcp/server.sock',
+      listenHost: '0.0.0.0',
+      listenPort: 8080,
       auditDir: '/var/log/awf-enclave',
     });
   });

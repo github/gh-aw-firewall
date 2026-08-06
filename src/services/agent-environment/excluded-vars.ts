@@ -21,6 +21,11 @@ export function buildExclusionSet(config: WrapperConfig): Set<string> {
     'AWF_STAGED_RUNNER_BINARY_NAME',
     'AWF_GEMINI_ENABLED',
     'MCP_GATEWAY_HOST_DOMAIN',
+    'AWF_ENCLAVE_MCP_CAPABILITY',
+    'AWF_ENCLAVE_MCP_GATEWAY_IDENTITY',
+    'AWF_ENCLAVE_MCP_GATEWAY_ENDPOINT',
+    'AWF_ENCLAVE_MCP_GATEWAY_CONTAINER',
+    'AWF_ENCLAVE_MCP_READINESS_TIMEOUT_MS',
   ]);
 
   if (config.enableApiProxy) {

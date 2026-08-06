@@ -23,7 +23,14 @@ interface WorkflowDependencies {
   ensureFirewallNetwork: () => Promise<{ squidIp: string; agentIp: string; proxyIp: string; subnet: string }>;
   setupHostIptables: (squidIp: string, port: number, dnsServers: string[], apiProxyIp?: string, dohProxyIp?: string, hostAccess?: HostAccessConfig, cliProxyConfig?: CliProxyHostConfig) => Promise<void>;
   writeConfigs: (config: WrapperConfig) => Promise<void>;
-  startContainers: (workDir: string, allowedDomains: string[], proxyLogsDir?: string, skipPull?: boolean, onNetworkReady?: () => Promise<void>) => Promise<void>;
+  startContainers: (
+    workDir: string,
+    allowedDomains: string[],
+    proxyLogsDir?: string,
+    skipPull?: boolean,
+    onNetworkReady?: () => Promise<void>,
+    onInfrastructureReady?: () => Promise<void>,
+  ) => Promise<void>;
   runAgentCommand: (
     workDir: string,
     allowedDomains: string[],
@@ -60,6 +67,10 @@ interface WorkflowDependencies {
    * network after the AWF containers have started.
    */
   connectTopologyContainers?: (networkName: string, containerNames: string[]) => Promise<void>;
+  /** Attaches and verifies the externally owned gateway on the private enclave control path. */
+  connectEnclaveGateway?: (config: WrapperConfig) => Promise<void>;
+  /** Proves initialize and the exact enabled tool contracts through mcpg. */
+  assertEnclaveGatewayReady?: (config: WrapperConfig) => Promise<void>;
 }
 
 interface WorkflowCallbacks {
@@ -236,8 +247,27 @@ export async function runMainWorkflow(
         }
       : undefined;
 
+  const onInfrastructureReady = config.enclaves?.enabled
+    ? async () => {
+        if (!dependencies.connectEnclaveGateway || !dependencies.assertEnclaveGatewayReady) {
+          throw new Error('Enclaves require an exclusive MCP gateway readiness implementation');
+        }
+        logger.info('Attaching the trusted MCP gateway to the private enclave control path...');
+        await dependencies.connectEnclaveGateway(config);
+        logger.info('Proving enclave tools end to end through the MCP gateway...');
+        await dependencies.assertEnclaveGatewayReady(config);
+      }
+    : undefined;
+
   try {
-    await dependencies.startContainers(config.workDir, config.allowedDomains, config.proxyLogsDir, config.skipPull, onNetworkReady);
+    await dependencies.startContainers(
+      config.workDir,
+      config.allowedDomains,
+      config.proxyLogsDir,
+      config.skipPull,
+      onNetworkReady,
+      onInfrastructureReady,
+    );
   } catch (startError) {
     // Signal that containers may have been partially created so the caller's
     // cleanup (stopContainers / docker compose down -v) will tear them down

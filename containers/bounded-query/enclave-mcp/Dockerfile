@@ -2,9 +2,9 @@
 #
 # This image owns the Docker socket and the private seed/work/audit mounts for
 # *both* enclave executors, and its Compose service always runs with
-# `network_mode: none` — it has no `awf-net`, no enclave network, no DNS, no
-# Squid, no host gateway, and no egress of any kind. Its only agent-facing
-# surface is one authenticated Unix socket.
+# only the dedicated internal MCP control network. It has no `awf-net`, enclave
+# executor network, Squid, host gateway, published port, or external egress. Its
+# only caller-facing surface is authenticated streamable HTTP through mcpg.
 #
 # BUILD CONTEXT: `containers/` (not `containers/bounded-query/`).  The server
 # drives two audited executors that live in two directories:
