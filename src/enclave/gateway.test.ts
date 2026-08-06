@@ -13,6 +13,7 @@ import {
   shutdownEnclaveGateway,
 } from './gateway';
 
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 const enclaveProtocol = require(path.join(
   __dirname,
   '../../containers/bounded-query/enclave-mcp/mcp-protocol.js',

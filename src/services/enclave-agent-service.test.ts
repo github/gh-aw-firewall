@@ -94,10 +94,12 @@ describe('unified enclave agent executor compose assembly', () => {
     });
   });
 
-  it('keeps the MCP server networkless and free of provider credentials', () => {
+  it('keeps the MCP server on only the private control network and free of provider credentials', () => {
     const result = build();
-    expect(result.service.network_mode).toBe('none');
-    expect(result.service).not.toHaveProperty('networks');
+    expect(result.service).not.toHaveProperty('network_mode');
+    expect(result.service.networks).toEqual({
+      'awf-enclave-mcp-control': { aliases: ['awf-enclave-mcp'] },
+    });
     expect(result.service).not.toHaveProperty('ports');
     const environment = result.service.environment as Record<string, string>;
     for (const key of [
@@ -308,8 +310,8 @@ describe('unified enclave compose topology', () => {
       })
       .map(([name]) => name);
     expect(members).toEqual(['enclave-agent-api-proxy']);
-    expect((compose.services['enclave-mcp-server'] as Record<string, any>).network_mode)
-      .toBe('none');
+    expect((compose.services['enclave-mcp-server'] as Record<string, any>).networks)
+      .toEqual({ 'awf-enclave-mcp-control': { aliases: ['awf-enclave-mcp'] } });
     expect((compose.services['enclave-agent-image'] as Record<string, any>).network_mode)
       .toBe('none');
   });

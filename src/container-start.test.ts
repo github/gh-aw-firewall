@@ -31,6 +31,8 @@ describe('startContainers', () => {
         'awf-bounded-query-broker',
         'awf-bounded-agent-broker',
         'awf-bounded-agent-api-proxy',
+        'awf-enclave-mcp-server',
+        'awf-enclave-agent-api-proxy',
       ],
       expect.objectContaining({ reject: false })
     );
