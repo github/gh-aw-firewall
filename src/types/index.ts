@@ -67,3 +67,21 @@ export {
   BOUNDED_AGENT_SENSITIVITIES,
   BOUNDED_AGENT_SENSITIVITY_RUN_BITS,
 } from './bounded-agent-options';
+
+export {
+  type EnclaveSensitivity,
+  type EnclaveRepository,
+  type EnclaveRuntime,
+  type EnclaveScriptInterpreter,
+  type EnclaveAgentEngine,
+  type EnclaveAgentProfile,
+  type EnclaveScriptExecutorConfig,
+  type EnclaveAgentExecutorConfig,
+  type EnclavesConfig,
+  type EnclaveOptions,
+  ENCLAVE_SENSITIVITIES,
+  ENCLAVE_SENSITIVITY_RUN_BITS,
+  ENCLAVE_SCRIPT_EXECUTOR_DEFAULTS,
+  ENCLAVE_AGENT_EXECUTOR_DEFAULTS,
+  ENCLAVES_DEFAULTS,
+} from './enclave-options';

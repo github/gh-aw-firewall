@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as yaml from 'js-yaml';
 import { validateWithSchema } from './schema-validator';
+import type { RawEnclavesConfig } from './types/enclave-options';
 
 /** @internal Used only by config-file helpers — not part of public API */
 // ts-prune-ignore-next
@@ -215,6 +216,11 @@ export interface AwfFileConfig {
     maxModelRequests?: number;
     maxModelTokens?: number;
   };
+  /**
+   * Unified enclave configuration. This foundation is parsed and validated but
+   * does not expose a primary-agent runtime surface yet.
+   */
+  enclaves?: RawEnclavesConfig;
 }
 
 /**
@@ -228,7 +234,22 @@ export interface AwfFileConfig {
  */
 // ts-prune-ignore-next
 export function validateAwfFileConfig(config: unknown): string[] {
-  return validateWithSchema(config);
+  const errors = validateWithSchema(config);
+  if (typeof config !== 'object' || config === null || Array.isArray(config)) return errors;
+
+  const raw = config as Record<string, unknown>;
+  const isEnabled = (value: unknown): boolean =>
+    typeof value === 'object'
+    && value !== null
+    && !Array.isArray(value)
+    && (value as Record<string, unknown>).enabled === true;
+
+  if (isEnabled(raw.enclaves) && (isEnabled(raw.boundedQueries) || isEnabled(raw.boundedAgents))) {
+    errors.push(
+      'config.enclaves cannot be enabled with config.boundedQueries or config.boundedAgents; choose one configuration surface',
+    );
+  }
+  return errors;
 }
 
 const readStdinSync = (): string => fs.readFileSync(process.stdin.fd, 'utf8');

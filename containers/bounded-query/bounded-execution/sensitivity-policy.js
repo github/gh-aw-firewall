@@ -2,8 +2,9 @@
 
 /**
  * Repository sensitivity categories and their fixed per-run information
- * budgets — broker-side mirror of `BOUNDED_QUERY_SENSITIVITY_RUN_BITS` in
- * `src/types/bounded-query-options.ts`. Kept in a tiny standalone module (not
+ * budgets — broker-side mirror of `ENCLAVE_SENSITIVITY_RUN_BITS` in
+ * `src/types/enclave-options.ts`. The bounded-query names below are compatibility
+ * aliases while legacy brokers remain live. Kept in a tiny standalone module (not
  * `protocol.js`) because it is config/ledger data, not wire protocol.
  *
  * `null` means "unmetered": `public` still runs through the same finite

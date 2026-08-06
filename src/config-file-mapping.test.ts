@@ -603,4 +603,13 @@ describe('mapAwfFileConfigToCliOptions', () => {
     const result = mapAwfFileConfigToCliOptions({});
     expect(result.boundedQueries).toBeUndefined();
   });
+
+  it('passes unified enclaves through as trusted config-only state', () => {
+    const enclaves = {
+      enabled: true,
+      privateRepos: [{ repo: 'octo/private', sensitivity: 'internal' as const }],
+      executors: { script: { enabled: true } },
+    };
+    expect(mapAwfFileConfigToCliOptions({ enclaves }).enclaves).toEqual(enclaves);
+  });
 });

@@ -152,5 +152,9 @@ export function mapAwfFileConfigToCliOptions(config: AwfFileConfig): Record<stri
     // Bounded agents are config-only for the same reason: the surface is a
     // trusted enclave contract, not an operator-tunable command line.
     boundedAgents: config.boundedAgents,
+
+    // Unified enclaves remain config-only; executor controls are trusted AWF
+    // configuration and are never projected onto invocation arguments.
+    enclaves: config.enclaves,
   };
 }

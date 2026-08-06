@@ -17,6 +17,7 @@ import type { PlatformOptions } from './platform-options';
 import type { RunnerOptions } from './runner-options';
 import type { BoundedQueryOptions } from './bounded-query-options';
 import type { BoundedAgentOptions } from './bounded-agent-options';
+import type { EnclaveOptions } from './enclave-options';
 
 export type WrapperConfig =
   ContainerImageOptions
@@ -30,4 +31,5 @@ export type WrapperConfig =
   & PlatformOptions
   & RunnerOptions
   & BoundedQueryOptions
-  & BoundedAgentOptions;
+  & BoundedAgentOptions
+  & EnclaveOptions;

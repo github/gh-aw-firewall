@@ -2439,6 +2439,42 @@ can answer the question.
   bounded queries; unlike a bounded query it does have a network interface, to
   the API proxy only.
 
+## 16. Unified Enclaves (Migration Foundation)
+
+The optional `enclaves` object is the successor configuration model for bounded
+private-repository execution. In this foundation release it is parsed,
+normalized, and validated but does not create a runtime service or primary-agent
+surface. See [Unified Enclave Architecture and Migration](enclaves-architecture.md)
+for the target trust boundaries and rollout sequence.
+
+`enclaves.privateRepos` is the single trusted repository list for every
+executor. Each entry has the same `public`, `internal`, `confidential`, or
+`sealed` sensitivity policy used by the legacy systems. The resulting
+information budget is one per-repository, per-run balance shared by script and
+agent executor invocations; an executor change never resets the balance.
+
+`enclaves.executors.script` and `enclaves.executors.agent` are independently
+enabled trusted definitions. Script defaults preserve the bounded-query limits
+(`docker`, no network, `python3`, 30 seconds, 512 MiB, 32 invocations). Agent
+defaults preserve the bounded-agent limits (`docker`, API-proxy-only network,
+Copilot/OpenAI profile, 120 seconds, 512 MiB, 8 invocations, 8 model requests,
+1024 completion tokens). Neither executor is enabled by omission.
+
+Images, runtimes, interpreters, engines, provider profiles, models, networks,
+timeouts, resource limits, and operational limits are trusted configuration.
+Future invocation protocols MUST reject those controls, including unknown
+aliases for them. An enabled agent executor requires a configured model.
+
+When `enclaves.enabled` is `true`, at least one executor and one repository are
+required. `boundedQueries.enabled` or `boundedAgents.enabled` MUST NOT also be
+true. AWF rejects that mixed configuration before any legacy broker, enclave
+server, repository staging, or primary agent starts. Disabled sections may
+coexist because they do not activate a runtime.
+
+The foundation does not combine the existing live broker ledgers. Shared-budget
+runtime enforcement begins only when the AWF-owned enclave MCP server replaces
+both direct brokers in a later migration layer.
+
 ## Normative References
 
 - [RFC 2119](https://www.rfc-editor.org/rfc/rfc2119) — Key words for use in
