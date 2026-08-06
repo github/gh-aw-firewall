@@ -235,14 +235,20 @@ function isGhesInstance(resolvedTarget, env = process.env) {
  * directly and therefore require the `token <value>` Authorization prefix
  * (rather than `Bearer <value>`) for GitHub credentials.
  *
- * Both the Enterprise and Business endpoints behave this way; the standard
- * `api.githubcopilot.com` endpoint instead expects a Copilot token with the
- * `Bearer` prefix.
+ * Enterprise, Business, and GHEC data-residency endpoints behave this way; the
+ * standard `api.githubcopilot.com` endpoint instead expects a Copilot token
+ * with the `Bearer` prefix.
  */
 const GITHUB_TOKEN_PREFIX_COPILOT_TARGETS = new Set([
   'api.enterprise.githubcopilot.com',
   'api.business.githubcopilot.com',
 ]);
+
+function isGhecCopilotApiTarget(target) {
+  return target.startsWith('copilot-api.')
+    && target.endsWith('.ghe.com')
+    && target.length > 'copilot-api..ghe.com'.length;
+}
 
 /**
  * Decide whether a GitHub OAuth/PAT token sent to the Copilot API must use the
@@ -250,12 +256,10 @@ const GITHUB_TOKEN_PREFIX_COPILOT_TARGETS = new Set([
  *
  * This is true when either:
  *   1. The resolved target is a known GitHub-hosted Copilot endpoint that
- *      authenticates the GitHub token directly — i.e. the Enterprise or Business
- *      host. This check takes highest priority and is NOT overridable by
- *      AWF_PLATFORM_TYPE. Without this ordering, gh-aw's automatic
- *      AWF_PLATFORM_TYPE=ghec injection on *.ghe.com runners would suppress the
- *      `token` prefix for Copilot Business customers who set
- *      COPILOT_API_TARGET=api.business.githubcopilot.com.
+ *      authenticates the GitHub token directly — i.e. the Enterprise, Business,
+ *      or GHEC data-residency host. This check takes highest priority and is NOT
+ *      overridable by AWF_PLATFORM_TYPE. Without this ordering, an explicit
+ *      AWF_PLATFORM_TYPE=ghec would suppress the required `token` prefix.
  *   2. The environment is a GHES instance (see {@link isGhesInstance}).
  *
  * An explicit non-GHES AWF_PLATFORM_TYPE overrides the GHES heuristics (case 2)
@@ -272,10 +276,12 @@ function copilotTargetRequiresGitHubTokenPrefix(resolvedTarget, env = process.en
   // Known GitHub-hosted Copilot endpoints always require the 'token' prefix for
   // GitHub OAuth/PAT credentials, regardless of platform type. This check must
   // come before the AWF_PLATFORM_TYPE guard so that an explicit platform type
-  // (e.g. AWF_PLATFORM_TYPE=ghec set by gh-aw on *.ghe.com runners) does not
-  // suppress the required 'token' prefix for Business/Enterprise endpoints.
+  // does not suppress the required 'token' prefix.
   const target = normalizeApiTarget(resolvedTarget);
-  if (target && GITHUB_TOKEN_PREFIX_COPILOT_TARGETS.has(target)) return true;
+  if (target && (
+    GITHUB_TOKEN_PREFIX_COPILOT_TARGETS.has(target)
+    || isGhecCopilotApiTarget(target)
+  )) return true;
 
   // An explicit non-GHES platform type overrides the GHES heuristics below
   // for custom/unknown targets but never overrides catalog endpoints (above).

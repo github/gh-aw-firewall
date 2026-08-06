@@ -2,7 +2,6 @@ const { createCopilotAdapter } = require('./providers/copilot');
 
 const bearerByokKey = ['Bearer', 'sk-byok-key'].join(' ');
 const bearerStandardToken = ['Bearer', 'ghu_standard_token_123'].join(' ');
-const bearerGhecToken = ['Bearer', 'ghu_ghec_token_123'].join(' ');
 const bearerCustomToken = ['Bearer', 'ghu_standard_token_123'].join(' ');
 const bearerGithubComOverrideToken = ['Bearer', 'ghu_token_123'].join(' ');
 
@@ -56,13 +55,32 @@ describe('createCopilotAdapter — GHE enterprise auth format', () => {
     expect(headers['Authorization']).toBe(bearerStandardToken);
   });
 
-  it('uses "Bearer" prefix for GHEC tenant (*.ghe.com)', () => {
+  it('uses "token" prefix for a derived GHEC data-residency target', () => {
     const adapter = createCopilotAdapter({
       COPILOT_GITHUB_TOKEN: 'ghu_ghec_token_123',
       GITHUB_SERVER_URL: 'https://mycompany.ghe.com',
     });
     const headers = adapter.getAuthHeaders(fakeReq);
-    expect(headers['Authorization']).toBe(bearerGhecToken);
+    expect(headers['Authorization']).toBe('token ghu_ghec_token_123');
+  });
+
+  it('uses "token" prefix for /models on a derived GHEC data-residency target', () => {
+    const adapter = createCopilotAdapter({
+      COPILOT_GITHUB_TOKEN: 'ghu_ghec_token_123',
+      GITHUB_SERVER_URL: 'https://mycompany.ghe.com',
+    });
+    const headers = adapter.getAuthHeaders(fakeModelsReq);
+    expect(headers['Authorization']).toBe('token ghu_ghec_token_123');
+  });
+
+  it('uses "token" prefix for a GHEC target when AWF_PLATFORM_TYPE=ghec', () => {
+    const adapter = createCopilotAdapter({
+      COPILOT_GITHUB_TOKEN: 'ghu_ghec_token_123',
+      AWF_PLATFORM_TYPE: 'ghec',
+      GITHUB_SERVER_URL: 'https://mycompany.ghe.com',
+    });
+    const headers = adapter.getAuthHeaders(fakeReq);
+    expect(headers['Authorization']).toBe('token ghu_ghec_token_123');
   });
 
   it('strips "token " prefix from COPILOT_GITHUB_TOKEN before re-prefixing for GHES', () => {

@@ -277,13 +277,13 @@ describe('Auth Matrix — Copilot', () => {
   });
 
   describe('GitHub OAuth token — GHEC (*.ghe.com)', () => {
-    it('sends Authorization: Bearer (not token) for GHEC', () => {
+    it('sends Authorization: token for GHEC data-residency targets', () => {
       const adapter = createCopilotAdapter({
         COPILOT_GITHUB_TOKEN: 'ghu_ghec_token',
         GITHUB_SERVER_URL: 'https://mycompany.ghe.com',
       });
       const headers = adapter.getAuthHeaders(fakeReq());
-      expect(headers.Authorization).toBe('Bearer ghu_ghec_token');
+      expect(headers.Authorization).toBe('token ghu_ghec_token');
     });
 
     it('derives correct copilot-api target for GHEC', () => {
