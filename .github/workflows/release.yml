@@ -358,6 +358,8 @@ jobs:
     outputs:
       query_digest: ${{ steps.build_bounded_query.outputs.digest }}
       broker_digest: ${{ steps.build_bounded_query_broker.outputs.digest }}
+      enclave_script_digest: ${{ steps.build_enclave_script.outputs.digest }}
+      enclave_mcp_server_digest: ${{ steps.build_enclave_mcp_server.outputs.digest }}
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
@@ -447,6 +449,72 @@ jobs:
             --predicate bounded-query-broker-sbom.spdx.json \
             --type spdxjson \
             ghcr.io/${{ github.repository }}/bounded-query-broker@${{ steps.build_bounded_query_broker.outputs.digest }}
+
+      - name: Build and push Enclave Script image
+        id: build_enclave_script
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5
+        with:
+          context: ./containers/bounded-query
+          target: query
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: |
+            ghcr.io/${{ github.repository }}/enclave-script:${{ needs.bump-version.outputs.version_number }}
+            ghcr.io/${{ github.repository }}/enclave-script:latest
+          cache-from: type=gha,scope=enclave-script
+          cache-to: type=gha,mode=max,scope=enclave-script
+
+      - name: Sign Enclave Script image with cosign
+        run: |
+          cosign sign --yes \
+            ghcr.io/${{ github.repository }}/enclave-script@${{ steps.build_enclave_script.outputs.digest }}
+
+      - name: Generate SBOM for Enclave Script image
+        uses: anchore/sbom-action@28d71544de8eaf1b958d335707167c5f783590ad # v0.22.2
+        with:
+          image: ghcr.io/${{ github.repository }}/enclave-script@${{ steps.build_enclave_script.outputs.digest }}
+          format: spdx-json
+          output-file: enclave-script-sbom.spdx.json
+
+      - name: Attest SBOM for Enclave Script image
+        run: |
+          cosign attest --yes \
+            --predicate enclave-script-sbom.spdx.json \
+            --type spdxjson \
+            ghcr.io/${{ github.repository }}/enclave-script@${{ steps.build_enclave_script.outputs.digest }}
+
+      - name: Build and push Enclave MCP Server image
+        id: build_enclave_mcp_server
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5
+        with:
+          context: ./containers/bounded-query
+          target: enclave-mcp-server
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: |
+            ghcr.io/${{ github.repository }}/enclave-mcp-server:${{ needs.bump-version.outputs.version_number }}
+            ghcr.io/${{ github.repository }}/enclave-mcp-server:latest
+          cache-from: type=gha,scope=enclave-mcp-server
+          cache-to: type=gha,mode=max,scope=enclave-mcp-server
+
+      - name: Sign Enclave MCP Server image with cosign
+        run: |
+          cosign sign --yes \
+            ghcr.io/${{ github.repository }}/enclave-mcp-server@${{ steps.build_enclave_mcp_server.outputs.digest }}
+
+      - name: Generate SBOM for Enclave MCP Server image
+        uses: anchore/sbom-action@28d71544de8eaf1b958d335707167c5f783590ad # v0.22.2
+        with:
+          image: ghcr.io/${{ github.repository }}/enclave-mcp-server@${{ steps.build_enclave_mcp_server.outputs.digest }}
+          format: spdx-json
+          output-file: enclave-mcp-server-sbom.spdx.json
+
+      - name: Attest SBOM for Enclave MCP Server image
+        run: |
+          cosign attest --yes \
+            --predicate enclave-mcp-server-sbom.spdx.json \
+            --type spdxjson \
+            ghcr.io/${{ github.repository }}/enclave-mcp-server@${{ steps.build_enclave_mcp_server.outputs.digest }}
 
   # Build the native Copilot bounded-agent enclave and its trusted broker from separate
   # Dockerfile targets. The build context is ./containers (not
@@ -890,6 +958,8 @@ jobs:
             "ghcr.io/${{ github.repository }}/cli-proxy@${{ needs['build-cli-proxy'].outputs.digest }}" \
             "ghcr.io/${{ github.repository }}/bounded-query@${{ needs['build-bounded-query'].outputs.query_digest }}" \
             "ghcr.io/${{ github.repository }}/bounded-query-broker@${{ needs['build-bounded-query'].outputs.broker_digest }}" \
+            "ghcr.io/${{ github.repository }}/enclave-script@${{ needs['build-bounded-query'].outputs.enclave_script_digest }}" \
+            "ghcr.io/${{ github.repository }}/enclave-mcp-server@${{ needs['build-bounded-query'].outputs.enclave_mcp_server_digest }}" \
             "ghcr.io/${{ github.repository }}/bounded-agent@${{ needs['build-bounded-agent'].outputs.enclave_digest }}" \
             "ghcr.io/${{ github.repository }}/bounded-agent-broker@${{ needs['build-bounded-agent'].outputs.broker_digest }}" \
             "ghcr.io/${{ github.repository }}/gh-aw-node@${{ needs['build-gh-aw-node'].outputs.digest }}" \

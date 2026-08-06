@@ -1,0 +1,217 @@
+import * as crypto from 'crypto';
+import * as fs from 'fs';
+import execa from 'execa';
+import { fixArtifactPermissionsForRootless } from '../artifact-permissions';
+import {
+  PRIVATE_REPOSITORY_SEED_MAP_VERSION,
+  serializePrivateRepositorySeedMap,
+  type PrivateRepositorySeedMap,
+} from '../bounded-execution';
+import { assertPrimaryRuntimeAvailable, assertQueryRuntimeAvailable } from '../bounded-query/preflight';
+import { releaseSeedPermissions, resolveStagingToken, stageBoundedQuerySeeds, type GitRunner } from '../bounded-query/staging';
+import { getLocalDockerEnv } from '../host-env';
+import { logger } from '../logger';
+import type { BoundedQueriesConfig, WrapperConfig } from '../types';
+import type { EnclaveScriptExecutorConfig } from '../types/enclave-options';
+import { assertPrivateRootIsolated } from '../bounded-query/mount-policy';
+import { validateEnclavesConfig } from './preflight';
+import { generateEnclaveRunId, resolveEnclavePaths, type EnclavePaths } from './paths';
+
+export const ENCLAVE_RUN_LABEL = 'awf.enclave.run';
+
+export function isEnclaveScriptEnabled(config: WrapperConfig): boolean {
+  return config.enclaves?.enabled === true && config.enclaves.executors.script.enabled === true;
+}
+
+export function isEnclavesEnabled(config: WrapperConfig): boolean {
+  return config.enclaves?.enabled === true;
+}
+
+function ensureDirectory(target: string, mode: number): void {
+  fs.mkdirSync(target, { recursive: true, mode });
+  fs.chmodSync(target, mode);
+}
+
+function prepareDirectories(paths: EnclavePaths): void {
+  fs.mkdirSync(paths.root, { mode: 0o700 });
+  fs.mkdirSync(paths.ingressRoot, { mode: 0o700 });
+  ensureDirectory(paths.seedsDir, 0o700);
+  ensureDirectory(paths.workDir, 0o700);
+  ensureDirectory(paths.controlDir, 0o700);
+  ensureDirectory(paths.auditDir, 0o700);
+  ensureDirectory(paths.runDir, 0o700);
+}
+
+function writeExclusive(target: string, content: string, mode: number): void {
+  const fd = fs.openSync(
+    target,
+    fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_NOFOLLOW,
+    mode,
+  );
+  try {
+    fs.writeSync(fd, content);
+    fs.fchmodSync(fd, mode);
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+export interface PrepareEnclavesDeps {
+  gitRunner?: GitRunner;
+  env?: NodeJS.ProcessEnv;
+  assertScriptRuntimeAvailable?: (config: EnclaveScriptExecutorConfig) => Promise<void>;
+  assertPrimaryAvailable?: typeof assertPrimaryRuntimeAvailable;
+}
+
+export async function prepareEnclaves(
+  config: WrapperConfig,
+  deps: PrepareEnclavesDeps = {},
+): Promise<void> {
+  if (!isEnclavesEnabled(config)) return;
+  const enclaves = config.enclaves!;
+  const env = deps.env ?? process.env;
+  const errors = validateEnclavesConfig(config);
+  if (enclaves.executors.agent.enabled) {
+    errors.push('enclaves.executors.agent is reserved for migration layer 3 and is not implemented');
+  }
+  if (!enclaves.executors.script.enabled) {
+    errors.push('this migration layer requires enclaves.executors.script.enabled');
+  }
+  if (enclaves.executors.script.runtime === 'sbx') {
+    errors.push('enclaves.executors.script.runtime "sbx" is not implemented and never falls back');
+  }
+  const dockerHost = config.awfDockerHost ?? env.DOCKER_HOST;
+  if (dockerHost && !dockerHost.startsWith('unix://')) {
+    errors.push('enclave script execution requires a Unix-socket Docker host because its MCP server has no network');
+  }
+  const token = resolveStagingToken(env);
+  if (!token) {
+    errors.push('enclaves require a staging credential in GH_TOKEN or GITHUB_TOKEN on the AWF host');
+  }
+  if (errors.length > 0) {
+    throw new Error(`Enclave configuration is invalid:\n  - ${errors.join('\n  - ')}`);
+  }
+  if (!token) {
+    throw new Error('Enclave staging credential disappeared during preflight');
+  }
+
+  await (deps.assertPrimaryAvailable ?? assertPrimaryRuntimeAvailable)(config.containerRuntime);
+  const assertRuntime = deps.assertScriptRuntimeAvailable
+    ?? ((script: EnclaveScriptExecutorConfig) => (
+      assertQueryRuntimeAvailable(script as unknown as BoundedQueriesConfig)
+    ));
+  await assertRuntime(enclaves.executors.script);
+
+  const paths = resolveEnclavePaths(config.workDir);
+  assertPrivateRootIsolated(config, paths, env, process.cwd(), 'enclave');
+  try {
+    const workDirStat = fs.lstatSync(config.workDir);
+    if (workDirStat.isSymbolicLink()) {
+      throw new Error(`Refusing to stage into a symlink work directory: ${config.workDir}`);
+    }
+  } catch (error: unknown) {
+    if (!(error instanceof Error) || (error as NodeJS.ErrnoException).code !== 'ENOENT') {
+      throw error;
+    }
+  }
+  prepareDirectories(paths);
+
+  const runId = generateEnclaveRunId();
+  const staging = await stageBoundedQuerySeeds({
+    repos: enclaves.privateRepos,
+    paths,
+    runId,
+    token,
+    gitRunner: deps.gitRunner,
+    label: 'Enclaves',
+  });
+  const seedMap: PrivateRepositorySeedMap = {
+    version: PRIVATE_REPOSITORY_SEED_MAP_VERSION,
+    runId: staging.runId,
+    seeds: staging.seeds.map((seed) => ({
+      repo: seed.repoKey,
+      seedId: seed.seedId,
+      sensitivity: seed.sensitivity,
+    })),
+  };
+  writeExclusive(paths.seedMapPath, serializePrivateRepositorySeedMap(seedMap), 0o600);
+  writeExclusive(paths.capabilityPath, `${crypto.randomBytes(32).toString('hex')}\n`, 0o600);
+  logger.info(`Enclaves: staged ${staging.seeds.length} immutable seed(s); staging credential discarded.`);
+}
+
+function readRunId(paths: EnclavePaths): string | undefined {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(paths.seedMapPath, 'utf8')) as PrivateRepositorySeedMap;
+    return typeof parsed.runId === 'string' && parsed.runId.length > 0 ? parsed.runId : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+async function removeOrphanEnclaveContainers(runId: string): Promise<void> {
+  const listed = await execa('docker', ['ps', '-aq', '--filter', `label=${ENCLAVE_RUN_LABEL}=${runId}`], {
+    env: getLocalDockerEnv(),
+    reject: false,
+    timeout: 30_000,
+  });
+  if (listed.exitCode !== 0) {
+    throw new Error('Failed to list orphaned enclave script containers');
+  }
+  const ids = listed.stdout.split('\n').map((id) => id.trim()).filter(Boolean);
+  if (ids.length === 0) return;
+  const removed = await execa('docker', ['rm', '-f', ...ids], {
+    env: getLocalDockerEnv(),
+    reject: false,
+    timeout: 60_000,
+  });
+  if (removed.exitCode !== 0) {
+    throw new Error('Failed to remove orphaned enclave script containers');
+  }
+}
+
+function removePrivateState(config: WrapperConfig, paths: EnclavePaths): void {
+  try {
+    fs.rmSync(paths.root, { recursive: true, force: true });
+    fs.rmSync(paths.ingressRoot, { recursive: true, force: true });
+  } catch (error: unknown) {
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'EACCES') {
+      fixArtifactPermissionsForRootless(
+        [paths.root, paths.ingressRoot],
+        config.dockerHostPathPrefix,
+        config.imageRegistry,
+        config.imageTag,
+        config.agentImage,
+      );
+      fs.rmSync(paths.root, { recursive: true, force: true });
+      fs.rmSync(paths.ingressRoot, { recursive: true, force: true });
+      return;
+    }
+    throw error;
+  }
+}
+
+export async function teardownEnclaves(config: WrapperConfig): Promise<void> {
+  if (!isEnclavesEnabled(config)) return;
+  const paths = resolveEnclavePaths(config.workDir);
+  const runId = readRunId(paths);
+  if (runId) {
+    await removeOrphanEnclaveContainers(runId);
+  }
+  if (config.keepContainers) {
+    logger.info(`Enclave private state preserved at: ${paths.root}`);
+    logger.info(`Enclave MCP control endpoint preserved at: ${paths.ingressRoot}`);
+    return;
+  }
+  try {
+    releaseSeedPermissions(paths.seedsDir);
+  } catch (error) {
+    logger.warn('Enclaves: failed to restore seed permissions before cleanup', error);
+  }
+  removePrivateState(config, paths);
+}
+
+export const enclaveManagerTestHelpers = {
+  prepareDirectories,
+  readRunId,
+  removeOrphanEnclaveContainers,
+};

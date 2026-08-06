@@ -10,6 +10,7 @@ import {
 import { getLocalDockerEnv } from './host-env';
 import { resolveBoundedQueryPaths } from './bounded-query/paths';
 import { resolveBoundedAgentPaths } from './bounded-agent/paths';
+import { resolveEnclavePaths } from './enclave/paths';
 
 const BOUNDED_QUERY_AUDIT_FILES = [
   'bounded-query.jsonl',
@@ -21,6 +22,10 @@ const BOUNDED_AGENT_AUDIT_FILES = [
   { source: 'runtime-telemetry.jsonl', destination: 'bounded-agent-runtime.jsonl' },
 ] as const;
 const BOUNDED_AGENT_SESSION_DIR = 'sessions';
+const ENCLAVE_AUDIT_FILES = [
+  { source: 'enclave.jsonl', destination: 'enclave.jsonl' },
+  { source: 'runtime-telemetry.jsonl', destination: 'enclave-runtime.jsonl' },
+] as const;
 
 /**
  * Copies the iptables audit dump from the init-signal volume to the audit directory.
@@ -31,6 +36,7 @@ export function preserveIptablesAudit(workDir: string, auditDir?: string): void 
   const iptablesAuditSrc = path.join(workDir, 'init-signal', 'iptables-audit.txt');
   const boundedQueryRoot = resolveBoundedQueryPaths(workDir).root;
   const boundedAgentRoot = resolveBoundedAgentPaths(workDir).root;
+  const enclaveRoot = resolveEnclavePaths(workDir).root;
   const targetAuditDir = auditDir || path.join(workDir, 'audit');
   if (!fs.existsSync(targetAuditDir)) return;
 
@@ -83,6 +89,7 @@ export function preserveIptablesAudit(workDir: string, auditDir?: string): void 
       } catch (error) {
         logger.debug(`Could not copy bounded-agent ${auditFile.source}:`, error);
       }
+
     }
     try {
       const destination = path.join(targetAuditDir, 'bounded-agent-sessions');
@@ -102,6 +109,27 @@ export function preserveIptablesAudit(workDir: string, auditDir?: string): void 
       }
     } catch (error) {
       logger.debug('Could not copy bounded-agent sessions:', error);
+    }
+  }
+
+  if (fs.existsSync(enclaveRoot)) {
+    for (const auditFile of ENCLAVE_AUDIT_FILES) {
+      try {
+        const source = `awf-enclave-mcp-server:/var/log/awf-enclave/${auditFile.source}`;
+        const destination = path.join(targetAuditDir, auditFile.destination);
+        const result = execa.sync(
+          'docker',
+          ['cp', source, destination],
+          { env: getLocalDockerEnv(), reject: false },
+        );
+        if (result.exitCode === 0) {
+          logger.debug(`Copied enclave MCP server ${auditFile.source} to audit directory`);
+        } else {
+          logger.debug(`Could not copy enclave ${auditFile.source}:`, result.stderr);
+        }
+      } catch (error) {
+        logger.debug(`Could not copy enclave ${auditFile.source}:`, error);
+      }
     }
   }
 }

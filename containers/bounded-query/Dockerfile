@@ -79,3 +79,19 @@ RUN mkdir -p /srv/awf/seeds /srv/awf/work /run/awf-bounded-query /run/awf-bounde
 USER root
 
 ENTRYPOINT ["node", "/opt/awf/broker/server.js"]
+
+# AWF-owned unified enclave MCP server. This distinct image owns the Docker
+# socket and private seed/work/audit mounts; its later Compose service must use
+# network_mode: none. Script sandboxes remain the existing minimal query image.
+FROM broker AS enclave-mcp-server
+
+COPY enclave-mcp/ /opt/awf/enclave-mcp/
+RUN chmod -R a-w /opt/awf/enclave-mcp \
+    && node --check /opt/awf/enclave-mcp/config.js \
+    && node --check /opt/awf/enclave-mcp/mcp-protocol.js \
+    && node --check /opt/awf/enclave-mcp/server.js \
+    && node --check /opt/awf/enclave-mcp/healthcheck.js \
+    && mkdir -p /srv/awf/seeds /srv/awf/work \
+      /run/awf-enclave-mcp /run/awf-enclave-mcp-control /var/log/awf-enclave
+
+ENTRYPOINT ["node", "/opt/awf/enclave-mcp/server.js"]

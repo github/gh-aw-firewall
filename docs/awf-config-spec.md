@@ -2439,13 +2439,14 @@ can answer the question.
   bounded queries; unlike a bounded query it does have a network interface, to
   the API proxy only.
 
-## 16. Unified Enclaves (Migration Foundation)
+## 16. Unified Enclaves
 
 The optional `enclaves` object is the successor configuration model for bounded
-private-repository execution. In this foundation release it is parsed,
-normalized, and validated but does not create a runtime service or primary-agent
-surface. See [Unified Enclave Architecture and Migration](enclaves-architecture.md)
-for the target trust boundaries and rollout sequence.
+private-repository execution. The script executor launches an AWF-owned,
+no-egress MCP service and hardened single-use script containers. The service is
+not yet attached to the primary agent; a later migration layer registers it
+exclusively through `gh-aw-mcpg`. See
+[Unified Enclave Architecture and Migration](enclaves-architecture.md).
 
 `enclaves.privateRepos` is the single trusted repository list for every
 executor. Each entry has the same `public`, `internal`, `confidential`, or
@@ -2460,10 +2461,16 @@ defaults preserve the bounded-agent limits (`docker`, API-proxy-only network,
 Copilot/OpenAI profile, 120 seconds, 512 MiB, 8 invocations, 8 model requests,
 1024 completion tokens). Neither executor is enabled by omission.
 
+Layer 2 implements script execution for `docker` and exactly registered
+`gvisor`/`runsc`. The schema reserves `sbx`, but preflight fails closed because
+the unified MCP script launcher has not yet proved that backend; it never
+downgrades to Docker or gVisor.
+
 Images, runtimes, interpreters, engines, provider profiles, models, networks,
 timeouts, resource limits, and operational limits are trusted configuration.
-Future invocation protocols MUST reject those controls, including unknown
-aliases for them. An enabled agent executor requires a configured model.
+The `enclave_run_script` MCP tool accepts exactly `privateRepo`, a finite
+response `schema`, and bounded `script` bytes. It rejects trusted controls and
+unknown aliases for them. An enabled agent executor requires a configured model.
 
 When `enclaves.enabled` is `true`, at least one executor and one repository are
 required. `boundedQueries.enabled` or `boundedAgents.enabled` MUST NOT also be
@@ -2471,9 +2478,10 @@ true. AWF rejects that mixed configuration before any legacy broker, enclave
 server, repository staging, or primary agent starts. Disabled sections may
 coexist because they do not activate a runtime.
 
-The foundation does not combine the existing live broker ledgers. Shared-budget
-runtime enforcement begins only when the AWF-owned enclave MCP server replaces
-both direct brokers in a later migration layer.
+The AWF-owned MCP server enforces the unified per-repository ledger for script
+calls. The later agent executor will debit this same ledger rather than creating
+an executor-specific balance. Legacy brokers retain their existing independent
+behavior until runtime cutover.
 
 ## Normative References
 

@@ -140,12 +140,16 @@ runs:
           AGENT_ACT_DIGEST="$(extract_digest agent-act || true)"
           API_PROXY_DIGEST="$(extract_digest api-proxy || true)"
           CLI_PROXY_DIGEST="$(extract_digest cli-proxy || true)"
+          ENCLAVE_SCRIPT_DIGEST="$(extract_digest enclave-script || true)"
+          ENCLAVE_MCP_SERVER_DIGEST="$(extract_digest enclave-mcp-server || true)"
 
           [ -n "${SQUID_DIGEST:-}" ] && DIGEST_ENTRIES+=("squid=${SQUID_DIGEST}")
           [ -n "${AGENT_DIGEST:-}" ] && DIGEST_ENTRIES+=("agent=${AGENT_DIGEST}")
           [ -n "${AGENT_ACT_DIGEST:-}" ] && DIGEST_ENTRIES+=("agent-act=${AGENT_ACT_DIGEST}")
           [ -n "${API_PROXY_DIGEST:-}" ] && DIGEST_ENTRIES+=("api-proxy=${API_PROXY_DIGEST}")
           [ -n "${CLI_PROXY_DIGEST:-}" ] && DIGEST_ENTRIES+=("cli-proxy=${CLI_PROXY_DIGEST}")
+          [ -n "${ENCLAVE_SCRIPT_DIGEST:-}" ] && DIGEST_ENTRIES+=("enclave-script=${ENCLAVE_SCRIPT_DIGEST}")
+          [ -n "${ENCLAVE_MCP_SERVER_DIGEST:-}" ] && DIGEST_ENTRIES+=("enclave-mcp-server=${ENCLAVE_MCP_SERVER_DIGEST}")
 
           if [ "${#DIGEST_ENTRIES[@]}" -gt 0 ]; then
             DIGEST_CSV="$(IFS=,; echo "${DIGEST_ENTRIES[*]}")"

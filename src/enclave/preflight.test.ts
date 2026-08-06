@@ -39,4 +39,21 @@ describe('validateEnclavesConfig', () => {
     expect(errors.join('\n')).toMatch(/duplicate entry/);
     expect(errors.join('\n')).toMatch(/no enclave executor is enabled/);
   });
+
+  it('rejects script disclosure bounds the container cannot enforce', () => {
+    const enclaves = normalizeEnclavesConfig({
+      enabled: true,
+      privateRepos: [{ repo: 'octo/private', sensitivity: 'internal' }],
+      executors: {
+        script: {
+          enabled: true,
+          maxScriptBytes: 65_537,
+          maxOutputBytes: 8_193,
+        },
+      },
+    });
+    const errors = validateEnclavesConfig(config({ enclaves })).join('\n');
+    expect(errors).toMatch(/maxScriptBytes must be at most 65536/);
+    expect(errors).toMatch(/maxOutputBytes must be at most 8192/);
+  });
 });
