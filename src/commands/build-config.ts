@@ -3,6 +3,7 @@ import type { AwfFileConfig } from '../config-file';
 import { resolveApiCredentials } from './resolve-credentials';
 import { normalizeBoundedQueriesConfig } from '../parsers/bounded-query-parser';
 import { normalizeBoundedAgentsConfig } from '../parsers/bounded-agent-parser';
+import { normalizeEnclavesConfig } from '../parsers/enclave-parser';
 import { logger } from '../logger';
 
 /**
@@ -221,6 +222,9 @@ export function buildConfig(inputs: BuildConfigInputs): WrapperConfig {
     ),
     boundedAgents: normalizeBoundedAgentsConfig(
       options.boundedAgents as AwfFileConfig['boundedAgents'] | undefined,
+    ),
+    enclaves: normalizeEnclavesConfig(
+      options.enclaves as AwfFileConfig['enclaves'] | undefined,
     ),
   };
 }

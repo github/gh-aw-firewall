@@ -1,3 +1,10 @@
+import {
+  ENCLAVE_SENSITIVITIES,
+  ENCLAVE_SENSITIVITY_RUN_BITS,
+  type EnclaveRepository,
+  type EnclaveSensitivity,
+} from './enclave-options';
+
 /**
  * Bounded-query sandbox configuration types.
  *
@@ -27,15 +34,10 @@ export type BoundedQueryInterpreter = 'python3';
  * numeric override, but no category may ever be granted more than its listed
  * maximum.
  */
-export type BoundedQuerySensitivity = 'public' | 'internal' | 'confidential' | 'sealed';
+export type BoundedQuerySensitivity = EnclaveSensitivity;
 
 /** Every supported sensitivity value, for schema/validation enumeration. */
-export const BOUNDED_QUERY_SENSITIVITIES: readonly BoundedQuerySensitivity[] = [
-  'public',
-  'internal',
-  'confidential',
-  'sealed',
-];
+export const BOUNDED_QUERY_SENSITIVITIES: readonly BoundedQuerySensitivity[] = ENCLAVE_SENSITIVITIES;
 
 /**
  * Immutable per-repository run-budget table.
@@ -53,12 +55,7 @@ export const BOUNDED_QUERY_SENSITIVITIES: readonly BoundedQuerySensitivity[] = [
  * identity or storage across runs, so this is deliberately not a
  * "lifetime" budget.
  */
-export const BOUNDED_QUERY_SENSITIVITY_RUN_BITS: Readonly<Record<BoundedQuerySensitivity, number | null>> = {
-  public: null,
-  internal: 64,
-  confidential: 8,
-  sealed: 0,
-};
+export const BOUNDED_QUERY_SENSITIVITY_RUN_BITS = ENCLAVE_SENSITIVITY_RUN_BITS;
 
 /**
  * A trusted, per-repository descriptor.
@@ -67,12 +64,7 @@ export const BOUNDED_QUERY_SENSITIVITY_RUN_BITS: Readonly<Record<BoundedQuerySen
  * request) and flows unmodified into the seed map the broker reads — the
  * agent cannot choose or override it.
  */
-export interface BoundedQueryRepository {
-  /** Repository slug in `owner/repo` form, exactly as configured. */
-  repo: string;
-  /** Confidentiality category, which fixes this repository's run budget. */
-  sensitivity: BoundedQuerySensitivity;
-}
+export interface BoundedQueryRepository extends EnclaveRepository {}
 
 /**
  * Fully-normalized bounded-query configuration, with every field resolved to

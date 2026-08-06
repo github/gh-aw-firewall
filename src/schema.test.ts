@@ -44,6 +44,8 @@ describe('awf-config.schema.json', () => {
         'rateLimiting',
         'platform',
         'boundedQueries',
+        'boundedAgents',
+        'enclaves',
       ])
     );
   });

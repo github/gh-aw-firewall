@@ -913,3 +913,6 @@ export const informationChargeForSchema = queryBitsForSchema;
 export const canonicalizeFiniteSchemaValue = canonicalizeSchemaValue;
 export const canonicalSuccessJson = canonicalOkJson;
 export const CANONICAL_ERROR_RESPONSE_JSON = CANONICAL_ERROR_JSON;
+export const PRIVATE_REPOSITORY_PATTERN = BOUNDED_QUERY_REPO_PATTERN;
+export const MAX_BOUNDED_EXECUTION_TIMEOUT_SECONDS = MAX_QUERY_TIMEOUT_SECONDS;
+export const parseAndValidateFiniteOutput = parseAndValidateQueryOutput;

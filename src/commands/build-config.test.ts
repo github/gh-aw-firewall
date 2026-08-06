@@ -616,4 +616,25 @@ describe('buildConfig', () => {
       expect(config.legacySecurity).toBeUndefined();
     });
   });
+
+  it('normalizes unified enclave config into the wrapper config', () => {
+    const config = buildConfig(makeInputs({
+      options: {
+        ...makeInputs().options,
+        enclaves: {
+          enabled: true,
+          privateRepos: [{ repo: 'octo/private', sensitivity: 'internal' }],
+          executors: { script: { enabled: true } },
+        },
+      },
+    }));
+    expect(config.enclaves).toMatchObject({
+      enabled: true,
+      privateRepos: [{ repo: 'octo/private', sensitivity: 'internal' }],
+      executors: {
+        script: { enabled: true, network: 'none' },
+        agent: { enabled: false, network: 'api-proxy-only' },
+      },
+    });
+  });
 });

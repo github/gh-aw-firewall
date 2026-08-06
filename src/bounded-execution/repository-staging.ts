@@ -6,7 +6,7 @@
  * consumes.
  */
 
-import type { BoundedQuerySensitivity } from '../types/bounded-query-options';
+import type { EnclaveSensitivity } from '../types/enclave-options';
 
 /**
  * Version of the on-disk seed-map document.
@@ -33,7 +33,7 @@ export interface PrivateRepositorySeedDescriptor {
   /** Commit the seed was materialized at, recorded for protected audit state. */
   commit: string;
   /** Trusted confidentiality category, carried unmodified into the seed map. */
-  sensitivity: BoundedQuerySensitivity;
+  sensitivity: EnclaveSensitivity;
 }
 
 /**
@@ -50,7 +50,7 @@ export interface PrivateRepositorySeedDescriptor {
 export interface PrivateRepositorySeedMap {
   version: typeof PRIVATE_REPOSITORY_SEED_MAP_VERSION;
   runId: string;
-  seeds: Array<{ repo: string; seedId: string; sensitivity: BoundedQuerySensitivity }>;
+  seeds: Array<{ repo: string; seedId: string; sensitivity: EnclaveSensitivity }>;
 }
 
 /** Result of the trusted host staging phase. */
@@ -63,6 +63,11 @@ export interface PrivateRepositoryStagingResult {
 export type BoundedQuerySeed = PrivateRepositorySeedDescriptor;
 export type BoundedQuerySeedMap = PrivateRepositorySeedMap;
 export type BoundedQueryStagingResult = PrivateRepositoryStagingResult;
+
+/** Canonical lookup key shared by staging, admission, and budget accounting. */
+export function normalizePrivateRepositoryKey(repo: string): string {
+  return repo.trim().toLowerCase();
+}
 
 /** Canonically serializes the protected broker seed map. */
 export function serializePrivateRepositorySeedMap(seedMap: PrivateRepositorySeedMap): string {
