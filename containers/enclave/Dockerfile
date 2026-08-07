@@ -1,6 +1,6 @@
 # AWF enclave images. Build context: containers/.
 
-FROM python:3.12-alpine3.21 AS enclave-script
+FROM python:3.14.7-alpine3.24 AS enclave-script
 
 RUN python3 -c 'import json, pathlib, sys; sys.exit(0)' \
     && test -x /usr/local/bin/python3 \
@@ -9,20 +9,33 @@ COPY enclave/script-entrypoint.py /usr/local/bin/run-enclave-script
 RUN chmod 0555 /usr/local/bin/run-enclave-script \
     && mkdir -p /script /awf/seed
 
-FROM node:24-bookworm-slim AS enclave-agent
+FROM node:24.18.1-trixie-slim AS enclave-agent-build
 
-ARG COPILOT_CLI_VERSION=1.0.34
+ARG COPILOT_CLI_VERSION=1.0.77
+ARG NPM_CONFIG_REGISTRY=https://registry.npmjs.org/
+RUN npm_config_ignore_scripts=false npm install -g "@github/copilot@${COPILOT_CLI_VERSION}" \
+    && npm_config_ignore_scripts=true npm install \
+         --prefix /usr/local/lib/node_modules/@github/copilot \
+         --omit=dev adm-zip@0.6.0 \
+    && find /usr/local/lib/node_modules/@github/copilot \
+         -path '*/foundry-local-sdk/node_modules/adm-zip' -prune -type d \
+         -exec sh -c 'rm -rf "$1" && cp -a /usr/local/lib/node_modules/@github/copilot/node_modules/adm-zip "$1"' sh {} \; \
+    && copilot --version | grep -q "GitHub Copilot CLI ${COPILOT_CLI_VERSION}"
+
+FROM ubuntu:26.04 AS enclave-agent
+
+ARG COPILOT_CLI_VERSION=1.0.77
 RUN apt-get update \
     && apt-get install -y --no-install-recommends bash ca-certificates git python3 ripgrep \
     && test -r /etc/ssl/certs/ca-certificates.crt \
-    && npm_config_ignore_scripts=false npm install -g "@github/copilot@${COPILOT_CLI_VERSION}" \
-    && rm -rf /usr/local/lib/node_modules/@github/copilot-linux-* \
-    && ln -sf ../lib/node_modules/@github/copilot/index.js /usr/local/bin/copilot \
+    && rm -rf /var/lib/apt/lists/* \
+    && rm -f /usr/bin/apt /usr/bin/apt-get /usr/bin/apt-cache
+COPY --from=enclave-agent-build /usr/local/bin/node /usr/local/bin/node
+COPY --from=enclave-agent-build /usr/local/lib/node_modules/@github/copilot/ /usr/local/lib/node_modules/@github/copilot/
+RUN ln -s ../lib/node_modules/@github/copilot/npm-loader.js /usr/local/bin/copilot \
     && node --version | grep -qE '^v24\.' \
     && copilot --version | grep -q "GitHub Copilot CLI ${COPILOT_CLI_VERSION}" \
-    && rm -rf /var/lib/apt/lists/* \
-    && rm -f /usr/bin/apt /usr/bin/apt-get /usr/bin/apt-cache \
-             /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack
+    && rm -rf /root/.cache/copilot
 COPY enclave/agent-entrypoint.py /usr/local/bin/run-enclave-agent
 RUN chmod 0555 /usr/local/bin/run-enclave-agent \
     && python3 -m py_compile /usr/local/bin/run-enclave-agent \
