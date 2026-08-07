@@ -2,6 +2,7 @@ import { validateAwfFileConfig } from '../config-file';
 import {
   ENCLAVE_AGENT_EXECUTOR_DEFAULTS,
   ENCLAVE_SCRIPT_EXECUTOR_DEFAULTS,
+  ENCLAVES_DEFAULTS,
 } from '../types/enclave-options';
 import { normalizeEnclavesConfig } from './enclave-parser';
 
@@ -11,7 +12,8 @@ describe('normalizeEnclavesConfig', () => {
   });
 
   it('applies conservative defaults without enabling executors', () => {
-    expect(normalizeEnclavesConfig({})).toEqual({
+    expect(normalizeEnclavesConfig({})).toEqual(ENCLAVES_DEFAULTS);
+    expect(ENCLAVES_DEFAULTS).toEqual({
       enabled: false,
       privateRepos: [],
       executors: {

@@ -5,6 +5,7 @@ import {
   PRIVATE_REPOSITORY_PATTERN,
 } from '../bounded-execution';
 import { normalizePrivateRepositoryKey } from '../bounded-execution/repository-staging';
+import { resolveApiProxyRoute } from '../bounded-agent/preflight';
 
 const RUNTIMES = new Set(['docker', 'gvisor', 'sbx']);
 const ENGINES = new Set(['copilot', 'claude', 'codex', 'gemini']);
@@ -66,6 +67,11 @@ export function validateEnclavesConfig(config: WrapperConfig): string[] {
     if (!agent.model) errors.push('enclaves.executors.agent.model is required when the agent executor is enabled');
     if (!config.enableApiProxy) {
       errors.push('enclaves agent executor requires the AWF API proxy');
+    } else {
+      const route = resolveApiProxyRoute(config, agent);
+      if (!route.routed) {
+        errors.push(`enclaves agent executor has no usable model route: ${route.detail}`);
+      }
     }
     if (!Number.isInteger(agent.timeout) || agent.timeout < 1 || agent.timeout > MAX_BOUNDED_EXECUTION_TIMEOUT_SECONDS) {
       errors.push(

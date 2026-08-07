@@ -122,6 +122,63 @@ describe('runMainWorkflow', () => {
     (topology.getTopologyContainerIps as jest.Mock).mockResolvedValue(new Map());
   });
 
+  it('rejects invalid enclave configuration before staging or startup', async () => {
+    const prepareBoundedQueries = jest.fn();
+    const dependencies = createWorkflowDependencies({ prepareBoundedQueries });
+    const config: WrapperConfig = {
+      ...baseConfig,
+      boundedQueries: { enabled: true } as WrapperConfig['boundedQueries'],
+      enclaves: {
+        enabled: true,
+        privateRepos: [
+          { repo: 'octo/private', sensitivity: 'internal' },
+          { repo: 'Octo/Private', sensitivity: 'internal' },
+        ],
+        executors: {
+          script: {
+            enabled: true,
+            runtime: 'docker',
+            network: 'none',
+            interpreter: 'python3',
+            timeout: 30,
+            memoryLimit: '512m',
+            cpuLimit: '1',
+            pidsLimit: 128,
+            tmpfsLimit: '64m',
+            maxOutputBytes: 8192,
+            maxScriptBytes: 65536,
+            maxInvocations: 32,
+          },
+          agent: {
+            enabled: false,
+            runtime: 'docker',
+            network: 'api-proxy-only',
+            engine: 'copilot',
+            profile: 'openai',
+            model: '',
+            timeout: 120,
+            memoryLimit: '512m',
+            cpuLimit: '1',
+            pidsLimit: 128,
+            tmpfsLimit: '64m',
+            maxOutputBytes: 8192,
+            maxTaskBytes: 4096,
+            maxInvocations: 8,
+            maxModelRequests: 8,
+            maxModelTokens: 1024,
+          },
+        },
+      },
+    };
+
+    await expect(runMainWorkflow(config, dependencies, createWorkflowOptions()))
+      .rejects.toThrow(/Invalid enclave configuration.*duplicate entry/s);
+    expect(prepareBoundedQueries).not.toHaveBeenCalled();
+    expect(dependencies.ensureFirewallNetwork).not.toHaveBeenCalled();
+    expect(dependencies.writeConfigs).not.toHaveBeenCalled();
+    expect(dependencies.startContainers).not.toHaveBeenCalled();
+  });
+
   it('executes workflow steps in order and logs success for zero exit code', async () => {
     const callOrder: string[] = [];
     const dependencies = createOrderedWorkflowDependencies(callOrder);
