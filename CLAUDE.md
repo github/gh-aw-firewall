@@ -6,9 +6,9 @@ This file provides guidance to coding agent when working with code in this repos
 
 `awf` (Agentic Workflow Firewall, package `@github/awf`) is a CLI that wraps any command in a sandboxed Docker network. It provides L7 (HTTP/HTTPS) egress control using Squid proxy, restricting network access to a whitelist of approved domains while giving the agent access to the host workspace and selected system paths via chroot and selective bind mounts.
 
-### Three Container Components
+### Core and Optional Container Components
 
-The system is orchestrated by `src/cli.ts` and managed by `src/docker-manager.ts`. There are three containers, two of which are always required and one optional:
+The system is orchestrated by `src/cli.ts` and managed by `src/docker-manager.ts`. Squid, the primary agent, and the general API proxy are the baseline services; private-repository enclaves add AWF-owned optional services on top:
 
 **1. Squid Proxy (always required)** — `containers/squid/`, IP `172.30.0.10`
 - Enforces domain ACL filtering for all HTTP/HTTPS traffic
@@ -28,30 +28,15 @@ The system is orchestrated by `src/cli.ts` and managed by `src/docker-manager.ts
 - Agent calls the sidecar with no auth (e.g., `http://172.30.0.30:10001` for Anthropic); sidecar injects the real key and forwards via Squid
 - Ports: 10000 (OpenAI), 10001 (Anthropic), 10002 (Copilot), 10003 (Gemini) — these are discrete ports, not a contiguous range
 
-**4. Bounded-Query Broker (optional)** — `containers/bounded-query/`, no network
-- Enabled via `boundedQueries.enabled` in the AWF config file (config-only; there is no CLI flag family)
-- The only AWF service with `network_mode: none`: no `awf-net`, no external bridge, no DNS, no Squid, no host gateway
-- Reachable only through one Unix socket in a run-specific `/var/tmp` ingress root, bind-mounted into the agent at `/run/awf-bounded-query/broker.sock`; all seeds, workspaces, maps, control state, and audits live in a disjoint broker-private `/var/tmp` root
-- Receives the resolved Docker socket so it can launch per-invocation query containers; that path never enters the agent's env or volumes
-- The broker (`bounded-query-broker`) and query sandbox (`bounded-query`) are separate published images; a one-shot networkless Compose service pulls the sandbox image before broker startup so the broker (which has no network) can launch query containers
-- Queries run `python3` with `--network none`, `--read-only`, non-root, `--cap-drop ALL`, `no-new-privileges`, a seccomp profile, and time/memory/CPU/PID/file-size bounds
-- Agent surface: `bounded-query` command at `/tmp/awf-lib/bounded-query` (inside chroot, added to PATH by `entrypoint.sh`; the source file in the container is `/usr/local/bin/bounded-query-wrapper.sh`) plus a generated read-only `SKILL.md`; the wrapper always prints one canonical JSON line, writes nothing to stderr, and exits `0`
-- Trusted host staging (`src/bounded-query/staging.ts`) materializes an immutable seed per configured repo *before* the agent starts, using `GH_TOKEN`/`GITHUB_TOKEN` only in a child-process env — never in argv, a URL, a log, or the compose file
-- See [docs/awf-config-spec.md](docs/awf-config-spec.md) §14 for the full model, including per-repository information-budget accounting and residual channels
-
-**5. Bounded-Agent Enclave (optional)** — `containers/bounded-agent/`, API-proxy-only network
-- Enabled via `boundedAgents.enabled` in the AWF config file (config-only; there is no CLI flag family)
-- Agentic sibling of bounded queries: a trusted broker runs a **fixed, AWF-authored model loop** in a single-use enclave instead of an agent-authored script
-- Requires `--enable-api-proxy` plus a configured `profile`/`model` route (`openai` or `anthropic`); preflight fails closed otherwise
-- Broker (`awf-bounded-agent-broker`) is `network_mode: none` and never joins the enclave network; it receives the Docker socket only to launch enclaves
-- Enclaves join **only** the dedicated `internal` `awf-bounded-agent` network (172.31.0.0/24). A dedicated API-proxy instance with private telemetry joins it at a fixed address/alias and is the enclave's only upstream egress. No primary agent, Squid, general proxy, broker, safe outputs, MCP gateway, or CLI proxy is on that network.
-- Enclaves run `--read-only` with the immutable seed bind-mounted `ro`, bounded tmpfs for work/result/`/tmp`, fixed non-root UID/GID, `--cap-drop ALL`, `no-new-privileges`, seccomp, and memory/CPU/PID/file-size/timeout bounds; every container is labelled `awf.bounded-agent.run=<runId>` for deterministic orphan cleanup
-- Separate private root (`/var/tmp/awf-bounded-agent-private-*`) and a **separate ledger** from bounded queries
-- Agent surface: `bounded-agent` command at `/tmp/awf-lib/bounded-agent` plus a generated read-only `SKILL.md`; accepts only `--repo`, `--schema`, and task text on stdin
-- Image build context is `containers/` (not `containers/bounded-agent/`) because the broker reuses the shared PR1 `bounded-execution` foundation and sandbox seccomp profile under `containers/bounded-query/`
-- `runtime: "sbx"` is schema-accepted but fails closed with a not-yet-implemented capability error; `gvisor` requires an exactly registered `runsc` and never downgrades
-- **Provider disclosure caveat:** repository-derived content reaches the configured model provider through the API proxy. The ledger bounds what the *calling agent* learns, not what the *provider* sees.
-- See [docs/bounded-agents.md](docs/bounded-agents.md) and [docs/awf-config-spec.md](docs/awf-config-spec.md) §15
+**4. Unified Enclaves (optional)** — `containers/enclave/`
+- Enabled via `enclaves.enabled` in the AWF config file
+- One AWF-owned MCP server (`enclave-mcp-server`) exposes enabled enclave executors only through compiler-launched `gh-aw-mcpg`; the primary agent gets no direct enclave socket, wrapper binary, capability, or private transport
+- `enclave_run_script` launches a no-network, read-only, single-use Python executor and returns one canonical JSON result
+- `enclave_run_agent` launches a single-use Copilot enclave on the dedicated `internal` `awf-enclave-agent` network whose sole peer is the dedicated API proxy; Squid, the primary agent, the general API proxy, safe outputs, and the MCP gateway are excluded
+- Script and agent executors share one trusted `enclaves.privateRepos` list, one per-run information ledger, and one AWF-owned admission lane
+- Rollout depends on the compiler handoff contract in `github/gh-aw#50920` and late backend rediscovery in `github/gh-aw-mcpg#10784`, which requires MCP Gateway spec 1.15.0 and the first mcpg release after v0.4.8 containing it
+- While the gateway backend is still coming up, AWF retries retryable HTTP `503 backend_unavailable` responses within `AWF_ENCLAVE_MCP_READINESS_TIMEOUT_MS`
+- See [docs/enclaves-architecture.md](docs/enclaves-architecture.md) and [docs/awf-config-spec.md](docs/awf-config-spec.md) §14
 
 ### Documentation Files
 
@@ -61,8 +46,7 @@ The system is orchestrated by `src/cli.ts` and managed by `src/docker-manager.ts
 - **[docs/logging_quickref.md](docs/logging_quickref.md)** - Quick reference for log queries and monitoring
 - **[docs/releasing.md](docs/releasing.md)** - Release process and versioning instructions
 - **[docs/INTEGRATION-TESTS.md](docs/INTEGRATION-TESTS.md)** - Integration test coverage guide with gap analysis
-- **[docs/bounded-queries.md](docs/bounded-queries.md)** - Bounded-query (no-network script sandbox) guide
-- **[docs/bounded-agents.md](docs/bounded-agents.md)** - Bounded-agent (API-proxy-only enclave) guide and threat model
+- **[docs/enclaves-architecture.md](docs/enclaves-architecture.md)** - Unified enclave architecture, MCP gateway handoff, migration, and coverage notes
 
 ## Development Workflow
 

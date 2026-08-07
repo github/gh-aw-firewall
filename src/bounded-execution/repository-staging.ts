@@ -12,13 +12,10 @@ import type { EnclaveSensitivity } from '../types/enclave-options';
  * Version of the on-disk seed-map document.
  *
  * v2 adds trusted `sensitivity` metadata to every entry (see
- * {@link BoundedQuerySeedMap}) so the broker can derive each repository's
+ * {@link PrivateRepositorySeedMap}) so the server can derive each repository's
  * per-run information budget without trusting anything the agent sends.
  */
 export const PRIVATE_REPOSITORY_SEED_MAP_VERSION = 2;
-
-/** Bounded-query compatibility constant. */
-export const BOUNDED_QUERY_SEED_MAP_VERSION = PRIVATE_REPOSITORY_SEED_MAP_VERSION;
 
 /** One staged, immutable repository seed. */
 export interface PrivateRepositorySeedDescriptor {
@@ -58,11 +55,6 @@ export interface PrivateRepositoryStagingResult {
   runId: string;
   seeds: PrivateRepositorySeedDescriptor[];
 }
-
-/** Bounded-query compatibility aliases. */
-export type BoundedQuerySeed = PrivateRepositorySeedDescriptor;
-export type BoundedQuerySeedMap = PrivateRepositorySeedMap;
-export type BoundedQueryStagingResult = PrivateRepositoryStagingResult;
 
 /** Canonical lookup key shared by staging, admission, and budget accounting. */
 export function normalizePrivateRepositoryKey(repo: string): string {

@@ -34,6 +34,55 @@ ignore:
       name: node
       version: "22.23.2"
       type: binary
+  - vulnerability: CVE-2026-58043
+    package:
+      name: node
+      version: "24.18.1"
+      type: binary
+
+  # ── CPython 3.14.7 corrected affected-version metadata ──────────────────────
+  #
+  # The Python CNA records for these findings mark 3.14.0 through 3.14.6 as
+  # affected and 3.14.7 as fixed. Grype v0.116.0 instead reports 3.14.7 as
+  # vulnerable and lists only 3.15 prereleases as fixes. Keep these exceptions
+  # scoped to the patched 3.14.7 binary and remove them after Grype corrects its
+  # affected-version ranges.
+  - vulnerability: CVE-2026-11940
+    package:
+      name: python
+      version: "3.14.7"
+      type: binary
+  - vulnerability: CVE-2026-15308
+    package:
+      name: python
+      version: "3.14.7"
+      type: binary
+  - vulnerability: CVE-2026-11972
+    package:
+      name: python
+      version: "3.14.7"
+      type: binary
+
+  # ── stdlib@go1.26.3 embedded in Alpine docker-cli ───────────────────────────
+  #
+  # GO-2026-5037 (crypto/x509 VerifyHostname quadratic processing, HIGH):
+  #   A certificate with many DNS SAN entries can make hostname verification
+  #   disproportionately expensive.
+  #
+  #   Risk acceptance — NOT REACHABLE in this image:
+  #     The enclave MCP server invokes /usr/bin/docker only through the local
+  #     Docker Unix socket. It never configures a TCP/TLS Docker endpoint, so the
+  #     affected x509 hostname-verification path cannot execute.
+  #
+  #   No fixed Alpine package is available today: docker-cli 29.5.3-r0 is the
+  #   latest alpine3.24 package and was built with Go 1.26.3. Revisit when Alpine
+  #   publishes a docker-cli build using Go >= 1.26.4.
+  - vulnerability: GO-2026-5037
+    package:
+      name: stdlib
+      version: "go1.26.3"
+      type: go-module
+      location: "/usr/bin/docker"
 
   # ── stdlib@go1.24.6 embedded in gosu binary ──────────────────────────────────
   #

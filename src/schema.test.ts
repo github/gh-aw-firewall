@@ -43,8 +43,6 @@ describe('awf-config.schema.json', () => {
         'logging',
         'rateLimiting',
         'platform',
-        'boundedQueries',
-        'boundedAgents',
         'enclaves',
       ])
     );
@@ -156,6 +154,13 @@ describe('awf-config.schema.json', () => {
 
   it('rejects unknown top-level fields', () => {
     expect(validate({ unknown: true })).toBe(false);
+  });
+
+  it.each([
+    `bounded${'Queries'}`,
+    `bounded${'Agents'}`,
+  ])('rejects removed configuration key %s', (removedKey) => {
+    expect(validate({ [removedKey]: { enabled: true } })).toBe(false);
     expect(validate.errors).not.toBeNull();
   });
 

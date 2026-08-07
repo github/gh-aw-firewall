@@ -19,13 +19,6 @@ describe('validateEnclavesConfig', () => {
     expect(validateEnclavesConfig(config())).toEqual([]);
   });
 
-  it('fails closed when a legacy subsystem is also enabled', () => {
-    const errors = validateEnclavesConfig(config({
-      boundedAgents: { enabled: true } as WrapperConfig['boundedAgents'],
-    }));
-    expect(errors.join('\n')).toMatch(/cannot be enabled with boundedQueries or boundedAgents/);
-  });
-
   it('rejects duplicate repositories and no enabled executor', () => {
     const enclaves = normalizeEnclavesConfig({
       enabled: true,
@@ -117,8 +110,6 @@ describe('validateEnclavesConfig', () => {
           maxOutputBytes: 0,
           maxTaskBytes: 0,
           maxInvocations: 0,
-          maxModelRequests: 0,
-          maxModelTokens: 0,
         },
       },
     });
@@ -213,6 +204,14 @@ describe('validateEnclavesConfig', () => {
     );
   });
 
+  it.each([
+    '/var/run/docker.sock:/var/run/docker.sock',
+    '/var/run:/host-run:ro',
+  ])('rejects a custom bind that exposes the Docker socket: %s', (volume) => {
+    expect(validateEnclavesConfig(config({ volumeMounts: [volume] })).join('\n'))
+      .toMatch(/cannot expose the Docker socket.*custom volume/);
+  });
+
   it('rejects an agent executor that cannot reach a model or drops its network', () => {
     const enclaves = normalizeEnclavesConfig({
       enabled: true,
@@ -237,8 +236,6 @@ describe('validateEnclavesConfig', () => {
           cpuLimit: '0',
           pidsLimit: 0,
           maxOutputBytes: 0,
-          maxModelRequests: 0,
-          maxModelTokens: 0,
         },
       },
     });
@@ -253,8 +250,6 @@ describe('validateEnclavesConfig', () => {
       /agent.cpuLimit must be a positive/,
       /agent.pidsLimit must be a positive integer/,
       /agent.maxOutputBytes must be a positive integer/,
-      /agent.maxModelRequests must be a positive integer/,
-      /agent.maxModelTokens must be a positive integer/,
     ]) {
       expect(errors).toMatch(pattern);
     }
@@ -270,8 +265,6 @@ describe('validateEnclavesConfig', () => {
           model: 'gpt-test',
           maxOutputBytes: 8193,
           maxTaskBytes: 65_537,
-          maxModelRequests: 65,
-          maxModelTokens: 32_769,
         },
       },
     });
@@ -282,8 +275,6 @@ describe('validateEnclavesConfig', () => {
     })).join('\n');
     expect(errors).toMatch(/agent.maxOutputBytes must be at most 8192/);
     expect(errors).toMatch(/agent.maxTaskBytes must be at most 65536/);
-    expect(errors).toMatch(/agent.maxModelRequests must be at most 64/);
-    expect(errors).toMatch(/agent.maxModelTokens must be at most 32768/);
   });
 
   it('rejects script disclosure bounds the container cannot enforce', () => {

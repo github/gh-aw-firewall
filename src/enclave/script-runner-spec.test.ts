@@ -1,13 +1,13 @@
 import * as path from 'path';
 
 /* eslint-disable @typescript-eslint/no-require-imports */
-const root = path.join(__dirname, '..', '..', 'containers', 'bounded-query');
+const root = path.join(__dirname, '..', '..', 'containers');
 const {
   deriveQueryContainerSpec,
   ENCLAVE_INVOCATION_LABEL,
   ENCLAVE_RUN_LABEL,
-} = require(path.join(root, 'broker', 'query-runner-spec.js'));
-const { loadConfig } = require(path.join(root, 'enclave-mcp', 'config.js'));
+} = require(path.join(root, 'enclave', 'script-executor', 'script-runner-spec.js'));
+const { loadConfig } = require(path.join(root, 'enclave', 'mcp-server', 'config.js'));
 /* eslint-enable @typescript-eslint/no-require-imports */
 
 describe('unified enclave script runner specification', () => {
@@ -57,35 +57,13 @@ describe('unified enclave script runner specification', () => {
     ]));
     expect(args).toContain('/tmp:rw,noexec,nosuid,nodev,size=96m');
     expect(args).toContain('/query:rw,nosuid,nodev,size=96m,uid=65534,gid=65534,mode=0700');
+    expect(args).toContain('/daemon/private/enclave/work/0123456789abcdef/out:/awf/out:rw');
+    expect(args).not.toContain('/daemon/private/enclave/work/0123456789abcdef/out:/query/out:rw');
     expect(args.join(' ')).not.toMatch(/attacker|99g|network host|\/etc:\/host/);
     expect(spec.runListArgs).toContain('label=awf.enclave.run=abcdef1234567890');
     expect(spec.invocationListArgs).toContain(
       'label=awf.enclave.invocation=0123456789abcdef',
     );
-  });
-
-  it('keeps legacy runner defaults byte-compatible', () => {
-    const legacy = deriveQueryContainerSpec({
-      config: {
-        ...config,
-        cpuLimit: undefined,
-        pidsLimit: undefined,
-        tmpfsLimit: undefined,
-        runLabelKey: undefined,
-        invocationLabelKey: undefined,
-        containerPrefix: undefined,
-      },
-      runId: 'abcdef1234567890',
-      invocationId: '0123456789abcdef',
-    });
-    expect(legacy.containerName).toMatch(/^awf-query-/);
-    expect(legacy.launchArgs).toEqual(expect.arrayContaining([
-      '--label', 'awf.bounded-query.run=abcdef1234567890',
-      '--cpus', '1',
-      '--pids-limit', '128',
-      '/tmp:rw,noexec,nosuid,nodev,size=16m',
-      '/query:rw,nosuid,nodev,size=1073741824,uid=65534,gid=65534,mode=0700',
-    ]));
   });
 
   it('loads trusted resource and disclosure bounds only from server environment', () => {
@@ -105,7 +83,7 @@ describe('unified enclave script runner specification', () => {
     });
     try {
       expect(loadConfig({ readFileSync: () => 'a'.repeat(64) })).toMatchObject({
-        queryBackend: 'gvisor',
+        executorBackend: 'gvisor',
         timeoutSeconds: 41,
         memoryLimit: '700m',
         cpuLimit: '0.25',

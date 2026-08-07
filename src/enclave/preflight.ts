@@ -3,11 +3,12 @@ import type { EnclaveAgentExecutorConfig, EnclavesConfig } from '../types/enclav
 import {
   MAX_RESULT_BYTES,
   MAX_SCRIPT_BYTES,
-  MAX_BOUNDED_EXECUTION_TIMEOUT_SECONDS,
+  MAX_ENCLAVE_TIMEOUT_SECONDS,
   PRIVATE_REPOSITORY_PATTERN,
 } from '../bounded-execution';
-import { MAX_TASK_BYTES } from '../bounded-agent/protocol';
+import { ENCLAVE_AGENT_MAX_TASK_BYTES } from './protocol';
 import { normalizePrivateRepositoryKey } from '../bounded-execution/repository-staging';
+import { findDockerSocketExposingMount } from './mount-policy';
 
 const RUNTIMES = new Set(['docker', 'gvisor', 'sbx']);
 const ENGINES = new Set(['copilot', 'claude', 'codex', 'gemini']);
@@ -71,16 +72,18 @@ export function validateEnclavesConfig(config: WrapperConfig): string[] {
   if (!enclaves?.enabled) return [];
 
   const errors: string[] = [];
-  if (config.boundedQueries?.enabled || config.boundedAgents?.enabled) {
-    errors.push(
-      'enclaves cannot be enabled with boundedQueries or boundedAgents; choose the unified enclaves section or the legacy sections',
-    );
-  }
   if (config.enableDind) {
     errors.push(
       'enclaves cannot be combined with enableDind: exposing the Docker socket to the primary ' +
       'agent would allow it to inspect the gateway capability, private seeds, control network, ' +
       'and ledger state',
+    );
+  }
+  const socketMount = findDockerSocketExposingMount(config);
+  if (socketMount) {
+    errors.push(
+      `enclaves cannot expose the Docker socket to the primary agent through custom volume "${socketMount}": ` +
+      'that would allow direct access to enclave capability and private state',
     );
   }
 
@@ -94,9 +97,9 @@ export function validateEnclavesConfig(config: WrapperConfig): string[] {
     if (!RUNTIMES.has(script.runtime)) errors.push(`enclaves.executors.script.runtime "${script.runtime}" is not supported`);
     if (script.network !== 'none') errors.push('enclaves.executors.script.network must be "none"');
     if (script.interpreter !== 'python3') errors.push('enclaves.executors.script.interpreter must be "python3"');
-    if (!Number.isInteger(script.timeout) || script.timeout < 1 || script.timeout > MAX_BOUNDED_EXECUTION_TIMEOUT_SECONDS) {
+    if (!Number.isInteger(script.timeout) || script.timeout < 1 || script.timeout > MAX_ENCLAVE_TIMEOUT_SECONDS) {
       errors.push(
-        `enclaves.executors.script.timeout must be between 1 and ${MAX_BOUNDED_EXECUTION_TIMEOUT_SECONDS}`,
+        `enclaves.executors.script.timeout must be between 1 and ${MAX_ENCLAVE_TIMEOUT_SECONDS}`,
       );
     }
     validateResourceLimits('enclaves.executors.script', script, errors);
@@ -136,28 +139,20 @@ export function validateEnclavesConfig(config: WrapperConfig): string[] {
         );
       }
     }
-    if (!Number.isInteger(agent.timeout) || agent.timeout < 1 || agent.timeout > MAX_BOUNDED_EXECUTION_TIMEOUT_SECONDS) {
+    if (!Number.isInteger(agent.timeout) || agent.timeout < 1 || agent.timeout > MAX_ENCLAVE_TIMEOUT_SECONDS) {
       errors.push(
-        `enclaves.executors.agent.timeout must be between 1 and ${MAX_BOUNDED_EXECUTION_TIMEOUT_SECONDS}`,
+        `enclaves.executors.agent.timeout must be between 1 and ${MAX_ENCLAVE_TIMEOUT_SECONDS}`,
       );
     }
     validateResourceLimits('enclaves.executors.agent', agent, errors);
     validatePositiveInteger('enclaves.executors.agent.maxTaskBytes', agent.maxTaskBytes, errors);
-    if (agent.maxTaskBytes > MAX_TASK_BYTES) {
-      errors.push(`enclaves.executors.agent.maxTaskBytes must be at most ${MAX_TASK_BYTES}`);
+    if (agent.maxTaskBytes > ENCLAVE_AGENT_MAX_TASK_BYTES) {
+      errors.push(`enclaves.executors.agent.maxTaskBytes must be at most ${ENCLAVE_AGENT_MAX_TASK_BYTES}`);
     }
     if (agent.maxOutputBytes > MAX_RESULT_BYTES) {
       errors.push(`enclaves.executors.agent.maxOutputBytes must be at most ${MAX_RESULT_BYTES}`);
     }
     validatePositiveInteger('enclaves.executors.agent.maxInvocations', agent.maxInvocations, errors);
-    validatePositiveInteger('enclaves.executors.agent.maxModelRequests', agent.maxModelRequests, errors);
-    if (agent.maxModelRequests > 64) {
-      errors.push('enclaves.executors.agent.maxModelRequests must be at most 64');
-    }
-    validatePositiveInteger('enclaves.executors.agent.maxModelTokens', agent.maxModelTokens, errors);
-    if (agent.maxModelTokens > 32768) {
-      errors.push('enclaves.executors.agent.maxModelTokens must be at most 32768');
-    }
   }
 
   return errors;

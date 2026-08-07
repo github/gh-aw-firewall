@@ -29,41 +29,23 @@ import { runDindBootstrap } from '../dind-bootstrap';
 import { runtimeUsesComposeAgent } from '../container-runtime';
 import {
   assertSbxApiProxyReflect,
-  assertSbxBoundedQueryIngress,
-  assertSbxBoundedAgentIngress,
   createSandbox,
   execInSandbox,
   removeSandbox,
   isSbxAvailable,
   SBX_DEFAULT_NAME,
 } from '../sbx-manager';
-import { prepareBoundedQueries, teardownBoundedQueries } from '../bounded-query/manager';
 import { prepareEnclaves, teardownEnclaves } from '../enclave/manager';
 import {
   assertEnclaveGatewayReady,
   connectEnclaveGateway,
   shutdownEnclaveGateway,
 } from '../enclave/gateway';
-import {
-  prepareBoundedAgents,
-  reportBoundedAgentSbxIngressResult,
-  teardownBoundedAgents,
-} from '../bounded-agent/manager';
 import type { WrapperConfig } from '../types';
 import { buildAgentEnvironment } from '../services/agent-service';
 import { buildAgentCredentialEnv } from '../services/api-proxy-credential-env';
 import { DEFAULT_DNS_SERVERS } from '../dns-resolver';
 import { AGENT_IP, CLI_PROXY_IP, DOH_PROXY_IP, NETWORK_SUBNET, SQUID_IP } from '../host-iptables-shared';
-import {
-  removeSbxIngressCapabilityFile,
-  resolveSbxIngress,
-} from '../bounded-query/ingress';
-import { resolveBoundedQueryPaths } from '../bounded-query/paths';
-import {
-  removeSbxIngressCapabilityFile as removeBoundedAgentSbxIngressCapabilityFile,
-  resolveSbxIngress as resolveBoundedAgentSbxIngress,
-} from '../bounded-agent/ingress';
-import { resolveBoundedAgentPaths } from '../bounded-agent/paths';
 
 /** Report whether a secret is set (and its length) without exposing the value. */
 function redactSecret(value: string | undefined): string {
@@ -145,12 +127,33 @@ function buildCleanupFn(
       }
     }
 
-    // Drain enclave calls first, then preserve all audit artifacts before Compose removes volumes.
+    // Let the enclave server emit final cleanup telemetry before preserving
+    // container artifacts. Stopped containers remain available to docker cp
+    // until the subsequent compose down removes them.
     if (getContainersStarted()) {
+      let enclaveAuditComplete = true;
       try {
         await shutdownEnclaveGateway(config);
       } catch (error) {
-        logger.warn('Failed to stop the enclave gateway control path; continuing cleanup.', error);
+        enclaveAuditComplete = false;
+        logger.warn(
+          'Enclave gateway did not complete graceful shutdown; preserved enclave audit is marked incomplete.',
+          error,
+        );
+      }
+      if (!enclaveAuditComplete && config.enclaves?.enabled) {
+        const targetAuditDir = config.auditDir || path.join(config.workDir, 'audit');
+        try {
+          fs.mkdirSync(targetAuditDir, { recursive: true, mode: 0o755 });
+          const markerPath = path.join(targetAuditDir, 'enclave-audit-incomplete.txt');
+          fs.writeFileSync(
+            markerPath,
+            'Enclave MCP server graceful shutdown was not confirmed; enclave audit artifacts may be incomplete.\n',
+            { mode: 0o644 },
+          );
+        } catch (error) {
+          logger.warn('Failed to write the incomplete enclave audit marker.', error);
+        }
       }
       preserveIptablesAudit(config.workDir, config.auditDir);
       await stopContainers(config.workDir, config.keepContainers);
@@ -164,8 +167,6 @@ function buildCleanupFn(
     // write permissions on the immutable seeds. Must run before the generic
     // work-directory cleanup: `rm -rf` cannot unlink entries inside a
     // directory whose write bit was stripped during staging.
-    await teardownBoundedQueries(config);
-    await teardownBoundedAgents(config);
     await teardownEnclaves(config);
 
     if (!config.keepContainers) {
@@ -351,65 +352,7 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
           // bridge IP, typically 172.17.0.1).
           const SBX_GATEWAY_IP = '172.17.0.0';
           const SBX_HOST_DOCKER_INTERNAL = 'host.docker.internal';
-          const boundedQueryPaths = resolveBoundedQueryPaths(config.workDir);
-          const boundedAgentPaths = resolveBoundedAgentPaths(config.workDir);
           const sbxMounts = [...(config.volumeMounts ?? [])];
-          let sbxBoundedQueryIngress:
-            | { transport: 'unix'; socketPath: string }
-            | {
-                transport: 'sbx-http';
-                endpoint: string;
-                queryCapability: string;
-                probeCapability: string;
-              }
-            | undefined;
-          let sbxBoundedAgentIngress:
-            | { transport: 'unix'; socketPath: string }
-            | {
-                transport: 'sbx-http';
-                endpoint: string;
-                queryCapability: string;
-                probeCapability: string;
-              }
-            | undefined;
-
-          if (config.boundedQueries?.enabled) {
-            sbxMounts.push(`${boundedQueryPaths.agentDir}:ro`);
-            if (config.boundedQueryIngressTransport === 'unix') {
-              sbxMounts.push(`${boundedQueryPaths.runDir}:ro`);
-              sbxBoundedQueryIngress = {
-                transport: 'unix',
-                socketPath: boundedQueryPaths.socketPath,
-              };
-            } else {
-              const ingress = await resolveSbxIngress(config);
-              sbxBoundedQueryIngress = {
-                transport: 'sbx-http',
-                endpoint: ingress.endpoint,
-                queryCapability: ingress.queryCapability,
-                probeCapability: ingress.probeCapability,
-              };
-            }
-          }
-
-          if (config.boundedAgents?.enabled) {
-            sbxMounts.push(`${boundedAgentPaths.agentDir}:ro`);
-            if (config.boundedAgentIngressTransport === 'unix') {
-              sbxMounts.push(`${boundedAgentPaths.runDir}:ro`);
-              sbxBoundedAgentIngress = {
-                transport: 'unix',
-                socketPath: boundedAgentPaths.socketPath,
-              };
-            } else {
-              const ingress = await resolveBoundedAgentSbxIngress(config);
-              sbxBoundedAgentIngress = {
-                transport: 'sbx-http',
-                endpoint: ingress.endpoint,
-                queryCapability: ingress.queryCapability,
-                probeCapability: ingress.probeCapability,
-              };
-            }
-          }
 
           sbxEnvironment = buildAgentEnvironment({
             config,
@@ -456,82 +399,6 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
             squidIp: SQUID_IP,
             extraMounts: sbxMounts,
           });
-
-          if (sbxBoundedQueryIngress) {
-            await assertSbxBoundedQueryIngress(
-              sbxName,
-              sbxBoundedQueryIngress.transport === 'unix'
-                ? sbxBoundedQueryIngress
-                : {
-                    transport: 'sbx-http',
-                    endpoint: sbxBoundedQueryIngress.endpoint,
-                    probeCapability: sbxBoundedQueryIngress.probeCapability,
-                  },
-              sbxEnvironment,
-              config.containerWorkDir,
-            );
-
-            Object.assign(sbxEnvironment, {
-              AWF_BOUNDED_QUERY_SKILL: boundedQueryPaths.skillPath,
-              AWF_BOUNDED_QUERY_REPOS: config.boundedQueries!.privateRepos
-                .map((repository) => repository.repo)
-                .join(','),
-              AWF_BOUNDED_QUERY_BIN_DIR: boundedQueryPaths.agentDir,
-              ...(sbxBoundedQueryIngress.transport === 'unix'
-                ? { AWF_BOUNDED_QUERY_SOCKET: sbxBoundedQueryIngress.socketPath }
-                : {
-                    AWF_BOUNDED_QUERY_ENDPOINT: sbxBoundedQueryIngress.endpoint,
-                    AWF_BOUNDED_QUERY_CAPABILITY: sbxBoundedQueryIngress.queryCapability,
-                  }),
-            });
-            if (sbxBoundedQueryIngress.transport === 'sbx-http') {
-              removeSbxIngressCapabilityFile(config);
-            }
-          }
-
-          if (sbxBoundedAgentIngress) {
-            try {
-              await assertSbxBoundedAgentIngress(
-                sbxName,
-                sbxBoundedAgentIngress.transport === 'unix'
-                  ? sbxBoundedAgentIngress
-                  : {
-                      transport: 'sbx-http',
-                      endpoint: sbxBoundedAgentIngress.endpoint,
-                      probeCapability: sbxBoundedAgentIngress.probeCapability,
-                    },
-                sbxEnvironment,
-                config.containerWorkDir,
-              );
-            } catch (error) {
-              // Preflight only proved the sbx CLI and enclave capability exist;
-              // this is the executable proof that the selected ingress
-              // transport is actually reachable from inside the sandbox. Never
-              // report `ready` telemetry when that proof fails.
-              reportBoundedAgentSbxIngressResult(config, 'failed');
-              throw error;
-            }
-            // Ingress is proven reachable now — this is the only point a
-            // primary-sbx run is ever reported `ready`.
-            reportBoundedAgentSbxIngressResult(config, 'proven');
-
-            Object.assign(sbxEnvironment, {
-              AWF_BOUNDED_AGENT_SKILL: boundedAgentPaths.skillPath,
-              AWF_BOUNDED_AGENT_REPOS: config.boundedAgents!.privateRepos
-                .map((repository) => repository.repo)
-                .join(','),
-              AWF_BOUNDED_AGENT_BIN_DIR: boundedAgentPaths.agentDir,
-              ...(sbxBoundedAgentIngress.transport === 'unix'
-                ? { AWF_BOUNDED_AGENT_SOCKET: sbxBoundedAgentIngress.socketPath }
-                : {
-                    AWF_BOUNDED_AGENT_ENDPOINT: sbxBoundedAgentIngress.endpoint,
-                    AWF_BOUNDED_AGENT_CAPABILITY: sbxBoundedAgentIngress.queryCapability,
-                  }),
-            });
-            if (sbxBoundedAgentIngress.transport === 'sbx-http') {
-              removeBoundedAgentSbxIngressCapabilityFile(config);
-            }
-          }
 
           // gh-aw fetches reflection data from the fixed api-proxy hostname. The
           // microVM reaches the sidecar through its published host ports, so install
@@ -604,8 +471,6 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
         connectTopologyContainers,
         connectEnclaveGateway,
         assertEnclaveGatewayReady,
-        prepareBoundedQueries,
-        prepareBoundedAgents,
         prepareEnclaves,
       },
       {

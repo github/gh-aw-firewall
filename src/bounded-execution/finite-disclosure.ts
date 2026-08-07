@@ -1,15 +1,15 @@
 /**
- * Bounded-query request/result protocol v2: a deliberately finite,
+ * Enclave finite-disclosure protocol v2: a deliberately finite,
  * agent-authored response-schema algebra plus request/result validation and
  * canonicalization.
  *
- * This module defines the wire protocol for bounded queries independently of
+ * This module defines the enclave finite-disclosure wire protocol independently of
  * any broker or sandbox runtime.
  *
  * Protocol summary:
  *   - A **request** asks the trusted broker to run an agent-authored Python
  *     script against a private repository and report a value conforming to
- *     an agent-authored, but AWF-bounded, finite response **schema**.
+ *     a caller-authored finite response **schema** constrained by AWF.
  *   - The schema is drawn from a small, closed algebra (`const`, `boolean`,
  *     unique `enum`, bounded `integer`, fixed `object`, `tuple`, fixed-length
  *     `array`, and tagged `union`) — general JSON Schema is not accepted.
@@ -35,11 +35,10 @@
  * or query output) can grow an unbounded parse tree, and duplicate object
  * keys — which `JSON.parse` would silently collapse — are rejected outright.
  *
- * `containers/bounded-query/bounded-execution/finite-disclosure.js` is a deliberate,
- * behaviour-identical mirror of this module for the broker's container
+ * `containers/bounded-execution/finite-disclosure.js` is a deliberate,
+ * behaviour-identical mirror of this module for the enclave server
  * image, which cannot import AWF's TypeScript sources. Keep both in sync;
- * `src/bounded-query/protocol-parity.test.ts` runs shared vectors through
- * both and fails the moment they disagree.
+ * enclave protocol tests run shared vectors through both.
  */
 
 /** Wire protocol version. Only this exact value is accepted. */
@@ -92,7 +91,7 @@ export const TIMING_BUCKETS_MS: readonly number[] = [10, 100, 1_000, 10_000, 60_
 export const FINAL_TIMING_BUCKET_PROCESSING_MARGIN_MS = 60_000;
 
 /** Largest configurable script timeout while preserving the final-bucket margin. */
-export const MAX_QUERY_TIMEOUT_SECONDS =
+export const MAX_ENCLAVE_TIMEOUT_SECONDS =
   (TIMING_BUCKETS_MS[TIMING_BUCKETS_MS.length - 1] - FINAL_TIMING_BUCKET_PROCESSING_MARGIN_MS) / 1000;
 
 /**
@@ -110,11 +109,11 @@ export const RESULT_STATUS_BIT_COST = 1;
  * traversal (`..`), no query string or fragment (`?`/`#`), no wildcard
  * (`*`), and no extra path segments (only one `/` is allowed).
  *
- * Keep in sync with `boundedQueries.privateRepos.items` in
+ * Keep in sync with `enclaves.privateRepos.items` in
  * `docs/awf-config.schema.json` (JSON Schema cannot share a regex constant
  * with TypeScript source).
  */
-export const BOUNDED_QUERY_REPO_PATTERN =
+export const PRIVATE_REPOSITORY_PATTERN =
   /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})\/(?!\.\.?$)(?!.*\.\.)[A-Za-z0-9._-]{1,100}$/;
 
 /** Bounded ASCII identifier accepted for object field names and union tags. */
@@ -160,20 +159,20 @@ export interface IntegerSchemaNode {
 }
 export interface ObjectSchemaNode {
   readonly type: 'object';
-  readonly fields: readonly { name: string; schema: BoundedQuerySchemaNode }[];
+  readonly fields: readonly { name: string; schema: FiniteSchemaNode }[];
 }
 export interface TupleSchemaNode {
   readonly type: 'tuple';
-  readonly items: readonly BoundedQuerySchemaNode[];
+  readonly items: readonly FiniteSchemaNode[];
 }
 export interface ArraySchemaNode {
   readonly type: 'array';
-  readonly items: BoundedQuerySchemaNode;
+  readonly items: FiniteSchemaNode;
   readonly length: number;
 }
 export interface UnionSchemaNode {
   readonly type: 'union';
-  readonly variants: readonly { tag: string; schema: BoundedQuerySchemaNode }[];
+  readonly variants: readonly { tag: string; schema: FiniteSchemaNode }[];
 }
 
 /**
@@ -184,7 +183,7 @@ export interface UnionSchemaNode {
  * literal sizes). Cardinality, value validation, and canonical serialization
  * below all assume that.
  */
-export type BoundedQuerySchemaNode =
+export type FiniteSchemaNode =
   | ConstSchemaNode
   | BooleanSchemaNode
   | EnumSchemaNode
@@ -194,8 +193,8 @@ export type BoundedQuerySchemaNode =
   | ArraySchemaNode
   | UnionSchemaNode;
 
-export type BoundedQuerySchemaValidation =
-  | { valid: true; schema: BoundedQuerySchemaNode }
+export type FiniteSchemaValidation =
+  | { valid: true; schema: FiniteSchemaNode }
   | { valid: false; errors: string[] };
 
 function isValidLiteral(value: unknown): value is JsonLiteral {
@@ -223,11 +222,11 @@ function failSchema(ctx: SchemaParseContext, message: string): undefined {
 }
 
 /**
- * Builds one validated {@link BoundedQuerySchemaNode}, enforcing every finite
+ * Builds one validated {@link FiniteSchemaNode}, enforcing every finite
  * bound as it recurses. Stops at the first violation (`ctx.errors` becomes
  * non-empty) rather than continuing to build a tree that will be discarded.
  */
-function buildSchemaNode(raw: unknown, ctx: SchemaParseContext, depth: number): BoundedQuerySchemaNode | undefined {
+function buildSchemaNode(raw: unknown, ctx: SchemaParseContext, depth: number): FiniteSchemaNode | undefined {
   if (ctx.errors.length > 0) return undefined;
   if (depth > MAX_SCHEMA_DEPTH) {
     return failSchema(ctx, `schema exceeds maximum depth of ${MAX_SCHEMA_DEPTH}`);
@@ -320,7 +319,7 @@ function buildSchemaNode(raw: unknown, ctx: SchemaParseContext, depth: number): 
           return failSchema(ctx, `object field name "${name}" is not a bounded ASCII identifier`);
         }
       }
-      const fields: { name: string; schema: BoundedQuerySchemaNode }[] = [];
+      const fields: { name: string; schema: FiniteSchemaNode }[] = [];
       for (const name of fieldNames) {
         const child = buildSchemaNode((fieldsRaw as Record<string, unknown>)[name], ctx, depth + 1);
         if (!child) return undefined;
@@ -339,7 +338,7 @@ function buildSchemaNode(raw: unknown, ctx: SchemaParseContext, depth: number): 
       if (itemsRaw.length > MAX_TUPLE_ITEMS) {
         return failSchema(ctx, `tuple schema must declare at most ${MAX_TUPLE_ITEMS} items`);
       }
-      const items: BoundedQuerySchemaNode[] = [];
+      const items: FiniteSchemaNode[] = [];
       for (const itemRaw of itemsRaw) {
         const child = buildSchemaNode(itemRaw, ctx, depth + 1);
         if (!child) return undefined;
@@ -379,7 +378,7 @@ function buildSchemaNode(raw: unknown, ctx: SchemaParseContext, depth: number): 
           return failSchema(ctx, `union tag "${tag}" is not a bounded ASCII identifier`);
         }
       }
-      const variants: { tag: string; schema: BoundedQuerySchemaNode }[] = [];
+      const variants: { tag: string; schema: FiniteSchemaNode }[] = [];
       for (const tag of tags) {
         const child = buildSchemaNode((variantsRaw as Record<string, unknown>)[tag], ctx, depth + 1);
         if (!child) return undefined;
@@ -404,7 +403,7 @@ function buildSchemaNode(raw: unknown, ctx: SchemaParseContext, depth: number): 
  * untagged unions are all structurally impossible to express, so they are
  * rejected by construction rather than by a separate deny-list.
  */
-export function validateSchema(raw: unknown): BoundedQuerySchemaValidation {
+export function validateSchema(raw: unknown): FiniteSchemaValidation {
   let serialized: string;
   try {
     serialized = JSON.stringify(raw) ?? '';
@@ -440,7 +439,7 @@ export function ceilLog2BigInt(n: bigint): number {
  * distinguishable valid values) as a `BigInt`, so it can never silently
  * overflow even for schemas near the configured bounds.
  */
-export function schemaCardinality(schema: BoundedQuerySchemaNode): bigint {
+export function schemaCardinality(schema: FiniteSchemaNode): bigint {
   switch (schema.type) {
     case 'const':
       return 1n;
@@ -492,7 +491,7 @@ function cappedPower(base: bigint, exponent: number): bigint {
   return result;
 }
 
-function cappedSchemaCardinality(schema: BoundedQuerySchemaNode): bigint {
+function cappedSchemaCardinality(schema: FiniteSchemaNode): bigint {
   switch (schema.type) {
     case 'const':
       return 1n;
@@ -537,7 +536,7 @@ function cappedSchemaCardinality(schema: BoundedQuerySchemaNode): bigint {
  * copying a seed or launching Python — never refunded, regardless of the
  * actual result or completion bucket.
  */
-export function queryBitsForSchema(schema: BoundedQuerySchemaNode): number {
+export function informationChargeForSchema(schema: FiniteSchemaNode): number {
   return RESULT_STATUS_BIT_COST + ceilLog2BigInt(cappedSchemaCardinality(schema)) + TIMING_BUCKET_BITS;
 }
 
@@ -553,7 +552,7 @@ function jsonLiteralEquals(value: unknown, literal: JsonLiteral): boolean {
  * object/tuple/array shape (no extras, no missing fields, exact length), and
  * an explicit tagged-union variant. Never coerces.
  */
-export function validateValueAgainstSchema(schema: BoundedQuerySchemaNode, value: unknown): boolean {
+export function validateValueAgainstSchema(schema: FiniteSchemaNode, value: unknown): boolean {
   switch (schema.type) {
     case 'const':
       return jsonLiteralEquals(value, schema.value);
@@ -610,7 +609,7 @@ export function validateValueAgainstSchema(schema: BoundedQuerySchemaNode, value
  * semantic value (whitespace, key order, numeric formatting) collapse to the
  * identical observable transcript.
  */
-export function canonicalizeSchemaValue(schema: BoundedQuerySchemaNode, value: unknown): string {
+export function canonicalizeSchemaValue(schema: FiniteSchemaNode, value: unknown): string {
   switch (schema.type) {
     case 'const':
       return JSON.stringify(schema.value);
@@ -808,26 +807,26 @@ export function strictParseJson(text: string): { value: unknown } | undefined {
 
 // ── Request/result validation and canonical envelopes ───────────────────────
 
-/** A bounded-query execution request, already assembled from wire framing. */
-export interface BoundedQueryRequest {
+/** An enclave script execution request, already assembled from MCP arguments. */
+export interface EnclaveScriptRequest {
   /** Private repository (`owner/repo`) the query script runs against. */
   privateRepo: string;
-  /** The agent-authored, AWF-bounded finite response schema. */
-  schema: BoundedQuerySchemaNode;
+  /** The caller-authored finite response schema constrained by AWF. */
+  schema: FiniteSchemaNode;
   /** The query script source. */
   script: string;
 }
 
-export type BoundedQueryValidation =
-  | { valid: true; request: BoundedQueryRequest }
+export type EnclaveScriptRequestValidation =
+  | { valid: true; request: EnclaveScriptRequest }
   | { valid: false; errors: string[] };
 
 /**
- * Validates an unknown value as a {@link BoundedQueryRequest}: field shape,
+ * Validates an unknown value as a {@link EnclaveScriptRequest}: field shape,
  * the `privateRepo` slug pattern, the finite response schema, and the
  * script size cap.
  */
-export function validateBoundedQueryRequest(raw: unknown): BoundedQueryValidation {
+export function validateEnclaveScriptRequest(raw: unknown): EnclaveScriptRequestValidation {
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
     return { valid: false, errors: ['request must be a JSON object'] };
   }
@@ -842,7 +841,7 @@ export function validateBoundedQueryRequest(raw: unknown): BoundedQueryValidatio
 
   if (typeof privateRepo !== 'string' || privateRepo.length === 0) {
     errors.push('privateRepo must be a non-empty string');
-  } else if (privateRepo.length > MAX_PRIVATE_REPO_LENGTH || !BOUNDED_QUERY_REPO_PATTERN.test(privateRepo)) {
+  } else if (privateRepo.length > MAX_PRIVATE_REPO_LENGTH || !PRIVATE_REPOSITORY_PATTERN.test(privateRepo)) {
     errors.push(
       'privateRepo must be an "owner/repo" slug (no scheme, host, path traversal, query, fragment, or wildcard)',
     );
@@ -872,10 +871,10 @@ export function validateBoundedQueryRequest(raw: unknown): BoundedQueryValidatio
 }
 
 /** The canonical JSON text for every failure: `{"status":"error"}`. */
-export const CANONICAL_ERROR_JSON = '{"status":"error"}';
+export const CANONICAL_ERROR_RESPONSE_JSON = '{"status":"error"}';
 
 /** Wraps an already-canonicalized result value into the canonical success envelope. */
-export function canonicalOkJson(canonicalResultJson: string): string {
+export function canonicalSuccessJson(canonicalResultJson: string): string {
   return `{"status":"ok","result":${canonicalResultJson}}`;
 }
 
@@ -887,11 +886,11 @@ export function canonicalOkJson(canonicalResultJson: string): string {
  * Every failure mode — oversized output, malformed JSON, duplicate keys,
  * wrong type, out-of-range value, unknown enum member, missing/extra
  * fields, wrong tuple/array length, unknown union tag — maps to the same
- * `{ ok: false }`, which callers turn into {@link CANONICAL_ERROR_JSON}.
+ * `{ ok: false }`, which callers turn into {@link CANONICAL_ERROR_RESPONSE_JSON}.
  */
-export function parseAndValidateQueryOutput(
+export function parseAndValidateFiniteOutput(
   raw: string,
-  schema: BoundedQuerySchemaNode,
+  schema: FiniteSchemaNode,
 ): { ok: true; canonical: string } | { ok: false } {
   if (utf8ByteLength(raw) > MAX_RESULT_BYTES) return { ok: false };
   const parsed = strictParseJson(raw);
@@ -899,20 +898,3 @@ export function parseAndValidateQueryOutput(
   if (!validateValueAgainstSchema(schema, parsed.value)) return { ok: false };
   return { ok: true, canonical: canonicalizeSchemaValue(schema, parsed.value) };
 }
-
-/**
- * Reusable bounded-execution names. The bounded-query names above remain the
- * compatibility contract; these aliases expose the same implementations and
- * constants to later trusted brokers without creating a second code path.
- */
-export type FiniteSchemaNode = BoundedQuerySchemaNode;
-export type FiniteSchemaValidation = BoundedQuerySchemaValidation;
-export const validateFiniteSchema = validateSchema;
-export const finiteSchemaCardinality = schemaCardinality;
-export const informationChargeForSchema = queryBitsForSchema;
-export const canonicalizeFiniteSchemaValue = canonicalizeSchemaValue;
-export const canonicalSuccessJson = canonicalOkJson;
-export const CANONICAL_ERROR_RESPONSE_JSON = CANONICAL_ERROR_JSON;
-export const PRIVATE_REPOSITORY_PATTERN = BOUNDED_QUERY_REPO_PATTERN;
-export const MAX_BOUNDED_EXECUTION_TIMEOUT_SECONDS = MAX_QUERY_TIMEOUT_SECONDS;
-export const parseAndValidateFiniteOutput = parseAndValidateQueryOutput;

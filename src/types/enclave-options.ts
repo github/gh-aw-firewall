@@ -67,8 +67,6 @@ export interface EnclaveAgentExecutorConfig {
   maxOutputBytes: number;
   maxTaskBytes: number;
   maxInvocations: number;
-  maxModelRequests: number;
-  maxModelTokens: number;
 }
 
 export interface EnclavesConfig {
@@ -131,8 +129,6 @@ export const ENCLAVE_AGENT_EXECUTOR_DEFAULTS: Readonly<
   maxOutputBytes: 8192,
   maxTaskBytes: 4096,
   maxInvocations: 8,
-  maxModelRequests: 8,
-  maxModelTokens: 1024,
 };
 
 export const ENCLAVES_DEFAULTS: Readonly<EnclavesConfig> = {

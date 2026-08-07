@@ -272,18 +272,14 @@ RUN if ! getent group awfuser >/dev/null 2>&1; then \
     chown -R awfuser:awfuser /home/awfuser
 
 # Copy iptables setup script, PID logger, API proxy health check, Claude key helper,
-# gh CLI proxy wrapper (used when --enable-cli-proxy is active), and the
-# bounded-query wrapper (installed as `bounded-query` when bounded queries are enabled),
-# and the bounded-agent wrapper (installed as `bounded-agent` when bounded agents are enabled)
+# gh CLI proxy wrapper (used when --enable-cli-proxy is active)
 COPY setup-iptables.sh /usr/local/bin/setup-iptables.sh
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY pid-logger.sh /usr/local/bin/pid-logger.sh
 COPY api-proxy-health-check.sh /usr/local/bin/api-proxy-health-check.sh
 COPY get-claude-key.sh /usr/local/bin/get-claude-key.sh
 COPY gh-cli-proxy-wrapper.sh /usr/local/bin/gh-cli-proxy-wrapper.sh
-COPY bounded-query-wrapper.sh /usr/local/bin/bounded-query-wrapper.sh
-COPY bounded-agent-wrapper.sh /usr/local/bin/bounded-agent-wrapper.sh
-RUN chmod +x /usr/local/bin/setup-iptables.sh /usr/local/bin/entrypoint.sh /usr/local/bin/pid-logger.sh /usr/local/bin/api-proxy-health-check.sh /usr/local/bin/get-claude-key.sh /usr/local/bin/gh-cli-proxy-wrapper.sh /usr/local/bin/bounded-query-wrapper.sh /usr/local/bin/bounded-agent-wrapper.sh
+RUN chmod +x /usr/local/bin/setup-iptables.sh /usr/local/bin/entrypoint.sh /usr/local/bin/pid-logger.sh /usr/local/bin/api-proxy-health-check.sh /usr/local/bin/get-claude-key.sh /usr/local/bin/gh-cli-proxy-wrapper.sh
 
 # Copy pre-built one-shot-token library from rust-builder stage
 # This prevents tokens from being read multiple times (e.g., by malicious code)

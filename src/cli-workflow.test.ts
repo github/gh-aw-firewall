@@ -135,11 +135,10 @@ describe('runMainWorkflow', () => {
   });
 
   it('rejects invalid enclave configuration before staging or startup', async () => {
-    const prepareBoundedQueries = jest.fn();
-    const dependencies = createWorkflowDependencies({ prepareBoundedQueries });
+    const prepareEnclaves = jest.fn();
+    const dependencies = createWorkflowDependencies({ prepareEnclaves });
     const config: WrapperConfig = {
       ...baseConfig,
-      boundedQueries: { enabled: true } as WrapperConfig['boundedQueries'],
       enclaves: {
         enabled: true,
         privateRepos: [
@@ -176,8 +175,6 @@ describe('runMainWorkflow', () => {
             maxOutputBytes: 8192,
             maxTaskBytes: 4096,
             maxInvocations: 8,
-            maxModelRequests: 8,
-            maxModelTokens: 1024,
           },
         },
       },
@@ -185,7 +182,7 @@ describe('runMainWorkflow', () => {
 
     await expect(runMainWorkflow(config, dependencies, createWorkflowOptions()))
       .rejects.toThrow(/Invalid enclave configuration.*duplicate entry/s);
-    expect(prepareBoundedQueries).not.toHaveBeenCalled();
+    expect(prepareEnclaves).not.toHaveBeenCalled();
     expect(dependencies.ensureFirewallNetwork).not.toHaveBeenCalled();
     expect(dependencies.writeConfigs).not.toHaveBeenCalled();
     expect(dependencies.startContainers).not.toHaveBeenCalled();

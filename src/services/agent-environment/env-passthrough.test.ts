@@ -91,6 +91,25 @@ describe('passthroughHostEnvironment', () => {
       expect(environment).not.toHaveProperty('GITHUB_PERSONAL_ACCESS_TOKEN');
     });
 
+    it('does not forward direct provider credentials when API proxy is disabled but they are excluded', () => {
+      const environment: Record<string, string> = {};
+      const excludedEnvVars = new Set(['COPILOT_GITHUB_TOKEN', 'OPENAI_API_KEY']);
+
+      withEnv({
+        COPILOT_GITHUB_TOKEN: 'copilot-secret',
+        OPENAI_API_KEY: 'openai-secret',
+      }, () => {
+        passthroughHostEnvironment({
+          config: makeConfig({ enableApiProxy: false }),
+          environment,
+          excludedEnvVars,
+        });
+      });
+
+      expect(environment).not.toHaveProperty('COPILOT_GITHUB_TOKEN');
+      expect(environment).not.toHaveProperty('OPENAI_API_KEY');
+    });
+
     it('forwards GITHUB_TOKEN when it is NOT in the exclusion set', () => {
       const environment: Record<string, string> = {};
       const excludedEnvVars = new Set<string>();

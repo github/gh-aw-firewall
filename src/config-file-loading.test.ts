@@ -49,19 +49,6 @@ describe('loadAwfFileConfig', () => {
     expect(result.network?.allowDomains).toEqual(['github.com']);
   });
 
-  it('loads boundedQueries config from stdin (proves the generic stdin path needs no special-casing)', () => {
-    const result = loadAwfFileConfig(
-      '-',
-      () => '{"boundedQueries":{"enabled":true,"privateRepos":["octo/repo"],"runtime":"gvisor"}}',
-    );
-
-    expect(result.boundedQueries).toEqual({
-      enabled: true,
-      privateRepos: ['octo/repo'],
-      runtime: 'gvisor',
-    });
-  });
-
   it('loads YAML from stdin when JSON parse fails', () => {
     const yamlContent = 'network:\n  allowDomains:\n    - example.com\n';
     const result = loadAwfFileConfig('-', () => yamlContent);

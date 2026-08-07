@@ -24,8 +24,6 @@
 
 import execa from 'execa';
 import * as fs from 'fs';
-import * as http from 'http';
-import * as os from 'os';
 import * as path from 'path';
 import { copyEnvEntries } from './env-utils';
 import { logger } from './logger';
@@ -53,9 +51,6 @@ const SECRET_ENV_PATTERNS = [
 
 /** Default sandbox name (single-sandbox-per-run model). */
 export const SBX_DEFAULT_NAME = `${SBX_NAME_PREFIX}-${process.pid}`;
-
-/** Name used by the isolated, short-lived Unix-socket passthrough probe. */
-const SBX_SOCKET_PROBE_NAME = `${SBX_NAME_PREFIX}-socket-probe-${process.pid}`;
 
 /**
  * Strips secret-bearing env vars from process.env so they never reach
@@ -367,14 +362,9 @@ export async function createSandbox(config: {
  * resolvable by name. `$HOME` resolves to the injected HOME (getRealUserHome),
  * which matches the wholesale-mounted home tool dirs.
  *
- * Also prepends the bounded-query and/or bounded-agent wrapper directories
- * (`AWF_BOUNDED_QUERY_BIN_DIR` / `AWF_BOUNDED_AGENT_BIN_DIR`) when those
- * subsystems are enabled, since a primary sbx microVM has no `/tmp/awf-lib`
- * chroot-relative PATH entry to fall back on. Either variable is empty (and
- * therefore a no-op) unless its subsystem is enabled for this run.
  */
 function withLocalBinOnPath(command: string): string {
-  return `export PATH="\${AWF_BOUNDED_QUERY_BIN_DIR:+$AWF_BOUNDED_QUERY_BIN_DIR:}\${AWF_BOUNDED_AGENT_BIN_DIR:+$AWF_BOUNDED_AGENT_BIN_DIR:}$HOME/.local/bin\${PATH:+:$PATH}"; ${command}`;
+  return `export PATH="$HOME/.local/bin\${PATH:+:$PATH}"; ${command}`;
 }
 
 /** @internal Exposed for unit tests only. */
@@ -385,103 +375,6 @@ export const testHelpers = {
   withCreateSandboxEnvironment,
   withLocalBinOnPath,
 };
-
-/**
- * Executes a real host-Unix-socket passthrough probe in a disposable sandbox.
- *
- * sbx workspace mounts are filesystem passthroughs, but Unix socket forwarding
- * is host/version dependent. A successful HTTP exchange over the mounted
- * socket is stronger than checking `test -S`: it proves connect semantics.
- * Failure selects the authenticated HTTP fallback; sandbox create/cleanup
- * failures are fatal so preflight never silently downgrades an unsupported
- * host.
- */
-export async function probeSbxUnixSocketMount(
-  subsystem: 'bounded-query' | 'bounded-agent' = 'bounded-query',
-): Promise<boolean> {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-sbx-socket-probe-'));
-  fs.chmodSync(root, 0o700);
-  const socketPath = path.join(root, 'probe.sock');
-  const response = '{"status":"error"}';
-  const server = http.createServer((_req, res) => {
-    res.writeHead(200, {
-      'content-type': 'application/json',
-      'content-length': Buffer.byteLength(response),
-      'cache-control': 'no-store',
-    });
-    res.end(response);
-  });
-  await new Promise<void>((resolve, reject) => {
-    server.once('error', reject);
-    server.listen(socketPath, resolve);
-  });
-
-  let created = false;
-  let cleanupError: Error | undefined;
-  let probeError: unknown;
-  let supported = false;
-  try {
-    const createResult = await withCreateSandboxEnvironment(() => execa(
-      'sbx',
-      ['create', '--name', SBX_SOCKET_PROBE_NAME, 'shell', root],
-      {
-        input: 'y\n',
-        stdio: ['pipe', 'pipe', 'pipe'],
-        reject: false,
-        timeout: 120_000,
-      },
-    ));
-    created = (createResult.exitCode ?? 1) === 0 || (createResult.stdout || '').includes('Created sandbox');
-    if (!created) {
-      throw new Error(
-        `sbx ${subsystem} ingress probe could not create a sandbox: ${
-          (createResult.stderr || createResult.stdout || 'unknown error').trim()
-        }`,
-      );
-    }
-
-    const result = await execa(
-      'sbx',
-      [
-        'exec',
-        SBX_SOCKET_PROBE_NAME,
-        'curl',
-        '--silent',
-        '--show-error',
-        '--max-time',
-        '5',
-        '--unix-socket',
-        socketPath,
-        'http://localhost/probe',
-      ],
-      {
-        env: sanitizeEnvForSbx(),
-        stdio: ['ignore', 'pipe', 'pipe'],
-        reject: false,
-        timeout: 15_000,
-      },
-    );
-    supported = (result.exitCode ?? 1) === 0 && result.stdout === response;
-  } catch (error: unknown) {
-    probeError = error;
-  } finally {
-    if (created) {
-      const removed = await execa('sbx', ['rm', '--force', SBX_SOCKET_PROBE_NAME], {
-        stdio: ['ignore', 'pipe', 'pipe'],
-        reject: false,
-        timeout: 30_000,
-      });
-      if ((removed.exitCode ?? 1) !== 0) {
-        cleanupError = new Error(`sbx ${subsystem} ingress probe sandbox could not be removed`);
-      }
-    }
-    await new Promise<void>((resolve) => server.close(() => resolve()));
-    fs.rmSync(root, { recursive: true, force: true });
-  }
-  if (cleanupError) throw cleanupError;
-  if (probeError) throw probeError;
-  return supported;
-}
 
 /**
  * Executes a command inside the sandbox, streaming stdout/stderr.
@@ -539,104 +432,6 @@ export async function execInSandbox(
     }
     logger.error(`Sandbox exec failed: ${error.message}`);
     return { exitCode: 1 };
-  }
-}
-
-/**
- * Proves the selected ingress is reachable from the actual primary sandbox
- * before the agent command starts. The HTTP probe uses a separate one-shot
- * capability and receives only the canonical error body from `/query`.
- */
-export async function assertSbxBoundedQueryIngress(
-  name: string,
-  ingress:
-    | { transport: 'unix'; socketPath: string }
-    | { transport: 'sbx-http'; endpoint: string; probeCapability: string },
-  environment: Record<string, string>,
-  workDir?: string,
-): Promise<void> {
-  const probeEnvironment = { ...environment };
-  let command: string;
-  if (ingress.transport === 'unix') {
-    probeEnvironment.AWF_BOUNDED_QUERY_SOCKET = ingress.socketPath;
-    command = [
-      'response=$(curl --silent --show-error --max-time 15 --unix-socket "$AWF_BOUNDED_QUERY_SOCKET"',
-      '-X POST -H "Expect:"',
-      'http://localhost/query 2>/dev/null) &&',
-      '[ "$response" = \'{"status":"error"}\' ]',
-    ].join(' ');
-  } else {
-    probeEnvironment.AWF_BOUNDED_QUERY_ENDPOINT = ingress.endpoint;
-    probeEnvironment.AWF_BOUNDED_QUERY_PROBE_CAPABILITY = ingress.probeCapability;
-    command = [
-      'response=$(curl --silent --show-error --noproxy "*" --max-time 15',
-      '-X POST -H "Expect:"',
-      '-H "X-AWF-Capability: $AWF_BOUNDED_QUERY_PROBE_CAPABILITY"',
-      '"$AWF_BOUNDED_QUERY_ENDPOINT" 2>/dev/null) &&',
-      '[ "$response" = \'{"status":"error"}\' ]',
-    ].join(' ');
-  }
-
-  const result = await execInSandbox(name, command, {
-    timeoutMinutes: 1,
-    workDir,
-    environment: probeEnvironment,
-  });
-  if (result.exitCode !== 0) {
-    throw new Error(
-      `sbx host does not support the selected bounded-query ${ingress.transport} ingress`,
-    );
-  }
-}
-
-/**
- * Proves the selected bounded-agent broker ingress is reachable from the
- * actual primary sandbox before the agent command starts. Mirrors
- * {@link assertSbxBoundedQueryIngress} exactly (same `/query` route and
- * canonical `{"status":"error"}` body), against the bounded-agent broker's
- * own env var names and capability. The HTTP probe uses a separate one-shot
- * capability distinct from the query capability that is injected only after
- * this proof succeeds.
- */
-export async function assertSbxBoundedAgentIngress(
-  name: string,
-  ingress:
-    | { transport: 'unix'; socketPath: string }
-    | { transport: 'sbx-http'; endpoint: string; probeCapability: string },
-  environment: Record<string, string>,
-  workDir?: string,
-): Promise<void> {
-  const probeEnvironment = { ...environment };
-  let command: string;
-  if (ingress.transport === 'unix') {
-    probeEnvironment.AWF_BOUNDED_AGENT_SOCKET = ingress.socketPath;
-    command = [
-      'response=$(curl --silent --show-error --max-time 15 --unix-socket "$AWF_BOUNDED_AGENT_SOCKET"',
-      '-X POST -H "Expect:"',
-      'http://localhost/query 2>/dev/null) &&',
-      '[ "$response" = \'{"status":"error"}\' ]',
-    ].join(' ');
-  } else {
-    probeEnvironment.AWF_BOUNDED_AGENT_ENDPOINT = ingress.endpoint;
-    probeEnvironment.AWF_BOUNDED_AGENT_PROBE_CAPABILITY = ingress.probeCapability;
-    command = [
-      'response=$(curl --silent --show-error --noproxy "*" --max-time 15',
-      '-X POST -H "Expect:"',
-      '-H "X-AWF-Capability: $AWF_BOUNDED_AGENT_PROBE_CAPABILITY"',
-      '"$AWF_BOUNDED_AGENT_ENDPOINT" 2>/dev/null) &&',
-      '[ "$response" = \'{"status":"error"}\' ]',
-    ].join(' ');
-  }
-
-  const result = await execInSandbox(name, command, {
-    timeoutMinutes: 1,
-    workDir,
-    environment: probeEnvironment,
-  });
-  if (result.exitCode !== 0) {
-    throw new Error(
-      `sbx host does not support the selected bounded-agent ${ingress.transport} ingress`,
-    );
   }
 }
 

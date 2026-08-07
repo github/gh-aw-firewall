@@ -5,8 +5,6 @@ import { buildIptablesInitService } from './agent-service';
 import { buildApiProxyService } from './api-proxy-service';
 import { buildDohProxyService } from './doh-proxy-service';
 import { buildCliProxyService } from './cli-proxy-service';
-import { buildBoundedQueryService, isBoundedQueryAgentMount } from './bounded-query-service';
-import { buildBoundedAgentService, isBoundedAgentAgentMount } from './bounded-agent-service';
 import { buildEnclaveMcpService } from './enclave-mcp-service';
 import { buildSysrootStageService, isSysrootEnabled } from './sysroot-service';
 import { resolveDockerHostGateway } from './host-gateway';
@@ -78,12 +76,6 @@ function filterAgentVolumesForSysroot(
     if (parts.length < 2) return true; // Keep malformed entries unchanged
     const source = parts[0];
     const target = parts[1];
-
-    // Bounded-query and bounded-agent ingress mounts are mandatory: dropping
-    // them would leave the subsystem half-enabled (wrapper present, broker
-    // unreachable) instead of failing loudly.
-    if (isBoundedQueryAgentMount(volume)) return true;
-    if (isBoundedAgentAgentMount(volume)) return true;
 
     // Drop sysroot-shadowed targets (system binaries provided by volume)
     if (sysrootShadowedTargets.has(target)) return false;
@@ -236,78 +228,6 @@ function assembleCliProxyService(params: AssembleOptionalServicesParams): void {
   };
 }
 
-function assembleBoundedQueryService(params: AssembleOptionalServicesParams): void {
-  const {
-    services,
-    agentService,
-    agentVolumes,
-    environment,
-    config,
-    imageConfig,
-    includeComposeAgent = true,
-  } = params;
-
-  if (!config.boundedQueries?.enabled) return;
-
-  const {
-    queryImageService,
-    service,
-    agentEnvAdditions,
-    agentVolumes: queryVolumes,
-  } = buildBoundedQueryService({
-    config,
-    imageConfig,
-  });
-
-  services['bounded-query-image'] = queryImageService;
-  services['bounded-query-broker'] = service;
-  if (includeComposeAgent) {
-    Object.assign(environment, agentEnvAdditions);
-    agentVolumes.push(...queryVolumes);
-    agentService.depends_on['bounded-query-broker'] = {
-      condition: 'service_healthy',
-    };
-  }
-}
-
-function assembleBoundedAgentService(params: AssembleOptionalServicesParams): void {
-  const {
-    services,
-    agentService,
-    agentVolumes,
-    environment,
-    config,
-    imageConfig,
-    includeComposeAgent = true,
-  } = params;
-
-  if (!config.boundedAgents?.enabled) return;
-
-  const {
-    enclaveImageService,
-    service,
-    apiProxyService,
-    agentEnvAdditions,
-    agentVolumes: enclaveVolumes,
-  } = buildBoundedAgentService({
-    config,
-    imageConfig,
-    networkConfig: params.networkConfig,
-  });
-
-  services['bounded-agent-image'] = enclaveImageService;
-  services['bounded-agent-api-proxy'] = apiProxyService;
-  services['bounded-agent-broker'] = service;
-  if (includeComposeAgent) {
-    Object.assign(environment, agentEnvAdditions);
-    agentVolumes.push(...enclaveVolumes);
-    agentService.depends_on['bounded-agent-broker'] = {
-      condition: 'service_healthy',
-    };
-  }
-
-}
-
 function assembleEnclaveMcpService(params: AssembleOptionalServicesParams): void {
   const { services, config, imageConfig } = params;
   const executors = config.enclaves?.executors;
@@ -364,8 +284,6 @@ export function assembleOptionalServices(
   const skipIptables = networkIsolation || !runtimeUsesIptables(config.containerRuntime);
 
   presetSidecarIpEnvVars(environment, config, networkConfig);
-  assembleBoundedQueryService(params);
-  assembleBoundedAgentService(params);
   assembleEnclaveMcpService(params);
   if (includeComposeAgent) {
     assembleSysrootService(params, imageConfig.registry, imageConfig.parsedTag, sysrootActive);

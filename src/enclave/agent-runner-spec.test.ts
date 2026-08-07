@@ -1,18 +1,23 @@
 import * as path from 'path';
 
 /* eslint-disable @typescript-eslint/no-require-imports */
-const boundedQueryRoot = path.join(__dirname, '..', '..', 'containers', 'bounded-query');
-const boundedAgentRoot = path.join(__dirname, '..', '..', 'containers', 'bounded-agent');
+const containersRoot = path.join(__dirname, '..', '..', 'containers');
 const {
   deriveEnclaveContainerSpec,
   ENCLAVE_INVOCATION_LABEL,
   ENCLAVE_RUN_LABEL,
   ENCLAVE_MAX_FILE_BYTES,
-} = require(path.join(boundedAgentRoot, 'broker', 'enclave-runner-spec.js'));
-const { createEnclaveRunner } = require(path.join(boundedAgentRoot, 'broker', 'enclave-runner.js'));
+} = require(path.join(containersRoot, 'enclave', 'agent-executor', 'enclave-runner-spec.js'));
+const { createEnclaveRunner } = require(path.join(
+  containersRoot,
+  'enclave',
+  'agent-executor',
+  'enclave-runner.js',
+));
 const { loadAgentConfig, loadServerConfig } = require(path.join(
-  boundedQueryRoot,
-  'enclave-mcp',
+  containersRoot,
+  'enclave',
+  'mcp-server',
   'config.js',
 ));
 /* eslint-enable @typescript-eslint/no-require-imports */
@@ -40,8 +45,6 @@ const trustedConfig = {
   pidsLimit: 47,
   timeoutSeconds: 120,
   maxOutputBytes: 8192,
-  maxModelRequests: 4,
-  maxModelTokens: 512,
   runLabelKey: ENCLAVE_RUN_LABEL,
   invocationLabelKey: ENCLAVE_INVOCATION_LABEL,
   containerPrefix: 'awf-enclave-agent',
@@ -85,6 +88,12 @@ describe('unified enclave agent runner specification', () => {
       '/agent:rw,nosuid,nodev,size=96m,uid=65534,gid=65534,mode=0700',
     );
     expect(spec.launchArgs).toContain(`${trustedConfig.hostSeedsDir}/${'b'.repeat(32)}:/awf/seed:ro`);
+    expect(spec.launchArgs).toContain(
+      '/daemon/private/enclave/work/0123456789abcdef/out:/awf/out:rw',
+    );
+    expect(spec.launchArgs).toContain(
+      '/daemon/private/enclave/work/0123456789abcdef/session.jsonl:/awf/session.jsonl:rw',
+    );
     expect(spec.launchArgs).toContain('--entrypoint');
   });
 
@@ -123,30 +132,79 @@ describe('unified enclave agent runner specification', () => {
     }).launchArgs).toEqual(expect.arrayContaining(['--runtime', 'runsc']));
   });
 
-  it('keeps the legacy bounded-agent naming byte-compatible', () => {
-    const legacy = deriveEnclaveContainerSpec({
-      config: {
-        ...trustedConfig,
-        runLabelKey: undefined,
-        invocationLabelKey: undefined,
-        containerPrefix: undefined,
-        enclaveHostname: undefined,
+  it('fails closed for an unimplemented enclave backend', () => {
+    expect(() => createEnclaveRunner({ ...trustedConfig, backend: 'firecracker' }))
+      .toThrow(/Unsupported enclave-agent backend/);
+  });
+
+  it.each([
+    'false|bridge|172.31.0.0/24,|awf-enclave-agent-api-proxy@172.31.0.30/24,',
+    'true|bridge|172.32.0.0/24,|awf-enclave-agent-api-proxy@172.31.0.30/24,',
+    'true|overlay|172.31.0.0/24,|awf-enclave-agent-api-proxy@172.31.0.30/24,',
+    'true|bridge|172.31.0.0/24,|unexpected@172.31.0.40/24,',
+    'true|bridge|172.31.0.0/24,|awf-enclave-agent-api-proxy@172.31.0.30/24,unexpected@172.31.0.40/24,',
+  ])('rejects a non-isolated dedicated network topology (%s)', async (networkTopology) => {
+    const runner = createEnclaveRunner(
+      { ...trustedConfig, backend: 'docker' },
+      {
+        docker: {
+          runDocker: async (args: string[]) => ({
+            exitCode: 0,
+            timedOut: false,
+            stdout: args[0] === 'network' ? networkTopology : '[]',
+            stderr: '',
+          }),
+        },
       },
+    );
+    await expect(runner.assertAvailable()).rejects.toThrow(/unavailable or not isolated/);
+  });
+
+  it('accepts only the internal bridge network with the enclave subnet', async () => {
+    const runner = createEnclaveRunner(
+      { ...trustedConfig, backend: 'docker' },
+      {
+        docker: {
+          runDocker: async (args: string[]) => ({
+            exitCode: 0,
+            timedOut: false,
+            stdout: args[0] === 'network'
+              ? 'true|bridge|172.31.0.0/24,|awf-enclave-agent-api-proxy@172.31.0.30/24,'
+              : '[]',
+            stderr: '',
+          }),
+        },
+      },
+    );
+    await expect(runner.assertAvailable()).resolves.toBeUndefined();
+  });
+
+  it('revalidates exact network membership immediately before every launch', async () => {
+    const calls: string[][] = [];
+    const runner = createEnclaveRunner(
+      { ...trustedConfig, backend: 'docker' },
+      {
+        docker: {
+          runDocker: async (args: string[]) => {
+            calls.push(args);
+            return {
+              exitCode: 0,
+              timedOut: false,
+              stdout: args[0] === 'network'
+                ? 'true|bridge|172.31.0.0/24,|unexpected@172.31.0.40/24,'
+                : '',
+              stderr: '',
+            };
+          },
+        },
+      },
+    );
+    await expect(runner.runEnclaveContainer({
       runId: 'abcdef1234567890',
       invocationId: '0123456789abcdef',
       seedId: 'b'.repeat(32),
-    });
-    expect(legacy.containerName).toBe('awf-bounded-agent-abcdef123456-0123456789abcdef');
-    expect(legacy.launchArgs).toEqual(expect.arrayContaining([
-      '--label', 'awf.bounded-agent.run=abcdef1234567890',
-      '--label', 'awf.bounded-agent.invocation=0123456789abcdef',
-      '--hostname', 'bounded-agent',
-    ]));
-  });
-
-  it('fails closed for an unimplemented enclave backend', () => {
-    expect(() => createEnclaveRunner({ ...trustedConfig, backend: 'firecracker' }))
-      .toThrow(/Unsupported bounded-agent backend/);
+    })).rejects.toThrow(/unavailable or not isolated/);
+    expect(calls.some((args) => args[0] === 'run')).toBe(false);
   });
 });
 
@@ -177,8 +235,6 @@ describe('unified enclave agent server configuration', () => {
       AWF_ENCLAVE_AGENT_MAX_OUTPUT_BYTES: '4096',
       AWF_ENCLAVE_AGENT_MAX_PROMPT_BYTES: '2048',
       AWF_ENCLAVE_AGENT_MAX_INVOCATIONS: '3',
-      AWF_ENCLAVE_AGENT_MAX_MODEL_REQUESTS: '2',
-      AWF_ENCLAVE_AGENT_MAX_MODEL_TOKENS: '256',
       ...overrides,
     });
   }
@@ -202,8 +258,6 @@ describe('unified enclave agent server configuration', () => {
       maxOutputBytes: 4096,
       maxPromptBytes: 2048,
       maxInvocations: 3,
-      maxModelRequests: 2,
-      maxModelTokens: 256,
       enclaveUid: 65534,
       enclaveGid: 65534,
       enclaveSeccompPath: '/opt/awf/enclave-seccomp.json',

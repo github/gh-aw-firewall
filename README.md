@@ -74,8 +74,7 @@ See [GitHub Actions](docs/github_actions.md) for advanced setup and `awf logs su
 - [Usage guide](docs/usage.md) — CLI flags, domain allowlists, examples
 - [AWF config schema](docs/awf-config.schema.json) — machine-readable JSON Schema for JSON/YAML configs (also published as a [versioned release asset](https://github.com/github/gh-aw-firewall/releases/latest/download/awf-config.schema.json) for IDE autocomplete)
 - [AWF config spec](docs/awf-config-spec.md) — normative processing and precedence rules for tooling/compiler integration
-- [Bounded queries](docs/bounded-queries.md) — run information-budgeted queries against private repositories without exposing their contents
-- [Bounded agents](docs/bounded-agents.md) — delegate finite-schema repository analysis to API-proxy-only Docker or gVisor enclaves
+- [Unified enclave architecture](docs/enclaves-architecture.md) — AWF-owned enclave MCP server, mcpg-only access, and the `enclave_run_script` / `enclave_run_agent` tools for private-repository execution
 - [Audit log schema](schemas/audit.schema.json) — JSON Schema for L7 traffic audit records (`audit.jsonl`)
 - [Token usage schema](schemas/token-usage.schema.json) — JSON Schema for per-call token usage records (`token-usage.jsonl`)
 - [Schemas README](schemas/README.md) — versioning policy, record identification, and validation examples

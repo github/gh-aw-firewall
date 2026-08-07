@@ -10,10 +10,9 @@ import {
   prepareEnclaves,
   teardownEnclaves,
 } from './manager';
-import { releaseSeedPermissions, type GitRunner } from '../bounded-query/staging';
+import { releaseSeedPermissions, type GitRunner } from './staging';
 import { resolveEnclavePaths } from './paths';
-import * as boundedQueryPreflight from '../bounded-query/preflight';
-import * as boundedAgentPreflight from '../bounded-agent/preflight';
+import * as runtimePreflight from './runtime-preflight';
 
 const gitRunner: GitRunner = async (args) => {
   if (args.includes('clone')) {
@@ -151,9 +150,9 @@ describe('prepareEnclaves fail-closed preflight', () => {
   });
 
   it('uses the default runtime proofs for enabled executors', async () => {
-    const scriptProof = jest.spyOn(boundedQueryPreflight, 'assertQueryRuntimeAvailable')
+    const scriptProof = jest.spyOn(runtimePreflight, 'assertScriptRuntimeAvailable')
       .mockResolvedValueOnce(undefined);
-    const agentProof = jest.spyOn(boundedAgentPreflight, 'assertEnclaveRuntimeAvailable')
+    const agentProof = jest.spyOn(runtimePreflight, 'assertAgentRuntimeAvailable')
       .mockResolvedValueOnce(undefined);
     const wrapperConfig = agentConfig(workDir, {
       executors: {
