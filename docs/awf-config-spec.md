@@ -219,6 +219,7 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 - `enclaves.executors.script.enabled` → *(config-only; no CLI equivalent, see §14)*
 - `enclaves.executors.script.runtime` → *(config-only; no CLI equivalent, see §14)*
 - `enclaves.executors.script.image` → *(config-only; no CLI equivalent, see §14)*
+- `enclaves.executors.script.network` → *(config-only; no CLI equivalent, see §14)*
 - `enclaves.executors.script.interpreter` → *(config-only; no CLI equivalent, see §14)*
 - `enclaves.executors.script.timeout` → *(config-only; no CLI equivalent, see §14)*
 - `enclaves.executors.script.memoryLimit` → *(config-only; no CLI equivalent, see §14)*
@@ -231,6 +232,7 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 - `enclaves.executors.agent.enabled` → *(config-only; no CLI equivalent, see §14)*
 - `enclaves.executors.agent.runtime` → *(config-only; no CLI equivalent, see §14)*
 - `enclaves.executors.agent.image` → *(config-only; no CLI equivalent, see §14)*
+- `enclaves.executors.agent.network` → *(config-only; no CLI equivalent, see §14)*
 - `enclaves.executors.agent.engine` → *(config-only; no CLI equivalent, see §14)*
 - `enclaves.executors.agent.profile` → *(config-only; no CLI equivalent, see §14)*
 - `enclaves.executors.agent.model` → *(config-only; no CLI equivalent, see §14)*
