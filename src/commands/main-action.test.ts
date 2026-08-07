@@ -20,6 +20,7 @@ jest.mock('./validate-options');
 jest.mock('../sbx-manager');
 jest.mock('../bounded-query/ingress');
 jest.mock('../bounded-agent/ingress');
+jest.mock('../enclave/gateway');
 
 import { logger } from '../logger';
 import * as dockerManager from '../docker-manager';
@@ -35,6 +36,7 @@ import * as validateOptions from './validate-options';
 import * as sbxManager from '../sbx-manager';
 import * as boundedQueryIngress from '../bounded-query/ingress';
 import * as boundedAgentIngress from '../bounded-agent/ingress';
+import * as enclaveGateway from '../enclave/gateway';
 import { MAIN_ACTION_STUB_CONFIG, setupMainActionTestHarness } from './main-action.test-utils';
 
 const {
@@ -59,6 +61,7 @@ const mockedValidateOptions = validateOptions as jest.Mocked<typeof validateOpti
 const mockedSbxManager = sbxManager as jest.Mocked<typeof sbxManager>;
 const mockedBoundedQueryIngress = boundedQueryIngress as jest.Mocked<typeof boundedQueryIngress>;
 const mockedBoundedAgentIngress = boundedAgentIngress as jest.Mocked<typeof boundedAgentIngress>;
+const mockedEnclaveGateway = enclaveGateway as jest.Mocked<typeof enclaveGateway>;
 
 describe('createMainAction', () => {
   let processExitSpy: jest.SpyInstance;
@@ -894,12 +897,40 @@ describe('createMainAction', () => {
         MAIN_ACTION_STUB_CONFIG.workDir,
         MAIN_ACTION_STUB_CONFIG.auditDir
       );
+      expect(mockedEnclaveGateway.shutdownEnclaveGateway).toHaveBeenCalledWith(
+        MAIN_ACTION_STUB_CONFIG
+      );
+      expect(
+        mockedEnclaveGateway.shutdownEnclaveGateway.mock.invocationCallOrder[0]
+      ).toBeLessThan(
+        mockedDockerManager.preserveIptablesAudit.mock.invocationCallOrder[0]
+      );
       expect(mockedDockerManager.stopContainers).toHaveBeenCalledWith(
         MAIN_ACTION_STUB_CONFIG.workDir,
         MAIN_ACTION_STUB_CONFIG.keepContainers
       );
       expect(mockedHostIptables.cleanupHostIptables).toHaveBeenCalled();
       expect(mockedDockerManager.cleanup).toHaveBeenCalled();
+    });
+
+    it('preserves audits after an enclave drain failure', async () => {
+      mockedEnclaveGateway.shutdownEnclaveGateway.mockRejectedValueOnce(
+        new Error('drain failed')
+      );
+      const performCleanup = testHelpers.buildCleanupFn(
+        MAIN_ACTION_STUB_CONFIG,
+        () => true,
+        () => false,
+      );
+
+      await performCleanup();
+
+      expect(mockedLogger.warn).toHaveBeenCalledWith(
+        'Failed to stop the enclave gateway control path; continuing cleanup.',
+        expect.any(Error)
+      );
+      expect(mockedDockerManager.preserveIptablesAudit).toHaveBeenCalled();
+      expect(mockedDockerManager.stopContainers).toHaveBeenCalled();
     });
   });
 });

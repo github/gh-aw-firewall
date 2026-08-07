@@ -47,7 +47,16 @@ function env(endpoint = 'http://127.0.0.1:8080/mcp/awf-enclave'): NodeJS.Process
 
 function listen(
   tools: unknown[],
-  unavailableInitializations = 0,
+  options: {
+    unavailableInitializations?: number;
+    initializationStatus?: number;
+    initializationBody?: string;
+    initializationRpcError?: boolean;
+    oversizedInitialization?: boolean;
+    hangInitialization?: boolean;
+    trickleInitialization?: boolean;
+    sse?: boolean;
+  } = {},
 ): Promise<{
   endpoint: string;
   initializeAttempts: () => number;
@@ -63,17 +72,49 @@ function listen(
           id?: number;
           method: string;
         };
-        response.setHeader('content-type', 'application/json');
+        response.setHeader(
+          'content-type',
+          options.sse ? 'text/event-stream' : 'application/json',
+        );
         response.setHeader('mcp-session-id', 'session-1');
         if (message.method === 'initialize') {
           initializeAttempts += 1;
-          if (initializeAttempts <= unavailableInitializations) {
+          if (options.hangInitialization) return;
+          if (options.trickleInitialization) {
+            const interval = setInterval(() => response.write(' '), 5);
+            response.on('close', () => clearInterval(interval));
+            return;
+          }
+          if (
+            options.unavailableInitializations
+            && initializeAttempts <= options.unavailableInitializations
+          ) {
             response.statusCode = 503;
             response.end(JSON.stringify({
               error: 'backend_unavailable',
               message: 'Backend MCP server is not ready; retry initialization',
               retryable: true,
             }));
+            return;
+          }
+          if (options.initializationStatus) {
+            response.statusCode = options.initializationStatus;
+            response.end(options.initializationBody ?? JSON.stringify({
+              error: 'permanent_failure',
+              retryable: false,
+            }));
+            return;
+          }
+          if (options.initializationRpcError) {
+            response.end(JSON.stringify({
+              jsonrpc: '2.0',
+              id: message.id,
+              error: { code: -32000, message: 'permanent failure' },
+            }));
+            return;
+          }
+          if (options.oversizedInitialization) {
+            response.end('x'.repeat(256 * 1024 + 1));
             return;
           }
         }
@@ -89,7 +130,8 @@ function listen(
               serverInfo: { name: 'awf-enclave', version: '1.0.0' },
             }
           : { tools };
-        response.end(JSON.stringify({ jsonrpc: '2.0', id: message.id, result }));
+        const payload = JSON.stringify({ jsonrpc: '2.0', id: message.id, result });
+        response.end(options.sse ? `data: ${payload}\n\n` : payload);
       });
     });
     server.listen(0, '127.0.0.1', () => {
@@ -116,7 +158,7 @@ describe('enclave mcpg handoff', () => {
         headers: { Authorization: 'Bearer ${AWF_ENCLAVE_MCP_CAPABILITY}' },
         tools: ['enclave_run_script', 'enclave_run_agent'],
         connectTimeout: 120,
-        toolTimeout: 150,
+        toolTimeout: 630,
       },
       handoff: {
         capabilityEnv: 'AWF_ENCLAVE_MCP_CAPABILITY',
@@ -145,6 +187,47 @@ describe('enclave mcpg handoff', () => {
       config(),
       env('http://127.0.0.1:8080/health'),
     )).toThrow(/must address the gateway route/);
+  });
+
+  it.each([
+    [config(), { ...env(), AWF_ENCLAVE_MCP_GATEWAY_IDENTITY: 'short' }, /IDENTITY/],
+    [config(), { ...env(), AWF_ENCLAVE_MCP_GATEWAY_CONTAINER: 'bad/name' }, /CONTAINER/],
+    [config(), { ...env(), AWF_ENCLAVE_MCP_READINESS_TIMEOUT_MS: '999' }, /READINESS_TIMEOUT/],
+    [config(), { ...env(), AWF_ENCLAVE_MCP_GATEWAY_ENDPOINT: 'not-a-url' }, /ENDPOINT/],
+  ])('rejects invalid compiler handoff values', (wrapperConfig, handoff, expected) => {
+    expect(() => resolveEnclaveGatewayContract(
+      wrapperConfig,
+      handoff as NodeJS.ProcessEnv,
+    )).toThrow(expected as RegExp);
+  });
+
+  it('rejects compiler contract generation while enclaves are disabled', () => {
+    expect(() => buildEnclaveMcpgUpstreamContract({
+      ...config(),
+      enclaves: undefined,
+    })).toThrow(/disabled/);
+  });
+
+  it('rejects gateway resolution while enclaves are disabled', () => {
+    expect(() => resolveEnclaveGatewayContract({
+      ...config(),
+      enclaves: undefined,
+    }, env())).toThrow(/disabled/);
+  });
+
+  it('builds an agent-only timeout and tool allowlist', () => {
+    const wrapperConfig = {
+      ...config(),
+      enclaves: normalizeEnclavesConfig({
+        enabled: true,
+        privateRepos: [{ repo: 'octo/private', sensitivity: 'internal' }],
+        executors: { agent: { enabled: true, model: 'gpt-test', timeout: 45 } },
+      }),
+    };
+    expect(buildEnclaveMcpgUpstreamContract(wrapperConfig).server).toMatchObject({
+      tools: ['enclave_run_agent'],
+      toolTimeout: 630,
+    });
   });
 
   it('attaches only the expected labelled gateway to the private control network', async () => {
@@ -188,6 +271,57 @@ describe('enclave mcpg handoff', () => {
     await expect(connectEnclaveGateway(config(), env())).rejects.toThrow(/identity did not match/);
   });
 
+  it.each([
+    [{ exitCode: 1, stdout: '', stderr: '' }, /container is unavailable/],
+    [{ exitCode: 0, stdout: '{', stderr: '' }, /identity could not be inspected/],
+  ])('fails closed when the gateway cannot be inspected', async (result, expected) => {
+    mockExeca.mockResolvedValueOnce(result);
+    await expect(connectEnclaveGateway(config(), env())).rejects.toThrow(expected);
+  });
+
+  it('fails closed when the gateway cannot attach to the control network', async () => {
+    mockExeca
+      .mockResolvedValueOnce({
+        exitCode: 0,
+        stdout: JSON.stringify({
+          Name: '/awmg-mcpg',
+          State: { Running: true },
+          HostConfig: { NetworkMode: 'bridge' },
+          Config: { Labels: { [ENCLAVE_MCP_GATEWAY_RUN_LABEL]: 'test-run-identity' } },
+        }),
+      })
+      .mockResolvedValueOnce({ exitCode: 1, stdout: '', stderr: 'denied' });
+    await expect(connectEnclaveGateway(config(), env())).rejects.toThrow(/Failed to attach/);
+  });
+
+  it.each([
+    [{ exitCode: 1, stdout: '', stderr: '' }, /network is unavailable/],
+    [{ exitCode: 0, stdout: '{', stderr: '' }, /membership could not be inspected/],
+    [{
+      exitCode: 0,
+      stdout: JSON.stringify({
+        first: { Name: 'awf-enclave-mcp-server' },
+        second: { Name: 'awmg-mcpg' },
+        third: { Name: 'unexpected' },
+      }),
+      stderr: '',
+    }, /unexpected member/],
+  ])('fails closed on invalid control-network membership', async (networkResult, expected) => {
+    mockExeca
+      .mockResolvedValueOnce({
+        exitCode: 0,
+        stdout: JSON.stringify({
+          Name: '/awmg-mcpg',
+          State: { Running: true },
+          HostConfig: { NetworkMode: 'bridge' },
+          Config: { Labels: { [ENCLAVE_MCP_GATEWAY_RUN_LABEL]: 'test-run-identity' } },
+        }),
+      })
+      .mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' })
+      .mockResolvedValueOnce(networkResult);
+    await expect(connectEnclaveGateway(config(), env())).rejects.toThrow(expected);
+  });
+
   it('proves initialize and the exact tool contracts through the gateway', async () => {
     const contract = buildEnclaveMcpgUpstreamContract(config());
     const server = await listen([{
@@ -222,8 +356,21 @@ describe('enclave mcpg handoff', () => {
     }
   });
 
+  it('accepts bounded SSE responses from the gateway', async () => {
+    const server = await listen([enclaveProtocol.TOOL], { sse: true });
+    try {
+      await expect(assertEnclaveGatewayReady(config(), env(server.endpoint), 1000))
+        .resolves.toBeUndefined();
+    } finally {
+      await server.close();
+    }
+  });
+
   it('retries mcpg backend_unavailable responses until initialize succeeds', async () => {
-    const server = await listen([enclaveProtocol.TOOL], 1);
+    const server = await listen(
+      [enclaveProtocol.TOOL],
+      { unavailableInitializations: 1 },
+    );
     try {
       await expect(assertEnclaveGatewayReady(
         config(),
@@ -238,14 +385,117 @@ describe('enclave mcpg handoff', () => {
     }
   });
 
-  it('times out before agent startup when the gateway publishes a mismatched tool contract', async () => {
+  it('fails immediately when the gateway publishes a mismatched tool contract', async () => {
     const server = await listen([{ name: 'unexpected_tool' }]);
     try {
-      await expect(assertEnclaveGatewayReady(config(), env(server.endpoint), 10))
+      await expect(assertEnclaveGatewayReady(config(), env(server.endpoint), 1000))
         .rejects.toThrow(/tool contract did not exactly match/);
+      expect(server.initializeAttempts()).toBe(1);
     } finally {
       await server.close();
     }
+  });
+
+  it('does not retry permanent HTTP failures', async () => {
+    const server = await listen([], { initializationStatus: 401 });
+    try {
+      await expect(assertEnclaveGatewayReady(config(), env(server.endpoint), 1000))
+        .rejects.toThrow(/readiness request failed/);
+      expect(server.initializeAttempts()).toBe(1);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('does not retry a malformed backend-unavailable response', async () => {
+    const server = await listen([], {
+      initializationStatus: 503,
+      initializationBody: '{',
+    });
+    try {
+      await expect(assertEnclaveGatewayReady(config(), env(server.endpoint), 1000))
+        .rejects.toThrow(/readiness request failed/);
+      expect(server.initializeAttempts()).toBe(1);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('fails immediately on initialize JSON-RPC errors', async () => {
+    const server = await listen([], { initializationRpcError: true });
+    try {
+      await expect(assertEnclaveGatewayReady(config(), env(server.endpoint), 1000))
+        .rejects.toThrow(/initialize proof/);
+      expect(server.initializeAttempts()).toBe(1);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('rejects readiness responses above the framing bound', async () => {
+    const server = await listen([], { oversizedInitialization: true });
+    try {
+      await expect(assertEnclaveGatewayReady(config(), env(server.endpoint), 1000))
+        .rejects.toThrow(/framing bound/);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('caps each request by the remaining readiness deadline', async () => {
+    const server = await listen([], { hangInitialization: true });
+    const started = Date.now();
+    try {
+      await expect(assertEnclaveGatewayReady(config(), env(server.endpoint), 30))
+        .rejects.toThrow(/request timed out/);
+      expect(Date.now() - started).toBeLessThan(500);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('enforces the deadline while a gateway slowly streams response bytes', async () => {
+    const server = await listen([], { trickleInitialization: true });
+    const started = Date.now();
+    try {
+      await expect(assertEnclaveGatewayReady(config(), env(server.endpoint), 30))
+        .rejects.toThrow(/request timed out/);
+      expect(Date.now() - started).toBeLessThan(500);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('times out after retryable backend-unavailable responses exhaust the deadline', async () => {
+    const server = await listen([], { unavailableInitializations: 100 });
+    try {
+      await expect(assertEnclaveGatewayReady(config(), env(server.endpoint), 30))
+        .rejects.toThrow(/readiness timed out/);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('covers canonical tool validation and an expired request budget', () => {
+    expect(enclaveGatewayTestHelpers.canonicalToolSet('invalid')).toBe('invalid');
+    expect(enclaveGatewayTestHelpers.canonicalJson(undefined)).toBe('undefined');
+    expect(enclaveGatewayTestHelpers.canonicalToolSet([null])).toBe('invalid');
+    expect(enclaveGatewayTestHelpers.canonicalToolSet([
+      { name: 'duplicate' },
+      { name: 'duplicate' },
+    ])).toBe('invalid');
+    expect(enclaveGatewayTestHelpers.canonicalToolSet([
+      { name: 'z' },
+      { name: 'a' },
+    ])).toContain('"name":"a"');
+    expect(() => enclaveGatewayTestHelpers.remainingRequestBudget(Date.now() - 1))
+      .toThrow(/deadline expired/);
+  });
+
+  it('does not stop or disconnect anything when enclave cleanup is retained', async () => {
+    await shutdownEnclaveGateway({ ...config(), enclaves: undefined }, env());
+    await shutdownEnclaveGateway({ ...config(), keepContainers: true }, env());
+    expect(mockExeca).not.toHaveBeenCalled();
   });
 
   it('drains the AWF server and disconnects mcpg without stopping the external container', async () => {
@@ -254,8 +504,8 @@ describe('enclave mcpg handoff', () => {
     expect(mockExeca).toHaveBeenNthCalledWith(
       1,
       'docker',
-      ['compose', 'stop', '-t', '10', 'enclave-mcp-server'],
-      expect.objectContaining({ cwd: '/tmp/awf-test' }),
+      ['compose', 'stop', '-t', '630', 'enclave-mcp-server'],
+      expect.objectContaining({ cwd: '/tmp/awf-test', timeout: 645_000 }),
     );
     expect(mockExeca).toHaveBeenNthCalledWith(
       2,
@@ -264,5 +514,11 @@ describe('enclave mcpg handoff', () => {
       expect.anything(),
     );
     expect(mockExeca.mock.calls.flat().join(' ')).not.toMatch(/docker (?:stop|rm).*awmg-mcpg/);
+  });
+
+  it('does not disconnect mcpg when the enclave server fails to drain', async () => {
+    mockExeca.mockResolvedValueOnce({ exitCode: 1, stdout: '', stderr: 'failed' });
+    await expect(shutdownEnclaveGateway(config(), env())).rejects.toThrow(/Failed to drain/);
+    expect(mockExeca).toHaveBeenCalledTimes(1);
   });
 });

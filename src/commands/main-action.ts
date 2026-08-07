@@ -145,14 +145,14 @@ function buildCleanupFn(
       }
     }
 
-    // Copy iptables audit BEFORE stopping containers (volumes are destroyed by `docker compose down -v`)
+    // Drain enclave calls first, then preserve all audit artifacts before Compose removes volumes.
     if (getContainersStarted()) {
-      preserveIptablesAudit(config.workDir, config.auditDir);
       try {
         await shutdownEnclaveGateway(config);
       } catch (error) {
         logger.warn('Failed to stop the enclave gateway control path; continuing cleanup.', error);
       }
+      preserveIptablesAudit(config.workDir, config.auditDir);
       await stopContainers(config.workDir, config.keepContainers);
     }
 

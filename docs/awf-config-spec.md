@@ -2494,8 +2494,10 @@ coexist because they do not activate a runtime.
 The AWF-owned MCP server enforces the unified per-repository ledger for both
 executors: a script call and an agent call debit the same live balance, and
 switching executor kinds never resets or forks it. Both executors also share one
-serialization lane inside the server. Legacy brokers retain their existing
-independent behavior until runtime cutover.
+serialization lane inside the server. The HTTP surface admits only one tool call
+to that lane at a time; concurrent calls receive the same canonical error
+without entering a queue. Legacy brokers retain their existing independent
+behavior until runtime cutover.
 
 ### 16.1 Agent executor topology and disclosure
 
@@ -2523,13 +2525,14 @@ Enclaves require a compiler-generated handoff before staging:
 | `AWF_ENCLAVE_MCP_GATEWAY_ENDPOINT` | Host-reachable gateway route ending in `/mcp/awf-enclave` |
 | `AWF_ENCLAVE_MCP_READINESS_TIMEOUT_MS` | Optional bounded AWF end-to-end readiness window, 1000-600000 ms; default 120000 |
 
-All four names are unconditionally excluded from primary-agent environment
+All five names are unconditionally excluded from primary-agent environment
 passthrough. The mcpg upstream is named `awf-enclave`, uses
 `http://awf-enclave-mcp:8080/mcp`, supplies
 `Authorization: Bearer ${AWF_ENCLAVE_MCP_CAPABILITY}`, allowlists exactly the
 enabled enclave tool names, sets each upstream attempt's `connectTimeout` to 120
-seconds, and sets the per-tool timeout to 30 seconds more than the largest
-enabled executor timeout. `gateway.startupTimeout` is stdio-only and MUST NOT be
+seconds, and sets the per-tool timeout to 630 seconds (the maximum 600-second
+fixed disclosure bucket plus a bounded 30-second gateway allowance).
+`gateway.startupTimeout` is stdio-only and MUST NOT be
 used as the HTTP recovery bound.
 
 The compiler must also enable `network.isolation` and include the configured
@@ -2549,10 +2552,15 @@ release after v0.4.8 containing github/gh-aw-mcpg#10784. Until the upstream is
 available, mcpg returns retryable HTTP 503 `backend_unavailable`; AWF retries
 `initialize` with a bounded 500 ms backoff until
 `AWF_ENCLAVE_MCP_READINESS_TIMEOUT_MS` expires. AWF does not log the 503 response
-body, request headers, bearer capability, or other secret material.
+body, request headers, bearer capability, or other secret material. Any other
+HTTP response, malformed recovery response, authentication failure, protocol
+failure, or tool-contract mismatch fails immediately. Every readiness request is
+capped by the remaining AWF readiness budget, so the configured deadline is a
+hard upper bound for the complete handshake.
 
-On shutdown AWF stops the primary-agent work first, sends the server a bounded
-graceful stop to close admissions and drain calls, disconnects but does not stop
+On shutdown AWF stops the primary-agent work first, sends the server a
+630-second bounded graceful stop covering the maximum fixed disclosure bucket
+plus the stop allowance to close admissions and drain calls, disconnects but does not stop
 the externally owned gateway, then lets Compose remove the AWF-owned control
 network and private service.
 

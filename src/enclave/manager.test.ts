@@ -4,9 +4,16 @@ import * as path from 'path';
 import execa from 'execa';
 import { normalizeEnclavesConfig } from '../parsers/enclave-parser';
 import type { WrapperConfig } from '../types';
-import { prepareEnclaves, teardownEnclaves } from './manager';
+import {
+  isEnclaveAgentEnabled,
+  isEnclaveScriptEnabled,
+  prepareEnclaves,
+  teardownEnclaves,
+} from './manager';
 import { releaseSeedPermissions, type GitRunner } from '../bounded-query/staging';
 import { resolveEnclavePaths } from './paths';
+import * as boundedQueryPreflight from '../bounded-query/preflight';
+import * as boundedAgentPreflight from '../bounded-agent/preflight';
 
 const gitRunner: GitRunner = async (args) => {
   if (args.includes('clone')) {
@@ -136,10 +143,38 @@ describe('prepareEnclaves fail-closed preflight', () => {
       assertScriptRuntimeAvailable,
       assertAgentRuntimeAvailable,
     });
+
     expect(assertScriptRuntimeAvailable).toHaveBeenCalledTimes(1);
     expect(assertAgentRuntimeAvailable).toHaveBeenCalledWith(
       expect.objectContaining({ enabled: true, runtime: 'docker', model: 'gpt-test' }),
     );
+  });
+
+  it('uses the default runtime proofs for enabled executors', async () => {
+    const scriptProof = jest.spyOn(boundedQueryPreflight, 'assertQueryRuntimeAvailable')
+      .mockResolvedValueOnce(undefined);
+    const agentProof = jest.spyOn(boundedAgentPreflight, 'assertEnclaveRuntimeAvailable')
+      .mockResolvedValueOnce(undefined);
+    const wrapperConfig = agentConfig(workDir, {
+      executors: {
+        script: { enabled: true },
+        agent: { enabled: true, model: 'gpt-test' },
+      },
+    });
+    try {
+      await prepareToleratingPrivateRootIo(wrapperConfig, {
+        env: enclaveEnv(),
+        gitRunner,
+        assertPrimaryAvailable: jest.fn().mockResolvedValue(undefined),
+      });
+      expect(scriptProof).toHaveBeenCalledTimes(1);
+      expect(agentProof).toHaveBeenCalledTimes(1);
+      expect(isEnclaveScriptEnabled(wrapperConfig)).toBe(true);
+      expect(isEnclaveAgentEnabled(wrapperConfig)).toBe(true);
+    } finally {
+      scriptProof.mockRestore();
+      agentProof.mockRestore();
+    }
   });
 
   it('never probes a disabled executor runtime', async () => {

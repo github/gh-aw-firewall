@@ -102,7 +102,9 @@ repositories, sensitivity, remaining budget, invocation counts, runtime, engine,
 profile, or model configuration. Admitted executions debit the *same* live
 per-repository ledger under executor kind `script` or `agent`; both executors
 also share one serialization lane, so at most one enclave holds private
-repository content at a time.
+repository content at a time. The HTTP surface admits at most one tool call into
+that lane; a concurrent call receives the canonical error immediately rather
+than creating an unbounded queue of fixed timing buckets.
 
 ### Agent executor isolation
 
@@ -143,8 +145,10 @@ applies only to stdio process startup and does not extend HTTP attempts. While
 the HTTP upstream is unavailable, mcpg returns retryable HTTP 503
 `backend_unavailable`. AWF retries the complete `initialize` handshake with a
 bounded 500 ms backoff until `AWF_ENCLAVE_MCP_READINESS_TIMEOUT_MS` expires.
-Neither component may silently downgrade or bypass the gateway while waiting,
-and readiness errors never log response bodies, headers, or capabilities.
+Each request is capped by the remaining readiness budget. All other HTTP,
+authentication, protocol, and tool-contract failures are terminal. Neither
+component may silently downgrade or bypass the gateway while waiting, and
+readiness errors never log response bodies, headers, or capabilities.
 
 The primary agent must not start until AWF has proved readiness end to end:
 
@@ -175,14 +179,14 @@ The compiler must generate this upstream entry before starting `awmg-mcpg`:
     },
     "tools": ["enclave_run_script", "enclave_run_agent"],
     "connectTimeout": 120,
-    "toolTimeout": 150
+    "toolTimeout": 630
   }
 }
 ```
 
-The `tools` array must contain only enabled executor tools. `toolTimeout` is 30
-seconds greater than the largest enabled executor timeout (150 in the example).
-The compiler must
+The `tools` array must contain only enabled executor tools. `toolTimeout` is 630
+seconds: the maximum 600-second fixed disclosure bucket plus a bounded 30-second
+gateway transport allowance. The compiler must
 generate a fresh 64-character lowercase hexadecimal
 `AWF_ENCLAVE_MCP_CAPABILITY`, pass it to mcpg for header substitution and to the
 AWF host process, and never pass it to the primary agent. It must also:
@@ -222,9 +226,10 @@ alternate path to the enclave server.
 
 ### Shutdown
 
-After primary-agent work stops, AWF sends the enclave server `SIGTERM`. The
-server closes admissions, drains the single execution lane within Docker's
-bounded stop grace, reconciles labelled enclaves, and exits. AWF then disconnects
+After primary-agent work stops, AWF sends the enclave server `SIGTERM` with a
+630-second bounded stop grace: the maximum 600-second fixed disclosure bucket
+plus a 30-second stop allowance. The server closes admissions, drains the single execution lane,
+reconciles labelled enclaves, and exits. AWF then disconnects
 the external gateway from `awf-enclave-mcp-control`; Compose removes the
 AWF-owned server and network, and host cleanup removes the private roots. AWF
 never stops or removes `awmg-mcpg`.

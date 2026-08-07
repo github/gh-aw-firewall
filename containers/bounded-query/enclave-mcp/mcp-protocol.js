@@ -11,6 +11,13 @@ const TOOL_NAME = 'enclave_run_script';
 const AGENT_TOOL_NAME = 'enclave_run_agent';
 const JSONRPC_ERROR = Object.freeze({ status: 'error' });
 
+function canonicalToolError() {
+  return {
+    content: [{ type: 'text', text: '{"status":"error"}' }],
+    structuredContent: JSONRPC_ERROR,
+  };
+}
+
 const FINITE_SCHEMA_INPUT = Object.freeze({
   type: 'object',
   description: 'An AWF finite-disclosure schema (const, boolean, enum, integer, object, tuple, array, or union).',
@@ -145,10 +152,7 @@ function brokerCall(broker, request) {
     broker.handle(request, (canonicalJson) => {
       const parsed = strictParseJson(canonicalJson);
       if (!parsed || !parsed.value || parsed.value.status !== 'ok') {
-        resolve({
-          content: [{ type: 'text', text: '{"status":"error"}' }],
-          structuredContent: JSONRPC_ERROR,
-        });
+        resolve(canonicalToolError());
         return;
       }
       resolve({
@@ -216,7 +220,18 @@ async function dispatchJsonRpc(message, deps) {
       && Buffer.byteLength(args[payloadKey], 'utf8') > limit
     );
     const request = tooLarge ? undefined : args;
-    return rpcResult(message.id, await brokerCall(brokers[name], request));
+    let release;
+    if (typeof deps.tryAcquireToolCall === 'function') {
+      release = deps.tryAcquireToolCall();
+      if (typeof release !== 'function') {
+        return rpcResult(message.id, canonicalToolError());
+      }
+    }
+    try {
+      return rpcResult(message.id, await brokerCall(brokers[name], request));
+    } finally {
+      if (release) release();
+    }
   }
 
   return rpcError(message.id, -32601, 'Method not found');

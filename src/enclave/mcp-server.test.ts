@@ -10,6 +10,7 @@ const {
 } = require(path.join(root, 'enclave-mcp', 'mcp-protocol.js'));
 const {
   createMcpServer,
+  createSingleToolAdmission,
   safeCapabilityEquals,
 } = require(path.join(root, 'enclave-mcp', 'server.js'));
 const { createBroker } = require(path.join(root, 'broker', 'broker.js'));
@@ -141,9 +142,46 @@ describe('AWF enclave MCP protocol', () => {
     await expect(dispatchJsonRpc(rpc('unknown'), deps)).resolves.toMatchObject({
       error: { code: -32601 },
     });
+
     await expect(dispatchJsonRpc(rpc('tools/call', { name: 'other', arguments: {} }), deps))
       .resolves.toMatchObject({ error: { code: -32602 } });
     expect(parseJsonRpcBody(Buffer.from('{"jsonrpc":"2.0","id":1,"id":2}'))).toBeUndefined();
+  });
+
+  it('admits only one unified enclave tool call at a time', async () => {
+    const tryAcquireToolCall = createSingleToolAdmission();
+    let finishFirst: (() => void) | undefined;
+    const broker = {
+      handle: (_request: unknown, respond: (value: string) => void) => new Promise<void>((resolve) => {
+        finishFirst = () => {
+          respond('{"status":"ok","result":true}');
+          resolve();
+        };
+      }),
+    };
+    const deps = { broker, maxScriptBytes: 65536, tryAcquireToolCall };
+    const first = dispatchJsonRpc(rpc('tools/call', {
+      name: TOOL_NAME,
+      arguments: validArguments,
+    }), deps);
+    await Promise.resolve();
+    const busy = await dispatchJsonRpc(rpc('tools/call', {
+      name: TOOL_NAME,
+      arguments: validArguments,
+    }), deps);
+
+    expect(busy.result).toEqual({
+      content: [{ type: 'text', text: '{"status":"error"}' }],
+      structuredContent: { status: 'error' },
+    });
+    finishFirst!();
+    await expect(first).resolves.toMatchObject({
+      result: { structuredContent: { status: 'ok', result: true } },
+    });
+
+    const release = tryAcquireToolCall();
+    expect(release).toEqual(expect.any(Function));
+    release();
   });
 
   it('authenticates a private bearer capability in constant-length comparisons', () => {

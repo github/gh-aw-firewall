@@ -67,7 +67,22 @@ function readBody(req) {
   });
 }
 
+function createSingleToolAdmission() {
+  let active = false;
+  return () => {
+    if (active) return undefined;
+    active = true;
+    return () => {
+      active = false;
+    };
+  };
+}
+
 function createMcpServer(deps) {
+  const dispatchDeps = {
+    ...deps,
+    tryAcquireToolCall: createSingleToolAdmission(),
+  };
   const server = http.createServer({ maxHeaderSize: 8 * 1024 }, async (req, res) => {
     const authorizationHeaders = req.rawHeaders.filter(
       (_value, index) => index % 2 === 0 && req.rawHeaders[index].toLowerCase() === 'authorization',
@@ -105,7 +120,7 @@ function createMcpServer(deps) {
 
     let response;
     try {
-      response = await dispatchJsonRpc(message, deps);
+      response = await dispatchJsonRpc(message, dispatchDeps);
     } catch {
       jsonResponse(res, 200, {
         jsonrpc: '2.0',
@@ -273,6 +288,7 @@ if (require.main === module) {
 module.exports = {
   MAX_HTTP_BODY_BYTES,
   createMcpServer,
+  createSingleToolAdmission,
   listenOnPrivateNetwork,
   safeCapabilityEquals,
 };

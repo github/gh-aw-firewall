@@ -1,6 +1,7 @@
 import * as http from 'http';
 import * as https from 'https';
 import execa from 'execa';
+import { TIMING_BUCKETS_MS } from '../bounded-execution';
 import { ENCLAVE_MCP_SERVER_CONTAINER_NAME } from '../constants';
 import { getLocalDockerEnv } from '../docker-host';
 import type { WrapperConfig } from '../types';
@@ -22,6 +23,7 @@ const DEFAULT_READINESS_TIMEOUT_MS = 120_000;
 const REQUEST_TIMEOUT_MS = 5_000;
 const RETRY_DELAY_MS = 500;
 const MCP_PROTOCOL_VERSION = '2025-06-18';
+const ENCLAVE_MCP_OPERATION_TIMEOUT_SECONDS = Math.max(...TIMING_BUCKETS_MS) / 1_000 + 30;
 
 interface EnclaveGatewayContract {
   capability: string;
@@ -57,6 +59,13 @@ interface JsonRpcResponse {
   id?: unknown;
   result?: unknown;
   error?: unknown;
+}
+
+class GatewayReadinessError extends Error {
+  constructor(message: string, readonly retryable = false) {
+    super(message);
+    this.name = 'GatewayReadinessError';
+  }
 }
 
 const finiteSchemaInput = {
@@ -130,10 +139,7 @@ export function buildEnclaveMcpgUpstreamContract(config: WrapperConfig): Enclave
       headers: { Authorization: 'Bearer ' + '$' + `{${ENCLAVE_MCP_CAPABILITY_ENV}}` },
       tools: expectedTools(config).map((tool) => String(tool.name)),
       connectTimeout: 120,
-      toolTimeout: Math.max(
-        config.enclaves.executors.script.enabled ? config.enclaves.executors.script.timeout : 0,
-        config.enclaves.executors.agent.enabled ? config.enclaves.executors.agent.timeout : 0,
-      ) + 30,
+      toolTimeout: ENCLAVE_MCP_OPERATION_TIMEOUT_SECONDS,
     },
     handoff: {
       capabilityEnv: ENCLAVE_MCP_CAPABILITY_ENV,
@@ -281,9 +287,18 @@ export async function connectEnclaveGateway(
 function postJsonRpc(
   endpoint: URL,
   body: Record<string, unknown>,
+  timeoutMs: number,
   sessionId?: string,
 ): Promise<{ response: JsonRpcResponse; sessionId?: string }> {
   return new Promise((resolve, reject) => {
+    const resolveBounded = (value: { response: JsonRpcResponse; sessionId?: string }): void => {
+      clearTimeout(deadlineTimer);
+      resolve(value);
+    };
+    const rejectBounded = (error: Error): void => {
+      clearTimeout(deadlineTimer);
+      reject(error);
+    };
     const payload = Buffer.from(JSON.stringify(body), 'utf8');
     const transport = endpoint.protocol === 'https:' ? https : http;
     const request = transport.request(endpoint, {
@@ -294,7 +309,7 @@ function postJsonRpc(
         'content-length': String(payload.length),
         ...(sessionId ? { 'mcp-session-id': sessionId } : {}),
       },
-      timeout: REQUEST_TIMEOUT_MS,
+      timeout: timeoutMs,
     }, (response) => {
       const chunks: Buffer[] = [];
       let total = 0;
@@ -308,11 +323,31 @@ function postJsonRpc(
       });
       response.on('end', () => {
         try {
+          const raw = Buffer.concat(chunks).toString('utf8');
           if (response.statusCode !== 200 && response.statusCode !== 202) {
-            reject(new Error('Gateway readiness request failed'));
+            if (response.statusCode === 503) {
+              try {
+                const unavailable = JSON.parse(raw) as {
+                  error?: unknown;
+                  retryable?: unknown;
+                };
+                if (
+                  unavailable.error === 'backend_unavailable'
+                  && unavailable.retryable === true
+                ) {
+                  rejectBounded(new GatewayReadinessError(
+                    'Gateway backend is not yet available',
+                    true,
+                  ));
+                  return;
+                }
+              } catch {
+                // The response is permanent unless it matches the documented recovery shape.
+              }
+            }
+            rejectBounded(new GatewayReadinessError('Gateway readiness request failed'));
             return;
           }
-          const raw = Buffer.concat(chunks).toString('utf8');
           const contentType = String(response.headers['content-type'] ?? '');
           const events = raw
             .split(/\r?\n/)
@@ -324,17 +359,24 @@ function postJsonRpc(
             : raw;
           const parsed = !jsonText ? {} : JSON.parse(jsonText) as JsonRpcResponse;
           const returnedSession = response.headers['mcp-session-id'];
-          resolve({
+          resolveBounded({
             response: parsed,
             sessionId: typeof returnedSession === 'string' ? returnedSession : sessionId,
           });
         } catch {
-          reject(new Error('Gateway readiness response was not bounded JSON'));
+          rejectBounded(new GatewayReadinessError(
+            'Gateway readiness response was not bounded JSON',
+          ));
         }
       });
     });
-    request.on('timeout', () => request.destroy(new Error('Gateway readiness request timed out')));
-    request.on('error', reject);
+    request.on('timeout', () => request.destroy(
+      new GatewayReadinessError('Gateway readiness request timed out'),
+    ));
+    request.on('error', rejectBounded);
+    const deadlineTimer = setTimeout(() => request.destroy(
+      new GatewayReadinessError('Gateway readiness request timed out'),
+    ), timeoutMs);
     request.end(payload);
   });
 }
@@ -368,7 +410,18 @@ function canonicalToolSet(value: unknown): string {
   )));
 }
 
-async function proveGatewayReadiness(contract: EnclaveGatewayContract): Promise<void> {
+function remainingRequestBudget(deadline: number): number {
+  const remaining = deadline - Date.now();
+  if (remaining <= 0) {
+    throw new GatewayReadinessError('Gateway readiness deadline expired');
+  }
+  return Math.min(REQUEST_TIMEOUT_MS, remaining);
+}
+
+async function proveGatewayReadiness(
+  contract: EnclaveGatewayContract,
+  deadline: number,
+): Promise<void> {
   const initialized = await postJsonRpc(contract.endpoint, {
     jsonrpc: '2.0',
     id: 1,
@@ -378,7 +431,7 @@ async function proveGatewayReadiness(contract: EnclaveGatewayContract): Promise<
       capabilities: {},
       clientInfo: { name: 'awf-readiness', version: '1.0.0' },
     },
-  });
+  }, remainingRequestBudget(deadline));
   const result = initialized.response.result as { serverInfo?: { name?: string } } | undefined;
   if (initialized.response.error || result?.serverInfo?.name !== 'awf-enclave') {
     throw new Error('Gateway initialize proof did not reach the AWF enclave server');
@@ -386,13 +439,13 @@ async function proveGatewayReadiness(contract: EnclaveGatewayContract): Promise<
   await postJsonRpc(contract.endpoint, {
     jsonrpc: '2.0',
     method: 'notifications/initialized',
-  }, initialized.sessionId);
+  }, remainingRequestBudget(deadline), initialized.sessionId);
   const listed = await postJsonRpc(contract.endpoint, {
     jsonrpc: '2.0',
     id: 2,
     method: 'tools/list',
     params: {},
-  }, initialized.sessionId);
+  }, remainingRequestBudget(deadline), initialized.sessionId);
   const tools = (listed.response.result as { tools?: unknown })?.tools;
   if (canonicalToolSet(tools) !== canonicalToolSet(contract.expectedTools)) {
     throw new Error('Gateway enclave tool contract did not exactly match the enabled executors');
@@ -409,9 +462,12 @@ export async function assertEnclaveGatewayReady(
   let lastError: unknown;
   do {
     try {
-      await proveGatewayReadiness(contract);
+      await proveGatewayReadiness(contract, deadline);
       return;
     } catch (error) {
+      if (!(error instanceof GatewayReadinessError) || !error.retryable) {
+        throw error;
+      }
       lastError = error;
       const remaining = deadline - Date.now();
       if (remaining > 0) {
@@ -432,11 +488,20 @@ export async function shutdownEnclaveGateway(
 ): Promise<void> {
   if (!config.enclaves?.enabled || config.keepContainers) return;
   const contract = resolveEnclaveGatewayContract(config, env);
-  await execa(
+  const drainTimeoutSeconds = ENCLAVE_MCP_OPERATION_TIMEOUT_SECONDS;
+  const stopped = await execa(
     'docker',
-    ['compose', 'stop', '-t', '10', 'enclave-mcp-server'],
-    { cwd: config.workDir, env: getLocalDockerEnv(), reject: false, timeout: 15_000 },
+    ['compose', 'stop', '-t', String(drainTimeoutSeconds), 'enclave-mcp-server'],
+    {
+      cwd: config.workDir,
+      env: getLocalDockerEnv(),
+      reject: false,
+      timeout: (drainTimeoutSeconds + 15) * 1_000,
+    },
   );
+  if (stopped.exitCode !== 0) {
+    throw new Error('Failed to drain the enclave MCP server before audit preservation');
+  }
   await execa(
     'docker',
     ['network', 'disconnect', '-f', ENCLAVE_MCP_CONTROL_NETWORK, contract.containerName],
@@ -451,5 +516,6 @@ export const enclaveGatewayTestHelpers = {
   expectedTools,
   inspectGateway,
   proveGatewayReadiness,
+  remainingRequestBudget,
   scriptTool,
 };
