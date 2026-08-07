@@ -65,14 +65,7 @@ jobs:
       - name: Compile + generate SBOMs (Syft)
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          # These sources require unreleased gh-aw bounded-query frontmatter.
-          # Their committed lock manifests are still scanned by the steps below.
-          mapfile -t workflows < <(
-            find .github/workflows -maxdepth 1 -name '*.md' \
-              ! -name 'smoke-bounded-queries*.md' -print
-          )
-          gh aw compile --syft "${workflows[@]}"
+        run: gh aw compile --syft .github/workflows/*.md
 
       - name: Authenticate to GHCR for image scanning
         run: echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
@@ -164,7 +157,7 @@ jobs:
           PYEOF
 
       - name: Build and scan PR container images (BLOCKING gate, Grype v0.116.0)
-        # Builds agent, api-proxy, cli-proxy, and gh-aw-node from the Dockerfiles in
+        # Builds every production image from the Dockerfiles in
         # this PR and scans them with --fail-on high. This is the BLOCKING supply-chain
         # gate: it is the only scan that reflects the CVE fixes in a PR, so a
         # High/Critical finding here fails the job.
@@ -176,17 +169,20 @@ jobs:
           cwd = os.getcwd()
           db_cache = os.environ['GRYPE_DB']
           containers = [
-              ('agent',       'containers/agent'),
-              ('api-proxy',   'containers/api-proxy'),
-              ('cli-proxy',   'containers/cli-proxy'),
-              ('gh-aw-node',  'containers/gh-aw-node'),
+              ('agent',               'containers/agent',     []),
+              ('api-proxy',           'containers/api-proxy', []),
+              ('cli-proxy',           'containers/cli-proxy', []),
+              ('gh-aw-node',          'containers/gh-aw-node', []),
+              ('enclave-script',      'containers', ['-f', 'containers/enclave/Dockerfile', '--target', 'enclave-script']),
+              ('enclave-agent',       'containers', ['-f', 'containers/enclave/Dockerfile', '--target', 'enclave-agent']),
+              ('enclave-mcp-server',  'containers', ['-f', 'containers/enclave/Dockerfile', '--target', 'enclave-mcp-server']),
           ]
           rc = 0
-          for name, context in containers:
+          for name, context, build_args in containers:
               tag = f'awf-pr-scan-{name}:pr'
               tar = f'/tmp/awf-pr-scan-{name}.tar'
               print(f'::group::docker build {name}', flush=True)
-              b = subprocess.run(['docker', 'build', '-t', tag, context])
+              b = subprocess.run(['docker', 'build', *build_args, '-t', tag, context])
               print('::endgroup::', flush=True)
               if b.returncode != 0:
                   print(f'::error::docker build failed for {name}', flush=True)

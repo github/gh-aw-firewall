@@ -10,6 +10,80 @@
 # Format reference: https://github.com/anchore/grype?tab=readme-ov-file#configuration
 
 ignore:
+  # ── Node.js 22.23.2 Permission Model false positive ───────────────────────────
+  #
+  # CVE-2026-58043 (Node.js Permission Model path matching, HIGH):
+  #   Grype reports this against Node.js 22.23.2 because its advisory record has
+  #   no affected-version bounds. It also reports the finding against the patched
+  #   24.18.1 and 26.5.1 security releases.
+  #
+  #   Node.js 22.23.2 is the official July 29, 2026 security release for the 22.x
+  #   line. The Node.js security announcement lists CVE-2026-58043 among the
+  #   issues fixed by the newly available 22.x, 24.x, and 26.x updates:
+  #   https://nodejs.org/en/blog/vulnerability/july-2026-security-releases
+  #
+  #   Defense in depth: the vulnerable code is only active under Node's
+  #   experimental `--permission` model. AWF does not invoke Node with
+  #   `--permission`, `--allow-fs-read`, or `--allow-fs-write`; filesystem
+  #   isolation is enforced by the container/chroot and bind-mount policy.
+  #
+  #   This exception is scoped to the patched Node.js 22.23.2 binary only. Delete
+  #   it once Grype publishes corrected affected-version metadata.
+  - vulnerability: CVE-2026-58043
+    package:
+      name: node
+      version: "22.23.2"
+      type: binary
+  - vulnerability: CVE-2026-58043
+    package:
+      name: node
+      version: "24.18.1"
+      type: binary
+
+  # ── CPython 3.14.7 corrected affected-version metadata ──────────────────────
+  #
+  # The Python CNA records for these findings mark 3.14.0 through 3.14.6 as
+  # affected and 3.14.7 as fixed. Grype v0.116.0 instead reports 3.14.7 as
+  # vulnerable and lists only 3.15 prereleases as fixes. Keep these exceptions
+  # scoped to the patched 3.14.7 binary and remove them after Grype corrects its
+  # affected-version ranges.
+  - vulnerability: CVE-2026-11940
+    package:
+      name: python
+      version: "3.14.7"
+      type: binary
+  - vulnerability: CVE-2026-15308
+    package:
+      name: python
+      version: "3.14.7"
+      type: binary
+  - vulnerability: CVE-2026-11972
+    package:
+      name: python
+      version: "3.14.7"
+      type: binary
+
+  # ── stdlib@go1.26.3 embedded in Alpine docker-cli ───────────────────────────
+  #
+  # GO-2026-5037 (crypto/x509 VerifyHostname quadratic processing, HIGH):
+  #   A certificate with many DNS SAN entries can make hostname verification
+  #   disproportionately expensive.
+  #
+  #   Risk acceptance — NOT REACHABLE in this image:
+  #     The enclave MCP server invokes /usr/bin/docker only through the local
+  #     Docker Unix socket. It never configures a TCP/TLS Docker endpoint, so the
+  #     affected x509 hostname-verification path cannot execute.
+  #
+  #   No fixed Alpine package is available today: docker-cli 29.5.3-r0 is the
+  #   latest alpine3.24 package and was built with Go 1.26.3. Revisit when Alpine
+  #   publishes a docker-cli build using Go >= 1.26.4.
+  - vulnerability: GO-2026-5037
+    package:
+      name: stdlib
+      version: "go1.26.3"
+      type: go-module
+      location: "/usr/bin/docker"
+
   # ── stdlib@go1.24.6 embedded in gosu binary ──────────────────────────────────
   #
   # GO-2026-4337 (stdlib go1.24.6 -> 1.24.13 / 1.25.7 / 1.26.0-rc.3, CRITICAL):

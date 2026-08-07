@@ -145,12 +145,8 @@ export function mapAwfFileConfigToCliOptions(config: AwfFileConfig): Record<stri
     runnerTopology: config.runner?.topology,
     sysrootImage: config.runner?.sysrootImage,
 
-    // No CLI flags exist for bounded queries yet — passed through as a raw
-    // object and normalized (defaults applied) in commands/build-config.ts.
-    boundedQueries: config.boundedQueries,
-
-    // Bounded agents are config-only for the same reason: the surface is a
-    // trusted enclave contract, not an operator-tunable command line.
-    boundedAgents: config.boundedAgents,
+    // Unified enclaves remain config-only; executor controls are trusted AWF
+    // configuration and are never projected onto invocation arguments.
+    enclaves: config.enclaves,
   };
 }

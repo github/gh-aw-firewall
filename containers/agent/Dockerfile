@@ -28,7 +28,7 @@ RUN if getent hosts azure.archive.ubuntu.com >/dev/null 2>&1; then \
       echo "Azure apt mirror not reachable, using default archive.ubuntu.com"; \
     fi
 
-# Install required packages, GitHub CLI 2.97.0, Node.js 22.23.1, and npm 11.18.0
+# Install required packages, GitHub CLI 2.97.0, Node.js 22.23.2, and npm 11.18.0
 # Note: Some packages may already exist in runner-like base images, apt handles this gracefully
 # apt_update_retry: retries up to 3 times with backoff; if all fail, reverts to archive.ubuntu.com
 RUN set -eux; \
@@ -104,26 +104,26 @@ RUN set -eux; \
         > /etc/apt/sources.list.d/github-cli.list && \
     apt-get update && \
     apt_install_retry gh=2.97.0 && \
-    # Install Node.js 22.23.1 from the official Node.js binary distribution
+    # Install Node.js 22.23.2 from the official Node.js binary distribution
     # (nodejs.org), NOT the NodeSource apt repo. The NodeSource .deb is tracked by
     # a Debian/NodeSource security feed that yields false-positive CVE matches
     # (e.g. CVE-2023-44487 and CVE-2026-45447) against a binary that is already
-    # patched (22.23.1 bundles OpenSSL 3.5.7). The official tarball carries no .deb
+    # patched (22.23.2 bundles OpenSSL 3.5.7). The official tarball carries no .deb
     # metadata, so grype matches it via NVD CPE data instead, which correctly
-    # excludes 22.23.1 for both CVEs.
-    # Checksums sourced from https://nodejs.org/dist/v22.23.1/SHASUMS256.txt
+    # excludes 22.23.2 for both CVEs.
+    # Checksums sourced from https://nodejs.org/dist/v22.23.2/SHASUMS256.txt
     # Note: node --version segfaults under QEMU arm64 emulation, so detect QEMU
     # and skip the runtime version check there.
     UNDER_QEMU=false && \
     if [ -f /dev/.buildkit_qemu_emulator ] || [ -n "${QEMU_CPU:-}" ]; then UNDER_QEMU=true; fi && \
     # Remove any existing nodejs packages first to avoid conflicting detections
     (apt-get remove -y nodejs npm || true) && \
-    NODE_VERSION="v22.23.1" && \
+    NODE_VERSION="v22.23.2" && \
     NODE_DPKG_ARCH="$(dpkg --print-architecture)" && \
     case "$NODE_DPKG_ARCH" in \
-      amd64) NODE_ARCH="x64";    NODE_SHA256="7a8cb04b4a1df4eaf432125324b81b29a088e73570a23259a8de1c65d07fc129" ;; \
-      arm64) NODE_ARCH="arm64";  NODE_SHA256="543fa39e57d4c07855939459a323f4deb9a79dd1bb45e6e99458b0f2de10db8d" ;; \
-      armhf) NODE_ARCH="armv7l"; NODE_SHA256="03c56ac0bd3ef3cce967c2f7b2f7ac2259a4ae7ceeaa661291aadf65729a8b53" ;; \
+      amd64) NODE_ARCH="x64";    NODE_SHA256="b294a556e639d64338823920e5866c21c02741742d2e1529ee1a225c1ec9252a" ;; \
+      arm64) NODE_ARCH="arm64";  NODE_SHA256="013b59cfd2819703a6f4a14ab891fc46fc2a4e3f5bcd92de3fb4929b43e35b30" ;; \
+      armhf) NODE_ARCH="armv7l"; NODE_SHA256="2a2f59eb8fd9dec27b3bee17c729131d1fd3e6d9943d479f1156ce38af8cd599" ;; \
       *) echo "Unsupported architecture for Node.js: $NODE_DPKG_ARCH" >&2; exit 1 ;; \
     esac && \
     NODE_TARBALL="node-${NODE_VERSION}-linux-${NODE_ARCH}.tar.gz" && \
@@ -134,12 +134,12 @@ RUN set -eux; \
     rm -f "/tmp/${NODE_TARBALL}" && \
     # Hold gh so the later apt-get upgrade does not silently replace the pinned version
     apt-mark hold gh && \
-    # Verify Node.js 22.23.1 was installed correctly (skip node exec under QEMU — segfaults)
+    # Verify Node.js 22.23.2 was installed correctly (skip node exec under QEMU — segfaults)
     if [ "$UNDER_QEMU" = "true" ]; then \
         echo "Skipping node --version check (QEMU emulation detected)" && \
         test -x /usr/local/bin/node || (echo "ERROR: /usr/local/bin/node missing" && exit 1); \
     else \
-        node --version | grep -qE '^v22\.23\.1' || (echo "ERROR: Node.js 22.23.1 not installed correctly" && exit 1) && \
+        node --version | grep -qE '^v22\.23\.2' || (echo "ERROR: Node.js 22.23.2 not installed correctly" && exit 1) && \
         npx --version || (echo "ERROR: npx not found" && exit 1); \
     fi && \
     # Replace Node's bundled npm 10.x with npm 11.18.0
@@ -272,18 +272,14 @@ RUN if ! getent group awfuser >/dev/null 2>&1; then \
     chown -R awfuser:awfuser /home/awfuser
 
 # Copy iptables setup script, PID logger, API proxy health check, Claude key helper,
-# gh CLI proxy wrapper (used when --enable-cli-proxy is active), and the
-# bounded-query wrapper (installed as `bounded-query` when bounded queries are enabled),
-# and the bounded-agent wrapper (installed as `bounded-agent` when bounded agents are enabled)
+# gh CLI proxy wrapper (used when --enable-cli-proxy is active)
 COPY setup-iptables.sh /usr/local/bin/setup-iptables.sh
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY pid-logger.sh /usr/local/bin/pid-logger.sh
 COPY api-proxy-health-check.sh /usr/local/bin/api-proxy-health-check.sh
 COPY get-claude-key.sh /usr/local/bin/get-claude-key.sh
 COPY gh-cli-proxy-wrapper.sh /usr/local/bin/gh-cli-proxy-wrapper.sh
-COPY bounded-query-wrapper.sh /usr/local/bin/bounded-query-wrapper.sh
-COPY bounded-agent-wrapper.sh /usr/local/bin/bounded-agent-wrapper.sh
-RUN chmod +x /usr/local/bin/setup-iptables.sh /usr/local/bin/entrypoint.sh /usr/local/bin/pid-logger.sh /usr/local/bin/api-proxy-health-check.sh /usr/local/bin/get-claude-key.sh /usr/local/bin/gh-cli-proxy-wrapper.sh /usr/local/bin/bounded-query-wrapper.sh /usr/local/bin/bounded-agent-wrapper.sh
+RUN chmod +x /usr/local/bin/setup-iptables.sh /usr/local/bin/entrypoint.sh /usr/local/bin/pid-logger.sh /usr/local/bin/api-proxy-health-check.sh /usr/local/bin/get-claude-key.sh /usr/local/bin/gh-cli-proxy-wrapper.sh
 
 # Copy pre-built one-shot-token library from rust-builder stage
 # This prevents tokens from being read multiple times (e.g., by malicious code)

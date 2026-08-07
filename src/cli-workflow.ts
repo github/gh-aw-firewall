@@ -5,6 +5,7 @@ import { parseDifcProxyHost } from './docker-manager';
 import { CLI_PROXY_IP, DOH_PROXY_IP, SQUID_IP, API_PROXY_IP } from './host-iptables-shared';
 import { buildInternalServiceHosts } from './services/internal-service-hosts';
 import { TOPOLOGY_NETWORK_NAME, getTopologyContainerIps, patchComposeWithTopologyHosts } from './topology';
+import { validateEnclavesConfig } from './enclave/preflight';
 
 /**
  * Dependencies injected into the main workflow.
@@ -22,7 +23,14 @@ interface WorkflowDependencies {
   ensureFirewallNetwork: () => Promise<{ squidIp: string; agentIp: string; proxyIp: string; subnet: string }>;
   setupHostIptables: (squidIp: string, port: number, dnsServers: string[], apiProxyIp?: string, dohProxyIp?: string, hostAccess?: HostAccessConfig, cliProxyConfig?: CliProxyHostConfig) => Promise<void>;
   writeConfigs: (config: WrapperConfig) => Promise<void>;
-  startContainers: (workDir: string, allowedDomains: string[], proxyLogsDir?: string, skipPull?: boolean, onNetworkReady?: () => Promise<void>) => Promise<void>;
+  startContainers: (
+    workDir: string,
+    allowedDomains: string[],
+    proxyLogsDir?: string,
+    skipPull?: boolean,
+    onNetworkReady?: () => Promise<void>,
+    onInfrastructureReady?: () => Promise<void>,
+  ) => Promise<void>;
   runAgentCommand: (
     workDir: string,
     allowedDomains: string[],
@@ -30,23 +38,8 @@ interface WorkflowDependencies {
     agentTimeoutMinutes?: number
   ) => Promise<{ exitCode: number }>;
   collectDiagnosticLogs?: (workDir: string) => Promise<void>;
-  /**
-   * Trusted bounded-query staging. Runs before any configuration is generated
-   * and before any container exists, so the staging credential is consumed and
-   * discarded before the broker, the agent, or a probe can observe anything.
-   *
-   * Rejecting aborts the run: the primary agent must never start when staging
-   * failed.
-   */
-  prepareBoundedQueries?: (config: WrapperConfig) => Promise<void>;
-  /**
-   * Trusted bounded-agent preflight and staging. Runs in the same phase as
-   * bounded-query staging and for the same reasons: a failure must abort before
-   * any container exists, and the staging credential must be consumed and
-   * discarded before the broker, the enclave, or the primary agent can observe
-   * anything.
-   */
-  prepareBoundedAgents?: (config: WrapperConfig) => Promise<void>;
+  /** Trusted unified enclave preflight and staging. */
+  prepareEnclaves?: (config: WrapperConfig) => Promise<void>;
   /**
    * Fail-stop preflight for network-isolation mode. Aborts (process exit) when
    * topology enforcement cannot be supported on the current platform.
@@ -57,6 +50,10 @@ interface WorkflowDependencies {
    * network after the AWF containers have started.
    */
   connectTopologyContainers?: (networkName: string, containerNames: string[]) => Promise<void>;
+  /** Attaches and verifies the externally owned gateway on the private enclave control path. */
+  connectEnclaveGateway?: (config: WrapperConfig) => Promise<void>;
+  /** Proves initialize and the exact enabled tool contracts through mcpg. */
+  assertEnclaveGatewayReady?: (config: WrapperConfig) => Promise<void>;
 }
 
 interface WorkflowCallbacks {
@@ -86,36 +83,25 @@ export async function runMainWorkflow(
 ): Promise<number> {
   const { logger, performCleanup, onHostIptablesSetup, onContainersStarted } = options;
 
-  // Step -1: Bounded-query staging (trusted, host-side, credential-bearing).
+  const enclaveErrors = validateEnclavesConfig(config);
+  if (enclaveErrors.length > 0) {
+    throw new Error(`Invalid enclave configuration:\n- ${enclaveErrors.join('\n- ')}`);
+  }
+
+  // Step -1: Enclave staging (trusted, host-side, credential-bearing).
   //
   // Runs first so that:
   //  - a staging failure aborts before any container is created;
   //  - the staging credential is gone before the broker, the agent, or any
   //    probe exists;
-  //  - compose generation (Step 1) can rely on the seed/socket/skill layout
+  //  - compose generation (Step 1) can rely on the private seed layout
   //    already being present on disk.
-  if (config.boundedQueries?.enabled) {
-    if (!dependencies.prepareBoundedQueries) {
-      // Fail loudly rather than generating a broker service whose seeds and
-      // socket were never staged — bounded queries are never half-enabled.
-      throw new Error(
-        'Bounded queries are enabled but no staging implementation was provided to runMainWorkflow',
-      );
+  if (config.enclaves?.enabled) {
+    if (!dependencies.prepareEnclaves) {
+      throw new Error('Enclaves are enabled but no staging implementation was provided to runMainWorkflow');
     }
-    logger.info('Staging bounded-query repository seeds...');
-    await dependencies.prepareBoundedQueries(config);
-  }
-
-  if (config.boundedAgents?.enabled) {
-    if (!dependencies.prepareBoundedAgents) {
-      // Fail loudly rather than generating a broker service whose seeds and
-      // socket were never staged — bounded agents are never half-enabled.
-      throw new Error(
-        'Bounded agents are enabled but no staging implementation was provided to runMainWorkflow',
-      );
-    }
-    logger.info('Staging bounded-agent repository seeds...');
-    await dependencies.prepareBoundedAgents(config);
+    logger.info('Staging enclave repository seeds...');
+    await dependencies.prepareEnclaves(config);
   }
 
   // Step 0: Setup host-level network and iptables
@@ -219,8 +205,27 @@ export async function runMainWorkflow(
         }
       : undefined;
 
+  const onInfrastructureReady = config.enclaves?.enabled
+    ? async () => {
+        if (!dependencies.connectEnclaveGateway || !dependencies.assertEnclaveGatewayReady) {
+          throw new Error('Enclaves require an exclusive MCP gateway readiness implementation');
+        }
+        logger.info('Attaching the trusted MCP gateway to the private enclave control path...');
+        await dependencies.connectEnclaveGateway(config);
+        logger.info('Proving enclave tools end to end through the MCP gateway...');
+        await dependencies.assertEnclaveGatewayReady(config);
+      }
+    : undefined;
+
   try {
-    await dependencies.startContainers(config.workDir, config.allowedDomains, config.proxyLogsDir, config.skipPull, onNetworkReady);
+    await dependencies.startContainers(
+      config.workDir,
+      config.allowedDomains,
+      config.proxyLogsDir,
+      config.skipPull,
+      onNetworkReady,
+      onInfrastructureReady,
+    );
   } catch (startError) {
     // Signal that containers may have been partially created so the caller's
     // cleanup (stopContainers / docker compose down -v) will tear them down

@@ -8,10 +8,9 @@ const IMAGE_DIGEST_KEYS = [
   'api-proxy',
   'cli-proxy',
   'build-tools',
-  'bounded-query',
-  'bounded-query-broker',
-  'bounded-agent',
-  'bounded-agent-broker',
+  'enclave-script',
+  'enclave-agent',
+  'enclave-mcp-server',
 ] as const;
 
 const VALID_DIGEST = 'sha256:' + 'a'.repeat(64);

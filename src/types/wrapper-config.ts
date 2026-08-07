@@ -15,8 +15,7 @@ import type { RateLimitOptions } from './rate-limit-options';
 import type { RuntimeOptions } from './runtime-options';
 import type { PlatformOptions } from './platform-options';
 import type { RunnerOptions } from './runner-options';
-import type { BoundedQueryOptions } from './bounded-query-options';
-import type { BoundedAgentOptions } from './bounded-agent-options';
+import type { EnclaveOptions } from './enclave-options';
 
 export type WrapperConfig =
   ContainerImageOptions
@@ -29,5 +28,4 @@ export type WrapperConfig =
   & RuntimeOptions
   & PlatformOptions
   & RunnerOptions
-  & BoundedQueryOptions
-  & BoundedAgentOptions;
+  & EnclaveOptions;

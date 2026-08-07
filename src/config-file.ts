@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as yaml from 'js-yaml';
 import { validateWithSchema } from './schema-validator';
+import type { RawEnclavesConfig } from './types/enclave-options';
 
 /** @internal Used only by config-file helpers — not part of public API */
 // ts-prune-ignore-next
@@ -163,58 +164,8 @@ export interface AwfFileConfig {
     topology?: 'standard' | 'arc-dind';
     sysrootImage?: string;
   };
-  /**
-   * Bounded-query sandbox configuration.
-   *
-   * When enabled, AWF starts a network-isolated broker container that
-   * executes per-invocation query sandboxes on behalf of the agent. The
-   * broker has no network access and communicates with the agent through a
-   * Unix socket. See docs/awf-config-spec.md §14 for the full model,
-   * including the per-repository information-budget accounting and residual
-   * channels.
-   */
-  boundedQueries?: {
-    enabled?: boolean;
-    /**
-     * Each entry is either a trusted repository descriptor, or (for one
-     * release only) a legacy bare `owner/repo` string, normalized to
-     * `{ repo, sensitivity: 'internal' }` with a warning.
-     */
-    privateRepos?: Array<string | { repo: string; sensitivity: 'public' | 'internal' | 'confidential' | 'sealed' }>;
-    runtime?: 'docker' | 'gvisor' | 'sbx';
-    timeout?: number;
-    memoryLimit?: string;
-    interpreter?: 'python3';
-    maxInvocations?: number;
-  };
-  /**
-   * Bounded-agent enclave configuration.
-   *
-   * When enabled, AWF starts a network-isolated broker container that runs a
-   * configured native coding-agent engine inside a per-invocation enclave. The
-   * enclave joins only a dedicated `internal` bounded-agent network whose sole
-   * other member is a dedicated AWF API proxy — no Squid, no general proxy, no primary
-   * agent, no broker, no MCP gateway, no CLI proxy, and no host state. See
-   * docs/awf-config-spec.md §15 for the full model.
-   */
-  boundedAgents?: {
-    enabled?: boolean;
-    privateRepos?: Array<{ repo: string; sensitivity: 'public' | 'internal' | 'confidential' | 'sealed' }>;
-    runtime?: 'docker' | 'gvisor' | 'sbx';
-    engine?: 'copilot' | 'claude' | 'codex' | 'gemini';
-    profile?: 'openai' | 'anthropic';
-    model?: string;
-    timeout?: number;
-    memoryLimit?: string;
-    cpuLimit?: string;
-    pidsLimit?: number;
-    tmpfsLimit?: string;
-    maxOutputBytes?: number;
-    maxTaskBytes?: number;
-    maxInvocations?: number;
-    maxModelRequests?: number;
-    maxModelTokens?: number;
-  };
+  /** Unified enclave configuration exposed only through the trusted MCP gateway. */
+  enclaves?: RawEnclavesConfig;
 }
 
 /**

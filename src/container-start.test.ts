@@ -28,9 +28,8 @@ describe('startContainers', () => {
         'awf-iptables-init',
         'awf-api-proxy',
         'awf-cli-proxy',
-        'awf-bounded-query-broker',
-        'awf-bounded-agent-broker',
-        'awf-bounded-agent-api-proxy',
+        'awf-enclave-mcp-server',
+        'awf-enclave-agent-api-proxy',
       ],
       expect.objectContaining({ reject: false })
     );
@@ -548,6 +547,95 @@ describe('startContainers', () => {
           !call[1].includes('--no-deps')
       );
       expect(fullUpCalls).toHaveLength(2);
+    });
+
+    describe('enclave gateway readiness phase', () => {
+      it('starts infrastructure, runs readiness, and only then starts the compose agent', async () => {
+        const order: string[] = [];
+        const onInfrastructureReady = jest.fn().mockImplementation(async () => {
+          order.push('readiness');
+        });
+        mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
+        mockExecaFn.mockResolvedValueOnce({
+          stdout: 'squid-proxy\nenclave-script-image\nenclave-mcp-server\nagent\niptables-init\n',
+          stderr: '',
+          exitCode: 0,
+        } as any);
+        mockExecaFn.mockImplementationOnce(async () => {
+          order.push('infrastructure');
+          return { stdout: '', stderr: '', exitCode: 0 };
+        });
+        mockExecaFn.mockImplementationOnce(async () => {
+          order.push('agent');
+          return { stdout: '', stderr: '', exitCode: 0 };
+        });
+
+        await startContainers(
+          getDir(),
+          ['github.com'],
+          undefined,
+          undefined,
+          undefined,
+          onInfrastructureReady,
+        );
+
+        expect(order).toEqual(['infrastructure', 'readiness', 'agent']);
+        expect(mockExecaFn.mock.calls[2][1]).toEqual([
+          'compose',
+          'up',
+          '-d',
+          'squid-proxy',
+          'enclave-script-image',
+          'enclave-mcp-server',
+        ]);
+      });
+
+      it('does not start a compose agent when readiness fails', async () => {
+        mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
+        mockExecaFn.mockResolvedValueOnce({
+          stdout: 'squid-proxy\nenclave-mcp-server\nagent\n',
+          stderr: '',
+          exitCode: 0,
+        } as any);
+        mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
+
+        await expect(startContainers(
+          getDir(),
+          ['github.com'],
+          undefined,
+          undefined,
+          undefined,
+          jest.fn().mockRejectedValue(new Error('gateway timeout')),
+        )).rejects.toThrow(/gateway timeout/);
+
+        const fullAgentStart = mockExecaFn.mock.calls.some(
+          (call: any[]) => Array.isArray(call[1]) && call[1].includes('agent'),
+        );
+        expect(fullAgentStart).toBe(false);
+      });
+
+      it('runs the same readiness gate for an sbx infrastructure-only compose file', async () => {
+        const onInfrastructureReady = jest.fn().mockResolvedValue(undefined);
+        mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
+        mockExecaFn.mockResolvedValueOnce({
+          stdout: 'squid-proxy\nenclave-mcp-server\n',
+          stderr: '',
+          exitCode: 0,
+        } as any);
+        mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
+
+        await startContainers(
+          getDir(),
+          ['github.com'],
+          undefined,
+          undefined,
+          undefined,
+          onInfrastructureReady,
+        );
+
+        expect(onInfrastructureReady).toHaveBeenCalledTimes(1);
+        expect(mockExecaFn).toHaveBeenCalledTimes(3);
+      });
     });
   });
 });

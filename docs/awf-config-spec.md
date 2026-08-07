@@ -82,7 +82,7 @@ following top-level properties. All are OPTIONAL:
 | `logging` | object | Logging and diagnostics |
 | `rateLimiting` | object | Egress rate limiting |
 | `platform` | object | GitHub platform deployment type declaration |
-| `boundedQueries` | object | Bounded-query sandbox subsystem (see §14) |
+| `enclaves` | object | Unified private-repository enclave subsystem (see §14) |
 
 Property-level constraints, types, and descriptions are defined
 normatively by `docs/awf-config.schema.json`.
@@ -214,29 +214,33 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 - `platform.type` → *(config-only; maps to `AWF_PLATFORM_TYPE`)*
 - `runner.topology` → *(config-only; sets runner deployment model — `standard` or `arc-dind`; when `arc-dind`, enables sysroot staging and emits RUNNER_TOOL_CACHE warnings)*
 - `runner.sysrootImage` → *(config-only; sysroot init-container image for `arc-dind` topology; defaults to `<container.imageRegistry>/build-tools:<container.imageTag>`, where `container.imageRegistry` defaults to `ghcr.io/github/gh-aw-firewall`)*
-- `boundedQueries.enabled` → *(config-only; no CLI equivalent, see §14)*
-- `boundedQueries.privateRepos[]` → *(config-only; no CLI equivalent, see §14)*
-- `boundedQueries.runtime` → *(config-only; no CLI equivalent, see §14)*
-- `boundedQueries.timeout` → *(config-only; no CLI equivalent, see §14)*
-- `boundedQueries.memoryLimit` → *(config-only; no CLI equivalent, see §14)*
-- `boundedQueries.interpreter` → *(config-only; no CLI equivalent, see §14)*
-- `boundedQueries.maxInvocations` → *(config-only; no CLI equivalent, see §14)*
-- `boundedAgents.enabled` → *(config-only; no CLI equivalent, see §15)*
-- `boundedAgents.privateRepos[]` → *(config-only; no CLI equivalent, see §15)*
-- `boundedAgents.runtime` → *(config-only; no CLI equivalent, see §15)*
-- `boundedAgents.engine` → *(config-only; no CLI equivalent, see §15)*
-- `boundedAgents.profile` → *(config-only; no CLI equivalent, see §15)*
-- `boundedAgents.model` → *(config-only; no CLI equivalent, see §15)*
-- `boundedAgents.timeout` → *(config-only; no CLI equivalent, see §15)*
-- `boundedAgents.memoryLimit` → *(config-only; no CLI equivalent, see §15)*
-- `boundedAgents.cpuLimit` → *(config-only; no CLI equivalent, see §15)*
-- `boundedAgents.pidsLimit` → *(config-only; no CLI equivalent, see §15)*
-- `boundedAgents.tmpfsLimit` → *(config-only; no CLI equivalent, see §15)*
-- `boundedAgents.maxOutputBytes` → *(config-only; no CLI equivalent, see §15)*
-- `boundedAgents.maxTaskBytes` → *(config-only; no CLI equivalent, see §15)*
-- `boundedAgents.maxInvocations` → *(config-only; no CLI equivalent, see §15)*
-- `boundedAgents.maxModelRequests` → *(config-only; no CLI equivalent, see §15)*
-- `boundedAgents.maxModelTokens` → *(config-only; no CLI equivalent, see §15)*
+- `enclaves.enabled` → *(config-only; no CLI equivalent, see §14)*
+- `enclaves.privateRepos[]` → *(config-only; no CLI equivalent, see §14)*
+- `enclaves.executors.script.enabled` → *(config-only; no CLI equivalent, see §14)*
+- `enclaves.executors.script.runtime` → *(config-only; no CLI equivalent, see §14)*
+- `enclaves.executors.script.image` → *(config-only; no CLI equivalent, see §14)*
+- `enclaves.executors.script.timeout` → *(config-only; no CLI equivalent, see §14)*
+- `enclaves.executors.script.memoryLimit` → *(config-only; no CLI equivalent, see §14)*
+- `enclaves.executors.script.cpuLimit` → *(config-only; no CLI equivalent, see §14)*
+- `enclaves.executors.script.pidsLimit` → *(config-only; no CLI equivalent, see §14)*
+- `enclaves.executors.script.tmpfsLimit` → *(config-only; no CLI equivalent, see §14)*
+- `enclaves.executors.script.maxOutputBytes` → *(config-only; no CLI equivalent, see §14)*
+- `enclaves.executors.script.maxScriptBytes` → *(config-only; no CLI equivalent, see §14)*
+- `enclaves.executors.script.maxInvocations` → *(config-only; no CLI equivalent, see §14)*
+- `enclaves.executors.agent.enabled` → *(config-only; no CLI equivalent, see §14)*
+- `enclaves.executors.agent.runtime` → *(config-only; no CLI equivalent, see §14)*
+- `enclaves.executors.agent.image` → *(config-only; no CLI equivalent, see §14)*
+- `enclaves.executors.agent.engine` → *(config-only; no CLI equivalent, see §14)*
+- `enclaves.executors.agent.profile` → *(config-only; no CLI equivalent, see §14)*
+- `enclaves.executors.agent.model` → *(config-only; no CLI equivalent, see §14)*
+- `enclaves.executors.agent.timeout` → *(config-only; no CLI equivalent, see §14)*
+- `enclaves.executors.agent.memoryLimit` → *(config-only; no CLI equivalent, see §14)*
+- `enclaves.executors.agent.cpuLimit` → *(config-only; no CLI equivalent, see §14)*
+- `enclaves.executors.agent.pidsLimit` → *(config-only; no CLI equivalent, see §14)*
+- `enclaves.executors.agent.tmpfsLimit` → *(config-only; no CLI equivalent, see §14)*
+- `enclaves.executors.agent.maxOutputBytes` → *(config-only; no CLI equivalent, see §14)*
+- `enclaves.executors.agent.maxTaskBytes` → *(config-only; no CLI equivalent, see §14)*
+- `enclaves.executors.agent.maxInvocations` → *(config-only; no CLI equivalent, see §14)*
 
 When `container.dockerHostPathPrefix` points at a daemon-visible shared `/tmp` path, the implementation stages the invoking CLI binary together with `/etc/passwd`, `/etc/group`, and the generated chroot `/etc/hosts` under that shared path so chroot mode can bootstrap on split-filesystem ARC/DinD hosts.
 
@@ -1584,860 +1588,91 @@ Each record follows the `blocked-request-diag/v<version>` schema:
 - The file is written to `AWF_TOKEN_LOG_DIR` alongside `token-usage.jsonl`
   and is governed by the same artifact-retention policy.
 
-## 14. Bounded Queries
+## 14. Unified Enclaves
 
-### 14.1 Purpose
+The optional `enclaves` object defines AWF's sole supported private-repository execution surface. AWF stages immutable repository seeds on the host, starts one AWF-owned `enclave-mcp-server`, maintains one shared per-repository ledger for the run, and exposes enabled executors only through compiler-launched `gh-aw-mcpg`.
 
-A *bounded query* lets an agent ask a trusted broker to run a short,
-agent-authored Python 3 script against a private repository and get back a
-value conforming to a finite response schema the agent declares up front —
-without the agent ever gaining network or filesystem access to that
-repository.
+### 14.1 Executors and shared configuration
 
-Every private repository configured for bounded queries carries one of four
-fixed **sensitivity categories**, each with an immutable maximum number of
-bits the broker may reveal about that repository across an entire AWF run
-(not per query):
+`enclaves.privateRepos` is the only trusted repository list. Every enabled executor shares it, and every admitted invocation debits the same live per-repository information budget.
 
-| Sensitivity | Run budget | Notes |
-|-------------|-----------:|-------|
-| `public` | unmetered | Still schema/operationally bounded, but responses are never debited against a ledger. |
-| `internal` | 64 bits/run | Default for legacy bare-string entries (§14.2). |
-| `confidential` | 8 bits/run | |
-| `sealed` | 0 bits/run | Can never fund even the cheapest possible query — never copies a seed or launches Python. |
+- **Script executor** — configured under `enclaves.executors.script`; launches a no-network, read-only, single-use Python sandbox.
+- **Agent executor** — configured under `enclaves.executors.agent`; launches a bounded single-use Copilot enclave whose only network peer is the dedicated API proxy.
 
-There is **no per-query cap**. Every invocation may declare an arbitrarily
-different response schema; the broker computes that invocation's maximum
-complete-transcript information charge (§14.3) and debits it from the
-repository's shared run balance *before* copying a seed or launching Python.
-An invocation is allowed iff its charge fits the remaining balance — a cheap
-boolean question and an expensive high-cardinality question both draw from
-the same budget, just at different rates. Charges are never refunded,
-regardless of outcome (success, failure, or timeout).
-`boundedQueries.maxInvocations` is a separate, independent operational limit
-(§14.2) unrelated to the bit ledger.
+At least one executor MUST be enabled when `enclaves.enabled` is `true`. `gvisor` requires an exactly registered `runsc` runtime and never falls back. `sbx` remains fail-closed for both executors until the audited capability proof lands.
 
-### 14.2 Configuration
+The agent executor additionally requires `enableApiProxy`, a configured provider route for its fixed engine/profile, a configured `model`, and the absence of `enableDind`. AWF validates those requirements before repository staging.
 
-The root object MAY contain a `boundedQueries` section:
+### 14.2 MCP-only tool surface
 
-```json
-{
-  "boundedQueries": {
-    "enabled": true,
-    "privateRepos": [
-      { "repo": "my-org/my-private-repo", "sensitivity": "internal" },
-      { "repo": "my-org/public-docs", "sensitivity": "public" }
-    ],
-    "runtime": "docker",
-    "timeout": 30,
-    "memoryLimit": "512m",
-    "interpreter": "python3",
-    "maxInvocations": 32
-  }
-}
-```
-
-| Field | Type | Constraints | Default |
-|-------|------|-------------|---------|
-| `enabled` | boolean | — | `false` |
-| `privateRepos` | array | Non-empty and unique (by repo slug, case-insensitively) when `enabled` is `true`. Each entry is either an object `{ "repo": "owner/repo", "sensitivity": "public" \| "internal" \| "confidential" \| "sealed" }`, or (one-release legacy compatibility) a bare `owner/repo` string, normalized to `{ repo, sensitivity: "internal" }` with a warning. Each `repo` MUST be a bare `owner/repo` slug — no scheme/host (`://`), path traversal (`..`), query string (`?`), fragment (`#`), wildcard (`*`), or extra path segments. | `[]` |
-| `runtime` | string | One of `"docker"`, `"gvisor"`, `"sbx"`. The `sbx` value is a fail-closed preview blocked unless its executable capability proof satisfies every mandatory isolation control. | `"docker"` |
-| `timeout` | integer | `1`–`540` seconds (the final minute of the 10-minute response bucket is reserved for termination, validation, and cleanup; §14.3) | `30` |
-| `memoryLimit` | string | Docker-style memory limit, e.g. `"512m"`, `"1g"` | `"512m"` |
-| `interpreter` | string | Only `"python3"` is currently supported | `"python3"` |
-| `maxInvocations` | integer | `1`–`10000`; an independent operational cap, unrelated to the per-repository bit ledger | `32` |
-
-Property-level constraints are defined normatively by the `boundedQueries`
-subschema in `docs/awf-config.schema.json`.
-
-**Legacy `privateRepos` string entries.** A bare `owner/repo` string is
-accepted for one release for backward compatibility and is normalized to
-`{ repo, sensitivity: "internal" }`, emitting a warning
-(`boundedQueries.privateRepos entry "..." is a legacy bare string...`) through
-the same warning channel other config normalization uses. New configuration
-SHOULD use the explicit object form so the intended sensitivity is never
-left implicit.
-
-**Mapping:** every `boundedQueries.*` field is *(config-only; no CLI
-equivalent)*. There is no `--bounded-queries-*` CLI flag family. The config-file
-value is passed through `config-mapper.ts` and normalized (defaults applied
-via `src/types/bounded-query-options.ts`'s `BOUNDED_QUERY_DEFAULTS`, legacy
-string entries normalized in `src/parsers/bounded-query-parser.ts`) into
-`WrapperConfig.boundedQueries`. Only an explicit `enabled: true` normalizes to
-an enabled config; omission or any other value normalizes to
-`enabled: false`.
-
-When `enabled` is `false` or the section is absent, AWF stages nothing, starts
-no broker, mounts no socket, sets no environment variable, installs no CLI,
-and generates no skill: behaviour is byte-identical to a run without the
-section.
-
-**Preflight (fail-closed).** With `enabled: true`, AWF aborts before the
-primary agent starts when: `privateRepos` is empty or contains an unsafe or
-duplicated slug; `runtime` is `"gvisor"` and the `runsc` OCI runtime is not
-registered with the Docker daemon; `runtime` is `"sbx"` and the executable
-capability proof cannot establish every mandatory no-network and resource
-bound; a Docker/gVisor query resolves to a non-`unix://` Docker host, which a
-`network_mode: none` broker cannot reach; the interpreter or a limit is
-unsupported; `timeout` exceeds 540
-seconds — the 10-minute response bucket reserves its final minute for Docker
-termination, result validation, container removal, and workspace cleanup; no
-staging credential is present in
-`GH_TOKEN`/`GITHUB_TOKEN`; or any seed cannot be materialized and verified.
-
-**`sbx` query backend status.** The configuration value and broker-owned
-`SbxQueryRunner` boundary are present, but support is fail-closed as of the
-audited Docker Sandboxes CLI `v0.37.1`. The executable broker capability probe
-uses `sbx version`, `sbx create --help`, and `sbx exec --help`, exits non-zero,
-and reports missing guarantees as JSON. Although this release supports
-`sbx create --name --cpus --memory --template`, read-only same-path mounts,
-`sbx exec --user --workdir`, `sbx ls --json`, `sbx stop`, and
-`sbx rm --force`, it has no enforceable per-VM `network=none`, PID, disk,
-per-file size, or explicit guest mount-target control. Local/kit network denies
-are not sufficient because organization governance can replace them. AWF
-therefore aborts before staging or Compose assembly, passes no Docker socket or
-sbx credential to the broker, and never falls back to Docker/gVisor. Enabling
-launch requires all missing controls plus a digest-pinned, Python
-standard-library-only AWF query template/bootstrap.
-
-**Independent runtime matrix.** `container.containerRuntime` selects the primary
-agent while `boundedQueries.runtime` independently selects a fresh query
-sandbox. Every accepted invocation creates one new sandbox and destroys it
-before response. The current capability matrix is:
-
-| Primary agent | Docker query | gVisor query | sbx query |
-|---|---|---|---|
-| Docker | Supported with Docker | Supported with registered `runsc` | Blocked |
-| gVisor | Supported with primary `runsc` | Supported with registered `runsc` | Blocked |
-| sbx | Supported after primary ingress probe | Supported after primary ingress and `runsc` probes | Blocked |
-
-Unavailable cells abort at preflight and never stage. A blocked sbx query is an
-expected security result, not runtime success. `"runtime": "sbx"` is both the
-explicit experimental selection and a requirement to pass every executable
-probe; it never authorizes fallback.
-
-**Runtime telemetry.** Telemetry records contain exactly `primaryBackend`,
-`queryBackend`, `lifecycleClass`, `capabilityState`, and `category`. They MUST
-NOT contain repository data or identifiers, scripts, outputs, paths, tokens,
-ingress capabilities, or daemon credentials.
-
-Promotion of sbx queries requires real-VM proof of no network/lateral access,
-all resource bounds, mount-target isolation, credential/state separation,
-canonical output behavior, and cleanup after timeout, resource failure, and
-interruption, plus a digest-pinned AWF Python-only template. Version/help
-probing alone is insufficient.
-
-The seed map the broker reads carries each repository's trusted
-`sensitivity` alongside its opaque seed id — the map is built entirely from
-AWF configuration, so a request can never choose or override its own
-repository's sensitivity or run budget.
-
-### 14.3 Request/Result Protocol (v2)
-
-`src/bounded-query/protocol.ts` defines the wire protocol. The broker restates
-it in `containers/bounded-query/broker/protocol.js` because it runs from its
-own container image and cannot import AWF's TypeScript sources; the two
-implementations are pinned together by
-`src/bounded-query/protocol-parity.test.ts`, which runs one large shared
-vector table (schemas, values, requests, and query results) through both.
-
-**Request.** A bounded-query request is a JSON object with exactly three
-fields:
-
-```json
-{
-  "privateRepo": "my-org/my-private-repo",
-  "schema": { "type": "boolean" },
-  "script": "<query script source>"
-}
-```
-
-- `privateRepo` MUST match the same `owner/repo` slug rule as
-  `boundedQueries.privateRepos` entries (§14.2).
-- `schema` MUST be a valid document in the finite schema DSL below.
-- `script` MUST be non-empty and at most 64 KiB (`MAX_SCRIPT_BYTES`). Script
-  and schema sizes are enforced independently on their raw UTF-8 bytes; JSON
-  escaping does not reduce either allowance.
-
-**Result.** A successful query result is the canonical envelope
-`{"status":"ok","result":<value>}`, where `<value>` conforms exactly to the
-request's declared `schema`. Every failure mode — invalid request,
-disallowed repository, exhausted bit budget, launch failure, timeout, crash,
-non-conformant query output, or internal error — collapses to the single
-canonical `{"status":"error"}`, indistinguishable from one another by
-design.
-
-#### The finite schema DSL
-
-The response schema is a deliberately finite, agent-authored algebra — **not**
-general JSON Schema. Every invocation may use a different schema. Supported
-node types:
-
-| type | shape | notes |
-|------|-------|-------|
-| `const` | `{"type":"const","value":<literal>}` | exactly one fixed value |
-| `boolean` | `{"type":"boolean"}` | `true` or `false` |
-| `enum` | `{"type":"enum","values":[<literal>,...]}` | unique literals, all the same JSON type |
-| `integer` | `{"type":"integer","minimum":N,"maximum":M}` | inclusive bounded range, safe-integer bounds only |
-| `object` | `{"type":"object","fields":{"name":<schema>,...}}` | every declared field required; no extra properties |
-| `tuple` | `{"type":"tuple","items":[<schema>,...]}` | fixed-length, independently-typed positions |
-| `array` | `{"type":"array","items":<schema>,"length":N}` | fixed length, single uniform item schema |
-| `union` | `{"type":"union","variants":{"tag":<schema>,...}}` | value is `{"tag":"<name>","value":<...>}`; variants are disjoint by tag |
-
-A literal (in `const`/`enum`) is a JSON string (at most `MAX_LITERAL_STRING_BYTES`
-= 64 bytes UTF-8, no control characters), a safe integer, a boolean, or
-`null`. There is no way to express an unbounded string, a float, a regex,
-recursion, `$ref`, an optional field, `additionalProperties`, or an
-untagged/overlapping union — these are structurally impossible to write, not
-merely disallowed by a validator.
-
-This is a deliberately safe *subset* of what a general schema language could
-express, chosen so every schema has a computable, bounded cardinality and a
-linear-time validator with no backtracking. If a future requirement needs a
-richer construct, it must justify a new bounded primitive rather than
-weakening these bounds. Every schema is additionally bounded structurally:
-
-| Bound | Constant | Value |
-|-------|----------|------:|
-| Max nesting depth | `MAX_SCHEMA_DEPTH` | 6 |
-| Max total schema nodes | `MAX_SCHEMA_NODES` | 64 |
-| Max serialized schema size | `MAX_SCHEMA_BYTES` | 4096 bytes |
-| Max `enum` values | `MAX_ENUM_VALUES` | 4096 |
-| Max `object` fields | `MAX_OBJECT_FIELDS` | 16 |
-| Max `tuple` items | `MAX_TUPLE_ITEMS` | 16 |
-| Max `array` length | `MAX_ARRAY_LENGTH` | 64 |
-| Max `union` variants | `MAX_UNION_VARIANTS` | 16 |
-| Max literal string length | `MAX_LITERAL_STRING_BYTES` | 64 bytes |
-
-In practice, `MAX_SCHEMA_BYTES` is often the binding constraint for wide
-`enum`/`object`/`tuple` schemas well before the corresponding count bound is
-reached (e.g. a numeric `enum` of exactly `MAX_ENUM_VALUES` values already
-exceeds `MAX_SCHEMA_BYTES` once serialized).
-
-#### Budget: cardinality and bit charge
-
-"Schema cardinality" is the number of distinguishable values a schema
-admits — 2 for `boolean`, `N` for an `N`-member `enum`, the product of field
-cardinalities for `object`/`tuple`/`array`, the sum of variant cardinalities
-for `union`, and 1 for `const`. Cardinality is computed with unbounded
-(`BigInt`) arithmetic so no schema can overflow it into an incorrect small
-number.
-
-Every accepted invocation's information charge is:
+The primary agent reaches private-repository execution only through these MCP tools:
 
 ```text
-charge = RESULT_STATUS_BIT_COST            (1  — ok/error is itself observable)
-       + ceil(log2(schema cardinality))    (the declared response schema)
-       + TIMING_BUCKET_BITS                (3  — six timing buckets, §14.3.1)
+enclave_run_script({
+  privateRepo: "owner/repo",
+  schema: <finite disclosure schema>,
+  script: <bounded UTF-8 Python source>
+})
+
+enclave_run_agent({
+  privateRepo: "owner/repo",
+  schema: <finite disclosure schema>,
+  prompt: <bounded UTF-8 task prompt>
+})
 ```
 
-`RESULT_STATUS_BIT_COST` is `1`; `TIMING_BUCKET_BITS` is
-`ceil(log2(TIMING_BUCKETS_MS.length))` = `ceil(log2(6))` = `3`. The cheapest
-possible schema (`const`, cardinality 1) still charges `1 + 0 + 3 = 4` bits —
-this is the practical floor a repository's remaining balance is checked
-against to decide whether it can fund *any* further invocation at all.
+Both tool schemas are closed (`additionalProperties: false`). A call can never provide or override images, runtimes, models, engines, profiles, mounts, network settings, credentials, repository catalogs, budgets, timeouts, or any other trusted control.
 
-The charge is computed and the ledger is debited **before** a seed is
-copied or Python is launched (§14.2, §14.7); it is never refunded regardless
-of the invocation's outcome, because the broker committed to revealing up to
-that many bits of signal the moment it decided to run.
+The primary agent MUST NOT receive a broker socket, wrapper binary, direct server URL, capability token, repository seed, ledger state, or alternate enclave transport.
 
-#### 14.3.1 Response-timing buckets
+### 14.3 Topology, gateway contract, and readiness
 
-A query's raw completion latency is itself a secret-dependent signal — a
-script that raises early on one code path and runs to completion on another
-leaks information purely through wall-clock time, independent of the
-declared schema. The broker makes every *launched* invocation's observable
-response time land on one of six fixed boundaries, using a monotonic clock
-(`process.hrtime.bigint()`, never `Date.now()`, so system clock adjustments
-cannot shift a response across a boundary):
+`enclave-mcp-server` joins only the private `awf-enclave-mcp-control` network. The compiler launches `gh-aw-mcpg`, labels it for the run, and passes AWF the private gateway endpoint plus a run-unique capability/identity handoff. The server is reachable **only** through that gateway.
 
-```text
-TIMING_BUCKETS_MS = [10ms, 100ms, 1s, 10s, 60s, 600s]
-```
+When the agent executor is enabled, each invocation joins only the dedicated `internal` `awf-enclave-agent` network. Its sole reachable peer is the dedicated enclave API proxy. Squid, the primary agent, the general API proxy, safe outputs, the MCP gateway, and the MCP server itself are excluded from that network.
 
-The broker returns at the first bucket boundary at or after the invocation's
-processing (execution + output validation + container removal + workspace
-teardown) actually completes. A public 5ms host-scheduler tolerance covers
-ordinary timer jitter. If a selected boundary has already passed, or a timer
-wakes more than 5ms late, the broker re-resolves and pads to the next fixed
-boundary rather than responding at the late, continuously varying time. This is
-included in the information budget as `TIMING_BUCKET_BITS` (3 bits — for six
-buckets) whether or not the script's own answer would otherwise convey any
-signal, because latency alone is observable and must be paid for like any
-other channel.
+The rollout contract depends on both upstream projects:
 
-**Cleanup is included in the bucketed measurement.** Repository size and
-tree shape can affect container and workspace teardown, so the broker
-completes cleanup before measuring elapsed time and selecting the response
-bucket. Invocations are serialized; consequently a queued request cannot
-observe a preceding invocation's unaccounted cleanup duration. Cleanup
-failure maps to canonical error and is recorded only in the protected audit
-log.
+1. `github/gh-aw#50920` — compiler support for the enclave upstream, capability handoff, identity label, endpoint propagation, and timeout handoff.
+2. `github/gh-aw-mcpg#10784` — late backend rediscovery so an initially unavailable HTTP backend can appear after gateway startup.
+3. MCP Gateway spec **1.15.0** and the **first mcpg release after v0.4.8 containing it**.
 
-**Fail-closed timing overflow.** `boundedQueries.timeout` is capped at 540
-seconds, reserving the final minute before the 600-second boundary for Docker
-termination, result validation, container removal, and workspace cleanup. If
-pathological infrastructure overhead nevertheless pushes total processing or
-a late scheduler wake past the last boundary, the broker discards even an
-otherwise-valid successful result and returns the canonical error. This is a
-deliberate, tested (`broker.test.ts`) fallback, not a normal code path.
+While the backend is still starting, mcpg may return retryable HTTP `503 backend_unavailable`. AWF retries `initialize` with bounded backoff until `AWF_ENCLAVE_MCP_READINESS_TIMEOUT_MS` expires, then fails closed before the primary agent starts.
 
-### 14.4 Canonical Failure Closure
+### 14.4 Shared ledger and disclosure
 
-Every failure mode — an invalid request, a disallowed repository, an
-exhausted bit budget, an exhausted `maxInvocations` count, a launch failure,
-a timeout, a script crash, non-conformant query output, a timing-bucket
-overflow, or an internal broker error — collapses to the single canonical
-`{"status":"error"}`. Failures are indistinguishable from each other by
-design: the agent cannot infer which failure mode occurred from the
-response alone.
+Script and agent calls debit the same live per-repository balance and share one AWF-owned admission lane. Switching executor kinds never resets or forks the ledger.
 
-### 14.5 Strict, Non-Schema Result Parsing and Post-Execution Validation
+`enclave_run_agent` necessarily sends repository-derived content to the configured model provider through the dedicated API proxy. The ledger bounds what the **calling agent** learns; it does not bound what the **provider** sees.
 
-Result parsing intentionally does **not** execute a general-purpose JSON
-Schema validator against the (potentially attacker-influenced) raw query
-output text. `strictParseJson` enforces well-formedness with a small,
-linear-time, non-backtracking hand-written grammar — rejecting, rather than
-throwing, on:
+### 14.5 Migration and removed surfaces
 
-- malformed JSON of any kind;
-- duplicate object keys;
-- any leading or trailing content outside the single JSON value; and
-- invalid UTF-8 or invalid JSON string escapes.
+The legacy private-repository surfaces are **removed, not deprecated**:
 
-The parsed value is then validated against the **exact** schema the request
-declared (`validateValueAgainstSchema`) — wrong type, out-of-range integer,
-an undeclared enum member, extra or missing object fields, the wrong
-tuple/array length, or an unrecognized union tag are all rejected. A value
-that passes validation is canonically re-serialized
-(`canonicalizeSchemaValue`) before being wrapped in the `{"status":"ok",...}`
-envelope, so the exact byte layout the query wrote (whitespace, key order,
-duplicate-safe encoding) never reaches the agent — only a canonical
-re-encoding of the validated value does.
+| Removed surface | Replacement |
+| --- | --- |
+| `boundedQueries` | `enclaves.privateRepos` + `enclaves.executors.script` |
+| `boundedAgents` | `enclaves.privateRepos` + `enclaves.executors.agent` |
+| `bounded-query` wrapper / generated skill | `enclave_run_script` |
+| `bounded-agent` wrapper / generated skill | `enclave_run_agent` |
+| Separate legacy ledgers | One shared ledger inside `enclave-mcp-server` |
+| Direct legacy runtime handoffs | Compiler-launched `gh-aw-mcpg` handoff only |
 
-Raw query bytes, stdout, stderr, and exit status never reach the agent under
-any circumstance, success or failure.
+Configuration authors MUST remove the old keys instead of carrying a mixed legacy/unified document.
 
-### 14.6 Offline Staging
+### 14.6 Validation coverage
 
-Before any configuration is generated and before any container exists, AWF
-runs a trusted host-side staging phase (`src/bounded-query/staging.ts`):
+Legacy bounded smoke and runtime-matrix workflow assets have been removed from the owned surface. Until a unified gh-aw enclave smoke workflow exists, local coverage remains unit-focused:
 
-1. resolves the staging credential from `GH_TOKEN` or `GITHUB_TOKEN`;
-2. clones each configured repository from an AWF-constructed
-   `https://github.com/<owner>/<repo>.git` URL into a run-unique, opaque seed
-   directory under a dedicated per-run private root outside `/tmp`, the
-   workspace, mounted home/tool directories, and configured agent mounts. The
-   credential is passed
-   only through a `GIT_ASKPASS` helper reading it from the child process
-   environment — never in argv, never in the URL, never in a log line, and
-   never in the generated compose file;
-3. records the staged commit for protected audit state;
-4. scrubs the seed: remotes, remote-tracking refs, credential helpers, hooks,
-   alternates, worktree links, reflogs, and `FETCH_HEAD` are removed and
-   `.git/config` is replaced with a minimal, credential-free file;
-5. rejects repositories that declare submodules (`.gitmodules` or
-   `.git/modules`) and any checkout whose `.git` is a symlink or a gitdir
-   pointer — both are external references a query must never resolve;
-6. strips every write bit from the seed and verifies the result;
-7. deletes the askpass helper and the isolated staging `HOME`, so no staging
-   artifact survives into the broker/agent phase.
+- `src/services/enclave-mcp-service.test.ts`
+- `src/services/enclave-agent-service.test.ts`
+- `src/enclave/script-runner-spec.test.ts`
+- `src/enclave/agent-runner-spec.test.ts`
+- `src/enclave/manager.test.ts`
+- `src/enclave/mcp-server.test.ts`
+- `src/enclave/agent-mcp-server.test.ts`
 
-The generated seed map (`{ repo, seedId, sensitivity }` per entry) carries
-each repository's trusted `sensitivity` alongside its opaque seed id; this
-map is the broker's *only* source of sensitivity information — a request
-field can never supply or override it.
-
-Staging failure aborts the run. There is no fallback clone or fetch anywhere
-else in the system: neither the broker nor a query has a network path. A
-`sealed` (0-bit) repository is still staged like any other (so its
-configuration is validated the same way), but its run budget structurally
-guarantees the broker never copies that seed or launches Python for it.
-
-### 14.7 Trusted Broker and Query Sandbox
-
-The broker runs as an optional Docker Compose service
-(`bounded-query-broker`, container `awf-bounded-query-broker`). For Compose
-agents it uses `network_mode: none`; its entire surface is one Unix socket in a
-directory bind-mounted into the agent. For an sbx primary agent, trusted
-preflight first executes a disposable-sandbox probe of Unix-socket passthrough.
-If that probe succeeds, the same socket transport is used. Otherwise the
-broker is attached only to a dedicated Docker `internal` network with one
-ephemeral port narrowly published on host `127.0.0.1`. It is never attached to
-`awf-net`, `awf-ext`, Squid, DNS, or an internet-routed network. It also
-receives the resolved Docker socket so it can launch queries; that path is
-never placed in the agent's environment or volumes.
-
-The sbx endpoint requires a random per-run capability read by the broker from
-broker-private control state. A separate one-shot probe capability proves the
-actual sandbox can reach the endpoint before the primary agent starts. Both
-capabilities are absent from generated skills, Compose and audit artifacts,
-logs, query environments, and query launch arguments. The broker exposes no
-health or diagnostic route: both transports use the exact same `POST /query`
-framing, limits, canonical result bytes, scheduler/timing buckets, and audit
-path. Authentication, malformed framing, oversized requests, and internal
-failures all collapse to `{"status":"error"}`.
-
-The broker maps a normalized `owner/repo` id through the AWF-generated seed
-map to an opaque seed directory and its trusted sensitivity. Callers never
-supply a path, URL, ref, mount, image, command, environment, runtime, limit,
-or sensitivity. For each request that passes schema validation and clears
-its repository's remaining bit ledger (in that order — an invalid schema or
-an unaffordable charge is rejected before any seed is touched), the broker
-creates a fresh, full, private writable copy of exactly one seed and
-launches one query container with a fixed argument vector:
-
-- `--network none`, `--read-only`, `--user 65534:65534`, `--cap-drop ALL`,
-  `--security-opt no-new-privileges:true`, and a restrictive seccomp profile
-  (`containers/bounded-query/query-seccomp.json`);
-- memory, swap, CPU, PID, open-file, and file-size bounds plus the configured
-  wall-clock timeout;
-- exactly two mounts: the invocation's private tree at `/query` (containing
-  `repo/`, and where the query writes `out`) and the submitted script at the
-  fixed read-only path `/awf/query-script.py`;
-- no Docker socket, no seed parent, no other repository, no workspace, no
-  credentials, and no prior invocation's data.
-
-The invocation's workspace is torn down before the fixed timing bucket is
-selected (§14.3.1), so cleanup duration remains inside the charged timing
-channel. A cleanup failure produces canonical error and is recorded in the
-protected audit log (`reason: 'cleanup-failed'`). Repository mutations are
-ephemeral and are never returned or persisted. The result file is opened
-with `O_NOFOLLOW` and must
-be a regular file within the size cap, so replacing `/query/out` with a
-symlink, FIFO, device, or socket cannot make the broker read anything else.
-
-Query stdout/stderr is capped and discarded — never parsed, never returned,
-never logged in a form reachable by the agent. Failure reasons (with
-protected detail, e.g. `repo-not-allowed`, `bit-budget-exhausted`,
-`invalid-request`, `query-launch-failed`, `timing-bucket-overflow`,
-`cleanup-failed`) are written only below the dedicated broker-private root,
-which is mounted into the broker alone.
-
-### 14.8 Agent Interface
-
-When bounded queries are enabled, a Compose agent receives exactly two bind
-mounts — the broker socket directory (read-write) and a generated skill/wrapper
-directory (read-only) — plus three environment variables
-(`AWF_BOUNDED_QUERY_SOCKET`, `AWF_BOUNDED_QUERY_SKILL`,
-`AWF_BOUNDED_QUERY_REPOS`, the last a comma-separated list of configured repo
-slugs only — never sensitivities or budgets). GitHub tokens are removed from
-the agent environment whenever bounded queries are enabled, independently of
-the API and DIFC proxies.
-
-`containers/agent/bounded-query-wrapper.sh` is installed on the agent's `PATH`
-as `bounded-query` (protocol v2). It accepts only `--repo` once, `--schema`
-once (a JSON document, at most `MAX_SCHEMA_BYTES` bytes), and the script on
-stdin; every other option, the `--flag=value` form, and positional arguments
-are rejected without contacting the broker. It always prints exactly one
-canonical JSON line, writes nothing to stderr, and exits `0` — for both
-outcomes and for every failure, including transport failures, which produce
-`{"status":"error"}` locally. The wrapper cannot itself validate the
-schema's structure, cardinality, or bit charge (that is the trusted
-broker's job, enforced before it copies a seed or launches Python); its only
-responsibilities are enforcing the fixed CLI shape, base64url-encoding the
-schema into a request header, transporting the script body unmodified, and
-passing the broker's response through unmodified.
-
-An sbx agent receives only the generated skill/wrapper directory as a read-only
-mount. If Unix passthrough was proven, it additionally receives the socket
-directory read-only and `AWF_BOUNDED_QUERY_SOCKET`. Otherwise it receives
-`AWF_BOUNDED_QUERY_ENDPOINT` and `AWF_BOUNDED_QUERY_CAPABILITY`. It never
-receives the broker-private root, Docker socket, seeds, work/control/audit
-state, seed map, probe capability, or query launch authority.
-
-The generated `SKILL.md` is written under the run-specific ingress root and
-mounted read-only at `/run/awf-bounded-query-skill/SKILL.md`. It documents,
-per configured repository, its sensitivity and run budget (e.g. `` `octo/alpha`
-— 64 bits/run (`internal`) ``), the finite schema DSL, the bit-charge
-formula, the timing buckets, and the operational `maxInvocations` limit —
-so an agent can design informed, low-cardinality questions. AWF deliberately
-does **not** mount it into `$HOME/.copilot/skills` or the workspace's
-`.github/skills`: Docker would create the mount point inside host user state
-or inside the checked-out workspace. Agents therefore discover it through
-`AWF_BOUNDED_QUERY_SKILL` rather than through automatic skill discovery. This
-is a documented limitation, not an oversight.
-
-All seeds, invocation workspaces, the seed map, broker control state, and
-protected audit data live below
-`/var/tmp/awf-bounded-query-private-<uid>-<workDir digest>/`. Only the disjoint
-`/var/tmp/awf-bounded-query-ingress-<uid>-<workDir digest>/run/` (when Unix
-transport is selected) and generated skill/wrapper directory are agent-visible
-through explicit bind mounts. Before
-credential-bearing staging, AWF resolves each path through
-its longest existing ancestor (following symlinks) and rejects any private-root
-overlap with the union of Docker, gVisor, and sbx agent-visible mounts,
-including `/tmp`, the workspace, custom volumes, and whitelisted home tool
-directories. Docker-in-Docker host-path translation is checked and applied to
-the private broker mounts and ingress mounts symmetrically.
-
-An sbx host that cannot create the disposable capability probe or cannot reach
-the selected ingress from the actual primary sandbox fails preflight before
-the agent command starts. Transport never silently downgrades after selection.
-Query execution remains limited to the Docker and gVisor runners; this ingress
-support does not execute query sandboxes inside sbx.
-
-### 14.9 Protocol v1 Compatibility
-
-Protocol v1 (three fixed outcomes plus the reserved `"ERROR"` sentinel, no
-schema, no sensitivity, no bit ledger) is superseded by v2. There is no
-runtime v1/v2 auto-negotiation in the current wrapper or broker — both are
-deployed together as part of the same AWF release, and the wrapper always
-sends `X-AWF-Query-Version: 2`. A safe compatibility translation for legacy
-v1 three-outcome calls (mapping a fixed three-value `enum` schema to the old
-`outcomes` shape) is a natural extension point if a future release needs to
-accept both wire versions from mismatched wrapper/broker builds, but is not
-implemented today because AWF always deploys the wrapper and broker as a
-matched pair.
-
-### 14.10 Residual Channels and Limits
-
-- Every launched invocation's disclosure is bounded by its own declared
-  schema's charge (§14.3) — not a fixed per-invocation cap — debited from its
-  repository's run budget; `public` repositories are schema/operationally
-  bounded but not bit-metered.
-- `maxInvocations` counts every response, including rejections, as an
-  independent operational limit unrelated to the bit ledger.
-- Response timing is bucketed to one of six fixed boundaries and charged as
-  part of the budget (§14.3.1); container and workspace cleanup complete
-  before the bucket is selected (§14.3.1, §14.7).
-- Per-invocation aggregate disk usage is bounded by the wall-clock timeout and
-  a per-file size limit rather than a hard filesystem quota.
-- The query rootfs is the broker image, so it also contains a Node runtime and
-  the Docker CLI. Both are inert inside a query: there is no network, no
-  Docker socket, no capability, and the entrypoint is fixed to `python3`.
-
-## 15. Bounded Agents
-
-### 15.1 Purpose
-
-A *bounded agent* is the agentic sibling of a bounded query (§14). Instead of
-running an agent-authored Python script, a trusted broker runs a configured,
-pinned native coding-agent engine inside a single-use *enclave* that reads one
-immutable repository seed read-only, reaches its model only through the AWF API
-proxy, and must reduce its work to one value conforming to a finite response
-schema the caller declared up front.
-
-Bounded agents exist for questions that need judgment or multi-step reading
-rather than a deterministic script, while keeping exactly the same disclosure
-bound: the caller observes only `{"status":"ok","result":<value>}` or
-`{"status":"error"}`.
-
-Bounded agents reuse §14's sensitivity categories and budget table verbatim,
-but they never share a **ledger**: each subsystem runs its own broker with its
-own seed map in its own private root, so spending on one can never consume the
-other's remaining balance. The remaining balance is never disclosed to the
-caller in any form.
-
-The feature is **config-only**: there are no `--bounded-agents-*` CLI flags.
-
-### 15.2 Configuration
-
-The root object MAY contain a `boundedAgents` section:
-
-```json
-{
-  "boundedAgents": {
-    "enabled": true,
-    "privateRepos": [
-      { "repo": "my-org/private-service", "sensitivity": "internal" }
-    ],
-    "runtime": "docker",
-    "engine": "copilot",
-    "model": "gpt-4o-mini",
-    "timeout": 120,
-    "memoryLimit": "512m",
-    "cpuLimit": "1",
-    "pidsLimit": 128,
-    "tmpfsLimit": "64m",
-    "maxOutputBytes": 8192,
-    "maxTaskBytes": 4096,
-    "maxInvocations": 8
-  }
-}
-```
-
-| Field | Type | Default | Notes |
-|-------|------|---------|-------|
-| `enabled` | boolean | `false` | Only an explicit `true` enables the subsystem. |
-| `privateRepos` | array | — | Required when enabled. Each entry is `{ repo, sensitivity }`; `repo` MUST be a bare `owner/repo` slug and MUST be unique case-insensitively. There is no legacy bare-string form. |
-| `runtime` | `docker` \| `gvisor` \| `sbx` | `docker` | `docker` and `gvisor` are implemented; `sbx` is capability-blocked (§15.7). |
-| `engine` | `copilot` \| `claude` \| `codex` \| `gemini` | `copilot` | Native enclave agent. `copilot` is preinstalled in the standard bounded-agent image; the other accepted values fail closed in preflight until their adapters land. Required when enabled. |
-| `profile` | `openai` \| `anthropic` | `openai` | Legacy provider-loop compatibility field. Native engines select a fixed API-proxy route from `engine`; callers cannot override it. |
-| `model` | string | — | Required when enabled. A request can never choose or override it. |
-| `timeout` | integer (1–540) | `120` | Wall-clock bound for one enclave invocation. Capped so the 10-minute response bucket reserves its final minute for termination, validation, and cleanup. |
-| `memoryLimit` | string | `"512m"` | Docker memory limit; swap disabled at the same value. |
-| `cpuLimit` | string | `"1"` | Docker `--cpus`. |
-| `pidsLimit` | integer | `128` | Docker `--pids-limit`. |
-| `tmpfsLimit` | string | `"64m"` | Size bound for each writable tmpfs (`/tmp` and the `/agent` work/result root). |
-| `maxOutputBytes` | integer (1–8192) | `8192` | Exact size bound on the dedicated result file. |
-| `maxTaskBytes` | integer (1–65536) | `4096` | Byte bound on the caller-supplied task text. |
-| `maxInvocations` | integer | `8` | Per-run response cap; every response, including a rejection, counts. |
-| `maxModelRequests` | integer (1–64) | `8` | Legacy provider-loop compatibility field. The native Copilot CLI does not expose a request-count control, so this is not an enforcement boundary for `engine: "copilot"`. |
-| `maxModelTokens` | integer (1–32768) | `1024` | Legacy provider-loop compatibility field. The native Copilot CLI does not expose a per-call token control, so this is not an enforcement boundary for `engine: "copilot"`. |
-
-Every default is deliberately conservative: a bounded agent is a *model*
-reading confidential source, so the safe posture is a small, short-lived,
-low-token enclave that an operator must explicitly widen.
-
-Bounded agents additionally REQUIRE, at preflight:
-
-- the AWF API proxy to be enabled — the enclave holds no credentials and the
-  API proxy is its only permitted upstream egress;
-- a supported configured API target for the selected `engine` (`copilot`
-  requires a Copilot GitHub-token or BYOK route);
-- a staging credential in `GH_TOKEN`/`GITHUB_TOKEN` on the AWF host;
-- a Unix-socket Docker host;
-- the **primary agent** runtime to be proven available — `docker`,
-  `runsc` registration for `gvisor`, or a proven ingress path (Unix
-  passthrough or authenticated `sbx-http`) for a primary `sbx` runtime. There
-  is no blanket rejection of a primary microVM runtime; availability is
-  proven independently for each run (§15.7.1);
-- the selected **bounded-agent enclave** `runtime` to be proven available;
-- `enableDind` to be disabled, because primary-agent access to the enclave's
-  Docker daemon would bypass every finite-disclosure boundary. This holds
-  regardless of primary or enclave backend — there is no runtime combination
-  in which exposing that socket to the primary agent is safe.
-
-Any failure aborts the run before the primary agent starts.
-
-### 15.3 Request/Result Protocol
-
-A bounded-agent request selects exactly three things:
-
-| Field | Meaning |
-|-------|---------|
-| `privateRepo` | One configured repository, by `owner/repo` slug. |
-| `schema` | A finite response schema, using the same algebra as §14.3. |
-| `task` | Byte-bounded task text, forwarded verbatim into the enclave prompt. |
-
-The `task` is byte-bounded *input*, never configuration: it cannot add a tool,
-change the model, reach an endpoint, or alter any limit.
-
-Everything else is fixed trusted configuration and MUST be rejected if it
-appears in a request — image, command, executable, mount, path, environment,
-endpoint, network, proxy, credential, timeout, resource limit, runtime, or
-tool definition — as MUST any unknown key. Rejecting explicitly named controls
-in addition to the generic unknown-key rule is redundant by construction; it
-is retained so an accidental future widening of the accepted key set fails a
-test rather than silently granting a capability.
-
-The canonical success/error envelopes, the finite schema algebra, the
-information charge (`1` status bit + `ceil(log2(cardinality))` + `3` timing
-bits), the six fixed timing buckets, strict JSON parsing, and canonical
-re-serialization are all the shared bounded-execution primitives introduced
-for bounded queries (§14.3–§14.5) and are reused unchanged.
-
-The charge is debited from the repository's run balance **before** any
-workspace is materialized or any container is created, and is never refunded.
-
-### 15.4 Trusted Host Lifecycle
-
-Identical in shape to §14.6, against a disjoint private root:
-
-1. **Preflight before staging.** Configuration validation and the enclave
-   runtime capability proof run first, so a run that could never launch an
-   enclave never clones a private repository.
-2. **Sanitized seeds.** One immutable seed per configured repository is cloned
-   with the staging credential, scrubbed of remotes, credential helpers,
-   hooks, alternates, worktree links, and reflogs, rejected outright if it
-   declares submodules, made read-only, and verified read-only.
-3. **Credential scrub before launch.** The `GIT_ASKPASS` helper, the 0600
-   token file, and the isolated staging `HOME` are removed before any
-   container exists. The credential never appears in argv, a URL, a log line,
-   the compose file, or any container environment.
-4. **Protected directories and audit.** Seeds, per-invocation workspaces,
-   control state, and the audit log live under a `0700` broker-private root at
-   `/var/tmp/awf-bounded-agent-private-<uid>-<digest>`, which is asserted not
-   to alias, contain, or be contained by any path visible to a primary agent
-   in any supported backend. Only a separate ingress root (broker socket +
-   generated `SKILL.md`/wrapper) is mounted into the agent.
-5. **Deterministic orphan cleanup.** Every enclave carries
-   `awf.bounded-agent.run=<runId>`; teardown force-removes every container with
-   that label, including under `--keep-containers`, and the broker reconciles
-   the same label at startup and shutdown.
-
-### 15.5 Enclave Execution
-
-For each accepted request the broker launches a fresh, uniquely named,
-labelled container with a frozen argument vector:
-
-- `--network <bounded-agent network>` — the enclave joins **only** the
-  dedicated network (§15.6);
-- `--read-only` root filesystem, with the immutable seed bind-mounted `ro` at
-  `/awf/seed` (there is no writable copy of private source anywhere);
-- the caller's task and schema bind-mounted `ro`; the result file bind-mounted
-  `rw`;
-- bounded `--tmpfs` mounts for `/tmp` and the `/agent` work/result root;
-- fixed non-root uid/gid `65534:65534`, `--cap-drop ALL`,
-  `--security-opt no-new-privileges:true`, a seccomp profile, and
-  memory/memory-swap/CPU/PID/`RLIMIT_FSIZE`/`RLIMIT_NOFILE` bounds plus the
-  wall-clock timeout;
-- `--pull never`.
-
-Cleanup runs before the response: the container is force-removed and the
-workspace destroyed, and only then is the timing bucket selected.
-
-The result MUST be a single JSON value in the dedicated bounded result file,
-of at most `maxOutputBytes`. The broker reads it with `O_NOFOLLOW` plus an
-explicit regular-file check, rejects invalid UTF-8, validates it strictly
-against the declared schema, and canonically re-serializes it before
-returning. Enclave stdout and stderr are captured only so the child cannot
-block on a full pipe, and are then discarded.
-
-The protected audit log never records the task, the repository name, the
-transcript, the raw result, host paths, tokens, or provider payloads — only an
-invocation id, the trusted sensitivity class, the charge, the timing bucket,
-and a failure category.
-
-### 15.6 Network Topology
-
-Bounded agents introduce one dedicated Docker network, `awf-bounded-agent`,
-declared `internal: true` with an explicit `name:` (the broker launches
-enclaves with a fixed `docker run --network <name>` argument and must not have
-to derive a Compose project prefix at runtime).
-
-- The **enclave** is a member of that network and of nothing else. It is not on
-  `awf-net` or `awf-ext`, has no Squid route and no general proxy, and cannot
-  reach the primary agent, the broker, the safe-outputs collector, the MCP
-  gateway, or the CLI proxy.
-- A **dedicated API-proxy instance** joins `awf-bounded-agent` at a fixed
-  address/alias and a separate egress bridge that no agent can join. It is the
-  enclave's only upstream egress and the sole holder of a real provider
-  credential. Its token logs, metrics, and quota state live under the
-  bounded-agent private root, so enclave request metadata cannot form a side
-  channel through the primary agent's API-proxy telemetry.
-- The **broker** runs with `network_mode: none` and never joins the enclave
-  network. It receives the Docker socket only because it launches enclaves;
-  that path never enters the agent's environment or volumes. When the
-  runtime-backend proof requires it (a primary `sbx` runtime unable to prove a
-  direct Unix-socket passthrough, §15.7.1), the broker instead exposes a
-  dedicated ingress network with one ephemeral port published only on the
-  Docker host-gateway address, gated by a random, single-run capability token
-  proven reachable before the primary agent starts; the broker itself never
-  joins the enclave's `awf-bounded-agent` network either way.
-
-### 15.7 Runtime Backends
-
-`docker` uses the daemon's default OCI runtime. `gvisor` requires the `runsc`
-OCI runtime to be registered with the daemon; availability is proven exactly at
-preflight and again at broker startup, and an unavailable `runsc` NEVER
-downgrades to the default runtime.
-
-`sbx` is accepted by the JSON Schema but is **capability-blocked**: AWF ships a
-dedicated bounded-agent sbx capability probe (host-side
-`src/bounded-agent/sbx-capability.ts`, container-side
-`containers/bounded-agent/broker/sbx-capability-probe.js`) that inspects the
-exact audited Docker Sandboxes CLI surface using `sbx version`, authenticated
-non-mutating `sbx ls`, and `create --help` / `exec --help` against the audited
-version (`v0.37.1`). It reports every missing capability in structured JSON —
-never a single collapsed boolean, and never a "not yet implemented"
-placeholder. The blocked runner defines `create`, `exec`, `stop`, and
-`rm --force`, but preflight does not claim to execute that lifecycle.
-
-The bounded-agent enclave's network requirement is strictly harder than a
-bounded query's: it must reach *exactly one* peer (the dedicated API proxy),
-not "no network at all". Current `sbx create` exposes `--cpus`, `--memory`,
-`--name`, `--template`, and read-only same-path mounts, but no enforceable,
-mandatory API-proxy-only network policy (an advisory `HTTP_PROXY` env var is
-not a hard network policy and is never treated as one), no PID limits, no disk
-limits, no per-file size limits, and no pinned, digest-verified AWF
-bounded-agent template/bootstrap. The probe therefore always reports these
-missing and `supported` can never be `true` for the currently audited
-version — an intentional, structural "no false pass" design, not an
-oversight. AWF rejects this runtime before staging or compose assembly, mounts
-neither the Docker socket nor any sbx daemon credential, and the broker's
-`SbxEnclaveRunner.assertAvailable()` throws immediately if ever invoked.
-Support remains blocked until sbx provides enforceable versions of all
-controls and AWF publishes a digest-pinned, standard-library-only enclave
-bootstrap.
-
-#### 15.7.1 Primary-agent and bounded-agent runtime matrix
-
-The primary agent runtime and the bounded-agent enclave runtime are separate,
-independently-proven sandbox decisions — mirroring §14's primary-agent/query
-matrix. `container.containerRuntime` selects the primary agent;
-`boundedAgents.runtime` selects the single-use enclave. The broker never
-reuses the primary agent sandbox; every accepted invocation creates a new
-container with a unique run identity and destroys it before returning. No
-combination ever falls back to a weaker or different backend.
-
-`src/bounded-agent/runtime-matrix.ts` evaluates all nine
-`primaryBackend` × `boundedAgentBackend` combinations independently and
-records `lifecycleClass: 'invocation'`, `capabilityState`, and `category` per
-cell for telemetry — never the task, repository name, provider payload, or
-capability token.
-
-| Primary agent | Docker enclave | gVisor enclave | sbx enclave |
-|---|---|---|---|
-| Docker | Supported when Docker is available | Supported when `runsc` is registered | **Blocked** by mandatory sbx enclave probes |
-| gVisor | Supported when the primary `runsc` runtime is available | Supported when `runsc` is registered | **Blocked** by mandatory sbx enclave probes |
-| sbx | Supported when primary sbx ingress (Unix passthrough or authenticated `sbx-http`) is proven | Supported when primary sbx ingress and `runsc` are proven | **Blocked** by mandatory sbx enclave probes |
-
-Six of the nine cells are supported once the relevant runtime(s) are proven
-available; the three `sbx`-enclave cells are not, and remain blocked until the
-capability proof in §15.7 can report `supported: true` for an audited sbx
-version. An unavailable primary runtime fails at primary preflight, before any
-repository is staged; an unavailable enclave runtime fails at enclave
-preflight, for the same reason.
-
-`scripts/ci/report-bounded-agent-runtime-matrix.js` renders this matrix from
-live host probes for CI/local use and reports an explicit `BLOCKED` result —
-exiting non-zero under `--require <primary>/<boundedAgent>` — rather than a
-false pass when no real sbx binary is present.
-
-### 15.8 Agent Interface
-
-When enabled, AWF generates two agent-visible artifacts in the ingress root:
-
-- a `bounded-agent` CLI (installed at `/tmp/awf-lib/bounded-agent`, added to
-  `PATH` by the agent entrypoint), and
-- a read-only `SKILL.md` installed under `~/.github/skills/bounded-agent/`.
-
-The CLI accepts exactly `--repo owner/repo`, `--schema '<json>'`, and the task
-text on stdin. It always prints exactly one line of canonical JSON, writes
-nothing to stderr, and exits `0` — for every outcome and every failure.
-
-`boundedAgents.engine` selects the native coding-agent adapter in the standard
-bounded-agent image. `copilot` is preinstalled; `claude`, `codex`, and `gemini`
-are schema-recognized but fail closed in preflight until their pinned adapters
-land. Copilot runs the native CLI with built-in shell/Bash tools. The immutable
-seed remains read-only, writable state is confined to bounded tmpfs mounts, and
-the only network peer is the dedicated API proxy. No credential, host state,
-safe outputs, or GitHub MCP is available inside the enclave.
-
-### 15.9 Provider Disclosure Caveat
-
-A bounded agent necessarily sends repository-derived content — file listings,
-file excerpts, and search hits selected by the model — to the configured model
-provider through the AWF API proxy. **The information-budget ledger bounds what
-the *calling agent* learns, not what the *provider* sees.**
-
-This is a materially different exposure from a bounded query, whose Python
-sandbox has no network at all. Operators MUST treat the configured provider as
-an authorized recipient of repository contents before enabling bounded agents
-for a repository, and SHOULD prefer bounded queries when a deterministic script
-can answer the question.
-
-### 15.10 Residual Channels and Limits
-
-- Disclosure to the calling agent is bounded by the declared schema's charge
-  plus the status and timing channels, debited before any workspace or
-  container exists; `public` repositories are schema/operationally bounded but
-  not bit-metered.
-- `maxInvocations` counts every response, including rejections.
-- Response timing is bucketed to one of six fixed boundaries and charged;
-  container and workspace cleanup complete before the bucket is selected.
-- Model requests per invocation, completion tokens per request, task bytes, and
-  result bytes are all separately bounded, but a model that is told to encode
-  data in its final answer is still limited only by the declared schema's
-  cardinality — which is exactly what the ledger charges for.
-- Provider-side exposure is out of scope for the ledger (§15.9).
-- The enclave shares the audited no-network sandbox seccomp profile with
-  bounded queries; unlike a bounded query it does have a network interface, to
-  the API proxy only.
+See [Unified Enclave Architecture and Migration](enclaves-architecture.md) for the operator-facing summary.
 
 ## Normative References
 
