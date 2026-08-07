@@ -16,7 +16,7 @@
     "astro": "^7.1.0",
     "astro-mermaid": "^2.1.0",
     "esbuild": "^0.28.1",
-    "mermaid": "^11.12.2",
+    "mermaid": "^11.16.1",
     "sharp": "^0.35.3"
   },
   "overrides": {
