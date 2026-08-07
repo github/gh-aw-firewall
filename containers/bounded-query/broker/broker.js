@@ -266,8 +266,8 @@ function createBroker(params) {
         audit.failure('budget', 'invocation-count-exhausted', `max=${config.maxInvocations}`);
         emitQueryTelemetry('invocation-count-exhausted');
         if (uniformTiming) {
-          const startMs = clock.nowMs();
           const queued = tail.then(async () => {
+            const startMs = clock.nowMs();
             await waitForBucket(startMs, clock.nowMs() - startMs, clock);
             safeRespond(CANONICAL_ERROR_JSON);
           });

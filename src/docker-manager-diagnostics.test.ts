@@ -4,6 +4,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { resolveBoundedQueryPaths } from './bounded-query/paths';
 import { resolveBoundedAgentPaths } from './bounded-agent/paths';
+import { resolveEnclavePaths } from './enclave/paths';
 
 import { mockExecaFn, mockExecaSync } from './test-helpers/mock-execa.test-utils';
 import { useTempDir } from './test-helpers/docker-test-fixtures.test-utils';
@@ -234,6 +235,42 @@ describe('docker-manager diagnostics', () => {
       );
       fs.rmSync(resolveBoundedAgentPaths(getDir()).root, { recursive: true, force: true });
       fs.rmSync(resolveBoundedAgentPaths(getDir()).ingressRoot, { recursive: true, force: true });
+    });
+
+    it('should copy enclave protected audit and runtime telemetry before cleanup', () => {
+      const enclaveRoot = resolveEnclavePaths(getDir()).root;
+      fs.mkdirSync(enclaveRoot, { recursive: true });
+      const auditDir = path.join(getDir(), 'audit');
+      fs.mkdirSync(auditDir);
+
+      preserveIptablesAudit(getDir(), auditDir);
+
+      expect(mockExecaSync).toHaveBeenCalledWith(
+        'docker',
+        ['cp', 'awf-enclave-mcp-server:/var/log/awf-enclave/enclave.jsonl', path.join(auditDir, 'enclave.jsonl')],
+        expect.objectContaining({ reject: false }),
+      );
+      expect(mockExecaSync).toHaveBeenCalledWith(
+        'docker',
+        [
+          'cp',
+          'awf-enclave-mcp-server:/var/log/awf-enclave/runtime-telemetry.jsonl',
+          path.join(auditDir, 'enclave-runtime.jsonl'),
+        ],
+        expect.objectContaining({ reject: false }),
+      );
+      fs.rmSync(enclaveRoot, { recursive: true, force: true });
+    });
+
+    it('should not copy enclave audit files when the enclave root is absent', () => {
+      const enclaveRoot = resolveEnclavePaths(getDir()).root;
+      fs.rmSync(enclaveRoot, { recursive: true, force: true });
+      const auditDir = path.join(getDir(), 'audit');
+      fs.mkdirSync(auditDir);
+
+      preserveIptablesAudit(getDir(), auditDir);
+
+      expect(mockExecaSync).not.toHaveBeenCalled();
     });
   });
 });

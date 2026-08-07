@@ -253,31 +253,32 @@ export async function assertQueryRuntimeAvailable(
   queryDockerRuntime: DockerRuntimeQuery = defaultDockerRuntimeQuery,
   querySbxCapabilities: SbxCapabilityQuery = defaultSbxCapabilityQuery,
   queryDockerAvailable: DockerAvailabilityQuery = defaultDockerAvailabilityQuery,
+  runtimeConfigPath = 'boundedQueries.runtime',
 ): Promise<void> {
   await assertRuntimeAvailability(boundedQueries.runtime, {
     sbx: async () => {
       const report = await querySbxCapabilities();
       if (!report.supported) {
         throw new Error(
-          'boundedQueries.runtime "sbx" is blocked because the installed sbx runtime cannot enforce all ' +
+          `${runtimeConfigPath} "sbx" is blocked because the installed sbx runtime cannot enforce all ` +
           `mandatory query-isolation controls: ${report.missing.join(', ')}. ` +
-          'AWF will not launch a query VM and will never fall back to Docker or gVisor.',
+          'AWF will not launch the configured sandbox and will never fall back to Docker or gVisor.',
         );
       }
     },
     docker: async () => {
       if (!(await queryDockerAvailable())) {
         throw new Error(
-          'boundedQueries.runtime "docker" requires a reachable Docker daemon. It is not available, ' +
-          'and bounded queries never fall back to another runtime.',
+          `${runtimeConfigPath} "docker" requires a reachable Docker daemon. It is not available, ` +
+          'and the configured sandbox will never fall back to another runtime.',
         );
       }
     },
     gvisor: async () => {
       if (!(await queryDockerRuntime(GVISOR_DOCKER_RUNTIME))) {
         throw new Error(
-          `boundedQueries.runtime "gvisor" requires the "${GVISOR_DOCKER_RUNTIME}" OCI runtime to be ` +
-          'registered with the Docker daemon. It is not available, and bounded queries never fall back ' +
+          `${runtimeConfigPath} "gvisor" requires the "${GVISOR_DOCKER_RUNTIME}" OCI runtime to be ` +
+          'registered with the Docker daemon. It is not available, and the configured sandbox will never fall back ' +
           'to a weaker runtime.',
         );
       }
@@ -285,8 +286,8 @@ export async function assertQueryRuntimeAvailable(
     custom: async () => {
       if (!(await queryDockerRuntime(GVISOR_DOCKER_RUNTIME))) {
         throw new Error(
-          `boundedQueries.runtime "gvisor" requires the "${GVISOR_DOCKER_RUNTIME}" OCI runtime to be ` +
-          'registered with the Docker daemon. It is not available, and bounded queries never fall back ' +
+          `${runtimeConfigPath} "gvisor" requires the "${GVISOR_DOCKER_RUNTIME}" OCI runtime to be ` +
+          'registered with the Docker daemon. It is not available, and the configured sandbox will never fall back ' +
           'to a weaker runtime.',
         );
       }
@@ -294,8 +295,8 @@ export async function assertQueryRuntimeAvailable(
     defaultDocker: async () => {
       if (!(await queryDockerAvailable())) {
         throw new Error(
-          'boundedQueries.runtime "docker" requires a reachable Docker daemon. It is not available, ' +
-          'and bounded queries never fall back to another runtime.',
+          `${runtimeConfigPath} "docker" requires a reachable Docker daemon. It is not available, ` +
+          'and the configured sandbox will never fall back to another runtime.',
         );
       }
     },

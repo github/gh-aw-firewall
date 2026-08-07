@@ -198,6 +198,18 @@ describe('assertQueryRuntimeAvailable', () => {
     ).rejects.toThrow(/runsc.*not available|not available.*fall back/s);
   });
 
+  it('reports a caller-provided runtime configuration path', async () => {
+    await expect(
+      assertQueryRuntimeAvailable(
+        { ...baseBoundedQueries, runtime: 'gvisor' },
+        jest.fn().mockResolvedValue(false),
+        jest.fn(),
+        jest.fn(),
+        'enclaves.executors.script.runtime',
+      ),
+    ).rejects.toThrow(/enclaves\.executors\.script\.runtime "gvisor"/);
+  });
+
   it('routes custom and omitted runtimes through their fixed Docker capability checks', async () => {
     const runtimeQuery = jest.fn().mockResolvedValue(true);
     const dockerAvailable = jest.fn().mockResolvedValue(true);
