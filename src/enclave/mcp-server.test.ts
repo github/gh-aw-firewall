@@ -151,7 +151,7 @@ describe('AWF enclave MCP protocol', () => {
   it('admits only one unified enclave tool call at a time', async () => {
     const tryAcquireToolCall = createSingleToolAdmission();
     let finishFirst: (() => void) | undefined;
-    const broker = {
+    const handler = {
       handle: (_request: unknown, respond: (value: string) => void) => new Promise<void>((resolve) => {
         finishFirst = () => {
           respond('{"status":"ok","result":true}');
@@ -159,7 +159,11 @@ describe('AWF enclave MCP protocol', () => {
         };
       }),
     };
-    const deps = { broker, maxScriptBytes: 65536, tryAcquireToolCall };
+    const deps = {
+      handlers: { [TOOL_NAME]: handler },
+      maxScriptBytes: 65536,
+      tryAcquireToolCall,
+    };
     const first = dispatchJsonRpc(rpc('tools/call', {
       name: TOOL_NAME,
       arguments: validArguments,
@@ -381,12 +385,12 @@ describe('unified enclave ledger and timing', () => {
   it('starts an exhausted invocation timing bucket after queued work completes', async () => {
     let now = 0;
     const sleeps: number[] = [];
-    const broker = createBroker({
+    const handler = createExecutorHandler({
       config: {
         maxInvocations: 1,
         timeoutSeconds: 30,
         primaryBackend: 'docker',
-        queryBackend: 'docker',
+        executorBackend: 'docker',
       },
       seedMap: new Map([['octo/private', { seedId: 'a'.repeat(16), sensitivity: 'internal' }]]),
       runId: 'a'.repeat(16),
@@ -403,7 +407,7 @@ describe('unified enclave ledger and timing', () => {
         },
       },
       runner: {
-        runQueryContainer: async () => {
+        runScriptContainer: async () => {
           now += 50;
           return { exitCode: 0, timedOut: false };
         },
@@ -415,11 +419,11 @@ describe('unified enclave ledger and timing', () => {
       },
     });
     const responses: string[] = [];
-    const first = broker.handle(validArguments, (value: string) => responses.push(value));
-    const second = broker.handle(validArguments, (value: string) => responses.push(value));
+    const first = handler.handle(validArguments, (value: string) => responses.push(value));
+    const second = handler.handle(validArguments, (value: string) => responses.push(value));
     await Promise.all([first, second]);
 
-    expect(responses).toEqual(['{"status":"ok","result":true}', CANONICAL_ERROR_JSON]);
+    expect(responses).toEqual(['{"status":"ok","result":true}', CANONICAL_ERROR_RESPONSE_JSON]);
     expect(sleeps).toEqual([50, 10]);
     expect(now).toBe(110);
   });

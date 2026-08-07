@@ -57,19 +57,36 @@ function daemonVisiblePath(source: string, prefix: string | undefined): string {
  * directory containing it) to the primary agent.
  */
 export function findDockerSocketExposingMount(config: WrapperConfig): string | undefined {
-  const socketPath = resolveDockerSocketPath(config);
-  const resolvedSocket = resolvePathThroughExistingAncestor(socketPath);
-  const daemonSocket = resolvePathThroughExistingAncestor(
-    daemonVisiblePath(socketPath, config.dockerHostPathPrefix),
-  );
+  const socketPaths = new Set([
+    resolveDockerSocketPath(config),
+    '/var/run/docker.sock',
+    '/run/docker.sock',
+  ]);
+  const sockets = [...socketPaths].map((socketPath) => ({
+    hostLiteral: path.resolve(socketPath),
+    hostResolved: resolvePathThroughExistingAncestor(socketPath),
+    daemonLiteral: path.resolve(daemonVisiblePath(socketPath, config.dockerHostPathPrefix)),
+    daemonResolved: resolvePathThroughExistingAncestor(
+      daemonVisiblePath(socketPath, config.dockerHostPathPrefix),
+    ),
+  }));
   for (const volume of config.volumeMounts ?? []) {
     const source = mountSource(volume);
     if (!source) continue;
+    const literalSource = path.resolve(source);
     const resolvedSource = resolvePathThroughExistingAncestor(source);
+    const literalDaemonSource = path.resolve(
+      daemonVisiblePath(source, config.dockerHostPathPrefix),
+    );
     const daemonSource = resolvePathThroughExistingAncestor(
       daemonVisiblePath(source, config.dockerHostPathPrefix),
     );
-    if (pathsOverlap(resolvedSource, resolvedSocket) || pathsOverlap(daemonSource, daemonSocket)) {
+    if (sockets.some(
+      (socket) => pathsOverlap(literalSource, socket.hostLiteral)
+        || pathsOverlap(resolvedSource, socket.hostResolved)
+        || pathsOverlap(literalDaemonSource, socket.daemonLiteral)
+        || pathsOverlap(daemonSource, socket.daemonResolved),
+    )) {
       return volume;
     }
   }

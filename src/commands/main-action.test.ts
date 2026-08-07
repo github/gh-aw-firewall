@@ -712,7 +712,7 @@ describe('createMainAction', () => {
       await performCleanup();
 
       expect(mockedLogger.warn).toHaveBeenCalledWith(
-        'Failed to stop the enclave gateway control path; continuing cleanup.',
+        'Enclave gateway did not complete graceful shutdown; preserved enclave audit is marked incomplete.',
         expect.any(Error)
       );
       expect(mockedDockerManager.preserveIptablesAudit).toHaveBeenCalled();

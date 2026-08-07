@@ -57,12 +57,12 @@ describe('enclave runtime preflight', () => {
       { ...ENCLAVE_SCRIPT_EXECUTOR_DEFAULTS, enabled: true, runtime: 'docker' },
       runtimeAvailable,
       dockerAvailable,
-    )).rejects.toThrow(/Docker daemon.*never falls back/);
+    )).rejects.toThrow(/Docker daemon; enclaves never fall back/);
     await expect(assertAgentRuntimeAvailable(
       { ...ENCLAVE_AGENT_EXECUTOR_DEFAULTS, enabled: true, runtime: 'docker' },
       runtimeAvailable,
       dockerAvailable,
-    )).rejects.toThrow(/Docker daemon.*never falls back/);
+    )).rejects.toThrow(/Docker daemon; enclaves never fall back/);
   });
 
   it('rejects the unimplemented sbx executor backend without probing alternatives', async () => {

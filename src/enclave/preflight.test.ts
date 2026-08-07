@@ -110,8 +110,6 @@ describe('validateEnclavesConfig', () => {
           maxOutputBytes: 0,
           maxTaskBytes: 0,
           maxInvocations: 0,
-          maxModelRequests: 0,
-          maxModelTokens: 0,
         },
       },
     });
