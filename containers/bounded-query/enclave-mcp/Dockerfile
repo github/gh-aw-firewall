@@ -21,7 +21,7 @@
 # (`enclave-script`, `enclave-agent`); nothing in this image ever executes
 # caller-supplied code.
 
-FROM node:22.23.1-alpine3.24 AS enclave-mcp-server
+FROM node:22.23.2-alpine3.24 AS enclave-mcp-server
 
 # docker-cli — used by the server to launch single-use executor containers.
 RUN apk add --no-cache docker-cli \

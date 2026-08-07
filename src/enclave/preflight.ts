@@ -32,8 +32,7 @@ export function resolveEnclaveAgentApiRoute(
     return {
       routed: Boolean(
         config.copilotGithubToken
-        || config.copilotProviderApiKey
-        || config.copilotProviderBaseUrl,
+        || config.copilotProviderApiKey,
       ),
       detail: 'apiProxy.targets.copilot (COPILOT_GITHUB_TOKEN or Copilot BYOK route) is not configured',
     };
@@ -75,6 +74,13 @@ export function validateEnclavesConfig(config: WrapperConfig): string[] {
   if (config.boundedQueries?.enabled || config.boundedAgents?.enabled) {
     errors.push(
       'enclaves cannot be enabled with boundedQueries or boundedAgents; choose the unified enclaves section or the legacy sections',
+    );
+  }
+  if (config.enableDind) {
+    errors.push(
+      'enclaves cannot be combined with enableDind: exposing the Docker socket to the primary agent ' +
+      'would allow it to inspect private seed mounts, join enclave networks, and bypass the ' +
+      'finite-disclosure ledger',
     );
   }
 
@@ -129,13 +135,6 @@ export function validateEnclavesConfig(config: WrapperConfig): string[] {
           `${route.detail}`,
         );
       }
-    }
-    if (config.enableDind) {
-      errors.push(
-        'enclaves agent executor cannot be combined with enableDind: exposing the Docker socket to the ' +
-        'primary agent would allow it to inspect credentials, mount private seeds, join the enclave ' +
-        'network, and bypass the finite-disclosure ledger',
-      );
     }
     if (!Number.isInteger(agent.timeout) || agent.timeout < 1 || agent.timeout > MAX_BOUNDED_EXECUTION_TIMEOUT_SECONDS) {
       errors.push(

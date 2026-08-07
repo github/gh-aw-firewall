@@ -64,7 +64,7 @@ export const BOUNDED_QUERY_SENSITIVITY_RUN_BITS = ENCLAVE_SENSITIVITY_RUN_BITS;
  * request) and flows unmodified into the seed map the broker reads — the
  * agent cannot choose or override it.
  */
-export interface BoundedQueryRepository extends EnclaveRepository {}
+export type BoundedQueryRepository = EnclaveRepository;
 
 /**
  * Fully-normalized bounded-query configuration, with every field resolved to

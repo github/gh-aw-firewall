@@ -78,7 +78,23 @@ describe('validateEnclavesConfig', () => {
       .toMatch(/requires a configured API target for engine "copilot"/);
   });
 
-  it('rejects an agent executor combined with a Docker socket in the primary agent', () => {
+  it('rejects a Copilot base URL without a credential', () => {
+    const enclaves = normalizeEnclavesConfig({
+      enabled: true,
+      privateRepos: [{ repo: 'octo/private', sensitivity: 'internal' }],
+      executors: { agent: { enabled: true, model: 'gpt-test' } },
+    });
+    expect(validateEnclavesConfig(config({
+      enclaves,
+      enableApiProxy: true,
+      copilotProviderBaseUrl: 'https://models.example.test',
+    })).join('\n')).toMatch(/requires a configured API target for engine "copilot"/);
+  });
+
+  it('rejects any enclave executor combined with a Docker socket in the primary agent', () => {
+    expect(validateEnclavesConfig(config({ enableDind: true })).join('\n'))
+      .toMatch(/enclaves cannot be combined with enableDind/);
+
     const enclaves = normalizeEnclavesConfig({
       enabled: true,
       privateRepos: [{ repo: 'octo/private', sensitivity: 'internal' }],
@@ -89,7 +105,7 @@ describe('validateEnclavesConfig', () => {
       enableApiProxy: true,
       copilotGithubToken: 'token',
       enableDind: true,
-    })).join('\n')).toMatch(/cannot be combined with enableDind/);
+    })).join('\n')).toMatch(/enclaves cannot be combined with enableDind/);
   });
 
   it('rejects an agent executor that cannot reach a model or drops its network', () => {
