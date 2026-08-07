@@ -245,9 +245,7 @@ const GITHUB_TOKEN_PREFIX_COPILOT_TARGETS = new Set([
 ]);
 
 function isGhecCopilotApiTarget(target) {
-  return target.startsWith('copilot-api.')
-    && target.endsWith('.ghe.com')
-    && target.length > 'copilot-api..ghe.com'.length;
+  return /^copilot-api\.[^.]+\.ghe\.com$/.test(target);
 }
 
 /**

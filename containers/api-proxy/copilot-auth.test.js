@@ -322,6 +322,13 @@ describe('copilotTargetRequiresGitHubTokenPrefix', () => {
     })).toBe(true);
   });
 
+  it('returns false for malformed or non-canonical GHEC data-residency target shapes', () => {
+    const env = { GITHUB_SERVER_URL: 'https://myorg.ghe.com' };
+    expect(copilotTargetRequiresGitHubTokenPrefix('copilot-api..ghe.com', env)).toBe(false);
+    expect(copilotTargetRequiresGitHubTokenPrefix('copilot-api.a.b.ghe.com', env)).toBe(false);
+    expect(copilotTargetRequiresGitHubTokenPrefix('copilot-api.myorg.ghe.com.evil.com', env)).toBe(false);
+  });
+
   it('returns false when no token-prefix indicators are present', () => {
     expect(copilotTargetRequiresGitHubTokenPrefix('custom-proxy.internal', {})).toBe(false);
   });
