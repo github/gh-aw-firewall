@@ -5,6 +5,7 @@ const {
   getAiCreditsBlockState,
   buildAiCreditsLimitError,
   checkUnknownModelRejection,
+  isModelPriceable,
   canonicalizeModel,
   resetAiCreditsGuardForTests,
 } = require('./ai-credits-guard');
@@ -672,4 +673,38 @@ describe('ai-credits-guard', () => {
       expect(checkUnknownModelRejection('auto', PROVIDER_OPENAI)).not.toBeNull();
     });
   });
+
+  describe('isModelPriceable (side-effect-free)', () => {
+    it('reports priced and unpriced models correctly', () => {
+      expect(isModelPriceable('gpt-4-turbo', PROVIDER_OPENAI)).toBe(true);
+      expect(isModelPriceable('crest-alpha-0418-block-cy4.5', PROVIDER_OPENAI)).toBe(false);
+    });
+
+    it('emits no warning when probing unpriceable models', () => {
+      process.env.AWF_MAX_AI_CREDITS = '10';
+      resetAiCreditsGuardForTests();
+
+      const { lines, spy } = collectLogOutput();
+      for (let i = 0; i < 25; i++) {
+        isModelPriceable(`crest-alpha-probe-${i}`, PROVIDER_OPENAI);
+      }
+      spy.mockRestore();
+
+      expect(lines.filter(l => l.event === 'unknown_model_ai_credits_pricing')).toHaveLength(0);
+    });
+
+    it('does not suppress the warning if a probed model is later requested', () => {
+      process.env.AWF_MAX_AI_CREDITS = '10';
+      resetAiCreditsGuardForTests();
+
+      isModelPriceable('crest-alpha-probe-7', PROVIDER_OPENAI);
+
+      const { lines, spy } = collectLogOutput();
+      checkUnknownModelRejection('crest-alpha-probe-7', PROVIDER_OPENAI);
+      spy.mockRestore();
+
+      expect(lines.some(l => l.event === 'unknown_model_ai_credits_pricing')).toBe(true);
+    });
+  });
+
 });

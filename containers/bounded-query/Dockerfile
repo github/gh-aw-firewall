@@ -36,7 +36,7 @@ RUN mkdir -p /query /awf/seed
 # ──────────────────────────────────────────────────────────────────────────
 # broker stage: trusted broker with Node + docker-cli (default build target)
 # ──────────────────────────────────────────────────────────────────────────
-FROM node:22.23.1-alpine3.24 AS broker
+FROM node:22.23.2-alpine3.24 AS broker
 
 # docker-cli  — used by the broker to launch query containers
 RUN apk add --no-cache docker-cli \

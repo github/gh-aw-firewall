@@ -93,7 +93,7 @@ function canonicalizeModel(model) {
   return withoutDateSuffix.replace(/[._]/g, '-');
 }
 
-function resolveModelPricing(model, state = aiCreditsState, provider = undefined, inputTokens = 0) {
+function resolveModelPricing(model, state = aiCreditsState, provider = undefined, inputTokens = 0, options = {}) {
   const operatorPricing = provider ? resolveProviderPricingOverlay(provider, model) : null;
   if (operatorPricing) return operatorPricing;
 
@@ -102,7 +102,7 @@ function resolveModelPricing(model, state = aiCreditsState, provider = undefined
     .every(field => Object.hasOwn(runtime.pricing, field))) {
     return runtime;
   }
-  const fallback = resolveLowerPriorityPricing(model, state);
+  const fallback = resolveLowerPriorityPricing(model, state, options);
   if (!runtime) return fallback;
   const mergedPricing = {};
   for (const field of ['input', 'cachedInput', 'cacheWrite', 'output']) {
@@ -117,7 +117,7 @@ function resolveModelPricing(model, state = aiCreditsState, provider = undefined
   return { ...runtime, pricing: mergedPricing };
 }
 
-function resolveLowerPriorityPricing(model, state) {
+function resolveLowerPriorityPricing(model, state, options = {}) {
   if (Object.hasOwn(pricingByModel, model)) {
     return { pricing: pricingByModel[model], source: 'curated', tier: 'default' };
   }
@@ -147,7 +147,11 @@ function resolveLowerPriorityPricing(model, state) {
     return { pricing: catalogModel.pricing, source: 'models.dev', tier: 'default' };
   }
 
-  if (!state.warnedUnknownModels.has(model)) {
+  // Speculative callers (e.g. filtering a fallback candidate pool) pass quiet:true
+  // so that probing a model neither emits an operator-facing warning nor marks the
+  // model as already-warned — which would suppress the warning if it is genuinely
+  // requested later.
+  if (!options.quiet && !state.warnedUnknownModels.has(model)) {
     logRequest('warn', 'unknown_model_ai_credits_pricing', {
       model: sanitizeForLog(model),
     });
@@ -169,6 +173,32 @@ function resolveLowerPriorityPricing(model, state) {
   }
 
   return null;
+}
+
+/**
+ * Side-effect-free check for whether a model has resolvable AI-credits pricing.
+ *
+ * Mirrors checkUnknownModelRejection's resolution (both the default and the
+ * highest selectable pricing tier must resolve) but emits no logs and does not
+ * mutate guard state, so it is safe to call across a large pool of speculative
+ * candidates that may never be selected.
+ *
+ * @param {string} model
+ * @param {string} [provider]
+ * @returns {boolean}
+ */
+function isModelPriceable(model, provider = undefined) {
+  if (!model) return true;
+  const defaultTier = resolveModelPricing(model, aiCreditsState, provider, 0, { quiet: true });
+  if (!defaultTier) return false;
+  const highestTier = resolveModelPricing(
+    model,
+    aiCreditsState,
+    provider,
+    Number.MAX_SAFE_INTEGER,
+    { quiet: true },
+  );
+  return !!highestTier;
 }
 
 /**
@@ -374,6 +404,7 @@ module.exports = {
   getAiCreditsBlockState,
   buildAiCreditsLimitError,
   checkUnknownModelRejection,
+  isModelPriceable,
   canonicalizeModel,
   resetAiCreditsGuardForTests,
 };

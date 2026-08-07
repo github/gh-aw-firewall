@@ -1,11 +1,11 @@
 # Node.js API proxy for credential management
 # Routes through Squid to respect domain whitelisting
-FROM node:22.23.1-alpine3.24
+FROM node:22.23.2-alpine3.24
 
 # Install curl for healthchecks (>=8.21.0-r0 to fix CVE in 8.20.x)
 RUN apk add --no-cache "curl>=8.21.0-r0"
 
-# Replace the vulnerable npm 10.x bundled with Node 22.23.1 with npm 11.18.0.
+# Replace the vulnerable npm 10.x bundled with Node 22.23.2 with npm 11.18.0.
 # npm 11.18.0 bundles: tar 7.5.19 (fixes GHSA-23hp-3jrh-7fpw/GHSA-8x88-c5mf-7j5w),
 # sigstore 4.1.1 (fixes GHSA-52v5-jr5w-gjxr), brace-expansion 5.0.7 and
 # picomatch 4.0.4 (via tinyglobby, fixes GHSA-3jxr-9vmj-r5cp / GHSA-c2c7-rcm5-vvqj).
@@ -23,7 +23,7 @@ RUN set -eux; \
              /usr/local/lib/node_modules/npm/bin/npx-cli.js; \
     ln -sf /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm; \
     ln -sf /usr/local/lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx; \
-    node --version | grep -qE '^v22\.23\.1' || (echo "ERROR: expected Node.js v22.23.1" && exit 1); \
+    node --version | grep -qE '^v22\.23\.2' || (echo "ERROR: expected Node.js v22.23.2" && exit 1); \
     npm --version | grep -qE '^11\.18\.0' || (echo "ERROR: expected npm 11.18.0" && exit 1); \
     rm -f /tmp/npm-11.18.0.tgz
 
