@@ -339,4 +339,50 @@ describe('unified enclave ledger and timing', () => {
     expect(response).toBe(CANONICAL_ERROR_JSON);
     expect(now - startedAt).toBe(10);
   });
+
+  it('starts an exhausted invocation timing bucket after queued work completes', async () => {
+    let now = 0;
+    const sleeps: number[] = [];
+    const broker = createBroker({
+      config: {
+        maxInvocations: 1,
+        timeoutSeconds: 30,
+        primaryBackend: 'docker',
+        queryBackend: 'docker',
+      },
+      seedMap: new Map([['octo/private', { seedId: 'a'.repeat(16), sensitivity: 'internal' }]]),
+      runId: 'a'.repeat(16),
+      audit: { failure: jest.fn(), invocation: jest.fn() },
+      telemetry: { emit: jest.fn() },
+      ledger: { tryDebit: () => true },
+      executorKind: 'script',
+      uniformTiming: true,
+      clock: {
+        nowMs: () => now,
+        sleep: async (ms: number) => {
+          sleeps.push(ms);
+          now += ms;
+        },
+      },
+      runner: {
+        runQueryContainer: async () => {
+          now += 50;
+          return { exitCode: 0, timedOut: false };
+        },
+      },
+      workspace: {
+        createInvocationWorkspace: () => ({ outPath: 'unused' }),
+        readQueryOutput: () => 'true',
+        destroyInvocationWorkspace: () => undefined,
+      },
+    });
+    const responses: string[] = [];
+    const first = broker.handle(validArguments, (value: string) => responses.push(value));
+    const second = broker.handle(validArguments, (value: string) => responses.push(value));
+    await Promise.all([first, second]);
+
+    expect(responses).toEqual(['{"status":"ok","result":true}', CANONICAL_ERROR_JSON]);
+    expect(sleeps).toEqual([50, 10]);
+    expect(now).toBe(110);
+  });
 });

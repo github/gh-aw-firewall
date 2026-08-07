@@ -22,23 +22,7 @@ engine:
   id: copilot
   env:
     # Direct-BYOK trigger against Azure OpenAI (Foundry) using Microsoft Entra
-    # (GitHub OIDC federated credential) instead of a static api-key. The
-    # sibling smoke-copilot-byok-aoai-apikey workflow exercises the same code
-    # path with COPILOT_PROVIDER_API_KEY; this workflow instead lets the
-    # api-proxy sidecar exchange the GitHub Actions OIDC JWT for an Azure AD
-    # access token (via workload identity federation) and inject it as a
-    # bearer token on upstream requests to the Foundry deployment.
-    #
-    # Only COPILOT_PROVIDER_BASE_URL is wired in under engine.env (because
-    # gh-aw's strict mode allowlists this exact variable here to keep the
-    # secret out of the agent container). The AWF_AUTH_* values live at
-    # workflow-level env (see below) instead, because gh-aw's strict-mode
-    # engine.env secret-leak allowlist does not yet include them.
-    #
-    # For Actions OIDC to work, the agent step must run under an Actions
-    # environment named `aoai-model` (see `environment:` above) whose
-    # protection rules / federated credential subject claim are configured to
-    # accept this repository's workflow.
+    # (GitHub OIDC federated credential) instead of a static api-key.
     COPILOT_PROVIDER_BASE_URL: ${{ secrets.FOUNDRY_OPENAI_ENDPOINT }}
 network:
   allowed:
@@ -69,13 +53,10 @@ safe-outputs:
 timeout-minutes: 15
 env:
   COPILOT_MODEL: o4-mini-aw
-  # AWF_AUTH_* are set at workflow-level env (rather than engine.env) because
-  # gh-aw's strict mode allowlist for engine.env does not currently include
-  # the AWF_AUTH_AZURE_* variables. awf reads these from the agent step's
-  # process.env (via `awf …`) and forwards them to the api-proxy
-  # sidecar (see src/services/api-proxy-service-config.ts), which uses them
-  # for the GitHub OIDC → Azure AD federated-credential token exchange. The
-  # agent container itself does not need these values — only the sidecar.
+  # AWF_AUTH_* are set at workflow-level env because gh-aw's strict mode
+  # engine.env allowlist does not yet include AWF_AUTH_AZURE_* variables.
+  # AWF reads these from process.env and forwards them to the api-proxy
+  # sidecar for the GitHub OIDC → Azure AD token exchange.
   AWF_AUTH_TYPE: github-oidc
   AWF_AUTH_PROVIDER: azure
   AWF_AUTH_AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
@@ -83,13 +64,6 @@ env:
 sandbox:
   agent:
     id: awf
-# strict: false because gh-aw's strict-mode engine.env/env secret-leak
-# allowlist currently covers COPILOT_PROVIDER_API_KEY / COPILOT_PROVIDER_BASE_URL
-# but does not yet include the AWF_AUTH_AZURE_* keys, so referencing
-# ${{ secrets.AZURE_TENANT_ID }} / ${{ secrets.AZURE_CLIENT_ID }} would fail
-# strict-mode compilation. AWF still forwards these values exclusively to the
-# api-proxy sidecar (see src/services/api-proxy-service-config.ts); they are
-# never written into the agent container's env.
 strict: false
 steps:
   - name: Pre-compute BYOK smoke test data

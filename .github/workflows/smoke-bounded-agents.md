@@ -9,10 +9,11 @@ permissions:
   copilot-requests: write
 env:
   GH_TOKEN: ${{ github.token }}
-  OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
 engine:
   id: copilot
   version: 1.0.34
+  env:
+    OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
 network:
   allowed:
     - defaults

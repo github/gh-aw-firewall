@@ -122,7 +122,13 @@ export async function prepareEnclaves(
   if (enclaves.executors.script.enabled) {
     const assertScriptRuntime = deps.assertScriptRuntimeAvailable
       ?? ((script: EnclaveScriptExecutorConfig) => (
-        assertQueryRuntimeAvailable(script as unknown as BoundedQueriesConfig)
+        assertQueryRuntimeAvailable(
+          script as unknown as BoundedQueriesConfig,
+          undefined,
+          undefined,
+          undefined,
+          'enclaves.executors.script.runtime',
+        )
       ));
     await assertScriptRuntime(enclaves.executors.script);
   }

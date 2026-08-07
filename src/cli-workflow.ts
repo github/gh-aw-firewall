@@ -5,6 +5,7 @@ import { parseDifcProxyHost } from './docker-manager';
 import { CLI_PROXY_IP, DOH_PROXY_IP, SQUID_IP, API_PROXY_IP } from './host-iptables-shared';
 import { buildInternalServiceHosts } from './services/internal-service-hosts';
 import { TOPOLOGY_NETWORK_NAME, getTopologyContainerIps, patchComposeWithTopologyHosts } from './topology';
+import { validateEnclavesConfig } from './enclave/preflight';
 
 /**
  * Dependencies injected into the main workflow.
@@ -87,6 +88,11 @@ export async function runMainWorkflow(
   options: WorkflowOptions
 ): Promise<number> {
   const { logger, performCleanup, onHostIptablesSetup, onContainersStarted } = options;
+
+  const enclaveErrors = validateEnclavesConfig(config);
+  if (enclaveErrors.length > 0) {
+    throw new Error(`Invalid enclave configuration:\n- ${enclaveErrors.join('\n- ')}`);
+  }
 
   // Step -1: Bounded-query staging (trusted, host-side, credential-bearing).
   //

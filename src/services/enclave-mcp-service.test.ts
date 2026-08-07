@@ -1,4 +1,4 @@
-import * as fs from 'fs';
+import fs from 'fs';
 import * as path from 'path';
 import { normalizeEnclavesConfig } from '../parsers/enclave-parser';
 import { parseImageTag } from '../image-tag';
@@ -6,11 +6,15 @@ import type { WrapperConfig } from '../types';
 import { buildEnclaveMcpService } from './enclave-mcp-service';
 import { generateDockerCompose } from '../compose-generator';
 
+const workDir = fs.mkdtempSync('/tmp/awf-enclave-mcp-service-test-');
+
 function config(overrides: Partial<WrapperConfig> = {}): WrapperConfig {
   return {
-    workDir: '/tmp/awf-test',
+    workDir,
     imageRegistry: 'ghcr.io/github/gh-aw-firewall',
     imageTag: 'latest',
+    agentCommand: 'echo test',
+    allowedDomains: [],
     enclaves: normalizeEnclavesConfig({
       enabled: true,
       privateRepos: [{ repo: 'octo/private', sensitivity: 'internal' }],
@@ -28,6 +32,8 @@ const ghcr = {
 };
 
 describe('buildEnclaveMcpService', () => {
+  afterAll(() => fs.rmSync(workDir, { recursive: true, force: true }));
+
   it('builds a no-egress server without exposing it to the primary agent', () => {
     const result = buildEnclaveMcpService({ config: config(), imageConfig: ghcr });
     expect(result.scriptImageService!).toMatchObject({

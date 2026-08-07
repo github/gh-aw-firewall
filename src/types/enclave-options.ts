@@ -135,8 +135,11 @@ export const ENCLAVE_AGENT_EXECUTOR_DEFAULTS: Readonly<
   maxModelTokens: 1024,
 };
 
-export const ENCLAVES_DEFAULTS = {
+export const ENCLAVES_DEFAULTS: Readonly<EnclavesConfig> = {
   enabled: false,
-  script: ENCLAVE_SCRIPT_EXECUTOR_DEFAULTS,
-  agent: ENCLAVE_AGENT_EXECUTOR_DEFAULTS,
-} as const;
+  privateRepos: [],
+  executors: {
+    script: ENCLAVE_SCRIPT_EXECUTOR_DEFAULTS,
+    agent: ENCLAVE_AGENT_EXECUTOR_DEFAULTS,
+  },
+};

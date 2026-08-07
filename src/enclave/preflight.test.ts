@@ -40,6 +40,105 @@ describe('validateEnclavesConfig', () => {
     expect(errors.join('\n')).toMatch(/no enclave executor is enabled/);
   });
 
+  it('rejects an empty repository list', () => {
+    const enclaves = normalizeEnclavesConfig({
+      enabled: true,
+      executors: { script: { enabled: true } },
+    });
+    expect(validateEnclavesConfig(config({ enclaves })).join('\n')).toMatch(/privateRepos is empty/);
+  });
+
+  it('rejects script disclosure bounds the container cannot enforce', () => {
+    const enclaves = normalizeEnclavesConfig({
+      enabled: true,
+      privateRepos: [{ repo: 'octo/private', sensitivity: 'internal' }],
+      executors: {
+        script: {
+          enabled: true,
+          maxScriptBytes: 65_537,
+          maxOutputBytes: 8_193,
+        },
+      },
+    });
+    const errors = validateEnclavesConfig(config({ enclaves })).join('\n');
+    expect(errors).toMatch(/maxScriptBytes must be at most 65536/);
+    expect(errors).toMatch(/maxOutputBytes must be at most 8192/);
+  });
+
+  it('requires the API proxy and a usable route for the agent executor', () => {
+    const enclaves = normalizeEnclavesConfig({
+      enabled: true,
+      privateRepos: [{ repo: 'octo/private', sensitivity: 'internal' }],
+      executors: { agent: { enabled: true, model: 'gpt-5' } },
+    });
+
+    expect(validateEnclavesConfig(config({ enclaves })).join('\n')).toMatch(/requires the AWF API proxy/);
+    expect(validateEnclavesConfig(config({
+      enclaves,
+      enableApiProxy: true,
+    })).join('\n')).toMatch(/COPILOT_GITHUB_TOKEN/);
+    expect(validateEnclavesConfig(config({
+      enclaves,
+      enableApiProxy: true,
+      copilotGithubToken: 'token',
+    }))).toEqual([]);
+  });
+
+  it('rejects malformed executor controls that bypass schema validation', () => {
+    const enclaves = normalizeEnclavesConfig({
+      enabled: true,
+      privateRepos: [{ repo: 'not-a-slug', sensitivity: 'internal' }],
+      executors: {
+        script: {
+          enabled: true,
+          runtime: 'invalid' as 'docker',
+          network: 'bridge' as 'none',
+          interpreter: 'ruby' as 'python3',
+          timeout: 0,
+          memoryLimit: 'lots',
+          cpuLimit: '0',
+          pidsLimit: 0,
+          tmpfsLimit: '64',
+          maxOutputBytes: 0,
+          maxScriptBytes: 0,
+          maxInvocations: 0,
+        },
+        agent: {
+          enabled: true,
+          runtime: 'invalid' as 'docker',
+          engine: 'invalid' as 'copilot',
+          network: 'bridge' as 'api-proxy-only',
+          model: '',
+          timeout: 601,
+          memoryLimit: 'lots',
+          cpuLimit: 'all',
+          pidsLimit: 0,
+          tmpfsLimit: '64',
+          maxOutputBytes: 0,
+          maxTaskBytes: 0,
+          maxInvocations: 0,
+          maxModelRequests: 0,
+          maxModelTokens: 0,
+        },
+      },
+    });
+
+    const errors = validateEnclavesConfig(config({ enclaves, enableApiProxy: true })).join('\n');
+    expect(errors).toMatch(/not a bare owner\/repo slug/);
+    expect(errors).toMatch(/script.runtime "invalid" is not supported/);
+    expect(errors).toMatch(/script.network must be "none"/);
+    expect(errors).toMatch(/script.interpreter must be "python3"/);
+    expect(errors).toMatch(/script.timeout must be between/);
+    expect(errors).toMatch(/agent.runtime "invalid" is not supported/);
+    expect(errors).toMatch(/agent.engine "invalid" is not supported/);
+    expect(errors).toMatch(/agent.network must be "api-proxy-only"/);
+    expect(errors).toMatch(/agent.model is required/);
+    expect(errors).toMatch(/agent.timeout must be between/);
+    expect(errors).toMatch(/is not a Docker size/);
+    expect(errors).toMatch(/positive Docker --cpus value/);
+    expect(errors).toMatch(/must be a positive integer/);
+  });
+
   it('accepts an agent executor with a routed API-proxy model target', () => {
     const enclaves = normalizeEnclavesConfig({
       enabled: true,
