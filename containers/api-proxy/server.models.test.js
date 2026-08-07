@@ -250,18 +250,22 @@ describe('makeModelBodyTransform', () => {
     const stdoutSpy = jest.spyOn(process.stdout, 'write').mockImplementation(() => true);
 
     try {
-      let isolatedServer;
+      const refreshModels = jest.fn().mockResolvedValue(undefined);
+      let transform;
       jest.isolateModules(() => {
-        isolatedServer = require('./server');
+        const { makeModelBodyTransform: makeTransform } = require('./model-config');
+        transform = makeTransform(
+          'openai',
+          { openai: ['gpt-5.2', 'gpt-4.1', 'gpt-3.5-turbo'] },
+          refreshModels,
+          () => new Set(['openai']),
+        );
       });
 
       stdoutSpy.mockClear();
-      isolatedServer.resetModelCacheState();
-      isolatedServer.cachedModels.openai = ['gpt-5.2', 'gpt-4.1', 'gpt-3.5-turbo'];
-
-      const transform = isolatedServer.makeModelBodyTransform('openai');
       const transformed = await transform(Buffer.from(JSON.stringify({ model: 'sonnet', messages: [] })));
       expect(transformed).toBeInstanceOf(Buffer);
+      expect(refreshModels).toHaveBeenCalledWith('openai');
 
       const records = stdoutSpy.mock.calls
         .map(([line]) => String(line).trim())

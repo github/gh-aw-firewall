@@ -70,7 +70,7 @@ export function passthroughHostEnvironment(params: EnvPassthroughParams): void {
       'COPILOT_GITHUB_TOKEN',
       'COPILOT_PROVIDER_API_KEY',
     ] as const) {
-      if (process.env[v]) {
+      if (process.env[v] && !excludedEnvVars.has(v)) {
         environment[v] = process.env[v]!;
       }
     }

@@ -585,22 +585,12 @@ describe('mapAwfFileConfigToCliOptions', () => {
     expect(result.runnerTopology).toBeUndefined();
   });
 
-  it('passes boundedQueries through unchanged (no CLI flags exist for it)', () => {
-    const boundedQueries = {
+  it('passes unified enclaves through as trusted config-only state', () => {
+    const enclaves = {
       enabled: true,
-      privateRepos: ['octo/repo'],
-      runtime: 'gvisor' as const,
-      timeout: 60,
-      memoryLimit: '1g',
-      interpreter: 'python3' as const,
-      maxInvocations: 10,
+      privateRepos: [{ repo: 'octo/private', sensitivity: 'internal' as const }],
+      executors: { script: { enabled: true } },
     };
-    const result = mapAwfFileConfigToCliOptions({ boundedQueries });
-    expect(result.boundedQueries).toEqual(boundedQueries);
-  });
-
-  it('leaves boundedQueries undefined when not set', () => {
-    const result = mapAwfFileConfigToCliOptions({});
-    expect(result.boundedQueries).toBeUndefined();
+    expect(mapAwfFileConfigToCliOptions({ enclaves }).enclaves).toEqual(enclaves);
   });
 });

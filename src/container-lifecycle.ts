@@ -7,9 +7,8 @@ import {
   IPTABLES_INIT_CONTAINER_NAME,
   API_PROXY_CONTAINER_NAME,
   CLI_PROXY_CONTAINER_NAME,
-  BOUNDED_AGENT_API_PROXY_CONTAINER_NAME,
-  BOUNDED_AGENT_BROKER_CONTAINER_NAME,
-  BOUNDED_QUERY_BROKER_CONTAINER_NAME,
+  ENCLAVE_AGENT_API_PROXY_CONTAINER_NAME,
+  ENCLAVE_MCP_SERVER_CONTAINER_NAME,
 } from './constants';
 import { getLocalDockerEnv } from './docker-host';
 import { isAgentExternallyKilled, markAgentExternallyKilled } from './container-lifecycle-state';
@@ -28,6 +27,9 @@ const MAX_GVISOR_AGENT_RETRIES = 1;
 // Containers that exit within this window are assumed to have crashed during
 // Node/V8 initialisation (before any agent work began) and are safe to restart.
 const GVISOR_STARTUP_CRASH_WINDOW_MS = 30_000;
+
+class InfrastructureReadinessError extends Error {}
+class PostReadinessAgentStartupError extends Error {}
 
 function getComposeUpArgs(skipPull?: boolean): string[] {
   const composeArgs = ['compose', 'up', '-d'];
@@ -58,6 +60,7 @@ async function attemptContainerStartup(
   composeArgs: string[],
   skipPull?: boolean,
   onNetworkReady?: () => Promise<void>,
+  onInfrastructureReady?: () => Promise<void>,
 ): Promise<Error | undefined> {
   // Phase 1 (topology mode only): start squid-proxy alone so the compose-managed
   // awf-net is created before any health-gated dependents (cli-proxy, agent) start.
@@ -84,6 +87,41 @@ async function attemptContainerStartup(
   }
 
   try {
+    if (onInfrastructureReady) {
+      const listed = await execa('docker', ['compose', 'config', '--services'], {
+        cwd: workDir,
+        env: getLocalDockerEnv(),
+      });
+      const services = listed.stdout
+        .split('\n')
+        .map((service) => service.trim())
+        .filter(Boolean);
+      const infrastructure = services.filter(
+        (service) => service !== 'agent' && service !== 'iptables-init',
+      );
+      if (infrastructure.length === 0) {
+        throw new Error('No infrastructure services were generated for enclave gateway startup');
+      }
+      await runDockerComposeUp(workDir, [...composeArgs, ...infrastructure]);
+      try {
+        await onInfrastructureReady();
+      } catch (error) {
+        throw new InfrastructureReadinessError(
+          error instanceof Error ? error.message : String(error),
+        );
+      }
+      if (!services.includes('agent')) {
+        return undefined;
+      }
+      try {
+        await runDockerComposeUp(workDir, composeArgs);
+      } catch (error) {
+        throw new PostReadinessAgentStartupError(
+          error instanceof Error ? error.message : String(error),
+        );
+      }
+      return undefined;
+    }
     await runDockerComposeUp(workDir, composeArgs);
     return undefined;
   } catch (error) {
@@ -143,8 +181,8 @@ async function handleRetryStartupFailure(
     const dnsFailureHost = await detectDnsResolutionFailure(CLI_PROXY_CONTAINER_NAME);
     throw createCliProxyStartupError(dnsFailureHost);
   }
-  if (await didContainerFailStartup(retryErrorMsg, BOUNDED_QUERY_BROKER_CONTAINER_NAME)) {
-    await logContainerLogsToStderr(BOUNDED_QUERY_BROKER_CONTAINER_NAME);
+  if (await didContainerFailStartup(retryErrorMsg, ENCLAVE_MCP_SERVER_CONTAINER_NAME)) {
+    await logContainerLogsToStderr(ENCLAVE_MCP_SERVER_CONTAINER_NAME);
     throw retryError;
   }
   // Any remaining retry error (e.g. squid healthcheck or domain blockage) falls
@@ -171,10 +209,10 @@ async function handleStartupFailure(
   const firstAttemptCliProxyStartupFailure = !firstAttemptApiProxyStartupFailure
     && !firstAttemptSquidStartupFailure
     && await didContainerFailStartup(errorMsg, CLI_PROXY_CONTAINER_NAME);
-  const firstAttemptBoundedQueryBrokerFailure = !firstAttemptApiProxyStartupFailure
+  const firstAttemptEnclaveServerFailure = !firstAttemptApiProxyStartupFailure
     && !firstAttemptSquidStartupFailure
     && !firstAttemptCliProxyStartupFailure
-    && await didContainerFailStartup(errorMsg, BOUNDED_QUERY_BROKER_CONTAINER_NAME);
+    && await didContainerFailStartup(errorMsg, ENCLAVE_MCP_SERVER_CONTAINER_NAME);
 
   // When api-proxy or squid specifically fails to start, retry once.
   // Both containers are occasionally flaky on slow or busy CI runners:
@@ -214,8 +252,8 @@ async function handleStartupFailure(
     throw createCliProxyStartupError(dnsFailureHost);
   }
 
-  if (firstAttemptBoundedQueryBrokerFailure) {
-    await logContainerLogsToStderr(BOUNDED_QUERY_BROKER_CONTAINER_NAME);
+  if (firstAttemptEnclaveServerFailure) {
+    await logContainerLogsToStderr(ENCLAVE_MCP_SERVER_CONTAINER_NAME);
     throw error;
   }
 
@@ -243,8 +281,19 @@ async function handleStartupFailure(
  *        now resolve the peer, so the health gate succeeds.
  *
  *   When this callback is omitted the existing single-`up` path is used unchanged.
+ * @param onInfrastructureReady - Optional fail-closed gate invoked after every
+ *   non-agent Compose service starts and before the compose agent starts. For
+ *   infrastructure-only runtimes such as sbx, it runs before startContainers
+ *   returns and therefore before the sandbox is created.
  */
-export async function startContainers(workDir: string, allowedDomains: string[], proxyLogsDir?: string, skipPull?: boolean, onNetworkReady?: () => Promise<void>): Promise<void> {
+export async function startContainers(
+  workDir: string,
+  allowedDomains: string[],
+  proxyLogsDir?: string,
+  skipPull?: boolean,
+  onNetworkReady?: () => Promise<void>,
+  onInfrastructureReady?: () => Promise<void>,
+): Promise<void> {
   logger.info('Starting containers...');
 
   // Force remove any existing containers with these names to avoid conflicts
@@ -259,9 +308,8 @@ export async function startContainers(workDir: string, allowedDomains: string[],
       IPTABLES_INIT_CONTAINER_NAME,
       API_PROXY_CONTAINER_NAME,
       CLI_PROXY_CONTAINER_NAME,
-      BOUNDED_QUERY_BROKER_CONTAINER_NAME,
-      BOUNDED_AGENT_BROKER_CONTAINER_NAME,
-      BOUNDED_AGENT_API_PROXY_CONTAINER_NAME,
+      ENCLAVE_MCP_SERVER_CONTAINER_NAME,
+      ENCLAVE_AGENT_API_PROXY_CONTAINER_NAME,
     ], {
       reject: false,
       env: getLocalDockerEnv(),
@@ -272,9 +320,32 @@ export async function startContainers(workDir: string, allowedDomains: string[],
   }
 
   const composeArgs = getComposeUpArgs(skipPull);
-  const runComposeUp = () => runDockerComposeUp(workDir, composeArgs);
-  const startupError = await attemptContainerStartup(workDir, composeArgs, skipPull, onNetworkReady);
+  const runComposeUp = onInfrastructureReady
+    ? async () => {
+        const error = await attemptContainerStartup(
+          workDir,
+          composeArgs,
+          skipPull,
+          onNetworkReady,
+          onInfrastructureReady,
+        );
+        if (error) throw error;
+      }
+    : () => runDockerComposeUp(workDir, composeArgs);
+  const startupError = await attemptContainerStartup(
+    workDir,
+    composeArgs,
+    skipPull,
+    onNetworkReady,
+    onInfrastructureReady,
+  );
   if (startupError) {
+    if (
+      startupError instanceof InfrastructureReadinessError
+      || startupError instanceof PostReadinessAgentStartupError
+    ) {
+      throw startupError;
+    }
     await handleStartupFailure(startupError, workDir, proxyLogsDir, allowedDomains, runComposeUp);
     return;
   }

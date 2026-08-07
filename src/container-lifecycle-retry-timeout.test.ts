@@ -127,10 +127,10 @@ describe('container-lifecycle retry and timeout branches', () => {
       expectComposeUpAttempts(1);
     });
 
-    describe('startContainers – bounded-query broker fails on first attempt', () => {
-      it('surfaces broker logs without retrying', async () => {
+    describe('startContainers - enclave MCP server fails on first attempt', () => {
+      it('surfaces server logs without retrying', async () => {
         const startupError = new Error(
-          'dependency failed to start: container awf-bounded-query-broker exited (1)',
+          'dependency failed to start: container awf-enclave-mcp-server exited (1)',
         );
         mockExecaFn
           .mockResolvedValueOnce(ok() as any) // docker rm -f
@@ -140,11 +140,11 @@ describe('container-lifecycle retry and timeout branches', () => {
           .mockResolvedValueOnce(false) // api-proxy
           .mockResolvedValueOnce(false) // squid
           .mockResolvedValueOnce(false) // cli-proxy
-          .mockResolvedValueOnce(true); // bounded-query broker
+          .mockResolvedValueOnce(true); // enclave MCP server
 
         await expect(startContainers(getDir(), ['github.com'])).rejects.toThrow(startupError);
         expect(mockLogContainerLogsToStderr)
-          .toHaveBeenCalledWith('awf-bounded-query-broker');
+          .toHaveBeenCalledWith('awf-enclave-mcp-server');
         expectComposeUpAttempts(1);
       });
     });

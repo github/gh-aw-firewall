@@ -176,6 +176,10 @@ function _resolveAliasPatterns(aliasKey, aliasDefinition, requestedModel, aliase
   log.push(`[model-resolver] alias: "${requestedModel}" → [${patterns.join(', ')}]`);
 
   const candidates = [];
+  // Candidates produced by a nested alias's middle-power fallback are synthesized
+  // guesses, not genuine pattern matches. They are kept separate so they can never
+  // out-rank a sibling pattern that actually matched a model.
+  const synthesizedCandidates = [];
 
   for (const pattern of patterns) {
     const slashIdx = pattern.indexOf('/');
@@ -194,7 +198,11 @@ function _resolveAliasPatterns(aliasKey, aliasDefinition, requestedModel, aliase
       );
       if (sub) {
         log.push(...sub.log);
-        candidates.push(sub.resolvedModel);
+        if (sub.fallback && sub.fallback.activated) {
+          synthesizedCandidates.push(sub.resolvedModel);
+        } else {
+          candidates.push(sub.resolvedModel);
+        }
       }
     } else {
       // "provider/modelpattern" ref — only match for the current provider
@@ -212,20 +220,45 @@ function _resolveAliasPatterns(aliasKey, aliasDefinition, requestedModel, aliase
     }
   }
 
+  // Prefer genuine pattern matches. Synthesized fallback picks from nested
+  // aliases are only considered when no sibling pattern matched anything.
+  const effectiveCandidates = candidates.length > 0 ? candidates : synthesizedCandidates;
+  if (candidates.length > 0 && synthesizedCandidates.length > 0) {
+    log.push(
+      `[model-resolver] ignoring ${synthesizedCandidates.length} synthesized fallback candidate(s) ` +
+      `in favour of ${candidates.length} genuine match(es)`
+    );
+  }
+
   // Apply model policy filter: remove candidates that are not permitted.
   const filteredCandidates = modelPolicyConfig
-    ? candidates.filter(c => _isModelPermittedByPolicy(c, modelPolicyConfig))
-    : candidates;
+    ? effectiveCandidates.filter(c => _isModelPermittedByPolicy(c, modelPolicyConfig))
+    : effectiveCandidates;
 
-  if (filteredCandidates.length < candidates.length) {
-    const blocked = candidates.filter(c => !filteredCandidates.includes(c));
+  if (filteredCandidates.length < effectiveCandidates.length) {
+    const blocked = effectiveCandidates.filter(c => !filteredCandidates.includes(c));
     log.push(`[model-resolver] model policy filtered out ${blocked.length} candidate(s): ${blocked.slice(0, 5).join(', ')}${blocked.length > 5 ? ', …' : ''}`);
   }
 
   if (filteredCandidates.length === 0) {
     log.push(`[model-resolver] no candidates found for "${aliasKey}" on provider "${currentProvider}"`);
     const hasProviderPattern = patterns.some((pattern) => pattern.includes('/'));
-    if (aliasDefinition.fallback && hasProviderPattern && !modelPolicyConfig) {
+    // Only fall back when this alias actually names the current provider. An alias
+    // whose patterns target *other* providers (e.g. "haiku" → copilot/*, anthropic/*
+    // evaluated on an openai proxy) has a legitimately empty candidate set.
+    //
+    // This is enforced only for *nested* alias references, where sibling patterns in
+    // the parent fan-out can still supply a genuine match. A top-level request keeps
+    // the existing graceful-degradation behaviour of substituting something rather
+    // than failing outright.
+    const isNestedReference = newChain.length > 1;
+    const targetsCurrentProvider = patterns.some((pattern) => {
+      const slashIdx = pattern.indexOf('/');
+      return slashIdx !== -1 &&
+        pattern.slice(0, slashIdx).toLowerCase() === currentProvider.toLowerCase();
+    });
+    const fallbackAllowed = !isNestedReference || targetsCurrentProvider;
+    if (aliasDefinition.fallback && fallbackAllowed && hasProviderPattern && !modelPolicyConfig) {
       return tryMiddlePowerFallback(
         requestedModel, availableModels, currentProvider,
         'no_alias_match_and_not_in_available_models', fallbackConfig, log
@@ -239,6 +272,7 @@ function _resolveAliasPatterns(aliasKey, aliasDefinition, requestedModel, aliase
   unique.sort(compareByVersion);
 
   const resolved = unique[0];
+  const resolvedViaSynthesis = candidates.length === 0 && synthesizedCandidates.length > 0;
   log.push(
     `[model-resolver] resolved: "${requestedModel}" → "${resolved}"` +
     (unique.length > 1
@@ -251,7 +285,13 @@ function _resolveAliasPatterns(aliasKey, aliasDefinition, requestedModel, aliase
     candidates: unique,
     log,
     fallback: fallbackConfig.enabled
-      ? { activated: false, selection_method: 'middle_power_median', reason: 'normal_resolution_succeeded' }
+      ? {
+        activated: resolvedViaSynthesis,
+        selection_method: 'middle_power_median',
+        reason: resolvedViaSynthesis
+          ? 'no_alias_match_and_not_in_available_models'
+          : 'normal_resolution_succeeded',
+      }
       : undefined,
   };
 }

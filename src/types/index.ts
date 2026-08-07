@@ -42,28 +42,19 @@ export {
 } from './pid';
 
 export {
-  type BoundedQueryRuntime,
-  type BoundedQueryInterpreter,
-  type BoundedQuerySensitivity,
-  type BoundedQueryRepository,
-  type BoundedQueriesConfig,
-  type BoundedQueryOptions,
-  BOUNDED_QUERY_DEFAULTS,
-  BOUNDED_QUERY_SENSITIVITIES,
-  BOUNDED_QUERY_SENSITIVITY_RUN_BITS,
-} from './bounded-query-options';
-
-export {
-  type BoundedAgentRuntime,
-  type BoundedAgentEngine,
-  type BoundedAgentProfile,
-  type BoundedAgentSensitivity,
-  type BoundedAgentRepository,
-  type BoundedAgentsConfig,
-  type BoundedAgentOptions,
-  BOUNDED_AGENT_DEFAULTS,
-  BOUNDED_AGENT_ENGINES,
-  BOUNDED_AGENT_PROFILES,
-  BOUNDED_AGENT_SENSITIVITIES,
-  BOUNDED_AGENT_SENSITIVITY_RUN_BITS,
-} from './bounded-agent-options';
+  type EnclaveSensitivity,
+  type EnclaveRepository,
+  type EnclaveRuntime,
+  type EnclaveScriptInterpreter,
+  type EnclaveAgentEngine,
+  type EnclaveAgentProfile,
+  type EnclaveScriptExecutorConfig,
+  type EnclaveAgentExecutorConfig,
+  type EnclavesConfig,
+  type EnclaveOptions,
+  ENCLAVE_SENSITIVITIES,
+  ENCLAVE_SENSITIVITY_RUN_BITS,
+  ENCLAVE_SCRIPT_EXECUTOR_DEFAULTS,
+  ENCLAVE_AGENT_EXECUTOR_DEFAULTS,
+  ENCLAVES_DEFAULTS,
+} from './enclave-options';

@@ -1,6 +1,10 @@
 import { buildExclusionSet } from './excluded-vars';
 import { PROXY_ENV_VARS } from '../../upstream-proxy';
 import { WrapperConfig } from '../../types';
+import {
+  ENCLAVE_AGENT_EXECUTOR_DEFAULTS,
+  ENCLAVE_SCRIPT_EXECUTOR_DEFAULTS,
+} from '../../types/enclave-options';
 
 // Minimal WrapperConfig for tests
 function makeConfig(overrides: Partial<WrapperConfig> = {}): WrapperConfig {
@@ -15,6 +19,19 @@ describe('buildExclusionSet', () => {
     it('should always exclude PATH', () => {
       const set = buildExclusionSet(makeConfig());
       expect(set.has('PATH')).toBe(true);
+    });
+
+    it('never passes enclave gateway handoff material to the primary agent', () => {
+      const excluded = buildExclusionSet(makeConfig({ envAll: true }));
+      for (const name of [
+        'AWF_ENCLAVE_MCP_CAPABILITY',
+        'AWF_ENCLAVE_MCP_GATEWAY_IDENTITY',
+        'AWF_ENCLAVE_MCP_GATEWAY_ENDPOINT',
+        'AWF_ENCLAVE_MCP_GATEWAY_CONTAINER',
+        'AWF_ENCLAVE_MCP_READINESS_TIMEOUT_MS',
+      ]) {
+        expect(excluded.has(name)).toBe(true);
+      }
     });
 
     it('should always exclude shell state variables', () => {
@@ -199,30 +216,45 @@ describe('buildExclusionSet', () => {
     });
   });
 
-  describe('when bounded queries are enabled (repository credential isolation)', () => {
-    const boundedQueries = {
+  describe('when enclaves are enabled (repository credential isolation)', () => {
+    const enclaves = {
       enabled: true,
       privateRepos: [{ repo: 'octo/private', sensitivity: 'internal' as const }],
-      runtime: 'docker' as const,
-      timeout: 30,
-      memoryLimit: '512m',
-      interpreter: 'python3' as const,
-      maxInvocations: 32,
+      executors: {
+        script: { ...ENCLAVE_SCRIPT_EXECUTOR_DEFAULTS, enabled: true },
+        agent: ENCLAVE_AGENT_EXECUTOR_DEFAULTS,
+      },
     };
 
-    it.each(['GITHUB_TOKEN', 'GH_TOKEN', 'GITHUB_PERSONAL_ACCESS_TOKEN'])(
+    it.each([
+      'GITHUB_TOKEN',
+      'GH_TOKEN',
+      'GITHUB_PERSONAL_ACCESS_TOKEN',
+      'COPILOT_GITHUB_TOKEN',
+      'GITHUB_API_TOKEN',
+      'GITHUB_PAT',
+      'GH_ACCESS_TOKEN',
+    ])(
       'should exclude %s even without the API or DIFC proxies',
       (name) => {
-        const config = makeConfig({ boundedQueries, enableApiProxy: false, difcProxyHost: undefined });
+        const config = makeConfig({ enclaves, enableApiProxy: false, difcProxyHost: undefined });
         expect(buildExclusionSet(config).has(name)).toBe(true);
       },
     );
 
-    it.each(['GITHUB_TOKEN', 'GH_TOKEN', 'GITHUB_PERSONAL_ACCESS_TOKEN'])(
-      'should NOT exclude %s when bounded queries are configured but disabled',
+    it.each([
+      'GITHUB_TOKEN',
+      'GH_TOKEN',
+      'GITHUB_PERSONAL_ACCESS_TOKEN',
+      'COPILOT_GITHUB_TOKEN',
+      'GITHUB_API_TOKEN',
+      'GITHUB_PAT',
+      'GH_ACCESS_TOKEN',
+    ])(
+      'should NOT exclude %s when enclaves are configured but disabled',
       (name) => {
         const config = makeConfig({
-          boundedQueries: { ...boundedQueries, enabled: false },
+          enclaves: { ...enclaves, enabled: false },
           enableApiProxy: false,
           difcProxyHost: undefined,
         });
