@@ -237,6 +237,36 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 - `boundedAgents.maxInvocations` → *(config-only; no CLI equivalent, see §15)*
 - `boundedAgents.maxModelRequests` → *(config-only; no CLI equivalent, see §15)*
 - `boundedAgents.maxModelTokens` → *(config-only; no CLI equivalent, see §15)*
+- `enclaves.enabled` → *(config-only; no CLI equivalent, see §16)*
+- `enclaves.privateRepos[]` → *(config-only; no CLI equivalent, see §16)*
+- `enclaves.executors.script.enabled` → *(config-only; no CLI equivalent, see §16)*
+- `enclaves.executors.script.runtime` → *(config-only; no CLI equivalent, see §16)*
+- `enclaves.executors.script.image` → *(config-only; no CLI equivalent, see §16)*
+- `enclaves.executors.script.interpreter` → *(config-only; no CLI equivalent, see §16)*
+- `enclaves.executors.script.timeout` → *(config-only; no CLI equivalent, see §16)*
+- `enclaves.executors.script.memoryLimit` → *(config-only; no CLI equivalent, see §16)*
+- `enclaves.executors.script.cpuLimit` → *(config-only; no CLI equivalent, see §16)*
+- `enclaves.executors.script.pidsLimit` → *(config-only; no CLI equivalent, see §16)*
+- `enclaves.executors.script.tmpfsLimit` → *(config-only; no CLI equivalent, see §16)*
+- `enclaves.executors.script.maxOutputBytes` → *(config-only; no CLI equivalent, see §16)*
+- `enclaves.executors.script.maxScriptBytes` → *(config-only; no CLI equivalent, see §16)*
+- `enclaves.executors.script.maxInvocations` → *(config-only; no CLI equivalent, see §16)*
+- `enclaves.executors.agent.enabled` → *(config-only; no CLI equivalent, see §16)*
+- `enclaves.executors.agent.runtime` → *(config-only; no CLI equivalent, see §16)*
+- `enclaves.executors.agent.image` → *(config-only; no CLI equivalent, see §16)*
+- `enclaves.executors.agent.engine` → *(config-only; no CLI equivalent, see §16)*
+- `enclaves.executors.agent.profile` → *(config-only; no CLI equivalent, see §16)*
+- `enclaves.executors.agent.model` → *(config-only; no CLI equivalent, see §16)*
+- `enclaves.executors.agent.timeout` → *(config-only; no CLI equivalent, see §16)*
+- `enclaves.executors.agent.memoryLimit` → *(config-only; no CLI equivalent, see §16)*
+- `enclaves.executors.agent.cpuLimit` → *(config-only; no CLI equivalent, see §16)*
+- `enclaves.executors.agent.pidsLimit` → *(config-only; no CLI equivalent, see §16)*
+- `enclaves.executors.agent.tmpfsLimit` → *(config-only; no CLI equivalent, see §16)*
+- `enclaves.executors.agent.maxOutputBytes` → *(config-only; no CLI equivalent, see §16)*
+- `enclaves.executors.agent.maxTaskBytes` → *(config-only; no CLI equivalent, see §16)*
+- `enclaves.executors.agent.maxInvocations` → *(config-only; no CLI equivalent, see §16)*
+- `enclaves.executors.agent.maxModelRequests` → *(config-only; no CLI equivalent, see §16)*
+- `enclaves.executors.agent.maxModelTokens` → *(config-only; no CLI equivalent, see §16)*
 
 When `container.dockerHostPathPrefix` points at a daemon-visible shared `/tmp` path, the implementation stages the invoking CLI binary together with `/etc/passwd`, `/etc/group`, and the generated chroot `/etc/hosts` under that shared path so chroot mode can bootstrap on split-filesystem ARC/DinD hosts.
 
