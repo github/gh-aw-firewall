@@ -81,14 +81,14 @@ describe('unified enclave agent executor compose assembly', () => {
       image: 'awf-enclave-agent:local',
       build: {
         context: '/repo/containers',
-        dockerfile: 'bounded-agent/Dockerfile',
-        target: 'enclave',
+        dockerfile: 'enclave/Dockerfile',
+        target: 'enclave-agent',
       },
     });
     expect(local.service).toMatchObject({
       build: {
         context: '/repo/containers',
-        dockerfile: 'bounded-query/enclave-mcp/Dockerfile',
+        dockerfile: 'enclave/Dockerfile',
         target: 'enclave-mcp-server',
       },
     });
@@ -137,8 +137,6 @@ describe('unified enclave agent executor compose assembly', () => {
           maxOutputBytes: 2048,
           maxTaskBytes: 1024,
           maxInvocations: 3,
-          maxModelRequests: 2,
-          maxModelTokens: 256,
         },
       },
     });
@@ -159,8 +157,6 @@ describe('unified enclave agent executor compose assembly', () => {
       AWF_ENCLAVE_AGENT_MAX_OUTPUT_BYTES: '2048',
       AWF_ENCLAVE_AGENT_MAX_PROMPT_BYTES: '1024',
       AWF_ENCLAVE_AGENT_MAX_INVOCATIONS: '3',
-      AWF_ENCLAVE_AGENT_MAX_MODEL_REQUESTS: '2',
-      AWF_ENCLAVE_AGENT_MAX_MODEL_TOKENS: '256',
     });
     // Copilot always speaks the Copilot API-proxy port, regardless of profile.
     expect(environment.AWF_ENCLAVE_AGENT_API_ENDPOINT)

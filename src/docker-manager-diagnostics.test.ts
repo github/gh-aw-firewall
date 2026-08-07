@@ -2,8 +2,6 @@ import { preserveIptablesAudit } from './artifact-preservation';
 import { collectDiagnosticLogs } from './diagnostic-collector';
 import * as fs from 'fs';
 import * as path from 'path';
-import { resolveBoundedQueryPaths } from './bounded-query/paths';
-import { resolveBoundedAgentPaths } from './bounded-agent/paths';
 import { resolveEnclavePaths } from './enclave/paths';
 
 import { mockExecaFn, mockExecaSync } from './test-helpers/mock-execa.test-utils';
@@ -163,14 +161,8 @@ describe('docker-manager diagnostics', () => {
       expect(fs.existsSync(path.join(defaultAuditDir, 'iptables-audit.txt'))).toBe(true);
     });
 
-    it('should copy bounded-query audit and safe telemetry before work directory cleanup', () => {
-      const brokerAuditDir = resolveBoundedQueryPaths(getDir()).auditDir;
-      fs.mkdirSync(brokerAuditDir, { recursive: true });
-      fs.writeFileSync(
-        path.join(brokerAuditDir, 'bounded-query.jsonl'),
-        '{"kind":"failure","reason":"non-zero-exit"}\n',
-      );
-
+    it('should copy enclave audit, telemetry, and sessions before cleanup', () => {
+      fs.mkdirSync(resolveEnclavePaths(getDir()).root, { recursive: true });
       const auditDir = path.join(getDir(), 'audit');
       fs.mkdirSync(auditDir);
 
@@ -180,8 +172,8 @@ describe('docker-manager diagnostics', () => {
         'docker',
         [
           'cp',
-          'awf-bounded-query-broker:/var/log/awf-bounded-query/bounded-query.jsonl',
-          path.join(auditDir, 'bounded-query.jsonl'),
+          'awf-enclave-mcp-server:/var/log/awf-enclave/enclave.jsonl',
+          path.join(auditDir, 'enclave.jsonl'),
         ],
         expect.objectContaining({ reject: false }),
       );
@@ -189,29 +181,8 @@ describe('docker-manager diagnostics', () => {
         'docker',
         [
           'cp',
-          'awf-bounded-query-broker:/var/log/awf-bounded-query/runtime-telemetry.jsonl',
-          path.join(auditDir, 'runtime-telemetry.jsonl'),
-        ],
-        expect.objectContaining({ reject: false }),
-      );
-      fs.rmSync(resolveBoundedQueryPaths(getDir()).root, { recursive: true, force: true });
-    });
-
-    it('should copy bounded-agent protected audit and runtime telemetry before cleanup', () => {
-      const brokerAuditDir = resolveBoundedAgentPaths(getDir()).auditDir;
-      fs.mkdirSync(brokerAuditDir, { recursive: true });
-
-      const auditDir = path.join(getDir(), 'audit');
-      fs.mkdirSync(auditDir);
-
-      preserveIptablesAudit(getDir(), auditDir);
-
-      expect(mockExecaSync).toHaveBeenCalledWith(
-        'docker',
-        [
-          'cp',
-          'awf-bounded-agent-broker:/var/log/awf-bounded-agent/bounded-agent.jsonl',
-          path.join(auditDir, 'bounded-agent.jsonl'),
+          'awf-enclave-mcp-server:/var/log/awf-enclave/runtime-telemetry.jsonl',
+          path.join(auditDir, 'enclave-runtime.jsonl'),
         ],
         expect.objectContaining({ reject: false }),
       );
@@ -219,22 +190,12 @@ describe('docker-manager diagnostics', () => {
         'docker',
         [
           'cp',
-          'awf-bounded-agent-broker:/var/log/awf-bounded-agent/runtime-telemetry.jsonl',
-          path.join(auditDir, 'bounded-agent-runtime.jsonl'),
+          'awf-enclave-mcp-server:/var/log/awf-enclave/sessions',
+          path.join(auditDir, 'enclave-agent-sessions'),
         ],
         expect.objectContaining({ reject: false }),
       );
-      expect(mockExecaSync).toHaveBeenCalledWith(
-        'docker',
-        [
-          'cp',
-          'awf-bounded-agent-broker:/var/log/awf-bounded-agent/sessions',
-          path.join(auditDir, 'bounded-agent-sessions'),
-        ],
-        expect.objectContaining({ reject: false }),
-      );
-      fs.rmSync(resolveBoundedAgentPaths(getDir()).root, { recursive: true, force: true });
-      fs.rmSync(resolveBoundedAgentPaths(getDir()).ingressRoot, { recursive: true, force: true });
+      fs.rmSync(resolveEnclavePaths(getDir()).root, { recursive: true, force: true });
     });
 
     it('should copy enclave protected audit and runtime telemetry before cleanup', () => {

@@ -2,21 +2,21 @@ import * as http from 'http';
 import * as path from 'path';
 
 /* eslint-disable @typescript-eslint/no-require-imports */
-const root = path.join(__dirname, '..', '..', 'containers', 'bounded-query');
+const root = path.join(__dirname, '..', '..', 'containers');
 const {
   dispatchJsonRpc,
   parseJsonRpcBody,
   TOOL_NAME,
-} = require(path.join(root, 'enclave-mcp', 'mcp-protocol.js'));
+} = require(path.join(root, 'enclave', 'mcp-server', 'mcp-protocol.js'));
 const {
   createMcpServer,
   createSingleToolAdmission,
   safeCapabilityEquals,
-} = require(path.join(root, 'enclave-mcp', 'server.js'));
-const { createBroker } = require(path.join(root, 'broker', 'broker.js'));
+} = require(path.join(root, 'enclave', 'mcp-server', 'server.js'));
+const { createExecutorHandler } = require(path.join(root, 'enclave', 'script-executor', 'executor-handler.js'));
 const {
-  CANONICAL_ERROR_JSON,
-  validateBoundedQueryRequest,
+  CANONICAL_ERROR_RESPONSE_JSON,
+  validateEnclaveScriptRequest,
 } = require(path.join(root, 'bounded-execution', 'finite-disclosure.js'));
 const {
   createEnclaveInformationBudgetLedger,
@@ -46,7 +46,7 @@ function fakeBroker(response: string, requests: unknown[] = []) {
 
 describe('AWF enclave MCP protocol', () => {
   it('implements initialization and the initialized notification', async () => {
-    const deps = { broker: fakeBroker(CANONICAL_ERROR_JSON), maxScriptBytes: 65536 };
+    const deps = { handlers: { [TOOL_NAME]: fakeBroker(CANONICAL_ERROR_RESPONSE_JSON) }, maxScriptBytes: 65536 };
     const initialized = await dispatchJsonRpc(rpc('initialize', {}), deps);
     expect(initialized).toMatchObject({
       jsonrpc: '2.0',
@@ -64,7 +64,7 @@ describe('AWF enclave MCP protocol', () => {
 
   it('publishes one static tool without trusted configuration or repository data', async () => {
     const response = await dispatchJsonRpc(rpc('tools/list', {}), {
-      broker: fakeBroker(CANONICAL_ERROR_JSON),
+      handlers: { [TOOL_NAME]: fakeBroker(CANONICAL_ERROR_RESPONSE_JSON) },
       maxScriptBytes: 65536,
       repositories: ['should-never-appear'],
       runtime: 'gvisor',
@@ -87,7 +87,7 @@ describe('AWF enclave MCP protocol', () => {
       name: TOOL_NAME,
       arguments: validArguments,
     }), {
-      broker: fakeBroker('{"status":"ok","result":true}'),
+      handlers: { [TOOL_NAME]: fakeBroker('{"status":"ok","result":true}') },
       maxScriptBytes: 65536,
     });
     expect(response).toEqual({
@@ -102,14 +102,14 @@ describe('AWF enclave MCP protocol', () => {
   });
 
   it.each([
-    CANONICAL_ERROR_JSON,
+    CANONICAL_ERROR_RESPONSE_JSON,
     '{"status":"unexpected"}',
   ])('collapses every broker outcome failure to one public result (%s)', async (outcome) => {
     const response = await dispatchJsonRpc(rpc('tools/call', {
       name: TOOL_NAME,
       arguments: validArguments,
     }), {
-      broker: fakeBroker(outcome),
+      handlers: { [TOOL_NAME]: fakeBroker(outcome) },
       maxScriptBytes: 65536,
     });
     expect(response.result.structuredContent).toEqual({ status: 'error' });
@@ -124,21 +124,21 @@ describe('AWF enclave MCP protocol', () => {
     const validatingBroker = {
       handle(request: unknown, respond: (value: string) => void) {
         requests.push(request);
-        const validation = validateBoundedQueryRequest(request);
-        respond(validation.valid ? '{"status":"ok","result":true}' : CANONICAL_ERROR_JSON);
+        const validation = validateEnclaveScriptRequest(request);
+        respond(validation.valid ? '{"status":"ok","result":true}' : CANONICAL_ERROR_RESPONSE_JSON);
         return Promise.resolve();
       },
     };
     const response = await dispatchJsonRpc(rpc('tools/call', {
       name: TOOL_NAME,
       arguments: { ...validArguments, runtime: 'runc' },
-    }), { broker: validatingBroker, maxScriptBytes: 65536 });
+    }), { handlers: { [TOOL_NAME]: validatingBroker }, maxScriptBytes: 65536 });
     expect(requests).toEqual([{ ...validArguments, runtime: 'runc' }]);
     expect(response.result.structuredContent).toEqual({ status: 'error' });
   });
 
   it('uses JSON-RPC errors only for malformed protocol requests', async () => {
-    const deps = { broker: fakeBroker(CANONICAL_ERROR_JSON), maxScriptBytes: 65536 };
+    const deps = { handlers: { [TOOL_NAME]: fakeBroker(CANONICAL_ERROR_RESPONSE_JSON) }, maxScriptBytes: 65536 };
     await expect(dispatchJsonRpc(rpc('unknown'), deps)).resolves.toMatchObject({
       error: { code: -32601 },
     });
@@ -197,7 +197,7 @@ describe('AWF enclave MCP HTTP framing', () => {
 
   beforeEach(async () => {
     server = createMcpServer({
-      broker: fakeBroker(CANONICAL_ERROR_JSON),
+      handlers: { [TOOL_NAME]: fakeBroker(CANONICAL_ERROR_RESPONSE_JSON) },
       capability,
       maxScriptBytes: 65536,
     });
@@ -275,12 +275,12 @@ describe('unified enclave ledger and timing', () => {
       },
     };
     const ledger = { tryDebit: jest.fn(() => true) };
-    const broker = createBroker({
+    const broker = createExecutorHandler({
       config: {
         maxInvocations: 2,
         timeoutSeconds: 30,
         primaryBackend: 'docker',
-        queryBackend: 'docker',
+        executorBackend: 'docker',
       },
       seedMap: new Map([['octo/private', { seedId: 'a'.repeat(16), sensitivity: 'internal' }]]),
       runId: 'a'.repeat(16),
@@ -291,7 +291,7 @@ describe('unified enclave ledger and timing', () => {
       uniformTiming: true,
       clock,
       runner: {
-        runQueryContainer: async () => {
+        runScriptContainer: async () => {
           now += 5;
           return { exitCode: 0, timedOut: false };
         },
@@ -315,12 +315,12 @@ describe('unified enclave ledger and timing', () => {
   it('buckets repository and budget rejection classes to the same public boundary', async () => {
     async function rejected(seedMap: Map<string, unknown>, debit: boolean) {
       let now = 0;
-      const broker = createBroker({
+      const broker = createExecutorHandler({
         config: {
           maxInvocations: 1,
           timeoutSeconds: 30,
           primaryBackend: 'docker',
-          queryBackend: 'docker',
+          executorBackend: 'docker',
         },
         seedMap,
         runId: 'a'.repeat(16),
@@ -343,7 +343,7 @@ describe('unified enclave ledger and timing', () => {
     const exhausted = await rejected(new Map([
       ['octo/private', { seedId: 'a'.repeat(16), sensitivity: 'confidential' }],
     ]), false);
-    expect(unknown).toEqual({ now: 10, result: CANONICAL_ERROR_JSON });
+    expect(unknown).toEqual({ now: 10, result: CANONICAL_ERROR_RESPONSE_JSON });
     expect(exhausted).toEqual(unknown);
   });
 
@@ -353,12 +353,12 @@ describe('unified enclave ledger and timing', () => {
       nowMs: () => now,
       sleep: async (ms: number) => { now += ms; },
     };
-    const broker = createBroker({
+    const broker = createExecutorHandler({
       config: {
         maxInvocations: 1,
         timeoutSeconds: 30,
         primaryBackend: 'docker',
-        queryBackend: 'docker',
+        executorBackend: 'docker',
       },
       seedMap: new Map(),
       runId: 'a'.repeat(16),
@@ -374,7 +374,7 @@ describe('unified enclave ledger and timing', () => {
     const startedAt = now;
     let response = '';
     await broker.handle(validArguments, (value: string) => { response = value; });
-    expect(response).toBe(CANONICAL_ERROR_JSON);
+    expect(response).toBe(CANONICAL_ERROR_RESPONSE_JSON);
     expect(now - startedAt).toBe(10);
   });
 

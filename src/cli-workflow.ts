@@ -38,23 +38,6 @@ interface WorkflowDependencies {
     agentTimeoutMinutes?: number
   ) => Promise<{ exitCode: number }>;
   collectDiagnosticLogs?: (workDir: string) => Promise<void>;
-  /**
-   * Trusted bounded-query staging. Runs before any configuration is generated
-   * and before any container exists, so the staging credential is consumed and
-   * discarded before the broker, the agent, or a probe can observe anything.
-   *
-   * Rejecting aborts the run: the primary agent must never start when staging
-   * failed.
-   */
-  prepareBoundedQueries?: (config: WrapperConfig) => Promise<void>;
-  /**
-   * Trusted bounded-agent preflight and staging. Runs in the same phase as
-   * bounded-query staging and for the same reasons: a failure must abort before
-   * any container exists, and the staging credential must be consumed and
-   * discarded before the broker, the enclave, or the primary agent can observe
-   * anything.
-   */
-  prepareBoundedAgents?: (config: WrapperConfig) => Promise<void>;
   /** Trusted unified enclave preflight and staging. */
   prepareEnclaves?: (config: WrapperConfig) => Promise<void>;
   /**
@@ -105,39 +88,14 @@ export async function runMainWorkflow(
     throw new Error(`Invalid enclave configuration:\n- ${enclaveErrors.join('\n- ')}`);
   }
 
-  // Step -1: Bounded-query staging (trusted, host-side, credential-bearing).
+  // Step -1: Enclave staging (trusted, host-side, credential-bearing).
   //
   // Runs first so that:
   //  - a staging failure aborts before any container is created;
   //  - the staging credential is gone before the broker, the agent, or any
   //    probe exists;
-  //  - compose generation (Step 1) can rely on the seed/socket/skill layout
+  //  - compose generation (Step 1) can rely on the private seed layout
   //    already being present on disk.
-  if (config.boundedQueries?.enabled) {
-    if (!dependencies.prepareBoundedQueries) {
-      // Fail loudly rather than generating a broker service whose seeds and
-      // socket were never staged — bounded queries are never half-enabled.
-      throw new Error(
-        'Bounded queries are enabled but no staging implementation was provided to runMainWorkflow',
-      );
-    }
-    logger.info('Staging bounded-query repository seeds...');
-    await dependencies.prepareBoundedQueries(config);
-  }
-
-  if (config.boundedAgents?.enabled) {
-    if (!dependencies.prepareBoundedAgents) {
-      // Fail loudly rather than generating a broker service whose seeds and
-      // socket were never staged — bounded agents are never half-enabled.
-      throw new Error(
-        'Bounded agents are enabled but no staging implementation was provided to runMainWorkflow',
-      );
-    }
-
-    logger.info('Staging bounded-agent repository seeds...');
-    await dependencies.prepareBoundedAgents(config);
-  }
-
   if (config.enclaves?.enabled) {
     if (!dependencies.prepareEnclaves) {
       throw new Error('Enclaves are enabled but no staging implementation was provided to runMainWorkflow');

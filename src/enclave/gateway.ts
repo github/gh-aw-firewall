@@ -22,6 +22,7 @@ const DEFAULT_GATEWAY_CONTAINER = 'awmg-mcpg';
 const DEFAULT_READINESS_TIMEOUT_MS = 120_000;
 const REQUEST_TIMEOUT_MS = 5_000;
 const RETRY_DELAY_MS = 500;
+const SHUTDOWN_PROCESSING_BUFFER_SECONDS = 15;
 const MCP_PROTOCOL_VERSION = '2025-06-18';
 const ENCLAVE_MCP_OPERATION_TIMEOUT_SECONDS = Math.max(...TIMING_BUCKETS_MS) / 1_000 + 30;
 
@@ -489,7 +490,7 @@ export async function shutdownEnclaveGateway(
   if (!config.enclaves?.enabled || config.keepContainers) return;
   const contract = resolveEnclaveGatewayContract(config, env);
   const drainTimeoutSeconds = ENCLAVE_MCP_OPERATION_TIMEOUT_SECONDS;
-  const stopped = await execa(
+  const stopResult = await execa(
     'docker',
     ['compose', 'stop', '-t', String(drainTimeoutSeconds), 'enclave-mcp-server'],
     {
@@ -499,8 +500,16 @@ export async function shutdownEnclaveGateway(
       timeout: (drainTimeoutSeconds + 15) * 1_000,
     },
   );
-  if (stopped.exitCode !== 0) {
+  if (stopResult.exitCode !== 0) {
     throw new Error('Failed to drain the enclave MCP server before audit preservation');
+  }
+  const inspectResult = await execa(
+    'docker',
+    ['inspect', '--format={{.State.ExitCode}}', ENCLAVE_MCP_SERVER_CONTAINER_NAME],
+    { env: getLocalDockerEnv(), reject: false, timeout: 10_000 },
+  );
+  if (inspectResult.exitCode !== 0 || inspectResult.stdout.trim() !== '0') {
+    throw new Error('Enclave MCP server did not complete graceful cleanup');
   }
   await execa(
     'docker',

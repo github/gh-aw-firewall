@@ -18,14 +18,14 @@ export interface EnclavePaths {
 export const ENCLAVE_PRIVATE_BASE_DIR = '/var/tmp';
 export const ENCLAVE_CAPABILITY_FILENAME = 'auth-token';
 
-export const ENCLAVE_BROKER_SEEDS_DIR = '/srv/awf/seeds';
-export const ENCLAVE_BROKER_WORK_DIR = '/srv/awf/work';
-export const ENCLAVE_BROKER_SEED_MAP_PATH = '/srv/awf/seed-map.json';
-export const ENCLAVE_BROKER_CAPABILITY_DIR = '/run/awf-enclave-mcp';
-export const ENCLAVE_BROKER_CAPABILITY_PATH = `${ENCLAVE_BROKER_CAPABILITY_DIR}/${ENCLAVE_CAPABILITY_FILENAME}`;
-export const ENCLAVE_BROKER_CONTROL_DIR = '/run/awf-enclave-mcp-control';
-export const ENCLAVE_BROKER_AUDIT_DIR = '/var/log/awf-enclave';
-export const ENCLAVE_BROKER_DOCKER_SOCKET_PATH = '/var/run/docker.sock';
+export const ENCLAVE_SERVER_SEEDS_DIR = '/srv/awf/seeds';
+export const ENCLAVE_SERVER_WORK_DIR = '/srv/awf/work';
+export const ENCLAVE_SERVER_SEED_MAP_PATH = '/srv/awf/seed-map.json';
+export const ENCLAVE_SERVER_CAPABILITY_DIR = '/run/awf-enclave-mcp';
+export const ENCLAVE_SERVER_CAPABILITY_PATH = `${ENCLAVE_SERVER_CAPABILITY_DIR}/${ENCLAVE_CAPABILITY_FILENAME}`;
+export const ENCLAVE_SERVER_CONTROL_DIR = '/run/awf-enclave-mcp-control';
+export const ENCLAVE_SERVER_AUDIT_DIR = '/var/log/awf-enclave';
+export const ENCLAVE_SERVER_DOCKER_SOCKET_PATH = '/var/run/docker.sock';
 
 function deriveRootIdentity(awfWorkDir: string): string {
   const uid = process.getuid?.() ?? 0;
@@ -57,4 +57,8 @@ export function resolveEnclavePaths(
 
 export function generateEnclaveRunId(): string {
   return crypto.randomBytes(16).toString('hex');
+}
+
+export function deriveEnclaveSeedId(runId: string, repo: string): string {
+  return crypto.createHash('sha256').update(`${runId}\0${repo.toLowerCase()}`, 'utf8').digest('hex').slice(0, 32);
 }

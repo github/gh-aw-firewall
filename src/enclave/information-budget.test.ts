@@ -10,14 +10,14 @@ import {
 
 /* eslint-disable @typescript-eslint/no-require-imports */
 const brokerPolicy = require(
-  path.join(__dirname, '..', '..', 'containers', 'bounded-query', 'bounded-execution', 'sensitivity-policy.js'),
+  path.join(__dirname, '..', '..', 'containers', 'bounded-execution', 'sensitivity-policy.js'),
 );
 /* eslint-enable @typescript-eslint/no-require-imports */
 
 describe('enclave information budget', () => {
-  it('matches the broker-side sensitivity policy', () => {
-    expect(ENCLAVE_SENSITIVITIES).toEqual(brokerPolicy.SENSITIVITY_LEVELS);
-    expect(ENCLAVE_SENSITIVITY_RUN_BITS).toEqual(brokerPolicy.SENSITIVITY_RUN_BITS);
+  it('matches the server-side sensitivity policy', () => {
+    expect(ENCLAVE_SENSITIVITIES).toEqual(brokerPolicy.ENCLAVE_SENSITIVITIES);
+    expect(ENCLAVE_SENSITIVITY_RUN_BITS).toEqual(brokerPolicy.ENCLAVE_SENSITIVITY_RUN_BITS);
     expect(ENCLAVE_INFORMATION_BUDGET_POLICY.runBits).toBe(ENCLAVE_SENSITIVITY_RUN_BITS);
   });
 

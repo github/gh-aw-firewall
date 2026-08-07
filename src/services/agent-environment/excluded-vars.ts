@@ -48,6 +48,10 @@ export function buildExclusionSet(config: WrapperConfig): Set<string> {
     excludedEnvVars.add('GITHUB_TOKEN');
     excludedEnvVars.add('GH_TOKEN');
     excludedEnvVars.add('GITHUB_PERSONAL_ACCESS_TOKEN');
+    excludedEnvVars.add('COPILOT_GITHUB_TOKEN');
+    excludedEnvVars.add('GITHUB_API_TOKEN');
+    excludedEnvVars.add('GITHUB_PAT');
+    excludedEnvVars.add('GH_ACCESS_TOKEN');
     // Exclude the OpenAI endpoint override so the sidecar-isolated endpoint
     // URL is never visible to the untrusted agent via its environment.
     excludedEnvVars.add('OPENAI_ENDPOINT_OVERRIDE');
@@ -59,17 +63,23 @@ export function buildExclusionSet(config: WrapperConfig): Set<string> {
     excludedEnvVars.add('GITHUB_TOKEN');
     excludedEnvVars.add('GH_TOKEN');
     excludedEnvVars.add('GITHUB_PERSONAL_ACCESS_TOKEN');
+    excludedEnvVars.add('COPILOT_GITHUB_TOKEN');
+    excludedEnvVars.add('GITHUB_API_TOKEN');
+    excludedEnvVars.add('GITHUB_PAT');
+    excludedEnvVars.add('GH_ACCESS_TOKEN');
   }
 
-  if (config.boundedQueries?.enabled) {
-    // Bounded queries read private repositories on the agent's behalf precisely
-    // because the agent is not trusted with access to them. A GitHub token in
-    // the agent environment would let the agent read those repositories
-    // directly, defeating the subsystem — so the tokens are stripped whenever
-    // bounded queries are enabled, independently of the API/DIFC proxies.
+  if (config.enclaves?.enabled) {
+    // Enclaves read private repositories on the primary agent's behalf. A
+    // GitHub token in the primary environment would bypass mcpg and defeat
+    // repository isolation, so strip tokens independently of proxy settings.
     excludedEnvVars.add('GITHUB_TOKEN');
     excludedEnvVars.add('GH_TOKEN');
     excludedEnvVars.add('GITHUB_PERSONAL_ACCESS_TOKEN');
+    excludedEnvVars.add('COPILOT_GITHUB_TOKEN');
+    excludedEnvVars.add('GITHUB_API_TOKEN');
+    excludedEnvVars.add('GITHUB_PAT');
+    excludedEnvVars.add('GH_ACCESS_TOKEN');
   }
 
   if (config.excludeEnv && config.excludeEnv.length > 0) {

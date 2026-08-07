@@ -1,20 +1,20 @@
 import * as path from 'path';
 
 /* eslint-disable @typescript-eslint/no-require-imports */
-const root = path.join(__dirname, '..', '..', 'containers', 'bounded-query');
+const root = path.join(__dirname, '..', '..', 'containers');
 const {
   AGENT_TOOL_NAME,
   TOOL_NAME,
   dispatchJsonRpc,
-} = require(path.join(root, 'enclave-mcp', 'mcp-protocol.js'));
+} = require(path.join(root, 'enclave', 'mcp-server', 'mcp-protocol.js'));
 const {
   ENCLAVE_EXIT_CATEGORIES,
   agentWorkspaceAdapter,
   createAgentRequestValidator,
-} = require(path.join(root, 'enclave-mcp', 'agent-executor.js'));
-const { createBroker } = require(path.join(root, 'broker', 'broker.js'));
+} = require(path.join(root, 'enclave', 'mcp-server', 'agent-executor.js'));
+const { createExecutorHandler } = require(path.join(root, 'enclave', 'script-executor', 'executor-handler.js'));
 const {
-  CANONICAL_ERROR_JSON,
+  CANONICAL_ERROR_RESPONSE_JSON,
 } = require(path.join(root, 'bounded-execution', 'finite-disclosure.js'));
 const {
   createEnclaveInformationBudgetLedger,
@@ -49,9 +49,9 @@ function fakeBroker(response: string, requests: unknown[] = []) {
 
 describe('enclave_run_agent tool contract', () => {
   const deps = {
-    brokers: {
-      [TOOL_NAME]: fakeBroker(CANONICAL_ERROR_JSON),
-      [AGENT_TOOL_NAME]: fakeBroker(CANONICAL_ERROR_JSON),
+    handlers: {
+      [TOOL_NAME]: fakeBroker(CANONICAL_ERROR_RESPONSE_JSON),
+      [AGENT_TOOL_NAME]: fakeBroker(CANONICAL_ERROR_RESPONSE_JSON),
     },
     maxScriptBytes: 65536,
     maxPromptBytes: 4096,
@@ -76,7 +76,7 @@ describe('enclave_run_agent tool contract', () => {
 
   it('publishes only the agent tool when the script executor is disabled', async () => {
     const response = await dispatchJsonRpc(rpc('tools/list'), {
-      brokers: { [AGENT_TOOL_NAME]: fakeBroker(CANONICAL_ERROR_JSON) },
+      handlers: { [AGENT_TOOL_NAME]: fakeBroker(CANONICAL_ERROR_RESPONSE_JSON) },
       maxPromptBytes: 4096,
     });
     expect(response.result.tools).toHaveLength(1);
@@ -93,7 +93,7 @@ describe('enclave_run_agent tool contract', () => {
     const response = await dispatchJsonRpc(rpc('tools/call', {
       name: AGENT_TOOL_NAME,
       arguments: validAgentArguments,
-    }), { brokers: { [TOOL_NAME]: fakeBroker(CANONICAL_ERROR_JSON) }, maxScriptBytes: 65536 });
+    }), { handlers: { [TOOL_NAME]: fakeBroker(CANONICAL_ERROR_RESPONSE_JSON) }, maxScriptBytes: 65536 });
     expect(response).toMatchObject({ error: { code: -32602 } });
   });
 
@@ -112,7 +112,7 @@ describe('enclave_run_agent tool contract', () => {
     const scriptRequests: unknown[] = [];
     const agentRequests: unknown[] = [];
     const routed = {
-      brokers: {
+      handlers: {
         [TOOL_NAME]: fakeBroker('{"status":"ok","result":true}', scriptRequests),
         [AGENT_TOOL_NAME]: fakeBroker('{"status":"ok","result":false}', agentRequests),
       },
@@ -142,7 +142,7 @@ describe('enclave_run_agent tool contract', () => {
       name: AGENT_TOOL_NAME,
       arguments: { ...validAgentArguments, prompt: 'a'.repeat(4097) },
     }), {
-      brokers: { [AGENT_TOOL_NAME]: fakeBroker(CANONICAL_ERROR_JSON, requests) },
+      handlers: { [AGENT_TOOL_NAME]: fakeBroker(CANONICAL_ERROR_RESPONSE_JSON, requests) },
       maxPromptBytes: 4096,
     });
     expect(requests).toEqual([undefined]);
@@ -151,7 +151,7 @@ describe('enclave_run_agent tool contract', () => {
   });
 
   it.each([
-    CANONICAL_ERROR_JSON,
+    CANONICAL_ERROR_RESPONSE_JSON,
     '{"status":"unexpected"}',
     '{"status":"ok"',
   ])('returns identical metadata for every failing outcome (%s)', async (outcome) => {
@@ -159,7 +159,7 @@ describe('enclave_run_agent tool contract', () => {
       name: AGENT_TOOL_NAME,
       arguments: validAgentArguments,
     }), {
-      brokers: { [AGENT_TOOL_NAME]: fakeBroker(outcome) },
+      handlers: { [AGENT_TOOL_NAME]: fakeBroker(outcome) },
       maxPromptBytes: 4096,
     });
     expect(response).toEqual({
@@ -237,12 +237,12 @@ describe('enclave_run_agent request grammar', () => {
 
 describe('unified enclave executor accounting', () => {
   function agentBroker(overrides: Record<string, unknown> = {}) {
-    return createBroker({
+    return createExecutorHandler({
       config: {
         maxInvocations: 8,
         timeoutSeconds: 30,
         primaryBackend: 'docker',
-        queryBackend: 'docker',
+        executorBackend: 'docker',
         maxOutputBytes: 8192,
         workDir: '/srv/awf/work',
       },
@@ -265,7 +265,7 @@ describe('unified enclave executor accounting', () => {
     const broker = agentBroker({
       ledger,
       clock: { nowMs: () => now, sleep: async (ms: number) => { now += ms; } },
-      runner: { runQueryContainer: async () => ({ exitCode: 0, timedOut: false }) },
+      runner: { runScriptContainer: async () => ({ exitCode: 0, timedOut: false }) },
       workspace: {
         createInvocationWorkspace: () => ({ outPath: 'out', sessionLogPath: 'session' }),
         readQueryOutput: () => 'true',
@@ -303,7 +303,7 @@ describe('unified enclave executor accounting', () => {
         maxInvocations: 8,
         timeoutSeconds: 30,
         primaryBackend: 'docker',
-        queryBackend: 'docker',
+        executorBackend: 'docker',
         maxOutputBytes: 8192,
         workDir: '/srv/awf/work',
       },
@@ -316,11 +316,11 @@ describe('unified enclave executor accounting', () => {
       lane,
       clock: { nowMs: () => 0, sleep: async () => undefined },
     };
-    const script = createBroker({
+    const script = createExecutorHandler({
       ...shared,
       executorKind: 'script',
       runner: {
-        runQueryContainer: async () => {
+        runScriptContainer: async () => {
           order.push('script-start');
           await gate;
           order.push('script-end');
@@ -328,13 +328,13 @@ describe('unified enclave executor accounting', () => {
         },
       },
     });
-    const agent = createBroker({
+    const agent = createExecutorHandler({
       ...shared,
       executorKind: 'agent',
       payloadKey: 'prompt',
       validateRequest: createAgentRequestValidator(4096),
       runner: {
-        runQueryContainer: async () => {
+        runScriptContainer: async () => {
           order.push('agent-start');
           return { exitCode: 0, timedOut: false };
         },
@@ -358,7 +358,7 @@ describe('unified enclave executor accounting', () => {
         sleep: async (ms: number) => { sleeps.push(ms); now += ms; },
       },
       runner: {
-        runQueryContainer: async () => {
+        runScriptContainer: async () => {
           now += 5;
           return { exitCode: 0, timedOut: false };
         },
@@ -390,7 +390,7 @@ describe('unified enclave executor accounting', () => {
         },
       },
       runner: {
-        runQueryContainer: async () => ({ exitCode: 0, timedOut: false }),
+        runScriptContainer: async () => ({ exitCode: 0, timedOut: false }),
       },
       workspace: {
         createInvocationWorkspace: () => ({ outPath: 'out', sessionLogPath: 'session' }),
@@ -432,12 +432,12 @@ describe('unified enclave executor accounting', () => {
       return { now, result };
     }
     const engineFailure = await run(
-      { runQueryContainer: async () => ({ exitCode: 24, timedOut: false }) },
+      { runScriptContainer: async () => ({ exitCode: 24, timedOut: false }) },
       new Map([['octo/private', { seedId: 'a'.repeat(16), sensitivity: 'internal' }]]),
     );
     const unknownRepo = await run({}, new Map());
-    expect(engineFailure.result).toBe(CANONICAL_ERROR_JSON);
-    expect(unknownRepo.result).toBe(CANONICAL_ERROR_JSON);
+    expect(engineFailure.result).toBe(CANONICAL_ERROR_RESPONSE_JSON);
+    expect(unknownRepo.result).toBe(CANONICAL_ERROR_RESPONSE_JSON);
     expect(engineFailure.now).toBe(unknownRepo.now);
   });
 
@@ -447,7 +447,7 @@ describe('unified enclave executor accounting', () => {
     const broker = agentBroker({
       ledger: { tryDebit: () => true },
       clock: { nowMs: () => 0, sleep: async () => undefined },
-      runner: { runQueryContainer: async () => ({ exitCode: 0, timedOut: false }) },
+      runner: { runScriptContainer: async () => ({ exitCode: 0, timedOut: false }) },
       workspace: {
         createInvocationWorkspace: ({ invocationId }: { invocationId: string }) => ({
           outPath: `out-${invocationId}`,

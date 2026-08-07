@@ -29,7 +29,7 @@ describe('normalizeEnclavesConfig', () => {
       privateRepos: [{ repo: 'octo/private', sensitivity: 'confidential' }],
       executors: {
         script: { enabled: true, runtime: 'gvisor', image: 'registry/script@sha256:abc' },
-        agent: { enabled: true, model: 'gpt-5', maxModelRequests: 3 },
+        agent: { enabled: true, model: 'gpt-5' },
       },
     })).toMatchObject({
       enabled: true,
@@ -44,7 +44,6 @@ describe('normalizeEnclavesConfig', () => {
         agent: {
           enabled: true,
           model: 'gpt-5',
-          maxModelRequests: 3,
           network: 'api-proxy-only',
         },
       },
@@ -106,20 +105,4 @@ describe('enclaves JSON Schema', () => {
     }).length).toBeGreaterThan(0);
   });
 
-  it('fails clearly when a unified and legacy surface are both enabled', () => {
-    const errors = validateAwfFileConfig({
-      enclaves: {
-        enabled: true,
-        privateRepos: [repository],
-        executors: { script: { enabled: true } },
-      },
-      boundedQueries: {
-        enabled: true,
-        privateRepos: [{ repo: 'octo/private', sensitivity: 'internal' }],
-      },
-    });
-    expect(errors).toContain(
-      'config.enclaves cannot be enabled with config.boundedQueries or config.boundedAgents; choose one configuration surface',
-    );
-  });
 });

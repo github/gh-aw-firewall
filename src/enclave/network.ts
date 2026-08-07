@@ -39,10 +39,7 @@ export const ENCLAVE_MCP_CONTROL_PORT = 8080;
 /**
  * Fixed subnet for the agent-enclave network.
  *
- * Deliberately disjoint from the `awf-net` subnet (172.30.0.0/24). The legacy
- * bounded-agent network uses the same range, which can never collide because
- * `enclaves` and `boundedAgents` are mutually exclusive by fail-closed
- * configuration validation.
+ * Deliberately disjoint from the `awf-net` subnet (172.30.0.0/24).
  */
 export const ENCLAVE_AGENT_SUBNET = '172.31.0.0/24';
 

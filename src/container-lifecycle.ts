@@ -7,9 +7,6 @@ import {
   IPTABLES_INIT_CONTAINER_NAME,
   API_PROXY_CONTAINER_NAME,
   CLI_PROXY_CONTAINER_NAME,
-  BOUNDED_AGENT_API_PROXY_CONTAINER_NAME,
-  BOUNDED_AGENT_BROKER_CONTAINER_NAME,
-  BOUNDED_QUERY_BROKER_CONTAINER_NAME,
   ENCLAVE_AGENT_API_PROXY_CONTAINER_NAME,
   ENCLAVE_MCP_SERVER_CONTAINER_NAME,
 } from './constants';
@@ -184,8 +181,8 @@ async function handleRetryStartupFailure(
     const dnsFailureHost = await detectDnsResolutionFailure(CLI_PROXY_CONTAINER_NAME);
     throw createCliProxyStartupError(dnsFailureHost);
   }
-  if (await didContainerFailStartup(retryErrorMsg, BOUNDED_QUERY_BROKER_CONTAINER_NAME)) {
-    await logContainerLogsToStderr(BOUNDED_QUERY_BROKER_CONTAINER_NAME);
+  if (await didContainerFailStartup(retryErrorMsg, ENCLAVE_MCP_SERVER_CONTAINER_NAME)) {
+    await logContainerLogsToStderr(ENCLAVE_MCP_SERVER_CONTAINER_NAME);
     throw retryError;
   }
   // Any remaining retry error (e.g. squid healthcheck or domain blockage) falls
@@ -212,10 +209,10 @@ async function handleStartupFailure(
   const firstAttemptCliProxyStartupFailure = !firstAttemptApiProxyStartupFailure
     && !firstAttemptSquidStartupFailure
     && await didContainerFailStartup(errorMsg, CLI_PROXY_CONTAINER_NAME);
-  const firstAttemptBoundedQueryBrokerFailure = !firstAttemptApiProxyStartupFailure
+  const firstAttemptEnclaveServerFailure = !firstAttemptApiProxyStartupFailure
     && !firstAttemptSquidStartupFailure
     && !firstAttemptCliProxyStartupFailure
-    && await didContainerFailStartup(errorMsg, BOUNDED_QUERY_BROKER_CONTAINER_NAME);
+    && await didContainerFailStartup(errorMsg, ENCLAVE_MCP_SERVER_CONTAINER_NAME);
 
   // When api-proxy or squid specifically fails to start, retry once.
   // Both containers are occasionally flaky on slow or busy CI runners:
@@ -255,8 +252,8 @@ async function handleStartupFailure(
     throw createCliProxyStartupError(dnsFailureHost);
   }
 
-  if (firstAttemptBoundedQueryBrokerFailure) {
-    await logContainerLogsToStderr(BOUNDED_QUERY_BROKER_CONTAINER_NAME);
+  if (firstAttemptEnclaveServerFailure) {
+    await logContainerLogsToStderr(ENCLAVE_MCP_SERVER_CONTAINER_NAME);
     throw error;
   }
 
@@ -311,9 +308,6 @@ export async function startContainers(
       IPTABLES_INIT_CONTAINER_NAME,
       API_PROXY_CONTAINER_NAME,
       CLI_PROXY_CONTAINER_NAME,
-      BOUNDED_QUERY_BROKER_CONTAINER_NAME,
-      BOUNDED_AGENT_BROKER_CONTAINER_NAME,
-      BOUNDED_AGENT_API_PROXY_CONTAINER_NAME,
       ENCLAVE_MCP_SERVER_CONTAINER_NAME,
       ENCLAVE_AGENT_API_PROXY_CONTAINER_NAME,
     ], {

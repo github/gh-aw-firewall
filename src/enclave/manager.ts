@@ -6,19 +6,21 @@ import {
   serializePrivateRepositorySeedMap,
   type PrivateRepositorySeedMap,
 } from '../bounded-execution';
-import { assertPrimaryRuntimeAvailable, assertQueryRuntimeAvailable } from '../bounded-query/preflight';
-import { releaseSeedPermissions, resolveStagingToken, stageBoundedQuerySeeds, type GitRunner } from '../bounded-query/staging';
+import { releaseSeedPermissions, resolveStagingToken, stageEnclaveSeeds, type GitRunner } from './staging';
 import { getLocalDockerEnv } from '../host-env';
 import { getSafeHostGid, getSafeHostUid } from '../host-identity';
 import { logger } from '../logger';
-import type { BoundedQueriesConfig, WrapperConfig } from '../types';
+import type { WrapperConfig } from '../types';
 import type {
   EnclaveAgentExecutorConfig,
   EnclaveScriptExecutorConfig,
 } from '../types/enclave-options';
-import { assertEnclaveRuntimeAvailable } from '../bounded-agent/preflight';
-import type { BoundedAgentsConfig } from '../types';
-import { assertPrivateRootIsolated } from '../bounded-query/mount-policy';
+import { assertPrivateRootIsolated } from './mount-policy';
+import {
+  assertAgentRuntimeAvailable,
+  assertPrimaryRuntimeAvailable,
+  assertScriptRuntimeAvailable,
+} from './runtime-preflight';
 import { validateEnclavesConfig } from './preflight';
 import { generateEnclaveRunId, resolveEnclavePaths, type EnclavePaths } from './paths';
 import {
@@ -136,26 +138,11 @@ export async function prepareEnclaves(
 
   await (deps.assertPrimaryAvailable ?? assertPrimaryRuntimeAvailable)(config.containerRuntime);
   if (enclaves.executors.script.enabled) {
-    const assertScriptRuntime = deps.assertScriptRuntimeAvailable
-      ?? ((script: EnclaveScriptExecutorConfig) => (
-        assertQueryRuntimeAvailable(
-          script as unknown as BoundedQueriesConfig,
-          undefined,
-          undefined,
-          undefined,
-          'enclaves.executors.script.runtime',
-        )
-      ));
+    const assertScriptRuntime = deps.assertScriptRuntimeAvailable ?? assertScriptRuntimeAvailable;
     await assertScriptRuntime(enclaves.executors.script);
   }
   if (enclaves.executors.agent.enabled) {
-    // The agent executor reuses the audited bounded-agent runtime proof: an
-    // unregistered `runsc` aborts the run and never downgrades to the daemon's
-    // default OCI runtime, and `sbx` stays blocked until every control is proven.
-    const assertAgentRuntime = deps.assertAgentRuntimeAvailable
-      ?? ((agent: EnclaveAgentExecutorConfig) => (
-        assertEnclaveRuntimeAvailable(agent as unknown as BoundedAgentsConfig)
-      ));
+    const assertAgentRuntime = deps.assertAgentRuntimeAvailable ?? assertAgentRuntimeAvailable;
     await assertAgentRuntime(enclaves.executors.agent);
   }
 
@@ -174,7 +161,7 @@ export async function prepareEnclaves(
   prepareDirectories(paths);
 
   const runId = generateEnclaveRunId();
-  const staging = await stageBoundedQuerySeeds({
+  const staging = await stageEnclaveSeeds({
     repos: enclaves.privateRepos,
     paths,
     runId,

@@ -16,7 +16,7 @@ import {
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const enclaveProtocol = require(path.join(
   __dirname,
-  '../../containers/bounded-query/enclave-mcp/mcp-protocol.js',
+  '../../containers/enclave/mcp-server/mcp-protocol.js',
 ));
 
 jest.mock('execa', () => ({ __esModule: true, default: jest.fn() }));
@@ -499,7 +499,10 @@ describe('enclave mcpg handoff', () => {
   });
 
   it('drains the AWF server and disconnects mcpg without stopping the external container', async () => {
-    mockExeca.mockResolvedValue({ exitCode: 0, stdout: '', stderr: '' });
+    mockExeca
+      .mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' })
+      .mockResolvedValueOnce({ exitCode: 0, stdout: '0\n', stderr: '' })
+      .mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' });
     await shutdownEnclaveGateway(config(), env());
     expect(mockExeca).toHaveBeenNthCalledWith(
       1,
@@ -509,6 +512,12 @@ describe('enclave mcpg handoff', () => {
     );
     expect(mockExeca).toHaveBeenNthCalledWith(
       2,
+      'docker',
+      ['inspect', '--format={{.State.ExitCode}}', 'awf-enclave-mcp-server'],
+      expect.anything(),
+    );
+    expect(mockExeca).toHaveBeenNthCalledWith(
+      3,
       'docker',
       ['network', 'disconnect', '-f', 'awf-enclave-mcp-control', 'awmg-mcpg'],
       expect.anything(),

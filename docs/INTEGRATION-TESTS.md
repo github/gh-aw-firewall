@@ -54,6 +54,20 @@ The test suite is organized in three tiers:
 | Smoke Tests | 4 | N/A | Per-workflow (scheduled + PR) |
 | Build-Test | 8 | N/A | Per-workflow (PR + dispatch) |
 
+### Unified enclave coverage
+
+Legacy bounded smoke and runtime-matrix assets were removed from the owned workflow surface. Until a unified gh-aw enclave smoke workflow exists, coverage for the enclave MCP server and executor contracts stays local/unit-focused:
+
+- `src/services/enclave-mcp-service.test.ts`
+- `src/services/enclave-agent-service.test.ts`
+- `src/enclave/script-runner-spec.test.ts`
+- `src/enclave/agent-runner-spec.test.ts`
+- `src/enclave/manager.test.ts`
+- `src/enclave/mcp-server.test.ts`
+- `src/enclave/agent-mcp-server.test.ts`
+
+These cover the shared tool contract, gVisor routing assumptions, fail-closed `sbx` behavior, and the mcpg-only topology.
+
 ---
 
 ## What's Covered

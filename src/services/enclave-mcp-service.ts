@@ -7,14 +7,14 @@ import type { WrapperConfig } from '../types';
 import { API_PROXY_PORTS } from '../types/ports';
 import type { EnclaveAgentEngine, EnclaveAgentProfile } from '../types/enclave-options';
 import {
-  ENCLAVE_BROKER_AUDIT_DIR,
-  ENCLAVE_BROKER_CAPABILITY_PATH,
-  ENCLAVE_BROKER_CONTROL_DIR,
-  ENCLAVE_BROKER_DOCKER_SOCKET_PATH,
-  ENCLAVE_BROKER_SEED_MAP_PATH,
-  ENCLAVE_BROKER_SEEDS_DIR,
-  ENCLAVE_BROKER_CAPABILITY_DIR,
-  ENCLAVE_BROKER_WORK_DIR,
+  ENCLAVE_SERVER_AUDIT_DIR,
+  ENCLAVE_SERVER_CAPABILITY_PATH,
+  ENCLAVE_SERVER_CONTROL_DIR,
+  ENCLAVE_SERVER_DOCKER_SOCKET_PATH,
+  ENCLAVE_SERVER_SEED_MAP_PATH,
+  ENCLAVE_SERVER_SEEDS_DIR,
+  ENCLAVE_SERVER_CAPABILITY_DIR,
+  ENCLAVE_SERVER_WORK_DIR,
   resolveEnclavePaths,
 } from '../enclave/paths';
 import {
@@ -25,7 +25,7 @@ import {
   ENCLAVE_MCP_CONTROL_ALIAS,
   ENCLAVE_MCP_CONTROL_NETWORK,
 } from '../enclave/network';
-import { resolveBoundedQueryPrimaryBackend } from '../bounded-query/runtime-matrix';
+import { resolvePrimaryRuntimeBackend } from '../enclave/runtime-preflight';
 import { resolveDockerSocketPath } from './agent-volumes/docker-socket';
 import { applyHostPathPrefixToVolumes } from './host-path-prefix';
 import { buildContainerSecurityHardening } from './service-security';
@@ -98,10 +98,8 @@ function resolveServerImage(imageConfig: ImageBuildConfig): Record<string, unkno
   return {
     image: LOCAL_ENCLAVE_MCP_SERVER_IMAGE,
     build: {
-      // The server drives both executors, so its build context spans
-      // containers/bounded-query and containers/bounded-agent.
       context: `${imageConfig.projectRoot}/containers`,
-      dockerfile: 'bounded-query/enclave-mcp/Dockerfile',
+      dockerfile: 'enclave/Dockerfile',
       target: 'enclave-mcp-server',
     },
   };
@@ -125,9 +123,9 @@ function resolveScriptImage(
     source: {
       image: LOCAL_ENCLAVE_SCRIPT_IMAGE,
       build: {
-        context: `${imageConfig.projectRoot}/containers/bounded-query`,
-        dockerfile: 'Dockerfile',
-        target: 'query',
+        context: `${imageConfig.projectRoot}/containers`,
+        dockerfile: 'enclave/Dockerfile',
+        target: 'enclave-script',
       },
     },
   };
@@ -151,10 +149,9 @@ function resolveAgentImage(
     source: {
       image: LOCAL_ENCLAVE_AGENT_IMAGE,
       build: {
-        // Reuses the audited native enclave image target verbatim.
         context: `${imageConfig.projectRoot}/containers`,
-        dockerfile: 'bounded-agent/Dockerfile',
-        target: 'enclave',
+        dockerfile: 'enclave/Dockerfile',
+        target: 'enclave-agent',
       },
     },
   };
@@ -259,13 +256,13 @@ export function buildEnclaveMcpService(params: EnclaveMcpServiceParams): Enclave
 
   const paths = resolveEnclavePaths(config.workDir);
   const dockerSocketPath = resolveDockerSocketPath(config);
-  const primaryBackend = resolveBoundedQueryPrimaryBackend(config.containerRuntime);
+  const primaryBackend = resolvePrimaryRuntimeBackend(config.containerRuntime);
   const imageServiceHardening = { memLimit: '32m', pidsLimit: 16, cpuShares: 64 };
 
   const environment: Record<string, string> = {
     AWF_ENCLAVE_PRIMARY_BACKEND: primaryBackend,
     AWF_ENCLAVE_HOST_WORK_DIR: toDaemonVisiblePath(paths.workDir, config.dockerHostPathPrefix),
-    AWF_ENCLAVE_CAPABILITY_PATH: ENCLAVE_BROKER_CAPABILITY_PATH,
+    AWF_ENCLAVE_CAPABILITY_PATH: ENCLAVE_SERVER_CAPABILITY_PATH,
     AWF_ENCLAVE_LISTEN_HOST: '0.0.0.0',
     AWF_ENCLAVE_SCRIPT_ENABLED: String(script?.enabled === true),
     AWF_ENCLAVE_AGENT_ENABLED: String(agent?.enabled === true),
@@ -338,8 +335,6 @@ export function buildEnclaveMcpService(params: EnclaveMcpServiceParams): Enclave
       AWF_ENCLAVE_AGENT_MAX_OUTPUT_BYTES: String(agent.maxOutputBytes),
       AWF_ENCLAVE_AGENT_MAX_PROMPT_BYTES: String(agent.maxTaskBytes),
       AWF_ENCLAVE_AGENT_MAX_INVOCATIONS: String(agent.maxInvocations),
-      AWF_ENCLAVE_AGENT_MAX_MODEL_REQUESTS: String(agent.maxModelRequests),
-      AWF_ENCLAVE_AGENT_MAX_MODEL_TOKENS: String(agent.maxModelTokens),
       // Enclave bind-mount sources are handed to the daemon, not opened by the
       // server, so they must be daemon-visible paths.
       AWF_ENCLAVE_AGENT_HOST_WORK_DIR: toDaemonVisiblePath(paths.workDir, config.dockerHostPathPrefix),
@@ -357,20 +352,20 @@ export function buildEnclaveMcpService(params: EnclaveMcpServiceParams): Enclave
     },
     volumes: applyHostPathPrefixToVolumes(
       [
-        `${paths.seedsDir}:${ENCLAVE_BROKER_SEEDS_DIR}:ro`,
-        `${paths.workDir}:${ENCLAVE_BROKER_WORK_DIR}:rw`,
-        `${paths.runDir}:${ENCLAVE_BROKER_CAPABILITY_DIR}:rw`,
-        `${paths.controlDir}:${ENCLAVE_BROKER_CONTROL_DIR}:rw`,
-        `${paths.auditDir}:${ENCLAVE_BROKER_AUDIT_DIR}:rw`,
-        `${paths.seedMapPath}:${ENCLAVE_BROKER_SEED_MAP_PATH}:ro`,
-        `${dockerSocketPath}:${ENCLAVE_BROKER_DOCKER_SOCKET_PATH}:rw`,
+        `${paths.seedsDir}:${ENCLAVE_SERVER_SEEDS_DIR}:ro`,
+        `${paths.workDir}:${ENCLAVE_SERVER_WORK_DIR}:rw`,
+        `${paths.runDir}:${ENCLAVE_SERVER_CAPABILITY_DIR}:rw`,
+        `${paths.controlDir}:${ENCLAVE_SERVER_CONTROL_DIR}:rw`,
+        `${paths.auditDir}:${ENCLAVE_SERVER_AUDIT_DIR}:rw`,
+        `${paths.seedMapPath}:${ENCLAVE_SERVER_SEED_MAP_PATH}:ro`,
+        `${dockerSocketPath}:${ENCLAVE_SERVER_DOCKER_SOCKET_PATH}:rw`,
       ],
       config.dockerHostPathPrefix,
     ),
     environment,
     depends_on: dependsOn,
     healthcheck: {
-      test: ['CMD', 'node', '/opt/awf/enclave-mcp/healthcheck.js'],
+      test: ['CMD', 'node', '/opt/awf/enclave/mcp-server/healthcheck.js'],
       interval: '5s',
       timeout: '3s',
       retries: 10,

@@ -430,52 +430,6 @@ describe('buildConfig', () => {
       expect(config.modelAliases).toEqual(aliases);
     });
 
-    it('should leave boundedQueries undefined when not set in options', () => {
-      const config = buildConfig(makeInputs());
-      expect(config.boundedQueries).toBeUndefined();
-    });
-
-    it('should normalize boundedQueries with centralized defaults when present', () => {
-      const config = buildConfig(makeInputs({
-        options: { ...makeInputs().options, boundedQueries: {} },
-      }));
-      expect(config.boundedQueries).toEqual({
-        enabled: false,
-        privateRepos: [],
-        runtime: 'docker',
-        timeout: 30,
-        memoryLimit: '512m',
-        interpreter: 'python3',
-        maxInvocations: 32,
-      });
-    });
-
-    it('should preserve explicit boundedQueries values over defaults', () => {
-      const config = buildConfig(makeInputs({
-        options: {
-          ...makeInputs().options,
-          boundedQueries: {
-            enabled: true,
-            privateRepos: [{ repo: 'octo/repo', sensitivity: 'confidential' }],
-            runtime: 'sbx',
-            timeout: 90,
-            memoryLimit: '2g',
-            interpreter: 'python3',
-            maxInvocations: 5,
-          },
-        },
-      }));
-      expect(config.boundedQueries).toEqual({
-        enabled: true,
-        privateRepos: [{ repo: 'octo/repo', sensitivity: 'confidential' }],
-        runtime: 'sbx',
-        timeout: 90,
-        memoryLimit: '2g',
-        interpreter: 'python3',
-        maxInvocations: 5,
-      });
-    });
-
     it('should pass through resolvedCopilotApiTarget', () => {
       const config = buildConfig(makeInputs({ resolvedCopilotApiTarget: 'https://copilot.example.com' }));
       expect(config.copilotApiTarget).toBe('https://copilot.example.com');

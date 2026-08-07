@@ -2,84 +2,50 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
-/**
- * The unified enclave MCP server image reuses two audited source trees rather
- * than duplicating them. These tests pin that contract: the Dockerfile must
- * copy both trees into the layout the server's `require` specifiers assume, and
- * the release pipeline must publish every image the server references.
- */
-
 const repoRoot = path.join(__dirname, '..', '..');
 const containersRoot = path.join(repoRoot, 'containers');
-const dockerfilePath = path.join(containersRoot, 'bounded-query', 'enclave-mcp', 'Dockerfile');
+const dockerfilePath = path.join(containersRoot, 'enclave', 'Dockerfile');
 
-function readDockerfile(): string {
-  return fs.readFileSync(dockerfilePath, 'utf8');
-}
-
-describe('enclave MCP server image contract', () => {
-  it('copies both executor source trees plus the shared foundation', () => {
-    const dockerfile = readDockerfile();
+describe('enclave image contract', () => {
+  it('builds all three enclave images from one neutral Dockerfile', () => {
+    const dockerfile = fs.readFileSync(dockerfilePath, 'utf8');
+    for (const target of ['AS enclave-script', 'AS enclave-agent', 'AS enclave-mcp-server']) {
+      expect(dockerfile).toContain(target);
+    }
     for (const copy of [
-      'COPY bounded-query/bounded-execution/ /opt/awf/bounded-execution/',
-      'COPY bounded-query/broker/ /opt/awf/broker/',
-      'COPY bounded-agent/broker/ /opt/awf/agent-broker/',
-      'COPY bounded-query/enclave-mcp/ /opt/awf/enclave-mcp/',
-      'COPY bounded-query/query-seccomp.json /opt/awf/enclave-seccomp.json',
+      'COPY bounded-execution/ /opt/awf/bounded-execution/',
+      'COPY enclave/script-executor/ /opt/awf/enclave/script-executor/',
+      'COPY enclave/agent-executor/ /opt/awf/enclave/agent-executor/',
+      'COPY enclave/mcp-server/ /opt/awf/enclave/mcp-server/',
+      'COPY enclave/seccomp.json /opt/awf/enclave-seccomp.json',
     ]) {
       expect(dockerfile).toContain(copy);
     }
-    expect(dockerfile).toContain('AS enclave-mcp-server');
-    expect(dockerfile).toContain('ENTRYPOINT ["node", "/opt/awf/enclave-mcp/server.js"]');
   });
 
-  it('no longer ships the server stage from the bounded-query image', () => {
-    const boundedQuery = fs.readFileSync(
-      path.join(containersRoot, 'bounded-query', 'Dockerfile'),
-      'utf8',
-    );
-    expect(boundedQuery).not.toContain('AS enclave-mcp-server');
-    expect(boundedQuery).toContain('FROM python:3.12-alpine3.21 AS query');
-    expect(boundedQuery).toContain('AS broker');
-  });
-
-  it('resolves the whole server module graph from the published layout', () => {
+  it('resolves the complete server module graph from the image layout', () => {
     const stage = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-enclave-image-'));
     const awf = path.join(stage, 'opt', 'awf');
     try {
       fs.mkdirSync(awf, { recursive: true });
-      fs.cpSync(
-        path.join(containersRoot, 'bounded-query', 'bounded-execution'),
-        path.join(awf, 'bounded-execution'),
-        { recursive: true },
-      );
-      fs.cpSync(
-        path.join(containersRoot, 'bounded-query', 'broker'),
-        path.join(awf, 'broker'),
-        { recursive: true },
-      );
-      fs.cpSync(
-        path.join(containersRoot, 'bounded-agent', 'broker'),
-        path.join(awf, 'agent-broker'),
-        { recursive: true },
-      );
-      fs.cpSync(
-        path.join(containersRoot, 'bounded-query', 'enclave-mcp'),
-        path.join(awf, 'enclave-mcp'),
-        { recursive: true },
-      );
-      fs.rmSync(path.join(awf, 'enclave-mcp', 'Dockerfile'), { force: true });
-
+      for (const [source, destination] of [
+        ['bounded-execution', 'bounded-execution'],
+        ['enclave/script-executor', 'enclave/script-executor'],
+        ['enclave/agent-executor', 'enclave/agent-executor'],
+        ['enclave/mcp-server', 'enclave/mcp-server'],
+      ]) {
+        fs.cpSync(path.join(containersRoot, source), path.join(awf, destination), { recursive: true });
+      }
       for (const relative of [
-        'enclave-mcp/server.js',
-        'enclave-mcp/agent-executor.js',
-        'enclave-mcp/config.js',
-        'enclave-mcp/mcp-protocol.js',
-        'agent-broker/enclave-runner.js',
-        'agent-broker/workspace.js',
-        'agent-broker/framing.js',
-        'broker/broker.js',
-        'broker/query-runner.js',
+        'enclave/mcp-server/server.js',
+        'enclave/mcp-server/agent-executor.js',
+        'enclave/mcp-server/config.js',
+        'enclave/mcp-server/mcp-protocol.js',
+        'enclave/agent-executor/enclave-runner.js',
+        'enclave/agent-executor/workspace.js',
+        'enclave/agent-executor/framing.js',
+        'enclave/script-executor/executor-handler.js',
+        'enclave/script-executor/script-runner.js',
       ]) {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         expect(require(path.join(awf, relative))).toBeDefined();
@@ -89,14 +55,11 @@ describe('enclave MCP server image contract', () => {
     }
   });
 
-  it('publishes the enclave-agent image and the wider-context server build', () => {
-    const release = fs.readFileSync(
-      path.join(repoRoot, '.github', 'workflows', 'release.yml'),
-      'utf8',
-    );
-    expect(release).toContain('file: ./containers/bounded-query/enclave-mcp/Dockerfile');
-    expect(release).toMatch(/enclave-agent:\$\{\{ needs\.bump-version\.outputs\.version_number \}\}/);
-    expect(release).toContain('enclave_agent_digest');
-    expect(release).toContain('id: build_enclave_agent');
+  it('publishes only the unified enclave images', () => {
+    const release = fs.readFileSync(path.join(repoRoot, '.github', 'workflows', 'release.yml'), 'utf8');
+    expect(release).toContain('file: ./containers/enclave/Dockerfile');
+    for (const image of ['enclave-script', 'enclave-agent', 'enclave-mcp-server']) {
+      expect(release).toContain(image);
+    }
   });
 });
