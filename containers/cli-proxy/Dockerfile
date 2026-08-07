@@ -6,7 +6,7 @@
 # forwards localhost traffic to the external proxy for TLS hostname matching.
 #
 # Pin to a specific alpine version so the curl constraint below is stable.
-FROM node:22.23.1-alpine3.24
+FROM node:22.23.2-alpine3.24
 
 # Install system packages.
 # Pin curl >= 8.21.0-r0 to fix CVE-2026-8924/8925/8926/8927/9079/10536/11564/11856
@@ -41,7 +41,7 @@ RUN set -eux; \
     rm -rf "/tmp/${GH_TGZ}" "/tmp/gh_${GH_VERSION}_linux_${GH_ARCH}"; \
     gh --version
 
-# Replace the vulnerable npm 10.x bundled with Node 22.23.1 with npm 11.18.0.
+# Replace the vulnerable npm 10.x bundled with Node 22.23.2 with npm 11.18.0.
 # npm 11.18.0 bundles: tar 7.5.19 (fixes GHSA-23hp-3jrh-7fpw/GHSA-8x88-c5mf-7j5w),
 # sigstore 4.1.1 (fixes GHSA-52v5-jr5w-gjxr), brace-expansion 5.0.7 and
 # picomatch 4.0.4 (via tinyglobby, fixes GHSA-3jxr-9vmj-r5cp / GHSA-c2c7-rcm5-vvqj).
