@@ -173,6 +173,25 @@ export function generateDockerCompose(
     }
   }
 
+  // ── Give cli-proxy a real host route in network-isolation mode ────────────
+  // The cli-proxy sidecar dials an *external* DIFC proxy on the runner host via
+  // `host.docker.internal` (extra_hosts: host-gateway). In network-isolation
+  // mode the internal `awf-net` has no route to the outside world, so Docker's
+  // `host-gateway` special value falls back to the default bridge's gateway
+  // (typically 172.17.0.1) — an address cli-proxy cannot reach since it's only
+  // attached to the internal network. This produced ENETUNREACH on the DIFC
+  // tcp-tunnel and left cli-proxy permanently unhealthy.
+  // Dual-home cli-proxy onto the external bridge (`awf-ext`), the same network
+  // Squid uses as its sole egress path, so `host-gateway` resolves to a gateway
+  // cli-proxy can actually reach.
+  if (config.networkIsolation && services['cli-proxy']) {
+    const cliProxyService = services['cli-proxy'];
+    cliProxyService.networks = {
+      ...(cliProxyService.networks || {}),
+      [EXTERNAL_BRIDGE_NAME]: {},
+    };
+  }
+
   // ── Assemble and return the compose result ─────────────────────────────────
 
   const compose = buildComposeNetworks({
