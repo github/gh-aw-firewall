@@ -163,12 +163,12 @@ AWF follows Anthropic's SDK behavior: JWT-bearer `POST /v1/oauth/token` exchange
 | Instance | Env var | Header | Target |
 |----------|---------|--------|--------|
 | github.com | `COPILOT_GITHUB_TOKEN` | `Authorization: Bearer <token>` | `api.githubcopilot.com` |
-| GHEC (`*.ghe.com`) | `COPILOT_GITHUB_TOKEN` | `Authorization: Bearer <token>` | `copilot-api.<subdomain>.ghe.com` |
+| GHEC (`*.ghe.com`) | `COPILOT_GITHUB_TOKEN` | `Authorization: token <value>` ⚠️ | `copilot-api.<subdomain>.ghe.com` |
 | GHES (on-prem) | `COPILOT_GITHUB_TOKEN` | `Authorization: token <value>` ⚠️ | `api.enterprise.githubcopilot.com` |
 | Business tier | `COPILOT_GITHUB_TOKEN` | `Authorization: token <value>` ⚠️ | `api.business.githubcopilot.com` (must be set explicitly via `COPILOT_API_TARGET`; never auto-derived) |
 
 :::note[Implementation vs. provider documentation]
-GitHub's [REST API authentication docs](https://docs.github.com/en/rest/authentication/authenticating-to-the-rest-api) state that `Authorization: Bearer` and `Authorization: token` are both generally accepted for PATs/OAuth tokens (only JWTs strictly require `Bearer`). The `token` prefix requirement documented here is **AWF-implementation-specific defensive behavior** for the Copilot chat-completions inference endpoint, not a general GitHub REST API rule: the enterprise and business Copilot targets (`api.enterprise.githubcopilot.com`, `api.business.githubcopilot.com`) return `400 Bad Request: Authorization header is badly formatted` when sent `Bearer` instead of `token` (see the regression covered by `copilot-adapter-enterprise.test.js`). AWF detects this via `copilotTargetRequiresGitHubTokenPrefix()` in `copilot-auth.js`, which matches on the specific target hostname or GHES-detection heuristics (`AWF_PLATFORM_TYPE=ghes`, or a `GITHUB_SERVER_URL` that isn't `github.com`/`*.ghe.com`). BYOK keys always use `Bearer` regardless of target.
+GitHub's [REST API authentication docs](https://docs.github.com/en/rest/authentication/authenticating-to-the-rest-api) state that both Bearer-prefixed and token-prefixed Authorization headers are generally accepted for PATs/OAuth tokens (only JWTs strictly require Bearer). The `token` prefix requirement documented here is **AWF-implementation-specific defensive behavior** for the Copilot chat-completions inference endpoint, not a general GitHub REST API rule: the derived GHEC data-residency target (`copilot-api.<subdomain>.ghe.com`), the enterprise target (`api.enterprise.githubcopilot.com`), and the business target (`api.business.githubcopilot.com`) return `400 Bad Request: Authorization header is badly formatted` when sent the wrong prefix (see the regression fixed in [PR #6991](https://github.com/github/gh-aw-firewall/pull/6991) and covered by `copilot-adapter-enterprise.test.js`). AWF detects this via `copilotTargetRequiresGitHubTokenPrefix()` in `copilot-auth.js`, which matches on the specific target hostname (including an `isGhecCopilotApiTarget()` check for the `copilot-api.<subdomain>.ghe.com` shape) or GHES-detection heuristics (`AWF_PLATFORM_TYPE=ghes`, or a `GITHUB_SERVER_URL` that isn't `github.com`/`*.ghe.com`). BYOK keys always use the standard prefix regardless of target.
 :::
 
 All Copilot requests also include `Copilot-Integration-Id`. The default is `agentic-workflows`; set `COPILOT_INTEGRATION_ID` to override it.
@@ -374,13 +374,13 @@ GITHUB_SERVER_URL → deriveCopilotApiTarget():
 | Target | Credential Type | Auth Header Format |
 |--------|----------------|-------------------|
 | `api.githubcopilot.com` | GitHub token | `Bearer <token>` |
-| `copilot-api.*.ghe.com` | GitHub token | `Bearer <token>` |
+| `copilot-api.*.ghe.com` | GitHub token | `token <value>` |
 | `api.enterprise.githubcopilot.com` | GitHub token | `token <value>` |
 | `api.business.githubcopilot.com` | GitHub token | `token <value>` |
 | Any target | BYOK key | `Bearer <key>` (always) |
 | Any target | OIDC token | `Bearer <token>` (always) |
 
-The `token` prefix is used for GitHub OAuth tokens on the enterprise and business Copilot targets, or when GHES is otherwise detected (see `copilotTargetRequiresGitHubTokenPrefix()` in `copilot-auth.js`). BYOK and OIDC always use `Bearer`. As noted above, this is AWF-implementation-specific behavior driven by observed `400` errors from those two targets — not a general GitHub REST API requirement.
+The `token` prefix is used for GitHub OAuth tokens on the derived GHEC data-residency, enterprise, and business Copilot targets, or when GHES is otherwise detected (see `copilotTargetRequiresGitHubTokenPrefix()` in `copilot-auth.js`). BYOK and OIDC always use the standard prefix. As noted above, this is AWF-implementation-specific behavior driven by observed `400` errors from those targets — not a general GitHub REST API requirement.
 
 ---
 
