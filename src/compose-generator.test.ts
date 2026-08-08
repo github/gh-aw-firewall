@@ -285,11 +285,11 @@ describe('generateDockerCompose', () => {
         expect(squidNetworks['awf-ext']).toBeDefined();
       });
 
-      it('should dual-home cli-proxy on awf-net and awf-ext so host-gateway resolves reachably', () => {
+      it('keeps cli-proxy on awf-net only when it targets an attached DIFC proxy', () => {
         const config = {
           ...mockConfig,
           networkIsolation: true,
-          difcProxyHost: 'host.docker.internal:18443',
+          difcProxyHost: 'awmg-cli-proxy:18443',
         };
         const networkWithCliProxy = {
           ...mockNetworkConfig,
@@ -297,10 +297,9 @@ describe('generateDockerCompose', () => {
         };
         const result = generateDockerCompose(config, networkWithCliProxy);
 
-        expect(result.services['cli-proxy']).toBeDefined();
         const cliProxyNetworks = result.services['cli-proxy'].networks as { [key: string]: { ipv4_address?: string } };
         expect(cliProxyNetworks['awf-net'].ipv4_address).toBe('172.30.0.50');
-        expect(cliProxyNetworks['awf-ext']).toBeDefined();
+        expect(cliProxyNetworks['awf-ext']).toBeUndefined();
       });
 
       it('should keep the agent on awf-net only (no external network)', () => {
