@@ -35,6 +35,7 @@ function buildFirecrackerConfig(options: Record<string, unknown>) {
     dnsOverHttps: undefined,
     allowedUrls: undefined,
     memoryLimit: undefined,
+    pidsLimit: undefined,
     agentImage: undefined,
     modelAliases: undefined,
     allowedModels: undefined,
