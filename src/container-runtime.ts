@@ -32,10 +32,10 @@
  * ## Adding a microVM backend (e.g. Docker sbx)
  *
  * Add an entry with `executionModel: 'microvm'` and register its backend in
- * `external-runtime-backend-resolver.ts`.  Callers use
- * {@link runtimeUsesComposeAgent} only to decide whether to include the agent
- * service in docker-compose.yml. Infrastructure services (Squid, api-proxy)
- * are generated regardless of execution model.
+ * `external-runtime-backend-resolver.ts`. Callers use
+ * {@link runtimeUsesComposeAgent} to distinguish Compose-managed agents from
+ * external backends and to decide whether to include the agent service in
+ * docker-compose.yml. Infrastructure services are generated in either mode.
  */
 
 // ─── Registry ────────────────────────────────────────────────────────────────
