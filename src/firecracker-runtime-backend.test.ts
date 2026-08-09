@@ -75,6 +75,7 @@ const preflightResult = {
   kernelPath: '/opt/kernel',
   rootfsPath: '/opt/rootfs',
   supervisorPath: '/opt/supervisor',
+  cgroupVersion: 2 as const,
   tools: {
     ip: '/usr/bin/ip',
     nft: '/usr/sbin/nft',
@@ -109,6 +110,7 @@ function harness(overrides: Partial<FirecrackerRuntimeBackendDependencies> = {})
     cancel: jest.fn().mockResolvedValue(undefined),
     writeStdin: jest.fn().mockResolvedValue(undefined),
     endStdin: jest.fn().mockResolvedValue(undefined),
+    collectDiagnostics: jest.fn().mockResolvedValue(undefined),
     stop: jest.fn(async () => { order.push('vm-stop'); }),
   };
   const infra = infrastructure();
@@ -187,7 +189,7 @@ describe('Firecracker runtime backend', () => {
       'vm-stop',
     ]);
     expect(manager.execute).toHaveBeenNthCalledWith(2, expect.objectContaining({
-      argv: ['/bin/bash', '-lc', 'printf hello'],
+      argv: ['/bin/sh', '-lc', 'printf hello'],
       cwd: '/workspace',
       uid: 1000,
       gid: 1000,

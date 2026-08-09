@@ -292,6 +292,11 @@ export class FirecrackerWorkspaceImage {
     assertDebugfsOperand(localSupervisor, 'supervisor staging path');
     await this.runTool('debugfs', [
       '-w',
+      '-R', 'rm /sbin/awf-supervisor',
+      this.rootfsImagePath,
+    ]);
+    await this.dependencies.runTool('debugfs', [
+      '-w',
       '-R', `write ${localSupervisor} /sbin/awf-supervisor`,
       this.rootfsImagePath,
     ]);

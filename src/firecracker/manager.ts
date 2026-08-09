@@ -2,7 +2,11 @@ import { randomBytes } from 'crypto';
 import { constants, promises as fs } from 'fs';
 import * as path from 'path';
 import execa, { type ExecaChildProcess } from 'execa';
-import type { FirecrackerOptions } from '../types/runtime-options';
+import {
+  FIRECRACKER_RELEASE_VERSION,
+  type FirecrackerOptions,
+} from '../types/runtime-options';
+import { getSafeHostGid, getSafeHostUid } from '../host-identity';
 import { FirecrackerApiClient } from './api-client';
 import {
   FirecrackerLinuxNetworkCommands,
@@ -28,6 +32,9 @@ import {
 const API_SOCKET_NAME = 'firecracker.socket';
 const VSOCK_SOCKET_NAME = 'awf-vsock.socket';
 const WORKSPACE_IMAGE_NAME = 'workspace.ext4';
+const FIRECRACKER_LOG_NAME = 'firecracker.log';
+const FIRECRACKER_METRICS_NAME = 'firecracker.metrics.jsonl';
+const FIRECRACKER_CAPTURE_LIMIT_BYTES = 1024 * 1024;
 const KERNEL_JAIL_PATH = '/kernel';
 const ROOTFS_JAIL_PATH = '/rootfs';
 const WORKSPACE_JAIL_PATH = '/workspace.ext4';
@@ -44,6 +51,8 @@ export interface FirecrackerRunPaths {
   rootfsPath: string;
   workspacePath: string;
   vsockSocketPath: string;
+  logPath: string;
+  metricsPath: string;
 }
 
 export interface FirecrackerManagerDependencies {
@@ -61,6 +70,8 @@ export interface FirecrackerManagerDependencies {
   copyFile(source: string, destination: string, flags: number): Promise<void>;
   chmod(filePath: string, mode: number): Promise<void>;
   chown(filePath: string, uid: number, gid: number): Promise<void>;
+  writeFile: typeof fs.writeFile;
+  readFile: typeof fs.readFile;
   access(filePath: string): Promise<void>;
   rm(directory: string, options: { recursive: true; force: true }): Promise<void>;
   sleep(milliseconds: number): Promise<void>;
@@ -94,6 +105,8 @@ const defaultDependencies: FirecrackerManagerDependencies = {
   copyFile: fs.copyFile,
   chmod: fs.chmod,
   chown: fs.chown,
+  writeFile: fs.writeFile,
+  readFile: fs.readFile,
   access: fs.access,
   rm: fs.rm,
   sleep: (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
@@ -125,8 +138,8 @@ function parsePositiveIdentity(value: string | undefined): number | undefined {
 }
 
 function resolveJailerIdentity(): { uid: number; gid: number } {
-  const uid = parsePositiveIdentity(process.env.SUDO_UID) ?? process.getuid?.();
-  const gid = parsePositiveIdentity(process.env.SUDO_GID) ?? process.getgid?.();
+  const uid = Number(getSafeHostUid());
+  const gid = Number(getSafeHostGid());
   if (uid === undefined || gid === undefined || uid === 0 || gid === 0) {
     throw new Error(
       'Firecracker jailer requires a non-root target uid/gid; run through sudo from a non-root account',
@@ -157,6 +170,8 @@ export function createFirecrackerRunPaths(
     rootfsPath: path.join(jailRoot, ROOTFS_JAIL_PATH),
     workspacePath: path.join(jailRoot, WORKSPACE_IMAGE_NAME),
     vsockSocketPath: path.join(jailRoot, 'run', VSOCK_SOCKET_NAME),
+    logPath: path.join(jailRoot, 'run', FIRECRACKER_LOG_NAME),
+    metricsPath: path.join(jailRoot, 'run', FIRECRACKER_METRICS_NAME),
   };
 }
 
@@ -172,6 +187,8 @@ export class FirecrackerManager {
   private guestClient: FirecrackerVsockClient | undefined;
   private networkPlan: FirecrackerNetworkPlan | undefined;
   private instanceStarted = false;
+  private readonly stdoutCapture = new BoundedOutputCapture(FIRECRACKER_CAPTURE_LIMIT_BYTES);
+  private readonly stderrCapture = new BoundedOutputCapture(FIRECRACKER_CAPTURE_LIMIT_BYTES);
 
   get guestIp(): string | undefined {
     return this.networkPlan?.guestIp;
@@ -246,6 +263,7 @@ export class FirecrackerManager {
           '--gid', String(identity.gid),
           '--chroot-base-dir', this.paths.chrootBaseDir,
           '--netns', networkPlan.netnsPath,
+          '--cgroup-version', String(artifacts.cgroupVersion),
           '--',
           '--api-sock', `/run/${API_SOCKET_NAME}`,
         ],
@@ -255,6 +273,12 @@ export class FirecrackerManager {
           env: { ...process.env },
         },
       );
+      this.process.stdout?.on('data', (chunk: Buffer | string) => {
+        this.stdoutCapture.append(chunk);
+      });
+      this.process.stderr?.on('data', (chunk: Buffer | string) => {
+        this.stderrCapture.append(chunk);
+      });
 
       await this.waitForApiSocket();
       await this.stageArtifact(artifacts.kernelPath, this.paths.kernelPath, 0o400, identity);
@@ -267,6 +291,17 @@ export class FirecrackerManager {
         this.paths.apiSocketPath,
         this.config.apiTimeoutMs,
       );
+      await this.stageDiagnosticFile(this.paths.logPath, identity);
+      await this.stageDiagnosticFile(this.paths.metricsPath, identity);
+      await this.client.putLogger({
+        log_path: `/run/${FIRECRACKER_LOG_NAME}`,
+        level: 'Info',
+        show_level: true,
+        show_log_origin: true,
+      });
+      await this.client.putMetrics({
+        metrics_path: `/run/${FIRECRACKER_METRICS_NAME}`,
+      });
       await this.client.putMachineConfig({
         vcpu_count: this.config.vcpuCount,
         mem_size_mib: this.config.memoryMib,
@@ -498,6 +533,45 @@ export class FirecrackerManager {
     return child.exitCode !== null || child.signalCode !== null;
   }
 
+  async collectDiagnostics(directory: string): Promise<void> {
+    await this.dependencies.mkdir(directory, { recursive: true, mode: 0o700 });
+    if (this.client && this.instanceStarted) {
+      await this.client.putAction('FlushMetrics');
+      await this.dependencies.sleep(25);
+    }
+    const writeBounded = async (fileName: string, contents: Buffer): Promise<void> => {
+      const destination = path.join(directory, fileName);
+      await this.dependencies.writeFile(destination, contents, { mode: 0o600 });
+    };
+    await writeBounded('jailer-stdout.log', this.stdoutCapture.contents());
+    await writeBounded('jailer-stderr.log', this.stderrCapture.contents());
+    await this.copyBoundedDiagnostic(
+      this.paths.logPath,
+      path.join(directory, FIRECRACKER_LOG_NAME),
+    );
+    await this.copyBoundedDiagnostic(
+      this.paths.metricsPath,
+      path.join(directory, FIRECRACKER_METRICS_NAME),
+    );
+    await this.dependencies.writeFile(
+      path.join(directory, 'network-plan.json'),
+      `${JSON.stringify(this.networkPlan ?? null, null, 2)}\n`,
+      { mode: 0o600 },
+    );
+    await this.dependencies.writeFile(
+      path.join(directory, 'runtime.json'),
+      `${JSON.stringify({
+        runtime: 'firecracker',
+        version: FIRECRACKER_RELEASE_VERSION,
+        runId: this.paths.runId,
+        vcpuCount: this.config.vcpuCount,
+        memoryMib: this.config.memoryMib,
+        instanceStarted: this.instanceStarted,
+      }, null, 2)}\n`,
+      { mode: 0o600 },
+    );
+  }
+
   private async waitForApiSocket(): Promise<void> {
     const deadline = Date.now() + this.config.apiTimeoutMs;
     while (Date.now() < deadline) {
@@ -532,6 +606,26 @@ export class FirecrackerManager {
     await this.dependencies.chown(destination, identity.uid, identity.gid);
     await this.dependencies.chmod(destination, mode);
   }
+
+  private async stageDiagnosticFile(
+    destination: string,
+    identity: { uid: number; gid: number },
+  ): Promise<void> {
+    await this.dependencies.writeFile(destination, '', { flag: 'wx', mode: 0o600 });
+    await this.dependencies.chown(destination, identity.uid, identity.gid);
+  }
+
+  private async copyBoundedDiagnostic(source: string, destination: string): Promise<void> {
+    try {
+      const contents = await this.dependencies.readFile(source);
+      const bounded = contents.length <= FIRECRACKER_CAPTURE_LIMIT_BYTES
+        ? contents
+        : contents.subarray(contents.length - FIRECRACKER_CAPTURE_LIMIT_BYTES);
+      await this.dependencies.writeFile(destination, bounded, { mode: 0o600 });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
+  }
 }
 
 export function buildSupervisorBootArgs(
@@ -560,4 +654,22 @@ export function buildSupervisorBootArgs(
 
 function formatError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+class BoundedOutputCapture {
+  private buffer = Buffer.alloc(0);
+
+  constructor(private readonly maximumBytes: number) {}
+
+  append(chunk: Buffer | string): void {
+    const next = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    this.buffer = Buffer.concat([this.buffer, next]);
+    if (this.buffer.length > this.maximumBytes) {
+      this.buffer = this.buffer.subarray(this.buffer.length - this.maximumBytes);
+    }
+  }
+
+  contents(): Buffer {
+    return this.buffer;
+  }
 }

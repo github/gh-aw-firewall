@@ -83,6 +83,9 @@ function dependencies(
     putDrive: jest.fn().mockResolvedValue(undefined),
     putVsock: jest.fn().mockResolvedValue(undefined),
     putNetworkInterface: jest.fn().mockResolvedValue(undefined),
+    putLogger: jest.fn().mockResolvedValue(undefined),
+    putMetrics: jest.fn().mockResolvedValue(undefined),
+    putAction: jest.fn().mockResolvedValue(undefined),
     instanceStart: jest.fn().mockResolvedValue(undefined),
   } as unknown as FirecrackerApiClient;
   return {
@@ -93,12 +96,16 @@ function dependencies(
       kernelPath: '/opt/vmlinux',
       rootfsPath: '/opt/rootfs.ext4',
       tools: hostTools,
+      supervisorPath: '/opt/awf-supervisor',
+      cgroupVersion: 2,
     }),
     launch: jest.fn().mockReturnValue(processMock()),
     mkdir: jest.fn().mockResolvedValue(undefined),
     copyFile: jest.fn().mockResolvedValue(undefined),
     chmod: jest.fn().mockResolvedValue(undefined),
     chown: jest.fn().mockResolvedValue(undefined),
+    writeFile: jest.fn().mockResolvedValue(undefined),
+    readFile: jest.fn().mockResolvedValue(Buffer.alloc(0)),
     access: jest.fn().mockResolvedValue(undefined),
     rm: jest.fn().mockResolvedValue(undefined),
     sleep: jest.fn().mockResolvedValue(undefined),
@@ -663,6 +670,9 @@ describe('FirecrackerManager', () => {
       putMachineConfig: jest.fn().mockResolvedValue(undefined),
       putBootSource: jest.fn().mockResolvedValue(undefined),
       putDrive: jest.fn().mockResolvedValue(undefined),
+      putLogger: jest.fn().mockResolvedValue(undefined),
+      putMetrics: jest.fn().mockResolvedValue(undefined),
+      putAction: jest.fn().mockResolvedValue(undefined),
       putNetworkInterface: jest.fn().mockRejectedValue(new Error('invalid NIC')),
     } as unknown as FirecrackerApiClient;
     const deps = dependencies({
@@ -705,5 +715,30 @@ describe('FirecrackerManager', () => {
       /exited before API readiness with code null and signal SIGKILL/,
     );
     expect(deps.sleep).not.toHaveBeenCalled();
+  });
+
+  it('flushes metrics and bounds diagnostic files before persistence', async () => {
+    const oversized = Buffer.alloc(1024 * 1024 + 128, 0x61);
+    const deps = dependencies({
+      readFile: jest.fn().mockResolvedValue(oversized),
+    });
+    const manager = new FirecrackerManager(
+      config(),
+      '/tmp/awf',
+      deps,
+      'diagnostics',
+      networkConfig(),
+    );
+
+    const client = await manager.start();
+    await manager.startInstance();
+    await manager.collectDiagnostics('/tmp/diagnostics');
+
+    expect(client.putAction).toHaveBeenCalledWith('FlushMetrics');
+    expect(deps.writeFile).toHaveBeenCalledWith(
+      '/tmp/diagnostics/firecracker.metrics.jsonl',
+      expect.objectContaining({ length: 1024 * 1024 }),
+      { mode: 0o600 },
+    );
   });
 });

@@ -21,6 +21,8 @@ export interface FirecrackerPreflightDependencies {
   runVersion(binaryPath: string): Promise<string>;
   sha256(filePath: string): Promise<string>;
   assertToolAvailable(tool: string): Promise<string>;
+  assertHostPolicy(): Promise<1 | 2>;
+  assertDockerInfrastructure(): Promise<void>;
 }
 
 export type FirecrackerHostToolPaths = Readonly<{
@@ -70,6 +72,51 @@ const defaultDependencies: FirecrackerPreflightDependencies = {
     }
     throw new Error(`required trusted host tool "${tool}" was not found on PATH`);
   },
+  assertHostPolicy: async () => {
+    if (process.getuid?.() !== 0) {
+      throw new Error(
+        'Firecracker jailer and network setup require root; invoke awf through sudo from a non-root account',
+      );
+    }
+    try {
+      await fs.access('/proc/sys/net/ipv4/ip_forward', constants.R_OK);
+      await fs.access('/proc/sys/net/ipv6/conf/all/disable_ipv6', constants.R_OK);
+      await fs.access('/proc/sys/kernel/seccomp/actions_avail', constants.R_OK);
+    } catch (error) {
+      throw new Error(
+        'host kernel policy does not expose required network namespace and seccomp controls: ' +
+        `${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    try {
+      await fs.access('/sys/fs/cgroup/cgroup.controllers', constants.R_OK);
+      return 2;
+    } catch {
+      try {
+        await fs.access('/sys/fs/cgroup', constants.R_OK | constants.W_OK);
+        return 1;
+      } catch (error) {
+        throw new Error(
+          'Firecracker jailer requires a writable cgroup v1 hierarchy or cgroup v2 controllers: ' +
+          `${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }
+  },
+  assertDockerInfrastructure: async () => {
+    for (const args of [['info'], ['compose', 'version']] as const) {
+      const result = await execa('docker', [...args], {
+        reject: false,
+        timeout: 10_000,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      if (result.exitCode !== 0) {
+        throw new Error(
+          `docker ${args.join(' ')} failed with code ${result.exitCode}: ${result.stderr.trim()}`,
+        );
+      }
+    }
+  },
 };
 
 /** @internal Exposed only for focused host-probe tests. */
@@ -83,6 +130,7 @@ export interface FirecrackerPreflightResult {
   rootfsPath: string;
   supervisorPath: string;
   tools: FirecrackerHostToolPaths;
+  cgroupVersion: 1 | 2;
 }
 
 async function assertTrustedHostTool(label: string, filePath: string): Promise<void> {
@@ -251,6 +299,8 @@ export async function runFirecrackerPreflight(
       `${error instanceof Error ? error.message : String(error)}`,
     );
   }
+  const cgroupVersion = await dependencies.assertHostPolicy();
+  await dependencies.assertDockerInfrastructure();
   await assertTrustedRegularFile(
     'Firecracker binary',
     config.firecrackerBinary,
@@ -350,5 +400,6 @@ export async function runFirecrackerPreflight(
     rootfsPath: config.rootfsPath,
     supervisorPath: config.supervisorPath,
     tools,
+    cgroupVersion,
   };
 }

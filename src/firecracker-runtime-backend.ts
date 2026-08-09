@@ -54,6 +54,7 @@ interface FirecrackerManagerAdapter {
   writeStdin(data: Buffer, requestId?: string): Promise<void>;
   endStdin(requestId?: string): Promise<void>;
   stop(options?: { preserve?: boolean }): Promise<void>;
+  collectDiagnostics(directory: string): Promise<void>;
 }
 
 export interface FirecrackerRuntimeBackendDependencies {
@@ -162,33 +163,41 @@ export class FirecrackerRuntimeBackend implements ExternalAgentRuntimeBackend {
     onNetworkReady,
     onInfrastructureReady,
   ) => {
-    await this.preflight();
-    await this.dependencies.startInfrastructure(
-      workDir,
-      allowedDomains,
-      proxyLogsDir,
-      skipPull,
-      onNetworkReady,
-      onInfrastructureReady,
+    let stage = 'preflight';
+    this.dependencies.logger.info(
+      '[firecracker] runtime=firecracker maturity=preview fallback=disabled',
     );
-
-    const firecracker = requireFirecrackerConfig(this.config);
-    const infrastructure = await this.dependencies.resolveInfrastructure(
-      Boolean(this.config.enableApiProxy),
-      this.preflightResult?.tools.ip,
-    );
-    this.identity = this.dependencies.identity();
-    this.manager = this.dependencies.createManager(
-      firecracker,
-      workDir,
-      infrastructure,
-      this.dependencies.workspacePath(),
-      this.dependencies.homePath(),
-      this.identity,
-    );
-
     try {
+      await this.preflight();
+      stage = 'compose-infrastructure';
+      await this.dependencies.startInfrastructure(
+        workDir,
+        allowedDomains,
+        proxyLogsDir,
+        skipPull,
+        onNetworkReady,
+        onInfrastructureReady,
+      );
+
+      stage = 'infrastructure-discovery';
+      const firecracker = requireFirecrackerConfig(this.config);
+      const infrastructure = await this.dependencies.resolveInfrastructure(
+        Boolean(this.config.enableApiProxy),
+        this.preflightResult?.tools.ip,
+      );
+      this.identity = this.dependencies.identity();
+      this.manager = this.dependencies.createManager(
+        firecracker,
+        workDir,
+        infrastructure,
+        this.dependencies.workspacePath(),
+        this.dependencies.homePath(),
+        this.identity,
+      );
+
+      stage = 'topology-revalidation';
       await infrastructure.revalidate();
+      stage = 'jailer-configuration';
       await this.manager.start();
       if (!this.manager.guestIp) {
         throw new Error('Firecracker manager did not expose the configured guest IP');
@@ -198,11 +207,17 @@ export class FirecrackerRuntimeBackend implements ExternalAgentRuntimeBackend {
         infrastructure,
         this.manager.guestIp,
       );
+      stage = 'guest-boot';
       await this.manager.startInstance();
+      stage = 'guest-connectivity';
       await this.probeGuestConnectivity();
+      this.dependencies.logger.info('[firecracker] stage=ready');
     } catch (error) {
+      this.dependencies.logger.warn(
+        `[firecracker] stage=${stage} status=failed: ${formatError(error)}`,
+      );
       try {
-        await this.manager.stop();
+        await this.manager?.stop();
       } catch (cleanupError) {
         const combined = new Error(
           `Firecracker startup failed: ${formatError(error)}; ` +
@@ -240,7 +255,7 @@ export class FirecrackerRuntimeBackend implements ExternalAgentRuntimeBackend {
       : agentTimeoutMinutes * 60_000;
     const execution = manager.execute({
       requestId,
-      argv: ['/bin/bash', '-lc', this.config.agentCommand],
+      argv: ['/bin/sh', '-lc', this.config.agentCommand],
       env: environment,
       cwd: FIRECRACKER_GUEST_WORKSPACE,
       ...identity,
@@ -289,7 +304,13 @@ export class FirecrackerRuntimeBackend implements ExternalAgentRuntimeBackend {
     }
   };
 
-  async collectDiagnostics(): Promise<void> {}
+  async collectDiagnostics(): Promise<void> {
+    if (!this.manager) return;
+    const directory = this.config.auditDir
+      ? `${this.config.auditDir}/firecracker`
+      : `${this.config.workDir}/diagnostics/firecracker`;
+    await this.manager.collectDiagnostics(directory);
+  }
 
   async stop(): Promise<void> {
     if (this.stopped) return;

@@ -41,6 +41,17 @@ export interface FirecrackerNetworkInterface {
   tx_rate_limiter?: FirecrackerRateLimiter;
 }
 
+export interface FirecrackerLoggerConfig {
+  log_path: string;
+  level?: 'Error' | 'Warning' | 'Info' | 'Debug' | 'Trace';
+  show_level?: boolean;
+  show_log_origin?: boolean;
+}
+
+export interface FirecrackerMetricsConfig {
+  metrics_path: string;
+}
+
 export type FirecrackerActionType =
   | 'InstanceStart'
   | 'SendCtrlAltDel'
@@ -109,6 +120,14 @@ export class FirecrackerApiClient {
       `/network-interfaces/${encodeURIComponent(networkInterface.iface_id)}`,
       networkInterface,
     );
+  }
+
+  putLogger(config: FirecrackerLoggerConfig): Promise<void> {
+    return this.request('PUT', '/logger', config);
+  }
+
+  putMetrics(config: FirecrackerMetricsConfig): Promise<void> {
+    return this.request('PUT', '/metrics', config);
   }
 
   instanceStart(): Promise<void> {

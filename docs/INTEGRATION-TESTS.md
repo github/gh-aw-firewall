@@ -192,3 +192,44 @@ Each document provides per-test-case analysis with plain-language descriptions, 
 - **[Container & Operations Tests](test-analysis/container-ops.md)** — Workdir, volumes, git, env vars, logging, Docker availability
 - **[CI & Smoke Tests](test-analysis/ci-smoke.md)** — All 27 CI/smoke/build-test workflows analyzed
 - **[Test Infrastructure](test-analysis/test-infra.md)** — Runner architecture, batch pattern, cleanup strategy, limitations
+
+## Firecracker preview integration tests
+
+The Firecracker backend has its own separate CI workflow (`test-firecracker.yml`)
+that is distinct from the standard integration test suite above.
+
+**Trigger:** `workflow_dispatch` or PR label `firecracker-kvm`. A manual
+dispatch can set `run_live_kvm: false` for a hosted artifact-build-only check.
+It does **not** run on push or schedule.
+
+**Build job** (`ubuntu-24.04`): Builds deterministic guest artifacts — Firecracker
+v1.16.1 binaries, Linux 6.1.141 kernel, BusyBox 1.36.1 rootfs, and AWF guest
+supervisor — from pinned, SHA-256 verified sources. Attests provenance. Uploads
+as a 7-day workflow artifact.
+
+**Live job** (`[self-hosted, linux, x64, kvm, awf-firecracker]`): Downloads the
+build artifact, verifies all five SHA-256 digests, and runs the live smoke/security
+suite. This job **never** lands on a GitHub-hosted runner; it requires an
+explicitly labeled self-hosted runner with KVM access.
+
+Live assertions (see `scripts/ci/firecracker-live-smoke.sh`):
+
+| Case | What it proves |
+|------|---------------|
+| `allowed-https` | Allowed domains reach the internet through Squid |
+| `blocked-domain` | Non-allowlisted domains are blocked |
+| `direct-egress` | Bypassing proxy env vars does not enable direct egress |
+| `arbitrary-tcp` | Raw TCP to arbitrary IPs is blocked |
+| `dns-denial` | Direct DNS (8.8.8.8:53) is blocked from the guest |
+| `metadata-denial` | EC2/GCP/Azure instance metadata IP (`169.254.169.254`) is unreachable |
+| `api-proxy-reflect` | API proxy `/reflect` reachable; secret sentinel not present in output |
+| `workspace-copyback` | Guest file writes, permission changes, and symlinks survive copy-back |
+| `exit-code` | Agent exit code propagates faithfully (37 → 37) |
+| `timeout-124` | Timed-out agent exits 124 |
+| `partial-start-cleanup` | Corrupt rootfs causes clean failure; no namespace residue |
+| `cancellation` | `SIGTERM` cleans up network namespace; exits 143 |
+| `keep` | `--keep-containers` preserves jail/namespace/images; all diagnostics ≤1 MiB |
+
+After every case, the suite asserts no `awffc-*` namespaces or Firecracker
+interface residue remain. See [Firecracker integration (preview)](../docs/firecracker-integration.md#part-14--ci-workflow)
+for the full CI workflow specification.

@@ -46,6 +46,8 @@ function dependencies(
     runVersion: jest.fn().mockResolvedValue('Firecracker v1.16.1'),
     sha256: jest.fn().mockResolvedValue(digest),
     assertToolAvailable: jest.fn(async (tool: string) => `/usr/bin/${tool}`),
+    assertHostPolicy: jest.fn().mockResolvedValue(2),
+    assertDockerInfrastructure: jest.fn().mockResolvedValue(undefined),
     ...overrides,
   };
 }
@@ -109,6 +111,7 @@ describe('Firecracker preflight', () => {
     }), deps);
 
     expect(result.version).toBe('1.16.1');
+    expect(result.cgroupVersion).toBe(2);
     expect(deps.access).toHaveBeenCalledWith(
       '/dev/kvm',
       constants.R_OK | constants.W_OK,
@@ -124,6 +127,7 @@ describe('Firecracker preflight', () => {
       e2fsck: '/usr/bin/e2fsck',
       rsync: '/usr/bin/rsync',
     });
+    expect(result.cgroupVersion).toBe(2);
   });
 
   it('rejects inaccessible KVM without checking artifacts', async () => {

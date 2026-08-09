@@ -112,6 +112,27 @@ These images are automatically pulled by the CLI when running commands.
 
 The `agent-act` image is used when running with `--agent-image act` for workflows that need closer parity with GitHub Actions runner environments.
 
+### Firecracker preview test artifacts
+
+The main release workflow does **not** publish Firecracker guest artifacts.
+Firecracker test artifacts (`firecracker-test-x86_64`) are built and attested
+separately by the `test-firecracker.yml` CI workflow and uploaded as
+**7-day workflow artifacts**, not as GitHub Release assets.
+
+These artifacts are:
+
+- **x86_64 only** — no aarch64 test artifact is published.
+- **Preview / testing purpose only** — `manifest.json` inside the tarball states:
+  `"purpose": "AWF Firecracker preview test artifacts; not production defaults"`.
+- **Not auto-downloaded** — there is no mechanism in AWF to fetch them
+  automatically; operators must download, verify, and supply them explicitly.
+- **Not a production default** — operators who want to evaluate Firecracker for
+  production must obtain, verify, and manage their own guest kernel and rootfs
+  appropriate to their workload security requirements.
+
+See [Firecracker integration (preview) — Artifact policy](./firecracker-integration.md#part-5--artifact-policy)
+for the complete artifact specification and digest requirements.
+
 ## Testing a Release Locally
 
 Before releasing, you can test the build process locally:

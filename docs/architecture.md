@@ -239,3 +239,27 @@ Use `--keep-containers` to preserve containers and files after execution for deb
 - `execa`: Subprocess execution (docker-compose commands)
 - `js-yaml`: YAML generation for Docker Compose config
 - TypeScript 5.x, compiled to ES2020 CommonJS
+
+## Firecracker microVM runtime (preview)
+
+When `--container-runtime firecracker --firecracker-preview` is supplied, AWF
+uses a substantially different execution architecture:
+
+- The **agent container is replaced** by a Firecracker microVM — a hardware-isolated
+  virtual machine with its own Linux kernel.
+- The Squid proxy and API proxy **remain as Docker Compose containers** on the host.
+- The workspace is **not bind-mounted**; it is copied into a bounded ext4 image
+  (`workspace.ext4`) before boot and copied back after the agent exits.
+  There is no live filesystem passthrough (no virtiofs).
+- A **dedicated network namespace** (`awffc-<runId>`) isolates the VM's network.
+  nftables rules inside the namespace allow only Squid and the API proxy; all
+  other guest outbound connections are denied.
+- The **API proxy is mandatory**; provider credentials are never passed as guest
+  environment variables and an explicit assertion enforces this.
+- **TTY, Docker-in-Docker, topology peers, enclaves, extra volume mounts, and
+  remote Docker hosts all fail closed** in this preview.
+- **Linux/KVM only** — macOS and Windows are permanently unsupported.
+  GitHub-hosted runners are not supported (no `/dev/kvm`).
+
+See [Firecracker integration (preview)](./firecracker-integration.md) for the
+full architecture, trust model, and operator guide.

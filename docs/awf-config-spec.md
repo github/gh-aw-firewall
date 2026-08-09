@@ -272,6 +272,16 @@ microVM to the proven internal bridge, and executes through vsock. Host access,
 DinD, extra mounts, TTY, topology peers, and enclaves fail closed in this
 preview. Selecting `firecracker` never falls back to another runtime.
 
+**macOS and Windows are permanently unsupported.** GitHub-hosted runners are not
+supported (no `/dev/kvm`). The API proxy is mandatory; provider credentials are
+never passed as guest environment variables. No auto-download of artifacts; all
+five artifact paths and their SHA-256 digests are required on every invocation.
+Release test artifacts (`firecracker-test-x86_64`) are x86_64 test/preview
+artifacts built by `test-firecracker.yml` and are not production defaults and
+not auto-downloaded. See [Firecracker integration (preview)](./firecracker-integration.md)
+for the complete operator guide, trust model, workspace semantics, CI workflow
+specification, and troubleshooting reference.
+
 When DinD is detected, AWF preserves the detected `DOCKER_HOST` value for the agent environment (including MCP servers) so DinD-aware tooling can reach the correct daemon without manual workflow env overrides.
 
 The following CLI flag has no config-file equivalent by design:

@@ -1,0 +1,167 @@
+name: Firecracker Preview Integration
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_live_kvm:
+        description: Run the explicitly labeled self-hosted Linux/KVM job
+        required: true
+        type: boolean
+        default: true
+  pull_request:
+    types: [labeled]
+
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+
+concurrency:
+  group: firecracker-preview-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-test-artifacts:
+    name: Build deterministic test guest
+    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'firecracker-kvm'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.25.0'
+          cache-dependency-path: guest/firecracker-supervisor/go.mod
+
+      - name: Install deterministic guest build prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            bc \
+            binutils \
+            bison \
+            build-essential \
+            ca-certificates \
+            cpio \
+            e2fsprogs \
+            file \
+            flex \
+            libelf-dev \
+            libssl-dev \
+            rsync \
+            xz-utils
+
+      - name: Build and verify pinned artifacts
+        run: |
+          ./guest/firecracker/build-test-artifacts.sh
+          ./guest/firecracker/verify-test-artifacts.sh \
+            release/firecracker-test-x86_64
+
+      - name: Attest guest artifact provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: release/firecracker-test-x86_64/awf-firecracker-test-x86_64.tar.gz
+
+      - name: Upload guest artifacts
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: firecracker-test-x86_64
+          path: release/firecracker-test-x86_64/
+          if-no-files-found: error
+          retention-days: 7
+
+  live-kvm:
+    name: Live Firecracker KVM smoke/security
+    needs: build-test-artifacts
+    if: >-
+      (github.event_name == 'workflow_dispatch' && inputs.run_live_kvm) ||
+      (github.event_name == 'pull_request' && github.event.label.name == 'firecracker-kvm')
+    runs-on: [self-hosted, linux, x64, kvm, awf-firecracker]
+    timeout-minutes: 45
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Download verified guest artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: firecracker-test-x86_64
+          path: ${{ runner.temp }}/firecracker-test-x86_64
+
+      - name: Verify capable host and artifact digests
+        run: |
+          ./scripts/ci/firecracker-host-preflight.sh \
+            "$RUNNER_TEMP/firecracker-test-x86_64"
+
+      - name: Install, build, and prepare infrastructure images
+        run: |
+          npm ci
+          npm run build
+          docker build -t ghcr.io/github/gh-aw-firewall/squid:latest containers/squid
+          docker build -t ghcr.io/github/gh-aw-firewall/api-proxy:latest containers/api-proxy
+
+      - name: Run live fail-closed smoke/security coverage
+        run: |
+          ./scripts/ci/firecracker-live-smoke.sh \
+            "$RUNNER_TEMP/firecracker-test-x86_64"
+
+      - name: Collect redacted diagnostics
+        if: always()
+        run: |
+          set -euo pipefail
+          source_root="$RUNNER_TEMP/awf-firecracker-live"
+          destination="$RUNNER_TEMP/firecracker-diagnostics-safe"
+          rm -rf "$destination"
+          mkdir -p "$destination"
+          if [ -d "$source_root" ]; then
+            while IFS= read -r -d '' file; do
+              relative=${file#"$source_root/"}
+              mkdir -p "$destination/$(dirname "$relative")"
+              cp "$file" "$destination/$relative"
+            done < <(
+              find "$source_root" -type f \
+                \( -path '*/audit/*' \
+                -o -path '*/proxy-logs/*' \
+                -o -name 'stdout.log' \
+                -o -name 'stderr.log' \) \
+                -print0
+            )
+          fi
+          if grep -R --binary-files=without-match \
+            -F 'awf-firecracker-real-secret-do-not-expose' \
+            "$destination"; then
+            echo "::error::Secret sentinel found in diagnostic artifacts"
+            exit 1
+          fi
+
+      - name: Upload actionable diagnostics
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: firecracker-live-diagnostics
+          path: ${{ runner.temp }}/firecracker-diagnostics-safe/
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Enforce final residue cleanup
+        if: always()
+        run: |
+          set -euo pipefail
+          while read -r namespace _; do
+            case "$namespace" in
+              awffc-*) sudo ip netns delete "$namespace" ;;
+            esac
+          done < <(sudo ip netns list)
+          if sudo ip netns list | grep -q '^awffc-'; then
+            echo "::error::Firecracker namespace residue remains after cleanup"
+            exit 1
+          fi

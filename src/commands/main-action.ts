@@ -106,6 +106,9 @@ function buildCleanupFn(
 
     if (externalRuntimeBackend) {
       try {
+        if (config.diagnosticLogs) {
+          await externalRuntimeBackend.collectDiagnostics();
+        }
         if (config.keepContainers && externalRuntimeBackend.preserve) {
           await externalRuntimeBackend.preserve();
         } else if (!config.keepContainers) {
@@ -336,6 +339,26 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
     const workflowRunAgentCommand = externalWorkflowDependencies?.runAgentCommand
       ?? ((workDir: string, allowedDomains: string[], proxyLogsDir?: string, agentTimeoutMinutes?: number) =>
         runAgentCommand(workDir, allowedDomains, proxyLogsDir, agentTimeoutMinutes, config.containerRuntime));
+    const workflowCollectDiagnosticLogs = externalRuntimeBackend
+      ? async (workDir: string): Promise<void> => {
+         const results = await Promise.allSettled([
+           externalRuntimeBackend.collectDiagnostics(),
+           collectDiagnosticLogs(workDir),
+         ]);
+         const failures = results.filter(
+           (result): result is PromiseRejectedResult => result.status === 'rejected',
+         );
+         if (failures.length > 0) {
+           throw new Error(
+             failures.map((failure) => (
+               failure.reason instanceof Error
+                 ? failure.reason.message
+                 : String(failure.reason)
+             )).join('; '),
+           );
+         }
+        }
+      : collectDiagnosticLogs;
 
     exitCode = await runMainWorkflow(
       config,
@@ -345,7 +368,7 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
         writeConfigs,
         startContainers: externalWorkflowDependencies?.startContainers ?? startContainers,
         runAgentCommand: workflowRunAgentCommand,
-        collectDiagnosticLogs,
+        collectDiagnosticLogs: workflowCollectDiagnosticLogs,
         assertTopologySupported,
         connectTopologyContainers,
         connectEnclaveGateway,
