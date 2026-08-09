@@ -117,7 +117,7 @@ describe('Firecracker infrastructure discovery', () => {
     }));
     await resolved.revalidate();
     expect(deps.inspectNetwork).toHaveBeenCalledTimes(2);
-    expect(deps.inspectLink).toHaveBeenCalledWith(`br-${'a'.repeat(12)}`);
+    expect(deps.inspectLink).toHaveBeenCalledWith(`br-${'a'.repeat(12)}`, undefined);
   });
 
   it('rejects ambiguous, non-internal, or address-shifted topology', async () => {

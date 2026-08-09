@@ -15,6 +15,17 @@ import type {
 } from './network';
 import type { FirecrackerVsockClient } from './vsock-client';
 import type { FirecrackerWorkspaceImage } from './workspace-image';
+import type { FirecrackerHostToolPaths } from './preflight';
+
+const hostTools: FirecrackerHostToolPaths = {
+  ip: '/usr/bin/ip',
+  nft: '/usr/sbin/nft',
+  sysctl: '/usr/sbin/sysctl',
+  mke2fs: '/usr/sbin/mke2fs',
+  debugfs: '/usr/sbin/debugfs',
+  e2fsck: '/usr/sbin/e2fsck',
+  rsync: '/usr/bin/rsync',
+};
 
 function config(overrides: Partial<FirecrackerOptions> = {}): FirecrackerOptions {
   return {
@@ -24,15 +35,6 @@ function config(overrides: Partial<FirecrackerOptions> = {}): FirecrackerOptions
     kernelPath: '/opt/vmlinux',
     rootfsPath: '/opt/rootfs.ext4',
     supervisorPath: '/opt/awf-supervisor',
-    tools: {
-      ip: '/usr/bin/ip',
-      nft: '/usr/sbin/nft',
-      sysctl: '/usr/sbin/sysctl',
-      mke2fs: '/usr/sbin/mke2fs',
-      debugfs: '/usr/sbin/debugfs',
-      e2fsck: '/usr/sbin/e2fsck',
-      rsync: '/usr/bin/rsync',
-    },
     vcpuCount: 2,
     memoryMib: 512,
     apiTimeoutMs: 1,
@@ -90,6 +92,7 @@ function dependencies(
       jailerBinary: '/opt/jailer',
       kernelPath: '/opt/vmlinux',
       rootfsPath: '/opt/rootfs.ext4',
+      tools: hostTools,
     }),
     launch: jest.fn().mockReturnValue(processMock()),
     mkdir: jest.fn().mockResolvedValue(undefined),
@@ -119,7 +122,7 @@ describe('FirecrackerManager', () => {
     await expect(child).resolves.toMatchObject({ exitCode: 0 });
     await expect(defaults.sleep(0)).resolves.toBeUndefined();
     expect(defaults.createClient('/tmp/firecracker.socket', 100)).toBeDefined();
-    expect(defaults.createNetwork({} as FirecrackerNetworkPlan)).toBeDefined();
+    expect(defaults.createNetwork({} as FirecrackerNetworkPlan, hostTools)).toBeDefined();
     expect(defaults.createWorkspaceImage({
       runId: 'adapter-test',
       workDir: '/tmp/awf',
@@ -130,7 +133,7 @@ describe('FirecrackerManager', () => {
       supervisorSha256: 'a'.repeat(64),
       uid: 1000,
       gid: 1000,
-    })).toBeDefined();
+    }, hostTools)).toBeDefined();
     expect(defaults.createVsockClient('/tmp/vsock.socket', 52, 100)).toBeDefined();
 
     process.env.SUDO_UID = '2001';
@@ -207,11 +210,14 @@ describe('FirecrackerManager', () => {
       .mock.calls[0][0] as { guest_mac: string };
     expect(configuredNetwork.guest_mac.split(':')).toHaveLength(6);
     expect(configuredNetwork.guest_mac.startsWith('02:')).toBe(true);
-    expect(deps.createNetwork).toHaveBeenCalledWith(expect.objectContaining({
-      infrastructureBridge: 'awfbr0',
-      jailerUid: 1000,
-      jailerGid: 1000,
-    }));
+    expect(deps.createNetwork).toHaveBeenCalledWith(
+      expect.objectContaining({
+        infrastructureBridge: 'awfbr0',
+        jailerUid: 1000,
+        jailerGid: 1000,
+      }),
+      hostTools,
+    );
     const lifecycle = (deps.createNetwork as jest.Mock).mock.results[0]
       .value as FirecrackerNetworkLifecycle;
     expect(lifecycle.setup).toHaveBeenCalledTimes(1);

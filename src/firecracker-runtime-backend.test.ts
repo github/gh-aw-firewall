@@ -157,6 +157,7 @@ describe('Firecracker runtime backend', () => {
         infrastructure(),
         '/workspace',
         '/home/runner',
+        { uid: 1000, gid: 1000 },
       )).toBeDefined();
       expect(createFirecrackerRuntimeBackend(config(), startInfrastructure))
         .toBeInstanceOf(FirecrackerRuntimeBackend);
@@ -210,6 +211,23 @@ describe('Firecracker runtime backend', () => {
   it('serializes stdin chunks before sending EOF', async () => {
     const { manager, deps, stdin } = harness();
     let releaseFirstWrite!: () => void;
+    let resolveExecution!: (value: {
+      requestId: string;
+      exitCode: number;
+      signal: null;
+      timedOut: boolean;
+    }) => void;
+    manager.execute
+      .mockReset()
+      .mockResolvedValueOnce({
+        requestId: 'probe',
+        exitCode: 0,
+        signal: null,
+        timedOut: false,
+      })
+      .mockReturnValueOnce(new Promise((resolve) => {
+        resolveExecution = resolve;
+      }));
     manager.writeStdin.mockImplementationOnce(() => new Promise<void>((resolve) => {
       releaseFirstWrite = resolve;
     }));
@@ -222,6 +240,13 @@ describe('Firecracker runtime backend', () => {
 
     expect(manager.endStdin).not.toHaveBeenCalled();
     releaseFirstWrite();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    resolveExecution({
+      requestId: 'agent',
+      exitCode: 0,
+      signal: null,
+      timedOut: false,
+    });
     await execution;
     expect(manager.writeStdin.mock.invocationCallOrder[0])
       .toBeLessThan(manager.writeStdin.mock.invocationCallOrder[1]);

@@ -72,9 +72,9 @@ describe('Firecracker preflight', () => {
       /--version" exited with code/,
     );
 
-    process.env.PATH = `${path.delimiter}${path.dirname(process.execPath)}`;
-    await expect(defaults.assertToolAvailable(path.basename(process.execPath)))
-      .resolves.toBe(process.execPath);
+    process.env.PATH = `${path.delimiter}/usr/bin`;
+    await expect(defaults.assertToolAvailable('false'))
+      .resolves.toBe('/usr/bin/false');
     await expect(defaults.assertToolAvailable('definitely-not-an-awf-tool'))
       .rejects.toThrow(/was not found on PATH/);
 

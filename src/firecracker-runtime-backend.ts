@@ -83,8 +83,9 @@ function defaultDependencies(
   return {
     startInfrastructure,
     preflight: runFirecrackerPreflight,
-    resolveInfrastructure: resolveFirecrackerInfrastructure,
-    createManager: (config, workDir, infrastructure, workspacePath, homePath) =>
+    resolveInfrastructure: (enableApiProxy, ipPath) =>
+      resolveFirecrackerInfrastructure(enableApiProxy, undefined, ipPath),
+    createManager: (config, workDir, infrastructure, workspacePath, homePath, identity) =>
       new FirecrackerManager(
         config,
         workDir,
@@ -223,7 +224,8 @@ export class FirecrackerRuntimeBackend implements ExternalAgentRuntimeBackend {
   ) => {
     const manager = this.manager;
     const environment = this.environment;
-    if (!manager || !environment) {
+    const identity = this.identity;
+    if (!manager || !environment || !identity) {
       throw new Error('Firecracker microVM is not ready');
     }
     if (this.config.tty) {
@@ -241,7 +243,7 @@ export class FirecrackerRuntimeBackend implements ExternalAgentRuntimeBackend {
       argv: ['/bin/bash', '-lc', this.config.agentCommand],
       env: environment,
       cwd: FIRECRACKER_GUEST_WORKSPACE,
-      ...this.identity,
+      ...identity,
       tty: false,
       ...(timeoutMs === undefined ? {} : { timeoutMs }),
       stdout: this.dependencies.stdout,
@@ -345,6 +347,10 @@ export class FirecrackerRuntimeBackend implements ExternalAgentRuntimeBackend {
   private async probeGuestConnectivity(): Promise<void> {
     const manager = this.manager!;
     const environment = this.environment!;
+    const identity = this.identity;
+    if (!identity) {
+      throw new Error('Firecracker guest identity is not ready');
+    }
     const squidProbe =
       `curl --silent --show-error --max-time 5 --output /dev/null ` +
       `http://${SQUID_IP}:3128/`;
@@ -357,7 +363,7 @@ export class FirecrackerRuntimeBackend implements ExternalAgentRuntimeBackend {
       argv: ['/bin/sh', '-c', `set -eu; ${squidProbe}${apiProxyProbe}`],
       env: environment,
       cwd: FIRECRACKER_GUEST_WORKSPACE,
-      ...this.identity,
+      ...identity,
       timeoutMs: FIRECRACKER_PROBE_TIMEOUT_MS,
     });
     if (result.exitCode !== 0) {
