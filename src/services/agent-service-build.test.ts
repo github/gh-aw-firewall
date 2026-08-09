@@ -635,5 +635,16 @@ describe('agent service', () => {
       expect(agent.extra_hosts?.['squid-proxy']).toBeUndefined();
       expect(agent.extra_hosts?.['api-proxy']).toBeUndefined();
     });
+
+    it('keeps Firecracker API proxy ports and networks internal', () => {
+      const result = generateDockerCompose(
+        { ...mockConfig, containerRuntime: 'firecracker', enableApiProxy: true },
+        { ...mockNetworkConfig, proxyIp: '172.30.0.30' },
+      );
+      const proxy = result.services['api-proxy'] as any;
+
+      expect(proxy.ports).toBeUndefined();
+      expect(proxy.networks?.['awf-ext']).toBeUndefined();
+    });
   });
 });

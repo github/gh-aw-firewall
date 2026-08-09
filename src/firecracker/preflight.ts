@@ -20,8 +20,21 @@ export interface FirecrackerPreflightDependencies {
   }>;
   runVersion(binaryPath: string): Promise<string>;
   sha256(filePath: string): Promise<string>;
-  assertToolAvailable(tool: string): Promise<void>;
+  assertToolAvailable(tool: string): Promise<string>;
 }
+
+export type FirecrackerHostToolPaths = Readonly<{
+  ip: string;
+  nft: string;
+  sysctl: string;
+  mke2fs: string;
+  debugfs: string;
+  e2fsck: string;
+  rsync: string;
+}>;
+const FIRECRACKER_HOST_TOOLS: (keyof FirecrackerHostToolPaths)[] = [
+  'ip', 'nft', 'sysctl', 'mke2fs', 'debugfs', 'e2fsck', 'rsync',
+];
 
 const defaultDependencies: FirecrackerPreflightDependencies = {
   platform: process.platform,
@@ -48,13 +61,14 @@ const defaultDependencies: FirecrackerPreflightDependencies = {
     for (const directory of searchPath.split(path.delimiter)) {
       if (!directory) continue;
       try {
-        await fs.access(path.join(directory, tool), constants.X_OK);
-        return;
+        const candidate = path.join(directory, tool);
+        await assertTrustedHostTool(tool, candidate);
+        return candidate;
       } catch {
         // Continue searching the bounded host PATH.
       }
     }
-    throw new Error(`required host tool "${tool}" was not found on PATH`);
+    throw new Error(`required trusted host tool "${tool}" was not found on PATH`);
   },
 };
 
@@ -68,6 +82,33 @@ export interface FirecrackerPreflightResult {
   kernelPath: string;
   rootfsPath: string;
   supervisorPath: string;
+  tools: FirecrackerHostToolPaths;
+}
+
+async function assertTrustedHostTool(label: string, filePath: string): Promise<void> {
+  if (!path.isAbsolute(filePath)) {
+    throw new Error(`host tool "${label}" path must be absolute: ${filePath}`);
+  }
+  const { root } = path.parse(filePath);
+  const segments = filePath.slice(root.length).split('/').filter(Boolean);
+  let ancestor = root;
+  for (const segment of segments.slice(0, -1)) {
+    ancestor = path.join(ancestor, segment);
+    const stat = await fs.lstat(ancestor);
+    if (stat.isSymbolicLink() || (stat.mode & 0o022) !== 0 || stat.uid !== 0) {
+      throw new Error(`host tool "${label}" has an untrusted parent directory: ${ancestor}`);
+    }
+  }
+  const stat = await fs.lstat(filePath);
+  if (
+    stat.isSymbolicLink() ||
+    !stat.isFile() ||
+    (stat.mode & 0o022) !== 0 ||
+    stat.uid !== 0
+  ) {
+    throw new Error(`host tool "${label}" must be a root-owned non-writable regular file: ${filePath}`);
+  }
+  await fs.access(filePath, constants.X_OK);
 }
 
 export function parseFirecrackerVersion(output: string): string {
@@ -217,9 +258,10 @@ export async function runFirecrackerPreflight(
     dependencies,
   );
 
-  for (const tool of ['ip', 'nft', 'mke2fs', 'debugfs', 'e2fsck', 'rsync']) {
+  const tools = {} as Record<keyof FirecrackerHostToolPaths, string>;
+  for (const tool of FIRECRACKER_HOST_TOOLS) {
     try {
-      await dependencies.assertToolAvailable(tool);
+      tools[tool] = await dependencies.assertToolAvailable(tool);
     } catch (error) {
       throw new Error(
         `Firecracker requires host tool "${tool}": ` +
@@ -307,5 +349,6 @@ export async function runFirecrackerPreflight(
     kernelPath: config.kernelPath,
     rootfsPath: config.rootfsPath,
     supervisorPath: config.supervisorPath,
+    tools,
   };
 }

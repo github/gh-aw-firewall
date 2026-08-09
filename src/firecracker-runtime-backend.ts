@@ -10,6 +10,7 @@ import {
   resolveFirecrackerInfrastructure,
   type FirecrackerInfrastructureSnapshot,
 } from './firecracker/infrastructure';
+import type { FirecrackerPreflightResult } from './firecracker/preflight';
 import { FirecrackerManager } from './firecracker/manager';
 import { runFirecrackerPreflight } from './firecracker/preflight';
 import type {
@@ -34,6 +35,7 @@ const FIRECRACKER_GUEST_WORKSPACE = '/workspace';
 const FIRECRACKER_GUEST_HOME = `${FIRECRACKER_GUEST_WORKSPACE}/.awf-home`;
 const FIRECRACKER_PROBE_TIMEOUT_MS = 15_000;
 const FIRECRACKER_CANCEL_GRACE_MS = 3_000;
+const FIRECRACKER_MAX_TIMEOUT_MS = 86_400_000;
 
 interface FirecrackerBackendLogger {
   debug(message: string, ...args: unknown[]): void;
@@ -56,14 +58,15 @@ interface FirecrackerManagerAdapter {
 
 export interface FirecrackerRuntimeBackendDependencies {
   startInfrastructure: WorkflowDependencies['startContainers'];
-  preflight(config: FirecrackerOptions): Promise<unknown>;
-  resolveInfrastructure(enableApiProxy: boolean): Promise<FirecrackerInfrastructureSnapshot>;
+  preflight(config: FirecrackerOptions): Promise<FirecrackerPreflightResult>;
+  resolveInfrastructure(enableApiProxy: boolean, ipPath?: string): Promise<FirecrackerInfrastructureSnapshot>;
   createManager(
     config: FirecrackerOptions,
     workDir: string,
     infrastructure: FirecrackerInfrastructureSnapshot,
     workspacePath: string,
     homePath: string,
+    identity: { uid: number; gid: number },
   ): FirecrackerManagerAdapter;
   workspacePath(): string;
   homePath(): string;
@@ -96,6 +99,7 @@ function defaultDependencies(
           homePath,
           supervisorBinaryPath: config.supervisorPath!,
           supervisorSha256: config.sha256!.supervisor!,
+          identity,
         },
       ),
     workspacePath: () => process.env.GITHUB_WORKSPACE || process.cwd(),
@@ -125,6 +129,8 @@ export class FirecrackerRuntimeBackend implements ExternalAgentRuntimeBackend {
     | undefined;
   private stopped = false;
   private stopping: Promise<void> | undefined;
+  private identity: { uid: number; gid: number } | undefined;
+  private preflightResult: FirecrackerPreflightResult | undefined;
 
   constructor(
     private readonly config: WrapperConfig,
@@ -133,8 +139,18 @@ export class FirecrackerRuntimeBackend implements ExternalAgentRuntimeBackend {
 
   async preflight(): Promise<void> {
     const firecracker = requireFirecrackerConfig(this.config);
+    if (
+      this.config.agentTimeout !== undefined &&
+      this.config.agentTimeout * 60_000 > FIRECRACKER_MAX_TIMEOUT_MS
+    ) {
+      throw new Error(
+        `Firecracker preview supports --agent-timeout values up to ${
+          FIRECRACKER_MAX_TIMEOUT_MS / 60_000
+        } minutes`,
+      );
+    }
     assertFirecrackerRuntimeCompatibility(this.config, firecracker);
-    await this.dependencies.preflight(firecracker);
+    this.preflightResult = await this.dependencies.preflight(firecracker);
   }
 
   readonly start: WorkflowDependencies['startContainers'] = async (
@@ -158,13 +174,16 @@ export class FirecrackerRuntimeBackend implements ExternalAgentRuntimeBackend {
     const firecracker = requireFirecrackerConfig(this.config);
     const infrastructure = await this.dependencies.resolveInfrastructure(
       Boolean(this.config.enableApiProxy),
+      this.preflightResult?.tools.ip,
     );
+    this.identity = this.dependencies.identity();
     this.manager = this.dependencies.createManager(
       firecracker,
       workDir,
       infrastructure,
       this.dependencies.workspacePath(),
       this.dependencies.homePath(),
+      this.identity,
     );
 
     try {
@@ -222,7 +241,7 @@ export class FirecrackerRuntimeBackend implements ExternalAgentRuntimeBackend {
       argv: ['/bin/bash', '-lc', this.config.agentCommand],
       env: environment,
       cwd: FIRECRACKER_GUEST_WORKSPACE,
-      ...this.dependencies.identity(),
+      ...this.identity,
       tty: false,
       ...(timeoutMs === undefined ? {} : { timeoutMs }),
       stdout: this.dependencies.stdout,
@@ -230,17 +249,24 @@ export class FirecrackerRuntimeBackend implements ExternalAgentRuntimeBackend {
     });
     this.activeExecution = { requestId, promise: execution };
 
-    const onData = (chunk: Buffer | string): void => {
-      const data = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-      void manager.writeStdin(data, requestId).catch((error) => {
+    let forwarding = Promise.resolve();
+    let stdinEnded = false;
+    const forward = (operation: () => Promise<void>): void => {
+      forwarding = forwarding.then(operation).catch((error) => {
         this.dependencies.logger.warn(
           `Firecracker guest stdin forwarding failed: ${formatError(error)}`,
         );
-        void manager.cancel('stdin forwarding failure', requestId).catch(() => undefined);
+        return manager.cancel('stdin forwarding failure', requestId).catch(() => undefined);
       });
     };
+    const onData = (chunk: Buffer | string): void => {
+      const data = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      forward(() => manager.writeStdin(data, requestId));
+    };
     const onEnd = (): void => {
-      void manager.endStdin(requestId).catch(() => undefined);
+      if (stdinEnded) return;
+      stdinEnded = true;
+      forward(() => manager.endStdin(requestId));
     };
     this.dependencies.stdin.on('data', onData);
     this.dependencies.stdin.once('end', onEnd);
@@ -256,6 +282,7 @@ export class FirecrackerRuntimeBackend implements ExternalAgentRuntimeBackend {
     } finally {
       this.dependencies.stdin.off('data', onData);
       this.dependencies.stdin.off('end', onEnd);
+      await forwarding;
       this.activeExecution = undefined;
     }
   };
@@ -330,7 +357,7 @@ export class FirecrackerRuntimeBackend implements ExternalAgentRuntimeBackend {
       argv: ['/bin/sh', '-c', `set -eu; ${squidProbe}${apiProxyProbe}`],
       env: environment,
       cwd: FIRECRACKER_GUEST_WORKSPACE,
-      ...this.dependencies.identity(),
+      ...this.identity,
       timeoutMs: FIRECRACKER_PROBE_TIMEOUT_MS,
     });
     if (result.exitCode !== 0) {

@@ -1,5 +1,6 @@
 import { createHash } from 'crypto';
 import execa from 'execa';
+import type { FirecrackerHostToolPaths } from './preflight';
 import {
   AGENT_IP,
   API_PROXY_IP,
@@ -81,20 +82,24 @@ const defaultCommandExecutor: FirecrackerNetworkCommandExecutor = async (
   args,
   options,
 ) => {
-  if (command !== 'ip') {
-    throw new Error(`Unsupported Firecracker network command: ${command}`);
-  }
-  await execa('ip', [...args], options);
+  await execa(command, [...args], options);
 };
 
 /**
  * Dependency-injected argv-only Linux networking operations.
  */
 export class FirecrackerLinuxNetworkCommands {
-  constructor(private readonly execute: FirecrackerNetworkCommandExecutor = defaultCommandExecutor) {}
+  constructor(
+    private readonly execute: FirecrackerNetworkCommandExecutor = defaultCommandExecutor,
+    private readonly tools: Pick<FirecrackerHostToolPaths, 'ip' | 'nft' | 'sysctl'> = {
+      ip: 'ip',
+      nft: 'nft',
+      sysctl: 'sysctl',
+    },
+  ) {}
 
   ip(args: readonly string[], reject = true): Promise<unknown> {
-    return this.execute('ip', args, { reject });
+    return this.execute(this.tools.ip, args, { reject });
   }
 
   ipInNamespace(
@@ -102,7 +107,7 @@ export class FirecrackerLinuxNetworkCommands {
     args: readonly string[],
     reject = true,
   ): Promise<unknown> {
-    return this.execute('ip', ['netns', 'exec', namespaceName, 'ip', ...args], { reject });
+    return this.execute(this.tools.ip, ['netns', 'exec', namespaceName, this.tools.ip, ...args], { reject });
   }
 
   sysctlInNamespace(
@@ -111,8 +116,8 @@ export class FirecrackerLinuxNetworkCommands {
     reject = true,
   ): Promise<unknown> {
     return this.execute(
-      'ip',
-      ['netns', 'exec', namespaceName, 'sysctl', '-q', '-w', setting],
+      this.tools.ip,
+      ['netns', 'exec', namespaceName, this.tools.sysctl, '-q', '-w', setting],
       { reject },
     );
   }
@@ -124,8 +129,8 @@ export class FirecrackerLinuxNetworkCommands {
     reject = true,
   ): Promise<unknown> {
     return this.execute(
-      'ip',
-      ['netns', 'exec', namespaceName, 'nft', ...args],
+      this.tools.ip,
+      ['netns', 'exec', namespaceName, this.tools.nft, ...args],
       { reject, ...(input === undefined ? {} : { input }) },
     );
   }

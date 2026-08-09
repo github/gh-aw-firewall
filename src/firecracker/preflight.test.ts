@@ -45,7 +45,7 @@ function dependencies(
     }),
     runVersion: jest.fn().mockResolvedValue('Firecracker v1.16.1'),
     sha256: jest.fn().mockResolvedValue(digest),
-    assertToolAvailable: jest.fn().mockResolvedValue(undefined),
+    assertToolAvailable: jest.fn(async (tool: string) => `/usr/bin/${tool}`),
     ...overrides,
   };
 }
@@ -74,7 +74,7 @@ describe('Firecracker preflight', () => {
 
     process.env.PATH = `${path.delimiter}${path.dirname(process.execPath)}`;
     await expect(defaults.assertToolAvailable(path.basename(process.execPath)))
-      .resolves.toBeUndefined();
+      .resolves.toBe(process.execPath);
     await expect(defaults.assertToolAvailable('definitely-not-an-awf-tool'))
       .rejects.toThrow(/was not found on PATH/);
 
@@ -114,7 +114,16 @@ describe('Firecracker preflight', () => {
       constants.R_OK | constants.W_OK,
     );
     expect(deps.sha256).toHaveBeenCalledTimes(5);
-    expect(deps.assertToolAvailable).toHaveBeenCalledTimes(6);
+    expect(deps.assertToolAvailable).toHaveBeenCalledTimes(7);
+    expect(result.tools).toEqual({
+      ip: '/usr/bin/ip',
+      nft: '/usr/bin/nft',
+      sysctl: '/usr/bin/sysctl',
+      mke2fs: '/usr/bin/mke2fs',
+      debugfs: '/usr/bin/debugfs',
+      e2fsck: '/usr/bin/e2fsck',
+      rsync: '/usr/bin/rsync',
+    });
   });
 
   it('rejects inaccessible KVM without checking artifacts', async () => {
@@ -282,5 +291,19 @@ describe('Firecracker preflight', () => {
       config(),
       dependencies({ lstat: symlinkParent }),
     )).rejects.toThrow(/parent directory must not be a symbolic link/);
+  });
+
+  it('rejects user-controlled PATH tools', async () => {
+    const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'awf-preflight-tool-'));
+    const tool = path.join(directory, 'ip');
+    await fs.writeFile(tool, '#!/bin/sh\n');
+    await fs.chmod(tool, 0o755);
+    process.env.PATH = directory;
+    try {
+      await expect(firecrackerPreflightTestHelpers.defaultDependencies.assertToolAvailable('ip'))
+        .rejects.toThrow(/trusted host tool "ip"/);
+    } finally {
+      await fs.rm(directory, { recursive: true, force: true });
+    }
   });
 });

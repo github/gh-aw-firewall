@@ -2,6 +2,7 @@ import { createHash } from 'crypto';
 import { createReadStream, promises as fs, type Stats } from 'fs';
 import * as path from 'path';
 import execa from 'execa';
+import type { FirecrackerHostToolPaths } from './preflight';
 import {
   CREDENTIAL_ENTRIES,
   HOME_TOOL_SUBDIRS,
@@ -43,7 +44,7 @@ export type FirecrackerWorkspaceManifest = ReadonlyMap<
 >;
 
 export interface FirecrackerWorkspaceImageDependencies {
-  runTool(command: 'mke2fs' | 'debugfs' | 'e2fsck' | 'rsync', args: readonly string[]): Promise<void>;
+  runTool(command: string, args: readonly string[]): Promise<void>;
 }
 
 const defaultDependencies: FirecrackerWorkspaceImageDependencies = {
@@ -54,7 +55,10 @@ const defaultDependencies: FirecrackerWorkspaceImageDependencies = {
       timeout: 120_000,
     });
     if (result.exitCode === 0) return;
-    if (command === 'e2fsck' && result.exitCode === FIRECRACKER_E2FSCK_REPAIR_EXIT_CODE) return;
+    if (
+      (command === 'e2fsck' || command.endsWith('/e2fsck')) &&
+      result.exitCode === FIRECRACKER_E2FSCK_REPAIR_EXIT_CODE
+    ) return;
     throw new Error(
       `${command} exited with code ${result.exitCode}: ` +
       `${result.stderr.trim() || result.stdout.trim()}`,
@@ -86,6 +90,7 @@ export class FirecrackerWorkspaceImage {
   constructor(
     private readonly config: FirecrackerWorkspaceImageConfig,
     private readonly dependencies: FirecrackerWorkspaceImageDependencies = defaultDependencies,
+    private readonly tools?: Pick<FirecrackerHostToolPaths, 'mke2fs' | 'debugfs' | 'e2fsck' | 'rsync'>,
   ) {
     assertSafeRunId(config.runId);
     this.runDirectory = path.join(config.workDir, 'firecracker-images', config.runId);
@@ -97,6 +102,13 @@ export class FirecrackerWorkspaceImage {
       '.awf-firecracker-recovery',
       `${config.runId}-workspace.ext4`,
     );
+  }
+
+  private runTool(
+    command: 'mke2fs' | 'debugfs' | 'e2fsck' | 'rsync',
+    args: readonly string[],
+  ): Promise<void> {
+    return this.dependencies.runTool(this.tools?.[command] ?? command, args);
   }
 
   async prepare(): Promise<FirecrackerWorkspacePreparation> {
@@ -150,7 +162,7 @@ export class FirecrackerWorkspaceImage {
     } finally {
       await workspaceImage.close();
     }
-    await this.dependencies.runTool('mke2fs', [
+    await this.runTool('mke2fs', [
       '-t', 'ext4',
       '-F',
       '-q',
@@ -184,8 +196,8 @@ export class FirecrackerWorkspaceImage {
       await fs.rm(extractionDirectory, { recursive: true, force: true });
       await fs.mkdir(extractionDirectory, { recursive: true, mode: 0o700 });
       assertDebugfsOperand(extractionDirectory, 'extraction directory');
-      await this.dependencies.runTool('e2fsck', ['-f', '-y', changedImagePath]);
-      await this.dependencies.runTool('debugfs', [
+      await this.runTool('e2fsck', ['-f', '-y', changedImagePath]);
+      await this.runTool('debugfs', [
         '-R', `rdump / ${extractionDirectory}`,
         changedImagePath,
       ]);
@@ -278,17 +290,17 @@ export class FirecrackerWorkspaceImage {
     await fs.copyFile(this.config.supervisorBinaryPath, localSupervisor);
     await fs.chmod(localSupervisor, 0o500);
     assertDebugfsOperand(localSupervisor, 'supervisor staging path');
-    await this.dependencies.runTool('debugfs', [
+    await this.runTool('debugfs', [
       '-w',
       '-R', `write ${localSupervisor} /sbin/awf-supervisor`,
       this.rootfsImagePath,
     ]);
-    await this.dependencies.runTool('debugfs', [
+    await this.runTool('debugfs', [
       '-w',
       '-R', 'sif /sbin/awf-supervisor mode 0100755',
       this.rootfsImagePath,
     ]);
-    await this.dependencies.runTool('e2fsck', ['-f', '-y', this.rootfsImagePath]);
+    await this.runTool('e2fsck', ['-f', '-y', this.rootfsImagePath]);
   }
 
   private async preserveRecoveryImage(changedImagePath: string): Promise<void> {
@@ -321,7 +333,7 @@ export class FirecrackerWorkspaceImage {
     await fs.rm(mergeDirectory, { recursive: true, force: true });
     await fs.rm(backupDirectory, { recursive: true, force: true });
     await fs.mkdir(mergeDirectory, { recursive: true, mode: 0o700 });
-    await this.dependencies.runTool('rsync', [
+    await this.runTool('rsync', [
       '-a',
       '--delete',
       '--safe-links',

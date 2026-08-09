@@ -5,6 +5,7 @@ import execa, { type ExecaChildProcess } from 'execa';
 import type { FirecrackerOptions } from '../types/runtime-options';
 import { FirecrackerApiClient } from './api-client';
 import {
+  FirecrackerLinuxNetworkCommands,
   FirecrackerNetworkManager,
   assertSafeFirecrackerRunId,
   createFirecrackerNetworkPlan,
@@ -13,6 +14,7 @@ import {
   type FirecrackerNetworkPlan,
 } from './network';
 import { runFirecrackerPreflight } from './preflight';
+import type { FirecrackerHostToolPaths } from './preflight';
 import {
   FirecrackerVsockClient,
   type FirecrackerGuestExecutionRequest,
@@ -63,8 +65,8 @@ export interface FirecrackerManagerDependencies {
   rm(directory: string, options: { recursive: true; force: true }): Promise<void>;
   sleep(milliseconds: number): Promise<void>;
   createClient(socketPath: string, timeoutMs: number): FirecrackerApiClient;
-  createNetwork(plan: FirecrackerNetworkPlan): FirecrackerNetworkLifecycle;
-  createWorkspaceImage(config: FirecrackerWorkspaceImageConfig): FirecrackerWorkspaceImage;
+  createNetwork(plan: FirecrackerNetworkPlan, tools: FirecrackerHostToolPaths): FirecrackerNetworkLifecycle;
+  createWorkspaceImage(config: FirecrackerWorkspaceImageConfig, tools: FirecrackerHostToolPaths): FirecrackerWorkspaceImage;
   createVsockClient(socketPath: string, guestPort: number, timeoutMs: number): FirecrackerVsockClient;
   resolveIdentity(): { uid: number; gid: number };
 }
@@ -82,6 +84,7 @@ export interface FirecrackerManagerGuestConfig {
   readonly supervisorSha256: string;
   readonly maxWorkspaceImageBytes?: number;
   readonly vsockPort?: number;
+  readonly identity?: { uid: number; gid: number };
 }
 
 const defaultDependencies: FirecrackerManagerDependencies = {
@@ -95,8 +98,11 @@ const defaultDependencies: FirecrackerManagerDependencies = {
   rm: fs.rm,
   sleep: (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
   createClient: (socketPath, timeoutMs) => new FirecrackerApiClient({ socketPath, timeoutMs }),
-  createNetwork: (plan) => new FirecrackerNetworkManager(plan),
-  createWorkspaceImage: (config) => new FirecrackerWorkspaceImage(config),
+  createNetwork: (plan, tools) => new FirecrackerNetworkManager(
+    plan,
+    new FirecrackerLinuxNetworkCommands(undefined, tools),
+  ),
+  createWorkspaceImage: (config, tools) => new FirecrackerWorkspaceImage(config, undefined, tools),
   createVsockClient: (socketPath, guestPort, timeoutMs) => new FirecrackerVsockClient({
     socketPath,
     guestPort,
@@ -196,14 +202,14 @@ export class FirecrackerManager {
     let startupError: unknown;
     try {
       const artifacts = await this.dependencies.preflight(this.config);
-      const identity = this.dependencies.resolveIdentity();
+      const identity = this.guestConfig?.identity ?? this.dependencies.resolveIdentity();
       const networkPlan = createFirecrackerNetworkPlan(this.paths.runId, {
         ...this.networkConfig,
         jailerUid: identity.uid,
         jailerGid: identity.gid,
       });
       this.networkPlan = networkPlan;
-      this.network = this.dependencies.createNetwork(networkPlan);
+      this.network = this.dependencies.createNetwork(networkPlan, artifacts.tools);
       await this.network.setup();
       let rootfsSource = artifacts.rootfsPath;
       let workspaceSource: string | undefined;
@@ -221,7 +227,7 @@ export class FirecrackerManager {
             : { maxImageBytes: this.guestConfig.maxWorkspaceImageBytes }),
           uid: identity.uid,
           gid: identity.gid,
-        });
+        }, artifacts.tools);
         const preparation = await this.workspace.prepare();
         rootfsSource = preparation.rootfsImagePath;
         workspaceSource = preparation.workspaceImagePath;

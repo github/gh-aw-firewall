@@ -156,7 +156,7 @@ export function generateDockerCompose(
   // In network-isolation mode the internal network blocks host→container traffic,
   // so we also attach api-proxy to the external bridge (`awf-ext`) — same as
   // Squid — so published ports are reachable from outside Docker.
-  if (!includeAgent && services['api-proxy']) {
+  if (!includeAgent && config.containerRuntime !== 'firecracker' && services['api-proxy']) {
     const proxyService = services['api-proxy'];
     if (!proxyService.ports) {
       proxyService.ports = [];

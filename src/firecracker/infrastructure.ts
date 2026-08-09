@@ -53,7 +53,7 @@ export interface FirecrackerInfrastructureSnapshot {
 
 export interface FirecrackerInfrastructureDependencies {
   inspectNetwork(): Promise<unknown>;
-  inspectLink(bridgeName: string): Promise<unknown>;
+  inspectLink(bridgeName: string, ipPath?: string): Promise<unknown>;
 }
 
 const defaultDependencies: FirecrackerInfrastructureDependencies = {
@@ -71,8 +71,8 @@ const defaultDependencies: FirecrackerInfrastructureDependencies = {
     }
     return JSON.parse(result.stdout) as unknown;
   },
-  inspectLink: async (bridgeName) => {
-    const result = await execa('ip', ['-json', '-details', 'link', 'show', 'dev', bridgeName], {
+  inspectLink: async (bridgeName, ipPath = 'ip') => {
+    const result = await execa(ipPath, ['-json', '-details', 'link', 'show', 'dev', bridgeName], {
       reject: false,
       timeout: 5_000,
     });
@@ -94,12 +94,13 @@ const defaultDependencies: FirecrackerInfrastructureDependencies = {
 export async function resolveFirecrackerInfrastructure(
   enableApiProxy: boolean,
   dependencies: FirecrackerInfrastructureDependencies = defaultDependencies,
+  ipPath?: string,
 ): Promise<FirecrackerInfrastructureSnapshot> {
-  const resolved = await inspectInfrastructure(enableApiProxy, dependencies);
+  const resolved = await inspectInfrastructure(enableApiProxy, dependencies, ipPath);
   return {
     ...resolved,
     revalidate: async () => {
-      const live = await inspectInfrastructure(enableApiProxy, dependencies);
+      const live = await inspectInfrastructure(enableApiProxy, dependencies, ipPath);
       if (
         live.networkId !== resolved.networkId ||
         live.bridgeName !== resolved.bridgeName ||
@@ -120,6 +121,7 @@ export async function resolveFirecrackerInfrastructure(
 async function inspectInfrastructure(
   enableApiProxy: boolean,
   dependencies: FirecrackerInfrastructureDependencies,
+  ipPath?: string,
 ): Promise<Omit<FirecrackerInfrastructureSnapshot, 'revalidate'>> {
   const raw = await dependencies.inspectNetwork();
   if (!Array.isArray(raw) || raw.length !== 1) {
@@ -160,7 +162,7 @@ async function inspectInfrastructure(
     network.Options?.['com.docker.network.bridge.name'];
   const bridgeName = configuredBridge || `br-${network.Id.slice(0, 12)}`;
   assertInterfaceName(bridgeName);
-  const rawLinks = await dependencies.inspectLink(bridgeName);
+  const rawLinks = await dependencies.inspectLink(bridgeName, ipPath);
   if (!Array.isArray(rawLinks) || rawLinks.length !== 1) {
     throw new Error(`Expected exactly one host bridge named "${bridgeName}"`);
   }

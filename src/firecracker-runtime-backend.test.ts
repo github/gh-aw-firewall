@@ -68,6 +68,24 @@ function infrastructure(): FirecrackerInfrastructureSnapshot {
   };
 }
 
+const preflightResult = {
+  version: '1.16.1',
+  firecrackerBinary: '/opt/firecracker',
+  jailerBinary: '/opt/jailer',
+  kernelPath: '/opt/kernel',
+  rootfsPath: '/opt/rootfs',
+  supervisorPath: '/opt/supervisor',
+  tools: {
+    ip: '/usr/bin/ip',
+    nft: '/usr/sbin/nft',
+    sysctl: '/usr/sbin/sysctl',
+    mke2fs: '/usr/sbin/mke2fs',
+    debugfs: '/usr/sbin/debugfs',
+    e2fsck: '/usr/sbin/e2fsck',
+    rsync: '/usr/bin/rsync',
+  },
+};
+
 function harness(overrides: Partial<FirecrackerRuntimeBackendDependencies> = {}) {
   const order: string[] = [];
   const stdin = new PassThrough();
@@ -99,7 +117,7 @@ function harness(overrides: Partial<FirecrackerRuntimeBackendDependencies> = {})
   });
   const deps: FirecrackerRuntimeBackendDependencies = {
     startInfrastructure: jest.fn(async () => { order.push('compose'); }),
-    preflight: jest.fn(async () => { order.push('preflight'); }),
+    preflight: jest.fn(async () => { order.push('preflight'); return preflightResult; }),
     resolveInfrastructure: jest.fn(async () => infra),
     createManager: jest.fn(() => manager),
     workspacePath: () => '/workspace-host',
@@ -178,6 +196,37 @@ describe('Firecracker runtime backend', () => {
       Buffer.from('input'),
       expect.stringMatching(/^agent-/),
     );
+  });
+
+  it('rejects timeouts beyond the guest supervisor limit before infrastructure startup', async () => {
+    const { deps } = harness();
+    const backend = new FirecrackerRuntimeBackend(config({ agentTimeout: 1441 }), deps);
+
+    await expect(backend.start('/tmp/awf', ['github.com']))
+      .rejects.toThrow(/up to 1440 minutes/);
+    expect(deps.startInfrastructure).not.toHaveBeenCalled();
+  });
+
+  it('serializes stdin chunks before sending EOF', async () => {
+    const { manager, deps, stdin } = harness();
+    let releaseFirstWrite!: () => void;
+    manager.writeStdin.mockImplementationOnce(() => new Promise<void>((resolve) => {
+      releaseFirstWrite = resolve;
+    }));
+    const backend = new FirecrackerRuntimeBackend(config(), deps);
+    await backend.start('/tmp/awf', ['github.com']);
+    const execution = backend.exec('/tmp/awf', ['github.com']);
+    stdin.write(Buffer.alloc(70_000, 1));
+    stdin.end('second');
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    expect(manager.endStdin).not.toHaveBeenCalled();
+    releaseFirstWrite();
+    await execution;
+    expect(manager.writeStdin.mock.invocationCallOrder[0])
+      .toBeLessThan(manager.writeStdin.mock.invocationCallOrder[1]);
+    expect(manager.writeStdin.mock.invocationCallOrder[1])
+      .toBeLessThan(manager.endStdin.mock.invocationCallOrder[0]);
   });
 
   it('stops the partial VM when readiness probing fails', async () => {
