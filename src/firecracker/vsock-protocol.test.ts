@@ -107,4 +107,133 @@ describe('Firecracker guest vsock protocol', () => {
       timedOut: false,
     })).toThrow(/exactly one/);
   });
+
+  it('validates every host and guest frame schema boundary', () => {
+    const validFrames: FirecrackerGuestFrame[] = [
+      {
+        version: 1,
+        type: 'execute',
+        requestId: 'run',
+        argv: ['sh'],
+        env: { EMPTY: '' },
+        cwd: '/workspace',
+        uid: 1000,
+        gid: 1000,
+        tty: false,
+        timeoutMs: 1,
+      },
+      {
+        version: 1,
+        type: 'stdin',
+        requestId: 'run',
+        data: Buffer.from('input').toString('base64'),
+        eof: true,
+      },
+      { version: 1, type: 'resize', requestId: 'run', columns: 80, rows: 24 },
+      { version: 1, type: 'cancel', requestId: 'run', reason: 'test' },
+      {
+        version: 1,
+        type: 'result',
+        requestId: 'run',
+        exitCode: null,
+        signal: 'SIGTERM',
+        timedOut: false,
+      },
+      {
+        version: 1,
+        type: 'error',
+        requestId: 'run',
+        code: 'protocol_version_mismatch',
+        message: 'wrong version',
+        expectedVersion: 1,
+      },
+      { version: 1, type: 'shutdown', requestId: 'shutdown' },
+      { version: 1, type: 'shutting_down', requestId: 'shutdown' },
+    ];
+    for (const frame of validFrames) {
+      expect(() => validateFirecrackerFrame(frame)).not.toThrow();
+    }
+
+    const invalidFrames: unknown[] = [
+      null,
+      [],
+      { ...ready, capabilities: { stdin: true, tty: false, resize: 'no' } },
+      {
+        version: 1,
+        type: 'execute',
+        requestId: 'run',
+        argv: ['sh'],
+        env: Object.fromEntries(
+          Array.from({ length: 513 }, (_, index) => [`V${index}`, 'value']),
+        ),
+        cwd: '/workspace',
+        uid: 1000,
+        gid: 1000,
+        tty: false,
+      },
+      {
+        version: 1,
+        type: 'execute',
+        requestId: 'run',
+        argv: ['sh'],
+        env: {},
+        cwd: 'relative',
+        uid: 0,
+        gid: -1,
+        tty: 'no',
+        timeoutMs: 0,
+      },
+      { version: 1, type: 'stdin', requestId: 'run' },
+      { version: 1, type: 'stdin', requestId: 'run', data: 'not-base64' },
+      { version: 1, type: 'resize', requestId: 'run', columns: 0, rows: 65_536 },
+      { version: 1, type: 'cancel', requestId: 'run', reason: '' },
+      {
+        version: 1,
+        type: 'result',
+        requestId: 'run',
+        exitCode: 256,
+        signal: null,
+        timedOut: 'no',
+      },
+      {
+        version: 1,
+        type: 'error',
+        requestId: 'run',
+        code: 'unknown',
+        message: '',
+        expectedVersion: 0,
+      },
+      { version: 1, type: 'unknown', requestId: 'run' },
+    ];
+    for (const frame of invalidFrames) {
+      expect(() => validateFirecrackerFrame(frame)).toThrow(FirecrackerProtocolError);
+    }
+  });
+
+  it('rejects malformed JSON and encoded frames above the wire limit', () => {
+    const malformed = Buffer.from('{');
+    const malformedWire = Buffer.alloc(4 + malformed.length);
+    malformedWire.writeUInt32BE(malformed.length, 0);
+    malformed.copy(malformedWire, 4);
+    expect(() => new FirecrackerFrameDecoder().push(malformedWire))
+      .toThrow(/invalid JSON/);
+
+    const oversizedFrame = {
+      version: 1,
+      type: 'execute',
+      requestId: 'large',
+      argv: ['sh'],
+      env: Object.fromEntries(
+        Array.from({ length: 5 }, (_, index) => [
+          `VALUE_${index}`,
+          'x'.repeat(256 * 1024),
+        ]),
+      ),
+      cwd: '/workspace',
+      uid: 1000,
+      gid: 1000,
+      tty: false,
+    } as FirecrackerGuestFrame;
+    expect(() => encodeFirecrackerFrame(oversizedFrame)).toThrow(/exceeds/);
+  });
 });
