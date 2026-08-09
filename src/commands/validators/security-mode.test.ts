@@ -140,6 +140,28 @@ describe('applySecurityMode', () => {
       expect(config.allowHostServicePorts).toBeUndefined();
     });
 
+    it('should support --allow-host-ports for a GitHub Actions services: container port without --legacy-security', () => {
+      // Regression test for the "services: ports without legacy-security" use
+      // case (github/gh-aw-firewall#7149): a strict-security workflow reaches
+      // a specific services: container port (e.g. Postgres on 5432) via
+      // host.docker.internal, without needing --legacy-security and without
+      // opening every host port.
+      const config = makeConfig({
+        legacySecurity: undefined,
+        enableHostAccess: true,
+        allowHostPorts: '5432',
+        allowedDomains: ['host.docker.internal'],
+      });
+      applySecurityMode(config);
+      expect(config.legacySecurity).not.toBe(true);
+      expect(config.networkIsolation).toBe(true);
+      expect(config.enableHostAccess).toBe(true);
+      expect(config.allowHostPorts).toBe('5432');
+      expect(logger.warn).not.toHaveBeenCalledWith(
+        expect.stringContaining('--enable-host-access was ignored'),
+      );
+    });
+
     it('should override enableDind with warning', () => {
       const config = makeConfig({ enableDind: true });
       applySecurityMode(config);
