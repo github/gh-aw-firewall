@@ -59,6 +59,7 @@ describe('Firecracker workspace images', () => {
 
     const prepared = await image.prepare();
     expect(prepared.imageBytes).toBe(FIRECRACKER_MIN_WORKSPACE_IMAGE_BYTES);
+    expect((await fs.stat(prepared.workspaceImagePath)).mode & 0o777).toBe(0o600);
     expect(await fs.readFile(
       path.join(image.stagingDirectory, 'workspace', '.hidden'),
       'utf8',
