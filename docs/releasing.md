@@ -114,10 +114,10 @@ The `agent-act` image is used when running with `--agent-image act` for workflow
 
 ### Firecracker preview test artifacts
 
-The main release workflow does **not** publish Firecracker guest artifacts.
-Firecracker test artifacts (`firecracker-test-x86_64`) are built and attested
-separately by the `test-firecracker.yml` CI workflow and uploaded as
-**7-day workflow artifacts**, not as GitHub Release assets.
+The main release workflow builds, attests, and publishes the versioned
+`firecracker-test-x86_64` preview bundle as GitHub Release assets. Pull request
+and manual validation through `test-firecracker.yml` also uploads the unpacked
+artifact set with **7-day workflow-artifact retention**.
 
 These artifacts are:
 
@@ -129,6 +129,8 @@ These artifacts are:
 - **Not a production default** — operators who want to evaluate Firecracker for
   production must obtain, verify, and manage their own guest kernel and rootfs
   appropriate to their workload security requirements.
+- **Explicitly verified** — `firecracker-test-x86_64.SHA256SUMS` covers the five
+  files inside the tarball; extract the tarball before running `sha256sum -c`.
 
 See [Firecracker integration (preview) — Artifact policy](./firecracker-integration.md#part-5--artifact-policy)
 for the complete artifact specification and digest requirements.

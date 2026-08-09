@@ -362,9 +362,12 @@ Each artifact file is validated for:
 
 ### Releasing test artifacts
 
-The CI workflow `test-firecracker.yml` (see §CI workflow) builds a
-reproducible artifact set:
+The release workflow and `test-firecracker.yml` (see §CI workflow) build the
+same reproducible artifact set:
 `release/firecracker-test-x86_64/awf-firecracker-test-x86_64.tar.gz`.
+The release workflow publishes the tarball, checksum manifest, build manifest,
+and SPDX SBOM as versioned GitHub Release assets. CI uploads the unpacked set as
+a 7-day workflow artifact for validation.
 
 This tarball contains:
 
@@ -387,12 +390,13 @@ purpose-built for integration testing and preview evaluation. It is:
 - **Not** a production-ready distribution
 - **Not** intended for use as a stable base for production workloads without
   independent review
-- **Not** distributed as a standalone GitHub Release asset of the main AWF
-  release process (the main release workflow does not publish Firecracker
-  artifacts)
+- **Distributed only as an explicitly named test/preview GitHub Release asset**,
+  never selected or downloaded automatically by AWF
 
 Production use requires operators to obtain, verify, and manage their own
 kernel and rootfs images appropriate to their workload security requirements.
+The published `firecracker-test-x86_64.SHA256SUMS` covers the five extracted
+runtime files, not the tarball itself; extract the bundle before checking it.
 :::
 
 ### Guest kernel requirements
