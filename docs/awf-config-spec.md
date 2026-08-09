@@ -168,8 +168,8 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 - `security.sslBump` → `--ssl-bump`
 - `security.enableDlp` → `--enable-dlp`
 - `security.enableHostAccess` → `--enable-host-access`
-- `security.allowHostPorts` → `--allow-host-ports` *(supported standalone with `security.enableHostAccess`/`--enable-host-access` in strict security mode — the default, no `security.legacySecurity`/`--legacy-security` required. In strict mode, `--network-isolation` is auto-forced on and host access is served via Squid port ACLs and the `host.docker.internal` hosts-file entry rather than host iptables, so `--enable-host-access --allow-host-ports <port(s)>` remains valid. This is the recommended way for a strict-security workflow to reach a specific GitHub Actions `services:` container port — e.g. `--enable-host-access --allow-host-ports 5432 --allow-domains host.docker.internal` for a Postgres service — without granting unrestricted host access. See `src/commands/validators/security-mode.ts` and its tests for the enforcement logic.)*
-- `security.allowHostServicePorts` → `--allow-host-service-ports` *(iptables-based; unlike `allowHostPorts`, this flag is suppressed in strict security mode — see `security.legacySecurity` below)*
+- `security.allowHostPorts` → `--allow-host-ports`
+- `security.allowHostServicePorts` → `--allow-host-service-ports`
 - `security.difcProxy.host` → `--difc-proxy-host`
 - `security.difcProxy.caCert` → `--difc-proxy-ca-cert`
 - `container.memoryLimit` → `--memory-limit`
