@@ -331,4 +331,34 @@ describe('Firecracker network lifecycle', () => {
       && call.args[2] === plan.namespaceName
     ))).toHaveLength(1);
   });
+
+  it('retains the namespace for a retry when namespace deletion fails', async () => {
+    const plan = createPlan('namespace-retry');
+    let namespaceDeleteFailed = false;
+    const { calls, commands } = commandHarness();
+    const originalIp = commands.ip.bind(commands);
+    jest.spyOn(commands, 'ip').mockImplementation(async (args, reject = true) => {
+      if (
+        !namespaceDeleteFailed
+        && args[0] === 'netns'
+        && args[1] === 'delete'
+        && args[2] === plan.namespaceName
+      ) {
+        namespaceDeleteFailed = true;
+        throw new Error('namespace deletion failed');
+      }
+      return originalIp(args, reject);
+    });
+    const manager = new FirecrackerNetworkManager(plan, commands);
+
+    await manager.setup();
+    await expect(manager.cleanup()).rejects.toThrow('namespace deletion failed');
+    await expect(manager.cleanup()).resolves.toBeUndefined();
+
+    expect(calls.filter((call) => (
+      call.args[0] === 'netns'
+      && call.args[1] === 'delete'
+      && call.args[2] === plan.namespaceName
+    ))).toHaveLength(1);
+  });
 });
