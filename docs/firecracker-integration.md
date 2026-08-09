@@ -421,6 +421,8 @@ Firecracker binary that boots it.
 
 Before boot, AWF creates a writable ext4 image (`workspace.ext4`) sized to hold
 the workspace with 128 MiB headroom (minimum 256 MiB, maximum 8 GiB). The image
+file is created exclusively with host mode `0600`, so a pre-existing path cannot
+be reused and only the operator can read or modify the staged workspace image. It
 contains:
 
 - The entire `$GITHUB_WORKSPACE` (or `cwd()` if the variable is unset) directory,
@@ -442,11 +444,11 @@ After the agent command exits, AWF extracts the workspace image content via
 `debugfs` and compares it to the pre-run manifest:
 
 - **New or modified files** — written back to the host workspace
-- **Deleted files** — recorded in the manifest but not re-deleted from the host
-  workspace (the guest deletes inside the image only)
-- **Conflict detection** — if a file the guest modified was also modified on the
-  host between boot and copy-back (unusual in CI; more likely in development),
-  AWF logs a warning and preserves the guest version
+- **Deleted files** — removed from the host workspace by the authoritative
+  `rsync --delete` copy-back
+- **Conflict detection** — any concurrent host-only or divergent host/guest
+  change aborts copy-back rather than overwriting host work; AWF preserves the
+  changed raw workspace image for recovery
 
 ### Recovery image
 
