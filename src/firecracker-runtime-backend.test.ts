@@ -4,6 +4,8 @@ import {
   FirecrackerRuntimeBackend,
   assertFirecrackerPreSecurityCompatibility,
   buildFirecrackerGuestEnvironment,
+  createFirecrackerRuntimeBackend,
+  firecrackerRuntimeTestHelpers,
   type FirecrackerRuntimeBackendDependencies,
 } from './firecracker-runtime-backend';
 import { assertFirecrackerSelection } from './firecracker/runtime-validation';
@@ -117,6 +119,35 @@ function harness(overrides: Partial<FirecrackerRuntimeBackendDependencies> = {})
 }
 
 describe('Firecracker runtime backend', () => {
+  it('constructs default backend dependencies and manager policy', () => {
+    const startInfrastructure = jest.fn();
+    const defaults = firecrackerRuntimeTestHelpers.defaultDependencies(startInfrastructure);
+    const previousWorkspace = process.env.GITHUB_WORKSPACE;
+    process.env.GITHUB_WORKSPACE = '/github/workspace';
+    try {
+      expect(defaults.workspacePath()).toBe('/github/workspace');
+      delete process.env.GITHUB_WORKSPACE;
+      expect(defaults.workspacePath()).toBe(process.cwd());
+      expect(defaults.homePath()).toBeTruthy();
+      expect(defaults.identity()).toEqual({
+        uid: expect.any(Number),
+        gid: expect.any(Number),
+      });
+      expect(defaults.createManager(
+        config().firecracker!,
+        '/tmp/awf',
+        infrastructure(),
+        '/workspace',
+        '/home/runner',
+      )).toBeDefined();
+      expect(createFirecrackerRuntimeBackend(config(), startInfrastructure))
+        .toBeInstanceOf(FirecrackerRuntimeBackend);
+    } finally {
+      if (previousWorkspace === undefined) delete process.env.GITHUB_WORKSPACE;
+      else process.env.GITHUB_WORKSPACE = previousWorkspace;
+    }
+  });
+
   it('starts infrastructure, revalidates it, boots and probes before execution', async () => {
     const { order, manager, deps, stdin } = harness();
     const backend = new FirecrackerRuntimeBackend(config(), deps);
@@ -164,6 +195,119 @@ describe('Firecracker runtime backend', () => {
     expect(manager.stop).toHaveBeenCalledTimes(1);
   });
 
+  it('fails closed when manager readiness or startup cleanup is unavailable', async () => {
+      const missingIp = harness();
+      Reflect.set(missingIp.manager, 'guestIp', undefined);
+      const backend = new FirecrackerRuntimeBackend(config(), missingIp.deps);
+      await expect(backend.start('/tmp/awf', ['github.com']))
+        .rejects.toThrow(/did not expose the configured guest IP/);
+      expect(missingIp.manager.stop).toHaveBeenCalledTimes(1);
+
+      const dualFailure = harness();
+      (dualFailure.infra.revalidate as jest.Mock).mockRejectedValue('topology moved');
+      dualFailure.manager.stop.mockRejectedValue('cleanup failed');
+      const failing = new FirecrackerRuntimeBackend(config(), dualFailure.deps);
+      await expect(failing.start('/tmp/awf', ['github.com'])).rejects.toMatchObject({
+        message: expect.stringContaining('topology moved'),
+        cause: 'topology moved',
+        cleanupCause: 'cleanup failed',
+      });
+  });
+
+  it('rejects execution before readiness and unsupported TTY execution', async () => {
+      const cold = harness();
+      await expect(new FirecrackerRuntimeBackend(config(), cold.deps).exec(
+        '/tmp/awf',
+        ['github.com'],
+      )).rejects.toThrow(/microVM is not ready/);
+
+      const ttyHarness = harness();
+      const ttyConfig = config();
+      const ttyBackend = new FirecrackerRuntimeBackend(ttyConfig, ttyHarness.deps);
+      await ttyBackend.start('/tmp/awf', ['github.com']);
+      ttyConfig.tty = true;
+      await expect(ttyBackend.exec('/tmp/awf', ['github.com']))
+        .rejects.toThrow(/does not support TTY execution/);
+      await ttyBackend.stop();
+  });
+
+  it('preserves a stopped VM once and logs retained artifacts', async () => {
+      const { manager, deps } = harness();
+      const backend = new FirecrackerRuntimeBackend(config(), deps);
+      await backend.start('/tmp/awf', ['github.com']);
+
+      await backend.preserve();
+      await backend.preserve();
+      await backend.collectDiagnostics();
+
+      expect(manager.stop).toHaveBeenCalledWith({ preserve: true });
+      expect(manager.stop).toHaveBeenCalledTimes(1);
+      expect(deps.logger.info).toHaveBeenCalledWith(
+        '[firecracker] Preserved network namespace: awffc-test',
+      );
+  });
+
+  it('cancels an active guest command before stopping', async () => {
+      const { manager, deps } = harness();
+      let resolveExecution!: (value: {
+        requestId: string;
+        exitCode: number;
+        signal: null;
+        timedOut: boolean;
+      }) => void;
+      manager.execute
+        .mockReset()
+        .mockResolvedValueOnce({
+          requestId: 'probe',
+          exitCode: 0,
+          signal: null,
+          timedOut: false,
+        })
+        .mockReturnValueOnce(new Promise((resolve) => {
+          resolveExecution = resolve;
+        }));
+      manager.cancel.mockImplementationOnce(async () => {
+        resolveExecution({
+          requestId: 'agent',
+          exitCode: 130,
+          signal: null,
+          timedOut: false,
+        });
+      });
+      const backend = new FirecrackerRuntimeBackend(config(), deps);
+      await backend.start('/tmp/awf', ['github.com']);
+      const execution = backend.exec('/tmp/awf', ['github.com']);
+
+      await backend.stop();
+      await expect(execution).resolves.toEqual({ exitCode: 130 });
+      await backend.stop();
+      expect(manager.cancel).toHaveBeenCalledWith(
+        'AWF cleanup',
+        expect.stringMatching(/^agent-/),
+      );
+      expect(manager.stop).toHaveBeenCalledWith({ preserve: false });
+  });
+
+  it('cancels after stdin forwarding failure without changing command output', async () => {
+      const { manager, deps, stdin } = harness();
+      manager.writeStdin.mockRejectedValueOnce(new Error('closed stdin'));
+      const backend = new FirecrackerRuntimeBackend(config(), deps);
+      await backend.start('/tmp/awf', ['github.com']);
+      const execution = backend.exec('/tmp/awf', ['github.com']);
+      stdin.write('input');
+      await new Promise<void>((resolve) => setImmediate(resolve));
+
+      await expect(execution).resolves.toEqual({ exitCode: 23 });
+      expect(deps.logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('stdin forwarding failed'),
+      );
+      expect(manager.cancel).toHaveBeenCalledWith(
+        'stdin forwarding failure',
+        expect.stringMatching(/^agent-/),
+      );
+      await backend.stop();
+  });
+
   it('preserves sanitized env values without leaking real provider secrets', () => {
     const secret = 'sk-real-provider-secret';
     const environment = buildFirecrackerGuestEnvironment(
@@ -182,6 +326,14 @@ describe('Firecracker runtime backend', () => {
     expect(Object.values(environment)).not.toContain(secret);
     expect(environment.HTTP_PROXY).toBe('http://172.30.0.10:3128');
     expect(environment.HOME).toBe('/workspace/.awf-home');
+
+    expect(() => buildFirecrackerGuestEnvironment(
+      config({
+        openaiApiKey: 'enabled',
+        additionalEnv: { SAFE_SETTING: 'enabled' },
+      }),
+      infrastructure(),
+    )).toThrow(/Refusing to pass a real provider credential/);
   });
 
   it('rejects unsupported strict-security and topology combinations', () => {

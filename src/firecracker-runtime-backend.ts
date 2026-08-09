@@ -111,6 +111,9 @@ function defaultDependencies(
   };
 }
 
+/** @internal Exposed only for focused default-policy tests. */
+export const firecrackerRuntimeTestHelpers = { defaultDependencies };
+
 /** Stateful adapter for an explicitly enabled, fail-closed Firecracker microVM. */
 export class FirecrackerRuntimeBackend implements ExternalAgentRuntimeBackend {
   readonly runtime = 'firecracker';

@@ -99,7 +99,7 @@ function buildCleanupFn(
   externalRuntimeBackend?: ExternalAgentRuntimeBackend,
 ) {
   return async (signal?: string) => {
-    const cleanupErrors: unknown[] = [];
+    let externalRuntimeCleanupError: unknown;
     if (signal) {
       logger.info(`Received ${signal}, cleaning up...`);
     }
@@ -112,7 +112,7 @@ function buildCleanupFn(
           await externalRuntimeBackend.stop();
         }
       } catch (error) {
-        cleanupErrors.push(error);
+        externalRuntimeCleanupError = error;
         logger.warn(
           'External runtime cleanup failed; continuing with infrastructure teardown.',
           error,
@@ -182,14 +182,7 @@ function buildCleanupFn(
       logger.info(`Squid logs available at: ${config.workDir}/squid-logs/`);
       logger.info(`Host iptables rules preserved (--keep-containers enabled)`);
     }
-    if (cleanupErrors.length === 1) throw cleanupErrors[0];
-    if (cleanupErrors.length > 1) {
-      throw new Error(
-        `Cleanup failed: ${cleanupErrors.map((error) => (
-          error instanceof Error ? error.message : String(error)
-        )).join('; ')}`,
-      );
-    }
+    if (externalRuntimeCleanupError) throw externalRuntimeCleanupError;
   };
 }
 

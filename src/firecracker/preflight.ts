@@ -58,6 +58,9 @@ const defaultDependencies: FirecrackerPreflightDependencies = {
   },
 };
 
+/** @internal Exposed only for focused host-probe tests. */
+export const firecrackerPreflightTestHelpers = { defaultDependencies };
+
 export interface FirecrackerPreflightResult {
   version: string;
   firecrackerBinary: string;

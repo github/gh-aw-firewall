@@ -107,6 +107,12 @@ const defaultDependencies: FirecrackerManagerDependencies = {
   resolveIdentity: resolveJailerIdentity,
 };
 
+/** @internal Exposed only for focused host-adapter tests. */
+export const firecrackerManagerTestHelpers = {
+  defaultDependencies,
+  resolveJailerIdentity,
+};
+
 function parsePositiveIdentity(value: string | undefined): number | undefined {
   if (!value || !/^[1-9]\d*$/.test(value)) return undefined;
   return Number(value);

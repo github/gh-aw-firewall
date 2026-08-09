@@ -1,6 +1,12 @@
 import { constants } from 'fs';
+import { createHash } from 'crypto';
+import { promises as fs } from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import type { FirecrackerOptions } from '../types/runtime-options';
 import {
+  calculateSha256,
+  firecrackerPreflightTestHelpers,
   parseFirecrackerVersion,
   runFirecrackerPreflight,
   type FirecrackerPreflightDependencies,
@@ -45,8 +51,43 @@ function dependencies(
 }
 
 describe('Firecracker preflight', () => {
+  let originalPath: string | undefined;
+
+  beforeEach(() => {
+    originalPath = process.env.PATH;
+  });
+
   afterEach(() => {
     delete process.env.SUDO_UID;
+    if (originalPath === undefined) delete process.env.PATH;
+    else process.env.PATH = originalPath;
+  });
+
+  it('runs default version, tool, and digest host probes', async () => {
+    const defaults = firecrackerPreflightTestHelpers.defaultDependencies;
+    await expect(defaults.runVersion(process.execPath)).resolves.toContain(
+      process.version.slice(1),
+    );
+    await expect(defaults.runVersion('/bin/false')).rejects.toThrow(
+      /--version" exited with code/,
+    );
+
+    process.env.PATH = `${path.delimiter}${path.dirname(process.execPath)}`;
+    await expect(defaults.assertToolAvailable(path.basename(process.execPath)))
+      .resolves.toBeUndefined();
+    await expect(defaults.assertToolAvailable('definitely-not-an-awf-tool'))
+      .rejects.toThrow(/was not found on PATH/);
+
+    const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'awf-preflight-digest-'));
+    const target = path.join(directory, 'artifact');
+    try {
+      await fs.writeFile(target, 'verified artifact');
+      await expect(calculateSha256(target)).resolves.toBe(
+        createHash('sha256').update('verified artifact').digest('hex'),
+      );
+    } finally {
+      await fs.rm(directory, { recursive: true, force: true });
+    }
   });
 
   it('parses Firecracker and jailer release output', () => {
@@ -111,6 +152,78 @@ describe('Firecracker preflight', () => {
       config({ sha256: { kernel: digest } }),
       dependencies({ sha256: jest.fn().mockResolvedValue('b'.repeat(64)) }),
     )).rejects.toThrow(/SHA-256 mismatch/);
+
+    await expect(runFirecrackerPreflight(
+      config({ sha256: { kernel: 'bad' } }),
+      dependencies(),
+    )).rejects.toThrow(/must contain exactly 64 hexadecimal/);
+  });
+
+  it('rejects missing artifacts, unsupported hosts, and unavailable tools', async () => {
+    await expect(runFirecrackerPreflight(
+      config({ supervisorPath: undefined }),
+      dependencies(),
+    )).rejects.toThrow(/requires guest kernel, rootfs, and supervisor/);
+    await expect(runFirecrackerPreflight(
+      config(),
+      dependencies({ platform: 'darwin' }),
+    )).rejects.toThrow(/requires Linux with KVM/);
+    await expect(runFirecrackerPreflight(
+      config(),
+      dependencies({ arch: 'ia32' }),
+    )).rejects.toThrow(/supports only x86_64 and aarch64/);
+    await expect(runFirecrackerPreflight(
+      config(),
+      dependencies({
+        assertToolAvailable: jest.fn().mockRejectedValue('missing'),
+      }),
+    )).rejects.toThrow(/requires host tool "ip": missing/);
+  });
+
+  it('rejects untrusted artifact files and inaccessible paths', async () => {
+    await expect(runFirecrackerPreflight(
+      config({ firecrackerBinary: 'relative/firecracker' }),
+      dependencies(),
+    )).rejects.toThrow(/path must be absolute/);
+    await expect(runFirecrackerPreflight(
+      config(),
+      dependencies({
+        lstat: jest.fn(async (filePath: string) => (
+          filePath === '/opt/firecracker'
+            ? {
+                isFile: () => false,
+                isSymbolicLink: () => true,
+                mode: 0o120777,
+                uid: 0,
+              }
+            : {
+                isFile: () => false,
+                isSymbolicLink: () => false,
+                mode: 0o040755,
+                uid: 0,
+              }
+        )),
+      }),
+    )).rejects.toThrow(/regular file and not a symbolic link/);
+    await expect(runFirecrackerPreflight(
+      config(),
+      dependencies({
+        lstat: jest.fn().mockResolvedValue({
+          isFile: () => true,
+          isSymbolicLink: () => false,
+          mode: 0o100755,
+          uid: 4000,
+        }),
+      }),
+    )).rejects.toThrow(/must be owned by root or uid/);
+    await expect(runFirecrackerPreflight(
+      config(),
+      dependencies({
+        access: jest.fn(async (filePath: string) => {
+          if (filePath !== '/dev/kvm') throw new Error('EACCES');
+        }),
+      }),
+    )).rejects.toThrow(/does not have the required host access/);
   });
 
   it('uses SUDO_UID as trusted owner when running under sudo', async () => {

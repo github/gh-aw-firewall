@@ -457,6 +457,57 @@ describe('createMainAction', () => {
         expect.stringContaining('Configuration files preserved')
       );
     });
+
+    it('quiesces an external runtime through its preserve hook', async () => {
+      const preserve = jest.fn().mockResolvedValue(undefined);
+      const backend = {
+        runtime: 'firecracker',
+        preflight: jest.fn(),
+        start: jest.fn(),
+        exec: jest.fn(),
+        collectDiagnostics: jest.fn(),
+        stop: jest.fn(),
+        preserve,
+      };
+      const cleanup = testHelpers.buildCleanupFn(
+        { ...MAIN_ACTION_STUB_CONFIG, keepContainers: true },
+        () => false,
+        () => false,
+        backend,
+      );
+
+      await cleanup();
+
+      expect(preserve).toHaveBeenCalledTimes(1);
+      expect(backend.stop).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('external runtime cleanup failures', () => {
+    it('continues generic cleanup and then rethrows the runtime failure', async () => {
+      const runtimeError = new Error('Firecracker teardown failed');
+      const backend = {
+        runtime: 'firecracker',
+        preflight: jest.fn(),
+        start: jest.fn(),
+        exec: jest.fn(),
+        collectDiagnostics: jest.fn(),
+        stop: jest.fn().mockRejectedValue(runtimeError),
+      };
+      const cleanup = testHelpers.buildCleanupFn(
+        { ...MAIN_ACTION_STUB_CONFIG, keepContainers: false },
+        () => false,
+        () => false,
+        backend,
+      );
+
+      await expect(cleanup()).rejects.toBe(runtimeError);
+      expect(mockedDockerManager.cleanup).toHaveBeenCalled();
+      expect(mockedLogger.warn).toHaveBeenCalledWith(
+        'External runtime cleanup failed; continuing with infrastructure teardown.',
+        runtimeError,
+      );
+    });
   });
 
   describe('performCleanup with containers started', () => {

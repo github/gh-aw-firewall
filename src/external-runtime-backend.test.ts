@@ -68,6 +68,15 @@ describe('external runtime backend', () => {
       .toThrow(/explicit --firecracker-preview/);
     expect(startInfrastructure).not.toHaveBeenCalled();
   });
+
+  it('uses the registered Firecracker factory after preview opt-in', () => {
+    const backend = resolveExternalRuntimeBackend({
+      containerRuntime: 'firecracker',
+      firecracker: { previewEnabled: true },
+    } as WrapperConfig, startInfrastructure);
+
+    expect(backend?.runtime).toBe('firecracker');
+  });
   it('adapts start and exec without changing arguments or exit codes', async () => {
     const backend = createBackend();
     const adapted = adaptExternalRuntimeBackend(backend);
