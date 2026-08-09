@@ -144,7 +144,6 @@ export class FirecrackerNetworkManager implements FirecrackerNetworkLifecycle {
   private setupComplete = false;
   private namespaceCreated = false;
   private hostVethCreated = false;
-  private nftTableCreated = false;
 
   constructor(
     readonly plan: FirecrackerNetworkPlan,
@@ -220,7 +219,6 @@ export class FirecrackerNetworkManager implements FirecrackerNetworkLifecycle {
         ['-f', '-'],
         generateFirecrackerNftRuleset(this.plan),
       );
-      this.nftTableCreated = true;
       await this.probe?.verify(this.plan);
       this.setupComplete = true;
       return this.plan;
@@ -247,35 +245,16 @@ export class FirecrackerNetworkManager implements FirecrackerNetworkLifecycle {
       }
     };
 
-    if (this.nftTableCreated) {
-      await attempt(async () => {
-        await this.commands.nftInNamespace(
-          this.plan.namespaceName,
-          ['delete', 'table', 'inet', this.plan.nftTableName],
-          undefined,
-          false,
-        );
-        this.nftTableCreated = false;
-      });
-    }
     if (this.hostVethCreated) {
       await attempt(async () => {
-        await this.commands.ip(
-          ['link', 'delete', this.plan.hostVethName],
-          false,
-        );
+        await this.commands.ip(['link', 'delete', this.plan.hostVethName]);
         this.hostVethCreated = false;
       });
     }
-    if (this.namespaceCreated) {
+    if (this.namespaceCreated && !this.hostVethCreated) {
       await attempt(async () => {
-        await this.commands.ip(
-          ['netns', 'delete', this.plan.namespaceName],
-          false,
-        );
+        await this.commands.ip(['netns', 'delete', this.plan.namespaceName]);
         this.namespaceCreated = false;
-        this.hostVethCreated = false;
-        this.nftTableCreated = false;
       });
     }
     this.setupComplete = false;

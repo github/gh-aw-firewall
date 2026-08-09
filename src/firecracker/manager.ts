@@ -233,10 +233,10 @@ export class FirecrackerManager {
 
     try {
       await this.network?.cleanup();
+      this.network = undefined;
     } catch (error) {
       errors.push(error);
     }
-    this.network = undefined;
 
     try {
       await this.dependencies.rm(

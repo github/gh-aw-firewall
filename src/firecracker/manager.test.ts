@@ -232,6 +232,32 @@ describe('FirecrackerManager', () => {
     expect(order).toEqual(['network', 'jail']);
   });
 
+  it('retains failed network cleanup for a later stop retry', async () => {
+    const cleanup = jest.fn()
+      .mockRejectedValueOnce(new Error('network cleanup failed'))
+      .mockResolvedValue(undefined);
+    const deps = dependencies({
+      createNetwork: jest.fn((plan) => ({
+        plan,
+        setup: jest.fn().mockResolvedValue(plan),
+        cleanup,
+      })),
+    });
+    const manager = new FirecrackerManager(
+      config(),
+      '/tmp/awf',
+      deps,
+      'cleanup-retry',
+      networkConfig(),
+    );
+
+    await manager.start();
+    await expect(manager.stop()).rejects.toThrow('network cleanup failed');
+    await expect(manager.stop()).resolves.toBeUndefined();
+
+    expect(cleanup).toHaveBeenCalledTimes(2);
+  });
+
   it('rolls back the network when typed NIC configuration fails', async () => {
     const client = {
       putMachineConfig: jest.fn().mockResolvedValue(undefined),

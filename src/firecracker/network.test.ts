@@ -232,26 +232,26 @@ describe('Firecracker network lifecycle', () => {
       const manager = new FirecrackerNetworkManager(plan, commands);
 
       await expect(manager.setup()).rejects.toThrow(`stage ${failAt} failed`);
-      const cleanupCalls = calls.filter((call) => call.options.reject === false);
+      const cleanupCalls = calls.filter((call) => call.args.includes('delete'));
       if (failAt === 1) {
         expect(cleanupCalls).toEqual([]);
       } else if (failAt === 2) {
         expect(cleanupCalls).toEqual([{
           command: 'ip',
           args: ['netns', 'delete', plan.namespaceName],
-          options: { reject: false },
+          options: { reject: true },
         }]);
       } else {
         expect(cleanupCalls).toEqual([
           {
             command: 'ip',
             args: ['link', 'delete', plan.hostVethName],
-            options: { reject: false },
+            options: { reject: true },
           },
           {
             command: 'ip',
             args: ['netns', 'delete', plan.namespaceName],
-            options: { reject: false },
+            options: { reject: true },
           },
         ]);
       }
@@ -272,7 +272,7 @@ describe('Firecracker network lifecycle', () => {
     ]);
   });
 
-  it('cleanup is idempotent and never targets unrelated nftables objects', async () => {
+  it('disconnects the host veth before deleting the namespace and its nft policy', async () => {
     const plan = createPlan('cleanup-twice');
     const { calls, commands } = commandHarness();
     const manager = new FirecrackerNetworkManager(plan, commands);
@@ -283,12 +283,9 @@ describe('Firecracker network lifecycle', () => {
     await manager.cleanup();
 
     expect(calls).toHaveLength(callsAfterFirstCleanup);
-    const cleanupCalls = calls.filter((call) => call.options.reject === false);
-    expect(cleanupCalls).toHaveLength(3);
+    const cleanupCalls = calls.filter((call) => call.args.includes('delete'));
+    expect(cleanupCalls).toHaveLength(2);
     expect(cleanupCalls.filter((call) => call.args.includes('delete'))).toEqual([
-      expect.objectContaining({
-        args: expect.arrayContaining([plan.nftTableName]),
-      }),
       expect.objectContaining({
         args: expect.arrayContaining([plan.hostVethName]),
       }),
@@ -296,6 +293,42 @@ describe('Firecracker network lifecycle', () => {
         args: expect.arrayContaining([plan.namespaceName]),
       }),
     ]);
+    expect(cleanupCalls.every((call) => call.options.reject)).toBe(true);
     expect(calls.some((call) => call.args.includes('flush'))).toBe(false);
+  });
+
+  it('retains the namespace and nft policy for a retry when host veth deletion fails', async () => {
+    const plan = createPlan('cleanup-retry');
+    let hostVethDeleteFailed = false;
+    const { calls, commands } = commandHarness();
+    const originalIp = commands.ip.bind(commands);
+    jest.spyOn(commands, 'ip').mockImplementation(async (args, reject = true) => {
+      if (
+        !hostVethDeleteFailed
+        && args[0] === 'link'
+        && args[1] === 'delete'
+        && args[2] === plan.hostVethName
+      ) {
+        hostVethDeleteFailed = true;
+        throw new Error('host veth deletion failed');
+      }
+      return originalIp(args, reject);
+    });
+    const manager = new FirecrackerNetworkManager(plan, commands);
+
+    await manager.setup();
+    await expect(manager.cleanup()).rejects.toThrow('host veth deletion failed');
+    expect(calls.some((call) => (
+      call.args[0] === 'netns'
+      && call.args[1] === 'delete'
+      && call.args[2] === plan.namespaceName
+    ))).toBe(false);
+
+    await expect(manager.cleanup()).resolves.toBeUndefined();
+    expect(calls.filter((call) => (
+      call.args[0] === 'netns'
+      && call.args[1] === 'delete'
+      && call.args[2] === plan.namespaceName
+    ))).toHaveLength(1);
   });
 });
