@@ -4,6 +4,14 @@ import * as path from 'path';
 import execa, { type ExecaChildProcess } from 'execa';
 import type { FirecrackerOptions } from '../types/runtime-options';
 import { FirecrackerApiClient } from './api-client';
+import {
+  FirecrackerNetworkManager,
+  assertSafeFirecrackerRunId,
+  createFirecrackerNetworkPlan,
+  type FirecrackerControlPeer,
+  type FirecrackerNetworkLifecycle,
+  type FirecrackerNetworkPlan,
+} from './network';
 import { runFirecrackerPreflight } from './preflight';
 
 const API_SOCKET_NAME = 'firecracker.socket';
@@ -38,7 +46,14 @@ export interface FirecrackerManagerDependencies {
   rm(directory: string, options: { recursive: true; force: true }): Promise<void>;
   sleep(milliseconds: number): Promise<void>;
   createClient(socketPath: string, timeoutMs: number): FirecrackerApiClient;
+  createNetwork(plan: FirecrackerNetworkPlan): FirecrackerNetworkLifecycle;
   resolveIdentity(): { uid: number; gid: number };
+}
+
+export interface FirecrackerManagerNetworkConfig {
+  infrastructureBridge: string;
+  enableApiProxy: boolean;
+  controlPeer?: FirecrackerControlPeer;
 }
 
 const defaultDependencies: FirecrackerManagerDependencies = {
@@ -52,6 +67,7 @@ const defaultDependencies: FirecrackerManagerDependencies = {
   rm: fs.rm,
   sleep: (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
   createClient: (socketPath, timeoutMs) => new FirecrackerApiClient({ socketPath, timeoutMs }),
+  createNetwork: (plan) => new FirecrackerNetworkManager(plan),
   resolveIdentity: resolveJailerIdentity,
 };
 
@@ -76,9 +92,7 @@ export function createFirecrackerRunPaths(
   firecrackerBinary: string,
   runId = `awf-${process.pid}-${randomBytes(6).toString('hex')}`,
 ): FirecrackerRunPaths {
-  if (!/^[A-Za-z0-9-]{1,64}$/.test(runId)) {
-    throw new Error(`Unsafe Firecracker run id: ${runId}`);
-  }
+  assertSafeFirecrackerRunId(runId);
   const chrootBaseDir = path.join(workDir, 'firecracker-jailer');
   const jailRoot = path.join(
     chrootBaseDir,
@@ -103,21 +117,36 @@ export class FirecrackerManager {
   readonly paths: FirecrackerRunPaths;
   private process: ExecaChildProcess<string> | undefined;
   private client: FirecrackerApiClient | undefined;
+  private network: FirecrackerNetworkLifecycle | undefined;
 
   constructor(
     private readonly config: FirecrackerOptions,
     workDir: string,
     private readonly dependencies: FirecrackerManagerDependencies = defaultDependencies,
     runId?: string,
+    private readonly networkConfig?: FirecrackerManagerNetworkConfig,
   ) {
     this.paths = createFirecrackerRunPaths(workDir, config.firecrackerBinary, runId);
   }
 
   async start(): Promise<FirecrackerApiClient> {
+    if (!this.networkConfig) {
+      throw new Error(
+        'Firecracker network configuration is required; refusing to launch an unfiltered microVM',
+      );
+    }
+
     let startupError: unknown;
     try {
       const artifacts = await this.dependencies.preflight(this.config);
       const identity = this.dependencies.resolveIdentity();
+      const networkPlan = createFirecrackerNetworkPlan(this.paths.runId, {
+        ...this.networkConfig,
+        jailerUid: identity.uid,
+        jailerGid: identity.gid,
+      });
+      this.network = this.dependencies.createNetwork(networkPlan);
+      await this.network.setup();
       await this.dependencies.mkdir(this.paths.chrootBaseDir, {
         recursive: true,
         mode: 0o700,
@@ -131,6 +160,7 @@ export class FirecrackerManager {
           '--uid', String(identity.uid),
           '--gid', String(identity.gid),
           '--chroot-base-dir', this.paths.chrootBaseDir,
+          '--netns', networkPlan.netnsPath,
           '--',
           '--api-sock', `/run/${API_SOCKET_NAME}`,
         ],
@@ -162,6 +192,7 @@ export class FirecrackerManager {
         is_root_device: true,
         is_read_only: false,
       });
+      await this.client.putNetworkInterface(networkPlan.networkInterface);
       return this.client;
     } catch (error) {
       startupError = error;
@@ -184,7 +215,7 @@ export class FirecrackerManager {
   }
 
   async stop(): Promise<void> {
-    let processError: unknown;
+    const errors: unknown[] = [];
     if (this.process && this.process.exitCode === null && !this.process.killed) {
       const child = this.process;
       try {
@@ -194,11 +225,18 @@ export class FirecrackerManager {
           throw new Error('Firecracker process termination was not confirmed');
         }
       } catch (error) {
-        processError = error;
+        errors.push(error);
       }
     }
     this.process = undefined;
     this.client = undefined;
+
+    try {
+      await this.network?.cleanup();
+    } catch (error) {
+      errors.push(error);
+    }
+    this.network = undefined;
 
     try {
       await this.dependencies.rm(
@@ -210,15 +248,15 @@ export class FirecrackerManager {
         { recursive: true, force: true },
       );
     } catch (error) {
-      if (processError) {
-        throw new Error(
-          `Failed to terminate Firecracker: ${formatError(processError)}; ` +
-          `failed to remove jail: ${formatError(error)}`,
-        );
-      }
-      throw error;
+      errors.push(error);
     }
-    if (processError) throw processError;
+
+    if (errors.length === 1) throw errors[0];
+    if (errors.length > 1) {
+      throw new Error(
+        `Firecracker cleanup failed: ${errors.map(formatError).join('; ')}`,
+      );
+    }
   }
 
   private async waitForApiSocket(): Promise<void> {

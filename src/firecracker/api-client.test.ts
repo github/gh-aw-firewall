@@ -59,6 +59,11 @@ describe('FirecrackerApiClient', () => {
       is_root_device: true,
       is_read_only: false,
     });
+    await client.putNetworkInterface({
+      iface_id: 'primary interface',
+      host_dev_name: 'fct123456789012',
+      guest_mac: '02:00:00:00:00:01',
+    });
     await client.instanceStart();
 
     expect(received).toEqual([
@@ -75,6 +80,15 @@ describe('FirecrackerApiClient', () => {
           path_on_host: '/rootfs',
           is_root_device: true,
           is_read_only: false,
+        }),
+      },
+      {
+        method: 'PUT',
+        url: '/network-interfaces/primary%20interface',
+        body: JSON.stringify({
+          iface_id: 'primary interface',
+          host_dev_name: 'fct123456789012',
+          guest_mac: '02:00:00:00:00:01',
         }),
       },
       {

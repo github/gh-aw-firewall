@@ -5,7 +5,7 @@ import type { WrapperConfig } from './types';
 
 export const FIRECRACKER_INCOMPLETE_CAPABILITY_ERROR =
   'Firecracker runtime workload execution is unavailable in this preview: ' +
-  'networking and guest agent/vsock execution are not implemented';
+  'workspace image and guest command execution are not implemented';
 
 export interface FirecrackerRuntimeBackendDependencies {
   startInfrastructure: WorkflowDependencies['startContainers'];
@@ -16,7 +16,9 @@ export interface FirecrackerRuntimeBackendDependencies {
  * Fail-closed backend boundary for the Firecracker control-plane preview.
  *
  * The manager primitives are intentionally not dispatched by the main workflow
- * until networking and guest command execution land in later stack layers.
+ * until workspace preparation and guest command execution land in later stack
+ * layers. FirecrackerManager separately refuses to launch without host-side
+ * network enforcement.
  */
 export class FirecrackerRuntimeBackend implements ExternalAgentRuntimeBackend {
   readonly runtime = 'firecracker';

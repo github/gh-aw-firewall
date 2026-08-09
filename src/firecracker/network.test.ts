@@ -1,0 +1,301 @@
+import {
+  FirecrackerLinuxNetworkCommands,
+  FirecrackerNetworkManager,
+  createFirecrackerNetworkPlan,
+  generateFirecrackerNftRuleset,
+  type FirecrackerConnectivityProbe,
+  type FirecrackerNetworkCommandOptions,
+  type FirecrackerNetworkPlan,
+} from './network';
+
+interface CommandCall {
+  command: string;
+  args: readonly string[];
+  options: FirecrackerNetworkCommandOptions;
+}
+
+function createPlan(
+  runId = 'run-123',
+  overrides: Partial<Parameters<typeof createFirecrackerNetworkPlan>[1]> = {},
+): FirecrackerNetworkPlan {
+  return createFirecrackerNetworkPlan(runId, {
+    infrastructureBridge: 'awfbr0',
+    enableApiProxy: true,
+    jailerUid: 1000,
+    jailerGid: 1000,
+    ...overrides,
+  });
+}
+
+function commandHarness(failAt?: number): {
+  calls: CommandCall[];
+  commands: FirecrackerLinuxNetworkCommands;
+} {
+  const calls: CommandCall[] = [];
+  let rejectingCall = 0;
+  const commands = new FirecrackerLinuxNetworkCommands(
+    jest.fn(async (command, args, options) => {
+      calls.push({ command, args, options });
+      if (options.reject && ++rejectingCall === failAt) {
+        throw new Error(`stage ${failAt} failed`);
+      }
+    }),
+  );
+  return { calls, commands };
+}
+
+describe('Firecracker network planning', () => {
+  it('allocates deterministic, disjoint per-run guest addressing and bounded names', () => {
+    const first = createPlan('run-123');
+    const same = createPlan('run-123');
+    const second = createPlan('run-456');
+
+    expect(first).toEqual(same);
+    expect(second.guestSubnet).not.toBe(first.guestSubnet);
+    expect(second.guestMac).not.toBe(first.guestMac);
+    expect(first.guestSubnet).toMatch(/^100\.(?:6[4-9]|[78]\d|9\d|1[01]\d|12[0-7])\.\d+\.\d+\/30$/);
+    expect(first.guestGatewayIp).not.toBe(first.guestIp);
+    expect(first.infrastructureIp).toBe('172.30.0.20');
+    expect(first.infrastructureCidr).toBe('172.30.0.0/24');
+    expect(first.netnsPath).toBe(`/var/run/netns/${first.namespaceName}`);
+    expect(first.networkInterface).toEqual({
+      iface_id: 'eth0',
+      host_dev_name: first.tapName,
+      guest_mac: first.guestMac,
+    });
+    for (const name of [
+      first.tapName,
+      first.hostVethName,
+      first.namespaceVethName,
+      first.infrastructureBridge,
+    ]) {
+      expect(name.length).toBeLessThanOrEqual(15);
+      expect(name).toMatch(/^[A-Za-z0-9_.-]+$/);
+    }
+  });
+
+  it('derives exact service endpoints from centralized proxy policy', () => {
+    const enabled = createPlan();
+    const disabled = createPlan('without-api', { enableApiProxy: false });
+    const withControl = createPlan('control-peer', {
+      controlPeer: { ip: '172.30.0.60', ports: [8443, 8444] },
+    });
+
+    expect(enabled.allowedEndpoints).toEqual([
+      { name: 'squid', ip: '172.30.0.10', port: 3128 },
+      { name: 'api-proxy-openai', ip: '172.30.0.30', port: 10000 },
+      { name: 'api-proxy-anthropic', ip: '172.30.0.30', port: 10001 },
+      { name: 'api-proxy-copilot', ip: '172.30.0.30', port: 10002 },
+      { name: 'api-proxy-gemini', ip: '172.30.0.30', port: 10003 },
+      { name: 'api-proxy-vertex', ip: '172.30.0.30', port: 10004 },
+    ]);
+    expect(disabled.allowedEndpoints).toEqual([
+      { name: 'squid', ip: '172.30.0.10', port: 3128 },
+    ]);
+    expect(withControl.allowedEndpoints).toEqual(expect.arrayContaining([
+      { name: 'control-peer', ip: '172.30.0.60', port: 8443 },
+      { name: 'control-peer', ip: '172.30.0.60', port: 8444 },
+    ]));
+  });
+
+  it('rejects unsafe names, identities, peers, and direct DNS before execution', () => {
+    expect(() => createPlan('../escape')).toThrow(/run id/);
+    expect(() => createPlan('underscore_is_not_valid')).toThrow(/run id/);
+    expect(() => createPlan('a'.repeat(65))).toThrow(/run id/);
+    expect(() => createPlan('bad-bridge', {
+      infrastructureBridge: 'bridge-name-is-too-long',
+    })).toThrow(/IFNAMSIZ/);
+    expect(() => createPlan('root-owner', { jailerUid: 0 })).toThrow(/uid/);
+    expect(() => createPlan('public-peer', {
+      controlPeer: { ip: '8.8.8.8', ports: [443] },
+    })).toThrow(/RFC1918/);
+    expect(() => createPlan('metadata-peer', {
+      controlPeer: { ip: '169.254.169.254', ports: [443] },
+    })).toThrow(/RFC1918/);
+    expect(() => createPlan('dns-peer', {
+      controlPeer: { ip: '172.30.0.60', ports: [53] },
+    })).toThrow(/direct DNS/);
+    expect(() => createPlan('off-topology-peer', {
+      controlPeer: { ip: '10.20.30.40', ports: [8443] },
+    })).toThrow(/outside 172\.30\.0\.0\/24/);
+  });
+
+  it('rejects a future centralized infrastructure policy that overlaps the guest link', () => {
+    const plan = createPlan('overlap-defense');
+
+    expect(() => generateFirecrackerNftRuleset({
+      ...plan,
+      infrastructureCidr: plan.guestSubnet,
+      infrastructureIp: plan.guestIp,
+    })).toThrow(/guest subnet overlaps infrastructure/);
+  });
+});
+
+describe('Firecracker nftables policy', () => {
+  it('installs default-drop policy with exact endpoint, identity, and return rules', () => {
+    const plan = createPlan();
+    const ruleset = generateFirecrackerNftRuleset(plan);
+
+    expect(ruleset).toContain(`table inet ${plan.nftTableName}`);
+    expect(ruleset.match(/policy drop;/g)).toHaveLength(3);
+    expect(ruleset).toContain(
+      `iifname "${plan.tapName}" ether saddr != ${plan.guestMac} drop`,
+    );
+    expect(ruleset).toContain(
+      `iifname "${plan.tapName}" ip saddr != ${plan.guestIp} drop`,
+    );
+    expect(ruleset).toContain('ip daddr 169.254.0.0/16 drop');
+    expect(ruleset).toContain('ip daddr 224.0.0.0/4 drop');
+    expect(ruleset).toContain('ip daddr 172.30.0.1 drop');
+    expect(ruleset).toContain('udp dport 53 drop');
+    expect(ruleset).toContain('tcp dport 53 drop');
+    expect(ruleset).toContain('ct state established,related accept');
+    expect(ruleset).toContain('ip daddr 172.30.0.10 tcp dport 3128');
+    for (let port = 10000; port <= 10004; port += 1) {
+      expect(ruleset).toContain(`ip daddr 172.30.0.30 tcp dport ${port}`);
+    }
+    expect(ruleset).not.toContain('masquerade');
+    expect(ruleset).not.toContain('flush ruleset');
+    expect(ruleset).not.toMatch(/ip daddr 0\.0\.0\.0\/0.*accept/);
+  });
+
+  it('emits SNAT only for the same exact allowed destination pairs', () => {
+    const plan = createPlan('narrow-snat', { enableApiProxy: false });
+    const ruleset = generateFirecrackerNftRuleset(plan);
+    const snatLines = ruleset.split('\n').filter((line) => line.includes('snat to'));
+
+    expect(snatLines).toEqual([
+      expect.stringContaining(
+        `ip daddr 172.30.0.10 tcp dport 3128 snat to ${plan.infrastructureIp}`,
+      ),
+    ]);
+  });
+});
+
+describe('Firecracker network lifecycle', () => {
+  it('creates the namespace, veth, TAP, forwarding, and atomic policy in order', async () => {
+    const plan = createPlan();
+    const { calls, commands } = commandHarness();
+    const probe: FirecrackerConnectivityProbe = {
+      verify: jest.fn().mockResolvedValue(undefined),
+    };
+    const manager = new FirecrackerNetworkManager(plan, commands, probe);
+
+    await expect(manager.setup()).resolves.toBe(plan);
+
+    expect(calls[0]).toEqual({
+      command: 'ip',
+      args: ['netns', 'add', plan.namespaceName],
+      options: { reject: true },
+    });
+    expect(calls[1].args).toEqual([
+      'link', 'add', plan.hostVethName,
+      'type', 'veth',
+      'peer', 'name', plan.namespaceVethName,
+    ]);
+    expect(calls[2].args).toEqual([
+      'link', 'set', plan.namespaceVethName,
+      'netns', plan.namespaceName,
+    ]);
+    expect(calls[3].args).toEqual([
+      'link', 'set', plan.hostVethName,
+      'master', plan.infrastructureBridge,
+    ]);
+    expect(calls[5].args).toEqual([
+      'netns', 'exec', plan.namespaceName, 'ip',
+      'tuntap', 'add',
+      'dev', plan.tapName,
+      'mode', 'tap',
+      'user', '1000',
+      'group', '1000',
+    ]);
+    expect(calls[11].args).toContain('net.ipv4.ip_forward=1');
+    expect(calls[12].args).toContain('net.ipv6.conf.all.disable_ipv6=1');
+    expect(calls[13].args).toContain('net.ipv6.conf.default.disable_ipv6=1');
+    expect(calls[14]).toEqual({
+      command: 'ip',
+      args: ['netns', 'exec', plan.namespaceName, 'nft', '-f', '-'],
+      options: {
+        reject: true,
+        input: generateFirecrackerNftRuleset(plan),
+      },
+    });
+    expect(probe.verify).toHaveBeenCalledWith(plan);
+  });
+
+  it('rolls back every partial setup stage with run-specific cleanup', async () => {
+    const plan = createPlan('rollback-all');
+    const setupStageCount = 15;
+
+    for (let failAt = 1; failAt <= setupStageCount; failAt += 1) {
+      const { calls, commands } = commandHarness(failAt);
+      const manager = new FirecrackerNetworkManager(plan, commands);
+
+      await expect(manager.setup()).rejects.toThrow(`stage ${failAt} failed`);
+      const cleanupCalls = calls.filter((call) => call.options.reject === false);
+      if (failAt === 1) {
+        expect(cleanupCalls).toEqual([]);
+      } else if (failAt === 2) {
+        expect(cleanupCalls).toEqual([{
+          command: 'ip',
+          args: ['netns', 'delete', plan.namespaceName],
+          options: { reject: false },
+        }]);
+      } else {
+        expect(cleanupCalls).toEqual([
+          {
+            command: 'ip',
+            args: ['link', 'delete', plan.hostVethName],
+            options: { reject: false },
+          },
+          {
+            command: 'ip',
+            args: ['netns', 'delete', plan.namespaceName],
+            options: { reject: false },
+          },
+        ]);
+      }
+    }
+  });
+
+  it('treats a supplied connectivity probe failure as setup failure', async () => {
+    const plan = createPlan('probe-failure');
+    const { calls, commands } = commandHarness();
+    const probe: FirecrackerConnectivityProbe = {
+      verify: jest.fn().mockRejectedValue(new Error('proxy unreachable')),
+    };
+    const manager = new FirecrackerNetworkManager(plan, commands, probe);
+
+    await expect(manager.setup()).rejects.toThrow('proxy unreachable');
+    expect(calls.slice(-1)[0].args).toEqual([
+      'netns', 'delete', plan.namespaceName,
+    ]);
+  });
+
+  it('cleanup is idempotent and never targets unrelated nftables objects', async () => {
+    const plan = createPlan('cleanup-twice');
+    const { calls, commands } = commandHarness();
+    const manager = new FirecrackerNetworkManager(plan, commands);
+
+    await manager.setup();
+    await manager.cleanup();
+    const callsAfterFirstCleanup = calls.length;
+    await manager.cleanup();
+
+    expect(calls).toHaveLength(callsAfterFirstCleanup);
+    const cleanupCalls = calls.filter((call) => call.options.reject === false);
+    expect(cleanupCalls).toHaveLength(3);
+    expect(cleanupCalls.filter((call) => call.args.includes('delete'))).toEqual([
+      expect.objectContaining({
+        args: expect.arrayContaining([plan.nftTableName]),
+      }),
+      expect.objectContaining({
+        args: expect.arrayContaining([plan.hostVethName]),
+      }),
+      expect.objectContaining({
+        args: expect.arrayContaining([plan.namespaceName]),
+      }),
+    ]);
+    expect(calls.some((call) => call.args.includes('flush'))).toBe(false);
+  });
+});
