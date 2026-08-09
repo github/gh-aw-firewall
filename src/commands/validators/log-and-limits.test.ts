@@ -48,6 +48,7 @@ function minimalOptions(overrides: Record<string, unknown> = {}): Record<string,
     buildLocal: false,
     agentImage: undefined,
     memoryLimit: '6g',
+    pidsLimit: '1000',
     ...overrides,
   };
 }
@@ -75,6 +76,7 @@ describe('validateLogAndLimits – success paths', () => {
     expect(result.allowedModels).toBeUndefined();
     expect(result.disallowedModels).toBeUndefined();
     expect(result.memoryLimit).toBe('6g');
+    expect(result.pidsLimit).toBe(1000);
     expect(result.agentImage).toBe('default');
   });
 
@@ -117,6 +119,11 @@ describe('validateLogAndLimits – success paths', () => {
     (parseMemoryLimit as jest.Mock).mockReturnValue({ value: '2g' });
     const result = validateLogAndLimits(minimalOptions());
     expect(result.memoryLimit).toBe('2g');
+  });
+
+  it('returns valid pidsLimit number', () => {
+    const result = validateLogAndLimits(minimalOptions({ pidsLimit: '2000' }));
+    expect(result.pidsLimit).toBe(2000);
   });
 
   it('logs info message for custom agent image with buildLocal', () => {
@@ -290,6 +297,11 @@ describe('validateLogAndLimits – validation failures', () => {
     spyExit();
     (parseMemoryLimit as jest.Mock).mockReturnValue({ error: 'Invalid --memory-limit value "invalid-memory".' });
     expect(() => validateLogAndLimits(minimalOptions())).toThrow('process.exit called');
+  });
+
+  it('exits when pidsLimit has an invalid format', () => {
+    spyExit();
+    expect(() => validateLogAndLimits(minimalOptions({ pidsLimit: 'invalid-pids' }))).toThrow('process.exit called');
   });
 
   it('exits when a custom agentImage is given without --build-local', () => {

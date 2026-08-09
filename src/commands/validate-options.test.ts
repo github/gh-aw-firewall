@@ -54,6 +54,7 @@ const STUB_CONFIG = {
   dnsServers: ['8.8.8.8'],
   dnsOverHttps: undefined,
   memoryLimit: undefined,
+  pidsLimit: undefined,
   proxyLogsDir: undefined,
   auditDir: undefined,
   sessionStateDir: undefined,
@@ -127,6 +128,7 @@ describe('validateOptions', () => {
     mockedOptionParsers.parseEnvironmentVariables.mockReturnValue({ success: true, env: {} });
     mockedOptionParsers.parseVolumeMounts.mockReturnValue({ success: true, mounts: [] });
     mockedOptionParsers.parseMemoryLimit.mockReturnValue({ value: undefined } as ReturnType<typeof optionParsers.parseMemoryLimit>);
+    mockedOptionParsers.parsePidsLimit.mockReturnValue({ value: 1000 } as ReturnType<typeof optionParsers.parsePidsLimit>);
     mockedOptionParsers.applyAgentTimeout.mockImplementation(() => undefined);
     mockedOptionParsers.buildRateLimitConfig.mockReturnValue({
       config: { enabled: false, rpm: 0, rph: 0, bytesPm: 0 },

@@ -99,7 +99,11 @@ function buildAgentSecurityConfig(config: WrapperConfig): any {
     // instead of immediately OOM-killing the agent process.
     mem_limit: config.memoryLimit || '6g',
     memswap_limit: config.memoryLimit ? config.memoryLimit : '-1',  // Disable swap when user specifies limit
-    pids_limit: 1000,          // Max 1000 processes
+    // Default 1000 matches the historical hardcoded ceiling; configurable via
+    // --pids-limit / container.pidsLimit for JVM-heavy builds (javac, Android
+    // manifest merger) that spawn many threads and hit "unable to create native
+    // thread" errors under concurrent load. See github/gh-aw-firewall#7148.
+    pids_limit: config.pidsLimit || 1000,
     cpu_shares: 1024,          // Default CPU share
   };
 }

@@ -321,6 +321,7 @@ describe('mapAwfFileConfigToCliOptions', () => {
     const result = mapAwfFileConfigToCliOptions({
       container: {
         memoryLimit: '4g',
+        pidsLimit: 2000,
         enableDind: true,
         workDir: '/tmp/awf',
         imageRegistry: 'ghcr.io/custom',
@@ -336,6 +337,7 @@ describe('mapAwfFileConfigToCliOptions', () => {
     });
 
     expect(result.memoryLimit).toBe('4g');
+    expect(result.pidsLimit).toBe('2000');
     expect(result.enableDind).toBe(true);
     expect(result.workDir).toBe('/tmp/awf');
     expect(result.imageRegistry).toBe('ghcr.io/custom');

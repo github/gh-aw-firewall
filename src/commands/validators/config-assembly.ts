@@ -51,6 +51,7 @@ export function assembleAndValidateConfig(
     dnsOverHttps: networkOptions.dnsOverHttps,
     allowedUrls: agentOptions.allowedUrls,
     memoryLimit: logAndLimits.memoryLimit,
+    pidsLimit: logAndLimits.pidsLimit,
     agentImage: logAndLimits.agentImage,
     modelAliases: logAndLimits.modelAliases,
     allowedModels: logAndLimits.allowedModels,

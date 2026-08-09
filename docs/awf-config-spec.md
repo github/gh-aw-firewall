@@ -173,6 +173,7 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 - `security.difcProxy.host` → `--difc-proxy-host`
 - `security.difcProxy.caCert` → `--difc-proxy-ca-cert`
 - `container.memoryLimit` → `--memory-limit`
+- `container.pidsLimit` → `--pids-limit`
 - `container.agentTimeout` → `--agent-timeout`
 - `container.enableDind` → `--enable-dind`
 - `container.workDir` → `--work-dir`

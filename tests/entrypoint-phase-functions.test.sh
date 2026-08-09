@@ -27,6 +27,7 @@ required_functions=(
   determine_capabilities_to_drop
   log_execution_context
   mount_host_procfs
+  mount_host_cgroupfs
   copy_preload_libs
   copy_agent_helper_scripts
   copy_dind_runner_binary
@@ -111,6 +112,7 @@ COPY_SYSTEM_CA_BUNDLE_BLOCK="$(awk '
 
 chroot_helpers=(
   'mount_host_procfs'
+  'mount_host_cgroupfs'
   'check_chroot_prereqs'
   'copy_preload_libs'
   'copy_agent_helper_scripts'

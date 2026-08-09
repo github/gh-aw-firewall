@@ -215,6 +215,11 @@ program
     '6g'
   )
   .option(
+    '--pids-limit <limit>',
+    'Process/thread ceiling for the agent container (e.g., 1000, 2000). Default: 1000',
+    '1000'
+  )
+  .option(
     '--tty',
     'Allocate a pseudo-TTY (required for interactive tools like Claude Code)',
     false

@@ -105,6 +105,7 @@ export interface AwfFileConfig {
   };
   container?: {
     memoryLimit?: string;
+    pidsLimit?: number;
     agentTimeout?: number;
     enableDind?: boolean;
     workDir?: string;

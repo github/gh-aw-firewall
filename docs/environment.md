@@ -426,6 +426,30 @@ Host proxy environment variables (`HTTP_PROXY`, `HTTPS_PROXY`, `http_proxy`, `ht
 `ALL_PROXY`, `NO_PROXY`, etc.) are **always excluded** from container passthrough, even with
 `--env-all`. AWF sets its own proxy variables pointing to Squid (`172.30.0.10:3128`).
 
+## Resource Limits
+
+The agent container has two configurable resource ceilings:
+
+- **Memory** (`--memory-limit`, default `6g`): Docker `mem_limit`. See `docs/usage.md`.
+- **Process/thread count** (`--pids-limit`, default `1000`): Docker `pids_limit`, the maximum
+  number of processes/threads the container (and everything running inside it) may create.
+
+Concurrent JVM-heavy builds (e.g. `javac`, Android's manifest merger) can spin up many
+threads and hit the default 1000-process ceiling, failing with errors like
+`unable to create native thread` or `Cannot create worker GC thread` that look like
+application bugs rather than a sandbox limit. If you see these errors, raise the ceiling:
+
+```bash
+awf --pids-limit 4000 --allow-domains github.com 'command'
+```
+
+or via the config file:
+
+```yaml
+container:
+  pidsLimit: 4000
+```
+
 ## Troubleshooting
 
 **Variable not accessible:** Use `sudo -E` or pass explicitly with `--env VAR="$VAR"`

@@ -73,6 +73,21 @@ export function parseMemoryLimit(input: string): { value: string; error?: undefi
 }
 
 /**
+ * Parses and validates the --pids-limit option.
+ * Valid formats: a positive integer (e.g., "1000", "2000").
+ */
+export function parsePidsLimit(input: string): { value: number; error?: undefined } | { value?: undefined; error: string } {
+  if (!/^\d+$/.test(input)) {
+    return { error: `Invalid --pids-limit value "${input}". Expected a positive integer (e.g., 1000, 2000).` };
+  }
+  const num = parseInt(input, 10);
+  if (num <= 0) {
+    return { error: `Invalid --pids-limit value "${input}". pids-limit must be a positive integer.` };
+  }
+  return { value: num };
+}
+
+/**
  * Parses and validates the --agent-timeout option
  * @param value - The raw string value from the CLI option
  * @returns The parsed timeout in minutes, or an error

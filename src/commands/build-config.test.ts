@@ -34,6 +34,7 @@ function makeInputs(overrides: Partial<Parameters<typeof buildConfig>[0]> = {}):
     dnsOverHttps: undefined,
     allowedUrls: undefined,
     memoryLimit: undefined,
+    pidsLimit: undefined,
     agentImage: undefined,
     modelAliases: undefined,
     allowedModels: undefined,

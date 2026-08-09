@@ -6,6 +6,7 @@ import {
 import {
   parseModelMultipliersCli,
   parseMemoryLimit,
+  parsePidsLimit,
 } from '../../option-parsers';
 import { processAgentImageOption } from '../../domain-utils';
 
@@ -26,6 +27,7 @@ export interface LogAndLimitsResult {
   maxPermissionDenied: number | undefined;
   maxCacheMisses: number | undefined;
   memoryLimit: string | undefined;
+  pidsLimit: number | undefined;
   agentImage: string | undefined;
 }
 
@@ -153,7 +155,7 @@ function validateRunLimits(options: ValidatorOptions): RunLimitsResult {
  *  - `--anthropic-cache-tail-ttl`
  *  - `--max-effective-tokens`, `--max-ai-credits`, `--effective-token-default-model-multiplier`, `--max-model-multiplier`, `--max-model-multiplier-cap`
  *  - `--max-runs`, `--max-permission-denied`, `--max-cache-misses`
- *  - `--memory-limit`, `--agent-image`, `--build-local`
+ *  - `--memory-limit`, `--pids-limit`, `--agent-image`, `--build-local`
  *
  * Calls `process.exit(1)` on any validation failure so the caller always
  * receives a fully-validated result.
@@ -184,6 +186,13 @@ export function validateLogAndLimits(options: ValidatorOptions): LogAndLimitsRes
     process.exit(1);
   }
 
+  // Validate pids limit
+  const pidsLimit = parsePidsLimit(options.pidsLimit as string);
+  if (pidsLimit.error) {
+    logger.error(pidsLimit.error);
+    process.exit(1);
+  }
+
   // Validate agent image option
   const agentImageResult = processAgentImageOption(
     options.agentImage as string | undefined,
@@ -202,6 +211,7 @@ export function validateLogAndLimits(options: ValidatorOptions): LogAndLimitsRes
     ...modelMultiplierOptions,
     ...runLimits,
     memoryLimit: memoryLimit.value,
+    pidsLimit: pidsLimit.value,
     agentImage: agentImageResult.agentImage,
   };
 }

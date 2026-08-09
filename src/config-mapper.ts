@@ -98,6 +98,7 @@ export function mapAwfFileConfigToCliOptions(config: AwfFileConfig): Record<stri
     difcProxyCaCert: config.security?.difcProxy?.caCert,
 
     memoryLimit: config.container?.memoryLimit,
+    pidsLimit: toStringIfDefined(config.container?.pidsLimit),
     agentTimeout: toStringIfDefined(config.container?.agentTimeout),
     enableDind: config.container?.enableDind,
     workDir: config.container?.workDir,

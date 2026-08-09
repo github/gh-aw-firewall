@@ -81,4 +81,9 @@ describe('buildAgentSecurityConfig', () => {
     expect(result.pids_limit).toBe(1000);
     expect(result.cpu_shares).toBe(1024);
   });
+
+  it('uses configured pidsLimit when set', () => {
+    const result = buildAgentSecurityConfig({ ...baseSecurityConfig, pidsLimit: 2000 });
+    expect(result.pids_limit).toBe(2000);
+  });
 });

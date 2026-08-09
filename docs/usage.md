@@ -127,6 +127,9 @@ Options:
                                (default: https://dns.google/dns-query)
   --memory-limit <limit>       Memory limit for the agent container (default: 6g)
                                 Examples: 1g, 4g, 512m
+  --pids-limit <limit>         Process/thread ceiling for the agent container (default: 1000)
+                                Increase for JVM-heavy builds (javac, Android manifest
+                                merger) that hit "unable to create native thread" errors
   --enable-dind                Enable Docker-in-Docker by exposing host Docker socket.
                                WARNING: allows firewall bypass via docker run (default: false)
   --docker-host-path-prefix <prefix>  Prefix bind-mount source paths so the Docker daemon can

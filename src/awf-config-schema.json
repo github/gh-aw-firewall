@@ -578,6 +578,11 @@
           "type": "string",
           "description": "Docker memory limit for the agent container (e.g. \"4g\", \"512m\"). Uses Docker memory limit syntax."
         },
+        "pidsLimit": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Process/thread ceiling (Docker pids_limit) for the agent container. Increase for JVM-heavy builds that spawn many threads. Defaults to 1000."
+        },
         "agentTimeout": {
           "type": "integer",
           "minimum": 1,

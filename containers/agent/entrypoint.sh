@@ -550,6 +550,34 @@ mount_host_procfs() {
   fi
 }
 
+mount_host_cgroupfs() {
+  # Bind-mount the container's own (real, pre-chroot) cgroup subtree at /host/sys/fs/cgroup,
+  # read-only, so pids.max/pids.current (and other cgroup limits) are visible to tools
+  # running inside the chroot.
+  #
+  # Without this, /host/sys/fs/cgroup only shows whatever the host's read-only bind mount of
+  # /sys exposes (from the "system" mount policy), which is the host's raw cgroupfs view, not
+  # the container's own delegated cgroup. That view is typically unreadable/misleading from
+  # inside an unprivileged container, so tools like the JVM can't discover the real pids
+  # ceiling and size thread pools accordingly, leading to confusing
+  # "unable to create native thread" / "Cannot create worker GC thread" failures instead of a
+  # clear signal that the process ceiling was hit. See: --pids-limit (default 1000).
+  #
+  # This is best-effort: if the bind mount fails (e.g. cgroup not delegated, unsupported
+  # runtime), we continue without it rather than aborting the whole command.
+  mkdir -p /host/sys/fs/cgroup
+  if mount --bind /sys/fs/cgroup /host/sys/fs/cgroup 2>/dev/null; then
+    if mount -o remount,ro,bind /host/sys/fs/cgroup 2>/dev/null; then
+      echo "[entrypoint] Bind-mounted container cgroup subtree at /host/sys/fs/cgroup (ro)"
+    else
+      echo "[entrypoint][WARN] Bind-mounted /host/sys/fs/cgroup but could not remount read-only"
+    fi
+  else
+    echo "[entrypoint][WARN] Could not bind-mount cgroup subtree at /host/sys/fs/cgroup"
+    echo "[entrypoint][WARN] pids.max/pids.current will not be visible inside the sandbox"
+  fi
+}
+
 copy_preload_libs() {
   # Copy one-shot-token library to host filesystem for LD_PRELOAD in chroot
   # This prevents tokens from being read multiple times by malicious code
@@ -1225,6 +1253,7 @@ run_chroot_command() {
   echo "[entrypoint] Chroot mode: running command inside host filesystem (/host)"
 
   mount_host_procfs
+  mount_host_cgroupfs
   check_chroot_prereqs
   copy_preload_libs
   copy_agent_helper_scripts

@@ -46,6 +46,20 @@ export interface SecurityOptions {
   memoryLimit?: string;
 
   /**
+   * Process/thread ceiling for the agent execution container
+   *
+   * Controls Docker's `pids_limit`, capping the number of processes/threads
+   * the container can create. Concurrent JVM-heavy builds (javac, Android
+   * manifest merger) can hit the default ceiling and fail with errors like
+   * "unable to create native thread" or "Cannot create worker GC thread".
+   * Increase this value if your workload spawns many processes/threads.
+   *
+   * @default 1000
+   * @example 2000
+   */
+  pidsLimit?: number;
+
+  /**
    * Enable Data Loss Prevention (DLP) scanning
    *
    * When true, Squid proxy will block outgoing requests that contain

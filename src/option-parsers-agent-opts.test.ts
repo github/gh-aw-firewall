@@ -1,6 +1,7 @@
 import { Command } from 'commander';
 import {
   parseMemoryLimit,
+  parsePidsLimit,
   applyAgentTimeout,
   collectRulesetFile,
   collectStringArray,
@@ -27,6 +28,25 @@ describe('parseMemoryLimit', () => {
 
   it('rejects zero', () => {
     expect(parseMemoryLimit('0g')).toHaveProperty('error');
+  });
+});
+
+describe('parsePidsLimit', () => {
+  it('accepts valid positive integers', () => {
+    expect(parsePidsLimit('1000')).toEqual({ value: 1000 });
+    expect(parsePidsLimit('2000')).toEqual({ value: 2000 });
+    expect(parsePidsLimit('1')).toEqual({ value: 1 });
+  });
+
+  it('rejects invalid formats', () => {
+    expect(parsePidsLimit('abc')).toHaveProperty('error');
+    expect(parsePidsLimit('-1')).toHaveProperty('error');
+    expect(parsePidsLimit('1.5')).toHaveProperty('error');
+    expect(parsePidsLimit('')).toHaveProperty('error');
+  });
+
+  it('rejects zero', () => {
+    expect(parsePidsLimit('0')).toHaveProperty('error');
   });
 });
 

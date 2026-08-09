@@ -84,6 +84,7 @@ const mockBuildConfig = buildConfig as jest.Mock;
 export const createMinimalLogAndLimits = (): LogAndLimitsResult => ({
   logLevel: 'info' as const,
   memoryLimit: undefined,
+  pidsLimit: undefined,
   agentImage: undefined,
   modelAliases: {},
   allowedModels: undefined,

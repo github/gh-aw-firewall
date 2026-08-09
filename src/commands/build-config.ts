@@ -57,6 +57,7 @@ interface BuildConfigInputs {
   dnsOverHttps: string | undefined;
   allowedUrls: string[] | undefined;
   memoryLimit: string | undefined;
+  pidsLimit: number | undefined;
   agentImage: string | undefined;
   modelAliases: Record<string, string[]> | undefined;
   allowedModels: string[] | undefined;
@@ -96,6 +97,7 @@ export function buildConfig(inputs: BuildConfigInputs): WrapperConfig {
     dnsOverHttps,
     allowedUrls,
     memoryLimit,
+    pidsLimit,
     agentImage,
     modelAliases,
     allowedModels,
@@ -147,6 +149,7 @@ export function buildConfig(inputs: BuildConfigInputs): WrapperConfig {
     dnsServersExplicit,
     dnsOverHttps,
     memoryLimit,
+    pidsLimit,
     proxyLogsDir: options.proxyLogsDir as string | undefined,
     auditDir: (options.auditDir as string | undefined) || process.env.AWF_AUDIT_DIR,
     sessionStateDir:
