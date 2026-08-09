@@ -3,6 +3,13 @@ import type { AwfFileConfig } from '../config-file';
 import { resolveApiCredentials } from './resolve-credentials';
 import { normalizeEnclavesConfig } from '../parsers/enclave-parser';
 import { logger } from '../logger';
+import {
+  FIRECRACKER_DEFAULT_API_TIMEOUT_MS,
+  FIRECRACKER_DEFAULT_BINARY,
+  FIRECRACKER_DEFAULT_JAILER_BINARY,
+  FIRECRACKER_DEFAULT_MEMORY_MIB,
+  FIRECRACKER_DEFAULT_VCPU_COUNT,
+} from '../types/runtime-options';
 
 /**
  * Resolves the effective `legacySecurity` value from CLI options.
@@ -117,6 +124,7 @@ export function buildConfig(inputs: BuildConfigInputs): WrapperConfig {
 
   const chrootIdentity = buildChrootIdentity(options);
   const dind = buildDindConfig(options);
+  const firecracker = buildFirecrackerConfig(options);
   const apiCredentials = resolveApiCredentials(options, {
     resolvedCopilotApiTarget,
     resolvedCopilotApiBasePath,
@@ -218,10 +226,81 @@ export function buildConfig(inputs: BuildConfigInputs): WrapperConfig {
     chrootBinariesSourcePath: options.chrootBinariesSourcePath as string | undefined,
     chrootIdentity,
     dind,
+    firecracker,
     enclaves: normalizeEnclavesConfig(
       options.enclaves as AwfFileConfig['enclaves'] | undefined,
     ),
   };
+}
+
+function buildFirecrackerConfig(
+  options: Record<string, unknown>,
+): WrapperConfig['firecracker'] {
+  const selected = options.containerRuntime === 'firecracker';
+  const configured = options.firecrackerPreview === true
+    || [
+      'firecrackerBinary',
+      'firecrackerJailerBinary',
+      'firecrackerKernel',
+      'firecrackerRootfs',
+      'firecrackerVcpus',
+      'firecrackerMemoryMib',
+      'firecrackerApiTimeoutMs',
+      'firecrackerBinarySha256',
+      'firecrackerJailerSha256',
+      'firecrackerKernelSha256',
+      'firecrackerRootfsSha256',
+    ].some((key) => options[key] !== undefined);
+  if (!selected && !configured) return undefined;
+
+  const sha256 = {
+    firecracker: options.firecrackerBinarySha256 as string | undefined,
+    jailer: options.firecrackerJailerSha256 as string | undefined,
+    kernel: options.firecrackerKernelSha256 as string | undefined,
+    rootfs: options.firecrackerRootfsSha256 as string | undefined,
+  };
+
+  return {
+    previewEnabled: options.firecrackerPreview === true,
+    firecrackerBinary:
+      (options.firecrackerBinary as string | undefined) ?? FIRECRACKER_DEFAULT_BINARY,
+    jailerBinary:
+      (options.firecrackerJailerBinary as string | undefined) ??
+      FIRECRACKER_DEFAULT_JAILER_BINARY,
+    kernelPath: options.firecrackerKernel as string | undefined,
+    rootfsPath: options.firecrackerRootfs as string | undefined,
+    vcpuCount: parseFirecrackerPositiveInteger(
+      options.firecrackerVcpus,
+      '--firecracker-vcpus',
+      FIRECRACKER_DEFAULT_VCPU_COUNT,
+    ),
+    memoryMib: parseFirecrackerPositiveInteger(
+      options.firecrackerMemoryMib,
+      '--firecracker-memory-mib',
+      FIRECRACKER_DEFAULT_MEMORY_MIB,
+    ),
+    apiTimeoutMs: parseFirecrackerPositiveInteger(
+      options.firecrackerApiTimeoutMs,
+      '--firecracker-api-timeout-ms',
+      FIRECRACKER_DEFAULT_API_TIMEOUT_MS,
+    ),
+    sha256: Object.values(sha256).some((value) => value !== undefined)
+      ? sha256
+      : undefined,
+  };
+}
+
+function parseFirecrackerPositiveInteger(
+  value: unknown,
+  optionName: string,
+  defaultValue: number,
+): number {
+  if (value === undefined) return defaultValue;
+  const parsed = typeof value === 'number' ? value : Number(value);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw new Error(`${optionName} must be a positive integer`);
+  }
+  return parsed;
 }
 
 function buildChrootIdentity(

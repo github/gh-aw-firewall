@@ -3,6 +3,7 @@ import * as path from 'path';
 import * as yaml from 'js-yaml';
 import { validateWithSchema } from './schema-validator';
 import type { RawEnclavesConfig } from './types/enclave-options';
+import type { FirecrackerArtifactDigests } from './types/runtime-options';
 
 /** @internal Used only by config-file helpers — not part of public API */
 // ts-prune-ignore-next
@@ -121,6 +122,17 @@ export interface AwfFileConfig {
     containerRuntime?: string;
     runnerToolCachePath?: string;
     mounts?: string[];
+  };
+  firecracker?: {
+    previewEnabled?: boolean;
+    firecrackerBinary?: string;
+    jailerBinary?: string;
+    kernelPath?: string;
+    rootfsPath?: string;
+    vcpuCount?: number;
+    memoryMib?: number;
+    apiTimeoutMs?: number;
+    sha256?: FirecrackerArtifactDigests;
   };
   chroot?: {
     binariesSourcePath?: string;

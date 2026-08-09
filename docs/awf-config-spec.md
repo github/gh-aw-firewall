@@ -75,6 +75,7 @@ following top-level properties. All are OPTIONAL:
 | `apiProxy` | object | API proxy sidecar configuration |
 | `security` | object | Security and isolation settings |
 | `container` | object | Container and Docker settings |
+| `firecracker` | object | Firecracker v1.16.1 control-plane preview settings |
 | `chroot` | object | Chroot execution overrides for split-filesystem ARC/DinD runners |
 | `dind` | object | Bootstrap helpers for ARC/DinD split runner/daemon filesystems |
 | `runner` | object | Runner topology declaration (standard vs. ARC/DinD) |
@@ -188,7 +189,19 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 - `container.dockerHostPathPrefix` → `--docker-host-path-prefix`
 - `container.runnerToolCachePath` → *(config-only; checked first for optional read-only runner tool cache mount, before `RUNNER_TOOL_CACHE` and `/home/runner/work/_tool` auto-detection)*
 - `container.mounts[]` → `-v, --mount` *(repeatable; each array entry maps to one Docker volume mount in `/host_path:/container_path[:ro|rw]` format (both paths must be absolute; host path must exist); in chroot mode, container paths are automatically prefixed with `/host`)*
-- `container.containerRuntime` → `--container-runtime` *(user-facing runtime name: `"gvisor"` for OCI runtime in compose, `"sbx"` for Docker sbx microVM. For gvisor: translates to `"runsc"`, injects `extra_hosts` for DNS workaround. For sbx: agent runs in a hypervisor-isolated microVM, infra stays in compose, sbx proxy chains through AWF's Squid.)*
+- `container.containerRuntime` → `--container-runtime` *(user-facing runtime name: `"gvisor"` for OCI runtime in compose, `"sbx"` for Docker sbx microVM, or `"firecracker"` for the fail-closed Firecracker v1.16.1 control-plane preview)*
+- `firecracker.previewEnabled` → `--firecracker-preview`
+- `firecracker.firecrackerBinary` → `--firecracker-binary`
+- `firecracker.jailerBinary` → `--firecracker-jailer-binary`
+- `firecracker.kernelPath` → `--firecracker-kernel`
+- `firecracker.rootfsPath` → `--firecracker-rootfs`
+- `firecracker.vcpuCount` → `--firecracker-vcpus`
+- `firecracker.memoryMib` → `--firecracker-memory-mib`
+- `firecracker.apiTimeoutMs` → `--firecracker-api-timeout-ms`
+- `firecracker.sha256.firecracker` → `--firecracker-binary-sha256`
+- `firecracker.sha256.jailer` → `--firecracker-jailer-sha256`
+- `firecracker.sha256.kernel` → `--firecracker-kernel-sha256`
+- `firecracker.sha256.rootfs` → `--firecracker-rootfs-sha256`
 - `chroot.binariesSourcePath` → *(config-only; mounts a runner-side binaries directory at `/tmp/awf-runner-bin` inside chroot mode and prepends it to `PATH`)*
 - `chroot.identity.home` → *(config-only; forwarded as `AWF_CHROOT_IDENTITY_HOME` and applied after chroot pivot)*
 - `chroot.identity.user` → *(config-only; forwarded as `AWF_CHROOT_IDENTITY_USER` and applied to `USER`/`LOGNAME` after chroot pivot)*
@@ -247,6 +260,14 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 - `enclaves.executors.agent.maxInvocations` → *(config-only; no CLI equivalent, see §14)*
 
 When `container.dockerHostPathPrefix` points at a daemon-visible shared `/tmp` path, the implementation stages the invoking CLI binary together with `/etc/passwd`, `/etc/group`, and the generated chroot `/etc/hosts` under that shared path so chroot mode can bootstrap on split-filesystem ARC/DinD hosts.
+
+The `firecracker` surface is a control-plane preview pinned to Firecracker
+v1.16.1 on Linux/KVM (`x86_64` or `aarch64`). AWF MUST launch Firecracker
+through the matching jailer, reject unsafe or mismatched artifacts, and MUST
+NOT fall back to another runtime. Networking, workspace images, enclave
+executors, and guest workload execution are intentionally unavailable in this
+preview; selecting `firecracker` therefore fails closed before running the
+requested command.
 
 When DinD is detected, AWF preserves the detected `DOCKER_HOST` value for the agent environment (including MCP servers) so DinD-aware tooling can reach the correct daemon without manual workflow env overrides.
 

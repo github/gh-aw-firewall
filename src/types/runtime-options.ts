@@ -4,6 +4,38 @@
 
 import type { LogLevel } from './log-level';
 
+export const FIRECRACKER_RELEASE_VERSION = '1.16.1';
+export const FIRECRACKER_DEFAULT_BINARY = '/usr/local/bin/firecracker';
+export const FIRECRACKER_DEFAULT_JAILER_BINARY = '/usr/local/bin/jailer';
+export const FIRECRACKER_DEFAULT_VCPU_COUNT = 2;
+export const FIRECRACKER_DEFAULT_MEMORY_MIB = 512;
+export const FIRECRACKER_DEFAULT_API_TIMEOUT_MS = 5_000;
+
+export interface FirecrackerArtifactDigests {
+  firecracker?: string;
+  jailer?: string;
+  kernel?: string;
+  rootfs?: string;
+}
+
+/**
+ * Preview control-plane configuration for the Firecracker microVM runtime.
+ *
+ * Networking and guest command execution are intentionally not part of this
+ * configuration surface yet.
+ */
+export interface FirecrackerOptions {
+  previewEnabled: boolean;
+  firecrackerBinary: string;
+  jailerBinary: string;
+  kernelPath?: string;
+  rootfsPath?: string;
+  vcpuCount: number;
+  memoryMib: number;
+  apiTimeoutMs: number;
+  sha256?: FirecrackerArtifactDigests;
+}
+
 export interface RuntimeOptions {
   /**
    * The command to execute inside the firewall container
@@ -161,4 +193,7 @@ export interface RuntimeOptions {
       targetPath?: string;
     };
   };
+
+  /** Firecracker microVM control-plane settings. */
+  firecracker?: FirecrackerOptions;
 }

@@ -1,0 +1,205 @@
+import * as http from 'http';
+
+export interface FirecrackerMachineConfig {
+  vcpu_count: number;
+  mem_size_mib: number;
+  smt?: boolean;
+  track_dirty_pages?: boolean;
+}
+
+export interface FirecrackerBootSource {
+  kernel_image_path: string;
+  boot_args?: string;
+  initrd_path?: string;
+}
+
+export interface FirecrackerRateLimiter {
+  bandwidth?: { size: number; refill_time: number; one_time_burst?: number };
+  ops?: { size: number; refill_time: number; one_time_burst?: number };
+}
+
+export interface FirecrackerDrive {
+  drive_id: string;
+  path_on_host: string;
+  is_root_device: boolean;
+  is_read_only: boolean;
+  cache_type?: 'Unsafe' | 'Writeback';
+  io_engine?: 'Sync' | 'Async';
+  rate_limiter?: FirecrackerRateLimiter;
+}
+
+export interface FirecrackerVsock {
+  guest_cid: number;
+  uds_path: string;
+}
+
+export interface FirecrackerNetworkInterface {
+  iface_id: string;
+  host_dev_name: string;
+  guest_mac?: string;
+  rx_rate_limiter?: FirecrackerRateLimiter;
+  tx_rate_limiter?: FirecrackerRateLimiter;
+}
+
+export type FirecrackerActionType =
+  | 'InstanceStart'
+  | 'SendCtrlAltDel'
+  | 'FlushMetrics';
+
+export interface FirecrackerInstanceInfo {
+  id: string;
+  state: 'Not started' | 'Running' | 'Paused';
+  vmm_version: string;
+  app_name: string;
+}
+
+export type FirecrackerVmState = 'Paused' | 'Resumed';
+
+interface FirecrackerErrorBody {
+  fault_message?: string;
+}
+
+export class FirecrackerApiError extends Error {
+  constructor(
+    readonly method: string,
+    readonly requestPath: string,
+    readonly statusCode: number,
+    readonly responseBody: string,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'FirecrackerApiError';
+  }
+}
+
+export interface FirecrackerApiClientOptions {
+  socketPath: string;
+  timeoutMs?: number;
+}
+
+/**
+ * Typed client for Firecracker's REST API over its Unix domain socket.
+ */
+export class FirecrackerApiClient {
+  private readonly timeoutMs: number;
+
+  constructor(private readonly options: FirecrackerApiClientOptions) {
+    this.timeoutMs = options.timeoutMs ?? 5_000;
+  }
+
+  putMachineConfig(config: FirecrackerMachineConfig): Promise<void> {
+    return this.request('PUT', '/machine-config', config);
+  }
+
+  putBootSource(source: FirecrackerBootSource): Promise<void> {
+    return this.request('PUT', '/boot-source', source);
+  }
+
+  putDrive(drive: FirecrackerDrive): Promise<void> {
+    return this.request('PUT', `/drives/${encodeURIComponent(drive.drive_id)}`, drive);
+  }
+
+  putVsock(vsock: FirecrackerVsock): Promise<void> {
+    return this.request('PUT', '/vsock', vsock);
+  }
+
+  putNetworkInterface(networkInterface: FirecrackerNetworkInterface): Promise<void> {
+    return this.request(
+      'PUT',
+      `/network-interfaces/${encodeURIComponent(networkInterface.iface_id)}`,
+      networkInterface,
+    );
+  }
+
+  instanceStart(): Promise<void> {
+    return this.putAction('InstanceStart');
+  }
+
+  putAction(actionType: FirecrackerActionType): Promise<void> {
+    return this.request('PUT', '/actions', { action_type: actionType });
+  }
+
+  getInstanceInfo(): Promise<FirecrackerInstanceInfo> {
+    return this.request('GET', '/');
+  }
+
+  patchVmState(state: FirecrackerVmState): Promise<void> {
+    return this.request('PATCH', '/vm', { state });
+  }
+
+  private request<TResponse = void>(
+    method: string,
+    requestPath: string,
+    payload?: object,
+  ): Promise<TResponse> {
+    const body = payload === undefined ? undefined : JSON.stringify(payload);
+
+    return new Promise<TResponse>((resolve, reject) => {
+      const request = http.request({
+        socketPath: this.options.socketPath,
+        path: requestPath,
+        method,
+        headers: body === undefined
+          ? undefined
+          : {
+              'Content-Type': 'application/json',
+              'Content-Length': Buffer.byteLength(body),
+            },
+      }, (response) => {
+        const chunks: Buffer[] = [];
+        let totalBytes = 0;
+        response.on('data', (chunk: Buffer) => {
+          totalBytes += chunk.length;
+          if (totalBytes > 1024 * 1024) {
+            request.destroy(new Error('Firecracker API response exceeded 1 MiB'));
+            return;
+          }
+          chunks.push(chunk);
+        });
+        response.on('end', () => {
+          const responseBody = Buffer.concat(chunks).toString('utf8');
+          const statusCode = response.statusCode ?? 0;
+          if (statusCode < 200 || statusCode >= 300) {
+            let parsed: FirecrackerErrorBody | undefined;
+            try {
+              parsed = responseBody ? JSON.parse(responseBody) as FirecrackerErrorBody : undefined;
+            } catch {
+              parsed = undefined;
+            }
+            const detail = parsed?.fault_message || responseBody || 'empty response';
+            reject(new FirecrackerApiError(
+              method,
+              requestPath,
+              statusCode,
+              responseBody,
+              `Firecracker API ${method} ${requestPath} failed with HTTP ${statusCode}: ${detail}`,
+            ));
+            return;
+          }
+
+          if (!responseBody) {
+            resolve(undefined as TResponse);
+            return;
+          }
+          try {
+            resolve(JSON.parse(responseBody) as TResponse);
+          } catch (error) {
+            reject(new Error(
+              `Firecracker API ${method} ${requestPath} returned invalid JSON: ` +
+              `${error instanceof Error ? error.message : String(error)}`,
+            ));
+          }
+        });
+      });
+
+      request.setTimeout(this.timeoutMs, () => {
+        request.destroy(new Error(
+          `Firecracker API ${method} ${requestPath} timed out after ${this.timeoutMs}ms`,
+        ));
+      });
+      request.on('error', reject);
+      if (body !== undefined) request.write(body);
+      request.end();
+    });
+  }
+}

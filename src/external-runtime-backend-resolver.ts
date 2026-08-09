@@ -2,6 +2,7 @@ import type { WorkflowDependencies } from './cli-workflow';
 import { runtimeUsesComposeAgent } from './container-runtime';
 import type { ExternalAgentRuntimeBackend } from './external-runtime-backend';
 import { createSbxRuntimeBackend } from './sbx-runtime-backend';
+import { createFirecrackerRuntimeBackend } from './firecracker-runtime-backend';
 import type { WrapperConfig } from './types';
 
 export interface ExternalRuntimeBackendFactoryContext {
@@ -20,6 +21,8 @@ export type ExternalRuntimeBackendRegistry = Readonly<
 const EXTERNAL_RUNTIME_BACKENDS: ExternalRuntimeBackendRegistry = {
   sbx: ({ config, startInfrastructure }) =>
     createSbxRuntimeBackend(config, startInfrastructure),
+  firecracker: ({ config, startInfrastructure }) =>
+    createFirecrackerRuntimeBackend(config, startInfrastructure),
 };
 
 /**

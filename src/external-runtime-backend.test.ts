@@ -59,6 +59,20 @@ describe('external runtime backend', () => {
     )).toThrow('No external agent runtime backend is registered for "sbx"');
   });
 
+  it('resolves Firecracker to a fail-closed preview backend', async () => {
+    const config = {
+      containerRuntime: 'firecracker',
+      firecracker: { previewEnabled: false },
+    } as WrapperConfig;
+    const backend = resolveExternalRuntimeBackend(config, startInfrastructure);
+
+    expect(backend?.runtime).toBe('firecracker');
+    await expect(backend!.start('/tmp/awf', ['github.com'])).rejects.toThrow(
+      /incomplete control-plane preview/,
+    );
+    expect(startInfrastructure).not.toHaveBeenCalled();
+  });
+
   it('adapts start and exec without changing arguments or exit codes', async () => {
     const backend = createBackend();
     const adapted = adaptExternalRuntimeBackend(backend);

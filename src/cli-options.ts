@@ -10,6 +10,7 @@ const optionGroupHeaders: Record<string, string> = {
   'config': 'Configuration:',
   'allow-domains': 'Domain Filtering:',
   'build-local': 'Image Management:',
+  'firecracker-preview': 'Firecracker Preview:',
   'env': 'Container Configuration:',
   'dns-servers': 'Network & Security:',
   'upstream-proxy': 'Network & Security:',
@@ -174,8 +175,26 @@ program
    'Container runtime for the agent container.\n' +
    '                                       "gvisor" — OCI runtime via Docker Compose (translates to runsc).\n' +
    '                                       "sbx" — Docker sbx microVM with hypervisor isolation.\n' +
+   '                                       "firecracker" — preview Firecracker v1.16.1 control plane (workload execution unavailable).\n' +
    '                                       Unknown values are passed through as raw Docker runtime names.'
   )
+  .option(
+   '--firecracker-preview',
+   'Acknowledge the incomplete Firecracker v1.16.1 preview control plane.\n' +
+   '                                       Networking and guest workload execution remain unavailable.',
+   false
+  )
+  .option('--firecracker-binary <path>', 'Path to the Firecracker v1.16.1 binary.')
+  .option('--firecracker-jailer-binary <path>', 'Path to the matching Firecracker v1.16.1 jailer binary.')
+  .option('--firecracker-kernel <path>', 'Path to the guest Linux kernel image.')
+  .option('--firecracker-rootfs <path>', 'Path to the guest root filesystem image.')
+  .option('--firecracker-vcpus <count>', 'Guest virtual CPU count (default: 2).')
+  .option('--firecracker-memory-mib <mib>', 'Guest memory in MiB (default: 512).')
+  .option('--firecracker-api-timeout-ms <ms>', 'Bounded API socket readiness timeout in milliseconds (default: 5000).')
+  .option('--firecracker-binary-sha256 <digest>', 'Expected SHA-256 digest of the Firecracker binary.')
+  .option('--firecracker-jailer-sha256 <digest>', 'Expected SHA-256 digest of the jailer binary.')
+  .option('--firecracker-kernel-sha256 <digest>', 'Expected SHA-256 digest of the guest kernel.')
+  .option('--firecracker-rootfs-sha256 <digest>', 'Expected SHA-256 digest of the guest rootfs.')
 
   // -- Container Configuration --
   .option(

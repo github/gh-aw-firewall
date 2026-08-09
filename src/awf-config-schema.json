@@ -649,9 +649,75 @@
           "type": "string",
           "enum": [
             "gvisor",
-            "sbx"
+            "sbx",
+            "firecracker"
           ],
-          "description": "Container runtime for the agent container. \"gvisor\" runs the agent under gVisor's runsc runtime (OCI runtime, compose-based). \"sbx\" runs the agent inside a Docker sbx microVM with hypervisor isolation; infrastructure containers (squid-proxy, api-proxy) stay in Docker Compose on the host and the sbx proxy chains upstream through AWF's Squid for domain filtering. Only the agent uses the custom runtime; infrastructure containers always use the default runc runtime."
+          "description": "Runtime for the primary agent. \"gvisor\" uses runsc in Docker Compose. \"sbx\" uses a Docker sbx microVM. \"firecracker\" selects the fail-closed Firecracker v1.16.1 control-plane preview; networking and guest workload execution are not implemented. Infrastructure containers always use the default runc runtime."
+        }
+      }
+    },
+    "firecracker": {
+      "type": "object",
+      "description": "Firecracker v1.16.1 control-plane preview configuration. Selecting this runtime never falls back to Docker and cannot execute workloads until networking and guest execution are implemented.",
+      "additionalProperties": false,
+      "properties": {
+        "previewEnabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Explicitly acknowledge the incomplete Firecracker control-plane preview. This does not enable workload execution."
+        },
+        "firecrackerBinary": {
+          "type": "string",
+          "description": "Absolute path to the Firecracker v1.16.1 binary. Defaults to /usr/local/bin/firecracker."
+        },
+        "jailerBinary": {
+          "type": "string",
+          "description": "Absolute path to the matching v1.16.1 jailer binary. Defaults to /usr/local/bin/jailer."
+        },
+        "kernelPath": {
+          "type": "string",
+          "description": "Absolute path to the trusted guest Linux kernel image."
+        },
+        "rootfsPath": {
+          "type": "string",
+          "description": "Absolute path to the trusted guest root filesystem image."
+        },
+        "vcpuCount": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 2,
+          "description": "Number of guest virtual CPUs."
+        },
+        "memoryMib": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 512,
+          "description": "Guest memory in MiB."
+        },
+        "apiTimeoutMs": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 5000,
+          "description": "Bounded timeout in milliseconds for Firecracker API socket readiness and requests."
+        },
+        "sha256": {
+          "type": "object",
+          "description": "Optional pinned SHA-256 digests for trusted Firecracker artifacts.",
+          "additionalProperties": false,
+          "properties": {
+            "firecracker": {
+              "$ref": "#/$defs/sha256Digest"
+            },
+            "jailer": {
+              "$ref": "#/$defs/sha256Digest"
+            },
+            "kernel": {
+              "$ref": "#/$defs/sha256Digest"
+            },
+            "rootfs": {
+              "$ref": "#/$defs/sha256Digest"
+            }
+          }
         }
       }
     },
@@ -1139,6 +1205,11 @@
     }
   },
   "$defs": {
+    "sha256Digest": {
+      "type": "string",
+      "pattern": "^[A-Fa-f0-9]{64}$",
+      "description": "A SHA-256 digest encoded as exactly 64 hexadecimal characters."
+    },
     "providerTarget": {
       "type": "object",
       "description": "API provider target override.",

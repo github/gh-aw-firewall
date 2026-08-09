@@ -12,6 +12,16 @@ export type * from './wrapper-config';
 
 export { type UpstreamProxyConfig } from './upstream-proxy';
 export { type LogLevel } from './log-level';
+export {
+  type FirecrackerArtifactDigests,
+  type FirecrackerOptions,
+  FIRECRACKER_RELEASE_VERSION,
+  FIRECRACKER_DEFAULT_BINARY,
+  FIRECRACKER_DEFAULT_JAILER_BINARY,
+  FIRECRACKER_DEFAULT_VCPU_COUNT,
+  FIRECRACKER_DEFAULT_MEMORY_MIB,
+  FIRECRACKER_DEFAULT_API_TIMEOUT_MS,
+} from './runtime-options';
 export { type RateLimitConfig } from './rate-limit';
 export { type FlagValidationResult } from './validation';
 

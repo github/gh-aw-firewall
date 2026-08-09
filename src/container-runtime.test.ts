@@ -13,6 +13,10 @@ describe('container-runtime', () => {
       expect(resolveDockerRuntime('sbx')).toBeUndefined();
     });
 
+    it('returns undefined for Firecracker (no OCI runtime)', () => {
+      expect(resolveDockerRuntime('firecracker')).toBeUndefined();
+    });
+
     it('passes through unknown runtime names unchanged', () => {
       expect(resolveDockerRuntime('kata')).toBe('kata');
       expect(resolveDockerRuntime('custom-runtime')).toBe('custom-runtime');
@@ -30,6 +34,10 @@ describe('container-runtime', () => {
 
     it('returns false for sbx', () => {
       expect(runtimeNeedsStaticDns('sbx')).toBe(false);
+    });
+
+    it('returns false for Firecracker', () => {
+      expect(runtimeNeedsStaticDns('firecracker')).toBe(false);
     });
 
     it('returns false for unknown runtimes', () => {
@@ -53,6 +61,10 @@ describe('container-runtime', () => {
 
     it('returns false for sbx (microVM manages own egress)', () => {
       expect(runtimeUsesIptables('sbx')).toBe(false);
+    });
+
+    it('returns false for Firecracker (no host-agent iptables)', () => {
+      expect(runtimeUsesIptables('firecracker')).toBe(false);
     });
 
     it('returns true for unknown runtimes (share host netns)', () => {
@@ -79,6 +91,10 @@ describe('container-runtime', () => {
 
     it('returns false for microvm-model runtimes (sbx)', () => {
       expect(runtimeUsesComposeAgent('sbx')).toBe(false);
+    });
+
+    it('returns false for the Firecracker microVM model', () => {
+      expect(runtimeUsesComposeAgent('firecracker')).toBe(false);
     });
 
     it('returns true for unknown runtimes (assumed compose)', () => {
