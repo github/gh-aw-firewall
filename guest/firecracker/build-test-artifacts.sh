@@ -109,6 +109,14 @@ enable_busybox_option() {
     printf 'CONFIG_%s=y\n' "$option" >>"$busybox_dir/.config"
   fi
 }
+disable_busybox_option() {
+  local option=$1
+  if grep -q "^CONFIG_${option}=" "$busybox_dir/.config"; then
+    sed -i "s/^CONFIG_${option}=.*/# CONFIG_${option} is not set/" "$busybox_dir/.config"
+  elif ! grep -q "^# CONFIG_${option} is not set$" "$busybox_dir/.config"; then
+    printf '# CONFIG_%s is not set\n' "$option" >>"$busybox_dir/.config"
+  fi
+}
 for option in \
   STATIC \
   WGET \
@@ -123,6 +131,9 @@ for option in \
   TIMEOUT; do
   enable_busybox_option "$option"
 done
+# BusyBox 1.36.1 tc depends on CBQ UAPI definitions removed from newer build hosts.
+# The minimal guest never uses traffic control; AWF enforces policy in the host netns.
+disable_busybox_option TC
 make -C "$busybox_dir" -j"$JOBS"
 
 supervisor="$OUTPUT/awf-firecracker-supervisor"
