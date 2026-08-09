@@ -132,20 +132,32 @@ export const firecrackerManagerTestHelpers = {
   resolveJailerIdentity,
 };
 
-function parsePositiveIdentity(value: string | undefined): number | undefined {
-  if (!value || !/^[1-9]\d*$/.test(value)) return undefined;
-  return Number(value);
-}
-
 function resolveJailerIdentity(): { uid: number; gid: number } {
+  const operatorUid = parsePositiveIdentity(process.env.SUDO_UID) ?? process.getuid?.();
+  const operatorGid = parsePositiveIdentity(process.env.SUDO_GID) ?? process.getgid?.();
+  if (
+    operatorUid === undefined ||
+    operatorGid === undefined ||
+    operatorUid === 0 ||
+    operatorGid === 0
+  ) {
+    throw new Error(
+      'Firecracker jailer requires a non-root target uid/gid; run through sudo from a non-root account',
+    );
+  }
   const uid = Number(getSafeHostUid());
   const gid = Number(getSafeHostGid());
-  if (uid === undefined || gid === undefined || uid === 0 || gid === 0) {
+  if (!Number.isSafeInteger(uid) || !Number.isSafeInteger(gid) || uid < 1 || gid < 1) {
     throw new Error(
       'Firecracker jailer requires a non-root target uid/gid; run through sudo from a non-root account',
     );
   }
   return { uid, gid };
+}
+
+function parsePositiveIdentity(value: string | undefined): number | undefined {
+  if (!value || !/^[1-9]\d*$/.test(value)) return undefined;
+  return Number(value);
 }
 
 export function createFirecrackerRunPaths(

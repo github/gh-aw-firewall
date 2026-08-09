@@ -151,6 +151,23 @@ describe('FirecrackerManager', () => {
     });
     delete process.env.SUDO_UID;
     delete process.env.SUDO_GID;
+    const uidSpy = jest.spyOn(process, 'getuid').mockReturnValue(0);
+    const gidSpy = jest.spyOn(process, 'getgid').mockReturnValue(0);
+    const originalSudoUid = process.env.SUDO_UID;
+    const originalSudoGid = process.env.SUDO_GID;
+    delete process.env.SUDO_UID;
+    delete process.env.SUDO_GID;
+    try {
+      expect(firecrackerManagerTestHelpers.resolveJailerIdentity)
+        .toThrow(/non-root target uid\/gid/);
+    } finally {
+      uidSpy.mockRestore();
+      gidSpy.mockRestore();
+      if (originalSudoUid === undefined) delete process.env.SUDO_UID;
+      else process.env.SUDO_UID = originalSudoUid;
+      if (originalSudoGid === undefined) delete process.env.SUDO_GID;
+      else process.env.SUDO_GID = originalSudoGid;
+    }
   });
 
   it('constructs unique, contained jail paths', () => {
