@@ -138,6 +138,13 @@ for helper in "${chroot_helpers[@]}"; do
   pass "run_chroot_command() calls ${helper} in order"
 done
 
+if grep -Fq 'umount /host/sys/fs/cgroup' "${ENTRYPOINT}" && \
+   grep -Fq 'Could not remove writable cgroup mount; refusing to start sandbox command' "${ENTRYPOINT}"; then
+  pass "mount_host_cgroupfs() removes a mount that cannot be made read-only"
+else
+  fail "mount_host_cgroupfs() may leave a writable cgroup mount behind"
+fi
+
 if printf '%s\n' "${COPY_SYSTEM_CA_BUNDLE_BLOCK}" | grep -Fq 'if [ "${AWF_SSL_BUMP_ENABLED}" = "true" ]'; then
   pass "copy_system_ca_bundle() keys SSL Bump handling off AWF_SSL_BUMP_ENABLED"
 else

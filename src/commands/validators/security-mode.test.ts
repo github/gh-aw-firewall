@@ -193,6 +193,14 @@ describe('applySecurityMode', () => {
         expect(config.enableApiProxy).toBe(true);
       });
 
+      it('warns that Docker pids limits and cgroup visibility are unavailable', () => {
+        const config = makeConfig({ containerRuntime: 'sbx', pidsLimit: 2000 });
+        applySecurityMode(config);
+        expect(logger.warn).toHaveBeenCalledWith(
+          expect.stringContaining('--pids-limit/container.pidsLimit is not supported'),
+        );
+      });
+
       it('should suppress enableHostAccess for microVM runtimes even when networkIsolation is true', () => {
         const config = makeConfig({
           containerRuntime: 'sbx',

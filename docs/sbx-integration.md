@@ -111,6 +111,11 @@ Only the agent crosses the hypervisor boundary; its egress is chained back down
 through AWF's host-side Squid for domain filtering (and, optionally, through the
 api-proxy for credential injection / model routing / token logging).
 
+The Docker Compose agent resource settings `--pids-limit` and
+`container.pidsLimit` do not apply to sbx. Docker's agent cgroup is not passed
+into the microVM, so `pids.max` and `pids.current` are unavailable; AWF emits
+an incompatibility warning and ignores the setting.
+
 ### The `executionModel` abstraction (`src/container-runtime.ts`)
 
 AWF centralizes runtime differences in a small registry. Each runtime declares

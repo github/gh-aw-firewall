@@ -34,6 +34,13 @@ export function applySecurityMode(config: WrapperConfig): void {
   // DOCKER_SANDBOXES_PROXY; Docker network topology does not apply to them.
   const isMicroVmRuntime = !runtimeUsesComposeAgent(config.containerRuntime);
 
+  if (isMicroVmRuntime && config.pidsLimit !== undefined) {
+    logger.warn(
+      '⚠️  --pids-limit/container.pidsLimit is not supported by this microVM runtime and will be ignored.\n' +
+      '   The Docker agent cgroup cannot be passed through, so pids.max/pids.current are unavailable.',
+    );
+  }
+
   if (!isMicroVmRuntime) {
     // Force network-isolation on.
     // Only warn when explicitly disabled (=== false); undefined means "not set by user".

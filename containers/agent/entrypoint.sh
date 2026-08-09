@@ -570,7 +570,13 @@ mount_host_cgroupfs() {
     if mount -o remount,ro,bind /host/sys/fs/cgroup 2>/dev/null; then
       echo "[entrypoint] Bind-mounted container cgroup subtree at /host/sys/fs/cgroup (ro)"
     else
-      echo "[entrypoint][WARN] Bind-mounted /host/sys/fs/cgroup but could not remount read-only"
+      echo "[entrypoint][WARN] Could not remount /host/sys/fs/cgroup read-only; removing mount"
+      if umount /host/sys/fs/cgroup 2>/dev/null; then
+        echo "[entrypoint][WARN] pids.max/pids.current will not be visible inside the sandbox"
+      else
+        echo "[entrypoint][ERROR] Could not remove writable cgroup mount; refusing to start sandbox command"
+        exit 1
+      fi
     fi
   else
     echo "[entrypoint][WARN] Could not bind-mount cgroup subtree at /host/sys/fs/cgroup"

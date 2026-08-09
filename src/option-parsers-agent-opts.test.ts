@@ -48,6 +48,10 @@ describe('parsePidsLimit', () => {
   it('rejects zero', () => {
     expect(parsePidsLimit('0')).toHaveProperty('error');
   });
+
+  it('rejects integers outside JavaScript’s safe range', () => {
+    expect(parsePidsLimit('9007199254740992')).toHaveProperty('error');
+  });
 });
 
 describe('applyAgentTimeout', () => {

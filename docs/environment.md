@@ -450,6 +450,11 @@ container:
   pidsLimit: 4000
 ```
 
+`--pids-limit` is a Docker Compose agent setting. It is unsupported by microVM
+runtimes such as `--container-runtime sbx`: AWF warns and ignores it because
+the sandbox does not support passing through the Docker agent cgroup or its
+`pids.max`/`pids.current` metrics.
+
 ## Troubleshooting
 
 **Variable not accessible:** Use `sudo -E` or pass explicitly with `--env VAR="$VAR"`

@@ -81,7 +81,7 @@ export function parsePidsLimit(input: string): { value: number; error?: undefine
     return { error: `Invalid --pids-limit value "${input}". Expected a positive integer (e.g., 1000, 2000).` };
   }
   const num = parseInt(input, 10);
-  if (num <= 0) {
+  if (!Number.isSafeInteger(num) || num <= 0) {
     return { error: `Invalid --pids-limit value "${input}". pids-limit must be a positive integer.` };
   }
   return { value: num };

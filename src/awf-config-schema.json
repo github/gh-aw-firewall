@@ -581,6 +581,7 @@
         "pidsLimit": {
           "type": "integer",
           "minimum": 1,
+          "maximum": 9007199254740991,
           "description": "Process/thread ceiling (Docker pids_limit) for the agent container. Increase for JVM-heavy builds that spawn many threads. Defaults to 1000."
         },
         "agentTimeout": {
