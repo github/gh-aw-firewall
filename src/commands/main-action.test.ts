@@ -470,7 +470,11 @@ describe('createMainAction', () => {
         preserve,
       };
       const cleanup = testHelpers.buildCleanupFn(
-        { ...MAIN_ACTION_STUB_CONFIG, keepContainers: true },
+        {
+          ...MAIN_ACTION_STUB_CONFIG,
+          keepContainers: true,
+          diagnosticLogs: true,
+        },
         () => false,
         () => false,
         backend,
@@ -478,6 +482,7 @@ describe('createMainAction', () => {
 
       await cleanup();
 
+      expect(backend.collectDiagnostics).toHaveBeenCalledTimes(1);
       expect(preserve).toHaveBeenCalledTimes(1);
       expect(backend.stop).not.toHaveBeenCalled();
     });
@@ -495,17 +500,61 @@ describe('createMainAction', () => {
         stop: jest.fn().mockRejectedValue(runtimeError),
       };
       const cleanup = testHelpers.buildCleanupFn(
-        { ...MAIN_ACTION_STUB_CONFIG, keepContainers: false },
+        {
+          ...MAIN_ACTION_STUB_CONFIG,
+          keepContainers: false,
+          diagnosticLogs: true,
+        },
         () => false,
         () => false,
         backend,
       );
 
       await expect(cleanup()).rejects.toBe(runtimeError);
+      expect(backend.collectDiagnostics).toHaveBeenCalledTimes(1);
       expect(mockedDockerManager.cleanup).toHaveBeenCalled();
       expect(mockedLogger.warn).toHaveBeenCalledWith(
         'External runtime cleanup failed; continuing with infrastructure teardown.',
         runtimeError,
+      );
+    });
+  });
+
+  describe('external runtime diagnostics', () => {
+    it('aggregates backend and Docker diagnostics with explicit failures', async () => {
+      const backend = {
+        runtime: 'firecracker',
+        preflight: jest.fn().mockResolvedValue(undefined),
+        start: jest.fn(),
+        exec: jest.fn(),
+        collectDiagnostics: jest.fn().mockResolvedValue(undefined),
+        stop: jest.fn(),
+      };
+      let collectDiagnostics!: (workDir: string) => Promise<void>;
+      mockedExternalRuntimeResolver.resolveExternalRuntimeBackend
+        .mockReturnValueOnce(backend);
+      mockedCliWorkflow.runMainWorkflow.mockImplementationOnce(
+        async (_config, dependencies) => {
+          collectDiagnostics = dependencies.collectDiagnosticLogs!;
+          return 0;
+        },
+      );
+
+      const action = createMainAction(getOptionValueSource);
+      await action(['echo hi'], {});
+      await expect(collectDiagnostics('/tmp/awf')).resolves.toBeUndefined();
+      expect(backend.collectDiagnostics).toHaveBeenCalledTimes(1);
+      expect(mockedDockerManager.collectDiagnosticLogs)
+        .toHaveBeenCalledWith('/tmp/awf');
+
+      backend.collectDiagnostics.mockRejectedValueOnce(
+        new Error('backend diagnostics failed'),
+      );
+      mockedDockerManager.collectDiagnosticLogs.mockRejectedValueOnce(
+        'docker diagnostics failed',
+      );
+      await expect(collectDiagnostics('/tmp/awf')).rejects.toThrow(
+        /backend diagnostics failed; docker diagnostics failed/,
       );
     });
   });

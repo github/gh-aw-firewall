@@ -1,4 +1,5 @@
 import type { ExecaChildProcess } from 'execa';
+import { PassThrough } from 'stream';
 import type { FirecrackerOptions } from '../types/runtime-options';
 import type { FirecrackerApiClient } from './api-client';
 import {
@@ -735,7 +736,12 @@ describe('FirecrackerManager', () => {
 
   it('flushes metrics and bounds diagnostic files before persistence', async () => {
     const oversized = Buffer.alloc(1024 * 1024 + 128, 0x61);
+    const child = processMock();
+    const stdout = new PassThrough();
+    const stderr = new PassThrough();
+    Object.assign(child, { stdout, stderr });
     const deps = dependencies({
+      launch: jest.fn().mockReturnValue(child),
       readFile: jest.fn().mockResolvedValue(oversized),
     });
     const manager = new FirecrackerManager(
@@ -747,6 +753,8 @@ describe('FirecrackerManager', () => {
     );
 
     const client = await manager.start();
+    stdout.write(oversized);
+    stderr.write('jailer error');
     await manager.startInstance();
     await manager.collectDiagnostics('/tmp/diagnostics');
 
@@ -754,6 +762,16 @@ describe('FirecrackerManager', () => {
     expect(deps.writeFile).toHaveBeenCalledWith(
       '/tmp/diagnostics/firecracker.metrics.jsonl',
       expect.objectContaining({ length: 1024 * 1024 }),
+      { mode: 0o600 },
+    );
+    expect(deps.writeFile).toHaveBeenCalledWith(
+      '/tmp/diagnostics/jailer-stdout.log',
+      expect.objectContaining({ length: 1024 * 1024 }),
+      { mode: 0o600 },
+    );
+    expect(deps.writeFile).toHaveBeenCalledWith(
+      '/tmp/diagnostics/jailer-stderr.log',
+      Buffer.from('jailer error'),
       { mode: 0o600 },
     );
   });

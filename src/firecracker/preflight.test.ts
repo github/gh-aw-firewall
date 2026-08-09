@@ -1,6 +1,7 @@
 import { constants } from 'fs';
 import { createHash } from 'crypto';
 import { promises as fs } from 'fs';
+import execa from 'execa';
 import * as os from 'os';
 import * as path from 'path';
 import type { FirecrackerOptions } from '../types/runtime-options';
@@ -12,7 +13,10 @@ import {
   type FirecrackerPreflightDependencies,
 } from './preflight';
 
+jest.mock('execa');
+
 const digest = 'a'.repeat(64);
+const mockedExeca = execa as jest.MockedFunction<typeof execa>;
 
 function config(overrides: Partial<FirecrackerOptions> = {}): FirecrackerOptions {
   return {
@@ -57,16 +61,29 @@ describe('Firecracker preflight', () => {
 
   beforeEach(() => {
     originalPath = process.env.PATH;
+    mockedExeca.mockReset();
   });
 
   afterEach(() => {
     delete process.env.SUDO_UID;
+    jest.restoreAllMocks();
     if (originalPath === undefined) delete process.env.PATH;
     else process.env.PATH = originalPath;
   });
 
   it('runs default version, tool, and digest host probes', async () => {
     const defaults = firecrackerPreflightTestHelpers.defaultDependencies;
+    mockedExeca
+      .mockResolvedValueOnce({
+        exitCode: 0,
+        stdout: `node ${process.version.slice(1)}`,
+        stderr: '',
+      } as never)
+      .mockResolvedValueOnce({
+        exitCode: 1,
+        stdout: '',
+        stderr: 'unsupported flag',
+      } as never);
     await expect(defaults.runVersion(process.execPath)).resolves.toContain(
       process.version.slice(1),
     );
@@ -90,6 +107,77 @@ describe('Firecracker preflight', () => {
     } finally {
       await fs.rm(directory, { recursive: true, force: true });
     }
+  });
+
+  it('runs layer-6 host policy and Docker probes through the default helper', async () => {
+    const defaults = firecrackerPreflightTestHelpers.defaultDependencies;
+    jest.spyOn(process, 'getuid').mockReturnValue(0);
+    const access = jest.spyOn(fs, 'access').mockResolvedValue(undefined);
+    await expect(defaults.assertHostPolicy()).resolves.toBe(2);
+    expect(access).toHaveBeenCalledWith(
+      '/proc/sys/kernel/seccomp/actions_avail',
+      constants.R_OK,
+    );
+
+    mockedExeca.mockResolvedValue({
+      exitCode: 0,
+      stdout: 'available',
+      stderr: '',
+    } as never);
+    await expect(defaults.assertDockerInfrastructure()).resolves.toBeUndefined();
+    expect(mockedExeca).toHaveBeenCalledWith(
+      'docker',
+      ['compose', 'version'],
+      expect.objectContaining({ timeout: 10_000, reject: false }),
+    );
+  });
+
+  it('reports layer-6 host policy and Docker probe failures', async () => {
+    const defaults = firecrackerPreflightTestHelpers.defaultDependencies;
+    jest.spyOn(process, 'getuid').mockReturnValue(1000);
+    await expect(defaults.assertHostPolicy()).rejects.toThrow(/require root/);
+
+    mockedExeca.mockResolvedValue({
+      exitCode: 1,
+      stdout: '',
+      stderr: 'daemon unavailable',
+    } as never);
+    await expect(defaults.assertDockerInfrastructure())
+      .rejects.toThrow(/docker info failed.*daemon unavailable/);
+  });
+
+  it('supports cgroup v1 and reports missing kernel or cgroup controls', async () => {
+    const defaults = firecrackerPreflightTestHelpers.defaultDependencies;
+    jest.spyOn(process, 'getuid').mockReturnValue(0);
+    const access = jest.spyOn(fs, 'access');
+    access.mockImplementation(async (filePath) => {
+      if (filePath === '/sys/fs/cgroup/cgroup.controllers') {
+        throw new Error('no cgroup v2');
+      }
+    });
+    await expect(defaults.assertHostPolicy()).resolves.toBe(1);
+
+    access.mockReset().mockRejectedValue(new Error('kernel control denied'));
+    await expect(defaults.assertHostPolicy())
+      .rejects.toThrow(/host kernel policy.*kernel control denied/);
+
+    access.mockReset().mockImplementation(async (filePath) => {
+      if (String(filePath).startsWith('/proc/')) return;
+      throw new Error('no usable cgroup');
+    });
+    await expect(defaults.assertHostPolicy())
+      .rejects.toThrow(/requires a writable cgroup v1 hierarchy.*no usable cgroup/);
+
+    access.mockReset().mockRejectedValue('kernel control string failure');
+    await expect(defaults.assertHostPolicy())
+      .rejects.toThrow(/host kernel policy.*kernel control string failure/);
+
+    access.mockReset().mockImplementation(async (filePath) => {
+      if (String(filePath).startsWith('/proc/')) return;
+      return Promise.reject('cgroup string failure');
+    });
+    await expect(defaults.assertHostPolicy())
+      .rejects.toThrow(/requires a writable cgroup v1 hierarchy.*cgroup string failure/);
   });
 
   it('parses Firecracker and jailer release output', () => {
