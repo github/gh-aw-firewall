@@ -183,10 +183,8 @@ describe('Protocol Support', () => {
         }
       );
 
-      // Verify connection was attempted (exit 0 = success, 22 = HTTP error from server).
-      // We don't use -f because transient server-side errors (e.g. 500) should not
-      // cause this timeout-behavior test to fail.
-      expect(result.exitCode === 0 || result.exitCode === 22).toBe(true);
+      // Curl returns 28 when the configured operation timeout is reached.
+      expect([0, 28]).toContain(result.exitCode);
     }, 120000);
 
     test('should respect curl connect-timeout option', async () => {
@@ -199,10 +197,8 @@ describe('Protocol Support', () => {
         }
       );
 
-      // Verify connection was attempted (exit 0 = success, 22 = HTTP error from server).
-      // We don't use -f because transient server-side errors (e.g. 500) should not
-      // cause this timeout-behavior test to fail.
-      expect(result.exitCode === 0 || result.exitCode === 22).toBe(true);
+      // Curl returns 28 when the configured connection timeout is reached.
+      expect([0, 28]).toContain(result.exitCode);
     }, 120000);
   });
 });
