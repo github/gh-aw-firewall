@@ -456,6 +456,8 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string)
 
 function signalNumber(signal: string | null): number {
   if (!signal) return 0;
+  const numericFallback = /^SIG(\d+)$/.exec(signal);
+  if (numericFallback) return Number(numericFallback[1]);
   return osConstants.signals[signal as keyof typeof osConstants.signals] ?? 0;
 }
 

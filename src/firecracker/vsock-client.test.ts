@@ -179,6 +179,39 @@ describe('FirecrackerVsockClient', () => {
     await server.close();
   });
 
+  it('preserves numeric fallback signal exit status from the guest', async () => {
+    const server = await createServer((frame, socket) => {
+      if (frame.type === 'execute') {
+        socket.write(encodeFirecrackerFrame({
+          version: 1,
+          type: 'result',
+          requestId: frame.requestId,
+          exitCode: null,
+          signal: 'SIG24',
+          timedOut: false,
+        }));
+      }
+    });
+    const client = new FirecrackerVsockClient({
+      socketPath: server.socketPath,
+      guestPort: 52,
+    });
+    await client.connect();
+    await expect(client.execute({
+      argv: ['true'],
+      env: {},
+      cwd: '/workspace',
+      uid: 1000,
+      gid: 1000,
+    })).resolves.toEqual(expect.objectContaining({
+      exitCode: 152,
+      signal: 'SIG24',
+      timedOut: false,
+    }));
+    client.destroy();
+    await server.close();
+  });
+
   it('requires advertised TTY capability', async () => {
     const server = await createServer(() => undefined);
     const client = new FirecrackerVsockClient({

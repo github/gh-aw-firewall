@@ -31,6 +31,7 @@ const ROOTFS_JAIL_PATH = '/rootfs';
 const WORKSPACE_JAIL_PATH = '/workspace.ext4';
 const VSOCK_JAIL_PATH = `/run/${VSOCK_SOCKET_NAME}`;
 export const FIRECRACKER_GUEST_VSOCK_PORT = 52;
+const FIRECRACKER_GUEST_SHUTDOWN_GRACE_MS = 5_000;
 
 export interface FirecrackerRunPaths {
   runId: string;
@@ -315,9 +316,11 @@ export class FirecrackerManager {
   async stop(): Promise<void> {
     const errors: unknown[] = [];
     const instanceWasStarted = this.instanceStarted;
+    let guestShutdownAcknowledged = false;
     if (this.guestClient) {
       try {
         await this.guestClient.shutdown();
+        guestShutdownAcknowledged = true;
       } catch (error) {
         errors.push(error);
         this.guestClient.destroy();
@@ -335,12 +338,22 @@ export class FirecrackerManager {
     ) {
       const child = this.process;
       try {
-        if (!child.killed) {
-          child.kill('SIGTERM', { forceKillAfterTimeout: 2_000 });
+        if (guestShutdownAcknowledged) {
+          terminationConfirmed = await this.waitForProcessExit(
+            child,
+            FIRECRACKER_GUEST_SHUTDOWN_GRACE_MS,
+          );
         }
-        await child;
-        if (child.exitCode === null && child.signalCode === null) {
-          throw new Error('Firecracker process termination was not confirmed');
+        if (!child.killed) {
+          if (child.exitCode === null && child.signalCode === null) {
+            child.kill('SIGTERM', { forceKillAfterTimeout: 2_000 });
+          }
+        }
+        if (!terminationConfirmed) {
+          await child;
+          if (child.exitCode === null && child.signalCode === null) {
+            throw new Error('Firecracker process termination was not confirmed');
+          }
         }
         terminationConfirmed = true;
       } catch (error) {
@@ -404,6 +417,19 @@ export class FirecrackerManager {
         `Firecracker cleanup failed: ${errors.map(formatError).join('; ')}`,
       );
     }
+  }
+
+  private async waitForProcessExit(
+    child: ExecaChildProcess<string>,
+    timeoutMs: number,
+  ): Promise<boolean> {
+    const pollIntervalMs = 25;
+    const attempts = Math.max(1, Math.ceil(timeoutMs / pollIntervalMs));
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      if (child.exitCode !== null || child.signalCode !== null) return true;
+      await this.dependencies.sleep(pollIntervalMs);
+    }
+    return child.exitCode !== null || child.signalCode !== null;
   }
 
   private async waitForApiSocket(): Promise<void> {

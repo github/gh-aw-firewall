@@ -448,6 +448,53 @@ describe('FirecrackerManager', () => {
       expect(lifecycle.cleanup).toHaveBeenCalledTimes(1);
   });
 
+  it('waits briefly for natural VM exit after guest shutdown before sending SIGTERM', async () => {
+    const child = processMock();
+    const workspace = {
+      prepare: jest.fn().mockResolvedValue({
+        workspaceImagePath: '/tmp/prepared-workspace.ext4',
+        rootfsImagePath: '/tmp/prepared-rootfs.ext4',
+        imageBytes: 1024,
+        originalManifest: new Map(),
+      }),
+      extractAfterStop: jest.fn().mockResolvedValue(undefined),
+      cleanup: jest.fn().mockResolvedValue(undefined),
+    } as unknown as FirecrackerWorkspaceImage;
+    const guestClient = {
+      connect: jest.fn().mockResolvedValue(undefined),
+      shutdown: jest.fn().mockResolvedValue(undefined),
+      destroy: jest.fn(),
+    } as unknown as FirecrackerVsockClient;
+    let sleepCalls = 0;
+    const deps = dependencies({
+      launch: jest.fn().mockReturnValue(child),
+      createWorkspaceImage: jest.fn().mockReturnValue(workspace),
+      createVsockClient: jest.fn().mockReturnValue(guestClient),
+      sleep: jest.fn(async () => {
+        sleepCalls += 1;
+        if (sleepCalls === 3) Object.assign(child, { exitCode: 0 });
+      }),
+    });
+    const manager = new FirecrackerManager(
+      config(),
+      '/tmp/awf',
+      deps,
+      'natural-exit',
+      networkConfig(),
+      {
+        workspacePath: '/workspace',
+        homePath: '/home/runner',
+        supervisorBinaryPath: '/opt/awf-supervisor',
+        supervisorSha256: 'a'.repeat(64),
+      },
+    );
+    await manager.start();
+    await manager.startInstance();
+    await manager.stop();
+    expect(child.kill).not.toHaveBeenCalled();
+    expect(sleepCalls).toBeGreaterThan(0);
+  });
+
   it('rolls back the network when typed NIC configuration fails', async () => {
     const client = {
       putMachineConfig: jest.fn().mockResolvedValue(undefined),

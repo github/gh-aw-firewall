@@ -12,6 +12,7 @@ export const FIRECRACKER_MIN_WORKSPACE_IMAGE_BYTES = 256 * MIB;
 export const FIRECRACKER_DEFAULT_MAX_WORKSPACE_IMAGE_BYTES = 8 * 1024 * MIB;
 const FIRECRACKER_WORKSPACE_IMAGE_HEADROOM_BYTES = 128 * MIB;
 const FIRECRACKER_WORKSPACE_BLOCK_BYTES = 4096;
+const FIRECRACKER_E2FSCK_REPAIR_EXIT_CODE = 1;
 
 export interface FirecrackerWorkspaceImageConfig {
   readonly runId: string;
@@ -52,11 +53,12 @@ const defaultDependencies: FirecrackerWorkspaceImageDependencies = {
       stdio: ['ignore', 'pipe', 'pipe'],
       timeout: 120_000,
     });
-    if (result.exitCode !== 0) {
-      throw new Error(
-        `${command} exited with code ${result.exitCode}: ${result.stderr.trim()}`,
-      );
-    }
+    if (result.exitCode === 0) return;
+    if (command === 'e2fsck' && result.exitCode === FIRECRACKER_E2FSCK_REPAIR_EXIT_CODE) return;
+    throw new Error(
+      `${command} exited with code ${result.exitCode}: ` +
+      `${result.stderr.trim() || result.stdout.trim()}`,
+    );
   },
 };
 
@@ -91,8 +93,8 @@ export class FirecrackerWorkspaceImage {
     this.workspaceImagePath = path.join(this.runDirectory, 'workspace.ext4');
     this.rootfsImagePath = path.join(this.runDirectory, 'rootfs.ext4');
     this.recoveryImagePath = path.join(
-      config.workDir,
-      'firecracker-recovery',
+      config.workspacePath,
+      '.awf-firecracker-recovery',
       `${config.runId}-workspace.ext4`,
     );
   }
@@ -142,8 +144,12 @@ export class FirecrackerWorkspaceImage {
       this.config.maxImageBytes,
     );
     const inodeCount = Math.max(8192, Math.ceil(stagingUsage.entries * 1.25) + 1024);
-    await fs.writeFile(this.workspaceImagePath, '');
-    await fs.truncate(this.workspaceImagePath, imageBytes);
+    const workspaceImage = await fs.open(this.workspaceImagePath, 'wx', 0o600);
+    try {
+      await workspaceImage.truncate(imageBytes);
+    } finally {
+      await workspaceImage.close();
+    }
     await this.dependencies.runTool('mke2fs', [
       '-t', 'ext4',
       '-F',
@@ -195,14 +201,7 @@ export class FirecrackerWorkspaceImage {
       const guestManifest = await buildFirecrackerWorkspaceManifest(guestWorkspace);
       const currentManifest = await buildFirecrackerWorkspaceManifest(this.config.workspacePath);
       assertNoWorkspaceConflicts(this.originalManifest, guestManifest, currentManifest);
-      await this.dependencies.runTool('rsync', [
-        '-a',
-        '--delete',
-        '--delay-updates',
-        '--safe-links',
-        `${guestWorkspace}${path.sep}`,
-        `${this.config.workspacePath}${path.sep}`,
-      ]);
+      await this.applyWorkspaceUpdateAtomically(guestWorkspace, guestManifest);
       this.extractionSucceeded = true;
     } catch (error) {
       await this.preserveRecoveryImage(changedImagePath);
@@ -304,6 +303,59 @@ export class FirecrackerWorkspaceImage {
     await fs.rename(temporary, this.recoveryImagePath);
     this.recoveryPreserved = true;
   }
+
+  private async applyWorkspaceUpdateAtomically(
+    guestWorkspace: string,
+    guestManifest: FirecrackerWorkspaceManifest,
+  ): Promise<void> {
+    const workspaceParent = path.dirname(this.config.workspacePath);
+    const workspaceName = path.basename(this.config.workspacePath);
+    const mergeDirectory = path.join(
+      workspaceParent,
+      `.${workspaceName}.awf-merge-${this.config.runId}`,
+    );
+    const backupDirectory = path.join(
+      workspaceParent,
+      `.${workspaceName}.awf-backup-${this.config.runId}`,
+    );
+    await fs.rm(mergeDirectory, { recursive: true, force: true });
+    await fs.rm(backupDirectory, { recursive: true, force: true });
+    await fs.mkdir(mergeDirectory, { recursive: true, mode: 0o700 });
+    await this.dependencies.runTool('rsync', [
+      '-a',
+      '--delete',
+      '--safe-links',
+      `${guestWorkspace}${path.sep}`,
+      `${mergeDirectory}${path.sep}`,
+    ]);
+    const stagedManifest = await buildFirecrackerWorkspaceManifest(mergeDirectory);
+    assertExactWorkspaceManifest(guestManifest, stagedManifest, 'staged workspace');
+    const latestManifest = await buildFirecrackerWorkspaceManifest(this.config.workspacePath);
+    assertNoWorkspaceConflicts(this.originalManifest!, guestManifest, latestManifest);
+
+    let backupPending = false;
+    try {
+      await fs.rename(this.config.workspacePath, backupDirectory);
+      backupPending = true;
+      await fs.rename(mergeDirectory, this.config.workspacePath);
+      backupPending = false;
+    } catch (error) {
+      if (backupPending) {
+        try {
+          await fs.rename(backupDirectory, this.config.workspacePath);
+          backupPending = false;
+        } catch {
+          // keep original failure message from the copy-back path
+        }
+      }
+      throw error;
+    } finally {
+      await fs.rm(mergeDirectory, { recursive: true, force: true });
+      if (!backupPending) {
+        await fs.rm(backupDirectory, { recursive: true, force: true });
+      }
+    }
+  }
 }
 
 export function calculateFirecrackerWorkspaceImageBytes(
@@ -384,7 +436,10 @@ export function assertNoWorkspaceConflicts(
     const before = original.get(relativePath);
     const after = guest.get(relativePath);
     const live = current.get(relativePath);
-    if (entriesEqual(before, after)) continue;
+    if (entriesEqual(before, after)) {
+      if (!entriesEqual(before, live)) conflicts.push(relativePath);
+      continue;
+    }
     if (!entriesEqual(before, live) && !entriesEqual(after, live)) conflicts.push(relativePath);
   }
   if (conflicts.length > 0) {
@@ -483,6 +538,26 @@ function entriesEqual(
   right: FirecrackerWorkspaceManifestEntry | undefined,
 ): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function assertExactWorkspaceManifest(
+  expected: FirecrackerWorkspaceManifest,
+  actual: FirecrackerWorkspaceManifest,
+  label: string,
+): void {
+  const mismatches: string[] = [];
+  const paths = new Set([...expected.keys(), ...actual.keys()]);
+  for (const relativePath of paths) {
+    if (!entriesEqual(expected.get(relativePath), actual.get(relativePath))) {
+      mismatches.push(relativePath);
+    }
+  }
+  if (mismatches.length > 0) {
+    throw new Error(
+      `Firecracker ${label} diverged during staging at ${mismatches.slice(0, 20).join(', ')}` +
+      (mismatches.length > 20 ? ` and ${mismatches.length - 20} more paths` : ''),
+    );
+  }
 }
 
 function normalizeRelative(value: string): string {

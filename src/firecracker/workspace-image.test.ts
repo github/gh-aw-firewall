@@ -109,6 +109,11 @@ describe('Firecracker workspace images', () => {
       guest,
       new Map([['file', file('host')]]),
     )).toThrow(/concurrently/);
+    expect(() => assertNoWorkspaceConflicts(
+      original,
+      original,
+      new Map([['file', file('host')]]),
+    )).toThrow(/concurrently/);
     expect(() => assertNoWorkspaceConflicts(original, guest, guest)).not.toThrow();
   });
 
@@ -177,7 +182,16 @@ describe('Firecracker workspace images', () => {
           await fs.writeFile(path.join(extracted, '.awf-home', 'token'), 'guest-only');
           await fs.mkdir(path.join(extracted, 'lost+found'), { recursive: true });
         }
-        if (command === 'rsync') rsyncCalls.push([...args]);
+        if (command === 'rsync') {
+          rsyncCalls.push([...args]);
+          const sourceDirectory = args[args.length - 2];
+          const destinationDirectory = args[args.length - 1];
+          if (!sourceDirectory || !destinationDirectory) return;
+          const sourceFile = path.join(sourceDirectory, 'file');
+          const destinationFile = path.join(destinationDirectory, 'file');
+          await fs.mkdir(path.dirname(destinationFile), { recursive: true });
+          await fs.copyFile(sourceFile, destinationFile);
+        }
       }),
     });
 
@@ -186,11 +200,11 @@ describe('Firecracker workspace images', () => {
     expect(rsyncCalls).toEqual([[
       '-a',
       '--delete',
-      '--delay-updates',
       '--safe-links',
       `${path.join(image.runDirectory, 'extracted')}${path.sep}`,
-      `${workspace}${path.sep}`,
+      `${path.join(root, '.source.awf-merge-run-3')}${path.sep}`,
     ]]);
+    await expect(fs.readFile(path.join(workspace, 'file'), 'utf8')).resolves.toBe('after');
     await image.cleanup();
     await expect(fs.access(image.runDirectory)).rejects.toThrow();
     await fs.rm(root, { recursive: true, force: true });

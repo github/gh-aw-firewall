@@ -287,7 +287,12 @@ func (s *session) start(frame Frame) error {
 	} else {
 		ctx, cancel = context.WithCancel(ctx)
 	}
-	command := exec.Command(frame.Argv[0], frame.Argv[1:]...)
+	resolvedCommand, err := resolveCommand(frame.Argv[0], frame.Env)
+	if err != nil {
+		cancel()
+		return err
+	}
+	command := exec.Command(resolvedCommand, frame.Argv[1:]...)
 	command.Dir = cwd
 	command.Env = environment(frame.Env)
 	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true, Credential: &syscall.Credential{Uid: uint32(frame.UID), Gid: uint32(frame.GID)}}
@@ -398,9 +403,14 @@ func (s *session) terminate(execution *execution) {
 }
 
 func (s *session) wait(execution *execution, ctx context.Context) {
-	_ = execution.stdin.Close()
 	execution.output.Wait()
 	err := execution.command.Wait()
+	execution.stdinMu.Lock()
+	if !execution.stdinClosed {
+		execution.stdinClosed = true
+		_ = execution.stdin.Close()
+	}
+	execution.stdinMu.Unlock()
 	terminateAndReapDescendants(execution.command.Process.Pid)
 	// Prevent a just-cancelled context watcher from signalling a reaped PID.
 	execution.once.Do(func() {})
@@ -422,9 +432,6 @@ func (s *session) wait(execution *execution, ctx context.Context) {
 	} else {
 		s.sendError(execution.requestID, errorInternal, "execution failed: "+err.Error())
 	}
-	if result.ExitCode != nil || result.Signal != nil {
-		_ = s.send(result)
-	}
 	s.activeMu.Lock()
 	if s.active == execution {
 		s.active = nil
@@ -432,6 +439,9 @@ func (s *session) wait(execution *execution, ctx context.Context) {
 	s.activeMu.Unlock()
 	close(execution.done)
 	execution.cancel()
+	if result.ExitCode != nil || result.Signal != nil {
+		_ = s.send(result)
+	}
 }
 
 func terminateAndReapDescendants(processGroup int) {
@@ -486,6 +496,31 @@ func environment(values map[string]string) []string {
 		environment = append(environment, key+"="+value)
 	}
 	return environment
+}
+
+func resolveCommand(command string, env map[string]string) (string, error) {
+	if strings.Contains(command, "/") {
+		if !filepath.IsAbs(command) {
+			return "", errors.New("argv[0] must be absolute when it includes a path separator")
+		}
+		return command, nil
+	}
+	searchPath := env["PATH"]
+	if searchPath == "" {
+		searchPath = "/usr/sbin:/usr/bin:/sbin:/bin"
+	}
+	for _, directory := range filepath.SplitList(searchPath) {
+		if directory == "" || !filepath.IsAbs(directory) {
+			continue
+		}
+		candidate := filepath.Join(directory, command)
+		info, err := os.Stat(candidate)
+		if err != nil || info.IsDir() || info.Mode()&0111 == 0 {
+			continue
+		}
+		return candidate, nil
+	}
+	return "", fmt.Errorf("command not found in PATH: %s", command)
 }
 
 func resolveCWD(workspace, cwd string) (string, error) {
