@@ -99,19 +99,30 @@ download_verified \
 tar --extract --bzip2 --file "$busybox_tar" --directory "$BUILD"
 busybox_dir="$BUILD/busybox-${BUSYBOX_VERSION}"
 make -C "$busybox_dir" defconfig
-"$busybox_dir/scripts/config" --file "$busybox_dir/.config" \
-  --enable STATIC \
-  --enable WGET \
-  --enable FEATURE_WGET_HTTPS \
-  --enable TLS \
-  --enable IP \
-  --enable IPADDR \
-  --enable IPLINK \
-  --enable IPROUTE \
-  --enable NC \
-  --enable NSLOOKUP \
-  --enable TIMEOUT
-make -C "$busybox_dir" oldconfig </dev/null >/dev/null
+enable_busybox_option() {
+  local option=$1
+  if grep -q "^CONFIG_${option}=" "$busybox_dir/.config"; then
+    sed -i "s/^CONFIG_${option}=.*/CONFIG_${option}=y/" "$busybox_dir/.config"
+  elif grep -q "^# CONFIG_${option} is not set$" "$busybox_dir/.config"; then
+    sed -i "s/^# CONFIG_${option} is not set$/CONFIG_${option}=y/" "$busybox_dir/.config"
+  else
+    printf 'CONFIG_%s=y\n' "$option" >>"$busybox_dir/.config"
+  fi
+}
+for option in \
+  STATIC \
+  WGET \
+  FEATURE_WGET_HTTPS \
+  TLS \
+  IP \
+  IPADDR \
+  IPLINK \
+  IPROUTE \
+  NC \
+  NSLOOKUP \
+  TIMEOUT; do
+  enable_busybox_option "$option"
+done
 make -C "$busybox_dir" -j"$JOBS"
 
 supervisor="$OUTPUT/awf-firecracker-supervisor"
