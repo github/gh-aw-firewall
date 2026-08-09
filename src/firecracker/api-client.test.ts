@@ -105,4 +105,28 @@ describe('FirecrackerApiClient', () => {
     });
     expect(error.message).toContain('invalid machine config');
   });
+
+  it('enforces a wall-clock timeout even when the peer keeps sending data', async () => {
+    await listen((_request, response) => {
+      response.writeHead(200, { 'Content-Type': 'application/json' });
+      const interval = setInterval(() => {
+        response.write(' ');
+      }, 5);
+      response.on('close', () => clearInterval(interval));
+    });
+
+    const client = new FirecrackerApiClient({ socketPath, timeoutMs: 30 });
+    await expect(client.getInstanceInfo()).rejects.toThrow(/timed out after 30ms/);
+  });
+
+  it('rejects when the response stream errors before completion', async () => {
+    await listen((_request, response) => {
+      response.writeHead(200, { 'Content-Type': 'application/json' });
+      response.write('{"id":"vm"');
+      response.destroy(new Error('socket closed'));
+    });
+
+    const client = new FirecrackerApiClient({ socketPath });
+    await expect(client.getInstanceInfo()).rejects.toThrow();
+  });
 });

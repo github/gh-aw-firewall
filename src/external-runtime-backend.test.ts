@@ -72,7 +72,6 @@ describe('external runtime backend', () => {
     );
     expect(startInfrastructure).not.toHaveBeenCalled();
   });
-
   it('adapts start and exec without changing arguments or exit codes', async () => {
     const backend = createBackend();
     const adapted = adaptExternalRuntimeBackend(backend);

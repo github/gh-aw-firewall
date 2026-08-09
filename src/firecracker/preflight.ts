@@ -25,7 +25,7 @@ export interface FirecrackerPreflightDependencies {
 const defaultDependencies: FirecrackerPreflightDependencies = {
   platform: process.platform,
   arch: process.arch,
-  uid: process.getuid?.() ?? -1,
+  uid: -1,
   access: fs.access,
   lstat: fs.lstat,
   runVersion: async (binaryPath) => {
@@ -78,6 +78,7 @@ async function assertTrustedRegularFile(
   if (!path.isAbsolute(filePath)) {
     throw new Error(`${label} path must be absolute: ${filePath}`);
   }
+  await assertTrustedAncestorChain(label, filePath, dependencies);
   const stat = await dependencies.lstat(filePath);
   if (stat.isSymbolicLink() || !stat.isFile()) {
     throw new Error(`${label} must be a regular file and not a symbolic link: ${filePath}`);
@@ -97,6 +98,45 @@ async function assertTrustedRegularFile(
       `${label} does not have the required host access: ${filePath}: ` +
       `${error instanceof Error ? error.message : String(error)}`,
     );
+  }
+}
+
+function parsePositiveUid(value: string | undefined): number | undefined {
+  if (!value || !/^[1-9]\d*$/.test(value)) return undefined;
+  return Number(value);
+}
+
+function resolveTrustedOperatorUid(): number {
+  return parsePositiveUid(process.env.SUDO_UID) ?? (process.getuid?.() ?? -1);
+}
+
+async function assertTrustedAncestorChain(
+  label: string,
+  filePath: string,
+  dependencies: FirecrackerPreflightDependencies,
+): Promise<void> {
+  const { root } = path.parse(filePath);
+  const segments = filePath.slice(root.length).split('/').filter((segment) => segment.length > 0);
+  let ancestor = root;
+  for (const segment of segments.slice(0, -1)) {
+    ancestor = path.join(ancestor, segment);
+    const stat = await dependencies.lstat(ancestor);
+    if (stat.isSymbolicLink()) {
+      throw new Error(
+        `${label} parent directory must not be a symbolic link: ${ancestor}`,
+      );
+    }
+    if ((stat.mode & 0o022) !== 0) {
+      throw new Error(
+        `${label} parent directory must not be group- or world-writable: ${ancestor}`,
+      );
+    }
+    if (stat.uid !== 0 && stat.uid !== dependencies.uid) {
+      throw new Error(
+        `${label} parent directory must be owned by root or uid ${dependencies.uid}; ` +
+        `found uid ${stat.uid}: ${ancestor}`,
+      );
+    }
   }
 }
 
@@ -125,7 +165,11 @@ export async function runFirecrackerPreflight(
   config: FirecrackerOptions,
   overrides: Partial<FirecrackerPreflightDependencies> = {},
 ): Promise<FirecrackerPreflightResult> {
-  const dependencies = { ...defaultDependencies, ...overrides };
+  const dependencies = {
+    ...defaultDependencies,
+    ...overrides,
+    uid: overrides.uid ?? resolveTrustedOperatorUid(),
+  };
   if (dependencies.platform !== 'linux') {
     throw new Error(`Firecracker requires Linux with KVM; found ${dependencies.platform}`);
   }

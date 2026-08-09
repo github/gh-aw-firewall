@@ -76,6 +76,16 @@ describe('FirecrackerManager', () => {
       '/opt/firecracker',
       '../escape',
     )).toThrow(/Unsafe Firecracker run id/);
+    expect(() => createFirecrackerRunPaths(
+      '/tmp/awf',
+      '/opt/firecracker',
+      'run_1',
+    )).toThrow(/Unsafe Firecracker run id/);
+    expect(() => createFirecrackerRunPaths(
+      '/tmp/awf',
+      '/opt/firecracker',
+      `run-${'a'.repeat(61)}`,
+    )).toThrow(/Unsafe Firecracker run id/);
   });
 
   it('launches jailer and configures machine, kernel, and root drive', async () => {
@@ -125,5 +135,22 @@ describe('FirecrackerManager', () => {
       '/tmp/awf/firecracker-jailer/firecracker/partial',
       { recursive: true, force: true },
     );
+  });
+
+  it('fails fast when jailer exits by signal before API readiness', async () => {
+    const child = processMock();
+    Object.assign(child, { signalCode: 'SIGKILL', kill: jest.fn() });
+    const missing = Object.assign(new Error('missing'), { code: 'ENOENT' });
+    const deps = dependencies({
+      launch: jest.fn().mockReturnValue(child),
+      access: jest.fn().mockRejectedValue(missing),
+      sleep: jest.fn().mockResolvedValue(undefined),
+    });
+    const manager = new FirecrackerManager(config({ apiTimeoutMs: 2000 }), '/tmp/awf', deps, 'signal');
+
+    await expect(manager.start()).rejects.toThrow(
+      /exited before API readiness with code null and signal SIGKILL/,
+    );
+    expect(deps.sleep).not.toHaveBeenCalled();
   });
 });

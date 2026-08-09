@@ -415,6 +415,28 @@ describe('createMainAction', () => {
         expect(processExitSpy).toHaveBeenCalledWith(1);
       });
     });
+
+    describe('when external runtime preflight fails', () => {
+      it('aborts before entering the main workflow', async () => {
+        mockedExternalRuntimeResolver.resolveExternalRuntimeBackend.mockImplementationOnce(() => ({
+          runtime: 'sbx',
+          preflight: jest.fn().mockRejectedValue(new Error('preflight failed')),
+          start: jest.fn(),
+          exec: jest.fn(),
+          collectDiagnostics: jest.fn(),
+          stop: jest.fn(),
+        }));
+
+        const action = createMainAction(getOptionValueSource);
+        await expect(action(['echo hi'], {})).rejects.toThrow('process.exit: 1');
+
+        expect(mockedCliWorkflow.runMainWorkflow).not.toHaveBeenCalled();
+        expect(mockedLogger.error).toHaveBeenCalledWith(
+          'Fatal error:',
+          expect.objectContaining({ message: 'preflight failed' }),
+        );
+      });
+    });
   });
 
   describe('performCleanup with keepContainers=true', () => {

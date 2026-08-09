@@ -135,6 +135,28 @@ export class FirecrackerApiClient {
     const body = payload === undefined ? undefined : JSON.stringify(payload);
 
     return new Promise<TResponse>((resolve, reject) => {
+      let settled = false;
+      const timer = setTimeout(() => {
+        const error = new Error(
+          `Firecracker API ${method} ${requestPath} timed out after ${this.timeoutMs}ms`,
+        );
+        rejectOnce(error);
+        request.destroy(error);
+      }, this.timeoutMs);
+      const clearTimer = () => clearTimeout(timer);
+      const resolveOnce = (value: TResponse) => {
+        if (settled) return;
+        settled = true;
+        clearTimer();
+        resolve(value);
+      };
+      const rejectOnce = (error: unknown) => {
+        if (settled) return;
+        settled = true;
+        clearTimer();
+        reject(error);
+      };
+
       const request = http.request({
         socketPath: this.options.socketPath,
         path: requestPath,
@@ -148,10 +170,16 @@ export class FirecrackerApiClient {
       }, (response) => {
         const chunks: Buffer[] = [];
         let totalBytes = 0;
+        response.on('error', rejectOnce);
+        response.on('aborted', () => {
+          rejectOnce(new Error(`Firecracker API ${method} ${requestPath} response was aborted`));
+        });
         response.on('data', (chunk: Buffer) => {
           totalBytes += chunk.length;
           if (totalBytes > 1024 * 1024) {
-            request.destroy(new Error('Firecracker API response exceeded 1 MiB'));
+            const error = new Error('Firecracker API response exceeded 1 MiB');
+            rejectOnce(error);
+            request.destroy(error);
             return;
           }
           chunks.push(chunk);
@@ -167,7 +195,7 @@ export class FirecrackerApiClient {
               parsed = undefined;
             }
             const detail = parsed?.fault_message || responseBody || 'empty response';
-            reject(new FirecrackerApiError(
+            rejectOnce(new FirecrackerApiError(
               method,
               requestPath,
               statusCode,
@@ -178,13 +206,13 @@ export class FirecrackerApiClient {
           }
 
           if (!responseBody) {
-            resolve(undefined as TResponse);
+            resolveOnce(undefined as TResponse);
             return;
           }
           try {
-            resolve(JSON.parse(responseBody) as TResponse);
+            resolveOnce(JSON.parse(responseBody) as TResponse);
           } catch (error) {
-            reject(new Error(
+            rejectOnce(new Error(
               `Firecracker API ${method} ${requestPath} returned invalid JSON: ` +
               `${error instanceof Error ? error.message : String(error)}`,
             ));
@@ -192,12 +220,7 @@ export class FirecrackerApiClient {
         });
       });
 
-      request.setTimeout(this.timeoutMs, () => {
-        request.destroy(new Error(
-          `Firecracker API ${method} ${requestPath} timed out after ${this.timeoutMs}ms`,
-        ));
-      });
-      request.on('error', reject);
+      request.on('error', rejectOnce);
       if (body !== undefined) request.write(body);
       request.end();
     });

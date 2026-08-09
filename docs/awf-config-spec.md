@@ -189,7 +189,7 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 - `container.dockerHostPathPrefix` → `--docker-host-path-prefix`
 - `container.runnerToolCachePath` → *(config-only; checked first for optional read-only runner tool cache mount, before `RUNNER_TOOL_CACHE` and `/home/runner/work/_tool` auto-detection)*
 - `container.mounts[]` → `-v, --mount` *(repeatable; each array entry maps to one Docker volume mount in `/host_path:/container_path[:ro|rw]` format (both paths must be absolute; host path must exist); in chroot mode, container paths are automatically prefixed with `/host`)*
-- `container.containerRuntime` → `--container-runtime` *(user-facing runtime name: `"gvisor"` for OCI runtime in compose, `"sbx"` for Docker sbx microVM, or `"firecracker"` for the fail-closed Firecracker v1.16.1 control-plane preview)*
+- `container.containerRuntime` → `--container-runtime` *(user-facing runtime name: `"gvisor"` for OCI runtime in compose, `"sbx"` for Docker sbx microVM, or `"firecracker"` for the fail-closed Firecracker v1.16.1 control-plane preview. For gvisor: translates to `"runsc"`, injects `extra_hosts` for DNS workaround. For sbx: agent runs in a hypervisor-isolated microVM, infra stays in compose, sbx proxy chains through AWF's Squid.)*
 - `firecracker.previewEnabled` → `--firecracker-preview`
 - `firecracker.firecrackerBinary` → `--firecracker-binary`
 - `firecracker.jailerBinary` → `--firecracker-jailer-binary`

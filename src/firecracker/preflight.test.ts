@@ -43,6 +43,10 @@ function dependencies(
 }
 
 describe('Firecracker preflight', () => {
+  afterEach(() => {
+    delete process.env.SUDO_UID;
+  });
+
   it('parses Firecracker and jailer release output', () => {
     expect(parseFirecrackerVersion('Firecracker v1.16.1')).toBe('1.16.1');
     expect(parseFirecrackerVersion('Jailer v1.16.1')).toBe('1.16.1');
@@ -103,5 +107,63 @@ describe('Firecracker preflight', () => {
       config({ sha256: { kernel: digest } }),
       dependencies({ sha256: jest.fn().mockResolvedValue('b'.repeat(64)) }),
     )).rejects.toThrow(/SHA-256 mismatch/);
+  });
+
+  it('uses SUDO_UID as trusted owner when running under sudo', async () => {
+    process.env.SUDO_UID = '2001';
+    const lstat = jest.fn().mockResolvedValue({
+      isFile: () => true,
+      isSymbolicLink: () => false,
+      mode: 0o100755,
+      uid: 2001,
+    });
+    await expect(runFirecrackerPreflight(
+      config(),
+      dependencies({ uid: undefined, lstat }),
+    )).resolves.toMatchObject({ version: '1.16.1' });
+  });
+
+  it('rejects writable or symlinked parent directories', async () => {
+    const lstat = jest.fn(async (filePath: string) => {
+      if (filePath === '/opt') {
+        return {
+          isFile: () => false,
+          isSymbolicLink: () => false,
+          mode: 0o040777,
+          uid: 0,
+        };
+      }
+      return {
+        isFile: () => true,
+        isSymbolicLink: () => false,
+        mode: 0o100755,
+        uid: 0,
+      };
+    });
+    await expect(runFirecrackerPreflight(
+      config(),
+      dependencies({ lstat }),
+    )).rejects.toThrow(/parent directory must not be group- or world-writable/);
+
+    const symlinkParent = jest.fn(async (filePath: string) => {
+      if (filePath === '/opt') {
+        return {
+          isFile: () => false,
+          isSymbolicLink: () => true,
+          mode: 0o040755,
+          uid: 0,
+        };
+      }
+      return {
+        isFile: () => true,
+        isSymbolicLink: () => false,
+        mode: 0o100755,
+        uid: 0,
+      };
+    });
+    await expect(runFirecrackerPreflight(
+      config(),
+      dependencies({ lstat: symlinkParent }),
+    )).rejects.toThrow(/parent directory must not be a symbolic link/);
   });
 });

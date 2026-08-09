@@ -312,6 +312,10 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
   });
 
   try {
+    if (externalRuntimeBackend) {
+      await externalRuntimeBackend.preflight();
+    }
+
     const externalWorkflowDependencies = externalRuntimeBackend
       ? adaptExternalRuntimeBackend(externalRuntimeBackend)
       : undefined;

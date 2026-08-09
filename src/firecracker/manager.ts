@@ -76,7 +76,7 @@ export function createFirecrackerRunPaths(
   firecrackerBinary: string,
   runId = `awf-${process.pid}-${randomBytes(6).toString('hex')}`,
 ): FirecrackerRunPaths {
-  if (!/^[A-Za-z0-9_-]+$/.test(runId)) {
+  if (!/^[A-Za-z0-9-]{1,64}$/.test(runId)) {
     throw new Error(`Unsafe Firecracker run id: ${runId}`);
   }
   const chrootBaseDir = path.join(workDir, 'firecracker-jailer');
@@ -224,9 +224,10 @@ export class FirecrackerManager {
   private async waitForApiSocket(): Promise<void> {
     const deadline = Date.now() + this.config.apiTimeoutMs;
     while (Date.now() < deadline) {
-      if (this.process?.exitCode !== null) {
+      if (this.process && (this.process.exitCode != null || this.process.signalCode != null)) {
         throw new Error(
-          `Firecracker jailer exited before API readiness with code ${this.process?.exitCode}`,
+          `Firecracker jailer exited before API readiness with code ${this.process.exitCode ?? 'null'} ` +
+          `and signal ${this.process.signalCode ?? 'null'}`,
         );
       }
       try {
