@@ -99,12 +99,25 @@ function buildCleanupFn(
   externalRuntimeBackend?: ExternalAgentRuntimeBackend,
 ) {
   return async (signal?: string) => {
+    const cleanupErrors: unknown[] = [];
     if (signal) {
       logger.info(`Received ${signal}, cleaning up...`);
     }
 
-    if (externalRuntimeBackend && !config.keepContainers) {
-      await externalRuntimeBackend.stop();
+    if (externalRuntimeBackend) {
+      try {
+        if (config.keepContainers && externalRuntimeBackend.preserve) {
+          await externalRuntimeBackend.preserve();
+        } else if (!config.keepContainers) {
+          await externalRuntimeBackend.stop();
+        }
+      } catch (error) {
+        cleanupErrors.push(error);
+        logger.warn(
+          'External runtime cleanup failed; continuing with infrastructure teardown.',
+          error,
+        );
+      }
     }
 
     // Let the enclave server emit final cleanup telemetry before preserving
@@ -168,6 +181,14 @@ function buildCleanupFn(
       logger.info(`Agent logs available at: ${config.workDir}/agent-logs/`);
       logger.info(`Squid logs available at: ${config.workDir}/squid-logs/`);
       logger.info(`Host iptables rules preserved (--keep-containers enabled)`);
+    }
+    if (cleanupErrors.length === 1) throw cleanupErrors[0];
+    if (cleanupErrors.length > 1) {
+      throw new Error(
+        `Cleanup failed: ${cleanupErrors.map((error) => (
+          error instanceof Error ? error.message : String(error)
+        )).join('; ')}`,
+      );
     }
   };
 }

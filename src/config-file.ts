@@ -129,6 +129,7 @@ export interface AwfFileConfig {
     jailerBinary?: string;
     kernelPath?: string;
     rootfsPath?: string;
+    supervisorPath?: string;
     vcpuCount?: number;
     memoryMib?: number;
     apiTimeoutMs?: number;

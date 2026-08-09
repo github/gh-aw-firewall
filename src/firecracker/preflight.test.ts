@@ -15,6 +15,7 @@ function config(overrides: Partial<FirecrackerOptions> = {}): FirecrackerOptions
     jailerBinary: '/opt/jailer',
     kernelPath: '/opt/vmlinux',
     rootfsPath: '/opt/rootfs.ext4',
+    supervisorPath: '/opt/awf-supervisor',
     vcpuCount: 2,
     memoryMib: 512,
     apiTimeoutMs: 5000,
@@ -38,6 +39,7 @@ function dependencies(
     }),
     runVersion: jest.fn().mockResolvedValue('Firecracker v1.16.1'),
     sha256: jest.fn().mockResolvedValue(digest),
+    assertToolAvailable: jest.fn().mockResolvedValue(undefined),
     ...overrides,
   };
 }
@@ -61,6 +63,7 @@ describe('Firecracker preflight', () => {
         jailer: digest,
         kernel: digest,
         rootfs: digest,
+        supervisor: digest,
       },
     }), deps);
 
@@ -69,7 +72,8 @@ describe('Firecracker preflight', () => {
       '/dev/kvm',
       constants.R_OK | constants.W_OK,
     );
-    expect(deps.sha256).toHaveBeenCalledTimes(4);
+    expect(deps.sha256).toHaveBeenCalledTimes(5);
+    expect(deps.assertToolAvailable).toHaveBeenCalledTimes(6);
   });
 
   it('rejects inaccessible KVM without checking artifacts', async () => {

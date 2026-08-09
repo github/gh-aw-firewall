@@ -9,6 +9,11 @@ import { validateInfrastructureOptions, applyRateLimitConfig, validateFeatureFla
 import { applySecurityMode } from './security-mode';
 import { validateHostAccessConfig } from './network-access-validator';
 import { validateApiProxyOptions, validateCopilotModelOption } from './api-proxy-validator';
+import {
+  assertFirecrackerPreSecurityCompatibility,
+  assertFirecrackerRuntimeCompatibility,
+  assertFirecrackerSelection,
+} from '../../firecracker/runtime-validation';
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -70,7 +75,29 @@ export function assembleAndValidateConfig(
   });
 
   validateInfrastructureOptions(config);
+  try {
+    assertFirecrackerSelection(config);
+  } catch (error) {
+    logger.error(`❌ ${error instanceof Error ? error.message : String(error)}`);
+    process.exit(1);
+  }
+  if (config.containerRuntime === 'firecracker') {
+    try {
+      assertFirecrackerPreSecurityCompatibility(config);
+    } catch (error) {
+      logger.error(`❌ ${error instanceof Error ? error.message : String(error)}`);
+      process.exit(1);
+    }
+  }
   applySecurityMode(config);
+  if (config.containerRuntime === 'firecracker') {
+    try {
+      assertFirecrackerRuntimeCompatibility(config);
+    } catch (error) {
+      logger.error(`❌ ${error instanceof Error ? error.message : String(error)}`);
+      process.exit(1);
+    }
+  }
   applyAgentTimeout(options.agentTimeout as string | undefined, config, logger);
   applyRateLimitConfig(config, options);
   validateFeatureFlagCompatibility(config);

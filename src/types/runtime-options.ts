@@ -16,14 +16,14 @@ export interface FirecrackerArtifactDigests {
   jailer?: string;
   kernel?: string;
   rootfs?: string;
+  supervisor?: string;
 }
 
 /**
- * Preview control-plane configuration for the Firecracker microVM runtime.
+ * Preview workload configuration for the Firecracker microVM runtime.
  *
  * Host-side network enforcement and guest execution inputs are supplied
- * directly to FirecrackerManager after infrastructure discovery. Global
- * runtime dispatch remains fail-closed until all integration probes are wired.
+ * directly to FirecrackerManager after live infrastructure discovery.
  */
 export interface FirecrackerOptions {
   previewEnabled: boolean;
@@ -31,6 +31,7 @@ export interface FirecrackerOptions {
   jailerBinary: string;
   kernelPath?: string;
   rootfsPath?: string;
+  supervisorPath?: string;
   vcpuCount: number;
   memoryMib: number;
   apiTimeoutMs: number;

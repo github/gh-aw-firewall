@@ -41,6 +41,11 @@ export function resolveExternalRuntimeBackend(
   }
 
   const runtime = config.containerRuntime;
+  if (runtime === 'firecracker' && !config.firecracker?.previewEnabled) {
+    throw new Error(
+      'Firecracker workload execution requires explicit --firecracker-preview opt-in',
+    );
+  }
   const factory = runtime ? registry[runtime] : undefined;
   if (!factory) {
     throw new Error(`No external agent runtime backend is registered for "${runtime}"`);

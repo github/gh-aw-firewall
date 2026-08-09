@@ -158,7 +158,16 @@ export class FirecrackerManager {
   private network: FirecrackerNetworkLifecycle | undefined;
   private workspace: FirecrackerWorkspaceImage | undefined;
   private guestClient: FirecrackerVsockClient | undefined;
+  private networkPlan: FirecrackerNetworkPlan | undefined;
   private instanceStarted = false;
+
+  get guestIp(): string | undefined {
+    return this.networkPlan?.guestIp;
+  }
+
+  get networkNamespace(): string | undefined {
+    return this.networkPlan?.namespaceName;
+  }
 
   constructor(
     private readonly config: FirecrackerOptions,
@@ -187,6 +196,7 @@ export class FirecrackerManager {
         jailerUid: identity.uid,
         jailerGid: identity.gid,
       });
+      this.networkPlan = networkPlan;
       this.network = this.dependencies.createNetwork(networkPlan);
       await this.network.setup();
       let rootfsSource = artifacts.rootfsPath;
@@ -313,7 +323,35 @@ export class FirecrackerManager {
     return this.guestClient.execute(request);
   }
 
-  async stop(): Promise<void> {
+  cancel(reason = 'host cancellation', requestId?: string): Promise<void> {
+    if (!this.guestClient) {
+      return Promise.reject(new Error('Firecracker guest supervisor is not ready'));
+    }
+    return this.guestClient.cancel(reason, requestId);
+  }
+
+  writeStdin(data: Buffer, requestId?: string): Promise<void> {
+    if (!this.guestClient) {
+      return Promise.reject(new Error('Firecracker guest supervisor is not ready'));
+    }
+    return this.guestClient.writeStdin(data, requestId);
+  }
+
+  endStdin(requestId?: string): Promise<void> {
+    if (!this.guestClient) {
+      return Promise.reject(new Error('Firecracker guest supervisor is not ready'));
+    }
+    return this.guestClient.endStdin(requestId);
+  }
+
+  resize(columns: number, rows: number, requestId?: string): Promise<void> {
+    if (!this.guestClient) {
+      return Promise.reject(new Error('Firecracker guest supervisor is not ready'));
+    }
+    return this.guestClient.resize(columns, rows, requestId);
+  }
+
+  async stop(options: { preserve?: boolean } = {}): Promise<void> {
     const errors: unknown[] = [];
     const instanceWasStarted = this.instanceStarted;
     let guestShutdownAcknowledged = false;
@@ -322,7 +360,12 @@ export class FirecrackerManager {
         await this.guestClient.shutdown();
         guestShutdownAcknowledged = true;
       } catch (error) {
-        errors.push(error);
+        if (
+          !(error instanceof Error) ||
+          error.message !== 'Cannot shut down Firecracker guest while a request is running'
+        ) {
+          errors.push(error);
+        }
         this.guestClient.destroy();
       }
     }
@@ -382,9 +425,20 @@ export class FirecrackerManager {
     }
     this.instanceStarted = false;
 
+    if (options.preserve) {
+      if (errors.length === 1) throw errors[0];
+      if (errors.length > 1) {
+        throw new Error(
+          `Firecracker preservation failed: ${errors.map(formatError).join('; ')}`,
+        );
+      }
+      return;
+    }
+
     try {
       await this.network?.cleanup();
       this.network = undefined;
+      this.networkPlan = undefined;
     } catch (error) {
       errors.push(error);
     }

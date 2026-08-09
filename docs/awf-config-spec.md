@@ -189,12 +189,13 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 - `container.dockerHostPathPrefix` → `--docker-host-path-prefix`
 - `container.runnerToolCachePath` → *(config-only; checked first for optional read-only runner tool cache mount, before `RUNNER_TOOL_CACHE` and `/home/runner/work/_tool` auto-detection)*
 - `container.mounts[]` → `-v, --mount` *(repeatable; each array entry maps to one Docker volume mount in `/host_path:/container_path[:ro|rw]` format (both paths must be absolute; host path must exist); in chroot mode, container paths are automatically prefixed with `/host`)*
-- `container.containerRuntime` → `--container-runtime` *(user-facing runtime name: `"gvisor"` for OCI runtime in compose, `"sbx"` for Docker sbx microVM, or `"firecracker"` for the fail-closed Firecracker v1.16.1 control-plane preview. For gvisor: translates to `"runsc"`, injects `extra_hosts` for DNS workaround. For sbx: agent runs in a hypervisor-isolated microVM, infra stays in compose, sbx proxy chains through AWF's Squid.)*
+- `container.containerRuntime` → `--container-runtime` *(user-facing runtime name: `"gvisor"` for OCI runtime in compose, `"sbx"` for Docker sbx microVM, or `"firecracker"` for the explicit Firecracker v1.16.1 workload preview. For gvisor: translates to `"runsc"`, injects `extra_hosts` for DNS workaround. For sbx and Firecracker: infrastructure stays in Compose while the primary agent runs in a microVM.)*
 - `firecracker.previewEnabled` → `--firecracker-preview`
 - `firecracker.firecrackerBinary` → `--firecracker-binary`
 - `firecracker.jailerBinary` → `--firecracker-jailer-binary`
 - `firecracker.kernelPath` → `--firecracker-kernel`
 - `firecracker.rootfsPath` → `--firecracker-rootfs`
+- `firecracker.supervisorPath` → `--firecracker-supervisor`
 - `firecracker.vcpuCount` → `--firecracker-vcpus`
 - `firecracker.memoryMib` → `--firecracker-memory-mib`
 - `firecracker.apiTimeoutMs` → `--firecracker-api-timeout-ms`
@@ -202,6 +203,7 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 - `firecracker.sha256.jailer` → `--firecracker-jailer-sha256`
 - `firecracker.sha256.kernel` → `--firecracker-kernel-sha256`
 - `firecracker.sha256.rootfs` → `--firecracker-rootfs-sha256`
+- `firecracker.sha256.supervisor` → `--firecracker-supervisor-sha256`
 - `chroot.binariesSourcePath` → *(config-only; mounts a runner-side binaries directory at `/tmp/awf-runner-bin` inside chroot mode and prepends it to `PATH`)*
 - `chroot.identity.home` → *(config-only; forwarded as `AWF_CHROOT_IDENTITY_HOME` and applied after chroot pivot)*
 - `chroot.identity.user` → *(config-only; forwarded as `AWF_CHROOT_IDENTITY_USER` and applied to `USER`/`LOGNAME` after chroot pivot)*
@@ -261,13 +263,14 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 
 When `container.dockerHostPathPrefix` points at a daemon-visible shared `/tmp` path, the implementation stages the invoking CLI binary together with `/etc/passwd`, `/etc/group`, and the generated chroot `/etc/hosts` under that shared path so chroot mode can bootstrap on split-filesystem ARC/DinD hosts.
 
-The `firecracker` surface is a control-plane preview pinned to Firecracker
-v1.16.1 on Linux/KVM (`x86_64` or `aarch64`). AWF MUST launch Firecracker
-through the matching jailer, reject unsafe or mismatched artifacts, and MUST
-NOT fall back to another runtime. Networking, workspace images, enclave
-executors, and guest workload execution are intentionally unavailable in this
-preview; selecting `firecracker` therefore fails closed before running the
-requested command.
+The `firecracker` surface is an explicit workload preview pinned to Firecracker
+v1.16.1 on Linux/KVM (`x86_64` or `aarch64`). It requires strict network
+isolation, a local Unix-socket Docker daemon, the matching jailer, and explicit
+SHA-256 digests for Firecracker, jailer, kernel, rootfs, and the AWF guest
+supervisor. AWF starts Compose infrastructure only, attaches the jailed
+microVM to the proven internal bridge, and executes through vsock. Host access,
+DinD, extra mounts, TTY, topology peers, and enclaves fail closed in this
+preview. Selecting `firecracker` never falls back to another runtime.
 
 When DinD is detected, AWF preserves the detected `DOCKER_HOST` value for the agent environment (including MCP servers) so DinD-aware tooling can reach the correct daemon without manual workflow env overrides.
 

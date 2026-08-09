@@ -243,6 +243,7 @@ function buildFirecrackerConfig(
       'firecrackerJailerBinary',
       'firecrackerKernel',
       'firecrackerRootfs',
+      'firecrackerSupervisor',
       'firecrackerVcpus',
       'firecrackerMemoryMib',
       'firecrackerApiTimeoutMs',
@@ -250,6 +251,7 @@ function buildFirecrackerConfig(
       'firecrackerJailerSha256',
       'firecrackerKernelSha256',
       'firecrackerRootfsSha256',
+      'firecrackerSupervisorSha256',
     ].some((key) => options[key] !== undefined);
   if (!selected && !configured) return undefined;
 
@@ -258,6 +260,7 @@ function buildFirecrackerConfig(
     jailer: options.firecrackerJailerSha256 as string | undefined,
     kernel: options.firecrackerKernelSha256 as string | undefined,
     rootfs: options.firecrackerRootfsSha256 as string | undefined,
+    supervisor: options.firecrackerSupervisorSha256 as string | undefined,
   };
 
   return {
@@ -269,6 +272,7 @@ function buildFirecrackerConfig(
       FIRECRACKER_DEFAULT_JAILER_BINARY,
     kernelPath: options.firecrackerKernel as string | undefined,
     rootfsPath: options.firecrackerRootfs as string | undefined,
+    supervisorPath: options.firecrackerSupervisor as string | undefined,
     vcpuCount: parseFirecrackerPositiveInteger(
       options.firecrackerVcpus,
       '--firecracker-vcpus',

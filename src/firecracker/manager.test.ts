@@ -354,6 +354,54 @@ describe('FirecrackerManager', () => {
       expect(order).toEqual(['extract']);
   });
 
+  it('quiesces and copies back while preserving jail, images, and network in keep mode', async () => {
+      const child = processMock();
+      const workspace = {
+        prepare: jest.fn().mockResolvedValue({
+          workspaceImagePath: '/tmp/prepared-workspace.ext4',
+          rootfsImagePath: '/tmp/prepared-rootfs.ext4',
+          imageBytes: 1024,
+          originalManifest: new Map(),
+        }),
+        extractAfterStop: jest.fn().mockResolvedValue(undefined),
+        cleanup: jest.fn().mockResolvedValue(undefined),
+      } as unknown as FirecrackerWorkspaceImage;
+      const guestClient = {
+        connect: jest.fn().mockResolvedValue(undefined),
+        shutdown: jest.fn().mockResolvedValue(undefined),
+        destroy: jest.fn(),
+      } as unknown as FirecrackerVsockClient;
+      const deps = dependencies({
+        launch: jest.fn().mockReturnValue(child),
+        createWorkspaceImage: jest.fn().mockReturnValue(workspace),
+        createVsockClient: jest.fn().mockReturnValue(guestClient),
+      });
+      const manager = new FirecrackerManager(
+        config(),
+        '/tmp/awf',
+        deps,
+        'keep',
+        networkConfig(),
+        {
+          workspacePath: '/workspace',
+          homePath: '/home/runner',
+          supervisorBinaryPath: '/opt/awf-supervisor',
+          supervisorSha256: 'a'.repeat(64),
+        },
+      );
+      await manager.start();
+      await manager.startInstance();
+
+      await manager.stop({ preserve: true });
+
+      const lifecycle = (deps.createNetwork as jest.Mock).mock.results[0]
+        .value as FirecrackerNetworkLifecycle;
+      expect(workspace.extractAfterStop).toHaveBeenCalledTimes(1);
+      expect(lifecycle.cleanup).not.toHaveBeenCalled();
+      expect(workspace.cleanup).not.toHaveBeenCalled();
+      expect(deps.rm).not.toHaveBeenCalled();
+  });
+
   it('builds explicit supervisor boot networking without widening policy', () => {
       const args = buildSupervisorBootArgs({
         runId: 'run',

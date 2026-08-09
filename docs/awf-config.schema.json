@@ -652,19 +652,19 @@
             "sbx",
             "firecracker"
           ],
-          "description": "Runtime for the primary agent. \"gvisor\" uses runsc in Docker Compose. \"sbx\" uses a Docker sbx microVM. \"firecracker\" selects the fail-closed Firecracker v1.16.1 control-plane preview; networking and guest workload execution are not implemented. Infrastructure containers always use the default runc runtime."
+          "description": "Runtime for the primary agent. \"gvisor\" uses runsc in Docker Compose. \"sbx\" uses a Docker sbx microVM. \"firecracker\" selects the explicit Linux/KVM Firecracker v1.16.1 workload preview. Infrastructure containers always use the default runc runtime."
         }
       }
     },
     "firecracker": {
       "type": "object",
-      "description": "Firecracker v1.16.1 control-plane preview configuration. Selecting this runtime never falls back to Docker and cannot execute workloads until networking and guest execution are implemented.",
+      "description": "Firecracker v1.16.1 workload preview configuration. Requires strict network isolation, a local Docker daemon, KVM, jailer, and explicitly checksummed artifacts. Selecting this runtime never falls back to Docker.",
       "additionalProperties": false,
       "properties": {
         "previewEnabled": {
           "type": "boolean",
           "default": false,
-          "description": "Explicitly acknowledge the incomplete Firecracker control-plane preview. This does not enable workload execution."
+          "description": "Explicitly enable Firecracker preview workload execution."
         },
         "firecrackerBinary": {
           "type": "string",
@@ -681,6 +681,10 @@
         "rootfsPath": {
           "type": "string",
           "description": "Absolute path to the trusted guest root filesystem image."
+        },
+        "supervisorPath": {
+          "type": "string",
+          "description": "Absolute path to the built AWF Firecracker guest supervisor."
         },
         "vcpuCount": {
           "type": "integer",
@@ -702,7 +706,7 @@
         },
         "sha256": {
           "type": "object",
-          "description": "Optional pinned SHA-256 digests for trusted Firecracker artifacts.",
+          "description": "Pinned SHA-256 digests for trusted Firecracker artifacts. All entries are required for preview workload execution.",
           "additionalProperties": false,
           "properties": {
             "firecracker": {
@@ -715,6 +719,9 @@
               "$ref": "#/$defs/sha256Digest"
             },
             "rootfs": {
+              "$ref": "#/$defs/sha256Digest"
+            },
+            "supervisor": {
               "$ref": "#/$defs/sha256Digest"
             }
           }

@@ -63,10 +63,11 @@ describe('Firecracker configuration', () => {
         jailerBinary: '/opt/jailer',
         kernelPath: '/opt/vmlinux',
         rootfsPath: '/opt/rootfs.ext4',
+        supervisorPath: '/opt/awf-supervisor',
         vcpuCount: 4,
         memoryMib: 1024,
         apiTimeoutMs: 8000,
-        sha256: { kernel: digest },
+        sha256: { kernel: digest, supervisor: digest },
       },
     });
 
@@ -76,10 +77,12 @@ describe('Firecracker configuration', () => {
       firecrackerJailerBinary: '/opt/jailer',
       firecrackerKernel: '/opt/vmlinux',
       firecrackerRootfs: '/opt/rootfs.ext4',
+      firecrackerSupervisor: '/opt/awf-supervisor',
       firecrackerVcpus: 4,
       firecrackerMemoryMib: 1024,
       firecrackerApiTimeoutMs: 8000,
       firecrackerKernelSha256: digest,
+      firecrackerSupervisorSha256: digest,
     }));
   });
 
@@ -90,6 +93,7 @@ describe('Firecracker configuration', () => {
       jailerBinary: FIRECRACKER_DEFAULT_JAILER_BINARY,
       kernelPath: undefined,
       rootfsPath: undefined,
+      supervisorPath: undefined,
       vcpuCount: FIRECRACKER_DEFAULT_VCPU_COUNT,
       memoryMib: FIRECRACKER_DEFAULT_MEMORY_MIB,
       apiTimeoutMs: FIRECRACKER_DEFAULT_API_TIMEOUT_MS,

@@ -14,6 +14,8 @@ export interface ExternalAgentRuntimeBackend {
   exec: WorkflowDependencies['runAgentCommand'];
   collectDiagnostics(): Promise<void>;
   stop(): Promise<void>;
+  /** Safely quiesces the runtime while retaining inspectable state. */
+  preserve?(): Promise<void>;
 }
 
 export type ExternalRuntimeWorkflowDependencies = Pick<
