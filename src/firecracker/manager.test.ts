@@ -267,7 +267,13 @@ describe('FirecrackerManager', () => {
       access: jest.fn().mockRejectedValue(missing),
       sleep: jest.fn().mockResolvedValue(undefined),
     });
-    const manager = new FirecrackerManager(config({ apiTimeoutMs: 2000 }), '/tmp/awf', deps, 'signal');
+    const manager = new FirecrackerManager(
+      config({ apiTimeoutMs: 2000 }),
+      '/tmp/awf',
+      deps,
+      'signal',
+      networkConfig(),
+    );
 
     await expect(manager.start()).rejects.toThrow(
       /exited before API readiness with code null and signal SIGKILL/,
