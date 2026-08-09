@@ -13,6 +13,7 @@
 const { makeUnconfiguredHealthResponse } = require('../proxy-utils');
 const { createProviderAuthScaffold, createAdapterMethods, buildProviderAdapter } = require('../adapter-factory');
 const { providerKeyHeaders } = require('./auth-headers');
+const { GOOGLE_PROVIDER_SPECS } = require('./google-provider-specs');
 
 /**
  * Create a Google API-key–based provider adapter.
@@ -92,4 +93,37 @@ function createGoogleApiKeyAdapter(env, deps = {}, opts) {
   });
 }
 
-module.exports = { createGoogleApiKeyAdapter };
+/**
+ * Create a Google provider adapter from its declarative spec.
+ *
+ * Error/health messaging is derived from the spec so each Google-family
+ * provider only needs a config entry in GOOGLE_PROVIDER_SPECS.
+ *
+ * @param {string} providerKey - Key into GOOGLE_PROVIDER_SPECS (e.g. 'gemini')
+ * @param {Record<string, string|undefined>} env - Environment variables
+ * @param {{ bodyTransform?: ((body: Buffer) => (Buffer | null | Promise<Buffer | null>))|null }} [deps={}] - Injected dependencies
+ * @returns {import('./index').ProviderAdapter}
+ */
+function createGoogleProviderAdapter(providerKey, env, deps = {}) {
+  const spec = GOOGLE_PROVIDER_SPECS[providerKey];
+  if (!spec) {
+    throw new Error(`Unknown Google provider spec: ${providerKey}`);
+  }
+
+  const keyEnvVar = spec.envConstants.KEY;
+
+  return createGoogleApiKeyAdapter(env, deps, {
+    name: spec.name,
+    port: spec.port,
+    envConstants: spec.envConstants,
+    defaultTarget: spec.defaultTarget,
+    validationPath: spec.validationPath,
+    modelsPath: spec.modelsPath,
+    healthServiceName: `awf-api-proxy-${spec.name}`,
+    unconfiguredErrorMessage: `${spec.label} proxy not configured (no ${keyEnvVar}). Set ${keyEnvVar} in the AWF runner environment to enable credential isolation.`,
+    healthErrorMessage: `${keyEnvVar} not configured in api-proxy sidecar`,
+    ...(spec.transformRequestUrl !== undefined ? { transformRequestUrl: spec.transformRequestUrl } : {}),
+  });
+}
+
+module.exports = { createGoogleApiKeyAdapter, createGoogleProviderAdapter };

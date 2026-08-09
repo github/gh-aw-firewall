@@ -11,11 +11,11 @@
  *
  * URL transform: strips ?key=, ?apiKey=, ?api_key= query params that some
  *   Gemini SDK versions append alongside the header.
+ *
+ * All configuration lives in GOOGLE_PROVIDER_SPECS.gemini (google-provider-specs.js).
  */
 
-const { stripGeminiKeyParam } = require('../proxy-utils');
-const { GEMINI_ENV } = require('../provider-env-constants');
-const { createGoogleApiKeyAdapter } = require('./google-adapter');
+const { createGoogleProviderAdapter } = require('./google-adapter');
 
 /**
  * Create the Google Gemini provider adapter.
@@ -25,28 +25,7 @@ const { createGoogleApiKeyAdapter } = require('./google-adapter');
  * @returns {import('./index').ProviderAdapter}
  */
 function createGeminiAdapter(env, deps = {}) {
-  return createGoogleApiKeyAdapter(env, deps, {
-    name: 'gemini',
-    port: 10003,
-    envConstants: GEMINI_ENV,
-    defaultTarget: 'generativelanguage.googleapis.com',
-    validationPath: '/v1beta/models',
-    modelsPath: '/v1beta/models',
-    healthServiceName: 'awf-api-proxy-gemini',
-    unconfiguredErrorMessage: 'Gemini proxy not configured (no GEMINI_API_KEY). Set GEMINI_API_KEY in the AWF runner environment to enable credential isolation.',
-    healthErrorMessage: 'GEMINI_API_KEY not configured in api-proxy sidecar',
-    /**
-     * Strip Gemini SDK auth query parameters before forwarding.
-     * The SDK injects ?key= (or ?apiKey=, ?api_key=) alongside the header;
-     * forwarding both causes API_KEY_INVALID errors on the upstream.
-     *
-     * @param {string} url
-     * @returns {string}
-     */
-    transformRequestUrl(url) {
-      return stripGeminiKeyParam(url);
-    },
-  });
+  return createGoogleProviderAdapter('gemini', env, deps);
 }
 
 module.exports = { createGeminiAdapter };

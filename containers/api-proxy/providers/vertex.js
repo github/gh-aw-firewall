@@ -13,10 +13,11 @@
  * (i.e. GOOGLE_GENAI_USE_VERTEXAI=true). Setting GOOGLE_VERTEX_BASE_URL routes
  * all Vertex AI traffic through the api-proxy sidecar instead of calling
  * aiplatform.googleapis.com directly, enabling credential isolation.
+ *
+ * All configuration lives in GOOGLE_PROVIDER_SPECS.vertex (google-provider-specs.js).
  */
 
-const { VERTEX_ENV } = require('../provider-env-constants');
-const { createGoogleApiKeyAdapter } = require('./google-adapter');
+const { createGoogleProviderAdapter } = require('./google-adapter');
 
 /**
  * Create the Google Vertex AI provider adapter.
@@ -26,17 +27,7 @@ const { createGoogleApiKeyAdapter } = require('./google-adapter');
  * @returns {import('./index').ProviderAdapter}
  */
 function createVertexAdapter(env, deps = {}) {
-  return createGoogleApiKeyAdapter(env, deps, {
-    name: 'vertex',
-    port: 10004,
-    envConstants: VERTEX_ENV,
-    defaultTarget: 'aiplatform.googleapis.com',
-    validationPath: '/v1/projects',
-    modelsPath: null,
-    healthServiceName: 'awf-api-proxy-vertex',
-    unconfiguredErrorMessage: 'Vertex AI proxy not configured (no GOOGLE_API_KEY). Set GOOGLE_API_KEY in the AWF runner environment to enable credential isolation.',
-    healthErrorMessage: 'GOOGLE_API_KEY not configured in api-proxy sidecar',
-  });
+  return createGoogleProviderAdapter('vertex', env, deps);
 }
 
 module.exports = { createVertexAdapter };
