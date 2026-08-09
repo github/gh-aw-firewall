@@ -19,6 +19,13 @@ jest.mock('./signal-handler');
 jest.mock('./validate-options');
 jest.mock('../sbx-manager');
 jest.mock('../enclave/gateway');
+jest.mock('../external-runtime-backend-resolver', () => {
+  const actual = jest.requireActual('../external-runtime-backend-resolver');
+  return {
+    ...actual,
+    resolveExternalRuntimeBackend: jest.fn(actual.resolveExternalRuntimeBackend),
+  };
+});
 
 import { logger } from '../logger';
 import * as dockerManager from '../docker-manager';
@@ -33,6 +40,7 @@ import * as signalHandler from './signal-handler';
 import * as validateOptions from './validate-options';
 import * as sbxManager from '../sbx-manager';
 import * as enclaveGateway from '../enclave/gateway';
+import * as externalRuntimeResolver from '../external-runtime-backend-resolver';
 import { MAIN_ACTION_STUB_CONFIG, setupMainActionTestHarness } from './main-action.test-utils';
 
 const {
@@ -56,6 +64,7 @@ const mockedSignalHandler = signalHandler as jest.Mocked<typeof signalHandler>;
 const mockedValidateOptions = validateOptions as jest.Mocked<typeof validateOptions>;
 const mockedSbxManager = sbxManager as jest.Mocked<typeof sbxManager>;
 const mockedEnclaveGateway = enclaveGateway as jest.Mocked<typeof enclaveGateway>;
+const mockedExternalRuntimeResolver = externalRuntimeResolver as jest.Mocked<typeof externalRuntimeResolver>;
 
 describe('createMainAction', () => {
   let processExitSpy: jest.SpyInstance;
@@ -386,6 +395,25 @@ describe('createMainAction', () => {
       );
       expect(mockedHostIptables.cleanupHostIptables).not.toHaveBeenCalled();
       expect(processExitSpy).toHaveBeenCalledWith(1);
+    });
+
+    describe('when external runtime resolution fails', () => {
+      it('uses fatal-error cleanup and exits with code 1', async () => {
+        mockedExternalRuntimeResolver.resolveExternalRuntimeBackend.mockImplementationOnce(() => {
+          throw new Error('backend is not registered');
+        });
+
+        const action = createMainAction(getOptionValueSource);
+        await expect(action(['echo hi'], {})).rejects.toThrow('process.exit: 1');
+
+        expect(mockedLogger.error).toHaveBeenCalledWith(
+          'Fatal error:',
+          expect.objectContaining({ message: 'backend is not registered' }),
+        );
+        expect(mockedDockerManager.cleanup).toHaveBeenCalled();
+        expect(mockedCliWorkflow.runMainWorkflow).not.toHaveBeenCalled();
+        expect(processExitSpy).toHaveBeenCalledWith(1);
+      });
     });
   });
 

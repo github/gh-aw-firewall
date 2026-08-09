@@ -18,10 +18,9 @@
  *      non-default OCI runtime but is still orchestrated by `docker compose`.
  *    - `microvm` – agent runs in a hypervisor-isolated microVM (e.g. Docker
  *      sbx).  Infrastructure services (Squid, api-proxy) stay in Docker Compose
- *      on the host; only the agent crosses the hypervisor boundary.  The sbx
- *      proxy chains upstream through AWF's host-side Squid for domain filtering,
- *      and through the api-proxy for token logging/model routing/credential
- *      injection.
+ *      on the host; only the agent crosses the hypervisor boundary.  A selected
+ *      external runtime backend owns the agent lifecycle and connects it to
+ *      AWF's host-side infrastructure.
  *
  * ## Adding a new OCI runtime
  *
@@ -32,11 +31,11 @@
  *
  * ## Adding a microVM backend (e.g. Docker sbx)
  *
- * Add an entry with `executionModel: 'microvm'`.  Callers use
- * {@link runtimeUsesComposeAgent} to decide whether to include the agent
- * service in docker-compose.yml and whether to use `docker logs/wait` or
- * the microVM CLI for agent lifecycle management.  Infrastructure services
- * (Squid, api-proxy) are generated regardless of execution model.
+ * Add an entry with `executionModel: 'microvm'` and register its backend in
+ * `external-runtime-backend-resolver.ts`.  Callers use
+ * {@link runtimeUsesComposeAgent} only to decide whether to include the agent
+ * service in docker-compose.yml. Infrastructure services (Squid, api-proxy)
+ * are generated regardless of execution model.
  */
 
 // ─── Registry ────────────────────────────────────────────────────────────────
@@ -105,7 +104,6 @@ const RUNTIME_REGISTRY: Readonly<Record<string, RuntimeCapabilities>> = {
     // so skip the iptables-init container and route egress via proxy env vars.
     usesIptables: false,
   },
-  // Future: Docker sbx microVM backend
   sbx: {
     executionModel: 'microvm',
     dockerRuntime: undefined,

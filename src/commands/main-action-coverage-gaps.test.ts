@@ -204,6 +204,28 @@ describe('createMainAction coverage gaps', () => {
     });
   });
 
+  describe('sbx signal handling', () => {
+    it('stops the selected external backend instead of the compose agent', async () => {
+      const sbxConfig = {
+        ...MAIN_ACTION_STUB_CONFIG,
+        containerRuntime: 'sbx',
+        keepContainers: false,
+      } as unknown as import('../types').WrapperConfig;
+      mockedValidateOptions.validateOptions.mockReturnValue(sbxConfig);
+      let signalOptions: Parameters<typeof mockedSignalHandler.registerSignalHandlers>[0] | undefined;
+      mockedSignalHandler.registerSignalHandlers.mockImplementation((options) => {
+        signalOptions = options;
+      });
+
+      const action = createMainAction(getOptionValueSource);
+      await action(['echo hi'], {});
+      await signalOptions!.fastKillAgentContainer();
+
+      expect(mockedSbxManager.removeSandbox).toHaveBeenCalled();
+      expect(mockedDockerManager.fastKillAgentContainer).not.toHaveBeenCalled();
+    });
+  });
+
   describe('sbx cleanup: keepContainers=true skips removeSandbox', () => {
     it('does not call removeSandbox when keepContainers is true', async () => {
       const sbxConfig = {

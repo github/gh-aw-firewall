@@ -10,16 +10,11 @@ import { validateEnclavesConfig } from './enclave/preflight';
 /**
  * Dependencies injected into the main workflow.
  *
- * These are implemented by `docker-manager.ts` for the Docker Compose backend.
- * A future microVM backend (e.g. Docker sbx) would provide alternative
- * implementations that:
- * - `writeConfigs` — generate compose for infrastructure only (no agent service)
- * - `startContainers` — start Squid + api-proxy via compose, then launch agent
- *   in a microVM with the sbx proxy chaining through host-side Squid/api-proxy
- * - `runAgentCommand` — `sbx run` instead of `docker logs -f` + `docker wait`
- * - Cleanup — `sbx rm` + `docker compose down` for infrastructure
+ * These are implemented by `docker-manager.ts` for Docker Compose agents.
+ * External agent backends adapt their lifecycle to `startContainers` and
+ * `runAgentCommand` while continuing to use compose for infrastructure.
  */
-interface WorkflowDependencies {
+export interface WorkflowDependencies {
   ensureFirewallNetwork: () => Promise<{ squidIp: string; agentIp: string; proxyIp: string; subnet: string }>;
   setupHostIptables: (squidIp: string, port: number, dnsServers: string[], apiProxyIp?: string, dohProxyIp?: string, hostAccess?: HostAccessConfig, cliProxyConfig?: CliProxyHostConfig) => Promise<void>;
   writeConfigs: (config: WrapperConfig) => Promise<void>;

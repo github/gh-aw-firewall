@@ -383,13 +383,15 @@ myvm: {
 
 That entry makes `runtimeUsesComposeAgent('myvm')` return `false`, which omits
 its agent from `docker-compose.yml` and skips the Docker network-isolation
-override in strict mode. It does **not** select the new manager: the current
-main workflow treats every microVM entry as sbx until runtime-specific dispatch is added.
+override in strict mode. It does **not** select the new manager: register an
+`ExternalRuntimeBackendFactory` in `src/external-runtime-backend-resolver.ts`.
 
-### 2. Implement a manager (mirror `sbx-manager.ts`)
+### 2. Implement an external runtime backend
 
-Provide `createSandbox` / `execInSandbox` / `removeSandbox` / `isAvailable`
-equivalents for your VMM. Concretely, a KVM backend must:
+Implement `ExternalAgentRuntimeBackend` from
+`src/external-runtime-backend.ts`, following `SbxRuntimeBackend` in
+`src/sbx-runtime-backend.ts`. The backend owns preflight, startup, execution,
+diagnostics, and idempotent stop state. Concretely, a KVM backend must:
 
 - **Boot a microVM on `/dev/kvm`** with a kernel + rootfs. Confirm KVM is
   available (`/dev/kvm` present, user in the `kvm` group). On stock
@@ -417,16 +419,16 @@ sandbox egress through AWF's host-side Squid:
 - Reproduce the boundary-crossing addressing that the sbx path uses: Squid at the
   **bridge gateway IP + published port** (not the internal `172.30.0.x`), and the
   api-proxy via a host-reachable name (`host.docker.internal`). See the
-  `SBX_GATEWAY_IP` / `SBX_HOST_DOCKER_INTERNAL` handling in `main-action.ts`.
+  `SBX_GATEWAY_IP` / `SBX_HOST_DOCKER_INTERNAL` handling in
+  `src/sbx-runtime-backend.ts`.
 
-### 4. Wire it into `main-action.ts`
+### 4. Register the backend
 
-Introduce runtime-specific manager dispatch keyed by `config.containerRuntime`;
-do not gate all microVM backends through the current sbx-specific branch. The
-selected manager must provide start/run/cleanup wrappers that (a) start
-infra-only compose, (b) build the agent environment with its network targets,
-(c) create the VM, (d) check api-proxy and Squid across the boundary, and
-(e) execute and tear down the agent with that backend's lifecycle commands.
+Add the factory to `EXTERNAL_RUNTIME_BACKENDS` in
+`src/external-runtime-backend-resolver.ts`. `main-action.ts` resolves exactly one
+backend instance, adapts it to `WorkflowDependencies`, and uses that same
+instance for cleanup and signal handling. Compose-managed Docker and gVisor
+runtimes bypass this adapter.
 
 ### 5. Things to get right (lessons from the sbx path)
 
