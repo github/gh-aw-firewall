@@ -143,21 +143,20 @@ describe('FirecrackerManager', () => {
     }, hostTools)).toBeDefined();
     expect(defaults.createVsockClient('/tmp/vsock.socket', 52, 100)).toBeDefined();
 
-    process.env.SUDO_UID = '2001';
-    process.env.SUDO_GID = '2002';
-    expect(firecrackerManagerTestHelpers.resolveJailerIdentity()).toEqual({
-      uid: 2001,
-      gid: 2002,
-    });
-    delete process.env.SUDO_UID;
-    delete process.env.SUDO_GID;
-    const uidSpy = jest.spyOn(process, 'getuid').mockReturnValue(0);
-    const gidSpy = jest.spyOn(process, 'getgid').mockReturnValue(0);
     const originalSudoUid = process.env.SUDO_UID;
     const originalSudoGid = process.env.SUDO_GID;
-    delete process.env.SUDO_UID;
-    delete process.env.SUDO_GID;
+    const uidSpy = jest.spyOn(process, 'getuid').mockReturnValue(0);
+    const gidSpy = jest.spyOn(process, 'getgid').mockReturnValue(0);
     try {
+      process.env.SUDO_UID = '2001';
+      process.env.SUDO_GID = '2002';
+      expect(firecrackerManagerTestHelpers.resolveJailerIdentity()).toEqual({
+        uid: 2001,
+        gid: 2002,
+      });
+
+      delete process.env.SUDO_UID;
+      delete process.env.SUDO_GID;
       expect(firecrackerManagerTestHelpers.resolveJailerIdentity)
         .toThrow(/non-root target uid\/gid/);
     } finally {

@@ -64,6 +64,15 @@ describe('FirecrackerApiClient', () => {
       host_dev_name: 'fct123456789012',
       guest_mac: '02:00:00:00:00:01',
     });
+    await client.putLogger({
+      log_path: '/run/firecracker.log',
+      level: 'Info',
+      show_level: true,
+    });
+    await client.putMetrics({
+      metrics_path: '/run/firecracker.metrics.jsonl',
+    });
+    await client.putAction('FlushMetrics');
     await client.instanceStart();
 
     expect(received).toEqual([
@@ -90,6 +99,27 @@ describe('FirecrackerApiClient', () => {
           host_dev_name: 'fct123456789012',
           guest_mac: '02:00:00:00:00:01',
         }),
+      },
+      {
+        method: 'PUT',
+        url: '/logger',
+        body: JSON.stringify({
+          log_path: '/run/firecracker.log',
+          level: 'Info',
+          show_level: true,
+        }),
+      },
+      {
+        method: 'PUT',
+        url: '/metrics',
+        body: JSON.stringify({
+          metrics_path: '/run/firecracker.metrics.jsonl',
+        }),
+      },
+      {
+        method: 'PUT',
+        url: '/actions',
+        body: JSON.stringify({ action_type: 'FlushMetrics' }),
       },
       {
         method: 'PUT',
