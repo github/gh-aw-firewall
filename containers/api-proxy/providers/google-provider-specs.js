@@ -3,8 +3,8 @@
 /**
  * Declarative specs for the Google API-key–based providers (Gemini, Vertex AI).
  *
- * Adding another Google-backed provider should be a single entry here plus a
- * one-line wrapper module, instead of another near-clone adapter wrapper.
+ * Centralize Google-backed provider adapter settings here and keep each wrapper
+ * thin. New providers must also follow the registration and wiring checklist in ADDING-A-PROVIDER.md.
  */
 
 const { stripGeminiKeyParam } = require('../proxy-utils');
