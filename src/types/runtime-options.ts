@@ -21,8 +21,9 @@ export interface FirecrackerArtifactDigests {
 /**
  * Preview control-plane configuration for the Firecracker microVM runtime.
  *
- * Host-side network enforcement is supplied directly to FirecrackerManager
- * after infrastructure discovery; guest command execution is not available yet.
+ * Host-side network enforcement and guest execution inputs are supplied
+ * directly to FirecrackerManager after infrastructure discovery. Global
+ * runtime dispatch remains fail-closed until all integration probes are wired.
  */
 export interface FirecrackerOptions {
   previewEnabled: boolean;
