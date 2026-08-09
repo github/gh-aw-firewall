@@ -656,7 +656,7 @@
       "properties": {
         "binariesSourcePath": {
           "type": "string",
-          "description": "Optional runner-side directory to overlay at /usr/local/bin inside chroot mode (for split-filesystem ARC/DinD runners)."
+          "description": "Optional runner-side directory mounted at /tmp/awf-runner-bin inside chroot mode and prepended to PATH (for split-filesystem ARC/DinD runners)."
         },
         "identity": {
           "type": "object",

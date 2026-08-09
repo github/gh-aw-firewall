@@ -189,7 +189,7 @@ When `chroot.binariesSourcePath` is set in stdin config, AWF also mounts:
 
 | Host Path | Container Path | Purpose |
 |-----------|----------------|---------|
-| `chroot.binariesSourcePath` | `/host/usr/local/bin:ro` | Overlay runner-installed binaries in chroot PATH |
+| `chroot.binariesSourcePath` | `/host/tmp/awf-runner-bin:ro` | Overlay runner-installed binaries in chroot PATH (prepended as `/tmp/awf-runner-bin`) |
 
 **Note:** As of v0.13.13, `/proc` is no longer bind-mounted. Instead, a fresh container-scoped procfs is mounted at `/host/proc` during entrypoint initialization. This provides dynamic `/proc/self/exe` resolution required by Java and .NET runtimes.
 

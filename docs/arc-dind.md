@@ -131,7 +131,7 @@ For fine-grained control (or when not using `runner.topology`):
 ## Field behavior
 
 - `chroot.identity.*`: applied inside entrypoint **after** `chroot /host` to override HOME/USER/LOGNAME and identity mapping hints.
-- `chroot.binariesSourcePath`: mounts a runner-side binaries directory over `/usr/local/bin` inside chroot mode so runner-installed CLIs are visible even when `/usr` comes from the DinD daemon filesystem.
+- `chroot.binariesSourcePath`: mounts a runner-side binaries directory at `/host/tmp/awf-runner-bin` (inside chroot: `/tmp/awf-runner-bin`) and prepends it to `PATH`, so runner-installed CLIs are visible even when `/usr` comes from the DinD daemon filesystem.
 - `dind.preStageDirs`: runs a short-lived staging container in DinD mode to create required workdir tree with open permissions.
 - `dind.stageEngineBinary`: copies an engine binary from the runner path into daemon-visible filesystem before compose startup.
 - `dind.stagingImage`: image used for short-lived staging containers.

@@ -323,13 +323,10 @@ agent container mounts the host filesystem:
 - AWF's agent container mounts host `/usr` (and therefore `/usr/local`)
   **read-only** at `/host/usr` (chroot mode) so it can't be written to from
   *inside* the container.
-- The mount reflects whatever is on the host's `/usr/local/bin` **at the
-  moment the container starts** — a symlink or file created on the host
-  *before* `awf`/the container starts will be visible inside the sandbox.
-  Anything created only *inside* the sandboxed command (e.g. in a
-  `pre-agent-steps` block that runs as part of the wrapped command) happens
-  too late and, because `/usr` is read-only in the container, would fail
-  anyway.
+- The bind mount is a live view of host `/usr/local/bin`: changes made on the
+  **host** (including host-side `pre-agent-steps`) are visible in the sandbox.
+- Commands that run *inside* the AWF sandbox still cannot create this symlink,
+  because `/usr` is mounted read-only there.
 
 **Workarounds:**
 
