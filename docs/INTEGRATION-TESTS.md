@@ -198,9 +198,11 @@ Each document provides per-test-case analysis with plain-language descriptions, 
 The Firecracker backend has its own separate CI workflow (`test-firecracker.yml`)
 that is distinct from the standard integration test suite above.
 
-**Trigger:** `workflow_dispatch` or PR label `firecracker-kvm`. A manual
-dispatch can set `run_live_kvm: false` for a hosted artifact-build-only check.
-It does **not** run on push or schedule.
+**Trigger:** `workflow_dispatch` or pull request open/synchronize/reopen/label.
+Pull requests always run the hosted deterministic artifact build; only label
+`firecracker-kvm` enables the live job. A manual dispatch can set
+`run_live_kvm: false` for an artifact-build-only check. It does **not** run on
+push or schedule.
 
 **Build job** (`ubuntu-24.04`): Builds deterministic guest artifacts — Firecracker
 v1.16.1 binaries, Linux 6.1.141 kernel, BusyBox 1.36.1 rootfs, and AWF guest

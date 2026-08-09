@@ -901,10 +901,13 @@ The Firecracker CI workflow (`test-firecracker.yml`) triggers **only** on:
 - `workflow_dispatch` — manual trigger from the Actions UI or `gh workflow run`;
   `run_live_kvm: false` validates the deterministic artifact build without
   queueing the KVM job
-- A pull request being **labeled** with `firecracker-kvm`
+- Any pull request open, synchronize, or reopen event builds and verifies the
+  deterministic guest artifacts on `ubuntu-24.04`
+- A pull request being **labeled** with `firecracker-kvm` additionally enables
+  the live KVM job
 
-It does **not** run on push, on scheduled triggers, or on unlabeled pull request
-events. This ensures the live KVM job never silently runs on GitHub-hosted
+It does **not** run on push or schedule. Unlabeled pull requests run only the
+hosted artifact build; the live KVM job never silently runs on GitHub-hosted
 runners.
 
 ### Jobs

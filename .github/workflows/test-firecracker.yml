@@ -9,7 +9,7 @@ on:
         type: boolean
         default: true
   pull_request:
-    types: [labeled]
+    types: [opened, synchronize, reopened, labeled]
 
 permissions:
   contents: read
@@ -23,7 +23,7 @@ concurrency:
 jobs:
   build-test-artifacts:
     name: Build deterministic test guest
-    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'firecracker-kvm'
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
