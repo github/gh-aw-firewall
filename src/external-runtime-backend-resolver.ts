@@ -10,7 +10,7 @@ export interface ExternalRuntimeBackendFactoryContext {
   startInfrastructure: WorkflowDependencies['startContainers'];
 }
 
-export type ExternalRuntimeBackendFactory = (
+type ExternalRuntimeBackendFactory = (
   context: ExternalRuntimeBackendFactoryContext,
 ) => ExternalAgentRuntimeBackend;
 
