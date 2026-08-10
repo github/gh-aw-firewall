@@ -5,7 +5,7 @@ import { createSbxRuntimeBackend } from './sbx-runtime-backend';
 import { createFirecrackerRuntimeBackend } from './firecracker-runtime-backend';
 import type { WrapperConfig } from './types';
 
-export interface ExternalRuntimeBackendFactoryContext {
+interface ExternalRuntimeBackendFactoryContext {
   config: WrapperConfig;
   startInfrastructure: WorkflowDependencies['startContainers'];
 }
