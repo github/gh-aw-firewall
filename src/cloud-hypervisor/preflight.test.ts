@@ -123,9 +123,9 @@ describe('Cloud Hypervisor preflight (foundation only)', () => {
       stdout: 'available',
       stderr: '',
     } as never);
-    await expect(defaults.assertDockerInfrastructure()).resolves.toBeUndefined();
+    await expect(defaults.assertDockerInfrastructure('/usr/bin/docker')).resolves.toBeUndefined();
     expect(mockedExeca).toHaveBeenCalledWith(
-      'docker',
+      '/usr/bin/docker',
       ['compose', 'version'],
       expect.objectContaining({ timeout: 10_000, reject: false }),
     );
@@ -141,8 +141,8 @@ describe('Cloud Hypervisor preflight (foundation only)', () => {
       stdout: '',
       stderr: 'daemon unavailable',
     } as never);
-    await expect(defaults.assertDockerInfrastructure())
-      .rejects.toThrow(/docker info failed.*daemon unavailable/);
+    await expect(defaults.assertDockerInfrastructure('/usr/bin/docker'))
+      .rejects.toThrow(/\/usr\/bin\/docker info failed.*daemon unavailable/);
   });
 
   it('parses Cloud Hypervisor release output', () => {
@@ -169,7 +169,8 @@ describe('Cloud Hypervisor preflight (foundation only)', () => {
       constants.R_OK | constants.W_OK,
     );
     expect(deps.sha256).toHaveBeenCalledTimes(4);
-    expect(deps.assertToolAvailable).toHaveBeenCalledTimes(7);
+    expect(deps.assertToolAvailable).toHaveBeenCalledTimes(8);
+    expect(deps.assertDockerInfrastructure).toHaveBeenCalledWith('/usr/bin/docker');
     expect(result.tools).toEqual({
       ip: '/usr/bin/ip',
       nft: '/usr/bin/nft',
@@ -220,6 +221,20 @@ describe('Cloud Hypervisor preflight (foundation only)', () => {
     )).rejects.toThrow(/must contain exactly 64 hexadecimal/);
   });
 
+  it('verifies Cloud Hypervisor digest before invoking the binary', async () => {
+    const runVersion = jest.fn().mockResolvedValue('cloud-hypervisor v53.0');
+    await expect(runCloudHypervisorPreflight(
+      config({ sha256: { cloudHypervisor: digest } }),
+      dependencies({
+        runVersion,
+        sha256: jest.fn(async (filePath: string) => (
+          filePath === '/opt/cloud-hypervisor' ? 'b'.repeat(64) : digest
+        )),
+      }),
+    )).rejects.toThrow(/Cloud Hypervisor binary SHA-256 mismatch/);
+    expect(runVersion).not.toHaveBeenCalled();
+  });
+
   it('rejects missing artifacts, unsupported hosts, and unavailable tools', async () => {
     await expect(runCloudHypervisorPreflight(
       config({ supervisorPath: undefined }),
@@ -236,7 +251,10 @@ describe('Cloud Hypervisor preflight (foundation only)', () => {
     await expect(runCloudHypervisorPreflight(
       config(),
       dependencies({
-        assertToolAvailable: jest.fn().mockRejectedValue('missing'),
+        assertToolAvailable: jest.fn(async (tool: string) => {
+          if (tool === 'ip') throw new Error('missing');
+          return `/usr/bin/${tool}`;
+        }),
       }),
     )).rejects.toThrow(/requires host tool "ip": missing/);
   });

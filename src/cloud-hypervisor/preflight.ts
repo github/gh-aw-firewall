@@ -36,7 +36,7 @@ export interface CloudHypervisorPreflightDependencies {
   sha256(filePath: string): Promise<string>;
   assertToolAvailable(tool: string): Promise<string>;
   assertHostPolicy(): Promise<1 | 2>;
-  assertDockerInfrastructure(): Promise<void>;
+  assertDockerInfrastructure(dockerBinaryPath: string): Promise<void>;
 }
 
 export type CloudHypervisorHostToolPaths = Readonly<{
@@ -117,16 +117,16 @@ const defaultDependencies: CloudHypervisorPreflightDependencies = {
       }
     }
   },
-  assertDockerInfrastructure: async () => {
+  assertDockerInfrastructure: async (dockerBinaryPath) => {
     for (const args of [['info'], ['compose', 'version']] as const) {
-      const result = await execa('docker', [...args], {
+      const result = await execa(dockerBinaryPath, [...args], {
         reject: false,
         timeout: 10_000,
         stdio: ['ignore', 'pipe', 'pipe'],
       });
       if (result.exitCode !== 0) {
         throw new Error(
-          `docker ${args.join(' ')} failed with code ${result.exitCode}: ${result.stderr.trim()}`,
+          `${dockerBinaryPath} ${args.join(' ')} failed with code ${result.exitCode}: ${result.stderr.trim()}`,
         );
       }
     }
@@ -322,7 +322,16 @@ export async function runCloudHypervisorPreflight(
     );
   }
   const cgroupVersion = await dependencies.assertHostPolicy();
-  await dependencies.assertDockerInfrastructure();
+  let dockerBinaryPath: string;
+  try {
+    dockerBinaryPath = await dependencies.assertToolAvailable('docker');
+  } catch (error) {
+    throw new Error(
+      'Cloud Hypervisor requires host tool "docker": ' +
+      `${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  await dependencies.assertDockerInfrastructure(dockerBinaryPath);
   await assertTrustedRegularFile(
     'Cloud Hypervisor binary',
     config.cloudHypervisorBinary,
@@ -359,6 +368,12 @@ export async function runCloudHypervisorPreflight(
     constants.R_OK,
     dependencies,
   );
+  await assertDigest(
+    'Cloud Hypervisor binary',
+    config.cloudHypervisorBinary,
+    config.sha256?.cloudHypervisor,
+    dependencies,
+  );
 
   const version = parseCloudHypervisorVersion(
     await dependencies.runVersion(config.cloudHypervisorBinary),
@@ -369,12 +384,6 @@ export async function runCloudHypervisorPreflight(
     );
   }
 
-  await assertDigest(
-    'Cloud Hypervisor binary',
-    config.cloudHypervisorBinary,
-    config.sha256?.cloudHypervisor,
-    dependencies,
-  );
   await assertDigest(
     'Cloud Hypervisor guest kernel',
     config.kernelPath,
