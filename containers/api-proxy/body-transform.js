@@ -139,6 +139,12 @@ function injectStreamOptions(body, provider, requestPath = '') {
   const pathOnly = typeof requestPath === 'string' ? requestPath.split('?')[0] : '';
   if (/^\/?(?:v\d+\/)?responses(?:\/|$)/.test(pathOnly)) return null;
 
+  // The Anthropic Messages API rejects stream_options.include_usage.
+  // Skip injection for /messages and /vN/messages routes regardless of
+  // provider, since the Copilot provider also fronts the Messages API
+  // (e.g. api.githubcopilot.com/v1/messages).
+  if (/^\/?(?:v\d+\/)?messages(?:\/|$)/.test(pathOnly)) return null;
+
   const parsed = parseBodyAsObject(body);
   if (!parsed) return null;
   if (!parsed.stream) return null;
