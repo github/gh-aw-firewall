@@ -137,7 +137,7 @@ disable_busybox_option TC
 make -C "$busybox_dir" -j"$JOBS"
 
 supervisor="$OUTPUT/awf-firecracker-supervisor"
-VERSION="v${FIRECRACKER_VERSION}" \
+VERSION="${VERSION:-v${FIRECRACKER_VERSION}}" \
   OUTPUT="$supervisor" \
   "$ROOT/guest/firecracker-supervisor/build.sh"
 
@@ -244,7 +244,9 @@ cat >"$OUTPUT/sbom.spdx.json" <<EOF
       "versionInfo": "${FIRECRACKER_VERSION}",
       "downloadLocation": "https://github.com/firecracker-microvm/firecracker/releases/tag/v${FIRECRACKER_VERSION}",
       "filesAnalyzed": false,
-      "licenseConcluded": "Apache-2.0"
+      "licenseConcluded": "Apache-2.0",
+      "licenseDeclared": "Apache-2.0",
+      "copyrightText": "NOASSERTION"
     },
     {
       "name": "linux",
@@ -252,7 +254,9 @@ cat >"$OUTPUT/sbom.spdx.json" <<EOF
       "versionInfo": "${LINUX_VERSION}",
       "downloadLocation": "https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-${LINUX_VERSION}.tar.xz",
       "filesAnalyzed": false,
-      "licenseConcluded": "GPL-2.0-only"
+      "licenseConcluded": "GPL-2.0-only",
+      "licenseDeclared": "GPL-2.0-only",
+      "copyrightText": "NOASSERTION"
     },
     {
       "name": "busybox",
@@ -260,8 +264,15 @@ cat >"$OUTPUT/sbom.spdx.json" <<EOF
       "versionInfo": "${BUSYBOX_VERSION}",
       "downloadLocation": "https://busybox.net/downloads/busybox-${BUSYBOX_VERSION}.tar.bz2",
       "filesAnalyzed": false,
-      "licenseConcluded": "GPL-2.0-only"
+      "licenseConcluded": "GPL-2.0-only",
+      "licenseDeclared": "GPL-2.0-only",
+      "copyrightText": "NOASSERTION"
     }
+  ],
+  "relationships": [
+    { "spdxElementId": "SPDXRef-DOCUMENT", "relationshipType": "DESCRIBES", "relatedSpdxElement": "SPDXRef-Firecracker" },
+    { "spdxElementId": "SPDXRef-DOCUMENT", "relationshipType": "DESCRIBES", "relatedSpdxElement": "SPDXRef-Linux" },
+    { "spdxElementId": "SPDXRef-DOCUMENT", "relationshipType": "DESCRIBES", "relatedSpdxElement": "SPDXRef-BusyBox" }
   ]
 }
 EOF

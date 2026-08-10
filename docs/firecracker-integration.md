@@ -121,7 +121,7 @@ and topology completeness, is a prerequisite for promotion to non-preview.
 │           │              │  │  Firecracker VMM (pid inside     ││   │
 │  ┌──────────────────┐   │  │  netns awffc-<runId>)            ││   │
 │  │  API Proxy       │   │  │  Kernel: vmlinux.bin             ││   │
-│  │  (Docker)        │   │  │  Rootfs: rootfs.ext4 (read-only) ││   │
+│  │  (Docker)        │   │  │  Rootfs: rootfs.ext4 (priv copy) ││   │
 │  │  172.30.0.30     │   │  │  Workspace: workspace.ext4 (rw)  ││   │
 │  └──────────────────┘   │  │  Supervisor: vsock port 52       ││   │
 │                          │  └──────────────────────────────────┘│   │
@@ -169,8 +169,8 @@ at `/workspace` inside the VM. It is not part of the shared rootfs.
    `<workDir>/firecracker-jailer/<runId>/root/` and drops to a non-root uid/gid
 6. **API configuration** — AWF configures the VMM via its Unix socket:
    kernel boot params, vcpu count, memory, TAP network interface, rootfs block
-   device (read-only), workspace block device (read-write), vsock device (CID 3,
-   port 52)
+   device (private writable copy), workspace block device (read-write), vsock
+   device (CID 3, port 52)
 7. **Boot** — the VM boots; the supervisor starts and waits on vsock port 52
 8. **Connectivity probe** — host confirms Squid reachability and API proxy
    `/reflect` endpoint from inside the guest before the agent is started
@@ -332,7 +332,7 @@ retry.
 | Firecracker binary | `--firecracker-binary` | `--firecracker-binary-sha256` | Firecracker VMM binary, **must be v1.16.1** |
 | Jailer binary | `--firecracker-jailer-binary` | `--firecracker-jailer-sha256` | Jailer binary, same version as Firecracker binary |
 | Guest kernel | `--firecracker-kernel` | `--firecracker-kernel-sha256` | A KVM-compatible Linux bzImage |
-| Guest rootfs | `--firecracker-rootfs` | `--firecracker-rootfs-sha256` | Read-only ext4 base image |
+| Guest rootfs | `--firecracker-rootfs` | `--firecracker-rootfs-sha256` | Ext4 base image; staged as a private writable copy per run |
 | Guest supervisor | `--firecracker-supervisor` | `--firecracker-supervisor-sha256` | AWF vsock supervisor binary |
 
 All five digests are required. Supplying any subset causes a hard pre-boot
@@ -568,14 +568,18 @@ This is a hard failure before the VM boots. The check covers:
 ### How credentials flow
 
 Provider API calls made by the agent:
-1. Agent makes an HTTPS request to a provider endpoint (e.g., `api.anthropic.com`)
-2. Request is transparently intercepted by Squid (HTTP CONNECT proxy)
-3. Request traverses to the API proxy on the host
-4. API proxy injects the real `Authorization` / `x-api-key` header
-5. Request continues to the provider
+1. Guest provider base URLs point directly at the API proxy's IP:port (e.g.,
+   `http://172.30.0.30:10001`); that IP is also listed in `NO_PROXY`, so the
+   request goes straight to the API proxy without traversing Squid
+2. API proxy injects the real `Authorization` / `x-api-key` header
+3. API proxy's own upstream request to the real provider goes through Squid
+   (domain-ACL enforced)
+4. Response is relayed back to the agent
 
 The guest never sees the real credential value; it sees only the API proxy
-endpoint, which is accessible only from inside the AWF network.
+endpoint, which is accessible only from inside the AWF network. Squid enforces
+egress policy on the API proxy's outbound request, not on the guest's request
+to the API proxy.
 
 ### API proxy connectivity probe
 

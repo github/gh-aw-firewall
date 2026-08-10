@@ -71,7 +71,7 @@ export interface FirecrackerManagerDependencies {
   chmod(filePath: string, mode: number): Promise<void>;
   chown(filePath: string, uid: number, gid: number): Promise<void>;
   writeFile: typeof fs.writeFile;
-  readFile: typeof fs.readFile;
+  readFileTail(filePath: string, maxBytes: number): Promise<Buffer>;
   access(filePath: string): Promise<void>;
   rm(directory: string, options: { recursive: true; force: true }): Promise<void>;
   sleep(milliseconds: number): Promise<void>;
@@ -98,6 +98,21 @@ export interface FirecrackerManagerGuestConfig {
   readonly identity?: { uid: number; gid: number };
 }
 
+async function readBoundedTail(filePath: string, maxBytes: number): Promise<Buffer> {
+  const handle = await fs.open(filePath, 'r');
+  try {
+    const { size } = await handle.stat();
+    const length = Math.min(size, maxBytes);
+    const buffer = Buffer.alloc(length);
+    if (length > 0) {
+      await handle.read(buffer, 0, length, size - length);
+    }
+    return buffer;
+  } finally {
+    await handle.close();
+  }
+}
+
 const defaultDependencies: FirecrackerManagerDependencies = {
   preflight: runFirecrackerPreflight,
   launch: (command, args, options) => execa(command, args, options),
@@ -106,7 +121,7 @@ const defaultDependencies: FirecrackerManagerDependencies = {
   chmod: fs.chmod,
   chown: fs.chown,
   writeFile: fs.writeFile,
-  readFile: fs.readFile,
+  readFileTail: (filePath, maxBytes) => readBoundedTail(filePath, maxBytes),
   access: fs.access,
   rm: fs.rm,
   sleep: (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
@@ -629,10 +644,7 @@ export class FirecrackerManager {
 
   private async copyBoundedDiagnostic(source: string, destination: string): Promise<void> {
     try {
-      const contents = await this.dependencies.readFile(source);
-      const bounded = contents.length <= FIRECRACKER_CAPTURE_LIMIT_BYTES
-        ? contents
-        : contents.subarray(contents.length - FIRECRACKER_CAPTURE_LIMIT_BYTES);
+      const bounded = await this.dependencies.readFileTail(source, FIRECRACKER_CAPTURE_LIMIT_BYTES);
       await this.dependencies.writeFile(destination, bounded, { mode: 0o600 });
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;

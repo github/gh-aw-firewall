@@ -106,7 +106,7 @@ function dependencies(
     chmod: jest.fn().mockResolvedValue(undefined),
     chown: jest.fn().mockResolvedValue(undefined),
     writeFile: jest.fn().mockResolvedValue(undefined),
-    readFile: jest.fn().mockResolvedValue(Buffer.alloc(0)),
+    readFileTail: jest.fn().mockResolvedValue(Buffer.alloc(0)),
     access: jest.fn().mockResolvedValue(undefined),
     rm: jest.fn().mockResolvedValue(undefined),
     sleep: jest.fn().mockResolvedValue(undefined),
@@ -742,7 +742,9 @@ describe('FirecrackerManager', () => {
     Object.assign(child, { stdout, stderr });
     const deps = dependencies({
       launch: jest.fn().mockReturnValue(child),
-      readFile: jest.fn().mockResolvedValue(oversized),
+      readFileTail: jest.fn().mockImplementation((_source: string, maxBytes: number) =>
+        Promise.resolve(oversized.subarray(oversized.length - maxBytes)),
+      ),
     });
     const manager = new FirecrackerManager(
       config(),
