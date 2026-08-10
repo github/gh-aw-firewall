@@ -13,6 +13,8 @@
 // Hoisted jest.mock() registrations live in the shared helper — must remain first.
 import './test-helpers/config-writer-dependency-mocks.test-utils';
 
+import { EventEmitter } from 'events';
+import * as net from 'net';
 import { writeConfigs } from './config-writer';
 import {
   buildWriteConfig,
@@ -70,7 +72,31 @@ describe('writeConfigs — DNS filtering in network-isolation mode', () => {
     });
   });
 
-  describe('isolation mode + auto-detected DNS — non-portable servers are filtered', () => {
+  describe('isolation mode + auto-detected DNS — non-portable servers are checked', () => {
+    it('retains reachable GKE NodeLocal DNS in the Squid config', async () => {
+      const socket = new EventEmitter() as EventEmitter & {
+        destroy: jest.Mock;
+        setTimeout: jest.Mock;
+      };
+      socket.destroy = jest.fn();
+      socket.setTimeout = jest.fn();
+      (net.createConnection as jest.Mock).mockImplementationOnce(() => {
+        process.nextTick(() => socket.emit('connect'));
+        return socket;
+      });
+
+      await writeConfigs(
+        buildWriteConfig(tempDir, {
+          networkIsolation: true,
+          dnsServers: ['169.254.20.10'],
+          dnsServersExplicit: false,
+        })
+      );
+
+      const squidCall = getSquidConfigMock().generateSquidConfig.mock.calls[0][0];
+      expect(squidCall.dnsServers).toEqual(['169.254.20.10']);
+    });
+
     it('filters Azure DHCP DNS from Squid config', async () => {
       await writeConfigs(
         buildWriteConfig(tempDir, {

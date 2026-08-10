@@ -325,13 +325,13 @@ export async function writeConfigs(config: WrapperConfig): Promise<void> {
   // DNS server address), DNS servers that depend on host-specific routing — such
   // as Azure DHCP DNS (168.63.129.16) or Tailscale Magic DNS (100.100.100.100) —
   // can become unreachable from the Docker bridge, causing every Squid DNS lookup
-  // to fail with TCP_TUNNEL:HIER_NONE 503. Filter them out in isolation mode when
-  // the DNS list was auto-detected (not explicitly supplied by the operator via
-  // --dns-servers), so Squid falls back to publicly-routable servers that are not
-  // affected by VPN route changes. Explicitly-specified servers are trusted as-is.
+  // to fail with TCP_TUNNEL:HIER_NONE 503. Probe them in isolation mode when the
+  // DNS list was auto-detected (not explicitly supplied by the operator via
+  // --dns-servers), retaining reachable resolvers and filtering unreachable ones.
+  // Explicitly-specified servers are trusted as-is.
   const resolvedDnsServers = config.dnsServers ?? DEFAULT_DNS_SERVERS;
   const squidDnsServers = config.networkIsolation && !config.dnsServersExplicit
-    ? filterForNetworkIsolation(resolvedDnsServers, logger)
+    ? await filterForNetworkIsolation(resolvedDnsServers, logger)
     : resolvedDnsServers;
 
   // Note: Use container path for SSL database since it's mounted at /var/spool/squid_ssl_db

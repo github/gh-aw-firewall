@@ -1,5 +1,5 @@
 import * as fs from 'fs';
-import { isIP } from 'net';
+import { createConnection, isIP } from 'net';
 import { logger as defaultLogger } from './logger';
 import { DEFAULT_DNS_SERVERS } from './config/network-policy';
 
@@ -25,6 +25,27 @@ export { DEFAULT_DNS_SERVERS };
  */
 const AZURE_DHCP_DNS = '168.63.129.16';
 const TAILSCALE_MAGIC_DNS = '100.100.100.100';
+const DNS_REACHABILITY_TIMEOUT_MS = 1000;
+
+type DnsReachabilityProbe = (server: string) => Promise<boolean>;
+
+function isDnsServerReachable(server: string): Promise<boolean> {
+  return new Promise(resolve => {
+    const socket = createConnection({ host: server, port: 53 });
+    let settled = false;
+
+    const finish = (reachable: boolean) => {
+      if (settled) return;
+      settled = true;
+      socket.destroy();
+      resolve(reachable);
+    };
+
+    socket.once('connect', () => finish(true));
+    socket.once('error', () => finish(false));
+    socket.setTimeout(DNS_REACHABILITY_TIMEOUT_MS, () => finish(false));
+  });
+}
 
 /**
  * Returns true for DNS servers that are host-specific and may become unreachable
@@ -57,35 +78,53 @@ export function isNonPortableDns(ip: string): boolean {
  * Magic DNS (100.100.100.100) can be black-holed, causing every Squid lookup to
  * fail with `TCP_TUNNEL:HIER_NONE 503`.
  *
- * This function removes non-portable servers from the list. If no portable
- * servers remain, it falls back to DEFAULT_DNS_SERVERS (8.8.8.8, 8.8.4.4),
- * which are publicly routable and independent of host-specific network paths.
+ * This function removes non-portable servers only when a bounded TCP/53 probe
+ * confirms they are unreachable. If no usable servers remain, it falls back to
+ * DEFAULT_DNS_SERVERS (8.8.8.8, 8.8.4.4).
  *
  * @param servers - The resolved DNS server list (from --dns-servers or auto-detection).
  * @param logger  - Optional logger for diagnostic output.
+ * @param probe   - Optional reachability probe for tests.
  * @returns A filtered list of DNS servers safe for use from a Docker bridge.
  */
-export function filterForNetworkIsolation(servers: string[], logger?: Logger): string[] {
+export async function filterForNetworkIsolation(
+  servers: string[],
+  logger?: Logger,
+  probe: DnsReachabilityProbe = isDnsServerReachable
+): Promise<string[]> {
   const log = logger ?? defaultLogger;
 
   const nonPortable = servers.filter(isNonPortableDns);
   const portable = servers.filter(s => !isNonPortableDns(s));
+  const reachability = await Promise.all(nonPortable.map(async server => ({
+    server,
+    reachable: await probe(server),
+  })));
+  const reachableNonPortable = reachability.filter(result => result.reachable).map(result => result.server);
+  const unreachableNonPortable = reachability.filter(result => !result.reachable).map(result => result.server);
 
-  if (nonPortable.length > 0) {
+  if (unreachableNonPortable.length > 0) {
     log.warn(
-      `Network-isolation: removing ${nonPortable.length} non-portable DNS server(s) ` +
-      `that may become unreachable from Docker bridge containers when host routing ` +
-      `is modified by tools like Tailscale: ${nonPortable.join(', ')}`
+      `Network-isolation: removing ${unreachableNonPortable.length} unreachable non-portable DNS server(s): ` +
+      `${unreachableNonPortable.join(', ')}`
     );
   }
 
-  if (portable.length > 0) {
-    return portable;
+  if (reachableNonPortable.length > 0) {
+    log.warn(
+      `Network-isolation: retaining reachable non-portable DNS server(s): ` +
+      `${reachableNonPortable.join(', ')}`
+    );
   }
+
+  const usable = servers.filter(server =>
+    portable.includes(server) || reachableNonPortable.includes(server)
+  );
+  if (usable.length > 0) return usable;
 
   // All detected servers are non-portable — fall back to public DNS.
   log.warn(
-    `Network-isolation: no portable DNS servers remain after filtering; ` +
+    `Network-isolation: no reachable DNS servers remain after filtering; ` +
     `falling back to ${DEFAULT_DNS_SERVERS.join(', ')}. ` +
     `If your environment requires specific DNS, use --dns-servers to override.`
   );

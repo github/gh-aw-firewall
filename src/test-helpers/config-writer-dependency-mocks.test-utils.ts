@@ -20,3 +20,18 @@ jest.mock('../squid-config', () => require('./config-writer-test-harness.test-ut
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 jest.mock('../compose-generator', () => require('./config-writer-test-harness.test-utils').composeGeneratorMockFactory());
+
+jest.mock('net', () => {
+  const actual = jest.requireActual('net');
+  return {
+    ...actual,
+    createConnection: jest.fn(() => {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const socket = new (require('events').EventEmitter)();
+      socket.destroy = jest.fn();
+      socket.setTimeout = jest.fn();
+      process.nextTick(() => socket.emit('error', new Error('unreachable')));
+      return socket;
+    }),
+  };
+});
