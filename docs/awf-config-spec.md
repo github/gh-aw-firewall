@@ -274,6 +274,18 @@ preview. Selecting `firecracker` never falls back to another runtime.
 
 When DinD is detected, AWF preserves the detected `DOCKER_HOST` value for the agent environment (including MCP servers) so DinD-aware tooling can reach the correct daemon without manual workflow env overrides.
 
+`security.allowHostPorts` (`--allow-host-ports`) works standalone together with
+`security.enableHostAccess` (`--enable-host-access`) in strict security mode
+(the default, without `--legacy-security`). `applySecurityMode()` preserves
+both flags whenever `security.networkIsolation` is enabled: host access is
+served entirely through Squid port ACLs plus a `host.docker.internal`
+hosts-file entry, not host-side iptables, so it has no dependency on
+`--legacy-security`. This lets strict-mode workflows reach a GitHub Actions
+`services:` container port (for example Postgres on 5432) without dropping
+network isolation — see [docs/usage.md](usage.md) for a worked example.
+`security.allowHostServicePorts` (`--allow-host-service-ports`), which relies
+on host iptables, remains suppressed in strict mode.
+
 The following CLI flag has no config-file equivalent by design:
 
 - `-e, --env <KEY=VALUE>` — inject a single environment variable into
