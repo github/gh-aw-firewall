@@ -189,7 +189,7 @@ describe('Cloud Hypervisor preflight (foundation only)', () => {
       constants.R_OK | constants.W_OK,
     );
     expect(deps.sha256).toHaveBeenCalledTimes(4);
-    expect(deps.assertToolAvailable).toHaveBeenCalledTimes(8);
+    expect(deps.assertToolAvailable).toHaveBeenCalledTimes(9);
     expect(deps.assertDockerInfrastructure).toHaveBeenCalledWith('/usr/bin/docker');
     expect(result.tools).toEqual({
       ip: '/usr/bin/ip',
