@@ -7,27 +7,27 @@ import {
   type FirecrackerOptions,
 } from '../types/runtime-options';
 import { getSafeHostGid, getSafeHostUid } from '../host-identity';
-import { FirecrackerApiClient } from './api-client';
 import {
-  FirecrackerLinuxNetworkCommands,
-  FirecrackerNetworkManager,
-  assertSafeFirecrackerRunId,
-  createFirecrackerNetworkPlan,
-  type FirecrackerControlPeer,
-  type FirecrackerNetworkLifecycle,
-  type FirecrackerNetworkPlan,
-} from './network';
+  LinuxNetworkCommands,
+  MicrovmNetworkManager,
+  assertSafeMicrovmRunId,
+  createMicrovmNetworkPlan,
+  type MicrovmControlPeer,
+  type MicrovmNetworkLifecycle,
+  type MicrovmNetworkPlan,
+} from '../microvm/network';
+import {
+  MicrovmVsockClient,
+  type GuestExecutionRequest,
+  type GuestExecutionResult,
+} from '../microvm/vsock-client';
+import {
+  MicrovmWorkspaceImage,
+  type MicrovmWorkspaceImageConfig,
+} from '../microvm/workspace';
+import { FirecrackerApiClient } from './api-client';
 import { runFirecrackerPreflight } from './preflight';
 import type { FirecrackerHostToolPaths } from './preflight';
-import {
-  FirecrackerVsockClient,
-  type FirecrackerGuestExecutionRequest,
-  type FirecrackerGuestExecutionResult,
-} from './vsock-client';
-import {
-  FirecrackerWorkspaceImage,
-  type FirecrackerWorkspaceImageConfig,
-} from './workspace-image';
 
 const API_SOCKET_NAME = 'firecracker.socket';
 const VSOCK_SOCKET_NAME = 'awf-vsock.socket';
@@ -76,16 +76,16 @@ export interface FirecrackerManagerDependencies {
   rm(directory: string, options: { recursive: true; force: true }): Promise<void>;
   sleep(milliseconds: number): Promise<void>;
   createClient(socketPath: string, timeoutMs: number): FirecrackerApiClient;
-  createNetwork(plan: FirecrackerNetworkPlan, tools: FirecrackerHostToolPaths): FirecrackerNetworkLifecycle;
-  createWorkspaceImage(config: FirecrackerWorkspaceImageConfig, tools: FirecrackerHostToolPaths): FirecrackerWorkspaceImage;
-  createVsockClient(socketPath: string, guestPort: number, timeoutMs: number): FirecrackerVsockClient;
+  createNetwork(plan: MicrovmNetworkPlan, tools: FirecrackerHostToolPaths): MicrovmNetworkLifecycle;
+  createWorkspaceImage(config: MicrovmWorkspaceImageConfig, tools: FirecrackerHostToolPaths): MicrovmWorkspaceImage;
+  createVsockClient(socketPath: string, guestPort: number, timeoutMs: number): MicrovmVsockClient;
   resolveIdentity(): { uid: number; gid: number };
 }
 
 export interface FirecrackerManagerNetworkConfig {
   infrastructureBridge: string;
   enableApiProxy: boolean;
-  controlPeer?: FirecrackerControlPeer;
+  controlPeer?: MicrovmControlPeer;
 }
 
 export interface FirecrackerManagerGuestConfig {
@@ -126,12 +126,12 @@ const defaultDependencies: FirecrackerManagerDependencies = {
   rm: fs.rm,
   sleep: (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
   createClient: (socketPath, timeoutMs) => new FirecrackerApiClient({ socketPath, timeoutMs }),
-  createNetwork: (plan, tools) => new FirecrackerNetworkManager(
+  createNetwork: (plan, tools) => new MicrovmNetworkManager(
     plan,
-    new FirecrackerLinuxNetworkCommands(undefined, tools),
+    new LinuxNetworkCommands(undefined, tools),
   ),
-  createWorkspaceImage: (config, tools) => new FirecrackerWorkspaceImage(config, undefined, tools),
-  createVsockClient: (socketPath, guestPort, timeoutMs) => new FirecrackerVsockClient({
+  createWorkspaceImage: (config, tools) => new MicrovmWorkspaceImage(config, undefined, tools),
+  createVsockClient: (socketPath, guestPort, timeoutMs) => new MicrovmVsockClient({
     socketPath,
     guestPort,
     connectTimeoutMs: timeoutMs,
@@ -180,7 +180,7 @@ export function createFirecrackerRunPaths(
   firecrackerBinary: string,
   runId = `awf-${process.pid}-${randomBytes(6).toString('hex')}`,
 ): FirecrackerRunPaths {
-  assertSafeFirecrackerRunId(runId);
+  assertSafeMicrovmRunId(runId);
   const chrootBaseDir = path.join(workDir, 'firecracker-jailer');
   const jailRoot = path.join(
     chrootBaseDir,
@@ -209,10 +209,10 @@ export class FirecrackerManager {
   readonly paths: FirecrackerRunPaths;
   private process: ExecaChildProcess<string> | undefined;
   private client: FirecrackerApiClient | undefined;
-  private network: FirecrackerNetworkLifecycle | undefined;
-  private workspace: FirecrackerWorkspaceImage | undefined;
-  private guestClient: FirecrackerVsockClient | undefined;
-  private networkPlan: FirecrackerNetworkPlan | undefined;
+  private network: MicrovmNetworkLifecycle | undefined;
+  private workspace: MicrovmWorkspaceImage | undefined;
+  private guestClient: MicrovmVsockClient | undefined;
+  private networkPlan: MicrovmNetworkPlan | undefined;
   private instanceStarted = false;
   private readonly stdoutCapture = new BoundedOutputCapture(FIRECRACKER_CAPTURE_LIMIT_BYTES);
   private readonly stderrCapture = new BoundedOutputCapture(FIRECRACKER_CAPTURE_LIMIT_BYTES);
@@ -247,10 +247,10 @@ export class FirecrackerManager {
     try {
       const artifacts = await this.dependencies.preflight(this.config);
       const identity = this.guestConfig?.identity ?? this.dependencies.resolveIdentity();
-      const networkPlan = createFirecrackerNetworkPlan(this.paths.runId, {
+      const networkPlan = createMicrovmNetworkPlan(this.paths.runId, {
         ...this.networkConfig,
-        jailerUid: identity.uid,
-        jailerGid: identity.gid,
+        tapOwnerUid: identity.uid,
+        tapOwnerGid: identity.gid,
       });
       this.networkPlan = networkPlan;
       this.network = this.dependencies.createNetwork(networkPlan, artifacts.tools);
@@ -389,8 +389,8 @@ export class FirecrackerManager {
   }
 
   async execute(
-    request: FirecrackerGuestExecutionRequest,
-  ): Promise<FirecrackerGuestExecutionResult> {
+    request: GuestExecutionRequest,
+  ): Promise<GuestExecutionResult> {
     if (!this.guestClient) {
       throw new Error('Firecracker guest supervisor is not ready');
     }
@@ -653,7 +653,7 @@ export class FirecrackerManager {
 }
 
 export function buildSupervisorBootArgs(
-  networkPlan: FirecrackerNetworkPlan,
+  networkPlan: MicrovmNetworkPlan,
   guestConfig: FirecrackerManagerGuestConfig,
 ): string {
   const port = guestConfig.vsockPort ?? FIRECRACKER_GUEST_VSOCK_PORT;

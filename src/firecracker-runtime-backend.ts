@@ -7,16 +7,16 @@ import {
   SQUID_IP,
 } from './config/network-policy';
 import {
-  resolveFirecrackerInfrastructure,
-  type FirecrackerInfrastructureSnapshot,
-} from './firecracker/infrastructure';
+  resolveMicrovmInfrastructure,
+  type MicrovmInfrastructureSnapshot,
+} from './microvm/infrastructure';
+import type {
+  GuestExecutionRequest,
+  GuestExecutionResult,
+} from './microvm/vsock-client';
 import type { FirecrackerPreflightResult } from './firecracker/preflight';
 import { FirecrackerManager } from './firecracker/manager';
 import { runFirecrackerPreflight } from './firecracker/preflight';
-import type {
-  FirecrackerGuestExecutionRequest,
-  FirecrackerGuestExecutionResult,
-} from './firecracker/vsock-client';
 import { getRealUserHome, getSafeHostGid, getSafeHostUid } from './host-identity';
 import { logger } from './logger';
 import { buildAgentEnvironment } from './services/agent-service';
@@ -49,7 +49,7 @@ interface FirecrackerManagerAdapter {
   readonly networkNamespace?: string;
   start(): Promise<unknown>;
   startInstance(): Promise<void>;
-  execute(request: FirecrackerGuestExecutionRequest): Promise<FirecrackerGuestExecutionResult>;
+  execute(request: GuestExecutionRequest): Promise<GuestExecutionResult>;
   cancel(reason?: string, requestId?: string): Promise<void>;
   writeStdin(data: Buffer, requestId?: string): Promise<void>;
   endStdin(requestId?: string): Promise<void>;
@@ -60,11 +60,11 @@ interface FirecrackerManagerAdapter {
 export interface FirecrackerRuntimeBackendDependencies {
   startInfrastructure: WorkflowDependencies['startContainers'];
   preflight(config: FirecrackerOptions): Promise<FirecrackerPreflightResult>;
-  resolveInfrastructure(enableApiProxy: boolean, ipPath?: string): Promise<FirecrackerInfrastructureSnapshot>;
+  resolveInfrastructure(enableApiProxy: boolean, ipPath?: string): Promise<MicrovmInfrastructureSnapshot>;
   createManager(
     config: FirecrackerOptions,
     workDir: string,
-    infrastructure: FirecrackerInfrastructureSnapshot,
+    infrastructure: MicrovmInfrastructureSnapshot,
     workspacePath: string,
     homePath: string,
     identity: { uid: number; gid: number },
@@ -85,7 +85,7 @@ function defaultDependencies(
     startInfrastructure,
     preflight: runFirecrackerPreflight,
     resolveInfrastructure: (enableApiProxy, ipPath) =>
-      resolveFirecrackerInfrastructure(enableApiProxy, undefined, ipPath),
+      resolveMicrovmInfrastructure(enableApiProxy, undefined, ipPath),
     createManager: (config, workDir, infrastructure, workspacePath, homePath, identity) =>
       new FirecrackerManager(
         config,
@@ -127,7 +127,7 @@ export class FirecrackerRuntimeBackend implements ExternalAgentRuntimeBackend {
   private manager: FirecrackerManagerAdapter | undefined;
   private environment: Record<string, string> | undefined;
   private activeExecution:
-    | { requestId: string; promise: Promise<FirecrackerGuestExecutionResult> }
+    | { requestId: string; promise: Promise<GuestExecutionResult> }
     | undefined;
   private stopped = false;
   private stopping: Promise<void> | undefined;
@@ -400,7 +400,7 @@ export class FirecrackerRuntimeBackend implements ExternalAgentRuntimeBackend {
 
 export function buildFirecrackerGuestEnvironment(
   config: WrapperConfig,
-  infrastructure: Pick<FirecrackerInfrastructureSnapshot, 'squidIp' | 'apiProxyIp'>,
+  infrastructure: Pick<MicrovmInfrastructureSnapshot, 'squidIp' | 'apiProxyIp'>,
   guestIp = '100.64.0.2',
 ): Record<string, string> {
   const networkConfig = {

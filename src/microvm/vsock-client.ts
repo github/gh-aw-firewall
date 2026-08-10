@@ -3,21 +3,21 @@ import * as net from 'net';
 import { constants as osConstants } from 'os';
 import type { Writable } from 'stream';
 import {
-  FIRECRACKER_GUEST_PROTOCOL_VERSION,
-  FIRECRACKER_MAX_STREAM_CHUNK_BYTES,
-  FirecrackerFrameDecoder,
-  FirecrackerProtocolError,
-  encodeFirecrackerFrame,
-  type FirecrackerErrorFrame,
-  type FirecrackerExecuteFrame,
-  type FirecrackerGuestFrame,
-  type FirecrackerReadyFrame,
-  type FirecrackerResultFrame,
-} from './vsock-protocol';
+  GUEST_PROTOCOL_VERSION,
+  GUEST_MAX_STREAM_CHUNK_BYTES,
+  GuestFrameDecoder,
+  GuestProtocolError,
+  encodeGuestFrame,
+  type GuestErrorFrame,
+  type GuestExecuteFrame,
+  type GuestProtocolFrame,
+  type GuestReadyFrame,
+  type GuestResultFrame,
+} from './guest-protocol';
 
-const FIRECRACKER_VSOCK_HANDSHAKE_LIMIT = 128;
+const GUEST_VSOCK_HANDSHAKE_LIMIT = 128;
 
-export interface FirecrackerVsockClientOptions {
+export interface MicrovmVsockClientOptions {
   readonly socketPath: string;
   readonly guestPort: number;
   readonly connectTimeoutMs?: number;
@@ -26,7 +26,7 @@ export interface FirecrackerVsockClientOptions {
   readonly cancellationGraceMs?: number;
 }
 
-export interface FirecrackerGuestExecutionRequest {
+export interface GuestExecutionRequest {
   readonly argv: readonly string[];
   readonly env: Readonly<Record<string, string>>;
   readonly cwd: string;
@@ -39,7 +39,7 @@ export interface FirecrackerGuestExecutionRequest {
   readonly stderr?: Writable;
 }
 
-export interface FirecrackerGuestExecutionResult {
+export interface GuestExecutionResult {
   readonly requestId: string;
   readonly exitCode: number;
   readonly signal: string | null;
@@ -50,37 +50,40 @@ interface PendingExecution {
   readonly requestId: string;
   readonly stdout?: Writable;
   readonly stderr?: Writable;
-  readonly resolve: (result: FirecrackerGuestExecutionResult) => void;
+  readonly resolve: (result: GuestExecutionResult) => void;
   readonly reject: (error: Error) => void;
   hostTimedOut: boolean;
   timeout?: NodeJS.Timeout;
   cancellation?: NodeJS.Timeout;
 }
 
-export class FirecrackerGuestError extends Error {
-  constructor(readonly frame: FirecrackerErrorFrame) {
-    super(`Firecracker guest ${frame.code}: ${frame.message}`);
-    this.name = 'FirecrackerGuestError';
+export class GuestExecutionError extends Error {
+  constructor(readonly frame: GuestErrorFrame) {
+    super(`guest ${frame.code}: ${frame.message}`);
+    this.name = 'GuestExecutionError';
   }
 }
 
 /**
- * Host endpoint for Firecracker's CONNECT-over-UDS vsock mapping.
+ * Host endpoint for a VMM's CONNECT-over-UDS vsock mapping (the convention
+ * used by Firecracker and other VMMs that expose vsock via a host UDS
+ * socket). Speaks the AWF framed guest protocol once the handshake
+ * completes; independent of which VMM backend owns the socket.
  */
-export class FirecrackerVsockClient {
+export class MicrovmVsockClient {
   private readonly connectTimeoutMs: number;
   private readonly readTimeoutMs: number;
   private readonly writeTimeoutMs: number;
   private readonly cancellationGraceMs: number;
-  private readonly decoder = new FirecrackerFrameDecoder();
+  private readonly decoder = new GuestFrameDecoder();
   private socket: net.Socket | undefined;
-  private ready: FirecrackerReadyFrame | undefined;
+  private ready: GuestReadyFrame | undefined;
   private pending: PendingExecution | undefined;
   private handshakeComplete = false;
   private handshakeBuffer = Buffer.alloc(0);
   private processing = Promise.resolve();
   private readyWaiter: {
-    resolve: (frame: FirecrackerReadyFrame) => void;
+    resolve: (frame: GuestReadyFrame) => void;
     reject: (error: Error) => void;
   } | undefined;
   private shutdownWaiter: {
@@ -89,9 +92,9 @@ export class FirecrackerVsockClient {
   } | undefined;
   private frameReadTimeout: NodeJS.Timeout | undefined;
 
-  constructor(private readonly options: FirecrackerVsockClientOptions) {
+  constructor(private readonly options: MicrovmVsockClientOptions) {
     if (!Number.isInteger(options.guestPort) || options.guestPort < 1 || options.guestPort > 65_535) {
-      throw new Error(`Firecracker guest vsock port must be in 1-65535: ${options.guestPort}`);
+      throw new Error(`guest vsock port must be in 1-65535: ${options.guestPort}`);
     }
     this.connectTimeoutMs = options.connectTimeoutMs ?? 5_000;
     this.readTimeoutMs = options.readTimeoutMs ?? 30_000;
@@ -99,8 +102,8 @@ export class FirecrackerVsockClient {
     this.cancellationGraceMs = options.cancellationGraceMs ?? 2_000;
   }
 
-  async connect(): Promise<FirecrackerReadyFrame> {
-    if (this.socket) throw new Error('Firecracker guest vsock client is already connected');
+  async connect(): Promise<GuestReadyFrame> {
+    if (this.socket) throw new Error('guest vsock client is already connected');
     const socket = net.createConnection({ path: this.options.socketPath });
     this.socket = socket;
     socket.on('data', (chunk: Buffer) => this.onData(chunk));
@@ -112,12 +115,12 @@ export class FirecrackerVsockClient {
         socket.once('error', reject);
       }),
       this.connectTimeoutMs,
-      `Firecracker guest vsock UDS connect timed out after ${this.connectTimeoutMs}ms`,
+      `guest vsock UDS connect timed out after ${this.connectTimeoutMs}ms`,
     );
     await this.writeRaw(Buffer.from(`CONNECT ${this.options.guestPort}\n`, 'ascii'));
 
     return withTimeout(
-      new Promise<FirecrackerReadyFrame>((resolve, reject) => {
+      new Promise<GuestReadyFrame>((resolve, reject) => {
         this.readyWaiter = { resolve, reject };
         if (this.ready) {
           this.readyWaiter = undefined;
@@ -125,26 +128,26 @@ export class FirecrackerVsockClient {
         }
       }),
       this.connectTimeoutMs,
-      `Firecracker guest readiness timed out after ${this.connectTimeoutMs}ms`,
+      `guest readiness timed out after ${this.connectTimeoutMs}ms`,
     );
   }
 
-  execute(request: FirecrackerGuestExecutionRequest): Promise<FirecrackerGuestExecutionResult> {
+  execute(request: GuestExecutionRequest): Promise<GuestExecutionResult> {
     if (!this.ready || !this.socket) {
-      return Promise.reject(new Error('Firecracker guest supervisor is not ready'));
+      return Promise.reject(new Error('guest supervisor is not ready'));
     }
     if (this.pending) {
       return Promise.reject(new Error(
-        `Firecracker guest request ${this.pending.requestId} is still running`,
+        `guest request ${this.pending.requestId} is still running`,
       ));
     }
     if (request.tty && !this.ready.capabilities.tty) {
-      return Promise.reject(new Error('Firecracker guest supervisor does not support TTY execution'));
+      return Promise.reject(new Error('guest supervisor does not support TTY execution'));
     }
     const requestId = request.requestId ??
       `exec-${process.pid}-${randomBytes(8).toString('hex')}`;
-    const frame: FirecrackerExecuteFrame = {
-      version: FIRECRACKER_GUEST_PROTOCOL_VERSION,
+    const frame: GuestExecuteFrame = {
+      version: GUEST_PROTOCOL_VERSION,
       type: 'execute',
       requestId,
       argv: request.argv,
@@ -156,7 +159,7 @@ export class FirecrackerVsockClient {
       ...(request.timeoutMs === undefined ? {} : { timeoutMs: request.timeoutMs }),
     };
 
-    return new Promise<FirecrackerGuestExecutionResult>((resolve, reject) => {
+    return new Promise<GuestExecutionResult>((resolve, reject) => {
       const pending: PendingExecution = {
         requestId,
         stdout: request.stdout,
@@ -170,7 +173,7 @@ export class FirecrackerVsockClient {
         pending.timeout = setTimeout(() => {
           pending.hostTimedOut = true;
           void this.send({
-            version: FIRECRACKER_GUEST_PROTOCOL_VERSION,
+            version: GUEST_PROTOCOL_VERSION,
             type: 'cancel',
             requestId,
             reason: `host timeout after ${request.timeoutMs}ms`,
@@ -178,7 +181,7 @@ export class FirecrackerVsockClient {
           pending.cancellation = setTimeout(() => {
             if (this.pending !== pending) return;
             this.completePending({
-              version: FIRECRACKER_GUEST_PROTOCOL_VERSION,
+              version: GUEST_PROTOCOL_VERSION,
               type: 'result',
               requestId,
               exitCode: 124,
@@ -194,22 +197,22 @@ export class FirecrackerVsockClient {
   }
 
   async writeStdin(data: Buffer, requestId = this.pending?.requestId): Promise<void> {
-    if (!requestId) throw new Error('No active Firecracker guest request');
-    for (let offset = 0; offset < data.length; offset += FIRECRACKER_MAX_STREAM_CHUNK_BYTES) {
+    if (!requestId) throw new Error('No active guest request');
+    for (let offset = 0; offset < data.length; offset += GUEST_MAX_STREAM_CHUNK_BYTES) {
       await this.send({
-        version: FIRECRACKER_GUEST_PROTOCOL_VERSION,
+        version: GUEST_PROTOCOL_VERSION,
         type: 'stdin',
         requestId,
-        data: data.subarray(offset, offset + FIRECRACKER_MAX_STREAM_CHUNK_BYTES)
+        data: data.subarray(offset, offset + GUEST_MAX_STREAM_CHUNK_BYTES)
           .toString('base64'),
       });
     }
   }
 
   endStdin(requestId = this.pending?.requestId): Promise<void> {
-    if (!requestId) return Promise.reject(new Error('No active Firecracker guest request'));
+    if (!requestId) return Promise.reject(new Error('No active guest request'));
     return this.send({
-      version: FIRECRACKER_GUEST_PROTOCOL_VERSION,
+      version: GUEST_PROTOCOL_VERSION,
       type: 'stdin',
       requestId,
       eof: true,
@@ -217,9 +220,9 @@ export class FirecrackerVsockClient {
   }
 
   cancel(reason = 'host cancellation', requestId = this.pending?.requestId): Promise<void> {
-    if (!requestId) return Promise.reject(new Error('No active Firecracker guest request'));
+    if (!requestId) return Promise.reject(new Error('No active guest request'));
     return this.send({
-      version: FIRECRACKER_GUEST_PROTOCOL_VERSION,
+      version: GUEST_PROTOCOL_VERSION,
       type: 'cancel',
       requestId,
       reason,
@@ -227,12 +230,12 @@ export class FirecrackerVsockClient {
   }
 
   resize(columns: number, rows: number, requestId = this.pending?.requestId): Promise<void> {
-    if (!requestId) return Promise.reject(new Error('No active Firecracker guest request'));
+    if (!requestId) return Promise.reject(new Error('No active guest request'));
     if (!this.ready?.capabilities.resize) {
-      return Promise.reject(new Error('Firecracker guest supervisor does not support TTY resize'));
+      return Promise.reject(new Error('guest supervisor does not support TTY resize'));
     }
     return this.send({
-      version: FIRECRACKER_GUEST_PROTOCOL_VERSION,
+      version: GUEST_PROTOCOL_VERSION,
       type: 'resize',
       requestId,
       columns,
@@ -242,17 +245,17 @@ export class FirecrackerVsockClient {
 
   async shutdown(): Promise<void> {
     if (!this.socket) return;
-    if (this.pending) throw new Error('Cannot shut down Firecracker guest while a request is running');
+    if (this.pending) throw new Error('Cannot shut down guest while a request is running');
     const requestId = 'shutdown';
     const acknowledgment = withTimeout(
       new Promise<void>((resolve, reject) => {
         this.shutdownWaiter = { resolve, reject };
       }),
       this.connectTimeoutMs,
-      `Firecracker guest shutdown acknowledgment timed out after ${this.connectTimeoutMs}ms`,
+      `guest shutdown acknowledgment timed out after ${this.connectTimeoutMs}ms`,
     );
     await this.send({
-      version: FIRECRACKER_GUEST_PROTOCOL_VERSION,
+      version: GUEST_PROTOCOL_VERSION,
       type: 'shutdown',
       requestId,
     });
@@ -271,14 +274,14 @@ export class FirecrackerVsockClient {
       let protocolData = chunk;
       if (!this.handshakeComplete) {
         this.handshakeBuffer = Buffer.concat([this.handshakeBuffer, chunk]);
-        if (this.handshakeBuffer.length > FIRECRACKER_VSOCK_HANDSHAKE_LIMIT) {
-          throw new Error('Firecracker vsock CONNECT response exceeded 128 bytes');
+        if (this.handshakeBuffer.length > GUEST_VSOCK_HANDSHAKE_LIMIT) {
+          throw new Error('vsock CONNECT response exceeded 128 bytes');
         }
         const newline = this.handshakeBuffer.indexOf(0x0a);
         if (newline === -1) return;
         const response = this.handshakeBuffer.subarray(0, newline).toString('ascii');
         if (!/^OK(?: \d+)?$/.test(response)) {
-          throw new Error(`Firecracker vsock CONNECT failed: ${response}`);
+          throw new Error(`vsock CONNECT failed: ${response}`);
         }
         this.handshakeComplete = true;
         protocolData = this.handshakeBuffer.subarray(newline + 1);
@@ -292,23 +295,23 @@ export class FirecrackerVsockClient {
       if (this.decoder.pendingBytes > 0) {
         this.frameReadTimeout = setTimeout(() => {
           this.fail(new Error(
-            `Firecracker guest frame read timed out after ${this.readTimeoutMs}ms`,
+            `guest frame read timed out after ${this.readTimeoutMs}ms`,
           ));
         }, this.readTimeoutMs);
       }
     }).catch((error) => this.fail(toError(error)));
   }
 
-  private async handleFrame(frame: FirecrackerGuestFrame): Promise<void> {
+  private async handleFrame(frame: GuestProtocolFrame): Promise<void> {
     if (frame.type === 'ready') {
-      if (this.ready) throw new FirecrackerProtocolError('invalid_frame', 'Duplicate ready frame');
+      if (this.ready) throw new GuestProtocolError('invalid_frame', 'Duplicate ready frame');
       this.ready = frame;
       this.readyWaiter?.resolve(frame);
       this.readyWaiter = undefined;
       return;
     }
     if (frame.type === 'error') {
-      const error = new FirecrackerGuestError(frame);
+      const error = new GuestExecutionError(frame);
       if (this.pending?.requestId === frame.requestId) {
         this.rejectPending(error);
       } else {
@@ -332,23 +335,23 @@ export class FirecrackerVsockClient {
       this.shutdownWaiter = undefined;
       return;
     }
-    throw new FirecrackerProtocolError(
+    throw new GuestProtocolError(
       'invalid_frame',
-      `Unexpected ${frame.type} frame from Firecracker guest`,
+      `Unexpected ${frame.type} frame from guest`,
     );
   }
 
   private requirePending(requestId: string): PendingExecution {
     if (!this.pending || this.pending.requestId !== requestId) {
-      throw new FirecrackerProtocolError(
+      throw new GuestProtocolError(
         'request_not_found',
-        `Unexpected Firecracker guest request id: ${requestId}`,
+        `Unexpected guest request id: ${requestId}`,
       );
     }
     return this.pending;
   }
 
-  private completePending(frame: FirecrackerResultFrame): void {
+  private completePending(frame: GuestResultFrame): void {
     const pending = this.requirePending(frame.requestId);
     clearTimeout(pending.timeout);
     clearTimeout(pending.cancellation);
@@ -379,22 +382,22 @@ export class FirecrackerVsockClient {
     pending.reject(error);
   }
 
-  private send(frame: FirecrackerGuestFrame): Promise<void> {
+  private send(frame: GuestProtocolFrame): Promise<void> {
     if (!this.handshakeComplete) {
-      return Promise.reject(new Error('Firecracker vsock CONNECT handshake is not complete'));
+      return Promise.reject(new Error('vsock CONNECT handshake is not complete'));
     }
-    return this.writeRaw(encodeFirecrackerFrame(frame));
+    return this.writeRaw(encodeGuestFrame(frame));
   }
 
   private writeRaw(data: Buffer): Promise<void> {
     const socket = this.socket;
     if (!socket || socket.destroyed || !socket.writable) {
-      return Promise.reject(new Error('Firecracker guest connection is not writable'));
+      return Promise.reject(new Error('guest connection is not writable'));
     }
     return new Promise<void>((resolve, reject) => {
       const timeout = setTimeout(() => {
         reject(new Error(
-          `Firecracker guest write timed out after ${this.writeTimeoutMs}ms`,
+          `guest write timed out after ${this.writeTimeoutMs}ms`,
         ));
         socket.destroy();
       }, this.writeTimeoutMs);
@@ -420,11 +423,11 @@ export class FirecrackerVsockClient {
   private onClose(): void {
     if (this.pending) {
       this.rejectPending(new Error(
-        `Firecracker guest disconnected while request ${this.pending.requestId} was running`,
+        `guest disconnected while request ${this.pending.requestId} was running`,
       ));
     }
     if (!this.ready) {
-      this.readyWaiter?.reject(new Error('Firecracker guest disconnected before readiness'));
+      this.readyWaiter?.reject(new Error('guest disconnected before readiness'));
       this.readyWaiter = undefined;
     }
   }

@@ -41,7 +41,7 @@ interface IpLinkInspection {
   };
 }
 
-export interface FirecrackerInfrastructureSnapshot {
+export interface MicrovmInfrastructureSnapshot {
   readonly networkId: string;
   readonly bridgeName: string;
   readonly subnet: string;
@@ -51,12 +51,12 @@ export interface FirecrackerInfrastructureSnapshot {
   revalidate(): Promise<void>;
 }
 
-export interface FirecrackerInfrastructureDependencies {
+export interface MicrovmInfrastructureDependencies {
   inspectNetwork(): Promise<unknown>;
   inspectLink(bridgeName: string, ipPath?: string): Promise<unknown>;
 }
 
-const defaultDependencies: FirecrackerInfrastructureDependencies = {
+const defaultDependencies: MicrovmInfrastructureDependencies = {
   inspectNetwork: async () => {
     const result = await execa('docker', ['network', 'inspect', NETWORK_NAME], {
       env: getLocalDockerEnv(),
@@ -65,7 +65,7 @@ const defaultDependencies: FirecrackerInfrastructureDependencies = {
     });
     if (result.exitCode !== 0) {
       throw new Error(
-        `Could not inspect Firecracker infrastructure network "${NETWORK_NAME}": ` +
+        `Could not inspect microVM infrastructure network "${NETWORK_NAME}": ` +
         result.stderr.trim(),
       );
     }
@@ -78,7 +78,7 @@ const defaultDependencies: FirecrackerInfrastructureDependencies = {
     });
     if (result.exitCode !== 0) {
       throw new Error(
-        `Could not inspect Firecracker infrastructure bridge "${bridgeName}": ` +
+        `Could not inspect microVM infrastructure bridge "${bridgeName}": ` +
         result.stderr.trim(),
       );
     }
@@ -88,14 +88,15 @@ const defaultDependencies: FirecrackerInfrastructureDependencies = {
 
 /**
  * Resolves and proves the exact host bridge and service addresses used by the
- * Compose infrastructure. No default bridge name or daemon-local assumption is
+ * Compose infrastructure that any microVM backend attaches its network
+ * namespace to. No default bridge name or daemon-local assumption is
  * accepted.
  */
-export async function resolveFirecrackerInfrastructure(
+export async function resolveMicrovmInfrastructure(
   enableApiProxy: boolean,
-  dependencies: FirecrackerInfrastructureDependencies = defaultDependencies,
+  dependencies: MicrovmInfrastructureDependencies = defaultDependencies,
   ipPath?: string,
-): Promise<FirecrackerInfrastructureSnapshot> {
+): Promise<MicrovmInfrastructureSnapshot> {
   const resolved = await inspectInfrastructure(enableApiProxy, dependencies, ipPath);
   return {
     ...resolved,
@@ -110,7 +111,7 @@ export async function resolveFirecrackerInfrastructure(
         live.apiProxyIp !== resolved.apiProxyIp
       ) {
         throw new Error(
-          `Firecracker infrastructure topology changed after discovery; ` +
+          `microVM infrastructure topology changed after discovery; ` +
           `refusing to attach the microVM`,
         );
       }
@@ -120,9 +121,9 @@ export async function resolveFirecrackerInfrastructure(
 
 async function inspectInfrastructure(
   enableApiProxy: boolean,
-  dependencies: FirecrackerInfrastructureDependencies,
+  dependencies: MicrovmInfrastructureDependencies,
   ipPath?: string,
-): Promise<Omit<FirecrackerInfrastructureSnapshot, 'revalidate'>> {
+): Promise<Omit<MicrovmInfrastructureSnapshot, 'revalidate'>> {
   const raw = await dependencies.inspectNetwork();
   if (!Array.isArray(raw) || raw.length !== 1) {
     throw new Error(
@@ -137,7 +138,7 @@ async function inspectInfrastructure(
     network.Internal !== true
   ) {
     throw new Error(
-      `Unexpected Firecracker infrastructure topology for "${NETWORK_NAME}": ` +
+      `Unexpected microVM infrastructure topology for "${NETWORK_NAME}": ` +
       `name=${String(network.Name)} driver=${String(network.Driver)} ` +
       `scope=${String(network.Scope)} internal=${String(network.Internal)}`,
     );
@@ -216,14 +217,14 @@ function assertContainerAbsent(
 ): void {
   if (containers.some((container) => container.Name === name)) {
     throw new Error(
-      `Unexpected Compose agent "${name}" is attached during Firecracker execution`,
+      `Unexpected Compose agent "${name}" is attached during microVM execution`,
     );
   }
 }
 
 function assertInterfaceName(name: string): void {
   if (name.length < 1 || name.length > 15 || !/^[A-Za-z0-9_.-]+$/.test(name)) {
-    throw new Error(`Unsafe Firecracker infrastructure bridge name: ${name}`);
+    throw new Error(`Unsafe microVM infrastructure bridge name: ${name}`);
   }
 }
 

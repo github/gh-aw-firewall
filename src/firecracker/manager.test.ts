@@ -1,5 +1,11 @@
 import type { ExecaChildProcess } from 'execa';
 import { PassThrough } from 'stream';
+import type {
+  MicrovmNetworkLifecycle,
+  MicrovmNetworkPlan,
+} from '../microvm/network';
+import type { MicrovmVsockClient } from '../microvm/vsock-client';
+import type { MicrovmWorkspaceImage } from '../microvm/workspace';
 import type { FirecrackerOptions } from '../types/runtime-options';
 import type { FirecrackerApiClient } from './api-client';
 import {
@@ -10,12 +16,6 @@ import {
   type FirecrackerManagerDependencies,
   type FirecrackerManagerNetworkConfig,
 } from './manager';
-import type {
-  FirecrackerNetworkLifecycle,
-  FirecrackerNetworkPlan,
-} from './network';
-import type { FirecrackerVsockClient } from './vsock-client';
-import type { FirecrackerWorkspaceImage } from './workspace-image';
 import type { FirecrackerHostToolPaths } from './preflight';
 
 const hostTools: FirecrackerHostToolPaths = {
@@ -67,7 +67,7 @@ function networkConfig(
   };
 }
 
-function networkLifecycle(plan: FirecrackerNetworkPlan): FirecrackerNetworkLifecycle {
+function networkLifecycle(plan: MicrovmNetworkPlan): MicrovmNetworkLifecycle {
   return {
     plan,
     setup: jest.fn().mockResolvedValue(plan),
@@ -130,7 +130,7 @@ describe('FirecrackerManager', () => {
     await expect(child).resolves.toMatchObject({ exitCode: 0 });
     await expect(defaults.sleep(0)).resolves.toBeUndefined();
     expect(defaults.createClient('/tmp/firecracker.socket', 100)).toBeDefined();
-    expect(defaults.createNetwork({} as FirecrackerNetworkPlan, hostTools)).toBeDefined();
+    expect(defaults.createNetwork({} as MicrovmNetworkPlan, hostTools)).toBeDefined();
     expect(defaults.createWorkspaceImage({
       runId: 'adapter-test',
       workDir: '/tmp/awf',
@@ -179,17 +179,17 @@ describe('FirecrackerManager', () => {
       '/tmp/awf',
       '/opt/firecracker',
       '../escape',
-    )).toThrow(/Unsafe Firecracker run id/);
+    )).toThrow(/Unsafe microVM run id/);
     expect(() => createFirecrackerRunPaths(
       '/tmp/awf',
       '/opt/firecracker',
       'run_1',
-    )).toThrow(/Unsafe Firecracker run id/);
+    )).toThrow(/Unsafe microVM run id/);
     expect(() => createFirecrackerRunPaths(
       '/tmp/awf',
       '/opt/firecracker',
       `run-${'a'.repeat(61)}`,
-    )).toThrow(/Unsafe Firecracker run id/);
+    )).toThrow(/Unsafe microVM run id/);
   });
 
   it('launches jailer and configures machine, kernel, and root drive', async () => {
@@ -237,13 +237,13 @@ describe('FirecrackerManager', () => {
     expect(deps.createNetwork).toHaveBeenCalledWith(
       expect.objectContaining({
         infrastructureBridge: 'awfbr0',
-        jailerUid: 1000,
-        jailerGid: 1000,
+        tapOwnerUid: 1000,
+        tapOwnerGid: 1000,
       }),
       hostTools,
     );
     const lifecycle = (deps.createNetwork as jest.Mock).mock.results[0]
-      .value as FirecrackerNetworkLifecycle;
+      .value as MicrovmNetworkLifecycle;
     expect(lifecycle.setup).toHaveBeenCalledTimes(1);
   });
 
@@ -273,7 +273,7 @@ describe('FirecrackerManager', () => {
       { recursive: true, force: true },
     );
     const lifecycle = (deps.createNetwork as jest.Mock).mock.results[0]
-      .value as FirecrackerNetworkLifecycle;
+      .value as MicrovmNetworkLifecycle;
     expect(lifecycle.cleanup).toHaveBeenCalledTimes(1);
   });
 
@@ -355,7 +355,7 @@ describe('FirecrackerManager', () => {
           expect(child.exitCode).toBe(0);
         }),
         cleanup: jest.fn().mockResolvedValue(undefined),
-      } as unknown as FirecrackerWorkspaceImage;
+      } as unknown as MicrovmWorkspaceImage;
       const guestClient = {
         connect: jest.fn().mockResolvedValue({
           version: 1,
@@ -371,7 +371,7 @@ describe('FirecrackerManager', () => {
         }),
         shutdown: jest.fn().mockResolvedValue(undefined),
         destroy: jest.fn(),
-      } as unknown as FirecrackerVsockClient;
+      } as unknown as MicrovmVsockClient;
       const deps = dependencies({
         launch: jest.fn().mockReturnValue(child),
         createWorkspaceImage: jest.fn().mockReturnValue(workspace),
@@ -451,7 +451,7 @@ describe('FirecrackerManager', () => {
         resize: jest.fn().mockResolvedValue(undefined),
         shutdown: jest.fn().mockResolvedValue(undefined),
         destroy: jest.fn(),
-      } as unknown as FirecrackerVsockClient;
+      } as unknown as MicrovmVsockClient;
       const workspace = {
         prepare: jest.fn().mockResolvedValue({
           workspaceImagePath: '/tmp/workspace.ext4',
@@ -461,7 +461,7 @@ describe('FirecrackerManager', () => {
         }),
         extractAfterStop: jest.fn().mockResolvedValue(undefined),
         cleanup: jest.fn().mockResolvedValue(undefined),
-      } as unknown as FirecrackerWorkspaceImage;
+      } as unknown as MicrovmWorkspaceImage;
       const deps = dependencies({
         createVsockClient: jest.fn().mockReturnValue(guestClient),
         createWorkspaceImage: jest.fn().mockReturnValue(workspace),
@@ -504,12 +504,12 @@ describe('FirecrackerManager', () => {
         }),
         extractAfterStop: jest.fn().mockResolvedValue(undefined),
         cleanup: jest.fn().mockResolvedValue(undefined),
-      } as unknown as FirecrackerWorkspaceImage;
+      } as unknown as MicrovmWorkspaceImage;
       const guestClient = {
         connect: jest.fn().mockResolvedValue(undefined),
         shutdown: jest.fn().mockResolvedValue(undefined),
         destroy: jest.fn(),
-      } as unknown as FirecrackerVsockClient;
+      } as unknown as MicrovmVsockClient;
       const deps = dependencies({
         launch: jest.fn().mockReturnValue(child),
         createWorkspaceImage: jest.fn().mockReturnValue(workspace),
@@ -534,7 +534,7 @@ describe('FirecrackerManager', () => {
       await manager.stop({ preserve: true });
 
       const lifecycle = (deps.createNetwork as jest.Mock).mock.results[0]
-        .value as FirecrackerNetworkLifecycle;
+        .value as MicrovmNetworkLifecycle;
       expect(workspace.extractAfterStop).toHaveBeenCalledTimes(1);
       expect(lifecycle.cleanup).not.toHaveBeenCalled();
       expect(workspace.cleanup).not.toHaveBeenCalled();
@@ -559,8 +559,8 @@ describe('FirecrackerManager', () => {
         guestGatewayIp: '100.64.0.1',
         guestPrefixLength: 30,
         guestMac: '02:00:00:00:00:01',
-        jailerUid: 1000,
-        jailerGid: 1000,
+        tapOwnerUid: 1000,
+        tapOwnerGid: 1000,
         allowedEndpoints: [],
         networkInterface: { iface_id: 'eth0', host_dev_name: 'tap' },
       }, {
@@ -595,12 +595,12 @@ describe('FirecrackerManager', () => {
         }),
         extractAfterStop: jest.fn().mockResolvedValue(undefined),
         cleanup: jest.fn().mockResolvedValue(undefined),
-      } as unknown as FirecrackerWorkspaceImage;
+      } as unknown as MicrovmWorkspaceImage;
       const guestClient = {
         connect: jest.fn().mockResolvedValue(undefined),
         shutdown: jest.fn().mockResolvedValue(undefined),
         destroy: jest.fn(),
-      } as unknown as FirecrackerVsockClient;
+      } as unknown as MicrovmVsockClient;
       const deps = dependencies({
         launch: jest.fn().mockReturnValue(child),
         createWorkspaceImage: jest.fn().mockReturnValue(workspace),
@@ -624,7 +624,7 @@ describe('FirecrackerManager', () => {
 
       await expect(manager.stop()).rejects.toThrow(/stopped before workspace\/network removal/);
       const lifecycle = (deps.createNetwork as jest.Mock).mock.results[0]
-        .value as FirecrackerNetworkLifecycle;
+        .value as MicrovmNetworkLifecycle;
       expect(lifecycle.cleanup).not.toHaveBeenCalled();
       expect(workspace.extractAfterStop).not.toHaveBeenCalled();
       expect(deps.rm).not.toHaveBeenCalled();
@@ -646,12 +646,12 @@ describe('FirecrackerManager', () => {
       }),
       extractAfterStop: jest.fn().mockResolvedValue(undefined),
       cleanup: jest.fn().mockResolvedValue(undefined),
-    } as unknown as FirecrackerWorkspaceImage;
+    } as unknown as MicrovmWorkspaceImage;
     const guestClient = {
       connect: jest.fn().mockResolvedValue(undefined),
       shutdown: jest.fn().mockResolvedValue(undefined),
       destroy: jest.fn(),
-    } as unknown as FirecrackerVsockClient;
+    } as unknown as MicrovmVsockClient;
     let sleepCalls = 0;
     const deps = dependencies({
       launch: jest.fn().mockReturnValue(child),
@@ -706,7 +706,7 @@ describe('FirecrackerManager', () => {
     await expect(manager.start()).rejects.toThrow('invalid NIC');
 
     const lifecycle = (deps.createNetwork as jest.Mock).mock.results[0]
-      .value as FirecrackerNetworkLifecycle;
+      .value as MicrovmNetworkLifecycle;
     expect(lifecycle.cleanup).toHaveBeenCalledTimes(1);
     expect(deps.rm).toHaveBeenCalled();
   });

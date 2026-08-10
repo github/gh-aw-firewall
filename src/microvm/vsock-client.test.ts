@@ -4,16 +4,16 @@ import * as os from 'os';
 import * as path from 'path';
 import { PassThrough, Writable } from 'stream';
 import {
-  FIRECRACKER_GUEST_PROTOCOL_VERSION,
-  FIRECRACKER_MAX_STREAM_CHUNK_BYTES,
-  FirecrackerFrameDecoder,
-  encodeFirecrackerFrame,
-  type FirecrackerGuestFrame,
-} from './vsock-protocol';
-import { FirecrackerGuestError, FirecrackerVsockClient } from './vsock-client';
+  GUEST_PROTOCOL_VERSION,
+  GUEST_MAX_STREAM_CHUNK_BYTES,
+  GuestFrameDecoder,
+  encodeGuestFrame,
+  type GuestProtocolFrame,
+} from './guest-protocol';
+import { GuestExecutionError, MicrovmVsockClient } from './vsock-client';
 
 async function createServer(
-  handler: (frame: FirecrackerGuestFrame, socket: net.Socket) => void,
+  handler: (frame: GuestProtocolFrame, socket: net.Socket) => void,
   capabilities = { stdin: true, tty: false, resize: false },
 ): Promise<{ socketPath: string; close(): Promise<void> }> {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'awf-vsock-'));
@@ -21,7 +21,7 @@ async function createServer(
   const server = net.createServer((socket) => {
     let handshaken = false;
     let handshake = Buffer.alloc(0);
-    const decoder = new FirecrackerFrameDecoder();
+    const decoder = new GuestFrameDecoder();
     socket.on('data', (chunk: Buffer) => {
       if (!handshaken) {
         handshake = Buffer.concat([handshake, chunk]);
@@ -30,8 +30,8 @@ async function createServer(
         expect(handshake.subarray(0, newline).toString()).toBe('CONNECT 52');
         handshaken = true;
         socket.write('OK 1234\n');
-        socket.write(encodeFirecrackerFrame({
-          version: FIRECRACKER_GUEST_PROTOCOL_VERSION,
+        socket.write(encodeGuestFrame({
+          version: GUEST_PROTOCOL_VERSION,
           type: 'ready',
           requestId: 'control',
           capabilities,
@@ -79,20 +79,20 @@ async function createRawServer(
   };
 }
 
-describe('FirecrackerVsockClient', () => {
+describe('MicrovmVsockClient', () => {
   it('streams output, stdin, and exact terminal status', async () => {
-    const received: FirecrackerGuestFrame[] = [];
+    const received: GuestProtocolFrame[] = [];
     const server = await createServer((frame, socket) => {
       received.push(frame);
       if (frame.type === 'execute') {
         socket.write(Buffer.concat([
-          encodeFirecrackerFrame({
+          encodeGuestFrame({
             version: 1,
             type: 'stdout',
             requestId: frame.requestId,
             data: Buffer.from('hello').toString('base64'),
           }),
-          encodeFirecrackerFrame({
+          encodeGuestFrame({
             version: 1,
             type: 'stderr',
             requestId: frame.requestId,
@@ -101,7 +101,7 @@ describe('FirecrackerVsockClient', () => {
         ]));
       }
       if (frame.type === 'stdin' && frame.eof) {
-        socket.write(encodeFirecrackerFrame({
+        socket.write(encodeGuestFrame({
           version: 1,
           type: 'result',
           requestId: frame.requestId,
@@ -111,7 +111,7 @@ describe('FirecrackerVsockClient', () => {
         }));
       }
     });
-    const client = new FirecrackerVsockClient({
+    const client = new MicrovmVsockClient({
       socketPath: server.socketPath,
       guestPort: 52,
     });
@@ -155,7 +155,7 @@ describe('FirecrackerVsockClient', () => {
   it('cancels at the host deadline and deterministically returns 124', async () => {
     const server = await createServer((frame, socket) => {
       if (frame.type === 'cancel') {
-        socket.write(encodeFirecrackerFrame({
+        socket.write(encodeGuestFrame({
           version: 1,
           type: 'result',
           requestId: frame.requestId,
@@ -165,7 +165,7 @@ describe('FirecrackerVsockClient', () => {
         }));
       }
     });
-    const client = new FirecrackerVsockClient({
+    const client = new MicrovmVsockClient({
       socketPath: server.socketPath,
       guestPort: 52,
       cancellationGraceMs: 100,
@@ -191,7 +191,7 @@ describe('FirecrackerVsockClient', () => {
     const server = await createServer((frame, socket) => {
       if (frame.type === 'execute') socket.destroy();
     });
-    const client = new FirecrackerVsockClient({
+    const client = new MicrovmVsockClient({
       socketPath: server.socketPath,
       guestPort: 52,
     });
@@ -209,7 +209,7 @@ describe('FirecrackerVsockClient', () => {
   it('preserves numeric fallback signal exit status from the guest', async () => {
     const server = await createServer((frame, socket) => {
       if (frame.type === 'execute') {
-        socket.write(encodeFirecrackerFrame({
+        socket.write(encodeGuestFrame({
           version: 1,
           type: 'result',
           requestId: frame.requestId,
@@ -219,7 +219,7 @@ describe('FirecrackerVsockClient', () => {
         }));
       }
     });
-    const client = new FirecrackerVsockClient({
+    const client = new MicrovmVsockClient({
       socketPath: server.socketPath,
       guestPort: 52,
     });
@@ -241,7 +241,7 @@ describe('FirecrackerVsockClient', () => {
 
   it('requires advertised TTY capability', async () => {
     const server = await createServer(() => undefined);
-    const client = new FirecrackerVsockClient({
+    const client = new MicrovmVsockClient({
       socketPath: server.socketPath,
       guestPort: 52,
     });
@@ -262,14 +262,14 @@ describe('FirecrackerVsockClient', () => {
   it('uses an acknowledged shutdown frame before closing the transport', async () => {
     const server = await createServer((frame, socket) => {
       if (frame.type === 'shutdown') {
-        socket.write(encodeFirecrackerFrame({
+        socket.write(encodeGuestFrame({
           version: 1,
           type: 'shutting_down',
           requestId: frame.requestId,
         }));
       }
     });
-    const client = new FirecrackerVsockClient({
+    const client = new MicrovmVsockClient({
       socketPath: server.socketPath,
       guestPort: 52,
     });
@@ -283,7 +283,7 @@ describe('FirecrackerVsockClient', () => {
     const server = await createServer((frame, socket) => {
       if (frame.type !== 'execute') return;
       execution += 1;
-      const result = encodeFirecrackerFrame({
+      const result = encodeGuestFrame({
         version: 1,
         type: 'result',
         requestId: frame.requestId,
@@ -297,7 +297,7 @@ describe('FirecrackerVsockClient', () => {
         socket.write(result.subarray(0, 2));
       }
     });
-    const client = new FirecrackerVsockClient({
+    const client = new MicrovmVsockClient({
       socketPath: server.socketPath,
       guestPort: 52,
       readTimeoutMs: 10,
@@ -323,11 +323,11 @@ describe('FirecrackerVsockClient', () => {
   });
 
   it('guards disconnected control methods and invalid ports', async () => {
-    expect(() => new FirecrackerVsockClient({
+    expect(() => new MicrovmVsockClient({
       socketPath: '/tmp/unused',
       guestPort: 0,
     })).toThrow(/1-65535/);
-    const client = new FirecrackerVsockClient({
+    const client = new MicrovmVsockClient({
       socketPath: '/tmp/unused',
       guestPort: 52,
     });
@@ -348,11 +348,11 @@ describe('FirecrackerVsockClient', () => {
   });
 
   it('supports chunked stdin, cancellation, resize, and pending request guards', async () => {
-    const received: FirecrackerGuestFrame[] = [];
+    const received: GuestProtocolFrame[] = [];
     const server = await createServer((frame, socket) => {
       received.push(frame);
       if (frame.type === 'stdin' && frame.eof) {
-        socket.write(encodeFirecrackerFrame({
+        socket.write(encodeGuestFrame({
           version: 1,
           type: 'result',
           requestId: frame.requestId,
@@ -362,14 +362,14 @@ describe('FirecrackerVsockClient', () => {
         }));
       }
       if (frame.type === 'shutdown') {
-        socket.write(encodeFirecrackerFrame({
+        socket.write(encodeGuestFrame({
           version: 1,
           type: 'shutting_down',
           requestId: frame.requestId,
         }));
       }
     }, { stdin: true, tty: false, resize: true });
-    const client = new FirecrackerVsockClient({
+    const client = new MicrovmVsockClient({
       socketPath: server.socketPath,
       guestPort: 52,
     });
@@ -392,7 +392,7 @@ describe('FirecrackerVsockClient', () => {
     await expect(client.shutdown()).rejects.toThrow(/while a request is running/);
     await client.resize(100, 40);
     await client.cancel('manual cancellation');
-    await client.writeStdin(Buffer.alloc(FIRECRACKER_MAX_STREAM_CHUNK_BYTES + 1, 1));
+    await client.writeStdin(Buffer.alloc(GUEST_MAX_STREAM_CHUNK_BYTES + 1, 1));
     await client.endStdin();
     await expect(execution).resolves.toEqual(expect.objectContaining({ exitCode: 0 }));
 
@@ -409,7 +409,7 @@ describe('FirecrackerVsockClient', () => {
 
   it('returns 124 when cancellation grace expires without a guest result', async () => {
     const server = await createServer(() => undefined);
-    const client = new FirecrackerVsockClient({
+    const client = new MicrovmVsockClient({
       socketPath: server.socketPath,
       guestPort: 52,
       cancellationGraceMs: 5,
@@ -437,7 +437,7 @@ describe('FirecrackerVsockClient', () => {
     const server = await createServer((frame, socket) => {
       if (frame.type !== 'execute') return;
       request += 1;
-      socket.write(encodeFirecrackerFrame({
+      socket.write(encodeGuestFrame({
         version: 1,
         type: 'error',
         requestId: request === 1 ? frame.requestId : 'different',
@@ -445,7 +445,7 @@ describe('FirecrackerVsockClient', () => {
         message: 'rejected',
       }));
     });
-    const client = new FirecrackerVsockClient({
+    const client = new MicrovmVsockClient({
       socketPath: server.socketPath,
       guestPort: 52,
     });
@@ -457,7 +457,7 @@ describe('FirecrackerVsockClient', () => {
       cwd: '/workspace',
       uid: 1000,
       gid: 1000,
-    })).rejects.toBeInstanceOf(FirecrackerGuestError);
+    })).rejects.toBeInstanceOf(GuestExecutionError);
     await expect(client.execute({
       requestId: 'unexpected',
       argv: ['false'],
@@ -473,7 +473,7 @@ describe('FirecrackerVsockClient', () => {
     const invalid = await createRawServer((socket) => {
       socket.once('data', () => setTimeout(() => socket.write('DENIED\n'), 5));
     });
-    const invalidClient = new FirecrackerVsockClient({
+    const invalidClient = new MicrovmVsockClient({
       socketPath: invalid.socketPath,
       guestPort: 52,
       connectTimeoutMs: 100,
@@ -485,7 +485,7 @@ describe('FirecrackerVsockClient', () => {
     const oversized = await createRawServer((socket) => {
       socket.once('data', () => setTimeout(() => socket.write('x'.repeat(129)), 5));
     });
-    const oversizedClient = new FirecrackerVsockClient({
+    const oversizedClient = new MicrovmVsockClient({
       socketPath: oversized.socketPath,
       guestPort: 52,
       connectTimeoutMs: 100,
@@ -495,7 +495,7 @@ describe('FirecrackerVsockClient', () => {
     await oversized.close();
 
     const silent = await createRawServer(() => undefined);
-    const silentClient = new FirecrackerVsockClient({
+    const silentClient = new MicrovmVsockClient({
       socketPath: silent.socketPath,
       guestPort: 52,
       connectTimeoutMs: 5,
@@ -507,7 +507,7 @@ describe('FirecrackerVsockClient', () => {
     const disconnected = await createRawServer((socket) => {
       socket.once('data', () => setTimeout(() => socket.destroy(), 5));
     });
-    const disconnectedClient = new FirecrackerVsockClient({
+    const disconnectedClient = new MicrovmVsockClient({
       socketPath: disconnected.socketPath,
       guestPort: 52,
       connectTimeoutMs: 100,
@@ -519,14 +519,14 @@ describe('FirecrackerVsockClient', () => {
   it('rejects unexpected guest frames and request identifiers', async () => {
     const unexpected = await createServer((frame, socket) => {
       if (frame.type === 'execute') {
-        socket.write(encodeFirecrackerFrame({
+        socket.write(encodeGuestFrame({
           version: 1,
           type: 'shutdown',
           requestId: frame.requestId,
         }));
       }
     });
-    const unexpectedClient = new FirecrackerVsockClient({
+    const unexpectedClient = new MicrovmVsockClient({
       socketPath: unexpected.socketPath,
       guestPort: 52,
     });
@@ -543,7 +543,7 @@ describe('FirecrackerVsockClient', () => {
 
     const mismatched = await createServer((frame, socket) => {
       if (frame.type === 'execute') {
-        socket.write(encodeFirecrackerFrame({
+        socket.write(encodeGuestFrame({
           version: 1,
           type: 'stdout',
           requestId: 'different',
@@ -551,7 +551,7 @@ describe('FirecrackerVsockClient', () => {
         }));
       }
     });
-    const mismatchedClient = new FirecrackerVsockClient({
+    const mismatchedClient = new MicrovmVsockClient({
       socketPath: mismatched.socketPath,
       guestPort: 52,
     });
@@ -563,20 +563,20 @@ describe('FirecrackerVsockClient', () => {
       cwd: '/workspace',
       uid: 1000,
       gid: 1000,
-    })).rejects.toThrow(/Unexpected Firecracker guest request id/);
+    })).rejects.toThrow(/Unexpected guest request id/);
     await mismatched.close();
   });
 
   it('honors output backpressure and unknown signal fallback status', async () => {
     const server = await createServer((frame, socket) => {
       if (frame.type !== 'execute') return;
-      socket.write(encodeFirecrackerFrame({
+      socket.write(encodeGuestFrame({
         version: 1,
         type: 'stdout',
         requestId: frame.requestId,
         data: Buffer.alloc(1024, 1).toString('base64'),
       }));
-      socket.write(encodeFirecrackerFrame({
+      socket.write(encodeGuestFrame({
         version: 1,
         type: 'result',
         requestId: frame.requestId,
@@ -591,7 +591,7 @@ describe('FirecrackerVsockClient', () => {
         setImmediate(callback);
       },
     });
-    const client = new FirecrackerVsockClient({
+    const client = new MicrovmVsockClient({
       socketPath: server.socketPath,
       guestPort: 52,
     });
@@ -616,7 +616,7 @@ describe('FirecrackerVsockClient', () => {
 
   it('rejects writes after a connected transport is destroyed', async () => {
     const server = await createServer(() => undefined);
-    const client = new FirecrackerVsockClient({
+    const client = new MicrovmVsockClient({
       socketPath: server.socketPath,
       guestPort: 52,
     });

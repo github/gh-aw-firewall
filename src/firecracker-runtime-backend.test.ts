@@ -9,7 +9,7 @@ import {
   type FirecrackerRuntimeBackendDependencies,
 } from './firecracker-runtime-backend';
 import { assertFirecrackerSelection } from './firecracker/runtime-validation';
-import type { FirecrackerInfrastructureSnapshot } from './firecracker/infrastructure';
+import type { MicrovmInfrastructureSnapshot } from './microvm/infrastructure';
 
 const digest = 'a'.repeat(64);
 
@@ -56,7 +56,7 @@ function config(overrides: Partial<WrapperConfig> = {}): WrapperConfig {
   } as WrapperConfig;
 }
 
-function infrastructure(): FirecrackerInfrastructureSnapshot {
+function infrastructure(): MicrovmInfrastructureSnapshot {
   return {
     networkId: 'a'.repeat(64),
     bridgeName: 'br-aaaaaaaaaaaa',

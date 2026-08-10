@@ -1,11 +1,16 @@
-export const FIRECRACKER_GUEST_PROTOCOL_VERSION = 1 as const;
-export const FIRECRACKER_MAX_FRAME_BYTES = 1024 * 1024;
-export const FIRECRACKER_MAX_STREAM_CHUNK_BYTES = 64 * 1024;
-export const FIRECRACKER_MAX_ENV_ENTRIES = 512;
-export const FIRECRACKER_MAX_ARGV_ENTRIES = 4096;
-export const FIRECRACKER_MAX_STRING_BYTES = 256 * 1024;
+/**
+ * AWF framed guest-supervisor protocol. Transport-independent: the same
+ * length-prefixed JSON framing is used regardless of which VMM backend
+ * (Firecracker today, others later) carries the bytes over vsock/UDS.
+ */
+export const GUEST_PROTOCOL_VERSION = 1 as const;
+export const GUEST_MAX_FRAME_BYTES = 1024 * 1024;
+export const GUEST_MAX_STREAM_CHUNK_BYTES = 64 * 1024;
+export const GUEST_MAX_ENV_ENTRIES = 512;
+export const GUEST_MAX_ARGV_ENTRIES = 4096;
+export const GUEST_MAX_STRING_BYTES = 256 * 1024;
 
-export type FirecrackerGuestErrorCode =
+export type GuestProtocolErrorCode =
   | 'invalid_frame'
   | 'protocol_version_mismatch'
   | 'invalid_request'
@@ -15,12 +20,12 @@ export type FirecrackerGuestErrorCode =
   | 'internal_error';
 
 interface ProtocolFrame {
-  readonly version: typeof FIRECRACKER_GUEST_PROTOCOL_VERSION;
+  readonly version: typeof GUEST_PROTOCOL_VERSION;
   readonly type: string;
   readonly requestId: string;
 }
 
-export interface FirecrackerReadyFrame extends ProtocolFrame {
+export interface GuestReadyFrame extends ProtocolFrame {
   readonly type: 'ready';
   readonly capabilities: {
     readonly stdin: boolean;
@@ -29,7 +34,7 @@ export interface FirecrackerReadyFrame extends ProtocolFrame {
   };
 }
 
-export interface FirecrackerExecuteFrame extends ProtocolFrame {
+export interface GuestExecuteFrame extends ProtocolFrame {
   readonly type: 'execute';
   readonly argv: readonly string[];
   readonly env: Readonly<Record<string, string>>;
@@ -40,74 +45,74 @@ export interface FirecrackerExecuteFrame extends ProtocolFrame {
   readonly timeoutMs?: number;
 }
 
-export interface FirecrackerStreamFrame extends ProtocolFrame {
+export interface GuestStreamFrame extends ProtocolFrame {
   readonly type: 'stdout' | 'stderr';
   readonly data: string;
 }
 
-export interface FirecrackerStdinFrame extends ProtocolFrame {
+export interface GuestStdinFrame extends ProtocolFrame {
   readonly type: 'stdin';
   readonly data?: string;
   readonly eof?: boolean;
 }
 
-export interface FirecrackerResizeFrame extends ProtocolFrame {
+export interface GuestResizeFrame extends ProtocolFrame {
   readonly type: 'resize';
   readonly columns: number;
   readonly rows: number;
 }
 
-export interface FirecrackerCancelFrame extends ProtocolFrame {
+export interface GuestCancelFrame extends ProtocolFrame {
   readonly type: 'cancel';
   readonly reason: string;
 }
 
-export interface FirecrackerResultFrame extends ProtocolFrame {
+export interface GuestResultFrame extends ProtocolFrame {
   readonly type: 'result';
   readonly exitCode: number | null;
   readonly signal: string | null;
   readonly timedOut: boolean;
 }
 
-export interface FirecrackerErrorFrame extends ProtocolFrame {
+export interface GuestErrorFrame extends ProtocolFrame {
   readonly type: 'error';
-  readonly code: FirecrackerGuestErrorCode;
+  readonly code: GuestProtocolErrorCode;
   readonly message: string;
   readonly expectedVersion?: number;
 }
 
-export interface FirecrackerShutdownFrame extends ProtocolFrame {
+export interface GuestShutdownFrame extends ProtocolFrame {
   readonly type: 'shutdown' | 'shutting_down';
 }
 
-export type FirecrackerGuestFrame =
-  | FirecrackerReadyFrame
-  | FirecrackerExecuteFrame
-  | FirecrackerStreamFrame
-  | FirecrackerStdinFrame
-  | FirecrackerResizeFrame
-  | FirecrackerCancelFrame
-  | FirecrackerResultFrame
-  | FirecrackerErrorFrame
-  | FirecrackerShutdownFrame;
+export type GuestProtocolFrame =
+  | GuestReadyFrame
+  | GuestExecuteFrame
+  | GuestStreamFrame
+  | GuestStdinFrame
+  | GuestResizeFrame
+  | GuestCancelFrame
+  | GuestResultFrame
+  | GuestErrorFrame
+  | GuestShutdownFrame;
 
-export class FirecrackerProtocolError extends Error {
+export class GuestProtocolError extends Error {
   constructor(
-    readonly code: FirecrackerGuestErrorCode,
+    readonly code: GuestProtocolErrorCode,
     message: string,
   ) {
     super(message);
-    this.name = 'FirecrackerProtocolError';
+    this.name = 'GuestProtocolError';
   }
 }
 
-export function encodeFirecrackerFrame(frame: FirecrackerGuestFrame): Buffer {
-  validateFirecrackerFrame(frame);
+export function encodeGuestFrame(frame: GuestProtocolFrame): Buffer {
+  validateGuestFrame(frame);
   const payload = Buffer.from(JSON.stringify(frame), 'utf8');
-  if (payload.length > FIRECRACKER_MAX_FRAME_BYTES) {
-    throw new FirecrackerProtocolError(
+  if (payload.length > GUEST_MAX_FRAME_BYTES) {
+    throw new GuestProtocolError(
       'invalid_frame',
-      `Firecracker guest frame exceeds ${FIRECRACKER_MAX_FRAME_BYTES} bytes`,
+      `guest frame exceeds ${GUEST_MAX_FRAME_BYTES} bytes`,
     );
   }
   const header = Buffer.allocUnsafe(4);
@@ -115,25 +120,25 @@ export function encodeFirecrackerFrame(frame: FirecrackerGuestFrame): Buffer {
   return Buffer.concat([header, payload]);
 }
 
-export class FirecrackerFrameDecoder {
+export class GuestFrameDecoder {
   private buffered: Buffer = Buffer.alloc(0);
 
   get pendingBytes(): number {
     return this.buffered.length;
   }
 
-  push(chunk: Buffer): FirecrackerGuestFrame[] {
+  push(chunk: Buffer): GuestProtocolFrame[] {
     if (chunk.length === 0) return [];
     this.buffered = this.buffered.length === 0
       ? chunk
       : Buffer.concat([this.buffered, chunk]);
-    const frames: FirecrackerGuestFrame[] = [];
+    const frames: GuestProtocolFrame[] = [];
     while (this.buffered.length >= 4) {
       const payloadLength = this.buffered.readUInt32BE(0);
-      if (payloadLength === 0 || payloadLength > FIRECRACKER_MAX_FRAME_BYTES) {
-        throw new FirecrackerProtocolError(
+      if (payloadLength === 0 || payloadLength > GUEST_MAX_FRAME_BYTES) {
+        throw new GuestProtocolError(
           'invalid_frame',
-          `Invalid Firecracker guest frame length: ${payloadLength}`,
+          `Invalid guest frame length: ${payloadLength}`,
         );
       }
       if (this.buffered.length < payloadLength + 4) break;
@@ -143,12 +148,12 @@ export class FirecrackerFrameDecoder {
       try {
         decoded = JSON.parse(payload.toString('utf8'));
       } catch (error) {
-        throw new FirecrackerProtocolError(
+        throw new GuestProtocolError(
           'invalid_frame',
-          `Firecracker guest frame contains invalid JSON: ${formatError(error)}`,
+          `guest frame contains invalid JSON: ${formatError(error)}`,
         );
       }
-      validateFirecrackerFrame(decoded);
+      validateGuestFrame(decoded);
       frames.push(decoded);
     }
     return frames;
@@ -156,22 +161,22 @@ export class FirecrackerFrameDecoder {
 
   finish(): void {
     if (this.buffered.length !== 0) {
-      throw new FirecrackerProtocolError(
+      throw new GuestProtocolError(
         'invalid_frame',
-        `Firecracker guest connection ended with ${this.buffered.length} incomplete frame bytes`,
+        `guest connection ended with ${this.buffered.length} incomplete frame bytes`,
       );
     }
   }
 }
 
-export function validateFirecrackerFrame(value: unknown): asserts value is FirecrackerGuestFrame {
+export function validateGuestFrame(value: unknown): asserts value is GuestProtocolFrame {
   const frame = asRecord(value, 'frame');
   const version = frame.version;
-  if (version !== FIRECRACKER_GUEST_PROTOCOL_VERSION) {
-    throw new FirecrackerProtocolError(
+  if (version !== GUEST_PROTOCOL_VERSION) {
+    throw new GuestProtocolError(
       'protocol_version_mismatch',
-      `Unsupported Firecracker guest protocol version ${String(version)}; ` +
-      `expected ${FIRECRACKER_GUEST_PROTOCOL_VERSION}`,
+      `Unsupported guest protocol version ${String(version)}; ` +
+      `expected ${GUEST_PROTOCOL_VERSION}`,
     );
   }
   const type = requiredString(frame.type, 'type', 64);
@@ -193,23 +198,23 @@ export function validateFirecrackerFrame(value: unknown): asserts value is Firec
       if (
         !Array.isArray(frame.argv) ||
         frame.argv.length === 0 ||
-        frame.argv.length > FIRECRACKER_MAX_ARGV_ENTRIES
+        frame.argv.length > GUEST_MAX_ARGV_ENTRIES
       ) {
-        invalid(`argv must contain 1-${FIRECRACKER_MAX_ARGV_ENTRIES} strings`);
+        invalid(`argv must contain 1-${GUEST_MAX_ARGV_ENTRIES} strings`);
       }
       for (const [index, arg] of frame.argv.entries()) {
-        requiredString(arg, `argv[${index}]`, FIRECRACKER_MAX_STRING_BYTES);
+        requiredString(arg, `argv[${index}]`, GUEST_MAX_STRING_BYTES);
       }
       const env = asRecord(frame.env, 'env');
       const entries = Object.entries(env);
-      if (entries.length > FIRECRACKER_MAX_ENV_ENTRIES) {
-        invalid(`env exceeds ${FIRECRACKER_MAX_ENV_ENTRIES} entries`);
+      if (entries.length > GUEST_MAX_ENV_ENTRIES) {
+        invalid(`env exceeds ${GUEST_MAX_ENV_ENTRIES} entries`);
       }
       for (const [name, envValue] of entries) {
         if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name) || name.length > 256) {
           invalid(`Invalid environment variable name: ${name}`);
         }
-        requiredString(envValue, `env.${name}`, FIRECRACKER_MAX_STRING_BYTES, true);
+        requiredString(envValue, `env.${name}`, GUEST_MAX_STRING_BYTES, true);
       }
       const cwd = requiredString(frame.cwd, 'cwd', 4096);
       if (!cwd.startsWith('/') || cwd.includes('\0')) invalid('cwd must be an absolute path');
@@ -225,7 +230,7 @@ export function validateFirecrackerFrame(value: unknown): asserts value is Firec
       const data = requiredString(
         frame.data,
         'data',
-        Math.ceil(FIRECRACKER_MAX_STREAM_CHUNK_BYTES * 4 / 3) + 4,
+        Math.ceil(GUEST_MAX_STREAM_CHUNK_BYTES * 4 / 3) + 4,
         true,
       );
       validateBase64Chunk(data);
@@ -240,7 +245,7 @@ export function validateFirecrackerFrame(value: unknown): asserts value is Firec
         validateBase64Chunk(requiredString(
           frame.data,
           'data',
-          Math.ceil(FIRECRACKER_MAX_STREAM_CHUNK_BYTES * 4 / 3) + 4,
+          Math.ceil(GUEST_MAX_STREAM_CHUNK_BYTES * 4 / 3) + 4,
           true,
         ));
       }
@@ -292,7 +297,7 @@ export function validateFirecrackerFrame(value: unknown): asserts value is Firec
       assertKeys(frame, ['version', 'type', 'requestId']);
       return;
     default:
-      invalid(`Unknown Firecracker guest frame type: ${type}`);
+      invalid(`Unknown guest frame type: ${type}`);
   }
 }
 
@@ -300,8 +305,8 @@ function validateBase64Chunk(value: string): void {
   if (value.length % 4 !== 0 || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value)) {
     invalid('stream data must be canonical base64');
   }
-  if (Buffer.byteLength(value, 'base64') > FIRECRACKER_MAX_STREAM_CHUNK_BYTES) {
-    invalid(`decoded stream data exceeds ${FIRECRACKER_MAX_STREAM_CHUNK_BYTES} bytes`);
+  if (Buffer.byteLength(value, 'base64') > GUEST_MAX_STREAM_CHUNK_BYTES) {
+    invalid(`decoded stream data exceeds ${GUEST_MAX_STREAM_CHUNK_BYTES} bytes`);
   }
 }
 
@@ -359,7 +364,7 @@ function boundedInteger(value: unknown, label: string, minimum: number, maximum:
 }
 
 function invalid(message: string): never {
-  throw new FirecrackerProtocolError('invalid_request', message);
+  throw new GuestProtocolError('invalid_request', message);
 }
 
 function formatError(error: unknown): string {

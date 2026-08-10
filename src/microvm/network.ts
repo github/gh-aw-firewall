@@ -1,6 +1,5 @@
 import { createHash } from 'crypto';
 import execa from 'execa';
-import type { FirecrackerHostToolPaths } from './preflight';
 import {
   AGENT_IP,
   API_PROXY_IP,
@@ -10,36 +9,56 @@ import {
   SQUID_PORT,
   apiProxyPorts,
 } from '../config/network-policy';
-import type { FirecrackerNetworkInterface } from './api-client';
 
 const LINUX_INTERFACE_NAME_MAX_LENGTH = 15;
-const FIRECRACKER_GUEST_NETWORK_BASE = ipv4ToInteger('100.64.0.0');
-const FIRECRACKER_GUEST_SUBNET_COUNT = 1 << 20;
-const FIRECRACKER_GUEST_PREFIX_LENGTH = 30;
+const GUEST_NETWORK_BASE = ipv4ToInteger('100.64.0.0');
+const GUEST_SUBNET_COUNT = 1 << 20;
+const GUEST_PREFIX_LENGTH = 30;
 const NETNS_DIRECTORY = '/var/run/netns';
 const BLOCKED_LINK_LOCAL_CIDR = '169.254.0.0/16';
 const BLOCKED_MULTICAST_CIDR = '224.0.0.0/4';
 
-export interface FirecrackerAllowedEndpoint {
+/** Minimal host tool paths this module needs; a structural subset so callers
+ * (e.g. Firecracker's preflight-derived tool paths) can pass their own
+ * richer tool-path record without this module depending on it. */
+export interface MicrovmNetworkHostTools {
+  readonly ip: string;
+  readonly nft: string;
+  readonly sysctl: string;
+}
+
+/**
+ * Generic tap-device descriptor a VMM's network-interface configuration API
+ * needs. Field names intentionally match the wire shape already used by
+ * Firecracker's `PUT /network-interfaces`; a future backend with a
+ * differently-shaped API translates from this structural descriptor.
+ */
+export interface MicrovmTapInterface {
+  readonly iface_id: string;
+  readonly host_dev_name: string;
+  readonly guest_mac?: string;
+}
+
+export interface MicrovmAllowedEndpoint {
   readonly name: string;
   readonly ip: string;
   readonly port: number;
 }
 
-export interface FirecrackerControlPeer {
+export interface MicrovmControlPeer {
   readonly ip: string;
   readonly ports: readonly number[];
 }
 
-export interface FirecrackerNetworkPlanOptions {
+export interface MicrovmNetworkPlanOptions {
   readonly infrastructureBridge: string;
   readonly enableApiProxy: boolean;
-  readonly jailerUid: number;
-  readonly jailerGid: number;
-  readonly controlPeer?: FirecrackerControlPeer;
+  readonly tapOwnerUid: number;
+  readonly tapOwnerGid: number;
+  readonly controlPeer?: MicrovmControlPeer;
 }
 
-export interface FirecrackerNetworkPlan {
+export interface MicrovmNetworkPlan {
   readonly runId: string;
   readonly namespaceName: string;
   readonly netnsPath: string;
@@ -56,28 +75,28 @@ export interface FirecrackerNetworkPlan {
   readonly guestGatewayIp: string;
   readonly guestPrefixLength: number;
   readonly guestMac: string;
-  readonly jailerUid: number;
-  readonly jailerGid: number;
-  readonly allowedEndpoints: readonly FirecrackerAllowedEndpoint[];
-  readonly networkInterface: FirecrackerNetworkInterface;
+  readonly tapOwnerUid: number;
+  readonly tapOwnerGid: number;
+  readonly allowedEndpoints: readonly MicrovmAllowedEndpoint[];
+  readonly networkInterface: MicrovmTapInterface;
 }
 
-export interface FirecrackerConnectivityProbe {
-  verify(plan: FirecrackerNetworkPlan): Promise<void>;
+export interface MicrovmConnectivityProbe {
+  verify(plan: MicrovmNetworkPlan): Promise<void>;
 }
 
-export interface FirecrackerNetworkCommandOptions {
+export interface MicrovmNetworkCommandOptions {
   readonly reject: boolean;
   readonly input?: string;
 }
 
-export type FirecrackerNetworkCommandExecutor = (
+export type MicrovmNetworkCommandExecutor = (
   command: string,
   args: readonly string[],
-  options: FirecrackerNetworkCommandOptions,
+  options: MicrovmNetworkCommandOptions,
 ) => Promise<unknown>;
 
-const defaultCommandExecutor: FirecrackerNetworkCommandExecutor = async (
+const defaultCommandExecutor: MicrovmNetworkCommandExecutor = async (
   command,
   args,
   options,
@@ -88,10 +107,10 @@ const defaultCommandExecutor: FirecrackerNetworkCommandExecutor = async (
 /**
  * Dependency-injected argv-only Linux networking operations.
  */
-export class FirecrackerLinuxNetworkCommands {
+export class LinuxNetworkCommands {
   constructor(
-    private readonly execute: FirecrackerNetworkCommandExecutor = defaultCommandExecutor,
-    private readonly tools: Pick<FirecrackerHostToolPaths, 'ip' | 'nft' | 'sysctl'> = {
+    private readonly execute: MicrovmNetworkCommandExecutor = defaultCommandExecutor,
+    private readonly tools: MicrovmNetworkHostTools = {
       ip: 'ip',
       nft: 'nft',
       sysctl: 'sysctl',
@@ -136,27 +155,27 @@ export class FirecrackerLinuxNetworkCommands {
   }
 }
 
-export interface FirecrackerNetworkLifecycle {
-  readonly plan: FirecrackerNetworkPlan;
-  setup(): Promise<FirecrackerNetworkPlan>;
+export interface MicrovmNetworkLifecycle {
+  readonly plan: MicrovmNetworkPlan;
+  setup(): Promise<MicrovmNetworkPlan>;
   cleanup(): Promise<void>;
 }
 
 /**
- * Owns the host-side network resources for exactly one Firecracker run.
+ * Owns the host-side network resources for exactly one microVM run.
  */
-export class FirecrackerNetworkManager implements FirecrackerNetworkLifecycle {
+export class MicrovmNetworkManager implements MicrovmNetworkLifecycle {
   private setupComplete = false;
   private namespaceCreated = false;
   private hostVethCreated = false;
 
   constructor(
-    readonly plan: FirecrackerNetworkPlan,
-    private readonly commands = new FirecrackerLinuxNetworkCommands(),
-    private readonly probe?: FirecrackerConnectivityProbe,
+    readonly plan: MicrovmNetworkPlan,
+    private readonly commands = new LinuxNetworkCommands(),
+    private readonly probe?: MicrovmConnectivityProbe,
   ) {}
 
-  async setup(): Promise<FirecrackerNetworkPlan> {
+  async setup(): Promise<MicrovmNetworkPlan> {
     if (this.setupComplete) return this.plan;
 
     try {
@@ -182,8 +201,8 @@ export class FirecrackerNetworkManager implements FirecrackerNetworkLifecycle {
         'tuntap', 'add',
         'dev', this.plan.tapName,
         'mode', 'tap',
-        'user', String(this.plan.jailerUid),
-        'group', String(this.plan.jailerGid),
+        'user', String(this.plan.tapOwnerUid),
+        'group', String(this.plan.tapOwnerGid),
       ]);
       await this.commands.ipInNamespace(this.plan.namespaceName, [
         'addr', 'add',
@@ -222,7 +241,7 @@ export class FirecrackerNetworkManager implements FirecrackerNetworkLifecycle {
       await this.commands.nftInNamespace(
         this.plan.namespaceName,
         ['-f', '-'],
-        generateFirecrackerNftRuleset(this.plan),
+        generateMicrovmNftRuleset(this.plan),
       );
       await this.probe?.verify(this.plan);
       this.setupComplete = true;
@@ -232,7 +251,7 @@ export class FirecrackerNetworkManager implements FirecrackerNetworkLifecycle {
         await this.cleanup();
       } catch (cleanupError) {
         throw new Error(
-          `Firecracker network setup failed: ${formatError(error)}; ` +
+          `microVM network setup failed: ${formatError(error)}; ` +
           `rollback also failed: ${formatError(cleanupError)}`,
         );
       }
@@ -266,25 +285,25 @@ export class FirecrackerNetworkManager implements FirecrackerNetworkLifecycle {
 
     if (errors.length > 0) {
       throw new Error(
-        `Failed to clean up Firecracker network: ${errors.map(formatError).join('; ')}`,
+        `Failed to clean up microVM network: ${errors.map(formatError).join('; ')}`,
       );
     }
   }
 }
 
-export function createFirecrackerNetworkPlan(
+export function createMicrovmNetworkPlan(
   runId: string,
-  options: FirecrackerNetworkPlanOptions,
-): FirecrackerNetworkPlan {
-  assertSafeFirecrackerRunId(runId);
+  options: MicrovmNetworkPlanOptions,
+): MicrovmNetworkPlan {
+  assertSafeMicrovmRunId(runId);
   assertInterfaceName(options.infrastructureBridge, 'infrastructure bridge');
-  assertPositiveIdentity(options.jailerUid, 'jailer uid');
-  assertPositiveIdentity(options.jailerGid, 'jailer gid');
+  assertPositiveIdentity(options.tapOwnerUid, 'tap owner uid');
+  assertPositiveIdentity(options.tapOwnerGid, 'tap owner gid');
 
   const digest = createHash('sha256').update(runId).digest();
   const token = digest.toString('hex').slice(0, 12);
-  const subnetIndex = digest.readUInt32BE(0) & (FIRECRACKER_GUEST_SUBNET_COUNT - 1);
-  const subnetBase = FIRECRACKER_GUEST_NETWORK_BASE + subnetIndex * 4;
+  const subnetIndex = digest.readUInt32BE(0) & (GUEST_SUBNET_COUNT - 1);
+  const subnetBase = GUEST_NETWORK_BASE + subnetIndex * 4;
   const guestGatewayIp = integerToIpv4(subnetBase + 1);
   const guestIp = integerToIpv4(subnetBase + 2);
   const guestMac = [
@@ -313,7 +332,7 @@ export function createFirecrackerNetworkPlan(
     options.enableApiProxy,
     options.controlPeer,
   );
-  const plan: FirecrackerNetworkPlan = {
+  const plan: MicrovmNetworkPlan = {
     runId,
     namespaceName,
     netnsPath: `${NETNS_DIRECTORY}/${namespaceName}`,
@@ -325,13 +344,13 @@ export function createFirecrackerNetworkPlan(
     infrastructureIp: AGENT_IP,
     infrastructureCidr: NETWORK_SUBNET,
     hostGatewayIp: HOST_GATEWAY,
-    guestSubnet: `${integerToIpv4(subnetBase)}/${FIRECRACKER_GUEST_PREFIX_LENGTH}`,
+    guestSubnet: `${integerToIpv4(subnetBase)}/${GUEST_PREFIX_LENGTH}`,
     guestIp,
     guestGatewayIp,
-    guestPrefixLength: FIRECRACKER_GUEST_PREFIX_LENGTH,
+    guestPrefixLength: GUEST_PREFIX_LENGTH,
     guestMac,
-    jailerUid: options.jailerUid,
-    jailerGid: options.jailerGid,
+    tapOwnerUid: options.tapOwnerUid,
+    tapOwnerGid: options.tapOwnerGid,
     allowedEndpoints,
     networkInterface: {
       iface_id: 'eth0',
@@ -343,7 +362,7 @@ export function createFirecrackerNetworkPlan(
   return plan;
 }
 
-export function generateFirecrackerNftRuleset(plan: FirecrackerNetworkPlan): string {
+export function generateMicrovmNftRuleset(plan: MicrovmNetworkPlan): string {
   validatePlan(plan);
   const allowRules = plan.allowedEndpoints.flatMap((endpoint) => [
     `    iifname "${plan.tapName}" oifname "${plan.namespaceVethName}" ` +
@@ -396,9 +415,9 @@ export function generateFirecrackerNftRuleset(plan: FirecrackerNetworkPlan): str
 
 function createAllowedEndpoints(
   enableApiProxy: boolean,
-  controlPeer?: FirecrackerControlPeer,
-): readonly FirecrackerAllowedEndpoint[] {
-  const endpoints: FirecrackerAllowedEndpoint[] = [{
+  controlPeer?: MicrovmControlPeer,
+): readonly MicrovmAllowedEndpoint[] {
+  const endpoints: MicrovmAllowedEndpoint[] = [{
     name: 'squid',
     ip: SQUID_IP,
     port: SQUID_PORT,
@@ -422,16 +441,16 @@ function createAllowedEndpoints(
       isInCidr(controlPeer.ip, BLOCKED_MULTICAST_CIDR)
     ) {
       throw new Error(
-        `Unsafe Firecracker control peer IP outside ${NETWORK_SUBNET}: ${controlPeer.ip}`,
+        `Unsafe microVM control peer IP outside ${NETWORK_SUBNET}: ${controlPeer.ip}`,
       );
     }
     if (controlPeer.ports.length === 0) {
-      throw new Error('Firecracker control peer must specify at least one TCP port');
+      throw new Error('microVM control peer must specify at least one TCP port');
     }
     for (const port of controlPeer.ports) {
       assertPort(port, 'control peer port');
       if (port === 53) {
-        throw new Error('Firecracker control peer cannot enable direct DNS');
+        throw new Error('microVM control peer cannot enable direct DNS');
       }
       endpoints.push({ name: 'control-peer', ip: controlPeer.ip, port });
     }
@@ -446,8 +465,8 @@ function createAllowedEndpoints(
   });
 }
 
-function validatePlan(plan: FirecrackerNetworkPlan): void {
-  assertSafeFirecrackerRunId(plan.runId);
+function validatePlan(plan: MicrovmNetworkPlan): void {
+  assertSafeMicrovmRunId(plan.runId);
   assertSafeObjectName(plan.namespaceName, 'network namespace');
   assertSafeObjectName(plan.nftTableName, 'nftables table');
   assertInterfaceName(plan.infrastructureBridge, 'infrastructure bridge');
@@ -467,7 +486,7 @@ function validatePlan(plan: FirecrackerNetworkPlan): void {
     isInCidr(infrastructureNetworkIp, plan.guestSubnet)
   ) {
     throw new Error(
-      `Firecracker guest subnet overlaps infrastructure: ` +
+      `microVM guest subnet overlaps infrastructure: ` +
       `${plan.guestSubnet} and ${plan.infrastructureCidr}`,
     );
   }
@@ -482,7 +501,7 @@ function validatePlan(plan: FirecrackerNetworkPlan): void {
       ))
     ))
   ) {
-    throw new Error(`Unsafe Firecracker guest MAC: ${plan.guestMac}`);
+    throw new Error(`Unsafe microVM guest MAC: ${plan.guestMac}`);
   }
   for (const endpoint of plan.allowedEndpoints) {
     assertSafeObjectName(endpoint.name, 'endpoint name');
@@ -490,21 +509,21 @@ function validatePlan(plan: FirecrackerNetworkPlan): void {
     assertPort(endpoint.port, 'endpoint port');
     if (isInCidr(endpoint.ip, plan.guestSubnet)) {
       throw new Error(
-        `Firecracker endpoint ${endpoint.ip}:${endpoint.port} overlaps the guest subnet`,
+        `microVM endpoint ${endpoint.ip}:${endpoint.port} overlaps the guest subnet`,
       );
     }
   }
 }
 
-export function assertSafeFirecrackerRunId(runId: string): void {
+export function assertSafeMicrovmRunId(runId: string): void {
   if (runId.length < 1 || runId.length > 64 || !/^[A-Za-z0-9-]+$/.test(runId)) {
-    throw new Error(`Unsafe Firecracker run id: ${runId}`);
+    throw new Error(`Unsafe microVM run id: ${runId}`);
   }
 }
 
 function assertSafeObjectName(value: string, label: string): void {
   if (!/^[A-Za-z0-9_.-]+$/.test(value)) {
-    throw new Error(`Unsafe Firecracker ${label}: ${value}`);
+    throw new Error(`Unsafe microVM ${label}: ${value}`);
   }
 }
 
@@ -512,20 +531,20 @@ function assertInterfaceName(value: string, label: string): void {
   assertSafeObjectName(value, label);
   if (value.length > LINUX_INTERFACE_NAME_MAX_LENGTH) {
     throw new Error(
-      `Firecracker ${label} exceeds Linux IFNAMSIZ: ${value}`,
+      `microVM ${label} exceeds Linux IFNAMSIZ: ${value}`,
     );
   }
 }
 
 function assertPositiveIdentity(value: number, label: string): void {
   if (!Number.isSafeInteger(value) || value <= 0) {
-    throw new Error(`Firecracker ${label} must be a positive integer`);
+    throw new Error(`microVM ${label} must be a positive integer`);
   }
 }
 
 function assertPort(value: number, label: string): void {
   if (!Number.isInteger(value) || value < 1 || value > 65_535) {
-    throw new Error(`Firecracker ${label} must be an integer in 1-65535`);
+    throw new Error(`microVM ${label} must be an integer in 1-65535`);
   }
 }
 
@@ -536,7 +555,7 @@ function assertPrivateIpv4(value: string, label: string): void {
     !isInCidr(value, '172.16.0.0/12') &&
     !isInCidr(value, '192.168.0.0/16')
   ) {
-    throw new Error(`Firecracker ${label} must be an RFC1918 address: ${value}`);
+    throw new Error(`microVM ${label} must be an RFC1918 address: ${value}`);
   }
 }
 
@@ -553,7 +572,7 @@ function assertIpv4(value: string, label: string): void {
       Number(octet) > 255
     ))
   ) {
-    throw new Error(`Invalid Firecracker ${label}: ${value}`);
+    throw new Error(`Invalid microVM ${label}: ${value}`);
   }
 }
 
@@ -562,7 +581,7 @@ function assertCidr(value: string, label: string): void {
   assertIpv4(address, label);
   const prefix = Number(rawPrefix);
   if (extra !== undefined || !Number.isInteger(prefix) || prefix < 0 || prefix > 32) {
-    throw new Error(`Invalid Firecracker ${label}: ${value}`);
+    throw new Error(`Invalid microVM ${label}: ${value}`);
   }
 }
 

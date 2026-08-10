@@ -1,39 +1,39 @@
 import {
-  FirecrackerLinuxNetworkCommands,
-  FirecrackerNetworkManager,
-  createFirecrackerNetworkPlan,
-  generateFirecrackerNftRuleset,
-  type FirecrackerConnectivityProbe,
-  type FirecrackerNetworkCommandOptions,
-  type FirecrackerNetworkPlan,
+  LinuxNetworkCommands,
+  MicrovmNetworkManager,
+  createMicrovmNetworkPlan,
+  generateMicrovmNftRuleset,
+  type MicrovmConnectivityProbe,
+  type MicrovmNetworkCommandOptions,
+  type MicrovmNetworkPlan,
 } from './network';
 
 interface CommandCall {
   command: string;
   args: readonly string[];
-  options: FirecrackerNetworkCommandOptions;
+  options: MicrovmNetworkCommandOptions;
 }
 
 function createPlan(
   runId = 'run-123',
-  overrides: Partial<Parameters<typeof createFirecrackerNetworkPlan>[1]> = {},
-): FirecrackerNetworkPlan {
-  return createFirecrackerNetworkPlan(runId, {
+  overrides: Partial<Parameters<typeof createMicrovmNetworkPlan>[1]> = {},
+): MicrovmNetworkPlan {
+  return createMicrovmNetworkPlan(runId, {
     infrastructureBridge: 'awfbr0',
     enableApiProxy: true,
-    jailerUid: 1000,
-    jailerGid: 1000,
+    tapOwnerUid: 1000,
+    tapOwnerGid: 1000,
     ...overrides,
   });
 }
 
 function commandHarness(failAt?: number): {
   calls: CommandCall[];
-  commands: FirecrackerLinuxNetworkCommands;
+  commands: LinuxNetworkCommands;
 } {
   const calls: CommandCall[] = [];
   let rejectingCall = 0;
-  const commands = new FirecrackerLinuxNetworkCommands(
+  const commands = new LinuxNetworkCommands(
     jest.fn(async (command, args, options) => {
       calls.push({ command, args, options });
       if (options.reject && ++rejectingCall === failAt) {
@@ -44,7 +44,7 @@ function commandHarness(failAt?: number): {
   return { calls, commands };
 }
 
-describe('Firecracker network planning', () => {
+describe('microVM network planning', () => {
   it('allocates deterministic, disjoint per-run guest addressing and bounded names', () => {
     const first = createPlan('run-123');
     const same = createPlan('run-123');
@@ -105,7 +105,7 @@ describe('Firecracker network planning', () => {
     expect(() => createPlan('bad-bridge', {
       infrastructureBridge: 'bridge-name-is-too-long',
     })).toThrow(/IFNAMSIZ/);
-    expect(() => createPlan('root-owner', { jailerUid: 0 })).toThrow(/uid/);
+    expect(() => createPlan('root-owner', { tapOwnerUid: 0 })).toThrow(/uid/);
     expect(() => createPlan('public-peer', {
       controlPeer: { ip: '8.8.8.8', ports: [443] },
     })).toThrow(/RFC1918/);
@@ -123,7 +123,7 @@ describe('Firecracker network planning', () => {
   it('rejects a future centralized infrastructure policy that overlaps the guest link', () => {
     const plan = createPlan('overlap-defense');
 
-    expect(() => generateFirecrackerNftRuleset({
+    expect(() => generateMicrovmNftRuleset({
       ...plan,
       infrastructureCidr: plan.guestSubnet,
       infrastructureIp: plan.guestIp,
@@ -131,10 +131,10 @@ describe('Firecracker network planning', () => {
   });
 });
 
-describe('Firecracker nftables policy', () => {
+describe('microVM nftables policy', () => {
   it('installs default-drop policy with exact endpoint, identity, and return rules', () => {
     const plan = createPlan();
-    const ruleset = generateFirecrackerNftRuleset(plan);
+    const ruleset = generateMicrovmNftRuleset(plan);
 
     expect(ruleset).toContain(`table inet ${plan.nftTableName}`);
     expect(ruleset.match(/policy drop;/g)).toHaveLength(3);
@@ -161,7 +161,7 @@ describe('Firecracker nftables policy', () => {
 
   it('emits SNAT only for the same exact allowed destination pairs', () => {
     const plan = createPlan('narrow-snat', { enableApiProxy: false });
-    const ruleset = generateFirecrackerNftRuleset(plan);
+    const ruleset = generateMicrovmNftRuleset(plan);
     const snatLines = ruleset.split('\n').filter((line) => line.includes('snat to'));
 
     expect(snatLines).toEqual([
@@ -172,14 +172,14 @@ describe('Firecracker nftables policy', () => {
   });
 });
 
-describe('Firecracker network lifecycle', () => {
+describe('microVM network lifecycle', () => {
   it('creates the namespace, veth, TAP, forwarding, and atomic policy in order', async () => {
     const plan = createPlan();
     const { calls, commands } = commandHarness();
-    const probe: FirecrackerConnectivityProbe = {
+    const probe: MicrovmConnectivityProbe = {
       verify: jest.fn().mockResolvedValue(undefined),
     };
-    const manager = new FirecrackerNetworkManager(plan, commands, probe);
+    const manager = new MicrovmNetworkManager(plan, commands, probe);
 
     await expect(manager.setup()).resolves.toBe(plan);
 
@@ -217,7 +217,7 @@ describe('Firecracker network lifecycle', () => {
       args: ['netns', 'exec', plan.namespaceName, 'nft', '-f', '-'],
       options: {
         reject: true,
-        input: generateFirecrackerNftRuleset(plan),
+        input: generateMicrovmNftRuleset(plan),
       },
     });
     expect(probe.verify).toHaveBeenCalledWith(plan);
@@ -229,7 +229,7 @@ describe('Firecracker network lifecycle', () => {
 
     for (let failAt = 1; failAt <= setupStageCount; failAt += 1) {
       const { calls, commands } = commandHarness(failAt);
-      const manager = new FirecrackerNetworkManager(plan, commands);
+      const manager = new MicrovmNetworkManager(plan, commands);
 
       await expect(manager.setup()).rejects.toThrow(`stage ${failAt} failed`);
       const cleanupCalls = calls.filter((call) => call.args.includes('delete'));
@@ -261,10 +261,10 @@ describe('Firecracker network lifecycle', () => {
   it('treats a supplied connectivity probe failure as setup failure', async () => {
     const plan = createPlan('probe-failure');
     const { calls, commands } = commandHarness();
-    const probe: FirecrackerConnectivityProbe = {
+    const probe: MicrovmConnectivityProbe = {
       verify: jest.fn().mockRejectedValue(new Error('proxy unreachable')),
     };
-    const manager = new FirecrackerNetworkManager(plan, commands, probe);
+    const manager = new MicrovmNetworkManager(plan, commands, probe);
 
     await expect(manager.setup()).rejects.toThrow('proxy unreachable');
     expect(calls.slice(-1)[0].args).toEqual([
@@ -275,7 +275,7 @@ describe('Firecracker network lifecycle', () => {
   it('disconnects the host veth before deleting the namespace and its nft policy', async () => {
     const plan = createPlan('cleanup-twice');
     const { calls, commands } = commandHarness();
-    const manager = new FirecrackerNetworkManager(plan, commands);
+    const manager = new MicrovmNetworkManager(plan, commands);
 
     await manager.setup();
     await manager.cleanup();
@@ -314,7 +314,7 @@ describe('Firecracker network lifecycle', () => {
       }
       return originalIp(args, reject);
     });
-    const manager = new FirecrackerNetworkManager(plan, commands);
+    const manager = new MicrovmNetworkManager(plan, commands);
 
     await manager.setup();
     await expect(manager.cleanup()).rejects.toThrow('host veth deletion failed');
@@ -349,7 +349,7 @@ describe('Firecracker network lifecycle', () => {
       }
       return originalIp(args, reject);
     });
-    const manager = new FirecrackerNetworkManager(plan, commands);
+    const manager = new MicrovmNetworkManager(plan, commands);
 
     await manager.setup();
     await expect(manager.cleanup()).rejects.toThrow('namespace deletion failed');

@@ -1,25 +1,25 @@
 import {
-  FIRECRACKER_GUEST_PROTOCOL_VERSION,
-  FIRECRACKER_MAX_FRAME_BYTES,
-  FIRECRACKER_MAX_STREAM_CHUNK_BYTES,
-  FirecrackerFrameDecoder,
-  FirecrackerProtocolError,
-  encodeFirecrackerFrame,
-  validateFirecrackerFrame,
-  type FirecrackerGuestFrame,
-} from './vsock-protocol';
+  GUEST_PROTOCOL_VERSION,
+  GUEST_MAX_FRAME_BYTES,
+  GUEST_MAX_STREAM_CHUNK_BYTES,
+  GuestFrameDecoder,
+  GuestProtocolError,
+  encodeGuestFrame,
+  validateGuestFrame,
+  type GuestProtocolFrame,
+} from './guest-protocol';
 
-const ready: FirecrackerGuestFrame = {
-  version: FIRECRACKER_GUEST_PROTOCOL_VERSION,
+const ready: GuestProtocolFrame = {
+  version: GUEST_PROTOCOL_VERSION,
   type: 'ready',
   requestId: 'control',
   capabilities: { stdin: true, tty: false, resize: false },
 };
 
-describe('Firecracker guest vsock protocol', () => {
+describe('AWF guest protocol framing', () => {
   it('frames and incrementally decodes typed messages', () => {
-    const encoded = encodeFirecrackerFrame(ready);
-    const decoder = new FirecrackerFrameDecoder();
+    const encoded = encodeGuestFrame(ready);
+    const decoder = new GuestFrameDecoder();
     expect(decoder.push(encoded.subarray(0, 2))).toEqual([]);
     expect(decoder.push(encoded.subarray(2, 7))).toEqual([]);
     expect(decoder.push(encoded.subarray(7))).toEqual([ready]);
@@ -27,36 +27,36 @@ describe('Firecracker guest vsock protocol', () => {
   });
 
   it('decodes multiple frames and rejects incomplete terminal data', () => {
-    const decoder = new FirecrackerFrameDecoder();
+    const decoder = new GuestFrameDecoder();
     expect(decoder.push(Buffer.concat([
-      encodeFirecrackerFrame(ready),
-      encodeFirecrackerFrame({ ...ready, requestId: 'second' }),
+      encodeGuestFrame(ready),
+      encodeGuestFrame({ ...ready, requestId: 'second' }),
     ]))).toHaveLength(2);
     decoder.push(Buffer.from([0, 0]));
     expect(() => decoder.finish()).toThrow(/incomplete frame/);
   });
 
   it('rejects oversized, empty, malformed, and unknown frames', () => {
-    const decoder = new FirecrackerFrameDecoder();
+    const decoder = new GuestFrameDecoder();
     const oversized = Buffer.alloc(4);
-    oversized.writeUInt32BE(FIRECRACKER_MAX_FRAME_BYTES + 1);
+    oversized.writeUInt32BE(GUEST_MAX_FRAME_BYTES + 1);
     expect(() => decoder.push(oversized)).toThrow(/Invalid.*length/);
 
-    expect(() => validateFirecrackerFrame({
+    expect(() => validateGuestFrame({
       ...ready,
       version: 2,
-    })).toThrow(new FirecrackerProtocolError(
+    })).toThrow(new GuestProtocolError(
       'protocol_version_mismatch',
-      'Unsupported Firecracker guest protocol version 2; expected 1',
+      'Unsupported guest protocol version 2; expected 1',
     ));
-    expect(() => validateFirecrackerFrame({
+    expect(() => validateGuestFrame({
       ...ready,
       unexpected: true,
     })).toThrow(/Unexpected frame property/);
   });
 
   it('validates execute schemas, identifiers, and bounded environment data', () => {
-    expect(() => validateFirecrackerFrame({
+    expect(() => validateGuestFrame({
       version: 1,
       type: 'execute',
       requestId: '../escape',
@@ -67,7 +67,7 @@ describe('Firecracker guest vsock protocol', () => {
       gid: 1000,
       tty: false,
     })).toThrow(/requestId/);
-    expect(() => validateFirecrackerFrame({
+    expect(() => validateGuestFrame({
       version: 1,
       type: 'execute',
       requestId: 'run',
@@ -78,7 +78,7 @@ describe('Firecracker guest vsock protocol', () => {
       gid: 1000,
       tty: false,
     })).toThrow(/argv/);
-    expect(() => validateFirecrackerFrame({
+    expect(() => validateGuestFrame({
       version: 1,
       type: 'execute',
       requestId: 'run',
@@ -92,13 +92,13 @@ describe('Firecracker guest vsock protocol', () => {
   });
 
   it('enforces decoded stream chunk limits and exact result semantics', () => {
-    expect(() => validateFirecrackerFrame({
+    expect(() => validateGuestFrame({
       version: 1,
       type: 'stdout',
       requestId: 'run',
-      data: Buffer.alloc(FIRECRACKER_MAX_STREAM_CHUNK_BYTES + 1).toString('base64'),
+      data: Buffer.alloc(GUEST_MAX_STREAM_CHUNK_BYTES + 1).toString('base64'),
     })).toThrow(/decoded stream data exceeds/);
-    expect(() => validateFirecrackerFrame({
+    expect(() => validateGuestFrame({
       version: 1,
       type: 'result',
       requestId: 'run',
@@ -109,7 +109,7 @@ describe('Firecracker guest vsock protocol', () => {
   });
 
   it('validates every host and guest frame schema boundary', () => {
-    const validFrames: FirecrackerGuestFrame[] = [
+    const validFrames: GuestProtocolFrame[] = [
       {
         version: 1,
         type: 'execute',
@@ -151,7 +151,7 @@ describe('Firecracker guest vsock protocol', () => {
       { version: 1, type: 'shutting_down', requestId: 'shutdown' },
     ];
     for (const frame of validFrames) {
-      expect(() => validateFirecrackerFrame(frame)).not.toThrow();
+      expect(() => validateGuestFrame(frame)).not.toThrow();
     }
 
     const invalidFrames: unknown[] = [
@@ -206,7 +206,7 @@ describe('Firecracker guest vsock protocol', () => {
       { version: 1, type: 'unknown', requestId: 'run' },
     ];
     for (const frame of invalidFrames) {
-      expect(() => validateFirecrackerFrame(frame)).toThrow(FirecrackerProtocolError);
+      expect(() => validateGuestFrame(frame)).toThrow(GuestProtocolError);
     }
   });
 
@@ -215,7 +215,7 @@ describe('Firecracker guest vsock protocol', () => {
     const malformedWire = Buffer.alloc(4 + malformed.length);
     malformedWire.writeUInt32BE(malformed.length, 0);
     malformed.copy(malformedWire, 4);
-    expect(() => new FirecrackerFrameDecoder().push(malformedWire))
+    expect(() => new GuestFrameDecoder().push(malformedWire))
       .toThrow(/invalid JSON/);
 
     const oversizedFrame = {
@@ -233,7 +233,7 @@ describe('Firecracker guest vsock protocol', () => {
       uid: 1000,
       gid: 1000,
       tty: false,
-    } as FirecrackerGuestFrame;
-    expect(() => encodeFirecrackerFrame(oversizedFrame)).toThrow(/exceeds/);
+    } as GuestProtocolFrame;
+    expect(() => encodeGuestFrame(oversizedFrame)).toThrow(/exceeds/);
   });
 });

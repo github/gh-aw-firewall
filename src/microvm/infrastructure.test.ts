@@ -1,6 +1,6 @@
 import {
-  resolveFirecrackerInfrastructure,
-  type FirecrackerInfrastructureDependencies,
+  resolveMicrovmInfrastructure,
+  type MicrovmInfrastructureDependencies,
 } from './infrastructure';
 import execa from 'execa';
 
@@ -31,7 +31,7 @@ function networkInspection(
 
 function dependencies(
   inspection: unknown = networkInspection(),
-): jest.Mocked<FirecrackerInfrastructureDependencies> {
+): jest.Mocked<MicrovmInfrastructureDependencies> {
   return {
     inspectNetwork: jest.fn().mockResolvedValue(inspection),
     inspectLink: jest.fn(async (bridgeName: string) => [{
@@ -41,7 +41,7 @@ function dependencies(
   };
 }
 
-describe('Firecracker infrastructure discovery', () => {
+describe('microVM infrastructure discovery', () => {
   beforeEach(() => {
     mockedExeca.mockReset();
   });
@@ -62,7 +62,7 @@ describe('Firecracker infrastructure discovery', () => {
         stderr: '',
       } as never);
 
-    await expect(resolveFirecrackerInfrastructure(true)).resolves.toEqual(
+    await expect(resolveMicrovmInfrastructure(true)).resolves.toEqual(
       expect.objectContaining({ squidIp: '172.30.0.10', apiProxyIp: '172.30.0.30' }),
     );
     expect(mockedExeca).toHaveBeenNthCalledWith(
@@ -85,7 +85,7 @@ describe('Firecracker infrastructure discovery', () => {
       stdout: '',
       stderr: 'network unavailable',
     } as never);
-    await expect(resolveFirecrackerInfrastructure(true))
+    await expect(resolveMicrovmInfrastructure(true))
       .rejects.toThrow(/Could not inspect.*network unavailable/);
 
     mockedExeca
@@ -99,13 +99,13 @@ describe('Firecracker infrastructure discovery', () => {
         stdout: '',
         stderr: 'link unavailable',
       } as never);
-    await expect(resolveFirecrackerInfrastructure(true))
+    await expect(resolveMicrovmInfrastructure(true))
       .rejects.toThrow(/Could not inspect.*bridge.*link unavailable/);
   });
 
   it('derives the Docker bridge from the live network ID and revalidates targets', async () => {
     const deps = dependencies();
-    const resolved = await resolveFirecrackerInfrastructure(true, deps);
+    const resolved = await resolveMicrovmInfrastructure(true, deps);
 
     expect(resolved).toEqual(expect.objectContaining({
       networkId: 'a'.repeat(64),
@@ -121,17 +121,17 @@ describe('Firecracker infrastructure discovery', () => {
   });
 
   it('rejects ambiguous, non-internal, or address-shifted topology', async () => {
-    await expect(resolveFirecrackerInfrastructure(
+    await expect(resolveMicrovmInfrastructure(
       true,
       dependencies([networkInspection()[0], networkInspection()[0]]),
     )).rejects.toThrow(/exactly one Docker network inspection/);
 
-    await expect(resolveFirecrackerInfrastructure(
+    await expect(resolveMicrovmInfrastructure(
       true,
       dependencies(networkInspection({ Internal: false })),
-    )).rejects.toThrow(/Unexpected Firecracker infrastructure topology/);
+    )).rejects.toThrow(/Unexpected microVM infrastructure topology/);
 
-    await expect(resolveFirecrackerInfrastructure(
+    await expect(resolveMicrovmInfrastructure(
       true,
       dependencies(networkInspection({
         Containers: {
@@ -141,12 +141,12 @@ describe('Firecracker infrastructure discovery', () => {
       })),
     )).rejects.toThrow(/Unexpected "awf-squid" address/);
 
-    await expect(resolveFirecrackerInfrastructure(
+    await expect(resolveMicrovmInfrastructure(
       true,
       dependencies(networkInspection({ Id: 'invalid' })),
     )).rejects.toThrow(/invalid network ID/);
 
-    await expect(resolveFirecrackerInfrastructure(
+    await expect(resolveMicrovmInfrastructure(
       true,
       dependencies(networkInspection({ IPAM: { Config: [] } })),
     )).rejects.toThrow(/must have exactly 172\.30\.0\.0\/24/);
@@ -155,7 +155,7 @@ describe('Firecracker infrastructure discovery', () => {
   it('validates the bridge and required service endpoint shape', async () => {
     const badLink = dependencies();
     badLink.inspectLink.mockResolvedValue([]);
-    await expect(resolveFirecrackerInfrastructure(true, badLink))
+    await expect(resolveMicrovmInfrastructure(true, badLink))
       .rejects.toThrow(/exactly one host bridge/);
 
     const nonBridge = dependencies();
@@ -163,29 +163,29 @@ describe('Firecracker infrastructure discovery', () => {
       ifname: `br-${'a'.repeat(12)}`,
       linkinfo: { info_kind: 'veth' },
     }]);
-    await expect(resolveFirecrackerInfrastructure(true, nonBridge))
+    await expect(resolveMicrovmInfrastructure(true, nonBridge))
       .rejects.toThrow(/is not the Docker bridge/);
 
-    await expect(resolveFirecrackerInfrastructure(
+    await expect(resolveMicrovmInfrastructure(
       true,
       dependencies(networkInspection({ Containers: {} })),
     )).rejects.toThrow(/Expected exactly one "awf-squid" endpoint/);
 
-    await expect(resolveFirecrackerInfrastructure(
+    await expect(resolveMicrovmInfrastructure(
       true,
       dependencies(networkInspection({
         Options: { 'com.docker.network.bridge.name': 'unsafe bridge' },
       })),
-    )).rejects.toThrow(/Unsafe Firecracker infrastructure bridge name/);
+    )).rejects.toThrow(/Unsafe microVM infrastructure bridge name/);
 
-    await expect(resolveFirecrackerInfrastructure(
+    await expect(resolveMicrovmInfrastructure(
       true,
       dependencies([null]),
     )).rejects.toThrow(/Docker network inspection is not an object/);
   });
 
   it('supports Squid-only infrastructure without an API proxy', async () => {
-    const resolved = await resolveFirecrackerInfrastructure(
+    const resolved = await resolveMicrovmInfrastructure(
       false,
       dependencies(networkInspection({
         Containers: {
@@ -197,7 +197,7 @@ describe('Firecracker infrastructure discovery', () => {
   });
 
   it('rejects an accidentally composed primary agent', async () => {
-    await expect(resolveFirecrackerInfrastructure(
+    await expect(resolveMicrovmInfrastructure(
       true,
       dependencies(networkInspection({
         Containers: {
@@ -214,7 +214,7 @@ describe('Firecracker infrastructure discovery', () => {
     deps.inspectNetwork
       .mockResolvedValueOnce(networkInspection())
       .mockResolvedValueOnce(networkInspection({ Id: 'b'.repeat(64) }));
-    const resolved = await resolveFirecrackerInfrastructure(true, deps);
+    const resolved = await resolveMicrovmInfrastructure(true, deps);
 
     await expect(resolved.revalidate()).rejects.toThrow(/topology changed/);
   });

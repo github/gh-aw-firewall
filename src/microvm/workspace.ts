@@ -2,20 +2,29 @@ import { createHash } from 'crypto';
 import { createReadStream, promises as fs, type Stats } from 'fs';
 import * as path from 'path';
 import execa from 'execa';
-import type { FirecrackerHostToolPaths } from './preflight';
 import {
   CREDENTIAL_ENTRIES,
   HOME_TOOL_SUBDIRS,
 } from '../config/mount-policy';
 
 const MIB = 1024 * 1024;
-export const FIRECRACKER_MIN_WORKSPACE_IMAGE_BYTES = 256 * MIB;
-export const FIRECRACKER_DEFAULT_MAX_WORKSPACE_IMAGE_BYTES = 8 * 1024 * MIB;
-const FIRECRACKER_WORKSPACE_IMAGE_HEADROOM_BYTES = 128 * MIB;
-const FIRECRACKER_WORKSPACE_BLOCK_BYTES = 4096;
-const FIRECRACKER_E2FSCK_REPAIR_EXIT_CODE = 1;
+export const MICROVM_MIN_WORKSPACE_IMAGE_BYTES = 256 * MIB;
+export const MICROVM_DEFAULT_MAX_WORKSPACE_IMAGE_BYTES = 8 * 1024 * MIB;
+const WORKSPACE_IMAGE_HEADROOM_BYTES = 128 * MIB;
+const WORKSPACE_BLOCK_BYTES = 4096;
+const E2FSCK_REPAIR_EXIT_CODE = 1;
 
-export interface FirecrackerWorkspaceImageConfig {
+/** Minimal host tool paths this module needs; a structural subset so callers
+ * (e.g. Firecracker's preflight-derived tool paths) can pass their own
+ * richer tool-path record without this module depending on it. */
+export interface MicrovmWorkspaceHostTools {
+  readonly mke2fs: string;
+  readonly debugfs: string;
+  readonly e2fsck: string;
+  readonly rsync: string;
+}
+
+export interface MicrovmWorkspaceImageConfig {
   readonly runId: string;
   readonly workDir: string;
   readonly workspacePath: string;
@@ -28,7 +37,7 @@ export interface FirecrackerWorkspaceImageConfig {
   readonly gid: number;
 }
 
-export interface FirecrackerWorkspaceManifestEntry {
+export interface MicrovmWorkspaceManifestEntry {
   readonly type: 'file' | 'directory' | 'symlink';
   readonly mode: number;
   readonly uid: number;
@@ -38,16 +47,16 @@ export interface FirecrackerWorkspaceManifestEntry {
   readonly target?: string;
 }
 
-export type FirecrackerWorkspaceManifest = ReadonlyMap<
+export type MicrovmWorkspaceManifest = ReadonlyMap<
   string,
-  FirecrackerWorkspaceManifestEntry
+  MicrovmWorkspaceManifestEntry
 >;
 
-export interface FirecrackerWorkspaceImageDependencies {
+export interface MicrovmWorkspaceImageDependencies {
   runTool(command: string, args: readonly string[]): Promise<void>;
 }
 
-const defaultDependencies: FirecrackerWorkspaceImageDependencies = {
+const defaultDependencies: MicrovmWorkspaceImageDependencies = {
   runTool: async (command, args) => {
     const result = await execa(command, [...args], {
       reject: false,
@@ -57,7 +66,7 @@ const defaultDependencies: FirecrackerWorkspaceImageDependencies = {
     if (result.exitCode === 0) return;
     if (
       (command === 'e2fsck' || command.endsWith('/e2fsck')) &&
-      result.exitCode === FIRECRACKER_E2FSCK_REPAIR_EXIT_CODE
+      result.exitCode === E2FSCK_REPAIR_EXIT_CODE
     ) return;
     throw new Error(
       `${command} exited with code ${result.exitCode}: ` +
@@ -66,31 +75,31 @@ const defaultDependencies: FirecrackerWorkspaceImageDependencies = {
   },
 };
 
-export interface FirecrackerWorkspacePreparation {
+export interface MicrovmWorkspacePreparation {
   readonly workspaceImagePath: string;
   readonly rootfsImagePath: string;
   readonly imageBytes: number;
-  readonly originalManifest: FirecrackerWorkspaceManifest;
+  readonly originalManifest: MicrovmWorkspaceManifest;
 }
 
 /**
  * Owns the host-only population and post-stop extraction of one writable image.
  */
-export class FirecrackerWorkspaceImage {
+export class MicrovmWorkspaceImage {
   readonly runDirectory: string;
   readonly stagingDirectory: string;
   readonly workspaceImagePath: string;
   readonly rootfsImagePath: string;
   readonly recoveryImagePath: string;
-  private originalManifest: FirecrackerWorkspaceManifest | undefined;
+  private originalManifest: MicrovmWorkspaceManifest | undefined;
   private prepared = false;
   private extractionSucceeded = false;
   private recoveryPreserved = false;
 
   constructor(
-    private readonly config: FirecrackerWorkspaceImageConfig,
-    private readonly dependencies: FirecrackerWorkspaceImageDependencies = defaultDependencies,
-    private readonly tools?: Pick<FirecrackerHostToolPaths, 'mke2fs' | 'debugfs' | 'e2fsck' | 'rsync'>,
+    private readonly config: MicrovmWorkspaceImageConfig,
+    private readonly dependencies: MicrovmWorkspaceImageDependencies = defaultDependencies,
+    private readonly tools?: MicrovmWorkspaceHostTools,
   ) {
     assertSafeRunId(config.runId);
     this.runDirectory = path.join(config.workDir, 'firecracker-images', config.runId);
@@ -111,8 +120,8 @@ export class FirecrackerWorkspaceImage {
     return this.dependencies.runTool(this.tools?.[command] ?? command, args);
   }
 
-  async prepare(): Promise<FirecrackerWorkspacePreparation> {
-    if (this.prepared) throw new Error('Firecracker workspace image is already prepared');
+  async prepare(): Promise<MicrovmWorkspacePreparation> {
+    if (this.prepared) throw new Error('microVM workspace image is already prepared');
     await fs.mkdir(path.join(this.stagingDirectory, 'workspace'), {
       recursive: true,
       mode: 0o700,
@@ -134,7 +143,7 @@ export class FirecrackerWorkspaceImage {
     try {
       await fs.lstat(path.join(this.config.workspacePath, '.awf-home'));
       throw new Error(
-        'Workspace contains reserved Firecracker guest home path: .awf-home',
+        'Workspace contains reserved microVM guest home path: .awf-home',
       );
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
@@ -147,12 +156,12 @@ export class FirecrackerWorkspaceImage {
       this.config.gid,
     );
     await this.copyAllowedHomeState();
-    this.originalManifest = await buildFirecrackerWorkspaceManifest(this.config.workspacePath);
+    this.originalManifest = await buildMicrovmWorkspaceManifest(this.config.workspacePath);
 
     const imageRoot = path.join(this.stagingDirectory, 'workspace');
     const stagingUsage = await calculateTreeUsage(imageRoot);
-    const imageBytes = calculateFirecrackerWorkspaceImageBytes(
-      stagingUsage.bytes + stagingUsage.entries * FIRECRACKER_WORKSPACE_BLOCK_BYTES,
+    const imageBytes = calculateMicrovmWorkspaceImageBytes(
+      stagingUsage.bytes + stagingUsage.entries * WORKSPACE_BLOCK_BYTES,
       this.config.maxImageBytes,
     );
     const inodeCount = Math.max(8192, Math.ceil(stagingUsage.entries * 1.25) + 1024);
@@ -166,11 +175,11 @@ export class FirecrackerWorkspaceImage {
       '-t', 'ext4',
       '-F',
       '-q',
-      '-b', String(FIRECRACKER_WORKSPACE_BLOCK_BYTES),
+      '-b', String(WORKSPACE_BLOCK_BYTES),
       '-N', String(inodeCount),
       '-d', imageRoot,
       this.workspaceImagePath,
-      String(imageBytes / FIRECRACKER_WORKSPACE_BLOCK_BYTES),
+      String(imageBytes / WORKSPACE_BLOCK_BYTES),
     ]);
 
     await this.prepareRootfs();
@@ -184,11 +193,11 @@ export class FirecrackerWorkspaceImage {
   }
 
   /**
-   * Must only be called after the Firecracker process has terminated.
+   * Must only be called after the microVM process has terminated.
    */
   async extractAfterStop(changedImagePath = this.workspaceImagePath): Promise<void> {
     if (!this.prepared || !this.originalManifest) {
-      throw new Error('Firecracker workspace image has not been prepared');
+      throw new Error('microVM workspace image has not been prepared');
     }
     if (this.extractionSucceeded) return;
     const extractionDirectory = path.join(this.runDirectory, 'extracted');
@@ -210,15 +219,15 @@ export class FirecrackerWorkspaceImage {
         force: true,
       });
       const guestWorkspace = extractionDirectory;
-      const guestManifest = await buildFirecrackerWorkspaceManifest(guestWorkspace);
-      const currentManifest = await buildFirecrackerWorkspaceManifest(this.config.workspacePath);
+      const guestManifest = await buildMicrovmWorkspaceManifest(guestWorkspace);
+      const currentManifest = await buildMicrovmWorkspaceManifest(this.config.workspacePath);
       assertNoWorkspaceConflicts(this.originalManifest, guestManifest, currentManifest);
       await this.applyWorkspaceUpdateAtomically(guestWorkspace, guestManifest);
       this.extractionSucceeded = true;
     } catch (error) {
       await this.preserveRecoveryImage(changedImagePath);
       throw new Error(
-        `Firecracker workspace copy-back failed; changed image preserved at ` +
+        `microVM workspace copy-back failed; changed image preserved at ` +
         `${this.recoveryImagePath}: ${formatError(error)}`,
       );
     }
@@ -273,15 +282,15 @@ export class FirecrackerWorkspaceImage {
   }
 
   private async prepareRootfs(): Promise<void> {
-    await assertRegularFile(this.config.baseRootfsPath, 'Firecracker base rootfs');
-    await assertRegularFile(this.config.supervisorBinaryPath, 'Firecracker guest supervisor');
+    await assertRegularFile(this.config.baseRootfsPath, 'microVM base rootfs');
+    await assertRegularFile(this.config.supervisorBinaryPath, 'guest supervisor');
     if (!/^[A-Fa-f0-9]{64}$/.test(this.config.supervisorSha256)) {
-      throw new Error('Firecracker guest supervisor SHA-256 must be 64 hexadecimal characters');
+      throw new Error('guest supervisor SHA-256 must be 64 hexadecimal characters');
     }
     const actual = await sha256File(this.config.supervisorBinaryPath);
     if (actual !== this.config.supervisorSha256.toLowerCase()) {
       throw new Error(
-        `Firecracker guest supervisor SHA-256 mismatch: expected ` +
+        `guest supervisor SHA-256 mismatch: expected ` +
         `${this.config.supervisorSha256.toLowerCase()}, got ${actual}`,
       );
     }
@@ -323,7 +332,7 @@ export class FirecrackerWorkspaceImage {
 
   private async applyWorkspaceUpdateAtomically(
     guestWorkspace: string,
-    guestManifest: FirecrackerWorkspaceManifest,
+    guestManifest: MicrovmWorkspaceManifest,
   ): Promise<void> {
     const workspaceParent = path.dirname(this.config.workspacePath);
     const workspaceName = path.basename(this.config.workspacePath);
@@ -345,9 +354,9 @@ export class FirecrackerWorkspaceImage {
       `${guestWorkspace}${path.sep}`,
       `${mergeDirectory}${path.sep}`,
     ]);
-    const stagedManifest = await buildFirecrackerWorkspaceManifest(mergeDirectory);
+    const stagedManifest = await buildMicrovmWorkspaceManifest(mergeDirectory);
     assertExactWorkspaceManifest(guestManifest, stagedManifest, 'staged workspace');
-    const latestManifest = await buildFirecrackerWorkspaceManifest(this.config.workspacePath);
+    const latestManifest = await buildMicrovmWorkspaceManifest(this.config.workspacePath);
     assertNoWorkspaceConflicts(this.originalManifest!, guestManifest, latestManifest);
 
     let backupPending = false;
@@ -375,39 +384,39 @@ export class FirecrackerWorkspaceImage {
   }
 }
 
-export function calculateFirecrackerWorkspaceImageBytes(
+export function calculateMicrovmWorkspaceImageBytes(
   contentBytes: number,
-  maximumBytes = FIRECRACKER_DEFAULT_MAX_WORKSPACE_IMAGE_BYTES,
+  maximumBytes = MICROVM_DEFAULT_MAX_WORKSPACE_IMAGE_BYTES,
 ): number {
   if (!Number.isSafeInteger(contentBytes) || contentBytes < 0) {
-    throw new Error(`Invalid Firecracker workspace content size: ${contentBytes}`);
+    throw new Error(`Invalid microVM workspace content size: ${contentBytes}`);
   }
   if (
     !Number.isSafeInteger(maximumBytes) ||
-    maximumBytes < FIRECRACKER_MIN_WORKSPACE_IMAGE_BYTES
+    maximumBytes < MICROVM_MIN_WORKSPACE_IMAGE_BYTES
   ) {
     throw new Error(
-      `Firecracker workspace image cap must be at least ` +
-      `${FIRECRACKER_MIN_WORKSPACE_IMAGE_BYTES} bytes`,
+      `microVM workspace image cap must be at least ` +
+      `${MICROVM_MIN_WORKSPACE_IMAGE_BYTES} bytes`,
     );
   }
   const withHeadroom = Math.ceil(contentBytes * 1.25) +
-    FIRECRACKER_WORKSPACE_IMAGE_HEADROOM_BYTES;
-  const requested = Math.max(FIRECRACKER_MIN_WORKSPACE_IMAGE_BYTES, withHeadroom);
-  const aligned = Math.ceil(requested / FIRECRACKER_WORKSPACE_BLOCK_BYTES) *
-    FIRECRACKER_WORKSPACE_BLOCK_BYTES;
+    WORKSPACE_IMAGE_HEADROOM_BYTES;
+  const requested = Math.max(MICROVM_MIN_WORKSPACE_IMAGE_BYTES, withHeadroom);
+  const aligned = Math.ceil(requested / WORKSPACE_BLOCK_BYTES) *
+    WORKSPACE_BLOCK_BYTES;
   if (aligned > maximumBytes) {
     throw new Error(
-      `Firecracker workspace requires ${aligned} bytes, exceeding cap ${maximumBytes}`,
+      `microVM workspace requires ${aligned} bytes, exceeding cap ${maximumBytes}`,
     );
   }
   return aligned;
 }
 
-export async function buildFirecrackerWorkspaceManifest(
+export async function buildMicrovmWorkspaceManifest(
   root: string,
-): Promise<FirecrackerWorkspaceManifest> {
-  const manifest = new Map<string, FirecrackerWorkspaceManifestEntry>();
+): Promise<MicrovmWorkspaceManifest> {
+  const manifest = new Map<string, MicrovmWorkspaceManifestEntry>();
   await walkSafeTree(root, root, async (absolutePath, relativePath, stat) => {
     if (relativePath === '') return;
     const mode = stat.mode & 0o7777;
@@ -443,9 +452,9 @@ export async function buildFirecrackerWorkspaceManifest(
 }
 
 export function assertNoWorkspaceConflicts(
-  original: FirecrackerWorkspaceManifest,
-  guest: FirecrackerWorkspaceManifest,
-  current: FirecrackerWorkspaceManifest,
+  original: MicrovmWorkspaceManifest,
+  guest: MicrovmWorkspaceManifest,
+  current: MicrovmWorkspaceManifest,
 ): void {
   const paths = new Set([...original.keys(), ...guest.keys(), ...current.keys()]);
   const conflicts: string[] = [];
@@ -520,7 +529,7 @@ async function walkSafeTree(
     if (stat.isSymbolicLink()) {
       const target = await fs.readlink(current);
       if (path.isAbsolute(target)) {
-        throw new Error(`Absolute symlink is not safe for Firecracker workspace: ${current}`);
+        throw new Error(`Absolute symlink is not safe for microVM workspace: ${current}`);
       }
       assertContained(
         resolvedSafetyRoot,
@@ -528,7 +537,7 @@ async function walkSafeTree(
         `symlink target for ${current}`,
       );
     } else if (!stat.isFile() && !stat.isDirectory()) {
-      throw new Error(`Special filesystem entry is not safe for Firecracker workspace: ${current}`);
+      throw new Error(`Special filesystem entry is not safe for microVM workspace: ${current}`);
     }
     const result = await visitor(current, relativePath, stat);
     if (!stat.isDirectory() || result === 'skip') return;
@@ -551,15 +560,15 @@ async function calculateTreeUsage(root: string): Promise<{ bytes: number; entrie
 }
 
 function entriesEqual(
-  left: FirecrackerWorkspaceManifestEntry | undefined,
-  right: FirecrackerWorkspaceManifestEntry | undefined,
+  left: MicrovmWorkspaceManifestEntry | undefined,
+  right: MicrovmWorkspaceManifestEntry | undefined,
 ): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
 function assertExactWorkspaceManifest(
-  expected: FirecrackerWorkspaceManifest,
-  actual: FirecrackerWorkspaceManifest,
+  expected: MicrovmWorkspaceManifest,
+  actual: MicrovmWorkspaceManifest,
   label: string,
 ): void {
   const mismatches: string[] = [];
@@ -571,7 +580,7 @@ function assertExactWorkspaceManifest(
   }
   if (mismatches.length > 0) {
     throw new Error(
-      `Firecracker ${label} diverged during staging at ${mismatches.slice(0, 20).join(', ')}` +
+      `microVM ${label} diverged during staging at ${mismatches.slice(0, 20).join(', ')}` +
       (mismatches.length > 20 ? ` and ${mismatches.length - 20} more paths` : ''),
     );
   }
@@ -590,13 +599,13 @@ function assertContained(root: string, candidate: string, label: string): void {
 
 function assertSafeRunId(runId: string): void {
   if (!/^[A-Za-z0-9-]{1,64}$/.test(runId)) {
-    throw new Error(`Unsafe Firecracker workspace run id: ${runId}`);
+    throw new Error(`Unsafe microVM workspace run id: ${runId}`);
   }
 }
 
 function assertDebugfsOperand(value: string, label: string): void {
   if (/[\s"'\\;`\r\n]/.test(value)) {
-    throw new Error(`Firecracker ${label} is unsafe for debugfs commands: ${value}`);
+    throw new Error(`microVM ${label} is unsafe for debugfs commands: ${value}`);
   }
 }
 
@@ -621,13 +630,13 @@ async function applySafeOwnership(
     uid > 0xffff_ffff ||
     gid > 0xffff_ffff
   ) {
-    throw new Error(`Invalid Firecracker workspace identity: ${uid}:${gid}`);
+    throw new Error(`Invalid microVM workspace identity: ${uid}:${gid}`);
   }
   const currentUid = process.getuid?.();
   const currentGid = process.getgid?.();
   if (currentUid !== 0 && (currentUid !== uid || currentGid !== gid)) {
     throw new Error(
-      `Cannot map Firecracker workspace ownership to ${uid}:${gid} as ` +
+      `Cannot map microVM workspace ownership to ${uid}:${gid} as ` +
       `${String(currentUid)}:${String(currentGid)}`,
     );
   }

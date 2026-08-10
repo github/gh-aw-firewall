@@ -3,24 +3,24 @@ import { createHash } from 'crypto';
 import * as os from 'os';
 import * as path from 'path';
 import {
-  FIRECRACKER_DEFAULT_MAX_WORKSPACE_IMAGE_BYTES,
-  FIRECRACKER_MIN_WORKSPACE_IMAGE_BYTES,
-  FirecrackerWorkspaceImage,
+  MICROVM_DEFAULT_MAX_WORKSPACE_IMAGE_BYTES,
+  MICROVM_MIN_WORKSPACE_IMAGE_BYTES,
+  MicrovmWorkspaceImage,
   assertNoWorkspaceConflicts,
-  buildFirecrackerWorkspaceManifest,
-  calculateFirecrackerWorkspaceImageBytes,
-  type FirecrackerWorkspaceImageDependencies,
-} from './workspace-image';
+  buildMicrovmWorkspaceManifest,
+  calculateMicrovmWorkspaceImageBytes,
+  type MicrovmWorkspaceImageDependencies,
+} from './workspace';
 
-describe('Firecracker workspace images', () => {
+describe('microVM workspace images', () => {
   it('sizes images with headroom, block alignment, minimum, and cap', () => {
-    expect(calculateFirecrackerWorkspaceImageBytes(0))
-      .toBe(FIRECRACKER_MIN_WORKSPACE_IMAGE_BYTES);
-    expect(calculateFirecrackerWorkspaceImageBytes(512 * 1024 * 1024) % 4096).toBe(0);
-    expect(() => calculateFirecrackerWorkspaceImageBytes(
-      FIRECRACKER_DEFAULT_MAX_WORKSPACE_IMAGE_BYTES,
+    expect(calculateMicrovmWorkspaceImageBytes(0))
+      .toBe(MICROVM_MIN_WORKSPACE_IMAGE_BYTES);
+    expect(calculateMicrovmWorkspaceImageBytes(512 * 1024 * 1024) % 4096).toBe(0);
+    expect(() => calculateMicrovmWorkspaceImageBytes(
+      MICROVM_DEFAULT_MAX_WORKSPACE_IMAGE_BYTES,
     )).toThrow(/exceeding cap/);
-    expect(() => calculateFirecrackerWorkspaceImageBytes(0, 1024)).toThrow(/cap/);
+    expect(() => calculateMicrovmWorkspaceImageBytes(0, 1024)).toThrow(/cap/);
   });
 
   it('preserves hidden files, modes, and safe symlinks while excluding credentials', async () => {
@@ -40,12 +40,12 @@ describe('Firecracker workspace images', () => {
     await fs.writeFile(baseRootfs, 'rootfs');
     await fs.writeFile(supervisor, 'binary');
     const commands: Array<{ command: string; args: readonly string[] }> = [];
-    const dependencies: FirecrackerWorkspaceImageDependencies = {
+    const dependencies: MicrovmWorkspaceImageDependencies = {
       runTool: jest.fn(async (command, args) => {
         commands.push({ command, args });
       }),
     };
-    const image = new FirecrackerWorkspaceImage({
+    const image = new MicrovmWorkspaceImage({
       runId: 'run-1',
       workDir: root,
       workspacePath: workspace,
@@ -58,7 +58,7 @@ describe('Firecracker workspace images', () => {
     }, dependencies);
 
     const prepared = await image.prepare();
-    expect(prepared.imageBytes).toBe(FIRECRACKER_MIN_WORKSPACE_IMAGE_BYTES);
+    expect(prepared.imageBytes).toBe(MICROVM_MIN_WORKSPACE_IMAGE_BYTES);
     expect((await fs.stat(prepared.workspaceImagePath)).mode & 0o777).toBe(0o600);
     expect(await fs.readFile(
       path.join(image.stagingDirectory, 'workspace', '.hidden'),
@@ -90,7 +90,7 @@ describe('Firecracker workspace images', () => {
     const workspace = path.join(root, 'source');
     await fs.mkdir(workspace);
     await fs.symlink('../outside', path.join(workspace, 'escape'));
-    await expect(buildFirecrackerWorkspaceManifest(workspace))
+    await expect(buildMicrovmWorkspaceManifest(workspace))
       .rejects.toThrow(/escapes/);
     await fs.rm(root, { recursive: true, force: true });
   });
@@ -152,14 +152,14 @@ describe('Firecracker workspace images', () => {
     await fs.writeFile(path.join(root, 'base.ext4'), 'rootfs');
     await fs.writeFile(path.join(root, 'supervisor'), 'binary');
     let e2fsckCalls = 0;
-    const dependencies: FirecrackerWorkspaceImageDependencies = {
+    const dependencies: MicrovmWorkspaceImageDependencies = {
       runTool: jest.fn(async (command) => {
         if (command === 'e2fsck' && ++e2fsckCalls > 1) {
           throw new Error('corrupt image');
         }
       }),
     };
-    const image = new FirecrackerWorkspaceImage({
+    const image = new MicrovmWorkspaceImage({
       runId: 'run-2',
       workDir: root,
       workspacePath: workspace,
@@ -188,7 +188,7 @@ describe('Firecracker workspace images', () => {
     await fs.writeFile(path.join(root, 'base.ext4'), 'rootfs');
     await fs.writeFile(path.join(root, 'supervisor'), 'binary');
     const rsyncCalls: string[][] = [];
-    const image = new FirecrackerWorkspaceImage({
+    const image = new MicrovmWorkspaceImage({
       runId: 'run-3',
       workDir: root,
       workspacePath: workspace,
