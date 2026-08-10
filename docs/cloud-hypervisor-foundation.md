@@ -12,10 +12,15 @@ are rejected, unlike Firecracker's preview), and is otherwise fail-closed.
 Firecracker continues to work unchanged and is unaffected by this backend.
 :::
 
-This is **stack layer 3** of a 4-layer PR stack: it builds a complete,
+This document originated as **stack layer 3**, which built a complete,
 runnable Cloud Hypervisor microVM backend on top of the layer 1 VMM-neutral
 `src/microvm/` primitives and the layer 2 configuration/artifact/preflight
-foundation. Layer 4 adds the live-KVM GitHub Actions CI workflow.
+foundation. **Stack layer 4** (this layer) adds the live-KVM GitHub Actions
+CI workflow (`test-cloud-hypervisor.yml`, Part 14), the parity/security
+smoke suite (`scripts/ci/cloud-hypervisor-live-smoke.sh`), and this
+documentation update; Firecracker remains present and unaffected. Firecracker
+removal, if it ever happens, is an explicit later layer and is out of scope
+here.
 
 ## Part 1 — What Cloud Hypervisor adds and why it is a preview
 
@@ -38,8 +43,8 @@ isolation), different VMM implementation and host launch strategy.
   boundary: network-namespace join, non-root privilege drop, and
   kernel-enforced Landlock filesystem confinement (see Part 3).
 - The live-KVM GitHub Actions workflow that exercises this backend end to
-  end on real hardware is a later layer; this layer's validation is unit
-  tests plus static analysis only (see Part 15).
+  end on real hardware is `test-cloud-hypervisor.yml` (Part 14), added in
+  stack layer 4 alongside the parity/security smoke suite.
 
 ### Comparison with Firecracker
 
@@ -320,30 +325,249 @@ config-file/CLI mapping.
   non-Ubuntu/non-x86_64 hosts are explicitly rejected.
 - **No TTY, DinD, host access, extra volume mounts, enclaves, or topology
   peers** — same restrictions as Firecracker's preview.
-- **No live-KVM GitHub Actions workflow yet.** This layer's validation is
-  unit tests, `tsc --noEmit`, and the existing Firecracker live-KVM
-  workflow (unaffected). A dedicated Cloud Hypervisor live-KVM smoke test
-  is a later layer's responsibility — see Part 15.
+- **No vhost-net/vhost-user and no throughput claims.** The performance
+  baselines in Part 14 measure boot/readiness latency and cgroup-bounded
+  memory overhead only; this preview makes no network throughput guarantees.
+- **Firecracker is unaffected and remains supported.** Removing Firecracker
+  is an explicit later layer, not this one.
 
-## Part 15 — Validation performed in this layer
+## Part 14 — CI workflow
+
+The Cloud Hypervisor preview has its own dedicated CI workflow,
+[`test-cloud-hypervisor.yml`](../.github/workflows/test-cloud-hypervisor.yml),
+structurally mirroring
+[Firecracker's `test-firecracker.yml`](./firecracker-integration.md#part-14--ci-workflow)
+but adapted for this backend's GitHub-hosted-only support statement and
+jailer-free launcher.
+
+### Trigger conditions
+
+The workflow triggers **only** on:
+
+- `workflow_dispatch` — manual trigger; `run_live_kvm: false` validates the
+  deterministic artifact build without queueing the KVM job.
+- A pull request open, synchronize, or reopen event, **scoped to paths**
+  under `guest/cloud-hypervisor/`, `guest/firecracker-supervisor/` (shared
+  guest supervisor), `src/cloud-hypervisor/`,
+  `src/cloud-hypervisor-runtime-backend.ts`, `src/microvm/`,
+  `scripts/ci/cloud-hypervisor-*.sh`, this document, and the workflow file
+  itself — builds and verifies the deterministic guest artifacts on
+  `ubuntu-24.04`.
+- A pull request being **labeled** with `cloud-hypervisor-kvm` additionally
+  enables the live KVM job.
+
+It does **not** run on push or schedule. The path scoping keeps CI cost
+proportional to actual changes to this preview instead of running on every
+unrelated pull request.
+
+### Jobs
+
+#### `build-test-artifacts` (runs on `ubuntu-24.04`, no KVM required)
+
+1. Checks out the repository and sets up Go 1.25.0 (cache keyed on the
+   shared `guest/firecracker-supervisor/go.mod`).
+2. Installs the same deterministic kernel-build prerequisites Firecracker's
+   job uses (`bc`, `binutils`, `bison`, `build-essential`, `cpio`,
+   `e2fsprogs`, `file`, `flex`, `libelf-dev`, `libssl-dev`, `rsync`,
+   `xz-utils`) — both backends build the identical pinned kernel config.
+3. Runs `guest/cloud-hypervisor/build-test-artifacts.sh` — downloads Cloud
+   Hypervisor v53.0 (SHA-256 verified), Linux 6.1.141 (SHA-256 verified),
+   BusyBox 1.36.1 (SHA-256 verified), and a pinned CA bundle; builds the
+   kernel, BusyBox, and shared supervisor; creates the rootfs; produces
+   `SHA256SUMS`, `manifest.json`, and `sbom.spdx.json`; archives everything
+   as `release/cloud-hypervisor-test-x86_64/awf-cloud-hypervisor-test-x86_64.tar.gz`.
+4. Runs `guest/cloud-hypervisor/verify-test-artifacts.sh` against the output.
+5. Attests artifact provenance via `actions/attest-build-provenance`.
+6. Uploads `release/cloud-hypervisor-test-x86_64/` as artifact
+   `cloud-hypervisor-test-x86_64` with 7-day retention.
+
+#### `live-kvm` (runs on `ubuntu-24.04`)
+
+Gated on manual dispatch (`run_live_kvm: true`) or the `cloud-hypervisor-kvm`
+pull request label — never on unlabeled pull requests, push, or schedule.
+Its preflight fails closed (does not silently skip) if the runner lacks
+usable KVM or any other required host capability.
+
+1. Downloads the `cloud-hypervisor-test-x86_64` artifact from the build job.
+2. Runs `scripts/ci/cloud-hypervisor-host-preflight.sh` — verifies Linux,
+   x86_64, GitHub-hosted-only host eligibility (`GITHUB_ACTIONS`,
+   `RUNNER_ENVIRONMENT`, `ImageOS`), `/dev/kvm`, required host tools
+   including `setpriv`, Landlock LSM availability, the Cloud Hypervisor
+   version string, and all four SHA-256 digests via
+   `sha256sum --check --strict SHA256SUMS`.
+3. Installs NPM dependencies, builds the AWF distribution, and builds the
+   Squid and API proxy container images locally.
+4. Runs `scripts/ci/cloud-hypervisor-live-smoke.sh` — the live test suite.
+5. Collects redacted diagnostics (audit, proxy-logs, stdout/stderr) and
+   scans for the secret sentinel before uploading, unconditionally
+   (`if: always()`).
+6. Enforces final residue cleanup — network namespaces, the
+   `awf-cloud-hypervisor` cgroup tree, and any lingering `cloud-hypervisor`
+   process — unconditionally (`if: always()`).
+
+### Live smoke test assertions
+
+`cloud-hypervisor-live-smoke.sh` reproduces
+[Firecracker's full 13-case contract](./firecracker-integration.md#live-smoke-test-assertions)
+verbatim (same case names, same expected exit codes, same assertions), then
+adds two Cloud Hypervisor-specific cases:
+
+| Case | Expected exit | Assertion |
+|------|--------------|-----------|
+| `allowed-https` | 0 | `wget https://example.com` succeeds and returns "Example Domain" |
+| `blocked-domain` | 0 | `wget https://github.com` fails (not in `--allow-domains`) |
+| `direct-egress` | 0 | Unsets proxy vars; direct `wget` fails |
+| `arbitrary-tcp` | 0 | `nc -z 1.1.1.1 443` fails |
+| `dns-denial` | 0 | `nslookup example.com 8.8.8.8` fails |
+| `metadata-denial` | 0 | Unsets proxy vars; `wget http://169.254.169.254/latest/meta-data/` fails |
+| `api-proxy-reflect` | 0 | API proxy `/reflect` reachable; secret sentinel absent from guest `env` |
+| `workspace-copyback` | 0 | Guest writes, `chmod 755`, and a symlink all survive copy-back |
+| `exit-code` | 37 | `exit 37` propagates as AWF exit code 37 |
+| `timeout-124` | 124 | `sleep 90` with `--agent-timeout 1` exits 124 |
+| `device-assumptions` **(new)** | 0 | `/dev/vda` and `/dev/vdb` are block devices; `eth0` exists |
+| `partial-start-cleanup` | 1 | Corrupt rootfs (valid digest, invalid content) fails cleanly; no residue |
+| `cancellation` | 143 | `SIGTERM` after namespace appears cleans up; cleanup time is measured against a non-flaky ceiling |
+| `keep` (keep mode) | 0 | `--keep-containers` preserves namespace/run-directory/diagnostics; all bounded ≤1 MiB |
+| `security-assertions` **(new)** | 143 | See below |
+
+The `security-assertions` case starts a long-lived guest command, then —
+while the VM is live — inspects the host-visible Cloud Hypervisor process
+and its own `vm.info` response to prove the launcher's jailer-replacement
+boundary (Part 3) live, not just at the argv-construction unit-test level:
+
+- **Non-root identity**: `/proc/<pid>` is not owned by uid 0.
+- **Empty effective capability set**: `/proc/<pid>/status`'s `CapEff` is
+  all-zero.
+- **`no_new_privs` is set**: `NoNewPrivs: 1`.
+- **Active seccomp filter**: `Seccomp: 2` (filter mode), confirming
+  `--seccomp true` is in effect.
+- **Cgroup membership and bounded limits**: the process's PID appears in
+  `/sys/fs/cgroup/awf-cloud-hypervisor/<runId>/cgroup.procs`; `memory.max`
+  (or the cgroup v1 equivalent) is a bounded positive number; live
+  `memory.current` usage is greater than zero and does not exceed it (the
+  "bounded memory overhead" baseline from Part 4/9).
+- **`landlock_enable` reflected in `vm.create`** and an **exactly-minimal
+  device set**: querying the Cloud Hypervisor process's own
+  `GET /api/v1/vm.info` over its private Unix domain socket confirms
+  exactly two disks (rootfs, workspace), exactly one net device, and a
+  vsock device — proving the host-only API socket path is never wired to
+  the guest as any device (structurally, not just by absence of a mount).
+
+Boot/readiness and cleanup-time are measured as non-flaky regression
+baselines (generous ceilings tuned for shared GitHub-hosted runners, not
+tight performance targets): the `allowed-https` case's total wall time is
+checked against a 90-second boot+readiness+run+cleanup ceiling, and the
+`cancellation` case's SIGTERM-to-clean-residue time is checked against a
+20-second ceiling.
+
+### Secret sentinel check
+
+All smoke test cases set
+`OPENAI_API_KEY=awf-cloud-hypervisor-real-secret-do-not-expose` (a value
+distinct from Firecracker's sentinel so the two suites' diagnostics never
+cross-contaminate if run in the same job). After each run, the test scans
+`stdout.log`, `audit/`, and `proxy-logs/` for this sentinel string.
+
+### Shared vs. backend-specific residue naming
+
+`src/microvm/network.ts` is VMM-neutral and used unmodified by both
+backends (Part 2), so the network namespace (`awffc-*`) and veth/TAP
+(`fch*`/`fcn*`/`fct*`) residue checks are intentionally identical to
+Firecracker's — this is shared infrastructure, not a Cloud Hypervisor gap.
+The cgroup path (`/sys/fs/cgroup/awf-cloud-hypervisor/<runId>`) and process
+name (`cloud-hypervisor`) residue checks are Cloud Hypervisor-specific.
+
+## Part 15 — Troubleshooting
+
+Most preflight, boot, and cleanup failure modes are identical to
+Firecracker's — see
+[Firecracker's Part 15](./firecracker-integration.md#part-15--troubleshooting)
+for the general shape of each failure (host tool missing, digest mismatch,
+API timeout, guest connectivity probe failure, Docker infrastructure not
+cleaned up, workspace copy-back recovery via `debugfs`). This section covers
+only what differs for Cloud Hypervisor.
+
+**`Cloud Hypervisor is supported only on GitHub-hosted runners, not self-hosted`**
+
+Unlike Firecracker's preview, this backend rejects self-hosted runners
+outright (`src/cloud-hypervisor/host-eligibility.ts`). There is no flag to
+override this; run on a GitHub-hosted Ubuntu x86_64 runner instead.
+
+**`Cloud Hypervisor requires a GitHub-hosted Ubuntu runner image`**
+
+`ImageOS` did not start with `ubuntu` — you are likely on a non-Ubuntu
+GitHub-hosted image (e.g. Windows or macOS runners, which also lack
+`/dev/kvm`). Use an `ubuntu-24.04` (or later) runner.
+
+**`Cloud Hypervisor is pinned to v53.0; found v<other>`**
+
+The Cloud Hypervisor binary is not v53.0. Do not bypass the version check;
+obtain the pinned release.
+
+**`host tool "setpriv" was not found on PATH`**
+
+Install `util-linux` (`setpriv` ships in it; standard on Ubuntu, so this
+should not occur on a genuine GitHub-hosted Ubuntu runner).
+
+**`The running kernel does not report Landlock in /sys/kernel/security/lsm`**
+
+Landlock requires Linux 5.13+ with `CONFIG_SECURITY_LANDLOCK=y` and the LSM
+enabled at boot (`lsm=landlock,...` on the kernel cmdline, or Landlock
+included in the distribution default). GitHub-hosted Ubuntu 24.04 runners
+ship this by default; a custom or older kernel may not.
+
+**`Cloud Hypervisor requires a non-root target uid/gid`**
+
+Same as Firecracker's jailer requirement: run through `sudo` from a
+non-root account so `SUDO_UID`/`SUDO_GID` are set — see
+[Firecracker's Part 15](./firecracker-integration.md#preflight-failures).
+
+**Namespace, cgroup, and process residue after a failed run:**
+
+```bash
+# List namespace residue (shared naming with Firecracker)
+sudo ip netns list | grep awffc
+
+# Remove all AWF microVM namespaces
+sudo ip netns list | awk '/^awffc-/{print $1}' | \
+  xargs -r -I{} sudo ip netns delete {}
+
+# List and remove Cloud Hypervisor-specific cgroup residue
+sudo find /sys/fs/cgroup/awf-cloud-hypervisor -mindepth 1 -maxdepth 1
+sudo rmdir /sys/fs/cgroup/awf-cloud-hypervisor/<runId>
+
+# Find a lingering Cloud Hypervisor process (do not blindly pkill by name;
+# confirm the PID belongs to an AWF run before terminating it)
+pgrep -af 'cloud-hypervisor --api-socket'
+```
+
+**Run directory residue (only if stop failed):**
+
+```bash
+ls /tmp/awf-*/cloud-hypervisor-run/ 2>/dev/null
+sudo rm -rf /tmp/awf-<timestamp>/cloud-hypervisor-run/cloud-hypervisor/<runId>
+```
+
+## Part 16 — Validation performed in this layer
 
 - `tsc --noEmit -p tsconfig.check.json`: clean.
-- Full Jest suite: all suites passing, including new coverage for the API
-  client (typed requests, chained-error parsing, timeout/size bounds),
+- Full Jest suite: all suites passing, including layer 3's API client,
   launcher (argv construction, kvm-gid retention, Landlock rule
-  computation, cgroup v2 subtree_control delegation ordering and rmdir-only
-  cleanup), manager (launch, partial-start rollback, workspace/vsock
-  lifecycle, keep-mode preservation, termination-confirmation retry,
-  natural-exit wait, `vm.create` failure rollback, signal-exit fast-fail,
-  bounded diagnostics with `vm.counters`), backend (host-eligibility gating,
-  stdin serialization, TTY rejection, credential-safe environment,
-  cancellation), and runtime registration/preview-gate wiring.
-- No new shell scripts were introduced — the launcher builds argv arrays
-  passed directly to `execa`; there is nothing to `shellcheck`/`bash -n`.
+  computation, cgroup v2 `subtree_control` delegation ordering and
+  rmdir-only cleanup), manager, backend, and runtime-registration coverage,
+  plus new layer 4 coverage for the CI workflow's YAML structure (triggers,
+  permissions, concurrency, job gating, path scoping) and the new
+  `scripts/ci/cloud-hypervisor-*.sh` scripts' behavior (13-case parity with
+  Firecracker, device-assumption and security-assertion coverage, distinct
+  secret sentinel, shared-vs-specific residue naming, digest flag wiring).
+- `bash -n` and `shellcheck` (severity=error) on both new scripts, plus
+  `bash -n` on every `run:` block in the new workflow YAML.
 - `guest/firecracker-supervisor` Go tests (`go vet`, `go test`): unaffected,
   confirming the shared guest supervisor still works for both backends.
-- **Not performed in this layer**: an actual boot on real KVM hardware.
-  This environment has no `/dev/kvm` and no built Cloud Hypervisor guest
-  artifacts, so a live smoke test would be faked, not validated. This is
-  explicitly deferred to the layer that adds the dedicated live-KVM GitHub
-  Actions workflow.
+- **Live-KVM validation**: the `test-cloud-hypervisor.yml` workflow's
+  `live-kvm` job runs the full smoke/security suite on real GitHub-hosted
+  KVM hardware when triggered (manual dispatch or the
+  `cloud-hypervisor-kvm` pull request label). This development environment
+  has no `/dev/kvm`, so the suite's actual pass/fail status must be
+  confirmed from the workflow run itself rather than reproduced locally.
+

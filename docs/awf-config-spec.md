@@ -111,6 +111,17 @@ for the guest artifact build/verification pipeline. See
 [docs/cloud-hypervisor-foundation.md](./cloud-hypervisor-foundation.md) for
 the full architecture and security-boundary writeup.
 
+Release test artifacts (`cloud-hypervisor-test-x86_64`) are x86_64
+test/preview artifacts built and verified by
+[`test-cloud-hypervisor.yml`](../.github/workflows/test-cloud-hypervisor.yml),
+which also runs the live-KVM parity/security smoke suite
+(`scripts/ci/cloud-hypervisor-live-smoke.sh`) on GitHub-hosted Ubuntu x86_64
+runners when triggered by manual dispatch or the `cloud-hypervisor-kvm` pull
+request label. They are published as workflow artifacts, but are not
+production defaults and are never auto-downloaded. See
+[docs/cloud-hypervisor-foundation.md](./cloud-hypervisor-foundation.md#part-14--ci-workflow)
+for the complete CI workflow specification and troubleshooting reference.
+
 ## 5. CLI Mapping
 
 *This section is normative.*

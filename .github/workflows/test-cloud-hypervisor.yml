@@ -1,0 +1,195 @@
+name: Cloud Hypervisor Preview Integration
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_live_kvm:
+        description: Run the live KVM job on GitHub-hosted x64 Ubuntu 24.04
+        required: true
+        type: boolean
+        default: true
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
+    paths:
+      - '.github/workflows/test-cloud-hypervisor.yml'
+      - 'guest/cloud-hypervisor/**'
+      - 'guest/firecracker-supervisor/**'
+      - 'src/cloud-hypervisor/**'
+      - 'src/cloud-hypervisor-runtime-backend.ts'
+      - 'src/cloud-hypervisor-runtime-backend.test.ts'
+      - 'src/microvm/**'
+      - 'src/types/runtime-options.ts'
+      - 'scripts/ci/cloud-hypervisor-*.sh'
+      - 'docs/cloud-hypervisor-foundation.md'
+
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+
+concurrency:
+  group: cloud-hypervisor-preview-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-test-artifacts:
+    name: Build deterministic test guest
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.25.0'
+          cache-dependency-path: guest/firecracker-supervisor/go.mod
+
+      - name: Install deterministic guest build prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            bc \
+            binutils \
+            bison \
+            build-essential \
+            ca-certificates \
+            cpio \
+            e2fsprogs \
+            file \
+            flex \
+            libelf-dev \
+            libssl-dev \
+            rsync \
+            xz-utils
+
+      - name: Build and verify pinned artifacts
+        run: |
+          ./guest/cloud-hypervisor/build-test-artifacts.sh
+          ./guest/cloud-hypervisor/verify-test-artifacts.sh \
+            release/cloud-hypervisor-test-x86_64
+
+      - name: Attest guest artifact provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: release/cloud-hypervisor-test-x86_64/awf-cloud-hypervisor-test-x86_64.tar.gz
+
+      - name: Upload guest artifacts
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: cloud-hypervisor-test-x86_64
+          path: release/cloud-hypervisor-test-x86_64/
+          if-no-files-found: error
+          retention-days: 7
+
+  live-kvm:
+    name: Live Cloud Hypervisor KVM smoke/security
+    needs: build-test-artifacts
+    if: >-
+      (github.event_name == 'workflow_dispatch' && inputs.run_live_kvm) ||
+      (github.event_name == 'pull_request' &&
+       contains(github.event.pull_request.labels.*.name, 'cloud-hypervisor-kvm'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Download verified guest artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: cloud-hypervisor-test-x86_64
+          path: ${{ runner.temp }}/cloud-hypervisor-test-x86_64
+
+      - name: Grant workflow user access to KVM
+        run: |
+          if [ -e /dev/kvm ]; then
+            sudo chmod 666 /dev/kvm
+          fi
+
+      - name: Verify capable host and artifact digests
+        run: |
+          ./scripts/ci/cloud-hypervisor-host-preflight.sh \
+            "$RUNNER_TEMP/cloud-hypervisor-test-x86_64"
+
+      - name: Install, build, and prepare infrastructure images
+        run: |
+          npm ci
+          npm run build
+          docker build -t ghcr.io/github/gh-aw-firewall/squid:latest containers/squid
+          docker build -t ghcr.io/github/gh-aw-firewall/api-proxy:latest containers/api-proxy
+
+      - name: Run live fail-closed smoke/security coverage
+        run: |
+          ./scripts/ci/cloud-hypervisor-live-smoke.sh \
+            "$RUNNER_TEMP/cloud-hypervisor-test-x86_64"
+
+      - name: Collect redacted diagnostics
+        if: always()
+        run: |
+          set -euo pipefail
+          source_root="$RUNNER_TEMP/awf-cloud-hypervisor-live"
+          destination="$RUNNER_TEMP/cloud-hypervisor-diagnostics-safe"
+          rm -rf "$destination"
+          mkdir -p "$destination"
+          if [ -d "$source_root" ]; then
+            while IFS= read -r -d '' file; do
+              relative=${file#"$source_root/"}
+              mkdir -p "$destination/$(dirname "$relative")"
+              cp "$file" "$destination/$relative"
+            done < <(
+              find "$source_root" -type f \
+                \( -path '*/audit/*' \
+                -o -path '*/proxy-logs/*' \
+                -o -name 'stdout.log' \
+                -o -name 'stderr.log' \) \
+                -print0
+            )
+          fi
+          if grep -R --binary-files=without-match \
+            -F 'awf-cloud-hypervisor-real-secret-do-not-expose' \
+            "$destination"; then
+            echo "::error::Secret sentinel found in diagnostic artifacts"
+            rm -rf "$destination"
+            exit 1
+          fi
+
+      - name: Upload actionable diagnostics
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: cloud-hypervisor-live-diagnostics
+          path: ${{ runner.temp }}/cloud-hypervisor-diagnostics-safe/
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Enforce final residue cleanup
+        if: always()
+        run: |
+          set -euo pipefail
+          while read -r namespace _; do
+            case "$namespace" in
+              awffc-*) sudo ip netns delete "$namespace" ;;
+            esac
+          done < <(sudo ip netns list)
+          if sudo ip netns list | grep -q '^awffc-'; then
+            echo "::error::Cloud Hypervisor namespace residue remains after cleanup"
+            exit 1
+          fi
+          if [ -d /sys/fs/cgroup/awf-cloud-hypervisor ] && \
+             [ -n "$(sudo find /sys/fs/cgroup/awf-cloud-hypervisor -mindepth 1 -maxdepth 1 2>/dev/null)" ]; then
+            echo "::error::Cloud Hypervisor cgroup residue remains after cleanup"
+            exit 1
+          fi
+          if pgrep -f 'cloud-hypervisor --api-socket' >/dev/null 2>&1; then
+            echo "::error::Cloud Hypervisor process residue remains after cleanup"
+            exit 1
+          fi
