@@ -37,7 +37,7 @@ const TAILSCALE_MAGIC_DNS = '100.100.100.100';
  * - Tailscale Magic DNS (100.100.100.100)
  * - Link-local addresses (169.254.x.x / RFC 3927) — not routable over bridges
  */
-export function isNonPortableDns(ip: string): boolean {
+function isNonPortableDns(ip: string): boolean {
   if (ip === AZURE_DHCP_DNS) return true;
   if (ip === TAILSCALE_MAGIC_DNS) return true;
   if (ip.startsWith('169.254.')) return true;

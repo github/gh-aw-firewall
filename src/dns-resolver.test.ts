@@ -1,4 +1,4 @@
-import { detectHostDnsServers, DEFAULT_DNS_SERVERS, isNonPortableDns, filterForNetworkIsolation } from './dns-resolver';
+import { detectHostDnsServers, DEFAULT_DNS_SERVERS, filterForNetworkIsolation } from './dns-resolver';
 import * as fs from 'fs';
 
 jest.mock('fs');
@@ -119,40 +119,6 @@ describe('detectHostDnsServers', () => {
 describe('DEFAULT_DNS_SERVERS', () => {
   it('should have correct default DNS servers', () => {
     expect(DEFAULT_DNS_SERVERS).toEqual(['8.8.8.8', '8.8.4.4']);
-  });
-});
-
-describe('isNonPortableDns', () => {
-  it('identifies Azure DHCP DNS as non-portable', () => {
-    expect(isNonPortableDns('168.63.129.16')).toBe(true);
-  });
-
-  it('identifies Tailscale Magic DNS as non-portable', () => {
-    expect(isNonPortableDns('100.100.100.100')).toBe(true);
-  });
-
-  it('identifies link-local addresses as non-portable', () => {
-    expect(isNonPortableDns('169.254.0.0')).toBe(true);
-    expect(isNonPortableDns('169.254.1.1')).toBe(true);
-    expect(isNonPortableDns('169.254.255.255')).toBe(true);
-  });
-
-  it('identifies public DNS servers as portable', () => {
-    expect(isNonPortableDns('8.8.8.8')).toBe(false);
-    expect(isNonPortableDns('8.8.4.4')).toBe(false);
-    expect(isNonPortableDns('1.1.1.1')).toBe(false);
-    expect(isNonPortableDns('9.9.9.9')).toBe(false);
-  });
-
-  it('identifies private RFC1918 DNS as portable (may be corporate DNS)', () => {
-    expect(isNonPortableDns('10.0.0.1')).toBe(false);
-    expect(isNonPortableDns('172.16.0.1')).toBe(false);
-    expect(isNonPortableDns('192.168.1.1')).toBe(false);
-  });
-
-  it('identifies IPv6 DNS as portable', () => {
-    expect(isNonPortableDns('2001:4860:4860::8888')).toBe(false);
-    expect(isNonPortableDns('2606:4700:4700::1111')).toBe(false);
   });
 });
 
