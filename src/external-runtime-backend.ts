@@ -18,7 +18,7 @@ export interface ExternalAgentRuntimeBackend {
   preserve?(): Promise<void>;
 }
 
-export type ExternalRuntimeWorkflowDependencies = Pick<
+type ExternalRuntimeWorkflowDependencies = Pick<
   WorkflowDependencies,
   'startContainers' | 'runAgentCommand'
 >;
