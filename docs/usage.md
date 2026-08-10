@@ -467,17 +467,18 @@ sudo awf \
 
 `--allow-host-ports` works standalone with `--enable-host-access` in strict
 security mode (the default, without `--legacy-security`/`--network-isolation`
-disabled) — host access is served through Squid port ACLs and the
-`host.docker.internal` hosts-file entry, not host iptables, so it does not
-require legacy security. This lets a strict-mode workflow reach a GitHub
-Actions `services:` container (for example Postgres bound to port 5432 on the
-runner) without disabling network isolation:
+disabled). Direct raw-protocol access to a GitHub Actions `services:` container
+is not available in strict (`--network-isolation`) mode: the isolated agent has
+no `host.docker.internal` route, and clients such as `psql` cannot use Squid's
+HTTP proxy protocol. Use legacy security or a separately verified tunnel. For
+example, to reach a Postgres service container with legacy security:
 
 ```bash
 # GitHub Actions services: postgres:
 #   ports: ["5432:5432"]
 
 awf \
+  --legacy-security \
   --enable-host-access \
   --allow-host-ports 5432 \
   --allow-domains host.docker.internal \
