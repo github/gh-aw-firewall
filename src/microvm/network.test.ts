@@ -6,6 +6,7 @@ import {
   type MicrovmConnectivityProbe,
   type MicrovmNetworkCommandOptions,
   type MicrovmNetworkPlan,
+  type MicrovmNetworkRulesetFile,
 } from './network';
 
 interface CommandCall {
@@ -212,14 +213,14 @@ describe('microVM network lifecycle', () => {
     expect(calls[11].args).toContain('net.ipv4.ip_forward=1');
     expect(calls[12].args).toContain('net.ipv6.conf.all.disable_ipv6=1');
     expect(calls[13].args).toContain('net.ipv6.conf.default.disable_ipv6=1');
-    expect(calls[14]).toEqual({
-      command: 'ip',
-      args: ['netns', 'exec', plan.namespaceName, 'nft', '-f', '-'],
-      options: {
-        reject: true,
-        input: generateMicrovmNftRuleset(plan),
-      },
-    });
+    // The ruleset is written to a real temporary file and passed by path
+    // (not piped via "-f -") — see LinuxNetworkCommands.nftInNamespace's
+    // MicrovmNetworkRulesetFile doc comment for why.
+    expect(calls[14].command).toBe('ip');
+    expect(calls[14].args.slice(0, 4)).toEqual(['netns', 'exec', plan.namespaceName, 'nft']);
+    expect(calls[14].args[4]).toBe('-f');
+    expect(calls[14].args[5]).toMatch(/awf-nft-[0-9a-f]{16}\.nft$/);
+    expect(calls[14].options).toEqual({ reject: true });
     expect(probe.verify).toHaveBeenCalledWith(plan);
   });
 
@@ -360,5 +361,95 @@ describe('microVM network lifecycle', () => {
       && call.args[1] === 'delete'
       && call.args[2] === plan.namespaceName
     ))).toHaveLength(1);
+  });
+});
+
+describe('LinuxNetworkCommands.nftInNamespace ruleset file handling', () => {
+  // Regression coverage: nft -f - can fail with `Not a regular file:
+  // "/dev/stdin"` on nftables builds that open /dev/stdin directly rather
+  // than reading the already-piped fd 0 (observed on GitHub-hosted Ubuntu
+  // runners). The ruleset must be written to a real temp file and passed
+  // by path instead.
+  function rulesetFileHarness(): {
+    rulesetFile: jest.Mocked<MicrovmNetworkRulesetFile>;
+    calls: CommandCall[];
+    commands: LinuxNetworkCommands;
+  } {
+    const calls: CommandCall[] = [];
+    const rulesetFile: jest.Mocked<MicrovmNetworkRulesetFile> = {
+      write: jest.fn(async (contents: string) => `/tmp/awf-nft-fake.nft:${contents.length}`),
+      remove: jest.fn(async (_rulesetPath: string) => undefined),
+    };
+    const commands = new LinuxNetworkCommands(
+      jest.fn(async (command, args, options) => {
+        calls.push({ command, args, options });
+      }),
+      undefined,
+      rulesetFile,
+    );
+    return { rulesetFile, calls, commands };
+  }
+
+  it('writes the ruleset to a file and passes its path instead of "-f -"', async () => {
+    const { rulesetFile, calls, commands } = rulesetFileHarness();
+    await commands.nftInNamespace('awffc-test', ['-f', '-'], 'table inet awf {}');
+
+    expect(rulesetFile.write).toHaveBeenCalledWith('table inet awf {}');
+    expect(calls).toEqual([{
+      command: 'ip',
+      args: ['netns', 'exec', 'awffc-test', 'nft', '-f', '/tmp/awf-nft-fake.nft:17'],
+      options: { reject: true },
+    }]);
+  });
+
+  it('removes the temp file after a successful nft invocation', async () => {
+    const { rulesetFile, commands } = rulesetFileHarness();
+    await commands.nftInNamespace('awffc-test', ['-f', '-'], 'table inet awf {}');
+
+    expect(rulesetFile.remove).toHaveBeenCalledWith('/tmp/awf-nft-fake.nft:17');
+  });
+
+  it('still removes the temp file when the nft invocation fails', async () => {
+    const rulesetFile: jest.Mocked<MicrovmNetworkRulesetFile> = {
+      write: jest.fn(async (_contents: string) => '/tmp/awf-nft-fake.nft'),
+      remove: jest.fn(async (_rulesetPath: string) => undefined),
+    };
+    const commands = new LinuxNetworkCommands(
+      jest.fn(async () => {
+        throw new Error('nft rejected the ruleset');
+      }),
+      undefined,
+      rulesetFile,
+    );
+
+    await expect(
+      commands.nftInNamespace('awffc-test', ['-f', '-'], 'table inet awf {}'),
+    ).rejects.toThrow('nft rejected the ruleset');
+    expect(rulesetFile.remove).toHaveBeenCalledWith('/tmp/awf-nft-fake.nft');
+  });
+
+  it('skips ruleset file handling entirely when no input is given', async () => {
+    const { rulesetFile, calls, commands } = rulesetFileHarness();
+    await commands.nftInNamespace('awffc-test', ['list', 'ruleset']);
+
+    expect(rulesetFile.write).not.toHaveBeenCalled();
+    expect(rulesetFile.remove).not.toHaveBeenCalled();
+    expect(calls).toEqual([{
+      command: 'ip',
+      args: ['netns', 'exec', 'awffc-test', 'nft', 'list', 'ruleset'],
+      options: { reject: true },
+    }]);
+  });
+
+  it('the default ruleset file performs a real fs write/remove round trip', async () => {
+    // Exercises the real (non-mocked) MicrovmNetworkRulesetFile end to end
+    // against the OS temp directory, catching issues a fully-mocked
+    // executor test would miss (e.g. permission or path-construction bugs).
+    const commands = new LinuxNetworkCommands(
+      jest.fn(async () => undefined),
+    );
+    await expect(
+      commands.nftInNamespace('awffc-real-fs-test', ['-f', '-'], 'table inet awf { }'),
+    ).resolves.toBeUndefined();
   });
 });

@@ -1,4 +1,7 @@
-import { createHash } from 'crypto';
+import { createHash, randomBytes } from 'crypto';
+import { promises as fs } from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import execa from 'execa';
 import {
   AGENT_IP,
@@ -104,6 +107,33 @@ const defaultCommandExecutor: MicrovmNetworkCommandExecutor = async (
   await execa(command, [...args], options);
 };
 
+export interface MicrovmNetworkRulesetFile {
+  write(contents: string): Promise<string>;
+  remove(rulesetPath: string): Promise<void>;
+}
+
+/**
+ * Writes an nftables ruleset to a real, private temporary file instead of
+ * piping it to `nft -f -` over stdin.
+ *
+ * Some nftables/libnftables builds internally `open("/dev/stdin")` when
+ * given `-f -` rather than reading the already-open fd 0, which fails with
+ * `Not a regular file: "/dev/stdin"` when stdin is a genuine pipe (as
+ * `execa`'s `input` option provides) rather than a terminal or redirected
+ * regular file — observed on GitHub-hosted Ubuntu runners. A real temp
+ * file sidesteps this entirely and is at least as safe: still argv-only
+ * (no shell), mode 0600, and removed immediately after the `nft` call
+ * regardless of success or failure.
+ */
+const defaultRulesetFile: MicrovmNetworkRulesetFile = {
+  write: async (contents) => {
+    const rulesetPath = path.join(os.tmpdir(), `awf-nft-${randomBytes(8).toString('hex')}.nft`);
+    await fs.writeFile(rulesetPath, contents, { mode: 0o600 });
+    return rulesetPath;
+  },
+  remove: (rulesetPath) => fs.rm(rulesetPath, { force: true }),
+};
+
 /**
  * Dependency-injected argv-only Linux networking operations.
  */
@@ -115,6 +145,7 @@ export class LinuxNetworkCommands {
       nft: 'nft',
       sysctl: 'sysctl',
     },
+    private readonly rulesetFile: MicrovmNetworkRulesetFile = defaultRulesetFile,
   ) {}
 
   ip(args: readonly string[], reject = true): Promise<unknown> {
@@ -141,17 +172,32 @@ export class LinuxNetworkCommands {
     );
   }
 
-  nftInNamespace(
+  async nftInNamespace(
     namespaceName: string,
     args: readonly string[],
     input?: string,
     reject = true,
   ): Promise<unknown> {
-    return this.execute(
-      this.tools.ip,
-      ['netns', 'exec', namespaceName, this.tools.nft, ...args],
-      { reject, ...(input === undefined ? {} : { input }) },
-    );
+    if (input === undefined) {
+      return this.execute(
+        this.tools.ip,
+        ['netns', 'exec', namespaceName, this.tools.nft, ...args],
+        { reject },
+      );
+    }
+    const rulesetPath = await this.rulesetFile.write(input);
+    try {
+      // Substitute the "read from stdin" placeholder ("-") with the real
+      // ruleset file path; any other args pass through unchanged.
+      const resolvedArgs = args.map((arg) => (arg === '-' ? rulesetPath : arg));
+      return await this.execute(
+        this.tools.ip,
+        ['netns', 'exec', namespaceName, this.tools.nft, ...resolvedArgs],
+        { reject },
+      );
+    } finally {
+      await this.rulesetFile.remove(rulesetPath);
+    }
   }
 }
 
