@@ -17,6 +17,10 @@ describe('container-runtime', () => {
       expect(resolveDockerRuntime('firecracker')).toBeUndefined();
     });
 
+    it('returns undefined for Cloud Hypervisor (no OCI runtime)', () => {
+      expect(resolveDockerRuntime('cloud-hypervisor')).toBeUndefined();
+    });
+
     it('passes through unknown runtime names unchanged', () => {
       expect(resolveDockerRuntime('kata')).toBe('kata');
       expect(resolveDockerRuntime('custom-runtime')).toBe('custom-runtime');
@@ -38,6 +42,10 @@ describe('container-runtime', () => {
 
     it('returns false for Firecracker', () => {
       expect(runtimeNeedsStaticDns('firecracker')).toBe(false);
+    });
+
+    it('returns false for Cloud Hypervisor', () => {
+      expect(runtimeNeedsStaticDns('cloud-hypervisor')).toBe(false);
     });
 
     it('returns false for unknown runtimes', () => {
@@ -65,6 +73,10 @@ describe('container-runtime', () => {
 
     it('returns false for Firecracker (no host-agent iptables)', () => {
       expect(runtimeUsesIptables('firecracker')).toBe(false);
+    });
+
+    it('returns false for Cloud Hypervisor (no host-agent iptables)', () => {
+      expect(runtimeUsesIptables('cloud-hypervisor')).toBe(false);
     });
 
     it('returns true for unknown runtimes (share host netns)', () => {
@@ -95,6 +107,10 @@ describe('container-runtime', () => {
 
     it('returns false for the Firecracker microVM model', () => {
       expect(runtimeUsesComposeAgent('firecracker')).toBe(false);
+    });
+
+    it('returns false for the Cloud Hypervisor microVM model', () => {
+      expect(runtimeUsesComposeAgent('cloud-hypervisor')).toBe(false);
     });
 
     it('returns true for unknown runtimes (assumed compose)', () => {

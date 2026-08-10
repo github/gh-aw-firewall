@@ -9,16 +9,18 @@ import {
 
 /**
  * Fail-closed host and artifact validation for the Cloud Hypervisor v53.0
- * foundation. This module intentionally mirrors
+ * runtime. This module intentionally mirrors
  * `src/firecracker/preflight.ts`'s trust-check patterns (absolute paths,
  * root/operator-owned non-writable regular files, trusted ancestor
  * directories, digest pinning, PATH-resolved but ownership-verified host
  * tools) so both VMM backends share the same fail-closed posture.
  *
- * There is no lifecycle backend yet — this is exercised only by unit tests
- * and by a future layer that wires up Cloud Hypervisor workload execution.
  * Cloud Hypervisor has no jailer-equivalent process, so there is no paired
  * binary version cross-check the way Firecracker cross-checks jailer.
+ * Instead `src/cloud-hypervisor/launcher.ts` builds an equivalent
+ * network-namespace-join + privilege-drop + Landlock/seccomp launch using
+ * the `setpriv` tool resolved here, and `src/cloud-hypervisor/manager.ts`
+ * stages artifacts into a private, non-world-readable run directory.
  */
 
 export interface CloudHypervisorPreflightDependencies {
@@ -47,9 +49,16 @@ export type CloudHypervisorHostToolPaths = Readonly<{
   debugfs: string;
   e2fsck: string;
   rsync: string;
+  /**
+   * util-linux `setpriv`, used by the launcher to drop to the non-root
+   * operator uid/gid and clear capabilities/groups after joining the
+   * per-run network namespace (there is no jailer-equivalent process to do
+   * this for Cloud Hypervisor). See `src/cloud-hypervisor/launcher.ts`.
+   */
+  setpriv: string;
 }>;
 const CLOUD_HYPERVISOR_HOST_TOOLS: (keyof CloudHypervisorHostToolPaths)[] = [
-  'ip', 'nft', 'sysctl', 'mke2fs', 'debugfs', 'e2fsck', 'rsync',
+  'ip', 'nft', 'sysctl', 'mke2fs', 'debugfs', 'e2fsck', 'rsync', 'setpriv',
 ];
 
 const defaultDependencies: CloudHypervisorPreflightDependencies = {

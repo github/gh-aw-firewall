@@ -47,7 +47,7 @@ The system is orchestrated by `src/cli.ts` and managed by `src/docker-manager.ts
 - **[docs/releasing.md](docs/releasing.md)** - Release process and versioning instructions
 - **[docs/INTEGRATION-TESTS.md](docs/INTEGRATION-TESTS.md)** - Integration test coverage guide with gap analysis
 - **[docs/enclaves-architecture.md](docs/enclaves-architecture.md)** - Unified enclave architecture, MCP gateway handoff, migration, and coverage notes
-- **[docs/cloud-hypervisor-foundation.md](docs/cloud-hypervisor-foundation.md)** - Cloud Hypervisor microVM foundation (config/artifacts/preflight only; not yet a runnable backend)
+- **[docs/cloud-hypervisor-foundation.md](docs/cloud-hypervisor-foundation.md)** - Cloud Hypervisor v53.0 microVM backend (preview): REST API client, secure launcher (network-namespace join + privilege drop + Landlock/seccomp in place of a jailer), manager/backend, GitHub-hosted Ubuntu x86_64 KVM runners only
 
 ## Development Workflow
 

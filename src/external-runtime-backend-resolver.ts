@@ -3,6 +3,7 @@ import { runtimeUsesComposeAgent } from './container-runtime';
 import type { ExternalAgentRuntimeBackend } from './external-runtime-backend';
 import { createSbxRuntimeBackend } from './sbx-runtime-backend';
 import { createFirecrackerRuntimeBackend } from './firecracker-runtime-backend';
+import { createCloudHypervisorRuntimeBackend } from './cloud-hypervisor-runtime-backend';
 import type { WrapperConfig } from './types';
 
 interface ExternalRuntimeBackendFactoryContext {
@@ -23,6 +24,8 @@ const EXTERNAL_RUNTIME_BACKENDS: ExternalRuntimeBackendRegistry = {
     createSbxRuntimeBackend(config, startInfrastructure),
   firecracker: ({ config, startInfrastructure }) =>
     createFirecrackerRuntimeBackend(config, startInfrastructure),
+  'cloud-hypervisor': ({ config, startInfrastructure }) =>
+    createCloudHypervisorRuntimeBackend(config, startInfrastructure),
 };
 
 /**
@@ -44,6 +47,11 @@ export function resolveExternalRuntimeBackend(
   if (runtime === 'firecracker' && !config.firecracker?.previewEnabled) {
     throw new Error(
       'Firecracker workload execution requires explicit --firecracker-preview opt-in',
+    );
+  }
+  if (runtime === 'cloud-hypervisor' && !config.cloudHypervisor?.previewEnabled) {
+    throw new Error(
+      'Cloud Hypervisor workload execution requires explicit --cloud-hypervisor-preview opt-in',
     );
   }
   const factory = runtime ? registry[runtime] : undefined;

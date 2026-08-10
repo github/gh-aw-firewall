@@ -76,7 +76,7 @@ following top-level properties. All are OPTIONAL:
 | `security` | object | Security and isolation settings |
 | `container` | object | Container and Docker settings |
 | `firecracker` | object | Firecracker v1.16.1 control-plane preview settings |
-| `cloudHypervisor` | object | Cloud Hypervisor v53.0 foundation settings (artifacts/digests only; no lifecycle backend yet — see §4.1) |
+| `cloudHypervisor` | object | Cloud Hypervisor v53.0 microVM preview settings (see §4.1) |
 | `chroot` | object | Chroot execution overrides for split-filesystem ARC/DinD runners |
 | `dind` | object | Bootstrap helpers for ARC/DinD split runner/daemon filesystems |
 | `runner` | object | Runner topology declaration (standard vs. ARC/DinD) |
@@ -89,20 +89,27 @@ following top-level properties. All are OPTIONAL:
 Property-level constraints, types, and descriptions are defined
 normatively by `docs/awf-config.schema.json`.
 
-### 4.1 Cloud Hypervisor foundation (not yet a runnable backend)
+### 4.1 Cloud Hypervisor microVM preview
 
 The `cloudHypervisor` surface pins Cloud Hypervisor v53.0 artifacts and
 digests (binary, PCI-capable guest kernel, rootfs, and the shared AWF guest
-supervisor) so a config document can be prepared and round-tripped ahead of
-time. **It has no lifecycle backend in this release**: `cloud-hypervisor` is
-not a valid `container.containerRuntime` value, and supplying
-`cloudHypervisor` options does not execute any workload. Supported host
-target is GitHub-hosted Ubuntu `x86_64` runners with KVM only; self-hosted
-and non-Ubuntu/non-x86_64 hosts are out of scope. See
+supervisor) and, like Firecracker, requires explicit
+`--cloud-hypervisor-preview` opt-in plus `container.containerRuntime:
+"cloud-hypervisor"` to execute a workload. Supported host target is
+GitHub-hosted Ubuntu `x86_64` runners with KVM only — self-hosted and
+non-Ubuntu/non-x86_64 hosts are rejected explicitly by
+[`src/cloud-hypervisor/host-eligibility.ts`](../src/cloud-hypervisor/host-eligibility.ts),
+unlike Firecracker's preview which permits self-hosted hosts. See
 [`src/cloud-hypervisor/preflight.ts`](../src/cloud-hypervisor/preflight.ts)
-for the artifact/host trust-check module and
-[`guest/cloud-hypervisor/`](../guest/cloud-hypervisor/) for the guest
-artifact build/verification pipeline.
+for the artifact/host trust-check module,
+[`src/cloud-hypervisor/launcher.ts`](../src/cloud-hypervisor/launcher.ts)
+for the secure host launcher (network-namespace join, privilege drop, and
+Landlock-based filesystem confinement in place of Firecracker's jailer),
+[`src/cloud-hypervisor/manager.ts`](../src/cloud-hypervisor/manager.ts) for
+the VM lifecycle, and [`guest/cloud-hypervisor/`](../guest/cloud-hypervisor/)
+for the guest artifact build/verification pipeline. See
+[docs/cloud-hypervisor-foundation.md](./cloud-hypervisor-foundation.md) for
+the full architecture and security-boundary writeup.
 
 ## 5. CLI Mapping
 
@@ -220,7 +227,7 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 - `firecracker.sha256.kernel` → `--firecracker-kernel-sha256`
 - `firecracker.sha256.rootfs` → `--firecracker-rootfs-sha256`
 - `firecracker.sha256.supervisor` → `--firecracker-supervisor-sha256`
-- `cloudHypervisor.previewEnabled` → `--cloud-hypervisor-preview` *(foundation only; does not enable workload execution)*
+- `cloudHypervisor.previewEnabled` → `--cloud-hypervisor-preview` *(requires `container.containerRuntime: "cloud-hypervisor"` and a GitHub-hosted Ubuntu x86_64 KVM runner to execute a workload)*
 - `cloudHypervisor.cloudHypervisorBinary` → `--cloud-hypervisor-binary`
 - `cloudHypervisor.kernelPath` → `--cloud-hypervisor-kernel`
 - `cloudHypervisor.rootfsPath` → `--cloud-hypervisor-rootfs`

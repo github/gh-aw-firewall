@@ -12,7 +12,7 @@ const optionGroupHeaders: Record<string, string> = {
   'allow-domains': 'Domain Filtering:',
   'build-local': 'Image Management:',
   'firecracker-preview': 'Firecracker Preview:',
-  'cloud-hypervisor-preview': 'Cloud Hypervisor Preview (foundation only, not yet runnable):',
+  'cloud-hypervisor-preview': 'Cloud Hypervisor Preview (GitHub-hosted Ubuntu x86_64 KVM only):',
   'env': 'Container Configuration:',
   'dns-servers': 'Network & Security:',
   'upstream-proxy': 'Network & Security:',
@@ -178,6 +178,8 @@ program
    '                                       "gvisor" — OCI runtime via Docker Compose (translates to runsc).\n' +
    '                                       "sbx" — Docker sbx microVM with hypervisor isolation.\n' +
    '                                       "firecracker" — explicit Linux/KVM Firecracker v1.16.1 preview.\n' +
+   '                                       "cloud-hypervisor" — explicit GitHub-hosted Ubuntu x86_64 KVM\n' +
+   '                                       Cloud Hypervisor v53.0 preview.\n' +
    '                                       Unknown values are passed through as raw Docker runtime names.'
   )
   .option(
@@ -200,15 +202,16 @@ program
   .option('--firecracker-rootfs-sha256 <digest>', 'Expected SHA-256 digest of the guest rootfs.')
   .option('--firecracker-supervisor-sha256 <digest>', 'Expected SHA-256 digest of the AWF guest supervisor.')
 
-  // -- Cloud Hypervisor Preview (foundation only) --
+  // -- Cloud Hypervisor Preview --
   //
-  // NOTE: these flags only accept and validate configuration/artifact inputs.
-  // There is no lifecycle backend yet, so "cloud-hypervisor" is NOT a valid
-  // --container-runtime value and no workload can be executed with it.
+  // NOTE: like Firecracker, this requires explicit --cloud-hypervisor-preview
+  // opt-in plus --container-runtime cloud-hypervisor and is supported only
+  // on GitHub-hosted Ubuntu x86_64 KVM runners (self-hosted is unsupported).
   .option(
    '--cloud-hypervisor-preview',
-   `Reserve Cloud Hypervisor v${CLOUD_HYPERVISOR_RELEASE_VERSION} configuration for a future preview.\n` +
-   '                                       Foundation only: no runtime is registered yet and this cannot execute workloads.',
+   `Enable the Cloud Hypervisor v${CLOUD_HYPERVISOR_RELEASE_VERSION} workload-execution preview.\n` +
+   '                                       GitHub-hosted Ubuntu x86_64 KVM runners only. Requires local Docker\n' +
+   '                                       and pinned guest artifacts.',
    false
   )
   .option('--cloud-hypervisor-binary <path>', `Path to the Cloud Hypervisor v${CLOUD_HYPERVISOR_RELEASE_VERSION} binary.`)

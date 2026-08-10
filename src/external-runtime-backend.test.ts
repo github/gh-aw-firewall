@@ -77,6 +77,25 @@ describe('external runtime backend', () => {
 
     expect(backend?.runtime).toBe('firecracker');
   });
+
+  it('requires explicit Cloud Hypervisor preview opt-in during resolution', () => {
+    const config = {
+      containerRuntime: 'cloud-hypervisor',
+      cloudHypervisor: { previewEnabled: false },
+    } as WrapperConfig;
+    expect(() => resolveExternalRuntimeBackend(config, startInfrastructure))
+      .toThrow(/explicit --cloud-hypervisor-preview/);
+    expect(startInfrastructure).not.toHaveBeenCalled();
+  });
+
+  it('uses the registered Cloud Hypervisor factory after preview opt-in', () => {
+    const backend = resolveExternalRuntimeBackend({
+      containerRuntime: 'cloud-hypervisor',
+      cloudHypervisor: { previewEnabled: true },
+    } as WrapperConfig, startInfrastructure);
+
+    expect(backend?.runtime).toBe('cloud-hypervisor');
+  });
   it('adapts start and exec without changing arguments or exit codes', async () => {
     const backend = createBackend();
     const adapted = adaptExternalRuntimeBackend(backend);

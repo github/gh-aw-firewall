@@ -314,13 +314,13 @@ function parsePositiveIntegerOption(
 }
 
 /**
- * Builds the Cloud Hypervisor foundation config (artifacts/digests only).
- *
- * There is no lifecycle backend for this runtime yet, so `selected` only
- * mirrors the Firecracker pattern for config round-trip/test symmetry —
- * `--container-runtime cloud-hypervisor` is rejected explicitly elsewhere
- * (see `assertCloudHypervisorNotYetAvailable`) before this config could ever
- * drive workload execution.
+ * Builds the Cloud Hypervisor microVM runtime config (artifacts/digests
+ * plus vcpu/memory/timeout settings). `selected` mirrors the Firecracker
+ * pattern: `--container-runtime cloud-hypervisor` requires explicit
+ * `--cloud-hypervisor-preview` opt-in and full artifact/digest
+ * configuration, enforced by
+ * `assertCloudHypervisorRuntimeCompatibility` in
+ * `src/cloud-hypervisor/runtime-validation.ts`.
  */
 function buildCloudHypervisorConfig(
   options: Record<string, unknown>,

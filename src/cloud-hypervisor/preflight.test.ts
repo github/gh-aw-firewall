@@ -179,6 +179,7 @@ describe('Cloud Hypervisor preflight (foundation only)', () => {
       debugfs: '/usr/bin/debugfs',
       e2fsck: '/usr/bin/e2fsck',
       rsync: '/usr/bin/rsync',
+      setpriv: '/usr/bin/setpriv',
     });
   });
 
