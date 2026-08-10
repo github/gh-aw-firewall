@@ -51,6 +51,7 @@ function dependencies(
     assertToolAvailable: jest.fn(async (tool: string) => `/usr/bin/${tool}`),
     assertHostPolicy: jest.fn().mockResolvedValue(2),
     assertDockerInfrastructure: jest.fn().mockResolvedValue(undefined),
+    resolveKvmGid: jest.fn().mockResolvedValue(978),
     ...overrides,
   };
 }
@@ -129,6 +130,10 @@ describe('Cloud Hypervisor preflight (foundation only)', () => {
       ['compose', 'version'],
       expect.objectContaining({ timeout: 10_000, reject: false }),
     );
+
+    const statSpy = jest.spyOn(fs, 'stat').mockResolvedValue({ gid: 978 } as never);
+    await expect(defaults.resolveKvmGid()).resolves.toBe(978);
+    expect(statSpy).toHaveBeenCalledWith('/dev/kvm');
   });
 
   it('reports host policy and Docker probe failures', async () => {
@@ -143,6 +148,19 @@ describe('Cloud Hypervisor preflight (foundation only)', () => {
     } as never);
     await expect(defaults.assertDockerInfrastructure('/usr/bin/docker'))
       .rejects.toThrow(/\/usr\/bin\/docker info failed.*daemon unavailable/);
+  });
+
+  it('rejects cgroup v1-only hosts explicitly instead of falling back', async () => {
+    const defaults = cloudHypervisorPreflightTestHelpers.defaultDependencies;
+    jest.spyOn(process, 'getuid').mockReturnValue(0);
+    jest.spyOn(fs, 'access').mockImplementation(async (target) => {
+      if (target === '/sys/fs/cgroup/cgroup.controllers') {
+        throw new Error('no cgroup v2');
+      }
+      return undefined;
+    });
+    await expect(defaults.assertHostPolicy())
+      .rejects.toThrow(/requires the cgroup v2 unified hierarchy.*no cgroup v2/);
   });
 
   it('parses Cloud Hypervisor release output', () => {
@@ -164,6 +182,8 @@ describe('Cloud Hypervisor preflight (foundation only)', () => {
 
     expect(result.version).toBe('53.0');
     expect(result.cgroupVersion).toBe(2);
+    expect(result.kvmGid).toBe(978);
+    expect(deps.resolveKvmGid).toHaveBeenCalledTimes(1);
     expect(deps.access).toHaveBeenCalledWith(
       '/dev/kvm',
       constants.R_OK | constants.W_OK,

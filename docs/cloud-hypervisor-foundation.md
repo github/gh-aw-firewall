@@ -67,15 +67,27 @@ isolation), different VMM implementation and host launch strategy.
    for the secure host launch:
    - `buildCloudHypervisorLaunchCommand()` builds the exact argv AWF spawns:
      `ip netns exec <namespace> setpriv --reuid=<uid> --regid=<gid>
-     --clear-groups --no-new-privs --inh-caps=-all --bounding-set=-all --
-     cloud-hypervisor --api-socket path=<path> --log-file <path> -v
-     --seccomp true`. No shell is ever invoked — this argv is passed
-     directly to `execa`, never interpolated into a shell string.
+     --groups=<kvm-gid> --no-new-privs --inh-caps=-all --bounding-set=-all
+     -- cloud-hypervisor --api-socket path=<path> --log-file <path> -v
+     --seccomp true`. `--groups=<kvm-gid>` replaces the operator's full
+     supplementary group list with only the group that owns `/dev/kvm`
+     (resolved by preflight) — a blanket `--clear-groups` would also drop
+     kvm-group access and make every real launch fail with EACCES. No
+     shell is ever invoked — this argv is passed directly to `execa`,
+     never interpolated into a shell string.
    - `computeCloudHypervisorLandlockRules()` computes the minimal
      `landlock_rules` list sent in the `vm.create` payload.
-   - `CloudHypervisorCgroup` creates a per-run cgroup (v1 or v2, matching
-     what preflight detects) with explicit `memory.max`/`cpu.max`/`pids.max`
-     (or their v1 equivalents) and assigns the launched process's PID to it.
+   - `CloudHypervisorCgroup` manages a cgroup v2 hierarchy: it enables
+     `cpu`/`memory`/`pids` delegation (`cgroup.subtree_control`) at the
+     cgroup root and the shared parent directory before creating the
+     per-run leaf cgroup (cgroup v2 only materializes a controller's
+     interface files in a child once the parent delegates it), writes
+     explicit `memory.max`/`cpu.max`/`pids.max`, and assigns the launched
+     process's PID to it. Cleanup uses a plain `rmdir` on the leaf —
+     cgroupfs's controller files are virtual and a recursive `rm` fails.
+     `runCloudHypervisorPreflight` rejects cgroup v1-only hosts explicitly
+     (see Part 4) rather than falling back to a v1 hierarchy this class
+     does not manage.
 3. **`src/cloud-hypervisor/manager.ts`** — `CloudHypervisorManager` owns one
    run end to end: preflight → network namespace setup (reusing
    `src/microvm/network.ts` unchanged) → workspace image preparation
@@ -107,7 +119,7 @@ awf --container-runtime cloud-hypervisor --cloud-hypervisor-preview ...
     ↓
 assertCloudHypervisorRuntimeCompatibility() — security mode, topology, GitHub-hosted host eligibility, artifact/digest completeness
     ↓
-runCloudHypervisorPreflight() — Linux/KVM/x86_64, /dev/kvm, cgroup version, trusted host tools incl. setpriv, trusted+pinned+digest-verified artifacts
+runCloudHypervisorPreflight() — Linux/KVM/x86_64, /dev/kvm + owning gid, cgroup v2 (v1-only hosts rejected), trusted host tools incl. setpriv, trusted+pinned+digest-verified artifacts
     ↓
 CloudHypervisorManager.start()
     ↓
@@ -115,9 +127,9 @@ MicrovmNetworkManager.setup() (netns, veth, TAP, nftables — shared with Firecr
     ↓
 MicrovmWorkspaceImage.prepare() (workspace + rootfs staging — shared with Firecracker)
     ↓
-private run directory (0700, owned by non-root operator identity) + per-run cgroup
+private run directory under /run/awf-cloud-hypervisor (0711 ancestors, 0700 leaf owned by the non-root identity) + per-run cgroup v2 (subtree_control delegated root→parent→leaf)
     ↓
-buildCloudHypervisorLaunchCommand() → ip netns exec → setpriv → cloud-hypervisor --api-socket ... --seccomp true
+buildCloudHypervisorLaunchCommand() → ip netns exec → setpriv --groups=<kvm-gid> → cloud-hypervisor --api-socket ... --seccomp true (minimal PATH-only environment)
     ↓
 wait for API socket → vmm.ping → vm.create (landlock_enable: true, minimal landlock_rules)
     ↓
@@ -142,16 +154,27 @@ boundary:
    (the same TAP/veth/nftables topology Firecracker uses), without an
    intermediate fork — the resulting process keeps the PID the host
    observes for cgroup assignment.
-2. **Privilege drop.** `setpriv --reuid=<uid> --regid=<gid> --clear-groups
-   --no-new-privs --inh-caps=-all --bounding-set=-all` execs Cloud
-   Hypervisor as the same non-root operator identity Firecracker's jailer
-   targets (`SUDO_UID`/`SUDO_GID`), with an empty capability bounding set
-   and `no_new_privs` set, before any guest code runs.
+2. **Privilege drop.** `setpriv --reuid=<uid> --regid=<gid>
+   --groups=<kvm-gid> --no-new-privs --inh-caps=-all --bounding-set=-all`
+   execs Cloud Hypervisor as the same non-root operator identity
+   Firecracker's jailer targets (`SUDO_UID`/`SUDO_GID`), with an empty
+   capability bounding set and `no_new_privs` set, before any guest code
+   runs. `--groups=<kvm-gid>` replaces the operator's supplementary group
+   list with only the group that owns `/dev/kvm` (resolved by preflight);
+   a blanket `--clear-groups` would also drop that membership and make
+   every real launch fail opening `/dev/kvm` even though root-run
+   preflight passed.
 3. **Filesystem confinement.** In place of jailer's userspace chroot, AWF
    combines:
-   - a **private run directory** (`cloud-hypervisor-run/<binary>/<runId>/`,
-     mode `0700`, owned by the target uid/gid) holding only the staged
-     kernel/rootfs/workspace images and the API/VSOCK sockets;
+   - a **private run directory** under `/run/awf-cloud-hypervisor/<binary>/<runId>/`
+     — deliberately **outside** `workDir` (which is root-owned `0700`
+     because it holds `docker-compose.yml`'s plaintext secrets). Since
+     there is no `chroot()` to make host-side ancestor permissions
+     irrelevant, the non-root launched process must be able to really
+     traverse down to the run directory: the two ancestor levels are
+     `0711` (traversable/executable by any uid, but not listable), and
+     only the per-run leaf directory is chowned to the target identity
+     with `0700` (so only that identity, or root, can read its contents);
    - **Landlock**, a Linux LSM, enabled via `landlock_enable: true` in the
      `vm.create` payload with a minimal `landlock_rules` list (kernel image
      read-only; rootfs, workspace, and the run directory read-write;
@@ -167,17 +190,26 @@ boundary:
    `src/cloud-hypervisor/launcher.test.ts` (argv construction, Landlock rule
    computation, cgroup lifecycle) rather than silently degraded to "no
    filesystem confinement".
-4. **Resource limits.** A dedicated cgroup (v1 or v2, matching what
-   preflight detects) is created before launch with explicit
-   `memory.max`/`cpu.max`/`pids.max` (or v1 equivalents) derived from the
-   configured vcpu count and memory size, and the launched process's PID is
-   assigned to it immediately after spawn.
+4. **Resource limits.** A dedicated cgroup **v2** hierarchy is created
+   before launch: `cpu`/`memory`/`pids` delegation is enabled at the
+   cgroup root and the shared parent directory (`cgroup.subtree_control`)
+   before the per-run leaf cgroup is created, then explicit
+   `memory.max`/`cpu.max`/`pids.max` are written and the launched
+   process's PID is assigned to it immediately after spawn. Cgroup v1-only
+   hosts are rejected explicitly at preflight (see Part 4) rather than
+   silently constructing a broken multi-controller v1 hierarchy.
 5. **The management API socket is never guest-accessible.** It lives only
    in the host-side private run directory; it is never passed to the guest
    as a drive, vsock, or virtio-fs device, and Landlock additionally blocks
    any *new* open() of it by the Cloud Hypervisor process after `vm.create`
    (the already-open listening socket is unaffected, matching how a
    jailer-chrooted Firecracker keeps its already-open resources).
+6. **Minimal launcher environment.** The launched process receives an
+   explicit minimal environment (just `PATH`), never `process.env` —
+   Cloud Hypervisor directly parses untrusted guest/device input, so a VMM
+   compromise reading its own inherited environment could otherwise read
+   provider/GitHub credentials and bypass the API-proxy credential
+   isolation boundary entirely.
 
 ## Part 4 — Prerequisites and supported hosts
 
@@ -189,6 +221,7 @@ boundary:
 | Distribution | Ubuntu (`ImageOS` must start with `ubuntu`) |
 | Architecture | x86_64 only |
 | KVM device | `/dev/kvm` must exist and be readable + writable |
+| Cgroup hierarchy | **cgroup v2 unified only** (`/sys/fs/cgroup/cgroup.controllers` must exist) — cgroup v1-only hosts are rejected explicitly; see `CloudHypervisorCgroup` in Part 3 |
 | Self-hosted runners | **Explicitly rejected** — see `src/cloud-hypervisor/host-eligibility.ts` |
 
 Host eligibility is checked in two layers: `evaluateGithubHostedRunnerEligibility()`
@@ -297,8 +330,9 @@ config-file/CLI mapping.
 - `tsc --noEmit -p tsconfig.check.json`: clean.
 - Full Jest suite: all suites passing, including new coverage for the API
   client (typed requests, chained-error parsing, timeout/size bounds),
-  launcher (argv construction, Landlock rule computation, cgroup v1/v2
-  lifecycle), manager (launch, partial-start rollback, workspace/vsock
+  launcher (argv construction, kvm-gid retention, Landlock rule
+  computation, cgroup v2 subtree_control delegation ordering and rmdir-only
+  cleanup), manager (launch, partial-start rollback, workspace/vsock
   lifecycle, keep-mode preservation, termination-confirmation retry,
   natural-exit wait, `vm.create` failure rollback, signal-exit fast-fail,
   bounded diagnostics with `vm.counters`), backend (host-eligibility gating,

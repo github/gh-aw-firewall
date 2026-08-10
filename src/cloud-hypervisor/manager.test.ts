@@ -107,6 +107,7 @@ function dependencies(
       tools: hostTools,
       supervisorPath: '/opt/awf-supervisor',
       cgroupVersion: 2,
+      kvmGid: 978,
     }),
     launch: jest.fn().mockReturnValue(processMock()),
     mkdir: jest.fn().mockResolvedValue(undefined),
@@ -134,7 +135,8 @@ describe('CloudHypervisorManager', () => {
     const child = defaults.launch(process.execPath, ['-e', ''], {
       reject: false,
       stdio: ['ignore', 'pipe', 'pipe'],
-      env: process.env,
+      env: { PATH: '/usr/bin' },
+      extendEnv: false,
     });
     await expect(child).resolves.toMatchObject({ exitCode: 0 });
     await expect(defaults.sleep(0)).resolves.toBeUndefined();
@@ -152,7 +154,7 @@ describe('CloudHypervisorManager', () => {
       gid: 1000,
     }, hostTools)).toBeDefined();
     expect(defaults.createVsockClient('/tmp/vsock.socket', 52, 100)).toBeDefined();
-    expect(defaults.createCgroup('/sys/fs/cgroup/awf/run', 2, { memoryMib: 512, vcpuCount: 2 })).toBeDefined();
+    expect(defaults.createCgroup('/sys/fs/cgroup/awf/run', { memoryMib: 512, vcpuCount: 2 })).toBeDefined();
 
     const originalSudoUid = process.env.SUDO_UID;
     const originalSudoGid = process.env.SUDO_GID;
@@ -180,22 +182,16 @@ describe('CloudHypervisorManager', () => {
     }
   });
 
-  it('constructs unique, contained run paths', () => {
-    const first = createCloudHypervisorRunPaths('/tmp/awf', '/opt/cloud-hypervisor');
-    const second = createCloudHypervisorRunPaths('/tmp/awf', '/opt/cloud-hypervisor');
+  it('constructs unique, contained run paths outside workDir', () => {
+    const first = createCloudHypervisorRunPaths('/opt/cloud-hypervisor');
+    const second = createCloudHypervisorRunPaths('/opt/cloud-hypervisor');
     expect(first.runId).not.toBe(second.runId);
-    expect(first.runDirectory).toContain('/tmp/awf/cloud-hypervisor-run/cloud-hypervisor/');
+    expect(first.runDirectory).toContain('/run/awf-cloud-hypervisor/cloud-hypervisor/');
+    expect(first.cgroupPath).toContain('/sys/fs/cgroup/awf-cloud-hypervisor/');
     expect(() => createCloudHypervisorRunPaths(
-      '/tmp/awf',
       '/opt/cloud-hypervisor',
-      2,
       '../escape',
     )).toThrow(/Unsafe microVM run id/);
-  });
-
-  it('uses the cgroup v1 root when preflight reports cgroup v1', () => {
-    const paths = createCloudHypervisorRunPaths('/tmp/awf', '/opt/cloud-hypervisor', 1, 'run-1');
-    expect(paths.cgroupPath).toBe('/sys/fs/cgroup/memory/awf-cloud-hypervisor/run-1');
   });
 
   it('launches via the secure launcher and creates/boots the VM over the API', async () => {
@@ -216,9 +212,16 @@ describe('CloudHypervisorManager', () => {
         '/usr/bin/setpriv',
         '--reuid=1000',
         '--regid=1000',
+        '--groups=978',
       ]),
-      expect.objectContaining({ reject: false }),
+      expect.objectContaining({
+        reject: false,
+        extendEnv: false,
+        env: { PATH: expect.stringContaining('/bin') },
+      }),
     );
+    const launchEnv = (deps.launch as jest.Mock).mock.calls[0][2].env as NodeJS.ProcessEnv;
+    expect(Object.keys(launchEnv)).toEqual(['PATH']);
     expect(client.vmCreate).toHaveBeenCalledWith(expect.objectContaining({
       cpus: { boot_vcpus: 2, max_vcpus: 2 },
       memory: { size: 512 * 1024 * 1024 },
@@ -229,12 +232,26 @@ describe('CloudHypervisorManager', () => {
     expect(client.ping).toHaveBeenCalledTimes(1);
     expect(deps.createCgroup).toHaveBeenCalledWith(
       expect.stringContaining('awf-cloud-hypervisor/run-1'),
-      2,
       { memoryMib: 512, vcpuCount: 2 },
     );
     const cgroup = (deps.createCgroup as jest.Mock).mock.results[0].value as CloudHypervisorCgroup;
     expect(cgroup.setup).toHaveBeenCalledTimes(1);
     expect(cgroup.assign).toHaveBeenCalledWith(4242);
+    // Private run directory: ancestor levels stay traversable-only (0711,
+    // root-owned); only the leaf is chowned to the non-root identity.
+    expect(deps.mkdir).toHaveBeenCalledWith('/run/awf-cloud-hypervisor', { recursive: true, mode: 0o711 });
+    expect(deps.chmod).toHaveBeenCalledWith('/run/awf-cloud-hypervisor', 0o711);
+    expect(deps.mkdir).toHaveBeenCalledWith('/run/awf-cloud-hypervisor/cloud-hypervisor', { recursive: true, mode: 0o711 });
+    expect(deps.chmod).toHaveBeenCalledWith('/run/awf-cloud-hypervisor/cloud-hypervisor', 0o711);
+    expect(deps.mkdir).toHaveBeenCalledWith(
+      '/run/awf-cloud-hypervisor/cloud-hypervisor/run-1',
+      { recursive: true, mode: 0o700 },
+    );
+    expect(deps.chown).toHaveBeenCalledWith(
+      '/run/awf-cloud-hypervisor/cloud-hypervisor/run-1',
+      1000,
+      1000,
+    );
     expect(deps.createNetwork).toHaveBeenCalledWith(
       expect.objectContaining({
         infrastructureBridge: 'awfbr0',
@@ -270,7 +287,7 @@ describe('CloudHypervisorManager', () => {
       { forceKillAfterTimeout: 2_000 },
     );
     expect(deps.rm).toHaveBeenCalledWith(
-      '/tmp/awf/cloud-hypervisor-run/cloud-hypervisor/partial',
+      '/run/awf-cloud-hypervisor/cloud-hypervisor/partial',
       { recursive: true, force: true },
     );
     const lifecycle = (deps.createNetwork as jest.Mock).mock.results[0]
@@ -391,7 +408,7 @@ describe('CloudHypervisorManager', () => {
     await manager.startInstance();
     expect(client.vmBoot).toHaveBeenCalledTimes(1);
     expect(deps.createVsockClient).toHaveBeenCalledWith(
-      expect.stringContaining('/tmp/awf/cloud-hypervisor-run/cloud-hypervisor/guest/awf-vsock.socket'),
+      expect.stringContaining('/run/awf-cloud-hypervisor/cloud-hypervisor/guest/awf-vsock.socket'),
       52,
       1,
     );
@@ -409,7 +426,7 @@ describe('CloudHypervisorManager', () => {
     expect(client.vmShutdown).toHaveBeenCalledTimes(1);
     expect(client.vmmShutdown).toHaveBeenCalledTimes(1);
     expect(workspace.extractAfterStop).toHaveBeenCalledWith(
-      expect.stringContaining('/tmp/awf/cloud-hypervisor-run/cloud-hypervisor/guest/workspace.ext4'),
+      expect.stringContaining('/run/awf-cloud-hypervisor/cloud-hypervisor/guest/workspace.ext4'),
     );
     expect(order).toEqual(['extract']);
   });

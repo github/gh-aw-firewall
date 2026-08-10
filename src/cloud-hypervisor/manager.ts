@@ -46,15 +46,24 @@ const CLOUD_HYPERVISOR_SERIAL_LOG_NAME = 'serial.log';
 const CLOUD_HYPERVISOR_CAPTURE_LIMIT_BYTES = 1024 * 1024;
 export const CLOUD_HYPERVISOR_GUEST_VSOCK_PORT = 52;
 const CLOUD_HYPERVISOR_GUEST_SHUTDOWN_GRACE_MS = 5_000;
-const CGROUP_ROOT_V2 = '/sys/fs/cgroup';
 /**
- * Best-effort cgroup v1 fallback path. GitHub-hosted Ubuntu runners (this
- * backend's only supported host) run cgroup v2 unified hierarchies
- * exclusively; this branch exists so `runCloudHypervisorPreflight`'s
- * documented v1 detection has somewhere to go, but it is not exercised by
- * the live smoke test (see docs/cloud-hypervisor-foundation.md).
+ * Private run-directory root, deliberately **outside** `workDir`.
+ *
+ * `workDir` is created root-owned mode 0700 (it holds `docker-compose.yml`
+ * with plaintext secrets — see `validateAndPrepareWorkDir` in
+ * `src/config-writer.ts`), so a non-root process can never traverse into
+ * it no matter how a leaf directory underneath it is chowned. Since this
+ * backend has no jailer to `chroot()` the launched process (which would
+ * make host-side ancestor permissions irrelevant), Cloud Hypervisor must
+ * be able to really `stat()`/`open()` its way down to the run directory
+ * post-`setpriv`. `/run` is always present, root-owned tmpfs; the two
+ * ancestor levels created under it are `0711` (traversable/executable by
+ * any uid, but not listable/readable — `ls` still fails), and only the
+ * per-run leaf directory is chowned to the non-root target identity with
+ * `0700` (so only that identity, or root, can actually read its contents).
  */
-const CGROUP_ROOT_V1 = '/sys/fs/cgroup/memory';
+const CLOUD_HYPERVISOR_RUN_ROOT = '/run/awf-cloud-hypervisor';
+const CGROUP_ROOT = '/sys/fs/cgroup';
 
 export interface CloudHypervisorRunPaths {
   runId: string;
@@ -79,6 +88,7 @@ export interface CloudHypervisorManagerDependencies {
       reject: false;
       stdio: ['ignore', 'pipe', 'pipe'];
       env: NodeJS.ProcessEnv;
+      extendEnv: false;
     },
   ): ExecaChildProcess<string>;
   mkdir(directory: string, options: { recursive: true; mode: number }): Promise<unknown>;
@@ -94,7 +104,7 @@ export interface CloudHypervisorManagerDependencies {
   createNetwork(plan: MicrovmNetworkPlan, tools: CloudHypervisorHostToolPaths): MicrovmNetworkLifecycle;
   createWorkspaceImage(config: MicrovmWorkspaceImageConfig, tools: CloudHypervisorHostToolPaths): MicrovmWorkspaceImage;
   createVsockClient(socketPath: string, guestPort: number, timeoutMs: number): MicrovmVsockClient;
-  createCgroup(cgroupPath: string, version: 1 | 2, limits: CloudHypervisorResourceLimits): CloudHypervisorCgroup;
+  createCgroup(cgroupPath: string, limits: CloudHypervisorResourceLimits): CloudHypervisorCgroup;
   resolveIdentity(): { uid: number; gid: number };
 }
 
@@ -154,7 +164,7 @@ const defaultDependencies: CloudHypervisorManagerDependencies = {
     readTimeoutMs: Math.max(timeoutMs, 30_000),
     writeTimeoutMs: timeoutMs,
   }),
-  createCgroup: (cgroupPath, version, limits) => new CloudHypervisorCgroup(cgroupPath, version, limits),
+  createCgroup: (cgroupPath, limits) => new CloudHypervisorCgroup(cgroupPath, limits),
   resolveIdentity: resolveCloudHypervisorIdentity,
 };
 
@@ -193,19 +203,16 @@ function parsePositiveIdentity(value: string | undefined): number | undefined {
 }
 
 export function createCloudHypervisorRunPaths(
-  workDir: string,
   cloudHypervisorBinary: string,
-  cgroupVersion: 1 | 2 = 2,
   runId = `awf-${process.pid}-${randomBytes(6).toString('hex')}`,
 ): CloudHypervisorRunPaths {
   assertSafeMicrovmRunId(runId);
-  const runBaseDir = path.join(workDir, 'cloud-hypervisor-run');
+  const runBaseDir = CLOUD_HYPERVISOR_RUN_ROOT;
   const runDirectory = path.join(
     runBaseDir,
     path.basename(cloudHypervisorBinary),
     runId,
   );
-  const cgroupRoot = cgroupVersion === 2 ? CGROUP_ROOT_V2 : CGROUP_ROOT_V1;
   return {
     runId,
     runBaseDir,
@@ -217,7 +224,7 @@ export function createCloudHypervisorRunPaths(
     vsockSocketPath: path.join(runDirectory, VSOCK_SOCKET_NAME),
     logPath: path.join(runDirectory, CLOUD_HYPERVISOR_LOG_NAME),
     serialLogPath: path.join(runDirectory, CLOUD_HYPERVISOR_SERIAL_LOG_NAME),
-    cgroupPath: path.join(cgroupRoot, 'awf-cloud-hypervisor', runId),
+    cgroupPath: path.join(CGROUP_ROOT, 'awf-cloud-hypervisor', runId),
   };
 }
 
@@ -255,11 +262,7 @@ export class CloudHypervisorManager {
     private readonly networkConfig?: CloudHypervisorManagerNetworkConfig,
     private readonly guestConfig?: CloudHypervisorManagerGuestConfig,
   ) {
-    // Real paths (with the correct cgroup root) are recomputed in start()
-    // once preflight reports the detected cgroup version; this constructor
-    // value only needs to be a safe placeholder for callers that read
-    // `.paths` before `start()` completes.
-    this.paths = createCloudHypervisorRunPaths(this.workDir, config.cloudHypervisorBinary, 2, runId);
+    this.paths = createCloudHypervisorRunPaths(config.cloudHypervisorBinary, runId);
   }
 
   async start(): Promise<CloudHypervisorApiClient> {
@@ -272,12 +275,6 @@ export class CloudHypervisorManager {
     let startupError: unknown;
     try {
       const artifacts = await this.dependencies.preflight(this.config);
-      this.paths = createCloudHypervisorRunPaths(
-        this.workDir,
-        this.config.cloudHypervisorBinary,
-        artifacts.cgroupVersion,
-        this.paths.runId,
-      );
       const identity = this.guestConfig?.identity ?? this.dependencies.resolveIdentity();
       const networkPlan = createMicrovmNetworkPlan(this.paths.runId, {
         ...this.networkConfig,
@@ -309,19 +306,10 @@ export class CloudHypervisorManager {
         workspaceSource = preparation.workspaceImagePath;
       }
 
-      // Private run directory: owned by the non-root target identity, mode
-      // 0700, so only that uid/gid (and root) can traverse it at all. This
-      // is the filesystem confinement boundary described in
-      // `src/cloud-hypervisor/launcher.ts` in place of a jailer chroot.
-      await this.dependencies.mkdir(this.paths.runDirectory, {
-        recursive: true,
-        mode: 0o700,
-      });
-      await this.dependencies.chown(this.paths.runDirectory, identity.uid, identity.gid);
+      await this.prepareRunDirectory(identity);
 
       this.cgroup = this.dependencies.createCgroup(
         this.paths.cgroupPath,
-        artifacts.cgroupVersion,
         { memoryMib: this.config.memoryMib, vcpuCount: this.config.vcpuCount },
       );
       await this.cgroup.setup();
@@ -338,6 +326,7 @@ export class CloudHypervisorManager {
         tools: { ip: artifacts.tools.ip, setpriv: artifacts.tools.setpriv },
         namespaceName: networkPlan.namespaceName,
         identity,
+        kvmGid: artifacts.kvmGid,
         cloudHypervisorBinary: this.config.cloudHypervisorBinary,
         apiSocketPath: this.paths.apiSocketPath,
         logFilePath: this.paths.logPath,
@@ -348,7 +337,15 @@ export class CloudHypervisorManager {
         {
           reject: false,
           stdio: ['ignore', 'pipe', 'pipe'],
-          env: { ...process.env },
+          // Explicit minimal environment: the launched process must never
+          // inherit AWF's host environment (provider/GitHub credentials
+          // the guest environment deliberately excludes). Cloud Hypervisor
+          // directly processes untrusted guest/device input, so a VMM
+          // compromise reading `process.env` would bypass the API-proxy
+          // credential isolation boundary entirely. `extendEnv: false`
+          // stops execa from merging this back with `process.env`.
+          extendEnv: false,
+          env: buildLauncherEnvironment(),
         },
       );
       this.process.stdout?.on('data', (chunk: Buffer | string) => {
@@ -715,6 +712,26 @@ export class CloudHypervisorManager {
     );
   }
 
+  /**
+   * Creates the private run-directory chain with real traversal
+   * permissions for the non-root target identity: the two ancestor
+   * levels (`CLOUD_HYPERVISOR_RUN_ROOT` and the per-binary directory
+   * beneath it) are `0711` root-owned (executable/traversable by any uid,
+   * but not listable), and only the per-run leaf directory is chowned to
+   * the target identity with `0700` (so only that identity, or root, can
+   * actually read its contents). See the `CLOUD_HYPERVISOR_RUN_ROOT`
+   * comment above for why this can't simply live under `workDir`.
+   */
+  private async prepareRunDirectory(identity: { uid: number; gid: number }): Promise<void> {
+    const binaryDir = path.dirname(this.paths.runDirectory);
+    await this.dependencies.mkdir(this.paths.runBaseDir, { recursive: true, mode: 0o711 });
+    await this.dependencies.chmod(this.paths.runBaseDir, 0o711);
+    await this.dependencies.mkdir(binaryDir, { recursive: true, mode: 0o711 });
+    await this.dependencies.chmod(binaryDir, 0o711);
+    await this.dependencies.mkdir(this.paths.runDirectory, { recursive: true, mode: 0o700 });
+    await this.dependencies.chown(this.paths.runDirectory, identity.uid, identity.gid);
+  }
+
   private async stageArtifact(
     source: string,
     destination: string,
@@ -778,6 +795,21 @@ export function buildSupervisorBootArgs(
 
 function formatError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * Explicit, minimal environment for the launched `ip netns exec ... setpriv
+ * ... cloud-hypervisor` process. Deliberately does **not** include
+ * `process.env` — Cloud Hypervisor directly parses untrusted guest/device
+ * input, so a VMM compromise reading its own inherited environment could
+ * read provider/GitHub credentials and bypass the API-proxy credential
+ * isolation boundary. Callers must also pass `extendEnv: false` to execa;
+ * otherwise execa merges this object back into `process.env`.
+ */
+function buildLauncherEnvironment(): NodeJS.ProcessEnv {
+  return {
+    PATH: '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
+  };
 }
 
 class BoundedOutputCapture {

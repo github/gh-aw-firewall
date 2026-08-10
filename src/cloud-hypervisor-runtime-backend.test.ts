@@ -74,6 +74,7 @@ const preflightResult = {
   rootfsPath: '/opt/rootfs',
   supervisorPath: '/opt/supervisor',
   cgroupVersion: 2 as const,
+  kvmGid: 978,
   tools: {
     ip: '/usr/bin/ip',
     nft: '/usr/sbin/nft',

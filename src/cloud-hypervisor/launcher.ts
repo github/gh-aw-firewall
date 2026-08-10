@@ -84,11 +84,20 @@ export interface CloudHypervisorLaunchToolPaths {
  * with only its API socket configured (the VM itself is created and booted
  * afterwards over that socket, mirroring Firecracker's `--api-sock`-only
  * jailer invocation).
+ *
+ * The launched process retains exactly one supplementary group: the group
+ * that owns `/dev/kvm` (resolved by preflight). A blanket `--clear-groups`
+ * would also drop that membership, and since the documented supported
+ * setup relies on kvm-group access for the non-root operator identity
+ * (see docs/cloud-hypervisor-foundation.md), that would make every real
+ * launch fail with EACCES opening `/dev/kvm` even though preflight (which
+ * runs as root) passed.
  */
 export function buildCloudHypervisorLaunchCommand(options: {
   readonly tools: CloudHypervisorLaunchToolPaths;
   readonly namespaceName: string;
   readonly identity: CloudHypervisorLaunchIdentity;
+  readonly kvmGid: number;
   readonly cloudHypervisorBinary: string;
   readonly apiSocketPath: string;
   readonly logFilePath: string;
@@ -96,6 +105,9 @@ export function buildCloudHypervisorLaunchCommand(options: {
   assertSafeNamespaceName(options.namespaceName);
   assertPositiveIdentity(options.identity.uid, 'uid');
   assertPositiveIdentity(options.identity.gid, 'gid');
+  if (!Number.isSafeInteger(options.kvmGid) || options.kvmGid < 0) {
+    throw new Error(`Cloud Hypervisor launch /dev/kvm group id must be a non-negative integer: ${options.kvmGid}`);
+  }
   if (!path.isAbsolute(options.cloudHypervisorBinary)) {
     throw new Error(`Cloud Hypervisor binary path must be absolute: ${options.cloudHypervisorBinary}`);
   }
@@ -110,7 +122,10 @@ export function buildCloudHypervisorLaunchCommand(options: {
       options.tools.setpriv,
       `--reuid=${options.identity.uid}`,
       `--regid=${options.identity.gid}`,
-      '--clear-groups',
+      // Replaces the operator's full supplementary group list with only
+      // the /dev/kvm-owning group, instead of --clear-groups (which would
+      // also drop kvm access).
+      `--groups=${options.kvmGid}`,
       '--no-new-privs',
       '--inh-caps=-all',
       '--bounding-set=-all',
@@ -161,17 +176,21 @@ const CGROUP_MEMORY_HEADROOM_MIB = 256;
 /** Bounds the number of Cloud Hypervisor host threads/tasks (defense in depth; it is a single process). */
 const CGROUP_MAX_PIDS = 256;
 const CGROUP_V2_PERIOD_US = 100_000;
+const CGROUP_V2_CONTROLLERS = '+cpu +memory +pids';
 
 export interface CloudHypervisorCgroupDependencies {
   mkdir(directory: string): Promise<unknown>;
   writeFile(filePath: string, contents: string): Promise<void>;
-  rm(directory: string): Promise<void>;
+  /** Removes exactly the (now-empty) leaf cgroup directory. cgroupfs's
+   * controller/interface files are virtual and cannot be `unlink()`ed, so
+   * this must be a plain `rmdir`, not a recursive tree removal. */
+  rmdir(directory: string): Promise<void>;
 }
 
 const defaultCgroupDependencies: CloudHypervisorCgroupDependencies = {
   mkdir: (directory) => fs.mkdir(directory, { recursive: true, mode: 0o700 }),
   writeFile: (filePath, contents) => fs.writeFile(filePath, contents),
-  rm: (directory) => fs.rm(directory, { recursive: true, force: true }),
+  rmdir: (directory) => fs.rmdir(directory),
 };
 
 /**
@@ -179,38 +198,43 @@ const defaultCgroupDependencies: CloudHypervisorCgroupDependencies = {
  * created before launch and assigned by PID immediately after spawn (moving
  * a PID into `cgroup.procs` requires only host-root write access to that
  * file, not any privilege from the moved process itself).
+ *
+ * Cgroup v2 only: `runCloudHypervisorPreflight` rejects cgroup v1-only
+ * hosts explicitly rather than falling back to a v1 hierarchy this class
+ * does not manage (v1's memory/cpu/pids controllers live under separate
+ * per-controller mount points, not a single directory).
  */
 export class CloudHypervisorCgroup {
   private created = false;
 
   constructor(
     readonly cgroupPath: string,
-    private readonly version: 1 | 2,
     private readonly limits: CloudHypervisorResourceLimits,
     private readonly dependencies: CloudHypervisorCgroupDependencies = defaultCgroupDependencies,
   ) {}
 
   async setup(): Promise<void> {
+    // cgroup v2 only materializes a controller's interface files
+    // (memory.max, cpu.max, pids.max, ...) in a directory once that
+    // controller is enabled in the *parent's* `cgroup.subtree_control`.
+    // That delegation has to happen at every level from the cgroup root
+    // down to (but excluding) the leaf we actually place limits on.
+    const parentDir = path.dirname(this.cgroupPath);
+    const rootDir = path.dirname(parentDir);
+    await this.enableControllers(rootDir);
+    await this.dependencies.mkdir(parentDir);
+    await this.enableControllers(parentDir);
     await this.dependencies.mkdir(this.cgroupPath);
     this.created = true;
+
     const memoryMaxBytes = (this.limits.memoryMib + CGROUP_MEMORY_HEADROOM_MIB) * 1024 * 1024;
     const cpuQuotaUs = this.limits.vcpuCount * CGROUP_V2_PERIOD_US;
-    if (this.version === 2) {
-      await this.dependencies.writeFile(path.join(this.cgroupPath, 'memory.max'), String(memoryMaxBytes));
-      await this.dependencies.writeFile(
-        path.join(this.cgroupPath, 'cpu.max'),
-        `${cpuQuotaUs} ${CGROUP_V2_PERIOD_US}`,
-      );
-      await this.dependencies.writeFile(path.join(this.cgroupPath, 'pids.max'), String(CGROUP_MAX_PIDS));
-    } else {
-      await this.dependencies.writeFile(
-        path.join(this.cgroupPath, 'memory.limit_in_bytes'),
-        String(memoryMaxBytes),
-      );
-      await this.dependencies.writeFile(path.join(this.cgroupPath, 'cpu.cfs_period_us'), String(CGROUP_V2_PERIOD_US));
-      await this.dependencies.writeFile(path.join(this.cgroupPath, 'cpu.cfs_quota_us'), String(cpuQuotaUs));
-      await this.dependencies.writeFile(path.join(this.cgroupPath, 'pids.max'), String(CGROUP_MAX_PIDS));
-    }
+    await this.dependencies.writeFile(path.join(this.cgroupPath, 'memory.max'), String(memoryMaxBytes));
+    await this.dependencies.writeFile(
+      path.join(this.cgroupPath, 'cpu.max'),
+      `${cpuQuotaUs} ${CGROUP_V2_PERIOD_US}`,
+    );
+    await this.dependencies.writeFile(path.join(this.cgroupPath, 'pids.max'), String(CGROUP_MAX_PIDS));
   }
 
   async assign(pid: number): Promise<void> {
@@ -222,8 +246,15 @@ export class CloudHypervisorCgroup {
 
   async cleanup(): Promise<void> {
     if (!this.created) return;
-    await this.dependencies.rm(this.cgroupPath);
+    await this.dependencies.rmdir(this.cgroupPath);
     this.created = false;
+  }
+
+  private async enableControllers(directory: string): Promise<void> {
+    await this.dependencies.writeFile(
+      path.join(directory, 'cgroup.subtree_control'),
+      CGROUP_V2_CONTROLLERS,
+    );
   }
 }
 
