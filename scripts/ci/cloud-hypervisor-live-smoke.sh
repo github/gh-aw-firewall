@@ -51,6 +51,12 @@ digest() {
 COMMON=(
   --container-runtime cloud-hypervisor
   --cloud-hypervisor-preview
+  # Explicit, even though --network-isolation is documented as "enabled by
+  # default": the paired --network-isolation/--no-network-isolation
+  # commander.js options resolve to `undefined` (not `true`) when neither
+  # flag is passed, and assertCloudHypervisorRuntimeCompatibility() requires
+  # a strictly truthy value. Discovered via a live workflow_dispatch run.
+  --network-isolation
   --cloud-hypervisor-binary "$ARTIFACT_DIR/cloud-hypervisor"
   --cloud-hypervisor-kernel "$ARTIFACT_DIR/vmlinux.bin"
   --cloud-hypervisor-rootfs "$ARTIFACT_DIR/rootfs.ext4"
@@ -85,9 +91,9 @@ assert_no_residue() {
     echo "Cloud Hypervisor process residue detected" >&2
     return 1
   fi
-  if sudo find /tmp -maxdepth 4 -type d -name 'cloud-hypervisor-run' 2>/dev/null \
-    | xargs -r -I{} sudo find {} -mindepth 1 -maxdepth 3 -print 2>/dev/null \
+  if sudo find /run/awf-cloud-hypervisor -mindepth 2 2>/dev/null \
     | grep -q .; then
+    sudo find /run/awf-cloud-hypervisor -mindepth 2 >&2
     echo "Cloud Hypervisor run-directory residue detected" >&2
     return 1
   fi
@@ -123,6 +129,10 @@ run_case() {
   if [ "$status" -ne "$expected" ]; then
     echo "case $name: expected exit $expected, got $status" >&2
     tail -200 "$RUN_ROOT/$name/stderr.log" >&2
+    if sudo docker network inspect awf-net >/dev/null 2>&1; then
+      echo "--- docker network inspect awf-net (diagnostic) ---" >&2
+      sudo docker network inspect awf-net >&2
+    fi
     return 1
   fi
   if grep -R --binary-files=without-match -F "$SECRET_SENTINEL" \
@@ -240,7 +250,14 @@ sudo ip netns list | grep -q '^awffc-' || {
   echo "keep mode did not preserve the run network namespace" >&2
   exit 1
 }
-test -d "$keep_work/cloud-hypervisor-run"
+sudo test -d /run/awf-cloud-hypervisor || {
+  echo "keep mode did not preserve the private run-directory root" >&2
+  exit 1
+}
+sudo find /run/awf-cloud-hypervisor -mindepth 2 -maxdepth 2 -type d 2>/dev/null | grep -q . || {
+  echo "keep mode did not preserve the run directory" >&2
+  exit 1
+}
 test -f "$keep_audit/cloud-hypervisor/network-plan.json"
 test -f "$keep_audit/cloud-hypervisor/cloud-hypervisor.log"
 find "$keep_audit/cloud-hypervisor" -type f -size +1048576c -print -quit \
@@ -255,6 +272,11 @@ while read -r namespace _; do
   esac
 done < <(sudo ip netns list)
 sudo docker compose -f "$keep_work/docker-compose.yml" down --volumes --remove-orphans
+# --keep-containers intentionally preserves the private run directory (see
+# CLOUD_HYPERVISOR_RUN_ROOT in src/cloud-hypervisor/manager.ts); clean it up
+# here so assert_no_residue below reflects steady-state, not this case's
+# deliberate preservation.
+sudo find /run/awf-cloud-hypervisor -mindepth 2 -maxdepth 2 -type d -exec rm -rf {} +
 assert_no_residue
 
 # --- Cloud Hypervisor-specific live security assertions -------------------
@@ -281,7 +303,7 @@ sec_pid=$!
 
 api_socket=""
 for _ in $(seq 1 60); do
-  api_socket=$(sudo find "$sec_work/cloud-hypervisor-run" -name api.socket 2>/dev/null | head -1)
+  api_socket=$(sudo find /run/awf-cloud-hypervisor -name api.socket 2>/dev/null | head -1)
   [ -n "$api_socket" ] && break
   sleep 1
 done
@@ -293,16 +315,11 @@ if [ -z "$api_socket" ]; then
 fi
 run_directory=$(dirname "$api_socket")
 run_id=$(basename "$run_directory")
-# Cgroup root matches whichever hierarchy preflight detected (GitHub-hosted
-# Ubuntu runners use cgroup v2 exclusively per docs/cloud-hypervisor-foundation.md
-# Part 6, but this is discovered rather than assumed for robustness).
-if sudo test -d "$CGROUP_ROOT/$run_id"; then
-  cgroup_path="$CGROUP_ROOT/$run_id"
-elif sudo test -d "/sys/fs/cgroup/memory/awf-cloud-hypervisor/$run_id"; then
-  cgroup_path="/sys/fs/cgroup/memory/awf-cloud-hypervisor/$run_id"
-else
-  cgroup_path="$CGROUP_ROOT/$run_id"
-fi
+# GitHub-hosted Ubuntu runners (this backend's only supported host) run
+# cgroup v2 exclusively; runCloudHypervisorPreflight rejects v1-only hosts
+# outright (see src/cloud-hypervisor/preflight.ts), so the cgroup path is
+# always under the v2 unified hierarchy.
+cgroup_path="$CGROUP_ROOT/$run_id"
 
 fail_security() {
   echo "security-assertions: $*" >&2
@@ -339,54 +356,108 @@ seccomp_mode=$(sudo awk '/^Seccomp:/{print $2}' "/proc/$vmm_pid/status" 2>/dev/n
 
 # Per-run cgroup membership and non-trivial, bounded limits.
 sudo test -f "$cgroup_path/cgroup.procs" || fail_security "cgroup.procs missing at $cgroup_path"
-if sudo test -f "$cgroup_path/memory.max"; then
-  memory_max=$(sudo cat "$cgroup_path/memory.max")
-  case "$memory_max" in
-    ''|*[!0-9]*) fail_security "memory.max is not a bounded numeric value: $memory_max" ;;
-  esac
-  memory_current=$(sudo cat "$cgroup_path/memory.current" 2>/dev/null || echo 0)
-  case "$memory_current" in
-    ''|*[!0-9]*) fail_security "memory.current is not numeric: $memory_current" ;;
-  esac
-  [ "$memory_current" -gt 0 ] || fail_security "memory.current reports zero usage; cgroup accounting looks inactive"
-  [ "$memory_current" -le "$memory_max" ] || fail_security "memory.current ($memory_current) exceeds memory.max ($memory_max)"
-elif sudo test -f "$cgroup_path/memory.limit_in_bytes"; then
-  memory_max=$(sudo cat "$cgroup_path/memory.limit_in_bytes")
-  case "$memory_max" in
-    ''|*[!0-9]*) fail_security "memory.limit_in_bytes is not a bounded numeric value: $memory_max" ;;
-  esac
-else
-  fail_security "no memory limit file found under $cgroup_path (neither cgroup v2 nor v1)"
-fi
+sudo test -f "$cgroup_path/memory.max" || fail_security "memory.max missing at $cgroup_path (cgroup v2 controller delegation may have failed)"
+memory_max=$(sudo cat "$cgroup_path/memory.max")
+case "$memory_max" in
+  ''|*[!0-9]*) fail_security "memory.max is not a bounded numeric value: $memory_max" ;;
+esac
+memory_current=$(sudo cat "$cgroup_path/memory.current" 2>/dev/null || echo 0)
+case "$memory_current" in
+  ''|*[!0-9]*) fail_security "memory.current is not numeric: $memory_current" ;;
+esac
+[ "$memory_current" -gt 0 ] || fail_security "memory.current reports zero usage; cgroup accounting looks inactive"
+[ "$memory_current" -le "$memory_max" ] || fail_security "memory.current ($memory_current) exceeds memory.max ($memory_max)"
 
 # vm.info reflects landlock_enable and an exactly-minimal, expected device
 # topology (rootfs+workspace disks, single net device, vsock) — proving the
-# host-only API socket is never exposed to the guest as any device.
-vm_info=$(sudo curl --silent --show-error --max-time 5 --unix-socket "$api_socket" \
-  http://localhost/api/v1/vm.info) || fail_security "vm.info request failed"
+# host-only API socket is never exposed to the guest as any device. Poll
+# until vm.info reports state "Running": the API socket appears before
+# vm.create/vm.boot (manager.ts), so a one-shot request here would race
+# startup and could fail on a valid but slower runner; polling for "Running"
+# also proves these assertions inspect a live VM, not merely a launched VMM.
+#
+# The expected TAP name is derived exactly like
+# createMicrovmNetworkPlan() (src/microvm/network.ts): `fct` + the first 12
+# hex characters of sha256(runId).
+expected_tap="fct$(printf '%s' "$run_id" | sha256sum | cut -c1-12)"
+expected_rootfs_path="$run_directory/rootfs.ext4"
+expected_workspace_path="$run_directory/workspace.ext4"
+expected_vsock_socket="$run_directory/awf-vsock.socket"
+
+vm_info=""
+for _ in $(seq 1 30); do
+  candidate=$(sudo curl --silent --show-error --max-time 5 --unix-socket "$api_socket" \
+    http://localhost/api/v1/vm.info) || fail_security "vm.info request failed"
+  if printf '%s' "$candidate" | grep -Eq '"state" *: *"Running"'; then
+    vm_info=$candidate
+    break
+  fi
+  sleep 1
+done
+[ -n "$vm_info" ] || fail_security "vm.info never reported state \"Running\" within the poll window"
+
 node -e '
-  const info = JSON.parse(process.argv[1]);
+  const [
+    infoJson, expectedTap, expectedRootfsPath, expectedWorkspacePath, expectedVsockSocket,
+  ] = process.argv.slice(1);
+  const info = JSON.parse(infoJson);
+  if (info.state !== "Running") {
+    throw new Error("expected vm.info state \"Running\", got " + JSON.stringify(info.state));
+  }
   const config = info.config || {};
+
+  // Reject any unexpected top-level device-bearing config field (e.g. a
+  // virtio-fs, pmem, vdpa, or VFIO device this preview never configures) —
+  // not just count the devices we do expect.
+  const allowedKeys = new Set([
+    "cpus", "memory", "payload", "disks", "net", "rng", "serial", "console",
+    "vsock", "watchdog", "landlock_enable", "landlock_rules",
+  ]);
+  for (const key of Object.keys(config)) {
+    if (!allowedKeys.has(key)) {
+      throw new Error("unexpected device-bearing vm.info config field: " + key);
+    }
+  }
+
   if (config.landlock_enable !== true) {
     throw new Error("landlock_enable is not true in vm.info: " + JSON.stringify(config.landlock_enable));
   }
+
   const disks = config.disks || [];
   if (disks.length !== 2) {
     throw new Error("expected exactly 2 disks (rootfs, workspace), got " + disks.length);
   }
-  const net = config.net || [];
-  if (net.length !== 1) {
-    throw new Error("expected exactly 1 net device, got " + net.length);
+  const [rootfsDisk, workspaceDisk] = disks;
+  if (rootfsDisk.id !== "rootfs" || rootfsDisk.path !== expectedRootfsPath) {
+    throw new Error("rootfs disk mismatch: " + JSON.stringify(rootfsDisk));
   }
-  if (!config.vsock || typeof config.vsock.cid !== "number") {
-    throw new Error("expected a vsock device with a numeric cid");
+  if (workspaceDisk.id !== "workspace" || workspaceDisk.path !== expectedWorkspacePath) {
+    throw new Error("workspace disk mismatch: " + JSON.stringify(workspaceDisk));
   }
   for (const disk of disks) {
     if (disk.path && disk.path.endsWith("api.socket")) {
       throw new Error("API socket path is exposed as a guest disk");
     }
   }
-' "$vm_info" || fail_security "vm.info device-topology assertion failed: $vm_info"
+
+  const net = config.net || [];
+  if (net.length !== 1) {
+    throw new Error("expected exactly 1 net device, got " + net.length);
+  }
+  if (net[0].id !== "net0" || net[0].tap !== expectedTap) {
+    throw new Error("net device mismatch: expected id=net0 tap=" + expectedTap + ", got " + JSON.stringify(net[0]));
+  }
+
+  if (!config.vsock || config.vsock.cid !== 3 || config.vsock.socket !== expectedVsockSocket) {
+    throw new Error("vsock device mismatch: expected cid=3 socket=" + expectedVsockSocket + ", got " + JSON.stringify(config.vsock));
+  }
+' "$vm_info" "$expected_tap" "$expected_rootfs_path" "$expected_workspace_path" "$expected_vsock_socket" \
+  || fail_security "vm.info device-topology assertion failed: $vm_info"
+
+# Cross-check the expected TAP interface actually exists on the host (not
+# just referenced in the VMM's own self-reported config).
+sudo ip link show "$expected_tap" >/dev/null 2>&1 \
+  || fail_security "expected TAP interface $expected_tap not found on host"
 
 kill -TERM "$sec_pid"
 set +e

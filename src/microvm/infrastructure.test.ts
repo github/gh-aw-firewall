@@ -120,6 +120,29 @@ describe('microVM infrastructure discovery', () => {
     expect(deps.inspectLink).toHaveBeenCalledWith(`br-${'a'.repeat(12)}`, undefined);
   });
 
+  it('tolerates a Docker Engine that omits Gateway for an internal network, defaulting to the documented constant', async () => {
+    // Regression test: some Docker Engine builds (observed on GitHub-hosted
+    // Ubuntu runners) do not report an IPAM `Gateway` for `internal: true`
+    // networks when the compose config never requests one explicitly (the
+    // network-isolation topology never does — see
+    // sandbox-network-policy.json's `topology` section comment). This must
+    // not be treated as a topology mismatch.
+    const deps = dependencies(networkInspection({
+      IPAM: { Config: [{ Subnet: '172.30.0.0/24' }] },
+    }));
+    const resolved = await resolveMicrovmInfrastructure(true, deps);
+    expect(resolved.gateway).toBe('172.30.0.1');
+  });
+
+  it('still rejects a Docker-reported Gateway that does not match the expected value', async () => {
+    await expect(resolveMicrovmInfrastructure(
+      true,
+      dependencies(networkInspection({
+        IPAM: { Config: [{ Subnet: '172.30.0.0/24', Gateway: '172.30.0.99' }] },
+      })),
+    )).rejects.toThrow(/must have exactly 172\.30\.0\.0\/24/);
+  });
+
   it('rejects ambiguous, non-internal, or address-shifted topology', async () => {
     await expect(resolveMicrovmInfrastructure(
       true,

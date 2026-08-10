@@ -148,11 +148,23 @@ async function inspectInfrastructure(
   }
 
   const ipv4Configs = (network.IPAM?.Config ?? []).filter((entry) => entry.Subnet?.includes('.'));
-  if (
-    ipv4Configs.length !== 1 ||
-    ipv4Configs[0].Subnet !== NETWORK_SUBNET ||
-    ipv4Configs[0].Gateway !== HOST_GATEWAY
-  ) {
+  if (ipv4Configs.length !== 1 || ipv4Configs[0].Subnet !== NETWORK_SUBNET) {
+    throw new Error(
+      `Docker network "${NETWORK_NAME}" must have exactly ${NETWORK_SUBNET} ` +
+      `with gateway ${HOST_GATEWAY}`,
+    );
+  }
+  // Docker's IPAM driver does not always report a `Gateway` for `internal:
+  // true` networks when the compose config never requests one explicitly
+  // (this backend's topology mode never does — the internal network is
+  // never routed to from the host, so a gateway address is not meaningful;
+  // see sandbox-network-policy.json's `topology` section comment). Observed
+  // to differ by Docker Engine version/build even for an identical compose
+  // config. When Docker *does* report a Gateway, it must still match the
+  // expected value exactly — this only tolerates its legitimate absence,
+  // not a substituted one.
+  const observedGateway = ipv4Configs[0].Gateway;
+  if (observedGateway !== undefined && observedGateway !== HOST_GATEWAY) {
     throw new Error(
       `Docker network "${NETWORK_NAME}" must have exactly ${NETWORK_SUBNET} ` +
       `with gateway ${HOST_GATEWAY}`,
@@ -183,7 +195,7 @@ async function inspectInfrastructure(
     networkId: network.Id,
     bridgeName,
     subnet: NETWORK_SUBNET,
-    gateway: HOST_GATEWAY,
+    gateway: observedGateway ?? HOST_GATEWAY,
     squidIp,
     ...(apiProxyIp ? { apiProxyIp } : {}),
   };

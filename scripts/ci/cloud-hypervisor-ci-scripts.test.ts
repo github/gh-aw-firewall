@@ -131,6 +131,17 @@ describe('cloud-hypervisor-live-smoke.sh', () => {
     expect(source).toContain('--cloud-hypervisor-supervisor-sha256');
   });
 
+  it('explicitly passes --network-isolation (commander resolves the paired option to undefined by default)', () => {
+    // Regression test: discovered via a live workflow_dispatch run —
+    // assertCloudHypervisorRuntimeCompatibility() requires a strictly
+    // truthy config.networkIsolation, but the --network-isolation/
+    // --no-network-isolation commander.js option pair resolves to
+    // `undefined` (not `true`) when neither flag is passed on the CLI,
+    // despite the CLI help text describing it as "enabled by default".
+    const source = fs.readFileSync(smokePath, 'utf-8');
+    expect(source).toMatch(/COMMON=\(\n(?:.*\n)*?\s*--network-isolation\n/);
+  });
+
   (shellcheckAvailable() ? it : it.skip)('has no new shellcheck errors beyond the Firecracker baseline', () => {
     expect(() =>
       execFileSync('shellcheck', ['--severity=error', smokePath]),

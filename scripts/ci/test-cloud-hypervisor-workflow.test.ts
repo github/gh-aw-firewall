@@ -92,6 +92,34 @@ describe('Cloud Hypervisor CI workflow', () => {
     expect(usesSteps.some((uses) => uses.startsWith('actions/upload-artifact@'))).toBe(true);
   });
 
+  it('restores executable permissions lost by the artifact upload/download round-trip before preflight', () => {
+    // Regression test: actions/upload-artifact + actions/download-artifact do
+    // not reliably preserve the executable bit on binary files, even though
+    // guest/cloud-hypervisor/build-test-artifacts.sh chmods the binary to
+    // 0755 before archiving and verify-test-artifacts.sh confirms it is
+    // executable in the same job, pre-upload. Discovered via a live
+    // workflow_dispatch run: "Permission denied" executing the downloaded
+    // cloud-hypervisor binary despite a correct, digest-verified artifact.
+    const doc = loadWorkflow();
+    const live = doc.jobs['live-kvm'];
+    const steps = live.steps ?? [];
+    const downloadIndex = steps.findIndex((step) =>
+      (step.uses ?? '').startsWith('actions/download-artifact@'));
+    const restoreIndex = steps.findIndex((step) =>
+      step.name === 'Restore artifact executable permissions');
+    const preflightIndex = steps.findIndex((step) =>
+      (step.run ?? '').includes('cloud-hypervisor-host-preflight.sh'));
+
+    expect(downloadIndex).toBeGreaterThan(-1);
+    expect(restoreIndex).toBeGreaterThan(downloadIndex);
+    expect(preflightIndex).toBeGreaterThan(restoreIndex);
+
+    const restoreStep = steps[restoreIndex];
+    expect(restoreStep.run).toContain('chmod 0755');
+    expect(restoreStep.run).toContain('cloud-hypervisor-test-x86_64/cloud-hypervisor');
+    expect(restoreStep.run).toContain('cloud-hypervisor-test-x86_64/awf-supervisor');
+  });
+
   it('verifies digests before running the live suite and cleans up unconditionally', () => {
     const doc = loadWorkflow();
     const live = doc.jobs['live-kvm'];

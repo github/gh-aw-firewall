@@ -109,6 +109,17 @@ jobs:
           name: cloud-hypervisor-test-x86_64
           path: ${{ runner.temp }}/cloud-hypervisor-test-x86_64
 
+      - name: Restore artifact executable permissions
+        run: |
+          # actions/upload-artifact + actions/download-artifact do not
+          # reliably preserve the executable bit on binary files (a known
+          # GitHub Actions artifact limitation). Digest verification below
+          # still proves file integrity; this only restores the mode bits
+          # needed to exec the pinned, already-verified binaries.
+          chmod 0755 \
+            "$RUNNER_TEMP/cloud-hypervisor-test-x86_64/cloud-hypervisor" \
+            "$RUNNER_TEMP/cloud-hypervisor-test-x86_64/awf-supervisor"
+
       - name: Grant workflow user access to KVM
         run: |
           if [ -e /dev/kvm ]; then
