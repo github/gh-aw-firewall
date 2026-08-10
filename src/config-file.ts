@@ -3,7 +3,7 @@ import * as path from 'path';
 import * as yaml from 'js-yaml';
 import { validateWithSchema } from './schema-validator';
 import type { RawEnclavesConfig } from './types/enclave-options';
-import type { FirecrackerArtifactDigests } from './types/runtime-options';
+import type { FirecrackerArtifactDigests, CloudHypervisorArtifactDigests } from './types/runtime-options';
 
 /** @internal Used only by config-file helpers — not part of public API */
 // ts-prune-ignore-next
@@ -134,6 +134,22 @@ export interface AwfFileConfig {
     memoryMib?: number;
     apiTimeoutMs?: number;
     sha256?: FirecrackerArtifactDigests;
+  };
+  /**
+   * Cloud Hypervisor microVM foundation (config/artifacts only).
+   * There is no lifecycle backend yet: this cannot be selected via
+   * `container.containerRuntime`.
+   */
+  cloudHypervisor?: {
+    previewEnabled?: boolean;
+    cloudHypervisorBinary?: string;
+    kernelPath?: string;
+    rootfsPath?: string;
+    supervisorPath?: string;
+    vcpuCount?: number;
+    memoryMib?: number;
+    apiTimeoutMs?: number;
+    sha256?: CloudHypervisorArtifactDigests;
   };
   chroot?: {
     binariesSourcePath?: string;

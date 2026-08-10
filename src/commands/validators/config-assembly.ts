@@ -14,6 +14,10 @@ import {
   assertFirecrackerRuntimeCompatibility,
   assertFirecrackerSelection,
 } from '../../firecracker/runtime-validation';
+import {
+  assertCloudHypervisorNotYetAvailable,
+  assertCloudHypervisorSelection,
+} from '../../cloud-hypervisor/runtime-validation';
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -77,6 +81,8 @@ export function assembleAndValidateConfig(
   validateInfrastructureOptions(config);
   try {
     assertFirecrackerSelection(config);
+    assertCloudHypervisorNotYetAvailable(config);
+    assertCloudHypervisorSelection(config);
   } catch (error) {
     logger.error(`❌ ${error instanceof Error ? error.message : String(error)}`);
     process.exit(1);

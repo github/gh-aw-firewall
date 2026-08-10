@@ -21,6 +21,13 @@ export {
   FIRECRACKER_DEFAULT_VCPU_COUNT,
   FIRECRACKER_DEFAULT_MEMORY_MIB,
   FIRECRACKER_DEFAULT_API_TIMEOUT_MS,
+  type CloudHypervisorArtifactDigests,
+  type CloudHypervisorOptions,
+  CLOUD_HYPERVISOR_RELEASE_VERSION,
+  CLOUD_HYPERVISOR_DEFAULT_BINARY,
+  CLOUD_HYPERVISOR_DEFAULT_VCPU_COUNT,
+  CLOUD_HYPERVISOR_DEFAULT_MEMORY_MIB,
+  CLOUD_HYPERVISOR_DEFAULT_API_TIMEOUT_MS,
 } from './runtime-options';
 export { type RateLimitConfig } from './rate-limit';
 export { type FlagValidationResult } from './validation';

@@ -728,6 +728,71 @@
         }
       }
     },
+    "cloudHypervisor": {
+      "type": "object",
+      "description": "Cloud Hypervisor v53.0 foundation configuration (artifacts and digests only). There is no lifecycle backend yet: this cannot be selected via container.containerRuntime and cannot execute workloads.",
+      "additionalProperties": false,
+      "properties": {
+        "previewEnabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Reserve Cloud Hypervisor configuration for a future preview. Has no effect on workload execution in this release."
+        },
+        "cloudHypervisorBinary": {
+          "type": "string",
+          "description": "Absolute path to the Cloud Hypervisor v53.0 binary. Defaults to /usr/local/bin/cloud-hypervisor."
+        },
+        "kernelPath": {
+          "type": "string",
+          "description": "Absolute path to the trusted PCI-capable guest Linux kernel image."
+        },
+        "rootfsPath": {
+          "type": "string",
+          "description": "Absolute path to the trusted guest root filesystem image."
+        },
+        "supervisorPath": {
+          "type": "string",
+          "description": "Absolute path to the built AWF guest supervisor (shared with Firecracker)."
+        },
+        "vcpuCount": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 2,
+          "description": "Number of guest virtual CPUs."
+        },
+        "memoryMib": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 512,
+          "description": "Guest memory in MiB."
+        },
+        "apiTimeoutMs": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 5000,
+          "description": "Bounded timeout in milliseconds for Cloud Hypervisor API socket readiness and requests."
+        },
+        "sha256": {
+          "type": "object",
+          "description": "Pinned SHA-256 digests for trusted Cloud Hypervisor artifacts.",
+          "additionalProperties": false,
+          "properties": {
+            "cloudHypervisor": {
+              "$ref": "#/$defs/sha256Digest"
+            },
+            "kernel": {
+              "$ref": "#/$defs/sha256Digest"
+            },
+            "rootfs": {
+              "$ref": "#/$defs/sha256Digest"
+            },
+            "supervisor": {
+              "$ref": "#/$defs/sha256Digest"
+            }
+          }
+        }
+      }
+    },
     "chroot": {
       "type": "object",
       "description": "Chroot execution overrides for split-filesystem ARC/DinD runners.",

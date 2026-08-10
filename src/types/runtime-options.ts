@@ -38,6 +38,47 @@ export interface FirecrackerOptions {
   sha256?: FirecrackerArtifactDigests;
 }
 
+// ─── Cloud Hypervisor (foundation only — no runnable backend yet) ──────────
+//
+// This configuration surface exists so callers can pin trusted artifacts and
+// round-trip config today. It is intentionally NOT registered as a
+// selectable `--container-runtime` value and has no lifecycle backend: see
+// `src/cloud-hypervisor/preflight.ts` for artifact/host validation and
+// `guest/cloud-hypervisor/` for the guest artifact pipeline. GitHub-hosted
+// Ubuntu x86_64 KVM runners are the only supported host target.
+
+export const CLOUD_HYPERVISOR_RELEASE_VERSION = '53.0';
+export const CLOUD_HYPERVISOR_DEFAULT_BINARY = '/usr/local/bin/cloud-hypervisor';
+export const CLOUD_HYPERVISOR_DEFAULT_VCPU_COUNT = 2;
+export const CLOUD_HYPERVISOR_DEFAULT_MEMORY_MIB = 512;
+export const CLOUD_HYPERVISOR_DEFAULT_API_TIMEOUT_MS = 5_000;
+
+export interface CloudHypervisorArtifactDigests {
+  cloudHypervisor?: string;
+  kernel?: string;
+  rootfs?: string;
+  supervisor?: string;
+}
+
+/**
+ * Foundational configuration for a future Cloud Hypervisor microVM runtime.
+ *
+ * There is no lifecycle backend for this runtime yet — it cannot be selected
+ * via `--container-runtime` and `previewEnabled` only gates config
+ * acceptance/validation, not workload execution.
+ */
+export interface CloudHypervisorOptions {
+  previewEnabled: boolean;
+  cloudHypervisorBinary: string;
+  kernelPath?: string;
+  rootfsPath?: string;
+  supervisorPath?: string;
+  vcpuCount: number;
+  memoryMib: number;
+  apiTimeoutMs: number;
+  sha256?: CloudHypervisorArtifactDigests;
+}
+
 export interface RuntimeOptions {
   /**
    * The command to execute inside the firewall container
@@ -198,4 +239,12 @@ export interface RuntimeOptions {
 
   /** Firecracker microVM control-plane settings. */
   firecracker?: FirecrackerOptions;
+
+  /**
+   * Cloud Hypervisor microVM foundation settings (config/artifacts only).
+   *
+   * There is no lifecycle backend yet; this cannot be selected as a
+   * `--container-runtime` value.
+   */
+  cloudHypervisor?: CloudHypervisorOptions;
 }

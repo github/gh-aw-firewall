@@ -76,6 +76,7 @@ following top-level properties. All are OPTIONAL:
 | `security` | object | Security and isolation settings |
 | `container` | object | Container and Docker settings |
 | `firecracker` | object | Firecracker v1.16.1 control-plane preview settings |
+| `cloudHypervisor` | object | Cloud Hypervisor v53.0 foundation settings (artifacts/digests only; no lifecycle backend yet — see §4.1) |
 | `chroot` | object | Chroot execution overrides for split-filesystem ARC/DinD runners |
 | `dind` | object | Bootstrap helpers for ARC/DinD split runner/daemon filesystems |
 | `runner` | object | Runner topology declaration (standard vs. ARC/DinD) |
@@ -87,6 +88,21 @@ following top-level properties. All are OPTIONAL:
 
 Property-level constraints, types, and descriptions are defined
 normatively by `docs/awf-config.schema.json`.
+
+### 4.1 Cloud Hypervisor foundation (not yet a runnable backend)
+
+The `cloudHypervisor` surface pins Cloud Hypervisor v53.0 artifacts and
+digests (binary, PCI-capable guest kernel, rootfs, and the shared AWF guest
+supervisor) so a config document can be prepared and round-tripped ahead of
+time. **It has no lifecycle backend in this release**: `cloud-hypervisor` is
+not a valid `container.containerRuntime` value, and supplying
+`cloudHypervisor` options does not execute any workload. Supported host
+target is GitHub-hosted Ubuntu `x86_64` runners with KVM only; self-hosted
+and non-Ubuntu/non-x86_64 hosts are out of scope. See
+[`src/cloud-hypervisor/preflight.ts`](../src/cloud-hypervisor/preflight.ts)
+for the artifact/host trust-check module and
+[`guest/cloud-hypervisor/`](../guest/cloud-hypervisor/) for the guest
+artifact build/verification pipeline.
 
 ## 5. CLI Mapping
 
@@ -204,6 +220,18 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 - `firecracker.sha256.kernel` → `--firecracker-kernel-sha256`
 - `firecracker.sha256.rootfs` → `--firecracker-rootfs-sha256`
 - `firecracker.sha256.supervisor` → `--firecracker-supervisor-sha256`
+- `cloudHypervisor.previewEnabled` → `--cloud-hypervisor-preview` *(foundation only; does not enable workload execution)*
+- `cloudHypervisor.cloudHypervisorBinary` → `--cloud-hypervisor-binary`
+- `cloudHypervisor.kernelPath` → `--cloud-hypervisor-kernel`
+- `cloudHypervisor.rootfsPath` → `--cloud-hypervisor-rootfs`
+- `cloudHypervisor.supervisorPath` → `--cloud-hypervisor-supervisor`
+- `cloudHypervisor.vcpuCount` → `--cloud-hypervisor-vcpus`
+- `cloudHypervisor.memoryMib` → `--cloud-hypervisor-memory-mib`
+- `cloudHypervisor.apiTimeoutMs` → `--cloud-hypervisor-api-timeout-ms`
+- `cloudHypervisor.sha256.cloudHypervisor` → `--cloud-hypervisor-binary-sha256`
+- `cloudHypervisor.sha256.kernel` → `--cloud-hypervisor-kernel-sha256`
+- `cloudHypervisor.sha256.rootfs` → `--cloud-hypervisor-rootfs-sha256`
+- `cloudHypervisor.sha256.supervisor` → `--cloud-hypervisor-supervisor-sha256`
 - `chroot.binariesSourcePath` → *(config-only; mounts a runner-side binaries directory at `/tmp/awf-runner-bin` inside chroot mode and prepends it to `PATH`)*
 - `chroot.identity.home` → *(config-only; forwarded as `AWF_CHROOT_IDENTITY_HOME` and applied after chroot pivot)*
 - `chroot.identity.user` → *(config-only; forwarded as `AWF_CHROOT_IDENTITY_USER` and applied to `USER`/`LOGNAME` after chroot pivot)*

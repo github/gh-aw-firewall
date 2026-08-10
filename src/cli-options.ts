@@ -3,6 +3,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { version } from '../package.json';
 import { collectRulesetFile, collectStringArray, formatItem } from './option-parsers';
+import { CLOUD_HYPERVISOR_RELEASE_VERSION } from './types/runtime-options';
 
 // Option group markers used by the custom help formatter to insert section headers.
 // Each key is the long flag name of the first option in a group.
@@ -11,6 +12,7 @@ const optionGroupHeaders: Record<string, string> = {
   'allow-domains': 'Domain Filtering:',
   'build-local': 'Image Management:',
   'firecracker-preview': 'Firecracker Preview:',
+  'cloud-hypervisor-preview': 'Cloud Hypervisor Preview (foundation only, not yet runnable):',
   'env': 'Container Configuration:',
   'dns-servers': 'Network & Security:',
   'upstream-proxy': 'Network & Security:',
@@ -197,6 +199,29 @@ program
   .option('--firecracker-kernel-sha256 <digest>', 'Expected SHA-256 digest of the guest kernel.')
   .option('--firecracker-rootfs-sha256 <digest>', 'Expected SHA-256 digest of the guest rootfs.')
   .option('--firecracker-supervisor-sha256 <digest>', 'Expected SHA-256 digest of the AWF guest supervisor.')
+
+  // -- Cloud Hypervisor Preview (foundation only) --
+  //
+  // NOTE: these flags only accept and validate configuration/artifact inputs.
+  // There is no lifecycle backend yet, so "cloud-hypervisor" is NOT a valid
+  // --container-runtime value and no workload can be executed with it.
+  .option(
+   '--cloud-hypervisor-preview',
+   `Reserve Cloud Hypervisor v${CLOUD_HYPERVISOR_RELEASE_VERSION} configuration for a future preview.\n` +
+   '                                       Foundation only: no runtime is registered yet and this cannot execute workloads.',
+   false
+  )
+  .option('--cloud-hypervisor-binary <path>', `Path to the Cloud Hypervisor v${CLOUD_HYPERVISOR_RELEASE_VERSION} binary.`)
+  .option('--cloud-hypervisor-kernel <path>', 'Path to the PCI-capable guest Linux kernel image.')
+  .option('--cloud-hypervisor-rootfs <path>', 'Path to the guest root filesystem image.')
+  .option('--cloud-hypervisor-supervisor <path>', 'Path to the built AWF guest supervisor (shared with Firecracker).')
+  .option('--cloud-hypervisor-vcpus <count>', 'Guest virtual CPU count (default: 2).')
+  .option('--cloud-hypervisor-memory-mib <mib>', 'Guest memory in MiB (default: 512).')
+  .option('--cloud-hypervisor-api-timeout-ms <ms>', 'Bounded API socket readiness timeout in milliseconds (default: 5000).')
+  .option('--cloud-hypervisor-binary-sha256 <digest>', 'Expected SHA-256 digest of the Cloud Hypervisor binary.')
+  .option('--cloud-hypervisor-kernel-sha256 <digest>', 'Expected SHA-256 digest of the guest kernel.')
+  .option('--cloud-hypervisor-rootfs-sha256 <digest>', 'Expected SHA-256 digest of the guest rootfs.')
+  .option('--cloud-hypervisor-supervisor-sha256 <digest>', 'Expected SHA-256 digest of the AWF guest supervisor.')
 
   // -- Container Configuration --
   .option(

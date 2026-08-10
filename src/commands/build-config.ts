@@ -9,6 +9,10 @@ import {
   FIRECRACKER_DEFAULT_JAILER_BINARY,
   FIRECRACKER_DEFAULT_MEMORY_MIB,
   FIRECRACKER_DEFAULT_VCPU_COUNT,
+  CLOUD_HYPERVISOR_DEFAULT_API_TIMEOUT_MS,
+  CLOUD_HYPERVISOR_DEFAULT_BINARY,
+  CLOUD_HYPERVISOR_DEFAULT_MEMORY_MIB,
+  CLOUD_HYPERVISOR_DEFAULT_VCPU_COUNT,
 } from '../types/runtime-options';
 
 /**
@@ -125,6 +129,7 @@ export function buildConfig(inputs: BuildConfigInputs): WrapperConfig {
   const chrootIdentity = buildChrootIdentity(options);
   const dind = buildDindConfig(options);
   const firecracker = buildFirecrackerConfig(options);
+  const cloudHypervisor = buildCloudHypervisorConfig(options);
   const apiCredentials = resolveApiCredentials(options, {
     resolvedCopilotApiTarget,
     resolvedCopilotApiBasePath,
@@ -227,6 +232,7 @@ export function buildConfig(inputs: BuildConfigInputs): WrapperConfig {
     chrootIdentity,
     dind,
     firecracker,
+    cloudHypervisor,
     enclaves: normalizeEnclavesConfig(
       options.enclaves as AwfFileConfig['enclaves'] | undefined,
     ),
@@ -273,17 +279,17 @@ function buildFirecrackerConfig(
     kernelPath: options.firecrackerKernel as string | undefined,
     rootfsPath: options.firecrackerRootfs as string | undefined,
     supervisorPath: options.firecrackerSupervisor as string | undefined,
-    vcpuCount: parseFirecrackerPositiveInteger(
+    vcpuCount: parsePositiveIntegerOption(
       options.firecrackerVcpus,
       '--firecracker-vcpus',
       FIRECRACKER_DEFAULT_VCPU_COUNT,
     ),
-    memoryMib: parseFirecrackerPositiveInteger(
+    memoryMib: parsePositiveIntegerOption(
       options.firecrackerMemoryMib,
       '--firecracker-memory-mib',
       FIRECRACKER_DEFAULT_MEMORY_MIB,
     ),
-    apiTimeoutMs: parseFirecrackerPositiveInteger(
+    apiTimeoutMs: parsePositiveIntegerOption(
       options.firecrackerApiTimeoutMs,
       '--firecracker-api-timeout-ms',
       FIRECRACKER_DEFAULT_API_TIMEOUT_MS,
@@ -294,7 +300,7 @@ function buildFirecrackerConfig(
   };
 }
 
-function parseFirecrackerPositiveInteger(
+function parsePositiveIntegerOption(
   value: unknown,
   optionName: string,
   defaultValue: number,
@@ -305,6 +311,70 @@ function parseFirecrackerPositiveInteger(
     throw new Error(`${optionName} must be a positive integer`);
   }
   return parsed;
+}
+
+/**
+ * Builds the Cloud Hypervisor foundation config (artifacts/digests only).
+ *
+ * There is no lifecycle backend for this runtime yet, so `selected` only
+ * mirrors the Firecracker pattern for config round-trip/test symmetry —
+ * `--container-runtime cloud-hypervisor` is rejected explicitly elsewhere
+ * (see `assertCloudHypervisorNotYetAvailable`) before this config could ever
+ * drive workload execution.
+ */
+function buildCloudHypervisorConfig(
+  options: Record<string, unknown>,
+): WrapperConfig['cloudHypervisor'] {
+  const selected = options.containerRuntime === 'cloud-hypervisor';
+  const configured = options.cloudHypervisorPreview === true
+    || [
+      'cloudHypervisorBinary',
+      'cloudHypervisorKernel',
+      'cloudHypervisorRootfs',
+      'cloudHypervisorSupervisor',
+      'cloudHypervisorVcpus',
+      'cloudHypervisorMemoryMib',
+      'cloudHypervisorApiTimeoutMs',
+      'cloudHypervisorBinarySha256',
+      'cloudHypervisorKernelSha256',
+      'cloudHypervisorRootfsSha256',
+      'cloudHypervisorSupervisorSha256',
+    ].some((key) => options[key] !== undefined);
+  if (!selected && !configured) return undefined;
+
+  const sha256 = {
+    cloudHypervisor: options.cloudHypervisorBinarySha256 as string | undefined,
+    kernel: options.cloudHypervisorKernelSha256 as string | undefined,
+    rootfs: options.cloudHypervisorRootfsSha256 as string | undefined,
+    supervisor: options.cloudHypervisorSupervisorSha256 as string | undefined,
+  };
+
+  return {
+    previewEnabled: options.cloudHypervisorPreview === true,
+    cloudHypervisorBinary:
+      (options.cloudHypervisorBinary as string | undefined) ?? CLOUD_HYPERVISOR_DEFAULT_BINARY,
+    kernelPath: options.cloudHypervisorKernel as string | undefined,
+    rootfsPath: options.cloudHypervisorRootfs as string | undefined,
+    supervisorPath: options.cloudHypervisorSupervisor as string | undefined,
+    vcpuCount: parsePositiveIntegerOption(
+      options.cloudHypervisorVcpus,
+      '--cloud-hypervisor-vcpus',
+      CLOUD_HYPERVISOR_DEFAULT_VCPU_COUNT,
+    ),
+    memoryMib: parsePositiveIntegerOption(
+      options.cloudHypervisorMemoryMib,
+      '--cloud-hypervisor-memory-mib',
+      CLOUD_HYPERVISOR_DEFAULT_MEMORY_MIB,
+    ),
+    apiTimeoutMs: parsePositiveIntegerOption(
+      options.cloudHypervisorApiTimeoutMs,
+      '--cloud-hypervisor-api-timeout-ms',
+      CLOUD_HYPERVISOR_DEFAULT_API_TIMEOUT_MS,
+    ),
+    sha256: Object.values(sha256).some((value) => value !== undefined)
+      ? sha256
+      : undefined,
+  };
 }
 
 function buildChrootIdentity(
