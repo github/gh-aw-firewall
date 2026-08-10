@@ -79,11 +79,11 @@ export interface CloudHypervisorLaunchToolPaths {
 
 /**
  * Builds the argv AWF spawns to launch Cloud Hypervisor: join the prepared
- * network namespace, drop to the non-root operator identity with an empty
- * capability bounding set, then exec the pinned Cloud Hypervisor binary
- * with only its API socket configured (the VM itself is created and booted
- * afterwards over that socket, mirroring Firecracker's `--api-sock`-only
- * jailer invocation).
+ * network namespace, drop to the non-root operator identity retaining
+ * exactly two things it needs to configure its own virtio-net TAP device,
+ * then exec the pinned Cloud Hypervisor binary with only its API socket
+ * configured (the VM itself is created and booted afterwards over that
+ * socket, mirroring Firecracker's `--api-sock`-only jailer invocation).
  *
  * The launched process retains exactly one supplementary group: the group
  * that owns `/dev/kvm` (resolved by preflight). A blanket `--clear-groups`
@@ -92,6 +92,18 @@ export interface CloudHypervisorLaunchToolPaths {
  * (see docs/cloud-hypervisor-foundation.md), that would make every real
  * launch fail with EACCES opening `/dev/kvm` even though preflight (which
  * runs as root) passed.
+ *
+ * It also retains exactly one capability: `CAP_NET_ADMIN`, via the
+ * bounding, inheritable, and ambient sets together (ambient capabilities
+ * are what let a specific capability survive `execve()` of a plain,
+ * non-file-capability-aware binary like `cloud-hypervisor` across a uid
+ * change, even under `--no-new-privs`). Cloud Hypervisor's virtio-net
+ * backend needs it to finish configuring the already-created,
+ * already-owned TAP device (observed live: `vm.boot` otherwise fails with
+ * "Failed to read the TAP flags from sysfs: Permission denied", even
+ * though the TAP device node itself is owned by the target uid/gid). This
+ * is a deliberate, minimal, single-capability exception to an otherwise
+ * fully empty capability set — not a broad grant.
  */
 export function buildCloudHypervisorLaunchCommand(options: {
   readonly tools: CloudHypervisorLaunchToolPaths;
@@ -127,8 +139,11 @@ export function buildCloudHypervisorLaunchCommand(options: {
       // also drop kvm access).
       `--groups=${options.kvmGid}`,
       '--no-new-privs',
-      '--inh-caps=-all',
-      '--bounding-set=-all',
+      // CAP_NET_ADMIN is the sole exception to an otherwise fully empty
+      // capability set — see the function doc comment above for why.
+      '--inh-caps=-all,+net_admin',
+      '--bounding-set=-all,+net_admin',
+      '--ambient-caps=+net_admin',
       '--',
       options.cloudHypervisorBinary,
       '--api-socket', `path=${options.apiSocketPath}`,

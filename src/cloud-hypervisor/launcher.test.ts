@@ -16,7 +16,7 @@ describe('buildCloudHypervisorLaunchCommand', () => {
     logFilePath: '/run/awf/cloud-hypervisor.log',
   };
 
-  it('joins the namespace, drops privileges but retains the kvm group, then execs Cloud Hypervisor with no shell', () => {
+  it('joins the namespace, drops privileges but retains the kvm group and CAP_NET_ADMIN, then execs Cloud Hypervisor with no shell', () => {
     const result = buildCloudHypervisorLaunchCommand(baseOptions);
     expect(result.command).toBe('/usr/sbin/ip');
     expect(result.args).toEqual([
@@ -26,8 +26,9 @@ describe('buildCloudHypervisorLaunchCommand', () => {
       '--regid=1000',
       '--groups=978',
       '--no-new-privs',
-      '--inh-caps=-all',
-      '--bounding-set=-all',
+      '--inh-caps=-all,+net_admin',
+      '--bounding-set=-all,+net_admin',
+      '--ambient-caps=+net_admin',
       '--',
       '/opt/cloud-hypervisor',
       '--api-socket', 'path=/run/awf/api.socket',

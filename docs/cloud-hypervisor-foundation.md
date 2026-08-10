@@ -72,14 +72,20 @@ isolation), different VMM implementation and host launch strategy.
    for the secure host launch:
    - `buildCloudHypervisorLaunchCommand()` builds the exact argv AWF spawns:
      `ip netns exec <namespace> setpriv --reuid=<uid> --regid=<gid>
-     --groups=<kvm-gid> --no-new-privs --inh-caps=-all --bounding-set=-all
+     --groups=<kvm-gid> --no-new-privs --inh-caps=-all,+net_admin
+     --bounding-set=-all,+net_admin --ambient-caps=+net_admin
      -- cloud-hypervisor --api-socket path=<path> --log-file <path> -v
      --seccomp true`. `--groups=<kvm-gid>` replaces the operator's full
      supplementary group list with only the group that owns `/dev/kvm`
      (resolved by preflight) — a blanket `--clear-groups` would also drop
-     kvm-group access and make every real launch fail with EACCES. No
-     shell is ever invoked — this argv is passed directly to `execa`,
-     never interpolated into a shell string.
+     kvm-group access and make every real launch fail with EACCES. The
+     capability set is empty except for `CAP_NET_ADMIN`, retained via the
+     bounding, inheritable, and ambient sets together — Cloud Hypervisor's
+     virtio-net backend needs it to finish configuring the already-created,
+     already-owned TAP device (`vm.boot` otherwise fails with "Failed to
+     read the TAP flags from sysfs: Permission denied"). No shell is ever
+     invoked — this argv is passed directly to `execa`, never interpolated
+     into a shell string.
    - `computeCloudHypervisorLandlockRules()` computes the minimal
      `landlock_rules` list sent in the `vm.create` payload.
    - `CloudHypervisorCgroup` manages a cgroup v2 hierarchy: it enables
@@ -134,7 +140,7 @@ MicrovmWorkspaceImage.prepare() (workspace + rootfs staging — shared with Fire
     ↓
 private run directory under /run/awf-cloud-hypervisor (0711 ancestors, 0700 leaf owned by the non-root identity) + per-run cgroup v2 (subtree_control delegated root→parent→leaf)
     ↓
-buildCloudHypervisorLaunchCommand() → ip netns exec → setpriv --groups=<kvm-gid> → cloud-hypervisor --api-socket ... --seccomp true (minimal PATH-only environment)
+buildCloudHypervisorLaunchCommand() → ip netns exec → setpriv --groups=<kvm-gid> --ambient-caps=+net_admin → cloud-hypervisor --api-socket ... --seccomp true (minimal PATH-only environment)
     ↓
 wait for API socket → vmm.ping → vm.create (landlock_enable: true, minimal landlock_rules)
     ↓
@@ -160,15 +166,22 @@ boundary:
    intermediate fork — the resulting process keeps the PID the host
    observes for cgroup assignment.
 2. **Privilege drop.** `setpriv --reuid=<uid> --regid=<gid>
-   --groups=<kvm-gid> --no-new-privs --inh-caps=-all --bounding-set=-all`
+   --groups=<kvm-gid> --no-new-privs --inh-caps=-all,+net_admin
+   --bounding-set=-all,+net_admin --ambient-caps=+net_admin`
    execs Cloud Hypervisor as the same non-root operator identity
-   Firecracker's jailer targets (`SUDO_UID`/`SUDO_GID`), with an empty
-   capability bounding set and `no_new_privs` set, before any guest code
-   runs. `--groups=<kvm-gid>` replaces the operator's supplementary group
+   Firecracker's jailer targets (`SUDO_UID`/`SUDO_GID`), with `no_new_privs`
+   set and an otherwise-empty capability set before any guest code runs.
+   `--groups=<kvm-gid>` replaces the operator's supplementary group
    list with only the group that owns `/dev/kvm` (resolved by preflight);
    a blanket `--clear-groups` would also drop that membership and make
    every real launch fail opening `/dev/kvm` even though root-run
-   preflight passed.
+   preflight passed. The capability set retains exactly one exception,
+   `CAP_NET_ADMIN` — via the bounding, inheritable, and ambient sets
+   together, so it survives the uid change and `execve()` of a plain,
+   non-file-capability binary even under `--no-new-privs` — because Cloud
+   Hypervisor's virtio-net backend needs it to finish configuring the
+   already-created, already-owned TAP device; without it, `vm.boot` fails
+   with "Failed to read the TAP flags from sysfs: Permission denied".
 3. **Filesystem confinement.** In place of jailer's userspace chroot, AWF
    combines:
    - a **private run directory** under `/run/awf-cloud-hypervisor/<binary>/<runId>/`
@@ -241,7 +254,7 @@ Same as Firecracker (`ip`, `nft`, `sysctl`, `mke2fs`, `debugfs`, `e2fsck`,
 
 | Tool | Purpose |
 |------|---------|
-| `setpriv` | Drops to the non-root operator uid/gid with an empty capability set before Cloud Hypervisor execs (util-linux; standard on Ubuntu) |
+| `setpriv` | Drops to the non-root operator uid/gid before Cloud Hypervisor execs, retaining only `CAP_NET_ADMIN` (util-linux; standard on Ubuntu) |
 
 ### Operator account
 
@@ -436,16 +449,19 @@ and its own `vm.info` response to prove the launcher's jailer-replacement
 boundary (Part 3) live, not just at the argv-construction unit-test level:
 
 - **Non-root identity**: `/proc/<pid>` is not owned by uid 0.
-- **Empty effective capability set**: `/proc/<pid>/status`'s `CapEff` is
-  all-zero.
+- **Minimal effective capability set**: `/proc/<pid>/status`'s `CapEff` is
+  exactly `0000000000001000` — `CAP_NET_ADMIN` alone (needed for Cloud
+  Hypervisor's virtio-net backend to finish configuring the already-owned
+  TAP device; see Part 3) and nothing else.
 - **`no_new_privs` is set**: `NoNewPrivs: 1`.
 - **Active seccomp filter**: `Seccomp: 2` (filter mode), confirming
   `--seccomp true` is in effect.
 - **Cgroup membership and bounded limits**: the process's PID appears in
   `/sys/fs/cgroup/awf-cloud-hypervisor/<runId>/cgroup.procs`; `memory.max`
-  (or the cgroup v1 equivalent) is a bounded positive number; live
-  `memory.current` usage is greater than zero and does not exceed it (the
-  "bounded memory overhead" baseline from Part 4/9).
+  is a bounded positive number (cgroup v1 hosts are rejected outright by
+  preflight, so there is no v1 fallback to check); live `memory.current`
+  usage is greater than zero and does not exceed it (the "bounded memory
+  overhead" baseline from Part 4/9).
 - **`landlock_enable` reflected in `vm.create`** and an **exactly-minimal
   device set**: querying the Cloud Hypervisor process's own
   `GET /api/v1/vm.info` over its private Unix domain socket confirms

@@ -17,10 +17,11 @@ set -euo pipefail
 #   - security-assertions: while a run is live, inspects the host-visible
 #     Cloud Hypervisor process and its own vm.info response to confirm the
 #     launcher's jailer-replacement boundary (netns join, non-root identity,
-#     empty capability set, no_new_privs, active seccomp filter, per-run
-#     cgroup membership/limits, landlock_enable reflected in vm.create, and
-#     an exactly-minimal disk/net/vsock device set with no path to the
-#     host-only API socket) — see src/cloud-hypervisor/launcher.ts.
+#     capability set limited to CAP_NET_ADMIN alone, no_new_privs, active
+#     seccomp filter, per-run cgroup membership/limits, landlock_enable
+#     reflected in vm.create, and an exactly-minimal disk/net/vsock device
+#     set with no path to the host-only API socket) — see
+#     src/cloud-hypervisor/launcher.ts.
 #
 # NOTE on shared namespace/interface naming: src/microvm/network.ts is
 # VMM-neutral and used unmodified by both the Firecracker and Cloud
@@ -282,10 +283,11 @@ assert_no_residue
 # --- Cloud Hypervisor-specific live security assertions -------------------
 #
 # Reproduces the launcher's jailer-replacement boundary live, while a run is
-# in flight: netns-join + non-root privilege drop + empty capability set +
-# no_new_privs + active seccomp filter + per-run cgroup membership/limits +
-# landlock_enable reflected in vm.create + an exactly-minimal disk/net/vsock
-# device set (see src/cloud-hypervisor/launcher.ts and manager.ts).
+# in flight: netns-join + non-root privilege drop + capability set limited
+# to CAP_NET_ADMIN alone + no_new_privs + active seccomp filter + per-run
+# cgroup membership/limits + landlock_enable reflected in vm.create + an
+# exactly-minimal disk/net/vsock device set (see
+# src/cloud-hypervisor/launcher.ts and manager.ts).
 sec_work="$RUN_ROOT/security/work"
 sec_workspace="$RUN_ROOT/security/workspace"
 sec_audit="$RUN_ROOT/security/audit"
@@ -341,10 +343,13 @@ proc_uid=$(sudo stat -c %u "/proc/$vmm_pid" 2>/dev/null || echo "")
 [ -n "$proc_uid" ] || fail_security "could not stat /proc/$vmm_pid"
 [ "$proc_uid" != "0" ] || fail_security "Cloud Hypervisor process is running as root"
 
-# Empty effective capability set (setpriv --inh-caps=-all --bounding-set=-all).
+# Capability set limited to CAP_NET_ADMIN alone (setpriv --inh-caps=-all,
+# +net_admin --bounding-set=-all,+net_admin --ambient-caps=+net_admin).
+# CAP_NET_ADMIN's bit is 12, so the expected 64-bit CapEff bitmask is
+# exactly 0x1000: 0000000000001000.
 cap_eff=$(sudo awk '/^CapEff:/{print $2}' "/proc/$vmm_pid/status" 2>/dev/null || echo "")
-[ "$cap_eff" = "0000000000000000" ] \
-  || fail_security "process retains effective capabilities: ${cap_eff:-unknown}"
+[ "$cap_eff" = "0000000000001000" ] \
+  || fail_security "process capability set is not exactly CAP_NET_ADMIN: ${cap_eff:-unknown}"
 
 # no_new_privs set (setpriv --no-new-privs).
 no_new_privs=$(sudo awk '/^NoNewPrivs:/{print $2}' "/proc/$vmm_pid/status" 2>/dev/null || echo "")
