@@ -98,6 +98,12 @@ jobs:
           name: firecracker-test-x86_64
           path: ${{ runner.temp }}/firecracker-test-x86_64
 
+      - name: Grant workflow user access to KVM
+        run: |
+          if [ -e /dev/kvm ]; then
+            sudo chmod 666 /dev/kvm
+          fi
+
       - name: Verify capable host and artifact digests
         run: |
           ./scripts/ci/firecracker-host-preflight.sh \

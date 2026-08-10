@@ -272,10 +272,11 @@ microVM to the proven internal bridge, and executes through vsock. Host access,
 DinD, extra mounts, TTY, topology peers, and enclaves fail closed in this
 preview. Selecting `firecracker` never falls back to another runtime.
 
-**macOS and Windows are permanently unsupported.** GitHub-hosted runners are not
-supported (no `/dev/kvm`). The API proxy is mandatory; provider credentials are
-never passed as guest environment variables. No auto-download of artifacts; all
-five artifact paths and their SHA-256 digests are required on every invocation.
+**macOS and Windows are permanently unsupported.** CI specifically supports
+GitHub-hosted x64 `ubuntu-24.04`; KVM remains mandatory, and hosts without usable
+`/dev/kvm` access fail closed. The API proxy is mandatory; provider credentials
+are never passed as guest environment variables. No auto-download of artifacts;
+all five artifact paths and their SHA-256 digests are required on every invocation.
 Release test artifacts (`firecracker-test-x86_64`) are x86_64 test/preview
 artifacts built by both the release workflow and `test-firecracker.yml`. They
 are published as explicitly named release/workflow assets, but are not

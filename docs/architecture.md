@@ -259,7 +259,8 @@ uses a substantially different execution architecture:
 - **TTY, Docker-in-Docker, topology peers, enclaves, extra volume mounts, and
   remote Docker hosts all fail closed** in this preview.
 - **Linux/KVM only** — macOS and Windows are permanently unsupported.
-  GitHub-hosted runners are not supported (no `/dev/kvm`).
+  CI specifically supports GitHub-hosted x64 `ubuntu-24.04`; KVM remains
+  mandatory, and hosts without usable `/dev/kvm` access fail closed.
 
 See [Firecracker integration (preview)](./firecracker-integration.md) for the
 full architecture, trust model, and operator guide.
