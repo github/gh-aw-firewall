@@ -389,6 +389,7 @@ export class CloudHypervisorManager {
       runDirectory: this.paths.runDirectory,
       apiSocketPath: this.paths.apiSocketPath,
       vsockSocketPath: this.paths.vsockSocketPath,
+      tapName: networkPlan.tapName,
     });
     return {
       cpus: {

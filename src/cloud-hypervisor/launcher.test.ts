@@ -61,7 +61,7 @@ describe('buildCloudHypervisorLaunchCommand', () => {
 });
 
 describe('computeCloudHypervisorLandlockRules', () => {
-  it('restricts the VMM to exactly the staged paths plus required device nodes', () => {
+  it('restricts the VMM to exactly the staged paths plus required device nodes and TAP sysfs entry', () => {
     const rules = computeCloudHypervisorLandlockRules({
       kernelPath: '/run/awf/kernel',
       rootfsPath: '/run/awf/rootfs.ext4',
@@ -69,6 +69,7 @@ describe('computeCloudHypervisorLandlockRules', () => {
       runDirectory: '/run/awf/run',
       apiSocketPath: '/run/awf/run/api.socket',
       vsockSocketPath: '/run/awf/run/vsock.socket',
+      tapName: 'fctabc123',
     });
 
     expect(rules).toEqual([
@@ -77,6 +78,7 @@ describe('computeCloudHypervisorLandlockRules', () => {
       { path: '/run/awf/run', access: 'rw' },
       { path: '/dev/kvm', access: 'rw' },
       { path: '/dev/net/tun', access: 'rw' },
+      { path: '/sys/class/net/fctabc123', access: 'r' },
       { path: '/run/awf/workspace.ext4', access: 'rw' },
     ]);
   });
@@ -88,9 +90,28 @@ describe('computeCloudHypervisorLandlockRules', () => {
       runDirectory: '/run/awf/run',
       apiSocketPath: '/run/awf/run/api.socket',
       vsockSocketPath: '/run/awf/run/vsock.socket',
+      tapName: 'fctabc123',
     });
 
     expect(rules.some((rule) => rule.path.includes('workspace'))).toBe(false);
+  });
+
+  it('grants read access to the TAP sysfs directory so tun_flags is readable under Landlock', () => {
+    // Regression test: /sys/class/net/<tap>/tun_flags is a world-readable
+    // (0444) kernel sysfs attribute with no capability requirement of its
+    // own, but Landlock still blocks the read if the path isn't in the
+    // allowlist — observed live as vm.boot failing with "Failed to read
+    // the TAP flags from sysfs: Permission denied".
+    const rules = computeCloudHypervisorLandlockRules({
+      kernelPath: '/run/awf/kernel',
+      rootfsPath: '/run/awf/rootfs.ext4',
+      runDirectory: '/run/awf/run',
+      apiSocketPath: '/run/awf/run/api.socket',
+      vsockSocketPath: '/run/awf/run/vsock.socket',
+      tapName: 'fctabc123',
+    });
+
+    expect(rules).toContainEqual({ path: '/sys/class/net/fctabc123', access: 'r' });
   });
 });
 

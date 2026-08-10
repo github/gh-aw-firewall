@@ -60,6 +60,10 @@ export interface CloudHypervisorLaunchPaths {
   readonly runDirectory: string;
   readonly apiSocketPath: string;
   readonly vsockSocketPath: string;
+  /** Host TAP interface name (e.g. `fct<token>`), for the
+   * `/sys/class/net/<tapName>` Landlock rule — see
+   * {@link computeCloudHypervisorLandlockRules}. */
+  readonly tapName: string;
 }
 
 export interface CloudHypervisorLaunchIdentity {
@@ -159,9 +163,16 @@ export function buildCloudHypervisorLaunchCommand(options: {
  * own process needs after `vm.create`: read access to the kernel image,
  * read-write access to the rootfs and (if present) workspace disk images,
  * read-write access to the private run directory (for the API and vsock
- * UNIX domain sockets it creates there), and read-write access to the
- * device nodes it must reopen for virtio-net TAP attachment and KVM
- * ioctls. Any path not listed here becomes inaccessible to the Cloud
+ * UNIX domain sockets it creates there), read-write access to the device
+ * nodes it must reopen for virtio-net TAP attachment and KVM ioctls, and
+ * read access to the TAP's own sysfs device directory. Cloud Hypervisor's
+ * virtio-net setup reads `/sys/class/net/<tapName>/tun_flags` (a
+ * world-readable, `0444` file with no capability requirement of its own)
+ * to detect multi-queue support; without a Landlock rule for it, that read
+ * fails with the kernel LSM's own EACCES — observed live as `vm.boot`
+ * failing with "Failed to read the TAP flags from sysfs: Permission
+ * denied" even though ordinary Unix file permissions would have allowed
+ * the read. Any path not listed here becomes inaccessible to the Cloud
  * Hypervisor process the instant Landlock is enabled, even to a
  * hypothetical guest-escape.
  */
@@ -174,6 +185,7 @@ export function computeCloudHypervisorLandlockRules(
     { path: paths.runDirectory, access: 'rw' },
     { path: '/dev/kvm', access: 'rw' },
     { path: '/dev/net/tun', access: 'rw' },
+    { path: `/sys/class/net/${paths.tapName}`, access: 'r' },
   ];
   if (paths.workspacePath) {
     rules.push({ path: paths.workspacePath, access: 'rw' });

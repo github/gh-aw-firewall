@@ -197,7 +197,13 @@ boundary:
      `vm.create` payload with a minimal `landlock_rules` list (kernel image
      read-only; rootfs, workspace, and the run directory read-write;
      `/dev/kvm` and `/dev/net/tun` read-write for KVM ioctls and TAP
-     attachment). Any path not listed becomes inaccessible to the Cloud
+     attachment; the TAP's own `/sys/class/net/<tapName>` directory
+     read-only, for the world-readable `tun_flags` sysfs attribute Cloud
+     Hypervisor's virtio-net setup reads to detect multi-queue support —
+     without this rule Landlock itself blocks that read, surfacing as
+     `vm.boot` failing with "Failed to read the TAP flags from sysfs:
+     Permission denied" even though ordinary Unix file permissions would
+     have allowed it). Any path not listed becomes inaccessible to the Cloud
      Hypervisor process the instant Landlock is enabled — enforced by the
      kernel, not a userspace boundary a compromised process could bypass.
    - Cloud Hypervisor's own **default seccomp filter** (`--seccomp true`,
