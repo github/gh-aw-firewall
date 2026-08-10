@@ -209,10 +209,10 @@ v1.16.1 binaries, Linux 6.1.141 kernel, BusyBox 1.36.1 rootfs, and AWF guest
 supervisor — from pinned, SHA-256 verified sources. Attests provenance. Uploads
 as a 7-day workflow artifact.
 
-**Live job** (`[self-hosted, linux, x64, kvm, awf-firecracker]`): Downloads the
-build artifact, verifies all five SHA-256 digests, and runs the live smoke/security
-suite. This job **never** lands on a GitHub-hosted runner; it requires an
-explicitly labeled self-hosted runner with KVM access.
+**Live job** (`ubuntu-24.04`): Runs on a GitHub-hosted x64 runner, downloads the
+build artifact, verifies all five SHA-256 digests, and runs the live
+smoke/security suite. The preflight requires usable KVM and fails closed if
+`/dev/kvm` or another required host capability is unavailable.
 
 Live assertions (see `scripts/ci/firecracker-live-smoke.sh`):
 

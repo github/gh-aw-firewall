@@ -14,16 +14,16 @@ artifact paths and their SHA-256 digests on every invocation. Omitting any
 required input is a hard failure.
 
 **Linux/KVM only.** macOS and Windows are unsupported and will never silently
-pass; the preflight fails immediately on non-Linux hosts. GitHub-hosted runners
-do not expose `/dev/kvm`; nested virtualization on GitHub-hosted runners is
-experimental and **not a supported target** for this preview.
+pass; the preflight fails immediately on non-Linux hosts. CI specifically
+supports GitHub-hosted x64 `ubuntu-24.04`, which exposes `/dev/kvm`. KVM remains
+mandatory, and any host without a readable and writable `/dev/kvm` fails closed.
 :::
 
 This document covers the AWF Firecracker v1.16.1 microVM preview. It is
 structured for two audiences:
 
-1. **Operators** who want to set up and run the preview on a capable self-hosted
-   runner.
+1. **Operators** who want to set up and run the preview on a capable Linux/KVM
+   host.
 2. **Engineers** who want to understand the implementation design and trust model.
 
 For the Docker-compose defaults see [Architecture](./architecture.md). For
@@ -78,7 +78,7 @@ and topology completeness, is a prerequisite for promotion to non-preview.
 | Isolation mechanism | Linux namespaces/cgroups | Userspace application kernel | Docker Sandboxes microVM (KVM) | Firecracker microVM (KVM) |
 | Separate Linux kernel | No | No (own syscall surface) | Yes | Yes |
 | Requires KVM | No | No (systrap platform) | macOS/Win: platform hypervisor; Linux: KVM | Yes — hard requirement |
-| Works on GitHub-hosted runners | Yes | Yes | macOS only | No (no `/dev/kvm`) |
+| Works on GitHub-hosted runners | Yes | Yes | macOS only | Yes — x64 `ubuntu-24.04` with KVM |
 | Workspace delivery | bind mount | bind mount | virtiofs passthrough | ext4 image copy-in / copy-back |
 | Virtiofs / live bind mounts | N/A | N/A | Yes (default) | **No** |
 | Docker-in-Docker | Supported | Supported | Yes (in-VM engine) | **Not supported** |
@@ -96,7 +96,7 @@ and topology completeness, is a prerequisite for promotion to non-preview.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│  Host (Linux, KVM-capable, self-hosted runner)                      │
+│  Host (Linux, x86_64, KVM-capable)                                  │
 │                                                                     │
 │  ┌──────────────────────────────────────────────────────────────┐  │
 │  │  AWF CLI (runs as root via sudo from the non-root operator)  │  │
@@ -249,17 +249,13 @@ at `/workspace` inside the VM. It is not part of the shared rootfs.
 | Operating system | **Linux only** — macOS and Windows are unsupported and fail preflight immediately |
 | Architecture | x86_64 (primary) — aarch64 accepted by preflight code but no pre-built test artifacts are released |
 | KVM device | `/dev/kvm` must exist and be readable + writable by the workflow user |
-| GitHub-hosted runners | **Not supported** — no `/dev/kvm`; GitHub-hosted nested virtualization is experimental and not a supported target |
-| Recommended runner labels | `self-hosted, linux, x64, kvm, awf-firecracker` (matches the CI live-kvm job) |
+| CI runner | GitHub-hosted x64 `ubuntu-24.04` with readable + writable `/dev/kvm` |
 
-:::caution[Self-hosted runner requirement]
-GitHub-hosted runners (`ubuntu-latest`, etc.) do not expose `/dev/kvm`. The
-Firecracker backend will always fail preflight on those runners. Use an
-**explicitly labeled self-hosted runner** with confirmed KVM access.
-
-GitHub-hosted runners with experimental nested virtualization are **not** a
-supported target for this preview. The preflight does not check for nested
-virtualization specifically; it checks for a real, accessible `/dev/kvm`.
+:::caution[KVM requirement]
+The CI-supported host is GitHub-hosted x64 `ubuntu-24.04`. Do not infer support
+for other GitHub-hosted images or architectures. The preflight checks the actual
+host capabilities, including a readable and writable `/dev/kvm`, and fails
+closed when any requirement is absent.
 :::
 
 ### Required host tools
@@ -917,8 +913,8 @@ The Firecracker CI workflow (`test-firecracker.yml`) triggers **only** on:
   the live KVM job
 
 It does **not** run on push or schedule. Unlabeled pull requests run only the
-hosted artifact build; the live KVM job never silently runs on GitHub-hosted
-runners.
+artifact build; the live KVM job runs only when explicitly requested by manual
+dispatch or the `firecracker-kvm` label.
 
 ### Jobs
 
@@ -943,11 +939,12 @@ KVM. It:
 7. Uploads `release/firecracker-test-x86_64/` as artifact `firecracker-test-x86_64`
    with 7-day retention
 
-#### `live-kvm` (runs on `[self-hosted, linux, x64, kvm, awf-firecracker]`)
+#### `live-kvm` (runs on `ubuntu-24.04`)
 
-This job runs on a **self-hosted runner** with the exact label set
-`[self-hosted, linux, x64, kvm, awf-firecracker]`. It will never land on a
-GitHub-hosted runner because GitHub-hosted runners do not carry these labels.
+This job runs on a GitHub-hosted x64 `ubuntu-24.04` runner. Its preflight
+requires a readable and writable `/dev/kvm` and fails closed rather than
+silently skipping the live suite if the runner lacks KVM or another required
+host capability.
 
 It:
 
@@ -1141,7 +1138,7 @@ to be addressed before promotion out of preview.
 | **No virtiofs / live bind mounts** | Workspace is snapshotted at boot. Files created on the host after VM start are not visible to the guest. |
 | **No Docker-in-Docker** | The guest has no Docker daemon. Agents that build or run containers cannot use Docker inside the VM. |
 | **Single agent only** | The Firecracker path supports one agent execution per VM. Multi-agent or parallel executor models are not supported. |
-| **GitHub-hosted runners unsupported** | GitHub-hosted runners do not expose `/dev/kvm`. Experimental nested virtualization is not a supported target. |
+| **Narrow CI host support** | CI specifically supports GitHub-hosted x64 `ubuntu-24.04`; other hosts must satisfy every preflight requirement and fail closed otherwise. |
 | **macOS/Windows unsupported** | Firecracker requires Linux KVM; the preview fails preflight on these hosts. |
 | **No unverified latest/demo assets** | There is no "just try it" path. Operators must manage and verify all artifacts. |
 | **8 GiB workspace image ceiling** | Workspaces larger than 8 GiB cannot be used with Firecracker. |

@@ -9,8 +9,8 @@ fail() {
 }
 
 [ "$(uname -s)" = Linux ] || fail "Linux is required; macOS and Windows are unsupported."
-[ "$(uname -m)" = x86_64 ] || fail "This CI artifact set requires an x86_64 self-hosted runner."
-[ -c /dev/kvm ] || fail "/dev/kvm is missing; use an explicitly KVM-capable self-hosted runner."
+[ "$(uname -m)" = x86_64 ] || fail "This CI artifact set requires an x86_64 host."
+[ -c /dev/kvm ] || fail "/dev/kvm is missing; use a KVM-capable host."
 [ -r /dev/kvm ] && [ -w /dev/kvm ] \
   || fail "/dev/kvm must be readable and writable by the workflow user."
 
@@ -40,4 +40,4 @@ docker compose version >/dev/null || fail "Docker Compose v2 is required."
   sha256sum --check --strict SHA256SUMS
 ) || fail "Artifact digest verification failed."
 
-echo "Firecracker host preflight passed on explicitly labeled self-hosted Linux/KVM runner."
+echo "Firecracker host preflight passed on Linux/x86_64 with accessible KVM."

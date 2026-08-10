@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       run_live_kvm:
-        description: Run the explicitly labeled self-hosted Linux/KVM job
+        description: Run the live KVM job on GitHub-hosted x64 Ubuntu 24.04
         required: true
         type: boolean
         default: true
@@ -80,7 +80,7 @@ jobs:
       (github.event_name == 'workflow_dispatch' && inputs.run_live_kvm) ||
       (github.event_name == 'pull_request' &&
        contains(github.event.pull_request.labels.*.name, 'firecracker-kvm'))
-    runs-on: [self-hosted, linux, x64, kvm, awf-firecracker]
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
       - name: Checkout repository

@@ -134,8 +134,7 @@ any other runtime.
 | Operating system | **Linux only** — macOS and Windows fail preflight immediately |
 | Architecture | x86_64 primary (aarch64 accepted by preflight code; no pre-built aarch64 test artifact) |
 | KVM device | `/dev/kvm` must exist and be readable + writable by the workflow user |
-| GitHub-hosted runners | **Not supported** — `/dev/kvm` is not exposed; nested virtualization on GitHub-hosted runners is experimental and **not a supported target** |
-| Recommended runner labels | `self-hosted, linux, x64, kvm, awf-firecracker` |
+| CI runner | GitHub-hosted x64 `ubuntu-24.04` with readable + writable `/dev/kvm` |
 | Firecracker version | **v1.16.1 exactly** — enforced at preflight; any other version fails |
 | Jailer | Mandatory — the jailer binary must match the Firecracker binary version |
 | Docker | Local Unix-socket Docker Engine required; remote Docker hosts rejected |
