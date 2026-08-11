@@ -23,7 +23,7 @@ awf --env-file /tmp/runtime-paths.env -e MY_VAR=override 'command'
 
 When using `sudo -E`, these host variables are automatically passed: `GITHUB_TOKEN`, `GH_TOKEN`, `GITHUB_PERSONAL_ACCESS_TOKEN`, `USER`, `TERM`, `HOME`, `XDG_CONFIG_HOME`.
 
-GitHub Actions supplies `ACTIONS_ID_TOKEN_REQUEST_URL` and `ACTIONS_ID_TOKEN_REQUEST_TOKEN` when the job grants `id-token: write`. Never print or inspect either value. AWF excludes them from the agent environment and forwards them directly to the API-proxy sidecar only when `AWF_AUTH_TYPE=github-oidc`.
+GitHub Actions supplies `ACTIONS_ID_TOKEN_REQUEST_URL` and `ACTIONS_ID_TOKEN_REQUEST_TOKEN` when the job grants `id-token: write`. Never print or inspect either value. AWF excludes them from the agent environment. It forwards them directly to the API-proxy sidecar when `AWF_AUTH_TYPE=github-oidc`, and also when `GH_AW_OTLP_WORKLOAD_IDENTITY` is set to enable OIDC workload identity for the OTLP trace exporter (`src/services/api-proxy-env-config.ts`).
 
 The following are always set/overridden: `PATH` (container values).
 
@@ -46,7 +46,7 @@ Using `--env-all` passes all host environment variables to the container, which 
 3. **Unnecessary Access**: Extra variables increase attack surface (violates least privilege)
 4. **Accidental Sharing**: Easy to forget what's in your environment when sharing commands
 
-**Excluded variables** (even with `--env-all`): `PATH`, `PWD`, `OLDPWD`, `SHLVL`, `_`, `SUDO_*`, `ACTIONS_RUNTIME_TOKEN`, `ACTIONS_RESULTS_URL`, `ACTIONS_ID_TOKEN_REQUEST_URL`, and `ACTIONS_ID_TOKEN_REQUEST_TOKEN`. Actions OIDC variables are forwarded directly to the api-proxy sidecar in `github-oidc` mode, never to the agent.
+**Excluded variables** (even with `--env-all`): `PATH`, `PWD`, `OLDPWD`, `SHLVL`, `_`, `SUDO_*`, `ACTIONS_RUNTIME_TOKEN`, `ACTIONS_RESULTS_URL`, `ACTIONS_ID_TOKEN_REQUEST_URL`, and `ACTIONS_ID_TOKEN_REQUEST_TOKEN`. Actions OIDC variables are forwarded directly to the api-proxy sidecar in `github-oidc` mode, and also when `GH_AW_OTLP_WORKLOAD_IDENTITY` is configured for OTLP exporter workload identity; they are never forwarded to the agent.
 
 `--env-all` is not a safe way to troubleshoot authentication. Do not expose Actions OIDC request variables to the agent to support HTTP MCP `auth.type: github-oidc`: gh-aw launches mcpg separately from a runner-owned step. [github/gh-aw#50053](https://github.com/github/gh-aw/issues/50053), which tracked that boundary and existing-lock compatibility, is resolved by [github/gh-aw#50054](https://github.com/github/gh-aw/pull/50054). The [Auth Doctor Updater workflow](../.github/workflows/auth-doctor-updater.md) audits this guidance without running credential probes.
 

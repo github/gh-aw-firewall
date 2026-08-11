@@ -281,7 +281,7 @@ All OIDC flows require GitHub Actions runtime tokens:
 
 Documentation audits treat both as non-observable credentials: they verify `id-token: write` and sidecar configuration but never request or print either value, a minted JWT, or exchanged cloud credentials.
 
-AWF forwards these variables only to the api-proxy sidecar in `github-oidc` mode and excludes them from the agent container. GitHub Agentic Workflows independently passes them from its runner-owned **Start MCP Gateway** step directly to the MCP gateway when a remote HTTP MCP server uses `auth.type: github-oidc`; AWF does not launch or configure that gateway. [github/gh-aw#50053](https://github.com/github/gh-aw/issues/50053) is resolved by [github/gh-aw#50054](https://github.com/github/gh-aw/pull/50054), which enforces this boundary.
+AWF forwards these variables to the api-proxy sidecar in `github-oidc` mode, and also when `GH_AW_OTLP_WORKLOAD_IDENTITY` is configured to enable OIDC workload identity for the OTLP trace exporter; both cases exclude the variables from the agent container. GitHub Agentic Workflows independently passes them from its runner-owned **Start MCP Gateway** step directly to the MCP gateway when a remote HTTP MCP server uses `auth.type: github-oidc`; AWF does not launch or configure that gateway. [github/gh-aw#50053](https://github.com/github/gh-aw/issues/50053) is resolved by [github/gh-aw#50054](https://github.com/github/gh-aw/pull/50054), which enforces this boundary.
 
 ### Azure (Entra ID)
 
