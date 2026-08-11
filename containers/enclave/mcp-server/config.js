@@ -60,6 +60,12 @@ function positiveInt(name, fallback, maximum = Number.MAX_SAFE_INTEGER) {
   return value;
 }
 
+function optionalPositiveInt(name) {
+  const raw = process.env[name];
+  if (raw === undefined || raw === '') return undefined;
+  return positiveInt(name, 1);
+}
+
 function dockerSize(name, fallback) {
   const value = process.env[name] || fallback;
   if (!/^[1-9][0-9]*[bkmgBKMG]$/.test(value)) {
@@ -226,6 +232,8 @@ function loadAgentConfig(server) {
     maxOutputBytes: positiveInt('AWF_ENCLAVE_AGENT_MAX_OUTPUT_BYTES', MAX_RESULT_BYTES, MAX_RESULT_BYTES),
     maxPromptBytes: positiveInt('AWF_ENCLAVE_AGENT_MAX_PROMPT_BYTES', 4096, MAX_TASK_BYTES),
     maxInvocations: positiveInt('AWF_ENCLAVE_AGENT_MAX_INVOCATIONS', 8),
+    maxModelRequests: optionalPositiveInt('AWF_ENCLAVE_AGENT_MAX_MODEL_REQUESTS'),
+    maxModelTokens: optionalPositiveInt('AWF_ENCLAVE_AGENT_MAX_MODEL_TOKENS'),
     runLabelKey: ENCLAVE_RUN_LABEL,
     invocationLabelKey: ENCLAVE_INVOCATION_LABEL,
     containerPrefix: AGENT_CONTAINER_PREFIX,

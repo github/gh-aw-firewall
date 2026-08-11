@@ -268,32 +268,23 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 - `enclaves[]` → *(config-only; no CLI equivalent, see §14)*
 - `enclaves[].repos[]` → *(config-only; no CLI equivalent, see §14)*
 - `enclaves[].timeout` → *(config-only; no CLI equivalent, see §14)*
+- `enclaves[].runtime` → *(config-only; no CLI equivalent, see §14)*
+- `enclaves[].image` → *(config-only; no CLI equivalent, see §14)*
+- `enclaves[].memoryLimit` → *(config-only; no CLI equivalent, see §14)*
+- `enclaves[].cpuLimit` → *(config-only; no CLI equivalent, see §14)*
+- `enclaves[].pidsLimit` → *(config-only; no CLI equivalent, see §14)*
+- `enclaves[].tmpfsLimit` → *(config-only; no CLI equivalent, see §14)*
+- `enclaves[].maxOutputBytes` → *(config-only; no CLI equivalent, see §14)*
+- `enclaves[].maxInvocations` → *(config-only; no CLI equivalent, see §14)*
 - `enclaves[].script` → *(config-only; no CLI equivalent, see §14)*
-- `enclaves[].script.runtime` → *(config-only; no CLI equivalent, see §14)*
-- `enclaves[].script.image` → *(config-only; no CLI equivalent, see §14)*
-- `enclaves[].script.network` → *(config-only; no CLI equivalent, see §14)*
-- `enclaves[].script.interpreter` → *(config-only; no CLI equivalent, see §14)*
-- `enclaves[].script.memoryLimit` → *(config-only; no CLI equivalent, see §14)*
-- `enclaves[].script.cpuLimit` → *(config-only; no CLI equivalent, see §14)*
-- `enclaves[].script.pidsLimit` → *(config-only; no CLI equivalent, see §14)*
-- `enclaves[].script.tmpfsLimit` → *(config-only; no CLI equivalent, see §14)*
-- `enclaves[].script.maxOutputBytes` → *(config-only; no CLI equivalent, see §14)*
 - `enclaves[].script.maxScriptBytes` → *(config-only; no CLI equivalent, see §14)*
-- `enclaves[].script.maxInvocations` → *(config-only; no CLI equivalent, see §14)*
 - `enclaves[].agent` → *(config-only; no CLI equivalent, see §14)*
-- `enclaves[].agent.runtime` → *(config-only; no CLI equivalent, see §14)*
-- `enclaves[].agent.image` → *(config-only; no CLI equivalent, see §14)*
-- `enclaves[].agent.network` → *(config-only; no CLI equivalent, see §14)*
 - `enclaves[].agent.engine` → *(config-only; no CLI equivalent, see §14)*
 - `enclaves[].agent.profile` → *(config-only; no CLI equivalent, see §14)*
 - `enclaves[].agent.model` → *(config-only; no CLI equivalent, see §14)*
-- `enclaves[].agent.memoryLimit` → *(config-only; no CLI equivalent, see §14)*
-- `enclaves[].agent.cpuLimit` → *(config-only; no CLI equivalent, see §14)*
-- `enclaves[].agent.pidsLimit` → *(config-only; no CLI equivalent, see §14)*
-- `enclaves[].agent.tmpfsLimit` → *(config-only; no CLI equivalent, see §14)*
-- `enclaves[].agent.maxOutputBytes` → *(config-only; no CLI equivalent, see §14)*
 - `enclaves[].agent.maxTaskBytes` → *(config-only; no CLI equivalent, see §14)*
-- `enclaves[].agent.maxInvocations` → *(config-only; no CLI equivalent, see §14)*
+- `enclaves[].agent.maxModelRequests` → *(config-only; no CLI equivalent, see §14)*
+- `enclaves[].agent.maxModelTokens` → *(config-only; no CLI equivalent, see §14)*
 
 When `container.dockerHostPathPrefix` points at a daemon-visible shared `/tmp` path, the implementation stages the invoking CLI binary together with `/etc/passwd`, `/etc/group`, and the generated chroot `/etc/hosts` under that shared path so chroot mode can bootstrap on split-filesystem ARC/DinD hosts.
 
@@ -1675,7 +1666,7 @@ Each record follows the `blocked-request-diag/v<version>` schema:
 
 ## 14. Unified Enclaves
 
-The optional top-level `enclaves` array defines AWF's sole supported private-repository execution surface. It is structurally identical to the gh-aw compiler's enclave frontmatter: every entry declares exactly one `script` or `agent` executor, its own `repos` list, and an optional entry-level `timeout`. AWF stages immutable repository seeds on the host, starts one AWF-owned `enclave-mcp-server`, maintains one shared per-repository ledger for the run, and exposes configured executors only through compiler-launched `gh-aw-mcpg`.
+The optional top-level `enclaves` array defines AWF's sole supported private-repository execution surface. It is structurally identical to the gh-aw compiler's enclave frontmatter: every entry declares exactly one `script` or `agent` executor, its own `repos` list, and entry-level shared controls including `timeout`, `runtime`, `image`, resource limits, and disclosure limits. AWF stages immutable repository seeds on the host, starts one AWF-owned `enclave-mcp-server`, maintains one shared per-repository ledger for the run, and exposes configured executors only through compiler-launched `gh-aw-mcpg`.
 
 ### 14.1 Executors and shared configuration
 
@@ -1688,6 +1679,12 @@ enclaves:
     timeout: 45
   - agent:
       model: gpt-5
+      maxModelRequests: 3
+      maxModelTokens: 10000
+    runtime: gvisor
+    memoryLimit: 256m
+    maxOutputBytes: 2048
+    maxInvocations: 3
     repos:
       - repo: octo-org/private-service
         sensitivity: confidential
@@ -1696,6 +1693,7 @@ enclaves:
 
 - **Script executor** — an entry keyed by `script`; launches a no-network, read-only, single-use Python sandbox. An empty `script: {}` object is valid and selects AWF's pinned defaults.
 - **Agent executor** — an entry keyed by `agent`; launches a bounded single-use Copilot enclave whose only network peer is the dedicated API proxy. `agent.model` is REQUIRED.
+- **Entry-level controls** — `runtime`, `image`, `memoryLimit`, `cpuLimit`, `pidsLimit`, `tmpfsLimit`, `maxOutputBytes`, and `maxInvocations` apply to the entry's selected executor. `script.maxScriptBytes` and agent `maxTaskBytes`, `maxModelRequests`, and `maxModelTokens` remain executor-specific. Network and interpreter are AWF-owned invariants, not input fields.
 
 At most one entry MAY exist per executor kind, and each entry MUST declare exactly one executor key. Every entry's `repos` list is merged into one trusted repository catalog: a repository shared by both entries MUST declare the same `sensitivity`, because sensitivity fixes one shared per-run information budget that both executors debit.
 

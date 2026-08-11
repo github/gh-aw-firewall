@@ -335,6 +335,12 @@ export function buildEnclaveMcpService(params: EnclaveMcpServiceParams): Enclave
       AWF_ENCLAVE_AGENT_MAX_OUTPUT_BYTES: String(agent.maxOutputBytes),
       AWF_ENCLAVE_AGENT_MAX_PROMPT_BYTES: String(agent.maxTaskBytes),
       AWF_ENCLAVE_AGENT_MAX_INVOCATIONS: String(agent.maxInvocations),
+      ...(agent.maxModelRequests !== undefined && {
+        AWF_ENCLAVE_AGENT_MAX_MODEL_REQUESTS: String(agent.maxModelRequests),
+      }),
+      ...(agent.maxModelTokens !== undefined && {
+        AWF_ENCLAVE_AGENT_MAX_MODEL_TOKENS: String(agent.maxModelTokens),
+      }),
       // Enclave bind-mount sources are handed to the daemon, not opened by the
       // server, so they must be daemon-visible paths.
       AWF_ENCLAVE_AGENT_HOST_WORK_DIR: toDaemonVisiblePath(paths.workDir, config.dockerHostPathPrefix),

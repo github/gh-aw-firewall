@@ -39,6 +39,12 @@ function mergeRepositories(entries: RawEnclaveEntry[]): EnclaveRepository[] {
   return merged;
 }
 
+function entryCommon(entry: RawEnclaveEntry | undefined): object {
+  if (!entry) return {};
+  const { script: _script, agent: _agent, repos: _repos, timeout: _timeout, ...common } = entry;
+  return common;
+}
+
 /**
  * Normalizes the gh-aw keyed-array enclave frontmatter into AWF's trusted
  * runtime configuration.
@@ -79,12 +85,14 @@ export function normalizeEnclavesConfig(
     executors: {
       script: {
         ...ENCLAVE_SCRIPT_EXECUTOR_DEFAULTS,
+        ...entryCommon(script),
         ...script?.script,
         enabled: script !== undefined,
         timeout: script?.timeout ?? ENCLAVE_SCRIPT_EXECUTOR_DEFAULTS.timeout,
       },
       agent: {
         ...ENCLAVE_AGENT_EXECUTOR_DEFAULTS,
+        ...entryCommon(agent),
         ...agent?.agent,
         enabled: agent !== undefined,
         timeout: agent?.timeout ?? ENCLAVE_AGENT_EXECUTOR_DEFAULTS.timeout,

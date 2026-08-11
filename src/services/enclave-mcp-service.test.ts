@@ -95,7 +95,7 @@ describe('buildEnclaveMcpService', () => {
 
   it('fails closed for the not-yet-proven sbx script runtime', () => {
     const enclaves = normalizeEnclavesConfig([
-      { script: { runtime: 'sbx' }, repos: [{ repo: 'octo/private', sensitivity: 'internal' }] },
+      { script: {}, runtime: 'sbx', repos: [{ repo: 'octo/private', sensitivity: 'internal' }] },
     ]);
     expect(() => buildEnclaveMcpService({ config: config({ enclaves }), imageConfig: ghcr }))
       .toThrow(/sbx script enclave capability is not yet available/);

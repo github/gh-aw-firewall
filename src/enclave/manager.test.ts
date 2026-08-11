@@ -192,7 +192,7 @@ describe('prepareEnclaves fail-closed preflight', () => {
   it('rejects the unproven sbx agent runtime before staging and never downgrades', async () => {
     const assertAgentRuntimeAvailable = jest.fn();
     await expect(prepareEnclaves(agentConfig(workDir, [
-      { agent: { model: 'gpt-test', runtime: 'sbx' }, repos: [repository] },
+      { agent: { model: 'gpt-test' }, runtime: 'sbx', repos: [repository] },
     ]), {
       env: enclaveEnv(),
       assertPrimaryAvailable: jest.fn(),
@@ -217,7 +217,7 @@ describe('prepareEnclaves fail-closed preflight', () => {
 
   it('rejects the unimplemented sbx script runtime before staging', async () => {
     await expect(prepareEnclaves(config(workDir, [
-      { script: { runtime: 'sbx' }, repos: [repository] },
+      { script: {}, runtime: 'sbx', repos: [repository] },
     ]), {
       env: enclaveEnv(),
       assertPrimaryAvailable: jest.fn(),

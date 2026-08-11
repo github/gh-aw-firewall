@@ -45,7 +45,8 @@ describe('validateEnclavesConfig', () => {
   it('rejects script disclosure bounds the container cannot enforce', () => {
     const enclaves = normalizeEnclavesConfig([
       {
-        script: { maxScriptBytes: 65_537, maxOutputBytes: 8_193 },
+        script: { maxScriptBytes: 65_537 },
+        maxOutputBytes: 8_193,
         repos: [{ repo: 'octo/private', sensitivity: 'internal' }],
       },
     ]);
@@ -75,34 +76,34 @@ describe('validateEnclavesConfig', () => {
     const enclaves = normalizeEnclavesConfig([
       {
         script: {
-          runtime: 'invalid' as 'docker',
           network: 'bridge' as 'none',
           interpreter: 'ruby' as 'python3',
-          memoryLimit: 'lots',
-          cpuLimit: '0',
-          pidsLimit: 0,
-          tmpfsLimit: '64',
-          maxOutputBytes: 0,
           maxScriptBytes: 0,
-          maxInvocations: 0,
         },
+        runtime: 'invalid' as 'docker',
+        memoryLimit: 'lots',
+        cpuLimit: '0',
+        pidsLimit: 0,
+        tmpfsLimit: '64',
+        maxOutputBytes: 0,
+        maxInvocations: 0,
         repos: [{ repo: 'not-a-slug', sensitivity: 'internal' }],
         timeout: 0,
       },
       {
         agent: {
-          runtime: 'invalid' as 'docker',
           engine: 'invalid' as 'copilot',
           network: 'bridge' as 'api-proxy-only',
           model: '',
-          memoryLimit: 'lots',
-          cpuLimit: 'all',
-          pidsLimit: 0,
-          tmpfsLimit: '64',
-          maxOutputBytes: 0,
           maxTaskBytes: 0,
-          maxInvocations: 0,
         },
+        runtime: 'invalid' as 'docker',
+        memoryLimit: 'lots',
+        cpuLimit: 'all',
+        pidsLimit: 0,
+        tmpfsLimit: '64',
+        maxOutputBytes: 0,
+        maxInvocations: 0,
         repos: [{ repo: 'not-a-slug', sensitivity: 'internal' }],
         timeout: 601,
       },
@@ -110,15 +111,15 @@ describe('validateEnclavesConfig', () => {
 
     const errors = validateEnclavesConfig(config({ enclaves, enableApiProxy: true })).join('\n');
     expect(errors).toMatch(/not a bare owner\/repo slug/);
-    expect(errors).toMatch(/script.runtime "invalid" is not supported/);
+    expect(errors).toMatch(/runtime "invalid" is not supported/);
     expect(errors).toMatch(/script.network must be "none"/);
     expect(errors).toMatch(/script.interpreter must be "python3"/);
-    expect(errors).toMatch(/script.timeout must be between/);
-    expect(errors).toMatch(/agent.runtime "invalid" is not supported/);
+    expect(errors).toMatch(/timeout must be between/);
+    expect(errors).toMatch(/runtime "invalid" is not supported/);
     expect(errors).toMatch(/agent.engine "invalid" is not supported/);
     expect(errors).toMatch(/agent.network must be "api-proxy-only"/);
     expect(errors).toMatch(/agent.model is required/);
-    expect(errors).toMatch(/agent.timeout must be between/);
+    expect(errors).toMatch(/timeout must be between/);
     expect(errors).toMatch(/is not a Docker size/);
     expect(errors).toMatch(/positive Docker --cpus value/);
     expect(errors).toMatch(/must be a positive integer/);
@@ -211,7 +212,11 @@ describe('validateEnclavesConfig', () => {
   it('rejects agent disclosure and resource bounds the enclave cannot enforce', () => {
     const enclaves = normalizeEnclavesConfig([
       {
-        agent: { model: 'gpt-test', memoryLimit: 'huge', cpuLimit: '0', pidsLimit: 0, maxOutputBytes: 0 },
+        agent: { model: 'gpt-test' },
+        memoryLimit: 'huge',
+        cpuLimit: '0',
+        pidsLimit: 0,
+        maxOutputBytes: 0,
         repos: [{ repo: 'octo/private', sensitivity: 'internal' }],
         timeout: 100_000,
       },
@@ -222,11 +227,11 @@ describe('validateEnclavesConfig', () => {
       copilotGithubToken: 'token',
     })).join('\n');
     for (const pattern of [
-      /agent.timeout must be between/,
-      /agent.memoryLimit is not a Docker size/,
-      /agent.cpuLimit must be a positive/,
-      /agent.pidsLimit must be a positive integer/,
-      /agent.maxOutputBytes must be a positive integer/,
+      /timeout must be between/,
+      /memoryLimit is not a Docker size/,
+      /cpuLimit must be a positive/,
+      /pidsLimit must be a positive integer/,
+      /maxOutputBytes must be a positive integer/,
     ]) {
       expect(errors).toMatch(pattern);
     }
@@ -235,7 +240,8 @@ describe('validateEnclavesConfig', () => {
   it('rejects agent bounds above the server and native-loop hard ceilings', () => {
     const enclaves = normalizeEnclavesConfig([
       {
-        agent: { model: 'gpt-test', maxOutputBytes: 8193, maxTaskBytes: 65_537 },
+        agent: { model: 'gpt-test', maxTaskBytes: 65_537 },
+        maxOutputBytes: 8193,
         repos: [{ repo: 'octo/private', sensitivity: 'internal' }],
       },
     ]);
@@ -251,7 +257,8 @@ describe('validateEnclavesConfig', () => {
   it('rejects script disclosure bounds the container cannot enforce', () => {
     const enclaves = normalizeEnclavesConfig([
       {
-        script: { maxScriptBytes: 65_537, maxOutputBytes: 8_193 },
+        script: { maxScriptBytes: 65_537 },
+        maxOutputBytes: 8_193,
         repos: [{ repo: 'octo/private', sensitivity: 'internal' }],
       },
     ]);

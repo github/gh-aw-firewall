@@ -152,6 +152,13 @@ def main() -> int:
         max_output = int(os.environ["AWF_ENCLAVE_AGENT_MAX_OUTPUT_BYTES"])
         timeout = int(os.environ["AWF_ENCLAVE_AGENT_DEADLINE_SECONDS"])
         model = os.environ["AWF_ENCLAVE_AGENT_MODEL"]
+        max_model_requests = os.environ.get("AWF_ENCLAVE_AGENT_MAX_MODEL_REQUESTS")
+        max_model_tokens = os.environ.get("AWF_ENCLAVE_AGENT_MAX_MODEL_TOKENS")
+        if (
+            (max_model_requests is not None and int(max_model_requests) < 1)
+            or (max_model_tokens is not None and int(max_model_tokens) < 1)
+        ):
+            raise ValueError("invalid model limits")
     except (KeyError, OSError, UnicodeDecodeError, ValueError, json.JSONDecodeError):
         append_event({"event": "failure", "category": "input-invalid"})
         return EXIT_INPUT_INVALID
@@ -185,6 +192,10 @@ def main() -> int:
         "--log-level", "all",
         "--log-dir", str(copilot_logs),
     ]
+    if max_model_requests is not None:
+        command.extend(["--max-model-requests", max_model_requests])
+    if max_model_tokens is not None:
+        command.extend(["--max-model-tokens", max_model_tokens])
     deadline = time.monotonic() + timeout
     completed = None
     stdout = ""

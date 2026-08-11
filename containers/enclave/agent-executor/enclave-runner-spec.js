@@ -125,6 +125,12 @@ function deriveEnclaveContainerSpec({ config, runId, invocationId, seedId, runti
   if (runtimeName !== undefined) {
     launchArgs.push('--runtime', runtimeName);
   }
+  if (config.maxModelRequests !== undefined) {
+    launchArgs.push('--env', `AWF_ENCLAVE_AGENT_MAX_MODEL_REQUESTS=${config.maxModelRequests}`);
+  }
+  if (config.maxModelTokens !== undefined) {
+    launchArgs.push('--env', `AWF_ENCLAVE_AGENT_MAX_MODEL_TOKENS=${config.maxModelTokens}`);
+  }
   launchArgs.push('--entrypoint', '/usr/local/bin/run-enclave-agent', config.enclaveImage);
 
   return Object.freeze({

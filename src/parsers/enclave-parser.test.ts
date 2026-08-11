@@ -50,7 +50,7 @@ describe('normalizeEnclavesConfig', () => {
 
   it('preserves trusted executor overrides', () => {
     expect(normalizeEnclavesConfig([
-      { script: { runtime: 'gvisor', image: 'registry/script@sha256:abc' }, repos: [repository] },
+      { script: {}, runtime: 'gvisor', image: 'registry/script@sha256:abc', repos: [repository] },
     ])).toMatchObject({
       executors: {
         script: { enabled: true, runtime: 'gvisor', image: 'registry/script@sha256:abc' },
@@ -145,11 +145,25 @@ describe('enclaves JSON Schema', () => {
 
   it('keeps trusted controls closed and bounded', () => {
     expect(validateAwfFileConfig({
-      enclaves: [{ script: { network: 'bridge' }, repos: [repository] }],
+      enclaves: [{ script: { maxScriptBytes: 65_537 }, repos: [repository] }],
     }).length).toBeGreaterThan(0);
     expect(validateAwfFileConfig({
       enclaves: [{ agent: { model: 'gpt-5', tools: ['shell'] }, repos: [repository] }],
     }).length).toBeGreaterThan(0);
+    expect(validateAwfFileConfig({
+      enclaves: [{
+        agent: { model: 'gpt-5', maxModelRequests: 3, maxModelTokens: 10_000 },
+        runtime: 'gvisor',
+        image: 'registry/agent@sha256:abc',
+        memoryLimit: '256m',
+        cpuLimit: '0.5',
+        pidsLimit: 32,
+        tmpfsLimit: '24m',
+        maxOutputBytes: 2048,
+        maxInvocations: 3,
+        repos: [repository],
+      }],
+    })).toEqual([]);
     expect(validateAwfFileConfig({
       enclaves: [{ script: {}, repos: [repository], timeout: 541 }],
     }).length).toBeGreaterThan(0);

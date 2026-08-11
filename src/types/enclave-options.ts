@@ -67,6 +67,8 @@ export interface EnclaveAgentExecutorConfig {
   maxOutputBytes: number;
   maxTaskBytes: number;
   maxInvocations: number;
+  maxModelRequests?: number;
+  maxModelTokens?: number;
 }
 
 export interface EnclavesConfig {
@@ -88,16 +90,22 @@ export interface EnclaveOptions {
  * is a keyed array where every entry carries exactly one `script` or `agent`
  * key, its own `repos` list, and an optional entry-level `timeout`.
  */
-export type RawEnclaveScriptExecutorConfig = Omit<
+type RawEnclaveCommonConfig = Pick<
   Partial<EnclaveScriptExecutorConfig>,
-  'enabled' | 'timeout'
+  'runtime' | 'image' | 'memoryLimit' | 'cpuLimit' | 'pidsLimit' | 'tmpfsLimit'
+  | 'maxOutputBytes' | 'maxInvocations'
 >;
-export type RawEnclaveAgentExecutorConfig = Omit<
+
+export type RawEnclaveScriptExecutorConfig = Pick<
+  Partial<EnclaveScriptExecutorConfig>,
+  'maxScriptBytes'
+>;
+export type RawEnclaveAgentExecutorConfig = Pick<
   Partial<EnclaveAgentExecutorConfig>,
-  'enabled' | 'timeout'
+  'engine' | 'profile' | 'maxTaskBytes' | 'maxModelRequests' | 'maxModelTokens'
 > & { model: string };
 
-interface RawEnclaveEntryBase {
+interface RawEnclaveEntryBase extends RawEnclaveCommonConfig {
   repos?: EnclaveRepository[];
   timeout?: number;
 }

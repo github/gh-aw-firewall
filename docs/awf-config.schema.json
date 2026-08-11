@@ -988,7 +988,7 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "description": "One executor entry. Images, runtimes, networks, models, timeouts, and resources are trusted AWF configuration and must never be accepted from an invocation request.",
+        "description": "One executor entry. Common runtime, image, resource, and disclosure controls are entry-level; executor-specific controls are nested under the discriminator. All are trusted AWF configuration and must never be accepted from an invocation request.",
         "oneOf": [
           {
             "required": [
@@ -1010,67 +1010,11 @@
             "additionalProperties": false,
             "description": "Script executor. An empty object selects AWF's pinned defaults.",
             "properties": {
-              "runtime": {
-                "type": "string",
-                "enum": [
-                  "docker",
-                  "gvisor",
-                  "sbx"
-                ],
-                "default": "docker"
-              },
-              "image": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 500,
-                "description": "Trusted image override. Omission uses AWF's pinned script-executor image."
-              },
-              "network": {
-                "const": "none",
-                "default": "none"
-              },
-              "interpreter": {
-                "const": "python3",
-                "default": "python3"
-              },
-              "memoryLimit": {
-                "type": "string",
-                "pattern": "^[1-9][0-9]*[bkmgBKMG]$",
-                "default": "512m"
-              },
-              "cpuLimit": {
-                "type": "string",
-                "pattern": "^(?:[0-9]{1,2})(?:\\.[0-9]{1,3})?$",
-                "default": "1"
-              },
-              "pidsLimit": {
-                "type": "integer",
-                "minimum": 1,
-                "maximum": 4096,
-                "default": 128
-              },
-              "tmpfsLimit": {
-                "type": "string",
-                "pattern": "^[1-9][0-9]*[bkmgBKMG]$",
-                "default": "64m"
-              },
-              "maxOutputBytes": {
-                "type": "integer",
-                "minimum": 1,
-                "maximum": 8192,
-                "default": 8192
-              },
               "maxScriptBytes": {
                 "type": "integer",
                 "minimum": 1,
                 "maximum": 65536,
                 "default": 65536
-              },
-              "maxInvocations": {
-                "type": "integer",
-                "minimum": 1,
-                "maximum": 10000,
-                "default": 32
               }
             }
           },
@@ -1082,25 +1026,6 @@
               "model"
             ],
             "properties": {
-              "runtime": {
-                "type": "string",
-                "enum": [
-                  "docker",
-                  "gvisor",
-                  "sbx"
-                ],
-                "default": "docker"
-              },
-              "image": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 500,
-                "description": "Trusted image override. Omission uses AWF's pinned engine image."
-              },
-              "network": {
-                "const": "api-proxy-only",
-                "default": "api-proxy-only"
-              },
               "engine": {
                 "type": "string",
                 "enum": [
@@ -1125,44 +1050,23 @@
                 "maxLength": 200,
                 "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,199}$"
               },
-              "memoryLimit": {
-                "type": "string",
-                "pattern": "^[1-9][0-9]*[bkmgBKMG]$",
-                "default": "512m"
-              },
-              "cpuLimit": {
-                "type": "string",
-                "pattern": "^(?:[0-9]{1,2})(?:\\.[0-9]{1,3})?$",
-                "default": "1"
-              },
-              "pidsLimit": {
-                "type": "integer",
-                "minimum": 1,
-                "maximum": 4096,
-                "default": 128
-              },
-              "tmpfsLimit": {
-                "type": "string",
-                "pattern": "^[1-9][0-9]*[bkmgBKMG]$",
-                "default": "64m"
-              },
-              "maxOutputBytes": {
-                "type": "integer",
-                "minimum": 1,
-                "maximum": 8192,
-                "default": 8192
-              },
               "maxTaskBytes": {
                 "type": "integer",
                 "minimum": 1,
                 "maximum": 65536,
                 "default": 4096
               },
-              "maxInvocations": {
+              "maxModelRequests": {
                 "type": "integer",
                 "minimum": 1,
-                "maximum": 1000,
-                "default": 8
+                "maximum": 10000,
+                "description": "Maximum model requests permitted for one agent invocation."
+              },
+              "maxModelTokens": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 10000000,
+                "description": "Maximum model tokens permitted for one agent invocation."
               }
             }
           },
@@ -1200,6 +1104,54 @@
             "minimum": 1,
             "maximum": 540,
             "description": "Per-invocation wall-clock timeout in seconds. Defaults to 30 for \"script\" entries and 120 for \"agent\" entries."
+          },
+          "runtime": {
+            "type": "string",
+            "enum": [
+              "docker",
+              "gvisor",
+              "sbx"
+            ],
+            "default": "docker"
+          },
+          "image": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500,
+            "description": "Trusted image override. Omission uses AWF's pinned executor image."
+          },
+          "memoryLimit": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]*[bkmgBKMG]$",
+            "default": "512m"
+          },
+          "cpuLimit": {
+            "type": "string",
+            "pattern": "^(?:[0-9]{1,2})(?:\\.[0-9]{1,3})?$",
+            "default": "1"
+          },
+          "pidsLimit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 4096,
+            "default": 128
+          },
+          "tmpfsLimit": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]*[bkmgBKMG]$",
+            "default": "64m"
+          },
+          "maxOutputBytes": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 8192,
+            "default": 8192
+          },
+          "maxInvocations": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10000,
+            "default": 32
           }
         }
       },

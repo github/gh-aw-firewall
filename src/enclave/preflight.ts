@@ -106,27 +106,27 @@ export function validateEnclavesConfig(config: WrapperConfig): string[] {
   }
 
   if (script.enabled) {
-    if (!RUNTIMES.has(script.runtime)) errors.push(`enclaves[].script.runtime "${script.runtime}" is not supported`);
+    if (!RUNTIMES.has(script.runtime)) errors.push(`enclaves[].runtime "${script.runtime}" is not supported`);
     if (script.network !== 'none') errors.push('enclaves[].script.network must be "none"');
     if (script.interpreter !== 'python3') errors.push('enclaves[].script.interpreter must be "python3"');
     if (!Number.isInteger(script.timeout) || script.timeout < 1 || script.timeout > MAX_ENCLAVE_TIMEOUT_SECONDS) {
       errors.push(
-        `enclaves[].script.timeout must be between 1 and ${MAX_ENCLAVE_TIMEOUT_SECONDS}`,
+        `enclaves[].timeout must be between 1 and ${MAX_ENCLAVE_TIMEOUT_SECONDS}`,
       );
     }
-    validateResourceLimits('enclaves[].script', script, errors);
+    validateResourceLimits('enclaves[]', script, errors);
     validatePositiveInteger('enclaves[].script.maxScriptBytes', script.maxScriptBytes, errors);
     if (script.maxScriptBytes > MAX_SCRIPT_BYTES) {
       errors.push(`enclaves[].script.maxScriptBytes must be at most ${MAX_SCRIPT_BYTES}`);
     }
     if (script.maxOutputBytes > MAX_RESULT_BYTES) {
-      errors.push(`enclaves[].script.maxOutputBytes must be at most ${MAX_RESULT_BYTES}`);
+      errors.push(`enclaves[].maxOutputBytes must be at most ${MAX_RESULT_BYTES}`);
     }
-    validatePositiveInteger('enclaves[].script.maxInvocations', script.maxInvocations, errors);
+    validatePositiveInteger('enclaves[].maxInvocations', script.maxInvocations, errors);
   }
 
   if (agent.enabled) {
-    if (!RUNTIMES.has(agent.runtime)) errors.push(`enclaves[].agent.runtime "${agent.runtime}" is not supported`);
+    if (!RUNTIMES.has(agent.runtime)) errors.push(`enclaves[].runtime "${agent.runtime}" is not supported`);
     if (!ENGINES.has(agent.engine)) {
       errors.push(`enclaves[].agent.engine "${agent.engine}" is not supported`);
     } else if (!IMPLEMENTED_AGENT_ENGINES.has(agent.engine)) {
@@ -153,18 +153,24 @@ export function validateEnclavesConfig(config: WrapperConfig): string[] {
     }
     if (!Number.isInteger(agent.timeout) || agent.timeout < 1 || agent.timeout > MAX_ENCLAVE_TIMEOUT_SECONDS) {
       errors.push(
-        `enclaves[].agent.timeout must be between 1 and ${MAX_ENCLAVE_TIMEOUT_SECONDS}`,
+        `enclaves[].timeout must be between 1 and ${MAX_ENCLAVE_TIMEOUT_SECONDS}`,
       );
     }
-    validateResourceLimits('enclaves[].agent', agent, errors);
+    validateResourceLimits('enclaves[]', agent, errors);
     validatePositiveInteger('enclaves[].agent.maxTaskBytes', agent.maxTaskBytes, errors);
     if (agent.maxTaskBytes > ENCLAVE_AGENT_MAX_TASK_BYTES) {
       errors.push(`enclaves[].agent.maxTaskBytes must be at most ${ENCLAVE_AGENT_MAX_TASK_BYTES}`);
     }
     if (agent.maxOutputBytes > MAX_RESULT_BYTES) {
-      errors.push(`enclaves[].agent.maxOutputBytes must be at most ${MAX_RESULT_BYTES}`);
+      errors.push(`enclaves[].maxOutputBytes must be at most ${MAX_RESULT_BYTES}`);
     }
-    validatePositiveInteger('enclaves[].agent.maxInvocations', agent.maxInvocations, errors);
+    validatePositiveInteger('enclaves[].maxInvocations', agent.maxInvocations, errors);
+    if (agent.maxModelRequests !== undefined) {
+      validatePositiveInteger('enclaves[].agent.maxModelRequests', agent.maxModelRequests, errors);
+    }
+    if (agent.maxModelTokens !== undefined) {
+      validatePositiveInteger('enclaves[].agent.maxModelTokens', agent.maxModelTokens, errors);
+    }
   }
 
   return errors;

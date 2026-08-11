@@ -120,18 +120,20 @@ describe('unified enclave agent executor compose assembly', () => {
     const enclaves = normalizeEnclavesConfig([
       {
         agent: {
-          runtime: 'gvisor',
           engine: 'copilot',
           profile: 'anthropic',
           model: 'trusted-model',
-          memoryLimit: '256m',
-          cpuLimit: '0.5',
-          pidsLimit: 32,
-          tmpfsLimit: '24m',
-          maxOutputBytes: 2048,
           maxTaskBytes: 1024,
-          maxInvocations: 3,
+          maxModelRequests: 3,
+          maxModelTokens: 10_000,
         },
+        runtime: 'gvisor',
+        memoryLimit: '256m',
+        cpuLimit: '0.5',
+        pidsLimit: 32,
+        tmpfsLimit: '24m',
+        maxOutputBytes: 2048,
+        maxInvocations: 3,
         repos: [{ repo: 'octo/private', sensitivity: 'internal' }],
         timeout: 77,
       },
@@ -153,6 +155,8 @@ describe('unified enclave agent executor compose assembly', () => {
       AWF_ENCLAVE_AGENT_MAX_OUTPUT_BYTES: '2048',
       AWF_ENCLAVE_AGENT_MAX_PROMPT_BYTES: '1024',
       AWF_ENCLAVE_AGENT_MAX_INVOCATIONS: '3',
+      AWF_ENCLAVE_AGENT_MAX_MODEL_REQUESTS: '3',
+      AWF_ENCLAVE_AGENT_MAX_MODEL_TOKENS: '10000',
     });
     // Copilot always speaks the Copilot API-proxy port, regardless of profile.
     expect(environment.AWF_ENCLAVE_AGENT_API_ENDPOINT)
@@ -168,7 +172,8 @@ describe('unified enclave agent executor compose assembly', () => {
   it('fails closed for the not-yet-proven sbx agent runtime', () => {
     const enclaves = normalizeEnclavesConfig([
       {
-        agent: { model: 'trusted-model', runtime: 'sbx' },
+        agent: { model: 'trusted-model' },
+        runtime: 'sbx',
         repos: [{ repo: 'octo/private', sensitivity: 'internal' }],
       },
     ]);
