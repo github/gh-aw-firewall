@@ -183,6 +183,35 @@ describe('microVM nftables policy', () => {
     expect(ruleset).toContain('type nat hook prerouting priority dstnat; policy accept;');
   });
 
+  it('accepts return traffic on ip daddr + ct state alone, without an impossible ether daddr match', () => {
+    // Regression coverage: the return-leg accept rule previously also
+    // required `ether daddr <guest-mac>`. At the forward hook this
+    // reflects the *incoming* frame's own L2 destination as it arrived on
+    // the veth (this veth's own kernel-assigned MAC), never the guest's
+    // MAC -- the guest's MAC is only ever a real L2 identity on the
+    // *other* side of the tap device, a separate L2 segment entirely.
+    // That condition could therefore never match any real reply packet
+    // (proven live: Squid's SYN-ACK reaching this veth, yet matching
+    // neither this accept rule nor even the ct-state-invalid drop),
+    // silently discarding every response via the chain's own default
+    // policy. Removing it is what actually fixes the live guest<->Squid
+    // connection, on top of the prerouting nat hook above.
+    const plan = createPlan();
+    const ruleset = generateMicrovmNftRuleset(plan);
+    const returnLine = ruleset
+      .split('\n')
+      .find(
+        (line) =>
+          line.includes(`iifname "${plan.namespaceVethName}"`) &&
+          line.includes(`oifname "${plan.tapName}"`),
+      );
+
+    expect(returnLine).toBeDefined();
+    expect(returnLine).not.toContain('ether daddr');
+    expect(returnLine).toContain(`ip daddr ${plan.guestIp}`);
+    expect(returnLine).toContain('ct state established,related counter accept');
+  });
+
   it('emits SNAT only for the same exact allowed destination pairs', () => {
     const plan = createPlan('narrow-snat', { enableApiProxy: false });
     const ruleset = generateMicrovmNftRuleset(plan);

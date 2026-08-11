@@ -165,12 +165,23 @@ assert_no_residue
 # Best-effort, bounded packet capture across the first live case only (never
 # a persistent/always-on capture): the live-KVM connectivity investigation
 # has confirmed ARP round-trips and per-rule nftables accept counters for
-# the guest's outbound SYN, but has not yet directly observed the actual
-# frames in flight on the shared bridge. `-i any` (all interfaces, since the
-# per-run bridge/veth names are only known once the CLI creates them) keeps
-# this decisive without needing to thread bridge naming into this script.
-# Failure to start tcpdump (not installed, insufficient privilege) must
-# never fail the suite -- this is diagnostics, not a behavioral assertion.
+# the guest's outbound SYN, has proven (via a host-side capture) that
+# Squid's SYN-ACK reply reaches this run's host-side veth peer, and has
+# ruled out rp_filter and a missing prerouting nat hook as the reason it
+# never reaches this namespace's own forward-chain counters. The remaining
+# question is whether the reply actually crosses into the per-run network
+# namespace (via the veth pair) and reaches nftables evaluation there, or
+# is lost at that boundary -- an in-namespace capture, taken alongside the
+# existing host-side one, is the only way to observe that directly. The
+# namespace only exists for the lifetime of a single run_case's CLI
+# invocation and its name is not known ahead of time, so a short background
+# poll picks it up the moment it appears.
+#
+# `-i any` (all interfaces, since the per-run bridge/veth names are only
+# known once the CLI creates them) keeps both captures decisive without
+# needing to thread naming into this script. Failure to start tcpdump (not
+# installed, insufficient privilege, namespace never appears) must never
+# fail the suite -- this is diagnostics, not a behavioral assertion.
 tcpdump_pid=
 tcpdump_out="$RUN_ROOT/allowed-https/audit/tcpdump.pcap"
 mkdir -p "$(dirname "$tcpdump_out")"
@@ -179,6 +190,22 @@ if command -v tcpdump >/dev/null 2>&1; then
     'port 3128 or arp or icmp' >/dev/null 2>&1 &
   tcpdump_pid=$!
   sleep 1
+fi
+
+ns_tcpdump_out="$RUN_ROOT/allowed-https/audit/tcpdump-namespace.pcap"
+ns_watcher_pid=
+if command -v tcpdump >/dev/null 2>&1; then
+  (
+    for _ in $(seq 1 200); do
+      ns=$(sudo ip netns list 2>/dev/null | awk '{print $1}' | grep -m1 '^awffc-' || true)
+      if [ -n "$ns" ]; then
+        exec sudo ip netns exec "$ns" tcpdump -i any -w "$ns_tcpdump_out" \
+          'port 3128 or arp or icmp' >/dev/null 2>&1
+      fi
+      sleep 0.05
+    done
+  ) &
+  ns_watcher_pid=$!
 fi
 
 boot_start_ns=$(date +%s%N)
@@ -190,6 +217,12 @@ if [ -n "$tcpdump_pid" ]; then
   sudo kill "$tcpdump_pid" >/dev/null 2>&1 || true
   wait "$tcpdump_pid" 2>/dev/null || true
   sudo chmod 0644 "$tcpdump_out" 2>/dev/null || true
+fi
+if [ -n "$ns_watcher_pid" ]; then
+  sudo pkill -f "tcpdump -i any -w $ns_tcpdump_out" >/dev/null 2>&1 || true
+  kill "$ns_watcher_pid" >/dev/null 2>&1 || true
+  wait "$ns_watcher_pid" 2>/dev/null || true
+  sudo chmod 0644 "$ns_tcpdump_out" 2>/dev/null || true
 fi
 
 boot_ms=$(( (boot_end_ns - boot_start_ns) / 1000000 ))

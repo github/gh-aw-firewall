@@ -711,8 +711,21 @@ export function generateMicrovmNftRuleset(plan: MicrovmNetworkPlan): string {
     `    iifname "${plan.tapName}" ip daddr ${plan.infrastructureIp} counter drop`,
     `    iifname "${plan.tapName}" udp dport 53 counter drop`,
     `    iifname "${plan.tapName}" tcp dport 53 counter drop`,
+    // The return-leg accept rule below intentionally has no `ether daddr`
+    // condition (an earlier version incorrectly required
+    // `ether daddr <guest-mac>` here): at the forward hook, `ether daddr`
+    // reflects the *incoming* frame's own L2 destination as it arrived on
+    // iifname (this veth), which is this veth's own MAC address (assigned
+    // by the kernel/bridge), never the guest's MAC -- the guest's MAC is
+    // only ever a real L2 identity on the *other* side of the tap device,
+    // a completely separate L2 segment. That condition could therefore
+    // never match any real reply packet, silently discarding every
+    // response (e.g. Squid's SYN-ACK) via this chain's own default-drop
+    // policy with no visible counter anywhere. `ip daddr` (the guest's
+    // real, post-un-SNAT IP) plus `ct state established,related` is both
+    // necessary and sufficient to identify legitimate return traffic.
     `    iifname "${plan.namespaceVethName}" oifname "${plan.tapName}" ` +
-      `ether daddr ${plan.guestMac} ip daddr ${plan.guestIp} ` +
+      `ip daddr ${plan.guestIp} ` +
       'ct state established,related counter accept',
     ...allowRules,
     '  }',
