@@ -25,7 +25,11 @@ import {
   MicrovmWorkspaceImage,
   type MicrovmWorkspaceImageConfig,
 } from '../microvm/workspace';
-import { CloudHypervisorApiClient } from './api-client';
+import {
+  CloudHypervisorApiClient,
+  type CloudHypervisorVmCounters,
+  type CloudHypervisorVmInfo,
+} from './api-client';
 import {
   CLOUD_HYPERVISOR_GUEST_CID,
   CloudHypervisorCgroup,
@@ -268,6 +272,11 @@ export class CloudHypervisorManager {
   private cgroup: CloudHypervisorCgroup | undefined;
   private networkPlan: MicrovmNetworkPlan | undefined;
   private instanceStarted = false;
+  // Snapshotted in stop(), before any shutdown attempt, since the API
+  // socket becomes unresponsive once the process is asked to exit --
+  // see the comment at the top of stop() for why this ordering matters.
+  private lastVmInfo: CloudHypervisorVmInfo | undefined;
+  private lastVmCounters: CloudHypervisorVmCounters | undefined;
   private readonly stdoutCapture = new BoundedOutputCapture(CLOUD_HYPERVISOR_CAPTURE_LIMIT_BYTES);
   private readonly stderrCapture = new BoundedOutputCapture(CLOUD_HYPERVISOR_CAPTURE_LIMIT_BYTES);
 
@@ -550,6 +559,27 @@ export class CloudHypervisorManager {
   async stop(options: { preserve?: boolean; beforeCleanup?: () => Promise<void> } = {}): Promise<void> {
     const errors: unknown[] = [];
     const instanceWasStarted = this.instanceStarted;
+    // vm.info/vm.counters require the Cloud Hypervisor API socket to
+    // still be responsive, which is only true *before* vmm.shutdown()/
+    // process termination below -- the opposite ordering constraint from
+    // serial console capture (which needs the process already exited to
+    // guarantee flushed output; see the beforeCleanup comment further
+    // down). Snapshot both here, before any shutdown attempt, so
+    // collectDiagnostics() (invoked later, via beforeCleanup, after the
+    // process has already exited) has a real, non-null snapshot to write
+    // instead of failing silently against an already-closed socket.
+    if (this.client && instanceWasStarted) {
+      try {
+        this.lastVmInfo = await this.client.vmInfo();
+      } catch {
+        this.lastVmInfo = undefined;
+      }
+      try {
+        this.lastVmCounters = await this.client.vmCounters();
+      } catch {
+        this.lastVmCounters = undefined;
+      }
+    }
     let guestShutdownAcknowledged = false;
     if (this.guestClient) {
       try {
@@ -727,12 +757,28 @@ export class CloudHypervisorManager {
 
   async collectDiagnostics(directory: string): Promise<void> {
     await this.dependencies.mkdir(directory, { recursive: true, mode: 0o700 });
-    let counters: unknown = null;
-    if (this.client && this.instanceStarted) {
+    // Prefer the snapshot stop() takes *before* any shutdown attempt (see
+    // the comment at the top of stop()): by the time collectDiagnostics()
+    // runs via the beforeCleanup hook, the API socket is already
+    // unresponsive (process already asked to exit), so a live call here
+    // would just fail. Fall back to a live call only when this method is
+    // invoked directly, outside of stop() (e.g. --diagnostic-logs without
+    // a failure, or this method's own unit tests), where the client may
+    // still be genuinely reachable.
+    let counters: unknown = this.lastVmCounters ?? null;
+    if (counters === null && this.client && this.instanceStarted) {
       try {
         counters = await this.client.vmCounters();
       } catch {
         counters = null;
+      }
+    }
+    let vmInfo: unknown = this.lastVmInfo ?? null;
+    if (vmInfo === null && this.client && this.instanceStarted) {
+      try {
+        vmInfo = await this.client.vmInfo();
+      } catch {
+        vmInfo = null;
       }
     }
     const writeBounded = async (fileName: string, contents: Buffer): Promise<void> => {
@@ -777,6 +823,11 @@ export class CloudHypervisorManager {
     await this.dependencies.writeFile(
       path.join(directory, 'counters.json'),
       `${JSON.stringify(counters, null, 2)}\n`,
+      { mode: 0o600 },
+    );
+    await this.dependencies.writeFile(
+      path.join(directory, 'vm-info.json'),
+      `${JSON.stringify(vmInfo, null, 2)}\n`,
       { mode: 0o600 },
     );
     await this.dependencies.writeFile(

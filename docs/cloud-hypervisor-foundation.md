@@ -609,6 +609,31 @@ no-op instead of invoking `manager.stop()` a second, redundant time (a
 failed internal stop deliberately leaves `stopped` false, so the outer
 cleanup path still gets a genuine retry attempt).
 
+The same "API socket only responsive before shutdown, files only flushed
+after shutdown" tension applies to `vm.info`/`vm.counters`, not just the
+serial console: `CloudHypervisorManager.stop()` snapshots both *before*
+calling `vmm.shutdown()` (stored as `lastVmInfo`/`lastVmCounters`), since a
+live call from inside `collectDiagnostics()` (invoked later, via
+`beforeCleanup`, after the process has already been asked to exit) would
+always fail against an already-unresponsive socket. `collectDiagnostics()`
+prefers this snapshot and only falls back to a live call when invoked
+directly outside of `stop()` (e.g. via `--diagnostic-logs` without a
+failure). Written to `vm-info.json` alongside the existing
+`counters.json`.
+
+`CloudHypervisorManager.collectDiagnostics()`'s host-side network capture
+(`network-diagnostics.txt`) now includes, in addition to `nft list
+ruleset` and `ip -s link show`: `nft -a list ruleset` (rule handles, plus
+per-rule hit counters — `generateMicrovmNftRuleset()` attaches a `counter`
+object to every forward-chain rule purely for this diagnostic visibility;
+it does not change any accept/drop decision), `ip -d link show`, `ip route
+show`, `ip neigh show` (inside the microVM's own namespace), and a
+separate host-side (outside any namespace) `bridge fdb show` for the
+infrastructure bridge Squid/API-proxy containers are attached to — MAC
+learning for that traffic happens on the bridge, not inside the
+namespace. The guest-side capture (`probeGuestConnectivity()`'s failure
+path) also now includes `ip neigh show` to confirm ARP resolution.
+
 **Guest kernel panics with `Attempted to kill init!` on every boot (fixed;
 historical)**
 

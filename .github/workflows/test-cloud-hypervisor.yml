@@ -169,7 +169,7 @@ jobs:
           # job log for fast triage, in addition to the uploaded artifact.
           # Redact the test-only secret sentinel defensively, matching the
           # scan the next step performs on the copied artifact.
-          for f in "$RUNNER_TEMP"/awf-cloud-hypervisor-live/*/audit/cloud-hypervisor/{serial.log,cloud-hypervisor.log,network-diagnostics.txt}; do
+          for f in "$RUNNER_TEMP"/awf-cloud-hypervisor-live/*/audit/cloud-hypervisor/{serial.log,cloud-hypervisor.log,network-diagnostics.txt,vm-info.json,counters.json}; do
             [ -f "$f" ] || continue
             echo "--- $f ---"
             sed 's/awf-cloud-hypervisor-real-secret-do-not-expose/[REDACTED]/g' "$f"

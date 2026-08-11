@@ -139,18 +139,21 @@ describe('microVM nftables policy', () => {
 
     expect(ruleset).toContain(`table inet ${plan.nftTableName}`);
     expect(ruleset.match(/policy drop;/g)).toHaveLength(3);
+    // `counter` on these rules is purely diagnostic (nft -a list ruleset
+    // then reports packet/byte hit counts per rule) and does not change
+    // any accept/drop decision — see generateMicrovmNftRuleset's comment.
     expect(ruleset).toContain(
-      `iifname "${plan.tapName}" ether saddr != ${plan.guestMac} drop`,
+      `iifname "${plan.tapName}" ether saddr != ${plan.guestMac} counter drop`,
     );
     expect(ruleset).toContain(
-      `iifname "${plan.tapName}" ip saddr != ${plan.guestIp} drop`,
+      `iifname "${plan.tapName}" ip saddr != ${plan.guestIp} counter drop`,
     );
-    expect(ruleset).toContain('ip daddr 169.254.0.0/16 drop');
-    expect(ruleset).toContain('ip daddr 224.0.0.0/4 drop');
-    expect(ruleset).toContain('ip daddr 172.30.0.1 drop');
-    expect(ruleset).toContain('udp dport 53 drop');
-    expect(ruleset).toContain('tcp dport 53 drop');
-    expect(ruleset).toContain('ct state established,related accept');
+    expect(ruleset).toContain('ip daddr 169.254.0.0/16 counter drop');
+    expect(ruleset).toContain('ip daddr 224.0.0.0/4 counter drop');
+    expect(ruleset).toContain('ip daddr 172.30.0.1 counter drop');
+    expect(ruleset).toContain('udp dport 53 counter drop');
+    expect(ruleset).toContain('tcp dport 53 counter drop');
+    expect(ruleset).toContain('ct state established,related counter accept');
     expect(ruleset).toContain('ip daddr 172.30.0.10 tcp dport 3128');
     for (let port = 10000; port <= 10004; port += 1) {
       expect(ruleset).toContain(`ip daddr 172.30.0.30 tcp dport ${port}`);
@@ -397,7 +400,7 @@ describe('microVM network lifecycle', () => {
     ))).toHaveLength(1);
   });
 
-  it('captureDiagnostics delegates to the namespace once setup completes, and is empty before/after', async () => {
+  it('captureDiagnostics delegates to the namespace and host bridge once setup completes, and is empty before/after', async () => {
     const plan = createPlan();
     const { commands } = commandHarness();
     const manager = new MicrovmNetworkManager(plan, commands);
@@ -407,9 +410,14 @@ describe('microVM network lifecycle', () => {
 
     await manager.setup();
     const captureSpy = jest.spyOn(commands, 'captureDiagnosticsInNamespace')
-      .mockResolvedValue('--- nft list ruleset ---\n(fake)\n');
-    expect(await manager.captureDiagnostics()).toBe('--- nft list ruleset ---\n(fake)\n');
+      .mockResolvedValue('--- nft -a list ruleset ---\n(fake)');
+    const bridgeSpy = jest.spyOn(commands, 'captureHostBridgeDiagnostics')
+      .mockResolvedValue('--- bridge fdb show br awfbr0 ---\n(fake fdb)');
+    expect(await manager.captureDiagnostics()).toBe(
+      '--- nft -a list ruleset ---\n(fake)\n--- bridge fdb show br awfbr0 ---\n(fake fdb)',
+    );
     expect(captureSpy).toHaveBeenCalledWith(plan.namespaceName);
+    expect(bridgeSpy).toHaveBeenCalledWith(plan.infrastructureBridge);
 
     await manager.cleanup();
     expect(await manager.captureDiagnostics()).toBe('');
@@ -512,14 +520,26 @@ describe('LinuxNetworkCommands.captureDiagnosticsInNamespace', () => {
   // packets ever reached the tap/veth or were dropped by an nftables
   // forward-chain rule. This best-effort, read-only capture surfaces both
   // the live ruleset and interface counters for that triage.
-  it('combines nft list ruleset and ip -s link show output', async () => {
+  it('combines nft/link/route/neighbor/fdb diagnostics into one report', async () => {
     const commands = new LinuxNetworkCommands(
       jest.fn(async (_command, args) => {
         if (args.includes('nft')) {
           return { stdout: 'table inet awf_fc_abc123 { chain forward { ... } }' };
         }
-        if (args.includes('ip') && args.includes('link')) {
+        if (args.includes('-s') && args.includes('link')) {
           return { stdout: '2: eth0: <UP> ... RX: 0 bytes 0 packets' };
+        }
+        if (args.includes('-d') && args.includes('link')) {
+          return { stdout: '2: eth0: <UP> ... vnet_hdr' };
+        }
+        if (args.includes('route')) {
+          return { stdout: 'default via 100.64.0.1 dev tap0' };
+        }
+        if (args.includes('neigh')) {
+          return { stdout: '100.64.0.1 dev tap0 lladdr 02:00:00:00:00:01 REACHABLE' };
+        }
+        if (args.includes('bridge')) {
+          return { stdout: '02:00:00:00:00:01 dev tap0 master awfbr0' };
         }
         return { stdout: '' };
       }),
@@ -527,10 +547,18 @@ describe('LinuxNetworkCommands.captureDiagnosticsInNamespace', () => {
 
     const result = await commands.captureDiagnosticsInNamespace('awffc-test');
 
-    expect(result).toContain('--- nft list ruleset ---');
+    expect(result).toContain('--- nft -a list ruleset (handles + hit counters) ---');
     expect(result).toContain('table inet awf_fc_abc123');
-    expect(result).toContain('--- ip -s link show ---');
+    expect(result).toContain('--- ip -s link show (packet/byte/error counters) ---');
     expect(result).toContain('RX: 0 bytes 0 packets');
+    expect(result).toContain('--- ip -d link show (detailed link info, incl. vnet_hdr/multiqueue flags) ---');
+    expect(result).toContain('vnet_hdr');
+    expect(result).toContain('--- ip route show ---');
+    expect(result).toContain('default via 100.64.0.1 dev tap0');
+    expect(result).toContain('--- ip neigh show (ARP/neighbor table) ---');
+    expect(result).toContain('REACHABLE');
+    expect(result).toContain('--- bridge fdb show (forwarding database) ---');
+    expect(result).toContain('master awfbr0');
   });
 
   it('never throws and reports unavailability when a command fails', async () => {

@@ -386,7 +386,7 @@ describe('Cloud Hypervisor runtime backend', () => {
     );
     expect(manager.execute).toHaveBeenCalledTimes(2);
     const netDiagCall = manager.execute.mock.calls[1][0];
-    expect(netDiagCall.argv).toEqual(['/bin/sh', '-c', 'ip addr show; echo ---; ip route show']);
+    expect(netDiagCall.argv).toEqual(['/bin/sh', '-c', 'ip addr show; echo ---; ip route show; echo ---; ip neigh show']);
   });
 
   it('probes guest connectivity with nc/wget instead of curl, which the BusyBox guest rootfs lacks', async () => {

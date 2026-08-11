@@ -505,7 +505,17 @@ export class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBacken
       const stdoutCollector = createBoundedOutputCollector();
       await manager.execute({
         requestId: `probe-netdiag-${process.pid}-${Date.now()}`,
-        argv: ['/bin/sh', '-c', 'ip addr show; echo ---; ip route show'],
+        // `ip addr show` includes each interface's MAC (compared against
+        // the plan's configured guest MAC and the nftables anti-spoof
+        // rule during triage); note this deliberately omits `-d`
+        // (detailed) since the guest's minimal BusyBox `ip` applet does
+        // not reliably support it (unlike the real iproute2 used
+        // host-side in network.ts's captureDiagnosticsInNamespace).
+        // `ip neigh show` confirms the guest actually resolved the
+        // gateway's MAC via ARP (a failure here would mean the guest
+        // never got a reply to its own ARP request, independent of
+        // anything TCP/Squid-related).
+        argv: ['/bin/sh', '-c', 'ip addr show; echo ---; ip route show; echo ---; ip neigh show'],
         env: environment,
         cwd: CLOUD_HYPERVISOR_GUEST_WORKSPACE,
         ...identity,

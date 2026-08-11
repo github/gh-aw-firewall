@@ -217,12 +217,14 @@ export class LinuxNetworkCommands {
   }
 
   /**
-   * Best-effort, read-only diagnostic dump of the live nftables ruleset and
-   * per-interface packet/byte counters inside the given namespace. Used to
+   * Best-effort, read-only diagnostic dump of the live nftables ruleset,
+   * per-interface packet/byte counters, routes/neighbors, and the TAP/veth
+   * bridge-forwarding database inside the given namespace. Used to
    * diagnose a connectivity failure (e.g. is the forward-chain rule
-   * actually installed as expected, are packets reaching the tap/veth at
-   * all) without guessing from the guest side alone. Never throws --
-   * folds any command failure into an empty string for that command.
+   * actually installed and matching packets, are packets reaching the
+   * tap/veth at all, does ARP/neighbor resolution look right) without
+   * guessing from the guest side alone. Never throws -- folds any command
+   * failure into an empty string for that command.
    */
   async captureDiagnosticsInNamespace(namespaceName: string): Promise<string> {
     const run = async (tool: string, args: readonly string[]): Promise<string> => {
@@ -234,15 +236,54 @@ export class LinuxNetworkCommands {
       const stdout = (result as { stdout?: unknown } | undefined)?.stdout;
       return typeof stdout === 'string' ? stdout : '';
     };
-    const [nftRuleset, linkStats] = await Promise.all([
-      run(this.tools.nft, ['list', 'ruleset']),
+    const [nftRuleset, linkStats, linkDetail, routes, neighbors, fdb] = await Promise.all([
+      // -a includes rule handles so a specific rule can be identified/
+      // referenced; the counters attached in generateMicrovmNftRuleset
+      // make hit counts visible per rule (not just per interface).
+      run(this.tools.nft, ['-a', 'list', 'ruleset']),
       run(this.tools.ip, ['-s', 'link', 'show']),
+      run(this.tools.ip, ['-d', 'link', 'show']),
+      run(this.tools.ip, ['route', 'show']),
+      run(this.tools.ip, ['neigh', 'show']),
+      // 'bridge' (iproute2) is not user-configurable like ip/nft/sysctl
+      // above -- it is only used here, best-effort, for diagnostics.
+      run('bridge', ['fdb', 'show']),
     ]);
     return [
-      '--- nft list ruleset ---',
+      '--- nft -a list ruleset (handles + hit counters) ---',
       nftRuleset.trim() || '(empty or unavailable)',
-      '--- ip -s link show ---',
+      '--- ip -s link show (packet/byte/error counters) ---',
       linkStats.trim() || '(empty or unavailable)',
+      '--- ip -d link show (detailed link info, incl. vnet_hdr/multiqueue flags) ---',
+      linkDetail.trim() || '(empty or unavailable)',
+      '--- ip route show ---',
+      routes.trim() || '(empty or unavailable)',
+      '--- ip neigh show (ARP/neighbor table) ---',
+      neighbors.trim() || '(empty or unavailable)',
+      '--- bridge fdb show (forwarding database) ---',
+      fdb.trim() || '(empty or unavailable)',
+    ].join('\n');
+  }
+
+  /**
+   * Best-effort, read-only diagnostic dump of the host-side (outside any
+   * netns) bridge forwarding database for the infrastructure bridge that
+   * Squid/API-proxy containers are attached to. MAC learning for
+   * guest<->container traffic happens on this bridge, not inside the
+   * microVM's own namespace, so this is a separate capture point. Never
+   * throws -- folds any command failure into an empty string.
+   */
+  async captureHostBridgeDiagnostics(bridgeName: string): Promise<string> {
+    const result = await this.execute(
+      'bridge',
+      ['fdb', 'show', 'br', bridgeName],
+      { reject: false },
+    ).catch(() => undefined);
+    const stdout = (result as { stdout?: unknown } | undefined)?.stdout;
+    const fdb = typeof stdout === 'string' ? stdout.trim() : '';
+    return [
+      `--- bridge fdb show br ${bridgeName} (host-side, outside any netns) ---`,
+      fdb || '(empty or unavailable)',
     ].join('\n');
   }
 }
@@ -361,7 +402,11 @@ export class MicrovmNetworkManager implements MicrovmNetworkLifecycle {
 
   async captureDiagnostics(): Promise<string> {
     if (!this.setupComplete) return '';
-    return this.commands.captureDiagnosticsInNamespace(this.plan.namespaceName);
+    const [namespaceDiagnostics, hostBridgeDiagnostics] = await Promise.all([
+      this.commands.captureDiagnosticsInNamespace(this.plan.namespaceName),
+      this.commands.captureHostBridgeDiagnostics(this.plan.infrastructureBridge),
+    ]);
+    return [namespaceDiagnostics, hostBridgeDiagnostics].join('\n');
   }
 
   async cleanup(): Promise<void> {
@@ -474,7 +519,7 @@ export function generateMicrovmNftRuleset(plan: MicrovmNetworkPlan): string {
     `    iifname "${plan.tapName}" oifname "${plan.namespaceVethName}" ` +
       `ether saddr ${plan.guestMac} ip saddr ${plan.guestIp} ` +
       `ip daddr ${endpoint.ip} tcp dport ${endpoint.port} ` +
-      'ct state new,established accept',
+      'ct state new,established counter accept',
   ]);
   const snatRules = plan.allowedEndpoints.map((endpoint) =>
     `    iifname "${plan.tapName}" oifname "${plan.namespaceVethName}" ` +
@@ -497,17 +542,23 @@ export function generateMicrovmNftRuleset(plan: MicrovmNetworkPlan): string {
     '  chain forward {',
     '    type filter hook forward priority filter; policy drop;',
     '    ct state invalid drop',
-    `    iifname "${plan.tapName}" ether saddr != ${plan.guestMac} drop`,
-    `    iifname "${plan.tapName}" ip saddr != ${plan.guestIp} drop`,
-    `    iifname "${plan.tapName}" ip daddr ${BLOCKED_LINK_LOCAL_CIDR} drop`,
-    `    iifname "${plan.tapName}" ip daddr ${BLOCKED_MULTICAST_CIDR} drop`,
-    `    iifname "${plan.tapName}" ip daddr ${plan.hostGatewayIp} drop`,
-    `    iifname "${plan.tapName}" ip daddr ${plan.infrastructureIp} drop`,
-    `    iifname "${plan.tapName}" udp dport 53 drop`,
-    `    iifname "${plan.tapName}" tcp dport 53 drop`,
+    // `counter` on the anti-spoof/reverse-path rules below is purely
+    // diagnostic (nftables does not track packet/byte hits on a rule
+    // unless it includes an explicit `counter` object); it does not
+    // change any accept/drop decision. This makes `nft -a list ruleset`
+    // (captured in diagnostics) show exactly which rule is or isn't
+    // matching guest<->host traffic without guessing.
+    `    iifname "${plan.tapName}" ether saddr != ${plan.guestMac} counter drop`,
+    `    iifname "${plan.tapName}" ip saddr != ${plan.guestIp} counter drop`,
+    `    iifname "${plan.tapName}" ip daddr ${BLOCKED_LINK_LOCAL_CIDR} counter drop`,
+    `    iifname "${plan.tapName}" ip daddr ${BLOCKED_MULTICAST_CIDR} counter drop`,
+    `    iifname "${plan.tapName}" ip daddr ${plan.hostGatewayIp} counter drop`,
+    `    iifname "${plan.tapName}" ip daddr ${plan.infrastructureIp} counter drop`,
+    `    iifname "${plan.tapName}" udp dport 53 counter drop`,
+    `    iifname "${plan.tapName}" tcp dport 53 counter drop`,
     `    iifname "${plan.namespaceVethName}" oifname "${plan.tapName}" ` +
       `ether daddr ${plan.guestMac} ip daddr ${plan.guestIp} ` +
-      'ct state established,related accept',
+      'ct state established,related counter accept',
     ...allowRules,
     '  }',
     '  chain postrouting {',

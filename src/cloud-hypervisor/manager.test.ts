@@ -1011,6 +1011,53 @@ describe('CloudHypervisorManager', () => {
     );
   });
 
+  it('snapshots vm.info/vm.counters before any shutdown attempt, so collectDiagnostics() via beforeCleanup still has real data', async () => {
+    // Regression test: vm.info/vm.counters require the Cloud Hypervisor
+    // API socket to still be responsive. collectDiagnostics() usually
+    // runs via stop()'s beforeCleanup hook -- deliberately placed *after*
+    // process termination is confirmed (see that hook's own comment) so
+    // buffered serial console output has been flushed. But by that point
+    // the API socket is already closed (the process was just asked to
+    // exit), so a live vmCounters()/vmInfo() call there would always
+    // fail. stop() must snapshot both *before* it calls vmmShutdown(),
+    // and collectDiagnostics() must prefer that snapshot over a live call
+    // that can no longer succeed.
+    const child = processMock();
+    const deps = dependencies({ launch: jest.fn().mockReturnValue(child) });
+    const manager = new CloudHypervisorManager(
+      config(), '/tmp/awf', deps, 'vm-info-snapshot', networkConfig(),
+    );
+    const client = await manager.start();
+    await manager.startInstance();
+
+    let diagnosticsRanWithLiveClient = false;
+    await manager.stop({
+      beforeCleanup: async () => {
+        // Simulate collectDiagnostics() running here, as it does via the
+        // real beforeCleanup wiring in cloud-hypervisor-runtime-backend.ts.
+        await manager.collectDiagnostics('/tmp/diagnostics');
+        diagnosticsRanWithLiveClient = true;
+      },
+    });
+
+    expect(diagnosticsRanWithLiveClient).toBe(true);
+    // vmCounters/vmInfo were called exactly once each: during stop()'s
+    // pre-shutdown snapshot, not again (uselessly) from inside
+    // collectDiagnostics() after the client reference is already cleared.
+    expect(client.vmCounters).toHaveBeenCalledTimes(1);
+    expect(client.vmInfo).toHaveBeenCalledTimes(1);
+    expect(deps.writeFile).toHaveBeenCalledWith(
+      '/tmp/diagnostics/counters.json',
+      expect.stringContaining('rx_bytes'),
+      { mode: 0o600 },
+    );
+    expect(deps.writeFile).toHaveBeenCalledWith(
+      '/tmp/diagnostics/vm-info.json',
+      expect.not.stringMatching(/^null$/m),
+      { mode: 0o600 },
+    );
+  });
+
   it('captures live network diagnostics (nft ruleset + interface counters) when the network lifecycle supports it', async () => {
     // Regression test: a live-KVM connectivity failure investigation found
     // that a bare probe exit code, and even the static network-plan.json,
