@@ -274,16 +274,33 @@ export class LinuxNetworkCommands {
    * throws -- folds any command failure into an empty string.
    */
   async captureHostBridgeDiagnostics(bridgeName: string): Promise<string> {
-    const result = await this.execute(
-      'bridge',
-      ['fdb', 'show', 'br', bridgeName],
-      { reject: false },
-    ).catch(() => undefined);
-    const stdout = (result as { stdout?: unknown } | undefined)?.stdout;
-    const fdb = typeof stdout === 'string' ? stdout.trim() : '';
+    const run = async (tool: string, args: readonly string[]): Promise<string> => {
+      const result = await this.execute(tool, args, { reject: false }).catch(() => undefined);
+      const stdout = (result as { stdout?: unknown } | undefined)?.stdout;
+      return typeof stdout === 'string' ? stdout.trim() : '';
+    };
+    const [fdb, hostNftRuleset, hostIptablesRules] = await Promise.all([
+      run('bridge', ['fdb', 'show', 'br', bridgeName]),
+      // Docker (and any other host-level firewall) manages its own
+      // iptables/nftables rules in the *default* (root) network
+      // namespace -- the same namespace this bridge and the container
+      // side of the microVM's veth pair live in. Those rules are
+      // completely separate from (and evaluated in addition to) the
+      // microVM's own table captured in captureDiagnosticsInNamespace,
+      // and could independently drop/alter traffic on this bridge that
+      // our own table's counters would never show as blocked. Docker may
+      // configure either the modern nftables backend or legacy
+      // iptables/xtables depending on the host, so both are captured.
+      run(this.tools.nft, ['-a', 'list', 'ruleset']),
+      run('iptables', ['-S']),
+    ]);
     return [
       `--- bridge fdb show br ${bridgeName} (host-side, outside any netns) ---`,
       fdb || '(empty or unavailable)',
+      '--- nft -a list ruleset (host/default namespace, e.g. Docker-managed nftables rules) ---',
+      hostNftRuleset || '(empty or unavailable)',
+      '--- iptables -S (host/default namespace, e.g. Docker-managed legacy iptables rules) ---',
+      hostIptablesRules || '(empty or unavailable)',
     ].join('\n');
   }
 }

@@ -574,3 +574,46 @@ describe('LinuxNetworkCommands.captureDiagnosticsInNamespace', () => {
     expect(result).toContain('(empty or unavailable)');
   });
 });
+
+describe('LinuxNetworkCommands.captureHostBridgeDiagnostics', () => {
+  // Regression coverage: Docker (and any other host-level firewall)
+  // manages its own iptables/nftables rules in the default (root) network
+  // namespace, entirely separate from the microVM's own table. Those
+  // rules could independently drop/alter traffic on the shared bridge in
+  // a way the microVM's own nftables counters would never reveal, so this
+  // capture must also check the host-level ruleset (both nft and legacy
+  // iptables, since Docker may configure either backend).
+  it('combines bridge fdb, host nftables ruleset, and legacy iptables rules', async () => {
+    const commands = new LinuxNetworkCommands(
+      jest.fn(async (command, args) => {
+        if (command === 'bridge') return { stdout: 'aa:bb:cc:dd:ee:ff dev vethX master awfbr0' };
+        if (command === 'nft') return { stdout: 'table ip docker { ... }' };
+        if (command === 'iptables' && args.includes('-S')) {
+          return { stdout: '-P FORWARD DROP\n-A DOCKER-USER -j RETURN' };
+        }
+        return { stdout: '' };
+      }),
+    );
+
+    const result = await commands.captureHostBridgeDiagnostics('awfbr0');
+
+    expect(result).toContain('--- bridge fdb show br awfbr0 (host-side, outside any netns) ---');
+    expect(result).toContain('master awfbr0');
+    expect(result).toContain('--- nft -a list ruleset (host/default namespace');
+    expect(result).toContain('table ip docker');
+    expect(result).toContain('--- iptables -S (host/default namespace');
+    expect(result).toContain('-P FORWARD DROP');
+  });
+
+  it('never throws and reports unavailability when a command fails', async () => {
+    const commands = new LinuxNetworkCommands(
+      jest.fn(async () => {
+        throw new Error('command not found');
+      }),
+    );
+
+    const result = await commands.captureHostBridgeDiagnostics('awfbr0');
+
+    expect(result).toContain('(empty or unavailable)');
+  });
+});

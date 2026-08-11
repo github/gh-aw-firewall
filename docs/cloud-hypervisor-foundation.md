@@ -771,6 +771,23 @@ fix:
   device config (`CloudHypervisorManager.buildVmConfig()`) rather than
   relying on Cloud Hypervisor's own defaults.
 
+**Update**: neither of the two changes above resolved it. A follow-up live
+run with both applied showed the *identical* pattern — `ct state invalid`
+still at zero hits (ruling out conntrack-invalid marking) and the return
+accept rule still at zero hits (ruling out the offload/checksum theory,
+since disabling all three offloads made no observable difference). Since
+the microVM's own nftables table shows no rule matching the return traffic
+at all (neither accepting nor dropping it), the packets may never be
+reaching this bridge/veth from Squid's side in the first place, or may be
+handled entirely by a *different* ruleset before ever reaching this one.
+`captureHostBridgeDiagnostics()` was extended to also capture the
+host/default-namespace `nft -a list ruleset` and `iptables -S` — Docker
+manages its own iptables/nftables rules for its bridge networks in that
+same root namespace, entirely separate from (and evaluated in addition
+to) the microVM's own table, and could independently drop or redirect
+traffic on this shared bridge in a way the microVM's own counters would
+never reveal. This is the next concrete lead to check against a live run.
+
 **`Cloud Hypervisor requires a non-root target uid/gid`**
 
 Same as Firecracker's jailer requirement: run through `sudo` from a
