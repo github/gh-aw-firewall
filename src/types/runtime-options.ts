@@ -38,11 +38,12 @@ export interface FirecrackerOptions {
   sha256?: FirecrackerArtifactDigests;
 }
 
-// ─── Cloud Hypervisor (foundation only — no runnable backend yet) ──────────
+// ─── Cloud Hypervisor (v53.0 preview lifecycle backend) ────────────────────
 //
-// This configuration surface exists so callers can pin trusted artifacts and
-// round-trip config today. It is intentionally NOT registered as a
-// selectable `--container-runtime` value and has no lifecycle backend: see
+// This configuration surface pins trusted artifacts and configures the
+// Cloud Hypervisor microVM runtime. It is selectable via
+// `--container-runtime cloud-hypervisor` (gated behind explicit
+// `--cloud-hypervisor-preview` opt-in): see
 // `src/cloud-hypervisor/preflight.ts` for artifact/host validation and
 // `guest/cloud-hypervisor/` for the guest artifact pipeline. GitHub-hosted
 // Ubuntu x86_64 KVM runners are the only supported host target.
@@ -61,11 +62,11 @@ export interface CloudHypervisorArtifactDigests {
 }
 
 /**
- * Foundational configuration for a future Cloud Hypervisor microVM runtime.
+ * Cloud Hypervisor v53.0 preview microVM runtime settings.
  *
- * There is no lifecycle backend for this runtime yet — it cannot be selected
- * via `--container-runtime` and `previewEnabled` only gates config
- * acceptance/validation, not workload execution.
+ * Selectable via `--container-runtime cloud-hypervisor`, gated behind
+ * explicit `--cloud-hypervisor-preview` opt-in. Supported only on
+ * GitHub-hosted Ubuntu x86_64 KVM runners.
  */
 export interface CloudHypervisorOptions {
   previewEnabled: boolean;
@@ -241,10 +242,11 @@ export interface RuntimeOptions {
   firecracker?: FirecrackerOptions;
 
   /**
-   * Cloud Hypervisor microVM foundation settings (config/artifacts only).
+   * Cloud Hypervisor v53.0 preview microVM runtime settings.
    *
-   * There is no lifecycle backend yet; this cannot be selected as a
-   * `--container-runtime` value.
+   * Selectable via `--container-runtime cloud-hypervisor`, gated behind
+   * explicit `--cloud-hypervisor-preview` opt-in. Supported only on
+   * GitHub-hosted Ubuntu x86_64 KVM runners.
    */
   cloudHypervisor?: CloudHypervisorOptions;
 }

@@ -21,9 +21,12 @@ umask 077
 # itself as VMM-neutral (length-prefixed JSON framing over vsock/UDS), so no
 # Cloud Hypervisor-specific supervisor is needed.
 #
-# NOTE: this produces artifacts for the Cloud Hypervisor *foundation* only.
-# There is no lifecycle backend yet (see src/cloud-hypervisor/), so these
-# artifacts are not wired into any runnable AWF workload in this release.
+# NOTE: these artifacts back the real Cloud Hypervisor lifecycle backend in
+# src/cloud-hypervisor/ (preview, gated behind --cloud-hypervisor-preview
+# plus --container-runtime cloud-hypervisor on GitHub-hosted Ubuntu x86_64
+# KVM runners only). They are published as a versioned GitHub Release asset
+# (cloud-hypervisor-test-x86_64.tar.gz, see .github/workflows/release.yml)
+# for external tooling to pin against, not just as an ephemeral CI artifact.
 
 CLOUD_HYPERVISOR_VERSION=53.0
 CLOUD_HYPERVISOR_BINARY_SHA256=448af3d4e59b22c2987f7df94c213ad40fb53a10d437e42b5ee6c4fce7c29ecc
@@ -169,7 +172,7 @@ make -C "$busybox_dir" -j"$JOBS"
 # guest/firecracker-supervisor/protocol.go) and is shared as-is between the
 # Firecracker and Cloud Hypervisor guest pipelines.
 supervisor="$OUTPUT/awf-supervisor"
-VERSION="v${CLOUD_HYPERVISOR_VERSION}" \
+VERSION="${VERSION:-v${CLOUD_HYPERVISOR_VERSION}}" \
   OUTPUT="$supervisor" \
   "$ROOT/guest/firecracker-supervisor/build.sh"
 
@@ -236,7 +239,7 @@ E2FSPROGS_FAKE_TIME="$SOURCE_DATE_EPOCH" e2fsck -f -y "$rootfs" >/dev/null
 cat >"$OUTPUT/manifest.json" <<EOF
 {
   "schemaVersion": 1,
-  "purpose": "AWF Cloud Hypervisor foundation test artifacts; not production defaults; no lifecycle backend yet",
+  "purpose": "AWF Cloud Hypervisor preview test artifacts; not production defaults",
   "architecture": "x86_64",
   "sourceDateEpoch": ${SOURCE_DATE_EPOCH},
   "cloudHypervisor": {

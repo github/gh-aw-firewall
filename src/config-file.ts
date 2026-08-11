@@ -136,9 +136,10 @@ export interface AwfFileConfig {
     sha256?: FirecrackerArtifactDigests;
   };
   /**
-   * Cloud Hypervisor microVM foundation (config/artifacts only).
-   * There is no lifecycle backend yet: this cannot be selected via
-   * `container.containerRuntime`.
+   * Cloud Hypervisor v53.0 preview microVM runtime.
+   * Selectable via `container.containerRuntime: "cloud-hypervisor"`, gated
+   * behind `previewEnabled`/`--cloud-hypervisor-preview`. Supported only on
+   * GitHub-hosted Ubuntu x86_64 KVM runners.
    */
   cloudHypervisor?: {
     previewEnabled?: boolean;

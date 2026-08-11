@@ -112,13 +112,13 @@ for the guest artifact build/verification pipeline. See
 the full architecture and security-boundary writeup.
 
 Release test artifacts (`cloud-hypervisor-test-x86_64`) are x86_64
-test/preview artifacts built and verified by
+test/preview artifacts built and verified by both the release workflow and
 [`test-cloud-hypervisor.yml`](../.github/workflows/test-cloud-hypervisor.yml),
 which also runs the live-KVM parity/security smoke suite
 (`scripts/ci/cloud-hypervisor-live-smoke.sh`) on GitHub-hosted Ubuntu x86_64
 runners when triggered by manual dispatch or the `cloud-hypervisor-kvm` pull
-request label. They are published as workflow artifacts, but are not
-production defaults and are never auto-downloaded. See
+request label. They are published as explicitly named release/workflow
+assets, but are not production defaults and are never auto-downloaded. See
 [docs/cloud-hypervisor-foundation.md](./cloud-hypervisor-foundation.md#part-14--ci-workflow)
 for the complete CI workflow specification and troubleshooting reference.
 
@@ -223,7 +223,7 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 - `container.dockerHostPathPrefix` → `--docker-host-path-prefix`
 - `container.runnerToolCachePath` → *(config-only; checked first for optional read-only runner tool cache mount, before `RUNNER_TOOL_CACHE` and `/home/runner/work/_tool` auto-detection)*
 - `container.mounts[]` → `-v, --mount` *(repeatable; each array entry maps to one Docker volume mount in `/host_path:/container_path[:ro|rw]` format (both paths must be absolute; host path must exist); in chroot mode, container paths are automatically prefixed with `/host`)*
-- `container.containerRuntime` → `--container-runtime` *(user-facing runtime name: `"gvisor"` for OCI runtime in compose, `"sbx"` for Docker sbx microVM, or `"firecracker"` for the explicit Firecracker v1.16.1 workload preview. For gvisor: translates to `"runsc"`, injects `extra_hosts` for DNS workaround. For sbx and Firecracker: infrastructure stays in Compose while the primary agent runs in a microVM.)*
+- `container.containerRuntime` → `--container-runtime` *(user-facing runtime name: `"gvisor"` for OCI runtime in compose, `"sbx"` for Docker sbx microVM, `"firecracker"` for the explicit Firecracker v1.16.1 workload preview, or `"cloud-hypervisor"` for the explicit Cloud Hypervisor v53.0 workload preview (GitHub-hosted Ubuntu x86_64 KVM runners only; see §4.1). For gvisor: translates to `"runsc"`, injects `extra_hosts` for DNS workaround. For sbx, Firecracker, and Cloud Hypervisor: infrastructure stays in Compose while the primary agent runs in a microVM.)*
 - `firecracker.previewEnabled` → `--firecracker-preview`
 - `firecracker.firecrackerBinary` → `--firecracker-binary`
 - `firecracker.jailerBinary` → `--firecracker-jailer-binary`

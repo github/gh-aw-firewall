@@ -27,6 +27,6 @@ file "$ARTIFACT_DIR/vmlinux.bin" | grep -E 'Linux kernel|boot executable'
 e2fsck -f -n "$ARTIFACT_DIR/rootfs.ext4"
 debugfs -R 'stat /sbin/awf-supervisor' "$ARTIFACT_DIR/rootfs.ext4" 2>&1 \
   | grep -F 'Type: regular'
-grep -F '"purpose": "AWF Cloud Hypervisor foundation test artifacts; not production defaults; no lifecycle backend yet"' \
+grep -F '"purpose": "AWF Cloud Hypervisor preview test artifacts; not production defaults"' \
   "$ARTIFACT_DIR/manifest.json"
 grep -F '"spdxVersion": "SPDX-2.3"' "$ARTIFACT_DIR/sbom.spdx.json"
