@@ -162,6 +162,7 @@ keep_work="$RUN_ROOT/keep/work"
 keep_workspace="$RUN_ROOT/keep/workspace"
 keep_audit="$RUN_ROOT/keep/audit"
 mkdir -p "$keep_work" "$keep_workspace" "$keep_audit"
+set +e
 (
   export GITHUB_WORKSPACE="$keep_workspace"
   export OPENAI_API_KEY="$SECRET_SENTINEL"
@@ -172,6 +173,17 @@ mkdir -p "$keep_work" "$keep_workspace" "$keep_audit"
     --audit-dir "$keep_audit" \
     -- 'true'
 ) >"$RUN_ROOT/keep/stdout.log" 2>"$RUN_ROOT/keep/stderr.log"
+keep_status=$?
+set -e
+if [ "$keep_status" -ne 0 ]; then
+  # See the identical fix in cloud-hypervisor-live-smoke.sh: unlike
+  # run_case, this invocation is not wrapped by a helper that tails its
+  # own log on failure, so under `set -e` a non-zero exit here previously
+  # aborted the whole suite silently.
+  echo "keep-containers invocation: expected exit 0, got $keep_status" >&2
+  tail -200 "$RUN_ROOT/keep/stderr.log" >&2
+  exit 1
+fi
 sudo ip netns list | grep -q '^awffc-' || {
   echo "keep mode did not preserve the run network namespace" >&2
   exit 1
