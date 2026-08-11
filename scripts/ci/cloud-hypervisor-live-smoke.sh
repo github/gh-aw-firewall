@@ -162,10 +162,36 @@ run_case() {
 
 assert_no_residue
 
+# Best-effort, bounded packet capture across the first live case only (never
+# a persistent/always-on capture): the live-KVM connectivity investigation
+# has confirmed ARP round-trips and per-rule nftables accept counters for
+# the guest's outbound SYN, but has not yet directly observed the actual
+# frames in flight on the shared bridge. `-i any` (all interfaces, since the
+# per-run bridge/veth names are only known once the CLI creates them) keeps
+# this decisive without needing to thread bridge naming into this script.
+# Failure to start tcpdump (not installed, insufficient privilege) must
+# never fail the suite -- this is diagnostics, not a behavioral assertion.
+tcpdump_pid=
+tcpdump_out="$RUN_ROOT/allowed-https/audit/tcpdump.pcap"
+mkdir -p "$(dirname "$tcpdump_out")"
+if command -v tcpdump >/dev/null 2>&1; then
+  sudo tcpdump -i any -w "$tcpdump_out" \
+    'port 3128 or arp or icmp' >/dev/null 2>&1 &
+  tcpdump_pid=$!
+  sleep 1
+fi
+
 boot_start_ns=$(date +%s%N)
 run_case allowed-https 0 \
   'wget -qO- https://example.com | grep -q "Example Domain"'
 boot_end_ns=$(date +%s%N)
+
+if [ -n "$tcpdump_pid" ]; then
+  sudo kill "$tcpdump_pid" >/dev/null 2>&1 || true
+  wait "$tcpdump_pid" 2>/dev/null || true
+  sudo chmod 0644 "$tcpdump_out" 2>/dev/null || true
+fi
+
 boot_ms=$(( (boot_end_ns - boot_start_ns) / 1000000 ))
 echo "Cloud Hypervisor boot+readiness+run+cleanup baseline: ${boot_ms}ms"
 if [ "$boot_ms" -gt "$BOOT_READINESS_CEILING_MS" ]; then
