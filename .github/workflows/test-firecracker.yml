@@ -143,12 +143,17 @@ jobs:
           rm -rf "$destination"
           mkdir -p "$destination"
           if [ -d "$source_root" ]; then
+            # See the identical comment in test-cloud-hypervisor.yml:
+            # --keep-containers intentionally leaves its own work/audit
+            # files root-owned (written by the CLI process via sudo, never
+            # cleaned up so the case's own assertions can inspect them
+            # afterward), so find/cp must run as root here too.
             while IFS= read -r -d '' file; do
               relative=${file#"$source_root/"}
               mkdir -p "$destination/$(dirname "$relative")"
-              cp "$file" "$destination/$relative"
+              sudo cp "$file" "$destination/$relative"
             done < <(
-              find "$source_root" -type f \
+              sudo find "$source_root" -type f \
                 \( -path '*/audit/*' \
                 -o -path '*/proxy-logs/*' \
                 -o -name 'stdout.log' \
@@ -156,6 +161,12 @@ jobs:
                 -print0
             )
           fi
+          # Hand ownership of the copied destination tree back to the
+          # runner user: sudo cp above creates new destination files as
+          # root, which the secret-sentinel scan below and the later
+          # upload-artifact step (both running as the runner user) need to
+          # be able to read.
+          sudo chown -R "$(id -u):$(id -g)" "$destination"
           # See the identical comment in test-cloud-hypervisor.yml:
           # awf-resolved-config.json's agentCommand field always contains
           # the smoke test's own shell command verbatim, which for the

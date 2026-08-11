@@ -184,12 +184,22 @@ jobs:
           rm -rf "$destination"
           mkdir -p "$destination"
           if [ -d "$source_root" ]; then
+            # --keep-containers (the keep-containers/preserve-diagnostics
+            # live case) intentionally leaves its own work/audit files
+            # root-owned (they are written by the CLI process, itself run
+            # via sudo, and deliberately never cleaned up so the case's own
+            # assertions can inspect them afterward). Every other case's
+            # files are owned by the runner user and readable without
+            # sudo, but find/cp must run as root here to reach the
+            # keep-containers case's own preserved files too -- reading a
+            # root-owned file as the runner user is a permission error,
+            # not evidence of a missing file.
             while IFS= read -r -d '' file; do
               relative=${file#"$source_root/"}
               mkdir -p "$destination/$(dirname "$relative")"
-              cp "$file" "$destination/$relative"
+              sudo cp "$file" "$destination/$relative"
             done < <(
-              find "$source_root" -type f \
+              sudo find "$source_root" -type f \
                 \( -path '*/audit/*' \
                 -o -path '*/proxy-logs/*' \
                 -o -name 'stdout.log' \
@@ -197,6 +207,12 @@ jobs:
                 -print0
             )
           fi
+          # Hand ownership of the copied destination tree back to the
+          # runner user: sudo cp above creates new destination files as
+          # root, which the secret-sentinel scan below and the later
+          # upload-artifact step (both running as the runner user, not
+          # root) need to be able to read.
+          sudo chown -R "$(id -u):$(id -g)" "$destination"
           # awf-resolved-config.json's agentCommand field always contains the
           # smoke test's own shell command verbatim -- and this specific
           # command (the api-proxy-reflect case) intentionally references
