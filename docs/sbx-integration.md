@@ -83,8 +83,8 @@ VMs persist until explicitly removed; stopping an agent does not delete the VM.
 ### Enclave runtimes are independent
 
 `container.containerRuntime: "sbx"` selects the primary agent's execution
-model. `enclaves.executors.script.runtime: "sbx"` and
-`enclaves.executors.agent.runtime: "sbx"` are separate enclave backends
+model. `script.runtime: "sbx"` and
+`agent.runtime: "sbx"` on an `enclaves` entry are separate enclave backends
 behind the AWF-owned MCP server and must never reuse the primary agent VM,
 agent-ingress capability, gateway capability, or agent credentials.
 

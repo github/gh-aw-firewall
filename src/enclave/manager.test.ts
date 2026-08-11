@@ -39,27 +39,28 @@ function enclaveEnv(overrides: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
   };
 }
 
-function config(workDir: string, overrides: Parameters<typeof normalizeEnclavesConfig>[0] = {}): WrapperConfig {
+const repository = { repo: 'octo/private', sensitivity: 'internal' as const };
+
+type EnclaveEntries = NonNullable<Parameters<typeof normalizeEnclavesConfig>[0]>;
+
+const scriptEntries: EnclaveEntries = [{ script: {}, repos: [repository] }];
+
+function config(workDir: string, entries: EnclaveEntries = scriptEntries): WrapperConfig {
   return {
     workDir,
     networkIsolation: true,
     topologyAttach: ['awmg-mcpg'],
-    enclaves: normalizeEnclavesConfig({
-      enabled: true,
-      privateRepos: [{ repo: 'octo/private', sensitivity: 'internal' }],
-      executors: { script: { enabled: true } },
-      ...overrides,
-    }),
+    enclaves: normalizeEnclavesConfig(entries),
   } as WrapperConfig;
 }
 
 /** A configuration whose agent executor has a routed API-proxy model target. */
 function agentConfig(
   workDir: string,
-  overrides: Parameters<typeof normalizeEnclavesConfig>[0] = {},
+  entries: EnclaveEntries = scriptEntries,
 ): WrapperConfig {
   return {
-    ...config(workDir, overrides),
+    ...config(workDir, entries),
     enableApiProxy: true,
     copilotGithubToken: 'copilot-token',
   } as WrapperConfig;
@@ -130,12 +131,10 @@ describe('prepareEnclaves fail-closed preflight', () => {
   it('proves both executor runtimes before staging when both are enabled', async () => {
     const assertScriptRuntimeAvailable = jest.fn().mockResolvedValue(undefined);
     const assertAgentRuntimeAvailable = jest.fn().mockResolvedValue(undefined);
-    await prepareToleratingPrivateRootIo(agentConfig(workDir, {
-      executors: {
-        script: { enabled: true },
-        agent: { enabled: true, model: 'gpt-test' },
-      },
-    }), {
+    await prepareToleratingPrivateRootIo(agentConfig(workDir, [
+      { script: {}, repos: [repository] },
+      { agent: { model: 'gpt-test' }, repos: [repository] },
+    ]), {
       env: enclaveEnv(),
       gitRunner,
       assertPrimaryAvailable: jest.fn().mockResolvedValue(undefined),
@@ -154,12 +153,10 @@ describe('prepareEnclaves fail-closed preflight', () => {
       .mockResolvedValueOnce(undefined);
     const agentProof = jest.spyOn(runtimePreflight, 'assertAgentRuntimeAvailable')
       .mockResolvedValueOnce(undefined);
-    const wrapperConfig = agentConfig(workDir, {
-      executors: {
-        script: { enabled: true },
-        agent: { enabled: true, model: 'gpt-test' },
-      },
-    });
+    const wrapperConfig = agentConfig(workDir, [
+      { script: {}, repos: [repository] },
+      { agent: { model: 'gpt-test' }, repos: [repository] },
+    ]);
     try {
       await prepareToleratingPrivateRootIo(wrapperConfig, {
         env: enclaveEnv(),
@@ -179,9 +176,9 @@ describe('prepareEnclaves fail-closed preflight', () => {
   it('never probes a disabled executor runtime', async () => {
     const assertScriptRuntimeAvailable = jest.fn().mockResolvedValue(undefined);
     const assertAgentRuntimeAvailable = jest.fn().mockResolvedValue(undefined);
-    await prepareToleratingPrivateRootIo(agentConfig(workDir, {
-      executors: { agent: { enabled: true, model: 'gpt-test' } },
-    }), {
+    await prepareToleratingPrivateRootIo(agentConfig(workDir, [
+      { agent: { model: 'gpt-test' }, repos: [repository] },
+    ]), {
       env: enclaveEnv(),
       gitRunner,
       assertPrimaryAvailable: jest.fn().mockResolvedValue(undefined),
@@ -194,9 +191,9 @@ describe('prepareEnclaves fail-closed preflight', () => {
 
   it('rejects the unproven sbx agent runtime before staging and never downgrades', async () => {
     const assertAgentRuntimeAvailable = jest.fn();
-    await expect(prepareEnclaves(agentConfig(workDir, {
-      executors: { agent: { enabled: true, model: 'gpt-test', runtime: 'sbx' } },
-    }), {
+    await expect(prepareEnclaves(agentConfig(workDir, [
+      { agent: { model: 'gpt-test', runtime: 'sbx' }, repos: [repository] },
+    ]), {
       env: enclaveEnv(),
       assertPrimaryAvailable: jest.fn(),
       assertScriptRuntimeAvailable: jest.fn(),
@@ -207,9 +204,9 @@ describe('prepareEnclaves fail-closed preflight', () => {
 
   it('rejects an agent executor without the mandatory API proxy', async () => {
     await expect(prepareEnclaves({
-      ...agentConfig(workDir, {
-        executors: { agent: { enabled: true, model: 'gpt-test' } },
-      }),
+      ...agentConfig(workDir, [
+        { agent: { model: 'gpt-test' }, repos: [repository] },
+      ]),
       enableApiProxy: false,
     } as WrapperConfig, {
       env: enclaveEnv(),
@@ -219,9 +216,9 @@ describe('prepareEnclaves fail-closed preflight', () => {
   });
 
   it('rejects the unimplemented sbx script runtime before staging', async () => {
-    await expect(prepareEnclaves(config(workDir, {
-      executors: { script: { enabled: true, runtime: 'sbx' } },
-    }), {
+    await expect(prepareEnclaves(config(workDir, [
+      { script: { runtime: 'sbx' }, repos: [repository] },
+    ]), {
       env: enclaveEnv(),
       assertPrimaryAvailable: jest.fn(),
       assertScriptRuntimeAvailable: jest.fn(),

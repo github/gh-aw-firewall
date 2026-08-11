@@ -1,5 +1,9 @@
 import type { WrapperConfig } from '../types';
-import type { EnclaveAgentExecutorConfig, EnclavesConfig } from '../types/enclave-options';
+import type {
+  EnclaveAgentExecutorConfig,
+  EnclaveSensitivity,
+  EnclavesConfig,
+} from '../types/enclave-options';
 import {
   MAX_RESULT_BYTES,
   MAX_SCRIPT_BYTES,
@@ -52,17 +56,25 @@ export function resolveEnclaveAgentApiRoute(
 
 function validateRepositoryList(enclaves: EnclavesConfig, errors: string[]): void {
   if (enclaves.privateRepos.length === 0) {
-    errors.push('enclaves.enabled is true but enclaves.privateRepos is empty');
+    errors.push('enclaves entries declare no repos');
   }
-  const seen = new Set<string>();
+  const seen = new Map<string, EnclaveSensitivity>();
   for (const repository of enclaves.privateRepos) {
     if (!PRIVATE_REPOSITORY_PATTERN.test(repository.repo)) {
-      errors.push(`enclaves.privateRepos entry "${repository.repo}" is not a bare owner/repo slug`);
+      errors.push(`enclaves[].repos entry "${repository.repo}" is not a bare owner/repo slug`);
       continue;
     }
     const key = normalizePrivateRepositoryKey(repository.repo);
-    if (seen.has(key)) errors.push(`enclaves.privateRepos contains a duplicate entry: "${repository.repo}"`);
-    seen.add(key);
+    const previous = seen.get(key);
+    if (previous !== undefined) {
+      errors.push(
+        previous === repository.sensitivity
+          ? `enclaves[].repos contains a duplicate entry: "${repository.repo}"`
+          : `enclaves[].repos declares conflicting sensitivities for "${repository.repo}": `
+            + `"${previous}" and "${repository.sensitivity}" cannot share one information budget`,
+      );
+    }
+    seen.set(key, repository.sensitivity);
   }
 }
 
@@ -90,44 +102,44 @@ export function validateEnclavesConfig(config: WrapperConfig): string[] {
   validateRepositoryList(enclaves, errors);
   const { script, agent } = enclaves.executors;
   if (!script.enabled && !agent.enabled) {
-    errors.push('enclaves.enabled is true but no enclave executor is enabled');
+    errors.push('enclaves is enabled but no enclave executor entry is configured');
   }
 
   if (script.enabled) {
-    if (!RUNTIMES.has(script.runtime)) errors.push(`enclaves.executors.script.runtime "${script.runtime}" is not supported`);
-    if (script.network !== 'none') errors.push('enclaves.executors.script.network must be "none"');
-    if (script.interpreter !== 'python3') errors.push('enclaves.executors.script.interpreter must be "python3"');
+    if (!RUNTIMES.has(script.runtime)) errors.push(`enclaves[].script.runtime "${script.runtime}" is not supported`);
+    if (script.network !== 'none') errors.push('enclaves[].script.network must be "none"');
+    if (script.interpreter !== 'python3') errors.push('enclaves[].script.interpreter must be "python3"');
     if (!Number.isInteger(script.timeout) || script.timeout < 1 || script.timeout > MAX_ENCLAVE_TIMEOUT_SECONDS) {
       errors.push(
-        `enclaves.executors.script.timeout must be between 1 and ${MAX_ENCLAVE_TIMEOUT_SECONDS}`,
+        `enclaves[].script.timeout must be between 1 and ${MAX_ENCLAVE_TIMEOUT_SECONDS}`,
       );
     }
-    validateResourceLimits('enclaves.executors.script', script, errors);
-    validatePositiveInteger('enclaves.executors.script.maxScriptBytes', script.maxScriptBytes, errors);
+    validateResourceLimits('enclaves[].script', script, errors);
+    validatePositiveInteger('enclaves[].script.maxScriptBytes', script.maxScriptBytes, errors);
     if (script.maxScriptBytes > MAX_SCRIPT_BYTES) {
-      errors.push(`enclaves.executors.script.maxScriptBytes must be at most ${MAX_SCRIPT_BYTES}`);
+      errors.push(`enclaves[].script.maxScriptBytes must be at most ${MAX_SCRIPT_BYTES}`);
     }
     if (script.maxOutputBytes > MAX_RESULT_BYTES) {
-      errors.push(`enclaves.executors.script.maxOutputBytes must be at most ${MAX_RESULT_BYTES}`);
+      errors.push(`enclaves[].script.maxOutputBytes must be at most ${MAX_RESULT_BYTES}`);
     }
-    validatePositiveInteger('enclaves.executors.script.maxInvocations', script.maxInvocations, errors);
+    validatePositiveInteger('enclaves[].script.maxInvocations', script.maxInvocations, errors);
   }
 
   if (agent.enabled) {
-    if (!RUNTIMES.has(agent.runtime)) errors.push(`enclaves.executors.agent.runtime "${agent.runtime}" is not supported`);
+    if (!RUNTIMES.has(agent.runtime)) errors.push(`enclaves[].agent.runtime "${agent.runtime}" is not supported`);
     if (!ENGINES.has(agent.engine)) {
-      errors.push(`enclaves.executors.agent.engine "${agent.engine}" is not supported`);
+      errors.push(`enclaves[].agent.engine "${agent.engine}" is not supported`);
     } else if (!IMPLEMENTED_AGENT_ENGINES.has(agent.engine)) {
       errors.push(
-        `enclaves.executors.agent.engine "${agent.engine}" is not implemented. Only "copilot" has a ` +
+        `enclaves[].agent.engine "${agent.engine}" is not implemented. Only "copilot" has a ` +
         'pinned native enclave image and an AWF-authored model loop; enclaves never fall back to a ' +
         'different engine.',
       );
     }
     if (agent.network !== 'api-proxy-only') {
-      errors.push('enclaves.executors.agent.network must be "api-proxy-only"');
+      errors.push('enclaves[].agent.network must be "api-proxy-only"');
     }
-    if (!agent.model) errors.push('enclaves.executors.agent.model is required when the agent executor is enabled');
+    if (!agent.model) errors.push('enclaves[].agent.model is required when the agent executor is enabled');
     if (!config.enableApiProxy) {
       errors.push('enclaves agent executor requires the AWF API proxy');
     } else {
@@ -141,18 +153,18 @@ export function validateEnclavesConfig(config: WrapperConfig): string[] {
     }
     if (!Number.isInteger(agent.timeout) || agent.timeout < 1 || agent.timeout > MAX_ENCLAVE_TIMEOUT_SECONDS) {
       errors.push(
-        `enclaves.executors.agent.timeout must be between 1 and ${MAX_ENCLAVE_TIMEOUT_SECONDS}`,
+        `enclaves[].agent.timeout must be between 1 and ${MAX_ENCLAVE_TIMEOUT_SECONDS}`,
       );
     }
-    validateResourceLimits('enclaves.executors.agent', agent, errors);
-    validatePositiveInteger('enclaves.executors.agent.maxTaskBytes', agent.maxTaskBytes, errors);
+    validateResourceLimits('enclaves[].agent', agent, errors);
+    validatePositiveInteger('enclaves[].agent.maxTaskBytes', agent.maxTaskBytes, errors);
     if (agent.maxTaskBytes > ENCLAVE_AGENT_MAX_TASK_BYTES) {
-      errors.push(`enclaves.executors.agent.maxTaskBytes must be at most ${ENCLAVE_AGENT_MAX_TASK_BYTES}`);
+      errors.push(`enclaves[].agent.maxTaskBytes must be at most ${ENCLAVE_AGENT_MAX_TASK_BYTES}`);
     }
     if (agent.maxOutputBytes > MAX_RESULT_BYTES) {
-      errors.push(`enclaves.executors.agent.maxOutputBytes must be at most ${MAX_RESULT_BYTES}`);
+      errors.push(`enclaves[].agent.maxOutputBytes must be at most ${MAX_RESULT_BYTES}`);
     }
-    validatePositiveInteger('enclaves.executors.agent.maxInvocations', agent.maxInvocations, errors);
+    validatePositiveInteger('enclaves[].agent.maxInvocations', agent.maxInvocations, errors);
   }
 
   return errors;

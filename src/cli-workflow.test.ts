@@ -33,11 +33,9 @@ const enclaveConfig: WrapperConfig = {
   ...baseConfig,
   networkIsolation: true,
   topologyAttach: ['awmg-mcpg'],
-  enclaves: normalizeEnclavesConfig({
-    enabled: true,
-    privateRepos: [{ repo: 'octo/private', sensitivity: 'internal' }],
-    executors: { script: { enabled: true } },
-  }),
+  enclaves: normalizeEnclavesConfig([
+    { script: {}, repos: [{ repo: 'octo/private', sensitivity: 'internal' }] },
+  ]),
 };
 
 const createLogger = () => ({

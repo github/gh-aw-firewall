@@ -588,11 +588,9 @@ describe('mapAwfFileConfigToCliOptions', () => {
   });
 
   it('passes unified enclaves through as trusted config-only state', () => {
-    const enclaves = {
-      enabled: true,
-      privateRepos: [{ repo: 'octo/private', sensitivity: 'internal' as const }],
-      executors: { script: { enabled: true } },
-    };
+    const enclaves = [
+      { script: {}, repos: [{ repo: 'octo/private', sensitivity: 'internal' as const }] },
+    ];
     expect(mapAwfFileConfigToCliOptions({ enclaves }).enclaves).toEqual(enclaves);
   });
 });

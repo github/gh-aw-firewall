@@ -29,11 +29,11 @@ The system is orchestrated by `src/cli.ts` and managed by `src/docker-manager.ts
 - Ports: 10000 (OpenAI), 10001 (Anthropic), 10002 (Copilot), 10003 (Gemini) — these are discrete ports, not a contiguous range
 
 **4. Unified Enclaves (optional)** — `containers/enclave/`
-- Enabled via `enclaves.enabled` in the AWF config file
+- Enabled by declaring `enclaves` entries in the AWF config file
 - One AWF-owned MCP server (`enclave-mcp-server`) exposes enabled enclave executors only through compiler-launched `gh-aw-mcpg`; the primary agent gets no direct enclave socket, wrapper binary, capability, or private transport
 - `enclave_run_script` launches a no-network, read-only, single-use Python executor and returns one canonical JSON result
 - `enclave_run_agent` launches a single-use Copilot enclave on the dedicated `internal` `awf-enclave-agent` network whose sole peer is the dedicated API proxy; Squid, the primary agent, the general API proxy, safe outputs, and the MCP gateway are excluded
-- Script and agent executors share one trusted `enclaves.privateRepos` list, one per-run information ledger, and one AWF-owned admission lane
+- Script and agent executors are configured as a top-level `enclaves` array of `script`/`agent` entries whose merged `repos` lists form one trusted repository catalog, sharing one per-run information ledger and one AWF-owned admission lane
 - Rollout depends on the compiler handoff contract in `github/gh-aw#50920` and late backend rediscovery in `github/gh-aw-mcpg#10784`, which requires MCP Gateway spec 1.15.0 and the first mcpg release after v0.4.8 containing it
 - While the gateway backend is still coming up, AWF retries retryable HTTP `503 backend_unavailable` responses within `AWF_ENCLAVE_MCP_READINESS_TIMEOUT_MS`
 - See [docs/enclaves-architecture.md](docs/enclaves-architecture.md) and [docs/awf-config-spec.md](docs/awf-config-spec.md) §14

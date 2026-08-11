@@ -22,17 +22,15 @@ const enclaveProtocol = require(path.join(
 jest.mock('execa', () => ({ __esModule: true, default: jest.fn() }));
 const mockExeca = execa as unknown as jest.Mock;
 
+const repository = { repo: 'octo/private', sensitivity: 'internal' as const };
+
 function config(agent = false): WrapperConfig {
   return {
     workDir: '/tmp/awf-test',
-    enclaves: normalizeEnclavesConfig({
-      enabled: true,
-      privateRepos: [{ repo: 'octo/private', sensitivity: 'internal' }],
-      executors: {
-        script: { enabled: true },
-        agent: agent ? { enabled: true, model: 'gpt-test' } : undefined,
-      },
-    }),
+    enclaves: normalizeEnclavesConfig([
+      { script: {}, repos: [repository] },
+      ...(agent ? [{ agent: { model: 'gpt-test' }, repos: [repository] }] : []),
+    ]),
   } as WrapperConfig;
 }
 
@@ -218,11 +216,9 @@ describe('enclave mcpg handoff', () => {
   it('builds an agent-only timeout and tool allowlist', () => {
     const wrapperConfig = {
       ...config(),
-      enclaves: normalizeEnclavesConfig({
-        enabled: true,
-        privateRepos: [{ repo: 'octo/private', sensitivity: 'internal' }],
-        executors: { agent: { enabled: true, model: 'gpt-test', timeout: 45 } },
-      }),
+      enclaves: normalizeEnclavesConfig([
+        { agent: { model: 'gpt-test' }, repos: [repository], timeout: 45 },
+      ]),
     };
     expect(buildEnclaveMcpgUpstreamContract(wrapperConfig).server).toMatchObject({
       tools: ['enclave_run_agent'],

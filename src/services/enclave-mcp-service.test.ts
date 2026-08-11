@@ -15,11 +15,9 @@ function config(overrides: Partial<WrapperConfig> = {}): WrapperConfig {
     imageTag: 'latest',
     agentCommand: 'echo test',
     allowedDomains: [],
-    enclaves: normalizeEnclavesConfig({
-      enabled: true,
-      privateRepos: [{ repo: 'octo/private', sensitivity: 'internal' }],
-      executors: { script: { enabled: true } },
-    }),
+    enclaves: normalizeEnclavesConfig([
+      { script: {}, repos: [{ repo: 'octo/private', sensitivity: 'internal' }] },
+    ]),
     ...overrides,
   } as WrapperConfig;
 }
@@ -62,14 +60,10 @@ describe('buildEnclaveMcpService', () => {
   });
 
   it('derives all sandbox controls from trusted configuration', () => {
-    const enclaves = normalizeEnclavesConfig({
-      enabled: true,
-      privateRepos: [{ repo: 'octo/private', sensitivity: 'internal' }],
-      executors: {
+    const enclaves = normalizeEnclavesConfig([
+      {
         script: {
-          enabled: true,
           runtime: 'gvisor',
-          timeout: 12,
           memoryLimit: '256m',
           cpuLimit: '0.5',
           pidsLimit: 32,
@@ -78,8 +72,10 @@ describe('buildEnclaveMcpService', () => {
           maxScriptBytes: 4096,
           maxInvocations: 3,
         },
+        repos: [{ repo: 'octo/private', sensitivity: 'internal' }],
+        timeout: 12,
       },
-    });
+    ]);
     const result = buildEnclaveMcpService({
       config: config({ enclaves }),
       imageConfig: ghcr,
@@ -98,11 +94,9 @@ describe('buildEnclaveMcpService', () => {
   });
 
   it('fails closed for the not-yet-proven sbx script runtime', () => {
-    const enclaves = normalizeEnclavesConfig({
-      enabled: true,
-      privateRepos: [{ repo: 'octo/private', sensitivity: 'internal' }],
-      executors: { script: { enabled: true, runtime: 'sbx' } },
-    });
+    const enclaves = normalizeEnclavesConfig([
+      { script: { runtime: 'sbx' }, repos: [{ repo: 'octo/private', sensitivity: 'internal' }] },
+    ]);
     expect(() => buildEnclaveMcpService({ config: config({ enclaves }), imageConfig: ghcr }))
       .toThrow(/sbx script enclave capability is not yet available/);
   });

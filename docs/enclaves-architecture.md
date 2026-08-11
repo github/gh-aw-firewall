@@ -10,7 +10,7 @@ AWF stages immutable repository seeds on the host, starts one AWF-owned `enclave
 
 - **Script executor** — `enclave_run_script` runs a bounded Python script in a no-network, read-only, single-use sandbox.
 - **Agent executor** — `enclave_run_agent` runs the pinned Copilot engine in a bounded single-use enclave whose only network peer is the dedicated API proxy.
-- **Shared controls** — `enclaves.privateRepos` is the only trusted repository list; script and agent calls debit the same per-run repository ledger and share one admission lane.
+- **Shared controls** — the `repos` lists of the `enclaves` entries form the only trusted repository catalog; script and agent calls debit the same per-run repository ledger and share one admission lane.
 
 The primary agent never receives a broker socket, wrapper binary, direct MCP server URL, capability, repository seed, ledger state, or alternate transport.
 
@@ -81,8 +81,8 @@ The following legacy surfaces are **removed, not deprecated**:
 
 | Removed surface | Replacement |
 | --- | --- |
-| `boundedQueries` config | `enclaves.privateRepos` + `enclaves.executors.script` |
-| `boundedAgents` config | `enclaves.privateRepos` + `enclaves.executors.agent` |
+| `boundedQueries` config | an `enclaves` entry keyed by `script` with its `repos` list |
+| `boundedAgents` config | an `enclaves` entry keyed by `agent` with its `repos` list |
 | `bounded-query` wrapper / generated skill | `enclave_run_script` MCP tool |
 | `bounded-agent` wrapper / generated skill | `enclave_run_agent` MCP tool |
 | Separate per-subsystem ledgers | One shared per-repository ledger inside `enclave-mcp-server` |

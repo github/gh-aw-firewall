@@ -576,11 +576,9 @@ describe('buildConfig', () => {
     const config = buildConfig(makeInputs({
       options: {
         ...makeInputs().options,
-        enclaves: {
-          enabled: true,
-          privateRepos: [{ repo: 'octo/private', sensitivity: 'internal' }],
-          executors: { script: { enabled: true } },
-        },
+        enclaves: [
+          { script: {}, repos: [{ repo: 'octo/private', sensitivity: 'internal' }] },
+        ],
       },
     }));
     expect(config.enclaves).toMatchObject({

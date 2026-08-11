@@ -83,17 +83,38 @@ export interface EnclaveOptions {
   enclaves?: EnclavesConfig;
 }
 
-export type RawEnclaveScriptExecutorConfig = Partial<EnclaveScriptExecutorConfig>;
-export type RawEnclaveAgentExecutorConfig = Partial<EnclaveAgentExecutorConfig>;
+/**
+ * Raw configuration mirrors the gh-aw compiler frontmatter exactly: `enclaves`
+ * is a keyed array where every entry carries exactly one `script` or `agent`
+ * key, its own `repos` list, and an optional entry-level `timeout`.
+ */
+export type RawEnclaveScriptExecutorConfig = Omit<
+  Partial<EnclaveScriptExecutorConfig>,
+  'enabled' | 'timeout'
+>;
+export type RawEnclaveAgentExecutorConfig = Omit<
+  Partial<EnclaveAgentExecutorConfig>,
+  'enabled' | 'timeout'
+> & { model: string };
 
-export interface RawEnclavesConfig {
-  enabled?: boolean;
-  privateRepos?: EnclaveRepository[];
-  executors?: {
-    script?: RawEnclaveScriptExecutorConfig;
-    agent?: RawEnclaveAgentExecutorConfig;
-  };
+interface RawEnclaveEntryBase {
+  repos?: EnclaveRepository[];
+  timeout?: number;
 }
+
+export interface RawEnclaveScriptEntry extends RawEnclaveEntryBase {
+  script: RawEnclaveScriptExecutorConfig;
+  agent?: never;
+}
+
+export interface RawEnclaveAgentEntry extends RawEnclaveEntryBase {
+  agent: RawEnclaveAgentExecutorConfig;
+  script?: never;
+}
+
+export type RawEnclaveEntry = RawEnclaveScriptEntry | RawEnclaveAgentEntry;
+
+export type RawEnclavesConfig = RawEnclaveEntry[];
 
 export const ENCLAVE_SCRIPT_EXECUTOR_DEFAULTS: Readonly<
   Omit<EnclaveScriptExecutorConfig, 'image'>

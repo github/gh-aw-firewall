@@ -109,7 +109,7 @@ export const RESULT_STATUS_BIT_COST = 1;
  * traversal (`..`), no query string or fragment (`?`/`#`), no wildcard
  * (`*`), and no extra path segments (only one `/` is allowed).
  *
- * Keep in sync with `enclaves.privateRepos.items` in
+ * Keep in sync with `enclaves.items.properties.repos.items` in
  * `docs/awf-config.schema.json` (JSON Schema cannot share a regex constant
  * with TypeScript source).
  */

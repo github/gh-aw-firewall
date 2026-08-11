@@ -11,11 +11,9 @@ function config(): WrapperConfig {
   return {
     workDir: '/tmp/awf-enclave-test',
     networkIsolation: true,
-    enclaves: normalizeEnclavesConfig({
-      enabled: true,
-      privateRepos: [{ repo: 'octo/private', sensitivity: 'internal' }],
-      executors: { script: { enabled: true } },
-    }),
+    enclaves: normalizeEnclavesConfig([
+      { script: {}, repos: [{ repo: 'octo/private', sensitivity: 'internal' }] },
+    ]),
   } as WrapperConfig;
 }
 
