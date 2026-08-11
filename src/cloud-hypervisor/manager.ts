@@ -56,9 +56,21 @@ const CLOUD_HYPERVISOR_GUEST_SHUTDOWN_GRACE_MS = 5_000;
  * supervisor startup take a variable, host-load-dependent amount of time),
  * not a fatal error, so the connect is retried with a fresh client and a
  * short backoff until the guest is actually ready or this budget elapses.
+ *
+ * The budget is deliberately generous (not a tight few-second timeout):
+ * live validation on GitHub-hosted Ubuntu runners showed the guest kernel's
+ * own internal clock advancing far slower than host wall-clock time during
+ * early PCI/virtio device enumeration (e.g. ~9-20s of host wall-clock time
+ * elapsing while the guest's own boot log timestamps were still under 1s)
+ * — consistent with the extra scheduling overhead of nested virtualization
+ * on these runners (Cloud Hypervisor itself logs running under a
+ * "Microsoft Hv" nested hypervisor there). A short budget here would abort
+ * a guest that is simply slow to be scheduled, not actually hung or
+ * crashed. This matches the smoke test's own boot-readiness ceiling
+ * (`BOOT_READINESS_CEILING_MS` in cloud-hypervisor-live-smoke.sh).
  */
 const CLOUD_HYPERVISOR_GUEST_READY_RETRY_INTERVAL_MS = 250;
-const CLOUD_HYPERVISOR_GUEST_READY_MAX_WAIT_MS = 20_000;
+const CLOUD_HYPERVISOR_GUEST_READY_MAX_WAIT_MS = 90_000;
 /**
  * Private run-directory root, deliberately **outside** `workDir`.
  *

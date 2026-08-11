@@ -495,6 +495,69 @@ describe('CloudHypervisorManager', () => {
     expect(succeedingClient.connect).toHaveBeenCalledTimes(1);
   });
 
+  it('tolerates guest boot taking well beyond the old 20-second budget under slow (nested-virtualization) conditions', async () => {
+    // Regression test: live-KVM validation on GitHub-hosted runners showed
+    // guest boot legitimately taking far longer than 20 seconds of real
+    // wall-clock time under nested virtualization (severe vCPU scheduling
+    // contention advanced the guest's own boot-log clock far slower than
+    // host wall-clock time). The vsock connect-retry budget was increased
+    // from 20s to 90s so a merely-slow (not hung/crashed) guest isn't
+    // aborted early. Simulate ~21s of wall-clock time elapsing per failed
+    // connect attempt and assert the retry loop survives several such
+    // cycles — which the old 20s budget could not have tolerated even
+    // once — before finally giving up once the 90s budget is exhausted.
+    const startedAtMs = 1_000_000;
+    let elapsedMs = 0;
+    jest.spyOn(Date, 'now').mockImplementation(() => startedAtMs + elapsedMs);
+    const failingClient = {
+      connect: jest.fn().mockImplementation(() => {
+        elapsedMs += 21_000;
+        return Promise.reject(new Error('guest disconnected before readiness'));
+      }),
+      destroy: jest.fn(),
+    };
+    const createVsockClient = jest.fn().mockReturnValue(failingClient);
+    const deps = dependencies({
+      launch: jest.fn().mockReturnValue(processMock()),
+      createWorkspaceImage: jest.fn().mockReturnValue({
+        prepare: jest.fn().mockResolvedValue({
+          rootfsImagePath: '/tmp/rootfs.ext4',
+          workspaceImagePath: '/tmp/workspace.ext4',
+        }),
+        extractAfterStop: jest.fn().mockResolvedValue(undefined),
+        cleanup: jest.fn().mockResolvedValue(undefined),
+      }),
+      createVsockClient,
+    });
+    const manager = new CloudHypervisorManager(
+      config(),
+      '/tmp/awf',
+      deps,
+      'retry-guest-slow-boot',
+      networkConfig(),
+      {
+        workspacePath: '/workspace',
+        homePath: '/home/runner',
+        supervisorBinaryPath: '/opt/awf-supervisor',
+        supervisorSha256: 'a'.repeat(64),
+      },
+    );
+
+    try {
+      await manager.start();
+      await expect(manager.startInstance()).rejects.toThrow(
+        'guest disconnected before readiness',
+      );
+
+      // A 20s budget would have given up after a single ~21s attempt; the
+      // 90s budget must retry at least four times (~84s simulated) before
+      // exhausting.
+      expect(createVsockClient.mock.calls.length).toBeGreaterThanOrEqual(4);
+    } finally {
+      (Date.now as jest.Mock).mockRestore();
+    }
+  });
+
   it('delegates guest cancellation, stdin, and resize only after readiness', async () => {
     const cold = new CloudHypervisorManager(
       config(),

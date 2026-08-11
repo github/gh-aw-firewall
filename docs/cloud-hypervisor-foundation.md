@@ -546,12 +546,24 @@ vsock-over-UDS multiplexer closes the host-facing connection immediately if
 the guest hasn't yet started listening on the target vsock port (kernel
 boot + guest supervisor startup take a variable, host-load-dependent amount
 of time). `CloudHypervisorManager.startInstance()` retries the connect with
-a fresh client every 250 ms for up to 20 seconds before surfacing the error;
+a fresh client every 250 ms for up to 90 seconds before surfacing the error;
 seeing it in this error message means that entire retry budget was
 exhausted. If it persists, check the guest serial console log
 (`<auditDir>/cloud-hypervisor/serial.log`) for a kernel panic or a
 supervisor startup failure rather than assuming it is purely a timing
 issue.
+
+The 90-second budget is deliberately generous, not a tight few-second
+timeout. Live validation on GitHub-hosted Ubuntu runners showed the guest
+kernel's own boot-log clock advancing far slower than host wall-clock time
+during early PCI/virtio device enumeration — multiple seconds of real
+elapsed time per device, with Cloud Hypervisor's own log reporting
+`Running under nested virtualisation. Hypervisor string: Microsoft Hv`.
+This is consistent with the extra vCPU-scheduling overhead of nested KVM on
+these runners, not a guest crash or hang. A short budget would abort a
+guest that is merely slow to be scheduled. This matches the smoke test's
+own boot-readiness ceiling (`BOOT_READINESS_CEILING_MS` in
+`cloud-hypervisor-live-smoke.sh`).
 
 When `--diagnostic-logs` is set, `CloudHypervisorRuntimeBackend.start()`'s
 failure path collects diagnostics via a `beforeCleanup` hook passed to
