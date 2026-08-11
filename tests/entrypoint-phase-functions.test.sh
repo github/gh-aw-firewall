@@ -33,6 +33,8 @@ required_functions=(
   copy_dind_runner_binary
   resolve_chroot_binary_path
   prepare_usr_local_bin_overlay
+  populate_usr_local_bin_farm
+  cleanup_usr_local_bin_overlay
   ensure_usr_local_bin_shims
   copy_awf_ca_cert
   copy_system_ca_bundle

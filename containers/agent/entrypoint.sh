@@ -790,20 +790,39 @@ prepare_usr_local_bin_overlay() {
   overlay_host_dir="$(mktemp -d /host/tmp/awf-usr-local-bin-XXXXXX 2>/dev/null || true)"
   orig_host_dir="$(mktemp -d /host/tmp/awf-usr-local-bin-orig-XXXXXX 2>/dev/null || true)"
   if [ -z "${overlay_host_dir}" ] || [ -z "${orig_host_dir}" ]; then
+    rmdir "${overlay_host_dir:-/nonexistent}" "${orig_host_dir:-/nonexistent}" 2>/dev/null || true
     return 1
   fi
   USR_LOCAL_BIN_OVERLAY_DIR="${overlay_host_dir#/host}"
   USR_LOCAL_BIN_ORIG_DIR="${orig_host_dir#/host}"
   if ! mount --bind /host/usr/local/bin "/host${USR_LOCAL_BIN_ORIG_DIR}" 2>/dev/null; then
+    rmdir "${overlay_host_dir}" "${orig_host_dir}" 2>/dev/null || true
+    USR_LOCAL_BIN_OVERLAY_DIR=""
+    USR_LOCAL_BIN_ORIG_DIR=""
     return 1
   fi
+  # Install the teardown here — from this point on there is a bind mount and two
+  # staging directories that must be removed however the container exits.
+  trap cleanup_usr_local_bin_overlay EXIT
+  USR_LOCAL_BIN_OVERLAY_READY=1
   mount -o remount,ro,bind "/host${USR_LOCAL_BIN_ORIG_DIR}" 2>/dev/null || \
     echo "[entrypoint][WARN] Could not remount ${USR_LOCAL_BIN_ORIG_DIR} read-only"
 
+  populate_usr_local_bin_farm
+  chown 0:0 "/host${USR_LOCAL_BIN_OVERLAY_DIR}" 2>/dev/null || true
+  chmod 0755 "/host${USR_LOCAL_BIN_OVERLAY_DIR}" 2>/dev/null || true
+  return 0
+}
+
+populate_usr_local_bin_farm() {
+  # Mirror every entry of the real /usr/local/bin into the staging farm as a
+  # symlink. Uses USR_LOCAL_BIN_OVERLAY_DIR / USR_LOCAL_BIN_ORIG_DIR.
   local entry="" base="" real="" target=""
   # Iterate the original directory (the overlay is not mounted yet) so relative
   # symlinks resolve against their real location rather than the staging path.
-  for entry in /host/usr/local/bin/*; do
+  # The dotfile globs are required as well: * skips hidden entries, which would
+  # otherwise disappear from /usr/local/bin once the overlay is activated.
+  for entry in /host/usr/local/bin/* /host/usr/local/bin/.[!.]* /host/usr/local/bin/..?*; do
     [ -e "${entry}" ] || continue
     base="$(basename "${entry}")"
     real="$(readlink -f "${entry}" 2>/dev/null || true)"
@@ -823,11 +842,30 @@ prepare_usr_local_bin_overlay() {
     esac
     ln -sfn "${target}" "/host${USR_LOCAL_BIN_OVERLAY_DIR}/${base}" 2>/dev/null || true
   done
+}
 
-  chown 0:0 "/host${USR_LOCAL_BIN_OVERLAY_DIR}" 2>/dev/null || true
-  chmod 0755 "/host${USR_LOCAL_BIN_OVERLAY_DIR}" 2>/dev/null || true
-  USR_LOCAL_BIN_OVERLAY_READY=1
-  return 0
+cleanup_usr_local_bin_overlay() {
+  # Tear down the /usr/local/bin overlay. Installed as an EXIT trap in the
+  # container's root shell: the chroot shell exec's capsh, so its own EXIT trap
+  # never fires, and the unmounts need CAP_SYS_ADMIN, which is dropped before the
+  # user command runs.
+  #
+  # Order matters: the farm has to be unmounted from /usr/local/bin before its
+  # symlinks are deleted, and the mirrored original directory has to be unmounted
+  # before its (now empty) mountpoint can be removed. Only symlinks are deleted —
+  # the mirrored directory is a read-only bind mount of the real /usr/local/bin
+  # and must never have its contents removed.
+  [ "${USR_LOCAL_BIN_OVERLAY_READY:-0}" = "1" ] || return 0
+  if [ "${USR_LOCAL_BIN_OVERLAY_MOUNTED:-0}" = "1" ]; then
+    umount /host/usr/local/bin 2>/dev/null || \
+      echo "[entrypoint][WARN] Could not unmount the /usr/local/bin overlay"
+    USR_LOCAL_BIN_OVERLAY_MOUNTED=0
+  fi
+  find "/host${USR_LOCAL_BIN_OVERLAY_DIR}" -maxdepth 1 -type l -delete 2>/dev/null || true
+  umount "/host${USR_LOCAL_BIN_ORIG_DIR}" 2>/dev/null || \
+    echo "[entrypoint][WARN] Could not unmount ${USR_LOCAL_BIN_ORIG_DIR}"
+  rmdir "/host${USR_LOCAL_BIN_OVERLAY_DIR}" "/host${USR_LOCAL_BIN_ORIG_DIR}" 2>/dev/null || true
+  USR_LOCAL_BIN_OVERLAY_READY=0
 }
 
 ensure_usr_local_bin_shims() {
@@ -842,12 +880,12 @@ ensure_usr_local_bin_shims() {
   # missing name we resolve the real binary via PATH/GITHUB_PATH and create the
   # expected symlink, so AWF no longer depends on upstream tool-cache behavior.
   # The staging directories live in /tmp and are root-owned (0755), so the
-  # unprivileged chroot user cannot inject binaries into them. Their paths are
-  # exported via USR_LOCAL_BIN_OVERLAY_DIR / USR_LOCAL_BIN_ORIG_DIR so
-  # run_chroot_command can remove them on exit.
+  # unprivileged chroot user cannot inject binaries into them. They are unmounted
+  # and removed by cleanup_usr_local_bin_overlay() on container exit.
   USR_LOCAL_BIN_OVERLAY_DIR=""
   USR_LOCAL_BIN_ORIG_DIR=""
   USR_LOCAL_BIN_OVERLAY_READY=0
+  USR_LOCAL_BIN_OVERLAY_MOUNTED=0
 
   [ -z "${AWF_ENSURE_USR_LOCAL_BIN:-}" ] && return 0
 
@@ -882,6 +920,7 @@ ensure_usr_local_bin_shims() {
 
   if [ "${created}" = "1" ]; then
     if mount --bind "/host${USR_LOCAL_BIN_OVERLAY_DIR}" /host/usr/local/bin 2>/dev/null; then
+      USR_LOCAL_BIN_OVERLAY_MOUNTED=1
       mount -o remount,ro,bind /host/usr/local/bin 2>/dev/null || \
         echo "[entrypoint][WARN] Could not remount /host/usr/local/bin read-only"
       echo "[entrypoint] Activated /usr/local/bin overlay with AWF-created shims"
@@ -1491,13 +1530,10 @@ run_chroot_command() {
   if [ -n "${ONE_SHOT_TOKEN_LIB}" ] || [ -n "${AWF_CA_CHROOT}" ] || [ -n "${SYSTEM_CA_CHROOT}" ] || [ -n "${CHROOT_KEY_HELPER}" ] || [ -n "${STAGED_RUNNER_BINARY_CHROOT}" ]; then
     CLEANUP_CMD="${CLEANUP_CMD}; rm -rf /tmp/awf-lib 2>/dev/null || true"
   fi
-  # Clean up the /usr/local/bin overlay staging dirs. Only symlinks are removed
-  # (the mirrored directory is a read-only bind mount of the real
-  # /usr/local/bin and must never have its contents deleted).
-  if [ "${USR_LOCAL_BIN_OVERLAY_READY}" = "1" ]; then
-    CLEANUP_CMD="${CLEANUP_CMD}; find \"${USR_LOCAL_BIN_OVERLAY_DIR}\" -maxdepth 1 -type l -delete 2>/dev/null || true"
-    CLEANUP_CMD="${CLEANUP_CMD}; rmdir \"${USR_LOCAL_BIN_OVERLAY_DIR}\" \"${USR_LOCAL_BIN_ORIG_DIR}\" 2>/dev/null || true"
-  fi
+  # NOTE: the /usr/local/bin overlay is torn down by cleanup_usr_local_bin_overlay(),
+  # which is installed as an EXIT trap in the container's root shell — the chroot
+  # shell exec's capsh below, so its EXIT trap never fires, and the bind mounts
+  # must be unmounted with the capabilities the chroot user no longer has.
 
   # Transfer ownership of gh-aw config directories to the chroot user.
   # On self-hosted runners these directories are created by the host-side

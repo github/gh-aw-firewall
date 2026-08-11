@@ -142,7 +142,61 @@ else
   fail "ensure_usr_local_bin_shims() created a shim without AWF_ENSURE_USR_LOCAL_BIN"
 fi
 
+# 7. The overlay farm mirrors hidden entries as well (a plain * glob would drop
+#    them, silently removing them from /usr/local/bin once the overlay mounts)
+rm -f "${HOST_ROOT}/usr/local/bin/copilot"
+printf '#!/bin/sh\necho plain\n' > "${HOST_ROOT}/usr/local/bin/plain-tool"
+printf '#!/bin/sh\necho hidden\n' > "${HOST_ROOT}/usr/local/bin/.hidden-tool"
+FARM_DIR="/tmp/awf-usr-local-bin-farm"
+ORIG_DIR="/tmp/awf-usr-local-bin-orig"
+mkdir -p "${HOST_ROOT}${FARM_DIR}" "${HOST_ROOT}${ORIG_DIR}"
+(
+  set -e
+  # shellcheck disable=SC1090
+  . "${FIXTURE_ENTRYPOINT}"
+  USR_LOCAL_BIN_OVERLAY_DIR="${FARM_DIR}"
+  USR_LOCAL_BIN_ORIG_DIR="${ORIG_DIR}"
+  populate_usr_local_bin_farm
+) > /dev/null
+if [ "$(readlink "${HOST_ROOT}${FARM_DIR}/plain-tool")" = "${ORIG_DIR}/plain-tool" ] && \
+   [ "$(readlink "${HOST_ROOT}${FARM_DIR}/.hidden-tool")" = "${ORIG_DIR}/.hidden-tool" ]; then
+  pass "populate_usr_local_bin_farm() mirrors hidden and regular /usr/local/bin entries"
+else
+  fail "populate_usr_local_bin_farm() dropped a hidden /usr/local/bin entry"
+fi
+
+# 8. The overlay teardown removes the staged symlinks and both staging dirs
+(
+  # shellcheck disable=SC1090
+  . "${FIXTURE_ENTRYPOINT}"
+  USR_LOCAL_BIN_OVERLAY_DIR="${FARM_DIR}"
+  USR_LOCAL_BIN_ORIG_DIR="${ORIG_DIR}"
+  USR_LOCAL_BIN_OVERLAY_READY=1
+  USR_LOCAL_BIN_OVERLAY_MOUNTED=0
+  cleanup_usr_local_bin_overlay
+) > /dev/null 2>&1
+if [ ! -e "${HOST_ROOT}${FARM_DIR}" ] && [ ! -e "${HOST_ROOT}${ORIG_DIR}" ]; then
+  pass "cleanup_usr_local_bin_overlay() removes the staged symlinks and staging directories"
+else
+  fail "cleanup_usr_local_bin_overlay() left staging directories behind"
+fi
+
+# 9. The teardown is a no-op when no overlay was staged
+mkdir -p "${HOST_ROOT}${FARM_DIR}"
+(
+  # shellcheck disable=SC1090
+  . "${FIXTURE_ENTRYPOINT}"
+  USR_LOCAL_BIN_OVERLAY_DIR="${FARM_DIR}"
+  USR_LOCAL_BIN_ORIG_DIR="${ORIG_DIR}"
+  USR_LOCAL_BIN_OVERLAY_READY=0
+  cleanup_usr_local_bin_overlay
+) > /dev/null 2>&1
+if [ -d "${HOST_ROOT}${FARM_DIR}" ]; then
+  pass "cleanup_usr_local_bin_overlay() is a no-op when no overlay was staged"
+else
+  fail "cleanup_usr_local_bin_overlay() ran without a staged overlay"
+fi
+
 echo ""
 echo "Results: ${PASS} passed, ${FAIL} failed"
-
 [ "${FAIL}" -eq 0 ]
