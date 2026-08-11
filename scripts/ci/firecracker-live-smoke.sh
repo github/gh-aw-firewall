@@ -188,11 +188,23 @@ sudo ip netns list | grep -q '^awffc-' || {
   echo "keep mode did not preserve the run network namespace" >&2
   exit 1
 }
-test -d "$keep_work/firecracker-jailer"
-test -f "$keep_audit/firecracker/network-plan.json"
-test -f "$keep_audit/firecracker/firecracker.log"
-test -f "$keep_audit/firecracker/firecracker.metrics.jsonl"
-find "$keep_audit/firecracker" -type f -size +1048576c -print -quit \
+sudo test -d "$keep_work/firecracker-jailer" || {
+  echo "keep mode did not preserve the firecracker-jailer work directory" >&2
+  exit 1
+}
+sudo test -f "$keep_audit/firecracker/network-plan.json" || {
+  echo "keep mode did not preserve network-plan.json" >&2
+  exit 1
+}
+sudo test -f "$keep_audit/firecracker/firecracker.log" || {
+  echo "keep mode did not preserve firecracker.log" >&2
+  exit 1
+}
+sudo test -f "$keep_audit/firecracker/firecracker.metrics.jsonl" || {
+  echo "keep mode did not preserve firecracker.metrics.jsonl" >&2
+  exit 1
+}
+sudo find "$keep_audit/firecracker" -type f -size +1048576c -print -quit \
   | grep -q . && {
     echo "Firecracker diagnostic artifact exceeded the 1 MiB bound" >&2
     exit 1

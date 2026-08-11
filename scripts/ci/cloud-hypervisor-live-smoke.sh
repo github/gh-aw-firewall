@@ -362,9 +362,15 @@ sudo find /run/awf-cloud-hypervisor -mindepth 2 -maxdepth 2 -type d 2>/dev/null 
   echo "keep mode did not preserve the run directory" >&2
   exit 1
 }
-test -f "$keep_audit/cloud-hypervisor/network-plan.json"
-test -f "$keep_audit/cloud-hypervisor/cloud-hypervisor.log"
-find "$keep_audit/cloud-hypervisor" -type f -size +1048576c -print -quit \
+sudo test -f "$keep_audit/cloud-hypervisor/network-plan.json" || {
+  echo "keep mode did not preserve network-plan.json" >&2
+  exit 1
+}
+sudo test -f "$keep_audit/cloud-hypervisor/cloud-hypervisor.log" || {
+  echo "keep mode did not preserve cloud-hypervisor.log" >&2
+  exit 1
+}
+sudo find "$keep_audit/cloud-hypervisor" -type f -size +1048576c -print -quit \
   | grep -q . && {
     echo "Cloud Hypervisor diagnostic artifact exceeded the 1 MiB bound" >&2
     exit 1
