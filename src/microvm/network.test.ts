@@ -164,6 +164,25 @@ describe('microVM nftables policy', () => {
     expect(ruleset).not.toMatch(/ip daddr 0\.0\.0\.0\/0.*accept/);
   });
 
+  it('registers a prerouting nat hook so return traffic is un-SNAT-ed', () => {
+    // Regression coverage: a live-KVM connectivity investigation proved
+    // (via packet capture + per-rule hit counters) that without an
+    // explicit `prerouting` chain of type nat, nftables never applies
+    // conntrack's automatic reverse-SNAT translation to a reply packet
+    // (e.g. Squid's SYN-ACK) -- it keeps the SNAT'd destination address
+    // all the way to the forward chain, never matches the
+    // "ct state established,related" accept rule (which expects the
+    // guest's real IP), and is silently dropped by forward's own
+    // default policy with zero visible drop counters anywhere. The
+    // presence of this hook (not any specific rule inside it -- reverse
+    // translation is automatic once the hook exists) is what fixes it.
+    const plan = createPlan();
+    const ruleset = generateMicrovmNftRuleset(plan);
+
+    expect(ruleset).toContain('chain prerouting {');
+    expect(ruleset).toContain('type nat hook prerouting priority dstnat; policy accept;');
+  });
+
   it('emits SNAT only for the same exact allowed destination pairs', () => {
     const plan = createPlan('narrow-snat', { enableApiProxy: false });
     const ruleset = generateMicrovmNftRuleset(plan);

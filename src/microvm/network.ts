@@ -716,6 +716,24 @@ export function generateMicrovmNftRuleset(plan: MicrovmNetworkPlan): string {
       'ct state established,related counter accept',
     ...allowRules,
     '  }',
+    // A `prerouting` chain of type nat is required for the *return* leg
+    // of the postrouting SNAT below to ever work: nftables only
+    // activates nf_nat's automatic conntrack-based reverse translation
+    // (undoing the SNAT for reply packets, e.g. Squid's SYN-ACK) for a
+    // given (family, hook) pair once *some* chain registers a hook
+    // there -- unlike legacy iptables, which always has both built-in.
+    // Without this chain, a reply packet keeps its SNAT'd destination
+    // address (the veth's own IP) all the way to the forward chain,
+    // never matches the "ct state established,related" accept rule
+    // above (which expects the guest's *real* IP), and is silently
+    // dropped by this chain's own default policy -- with no visible
+    // drop counter anywhere, since it never matched an explicit rule.
+    // No explicit rules are needed here: conntrack's own NAT state
+    // (recorded when postrouting first SNATs the outbound packet) does
+    // the reverse translation automatically once this hook exists.
+    '  chain prerouting {',
+    '    type nat hook prerouting priority dstnat; policy accept;',
+    '  }',
     '  chain postrouting {',
     '    type nat hook postrouting priority srcnat; policy accept;',
     ...snatRules,
