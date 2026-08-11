@@ -46,6 +46,15 @@ export function buildToolEnvironment(params: ToolEnvironmentParams): void {
     environment.AWF_PREFLIGHT_BINARY = 'codex';
   }
 
+  // gh-aw's Copilot engine spawns the CLI through the hardcoded path
+  // /usr/local/bin/copilot. Its installer skips creating that wrapper on a
+  // tool-cache hit (it only exports the cache dir to PATH/GITHUB_PATH), so the
+  // spawn fails with ENOENT. Tell the entrypoint to create the expected
+  // /usr/local/bin/copilot entry inside the chroot when it is missing.
+  if (config.copilotGithubToken || hasCopilotProviderApiKey || isCopilotCommand) {
+    environment.AWF_ENSURE_USR_LOCAL_BIN = 'copilot';
+  }
+
   // Claude Code uses Bun with JavaScriptCore (JSC). Under gVisor's userspace
   // kernel, JSC's JIT compiler triggers SIGSEGV/SIGABRT crashes. Setting
   // BUN_JSC_useJIT=0 forces Bun into interpreter-only mode, which is slower

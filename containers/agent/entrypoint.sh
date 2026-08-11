@@ -726,6 +726,155 @@ copy_dind_runner_binary() {
   fi
 }
 
+resolve_chroot_binary_path() {
+  # Resolve a binary name to a chroot-absolute path by searching the same
+  # directories the chroot PATH will contain: $GITHUB_PATH entries (written by
+  # setup-* actions, including tool-cache activations), AWF_HOST_PATH, the
+  # AWF-staged binary directories, and the standard system directories.
+  # Prints the chroot path on success; returns 1 when the binary is not found.
+  local name="$1"
+  local search_path=""
+  local entry=""
+
+  if [ -n "${GITHUB_PATH:-}" ] && [ -f "/host${GITHUB_PATH}" ]; then
+    while IFS= read -r entry; do
+      entry="${entry%$'\r'}"  # strip trailing CR (Windows-style CRLF files)
+      [ -z "${entry}" ] && continue
+      search_path="${search_path}${entry}:"
+    done < "/host${GITHUB_PATH}"
+  fi
+  if [ -n "${AWF_HOST_PATH:-}" ]; then
+    search_path="${search_path}${AWF_HOST_PATH}:"
+  fi
+  search_path="${search_path}/tmp/awf-runner-bin:/tmp/awf-lib:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+  local dir=""
+  local IFS=':'
+  for dir in ${search_path}; do
+    case "${dir}" in
+      /*) ;;
+      *) continue ;;
+    esac
+    if [ -f "/host${dir}/${name}" ] && [ -x "/host${dir}/${name}" ]; then
+      printf '%s\n' "${dir}/${name}"
+      return 0
+    fi
+  done
+  return 1
+}
+
+prepare_usr_local_bin_overlay() {
+  # Stage a writable replacement for the chroot's /usr/local/bin.
+  #
+  # The host /usr tree is bind-mounted read-only at /host/usr, so a missing
+  # /usr/local/bin/<tool> entry cannot simply be created. Instead we bind-mount
+  # the original directory to a second location that stays reachable inside the
+  # chroot (/tmp/awf-usr-local-bin-orig, read-only) and build a symlink farm in
+  # /tmp/awf-usr-local-bin that mirrors every existing entry. The farm is later
+  # bind-mounted over /host/usr/local/bin so both the original binaries and the
+  # AWF-created shims resolve.
+  #
+  # Sets USR_LOCAL_BIN_OVERLAY_READY=1 on success. No host filesystem content is
+  # modified: the staging directories live in /tmp and are root-owned (0755), so
+  # the unprivileged chroot user cannot inject binaries into them.
+  if [ "${USR_LOCAL_BIN_OVERLAY_READY}" = "1" ]; then
+    return 0
+  fi
+  if [ ! -d /host/usr/local/bin ]; then
+    return 1
+  fi
+  mkdir -p "/host${USR_LOCAL_BIN_ORIG_DIR}" "/host${USR_LOCAL_BIN_OVERLAY_DIR}" 2>/dev/null || return 1
+  if ! mount --bind /host/usr/local/bin "/host${USR_LOCAL_BIN_ORIG_DIR}" 2>/dev/null; then
+    return 1
+  fi
+  mount -o remount,ro,bind "/host${USR_LOCAL_BIN_ORIG_DIR}" 2>/dev/null || \
+    echo "[entrypoint][WARN] Could not remount ${USR_LOCAL_BIN_ORIG_DIR} read-only"
+
+  local entry="" base="" real="" target=""
+  for entry in "/host${USR_LOCAL_BIN_ORIG_DIR}"/*; do
+    [ -e "${entry}" ] || continue
+    base="$(basename "${entry}")"
+    real="$(readlink -f "${entry}" 2>/dev/null || true)"
+    [ -z "${real}" ] && continue
+    case "${real}" in
+      "/host${USR_LOCAL_BIN_ORIG_DIR}"/*)
+        # Regular file living directly in /usr/local/bin — point at the
+        # read-only copy of the original directory.
+        target="${USR_LOCAL_BIN_ORIG_DIR}/${real#/host${USR_LOCAL_BIN_ORIG_DIR}/}"
+        ;;
+      /host/*)
+        # Symlink into another host location — use the resolved chroot path so
+        # relative symlinks do not break when re-rooted.
+        target="${real#/host}"
+        ;;
+      *) continue ;;
+    esac
+    ln -sfn "${target}" "/host${USR_LOCAL_BIN_OVERLAY_DIR}/${base}" 2>/dev/null || true
+  done
+
+  chown 0:0 "/host${USR_LOCAL_BIN_OVERLAY_DIR}" 2>/dev/null || true
+  chmod 0755 "/host${USR_LOCAL_BIN_OVERLAY_DIR}" 2>/dev/null || true
+  USR_LOCAL_BIN_OVERLAY_READY=1
+  return 0
+}
+
+ensure_usr_local_bin_shims() {
+  # Some agentic harnesses spawn their CLI through a hardcoded absolute path
+  # (e.g. gh-aw's Copilot engine uses /usr/local/bin/copilot) instead of a PATH
+  # lookup. Their installers can skip creating that file — a Copilot CLI
+  # tool-cache hit only exports the cache directory to PATH/GITHUB_PATH — which
+  # makes the harness fail immediately with `spawn /usr/local/bin/copilot ENOENT`.
+  #
+  # AWF_ENSURE_USR_LOCAL_BIN holds a comma-separated list of binary names that
+  # must be reachable at /usr/local/bin/<name> inside the chroot. For each
+  # missing name we resolve the real binary via PATH/GITHUB_PATH and create the
+  # expected symlink, so AWF no longer depends on upstream tool-cache behavior.
+  USR_LOCAL_BIN_OVERLAY_DIR="/tmp/awf-usr-local-bin"
+  USR_LOCAL_BIN_ORIG_DIR="/tmp/awf-usr-local-bin-orig"
+  USR_LOCAL_BIN_OVERLAY_READY=0
+
+  [ -z "${AWF_ENSURE_USR_LOCAL_BIN:-}" ] && return 0
+
+  local name="" resolved="" created=0
+  local names=()
+  IFS=',' read -r -a names <<< "${AWF_ENSURE_USR_LOCAL_BIN}"
+  for name in "${names[@]}"; do
+    [ -z "${name}" ] && continue
+    if [[ ! "${name}" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]*$ ]]; then
+      echo "[entrypoint][WARN] Ignoring invalid AWF_ENSURE_USR_LOCAL_BIN entry: ${name}"
+      continue
+    fi
+    if [ -e "/host/usr/local/bin/${name}" ]; then
+      continue
+    fi
+    resolved="$(resolve_chroot_binary_path "${name}" || true)"
+    if [ -z "${resolved}" ]; then
+      echo "[entrypoint][WARN] /usr/local/bin/${name} is missing and '${name}' could not be resolved from PATH/GITHUB_PATH"
+      continue
+    fi
+    echo "[entrypoint] /usr/local/bin/${name} is missing; resolved '${name}' at ${resolved}"
+    if ln -sfn "${resolved}" "/host/usr/local/bin/${name}" 2>/dev/null; then
+      echo "[entrypoint] Created /usr/local/bin/${name} -> ${resolved}"
+    elif prepare_usr_local_bin_overlay && \
+         ln -sfn "${resolved}" "/host${USR_LOCAL_BIN_OVERLAY_DIR}/${name}" 2>/dev/null; then
+      created=1
+      echo "[entrypoint] Staged /usr/local/bin/${name} -> ${resolved} (read-only /usr overlay)"
+    else
+      echo "[entrypoint][WARN] Could not create /usr/local/bin/${name}; harnesses using that hardcoded path may fail"
+    fi
+  done
+
+  if [ "${created}" = "1" ]; then
+    if mount --bind "/host${USR_LOCAL_BIN_OVERLAY_DIR}" /host/usr/local/bin 2>/dev/null; then
+      mount -o remount,ro,bind /host/usr/local/bin 2>/dev/null || \
+        echo "[entrypoint][WARN] Could not remount /host/usr/local/bin read-only"
+      echo "[entrypoint] Activated /usr/local/bin overlay with AWF-created shims"
+    else
+      echo "[entrypoint][WARN] Could not activate /usr/local/bin overlay; hardcoded-path spawns may fail"
+    fi
+  fi
+}
+
 copy_awf_ca_cert() {
   # Copy AWF CA certificate to chroot-accessible path for ssl-bump TLS trust.
   # NODE_EXTRA_CA_CERTS points to /usr/local/share/ca-certificates/awf-ca.crt which
@@ -1264,6 +1413,7 @@ run_chroot_command() {
   copy_preload_libs
   copy_agent_helper_scripts
   copy_dind_runner_binary
+  ensure_usr_local_bin_shims
   copy_awf_ca_cert
   copy_system_ca_bundle
   setup_chroot_etc

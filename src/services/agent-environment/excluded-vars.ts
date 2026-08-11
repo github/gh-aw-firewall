@@ -18,6 +18,7 @@ export function buildExclusionSet(config: WrapperConfig): Set<string> {
     'ACTIONS_ID_TOKEN_REQUEST_TOKEN',
     ...PROXY_ENV_VARS,
     'AWF_PREFLIGHT_BINARY',
+    'AWF_ENSURE_USR_LOCAL_BIN',
     'AWF_STAGED_RUNNER_BINARY_NAME',
     'AWF_GEMINI_ENABLED',
     'MCP_GATEWAY_HOST_DOMAIN',
