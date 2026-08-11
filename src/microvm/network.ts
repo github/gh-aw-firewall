@@ -291,7 +291,7 @@ export class LinuxNetworkCommands {
       const stdout = (result as { stdout?: unknown } | undefined)?.stdout;
       return typeof stdout === 'string' ? stdout : '';
     };
-    const [nftRuleset, linkStats, linkDetail, routes, neighbors, fdb, conntrack] = await Promise.all([
+    const [nftRuleset, linkStats, linkDetail, routes, neighbors, fdb, conntrack, rpFilter] = await Promise.all([
       // -a includes rule handles so a specific rule can be identified/
       // referenced; the counters attached in generateMicrovmNftRuleset
       // make hit counts visible per rule (not just per interface).
@@ -312,6 +312,20 @@ export class LinuxNetworkCommands {
       // packet arriving as an unrelated/untracked packet that the
       // default-drop policy then silently discards).
       run('conntrack', ['-L']),
+      // Squid's own reply (SYN-ACK) has been directly observed via packet
+      // capture reaching this namespace's host-side veth peer, yet it
+      // never appears in *any* forward-chain counter above (not even the
+      // ct-state-invalid drop) -- meaning it never reaches nftables
+      // evaluation at all. Linux's reverse-path filtering (rp_filter) can
+      // silently drop a packet before any netfilter hook ever sees it if
+      // strict mode considers the route asymmetric; this is evaluated
+      // per-interface (plus the "all"/"default" umbrella, whichever is
+      // stricter) so every interface actually present in this namespace
+      // must be enumerated at runtime rather than named statically.
+      run('sh', [
+        '-c',
+        'for f in /proc/sys/net/ipv4/conf/*/rp_filter; do printf "%s=%s\\n" "$f" "$(cat "$f" 2>/dev/null)"; done',
+      ]),
     ]);
     return [
       '--- nft -a list ruleset (handles + hit counters) ---',
@@ -328,6 +342,8 @@ export class LinuxNetworkCommands {
       fdb.trim() || '(empty or unavailable)',
       '--- conntrack -L (connection tracking table state for this namespace) ---',
       conntrack.trim() || '(empty, unavailable, or conntrack tool not installed)',
+      '--- rp_filter (reverse-path filter mode) per interface in this namespace: 0=off 1=strict 2=loose ---',
+      rpFilter.trim() || '(empty or unavailable)',
     ].join('\n');
   }
 

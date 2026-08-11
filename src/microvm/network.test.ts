@@ -658,6 +658,9 @@ describe('LinuxNetworkCommands.captureDiagnosticsInNamespace', () => {
         if (args.includes('conntrack')) {
           return { stdout: 'tcp 6 100 ESTABLISHED src=100.64.0.2 dst=172.30.0.10' };
         }
+        if (args.some((a) => a.includes('rp_filter'))) {
+          return { stdout: '/proc/sys/net/ipv4/conf/tap0/rp_filter=1' };
+        }
         return { stdout: '' };
       }),
     );
@@ -678,6 +681,8 @@ describe('LinuxNetworkCommands.captureDiagnosticsInNamespace', () => {
     expect(result).toContain('master awfbr0');
     expect(result).toContain('--- conntrack -L (connection tracking table state for this namespace) ---');
     expect(result).toContain('ESTABLISHED src=100.64.0.2');
+    expect(result).toContain('--- rp_filter (reverse-path filter mode) per interface in this namespace: 0=off 1=strict 2=loose ---');
+    expect(result).toContain('rp_filter=1');
   });
 
   it('never throws and reports unavailability when a command fails', async () => {
