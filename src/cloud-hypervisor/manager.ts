@@ -305,6 +305,21 @@ export class CloudHypervisorManager {
         ...this.networkConfig,
         tapOwnerUid: identity.uid,
         tapOwnerGid: identity.gid,
+        // Cloud Hypervisor's own tap handling (Tap::open_named() in
+        // net_util/src/tap.rs) always re-opens the tap with
+        // IFF_VNET_HDR requested; the tap must be *created* with that
+        // feature available or the host and Cloud Hypervisor disagree
+        // on frame layout for the host-to-guest direction, and guest
+        // connectivity checks silently time out even though the
+        // guest's own outbound traffic (and the host-side veth/nft
+        // layer) works normally. Discovered via live-KVM validation:
+        // tap RX=10 packets (guest-to-host, unaffected) vs. TX=1 packet
+        // (host-to-guest, effectively stalled) despite response
+        // packets already having arrived on the host-side veth.
+        // Firecracker's own tap handling does not request
+        // IFF_VNET_HDR, so this is opted in here only, not changed for
+        // the shared default.
+        tapVnetHdr: true,
       });
       this.networkPlan = networkPlan;
       this.network = this.dependencies.createNetwork(networkPlan, artifacts.tools);

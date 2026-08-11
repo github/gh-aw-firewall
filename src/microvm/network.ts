@@ -59,6 +59,23 @@ export interface MicrovmNetworkPlanOptions {
   readonly tapOwnerUid: number;
   readonly tapOwnerGid: number;
   readonly controlPeer?: MicrovmControlPeer;
+  /**
+   * Create the TAP device with the `vnet_hdr` feature (a `struct
+   * virtio_net_hdr` prefix on every frame read from/written to the tap
+   * fd). Cloud Hypervisor's own tap handling (`Tap::open_named()` in
+   * `net_util/src/tap.rs`) always re-opens the tap with `IFF_VNET_HDR`
+   * requested; if the tap wasn't *created* with that feature available,
+   * the host kernel and Cloud Hypervisor disagree on frame layout for
+   * one direction, and host-to-guest traffic silently fails to reach the
+   * guest even though guest-to-host traffic (and the host-side veth/nft
+   * layer) keeps working normally -- exactly the asymmetric RX-works/
+   * TX-stalls pattern observed live (tap RX=10 packets, TX=1 packet,
+   * despite 23 response packets already having arrived on the veth).
+   * Firecracker's own tap handling does not request `IFF_VNET_HDR`, so
+   * this defaults to `false` (this shared code's prior, Firecracker-only
+   * behavior) and Cloud Hypervisor opts in explicitly.
+   */
+  readonly tapVnetHdr?: boolean;
 }
 
 export interface MicrovmNetworkPlan {
@@ -80,6 +97,7 @@ export interface MicrovmNetworkPlan {
   readonly guestMac: string;
   readonly tapOwnerUid: number;
   readonly tapOwnerGid: number;
+  readonly tapVnetHdr: boolean;
   readonly allowedEndpoints: readonly MicrovmAllowedEndpoint[];
   readonly networkInterface: MicrovmTapInterface;
 }
@@ -284,6 +302,7 @@ export class MicrovmNetworkManager implements MicrovmNetworkLifecycle {
         'mode', 'tap',
         'user', String(this.plan.tapOwnerUid),
         'group', String(this.plan.tapOwnerGid),
+        ...(this.plan.tapVnetHdr ? ['vnet_hdr'] : []),
       ]);
       await this.commands.ipInNamespace(this.plan.namespaceName, [
         'addr', 'add',
@@ -437,6 +456,7 @@ export function createMicrovmNetworkPlan(
     guestMac,
     tapOwnerUid: options.tapOwnerUid,
     tapOwnerGid: options.tapOwnerGid,
+    tapVnetHdr: options.tapVnetHdr ?? false,
     allowedEndpoints,
     networkInterface: {
       iface_id: 'eth0',

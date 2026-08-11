@@ -224,6 +224,40 @@ describe('microVM network lifecycle', () => {
     expect(probe.verify).toHaveBeenCalledWith(plan);
   });
 
+  it('creates the TAP with vnet_hdr only when the plan opts in (Cloud Hypervisor requires it; Firecracker does not)', async () => {
+    // Regression test: Cloud Hypervisor's own tap handling
+    // (Tap::open_named() in net_util/src/tap.rs) always re-opens the tap
+    // with IFF_VNET_HDR requested. If the tap wasn't *created* with that
+    // feature available, the host and Cloud Hypervisor disagree on frame
+    // layout for the host-to-guest direction: guest-to-host traffic (and
+    // the host-side veth/nft layer) keeps working, but host-to-guest
+    // traffic silently never reaches the guest -- observed live as a tap
+    // RX=10 packets / TX=1 packet asymmetry despite response packets
+    // already having arrived on the host-side veth. Firecracker's own tap
+    // handling does not request IFF_VNET_HDR, so this flag defaults to
+    // false (unchanged prior behavior) and is opted into explicitly.
+    const withVnetHdr = createPlan('run-vnet-hdr', { tapVnetHdr: true });
+    const { calls: vnetHdrCalls, commands: vnetHdrCommands } = commandHarness();
+    await new MicrovmNetworkManager(withVnetHdr, vnetHdrCommands).setup();
+    const vnetHdrTapCall = vnetHdrCalls.find((call) => call.args.includes('tuntap'));
+    expect(vnetHdrTapCall?.args).toEqual([
+      'netns', 'exec', withVnetHdr.namespaceName, 'ip',
+      'tuntap', 'add',
+      'dev', withVnetHdr.tapName,
+      'mode', 'tap',
+      'user', '1000',
+      'group', '1000',
+      'vnet_hdr',
+    ]);
+
+    const withoutVnetHdr = createPlan('run-no-vnet-hdr');
+    expect(withoutVnetHdr.tapVnetHdr).toBe(false);
+    const { calls: plainCalls, commands: plainCommands } = commandHarness();
+    await new MicrovmNetworkManager(withoutVnetHdr, plainCommands).setup();
+    const plainTapCall = plainCalls.find((call) => call.args.includes('tuntap'));
+    expect(plainTapCall?.args).not.toContain('vnet_hdr');
+  });
+
   it('rolls back every partial setup stage with run-specific cleanup', async () => {
     const plan = createPlan('rollback-all');
     const setupStageCount = 15;

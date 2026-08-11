@@ -239,6 +239,7 @@ describe('FirecrackerManager', () => {
         infrastructureBridge: 'awfbr0',
         tapOwnerUid: 1000,
         tapOwnerGid: 1000,
+        tapVnetHdr: false,
       }),
       hostTools,
     );
@@ -561,6 +562,7 @@ describe('FirecrackerManager', () => {
         guestMac: '02:00:00:00:00:01',
         tapOwnerUid: 1000,
         tapOwnerGid: 1000,
+        tapVnetHdr: false,
         allowedEndpoints: [],
         networkInterface: { iface_id: 'eth0', host_dev_name: 'tap' },
       }, {

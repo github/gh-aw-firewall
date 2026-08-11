@@ -657,6 +657,43 @@ rootfs build; it was not modified here (out of scope for this layer), but
 is very likely affected identically on any real Firecracker live-KVM run
 against this rootfs — see the layer 4 completion handoff.
 
+**Guest boots and gets a valid IP, but all TCP connections to Squid/API
+proxy time out (fixed; historical)**
+
+Once the defects above were fixed, the guest reliably booted with a
+correctly-configured `eth0` IP and default route, but every connection to
+Squid or the API proxy still timed out. Live diagnostics (`nft list
+ruleset` + `ip -s link show` inside the microVM's network namespace,
+captured before teardown — see `network-diagnostics.txt` above) showed the
+*host-side TAP device* with an asymmetric packet count: ~10 RX packets
+(guest-to-host — working) but only 1 TX packet (host-to-guest — stalled),
+even though 20+ response packets had already arrived on the host-side veth
+from Squid. Traffic was reaching the host and being correctly forwarded by
+nftables, but Cloud Hypervisor was not relaying it back into the guest.
+
+Root cause: Cloud Hypervisor's own tap handling (`Tap::open_named()` in
+`net_util/src/tap.rs`) always re-opens its tap file descriptor requesting
+`IFF_VNET_HDR` (a `struct virtio_net_hdr` prefix on every frame). The
+shared TAP-creation code in `src/microvm/network.ts` (`ip tuntap add ...
+mode tap`, used unmodified by both Firecracker and Cloud Hypervisor) never
+requested that feature at *creation* time. When Cloud Hypervisor's re-open
+requests a frame layout the tap wasn't created to support, the host kernel
+and Cloud Hypervisor disagree on frame layout specifically for the
+host-to-guest direction — guest-to-host traffic (and the entire host-side
+veth/nftables layer) keeps working normally, masking the problem as a
+"the guest just isn't receiving responses" mystery rather than an obvious
+hard failure.
+
+Fixed by adding a `tapVnetHdr` field to `MicrovmNetworkPlanOptions`/
+`MicrovmNetworkPlan` (defaulting to `false`, preserving Firecracker's
+existing, unaffected behavior exactly), which conditionally appends
+`vnet_hdr` to the `ip tuntap add` invocation. `CloudHypervisorManager`
+opts in explicitly (`tapVnetHdr: true`) when building its network plan;
+Firecracker's own manager does not (Firecracker's tap handling does not
+request `IFF_VNET_HDR`, so creating the tap with that feature available
+would have been a no-op for Firecracker, but changing shared, working
+code without a concrete reason is unnecessary risk).
+
 **`Cloud Hypervisor requires a non-root target uid/gid`**
 
 Same as Firecracker's jailer requirement: run through `sudo` from a

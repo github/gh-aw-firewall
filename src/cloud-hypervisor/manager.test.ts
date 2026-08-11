@@ -257,6 +257,7 @@ describe('CloudHypervisorManager', () => {
         infrastructureBridge: 'awfbr0',
         tapOwnerUid: 1000,
         tapOwnerGid: 1000,
+        tapVnetHdr: true,
       }),
       hostTools,
     );
@@ -786,6 +787,7 @@ describe('CloudHypervisorManager', () => {
       guestMac: '02:00:00:00:00:01',
       tapOwnerUid: 1000,
       tapOwnerGid: 1000,
+      tapVnetHdr: true,
       allowedEndpoints: [],
       networkInterface: { iface_id: 'eth0', host_dev_name: 'tap' },
     }, {
