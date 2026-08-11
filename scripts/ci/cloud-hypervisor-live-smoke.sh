@@ -464,9 +464,27 @@ cap_eff=$(sudo awk '/^CapEff:/{print $2}' "/proc/$vmm_pid/status" 2>/dev/null ||
 no_new_privs=$(sudo awk '/^NoNewPrivs:/{print $2}' "/proc/$vmm_pid/status" 2>/dev/null || echo "")
 [ "$no_new_privs" = "1" ] || fail_security "no_new_privs is not set (got ${no_new_privs:-unknown})"
 
-# Seccomp filter active (Cloud Hypervisor's own --seccomp true; mode 2 = filter).
-seccomp_mode=$(sudo awk '/^Seccomp:/{print $2}' "/proc/$vmm_pid/status" 2>/dev/null || echo "")
-[ "$seccomp_mode" = "2" ] || fail_security "seccomp filter is not active (mode=${seccomp_mode:-unknown})"
+# Seccomp filter active (Cloud Hypervisor's own --seccomp true; mode 2 =
+# filter). Cloud Hypervisor spawns its actual VM-execution work on a
+# dedicated "vmm" thread (vmm::start_vmm_thread in its own main.rs), and
+# Linux applies a seccomp-bpf filter per-thread by default -- unlike
+# capabilities/no_new_privs (process-wide, so the main thread's own
+# /proc/<pid>/status correctly reflects them), a filter installed only on
+# that worker thread would never show up as active on the main/initial
+# thread's own status file. Checking every thread under this PID (task/*)
+# and accepting the assertion if *any* thread shows mode 2 is what
+# actually verifies this VM's execution has an active filter, regardless
+# of which specific thread Cloud Hypervisor happened to install it on.
+seccomp_mode=""
+for task_status in "/proc/$vmm_pid"/task/*/status; do
+  mode=$(sudo awk '/^Seccomp:/{print $2}' "$task_status" 2>/dev/null || echo "")
+  if [ "$mode" = "2" ]; then
+    seccomp_mode="2"
+    break
+  fi
+  [ -z "$seccomp_mode" ] && seccomp_mode="$mode"
+done
+[ "$seccomp_mode" = "2" ] || fail_security "seccomp filter is not active on any thread (last observed mode=${seccomp_mode:-unknown})"
 
 # Per-run cgroup membership and non-trivial, bounded limits.
 sudo test -f "$cgroup_path/cgroup.procs" || fail_security "cgroup.procs missing at $cgroup_path"
