@@ -296,7 +296,11 @@ export class CloudHypervisorCgroup {
         return;
       } catch (error) {
         const code = (error as NodeJS.ErrnoException | undefined)?.code;
-        if (code !== 'EBUSY' || Date.now() >= deadline) throw error;
+        // Retry both EBUSY and ENOTEMPTY: different kernel/cgroup-v2
+        // versions have been observed to report either errno for this
+        // same "a process only just exited, controller teardown hasn't
+        // fully settled yet" race.
+        if ((code !== 'EBUSY' && code !== 'ENOTEMPTY') || Date.now() >= deadline) throw error;
         await this.dependencies.sleep(CGROUP_REMOVAL_RETRY_INTERVAL_MS);
       }
     }

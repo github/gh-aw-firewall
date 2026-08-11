@@ -295,6 +295,58 @@ describe('Cloud Hypervisor runtime backend', () => {
     expect(manager.stop).toHaveBeenCalledTimes(1);
   });
 
+  it('marks itself stopped after a successful internal cleanup on startup failure, so a later stop() call is a no-op', async () => {
+    // Regression test: main-action.ts's cleanup handler unconditionally
+    // calls backend.stop() again after any startup failure. Without
+    // marking `stopped` after the internal cleanup here already
+    // succeeded, that second call re-invoked manager.stop() a second
+    // time -- harmless on its own (network/cgroup are already cleared),
+    // but wasteful and a source of confusion when diagnosing failures.
+    const { manager, deps } = harness();
+    manager.execute.mockReset().mockResolvedValue({
+      requestId: 'probe', exitCode: 41, signal: null, timedOut: false,
+    });
+    const backend = new CloudHypervisorRuntimeBackend(config(), deps);
+
+    await expect(backend.start('/tmp/awf', ['github.com']))
+      .rejects.toThrow(/connectivity probe failed/);
+    expect(manager.stop).toHaveBeenCalledTimes(1);
+
+    await backend.stop();
+    expect(manager.stop).toHaveBeenCalledTimes(1);
+  });
+
+  it('collects diagnostics at most once even if called again after teardown, avoiding a clobbered snapshot', async () => {
+    // Regression test: main-action.ts's cleanup handler unconditionally
+    // calls backend.collectDiagnostics() during shutdown, regardless of
+    // whether start()'s own failure path already collected diagnostics
+    // via the beforeCleanup hook (before stop() tore down the
+    // network/cgroup/run directory). A second, post-teardown call would
+    // overwrite that earlier, more useful snapshot with an
+    // empty/unavailable one -- discovered via live-KVM validation
+    // (network-diagnostics.txt regressed to "network namespace not set
+    // up" after a redundant second collectDiagnostics() call).
+    const { manager, deps } = harness();
+    manager.execute.mockReset().mockResolvedValue({
+      requestId: 'probe', exitCode: 41, signal: null, timedOut: false,
+    });
+    manager.stop.mockImplementation(async (options?: { beforeCleanup?: () => Promise<void> }) => {
+      await options?.beforeCleanup?.();
+    });
+    const backend = new CloudHypervisorRuntimeBackend(
+      config({ diagnosticLogs: true } as Partial<WrapperConfig>),
+      deps,
+    );
+
+    await expect(backend.start('/tmp/awf', ['github.com']))
+      .rejects.toThrow(/connectivity probe failed/);
+    expect(manager.collectDiagnostics).toHaveBeenCalledTimes(1);
+
+    // Simulates main-action.ts's cleanup handler calling this again.
+    await backend.collectDiagnostics();
+    expect(manager.collectDiagnostics).toHaveBeenCalledTimes(1);
+  });
+
   it('includes captured guest stdout/stderr in the readiness probe failure message', async () => {
     // Regression test: a bare exit code alone doesn't say which leg of the
     // compound nc-then-wget probe command failed or why. Capture (bounded)

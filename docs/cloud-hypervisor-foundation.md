@@ -591,6 +591,24 @@ before the process is terminated at all — can observe a still-empty
 `serial.log` even when the guest did write to its console before crashing
 or hanging.
 
+`CloudHypervisorRuntimeBackend.collectDiagnostics()` is idempotent
+(collects at most once per instance): the CLI's own generic cleanup path
+(`buildCleanupFn` in `commands/main-action.ts`) unconditionally calls
+`externalRuntimeBackend.collectDiagnostics()` again during shutdown,
+regardless of whether `start()`'s failure path already collected
+diagnostics via the `beforeCleanup` hook above. Without the idempotency
+guard, that second, redundant call ran *after* `stop()` had already torn
+down the network/cgroup, silently clobbering the earlier, more useful
+snapshot with an empty/unavailable one (observed live:
+`network-diagnostics.txt` regressing from real content to "network
+namespace not set up" between two collectDiagnostics() calls in the same
+failed run). Likewise, `start()`'s failure path now marks the backend
+`stopped` once its own internal `manager.stop()` call succeeds, so that
+same generic cleanup path's `externalRuntimeBackend.stop()` call becomes a
+no-op instead of invoking `manager.stop()` a second, redundant time (a
+failed internal stop deliberately leaves `stopped` false, so the outer
+cleanup path still gets a genuine retry attempt).
+
 **Guest kernel panics with `Attempted to kill init!` on every boot (fixed;
 historical)**
 

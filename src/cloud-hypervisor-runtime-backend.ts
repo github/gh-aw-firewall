@@ -134,6 +134,7 @@ export class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBacken
   private stopping: Promise<void> | undefined;
   private identity: { uid: number; gid: number } | undefined;
   private preflightResult: CloudHypervisorPreflightResult | undefined;
+  private diagnosticsCollected = false;
 
   constructor(
     private readonly config: WrapperConfig,
@@ -242,6 +243,14 @@ export class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBacken
           : undefined;
       try {
         await this.manager?.stop({ beforeCleanup: collectPreCleanupDiagnostics });
+        // Mark the backend stopped so the CLI's own cleanup path (which
+        // unconditionally calls backend.stop() again after any startup
+        // failure) doesn't invoke a second, redundant manager.stop() --
+        // by this point network/cgroup/run-directory teardown has already
+        // completed. On a *failed* cleanup here, deliberately leave
+        // `stopped` false so that outer cleanup call gets a genuine retry
+        // attempt rather than silently no-op-ing on a botched teardown.
+        this.stopped = true;
       } catch (cleanupError) {
         const combined = new Error(
           `Cloud Hypervisor startup failed: ${formatError(error)}; ` +
@@ -329,11 +338,23 @@ export class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBacken
   };
 
   async collectDiagnostics(): Promise<void> {
-    if (!this.manager) return;
+    // Idempotent: main-action.ts's cleanup handler unconditionally calls
+    // this once during shutdown, but start()'s own failure path (above)
+    // already collects diagnostics *before* stop() tears down the
+    // network/cgroup/run directory (so buffered guest console output is
+    // captured, and the live network state is inspectable before the
+    // namespace is deleted). Without this guard, that second, redundant
+    // call would run *after* teardown and clobber the earlier, more
+    // useful snapshot with an empty/unavailable one (e.g.
+    // network-diagnostics.txt regressing to "network namespace not set
+    // up" once cleanup() has already cleared it) -- discovered via
+    // live-KVM validation.
+    if (this.diagnosticsCollected || !this.manager) return;
     const directory = this.config.auditDir
       ? `${this.config.auditDir}/cloud-hypervisor`
       : `${this.config.workDir}/diagnostics/cloud-hypervisor`;
     await this.manager.collectDiagnostics(directory);
+    this.diagnosticsCollected = true;
   }
 
   async stop(): Promise<void> {
