@@ -362,6 +362,24 @@ describe('microVM network lifecycle', () => {
       && call.args[2] === plan.namespaceName
     ))).toHaveLength(1);
   });
+
+  it('captureDiagnostics delegates to the namespace once setup completes, and is empty before/after', async () => {
+    const plan = createPlan();
+    const { commands } = commandHarness();
+    const manager = new MicrovmNetworkManager(plan, commands);
+
+    // Before setup(), there's no namespace to inspect.
+    expect(await manager.captureDiagnostics()).toBe('');
+
+    await manager.setup();
+    const captureSpy = jest.spyOn(commands, 'captureDiagnosticsInNamespace')
+      .mockResolvedValue('--- nft list ruleset ---\n(fake)\n');
+    expect(await manager.captureDiagnostics()).toBe('--- nft list ruleset ---\n(fake)\n');
+    expect(captureSpy).toHaveBeenCalledWith(plan.namespaceName);
+
+    await manager.cleanup();
+    expect(await manager.captureDiagnostics()).toBe('');
+  });
 });
 
 describe('LinuxNetworkCommands.nftInNamespace ruleset file handling', () => {
@@ -451,5 +469,45 @@ describe('LinuxNetworkCommands.nftInNamespace ruleset file handling', () => {
     await expect(
       commands.nftInNamespace('awffc-real-fs-test', ['-f', '-'], 'table inet awf { }'),
     ).resolves.toBeUndefined();
+  });
+});
+
+describe('LinuxNetworkCommands.captureDiagnosticsInNamespace', () => {
+  // Regression coverage: a live-KVM connectivity failure investigation
+  // found bare exit codes insufficient to diagnose whether a guest's
+  // packets ever reached the tap/veth or were dropped by an nftables
+  // forward-chain rule. This best-effort, read-only capture surfaces both
+  // the live ruleset and interface counters for that triage.
+  it('combines nft list ruleset and ip -s link show output', async () => {
+    const commands = new LinuxNetworkCommands(
+      jest.fn(async (_command, args) => {
+        if (args.includes('nft')) {
+          return { stdout: 'table inet awf_fc_abc123 { chain forward { ... } }' };
+        }
+        if (args.includes('ip') && args.includes('link')) {
+          return { stdout: '2: eth0: <UP> ... RX: 0 bytes 0 packets' };
+        }
+        return { stdout: '' };
+      }),
+    );
+
+    const result = await commands.captureDiagnosticsInNamespace('awffc-test');
+
+    expect(result).toContain('--- nft list ruleset ---');
+    expect(result).toContain('table inet awf_fc_abc123');
+    expect(result).toContain('--- ip -s link show ---');
+    expect(result).toContain('RX: 0 bytes 0 packets');
+  });
+
+  it('never throws and reports unavailability when a command fails', async () => {
+    const commands = new LinuxNetworkCommands(
+      jest.fn(async () => {
+        throw new Error('ip netns exec failed: No such file or directory');
+      }),
+    );
+
+    const result = await commands.captureDiagnosticsInNamespace('awffc-test');
+
+    expect(result).toContain('(empty or unavailable)');
   });
 });

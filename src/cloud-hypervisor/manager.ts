@@ -739,6 +739,26 @@ export class CloudHypervisorManager {
       `${JSON.stringify(this.networkPlan ?? null, null, 2)}\n`,
       { mode: 0o600 },
     );
+    // Best-effort, read-only host-side network diagnostics (live nftables
+    // ruleset + interface counters), captured only while the namespace
+    // still exists (this method runs via stop()'s beforeCleanup hook,
+    // before network.cleanup() tears the namespace down). Helps diagnose
+    // a guest connectivity failure (dropped by a forward-chain rule vs.
+    // never reaching the tap at all) without guessing from the guest
+    // side alone.
+    let networkDiagnostics = '(network namespace not set up)';
+    if (this.network?.captureDiagnostics) {
+      try {
+        networkDiagnostics = await this.network.captureDiagnostics();
+      } catch (error) {
+        networkDiagnostics = `(capture failed: ${formatError(error)})`;
+      }
+    }
+    await this.dependencies.writeFile(
+      path.join(directory, 'network-diagnostics.txt'),
+      `${networkDiagnostics}\n`,
+      { mode: 0o600 },
+    );
     await this.dependencies.writeFile(
       path.join(directory, 'counters.json'),
       `${JSON.stringify(counters, null, 2)}\n`,

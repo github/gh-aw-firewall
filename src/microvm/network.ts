@@ -103,9 +103,7 @@ const defaultCommandExecutor: MicrovmNetworkCommandExecutor = async (
   command,
   args,
   options,
-) => {
-  await execa(command, [...args], options);
-};
+) => execa(command, [...args], options);
 
 export interface MicrovmNetworkRulesetFile {
   write(contents: string): Promise<string>;
@@ -199,12 +197,49 @@ export class LinuxNetworkCommands {
       await this.rulesetFile.remove(rulesetPath);
     }
   }
+
+  /**
+   * Best-effort, read-only diagnostic dump of the live nftables ruleset and
+   * per-interface packet/byte counters inside the given namespace. Used to
+   * diagnose a connectivity failure (e.g. is the forward-chain rule
+   * actually installed as expected, are packets reaching the tap/veth at
+   * all) without guessing from the guest side alone. Never throws --
+   * folds any command failure into an empty string for that command.
+   */
+  async captureDiagnosticsInNamespace(namespaceName: string): Promise<string> {
+    const run = async (tool: string, args: readonly string[]): Promise<string> => {
+      const result = await this.execute(
+        this.tools.ip,
+        ['netns', 'exec', namespaceName, tool, ...args],
+        { reject: false },
+      ).catch(() => undefined);
+      const stdout = (result as { stdout?: unknown } | undefined)?.stdout;
+      return typeof stdout === 'string' ? stdout : '';
+    };
+    const [nftRuleset, linkStats] = await Promise.all([
+      run(this.tools.nft, ['list', 'ruleset']),
+      run(this.tools.ip, ['-s', 'link', 'show']),
+    ]);
+    return [
+      '--- nft list ruleset ---',
+      nftRuleset.trim() || '(empty or unavailable)',
+      '--- ip -s link show ---',
+      linkStats.trim() || '(empty or unavailable)',
+    ].join('\n');
+  }
 }
 
 export interface MicrovmNetworkLifecycle {
   readonly plan: MicrovmNetworkPlan;
   setup(): Promise<MicrovmNetworkPlan>;
   cleanup(): Promise<void>;
+  /**
+   * Optional, best-effort, read-only diagnostic dump (live nftables
+   * ruleset + interface counters) for troubleshooting a connectivity
+   * failure while the namespace still exists (i.e. called before
+   * `cleanup()`). Not required by every implementer/mock.
+   */
+  captureDiagnostics?(): Promise<string>;
 }
 
 /**
@@ -303,6 +338,11 @@ export class MicrovmNetworkManager implements MicrovmNetworkLifecycle {
       }
       throw error;
     }
+  }
+
+  async captureDiagnostics(): Promise<string> {
+    if (!this.setupComplete) return '';
+    return this.commands.captureDiagnosticsInNamespace(this.plan.namespaceName);
   }
 
   async cleanup(): Promise<void> {

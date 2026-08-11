@@ -1008,4 +1008,77 @@ describe('CloudHypervisorManager', () => {
       { mode: 0o600 },
     );
   });
+
+  it('captures live network diagnostics (nft ruleset + interface counters) when the network lifecycle supports it', async () => {
+    // Regression test: a live-KVM connectivity failure investigation found
+    // that a bare probe exit code, and even the static network-plan.json,
+    // weren't enough to determine whether packets were being dropped by
+    // an nftables forward-chain rule or never reaching the tap at all.
+    // collectDiagnostics() must capture this live state (via the
+    // network lifecycle's optional captureDiagnostics()) while the
+    // namespace still exists.
+    const child = processMock();
+    const captureDiagnostics = jest.fn()
+      .mockResolvedValue('--- nft list ruleset ---\n(fake ruleset)\n');
+    const deps = dependencies({
+      launch: jest.fn().mockReturnValue(child),
+      createNetwork: jest.fn((plan) => ({
+        ...networkLifecycle(plan),
+        captureDiagnostics,
+      })),
+    });
+    const manager = new CloudHypervisorManager(
+      config(), '/tmp/awf', deps, 'net-diagnostics', networkConfig(),
+    );
+
+    await manager.start();
+    await manager.collectDiagnostics('/tmp/diagnostics');
+
+    expect(captureDiagnostics).toHaveBeenCalledTimes(1);
+    expect(deps.writeFile).toHaveBeenCalledWith(
+      '/tmp/diagnostics/network-diagnostics.txt',
+      '--- nft list ruleset ---\n(fake ruleset)\n\n',
+      { mode: 0o600 },
+    );
+  });
+
+  it('reports network diagnostics as unavailable when the lifecycle does not support capture, without throwing', async () => {
+    const child = processMock();
+    const deps = dependencies({ launch: jest.fn().mockReturnValue(child) });
+    const manager = new CloudHypervisorManager(
+      config(), '/tmp/awf', deps, 'net-diagnostics-unset', networkConfig(),
+    );
+
+    await manager.start();
+    await expect(manager.collectDiagnostics('/tmp/diagnostics')).resolves.toBeUndefined();
+
+    expect(deps.writeFile).toHaveBeenCalledWith(
+      '/tmp/diagnostics/network-diagnostics.txt',
+      expect.stringContaining('network namespace not set up'),
+      { mode: 0o600 },
+    );
+  });
+
+  it('falls back to a capture-failed message rather than throwing when captureDiagnostics itself rejects', async () => {
+    const child = processMock();
+    const deps = dependencies({
+      launch: jest.fn().mockReturnValue(child),
+      createNetwork: jest.fn((plan) => ({
+        ...networkLifecycle(plan),
+        captureDiagnostics: jest.fn().mockRejectedValue(new Error('ip netns exec failed')),
+      })),
+    });
+    const manager = new CloudHypervisorManager(
+      config(), '/tmp/awf', deps, 'net-diagnostics-fail', networkConfig(),
+    );
+
+    await manager.start();
+    await expect(manager.collectDiagnostics('/tmp/diagnostics')).resolves.toBeUndefined();
+
+    expect(deps.writeFile).toHaveBeenCalledWith(
+      '/tmp/diagnostics/network-diagnostics.txt',
+      expect.stringContaining('capture failed: ip netns exec failed'),
+      { mode: 0o600 },
+    );
+  });
 });
