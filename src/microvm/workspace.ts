@@ -178,6 +178,20 @@ export class MicrovmWorkspaceImage {
       '-b', String(WORKSPACE_BLOCK_BYTES),
       '-N', String(inodeCount),
       '-d', imageRoot,
+      // mke2fs -d populates file/subdirectory contents (and their own
+      // metadata) from imageRoot, but the *filesystem's own root
+      // directory inode* is not one of those copied entries -- per
+      // mke2fs's own docs, its ownership defaults to whichever user
+      // actually runs mke2fs (root here, since this CLI is invoked via
+      // sudo), regardless of imageRoot's own mode/ownership. Left at
+      // that default (root:root, mode 0755), the non-root guest agent
+      // identity (config.uid/gid) can read but never write directly
+      // into the workspace mount root -- e.g. `printf x > .hidden`
+      // inside the guest's workspace fails with EACCES even though
+      // every file *inside* the image is correctly owned. Explicitly
+      // matching the guest agent's own identity here is what actually
+      // lets it write there.
+      '-E', `root_owner=${this.config.uid}:${this.config.gid}`,
       this.workspaceImagePath,
       String(imageBytes / WORKSPACE_BLOCK_BYTES),
     ]);

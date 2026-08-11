@@ -82,6 +82,18 @@ describe('microVM workspace images', () => {
     ]);
     expect(commands[1].args).toContain('rm /sbin/awf-supervisor');
     expect(commands[0].args).toEqual(expect.arrayContaining(['-b', '4096']));
+    // Regression coverage: a live-KVM investigation found the guest
+    // agent (running as a non-root uid/gid inside the microVM) getting
+    // EACCES writing directly into the workspace mount root, e.g.
+    // `printf x > .hidden`. mke2fs's -d option populates file/directory
+    // *contents* from the staging tree, but its own filesystem root
+    // inode defaults to the identity of whoever runs mke2fs (root, via
+    // sudo), not the staging directory's own ownership -- explicit
+    // -E root_owner=uid:gid is required to match the guest agent's
+    // actual identity.
+    expect(commands[0].args).toEqual(expect.arrayContaining([
+      '-E', `root_owner=${process.getuid?.() ?? 1000}:${process.getgid?.() ?? 1000}`,
+    ]));
     await fs.rm(root, { recursive: true, force: true });
   });
 
