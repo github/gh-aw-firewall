@@ -96,8 +96,17 @@ assert_no_residue() {
     echo "Cloud Hypervisor veth/TAP residue detected" >&2
     return 1
   fi
-  if [ -d "$CGROUP_ROOT" ] && [ -n "$(sudo find "$CGROUP_ROOT" -mindepth 1 -maxdepth 1 2>/dev/null)" ]; then
-    sudo find "$CGROUP_ROOT" -mindepth 1 -maxdepth 1 >&2
+  # $CGROUP_ROOT (.../awf-cloud-hypervisor) is a *parent* cgroup that
+  # persists across runs; only per-run sub-cgroups live one level
+  # inside it (see cgroupPath in src/cloud-hypervisor/manager.ts). Any
+  # cgroup v2 directory -- including this parent itself -- always
+  # contains standard controller interface files (cpu.max, memory.max,
+  # cgroup.controllers, ...) simply by virtue of existing; matching all
+  # entries here (not just directories) made this check a permanent
+  # false positive the moment it was ever actually reached, regardless
+  # of whether a real leftover per-run cgroup was present.
+  if [ -d "$CGROUP_ROOT" ] && [ -n "$(sudo find "$CGROUP_ROOT" -mindepth 1 -maxdepth 1 -type d 2>/dev/null)" ]; then
+    sudo find "$CGROUP_ROOT" -mindepth 1 -maxdepth 1 -type d >&2
     echo "Cloud Hypervisor cgroup residue detected" >&2
     return 1
   fi
