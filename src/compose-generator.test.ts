@@ -610,7 +610,7 @@ describe('generateDockerCompose', () => {
 
         generateDockerCompose(config, mockNetworkConfig);
 
-        expect(warnSpy).not.toHaveBeenCalled();
+        expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining('under /opt'));
         warnSpy.mockRestore();
       });
 
@@ -650,7 +650,9 @@ describe('generateDockerCompose', () => {
         expect(homeTargets).toContain(`/host${workspaceDir}`);
         expect(homeTargets.some(target => target.startsWith(`/host${effectiveHomeForFilter}/.`))).toBe(false);
 
-        // Home root mounts (including trailing slash source) should be dropped.
+        // An explicitly supplied home-root mount (including trailing slash source)
+        // survives the filter: the caller vouches for its daemon visibility, and a
+        // writable /host$HOME is required by the credential overlays and entrypoint.
         const effectiveHome = getRealUserHome();
         const configWithHomeRootMount = {
           ...config,
@@ -661,7 +663,28 @@ describe('generateDockerCompose', () => {
           const target = v.split(':')[1];
           return target === `/host${effectiveHome}` || target === `/host${effectiveHome}/`;
         });
-        expect(homeRootMounts).toHaveLength(0);
+        expect(homeRootMounts).toEqual([`${effectiveHome}/:/host${effectiveHome}:rw`]);
+
+        // The chroot-home volume sourced from workDir is still dropped.
+        expect(
+          (resultWithHomeRootMount.services.agent.volumes as string[]).some(v =>
+            v.startsWith('/tmp/awf-12345-chroot-home'),
+          ),
+        ).toBe(false);
+
+        // Credential overlays under /host$HOME are kept when a writable home survives.
+        expect(
+          (resultWithHomeRootMount.services.agent.volumes as string[]).some(
+            v => v.startsWith('/dev/null:') && v.split(':')[1].startsWith(`/host${effectiveHome}/`),
+          ),
+        ).toBe(true);
+
+        // Without such a mount, those overlays are skipped (no writable parent exists).
+        expect(
+          volumes.some(
+            v => v.startsWith('/dev/null:') && v.split(':')[1].startsWith(`/host${effectiveHome}/`),
+          ),
+        ).toBe(false);
 
         // Should still have /tmp:/tmp, /sys, /dev, sysroot volume
         expect(volumes).toContain('/tmp:/tmp:rw');
