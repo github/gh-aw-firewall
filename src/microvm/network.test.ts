@@ -655,6 +655,9 @@ describe('LinuxNetworkCommands.captureDiagnosticsInNamespace', () => {
         if (args.includes('bridge')) {
           return { stdout: '02:00:00:00:00:01 dev tap0 master awfbr0' };
         }
+        if (args.includes('conntrack')) {
+          return { stdout: 'tcp 6 100 ESTABLISHED src=100.64.0.2 dst=172.30.0.10' };
+        }
         return { stdout: '' };
       }),
     );
@@ -673,6 +676,8 @@ describe('LinuxNetworkCommands.captureDiagnosticsInNamespace', () => {
     expect(result).toContain('REACHABLE');
     expect(result).toContain('--- bridge fdb show (forwarding database) ---');
     expect(result).toContain('master awfbr0');
+    expect(result).toContain('--- conntrack -L (connection tracking table state for this namespace) ---');
+    expect(result).toContain('ESTABLISHED src=100.64.0.2');
   });
 
   it('never throws and reports unavailability when a command fails', async () => {
@@ -707,6 +712,9 @@ describe('LinuxNetworkCommands.captureHostBridgeDiagnostics', () => {
         if (command === 'sysctl') {
           return { stdout: 'net.bridge.bridge-nf-call-iptables = 1\nnet.bridge.bridge-nf-call-ip6tables = 1' };
         }
+        if (command === 'ip' && args.includes('-s') && args.includes('link')) {
+          return { stdout: '5: vethX@if4: <UP> ... RX: 10 bytes 1 packets' };
+        }
         return { stdout: '' };
       }),
     );
@@ -721,6 +729,8 @@ describe('LinuxNetworkCommands.captureHostBridgeDiagnostics', () => {
     expect(result).toContain('-P FORWARD DROP');
     expect(result).toContain('--- sysctl net.bridge.bridge-nf-call-* ');
     expect(result).toContain('net.bridge.bridge-nf-call-iptables = 1');
+    expect(result).toContain('--- ip -s link show (host/default namespace: per-port RX/TX counters, incl. container veths) ---');
+    expect(result).toContain('RX: 10 bytes 1 packets');
   });
 
   it('never throws and reports unavailability when a command fails', async () => {

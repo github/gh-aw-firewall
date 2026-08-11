@@ -291,7 +291,7 @@ export class LinuxNetworkCommands {
       const stdout = (result as { stdout?: unknown } | undefined)?.stdout;
       return typeof stdout === 'string' ? stdout : '';
     };
-    const [nftRuleset, linkStats, linkDetail, routes, neighbors, fdb] = await Promise.all([
+    const [nftRuleset, linkStats, linkDetail, routes, neighbors, fdb, conntrack] = await Promise.all([
       // -a includes rule handles so a specific rule can be identified/
       // referenced; the counters attached in generateMicrovmNftRuleset
       // make hit counts visible per rule (not just per interface).
@@ -303,6 +303,15 @@ export class LinuxNetworkCommands {
       // 'bridge' (iproute2) is not user-configurable like ip/nft/sysctl
       // above -- it is only used here, best-effort, for diagnostics.
       run('bridge', ['fdb', 'show']),
+      // The forward chain's own accept rules key off `ct state`
+      // (established/related/new). If the *outbound* leg of a flow is
+      // accepted (new) but the *return* leg never matches the
+      // established/related accept rule, the conntrack table itself is
+      // the only place that can show whether the kernel ever recognized
+      // the two directions as the same tracked flow (vs. the return
+      // packet arriving as an unrelated/untracked packet that the
+      // default-drop policy then silently discards).
+      run('conntrack', ['-L']),
     ]);
     return [
       '--- nft -a list ruleset (handles + hit counters) ---',
@@ -317,6 +326,8 @@ export class LinuxNetworkCommands {
       neighbors.trim() || '(empty or unavailable)',
       '--- bridge fdb show (forwarding database) ---',
       fdb.trim() || '(empty or unavailable)',
+      '--- conntrack -L (connection tracking table state for this namespace) ---',
+      conntrack.trim() || '(empty, unavailable, or conntrack tool not installed)',
     ].join('\n');
   }
 
@@ -334,8 +345,9 @@ export class LinuxNetworkCommands {
       const stdout = (result as { stdout?: unknown } | undefined)?.stdout;
       return typeof stdout === 'string' ? stdout.trim() : '';
     };
-    const [fdb, hostNftRuleset, hostIptablesRules, bridgeNfSysctls, bridgeLinkState] = await Promise.all([
-      run('bridge', ['fdb', 'show', 'br', bridgeName]),
+    const [fdb, hostNftRuleset, hostIptablesRules, bridgeNfSysctls, bridgeLinkState, hostLinkStats] =
+      await Promise.all([
+        run('bridge', ['fdb', 'show', 'br', bridgeName]),
       // Docker (and any other host-level firewall) manages its own
       // iptables/nftables rules in the *default* (root) network
       // namespace -- the same namespace this bridge and the container
@@ -370,6 +382,17 @@ export class LinuxNetworkCommands {
       // transition would exhibit exactly this symptom (an otherwise
       // correctly wired-up port through which nothing gets forwarded).
       run('bridge', ['link', 'show']),
+      // The microVM-side (in-namespace) `ip -s link show` capture only
+      // shows this bridge port's *peer* (the veth end inside our own
+      // namespace). Whether the *container* side (e.g. Squid's veth,
+      // which is not attached to our namespace) ever actually received
+      // an RX frame is a completely separate, host-root-namespace-only
+      // fact: if the bridge/container veth's RX counter never
+      // increments across a request while our own TX counter does, the
+      // frame left our port but was never delivered onto the
+      // container's port -- narrowing the failure to something the
+      // bridge itself is doing (or not doing) between those two ports.
+      run(this.tools.ip, ['-s', 'link', 'show']),
     ]);
     return [
       `--- bridge fdb show br ${bridgeName} (host-side, outside any netns) ---`,
@@ -382,6 +405,8 @@ export class LinuxNetworkCommands {
       bridgeNfSysctls || '(empty, unavailable, or the bridge kernel module is not loaded)',
       '--- bridge link show (STP port state: forwarding/learning/blocking) ---',
       bridgeLinkState || '(empty or unavailable)',
+      '--- ip -s link show (host/default namespace: per-port RX/TX counters, incl. container veths) ---',
+      hostLinkStats || '(empty or unavailable)',
     ].join('\n');
   }
 }
