@@ -98,6 +98,19 @@ jobs:
           name: firecracker-test-x86_64
           path: ${{ runner.temp }}/firecracker-test-x86_64
 
+      - name: Restore artifact executable permissions
+        run: |
+          # actions/upload-artifact + actions/download-artifact do not
+          # reliably preserve the executable bit on binary files (a known
+          # GitHub Actions artifact limitation). Digest verification in the
+          # preflight step below still proves file integrity; this only
+          # restores the mode bits needed to exec the pinned, already-
+          # verified binaries.
+          chmod 0755 \
+            "$RUNNER_TEMP/firecracker-test-x86_64/firecracker" \
+            "$RUNNER_TEMP/firecracker-test-x86_64/jailer" \
+            "$RUNNER_TEMP/firecracker-test-x86_64/awf-firecracker-supervisor"
+
       - name: Grant workflow user access to KVM
         run: |
           if [ -e /dev/kvm ]; then
