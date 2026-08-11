@@ -22,6 +22,7 @@ import { getRealUserHome, getSafeHostGid, getSafeHostUid } from './host-identity
 import { logger } from './logger';
 import { buildAgentEnvironment } from './services/agent-service';
 import { buildAgentCredentialEnv } from './services/api-proxy-credential-env';
+import { SQUID_PORT } from './constants';
 import type { CloudHypervisorOptions, WrapperConfig } from './types';
 import {
   assertCloudHypervisorRuntimeCompatibility,
@@ -555,6 +556,21 @@ export function buildCloudHypervisorGuestEnvironment(
     SQUID_PROXY_HOST: infrastructure.squidIp,
     HOSTNAME: 'awf-cloud-hypervisor',
     AWF_RUNTIME: 'cloud-hypervisor',
+    // The shared container-runtime environment intentionally omits
+    // lowercase http_proxy (curl on Ubuntu 22.04 ignores uppercase
+    // HTTP_PROXY for plain HTTP, so HTTP falls through to iptables DNAT
+    // -> Squid instead of an explicit proxy connection, which is what
+    // keeps a blocked domain's Squid 403 page mapped to a real failure
+    // exit code there). The BusyBox guest's wget has different,
+    // guest-specific proxy-detection behavior: it reads only the
+    // lowercase "http_proxy" env var for *every* protocol including
+    // https (there is no https_proxy check in BusyBox's wget at all).
+    // Every wget-based https:// case in this guest's own smoke coverage
+    // either already relies on an explicit proxy connection or
+    // explicitly unsets all proxy vars first, so this is safe here even
+    // though it would not be for the container runtime's curl-based
+    // HTTP assertions.
+    http_proxy: `http://${infrastructure.squidIp}:${SQUID_PORT}`,
   });
   assertNoProviderSecrets(config, environment);
   return environment;

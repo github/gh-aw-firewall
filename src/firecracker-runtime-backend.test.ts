@@ -412,6 +412,16 @@ describe('Firecracker runtime backend', () => {
     )).toThrow(/Refusing to pass a real provider credential/);
   });
 
+  it('sets lowercase http_proxy so BusyBox wget honors the proxy for https:// too', () => {
+    // See the identical regression test in
+    // cloud-hypervisor-runtime-backend.test.ts: BusyBox wget (shared by
+    // both microVM guests) reads only lowercase "http_proxy" for every
+    // protocol including https, with no https_proxy check at all.
+    const environment = buildFirecrackerGuestEnvironment(config(), infrastructure());
+
+    expect(environment.http_proxy).toBe('http://172.30.0.10:3128');
+  });
+
   it('rejects unsupported strict-security and topology combinations', () => {
     expect(() => assertFirecrackerPreSecurityCompatibility(
       config({ enableDind: true }),

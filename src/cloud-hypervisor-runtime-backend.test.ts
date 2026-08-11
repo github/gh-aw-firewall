@@ -664,6 +664,21 @@ describe('Cloud Hypervisor runtime backend', () => {
     )).toThrow(/Refusing to pass a real provider credential/);
   });
 
+  it('sets lowercase http_proxy so BusyBox wget honors the proxy for https:// too', () => {
+    // Regression coverage: a live-KVM connectivity investigation found
+    // BusyBox wget reads only the lowercase "http_proxy" env var for
+    // every protocol it supports, including https -- there is no
+    // https_proxy check anywhere in its proxy-detection logic. Without
+    // this (the shared container-runtime environment intentionally
+    // omits it, for curl/Ubuntu-specific reasons that don't apply to
+    // this guest's BusyBox wget), wget silently falls back to a direct,
+    // unproxied connection attempt, which fails outright since guest DNS
+    // is unconditionally blocked by network policy.
+    const environment = buildCloudHypervisorGuestEnvironment(config(), infrastructure());
+
+    expect(environment.http_proxy).toBe('http://172.30.0.10:3128');
+  });
+
   it('rejects unsupported strict-security and topology combinations', () => {
     expect(() => assertCloudHypervisorPreSecurityCompatibility(
       config({ enableDind: true }),

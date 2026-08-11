@@ -21,6 +21,7 @@ import { getRealUserHome, getSafeHostGid, getSafeHostUid } from './host-identity
 import { logger } from './logger';
 import { buildAgentEnvironment } from './services/agent-service';
 import { buildAgentCredentialEnv } from './services/api-proxy-credential-env';
+import { SQUID_PORT } from './constants';
 import type { FirecrackerOptions, WrapperConfig } from './types';
 import {
   assertFirecrackerRuntimeCompatibility,
@@ -424,6 +425,12 @@ export function buildFirecrackerGuestEnvironment(
     SQUID_PROXY_HOST: infrastructure.squidIp,
     HOSTNAME: 'awf-firecracker',
     AWF_RUNTIME: 'firecracker',
+    // See buildCloudHypervisorGuestEnvironment's comment: the shared
+    // container-runtime environment intentionally omits lowercase
+    // http_proxy, but BusyBox's wget in this guest reads only lowercase
+    // "http_proxy" for every protocol including https (no https_proxy
+    // check at all), so it needs its own guest-specific override here.
+    http_proxy: `http://${infrastructure.squidIp}:${SQUID_PORT}`,
   });
   assertNoProviderSecrets(config, environment);
   return environment;
