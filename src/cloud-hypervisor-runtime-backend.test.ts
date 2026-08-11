@@ -422,6 +422,37 @@ describe('Cloud Hypervisor runtime backend', () => {
     expect(script).toMatch(/nc -v -z .* && \(unset .*HTTP_PROXY.*; wget /);
   });
 
+  it('uses generous nc/wget timeouts and an overall probe budget tolerant of nested-KVM scheduling delays', async () => {
+    // Regression test: live-KVM validation confirmed (via captured host
+    // network diagnostics) that the tap/nftables/vnet_hdr path was fully
+    // correct -- Squid's response packets reached the host-side veth --
+    // yet the probe still timed out, because the guest's own vCPU was
+    // scheduled so rarely under nested virtualization on GitHub-hosted
+    // runners that a short-lived `nc -z -w 5` couldn't get enough real
+    // CPU time to complete its connect() within that 5-second budget.
+    // Raised both the per-command timeouts and the overall exec budget
+    // to match the same generous, nested-KVM-tolerant convention used for
+    // guest boot readiness (see CLOUD_HYPERVISOR_GUEST_READY_MAX_WAIT_MS).
+    const { manager, deps } = harness();
+    manager.execute.mockReset().mockResolvedValueOnce({
+      requestId: 'probe', exitCode: 0, signal: null, timedOut: false,
+    }).mockResolvedValueOnce({
+      requestId: 'agent', exitCode: 0, signal: null, timedOut: false,
+    });
+    const backend = new CloudHypervisorRuntimeBackend(
+      config({ enableApiProxy: true } as Partial<WrapperConfig>),
+      deps,
+    );
+
+    await backend.start('/tmp/awf', ['github.com']);
+
+    const probeCall = manager.execute.mock.calls[0][0];
+    const script = probeCall.argv[2] as string;
+    expect(script).toContain('nc -v -z -w 60');
+    expect(script).toContain('wget -q -T 20');
+    expect(probeCall.timeoutMs).toBe(90_000);
+  });
+
   it('passes a beforeCleanup diagnostics hook to stop() on a startup failure, when --diagnostic-logs is set', async () => {
     // Regression test: manager.stop() deletes the private run directory
     // (including the guest serial console log) as its final step, but

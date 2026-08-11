@@ -694,6 +694,24 @@ request `IFF_VNET_HDR`, so creating the tap with that feature available
 would have been a no-op for Firecracker, but changing shared, working
 code without a concrete reason is unnecessary risk).
 
+**Guest connectivity probe still times out even with a fully-correct
+network path (fixed; historical)**
+
+After the `vnet_hdr` fix above, live network diagnostics conclusively
+showed the tap/nftables/MAC path working correctly — Squid's response
+packets reached the host-side veth — yet
+`probeGuestConnectivity()`'s `nc -z -w 5` inside the guest still timed out.
+This is the same nested-virtualization vCPU-scheduling phenomenon
+documented for guest boot above (see
+`CLOUD_HYPERVISOR_GUEST_READY_MAX_WAIT_MS`): the guest's vCPU can be
+scheduled so rarely that a short-lived command doesn't get enough real CPU
+time to complete a `connect()` within a tight budget, even though nothing
+about the network path itself is broken. Raised `nc`'s own timeout to 60s,
+`wget`'s to 20s, and the overall guest-exec budget
+(`CLOUD_HYPERVISOR_PROBE_TIMEOUT_MS`) to 90s to match the same
+nested-KVM-tolerant convention used elsewhere, and increased the live-KVM
+workflow job's `timeout-minutes` accordingly.
+
 **`Cloud Hypervisor requires a non-root target uid/gid`**
 
 Same as Firecracker's jailer requirement: run through `sudo` from a
