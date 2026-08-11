@@ -9,6 +9,8 @@ import { buildEnclaveMcpService } from './enclave-mcp-service';
 import { buildSysrootStageService, isSysrootEnabled } from './sysroot-service';
 import { resolveDockerHostGateway } from './host-gateway';
 import { runtimeUsesIptables } from '../container-runtime';
+import { applyHostPathPrefixToVolumes } from './host-path-prefix';
+import { buildCustomVolumeMounts } from './agent-volumes/workspace-mounts';
 import { NetworkConfig, ImageBuildConfig } from './squid-service';
 
 interface AssembleOptionalServicesParams {
@@ -70,11 +72,12 @@ function filterAgentVolumesForSysroot(
   ]);
   const normalizedWorkDirPrefix = config.workDir.replace(/\/+$/, '');
   const hostHomeMountPrefix = `/host${effectiveHome}`;
-  // Targets of explicitly supplied `--mount` specs.  Their sources are chosen by
-  // the caller (the gh-aw compiler or the user), who asserts the Docker daemon
-  // can resolve them, so they must survive the sysroot filter even when they
-  // target the chroot home root.
-  const explicitMountTargets = collectCustomMountTargets(config.volumeMounts);
+  // Source:target pairs of explicitly supplied `--mount` specs.  Their sources
+  // are chosen by the caller (the gh-aw compiler or the user), who asserts the
+  // Docker daemon can resolve them, so they must survive the sysroot filter even
+  // when they target the chroot home root.  Matching on both source and target
+  // keeps AWF's own mounts to the same target subject to the filter.
+  const explicitMountSpecs = collectCustomMountSpecs(config);
 
   const filtered = agentVolumes.filter(volume => {
     const parts = volume.split(':');
@@ -100,13 +103,13 @@ function filterAgentVolumesForSysroot(
     // Drop home dot-directory mounts (e.g. .cache, .config) — sysroot provides them.
     // Keep workspace/work paths (e.g. _work/_temp/gh-aw) since those are user-supplied
     // custom mounts or tool-cache mounts that the sysroot doesn't provide.
-    // Keep explicitly supplied `--mount` targets: the caller vouches for their
+    // Keep explicitly supplied `--mount` specs: the caller vouches for their
     // daemon visibility, and a writable `/host$HOME` is required for the
     // credential-hiding overlays and the agent entrypoint to work.
     if (
       source.startsWith(effectiveHome) &&
       target.startsWith(hostHomeMountPrefix) &&
-      !explicitMountTargets.has(target)
+      !explicitMountSpecs.has(mountSpecKey(source, target))
     ) {
       const normalizedSource = source.replace(/\/+$/, '') || '/';
       const relPath = normalizedSource.slice(effectiveHome.length);
@@ -120,22 +123,31 @@ function filterAgentVolumesForSysroot(
 }
 
 /**
- * Collects the chroot-adjusted container targets of explicitly supplied
- * `--mount` specs (`buildCustomVolumeMounts` prefixes targets with `/host`).
+ * Collects `source:target` keys for the bind mounts produced from explicitly
+ * supplied `--mount` specs, transformed exactly as `buildAgentVolumes` does
+ * (`buildCustomVolumeMounts` prefixes targets with `/host`, then the host path
+ * prefix is applied).  Keying on both ends means AWF's own mounts to the same
+ * target are still subject to the sysroot filter.
  */
-function collectCustomMountTargets(volumeMounts?: string[]): Set<string> {
-  const targets = new Set<string>();
-  for (const mount of volumeMounts || []) {
+function collectCustomMountSpecs(config: WrapperConfig): Set<string> {
+  const specs = new Set<string>();
+  const transformed = applyHostPathPrefixToVolumes(
+    buildCustomVolumeMounts(config.volumeMounts, config.dockerHostPathPrefix, { quiet: true }),
+    config.dockerHostPathPrefix,
+  );
+
+  for (const mount of transformed) {
     const parts = mount.split(':');
     if (parts.length < 2) continue;
-    const containerPath = (parts[1] || '').replace(/\/+$/, '');
-    if (!containerPath) continue;
-    targets.add(containerPath);
-    if (!containerPath.startsWith('/host/') && containerPath !== '/host') {
-      targets.add(`/host${containerPath}`);
-    }
+    if (!parts[0] || !parts[1]) continue;
+    specs.add(mountSpecKey(parts[0], parts[1]));
   }
-  return targets;
+  return specs;
+}
+
+function mountSpecKey(source: string, target: string): string {
+  const normalize = (value: string) => value.replace(/\/+$/, '') || '/';
+  return `${normalize(source)}:${normalize(target)}`;
 }
 
 /**

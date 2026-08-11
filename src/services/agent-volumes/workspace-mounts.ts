@@ -92,12 +92,19 @@ function isExecutableFile(candidate: string): boolean {
 export function buildCustomVolumeMounts(
   volumeMounts?: string[],
   dockerHostPathPrefix?: string,
+  options: { quiet?: boolean } = {},
 ): string[] {
   if (!volumeMounts || volumeMounts.length === 0) {
     return [];
   }
 
-  logger.debug(`Adding ${volumeMounts.length} custom volume mount(s)`);
+  // `quiet` is used by callers that only re-derive the transformed specs for
+  // comparison (e.g. the sysroot volume filter) and must not log them twice.
+  const debug = (message: string) => {
+    if (!options.quiet) logger.debug(message);
+  };
+
+  debug(`Adding ${volumeMounts.length} custom volume mount(s)`);
 
   // Custom mount sources always use the runner's filesystem view. Translate
   // them even when a source already starts with the daemon-side prefix; this
@@ -124,7 +131,7 @@ export function buildCustomVolumeMounts(
       const transformedMount = mode
         ? `${hostPath}:${chrootContainerPath}:${mode}`
         : `${hostPath}:${chrootContainerPath}`;
-      logger.debug(`Adding custom volume mount: ${volumeMounts[index]} -> ${transformedMount} (chroot-adjusted)`);
+      debug(`Adding custom volume mount: ${volumeMounts[index]} -> ${transformedMount} (chroot-adjusted)`);
       return transformedMount;
     }
 

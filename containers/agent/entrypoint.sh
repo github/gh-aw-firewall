@@ -333,10 +333,10 @@ if [ -n "$HTTP_PROXY" ]; then
 
   # Maven proxy config (~/.m2/settings.xml)
   # Only create if the file does not already exist, to avoid clobbering user-provided settings
-  if ! mkdir -p "${JVM_HOME_PREFIX}/.m2" 2>/dev/null; then
-    echo "[entrypoint] ⚠ Cannot create ${JVM_HOME_PREFIX}/.m2 (read-only home); skipping Maven proxy config"
+  if ! mkdir -p "${JVM_HOME_PREFIX}/.m2" 2>/dev/null || [ ! -w "${JVM_HOME_PREFIX}/.m2" ]; then
+    echo "[entrypoint] ⚠ Cannot write ${JVM_HOME_PREFIX}/.m2 (read-only home); skipping Maven proxy config"
   elif [ ! -f "${JVM_HOME_PREFIX}/.m2/settings.xml" ]; then
-    cat > "${JVM_HOME_PREFIX}/.m2/settings.xml" << MAVEN_EOF
+    if cat > "${JVM_HOME_PREFIX}/.m2/settings.xml" << MAVEN_EOF
 <settings>
   <proxies>
     <proxy>
@@ -356,8 +356,12 @@ if [ -n "$HTTP_PROXY" ]; then
   </proxies>
 </settings>
 MAVEN_EOF
-    chown awfuser:awfuser "${JVM_HOME_PREFIX}/.m2/settings.xml" 2>/dev/null || true
-    echo "[entrypoint] ✓ Created Maven proxy config (${JVM_HOME_PREFIX}/.m2/settings.xml)"
+    then
+      chown awfuser:awfuser "${JVM_HOME_PREFIX}/.m2/settings.xml" 2>/dev/null || true
+      echo "[entrypoint] ✓ Created Maven proxy config (${JVM_HOME_PREFIX}/.m2/settings.xml)"
+    else
+      echo "[entrypoint] ⚠ Failed to write ${JVM_HOME_PREFIX}/.m2/settings.xml; skipping Maven proxy config"
+    fi
   else
     echo "[entrypoint] ✓ Maven settings.xml already exists, skipping proxy config creation"
   fi
@@ -365,17 +369,21 @@ MAVEN_EOF
   # Gradle proxy config (~/.gradle/gradle.properties)
   # Only create if the file does not already exist, to avoid clobbering user-provided settings
   # (e.g., org.gradle.jvmargs, build cache settings, private repo credentials)
-  if ! mkdir -p "${JVM_HOME_PREFIX}/.gradle" 2>/dev/null; then
-    echo "[entrypoint] ⚠ Cannot create ${JVM_HOME_PREFIX}/.gradle (read-only home); skipping Gradle proxy config"
+  if ! mkdir -p "${JVM_HOME_PREFIX}/.gradle" 2>/dev/null || [ ! -w "${JVM_HOME_PREFIX}/.gradle" ]; then
+    echo "[entrypoint] ⚠ Cannot write ${JVM_HOME_PREFIX}/.gradle (read-only home); skipping Gradle proxy config"
   elif [ ! -f "${JVM_HOME_PREFIX}/.gradle/gradle.properties" ]; then
-    cat > "${JVM_HOME_PREFIX}/.gradle/gradle.properties" << GRADLE_EOF
+    if cat > "${JVM_HOME_PREFIX}/.gradle/gradle.properties" << GRADLE_EOF
 systemProp.http.proxyHost=${PROXY_HOST}
 systemProp.http.proxyPort=${PROXY_PORT}
 systemProp.https.proxyHost=${PROXY_HOST}
 systemProp.https.proxyPort=${PROXY_PORT}
 GRADLE_EOF
-    chown awfuser:awfuser "${JVM_HOME_PREFIX}/.gradle/gradle.properties" 2>/dev/null || true
-    echo "[entrypoint] ✓ Created Gradle proxy config (${JVM_HOME_PREFIX}/.gradle/gradle.properties)"
+    then
+      chown awfuser:awfuser "${JVM_HOME_PREFIX}/.gradle/gradle.properties" 2>/dev/null || true
+      echo "[entrypoint] ✓ Created Gradle proxy config (${JVM_HOME_PREFIX}/.gradle/gradle.properties)"
+    else
+      echo "[entrypoint] ⚠ Failed to write ${JVM_HOME_PREFIX}/.gradle/gradle.properties; skipping Gradle proxy config"
+    fi
   else
     echo "[entrypoint] ✓ Gradle gradle.properties already exists, skipping proxy config creation"
   fi

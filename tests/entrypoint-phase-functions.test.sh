@@ -214,6 +214,49 @@ else
   fail "run_chroot_command() does not clean up copied system CA bundles"
 fi
 
+# configure_jvm_proxy must not abort the entrypoint (set -e) when $HOME is
+# read-only, including when .m2/.gradle already exist but cannot be written.
+run_configure_jvm_proxy_readonly_home_fixture() {
+  local tmp_dir
+  tmp_dir="$(mktemp -d)"
+  local fake_home="${tmp_dir}/home"
+  mkdir -p "${fake_home}/.m2" "${fake_home}/.gradle"
+  chmod 555 "${fake_home}/.m2" "${fake_home}/.gradle" "${fake_home}"
+
+  # Run in a separate bash process: `set -e` is ignored inside a subshell that
+  # is part of an `if` condition, which would mask the abort this test guards.
+  env -u JAVA_TOOL_OPTIONS \
+    HOME="${fake_home}" \
+    AWF_CHROOT_ENABLED="false" \
+    HTTP_PROXY="http://172.30.0.10:3128" \
+    SQUID_PROXY_HOST="172.30.0.10" \
+    SQUID_PROXY_PORT="3128" \
+    bash -c '
+      set -e
+      # The BASH_SOURCE guard keeps main() from running when sourced.
+      . "$1"
+      configure_jvm_proxy > /dev/null
+      [ ! -f "${HOME}/.m2/settings.xml" ]
+      [ ! -f "${HOME}/.gradle/gradle.properties" ]
+      case "${JAVA_TOOL_OPTIONS}" in
+        *-Dhttps.proxyHost=172.30.0.10*) ;;
+        *) exit 1 ;;
+      esac
+    ' _ "${ENTRYPOINT}" 2>/dev/null
+  local result=$?
+  chmod -R u+w "${fake_home}" 2>/dev/null || true
+  rm -rf "${tmp_dir}"
+  return "${result}"
+}
+
+if [ "$(id -u)" -eq 0 ]; then
+  pass "configure_jvm_proxy() read-only home check skipped (running as root)"
+elif run_configure_jvm_proxy_readonly_home_fixture; then
+  pass "configure_jvm_proxy() survives an existing but read-only .m2/.gradle"
+else
+  fail "configure_jvm_proxy() aborts when .m2/.gradle exist on a read-only home"
+fi
+
 echo ""
 echo "Results: ${PASS} passed, ${FAIL} failed"
 

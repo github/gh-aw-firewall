@@ -90,7 +90,9 @@ resolve, including AWF's own `${workDir}-chroot-home` volume for `/host$HOME`.
 An explicitly supplied mount is exempt from that filter: if the caller passes
 `--mount <daemon-visible-home>:$HOME:rw` (the gh-aw compiler does this for
 `${RUNNER_TEMP}/gh-aw/home`), the resulting `/host$HOME` mount is kept, because
-the caller vouches for the source being visible to the daemon.
+the caller vouches for the source being visible to the daemon. The exemption
+matches on both source and target, so AWF's own mounts to the same target stay
+subject to the filter.
 
 A writable `/host$HOME` matters for two reasons:
 

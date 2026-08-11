@@ -116,6 +116,34 @@ describe('optional-services helpers', () => {
       ]);
     });
 
+    it('does not exempt AWF home mounts that merely share a target with an explicit mount', () => {
+      const config: WrapperConfig = {
+        ...baseConfig,
+        workDir: '/tmp/awf-work',
+        volumeMounts: [
+          '/daemon/cache:/home/runner/.cache:rw',
+          '/home/runner/_work/_temp/gh-aw/home:/home/runner:rw',
+        ],
+      };
+
+      const filtered = testHelpers.filterAgentVolumesForSysroot(
+        [
+          '/home/runner/.cache:/host/home/runner/.cache:rw',
+          '/daemon/cache:/host/home/runner/.cache:rw',
+          '/home/runner/_work/_temp/gh-aw/home:/host/home/runner:rw',
+        ],
+        config,
+        '/home/runner',
+      );
+
+      // AWF's own $HOME/.cache bind (runner-side source) is still dropped even
+      // though an explicit mount targets the same path.
+      expect(filtered).toEqual([
+        '/daemon/cache:/host/home/runner/.cache:rw',
+        '/home/runner/_work/_temp/gh-aw/home:/host/home/runner:rw',
+      ]);
+    });
+
     it('skips /host$HOME credential overlays when no writable /host$HOME survives', () => {
       const config: WrapperConfig = {
         ...baseConfig,
