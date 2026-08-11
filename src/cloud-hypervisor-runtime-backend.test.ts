@@ -295,19 +295,25 @@ describe('Cloud Hypervisor runtime backend', () => {
     expect(manager.stop).toHaveBeenCalledTimes(1);
   });
 
-  it('collects diagnostics before stopping on a startup failure, when --diagnostic-logs is set', async () => {
+  it('passes a beforeCleanup diagnostics hook to stop() on a startup failure, when --diagnostic-logs is set', async () => {
     // Regression test: manager.stop() deletes the private run directory
-    // (including the guest serial console log), so collectDiagnostics()
-    // must run BEFORE stop() on a startup failure, or there is nothing
-    // left for it to find. Discovered via live-KVM validation: a guest
-    // boot failure produced completely empty diagnostics artifacts.
+    // (including the guest serial console log) as its final step, but
+    // Cloud Hypervisor also does not flush buffered guest serial console
+    // output until its process actually exits. So collectDiagnostics()
+    // must run as a hook *inside* stop() — after process termination is
+    // confirmed (flushing buffers) but before the run directory is
+    // removed — rather than either before or after stop() entirely.
+    // Discovered via live-KVM validation: a guest boot failure produced
+    // completely empty diagnostics artifacts when collected too early.
     const { manager, deps } = harness();
     const order: string[] = [];
     manager.collectDiagnostics.mockImplementation(async () => {
       order.push('collect-diagnostics');
     });
-    manager.stop.mockImplementation(async () => {
-      order.push('stop');
+    manager.stop.mockImplementation(async (options?: { beforeCleanup?: () => Promise<void> }) => {
+      order.push('stop-process-terminated');
+      await options?.beforeCleanup?.();
+      order.push('stop-directory-removed');
     });
     manager.startInstance.mockRejectedValue(new Error('guest disconnected before readiness'));
     const backend = new CloudHypervisorRuntimeBackend(
@@ -318,10 +324,14 @@ describe('Cloud Hypervisor runtime backend', () => {
     await expect(backend.start('/tmp/awf', ['github.com']))
       .rejects.toThrow('guest disconnected before readiness');
     expect(manager.collectDiagnostics).toHaveBeenCalledTimes(1);
-    expect(order).toEqual(['collect-diagnostics', 'stop']);
+    expect(manager.stop).toHaveBeenCalledTimes(1);
+    expect(manager.stop).toHaveBeenCalledWith(
+      expect.objectContaining({ beforeCleanup: expect.any(Function) }),
+    );
+    expect(order).toEqual(['stop-process-terminated', 'collect-diagnostics', 'stop-directory-removed']);
   });
 
-  it('does not collect diagnostics on a startup failure when --diagnostic-logs is unset', async () => {
+  it('does not pass a diagnostics hook to stop() on a startup failure when --diagnostic-logs is unset', async () => {
     const { manager, deps } = harness();
     manager.startInstance.mockRejectedValue(new Error('guest disconnected before readiness'));
     const backend = new CloudHypervisorRuntimeBackend(
@@ -333,11 +343,17 @@ describe('Cloud Hypervisor runtime backend', () => {
       .rejects.toThrow('guest disconnected before readiness');
     expect(manager.collectDiagnostics).not.toHaveBeenCalled();
     expect(manager.stop).toHaveBeenCalledTimes(1);
+    expect(manager.stop).toHaveBeenCalledWith(
+      expect.objectContaining({ beforeCleanup: undefined }),
+    );
   });
 
   it('surfaces the original startup error even if pre-cleanup diagnostics collection itself fails', async () => {
     const { manager, deps } = harness();
     manager.collectDiagnostics.mockRejectedValue(new Error('diagnostics write failed'));
+    manager.stop.mockImplementation(async (options?: { beforeCleanup?: () => Promise<void> }) => {
+      await options?.beforeCleanup?.();
+    });
     manager.startInstance.mockRejectedValue(new Error('guest disconnected before readiness'));
     const backend = new CloudHypervisorRuntimeBackend(
       config({ diagnosticLogs: true } as Partial<WrapperConfig>),

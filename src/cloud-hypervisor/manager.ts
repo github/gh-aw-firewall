@@ -520,7 +520,7 @@ export class CloudHypervisorManager {
     return this.guestClient.resize(columns, rows, requestId);
   }
 
-  async stop(options: { preserve?: boolean } = {}): Promise<void> {
+  async stop(options: { preserve?: boolean; beforeCleanup?: () => Promise<void> } = {}): Promise<void> {
     const errors: unknown[] = [];
     const instanceWasStarted = this.instanceStarted;
     let guestShutdownAcknowledged = false;
@@ -598,6 +598,22 @@ export class CloudHypervisorManager {
     }
     this.process = undefined;
     this.client = undefined;
+
+    // Run any caller-supplied diagnostics collection now: the Cloud
+    // Hypervisor process is confirmed terminated (so any buffered guest
+    // serial console / log output has been flushed by process exit), but
+    // the run directory containing those files has not been removed yet
+    // (that happens below). Collecting diagnostics any earlier (e.g.
+    // before vmm.shutdown()/process termination above) can observe a
+    // still-empty serial console log, since Cloud Hypervisor does not
+    // guarantee flushing it before the process actually exits.
+    if (options.beforeCleanup) {
+      try {
+        await options.beforeCleanup();
+      } catch (error) {
+        errors.push(error);
+      }
+    }
 
     if (this.workspace && instanceWasStarted) {
       try {

@@ -609,6 +609,100 @@ describe('CloudHypervisorManager', () => {
     expect(cgroup.cleanup).toHaveBeenCalledTimes(1);
   });
 
+  it('invokes a beforeCleanup hook after process termination but before run-directory removal', async () => {
+    // Regression test: Cloud Hypervisor does not flush buffered guest
+    // serial console output until its process actually exits, so
+    // diagnostics collection must happen after process termination is
+    // confirmed but before stop() removes the run directory those
+    // diagnostic files live in. Discovered via live-KVM validation: a
+    // guest boot failure produced a completely empty serial console log
+    // when diagnostics were collected any earlier (e.g. before
+    // vmm.shutdown()/process termination).
+    const child = processMock();
+    const workspace = {
+      prepare: jest.fn().mockResolvedValue({
+        workspaceImagePath: '/tmp/prepared-workspace.ext4',
+        rootfsImagePath: '/tmp/prepared-rootfs.ext4',
+        imageBytes: 1024,
+        originalManifest: new Map(),
+      }),
+      extractAfterStop: jest.fn().mockResolvedValue(undefined),
+      cleanup: jest.fn().mockResolvedValue(undefined),
+    } as unknown as MicrovmWorkspaceImage;
+    const deps = dependencies({
+      launch: jest.fn().mockReturnValue(child),
+      createWorkspaceImage: jest.fn().mockReturnValue(workspace),
+    });
+    const manager = new CloudHypervisorManager(
+      config(),
+      '/tmp/awf',
+      deps,
+      'keep',
+      networkConfig(),
+      {
+        workspacePath: '/workspace',
+        homePath: '/home/runner',
+        supervisorBinaryPath: '/opt/awf-supervisor',
+        supervisorSha256: 'a'.repeat(64),
+      },
+    );
+    await manager.start();
+
+    const beforeCleanup = jest.fn(async () => {});
+
+    await manager.stop({ beforeCleanup });
+
+    expect(beforeCleanup).toHaveBeenCalledTimes(1);
+    expect(deps.rm).toHaveBeenCalledTimes(1);
+    // beforeCleanup must run strictly before the run-directory removal
+    // call (deps.rm), i.e. after process termination is confirmed but
+    // before diagnostic files are deleted.
+    const rmCallOrder = (deps.rm as jest.Mock).mock.invocationCallOrder[0];
+    expect(beforeCleanup.mock.invocationCallOrder[0]).toBeLessThan(rmCallOrder);
+  });
+
+  it('propagates a beforeCleanup hook failure alongside other stop() errors', async () => {
+    const child = processMock();
+    const workspace = {
+      prepare: jest.fn().mockResolvedValue({
+        workspaceImagePath: '/tmp/prepared-workspace.ext4',
+        rootfsImagePath: '/tmp/prepared-rootfs.ext4',
+        imageBytes: 1024,
+        originalManifest: new Map(),
+      }),
+      extractAfterStop: jest.fn().mockResolvedValue(undefined),
+      cleanup: jest.fn().mockResolvedValue(undefined),
+    } as unknown as MicrovmWorkspaceImage;
+    const deps = dependencies({
+      launch: jest.fn().mockReturnValue(child),
+      createWorkspaceImage: jest.fn().mockReturnValue(workspace),
+    });
+    const manager = new CloudHypervisorManager(
+      config(),
+      '/tmp/awf',
+      deps,
+      'keep',
+      networkConfig(),
+      {
+        workspacePath: '/workspace',
+        homePath: '/home/runner',
+        supervisorBinaryPath: '/opt/awf-supervisor',
+        supervisorSha256: 'a'.repeat(64),
+      },
+    );
+    await manager.start();
+
+    await expect(
+      manager.stop({
+        beforeCleanup: async () => {
+          throw new Error('diagnostics write failed');
+        },
+      }),
+    ).rejects.toThrow(/diagnostics write failed/);
+    // Run-directory removal must still proceed even if beforeCleanup fails.
+    expect(deps.rm).toHaveBeenCalledTimes(1);
+  });
+
   it('builds explicit supervisor boot cmdline with PCI-required root/interface naming', () => {
     const args = buildSupervisorBootArgs({
       runId: 'run',

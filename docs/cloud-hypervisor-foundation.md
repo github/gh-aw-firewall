@@ -553,6 +553,18 @@ exhausted. If it persists, check the guest serial console log
 supervisor startup failure rather than assuming it is purely a timing
 issue.
 
+When `--diagnostic-logs` is set, `CloudHypervisorRuntimeBackend.start()`'s
+failure path collects diagnostics via a `beforeCleanup` hook passed to
+`CloudHypervisorManager.stop()`, invoked after the Cloud Hypervisor process
+is confirmed terminated but before `stop()` removes the private run
+directory those diagnostic files live in. This ordering matters: Cloud
+Hypervisor does not guarantee flushing buffered guest serial console
+output to disk until its own process actually exits (`vmm.shutdown()`
+alone is not sufficient), so collecting diagnostics any earlier — e.g.
+before the process is terminated at all — can observe a still-empty
+`serial.log` even when the guest did write to its console before crashing
+or hanging.
+
 **`Cloud Hypervisor requires a non-root target uid/gid`**
 
 Same as Firecracker's jailer requirement: run through `sudo` from a

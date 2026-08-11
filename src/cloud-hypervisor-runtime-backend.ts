@@ -53,7 +53,7 @@ interface CloudHypervisorManagerAdapter {
   cancel(reason?: string, requestId?: string): Promise<void>;
   writeStdin(data: Buffer, requestId?: string): Promise<void>;
   endStdin(requestId?: string): Promise<void>;
-  stop(options?: { preserve?: boolean }): Promise<void>;
+  stop(options?: { preserve?: boolean; beforeCleanup?: () => Promise<void> }): Promise<void>;
   collectDiagnostics(directory: string): Promise<void>;
 }
 
@@ -217,22 +217,30 @@ export class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBacken
         `[cloud-hypervisor] stage=${stage} status=failed: ${formatError(error)}`,
       );
       // Collect diagnostics (guest serial console, Cloud Hypervisor log,
-      // network plan, counters) before stop() deletes the private run
-      // directory below. Without this, a startup failure leaves nothing
-      // for the outer, --diagnostic-logs-gated collectDiagnostics() call
-      // (invoked later, from the CLI's cleanup path) to find — it would
-      // silently no-op on now-ENOENT paths.
-      if (this.config.diagnosticLogs && this.manager) {
-        try {
-          await this.collectDiagnostics();
-        } catch (diagnosticsError) {
-          this.dependencies.logger.warn(
-            `[cloud-hypervisor] failed to collect pre-cleanup diagnostics: ${formatError(diagnosticsError)}`,
-          );
-        }
-      }
+      // network plan, counters) once the Cloud Hypervisor process is
+      // confirmed terminated but before stop() deletes the private run
+      // directory. Collecting any earlier (before the process actually
+      // exits) can observe a still-empty guest serial console log, since
+      // Cloud Hypervisor does not guarantee flushing buffered console
+      // output to disk until the process exits. Without this hook at all,
+      // a startup failure would leave nothing for the outer,
+      // --diagnostic-logs-gated collectDiagnostics() call (invoked later,
+      // from the CLI's cleanup path) to find — it would silently no-op on
+      // now-ENOENT paths.
+      const collectPreCleanupDiagnostics =
+        this.config.diagnosticLogs && this.manager
+          ? async () => {
+              try {
+                await this.collectDiagnostics();
+              } catch (diagnosticsError) {
+                this.dependencies.logger.warn(
+                  `[cloud-hypervisor] failed to collect pre-cleanup diagnostics: ${formatError(diagnosticsError)}`,
+                );
+              }
+            }
+          : undefined;
       try {
-        await this.manager?.stop();
+        await this.manager?.stop({ beforeCleanup: collectPreCleanupDiagnostics });
       } catch (cleanupError) {
         const combined = new Error(
           `Cloud Hypervisor startup failed: ${formatError(error)}; ` +
