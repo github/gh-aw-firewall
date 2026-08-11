@@ -70,8 +70,13 @@ function filterAgentVolumesForSysroot(
   ]);
   const normalizedWorkDirPrefix = config.workDir.replace(/\/+$/, '');
   const hostHomeMountPrefix = `/host${effectiveHome}`;
+  // Targets of explicitly supplied `--mount` specs.  Their sources are chosen by
+  // the caller (the gh-aw compiler or the user), who asserts the Docker daemon
+  // can resolve them, so they must survive the sysroot filter even when they
+  // target the chroot home root.
+  const explicitMountTargets = collectCustomMountTargets(config.volumeMounts);
 
-  return agentVolumes.filter(volume => {
+  const filtered = agentVolumes.filter(volume => {
     const parts = volume.split(':');
     if (parts.length < 2) return true; // Keep malformed entries unchanged
     const source = parts[0];
@@ -95,7 +100,14 @@ function filterAgentVolumesForSysroot(
     // Drop home dot-directory mounts (e.g. .cache, .config) — sysroot provides them.
     // Keep workspace/work paths (e.g. _work/_temp/gh-aw) since those are user-supplied
     // custom mounts or tool-cache mounts that the sysroot doesn't provide.
-    if (source.startsWith(effectiveHome) && target.startsWith(hostHomeMountPrefix)) {
+    // Keep explicitly supplied `--mount` targets: the caller vouches for their
+    // daemon visibility, and a writable `/host$HOME` is required for the
+    // credential-hiding overlays and the agent entrypoint to work.
+    if (
+      source.startsWith(effectiveHome) &&
+      target.startsWith(hostHomeMountPrefix) &&
+      !explicitMountTargets.has(target)
+    ) {
       const normalizedSource = source.replace(/\/+$/, '') || '/';
       const relPath = normalizedSource.slice(effectiveHome.length);
       if (relPath.startsWith('/.') || relPath === '') return false;
@@ -103,6 +115,65 @@ function filterAgentVolumesForSysroot(
 
     return true;
   });
+
+  return dropUnbackedHostHomeOverlays(filtered, hostHomeMountPrefix);
+}
+
+/**
+ * Collects the chroot-adjusted container targets of explicitly supplied
+ * `--mount` specs (`buildCustomVolumeMounts` prefixes targets with `/host`).
+ */
+function collectCustomMountTargets(volumeMounts?: string[]): Set<string> {
+  const targets = new Set<string>();
+  for (const mount of volumeMounts || []) {
+    const parts = mount.split(':');
+    if (parts.length < 2) continue;
+    const containerPath = (parts[1] || '').replace(/\/+$/, '');
+    if (!containerPath) continue;
+    targets.add(containerPath);
+    if (!containerPath.startsWith('/host/') && containerPath !== '/host') {
+      targets.add(`/host${containerPath}`);
+    }
+  }
+  return targets;
+}
+
+/**
+ * Removes `/dev/null` credential overlays under `/host$HOME` when no writable
+ * mount backs that path.  Without a writable parent, runc cannot create the
+ * mountpoint and the agent container fails to start.  The equivalent overlays
+ * at the un-prefixed `$HOME` path (on the container's own rootfs) are kept.
+ */
+function dropUnbackedHostHomeOverlays(volumes: string[], hostHomeMountPrefix: string): string[] {
+  const hasWritableHostHome = volumes.some(volume => {
+    const parts = volume.split(':');
+    if (parts.length < 2) return false;
+    if (parts[0] === '/dev/null') return false;
+    const target = (parts[1] || '').replace(/\/+$/, '');
+    const mode = parts[2] || 'rw';
+    return target === hostHomeMountPrefix && mode !== 'ro';
+  });
+
+  if (hasWritableHostHome) return volumes;
+
+  const overlayPrefix = `${hostHomeMountPrefix}/`;
+  const kept = volumes.filter(volume => {
+    const parts = volume.split(':');
+    if (parts.length < 2) return true;
+    return !(parts[0] === '/dev/null' && (parts[1] || '').startsWith(overlayPrefix));
+  });
+
+  const dropped = volumes.length - kept.length;
+  if (dropped > 0) {
+    logger.warn(
+      `No writable ${hostHomeMountPrefix} mount survived the sysroot filter; skipping ${dropped} ` +
+      'credential-hiding overlay(s) under that path (the container could not start otherwise). ' +
+      'Credential files under the chroot home are NOT masked for this run — pass a writable ' +
+      `--mount <host-home>:${hostHomeMountPrefix.replace(/^\/host/, '')}:rw to restore masking.`,
+    );
+  }
+
+  return kept;
 }
 
 function assembleSysrootService(

@@ -189,4 +189,9 @@ describe('buildCustomVolumeMounts', () => {
     const result = buildCustomVolumeMounts(['/a:/b', '/c:/d:ro', 'named']);
     expect(result).toEqual(['/a:/host/b', '/c:/host/d:ro', 'named']);
   });
+
+  it('does not double-prefix targets that already start with /host', () => {
+    const result = buildCustomVolumeMounts(['/data:/host/data:ro', '/root:/host']);
+    expect(result).toEqual(['/data:/host/data:ro', '/root:/host']);
+  });
 });

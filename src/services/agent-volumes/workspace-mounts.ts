@@ -114,7 +114,13 @@ export function buildCustomVolumeMounts(
       const hostPath = parts[0];
       const containerPath = parts[1];
       const mode = parts[2] || '';
-      const chrootContainerPath = `/host${containerPath}`;
+      // Targets that already carry the chroot prefix (some callers emit both an
+      // un-prefixed and a `/host`-prefixed mount) must not be prefixed again,
+      // otherwise they land at `/host/host/…` and mount nothing meaningful.
+      const chrootContainerPath =
+        containerPath === '/host' || containerPath.startsWith('/host/')
+          ? containerPath
+          : `/host${containerPath}`;
       const transformedMount = mode
         ? `${hostPath}:${chrootContainerPath}:${mode}`
         : `${hostPath}:${chrootContainerPath}`;

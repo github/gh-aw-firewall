@@ -333,8 +333,9 @@ if [ -n "$HTTP_PROXY" ]; then
 
   # Maven proxy config (~/.m2/settings.xml)
   # Only create if the file does not already exist, to avoid clobbering user-provided settings
-  mkdir -p "${JVM_HOME_PREFIX}/.m2"
-  if [ ! -f "${JVM_HOME_PREFIX}/.m2/settings.xml" ]; then
+  if ! mkdir -p "${JVM_HOME_PREFIX}/.m2" 2>/dev/null; then
+    echo "[entrypoint] ⚠ Cannot create ${JVM_HOME_PREFIX}/.m2 (read-only home); skipping Maven proxy config"
+  elif [ ! -f "${JVM_HOME_PREFIX}/.m2/settings.xml" ]; then
     cat > "${JVM_HOME_PREFIX}/.m2/settings.xml" << MAVEN_EOF
 <settings>
   <proxies>
@@ -364,8 +365,9 @@ MAVEN_EOF
   # Gradle proxy config (~/.gradle/gradle.properties)
   # Only create if the file does not already exist, to avoid clobbering user-provided settings
   # (e.g., org.gradle.jvmargs, build cache settings, private repo credentials)
-  mkdir -p "${JVM_HOME_PREFIX}/.gradle"
-  if [ ! -f "${JVM_HOME_PREFIX}/.gradle/gradle.properties" ]; then
+  if ! mkdir -p "${JVM_HOME_PREFIX}/.gradle" 2>/dev/null; then
+    echo "[entrypoint] ⚠ Cannot create ${JVM_HOME_PREFIX}/.gradle (read-only home); skipping Gradle proxy config"
+  elif [ ! -f "${JVM_HOME_PREFIX}/.gradle/gradle.properties" ]; then
     cat > "${JVM_HOME_PREFIX}/.gradle/gradle.properties" << GRADLE_EOF
 systemProp.http.proxyHost=${PROXY_HOST}
 systemProp.http.proxyPort=${PROXY_PORT}
