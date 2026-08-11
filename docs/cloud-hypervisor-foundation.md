@@ -788,6 +788,43 @@ to) the microVM's own table, and could independently drop or redirect
 traffic on this shared bridge in a way the microVM's own counters would
 never reveal. This is the next concrete lead to check against a live run.
 
+**Update**: a follow-up live run's host-level ruleset showed Docker's
+`DOCKER-ISOLATION-STAGE-1`/`DOCKER-FORWARD` chains present for the
+infrastructure bridge (confirmed as ours by its subnet-based isolation
+rule, `ip saddr != 172.30.0.0/24 ... drop`, matching AWF's real subnet),
+but neither of its two explicit anti-cross-network drop rules showed any
+hits (0/0), and the one same-bridge accept rule
+(`iifname X oifname X accept`, matching guest↔Squid intra-bridge traffic)
+also showed exactly zero hits across the whole run — inconclusive on its
+own, since 0 hits doesn't distinguish "never reached this rule" from
+"reached but something upstream already handled it".
+
+Given Firecracker uses this exact same shared netns/bridge/nftables/veth
+code and its own live-KVM CI is green, the bridge/Docker-isolation path
+itself is very unlikely to be broken in a way specific to this scenario.
+The next most likely explanation, consistent with everything observed so
+far (guest boot needing a 90s budget for what should be sub-second AP
+bring-up; the connectivity probe needing the same generous budget with
+only marginal improvement from 5s→90s; a bare handful of tap packets
+relayed regardless of how long the test waits): `CloudHypervisorCgroup`
+sized the CPU quota as exactly "1 CPU per configured vCPU"
+(`vcpuCount * CGROUP_V2_PERIOD_US`), but Cloud Hypervisor's own I/O,
+virtio device emulation (including the tap fd read/write loop for the
+guest's network device), and API threads all run in that *same* cgroup as
+the vCPU thread(s) and compete for the *same* quota. Under nested KVM on
+GitHub-hosted runners (where vCPU exits are unusually expensive), the
+vCPU thread alone can consume most of an already-tight, vCPU-only-sized
+quota, starving the VMM's own non-vCPU threads (including the one
+relaying guest network I/O) of their share — independent of wall-clock
+timeout length, matching why raising timeouts alone barely helped.
+
+Added a fixed `CGROUP_CPU_HEADROOM_QUOTA_US` (one additional full
+CPU-equivalent, `100_000`us per period) on top of the per-vCPU quota,
+mirroring the existing `CGROUP_MEMORY_HEADROOM_MIB` pattern for the same
+"VMM overhead needs room beyond what's sized for the guest alone" reason.
+Not yet confirmed as the fix — the next live run will show whether guest
+network I/O throughput changes.
+
 **`Cloud Hypervisor requires a non-root target uid/gid`**
 
 Same as Firecracker's jailer requirement: run through `sudo` from a

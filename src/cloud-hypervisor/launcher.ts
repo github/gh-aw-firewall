@@ -200,6 +200,22 @@ export interface CloudHypervisorResourceLimits {
 
 /** Fixed VMM/guest-overhead headroom added on top of configured guest memory. */
 const CGROUP_MEMORY_HEADROOM_MIB = 256;
+/**
+ * Fixed CPU headroom (in the same units as `CGROUP_V2_PERIOD_US`) added on
+ * top of the per-vCPU quota. Cloud Hypervisor's own I/O, virtio device
+ * emulation (including the tap fd read/write loop for the guest's
+ * network device), and API threads all run in this *same* cgroup as the
+ * vCPU thread(s) and compete for the *same* CPU quota -- a quota sized
+ * for "1 CPU per vCPU" alone left no dedicated room for that VMM-side
+ * work. Live-KVM validation on GitHub-hosted runners (nested KVM, so
+ * vCPU exits are unusually expensive) showed guest network I/O
+ * essentially stalled (a handful of packets relayed regardless of how
+ * long the test waited) even after ruling out tap/vnet_hdr negotiation,
+ * conntrack/offload, and Docker bridge-isolation causes -- consistent
+ * with the VMM's own non-vCPU threads being starved of their share of an
+ * already-tight, vCPU-only-sized quota.
+ */
+const CGROUP_CPU_HEADROOM_QUOTA_US = 100_000;
 /** Bounds the number of Cloud Hypervisor host threads/tasks (defense in depth; it is a single process). */
 const CGROUP_MAX_PIDS = 256;
 const CGROUP_V2_PERIOD_US = 100_000;
@@ -270,7 +286,7 @@ export class CloudHypervisorCgroup {
     this.created = true;
 
     const memoryMaxBytes = (this.limits.memoryMib + CGROUP_MEMORY_HEADROOM_MIB) * 1024 * 1024;
-    const cpuQuotaUs = this.limits.vcpuCount * CGROUP_V2_PERIOD_US;
+    const cpuQuotaUs = this.limits.vcpuCount * CGROUP_V2_PERIOD_US + CGROUP_CPU_HEADROOM_QUOTA_US;
     await this.dependencies.writeFile(path.join(this.cgroupPath, 'memory.max'), String(memoryMaxBytes));
     await this.dependencies.writeFile(
       path.join(this.cgroupPath, 'cpu.max'),

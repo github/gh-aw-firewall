@@ -190,7 +190,9 @@ describe('CloudHypervisorCgroup', () => {
     );
     expect(deps.writeFile).toHaveBeenCalledWith(
       '/sys/fs/cgroup/awf-cloud-hypervisor/run-1/cpu.max',
-      '200000 100000',
+      // (2 vCPUs * 100000us/period) + 100000us fixed VMM-thread headroom
+      // (I/O, virtio device emulation, API) -- see CGROUP_CPU_HEADROOM_QUOTA_US.
+      '300000 100000',
     );
     expect(deps.writeFile).toHaveBeenCalledWith(
       '/sys/fs/cgroup/awf-cloud-hypervisor/run-1/pids.max',
