@@ -334,7 +334,7 @@ export class LinuxNetworkCommands {
       const stdout = (result as { stdout?: unknown } | undefined)?.stdout;
       return typeof stdout === 'string' ? stdout.trim() : '';
     };
-    const [fdb, hostNftRuleset, hostIptablesRules] = await Promise.all([
+    const [fdb, hostNftRuleset, hostIptablesRules, bridgeNfSysctls] = await Promise.all([
       run('bridge', ['fdb', 'show', 'br', bridgeName]),
       // Docker (and any other host-level firewall) manages its own
       // iptables/nftables rules in the *default* (root) network
@@ -348,6 +348,19 @@ export class LinuxNetworkCommands {
       // iptables/xtables depending on the host, so both are captured.
       run(this.tools.nft, ['-a', 'list', 'ruleset']),
       run('iptables', ['-S']),
+      // If bridge-netfilter isn't wired up (kernel module not loaded, or
+      // its sysctls disabled), bridged traffic never traverses the
+      // iptables/nftables FORWARD hook at all -- it is forwarded purely
+      // at L2 -- which would make every rule/counter captured above
+      // (both ours and Docker's) irrelevant to what is actually
+      // happening to this bridge's traffic, and would explain a
+      // correctly-installed, correctly-targeted accept rule never
+      // matching any packets.
+      run('sysctl', [
+        'net.bridge.bridge-nf-call-iptables',
+        'net.bridge.bridge-nf-call-ip6tables',
+        'net.bridge.bridge-nf-call-arptables',
+      ]),
     ]);
     return [
       `--- bridge fdb show br ${bridgeName} (host-side, outside any netns) ---`,
@@ -356,6 +369,8 @@ export class LinuxNetworkCommands {
       hostNftRuleset || '(empty or unavailable)',
       '--- iptables -S (host/default namespace, e.g. Docker-managed legacy iptables rules) ---',
       hostIptablesRules || '(empty or unavailable)',
+      '--- sysctl net.bridge.bridge-nf-call-* (is bridged traffic even seen by netfilter?) ---',
+      bridgeNfSysctls || '(empty, unavailable, or the bridge kernel module is not loaded)',
     ].join('\n');
   }
 }

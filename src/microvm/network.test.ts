@@ -696,13 +696,16 @@ describe('LinuxNetworkCommands.captureHostBridgeDiagnostics', () => {
   // a way the microVM's own nftables counters would never reveal, so this
   // capture must also check the host-level ruleset (both nft and legacy
   // iptables, since Docker may configure either backend).
-  it('combines bridge fdb, host nftables ruleset, and legacy iptables rules', async () => {
+  it('combines bridge fdb, host nftables ruleset, legacy iptables rules, and bridge-netfilter sysctls', async () => {
     const commands = new LinuxNetworkCommands(
       jest.fn(async (command, args) => {
         if (command === 'bridge') return { stdout: 'aa:bb:cc:dd:ee:ff dev vethX master awfbr0' };
         if (command === 'nft') return { stdout: 'table ip docker { ... }' };
         if (command === 'iptables' && args.includes('-S')) {
           return { stdout: '-P FORWARD DROP\n-A DOCKER-USER -j RETURN' };
+        }
+        if (command === 'sysctl') {
+          return { stdout: 'net.bridge.bridge-nf-call-iptables = 1\nnet.bridge.bridge-nf-call-ip6tables = 1' };
         }
         return { stdout: '' };
       }),
@@ -716,6 +719,8 @@ describe('LinuxNetworkCommands.captureHostBridgeDiagnostics', () => {
     expect(result).toContain('table ip docker');
     expect(result).toContain('--- iptables -S (host/default namespace');
     expect(result).toContain('-P FORWARD DROP');
+    expect(result).toContain('--- sysctl net.bridge.bridge-nf-call-* ');
+    expect(result).toContain('net.bridge.bridge-nf-call-iptables = 1');
   });
 
   it('never throws and reports unavailability when a command fails', async () => {
