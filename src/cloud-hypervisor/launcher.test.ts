@@ -120,11 +120,13 @@ describe('CloudHypervisorCgroup', () => {
     mkdir: jest.Mock;
     writeFile: jest.Mock;
     rmdir: jest.Mock;
+    sleep: jest.Mock;
   } {
     return {
       mkdir: jest.fn().mockResolvedValue(undefined),
       writeFile: jest.fn().mockResolvedValue(undefined),
       rmdir: jest.fn().mockResolvedValue(undefined),
+      sleep: jest.fn().mockResolvedValue(undefined),
     };
   }
 
@@ -216,5 +218,70 @@ describe('CloudHypervisorCgroup', () => {
     await cgroup.cleanup();
     expect(deps.rmdir).toHaveBeenCalledWith('/sys/fs/cgroup/awf-cloud-hypervisor/run-1');
     expect(deps.rmdir).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries cleanup on EBUSY (cgroup v2 teardown race) until it succeeds', async () => {
+    // Regression test: live-KVM validation observed "Cloud Hypervisor
+    // cgroup residue remains after cleanup" after a guest-connectivity
+    // failure led to immediate teardown. cgroup v2 can reject rmdir()
+    // with EBUSY for a brief window after a process exits (memory
+    // controller charge-migration teardown lags process-exit slightly),
+    // even though stop() only calls cleanup() once process termination is
+    // already confirmed. Retry briefly instead of leaving residue.
+    const deps = dependencies();
+    const ebusy = Object.assign(new Error('rmdir failed'), { code: 'EBUSY' });
+    deps.rmdir
+      .mockRejectedValueOnce(ebusy)
+      .mockRejectedValueOnce(ebusy)
+      .mockResolvedValueOnce(undefined);
+    const cgroup = new CloudHypervisorCgroup(
+      '/sys/fs/cgroup/awf-cloud-hypervisor/run-1',
+      { memoryMib: 512, vcpuCount: 2 },
+      deps,
+    );
+    await cgroup.setup();
+
+    await cgroup.cleanup();
+
+    expect(deps.rmdir).toHaveBeenCalledTimes(3);
+    expect(deps.sleep).toHaveBeenCalledTimes(2);
+  });
+
+  it('gives up and surfaces the error once EBUSY persists past the retry budget', async () => {
+    const deps = dependencies();
+    const ebusy = Object.assign(new Error('rmdir failed'), { code: 'EBUSY' });
+    let now = 1_000_000;
+    jest.spyOn(Date, 'now').mockImplementation(() => now);
+    deps.rmdir.mockImplementation(async () => {
+      now += 2_000; // simulate elapsed time exceeding the retry budget
+      throw ebusy;
+    });
+    const cgroup = new CloudHypervisorCgroup(
+      '/sys/fs/cgroup/awf-cloud-hypervisor/run-1',
+      { memoryMib: 512, vcpuCount: 2 },
+      deps,
+    );
+    await cgroup.setup();
+
+    try {
+      await expect(cgroup.cleanup()).rejects.toThrow('rmdir failed');
+    } finally {
+      (Date.now as jest.Mock).mockRestore();
+    }
+  });
+
+  it('does not retry and immediately surfaces non-EBUSY cleanup errors', async () => {
+    const deps = dependencies();
+    deps.rmdir.mockRejectedValue(Object.assign(new Error('permission denied'), { code: 'EACCES' }));
+    const cgroup = new CloudHypervisorCgroup(
+      '/sys/fs/cgroup/awf-cloud-hypervisor/run-1',
+      { memoryMib: 512, vcpuCount: 2 },
+      deps,
+    );
+    await cgroup.setup();
+
+    await expect(cgroup.cleanup()).rejects.toThrow('permission denied');
+    expect(deps.rmdir).toHaveBeenCalledTimes(1);
+    expect(deps.sleep).not.toHaveBeenCalled();
   });
 });

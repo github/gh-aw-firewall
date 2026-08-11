@@ -204,6 +204,19 @@ const CGROUP_MEMORY_HEADROOM_MIB = 256;
 const CGROUP_MAX_PIDS = 256;
 const CGROUP_V2_PERIOD_US = 100_000;
 const CGROUP_V2_CONTROLLERS = '+cpu +memory +pids';
+/**
+ * cgroup v2 rejects `rmdir()` on a non-empty cgroup (`EBUSY`) not only
+ * while a process is still a live member, but also for a short window
+ * after that process has fully exited: charge migration/accounting
+ * teardown for the memory controller can lag process-exit by a handful of
+ * milliseconds under load. `stop()` only calls `cleanup()` once process
+ * termination is already confirmed, so any EBUSY here is this teardown
+ * race, not a leaked process -- retry briefly instead of leaving residue.
+ * Observed live: "Cloud Hypervisor cgroup residue remains after cleanup"
+ * following a guest connectivity-probe failure and immediate teardown.
+ */
+const CGROUP_REMOVAL_RETRY_INTERVAL_MS = 100;
+const CGROUP_REMOVAL_MAX_WAIT_MS = 5_000;
 
 export interface CloudHypervisorCgroupDependencies {
   mkdir(directory: string): Promise<unknown>;
@@ -212,12 +225,14 @@ export interface CloudHypervisorCgroupDependencies {
    * controller/interface files are virtual and cannot be `unlink()`ed, so
    * this must be a plain `rmdir`, not a recursive tree removal. */
   rmdir(directory: string): Promise<void>;
+  sleep(milliseconds: number): Promise<void>;
 }
 
 const defaultCgroupDependencies: CloudHypervisorCgroupDependencies = {
   mkdir: (directory) => fs.mkdir(directory, { recursive: true, mode: 0o700 }),
   writeFile: (filePath, contents) => fs.writeFile(filePath, contents),
   rmdir: (directory) => fs.rmdir(directory),
+  sleep: (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
 };
 
 /**
@@ -273,8 +288,18 @@ export class CloudHypervisorCgroup {
 
   async cleanup(): Promise<void> {
     if (!this.created) return;
-    await this.dependencies.rmdir(this.cgroupPath);
-    this.created = false;
+    const deadline = Date.now() + CGROUP_REMOVAL_MAX_WAIT_MS;
+    for (;;) {
+      try {
+        await this.dependencies.rmdir(this.cgroupPath);
+        this.created = false;
+        return;
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException | undefined)?.code;
+        if (code !== 'EBUSY' || Date.now() >= deadline) throw error;
+        await this.dependencies.sleep(CGROUP_REMOVAL_RETRY_INTERVAL_MS);
+      }
+    }
   }
 
   private async enableControllers(directory: string): Promise<void> {

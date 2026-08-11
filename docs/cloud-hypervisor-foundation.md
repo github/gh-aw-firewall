@@ -645,6 +645,20 @@ Same as Firecracker's jailer requirement: run through `sudo` from a
 non-root account so `SUDO_UID`/`SUDO_GID` are set — see
 [Firecracker's Part 15](./firecracker-integration.md#preflight-failures).
 
+**Cgroup residue remains after cleanup (fixed; historical)**
+
+Live-KVM validation observed `Cloud Hypervisor cgroup residue remains
+after cleanup` following a guest-connectivity-probe failure and immediate
+teardown. `CloudHypervisorCgroup.cleanup()` called `rmdir()` on the leaf
+cgroup exactly once; cgroup v2 rejects `rmdir()` on a non-empty cgroup
+with `EBUSY` not only while a process is still a live member, but also for
+a short window *after* that process has fully exited — the memory
+controller's charge-migration teardown can lag process-exit by a handful
+of milliseconds under load, even though `stop()` only calls `cleanup()`
+once process termination is already confirmed. Fixed by retrying `rmdir()`
+on `EBUSY` for up to 5 seconds (100ms interval) before giving up; any
+other error (e.g. `EACCES`) still fails immediately, unretried.
+
 **Namespace, cgroup, and process residue after a failed run:**
 
 ```bash
