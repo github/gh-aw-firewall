@@ -41,8 +41,16 @@ function mergeRepositories(entries: RawEnclaveEntry[]): EnclaveRepository[] {
 
 function entryCommon(entry: RawEnclaveEntry | undefined): object {
   if (!entry) return {};
-  const { script: _script, agent: _agent, repos: _repos, timeout: _timeout, ...common } = entry;
-  return common;
+  return {
+    ...(entry.runtime !== undefined && { runtime: entry.runtime }),
+    ...(entry.image !== undefined && { image: entry.image }),
+    ...(entry.memoryLimit !== undefined && { memoryLimit: entry.memoryLimit }),
+    ...(entry.cpuLimit !== undefined && { cpuLimit: entry.cpuLimit }),
+    ...(entry.pidsLimit !== undefined && { pidsLimit: entry.pidsLimit }),
+    ...(entry.tmpfsLimit !== undefined && { tmpfsLimit: entry.tmpfsLimit }),
+    ...(entry.maxOutputBytes !== undefined && { maxOutputBytes: entry.maxOutputBytes }),
+    ...(entry.maxInvocations !== undefined && { maxInvocations: entry.maxInvocations }),
+  };
 }
 
 /**
