@@ -77,7 +77,15 @@ run_case() {
     tail -200 "$RUN_ROOT/$name/stderr.log" >&2
     return 1
   fi
+  # awf-resolved-config.json's own agentCommand field always contains
+  # this case's shell command verbatim; for api-proxy-reflect that
+  # command intentionally references the sentinel string itself (the
+  # pattern it greps for, to assert the sentinel's absence from `env`).
+  # That is expected, self-referential test source text, not a leak of
+  # the sentinel value into somewhere it shouldn't be -- guest stdout,
+  # proxy logs, and every other diagnostic file are still fully scanned.
   if grep -R --binary-files=without-match -F "$SECRET_SENTINEL" \
+    --exclude='awf-resolved-config.json' \
     "$RUN_ROOT/$name/stdout.log" \
     "$audit" \
     "$proxy_logs" >/dev/null 2>&1; then

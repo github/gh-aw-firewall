@@ -197,8 +197,19 @@ jobs:
                 -print0
             )
           fi
+          # awf-resolved-config.json's agentCommand field always contains the
+          # smoke test's own shell command verbatim -- and this specific
+          # command (the api-proxy-reflect case) intentionally references
+          # the sentinel string itself as the pattern it greps for, to
+          # assert the sentinel is absent from `env`. That is expected,
+          # self-referential test source text, not a leak of the sentinel
+          # *value* into somewhere it shouldn't be (guest console output,
+          # network captures, proxy logs, etc. are all still fully scanned
+          # below) -- so this one, known, always-matching file is excluded
+          # from the scan rather than silently disabling it everywhere.
           if grep -R --binary-files=without-match \
             -F 'awf-cloud-hypervisor-real-secret-do-not-expose' \
+            --exclude='awf-resolved-config.json' \
             "$destination"; then
             echo "::error::Secret sentinel found in diagnostic artifacts"
             rm -rf "$destination"
