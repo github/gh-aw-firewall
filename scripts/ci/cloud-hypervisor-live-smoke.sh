@@ -66,6 +66,20 @@ COMMON=(
   --cloud-hypervisor-kernel-sha256 "$(digest vmlinux.bin)"
   --cloud-hypervisor-rootfs-sha256 "$(digest rootfs.ext4)"
   --cloud-hypervisor-supervisor-sha256 "$(digest awf-supervisor)"
+  # Single vCPU: GitHub-hosted Ubuntu runners run under nested
+  # virtualization (Cloud Hypervisor itself logs "Running under nested
+  # virtualisation. Hypervisor string: Microsoft Hv" there). Live validation
+  # showed the guest kernel's boot stalling for 90+ real seconds right after
+  # "kvm-guest: setup PV IPIs" — the point where a >1-vCPU guest starts
+  # bringing up its secondary (AP) CPUs via inter-processor interrupts.
+  # Local APIC / IPI virtualization for a *nested* (L2) guest is not
+  # hardware-accelerated the way it is for an L1 guest on this class of
+  # infrastructure, so AP bring-up traps all the way up to the L0 host and
+  # back for every step — a well-known, order-of-magnitude nested-KVM SMP
+  # penalty, not a Cloud Hypervisor or AWF defect. A single-vCPU guest never
+  # reaches that code path at all. See docs/cloud-hypervisor-foundation.md
+  # Part 15 for the full analysis.
+  --cloud-hypervisor-vcpus 1
   --allow-domains example.com
   --skip-pull
   --diagnostic-logs

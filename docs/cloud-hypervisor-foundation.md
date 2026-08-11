@@ -553,17 +553,31 @@ exhausted. If it persists, check the guest serial console log
 supervisor startup failure rather than assuming it is purely a timing
 issue.
 
-The 90-second budget is deliberately generous, not a tight few-second
-timeout. Live validation on GitHub-hosted Ubuntu runners showed the guest
-kernel's own boot-log clock advancing far slower than host wall-clock time
-during early PCI/virtio device enumeration — multiple seconds of real
-elapsed time per device, with Cloud Hypervisor's own log reporting
-`Running under nested virtualisation. Hypervisor string: Microsoft Hv`.
-This is consistent with the extra vCPU-scheduling overhead of nested KVM on
-these runners, not a guest crash or hang. A short budget would abort a
-guest that is merely slow to be scheduled. This matches the smoke test's
-own boot-readiness ceiling (`BOOT_READINESS_CEILING_MS` in
-`cloud-hypervisor-live-smoke.sh`).
+**Known GitHub-hosted-runner limitation: multi-vCPU guest boot can stall
+for 90+ seconds under nested virtualization.** Live validation captured a
+guest boot that made no further progress for 90+ real seconds immediately
+after its serial console logged `kvm-guest: setup PV IPIs` at kernel
+virtual time ~0.13s — the point where a guest with more than one vCPU
+begins bringing up its secondary (AP) CPUs via inter-processor interrupts
+(INIT-SIPI-SIPI). GitHub-hosted runners execute Cloud Hypervisor under
+*nested* virtualization (its own log reports `Running under nested
+virtualisation. Hypervisor string: Microsoft Hv` there); local
+APIC/IPI virtualization for a nested (L2) guest is not hardware-accelerated
+the way it is for an L1 guest on this class of infrastructure, so every
+AP-bring-up step traps all the way up to the L0 host and back — a
+well-documented, order-of-magnitude nested-KVM SMP penalty, not a Cloud
+Hypervisor or AWF defect. A single-vCPU guest never reaches that code path
+at all and boots in the expected sub-second-to-few-seconds range even
+nested. `scripts/ci/cloud-hypervisor-live-smoke.sh` therefore passes
+`--cloud-hypervisor-vcpus 1`; the default (`--cloud-hypervisor-vcpus`,
+default 2, see `docs/awf-config-spec.md`) is unchanged for other
+environments, but operators running this preview on similarly nested
+infrastructure (self-managed nested-KVM CI, for example) should expect the
+same AP-bring-up penalty at more than one vCPU and may need to raise
+`CLOUD_HYPERVISOR_GUEST_READY_MAX_WAIT_MS` further or pin to a single vCPU.
+The 90-second retry budget above remains a deliberately generous safety
+margin for ordinary boot-timing variance (kernel decompression + supervisor
+startup), independent of this specific SMP pathology.
 
 When `--diagnostic-logs` is set, `CloudHypervisorRuntimeBackend.start()`'s
 failure path collects diagnostics via a `beforeCleanup` hook passed to
