@@ -134,6 +134,18 @@ done
 # BusyBox 1.36.1 tc depends on CBQ UAPI definitions removed from newer build hosts.
 # The minimal guest never uses traffic control; AWF enforces policy in the host netns.
 disable_busybox_option TC
+# FEATURE_WGET_OPENSSL defaults to enabled and, when active, makes wget
+# handle every https:// URL by shelling out directly to
+# `openssl s_client -connect <hostname>:443` -- entirely bypassing wget's
+# own HTTP(S)_PROXY-aware connection logic. That requires the guest to
+# resolve DNS and reach arbitrary hosts on port 443 directly, both of
+# which this network policy deliberately blocks (the guest is only ever
+# supposed to reach Squid/API-proxy on their fixed IPs; Squid alone
+# resolves/enforces the allowed-domain list). Disabling this makes wget
+# fall back to FEATURE_WGET_HTTPS's internal TLS code, which correctly
+# tunnels through HTTPS_PROXY/https_proxy via a CONNECT request using the
+# hostname string, never needing guest-side DNS resolution at all.
+disable_busybox_option FEATURE_WGET_OPENSSL
 make -C "$busybox_dir" -j"$JOBS"
 
 supervisor="$OUTPUT/awf-firecracker-supervisor"
