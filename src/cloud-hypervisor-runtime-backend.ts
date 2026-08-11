@@ -395,12 +395,23 @@ export class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBacken
     if (!identity) {
       throw new Error('Cloud Hypervisor guest identity is not ready');
     }
-    const squidProbe =
-      `curl --silent --show-error --max-time 5 --output /dev/null ` +
-      `http://${SQUID_IP}:3128/`;
+    // The guest rootfs is a minimal BusyBox userland (see
+    // guest/cloud-hypervisor/build-test-artifacts.sh); it has no `curl`
+    // binary, only BusyBox's `nc`/`wget` applets. `nc -z` verifies Squid's
+    // TCP listener is up without depending on HTTP status-code semantics
+    // (a raw, non-proxy-style request to Squid's own port returns a 4xx
+    // error page by design, which BusyBox wget would treat as a script
+    // failure by default, unlike curl without `--fail`). The API proxy
+    // check does expect a real 2xx from its `/reflect` endpoint, so wget
+    // is used there directly (matching the smoke test's own
+    // api-proxy-reflect case), with the proxy env vars unset so the
+    // request reaches the sidecar directly rather than being routed
+    // through Squid. Discovered via live-KVM validation: curl exits 127
+    // ("command not found") on this rootfs.
+    const squidProbe = `nc -z -w 5 ${SQUID_IP} 3128`;
     const apiProxyProbe = this.config.enableApiProxy
-      ? ` && curl --fail --silent --show-error --max-time 5 --noproxy '*' ` +
-        `--output /dev/null http://${API_PROXY_IP}:10000/reflect`
+      ? ` && (unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy ALL_PROXY all_proxy; ` +
+        `wget -q -T 5 -O /dev/null http://${API_PROXY_IP}:10000/reflect)`
       : '';
     const result = await manager.execute({
       requestId: `probe-${process.pid}-${Date.now()}`,

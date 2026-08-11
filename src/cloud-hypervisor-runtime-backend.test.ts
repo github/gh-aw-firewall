@@ -295,6 +295,39 @@ describe('Cloud Hypervisor runtime backend', () => {
     expect(manager.stop).toHaveBeenCalledTimes(1);
   });
 
+  it('probes guest connectivity with nc/wget instead of curl, which the BusyBox guest rootfs lacks', async () => {
+    // Regression test: the guest rootfs is a minimal BusyBox userland (see
+    // guest/cloud-hypervisor/build-test-artifacts.sh) with no `curl`
+    // binary. The original probe shelled out to `curl`, which exits 127
+    // ("command not found") on this rootfs — discovered via live-KVM
+    // validation, where every guest boot up through vsock readiness
+    // succeeded but probeGuestConnectivity() then failed with exit 127.
+    const { manager, deps } = harness();
+    manager.execute.mockReset().mockResolvedValueOnce({
+      requestId: 'probe', exitCode: 0, signal: null, timedOut: false,
+    }).mockResolvedValueOnce({
+      requestId: 'agent', exitCode: 0, signal: null, timedOut: false,
+    });
+    const backend = new CloudHypervisorRuntimeBackend(
+      config({ enableApiProxy: true } as Partial<WrapperConfig>),
+      deps,
+    );
+
+    await backend.start('/tmp/awf', ['github.com']);
+
+    const probeCall = manager.execute.mock.calls[0][0];
+    expect(probeCall.argv[0]).toBe('/bin/sh');
+    expect(probeCall.argv[1]).toBe('-c');
+    const script = probeCall.argv[2] as string;
+    expect(script).not.toContain('curl');
+    expect(script).toContain('nc -z');
+    expect(script).toContain('wget');
+    // The API proxy request must bypass the guest's HTTP(S)_PROXY env vars
+    // (it targets the sidecar directly, not through Squid) and must only
+    // run if the Squid reachability check already succeeded.
+    expect(script).toMatch(/nc -z .* && \(unset .*HTTP_PROXY.*; wget /);
+  });
+
   it('passes a beforeCleanup diagnostics hook to stop() on a startup failure, when --diagnostic-logs is set', async () => {
     // Regression test: manager.stop() deletes the private run directory
     // (including the guest serial console log) as its final step, but

@@ -616,6 +616,29 @@ regression test (`TestWorkspaceMountArgsUseExt4Filesystem` in
 package (see Part 14) now guard against a regression of this specific
 class of bug.
 
+**`Cloud Hypervisor guest connectivity probe failed with exit code 127`
+(fixed; historical)**
+
+`CloudHypervisorRuntimeBackend.probeGuestConnectivity()` originally shelled
+out to `curl` inside the guest to verify Squid and (if enabled) API proxy
+reachability before declaring the microVM ready. The guest rootfs used for
+this backend's own live-KVM validation is a minimal BusyBox userland (see
+`guest/cloud-hypervisor/build-test-artifacts.sh`) that provides `wget` and
+`nc` but not `curl` — exit code 127 is the shell's "command not found".
+Fixed by switching the Squid reachability check to `nc -z` (a raw TCP
+check; a non-proxy-style HTTP request to Squid's own port intentionally
+returns a 4xx error page by Squid's design, which BusyBox `wget`, unlike
+`curl` without `--fail`, treats as a script failure by default — so `nc -z`
+avoids that mismatch entirely) and the API proxy `/reflect` check to
+`wget` with the guest's proxy environment variables unset for that one
+request (matching the smoke test's own `api-proxy-reflect` case, and
+replacing `curl --noproxy '*'`, which BusyBox `wget` has no equivalent
+flag for). **Note:** `FirecrackerRuntimeBackend.probeGuestConnectivity()`
+has the identical `curl`-based implementation and shares this same guest
+rootfs build; it was not modified here (out of scope for this layer), but
+is very likely affected identically on any real Firecracker live-KVM run
+against this rootfs — see the layer 4 completion handoff.
+
 **`Cloud Hypervisor requires a non-root target uid/gid`**
 
 Same as Firecracker's jailer requirement: run through `sudo` from a
