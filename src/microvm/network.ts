@@ -217,6 +217,61 @@ export class LinuxNetworkCommands {
   }
 
   /**
+   * Ensures a scoped `ACCEPT` rule exists in Docker's `DOCKER-USER` chain
+   * (which Docker evaluates *before* its own per-network isolation rules)
+   * for intra-bridge forwarding on the given infrastructure bridge -- both
+   * the incoming and outgoing interface must be this exact bridge.
+   *
+   * Live-KVM validation found that traffic between our manually-injected
+   * (non-Docker-managed) veth and Docker-managed containers (Squid, the
+   * API proxy) on the same bridge was silently dropped by the host's
+   * `FORWARD` chain default-drop policy: Docker's own generated
+   * "same bridge" accept rule in `DOCKER-FORWARD` never matched real
+   * traffic in this environment (confirmed via Squid's own access log
+   * showing zero incoming connection attempts, despite the microVM's own
+   * nftables table already accepting the traffic outbound). Genuine
+   * Docker-to-Docker container traffic on the same bridge is unaffected
+   * (Docker likely grants those containers rules of their own that our
+   * externally-injected veth never receives).
+   *
+   * Scoped to exactly this per-run bridge (Docker Compose assigns a
+   * unique bridge name per invocation) with both interfaces required to
+   * match, so this does not weaken isolation for any other bridge/network
+   * on the host, and does not bypass the microVM's own in-namespace
+   * nftables allowlist (which still restricts what the guest can send in
+   * the first place).
+   */
+  async ensureBridgeForwardAcceptRule(bridgeName: string): Promise<void> {
+    const checkResult = await this.execute(
+      'iptables',
+      ['-t', 'filter', '-C', 'DOCKER-USER', '-i', bridgeName, '-o', bridgeName, '-j', 'ACCEPT'],
+      { reject: false },
+    );
+    const exitCode = (checkResult as { exitCode?: number } | undefined)?.exitCode;
+    if (exitCode === 0) return;
+    await this.execute(
+      'iptables',
+      ['-t', 'filter', '-I', 'DOCKER-USER', '1', '-i', bridgeName, '-o', bridgeName, '-j', 'ACCEPT'],
+      { reject: true },
+    );
+  }
+
+  /** Removes the rule `ensureBridgeForwardAcceptRule` installs, if present. Tolerant of it already being gone or the underlying command failing outright. */
+  async removeBridgeForwardAcceptRule(bridgeName: string): Promise<void> {
+    try {
+      await this.execute(
+        'iptables',
+        ['-t', 'filter', '-D', 'DOCKER-USER', '-i', bridgeName, '-o', bridgeName, '-j', 'ACCEPT'],
+        { reject: false },
+      );
+    } catch {
+      // Best-effort cleanup: an already-removed rule, or the iptables
+      // binary itself being unavailable, must not fail the caller's own
+      // cleanup sequence.
+    }
+  }
+
+  /**
    * Best-effort, read-only diagnostic dump of the live nftables ruleset,
    * per-interface packet/byte counters, routes/neighbors, and the TAP/veth
    * bridge-forwarding database inside the given namespace. Used to
@@ -325,6 +380,7 @@ export class MicrovmNetworkManager implements MicrovmNetworkLifecycle {
   private setupComplete = false;
   private namespaceCreated = false;
   private hostVethCreated = false;
+  private dockerUserRuleInserted = false;
 
   constructor(
     readonly plan: MicrovmNetworkPlan,
@@ -353,6 +409,15 @@ export class MicrovmNetworkManager implements MicrovmNetworkLifecycle {
         'master', this.plan.infrastructureBridge,
       ]);
       await this.commands.ip(['link', 'set', this.plan.hostVethName, 'up']);
+      // See LinuxNetworkCommands.ensureBridgeForwardAcceptRule's own doc
+      // comment: Docker's own "same bridge" forwarding accept rule does
+      // not reliably match traffic from this manually-injected veth in
+      // this environment, silently dropping it via the FORWARD chain's
+      // default-drop policy. Must happen before any guest traffic can
+      // possibly flow (i.e. before the tap/guest side is even brought
+      // up below).
+      await this.commands.ensureBridgeForwardAcceptRule(this.plan.infrastructureBridge);
+      this.dockerUserRuleInserted = true;
 
       await this.commands.ipInNamespace(this.plan.namespaceName, [
         'tuntap', 'add',
@@ -436,6 +501,12 @@ export class MicrovmNetworkManager implements MicrovmNetworkLifecycle {
       }
     };
 
+    if (this.dockerUserRuleInserted) {
+      await attempt(async () => {
+        await this.commands.removeBridgeForwardAcceptRule(this.plan.infrastructureBridge);
+        this.dockerUserRuleInserted = false;
+      });
+    }
     if (this.hostVethCreated) {
       await attempt(async () => {
         await this.commands.ip(['link', 'delete', this.plan.hostVethName]);

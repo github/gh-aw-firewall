@@ -822,8 +822,47 @@ Added a fixed `CGROUP_CPU_HEADROOM_QUOTA_US` (one additional full
 CPU-equivalent, `100_000`us per period) on top of the per-vCPU quota,
 mirroring the existing `CGROUP_MEMORY_HEADROOM_MIB` pattern for the same
 "VMM overhead needs room beyond what's sized for the guest alone" reason.
-Not yet confirmed as the fix — the next live run will show whether guest
-network I/O throughput changes.
+
+**Update — root cause confirmed and fixed.** Neither the CPU headroom
+change nor any of the previous attempts changed the observable pattern:
+`ct state invalid` and the return-path accept rule both stayed at exactly
+zero hits, run after run, and the guest's outbound packet count (6
+packets from `nc`'s own SYN-retry schedule) was identical regardless of
+CPU quota, offloads, or `vnet_hdr`. That consistency was itself the clue:
+this was never a scheduling/timing artifact.
+
+Squid's own `access.log` (captured in the diagnostics artifact) settled
+it conclusively: it showed **zero** connection attempts from the guest's
+address, across the entire test run — while genuine container-to-container
+traffic on the exact same bridge (the API proxy reaching Squid) worked
+fine. The microVM's own nftables table showed the outbound packet being
+accepted (leaving via the host-side veth), but it never arrived at Squid.
+
+Root cause: Docker's host-level `DOCKER-FORWARD` chain includes a
+generic same-bridge accept rule (`iifname <bridge> oifname <bridge>
+accept`) intended to permit intra-bridge traffic, but it never matched
+traffic to/from our manually-injected (non-Docker-managed) veth on this
+GitHub-hosted runner's Docker/kernel/nftables combination — silently
+falling through to the `FORWARD` chain's default-drop policy. Real
+Docker-managed containers on the same bridge are unaffected (Docker
+grants them rules of their own that an externally-injected veth never
+receives).
+
+Fixed by inserting a scoped `ACCEPT` rule directly into Docker's
+`DOCKER-USER` chain (which Docker evaluates *before* its own isolation
+logic) — `-i <bridge> -o <bridge> -j ACCEPT`, both interfaces required to
+be this exact per-run bridge. This is the same `DOCKER-USER`
+customization point AWF's own container-based sandbox mode already uses
+(`src/host-iptables-chain.ts`), just scoped for the microVM
+network-isolation path instead. Inserted right after the host veth joins
+the bridge in `MicrovmNetworkManager.setup()`, and removed in `cleanup()`
+(tolerant of it already being gone). Scoped to exactly this per-run
+bridge (Docker Compose assigns a unique bridge name per invocation) with
+both interfaces required to match, so it does not weaken isolation for
+any other bridge/network on the host, and it does not bypass the
+microVM's own in-namespace nftables allowlist — that allowlist still
+governs what the guest can send in the first place; this rule only fixes
+the Docker-level pass-through for traffic that has already cleared it.
 
 **`Cloud Hypervisor requires a non-root target uid/gid`**
 

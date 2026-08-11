@@ -206,7 +206,23 @@ describe('microVM network lifecycle', () => {
       'link', 'set', plan.hostVethName,
       'master', plan.infrastructureBridge,
     ]);
+    // Docker's own "same bridge" forwarding accept rule does not reliably
+    // match traffic from this manually-injected veth (see
+    // ensureBridgeForwardAcceptRule's doc comment), so a scoped
+    // DOCKER-USER rule is inserted for this exact bridge (after "link set
+    // hostVeth up", calls[4]): first checked (-C, absent in this mock so
+    // it "fails"/doesn't already exist), then inserted (-I).
     expect(calls[5].args).toEqual([
+      '-t', 'filter', '-C', 'DOCKER-USER',
+      '-i', plan.infrastructureBridge, '-o', plan.infrastructureBridge,
+      '-j', 'ACCEPT',
+    ]);
+    expect(calls[6].args).toEqual([
+      '-t', 'filter', '-I', 'DOCKER-USER', '1',
+      '-i', plan.infrastructureBridge, '-o', plan.infrastructureBridge,
+      '-j', 'ACCEPT',
+    ]);
+    expect(calls[7].args).toEqual([
       'netns', 'exec', plan.namespaceName, 'ip',
       'tuntap', 'add',
       'dev', plan.tapName,
@@ -214,17 +230,17 @@ describe('microVM network lifecycle', () => {
       'user', '1000',
       'group', '1000',
     ]);
-    expect(calls[11].args).toContain('net.ipv4.ip_forward=1');
-    expect(calls[12].args).toContain('net.ipv6.conf.all.disable_ipv6=1');
-    expect(calls[13].args).toContain('net.ipv6.conf.default.disable_ipv6=1');
+    expect(calls[13].args).toContain('net.ipv4.ip_forward=1');
+    expect(calls[14].args).toContain('net.ipv6.conf.all.disable_ipv6=1');
+    expect(calls[15].args).toContain('net.ipv6.conf.default.disable_ipv6=1');
     // The ruleset is written to a real temporary file and passed by path
     // (not piped via "-f -") — see LinuxNetworkCommands.nftInNamespace's
     // MicrovmNetworkRulesetFile doc comment for why.
-    expect(calls[14].command).toBe('ip');
-    expect(calls[14].args.slice(0, 4)).toEqual(['netns', 'exec', plan.namespaceName, 'nft']);
-    expect(calls[14].args[4]).toBe('-f');
-    expect(calls[14].args[5]).toMatch(/awf-nft-[0-9a-f]{16}\.nft$/);
-    expect(calls[14].options).toEqual({ reject: true });
+    expect(calls[16].command).toBe('ip');
+    expect(calls[16].args.slice(0, 4)).toEqual(['netns', 'exec', plan.namespaceName, 'nft']);
+    expect(calls[16].args[4]).toBe('-f');
+    expect(calls[16].args[5]).toMatch(/awf-nft-[0-9a-f]{16}\.nft$/);
+    expect(calls[16].options).toEqual({ reject: true });
     expect(probe.verify).toHaveBeenCalledWith(plan);
   });
 
@@ -422,6 +438,103 @@ describe('microVM network lifecycle', () => {
 
     await manager.cleanup();
     expect(await manager.captureDiagnostics()).toBe('');
+  });
+
+  it('inserts a scoped DOCKER-USER accept rule for the bridge during setup and removes it during cleanup', async () => {
+    // Regression test: live-KVM validation found traffic between our
+    // manually-injected veth and Docker-managed containers (Squid, the
+    // API proxy) on the same bridge was silently dropped by the host's
+    // FORWARD chain default-drop policy -- Docker's own generated "same
+    // bridge" accept rule in DOCKER-FORWARD never matched real traffic
+    // in this environment (confirmed via Squid's own access log showing
+    // zero incoming connection attempts, despite the microVM's own
+    // nftables table already accepting the traffic outbound). A scoped
+    // DOCKER-USER rule (both iif/oif = this exact bridge) fixes this
+    // without weakening any other bridge's isolation.
+    const plan = createPlan();
+    const { calls, commands } = commandHarness();
+    const manager = new MicrovmNetworkManager(plan, commands);
+
+    await manager.setup();
+    const insertCall = calls.find((call) => call.args.includes('-I'));
+    expect(insertCall?.args).toEqual([
+      '-t', 'filter', '-I', 'DOCKER-USER', '1',
+      '-i', plan.infrastructureBridge, '-o', plan.infrastructureBridge,
+      '-j', 'ACCEPT',
+    ]);
+
+    await manager.cleanup();
+    const deleteCall = calls.find((call) => call.args.includes('-D'));
+    expect(deleteCall?.args).toEqual([
+      '-t', 'filter', '-D', 'DOCKER-USER',
+      '-i', plan.infrastructureBridge, '-o', plan.infrastructureBridge,
+      '-j', 'ACCEPT',
+    ]);
+    // Removal must be tolerant of the rule already being gone (e.g. a
+    // partial-setup rollback before the rule was ever inserted).
+    expect(deleteCall?.options).toEqual({ reject: false });
+  });
+
+  it('skips inserting the DOCKER-USER accept rule when a check shows it already exists', async () => {
+    const plan = createPlan();
+    const executeCalls: string[][] = [];
+    const commands = new LinuxNetworkCommands(
+      jest.fn(async (_command, args) => {
+        executeCalls.push(args as string[]);
+        if (args.includes('-C')) return { exitCode: 0 };
+        return undefined;
+      }),
+    );
+
+    await new MicrovmNetworkManager(plan, commands).setup();
+
+    expect(executeCalls.some((args) => args.includes('-I'))).toBe(false);
+  });
+});
+
+describe('LinuxNetworkCommands.ensureBridgeForwardAcceptRule / removeBridgeForwardAcceptRule', () => {
+  it('inserts the rule only when the existence check does not already report it present', async () => {
+    const calls: { args: readonly string[] }[] = [];
+    const commands = new LinuxNetworkCommands(
+      jest.fn(async (_command, args) => {
+        calls.push({ args });
+        if (args.includes('-C')) return { exitCode: 1 };
+        return { exitCode: 0 };
+      }),
+    );
+
+    await commands.ensureBridgeForwardAcceptRule('awfbr0');
+
+    expect(calls).toEqual([
+      { args: ['-t', 'filter', '-C', 'DOCKER-USER', '-i', 'awfbr0', '-o', 'awfbr0', '-j', 'ACCEPT'] },
+      { args: ['-t', 'filter', '-I', 'DOCKER-USER', '1', '-i', 'awfbr0', '-o', 'awfbr0', '-j', 'ACCEPT'] },
+    ]);
+  });
+
+  it('does not insert the rule again when the existence check reports it already present', async () => {
+    const calls: { args: readonly string[] }[] = [];
+    const commands = new LinuxNetworkCommands(
+      jest.fn(async (_command, args) => {
+        calls.push({ args });
+        return { exitCode: 0 };
+      }),
+    );
+
+    await commands.ensureBridgeForwardAcceptRule('awfbr0');
+
+    expect(calls).toEqual([
+      { args: ['-t', 'filter', '-C', 'DOCKER-USER', '-i', 'awfbr0', '-o', 'awfbr0', '-j', 'ACCEPT'] },
+    ]);
+  });
+
+  it('removeBridgeForwardAcceptRule never throws even if the rule is already gone', async () => {
+    const commands = new LinuxNetworkCommands(
+      jest.fn(async () => {
+        throw new Error('Bad rule (does a matching rule exist in that chain?)');
+      }),
+    );
+
+    await expect(commands.removeBridgeForwardAcceptRule('awfbr0')).resolves.toBeUndefined();
   });
 });
 
