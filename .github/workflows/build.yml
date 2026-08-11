@@ -76,3 +76,4 @@ jobs:
         run: |
           bash tests/setup-iptables-port-spec.test.sh
           bash tests/cli-proxy-probe-classify.test.sh
+          bash tests/usr-local-bin-shim.test.sh

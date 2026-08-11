@@ -769,21 +769,31 @@ prepare_usr_local_bin_overlay() {
   # The host /usr tree is bind-mounted read-only at /host/usr, so a missing
   # /usr/local/bin/<tool> entry cannot simply be created. Instead we bind-mount
   # the original directory to a second location that stays reachable inside the
-  # chroot (/tmp/awf-usr-local-bin-orig, read-only) and build a symlink farm in
-  # /tmp/awf-usr-local-bin that mirrors every existing entry. The farm is later
-  # bind-mounted over /host/usr/local/bin so both the original binaries and the
-  # AWF-created shims resolve.
+  # chroot (a unique /tmp/awf-usr-local-bin-orig-XXXXXX directory, read-only) and
+  # build a symlink farm in /tmp/awf-usr-local-bin-XXXXXX that mirrors every
+  # existing entry. The farm is later bind-mounted over /host/usr/local/bin so
+  # both the original binaries and the AWF-created shims resolve.
   #
-  # Sets USR_LOCAL_BIN_OVERLAY_READY=1 on success. No host filesystem content is
-  # modified: the staging directories live in /tmp and are root-owned (0755), so
-  # the unprivileged chroot user cannot inject binaries into them.
+  # Sets USR_LOCAL_BIN_OVERLAY_DIR, USR_LOCAL_BIN_ORIG_DIR and
+  # USR_LOCAL_BIN_OVERLAY_READY=1 on success. No host filesystem content is
+  # modified.
   if [ "${USR_LOCAL_BIN_OVERLAY_READY}" = "1" ]; then
     return 0
   fi
   if [ ! -d /host/usr/local/bin ]; then
     return 1
   fi
-  mkdir -p "/host${USR_LOCAL_BIN_ORIG_DIR}" "/host${USR_LOCAL_BIN_OVERLAY_DIR}" 2>/dev/null || return 1
+  # Unique staging directories per container run: a fixed name could be reused
+  # by a concurrent AWF container or left stale by a previous run on the same
+  # host /tmp, which would shadow /usr/local/bin with outdated symlinks.
+  local overlay_host_dir="" orig_host_dir=""
+  overlay_host_dir="$(mktemp -d /host/tmp/awf-usr-local-bin-XXXXXX 2>/dev/null || true)"
+  orig_host_dir="$(mktemp -d /host/tmp/awf-usr-local-bin-orig-XXXXXX 2>/dev/null || true)"
+  if [ -z "${overlay_host_dir}" ] || [ -z "${orig_host_dir}" ]; then
+    return 1
+  fi
+  USR_LOCAL_BIN_OVERLAY_DIR="${overlay_host_dir#/host}"
+  USR_LOCAL_BIN_ORIG_DIR="${orig_host_dir#/host}"
   if ! mount --bind /host/usr/local/bin "/host${USR_LOCAL_BIN_ORIG_DIR}" 2>/dev/null; then
     return 1
   fi
@@ -791,16 +801,18 @@ prepare_usr_local_bin_overlay() {
     echo "[entrypoint][WARN] Could not remount ${USR_LOCAL_BIN_ORIG_DIR} read-only"
 
   local entry="" base="" real="" target=""
-  for entry in "/host${USR_LOCAL_BIN_ORIG_DIR}"/*; do
+  # Iterate the original directory (the overlay is not mounted yet) so relative
+  # symlinks resolve against their real location rather than the staging path.
+  for entry in /host/usr/local/bin/*; do
     [ -e "${entry}" ] || continue
     base="$(basename "${entry}")"
     real="$(readlink -f "${entry}" 2>/dev/null || true)"
     [ -z "${real}" ] && continue
     case "${real}" in
-      "/host${USR_LOCAL_BIN_ORIG_DIR}"/*)
+      /host/usr/local/bin/*)
         # Regular file living directly in /usr/local/bin — point at the
         # read-only copy of the original directory.
-        target="${USR_LOCAL_BIN_ORIG_DIR}/${real#/host${USR_LOCAL_BIN_ORIG_DIR}/}"
+        target="${USR_LOCAL_BIN_ORIG_DIR}/${real#/host/usr/local/bin/}"
         ;;
       /host/*)
         # Symlink into another host location — use the resolved chroot path so
@@ -829,8 +841,12 @@ ensure_usr_local_bin_shims() {
   # must be reachable at /usr/local/bin/<name> inside the chroot. For each
   # missing name we resolve the real binary via PATH/GITHUB_PATH and create the
   # expected symlink, so AWF no longer depends on upstream tool-cache behavior.
-  USR_LOCAL_BIN_OVERLAY_DIR="/tmp/awf-usr-local-bin"
-  USR_LOCAL_BIN_ORIG_DIR="/tmp/awf-usr-local-bin-orig"
+  # The staging directories live in /tmp and are root-owned (0755), so the
+  # unprivileged chroot user cannot inject binaries into them. Their paths are
+  # exported via USR_LOCAL_BIN_OVERLAY_DIR / USR_LOCAL_BIN_ORIG_DIR so
+  # run_chroot_command can remove them on exit.
+  USR_LOCAL_BIN_OVERLAY_DIR=""
+  USR_LOCAL_BIN_ORIG_DIR=""
   USR_LOCAL_BIN_OVERLAY_READY=0
 
   [ -z "${AWF_ENSURE_USR_LOCAL_BIN:-}" ] && return 0
@@ -1474,6 +1490,13 @@ run_chroot_command() {
   # Clean up /tmp/awf-lib if anything was copied (one-shot-token, CA cert, key helper)
   if [ -n "${ONE_SHOT_TOKEN_LIB}" ] || [ -n "${AWF_CA_CHROOT}" ] || [ -n "${SYSTEM_CA_CHROOT}" ] || [ -n "${CHROOT_KEY_HELPER}" ] || [ -n "${STAGED_RUNNER_BINARY_CHROOT}" ]; then
     CLEANUP_CMD="${CLEANUP_CMD}; rm -rf /tmp/awf-lib 2>/dev/null || true"
+  fi
+  # Clean up the /usr/local/bin overlay staging dirs. Only symlinks are removed
+  # (the mirrored directory is a read-only bind mount of the real
+  # /usr/local/bin and must never have its contents deleted).
+  if [ "${USR_LOCAL_BIN_OVERLAY_READY}" = "1" ]; then
+    CLEANUP_CMD="${CLEANUP_CMD}; find \"${USR_LOCAL_BIN_OVERLAY_DIR}\" -maxdepth 1 -type l -delete 2>/dev/null || true"
+    CLEANUP_CMD="${CLEANUP_CMD}; rmdir \"${USR_LOCAL_BIN_OVERLAY_DIR}\" \"${USR_LOCAL_BIN_ORIG_DIR}\" 2>/dev/null || true"
   fi
 
   # Transfer ownership of gh-aw config directories to the chroot user.

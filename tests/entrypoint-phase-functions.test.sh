@@ -31,6 +31,9 @@ required_functions=(
   copy_preload_libs
   copy_agent_helper_scripts
   copy_dind_runner_binary
+  resolve_chroot_binary_path
+  prepare_usr_local_bin_overlay
+  ensure_usr_local_bin_shims
   copy_awf_ca_cert
   copy_system_ca_bundle
   check_chroot_prereqs
@@ -117,6 +120,7 @@ chroot_helpers=(
   'copy_preload_libs'
   'copy_agent_helper_scripts'
   'copy_dind_runner_binary'
+  'ensure_usr_local_bin_shims'
   'copy_awf_ca_cert'
   'copy_system_ca_bundle'
   'setup_chroot_etc'

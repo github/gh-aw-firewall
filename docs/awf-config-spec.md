@@ -406,7 +406,7 @@ passthrough. A conforming implementation MUST NOT inherit them from the host:
 | System | `PATH`, `PWD`, `OLDPWD`, `SHLVL`, `_`, `SUDO_COMMAND`, `SUDO_USER`, `SUDO_UID`, `SUDO_GID` |
 | Proxy | `HTTP_PROXY`, `HTTPS_PROXY`, `http_proxy`, `https_proxy`, `NO_PROXY`, `no_proxy`, `ALL_PROXY`, `all_proxy`, `FTP_PROXY`, `ftp_proxy` |
 | Actions runtime credentials | `ACTIONS_RUNTIME_TOKEN`, `ACTIONS_RESULTS_URL`, `ACTIONS_ID_TOKEN_REQUEST_URL`, `ACTIONS_ID_TOKEN_REQUEST_TOKEN` |
-| AWF internal controls | `AWF_PREFLIGHT_BINARY`, `AWF_GEMINI_ENABLED` |
+| AWF internal controls | `AWF_PREFLIGHT_BINARY`, `AWF_ENSURE_USR_LOCAL_BIN`, `AWF_GEMINI_ENABLED` |
 
 > **Note:** Host proxy variables are read for upstream proxy auto-detection
 > (see `--upstream-proxy`) but MUST NOT propagate into the agent container.

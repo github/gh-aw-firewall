@@ -328,7 +328,18 @@ agent container mounts the host filesystem:
 - Commands that run *inside* the AWF sandbox still cannot create this symlink,
   because `/usr` is mounted read-only there.
 
-**Workarounds:**
+**Automatic mitigation (Copilot CLI):** For Copilot runs, AWF's agent
+entrypoint now checks `/usr/local/bin/copilot` at container start. When the
+entry is missing, it resolves `copilot` through the chroot `PATH` and the
+`$GITHUB_PATH` entries (which is where a warm Copilot CLI tool-cache is
+activated) and creates the expected symlink before the command runs. Because
+host `/usr` is read-only, AWF stages the symlink in a root-owned directory and
+bind-mounts it over the chroot's `/usr/local/bin`, preserving every existing
+entry; the host filesystem is never modified. The behavior is driven by the
+internal `AWF_ENSURE_USR_LOCAL_BIN` environment variable (comma-separated
+binary names) and is a no-op when the path already exists.
+
+**Workarounds (other tools):**
 
 1. **Host-side symlink before invoking `awf`** — if you control the step
    immediately before AWF starts the sandbox, create the missing binary on

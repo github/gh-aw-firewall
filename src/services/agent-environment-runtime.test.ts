@@ -113,6 +113,36 @@ describe('agent environment: runtime', () => {
     expect(environment.AWF_PREFLIGHT_BINARY).toBeUndefined();
   });
 
+  it('should set AWF_ENSURE_USR_LOCAL_BIN=copilot when running Copilot CLI command', () => {
+    const result = generateDockerCompose(
+      { ...mockConfig, agentCommand: 'copilot --version' },
+      mockNetworkConfig,
+    );
+    const environment = result.services.agent.environment as Record<string, string>;
+
+    expect(environment.AWF_ENSURE_USR_LOCAL_BIN).toBe('copilot');
+  });
+
+  it('should set AWF_ENSURE_USR_LOCAL_BIN=copilot when copilotGithubToken is present', () => {
+    const result = generateDockerCompose(
+      { ...mockConfig, agentCommand: './my-copilot-wrapper.sh', copilotGithubToken: 'ghu_test_token' },
+      mockNetworkConfig,
+    );
+    const environment = result.services.agent.environment as Record<string, string>;
+
+    expect(environment.AWF_ENSURE_USR_LOCAL_BIN).toBe('copilot');
+  });
+
+  it('should not set AWF_ENSURE_USR_LOCAL_BIN for non-Copilot commands', () => {
+    const result = generateDockerCompose(
+      { ...mockConfig, agentCommand: 'echo test' },
+      mockNetworkConfig,
+    );
+    const environment = result.services.agent.environment as Record<string, string>;
+
+    expect(environment.AWF_ENSURE_USR_LOCAL_BIN).toBeUndefined();
+  });
+
   it('should set AWF_STAGED_RUNNER_BINARY_NAME in /tmp docker-host-path-prefix mode', () => {
     const stagePrefix = fs.mkdtempSync(path.join('/tmp', 'gh-aw-'));
     try {
