@@ -53,6 +53,9 @@ export interface CloudHypervisorNetConfig {
   mac: string;
   num_queues?: number;
   queue_size?: number;
+  offload_tso?: boolean;
+  offload_ufo?: boolean;
+  offload_csum?: boolean;
 }
 
 export interface CloudHypervisorRngConfig {

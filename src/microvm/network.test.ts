@@ -142,6 +142,7 @@ describe('microVM nftables policy', () => {
     // `counter` on these rules is purely diagnostic (nft -a list ruleset
     // then reports packet/byte hit counts per rule) and does not change
     // any accept/drop decision — see generateMicrovmNftRuleset's comment.
+    expect(ruleset).toContain('ct state invalid counter drop');
     expect(ruleset).toContain(
       `iifname "${plan.tapName}" ether saddr != ${plan.guestMac} counter drop`,
     );

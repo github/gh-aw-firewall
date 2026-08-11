@@ -464,6 +464,20 @@ export class CloudHypervisorManager {
         id: 'net0',
         tap: networkPlan.networkInterface.host_dev_name,
         mac: networkPlan.networkInterface.guest_mac ?? '',
+        // Cloud Hypervisor defaults all three offloads to enabled. This
+        // entire network path is a fully-software bridge/veth/tap chain
+        // with no real NIC downstream to finish partially-offloaded
+        // (unchecksummed / not-yet-segmented) frames; live-KVM validation
+        // showed guest-to-Squid traffic being forwarded (visible in nft
+        // counters) but the return path never matching the
+        // established/related accept rule, with zero visibility into
+        // whether nftables' conntrack was marking replies as invalid.
+        // Disable all three explicitly rather than rely on Cloud
+        // Hypervisor's own defaults, removing offload-related packet
+        // malformation as a possible cause.
+        offload_tso: false,
+        offload_ufo: false,
+        offload_csum: false,
       }],
       rng: { src: '/dev/urandom' },
       serial: { mode: 'File' as const, file: this.paths.serialLogPath },

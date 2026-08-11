@@ -230,6 +230,22 @@ describe('CloudHypervisorManager', () => {
     }));
     expect(client.vmCreate).not.toHaveBeenCalledWith(expect.objectContaining({ vsock: expect.anything() }));
     expect(client.ping).toHaveBeenCalledTimes(1);
+    // Regression test: Cloud Hypervisor defaults all three offloads to
+    // enabled, but this network path is a fully-software bridge/veth/tap
+    // chain with no real NIC downstream to finish partially-offloaded
+    // frames. Live-KVM validation showed guest-to-Squid forward traffic
+    // being accepted by nftables (visible via its per-rule counters) but
+    // the return path never matching the established/related accept
+    // rule -- disabling all three offloads removes offload-related
+    // packet malformation as a possible cause, explicitly rather than
+    // relying on Cloud Hypervisor's own defaults.
+    expect(client.vmCreate).toHaveBeenCalledWith(expect.objectContaining({
+      net: [expect.objectContaining({
+        offload_tso: false,
+        offload_ufo: false,
+        offload_csum: false,
+      })],
+    }));
     expect(deps.createCgroup).toHaveBeenCalledWith(
       expect.stringContaining('awf-cloud-hypervisor/run-1'),
       { memoryMib: 512, vcpuCount: 2 },

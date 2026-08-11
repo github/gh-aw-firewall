@@ -737,6 +737,40 @@ about the network path itself is broken. Raised `nc`'s own timeout to 60s,
 nested-KVM-tolerant convention used elsewhere, and increased the live-KVM
 workflow job's `timeout-minutes` accordingly.
 
+**Guest→Squid packets forwarded but the return path never matches
+`established,related` (under investigation)**
+
+With per-rule nftables counters added (see the diagnostics-lifecycle entry
+above), a live run showed the guest→Squid forward-chain rule matching real
+traffic (`counter packets 6 bytes 360 accept`, from `nc`'s own SYN
+retransmissions over its 60s budget), while the return-path accept rule
+(`ether daddr <guestMac> ip daddr <guestIp> ct state established,related
+accept`) stayed at **zero** hits, and none of the anti-spoof drop rules
+matched either. This rules out both a misconfigured anti-spoof rule and a
+`vnet_hdr`/tap-negotiation failure (both would show up as counter hits
+somewhere); the traffic leaves the guest and is accepted outbound, but
+Squid's reply is never recognized as belonging to that connection.
+
+Two changes were made to narrow this further, not yet confirmed as the
+fix:
+- Added a `counter` to the chain's very first rule, `ct state invalid
+  drop` — previously uncounted, so a reply being marked "invalid" by
+  conntrack (and dropped before ever reaching the return-path accept rule)
+  would have been invisible. If this rule's counter is nonzero on the next
+  live run, that is the confirmed root cause.
+- Cloud Hypervisor's virtio-net device defaults all three offloads
+  (`offload_tso`, `offload_ufo`, `offload_csum`) to enabled (confirmed via
+  `vm.info`'s `net[0]` config, now captured in `vm-info.json`). This
+  network path is a fully-software bridge/veth/tap chain with no real NIC
+  downstream to finish partially-offloaded (unchecksummed /
+  not-yet-segmented) frames; conntrack's TCP state tracking needs a valid,
+  fully-computed checksum to correctly parse segment flags/sequence
+  numbers, so an offloaded-but-never-finished checksum is a plausible
+  cause for exactly this "accepted outbound, reply never tracked as
+  established" symptom. All three are now explicitly disabled in the net
+  device config (`CloudHypervisorManager.buildVmConfig()`) rather than
+  relying on Cloud Hypervisor's own defaults.
+
 **`Cloud Hypervisor requires a non-root target uid/gid`**
 
 Same as Firecracker's jailer requirement: run through `sudo` from a

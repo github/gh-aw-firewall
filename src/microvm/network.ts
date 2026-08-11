@@ -541,7 +541,7 @@ export function generateMicrovmNftRuleset(plan: MicrovmNetworkPlan): string {
     '  }',
     '  chain forward {',
     '    type filter hook forward priority filter; policy drop;',
-    '    ct state invalid drop',
+    '    ct state invalid counter drop',
     // `counter` on the anti-spoof/reverse-path rules below is purely
     // diagnostic (nftables does not track packet/byte hits on a rule
     // unless it includes an explicit `counter` object); it does not
