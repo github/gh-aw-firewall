@@ -334,7 +334,7 @@ export class LinuxNetworkCommands {
       const stdout = (result as { stdout?: unknown } | undefined)?.stdout;
       return typeof stdout === 'string' ? stdout.trim() : '';
     };
-    const [fdb, hostNftRuleset, hostIptablesRules, bridgeNfSysctls] = await Promise.all([
+    const [fdb, hostNftRuleset, hostIptablesRules, bridgeNfSysctls, bridgeLinkState] = await Promise.all([
       run('bridge', ['fdb', 'show', 'br', bridgeName]),
       // Docker (and any other host-level firewall) manages its own
       // iptables/nftables rules in the *default* (root) network
@@ -361,6 +361,15 @@ export class LinuxNetworkCommands {
         'net.bridge.bridge-nf-call-ip6tables',
         'net.bridge.bridge-nf-call-arptables',
       ]),
+      // Bridge-netfilter is confirmed inactive (empty sysctl output),
+      // meaning bridged traffic is being switched purely at L2: STP port
+      // state (forwarding/learning/blocking) can independently and
+      // silently drop traffic through a bridge port regardless of any
+      // netfilter/nftables/iptables rule -- a newly-created port that
+      // hasn't yet finished STP's listening->learning->forwarding
+      // transition would exhibit exactly this symptom (an otherwise
+      // correctly wired-up port through which nothing gets forwarded).
+      run('bridge', ['link', 'show']),
     ]);
     return [
       `--- bridge fdb show br ${bridgeName} (host-side, outside any netns) ---`,
@@ -371,6 +380,8 @@ export class LinuxNetworkCommands {
       hostIptablesRules || '(empty or unavailable)',
       '--- sysctl net.bridge.bridge-nf-call-* (is bridged traffic even seen by netfilter?) ---',
       bridgeNfSysctls || '(empty, unavailable, or the bridge kernel module is not loaded)',
+      '--- bridge link show (STP port state: forwarding/learning/blocking) ---',
+      bridgeLinkState || '(empty or unavailable)',
     ].join('\n');
   }
 }
