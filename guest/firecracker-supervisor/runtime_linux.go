@@ -115,8 +115,14 @@ func mountProc() error {
 	return nil
 }
 
+// syncFilesystems is a package-level indirection over syscall.Sync so the
+// shutdown request handler's ordering (sync happens-before acknowledging
+// the request to the host) can be verified in a unit test without
+// depending on real kernel state.
+var syncFilesystems = syscall.Sync
+
 func shutdownGuest(config bootConfig) error {
-	syscall.Sync()
+	syncFilesystems()
 	if err := syscall.Unmount(config.WorkspaceMount, 0); err != nil {
 		return fmt.Errorf("unmount workspace: %w", err)
 	}
@@ -248,6 +254,20 @@ func serveClient(connection *os.File, config bootConfig) bool {
 		case "resize":
 			s.sendError(frame.RequestID, errorTTYUnsupported, "TTY and resize are unsupported")
 		case "shutdown":
+			// syncFilesystems (syscall.Sync in production) must complete
+			// *before* acknowledging this request: once the host receives
+			// "shutting_down" it proceeds to call Cloud Hypervisor's own
+			// vm.shutdown/vmm.shutdown API, which can tear the VM down
+			// quickly enough to race ahead of shutdownGuest()'s own
+			// sync()+unmount() below (that pair only runs *after*
+			// serveClient returns to its caller). Any writes still sitting
+			// in this guest's page cache -- e.g. the agent command's own
+			// workspace writes, which have no reason to have called
+			// fsync() themselves -- could be lost before they ever reach
+			// the workspace block device, silently discarding the user's
+			// own command output from the host-side copy-back. Sync is
+			// safe to call unconditionally and idempotently here.
+			syncFilesystems()
 			_ = s.send(newFrame("shutting_down", frame.RequestID))
 			s.stopActive()
 			return true

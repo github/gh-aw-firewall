@@ -5,6 +5,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"syscall"
 	"testing"
 )
 
@@ -53,5 +54,63 @@ func TestWorkspaceMountArgsUseExt4Filesystem(t *testing.T) {
 	}
 	if flags != 0 {
 		t.Fatalf("unexpected mount flags: got %d want 0", flags)
+	}
+}
+
+func TestShutdownRequestSyncsBeforeAcknowledging(t *testing.T) {
+	// Regression test: a live-KVM investigation found the workspace-
+	// copyback smoke case's own newly-written file missing entirely from
+	// the host-side copy-back, despite the guest agent command completing
+	// successfully. Root cause: serveClient's "shutdown" case previously
+	// sent the "shutting_down" acknowledgment *before* shutdownGuest()'s
+	// own syscall.Sync()+unmount() ran (that pair only executes after
+	// serveClient returns to its caller). Once the host receives that
+	// acknowledgment it proceeds to call Cloud Hypervisor's own
+	// vm.shutdown/vmm.shutdown API, which can tear the VM down before the
+	// guest ever gets to flush its page cache to the workspace block
+	// device -- silently discarding writes the agent command made (e.g.
+	// via a plain `printf > file` with no explicit fsync of its own).
+	//
+	// This exercises serveClient itself end-to-end over a real, connected
+	// socketpair (matching its *os.File parameter type) and asserts that
+	// syncFilesystems is called strictly before the "shutting_down" frame
+	// is observed on the wire.
+	fds, err := syscall.Socketpair(syscall.AF_UNIX, syscall.SOCK_STREAM, 0)
+	if err != nil {
+		t.Fatalf("socketpair: %v", err)
+	}
+	serverEnd := os.NewFile(uintptr(fds[0]), "server")
+	testEnd := os.NewFile(uintptr(fds[1]), "test")
+	defer serverEnd.Close()
+	defer testEnd.Close()
+
+	var syncCalled, syncCalledBeforeShutdownFrame bool
+	originalSync := syncFilesystems
+	syncFilesystems = func() { syncCalled = true }
+	defer func() { syncFilesystems = originalSync }()
+
+	done := make(chan bool, 1)
+	go func() { done <- serveClient(serverEnd, bootConfig{}) }()
+
+	// Discard the initial "ready" frame serveClient sends on connect.
+	if _, err := ReadFrame(testEnd); err != nil {
+		t.Fatalf("read ready frame: %v", err)
+	}
+	if err := WriteFrame(testEnd, newFrame("shutdown", "req-1")); err != nil {
+		t.Fatalf("write shutdown frame: %v", err)
+	}
+	reply, err := ReadFrame(testEnd)
+	if err != nil {
+		t.Fatalf("read shutting_down frame: %v", err)
+	}
+	syncCalledBeforeShutdownFrame = syncCalled
+	if reply.Type != "shutting_down" {
+		t.Fatalf("reply type mismatch: got %q want %q", reply.Type, "shutting_down")
+	}
+	if !syncCalledBeforeShutdownFrame {
+		t.Fatal("syncFilesystems must be called before the shutting_down acknowledgment is sent")
+	}
+	if shouldShutdown := <-done; !shouldShutdown {
+		t.Fatal("serveClient should report shutdown requested")
 	}
 }
