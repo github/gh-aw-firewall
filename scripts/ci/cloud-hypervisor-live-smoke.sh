@@ -510,8 +510,14 @@ esac
 #
 # The expected TAP name is derived exactly like
 # createMicrovmNetworkPlan() (src/microvm/network.ts): `fct` + the first 12
-# hex characters of sha256(runId).
-expected_tap="fct$(printf '%s' "$run_id" | sha256sum | cut -c1-12)"
+# hex characters of sha256(runId). The per-run network namespace shares
+# the same token (`awffc-` + token) and is where the TAP device actually
+# lives -- checking for it in the root/default namespace, which is what
+# actually hosts this script, would never find a namespace-scoped
+# interface regardless of whether it truly exists.
+run_token=$(printf '%s' "$run_id" | sha256sum | cut -c1-12)
+expected_tap="fct$run_token"
+expected_namespace="awffc-$run_token"
 expected_rootfs_path="$run_directory/rootfs.ext4"
 expected_workspace_path="$run_directory/workspace.ext4"
 expected_vsock_socket="$run_directory/awf-vsock.socket"
@@ -598,9 +604,13 @@ node -e '
   || fail_security "vm.info device-topology assertion failed: $vm_info"
 
 # Cross-check the expected TAP interface actually exists on the host (not
-# just referenced in the VMM's own self-reported config).
-sudo ip link show "$expected_tap" >/dev/null 2>&1 \
-  || fail_security "expected TAP interface $expected_tap not found on host"
+# just referenced in the VMM's own self-reported config). The TAP device
+# is namespace-scoped -- it lives inside the per-run network namespace
+# created by MicrovmNetworkManager.setup(), not the root/default
+# namespace this script itself runs in -- so it must be checked via
+# `ip netns exec`, not a bare `ip link show`.
+sudo ip netns exec "$expected_namespace" ip link show "$expected_tap" >/dev/null 2>&1 \
+  || fail_security "expected TAP interface $expected_tap not found in namespace $expected_namespace"
 
 kill -TERM "$sec_pid"
 set +e
