@@ -254,8 +254,20 @@ jobs:
             echo "::error::Cloud Hypervisor namespace residue remains after cleanup"
             exit 1
           fi
+          # /sys/fs/cgroup/awf-cloud-hypervisor is a parent cgroup that
+          # persists across the whole job; only per-run sub-cgroups are
+          # created one level inside it (see cgroupPath in
+          # src/cloud-hypervisor/manager.ts). Any cgroup v2 directory --
+          # including this parent itself -- always contains standard
+          # controller interface files (cpu.max, memory.max,
+          # cgroup.controllers, ...) simply by virtue of existing;
+          # matching all entries here (not just directories) made this
+          # check a guaranteed false positive the moment the live-KVM job
+          # ever actually completed successfully. See the identical fix
+          # in scripts/ci/cloud-hypervisor-live-smoke.sh's own
+          # assert_no_residue for the same root cause.
           if [ -d /sys/fs/cgroup/awf-cloud-hypervisor ] && \
-             [ -n "$(sudo find /sys/fs/cgroup/awf-cloud-hypervisor -mindepth 1 -maxdepth 1 2>/dev/null)" ]; then
+             [ -n "$(sudo find /sys/fs/cgroup/awf-cloud-hypervisor -mindepth 1 -maxdepth 1 -type d 2>/dev/null)" ]; then
             echo "::error::Cloud Hypervisor cgroup residue remains after cleanup"
             exit 1
           fi
