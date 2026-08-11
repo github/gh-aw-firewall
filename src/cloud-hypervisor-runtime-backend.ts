@@ -216,6 +216,21 @@ export class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBacken
       this.dependencies.logger.warn(
         `[cloud-hypervisor] stage=${stage} status=failed: ${formatError(error)}`,
       );
+      // Collect diagnostics (guest serial console, Cloud Hypervisor log,
+      // network plan, counters) before stop() deletes the private run
+      // directory below. Without this, a startup failure leaves nothing
+      // for the outer, --diagnostic-logs-gated collectDiagnostics() call
+      // (invoked later, from the CLI's cleanup path) to find — it would
+      // silently no-op on now-ENOENT paths.
+      if (this.config.diagnosticLogs && this.manager) {
+        try {
+          await this.collectDiagnostics();
+        } catch (diagnosticsError) {
+          this.dependencies.logger.warn(
+            `[cloud-hypervisor] failed to collect pre-cleanup diagnostics: ${formatError(diagnosticsError)}`,
+          );
+        }
+      }
       try {
         await this.manager?.stop();
       } catch (cleanupError) {

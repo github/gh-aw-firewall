@@ -143,6 +143,24 @@ jobs:
           ./scripts/ci/cloud-hypervisor-live-smoke.sh \
             "$RUNNER_TEMP/cloud-hypervisor-test-x86_64"
 
+      - name: Print guest boot diagnostics on failure
+        if: failure()
+        run: |
+          set -uo pipefail
+          # Cloud Hypervisor's own collectDiagnostics() runs before the run
+          # directory is torn down on a startup failure (see
+          # src/cloud-hypervisor-runtime-backend.ts), so the guest serial
+          # console and Cloud Hypervisor log land under each case's
+          # audit/cloud-hypervisor/ directory. Print them directly in the
+          # job log for fast triage, in addition to the uploaded artifact.
+          # Redact the test-only secret sentinel defensively, matching the
+          # scan the next step performs on the copied artifact.
+          for f in "$RUNNER_TEMP"/awf-cloud-hypervisor-live/*/audit/cloud-hypervisor/{serial.log,cloud-hypervisor.log}; do
+            [ -f "$f" ] || continue
+            echo "--- $f ---"
+            sed 's/awf-cloud-hypervisor-real-secret-do-not-expose/[REDACTED]/g' "$f"
+          done
+
       - name: Collect redacted diagnostics
         if: always()
         run: |
