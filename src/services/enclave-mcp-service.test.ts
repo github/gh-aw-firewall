@@ -63,15 +63,15 @@ describe('buildEnclaveMcpService', () => {
     const enclaves = normalizeEnclavesConfig([
       {
         script: {
-          runtime: 'gvisor',
-          memoryLimit: '256m',
-          cpuLimit: '0.5',
-          pidsLimit: 32,
-          tmpfsLimit: '24m',
-          maxOutputBytes: 2048,
           maxScriptBytes: 4096,
-          maxInvocations: 3,
         },
+        runtime: 'gvisor',
+        memoryLimit: '256m',
+        cpuLimit: '0.5',
+        pidsLimit: 32,
+        tmpfsLimit: '24m',
+        maxOutputBytes: 2048,
+        maxInvocations: 3,
         repos: [{ repo: 'octo/private', sensitivity: 'internal' }],
         timeout: 12,
       },
