@@ -312,6 +312,31 @@ describe('Cloud Hypervisor runtime backend', () => {
     );
   });
 
+  it('includes captured guest network state (ip addr/route) in the readiness probe failure message', async () => {
+    // Regression test: a probe failure with empty stdout/stderr (BusyBox
+    // nc/wget are often silent on connection failure) still needs enough
+    // context to diagnose live-KVM guest networking issues. A best-effort
+    // follow-up `ip addr show; ip route show` call is issued only after
+    // the main probe fails, and its output is folded into the error.
+    const { manager, deps } = harness();
+    manager.execute.mockReset()
+      .mockImplementationOnce(async () => ({
+        requestId: 'probe', exitCode: 1, signal: null, timedOut: false,
+      }))
+      .mockImplementationOnce(async (request) => {
+        request.stdout?.write('1: lo: <LOOPBACK,UP>\n---\ndefault via 100.115.75.109 dev eth0\n');
+        return { requestId: 'netdiag', exitCode: 0, signal: null, timedOut: false };
+      });
+    const backend = new CloudHypervisorRuntimeBackend(config(), deps);
+
+    await expect(backend.start('/tmp/awf', ['github.com'])).rejects.toThrow(
+      /guest network state: 1: lo: <LOOPBACK,UP>/,
+    );
+    expect(manager.execute).toHaveBeenCalledTimes(2);
+    const netDiagCall = manager.execute.mock.calls[1][0];
+    expect(netDiagCall.argv).toEqual(['/bin/sh', '-c', 'ip addr show; echo ---; ip route show']);
+  });
+
   it('probes guest connectivity with nc/wget instead of curl, which the BusyBox guest rootfs lacks', async () => {
     // Regression test: the guest rootfs is a minimal BusyBox userland (see
     // guest/cloud-hypervisor/build-test-artifacts.sh) with no `curl`
@@ -337,12 +362,12 @@ describe('Cloud Hypervisor runtime backend', () => {
     expect(probeCall.argv[1]).toBe('-c');
     const script = probeCall.argv[2] as string;
     expect(script).not.toContain('curl');
-    expect(script).toContain('nc -z');
+    expect(script).toContain('nc -v -z');
     expect(script).toContain('wget');
     // The API proxy request must bypass the guest's HTTP(S)_PROXY env vars
     // (it targets the sidecar directly, not through Squid) and must only
     // run if the Squid reachability check already succeeded.
-    expect(script).toMatch(/nc -z .* && \(unset .*HTTP_PROXY.*; wget /);
+    expect(script).toMatch(/nc -v -z .* && \(unset .*HTTP_PROXY.*; wget /);
   });
 
   it('passes a beforeCleanup diagnostics hook to stop() on a startup failure, when --diagnostic-logs is set', async () => {

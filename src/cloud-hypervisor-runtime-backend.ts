@@ -402,14 +402,16 @@ export class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBacken
     // TCP listener is up without depending on HTTP status-code semantics
     // (a raw, non-proxy-style request to Squid's own port returns a 4xx
     // error page by design, which BusyBox wget would treat as a script
-    // failure by default, unlike curl without `--fail`). The API proxy
-    // check does expect a real 2xx from its `/reflect` endpoint, so wget
-    // is used there directly (matching the smoke test's own
-    // api-proxy-reflect case), with the proxy env vars unset so the
-    // request reaches the sidecar directly rather than being routed
-    // through Squid. Discovered via live-KVM validation: curl exits 127
-    // ("command not found") on this rootfs.
-    const squidProbe = `nc -z -w 5 ${SQUID_IP} 3128`;
+    // failure by default, unlike curl without `--fail`). `-v` makes
+    // BusyBox nc print an "open"/error line instead of staying silent, so
+    // a failure has *something* to report. The API proxy check does
+    // expect a real 2xx from its `/reflect` endpoint, so wget is used
+    // there directly (matching the smoke test's own api-proxy-reflect
+    // case), with the proxy env vars unset so the request reaches the
+    // sidecar directly rather than being routed through Squid. Discovered
+    // via live-KVM validation: curl exits 127 ("command not found") on
+    // this rootfs.
+    const squidProbe = `nc -v -z -w 5 ${SQUID_IP} 3128`;
     const apiProxyProbe = this.config.enableApiProxy
       ? ` && (unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy ALL_PROXY all_proxy; ` +
         `wget -q -T 5 -O /dev/null http://${API_PROXY_IP}:10000/reflect)`
@@ -433,7 +435,12 @@ export class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBacken
     if (result.exitCode !== 0) {
       const stdout = stdoutCollector.toString().trim();
       const stderr = stderrCollector.toString().trim();
-      const detail = [stdout && `stdout: ${stdout}`, stderr && `stderr: ${stderr}`]
+      const netState = await this.captureGuestNetworkStateForDiagnostics();
+      const detail = [
+        stdout && `stdout: ${stdout}`,
+        stderr && `stderr: ${stderr}`,
+        netState && `guest network state: ${netState}`,
+      ]
         .filter((part): part is string => Boolean(part))
         .join('; ');
       throw new Error(
@@ -444,6 +451,37 @@ export class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBacken
     this.dependencies.logger.info(
       '[cloud-hypervisor] Guest supervisor, Squid, and API proxy connectivity verified',
     );
+  }
+
+  /**
+   * Best-effort diagnostic-only helper: on a connectivity probe failure,
+   * capture the guest's own view of its network configuration (interface
+   * addresses and routing table) so a live-KVM failure log shows *why* the
+   * guest couldn't reach Squid/API proxy (e.g. missing IP, missing
+   * default route) rather than only a bare exit code. Never throws --
+   * failures here are folded into an empty string rather than masking the
+   * original probe failure.
+   */
+  private async captureGuestNetworkStateForDiagnostics(): Promise<string> {
+    const manager = this.manager;
+    const environment = this.environment;
+    const identity = this.identity;
+    if (!manager || !environment || !identity) return '';
+    try {
+      const stdoutCollector = createBoundedOutputCollector();
+      await manager.execute({
+        requestId: `probe-netdiag-${process.pid}-${Date.now()}`,
+        argv: ['/bin/sh', '-c', 'ip addr show; echo ---; ip route show'],
+        env: environment,
+        cwd: CLOUD_HYPERVISOR_GUEST_WORKSPACE,
+        ...identity,
+        timeoutMs: CLOUD_HYPERVISOR_PROBE_TIMEOUT_MS,
+        stdout: stdoutCollector.stream,
+      });
+      return stdoutCollector.toString().trim();
+    } catch {
+      return '';
+    }
   }
 }
 
