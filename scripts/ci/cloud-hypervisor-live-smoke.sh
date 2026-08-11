@@ -540,14 +540,25 @@ node -e '
 
   // Reject any unexpected top-level device-bearing config field (e.g. a
   // virtio-fs, pmem, vdpa, or VFIO device this preview never configures) —
-  // not just count the devices we do expect.
+  // not just count the devices we do expect. pvpanic/iommu/debug_console
+  // are always present in Cloud Hypervisor v53.0 own vm.info response
+  // as disabled feature toggles, not devices this preview ever attaches --
+  // they add no actual attack surface and are allowed here so this check
+  // still targets genuinely unexpected *devices*, not benign metadata.
   const allowedKeys = new Set([
     "cpus", "memory", "payload", "disks", "net", "rng", "serial", "console",
     "vsock", "watchdog", "landlock_enable", "landlock_rules",
+    "pvpanic", "iommu", "debug_console",
   ]);
   for (const key of Object.keys(config)) {
     if (!allowedKeys.has(key)) {
       throw new Error("unexpected device-bearing vm.info config field: " + key);
+    }
+    if ((key === "pvpanic" || key === "iommu") && config[key] !== false) {
+      throw new Error(key + " is unexpectedly enabled in vm.info: " + JSON.stringify(config[key]));
+    }
+    if (key === "debug_console" && config[key] && config[key].mode !== "Off") {
+      throw new Error("debug_console is unexpectedly enabled in vm.info: " + JSON.stringify(config[key]));
     }
   }
 
