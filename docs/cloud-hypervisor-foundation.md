@@ -104,7 +104,8 @@ isolation), different VMM implementation and host launch strategy.
    `src/microvm/network.ts` unchanged) → workspace image preparation
    (reusing `src/microvm/workspace.ts` unchanged) → private run-directory
    staging → cgroup setup → launch → API-socket readiness → `vm.create` →
-   (later) `vm.boot` → VSOCK guest-supervisor connect (reusing
+   (later) `vm.boot` → VSOCK guest-supervisor connect, retried with a fresh
+   client on the guest-boot-timing race documented in Part 3 (reusing
    `src/microvm/vsock-client.ts` and `guest-protocol.ts` unchanged) →
    execution → graceful `vm.shutdown`/`vmm.shutdown` → process termination
    → workspace extraction → network/cgroup/run-directory cleanup, with
@@ -144,7 +145,7 @@ buildCloudHypervisorLaunchCommand() → ip netns exec → setpriv --groups=<kvm-
     ↓
 wait for API socket → vmm.ping → vm.create (landlock_enable: true, minimal landlock_rules)
     ↓
-CloudHypervisorRuntimeBackend.start(): vm.boot → VSOCK connect (CID 3, CONNECT <port>\n) → Squid/API-proxy connectivity probe
+CloudHypervisorRuntimeBackend.start(): vm.boot → VSOCK connect (CID 3, CONNECT <port>\n, retried on the guest-boot-timing race — see Part 3) → Squid/API-proxy connectivity probe
     ↓
 Agent command executes inside the guest via the VSOCK guest-protocol transport (unchanged)
     ↓
@@ -537,6 +538,20 @@ Landlock requires Linux 5.13+ with `CONFIG_SECURITY_LANDLOCK=y` and the LSM
 enabled at boot (`lsm=landlock,...` on the kernel cmdline, or Landlock
 included in the distribution default). GitHub-hosted Ubuntu 24.04 runners
 ship this by default; a custom or older kernel may not.
+
+**`guest disconnected before readiness` on `startInstance()`**
+
+This is expected transient behavior, not a bug: Cloud Hypervisor's own
+vsock-over-UDS multiplexer closes the host-facing connection immediately if
+the guest hasn't yet started listening on the target vsock port (kernel
+boot + guest supervisor startup take a variable, host-load-dependent amount
+of time). `CloudHypervisorManager.startInstance()` retries the connect with
+a fresh client every 250 ms for up to 20 seconds before surfacing the error;
+seeing it in this error message means that entire retry budget was
+exhausted. If it persists, check the guest serial console log
+(`<auditDir>/cloud-hypervisor/serial.log`) for a kernel panic or a
+supervisor startup failure rather than assuming it is purely a timing
+issue.
 
 **`Cloud Hypervisor requires a non-root target uid/gid`**
 

@@ -47,6 +47,19 @@ const CLOUD_HYPERVISOR_CAPTURE_LIMIT_BYTES = 1024 * 1024;
 export const CLOUD_HYPERVISOR_GUEST_VSOCK_PORT = 52;
 const CLOUD_HYPERVISOR_GUEST_SHUTDOWN_GRACE_MS = 5_000;
 /**
+ * Cloud Hypervisor's vsock-over-UDS multiplexer closes the host-facing
+ * connection immediately (rather than blocking/retrying) if the guest
+ * isn't yet listening on the target vsock port when a `CONNECT <port>`
+ * handshake arrives — observed live as `startInstance()` failing with
+ * "guest disconnected before readiness" even on a successful `vm.boot()`.
+ * This is a real host/guest boot-timing race (kernel decompression +
+ * supervisor startup take a variable, host-load-dependent amount of time),
+ * not a fatal error, so the connect is retried with a fresh client and a
+ * short backoff until the guest is actually ready or this budget elapses.
+ */
+const CLOUD_HYPERVISOR_GUEST_READY_RETRY_INTERVAL_MS = 250;
+const CLOUD_HYPERVISOR_GUEST_READY_MAX_WAIT_MS = 20_000;
+/**
  * Private run-directory root, deliberately **outside** `workDir`.
  *
  * `workDir` is created root-owned mode 0700 (it holds `docker-compose.yml`
@@ -433,13 +446,41 @@ export class CloudHypervisorManager {
     await this.client.vmBoot();
     this.instanceStarted = true;
     if (this.guestConfig) {
-      this.guestClient = this.dependencies.createVsockClient(
-        this.paths.vsockSocketPath,
+      this.guestClient = await this.connectGuestWithRetry(
         this.guestConfig.vsockPort ?? CLOUD_HYPERVISOR_GUEST_VSOCK_PORT,
+      );
+    }
+  }
+
+  /**
+   * Connects to the guest supervisor over vsock, retrying on the
+   * "guest disconnected before readiness" boot-timing race documented on
+   * {@link CLOUD_HYPERVISOR_GUEST_READY_MAX_WAIT_MS} above. Each attempt
+   * uses a fresh client (MicrovmVsockClient does not support reconnecting
+   * a socket that already closed).
+   */
+  private async connectGuestWithRetry(port: number): Promise<MicrovmVsockClient> {
+    const deadline = Date.now() + CLOUD_HYPERVISOR_GUEST_READY_MAX_WAIT_MS;
+    let lastError: unknown;
+    do {
+      const client = this.dependencies.createVsockClient(
+        this.paths.vsockSocketPath,
+        port,
         this.config.apiTimeoutMs,
       );
-      await this.guestClient.connect();
-    }
+      try {
+        await client.connect();
+        return client;
+      } catch (error) {
+        lastError = error;
+        client.destroy();
+        if (Date.now() >= deadline) break;
+        await this.dependencies.sleep(CLOUD_HYPERVISOR_GUEST_READY_RETRY_INTERVAL_MS);
+      }
+    } while (Date.now() < deadline);
+    throw lastError instanceof Error
+      ? lastError
+      : new Error('Cloud Hypervisor guest vsock connection failed');
   }
 
   async execute(

@@ -431,6 +431,70 @@ describe('CloudHypervisorManager', () => {
     expect(order).toEqual(['extract']);
   });
 
+  it('retries the vsock connect on the guest-not-ready-yet boot race, with a fresh client each attempt', async () => {
+    // Regression test: Cloud Hypervisor's vsock-over-UDS multiplexer closes
+    // the host-facing connection immediately if the guest isn't yet
+    // listening on the target port, surfacing as "guest disconnected
+    // before readiness" even though vm.boot() itself succeeded — a real
+    // host/guest boot-timing race, not a fatal error. startInstance() must
+    // retry with a fresh client (MicrovmVsockClient cannot reconnect a
+    // socket that already closed) until the guest is ready.
+    const readyFrame = {
+      version: 1,
+      type: 'ready' as const,
+      requestId: 'control',
+      capabilities: { stdin: true, tty: false, resize: false },
+    };
+    const failingClient = {
+      connect: jest.fn().mockRejectedValue(new Error('guest disconnected before readiness')),
+      destroy: jest.fn(),
+    };
+    const succeedingClient = {
+      connect: jest.fn().mockResolvedValue(readyFrame),
+      execute: jest.fn().mockResolvedValue({
+        requestId: 'command', exitCode: 0, signal: null, timedOut: false,
+      }),
+      shutdown: jest.fn().mockResolvedValue(undefined),
+      destroy: jest.fn(),
+    };
+    const createVsockClient = jest.fn()
+      .mockReturnValueOnce(failingClient)
+      .mockReturnValueOnce(failingClient)
+      .mockReturnValueOnce(succeedingClient);
+    const deps = dependencies({
+      launch: jest.fn().mockReturnValue(processMock()),
+      createWorkspaceImage: jest.fn().mockReturnValue({
+        prepare: jest.fn().mockResolvedValue({
+          rootfsImagePath: '/tmp/rootfs.ext4',
+          workspaceImagePath: '/tmp/workspace.ext4',
+        }),
+        extractAfterStop: jest.fn().mockResolvedValue(undefined),
+        cleanup: jest.fn().mockResolvedValue(undefined),
+      }),
+      createVsockClient,
+    });
+    const manager = new CloudHypervisorManager(
+      config(),
+      '/tmp/awf',
+      deps,
+      'retry-guest',
+      networkConfig(),
+      {
+        workspacePath: '/workspace',
+        homePath: '/home/runner',
+        supervisorBinaryPath: '/opt/awf-supervisor',
+        supervisorSha256: 'a'.repeat(64),
+      },
+    );
+
+    await manager.start();
+    await manager.startInstance();
+
+    expect(createVsockClient).toHaveBeenCalledTimes(3);
+    expect(failingClient.destroy).toHaveBeenCalledTimes(2);
+    expect(succeedingClient.connect).toHaveBeenCalledTimes(1);
+  });
+
   it('delegates guest cancellation, stdin, and resize only after readiness', async () => {
     const cold = new CloudHypervisorManager(
       config(),
