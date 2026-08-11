@@ -126,6 +126,15 @@ func shutdownGuest(config bootConfig) error {
 	return nil
 }
 
+const workspaceFilesystemType = "ext4"
+
+// workspaceMountArgs computes the syscall.Mount() arguments for the
+// workspace device. Split out from mountWorkspace so it can be unit-tested
+// without requiring root/CAP_SYS_ADMIN to actually perform a mount.
+func workspaceMountArgs(config bootConfig) (source, target, fstype string, flags uintptr) {
+	return config.WorkspaceDevice, config.WorkspaceMount, workspaceFilesystemType, 0
+}
+
 func mountWorkspace(config bootConfig) error {
 	info, err := os.Stat(config.WorkspaceDevice)
 	if err != nil {
@@ -137,7 +146,19 @@ func mountWorkspace(config bootConfig) error {
 	if err := os.MkdirAll(config.WorkspaceMount, 0755); err != nil {
 		return fmt.Errorf("create workspace mount: %w", err)
 	}
-	if err := syscall.Mount(config.WorkspaceDevice, config.WorkspaceMount, "", 0, ""); err != nil {
+	// The workspace image is always formatted as ext4 by
+	// MicrovmWorkspaceImage (mkfs -t ext4; see src/microvm/workspace.ts),
+	// matching the root filesystem's `rootfstype=ext4` kernel cmdline
+	// parameter. An empty fstype string is only valid for bind/remount
+	// mounts (MS_BIND/MS_REMOUNT); passing it here for a fresh mount from a
+	// raw block device instead failed with ENODEV ("no such device"),
+	// which made this supervisor's init process return an error and the
+	// kernel panic with "Attempted to kill init!" on every single guest
+	// boot. Discovered via live-KVM validation (a genuine, pre-existing
+	// defect shared by both the Firecracker and Cloud Hypervisor backends,
+	// since they share this guest supervisor binary).
+	source, target, fstype, flags := workspaceMountArgs(config)
+	if err := syscall.Mount(source, target, fstype, flags, ""); err != nil {
 		return fmt.Errorf("mount workspace: %w", err)
 	}
 	return nil

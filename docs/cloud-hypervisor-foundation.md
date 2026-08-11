@@ -591,6 +591,31 @@ before the process is terminated at all — can observe a still-empty
 `serial.log` even when the guest did write to its console before crashing
 or hanging.
 
+**Guest kernel panics with `Attempted to kill init!` on every boot (fixed;
+historical)**
+
+Once the two boot-timing issues above were resolved, live-KVM validation
+uncovered the real underlying blocker: the guest kernel's serial console
+showed `Run /sbin/awf-supervisor as init process` immediately followed by
+`firecracker-supervisor: mount workspace: no such device` and a kernel
+panic. `mountWorkspace()` in
+`guest/firecracker-supervisor/runtime_linux.go` called
+`syscall.Mount(device, mount, "", 0, "")` — an **empty filesystem type**.
+An empty fstype is only valid for bind/remount mounts (`MS_BIND`/
+`MS_REMOUNT`); a fresh mount of a raw block device with an empty fstype
+fails with `ENODEV` ("no such device"), even though the device itself
+exists and is a valid block device. The workspace image is always
+formatted `ext4` (see `src/microvm/workspace.ts`'s `mkfs -t ext4`), so this
+was fixed by passing `"ext4"` explicitly. This guest supervisor binary is
+shared, unmodified, between the Firecracker and Cloud Hypervisor backends
+(see Part 2), so this was a genuine, pre-existing production defect
+affecting **both** backends, not something specific to this preview — any
+real guest boot exercising the workspace mount would have hit it. A
+regression test (`TestWorkspaceMountArgsUseExt4Filesystem` in
+`runtime_linux_test.go`) and a CI step running `go test ./...` for this
+package (see Part 14) now guard against a regression of this specific
+class of bug.
+
 **`Cloud Hypervisor requires a non-root target uid/gid`**
 
 Same as Firecracker's jailer requirement: run through `sudo` from a

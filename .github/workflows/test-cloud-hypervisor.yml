@@ -47,6 +47,16 @@ jobs:
           go-version: '1.25.0'
           cache-dependency-path: guest/firecracker-supervisor/go.mod
 
+      - name: Run guest supervisor unit tests
+        working-directory: guest/firecracker-supervisor
+        # guest/firecracker-supervisor is shared, unmodified, between the
+        # Firecracker and Cloud Hypervisor backends (see build.sh above).
+        # Running its unit tests here (not just building it) catches
+        # defects like an incorrect syscall.Mount() fstype before they
+        # only surface as a guest kernel panic during the live-KVM job
+        # below, which is much slower to diagnose.
+        run: go test ./...
+
       - name: Install deterministic guest build prerequisites
         run: |
           sudo apt-get update
