@@ -295,6 +295,23 @@ describe('Cloud Hypervisor runtime backend', () => {
     expect(manager.stop).toHaveBeenCalledTimes(1);
   });
 
+  it('includes captured guest stdout/stderr in the readiness probe failure message', async () => {
+    // Regression test: a bare exit code alone doesn't say which leg of the
+    // compound nc-then-wget probe command failed or why. Capture (bounded)
+    // stdout/stderr from the probe execution and surface it in the thrown
+    // error for faster live-KVM triage.
+    const { manager, deps } = harness();
+    manager.execute.mockReset().mockImplementationOnce(async (request) => {
+      request.stderr?.write('wget: can\'t connect to remote host: Connection refused\n');
+      return { requestId: 'probe', exitCode: 1, signal: null, timedOut: false };
+    });
+    const backend = new CloudHypervisorRuntimeBackend(config(), deps);
+
+    await expect(backend.start('/tmp/awf', ['github.com'])).rejects.toThrow(
+      /connectivity probe failed with exit code 1 \(stderr: wget: can't connect to remote host: Connection refused\)/,
+    );
+  });
+
   it('probes guest connectivity with nc/wget instead of curl, which the BusyBox guest rootfs lacks', async () => {
     // Regression test: the guest rootfs is a minimal BusyBox userland (see
     // guest/cloud-hypervisor/build-test-artifacts.sh) with no `curl`

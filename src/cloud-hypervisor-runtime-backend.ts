@@ -1,4 +1,5 @@
-import type { Readable, Writable } from 'stream';
+import type { Readable } from 'stream';
+import { Writable } from 'stream';
 import type { WorkflowDependencies } from './cli-workflow';
 import type { ExternalAgentRuntimeBackend } from './external-runtime-backend';
 import {
@@ -413,6 +414,12 @@ export class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBacken
       ? ` && (unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy ALL_PROXY all_proxy; ` +
         `wget -q -T 5 -O /dev/null http://${API_PROXY_IP}:10000/reflect)`
       : '';
+    // Capture (bounded) stdout/stderr so a probe failure can report which
+    // leg failed and why, rather than only a bare exit code -- useful for
+    // diagnosing this compound nc-then-wget command without a full guest
+    // command execution's live output stream.
+    const stdoutCollector = createBoundedOutputCollector();
+    const stderrCollector = createBoundedOutputCollector();
     const result = await manager.execute({
       requestId: `probe-${process.pid}-${Date.now()}`,
       argv: ['/bin/sh', '-c', `set -eu; ${squidProbe}${apiProxyProbe}`],
@@ -420,10 +427,18 @@ export class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBacken
       cwd: CLOUD_HYPERVISOR_GUEST_WORKSPACE,
       ...identity,
       timeoutMs: CLOUD_HYPERVISOR_PROBE_TIMEOUT_MS,
+      stdout: stdoutCollector.stream,
+      stderr: stderrCollector.stream,
     });
     if (result.exitCode !== 0) {
+      const stdout = stdoutCollector.toString().trim();
+      const stderr = stderrCollector.toString().trim();
+      const detail = [stdout && `stdout: ${stdout}`, stderr && `stderr: ${stderr}`]
+        .filter((part): part is string => Boolean(part))
+        .join('; ');
       throw new Error(
-        `Cloud Hypervisor guest connectivity probe failed with exit code ${result.exitCode}`,
+        `Cloud Hypervisor guest connectivity probe failed with exit code ${result.exitCode}` +
+          (detail ? ` (${detail})` : ''),
       );
     }
     this.dependencies.logger.info(
@@ -488,6 +503,35 @@ function assertNoProviderSecrets(
 
 function formatError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * A bounded, in-memory Writable for capturing a guest command's stdout or
+ * stderr without printing it live (unlike the real agent command, whose
+ * output streams directly to the user). Used to enrich probeGuestConnectivity()
+ * failure messages with what the guest actually printed, discarding
+ * anything past the byte cap so a runaway/looping command can't grow
+ * memory unbounded.
+ */
+function createBoundedOutputCollector(maxBytes = 4096): {
+  readonly stream: Writable;
+  toString(): string;
+} {
+  const chunks: Buffer[] = [];
+  let total = 0;
+  const stream = new Writable({
+    write(chunk: Buffer, _encoding, callback) {
+      if (total < maxBytes) {
+        chunks.push(chunk);
+        total += chunk.length;
+      }
+      callback();
+    },
+  });
+  return {
+    stream,
+    toString: () => Buffer.concat(chunks).subarray(0, maxBytes).toString('utf8'),
+  };
 }
 
 export function createCloudHypervisorRuntimeBackend(
