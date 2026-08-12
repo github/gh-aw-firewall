@@ -120,9 +120,9 @@ describe('Cloud Hypervisor configuration (foundation only)', () => {
       .toContain('config.cloudHypervisor.unsupported is not supported');
   });
 
-  it('rejects "cloud-hypervisor" as a --container-runtime value (not yet an available runtime)', () => {
+  it('accepts "cloud-hypervisor" as a container runtime', () => {
     expect(validateAwfFileConfig({
       container: { containerRuntime: 'cloud-hypervisor' },
-    }).some((error) => error.includes('container.containerRuntime'))).toBe(true);
+    })).toEqual([]);
   });
 });

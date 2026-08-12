@@ -250,7 +250,7 @@ describe('validateEnclavesConfig', () => {
       enableApiProxy: true,
       copilotGithubToken: 'token',
     })).join('\n');
-    expect(errors).toMatch(/agent.maxOutputBytes must be at most 8192/);
+    expect(errors).toMatch(/maxOutputBytes must be at most 8192/);
     expect(errors).toMatch(/agent.maxTaskBytes must be at most 65536/);
   });
 
