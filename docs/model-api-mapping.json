@@ -1,7 +1,7 @@
 {
   "title": "Model-to-API Endpoint Mapping",
   "description": "Maps AI model families to their supported API endpoints. Used to determine which endpoint (chat/completions vs responses vs messages) a model requires.",
-  "lastUpdated": "2026-08-05T06:03:21Z",
+  "lastUpdated": "2026-08-12T05:43:00Z",
   "sources": {
     "openai": "https://platform.openai.com/docs/models",
     "anthropic": "https://docs.anthropic.com/en/docs/about-claude/models"
@@ -20,10 +20,22 @@
       },
       "models": [
         {
+          "family": "gpt-daybreak",
+          "patterns": ["gpt-daybreak-blue-latest", "gpt-daybreak-red-latest"],
+          "endpoints": ["responses"],
+          "notes": "Responses API only (ResponsesModel-only Literal). Experimental/preview aliases not present in ChatModel."
+        },
+        {
+          "family": "gpt-5.6-cyber",
+          "patterns": ["gpt-5.6-cyber*"],
+          "endpoints": ["responses"],
+          "notes": "Responses API only (ResponsesModel-only Literal, not in ChatModel). More specific than gpt-5.6* pattern below."
+        },
+        {
           "family": "gpt-5.6",
           "patterns": ["gpt-5.6*"],
           "endpoints": ["chat_completions", "responses"],
-          "notes": "Supports both endpoints. Includes gpt-5.6-sol, gpt-5.6-terra, gpt-5.6-luna per OpenAI SDK ChatModel."
+          "notes": "Supports both endpoints. Includes gpt-5.6-sol, gpt-5.6-terra, gpt-5.6-luna per OpenAI SDK ChatModel. gpt-5.6-cyber is responses-only (see separate entry above)."
         },
         {
           "family": "gpt-5.5",
