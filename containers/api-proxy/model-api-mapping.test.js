@@ -136,7 +136,7 @@ describe('model-api-mapping', () => {
       expect(reflect.available).toBe(true);
       expect(reflect.providers).toContain('openai');
       expect(reflect.providers).toContain('anthropic');
-      expect(reflect.last_updated).toBe('2026-07-25T06:01:17Z');
+      expect(reflect.last_updated).toBe('2026-08-12T05:43:00Z');
       expect(reflect.models.anthropic.models[0].family).toBe('claude-opus-5');
       expect(reflect.error).toBeNull();
     });
