@@ -3,7 +3,6 @@ name: SBX Rollout Monitor
 description: Audits gh-aw workflow failure issues and opens gh-aw-firewall companions for Docker sbx rollout regressions.
 
 on:
-  schedule: every 2h
   workflow_dispatch:
 
 permissions:
