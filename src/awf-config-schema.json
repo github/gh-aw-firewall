@@ -650,9 +650,10 @@
           "enum": [
             "gvisor",
             "sbx",
-            "firecracker"
+            "firecracker",
+            "cloud-hypervisor"
           ],
-          "description": "Runtime for the primary agent. \"gvisor\" uses runsc in Docker Compose. \"sbx\" uses a Docker sbx microVM. \"firecracker\" selects the explicit Linux/KVM Firecracker v1.16.1 workload preview. Infrastructure containers always use the default runc runtime."
+          "description": "Runtime for the primary agent. \"gvisor\" uses runsc in Docker Compose. \"sbx\" uses a Docker sbx microVM. \"firecracker\" selects the explicit Linux/KVM Firecracker v1.16.1 workload preview. \"cloud-hypervisor\" selects the explicit Linux/KVM Cloud Hypervisor v53.0 workload preview (GitHub-hosted Ubuntu x86_64 KVM runners only). Infrastructure containers always use the default runc runtime."
         }
       }
     },
