@@ -504,6 +504,8 @@ jobs:
         run: bash "${RUNNER_TEMP}/gh-aw/actions/install_copilot_cli.sh" 1.0.34
         env:
           GH_HOST: github.com
+      - name: Grant KVM access
+        run: sudo chmod 666 /dev/kvm
       - name: Check host eligibility for cloud-hypervisor
         run: bash "${RUNNER_TEMP}/gh-aw/actions/cloud_hypervisor_host_preflight.sh"
       - name: Download and verify cloud-hypervisor bundle
