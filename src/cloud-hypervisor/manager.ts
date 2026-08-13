@@ -47,6 +47,7 @@ const KERNEL_RUN_NAME = 'kernel';
 const ROOTFS_RUN_NAME = 'rootfs.ext4';
 const CLOUD_HYPERVISOR_LOG_NAME = 'cloud-hypervisor.log';
 const CLOUD_HYPERVISOR_SERIAL_LOG_NAME = 'serial.log';
+const CLOUD_HYPERVISOR_GUEST_SUPERVISOR = '/usr/sbin/awf-supervisor';
 const CLOUD_HYPERVISOR_CAPTURE_LIMIT_BYTES = 1024 * 1024;
 export const CLOUD_HYPERVISOR_GUEST_VSOCK_PORT = 52;
 const CLOUD_HYPERVISOR_GUEST_SHUTDOWN_GRACE_MS = 5_000;
@@ -344,6 +345,7 @@ export class CloudHypervisorManager {
           baseRootfsPath: artifacts.rootfsPath,
           supervisorBinaryPath: this.guestConfig.supervisorBinaryPath,
           supervisorSha256: this.guestConfig.supervisorSha256,
+          supervisorGuestPath: CLOUD_HYPERVISOR_GUEST_SUPERVISOR,
           ...(this.guestConfig.maxWorkspaceImageBytes === undefined
             ? {}
             : { maxImageBytes: this.guestConfig.maxWorkspaceImageBytes }),
@@ -964,7 +966,7 @@ export function buildSupervisorBootArgs(
     // single virtio-pci NIC has a deterministic name across boots.
     'net.ifnames=0',
     'biosdevname=0',
-    'init=/sbin/awf-supervisor',
+    `init=${CLOUD_HYPERVISOR_GUEST_SUPERVISOR}`,
     'awf.workspace-device=/dev/vdb',
     'awf.workspace-mount=/workspace',
     `awf.vsock-port=${port}`,

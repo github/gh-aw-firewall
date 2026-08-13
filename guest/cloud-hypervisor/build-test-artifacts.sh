@@ -148,7 +148,7 @@ sudo rm -f "$rootfs_tree/.dockerenv"
 sudo find "$rootfs_tree/dev" "$rootfs_tree/proc" "$rootfs_tree/sys" \
   -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
 sudo mkdir -p "$rootfs_tree/dev" "$rootfs_tree/proc" "$rootfs_tree/sys" "$rootfs_tree/workspace"
-sudo install -m 0755 "$supervisor" "$rootfs_tree/sbin/awf-supervisor"
+sudo install -m 0755 "$supervisor" "$rootfs_tree/usr/sbin/awf-supervisor"
 if ! grep -q '^awf:' "$rootfs_tree/etc/passwd"; then
   printf 'awf:x:1000:1000:AWF guest:/workspace:/bin/bash\n' \
     | sudo tee -a "$rootfs_tree/etc/passwd" >/dev/null

@@ -412,7 +412,7 @@ describe('CloudHypervisorManager', () => {
 
     const client = await manager.start();
     expect(client.vmCreate).toHaveBeenCalledWith(expect.objectContaining({
-      payload: expect.objectContaining({ cmdline: expect.stringContaining('init=/sbin/awf-supervisor') }),
+      payload: expect.objectContaining({ cmdline: expect.stringContaining('init=/usr/sbin/awf-supervisor') }),
       disks: expect.arrayContaining([
         expect.objectContaining({ id: 'rootfs', image_type: 'Raw', readonly: false }),
         expect.objectContaining({ id: 'workspace', image_type: 'Raw', readonly: false }),

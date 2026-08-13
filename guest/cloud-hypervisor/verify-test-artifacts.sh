@@ -25,7 +25,7 @@ done
 "$ARTIFACT_DIR/cloud-hypervisor" --version | grep -F '53.0'
 file "$ARTIFACT_DIR/vmlinux.bin" | grep -E 'Linux kernel|boot executable'
 e2fsck -f -n "$ARTIFACT_DIR/rootfs.ext4"
-debugfs -R 'stat /sbin/awf-supervisor' "$ARTIFACT_DIR/rootfs.ext4" 2>&1 \
+debugfs -R 'stat /usr/sbin/awf-supervisor' "$ARTIFACT_DIR/rootfs.ext4" 2>&1 \
   | grep -F 'Type: regular'
 for tool in \
   /bin/bash \

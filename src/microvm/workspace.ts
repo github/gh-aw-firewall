@@ -32,6 +32,7 @@ export interface MicrovmWorkspaceImageConfig {
   readonly baseRootfsPath: string;
   readonly supervisorBinaryPath: string;
   readonly supervisorSha256: string;
+  readonly supervisorGuestPath?: string;
   readonly maxImageBytes?: number;
   readonly uid: number;
   readonly gid: number;
@@ -310,22 +311,27 @@ export class MicrovmWorkspaceImage {
     }
     await fs.copyFile(this.config.baseRootfsPath, this.rootfsImagePath);
     const localSupervisor = path.join(this.runDirectory, 'awf-supervisor');
+    const guestSupervisor = this.config.supervisorGuestPath ?? '/sbin/awf-supervisor';
     await fs.copyFile(this.config.supervisorBinaryPath, localSupervisor);
     await fs.chmod(localSupervisor, 0o500);
     assertDebugfsOperand(localSupervisor, 'supervisor staging path');
+    assertDebugfsOperand(guestSupervisor, 'supervisor guest path');
+    if (!guestSupervisor.startsWith('/')) {
+      throw new Error(`microVM supervisor guest path must be absolute: ${guestSupervisor}`);
+    }
     await this.runTool('debugfs', [
       '-w',
-      '-R', 'rm /sbin/awf-supervisor',
+      '-R', `rm ${guestSupervisor}`,
       this.rootfsImagePath,
     ]);
     await this.dependencies.runTool('debugfs', [
       '-w',
-      '-R', `write ${localSupervisor} /sbin/awf-supervisor`,
+      '-R', `write ${localSupervisor} ${guestSupervisor}`,
       this.rootfsImagePath,
     ]);
     await this.runTool('debugfs', [
       '-w',
-      '-R', 'sif /sbin/awf-supervisor mode 0100755',
+      '-R', `sif ${guestSupervisor} mode 0100755`,
       this.rootfsImagePath,
     ]);
     await this.runTool('e2fsck', ['-f', '-y', this.rootfsImagePath]);
