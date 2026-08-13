@@ -505,7 +505,10 @@ jobs:
         env:
           GH_HOST: github.com
       - name: Grant KVM access
-        run: sudo chmod 666 /dev/kvm
+        run: |
+          if [ -e /dev/kvm ]; then
+            sudo chmod 666 /dev/kvm
+          fi
       - name: Check host eligibility for cloud-hypervisor
         run: bash "${RUNNER_TEMP}/gh-aw/actions/cloud_hypervisor_host_preflight.sh"
       - name: Download tested cloud-hypervisor bundle
