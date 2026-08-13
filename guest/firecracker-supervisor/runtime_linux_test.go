@@ -47,18 +47,6 @@ func TestWorkspaceMountArgsUseExt4Filesystem(t *testing.T) {
 		t.Fatalf("source mismatch: got %s want %s", source, config.WorkspaceDevice)
 	}
 
-	func TestDevptsMountArgsSupportPtyAllocation(t *testing.T) {
-		source, target, fstype, flags, data := devptsMountArgs()
-		if source != "devpts" || target != "/dev/pts" || fstype != "devpts" {
-			t.Fatalf("unexpected devpts mount: source=%q target=%q fstype=%q", source, target, fstype)
-		}
-		if flags&(syscall.MS_NOSUID|syscall.MS_NOEXEC) != syscall.MS_NOSUID|syscall.MS_NOEXEC {
-			t.Fatalf("devpts mount must disable suid and executable files: flags=%#x", flags)
-		}
-		if data != "gid=5,mode=0620,ptmxmode=0666" {
-			t.Fatalf("unexpected devpts mount options: %q", data)
-		}
-	}
 	if target != config.WorkspaceMount {
 		t.Fatalf("target mismatch: got %s want %s", target, config.WorkspaceMount)
 	}
@@ -67,6 +55,19 @@ func TestWorkspaceMountArgsUseExt4Filesystem(t *testing.T) {
 	}
 	if flags != 0 {
 		t.Fatalf("unexpected mount flags: got %d want 0", flags)
+	}
+}
+
+func TestDevptsMountArgsSupportPtyAllocation(t *testing.T) {
+	source, target, fstype, flags, data := devptsMountArgs()
+	if source != "devpts" || target != "/dev/pts" || fstype != "devpts" {
+		t.Fatalf("unexpected devpts mount: source=%q target=%q fstype=%q", source, target, fstype)
+	}
+	if flags&(syscall.MS_NOSUID|syscall.MS_NOEXEC) != syscall.MS_NOSUID|syscall.MS_NOEXEC {
+		t.Fatalf("devpts mount must disable suid and executable files: flags=%#x", flags)
+	}
+	if data != "gid=5,mode=0620,ptmxmode=0666" {
+		t.Fatalf("unexpected devpts mount options: %q", data)
 	}
 }
 
