@@ -289,7 +289,7 @@ run_case timeout-124 124 'sleep 90' --agent-timeout 1
 # docs/cloud-hypervisor-foundation.md): the rootfs is the sole PCI block disk,
 # the workspace is virtio-fs, and the single virtio-net device is eth0.
 run_case device-assumptions 0 \
-  'test -b /dev/vda && ! test -b /dev/vdb && grep -q " workspace virtiofs " /proc/mounts && ip link show eth0 | grep -q eth0'
+  'test -b /dev/vda && ! test -b /dev/vdb && grep -q " /workspace virtiofs " /proc/mounts && ip link show eth0 | grep -q eth0'
 
 corrupt="$RUN_ROOT/corrupt-rootfs.ext4"
 printf 'not-an-ext4-image\n' >"$corrupt"
