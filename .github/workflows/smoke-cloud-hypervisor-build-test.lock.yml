@@ -516,12 +516,12 @@ jobs:
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: cloud-hypervisor-test-x86_64
-          path: ${{ runner.temp }}/gh-aw/cloud-hypervisor/run-31723185736
+          path: ${{ runner.temp }}/gh-aw/cloud-hypervisor/run-31727615897
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          run-id: 31723185736
+          run-id: 31727615897
       - name: Verify and configure tested cloud-hypervisor bundle
         run: |
-          bundle="${RUNNER_TEMP}/gh-aw/cloud-hypervisor/run-31723185736"
+          bundle="${RUNNER_TEMP}/gh-aw/cloud-hypervisor/run-31727615897"
           (
             cd "$bundle"
             sha256sum --check SHA256SUMS
