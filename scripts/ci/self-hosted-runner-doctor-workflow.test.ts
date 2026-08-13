@@ -92,6 +92,19 @@ describe('self-hosted runner doctor workflow config', () => {
       expect(content).toContain('`checkUnknownModelRejection` now allows `provider === \'copilot\' && model.toLowerCase() === \'auto\'` to pass pre-flight');
       expect(content).toContain('github/gh-aw-firewall#6810, github/gh-aw-firewall#6811');
       expect(content).toContain('| `Model "auto" has no AI credits pricing and no default pricing is configured` together with `awf-reflect: request failed: fetch failed` under `--container-runtime gvisor` or `sbx` | D12');
+      // A20 new failure mode (writable /host$HOME under arc-dind sysroot staging)
+      expect(content).toContain('| A20 | Under `runner.topology: arc-dind`, `awf-agent` fails to start');
+      expect(content).toContain('`filterAgentVolumesForSysroot()` (`src/services/optional-services.ts`) dropped every mount targeting `/host$HOME`');
+      expect(content).toContain('**Fixed in AWF (PR github/gh-aw-firewall#7244, merged 2026-08-11):**');
+      expect(content).toContain('github/gh-aw-firewall#7239, github/gh-aw-firewall#7244');
+      expect(content).toContain('| `runc` mountpoint creation failure for `/dev/null` credential overlays under `/host$HOME` on `runner.topology: arc-dind` | A20 |');
+      expect(content).toContain('| `mkdir -p .../.m2` failing under `set -e` in agent entrypoint on `arc-dind` | A20 |');
+      // B23 update: PR #7245 fixes the AWF-side gap
+      expect(content).toContain('**Further fixed in AWF (PR github/gh-aw-firewall#7245, merged 2026-08-11):**');
+      expect(content).toContain('`ensure_usr_local_bin_shims()`');
+      expect(content).toContain('`prepare_usr_local_bin_overlay()`');
+      expect(content).toContain('AWF_ENSURE_USR_LOCAL_BIN=copilot');
+      expect(content).toContain('the upstream gh-aw `install_copilot_cli.sh`/harness mismatch tracked by github/gh-aw-firewall#7130 remains open');
     }
 
     expect(source).toContain('- `unknown shorthand flag: \'d\' in -d` from `docker compose up -d` → A14 (DinD sidecar missing `docker-compose-plugin`)');
@@ -101,11 +114,13 @@ describe('self-hosted runner doctor workflow config', () => {
     expect(source).toContain('- credential files such as `~/.aws/credentials`, `~/.ssh/id_rsa`, or `~/.docker/config.json` are visible inside an `--container-runtime sbx` microVM → D9');
     expect(source).toContain('- `SIGABRT` / `signal=SIGABRT duration=0s stdout=0B` for Copilot CLI all retries under `--container-runtime gvisor`; or exit 139 / `Segmentation fault` on bash wrapper, often before any model or tool call → D11');
     expect(source).toContain('- `Model "auto" has no AI credits pricing and no default pricing is configured` together with `awf-reflect: request failed: fetch failed` under `--container-runtime gvisor` or `sbx` → D12');
+    expect(source).toContain('- `awf-agent` fails to start under `runner.topology: arc-dind` (runc cannot create the `/dev/null` credential-hiding overlay mountpoints under `/host$HOME`), or the entrypoint aborts with `mkdir -p /host$HOME/.m2` failing under `set -e` → A20 (sysroot filter dropped every mount targeting `/host$HOME`, including a caller-supplied writable home; fixed in github/gh-aw-firewall#7244)');
     expect(source).toContain('B12 / github/gh-aw-firewall#6326, github/gh-aw-firewall#6328 — On ARC/DinD, a topology-attached DIFC proxy addressed by Kubernetes Service name can remain unresolvable from DinD containers even after the ordering fix.');
     expect(source).toContain('D8 / github/gh-aw-firewall#6401, github/gh-aw-firewall#6326 — Under `--container-runtime gvisor` or raw `runsc`, MCP calls to the gateway at `172.30.0.1:8080` could be misrouted through Squid and fail with `403 ERR_ACCESS_DENIED`');
     expect(source).toContain('D9 / github/gh-aw-firewall#6336 — sbx microVMs previously mounted the entire host `$HOME`, exposing credentials such as `~/.aws/credentials`, `~/.ssh/id_rsa`, and `~/.docker/config.json`.');
     expect(source).toContain('D11 / github/gh-aw-firewall#6558 — gVisor + Node.js v22 V8 ESM startup crash root cause remains unresolved (`SIGABRT` `StringBytes::Encode` assertion and occasional exit 139).');
     expect(source).toContain('D12 / github/gh-aw-firewall#6810, github/gh-aw-firewall#6811 — Copilot runs using `model: auto` under isolated runtimes (`--container-runtime gvisor` or `sbx`) could fail before agent start with `awf-reflect: request failed: fetch failed` plus `Model "auto" has no AI credits pricing and no default pricing is configured` when `apiProxy.maxAiCredits` was enabled.');
+    expect(source).toContain('A20 / github/gh-aw-firewall#7239, github/gh-aw-firewall#7244 — Under `runner.topology: arc-dind`, `filterAgentVolumesForSysroot()` (`src/services/optional-services.ts`) dropped every mount targeting `/host$HOME`');
     expect(portableAgent).toContain('- `unknown shorthand flag: \'d\' in -d` from `docker compose up -d` → A14 (DinD sidecar missing `docker-compose-plugin`)');
     expect(portableAgent).toContain('- `Rootless artifact permission repair failed` on ARC/DinD squid logs → A15 (`dockerHostPathPrefix` not applied to repair bind mount)');
     expect(portableAgent).toContain('- `EAI_AGAIN` / `ENOTFOUND` resolving a topology-attached DIFC proxy (for example `awmg-cli-proxy`) in network-isolation + topology-attach: if DinD `nslookup` fails, match B12; otherwise B5');
@@ -115,5 +130,10 @@ describe('self-hosted runner doctor workflow config', () => {
     expect(portableAgent).toContain('- `Model "auto" has no AI credits pricing and no default pricing is configured` together with `awf-reflect: request failed: fetch failed` under `--container-runtime gvisor` or `sbx` → D12');
     expect(portableAgent).toContain('D11 / github/gh-aw-firewall#6558 — gVisor + Node.js v22 V8 ESM startup crash root cause remains unresolved (`SIGABRT` `StringBytes::Encode` assertion and occasional exit 139).');
     expect(portableAgent).toContain('D12 / github/gh-aw-firewall#6810, github/gh-aw-firewall#6811 — Copilot runs using `model: auto` under isolated runtimes (`--container-runtime gvisor` or `sbx`) could fail before agent start with `awf-reflect: request failed: fetch failed` plus `Model "auto" has no AI credits pricing and no default pricing is configured` when `apiProxy.maxAiCredits` was enabled.');
+    expect(portableAgent).toContain('- `awf-agent` fails to start under `runner.topology: arc-dind` (runc cannot create the `/dev/null` credential-hiding overlay mountpoints under `/host$HOME`), or the entrypoint aborts with `mkdir -p /host$HOME/.m2` failing under `set -e` → A20 (sysroot filter dropped every mount targeting `/host$HOME`, including a caller-supplied writable home; fixed in github/gh-aw-firewall#7244)');
+    expect(portableAgent).toContain('A20 / github/gh-aw-firewall#7239, github/gh-aw-firewall#7244 — Under `runner.topology: arc-dind`, `filterAgentVolumesForSysroot()` (`src/services/optional-services.ts`) dropped every mount targeting `/host$HOME`');
+    expect(source).toContain('B23 / github/gh-aw-firewall#7130 (still open), github/gh-aw-firewall#7147, github/gh-aw-firewall#7151');
+    expect(source).toContain('**Further fixed in AWF (PR github/gh-aw-firewall#7245, merged 2026-08-11):**');
+    expect(portableAgent).toContain('**Further fixed in AWF (PR github/gh-aw-firewall#7245, merged 2026-08-11):**');
   });
 });
