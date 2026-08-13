@@ -153,6 +153,7 @@ export interface CloudHypervisorManagerDependencies {
 export interface CloudHypervisorManagerNetworkConfig {
   infrastructureBridge: string;
   enableApiProxy: boolean;
+  apiProxyIp?: string;
   controlPeer?: MicrovmControlPeer;
 }
 
@@ -373,6 +374,9 @@ export class CloudHypervisorManager {
           supervisorBinaryPath: this.guestConfig.supervisorBinaryPath,
           supervisorSha256: this.guestConfig.supervisorSha256,
           supervisorGuestPath: CLOUD_HYPERVISOR_GUEST_SUPERVISOR,
+          hostAliases: this.networkConfig.apiProxyIp
+            ? { 'api-proxy': this.networkConfig.apiProxyIp }
+            : undefined,
         }, artifacts.tools);
         rootfsSource = await this.rootfsPreparer.prepare();
       }

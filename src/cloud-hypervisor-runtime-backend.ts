@@ -112,6 +112,7 @@ function defaultDependencies(
         {
           infrastructureBridge: infrastructure.bridgeName,
           enableApiProxy: Boolean(infrastructure.apiProxyIp),
+          apiProxyIp: infrastructure.apiProxyIp,
         },
         {
           exports,

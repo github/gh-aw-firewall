@@ -1,5 +1,6 @@
 import { createHash } from 'crypto';
 import { createReadStream, promises as fs } from 'fs';
+import { isIP } from 'net';
 import * as path from 'path';
 
 export interface MicrovmRootfsConfig {
@@ -8,6 +9,7 @@ export interface MicrovmRootfsConfig {
   readonly supervisorBinaryPath: string;
   readonly supervisorSha256: string;
   readonly supervisorGuestPath?: string;
+  readonly hostAliases?: Readonly<Record<string, string>>;
 }
 
 export interface MicrovmRootfsDependencies {
@@ -58,8 +60,34 @@ export class MicrovmRootfsPreparer {
     await this.dependencies.runTool('debugfs', [
       '-w', '-R', `sif ${guestSupervisor} mode 0100755`, this.rootfsImagePath,
     ]);
+    await this.injectHostAliases();
     await this.dependencies.runTool('e2fsck', ['-f', '-y', this.rootfsImagePath]);
     return this.rootfsImagePath;
+  }
+
+  private async injectHostAliases(): Promise<void> {
+    const aliases = Object.entries(this.config.hostAliases ?? {});
+    if (aliases.length === 0) return;
+
+    const lines = ['127.0.0.1 localhost', '::1 localhost ip6-localhost ip6-loopback'];
+    for (const [host, address] of aliases) {
+      if (!/^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$/i.test(host) || !isIP(address)) {
+        throw new Error(`Invalid microVM host alias: ${host}=${address}`);
+      }
+      lines.push(`${address} ${host}`);
+    }
+
+    const localHosts = path.join(this.config.runDirectory, 'hosts');
+    await fs.writeFile(localHosts, `${lines.join('\n')}\n`, { mode: 0o600 });
+    await this.dependencies.runTool('debugfs', [
+      '-w', '-R', 'rm /etc/hosts', this.rootfsImagePath,
+    ]);
+    await this.dependencies.runTool('debugfs', [
+      '-w', '-R', `write ${localHosts} /etc/hosts`, this.rootfsImagePath,
+    ]);
+    await this.dependencies.runTool('debugfs', [
+      '-w', '-R', 'sif /etc/hosts mode 0100644', this.rootfsImagePath,
+    ]);
   }
 }
 

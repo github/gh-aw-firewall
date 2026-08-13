@@ -91,6 +91,7 @@ function networkConfig(
   return {
     infrastructureBridge: 'awfbr0',
     enableApiProxy: true,
+    apiProxyIp: '172.30.0.30',
     ...overrides,
   };
 }
@@ -437,6 +438,12 @@ describe('CloudHypervisorManager', () => {
     );
 
     const client = await manager.start();
+    expect(deps.createRootfsPreparer).toHaveBeenCalledWith(
+      expect.objectContaining({
+        hostAliases: { 'api-proxy': '172.30.0.30' },
+      }),
+      hostTools,
+    );
     expect(client.vmCreate).toHaveBeenCalledWith(expect.objectContaining({
       payload: expect.objectContaining({ cmdline: expect.stringContaining('init=/usr/sbin/awf-supervisor') }),
       memory: expect.objectContaining({ shared: true }),
