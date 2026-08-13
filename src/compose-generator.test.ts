@@ -302,6 +302,39 @@ describe('generateDockerCompose', () => {
         expect(cliProxyNetworks['awf-ext']).toBeUndefined();
       });
 
+      it('dual-homes cli-proxy on awf-ext when it targets an external DIFC proxy', () => {
+        const config = {
+          ...mockConfig,
+          networkIsolation: true,
+          difcProxyHost: 'host.docker.internal:18443',
+        };
+        const networkWithCliProxy = {
+          ...mockNetworkConfig,
+          cliProxyIp: '172.30.0.50',
+        };
+        const result = generateDockerCompose(config, networkWithCliProxy);
+
+        const cliProxyNetworks = result.services['cli-proxy'].networks as { [key: string]: { ipv4_address?: string } };
+        expect(cliProxyNetworks['awf-net'].ipv4_address).toBe('172.30.0.50');
+        expect(cliProxyNetworks['awf-ext']).toBeDefined();
+      });
+
+      it('keeps cli-proxy off awf-ext outside network-isolation mode', () => {
+        const config = {
+          ...mockConfig,
+          networkIsolation: false,
+          difcProxyHost: 'host.docker.internal:18443',
+        };
+        const networkWithCliProxy = {
+          ...mockNetworkConfig,
+          cliProxyIp: '172.30.0.50',
+        };
+        const result = generateDockerCompose(config, networkWithCliProxy);
+
+        const cliProxyNetworks = result.services['cli-proxy'].networks as { [key: string]: { ipv4_address?: string } };
+        expect(cliProxyNetworks['awf-ext']).toBeUndefined();
+      });
+
       it('should keep the agent on awf-net only (no external network)', () => {
         const result = generateDockerCompose({ ...mockConfig, networkIsolation: true }, mockNetworkConfig);
 

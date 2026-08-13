@@ -1,4 +1,6 @@
 import { CLI_PROXY_CONTAINER_NAME } from '../constants';
+import { EXTERNAL_BRIDGE_NAME } from '../config/network-policy';
+import { isValidIPv4, isValidIPv6 } from '../domain-utils';
 import { parseDifcProxyHost } from '../host-env';
 import { assignImageSource } from '../image-tag';
 import { logger } from '../logger';
@@ -23,6 +25,28 @@ interface CliProxyServiceParams {
   networkConfig: NetworkConfig;
   cliProxyLogsPath: string;
   imageConfig: ImageBuildConfig;
+}
+
+/**
+ * Returns true when the DIFC proxy lives outside the AWF Compose project — on
+ * the runner host (`host.docker.internal`, a bare IP, `localhost`) or behind a
+ * public DNS name — rather than as a sibling container attached to `awf-net`.
+ *
+ * In network-isolation mode `awf-net` is `internal: true`, so a cli-proxy that
+ * only joins it has no route to the host gateway and its tcp-tunnel fails with
+ * `ENETUNREACH`. Such a cli-proxy must be dual-homed onto the external bridge,
+ * exactly like Squid and the API proxy. A sibling container (a bare DNS label
+ * such as `awmg-cli-proxy`) is reachable on the internal network and must stay
+ * there so it gains no extra egress.
+ */
+export function isExternalDifcProxyHost(host: string): boolean {
+  const normalized = host.trim().toLowerCase();
+  if (!normalized) return false;
+  if (isValidIPv4(normalized) || isValidIPv6(normalized)) return true;
+  if (normalized === 'localhost') return true;
+  // Dotted names (host.docker.internal, difc.example.com) resolve outside the
+  // Compose project; bare labels are Docker service/container names.
+  return normalized.includes('.');
 }
 
 /**
@@ -52,6 +76,13 @@ export function buildCliProxyService(params: CliProxyServiceParams): CliProxyBui
       'awf-net': {
         ipv4_address: cliProxyIp,
       },
+      // In network-isolation mode `awf-net` is internal, so an external DIFC
+      // proxy (host gateway or public DNS name) is unreachable from it. Attach
+      // the external bridge as well — mirroring Squid and the API proxy — so
+      // the tcp-tunnel can dial the host instead of failing with ENETUNREACH.
+      ...(config.networkIsolation && isExternalDifcProxyHost(difcProxyHost)
+        ? { [EXTERNAL_BRIDGE_NAME]: {} }
+        : {}),
     },
     // Enable host.docker.internal resolution for connecting to host DIFC proxy
     extra_hosts: { 'host.docker.internal': 'host-gateway' },

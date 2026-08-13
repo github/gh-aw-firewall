@@ -18,6 +18,11 @@ filtering:
   network has **no route to the host or the internet**.
 - **Squid is dual-homed** (`awf-net` + an external `awf-ext` bridge) and is therefore the
   **sole** egress path; it still applies the same domain allowlist.
+- The **cli-proxy is dual-homed too, but only when it targets an *external* DIFC proxy**
+  (`host.docker.internal`, a bare IP, or a dotted DNS name). Without a route off the
+  internal network its tcp-tunnel fails with `ENETUNREACH` and the container never
+  becomes healthy. When the DIFC proxy is an attached sibling container (a bare Docker
+  service name), the cli-proxy stays on `awf-net` only.
 - No host iptables, no `NET_ADMIN`, no `sudo`.
 
 This works today for the agent's own egress. What it does **not** yet handle is the

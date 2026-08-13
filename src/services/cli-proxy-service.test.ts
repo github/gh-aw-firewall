@@ -1,3 +1,4 @@
+import { isExternalDifcProxyHost } from './cli-proxy-service';
 import { generateDockerCompose, WrapperConfig, baseConfig, mockNetworkConfig, useTempWorkDir } from './service-test-setup.test-utils';
 
 // Create mock functions (must remain per-file — jest.mock() is hoisted before imports)
@@ -274,4 +275,18 @@ describe('CLI proxy sidecar (external DIFC proxy)', () => {
           }
         }
       });
+  describe('isExternalDifcProxyHost', () => {
+    it('treats host gateway, loopback, IPs and dotted names as external', () => {
+      expect(isExternalDifcProxyHost('host.docker.internal')).toBe(true);
+      expect(isExternalDifcProxyHost('localhost')).toBe(true);
+      expect(isExternalDifcProxyHost('172.17.0.1')).toBe(true);
+      expect(isExternalDifcProxyHost('::1')).toBe(true);
+      expect(isExternalDifcProxyHost('difc.example.com')).toBe(true);
+    });
+
+    it('treats bare container names as attached siblings', () => {
+      expect(isExternalDifcProxyHost('awmg-cli-proxy')).toBe(false);
+      expect(isExternalDifcProxyHost('')).toBe(false);
+    });
+  });
 });
