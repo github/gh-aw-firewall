@@ -305,9 +305,11 @@ trusted executable sibling `virtiofsd`, pinned to Ubuntu Noble's v1.10.0.
   serial console redirected to a bounded host log file, virtio-console
   disabled (`mode: "Off"`). No snapshots, migration, hotplug,
   VFIO, vhost-user, vDPA, TDX/SEV, or TPM.
-- **Networking**: the exact same TAP/netns/nftables design as Firecracker
-  (`src/microvm/network.ts`, unmodified) — mandatory network isolation,
-  mandatory API proxy credential isolation, identical egress ACL.
+- **Networking**: the same TAP/netns/nftables design as Firecracker
+  (`src/microvm/network.ts`) — mandatory network isolation and mandatory API
+  proxy credential isolation. Trusted `topologyAttach` peers are resolved from
+  the proven internal Docker network, revalidated before boot, injected into
+  the guest hosts file, and allowed only on TCP 8080 for the MCP gateway.
 
 ## Part 7 — Bounded diagnostics
 
@@ -351,8 +353,9 @@ config-file/CLI mapping.
 - **virtio-pci transport only** for block, net, and vsock devices.
 - **GitHub-hosted Ubuntu x86_64 KVM runners only.** Self-hosted runners and
   non-Ubuntu/non-x86_64 hosts are explicitly rejected.
-- **No TTY, DinD, host access, extra volume mounts, enclaves, or topology
-  peers** — same restrictions as Firecracker's preview.
+- **No TTY, DinD, host access, extra volume mounts, DIFC proxies, or
+  enclaves.** Trusted MCP gateway topology peers are supported only through the
+  exact discovered internal-network IP and TCP port 8080.
 - **No vhost-net/vhost-user and no throughput claims.** The performance
   baselines in Part 14 measure boot/readiness latency and cgroup-bounded
   memory overhead only; this preview makes no network throughput guarantees.

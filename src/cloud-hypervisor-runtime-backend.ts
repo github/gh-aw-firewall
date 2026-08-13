@@ -55,6 +55,7 @@ const CLOUD_HYPERVISOR_GUEST_HOME = `${CLOUD_HYPERVISOR_GUEST_WORKSPACE}/.awf-ho
 const CLOUD_HYPERVISOR_PROBE_TIMEOUT_MS = 90_000;
 const CLOUD_HYPERVISOR_CANCEL_GRACE_MS = 3_000;
 const CLOUD_HYPERVISOR_MAX_TIMEOUT_MS = 86_400_000;
+const MCP_GATEWAY_PORT = 8080;
 
 interface CloudHypervisorBackendLogger {
   debug(message: string, ...args: unknown[]): void;
@@ -79,7 +80,11 @@ interface CloudHypervisorManagerAdapter {
 export interface CloudHypervisorRuntimeBackendDependencies {
   startInfrastructure: WorkflowDependencies['startContainers'];
   preflight(config: CloudHypervisorOptions): Promise<CloudHypervisorPreflightResult>;
-  resolveInfrastructure(enableApiProxy: boolean, ipPath?: string): Promise<MicrovmInfrastructureSnapshot>;
+  resolveInfrastructure(
+    enableApiProxy: boolean,
+    ipPath?: string,
+    topologyPeerNames?: readonly string[],
+  ): Promise<MicrovmInfrastructureSnapshot>;
   createManager(
     config: CloudHypervisorOptions,
     workDir: string,
@@ -101,8 +106,8 @@ function defaultDependencies(
   return {
     startInfrastructure,
     preflight: runCloudHypervisorPreflight,
-    resolveInfrastructure: (enableApiProxy, ipPath) =>
-      resolveMicrovmInfrastructure(enableApiProxy, undefined, ipPath),
+    resolveInfrastructure: (enableApiProxy, ipPath, topologyPeerNames) =>
+      resolveMicrovmInfrastructure(enableApiProxy, undefined, ipPath, topologyPeerNames),
     createManager: (config, workDir, infrastructure, exports, identity) =>
       new CloudHypervisorManager(
         config,
@@ -113,6 +118,11 @@ function defaultDependencies(
           infrastructureBridge: infrastructure.bridgeName,
           enableApiProxy: Boolean(infrastructure.apiProxyIp),
           apiProxyIp: infrastructure.apiProxyIp,
+          controlPeers: Object.values(infrastructure.topologyPeerIps).map((ip) => ({
+            ip,
+            ports: [MCP_GATEWAY_PORT],
+          })),
+          hostAliases: infrastructure.topologyPeerIps,
         },
         {
           exports,
@@ -149,6 +159,7 @@ export class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBacken
   private stopping: Promise<void> | undefined;
   private identity: { uid: number; gid: number } | undefined;
   private preflightResult: CloudHypervisorPreflightResult | undefined;
+  private infrastructure: MicrovmInfrastructureSnapshot | undefined;
   private diagnosticsCollected = false;
 
   constructor(
@@ -201,7 +212,9 @@ export class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBacken
       const infrastructure = await this.dependencies.resolveInfrastructure(
         Boolean(this.config.enableApiProxy),
         this.preflightResult?.tools.ip,
+        this.config.topologyAttach,
       );
+      this.infrastructure = infrastructure;
       this.identity = this.dependencies.identity();
       const exports = await this.dependencies.resolveExports();
       this.manager = this.dependencies.createManager(
@@ -451,6 +464,10 @@ export class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBacken
       ? ` && (unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy ALL_PROXY all_proxy; ` +
         `wget -q -T 20 -O /dev/null http://${API_PROXY_IP}:10000/reflect)`
       : '';
+    const topologyPeerProbe = Object.values(this.infrastructure?.topologyPeerIps ?? {})
+      .map((ip) => ` && nc -v -z -w 60 ${ip} ${MCP_GATEWAY_PORT}`)
+      .join('');
+    const topologyPeerCount = Object.keys(this.infrastructure?.topologyPeerIps ?? {}).length;
     // Capture (bounded) stdout/stderr so a probe failure can report which
     // leg failed and why, rather than only a bare exit code -- useful for
     // diagnosing this compound nc-then-wget command without a full guest
@@ -459,11 +476,11 @@ export class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBacken
     const stderrCollector = createBoundedOutputCollector();
     const result = await manager.execute({
       requestId: `probe-${process.pid}-${Date.now()}`,
-      argv: ['/bin/sh', '-c', `set -eu; ${squidProbe}${apiProxyProbe}`],
+      argv: ['/bin/sh', '-c', `set -eu; ${squidProbe}${apiProxyProbe}${topologyPeerProbe}`],
       env: environment,
       cwd: CLOUD_HYPERVISOR_GUEST_WORKSPACE,
       ...identity,
-      timeoutMs: CLOUD_HYPERVISOR_PROBE_TIMEOUT_MS,
+      timeoutMs: CLOUD_HYPERVISOR_PROBE_TIMEOUT_MS + topologyPeerCount * 60_000,
       stdout: stdoutCollector.stream,
       stderr: stderrCollector.stream,
     });
@@ -484,7 +501,7 @@ export class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBacken
       );
     }
     this.dependencies.logger.info(
-      '[cloud-hypervisor] Guest supervisor, Squid, and API proxy connectivity verified',
+      '[cloud-hypervisor] Guest supervisor and trusted service connectivity verified',
     );
   }
 
@@ -532,7 +549,10 @@ export class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBacken
 
 export function buildCloudHypervisorGuestEnvironment(
   config: WrapperConfig,
-  infrastructure: Pick<MicrovmInfrastructureSnapshot, 'squidIp' | 'apiProxyIp'>,
+  infrastructure: Pick<
+    MicrovmInfrastructureSnapshot,
+    'squidIp' | 'apiProxyIp' | 'topologyPeerIps'
+  >,
   guestIp = '100.64.0.2',
   exports: readonly CloudHypervisorDirectoryExport[] = [],
 ): Record<string, string> {
@@ -547,6 +567,14 @@ export function buildCloudHypervisorGuestEnvironment(
     networkConfig,
     dnsServers: [],
   });
+  const topologyPeerBypasses = Object.entries(infrastructure.topologyPeerIps)
+    .flatMap(([name, ip]) => [name, ip]);
+  if (topologyPeerBypasses.length > 0) {
+    const noProxy = new Set((environment.NO_PROXY ?? '').split(',').filter(Boolean));
+    topologyPeerBypasses.forEach((peer) => noProxy.add(peer));
+    environment.NO_PROXY = [...noProxy].join(',');
+    environment.no_proxy = environment.NO_PROXY;
+  }
   if (config.enableApiProxy) {
     Object.assign(environment, buildAgentCredentialEnv({ config, networkConfig }));
   }

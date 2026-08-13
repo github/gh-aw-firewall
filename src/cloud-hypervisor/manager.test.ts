@@ -433,14 +433,28 @@ describe('CloudHypervisorManager', () => {
       '/tmp/awf',
       deps,
       'guest',
-      networkConfig(),
+      networkConfig({
+        controlPeers: [{ ip: '172.30.0.60', ports: [8080] }],
+        hostAliases: { 'awmg-mcpg': '172.30.0.60' },
+      }),
       guestConfig(),
     );
 
     const client = await manager.start();
     expect(deps.createRootfsPreparer).toHaveBeenCalledWith(
       expect.objectContaining({
-        hostAliases: { 'api-proxy': '172.30.0.30' },
+        hostAliases: {
+          'api-proxy': '172.30.0.30',
+          'awmg-mcpg': '172.30.0.60',
+        },
+      }),
+      hostTools,
+    );
+    expect(deps.createNetwork).toHaveBeenCalledWith(
+      expect.objectContaining({
+        allowedEndpoints: expect.arrayContaining([
+          { name: 'control-peer', ip: '172.30.0.60', port: 8080 },
+        ]),
       }),
       hostTools,
     );

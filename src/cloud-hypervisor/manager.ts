@@ -155,6 +155,8 @@ export interface CloudHypervisorManagerNetworkConfig {
   enableApiProxy: boolean;
   apiProxyIp?: string;
   controlPeer?: MicrovmControlPeer;
+  controlPeers?: readonly MicrovmControlPeer[];
+  hostAliases?: Readonly<Record<string, string>>;
 }
 
 export interface CloudHypervisorManagerGuestConfig {
@@ -374,9 +376,12 @@ export class CloudHypervisorManager {
           supervisorBinaryPath: this.guestConfig.supervisorBinaryPath,
           supervisorSha256: this.guestConfig.supervisorSha256,
           supervisorGuestPath: CLOUD_HYPERVISOR_GUEST_SUPERVISOR,
-          hostAliases: this.networkConfig.apiProxyIp
-            ? { 'api-proxy': this.networkConfig.apiProxyIp }
-            : undefined,
+          hostAliases: {
+            ...(this.networkConfig.apiProxyIp
+              ? { 'api-proxy': this.networkConfig.apiProxyIp }
+              : {}),
+            ...(this.networkConfig.hostAliases ?? {}),
+          },
         }, artifacts.tools);
         rootfsSource = await this.rootfsPreparer.prepare();
       }

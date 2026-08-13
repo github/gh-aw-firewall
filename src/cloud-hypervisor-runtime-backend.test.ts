@@ -64,6 +64,7 @@ function infrastructure(): MicrovmInfrastructureSnapshot {
     gateway: '172.30.0.1',
     squidIp: '172.30.0.10',
     apiProxyIp: '172.30.0.30',
+    topologyPeerIps: {},
     revalidate: jest.fn().mockResolvedValue(undefined),
   };
 }
@@ -213,6 +214,41 @@ describe('Cloud Hypervisor runtime backend', () => {
     expect(manager.writeStdin).toHaveBeenCalledWith(
       Buffer.from('input'),
       expect.stringMatching(/^agent-/),
+    );
+  });
+
+  it('discovers and probes trusted topology peers before agent execution', async () => {
+    const { manager, deps } = harness();
+    const peerInfrastructure = {
+      ...infrastructure(),
+      topologyPeerIps: { 'awmg-mcpg': '172.30.0.60' },
+    };
+    (deps.resolveInfrastructure as jest.Mock).mockResolvedValue(peerInfrastructure);
+    const backend = new CloudHypervisorRuntimeBackend(
+      config({ topologyAttach: ['awmg-mcpg'] }),
+      deps,
+    );
+
+    await backend.start('/tmp/awf', ['github.com']);
+    await backend.stop();
+
+    expect(deps.resolveInfrastructure).toHaveBeenCalledWith(
+      true,
+      '/usr/bin/ip',
+      ['awmg-mcpg'],
+    );
+    expect(manager.execute).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        argv: expect.arrayContaining([
+          expect.stringContaining('nc -v -z -w 60 172.30.0.60 8080'),
+        ]),
+        env: expect.objectContaining({
+          NO_PROXY: expect.stringContaining('awmg-mcpg'),
+          no_proxy: expect.stringContaining('172.30.0.60'),
+        }),
+        timeoutMs: 150_000,
+      }),
     );
   });
 
@@ -733,7 +769,7 @@ describe('Cloud Hypervisor runtime backend', () => {
     )).toThrow(/host access/);
     expect(() => assertCloudHypervisorPreSecurityCompatibility(
       config({ enclaves: { enabled: true } } as Partial<WrapperConfig>),
-    )).toThrow(/MCP gateway path/);
+    )).toThrow(/DIFC proxies or enclaves/);
     expect(() => assertCloudHypervisorSelection(
       config({ containerRuntime: 'gvisor' }),
     )).toThrow(/require --container-runtime cloud-hypervisor/);
