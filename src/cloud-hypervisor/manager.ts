@@ -1,18 +1,12 @@
-import { randomBytes } from 'crypto';
-import { constants, promises as fs } from 'fs';
+import { promises as fs } from 'fs';
 import * as path from 'path';
 import execa, { type ExecaChildProcess } from 'execa';
-import {
-  CLOUD_HYPERVISOR_RELEASE_VERSION,
-  type CloudHypervisorOptions,
-} from '../types/runtime-options';
+import type { CloudHypervisorOptions } from '../types/runtime-options';
 import { getSafeHostGid, getSafeHostUid } from '../host-identity';
 import {
   LinuxNetworkCommands,
   MicrovmNetworkManager,
-  assertSafeMicrovmRunId,
   createMicrovmNetworkPlan,
-  type MicrovmControlPeer,
   type MicrovmNetworkLifecycle,
   type MicrovmNetworkPlan,
 } from '../microvm/network';
@@ -21,152 +15,55 @@ import {
   type GuestExecutionRequest,
   type GuestExecutionResult,
 } from '../microvm/vsock-client';
-import {
-  MicrovmWorkspaceImage,
-  type MicrovmWorkspaceImageConfig,
-} from '../microvm/workspace';
+import { MicrovmWorkspaceImage } from '../microvm/workspace';
 import {
   CloudHypervisorApiClient,
   type CloudHypervisorVmCounters,
   type CloudHypervisorVmInfo,
 } from './api-client';
 import {
-  CLOUD_HYPERVISOR_GUEST_CID,
+  BoundedOutputCapture,
+  collectCloudHypervisorDiagnostics,
+  prepareRunDirectory,
+  readBoundedTail,
+  stageArtifact,
+  stageDiagnosticFile,
+  waitForApiSocket,
+} from './diagnostics';
+import {
+  CloudHypervisorGuestChannel,
+} from './guest-execution';
+import {
   CloudHypervisorCgroup,
   buildCloudHypervisorLaunchCommand,
-  computeCloudHypervisorLandlockRules,
-  type CloudHypervisorResourceLimits,
 } from './launcher';
+import {
+  CLOUD_HYPERVISOR_CAPTURE_LIMIT_BYTES,
+  CLOUD_HYPERVISOR_GUEST_VSOCK_PORT,
+  createCloudHypervisorRunPaths,
+  formatError,
+  type CloudHypervisorIdentity,
+  type CloudHypervisorManagerDependencies,
+  type CloudHypervisorManagerGuestConfig,
+  type CloudHypervisorManagerNetworkConfig,
+  type CloudHypervisorRunPaths,
+} from './manager-types';
 import { runCloudHypervisorPreflight } from './preflight';
-import type { CloudHypervisorHostToolPaths } from './preflight';
+import { buildCloudHypervisorVmConfig } from './vm-config-builder';
 
-const API_SOCKET_NAME = 'api.socket';
-const VSOCK_SOCKET_NAME = 'awf-vsock.socket';
-const WORKSPACE_IMAGE_NAME = 'workspace.ext4';
-const KERNEL_RUN_NAME = 'kernel';
-const ROOTFS_RUN_NAME = 'rootfs.ext4';
-const CLOUD_HYPERVISOR_LOG_NAME = 'cloud-hypervisor.log';
-const CLOUD_HYPERVISOR_SERIAL_LOG_NAME = 'serial.log';
-const CLOUD_HYPERVISOR_CAPTURE_LIMIT_BYTES = 1024 * 1024;
-export const CLOUD_HYPERVISOR_GUEST_VSOCK_PORT = 52;
+export {
+  CLOUD_HYPERVISOR_GUEST_VSOCK_PORT,
+  createCloudHypervisorRunPaths,
+} from './manager-types';
+export type {
+  CloudHypervisorManagerDependencies,
+  CloudHypervisorManagerGuestConfig,
+  CloudHypervisorManagerNetworkConfig,
+  CloudHypervisorRunPaths,
+} from './manager-types';
+export { buildSupervisorBootArgs } from './vm-config-builder';
+
 const CLOUD_HYPERVISOR_GUEST_SHUTDOWN_GRACE_MS = 5_000;
-/**
- * Cloud Hypervisor's vsock-over-UDS multiplexer closes the host-facing
- * connection immediately (rather than blocking/retrying) if the guest
- * isn't yet listening on the target vsock port when a `CONNECT <port>`
- * handshake arrives — observed live as `startInstance()` failing with
- * "guest disconnected before readiness" even on a successful `vm.boot()`.
- * This is a real host/guest boot-timing race (kernel decompression +
- * supervisor startup take a variable, host-load-dependent amount of time),
- * not a fatal error, so the connect is retried with a fresh client and a
- * short backoff until the guest is actually ready or this budget elapses.
- *
- * The budget is deliberately generous (not a tight few-second timeout):
- * live validation on GitHub-hosted Ubuntu runners showed the guest kernel's
- * own internal clock advancing far slower than host wall-clock time during
- * early PCI/virtio device enumeration (e.g. ~9-20s of host wall-clock time
- * elapsing while the guest's own boot log timestamps were still under 1s)
- * — consistent with the extra scheduling overhead of nested virtualization
- * on these runners (Cloud Hypervisor itself logs running under a
- * "Microsoft Hv" nested hypervisor there). A short budget here would abort
- * a guest that is simply slow to be scheduled, not actually hung or
- * crashed. This matches the smoke test's own boot-readiness ceiling
- * (`BOOT_READINESS_CEILING_MS` in cloud-hypervisor-live-smoke.sh).
- */
-const CLOUD_HYPERVISOR_GUEST_READY_RETRY_INTERVAL_MS = 250;
-const CLOUD_HYPERVISOR_GUEST_READY_MAX_WAIT_MS = 90_000;
-/**
- * Private run-directory root, deliberately **outside** `workDir`.
- *
- * `workDir` is created root-owned mode 0700 (it holds `docker-compose.yml`
- * with plaintext secrets — see `validateAndPrepareWorkDir` in
- * `src/config-writer.ts`), so a non-root process can never traverse into
- * it no matter how a leaf directory underneath it is chowned. Since this
- * backend has no jailer to `chroot()` the launched process (which would
- * make host-side ancestor permissions irrelevant), Cloud Hypervisor must
- * be able to really `stat()`/`open()` its way down to the run directory
- * post-`setpriv`. `/run` is always present, root-owned tmpfs; the two
- * ancestor levels created under it are `0711` (traversable/executable by
- * any uid, but not listable/readable — `ls` still fails), and only the
- * per-run leaf directory is chowned to the non-root target identity with
- * `0700` (so only that identity, or root, can actually read its contents).
- */
-const CLOUD_HYPERVISOR_RUN_ROOT = '/run/awf-cloud-hypervisor';
-const CGROUP_ROOT = '/sys/fs/cgroup';
-
-export interface CloudHypervisorRunPaths {
-  runId: string;
-  runBaseDir: string;
-  runDirectory: string;
-  apiSocketPath: string;
-  kernelPath: string;
-  rootfsPath: string;
-  workspacePath: string;
-  vsockSocketPath: string;
-  logPath: string;
-  serialLogPath: string;
-  cgroupPath: string;
-}
-
-export interface CloudHypervisorManagerDependencies {
-  preflight: typeof runCloudHypervisorPreflight;
-  launch(
-    command: string,
-    args: string[],
-    options: {
-      reject: false;
-      stdio: ['ignore', 'pipe', 'pipe'];
-      env: NodeJS.ProcessEnv;
-      extendEnv: false;
-    },
-  ): ExecaChildProcess<string>;
-  mkdir(directory: string, options: { recursive: true; mode: number }): Promise<unknown>;
-  copyFile(source: string, destination: string, flags: number): Promise<void>;
-  chmod(filePath: string, mode: number): Promise<void>;
-  chown(filePath: string, uid: number, gid: number): Promise<void>;
-  writeFile: typeof fs.writeFile;
-  readFileTail(filePath: string, maxBytes: number): Promise<Buffer>;
-  access(filePath: string): Promise<void>;
-  rm(directory: string, options: { recursive: true; force: true }): Promise<void>;
-  sleep(milliseconds: number): Promise<void>;
-  createClient(socketPath: string, timeoutMs: number): CloudHypervisorApiClient;
-  createNetwork(plan: MicrovmNetworkPlan, tools: CloudHypervisorHostToolPaths): MicrovmNetworkLifecycle;
-  createWorkspaceImage(config: MicrovmWorkspaceImageConfig, tools: CloudHypervisorHostToolPaths): MicrovmWorkspaceImage;
-  createVsockClient(socketPath: string, guestPort: number, timeoutMs: number): MicrovmVsockClient;
-  createCgroup(cgroupPath: string, limits: CloudHypervisorResourceLimits): CloudHypervisorCgroup;
-  resolveIdentity(): { uid: number; gid: number };
-}
-
-export interface CloudHypervisorManagerNetworkConfig {
-  infrastructureBridge: string;
-  enableApiProxy: boolean;
-  controlPeer?: MicrovmControlPeer;
-}
-
-export interface CloudHypervisorManagerGuestConfig {
-  readonly workspacePath: string;
-  readonly homePath: string;
-  readonly supervisorBinaryPath: string;
-  readonly supervisorSha256: string;
-  readonly maxWorkspaceImageBytes?: number;
-  readonly vsockPort?: number;
-  readonly identity?: { uid: number; gid: number };
-}
-
-async function readBoundedTail(filePath: string, maxBytes: number): Promise<Buffer> {
-  const handle = await fs.open(filePath, 'r');
-  try {
-    const { size } = await handle.stat();
-    const length = Math.min(size, maxBytes);
-    const buffer = Buffer.alloc(length);
-    if (length > 0) {
-      await handle.read(buffer, 0, length, size - length);
-    }
-    return buffer;
-  } finally {
-    await handle.close();
-  }
-}
 
 const defaultDependencies: CloudHypervisorManagerDependencies = {
   preflight: runCloudHypervisorPreflight,
@@ -203,7 +100,7 @@ export const cloudHypervisorManagerTestHelpers = {
   resolveCloudHypervisorIdentity,
 };
 
-function resolveCloudHypervisorIdentity(): { uid: number; gid: number } {
+function resolveCloudHypervisorIdentity(): CloudHypervisorIdentity {
   const operatorUid = parsePositiveIdentity(process.env.SUDO_UID) ?? process.getuid?.();
   const operatorGid = parsePositiveIdentity(process.env.SUDO_GID) ?? process.getgid?.();
   if (
@@ -231,36 +128,15 @@ function parsePositiveIdentity(value: string | undefined): number | undefined {
   return Number(value);
 }
 
-export function createCloudHypervisorRunPaths(
-  cloudHypervisorBinary: string,
-  runId = `awf-${process.pid}-${randomBytes(6).toString('hex')}`,
-): CloudHypervisorRunPaths {
-  assertSafeMicrovmRunId(runId);
-  const runBaseDir = CLOUD_HYPERVISOR_RUN_ROOT;
-  const runDirectory = path.join(
-    runBaseDir,
-    path.basename(cloudHypervisorBinary),
-    runId,
-  );
-  return {
-    runId,
-    runBaseDir,
-    runDirectory,
-    apiSocketPath: path.join(runDirectory, API_SOCKET_NAME),
-    kernelPath: path.join(runDirectory, KERNEL_RUN_NAME),
-    rootfsPath: path.join(runDirectory, ROOTFS_RUN_NAME),
-    workspacePath: path.join(runDirectory, WORKSPACE_IMAGE_NAME),
-    vsockSocketPath: path.join(runDirectory, VSOCK_SOCKET_NAME),
-    logPath: path.join(runDirectory, CLOUD_HYPERVISOR_LOG_NAME),
-    serialLogPath: path.join(runDirectory, CLOUD_HYPERVISOR_SERIAL_LOG_NAME),
-    cgroupPath: path.join(CGROUP_ROOT, 'awf-cloud-hypervisor', runId),
-  };
-}
-
 /**
  * Owns one Cloud Hypervisor process launched via the secure host launcher in
  * `./launcher.ts` (network-namespace join + privilege drop + Landlock, in
  * place of Firecracker's jailer) and its partial-start cleanup.
+ *
+ * This class is an orchestration facade: VM boot configuration lives in
+ * `./vm-config-builder.ts`, run-directory staging plus failure diagnostics in
+ * `./diagnostics.ts`, and the guest vsock execution surface in
+ * `./guest-execution.ts`.
  */
 export class CloudHypervisorManager {
   paths: CloudHypervisorRunPaths;
@@ -268,7 +144,7 @@ export class CloudHypervisorManager {
   private client: CloudHypervisorApiClient | undefined;
   private network: MicrovmNetworkLifecycle | undefined;
   private workspace: MicrovmWorkspaceImage | undefined;
-  private guestClient: MicrovmVsockClient | undefined;
+  private guest: CloudHypervisorGuestChannel | undefined;
   private cgroup: CloudHypervisorCgroup | undefined;
   private networkPlan: MicrovmNetworkPlan | undefined;
   private instanceStarted = false;
@@ -355,7 +231,7 @@ export class CloudHypervisorManager {
         workspaceSource = preparation.workspaceImagePath;
       }
 
-      await this.prepareRunDirectory(identity);
+      await prepareRunDirectory(this.dependencies, this.paths, identity);
 
       this.cgroup = this.dependencies.createCgroup(
         this.paths.cgroupPath,
@@ -363,13 +239,19 @@ export class CloudHypervisorManager {
       );
       await this.cgroup.setup();
 
-      await this.stageArtifact(artifacts.kernelPath, this.paths.kernelPath, 0o400, identity);
-      await this.stageArtifact(rootfsSource, this.paths.rootfsPath, 0o600, identity);
+      await stageArtifact(
+        this.dependencies, artifacts.kernelPath, this.paths.kernelPath, 0o400, identity,
+      );
+      await stageArtifact(
+        this.dependencies, rootfsSource, this.paths.rootfsPath, 0o600, identity,
+      );
       if (workspaceSource) {
-        await this.stageArtifact(workspaceSource, this.paths.workspacePath, 0o600, identity);
+        await stageArtifact(
+          this.dependencies, workspaceSource, this.paths.workspacePath, 0o600, identity,
+        );
       }
-      await this.stageDiagnosticFile(this.paths.logPath, identity);
-      await this.stageDiagnosticFile(this.paths.serialLogPath, identity);
+      await stageDiagnosticFile(this.dependencies, this.paths.logPath, identity);
+      await stageDiagnosticFile(this.dependencies, this.paths.serialLogPath, identity);
 
       const launchCommand = buildCloudHypervisorLaunchCommand({
         tools: { ip: artifacts.tools.ip, setpriv: artifacts.tools.setpriv },
@@ -407,13 +289,23 @@ export class CloudHypervisorManager {
         await this.cgroup.assign(this.process.pid);
       }
 
-      await this.waitForApiSocket();
+      await waitForApiSocket(
+        this.dependencies,
+        this.paths,
+        this.config.apiTimeoutMs,
+        this.process,
+      );
       this.client = this.dependencies.createClient(
         this.paths.apiSocketPath,
         this.config.apiTimeoutMs,
       );
       await this.client.ping();
-      await this.client.vmCreate(this.buildVmConfig(networkPlan));
+      await this.client.vmCreate(buildCloudHypervisorVmConfig({
+        config: this.config,
+        paths: this.paths,
+        networkPlan,
+        ...(this.guestConfig ? { guestConfig: this.guestConfig } : {}),
+      }));
       return this.client;
     } catch (error) {
       startupError = error;
@@ -430,144 +322,55 @@ export class CloudHypervisorManager {
     throw startupError;
   }
 
-  private buildVmConfig(networkPlan: MicrovmNetworkPlan) {
-    const landlockRules = computeCloudHypervisorLandlockRules({
-      kernelPath: this.paths.kernelPath,
-      rootfsPath: this.paths.rootfsPath,
-      workspacePath: this.guestConfig ? this.paths.workspacePath : undefined,
-      runDirectory: this.paths.runDirectory,
-      apiSocketPath: this.paths.apiSocketPath,
-      vsockSocketPath: this.paths.vsockSocketPath,
-      tapName: networkPlan.tapName,
-    });
-    return {
-      cpus: {
-        boot_vcpus: this.config.vcpuCount,
-        max_vcpus: this.config.vcpuCount,
-      },
-      memory: {
-        size: this.config.memoryMib * 1024 * 1024,
-      },
-      payload: {
-        kernel: this.paths.kernelPath,
-        ...(this.guestConfig
-          ? { cmdline: buildSupervisorBootArgs(networkPlan, this.guestConfig) }
-          : {}),
-      },
-      disks: [
-        { id: 'rootfs', path: this.paths.rootfsPath, readonly: false },
-        ...(this.guestConfig
-          ? [{ id: 'workspace', path: this.paths.workspacePath, readonly: false }]
-          : []),
-      ],
-      net: [{
-        id: 'net0',
-        tap: networkPlan.networkInterface.host_dev_name,
-        mac: networkPlan.networkInterface.guest_mac ?? '',
-        // Cloud Hypervisor defaults all three offloads to enabled. This
-        // entire network path is a fully-software bridge/veth/tap chain
-        // with no real NIC downstream to finish partially-offloaded
-        // (unchecksummed / not-yet-segmented) frames; live-KVM validation
-        // showed guest-to-Squid traffic being forwarded (visible in nft
-        // counters) but the return path never matching the
-        // established/related accept rule, with zero visibility into
-        // whether nftables' conntrack was marking replies as invalid.
-        // Disable all three explicitly rather than rely on Cloud
-        // Hypervisor's own defaults, removing offload-related packet
-        // malformation as a possible cause.
-        offload_tso: false,
-        offload_ufo: false,
-        offload_csum: false,
-      }],
-      rng: { src: '/dev/urandom' },
-      serial: { mode: 'File' as const, file: this.paths.serialLogPath },
-      console: { mode: 'Off' as const },
-      ...(this.guestConfig
-        ? { vsock: { cid: CLOUD_HYPERVISOR_GUEST_CID, socket: this.paths.vsockSocketPath } }
-        : {}),
-      watchdog: false,
-      landlock_enable: true,
-      landlock_rules: landlockRules,
-    };
-  }
-
   async startInstance(): Promise<void> {
     if (!this.client) throw new Error('Cloud Hypervisor API is not configured');
     await this.client.vmBoot();
     this.instanceStarted = true;
     if (this.guestConfig) {
-      this.guestClient = await this.connectGuestWithRetry(
-        this.guestConfig.vsockPort ?? CLOUD_HYPERVISOR_GUEST_VSOCK_PORT,
-      );
-    }
-  }
-
-  /**
-   * Connects to the guest supervisor over vsock, retrying on the
-   * "guest disconnected before readiness" boot-timing race documented on
-   * {@link CLOUD_HYPERVISOR_GUEST_READY_MAX_WAIT_MS} above. Each attempt
-   * uses a fresh client (MicrovmVsockClient does not support reconnecting
-   * a socket that already closed).
-   */
-  private async connectGuestWithRetry(port: number): Promise<MicrovmVsockClient> {
-    const deadline = Date.now() + CLOUD_HYPERVISOR_GUEST_READY_MAX_WAIT_MS;
-    let lastError: unknown;
-    do {
-      const client = this.dependencies.createVsockClient(
+      this.guest = await CloudHypervisorGuestChannel.connect(
+        this.dependencies,
         this.paths.vsockSocketPath,
-        port,
+        this.guestConfig.vsockPort ?? CLOUD_HYPERVISOR_GUEST_VSOCK_PORT,
         this.config.apiTimeoutMs,
       );
-      try {
-        await client.connect();
-        return client;
-      } catch (error) {
-        lastError = error;
-        client.destroy();
-        if (Date.now() >= deadline) break;
-        await this.dependencies.sleep(CLOUD_HYPERVISOR_GUEST_READY_RETRY_INTERVAL_MS);
-      }
-    } while (Date.now() < deadline);
-    throw lastError instanceof Error
-      ? lastError
-      : new Error('Cloud Hypervisor guest vsock connection failed');
+    }
   }
 
   async execute(
     request: GuestExecutionRequest,
   ): Promise<GuestExecutionResult> {
-    if (!this.guestClient) {
+    if (!this.guest) {
       throw new Error('Cloud Hypervisor guest supervisor is not ready');
     }
-    return this.guestClient.execute(request);
+    return this.guest.execute(request);
   }
 
   cancel(reason = 'host cancellation', requestId?: string): Promise<void> {
-    if (!this.guestClient) {
+    if (!this.guest) {
       return Promise.reject(new Error('Cloud Hypervisor guest supervisor is not ready'));
     }
-    return this.guestClient.cancel(reason, requestId);
+    return this.guest.cancel(reason, requestId);
   }
 
   writeStdin(data: Buffer, requestId?: string): Promise<void> {
-    if (!this.guestClient) {
+    if (!this.guest) {
       return Promise.reject(new Error('Cloud Hypervisor guest supervisor is not ready'));
     }
-    return this.guestClient.writeStdin(data, requestId);
+    return this.guest.writeStdin(data, requestId);
   }
 
   endStdin(requestId?: string): Promise<void> {
-    if (!this.guestClient) {
+    if (!this.guest) {
       return Promise.reject(new Error('Cloud Hypervisor guest supervisor is not ready'));
     }
-    return this.guestClient.endStdin(requestId);
+    return this.guest.endStdin(requestId);
   }
 
   resize(columns: number, rows: number, requestId?: string): Promise<void> {
-    if (!this.guestClient) {
+    if (!this.guest) {
       return Promise.reject(new Error('Cloud Hypervisor guest supervisor is not ready'));
     }
-    return this.guestClient.resize(columns, rows, requestId);
+    return this.guest.resize(columns, rows, requestId);
   }
 
   async stop(options: { preserve?: boolean; beforeCleanup?: () => Promise<void> } = {}): Promise<void> {
@@ -595,21 +398,12 @@ export class CloudHypervisorManager {
       }
     }
     let guestShutdownAcknowledged = false;
-    if (this.guestClient) {
-      try {
-        await this.guestClient.shutdown();
-        guestShutdownAcknowledged = true;
-      } catch (error) {
-        if (
-          !(error instanceof Error) ||
-          error.message !== 'Cannot shut down guest while a request is running'
-        ) {
-          errors.push(error);
-        }
-        this.guestClient.destroy();
-      }
+    if (this.guest) {
+      const outcome = await this.guest.shutdown();
+      guestShutdownAcknowledged = outcome.acknowledged;
+      if (outcome.error !== undefined) errors.push(outcome.error);
     }
-    this.guestClient = undefined;
+    this.guest = undefined;
 
     if (this.client && instanceWasStarted && guestShutdownAcknowledged) {
       try {
@@ -770,201 +564,20 @@ export class CloudHypervisorManager {
   }
 
   async collectDiagnostics(directory: string): Promise<void> {
-    await this.dependencies.mkdir(directory, { recursive: true, mode: 0o700 });
-    // Prefer the snapshot stop() takes *before* any shutdown attempt (see
-    // the comment at the top of stop()): by the time collectDiagnostics()
-    // runs via the beforeCleanup hook, the API socket is already
-    // unresponsive (process already asked to exit), so a live call here
-    // would just fail. Fall back to a live call only when this method is
-    // invoked directly, outside of stop() (e.g. --diagnostic-logs without
-    // a failure, or this method's own unit tests), where the client may
-    // still be genuinely reachable.
-    let counters: unknown = this.lastVmCounters ?? null;
-    if (counters === null && this.client && this.instanceStarted) {
-      try {
-        counters = await this.client.vmCounters();
-      } catch {
-        counters = null;
-      }
-    }
-    let vmInfo: unknown = this.lastVmInfo ?? null;
-    if (vmInfo === null && this.client && this.instanceStarted) {
-      try {
-        vmInfo = await this.client.vmInfo();
-      } catch {
-        vmInfo = null;
-      }
-    }
-    const writeBounded = async (fileName: string, contents: Buffer): Promise<void> => {
-      const destination = path.join(directory, fileName);
-      await this.dependencies.writeFile(destination, contents, { mode: 0o600 });
-    };
-    await writeBounded('launcher-stdout.log', this.stdoutCapture.contents());
-    await writeBounded('launcher-stderr.log', this.stderrCapture.contents());
-    await this.copyBoundedDiagnostic(
-      this.paths.logPath,
-      path.join(directory, CLOUD_HYPERVISOR_LOG_NAME),
-    );
-    await this.copyBoundedDiagnostic(
-      this.paths.serialLogPath,
-      path.join(directory, CLOUD_HYPERVISOR_SERIAL_LOG_NAME),
-    );
-    await this.dependencies.writeFile(
-      path.join(directory, 'network-plan.json'),
-      `${JSON.stringify(this.networkPlan ?? null, null, 2)}\n`,
-      { mode: 0o600 },
-    );
-    // Best-effort, read-only host-side network diagnostics (live nftables
-    // ruleset + interface counters), captured only while the namespace
-    // still exists (this method runs via stop()'s beforeCleanup hook,
-    // before network.cleanup() tears the namespace down). Helps diagnose
-    // a guest connectivity failure (dropped by a forward-chain rule vs.
-    // never reaching the tap at all) without guessing from the guest
-    // side alone.
-    let networkDiagnostics = '(network namespace not set up)';
-    if (this.network?.captureDiagnostics) {
-      try {
-        networkDiagnostics = await this.network.captureDiagnostics();
-      } catch (error) {
-        networkDiagnostics = `(capture failed: ${formatError(error)})`;
-      }
-    }
-    await this.dependencies.writeFile(
-      path.join(directory, 'network-diagnostics.txt'),
-      `${networkDiagnostics}\n`,
-      { mode: 0o600 },
-    );
-    await this.dependencies.writeFile(
-      path.join(directory, 'counters.json'),
-      `${JSON.stringify(counters, null, 2)}\n`,
-      { mode: 0o600 },
-    );
-    await this.dependencies.writeFile(
-      path.join(directory, 'vm-info.json'),
-      `${JSON.stringify(vmInfo, null, 2)}\n`,
-      { mode: 0o600 },
-    );
-    await this.dependencies.writeFile(
-      path.join(directory, 'runtime.json'),
-      `${JSON.stringify({
-        runtime: 'cloud-hypervisor',
-        version: CLOUD_HYPERVISOR_RELEASE_VERSION,
-        runId: this.paths.runId,
-        vcpuCount: this.config.vcpuCount,
-        memoryMib: this.config.memoryMib,
-        instanceStarted: this.instanceStarted,
-      }, null, 2)}\n`,
-      { mode: 0o600 },
-    );
+    await collectCloudHypervisorDiagnostics(directory, {
+      dependencies: this.dependencies,
+      paths: this.paths,
+      config: this.config,
+      stdoutCapture: this.stdoutCapture,
+      stderrCapture: this.stderrCapture,
+      network: this.network,
+      networkPlan: this.networkPlan,
+      client: this.client,
+      instanceStarted: this.instanceStarted,
+      lastVmInfo: this.lastVmInfo,
+      lastVmCounters: this.lastVmCounters,
+    });
   }
-
-  private async waitForApiSocket(): Promise<void> {
-    const deadline = Date.now() + this.config.apiTimeoutMs;
-    while (Date.now() < deadline) {
-      if (this.process && (this.process.exitCode != null || this.process.signalCode != null)) {
-        throw new Error(
-          `Cloud Hypervisor exited before API readiness with code ${this.process.exitCode ?? 'null'} ` +
-          `and signal ${this.process.signalCode ?? 'null'}`,
-        );
-      }
-      try {
-        await this.dependencies.access(this.paths.apiSocketPath);
-        return;
-      } catch (error) {
-        const code = (error as NodeJS.ErrnoException).code;
-        if (code !== 'ENOENT') throw error;
-      }
-      await this.dependencies.sleep(25);
-    }
-    throw new Error(
-      `Cloud Hypervisor API socket was not ready after ${this.config.apiTimeoutMs}ms: ` +
-      this.paths.apiSocketPath,
-    );
-  }
-
-  /**
-   * Creates the private run-directory chain with real traversal
-   * permissions for the non-root target identity: the two ancestor
-   * levels (`CLOUD_HYPERVISOR_RUN_ROOT` and the per-binary directory
-   * beneath it) are `0711` root-owned (executable/traversable by any uid,
-   * but not listable), and only the per-run leaf directory is chowned to
-   * the target identity with `0700` (so only that identity, or root, can
-   * actually read its contents). See the `CLOUD_HYPERVISOR_RUN_ROOT`
-   * comment above for why this can't simply live under `workDir`.
-   */
-  private async prepareRunDirectory(identity: { uid: number; gid: number }): Promise<void> {
-    const binaryDir = path.dirname(this.paths.runDirectory);
-    await this.dependencies.mkdir(this.paths.runBaseDir, { recursive: true, mode: 0o711 });
-    await this.dependencies.chmod(this.paths.runBaseDir, 0o711);
-    await this.dependencies.mkdir(binaryDir, { recursive: true, mode: 0o711 });
-    await this.dependencies.chmod(binaryDir, 0o711);
-    await this.dependencies.mkdir(this.paths.runDirectory, { recursive: true, mode: 0o700 });
-    await this.dependencies.chown(this.paths.runDirectory, identity.uid, identity.gid);
-  }
-
-  private async stageArtifact(
-    source: string,
-    destination: string,
-    mode: number,
-    identity: { uid: number; gid: number },
-  ): Promise<void> {
-    await this.dependencies.copyFile(source, destination, constants.COPYFILE_EXCL);
-    await this.dependencies.chown(destination, identity.uid, identity.gid);
-    await this.dependencies.chmod(destination, mode);
-  }
-
-  private async stageDiagnosticFile(
-    destination: string,
-    identity: { uid: number; gid: number },
-  ): Promise<void> {
-    await this.dependencies.writeFile(destination, '', { flag: 'wx', mode: 0o600 });
-    await this.dependencies.chown(destination, identity.uid, identity.gid);
-  }
-
-  private async copyBoundedDiagnostic(source: string, destination: string): Promise<void> {
-    try {
-      const bounded = await this.dependencies.readFileTail(source, CLOUD_HYPERVISOR_CAPTURE_LIMIT_BYTES);
-      await this.dependencies.writeFile(destination, bounded, { mode: 0o600 });
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-    }
-  }
-}
-
-export function buildSupervisorBootArgs(
-  networkPlan: MicrovmNetworkPlan,
-  guestConfig: CloudHypervisorManagerGuestConfig,
-): string {
-  const port = guestConfig.vsockPort ?? CLOUD_HYPERVISOR_GUEST_VSOCK_PORT;
-  if (!Number.isInteger(port) || port < 1 || port > 65_535) {
-    throw new Error(`Cloud Hypervisor guest vsock port must be in 1-65535: ${port}`);
-  }
-  return [
-    'console=ttyS0',
-    'reboot=k',
-    'panic=1',
-    'root=/dev/vda',
-    'rootfstype=ext4',
-    'rootflags=data=ordered',
-    'rw',
-    // Cloud Hypervisor requires PCI (no `pci=off` MMIO-only mode like
-    // Firecracker); pin legacy `ethN` interface naming so the guest's
-    // single virtio-pci NIC has a deterministic name across boots.
-    'net.ifnames=0',
-    'biosdevname=0',
-    'init=/sbin/awf-supervisor',
-    'awf.workspace-device=/dev/vdb',
-    'awf.workspace-mount=/workspace',
-    `awf.vsock-port=${port}`,
-    `awf.guest-ip=${networkPlan.guestIp}`,
-    `awf.guest-prefix=${networkPlan.guestPrefixLength}`,
-    `awf.guest-gateway=${networkPlan.guestGatewayIp}`,
-    'awf.guest-interface=eth0',
-  ].join(' ');
-}
-
-function formatError(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 /**
@@ -980,22 +593,4 @@ function buildLauncherEnvironment(): NodeJS.ProcessEnv {
   return {
     PATH: '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
   };
-}
-
-class BoundedOutputCapture {
-  private buffer = Buffer.alloc(0);
-
-  constructor(private readonly maximumBytes: number) {}
-
-  append(chunk: Buffer | string): void {
-    const next = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-    this.buffer = Buffer.concat([this.buffer, next]);
-    if (this.buffer.length > this.maximumBytes) {
-      this.buffer = this.buffer.subarray(this.buffer.length - this.maximumBytes);
-    }
-  }
-
-  contents(): Buffer {
-    return this.buffer;
-  }
 }

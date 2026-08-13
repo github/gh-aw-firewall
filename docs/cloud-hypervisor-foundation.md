@@ -110,6 +110,11 @@ isolation), different VMM implementation and host launch strategy.
    execution → graceful `vm.shutdown`/`vmm.shutdown` → process termination
    → workspace extraction → network/cgroup/run-directory cleanup, with
    aggregated cleanup-error reporting matching Firecracker's manager.
+   The class itself is an orchestration facade; the supporting pieces live
+   beside it in `src/cloud-hypervisor/`: shared run paths/types in
+   `manager-types.ts`, the `vm.create` payload in `vm-config-builder.ts`,
+   run-directory staging plus failure diagnostics in `diagnostics.ts`, and
+   the guest VSOCK execution/IO surface in `guest-execution.ts`.
 4. **`src/cloud-hypervisor-runtime-backend.ts`** — `CloudHypervisorRuntimeBackend`
    implements `ExternalAgentRuntimeBackend`: infrastructure discovery
    (`src/microvm/infrastructure.ts`, unchanged), credential-safe guest
