@@ -1,13 +1,19 @@
 import {
   LinuxNetworkCommands,
+} from './network-commands';
+import {
   MicrovmNetworkManager,
+} from './network-manager';
+import {
   createMicrovmNetworkPlan,
   generateMicrovmNftRuleset,
-  type MicrovmConnectivityProbe,
-  type MicrovmNetworkCommandOptions,
-  type MicrovmNetworkPlan,
-  type MicrovmNetworkRulesetFile,
-} from './network';
+} from './network-plan';
+import type {
+  MicrovmConnectivityProbe,
+  MicrovmNetworkCommandOptions,
+  MicrovmNetworkPlan,
+  MicrovmNetworkRulesetFile,
+} from './network-types';
 
 interface CommandCall {
   command: string;
