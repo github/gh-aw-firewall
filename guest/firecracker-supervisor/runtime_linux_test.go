@@ -57,6 +57,46 @@ func TestWorkspaceMountArgsUseExt4Filesystem(t *testing.T) {
 	}
 }
 
+func TestVirtiofsMountArgsUseSecurityFlags(t *testing.T) {
+	source, target, fstype, flags := virtiofsMountArgs(virtiofsMount{
+		Tag: "cache", Target: "/opt/cache", ReadOnly: true,
+	})
+	if source != "cache" || target != "/opt/cache" || fstype != "virtiofs" {
+		t.Fatalf("unexpected virtiofs mount arguments: %q %q %q", source, target, fstype)
+	}
+	expected := uintptr(syscall.MS_NOSUID | syscall.MS_NODEV | syscall.MS_RDONLY)
+	if flags != expected {
+		t.Fatalf("unexpected virtiofs flags: got %d want %d", flags, expected)
+	}
+}
+
+func TestUnmountConfiguredFilesystemsUsesReverseOrder(t *testing.T) {
+	originalUnmount := unmountFilesystem
+	defer func() { unmountFilesystem = originalUnmount }()
+	var targets []string
+	unmountFilesystem = func(target string, _ int) error {
+		targets = append(targets, target)
+		return nil
+	}
+	config := bootConfig{
+		WorkspaceDevice: "/dev/vdb",
+		WorkspaceMount:  "/workspace",
+		VirtiofsMounts: []virtiofsMount{
+			{Tag: "cache-one", Target: "/cache/one"},
+			{Tag: "cache-two", Target: "/cache/two"},
+		},
+	}
+	if err := unmountConfiguredFilesystems(config); err != nil {
+		t.Fatalf("unmountConfiguredFilesystems: %v", err)
+	}
+	expected := []string{"/cache/two", "/cache/one", "/workspace"}
+	for index := range expected {
+		if targets[index] != expected[index] {
+			t.Fatalf("unmount order mismatch: got %v want %v", targets, expected)
+		}
+	}
+}
+
 func TestShutdownRequestSyncsBeforeAcknowledging(t *testing.T) {
 	// Regression test: a live-KVM investigation found the workspace-
 	// copyback smoke case's own newly-written file missing entirely from

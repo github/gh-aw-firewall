@@ -29,6 +29,7 @@ function config(overrides: Partial<WrapperConfig> = {}): WrapperConfig {
       apiTimeoutMs: 5000,
       sha256: {
         cloudHypervisor: digest,
+        virtiofsd: digest,
         kernel: digest,
         rootfs: digest,
         supervisor: digest,
@@ -84,6 +85,12 @@ describe('Cloud Hypervisor runtime validation', () => {
         supervisorPath: undefined,
       },
     }, /explicit kernel, rootfs, and guest supervisor/],
+    [{
+      cloudHypervisor: {
+        ...config().cloudHypervisor!,
+        sha256: { ...config().cloudHypervisor!.sha256, virtiofsd: undefined },
+      },
+    }, /requires SHA-256 digests/],
     [{
       cloudHypervisor: {
         ...config().cloudHypervisor!,

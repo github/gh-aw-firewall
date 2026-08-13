@@ -78,7 +78,7 @@ func runSupervisor() error {
 	if err != nil {
 		return err
 	}
-	if err := mountWorkspace(config); err != nil {
+	if err := mountConfiguredFilesystems(config); err != nil {
 		return err
 	}
 	if err := configureNetwork(config); err != nil {
@@ -120,16 +120,72 @@ func mountProc() error {
 // the request to the host) can be verified in a unit test without
 // depending on real kernel state.
 var syncFilesystems = syscall.Sync
+var mountFilesystem = syscall.Mount
+var unmountFilesystem = syscall.Unmount
 
 func shutdownGuest(config bootConfig) error {
 	syncFilesystems()
-	if err := syscall.Unmount(config.WorkspaceMount, 0); err != nil {
-		return fmt.Errorf("unmount workspace: %w", err)
+	if err := unmountConfiguredFilesystems(config); err != nil {
+		return err
 	}
 	if err := syscall.Reboot(syscall.LINUX_REBOOT_CMD_POWER_OFF); err != nil {
 		return fmt.Errorf("power off guest: %w", err)
 	}
 	return nil
+}
+
+func mountConfiguredFilesystems(config bootConfig) error {
+	mounted := make([]string, 0, len(config.VirtiofsMounts)+1)
+	if config.WorkspaceDevice != "" {
+		if err := mountWorkspace(config); err != nil {
+			return err
+		}
+		mounted = append(mounted, config.WorkspaceMount)
+	}
+	for _, mount := range config.VirtiofsMounts {
+		if err := os.MkdirAll(mount.Target, 0755); err != nil {
+			unmountTargets(mounted)
+			return fmt.Errorf("create virtiofs mount target %q: %w", mount.Tag, err)
+		}
+		source, target, fstype, flags := virtiofsMountArgs(mount)
+		if err := mountFilesystem(source, target, fstype, flags, ""); err != nil {
+			unmountTargets(mounted)
+			return fmt.Errorf("mount virtiofs %q: %w", mount.Tag, err)
+		}
+		mounted = append(mounted, mount.Target)
+	}
+	return nil
+}
+
+func unmountConfiguredFilesystems(config bootConfig) error {
+	targets := make([]string, 0, len(config.VirtiofsMounts)+1)
+	if config.WorkspaceDevice != "" {
+		targets = append(targets, config.WorkspaceMount)
+	}
+	for _, mount := range config.VirtiofsMounts {
+		targets = append(targets, mount.Target)
+	}
+	return unmountTargets(targets)
+}
+
+func unmountTargets(targets []string) error {
+	var firstError error
+	for index := len(targets) - 1; index >= 0; index-- {
+		if err := unmountFilesystem(targets[index], 0); err != nil {
+			if firstError == nil {
+				firstError = fmt.Errorf("unmount %s: %w", targets[index], err)
+			}
+		}
+	}
+	return firstError
+}
+
+func virtiofsMountArgs(mount virtiofsMount) (source, target, fstype string, flags uintptr) {
+	flags = syscall.MS_NOSUID | syscall.MS_NODEV
+	if mount.ReadOnly {
+		flags |= syscall.MS_RDONLY
+	}
+	return mount.Tag, mount.Target, "virtiofs", uintptr(flags)
 }
 
 const workspaceFilesystemType = "ext4"
@@ -164,7 +220,7 @@ func mountWorkspace(config bootConfig) error {
 	// defect shared by both the Firecracker and Cloud Hypervisor backends,
 	// since they share this guest supervisor binary).
 	source, target, fstype, flags := workspaceMountArgs(config)
-	if err := syscall.Mount(source, target, fstype, flags, ""); err != nil {
+	if err := mountFilesystem(source, target, fstype, flags, ""); err != nil {
 		return fmt.Errorf("mount workspace: %w", err)
 	}
 	return nil

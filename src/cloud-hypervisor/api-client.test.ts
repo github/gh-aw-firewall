@@ -68,9 +68,10 @@ describe('CloudHypervisorApiClient', () => {
     expect(await client.ping()).toEqual({ version: '53.0' });
     await client.vmCreate({
       cpus: { boot_vcpus: 2, max_vcpus: 2 },
-      memory: { size: 512 * 1024 * 1024 },
+      memory: { size: 512 * 1024 * 1024, shared: true },
       payload: { kernel: '/kernel', cmdline: 'console=ttyS0' },
       disks: [{ id: 'rootfs', path: '/rootfs', readonly: false, image_type: 'Raw' }],
+      fs: [{ tag: 'workspace', socket: '/run/workspace.sock', num_queues: 1, queue_size: 1024 }],
       net: [{ id: 'net0', tap: 'chtap0', mac: '02:00:00:00:00:01' }],
       vsock: { cid: 3, socket: '/run/vsock.socket' },
       landlock_enable: true,
@@ -86,6 +87,8 @@ describe('CloudHypervisorApiClient', () => {
     expect(received[1]).toMatchObject({ method: 'PUT', url: '/api/v1/vm.create' });
     expect(JSON.parse(received[1].body)).toMatchObject({
       cpus: { boot_vcpus: 2, max_vcpus: 2 },
+      memory: { size: 512 * 1024 * 1024, shared: true },
+      fs: [{ tag: 'workspace', socket: '/run/workspace.sock', num_queues: 1, queue_size: 1024 }],
       landlock_enable: true,
     });
     expect(received[2]).toMatchObject({ method: 'PUT', url: '/api/v1/vm.boot', body: '' });

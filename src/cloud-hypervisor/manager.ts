@@ -22,9 +22,9 @@ import {
   type GuestExecutionResult,
 } from '../microvm/vsock-client';
 import {
-  MicrovmWorkspaceImage,
-  type MicrovmWorkspaceImageConfig,
-} from '../microvm/workspace';
+  MicrovmRootfsPreparer,
+  type MicrovmRootfsConfig,
+} from '../microvm/rootfs';
 import {
   CloudHypervisorApiClient,
   type CloudHypervisorVmCounters,
@@ -39,10 +39,14 @@ import {
 } from './launcher';
 import { runCloudHypervisorPreflight } from './preflight';
 import type { CloudHypervisorHostToolPaths } from './preflight';
+import {
+  validateCloudHypervisorExports,
+  type CloudHypervisorDirectoryExport,
+} from './exports';
+import { VirtiofsdManager, type VirtiofsdDevice } from './virtiofsd';
 
 const API_SOCKET_NAME = 'api.socket';
 const VSOCK_SOCKET_NAME = 'awf-vsock.socket';
-const WORKSPACE_IMAGE_NAME = 'workspace.ext4';
 const KERNEL_RUN_NAME = 'kernel';
 const ROOTFS_RUN_NAME = 'rootfs.ext4';
 const CLOUD_HYPERVISOR_LOG_NAME = 'cloud-hypervisor.log';
@@ -102,10 +106,10 @@ export interface CloudHypervisorRunPaths {
   apiSocketPath: string;
   kernelPath: string;
   rootfsPath: string;
-  workspacePath: string;
   vsockSocketPath: string;
   logPath: string;
   serialLogPath: string;
+  virtiofsdShareDirectory: string;
   cgroupPath: string;
 }
 
@@ -132,7 +136,15 @@ export interface CloudHypervisorManagerDependencies {
   sleep(milliseconds: number): Promise<void>;
   createClient(socketPath: string, timeoutMs: number): CloudHypervisorApiClient;
   createNetwork(plan: MicrovmNetworkPlan, tools: CloudHypervisorHostToolPaths): MicrovmNetworkLifecycle;
-  createWorkspaceImage(config: MicrovmWorkspaceImageConfig, tools: CloudHypervisorHostToolPaths): MicrovmWorkspaceImage;
+  createRootfsPreparer(config: MicrovmRootfsConfig, tools: CloudHypervisorHostToolPaths): MicrovmRootfsPreparer;
+  createVirtiofsdManager(
+    binaryPath: string,
+    runDirectory: string,
+    shareDirectory: string,
+    identity: { uid: number; gid: number },
+    cgroup: CloudHypervisorCgroup,
+    tools: Pick<CloudHypervisorHostToolPaths, 'mount' | 'umount'>,
+  ): VirtiofsdManager;
   createVsockClient(socketPath: string, guestPort: number, timeoutMs: number): MicrovmVsockClient;
   createCgroup(cgroupPath: string, limits: CloudHypervisorResourceLimits): CloudHypervisorCgroup;
   resolveIdentity(): { uid: number; gid: number };
@@ -145,11 +157,9 @@ export interface CloudHypervisorManagerNetworkConfig {
 }
 
 export interface CloudHypervisorManagerGuestConfig {
-  readonly workspacePath: string;
-  readonly homePath: string;
+  readonly exports: readonly CloudHypervisorDirectoryExport[];
   readonly supervisorBinaryPath: string;
   readonly supervisorSha256: string;
-  readonly maxWorkspaceImageBytes?: number;
   readonly vsockPort?: number;
   readonly identity?: { uid: number; gid: number };
 }
@@ -186,7 +196,20 @@ const defaultDependencies: CloudHypervisorManagerDependencies = {
     plan,
     new LinuxNetworkCommands(undefined, tools),
   ),
-  createWorkspaceImage: (config, tools) => new MicrovmWorkspaceImage(config, undefined, tools),
+  createRootfsPreparer: (config, tools) => new MicrovmRootfsPreparer(config, {
+    runTool: async (command, args) => {
+      const tool = tools[command as keyof CloudHypervisorHostToolPaths] ?? command;
+      const result = await execa(tool, [...args], {
+        reject: false,
+        stdio: ['ignore', 'pipe', 'pipe'],
+        timeout: 120_000,
+      });
+      if (result.exitCode === 0 || (command === 'e2fsck' && result.exitCode === 1)) return;
+      throw new Error(`${tool} exited with code ${result.exitCode}: ${result.stderr.trim()}`);
+    },
+  }),
+  createVirtiofsdManager: (binaryPath, runDirectory, shareDirectory, identity, cgroup, tools) =>
+    new VirtiofsdManager(binaryPath, runDirectory, shareDirectory, identity, cgroup, tools),
   createVsockClient: (socketPath, guestPort, timeoutMs) => new MicrovmVsockClient({
     socketPath,
     guestPort,
@@ -250,10 +273,10 @@ export function createCloudHypervisorRunPaths(
     apiSocketPath: path.join(runDirectory, API_SOCKET_NAME),
     kernelPath: path.join(runDirectory, KERNEL_RUN_NAME),
     rootfsPath: path.join(runDirectory, ROOTFS_RUN_NAME),
-    workspacePath: path.join(runDirectory, WORKSPACE_IMAGE_NAME),
     vsockSocketPath: path.join(runDirectory, VSOCK_SOCKET_NAME),
     logPath: path.join(runDirectory, CLOUD_HYPERVISOR_LOG_NAME),
     serialLogPath: path.join(runDirectory, CLOUD_HYPERVISOR_SERIAL_LOG_NAME),
+    virtiofsdShareDirectory: path.join(runBaseDir, 'virtiofsd', runId),
     cgroupPath: path.join(CGROUP_ROOT, 'awf-cloud-hypervisor', runId),
   };
 }
@@ -268,7 +291,9 @@ export class CloudHypervisorManager {
   private process: ExecaChildProcess<string> | undefined;
   private client: CloudHypervisorApiClient | undefined;
   private network: MicrovmNetworkLifecycle | undefined;
-  private workspace: MicrovmWorkspaceImage | undefined;
+  private rootfsPreparer: MicrovmRootfsPreparer | undefined;
+  private virtiofsd: VirtiofsdManager | undefined;
+  private fsDevices: VirtiofsdDevice[] = [];
   private guestClient: MicrovmVsockClient | undefined;
   private cgroup: CloudHypervisorCgroup | undefined;
   private networkPlan: MicrovmNetworkPlan | undefined;
@@ -335,26 +360,21 @@ export class CloudHypervisorManager {
       this.network = this.dependencies.createNetwork(networkPlan, artifacts.tools);
       await this.network.setup();
       let rootfsSource = artifacts.rootfsPath;
-      let workspaceSource: string | undefined;
       if (this.guestConfig) {
-        this.workspace = this.dependencies.createWorkspaceImage({
-          runId: this.paths.runId,
-          workDir: this.workDir,
-          workspacePath: this.guestConfig.workspacePath,
-          homePath: this.guestConfig.homePath,
+        validateCloudHypervisorExports(this.guestConfig.exports);
+        const rootfsPreparationDirectory = path.join(
+          this.workDir,
+          'cloud-hypervisor-rootfs',
+          this.paths.runId,
+        );
+        this.rootfsPreparer = this.dependencies.createRootfsPreparer({
+          runDirectory: rootfsPreparationDirectory,
           baseRootfsPath: artifacts.rootfsPath,
           supervisorBinaryPath: this.guestConfig.supervisorBinaryPath,
           supervisorSha256: this.guestConfig.supervisorSha256,
           supervisorGuestPath: CLOUD_HYPERVISOR_GUEST_SUPERVISOR,
-          ...(this.guestConfig.maxWorkspaceImageBytes === undefined
-            ? {}
-            : { maxImageBytes: this.guestConfig.maxWorkspaceImageBytes }),
-          uid: identity.uid,
-          gid: identity.gid,
         }, artifacts.tools);
-        const preparation = await this.workspace.prepare();
-        rootfsSource = preparation.rootfsImagePath;
-        workspaceSource = preparation.workspaceImagePath;
+        rootfsSource = await this.rootfsPreparer.prepare();
       }
 
       await this.prepareRunDirectory(identity);
@@ -367,9 +387,6 @@ export class CloudHypervisorManager {
 
       await this.stageArtifact(artifacts.kernelPath, this.paths.kernelPath, 0o400, identity);
       await this.stageArtifact(rootfsSource, this.paths.rootfsPath, 0o600, identity);
-      if (workspaceSource) {
-        await this.stageArtifact(workspaceSource, this.paths.workspacePath, 0o600, identity);
-      }
       await this.stageDiagnosticFile(this.paths.logPath, identity);
       await this.stageDiagnosticFile(this.paths.serialLogPath, identity);
 
@@ -415,6 +432,17 @@ export class CloudHypervisorManager {
         this.config.apiTimeoutMs,
       );
       await this.client.ping();
+      if (this.guestConfig) {
+        this.virtiofsd = this.dependencies.createVirtiofsdManager(
+          artifacts.virtiofsdBinary,
+          this.paths.runDirectory,
+          this.paths.virtiofsdShareDirectory,
+          identity,
+          this.cgroup,
+          { mount: artifacts.tools.mount, umount: artifacts.tools.umount },
+        );
+        this.fsDevices = await this.virtiofsd.start(this.guestConfig.exports);
+      }
       await this.client.vmCreate(this.buildVmConfig(networkPlan));
       return this.client;
     } catch (error) {
@@ -436,7 +464,6 @@ export class CloudHypervisorManager {
     const landlockRules = computeCloudHypervisorLandlockRules({
       kernelPath: this.paths.kernelPath,
       rootfsPath: this.paths.rootfsPath,
-      workspacePath: this.guestConfig ? this.paths.workspacePath : undefined,
       runDirectory: this.paths.runDirectory,
       apiSocketPath: this.paths.apiSocketPath,
       vsockSocketPath: this.paths.vsockSocketPath,
@@ -449,6 +476,7 @@ export class CloudHypervisorManager {
       },
       memory: {
         size: this.config.memoryMib * 1024 * 1024,
+        ...(this.fsDevices.length > 0 ? { shared: true } : {}),
       },
       payload: {
         kernel: this.paths.kernelPath,
@@ -463,15 +491,17 @@ export class CloudHypervisorManager {
           readonly: false,
           image_type: 'Raw' as const,
         },
-        ...(this.guestConfig
-          ? [{
-            id: 'workspace',
-            path: this.paths.workspacePath,
-            readonly: false,
-            image_type: 'Raw' as const,
-          }]
-          : []),
       ],
+      ...(this.fsDevices.length > 0
+        ? {
+            fs: this.fsDevices.map((device) => ({
+              tag: device.export.tag,
+              socket: device.socketPath,
+              num_queues: 1,
+              queue_size: 1024,
+            })),
+          }
+        : {}),
       net: [{
         id: 'net0',
         tap: networkPlan.networkInterface.host_dev_name,
@@ -674,13 +704,29 @@ export class CloudHypervisorManager {
       if (errors.length === 0) {
         errors.push(new Error('Cloud Hypervisor process termination was not confirmed'));
       }
+      try {
+        await this.virtiofsd?.stop();
+        this.virtiofsd = undefined;
+        this.fsDevices = [];
+      } catch (error) {
+        errors.push(error);
+      }
       throw new Error(
-        `Cloud Hypervisor cleanup stopped before workspace/network removal: ` +
+        `Cloud Hypervisor cleanup stopped before network/run-directory removal: ` +
         `${errors.map(formatError).join('; ')}`,
       );
     }
     this.process = undefined;
     this.client = undefined;
+
+    let virtiofsdTerminationConfirmed = true;
+    try {
+      await this.virtiofsd?.stop();
+      this.virtiofsd = undefined;
+    } catch (error) {
+      virtiofsdTerminationConfirmed = false;
+      errors.push(error);
+    }
 
     // Run any caller-supplied diagnostics collection now: the Cloud
     // Hypervisor process is confirmed terminated (so any buffered guest
@@ -697,15 +743,27 @@ export class CloudHypervisorManager {
         errors.push(error);
       }
     }
+    if (!virtiofsdTerminationConfirmed) {
+      throw new Error(
+        `Cloud Hypervisor cleanup stopped before cgroup/run-directory removal: ` +
+        `${errors.map(formatError).join('; ')}`,
+      );
+    }
+    this.fsDevices = [];
 
-    if (this.workspace && instanceWasStarted) {
+    this.instanceStarted = false;
+
+    if (this.rootfsPreparer) {
       try {
-        await this.workspace.extractAfterStop(this.paths.workspacePath);
+        await this.dependencies.rm(
+          path.dirname(this.rootfsPreparer.rootfsImagePath),
+          { recursive: true, force: true },
+        );
       } catch (error) {
         errors.push(error);
       }
     }
-    this.instanceStarted = false;
+    this.rootfsPreparer = undefined;
 
     if (options.preserve) {
       try {
@@ -752,13 +810,6 @@ export class CloudHypervisorManager {
         errors.push(error);
       }
     }
-
-    try {
-      await this.workspace?.cleanup(!instanceWasStarted);
-    } catch (error) {
-      errors.push(error);
-    }
-    this.workspace = undefined;
 
     if (errors.length === 1) throw errors[0];
     if (errors.length > 1) {
@@ -821,6 +872,12 @@ export class CloudHypervisorManager {
       this.paths.serialLogPath,
       path.join(directory, CLOUD_HYPERVISOR_SERIAL_LOG_NAME),
     );
+    for (const [index, device] of this.fsDevices.entries()) {
+      await this.copyBoundedDiagnostic(
+        device.logPath,
+        path.join(directory, `virtiofs-${index}-${device.export.tag}.log`),
+      );
+    }
     await this.dependencies.writeFile(
       path.join(directory, 'network-plan.json'),
       `${JSON.stringify(this.networkPlan ?? null, null, 2)}\n`,
@@ -967,14 +1024,28 @@ export function buildSupervisorBootArgs(
     'net.ifnames=0',
     'biosdevname=0',
     `init=${CLOUD_HYPERVISOR_GUEST_SUPERVISOR}`,
-    'awf.workspace-device=/dev/vdb',
     'awf.workspace-mount=/workspace',
+    `awf.virtiofs=${encodeVirtiofsBootArg(guestConfig.exports)}`,
     `awf.vsock-port=${port}`,
     `awf.guest-ip=${networkPlan.guestIp}`,
     `awf.guest-prefix=${networkPlan.guestPrefixLength}`,
     `awf.guest-gateway=${networkPlan.guestGatewayIp}`,
     'awf.guest-interface=eth0',
   ].join(' ');
+}
+
+export function encodeVirtiofsBootArg(
+  exports: readonly CloudHypervisorDirectoryExport[],
+): string {
+  const encoded = validateCloudHypervisorExports(exports)
+    .map((entry) => (
+      `${entry.tag}:${Buffer.from(entry.target).toString('base64url')}:${entry.mode}`
+    ))
+    .join(';');
+  if (Buffer.byteLength(encoded) > 4096) {
+    throw new Error('Cloud Hypervisor virtio-fs boot argument exceeds 4096 bytes');
+  }
+  return encoded;
 }
 
 function formatError(error: unknown): string {

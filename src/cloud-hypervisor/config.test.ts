@@ -65,7 +65,7 @@ describe('Cloud Hypervisor configuration (foundation only)', () => {
         vcpuCount: 4,
         memoryMib: 1024,
         apiTimeoutMs: 8000,
-        sha256: { kernel: digest, supervisor: digest },
+        sha256: { virtiofsd: digest, kernel: digest, supervisor: digest },
       },
     });
 
@@ -78,6 +78,7 @@ describe('Cloud Hypervisor configuration (foundation only)', () => {
       cloudHypervisorVcpus: 4,
       cloudHypervisorMemoryMib: 1024,
       cloudHypervisorApiTimeoutMs: 8000,
+      cloudHypervisorVirtiofsdSha256: digest,
       cloudHypervisorKernelSha256: digest,
       cloudHypervisorSupervisorSha256: digest,
     }));

@@ -28,6 +28,7 @@ function config(overrides: Partial<WrapperConfig> = {}): WrapperConfig {
       apiTimeoutMs: 5000,
       sha256: {
         cloudHypervisor: digest,
+        virtiofsd: digest,
         kernel: digest,
         rootfs: digest,
         supervisor: digest,
@@ -70,6 +71,7 @@ function infrastructure(): MicrovmInfrastructureSnapshot {
 const preflightResult = {
   version: '53.0',
   cloudHypervisorBinary: '/opt/cloud-hypervisor',
+  virtiofsdBinary: '/opt/virtiofsd',
   kernelPath: '/opt/kernel',
   rootfsPath: '/opt/rootfs',
   supervisorPath: '/opt/supervisor',
@@ -83,6 +85,8 @@ const preflightResult = {
     debugfs: '/usr/sbin/debugfs',
     e2fsck: '/usr/sbin/e2fsck',
     rsync: '/usr/bin/rsync',
+    mount: '/usr/bin/mount',
+    umount: '/usr/bin/umount',
     setpriv: '/usr/bin/setpriv',
   },
 };
@@ -122,8 +126,9 @@ function harness(overrides: Partial<CloudHypervisorRuntimeBackendDependencies> =
     preflight: jest.fn(async () => { order.push('preflight'); return preflightResult; }),
     resolveInfrastructure: jest.fn(async () => infra),
     createManager: jest.fn(() => manager),
-    workspacePath: () => '/workspace-host',
-    homePath: () => '/home/runner',
+    resolveExports: jest.fn().mockResolvedValue([
+      { tag: 'workspace', source: '/workspace-host', target: '/workspace', mode: 'rw' },
+    ]),
     identity: () => ({ uid: 1000, gid: 1000 }),
     stdin,
     stdout: new PassThrough(),
@@ -150,16 +155,15 @@ describe('Cloud Hypervisor runtime backend', () => {
     eligibilitySpy.mockRestore();
   });
 
-  it('constructs default backend dependencies and manager policy', () => {
+  it('constructs default backend dependencies and manager policy', async () => {
     const startInfrastructure = jest.fn();
     const defaults = cloudHypervisorRuntimeTestHelpers.defaultDependencies(startInfrastructure);
     const previousWorkspace = process.env.GITHUB_WORKSPACE;
-    process.env.GITHUB_WORKSPACE = '/github/workspace';
+    process.env.GITHUB_WORKSPACE = process.cwd();
     try {
-      expect(defaults.workspacePath()).toBe('/github/workspace');
-      delete process.env.GITHUB_WORKSPACE;
-      expect(defaults.workspacePath()).toBe(process.cwd());
-      expect(defaults.homePath()).toBeTruthy();
+      await expect(defaults.resolveExports()).resolves.toEqual(expect.arrayContaining([
+        expect.objectContaining({ tag: 'workspace', target: '/workspace', mode: 'rw' }),
+      ]));
       expect(defaults.identity()).toEqual({
         uid: expect.any(Number),
         gid: expect.any(Number),
@@ -168,8 +172,7 @@ describe('Cloud Hypervisor runtime backend', () => {
         config().cloudHypervisor!,
         '/tmp/awf',
         infrastructure(),
-        '/workspace',
-        '/home/runner',
+        [{ tag: 'workspace', source: '/workspace', target: '/workspace', mode: 'rw' }],
         { uid: 1000, gid: 1000 },
       )).toBeDefined();
       expect(createCloudHypervisorRuntimeBackend(config(), startInfrastructure))
@@ -650,7 +653,7 @@ describe('Cloud Hypervisor runtime backend', () => {
     expect(environment.OPENAI_API_KEY).not.toBe(secret);
     expect(Object.values(environment)).not.toContain(secret);
     expect(environment.HTTP_PROXY).toBe('http://172.30.0.10:3128');
-    expect(environment.HOME).toBe('/workspace/.awf-home');
+    expect(environment.HOME).toBe('/home/awf');
 
     expect(() => buildCloudHypervisorGuestEnvironment(
       config({
@@ -674,6 +677,51 @@ describe('Cloud Hypervisor runtime backend', () => {
     const environment = buildCloudHypervisorGuestEnvironment(config(), infrastructure());
 
     expect(environment.http_proxy).toBe('http://172.30.0.10:3128');
+  });
+
+  it('maps only exported runner paths and keeps the guest home rootfs-local', () => {
+    const previousToolCache = process.env.RUNNER_TOOL_CACHE;
+    const previousRunnerTemp = process.env.RUNNER_TEMP;
+    try {
+      process.env.RUNNER_TOOL_CACHE = '/opt/hostedtoolcache';
+      process.env.RUNNER_TEMP = '/home/runner/work/_temp';
+      const environment = buildCloudHypervisorGuestEnvironment(
+        config(),
+        infrastructure(),
+        '100.64.0.2',
+        [
+          {
+            tag: 'workspace',
+            source: '/host/workspace',
+            target: '/workspace',
+            mode: 'rw',
+          },
+          {
+            tag: 'runner-tool-cache',
+            source: '/opt/hostedtoolcache',
+            target: '/opt/hostedtoolcache',
+            mode: 'ro',
+          },
+          {
+            tag: 'runner-temp-gh-aw',
+            source: '/home/runner/work/_temp/gh-aw',
+            target: '/home/runner/work/_temp/gh-aw',
+            mode: 'ro',
+          },
+        ],
+      );
+      expect(environment).toMatchObject({
+        HOME: '/home/awf',
+        GITHUB_WORKSPACE: '/workspace',
+        RUNNER_TOOL_CACHE: '/opt/hostedtoolcache',
+        RUNNER_TEMP: '/home/runner/work/_temp',
+      });
+    } finally {
+      if (previousToolCache === undefined) delete process.env.RUNNER_TOOL_CACHE;
+      else process.env.RUNNER_TOOL_CACHE = previousToolCache;
+      if (previousRunnerTemp === undefined) delete process.env.RUNNER_TEMP;
+      else process.env.RUNNER_TEMP = previousRunnerTemp;
+    }
   });
 
   it('rejects unsupported strict-security and topology combinations', () => {

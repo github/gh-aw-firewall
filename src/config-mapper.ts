@@ -137,6 +137,7 @@ export function mapAwfFileConfigToCliOptions(config: AwfFileConfig): Record<stri
     cloudHypervisorMemoryMib: config.cloudHypervisor?.memoryMib,
     cloudHypervisorApiTimeoutMs: config.cloudHypervisor?.apiTimeoutMs,
     cloudHypervisorBinarySha256: config.cloudHypervisor?.sha256?.cloudHypervisor,
+    cloudHypervisorVirtiofsdSha256: config.cloudHypervisor?.sha256?.virtiofsd,
     cloudHypervisorKernelSha256: config.cloudHypervisor?.sha256?.kernel,
     cloudHypervisorRootfsSha256: config.cloudHypervisor?.sha256?.rootfs,
     cloudHypervisorSupervisorSha256: config.cloudHypervisor?.sha256?.supervisor,

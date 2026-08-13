@@ -18,7 +18,7 @@ import type {
 import type { CloudHypervisorPreflightResult } from './cloud-hypervisor/preflight';
 import { CloudHypervisorManager } from './cloud-hypervisor/manager';
 import { runCloudHypervisorPreflight } from './cloud-hypervisor/preflight';
-import { getRealUserHome, getSafeHostGid, getSafeHostUid } from './host-identity';
+import { getSafeHostGid, getSafeHostUid } from './host-identity';
 import { logger } from './logger';
 import { buildAgentEnvironment } from './services/agent-service';
 import { buildAgentCredentialEnv } from './services/api-proxy-credential-env';
@@ -28,13 +28,17 @@ import {
   assertCloudHypervisorRuntimeCompatibility,
   requireCloudHypervisorConfig,
 } from './cloud-hypervisor/runtime-validation';
+import {
+  resolveCloudHypervisorExports,
+  type CloudHypervisorDirectoryExport,
+} from './cloud-hypervisor/exports';
 export {
   assertCloudHypervisorPreSecurityCompatibility,
   assertCloudHypervisorRuntimeCompatibility,
 } from './cloud-hypervisor/runtime-validation';
 
 const CLOUD_HYPERVISOR_GUEST_WORKSPACE = '/workspace';
-const CLOUD_HYPERVISOR_GUEST_HOME = `${CLOUD_HYPERVISOR_GUEST_WORKSPACE}/.awf-home`;
+const CLOUD_HYPERVISOR_GUEST_HOME = '/home/awf';
 /**
  * Generous, not a tight few-second timeout. Live-KVM validation on
  * GitHub-hosted runners showed the guest's own vCPU getting scheduled so
@@ -80,12 +84,10 @@ export interface CloudHypervisorRuntimeBackendDependencies {
     config: CloudHypervisorOptions,
     workDir: string,
     infrastructure: MicrovmInfrastructureSnapshot,
-    workspacePath: string,
-    homePath: string,
+    exports: readonly CloudHypervisorDirectoryExport[],
     identity: { uid: number; gid: number },
   ): CloudHypervisorManagerAdapter;
-  workspacePath(): string;
-  homePath(): string;
+  resolveExports(): Promise<CloudHypervisorDirectoryExport[]>;
   identity(): { uid: number; gid: number };
   stdin: Readable & { isTTY?: boolean };
   stdout: Writable;
@@ -101,7 +103,7 @@ function defaultDependencies(
     preflight: runCloudHypervisorPreflight,
     resolveInfrastructure: (enableApiProxy, ipPath) =>
       resolveMicrovmInfrastructure(enableApiProxy, undefined, ipPath),
-    createManager: (config, workDir, infrastructure, workspacePath, homePath, identity) =>
+    createManager: (config, workDir, infrastructure, exports, identity) =>
       new CloudHypervisorManager(
         config,
         workDir,
@@ -112,15 +114,13 @@ function defaultDependencies(
           enableApiProxy: Boolean(infrastructure.apiProxyIp),
         },
         {
-          workspacePath,
-          homePath,
+          exports,
           supervisorBinaryPath: config.supervisorPath!,
           supervisorSha256: config.sha256!.supervisor!,
           identity,
         },
       ),
-    workspacePath: () => process.env.GITHUB_WORKSPACE || process.cwd(),
-    homePath: getRealUserHome,
+    resolveExports: () => resolveCloudHypervisorExports(),
     identity: () => ({
       uid: Number(getSafeHostUid()),
       gid: Number(getSafeHostGid()),
@@ -202,12 +202,12 @@ export class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBacken
         this.preflightResult?.tools.ip,
       );
       this.identity = this.dependencies.identity();
+      const exports = await this.dependencies.resolveExports();
       this.manager = this.dependencies.createManager(
         cloudHypervisor,
         workDir,
         infrastructure,
-        this.dependencies.workspacePath(),
-        this.dependencies.homePath(),
+        exports,
         this.identity,
       );
 
@@ -222,6 +222,7 @@ export class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBacken
         this.config,
         infrastructure,
         this.manager.guestIp,
+        exports,
       );
       stage = 'guest-boot';
       await this.manager.startInstance();
@@ -532,6 +533,7 @@ export function buildCloudHypervisorGuestEnvironment(
   config: WrapperConfig,
   infrastructure: Pick<MicrovmInfrastructureSnapshot, 'squidIp' | 'apiProxyIp'>,
   guestIp = '100.64.0.2',
+  exports: readonly CloudHypervisorDirectoryExport[] = [],
 ): Record<string, string> {
   const networkConfig = {
     subnet: NETWORK_SUBNET,
@@ -551,6 +553,7 @@ export function buildCloudHypervisorGuestEnvironment(
     HOME: CLOUD_HYPERVISOR_GUEST_HOME,
     PWD: CLOUD_HYPERVISOR_GUEST_WORKSPACE,
     AWF_WORKDIR: CLOUD_HYPERVISOR_GUEST_WORKSPACE,
+    GITHUB_WORKSPACE: CLOUD_HYPERVISOR_GUEST_WORKSPACE,
     SQUID_PROXY_HOST: infrastructure.squidIp,
     HOSTNAME: 'awf-cloud-hypervisor',
     AWF_RUNTIME: 'cloud-hypervisor',
@@ -570,6 +573,18 @@ export function buildCloudHypervisorGuestEnvironment(
     // HTTP assertions.
     http_proxy: `http://${infrastructure.squidIp}:${SQUID_PORT}`,
   });
+  for (const name of ['RUNNER_TOOL_CACHE', 'AGENT_TOOLSDIRECTORY', 'RUNNER_TEMP'] as const) {
+    delete environment[name];
+  }
+  const toolCache = exports.find((entry) => entry.tag === 'runner-tool-cache');
+  if (toolCache) {
+    if (process.env.RUNNER_TOOL_CACHE) environment.RUNNER_TOOL_CACHE = toolCache.target;
+    else environment.AGENT_TOOLSDIRECTORY = toolCache.target;
+  }
+  const runnerTemp = exports.find((entry) => entry.tag === 'runner-temp-gh-aw');
+  if (runnerTemp) {
+    environment.RUNNER_TEMP = runnerTemp.target.slice(0, -'/gh-aw'.length);
+  }
   assertNoProviderSecrets(config, environment);
   return environment;
 }

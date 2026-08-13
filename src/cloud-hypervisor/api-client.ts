@@ -48,6 +48,13 @@ export interface CloudHypervisorDiskConfig {
   backing_files?: false;
 }
 
+export interface CloudHypervisorFsConfig {
+  tag: string;
+  socket: string;
+  num_queues: number;
+  queue_size: number;
+}
+
 export interface CloudHypervisorNetConfig {
   id: string;
   /** Name of an already-created, already-up host TAP device. */
@@ -92,6 +99,7 @@ export interface CloudHypervisorVmConfig {
   memory: CloudHypervisorMemoryConfig;
   payload: CloudHypervisorPayloadConfig;
   disks?: CloudHypervisorDiskConfig[];
+  fs?: CloudHypervisorFsConfig[];
   net?: CloudHypervisorNetConfig[];
   rng?: CloudHypervisorRngConfig;
   serial?: CloudHypervisorSerialConfig;

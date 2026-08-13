@@ -5,10 +5,12 @@ import type {
   MicrovmNetworkPlan,
 } from '../microvm/network';
 import type { MicrovmVsockClient } from '../microvm/vsock-client';
-import type { MicrovmWorkspaceImage } from '../microvm/workspace';
+import type { MicrovmRootfsPreparer } from '../microvm/rootfs';
 import type { CloudHypervisorOptions } from '../types/runtime-options';
 import type { CloudHypervisorApiClient } from './api-client';
 import type { CloudHypervisorCgroup } from './launcher';
+import type { VirtiofsdManager } from './virtiofsd';
+import type { CloudHypervisorDirectoryExport } from './exports';
 import {
   CloudHypervisorManager,
   buildSupervisorBootArgs,
@@ -27,8 +29,32 @@ const hostTools: CloudHypervisorHostToolPaths = {
   debugfs: '/usr/sbin/debugfs',
   e2fsck: '/usr/sbin/e2fsck',
   rsync: '/usr/bin/rsync',
+  mount: '/usr/bin/mount',
+  umount: '/usr/bin/umount',
   setpriv: '/usr/bin/setpriv',
 };
+
+const exportsConfig = [
+  { tag: 'workspace', source: '/workspace', target: '/workspace', mode: 'rw' as const },
+];
+
+function rootfsPreparerMock(): MicrovmRootfsPreparer {
+  return {
+    rootfsImagePath: '/prepared/rootfs.ext4',
+    prepare: jest.fn().mockResolvedValue('/prepared/rootfs.ext4'),
+  } as unknown as MicrovmRootfsPreparer;
+}
+
+function virtiofsdManagerMock(): VirtiofsdManager {
+  return {
+    start: jest.fn(async (exports: readonly CloudHypervisorDirectoryExport[]) => exports.map((item, index) => ({
+      export: item,
+      socketPath: `/run/virtiofs-${index}.sock`,
+      logPath: `/run/virtiofs-${index}.log`,
+    }))),
+    stop: jest.fn().mockResolvedValue(undefined),
+  } as unknown as VirtiofsdManager;
+}
 
 function config(overrides: Partial<CloudHypervisorOptions> = {}): CloudHypervisorOptions {
   return {
@@ -69,6 +95,14 @@ function networkConfig(
   };
 }
 
+function guestConfig() {
+  return {
+    exports: exportsConfig,
+    supervisorBinaryPath: '/opt/awf-supervisor',
+    supervisorSha256: 'a'.repeat(64),
+  };
+}
+
 function networkLifecycle(plan: MicrovmNetworkPlan): MicrovmNetworkLifecycle {
   return {
     plan,
@@ -102,6 +136,7 @@ function dependencies(
     preflight: jest.fn().mockResolvedValue({
       version: '53.0',
       cloudHypervisorBinary: '/opt/cloud-hypervisor',
+      virtiofsdBinary: '/opt/virtiofsd',
       kernelPath: '/opt/vmlinux',
       rootfsPath: '/opt/rootfs.ext4',
       tools: hostTools,
@@ -121,7 +156,8 @@ function dependencies(
     sleep: jest.fn().mockResolvedValue(undefined),
     createClient: jest.fn().mockReturnValue(client),
     createNetwork: jest.fn((plan) => networkLifecycle(plan)),
-    createWorkspaceImage: jest.fn(),
+    createRootfsPreparer: jest.fn(() => rootfsPreparerMock()),
+    createVirtiofsdManager: jest.fn(() => virtiofsdManagerMock()),
     createVsockClient: jest.fn(),
     createCgroup: jest.fn(() => cgroupMock()),
     resolveIdentity: jest.fn().mockReturnValue({ uid: 1000, gid: 1000 }),
@@ -142,17 +178,20 @@ describe('CloudHypervisorManager', () => {
     await expect(defaults.sleep(0)).resolves.toBeUndefined();
     expect(defaults.createClient('/tmp/api.socket', 100)).toBeDefined();
     expect(defaults.createNetwork({} as MicrovmNetworkPlan, hostTools)).toBeDefined();
-    expect(defaults.createWorkspaceImage({
-      runId: 'adapter-test',
-      workDir: '/tmp/awf',
-      workspacePath: '/workspace',
-      homePath: '/home/runner',
+    expect(defaults.createRootfsPreparer({
+      runDirectory: '/work/rootfs',
       baseRootfsPath: '/opt/rootfs',
       supervisorBinaryPath: '/opt/supervisor',
       supervisorSha256: 'a'.repeat(64),
-      uid: 1000,
-      gid: 1000,
     }, hostTools)).toBeDefined();
+    expect(defaults.createVirtiofsdManager(
+      '/opt/virtiofsd',
+      '/run/awf',
+      '/run/awf-shares',
+      { uid: 1000, gid: 1000 },
+      cgroupMock(),
+      { mount: hostTools.mount, umount: hostTools.umount },
+    )).toBeDefined();
     expect(defaults.createVsockClient('/tmp/vsock.socket', 52, 100)).toBeDefined();
     expect(defaults.createCgroup('/sys/fs/cgroup/awf/run', { memoryMib: 512, vcpuCount: 2 })).toBeDefined();
 
@@ -359,22 +398,14 @@ describe('CloudHypervisorManager', () => {
     expect(order).toEqual(['network', 'cgroup', 'run-directory']);
   });
 
-  it('configures the workspace disk and vsock, then extracts only after VM termination', async () => {
+  it('configures one rootfs disk and virtio-fs devices, then stops daemons after the VMM', async () => {
     const order: string[] = [];
     const child = processMock();
-    const workspace = {
-      prepare: jest.fn().mockResolvedValue({
-        workspaceImagePath: '/tmp/prepared-workspace.ext4',
-        rootfsImagePath: '/tmp/prepared-rootfs.ext4',
-        imageBytes: 1024,
-        originalManifest: new Map(),
-      }),
-      extractAfterStop: jest.fn(async () => {
-        order.push('extract');
-        expect(child.exitCode).toBe(0);
-      }),
-      cleanup: jest.fn().mockResolvedValue(undefined),
-    } as unknown as MicrovmWorkspaceImage;
+    const virtiofsd = virtiofsdManagerMock();
+    (virtiofsd.stop as jest.Mock).mockImplementation(async () => {
+      order.push('virtiofsd');
+      expect(child.exitCode).toBe(0);
+    });
     const guestClient = {
       connect: jest.fn().mockResolvedValue({
         version: 1,
@@ -393,7 +424,7 @@ describe('CloudHypervisorManager', () => {
     } as unknown as MicrovmVsockClient;
     const deps = dependencies({
       launch: jest.fn().mockReturnValue(child),
-      createWorkspaceImage: jest.fn().mockReturnValue(workspace),
+      createVirtiofsdManager: jest.fn().mockReturnValue(virtiofsd),
       createVsockClient: jest.fn().mockReturnValue(guestClient),
     });
     const manager = new CloudHypervisorManager(
@@ -402,26 +433,26 @@ describe('CloudHypervisorManager', () => {
       deps,
       'guest',
       networkConfig(),
-      {
-        workspacePath: '/workspace',
-        homePath: '/home/runner',
-        supervisorBinaryPath: '/opt/awf-supervisor',
-        supervisorSha256: 'a'.repeat(64),
-      },
+      guestConfig(),
     );
 
     const client = await manager.start();
     expect(client.vmCreate).toHaveBeenCalledWith(expect.objectContaining({
       payload: expect.objectContaining({ cmdline: expect.stringContaining('init=/usr/sbin/awf-supervisor') }),
-      disks: expect.arrayContaining([
-        expect.objectContaining({ id: 'rootfs', image_type: 'Raw', readonly: false }),
-        expect.objectContaining({ id: 'workspace', image_type: 'Raw', readonly: false }),
-      ]),
+      memory: expect.objectContaining({ shared: true }),
+      disks: [expect.objectContaining({ id: 'rootfs', image_type: 'Raw', readonly: false })],
+      fs: [expect.objectContaining({
+        tag: 'workspace',
+        socket: '/run/virtiofs-0.sock',
+        num_queues: 1,
+        queue_size: 1024,
+      })],
       vsock: expect.objectContaining({ cid: 3 }),
-      landlock_rules: expect.arrayContaining([
-        expect.objectContaining({ path: expect.stringContaining('workspace.ext4') }),
-      ]),
     }));
+    const vmConfig = (client.vmCreate as jest.Mock).mock.calls[0][0];
+    expect(vmConfig.landlock_rules).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: '/workspace' }),
+    ]));
     await manager.startInstance();
     expect(client.vmBoot).toHaveBeenCalledTimes(1);
     expect(deps.createVsockClient).toHaveBeenCalledWith(
@@ -442,10 +473,37 @@ describe('CloudHypervisorManager', () => {
     expect(guestClient.shutdown).toHaveBeenCalledTimes(1);
     expect(client.vmShutdown).toHaveBeenCalledTimes(1);
     expect(client.vmmShutdown).toHaveBeenCalledTimes(1);
-    expect(workspace.extractAfterStop).toHaveBeenCalledWith(
-      expect.stringContaining('/run/awf-cloud-hypervisor/cloud-hypervisor/guest/workspace.ext4'),
+    expect(virtiofsd.stop).toHaveBeenCalledTimes(1);
+    expect(order).toEqual(['virtiofsd']);
+  });
+
+  it('preserves the cgroup and run directory when virtiofsd cannot be reaped', async () => {
+    const virtiofsd = virtiofsdManagerMock();
+    (virtiofsd.stop as jest.Mock).mockRejectedValue(new Error('virtiofsd did not exit'));
+    const deps = dependencies({
+      createVirtiofsdManager: jest.fn().mockReturnValue(virtiofsd),
+    });
+    const manager = new CloudHypervisorManager(
+      config(),
+      '/tmp/awf',
+      deps,
+      'virtiofsd-stuck',
+      networkConfig(),
+      guestConfig(),
     );
-    expect(order).toEqual(['extract']);
+    await manager.start();
+    (deps.rm as jest.Mock).mockClear();
+
+    await expect(manager.stop()).rejects.toThrow(
+      /stopped before cgroup\/run-directory removal.*virtiofsd did not exit/,
+    );
+
+    const lifecycle = (deps.createNetwork as jest.Mock).mock.results[0]
+      .value as MicrovmNetworkLifecycle;
+    const cgroup = (deps.createCgroup as jest.Mock).mock.results[0].value as CloudHypervisorCgroup;
+    expect(lifecycle.cleanup).not.toHaveBeenCalled();
+    expect(cgroup.cleanup).not.toHaveBeenCalled();
+    expect(deps.rm).not.toHaveBeenCalled();
   });
 
   it('retries the vsock connect on the guest-not-ready-yet boot race, with a fresh client each attempt', async () => {
@@ -480,14 +538,7 @@ describe('CloudHypervisorManager', () => {
       .mockReturnValueOnce(succeedingClient);
     const deps = dependencies({
       launch: jest.fn().mockReturnValue(processMock()),
-      createWorkspaceImage: jest.fn().mockReturnValue({
-        prepare: jest.fn().mockResolvedValue({
-          rootfsImagePath: '/tmp/rootfs.ext4',
-          workspaceImagePath: '/tmp/workspace.ext4',
-        }),
-        extractAfterStop: jest.fn().mockResolvedValue(undefined),
-        cleanup: jest.fn().mockResolvedValue(undefined),
-      }),
+      createRootfsPreparer: jest.fn().mockReturnValue(rootfsPreparerMock()),
       createVsockClient,
     });
     const manager = new CloudHypervisorManager(
@@ -496,12 +547,7 @@ describe('CloudHypervisorManager', () => {
       deps,
       'retry-guest',
       networkConfig(),
-      {
-        workspacePath: '/workspace',
-        homePath: '/home/runner',
-        supervisorBinaryPath: '/opt/awf-supervisor',
-        supervisorSha256: 'a'.repeat(64),
-      },
+      guestConfig(),
     );
 
     await manager.start();
@@ -536,14 +582,7 @@ describe('CloudHypervisorManager', () => {
     const createVsockClient = jest.fn().mockReturnValue(failingClient);
     const deps = dependencies({
       launch: jest.fn().mockReturnValue(processMock()),
-      createWorkspaceImage: jest.fn().mockReturnValue({
-        prepare: jest.fn().mockResolvedValue({
-          rootfsImagePath: '/tmp/rootfs.ext4',
-          workspaceImagePath: '/tmp/workspace.ext4',
-        }),
-        extractAfterStop: jest.fn().mockResolvedValue(undefined),
-        cleanup: jest.fn().mockResolvedValue(undefined),
-      }),
+      createRootfsPreparer: jest.fn().mockReturnValue(rootfsPreparerMock()),
       createVsockClient,
     });
     const manager = new CloudHypervisorManager(
@@ -552,12 +591,7 @@ describe('CloudHypervisorManager', () => {
       deps,
       'retry-guest-slow-boot',
       networkConfig(),
-      {
-        workspacePath: '/workspace',
-        homePath: '/home/runner',
-        supervisorBinaryPath: '/opt/awf-supervisor',
-        supervisorSha256: 'a'.repeat(64),
-      },
+      guestConfig(),
     );
 
     try {
@@ -598,19 +632,8 @@ describe('CloudHypervisorManager', () => {
       shutdown: jest.fn().mockResolvedValue(undefined),
       destroy: jest.fn(),
     } as unknown as MicrovmVsockClient;
-    const workspace = {
-      prepare: jest.fn().mockResolvedValue({
-        workspaceImagePath: '/tmp/workspace.ext4',
-        rootfsImagePath: '/tmp/rootfs.ext4',
-        imageBytes: 1024,
-        originalManifest: new Map(),
-      }),
-      extractAfterStop: jest.fn().mockResolvedValue(undefined),
-      cleanup: jest.fn().mockResolvedValue(undefined),
-    } as unknown as MicrovmWorkspaceImage;
     const deps = dependencies({
       createVsockClient: jest.fn().mockReturnValue(guestClient),
-      createWorkspaceImage: jest.fn().mockReturnValue(workspace),
     });
     const manager = new CloudHypervisorManager(
       config(),
@@ -618,12 +641,7 @@ describe('CloudHypervisorManager', () => {
       deps,
       'ready-guest',
       networkConfig(),
-      {
-        workspacePath: '/workspace',
-        homePath: '/home/runner',
-        supervisorBinaryPath: '/opt/supervisor',
-        supervisorSha256: 'a'.repeat(64),
-      },
+      guestConfig(),
     );
     await manager.start();
     await manager.startInstance();
@@ -639,18 +657,9 @@ describe('CloudHypervisorManager', () => {
     await manager.stop();
   });
 
-  it('quiesces and copies back while preserving run directory, images, and network in keep mode', async () => {
+  it('quiesces and stops virtiofsd while preserving the run directory and network in keep mode', async () => {
     const child = processMock();
-    const workspace = {
-      prepare: jest.fn().mockResolvedValue({
-        workspaceImagePath: '/tmp/prepared-workspace.ext4',
-        rootfsImagePath: '/tmp/prepared-rootfs.ext4',
-        imageBytes: 1024,
-        originalManifest: new Map(),
-      }),
-      extractAfterStop: jest.fn().mockResolvedValue(undefined),
-      cleanup: jest.fn().mockResolvedValue(undefined),
-    } as unknown as MicrovmWorkspaceImage;
+    const virtiofsd = virtiofsdManagerMock();
     const guestClient = {
       connect: jest.fn().mockResolvedValue(undefined),
       shutdown: jest.fn().mockResolvedValue(undefined),
@@ -658,7 +667,7 @@ describe('CloudHypervisorManager', () => {
     } as unknown as MicrovmVsockClient;
     const deps = dependencies({
       launch: jest.fn().mockReturnValue(child),
-      createWorkspaceImage: jest.fn().mockReturnValue(workspace),
+      createVirtiofsdManager: jest.fn().mockReturnValue(virtiofsd),
       createVsockClient: jest.fn().mockReturnValue(guestClient),
     });
     const manager = new CloudHypervisorManager(
@@ -667,12 +676,7 @@ describe('CloudHypervisorManager', () => {
       deps,
       'keep',
       networkConfig(),
-      {
-        workspacePath: '/workspace',
-        homePath: '/home/runner',
-        supervisorBinaryPath: '/opt/awf-supervisor',
-        supervisorSha256: 'a'.repeat(64),
-      },
+      guestConfig(),
     );
     await manager.start();
     await manager.startInstance();
@@ -681,10 +685,16 @@ describe('CloudHypervisorManager', () => {
 
     const lifecycle = (deps.createNetwork as jest.Mock).mock.results[0]
       .value as MicrovmNetworkLifecycle;
-    expect(workspace.extractAfterStop).toHaveBeenCalledTimes(1);
+    expect(virtiofsd.stop).toHaveBeenCalledTimes(1);
     expect(lifecycle.cleanup).not.toHaveBeenCalled();
-    expect(workspace.cleanup).not.toHaveBeenCalled();
-    expect(deps.rm).not.toHaveBeenCalled();
+    expect(deps.rm).toHaveBeenCalledWith(
+      '/prepared',
+      { recursive: true, force: true },
+    );
+    expect(deps.rm).not.toHaveBeenCalledWith(
+      expect.stringContaining('/run/awf-cloud-hypervisor/'),
+      expect.anything(),
+    );
     const cgroup = (deps.createCgroup as jest.Mock).mock.results[0].value as CloudHypervisorCgroup;
     expect(cgroup.cleanup).toHaveBeenCalledTimes(1);
   });
@@ -699,19 +709,8 @@ describe('CloudHypervisorManager', () => {
     // when diagnostics were collected any earlier (e.g. before
     // vmm.shutdown()/process termination).
     const child = processMock();
-    const workspace = {
-      prepare: jest.fn().mockResolvedValue({
-        workspaceImagePath: '/tmp/prepared-workspace.ext4',
-        rootfsImagePath: '/tmp/prepared-rootfs.ext4',
-        imageBytes: 1024,
-        originalManifest: new Map(),
-      }),
-      extractAfterStop: jest.fn().mockResolvedValue(undefined),
-      cleanup: jest.fn().mockResolvedValue(undefined),
-    } as unknown as MicrovmWorkspaceImage;
     const deps = dependencies({
       launch: jest.fn().mockReturnValue(child),
-      createWorkspaceImage: jest.fn().mockReturnValue(workspace),
     });
     const manager = new CloudHypervisorManager(
       config(),
@@ -719,12 +718,7 @@ describe('CloudHypervisorManager', () => {
       deps,
       'keep',
       networkConfig(),
-      {
-        workspacePath: '/workspace',
-        homePath: '/home/runner',
-        supervisorBinaryPath: '/opt/awf-supervisor',
-        supervisorSha256: 'a'.repeat(64),
-      },
+      guestConfig(),
     );
     await manager.start();
 
@@ -733,29 +727,24 @@ describe('CloudHypervisorManager', () => {
     await manager.stop({ beforeCleanup });
 
     expect(beforeCleanup).toHaveBeenCalledTimes(1);
-    expect(deps.rm).toHaveBeenCalledTimes(1);
+    expect(deps.rm).toHaveBeenCalledWith(
+      expect.stringContaining('/run/awf-cloud-hypervisor/'),
+      { recursive: true, force: true },
+    );
     // beforeCleanup must run strictly before the run-directory removal
     // call (deps.rm), i.e. after process termination is confirmed but
     // before diagnostic files are deleted.
-    const rmCallOrder = (deps.rm as jest.Mock).mock.invocationCallOrder[0];
+    const runRmIndex = (deps.rm as jest.Mock).mock.calls.findIndex(
+      ([target]) => String(target).startsWith('/run/awf-cloud-hypervisor/'),
+    );
+    const rmCallOrder = (deps.rm as jest.Mock).mock.invocationCallOrder[runRmIndex];
     expect(beforeCleanup.mock.invocationCallOrder[0]).toBeLessThan(rmCallOrder);
   });
 
   it('propagates a beforeCleanup hook failure alongside other stop() errors', async () => {
     const child = processMock();
-    const workspace = {
-      prepare: jest.fn().mockResolvedValue({
-        workspaceImagePath: '/tmp/prepared-workspace.ext4',
-        rootfsImagePath: '/tmp/prepared-rootfs.ext4',
-        imageBytes: 1024,
-        originalManifest: new Map(),
-      }),
-      extractAfterStop: jest.fn().mockResolvedValue(undefined),
-      cleanup: jest.fn().mockResolvedValue(undefined),
-    } as unknown as MicrovmWorkspaceImage;
     const deps = dependencies({
       launch: jest.fn().mockReturnValue(child),
-      createWorkspaceImage: jest.fn().mockReturnValue(workspace),
     });
     const manager = new CloudHypervisorManager(
       config(),
@@ -763,12 +752,7 @@ describe('CloudHypervisorManager', () => {
       deps,
       'keep',
       networkConfig(),
-      {
-        workspacePath: '/workspace',
-        homePath: '/home/runner',
-        supervisorBinaryPath: '/opt/awf-supervisor',
-        supervisorSha256: 'a'.repeat(64),
-      },
+      guestConfig(),
     );
     await manager.start();
 
@@ -780,7 +764,10 @@ describe('CloudHypervisorManager', () => {
       }),
     ).rejects.toThrow(/diagnostics write failed/);
     // Run-directory removal must still proceed even if beforeCleanup fails.
-    expect(deps.rm).toHaveBeenCalledTimes(1);
+    expect(deps.rm).toHaveBeenCalledWith(
+      expect.stringContaining('/run/awf-cloud-hypervisor/'),
+      { recursive: true, force: true },
+    );
   });
 
   it('builds explicit supervisor boot cmdline with PCI-required root/interface naming', () => {
@@ -806,24 +793,20 @@ describe('CloudHypervisorManager', () => {
       tapVnetHdr: true,
       allowedEndpoints: [],
       networkInterface: { iface_id: 'eth0', host_dev_name: 'tap' },
-    }, {
-      workspacePath: '/workspace',
-      homePath: '/home/runner',
-      supervisorBinaryPath: '/opt/supervisor',
-      supervisorSha256: 'a'.repeat(64),
-    });
+    }, guestConfig());
     expect(args).toContain('root=/dev/vda');
     expect(args).toContain('panic=0');
     expect(args).not.toContain('panic=1');
     expect(args).toContain('awf.guest-ip=100.64.0.2');
     expect(args).toContain('awf.guest-gateway=100.64.0.1');
-    expect(args).toContain('awf.workspace-device=/dev/vdb');
+    expect(args).not.toContain('awf.workspace-device=');
+    expect(args).toContain('awf.virtiofs=workspace:L3dvcmtzcGFjZQ:rw');
     expect(args).toContain('net.ifnames=0');
     expect(args).not.toContain('pci=off');
     expect(args).not.toContain('8.8.8.8');
   });
 
-  it('retains the workspace and network until process termination is confirmed', async () => {
+  it('retains virtiofsd and network until process termination is confirmed', async () => {
     const child = Promise.resolve({ exitCode: null }) as unknown as ExecaChildProcess<string>;
     Object.assign(child, {
       exitCode: null,
@@ -835,16 +818,7 @@ describe('CloudHypervisorManager', () => {
         return true;
       }),
     });
-    const workspace = {
-      prepare: jest.fn().mockResolvedValue({
-        workspaceImagePath: '/tmp/prepared-workspace.ext4',
-        rootfsImagePath: '/tmp/prepared-rootfs.ext4',
-        imageBytes: 1024,
-        originalManifest: new Map(),
-      }),
-      extractAfterStop: jest.fn().mockResolvedValue(undefined),
-      cleanup: jest.fn().mockResolvedValue(undefined),
-    } as unknown as MicrovmWorkspaceImage;
+    const virtiofsd = virtiofsdManagerMock();
     const guestClient = {
       connect: jest.fn().mockResolvedValue(undefined),
       shutdown: jest.fn().mockResolvedValue(undefined),
@@ -852,7 +826,7 @@ describe('CloudHypervisorManager', () => {
     } as unknown as MicrovmVsockClient;
     const deps = dependencies({
       launch: jest.fn().mockReturnValue(child),
-      createWorkspaceImage: jest.fn().mockReturnValue(workspace),
+      createVirtiofsdManager: jest.fn().mockReturnValue(virtiofsd),
       createVsockClient: jest.fn().mockReturnValue(guestClient),
     });
     const manager = new CloudHypervisorManager(
@@ -861,41 +835,26 @@ describe('CloudHypervisorManager', () => {
       deps,
       'termination',
       networkConfig(),
-      {
-        workspacePath: '/workspace',
-        homePath: '/home/runner',
-        supervisorBinaryPath: '/opt/awf-supervisor',
-        supervisorSha256: 'a'.repeat(64),
-      },
+      guestConfig(),
     );
     await manager.start();
     await manager.startInstance();
 
-    await expect(manager.stop()).rejects.toThrow(/stopped before workspace\/network removal/);
+    await expect(manager.stop()).rejects.toThrow(/stopped before network\/run-directory removal/);
     const lifecycle = (deps.createNetwork as jest.Mock).mock.results[0]
       .value as MicrovmNetworkLifecycle;
     expect(lifecycle.cleanup).not.toHaveBeenCalled();
-    expect(workspace.extractAfterStop).not.toHaveBeenCalled();
+    expect(virtiofsd.stop).toHaveBeenCalledTimes(1);
     expect(deps.rm).not.toHaveBeenCalled();
 
     Object.assign(child, { exitCode: 0 });
     await expect(manager.stop()).resolves.toBeUndefined();
-    expect(workspace.extractAfterStop).toHaveBeenCalledTimes(1);
+    expect(virtiofsd.stop).toHaveBeenCalledTimes(1);
     expect(lifecycle.cleanup).toHaveBeenCalledTimes(1);
   });
 
   it('waits briefly for natural VM exit after guest shutdown before sending SIGTERM', async () => {
     const child = processMock();
-    const workspace = {
-      prepare: jest.fn().mockResolvedValue({
-        workspaceImagePath: '/tmp/prepared-workspace.ext4',
-        rootfsImagePath: '/tmp/prepared-rootfs.ext4',
-        imageBytes: 1024,
-        originalManifest: new Map(),
-      }),
-      extractAfterStop: jest.fn().mockResolvedValue(undefined),
-      cleanup: jest.fn().mockResolvedValue(undefined),
-    } as unknown as MicrovmWorkspaceImage;
     const guestClient = {
       connect: jest.fn().mockResolvedValue(undefined),
       shutdown: jest.fn().mockResolvedValue(undefined),
@@ -904,7 +863,6 @@ describe('CloudHypervisorManager', () => {
     let sleepCalls = 0;
     const deps = dependencies({
       launch: jest.fn().mockReturnValue(child),
-      createWorkspaceImage: jest.fn().mockReturnValue(workspace),
       createVsockClient: jest.fn().mockReturnValue(guestClient),
       sleep: jest.fn(async () => {
         sleepCalls += 1;
@@ -917,12 +875,7 @@ describe('CloudHypervisorManager', () => {
       deps,
       'natural-exit',
       networkConfig(),
-      {
-        workspacePath: '/workspace',
-        homePath: '/home/runner',
-        supervisorBinaryPath: '/opt/awf-supervisor',
-        supervisorSha256: 'a'.repeat(64),
-      },
+      guestConfig(),
     );
     await manager.start();
     await manager.startInstance();

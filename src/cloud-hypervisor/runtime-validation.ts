@@ -47,12 +47,13 @@ export function assertCloudHypervisorRuntimeCompatibility(
   const digests = cloudHypervisor.sha256;
   if (
     !digests?.cloudHypervisor ||
+    !digests.virtiofsd ||
     !digests.kernel ||
     !digests.rootfs ||
     !digests.supervisor
   ) {
     throw new Error(
-      'Cloud Hypervisor preview requires SHA-256 digests for cloud-hypervisor, kernel, rootfs, and supervisor',
+      'Cloud Hypervisor preview requires SHA-256 digests for cloud-hypervisor, virtiofsd, kernel, rootfs, and supervisor',
     );
   }
 }

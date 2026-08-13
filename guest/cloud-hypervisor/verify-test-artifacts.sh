@@ -5,7 +5,9 @@ ARTIFACT_DIR=${1:?usage: verify-test-artifacts.sh ARTIFACT_DIR}
 
 for file in \
   cloud-hypervisor \
+  virtiofsd \
   vmlinux.bin \
+  kernel.config \
   rootfs.ext4 \
   awf-supervisor \
   SHA256SUMS \
@@ -23,10 +25,15 @@ done
 )
 
 "$ARTIFACT_DIR/cloud-hypervisor" --version | grep -F '53.0'
+"$ARTIFACT_DIR/virtiofsd" --version 2>&1 | grep -E '(^| )1\.10\.0($| )'
+grep -Fx 'CONFIG_VIRTIO_FS=y' "$ARTIFACT_DIR/kernel.config"
 file "$ARTIFACT_DIR/vmlinux.bin" | grep -E 'Linux kernel|boot executable'
 e2fsck -f -n "$ARTIFACT_DIR/rootfs.ext4"
 debugfs -R 'stat /usr/sbin/awf-supervisor' "$ARTIFACT_DIR/rootfs.ext4" 2>&1 \
   | grep -F 'Type: regular'
+home_stat=$(debugfs -R 'stat /home/awf' "$ARTIFACT_DIR/rootfs.ext4" 2>&1)
+printf '%s\n' "$home_stat" | grep -E 'Mode:[[:space:]]+0755'
+printf '%s\n' "$home_stat" | grep -E 'User:[[:space:]]+1000[[:space:]]+Group:[[:space:]]+1000'
 for tool in \
   /bin/bash \
   /usr/bin/curl \
@@ -52,4 +59,6 @@ debugfs -R 'cat /usr/lib/os-release' "$ARTIFACT_DIR/rootfs.ext4" 2>/dev/null \
 grep -F '"purpose": "AWF Cloud Hypervisor preview test artifacts; not production defaults"' \
   "$ARTIFACT_DIR/manifest.json"
 grep -F '"base": "awf-build-tools"' "$ARTIFACT_DIR/manifest.json"
+grep -F '"configOverlay": "scripts/config --enable FUSE_FS --enable VIRTIO_FS followed by olddefconfig"' \
+  "$ARTIFACT_DIR/manifest.json"
 grep -F '"spdxVersion": "SPDX-2.3"' "$ARTIFACT_DIR/sbom.spdx.json"

@@ -1092,7 +1092,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends \
             bc binutils bison build-essential ca-certificates cpio e2fsprogs \
-            file flex libelf-dev libssl-dev rsync xz-utils
+            file flex libelf-dev libssl-dev rsync virtiofsd xz-utils
 
       - name: Build and verify pinned test artifacts
         run: |

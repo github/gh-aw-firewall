@@ -12,10 +12,9 @@ umask 077
 # CONFIG_PCI_MMCONFIG for ACPI MCFG/PCIe ECAM, CONFIG_VIRTIO_BLK,
 # CONFIG_VIRTIO_NET, CONFIG_VIRTIO_CONSOLE, CONFIG_VSOCKETS,
 # CONFIG_VIRTIO_VSOCKETS, CONFIG_EXT4_FS, CONFIG_PVH for firmware-less direct
-# boot) with virtio-fs, hotplug-only, and confidential-computing options left
-# off. Reusing it keeps both VMM backends' guest kernels identical and
-# reviewed against a single trusted source instead of maintaining a second,
-# hand-curated kernel config.
+# boot). AWF applies one deterministic overlay, CONFIG_FUSE_FS=y plus
+# CONFIG_VIRTIO_FS=y, with the kernel's scripts/config before olddefconfig. The original upstream config
+# SHA remains recorded separately from the final emitted kernel.config.
 #
 # guest/firecracker-supervisor/build.sh is reused unmodified: it documents
 # itself as VMM-neutral (length-prefixed JSON framing over vsock/UDS), so no
@@ -29,6 +28,7 @@ umask 077
 # for external tooling to pin against, not just as an ephemeral CI artifact.
 
 CLOUD_HYPERVISOR_VERSION=53.0
+VIRTIOFSD_VERSION=1.10.0
 CLOUD_HYPERVISOR_BINARY_SHA256=448af3d4e59b22c2987f7df94c213ad40fb53a10d437e42b5ee6c4fce7c29ecc
 LINUX_VERSION=6.1.141
 LINUX_SHA256=bc3c45faf6f5f0450666c75fa9dad9bc7c0cf7c7cba0dbd94e5cfdc58229c116
@@ -74,6 +74,16 @@ download_verified \
   "$binary"
 chmod 0755 "$binary"
 
+virtiofsd_source=/usr/libexec/virtiofsd
+test -x "$virtiofsd_source" || {
+  echo "Ubuntu Noble virtiofsd is required at $virtiofsd_source" >&2
+  exit 1
+}
+"$virtiofsd_source" --version 2>&1 | grep -Eq "(^| )${VIRTIOFSD_VERSION}($| )"
+virtiofsd_package=$(dpkg-query --search "$virtiofsd_source" | head -1 | cut -d: -f1)
+virtiofsd_package_version=$(dpkg-query --show --showformat='${Version}' "$virtiofsd_package")
+install -m 0755 "$virtiofsd_source" "$OUTPUT/virtiofsd"
+
 linux_tar="$BUILD/downloads/linux-${LINUX_VERSION}.tar.xz"
 kernel_config="$BUILD/downloads/cloud-hypervisor-kernel.config"
 download_verified \
@@ -90,6 +100,10 @@ download_verified \
   "$kernel_config"
 tar --extract --xz --file "$linux_tar" --directory "$BUILD"
 cp "$kernel_config" "$BUILD/linux-${LINUX_VERSION}/.config"
+"$BUILD/linux-${LINUX_VERSION}/scripts/config" \
+  --file "$BUILD/linux-${LINUX_VERSION}/.config" \
+  --enable FUSE_FS \
+  --enable VIRTIO_FS
 make -C "$BUILD/linux-${LINUX_VERSION}" \
   ARCH=x86_64 \
   KBUILD_BUILD_TIMESTAMP="@${SOURCE_DATE_EPOCH}" \
@@ -97,6 +111,7 @@ make -C "$BUILD/linux-${LINUX_VERSION}" \
   KBUILD_BUILD_HOST=github \
   LOCALVERSION=-awf-cloud-hypervisor \
   olddefconfig
+grep -Fx 'CONFIG_VIRTIO_FS=y' "$BUILD/linux-${LINUX_VERSION}/.config"
 make -C "$BUILD/linux-${LINUX_VERSION}" \
   -j"$JOBS" \
   ARCH=x86_64 \
@@ -108,6 +123,7 @@ make -C "$BUILD/linux-${LINUX_VERSION}" \
 install -m 0644 \
   "$BUILD/linux-${LINUX_VERSION}/arch/x86/boot/bzImage" \
   "$OUTPUT/vmlinux.bin"
+install -m 0644 "$BUILD/linux-${LINUX_VERSION}/.config" "$OUTPUT/kernel.config"
 
 # The AWF guest supervisor is intentionally VMM-neutral (see
 # guest/firecracker-supervisor/protocol.go) and is shared as-is between the
@@ -136,6 +152,7 @@ sudo mkdir -p \
   "$rootfs_tree/proc" \
   "$rootfs_tree/sys" \
   "$rootfs_tree/tmp" \
+  "$rootfs_tree/home/awf" \
   "$rootfs_tree/workspace"
 docker export "$build_tools_container" \
   | sudo tar \
@@ -148,6 +165,8 @@ sudo rm -f "$rootfs_tree/.dockerenv"
 sudo find "$rootfs_tree/dev" "$rootfs_tree/proc" "$rootfs_tree/sys" \
   -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
 sudo mkdir -p "$rootfs_tree/dev" "$rootfs_tree/proc" "$rootfs_tree/sys" "$rootfs_tree/workspace"
+sudo mkdir -p "$rootfs_tree/home/awf"
+sudo chown 1000:1000 "$rootfs_tree/home/awf"
 sudo install -m 0755 "$supervisor" "$rootfs_tree/usr/sbin/awf-supervisor"
 if ! grep -q '^awf:' "$rootfs_tree/etc/passwd"; then
   printf 'awf:x:1000:1000:AWF guest:/workspace:/bin/bash\n' \
@@ -185,7 +204,9 @@ chmod 0600 "$rootfs"
   cd "$OUTPUT"
   sha256sum \
     cloud-hypervisor \
+    virtiofsd \
     vmlinux.bin \
+    kernel.config \
     rootfs.ext4 \
     awf-supervisor \
     > SHA256SUMS
@@ -201,11 +222,21 @@ cat >"$OUTPUT/manifest.json" <<EOF
     "version": "${CLOUD_HYPERVISOR_VERSION}",
     "binarySha256": "${CLOUD_HYPERVISOR_BINARY_SHA256}"
   },
+  "virtiofsd": {
+    "version": "${VIRTIOFSD_VERSION}",
+    "source": "Ubuntu Noble /usr/libexec/virtiofsd package artifact",
+    "package": "${virtiofsd_package}",
+    "packageVersion": "${virtiofsd_package_version}",
+    "binarySha256": "$(sha256sum "$OUTPUT/virtiofsd" | awk '{print $1}')"
+  },
   "kernel": {
     "version": "${LINUX_VERSION}",
     "sourceSha256": "${LINUX_SHA256}",
     "configSha256": "${KERNEL_CONFIG_SHA256}",
-    "configSource": "firecracker-microvm/firecracker v1.16.1 resources/guest_configs/microvm-kernel-ci-x86_64-6.1.config (PCI-capable)"
+    "upstreamConfigSha256": "${KERNEL_CONFIG_SHA256}",
+    "configSource": "firecracker-microvm/firecracker v1.16.1 resources/guest_configs/microvm-kernel-ci-x86_64-6.1.config (PCI-capable)",
+    "configOverlay": "scripts/config --enable FUSE_FS --enable VIRTIO_FS followed by olddefconfig",
+    "finalConfigSha256": "$(sha256sum "$OUTPUT/kernel.config" | awk '{print $1}')"
   },
   "userspace": {
     "base": "awf-build-tools",
@@ -250,6 +281,16 @@ cat >"$OUTPUT/sbom.spdx.json" <<EOF
       "copyrightText": "NOASSERTION"
     },
     {
+      "name": "virtiofsd",
+      "SPDXID": "SPDXRef-Virtiofsd",
+      "versionInfo": "${VIRTIOFSD_VERSION}",
+      "downloadLocation": "https://packages.ubuntu.com/noble/virtiofsd",
+      "filesAnalyzed": false,
+      "licenseConcluded": "Apache-2.0 OR BSD-3-Clause",
+      "licenseDeclared": "Apache-2.0 OR BSD-3-Clause",
+      "copyrightText": "NOASSERTION"
+    },
+    {
       "name": "awf-build-tools-sysroot",
       "SPDXID": "SPDXRef-BuildTools",
       "versionInfo": "${build_tools_image_id}",
@@ -262,6 +303,7 @@ cat >"$OUTPUT/sbom.spdx.json" <<EOF
   ],
   "relationships": [
     { "spdxElementId": "SPDXRef-DOCUMENT", "relationshipType": "DESCRIBES", "relatedSpdxElement": "SPDXRef-CloudHypervisor" },
+    { "spdxElementId": "SPDXRef-DOCUMENT", "relationshipType": "DESCRIBES", "relatedSpdxElement": "SPDXRef-Virtiofsd" },
     { "spdxElementId": "SPDXRef-DOCUMENT", "relationshipType": "DESCRIBES", "relatedSpdxElement": "SPDXRef-Linux" },
     { "spdxElementId": "SPDXRef-DOCUMENT", "relationshipType": "DESCRIBES", "relatedSpdxElement": "SPDXRef-BuildTools" }
   ]
@@ -279,7 +321,9 @@ tar \
   --file "$OUTPUT/awf-cloud-hypervisor-test-x86_64.tar.gz" \
   --directory "$OUTPUT" \
   cloud-hypervisor \
+  virtiofsd \
   vmlinux.bin \
+  kernel.config \
   rootfs.ext4 \
   awf-supervisor \
   SHA256SUMS \

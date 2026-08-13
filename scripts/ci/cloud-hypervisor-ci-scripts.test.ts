@@ -66,7 +66,7 @@ describe('cloud-hypervisor-live-smoke.sh', () => {
     expect(() => execFileSync('bash', ['-n', smokePath])).not.toThrow();
   });
 
-  it('reproduces the full 13-case Firecracker behavioral/security contract', () => {
+  it('covers the shared behavioral/security contract plus virtio-fs semantics', () => {
     const source = fs.readFileSync(smokePath, 'utf-8');
     const requiredCases = [
       'allowed-https',
@@ -76,7 +76,8 @@ describe('cloud-hypervisor-live-smoke.sh', () => {
       'dns-denial',
       'metadata-denial',
       'api-proxy-reflect',
-      'workspace-copyback',
+      'workspace-live-share',
+      'runtime-cache-readonly',
       'exit-code',
       'timeout-124',
       'partial-start-cleanup',
