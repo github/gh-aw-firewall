@@ -653,7 +653,7 @@ describe('Cloud Hypervisor runtime backend', () => {
     expect(environment.OPENAI_API_KEY).not.toBe(secret);
     expect(Object.values(environment)).not.toContain(secret);
     expect(environment.HTTP_PROXY).toBe('http://172.30.0.10:3128');
-    expect(environment.HOME).toBe('/home/awf');
+    expect(environment.HOME).toBe('/workspace/.awf-home');
 
     expect(() => buildCloudHypervisorGuestEnvironment(
       config({
@@ -679,7 +679,7 @@ describe('Cloud Hypervisor runtime backend', () => {
     expect(environment.http_proxy).toBe('http://172.30.0.10:3128');
   });
 
-  it('maps only exported runner paths and keeps the guest home rootfs-local', () => {
+  it('maps only exported runner paths and keeps the guest home in the writable workspace', () => {
     const previousToolCache = process.env.RUNNER_TOOL_CACHE;
     const previousRunnerTemp = process.env.RUNNER_TEMP;
     try {
@@ -711,7 +711,7 @@ describe('Cloud Hypervisor runtime backend', () => {
         ],
       );
       expect(environment).toMatchObject({
-        HOME: '/home/awf',
+        HOME: '/workspace/.awf-home',
         GITHUB_WORKSPACE: '/workspace',
         RUNNER_TOOL_CACHE: '/opt/hostedtoolcache',
         RUNNER_TEMP: '/home/runner/work/_temp',

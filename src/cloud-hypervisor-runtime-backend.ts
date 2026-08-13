@@ -38,7 +38,7 @@ export {
 } from './cloud-hypervisor/runtime-validation';
 
 const CLOUD_HYPERVISOR_GUEST_WORKSPACE = '/workspace';
-const CLOUD_HYPERVISOR_GUEST_HOME = '/home/awf';
+const CLOUD_HYPERVISOR_GUEST_HOME = `${CLOUD_HYPERVISOR_GUEST_WORKSPACE}/.awf-home`;
 /**
  * Generous, not a tight few-second timeout. Live-KVM validation on
  * GitHub-hosted runners showed the guest's own vCPU getting scheduled so

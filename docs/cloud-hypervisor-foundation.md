@@ -371,7 +371,8 @@ Optional exports are limited to `RUNNER_TOOL_CACHE` (falling back to
 `${RUNNER_TEMP}/gh-aw` read-only at the same absolute path, and `/tmp/gh-aw`
 read-write. Missing optional directories are skipped. AWF does not export all
 of `RUNNER_TEMP`, the host home, or arbitrary paths. Guest `HOME` is
-rootfs-local `/home/awf`.
+workspace-local `/workspace/.awf-home`, so it is writable by the invoking
+runner identity even when that identity is not UID 1000.
 
 Each export has its own pinned virtiofsd with namespace sandboxing, explicit
 kill-on-violation seccomp, controlled caching, and disabled inode file handles.
