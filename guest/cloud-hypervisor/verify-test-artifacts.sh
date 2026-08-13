@@ -47,7 +47,7 @@ printf '%s\n' "$bash_stat" | grep -E 'User:[[:space:]]+0[[:space:]]+Group:[[:spa
 passwd_stat=$(debugfs -R 'stat /etc/passwd' "$ARTIFACT_DIR/rootfs.ext4" 2>&1)
 printf '%s\n' "$passwd_stat" | grep -E 'Mode:[[:space:]]+0644'
 printf '%s\n' "$passwd_stat" | grep -E 'User:[[:space:]]+0[[:space:]]+Group:[[:space:]]+0'
-debugfs -R 'cat /etc/os-release' "$ARTIFACT_DIR/rootfs.ext4" 2>/dev/null \
+debugfs -R 'cat /usr/lib/os-release' "$ARTIFACT_DIR/rootfs.ext4" 2>/dev/null \
   | grep -F 'Ubuntu 22.04'
 grep -F '"purpose": "AWF Cloud Hypervisor preview test artifacts; not production defaults"' \
   "$ARTIFACT_DIR/manifest.json"
