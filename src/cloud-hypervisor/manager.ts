@@ -455,9 +455,19 @@ export class CloudHypervisorManager {
           : {}),
       },
       disks: [
-        { id: 'rootfs', path: this.paths.rootfsPath, readonly: false },
+        {
+          id: 'rootfs',
+          path: this.paths.rootfsPath,
+          readonly: false,
+          image_type: 'Raw' as const,
+        },
         ...(this.guestConfig
-          ? [{ id: 'workspace', path: this.paths.workspacePath, readonly: false }]
+          ? [{
+            id: 'workspace',
+            path: this.paths.workspacePath,
+            readonly: false,
+            image_type: 'Raw' as const,
+          }]
           : []),
       ],
       net: [{
@@ -942,7 +952,9 @@ export function buildSupervisorBootArgs(
   return [
     'console=ttyS0',
     'reboot=k',
-    'panic=1',
+    // Do not reboot-loop over the terminal panic: Cloud Hypervisor recreates
+    // the serial file on reset, which otherwise erases the actionable error.
+    'panic=0',
     'root=/dev/vda',
     'rootfstype=ext4',
     'rootflags=data=ordered',

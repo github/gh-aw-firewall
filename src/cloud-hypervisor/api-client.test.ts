@@ -70,7 +70,7 @@ describe('CloudHypervisorApiClient', () => {
       cpus: { boot_vcpus: 2, max_vcpus: 2 },
       memory: { size: 512 * 1024 * 1024 },
       payload: { kernel: '/kernel', cmdline: 'console=ttyS0' },
-      disks: [{ id: 'rootfs', path: '/rootfs', readonly: false }],
+      disks: [{ id: 'rootfs', path: '/rootfs', readonly: false, image_type: 'Raw' }],
       net: [{ id: 'net0', tap: 'chtap0', mac: '02:00:00:00:00:01' }],
       vsock: { cid: 3, socket: '/run/vsock.socket' },
       landlock_enable: true,

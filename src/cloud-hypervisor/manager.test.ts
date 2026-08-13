@@ -414,8 +414,8 @@ describe('CloudHypervisorManager', () => {
     expect(client.vmCreate).toHaveBeenCalledWith(expect.objectContaining({
       payload: expect.objectContaining({ cmdline: expect.stringContaining('init=/sbin/awf-supervisor') }),
       disks: expect.arrayContaining([
-        expect.objectContaining({ id: 'rootfs' }),
-        expect.objectContaining({ id: 'workspace' }),
+        expect.objectContaining({ id: 'rootfs', image_type: 'Raw', readonly: false }),
+        expect.objectContaining({ id: 'workspace', image_type: 'Raw', readonly: false }),
       ]),
       vsock: expect.objectContaining({ cid: 3 }),
       landlock_rules: expect.arrayContaining([
@@ -813,6 +813,8 @@ describe('CloudHypervisorManager', () => {
       supervisorSha256: 'a'.repeat(64),
     });
     expect(args).toContain('root=/dev/vda');
+    expect(args).toContain('panic=0');
+    expect(args).not.toContain('panic=1');
     expect(args).toContain('awf.guest-ip=100.64.0.2');
     expect(args).toContain('awf.guest-gateway=100.64.0.1');
     expect(args).toContain('awf.workspace-device=/dev/vdb');

@@ -42,6 +42,8 @@ export interface CloudHypervisorDiskConfig {
   path: string;
   readonly?: boolean;
   direct?: boolean;
+  /** AWF only stages raw ext4 images. Required for writable Cloud Hypervisor disks. */
+  image_type: 'Raw';
   /** Must stay `false`: raw images/backing_files off (no qcow2 layering). */
   backing_files?: false;
 }
