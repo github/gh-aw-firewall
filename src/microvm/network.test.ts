@@ -298,6 +298,21 @@ describe('microVM network lifecycle', () => {
     expect(probe.verify).toHaveBeenCalledWith(plan);
   });
 
+  it.each([
+    '172.30.0.0',
+    '172.30.0.0/24/extra',
+  ])('rejects malformed infrastructure CIDR %s before executing commands', async (infrastructureCidr) => {
+    const plan = {
+      ...createPlan(),
+      infrastructureCidr,
+    };
+    const { calls, commands } = commandHarness();
+
+    await expect(new MicrovmNetworkManager(plan, commands).setup())
+      .rejects.toThrow(`Invalid microVM infrastructure CIDR: ${infrastructureCidr}`);
+    expect(calls).toEqual([]);
+  });
+
   it('creates the TAP with vnet_hdr only when the plan opts in (Cloud Hypervisor requires it; Firecracker does not)', async () => {
     // Regression test: Cloud Hypervisor's own tap handling
     // (Tap::open_named() in net_util/src/tap.rs) always re-opens the tap

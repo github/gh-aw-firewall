@@ -346,12 +346,17 @@ function assertIpv4(value: string, label: string): void {
 }
 
 function assertCidr(value: string, label: string): void {
-  const [address, rawPrefix, extra] = value.split('/');
+  microvmCidrPrefixLength(value, label);
+}
+
+export function microvmCidrPrefixLength(cidr: string, label = 'CIDR'): number {
+  const [address, rawPrefix, extra] = cidr.split('/');
   assertIpv4(address, label);
   const prefix = Number(rawPrefix);
   if (extra !== undefined || !Number.isInteger(prefix) || prefix < 0 || prefix > 32) {
-    throw new Error(`Invalid microVM ${label}: ${value}`);
+    throw new Error(`Invalid microVM ${label}: ${cidr}`);
   }
+  return prefix;
 }
 
 function isInCidr(ip: string, cidr: string): boolean {

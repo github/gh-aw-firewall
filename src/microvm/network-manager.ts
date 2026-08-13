@@ -1,5 +1,8 @@
 import { LinuxNetworkCommands } from './network-commands';
-import { generateMicrovmNftRuleset } from './network-plan';
+import {
+  generateMicrovmNftRuleset,
+  microvmCidrPrefixLength,
+} from './network-plan';
 import type {
   MicrovmConnectivityProbe,
   MicrovmNetworkLifecycle,
@@ -20,6 +23,10 @@ export class MicrovmNetworkManager implements MicrovmNetworkLifecycle {
 
   async setup(): Promise<MicrovmNetworkPlan> {
     if (this.setupComplete) return this.plan;
+    const infrastructurePrefixLength = microvmCidrPrefixLength(
+      this.plan.infrastructureCidr,
+      'infrastructure CIDR',
+    );
 
     try {
       await this.commands.ip(['netns', 'add', this.plan.namespaceName]);
@@ -68,7 +75,7 @@ export class MicrovmNetworkManager implements MicrovmNetworkLifecycle {
       );
       await this.commands.ipInNamespace(this.plan.namespaceName, [
         'addr', 'add',
-        `${this.plan.infrastructureIp}/${prefixLength(this.plan.infrastructureCidr)}`,
+        `${this.plan.infrastructureIp}/${infrastructurePrefixLength}`,
         'dev', this.plan.namespaceVethName,
       ]);
       await this.commands.ipInNamespace(
@@ -157,11 +164,6 @@ export class MicrovmNetworkManager implements MicrovmNetworkLifecycle {
       );
     }
   }
-}
-
-
-function prefixLength(cidr: string): number {
-  return Number(cidr.split('/')[1]);
 }
 
 function formatError(error: unknown): string {
