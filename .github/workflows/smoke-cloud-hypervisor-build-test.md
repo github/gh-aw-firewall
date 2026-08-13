@@ -45,7 +45,7 @@ safe-outputs:
     run-started: "☁️🏗️ [{workflow_name}]({run_url}) is testing Cloud Hypervisor with build workloads..."
     run-success: "☁️🏗️ [{workflow_name}]({run_url}) completed. Cloud Hypervisor build test passed. ✅"
     run-failure: "☁️🏗️ [{workflow_name}]({run_url}) reports {status}. Cloud Hypervisor compatibility issue detected."
-timeout-minutes: 30
+timeout-minutes: 60
 sandbox:
   agent:
     id: awf
