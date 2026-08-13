@@ -19,9 +19,7 @@ import { FirecrackerManager } from './firecracker/manager';
 import { runFirecrackerPreflight } from './firecracker/preflight';
 import { getRealUserHome, getSafeHostGid, getSafeHostUid } from './host-identity';
 import { logger } from './logger';
-import { buildAgentEnvironment } from './services/agent-service';
-import { buildAgentCredentialEnv } from './services/api-proxy-credential-env';
-import { SQUID_PORT } from './constants';
+import { buildGuestEnvironment } from './microvm/guest-environment';
 import type { FirecrackerOptions, WrapperConfig } from './types';
 import {
   assertFirecrackerRuntimeCompatibility,
@@ -410,53 +408,14 @@ export function buildFirecrackerGuestEnvironment(
     agentIp: guestIp,
     proxyIp: infrastructure.apiProxyIp,
   };
-  const environment = buildAgentEnvironment({
+  return buildGuestEnvironment({
     config,
     networkConfig,
-    dnsServers: [],
+    home: FIRECRACKER_GUEST_HOME,
+    workspace: FIRECRACKER_GUEST_WORKSPACE,
+    runtimeName: 'firecracker',
+    runtimeDisplayName: 'Firecracker',
   });
-  if (config.enableApiProxy) {
-    Object.assign(environment, buildAgentCredentialEnv({ config, networkConfig }));
-  }
-  Object.assign(environment, {
-    HOME: FIRECRACKER_GUEST_HOME,
-    PWD: FIRECRACKER_GUEST_WORKSPACE,
-    AWF_WORKDIR: FIRECRACKER_GUEST_WORKSPACE,
-    SQUID_PROXY_HOST: infrastructure.squidIp,
-    HOSTNAME: 'awf-firecracker',
-    AWF_RUNTIME: 'firecracker',
-    // See buildCloudHypervisorGuestEnvironment's comment: the shared
-    // container-runtime environment intentionally omits lowercase
-    // http_proxy, but BusyBox's wget in this guest reads only lowercase
-    // "http_proxy" for every protocol including https (no https_proxy
-    // check at all), so it needs its own guest-specific override here.
-    http_proxy: `http://${infrastructure.squidIp}:${SQUID_PORT}`,
-  });
-  assertNoProviderSecrets(config, environment);
-  return environment;
-}
-
-function assertNoProviderSecrets(
-  config: WrapperConfig,
-  environment: Readonly<Record<string, string>>,
-): void {
-  const secrets = [
-    config.openaiApiKey,
-    config.anthropicApiKey,
-    config.copilotGithubToken,
-    config.copilotProviderApiKey,
-    config.geminiApiKey,
-    config.googleApiKey,
-    config.githubToken,
-  ]
-    .filter((value): value is string => typeof value === 'string' && value.length > 0);
-  for (const [name, value] of Object.entries(environment)) {
-    if (secrets.some((secret) => value === secret || value.includes(secret))) {
-      throw new Error(
-        `Refusing to pass a real provider credential through Firecracker guest variable ${name}`,
-      );
-    }
-  }
 }
 
 function formatError(error: unknown): string {
