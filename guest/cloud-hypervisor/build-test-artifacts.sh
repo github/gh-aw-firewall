@@ -164,7 +164,7 @@ sudo find "$rootfs_tree" -print0 \
   | sudo xargs -0 touch --no-dereference --date="@${SOURCE_DATE_EPOCH}"
 
 rootfs="$OUTPUT/rootfs.ext4"
-rootfs_usage_bytes=$(du --summarize --block-size=1 "$rootfs_tree" | awk '{print $1}')
+rootfs_usage_bytes=$(sudo du --summarize --block-size=1 "$rootfs_tree" | awk '{print $1}')
 rootfs_bytes=$((rootfs_usage_bytes + rootfs_usage_bytes / 4 + 512 * 1024 * 1024))
 rootfs_blocks=$(((rootfs_bytes + 4095) / 4096))
 sudo env E2FSPROGS_FAKE_TIME="$SOURCE_DATE_EPOCH" mke2fs \
