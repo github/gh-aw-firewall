@@ -1073,7 +1073,7 @@ jobs:
   build-cloud-hypervisor-test-artifacts:
     name: Build Cloud Hypervisor Preview Test Artifacts
     runs-on: ubuntu-24.04
-    needs: bump-version
+    needs: [bump-version, build-build-tools]
     timeout-minutes: 45
     steps:
       - name: Checkout code
@@ -1096,7 +1096,8 @@ jobs:
 
       - name: Build and verify pinned test artifacts
         run: |
-          VERSION="${{ needs.bump-version.outputs.version }}" \
+          BUILD_TOOLS_IMAGE="ghcr.io/${{ github.repository }}/build-tools@${{ needs.build-build-tools.outputs.digest }}" \
+            VERSION="${{ needs.bump-version.outputs.version }}" \
             ./guest/cloud-hypervisor/build-test-artifacts.sh
           ./guest/cloud-hypervisor/verify-test-artifacts.sh \
             release/cloud-hypervisor-test-x86_64

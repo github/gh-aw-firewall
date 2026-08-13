@@ -390,10 +390,11 @@ unrelated pull request.
    job uses (`bc`, `binutils`, `bison`, `build-essential`, `cpio`,
    `e2fsprogs`, `file`, `flex`, `libelf-dev`, `libssl-dev`, `rsync`,
    `xz-utils`) — both backends build the identical pinned kernel config.
-3. Runs `guest/cloud-hypervisor/build-test-artifacts.sh` — downloads Cloud
-   Hypervisor v53.0 (SHA-256 verified), Linux 6.1.141 (SHA-256 verified),
-   BusyBox 1.36.1 (SHA-256 verified), and a pinned CA bundle; builds the
-   kernel, BusyBox, and shared supervisor; creates the rootfs; produces
+3. Builds the canonical ARC/DinD `build-tools` sysroot image, then runs
+   `guest/cloud-hypervisor/build-test-artifacts.sh` — downloads Cloud
+   Hypervisor v53.0 (SHA-256 verified) and Linux 6.1.141 (SHA-256 verified);
+   builds the kernel and shared supervisor; exports the Ubuntu 22.04
+   `build-tools` userspace into the guest rootfs; produces
    `SHA256SUMS`, `manifest.json`, and `sbom.spdx.json`; archives everything
    as `release/cloud-hypervisor-test-x86_64/awf-cloud-hypervisor-test-x86_64.tar.gz`.
 4. Runs `guest/cloud-hypervisor/verify-test-artifacts.sh` against the output.
@@ -932,4 +933,3 @@ sudo rm -rf /tmp/awf-<timestamp>/cloud-hypervisor-run/cloud-hypervisor/<runId>
   `cloud-hypervisor-kvm` pull request label). This development environment
   has no `/dev/kvm`, so the suite's actual pass/fail status must be
   confirmed from the workflow run itself rather than reproduced locally.
-

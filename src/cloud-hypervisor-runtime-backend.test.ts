@@ -389,13 +389,10 @@ describe('Cloud Hypervisor runtime backend', () => {
     expect(netDiagCall.argv).toEqual(['/bin/sh', '-c', 'ip addr show; echo ---; ip route show; echo ---; ip neigh show']);
   });
 
-  it('probes guest connectivity with nc/wget instead of curl, which the BusyBox guest rootfs lacks', async () => {
-    // Regression test: the guest rootfs is a minimal BusyBox userland (see
-    // guest/cloud-hypervisor/build-test-artifacts.sh) with no `curl`
-    // binary. The original probe shelled out to `curl`, which exits 127
-    // ("command not found") on this rootfs — discovered via live-KVM
-    // validation, where every guest boot up through vsock readiness
-    // succeeded but probeGuestConnectivity() then failed with exit 127.
+  it('probes guest connectivity with the ARC build-tools baseline nc/wget commands', async () => {
+    // Keep this regression coverage independent of curl-specific HTTP
+    // behavior. The original BusyBox guest exposed the issue after every
+    // boot reached vsock readiness but the connectivity probe exited 127.
     const { manager, deps } = harness();
     manager.execute.mockReset().mockResolvedValueOnce({
       requestId: 'probe', exitCode: 0, signal: null, timedOut: false,

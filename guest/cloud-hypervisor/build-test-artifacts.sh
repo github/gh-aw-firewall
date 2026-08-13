@@ -33,11 +33,8 @@ CLOUD_HYPERVISOR_BINARY_SHA256=448af3d4e59b22c2987f7df94c213ad40fb53a10d437e42b5
 LINUX_VERSION=6.1.141
 LINUX_SHA256=bc3c45faf6f5f0450666c75fa9dad9bc7c0cf7c7cba0dbd94e5cfdc58229c116
 KERNEL_CONFIG_SHA256=adbc70ab5e89213ba00594b12d25e09bdf8bb1ed3c252d7449326bb14c22963b
-BUSYBOX_VERSION=1.36.1
-BUSYBOX_SHA256=b8cc24c9574d809e7279c3be349795c5d5ceb6fdf19ca709f80cde50e47de314
-CA_BUNDLE_DATE=2025-02-25
-CA_BUNDLE_SHA256=50a6277ec69113f00c5fd45f09e8b97a4b3e32daa35d3a95ab30137a55386cef
 SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH:-1767225600}
+BUILD_TOOLS_IMAGE=${BUILD_TOOLS_IMAGE:-ghcr.io/github/gh-aw-firewall/build-tools:latest}
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 OUTPUT=${OUTPUT:-"$ROOT/release/cloud-hypervisor-test-x86_64"}
@@ -49,14 +46,15 @@ if [ "$(uname -s)" != Linux ] || [ "$(uname -m)" != x86_64 ]; then
   exit 1
 fi
 
-for tool in curl sha256sum tar make gcc ld mke2fs e2fsck go; do
+for tool in curl sha256sum tar make gcc ld mke2fs e2fsck go docker sudo; do
   command -v "$tool" >/dev/null || {
     echo "required build tool not found: $tool" >&2
     exit 1
   }
 done
 
-rm -rf "$BUILD" "$OUTPUT"
+sudo rm -rf "$BUILD"
+rm -rf "$OUTPUT"
 mkdir -p "$BUILD/downloads" "$OUTPUT"
 
 download_verified() {
@@ -111,63 +109,6 @@ install -m 0644 \
   "$BUILD/linux-${LINUX_VERSION}/arch/x86/boot/bzImage" \
   "$OUTPUT/vmlinux.bin"
 
-busybox_tar="$BUILD/downloads/busybox-${BUSYBOX_VERSION}.tar.bz2"
-download_verified \
-  "https://busybox.net/downloads/busybox-${BUSYBOX_VERSION}.tar.bz2" \
-  "$BUSYBOX_SHA256" \
-  "$busybox_tar"
-tar --extract --bzip2 --file "$busybox_tar" --directory "$BUILD"
-busybox_dir="$BUILD/busybox-${BUSYBOX_VERSION}"
-make -C "$busybox_dir" defconfig
-enable_busybox_option() {
-  local option=$1
-  if grep -q "^CONFIG_${option}=" "$busybox_dir/.config"; then
-    sed -i "s/^CONFIG_${option}=.*/CONFIG_${option}=y/" "$busybox_dir/.config"
-  elif grep -q "^# CONFIG_${option} is not set$" "$busybox_dir/.config"; then
-    sed -i "s/^# CONFIG_${option} is not set$/CONFIG_${option}=y/" "$busybox_dir/.config"
-  else
-    printf 'CONFIG_%s=y\n' "$option" >>"$busybox_dir/.config"
-  fi
-}
-disable_busybox_option() {
-  local option=$1
-  if grep -q "^CONFIG_${option}=" "$busybox_dir/.config"; then
-    sed -i "s/^CONFIG_${option}=.*/# CONFIG_${option} is not set/" "$busybox_dir/.config"
-  elif ! grep -q "^# CONFIG_${option} is not set$" "$busybox_dir/.config"; then
-    printf '# CONFIG_%s is not set\n' "$option" >>"$busybox_dir/.config"
-  fi
-}
-for option in \
-  STATIC \
-  WGET \
-  FEATURE_WGET_HTTPS \
-  TLS \
-  IP \
-  IPADDR \
-  IPLINK \
-  IPROUTE \
-  NC \
-  NSLOOKUP \
-  TIMEOUT; do
-  enable_busybox_option "$option"
-done
-# BusyBox 1.36.1 tc depends on CBQ UAPI definitions removed from newer build hosts.
-# The minimal guest never uses traffic control; AWF enforces policy in the host netns.
-disable_busybox_option TC
-# FEATURE_WGET_OPENSSL defaults to enabled and, when active, makes wget
-# handle every https:// URL by shelling out directly to
-# `openssl s_client -connect <hostname>:443` -- entirely bypassing wget's
-# own HTTP(S)_PROXY-aware connection logic. That requires the guest to
-# resolve DNS and reach arbitrary hosts on port 443 directly, both of
-# which this network policy deliberately blocks (the guest is only ever
-# supposed to reach Squid/API-proxy on their fixed IPs; Squid alone
-# resolves/enforces the allowed-domain list). Disabling this makes wget
-# fall back to FEATURE_WGET_HTTPS's internal TLS code, which correctly
-# tunnels through HTTPS_PROXY/https_proxy via a CONNECT request using the
-# hostname string, never needing guest-side DNS resolution at all.
-disable_busybox_option FEATURE_WGET_OPENSSL
-make -C "$busybox_dir" -j"$JOBS"
-
 # The AWF guest supervisor is intentionally VMM-neutral (see
 # guest/firecracker-supervisor/protocol.go) and is shared as-is between the
 # Firecracker and Cloud Hypervisor guest pipelines.
@@ -177,44 +118,56 @@ VERSION="${VERSION:-v${CLOUD_HYPERVISOR_VERSION}}" \
   "$ROOT/guest/firecracker-supervisor/build.sh"
 
 rootfs_tree="$BUILD/rootfs"
-mkdir -p \
-  "$rootfs_tree/bin" \
+if ! docker image inspect "$BUILD_TOOLS_IMAGE" >/dev/null 2>&1; then
+  docker pull --platform linux/amd64 "$BUILD_TOOLS_IMAGE"
+fi
+build_tools_image_id=$(docker image inspect --format '{{.Id}}' "$BUILD_TOOLS_IMAGE")
+build_tools_dockerfile_sha256=$(sha256sum "$ROOT/containers/build-tools/Dockerfile" | awk '{print $1}')
+build_tools_container=$(docker create --platform linux/amd64 "$BUILD_TOOLS_IMAGE")
+cleanup_build_tools_container() {
+  docker rm -f "$build_tools_container" >/dev/null 2>&1 || true
+  if [ -n "${rootfs_tree:-}" ] && [ -d "$rootfs_tree" ]; then
+    sudo rm -rf "$rootfs_tree"
+  fi
+}
+trap cleanup_build_tools_container EXIT
+sudo mkdir -p \
   "$rootfs_tree/dev" \
-  "$rootfs_tree/etc/ssl/certs" \
   "$rootfs_tree/proc" \
-  "$rootfs_tree/root" \
-  "$rootfs_tree/sbin" \
   "$rootfs_tree/sys" \
   "$rootfs_tree/tmp" \
-  "$rootfs_tree/usr/bin" \
-  "$rootfs_tree/usr/sbin" \
   "$rootfs_tree/workspace"
-make -C "$busybox_dir" CONFIG_PREFIX="$rootfs_tree" install
-install -m 0755 "$supervisor" "$rootfs_tree/sbin/awf-supervisor"
-cat >"$rootfs_tree/etc/passwd" <<'EOF'
-root:x:0:0:root:/root:/bin/sh
-awf:x:1000:1000:AWF guest:/workspace:/bin/sh
-nobody:x:65534:65534:nobody:/:/bin/false
-EOF
-cat >"$rootfs_tree/etc/group" <<'EOF'
-root:x:0:
-awf:x:1000:
-nogroup:x:65534:
-EOF
-cat >"$rootfs_tree/etc/resolv.conf" <<'EOF'
+docker export "$build_tools_container" \
+  | sudo tar \
+      --extract \
+      --directory "$rootfs_tree" \
+      --numeric-owner \
+      --preserve-permissions \
+      --same-owner
+sudo rm -f "$rootfs_tree/.dockerenv"
+sudo find "$rootfs_tree/dev" "$rootfs_tree/proc" "$rootfs_tree/sys" \
+  -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+sudo mkdir -p "$rootfs_tree/dev" "$rootfs_tree/proc" "$rootfs_tree/sys" "$rootfs_tree/workspace"
+sudo install -m 0755 "$supervisor" "$rootfs_tree/sbin/awf-supervisor"
+if ! grep -q '^awf:' "$rootfs_tree/etc/passwd"; then
+  printf 'awf:x:1000:1000:AWF guest:/workspace:/bin/bash\n' \
+    | sudo tee -a "$rootfs_tree/etc/passwd" >/dev/null
+fi
+if ! grep -q '^awf:' "$rootfs_tree/etc/group"; then
+  printf 'awf:x:1000:\n' | sudo tee -a "$rootfs_tree/etc/group" >/dev/null
+fi
+sudo tee "$rootfs_tree/etc/resolv.conf" >/dev/null <<'EOF'
 # Direct DNS is intentionally unavailable in the Cloud Hypervisor foundation guest.
 EOF
-ca_bundle="$BUILD/downloads/cacert-${CA_BUNDLE_DATE}.pem"
-download_verified \
-  "https://curl.se/ca/cacert-${CA_BUNDLE_DATE}.pem" \
-  "$CA_BUNDLE_SHA256" \
-  "$ca_bundle"
-install -m 0644 "$ca_bundle" "$rootfs_tree/etc/ssl/certs/ca-certificates.crt"
-chmod 01777 "$rootfs_tree/tmp"
-find "$rootfs_tree" -print0 | xargs -0 touch --no-dereference --date="@${SOURCE_DATE_EPOCH}"
+sudo chmod 01777 "$rootfs_tree/tmp"
+sudo find "$rootfs_tree" -print0 \
+  | sudo xargs -0 touch --no-dereference --date="@${SOURCE_DATE_EPOCH}"
 
 rootfs="$OUTPUT/rootfs.ext4"
-E2FSPROGS_FAKE_TIME="$SOURCE_DATE_EPOCH" mke2fs \
+rootfs_usage_bytes=$(du --summarize --block-size=1 "$rootfs_tree" | awk '{print $1}')
+rootfs_bytes=$((rootfs_usage_bytes + rootfs_usage_bytes / 4 + 512 * 1024 * 1024))
+rootfs_blocks=$(((rootfs_bytes + 4095) / 4096))
+sudo env E2FSPROGS_FAKE_TIME="$SOURCE_DATE_EPOCH" mke2fs \
   -t ext4 \
   -F \
   -q \
@@ -223,8 +176,10 @@ E2FSPROGS_FAKE_TIME="$SOURCE_DATE_EPOCH" mke2fs \
   -U 2f6f6e8f-2f2a-4b6a-9b9a-7d6a4a1c5c3a \
   -E lazy_itable_init=0,lazy_journal_init=0 \
   "$rootfs" \
-  32768
-E2FSPROGS_FAKE_TIME="$SOURCE_DATE_EPOCH" e2fsck -f -y "$rootfs" >/dev/null
+  "$rootfs_blocks"
+sudo env E2FSPROGS_FAKE_TIME="$SOURCE_DATE_EPOCH" e2fsck -f -y "$rootfs" >/dev/null
+sudo chown "$(id -u):$(id -g)" "$rootfs"
+chmod 0600 "$rootfs"
 
 (
   cd "$OUTPUT"
@@ -253,10 +208,11 @@ cat >"$OUTPUT/manifest.json" <<EOF
     "configSource": "firecracker-microvm/firecracker v1.16.1 resources/guest_configs/microvm-kernel-ci-x86_64-6.1.config (PCI-capable)"
   },
   "userspace": {
-    "busyboxVersion": "${BUSYBOX_VERSION}",
-    "busyboxSourceSha256": "${BUSYBOX_SHA256}",
-    "caBundleDate": "${CA_BUNDLE_DATE}",
-    "caBundleSha256": "${CA_BUNDLE_SHA256}"
+    "base": "awf-build-tools",
+    "image": "${BUILD_TOOLS_IMAGE}",
+    "imageId": "${build_tools_image_id}",
+    "dockerfileSha256": "${build_tools_dockerfile_sha256}",
+    "distribution": "ubuntu:22.04"
   }
 }
 EOF
@@ -294,20 +250,20 @@ cat >"$OUTPUT/sbom.spdx.json" <<EOF
       "copyrightText": "NOASSERTION"
     },
     {
-      "name": "busybox",
-      "SPDXID": "SPDXRef-BusyBox",
-      "versionInfo": "${BUSYBOX_VERSION}",
-      "downloadLocation": "https://busybox.net/downloads/busybox-${BUSYBOX_VERSION}.tar.bz2",
+      "name": "awf-build-tools-sysroot",
+      "SPDXID": "SPDXRef-BuildTools",
+      "versionInfo": "${build_tools_image_id}",
+      "downloadLocation": "NOASSERTION",
       "filesAnalyzed": false,
-      "licenseConcluded": "GPL-2.0-only",
-      "licenseDeclared": "GPL-2.0-only",
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
       "copyrightText": "NOASSERTION"
     }
   ],
   "relationships": [
     { "spdxElementId": "SPDXRef-DOCUMENT", "relationshipType": "DESCRIBES", "relatedSpdxElement": "SPDXRef-CloudHypervisor" },
     { "spdxElementId": "SPDXRef-DOCUMENT", "relationshipType": "DESCRIBES", "relatedSpdxElement": "SPDXRef-Linux" },
-    { "spdxElementId": "SPDXRef-DOCUMENT", "relationshipType": "DESCRIBES", "relatedSpdxElement": "SPDXRef-BusyBox" }
+    { "spdxElementId": "SPDXRef-DOCUMENT", "relationshipType": "DESCRIBES", "relatedSpdxElement": "SPDXRef-BuildTools" }
   ]
 }
 EOF

@@ -13,6 +13,7 @@ on:
     paths:
       - '.github/workflows/test-cloud-hypervisor.yml'
       - 'guest/cloud-hypervisor/**'
+      - 'containers/build-tools/**'
       - 'guest/firecracker-supervisor/**'
       - 'src/cloud-hypervisor/**'
       - 'src/cloud-hypervisor-runtime-backend.ts'
@@ -77,7 +78,12 @@ jobs:
 
       - name: Build and verify pinned artifacts
         run: |
-          ./guest/cloud-hypervisor/build-test-artifacts.sh
+          docker build \
+            --platform linux/amd64 \
+            --tag awf-cloud-hypervisor-build-tools:test \
+            containers/build-tools
+          BUILD_TOOLS_IMAGE=awf-cloud-hypervisor-build-tools:test \
+            ./guest/cloud-hypervisor/build-test-artifacts.sh
           ./guest/cloud-hypervisor/verify-test-artifacts.sh \
             release/cloud-hypervisor-test-x86_64
 
