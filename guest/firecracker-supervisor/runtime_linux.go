@@ -69,6 +69,9 @@ func runSupervisor() error {
 		if err := mountProc(); err != nil {
 			return err
 		}
+		if err := mountDevpts(); err != nil {
+			return err
+		}
 	}
 	cmdline, err := os.ReadFile("/proc/cmdline")
 	if err != nil {
@@ -111,6 +114,24 @@ func mountProc() error {
 	}
 	if err := syscall.Mount("proc", "/proc", "proc", 0, ""); err != nil && !errors.Is(err, syscall.EBUSY) {
 		return fmt.Errorf("mount proc: %w", err)
+	}
+	return nil
+}
+
+func devptsMountArgs() (source, target, fstype string, flags uintptr, data string) {
+	return "devpts", "/dev/pts", "devpts",
+		syscall.MS_NOSUID | syscall.MS_NOEXEC,
+		"gid=5,mode=0620,ptmxmode=0666"
+}
+
+func mountDevpts() error {
+	_, target, _, _, _ := devptsMountArgs()
+	if err := os.MkdirAll(target, 0755); err != nil {
+		return fmt.Errorf("create devpts mount: %w", err)
+	}
+	source, target, fstype, flags, data := devptsMountArgs()
+	if err := syscall.Mount(source, target, fstype, flags, data); err != nil && !errors.Is(err, syscall.EBUSY) {
+		return fmt.Errorf("mount devpts: %w", err)
 	}
 	return nil
 }
