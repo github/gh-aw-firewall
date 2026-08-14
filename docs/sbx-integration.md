@@ -8,8 +8,9 @@ to run an agent inside a hypervisor-isolated microVM while keeping AWF's own
 egress-filtering infrastructure on the host. It is written for two audiences:
 
 1. Engineers who want to understand *how the existing sbx integration works*.
-2. Engineers who want to add another KVM-based microVM backend, such as a
-   bespoke krun-based runner.
+2. Engineers comparing sbx with AWF's implemented
+   [Cloud Hypervisor preview](./cloud-hypervisor-foundation.md), or adding
+   another KVM-based microVM backend.
 
 :::note
 This is distinct from [Sandbox design](./sandbox-design.md), which explains why
@@ -134,7 +135,8 @@ Three capability queries drive the rest of the codebase:
   (`gvisor` → `runsc`); returns `undefined` for microVM backends (they don't use
   Docker's `runtime:` field).
 - `runtimeNeedsStaticDns(name)` — whether AWF must inject static `/etc/hosts`
-  entries (gVisor needs this; sbx manages its own DNS).
+  entries (gVisor needs this; sbx and Cloud Hypervisor manage DNS outside
+  Docker's embedded resolver).
 - `runtimeUsesComposeAgent(name)` — **the key switch**: `false` for `microvm`
   models. When false, the agent is *not* emitted into `docker-compose.yml`, and
   lifecycle is driven by the microVM CLI instead of `docker logs`/`docker wait`.
@@ -360,14 +362,16 @@ flowchart TB
   sbxproxy -->|not filtered by AWF ACL| internet
 ```
 
-## Part 3 — Adding another KVM-based microVM backend
+## Part 3 — Cloud Hypervisor and the external microVM seam
 
 Because the microVM path is abstracted behind a small set of seams, adding a new
 KVM backend is mostly a matter of implementing a manager and registering it.
 Cloud Hypervisor is the repository's fail-closed KVM workload preview built on
 this seam. It uses a dedicated network namespace and reaches Squid and the API
 proxy through AWF-managed networking. The following checklist applies to other
-backends.
+backends. See
+[Cloud Hypervisor architecture](./cloud-hypervisor-foundation.md) for its
+support boundary, security model, and lifecycle.
 
 ### 1. Register the runtime
 
@@ -474,4 +478,5 @@ a way to force egress through AWF's Squid.
 - AWF source: `src/container-runtime.ts`, `src/sbx-manager.ts`,
   `src/commands/main-action.ts`, `src/commands/validators/security-mode.ts`,
   `src/cloud-hypervisor-runtime-backend.ts` (KVM backend built on this seam)
-- Related: [Sandbox design](./sandbox-design.md), [Architecture](./architecture.md)
+- Related: [Cloud Hypervisor architecture](./cloud-hypervisor-foundation.md),
+  [Sandbox design](./sandbox-design.md), [Architecture](./architecture.md)

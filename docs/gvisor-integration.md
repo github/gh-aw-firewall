@@ -8,16 +8,16 @@ runtime and `--container-runtime gvisor` — to add host-kernel isolation to the
 agent container. It is written for two audiences:
 
 1. Engineers who want to understand *how the existing gVisor integration works*.
-2. Ourselves, when evaluating or adding other agent-isolation runtimes (Kata,
-   another OCI runtime, or gVisor's own KVM platform on bare-metal runners).
+2. Engineers comparing gVisor with the sbx and Cloud Hypervisor microVM
+   backends, or adding another agent-isolation runtime.
 
 :::note
-gVisor is the **compose-model** counterpart to the microVM backend documented in
-the pending
-[Docker Sandboxes (sbx) integration guide (PR #6331)](https://github.com/github/gh-aw-firewall/pull/6331).
+gVisor is the **compose-model** counterpart to the
+[Docker Sandboxes (sbx)](./sbx-integration.md) and
+[Cloud Hypervisor](./cloud-hypervisor-foundation.md) microVM backends.
 With gVisor the agent stays an ordinary Docker Compose service (just with a
-hardened runtime); with sbx the agent leaves compose entirely and runs in a
-microVM. See also
+hardened runtime); with sbx or Cloud Hypervisor the agent leaves compose
+entirely and runs in a microVM. See also
 [Sandbox design](./sandbox-design.md) for why the *default* backend is plain
 Docker + Squid.
 :::
@@ -87,11 +87,11 @@ as sbx or Cloud Hypervisor, which boots a separate Linux kernel.
 
 ## Part 2 — How AWF uses gVisor
 
-Unlike the sbx microVM backend, gVisor keeps the agent as a **normal Docker
-Compose service** — AWF simply sets the service's `runtime:` to `runsc`. The
-whole existing AWF model (Squid egress ACL, iptables DNAT, api-proxy credential
-injection, chroot, capability drop) stays in place; gVisor adds a hardened kernel
-boundary *underneath* it as defense-in-depth.
+Unlike the sbx and Cloud Hypervisor microVM backends, gVisor keeps the agent as
+a **normal Docker Compose service** — AWF simply sets the service's `runtime:`
+to `runsc`. The whole existing AWF model (Squid egress ACL, api-proxy credential
+injection, chroot, capability drop) stays in place; gVisor adds a hardened
+kernel boundary *underneath* it as defense-in-depth.
 
 ### The `executionModel` abstraction (`src/container-runtime.ts`)
 
@@ -99,8 +99,9 @@ gVisor is registered with `executionModel: 'compose'`:
 
 ```ts
 const RUNTIME_REGISTRY = {
-  gvisor: { executionModel: 'compose', dockerRuntime: 'runsc', needsStaticDns: true, usesIptables: false },
-  sbx:    { executionModel: 'microvm', dockerRuntime: undefined, needsStaticDns: false, usesIptables: false },
+  gvisor:            { executionModel: 'compose', dockerRuntime: 'runsc', needsStaticDns: true, usesIptables: false },
+  sbx:               { executionModel: 'microvm', dockerRuntime: undefined, needsStaticDns: false, usesIptables: false },
+  'cloud-hypervisor': { executionModel: 'microvm', dockerRuntime: undefined, needsStaticDns: false, usesIptables: false },
 };
 ```
 
@@ -138,7 +139,8 @@ identical to default Docker mode*: AWF applies selective bind mounts under
 `chroot`s into `/host` before running:
 
 - `/usr`, `/bin`, `/sbin`, `/lib`, `/lib64`, `/opt`, `/sys`, `/dev` → `/host/*`
-  read-only (system libraries and toolchains come from the host, unlike sbx).
+  read-only (system libraries and toolchains come from the host, unlike the sbx
+  and Cloud Hypervisor guest-image models).
 - `<workspaceDir>` → `/host<workspaceDir>` read-write; `/tmp` → `/host/tmp`
   read-write.
 - When `chroot.binariesSourcePath` is configured, that tool directory is additionally
@@ -164,11 +166,12 @@ the legacy Sentry-Gofer protocol.) Practical consequences:
   below and should be validated when a tool works in Docker but not under gVisor.
 
 :::note
-Because gVisor reuses the compose agent, there is **no sbx-style host-path ==
-guest-path** behavior here: the agent sees files under `/host` (pre-chroot) and
-at their normal paths (post-chroot), exactly as in default Docker mode. A new
-compose-model runtime inherits this mount set for free; a new *microVM* runtime
-(like sbx) must define its own sharing scheme instead.
+Because gVisor reuses the compose agent, it does not use either microVM sharing
+model: sbx preserves host paths in the guest, while Cloud Hypervisor exports the
+workspace at `/workspace` through sandboxed virtio-fs. The gVisor agent sees
+files under `/host` (pre-chroot) and at their normal paths (post-chroot), exactly
+as in default Docker mode. A new compose-model runtime inherits this mount set
+for free; a new microVM runtime must define its own sharing scheme.
 :::
 
 ### The netstack DNS problem (and the fix)
@@ -363,5 +366,6 @@ service.
 - AWF source: `src/container-runtime.ts`, `src/services/agent-service.ts`,
   `src/topology.ts`, `src/services/agent-environment/tool-specific-environment.ts`
 - CI: `.github/workflows/test-gvisor-compat.yml`, `.github/workflows/smoke-gvisor*.md`
-- Related: [Docker Sandboxes (sbx) integration guide (PR #6331)](https://github.com/github/gh-aw-firewall/pull/6331),
+- Related: [Docker Sandboxes (sbx) integration](./sbx-integration.md),
+  [Cloud Hypervisor architecture](./cloud-hypervisor-foundation.md),
   [Sandbox design](./sandbox-design.md)
