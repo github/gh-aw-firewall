@@ -146,7 +146,7 @@ HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 https://github.
 HTTP_CODE=${HTTP_CODE:-000}
 
 echo "::group::npm ci"
-npm ci 2>&1 | tail -5
+timeout 5m npm ci 2>&1 | tail -5
 NPM_CI_EXIT=${PIPESTATUS[0]}
 echo "::endgroup::"
 
