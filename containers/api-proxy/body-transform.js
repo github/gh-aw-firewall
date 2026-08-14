@@ -133,17 +133,27 @@ function injectStreamOptions(body, provider, requestPath = '') {
   // Only applies to OpenAI-compatible providers
   if (provider === 'anthropic' || provider === 'gemini') return null;
 
+  let pathOnly = '';
+  if (typeof requestPath === 'string') {
+    try {
+      const originForm = requestPath.startsWith('/') ? requestPath : `/${requestPath}`;
+      if (!originForm.startsWith('//')) {
+        pathOnly = new URL(originForm, 'https://api-proxy.invalid').pathname;
+      }
+    } catch {
+      // Unparseable paths are not eligible for route-specific exclusions.
+    }
+  }
+
   // The OpenAI Responses API rejects stream_options.include_usage.
-  // Skip injection for /responses and /vN/responses routes.
-  // The leading slash is optional because some clients omit it (e.g. Codex CLI).
-  const pathOnly = typeof requestPath === 'string' ? requestPath.split('?')[0] : '';
-  if (/^\/?(?:v\d+\/)?responses(?:\/|$)/.test(pathOnly)) return null;
+  // Skip injection for exact /responses and /vN/responses routes.
+  if (/^\/(?:v\d+\/)?responses\/?$/.test(pathOnly)) return null;
 
   // The Anthropic Messages API rejects stream_options.include_usage.
-  // Skip injection for /messages and /vN/messages routes regardless of
+  // Skip injection for exact /messages and /vN/messages routes regardless of
   // provider, since the Copilot provider also fronts the Messages API
   // (e.g. api.githubcopilot.com/v1/messages).
-  if (/^\/?(?:v\d+\/)?messages(?:\/|$)/.test(pathOnly)) return null;
+  if (/^\/(?:v\d+\/)?messages\/?$/.test(pathOnly)) return null;
 
   const parsed = parseBodyAsObject(body);
   if (!parsed) return null;

@@ -61,5 +61,29 @@ describe('injectStreamOptions', () => {
     expect(transformed).not.toBeNull();
     expect(JSON.parse(transformed.body.toString('utf8')).stream_options).toEqual({ include_usage: true });
   });
-});
 
+  test.each([
+    '/messages/../v1/chat/completions',
+    '/messages/%2e%2e/v1/chat/completions',
+    '/v1/messages/../../v1/chat/completions',
+  ])('uses the canonical path before applying route exclusions: %s', (requestPath) => {
+    const body = Buffer.from(JSON.stringify({ stream: true, messages: [{ role: 'user', content: 'hi' }] }));
+
+    const transformed = injectStreamOptions(body, 'copilot', requestPath);
+
+    expect(transformed).not.toBeNull();
+    expect(JSON.parse(transformed.body.toString('utf8')).stream_options).toEqual({ include_usage: true });
+  });
+
+  test.each(['/v1/messages/extra', '/v1/responses/extra'])(
+    'does not exclude descendants of exact API routes: %s',
+    (requestPath) => {
+      const body = Buffer.from(JSON.stringify({ stream: true, messages: [{ role: 'user', content: 'hi' }] }));
+
+      const transformed = injectStreamOptions(body, 'copilot', requestPath);
+
+      expect(transformed).not.toBeNull();
+      expect(JSON.parse(transformed.body.toString('utf8')).stream_options).toEqual({ include_usage: true });
+    }
+  );
+});
