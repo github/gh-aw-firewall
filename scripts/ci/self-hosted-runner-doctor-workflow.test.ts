@@ -100,11 +100,13 @@ describe('self-hosted runner doctor workflow config', () => {
       expect(content).toContain('| `runc` mountpoint creation failure for `/dev/null` credential overlays under `/host$HOME` on `runner.topology: arc-dind` | A20 |');
       expect(content).toContain('| `mkdir -p .../.m2` failing under `set -e` in agent entrypoint on `arc-dind` | A20 |');
       // B23 update: PR #7245 fixes the AWF-side gap
-      expect(content).toContain('**Further fixed in AWF (PR github/gh-aw-firewall#7245, merged 2026-08-11):**');
+      expect(content).toContain('**Fixed on the AWF side (PR github/gh-aw-firewall#7245, merged 2026-08-11):**');
       expect(content).toContain('`ensure_usr_local_bin_shims()`');
       expect(content).toContain('`prepare_usr_local_bin_overlay()`');
       expect(content).toContain('AWF_ENSURE_USR_LOCAL_BIN=copilot');
-      expect(content).toContain('the upstream gh-aw `install_copilot_cli.sh`/harness mismatch tracked by github/gh-aw-firewall#7130 remains open');
+      expect(content).toContain('The upstream installer/harness mismatch remains open in github/gh-aw-firewall#7130.');
+      expect(content).toContain('**Older AWF only:**');
+      expect(content).not.toContain('Not an AWF defect.');
     }
 
     expect(source).toContain('- `unknown shorthand flag: \'d\' in -d` from `docker compose up -d` → A14 (DinD sidecar missing `docker-compose-plugin`)');
@@ -132,8 +134,8 @@ describe('self-hosted runner doctor workflow config', () => {
     expect(portableAgent).toContain('D12 / github/gh-aw-firewall#6810, github/gh-aw-firewall#6811 — Copilot runs using `model: auto` under isolated runtimes (`--container-runtime gvisor` or `sbx`) could fail before agent start with `awf-reflect: request failed: fetch failed` plus `Model "auto" has no AI credits pricing and no default pricing is configured` when `apiProxy.maxAiCredits` was enabled.');
     expect(portableAgent).toContain('- `awf-agent` fails to start under `runner.topology: arc-dind` (runc cannot create the `/dev/null` credential-hiding overlay mountpoints under `/host$HOME`), or the entrypoint aborts with `mkdir -p /host$HOME/.m2` failing under `set -e` → A20 (sysroot filter dropped every mount targeting `/host$HOME`, including a caller-supplied writable home; fixed in github/gh-aw-firewall#7244)');
     expect(portableAgent).toContain('A20 / github/gh-aw-firewall#7239, github/gh-aw-firewall#7244 — Under `runner.topology: arc-dind`, `filterAgentVolumesForSysroot()` (`src/services/optional-services.ts`) dropped every mount targeting `/host$HOME`');
-    expect(source).toContain('B23 / github/gh-aw-firewall#7130 (still open), github/gh-aw-firewall#7147, github/gh-aw-firewall#7151');
-    expect(source).toContain('**Further fixed in AWF (PR github/gh-aw-firewall#7245, merged 2026-08-11):**');
-    expect(portableAgent).toContain('**Further fixed in AWF (PR github/gh-aw-firewall#7245, merged 2026-08-11):**');
+    expect(source).toContain('B23 / github/gh-aw-firewall#7130 (still open), github/gh-aw-firewall#7147, github/gh-aw-firewall#7151, github/gh-aw-firewall#7245');
+    expect(source).toContain('**Fixed on the AWF side (PR github/gh-aw-firewall#7245, merged 2026-08-11):**');
+    expect(portableAgent).toContain('**Fixed on the AWF side (PR github/gh-aw-firewall#7245, merged 2026-08-11):**');
   });
 });
