@@ -20,6 +20,7 @@ import {
   type CloudHypervisorManagerDependencies,
   type CloudHypervisorRunPaths,
 } from './manager-types';
+import type { VirtiofsdDevice } from './virtiofsd';
 
 /** Reads at most `maxBytes` from the end of `filePath`. */
 export async function readBoundedTail(filePath: string, maxBytes: number): Promise<Buffer> {
@@ -158,6 +159,7 @@ export interface CloudHypervisorDiagnosticsContext {
   // socket becomes unresponsive once the process is asked to exit.
   lastVmInfo: CloudHypervisorVmInfo | undefined;
   lastVmCounters: CloudHypervisorVmCounters | undefined;
+  fsDevices: readonly VirtiofsdDevice[];
 }
 
 export async function collectCloudHypervisorDiagnostics(
@@ -206,6 +208,13 @@ export async function collectCloudHypervisorDiagnostics(
     paths.serialLogPath,
     path.join(directory, CLOUD_HYPERVISOR_SERIAL_LOG_NAME),
   );
+  for (const [index, device] of context.fsDevices.entries()) {
+    await copyBoundedDiagnostic(
+      dependencies,
+      device.logPath,
+      path.join(directory, `virtiofs-${index}-${device.export.tag}.log`),
+    );
+  }
   await dependencies.writeFile(
     path.join(directory, 'network-plan.json'),
     `${JSON.stringify(context.networkPlan ?? null, null, 2)}\n`,

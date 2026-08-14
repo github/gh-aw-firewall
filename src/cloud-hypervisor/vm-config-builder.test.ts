@@ -46,7 +46,7 @@ function networkPlan(): MicrovmNetworkPlan {
 describe('buildCloudHypervisorVmConfig', () => {
   const paths = createCloudHypervisorRunPaths('/opt/cloud-hypervisor', 'awf-run');
 
-  it('omits the workspace disk, vsock device and cmdline without a guest config', () => {
+  it('omits virtio-fs, vsock and cmdline without a guest config', () => {
     const vmConfig = buildCloudHypervisorVmConfig({
       config: config(),
       paths,
@@ -59,22 +59,44 @@ describe('buildCloudHypervisorVmConfig', () => {
     expect(vmConfig.landlock_enable).toBe(true);
   });
 
-  it('adds the workspace disk, vsock device and supervisor cmdline with a guest config', () => {
+  it('adds virtio-fs, vsock and supervisor cmdline with a guest config', () => {
     const vmConfig = buildCloudHypervisorVmConfig({
       config: config(),
       paths,
       networkPlan: networkPlan(),
       guestConfig: {
-        workspacePath: '/workspace',
-        homePath: '/home/runner',
+        exports: [{
+          tag: 'workspace',
+          source: '/workspace',
+          target: '/workspace',
+          mode: 'rw',
+        }],
         supervisorBinaryPath: '/opt/awf-supervisor',
         supervisorSha256: 'a'.repeat(64),
       },
+      fsDevices: [{
+        export: {
+          tag: 'workspace',
+          source: '/workspace',
+          target: '/workspace',
+          mode: 'rw',
+        },
+        socketPath: '/run/virtiofs.sock',
+        logPath: '/run/virtiofs.log',
+      }],
     });
 
-    expect(vmConfig.disks.map((disk) => disk.id)).toEqual(['rootfs', 'workspace']);
+    expect(vmConfig.disks.map((disk) => disk.id)).toEqual(['rootfs']);
+    expect(vmConfig.fs).toEqual([expect.objectContaining({
+      tag: 'workspace',
+      socket: '/run/virtiofs.sock',
+    })]);
+    expect(vmConfig.memory.shared).toBe(true);
     expect(vmConfig).toHaveProperty('vsock');
-    expect(vmConfig.payload).toHaveProperty('cmdline', expect.stringContaining('awf.vsock-port=52'));
+    expect(vmConfig.payload).toHaveProperty(
+      'cmdline',
+      expect.stringContaining('awf.virtiofs=workspace:L3dvcmtzcGFjZQ:rw'),
+    );
   });
 
   it('sizes cpus/memory from the runtime options and disables NIC offloads', () => {

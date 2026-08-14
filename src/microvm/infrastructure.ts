@@ -48,6 +48,7 @@ export interface MicrovmInfrastructureSnapshot {
   readonly gateway: string;
   readonly squidIp: string;
   readonly apiProxyIp?: string;
+  readonly topologyPeerIps: Readonly<Record<string, string>>;
   revalidate(): Promise<void>;
 }
 
@@ -96,19 +97,31 @@ export async function resolveMicrovmInfrastructure(
   enableApiProxy: boolean,
   dependencies: MicrovmInfrastructureDependencies = defaultDependencies,
   ipPath?: string,
+  topologyPeerNames: readonly string[] = [],
 ): Promise<MicrovmInfrastructureSnapshot> {
-  const resolved = await inspectInfrastructure(enableApiProxy, dependencies, ipPath);
+  const resolved = await inspectInfrastructure(
+    enableApiProxy,
+    dependencies,
+    ipPath,
+    topologyPeerNames,
+  );
   return {
     ...resolved,
     revalidate: async () => {
-      const live = await inspectInfrastructure(enableApiProxy, dependencies, ipPath);
+      const live = await inspectInfrastructure(
+        enableApiProxy,
+        dependencies,
+        ipPath,
+        topologyPeerNames,
+      );
       if (
         live.networkId !== resolved.networkId ||
         live.bridgeName !== resolved.bridgeName ||
         live.subnet !== resolved.subnet ||
         live.gateway !== resolved.gateway ||
         live.squidIp !== resolved.squidIp ||
-        live.apiProxyIp !== resolved.apiProxyIp
+        live.apiProxyIp !== resolved.apiProxyIp ||
+        !equalStringRecords(live.topologyPeerIps, resolved.topologyPeerIps)
       ) {
         throw new Error(
           `microVM infrastructure topology changed after discovery; ` +
@@ -123,6 +136,7 @@ async function inspectInfrastructure(
   enableApiProxy: boolean,
   dependencies: MicrovmInfrastructureDependencies,
   ipPath?: string,
+  topologyPeerNames: readonly string[] = [],
 ): Promise<Omit<MicrovmInfrastructureSnapshot, 'revalidate'>> {
   const raw = await dependencies.inspectNetwork();
   if (!Array.isArray(raw) || raw.length !== 1) {
@@ -190,6 +204,7 @@ async function inspectInfrastructure(
   const apiProxyIp = enableApiProxy
     ? resolveContainerIp(containers, API_PROXY_CONTAINER_NAME, API_PROXY_IP)
     : undefined;
+  const topologyPeerIps = resolveTopologyPeerIps(containers, topologyPeerNames);
 
   return {
     networkId: network.Id,
@@ -198,7 +213,56 @@ async function inspectInfrastructure(
     gateway: observedGateway ?? HOST_GATEWAY,
     squidIp,
     ...(apiProxyIp ? { apiProxyIp } : {}),
+    topologyPeerIps,
   };
+}
+
+function resolveTopologyPeerIps(
+  containers: readonly DockerNetworkContainer[],
+  names: readonly string[],
+): Readonly<Record<string, string>> {
+  const resolved: Record<string, string> = {};
+  for (const name of names) {
+    if (!/^[A-Za-z0-9](?:[A-Za-z0-9_.-]{0,126}[A-Za-z0-9])?$/.test(name)) {
+      throw new Error(`Unsafe microVM topology peer name: ${name}`);
+    }
+    if (Object.prototype.hasOwnProperty.call(resolved, name)) {
+      throw new Error(`Duplicate microVM topology peer name: ${name}`);
+    }
+    const matches = containers.filter((container) => container.Name === name);
+    if (matches.length !== 1) {
+      throw new Error(
+        `Expected exactly one "${name}" endpoint on "${NETWORK_NAME}", found ${matches.length}`,
+      );
+    }
+    const address = matches[0].IPv4Address;
+    const addressMatch = address?.match(/^(\d{1,3}(?:\.\d{1,3}){3})\/(\d{1,2})$/);
+    const ip = addressMatch?.[1];
+    const prefixLength = Number(addressMatch?.[2]);
+    if (
+      !ip ||
+      prefixLength < 0 ||
+      prefixLength > 32 ||
+      ip.split('.').some((octet) => Number(octet) > 255)
+    ) {
+      throw new Error(
+        `Topology peer "${name}" returned an invalid IPv4 address on "${NETWORK_NAME}": ` +
+        String(address),
+      );
+    }
+    resolved[name] = ip;
+  }
+  return resolved;
+}
+
+function equalStringRecords(
+  left: Readonly<Record<string, string>>,
+  right: Readonly<Record<string, string>>,
+): boolean {
+  const leftEntries = Object.entries(left);
+  const rightEntries = Object.entries(right);
+  return leftEntries.length === rightEntries.length &&
+    leftEntries.every(([key, value]) => right[key] === value);
 }
 
 function resolveContainerIp(

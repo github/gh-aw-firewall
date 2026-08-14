@@ -1,6 +1,10 @@
 import type { MicrovmNetworkPlan } from '../microvm/network';
 import type { CloudHypervisorOptions } from '../types/runtime-options';
 import {
+  validateCloudHypervisorExports,
+  type CloudHypervisorDirectoryExport,
+} from './exports';
+import {
   CLOUD_HYPERVISOR_GUEST_CID,
   computeCloudHypervisorLandlockRules,
 } from './launcher';
@@ -9,12 +13,16 @@ import {
   type CloudHypervisorManagerGuestConfig,
   type CloudHypervisorRunPaths,
 } from './manager-types';
+import type { VirtiofsdDevice } from './virtiofsd';
+
+const CLOUD_HYPERVISOR_GUEST_SUPERVISOR = '/usr/sbin/awf-supervisor';
 
 export interface CloudHypervisorVmConfigInput {
   config: CloudHypervisorOptions;
   paths: CloudHypervisorRunPaths;
   networkPlan: MicrovmNetworkPlan;
   guestConfig?: CloudHypervisorManagerGuestConfig;
+  fsDevices?: readonly VirtiofsdDevice[];
 }
 
 /**
@@ -26,11 +34,11 @@ export function buildCloudHypervisorVmConfig({
   paths,
   networkPlan,
   guestConfig,
+  fsDevices = [],
 }: CloudHypervisorVmConfigInput) {
   const landlockRules = computeCloudHypervisorLandlockRules({
     kernelPath: paths.kernelPath,
     rootfsPath: paths.rootfsPath,
-    workspacePath: guestConfig ? paths.workspacePath : undefined,
     runDirectory: paths.runDirectory,
     apiSocketPath: paths.apiSocketPath,
     vsockSocketPath: paths.vsockSocketPath,
@@ -43,6 +51,7 @@ export function buildCloudHypervisorVmConfig({
     },
     memory: {
       size: config.memoryMib * 1024 * 1024,
+      ...(fsDevices.length > 0 ? { shared: true } : {}),
     },
     payload: {
       kernel: paths.kernelPath,
@@ -50,12 +59,22 @@ export function buildCloudHypervisorVmConfig({
         ? { cmdline: buildSupervisorBootArgs(networkPlan, guestConfig) }
         : {}),
     },
-    disks: [
-      { id: 'rootfs', path: paths.rootfsPath, readonly: false },
-      ...(guestConfig
-        ? [{ id: 'workspace', path: paths.workspacePath, readonly: false }]
-        : []),
-    ],
+    disks: [{
+      id: 'rootfs',
+      path: paths.rootfsPath,
+      readonly: false,
+      image_type: 'Raw' as const,
+    }],
+    ...(fsDevices.length > 0
+      ? {
+          fs: fsDevices.map((device) => ({
+            tag: device.export.tag,
+            socket: device.socketPath,
+            num_queues: 1,
+            queue_size: 1024,
+          })),
+        }
+      : {}),
     net: [{
       id: 'net0',
       tap: networkPlan.networkInterface.host_dev_name,
@@ -98,7 +117,7 @@ export function buildSupervisorBootArgs(
   return [
     'console=ttyS0',
     'reboot=k',
-    'panic=1',
+    'panic=0',
     'root=/dev/vda',
     'rootfstype=ext4',
     'rootflags=data=ordered',
@@ -108,13 +127,27 @@ export function buildSupervisorBootArgs(
     // single virtio-pci NIC has a deterministic name across boots.
     'net.ifnames=0',
     'biosdevname=0',
-    'init=/sbin/awf-supervisor',
-    'awf.workspace-device=/dev/vdb',
+    `init=${CLOUD_HYPERVISOR_GUEST_SUPERVISOR}`,
     'awf.workspace-mount=/workspace',
+    `awf.virtiofs=${encodeVirtiofsBootArg(guestConfig.exports)}`,
     `awf.vsock-port=${port}`,
     `awf.guest-ip=${networkPlan.guestIp}`,
     `awf.guest-prefix=${networkPlan.guestPrefixLength}`,
     `awf.guest-gateway=${networkPlan.guestGatewayIp}`,
     'awf.guest-interface=eth0',
   ].join(' ');
+}
+
+export function encodeVirtiofsBootArg(
+  exports: readonly CloudHypervisorDirectoryExport[],
+): string {
+  const encoded = validateCloudHypervisorExports(exports)
+    .map((entry) => (
+      `${entry.tag}:${Buffer.from(entry.target).toString('base64url')}:${entry.mode}`
+    ))
+    .join(';');
+  if (Buffer.byteLength(encoded) > 4096) {
+    throw new Error('Cloud Hypervisor virtio-fs boot argument exceeds 4096 bytes');
+  }
+  return encoded;
 }

@@ -247,6 +247,7 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 - `cloudHypervisor.memoryMib` → `--cloud-hypervisor-memory-mib`
 - `cloudHypervisor.apiTimeoutMs` → `--cloud-hypervisor-api-timeout-ms`
 - `cloudHypervisor.sha256.cloudHypervisor` → `--cloud-hypervisor-binary-sha256`
+- `cloudHypervisor.sha256.virtiofsd` → `--cloud-hypervisor-virtiofsd-sha256`
 - `cloudHypervisor.sha256.kernel` → `--cloud-hypervisor-kernel-sha256`
 - `cloudHypervisor.sha256.rootfs` → `--cloud-hypervisor-rootfs-sha256`
 - `cloudHypervisor.sha256.supervisor` → `--cloud-hypervisor-supervisor-sha256`

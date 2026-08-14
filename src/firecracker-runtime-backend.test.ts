@@ -64,6 +64,7 @@ function infrastructure(): MicrovmInfrastructureSnapshot {
     gateway: '172.30.0.1',
     squidIp: '172.30.0.10',
     apiProxyIp: '172.30.0.30',
+    topologyPeerIps: {},
     revalidate: jest.fn().mockResolvedValue(undefined),
   };
 }

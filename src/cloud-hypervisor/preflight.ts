@@ -15,9 +15,9 @@ import {
  * directories, digest pinning, PATH-resolved but ownership-verified host
  * tools) so both VMM backends share the same fail-closed posture.
  *
- * Cloud Hypervisor has no jailer-equivalent process, so there is no paired
- * binary version cross-check the way Firecracker cross-checks jailer.
- * Instead `src/cloud-hypervisor/launcher.ts` builds an equivalent
+ * Cloud Hypervisor has no jailer-equivalent process. AWF instead requires
+ * the pinned v1.10.0 virtiofsd sibling used for directory exports, while
+ * `src/cloud-hypervisor/launcher.ts` builds an equivalent
  * network-namespace-join + privilege-drop + Landlock/seccomp launch using
  * the `setpriv` tool resolved here, and `src/cloud-hypervisor/manager.ts`
  * stages artifacts into a private, non-world-readable run directory.
@@ -52,6 +52,8 @@ export type CloudHypervisorHostToolPaths = Readonly<{
   debugfs: string;
   e2fsck: string;
   rsync: string;
+  mount: string;
+  umount: string;
   /**
    * util-linux `setpriv`, used by the launcher to drop to the non-root
    * operator uid/gid and clear capabilities/groups after joining the
@@ -61,7 +63,7 @@ export type CloudHypervisorHostToolPaths = Readonly<{
   setpriv: string;
 }>;
 const CLOUD_HYPERVISOR_HOST_TOOLS: (keyof CloudHypervisorHostToolPaths)[] = [
-  'ip', 'nft', 'sysctl', 'mke2fs', 'debugfs', 'e2fsck', 'rsync', 'setpriv',
+  'ip', 'nft', 'sysctl', 'mke2fs', 'debugfs', 'e2fsck', 'rsync', 'mount', 'umount', 'setpriv',
 ];
 
 const defaultDependencies: CloudHypervisorPreflightDependencies = {
@@ -160,6 +162,7 @@ export const cloudHypervisorPreflightTestHelpers = { defaultDependencies };
 export interface CloudHypervisorPreflightResult {
   version: string;
   cloudHypervisorBinary: string;
+  virtiofsdBinary: string;
   kernelPath: string;
   rootfsPath: string;
   supervisorPath: string;
@@ -207,6 +210,16 @@ export function parseCloudHypervisorVersion(output: string): string {
   return match[1];
 }
 
+export const VIRTIOFSD_RELEASE_VERSION = '1.10.0';
+
+export function parseVirtiofsdVersion(output: string): string {
+  const match = output.match(/(?:^|\s)v?(\d+\.\d+\.\d+)(?:\s|$)/);
+  if (!match) {
+    throw new Error(`Could not parse virtiofsd version from: ${JSON.stringify(output)}`);
+  }
+  return match[1];
+}
+
 export async function calculateSha256(filePath: string): Promise<string> {
   const hash = createHash('sha256');
   const stream = createReadStream(filePath);
@@ -226,7 +239,14 @@ async function assertTrustedRegularFile(
     throw new Error(`${label} path must be absolute: ${filePath}`);
   }
   await assertTrustedAncestorChain(label, filePath, dependencies);
-  const stat = await dependencies.lstat(filePath);
+  let stat;
+  try {
+    stat = await dependencies.lstat(filePath);
+  } catch (error) {
+    throw new Error(
+      `${label} is unavailable: ${filePath}: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
   if (stat.isSymbolicLink() || !stat.isFile()) {
     throw new Error(`${label} must be a regular file and not a symbolic link: ${filePath}`);
   }
@@ -362,6 +382,13 @@ export async function runCloudHypervisorPreflight(
     constants.R_OK | constants.X_OK,
     dependencies,
   );
+  const virtiofsdBinary = path.join(path.dirname(config.cloudHypervisorBinary), 'virtiofsd');
+  await assertTrustedRegularFile(
+    'virtiofsd binary',
+    virtiofsdBinary,
+    constants.R_OK | constants.X_OK,
+    dependencies,
+  );
 
   const tools = {} as Record<keyof CloudHypervisorHostToolPaths, string>;
   for (const tool of CLOUD_HYPERVISOR_HOST_TOOLS) {
@@ -398,6 +425,12 @@ export async function runCloudHypervisorPreflight(
     config.sha256?.cloudHypervisor,
     dependencies,
   );
+  await assertDigest(
+    'virtiofsd binary',
+    virtiofsdBinary,
+    config.sha256?.virtiofsd,
+    dependencies,
+  );
 
   const version = parseCloudHypervisorVersion(
     await dependencies.runVersion(config.cloudHypervisorBinary),
@@ -405,6 +438,14 @@ export async function runCloudHypervisorPreflight(
   if (version !== CLOUD_HYPERVISOR_RELEASE_VERSION) {
     throw new Error(
       `Cloud Hypervisor is pinned to v${CLOUD_HYPERVISOR_RELEASE_VERSION}; found v${version}`,
+    );
+  }
+  const virtiofsdVersion = parseVirtiofsdVersion(
+    await dependencies.runVersion(virtiofsdBinary),
+  );
+  if (virtiofsdVersion !== VIRTIOFSD_RELEASE_VERSION) {
+    throw new Error(
+      `virtiofsd is pinned to v${VIRTIOFSD_RELEASE_VERSION}; found v${virtiofsdVersion}`,
     );
   }
 
@@ -430,6 +471,7 @@ export async function runCloudHypervisorPreflight(
   return {
     version,
     cloudHypervisorBinary: config.cloudHypervisorBinary,
+    virtiofsdBinary,
     kernelPath: config.kernelPath,
     rootfsPath: config.rootfsPath,
     supervisorPath: config.supervisorPath,

@@ -9,14 +9,15 @@ import {
   type MicrovmNetworkPlan,
 } from '../microvm/network';
 import type { MicrovmVsockClient } from '../microvm/vsock-client';
-import type { MicrovmWorkspaceImage, MicrovmWorkspaceImageConfig } from '../microvm/workspace';
+import type { MicrovmRootfsConfig, MicrovmRootfsPreparer } from '../microvm/rootfs';
 import type { CloudHypervisorApiClient } from './api-client';
+import type { CloudHypervisorDirectoryExport } from './exports';
 import type { CloudHypervisorCgroup, CloudHypervisorResourceLimits } from './launcher';
 import type { CloudHypervisorHostToolPaths, runCloudHypervisorPreflight } from './preflight';
+import type { VirtiofsdManager } from './virtiofsd';
 
 const API_SOCKET_NAME = 'api.socket';
 const VSOCK_SOCKET_NAME = 'awf-vsock.socket';
-const WORKSPACE_IMAGE_NAME = 'workspace.ext4';
 const KERNEL_RUN_NAME = 'kernel';
 const ROOTFS_RUN_NAME = 'rootfs.ext4';
 export const CLOUD_HYPERVISOR_LOG_NAME = 'cloud-hypervisor.log';
@@ -49,10 +50,10 @@ export interface CloudHypervisorRunPaths {
   apiSocketPath: string;
   kernelPath: string;
   rootfsPath: string;
-  workspacePath: string;
   vsockSocketPath: string;
   logPath: string;
   serialLogPath: string;
+  virtiofsdShareDirectory: string;
   cgroupPath: string;
 }
 
@@ -79,7 +80,18 @@ export interface CloudHypervisorManagerDependencies {
   sleep(milliseconds: number): Promise<void>;
   createClient(socketPath: string, timeoutMs: number): CloudHypervisorApiClient;
   createNetwork(plan: MicrovmNetworkPlan, tools: CloudHypervisorHostToolPaths): MicrovmNetworkLifecycle;
-  createWorkspaceImage(config: MicrovmWorkspaceImageConfig, tools: CloudHypervisorHostToolPaths): MicrovmWorkspaceImage;
+  createRootfsPreparer(
+    config: MicrovmRootfsConfig,
+    tools: CloudHypervisorHostToolPaths,
+  ): MicrovmRootfsPreparer;
+  createVirtiofsdManager(
+    binaryPath: string,
+    runDirectory: string,
+    shareDirectory: string,
+    identity: { uid: number; gid: number },
+    cgroup: CloudHypervisorCgroup,
+    tools: Pick<CloudHypervisorHostToolPaths, 'mount' | 'umount'>,
+  ): VirtiofsdManager;
   createVsockClient(socketPath: string, guestPort: number, timeoutMs: number): MicrovmVsockClient;
   createCgroup(cgroupPath: string, limits: CloudHypervisorResourceLimits): CloudHypervisorCgroup;
   resolveIdentity(): { uid: number; gid: number };
@@ -88,15 +100,16 @@ export interface CloudHypervisorManagerDependencies {
 export interface CloudHypervisorManagerNetworkConfig {
   infrastructureBridge: string;
   enableApiProxy: boolean;
+  apiProxyIp?: string;
   controlPeer?: MicrovmControlPeer;
+  controlPeers?: readonly MicrovmControlPeer[];
+  hostAliases?: Readonly<Record<string, string>>;
 }
 
 export interface CloudHypervisorManagerGuestConfig {
-  readonly workspacePath: string;
-  readonly homePath: string;
+  readonly exports: readonly CloudHypervisorDirectoryExport[];
   readonly supervisorBinaryPath: string;
   readonly supervisorSha256: string;
-  readonly maxWorkspaceImageBytes?: number;
   readonly vsockPort?: number;
   readonly identity?: { uid: number; gid: number };
 }
@@ -124,10 +137,10 @@ export function createCloudHypervisorRunPaths(
     apiSocketPath: path.join(runDirectory, API_SOCKET_NAME),
     kernelPath: path.join(runDirectory, KERNEL_RUN_NAME),
     rootfsPath: path.join(runDirectory, ROOTFS_RUN_NAME),
-    workspacePath: path.join(runDirectory, WORKSPACE_IMAGE_NAME),
     vsockSocketPath: path.join(runDirectory, VSOCK_SOCKET_NAME),
     logPath: path.join(runDirectory, CLOUD_HYPERVISOR_LOG_NAME),
     serialLogPath: path.join(runDirectory, CLOUD_HYPERVISOR_SERIAL_LOG_NAME),
+    virtiofsdShareDirectory: path.join(runBaseDir, 'virtiofsd', runId),
     cgroupPath: path.join(CGROUP_ROOT, 'awf-cloud-hypervisor', runId),
   };
 }

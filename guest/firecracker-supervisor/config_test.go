@@ -33,3 +33,34 @@ func TestParseBootConfigRejectsDuplicateArguments(t *testing.T) {
 		t.Fatal("duplicate argument accepted")
 	}
 }
+
+func TestParseBootConfigAcceptsVirtiofsWorkspace(t *testing.T) {
+	cmdline := "awf.workspace-mount=/workspace awf.virtiofs=workspace:L3dvcmtzcGFjZQ:rw;tool-cache:L29wdC9jYWNoZQ:ro awf.vsock-port=1024 awf.guest-ip=192.0.2.2 awf.guest-prefix=24 awf.guest-gateway=192.0.2.1 awf.guest-interface=eth0"
+	config, err := parseBootConfig(cmdline)
+	if err != nil {
+		t.Fatalf("parse virtiofs config: %v", err)
+	}
+	if config.WorkspaceDevice != "" || len(config.VirtiofsMounts) != 2 {
+		t.Fatalf("unexpected virtiofs config: %#v", config)
+	}
+	if config.VirtiofsMounts[1].Target != "/opt/cache" || !config.VirtiofsMounts[1].ReadOnly {
+		t.Fatalf("unexpected read-only mount: %#v", config.VirtiofsMounts[1])
+	}
+}
+
+func TestParseBootConfigRejectsUnsafeVirtiofs(t *testing.T) {
+	base := "awf.workspace-mount=/workspace awf.vsock-port=1024 awf.guest-ip=192.0.2.2 awf.guest-prefix=24 awf.guest-gateway=192.0.2.1 awf.guest-interface=eth0 "
+	cases := []string{
+		"awf.virtiofs=workspace:Ly4uL2V0Yw:rw",
+		"awf.virtiofs=workspace:L3dvcmtzcGFjZQ:rw;workspace:L29wdA:ro",
+		"awf.virtiofs=workspace:L3dvcmtzcGFjZQ:rw;cache:L3dvcmtzcGFjZS9jYWNoZQ:ro",
+		"awf.virtiofs=workspace:L3dvcmtzcGFjZQ:bad",
+		"awf.virtiofs=cache:L29wdA:ro",
+		"awf.virtiofs=workspace:L3dvcmtzcGFjZQ:rw;proc:L3Byb2M:ro",
+	}
+	for _, value := range cases {
+		if _, err := parseBootConfig(base + value); err == nil {
+			t.Errorf("unsafe virtiofs config accepted: %q", value)
+		}
+	}
+}
