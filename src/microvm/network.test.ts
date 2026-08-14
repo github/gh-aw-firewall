@@ -716,7 +716,7 @@ describe('LinuxNetworkCommands.captureDiagnosticsInNamespace', () => {
     const commands = new LinuxNetworkCommands(
       jest.fn(async (_command, args) => {
         if (args.includes('nft')) {
-          return { stdout: 'table inet awf_fc_abc123 { chain forward { ... } }' };
+          return { stdout: 'table inet awf_vm_abc123 { chain forward { ... } }' };
         }
         if (args.includes('-s') && args.includes('link')) {
           return { stdout: '2: eth0: <UP> ... RX: 0 bytes 0 packets' };
@@ -746,7 +746,7 @@ describe('LinuxNetworkCommands.captureDiagnosticsInNamespace', () => {
     const result = await commands.captureDiagnosticsInNamespace('awfvm-test');
 
     expect(result).toContain('--- nft -a list ruleset (handles + hit counters) ---');
-    expect(result).toContain('table inet awf_fc_abc123');
+    expect(result).toContain('table inet awf_vm_abc123');
     expect(result).toContain('--- ip -s link show (packet/byte/error counters) ---');
     expect(result).toContain('RX: 0 bytes 0 packets');
     expect(result).toContain('--- ip -d link show (detailed link info, incl. vnet_hdr/multiqueue flags) ---');

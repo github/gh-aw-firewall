@@ -50,7 +50,7 @@ export function createMicrovmNetworkPlan(
   const tapName = `vmt${token}`;
   const hostVethName = `vmh${token}`;
   const namespaceVethName = `vmn${token}`;
-  const nftTableName = `awf_fc_${token}`;
+  const nftTableName = `awf_vm_${token}`;
   for (const [label, name] of [
     ['TAP', tapName],
     ['host veth', hostVethName],
