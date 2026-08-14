@@ -195,24 +195,13 @@ Each document provides per-test-case analysis with plain-language descriptions, 
 
 ## Firecracker preview integration tests
 
-The Firecracker backend has its own separate CI workflow (`test-firecracker.yml`)
-that is distinct from the standard integration test suite above.
+The dedicated Firecracker CI workflow is disabled. The deterministic artifact
+build and live KVM smoke scripts remain available for explicit local validation,
+but they are not run by pull request, push, schedule, or manual Actions events.
 
-**Trigger:** `workflow_dispatch` or pull request open/synchronize/reopen/label.
-Pull requests always run the hosted deterministic artifact build; only label
-`firecracker-kvm` enables the live job. A manual dispatch can set
-`run_live_kvm: false` for an artifact-build-only check. It does **not** run on
-push or schedule.
-
-**Build job** (`ubuntu-24.04`): Builds deterministic guest artifacts — Firecracker
-v1.16.1 binaries, Linux 6.1.141 kernel, BusyBox 1.36.1 rootfs, and AWF guest
-supervisor — from pinned, SHA-256 verified sources. Attests provenance. Uploads
-as a 7-day workflow artifact.
-
-**Live job** (`ubuntu-24.04`): Runs on a GitHub-hosted x64 runner, downloads the
-build artifact, verifies all five SHA-256 digests, and runs the live
-smoke/security suite. The preflight requires usable KVM and fails closed if
-`/dev/kvm` or another required host capability is unavailable.
+The live smoke/security suite verifies all five SHA-256 digests before running.
+Its preflight requires usable KVM and fails closed if `/dev/kvm` or another
+required host capability is unavailable.
 
 Live assertions (see `scripts/ci/firecracker-live-smoke.sh`):
 
@@ -234,15 +223,14 @@ Live assertions (see `scripts/ci/firecracker-live-smoke.sh`):
 
 After every case, the suite asserts no `awffc-*` namespaces or Firecracker
 interface residue remain. See [Firecracker integration (preview)](../docs/firecracker-integration.md#part-14--ci-workflow)
-for the full CI workflow specification.
+for the current automation status and local validation details.
 
 ## Cloud Hypervisor preview integration tests
 
 The Cloud Hypervisor backend has its own separate CI workflow
-(`test-cloud-hypervisor.yml`), structurally identical to Firecracker's above
-but scoped to Cloud Hypervisor paths and **GitHub-hosted Ubuntu x86_64
-runners only** (self-hosted runners are explicitly rejected, unlike
-Firecracker's preview).
+(`test-cloud-hypervisor.yml`), based on the retained Firecracker test
+conventions but scoped to Cloud Hypervisor paths and **GitHub-hosted Ubuntu
+x86_64 runners only** (self-hosted runners are explicitly rejected).
 
 **Trigger:** `workflow_dispatch`, or pull request open/synchronize/reopen/label
 scoped to `guest/cloud-hypervisor/**`, `src/cloud-hypervisor/**`,

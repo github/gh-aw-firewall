@@ -314,13 +314,12 @@ GitHub-hosted x64 `ubuntu-24.04`; KVM remains mandatory, and hosts without usabl
 `/dev/kvm` access fail closed. The API proxy is mandatory; provider credentials
 are never passed as guest environment variables. No auto-download of artifacts;
 all five artifact paths and their SHA-256 digests are required on every invocation.
-Release test artifacts (`firecracker-test-x86_64`) are x86_64 test/preview
-artifacts built by both the release workflow and `test-firecracker.yml`. They
-are published as explicitly named release/workflow assets, but are not
-production defaults and are never auto-downloaded. See
+The `firecracker-test-x86_64` x86_64 test/preview artifacts can be built
+explicitly from the repository, but are not built or published by GitHub
+Actions. They are not production defaults and are never auto-downloaded. See
 [Firecracker integration (preview)](./firecracker-integration.md) for the
-complete operator guide, trust model, workspace semantics, CI workflow
-specification, and troubleshooting reference.
+complete operator guide, trust model, workspace semantics, local validation,
+and troubleshooting reference.
 
 When DinD is detected, AWF preserves the detected `DOCKER_HOST` value for the agent environment (including MCP servers) so DinD-aware tooling can reach the correct daemon without manual workflow env overrides.
 

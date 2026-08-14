@@ -114,26 +114,10 @@ The `agent-act` image is used when running with `--agent-image act` for workflow
 
 ### Firecracker preview test artifacts
 
-The main release workflow builds, attests, and publishes the versioned
-`firecracker-test-x86_64` preview bundle as GitHub Release assets. Pull request
-and manual validation through `test-firecracker.yml` also uploads the unpacked
-artifact set with **7-day workflow-artifact retention**.
-
-These artifacts are:
-
-- **x86_64 only** — no aarch64 test artifact is published.
-- **Preview / testing purpose only** — `manifest.json` inside the tarball states:
-  `"purpose": "AWF Firecracker preview test artifacts; not production defaults"`.
-- **Not auto-downloaded** — there is no mechanism in AWF to fetch them
-  automatically; operators must download, verify, and supply them explicitly.
-- **Not a production default** — operators who want to evaluate Firecracker for
-  production must obtain, verify, and manage their own guest kernel and rootfs
-  appropriate to their workload security requirements.
-- **Explicitly verified** — `firecracker-test-x86_64.SHA256SUMS` covers the five
-  files inside the tarball; extract the tarball before running `sha256sum -c`.
-
-See [Firecracker integration (preview) — Artifact policy](./firecracker-integration.md#part-5--artifact-policy)
-for the complete artifact specification and digest requirements.
+The release workflow does not build or publish Firecracker preview test
+artifacts. The repository retains explicit local build and verification scripts;
+see [Firecracker integration (preview) — Artifact policy](./firecracker-integration.md#part-5--artifact-policy)
+for the artifact specification and digest requirements.
 
 ## Testing a Release Locally
 

@@ -356,14 +356,12 @@ Each artifact file is validated for:
 - **Owned by root or the operator uid** — other owners are rejected
 - **Correct access mode** — Firecracker/jailer binaries must be executable; kernel/rootfs/supervisor must be readable
 
-### Releasing test artifacts
+### Building test artifacts
 
-The release workflow and `test-firecracker.yml` (see §CI workflow) build the
-same reproducible artifact set:
+Automated Firecracker artifact builds and release publication are disabled.
+The reproducible artifact set can still be built explicitly with
+`guest/firecracker/build-test-artifacts.sh`; its output includes
 `release/firecracker-test-x86_64/awf-firecracker-test-x86_64.tar.gz`.
-The release workflow publishes the tarball, checksum manifest, build manifest,
-and SPDX SBOM as versioned GitHub Release assets. CI uploads the unpacked set as
-a 7-day workflow artifact for validation.
 
 This tarball contains:
 
@@ -386,12 +384,12 @@ purpose-built for integration testing and preview evaluation. It is:
 - **Not** a production-ready distribution
 - **Not** intended for use as a stable base for production workloads without
   independent review
-- **Distributed only as an explicitly named test/preview GitHub Release asset**,
-  never selected or downloaded automatically by AWF
+- **Not distributed by the AWF release workflow** and never selected or
+  downloaded automatically by AWF
 
 Production use requires operators to obtain, verify, and manage their own
 kernel and rootfs images appropriate to their workload security requirements.
-The published `firecracker-test-x86_64.SHA256SUMS` covers the five extracted
+The generated `firecracker-test-x86_64/SHA256SUMS` covers the five extracted
 runtime files, not the tarball itself; extract the bundle before checking it.
 :::
 
@@ -900,64 +898,9 @@ sudo -E awf \
 
 ## Part 14 — CI workflow
 
-### Trigger conditions
-
-The Firecracker CI workflow (`test-firecracker.yml`) triggers **only** on:
-
-- `workflow_dispatch` — manual trigger from the Actions UI or `gh workflow run`;
-  `run_live_kvm: false` validates the deterministic artifact build without
-  queueing the KVM job
-- Any pull request open, synchronize, or reopen event builds and verifies the
-  deterministic guest artifacts on `ubuntu-24.04`
-- A pull request being **labeled** with `firecracker-kvm` additionally enables
-  the live KVM job
-
-It does **not** run on push or schedule. Unlabeled pull requests run only the
-artifact build; the live KVM job runs only when explicitly requested by manual
-dispatch or the `firecracker-kvm` label.
-
-### Jobs
-
-#### `build-test-artifacts` (runs on `ubuntu-24.04`)
-
-This job runs on a GitHub-hosted `ubuntu-24.04` runner. It does **not** require
-KVM. It:
-
-1. Checks out the repository
-2. Sets up Go 1.25.0
-3. Installs deterministic build prerequisites (`bc`, `binutils`, `bison`,
-   `build-essential`, `cpio`, `e2fsprogs`, `file`, `flex`, `libelf-dev`,
-   `libssl-dev`, `rsync`, `xz-utils`)
-4. Runs `guest/firecracker/build-test-artifacts.sh` — downloads Firecracker
-   v1.16.1 (SHA-256 verified), Linux 6.1.141 (SHA-256 verified), BusyBox 1.36.1
-   (SHA-256 verified), and a pinned CA bundle; builds kernel, BusyBox, and
-   supervisor; creates rootfs; produces `SHA256SUMS`, `manifest.json`, and
-   `sbom.spdx.json`; archives everything as
-   `release/firecracker-test-x86_64/awf-firecracker-test-x86_64.tar.gz`
-5. Runs `guest/firecracker/verify-test-artifacts.sh` against the output
-6. Attests artifact provenance via `actions/attest-build-provenance`
-7. Uploads `release/firecracker-test-x86_64/` as artifact `firecracker-test-x86_64`
-   with 7-day retention
-
-#### `live-kvm` (runs on `ubuntu-24.04`)
-
-This job runs on a GitHub-hosted x64 `ubuntu-24.04` runner. Its preflight
-requires a readable and writable `/dev/kvm` and fails closed rather than
-silently skipping the live suite if the runner lacks KVM or another required
-host capability.
-
-It:
-
-1. Downloads the `firecracker-test-x86_64` artifact from the build job
-2. Runs `scripts/ci/firecracker-host-preflight.sh` — verifies Linux, x86_64,
-   `/dev/kvm`, required tools, Firecracker/jailer version strings, and all five
-   SHA-256 digests via `sha256sum --check --strict SHA256SUMS`
-3. Installs NPM dependencies, builds the AWF distribution, and builds the
-   Squid and API proxy container images locally
-4. Runs `scripts/ci/firecracker-live-smoke.sh` — the live test suite
-5. Collects redacted diagnostics (audit, proxy-logs, stdout/stderr) and scans
-   for the secret sentinel before uploading
-6. Enforces final residue cleanup of all `awffc-*` network namespaces
+The dedicated Firecracker Actions workflow is disabled. Artifact build,
+verification, host preflight, and live smoke scripts remain in the repository
+for explicit local use, but GitHub Actions does not invoke them.
 
 ### Live smoke test assertions
 

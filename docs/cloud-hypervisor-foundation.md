@@ -394,10 +394,11 @@ paths only and cannot access host source trees directly.
 
 The Cloud Hypervisor preview has its own dedicated CI workflow,
 [`test-cloud-hypervisor.yml`](../.github/workflows/test-cloud-hypervisor.yml),
-structurally mirroring
-[Firecracker's `test-firecracker.yml`](./firecracker-integration.md#part-14--ci-workflow)
+based on the retained
+[Firecracker test conventions](./firecracker-integration.md#part-14--ci-workflow)
 but adapted for this backend's GitHub-hosted-only support statement and
-jailer-free launcher.
+jailer-free launcher. The corresponding Firecracker Actions workflow is
+disabled.
 
 ### Trigger conditions
 
