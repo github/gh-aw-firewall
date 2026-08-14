@@ -49,7 +49,7 @@ timeout-minutes: 60
 sandbox:
   agent:
     id: awf
-    version: v0.28.0
+    version: v0.28.1
     runtime: cloud-hypervisor
     sudo: true
 strict: false
