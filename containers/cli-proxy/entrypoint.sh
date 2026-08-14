@@ -18,6 +18,11 @@ DIFC_PORT="${AWF_DIFC_PROXY_PORT:-18443}"
 
 echo "[cli-proxy] External DIFC proxy at ${DIFC_HOST}:${DIFC_PORT}"
 
+if [ "${AWF_CLI_PROXY_RELAY_ONLY:-}" = "1" ]; then
+  echo "[cli-proxy-egress] Starting fixed-target relay on 0.0.0.0:${DIFC_PORT} → ${DIFC_HOST}:${DIFC_PORT}"
+  exec node /app/tcp-tunnel.js "${DIFC_PORT}" "${DIFC_HOST}" "${DIFC_PORT}" "0.0.0.0"
+fi
+
 # Start the TCP tunnel: localhost:${DIFC_PORT} → ${DIFC_HOST}:${DIFC_PORT}
 # This allows the gh CLI to connect via localhost, matching the cert's SAN.
 echo "[cli-proxy] Starting TCP tunnel: localhost:${DIFC_PORT} → ${DIFC_HOST}:${DIFC_PORT}"

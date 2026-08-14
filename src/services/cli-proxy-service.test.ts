@@ -93,6 +93,60 @@ describe('CLI proxy sidecar (external DIFC proxy)', () => {
         expect(env.AWF_DIFC_PROXY_PORT).toBe('18443');
       });
 
+      it('should route cli-proxy through a credential-free relay for an external topology target', () => {
+        const originalGhToken = process.env.GH_TOKEN;
+        try {
+          process.env.GH_TOKEN = 'ghp_cli_proxy_test_token';
+          const configWithCliProxy = {
+            ...mockConfig,
+            networkIsolation: true,
+            difcProxyHost: 'host.docker.internal:18443',
+          };
+          const result = generateDockerCompose(configWithCliProxy, mockNetworkConfigWithCliProxy);
+          const proxy = result.services['cli-proxy'];
+          const relay = result.services['cli-proxy-egress'];
+          const proxyNetworks = proxy.networks as Record<string, unknown>;
+          const proxyEnvironment = proxy.environment as Record<string, string>;
+          const proxyDependencies = proxy.depends_on as Record<string, { condition: string }>;
+          const relayNetworks = relay.networks as Record<string, unknown>;
+          const relayEnvironment = relay.environment as Record<string, string>;
+
+          expect(proxyNetworks['awf-ext']).toBeUndefined();
+          expect(proxyEnvironment.AWF_DIFC_PROXY_HOST).toBe('cli-proxy-egress');
+          expect(proxyDependencies['cli-proxy-egress'].condition).toBe('service_healthy');
+
+          expect(relayNetworks['awf-net']).toBeDefined();
+          expect(relayNetworks['awf-ext']).toBeDefined();
+          expect(relayEnvironment).toEqual({
+            AWF_CLI_PROXY_RELAY_ONLY: '1',
+            AWF_DIFC_PROXY_HOST: 'host.docker.internal',
+            AWF_DIFC_PROXY_PORT: '18443',
+          });
+          expect(relay.volumes).toBeUndefined();
+          expect(relay.read_only).toBe(true);
+          expect(relay.cap_drop).toEqual(['ALL']);
+        } finally {
+          if (originalGhToken !== undefined) {
+            process.env.GH_TOKEN = originalGhToken;
+          } else {
+            delete process.env.GH_TOKEN;
+          }
+        }
+      });
+
+      it('should not create an egress relay for an attached topology sibling', () => {
+        const configWithCliProxy = {
+          ...mockConfig,
+          networkIsolation: true,
+          difcProxyHost: 'awmg-cli-proxy:18443',
+        };
+        const result = generateDockerCompose(configWithCliProxy, mockNetworkConfigWithCliProxy);
+        const proxyEnvironment = result.services['cli-proxy'].environment as Record<string, string>;
+
+        expect(result.services['cli-proxy-egress']).toBeUndefined();
+        expect(proxyEnvironment.AWF_DIFC_PROXY_HOST).toBe('awmg-cli-proxy');
+      });
+
       it('should parse custom host and port from difcProxyHost', () => {
         const configWithCliProxy = { ...mockConfig, difcProxyHost: 'custom-host:9999' };
         const result = generateDockerCompose(configWithCliProxy, mockNetworkConfigWithCliProxy);

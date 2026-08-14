@@ -182,6 +182,14 @@ interface DockerService {
   volumes?: string[];
 
   /**
+   * Mount the container root filesystem read-only.
+   *
+   * Writable bind mounts and tmpfs entries remain writable when explicitly
+   * configured.
+   */
+  read_only?: boolean;
+
+  /**
    * Environment variables for the container
    * 
    * Key-value pairs of environment variables. Values can include variable

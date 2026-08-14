@@ -8,7 +8,10 @@
  * connect to localhost (matching the cert's SAN) while the actual
  * traffic goes to the external DIFC proxy on the host.
  *
- * Usage: node tcp-tunnel.js <localPort> <remoteHost> <remotePort>
+ * Usage: node tcp-tunnel.js <localPort> <remoteHost> <remotePort> [bindHost]
+ *
+ * bindHost defaults to loopback-only. The credential-free egress relay passes
+ * 0.0.0.0 so the internal cli-proxy can reach its single fixed target.
  */
 
 const net = require('net');
@@ -20,9 +23,10 @@ function sanitizeForLog(value) {
 const localPortStr = process.argv[2];
 const remoteHost = process.argv[3];
 const remotePortStr = process.argv[4];
+const bindHostArg = process.argv[5];
 
 if (!localPortStr || !remoteHost || !remotePortStr) {
-  console.error('[tcp-tunnel] Usage: node tcp-tunnel.js <localPort> <remoteHost> <remotePort>');
+  console.error('[tcp-tunnel] Usage: node tcp-tunnel.js <localPort> <remoteHost> <remotePort> [bindHost]');
   process.exit(1);
 }
 
@@ -38,7 +42,7 @@ if (isNaN(remotePort) || remotePort < 1 || remotePort > 65535) {
   process.exit(1);
 }
 
-const bindHosts = ['127.0.0.1', '::1'];
+const bindHosts = bindHostArg ? [bindHostArg] : ['127.0.0.1', '::1'];
 let startedServers = 0;
 let readyLogged = false;
 
@@ -69,7 +73,8 @@ for (const bindHost of bindHosts) {
     startedServers += 1;
     if (!readyLogged && (startedServers === bindHosts.length || bindHost === '127.0.0.1')) {
       readyLogged = true;
-      console.log(`[tcp-tunnel] Forwarding localhost:${localPort} → ${remoteHost}:${remotePort}`);
+      const listenAddress = bindHostArg || 'localhost';
+      console.log(`[tcp-tunnel] Forwarding ${listenAddress}:${localPort} → ${remoteHost}:${remotePort}`);
     }
   });
 }

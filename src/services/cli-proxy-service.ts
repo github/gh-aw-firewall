@@ -13,12 +13,16 @@ import { buildNoProxyEnv } from './no-proxy-utils';
 interface CliProxyBuildResult {
   /** The cli-proxy service definition to add to Docker Compose services. */
   service: any;
+  /** Credential-free fixed-target relay used when the DIFC proxy is external. */
+  relayService?: any;
   /**
    * Additional environment variables to merge into the agent container's environment.
    * These tell the agent how to reach the CLI proxy for GitHub API operations.
    */
   agentEnvAdditions: Record<string, string>;
 }
+
+export const CLI_PROXY_EGRESS_SERVICE_NAME = 'cli-proxy-egress';
 
 interface CliProxyServiceParams {
   config: WrapperConfig;
@@ -75,12 +79,9 @@ export function normalizeLoopbackDifcHost(host: string): string {
  * a public DNS name — rather than as a sibling container attached to
  * `awf-net`.
  *
- * In network-isolation mode `awf-net` is `internal: true`, so a cli-proxy that
- * only joins it has no route to the host gateway and its tcp-tunnel fails with
- * `ENETUNREACH`. Such a cli-proxy must be dual-homed onto the external bridge,
- * exactly like Squid and the API proxy. A sibling container reachable on the
- * internal network — either a bare DNS label (`awmg-cli-proxy`) or a static IP
- * inside `awf-net`'s own subnet — must stay there so it gains no extra egress.
+ * In network-isolation mode `awf-net` is `internal: true`, so an external DIFC
+ * endpoint must be reached through a credential-free fixed-target relay. The
+ * credential-bearing cli-proxy itself must remain on `awf-net`.
  *
  * Callers must pass the host through {@link normalizeLoopbackDifcHost} first
  * so loopback spellings are already resolved to `host.docker.internal`.
@@ -121,10 +122,12 @@ export function buildCliProxyService(params: CliProxyServiceParams): CliProxyBui
   // network attachment classification).
   const { host: parsedDifcProxyHost, port: difcProxyPort } = parseDifcProxyHost(config.difcProxyHost);
   const difcProxyHost = normalizeLoopbackDifcHost(parsedDifcProxyHost);
+  const needsEgressRelay = !!config.networkIsolation && isExternalDifcProxyHost(difcProxyHost);
+  const cliProxyUpstreamHost = needsEgressRelay ? CLI_PROXY_EGRESS_SERVICE_NAME : difcProxyHost;
 
   // --- CLI proxy HTTP server (Node.js + gh CLI) ---
   // Connects to external DIFC proxy via TCP tunnel for TLS hostname matching.
-  // The TCP tunnel forwards localhost:${difcProxyPort} → ${difcProxyHost}:${difcProxyPort}
+  // The TCP tunnel forwards localhost:${difcProxyPort} → ${cliProxyUpstreamHost}:${difcProxyPort}
   // so that gh CLI's GH_HOST=localhost:${difcProxyPort} matches the cert's SAN.
   const cliProxyService: any = {
     container_name: CLI_PROXY_CONTAINER_NAME,
@@ -132,13 +135,6 @@ export function buildCliProxyService(params: CliProxyServiceParams): CliProxyBui
       'awf-net': {
         ipv4_address: cliProxyIp,
       },
-      // In network-isolation mode `awf-net` is internal, so an external DIFC
-      // proxy (host gateway or public DNS name) is unreachable from it. Attach
-      // the external bridge as well — mirroring Squid and the API proxy — so
-      // the tcp-tunnel can dial the host instead of failing with ENETUNREACH.
-      ...(config.networkIsolation && isExternalDifcProxyHost(difcProxyHost)
-        ? { [EXTERNAL_BRIDGE_NAME]: {} }
-        : {}),
     },
     // Enable host.docker.internal resolution for connecting to host DIFC proxy
     extra_hosts: { 'host.docker.internal': 'host-gateway' },
@@ -152,8 +148,9 @@ export function buildCliProxyService(params: CliProxyServiceParams): CliProxyBui
       config.dockerHostPathPrefix,
     ),
     environment: {
-      // External DIFC proxy connection info for tcp-tunnel.js
-      AWF_DIFC_PROXY_HOST: difcProxyHost,
+      // In topology mode an external endpoint is reached only through the
+      // credential-free fixed-target relay on awf-net.
+      AWF_DIFC_PROXY_HOST: cliProxyUpstreamHost,
       AWF_DIFC_PROXY_PORT: difcProxyPort,
       // Pass GITHUB_REPOSITORY for GH_REPO default in entrypoint
       ...(process.env.GITHUB_REPOSITORY && { GITHUB_REPOSITORY: process.env.GITHUB_REPOSITORY }),
@@ -177,6 +174,13 @@ export function buildCliProxyService(params: CliProxyServiceParams): CliProxyBui
       'squid-proxy': {
         condition: 'service_healthy',
       },
+      ...(needsEgressRelay
+        ? {
+            [CLI_PROXY_EGRESS_SERVICE_NAME]: {
+              condition: 'service_healthy',
+            },
+          }
+        : {}),
     },
     // Security hardening and resource limits to prevent DoS attacks
     ...buildContainerSecurityHardening({ memLimit: '256m', pidsLimit: 50, cpuShares: 256 }),
@@ -188,6 +192,41 @@ export function buildCliProxyService(params: CliProxyServiceParams): CliProxyBui
     useGHCR, registry, imageName: 'cli-proxy', parsedTag, projectRoot, containerDir: 'cli-proxy',
   });
 
+  let relayService: any;
+  if (needsEgressRelay) {
+    relayService = {
+      container_name: 'awf-cli-proxy-egress',
+      networks: {
+        'awf-net': {},
+        [EXTERNAL_BRIDGE_NAME]: {},
+      },
+      extra_hosts: { 'host.docker.internal': 'host-gateway' },
+      environment: {
+        AWF_CLI_PROXY_RELAY_ONLY: '1',
+        AWF_DIFC_PROXY_HOST: difcProxyHost,
+        AWF_DIFC_PROXY_PORT: difcProxyPort,
+      },
+      healthcheck: {
+        test: [
+          'CMD',
+          'node',
+          '-e',
+          `const s=require('net').connect(${difcProxyPort},'127.0.0.1',()=>{s.end();process.exit(0)});s.on('error',()=>process.exit(1))`,
+        ],
+        interval: '5s',
+        timeout: '3s',
+        retries: 5,
+        start_period: '5s',
+      },
+      read_only: true,
+      ...buildContainerSecurityHardening({ memLimit: '64m', pidsLimit: 20, cpuShares: 128 }),
+      stop_grace_period: '2s',
+    };
+    assignImageSource(relayService, {
+      useGHCR, registry, imageName: 'cli-proxy', parsedTag, projectRoot, containerDir: 'cli-proxy',
+    });
+  }
+
   // Tell the agent how to reach the CLI proxy (use cli-proxy's own IP)
   const agentEnvAdditions: Record<string, string> = {
     AWF_CLI_PROXY_URL: `http://${cliProxyIp}:${CLI_PROXY_PORT}`,
@@ -196,5 +235,5 @@ export function buildCliProxyService(params: CliProxyServiceParams): CliProxyBui
 
   logger.info(`CLI proxy sidecar enabled - connecting to external DIFC proxy at ${config.difcProxyHost}`);
 
-  return { service: cliProxyService, agentEnvAdditions };
+  return { service: cliProxyService, relayService, agentEnvAdditions };
 }

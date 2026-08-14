@@ -297,13 +297,16 @@ function assembleCliProxyService(params: AssembleOptionalServicesParams): void {
 
   if (!config.difcProxyHost || !networkConfig.cliProxyIp) return;
 
-  const { service: cliService, agentEnvAdditions } = buildCliProxyService({
+  const { service: cliService, relayService, agentEnvAdditions } = buildCliProxyService({
     config,
     networkConfig,
     cliProxyLogsPath,
     imageConfig,
   });
 
+  if (relayService) {
+    services['cli-proxy-egress'] = relayService;
+  }
   services['cli-proxy'] = cliService;
   Object.assign(environment, agentEnvAdditions);
   agentService.depends_on['cli-proxy'] = {

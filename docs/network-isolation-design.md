@@ -19,18 +19,18 @@ filtering:
 - **Squid is dual-homed** (`awf-net` + an external `awf-ext` bridge) and is therefore the
   **sole egress path for the agent**; it still applies the same domain allowlist. The agent
   itself never touches `awf-ext` directly.
-- The **cli-proxy sidecar is dual-homed too, but only when its own `--difc-proxy-host`
-  target is *external*** (`host.docker.internal`, a bare IP outside `awf-net`'s subnet, or a
-  dotted DNS name). This is a narrow, separate egress path used solely by the cli-proxy's
-  own tcp-tunnel to reach the DIFC proxy — the agent still has no route off `awf-net` and
-  still egresses only through Squid. Without this second path off the internal network the
-  tcp-tunnel fails with `ENETUNREACH` and the container never becomes healthy. When the
-  DIFC proxy is instead an attached sibling container (a bare Docker service name, or a
-  static IP inside `awf-net`'s own subnet), the cli-proxy stays on `awf-net` only.
+- The credential-bearing **cli-proxy sidecar always remains on `awf-net` only**. When its
+  `--difc-proxy-host` target is external (`host.docker.internal`, a bare IP outside
+  `awf-net`'s subnet, or a dotted DNS name), AWF creates a separate credential-free
+  `cli-proxy-egress` relay. Only this fixed-target TCP relay is dual-homed, and it can
+  forward solely to the configured DIFC host and port. This lets the cli-proxy reach the
+  host DIFC proxy without giving agent-controlled `gh` or Git subprocesses an unrestricted
+  route through `awf-ext`. When the DIFC proxy is an attached sibling container, no relay
+  is needed or created.
 - No host iptables, no `NET_ADMIN`, no `sudo`.
 
-This works today for the agent's own egress, and (as of the dual-homing above) for AWF's
-own `--difc-proxy-host` cli-proxy sidecar. What it does **not** yet handle is gh-aw's
+This works today for the agent's own egress, and (through the fixed-target relay above)
+for AWF's own `--difc-proxy-host` cli-proxy sidecar. What it does **not** yet handle is gh-aw's
 **separate** integration model, where gh-aw itself launches the **MCP gateway (mcpg)** and
 the **gh CLI integrity proxy (DIFC)** as **host-network containers** reached via
 `--enable-host-access`. Topology mode deliberately rejects `--enable-host-access`, and an
