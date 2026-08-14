@@ -59,6 +59,7 @@ export interface MicrovmNetworkPlanOptions {
   readonly tapOwnerUid: number;
   readonly tapOwnerGid: number;
   readonly controlPeer?: MicrovmControlPeer;
+  readonly controlPeers?: readonly MicrovmControlPeer[];
   /**
    * Create the TAP device with the `vnet_hdr` feature (a `struct
    * virtio_net_hdr` prefix on every frame read from/written to the tap
@@ -635,7 +636,10 @@ export function createMicrovmNetworkPlan(
 
   const allowedEndpoints = createAllowedEndpoints(
     options.enableApiProxy,
-    options.controlPeer,
+    [
+      ...(options.controlPeer ? [options.controlPeer] : []),
+      ...(options.controlPeers ?? []),
+    ],
   );
   const plan: MicrovmNetworkPlan = {
     runId,
@@ -758,7 +762,7 @@ export function generateMicrovmNftRuleset(plan: MicrovmNetworkPlan): string {
 
 function createAllowedEndpoints(
   enableApiProxy: boolean,
-  controlPeer?: MicrovmControlPeer,
+  controlPeers: readonly MicrovmControlPeer[],
 ): readonly MicrovmAllowedEndpoint[] {
   const endpoints: MicrovmAllowedEndpoint[] = [{
     name: 'squid',
@@ -774,7 +778,7 @@ function createAllowedEndpoints(
       });
     }
   }
-  if (controlPeer) {
+  for (const controlPeer of controlPeers) {
     assertPrivateIpv4(controlPeer.ip, 'control peer IP');
     if (
       !isInCidr(controlPeer.ip, NETWORK_SUBNET) ||

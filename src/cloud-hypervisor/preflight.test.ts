@@ -9,6 +9,7 @@ import {
   calculateSha256,
   cloudHypervisorPreflightTestHelpers,
   parseCloudHypervisorVersion,
+  parseVirtiofsdVersion,
   runCloudHypervisorPreflight,
   type CloudHypervisorPreflightDependencies,
 } from './preflight';
@@ -46,7 +47,9 @@ function dependencies(
       mode: 0o100755,
       uid: 0,
     }),
-    runVersion: jest.fn().mockResolvedValue('cloud-hypervisor v53.0'),
+    runVersion: jest.fn(async (binaryPath: string) => (
+      binaryPath.endsWith('/virtiofsd') ? 'virtiofsd backend 1.10.0' : 'cloud-hypervisor v53.0'
+    )),
     sha256: jest.fn().mockResolvedValue(digest),
     assertToolAvailable: jest.fn(async (tool: string) => `/usr/bin/${tool}`),
     assertHostPolicy: jest.fn().mockResolvedValue(2),
@@ -169,11 +172,17 @@ describe('Cloud Hypervisor preflight (foundation only)', () => {
     expect(() => parseCloudHypervisorVersion('unknown')).toThrow(/Could not parse/);
   });
 
+  it('parses and pins virtiofsd v1.10.0 output', () => {
+    expect(parseVirtiofsdVersion('virtiofsd backend 1.10.0')).toBe('1.10.0');
+    expect(() => parseVirtiofsdVersion('virtiofsd unknown')).toThrow(/Could not parse/);
+  });
+
   it('pins Cloud Hypervisor v53.0 and verifies configured digests', async () => {
     const deps = dependencies();
     const result = await runCloudHypervisorPreflight(config({
       sha256: {
         cloudHypervisor: digest,
+        virtiofsd: digest,
         kernel: digest,
         rootfs: digest,
         supervisor: digest,
@@ -181,6 +190,7 @@ describe('Cloud Hypervisor preflight (foundation only)', () => {
     }), deps);
 
     expect(result.version).toBe('53.0');
+    expect(result.virtiofsdBinary).toBe('/opt/virtiofsd');
     expect(result.cgroupVersion).toBe(2);
     expect(result.kvmGid).toBe(978);
     expect(deps.resolveKvmGid).toHaveBeenCalledTimes(1);
@@ -188,8 +198,8 @@ describe('Cloud Hypervisor preflight (foundation only)', () => {
       '/dev/kvm',
       constants.R_OK | constants.W_OK,
     );
-    expect(deps.sha256).toHaveBeenCalledTimes(4);
-    expect(deps.assertToolAvailable).toHaveBeenCalledTimes(9);
+    expect(deps.sha256).toHaveBeenCalledTimes(5);
+    expect(deps.assertToolAvailable).toHaveBeenCalledTimes(11);
     expect(deps.assertDockerInfrastructure).toHaveBeenCalledWith('/usr/bin/docker');
     expect(result.tools).toEqual({
       ip: '/usr/bin/ip',
@@ -199,6 +209,8 @@ describe('Cloud Hypervisor preflight (foundation only)', () => {
       debugfs: '/usr/bin/debugfs',
       e2fsck: '/usr/bin/e2fsck',
       rsync: '/usr/bin/rsync',
+      mount: '/usr/bin/mount',
+      umount: '/usr/bin/umount',
       setpriv: '/usr/bin/setpriv',
     });
   });
@@ -240,6 +252,32 @@ describe('Cloud Hypervisor preflight (foundation only)', () => {
       config({ sha256: { kernel: 'bad' } }),
       dependencies(),
     )).rejects.toThrow(/must contain exactly 64 hexadecimal/);
+  });
+
+  it('rejects a missing or mismatched sibling virtiofsd', async () => {
+    await expect(runCloudHypervisorPreflight(
+      config(),
+      dependencies({
+        lstat: jest.fn(async (filePath: string) => {
+          if (filePath === '/opt/virtiofsd') throw Object.assign(new Error('missing'), { code: 'ENOENT' });
+          return {
+            isFile: () => true,
+            isSymbolicLink: () => false,
+            mode: 0o100755,
+            uid: 0,
+          };
+        }),
+      }),
+    )).rejects.toThrow(/virtiofsd/);
+
+    await expect(runCloudHypervisorPreflight(
+      config(),
+      dependencies({
+        runVersion: jest.fn(async (filePath: string) => (
+          filePath.endsWith('/virtiofsd') ? 'virtiofsd backend 1.9.0' : 'cloud-hypervisor v53.0'
+        )),
+      }),
+    )).rejects.toThrow(/virtiofsd is pinned to v1\.10\.0/);
   });
 
   it('verifies Cloud Hypervisor digest before invoking the binary', async () => {

@@ -62,6 +62,7 @@ describe('Cloud Hypervisor CI workflow', () => {
     expect(pullRequest.paths).toEqual(
       expect.arrayContaining([
         'guest/cloud-hypervisor/**',
+        'containers/build-tools/**',
         'src/cloud-hypervisor/**',
         'scripts/ci/cloud-hypervisor-*.sh',
       ]),
@@ -86,6 +87,8 @@ describe('Cloud Hypervisor CI workflow', () => {
     const build = doc.jobs['build-test-artifacts'];
     const runSteps = (build.steps ?? []).map((step) => step.run).filter(Boolean) as string[];
     expect(runSteps.some((run) => run.includes('./guest/cloud-hypervisor/build-test-artifacts.sh'))).toBe(true);
+    expect(runSteps.some((run) => run.includes('docker build') && run.includes('containers/build-tools'))).toBe(true);
+    expect(runSteps.some((run) => run.includes('BUILD_TOOLS_IMAGE=awf-cloud-hypervisor-build-tools:test'))).toBe(true);
     expect(runSteps.some((run) => run.includes('./guest/cloud-hypervisor/verify-test-artifacts.sh'))).toBe(true);
     const usesSteps = (build.steps ?? []).map((step) => step.uses).filter(Boolean) as string[];
     expect(usesSteps.some((uses) => uses.startsWith('actions/attest-build-provenance@'))).toBe(true);

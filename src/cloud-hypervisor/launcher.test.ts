@@ -65,7 +65,6 @@ describe('computeCloudHypervisorLandlockRules', () => {
     const rules = computeCloudHypervisorLandlockRules({
       kernelPath: '/run/awf/kernel',
       rootfsPath: '/run/awf/rootfs.ext4',
-      workspacePath: '/run/awf/workspace.ext4',
       runDirectory: '/run/awf/run',
       apiSocketPath: '/run/awf/run/api.socket',
       vsockSocketPath: '/run/awf/run/vsock.socket',
@@ -79,11 +78,13 @@ describe('computeCloudHypervisorLandlockRules', () => {
       { path: '/dev/kvm', access: 'rw' },
       { path: '/dev/net/tun', access: 'rw' },
       { path: '/sys/class/net/fctabc123', access: 'r' },
-      { path: '/run/awf/workspace.ext4', access: 'rw' },
     ]);
+    expect(rules).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: '/host/workspace' }),
+    ]));
   });
 
-  it('omits the workspace rule when no workspace disk is configured', () => {
+  it('does not grant VMM access to host export source trees', () => {
     const rules = computeCloudHypervisorLandlockRules({
       kernelPath: '/run/awf/kernel',
       rootfsPath: '/run/awf/rootfs.ext4',

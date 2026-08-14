@@ -81,6 +81,12 @@ describe('microVM network planning', () => {
     const withControl = createPlan('control-peer', {
       controlPeer: { ip: '172.30.0.60', ports: [8443, 8444] },
     });
+    const withControls = createPlan('control-peers', {
+      controlPeers: [
+        { ip: '172.30.0.60', ports: [8080] },
+        { ip: '172.30.0.61', ports: [9090] },
+      ],
+    });
 
     expect(enabled.allowedEndpoints).toEqual([
       { name: 'squid', ip: '172.30.0.10', port: 3128 },
@@ -96,6 +102,10 @@ describe('microVM network planning', () => {
     expect(withControl.allowedEndpoints).toEqual(expect.arrayContaining([
       { name: 'control-peer', ip: '172.30.0.60', port: 8443 },
       { name: 'control-peer', ip: '172.30.0.60', port: 8444 },
+    ]));
+    expect(withControls.allowedEndpoints).toEqual(expect.arrayContaining([
+      { name: 'control-peer', ip: '172.30.0.60', port: 8080 },
+      { name: 'control-peer', ip: '172.30.0.61', port: 9090 },
     ]));
   });
 

@@ -7,19 +7,21 @@ set -euo pipefail
 # This reproduces the same 13-case behavioral/security contract as
 # scripts/ci/firecracker-live-smoke.sh (allowed/blocked domains, direct
 # egress, arbitrary TCP, DNS, metadata IP, mandatory API-proxy reflect with
-# secret-sentinel absence, workspace copy-back incl. symlinks/permissions,
+# secret-sentinel absence, live workspace sharing incl. symlinks/permissions,
 # exit-code propagation, timeout, SIGTERM cancellation, partial-start
 # rollback, keep/preserve diagnostics), then adds Cloud Hypervisor-specific
 # live checks that have no Firecracker/jailer equivalent:
 #
-#   - device-assumptions: confirms the guest-visible eth0/{/dev/vda,/dev/vdb}
-#     layout documented in docs/cloud-hypervisor-foundation.md Part 6 holds.
+#   - device-assumptions: confirms eth0, the sole /dev/vda block disk, and
+#     virtio-fs workspace layout documented in Part 6.
+#   - runtime-cache-readonly: proves the narrow runner runtime share is
+#     readable but daemon/mount-enforced read-only.
 #   - security-assertions: while a run is live, inspects the host-visible
 #     Cloud Hypervisor process and its own vm.info response to confirm the
 #     launcher's jailer-replacement boundary (netns join, non-root identity,
 #     capability set limited to CAP_NET_ADMIN alone, no_new_privs, active
 #     seccomp filter, per-run cgroup membership/limits, landlock_enable
-#     reflected in vm.create, and an exactly-minimal disk/net/vsock device
+#     reflected in vm.create, and an exactly-minimal disk/fs/net/vsock device
 #     set with no path to the host-only API socket) — see
 #     src/cloud-hypervisor/launcher.ts.
 #
@@ -63,6 +65,7 @@ COMMON=(
   --cloud-hypervisor-rootfs "$ARTIFACT_DIR/rootfs.ext4"
   --cloud-hypervisor-supervisor "$ARTIFACT_DIR/awf-supervisor"
   --cloud-hypervisor-binary-sha256 "$(digest cloud-hypervisor)"
+  --cloud-hypervisor-virtiofsd-sha256 "$(digest virtiofsd)"
   --cloud-hypervisor-kernel-sha256 "$(digest vmlinux.bin)"
   --cloud-hypervisor-rootfs-sha256 "$(digest rootfs.ext4)"
   --cloud-hypervisor-supervisor-sha256 "$(digest awf-supervisor)"
@@ -113,6 +116,11 @@ assert_no_residue() {
   if pgrep -f 'cloud-hypervisor --api-socket' >/dev/null 2>&1; then
     pgrep -af 'cloud-hypervisor --api-socket' >&2
     echo "Cloud Hypervisor process residue detected" >&2
+    return 1
+  fi
+  if pgrep -f "$ARTIFACT_DIR/virtiofsd.*--shared-dir=" >/dev/null 2>&1; then
+    pgrep -af "$ARTIFACT_DIR/virtiofsd.*--shared-dir=" >&2
+    echo "Cloud Hypervisor virtiofsd process residue detected" >&2
     return 1
   fi
   if sudo find /run/awf-cloud-hypervisor -mindepth 2 2>/dev/null \
@@ -262,21 +270,26 @@ run_case metadata-denial 0 \
 run_case api-proxy-reflect 0 \
   'wget -qO /tmp/reflect http://172.30.0.30:10000/reflect && grep -q "providers" /tmp/reflect && ! env | grep -F "awf-cloud-hypervisor-real-secret-do-not-expose"'
 
-run_case workspace-copyback 0 \
+run_case workspace-live-share 0 \
   'printf changed > .hidden && mkdir -p bin && printf "#!/bin/sh\necho ok\n" > bin/run && chmod 755 bin/run && ln -s bin/run run-link'
-test "$(cat "$RUN_ROOT/workspace-copyback/workspace/.hidden")" = changed
-test -x "$RUN_ROOT/workspace-copyback/workspace/bin/run"
-test "$(readlink "$RUN_ROOT/workspace-copyback/workspace/run-link")" = bin/run
+test "$(cat "$RUN_ROOT/workspace-live-share/workspace/.hidden")" = changed
+test -x "$RUN_ROOT/workspace-live-share/workspace/bin/run"
+test "$(readlink "$RUN_ROOT/workspace-live-share/workspace/run-link")" = bin/run
+
+mkdir -p "$RUNNER_TEMP/gh-aw"
+printf 'cache-readable\n' >"$RUNNER_TEMP/gh-aw/awf-virtiofs-ro-probe"
+run_case runtime-cache-readonly 0 \
+  'grep -q cache-readable "$RUNNER_TEMP/gh-aw/awf-virtiofs-ro-probe" && ! printf changed > "$RUNNER_TEMP/gh-aw/awf-virtiofs-ro-probe"'
+test "$(cat "$RUNNER_TEMP/gh-aw/awf-virtiofs-ro-probe")" = cache-readable
 
 run_case exit-code 37 'exit 37'
 run_case timeout-124 124 'sleep 90' --agent-timeout 1
 
 # Cloud Hypervisor-specific guest device-topology assumptions (Part 6 of
-# docs/cloud-hypervisor-foundation.md): PCI-attached rootfs/workspace disks
-# surface as /dev/vda and /dev/vdb, and the single virtio-net device is
-# deterministically named eth0.
+# docs/cloud-hypervisor-foundation.md): the rootfs is the sole PCI block disk,
+# the workspace is virtio-fs, and the single virtio-net device is eth0.
 run_case device-assumptions 0 \
-  'test -b /dev/vda && test -b /dev/vdb && ip link show eth0 | grep -q eth0'
+  'test -b /dev/vda && ! test -b /dev/vdb && grep -q " /workspace virtiofs " /proc/mounts && ip link show eth0 | grep -q eth0'
 
 corrupt="$RUN_ROOT/corrupt-rootfs.ext4"
 printf 'not-an-ext4-image\n' >"$corrupt"
@@ -501,7 +514,7 @@ esac
 [ "$memory_current" -le "$memory_max" ] || fail_security "memory.current ($memory_current) exceeds memory.max ($memory_max)"
 
 # vm.info reflects landlock_enable and an exactly-minimal, expected device
-# topology (rootfs+workspace disks, single net device, vsock) — proving the
+# topology (one rootfs disk, narrow virtio-fs devices, net, vsock) — proving the
 # host-only API socket is never exposed to the guest as any device. Poll
 # until vm.info reports state "Running": the API socket appears before
 # vm.create/vm.boot (manager.ts), so a one-shot request here would race
@@ -519,7 +532,6 @@ run_token=$(printf '%s' "$run_id" | sha256sum | cut -c1-12)
 expected_tap="fct$run_token"
 expected_namespace="awffc-$run_token"
 expected_rootfs_path="$run_directory/rootfs.ext4"
-expected_workspace_path="$run_directory/workspace.ext4"
 expected_vsock_socket="$run_directory/awf-vsock.socket"
 
 vm_info=""
@@ -536,7 +548,7 @@ done
 
 node -e '
   const [
-    infoJson, expectedTap, expectedRootfsPath, expectedWorkspacePath, expectedVsockSocket,
+    infoJson, expectedTap, expectedRootfsPath, expectedVsockSocket, expectedRunDirectory,
   ] = process.argv.slice(1);
   const info = JSON.parse(infoJson);
   if (info.state !== "Running") {
@@ -545,14 +557,14 @@ node -e '
   const config = info.config || {};
 
   // Reject any unexpected top-level device-bearing config field (e.g. a
-  // virtio-fs, pmem, vdpa, or VFIO device this preview never configures) —
+  // pmem, vdpa, or VFIO device this preview never configures) —
   // not just count the devices we do expect. pvpanic/iommu/debug_console
   // are always present in Cloud Hypervisor v53.0 own vm.info response
   // as disabled feature toggles, not devices this preview ever attaches --
   // they add no actual attack surface and are allowed here so this check
   // still targets genuinely unexpected *devices*, not benign metadata.
   const allowedKeys = new Set([
-    "cpus", "memory", "payload", "disks", "net", "rng", "serial", "console",
+    "cpus", "memory", "payload", "disks", "fs", "net", "rng", "serial", "console",
     "vsock", "watchdog", "landlock_enable", "landlock_rules",
     "pvpanic", "iommu", "debug_console",
   ]);
@@ -573,15 +585,28 @@ node -e '
   }
 
   const disks = config.disks || [];
-  if (disks.length !== 2) {
-    throw new Error("expected exactly 2 disks (rootfs, workspace), got " + disks.length);
+  if (disks.length !== 1) {
+    throw new Error("expected exactly 1 rootfs disk, got " + disks.length);
   }
-  const [rootfsDisk, workspaceDisk] = disks;
+  const [rootfsDisk] = disks;
   if (rootfsDisk.id !== "rootfs" || rootfsDisk.path !== expectedRootfsPath) {
     throw new Error("rootfs disk mismatch: " + JSON.stringify(rootfsDisk));
   }
-  if (workspaceDisk.id !== "workspace" || workspaceDisk.path !== expectedWorkspacePath) {
-    throw new Error("workspace disk mismatch: " + JSON.stringify(workspaceDisk));
+  if (config.memory.shared !== true) {
+    throw new Error("memory.shared must be true with virtio-fs");
+  }
+  const fsDevices = config.fs || [];
+  if (!fsDevices.some(device => device.tag === "workspace")) {
+    throw new Error("workspace virtio-fs device is missing: " + JSON.stringify(fsDevices));
+  }
+  const allowedTags = new Set(["workspace", "runner-tool-cache", "runner-temp-gh-aw", "tmp-gh-aw"]);
+  for (const device of fsDevices) {
+    if (!allowedTags.has(device.tag) ||
+        !device.socket.startsWith(expectedRunDirectory + "/virtiofs-") ||
+        device.num_queues !== 1 ||
+        device.queue_size !== 1024) {
+      throw new Error("unexpected virtio-fs device: " + JSON.stringify(device));
+    }
   }
   for (const disk of disks) {
     if (disk.path && disk.path.endsWith("api.socket")) {
@@ -600,7 +625,7 @@ node -e '
   if (!config.vsock || config.vsock.cid !== 3 || config.vsock.socket !== expectedVsockSocket) {
     throw new Error("vsock device mismatch: expected cid=3 socket=" + expectedVsockSocket + ", got " + JSON.stringify(config.vsock));
   }
-' "$vm_info" "$expected_tap" "$expected_rootfs_path" "$expected_workspace_path" "$expected_vsock_socket" \
+' "$vm_info" "$expected_tap" "$expected_rootfs_path" "$expected_vsock_socket" "$run_directory" \
   || fail_security "vm.info device-topology assertion failed: $vm_info"
 
 # Cross-check the expected TAP interface actually exists on the host (not

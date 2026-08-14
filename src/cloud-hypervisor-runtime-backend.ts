@@ -18,7 +18,7 @@ import type {
 import type { CloudHypervisorPreflightResult } from './cloud-hypervisor/preflight';
 import { CloudHypervisorManager } from './cloud-hypervisor/manager';
 import { runCloudHypervisorPreflight } from './cloud-hypervisor/preflight';
-import { getRealUserHome, getSafeHostGid, getSafeHostUid } from './host-identity';
+import { getSafeHostGid, getSafeHostUid } from './host-identity';
 import { logger } from './logger';
 import { buildGuestEnvironment } from './microvm/guest-environment';
 import type { CloudHypervisorOptions, WrapperConfig } from './types';
@@ -26,6 +26,10 @@ import {
   assertCloudHypervisorRuntimeCompatibility,
   requireCloudHypervisorConfig,
 } from './cloud-hypervisor/runtime-validation';
+import {
+  resolveCloudHypervisorExports,
+  type CloudHypervisorDirectoryExport,
+} from './cloud-hypervisor/exports';
 export {
   assertCloudHypervisorPreSecurityCompatibility,
   assertCloudHypervisorRuntimeCompatibility,
@@ -49,6 +53,7 @@ const CLOUD_HYPERVISOR_GUEST_HOME = `${CLOUD_HYPERVISOR_GUEST_WORKSPACE}/.awf-ho
 const CLOUD_HYPERVISOR_PROBE_TIMEOUT_MS = 90_000;
 const CLOUD_HYPERVISOR_CANCEL_GRACE_MS = 3_000;
 const CLOUD_HYPERVISOR_MAX_TIMEOUT_MS = 86_400_000;
+const MCP_GATEWAY_PORT = 8080;
 
 interface CloudHypervisorBackendLogger {
   debug(message: string, ...args: unknown[]): void;
@@ -73,17 +78,19 @@ interface CloudHypervisorManagerAdapter {
 export interface CloudHypervisorRuntimeBackendDependencies {
   startInfrastructure: WorkflowDependencies['startContainers'];
   preflight(config: CloudHypervisorOptions): Promise<CloudHypervisorPreflightResult>;
-  resolveInfrastructure(enableApiProxy: boolean, ipPath?: string): Promise<MicrovmInfrastructureSnapshot>;
+  resolveInfrastructure(
+    enableApiProxy: boolean,
+    ipPath?: string,
+    topologyPeerNames?: readonly string[],
+  ): Promise<MicrovmInfrastructureSnapshot>;
   createManager(
     config: CloudHypervisorOptions,
     workDir: string,
     infrastructure: MicrovmInfrastructureSnapshot,
-    workspacePath: string,
-    homePath: string,
+    exports: readonly CloudHypervisorDirectoryExport[],
     identity: { uid: number; gid: number },
   ): CloudHypervisorManagerAdapter;
-  workspacePath(): string;
-  homePath(): string;
+  resolveExports(): Promise<CloudHypervisorDirectoryExport[]>;
   identity(): { uid: number; gid: number };
   stdin: Readable & { isTTY?: boolean };
   stdout: Writable;
@@ -97,9 +104,9 @@ function defaultDependencies(
   return {
     startInfrastructure,
     preflight: runCloudHypervisorPreflight,
-    resolveInfrastructure: (enableApiProxy, ipPath) =>
-      resolveMicrovmInfrastructure(enableApiProxy, undefined, ipPath),
-    createManager: (config, workDir, infrastructure, workspacePath, homePath, identity) =>
+    resolveInfrastructure: (enableApiProxy, ipPath, topologyPeerNames) =>
+      resolveMicrovmInfrastructure(enableApiProxy, undefined, ipPath, topologyPeerNames),
+    createManager: (config, workDir, infrastructure, exports, identity) =>
       new CloudHypervisorManager(
         config,
         workDir,
@@ -108,17 +115,21 @@ function defaultDependencies(
         {
           infrastructureBridge: infrastructure.bridgeName,
           enableApiProxy: Boolean(infrastructure.apiProxyIp),
+          apiProxyIp: infrastructure.apiProxyIp,
+          controlPeers: Object.values(infrastructure.topologyPeerIps).map((ip) => ({
+            ip,
+            ports: [MCP_GATEWAY_PORT],
+          })),
+          hostAliases: infrastructure.topologyPeerIps,
         },
         {
-          workspacePath,
-          homePath,
+          exports,
           supervisorBinaryPath: config.supervisorPath!,
           supervisorSha256: config.sha256!.supervisor!,
           identity,
         },
       ),
-    workspacePath: () => process.env.GITHUB_WORKSPACE || process.cwd(),
-    homePath: getRealUserHome,
+    resolveExports: () => resolveCloudHypervisorExports(),
     identity: () => ({
       uid: Number(getSafeHostUid()),
       gid: Number(getSafeHostGid()),
@@ -146,6 +157,7 @@ export class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBacken
   private stopping: Promise<void> | undefined;
   private identity: { uid: number; gid: number } | undefined;
   private preflightResult: CloudHypervisorPreflightResult | undefined;
+  private infrastructure: MicrovmInfrastructureSnapshot | undefined;
   private diagnosticsCollected = false;
 
   constructor(
@@ -198,14 +210,16 @@ export class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBacken
       const infrastructure = await this.dependencies.resolveInfrastructure(
         Boolean(this.config.enableApiProxy),
         this.preflightResult?.tools.ip,
+        this.config.topologyAttach,
       );
+      this.infrastructure = infrastructure;
       this.identity = this.dependencies.identity();
+      const exports = await this.dependencies.resolveExports();
       this.manager = this.dependencies.createManager(
         cloudHypervisor,
         workDir,
         infrastructure,
-        this.dependencies.workspacePath(),
-        this.dependencies.homePath(),
+        exports,
         this.identity,
       );
 
@@ -220,6 +234,7 @@ export class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBacken
         this.config,
         infrastructure,
         this.manager.guestIp,
+        exports,
       );
       stage = 'guest-boot';
       await this.manager.startInstance();
@@ -429,26 +444,28 @@ export class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBacken
     if (!identity) {
       throw new Error('Cloud Hypervisor guest identity is not ready');
     }
-    // The guest rootfs is a minimal BusyBox userland (see
-    // guest/cloud-hypervisor/build-test-artifacts.sh); it has no `curl`
-    // binary, only BusyBox's `nc`/`wget` applets. `nc -z` verifies Squid's
+    // Keep the readiness probe limited to the ARC build-tools baseline even
+    // though that userspace also includes curl. `nc -z` verifies Squid's
     // TCP listener is up without depending on HTTP status-code semantics
     // (a raw, non-proxy-style request to Squid's own port returns a 4xx
     // error page by design, which BusyBox wget would treat as a script
-    // failure by default, unlike curl without `--fail`). `-v` makes
-    // BusyBox nc print an "open"/error line instead of staying silent, so
+    // failure by default, unlike curl without `--fail`). `-v` makes nc
+    // print an "open"/error line instead of staying silent, so
     // a failure has *something* to report. The API proxy check does
     // expect a real 2xx from its `/reflect` endpoint, so wget is used
     // there directly (matching the smoke test's own api-proxy-reflect
     // case), with the proxy env vars unset so the request reaches the
     // sidecar directly rather than being routed through Squid. Discovered
-    // via live-KVM validation: curl exits 127 ("command not found") on
-    // this rootfs.
+    // via live-KVM validation on the original BusyBox rootfs.
     const squidProbe = `nc -v -z -w 60 ${SQUID_IP} 3128`;
     const apiProxyProbe = this.config.enableApiProxy
       ? ` && (unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy ALL_PROXY all_proxy; ` +
         `wget -q -T 20 -O /dev/null http://${API_PROXY_IP}:10000/reflect)`
       : '';
+    const topologyPeerProbe = Object.values(this.infrastructure?.topologyPeerIps ?? {})
+      .map((ip) => ` && nc -v -z -w 60 ${ip} ${MCP_GATEWAY_PORT}`)
+      .join('');
+    const topologyPeerCount = Object.keys(this.infrastructure?.topologyPeerIps ?? {}).length;
     // Capture (bounded) stdout/stderr so a probe failure can report which
     // leg failed and why, rather than only a bare exit code -- useful for
     // diagnosing this compound nc-then-wget command without a full guest
@@ -457,11 +474,11 @@ export class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBacken
     const stderrCollector = createBoundedOutputCollector();
     const result = await manager.execute({
       requestId: `probe-${process.pid}-${Date.now()}`,
-      argv: ['/bin/sh', '-c', `set -eu; ${squidProbe}${apiProxyProbe}`],
+      argv: ['/bin/sh', '-c', `set -eu; ${squidProbe}${apiProxyProbe}${topologyPeerProbe}`],
       env: environment,
       cwd: CLOUD_HYPERVISOR_GUEST_WORKSPACE,
       ...identity,
-      timeoutMs: CLOUD_HYPERVISOR_PROBE_TIMEOUT_MS,
+      timeoutMs: CLOUD_HYPERVISOR_PROBE_TIMEOUT_MS + topologyPeerCount * 60_000,
       stdout: stdoutCollector.stream,
       stderr: stderrCollector.stream,
     });
@@ -482,7 +499,7 @@ export class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBacken
       );
     }
     this.dependencies.logger.info(
-      '[cloud-hypervisor] Guest supervisor, Squid, and API proxy connectivity verified',
+      '[cloud-hypervisor] Guest supervisor and trusted service connectivity verified',
     );
   }
 
@@ -530,8 +547,12 @@ export class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBacken
 
 export function buildCloudHypervisorGuestEnvironment(
   config: WrapperConfig,
-  infrastructure: Pick<MicrovmInfrastructureSnapshot, 'squidIp' | 'apiProxyIp'>,
+  infrastructure: Pick<
+    MicrovmInfrastructureSnapshot,
+    'squidIp' | 'apiProxyIp' | 'topologyPeerIps'
+  >,
   guestIp = '100.64.0.2',
+  exports: readonly CloudHypervisorDirectoryExport[] = [],
 ): Record<string, string> {
   const networkConfig = {
     subnet: NETWORK_SUBNET,
@@ -539,7 +560,7 @@ export function buildCloudHypervisorGuestEnvironment(
     agentIp: guestIp,
     proxyIp: infrastructure.apiProxyIp,
   };
-  return buildGuestEnvironment({
+  const environment = buildGuestEnvironment({
     config,
     networkConfig,
     home: CLOUD_HYPERVISOR_GUEST_HOME,
@@ -547,6 +568,28 @@ export function buildCloudHypervisorGuestEnvironment(
     runtimeName: 'cloud-hypervisor',
     runtimeDisplayName: 'Cloud Hypervisor',
   });
+  const topologyPeerBypasses = Object.entries(infrastructure.topologyPeerIps)
+    .flatMap(([name, ip]) => [name, ip]);
+  if (topologyPeerBypasses.length > 0) {
+    const noProxy = new Set((environment.NO_PROXY ?? '').split(',').filter(Boolean));
+    topologyPeerBypasses.forEach((peer) => noProxy.add(peer));
+    environment.NO_PROXY = [...noProxy].join(',');
+    environment.no_proxy = environment.NO_PROXY;
+  }
+  environment.GITHUB_WORKSPACE = CLOUD_HYPERVISOR_GUEST_WORKSPACE;
+  for (const name of ['RUNNER_TOOL_CACHE', 'AGENT_TOOLSDIRECTORY', 'RUNNER_TEMP'] as const) {
+    delete environment[name];
+  }
+  const toolCache = exports.find((entry) => entry.tag === 'runner-tool-cache');
+  if (toolCache) {
+    if (process.env.RUNNER_TOOL_CACHE) environment.RUNNER_TOOL_CACHE = toolCache.target;
+    else environment.AGENT_TOOLSDIRECTORY = toolCache.target;
+  }
+  const runnerTemp = exports.find((entry) => entry.tag === 'runner-temp-gh-aw');
+  if (runnerTemp) {
+    environment.RUNNER_TEMP = runnerTemp.target.slice(0, -'/gh-aw'.length);
+  }
+  return environment;
 }
 
 function formatError(error: unknown): string {

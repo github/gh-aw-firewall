@@ -5,8 +5,8 @@ import { assertGithubHostedRunnerEligibility } from './host-eligibility';
 /**
  * Explicit, fail-closed compatibility guards for the Cloud Hypervisor
  * v53.0 microVM runtime. This module mirrors
- * `src/firecracker/runtime-validation.ts` closely — same security-mode,
- * topology, and Docker-host requirements — with two Cloud
+ * `src/firecracker/runtime-validation.ts` closely — same security-mode
+ * and Docker-host requirements — with two Cloud
  * Hypervisor-specific additions: no jailer digest is required (Cloud
  * Hypervisor has no jailer-equivalent process) and host eligibility is
  * additionally restricted to GitHub-hosted Ubuntu x86_64 KVM runners via
@@ -47,12 +47,13 @@ export function assertCloudHypervisorRuntimeCompatibility(
   const digests = cloudHypervisor.sha256;
   if (
     !digests?.cloudHypervisor ||
+    !digests.virtiofsd ||
     !digests.kernel ||
     !digests.rootfs ||
     !digests.supervisor
   ) {
     throw new Error(
-      'Cloud Hypervisor preview requires SHA-256 digests for cloud-hypervisor, kernel, rootfs, and supervisor',
+      'Cloud Hypervisor preview requires SHA-256 digests for cloud-hypervisor, virtiofsd, kernel, rootfs, and supervisor',
     );
   }
 }
@@ -74,13 +75,9 @@ export function assertCloudHypervisorPreSecurityCompatibility(config: WrapperCon
   if (config.volumeMounts?.length) {
     throw new Error('Cloud Hypervisor preview does not support additional host volume mounts');
   }
-  if (
-    config.topologyAttach?.length ||
-    config.difcProxyHost ||
-    config.enclaves?.enabled
-  ) {
+  if (config.difcProxyHost || config.enclaves?.enabled) {
     throw new Error(
-      'Cloud Hypervisor preview does not yet prove the MCP gateway path; topology peers and enclaves are disabled',
+      'Cloud Hypervisor preview does not yet support DIFC proxies or enclaves',
     );
   }
   if (config.dnsOverHttps) {

@@ -28,6 +28,7 @@ function config(overrides: Partial<WrapperConfig> = {}): WrapperConfig {
       apiTimeoutMs: 5000,
       sha256: {
         cloudHypervisor: digest,
+        virtiofsd: digest,
         kernel: digest,
         rootfs: digest,
         supervisor: digest,
@@ -63,6 +64,7 @@ function infrastructure(): MicrovmInfrastructureSnapshot {
     gateway: '172.30.0.1',
     squidIp: '172.30.0.10',
     apiProxyIp: '172.30.0.30',
+    topologyPeerIps: {},
     revalidate: jest.fn().mockResolvedValue(undefined),
   };
 }
@@ -70,6 +72,7 @@ function infrastructure(): MicrovmInfrastructureSnapshot {
 const preflightResult = {
   version: '53.0',
   cloudHypervisorBinary: '/opt/cloud-hypervisor',
+  virtiofsdBinary: '/opt/virtiofsd',
   kernelPath: '/opt/kernel',
   rootfsPath: '/opt/rootfs',
   supervisorPath: '/opt/supervisor',
@@ -83,6 +86,8 @@ const preflightResult = {
     debugfs: '/usr/sbin/debugfs',
     e2fsck: '/usr/sbin/e2fsck',
     rsync: '/usr/bin/rsync',
+    mount: '/usr/bin/mount',
+    umount: '/usr/bin/umount',
     setpriv: '/usr/bin/setpriv',
   },
 };
@@ -122,8 +127,9 @@ function harness(overrides: Partial<CloudHypervisorRuntimeBackendDependencies> =
     preflight: jest.fn(async () => { order.push('preflight'); return preflightResult; }),
     resolveInfrastructure: jest.fn(async () => infra),
     createManager: jest.fn(() => manager),
-    workspacePath: () => '/workspace-host',
-    homePath: () => '/home/runner',
+    resolveExports: jest.fn().mockResolvedValue([
+      { tag: 'workspace', source: '/workspace-host', target: '/workspace', mode: 'rw' },
+    ]),
     identity: () => ({ uid: 1000, gid: 1000 }),
     stdin,
     stdout: new PassThrough(),
@@ -150,16 +156,15 @@ describe('Cloud Hypervisor runtime backend', () => {
     eligibilitySpy.mockRestore();
   });
 
-  it('constructs default backend dependencies and manager policy', () => {
+  it('constructs default backend dependencies and manager policy', async () => {
     const startInfrastructure = jest.fn();
     const defaults = cloudHypervisorRuntimeTestHelpers.defaultDependencies(startInfrastructure);
     const previousWorkspace = process.env.GITHUB_WORKSPACE;
-    process.env.GITHUB_WORKSPACE = '/github/workspace';
+    process.env.GITHUB_WORKSPACE = process.cwd();
     try {
-      expect(defaults.workspacePath()).toBe('/github/workspace');
-      delete process.env.GITHUB_WORKSPACE;
-      expect(defaults.workspacePath()).toBe(process.cwd());
-      expect(defaults.homePath()).toBeTruthy();
+      await expect(defaults.resolveExports()).resolves.toEqual(expect.arrayContaining([
+        expect.objectContaining({ tag: 'workspace', target: '/workspace', mode: 'rw' }),
+      ]));
       expect(defaults.identity()).toEqual({
         uid: expect.any(Number),
         gid: expect.any(Number),
@@ -168,8 +173,7 @@ describe('Cloud Hypervisor runtime backend', () => {
         config().cloudHypervisor!,
         '/tmp/awf',
         infrastructure(),
-        '/workspace',
-        '/home/runner',
+        [{ tag: 'workspace', source: '/workspace', target: '/workspace', mode: 'rw' }],
         { uid: 1000, gid: 1000 },
       )).toBeDefined();
       expect(createCloudHypervisorRuntimeBackend(config(), startInfrastructure))
@@ -210,6 +214,41 @@ describe('Cloud Hypervisor runtime backend', () => {
     expect(manager.writeStdin).toHaveBeenCalledWith(
       Buffer.from('input'),
       expect.stringMatching(/^agent-/),
+    );
+  });
+
+  it('discovers and probes trusted topology peers before agent execution', async () => {
+    const { manager, deps } = harness();
+    const peerInfrastructure = {
+      ...infrastructure(),
+      topologyPeerIps: { 'awmg-mcpg': '172.30.0.60' },
+    };
+    (deps.resolveInfrastructure as jest.Mock).mockResolvedValue(peerInfrastructure);
+    const backend = new CloudHypervisorRuntimeBackend(
+      config({ topologyAttach: ['awmg-mcpg'] }),
+      deps,
+    );
+
+    await backend.start('/tmp/awf', ['github.com']);
+    await backend.stop();
+
+    expect(deps.resolveInfrastructure).toHaveBeenCalledWith(
+      true,
+      '/usr/bin/ip',
+      ['awmg-mcpg'],
+    );
+    expect(manager.execute).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        argv: expect.arrayContaining([
+          expect.stringContaining('nc -v -z -w 60 172.30.0.60 8080'),
+        ]),
+        env: expect.objectContaining({
+          NO_PROXY: expect.stringContaining('awmg-mcpg'),
+          no_proxy: expect.stringContaining('172.30.0.60'),
+        }),
+        timeoutMs: 150_000,
+      }),
     );
   });
 
@@ -389,13 +428,10 @@ describe('Cloud Hypervisor runtime backend', () => {
     expect(netDiagCall.argv).toEqual(['/bin/sh', '-c', 'ip addr show; echo ---; ip route show; echo ---; ip neigh show']);
   });
 
-  it('probes guest connectivity with nc/wget instead of curl, which the BusyBox guest rootfs lacks', async () => {
-    // Regression test: the guest rootfs is a minimal BusyBox userland (see
-    // guest/cloud-hypervisor/build-test-artifacts.sh) with no `curl`
-    // binary. The original probe shelled out to `curl`, which exits 127
-    // ("command not found") on this rootfs — discovered via live-KVM
-    // validation, where every guest boot up through vsock readiness
-    // succeeded but probeGuestConnectivity() then failed with exit 127.
+  it('probes guest connectivity with the ARC build-tools baseline nc/wget commands', async () => {
+    // Keep this regression coverage independent of curl-specific HTTP
+    // behavior. The original BusyBox guest exposed the issue after every
+    // boot reached vsock readiness but the connectivity probe exited 127.
     const { manager, deps } = harness();
     manager.execute.mockReset().mockResolvedValueOnce({
       requestId: 'probe', exitCode: 0, signal: null, timedOut: false,
@@ -679,6 +715,51 @@ describe('Cloud Hypervisor runtime backend', () => {
     expect(environment.http_proxy).toBe('http://172.30.0.10:3128');
   });
 
+  it('maps only exported runner paths and keeps the guest home in the writable workspace', () => {
+    const previousToolCache = process.env.RUNNER_TOOL_CACHE;
+    const previousRunnerTemp = process.env.RUNNER_TEMP;
+    try {
+      process.env.RUNNER_TOOL_CACHE = '/opt/hostedtoolcache';
+      process.env.RUNNER_TEMP = '/home/runner/work/_temp';
+      const environment = buildCloudHypervisorGuestEnvironment(
+        config(),
+        infrastructure(),
+        '100.64.0.2',
+        [
+          {
+            tag: 'workspace',
+            source: '/host/workspace',
+            target: '/workspace',
+            mode: 'rw',
+          },
+          {
+            tag: 'runner-tool-cache',
+            source: '/opt/hostedtoolcache',
+            target: '/opt/hostedtoolcache',
+            mode: 'ro',
+          },
+          {
+            tag: 'runner-temp-gh-aw',
+            source: '/home/runner/work/_temp/gh-aw',
+            target: '/home/runner/work/_temp/gh-aw',
+            mode: 'ro',
+          },
+        ],
+      );
+      expect(environment).toMatchObject({
+        HOME: '/workspace/.awf-home',
+        GITHUB_WORKSPACE: '/workspace',
+        RUNNER_TOOL_CACHE: '/opt/hostedtoolcache',
+        RUNNER_TEMP: '/home/runner/work/_temp',
+      });
+    } finally {
+      if (previousToolCache === undefined) delete process.env.RUNNER_TOOL_CACHE;
+      else process.env.RUNNER_TOOL_CACHE = previousToolCache;
+      if (previousRunnerTemp === undefined) delete process.env.RUNNER_TEMP;
+      else process.env.RUNNER_TEMP = previousRunnerTemp;
+    }
+  });
+
   it('rejects unsupported strict-security and topology combinations', () => {
     expect(() => assertCloudHypervisorPreSecurityCompatibility(
       config({ enableDind: true }),
@@ -688,7 +769,7 @@ describe('Cloud Hypervisor runtime backend', () => {
     )).toThrow(/host access/);
     expect(() => assertCloudHypervisorPreSecurityCompatibility(
       config({ enclaves: { enabled: true } } as Partial<WrapperConfig>),
-    )).toThrow(/MCP gateway path/);
+    )).toThrow(/DIFC proxies or enclaves/);
     expect(() => assertCloudHypervisorSelection(
       config({ containerRuntime: 'gvisor' }),
     )).toThrow(/require --container-runtime cloud-hypervisor/);

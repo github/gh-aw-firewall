@@ -781,6 +781,9 @@
             "cloudHypervisor": {
               "$ref": "#/$defs/sha256Digest"
             },
+            "virtiofsd": {
+              "$ref": "#/$defs/sha256Digest"
+            },
             "kernel": {
               "$ref": "#/$defs/sha256Digest"
             },

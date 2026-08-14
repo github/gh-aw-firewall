@@ -13,6 +13,7 @@ on:
     paths:
       - '.github/workflows/test-cloud-hypervisor.yml'
       - 'guest/cloud-hypervisor/**'
+      - 'containers/build-tools/**'
       - 'guest/firecracker-supervisor/**'
       - 'src/cloud-hypervisor/**'
       - 'src/cloud-hypervisor-runtime-backend.ts'
@@ -73,11 +74,17 @@ jobs:
             libelf-dev \
             libssl-dev \
             rsync \
+            virtiofsd \
             xz-utils
 
       - name: Build and verify pinned artifacts
         run: |
-          ./guest/cloud-hypervisor/build-test-artifacts.sh
+          docker build \
+            --platform linux/amd64 \
+            --tag awf-cloud-hypervisor-build-tools:test \
+            containers/build-tools
+          BUILD_TOOLS_IMAGE=awf-cloud-hypervisor-build-tools:test \
+            ./guest/cloud-hypervisor/build-test-artifacts.sh
           ./guest/cloud-hypervisor/verify-test-artifacts.sh \
             release/cloud-hypervisor-test-x86_64
 
@@ -102,7 +109,7 @@ jobs:
       (github.event_name == 'pull_request' &&
        contains(github.event.pull_request.labels.*.name, 'cloud-hypervisor-kvm'))
     runs-on: ubuntu-24.04
-    # 15 cases, each with up to a 90s boot budget and (since the guest
+    # 16 cases, each with up to a 90s boot budget and (since the guest
     # connectivity probe raised its own timeout for the same nested-KVM
     # scheduling reasons) up to a further 90s probe budget in the worst
     # case; 60 minutes leaves headroom without masking a genuine hang.
@@ -132,6 +139,7 @@ jobs:
           # needed to exec the pinned, already-verified binaries.
           chmod 0755 \
             "$RUNNER_TEMP/cloud-hypervisor-test-x86_64/cloud-hypervisor" \
+            "$RUNNER_TEMP/cloud-hypervisor-test-x86_64/virtiofsd" \
             "$RUNNER_TEMP/cloud-hypervisor-test-x86_64/awf-supervisor"
 
       - name: Grant workflow user access to KVM
