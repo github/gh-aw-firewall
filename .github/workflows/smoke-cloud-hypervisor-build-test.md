@@ -28,6 +28,10 @@ network:
     - github
     - node
     - go
+    - ms-feed-2.pkgs.visualstudio.com
+    - ms-feed-12.pkgs.visualstudio.com
+    - ms-feed-17.pkgs.visualstudio.com
+    - ms-feed-25.pkgs.visualstudio.com
 tools:
   bash:
     - "*"
