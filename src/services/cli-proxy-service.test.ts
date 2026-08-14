@@ -1,4 +1,4 @@
-import { isExternalDifcProxyHost } from './cli-proxy-service';
+import { isExternalDifcProxyHost, normalizeLoopbackDifcHost } from './cli-proxy-service';
 import { generateDockerCompose, WrapperConfig, baseConfig, mockNetworkConfig, useTempWorkDir } from './service-test-setup.test-utils';
 
 // Create mock functions (must remain per-file — jest.mock() is hoisted before imports)
@@ -102,13 +102,26 @@ describe('CLI proxy sidecar (external DIFC proxy)', () => {
         expect(env.AWF_DIFC_PROXY_PORT).toBe('9999');
       });
 
-      it('should parse IPv6 bracketed host:port from difcProxyHost', () => {
+      it('should parse IPv6 bracketed host:port from difcProxyHost, normalizing loopback', () => {
+        // [::1] is the cli-proxy container's own loopback, not the runner
+        // host, so it must be normalized to host.docker.internal — otherwise
+        // the tcp-tunnel would dial itself instead of the host DIFC proxy.
         const configWithCliProxy = { ...mockConfig, difcProxyHost: '[::1]:18443' };
         const result = generateDockerCompose(configWithCliProxy, mockNetworkConfigWithCliProxy);
         const proxy = result.services['cli-proxy'];
         const env = proxy.environment as Record<string, string>;
-        expect(env.AWF_DIFC_PROXY_HOST).toBe('::1');
+        expect(env.AWF_DIFC_PROXY_HOST).toBe('host.docker.internal');
         expect(env.AWF_DIFC_PROXY_PORT).toBe('18443');
+      });
+
+      it('should normalize localhost and 127.0.0.1 difcProxyHost to host.docker.internal', () => {
+        for (const host of ['localhost:18443', '127.0.0.1:18443']) {
+          const configWithCliProxy = { ...mockConfig, difcProxyHost: host };
+          const result = generateDockerCompose(configWithCliProxy, mockNetworkConfigWithCliProxy);
+          const proxy = result.services['cli-proxy'];
+          const env = proxy.environment as Record<string, string>;
+          expect(env.AWF_DIFC_PROXY_HOST).toBe('host.docker.internal');
+        }
       });
 
       it('should default port to 18443 when only host is specified', () => {
@@ -276,9 +289,8 @@ describe('CLI proxy sidecar (external DIFC proxy)', () => {
         }
       });
   describe('isExternalDifcProxyHost', () => {
-    it('treats host gateway, loopback, IPs and dotted names as external', () => {
+    it('treats host gateway, non-subnet IPs and dotted names as external', () => {
       expect(isExternalDifcProxyHost('host.docker.internal')).toBe(true);
-      expect(isExternalDifcProxyHost('localhost')).toBe(true);
       expect(isExternalDifcProxyHost('172.17.0.1')).toBe(true);
       expect(isExternalDifcProxyHost('::1')).toBe(true);
       expect(isExternalDifcProxyHost('difc.example.com')).toBe(true);
@@ -287,6 +299,31 @@ describe('CLI proxy sidecar (external DIFC proxy)', () => {
     it('treats bare container names as attached siblings', () => {
       expect(isExternalDifcProxyHost('awmg-cli-proxy')).toBe(false);
       expect(isExternalDifcProxyHost('')).toBe(false);
+    });
+
+    it('treats a static IP inside awf-net\'s own subnet as an attached sibling', () => {
+      // 172.30.0.0/24 is awf-net's own subnet (see NETWORK_SUBNET); a sibling
+      // given a static address there needs no extra egress.
+      expect(isExternalDifcProxyHost('172.30.0.50')).toBe(false);
+      expect(isExternalDifcProxyHost('172.30.0.255')).toBe(false);
+      // Just outside the /24 is still external.
+      expect(isExternalDifcProxyHost('172.30.1.1')).toBe(true);
+    });
+  });
+
+  describe('normalizeLoopbackDifcHost', () => {
+    it('rewrites loopback spellings to host.docker.internal', () => {
+      expect(normalizeLoopbackDifcHost('localhost')).toBe('host.docker.internal');
+      expect(normalizeLoopbackDifcHost('LOCALHOST')).toBe('host.docker.internal');
+      expect(normalizeLoopbackDifcHost('127.0.0.1')).toBe('host.docker.internal');
+      expect(normalizeLoopbackDifcHost('127.5.6.7')).toBe('host.docker.internal');
+      expect(normalizeLoopbackDifcHost('::1')).toBe('host.docker.internal');
+    });
+
+    it('leaves non-loopback hosts unchanged', () => {
+      expect(normalizeLoopbackDifcHost('host.docker.internal')).toBe('host.docker.internal');
+      expect(normalizeLoopbackDifcHost('awmg-cli-proxy')).toBe('awmg-cli-proxy');
+      expect(normalizeLoopbackDifcHost('172.30.0.50')).toBe('172.30.0.50');
     });
   });
 });

@@ -1,5 +1,5 @@
 import { CLI_PROXY_CONTAINER_NAME } from '../constants';
-import { EXTERNAL_BRIDGE_NAME } from '../config/network-policy';
+import { EXTERNAL_BRIDGE_NAME, NETWORK_SUBNET } from '../config/network-policy';
 import { isValidIPv4, isValidIPv6 } from '../domain-utils';
 import { parseDifcProxyHost } from '../host-env';
 import { assignImageSource } from '../image-tag';
@@ -28,22 +28,74 @@ interface CliProxyServiceParams {
 }
 
 /**
+ * Returns true when `ip` (a dotted-quad IPv4 literal) falls inside `cidr`
+ * (e.g. `172.30.0.0/24`). Used to recognize a DIFC proxy that was given a
+ * static address on `awf-net` itself — such a host is a Compose sibling, not
+ * an external endpoint, regardless of it being spelled as an IP literal.
+ */
+function isIPv4InCidr(ip: string, cidr: string): boolean {
+  const [rangeIp, prefixLenStr] = cidr.split('/');
+  const prefixLen = Number(prefixLenStr);
+  const toInt = (addr: string): number | null => {
+    const octets = addr.split('.').map(Number);
+    if (octets.length !== 4 || octets.some((o) => Number.isNaN(o) || o < 0 || o > 255)) return null;
+    return octets.reduce((acc, o) => (acc << 8) + o, 0) >>> 0;
+  };
+  const ipInt = toInt(ip);
+  const rangeInt = toInt(rangeIp);
+  if (ipInt === null || rangeInt === null || Number.isNaN(prefixLen)) return false;
+  const mask = prefixLen === 0 ? 0 : (0xffffffff << (32 - prefixLen)) >>> 0;
+  return (ipInt & mask) === (rangeInt & mask);
+}
+
+/**
+ * Rewrites a DIFC proxy host that refers to the cli-proxy container's own
+ * loopback interface (`localhost`, `127.0.0.0/8`, `::1`) to
+ * `host.docker.internal`.
+ *
+ * `tcp-tunnel.js` binds `localhost:<port>` inside the cli-proxy container and
+ * forwards to `AWF_DIFC_PROXY_HOST`. If that host were left as a loopback
+ * literal, the tunnel would dial itself instead of the runner-host proxy it
+ * is meant to reach — a self-connect, not a route to the host. Any loopback
+ * spelling can only sensibly mean "the DIFC proxy on the runner host", so it
+ * is normalized to the host gateway name rather than merely classified as
+ * external.
+ */
+export function normalizeLoopbackDifcHost(host: string): string {
+  const normalized = host.trim().toLowerCase();
+  if (normalized === 'localhost' || normalized === '::1' || normalized.startsWith('127.')) {
+    return 'host.docker.internal';
+  }
+  return host;
+}
+
+/**
  * Returns true when the DIFC proxy lives outside the AWF Compose project — on
- * the runner host (`host.docker.internal`, a bare IP, `localhost`) or behind a
- * public DNS name — rather than as a sibling container attached to `awf-net`.
+ * the runner host (`host.docker.internal`, a bare non-`awf-net` IP) or behind
+ * a public DNS name — rather than as a sibling container attached to
+ * `awf-net`.
  *
  * In network-isolation mode `awf-net` is `internal: true`, so a cli-proxy that
  * only joins it has no route to the host gateway and its tcp-tunnel fails with
  * `ENETUNREACH`. Such a cli-proxy must be dual-homed onto the external bridge,
- * exactly like Squid and the API proxy. A sibling container (a bare DNS label
- * such as `awmg-cli-proxy`) is reachable on the internal network and must stay
- * there so it gains no extra egress.
+ * exactly like Squid and the API proxy. A sibling container reachable on the
+ * internal network — either a bare DNS label (`awmg-cli-proxy`) or a static IP
+ * inside `awf-net`'s own subnet — must stay there so it gains no extra egress.
+ *
+ * Callers must pass the host through {@link normalizeLoopbackDifcHost} first
+ * so loopback spellings are already resolved to `host.docker.internal`.
+ *
+ * Caveat: a single-label host (no dot, e.g. `difcproxy`) is always treated as
+ * an attached sibling. A genuinely external DIFC proxy addressed by a bare,
+ * search-domain-resolved DNS label would be misclassified and remain
+ * unreachable — that host must be given a dotted name (or a literal IP
+ * outside `awf-net`'s subnet) to be recognized as external.
  */
 export function isExternalDifcProxyHost(host: string): boolean {
   const normalized = host.trim().toLowerCase();
   if (!normalized) return false;
-  if (isValidIPv4(normalized) || isValidIPv6(normalized)) return true;
-  if (normalized === 'localhost') return true;
+  if (isValidIPv4(normalized)) return !isIPv4InCidr(normalized, NETWORK_SUBNET);
+  if (isValidIPv6(normalized)) return true;
   // Dotted names (host.docker.internal, difc.example.com) resolve outside the
   // Compose project; bare labels are Docker service/container names.
   return normalized.includes('.');
@@ -63,8 +115,12 @@ export function buildCliProxyService(params: CliProxyServiceParams): CliProxyBui
 
   const cliProxyIp = networkConfig.cliProxyIp;
 
-  // Parse host:port from difcProxyHost (supports IPv6, e.g. [::1]:18443)
-  const { host: difcProxyHost, port: difcProxyPort } = parseDifcProxyHost(config.difcProxyHost);
+  // Parse host:port from difcProxyHost (supports IPv6, e.g. [::1]:18443).
+  // Loopback spellings refer to the cli-proxy container's own interface, not
+  // the runner host, so normalize them before use anywhere below (env vars,
+  // network attachment classification).
+  const { host: parsedDifcProxyHost, port: difcProxyPort } = parseDifcProxyHost(config.difcProxyHost);
+  const difcProxyHost = normalizeLoopbackDifcHost(parsedDifcProxyHost);
 
   // --- CLI proxy HTTP server (Node.js + gh CLI) ---
   // Connects to external DIFC proxy via TCP tunnel for TLS hostname matching.
