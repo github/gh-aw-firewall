@@ -24,6 +24,7 @@ function networkInspection(
     Containers: {
       squid: { Name: 'awf-squid', IPv4Address: '172.30.0.10/24' },
       proxy: { Name: 'awf-api-proxy', IPv4Address: '172.30.0.30/24' },
+      gateway: { Name: 'awmg-mcpg', IPv4Address: '172.30.0.60/24' },
     },
     ...overrides,
   }];
@@ -114,6 +115,7 @@ describe('microVM infrastructure discovery', () => {
       gateway: '172.30.0.1',
       squidIp: '172.30.0.10',
       apiProxyIp: '172.30.0.30',
+      topologyPeerIps: {},
     }));
     await resolved.revalidate();
     expect(deps.inspectNetwork).toHaveBeenCalledTimes(2);
@@ -217,6 +219,62 @@ describe('microVM infrastructure discovery', () => {
       })),
     );
     expect(resolved.apiProxyIp).toBeUndefined();
+  });
+
+  it('discovers and revalidates exact trusted topology peer addresses', async () => {
+    const deps = dependencies();
+    const resolved = await resolveMicrovmInfrastructure(
+      true,
+      deps,
+      undefined,
+      ['awmg-mcpg'],
+    );
+
+    expect(resolved.topologyPeerIps).toEqual({ 'awmg-mcpg': '172.30.0.60' });
+    deps.inspectNetwork.mockResolvedValueOnce(networkInspection({
+      Containers: {
+        squid: { Name: 'awf-squid', IPv4Address: '172.30.0.10/24' },
+        proxy: { Name: 'awf-api-proxy', IPv4Address: '172.30.0.30/24' },
+        gateway: { Name: 'awmg-mcpg', IPv4Address: '172.30.0.61/24' },
+      },
+    }));
+    await expect(resolved.revalidate()).rejects.toThrow(/topology changed/);
+  });
+
+  it('rejects missing, duplicate, unsafe, or malformed topology peers', async () => {
+    await expect(resolveMicrovmInfrastructure(
+      true,
+      dependencies(),
+      undefined,
+      ['missing'],
+    )).rejects.toThrow(/exactly one "missing" endpoint/);
+
+    await expect(resolveMicrovmInfrastructure(
+      true,
+      dependencies(),
+      undefined,
+      ['awmg-mcpg', 'awmg-mcpg'],
+    )).rejects.toThrow(/Duplicate microVM topology peer/);
+
+    await expect(resolveMicrovmInfrastructure(
+      true,
+      dependencies(),
+      undefined,
+      ['unsafe/name'],
+    )).rejects.toThrow(/Unsafe microVM topology peer name/);
+
+    await expect(resolveMicrovmInfrastructure(
+      true,
+      dependencies(networkInspection({
+        Containers: {
+          squid: { Name: 'awf-squid', IPv4Address: '172.30.0.10/24' },
+          proxy: { Name: 'awf-api-proxy', IPv4Address: '172.30.0.30/24' },
+          gateway: { Name: 'awmg-mcpg', IPv4Address: 'invalid' },
+        },
+      })),
+      undefined,
+      ['awmg-mcpg'],
+    )).rejects.toThrow(/invalid IPv4 address/);
   });
 
   it('rejects an accidentally composed primary agent', async () => {

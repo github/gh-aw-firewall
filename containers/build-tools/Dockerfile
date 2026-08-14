@@ -87,7 +87,7 @@ RUN set -eux; \
       tar gzip bzip2 xz-utils unzip zip \
       # Networking and certs
       ca-certificates curl wget git jq \
-      dnsutils net-tools netcat-openbsd \
+      dnsutils iproute2 net-tools netcat-openbsd \
       # Agent container dependencies (must match containers/agent/Dockerfile)
       libcap2-bin gosu gnupg gh \
     && \

@@ -54,7 +54,8 @@ isolation), different VMM implementation and host launch strategy.
 | Privileged launcher | `jailer` binary (chroot, cgroup, netns join, uid/gid drop) | None — AWF's own launcher (netns join via `ip netns exec`, privilege drop via `setpriv`, Landlock via VM config) |
 | Bus for block/net/vsock | MMIO (`pci=off`) | virtio-**pci** (PCI required; no MMIO transport) |
 | Host support | Linux/KVM, GitHub-hosted or self-hosted | GitHub-hosted Ubuntu x86_64 KVM only |
-| Guest kernel, rootfs, supervisor | Own pinned artifacts | **Shared** pinned kernel config and guest supervisor binary with Firecracker |
+| Guest kernel, rootfs, supervisor | Own pinned artifacts | Shared upstream kernel config plus `CONFIG_VIRTIO_FS=y`; shared supervisor |
+| Workspace | Writable ext4 image with stop-time copy-back | Live read-write virtio-fs export at `/workspace` |
 | Resource limits | jailer's own cgroup (no explicit quotas set by AWF) | AWF creates and assigns an explicit memory/CPU/PID cgroup |
 
 ## Part 2 — Architecture
@@ -101,14 +102,14 @@ isolation), different VMM implementation and host launch strategy.
      does not manage.
 3. **`src/cloud-hypervisor/manager.ts`** — `CloudHypervisorManager` owns one
    run end to end: preflight → network namespace setup (reusing
-   `src/microvm/network.ts` unchanged) → workspace image preparation
-   (reusing `src/microvm/workspace.ts` unchanged) → private run-directory
-   staging → cgroup setup → launch → API-socket readiness → `vm.create` →
+   `src/microvm/network.ts` unchanged) → rootfs-only supervisor injection →
+   private run-directory staging → cgroup setup → VMM launch → API-socket
+   readiness → one sandboxed `virtiofsd` per validated export → `vm.create` →
    (later) `vm.boot` → VSOCK guest-supervisor connect, retried with a fresh
    client on the guest-boot-timing race documented in Part 3 (reusing
    `src/microvm/vsock-client.ts` and `guest-protocol.ts` unchanged) →
-   execution → graceful `vm.shutdown`/`vmm.shutdown` → process termination
-   → workspace extraction → network/cgroup/run-directory cleanup, with
+   execution → graceful `vm.shutdown`/`vmm.shutdown` → VMM termination
+   → virtiofsd termination → network/cgroup/run-directory cleanup, with
    aggregated cleanup-error reporting matching Firecracker's manager.
 4. **`src/cloud-hypervisor-runtime-backend.ts`** — `CloudHypervisorRuntimeBackend`
    implements `ExternalAgentRuntimeBackend`: infrastructure discovery
@@ -119,10 +120,11 @@ isolation), different VMM implementation and host launch strategy.
 
 ### Guest contents
 
-Unchanged from layer 2 and shared with Firecracker: the PCI-capable guest
-kernel (built from Firecracker's pinned `microvm-kernel-ci-x86_64-6.1.config`),
+Shared with Firecracker except for a deterministic `CONFIG_VIRTIO_FS=y`
+overlay on the PCI-capable guest kernel (the upstream
+`microvm-kernel-ci-x86_64-6.1.config` SHA remains pinned),
 a deterministic BusyBox + CA-bundle ext4 rootfs, and the VMM-neutral
-`awf-supervisor` guest binary (`guest/firecracker-supervisor/`, unmodified).
+shared `awf-supervisor` guest binary (`guest/firecracker-supervisor/`).
 
 ### Control flow
 
@@ -137,19 +139,19 @@ CloudHypervisorManager.start()
     ↓
 MicrovmNetworkManager.setup() (netns, veth, TAP, nftables — shared with Firecracker)
     ↓
-MicrovmWorkspaceImage.prepare() (workspace + rootfs staging — shared with Firecracker)
+MicrovmRootfsPreparer.prepare() (writable rootfs copy + supervisor injection; no workspace image)
     ↓
 private run directory under /run/awf-cloud-hypervisor (0711 ancestors, 0700 leaf owned by the non-root identity) + per-run cgroup v2 (subtree_control delegated root→parent→leaf)
     ↓
 buildCloudHypervisorLaunchCommand() → ip netns exec → setpriv --groups=<kvm-gid> --ambient-caps=+net_admin → cloud-hypervisor --api-socket ... --seccomp true (minimal PATH-only environment)
     ↓
-wait for API socket → vmm.ping → vm.create (landlock_enable: true, minimal landlock_rules)
+wait for API socket → vmm.ping → start sandboxed virtiofsd daemons → vm.create (memory.shared=true, fs devices, landlock_enable=true)
     ↓
 CloudHypervisorRuntimeBackend.start(): vm.boot → VSOCK connect (CID 3, CONNECT <port>\n, retried on the guest-boot-timing race — see Part 3) → Squid/API-proxy connectivity probe
     ↓
 Agent command executes inside the guest via the VSOCK guest-protocol transport (unchanged)
     ↓
-graceful guest shutdown → vm.shutdown → vmm.shutdown → SIGTERM/SIGKILL fallback → workspace extraction → network/cgroup/run-directory cleanup
+guest sync + reverse unmount → vm.shutdown → vmm.shutdown → SIGTERM/SIGKILL fallback → stop/reap virtiofsd → network/cgroup/run-directory cleanup
 ```
 
 ## Part 3 — Security boundary: the launcher in place of a jailer
@@ -196,7 +198,7 @@ boundary:
      with `0700` (so only that identity, or root, can read its contents);
    - **Landlock**, a Linux LSM, enabled via `landlock_enable: true` in the
      `vm.create` payload with a minimal `landlock_rules` list (kernel image
-     read-only; rootfs, workspace, and the run directory read-write;
+     read-only; rootfs and the run directory read-write;
      `/dev/kvm` and `/dev/net/tun` read-write for KVM ioctls and TAP
      attachment; the TAP's own `/sys/class/net/<tapName>` directory
      read-only, for the world-readable `tun_flags` sysfs attribute Cloud
@@ -205,7 +207,9 @@ boundary:
      `vm.boot` failing with "Failed to read the TAP flags from sysfs:
      Permission denied" even though ordinary Unix file permissions would
      have allowed it). Any path not listed becomes inaccessible to the Cloud
-     Hypervisor process the instant Landlock is enabled — enforced by the
+     Hypervisor process the instant Landlock is enabled. Export source trees
+     are deliberately absent: only the separate virtiofsd processes can open
+     them. This is enforced by the
      kernel, not a userspace boundary a compromised process could bypass.
    - Cloud Hypervisor's own **default seccomp filter** (`--seccomp true`,
      its default kill-on-violation mode).
@@ -220,7 +224,7 @@ boundary:
    cgroup root and the shared parent directory (`cgroup.subtree_control`)
    before the per-run leaf cgroup is created, then explicit
    `memory.max`/`cpu.max`/`pids.max` are written and the launched
-   process's PID is assigned to it immediately after spawn. Cgroup v1-only
+   VMM and every virtiofsd PID are assigned to it immediately after spawn. Cgroup v1-only
    hosts are rejected explicitly at preflight (see Part 4) rather than
    silently constructing a broken multi-controller v1 hierarchy.
 5. **The management API socket is never guest-accessible.** It lives only
@@ -275,40 +279,44 @@ account must have `/dev/kvm` access (typically via `kvm` group membership).
 Identical trust model to Firecracker (see
 [Firecracker's Part 5](./firecracker-integration.md#part-5--artifact-policy)):
 root/operator-owned non-writable regular files, trusted ancestor
-directories, pinned version, mandatory SHA-256 digests. Cloud Hypervisor has
-no jailer-equivalent binary, so there is one fewer artifact to pin than
-Firecracker (no jailer digest).
+directories, pinned version, mandatory SHA-256 digests. Cloud Hypervisor has no jailer-equivalent binary. It additionally requires a
+trusted executable sibling `virtiofsd`, pinned to Ubuntu Noble's v1.10.0.
 
 | Artifact | Version | SHA-256 |
 |---|---|---|
 | `cloud-hypervisor` (x86_64 static) | v53.0 | `448af3d4e59b22c2987f7df94c213ad40fb53a10d437e42b5ee6c4fce7c29ecc` |
+| `virtiofsd` (Ubuntu Noble `/usr/libexec/virtiofsd`) | v1.10.0 | recorded in bundle `SHA256SUMS` |
 | Linux kernel source | 6.1.141 | `bc3c45faf6f5f0450666c75fa9dad9bc7c0cf7c7cba0dbd94e5cfdc58229c116` |
-| Kernel config (from Firecracker v1.16.1) | `microvm-kernel-ci-x86_64-6.1.config` | `adbc70ab5e89213ba00594b12d25e09bdf8bb1ed3c252d7449326bb14c22963b` |
+| Upstream kernel config (from Firecracker v1.16.1) | `microvm-kernel-ci-x86_64-6.1.config` | `adbc70ab5e89213ba00594b12d25e09bdf8bb1ed3c252d7449326bb14c22963b` |
+| Final kernel config | upstream plus `CONFIG_FUSE_FS=y` and `CONFIG_VIRTIO_FS=y`, then `olddefconfig` | emitted as `kernel.config` and recorded in `SHA256SUMS` |
 | BusyBox source | 1.36.1 | `b8cc24c9574d809e7279c3be349795c5d5ceb6fdf19ca709f80cde50e47de314` |
 | CA bundle | 2025-02-25 | `50a6277ec69113f00c5fd45f09e8b97a4b3e32daa35d3a95ab30137a55386cef` |
 
 ## Part 6 — Devices, boot, and networking
 
 - **Boot**: direct kernel boot (no UEFI/firmware layer), root device
-  `/dev/vda`, workspace device `/dev/vdb`, `rootfstype=ext4`, `rw`,
+  `/dev/vda`, `rootfstype=ext4`, `rw`,
   `net.ifnames=0 biosdevname=0` for deterministic `eth0` naming. Unlike
   Firecracker, `pci=off` is **not** set — Cloud Hypervisor requires PCI.
-- **Devices**: virtio-**pci** block (rootfs, workspace), net (single TAP,
+- **Devices**: one virtio-**pci** block device (rootfs), virtio-fs shares,
+  net (single TAP,
   pre-created and owned exactly like Firecracker's), vsock (CID 3, same
   `CONNECT <port>\n` transport and guest-protocol framing as Firecracker),
   serial console redirected to a bounded host log file, virtio-console
-  disabled (`mode: "Off"`). No virtio-fs, snapshots, migration, hotplug,
+  disabled (`mode: "Off"`). No snapshots, migration, hotplug,
   VFIO, vhost-user, vDPA, TDX/SEV, or TPM.
-- **Networking**: the exact same TAP/netns/nftables design as Firecracker
-  (`src/microvm/network.ts`, unmodified) — mandatory network isolation,
-  mandatory API proxy credential isolation, identical egress ACL.
+- **Networking**: the same TAP/netns/nftables design as Firecracker
+  (`src/microvm/network.ts`) — mandatory network isolation and mandatory API
+  proxy credential isolation. Trusted `topologyAttach` peers are resolved from
+  the proven internal Docker network, revalidated before boot, injected into
+  the guest hosts file, and allowed only on TCP 8080 for the MCP gateway.
 
 ## Part 7 — Bounded diagnostics
 
 `CloudHypervisorManager.collectDiagnostics()` writes, all under a
 0700-mode directory with 0600-mode files bounded to 1 MiB each: launcher
 stdout/stderr capture, the Cloud Hypervisor log file, the guest serial
-console log, `vm.counters()` output (best-effort — failures don't block
+console log, bounded per-export virtiofsd logs, `vm.counters()` output (best-effort — failures don't block
 diagnostics), the resolved network plan, and a `runtime.json` summary. This
 mirrors Firecracker's `collectDiagnostics()` shape exactly.
 
@@ -323,6 +331,7 @@ sudo awf \
   --cloud-hypervisor-rootfs /opt/awf/rootfs.ext4 \
   --cloud-hypervisor-supervisor /opt/awf/awf-supervisor \
   --cloud-hypervisor-binary-sha256 <digest> \
+  --cloud-hypervisor-virtiofsd-sha256 <digest> \
   --cloud-hypervisor-kernel-sha256 <digest> \
   --cloud-hypervisor-rootfs-sha256 <digest> \
   --cloud-hypervisor-supervisor-sha256 <digest> \
@@ -337,19 +346,44 @@ config-file/CLI mapping.
 ## Part 9 — Explicit scope limits (this layer)
 
 - **Direct kernel boot only.** No UEFI/firmware layer.
-- **Raw ext4 disks only**, `backing_files: false`. No virtio-fs,
+- **One raw ext4 rootfs disk**, `backing_files: false`, plus the fixed
+  narrow virtio-fs export policy. No arbitrary shares,
   snapshot/restore, hotplug, VFIO, vhost-user, vDPA, or confidential
   computing.
 - **virtio-pci transport only** for block, net, and vsock devices.
 - **GitHub-hosted Ubuntu x86_64 KVM runners only.** Self-hosted runners and
   non-Ubuntu/non-x86_64 hosts are explicitly rejected.
-- **No TTY, DinD, host access, extra volume mounts, enclaves, or topology
-  peers** — same restrictions as Firecracker's preview.
+- **No TTY, DinD, host access, extra volume mounts, DIFC proxies, or
+  enclaves.** Trusted MCP gateway topology peers are supported only through the
+  exact discovered internal-network IP and TCP port 8080.
 - **No vhost-net/vhost-user and no throughput claims.** The performance
   baselines in Part 14 measure boot/readiness latency and cgroup-bounded
   memory overhead only; this preview makes no network throughput guarantees.
 - **Firecracker is unaffected and remains supported.** Removing Firecracker
   is an explicit later layer, not this one.
+
+### Virtio-fs export policy and tradeoffs
+
+The workspace is exported live, read-write, as tag `workspace` at
+`/workspace`; there is no ext4 workspace image, staging copy, or copy-back.
+Host and guest therefore observe writes immediately. This avoids stale merge
+semantics but also means a guest write changes the host workspace directly.
+
+Optional exports are limited to `RUNNER_TOOL_CACHE` (falling back to
+`AGENT_TOOLSDIRECTORY`) read-only at the same absolute path,
+`${RUNNER_TEMP}/gh-aw` read-only at the same absolute path, and `/tmp/gh-aw`
+read-write. Missing optional directories are skipped. AWF does not export all
+of `RUNNER_TEMP`, the host home, or arbitrary paths. Guest `HOME` is
+workspace-local `/workspace/.awf-home`, so it is writable by the invoking
+runner identity even when that identity is not UID 1000.
+
+Each export has its own pinned virtiofsd with namespace sandboxing, explicit
+kill-on-violation seccomp, controlled caching, and disabled inode file handles.
+Read-only exports are backed by host read-only bind mounts under a separate
+private directory before virtiofsd starts; guest mount flags enforce the same
+policy again. Sockets and bounded logs live in the VMM run directory, while
+the bind mounts remain outside its Landlock rules. The VMM receives socket
+paths only and cannot access host source trees directly.
 
 ## Part 14 — CI workflow
 
@@ -388,12 +422,15 @@ unrelated pull request.
    shared `guest/firecracker-supervisor/go.mod`).
 2. Installs the same deterministic kernel-build prerequisites Firecracker's
    job uses (`bc`, `binutils`, `bison`, `build-essential`, `cpio`,
-   `e2fsprogs`, `file`, `flex`, `libelf-dev`, `libssl-dev`, `rsync`,
-   `xz-utils`) — both backends build the identical pinned kernel config.
-3. Runs `guest/cloud-hypervisor/build-test-artifacts.sh` — downloads Cloud
-   Hypervisor v53.0 (SHA-256 verified), Linux 6.1.141 (SHA-256 verified),
-   BusyBox 1.36.1 (SHA-256 verified), and a pinned CA bundle; builds the
-   kernel, BusyBox, and shared supervisor; creates the rootfs; produces
+   `e2fsprogs`, `file`, `flex`, `libelf-dev`, `libssl-dev`, `rsync`, `virtiofsd`,
+   `xz-utils`) — both backends use the same pinned upstream kernel config;
+   Cloud Hypervisor applies the documented virtio-fs overlay.
+3. Builds the canonical ARC/DinD `build-tools` sysroot image, then runs
+   `guest/cloud-hypervisor/build-test-artifacts.sh` — downloads Cloud
+   Hypervisor v53.0 (SHA-256 verified) and Linux 6.1.141 (SHA-256 verified);
+   applies and verifies `CONFIG_VIRTIO_FS=y`; copies Ubuntu Noble
+   virtiofsd v1.10.0; builds the kernel and shared supervisor; exports the Ubuntu 22.04
+   `build-tools` userspace into the guest rootfs; produces
    `SHA256SUMS`, `manifest.json`, and `sbom.spdx.json`; archives everything
    as `release/cloud-hypervisor-test-x86_64/awf-cloud-hypervisor-test-x86_64.tar.gz`.
 4. Runs `guest/cloud-hypervisor/verify-test-artifacts.sh` against the output.
@@ -413,7 +450,7 @@ usable KVM or any other required host capability.
    x86_64, GitHub-hosted-only host eligibility (`GITHUB_ACTIONS`,
    `RUNNER_ENVIRONMENT`, `ImageOS`), `/dev/kvm`, required host tools
    including `setpriv`, Landlock LSM availability, the Cloud Hypervisor
-   version string, and all four SHA-256 digests via
+   and virtiofsd version strings, and all artifact SHA-256 digests via
    `sha256sum --check --strict SHA256SUMS`.
 3. Installs NPM dependencies, builds the AWF distribution, and builds the
    Squid and API proxy container images locally.
@@ -430,7 +467,7 @@ usable KVM or any other required host capability.
 `cloud-hypervisor-live-smoke.sh` reproduces
 [Firecracker's full 13-case contract](./firecracker-integration.md#live-smoke-test-assertions)
 verbatim (same case names, same expected exit codes, same assertions), then
-adds two Cloud Hypervisor-specific cases:
+adds three Cloud Hypervisor-specific cases:
 
 | Case | Expected exit | Assertion |
 |------|--------------|-----------|
@@ -441,10 +478,11 @@ adds two Cloud Hypervisor-specific cases:
 | `dns-denial` | 0 | `nslookup example.com 8.8.8.8` fails |
 | `metadata-denial` | 0 | Unsets proxy vars; `wget http://169.254.169.254/latest/meta-data/` fails |
 | `api-proxy-reflect` | 0 | API proxy `/reflect` reachable; secret sentinel absent from guest `env` |
-| `workspace-copyback` | 0 | Guest writes, `chmod 755`, and a symlink all survive copy-back |
+| `workspace-live-share` | 0 | Guest writes, `chmod 755`, and a symlink are immediately visible on the host |
+| `runtime-cache-readonly` | 0 | `${RUNNER_TEMP}/gh-aw` is readable but guest writes fail |
 | `exit-code` | 37 | `exit 37` propagates as AWF exit code 37 |
 | `timeout-124` | 124 | `sleep 90` with `--agent-timeout 1` exits 124 |
-| `device-assumptions` **(new)** | 0 | `/dev/vda` and `/dev/vdb` are block devices; `eth0` exists |
+| `device-assumptions` **(new)** | 0 | `/dev/vda` is the sole block disk, `/workspace` is virtio-fs, and `eth0` exists |
 | `partial-start-cleanup` | 1 | Corrupt rootfs (valid digest, invalid content) fails cleanly; no residue |
 | `cancellation` | 143 | `SIGTERM` after namespace appears cleans up; cleanup time is measured against a non-flaky ceiling |
 | `keep` (keep mode) | 0 | `--keep-containers` preserves namespace/run-directory/diagnostics; all bounded ≤1 MiB |
@@ -472,7 +510,7 @@ boundary (Part 3) live, not just at the argv-construction unit-test level:
 - **`landlock_enable` reflected in `vm.create`** and an **exactly-minimal
   device set**: querying the Cloud Hypervisor process's own
   `GET /api/v1/vm.info` over its private Unix domain socket confirms
-  exactly two disks (rootfs, workspace), exactly one net device, and a
+  exactly one rootfs disk, the expected narrow virtio-fs devices, exactly one net device, and a
   vsock device — proving the host-only API socket path is never wired to
   the guest as any device (structurally, not just by absence of a mount).
 
@@ -507,7 +545,7 @@ Firecracker's — see
 [Firecracker's Part 15](./firecracker-integration.md#part-15--troubleshooting)
 for the general shape of each failure (host tool missing, digest mismatch,
 API timeout, guest connectivity probe failure, Docker infrastructure not
-cleaned up, workspace copy-back recovery via `debugfs`). This section covers
+cleaned up; Firecracker-only workspace copy-back recovery via `debugfs`). This section covers
 only what differs for Cloud Hypervisor.
 
 **`Cloud Hypervisor is supported only on GitHub-hosted runners, not self-hosted`**
@@ -650,10 +688,10 @@ fails with `ENODEV` ("no such device"), even though the device itself
 exists and is a valid block device. The workspace image is always
 formatted `ext4` (see `src/microvm/workspace.ts`'s `mkfs -t ext4`), so this
 was fixed by passing `"ext4"` explicitly. This guest supervisor binary is
-shared, unmodified, between the Firecracker and Cloud Hypervisor backends
-(see Part 2), so this was a genuine, pre-existing production defect
-affecting **both** backends, not something specific to this preview — any
-real guest boot exercising the workspace mount would have hit it. A
+shared between the Firecracker and Cloud Hypervisor backends. Cloud Hypervisor
+now selects its virtio-fs path instead, while Firecracker retains this ext4
+mount unchanged. This was a genuine historical defect affecting both
+backends when both used the block-device path. A
 regression test (`TestWorkspaceMountArgsUseExt4Filesystem` in
 `runtime_linux_test.go`) and a CI step running `go test ./...` for this
 package (see Part 14) now guard against a regression of this specific
@@ -920,7 +958,7 @@ sudo rm -rf /tmp/awf-<timestamp>/cloud-hypervisor-run/cloud-hypervisor/<runId>
   plus new layer 4 coverage for the CI workflow's YAML structure (triggers,
   permissions, concurrency, job gating, path scoping) and the new
   `scripts/ci/cloud-hypervisor-*.sh` scripts' behavior (13-case parity with
-  Firecracker, device-assumption and security-assertion coverage, distinct
+  Firecracker, device-assumption, read-only-cache, and security-assertion coverage, distinct
   secret sentinel, shared-vs-specific residue naming, digest flag wiring).
 - `bash -n` and `shellcheck` (severity=error) on both new scripts, plus
   `bash -n` on every `run:` block in the new workflow YAML.
@@ -932,4 +970,3 @@ sudo rm -rf /tmp/awf-<timestamp>/cloud-hypervisor-run/cloud-hypervisor/<runId>
   `cloud-hypervisor-kvm` pull request label). This development environment
   has no `/dev/kvm`, so the suite's actual pass/fail status must be
   confirmed from the workflow run itself rather than reproduced locally.
-

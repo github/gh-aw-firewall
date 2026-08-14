@@ -6,6 +6,7 @@ import {
   CREDENTIAL_ENTRIES,
   HOME_TOOL_SUBDIRS,
 } from '../config/mount-policy';
+import { MicrovmRootfsPreparer } from './rootfs';
 
 const MIB = 1024 * 1024;
 export const MICROVM_MIN_WORKSPACE_IMAGE_BYTES = 256 * MIB;
@@ -32,6 +33,7 @@ export interface MicrovmWorkspaceImageConfig {
   readonly baseRootfsPath: string;
   readonly supervisorBinaryPath: string;
   readonly supervisorSha256: string;
+  readonly supervisorGuestPath?: string;
   readonly maxImageBytes?: number;
   readonly uid: number;
   readonly gid: number;
@@ -296,39 +298,19 @@ export class MicrovmWorkspaceImage {
   }
 
   private async prepareRootfs(): Promise<void> {
-    await assertRegularFile(this.config.baseRootfsPath, 'microVM base rootfs');
-    await assertRegularFile(this.config.supervisorBinaryPath, 'guest supervisor');
-    if (!/^[A-Fa-f0-9]{64}$/.test(this.config.supervisorSha256)) {
-      throw new Error('guest supervisor SHA-256 must be 64 hexadecimal characters');
-    }
-    const actual = await sha256File(this.config.supervisorBinaryPath);
-    if (actual !== this.config.supervisorSha256.toLowerCase()) {
-      throw new Error(
-        `guest supervisor SHA-256 mismatch: expected ` +
-        `${this.config.supervisorSha256.toLowerCase()}, got ${actual}`,
-      );
-    }
-    await fs.copyFile(this.config.baseRootfsPath, this.rootfsImagePath);
-    const localSupervisor = path.join(this.runDirectory, 'awf-supervisor');
-    await fs.copyFile(this.config.supervisorBinaryPath, localSupervisor);
-    await fs.chmod(localSupervisor, 0o500);
-    assertDebugfsOperand(localSupervisor, 'supervisor staging path');
-    await this.runTool('debugfs', [
-      '-w',
-      '-R', 'rm /sbin/awf-supervisor',
-      this.rootfsImagePath,
-    ]);
-    await this.dependencies.runTool('debugfs', [
-      '-w',
-      '-R', `write ${localSupervisor} /sbin/awf-supervisor`,
-      this.rootfsImagePath,
-    ]);
-    await this.runTool('debugfs', [
-      '-w',
-      '-R', 'sif /sbin/awf-supervisor mode 0100755',
-      this.rootfsImagePath,
-    ]);
-    await this.runTool('e2fsck', ['-f', '-y', this.rootfsImagePath]);
+    const preparer = new MicrovmRootfsPreparer({
+      runDirectory: this.runDirectory,
+      baseRootfsPath: this.config.baseRootfsPath,
+      supervisorBinaryPath: this.config.supervisorBinaryPath,
+      supervisorSha256: this.config.supervisorSha256,
+      supervisorGuestPath: this.config.supervisorGuestPath,
+    }, {
+      runTool: (command, args) => this.dependencies.runTool(
+        this.tools?.[command as keyof MicrovmWorkspaceHostTools] ?? command,
+        args,
+      ),
+    });
+    await preparer.prepare();
   }
 
   private async preserveRecoveryImage(changedImagePath: string): Promise<void> {
@@ -620,13 +602,6 @@ function assertSafeRunId(runId: string): void {
 function assertDebugfsOperand(value: string, label: string): void {
   if (/[\s"'\\;`\r\n]/.test(value)) {
     throw new Error(`microVM ${label} is unsafe for debugfs commands: ${value}`);
-  }
-}
-
-async function assertRegularFile(filePath: string, label: string): Promise<void> {
-  const stat = await fs.lstat(filePath);
-  if (!stat.isFile() || stat.isSymbolicLink()) {
-    throw new Error(`${label} must be a regular file: ${filePath}`);
   }
 }
 

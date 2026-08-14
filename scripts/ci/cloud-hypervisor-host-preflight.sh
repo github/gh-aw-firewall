@@ -49,7 +49,7 @@ done
 [ -r /sys/fs/cgroup/cgroup.controllers ] || [ -w /sys/fs/cgroup ] \
   || fail "A usable cgroup v1 or v2 hierarchy is required to bound the Cloud Hypervisor process."
 
-for tool in nft ip sysctl mke2fs debugfs e2fsck rsync setpriv docker sha256sum timeout curl; do
+for tool in nft ip sysctl mke2fs debugfs e2fsck rsync mount umount setpriv docker sha256sum timeout curl; do
   command -v "$tool" >/dev/null || fail "Required host tool is missing: $tool"
 done
 command -v sudo >/dev/null || fail "Passwordless sudo is required for the netns-join/privilege-drop launcher."
@@ -69,6 +69,17 @@ fi
 
 "$ARTIFACT_DIR/cloud-hypervisor" --version | grep -Fq '53.0' \
   || fail "Cloud Hypervisor v53.0 is required."
+[ -f "$ARTIFACT_DIR/virtiofsd" ] && [ ! -L "$ARTIFACT_DIR/virtiofsd" ] \
+  && [ -x "$ARTIFACT_DIR/virtiofsd" ] \
+  || fail "A regular executable sibling virtiofsd artifact is required."
+virtiofsd_mode=$(stat -c '%a' "$ARTIFACT_DIR/virtiofsd")
+(( (8#$virtiofsd_mode & 8#022) == 0 )) \
+  || fail "virtiofsd must not be group- or world-writable."
+virtiofsd_uid=$(stat -c '%u' "$ARTIFACT_DIR/virtiofsd")
+[ "$virtiofsd_uid" -eq 0 ] || [ "$virtiofsd_uid" -eq "$(id -u)" ] \
+  || fail "virtiofsd must be owned by root or the workflow operator."
+"$ARTIFACT_DIR/virtiofsd" --version 2>&1 | grep -Eq '(^| )1\.10\.0($| )' \
+  || fail "virtiofsd v1.10.0 is required."
 (
   cd "$ARTIFACT_DIR"
   sha256sum --check --strict SHA256SUMS

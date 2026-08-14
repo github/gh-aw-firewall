@@ -30,8 +30,8 @@ import type { CloudHypervisorLandlockRule } from './api-client';
  *     for a foreign static binary without reimplementing jailer itself.
  *     Instead AWF combines:
  *       - a **private run directory** (mode `0700`, owned by the target
- *         uid/gid) holding only the staged kernel/rootfs/workspace images
- *         and the API/vsock sockets — see `CloudHypervisorManager`;
+ *         uid/gid) holding only the staged kernel/rootfs, virtio-fs sockets,
+ *         and API/vsock sockets — see `CloudHypervisorManager`;
  *       - **Landlock** (`landlock_enable`/`landlock_rules` in the
  *         `vm.create` payload — see {@link computeCloudHypervisorLandlockRules})
  *         restricting the VMM process's own filesystem access to exactly
@@ -56,7 +56,6 @@ export const CLOUD_HYPERVISOR_GUEST_CID = 3;
 export interface CloudHypervisorLaunchPaths {
   readonly kernelPath: string;
   readonly rootfsPath: string;
-  readonly workspacePath?: string;
   readonly runDirectory: string;
   readonly apiSocketPath: string;
   readonly vsockSocketPath: string;
@@ -161,7 +160,7 @@ export function buildCloudHypervisorLaunchCommand(options: {
 /**
  * Computes the minimal set of Landlock filesystem rules Cloud Hypervisor's
  * own process needs after `vm.create`: read access to the kernel image,
- * read-write access to the rootfs and (if present) workspace disk images,
+ * read-write access to the rootfs,
  * read-write access to the private run directory (for the API and vsock
  * UNIX domain sockets it creates there), read-write access to the device
  * nodes it must reopen for virtio-net TAP attachment and KVM ioctls, and
@@ -187,9 +186,6 @@ export function computeCloudHypervisorLandlockRules(
     { path: '/dev/net/tun', access: 'rw' },
     { path: `/sys/class/net/${paths.tapName}`, access: 'r' },
   ];
-  if (paths.workspacePath) {
-    rules.push({ path: paths.workspacePath, access: 'rw' });
-  }
   return rules;
 }
 

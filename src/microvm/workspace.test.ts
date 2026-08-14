@@ -97,6 +97,42 @@ describe('microVM workspace images', () => {
     await fs.rm(root, { recursive: true, force: true });
   });
 
+  it('injects the supervisor at a runtime-specific guest path', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'awf-workspace-'));
+    const workspace = path.join(root, 'source');
+    const home = path.join(root, 'home');
+    const baseRootfs = path.join(root, 'base.ext4');
+    const supervisor = path.join(root, 'supervisor');
+    await fs.mkdir(workspace);
+    await fs.mkdir(home);
+    await fs.writeFile(baseRootfs, 'rootfs');
+    await fs.writeFile(supervisor, 'binary');
+    const commands: Array<{ command: string; args: readonly string[] }> = [];
+    const image = new MicrovmWorkspaceImage({
+      runId: 'merged-usr',
+      workDir: root,
+      workspacePath: workspace,
+      homePath: home,
+      baseRootfsPath: baseRootfs,
+      supervisorBinaryPath: supervisor,
+      supervisorSha256: createHash('sha256').update('binary').digest('hex'),
+      supervisorGuestPath: '/usr/sbin/awf-supervisor',
+      uid: process.getuid?.() ?? 1000,
+      gid: process.getgid?.() ?? 1000,
+    }, {
+      runTool: jest.fn(async (command, args) => {
+        commands.push({ command, args });
+      }),
+    });
+
+    await image.prepare();
+
+    expect(commands[1].args).toContain('rm /usr/sbin/awf-supervisor');
+    expect(commands[2].args).toContainEqual(expect.stringContaining('/usr/sbin/awf-supervisor'));
+    expect(commands[3].args).toContain('sif /usr/sbin/awf-supervisor mode 0100755');
+    await fs.rm(root, { recursive: true, force: true });
+  });
+
   it('rejects escaping symlinks and special path hazards', async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'awf-workspace-'));
     const workspace = path.join(root, 'source');

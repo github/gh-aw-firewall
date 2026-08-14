@@ -27,6 +27,8 @@ export function buildProxyEnvironment(params: ProxyEnvironmentParams): void {
   // hostnames — adding them to NO_PROXY there would turn a Squid 403 into an
   // unroutable direct connection, so they are deliberately skipped. sbx reaches
   // gateway peers through its own proxy-chaining path, not NO_PROXY.
+  // Cloud Hypervisor appends only its post-attach, revalidated peer names and
+  // IPs later in buildCloudHypervisorGuestEnvironment().
   //
   // Hostname-only by design: peer IPs are not known at config-write time (they
   // are discovered after the network attach in cli-workflow's onNetworkReady),

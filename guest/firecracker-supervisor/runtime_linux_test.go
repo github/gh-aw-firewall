@@ -46,6 +46,7 @@ func TestWorkspaceMountArgsUseExt4Filesystem(t *testing.T) {
 	if source != config.WorkspaceDevice {
 		t.Fatalf("source mismatch: got %s want %s", source, config.WorkspaceDevice)
 	}
+
 	if target != config.WorkspaceMount {
 		t.Fatalf("target mismatch: got %s want %s", target, config.WorkspaceMount)
 	}
@@ -54,6 +55,59 @@ func TestWorkspaceMountArgsUseExt4Filesystem(t *testing.T) {
 	}
 	if flags != 0 {
 		t.Fatalf("unexpected mount flags: got %d want 0", flags)
+	}
+}
+
+func TestDevptsMountArgsSupportPtyAllocation(t *testing.T) {
+	source, target, fstype, flags, data := devptsMountArgs()
+	if source != "devpts" || target != "/dev/pts" || fstype != "devpts" {
+		t.Fatalf("unexpected devpts mount: source=%q target=%q fstype=%q", source, target, fstype)
+	}
+	if flags&(syscall.MS_NOSUID|syscall.MS_NOEXEC) != syscall.MS_NOSUID|syscall.MS_NOEXEC {
+		t.Fatalf("devpts mount must disable suid and executable files: flags=%#x", flags)
+	}
+	if data != "gid=5,mode=0620,ptmxmode=0666" {
+		t.Fatalf("unexpected devpts mount options: %q", data)
+	}
+}
+
+func TestVirtiofsMountArgsUseSecurityFlags(t *testing.T) {
+	source, target, fstype, flags := virtiofsMountArgs(virtiofsMount{
+		Tag: "cache", Target: "/opt/cache", ReadOnly: true,
+	})
+	if source != "cache" || target != "/opt/cache" || fstype != "virtiofs" {
+		t.Fatalf("unexpected virtiofs mount arguments: %q %q %q", source, target, fstype)
+	}
+	expected := uintptr(syscall.MS_NOSUID | syscall.MS_NODEV | syscall.MS_RDONLY)
+	if flags != expected {
+		t.Fatalf("unexpected virtiofs flags: got %d want %d", flags, expected)
+	}
+}
+
+func TestUnmountConfiguredFilesystemsUsesReverseOrder(t *testing.T) {
+	originalUnmount := unmountFilesystem
+	defer func() { unmountFilesystem = originalUnmount }()
+	var targets []string
+	unmountFilesystem = func(target string, _ int) error {
+		targets = append(targets, target)
+		return nil
+	}
+	config := bootConfig{
+		WorkspaceDevice: "/dev/vdb",
+		WorkspaceMount:  "/workspace",
+		VirtiofsMounts: []virtiofsMount{
+			{Tag: "cache-one", Target: "/cache/one"},
+			{Tag: "cache-two", Target: "/cache/two"},
+		},
+	}
+	if err := unmountConfiguredFilesystems(config); err != nil {
+		t.Fatalf("unmountConfiguredFilesystems: %v", err)
+	}
+	expected := []string{"/cache/two", "/cache/one", "/workspace"}
+	for index := range expected {
+		if targets[index] != expected[index] {
+			t.Fatalf("unmount order mismatch: got %v want %v", targets, expected)
+		}
 	}
 }
 

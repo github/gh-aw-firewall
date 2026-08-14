@@ -29,6 +29,7 @@ function config(overrides: Partial<WrapperConfig> = {}): WrapperConfig {
       apiTimeoutMs: 5000,
       sha256: {
         cloudHypervisor: digest,
+        virtiofsd: digest,
         kernel: digest,
         rootfs: digest,
         supervisor: digest,
@@ -87,6 +88,12 @@ describe('Cloud Hypervisor runtime validation', () => {
     [{
       cloudHypervisor: {
         ...config().cloudHypervisor!,
+        sha256: { ...config().cloudHypervisor!.sha256, virtiofsd: undefined },
+      },
+    }, /requires SHA-256 digests/],
+    [{
+      cloudHypervisor: {
+        ...config().cloudHypervisor!,
         sha256: { ...config().cloudHypervisor!.sha256, supervisor: undefined },
       },
     }, /requires SHA-256 digests/],
@@ -105,9 +112,8 @@ describe('Cloud Hypervisor runtime validation', () => {
     [{ allowHostPorts: ['8080'] }, /host access/],
     [{ allowHostServicePorts: ['5432'] }, /host access/],
     [{ volumeMounts: ['/tmp:/tmp'] }, /additional host volume mounts/],
-    [{ topologyAttach: ['gateway'] }, /MCP gateway path/],
-    [{ difcProxyHost: 'proxy:443' }, /MCP gateway path/],
-    [{ enclaves: { enabled: true } }, /MCP gateway path/],
+    [{ difcProxyHost: 'proxy:443' }, /DIFC proxies or enclaves/],
+    [{ enclaves: { enabled: true } }, /DIFC proxies or enclaves/],
     [{ dnsOverHttps: 'https://dns.example/dns-query' }, /DNS-over-HTTPS/],
     [{ tty: true }, /does not support --tty/],
     [{ awfDockerHost: 'tcp://localhost:2375' }, /local Unix-socket Docker daemon/],

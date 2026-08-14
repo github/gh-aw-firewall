@@ -61,7 +61,10 @@ export function createMicrovmNetworkPlan(
 
   const allowedEndpoints = createAllowedEndpoints(
     options.enableApiProxy,
-    options.controlPeer,
+    [
+      ...(options.controlPeer ? [options.controlPeer] : []),
+      ...(options.controlPeers ?? []),
+    ],
   );
   const plan: MicrovmNetworkPlan = {
     runId,
@@ -184,7 +187,7 @@ export function generateMicrovmNftRuleset(plan: MicrovmNetworkPlan): string {
 
 function createAllowedEndpoints(
   enableApiProxy: boolean,
-  controlPeer?: MicrovmControlPeer,
+  controlPeers: readonly MicrovmControlPeer[],
 ): readonly MicrovmAllowedEndpoint[] {
   const endpoints: MicrovmAllowedEndpoint[] = [{
     name: 'squid',
@@ -200,7 +203,7 @@ function createAllowedEndpoints(
       });
     }
   }
-  if (controlPeer) {
+  for (const controlPeer of controlPeers) {
     assertPrivateIpv4(controlPeer.ip, 'control peer IP');
     if (
       !isInCidr(controlPeer.ip, NETWORK_SUBNET) ||

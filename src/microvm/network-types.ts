@@ -33,6 +33,7 @@ export interface MicrovmNetworkPlanOptions {
   readonly tapOwnerUid: number;
   readonly tapOwnerGid: number;
   readonly controlPeer?: MicrovmControlPeer;
+  readonly controlPeers?: readonly MicrovmControlPeer[];
   /**
    * Create the TAP device with the `vnet_hdr` feature (a `struct
    * virtio_net_hdr` prefix on every frame read from/written to the tap

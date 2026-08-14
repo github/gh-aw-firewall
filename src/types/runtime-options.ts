@@ -56,6 +56,7 @@ export const CLOUD_HYPERVISOR_DEFAULT_API_TIMEOUT_MS = 5_000;
 
 export interface CloudHypervisorArtifactDigests {
   cloudHypervisor?: string;
+  virtiofsd?: string;
   kernel?: string;
   rootfs?: string;
   supervisor?: string;

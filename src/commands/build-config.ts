@@ -336,6 +336,7 @@ function buildCloudHypervisorConfig(
       'cloudHypervisorMemoryMib',
       'cloudHypervisorApiTimeoutMs',
       'cloudHypervisorBinarySha256',
+      'cloudHypervisorVirtiofsdSha256',
       'cloudHypervisorKernelSha256',
       'cloudHypervisorRootfsSha256',
       'cloudHypervisorSupervisorSha256',
@@ -344,6 +345,7 @@ function buildCloudHypervisorConfig(
 
   const sha256 = {
     cloudHypervisor: options.cloudHypervisorBinarySha256 as string | undefined,
+    virtiofsd: options.cloudHypervisorVirtiofsdSha256 as string | undefined,
     kernel: options.cloudHypervisorKernelSha256 as string | undefined,
     rootfs: options.cloudHypervisorRootfsSha256 as string | undefined,
     supervisor: options.cloudHypervisorSupervisorSha256 as string | undefined,
