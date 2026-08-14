@@ -8,9 +8,16 @@ drift. They are now centralized in a single declarative config:
 - **Config:** [`src/config/sandbox-mount-policy.json`](../src/config/sandbox-mount-policy.json)
 - **Loader / typed accessors:** [`src/config/mount-policy.ts`](../src/config/mount-policy.ts)
 
-Every runtime reads from this one source of truth, so the Docker/runc compose
-agent, the gVisor/runsc compose agent, the sbx microVM, and the Cloud Hypervisor
-microVM can no longer diverge.
+The Docker/runc compose agent, the gVisor/runsc compose agent, and the sbx
+microVM all read from this one source of truth, so they can no longer diverge.
+The Cloud Hypervisor microVM does not currently consult this policy: its
+production export path (`src/cloud-hypervisor/exports.ts`) only resolves the
+workspace, runner tool cache, and `RUNNER_TEMP`/`tmp/gh-aw` directories — it
+does not export `$HOME` at all, so the home allow/deny lists have no
+production call site for this runtime. `MicrovmWorkspaceImage`
+(`src/microvm/workspace.ts`) does read `home.toolSubdirs` and
+`credentials.entries`, but it has no production call site today; it is
+exercised only by its own tests.
 
 ## What the policy contains
 
@@ -18,24 +25,23 @@ microVM can no longer diverge.
 | --- | --- | --- | --- |
 | `system.directories.default` / `.sysroot` | allow (dirs) | compose (Docker + gVisor) | `system-mounts.ts` |
 | `system.etc` | allow (files) | compose (Docker + gVisor) | `etc-mounts.ts` |
-| `home.toolSubdirs` | allow (dirs) | all runtimes | `home-strategy.ts`, `sbx-manager.ts`, `microvm/workspace.ts` |
-| `home.forbiddenSubdirs` | deny guard | all runtimes | invariant tests |
-| `credentials.entries` | deny (files/dirs) | all runtimes | `credential-hiding.ts`, `sbx-manager.ts`, `microvm/workspace.ts` |
+| `home.toolSubdirs` | allow (dirs) | compose + sbx | `home-strategy.ts`, `sbx-manager.ts` |
+| `home.forbiddenSubdirs` | deny guard | compose + sbx | invariant tests |
+| `credentials.entries` | deny (files/dirs) | compose + sbx | `credential-hiding.ts`, `sbx-manager.ts` |
 
-The `system.*` section is compose-only: sbx and Cloud Hypervisor get their
-system libraries from guest images, not from host mounts.
+The `system.*` section is compose-only: sbx gets its system libraries from a
+guest image, not from host mounts. Cloud Hypervisor also boots from a guest
+image and is not driven by this config at all.
 
 ## How each runtime applies the credential deny list
 
-The runtime families hide credentials with different mechanisms, but from the
-**same list**:
+The runtime families that read the policy hide credentials with different
+mechanisms, but from the **same list**:
 
 - **Compose (Docker / gVisor)** mounts an empty `$HOME` plus the `toolSubdirs`,
   then blanks each credential **file** with a `/dev/null` bind overlay
   (`credential-hiding.ts`). For a `dir` entry it masks the enumerated `files`;
-  for a `file` entry it masks the path itself. Directory entries with no known
-  filenames cannot be masked this way; the microVM paths exclude or scrub the
-  directory before exposing allowed home state.
+  for a `file` entry it masks the path itself.
 - **sbx microVM** mounts the `toolSubdirs` (plus `.copilot`/`.gemini`) wholesale,
   because sbx positional mounts are directory-granular and can't overlay
   `/dev/null` onto a nested path. Before `sbx create` it **moves** each credential
@@ -43,10 +49,17 @@ The runtime families hide credentials with different mechanisms, but from the
   mounted) and **restores** it after teardown. It only touches entries whose
   top-level parent is actually mounted — paths under never-mounted dirs like
   `.ssh` or `.aws` are skipped because they never enter the VM.
-- **Cloud Hypervisor microVM** copies allowed home state into its private
-  staging area and excludes every matching `credentials.entries` path during
-  the copy. The staged state is then exposed through the runtime's sandboxed
-  virtio-fs boundary; excluded host credentials never enter the guest export.
+
+**Cloud Hypervisor microVM** does not go through this list today. Its
+production export path (`src/cloud-hypervisor/exports.ts`) never exports
+`$HOME` — only the workspace, runner tool cache, and `RUNNER_TEMP`/`tmp/gh-aw`
+directories are exposed to the guest — so host credential dotfiles are simply
+never part of the guest export, independent of `credentials.entries`.
+`MicrovmWorkspaceImage` (`src/microvm/workspace.ts`) does read
+`home.toolSubdirs` and exclude `credentials.entries` when staging a workspace
+image, but it has no production call site; it exists only for its own test
+coverage. If it is wired up for Cloud Hypervisor in the future, this doc
+should be updated accordingly.
 
 In all cases the agent receives the credentials it legitimately needs through the
 API proxy or environment, never from these on-disk stores.
