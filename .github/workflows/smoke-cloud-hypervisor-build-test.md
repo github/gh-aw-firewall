@@ -167,7 +167,7 @@ else
 fi
 
 echo "::group::npm test"
-npx jest --ci --forceExit --maxWorkers=2 --testPathPattern='squid-config|docker-manager|logger' 2>&1 | tail -20
+npx jest --ci --forceExit --maxWorkers=2 --testPathPatterns='squid-config|docker-manager|logger' 2>&1 | tail -20
 NODE_TEST_EXIT=${PIPESTATUS[0]}
 echo "::endgroup::"
 
