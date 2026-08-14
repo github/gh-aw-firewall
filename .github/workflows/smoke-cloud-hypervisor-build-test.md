@@ -32,6 +32,7 @@ network:
     - ms-feed-12.pkgs.visualstudio.com
     - ms-feed-17.pkgs.visualstudio.com
     - ms-feed-25.pkgs.visualstudio.com
+    - "*.vsblob.vsassets.io"
 tools:
   bash:
     - "*"
