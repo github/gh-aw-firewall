@@ -14,14 +14,13 @@ import {
 
 const RUNSC_RUNTIME = 'runsc';
 
-export type PrimaryRuntimeBackend = 'docker' | 'gvisor' | 'sbx' | 'firecracker';
+export type PrimaryRuntimeBackend = 'docker' | 'gvisor' | 'sbx';
 
 export function resolvePrimaryRuntimeBackend(
   containerRuntime: string | undefined,
 ): PrimaryRuntimeBackend {
   if (containerRuntime === 'gvisor' || containerRuntime === RUNSC_RUNTIME) return 'gvisor';
   if (containerRuntime === 'sbx') return 'sbx';
-  if (containerRuntime === 'firecracker') return 'firecracker';
   return 'docker';
 }
 
@@ -31,12 +30,6 @@ export async function assertPrimaryRuntimeAvailable(
   queryDockerAvailable: DockerAvailabilityQuery = defaultDockerAvailabilityQuery,
   querySbxAvailable: SbxAvailabilityQuery = defaultSbxAvailabilityQuery,
 ): Promise<void> {
-  if (containerRuntime === 'firecracker') {
-    throw new Error(
-      'Primary-agent runtime "firecracker" is a control-plane preview; ' +
-      'enclave integration is not implemented and enclaves never fall back',
-    );
-  }
   if (containerRuntime === 'sbx') {
     if (!(await querySbxAvailable())) {
       throw new Error('Primary-agent runtime "sbx" is unavailable; enclaves never fall back');

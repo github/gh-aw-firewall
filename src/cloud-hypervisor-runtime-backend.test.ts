@@ -98,7 +98,7 @@ function harness(overrides: Partial<CloudHypervisorRuntimeBackendDependencies> =
   const manager = {
     paths: { runDirectory: '/tmp/awf/cloud-hypervisor-run/cloud-hypervisor/test' },
     guestIp: '100.64.0.2',
-    networkNamespace: 'awffc-test',
+    networkNamespace: 'awfvm-test',
     start: jest.fn(async () => { order.push('vm-config'); }),
     startInstance: jest.fn(async () => { order.push('vm-start'); }),
     execute: jest.fn()
@@ -607,7 +607,7 @@ describe('Cloud Hypervisor runtime backend', () => {
     expect(manager.stop).toHaveBeenCalledWith({ preserve: true });
     expect(manager.stop).toHaveBeenCalledTimes(1);
     expect(deps.logger.info).toHaveBeenCalledWith(
-      '[cloud-hypervisor] Preserved network namespace: awffc-test',
+      '[cloud-hypervisor] Preserved network namespace: awfvm-test',
     );
   });
 

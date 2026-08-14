@@ -16,8 +16,7 @@ const WORKSPACE_BLOCK_BYTES = 4096;
 const E2FSCK_REPAIR_EXIT_CODE = 1;
 
 /** Minimal host tool paths this module needs; a structural subset so callers
- * (e.g. Firecracker's preflight-derived tool paths) can pass their own
- * richer tool-path record without this module depending on it. */
+ * can pass richer tool-path records without this module depending on them. */
 export interface MicrovmWorkspaceHostTools {
   readonly mke2fs: string;
   readonly debugfs: string;
@@ -104,13 +103,13 @@ export class MicrovmWorkspaceImage {
     private readonly tools?: MicrovmWorkspaceHostTools,
   ) {
     assertSafeRunId(config.runId);
-    this.runDirectory = path.join(config.workDir, 'firecracker-images', config.runId);
+    this.runDirectory = path.join(config.workDir, 'microvm-images', config.runId);
     this.stagingDirectory = path.join(this.runDirectory, 'staging');
     this.workspaceImagePath = path.join(this.runDirectory, 'workspace.ext4');
     this.rootfsImagePath = path.join(this.runDirectory, 'rootfs.ext4');
     this.recoveryImagePath = path.join(
       config.workspacePath,
-      '.awf-firecracker-recovery',
+      '.awf-microvm-recovery',
       `${config.runId}-workspace.ext4`,
     );
   }

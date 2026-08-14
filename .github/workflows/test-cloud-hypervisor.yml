@@ -14,7 +14,7 @@ on:
       - '.github/workflows/test-cloud-hypervisor.yml'
       - 'guest/cloud-hypervisor/**'
       - 'containers/build-tools/**'
-      - 'guest/firecracker-supervisor/**'
+      - 'guest/microvm-supervisor/**'
       - 'src/cloud-hypervisor/**'
       - 'src/cloud-hypervisor-runtime-backend.ts'
       - 'src/cloud-hypervisor-runtime-backend.test.ts'
@@ -46,13 +46,11 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.25.0'
-          cache-dependency-path: guest/firecracker-supervisor/go.mod
+          cache-dependency-path: guest/microvm-supervisor/go.mod
 
       - name: Run guest supervisor unit tests
-        working-directory: guest/firecracker-supervisor
-        # guest/firecracker-supervisor is shared, unmodified, between the
-        # Firecracker and Cloud Hypervisor backends (see build.sh above).
-        # Running its unit tests here (not just building it) catches
+        working-directory: guest/microvm-supervisor
+        # Running unit tests here (not just building it) catches
         # defects like an incorrect syscall.Mount() fstype before they
         # only surface as a guest kernel panic during the live-KVM job
         # below, which is much slower to diagnose.
@@ -255,10 +253,10 @@ jobs:
           set -euo pipefail
           while read -r namespace _; do
             case "$namespace" in
-              awffc-*) sudo ip netns delete "$namespace" ;;
+              awfvm-*) sudo ip netns delete "$namespace" ;;
             esac
           done < <(sudo ip netns list)
-          if sudo ip netns list | grep -q '^awffc-'; then
+          if sudo ip netns list | grep -q '^awfvm-'; then
             echo "::error::Cloud Hypervisor namespace residue remains after cleanup"
             exit 1
           fi

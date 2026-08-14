@@ -59,25 +59,6 @@ describe('external runtime backend', () => {
     )).toThrow('No external agent runtime backend is registered for "sbx"');
   });
 
-  it('requires explicit Firecracker preview opt-in during resolution', () => {
-    const config = {
-      containerRuntime: 'firecracker',
-      firecracker: { previewEnabled: false },
-    } as WrapperConfig;
-    expect(() => resolveExternalRuntimeBackend(config, startInfrastructure))
-      .toThrow(/explicit --firecracker-preview/);
-    expect(startInfrastructure).not.toHaveBeenCalled();
-  });
-
-  it('uses the registered Firecracker factory after preview opt-in', () => {
-    const backend = resolveExternalRuntimeBackend({
-      containerRuntime: 'firecracker',
-      firecracker: { previewEnabled: true },
-    } as WrapperConfig, startInfrastructure);
-
-    expect(backend?.runtime).toBe('firecracker');
-  });
-
   it('requires explicit Cloud Hypervisor preview opt-in during resolution', () => {
     const config = {
       containerRuntime: 'cloud-hypervisor',

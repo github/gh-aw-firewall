@@ -2,7 +2,6 @@ import type { WorkflowDependencies } from './cli-workflow';
 import { runtimeUsesComposeAgent } from './container-runtime';
 import type { ExternalAgentRuntimeBackend } from './external-runtime-backend';
 import { createSbxRuntimeBackend } from './sbx-runtime-backend';
-import { createFirecrackerRuntimeBackend } from './firecracker-runtime-backend';
 import { createCloudHypervisorRuntimeBackend } from './cloud-hypervisor-runtime-backend';
 import type { WrapperConfig } from './types';
 
@@ -22,8 +21,6 @@ type ExternalRuntimeBackendRegistry = Readonly<
 const EXTERNAL_RUNTIME_BACKENDS: ExternalRuntimeBackendRegistry = {
   sbx: ({ config, startInfrastructure }) =>
     createSbxRuntimeBackend(config, startInfrastructure),
-  firecracker: ({ config, startInfrastructure }) =>
-    createFirecrackerRuntimeBackend(config, startInfrastructure),
   'cloud-hypervisor': ({ config, startInfrastructure }) =>
     createCloudHypervisorRuntimeBackend(config, startInfrastructure),
 };
@@ -44,11 +41,6 @@ export function resolveExternalRuntimeBackend(
   }
 
   const runtime = config.containerRuntime;
-  if (runtime === 'firecracker' && !config.firecracker?.previewEnabled) {
-    throw new Error(
-      'Firecracker workload execution requires explicit --firecracker-preview opt-in',
-    );
-  }
   if (runtime === 'cloud-hypervisor' && !config.cloudHypervisor?.previewEnabled) {
     throw new Error(
       'Cloud Hypervisor workload execution requires explicit --cloud-hypervisor-preview opt-in',

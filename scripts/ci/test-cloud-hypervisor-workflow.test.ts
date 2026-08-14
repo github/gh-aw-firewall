@@ -136,7 +136,7 @@ describe('Cloud Hypervisor CI workflow', () => {
 
     const cleanupStep = steps.find((step) => step.name === 'Enforce final residue cleanup');
     expect(cleanupStep?.if).toBe('always()');
-    expect(cleanupStep?.run).toContain('awffc-');
+    expect(cleanupStep?.run).toContain('awfvm-');
     expect(cleanupStep?.run).toContain('awf-cloud-hypervisor');
 
     const diagnosticsStep = steps.find((step) => step.name === 'Collect redacted diagnostics');

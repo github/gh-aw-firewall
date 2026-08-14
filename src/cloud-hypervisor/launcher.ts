@@ -6,8 +6,7 @@ import type { CloudHypervisorLandlockRule } from './api-client';
  * Secure host launch-argv construction and resource-confinement helpers for
  * Cloud Hypervisor.
  *
- * Cloud Hypervisor has no jailer-equivalent process (unlike Firecracker), so
- * there is nothing that natively joins a prepared network namespace,
+ * Cloud Hypervisor has no native process that joins a prepared network namespace,
  * chroots, drops capabilities, and execs the VMM as one atomic operation.
  * This module documents and implements the exact replacement boundary AWF
  * uses instead:
@@ -21,9 +20,7 @@ import type { CloudHypervisorLandlockRule } from './api-client';
  *     --no-new-privs --inh-caps=-all --bounding-set=-all` execs the Cloud
  *     Hypervisor binary as the non-root operator uid/gid with an empty
  *     capability bounding set and `no_new_privs` set, before any guest code
- *     runs. This is the same non-root identity Firecracker's jailer targets
- *     (see `resolveJailerIdentity` in `src/firecracker/manager.ts`) and
- *     requires the same operator preconditions (kvm-group membership,
+ *     runs. This requires operator preconditions including kvm-group membership,
  *     `/dev/kvm` access).
  *  3. **Filesystem confinement** — Cloud Hypervisor has no chroot of its
  *     own, and jailer's userspace chroot+pivot_root cannot be replicated
@@ -59,7 +56,7 @@ export interface CloudHypervisorLaunchPaths {
   readonly runDirectory: string;
   readonly apiSocketPath: string;
   readonly vsockSocketPath: string;
-  /** Host TAP interface name (e.g. `fct<token>`), for the
+  /** Host TAP interface name (e.g. `vmt<token>`), for the
    * `/sys/class/net/<tapName>` Landlock rule — see
    * {@link computeCloudHypervisorLandlockRules}. */
   readonly tapName: string;
@@ -85,8 +82,7 @@ export interface CloudHypervisorLaunchToolPaths {
  * network namespace, drop to the non-root operator identity retaining
  * exactly two things it needs to configure its own virtio-net TAP device,
  * then exec the pinned Cloud Hypervisor binary with only its API socket
- * configured (the VM itself is created and booted afterwards over that
- * socket, mirroring Firecracker's `--api-sock`-only jailer invocation).
+ * configured; the VM itself is created and booted afterwards over that socket.
  *
  * The launched process retains exactly one supplementary group: the group
  * that owns `/dev/kvm` (resolved by preflight). A blanket `--clear-groups`

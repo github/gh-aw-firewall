@@ -4,13 +4,11 @@ set -euo pipefail
 # Live GitHub-hosted Ubuntu x86_64 KVM smoke/security suite for the Cloud
 # Hypervisor preview backend.
 #
-# This reproduces the same 13-case behavioral/security contract as
-# scripts/ci/firecracker-live-smoke.sh (allowed/blocked domains, direct
+# This covers allowed/blocked domains, direct
 # egress, arbitrary TCP, DNS, metadata IP, mandatory API-proxy reflect with
 # secret-sentinel absence, live workspace sharing incl. symlinks/permissions,
 # exit-code propagation, timeout, SIGTERM cancellation, partial-start
-# rollback, keep/preserve diagnostics), then adds Cloud Hypervisor-specific
-# live checks that have no Firecracker/jailer equivalent:
+# rollback, keep/preserve diagnostics, plus backend-specific live checks:
 #
 #   - device-assumptions: confirms eth0, the sole /dev/vda block disk, and
 #     virtio-fs workspace layout documented in Part 6.
@@ -25,11 +23,9 @@ set -euo pipefail
 #     set with no path to the host-only API socket) — see
 #     src/cloud-hypervisor/launcher.ts.
 #
-# NOTE on shared namespace/interface naming: src/microvm/network.ts is
-# VMM-neutral and used unmodified by both the Firecracker and Cloud
-# Hypervisor backends (see docs/cloud-hypervisor-foundation.md Part 2), so
-# the network namespace (`awffc-*`) and veth/TAP (`fch*`/`fcn*`/`fct*`)
-# naming below is intentionally identical to Firecracker's, not a defect.
+# NOTE on namespace/interface naming: src/microvm/network.ts is VMM-neutral.
+# The network namespace uses `awfvm-*`; veth/TAP devices use
+# `vmh*`/`vmn*`/`vmt*`.
 # The cgroup path (`awf-cloud-hypervisor/<runId>`) and process name
 # (`cloud-hypervisor`) residue checks below ARE Cloud Hypervisor-specific.
 
@@ -89,12 +85,12 @@ COMMON=(
 )
 
 assert_no_residue() {
-  if sudo ip netns list | grep -q '^awffc-'; then
+  if sudo ip netns list | grep -q '^awfvm-'; then
     sudo ip netns list >&2
     echo "Cloud Hypervisor network namespace residue detected" >&2
     return 1
   fi
-  if sudo ip -o link show | grep -Eq ' (fch|fcn|fct)[0-9a-f]{12}[:@]'; then
+  if sudo ip -o link show | grep -Eq ' (vmh|vmn|vmt)[0-9a-f]{12}[:@]'; then
     sudo ip -o link show >&2
     echo "Cloud Hypervisor veth/TAP residue detected" >&2
     return 1
@@ -222,7 +218,7 @@ ns_watcher_pid=
 if command -v tcpdump >/dev/null 2>&1; then
   (
     for _ in $(seq 1 200); do
-      ns=$(sudo ip netns list 2>/dev/null | awk '{print $1}' | grep -m1 '^awffc-' || true)
+      ns=$(sudo ip netns list 2>/dev/null | awk '{print $1}' | grep -m1 '^awfvm-' || true)
       if [ -n "$ns" ]; then
         exec sudo ip netns exec "$ns" tcpdump -i any -w "$ns_tcpdump_out" \
           'port 3128 or arp or icmp' >/dev/null 2>&1
@@ -314,7 +310,7 @@ mkdir -p "$cancel_work" "$cancel_workspace" "$cancel_audit"
 ) >"$RUN_ROOT/cancellation/stdout.log" 2>"$RUN_ROOT/cancellation/stderr.log" &
 cancel_pid=$!
 for _ in $(seq 1 60); do
-  sudo ip netns list | grep -q '^awffc-' && break
+  sudo ip netns list | grep -q '^awfvm-' && break
   sleep 1
 done
 cleanup_start_ns=$(date +%s%N)
@@ -363,7 +359,7 @@ if [ "$keep_status" -ne 0 ]; then
   tail -200 "$RUN_ROOT/keep/stderr.log" >&2
   exit 1
 fi
-sudo ip netns list | grep -q '^awffc-' || {
+sudo ip netns list | grep -q '^awfvm-' || {
   echo "keep mode did not preserve the run network namespace" >&2
   exit 1
 }
@@ -391,7 +387,7 @@ sudo find "$keep_audit/cloud-hypervisor" -type f -size +1048576c -print -quit \
 
 while read -r namespace _; do
   case "$namespace" in
-    awffc-*) sudo ip netns delete "$namespace" ;;
+    awfvm-*) sudo ip netns delete "$namespace" ;;
   esac
 done < <(sudo ip netns list)
 sudo docker compose -f "$keep_work/docker-compose.yml" down --volumes --remove-orphans
@@ -522,15 +518,15 @@ esac
 # also proves these assertions inspect a live VM, not merely a launched VMM.
 #
 # The expected TAP name is derived exactly like
-# createMicrovmNetworkPlan() (src/microvm/network.ts): `fct` + the first 12
+# createMicrovmNetworkPlan() (src/microvm/network.ts): `vmt` + the first 12
 # hex characters of sha256(runId). The per-run network namespace shares
-# the same token (`awffc-` + token) and is where the TAP device actually
+# the same token (`awfvm-` + token) and is where the TAP device actually
 # lives -- checking for it in the root/default namespace, which is what
 # actually hosts this script, would never find a namespace-scoped
 # interface regardless of whether it truly exists.
 run_token=$(printf '%s' "$run_id" | sha256sum | cut -c1-12)
-expected_tap="fct$run_token"
-expected_namespace="awffc-$run_token"
+expected_tap="vmt$run_token"
+expected_namespace="awfvm-$run_token"
 expected_rootfs_path="$run_directory/rootfs.ext4"
 expected_vsock_socket="$run_directory/awf-vsock.socket"
 

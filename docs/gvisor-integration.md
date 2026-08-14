@@ -66,8 +66,8 @@ gVisor can intercept syscalls in more than one way — the "platform":
 
 This is the natural bridge to any "KVM microVM" evaluation: gVisor's KVM
 *platform* uses KVM for address-space isolation without booting a full guest
-kernel/VMM per sandbox, which is a different trade-off from a true microVM (sbx,
-Firecracker) that boots a separate Linux kernel.
+kernel/VMM per sandbox, which is a different trade-off from a true microVM such
+as sbx or Cloud Hypervisor, which boots a separate Linux kernel.
 
 ### What gVisor does *not* protect against
 
@@ -83,7 +83,7 @@ Firecracker) that boots a separate Linux kernel.
 | --- | --- | --- | --- |
 | Plain container (runc) | namespaces + cgroups | shared host kernel | lowest |
 | gVisor (runsc) | userspace application kernel | separate Go kernel (Sentry) | low–moderate |
-| microVM (sbx, Firecracker) | hypervisor | separate real Linux kernel | highest |
+| microVM (sbx, Cloud Hypervisor) | hypervisor | separate real Linux kernel | highest |
 
 ## Part 2 — How AWF uses gVisor
 

@@ -1,7 +1,7 @@
 /**
  * AWF framed guest-supervisor protocol. Transport-independent: the same
  * length-prefixed JSON framing is used regardless of which VMM backend
- * (Firecracker today, others later) carries the bytes over vsock/UDS.
+ * carries the bytes over vsock/UDS.
  */
 export const GUEST_PROTOCOL_VERSION = 1 as const;
 export const GUEST_MAX_FRAME_BYTES = 1024 * 1024;

@@ -1,4 +1,4 @@
-// firecracker-supervisor is the minimal guest-side command supervisor.
+// microvm-supervisor is the minimal guest-side command supervisor.
 package main
 
 import (
@@ -17,7 +17,7 @@ func main() {
 		return
 	}
 	if err := runSupervisor(); err != nil {
-		fmt.Fprintln(os.Stderr, "firecracker-supervisor:", err)
+		fmt.Fprintln(os.Stderr, "microvm-supervisor:", err)
 		os.Exit(1)
 	}
 }

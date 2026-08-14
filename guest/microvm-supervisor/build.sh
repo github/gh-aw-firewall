@@ -4,7 +4,7 @@ set -eu
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 GO_VERSION=go1.25.0
 VERSION=${VERSION:-dev}
-OUTPUT=${OUTPUT:-"$ROOT/firecracker-supervisor"}
+OUTPUT=${OUTPUT:-"$ROOT/microvm-supervisor"}
 
 actual=$(go env GOVERSION)
 if [ "$actual" != "$GO_VERSION" ]; then

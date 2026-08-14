@@ -3,12 +3,11 @@ set -euo pipefail
 
 # Fail-closed CI host preflight for the Cloud Hypervisor live-KVM job.
 #
-# Mirrors scripts/ci/firecracker-host-preflight.sh's checks (Linux/x86_64,
-# /dev/kvm, kernel controls, cgroup hierarchy, required host tools, docker,
-# artifact digests), with two Cloud Hypervisor-specific differences:
+# Checks Linux/x86_64, /dev/kvm, kernel controls, cgroup hierarchy, required
+# host tools, Docker, and artifact digests. Two backend-specific requirements:
 #   1. GitHub-hosted-only host eligibility is enforced here too (this
-#      backend rejects self-hosted runners, unlike Firecracker's preview —
-#      see src/cloud-hypervisor/host-eligibility.ts), so a misconfigured
+#      backend rejects self-hosted runners; see
+#      src/cloud-hypervisor/host-eligibility.ts), so a misconfigured
 #      self-hosted runner fails fast in CI instead of failing later inside
 #      the CLI.
 #   2. `setpriv` is required (the launcher's jailer replacement — see

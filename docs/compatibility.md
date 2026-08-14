@@ -123,26 +123,6 @@ sudo systemctl start docker
 sudo systemctl enable docker
 ```
 
-## Firecracker preview host requirements
-
-The Firecracker microVM backend is an **explicit opt-in preview** available only on a
-subset of host configurations. It is **not** the default and does **not** fall back to
-any other runtime.
-
-| Requirement | Value |
-|-------------|-------|
-| Operating system | **Linux only** — macOS and Windows fail preflight immediately |
-| Architecture | x86_64 primary (aarch64 accepted by preflight code; no pre-built aarch64 test artifact) |
-| KVM device | `/dev/kvm` must exist and be readable + writable by the workflow user |
-| CI runner | GitHub-hosted x64 `ubuntu-24.04` with readable + writable `/dev/kvm` |
-| Firecracker version | **v1.16.1 exactly** — enforced at preflight; any other version fails |
-| Jailer | Mandatory — the jailer binary must match the Firecracker binary version |
-| Docker | Local Unix-socket Docker Engine required; remote Docker hosts rejected |
-| Required tools | `ip`, `sysctl`, `nft`, `mke2fs`, `debugfs`, `e2fsck`, `rsync`, `sha256sum`, `timeout`, `docker`, `docker compose` v2, passwordless `sudo` |
-
-See [Firecracker integration (preview)](./firecracker-integration.md) for the complete
-prerequisites, artifact policy, and CLI reference.
-
 ## Reporting Compatibility Issues
 
 If you encounter compatibility issues with a supported configuration, please:

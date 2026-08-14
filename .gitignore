@@ -38,4 +38,4 @@ __pycache__/
 # Local `go build`/`go vet` output for the guest supervisor module
 # (built binary shares its directory's module name with no extension,
 # easy to accidentally leave behind after a local build/test cycle)
-/guest/firecracker-supervisor/firecracker-supervisor
+/guest/microvm-supervisor/microvm-supervisor

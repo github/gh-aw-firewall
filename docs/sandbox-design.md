@@ -3,7 +3,9 @@ title: Sandbox design
 description: Why the firewall uses Docker containers instead of microVMs for network sandboxing in CI/CD environments.
 ---
 
-The firewall sandboxes AI agent network traffic using Docker containers and a Squid proxy. This document explains why Docker was chosen over alternative isolation technologies like microVMs (Firecracker, Kata Containers).
+The firewall sandboxes AI agent network traffic using Docker containers and a
+Squid proxy. This document explains why Docker is the default instead of a
+microVM runtime such as Cloud Hypervisor or Kata Containers.
 
 ## Threat model
 
@@ -31,7 +33,7 @@ Adding a microVM inside this VM would create **nested virtualization** — a VM 
 
 ### MicroVMs require KVM access
 
-MicroVM runtimes (Firecracker, Cloud Hypervisor) require:
+MicroVM runtimes such as Cloud Hypervisor require:
 
 - KVM access (`/dev/kvm`), which standard GitHub-hosted runners don't expose
 - Custom kernel images and rootfs preparation
@@ -46,7 +48,7 @@ Container startup time directly impacts every workflow run:
 | Approach | Typical startup | Notes |
 |----------|----------------|-------|
 | Docker container | ~1-2s | Base image often pre-cached on runner; pulls may be cached within a job |
-| Firecracker microVM | ~3-5s | Kernel boot + rootfs mount |
+| Cloud Hypervisor microVM | ~3-5s | Kernel boot + rootfs mount |
 | Kata Containers | ~5-10s | Full VM boot with guest kernel |
 
 For a firewall that wraps every AI agent invocation, these seconds compound across workflow steps.
@@ -103,7 +105,10 @@ On bare metal or shared infrastructure without an outer VM, Docker alone would n
 
 ## When microVMs would be the right choice
 
-MicroVMs (Firecracker, Kata Containers) provide stronger isolation at the cost of complexity and performance. Other sandboxing runtimes like gVisor (a userspace kernel) can also harden isolation without full VM overhead. These approaches would be appropriate when:
+MicroVMs such as Cloud Hypervisor and Kata Containers provide stronger
+isolation at the cost of complexity and performance. gVisor, a userspace
+kernel, can also harden isolation without full VM overhead. These approaches
+are appropriate when:
 
 - **Running untrusted binaries** that might attempt kernel exploits
 - **Multi-tenant isolation** on shared bare-metal infrastructure

@@ -461,7 +461,7 @@ describe('createMainAction', () => {
     it('quiesces an external runtime through its preserve hook', async () => {
       const preserve = jest.fn().mockResolvedValue(undefined);
       const backend = {
-        runtime: 'firecracker',
+        runtime: 'cloud-hypervisor',
         preflight: jest.fn(),
         start: jest.fn(),
         exec: jest.fn(),
@@ -490,9 +490,9 @@ describe('createMainAction', () => {
 
   describe('external runtime cleanup failures', () => {
     it('continues generic cleanup and then rethrows the runtime failure', async () => {
-      const runtimeError = new Error('Firecracker teardown failed');
+      const runtimeError = new Error('External runtime teardown failed');
       const backend = {
-        runtime: 'firecracker',
+        runtime: 'cloud-hypervisor',
         preflight: jest.fn(),
         start: jest.fn(),
         exec: jest.fn(),
@@ -523,7 +523,7 @@ describe('createMainAction', () => {
   describe('external runtime diagnostics', () => {
     it('aggregates backend and Docker diagnostics with explicit failures', async () => {
       const backend = {
-        runtime: 'firecracker',
+        runtime: 'cloud-hypervisor',
         preflight: jest.fn().mockResolvedValue(undefined),
         start: jest.fn(),
         exec: jest.fn(),

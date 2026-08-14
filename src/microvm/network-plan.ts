@@ -46,10 +46,10 @@ export function createMicrovmNetworkPlan(
     digest[8],
   ].map((byte) => byte.toString(16).padStart(2, '0')).join(':');
 
-  const namespaceName = `awffc-${token}`;
-  const tapName = `fct${token}`;
-  const hostVethName = `fch${token}`;
-  const namespaceVethName = `fcn${token}`;
+  const namespaceName = `awfvm-${token}`;
+  const tapName = `vmt${token}`;
+  const hostVethName = `vmh${token}`;
+  const namespaceVethName = `vmn${token}`;
   const nftTableName = `awf_fc_${token}`;
   for (const [label, name] of [
     ['TAP', tapName],

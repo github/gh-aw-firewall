@@ -4,40 +4,6 @@
 
 import type { LogLevel } from './log-level';
 
-export const FIRECRACKER_RELEASE_VERSION = '1.16.1';
-export const FIRECRACKER_DEFAULT_BINARY = '/usr/local/bin/firecracker';
-export const FIRECRACKER_DEFAULT_JAILER_BINARY = '/usr/local/bin/jailer';
-export const FIRECRACKER_DEFAULT_VCPU_COUNT = 2;
-export const FIRECRACKER_DEFAULT_MEMORY_MIB = 512;
-export const FIRECRACKER_DEFAULT_API_TIMEOUT_MS = 5_000;
-
-export interface FirecrackerArtifactDigests {
-  firecracker?: string;
-  jailer?: string;
-  kernel?: string;
-  rootfs?: string;
-  supervisor?: string;
-}
-
-/**
- * Preview workload configuration for the Firecracker microVM runtime.
- *
- * Host-side network enforcement and guest execution inputs are supplied
- * directly to FirecrackerManager after live infrastructure discovery.
- */
-export interface FirecrackerOptions {
-  previewEnabled: boolean;
-  firecrackerBinary: string;
-  jailerBinary: string;
-  kernelPath?: string;
-  rootfsPath?: string;
-  supervisorPath?: string;
-  vcpuCount: number;
-  memoryMib: number;
-  apiTimeoutMs: number;
-  sha256?: FirecrackerArtifactDigests;
-}
-
 // ─── Cloud Hypervisor (v53.0 preview lifecycle backend) ────────────────────
 //
 // This configuration surface pins trusted artifacts and configures the
@@ -238,9 +204,6 @@ export interface RuntimeOptions {
       targetPath?: string;
     };
   };
-
-  /** Firecracker microVM control-plane settings. */
-  firecracker?: FirecrackerOptions;
 
   /**
    * Cloud Hypervisor v53.0 preview microVM runtime settings.

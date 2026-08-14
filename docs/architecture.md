@@ -240,27 +240,22 @@ Use `--keep-containers` to preserve containers and files after execution for deb
 - `js-yaml`: YAML generation for Docker Compose config
 - TypeScript 5.x, compiled to ES2020 CommonJS
 
-## Firecracker microVM runtime (preview)
+## Cloud Hypervisor microVM runtime (preview)
 
-When `--container-runtime firecracker --firecracker-preview` is supplied, AWF
-uses a substantially different execution architecture:
+With `--container-runtime cloud-hypervisor --cloud-hypervisor-preview`, AWF
+runs the agent in a hardware-isolated microVM:
 
-- The **agent container is replaced** by a Firecracker microVM — a hardware-isolated
-  virtual machine with its own Linux kernel.
-- The Squid proxy and API proxy **remain as Docker Compose containers** on the host.
-- The workspace is **not bind-mounted**; it is copied into a bounded ext4 image
-  (`workspace.ext4`) before boot and copied back after the agent exits.
-  There is no live filesystem passthrough (no virtiofs).
-- A **dedicated network namespace** (`awffc-<runId>`) isolates the VM's network.
-  nftables rules inside the namespace allow only Squid and the API proxy; all
-  other guest outbound connections are denied.
-- The **API proxy is mandatory**; provider credentials are never passed as guest
-  environment variables and an explicit assertion enforces this.
-- **TTY, Docker-in-Docker, topology peers, enclaves, extra volume mounts, and
-  remote Docker hosts all fail closed** in this preview.
-- **Linux/KVM only** — macOS and Windows are permanently unsupported.
-  CI specifically supports GitHub-hosted x64 `ubuntu-24.04`; KVM remains
-  mandatory, and hosts without usable `/dev/kvm` access fail closed.
+- Squid and the API proxy remain Docker Compose services on the host.
+- A sandboxed `virtiofsd` exports the workspace read-write to `/workspace`.
+- A dedicated `awfvm-<runId>` network namespace contains `vmh*`, `vmn*`, and
+  `vmt*` veth/TAP interfaces. nftables permits access only to Squid and the API
+  proxy.
+- The mandatory API proxy keeps provider credentials out of the guest
+  environment.
+- The VMM runs as a non-root identity with `no_new_privs`, a minimal capability
+  set, Landlock filesystem rules, seccomp, and explicit cgroup v2 limits.
+- The preview supports only GitHub-hosted Ubuntu x86_64 KVM runners and fails
+  closed on unsupported hosts or missing artifacts.
 
-See [Firecracker integration (preview)](./firecracker-integration.md) for the
-full architecture, trust model, and operator guide.
+See [Cloud Hypervisor integration](./cloud-hypervisor-foundation.md) for the
+complete architecture, trust model, and operator guide.

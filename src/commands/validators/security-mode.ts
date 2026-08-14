@@ -30,9 +30,7 @@ export function applySecurityMode(config: WrapperConfig): void {
 
   // --- strict security (default) ---
 
-  // Docker sbx enforces isolation through its hypervisor proxy and does not use
-  // Docker topology. Firecracker is also a microVM, but explicitly attaches its
-  // host-side veth to AWF's proven internal bridge, so topology remains required.
+  // MicroVM runtimes enforce isolation outside Docker topology.
   const isMicroVmRuntime = !runtimeUsesComposeAgent(config.containerRuntime);
 
   if (isMicroVmRuntime && config.pidsLimit !== undefined) {
@@ -42,7 +40,7 @@ export function applySecurityMode(config: WrapperConfig): void {
     );
   }
 
-  if (!isMicroVmRuntime || config.containerRuntime === 'firecracker') {
+  if (!isMicroVmRuntime) {
     // Force network-isolation on.
     // Only warn when explicitly disabled (=== false); undefined means "not set by user".
     if (!config.networkIsolation) {

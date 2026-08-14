@@ -156,8 +156,8 @@ function parsePositiveIdentity(value: string | undefined): number | undefined {
 
 /**
  * Owns one Cloud Hypervisor process launched via the secure host launcher in
- * `./launcher.ts` (network-namespace join + privilege drop + Landlock, in
- * place of Firecracker's jailer) and its partial-start cleanup.
+ * `./launcher.ts` (network-namespace join + privilege drop + Landlock) and
+ * its partial-start cleanup.
  *
  * This class is an orchestration facade: VM boot configuration lives in
  * `./vm-config-builder.ts`, run-directory staging plus failure diagnostics in
@@ -229,9 +229,7 @@ export class CloudHypervisorManager {
         // tap RX=10 packets (guest-to-host, unaffected) vs. TX=1 packet
         // (host-to-guest, effectively stalled) despite response
         // packets already having arrived on the host-side veth.
-        // Firecracker's own tap handling does not request
-        // IFF_VNET_HDR, so this is opted in here only, not changed for
-        // the shared default.
+        // This backend requires IFF_VNET_HDR, so it opts in explicitly.
         tapVnetHdr: true,
       });
       this.networkPlan = networkPlan;

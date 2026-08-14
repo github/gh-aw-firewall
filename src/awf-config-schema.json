@@ -650,82 +650,9 @@
           "enum": [
             "gvisor",
             "sbx",
-            "firecracker",
             "cloud-hypervisor"
           ],
-          "description": "Runtime for the primary agent. \"gvisor\" uses runsc in Docker Compose. \"sbx\" uses a Docker sbx microVM. \"firecracker\" selects the explicit Linux/KVM Firecracker v1.16.1 workload preview. \"cloud-hypervisor\" selects the explicit Linux/KVM Cloud Hypervisor v53.0 workload preview (GitHub-hosted Ubuntu x86_64 KVM runners only). Infrastructure containers always use the default runc runtime."
-        }
-      }
-    },
-    "firecracker": {
-      "type": "object",
-      "description": "Firecracker v1.16.1 workload preview configuration. Requires strict network isolation, a local Docker daemon, KVM, jailer, and explicitly checksummed artifacts. Selecting this runtime never falls back to Docker.",
-      "additionalProperties": false,
-      "properties": {
-        "previewEnabled": {
-          "type": "boolean",
-          "default": false,
-          "description": "Explicitly enable Firecracker preview workload execution."
-        },
-        "firecrackerBinary": {
-          "type": "string",
-          "description": "Absolute path to the Firecracker v1.16.1 binary. Defaults to /usr/local/bin/firecracker."
-        },
-        "jailerBinary": {
-          "type": "string",
-          "description": "Absolute path to the matching v1.16.1 jailer binary. Defaults to /usr/local/bin/jailer."
-        },
-        "kernelPath": {
-          "type": "string",
-          "description": "Absolute path to the trusted guest Linux kernel image."
-        },
-        "rootfsPath": {
-          "type": "string",
-          "description": "Absolute path to the trusted guest root filesystem image."
-        },
-        "supervisorPath": {
-          "type": "string",
-          "description": "Absolute path to the built AWF Firecracker guest supervisor."
-        },
-        "vcpuCount": {
-          "type": "integer",
-          "minimum": 1,
-          "default": 2,
-          "description": "Number of guest virtual CPUs."
-        },
-        "memoryMib": {
-          "type": "integer",
-          "minimum": 1,
-          "default": 512,
-          "description": "Guest memory in MiB."
-        },
-        "apiTimeoutMs": {
-          "type": "integer",
-          "minimum": 1,
-          "default": 5000,
-          "description": "Bounded timeout in milliseconds for Firecracker API socket readiness and requests."
-        },
-        "sha256": {
-          "type": "object",
-          "description": "Pinned SHA-256 digests for trusted Firecracker artifacts. All entries are required for preview workload execution.",
-          "additionalProperties": false,
-          "properties": {
-            "firecracker": {
-              "$ref": "#/$defs/sha256Digest"
-            },
-            "jailer": {
-              "$ref": "#/$defs/sha256Digest"
-            },
-            "kernel": {
-              "$ref": "#/$defs/sha256Digest"
-            },
-            "rootfs": {
-              "$ref": "#/$defs/sha256Digest"
-            },
-            "supervisor": {
-              "$ref": "#/$defs/sha256Digest"
-            }
-          }
+          "description": "Runtime for the primary agent. \"gvisor\" uses runsc in Docker Compose. \"sbx\" uses a Docker sbx microVM. \"cloud-hypervisor\" selects the explicit Linux/KVM Cloud Hypervisor v53.0 workload preview (GitHub-hosted Ubuntu x86_64 KVM runners only). Infrastructure containers always use the default runc runtime."
         }
       }
     },
@@ -753,7 +680,7 @@
         },
         "supervisorPath": {
           "type": "string",
-          "description": "Absolute path to the built AWF guest supervisor (shared with Firecracker)."
+          "description": "Absolute path to the built AWF guest supervisor."
         },
         "vcpuCount": {
           "type": "integer",

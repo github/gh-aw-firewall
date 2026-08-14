@@ -238,8 +238,7 @@ func mountWorkspace(config bootConfig) error {
 	// which made this supervisor's init process return an error and the
 	// kernel panic with "Attempted to kill init!" on every single guest
 	// boot. Discovered via live-KVM validation (a genuine, pre-existing
-	// defect shared by both the Firecracker and Cloud Hypervisor backends,
-	// since they share this guest supervisor binary).
+	// defect in the shared guest supervisor binary).
 	source, target, fstype, flags := workspaceMountArgs(config)
 	if err := mountFilesystem(source, target, fstype, flags, ""); err != nil {
 		return fmt.Errorf("mount workspace: %w", err)

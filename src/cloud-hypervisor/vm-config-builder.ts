@@ -122,8 +122,7 @@ export function buildSupervisorBootArgs(
     'rootfstype=ext4',
     'rootflags=data=ordered',
     'rw',
-    // Cloud Hypervisor requires PCI (no `pci=off` MMIO-only mode like
-    // Firecracker); pin legacy `ethN` interface naming so the guest's
+    // Cloud Hypervisor requires PCI; pin legacy `ethN` interface naming so the guest's
     // single virtio-pci NIC has a deterministic name across boots.
     'net.ifnames=0',
     'biosdevname=0',

@@ -408,7 +408,7 @@ export class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBacken
           `[cloud-hypervisor] Preserved run directory: ${this.manager.paths.runDirectory}`,
         );
         this.dependencies.logger.info(
-          `[cloud-hypervisor] Preserved images: ${this.config.workDir}/firecracker-images`,
+          `[cloud-hypervisor] Preserved images: ${this.config.workDir}/microvm-images`,
         );
         if (this.manager.networkNamespace) {
           this.dependencies.logger.info(

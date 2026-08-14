@@ -66,8 +66,8 @@ export class GuestExecutionError extends Error {
 
 /**
  * Host endpoint for a VMM's CONNECT-over-UDS vsock mapping (the convention
- * used by Firecracker and other VMMs that expose vsock via a host UDS
- * socket). Speaks the AWF framed guest protocol once the handshake
+ * used by VMMs that expose vsock via a host UDS socket). Speaks the AWF
+ * framed guest protocol once the handshake
  * completes; independent of which VMM backend owns the socket.
  */
 export class MicrovmVsockClient {

@@ -323,7 +323,7 @@ describe('microVM network lifecycle', () => {
     expect(calls).toEqual([]);
   });
 
-  it('creates the TAP with vnet_hdr only when the plan opts in (Cloud Hypervisor requires it; Firecracker does not)', async () => {
+  it('creates the TAP with vnet_hdr only when the plan opts in', async () => {
     // Regression test: Cloud Hypervisor's own tap handling
     // (Tap::open_named() in net_util/src/tap.rs) always re-opens the tap
     // with IFF_VNET_HDR requested. If the tap wasn't *created* with that
@@ -332,9 +332,8 @@ describe('microVM network lifecycle', () => {
     // the host-side veth/nft layer) keeps working, but host-to-guest
     // traffic silently never reaches the guest -- observed live as a tap
     // RX=10 packets / TX=1 packet asymmetry despite response packets
-    // already having arrived on the host-side veth. Firecracker's own tap
-    // handling does not request IFF_VNET_HDR, so this flag defaults to
-    // false (unchanged prior behavior) and is opted into explicitly.
+    // already having arrived on the host-side veth. The flag defaults to false
+    // and is opted into explicitly by runtimes that require it.
     const withVnetHdr = createPlan('run-vnet-hdr', { tapVnetHdr: true });
     const { calls: vnetHdrCalls, commands: vnetHdrCommands } = commandHarness();
     await new MicrovmNetworkManager(withVnetHdr, vnetHdrCommands).setup();
@@ -645,19 +644,19 @@ describe('LinuxNetworkCommands.nftInNamespace ruleset file handling', () => {
 
   it('writes the ruleset to a file and passes its path instead of "-f -"', async () => {
     const { rulesetFile, calls, commands } = rulesetFileHarness();
-    await commands.nftInNamespace('awffc-test', ['-f', '-'], 'table inet awf {}');
+    await commands.nftInNamespace('awfvm-test', ['-f', '-'], 'table inet awf {}');
 
     expect(rulesetFile.write).toHaveBeenCalledWith('table inet awf {}');
     expect(calls).toEqual([{
       command: 'ip',
-      args: ['netns', 'exec', 'awffc-test', 'nft', '-f', '/tmp/awf-nft-fake.nft:17'],
+      args: ['netns', 'exec', 'awfvm-test', 'nft', '-f', '/tmp/awf-nft-fake.nft:17'],
       options: { reject: true },
     }]);
   });
 
   it('removes the temp file after a successful nft invocation', async () => {
     const { rulesetFile, commands } = rulesetFileHarness();
-    await commands.nftInNamespace('awffc-test', ['-f', '-'], 'table inet awf {}');
+    await commands.nftInNamespace('awfvm-test', ['-f', '-'], 'table inet awf {}');
 
     expect(rulesetFile.remove).toHaveBeenCalledWith('/tmp/awf-nft-fake.nft:17');
   });
@@ -676,20 +675,20 @@ describe('LinuxNetworkCommands.nftInNamespace ruleset file handling', () => {
     );
 
     await expect(
-      commands.nftInNamespace('awffc-test', ['-f', '-'], 'table inet awf {}'),
+      commands.nftInNamespace('awfvm-test', ['-f', '-'], 'table inet awf {}'),
     ).rejects.toThrow('nft rejected the ruleset');
     expect(rulesetFile.remove).toHaveBeenCalledWith('/tmp/awf-nft-fake.nft');
   });
 
   it('skips ruleset file handling entirely when no input is given', async () => {
     const { rulesetFile, calls, commands } = rulesetFileHarness();
-    await commands.nftInNamespace('awffc-test', ['list', 'ruleset']);
+    await commands.nftInNamespace('awfvm-test', ['list', 'ruleset']);
 
     expect(rulesetFile.write).not.toHaveBeenCalled();
     expect(rulesetFile.remove).not.toHaveBeenCalled();
     expect(calls).toEqual([{
       command: 'ip',
-      args: ['netns', 'exec', 'awffc-test', 'nft', 'list', 'ruleset'],
+      args: ['netns', 'exec', 'awfvm-test', 'nft', 'list', 'ruleset'],
       options: { reject: true },
     }]);
   });
@@ -702,7 +701,7 @@ describe('LinuxNetworkCommands.nftInNamespace ruleset file handling', () => {
       jest.fn(async () => undefined),
     );
     await expect(
-      commands.nftInNamespace('awffc-real-fs-test', ['-f', '-'], 'table inet awf { }'),
+      commands.nftInNamespace('awfvm-real-fs-test', ['-f', '-'], 'table inet awf { }'),
     ).resolves.toBeUndefined();
   });
 });
@@ -744,7 +743,7 @@ describe('LinuxNetworkCommands.captureDiagnosticsInNamespace', () => {
       }),
     );
 
-    const result = await commands.captureDiagnosticsInNamespace('awffc-test');
+    const result = await commands.captureDiagnosticsInNamespace('awfvm-test');
 
     expect(result).toContain('--- nft -a list ruleset (handles + hit counters) ---');
     expect(result).toContain('table inet awf_fc_abc123');
@@ -771,7 +770,7 @@ describe('LinuxNetworkCommands.captureDiagnosticsInNamespace', () => {
       }),
     );
 
-    const result = await commands.captureDiagnosticsInNamespace('awffc-test');
+    const result = await commands.captureDiagnosticsInNamespace('awfvm-test');
 
     expect(result).toContain('(empty or unavailable)');
   });

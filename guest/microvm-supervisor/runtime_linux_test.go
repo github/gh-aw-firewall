@@ -39,8 +39,7 @@ func TestWorkspaceMountArgsUseExt4Filesystem(t *testing.T) {
 	// device"), which made the guest supervisor's init process return an
 	// error and the kernel panic with "Attempted to kill init!" on every
 	// single guest boot — discovered via live-KVM validation, a genuine,
-	// pre-existing defect shared by both the Firecracker and Cloud
-	// Hypervisor backends (they share this guest supervisor binary).
+	// pre-existing defect in the shared guest supervisor binary.
 	config := bootConfig{WorkspaceDevice: "/dev/vdb", WorkspaceMount: "/workspace"}
 	source, target, fstype, flags := workspaceMountArgs(config)
 	if source != config.WorkspaceDevice {

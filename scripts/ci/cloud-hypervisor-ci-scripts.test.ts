@@ -4,8 +4,6 @@ import { execFileSync } from 'child_process';
 
 const preflightPath = path.resolve(__dirname, 'cloud-hypervisor-host-preflight.sh');
 const smokePath = path.resolve(__dirname, 'cloud-hypervisor-live-smoke.sh');
-const firecrackerPreflightPath = path.resolve(__dirname, 'firecracker-host-preflight.sh');
-const firecrackerSmokePath = path.resolve(__dirname, 'firecracker-live-smoke.sh');
 
 function shellcheckAvailable(): boolean {
   try {
@@ -116,10 +114,10 @@ describe('cloud-hypervisor-live-smoke.sh', () => {
     expect(source).toContain('awf-cloud-hypervisor-real-secret-do-not-expose');
   });
 
-  it('checks netns/veth/TAP residue (shared with Firecracker) plus Cloud Hypervisor-specific cgroup/process residue', () => {
+  it('checks netns/veth/TAP plus Cloud Hypervisor-specific cgroup/process residue', () => {
     const source = fs.readFileSync(smokePath, 'utf-8');
-    expect(source).toContain("grep -q '^awffc-'");
-    expect(source).toContain('(fch|fcn|fct)');
+    expect(source).toContain("grep -q '^awfvm-'");
+    expect(source).toContain('(vmh|vmn|vmt)');
     expect(source).toContain('CGROUP_ROOT');
     expect(source).toContain("pgrep -f 'cloud-hypervisor --api-socket'");
   });
@@ -143,30 +141,9 @@ describe('cloud-hypervisor-live-smoke.sh', () => {
     expect(source).toMatch(/COMMON=\(\n(?:.*\n)*?\s*--network-isolation\n/);
   });
 
-  (shellcheckAvailable() ? it : it.skip)('has no new shellcheck errors beyond the Firecracker baseline', () => {
+  (shellcheckAvailable() ? it : it.skip)('has no shellcheck errors', () => {
     expect(() =>
       execFileSync('shellcheck', ['--severity=error', smokePath]),
     ).not.toThrow();
-  });
-});
-
-describe('parity with the Firecracker live-smoke conventions', () => {
-  it('both Firecracker and Cloud Hypervisor scripts define the same run_case/assert_no_residue helpers', () => {
-    const firecracker = fs.readFileSync(firecrackerSmokePath, 'utf-8');
-    const cloudHypervisor = fs.readFileSync(smokePath, 'utf-8');
-    for (const helper of ['run_case()', 'assert_no_residue()']) {
-      expect(firecracker).toContain(helper);
-      expect(cloudHypervisor).toContain(helper);
-    }
-  });
-
-  it('both preflight scripts fail closed on missing Linux/x86_64/KVM host requirements', () => {
-    const firecracker = fs.readFileSync(firecrackerPreflightPath, 'utf-8');
-    const cloudHypervisor = fs.readFileSync(preflightPath, 'utf-8');
-    for (const script of [firecracker, cloudHypervisor]) {
-      expect(script).toContain('/dev/kvm');
-      expect(script).toContain('x86_64');
-      expect(script).toContain('set -euo pipefail');
-    }
   });
 });

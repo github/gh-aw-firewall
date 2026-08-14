@@ -4,14 +4,13 @@ import { assertGithubHostedRunnerEligibility } from './host-eligibility';
 
 /**
  * Explicit, fail-closed compatibility guards for the Cloud Hypervisor
- * v53.0 microVM runtime. This module mirrors
- * `src/firecracker/runtime-validation.ts` closely — same security-mode
- * and Docker-host requirements — with two Cloud
+ * v53.0 microVM runtime. This module enforces security-mode
+ * and Docker-host requirements, with two Cloud
  * Hypervisor-specific additions: no jailer digest is required (Cloud
  * Hypervisor has no jailer-equivalent process) and host eligibility is
  * additionally restricted to GitHub-hosted Ubuntu x86_64 KVM runners via
- * {@link assertGithubHostedRunnerEligibility} (self-hosted runners are not
- * supported, unlike Firecracker's preview).
+ * {@link assertGithubHostedRunnerEligibility}; self-hosted runners are not
+ * supported.
  */
 
 export function assertCloudHypervisorSelection(config: WrapperConfig): void {

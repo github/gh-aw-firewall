@@ -9,9 +9,8 @@ import {
 
 /**
  * Fail-closed host and artifact validation for the Cloud Hypervisor v53.0
- * runtime. This module intentionally mirrors
- * `src/firecracker/preflight.ts`'s trust-check patterns (absolute paths,
- * root/operator-owned non-writable regular files, trusted ancestor
+ * runtime. Trust checks cover absolute paths, root/operator-owned
+ * non-writable regular files, trusted ancestor
  * directories, digest pinning, PATH-resolved but ownership-verified host
  * tools) so both VMM backends share the same fail-closed posture.
  *
@@ -328,9 +327,8 @@ async function assertDigest(
 /**
  * Fail-closed host and artifact validation for Cloud Hypervisor v53.0.
  *
- * This performs the same categories of checks as
- * `runFirecrackerPreflight` — Linux/KVM host requirements, trusted
- * artifact ownership/permissions, pinned version, and pinned digests —
+ * This checks Linux/KVM host requirements, trusted artifact
+ * ownership/permissions, pinned version, and pinned digests,
  * adapted for Cloud Hypervisor's single-binary VMM (no jailer).
  */
 export async function runCloudHypervisorPreflight(

@@ -248,7 +248,7 @@ describe('CloudHypervisorManager', () => {
     expect(deps.launch).toHaveBeenCalledWith(
       '/usr/bin/ip',
       expect.arrayContaining([
-        'netns', 'exec', expect.stringMatching(/^awffc-/),
+        'netns', 'exec', expect.stringMatching(/^awfvm-/),
         '/usr/bin/setpriv',
         '--reuid=1000',
         '--regid=1000',

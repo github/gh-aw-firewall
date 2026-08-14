@@ -6,9 +6,7 @@ export interface MicrovmNetworkHostTools {
 
 /**
  * Generic tap-device descriptor a VMM's network-interface configuration API
- * needs. Field names intentionally match the wire shape already used by
- * Firecracker's `PUT /network-interfaces`; a future backend with a
- * differently-shaped API translates from this structural descriptor.
+ * needs. Backends translate this structural descriptor to their API shape.
  */
 export interface MicrovmTapInterface {
   readonly iface_id: string;
@@ -46,9 +44,7 @@ export interface MicrovmNetworkPlanOptions {
    * layer) keeps working normally -- exactly the asymmetric RX-works/
    * TX-stalls pattern observed live (tap RX=10 packets, TX=1 packet,
    * despite 23 response packets already having arrived on the veth).
-   * Firecracker's own tap handling does not request `IFF_VNET_HDR`, so
-   * this defaults to `false` (this shared code's prior, Firecracker-only
-   * behavior) and Cloud Hypervisor opts in explicitly.
+   * This defaults to `false`; Cloud Hypervisor opts in explicitly.
    */
   readonly tapVnetHdr?: boolean;
 }

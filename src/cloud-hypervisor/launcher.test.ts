@@ -68,7 +68,7 @@ describe('computeCloudHypervisorLandlockRules', () => {
       runDirectory: '/run/awf/run',
       apiSocketPath: '/run/awf/run/api.socket',
       vsockSocketPath: '/run/awf/run/vsock.socket',
-      tapName: 'fctabc123',
+      tapName: 'vmtabc123',
     });
 
     expect(rules).toEqual([
@@ -77,7 +77,7 @@ describe('computeCloudHypervisorLandlockRules', () => {
       { path: '/run/awf/run', access: 'rw' },
       { path: '/dev/kvm', access: 'rw' },
       { path: '/dev/net/tun', access: 'rw' },
-      { path: '/sys/class/net/fctabc123', access: 'r' },
+      { path: '/sys/class/net/vmtabc123', access: 'r' },
     ]);
     expect(rules).not.toEqual(expect.arrayContaining([
       expect.objectContaining({ path: '/host/workspace' }),
@@ -91,7 +91,7 @@ describe('computeCloudHypervisorLandlockRules', () => {
       runDirectory: '/run/awf/run',
       apiSocketPath: '/run/awf/run/api.socket',
       vsockSocketPath: '/run/awf/run/vsock.socket',
-      tapName: 'fctabc123',
+      tapName: 'vmtabc123',
     });
 
     expect(rules.some((rule) => rule.path.includes('workspace'))).toBe(false);
@@ -109,10 +109,10 @@ describe('computeCloudHypervisorLandlockRules', () => {
       runDirectory: '/run/awf/run',
       apiSocketPath: '/run/awf/run/api.socket',
       vsockSocketPath: '/run/awf/run/vsock.socket',
-      tapName: 'fctabc123',
+      tapName: 'vmtabc123',
     });
 
-    expect(rules).toContainEqual({ path: '/sys/class/net/fctabc123', access: 'r' });
+    expect(rules).toContainEqual({ path: '/sys/class/net/vmtabc123', access: 'r' });
   });
 });
 

@@ -8,8 +8,8 @@ to run an agent inside a hypervisor-isolated microVM while keeping AWF's own
 egress-filtering infrastructure on the host. It is written for two audiences:
 
 1. Engineers who want to understand *how the existing sbx integration works*.
-2. Ourselves, if we later want to add **another microVM backend that runs on top
-   of KVM** (e.g. Firecracker, Cloud Hypervisor, or a bespoke krun-based runner).
+2. Engineers who want to add another KVM-based microVM backend, such as a
+   bespoke krun-based runner.
 
 :::note
 This is distinct from [Sandbox design](./sandbox-design.md), which explains why
@@ -122,9 +122,9 @@ an `executionModel` of either `compose` or `microvm`:
 
 ```ts
 const RUNTIME_REGISTRY = {
-  gvisor:      { executionModel: 'compose', dockerRuntime: 'runsc', needsStaticDns: true,  usesIptables: false },
-  sbx:         { executionModel: 'microvm', dockerRuntime: undefined, needsStaticDns: false, usesIptables: false },
-  firecracker: { executionModel: 'microvm', dockerRuntime: undefined, needsStaticDns: false, usesIptables: false },
+  gvisor:            { executionModel: 'compose', dockerRuntime: 'runsc', needsStaticDns: true,  usesIptables: false },
+  sbx:               { executionModel: 'microvm', dockerRuntime: undefined, needsStaticDns: false, usesIptables: false },
+  'cloud-hypervisor': { executionModel: 'microvm', dockerRuntime: undefined, needsStaticDns: false, usesIptables: false },
 };
 ```
 
@@ -334,11 +334,7 @@ ACL.
 - Strict-security note (`src/commands/validators/security-mode.ts`): sbx
   enforces isolation at the hypervisor layer via `DOCKER_SANDBOXES_PROXY`, so
   AWF's Docker **network-isolation topology is not forced on** for it
-  (`isMicroVmRuntime` skips that override). The Firecracker microVM backend is
-  the exception: it explicitly attaches its host-side veth to AWF's proven
-  internal bridge, so network-isolation topology **is** still forced on for
-  `--container-runtime firecracker`. The api-proxy is still always enabled for
-  both.
+  (`isMicroVmRuntime` skips that override). The api-proxy remains enabled.
 
 ### End-to-end traffic flow
 
@@ -368,16 +364,10 @@ flowchart TB
 
 Because the microVM path is abstracted behind a small set of seams, adding a new
 KVM backend is mostly a matter of implementing a manager and registering it.
-Firecracker (`src/firecracker-runtime-backend.ts`, `src/firecracker/`) is a real,
-fail-closed **workload preview** built on this same seam (gated behind
-`--firecracker-preview`) — unlike sbx, it attaches its host-side veth directly to
-AWF's proven internal `awf-net` bridge and reaches Squid/api-proxy at their
-normal internal IPs (`SQUID_IP`/`API_PROXY_IP` from
-`src/config/network-policy.ts`) rather than a docker0 gateway IP, and it keeps
-strict network-isolation topology forced on (see
-`src/commands/validators/security-mode.ts`). Cloud Hypervisor, krun/libkrun,
-QEMU/KVM, etc. remain hypothetical. Here is the
-checklist.
+Cloud Hypervisor is the repository's fail-closed KVM workload preview built on
+this seam. It uses a dedicated network namespace and reaches Squid and the API
+proxy through AWF-managed networking. The following checklist applies to other
+backends.
 
 ### 1. Register the runtime
 
@@ -402,19 +392,18 @@ override in strict mode. It does **not** select the new manager: register an
 Implement `ExternalAgentRuntimeBackend` from
 `src/external-runtime-backend.ts`, following `SbxRuntimeBackend` in
 `src/sbx-runtime-backend.ts` (docker0-gateway addressing) or
-`FirecrackerRuntimeBackend` in `src/firecracker-runtime-backend.ts`
-(jailed microVM attached directly to `awf-net`, using internal
-`SQUID_IP`/`API_PROXY_IP` addressing instead). The backend owns preflight,
-startup, execution, diagnostics, and idempotent stop state. Concretely, a KVM
-backend must:
+`CloudHypervisorRuntimeBackend` in `src/cloud-hypervisor-runtime-backend.ts`
+(a microVM isolated in an AWF-managed network namespace). The backend owns
+preflight, startup, execution, diagnostics, and idempotent stop state.
+Concretely, a KVM backend must:
 
 - **Boot a microVM on `/dev/kvm`** with a kernel + rootfs. Confirm KVM is
   available (`/dev/kvm` present, user in the `kvm` group). On stock
   GitHub-hosted runners `/dev/kvm` is *not* exposed — this backend is only for
   self-hosted / nested-virt-capable environments.
-- **Mount the workspace** at its host absolute path (virtiofs is the sbx choice;
-  Firecracker typically uses a virtio-blk device or a virtiofsd sidecar). Also
-  surface `/tmp`, `/usr/local/bin`, and `$HOME` like `createSandbox` does.
+- **Mount the workspace** at its host absolute path. sbx and Cloud Hypervisor
+  use virtio-fs; another backend may use a block device or a filesystem
+  sidecar. Also surface `/tmp`, `/usr/local/bin`, and `$HOME` when required.
 - **Inject the agent environment**, and **sanitize secrets** first — reuse the
   `sanitizeEnvForSbx()` pattern (strip `TOKEN|SECRET|KEY|...`).
 - **Return the agent's exit code** faithfully (AWF propagates it), mapping
@@ -434,11 +423,9 @@ sandbox egress through AWF's host-side Squid:
 - Reproduce the boundary-crossing addressing pattern: sbx reaches Squid at the
   **bridge gateway IP + published port** (not the internal `172.30.0.x`) via
   `SBX_GATEWAY_IP`/`SBX_HOST_DOCKER_INTERNAL` in `src/sbx-runtime-backend.ts`,
-  because the sbx microVM sits outside `awf-net`. Firecracker instead attaches
-  its veth directly to `awf-net`, so it addresses Squid/api-proxy at their
-  normal internal IPs (`SQUID_IP`/`API_PROXY_IP` from
-  `src/config/network-policy.ts`) — pick whichever addressing model matches how
-  your VMM's network attaches to the host.
+  because the sbx microVM sits outside `awf-net`. Cloud Hypervisor instead uses
+  an AWF-managed namespace, veth pair, TAP device, and nftables policy. Pick the
+  addressing model that matches how your VMM attaches to the host.
 
 ### 4. Register the backend
 
@@ -486,5 +473,5 @@ a way to force egress through AWF's Squid.
 - `sbx` releases: <https://github.com/docker/sbx-releases>
 - AWF source: `src/container-runtime.ts`, `src/sbx-manager.ts`,
   `src/commands/main-action.ts`, `src/commands/validators/security-mode.ts`,
-  `src/firecracker-runtime-backend.ts` (second microVM backend built on this seam)
+  `src/cloud-hypervisor-runtime-backend.ts` (KVM backend built on this seam)
 - Related: [Sandbox design](./sandbox-design.md), [Architecture](./architecture.md)

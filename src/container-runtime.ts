@@ -110,12 +110,6 @@ const RUNTIME_REGISTRY: Readonly<Record<string, RuntimeCapabilities>> = {
     needsStaticDns: false,   // sbx manages its own DNS
     usesIptables: false,     // microVM manages its own network egress
   },
-  firecracker: {
-    executionModel: 'microvm',
-    dockerRuntime: undefined,
-    needsStaticDns: false,
-    usesIptables: false,
-  },
   'cloud-hypervisor': {
     executionModel: 'microvm',
     dockerRuntime: undefined,

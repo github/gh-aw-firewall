@@ -112,13 +112,6 @@ These images are automatically pulled by the CLI when running commands.
 
 The `agent-act` image is used when running with `--agent-image act` for workflows that need closer parity with GitHub Actions runner environments.
 
-### Firecracker preview test artifacts
-
-The release workflow does not build or publish Firecracker preview test
-artifacts. The repository retains explicit local build and verification scripts;
-see [Firecracker integration (preview) — Artifact policy](./firecracker-integration.md#part-5--artifact-policy)
-for the artifact specification and digest requirements.
-
 ## Testing a Release Locally
 
 Before releasing, you can test the build process locally:

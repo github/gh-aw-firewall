@@ -10,11 +10,6 @@ import { applySecurityMode } from './security-mode';
 import { validateHostAccessConfig } from './network-access-validator';
 import { validateApiProxyOptions, validateCopilotModelOption } from './api-proxy-validator';
 import {
-  assertFirecrackerPreSecurityCompatibility,
-  assertFirecrackerRuntimeCompatibility,
-  assertFirecrackerSelection,
-} from '../../firecracker/runtime-validation';
-import {
   assertCloudHypervisorPreSecurityCompatibility,
   assertCloudHypervisorRuntimeCompatibility,
   assertCloudHypervisorSelection,
@@ -81,19 +76,10 @@ export function assembleAndValidateConfig(
 
   validateInfrastructureOptions(config);
   try {
-    assertFirecrackerSelection(config);
     assertCloudHypervisorSelection(config);
   } catch (error) {
     logger.error(`❌ ${error instanceof Error ? error.message : String(error)}`);
     process.exit(1);
-  }
-  if (config.containerRuntime === 'firecracker') {
-    try {
-      assertFirecrackerPreSecurityCompatibility(config);
-    } catch (error) {
-      logger.error(`❌ ${error instanceof Error ? error.message : String(error)}`);
-      process.exit(1);
-    }
   }
   if (config.containerRuntime === 'cloud-hypervisor') {
     try {
@@ -104,14 +90,6 @@ export function assembleAndValidateConfig(
     }
   }
   applySecurityMode(config);
-  if (config.containerRuntime === 'firecracker') {
-    try {
-      assertFirecrackerRuntimeCompatibility(config);
-    } catch (error) {
-      logger.error(`❌ ${error instanceof Error ? error.message : String(error)}`);
-      process.exit(1);
-    }
-  }
   if (config.containerRuntime === 'cloud-hypervisor') {
     try {
       assertCloudHypervisorRuntimeCompatibility(config);

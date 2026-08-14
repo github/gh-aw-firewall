@@ -5,5 +5,5 @@ package main
 import "errors"
 
 func runSupervisor() error {
-	return errors.New("the Firecracker guest supervisor requires Linux")
+	return errors.New("the microVM guest supervisor requires Linux")
 }

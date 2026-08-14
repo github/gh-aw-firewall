@@ -26,7 +26,6 @@ describe('enclave runtime preflight', () => {
     ['gvisor', 'gvisor'],
     ['runsc', 'gvisor'],
     ['sbx', 'sbx'],
-    ['firecracker', 'firecracker'],
   ] as const)('normalizes primary runtime %s to %s', (runtime, expected) => {
     expect(resolvePrimaryRuntimeBackend(runtime)).toBe(expected);
   });
@@ -50,18 +49,6 @@ describe('enclave runtime preflight', () => {
       dockerAvailable,
       sbxAvailable,
     )).rejects.toThrow(/sbx.*unavailable.*never fall back/);
-  });
-
-  it('recognizes Firecracker but rejects enclave integration without probing fallbacks', async () => {
-    await expect(assertPrimaryRuntimeAvailable(
-      'firecracker',
-      runtimeAvailable,
-      dockerAvailable,
-      sbxAvailable,
-    )).rejects.toThrow(/control-plane preview.*not implemented.*never fall back/);
-    expect(runtimeAvailable).not.toHaveBeenCalled();
-    expect(dockerAvailable).not.toHaveBeenCalled();
-    expect(sbxAvailable).not.toHaveBeenCalled();
   });
 
   it('fails closed when Docker is unavailable for either executor', async () => {

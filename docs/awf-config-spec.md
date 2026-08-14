@@ -75,7 +75,6 @@ following top-level properties. All are OPTIONAL:
 | `apiProxy` | object | API proxy sidecar configuration |
 | `security` | object | Security and isolation settings |
 | `container` | object | Container and Docker settings |
-| `firecracker` | object | Firecracker v1.16.1 control-plane preview settings |
 | `cloudHypervisor` | object | Cloud Hypervisor v53.0 microVM preview settings (see §4.1) |
 | `chroot` | object | Chroot execution overrides for split-filesystem ARC/DinD runners |
 | `dind` | object | Bootstrap helpers for ARC/DinD split runner/daemon filesystems |
@@ -93,18 +92,18 @@ normatively by `docs/awf-config.schema.json`.
 
 The `cloudHypervisor` surface pins Cloud Hypervisor v53.0 artifacts and
 digests (binary, PCI-capable guest kernel, rootfs, and the shared AWF guest
-supervisor) and, like Firecracker, requires explicit
-`--cloud-hypervisor-preview` opt-in plus `container.containerRuntime:
+supervisor) and requires explicit `--cloud-hypervisor-preview` opt-in plus
+`container.containerRuntime:
 "cloud-hypervisor"` to execute a workload. Supported host target is
 GitHub-hosted Ubuntu `x86_64` runners with KVM only — self-hosted and
 non-Ubuntu/non-x86_64 hosts are rejected explicitly by
 [`src/cloud-hypervisor/host-eligibility.ts`](../src/cloud-hypervisor/host-eligibility.ts),
-unlike Firecracker's preview which permits self-hosted hosts. See
+with no fallback to another runtime. See
 [`src/cloud-hypervisor/preflight.ts`](../src/cloud-hypervisor/preflight.ts)
 for the artifact/host trust-check module,
 [`src/cloud-hypervisor/launcher.ts`](../src/cloud-hypervisor/launcher.ts)
-for the secure host launcher (network-namespace join, privilege drop, and
-Landlock-based filesystem confinement in place of Firecracker's jailer),
+for the secure host launcher (network-namespace join, privilege drop, Landlock
+filesystem confinement, and seccomp),
 [`src/cloud-hypervisor/manager.ts`](../src/cloud-hypervisor/manager.ts) for
 the VM lifecycle, and [`guest/cloud-hypervisor/`](../guest/cloud-hypervisor/)
 for the guest artifact build/verification pipeline. See
@@ -223,21 +222,7 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 - `container.dockerHostPathPrefix` → `--docker-host-path-prefix`
 - `container.runnerToolCachePath` → *(config-only; checked first for optional read-only runner tool cache mount, before `RUNNER_TOOL_CACHE` and `/home/runner/work/_tool` auto-detection)*
 - `container.mounts[]` → `-v, --mount` *(repeatable; each array entry maps to one Docker volume mount in `/host_path:/container_path[:ro|rw]` format (both paths must be absolute; host path must exist); in chroot mode, container paths are automatically prefixed with `/host`)*
-- `container.containerRuntime` → `--container-runtime` *(user-facing runtime name: `"gvisor"` for OCI runtime in compose, `"sbx"` for Docker sbx microVM, `"firecracker"` for the explicit Firecracker v1.16.1 workload preview, or `"cloud-hypervisor"` for the explicit Cloud Hypervisor v53.0 workload preview (GitHub-hosted Ubuntu x86_64 KVM runners only; see §4.1). For gvisor: translates to `"runsc"`, injects `extra_hosts` for DNS workaround. For sbx, Firecracker, and Cloud Hypervisor: infrastructure stays in Compose while the primary agent runs in a microVM.)*
-- `firecracker.previewEnabled` → `--firecracker-preview`
-- `firecracker.firecrackerBinary` → `--firecracker-binary`
-- `firecracker.jailerBinary` → `--firecracker-jailer-binary`
-- `firecracker.kernelPath` → `--firecracker-kernel`
-- `firecracker.rootfsPath` → `--firecracker-rootfs`
-- `firecracker.supervisorPath` → `--firecracker-supervisor`
-- `firecracker.vcpuCount` → `--firecracker-vcpus`
-- `firecracker.memoryMib` → `--firecracker-memory-mib`
-- `firecracker.apiTimeoutMs` → `--firecracker-api-timeout-ms`
-- `firecracker.sha256.firecracker` → `--firecracker-binary-sha256`
-- `firecracker.sha256.jailer` → `--firecracker-jailer-sha256`
-- `firecracker.sha256.kernel` → `--firecracker-kernel-sha256`
-- `firecracker.sha256.rootfs` → `--firecracker-rootfs-sha256`
-- `firecracker.sha256.supervisor` → `--firecracker-supervisor-sha256`
+- `container.containerRuntime` → `--container-runtime` *(user-facing runtime name: `"gvisor"` for an OCI runtime in Compose, `"sbx"` for a Docker sbx microVM, or `"cloud-hypervisor"` for the explicit Cloud Hypervisor v53.0 workload preview (GitHub-hosted Ubuntu x86_64 KVM runners only; see §4.1). gVisor translates to `"runsc"` and injects `extra_hosts` for its DNS workaround. For sbx and Cloud Hypervisor, infrastructure stays in Compose while the primary agent runs in a microVM.)*
 - `cloudHypervisor.previewEnabled` → `--cloud-hypervisor-preview` *(requires `container.containerRuntime: "cloud-hypervisor"` and a GitHub-hosted Ubuntu x86_64 KVM runner to execute a workload)*
 - `cloudHypervisor.cloudHypervisorBinary` → `--cloud-hypervisor-binary`
 - `cloudHypervisor.kernelPath` → `--cloud-hypervisor-kernel`
@@ -299,27 +284,6 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 - `enclaves[].agent.maxModelTokens` → *(config-only; no CLI equivalent, see §14)*
 
 When `container.dockerHostPathPrefix` points at a daemon-visible shared `/tmp` path, the implementation stages the invoking CLI binary together with `/etc/passwd`, `/etc/group`, and the generated chroot `/etc/hosts` under that shared path so chroot mode can bootstrap on split-filesystem ARC/DinD hosts.
-
-The `firecracker` surface is an explicit workload preview pinned to Firecracker
-v1.16.1 on Linux/KVM (`x86_64` or `aarch64`). It requires strict network
-isolation, a local Unix-socket Docker daemon, the matching jailer, and explicit
-SHA-256 digests for Firecracker, jailer, kernel, rootfs, and the AWF guest
-supervisor. AWF starts Compose infrastructure only, attaches the jailed
-microVM to the proven internal bridge, and executes through vsock. Host access,
-DinD, extra mounts, TTY, topology peers, and enclaves fail closed in this
-preview. Selecting `firecracker` never falls back to another runtime.
-
-**macOS and Windows are permanently unsupported.** CI specifically supports
-GitHub-hosted x64 `ubuntu-24.04`; KVM remains mandatory, and hosts without usable
-`/dev/kvm` access fail closed. The API proxy is mandatory; provider credentials
-are never passed as guest environment variables. No auto-download of artifacts;
-all five artifact paths and their SHA-256 digests are required on every invocation.
-The `firecracker-test-x86_64` x86_64 test/preview artifacts can be built
-explicitly from the repository, but are not built or published by GitHub
-Actions. They are not production defaults and are never auto-downloaded. See
-[Firecracker integration (preview)](./firecracker-integration.md) for the
-complete operator guide, trust model, workspace semantics, local validation,
-and troubleshooting reference.
 
 When DinD is detected, AWF preserves the detected `DOCKER_HOST` value for the agent environment (including MCP servers) so DinD-aware tooling can reach the correct daemon without manual workflow env overrides.
 

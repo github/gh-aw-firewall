@@ -3,10 +3,8 @@ package main
 // This file implements the guest side of the AWF framed guest-supervisor
 // protocol. It is intentionally VMM-neutral: the length-prefixed JSON
 // framing and frame types here mirror src/microvm/guest-protocol.ts on the
-// host side, and this binary (despite its package's historical
-// "firecracker-supervisor" name/path) does not depend on any
-// Firecracker-specific transport. A future VMM backend can reuse this
-// supervisor as-is, addressed through the same vsock/UDS compatibility
+// host side. This binary does not depend on a specific VMM transport and can
+// be addressed through the same vsock/UDS compatibility
 // boundary, without protocol changes.
 
 import (
@@ -64,7 +62,7 @@ func (e *protocolError) Is(target error) bool {
 	return ok && e.code == other.code
 }
 
-// Frame is the exact JSON shape accepted by src/firecracker/vsock-protocol.ts.
+// Frame is the exact JSON shape accepted by the host guest protocol.
 type Frame struct {
 	Version         int               `json:"version"`
 	Type            string            `json:"type"`

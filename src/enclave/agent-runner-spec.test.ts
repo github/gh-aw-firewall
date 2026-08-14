@@ -133,7 +133,7 @@ describe('unified enclave agent runner specification', () => {
   });
 
   it('fails closed for an unimplemented enclave backend', () => {
-    expect(() => createEnclaveRunner({ ...trustedConfig, backend: 'firecracker' }))
+    expect(() => createEnclaveRunner({ ...trustedConfig, backend: 'unsupported' }))
       .toThrow(/Unsupported enclave-agent backend/);
   });
 

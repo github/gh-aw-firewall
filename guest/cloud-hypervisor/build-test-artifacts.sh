@@ -5,10 +5,8 @@ umask 077
 
 # Cloud Hypervisor v53.0 foundation guest artifacts.
 #
-# This mirrors guest/firecracker/build-test-artifacts.sh's conventions and
-# intentionally reuses the *exact same* pinned Linux kernel source and
-# Firecracker microvm-kernel-ci config as the Firecracker pipeline: that
-# config already builds a PCI-capable kernel (CONFIG_PCI, CONFIG_VIRTIO_PCI,
+# The pinned kernel config is stored alongside this script. It builds a
+# PCI-capable kernel (CONFIG_PCI, CONFIG_VIRTIO_PCI,
 # CONFIG_PCI_MMCONFIG for ACPI MCFG/PCIe ECAM, CONFIG_VIRTIO_BLK,
 # CONFIG_VIRTIO_NET, CONFIG_VIRTIO_CONSOLE, CONFIG_VSOCKETS,
 # CONFIG_VIRTIO_VSOCKETS, CONFIG_EXT4_FS, CONFIG_PVH for firmware-less direct
@@ -16,9 +14,8 @@ umask 077
 # CONFIG_VIRTIO_FS=y, with the kernel's scripts/config before olddefconfig. The original upstream config
 # SHA remains recorded separately from the final emitted kernel.config.
 #
-# guest/firecracker-supervisor/build.sh is reused unmodified: it documents
-# itself as VMM-neutral (length-prefixed JSON framing over vsock/UDS), so no
-# Cloud Hypervisor-specific supervisor is needed.
+# The VMM-neutral guest supervisor uses length-prefixed JSON framing over
+# vsock/UDS.
 #
 # NOTE: these artifacts back the real Cloud Hypervisor lifecycle backend in
 # src/cloud-hypervisor/ (preview, gated behind --cloud-hypervisor-preview
@@ -85,19 +82,12 @@ virtiofsd_package_version=$(dpkg-query --show --showformat='${Version}' "$virtio
 install -m 0755 "$virtiofsd_source" "$OUTPUT/virtiofsd"
 
 linux_tar="$BUILD/downloads/linux-${LINUX_VERSION}.tar.xz"
-kernel_config="$BUILD/downloads/cloud-hypervisor-kernel.config"
+kernel_config="$ROOT/guest/cloud-hypervisor/kernel.config"
 download_verified \
   "https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-${LINUX_VERSION}.tar.xz" \
   "$LINUX_SHA256" \
   "$linux_tar"
-# Reuses Firecracker's pinned, PCI-capable microvm-kernel-ci config (see
-# header comment): same kernel source + same config as
-# guest/firecracker/build-test-artifacts.sh, pinned to the Firecracker
-# v1.16.1 release tag for stable provenance.
-download_verified \
-  "https://raw.githubusercontent.com/firecracker-microvm/firecracker/v1.16.1/resources/guest_configs/microvm-kernel-ci-x86_64-6.1.config" \
-  "$KERNEL_CONFIG_SHA256" \
-  "$kernel_config"
+printf '%s  %s\n' "$KERNEL_CONFIG_SHA256" "$kernel_config" | sha256sum --check --status
 tar --extract --xz --file "$linux_tar" --directory "$BUILD"
 cp "$kernel_config" "$BUILD/linux-${LINUX_VERSION}/.config"
 "$BUILD/linux-${LINUX_VERSION}/scripts/config" \
@@ -125,13 +115,11 @@ install -m 0644 \
   "$OUTPUT/vmlinux.bin"
 install -m 0644 "$BUILD/linux-${LINUX_VERSION}/.config" "$OUTPUT/kernel.config"
 
-# The AWF guest supervisor is intentionally VMM-neutral (see
-# guest/firecracker-supervisor/protocol.go) and is shared as-is between the
-# Firecracker and Cloud Hypervisor guest pipelines.
+# Build the VMM-neutral AWF guest supervisor.
 supervisor="$OUTPUT/awf-supervisor"
 VERSION="${VERSION:-v${CLOUD_HYPERVISOR_VERSION}}" \
   OUTPUT="$supervisor" \
-  "$ROOT/guest/firecracker-supervisor/build.sh"
+  "$ROOT/guest/microvm-supervisor/build.sh"
 
 rootfs_tree="$BUILD/rootfs"
 if ! docker image inspect "$BUILD_TOOLS_IMAGE" >/dev/null 2>&1; then
@@ -234,7 +222,7 @@ cat >"$OUTPUT/manifest.json" <<EOF
     "sourceSha256": "${LINUX_SHA256}",
     "configSha256": "${KERNEL_CONFIG_SHA256}",
     "upstreamConfigSha256": "${KERNEL_CONFIG_SHA256}",
-    "configSource": "firecracker-microvm/firecracker v1.16.1 resources/guest_configs/microvm-kernel-ci-x86_64-6.1.config (PCI-capable)",
+    "configSource": "guest/cloud-hypervisor/kernel.config (PCI-capable)",
     "configOverlay": "scripts/config --enable FUSE_FS --enable VIRTIO_FS followed by olddefconfig",
     "finalConfigSha256": "$(sha256sum "$OUTPUT/kernel.config" | awk '{print $1}')"
   },
