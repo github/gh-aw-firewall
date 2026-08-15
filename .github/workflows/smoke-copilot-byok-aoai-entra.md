@@ -20,6 +20,11 @@ environment: aoai-model
 name: Smoke Copilot BYOK AOAI (Entra)
 engine:
   id: copilot
+  auth:
+    type: github-oidc
+    provider: azure
+    azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+    azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
   env:
     # Direct-BYOK trigger against Azure OpenAI (Foundry) using Microsoft Entra
     # (GitHub OIDC federated credential) instead of a static api-key.
@@ -53,14 +58,6 @@ safe-outputs:
 timeout-minutes: 15
 env:
   COPILOT_MODEL: o4-mini-aw
-  # AWF_AUTH_* are set at workflow-level env because gh-aw's strict mode
-  # engine.env allowlist does not yet include AWF_AUTH_AZURE_* variables.
-  # AWF reads these from process.env and forwards them to the api-proxy
-  # sidecar for the GitHub OIDC → Azure AD token exchange.
-  AWF_AUTH_TYPE: github-oidc
-  AWF_AUTH_PROVIDER: azure
-  AWF_AUTH_AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-  AWF_AUTH_AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
 sandbox:
   agent:
     id: awf
