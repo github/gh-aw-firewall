@@ -20,6 +20,9 @@ environment: aoai-model
 name: Smoke Copilot BYOK AOAI (Entra)
 engine:
   id: copilot
+  # Keep auth metadata so gh-aw excludes the Azure IDs from the agent container.
+  # The compiler does not yet emit secret expressions from these fields, so the
+  # matching workflow-level bindings below remain necessary for AWF itself.
   auth:
     type: github-oidc
     provider: azure
@@ -58,6 +61,11 @@ safe-outputs:
 timeout-minutes: 15
 env:
   COPILOT_MODEL: o4-mini-aw
+  # Keep these at workflow scope until gh-aw emits the engine.auth expressions.
+  AWF_AUTH_TYPE: github-oidc
+  AWF_AUTH_PROVIDER: azure
+  AWF_AUTH_AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+  AWF_AUTH_AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
 sandbox:
   agent:
     id: awf
