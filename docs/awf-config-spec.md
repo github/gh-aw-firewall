@@ -656,8 +656,8 @@ be excluded from the agent environment. These tokens SHALL be held
 exclusively by the external DIFC proxy.
 
 Under `--network-isolation`, the credential-bearing cli-proxy sidecar remains on
-`awf-net` only. When `security.difcProxy.host` resolves to an external target
-(a host address or a name outside `awf-net`'s subnet), AWF creates a separate,
+`awf-net` only. When `security.difcProxy.host` is classified as external
+(`host.docker.internal`, an IP address outside `awf-net`'s subnet, or a dotted DNS name), AWF creates a separate,
 credential-free `cli-proxy-egress` relay that is the only CLI-proxy component
 dual-homed onto the external bridge; it forwards solely to the configured DIFC
 host and port and never receives `GITHUB_TOKEN` or `GH_TOKEN`. When the DIFC
