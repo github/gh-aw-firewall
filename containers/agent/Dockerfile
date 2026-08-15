@@ -7,6 +7,19 @@
 # NOTE: ARG declared before first FROM is global and available in all FROM statements
 ARG BASE_IMAGE=ubuntu:22.04
 
+FROM golang:1.26.6-alpine@sha256:af8d6740070b8906d12eae1c3e3ea0957fb63f492051ea05e354c38ef9fe88df AS gh-build
+
+ARG GH_VERSION=2.97.0
+ARG GH_SOURCE_SHA256=18cd1280f70911c9c16dd5965cdac0b9e6b16e54466f0c892ce2829ecdd339a6
+ARG GH_SOURCE_DATE_EPOCH=1785488640
+RUN wget -q "https://github.com/cli/cli/archive/refs/tags/v${GH_VERSION}.tar.gz" -O /tmp/gh.tar.gz \
+    && echo "${GH_SOURCE_SHA256}  /tmp/gh.tar.gz" | sha256sum -c - \
+    && tar -xzf /tmp/gh.tar.gz -C /tmp \
+    && cd "/tmp/cli-${GH_VERSION}" \
+    && CGO_ENABLED=0 GH_VERSION="${GH_VERSION}" SOURCE_DATE_EPOCH="${GH_SOURCE_DATE_EPOCH}" \
+         go run ./script/build.go bin/gh \
+    && /tmp/cli-${GH_VERSION}/bin/gh --version
+
 FROM ${BASE_IMAGE}
 
 # Optionally switch to Azure apt mirror for faster package fetches in CI
@@ -28,7 +41,7 @@ RUN if getent hosts azure.archive.ubuntu.com >/dev/null 2>&1; then \
       echo "Azure apt mirror not reachable, using default archive.ubuntu.com"; \
     fi
 
-# Install required packages, GitHub CLI 2.97.0, Node.js 22.23.2, and npm 11.18.0
+# Install required packages, Node.js 22.23.2, and npm 11.18.0
 # Note: Some packages may already exist in runner-like base images, apt handles this gracefully
 # apt_update_retry: retries up to 3 times with backoff; if all fail, reverts to archive.ubuntu.com
 RUN set -eux; \
@@ -95,15 +108,6 @@ RUN set -eux; \
     gosu --version && \
     # Prefer system binaries over runner toolcache (e.g., act images) for Node checks.
     export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH" && \
-    # Install GitHub CLI 2.97.0 from the official GitHub CLI apt repository
-    # (Ubuntu's bundled gh package is 2.4.0 compiled with Go 1.18 — vulnerable)
-    curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
-        | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg && \
-    chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg && \
-    echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
-        > /etc/apt/sources.list.d/github-cli.list && \
-    apt-get update && \
-    apt_install_retry gh=2.97.0 && \
     # Install Node.js 22.23.2 from the official Node.js binary distribution
     # (nodejs.org), NOT the NodeSource apt repo. The NodeSource .deb is tracked by
     # a Debian/NodeSource security feed that yields false-positive CVE matches
@@ -132,8 +136,6 @@ RUN set -eux; \
     # Extract bin/, lib/, include/, share/ into /usr/local (strip the top-level dir)
     tar -xzf "/tmp/${NODE_TARBALL}" -C /usr/local --strip-components=1 --no-same-owner && \
     rm -f "/tmp/${NODE_TARBALL}" && \
-    # Hold gh so the later apt-get upgrade does not silently replace the pinned version
-    apt-mark hold gh && \
     # Verify Node.js 22.23.2 was installed correctly (skip node exec under QEMU — segfaults)
     if [ "$UNDER_QEMU" = "true" ]; then \
         echo "Skipping node --version check (QEMU emulation detected)" && \
@@ -164,6 +166,10 @@ RUN set -eux; \
     fi && \
     rm -f /tmp/npm-11.18.0.tgz && \
     rm -rf /var/lib/apt/lists/*
+
+# Build the pinned GitHub CLI release with the patched Go toolchain.
+COPY --from=gh-build /tmp/cli-2.97.0/bin/gh /usr/local/bin/gh
+RUN gh --version | grep -qE '^gh version 2\.97\.0'
 
 # Install additional system packages for GitHub Actions runner parity
 # These packages are commonly needed by workflows and avoid agents spending time installing them manually

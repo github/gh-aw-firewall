@@ -76,8 +76,40 @@ ignore:
   #
   #   No fixed Alpine package is available today: docker-cli 29.5.3-r0 is the
   #   latest alpine3.24 package and was built with Go 1.26.3. Revisit when Alpine
-  #   publishes a docker-cli build using Go >= 1.26.4.
+  #   publishes a docker-cli build using Go >= 1.26.6.
   - vulnerability: GO-2026-5037
+    package:
+      name: stdlib
+      version: "go1.26.3"
+      type: go-module
+      location: "/usr/bin/docker"
+  # GO-2026-5026, GO-2026-5942, GO-2026-6090, and GO-2026-5972 affect
+  # hostname normalization, DNS resource parsing, TLS server handshakes, and
+  # ASN.1 parsing respectively. None are reachable in the enclave MCP server:
+  # /usr/bin/docker is invoked only against the mounted local Unix socket, so
+  # it performs no DNS lookup, TLS handshake, certificate parsing, or remote
+  # hostname authorization. Keep these exceptions scoped to Alpine's
+  # docker-cli binary and remove them with the GO-2026-5037 exception once
+  # Alpine publishes docker-cli built with Go >= 1.26.6.
+  - vulnerability: GO-2026-5026
+    package:
+      name: stdlib
+      version: "go1.26.3"
+      type: go-module
+      location: "/usr/bin/docker"
+  - vulnerability: GO-2026-5942
+    package:
+      name: stdlib
+      version: "go1.26.3"
+      type: go-module
+      location: "/usr/bin/docker"
+  - vulnerability: GO-2026-6090
+    package:
+      name: stdlib
+      version: "go1.26.3"
+      type: go-module
+      location: "/usr/bin/docker"
+  - vulnerability: GO-2026-5972
     package:
       name: stdlib
       version: "go1.26.3"

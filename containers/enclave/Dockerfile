@@ -35,6 +35,7 @@ COPY --from=enclave-agent-build /usr/local/lib/node_modules/@github/copilot/ /us
 RUN ln -s ../lib/node_modules/@github/copilot/npm-loader.js /usr/local/bin/copilot \
     && node --version | grep -qE '^v24\.' \
     && copilot --version | grep -q "GitHub Copilot CLI ${COPILOT_CLI_VERSION}" \
+    && rm -f /usr/bin/pebble \
     && rm -rf /root/.cache/copilot
 COPY enclave/agent-entrypoint.py /usr/local/bin/run-enclave-agent
 RUN chmod 0555 /usr/local/bin/run-enclave-agent \

@@ -5,6 +5,19 @@
 # externally on the host, started by the gh-aw compiler.  A TCP tunnel
 # forwards localhost traffic to the external proxy for TLS hostname matching.
 #
+FROM golang:1.26.6-alpine@sha256:af8d6740070b8906d12eae1c3e3ea0957fb63f492051ea05e354c38ef9fe88df AS gh-build
+
+ARG GH_VERSION=2.97.0
+ARG GH_SOURCE_SHA256=18cd1280f70911c9c16dd5965cdac0b9e6b16e54466f0c892ce2829ecdd339a6
+ARG GH_SOURCE_DATE_EPOCH=1785488640
+RUN wget -q "https://github.com/cli/cli/archive/refs/tags/v${GH_VERSION}.tar.gz" -O /tmp/gh.tar.gz \
+    && echo "${GH_SOURCE_SHA256}  /tmp/gh.tar.gz" | sha256sum -c - \
+    && tar -xzf /tmp/gh.tar.gz -C /tmp \
+    && cd "/tmp/cli-${GH_VERSION}" \
+    && CGO_ENABLED=0 GH_VERSION="${GH_VERSION}" SOURCE_DATE_EPOCH="${GH_SOURCE_DATE_EPOCH}" \
+         go run ./script/build.go bin/gh \
+    && /tmp/cli-${GH_VERSION}/bin/gh --version
+
 # Pin to a specific alpine version so the curl constraint below is stable.
 FROM node:22.23.2-alpine3.24
 
@@ -18,28 +31,9 @@ RUN apk add --no-cache \
     ca-certificates \
     bash
 
-# Install gh CLI 2.97.0 from the official GitHub CLI release.
-# This binary is compiled with Go 1.26.5 and ships with grpc v1.82.1 and
-# golang.org/x/text v0.40.0.
-# Checksums sourced from https://github.com/cli/cli/releases/tag/v2.97.0
-RUN set -eux; \
-    GH_VERSION="2.97.0"; \
-    ARCH="$(uname -m)"; \
-    case "$ARCH" in \
-      x86_64)  GH_ARCH="amd64"; GH_SHA256="a2c9b8497e1f85b1ad0dfcb78b5a622e098801b8e461e459e88e1ee12f018112" ;; \
-      aarch64) GH_ARCH="arm64"; GH_SHA256="73ea440ecad9c9e284429997ee6f93577bc6f7bc6fba357ef62c53ad8fb641a5" ;; \
-      armv6l|armv7l) GH_ARCH="armv6"; GH_SHA256="83698de1d91d201cc3b9d9b0beb346c221cadb53a68fb82f741ef0a0efc4502c" ;; \
-      *) echo "Unsupported architecture: $ARCH" >&2; exit 1 ;; \
-    esac; \
-    GH_TGZ="gh_${GH_VERSION}_linux_${GH_ARCH}.tar.gz"; \
-    curl -fsSL "https://github.com/cli/cli/releases/download/v${GH_VERSION}/${GH_TGZ}" \
-        -o "/tmp/${GH_TGZ}"; \
-    echo "${GH_SHA256}  /tmp/${GH_TGZ}" | sha256sum -c -; \
-    tar -xzf "/tmp/${GH_TGZ}" -C /tmp/; \
-    mv "/tmp/gh_${GH_VERSION}_linux_${GH_ARCH}/bin/gh" /usr/local/bin/gh; \
-    chmod +x /usr/local/bin/gh; \
-    rm -rf "/tmp/${GH_TGZ}" "/tmp/gh_${GH_VERSION}_linux_${GH_ARCH}"; \
-    gh --version
+# Build the pinned GitHub CLI release with the patched Go toolchain.
+COPY --from=gh-build /tmp/cli-2.97.0/bin/gh /usr/local/bin/gh
+RUN gh --version | grep -qE '^gh version 2\.97\.0'
 
 # Replace the vulnerable npm 10.x bundled with Node 22.23.2 with npm 11.18.0.
 # npm 11.18.0 bundles: tar 7.5.19 (fixes GHSA-23hp-3jrh-7fpw/GHSA-8x88-c5mf-7j5w),
