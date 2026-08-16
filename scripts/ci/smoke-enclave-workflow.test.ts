@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { applyGeneralWorkflowPatches } from './apply-general-workflow-patches';
 
 const workflowsDir = path.resolve(__dirname, '../../.github/workflows');
 const sourcePath = path.join(workflowsDir, 'smoke-enclave-build-test.md');
@@ -18,8 +19,22 @@ describe('smoke enclave build workflow', () => {
 
   it('uses the compatible gateway and local AWF build', () => {
     expect(lock).toContain('ghcr.io/github/gh-aw-mcpg:v0.4.9');
+    expect(lock).toContain('"awf-enclave": {\n                "required": false,');
     expect(lock).toContain('Install awf binary (local)');
     expect(lock).toContain('--build-local');
+  });
+
+  it('post-processes the late-starting enclave backend idempotently', () => {
+    const compiled = [
+      '              "awf-enclave": {',
+      '                "type": "http",',
+      '                "url": "http://awf-enclave-mcp:8080/mcp"',
+    ].join('\n');
+    const first = applyGeneralWorkflowPatches(compiled, lockPath).content;
+    const second = applyGeneralWorkflowPatches(first, lockPath).content;
+
+    expect(first).toContain('"awf-enclave": {\n                "required": false,');
+    expect(second).toBe(first);
   });
 
   it('keeps the gateway capability out of the primary agent', () => {

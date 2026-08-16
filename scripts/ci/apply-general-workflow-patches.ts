@@ -51,6 +51,26 @@ export function applyGeneralWorkflowPatches(
 ): PatchResult {
   const log: string[] = [];
 
+  // The enclave backend starts inside AWF, after mcpg. Keep it in the agent's
+  // gateway config but exempt it from the eager startup connectivity check so
+  // mcpg can rediscover it once AWF attaches and launches the backend.
+  if (workflowPath.endsWith('smoke-enclave-build-test.lock.yml')) {
+    const optionalEnclaveServer = '"awf-enclave": {\n                "required": false,';
+    if (content.includes(optionalEnclaveServer)) {
+      log.push(`  Enclave MCP backend already marked optional during gateway startup`);
+    } else {
+      const enclaveServerAnchor = '"awf-enclave": {\n                "type": "http",';
+      if (!content.includes(enclaveServerAnchor)) {
+        throw new Error('Could not find the enclave MCP backend in the compiled smoke workflow');
+      }
+      content = content.replace(
+        enclaveServerAnchor,
+        '"awf-enclave": {\n                "required": false,\n                "type": "http",'
+      );
+      log.push(`  Marked enclave MCP backend optional during gateway startup`);
+    }
+  }
+
   // Replace "Install awf binary" step with local build steps
   // Reset global regex state before reuse across multiple files.
   installStepRegexGlobal.lastIndex = 0;
