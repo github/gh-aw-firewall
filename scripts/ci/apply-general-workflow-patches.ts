@@ -69,6 +69,22 @@ export function applyGeneralWorkflowPatches(
       );
       log.push(`  Marked enclave MCP backend optional during gateway startup`);
     }
+
+    const gatewayKeyEnv =
+      '          MCP_GATEWAY_API_KEY: ${{ steps.start-mcp-gateway.outputs.gateway-api-key }}';
+    const agentEnvAnchor = '        env:\n          AWF_REFLECT_ENABLED: 1';
+    if (content.includes(`${gatewayKeyEnv}\n          AWF_REFLECT_ENABLED: 1`)) {
+      log.push(`  Gateway API key already available to AWF readiness checks`);
+    } else {
+      if (!content.includes(agentEnvAnchor)) {
+        throw new Error('Could not find the enclave smoke agent environment');
+      }
+      content = content.replace(
+        agentEnvAnchor,
+        `        env:\n${gatewayKeyEnv}\n          AWF_REFLECT_ENABLED: 1`
+      );
+      log.push(`  Exposed gateway API key to AWF readiness checks`);
+    }
   }
 
   // Replace "Install awf binary" step with local build steps

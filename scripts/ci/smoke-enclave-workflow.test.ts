@@ -29,11 +29,17 @@ describe('smoke enclave build workflow', () => {
       '              "awf-enclave": {',
       '                "type": "http",',
       '                "url": "http://awf-enclave-mcp:8080/mcp"',
+      '      - name: Execute GitHub Copilot CLI',
+      '        env:',
+      '          AWF_REFLECT_ENABLED: 1',
     ].join('\n');
     const first = applyGeneralWorkflowPatches(compiled, lockPath).content;
     const second = applyGeneralWorkflowPatches(first, lockPath).content;
 
     expect(first).toContain('"awf-enclave": {\n                "required": false,');
+    expect(first).toContain(
+      'MCP_GATEWAY_API_KEY: ${{ steps.start-mcp-gateway.outputs.gateway-api-key }}'
+    );
     expect(second).toBe(first);
   });
 
@@ -41,6 +47,18 @@ describe('smoke enclave build workflow', () => {
     expect(source).toContain('GH_TOKEN: ${{ github.token }}');
     expect(lock).toContain('--exclude-env AWF_ENCLAVE_MCP_CAPABILITY');
     expect(lock).toContain('--exclude-env AWF_ENCLAVE_MCP_GATEWAY_ENDPOINT');
+  });
+
+  it('passes gateway authentication to AWF but not the primary agent', () => {
+    const executeStep = lock.slice(
+      lock.indexOf('      - name: Execute GitHub Copilot CLI'),
+      lock.indexOf('      - name: Detect agent errors')
+    );
+
+    expect(executeStep).toContain(
+      'MCP_GATEWAY_API_KEY: ${{ steps.start-mcp-gateway.outputs.gateway-api-key }}'
+    );
+    expect(executeStep).toContain('--exclude-env MCP_GATEWAY_API_KEY');
   });
 
   it('validates the protected enclave audit', () => {
