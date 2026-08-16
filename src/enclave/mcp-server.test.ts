@@ -82,6 +82,23 @@ describe('AWF enclave MCP protocol', () => {
     );
   });
 
+  it('accepts the null tools/list params emitted by the mcpg Go SDK', async () => {
+    const response = await dispatchJsonRpc(rpc('tools/list', null), {
+      handlers: { [TOOL_NAME]: fakeBroker(CANONICAL_ERROR_RESPONSE_JSON) },
+      maxScriptBytes: 65536,
+    });
+    expect(response.result.tools).toHaveLength(1);
+    expect(response.result.tools[0].name).toBe(TOOL_NAME);
+  });
+
+  it('rejects non-empty tools/list params', async () => {
+    const response = await dispatchJsonRpc(rpc('tools/list', { unexpected: true }), {
+      handlers: { [TOOL_NAME]: fakeBroker(CANONICAL_ERROR_RESPONSE_JSON) },
+      maxScriptBytes: 65536,
+    });
+    expect(response).toMatchObject({ error: { code: -32602 } });
+  });
+
   it('returns canonical structured success without isError', async () => {
     const response = await dispatchJsonRpc(rpc('tools/call', {
       name: TOOL_NAME,

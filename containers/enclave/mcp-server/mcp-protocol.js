@@ -185,7 +185,11 @@ async function dispatchJsonRpc(message, deps) {
   }
 
   if (message.method === 'tools/list') {
-    if (message.params !== undefined && !hasOnlyKeys(message.params, new Set())) {
+    if (
+      message.params !== undefined
+      && message.params !== null
+      && !hasOnlyKeys(message.params, new Set())
+    ) {
       return rpcError(message.id, -32602, 'Invalid params');
     }
     return rpcResult(message.id, toolsListResult(deps));
