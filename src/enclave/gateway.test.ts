@@ -40,6 +40,7 @@ function env(endpoint = 'http://127.0.0.1:8080/mcp/awf-enclave'): NodeJS.Process
     AWF_ENCLAVE_MCP_GATEWAY_IDENTITY: 'test-run-identity',
     AWF_ENCLAVE_MCP_GATEWAY_CONTAINER: 'awmg-mcpg',
     AWF_ENCLAVE_MCP_GATEWAY_ENDPOINT: endpoint,
+    MCP_GATEWAY_API_KEY: 'g'.repeat(48),
   };
 }
 
@@ -58,11 +59,14 @@ function listen(
 ): Promise<{
   endpoint: string;
   initializeAttempts: () => number;
+  authorizationHeaders: () => Array<string | undefined>;
   close: () => Promise<void>;
 }> {
   return new Promise((resolve) => {
     let initializeAttempts = 0;
+    const authorizationHeaders: Array<string | undefined> = [];
     const server = http.createServer((request, response) => {
+      authorizationHeaders.push(request.headers.authorization);
       const chunks: Buffer[] = [];
       request.on('data', (chunk: Buffer) => chunks.push(chunk));
       request.on('end', () => {
@@ -138,6 +142,7 @@ function listen(
       resolve({
         endpoint: `http://127.0.0.1:${address.port}/mcp/awf-enclave`,
         initializeAttempts: () => initializeAttempts,
+        authorizationHeaders: () => authorizationHeaders,
         close: () => new Promise<void>((done) => server.close(() => done())),
       });
     });
@@ -185,6 +190,13 @@ describe('enclave mcpg handoff', () => {
       config(),
       env('http://127.0.0.1:8080/health'),
     )).toThrow(/must address the gateway route/);
+  });
+
+  it('rejects a missing gateway API key', () => {
+    expect(() => resolveEnclaveGatewayContract(config(), {
+      ...env(),
+      MCP_GATEWAY_API_KEY: undefined,
+    })).toThrow(/MCP_GATEWAY_API_KEY/);
   });
 
   it.each([
@@ -347,6 +359,11 @@ describe('enclave mcpg handoff', () => {
       await expect(assertEnclaveGatewayReady(config(), env(server.endpoint), 1000))
         .resolves.toBeUndefined();
       expect(contract.server.tools).toEqual(['enclave_run_script']);
+      expect(server.authorizationHeaders()).toEqual([
+        `Bearer ${'g'.repeat(48)}`,
+        `Bearer ${'g'.repeat(48)}`,
+        `Bearer ${'g'.repeat(48)}`,
+      ]);
     } finally {
       await server.close();
     }
