@@ -315,7 +315,7 @@ function postJsonRpc(
         accept: 'application/json, text/event-stream',
         'content-type': 'application/json',
         'content-length': String(payload.length),
-        authorization: `Bearer ${gatewayApiKey}`,
+        authorization: gatewayApiKey,
         ...(sessionId ? { 'mcp-session-id': sessionId } : {}),
       },
       timeout: timeoutMs,

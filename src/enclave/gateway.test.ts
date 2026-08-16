@@ -360,9 +360,9 @@ describe('enclave mcpg handoff', () => {
         .resolves.toBeUndefined();
       expect(contract.server.tools).toEqual(['enclave_run_script']);
       expect(server.authorizationHeaders()).toEqual([
-        `Bearer ${'g'.repeat(48)}`,
-        `Bearer ${'g'.repeat(48)}`,
-        `Bearer ${'g'.repeat(48)}`,
+        'g'.repeat(48),
+        'g'.repeat(48),
+        'g'.repeat(48),
       ]);
     } finally {
       await server.close();
