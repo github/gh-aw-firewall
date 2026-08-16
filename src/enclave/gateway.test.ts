@@ -52,6 +52,7 @@ function listen(
     initializationStatus?: number;
     initializationBody?: string;
     initializationRpcError?: boolean;
+    serverName?: string;
     oversizedInitialization?: boolean;
     hangInitialization?: boolean;
     trickleInitialization?: boolean;
@@ -132,7 +133,10 @@ function listen(
           ? {
               protocolVersion: '2025-06-18',
               capabilities: { tools: { listChanged: false } },
-              serverInfo: { name: 'awf-enclave', version: '1.0.0' },
+              serverInfo: {
+                name: options.serverName ?? 'awmg-awf-enclave',
+                version: '1.0.0',
+              },
             }
           : { tools };
         const payload = JSON.stringify({ jsonrpc: '2.0', id: message.id, result });
@@ -377,6 +381,19 @@ describe('enclave mcpg handoff', () => {
     try {
       await expect(assertEnclaveGatewayReady(config(), env(server.endpoint), 1000))
         .resolves.toBeUndefined();
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('rejects an initialize response outside the routed enclave endpoint', async () => {
+    const server = await listen(
+      [enclaveProtocol.TOOL],
+      { serverName: 'awf-enclave' },
+    );
+    try {
+      await expect(assertEnclaveGatewayReady(config(), env(server.endpoint), 1000))
+        .rejects.toThrow(/routed AWF enclave server/);
     } finally {
       await server.close();
     }

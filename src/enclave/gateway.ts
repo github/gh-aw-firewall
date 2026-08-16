@@ -442,8 +442,8 @@ async function proveGatewayReadiness(
     },
   }, remainingRequestBudget(deadline), contract.gatewayApiKey);
   const result = initialized.response.result as { serverInfo?: { name?: string } } | undefined;
-  if (initialized.response.error || result?.serverInfo?.name !== 'awf-enclave') {
-    throw new Error('Gateway initialize proof did not reach the AWF enclave server');
+  if (initialized.response.error || result?.serverInfo?.name !== 'awmg-awf-enclave') {
+    throw new Error('Gateway initialize proof did not reach the routed AWF enclave server');
   }
   await postJsonRpc(contract.endpoint, {
     jsonrpc: '2.0',
