@@ -164,5 +164,5 @@ Call `noop` with exactly this message when the test passes:
 ENCLAVE_BUILD_PASS {"module":"github.com/github/gh-aw","go_mod":true,"makefile":true,"cli_entrypoint":true,"workflow_package":true}
 ```
 
-For any failure, call `safeoutputs-missing_data`; never report a failure through
+For any failure, call `safeoutputs missing_data`; never report a failure through
 `noop`.
