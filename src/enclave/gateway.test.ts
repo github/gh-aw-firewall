@@ -48,6 +48,7 @@ function listen(
   tools: unknown[],
   options: {
     unavailableInitializations?: number;
+    unavailableRetryable?: boolean;
     initializationStatus?: number;
     initializationBody?: string;
     initializationRpcError?: boolean;
@@ -95,7 +96,9 @@ function listen(
             response.end(JSON.stringify({
               error: 'backend_unavailable',
               message: 'Backend MCP server is not ready; retry initialization',
-              retryable: true,
+              ...(options.unavailableRetryable === undefined
+                ? {}
+                : { retryable: options.unavailableRetryable }),
             }));
             return;
           }
@@ -393,6 +396,20 @@ describe('enclave mcpg handoff', () => {
         },
       )).resolves.toBeUndefined();
       expect(server.initializeAttempts()).toBe(2);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('does not retry explicitly non-retryable backend_unavailable responses', async () => {
+    const server = await listen(
+      [],
+      { unavailableInitializations: 1, unavailableRetryable: false },
+    );
+    try {
+      await expect(assertEnclaveGatewayReady(config(), env(server.endpoint), 1000))
+        .rejects.toThrow(/readiness request failed/);
+      expect(server.initializeAttempts()).toBe(1);
     } finally {
       await server.close();
     }

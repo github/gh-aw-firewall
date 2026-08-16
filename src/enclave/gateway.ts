@@ -342,7 +342,7 @@ function postJsonRpc(
                 };
                 if (
                   unavailable.error === 'backend_unavailable'
-                  && unavailable.retryable === true
+                  && unavailable.retryable !== false
                 ) {
                   rejectBounded(new GatewayReadinessError(
                     'Gateway backend is not yet available',
