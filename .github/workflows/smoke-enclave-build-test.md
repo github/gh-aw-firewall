@@ -104,29 +104,24 @@ Use `enclave_run_script` exactly once to inspect the pseudo-private
 `github/gh-aw` repository. Do not use GitHub tools, network requests, or the
 current checkout to answer.
 
-Pass this finite schema:
+The `schema` argument uses AWF's finite-disclosure schema algebra, not JSON
+Schema. For an object, provide exactly `type` and `fields`; `fields` maps every
+required output field to its finite schema. Do not use `properties`, `required`,
+or `additionalProperties`. Use `{"type":"enum","values":[...]}` for a bounded
+string value and `{"type":"boolean"}` for a boolean.
+
+Pass this exact finite-disclosure schema:
 
 ```json
 {
   "type": "object",
-  "properties": {
-    "module": {
-      "type": "string",
-      "enum": ["github.com/github/gh-aw"]
-    },
+  "fields": {
+    "module": { "type": "enum", "values": ["github.com/github/gh-aw"] },
     "go_mod": { "type": "boolean" },
     "makefile": { "type": "boolean" },
     "cli_entrypoint": { "type": "boolean" },
     "workflow_package": { "type": "boolean" }
-  },
-  "required": [
-    "module",
-    "go_mod",
-    "makefile",
-    "cli_entrypoint",
-    "workflow_package"
-  ],
-  "additionalProperties": false
+  }
 }
 ```
 

@@ -66,4 +66,12 @@ describe('smoke enclave build workflow', () => {
     expect(source).toContain('ENCLAVE_BUILD_PASS');
     expect(source).toContain('"go_mod":true,"makefile":true');
   });
+
+  it('gives the agent a valid finite-disclosure schema', () => {
+    expect(source).toContain("uses AWF's finite-disclosure schema algebra, not JSON");
+    expect(source).toContain('"fields": {');
+    expect(source).toContain('"type": "enum", "values": ["github.com/github/gh-aw"]');
+    expect(source).not.toContain('"properties": {');
+    expect(source).not.toContain('"additionalProperties": false');
+  });
 });
