@@ -1,12 +1,13 @@
 import type { WorkflowDependencies } from './cli-workflow';
 import { SBX_DEFAULT_NAME } from './sbx-manager';
 import {
-  SBX_GATEWAY_IP,
-  SBX_HOST_DOCKER_INTERNAL,
   SbxRuntimeBackend,
   type SbxRuntimeBackendDependencies,
 } from './sbx-runtime-backend';
 import type { WrapperConfig } from './types';
+
+const SBX_GATEWAY_IP = '172.17.0.0';
+const SBX_HOST_DOCKER_INTERNAL = 'host.docker.internal';
 
 function createConfig(overrides: Partial<WrapperConfig> = {}): WrapperConfig {
   return {

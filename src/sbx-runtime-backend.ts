@@ -22,8 +22,8 @@ import {
 } from './host-iptables-shared';
 import type { WrapperConfig } from './types';
 
-export const SBX_GATEWAY_IP = '172.17.0.0';
-export const SBX_HOST_DOCKER_INTERNAL = 'host.docker.internal';
+const SBX_GATEWAY_IP = '172.17.0.0';
+const SBX_HOST_DOCKER_INTERNAL = 'host.docker.internal';
 
 interface SbxBackendLogger {
   debug(message: string, ...args: unknown[]): void;
