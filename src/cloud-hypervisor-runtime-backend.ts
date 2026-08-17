@@ -142,6 +142,7 @@ function defaultDependencies(
 }
 
 /** @internal Exposed only for focused default-policy tests. */
+// ts-prune-ignore-next
 export const cloudHypervisorRuntimeTestHelpers = { defaultDependencies };
 
 /** Stateful adapter for an explicitly enabled, fail-closed Cloud Hypervisor microVM. */
