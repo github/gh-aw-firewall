@@ -75,6 +75,8 @@ interface CloudHypervisorManagerAdapter {
   collectDiagnostics(directory: string): Promise<void>;
 }
 
+/** @internal Exposed only for unit tests — not part of the public API. */
+// ts-prune-ignore-next
 export interface CloudHypervisorRuntimeBackendDependencies {
   startInfrastructure: WorkflowDependencies['startContainers'];
   preflight(config: CloudHypervisorOptions): Promise<CloudHypervisorPreflightResult>;
