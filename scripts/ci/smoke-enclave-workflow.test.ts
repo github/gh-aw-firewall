@@ -13,7 +13,11 @@ describe('smoke enclave build workflow', () => {
   it('uses gh-aw as an internal pseudo-private script enclave', () => {
     expect(source).toContain('repo: github/gh-aw');
     expect(source).toContain('sensitivity: internal');
+    expect(source).toContain('memory-limit: 2g');
+    expect(source).toContain('tmpfs-limit: 1g');
     expect(lock).toContain('\\"repo\\":\\"github/gh-aw\\",\\"sensitivity\\":\\"internal\\"');
+    expect(lock).toContain('\\"memoryLimit\\":\\"2g\\"');
+    expect(lock).toContain('\\"tmpfsLimit\\":\\"1g\\"');
     expect(lock).toContain('"tools": ["enclave_run_script"]');
   });
 

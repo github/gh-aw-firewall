@@ -25,6 +25,8 @@ enclaves:
     repos:
       - repo: github/gh-aw
         sensitivity: internal
+    memory-limit: 2g
+    tmpfs-limit: 1g
     timeout: 45
 safe-outputs:
   threat-detection:
