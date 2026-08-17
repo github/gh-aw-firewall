@@ -44,6 +44,14 @@ function env(endpoint = 'http://127.0.0.1:8080/mcp/awf-enclave'): NodeJS.Process
   };
 }
 
+function routedTool(tool: Record<string, unknown>): Record<string, unknown> {
+  return {
+    name: tool.name,
+    description: `[awf-enclave] ${String(tool.description)}`,
+    inputSchema: tool.inputSchema,
+  };
+}
+
 function listen(
   tools: unknown[],
   options: {
@@ -186,6 +194,9 @@ describe('enclave mcpg handoff', () => {
       enclaveProtocol.TOOL,
       enclaveProtocol.AGENT_TOOL,
     ]);
+    expect(enclaveGatewayTestHelpers.expectedRoutedTools([
+      enclaveProtocol.TOOL,
+    ])).toEqual([routedTool(enclaveProtocol.TOOL)]);
   });
 
   it('rejects missing capability and non-gateway readiness routes', () => {
@@ -339,29 +350,7 @@ describe('enclave mcpg handoff', () => {
 
   it('proves initialize and the exact tool contracts through the gateway', async () => {
     const contract = buildEnclaveMcpgUpstreamContract(config());
-    const server = await listen([{
-      name: 'enclave_run_script',
-      description: 'Run a bounded script against one configured private repository and return one finite value.',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          privateRepo: { type: 'string', description: 'Bare configured owner/repository selector.' },
-          schema: {
-            type: 'object',
-            description: 'An AWF finite-disclosure schema (const, boolean, enum, integer, object, tuple, array, or union).',
-          },
-          script: { type: 'string', description: 'Bounded UTF-8 Python source.' },
-        },
-        required: ['privateRepo', 'schema', 'script'],
-        additionalProperties: false,
-      },
-      outputSchema: {
-        type: 'object',
-        properties: { status: { enum: ['ok', 'error'] }, result: {} },
-        required: ['status'],
-        additionalProperties: false,
-      },
-    }]);
+    const server = await listen([routedTool(enclaveProtocol.TOOL)]);
     try {
       await expect(assertEnclaveGatewayReady(config(), env(server.endpoint), 1000))
         .resolves.toBeUndefined();
@@ -377,7 +366,7 @@ describe('enclave mcpg handoff', () => {
   });
 
   it('accepts bounded SSE responses from the gateway', async () => {
-    const server = await listen([enclaveProtocol.TOOL], { sse: true });
+    const server = await listen([routedTool(enclaveProtocol.TOOL)], { sse: true });
     try {
       await expect(assertEnclaveGatewayReady(config(), env(server.endpoint), 1000))
         .resolves.toBeUndefined();
@@ -388,7 +377,7 @@ describe('enclave mcpg handoff', () => {
 
   it('rejects an initialize response outside the routed enclave endpoint', async () => {
     const server = await listen(
-      [enclaveProtocol.TOOL],
+      [routedTool(enclaveProtocol.TOOL)],
       { serverName: 'awf-enclave' },
     );
     try {
@@ -401,7 +390,7 @@ describe('enclave mcpg handoff', () => {
 
   it('retries mcpg backend_unavailable responses until initialize succeeds', async () => {
     const server = await listen(
-      [enclaveProtocol.TOOL],
+      [routedTool(enclaveProtocol.TOOL)],
       { unavailableInitializations: 1 },
     );
     try {

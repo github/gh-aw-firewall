@@ -125,6 +125,16 @@ function expectedTools(config: WrapperConfig): ReadonlyArray<Record<string, unkn
   return tools;
 }
 
+function expectedRoutedTools(
+  tools: ReadonlyArray<Record<string, unknown>>,
+): ReadonlyArray<Record<string, unknown>> {
+  return tools.map((tool) => ({
+    name: tool.name,
+    description: `[${ENCLAVE_MCP_SERVER_NAME}] ${String(tool.description)}`,
+    inputSchema: tool.inputSchema,
+  }));
+}
+
 /**
  * Machine-readable compiler handoff. This intentionally contains only the
  * static upstream route and environment-variable names, never the capability.
@@ -456,7 +466,7 @@ async function proveGatewayReadiness(
     params: {},
   }, remainingRequestBudget(deadline), contract.gatewayApiKey, initialized.sessionId);
   const tools = (listed.response.result as { tools?: unknown })?.tools;
-  if (canonicalToolSet(tools) !== canonicalToolSet(contract.expectedTools)) {
+  if (canonicalToolSet(tools) !== canonicalToolSet(expectedRoutedTools(contract.expectedTools))) {
     throw new Error('Gateway enclave tool contract did not exactly match the enabled executors');
   }
 }
@@ -530,6 +540,7 @@ export const enclaveGatewayTestHelpers = {
   agentTool,
   canonicalJson,
   canonicalToolSet,
+  expectedRoutedTools,
   expectedTools,
   inspectGateway,
   proveGatewayReadiness,
