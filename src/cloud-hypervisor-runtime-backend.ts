@@ -144,7 +144,13 @@ function defaultDependencies(
 /** @internal Exposed only for focused default-policy tests. */
 export const cloudHypervisorRuntimeTestHelpers = { defaultDependencies };
 
-/** Stateful adapter for an explicitly enabled, fail-closed Cloud Hypervisor microVM. */
+/**
+ * Stateful adapter for an explicitly enabled, fail-closed Cloud Hypervisor microVM.
+ *
+ * @internal Exported only so unit tests can construct instances directly with
+ * injected dependencies. Production code must go through
+ * {@link createCloudHypervisorRuntimeBackend} instead.
+ */
 export class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBackend {
   readonly runtime = 'cloud-hypervisor';
 
