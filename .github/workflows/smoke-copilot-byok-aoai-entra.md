@@ -20,14 +20,13 @@ environment: aoai-model
 name: Smoke Copilot BYOK AOAI (Entra)
 engine:
   id: copilot
-  # Keep auth metadata so gh-aw excludes the Azure IDs from the agent container.
-  # The compiler does not yet emit secret expressions from these fields, so the
-  # matching workflow-level bindings below remain necessary for AWF itself.
+  # Keep auth metadata in the engine configuration so the Azure IDs are only
+  # exposed to AWF's authentication path, not the agent container.
   auth:
     type: github-oidc
     provider: azure
-    azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-    azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+    azure-tenant-id: ${{ vars.AZURE_TENANT_ID || secrets.AZURE_TENANT_ID }}
+    azure-client-id: ${{ vars.AZURE_CLIENT_ID || secrets.AZURE_CLIENT_ID }}
   env:
     # Direct-BYOK trigger against Azure OpenAI (Foundry) using Microsoft Entra
     # (GitHub OIDC federated credential) instead of a static api-key.
@@ -61,11 +60,8 @@ safe-outputs:
 timeout-minutes: 15
 env:
   COPILOT_MODEL: o4-mini-aw
-  # Keep these at workflow scope until gh-aw emits the engine.auth expressions.
   AWF_AUTH_TYPE: github-oidc
   AWF_AUTH_PROVIDER: azure
-  AWF_AUTH_AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-  AWF_AUTH_AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
 sandbox:
   agent:
     id: awf
@@ -77,8 +73,7 @@ steps:
       echo "COPILOT_API_TARGET=${COPILOT_API_TARGET:-derived from COPILOT_PROVIDER_BASE_URL}"
       echo "AWF_AUTH_TYPE=${AWF_AUTH_TYPE:-<unset>}"
       echo "AWF_AUTH_PROVIDER=${AWF_AUTH_PROVIDER:-<unset>}"
-      echo "AWF_AUTH_AZURE_TENANT_ID set: $([ -n \"${AWF_AUTH_AZURE_TENANT_ID:-}\" ] && echo yes || echo NO)"
-      echo "AWF_AUTH_AZURE_CLIENT_ID set: $([ -n \"${AWF_AUTH_AZURE_CLIENT_ID:-}\" ] && echo yes || echo NO)"
+      echo "Azure tenant/client IDs configured through engine.auth"
       echo "::endgroup::"
 
       echo "::group::Fetching last 2 merged PRs"
