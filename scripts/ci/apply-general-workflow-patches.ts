@@ -287,6 +287,29 @@ export function applyGeneralWorkflowPatches(
     }
   }
 
+  // gh-aw v0.87.0 supplies the Azure OIDC IDs to the AWF invocation but no
+  // longer emits their exclusions from --env-all. Keep these runner-only
+  // authentication values out of the agent container.
+  const isCopilotByokAoaiEntraSmoke = workflowPath.endsWith(
+    'smoke-copilot-byok-aoai-entra.lock.yml'
+  );
+  if (isCopilotByokAoaiEntraSmoke) {
+    const oidcExclusions =
+      '--exclude-env ACTIONS_ID_TOKEN_REQUEST_TOKEN --exclude-env ACTIONS_ID_TOKEN_REQUEST_URL';
+    const azureExclusions =
+      ' --exclude-env AWF_AUTH_AZURE_CLIENT_ID --exclude-env AWF_AUTH_AZURE_TENANT_ID';
+    if (!content.includes('--exclude-env AWF_AUTH_AZURE_CLIENT_ID')) {
+      if (content.includes(oidcExclusions)) {
+        content = content.replace(oidcExclusions, oidcExclusions + azureExclusions);
+        log.push(`  Restored Azure OIDC environment exclusions from the AWF invocation`);
+      } else {
+        log.push(`  WARNING: Could not find OIDC environment exclusions for Azure OIDC protection`);
+      }
+    } else {
+      log.push(`  Azure OIDC environment exclusions already present`);
+    }
+  }
+
   // NOTE: smoke-services no longer needs post-processing to add its Redis/PostgreSQL
   // service containers or host-service-port access. gh-aw v0.82+ natively supports a
   // top-level `services:` frontmatter section.
