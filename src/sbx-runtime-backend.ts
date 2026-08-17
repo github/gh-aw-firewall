@@ -63,7 +63,14 @@ function defaultDependencies(
   };
 }
 
-/** Stateful adapter for the Docker sbx external microVM runtime. */
+/**
+ * Stateful adapter for the Docker sbx external microVM runtime.
+ *
+ * @internal Production code obtains instances via {@link createSbxRuntimeBackend};
+ * the class itself is exported only so unit tests can construct it directly
+ * with injected dependencies.
+ */
+// ts-prune-ignore-next
 export class SbxRuntimeBackend implements ExternalAgentRuntimeBackend {
   readonly runtime = 'sbx';
 
