@@ -35,6 +35,7 @@ function enclaveEnv(overrides: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
     AWF_ENCLAVE_MCP_CAPABILITY: 'a'.repeat(64),
     AWF_ENCLAVE_MCP_GATEWAY_IDENTITY: 'test-run-identity',
     AWF_ENCLAVE_MCP_GATEWAY_ENDPOINT: 'http://127.0.0.1:8080/mcp/awf-enclave',
+    MCP_GATEWAY_API_KEY: 'g'.repeat(48),
     ...overrides,
   };
 }
