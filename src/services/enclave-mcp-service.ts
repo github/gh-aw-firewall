@@ -2,6 +2,7 @@ import { buildRuntimeImageRef } from '../image-tag';
 import {
   ENCLAVE_AGENT_API_PROXY_CONTAINER_NAME,
   ENCLAVE_MCP_SERVER_CONTAINER_NAME,
+  LOCAL_ENCLAVE_MCP_SERVER_IMAGE,
 } from '../constants';
 import type { WrapperConfig } from '../types';
 import { API_PROXY_PORTS } from '../types/ports';
@@ -64,7 +65,6 @@ import {
 
 const LOCAL_ENCLAVE_SCRIPT_IMAGE = 'awf-enclave-script:local';
 const LOCAL_ENCLAVE_AGENT_IMAGE = 'awf-enclave-agent:local';
-const LOCAL_ENCLAVE_MCP_SERVER_IMAGE = 'awf-enclave-mcp-server:local';
 const ENCLAVE_SCRIPT_IMAGE_NAME = 'enclave-script';
 const ENCLAVE_AGENT_IMAGE_NAME = 'enclave-agent';
 const ENCLAVE_MCP_SERVER_IMAGE_NAME = 'enclave-mcp-server';
@@ -377,7 +377,7 @@ export function buildEnclaveMcpService(params: EnclaveMcpServiceParams): Enclave
       retries: 10,
       start_period: '20s',
     },
-    ...buildContainerSecurityHardening({ memLimit: '256m', pidsLimit: 100, cpuShares: 256 }),
+    ...buildContainerSecurityHardening({ memLimit: '1g', pidsLimit: 100, cpuShares: 256 }),
     cap_add: ['CHOWN', 'DAC_OVERRIDE', 'FOWNER'],
     restart: 'no',
     stop_grace_period: '5s',

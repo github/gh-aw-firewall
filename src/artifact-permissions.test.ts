@@ -156,4 +156,43 @@ describe('artifact-permissions', () => {
       fs.rmSync(auditDir, { recursive: true, force: true });
     }
   });
+
+  it('uses an explicitly available local image for rootless permission repair', () => {
+    const auditDir = makeTempDir();
+    try {
+      getuidSpy = jest.spyOn(process, 'getuid').mockReturnValue(1001);
+      const repaired = fixArtifactPermissionsForRootless(
+        [auditDir],
+        undefined,
+        'ghcr.io/github/gh-aw-firewall',
+        'v1@sha256:deadbeef',
+        undefined,
+        'awf-enclave-mcp-server:local',
+      );
+      expect(repaired).toBe(true);
+      expect(mockExecaSync).toHaveBeenCalledWith(
+        'docker',
+        expect.arrayContaining(['awf-enclave-mcp-server:local']),
+        expect.objectContaining({ reject: false }),
+      );
+    } finally {
+      fs.rmSync(auditDir, { recursive: true, force: true });
+    }
+  });
+
+  it('reports failed rootless permission repair', () => {
+    const auditDir = makeTempDir();
+    let warnSpy: jest.SpyInstance | undefined;
+    try {
+      getuidSpy = jest.spyOn(process, 'getuid').mockReturnValue(1001);
+      warnSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      mockExecaSync.mockReturnValue({ stdout: '', stderr: 'image unavailable', exitCode: 1 });
+      expect(
+        fixArtifactPermissionsForRootless([auditDir], undefined, undefined, undefined, undefined),
+      ).toBe(false);
+    } finally {
+      warnSpy?.mockRestore();
+      fs.rmSync(auditDir, { recursive: true, force: true });
+    }
+  });
 });

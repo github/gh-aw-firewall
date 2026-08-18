@@ -537,7 +537,7 @@ describe('enclave mcpg handoff', () => {
   it('drains the AWF server and disconnects mcpg without stopping the external container', async () => {
     mockExeca
       .mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' })
-      .mockResolvedValueOnce({ exitCode: 0, stdout: '0\n', stderr: '' })
+      .mockResolvedValueOnce({ exitCode: 0, stdout: '0|false|\n', stderr: '' })
       .mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' });
     await shutdownEnclaveGateway(config(), env());
     expect(mockExeca).toHaveBeenNthCalledWith(
@@ -549,7 +549,11 @@ describe('enclave mcpg handoff', () => {
     expect(mockExeca).toHaveBeenNthCalledWith(
       2,
       'docker',
-      ['inspect', '--format={{.State.ExitCode}}', 'awf-enclave-mcp-server'],
+      [
+        'inspect',
+        '--format={{.State.ExitCode}}|{{.State.OOMKilled}}|{{.State.Error}}',
+        'awf-enclave-mcp-server',
+      ],
       expect.anything(),
     );
     expect(mockExeca).toHaveBeenNthCalledWith(
@@ -565,5 +569,14 @@ describe('enclave mcpg handoff', () => {
     mockExeca.mockResolvedValueOnce({ exitCode: 1, stdout: '', stderr: 'failed' });
     await expect(shutdownEnclaveGateway(config(), env())).rejects.toThrow(/Failed to drain/);
     expect(mockExeca).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports enclave server OOM state after an abnormal shutdown', async () => {
+    mockExeca
+      .mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' })
+      .mockResolvedValueOnce({ exitCode: 0, stdout: '137|true|\n', stderr: '' });
+    await expect(shutdownEnclaveGateway(config(), env()))
+      .rejects.toThrow(/137\|true\|/);
+    expect(mockExeca).toHaveBeenCalledTimes(2);
   });
 });

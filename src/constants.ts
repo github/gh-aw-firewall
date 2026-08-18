@@ -11,6 +11,7 @@ export const DOH_PROXY_CONTAINER_NAME = 'awf-doh-proxy';
 export const CLI_PROXY_CONTAINER_NAME = 'awf-cli-proxy';
 export const ENCLAVE_MCP_SERVER_CONTAINER_NAME = 'awf-enclave-mcp-server';
 export const ENCLAVE_AGENT_API_PROXY_CONTAINER_NAME = 'awf-enclave-agent-api-proxy';
+export const LOCAL_ENCLAVE_MCP_SERVER_IMAGE = 'awf-enclave-mcp-server:local';
 
 // SQUID_PORT is centralized in src/config/sandbox-network-policy.json and
 // re-exported here so existing import sites keep working unchanged.

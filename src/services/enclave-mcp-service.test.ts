@@ -42,6 +42,8 @@ describe('buildEnclaveMcpService', () => {
     expect(result.service).toMatchObject({
       container_name: 'awf-enclave-mcp-server',
       image: 'ghcr.io/github/gh-aw-firewall/enclave-mcp-server:v1',
+      mem_limit: '1g',
+      memswap_limit: '1g',
       depends_on: {
         'enclave-script-image': { condition: 'service_completed_successfully' },
       },

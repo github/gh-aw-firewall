@@ -5,6 +5,7 @@ import execa from 'execa';
 import { normalizeEnclavesConfig } from '../parsers/enclave-parser';
 import type { WrapperConfig } from '../types';
 import {
+  enclaveManagerTestHelpers,
   isEnclaveAgentEnabled,
   isEnclaveScriptEnabled,
   prepareEnclaves,
@@ -305,5 +306,34 @@ describe('prepareEnclaves fail-closed preflight', () => {
     );
     expect(fs.existsSync(paths.root)).toBe(true);
     expect(fs.existsSync(paths.ingressRoot)).toBe(true);
+  });
+
+  it('uses the local enclave image and defers cleanup when permission repair fails', async () => {
+    const wrapperConfig = config(workDir);
+    wrapperConfig.buildLocal = true;
+    const paths = resolveEnclavePaths(workDir);
+    fs.mkdirSync(paths.root, { recursive: true });
+    fs.mkdirSync(paths.ingressRoot, { recursive: true });
+    const remove = jest.fn((target: string) => {
+      if (target === paths.root) {
+        throw Object.assign(new Error('permission denied'), { code: 'EACCES' });
+      }
+    });
+    const repair = jest.fn(() => false);
+    const warnSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      enclaveManagerTestHelpers.removePrivateState(wrapperConfig, paths, { remove, repair });
+      expect(repair).toHaveBeenCalledWith(
+        [paths.root, paths.ingressRoot],
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        'awf-enclave-mcp-server:local',
+      );
+      expect(remove.mock.calls.filter(([target]) => target === paths.root)).toHaveLength(1);
+    } finally {
+      warnSpy.mockRestore();
+    }
   });
 });

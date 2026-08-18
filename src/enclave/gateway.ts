@@ -523,11 +523,18 @@ export async function shutdownEnclaveGateway(
   }
   const inspectResult = await execa(
     'docker',
-    ['inspect', '--format={{.State.ExitCode}}', ENCLAVE_MCP_SERVER_CONTAINER_NAME],
+    [
+      'inspect',
+      '--format={{.State.ExitCode}}|{{.State.OOMKilled}}|{{.State.Error}}',
+      ENCLAVE_MCP_SERVER_CONTAINER_NAME,
+    ],
     { env: getLocalDockerEnv(), reject: false, timeout: 10_000 },
   );
-  if (inspectResult.exitCode !== 0 || inspectResult.stdout.trim() !== '0') {
-    throw new Error('Enclave MCP server did not complete graceful cleanup');
+  const state = inspectResult.stdout.trim();
+  if (inspectResult.exitCode !== 0 || !state.startsWith('0|false|')) {
+    throw new Error(
+      `Enclave MCP server did not complete graceful cleanup (state: ${state || 'unavailable'})`,
+    );
   }
   await execa(
     'docker',

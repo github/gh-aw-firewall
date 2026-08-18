@@ -10,6 +10,7 @@ import { releaseSeedPermissions, resolveStagingToken, stageEnclaveSeeds, type Gi
 import { getLocalDockerEnv } from '../host-env';
 import { getSafeHostGid, getSafeHostUid } from '../host-identity';
 import { logger } from '../logger';
+import { LOCAL_ENCLAVE_MCP_SERVER_IMAGE } from '../constants';
 import type { WrapperConfig } from '../types';
 import type {
   EnclaveAgentExecutorConfig,
@@ -220,21 +221,38 @@ async function removeOrphanEnclaveContainers(runId: string): Promise<void> {
   }
 }
 
-function removePrivateState(config: WrapperConfig, paths: EnclavePaths): void {
+interface RemovePrivateStateDependencies {
+  remove?: (target: string) => void;
+  repair?: typeof fixArtifactPermissionsForRootless;
+}
+
+function removePrivateState(
+  config: WrapperConfig,
+  paths: EnclavePaths,
+  dependencies: RemovePrivateStateDependencies = {},
+): void {
+  const remove = dependencies.remove
+    ?? ((target: string) => fs.rmSync(target, { recursive: true, force: true }));
+  const repair = dependencies.repair ?? fixArtifactPermissionsForRootless;
   try {
-    fs.rmSync(paths.root, { recursive: true, force: true });
-    fs.rmSync(paths.ingressRoot, { recursive: true, force: true });
+    remove(paths.root);
+    remove(paths.ingressRoot);
   } catch (error: unknown) {
     if (error && typeof error === 'object' && 'code' in error && error.code === 'EACCES') {
-      fixArtifactPermissionsForRootless(
+      const repaired = repair(
         [paths.root, paths.ingressRoot],
         config.dockerHostPathPrefix,
         config.imageRegistry,
         config.imageTag,
         config.agentImage,
+        config.buildLocal ? LOCAL_ENCLAVE_MCP_SERVER_IMAGE : undefined,
       );
-      fs.rmSync(paths.root, { recursive: true, force: true });
-      fs.rmSync(paths.ingressRoot, { recursive: true, force: true });
+      if (!repaired) {
+        logger.warn('Enclaves: private state permission repair failed; cleanup will be deferred');
+        return;
+      }
+      remove(paths.root);
+      remove(paths.ingressRoot);
       return;
     }
     throw error;
@@ -264,5 +282,6 @@ export async function teardownEnclaves(config: WrapperConfig): Promise<void> {
 export const enclaveManagerTestHelpers = {
   prepareDirectories,
   readRunId,
+  removePrivateState,
   removeOrphanEnclaveContainers,
 };

@@ -60,22 +60,24 @@ export function fixArtifactPermissionsForRootless(
   imageRegistry: string | undefined,
   imageTag: string | undefined,
   agentImage: string | undefined,
-): void {
+  imageRefOverride?: string,
+): boolean {
   const currentUid = process.getuid?.();
   if (currentUid === undefined || currentUid === 0) {
-    return;
+    return true;
   }
 
   const existingDirs = dirs.filter(
     (dir): dir is string => typeof dir === 'string' && dir.length > 0 && fs.existsSync(dir),
   );
   if (existingDirs.length === 0) {
-    return;
+    return true;
   }
 
   const uid = getSafeHostUid();
   const gid = getSafeHostGid();
-  const imageRef = resolvePermFixerImageRef(imageRegistry, imageTag, agentImage);
+  const imageRef = imageRefOverride || resolvePermFixerImageRef(imageRegistry, imageTag, agentImage);
+  let repairedAll = true;
 
   for (const dir of existingDirs) {
     const mount = applyHostPathPrefixToVolumes([`${path.resolve(dir)}:/fix:rw`], dockerHostPathPrefix)[0];
@@ -132,9 +134,12 @@ export function fixArtifactPermissionsForRootless(
         } else {
           logger.warn(`Rootless artifact permission repair failed ${detail}`);
         }
+        repairedAll = false;
       }
     } catch (error) {
       logger.warn(`Rootless artifact permission repair failed for ${dir}:`, error);
+      repairedAll = false;
     }
   }
+  return repairedAll;
 }
