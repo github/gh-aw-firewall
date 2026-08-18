@@ -1,20 +1,18 @@
 /**
- * Config-writer integration tests for DNS filtering in network-isolation mode.
+ * Config-writer integration tests for DNS preservation in network-isolation mode.
  *
  * Covers the gate at src/config-writer.ts lines 330-333:
- * - Non-portable resolvers are filtered only when networkIsolation is enabled
- *   and dnsServersExplicit is false (auto-detected).
- * - The filtered (effective) DNS list is passed to generateSquidConfig.
- * - The filtered (effective) DNS list is also used in the policy-manifest audit
+ * - Auto-detected resolvers are preserved when networkIsolation is enabled
+ *   and dnsServersExplicit is false.
+ * - The effective DNS list is passed to generateSquidConfig.
+ * - The effective DNS list is also used in the policy-manifest audit
  *   artifact, not the raw config.dnsServers list.
- * - Explicitly-supplied DNS servers are never filtered in isolation mode.
+ * - Explicitly-supplied DNS servers are also preserved in isolation mode.
  */
 
 // Hoisted jest.mock() registrations live in the shared helper — must remain first.
 import './test-helpers/config-writer-dependency-mocks.test-utils';
 
-import { EventEmitter } from 'events';
-import * as net from 'net';
 import { writeConfigs } from './config-writer';
 import {
   buildWriteConfig,
@@ -31,7 +29,7 @@ function getSquidConfigMock() {
   };
 }
 
-describe('writeConfigs — DNS filtering in network-isolation mode', () => {
+describe('writeConfigs — DNS preservation in network-isolation mode', () => {
   let tempDir: string;
 
   beforeEach(() => {
@@ -72,19 +70,8 @@ describe('writeConfigs — DNS filtering in network-isolation mode', () => {
     });
   });
 
-  describe('isolation mode + auto-detected DNS — non-portable servers are checked', () => {
-    it('retains reachable GKE NodeLocal DNS in the Squid config', async () => {
-      const socket = new EventEmitter() as EventEmitter & {
-        destroy: jest.Mock;
-        setTimeout: jest.Mock;
-      };
-      socket.destroy = jest.fn();
-      socket.setTimeout = jest.fn();
-      (net.createConnection as jest.Mock).mockImplementationOnce(() => {
-        process.nextTick(() => socket.emit('connect'));
-        return socket;
-      });
-
+  describe('isolation mode + auto-detected DNS — runner resolvers are preserved', () => {
+    it('retains GKE NodeLocal DNS in the Squid config', async () => {
       await writeConfigs(
         buildWriteConfig(tempDir, {
           networkIsolation: true,
@@ -97,7 +84,7 @@ describe('writeConfigs — DNS filtering in network-isolation mode', () => {
       expect(squidCall.dnsServers).toEqual(['169.254.20.10']);
     });
 
-    it('filters Azure DHCP DNS from Squid config', async () => {
+    it('preserves Azure DHCP DNS in Squid config', async () => {
       await writeConfigs(
         buildWriteConfig(tempDir, {
           networkIsolation: true,
@@ -105,13 +92,11 @@ describe('writeConfigs — DNS filtering in network-isolation mode', () => {
           dnsServersExplicit: false,
         })
       );
-
       const squidCall = getSquidConfigMock().generateSquidConfig.mock.calls[0][0];
-      // 168.63.129.16 is non-portable; fallback to default public DNS
-      expect(squidCall.dnsServers).toEqual(['8.8.8.8', '8.8.4.4']);
+      expect(squidCall.dnsServers).toEqual(['168.63.129.16']);
     });
 
-    it('filters Tailscale Magic DNS from Squid config', async () => {
+    it('preserves Tailscale Magic DNS in Squid config', async () => {
       await writeConfigs(
         buildWriteConfig(tempDir, {
           networkIsolation: true,
@@ -121,10 +106,10 @@ describe('writeConfigs — DNS filtering in network-isolation mode', () => {
       );
 
       const squidCall = getSquidConfigMock().generateSquidConfig.mock.calls[0][0];
-      expect(squidCall.dnsServers).toEqual(['8.8.8.8', '8.8.4.4']);
+      expect(squidCall.dnsServers).toEqual(['100.100.100.100']);
     });
 
-    it('keeps portable servers from a mixed list and removes non-portable ones', async () => {
+    it('preserves mixed resolver lists without removing detected entries', async () => {
       await writeConfigs(
         buildWriteConfig(tempDir, {
           networkIsolation: true,
@@ -134,10 +119,10 @@ describe('writeConfigs — DNS filtering in network-isolation mode', () => {
       );
 
       const squidCall = getSquidConfigMock().generateSquidConfig.mock.calls[0][0];
-      expect(squidCall.dnsServers).toEqual(['8.8.8.8', '1.1.1.1']);
+      expect(squidCall.dnsServers).toEqual(['168.63.129.16', '8.8.8.8', '1.1.1.1']);
     });
 
-    it('passes the filtered list (not config.dnsServers) to the policy manifest', async () => {
+    it('passes the preserved list to the policy manifest', async () => {
       await writeConfigs(
         buildWriteConfig(tempDir, {
           networkIsolation: true,
@@ -147,9 +132,7 @@ describe('writeConfigs — DNS filtering in network-isolation mode', () => {
       );
 
       const manifestCall = getSquidConfigMock().generatePolicyManifest.mock.calls[0][0];
-      // Policy manifest must reflect what Squid actually uses, not the raw detected list
-      expect(manifestCall.dnsServers).toEqual(['8.8.8.8']);
-      expect(manifestCall.dnsServers).not.toContain('168.63.129.16');
+      expect(manifestCall.dnsServers).toEqual(['168.63.129.16', '8.8.8.8']);
     });
   });
 

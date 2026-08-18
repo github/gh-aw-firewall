@@ -1,5 +1,5 @@
 import * as fs from 'fs';
-import { createConnection, isIP } from 'net';
+import { isIP } from 'net';
 import { logger as defaultLogger } from './logger';
 import { DEFAULT_DNS_SERVERS } from './config/network-policy';
 
@@ -13,122 +13,29 @@ type Logger = typeof defaultLogger;
 export { DEFAULT_DNS_SERVERS };
 
 /**
- * DNS servers that are reachable only via host-specific network paths which
- * may be disrupted by VPN tools like Tailscale that modify host routing after
- * AWF starts.
+ * Preserves DNS servers for use in network-isolation (topology) mode.
  *
- * - Azure DHCP DNS (168.63.129.16): intercepted by Azure hypervisor; unreachable
- *   outside Azure VNet or when policy-routing routes 0.0.0.0/0 via a Tailscale
- *   exit node or accepted subnet route.
- * - Tailscale Magic DNS (100.100.100.100): only reachable via the tailscale0
- *   interface; Docker bridge containers cannot reach it.
- */
-const AZURE_DHCP_DNS = '168.63.129.16';
-const TAILSCALE_MAGIC_DNS = '100.100.100.100';
-const DNS_REACHABILITY_TIMEOUT_MS = 1000;
-
-type DnsReachabilityProbe = (server: string) => Promise<boolean>;
-
-function isDnsServerReachable(server: string): Promise<boolean> {
-  return new Promise(resolve => {
-    const socket = createConnection({ host: server, port: 53 });
-    let settled = false;
-
-    const finish = (reachable: boolean) => {
-      if (settled) return;
-      settled = true;
-      socket.destroy();
-      resolve(reachable);
-    };
-
-    socket.once('connect', () => finish(true));
-    socket.once('error', () => finish(false));
-    socket.setTimeout(DNS_REACHABILITY_TIMEOUT_MS, () => finish(false));
-  });
-}
-
-/**
- * Returns true for DNS servers that are host-specific and may become unreachable
- * from Docker bridge containers when the host's routing is modified by tools
- * like Tailscale (e.g. when an exit node or accepted subnet route captures the
- * default route or the path to these servers).
+ * The runner's resolver list is an operator-controlled network setting. In
+ * enterprise and cloud environments those resolvers may be private,
+ * virtual-network-specific, or otherwise intentionally not globally routable.
+ * A resolver not being publicly portable does not make it invalid for the
+ * runner's Docker topology.
  *
- * Non-portable servers include:
- * - Azure DHCP DNS (168.63.129.16)
- * - Tailscale Magic DNS (100.100.100.100)
- * - Link-local addresses (169.254.x.x / RFC 3927) — not routable over bridges
- */
-function isNonPortableDns(ip: string): boolean {
-  if (ip === AZURE_DHCP_DNS) return true;
-  if (ip === TAILSCALE_MAGIC_DNS) return true;
-  if (ip.startsWith('169.254.')) return true;
-  return false;
-}
-
-/**
- * Filters DNS servers for use in network-isolation (topology) mode.
- *
- * In isolation mode the Squid proxy container is dual-homed: it has a static IP
- * on the internal `awf-net` network and an auto-assigned IP on the external
- * `awf-ext` Docker bridge. All DNS queries and upstream TCP connections leave
- * through `awf-ext`. When the host's routing is later modified by a VPN tool
- * such as Tailscale (e.g. via an accepted exit-node or subnet-route that covers
- * `0.0.0.0/0` or the specific DNS server address), DNS queries from the Docker
- * bridge to host-specific servers like Azure DNS (168.63.129.16) or Tailscale
- * Magic DNS (100.100.100.100) can be black-holed, causing every Squid lookup to
- * fail with `TCP_TUNNEL:HIER_NONE 503`.
- *
- * This function removes non-portable servers only when a bounded TCP/53 probe
- * confirms they are unreachable. If no usable servers remain, it falls back to
- * DEFAULT_DNS_SERVERS (8.8.8.8, 8.8.4.4).
+ * Do not silently replace detected resolvers with public defaults here. Fallback
+ * to DEFAULT_DNS_SERVERS only belongs in host DNS detection when no resolver can
+ * be detected at all.
  *
  * @param servers - The resolved DNS server list (from --dns-servers or auto-detection).
  * @param logger  - Optional logger for diagnostic output.
- * @param probe   - Optional reachability probe for tests.
- * @returns A filtered list of DNS servers safe for use from a Docker bridge.
+ * @returns The DNS servers AWF should pass through to Squid and containers.
  */
 export async function filterForNetworkIsolation(
   servers: string[],
-  logger?: Logger,
-  probe: DnsReachabilityProbe = isDnsServerReachable
+  logger?: Logger
 ): Promise<string[]> {
   const log = logger ?? defaultLogger;
-
-  const nonPortable = servers.filter(isNonPortableDns);
-  const portable = servers.filter(s => !isNonPortableDns(s));
-  const reachability = await Promise.all(nonPortable.map(async server => ({
-    server,
-    reachable: await probe(server),
-  })));
-  const reachableNonPortable = reachability.filter(result => result.reachable).map(result => result.server);
-  const unreachableNonPortable = reachability.filter(result => !result.reachable).map(result => result.server);
-
-  if (unreachableNonPortable.length > 0) {
-    log.warn(
-      `Network-isolation: removing ${unreachableNonPortable.length} unreachable non-portable DNS server(s): ` +
-      `${unreachableNonPortable.join(', ')}`
-    );
-  }
-
-  if (reachableNonPortable.length > 0) {
-    log.warn(
-      `Network-isolation: retaining reachable non-portable DNS server(s): ` +
-      `${reachableNonPortable.join(', ')}`
-    );
-  }
-
-  const usable = servers.filter(server =>
-    portable.includes(server) || reachableNonPortable.includes(server)
-  );
-  if (usable.length > 0) return usable;
-
-  // All detected servers are non-portable — fall back to public DNS.
-  log.warn(
-    `Network-isolation: no reachable DNS servers remain after filtering; ` +
-    `falling back to ${DEFAULT_DNS_SERVERS.join(', ')}. ` +
-    `If your environment requires specific DNS, use --dns-servers to override.`
-  );
-  return [...DEFAULT_DNS_SERVERS];
+  log.debug(`Network-isolation: preserving DNS server(s): ${servers.join(', ')}`);
+  return [...servers];
 }
 
 /**

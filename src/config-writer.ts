@@ -317,18 +317,11 @@ export async function writeConfigs(config: WrapperConfig): Promise<void> {
     logger.debug(`Parsed ${urlPatterns.length} URL pattern(s) for SSL Bump filtering`);
   }
 
-  // In network-isolation (topology) mode the Squid container is dual-homed: it
-  // has a static IP on the internal `awf-net` network and an auto-assigned IP on
-  // the external `awf-ext` Docker bridge. All DNS queries leave through `awf-ext`.
-  // When the host's routing is later modified by tools like Tailscale (e.g. an
-  // accepted exit-node or subnet route that captures 0.0.0.0/0 or the specific
-  // DNS server address), DNS servers that depend on host-specific routing — such
-  // as Azure DHCP DNS (168.63.129.16) or Tailscale Magic DNS (100.100.100.100) —
-  // can become unreachable from the Docker bridge, causing every Squid DNS lookup
-  // to fail with TCP_TUNNEL:HIER_NONE 503. Probe them in isolation mode when the
-  // DNS list was auto-detected (not explicitly supplied by the operator via
-  // --dns-servers), retaining reachable resolvers and filtering unreachable ones.
-  // Explicitly-specified servers are trusted as-is.
+  // In network-isolation (topology) mode, preserve auto-detected DNS resolvers
+  // as operator-controlled runner network settings. Enterprise and cloud
+  // resolvers may be private or virtual-network-specific, and replacing them
+  // with public defaults can break environments where public DNS is blocked.
+  // Explicitly-specified servers are also trusted as-is.
   const resolvedDnsServers = config.dnsServers ?? DEFAULT_DNS_SERVERS;
   const squidDnsServers = config.networkIsolation && !config.dnsServersExplicit
     ? await filterForNetworkIsolation(resolvedDnsServers, logger)
