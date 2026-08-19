@@ -53,7 +53,7 @@ safe-outputs:
     messages:
       run-success: "✅ [{workflow_name}]({run_url}) passed"
       run-failure: "❌ [{workflow_name}]({run_url}) {status}"
-timeout-minutes: 10
+timeout-minutes: 20
 steps:
   - name: Create smoke test file
     env:

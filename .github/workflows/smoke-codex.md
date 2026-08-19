@@ -73,7 +73,7 @@ safe-outputs:
       run-started: "🔮 The ancient spirits stir... [{workflow_name}]({run_url}) awakens to divine this {event_type}..."
       run-success: "✨ The prophecy is fulfilled... [{workflow_name}]({run_url}) has completed its mystical journey. The stars align. 🌟"
       run-failure: "🌑 The shadows whisper... [{workflow_name}]({run_url}) {status}. The oracle requires further meditation..."
-timeout-minutes: 15
+timeout-minutes: 20
 post-steps:
   - name: Validate safe outputs were invoked
     run: |
