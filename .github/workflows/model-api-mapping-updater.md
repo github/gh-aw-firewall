@@ -19,6 +19,8 @@ network:
   allowed:
     - defaults
     - platform.openai.com
+    - developers.openai.com
+    - openai.com
     - api.openai.com
     - docs.anthropic.com
     - platform.claude.com
@@ -36,7 +38,7 @@ Update `docs/model-api-mapping.json` with the latest model-to-API endpoint mappi
 
 ## Data Sources
 
-1. **OpenAI**: Fetch the current model list and endpoint compatibility from `https://platform.openai.com/docs/models` and `https://platform.openai.com/docs/api-reference/responses`. Determine which models support `/v1/chat/completions`, `/v1/responses`, or both.
+1. **OpenAI**: Fetch the current model list and endpoint compatibility from `https://developers.openai.com/api/docs/models` and `https://developers.openai.com/api/docs/api-reference/responses`. OpenAI moved its API docs from `platform.openai.com/docs` to `developers.openai.com`, so prefer the `developers.openai.com` URLs and only fall back to `https://platform.openai.com/docs/models` if the new location fails. Determine which models support `/v1/chat/completions`, `/v1/responses`, or both.
 
 2. **Anthropic**: Fetch the current model list from `https://docs.anthropic.com/en/docs/about-claude/models`. All Claude models use the `/v1/messages` endpoint.
 
