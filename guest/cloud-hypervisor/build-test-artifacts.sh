@@ -58,8 +58,32 @@ download_verified() {
   local url=$1
   local expected=$2
   local destination=$3
-  curl --fail --location --proto '=https' --tlsv1.2 "$url" --output "$destination"
-  printf '%s  %s\n' "$expected" "$destination" | sha256sum --check --status
+  local partial="${destination}.part"
+
+  rm -f "$destination"
+  curl \
+    --fail \
+    --location \
+    --proto '=https' \
+    --tlsv1.2 \
+    --http1.1 \
+    --connect-timeout 30 \
+    --speed-limit 1024 \
+    --speed-time 60 \
+    --retry 5 \
+    --retry-all-errors \
+    --retry-delay 2 \
+    --retry-max-time 900 \
+    --continue-at - \
+    "$url" \
+    --output "$partial"
+
+  if ! printf '%s  %s\n' "$expected" "$partial" | sha256sum --check --status; then
+    echo "checksum verification failed for $url" >&2
+    rm -f "$partial"
+    return 1
+  fi
+  mv -- "$partial" "$destination"
 }
 
 # Cloud Hypervisor ships a single statically-linked release binary — no

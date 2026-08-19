@@ -4,6 +4,10 @@ import { execFileSync } from 'child_process';
 
 const preflightPath = path.resolve(__dirname, 'cloud-hypervisor-host-preflight.sh');
 const smokePath = path.resolve(__dirname, 'cloud-hypervisor-live-smoke.sh');
+const artifactBuildPath = path.resolve(
+  __dirname,
+  '../../guest/cloud-hypervisor/build-test-artifacts.sh'
+);
 
 function shellcheckAvailable(): boolean {
   try {
@@ -13,6 +17,23 @@ function shellcheckAvailable(): boolean {
     return false;
   }
 }
+
+describe('build-test-artifacts.sh', () => {
+  it('passes bash syntax check', () => {
+    expect(() => execFileSync('bash', ['-n', artifactBuildPath])).not.toThrow();
+  });
+
+  it('resumes interrupted downloads with bounded retries and verifies before publishing', () => {
+    const source = fs.readFileSync(artifactBuildPath, 'utf-8');
+    expect(source).toContain('--continue-at -');
+    expect(source).toContain('--retry-all-errors');
+    expect(source).toContain('--retry-max-time 900');
+    expect(source).toContain('--http1.1');
+    expect(source).toContain('local partial="${destination}.part"');
+    expect(source).toContain('sha256sum --check --status');
+    expect(source).toContain('mv -- "$partial" "$destination"');
+  });
+});
 
 describe('cloud-hypervisor-host-preflight.sh', () => {
   it('passes bash syntax check', () => {
