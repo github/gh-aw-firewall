@@ -51,7 +51,7 @@ const mockedMkdirSync = fs.mkdirSync as jest.Mock;
 const mockedRmSync = fs.rmSync as jest.Mock;
 const mockedLstatSync = fs.lstatSync as jest.Mock;
 const mockedStatSync = fs.statSync as jest.Mock;
-const mockedRealpathSync = fs.realpathSync as jest.Mock;
+const mockedRealpathSync = jest.mocked(fs.realpathSync);
 
 const mockedLogger = jest.mocked(logger);
 
