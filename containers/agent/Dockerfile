@@ -20,6 +20,17 @@ RUN wget -q "https://github.com/cli/cli/archive/refs/tags/v${GH_VERSION}.tar.gz"
          go run ./script/build.go bin/gh \
     && /tmp/cli-${GH_VERSION}/bin/gh --version
 
+FROM ${BASE_IMAGE} AS one-shot-token-build
+
+COPY one-shot-token/one-shot-token.c /tmp/one-shot-token.c
+RUN apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update && \
+    apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 \
+      install -y --no-install-recommends gcc libc6-dev binutils && \
+    gcc -shared -fPIC -fvisibility=hidden -O2 -Wall -s \
+        -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0 \
+        -o /tmp/one-shot-token.so /tmp/one-shot-token.c -ldl -lpthread && \
+    strip --strip-unneeded /tmp/one-shot-token.so
+
 FROM ${BASE_IMAGE}
 
 # Optionally switch to Azure apt mirror for faster package fetches in CI
@@ -41,7 +52,9 @@ RUN if getent hosts azure.archive.ubuntu.com >/dev/null 2>&1; then \
       echo "Azure apt mirror not reachable, using default archive.ubuntu.com"; \
     fi
 
-# Install required packages, Node.js 22.23.2, and npm 11.18.0
+# Install required and runner-parity packages, apply security upgrades, then install
+# Node.js 22.23.2 and npm 11.18.0. Keeping apt work in one layer avoids repeatedly
+# downloading package indexes during cold CI builds.
 # Note: Some packages may already exist in runner-like base images, apt handles this gracefully
 # apt_update_retry: retries up to 3 times with backoff; if all fail, reverts to archive.ubuntu.com
 RUN set -eux; \
@@ -56,12 +69,14 @@ RUN set -eux; \
           sed -i -e 's|http://azure.archive.ubuntu.com|http://archive.ubuntu.com|g' \
                  -e 's|http://security.ubuntu.com|http://archive.ubuntu.com|g' {} + 2>/dev/null || true; \
       fi; \
-      rm -rf /var/lib/apt/lists/* && apt-get update; \
+      rm -rf /var/lib/apt/lists/* && \
+        apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update; \
     }; \
     apt_update_retry() { \
       local i; for i in 1 2 3; do \
         rm -rf /var/lib/apt/lists/*; \
-        if apt-get update > /tmp/apt-update.log 2>&1; then \
+        if apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 \
+            update > /tmp/apt-update.log 2>&1; then \
           cat /tmp/apt-update.log; \
           if ! grep -q "Failed to fetch" /tmp/apt-update.log; then return 0; fi; \
         else \
@@ -73,14 +88,24 @@ RUN set -eux; \
       force_archive_mirror; \
     }; \
     apt_install_retry() { \
-      apt-get install -y --no-install-recommends "$@" && return 0; \
+      apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 \
+        install -y --no-install-recommends "$@" && return 0; \
       echo "apt-get install failed (likely mirror fetch timeout), forcing archive.ubuntu.com and retrying..." >&2; \
       force_archive_mirror; \
-      apt-get install -y --no-install-recommends "$@"; \
+      apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 \
+        install -y --no-install-recommends "$@"; \
     }; \
-    PKGS="iptables curl ca-certificates git gnupg dnsutils net-tools netcat-openbsd libcap2-bin"; \
+    apt_upgrade_retry() { \
+      apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 \
+        upgrade -y && return 0; \
+      echo "apt-get upgrade failed (likely mirror fetch timeout), forcing archive.ubuntu.com and retrying..." >&2; \
+      force_archive_mirror && \
+        apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 upgrade -y; \
+    }; \
+    PKGS="iptables curl ca-certificates git gnupg dnsutils net-tools netcat-openbsd libcap2-bin libgdiplus libev-dev libssl-dev php-intl php-gd python3"; \
     apt_update_retry && \
     apt_install_retry $PKGS && \
+    apt_upgrade_retry && \
     # Install gosu 1.19 from GitHub releases (compiled with Go 1.24.6 — avoids Ubuntu's
     # apt gosu which is compiled with Go 1.18 and carries 44 stdlib CVEs including Critical ones).
     # GO-2026-4337 (TLS session resumption in Go stdlib) is reported against this binary by
@@ -171,89 +196,6 @@ RUN set -eux; \
 COPY --from=gh-build /tmp/cli-2.97.0/bin/gh /usr/local/bin/gh
 RUN gh --version | grep -qE '^gh version 2\.97\.0'
 
-# Install additional system packages for GitHub Actions runner parity
-# These packages are commonly needed by workflows and avoid agents spending time installing them manually
-# See: https://github.com/actions/runner-images/blob/main/images/ubuntu/Ubuntu2204-Readme.md
-RUN set -eux; \
-    force_archive_mirror() { \
-      echo "Falling back to archive.ubuntu.com mirror..." >&2; \
-      if [ -f /etc/apt/sources.list ]; then \
-        sed -i 's|http://azure.archive.ubuntu.com|http://archive.ubuntu.com|g' /etc/apt/sources.list; \
-        sed -i 's|http://security.ubuntu.com|http://archive.ubuntu.com|g' /etc/apt/sources.list 2>/dev/null || true; \
-      fi; \
-      if [ -d /etc/apt/sources.list.d ]; then \
-        find /etc/apt/sources.list.d -name '*.sources' -exec \
-          sed -i -e 's|http://azure.archive.ubuntu.com|http://archive.ubuntu.com|g' \
-                 -e 's|http://security.ubuntu.com|http://archive.ubuntu.com|g' {} + 2>/dev/null || true; \
-      fi; \
-      rm -rf /var/lib/apt/lists/* && apt-get update; \
-    }; \
-    apt_update_retry() { \
-      local i; for i in 1 2 3; do \
-        rm -rf /var/lib/apt/lists/*; \
-        if apt-get update > /tmp/apt-update.log 2>&1; then \
-          cat /tmp/apt-update.log; \
-          if ! grep -q "Failed to fetch" /tmp/apt-update.log; then return 0; fi; \
-        else \
-          cat /tmp/apt-update.log; \
-        fi; \
-        echo "apt-get update attempt $i/3 failed or had fetch failures, retrying in $((i*10))s..." >&2; sleep $((i*10)); \
-      done; \
-      echo "All apt-get update retries failed, falling back to archive.ubuntu.com..." >&2; \
-      force_archive_mirror; \
-    }; \
-    apt_install_retry() { \
-      apt-get install -y --no-install-recommends "$@" && return 0; \
-      echo "apt-get install failed (likely mirror fetch timeout), forcing archive.ubuntu.com and retrying..." >&2; \
-      force_archive_mirror; \
-      apt-get install -y --no-install-recommends "$@"; \
-    }; \
-    # python3 is commonly needed by workflows and is also required by the
-    # release-time seccomp regression check (scripts/ci/check-agent-seccomp-syscalls.sh),
-    # which uses python3+ctypes to fire name_to_handle_at/open_by_handle_at.
-    PARITY_PKGS="libgdiplus libev-dev libssl-dev php-intl php-gd python3"; \
-    apt_update_retry && \
-    apt_install_retry $PARITY_PKGS && \
-    rm -rf /var/lib/apt/lists/*
-
-# Upgrade all packages to pick up security patches
-# Addresses CVE-2023-44487 (HTTP/2 Rapid Reset) and other known vulnerabilities
-# Retry logic handles transient mirror sync failures during apt-get update
-RUN force_archive_mirror() { \
-      echo "Falling back to archive.ubuntu.com mirror..." >&2; \
-      if [ -f /etc/apt/sources.list ]; then \
-        sed -i 's|http://azure.archive.ubuntu.com|http://archive.ubuntu.com|g' /etc/apt/sources.list; \
-        sed -i 's|http://security.ubuntu.com|http://archive.ubuntu.com|g' /etc/apt/sources.list 2>/dev/null || true; \
-      fi; \
-      if [ -d /etc/apt/sources.list.d ]; then \
-        find /etc/apt/sources.list.d -name '*.sources' -exec \
-          sed -i -e 's|http://azure.archive.ubuntu.com|http://archive.ubuntu.com|g' \
-                 -e 's|http://security.ubuntu.com|http://archive.ubuntu.com|g' {} + 2>/dev/null || true; \
-      fi; \
-      rm -rf /var/lib/apt/lists/* && apt-get update; \
-    }; \
-    apt_update_retry() { \
-      local i; for i in 1 2 3; do \
-        rm -rf /var/lib/apt/lists/*; \
-        if apt-get update > /tmp/apt-update.log 2>&1; then \
-          cat /tmp/apt-update.log; \
-          if ! grep -q "Failed to fetch" /tmp/apt-update.log; then return 0; fi; \
-        else \
-          cat /tmp/apt-update.log; \
-        fi; \
-        echo "apt-get update attempt $i/3 failed or had fetch failures, retrying in $((i*10))s..." >&2; sleep $((i*10)); \
-      done; \
-      echo "All apt-get update retries failed, falling back to archive.ubuntu.com..." >&2; \
-      force_archive_mirror; \
-    }; \
-    apt_upgrade_retry() { \
-      apt-get upgrade -y && return 0; \
-      echo "apt-get upgrade failed (likely mirror fetch timeout), forcing archive.ubuntu.com and retrying..." >&2; \
-      force_archive_mirror && apt-get upgrade -y; \
-    }; \
-    apt_update_retry && \
-    apt_upgrade_retry && rm -rf /var/lib/apt/lists/*
-
 # Create non-root user with UID/GID matching host user
 # This allows the user command to run with appropriate permissions
 # and prevents file ownership issues with mounted volumes
@@ -287,43 +229,12 @@ COPY get-claude-key.sh /usr/local/bin/get-claude-key.sh
 COPY gh-cli-proxy-wrapper.sh /usr/local/bin/gh-cli-proxy-wrapper.sh
 RUN chmod +x /usr/local/bin/setup-iptables.sh /usr/local/bin/entrypoint.sh /usr/local/bin/pid-logger.sh /usr/local/bin/api-proxy-health-check.sh /usr/local/bin/get-claude-key.sh /usr/local/bin/gh-cli-proxy-wrapper.sh
 
-# Copy pre-built one-shot-token library from rust-builder stage
+# Copy the one-shot-token library from its isolated build stage.
 # This prevents tokens from being read multiple times (e.g., by malicious code)
 # Build flags: -fvisibility=hidden hides internal symbols, -s strips at link time
 # -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0 disables glibc fortification macros (e.g.
 # __fprintf_chk) so the resulting .so loads on musl-based hosts (Alpine/ARC runners)
-COPY one-shot-token/one-shot-token.c /tmp/one-shot-token.c
-RUN set -eux; \
-    force_archive_mirror() { \
-      echo "Falling back to archive.ubuntu.com mirror..." >&2; \
-      if [ -f /etc/apt/sources.list ]; then \
-        sed -i 's|http://azure.archive.ubuntu.com|http://archive.ubuntu.com|g' /etc/apt/sources.list; \
-        sed -i 's|http://security.ubuntu.com|http://archive.ubuntu.com|g' /etc/apt/sources.list 2>/dev/null || true; \
-      fi; \
-      if [ -d /etc/apt/sources.list.d ]; then \
-        find /etc/apt/sources.list.d -name '*.sources' -exec \
-          sed -i -e 's|http://azure.archive.ubuntu.com|http://archive.ubuntu.com|g' \
-                 -e 's|http://security.ubuntu.com|http://archive.ubuntu.com|g' {} + 2>/dev/null || true; \
-      fi; \
-      rm -rf /var/lib/apt/lists/* && apt-get update; \
-    }; \
-    apt_install_retry() { \
-      apt-get install -y --no-install-recommends "$@" && return 0; \
-      echo "apt-get install failed (likely mirror fetch timeout), forcing archive.ubuntu.com and retrying..." >&2; \
-      force_archive_mirror; \
-      apt-get install -y --no-install-recommends "$@"; \
-    }; \
-    BUILD_PKGS="gcc libc6-dev binutils"; \
-    apt-get update && \
-    apt_install_retry $BUILD_PKGS && \
-    gcc -shared -fPIC -fvisibility=hidden -O2 -Wall -s \
-        -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0 \
-        -o /usr/local/lib/one-shot-token.so /tmp/one-shot-token.c -ldl -lpthread && \
-    strip --strip-unneeded /usr/local/lib/one-shot-token.so && \
-    rm /tmp/one-shot-token.c && \
-    apt-get remove -y $BUILD_PKGS && \
-    apt-get autoremove -y && \
-    rm -rf /var/lib/apt/lists/*
+COPY --from=one-shot-token-build /tmp/one-shot-token.so /usr/local/lib/one-shot-token.so
 
 # Install Docker stub script that shows helpful error message
 # Docker-in-Docker support was removed in v0.9.1
