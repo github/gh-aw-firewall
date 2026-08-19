@@ -80,6 +80,39 @@ function ensureHeader(headers, name, value) {
   if (kept === null) headers[name] = value;
 }
 
+function isCopilotHost(targetHost) {
+  return targetHost === 'githubcopilot.com' ||
+    (typeof targetHost === 'string' && targetHost.endsWith('.githubcopilot.com'));
+}
+
+function mergeInjectedHeaders(headers, injectHeaders, targetHost) {
+  const copilotHost = isCopilotHost(targetHost);
+  for (const [name, value] of Object.entries(injectHeaders)) {
+    if (!copilotHost && name.toLowerCase() === 'copilot-integration-id') continue;
+    headers[name] = value;
+  }
+}
+
+function applyCopilotHostHeaders(headers, targetHost) {
+  if (!isCopilotHost(targetHost)) return;
+
+  if (!headers['x-initiator']) {
+    headers['x-initiator'] = 'agent';
+  }
+  // CAPI keys its prompt cache off X-Interaction-Id and its quota bucket /
+  // model allowlist off Copilot-Integration-Id. Harnesses that are not the
+  // Copilot CLI (aider, Pi, ...) often send neither, which kills the prompt
+  // cache and drops the traffic into an "unknown" attribution bucket.
+  // Scoped to the Copilot host only, so BYOK targets (Azure OpenAI, ...) and
+  // other providers never receive these headers.
+  ensureHeader(headers, 'x-interaction-id', resolveCopilotInteractionId());
+  ensureHeader(
+    headers,
+    'copilot-integration-id',
+    (process.env.COPILOT_INTEGRATION_ID || '').trim() || DEFAULT_COPILOT_INTEGRATION_ID
+  );
+}
+
 /**
  * Build the headers object for the upstream request.
  * Strips headers matched by `shouldStripHeader()`, merges injected auth
@@ -98,32 +131,13 @@ function buildRequestHeaders(body, inboundBytes, req, { injectHeaders, provider,
     if (!shouldStripHeader(name)) headers[name] = value;
   }
   headers['x-request-id'] = requestId;
-  Object.assign(headers, injectHeaders);
+  mergeInjectedHeaders(headers, injectHeaders, targetHost);
 
   if (provider === 'anthropic' || provider === 'copilot') {
     maybeStripLearnedHeaderValues(headers, requestId, provider);
   }
 
-  const isCopilotHost =
-    targetHost === 'githubcopilot.com' ||
-    targetHost.endsWith('.githubcopilot.com');
-  if (isCopilotHost) {
-    if (!headers['x-initiator']) {
-      headers['x-initiator'] = 'agent';
-    }
-    // CAPI keys its prompt cache off X-Interaction-Id and its quota bucket /
-    // model allowlist off Copilot-Integration-Id. Harnesses that are not the
-    // Copilot CLI (aider, Pi, ...) often send neither, which kills the prompt
-    // cache and drops the traffic into an "unknown" attribution bucket.
-    // Scoped to the Copilot host only, so BYOK targets (Azure OpenAI, ...) and
-    // other providers never receive these headers.
-    ensureHeader(headers, 'x-interaction-id', resolveCopilotInteractionId());
-    ensureHeader(
-      headers,
-      'copilot-integration-id',
-      (process.env.COPILOT_INTEGRATION_ID || '').trim() || DEFAULT_COPILOT_INTEGRATION_ID
-    );
-  }
+  applyCopilotHostHeaders(headers, targetHost);
 
   if (body.length !== inboundBytes) {
     headers['content-length'] = String(body.length);
@@ -157,6 +171,8 @@ function buildRequestHeaders(body, inboundBytes, req, { injectHeaders, provider,
 module.exports = {
   isValidRequestId,
   buildRequestHeaders,
+  mergeInjectedHeaders,
+  applyCopilotHostHeaders,
   resolveCopilotInteractionId,
   resetCopilotInteractionIdForTests,
   DEFAULT_COPILOT_INTEGRATION_ID,

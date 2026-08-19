@@ -120,6 +120,12 @@ describe('proxyWebSocket', () => {
       jest.resetModules();
     });
 
+    afterEach(() => {
+      delete process.env.GITHUB_RUN_ID;
+      delete process.env.GITHUB_RUN_ATTEMPT;
+      require('./request-headers').resetCopilotInteractionIdForTests();
+    });
+
     beforeEach(() => {
       socket = makeMockSocket();
       connectReq = new EventEmitter();
@@ -274,6 +280,79 @@ describe('proxyWebSocket', () => {
           const bufWrite = tlsSocket.write.mock.calls.find(c => Buffer.isBuffer(c[0]));
           expect(bufWrite).toBeDefined();
           expect(bufWrite[0]).toEqual(headBytes);
+          resolve();
+        }));
+      });
+    });
+
+    it('normalizes Copilot attribution headers in the upgrade request', () => {
+      process.env.GITHUB_RUN_ID = '12345';
+      process.env.GITHUB_RUN_ATTEMPT = '2';
+      jest.spyOn(http, 'request').mockReturnValue(connectReq);
+      jest.spyOn(tls, 'connect').mockReturnValue(tlsSocket);
+
+      setImmediate(() => {
+        connectReq.emit('connect', { statusCode: 200 }, tunnel);
+        setImmediate(() => tlsSocket.emit('secureConnect'));
+      });
+
+      const req = makeUpgradeReq({
+        headers: {
+          'upgrade': 'websocket',
+          'connection': 'Upgrade',
+          'sec-websocket-key': 'test-ws-key==',
+          'sec-websocket-version': '13',
+          'X-Interaction-Id': '  ',
+          'copilot-integration-id': 'caller-integration',
+        },
+      });
+
+      wsProxy(req, socket, Buffer.alloc(0), 'api.githubcopilot.com', { 'Copilot-Integration-Id': 'agentic-workflows' }, 'copilot');
+
+      return new Promise(resolve => {
+        tlsSocket.once('secureConnect', () => setImmediate(() => {
+          const upgradeWrite = tlsSocket.write.mock.calls.find(
+            c => typeof c[0] === 'string' && c[0].startsWith('GET ')
+          );
+          expect(upgradeWrite).toBeDefined();
+          const upgradeReqStr = upgradeWrite[0];
+          expect(upgradeReqStr).toContain('x-interaction-id: 12345-2');
+          expect(upgradeReqStr.match(/^copilot-integration-id:/gim)).toHaveLength(1);
+          expect(upgradeReqStr).toContain('copilot-integration-id: caller-integration');
+          expect(upgradeReqStr).not.toContain('Copilot-Integration-Id: agentic-workflows');
+          resolve();
+        }));
+      });
+    });
+
+    it('omits adapter Copilot attribution headers on non-Copilot upgrade targets', () => {
+      jest.spyOn(http, 'request').mockReturnValue(connectReq);
+      jest.spyOn(tls, 'connect').mockReturnValue(tlsSocket);
+
+      setImmediate(() => {
+        connectReq.emit('connect', { statusCode: 200 }, tunnel);
+        setImmediate(() => tlsSocket.emit('secureConnect'));
+      });
+
+      wsProxy(
+        makeUpgradeReq(),
+        socket,
+        Buffer.alloc(0),
+        'my-resource.openai.azure.com',
+        { 'Authorization': '******', 'Copilot-Integration-Id': 'agentic-workflows' },
+        'copilot'
+      );
+
+      return new Promise(resolve => {
+        tlsSocket.once('secureConnect', () => setImmediate(() => {
+          const upgradeWrite = tlsSocket.write.mock.calls.find(
+            c => typeof c[0] === 'string' && c[0].startsWith('GET ')
+          );
+          expect(upgradeWrite).toBeDefined();
+          const upgradeReqStr = upgradeWrite[0];
+          expect(upgradeReqStr).toContain('Authorization: ******');
+          expect(upgradeReqStr).not.toMatch(/^Copilot-Integration-Id:/gim);
+          expect(upgradeReqStr).not.toMatch(/^x-interaction-id:/gim);
           resolve();
         }));
       });

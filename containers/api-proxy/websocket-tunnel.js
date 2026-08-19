@@ -4,6 +4,7 @@ const http = require('http');
 const tls = require('tls');
 const { URL } = require('url');
 const { computeTokenBudgetUsage } = require('./token-budget-log');
+const { applyCopilotHostHeaders, mergeInjectedHeaders } = require('./request-headers');
 
 function createProxyErrorResponder({
   metrics,
@@ -124,7 +125,8 @@ function createWebSocketTunnel({
         for (const [name, value] of Object.entries(req.headers)) {
           if (!shouldStripHeader(name)) forwardHeaders[name] = value;
         }
-        Object.assign(forwardHeaders, injectHeaders);
+        mergeInjectedHeaders(forwardHeaders, injectHeaders, targetHost);
+        applyCopilotHostHeaders(forwardHeaders, targetHost);
         forwardHeaders.host = targetHost;
 
         let upgradeReqStr = `GET ${upstreamPath} HTTP/1.1\r\n`;

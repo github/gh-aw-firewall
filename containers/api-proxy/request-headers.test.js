@@ -4,6 +4,7 @@ const {
   resolveCopilotInteractionId,
   resetCopilotInteractionIdForTests,
 } = require('./request-headers');
+const { createCopilotAdapter } = require('./providers/copilot');
 
 describe('request-headers', () => {
   afterEach(() => {
@@ -130,13 +131,18 @@ describe('copilot interaction/integration headers', () => {
   });
 
   test('does not inject on BYOK / non-copilot hosts', () => {
+    const adapter = createCopilotAdapter({ COPILOT_PROVIDER_API_KEY: 'byok-token' });
+    const injectHeaders = adapter.getAuthHeaders({ url: '/v1/chat/completions', method: 'POST', headers: {} });
+    expect(injectHeaders['Copilot-Integration-Id']).toBe('agentic-workflows');
+
     const headers = buildRequestHeaders(Buffer.from('{}'), 2, { headers: {} }, {
-      injectHeaders: {},
+      injectHeaders,
       provider: 'copilot',
       targetHost: 'my-resource.openai.azure.com',
       requestId: 'req-byok',
     });
     expect(headers['x-interaction-id']).toBeUndefined();
+    expect(headers['Copilot-Integration-Id']).toBeUndefined();
     expect(headers['copilot-integration-id']).toBeUndefined();
   });
 
