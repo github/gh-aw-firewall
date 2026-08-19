@@ -10,6 +10,34 @@
 # Format reference: https://github.com/anchore/grype?tab=readme-ov-file#configuration
 
 ignore:
+  # ── OpenSSL 3.5.7 QUIC server listener DoS ──────────────────────────────────
+  #
+  # CVE-2026-14456 (OpenSSL QUIC server pending-connection queue, HIGH):
+  #   The affected path exists only in OpenSSL's QUIC server listener, where
+  #   valid Initial packets can create unbounded pending connection objects.
+  #
+  #   Risk acceptance — NOT REACHABLE in AWF images:
+  #     The affected images use libssl for client-side HTTPS/TLS or conventional
+  #     TCP servers. They do not create OpenSSL QUIC listeners or expose UDP
+  #     services, so attacker-controlled QUIC Initial packets cannot reach the
+  #     vulnerable listener path.
+  #
+  #   No fixed Alpine 3.24 package is available today: libcrypto3/libssl3
+  #   3.5.7-r0 is current and Grype reports no fixed package. Revisit when
+  #   Alpine publishes OpenSSL >= 3.5.8, then rebuild the images and delete
+  #   these version-scoped exceptions.
+  #   Advisory: https://security.alpinelinux.org/vuln/CVE-2026-14456
+  - vulnerability: CVE-2026-14456
+    package:
+      name: libcrypto3
+      version: "3.5.7-r0"
+      type: apk
+  - vulnerability: CVE-2026-14456
+    package:
+      name: libssl3
+      version: "3.5.7-r0"
+      type: apk
+
   # ── Node.js 22.23.2 Permission Model false positive ───────────────────────────
   #
   # CVE-2026-58043 (Node.js Permission Model path matching, HIGH):
