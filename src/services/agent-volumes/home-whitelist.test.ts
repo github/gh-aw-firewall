@@ -1,4 +1,4 @@
-import { HOME_TOOL_SUBDIRS, HOME_FORBIDDEN_SUBDIRS } from './home-whitelist';
+import { HOME_TOOL_PATHS, HOME_TOOL_SUBDIRS, HOME_FORBIDDEN_SUBDIRS } from './home-whitelist';
 
 describe('home-whitelist (mount-policy shim)', () => {
   it('re-exports the shared home allow list', () => {
@@ -14,6 +14,14 @@ describe('home-whitelist (mount-policy shim)', () => {
         '.gemini',
       ]),
     );
+  });
+
+  it('replaces the wholesale .local mount with safe tool paths', () => {
+    expect(HOME_TOOL_PATHS).toEqual(
+      expect.arrayContaining(['.local/bin', '.local/lib', '.local/share']),
+    );
+    expect(HOME_TOOL_PATHS).not.toContain('.local');
+    expect(HOME_TOOL_PATHS).not.toContain('.local/state');
   });
 
   it('never whitelists a directory that is on the forbidden deny list', () => {

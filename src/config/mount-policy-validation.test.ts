@@ -38,6 +38,7 @@ const validJson = {
   },
   home: {
     toolSubdirs: ['.cache', '.config'],
+    narrowPaths: {},
     forbiddenSubdirs: ['.ssh', '.aws'],
   },
   credentials: {
@@ -227,6 +228,38 @@ describe('mount-policy validate – assertHomeSubdirArray', () => {
     };
     await expect(loadModule(bad)).rejects.toThrow(
       "home.forbiddenSubdirs entries must be simple directory names (no '/')",
+    );
+  });
+});
+
+describe('mount-policy validate – narrowPaths', () => {
+  it('throws when a narrowed parent is not in toolSubdirs', async () => {
+    const bad = {
+      ...validJson,
+      home: { ...validJson.home, narrowPaths: { '.local': ['.local/bin'] } },
+    };
+    await expect(loadModule(bad)).rejects.toThrow(
+      'home.narrowPaths key must also appear in home.toolSubdirs',
+    );
+  });
+
+  it('throws when a narrowed path is not a descendant of its parent', async () => {
+    const bad = {
+      ...validJson,
+      home: { ...validJson.home, narrowPaths: { '.cache': ['.config/tool'] } },
+    };
+    await expect(loadModule(bad)).rejects.toThrow(
+      'home.narrowPaths[".cache"] entries must be descendants of .cache',
+    );
+  });
+
+  it('throws when a narrowed path list is empty', async () => {
+    const bad = {
+      ...validJson,
+      home: { ...validJson.home, narrowPaths: { '.cache': [] } },
+    };
+    await expect(loadModule(bad)).rejects.toThrow(
+      'home.narrowPaths[".cache"] must not be empty',
     );
   });
 });

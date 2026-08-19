@@ -5,18 +5,21 @@
  * allow list so existing importers keep working; prefer importing from
  * `config/mount-policy` directly in new code.
  *
- * `HOME_TOOL_SUBDIRS` is the canonical whitelist of `$HOME` subdirectories that
- * agents legitimately need (tool caches, language toolchains, agent state),
- * shared by both sandbox backends:
+ * `HOME_TOOL_PATHS` is the resolved whitelist of `$HOME` paths that agents
+ * legitimately need (tool caches, language toolchains, agent state), shared by
+ * both sandbox backends. Sensitive parents may be replaced with narrow children:
  *
  * - **Compose / chroot mode** (`home-strategy.ts`) mounts an empty home volume
- *   and bind-mounts these subdirs on top, then blanks known credential files
+ *   and bind-mounts these paths on top, then blanks known credential files
  *   with `/dev/null` overlays (`credential-hiding.ts`, driven by the policy).
- * - **sbx microVM mode** (`sbx-manager.ts`) mounts these subdirs wholesale
- *   instead of the whole `$HOME`, then moves policy credential paths aside
- *   before `sbx create`.
+ * - **sbx microVM mode** (`sbx-manager.ts`) mounts these paths instead of the
+ *   whole `$HOME`, then moves policy credential paths aside before `sbx create`.
  *
  * SECURITY: never add a directory whose primary purpose is storing credentials
  * — those belong in the policy's `home.forbiddenSubdirs` deny guard.
  */
-export { HOME_TOOL_SUBDIRS, HOME_FORBIDDEN_SUBDIRS } from '../../config/mount-policy';
+export {
+  HOME_TOOL_PATHS,
+  HOME_TOOL_SUBDIRS,
+  HOME_FORBIDDEN_SUBDIRS,
+} from '../../config/mount-policy';

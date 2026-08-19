@@ -26,6 +26,7 @@ exercised only by its own tests.
 | `system.directories.default` / `.sysroot` | allow (dirs) | compose (Docker + gVisor) | `system-mounts.ts` |
 | `system.etc` | allow (files) | compose (Docker + gVisor) | `etc-mounts.ts` |
 | `home.toolSubdirs` | allow (dirs) | compose + sbx | `home-strategy.ts`, `sbx-manager.ts` |
+| `home.narrowPaths` | narrow allow override | compose + sbx | `home-strategy.ts`, `sbx-manager.ts` |
 | `home.forbiddenSubdirs` | deny guard | compose + sbx | invariant tests |
 | `credentials.entries` | deny (files/dirs) | compose + sbx | `credential-hiding.ts`, `sbx-manager.ts` |
 
@@ -42,8 +43,11 @@ mechanisms, but from the **same list**:
   then blanks each credential **file** with a `/dev/null` bind overlay
   (`credential-hiding.ts`). For a `dir` entry it masks the enumerated `files`;
   for a `file` entry it masks the path itself.
-- **sbx microVM** mounts the `toolSubdirs` (plus `.copilot`/`.gemini`) wholesale,
-  because sbx positional mounts are directory-granular and can't overlay
+- **Compose (Docker / gVisor)** and the **sbx microVM** replace parents listed in
+  `narrowPaths` with their explicit descendants. In particular, they mount
+  rootless tool directories under `~/.local` but never `~/.local` or
+  `~/.local/state` wholesale, keeping sandboxd's private CA and backing store
+  outside the guest. Sbx positional mounts are directory-granular and can't overlay
   `/dev/null` onto a nested path. Before `sbx create` it **moves** each credential
   `path` aside on the host (to a backup dir at the home root, never itself
   mounted) and **restores** it after teardown. It only touches entries whose

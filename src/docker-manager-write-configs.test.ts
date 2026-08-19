@@ -160,12 +160,14 @@ describe('docker-manager writeConfigs', () => {
         await writeConfigsAllowingFailure(config);
 
         const expectedDirs = [
-          '.copilot', '.cache', '.config', '.local',
+          '.copilot', '.cache', '.config',
+          '.local/bin', '.local/lib', '.local/lib64', '.local/share', '.local/pipx',
           '.anthropic', '.claude', '.cargo', '.rustup', '.npm', '.nvm',
         ];
         for (const dir of expectedDirs) {
           expect(fs.existsSync(path.join(fakeHome, dir))).toBe(true);
         }
+        expect(fs.existsSync(path.join(fakeHome, '.local/state'))).toBe(false);
         expect(fs.existsSync(path.join(fakeHome, '.gemini'))).toBe(false);
       } finally {
         if (originalHome !== undefined) {

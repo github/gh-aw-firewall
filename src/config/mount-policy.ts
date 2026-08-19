@@ -46,6 +46,7 @@ interface MountPolicy {
   };
   readonly home: {
     readonly toolSubdirs: readonly string[];
+    readonly narrowPaths: Readonly<Record<string, readonly string[]>>;
     readonly forbiddenSubdirs: readonly string[];
   };
   readonly credentials: readonly CredentialEntry[];
@@ -80,6 +81,47 @@ function assertHomeSubdirArray(value: unknown, label: string): readonly string[]
     seen.add(v);
   }
   return arr;
+}
+
+function parseNarrowPaths(
+  value: unknown,
+  toolSubdirs: readonly string[],
+): Readonly<Record<string, readonly string[]>> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    fail('home.narrowPaths must be an object');
+  }
+
+  const result: Record<string, readonly string[]> = {};
+  for (const [parent, rawPaths] of Object.entries(value)) {
+    if (!toolSubdirs.includes(parent)) {
+      fail(`home.narrowPaths key must also appear in home.toolSubdirs: ${parent}`);
+    }
+    const label = `home.narrowPaths[${JSON.stringify(parent)}]`;
+    const paths = assertStringArray(rawPaths, label);
+    if (paths.length === 0) {
+      fail(`${label} must not be empty`);
+    }
+    const seen = new Set<string>();
+    for (const child of paths) {
+      if (
+        child.length === 0 ||
+        child.startsWith('/') ||
+        child.startsWith('~') ||
+        child.includes('..') ||
+        !child.startsWith(`${parent}/`)
+      ) {
+        fail(
+          `${label} entries must be descendants of ${parent}: ${child}`,
+        );
+      }
+      if (seen.has(child)) {
+        fail(`${label} has duplicate entry: ${child}`);
+      }
+      seen.add(child);
+    }
+    result[parent] = paths;
+  }
+  return result;
 }
 
 /**
@@ -172,6 +214,7 @@ function validate(input: unknown): MountPolicy {
     fail('home is required');
   }
 
+  const toolSubdirs = assertHomeSubdirArray(home.toolSubdirs, 'home.toolSubdirs');
   return {
     system: {
       directories: {
@@ -181,7 +224,8 @@ function validate(input: unknown): MountPolicy {
       etc: assertAbsolutePathArray(system.etc, 'system.etc'),
     },
     home: {
-      toolSubdirs: assertHomeSubdirArray(home.toolSubdirs, 'home.toolSubdirs'),
+      toolSubdirs,
+      narrowPaths: parseNarrowPaths(home.narrowPaths, toolSubdirs),
       forbiddenSubdirs: assertHomeSubdirArray(home.forbiddenSubdirs, 'home.forbiddenSubdirs'),
     },
     credentials: parseCredentials(p.credentials),
@@ -196,6 +240,14 @@ export const mountPolicy: MountPolicy = validate(rawPolicy);
  * (tool caches, language toolchains, agent state). Shared by both backends.
  */
 export const HOME_TOOL_SUBDIRS: readonly string[] = mountPolicy.home.toolSubdirs;
+
+/**
+ * `$HOME`-relative directories exposed to agents. Policy overrides replace
+ * sensitive wholesale parents with explicit safe descendants.
+ */
+export const HOME_TOOL_PATHS: readonly string[] = HOME_TOOL_SUBDIRS.flatMap(
+  (subdir) => mountPolicy.home.narrowPaths[subdir] ?? [subdir],
+);
 
 /**
  * `$HOME` subdirectories whose primary purpose is storing credentials. These
@@ -229,16 +281,24 @@ export function credentialFilesToHide(): string[] {
 
 /**
  * Credential entries the sbx backend should move aside before `sbx create`:
- * those whose top-level parent directory is one of the wholesale-mounted home
- * dirs in {@link mountedTopLevelParents}. Entries under never-mounted dirs (e.g.
- * `.ssh`, `.aws`) are excluded because they never enter the microVM anyway.
+ * those whose path overlaps one of the mounted home paths. Entries under
+ * never-mounted or narrowed-away paths are excluded because they never enter
+ * the microVM.
  */
-export function credentialEntriesUnderMountedParents(
-  mountedTopLevelParents: ReadonlySet<string>,
+export function credentialEntriesUnderMountedPaths(
+  mountedPaths: ReadonlySet<string>,
 ): CredentialEntry[] {
   return mountPolicy.credentials.filter((entry) => {
-    const top = entry.path.split('/')[0];
-    return mountedTopLevelParents.has(top);
+    for (const mountedPath of mountedPaths) {
+      if (
+        entry.path === mountedPath ||
+        entry.path.startsWith(`${mountedPath}/`) ||
+        mountedPath.startsWith(`${entry.path}/`)
+      ) {
+        return true;
+      }
+    }
+    return false;
   });
 }
 

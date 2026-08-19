@@ -150,8 +150,9 @@ Three capability queries drive the rest of the codebase:
   `sbx daemon status` for diagnostics), then runs `sbx create --name <n> shell
   <workspace> [mounts...]`. It translates AWF's Docker-style
   `host:container:mode` mount strings into sbx's positional `path[:ro]` form,
-  deduplicates paths, and always adds `/tmp`, `/usr/local/bin`, and `$HOME` so
-  agent runtime files and installed CLIs (e.g. Copilot) are reachable.
+  deduplicates paths, and always adds `/tmp`, `/usr/local/bin`, and curated
+  `$HOME` tool paths so agent runtime files and installed CLIs are reachable
+  without exposing host-private state.
 - **`execInSandbox(name, cmd, opts)`** — runs `sbx exec` with optional
   `--workdir`, `--tty`, and `--env` flags, streams stdout/stderr, maps timeouts
   to exit code `124`, and returns the command's exit code.
@@ -185,7 +186,7 @@ mounts where the host path maps to the identical path inside the VM**
 The generated command is:
 
 ```text
-sbx create --name <name> shell <workspaceDir> [extraMount...] /tmp /usr/local/bin $HOME
+sbx create --name <name> shell <workspaceDir> [extraMount...] /tmp /usr/local/bin [homeToolPath...]
 ```
 
 (`shell` is sbx's generic agent image, which supplies the guest base OS.)
@@ -205,14 +206,17 @@ What `createSandbox()` shares, in order:
      *narrow*: only `/usr/local/bin`, **not** `/usr`, `/lib`, `/lib64`, or `/opt`.
    - **`/tmp`** — agent runtime files (rendered prompts, logs).
    - **`$HOME` tool dirs** — a **curated whitelist** of writable agent dirs, not
-     the whole home directory. The manager mounts only the subdirs that exist on
-     the host from `HOME_TOOL_SUBDIRS` (`.cache`, `.config`, `.local`, `.azure`,
-     `.anthropic`, `.claude`, `.cargo`, `.rustup`, `.npm`, `.nvm`) plus the agent
-     state dirs `.copilot` and `.gemini`. Credential-store dirs such as `.aws`,
+     the whole home directory. The manager resolves `HOME_TOOL_PATHS` from the
+     central policy and mounts only paths that exist on the host. Most entries
+     are top-level dirs (`.cache`, `.config`, `.azure`, `.anthropic`, `.claude`,
+     `.cargo`, `.rustup`, `.npm`, `.nvm`, `.copilot`, `.gemini`), while `.local`
+     is narrowed to rootless tool paths such as `.local/bin`, `.local/lib`, and
+     `.local/share`. `.local/state` is never mounted because it can contain
+     sandboxd's private CA and microVM backing store. Credential-store dirs such as `.aws`,
      `.ssh`, `.docker`, `.kube`, and `.gnupg` are **never** whitelisted,
-     so they never enter the VM. Each whitelisted dir is mounted **wholesale** (as
-     a directory — sbx positional mounts cannot target an individual file, so its
-     loose files like `~/.copilot/mcp-config.json` are preserved).
+     so they never enter the VM. Each resolved path is mounted as a directory;
+     sbx positional mounts cannot target an individual file, so loose files like
+     `~/.copilot/mcp-config.json` are preserved.
 
      :::note `.azure` is a credential-bearing exception
      `.azure` is mounted to provide Azure CLI config and account metadata. However,

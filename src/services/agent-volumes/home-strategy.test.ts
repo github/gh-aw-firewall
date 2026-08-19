@@ -55,6 +55,21 @@ describe('buildHomeMounts', () => {
     expect(mounts).toContain('/home/runner/.azure:/host/home/runner/.azure:rw');
   });
 
+  it('mounts safe ~/.local tool paths without exposing sandboxd state', () => {
+    (fs.existsSync as jest.Mock).mockImplementation(() => false);
+
+    const mounts = buildHomeMounts(makeParams());
+
+    expect(mounts).toContain(
+      '/home/runner/.local/bin:/host/home/runner/.local/bin:rw',
+    );
+    expect(mounts).toContain(
+      '/home/runner/.local/share:/host/home/runner/.local/share:rw',
+    );
+    expect(mounts).not.toContain('/home/runner/.local:/host/home/runner/.local:rw');
+    expect(mounts.some((mount) => mount.includes('/.local/state'))).toBe(false);
+  });
+
   describe('~/.copilot access error handling', () => {
     it('includes error.message in warning when accessSync throws an Error instance', () => {
       mockExistsForCopilot();

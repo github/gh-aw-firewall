@@ -27,8 +27,10 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { copyEnvEntries } from './env-utils';
 import { logger } from './logger';
-import { HOME_TOOL_SUBDIRS } from './services/agent-volumes/home-whitelist';
-import { credentialEntriesUnderMountedParents } from './config/mount-policy';
+import {
+  credentialEntriesUnderMountedPaths,
+  HOME_TOOL_PATHS,
+} from './config/mount-policy';
 import { getRealUserHome } from './host-identity';
 
 /** Name prefix for AWF-managed sandboxes. */
@@ -124,8 +126,8 @@ function scrubHomeCredentials(homePath: string): void {
   scrubbedCredentials = [];
   credentialBackupRoot = undefined;
 
-  const mountedParents = new Set<string>(HOME_TOOL_SUBDIRS);
-  for (const entry of credentialEntriesUnderMountedParents(mountedParents)) {
+  const mountedPaths = new Set<string>(HOME_TOOL_PATHS);
+  for (const entry of credentialEntriesUnderMountedPaths(mountedPaths)) {
     const original = path.join(homePath, entry.path);
     if (!fs.existsSync(original)) continue;
 
@@ -275,9 +277,12 @@ export async function createSandbox(config: {
   // positional (host path == guest path) and cannot express the per-file
   // /dev/null credential overlays that compose mode uses (see
   // credential-hiding.ts), so the only way to keep host secrets out of the VM
-  // is to curate which $HOME subdirs are mounted. The central mount policy
-  // (HOME_TOOL_SUBDIRS) lists the allowed tool-state dirs including agent-state
-  // dirs (.copilot, .gemini). Credential stores such as ~/.aws, ~/.ssh,
+  // is to curate which $HOME paths are mounted. The central mount policy
+  // (HOME_TOOL_PATHS) lists allowed tool-state paths including agent-state
+  // dirs (.copilot, .gemini). Sensitive wholesale parents can be replaced with
+  // narrow descendants: ~/.local exposes rootless tool paths but not
+  // ~/.local/state, where sandboxd stores its CA key and microVM backing store.
+  // Credential stores such as ~/.aws, ~/.ssh,
   // ~/.docker, ~/.kube, ~/.gnupg, ~/.netrc and ~/.gitconfig are never
   // whitelisted, so they never enter the sandbox. Only paths that exist on the
   // host are mounted, because sbx requires the mount source to exist.
@@ -297,12 +302,12 @@ export async function createSandbox(config: {
   // diverge under sudo (e.g. /root vs /home/alice), mounting .local at a path
   // the guest's $HOME never points at and hiding a rootless-installed binary.
   const homePath = getRealUserHome();
-  for (const subdir of HOME_TOOL_SUBDIRS) {
-    const hostSubdir = `${homePath}/${subdir}`;
-    if (seenPaths.has(hostSubdir)) continue;
-    if (!fs.existsSync(hostSubdir)) continue;
-    seenPaths.add(hostSubdir);
-    args.push(hostSubdir);
+  for (const toolPath of HOME_TOOL_PATHS) {
+    const hostToolPath = `${homePath}/${toolPath}`;
+    if (seenPaths.has(hostToolPath)) continue;
+    if (!fs.existsSync(hostToolPath)) continue;
+    seenPaths.add(hostToolPath);
+    args.push(hostToolPath);
   }
 
   logger.info(`[sbx] Running: sbx ${args.join(' ')}`);

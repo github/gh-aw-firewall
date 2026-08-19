@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { etcAllowlist, HOME_TOOL_SUBDIRS, systemDirectories } from '../config/mount-policy';
+import { etcAllowlist, HOME_TOOL_PATHS, systemDirectories } from '../config/mount-policy';
 import { getRealUserHome } from '../host-identity';
 import type { WrapperConfig } from '../types';
 import { applyHostPathPrefixToVolumes } from '../services/host-path-prefix';
@@ -119,9 +119,9 @@ function collectAgentVisiblePaths(
     ...etcAllowlist().map((source) => ({ label: 'Compose /etc mount', source })),
     { label: 'Compose identity mount', source: '/etc/passwd' },
     { label: 'Compose identity mount', source: '/etc/group' },
-    ...HOME_TOOL_SUBDIRS.map((subdir) => ({
-      label: `home tool directory ${subdir}`,
-      source: path.join(home, subdir),
+    ...HOME_TOOL_PATHS.map((toolPath) => ({
+      label: `home tool directory ${toolPath}`,
+      source: path.join(home, toolPath),
     })),
     { label: 'runner tool cache fallback', source: path.join(home, 'work', '_tool') },
   ];

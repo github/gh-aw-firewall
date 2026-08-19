@@ -3,7 +3,7 @@ import * as path from 'path';
 import { logger } from '../../logger';
 import { resolveRunnerToolCachePath } from '../../runner-tool-cache';
 import { WrapperConfig } from '../../types';
-import { HOME_TOOL_SUBDIRS } from './home-whitelist';
+import { HOME_TOOL_PATHS } from './home-whitelist';
 
 interface HomeMountsParams {
   config: WrapperConfig;
@@ -43,10 +43,10 @@ function buildToolDirectoryMounts(params: HomeMountsParams): string[] {
   mounts.push(`${sessionStatePath}:/host${effectiveHome}/.copilot/session-state:rw`);
   mounts.push(`${agentLogsPath}:/host${effectiveHome}/.copilot/logs:rw`);
 
-  for (const subdir of HOME_TOOL_SUBDIRS) {
-    if (subdir === '.copilot') continue; // handled specially above (existence check + session-state/logs sub-mounts)
-    if (subdir === '.gemini' && !config.geminiApiKey && !config.googleApiKey) continue; // only mount when Gemini/Vertex credentials are present
-    mounts.push(`${effectiveHome}/${subdir}:/host${effectiveHome}/${subdir}:rw`);
+  for (const toolPath of HOME_TOOL_PATHS) {
+    if (toolPath === '.copilot') continue; // handled specially above (existence check + session-state/logs sub-mounts)
+    if (toolPath === '.gemini' && !config.geminiApiKey && !config.googleApiKey) continue; // only mount when Gemini/Vertex credentials are present
+    mounts.push(`${effectiveHome}/${toolPath}:/host${effectiveHome}/${toolPath}:rw`);
   }
 
   const runnerToolCacheDir = resolveRunnerToolCachePath(config, effectiveHome);

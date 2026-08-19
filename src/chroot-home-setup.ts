@@ -5,6 +5,7 @@ import { logger } from './logger';
 import { getSafeHostUid, getSafeHostGid, getRealUserHome } from './host-env';
 import { assertRealDirectory, createMissingOwnedDirectorySegments } from './fs-utils';
 import { resolveRunnerToolCachePath } from './runner-tool-cache';
+import { HOME_TOOL_PATHS } from './config/mount-policy';
 
 // Prepare a nested bind-mount destination inside the empty chroot home before
 // Docker sees it. Without this, Docker may create intermediate parents such as
@@ -61,24 +62,31 @@ export function prepareChrootHomeMounts(config: WrapperConfig): void {
   fs.chownSync(emptyHomeDir, uid, gid);
   logger.debug(`Created chroot home directory: ${emptyHomeDir} (${uid}:${gid})`);
 
-  // Ensure source directories for home subdirectory mounts exist with correct ownership.
-  const hostHomeMountSourceDirs = [
-    '.copilot', '.cache', '.config', '.local',
-    '.anthropic', '.claude', '.cargo', '.rustup', '.npm', '.nvm',
-    ...(config.geminiApiKey || config.googleApiKey ? ['.gemini'] : []),
-  ];
-  for (const dir of hostHomeMountSourceDirs) {
-    const dirPath = path.join(effectiveHome, dir);
-    if (!fs.existsSync(dirPath)) {
-      fs.mkdirSync(dirPath, { recursive: true });
-      fs.chownSync(dirPath, uid, gid);
-      logger.debug(`Created host home subdirectory: ${dirPath} (${uid}:${gid})`);
-    } else if (dir === '.gemini') {
+  // Ensure source directories and nested chroot mountpoints exist before Docker
+  // sees them, so it cannot create either side as root-owned.
+  const hostHomeMountSourcePaths = HOME_TOOL_PATHS.filter(
+    (toolPath) =>
+      toolPath !== '.gemini' || Boolean(config.geminiApiKey || config.googleApiKey),
+  );
+  for (const toolPath of hostHomeMountSourcePaths) {
+    const toolPathSource = path.join(effectiveHome, toolPath);
+    if (!fs.existsSync(toolPathSource)) {
+      createMissingOwnedDirectorySegments(toolPathSource, uid, gid);
+      logger.debug(`Created host home tool path: ${toolPathSource} (${uid}:${gid})`);
+    } else if (toolPath === '.gemini') {
       // Repair existing .gemini ownership for Gemini/Vertex runs where prior
       // root-owned bind mounts can break atomic writes in the CLI.
-      fs.chownSync(dirPath, uid, gid);
-      logger.debug(`Fixed host home subdirectory ownership: ${dirPath} (${uid}:${gid})`);
+      fs.chownSync(toolPathSource, uid, gid);
+      logger.debug(`Fixed host home tool path ownership: ${toolPathSource} (${uid}:${gid})`);
     }
+
+    const chrootToolPath = prepareChrootHomeMountpoint(
+      emptyHomeDir,
+      toolPath,
+      uid,
+      gid,
+    );
+    logger.debug(`Prepared chroot home tool mountpoint: ${chrootToolPath} (${uid}:${gid})`);
   }
 
   // Source-side prep: this only applies when the config file explicitly names

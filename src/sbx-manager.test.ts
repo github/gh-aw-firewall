@@ -266,6 +266,29 @@ describe('sbx-manager', () => {
       expect(args).not.toContain(`${homePath}/.docker`);
     });
 
+    it('never exposes sandboxd state through the sbx .local mount', async () => {
+      const homePath = process.env.HOME || '/home/runner';
+      mockedExistsSync.mockImplementation((p: fs.PathLike) => [
+        `${homePath}/.local`,
+        `${homePath}/.local/bin`,
+        `${homePath}/.local/share`,
+        `${homePath}/.local/state`,
+        `${homePath}/.local/state/sandboxes`,
+      ].includes(String(p)));
+      mockExecaFn
+        .mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' })
+        .mockResolvedValueOnce({ exitCode: 0, stdout: 'Created sandbox', stderr: '' });
+
+      await createSandbox({ workspaceDir: '/workspace', squidIp: '172.30.0.10' });
+
+      const args: string[] = mockExecaFn.mock.calls[1][1];
+      expect(args).toContain(`${homePath}/.local/bin`);
+      expect(args).toContain(`${homePath}/.local/share`);
+      expect(args).not.toContain(`${homePath}/.local`);
+      expect(args).not.toContain(`${homePath}/.local/state`);
+      expect(args).not.toContain(`${homePath}/.local/state/sandboxes`);
+    });
+
     it('mounts credential-nesting tool dirs wholesale and scrubs nested secrets before create', async () => {
       const homePath = process.env.HOME || '/home/runner';
       const parents = [

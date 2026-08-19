@@ -1,10 +1,11 @@
 import {
   mountPolicy,
   HOME_TOOL_SUBDIRS,
+  HOME_TOOL_PATHS,
   HOME_FORBIDDEN_SUBDIRS,
   CREDENTIAL_ENTRIES,
   credentialFilesToHide,
-  credentialEntriesUnderMountedParents,
+  credentialEntriesUnderMountedPaths,
   systemDirectories,
   etcAllowlist,
 } from './mount-policy';
@@ -46,6 +47,20 @@ describe('mount-policy', () => {
 
     it('home.toolSubdirs has no duplicate entries', () => {
       expect(new Set(HOME_TOOL_SUBDIRS).size).toBe(HOME_TOOL_SUBDIRS.length);
+    });
+
+    it('narrows .local mounts to tool paths outside .local/state', () => {
+      expect(HOME_TOOL_PATHS).toEqual(
+        expect.arrayContaining([
+          '.local/bin',
+          '.local/lib',
+          '.local/lib64',
+          '.local/share',
+          '.local/pipx',
+        ]),
+      );
+      expect(HOME_TOOL_PATHS).not.toContain('.local');
+      expect(HOME_TOOL_PATHS.some((entry) => entry.startsWith('.local/state'))).toBe(false);
     });
 
     it('home.forbiddenSubdirs entries are simple relative names without traversal', () => {
@@ -113,10 +128,10 @@ describe('mount-policy', () => {
     });
   });
 
-  describe('credentialEntriesUnderMountedParents', () => {
-    it('includes only entries whose top-level parent is mounted', () => {
+  describe('credentialEntriesUnderMountedPaths', () => {
+    it('includes only entries that overlap mounted paths', () => {
       const mounted = new Set(['.config', '.cargo', '.claude', '.copilot', '.gemini', '.azure']);
-      const entries = credentialEntriesUnderMountedParents(mounted);
+      const entries = credentialEntriesUnderMountedPaths(mounted);
       const paths = entries.map((e) => e.path);
 
       expect(paths).toContain('.config/gh');
@@ -134,8 +149,16 @@ describe('mount-policy', () => {
       expect(paths).not.toContain('.npmrc');
     });
 
+    it('excludes credential entries under narrowed-away paths', () => {
+      const entries = credentialEntriesUnderMountedPaths(
+        new Set(['.local/bin', '.local/lib', '.local/share']),
+      );
+
+      expect(entries.map((entry) => entry.path)).not.toContain('.local/state/sandboxes');
+    });
+
     it('returns nothing when no parents are mounted', () => {
-      expect(credentialEntriesUnderMountedParents(new Set())).toHaveLength(0);
+      expect(credentialEntriesUnderMountedPaths(new Set())).toHaveLength(0);
     });
   });
 

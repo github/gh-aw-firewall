@@ -4,7 +4,7 @@ import * as path from 'path';
 import execa from 'execa';
 import {
   CREDENTIAL_ENTRIES,
-  HOME_TOOL_SUBDIRS,
+  HOME_TOOL_PATHS,
 } from '../config/mount-policy';
 import { MicrovmRootfsPreparer } from './rootfs';
 
@@ -262,8 +262,16 @@ export class MicrovmWorkspaceImage {
 
   private async copyAllowedHomeState(): Promise<void> {
     const excluded = CREDENTIAL_ENTRIES.map((entry) => normalizeRelative(entry.path));
-    for (const subdir of HOME_TOOL_SUBDIRS) {
-      const source = path.join(this.config.homePath, subdir);
+    const homeDestinationRoot = path.join(
+      this.stagingDirectory,
+      'workspace',
+      '.awf-home',
+    );
+    await fs.mkdir(homeDestinationRoot, { recursive: true, mode: 0o700 });
+    await applySafeOwnership(homeDestinationRoot, this.config.uid, this.config.gid);
+
+    for (const toolPath of HOME_TOOL_PATHS) {
+      const source = path.join(this.config.homePath, toolPath);
       let stat;
       try {
         stat = await fs.lstat(source);
@@ -274,14 +282,12 @@ export class MicrovmWorkspaceImage {
       if (!stat.isDirectory() || stat.isSymbolicLink()) {
         throw new Error(`Allowed home state must be a real directory: ${source}`);
       }
-      const destination = path.join(
-        this.stagingDirectory,
-        'workspace',
-        '.awf-home',
-        subdir,
-      );
-      await fs.mkdir(destination, { recursive: true, mode: 0o700 });
-      await applySafeOwnership(destination, this.config.uid, this.config.gid);
+      let destination = homeDestinationRoot;
+      for (const segment of toolPath.split('/')) {
+        destination = path.join(destination, segment);
+        await fs.mkdir(destination, { recursive: true, mode: 0o700 });
+        await applySafeOwnership(destination, this.config.uid, this.config.gid);
+      }
       await copySafeTree(
         source,
         destination,
