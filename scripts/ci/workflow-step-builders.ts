@@ -2,7 +2,11 @@
 // pipeline. Each function takes an indentation string and returns a YAML step
 // block ready for splicing into a compiled lock file.
 
-import { SESSION_STATE_DIR, SAFE_XPIA_CONTENT } from './workflow-patch-patterns';
+import {
+  SESSION_STATE_DIR,
+  SAFE_XPIA_CONTENT,
+  copilotCliDaemonCopyStepSentinel,
+} from './workflow-patch-patterns';
 
 // Builds the local-install step sequence that replaces the compiled
 // "Install awf binary" step so smoke tests build and run from source.
@@ -65,6 +69,41 @@ export function buildCopySessionStateStep(indent: string): string {
     `${ri}else\n` +
     `${ri}  echo "No session state found at $SESSION_STATE_SRC"\n` +
     `${ri}fi\n`
+  );
+}
+
+// Builds the replacement for the compiler-emitted "Copy Copilot CLI to
+// daemon-visible path" step (gh-aw emits it for every firewall + arc-dind
+// workflow, regardless of engine). `engineId` is the engine resolved from the
+// compiled lock file: shell exports of GH_AW_ENGINE do not persist between
+// Actions steps, so the engine is baked into the step at postprocess time.
+// For the Copilot engine the strict fail-fast behaviour is preserved; every
+// other engine skips the copy because the Copilot CLI is not installed.
+export function buildCopilotCliDaemonCopyStep(indent: string, engineId: string): string {
+  const i = indent;
+  const ri = `${i}    `;
+  const header =
+    `${i}- name: Copy Copilot CLI to daemon-visible path\n` +
+    `${i}  run: |\n` +
+    `${ri}${copilotCliDaemonCopyStepSentinel} (${engineId})\n`;
+
+  if (engineId !== 'copilot') {
+    return (
+      header +
+      `${ri}echo "Skipping Copilot CLI binary copy for non-copilot engine: ${engineId}" >&2\n`
+    );
+  }
+
+  return (
+    header +
+    `${ri}mkdir -p "\${RUNNER_TEMP}/gh-aw/bin"\n` +
+    `${ri}COPILOT_SRC="$(command -v copilot 2>/dev/null || true)"\n` +
+    `${ri}if [ -z "$COPILOT_SRC" ] || [ ! -x "$COPILOT_SRC" ]; then\n` +
+    `${ri}  echo "GitHub Copilot CLI executable not found on PATH after installation" >&2\n` +
+    `${ri}  exit 127\n` +
+    `${ri}fi\n` +
+    `${ri}cp "$COPILOT_SRC" "\${RUNNER_TEMP}/gh-aw/bin/copilot"\n` +
+    `${ri}chmod +x "\${RUNNER_TEMP}/gh-aw/bin/copilot"\n`
   );
 }
 

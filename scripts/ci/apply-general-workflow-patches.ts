@@ -16,8 +16,9 @@ import {
   copilotModelOverrideRegex,
   copySessionStateSentinel,
   copySessionStateStepRegex,
-  copilotCliCopyBlockRegex,
-  copilotCliCopyGuardSentinel,
+  copilotCliDaemonCopyStepRegex,
+  copilotCliDaemonCopyStepSentinel,
+  compiledEngineIdRegex,
   updateCacheSetupScriptRegex,
   setupCacheMemoryStepRegex,
   stripExecBitsStepSentinel,
@@ -34,6 +35,7 @@ import {
 import {
   buildLocalInstallSteps,
   buildCopySessionStateStep,
+  buildCopilotCliDaemonCopyStep,
   buildStripExecBitsStep,
   buildScanInjectionStep,
   buildCacheDateStep,
@@ -252,39 +254,27 @@ export function applyGeneralWorkflowPatches(
     log.push(`  'Copy Copilot session state' step already updated`);
   }
 
-  // Guard the compiler-emitted Copilot-CLI binary copy block by engine ID.
-  // This keeps strict behavior for Copilot engine runs while allowing
-  // non-Copilot engines to skip the copy step when the `copilot` binary is
-  // intentionally absent.
-  if (!content.includes(copilotCliCopyGuardSentinel)) {
-    copilotCliCopyBlockRegex.lastIndex = 0;
-    const copilotCliCopyMatches = content.match(copilotCliCopyBlockRegex);
+  // Rewrite the compiler-emitted "Copy Copilot CLI to daemon-visible path"
+  // step (firewall + arc-dind) so it is gated on the compiled engine. gh-aw
+  // emits this step for every engine, but only the Copilot engine installs the
+  // `copilot` binary, so other engines fail on `command -v copilot` + `cp`.
+  // The engine is resolved from the lock file (GH_AW_ENGINE_ID) because shell
+  // exports of GH_AW_ENGINE do not persist across Actions steps.
+  if (!content.includes(copilotCliDaemonCopyStepSentinel)) {
+    copilotCliDaemonCopyStepRegex.lastIndex = 0;
+    const copilotCliCopyMatches = content.match(copilotCliDaemonCopyStepRegex);
     if (copilotCliCopyMatches) {
-      content = content.replace(copilotCliCopyBlockRegex, (_match, indent: string) =>
-        [
-          `${indent}if [ "\${GH_AW_ENGINE:-copilot}" != "copilot" ]; then`,
-          `${indent}  echo "Skipping Copilot CLI binary copy for non-copilot engine: \${GH_AW_ENGINE:-unset}" >&2`,
-          `${indent}else`,
-          `${indent}  GH_AW_COPILOT_SRC="$(command -v copilot 2>/dev/null || true)"`,
-          `${indent}  if [ -z "$GH_AW_COPILOT_SRC" ] || [ ! -x "$GH_AW_COPILOT_SRC" ]; then`,
-          `${indent}    echo "GitHub Copilot CLI executable not found on PATH after installation" >&2`,
-          `${indent}    exit 127`,
-          `${indent}  fi`,
-          `${indent}  GH_AW_COPILOT_BIN="\${RUNNER_TEMP}/gh-aw/bin/copilot"`,
-          `${indent}  mkdir -p "\${RUNNER_TEMP}/gh-aw/bin"`,
-          `${indent}  if [ "$GH_AW_COPILOT_SRC" != "$GH_AW_COPILOT_BIN" ]; then`,
-          `${indent}    cp "$GH_AW_COPILOT_SRC" "$GH_AW_COPILOT_BIN"`,
-          `${indent}  fi`,
-          `${indent}  chmod 755 "$GH_AW_COPILOT_BIN"`,
-          `${indent}fi`,
-        ].join('\n') + '\n'
+      const engineId = content.match(compiledEngineIdRegex)?.[1] ?? 'copilot';
+      content = content.replace(copilotCliDaemonCopyStepRegex, (_match, indent: string) =>
+        buildCopilotCliDaemonCopyStep(indent, engineId)
       );
       log.push(
-        `  Engine-gated ${copilotCliCopyMatches.length} Copilot CLI binary copy block(s) for non-copilot safety`
+        `  Gated ${copilotCliCopyMatches.length} 'Copy Copilot CLI to daemon-visible path' ` +
+          `step(s) on compiled engine '${engineId}'`
       );
     }
   } else {
-    log.push(`  Copilot CLI binary copy block already engine-gated`);
+    log.push(`  'Copy Copilot CLI to daemon-visible path' step already engine-gated`);
   }
 
   // For issue-duplication-detector: scope the conclusion job's concurrency

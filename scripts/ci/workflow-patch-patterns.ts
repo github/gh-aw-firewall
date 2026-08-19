@@ -59,13 +59,24 @@ export const copySessionStateSentinel = 'SESSION_STATE_SRC=';
 export const copySessionStateStepRegex =
   /^(\s+)- name: Copy Copilot session state files to logs\n\1  if: always\(\)\n\1  continue-on-error: true\n\1  run: bash "\$\{RUNNER_TEMP\}\/gh-aw\/actions\/copy_copilot_session_state\.sh"\n/m;
 
-// Matches the compiler-emitted Copilot CLI binary copy block that hard-fails
-// when `copilot` is absent on PATH. We postprocess this into an engine-gated
-// block so non-Copilot engines can skip safely.
-export const copilotCliCopyBlockRegex =
-  /^(\s*)GH_AW_COPILOT_SRC="\$\(command -v copilot 2>\/dev\/null \|\| true\)"\n\1if \[ -z "\$GH_AW_COPILOT_SRC" \] \|\| \[ ! -x "\$GH_AW_COPILOT_SRC" \]; then\n\1  echo "GitHub Copilot CLI executable not found on PATH after installation" >&2\n\1  exit 127\n\1fi\n\1GH_AW_COPILOT_BIN="\$\{RUNNER_TEMP\}\/gh-aw\/bin\/copilot"\n\1mkdir -p "\$\{RUNNER_TEMP\}\/gh-aw\/bin"\n\1if \[ "\$GH_AW_COPILOT_SRC" != "\$GH_AW_COPILOT_BIN" \]; then\n\1  cp "\$GH_AW_COPILOT_SRC" "\$GH_AW_COPILOT_BIN"\n\1fi\n\1chmod 755 "\$GH_AW_COPILOT_BIN"\n/gm;
-export const copilotCliCopyGuardSentinel =
-  'Skipping Copilot CLI binary copy for non-copilot engine:';
+// Matches the "Copy Copilot CLI to daemon-visible path" step that the gh-aw
+// compiler emits for every firewall + arc-dind workflow regardless of the
+// configured engine (gh-aw bug, github/gh-aw-firewall#7505). The step runs
+// `command -v copilot` without a fallback and then `cp`s the result, so it
+// fails the job for non-Copilot engines where the Copilot CLI is not installed.
+export const copilotCliDaemonCopyStepRegex =
+  /^(\s+)- name: Copy Copilot CLI to daemon-visible path\n\1  run: \|\n\1    mkdir -p "\$\{RUNNER_TEMP\}\/gh-aw\/bin"\n\1    COPILOT_SRC="\$\(command -v copilot\)"\n\1    cp "\$COPILOT_SRC" "\$\{RUNNER_TEMP\}\/gh-aw\/bin\/copilot"\n\1    chmod \+x "\$\{RUNNER_TEMP\}\/gh-aw\/bin\/copilot"\n/gm;
+
+// Idempotency guard: present once the copy step has been rewritten by AWF
+// postprocessing.
+export const copilotCliDaemonCopyStepSentinel =
+  '# AWF postprocess: Copilot CLI copy gated on compiled engine';
+
+// Reads the compiled engine id out of a lock file. The compiler emits
+// `GH_AW_ENGINE_ID: "<id>"` in job/step env blocks; shell exports of
+// GH_AW_ENGINE do not persist across Actions steps, so the engine must be
+// resolved at postprocess time rather than at runtime.
+export const compiledEngineIdRegex = /^\s*GH_AW_ENGINE_ID:\s*"([^"]+)"\s*$/m;
 
 // Remove the "Setup Scripts" step from update_cache_memory jobs.
 // This step downloads the private github/gh-aw action but is never used in

@@ -1,36 +1,65 @@
 import { applyGeneralWorkflowPatches } from './apply-general-workflow-patches';
+import { copilotCliDaemonCopyStepSentinel } from './workflow-patch-patterns';
 
-describe('applyGeneralWorkflowPatches copilot copy guard', () => {
-  const strictCopilotCopyBlock =
-    '          GH_AW_COPILOT_SRC="$(command -v copilot 2>/dev/null || true)"\n' +
-    '          if [ -z "$GH_AW_COPILOT_SRC" ] || [ ! -x "$GH_AW_COPILOT_SRC" ]; then\n' +
-    '            echo "GitHub Copilot CLI executable not found on PATH after installation" >&2\n' +
-    '            exit 127\n' +
-    '          fi\n' +
-    '          GH_AW_COPILOT_BIN="${RUNNER_TEMP}/gh-aw/bin/copilot"\n' +
-    '          mkdir -p "${RUNNER_TEMP}/gh-aw/bin"\n' +
-    '          if [ "$GH_AW_COPILOT_SRC" != "$GH_AW_COPILOT_BIN" ]; then\n' +
-    '            cp "$GH_AW_COPILOT_SRC" "$GH_AW_COPILOT_BIN"\n' +
-    '          fi\n' +
-    '          chmod 755 "$GH_AW_COPILOT_BIN"\n';
+// The gh-aw compiler emits this step for every firewall + arc-dind workflow
+// regardless of engine.id (github/gh-aw-firewall#7505), so for non-Copilot
+// engines `command -v copilot` resolves empty and the `cp` fails the job.
+const COMPILER_EMITTED_COPY_STEP =
+  '      - name: Copy Copilot CLI to daemon-visible path\n' +
+  '        run: |\n' +
+  '          mkdir -p "${RUNNER_TEMP}/gh-aw/bin"\n' +
+  '          COPILOT_SRC="$(command -v copilot)"\n' +
+  '          cp "$COPILOT_SRC" "${RUNNER_TEMP}/gh-aw/bin/copilot"\n' +
+  '          chmod +x "${RUNNER_TEMP}/gh-aw/bin/copilot"\n';
 
-  it('rewrites strict copy block to be engine-gated', () => {
+function lockFileWithEngine(engineId: string): string {
+  return (
+    'jobs:\n' +
+    '  agent:\n' +
+    '    env:\n' +
+    `      GH_AW_ENGINE_ID: "${engineId}"\n` +
+    '    steps:\n' +
+    COMPILER_EMITTED_COPY_STEP
+  );
+}
+
+describe('applyGeneralWorkflowPatches Copilot CLI copy step gating', () => {
+  it('skips the copy for a non-copilot compiled engine', () => {
     const { content, log } = applyGeneralWorkflowPatches(
-      strictCopilotCopyBlock,
+      lockFileWithEngine('claude'),
       '/tmp/example.lock.yml'
     );
 
-    expect(content).toContain('if [ "${GH_AW_ENGINE:-copilot}" != "copilot" ]; then');
+    expect(content).toContain(copilotCliDaemonCopyStepSentinel);
     expect(content).toContain(
-      'Skipping Copilot CLI binary copy for non-copilot engine: ${GH_AW_ENGINE:-unset}'
+      'echo "Skipping Copilot CLI binary copy for non-copilot engine: claude" >&2'
     );
-    expect(content).toMatch(/else\n\s+GH_AW_COPILOT_SRC="\$\(command -v copilot 2>\/dev\/null \|\| true\)"/);
-    expect(content).toContain('exit 127');
-    expect(log.some(entry => entry.includes('Engine-gated'))).toBe(true);
+    expect(content).not.toContain('command -v copilot');
+    expect(log.some(entry => entry.includes("compiled engine 'claude'"))).toBe(true);
   });
 
-  it('is idempotent after rewrite', () => {
-    const first = applyGeneralWorkflowPatches(strictCopilotCopyBlock, '/tmp/example.lock.yml');
+  it('keeps fail-fast copy behaviour for the copilot engine', () => {
+    const { content } = applyGeneralWorkflowPatches(
+      lockFileWithEngine('copilot'),
+      '/tmp/example.lock.yml'
+    );
+
+    expect(content).toContain('COPILOT_SRC="$(command -v copilot 2>/dev/null || true)"');
+    expect(content).toContain('exit 127');
+    expect(content).toContain('cp "$COPILOT_SRC" "${RUNNER_TEMP}/gh-aw/bin/copilot"');
+  });
+
+  it('defaults to copilot when no engine id is present', () => {
+    const { content } = applyGeneralWorkflowPatches(
+      COMPILER_EMITTED_COPY_STEP,
+      '/tmp/example.lock.yml'
+    );
+
+    expect(content).toContain('exit 127');
+  });
+
+  it('is idempotent across repeated postprocess runs', () => {
+    const first = applyGeneralWorkflowPatches(lockFileWithEngine('claude'), '/tmp/example.lock.yml');
     const second = applyGeneralWorkflowPatches(first.content, '/tmp/example.lock.yml');
     expect(second.content).toBe(first.content);
   });
