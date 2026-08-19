@@ -195,4 +195,17 @@ describe('artifact-permissions', () => {
       fs.rmSync(auditDir, { recursive: true, force: true });
     }
   });
+
+  it('reports failed rootless permission repair when the container exits by signal', () => {
+    const auditDir = makeTempDir();
+    try {
+      getuidSpy = jest.spyOn(process, 'getuid').mockReturnValue(1001);
+      mockExecaSync.mockReturnValue({ stdout: '', stderr: 'killed', exitCode: undefined });
+      expect(
+        fixArtifactPermissionsForRootless([auditDir], undefined, undefined, undefined, undefined),
+      ).toBe(false);
+    } finally {
+      fs.rmSync(auditDir, { recursive: true, force: true });
+    }
+  });
 });

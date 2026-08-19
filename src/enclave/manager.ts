@@ -248,8 +248,10 @@ function removePrivateState(
         config.buildLocal ? LOCAL_ENCLAVE_MCP_SERVER_IMAGE : undefined,
       );
       if (!repaired) {
-        logger.warn('Enclaves: private state permission repair failed; cleanup will be deferred');
-        return;
+        throw new Error(
+          `Enclaves: failed to repair private state permissions; ` +
+            `manual cleanup is required for ${paths.root} and ${paths.ingressRoot}`,
+        );
       }
       remove(paths.root);
       remove(paths.ingressRoot);

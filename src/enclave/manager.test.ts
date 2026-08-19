@@ -308,7 +308,7 @@ describe('prepareEnclaves fail-closed preflight', () => {
     expect(fs.existsSync(paths.ingressRoot)).toBe(true);
   });
 
-  it('uses the local enclave image and defers cleanup when permission repair fails', async () => {
+  it('uses the local enclave image and fails teardown when permission repair fails', async () => {
     const wrapperConfig = config(workDir);
     wrapperConfig.buildLocal = true;
     const paths = resolveEnclavePaths(workDir);
@@ -320,20 +320,17 @@ describe('prepareEnclaves fail-closed preflight', () => {
       }
     });
     const repair = jest.fn(() => false);
-    const warnSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
-    try {
-      enclaveManagerTestHelpers.removePrivateState(wrapperConfig, paths, { remove, repair });
-      expect(repair).toHaveBeenCalledWith(
-        [paths.root, paths.ingressRoot],
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        'awf-enclave-mcp-server:local',
-      );
-      expect(remove.mock.calls.filter(([target]) => target === paths.root)).toHaveLength(1);
-    } finally {
-      warnSpy.mockRestore();
-    }
+    expect(() => enclaveManagerTestHelpers.removePrivateState(wrapperConfig, paths, { remove, repair })).toThrow(
+      /failed to repair private state permissions/,
+    );
+    expect(repair).toHaveBeenCalledWith(
+      [paths.root, paths.ingressRoot],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      'awf-enclave-mcp-server:local',
+    );
+    expect(remove.mock.calls.filter(([target]) => target === paths.root)).toHaveLength(1);
   });
 });
