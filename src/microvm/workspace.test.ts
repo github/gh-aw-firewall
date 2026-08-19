@@ -35,8 +35,12 @@ describe('microVM workspace images', () => {
     await fs.chmod(path.join(workspace, 'bin', 'run'), 0o755);
     await fs.symlink('bin/run', path.join(workspace, 'run'));
     await fs.mkdir(path.join(home, '.config', 'gh'), { recursive: true });
+    await fs.mkdir(path.join(home, '.local', 'bin'), { recursive: true });
+    await fs.mkdir(path.join(home, '.local', 'state', 'sandboxes'), { recursive: true });
     await fs.writeFile(path.join(home, '.config', 'safe'), 'keep');
     await fs.writeFile(path.join(home, '.config', 'gh', 'hosts.yml'), 'secret');
+    await fs.writeFile(path.join(home, '.local', 'bin', 'tool'), 'allowed');
+    await fs.writeFile(path.join(home, '.local', 'state', 'sandboxes', 'ca.pem'), 'secret');
     await fs.writeFile(baseRootfs, 'rootfs');
     await fs.writeFile(supervisor, 'binary');
     const commands: Array<{ command: string; args: readonly string[] }> = [];
@@ -76,6 +80,13 @@ describe('microVM workspace images', () => {
     )).toBe('keep');
     await expect(fs.access(
       path.join(image.stagingDirectory, 'workspace', '.awf-home', '.config', 'gh'),
+    )).rejects.toThrow();
+    expect(await fs.readFile(
+      path.join(image.stagingDirectory, 'workspace', '.awf-home', '.local', 'bin', 'tool'),
+      'utf8',
+    )).toBe('allowed');
+    await expect(fs.access(
+      path.join(image.stagingDirectory, 'workspace', '.awf-home', '.local', 'state'),
     )).rejects.toThrow();
     expect(commands.map(({ command }) => command)).toEqual([
       'mke2fs', 'debugfs', 'debugfs', 'debugfs', 'e2fsck',

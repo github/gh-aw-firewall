@@ -502,6 +502,16 @@ describe('prepareChrootHomeMounts (sub-function)', () => {
     workdirSetupTestHelpers.prepareChrootHomeMounts(buildConfig());
     expect(fs.existsSync(geminiDir)).toBe(false);
   });
+
+  it('refuses existing symlinked nested home tool paths', () => {
+    const sandboxState = path.join(fixture.tempDir, '.local', 'state', 'sandboxes');
+    const localBin = path.join(fixture.tempDir, '.local', 'bin');
+    fs.mkdirSync(sandboxState, { recursive: true });
+    fs.symlinkSync(sandboxState, localBin);
+
+    expect(() => workdirSetupTestHelpers.prepareChrootHomeMounts(buildConfig()))
+      .toThrow(`Refusing to use symlink as directory: ${localBin}`);
+  });
 });
 
 describe('ensureDirectory EACCES diagnostic', () => {

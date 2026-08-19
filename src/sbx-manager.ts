@@ -31,6 +31,7 @@ import {
   credentialEntriesUnderMountedPaths,
   HOME_TOOL_PATHS,
 } from './config/mount-policy';
+import { assertRealDirectory } from './fs-utils';
 import { getRealUserHome } from './host-identity';
 
 /** Name prefix for AWF-managed sandboxes. */
@@ -122,12 +123,14 @@ let credentialBackupRoot: string | undefined;
  * credential overlays; the credential list comes from the central mount policy
  * so the two backends can't drift.
  */
-function scrubHomeCredentials(homePath: string): void {
+function scrubHomeCredentials(
+  homePath: string,
+  mountedHomePaths: ReadonlySet<string> = new Set<string>(HOME_TOOL_PATHS),
+): void {
   scrubbedCredentials = [];
   credentialBackupRoot = undefined;
 
-  const mountedPaths = new Set<string>(HOME_TOOL_PATHS);
-  for (const entry of credentialEntriesUnderMountedPaths(mountedPaths)) {
+  for (const entry of credentialEntriesUnderMountedPaths(mountedHomePaths)) {
     const original = path.join(homePath, entry.path);
     if (!fs.existsSync(original)) continue;
 
@@ -159,6 +162,34 @@ function scrubHomeCredentials(homePath: string): void {
       `[sbx] Moved ${scrubbedCredentials.length} credential path(s) aside to ${credentialBackupRoot} for the duration of the sandbox`,
     );
   }
+}
+
+function resolveExistingHomeToolDirectory(
+  homePath: string,
+  toolPath: string,
+): { source: string; relativeHomePath?: string } | undefined {
+  const source = path.join(homePath, toolPath);
+  try {
+    assertRealDirectory(source);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return undefined;
+    }
+    throw error;
+  }
+
+  const resolvedSource = fs.realpathSync(source);
+  const resolvedHome = fs.realpathSync(homePath);
+  const relativeHomePath = path.relative(resolvedHome, resolvedSource);
+  const isUnderHome = Boolean(relativeHomePath) &&
+    !relativeHomePath.startsWith('..') &&
+    !path.isAbsolute(relativeHomePath);
+  return {
+    source: resolvedSource,
+    relativeHomePath: isUnderHome
+      ? relativeHomePath.split(path.sep).join('/')
+      : undefined,
+  };
 }
 
 /**
@@ -302,19 +333,24 @@ export async function createSandbox(config: {
   // diverge under sudo (e.g. /root vs /home/alice), mounting .local at a path
   // the guest's $HOME never points at and hiding a rootless-installed binary.
   const homePath = getRealUserHome();
+  const mountedHomePaths = new Set<string>();
   for (const toolPath of HOME_TOOL_PATHS) {
-    const hostToolPath = `${homePath}/${toolPath}`;
+    const resolved = resolveExistingHomeToolDirectory(homePath, toolPath);
+    if (!resolved) continue;
+    const hostToolPath = resolved.source;
     if (seenPaths.has(hostToolPath)) continue;
-    if (!fs.existsSync(hostToolPath)) continue;
     seenPaths.add(hostToolPath);
     args.push(hostToolPath);
+    if (resolved.relativeHomePath) {
+      mountedHomePaths.add(resolved.relativeHomePath);
+    }
   }
 
   logger.info(`[sbx] Running: sbx ${args.join(' ')}`);
 
   // Move known credential stores out of the wholesale-mounted home dirs before
   // the sandbox exists, and remember them so they can be restored on teardown.
-  scrubHomeCredentials(homePath);
+  scrubHomeCredentials(homePath, mountedHomePaths);
 
   // Do NOT pass a custom `env` to sbx create. The sanitized env (which strips
   // vars matching TOKEN, SECRET, KEY, etc.) also strips variables the sbx CLI

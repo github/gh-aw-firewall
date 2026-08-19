@@ -33,6 +33,14 @@ jest.mock('fs', () => {
     renameSync: jest.fn(() => undefined),
     mkdirSync: jest.fn(() => undefined),
     rmSync: jest.fn(() => undefined),
+    lstatSync: jest.fn(() => ({
+      isDirectory: () => true,
+      isSymbolicLink: () => false,
+    })),
+    statSync: jest.fn(() => ({
+      isDirectory: () => true,
+    })),
+    realpathSync: jest.fn((p: fs.PathLike) => String(p)),
   };
 });
 
@@ -41,6 +49,9 @@ const mockedReaddirSync = fs.readdirSync as jest.Mock;
 const mockedRenameSync = fs.renameSync as jest.Mock;
 const mockedMkdirSync = fs.mkdirSync as jest.Mock;
 const mockedRmSync = fs.rmSync as jest.Mock;
+const mockedLstatSync = fs.lstatSync as jest.Mock;
+const mockedStatSync = fs.statSync as jest.Mock;
+const mockedRealpathSync = fs.realpathSync as jest.Mock;
 
 const mockedLogger = jest.mocked(logger);
 
@@ -150,6 +161,24 @@ describe('sbx-manager', () => {
       mockedReaddirSync.mockReturnValue([]);
       mockedRenameSync.mockReset();
       mockedRenameSync.mockReturnValue(undefined);
+      mockedLstatSync.mockReset();
+      mockedLstatSync.mockImplementation((p: fs.PathLike) => {
+        if (!mockedExistsSync(p)) {
+          throw Object.assign(new Error(`ENOENT: no such file or directory, lstat '${String(p)}'`), {
+            code: 'ENOENT',
+          });
+        }
+        return {
+          isDirectory: () => true,
+          isSymbolicLink: () => false,
+        };
+      });
+      mockedStatSync.mockReset();
+      mockedStatSync.mockReturnValue({
+        isDirectory: () => true,
+      });
+      mockedRealpathSync.mockReset();
+      mockedRealpathSync.mockImplementation((p: fs.PathLike) => String(p));
       // Ensure no scrubbed state leaks between tests.
       restoreHomeCredentials();
       mockedRenameSync.mockReset();
@@ -322,6 +351,37 @@ describe('sbx-manager', () => {
       for (const secret of secrets) expect(movedOriginals).toContain(secret);
 
       restoreHomeCredentials();
+    });
+
+    it('refuses symlinked home tool dirs before passing mounts to sbx', async () => {
+      const homePath = process.env.HOME || '/home/runner';
+      mockedExistsSync.mockImplementation((p: fs.PathLike) => (
+        String(p) === `${homePath}/.local/bin`
+      ));
+      mockedLstatSync.mockImplementation((p: fs.PathLike) => {
+        if (!mockedExistsSync(p)) {
+          throw Object.assign(new Error(`ENOENT: no such file or directory, lstat '${String(p)}'`), {
+            code: 'ENOENT',
+          });
+        }
+        if (String(p) === `${homePath}/.local/bin`) {
+          return {
+            isDirectory: () => false,
+            isSymbolicLink: () => true,
+          };
+        }
+        return {
+          isDirectory: () => true,
+          isSymbolicLink: () => false,
+        };
+      });
+      mockExecaFn.mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' });
+
+      await expect(createSandbox({
+        workspaceDir: '/workspace',
+        squidIp: '172.30.0.10',
+      })).rejects.toThrow(`Refusing to use symlink as directory: ${homePath}/.local/bin`);
+      expect(mockExecaFn).toHaveBeenCalledTimes(1);
     });
 
     it('mounts ~/.config wholesale and scrubs nested credential dirs before create', async () => {

@@ -70,8 +70,9 @@ export function prepareChrootHomeMounts(config: WrapperConfig): void {
   );
   for (const toolPath of hostHomeMountSourcePaths) {
     const toolPathSource = path.join(effectiveHome, toolPath);
-    if (!fs.existsSync(toolPathSource)) {
-      createMissingOwnedDirectorySegments(toolPathSource, uid, gid);
+    const existed = fs.existsSync(toolPathSource);
+    createMissingOwnedDirectorySegments(toolPathSource, uid, gid);
+    if (!existed) {
       logger.debug(`Created host home tool path: ${toolPathSource} (${uid}:${gid})`);
     } else if (toolPath === '.gemini') {
       // Repair existing .gemini ownership for Gemini/Vertex runs where prior

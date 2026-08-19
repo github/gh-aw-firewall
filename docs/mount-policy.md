@@ -25,10 +25,10 @@ exercised only by its own tests.
 | --- | --- | --- | --- |
 | `system.directories.default` / `.sysroot` | allow (dirs) | compose (Docker + gVisor) | `system-mounts.ts` |
 | `system.etc` | allow (files) | compose (Docker + gVisor) | `etc-mounts.ts` |
-| `home.toolSubdirs` | allow (dirs) | compose + sbx | `home-strategy.ts`, `sbx-manager.ts` |
-| `home.narrowPaths` | narrow allow override | compose + sbx | `home-strategy.ts`, `sbx-manager.ts` |
+| `home.toolSubdirs` | allow (dirs) | compose + sbx + microVM workspace tests | `home-strategy.ts`, `sbx-manager.ts`, `microvm/workspace.ts` |
+| `home.narrowPaths` | narrow allow override | compose + sbx + microVM workspace tests | `home-strategy.ts`, `sbx-manager.ts`, `microvm/workspace.ts` |
 | `home.forbiddenSubdirs` | deny guard | compose + sbx | invariant tests |
-| `credentials.entries` | deny (files/dirs) | compose + sbx | `credential-hiding.ts`, `sbx-manager.ts` |
+| `credentials.entries` | deny (files/dirs) | compose + sbx + microVM workspace tests | `credential-hiding.ts`, `sbx-manager.ts`, `microvm/workspace.ts` |
 
 The `system.*` section is compose-only: sbx gets its system libraries from a
 guest image, not from host mounts. Cloud Hypervisor also boots from a guest
