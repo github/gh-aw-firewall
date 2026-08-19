@@ -113,6 +113,31 @@ describe('buildProviderRoutingEnv', () => {
     }
   });
 
+  it('forwards GITHUB_RUN_ID and GITHUB_RUN_ATTEMPT from process.env when set', () => {
+    const saved = { id: process.env.GITHUB_RUN_ID, attempt: process.env.GITHUB_RUN_ATTEMPT };
+    process.env.GITHUB_RUN_ID = '12345';
+    process.env.GITHUB_RUN_ATTEMPT = '2';
+    try {
+      const env = buildProviderRoutingEnv({ ...baseConfig, workDir: '/tmp/awf-test' });
+      expect(env.GITHUB_RUN_ID).toBe('12345');
+      expect(env.GITHUB_RUN_ATTEMPT).toBe('2');
+    } finally {
+      if (saved.id !== undefined) process.env.GITHUB_RUN_ID = saved.id;
+      else delete process.env.GITHUB_RUN_ID;
+      if (saved.attempt !== undefined) process.env.GITHUB_RUN_ATTEMPT = saved.attempt;
+      else delete process.env.GITHUB_RUN_ATTEMPT;
+    }
+  });
+
+  it('forwards AWF_COPILOT_INTERACTION_ID trimmed when set in additionalEnv', () => {
+    const env = buildProviderRoutingEnv({
+      ...baseConfig,
+      workDir: '/tmp/awf-test',
+      additionalEnv: { AWF_COPILOT_INTERACTION_ID: '  my-interaction  ' },
+    });
+    expect(env.AWF_COPILOT_INTERACTION_ID).toBe('my-interaction');
+  });
+
   it('forwards COPILOT_INTEGRATION_ID trimmed when set in additionalEnv', () => {
     const env = buildProviderRoutingEnv({
       ...baseConfig,

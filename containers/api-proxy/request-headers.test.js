@@ -1,6 +1,16 @@
-const { isValidRequestId, buildRequestHeaders } = require('./request-headers');
+const {
+  isValidRequestId,
+  buildRequestHeaders,
+  resolveCopilotInteractionId,
+  resetCopilotInteractionIdForTests,
+} = require('./request-headers');
 
 describe('request-headers', () => {
+  afterEach(() => {
+    resetCopilotInteractionIdForTests();
+    delete process.env.COPILOT_INTEGRATION_ID;
+  });
+
   test('isValidRequestId enforces expected constraints', () => {
     expect(isValidRequestId('req-123.ABC')).toBe(true);
     expect(isValidRequestId('')).toBe(false);
@@ -49,5 +59,102 @@ describe('request-headers', () => {
     expect(headers['x-initiator']).toBe('agent');
     expect(headers['content-length']).toBe(String(body.length));
     expect(headers['transfer-encoding']).toBeUndefined();
+  });
+});
+
+describe('copilot interaction/integration headers', () => {
+  afterEach(() => {
+    resetCopilotInteractionIdForTests();
+    delete process.env.COPILOT_INTEGRATION_ID;
+  });
+
+  const buildCopilotHeaders = (inboundHeaders, opts = {}) =>
+    buildRequestHeaders(Buffer.from('{}'), 2, { headers: inboundHeaders }, {
+      injectHeaders: { 'Copilot-Integration-Id': 'agentic-workflows', ...opts.injectHeaders },
+      provider: 'copilot',
+      targetHost: opts.targetHost || 'api.githubcopilot.com',
+      requestId: 'req-copilot',
+    });
+
+  test('resolveCopilotInteractionId derives a stable id from the run env', () => {
+    const env = { GITHUB_RUN_ID: '12345', GITHUB_RUN_ATTEMPT: '2' };
+    expect(resolveCopilotInteractionId(env)).toBe('12345-2');
+    // Cached: later calls ignore a changed env
+    expect(resolveCopilotInteractionId({ GITHUB_RUN_ID: '999' })).toBe('12345-2');
+  });
+
+  test('resolveCopilotInteractionId defaults run attempt to 1', () => {
+    expect(resolveCopilotInteractionId({ GITHUB_RUN_ID: '12345' })).toBe('12345-1');
+  });
+
+  test('resolveCopilotInteractionId prefers the explicit override', () => {
+    expect(resolveCopilotInteractionId({
+      AWF_COPILOT_INTERACTION_ID: 'my-session',
+      GITHUB_RUN_ID: '12345',
+    })).toBe('my-session');
+  });
+
+  test('resolveCopilotInteractionId mints one stable uuid when no run env exists', () => {
+    const first = resolveCopilotInteractionId({});
+    expect(first).toMatch(/^[0-9a-f-]{36}$/);
+    expect(resolveCopilotInteractionId({})).toBe(first);
+  });
+
+  test('resolveCopilotInteractionId ignores unsafe values', () => {
+    const id = resolveCopilotInteractionId({ AWF_COPILOT_INTERACTION_ID: 'bad value\r\ninjected: 1' });
+    expect(id).toMatch(/^[0-9a-f-]{36}$/);
+  });
+
+  test('injects both headers on copilot host requests', () => {
+    const headers = buildCopilotHeaders({ 'x-custom': 'keep-me' });
+    expect(headers['x-interaction-id']).toBe(resolveCopilotInteractionId());
+    expect(headers['Copilot-Integration-Id']).toBe('agentic-workflows');
+  });
+
+  test('preserves a non-empty inbound interaction id', () => {
+    const headers = buildCopilotHeaders({ 'x-interaction-id': 'caller-session' });
+    expect(headers['x-interaction-id']).toBe('caller-session');
+  });
+
+  test('replaces an empty inbound interaction id', () => {
+    const headers = buildCopilotHeaders({ 'X-Interaction-Id': '  ' });
+    expect(headers['X-Interaction-Id']).toBeUndefined();
+    expect(headers['x-interaction-id']).toBe(resolveCopilotInteractionId());
+  });
+
+  test('deduplicates case-variant integration id headers', () => {
+    const headers = buildCopilotHeaders({ 'copilot-integration-id': 'from-caller' });
+    const values = Object.entries(headers)
+      .filter(([k]) => k.toLowerCase() === 'copilot-integration-id')
+      .map(([, v]) => v);
+    expect(values).toEqual(['from-caller']);
+  });
+
+  test('falls back to the configured integration id when none is injected', () => {
+    process.env.COPILOT_INTEGRATION_ID = 'my-integration';
+    const headers = buildCopilotHeaders({}, { injectHeaders: { 'Copilot-Integration-Id': undefined } });
+    expect(headers['copilot-integration-id']).toBe('my-integration');
+  });
+
+  test('does not inject on BYOK / non-copilot hosts', () => {
+    const headers = buildRequestHeaders(Buffer.from('{}'), 2, { headers: {} }, {
+      injectHeaders: {},
+      provider: 'copilot',
+      targetHost: 'my-resource.openai.azure.com',
+      requestId: 'req-byok',
+    });
+    expect(headers['x-interaction-id']).toBeUndefined();
+    expect(headers['copilot-integration-id']).toBeUndefined();
+  });
+
+  test('does not inject on other providers', () => {
+    const headers = buildRequestHeaders(Buffer.from('{}'), 2, { headers: {} }, {
+      injectHeaders: {},
+      provider: 'anthropic',
+      targetHost: 'api.anthropic.com',
+      requestId: 'req-anthropic',
+    });
+    expect(headers['x-interaction-id']).toBeUndefined();
+    expect(headers['copilot-integration-id']).toBeUndefined();
   });
 });

@@ -173,6 +173,17 @@ GitHub's [REST API authentication docs](https://docs.github.com/en/rest/authenti
 
 All Copilot requests also include `Copilot-Integration-Id`. The default is `agentic-workflows`; set `COPILOT_INTEGRATION_ID` to override it.
 
+### Prompt-cache and attribution headers (`*.githubcopilot.com` only)
+
+When the resolved upstream host is a Copilot host (`githubcopilot.com` or a `*.githubcopilot.com` subdomain), the sidecar guarantees two non-secret headers are present on every forwarded request:
+
+| Header | Value | Purpose |
+|--------|-------|---------|
+| `X-Interaction-Id` | `AWF_COPILOT_INTERACTION_ID`, else `${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}`, else a UUID minted once per sidecar process | CAPI prompt-cache key — must be stable for a whole run and differ across runs |
+| `Copilot-Integration-Id` | `COPILOT_INTEGRATION_ID`, else `agentic-workflows` | Attribution, quota bucket, and model allowlist |
+
+Non-empty inbound values are preserved; empty values and case-variant duplicates are replaced so exactly one instance of each header reaches CAPI. Harnesses that do not send a stable `X-Interaction-Id` themselves (aider, Pi, …) therefore still get prompt-cache hits. Neither header is injected on non-Copilot hosts, so BYOK targets (Azure OpenAI, OpenRouter, …) and the OpenAI/Anthropic/Gemini providers are unaffected.
+
 ### `/models` Endpoint (Special Case)
 
 The `/models` endpoint prefers `COPILOT_GITHUB_TOKEN` (GitHub OAuth) over BYOK keys when both are configured, because model listing is a GitHub platform feature. However, when no GitHub token is available (typical for direct-BYOK/custom targets), `/models` will use the BYOK credential.

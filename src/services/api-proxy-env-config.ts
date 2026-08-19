@@ -131,6 +131,15 @@ function buildProviderRoutingEnv(config: WrapperConfig): Record<string, string> 
       COPILOT_INTEGRATION_ID: getConfigEnvValue(config, 'COPILOT_INTEGRATION_ID')!.trim(),
     }),
     ...(openAiEndpointOverride && { OPENAI_ENDPOINT_OVERRIDE: openAiEndpointOverride }),
+    // Forward the GitHub Actions run identity so the sidecar can derive a stable
+    // per-run `X-Interaction-Id` for Copilot API requests. CAPI keys its prompt
+    // cache off that header, so it must be identical across every request of a
+    // run and differ between runs/attempts.
+    ...(process.env.GITHUB_RUN_ID?.trim() && { GITHUB_RUN_ID: process.env.GITHUB_RUN_ID.trim() }),
+    ...(process.env.GITHUB_RUN_ATTEMPT?.trim() && { GITHUB_RUN_ATTEMPT: process.env.GITHUB_RUN_ATTEMPT.trim() }),
+    ...(getConfigEnvValue(config, 'AWF_COPILOT_INTERACTION_ID')?.trim() && {
+      AWF_COPILOT_INTERACTION_ID: getConfigEnvValue(config, 'AWF_COPILOT_INTERACTION_ID')!.trim(),
+    }),
     // Do not forward GITHUB_COPILOT_INTEGRATION_ID — api-proxy defaults to
     // 'agentic-workflows' which is the correct integration ID for AWF.
     // Note: AWF_VERSION is intentionally NOT forwarded here. It is baked into the api-proxy
