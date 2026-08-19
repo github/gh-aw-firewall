@@ -26,6 +26,7 @@ import {
   copilotModelOverrideRegex,
   issueDuplicationConclusionConcurrencyRegex,
   issueDuplicationConclusionConcurrencySentinel,
+  ripgrepInstallStepRegex,
 } from './workflow-patch-patterns';
 import { buildCopySessionStateStep } from './workflow-step-builders';
 
@@ -87,6 +88,37 @@ describe('installStepRegex', () => {
     const match = input.match(installStepRegex);
     expect(match).not.toBeNull();
     expect(match![1]).toBe('          ');
+  });
+});
+
+describe('ripgrepInstallStepRegex', () => {
+  it('matches the generated installer before a timeout is added', () => {
+    const input =
+      '      - name: Install ripgrep\n' +
+      '        run: bash "${RUNNER_TEMP}/gh-aw/actions/install_ripgrep.sh"\n';
+
+    expect(ripgrepInstallStepRegex.test(input)).toBe(true);
+    ripgrepInstallStepRegex.lastIndex = 0;
+  });
+
+  it('matches an installer that already has a step timeout', () => {
+    const input =
+      '      - name: Install ripgrep\n' +
+      '        timeout-minutes: 5\n' +
+      '        run: bash "${RUNNER_TEMP}/gh-aw/actions/install_ripgrep.sh"\n';
+
+    expect(ripgrepInstallStepRegex.test(input)).toBe(true);
+    ripgrepInstallStepRegex.lastIndex = 0;
+  });
+
+  it('matches the fully bounded installer for idempotent replacement', () => {
+    const input =
+      '      - name: Install ripgrep\n' +
+      '        timeout-minutes: 5\n' +
+      '        run: timeout --foreground --kill-after=10s 4m bash "${RUNNER_TEMP}/gh-aw/actions/install_ripgrep.sh"\n';
+
+    expect(ripgrepInstallStepRegex.test(input)).toBe(true);
+    ripgrepInstallStepRegex.lastIndex = 0;
   });
 });
 

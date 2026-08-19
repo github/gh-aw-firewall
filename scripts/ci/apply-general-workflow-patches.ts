@@ -28,6 +28,7 @@ import {
   cacheDateRestoreKeySentinel,
   issueDuplicationConclusionConcurrencyRegex,
   issueDuplicationConclusionConcurrencySentinel,
+  ripgrepInstallStepRegex,
 } from './workflow-patch-patterns';
 import {
   buildLocalInstallSteps,
@@ -50,6 +51,27 @@ export function applyGeneralWorkflowPatches(
   workflowPath: string
 ): PatchResult {
   const log: string[] = [];
+
+  // Bound the generated installer in smoke workflows and the build-test workflow.
+  // install_ripgrep.sh uses apt-get update -qq without its own timeout, so a bad
+  // hosted-runner mirror otherwise leaves the whole agent job running for hours.
+  const shouldBoundRipgrepInstall =
+    /(?:^|[/\\])smoke-[^/\\]+\.lock\.yml$/.test(workflowPath) ||
+    workflowPath.endsWith('build-test.lock.yml');
+  if (shouldBoundRipgrepInstall) {
+    ripgrepInstallStepRegex.lastIndex = 0;
+    const ripgrepInstallMatches = content.match(ripgrepInstallStepRegex);
+    if (ripgrepInstallMatches) {
+      content = content.replace(
+        ripgrepInstallStepRegex,
+        (_match, indent: string) =>
+          `${indent}- name: Install ripgrep\n` +
+          `${indent}  timeout-minutes: 5\n` +
+          `${indent}  run: timeout --foreground --kill-after=10s 4m bash "\${RUNNER_TEMP}/gh-aw/actions/install_ripgrep.sh"\n`
+      );
+      log.push(`  Bounded ${ripgrepInstallMatches.length} ripgrep install step(s)`);
+    }
+  }
 
   // The enclave backend starts inside AWF, after mcpg. Keep it in the agent's
   // gateway config but exempt it from the eager startup connectivity check so

@@ -12,6 +12,13 @@ export const installStepRegex =
   /^(\s*)- name: Install [Aa][Ww][Ff] binary\n\1\s*run: bash "?(?:\/opt\/gh-aw|\$\{RUNNER_TEMP\}\/gh-aw)\/actions\/install_awf_binary\.sh"? v[0-9.]+[^\n]*\n/m;
 export const installStepRegexGlobal = new RegExp(installStepRegex.source, 'gm');
 
+// Matches the generated ripgrep installer step with or without the timeout
+// wrapper added by post-processing.
+// The setup action falls back to a quiet apt-get update, which can otherwise hang
+// for hours when a hosted runner's package mirror stops responding.
+export const ripgrepInstallStepRegex =
+  /^(\s+)- name: Install ripgrep\n(?:\1  timeout-minutes: 5\n)?\1  run: (?:timeout --foreground --kill-after=10s 4m )?bash "\$\{RUNNER_TEMP\}\/gh-aw\/actions\/install_ripgrep\.sh"\n/gm;
+
 // Collapse duplicate "Setup Node.js" steps: buildLocalInstallSteps injects a
 // Setup Node.js step but some workflows already emit an identical one immediately
 // before the install step.  The backreference only matches byte-identical blocks.
