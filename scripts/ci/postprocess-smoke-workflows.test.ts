@@ -23,6 +23,7 @@ import {
   sessionStateDirInjectionRegex,
   legacyApiProxyLogsDirRegex,
   copySessionStateStepRegex,
+  copilotCliCopyBlockRegex,
   copilotModelOverrideRegex,
   issueDuplicationConclusionConcurrencyRegex,
   issueDuplicationConclusionConcurrencySentinel,
@@ -396,6 +397,33 @@ describe('copySessionStateStepRegex', () => {
 
   it('should match the original compiler-generated step', () => {
     expect(copySessionStateStepRegex.test(ORIGINAL_STEP)).toBe(true);
+  });
+
+  describe('copilotCliCopyBlockRegex', () => {
+    const ORIGINAL_BLOCK =
+      '          GH_AW_COPILOT_SRC="$(command -v copilot 2>/dev/null || true)"\n' +
+      '          if [ -z "$GH_AW_COPILOT_SRC" ] || [ ! -x "$GH_AW_COPILOT_SRC" ]; then\n' +
+      '            echo "GitHub Copilot CLI executable not found on PATH after installation" >&2\n' +
+      '            exit 127\n' +
+      '          fi\n' +
+      '          GH_AW_COPILOT_BIN="${RUNNER_TEMP}/gh-aw/bin/copilot"\n' +
+      '          mkdir -p "${RUNNER_TEMP}/gh-aw/bin"\n' +
+      '          if [ "$GH_AW_COPILOT_SRC" != "$GH_AW_COPILOT_BIN" ]; then\n' +
+      '            cp "$GH_AW_COPILOT_SRC" "$GH_AW_COPILOT_BIN"\n' +
+      '          fi\n' +
+      '          chmod 755 "$GH_AW_COPILOT_BIN"\n';
+
+    it('should match the compiler-emitted strict Copilot binary copy block', () => {
+      copilotCliCopyBlockRegex.lastIndex = 0;
+      expect(copilotCliCopyBlockRegex.test(ORIGINAL_BLOCK)).toBe(true);
+    });
+
+    it('should capture indentation', () => {
+      copilotCliCopyBlockRegex.lastIndex = 0;
+      const match = copilotCliCopyBlockRegex.exec(ORIGINAL_BLOCK);
+      expect(match).not.toBeNull();
+      expect(match![1]).toBe('          ');
+    });
   });
 
   it('should capture indentation', () => {

@@ -16,6 +16,8 @@ import {
   copilotModelOverrideRegex,
   copySessionStateSentinel,
   copySessionStateStepRegex,
+  copilotCliCopyBlockRegex,
+  copilotCliCopyGuardSentinel,
   updateCacheSetupScriptRegex,
   setupCacheMemoryStepRegex,
   stripExecBitsStepSentinel,
@@ -248,6 +250,41 @@ export function applyGeneralWorkflowPatches(
     }
   } else {
     log.push(`  'Copy Copilot session state' step already updated`);
+  }
+
+  // Guard the compiler-emitted Copilot-CLI binary copy block by engine ID.
+  // This keeps strict behavior for Copilot engine runs while allowing
+  // non-Copilot engines to skip the copy step when the `copilot` binary is
+  // intentionally absent.
+  if (!content.includes(copilotCliCopyGuardSentinel)) {
+    copilotCliCopyBlockRegex.lastIndex = 0;
+    const copilotCliCopyMatches = content.match(copilotCliCopyBlockRegex);
+    if (copilotCliCopyMatches) {
+      content = content.replace(copilotCliCopyBlockRegex, (_match, indent: string) =>
+        [
+          `${indent}if [ "\${GH_AW_ENGINE:-copilot}" != "copilot" ]; then`,
+          `${indent}  echo "Skipping Copilot CLI binary copy for non-copilot engine: \${GH_AW_ENGINE:-unset}" >&2`,
+          `${indent}else`,
+          `${indent}  GH_AW_COPILOT_SRC="$(command -v copilot 2>/dev/null || true)"`,
+          `${indent}  if [ -z "$GH_AW_COPILOT_SRC" ] || [ ! -x "$GH_AW_COPILOT_SRC" ]; then`,
+          `${indent}    echo "GitHub Copilot CLI executable not found on PATH after installation" >&2`,
+          `${indent}    exit 127`,
+          `${indent}  fi`,
+          `${indent}  GH_AW_COPILOT_BIN="\${RUNNER_TEMP}/gh-aw/bin/copilot"`,
+          `${indent}  mkdir -p "\${RUNNER_TEMP}/gh-aw/bin"`,
+          `${indent}  if [ "$GH_AW_COPILOT_SRC" != "$GH_AW_COPILOT_BIN" ]; then`,
+          `${indent}    cp "$GH_AW_COPILOT_SRC" "$GH_AW_COPILOT_BIN"`,
+          `${indent}  fi`,
+          `${indent}  chmod 755 "$GH_AW_COPILOT_BIN"`,
+          `${indent}fi`,
+        ].join('\n') + '\n'
+      );
+      log.push(
+        `  Engine-gated ${copilotCliCopyMatches.length} Copilot CLI binary copy block(s) for non-copilot safety`
+      );
+    }
+  } else {
+    log.push(`  Copilot CLI binary copy block already engine-gated`);
   }
 
   // For issue-duplication-detector: scope the conclusion job's concurrency
