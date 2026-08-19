@@ -137,9 +137,6 @@ function buildProviderRoutingEnv(config: WrapperConfig): Record<string, string> 
     // run and differ between runs/attempts.
     ...(process.env.GITHUB_RUN_ID?.trim() && { GITHUB_RUN_ID: process.env.GITHUB_RUN_ID.trim() }),
     ...(process.env.GITHUB_RUN_ATTEMPT?.trim() && { GITHUB_RUN_ATTEMPT: process.env.GITHUB_RUN_ATTEMPT.trim() }),
-    ...(getConfigEnvValue(config, 'AWF_COPILOT_INTERACTION_ID')?.trim() && {
-      AWF_COPILOT_INTERACTION_ID: getConfigEnvValue(config, 'AWF_COPILOT_INTERACTION_ID')!.trim(),
-    }),
     // Do not forward GITHUB_COPILOT_INTEGRATION_ID — api-proxy defaults to
     // 'agentic-workflows' which is the correct integration ID for AWF.
     // Note: AWF_VERSION is intentionally NOT forwarded here. It is baked into the api-proxy

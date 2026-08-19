@@ -179,10 +179,10 @@ When the resolved upstream host is a Copilot host (`githubcopilot.com` or a `*.g
 
 | Header | Value | Purpose |
 |--------|-------|---------|
-| `X-Interaction-Id` | `AWF_COPILOT_INTERACTION_ID`, else `${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}`, else a UUID minted once per sidecar process | CAPI prompt-cache key — must be stable for a whole run and differ across runs |
+| `X-Interaction-Id` | `${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}`, else a UUID minted once per sidecar process | CAPI prompt-cache key — must be stable for a whole run and differ across runs |
 | `Copilot-Integration-Id` | `COPILOT_INTEGRATION_ID`, else `agentic-workflows` | Attribution, quota bucket, and model allowlist |
 
-Non-empty inbound values are preserved; empty values and case-variant duplicates are replaced so exactly one instance of each header reaches CAPI. Harnesses that do not send a stable `X-Interaction-Id` themselves (aider, Pi, …) therefore still get prompt-cache hits. Neither header is injected on non-Copilot hosts, so BYOK targets (Azure OpenAI, OpenRouter, …) and the OpenAI/Anthropic/Gemini providers are unaffected.
+Non-empty inbound values are preserved; empty values and case-variant duplicates are replaced so exactly one instance of each header reaches CAPI. Harnesses that do not send a stable `X-Interaction-Id` themselves (aider, Pi, …) therefore still get prompt-cache hits, and a harness that owns its own session identity can override the value simply by sending the header. There is no AWF-specific override env var for `X-Interaction-Id`: outside GitHub Actions the sidecar mints one UUID per process. Neither header is injected on non-Copilot hosts, so BYOK targets (Azure OpenAI, OpenRouter, …) and the OpenAI/Anthropic/Gemini providers are unaffected.
 
 ### `/models` Endpoint (Special Case)
 

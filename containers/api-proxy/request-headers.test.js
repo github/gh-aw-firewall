@@ -87,21 +87,14 @@ describe('copilot interaction/integration headers', () => {
     expect(resolveCopilotInteractionId({ GITHUB_RUN_ID: '12345' })).toBe('12345-1');
   });
 
-  test('resolveCopilotInteractionId prefers the explicit override', () => {
-    expect(resolveCopilotInteractionId({
-      AWF_COPILOT_INTERACTION_ID: 'my-session',
-      GITHUB_RUN_ID: '12345',
-    })).toBe('my-session');
-  });
-
   test('resolveCopilotInteractionId mints one stable uuid when no run env exists', () => {
     const first = resolveCopilotInteractionId({});
     expect(first).toMatch(/^[0-9a-f-]{36}$/);
     expect(resolveCopilotInteractionId({})).toBe(first);
   });
 
-  test('resolveCopilotInteractionId ignores unsafe values', () => {
-    const id = resolveCopilotInteractionId({ AWF_COPILOT_INTERACTION_ID: 'bad value\r\ninjected: 1' });
+  test('resolveCopilotInteractionId ignores unsafe run env values', () => {
+    const id = resolveCopilotInteractionId({ GITHUB_RUN_ID: 'bad value\r\ninjected: 1' });
     expect(id).toMatch(/^[0-9a-f-]{36}$/);
   });
 

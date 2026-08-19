@@ -30,20 +30,22 @@ function isValidRequestId(id) {
  * fresh UUID per request would defeat the cache entirely.
  *
  * Resolution order:
- *   1. `AWF_COPILOT_INTERACTION_ID` (explicit override)
- *   2. `${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}` (GitHub Actions)
- *   3. A UUID minted once at first use
+ *   1. `${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}` (GitHub Actions)
+ *   2. A UUID minted once at first use (non-Actions environments)
+ *
+ * There is deliberately no dedicated override env var: callers that own a
+ * session identity can simply send their own non-empty `X-Interaction-Id`
+ * header, which `buildRequestHeaders` preserves.
  *
  * @param {Record<string, string|undefined>} [env]
  * @returns {string}
  */
 function resolveCopilotInteractionId(env = process.env) {
   if (cachedInteractionId) return cachedInteractionId;
-  const explicit = (env.AWF_COPILOT_INTERACTION_ID || '').trim();
   const runId = (env.GITHUB_RUN_ID || '').trim();
   const runAttempt = (env.GITHUB_RUN_ATTEMPT || '').trim() || '1';
   const derived = runId ? `${runId}-${runAttempt}` : '';
-  cachedInteractionId = [explicit, derived].find(isValidRequestId) || randomUUID();
+  cachedInteractionId = isValidRequestId(derived) ? derived : randomUUID();
   return cachedInteractionId;
 }
 

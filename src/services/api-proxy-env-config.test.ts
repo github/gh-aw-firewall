@@ -129,15 +129,6 @@ describe('buildProviderRoutingEnv', () => {
     }
   });
 
-  it('forwards AWF_COPILOT_INTERACTION_ID trimmed when set in additionalEnv', () => {
-    const env = buildProviderRoutingEnv({
-      ...baseConfig,
-      workDir: '/tmp/awf-test',
-      additionalEnv: { AWF_COPILOT_INTERACTION_ID: '  my-interaction  ' },
-    });
-    expect(env.AWF_COPILOT_INTERACTION_ID).toBe('my-interaction');
-  });
-
   it('forwards COPILOT_INTEGRATION_ID trimmed when set in additionalEnv', () => {
     const env = buildProviderRoutingEnv({
       ...baseConfig,
