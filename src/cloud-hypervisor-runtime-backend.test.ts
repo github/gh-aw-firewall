@@ -357,7 +357,7 @@ describe('Cloud Hypervisor runtime backend', () => {
     expect(networkReadyCall.argv[2]).toContain('ip link show dev lo');
     expect(networkReadyCall.argv[2]).toContain('while [ "$attempt" -le 5 ]');
     expect(networkReadyCall.argv[2]).toContain('delay=$((delay * 2))');
-    expect(networkReadyCall.timeoutMs).toBe(15_000);
+    expect(networkReadyCall.timeoutMs).toBe(90_000);
     expect(manager.execute.mock.calls[1][0].argv[2]).toContain('nc -v -z');
     expect(manager.execute.mock.invocationCallOrder[0])
       .toBeLessThan(manager.execute.mock.invocationCallOrder[1]);
