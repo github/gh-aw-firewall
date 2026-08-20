@@ -15,9 +15,6 @@ network:
 tools:
   bash:
     - "*"
-sandbox:
-  agent:
-    sudo: false
 strict: false
 max-turns: 15
 timeout-minutes: 10

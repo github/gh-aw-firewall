@@ -58,6 +58,7 @@ engine:
 tools:
   edit:
   bash: false
+  cli-proxy: false
   github: false
 safe-outputs:
   threat-detection:

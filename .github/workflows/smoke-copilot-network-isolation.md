@@ -41,9 +41,6 @@ safe-outputs:
     run-success: "🛡️ [{workflow_name}]({run_url}) confirmed the egress allowlist is enforced. ✅"
     run-failure: "🛡️ [{workflow_name}]({run_url}) reports {status} while checking network isolation. Investigate the egress model."
 timeout-minutes: 15
-sandbox:
-  agent:
-    sudo: false
 strict: false
 jobs:
   verify_token_usage:

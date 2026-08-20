@@ -64,6 +64,7 @@ timeout-minutes: 10
 sandbox:
   agent:
     id: awf
+    runtime: docker-sudo-iptables
 strict: true
 steps:
   - name: Pre-install service client tools

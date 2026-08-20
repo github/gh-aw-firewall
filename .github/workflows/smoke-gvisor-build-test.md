@@ -50,7 +50,6 @@ sandbox:
   agent:
     id: awf
     runtime: gvisor
-    sudo: true
 strict: false
 jobs:
   verify_gvisor:

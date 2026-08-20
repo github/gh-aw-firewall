@@ -39,7 +39,7 @@ describe('duplicate code detector workflow optimization config', () => {
     expect(lock).toContain('- name: Install jscpd');
     expect(lock).toContain('npm install -g jscpd 2>&1 | tail -3');
     expect(lock).toContain('Tools: create_issue(max:3), missing_tool, missing_data, noop');
-    expect(lock).toContain('"create_issue":{"expires":720,"labels":["code-quality","refactoring"],"max":3');
+    expect(lock).toContain('\\"create_issue\\":{\\"expires\\":720,\\"labels\\":[\\"code-quality\\",\\"refactoring\\"],\\"max\\":3');
     expect(lock).not.toContain(`GH_AW_INFO_ALLOWED_DOMAINS: '["node","github"]'`);
   });
 });

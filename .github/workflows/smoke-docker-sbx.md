@@ -45,7 +45,6 @@ sandbox:
   agent:
     id: awf
     runtime: docker-sbx
-    sudo: true
 strict: false
 jobs:
   verify_token_usage:

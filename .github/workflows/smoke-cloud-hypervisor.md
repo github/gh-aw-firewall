@@ -46,7 +46,6 @@ sandbox:
     id: awf
     version: v0.28.1
     runtime: cloud-hypervisor
-    sudo: true
 strict: false
 jobs:
   verify_token_usage:

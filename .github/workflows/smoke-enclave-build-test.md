@@ -41,7 +41,6 @@ sandbox:
   agent:
     id: awf
     version: v0.28.1
-    sudo: false
 strict: false
 concurrency:
   group: smoke-enclave-build-test

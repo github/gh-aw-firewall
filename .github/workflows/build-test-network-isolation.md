@@ -49,9 +49,6 @@ safe-outputs:
   messages:
     run-failure: "**Build Test (Network Isolation) Failed** [{workflow_name}]({run_url}) - See logs for details"
 timeout-minutes: 45
-sandbox:
-  agent:
-    sudo: false
 strict: false
 ---
 
