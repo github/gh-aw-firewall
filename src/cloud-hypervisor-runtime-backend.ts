@@ -52,6 +52,11 @@ const CLOUD_HYPERVISOR_GUEST_HOME = `${CLOUD_HYPERVISOR_GUEST_WORKSPACE}/.awf-ho
  */
 const CLOUD_HYPERVISOR_PROBE_TIMEOUT_MS = 90_000;
 const CLOUD_HYPERVISOR_GUEST_NETWORK_READY_TIMEOUT_MS = CLOUD_HYPERVISOR_PROBE_TIMEOUT_MS;
+const CLOUD_HYPERVISOR_API_PROXY_PROBE_ATTEMPTS = 3;
+const CLOUD_HYPERVISOR_API_PROXY_PROBE_INITIAL_DELAY_SECONDS = 2;
+// Covers the 60-second Squid probe, three 20-second API proxy attempts,
+// their bounded backoff, and nested-KVM scheduling overhead.
+const CLOUD_HYPERVISOR_CONNECTIVITY_PROBE_TIMEOUT_MS = 150_000;
 const CLOUD_HYPERVISOR_CANCEL_GRACE_MS = 3_000;
 const CLOUD_HYPERVISOR_MAX_TIMEOUT_MS = 86_400_000;
 const MCP_GATEWAY_PORT = 8080;
@@ -472,7 +477,11 @@ export class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBacken
     const squidProbe = `nc -v -z -w 60 ${SQUID_IP} 3128`;
     const apiProxyProbe = this.config.enableApiProxy
       ? ` && (unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy ALL_PROXY all_proxy; ` +
-        `wget -q -T 20 -O /dev/null http://${API_PROXY_IP}:10000/reflect)`
+        `attempt=1; delay=${CLOUD_HYPERVISOR_API_PROXY_PROBE_INITIAL_DELAY_SECONDS}; ` +
+        `while ! wget -q -T 20 -O /dev/null http://${API_PROXY_IP}:10000/reflect; do ` +
+        `if [ "$attempt" -ge ${CLOUD_HYPERVISOR_API_PROXY_PROBE_ATTEMPTS} ]; then ` +
+        `echo "API proxy /reflect unavailable after $attempt attempts" >&2; exit 1; fi; ` +
+        `sleep "$delay"; attempt=$((attempt + 1)); delay=$((delay * 2)); done)`
       : '';
     const topologyPeerProbe = Object.values(this.infrastructure?.topologyPeerIps ?? {})
       .map((ip) => ` && nc -v -z -w 60 ${ip} ${MCP_GATEWAY_PORT}`)
@@ -490,7 +499,8 @@ export class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBacken
       env: environment,
       cwd: CLOUD_HYPERVISOR_GUEST_WORKSPACE,
       ...identity,
-      timeoutMs: CLOUD_HYPERVISOR_PROBE_TIMEOUT_MS + topologyPeerCount * 60_000,
+      timeoutMs: CLOUD_HYPERVISOR_CONNECTIVITY_PROBE_TIMEOUT_MS +
+        topologyPeerCount * 60_000,
       stdout: stdoutCollector.stream,
       stderr: stderrCollector.stream,
     });

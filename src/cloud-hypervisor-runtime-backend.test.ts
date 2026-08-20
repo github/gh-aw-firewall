@@ -252,7 +252,7 @@ describe('Cloud Hypervisor runtime backend', () => {
           NO_PROXY: expect.stringContaining('awmg-mcpg'),
           no_proxy: expect.stringContaining('172.30.0.60'),
         }),
-        timeoutMs: 150_000,
+        timeoutMs: 210_000,
       }),
     );
   });
@@ -521,10 +521,15 @@ describe('Cloud Hypervisor runtime backend', () => {
     // The API proxy request must bypass the guest's HTTP(S)_PROXY env vars
     // (it targets the sidecar directly, not through Squid) and must only
     // run if the Squid reachability check already succeeded.
-    expect(script).toMatch(/nc -v -z .* && \(unset .*HTTP_PROXY.*; wget /);
+    expect(script).toMatch(/nc -v -z .* && \(unset .*HTTP_PROXY.*; attempt=1;/);
+    expect(script).toContain('while ! wget -q -T 20');
+    expect(script).toContain('if [ "$attempt" -ge 3 ]');
+    expect(script).toContain('API proxy /reflect unavailable after $attempt attempts');
+    expect(script).toContain('sleep "$delay"');
+    expect(script).toContain('delay=$((delay * 2))');
   });
 
-  it('uses generous nc/wget timeouts and an overall probe budget tolerant of nested-KVM scheduling delays', async () => {
+  it('uses bounded API proxy retries and an overall probe budget tolerant of nested-KVM scheduling delays', async () => {
     // Regression test: live-KVM validation confirmed (via captured host
     // network diagnostics) that the tap/nftables/vnet_hdr path was fully
     // correct -- Squid's response packets reached the host-side veth --
@@ -554,7 +559,9 @@ describe('Cloud Hypervisor runtime backend', () => {
     const script = probeCall.argv[2] as string;
     expect(script).toContain('nc -v -z -w 60');
     expect(script).toContain('wget -q -T 20');
-    expect(probeCall.timeoutMs).toBe(90_000);
+    expect(script).toContain('attempt=1; delay=2');
+    expect(script).toContain('if [ "$attempt" -ge 3 ]');
+    expect(probeCall.timeoutMs).toBe(150_000);
   });
 
   it('passes a beforeCleanup diagnostics hook to stop() on a startup failure, when --diagnostic-logs is set', async () => {
