@@ -1,5 +1,6 @@
 import { parseValidPortSpecs } from '../../host-iptables-validation';
-import { getRealUserHome, getSafeHostGid, getSafeHostUid } from '../../host-identity';
+import { getRealUserHome, getSafeHostGid, getSafeHostUid, isNativeRootWithoutSudo } from '../../host-identity';
+import { logger } from '../../logger';
 import { AgentEnvironmentParams } from './types';
 
 interface ApiProxyEnvironmentParams extends AgentEnvironmentParams {
@@ -43,6 +44,14 @@ export function buildApiProxyEnvironment(params: ApiProxyEnvironmentParams): voi
   environment.AWF_WORKDIR = config.containerWorkDir || getRealUserHome();
   environment.AWF_USER_UID = getSafeHostUid();
   environment.AWF_USER_GID = getSafeHostGid();
+
+  if (isNativeRootWithoutSudo()) {
+    logger.warn(
+      `Host process is running as root with no SUDO_UID; AWF will use sandbox identity ` +
+      `${environment.AWF_USER_UID}:${environment.AWF_USER_GID}. Host files not owned by ` +
+      `that identity may be unreadable inside the sandbox unless AWF can repair ownership before launch.`
+    );
+  }
 
   if (config.geminiApiKey || config.googleApiKey) {
     environment.AWF_GEMINI_ENABLED = '1';

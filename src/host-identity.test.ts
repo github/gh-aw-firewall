@@ -1,5 +1,11 @@
 import * as fs from 'fs';
-import { getSafeHostUid, getSafeHostGid, getRealUserHome, ACT_PRESET_BASE_IMAGE } from './host-identity';
+import {
+  getSafeHostUid,
+  getSafeHostGid,
+  getRealUserHome,
+  isNativeRootWithoutSudo,
+  ACT_PRESET_BASE_IMAGE,
+} from './host-identity';
 
 jest.mock('fs');
 
@@ -64,6 +70,37 @@ describe('getSafeHostUid', () => {
   it('returns "1000" when getuid is not available', () => {
     Object.defineProperty(process, 'getuid', { value: undefined, configurable: true });
     expect(getSafeHostUid()).toBe('1000');
+  });
+});
+
+describe('isNativeRootWithoutSudo', () => {
+  const originalGetuid = process.getuid;
+  const originalEnv = process.env;
+
+  beforeEach(() => {
+    process.env = { ...originalEnv };
+    delete process.env.SUDO_UID;
+  });
+
+  afterEach(() => {
+    Object.defineProperty(process, 'getuid', { value: originalGetuid, configurable: true });
+    process.env = originalEnv;
+  });
+
+  it('returns true for native root without SUDO_UID', () => {
+    Object.defineProperty(process, 'getuid', { value: () => 0, configurable: true });
+    expect(isNativeRootWithoutSudo()).toBe(true);
+  });
+
+  it('returns false for sudo root with SUDO_UID', () => {
+    Object.defineProperty(process, 'getuid', { value: () => 0, configurable: true });
+    process.env.SUDO_UID = '1234';
+    expect(isNativeRootWithoutSudo()).toBe(false);
+  });
+
+  it('returns false for regular users', () => {
+    Object.defineProperty(process, 'getuid', { value: () => 1000, configurable: true });
+    expect(isNativeRootWithoutSudo()).toBe(false);
   });
 });
 

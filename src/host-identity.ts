@@ -49,6 +49,15 @@ export function getSafeHostUid(): string {
 }
 
 /**
+ * Returns true when AWF is running as root directly rather than through sudo.
+ * In this mode there is no original host identity to recover from SUDO_UID.
+ * @internal Exported for testing
+ */
+export function isNativeRootWithoutSudo(): boolean {
+  return process.getuid?.() === 0 && !process.env.SUDO_UID;
+}
+
+/**
  * Gets the host user's GID, with fallback to 1000 if unavailable, root (0),
  * or in the system GID range (0-999).
  * When running with sudo, uses SUDO_GID to get the actual user's GID.
