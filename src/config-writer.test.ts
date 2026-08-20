@@ -1,8 +1,14 @@
 // Hoisted jest.mock() registrations live in the shared helper — this import must remain first.
 import './test-helpers/config-writer-dependency-mocks.test-utils';
 
+jest.mock('execa', () => ({
+  __esModule: true,
+  default: { sync: jest.fn(() => ({ exitCode: 0, stdout: '', stderr: '' })) },
+}));
+
 import * as fs from 'fs';
 import * as path from 'path';
+import execa from 'execa';
 import { writeConfigs } from './config-writer';
 import { isOpenSslAvailable } from './ssl-bump';
 import { getRealUserHome } from './host-identity';
@@ -124,9 +130,11 @@ describe('writeConfigs', () => {
 
       await writeConfigs(buildWriteConfig(tempDir));
 
-      expect(fs.lchownSync).toHaveBeenCalledWith(ghAwRoot, 1000, 1000);
-      expect(fs.lchownSync).toHaveBeenCalledWith(mcpConfigDir, 1000, 1000);
-      expect(fs.lchownSync).toHaveBeenCalledWith(mcpConfigPath, 1000, 1000);
+      expect(execa.sync).toHaveBeenCalledWith(
+        'chown',
+        ['-h', '-P', '-R', '--', '1000:1000', ghAwRoot],
+        expect.objectContaining({ reject: false })
+      );
     });
 
     it('throws when workDir path exists but is not a directory', async () => {

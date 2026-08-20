@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as yaml from 'js-yaml';
+import execa from 'execa';
 import { WrapperConfig, API_PROXY_PORTS, DockerComposeConfig } from './types';
 import { logger } from './logger';
 import { generatePolicyManifest, generateSquidConfig } from './squid-config';
@@ -75,20 +76,30 @@ function isWritable(dirPath: string): boolean {
   }
 }
 
+/**
+ * Recursively transfers ownership of `targetPath` without ever dereferencing a
+ * symbolic link.
+ *
+ * Delegates to coreutils `chown`, whose recursive mode performs a physical
+ * (`-P`) descriptor-relative traversal. Re-implementing the walk in JavaScript
+ * would be racy: Node exposes no `openat`/`fchownat`, so every recursion step
+ * has to re-resolve a pathname that a process running as the target uid can
+ * swap for a symlink between the check and the chown.
+ */
 function chownTreeWithoutFollowingSymlink(targetPath: string, uid: number, gid: number): void {
-  const stat = fs.lstatSync(targetPath);
-  if (typeof fs.lchownSync === 'function') {
-    fs.lchownSync(targetPath, uid, gid);
-  } else if (!stat.isSymbolicLink()) {
-    fs.chownSync(targetPath, uid, gid);
-  }
+  // Built from numbers validated by the caller; passed as a single argv entry.
+  const ownerSpec = [uid, gid].join(':');
+  const result = execa.sync(
+    'chown',
+    // -h: act on symlinks themselves, -P: never traverse symlinks, -R: recurse,
+    // --: stop option parsing so paths are never interpreted as flags.
+    ['-h', '-P', '-R', '--', ownerSpec, targetPath],
+    { reject: false }
+  );
 
-  if (!stat.isDirectory() || stat.isSymbolicLink()) {
-    return;
-  }
-
-  for (const entry of fs.readdirSync(targetPath)) {
-    chownTreeWithoutFollowingSymlink(path.join(targetPath, entry), uid, gid);
+  if (result.exitCode !== 0) {
+    const detail = result.stderr?.trim() || result.stdout?.trim() || `exit ${result.exitCode}`;
+    throw new Error(detail);
   }
 }
 
