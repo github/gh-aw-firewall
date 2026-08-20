@@ -107,6 +107,19 @@ describe('self-hosted runner doctor workflow config', () => {
       expect(content).toContain('The upstream installer/harness mismatch remains open in github/gh-aw-firewall#7130.');
       expect(content).toContain('**Older AWF only:**');
       expect(content).not.toContain('Not an AWF defect.');
+      // B17 update: PR #7499 replaces DNS filtering with DNS preservation
+      expect(content).toContain('**Behavior changed again in AWF (PR github/gh-aw-firewall#7499, merged 2026-08-19):**');
+      expect(content).toContain('`filterForNetworkIsolation()` now preserves all detected/explicit DNS servers unchanged in network-isolation mode');
+      expect(content).toContain('Fallback to `DEFAULT_DNS_SERVERS` now only occurs when host DNS auto-detection fails to find *any* resolver, not based on resolver classification.');
+      expect(content).toContain('github/gh-aw-firewall#7495, github/gh-aw-firewall#7499');
+      expect(content).not.toContain('**Further refined in AWF (PR github/gh-aw-firewall#7188, merged 2026-08-10):** resolver filtering is now reachability-probed');
+      // B24 new failure mode (native-root without SUDO_UID leaves gh-aw config unreadable)
+      expect(content).toContain('| B24 | Repeated `EACCES` retries from the harness reading `${RUNNER_TEMP}/gh-aw/mcp-config/mcp-servers.json`');
+      expect(content).toContain('**Fixed in AWF (PR github/gh-aw-firewall#7565, merged 2026-08-20):**');
+      expect(content).toContain('`isNativeRootWithoutSudo()`');
+      expect(content).toContain('`repairRunnerTempGhAwOwnership()`');
+      expect(content).toContain('github/gh-aw-firewall#7564, github/gh-aw-firewall#7565');
+      expect(content).toContain('| `EACCES` retries reading `${RUNNER_TEMP}/gh-aw/mcp-config/mcp-servers.json` (or similar `${RUNNER_TEMP}/gh-aw` paths) when AWF was invoked as native root (no `sudo`) | B24');
     }
 
     expect(source).toContain('- `unknown shorthand flag: \'d\' in -d` from `docker compose up -d` → A14 (DinD sidecar missing `docker-compose-plugin`)');
@@ -137,5 +150,9 @@ describe('self-hosted runner doctor workflow config', () => {
     expect(source).toContain('B23 / github/gh-aw-firewall#7130 (still open), github/gh-aw-firewall#7147, github/gh-aw-firewall#7151, github/gh-aw-firewall#7245');
     expect(source).toContain('**Fixed on the AWF side (PR github/gh-aw-firewall#7245, merged 2026-08-11):**');
     expect(portableAgent).toContain('**Fixed on the AWF side (PR github/gh-aw-firewall#7245, merged 2026-08-11):**');
+    for (const playbook of [source, portableAgent]) {
+      expect(playbook).toContain('- Repeated `EACCES` retries reading `${RUNNER_TEMP}/gh-aw/mcp-config/mcp-servers.json` (or similar `${RUNNER_TEMP}/gh-aw` paths) when AWF was invoked as native root (no `sudo`) → B24 (root fallback to sandbox uid 1000 leaves root-owned config unreadable; fixed in github/gh-aw-firewall#7565 with `repairRunnerTempGhAwOwnership()`)');
+      expect(playbook).toContain('B24 / github/gh-aw-firewall#7564, github/gh-aw-firewall#7565 — On native-root runners');
+    }
   });
 });
