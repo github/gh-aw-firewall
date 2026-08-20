@@ -58,9 +58,9 @@ jobs:
           persist-credentials: false
 
       - name: Install gh-aw
-        uses: github/gh-aw-actions/setup-cli@b77e0d501fd2d2243d1f72722617e80d513f674e # v0.87.0
+        uses: github/gh-aw-actions/setup-cli@423b3dc04bbf1b1797194a4a75aa5cf5d0d4f5b3 # v0.87.1
         with:
-          version: v0.87.0
+          version: v0.87.1
 
       - name: Compile + generate SBOMs (Syft)
         env:
