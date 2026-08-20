@@ -282,9 +282,9 @@ describe('redactDockerComposeSecrets — secret-derived endpoint values', () => 
     };
 
     const result = redactDockerComposeSecrets(compose as any, [
-      'https://lb.internal.example.com',
-      'lb.internal.example.com:443',
-      'lb.internal.example.com',
+      'https://lb\\.internal\\.example\\.com',
+      'lb\\.internal\\.example\\.com:443',
+      'lb\\.internal\\.example\\.com',
     ]);
 
     const environment = (result.services['api-proxy'] as any).environment;
