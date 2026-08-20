@@ -170,6 +170,27 @@ describe('config-writer: writeAuditArtifacts — non-directory auditDir (line 16
     ).toThrow(`Expected directory but found non-directory path: ${auditPath}`);
   });
 
+  it('redacts secret-derived endpoint hosts from the audited squid.conf', () => {
+    fsMock.lstatSync.mockReturnValue({ isSymbolicLink: () => false } as fs.Stats);
+    fsMock.statSync.mockReturnValue({ isDirectory: () => true } as fs.Stats);
+    fsMock.writeFileSync.mockClear();
+
+    const squidConfig = 'acl allowed_domains dstdomain .lb.secret.example.com';
+    writeAuditArtifacts(
+      makeConfig('/tmp/test-workdir', { sensitiveAllowedDomains: ['https://lb.secret.example.com'] }),
+      {} as any,
+      { services: {}, version: '3' } as any,
+      squidConfig
+    );
+
+    const squidWrite = fsMock.writeFileSync.mock.calls.find(
+      (call) => typeof call[0] === 'string' && (call[0] as string).endsWith('squid.conf')
+    );
+    expect(squidWrite).toBeDefined();
+    expect(squidWrite![1]).not.toContain('lb.secret.example.com');
+    expect(squidWrite![1]).toContain('[REDACTED]');
+  });
+
   it('writes audit artifacts when auditDir is valid', () => {
     fsMock.lstatSync.mockReturnValue({ isSymbolicLink: () => false } as fs.Stats);
     fsMock.statSync.mockReturnValue({ isDirectory: () => true } as fs.Stats);
