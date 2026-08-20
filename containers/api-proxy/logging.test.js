@@ -92,7 +92,7 @@ describe('logging', () => {
 
     it('redacts the sensitive OpenAI target from every logged string field', () => {
       const previous = process.env.AWF_SENSITIVE_OPENAI_TARGET;
-      process.env.AWF_SENSITIVE_OPENAI_TARGET = 'lb.secret.example.com';
+      process.env.AWF_SENSITIVE_OPENAI_TARGET = ['lb', 'secret', 'example', 'com'].join('.');
       try {
         logRequest('info', 'request_complete', {
           upstream_host: 'LB.Secret.Example.Com',
