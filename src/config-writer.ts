@@ -1,4 +1,5 @@
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import * as yaml from 'js-yaml';
 import execa from 'execa';
@@ -280,6 +281,15 @@ function writeAuditArtifacts(
   squidDnsServers?: string[]
 ): void {
   const auditDir = config.auditDir || path.join(config.workDir, 'audit');
+  const resolvedAuditDir = path.resolve(auditDir);
+  const resolvedTmpDir = path.resolve(os.tmpdir());
+  const auditDirInTmp =
+    resolvedAuditDir === resolvedTmpDir ||
+    resolvedAuditDir.startsWith(`${resolvedTmpDir}${path.sep}`);
+  if (auditDirInTmp) {
+    throw new Error(`Refusing to write audit artifacts in OS temp directory: ${auditDir}`);
+  }
+
   fs.mkdirSync(auditDir, { recursive: true, mode: 0o755 });
   const auditDirLstat = fs.lstatSync(auditDir);
   if (auditDirLstat.isSymbolicLink()) {
