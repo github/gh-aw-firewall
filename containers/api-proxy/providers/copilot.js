@@ -34,12 +34,35 @@ const {
   resolveCopilotAuthToken,
   deriveCopilotApiTarget,
   copilotTargetRequiresGitHubTokenPrefix,
+  isGithubCopilotCatalogTarget,
 } = require('./copilot-auth');
 const { bearerAuthHeaders, withCopilotIntegration } = require('./auth-headers');
 const { URL } = require('url');
 const { COPILOT_ENV } = require('../provider-env-constants');
 
 const COPILOT_MODELS_API_VERSION = '2026-07-01';
+const COPILOT_LEGACY_AUTO_API_VERSION = '2025-07-16';
+const COPILOT_AUTO_API_VERSION = '2026-08-01';
+
+function hasRequestHeader(req, name) {
+  return Object.keys(req.headers || {}).some(header => header.toLowerCase() === name.toLowerCase());
+}
+
+function getDefaultAutoApiVersion(req, pathname, rawTarget) {
+  if (
+    req.method !== 'POST'
+    || hasRequestHeader(req, 'x-github-api-version')
+    || !isGithubCopilotCatalogTarget(rawTarget)
+  ) {
+    return undefined;
+  }
+
+  if (pathname === '/auto') return COPILOT_AUTO_API_VERSION;
+  if (pathname === '/models/session' || pathname === '/models/session/intent') {
+    return COPILOT_LEGACY_AUTO_API_VERSION;
+  }
+  return undefined;
+}
 
 /**
  * Create the GitHub Copilot provider adapter.
@@ -261,7 +284,12 @@ function createCopilotAdapter(env, deps = {}) {
         return withCopilotIntegration({ 'Authorization': prefix + ' ' + githubToken }, integrationId);
       }
 
-      return resolveHeaders();
+      const headers = resolveHeaders();
+      const autoApiVersion = getDefaultAutoApiVersion(req, reqPathname, rawTarget);
+      if (autoApiVersion) {
+        headers['X-GitHub-Api-Version'] = autoApiVersion;
+      }
+      return headers;
     },
   });
 }

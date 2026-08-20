@@ -195,6 +195,38 @@ describe('createCopilotAdapter — BYOK getAuthHeaders', () => {
     expect(config.apiVersion).toBe('2026-07-01');
   });
 
+  it.each([
+    ['/auto', '2026-08-01'],
+    ['/models/session', '2025-07-16'],
+    ['/models/session/intent', '2025-07-16'],
+  ])('injects the required API version for POST %s', (url, expectedVersion) => {
+    const adapter = createCopilotAdapter({ COPILOT_GITHUB_TOKEN: githubToken });
+    const headers = adapter.getAuthHeaders({ url, method: 'POST', headers: {} });
+
+    expect(headers['X-GitHub-Api-Version']).toBe(expectedVersion);
+  });
+
+  it('preserves a caller-supplied API version for /auto', () => {
+    const adapter = createCopilotAdapter({ COPILOT_GITHUB_TOKEN: githubToken });
+    const headers = adapter.getAuthHeaders({
+      url: '/auto',
+      method: 'POST',
+      headers: { 'x-github-api-version': '2027-01-01' },
+    });
+
+    expect(headers['X-GitHub-Api-Version']).toBeUndefined();
+  });
+
+  it('does not inject GitHub API versions into custom BYOK targets', () => {
+    const adapter = createCopilotAdapter({
+      COPILOT_PROVIDER_API_KEY: byokKey,
+      COPILOT_API_TARGET: 'router.example.com',
+    });
+    const headers = adapter.getAuthHeaders({ url: '/auto', method: 'POST', headers: {} });
+
+    expect(headers['X-GitHub-Api-Version']).toBeUndefined();
+  });
+
   it('uses COPILOT_PROVIDER_API_KEY (not COPILOT_GITHUB_TOKEN) for inference in BYOK+token mode', () => {
     const adapter = createCopilotAdapter({
       COPILOT_GITHUB_TOKEN: githubToken,
