@@ -10,6 +10,7 @@ import { generateSessionCa, initSslDb, isOpenSslAvailable } from './ssl-bump';
 import { parseUrlPatterns } from './domain-matchers';
 import { SslConfig, SQUID_PORT } from './host-env';
 import { generateDockerCompose, redactDockerComposeSecrets } from './compose-generator';
+import { deriveSensitiveEndpointForms, redactSensitiveValues } from './redact-secrets';
 import { resolveLogPaths } from './log-paths';
 import { DEFAULT_DNS_SERVERS, filterForNetworkIsolation } from './dns-resolver';
 import { getSafeHostGid, getSafeHostUid } from './host-identity';
@@ -290,11 +291,20 @@ function writeAuditArtifacts(
   }
   fs.chmodSync(auditDir, 0o755);
 
-  // Save squid.conf for audit (no secrets — just domain ACLs and proxy config)
-  fs.writeFileSync(path.join(auditDir, 'squid.conf'), squidConfig, { mode: 0o644 });
+  // Secret-derived endpoints (e.g. an OpenAI base URL supplied through
+  // `apiProxy.targets.openai.baseUrlEnv`) must never appear in audit artifacts,
+  // so redact their URL/host/host:port forms from the snapshots below.
+  const sensitiveEndpointForms = deriveSensitiveEndpointForms(config.sensitiveAllowedDomains);
+
+  // Save squid.conf for audit (domain ACLs and proxy config, sensitive hosts redacted)
+  fs.writeFileSync(
+    path.join(auditDir, 'squid.conf'),
+    redactSensitiveValues(squidConfig, sensitiveEndpointForms),
+    { mode: 0o644 }
+  );
 
   // Save redacted docker-compose.yml (strip env vars that may contain secrets)
-  const redactedCompose = redactDockerComposeSecrets(dockerCompose);
+  const redactedCompose = redactDockerComposeSecrets(dockerCompose, sensitiveEndpointForms);
   fs.writeFileSync(
     path.join(auditDir, 'docker-compose.redacted.yml'),
     yaml.dump(redactedCompose, { lineWidth: -1 }),

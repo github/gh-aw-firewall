@@ -73,6 +73,14 @@ describe('mapAwfFileConfigToCliOptions', () => {
     expect(result.vertexApiBasePath).toBe('/v1');
   });
 
+  it('maps apiProxy.targets.openai.baseUrlEnv to openaiBaseUrlEnv', () => {
+    const result = mapAwfFileConfigToCliOptions({
+      apiProxy: { targets: { openai: { baseUrlEnv: 'CODEX_LB_BASE_URL' } } },
+    });
+
+    expect(result.openaiBaseUrlEnv).toBe('CODEX_LB_BASE_URL');
+  });
+
   it('maps authHeader fields for openai and anthropic targets', () => {
     const result = mapAwfFileConfigToCliOptions({
       apiProxy: {

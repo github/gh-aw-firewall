@@ -20,6 +20,7 @@ type ApiCredentials = Pick<WrapperConfig,
   | 'copilotApiTarget'
   | 'copilotApiBasePath'
   | 'openaiApiTarget'
+  | 'openaiBaseUrlEnv'
   | 'openaiApiBasePath'
   | 'anthropicApiTarget'
   | 'anthropicApiBasePath'
@@ -67,6 +68,7 @@ export function resolveApiCredentials(
     copilotApiTarget: inputs.resolvedCopilotApiTarget,
     copilotApiBasePath: inputs.resolvedCopilotApiBasePath,
     openaiApiTarget: resolveOptionOrEnv(options, 'openaiApiTarget', OPENAI_ENV.TARGET),
+    openaiBaseUrlEnv: resolveOptionOrEnv(options, 'openaiBaseUrlEnv', 'OPENAI_BASE_URL_ENV'),
     openaiApiBasePath: resolveOptionOrEnv(options, 'openaiApiBasePath', OPENAI_ENV.BASE_PATH),
     anthropicApiTarget: resolveOptionOrEnv(options, 'anthropicApiTarget', ANTHROPIC_ENV.TARGET),
     anthropicApiBasePath: resolveOptionOrEnv(

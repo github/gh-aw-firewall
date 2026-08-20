@@ -355,6 +355,7 @@ These entries document and constrain agent-originated traffic. They do not const
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--openai-api-target <host>` | `api.openai.com` | Custom upstream for OpenAI API requests (e.g. Azure OpenAI or an internal LLM router). Can also be set via `OPENAI_API_TARGET` env var (or `OPENAI_ENDPOINT_OVERRIDE` for runtime secret-backed endpoint injection). |
+| `--openai-base-url-env <name>` | none | Name of a runner environment variable (typically a secret) holding the full OpenAI-compatible base URL. AWF validates it on the runner, derives the sidecar target and base path, allows the host through Squid, hides the variable from the agent, and redacts it from logs and audit artifacts. Config path: `apiProxy.targets.openai.baseUrlEnv`. |
 | `--anthropic-api-target <host>` | `api.anthropic.com` | Custom upstream for Anthropic API requests (e.g. an internal Claude router). Can also be set via `ANTHROPIC_API_TARGET` env var. |
 | `--copilot-api-target <host>` | auto-derived | Custom upstream for GitHub Copilot API requests (useful for GHES). Can also be set via `COPILOT_API_TARGET` env var. |
 | `--gemini-api-target <host>` | `generativelanguage.googleapis.com` | Custom upstream for Gemini API requests. Can also be set via `GEMINI_API_TARGET` env var. |

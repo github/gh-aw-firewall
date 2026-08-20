@@ -190,6 +190,7 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 - `apiProxy.targets.copilot.sessionId` → *(config-only; opt-in `x-session-id` header / `session_id` body field for Copilot BYOK requests, maps to `AWF_PROVIDER_SESSION_ID`. Never auto-derived from `GITHUB_RUN_ID`.)*
 - `apiProxy.targets.openai.basePath` → `--openai-api-base-path`
 - `apiProxy.targets.openai.authHeader` → `--openai-api-auth-header`
+- `apiProxy.targets.openai.baseUrlEnv` → `--openai-base-url-env` *(names a runner environment variable holding a secret OpenAI-compatible base URL; see [§9.7 Secret-Backed OpenAI Target](#97-secret-backed-openai-target))*
 - `apiProxy.targets.anthropic.basePath` → `--anthropic-api-base-path`
 - `apiProxy.targets.anthropic.authHeader` → `--anthropic-api-auth-header`
 - `apiProxy.targets.gemini.basePath` → `--gemini-api-base-path`
@@ -663,6 +664,51 @@ dual-homed onto the external bridge; it forwards solely to the configured DIFC
 host and port and never receives `GITHUB_TOKEN` or `GH_TOKEN`. When the DIFC
 proxy is an attached sibling container already reachable on `awf-net`, no relay
 is created.
+
+### 9.7 Secret-Backed OpenAI Target
+
+`apiProxy.targets.openai.baseUrlEnv` names a **runner** environment variable
+(typically bound to `${{ secrets.* }}` by the gh-aw compiler) whose value is the
+base URL of a private OpenAI-compatible endpoint. This allows `engine: codex`
+workflows to route through a sensitive endpoint without writing the URL into
+workflow source or generated lockfiles.
+
+```json
+{
+  "apiProxy": {
+    "targets": {
+      "openai": {
+        "baseUrlEnv": "CODEX_LB_BASE_URL"
+      }
+    }
+  }
+}
+```
+
+A conforming implementation:
+
+1. MUST read the named variable only in runner-side configuration code, before
+   any container starts.
+2. MUST require an absolute `http(s)` URL and MUST reject embedded credentials
+   (`user:pass@`), query strings, fragments, malformed hosts, unsupported
+   schemes, and non-default ports (the sidecar connects on the scheme's default
+   port).
+3. MUST derive the host, `host:port`, and optional base path from the URL.
+4. MUST add the derived destination to the effective Squid policy without
+   persisting it in repository configuration, and MUST keep it out of
+   `allowedDomains` (it is carried in the sensitive allowlist instead).
+5. MUST configure the OpenAI api-proxy adapter with the derived host
+   (`OPENAI_API_TARGET`) and base path (`OPENAI_API_BASE_PATH`); the derived
+   values take precedence over `apiProxy.targets.openai.host`/`basePath`.
+6. MUST exclude the named variable from the primary agent environment, including
+   under `--env-all`.
+7. MUST redact the URL, host, and `host:port` forms from logs, diagnostics, and
+   uploaded audit artifacts (`squid.conf`, `docker-compose.redacted.yml`).
+8. MUST fail before agent startup, with an error message that does not contain
+   the value, when the variable is unset or invalid.
+
+The same rules apply to agent and detection phases, which share this
+configuration path.
 
 ## 10. Effective Token Budget Enforcement
 

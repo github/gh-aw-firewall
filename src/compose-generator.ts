@@ -6,6 +6,7 @@ import { parseImageTag } from './image-tag';
 import { SslConfig } from './host-env';
 import { getRealUserHome } from './host-identity';
 import { resolveLogPaths } from './log-paths';
+import { redactSensitiveValues } from './redact-secrets';
 import { buildSquidService } from './services/squid-service';
 import { buildAgentEnvironment, buildAgentVolumes, buildAgentService } from './services/agent-service';
 import { assembleOptionalServices } from './services/optional-services';
@@ -218,8 +219,15 @@ export function generateDockerCompose(
 /**
  * Redacts sensitive environment variables from a Docker Compose config for audit logging.
  * Replaces values of env vars that look like secrets (tokens, keys, passwords) with "[REDACTED]".
+ *
+ * @param compose - Compose config to redact (not mutated).
+ * @param sensitiveValues - Additional literal values (e.g. a secret-backed API endpoint
+ *   and its derived host forms) that must be redacted wherever they appear in env values.
  */
-export function redactDockerComposeSecrets(compose: DockerComposeConfig): DockerComposeConfig {
+export function redactDockerComposeSecrets(
+  compose: DockerComposeConfig,
+  sensitiveValues: string[] = []
+): DockerComposeConfig {
   // Match env var names containing sensitive keywords.
   // Uses substring matching (not just suffix) to catch patterns like
   // GOOGLE_APPLICATION_CREDENTIALS, PRIVATE_KEY_PATH, etc.
@@ -231,6 +239,11 @@ export function redactDockerComposeSecrets(compose: DockerComposeConfig): Docker
       for (const key of Object.keys(service.environment)) {
         if (sensitivePatterns.test(key)) {
           (service.environment as Record<string, string>)[key] = '[REDACTED]';
+          continue;
+        }
+        const value = (service.environment as Record<string, string>)[key];
+        if (typeof value === 'string' && sensitiveValues.length > 0) {
+          (service.environment as Record<string, string>)[key] = redactSensitiveValues(value, sensitiveValues);
         }
       }
     }

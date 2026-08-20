@@ -184,6 +184,18 @@ describe('buildExclusionSet', () => {
     });
   });
 
+  describe('when openaiBaseUrlEnv names a secret-backed endpoint', () => {
+    it('excludes the named variable from the agent environment', () => {
+      const config = makeConfig({ enableApiProxy: true, openaiBaseUrlEnv: 'CODEX_LB_BASE_URL' });
+      expect(buildExclusionSet(config).has('CODEX_LB_BASE_URL')).toBe(true);
+    });
+
+    it('excludes the named variable even when the API proxy is disabled', () => {
+      const config = makeConfig({ enableApiProxy: false, openaiBaseUrlEnv: ' CODEX_LB_BASE_URL ' });
+      expect(buildExclusionSet(config).has('CODEX_LB_BASE_URL')).toBe(true);
+    });
+  });
+
   describe('when difcProxyHost is set (DIFC proxy security)', () => {
     const config = makeConfig({ difcProxyHost: 'host.docker.internal:18443' });
 

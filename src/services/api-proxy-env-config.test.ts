@@ -164,6 +164,37 @@ describe('buildProviderRoutingEnv', () => {
     }
   });
 
+  it('routes a secret-backed base URL (openaiBaseUrlEnv) to the sidecar target and base path', () => {
+    const saved = process.env.CODEX_LB_BASE_URL;
+    process.env.CODEX_LB_BASE_URL = 'https://lb.internal.example.com/v1';
+    try {
+      const env = buildProviderRoutingEnv({
+        ...baseConfig,
+        workDir: '/tmp/awf-test',
+        openaiBaseUrlEnv: 'CODEX_LB_BASE_URL',
+      });
+      expect(env.OPENAI_API_TARGET).toBe('lb.internal.example.com');
+      expect(env.OPENAI_API_BASE_PATH).toBe('/v1');
+    } finally {
+      if (saved !== undefined) process.env.CODEX_LB_BASE_URL = saved;
+      else delete process.env.CODEX_LB_BASE_URL;
+    }
+  });
+
+  it('fails fast when the configured openaiBaseUrlEnv variable is unset', () => {
+    const saved = process.env.CODEX_LB_BASE_URL;
+    delete process.env.CODEX_LB_BASE_URL;
+    try {
+      expect(() => buildProviderRoutingEnv({
+        ...baseConfig,
+        workDir: '/tmp/awf-test',
+        openaiBaseUrlEnv: 'CODEX_LB_BASE_URL',
+      })).toThrow(/is not set/);
+    } finally {
+      if (saved !== undefined) process.env.CODEX_LB_BASE_URL = saved;
+    }
+  });
+
   it('prefers OPENAI_ENDPOINT_OVERRIDE from additionalEnv over process.env', () => {
     const saved = process.env.OPENAI_ENDPOINT_OVERRIDE;
     process.env.OPENAI_ENDPOINT_OVERRIDE = 'https://process-env-router.example.com';

@@ -10,6 +10,7 @@ import { resolveCopilotApiRouting } from '../copilot-api-resolver';
 import { resolveApiTargetsToAllowedDomains } from '../api-proxy-config';
 import { resolveTopologyPeerHosts } from '../topology-peers';
 import { readEnvFile } from '../github-env';
+import { resolveOpenAiBaseUrlFromEnv } from '../openai-base-url-env';
 
 /**
  * Resolves the Commander option-value source for a given option name.
@@ -19,8 +20,7 @@ type OptionSourceResolver = (optionName: string) => string | undefined;
 
 /**
  * The result produced by {@link resolveAllowedDomains}.
- */
-interface AllowedDomainsResult {
+ */interface AllowedDomainsResult {
   allowedDomains: string[];
   sensitiveAllowedDomains: string[];
   localhostResult: ReturnType<typeof processLocalhostKeyword>;
@@ -107,6 +107,26 @@ function validateAllowedDomains(domains: string[]): void {
 }
 
 /**
+ * Resolves the secret-backed OpenAI base URL named by `--openai-base-url-env`
+ * (config path `apiProxy.targets.openai.baseUrlEnv`).
+ *
+ * Validation failures abort before any container starts. Error messages never
+ * contain the resolved value.
+ *
+ * @param options - Parsed CLI/config options.
+ * @returns The normalized base URL, or undefined when the feature is not configured.
+ */
+function resolveSecretOpenAiBaseUrl(options: Record<string, unknown>): string | undefined {
+  const envVarName = options.openaiBaseUrlEnv as string | undefined;
+  try {
+    return resolveOpenAiBaseUrlFromEnv(envVarName)?.url;
+  } catch (error) {
+    logger.error(error instanceof Error ? error.message : String(error));
+    process.exit(1);
+  }
+}
+
+/**
  * Resolves the final set of allowed domains by:
  * 1. Parsing `--allow-domains` and `--allow-domains-file` flags
  * 2. Merging `--ruleset-file` YAML domains
@@ -170,7 +190,8 @@ export function resolveAllowedDomains(options: Record<string, unknown>): Allowed
   const additionalEnv = options.additionalEnv as Record<string, string> | undefined;
   const envFilePath = options.envFile as string | undefined;
   const openaiEndpointOverride: string | undefined = (
-    additionalEnv?.['OPENAI_ENDPOINT_OVERRIDE']
+    resolveSecretOpenAiBaseUrl(options)
+    ?? additionalEnv?.['OPENAI_ENDPOINT_OVERRIDE']
     ?? (envFilePath ? readEnvFile(envFilePath)['OPENAI_ENDPOINT_OVERRIDE'] : undefined)
     ?? process.env['OPENAI_ENDPOINT_OVERRIDE']
   ) || undefined;

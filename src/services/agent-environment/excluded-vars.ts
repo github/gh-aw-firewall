@@ -58,6 +58,13 @@ export function buildExclusionSet(config: WrapperConfig): Set<string> {
     excludedEnvVars.add('OPENAI_ENDPOINT_OVERRIDE');
   }
 
+  // A secret-backed OpenAI base URL supplied through
+  // `apiProxy.targets.openai.baseUrlEnv` is resolved on the runner and passed to
+  // the api-proxy sidecar only; the untrusted agent must never see the variable.
+  if (config.openaiBaseUrlEnv?.trim()) {
+    excludedEnvVars.add(config.openaiBaseUrlEnv.trim());
+  }
+
   if (config.difcProxyHost) {
     // Redundant with enableApiProxy block above, kept for explicit documentation:
     // when DIFC proxy handles GitHub auth, tokens must never reach the agent.

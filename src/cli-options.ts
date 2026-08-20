@@ -349,6 +349,10 @@ program
     'Target hostname for OpenAI API requests (default: api.openai.com)',
   )
   .option(
+    '--openai-base-url-env <name>',
+    'Name of a runner environment variable holding a secret OpenAI-compatible base URL',
+  )
+  .option(
     '--openai-api-base-path <path>',
     'Base path prefix for OpenAI API requests (e.g. /serving-endpoints for Databricks)',
   )

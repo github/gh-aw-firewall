@@ -5,6 +5,7 @@ import { getConfigEnvValue, getLowerCaseProcessEnvValue, pickEnvVars } from '../
 import { OPENAI_ENV, ANTHROPIC_ENV, GEMINI_ENV, COPILOT_ENV, VERTEX_ENV, OIDC_AUTH_ENV_VARS, OIDC_AUTH_ENV_MAPPING } from '../api-proxy-env-constants';
 import { NetworkConfig } from './squid-service';
 import { buildNoProxyEnv } from './no-proxy-utils';
+import { resolveOpenAiBaseUrlFromEnv } from '../openai-base-url-env';
 
 const DEFAULT_API_PROXY_SHUTDOWN_TIMEOUT_MS = 8000;
 
@@ -15,7 +16,11 @@ const DEFAULT_API_PROXY_SHUTDOWN_TIMEOUT_MS = 8000;
  */
 export function buildProviderTargetEnv(config: WrapperConfig): Record<string, string> {
   const openAiEndpointOverride = resolveOpenAiEndpointOverride(config);
-  const resolvedOpenAiTarget = config.openaiApiTarget ?? openAiEndpointOverride;
+  const secretOpenAiBaseUrl = resolveOpenAiBaseUrlFromEnv(config.openaiBaseUrlEnv);
+  const resolvedOpenAiTarget = secretOpenAiBaseUrl?.host ?? config.openaiApiTarget ?? openAiEndpointOverride;
+  const resolvedOpenAiBasePath = secretOpenAiBaseUrl
+    ? (secretOpenAiBaseUrl.basePath || undefined)
+    : config.openaiApiBasePath;
   const copilotProviderType = config.copilotProviderType || getConfigEnvValue(config, COPILOT_ENV.PROVIDER_TYPE);
   const copilotProviderBaseUrl = config.copilotProviderBaseUrl || getConfigEnvValue(config, COPILOT_ENV.PROVIDER_BASE_URL);
   const copilotProviderApiKey = config.copilotProviderApiKey;
@@ -24,7 +29,7 @@ export function buildProviderTargetEnv(config: WrapperConfig): Record<string, st
 
   const providers: Array<{ target?: string; basePath?: string; envTarget: string; envBasePath: string; stripTarget?: boolean }> = [
     { target: config.copilotApiTarget, basePath: config.copilotApiBasePath, envTarget: COPILOT_ENV.API_TARGET, envBasePath: COPILOT_ENV.API_BASE_PATH, stripTarget: true },
-    { target: resolvedOpenAiTarget, basePath: config.openaiApiBasePath, envTarget: OPENAI_ENV.TARGET, envBasePath: OPENAI_ENV.BASE_PATH, stripTarget: true },
+    { target: resolvedOpenAiTarget, basePath: resolvedOpenAiBasePath, envTarget: OPENAI_ENV.TARGET, envBasePath: OPENAI_ENV.BASE_PATH, stripTarget: true },
     { target: config.anthropicApiTarget, basePath: config.anthropicApiBasePath, envTarget: ANTHROPIC_ENV.TARGET, envBasePath: ANTHROPIC_ENV.BASE_PATH, stripTarget: true },
     { target: config.geminiApiTarget, basePath: config.geminiApiBasePath, envTarget: GEMINI_ENV.TARGET, envBasePath: GEMINI_ENV.BASE_PATH, stripTarget: true },
     { target: config.vertexApiTarget, basePath: config.vertexApiBasePath, envTarget: VERTEX_ENV.TARGET, envBasePath: VERTEX_ENV.BASE_PATH, stripTarget: true },

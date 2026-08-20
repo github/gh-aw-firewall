@@ -45,7 +45,7 @@ export interface AwfFileConfig {
       baseUrl?: string;
     };
     targets?: {
-      openai?: { host?: string; basePath?: string; authHeader?: string };
+      openai?: { host?: string; basePath?: string; authHeader?: string; baseUrlEnv?: string };
       anthropic?: { host?: string; basePath?: string; authHeader?: string };
       copilot?: {
         host?: string;

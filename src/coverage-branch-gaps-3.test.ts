@@ -265,6 +265,35 @@ describe('redactDockerComposeSecrets — service without environment (line 152)'
   });
 });
 
+describe('redactDockerComposeSecrets — secret-derived endpoint values', () => {
+  it('redacts sensitive endpoint values from non-secret-named env vars', () => {
+    const compose = {
+      services: {
+        'api-proxy': {
+          image: 'api-proxy:latest',
+          environment: {
+            OPENAI_API_TARGET: 'lb.internal.example.com',
+            OPENAI_ENDPOINT_OVERRIDE: 'https://lb.internal.example.com/v1',
+            NORMAL_VAR: 'kept',
+          },
+        },
+      },
+      networks: {},
+    };
+
+    const result = redactDockerComposeSecrets(compose as any, [
+      'https://lb.internal.example.com',
+      'lb.internal.example.com:443',
+      'lb.internal.example.com',
+    ]);
+
+    const environment = (result.services['api-proxy'] as any).environment;
+    expect(environment['OPENAI_API_TARGET']).toBe('[REDACTED]');
+    expect(environment['OPENAI_ENDPOINT_OVERRIDE']).not.toContain('lb.internal.example.com');
+    expect(environment['NORMAL_VAR']).toBe('kept');
+  });
+});
+
 // ─── compose-network.ts — squidService.networks truthy (line 37) ─────────────
 
 import { buildComposeNetworks } from './compose-network';

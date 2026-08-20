@@ -791,6 +791,23 @@ sudo -E awf --enable-api-proxy \
   -- command
 ```
 
+### `--openai-base-url-env <name>`
+
+Name of a **runner** environment variable (typically bound to a secret) whose value is the base URL of a private OpenAI-compatible endpoint. AWF reads and validates the URL on the runner before any container starts, derives the upstream host and base path for the api-proxy sidecar, adds the host to the Squid policy, excludes the variable from the agent environment, and redacts the URL/host/`host:port` forms from logs and audit artifacts.
+
+The value must be an absolute `http(s)` URL without credentials, query string, fragment, or a non-default port. Invalid or missing values fail before agent startup with an error that does not echo the value.
+
+Config path: `apiProxy.targets.openai.baseUrlEnv`. Takes precedence over `--openai-api-target` / `--openai-api-base-path`.
+
+- **Default:** none
+- **Requires:** `--enable-api-proxy`
+
+```bash
+sudo -E awf --enable-api-proxy \
+  --openai-base-url-env CODEX_LB_BASE_URL \
+  -- codex exec "..."
+```
+
 ### `--openai-api-base-path <path>`
 
 Base path prefix prepended to every upstream OpenAI API request path. Use this when the upstream endpoint requires a URL prefix (e.g., Databricks serving endpoints, Azure OpenAI deployments). Can also be set via the `OPENAI_API_BASE_PATH` environment variable.
@@ -1057,6 +1074,7 @@ These variables provide an alternative to the corresponding CLI flags for config
 | `COPILOT_API_TARGET` | `api.githubcopilot.com` | Copilot API endpoint override |
 | `OPENAI_API_TARGET` | `api.openai.com` | OpenAI API endpoint override |
 | `OPENAI_API_BASE_PATH` | _(empty)_ | OpenAI API base path (e.g., `/serving-endpoints`) |
+| `OPENAI_BASE_URL_ENV` | _(unset)_ | Name of the runner variable holding a secret OpenAI-compatible base URL (see `--openai-base-url-env`) |
 | `ANTHROPIC_API_TARGET` | `api.anthropic.com` | Anthropic API endpoint override |
 | `ANTHROPIC_API_BASE_PATH` | _(empty)_ | Anthropic API base path |
 

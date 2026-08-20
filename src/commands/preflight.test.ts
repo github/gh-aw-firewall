@@ -410,6 +410,41 @@ describe('resolveAllowedDomains', () => {
     );
   });
 
+  it('passes the secret-backed base URL from openaiBaseUrlEnv to resolveApiTargetsToAllowedDomains', () => {
+    const saved = process.env.CODEX_LB_BASE_URL;
+    process.env.CODEX_LB_BASE_URL = 'https://lb.internal.example.com/v1';
+    try {
+      resolveAllowedDomains({ openaiBaseUrlEnv: 'CODEX_LB_BASE_URL' });
+      expect(mockedApiProxyConfig.resolveApiTargetsToAllowedDomains).toHaveBeenCalledWith(
+        expect.any(Object),
+        expect.any(Array),
+        expect.any(Object),
+        expect.any(Function),
+        expect.any(Array),
+        'https://lb.internal.example.com/v1',
+      );
+    } finally {
+      if (saved !== undefined) process.env.CODEX_LB_BASE_URL = saved;
+      else delete process.env.CODEX_LB_BASE_URL;
+    }
+  });
+
+  it('exits before startup when the openaiBaseUrlEnv value is invalid', () => {
+    const saved = process.env.CODEX_LB_BASE_URL;
+    process.env.CODEX_LB_BASE_URL = 'ftp://lb.internal.example.com';
+    const exitSpy = jest.spyOn(process, 'exit').mockImplementation(((): never => {
+      throw new Error('process.exit called');
+    }) as never);
+    try {
+      expect(() => resolveAllowedDomains({ openaiBaseUrlEnv: 'CODEX_LB_BASE_URL' })).toThrow('process.exit called');
+      expect(exitSpy).toHaveBeenCalledWith(1);
+    } finally {
+      exitSpy.mockRestore();
+      if (saved !== undefined) process.env.CODEX_LB_BASE_URL = saved;
+      else delete process.env.CODEX_LB_BASE_URL;
+    }
+  });
+
   it('passes undefined openaiEndpointOverride when not set in any source', () => {
     resolveAllowedDomains({});
     expect(mockedApiProxyConfig.resolveApiTargetsToAllowedDomains).toHaveBeenCalledWith(

@@ -137,6 +137,26 @@ export interface ApiProxyRoutingOptions {
   openaiApiTarget?: string;
 
   /**
+   * Name of a runner environment variable holding the OpenAI-compatible base URL.
+   *
+   * The variable is read on the runner (never inside the agent container) and the
+   * resolved URL is validated before containers start. Its host is added to the
+   * sensitive Squid allowlist and configured as the api-proxy OpenAI target, while
+   * the value itself is kept out of the agent environment, logs and artifacts.
+   *
+   * Takes precedence over `openaiApiTarget` / `openaiApiBasePath` when set.
+   *
+   * Can be set via:
+   * - Config path: `apiProxy.targets.openai.baseUrlEnv`
+   * - CLI flag: `--openai-base-url-env <name>`
+   * - Environment variable: `OPENAI_BASE_URL_ENV`
+   *
+   * @default undefined
+   * @example 'CODEX_LB_BASE_URL'
+   */
+  openaiBaseUrlEnv?: string;
+
+  /**
    * Base path prefix for OpenAI API requests (used by API proxy sidecar)
    *
    * When set, this path is prepended to every upstream request path so that
