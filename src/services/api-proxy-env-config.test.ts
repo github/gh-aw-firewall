@@ -175,6 +175,7 @@ describe('buildProviderRoutingEnv', () => {
       });
       expect(env.OPENAI_API_TARGET).toBe('lb.internal.example.com');
       expect(env.OPENAI_API_BASE_PATH).toBe('/v1');
+      expect(env.AWF_SENSITIVE_OPENAI_TARGET).toBe('lb.internal.example.com');
     } finally {
       if (saved !== undefined) process.env.CODEX_LB_BASE_URL = saved;
       else delete process.env.CODEX_LB_BASE_URL;

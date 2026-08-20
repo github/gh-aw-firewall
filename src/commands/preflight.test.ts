@@ -416,15 +416,40 @@ describe('resolveAllowedDomains', () => {
     try {
       resolveAllowedDomains({ openaiBaseUrlEnv: 'CODEX_LB_BASE_URL' });
       expect(mockedApiProxyConfig.resolveApiTargetsToAllowedDomains).toHaveBeenCalledWith(
-        expect.any(Object),
+        expect.objectContaining({ openaiBaseUrl: 'https://lb.internal.example.com/v1' }),
         expect.any(Array),
         expect.any(Object),
         expect.any(Function),
         expect.any(Array),
-        'https://lb.internal.example.com/v1',
+        undefined,
       );
     } finally {
       if (saved !== undefined) process.env.CODEX_LB_BASE_URL = saved;
+      else delete process.env.CODEX_LB_BASE_URL;
+    }
+  });
+
+  it('uses OPENAI_BASE_URL_ENV as the secret-backed URL variable-name fallback', () => {
+    const saved = {
+      envName: process.env.OPENAI_BASE_URL_ENV,
+      baseUrl: process.env.CODEX_LB_BASE_URL,
+    };
+    process.env.OPENAI_BASE_URL_ENV = 'CODEX_LB_BASE_URL';
+    process.env.CODEX_LB_BASE_URL = 'https://lb.internal.example.com/v1';
+    try {
+      resolveAllowedDomains({});
+      expect(mockedApiProxyConfig.resolveApiTargetsToAllowedDomains).toHaveBeenCalledWith(
+        expect.objectContaining({ openaiBaseUrl: 'https://lb.internal.example.com/v1' }),
+        expect.any(Array),
+        expect.any(Object),
+        expect.any(Function),
+        expect.any(Array),
+        undefined,
+      );
+    } finally {
+      if (saved.envName !== undefined) process.env.OPENAI_BASE_URL_ENV = saved.envName;
+      else delete process.env.OPENAI_BASE_URL_ENV;
+      if (saved.baseUrl !== undefined) process.env.CODEX_LB_BASE_URL = saved.baseUrl;
       else delete process.env.CODEX_LB_BASE_URL;
     }
   });

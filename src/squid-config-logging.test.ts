@@ -108,6 +108,21 @@ describe('generateSquidConfig', () => {
       expect(result).not.toContain('log_access');
     });
 
+    it('excludes sensitive domains from both access log formats', () => {
+      const result = generateSquidConfig({
+        domains: ['example.com', 'https://lb.secret.example.com'],
+        sensitiveDomains: ['https://lb.secret.example.com'],
+        port: defaultPort,
+      });
+      expect(result).toContain('acl sensitive_log_domains dstdomain .lb.secret.example.com');
+      expect(result).toContain(
+        'access_log /var/log/squid/access.log firewall_detailed !healthcheck_localhost !sensitive_log_domains'
+      );
+      expect(result).toContain(
+        'access_log /var/log/squid/audit.jsonl audit_jsonl !healthcheck_localhost !sensitive_log_domains'
+      );
+    });
+
     it('should place healthcheck ACL before access_log directive', () => {
       const config: SquidConfig = {
         domains: ['example.com'],

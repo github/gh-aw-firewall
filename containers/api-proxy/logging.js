@@ -39,11 +39,19 @@ function sanitizeForLog(str, maxLen = 200) {
  * @param {object} [fields] - Additional key/value pairs merged into the log line
  */
 function logRequest(level, event, fields = {}) {
+  const sensitiveTarget = (process.env.AWF_SENSITIVE_OPENAI_TARGET || '').trim();
+  const redact = (value) => {
+    if (!sensitiveTarget || typeof value !== 'string') return value;
+    return value.replace(
+      new RegExp(sensitiveTarget.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'),
+      '[REDACTED]'
+    );
+  };
   const line = {
     timestamp: new Date().toISOString(),
     level,
     event,
-    ...fields,
+    ...Object.fromEntries(Object.entries(fields).map(([key, value]) => [key, redact(value)])),
   };
   // Single JSON line to stdout — tee handles file persistence
   process.stdout.write(JSON.stringify(line) + '\n');

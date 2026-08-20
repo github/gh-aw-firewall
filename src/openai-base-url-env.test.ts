@@ -21,13 +21,13 @@ describe('resolveOpenAiBaseUrlFromEnv', () => {
     });
   });
 
-  it('derives an empty base path for root URLs and supports http', () => {
-    const resolved = resolveOpenAiBaseUrlFromEnv(VAR, { [VAR]: 'http://lb.internal/' });
+  it('derives an empty base path for root URLs', () => {
+    const resolved = resolveOpenAiBaseUrlFromEnv(VAR, { [VAR]: 'https://lb.internal/' });
     expect(resolved).toMatchObject({
-      url: 'http://lb.internal',
-      scheme: 'http',
+      url: 'https://lb.internal',
+      scheme: 'https',
       host: 'lb.internal',
-      hostPort: 'lb.internal:80',
+      hostPort: 'lb.internal:443',
       basePath: '',
     });
   });
@@ -67,6 +67,12 @@ describe('resolveOpenAiBaseUrlFromEnv', () => {
   it('rejects unsupported schemes', () => {
     expect(() => resolveOpenAiBaseUrlFromEnv(VAR, { [VAR]: 'ftp://lb.internal' })).toThrow(
       /unsupported URL scheme/
+    );
+  });
+
+  it('rejects http because the sidecar only supports HTTPS upstreams', () => {
+    expect(() => resolveOpenAiBaseUrlFromEnv(VAR, { [VAR]: 'http://lb.internal' })).toThrow(
+      /Only https:\/\/ endpoints are supported/
     );
   });
 

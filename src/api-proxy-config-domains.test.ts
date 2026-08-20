@@ -64,6 +64,21 @@ describe('resolveApiTargetsToAllowedDomains', () => {
     expect(sensitive).toContain('https://secret.openai.internal');
   });
 
+  it('prefers a secret-backed OpenAI base URL over configured and environment targets', () => {
+    const domains: string[] = [];
+    const sensitive: string[] = [];
+    resolveApiTargetsToAllowedDomains(
+      { openaiBaseUrl: 'https://secret.openai.internal/v1', openaiApiTarget: 'configured.openai.com' },
+      domains,
+      { OPENAI_API_TARGET: 'env.openai.com' },
+      () => {},
+      sensitive,
+    );
+    expect(sensitive).toContain('https://secret.openai.internal');
+    expect(domains).not.toContain('https://configured.openai.com');
+    expect(domains).not.toContain('https://env.openai.com');
+  });
+
   it('should use pre-resolved openaiEndpointOverride param over env fallback', () => {
     const domains: string[] = [];
     const sensitive: string[] = [];

@@ -90,6 +90,23 @@ describe('logging', () => {
       expect(parsed.provider).toBe('openai');
     });
 
+    it('redacts the sensitive OpenAI target from every logged string field', () => {
+      const previous = process.env.AWF_SENSITIVE_OPENAI_TARGET;
+      process.env.AWF_SENSITIVE_OPENAI_TARGET = 'lb.secret.example.com';
+      try {
+        logRequest('info', 'request_complete', {
+          upstream_host: 'LB.Secret.Example.Com',
+          message: 'Custom target lb.secret.example.com; validation skipped',
+        });
+        const parsed = JSON.parse(stdoutSpy.mock.calls[0][0]);
+        expect(JSON.stringify(parsed)).not.toContain('secret.example.com');
+        expect(parsed.upstream_host).toBe('[REDACTED]');
+      } finally {
+        if (previous === undefined) delete process.env.AWF_SENSITIVE_OPENAI_TARGET;
+        else process.env.AWF_SENSITIVE_OPENAI_TARGET = previous;
+      }
+    });
+
     it('should not include undefined fields', () => {
       logRequest('info', 'test', { a: undefined, b: 'value' });
       const parsed = JSON.parse(stdoutSpy.mock.calls[0][0]);

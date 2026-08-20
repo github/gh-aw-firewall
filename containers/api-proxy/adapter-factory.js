@@ -139,7 +139,7 @@ function createAdapterMethods(opts) {
     if (skip) return skip;
     if (!credentialConfigured) return null;
     if (defaultTarget && rawTarget !== defaultTarget) {
-      return { skip: true, reason: `Custom target ${rawTarget}; validation skipped` };
+      return { skip: true, reason: 'Custom target; validation skipped' };
     }
     return {
       url: `https://${rawTarget}${validationPath}`,

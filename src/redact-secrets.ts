@@ -49,7 +49,10 @@ export function redactSensitiveValues(text: string, values: string[]): string {
   let result = text;
   for (const value of values) {
     if (!value) continue;
-    result = result.split(value).join('[REDACTED]');
+    result = result.replace(
+      new RegExp(value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'),
+      '[REDACTED]'
+    );
   }
   return result;
 }

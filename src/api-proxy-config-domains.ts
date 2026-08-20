@@ -117,6 +117,8 @@ function extractGhesDomainsFromEngineApiTarget(
 export function resolveApiTargetsToAllowedDomains(
   options: {
     copilotApiTarget?: string;
+    /** Secret-backed OpenAI endpoint, which takes precedence over every other target source. */
+    openaiBaseUrl?: string;
     openaiApiTarget?: string;
     anthropicApiTarget?: string;
     geminiApiTarget?: string;
@@ -136,7 +138,9 @@ export function resolveApiTargetsToAllowedDomains(
     apiTargets.push({ value: env['COPILOT_API_TARGET'] });
   }
 
-  if (options.openaiApiTarget) {
+  if (options.openaiBaseUrl) {
+    apiTargets.push({ value: options.openaiBaseUrl, sensitive: true });
+  } else if (options.openaiApiTarget) {
     apiTargets.push({ value: options.openaiApiTarget });
   } else if (env['OPENAI_API_TARGET']) {
     apiTargets.push({ value: env['OPENAI_API_TARGET'] });

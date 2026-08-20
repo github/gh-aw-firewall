@@ -39,6 +39,9 @@ export function buildProviderTargetEnv(config: WrapperConfig): Record<string, st
     if (target) env[envTarget] = stripTarget ? stripScheme(target) : target;
     if (basePath) env[envBasePath] = basePath;
   }
+  if (secretOpenAiBaseUrl) {
+    env.AWF_SENSITIVE_OPENAI_TARGET = secretOpenAiBaseUrl.host;
+  }
 
   // Copilot-specific provider passthrough
   if (copilotProviderType) env[COPILOT_ENV.PROVIDER_TYPE] = copilotProviderType;

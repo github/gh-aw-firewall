@@ -117,7 +117,7 @@ function validateAllowedDomains(domains: string[]): void {
  * @returns The normalized base URL, or undefined when the feature is not configured.
  */
 function resolveSecretOpenAiBaseUrl(options: Record<string, unknown>): string | undefined {
-  const envVarName = options.openaiBaseUrlEnv as string | undefined;
+  const envVarName = (options.openaiBaseUrlEnv as string | undefined) ?? process.env.OPENAI_BASE_URL_ENV;
   try {
     return resolveOpenAiBaseUrlFromEnv(envVarName)?.url;
   } catch (error) {
@@ -189,9 +189,9 @@ export function resolveAllowedDomains(options: Record<string, unknown>): Allowed
   // Priority matches getConfigEnvValue: additionalEnv > envFile > process.env.
   const additionalEnv = options.additionalEnv as Record<string, string> | undefined;
   const envFilePath = options.envFile as string | undefined;
+  const secretOpenAiBaseUrl = resolveSecretOpenAiBaseUrl(options);
   const openaiEndpointOverride: string | undefined = (
-    resolveSecretOpenAiBaseUrl(options)
-    ?? additionalEnv?.['OPENAI_ENDPOINT_OVERRIDE']
+    additionalEnv?.['OPENAI_ENDPOINT_OVERRIDE']
     ?? (envFilePath ? readEnvFile(envFilePath)['OPENAI_ENDPOINT_OVERRIDE'] : undefined)
     ?? process.env['OPENAI_ENDPOINT_OVERRIDE']
   ) || undefined;
@@ -203,6 +203,7 @@ export function resolveAllowedDomains(options: Record<string, unknown>): Allowed
   resolveApiTargetsToAllowedDomains(
     {
       copilotApiTarget: resolvedCopilotApiTarget,
+      openaiBaseUrl: secretOpenAiBaseUrl,
       openaiApiTarget: options.openaiApiTarget as string | undefined,
       anthropicApiTarget: options.anthropicApiTarget as string | undefined,
       geminiApiTarget: options.geminiApiTarget as string | undefined,

@@ -795,7 +795,7 @@ sudo -E awf --enable-api-proxy \
 
 Name of a **runner** environment variable (typically bound to a secret) whose value is the base URL of a private OpenAI-compatible endpoint. AWF reads and validates the URL on the runner before any container starts, derives the upstream host and base path for the api-proxy sidecar, adds the host to the Squid policy, excludes the variable from the agent environment, and redacts the URL/host/`host:port` forms from logs and audit artifacts.
 
-The value must be an absolute `http(s)` URL without credentials, query string, fragment, or a non-default port. Invalid or missing values fail before agent startup with an error that does not echo the value.
+The value must be an absolute `https://` URL without credentials, query string, fragment, or a non-default port. Invalid or missing values fail before agent startup with an error that does not echo the value.
 
 Config path: `apiProxy.targets.openai.baseUrlEnv`. Takes precedence over `--openai-api-target` / `--openai-api-base-path`.
 

@@ -32,11 +32,12 @@ const { version: AWF_VERSION } = require('../../package.json') as { version: str
  * // Blocked: internal.example.com -> acl blocked_domains dstdomain .internal.example.com
  */
 export function generateSquidConfig(config: SquidConfig): string {
-  const { domains, blockedDomains, port, sslBump, caFiles, sslDbPath, urlPatterns, enableHostAccess, allowHostPorts, enableDlp, dnsServers, upstreamProxy, apiProxyIp, apiProxyPorts, topologyPeers } = config;
+  const { domains, sensitiveDomains, blockedDomains, port, sslBump, caFiles, sslDbPath, urlPatterns, enableHostAccess, allowHostPorts, enableDlp, dnsServers, upstreamProxy, apiProxyIp, apiProxyPorts, topologyPeers } = config;
 
   validateApiProxyIp(apiProxyIp);
 
   const { domainsByProto, patternsByProto } = parseDomainConfig(domains);
+  const { domainsByProto: sensitiveDomainsByProto } = parseDomainConfig(sensitiveDomains ?? []);
   const { aclLines, blockedDomainConfig } = generateAclSections(domainsByProto, patternsByProto, blockedDomains);
   const { accessRulesSection, denyRule } = generateAccessRules(
     domainsByProto,
@@ -51,6 +52,14 @@ export function generateSquidConfig(config: SquidConfig): string {
   allAclLines.push(...aclLines);
 
   const aclSection = allAclLines.length > 0 ? allAclLines.join('\n') : '# No domains configured';
+  const sensitiveLogAcl = [
+    ...sensitiveDomainsByProto.http,
+    ...sensitiveDomainsByProto.https,
+    ...sensitiveDomainsByProto.both,
+  ].map((domain) => `.${domain.replace(/^\./, '')}`);
+  const sensitiveLogAclSection = sensitiveLogAcl.length > 0
+    ? `acl sensitive_log_domains dstdomain ${sensitiveLogAcl.join(' ')}`
+    : '';
   const {
     dlpAclSection,
     dlpAccessSection,
@@ -103,8 +112,9 @@ logformat audit_jsonl {"_schema":"audit/v${AWF_VERSION}","timestamp":"%{%Y-%m-%d
 # Access log and cache configuration
 # Don't log healthcheck probes from localhost (using ACL filter on access_log)
 acl healthcheck_localhost src 127.0.0.1 ::1
-access_log /var/log/squid/access.log firewall_detailed !healthcheck_localhost
-access_log /var/log/squid/audit.jsonl audit_jsonl !healthcheck_localhost
+${sensitiveLogAclSection}
+access_log /var/log/squid/access.log firewall_detailed !healthcheck_localhost ${sensitiveLogAcl.length > 0 ? '!sensitive_log_domains' : ''}
+access_log /var/log/squid/audit.jsonl audit_jsonl !healthcheck_localhost ${sensitiveLogAcl.length > 0 ? '!sensitive_log_domains' : ''}
 cache_log /var/log/squid/cache.log
 cache deny all
 

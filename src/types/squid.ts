@@ -22,6 +22,11 @@ export interface SquidConfig {
   domains: string[];
 
   /**
+   * Sensitive domains which are allowed but excluded from Squid access logs.
+   */
+  sensitiveDomains?: string[];
+
+  /**
    * List of blocked domains for proxy access
    * 
    * These domains are explicitly denied. Blocked domains take precedence over

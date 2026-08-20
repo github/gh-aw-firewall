@@ -21,8 +21,8 @@ export interface ResolvedOpenAiBaseUrl {
   envVarName: string;
   /** Normalized base URL (scheme + host + optional base path, no trailing slash). */
   url: string;
-  /** URL scheme (`http` or `https`). */
-  scheme: 'http' | 'https';
+  /** URL scheme (`https`). */
+  scheme: 'https';
   /** Hostname without port. */
   host: string;
   /** Hostname with the effective port (explicit or scheme default). */
@@ -90,10 +90,10 @@ export function resolveOpenAiBaseUrlFromEnv(
     );
   }
 
-  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+  if (parsed.protocol !== 'https:') {
     throw new Error(
       `Environment variable "${name}" uses an unsupported URL scheme. ` +
-      'Only http:// and https:// endpoints are supported.'
+      'Only https:// endpoints are supported.'
     );
   }
 
@@ -117,8 +117,8 @@ export function resolveOpenAiBaseUrlFromEnv(
     );
   }
 
-  const scheme: 'http' | 'https' = parsed.protocol === 'http:' ? 'http' : 'https';
-  const defaultPort = scheme === 'https' ? '443' : '80';
+  const scheme = 'https';
+  const defaultPort = '443';
   if (parsed.port && parsed.port !== defaultPort) {
     // The api-proxy sidecar always connects to the target host on the scheme's
     // default port, so a custom port would be silently dropped and misrouted.

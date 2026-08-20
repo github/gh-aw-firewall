@@ -47,4 +47,12 @@ describe('redactSensitiveValues', () => {
   it('returns the input unchanged when no values are supplied', () => {
     expect(redactSensitiveValues('nothing to redact', [])).toBe('nothing to redact');
   });
+
+  it('redacts endpoint forms irrespective of URL or hostname casing', () => {
+    const forms = deriveSensitiveEndpointForms(['https://lb.secret.example.com']);
+    expect(redactSensitiveValues(
+      'OPENAI_ENDPOINT_OVERRIDE=https://LB.Secret.Example.Com/v1',
+      forms
+    )).not.toContain('LB.Secret.Example.Com');
+  });
 });

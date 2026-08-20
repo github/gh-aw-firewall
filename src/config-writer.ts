@@ -404,6 +404,7 @@ export async function writeConfigs(config: WrapperConfig): Promise<void> {
     // all necessary egress without exposing the sensitive hostnames in logs or
     // the audit artifact (where only config.allowedDomains is serialised).
     domains: [...config.allowedDomains, ...(config.sensitiveAllowedDomains ?? [])],
+    sensitiveDomains: config.sensitiveAllowedDomains,
     blockedDomains: config.blockedDomains,
     port: SQUID_PORT,
     sslBump: config.sslBump,
