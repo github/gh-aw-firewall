@@ -255,6 +255,8 @@ fi
 
 run_case blocked-domain 0 \
   '! wget -qO- https://github.com'
+run_case loopback-tcp 0 \
+  'out=/tmp/loopback-tcp; nc -l -p 3002 >"$out" & listener=$!; trap "kill $listener 2>/dev/null || true" EXIT; sleep 1; printf loopback-ok | nc -w 3 127.0.0.1 3002; wait "$listener"; trap - EXIT; grep -q loopback-ok "$out"'
 run_case direct-egress 0 \
   'unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy ALL_PROXY all_proxy; ! wget -qO- https://example.com'
 run_case arbitrary-tcp 0 \

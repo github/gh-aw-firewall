@@ -271,6 +271,7 @@ func configureNetwork(config bootConfig) error {
 func networkSetupCommands(config bootConfig) [][]string {
 	return [][]string{
 		{"link", "set", "dev", "lo", "up"},
+		{"address", "replace", "127.0.0.1/8", "dev", "lo"},
 		{"link", "set", "dev", config.Interface, "up"},
 		{"address", "replace", config.GuestIP.String() + fmt.Sprintf("/%d", config.GuestPrefix), "dev", config.Interface},
 		{"route", "replace", "default", "via", config.Gateway.String(), "dev", config.Interface},

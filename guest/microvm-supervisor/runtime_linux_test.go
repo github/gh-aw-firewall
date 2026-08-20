@@ -70,6 +70,7 @@ func TestNetworkSetupCommandsBringUpLoopbackFirst(t *testing.T) {
 	got := networkSetupCommands(config)
 	want := [][]string{
 		{"link", "set", "dev", "lo", "up"},
+		{"address", "replace", "127.0.0.1/8", "dev", "lo"},
 		{"link", "set", "dev", "eth0", "up"},
 		{"address", "replace", "100.64.0.2/30", "dev", "eth0"},
 		{"route", "replace", "default", "via", "100.64.0.1", "dev", "eth0"},
