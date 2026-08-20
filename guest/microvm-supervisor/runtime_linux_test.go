@@ -3,8 +3,10 @@
 package main
 
 import (
+	"net"
 	"os"
 	"path/filepath"
+	"reflect"
 	"syscall"
 	"testing"
 )
@@ -54,6 +56,26 @@ func TestWorkspaceMountArgsUseExt4Filesystem(t *testing.T) {
 	}
 	if flags != 0 {
 		t.Fatalf("unexpected mount flags: got %d want 0", flags)
+	}
+}
+
+func TestNetworkSetupCommandsBringUpLoopbackFirst(t *testing.T) {
+	config := bootConfig{
+		Interface:   "eth0",
+		GuestIP:     net.ParseIP("100.64.0.2"),
+		GuestPrefix: 30,
+		Gateway:     net.ParseIP("100.64.0.1"),
+	}
+
+	got := networkSetupCommands(config)
+	want := [][]string{
+		{"link", "set", "dev", "lo", "up"},
+		{"link", "set", "dev", "eth0", "up"},
+		{"address", "replace", "100.64.0.2/30", "dev", "eth0"},
+		{"route", "replace", "default", "via", "100.64.0.1", "dev", "eth0"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("network setup commands mismatch:\ngot:  %#v\nwant: %#v", got, want)
 	}
 }
 

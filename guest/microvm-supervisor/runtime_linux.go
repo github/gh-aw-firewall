@@ -260,13 +260,21 @@ func configureNetwork(config bootConfig) error {
 		}
 		return nil
 	}
-	if err := run("link", "set", "dev", config.Interface, "up"); err != nil {
-		return err
+	for _, args := range networkSetupCommands(config) {
+		if err := run(args...); err != nil {
+			return err
+		}
 	}
-	if err := run("address", "replace", config.GuestIP.String()+fmt.Sprintf("/%d", config.GuestPrefix), "dev", config.Interface); err != nil {
-		return err
+	return nil
+}
+
+func networkSetupCommands(config bootConfig) [][]string {
+	return [][]string{
+		{"link", "set", "dev", "lo", "up"},
+		{"link", "set", "dev", config.Interface, "up"},
+		{"address", "replace", config.GuestIP.String() + fmt.Sprintf("/%d", config.GuestPrefix), "dev", config.Interface},
+		{"route", "replace", "default", "via", config.Gateway.String(), "dev", config.Interface},
 	}
-	return run("route", "replace", "default", "via", config.Gateway.String(), "dev", config.Interface)
 }
 
 func ipCommand() (string, error) {

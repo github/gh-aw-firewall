@@ -103,6 +103,10 @@ function harness(overrides: Partial<CloudHypervisorRuntimeBackendDependencies> =
     startInstance: jest.fn(async () => { order.push('vm-start'); }),
     execute: jest.fn()
       .mockImplementationOnce(async () => {
+        order.push('network-ready');
+        return { requestId: 'network-ready', exitCode: 0, signal: null, timedOut: false };
+      })
+      .mockImplementationOnce(async () => {
         order.push('probe');
         return { requestId: 'probe', exitCode: 0, signal: null, timedOut: false };
       })
@@ -200,11 +204,12 @@ describe('Cloud Hypervisor runtime backend', () => {
       'revalidate',
       'vm-config',
       'vm-start',
+      'network-ready',
       'probe',
       'vm-stop',
     ]);
     expect(eligibilitySpy).toHaveBeenCalled();
-    expect(manager.execute).toHaveBeenNthCalledWith(2, expect.objectContaining({
+    expect(manager.execute).toHaveBeenNthCalledWith(3, expect.objectContaining({
       argv: ['/bin/sh', '-lc', 'printf hello'],
       cwd: '/workspace',
       uid: 1000,
@@ -238,7 +243,7 @@ describe('Cloud Hypervisor runtime backend', () => {
       ['awmg-mcpg'],
     );
     expect(manager.execute).toHaveBeenNthCalledWith(
-      1,
+      2,
       expect.objectContaining({
         argv: expect.arrayContaining([
           expect.stringContaining('nc -v -z -w 60 172.30.0.60 8080'),
@@ -285,6 +290,12 @@ describe('Cloud Hypervisor runtime backend', () => {
     manager.execute
       .mockReset()
       .mockResolvedValueOnce({
+        requestId: 'network-ready',
+        exitCode: 0,
+        signal: null,
+        timedOut: false,
+      })
+      .mockResolvedValueOnce({
         requestId: 'probe',
         exitCode: 0,
         signal: null,
@@ -321,17 +332,55 @@ describe('Cloud Hypervisor runtime backend', () => {
 
   it('stops the partial VM when readiness probing fails', async () => {
     const { manager, deps } = harness();
-    manager.execute.mockReset().mockResolvedValue({
-      requestId: 'probe',
-      exitCode: 41,
-      signal: null,
-      timedOut: false,
-    });
+    manager.execute.mockReset()
+      .mockResolvedValueOnce({
+        requestId: 'network-ready', exitCode: 0, signal: null, timedOut: false,
+      })
+      .mockResolvedValue({
+        requestId: 'probe', exitCode: 41, signal: null, timedOut: false,
+      });
     const backend = new CloudHypervisorRuntimeBackend(config(), deps);
 
     await expect(backend.start('/tmp/awf', ['github.com']))
       .rejects.toThrow(/connectivity probe failed/);
     expect(manager.stop).toHaveBeenCalledTimes(1);
+  });
+
+  it('waits with bounded backoff for guest loopback before probing connectivity', async () => {
+    const { manager, deps } = harness();
+    const backend = new CloudHypervisorRuntimeBackend(config(), deps);
+
+    await backend.start('/tmp/awf', ['github.com']);
+
+    const networkReadyCall = manager.execute.mock.calls[0][0];
+    expect(networkReadyCall.argv.slice(0, 2)).toEqual(['/bin/sh', '-c']);
+    expect(networkReadyCall.argv[2]).toContain('ip link show dev lo');
+    expect(networkReadyCall.argv[2]).toContain('while [ "$attempt" -le 5 ]');
+    expect(networkReadyCall.argv[2]).toContain('delay=$((delay * 2))');
+    expect(networkReadyCall.timeoutMs).toBe(15_000);
+    expect(manager.execute.mock.calls[1][0].argv[2]).toContain('nc -v -z');
+    expect(manager.execute.mock.invocationCallOrder[0])
+      .toBeLessThan(manager.execute.mock.invocationCallOrder[1]);
+  });
+
+  it('fails with guest-network-not-ready when loopback stays down', async () => {
+    const { manager, deps } = harness();
+    manager.execute.mockReset().mockResolvedValue({
+      requestId: 'network-ready',
+      exitCode: 1,
+      signal: null,
+      timedOut: false,
+    });
+    const backend = new CloudHypervisorRuntimeBackend(config(), deps);
+
+    await expect(backend.start('/tmp/awf', ['github.com'])).rejects.toThrow(
+      /guest-network-not-ready: Cloud Hypervisor guest loopback interface lo did not become UP/,
+    );
+    expect(manager.execute).toHaveBeenCalledTimes(1);
+    expect(manager.stop).toHaveBeenCalledTimes(1);
+    expect(deps.logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('stage=guest-network-readiness status=failed'),
+    );
   });
 
   it('marks itself stopped after a successful internal cleanup on startup failure, so a later stop() call is a no-op', async () => {
@@ -342,9 +391,13 @@ describe('Cloud Hypervisor runtime backend', () => {
     // time -- harmless on its own (network/cgroup are already cleared),
     // but wasteful and a source of confusion when diagnosing failures.
     const { manager, deps } = harness();
-    manager.execute.mockReset().mockResolvedValue({
-      requestId: 'probe', exitCode: 41, signal: null, timedOut: false,
-    });
+    manager.execute.mockReset()
+      .mockResolvedValueOnce({
+        requestId: 'network-ready', exitCode: 0, signal: null, timedOut: false,
+      })
+      .mockResolvedValue({
+        requestId: 'probe', exitCode: 41, signal: null, timedOut: false,
+      });
     const backend = new CloudHypervisorRuntimeBackend(config(), deps);
 
     await expect(backend.start('/tmp/awf', ['github.com']))
@@ -366,9 +419,13 @@ describe('Cloud Hypervisor runtime backend', () => {
     // (network-diagnostics.txt regressed to "network namespace not set
     // up" after a redundant second collectDiagnostics() call).
     const { manager, deps } = harness();
-    manager.execute.mockReset().mockResolvedValue({
-      requestId: 'probe', exitCode: 41, signal: null, timedOut: false,
-    });
+    manager.execute.mockReset()
+      .mockResolvedValueOnce({
+        requestId: 'network-ready', exitCode: 0, signal: null, timedOut: false,
+      })
+      .mockResolvedValue({
+        requestId: 'probe', exitCode: 41, signal: null, timedOut: false,
+      });
     manager.stop.mockImplementation(async (options?: { beforeCleanup?: () => Promise<void> }) => {
       await options?.beforeCleanup?.();
     });
@@ -392,10 +449,14 @@ describe('Cloud Hypervisor runtime backend', () => {
     // stdout/stderr from the probe execution and surface it in the thrown
     // error for faster live-KVM triage.
     const { manager, deps } = harness();
-    manager.execute.mockReset().mockImplementationOnce(async (request) => {
-      request.stderr?.write('wget: can\'t connect to remote host: Connection refused\n');
-      return { requestId: 'probe', exitCode: 1, signal: null, timedOut: false };
-    });
+    manager.execute.mockReset()
+      .mockResolvedValueOnce({
+        requestId: 'network-ready', exitCode: 0, signal: null, timedOut: false,
+      })
+      .mockImplementationOnce(async (request) => {
+        request.stderr?.write('wget: can\'t connect to remote host: Connection refused\n');
+        return { requestId: 'probe', exitCode: 1, signal: null, timedOut: false };
+      });
     const backend = new CloudHypervisorRuntimeBackend(config(), deps);
 
     await expect(backend.start('/tmp/awf', ['github.com'])).rejects.toThrow(
@@ -411,6 +472,9 @@ describe('Cloud Hypervisor runtime backend', () => {
     // the main probe fails, and its output is folded into the error.
     const { manager, deps } = harness();
     manager.execute.mockReset()
+      .mockResolvedValueOnce({
+        requestId: 'network-ready', exitCode: 0, signal: null, timedOut: false,
+      })
       .mockImplementationOnce(async () => ({
         requestId: 'probe', exitCode: 1, signal: null, timedOut: false,
       }))
@@ -423,8 +487,8 @@ describe('Cloud Hypervisor runtime backend', () => {
     await expect(backend.start('/tmp/awf', ['github.com'])).rejects.toThrow(
       /guest network state: 1: lo: <LOOPBACK,UP>/,
     );
-    expect(manager.execute).toHaveBeenCalledTimes(2);
-    const netDiagCall = manager.execute.mock.calls[1][0];
+    expect(manager.execute).toHaveBeenCalledTimes(3);
+    const netDiagCall = manager.execute.mock.calls[2][0];
     expect(netDiagCall.argv).toEqual(['/bin/sh', '-c', 'ip addr show; echo ---; ip route show; echo ---; ip neigh show']);
   });
 
@@ -434,6 +498,8 @@ describe('Cloud Hypervisor runtime backend', () => {
     // boot reached vsock readiness but the connectivity probe exited 127.
     const { manager, deps } = harness();
     manager.execute.mockReset().mockResolvedValueOnce({
+      requestId: 'network-ready', exitCode: 0, signal: null, timedOut: false,
+    }).mockResolvedValueOnce({
       requestId: 'probe', exitCode: 0, signal: null, timedOut: false,
     }).mockResolvedValueOnce({
       requestId: 'agent', exitCode: 0, signal: null, timedOut: false,
@@ -445,7 +511,7 @@ describe('Cloud Hypervisor runtime backend', () => {
 
     await backend.start('/tmp/awf', ['github.com']);
 
-    const probeCall = manager.execute.mock.calls[0][0];
+    const probeCall = manager.execute.mock.calls[1][0];
     expect(probeCall.argv[0]).toBe('/bin/sh');
     expect(probeCall.argv[1]).toBe('-c');
     const script = probeCall.argv[2] as string;
@@ -471,6 +537,8 @@ describe('Cloud Hypervisor runtime backend', () => {
     // guest boot readiness (see CLOUD_HYPERVISOR_GUEST_READY_MAX_WAIT_MS).
     const { manager, deps } = harness();
     manager.execute.mockReset().mockResolvedValueOnce({
+      requestId: 'network-ready', exitCode: 0, signal: null, timedOut: false,
+    }).mockResolvedValueOnce({
       requestId: 'probe', exitCode: 0, signal: null, timedOut: false,
     }).mockResolvedValueOnce({
       requestId: 'agent', exitCode: 0, signal: null, timedOut: false,
@@ -482,7 +550,7 @@ describe('Cloud Hypervisor runtime backend', () => {
 
     await backend.start('/tmp/awf', ['github.com']);
 
-    const probeCall = manager.execute.mock.calls[0][0];
+    const probeCall = manager.execute.mock.calls[1][0];
     const script = probeCall.argv[2] as string;
     expect(script).toContain('nc -v -z -w 60');
     expect(script).toContain('wget -q -T 20');
@@ -621,6 +689,12 @@ describe('Cloud Hypervisor runtime backend', () => {
     }) => void;
     manager.execute
       .mockReset()
+      .mockResolvedValueOnce({
+        requestId: 'network-ready',
+        exitCode: 0,
+        signal: null,
+        timedOut: false,
+      })
       .mockResolvedValueOnce({
         requestId: 'probe',
         exitCode: 0,
