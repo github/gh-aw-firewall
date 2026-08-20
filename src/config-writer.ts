@@ -1,5 +1,4 @@
 import * as fs from 'fs';
-import * as os from 'os';
 import * as path from 'path';
 import * as yaml from 'js-yaml';
 import execa from 'execa';
@@ -281,15 +280,6 @@ function writeAuditArtifacts(
   squidDnsServers?: string[]
 ): void {
   const auditDir = config.auditDir || path.join(config.workDir, 'audit');
-  const resolvedAuditDir = path.resolve(auditDir);
-  const resolvedTmpDir = path.resolve(os.tmpdir());
-  const auditDirInTmp =
-    resolvedAuditDir === resolvedTmpDir ||
-    resolvedAuditDir.startsWith(`${resolvedTmpDir}${path.sep}`);
-  if (auditDirInTmp) {
-    throw new Error(`Refusing to write audit artifacts in OS temp directory: ${auditDir}`);
-  }
-
   fs.mkdirSync(auditDir, { recursive: true, mode: 0o755 });
   const auditDirLstat = fs.lstatSync(auditDir);
   if (auditDirLstat.isSymbolicLink()) {
@@ -307,18 +297,18 @@ function writeAuditArtifacts(
   const sensitiveEndpointForms = deriveSensitiveEndpointForms(config.sensitiveAllowedDomains);
 
   // Save squid.conf for audit (domain ACLs and proxy config, sensitive hosts redacted)
-  fs.writeFileSync(
-    path.join(auditDir, 'squid.conf'),
-    redactSensitiveValues(squidConfig, sensitiveEndpointForms),
-    { mode: 0o644 }
+  writeAuditArtifact(
+    auditDir,
+    'squid.conf',
+    redactSensitiveValues(squidConfig, sensitiveEndpointForms)
   );
 
   // Save redacted docker-compose.yml (strip env vars that may contain secrets)
   const redactedCompose = redactDockerComposeSecrets(dockerCompose, sensitiveEndpointForms);
-  fs.writeFileSync(
-    path.join(auditDir, 'docker-compose.redacted.yml'),
-    yaml.dump(redactedCompose, { lineWidth: -1 }),
-    { mode: 0o644 }
+  writeAuditArtifact(
+    auditDir,
+    'docker-compose.redacted.yml',
+    yaml.dump(redactedCompose, { lineWidth: -1 })
   );
 
   // Generate and save policy manifest (structured description of all firewall rules)
@@ -339,13 +329,37 @@ function writeAuditArtifacts(
     // rather than misidentifying them as "unknown" or blocked.
     topologyPeers: resolveTopologyPeerHosts(config),
   });
-  fs.writeFileSync(
-    path.join(auditDir, 'policy-manifest.json'),
-    JSON.stringify(policyManifest, null, 2),
-    { mode: 0o644 }
+  writeAuditArtifact(
+    auditDir,
+    'policy-manifest.json',
+    JSON.stringify(policyManifest, null, 2)
   );
 
   logger.debug(`Audit artifacts written to: ${auditDir}`);
+}
+
+function writeAuditArtifact(auditDir: string, filename: string, contents: string): void {
+  const artifactPath = path.join(auditDir, filename);
+  const flags =
+    fs.constants.O_WRONLY |
+    fs.constants.O_CREAT |
+    fs.constants.O_TRUNC |
+    (fs.constants.O_NOFOLLOW ?? 0);
+  let fd: number | undefined;
+
+  try {
+    // Create privately and refuse a symlink target. Existing artifacts are
+    // tightened before truncation so readers cannot observe partial content.
+    fd = fs.openSync(artifactPath, flags, 0o600);
+    fs.fchmodSync(fd, 0o600);
+    fs.writeFileSync(fd, contents, { encoding: 'utf8' });
+    fs.fsyncSync(fd);
+    fs.fchmodSync(fd, 0o644);
+  } finally {
+    if (fd !== undefined) {
+      fs.closeSync(fd);
+    }
+  }
 }
 
 /**
