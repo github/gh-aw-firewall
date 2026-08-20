@@ -516,11 +516,10 @@ export class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBacken
   }
 
   /**
-   * The guest supervisor can accept vsock requests before Linux has brought
-   * loopback up. Absorb that short boot race here so the more expensive
-   * service-connectivity probe only runs once the guest network stack is
-   * usable. The bounded exponential backoff remains inside the guest, avoiding
-   * repeated vsock setup overhead while its vCPU is still being scheduled.
+   * Verify the guest supervisor's network-readiness contract before running
+   * the more expensive service-connectivity probe. Current supervisors bring
+   * loopback up before opening the vsock listener; this bounded check also
+   * fails clearly if a mismatched guest image violates that contract.
    */
   private async waitForGuestNetworkReady(): Promise<void> {
     const manager = this.manager!;
