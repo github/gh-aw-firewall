@@ -110,7 +110,7 @@ describe('self-hosted runner doctor workflow config', () => {
       // B17 update: PR #7499 replaces DNS filtering with DNS preservation
       expect(content).toContain('**Behavior changed again in AWF (PR github/gh-aw-firewall#7499, merged 2026-08-19):**');
       expect(content).toContain('`filterForNetworkIsolation()` now preserves all detected/explicit DNS servers unchanged in network-isolation mode');
-      expect(content).toContain('Fallback to `DEFAULT_DNS_SERVERS` now only occurs when host DNS auto-detection fails to find *any* resolver, not based on resolver classification.');
+      expect(content).toContain('Fallback to `DEFAULT_DNS_SERVERS` now only occurs when host DNS auto-detection finds no usable non-loopback resolver, not based on resolver classification.');
       expect(content).toContain('github/gh-aw-firewall#7495, github/gh-aw-firewall#7499');
       expect(content).not.toContain('**Further refined in AWF (PR github/gh-aw-firewall#7188, merged 2026-08-10):** resolver filtering is now reachability-probed');
       // B24 new failure mode (native-root without SUDO_UID leaves gh-aw config unreadable)
