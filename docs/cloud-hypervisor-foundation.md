@@ -75,8 +75,9 @@ AWF performs these steps for each run:
 6. Create a bounded cgroup v2 leaf and launch Cloud Hypervisor as the invoking
    non-root identity.
 7. Start one sandboxed `virtiofsd` process for each validated export.
-8. Create and boot the VM, connect to the guest supervisor over VSOCK, and
-   probe infrastructure connectivity.
+8. Create and boot the VM, connect to the guest supervisor over VSOCK, verify
+   guest network readiness (loopback interface UP), and probe infrastructure
+   connectivity.
 9. Execute the agent command and propagate its exit code. Timeouts return
    `124`.
 10. Sync and unmount guest filesystems, stop the VM and VMM, reap `virtiofsd`,
@@ -240,6 +241,16 @@ preserved log directory.
 Preserved namespaces and processes continue consuming host resources. Remove
 them only after collecting the diagnostics you need.
 :::
+
+### Guest network readiness timeout
+
+If the guest network readiness check times out (error: `guest-network-not-ready`), the guest's loopback interface did not become UP before the timeout expired. Possible causes:
+
+1. **Guest image mismatch** — The guest supervisor contract requires loopback to be brought up before opening the VSOCK listener. A mismatched or incompatible guest image may violate this ordering.
+2. **Host system issue** — Delays in kernel or KVM initialization may cause the readiness check to timeout. Retry the run; transient delays are sometimes recoverable.
+3. **Supervisor crash** — The guest supervisor may have crashed before initializing networking. Check preserved guest logs under `<workDir>/microvm-images/<runId>/` for supervisor output.
+
+Verify the guest image digest and supervisor version match the build expectation, then retry.
 
 ### Guest cannot reach Squid or the API proxy
 

@@ -184,6 +184,22 @@ When the resolved upstream host is a Copilot host (`githubcopilot.com` or a `*.g
 
 Non-empty inbound values are preserved; empty values and case-variant duplicates are replaced so exactly one instance of each header reaches CAPI. Harnesses that do not send a stable `X-Interaction-Id` themselves (aider, Pi, …) therefore still get prompt-cache hits, and a harness that owns its own session identity can override the value simply by sending the header. There is no AWF-specific override env var for `X-Interaction-Id`: outside GitHub Actions the sidecar mints one UUID per process. Neither header is injected on non-Copilot hosts, so BYOK targets (Azure OpenAI, OpenRouter, …) and the OpenAI/Anthropic/Gemini providers are unaffected.
 
+### Auto API Version Injection (`*.githubcopilot.com` only)
+
+For GitHub Copilot catalog targets, the sidecar auto-selects appropriate `x-github-api-version` headers for certain endpoints to ensure API compatibility:
+
+| Endpoint | HTTP Method | Auto-Selected Version | Notes |
+|----------|-------------|----------------------|-------|
+| `/auto` | POST | `2026-08-01` | Copilot Auto inference endpoint |
+| `/models/session` | POST | `2025-07-16` | Model session initialization |
+| `/models/session/intent` | POST | `2025-07-16` | Model session intent parsing |
+
+**Key behaviors:**
+- Auto-injection applies only to GitHub Copilot targets (`*.githubcopilot.com`); BYOK and non-Copilot targets are unaffected.
+- If the request already includes an `x-github-api-version` header (case-insensitive), it is preserved and auto-injection is skipped.
+- POST requests to other endpoints do not receive auto-injected versions; callers must specify versions for other endpoints if needed.
+- Non-POST requests never receive auto-injected versions.
+
 ### `/models` Endpoint (Special Case)
 
 The `/models` endpoint prefers `COPILOT_GITHUB_TOKEN` (GitHub OAuth) over BYOK keys when both are configured, because model listing is a GitHub platform feature. However, when no GitHub token is available (typical for direct-BYOK/custom targets), `/models` will use the BYOK credential.
