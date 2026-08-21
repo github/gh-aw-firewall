@@ -176,6 +176,7 @@ function buildCleanupFn(
         config.imageRegistry,
         config.imageTag,
         config.agentImage,
+        config.images,
       );
       // Note: We don't remove the firewall network here since it can be reused
       // across multiple runs. Cleanup script will handle removal if needed.

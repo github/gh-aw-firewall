@@ -1,6 +1,7 @@
 import { Command } from 'commander';
 import { logger } from '../logger';
 import { OutputFormat } from '../types';
+import type { ImageManifestConfig } from '../image-resolver';
 
 /**
  * Validates that a format string is one of the allowed values.
@@ -17,6 +18,18 @@ function validateFormat(format: string, validFormats: string[]): void {
 }
 
 /**
+ * Reads the compiler-authorized image manifest from an AWF config file so the
+ * pre-download pulls exactly the pinned references the run will use.
+ */
+async function loadConfiguredImageManifest(
+  configPath?: string,
+): Promise<ImageManifestConfig['images']> {
+  if (!configPath) return undefined;
+  const { loadAwfFileConfig } = await import('../config-file');
+  return loadAwfFileConfig(configPath).container?.images;
+}
+
+/**
  * Module-internal action handler for the `predownload` subcommand.
  */
 async function handlePredownloadAction(options: {
@@ -25,6 +38,7 @@ async function handlePredownloadAction(options: {
   agentImage: string;
   enableApiProxy: boolean;
   difcProxy?: boolean;
+  config?: string;
 }): Promise<void> {
   const { predownloadCommand } = await import('./predownload');
   try {
@@ -34,6 +48,7 @@ async function handlePredownloadAction(options: {
       agentImage: options.agentImage,
       enableApiProxy: options.enableApiProxy,
       difcProxy: options.difcProxy,
+      images: await loadConfiguredImageManifest(options.config),
     });
   } catch (error) {
     const exitCode = (error as Error & { exitCode?: number }).exitCode ?? 1;
@@ -67,6 +82,10 @@ export function registerSubcommands(program: Command): void {
     )
     .option('--enable-api-proxy', 'Also download the API proxy image', false)
     .option('--difc-proxy', 'Also download the CLI proxy image (for --difc-proxy-host)', false)
+    .option(
+      '--config <path>',
+      'AWF config file; when it declares container.images, only those pinned references are pulled'
+    )
     .action(handlePredownloadAction);
 
   // Logs subcommand - view Squid proxy logs

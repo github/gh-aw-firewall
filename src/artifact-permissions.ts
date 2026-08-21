@@ -3,6 +3,7 @@ import * as path from 'path';
 import execa from 'execa';
 import { getSafeHostGid, getSafeHostUid } from './host-identity';
 import { parseImageTag } from './image-tag';
+import { agentImageRole, resolveRuntimeImageFor, type ImageManifestConfig } from './image-resolver';
 import { logger } from './logger';
 import { applyHostPathPrefixToVolumes } from './services/host-path-prefix';
 import { getLocalDockerEnv } from './docker-host';
@@ -40,15 +41,51 @@ export function isBenignArtifactPermissionError(error: unknown): boolean {
   );
 }
 
-function resolvePermFixerImageRef(imageRegistry?: string, imageTag?: string, agentImage?: string): string {
+/**
+ * Resolves a digest-pinned reference to the immutable local image ID.
+ *
+ * The repair container runs with `--pull never`; passing a digest reference
+ * makes Docker contact the registry even then. Looking the digest up locally
+ * keeps the run pinned to the compiler-authorized image without a pull.
+ * Returns undefined when the authorized image is not present locally, so the
+ * caller fails closed instead of running an unauthorized cached image.
+ */
+function resolveLocalImageId(imageRef: string): string | undefined {
+  try {
+    const result = execa.sync('docker', ['image', 'inspect', '--format', '{{.Id}}', imageRef], {
+      env: getLocalDockerEnv(),
+      reject: false,
+    });
+    if (result.exitCode !== 0) return undefined;
+    const imageId = result.stdout?.trim();
+    return imageId && /^sha256:[a-f0-9]{64}$/.test(imageId) ? imageId : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function resolvePermFixerImageRef(
+  imageRegistry?: string,
+  imageTag?: string,
+  agentImage?: string,
+  images?: ImageManifestConfig['images'],
+): string | undefined {
+  if (images) {
+    // Compiler-authorized manifest: the repair container must run the same
+    // pinned agent image as the run itself.
+    const manifestRef = resolveRuntimeImageFor(
+      { images, imageRegistry, imageTag, agentImage },
+      agentImageRole(agentImage),
+    );
+    return resolveLocalImageId(manifestRef);
+  }
   try {
     const registry = imageRegistry || 'ghcr.io/github/gh-aw-firewall';
     const parsedImageTag = parseImageTag(imageTag || 'latest');
-    const imageName = agentImage === 'act' ? 'agent-act' : 'agent';
     // Use tag-only ref (no digest) because this runs with --pull never.
     // Including the digest causes Docker to attempt registry verification
     // even with --pull never, which times out if credentials are unavailable.
-    return `${registry}/${imageName}:${parsedImageTag.tag}`;
+    return `${registry}/${agentImageRole(agentImage)}:${parsedImageTag.tag}`;
   } catch {
     return 'ghcr.io/github/gh-aw-firewall/agent:latest';
   }
@@ -61,6 +98,7 @@ export function fixArtifactPermissionsForRootless(
   imageTag: string | undefined,
   agentImage: string | undefined,
   imageRefOverride?: string,
+  images?: ImageManifestConfig['images'],
 ): boolean {
   const currentUid = process.getuid?.();
   if (currentUid === undefined || currentUid === 0) {
@@ -76,7 +114,15 @@ export function fixArtifactPermissionsForRootless(
 
   const uid = getSafeHostUid();
   const gid = getSafeHostGid();
-  const imageRef = imageRefOverride || resolvePermFixerImageRef(imageRegistry, imageTag, agentImage);
+  const imageRef =
+    imageRefOverride || resolvePermFixerImageRef(imageRegistry, imageTag, agentImage, images);
+  if (!imageRef) {
+    logger.debug(
+      'Rootless artifact permission repair skipped: the compiler-authorized agent image is ' +
+        'not available locally, and no unpinned fallback image may be used.',
+    );
+    return false;
+  }
   let repairedAll = true;
 
   for (const dir of existingDirs) {

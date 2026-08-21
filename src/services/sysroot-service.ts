@@ -1,15 +1,7 @@
 import { WrapperConfig } from '../types';
 import { logger } from '../logger';
-import { ParsedImageTag, buildRuntimeImageRef, parseImageTag } from '../image-tag';
-import { resolveRuntimeImage } from '../image-resolver';
-
-/**
- * Default sysroot image when runner.topology is 'arc-dind' and no explicit
- * sysrootImage is configured.
- */
-function defaultSysrootImage(registry: string, parsedTag: ParsedImageTag): string {
-  return buildRuntimeImageRef(registry, 'build-tools', parsedTag);
-}
+import { ParsedImageTag } from '../image-tag';
+import { recordRuntimeImage, resolveRuntimeImage, resolveRuntimeImageFor } from '../image-resolver';
 
 interface SysrootServiceParams {
   config: WrapperConfig;
@@ -29,9 +21,11 @@ interface SysrootServiceParams {
  */
 export function buildSysrootStageService(params: SysrootServiceParams): any {
   const { config, registry, parsedTag } = params;
-  const image = config.images
-    ? resolveRuntimeImage(config, 'build-tools', registry, parsedTag)
-    : config.sysrootImage || defaultSysrootImage(registry, parsedTag);
+  // A configured manifest forbids `sysrootImage`, so the legacy override can
+  // only apply when no compiler-authorized manifest is present.
+  const image = config.sysrootImage
+    ? recordRuntimeImage('build-tools', config.sysrootImage, 'default')
+    : resolveRuntimeImage(config, 'build-tools', registry, parsedTag);
 
   logger.info(`ARC/DinD: sysroot-stage will use image ${image}`);
 
@@ -73,11 +67,6 @@ export function isSysrootEnabled(config: WrapperConfig): boolean {
  */
 export function resolveSysrootImage(config: WrapperConfig): string | undefined {
   if (!isSysrootEnabled(config)) return undefined;
-  const registry = config.imageRegistry || 'ghcr.io/github/gh-aw-firewall';
-  if (config.images) {
-    return resolveRuntimeImage(config, 'build-tools', registry, parseImageTag(config.imageTag || 'latest'));
-  }
-  if (config.sysrootImage) return config.sysrootImage;
-  const parsedTag = parseImageTag(config.imageTag || 'latest');
-  return buildRuntimeImageRef(registry, 'build-tools', parsedTag);
+  if (config.sysrootImage) return recordRuntimeImage('build-tools', config.sysrootImage, 'default');
+  return resolveRuntimeImageFor(config, 'build-tools');
 }

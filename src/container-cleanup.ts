@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { logger } from './logger';
+import type { ImageManifestConfig } from './image-resolver';
 import { cleanupSslKeyMaterial, unmountSslTmpfs } from './ssl-bump';
 import {
   preserveCleanupArtifacts,
@@ -21,6 +22,7 @@ export async function cleanup(
   imageRegistry?: string,
   imageTag?: string,
   agentImage?: string,
+  images?: ImageManifestConfig['images'],
 ): Promise<void> {
   if (keepFiles) {
     logger.debug(`Keeping temporary files in: ${workDir}`);
@@ -41,6 +43,7 @@ export async function cleanup(
       imageRegistry,
       imageTag,
       agentImage,
+      images,
     });
 
     cleanupSslKeyMaterial(workDir);
@@ -55,6 +58,7 @@ export async function cleanup(
       imageRegistry,
       imageTag,
       agentImage,
+      images,
     });
     logger.debug('Temporary files cleaned up');
   } catch (error) {

@@ -603,7 +603,7 @@
         },
         "images": {
           "type": "object",
-          "description": "Closed manifest of complete digest-pinned infrastructure image references. This compiler-authorized form cannot be combined with imageRegistry, imageTag, agentImage, sysrootImage, per-enclave image overrides, or buildLocal.",
+          "description": "Closed manifest of complete digest-pinned infrastructure image references. This compiler-authorized form cannot be combined with imageRegistry, imageTag, agentImage, sysrootImage, security.sslBump, per-enclave image overrides, dind.stagingImage, or buildLocal.",
           "additionalProperties": false,
           "properties": {
             "squid": {
@@ -619,6 +619,9 @@
               "$ref": "#/$defs/digestPinnedImage"
             },
             "buildTools": {
+              "$ref": "#/$defs/digestPinnedImage"
+            },
+            "dohProxy": {
               "$ref": "#/$defs/digestPinnedImage"
             },
             "enclaveScript": {
@@ -1182,8 +1185,8 @@
   "$defs": {
     "digestPinnedImage": {
       "type": "string",
-      "pattern": "^[a-z0-9][a-z0-9._:-]*(?:/[a-z0-9][a-z0-9._-]*)+:[A-Za-z0-9_][A-Za-z0-9_.-]*@sha256:[a-f0-9]{64}$",
-      "description": "Complete OCI image reference with a tag and lowercase sha256 digest."
+      "pattern": "^(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?(?:\\.[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?)+(?::[0-9]{1,5})?|[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?:[0-9]{1,5}|localhost)/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*:[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}@sha256:[a-f0-9]{64}$",
+      "description": "Literal, registry-qualified OCI image reference pinned to both a tag and a lowercase sha256 digest."
     },
     "sha256Digest": {
       "type": "string",
@@ -1273,5 +1276,50 @@
         }
       }
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "required": [
+          "container"
+        ],
+        "properties": {
+          "container": {
+            "type": "object",
+            "required": [
+              "images"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "security": {
+            "type": "object",
+            "not": {
+              "required": [
+                "sslBump"
+              ]
+            }
+          },
+          "runner": {
+            "type": "object",
+            "not": {
+              "required": [
+                "sysrootImage"
+              ]
+            }
+          },
+          "dind": {
+            "type": "object",
+            "not": {
+              "required": [
+                "stagingImage"
+              ]
+            }
+          }
+        }
+      }
+    }
+  ]
 }

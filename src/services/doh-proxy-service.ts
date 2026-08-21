@@ -1,4 +1,5 @@
 import { DOH_PROXY_CONTAINER_NAME } from '../constants';
+import { resolveDohProxyImage } from '../image-resolver';
 import { logger } from '../logger';
 import { WrapperConfig } from '../types';
 import { NetworkConfig } from './squid-service';
@@ -21,7 +22,7 @@ export function buildDohProxyService(params: DohProxyServiceParams): any {
 
   const dohService: any = {
     container_name: DOH_PROXY_CONTAINER_NAME,
-    image: 'cloudflare/cloudflared:latest',
+    image: resolveDohProxyImage(config),
     networks: {
       'awf-net': {
         ipv4_address: networkConfig.dohProxyIp,

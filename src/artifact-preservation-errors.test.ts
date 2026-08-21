@@ -432,6 +432,8 @@ describe('artifact-preservation – error paths', () => {
           'ghcr.io/github/gh-aw-firewall',
           'latest',
           'act',
+          undefined,
+          undefined,
         );
         expect(chrootHomeRemovalAttempts).toBe(2);
         expect(realFs.existsSync(chrootHomeDir)).toBe(false);

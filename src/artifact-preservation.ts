@@ -7,6 +7,7 @@ import {
   fixArtifactPermissionsForRootless,
   isBenignArtifactPermissionError,
 } from './artifact-permissions';
+import type { ImageManifestConfig } from './image-resolver';
 import { getLocalDockerEnv } from './host-env';
 import { resolveEnclavePaths } from './enclave/paths';
 import { ENCLAVE_MCP_SERVER_CONTAINER_NAME } from './constants';
@@ -149,11 +150,12 @@ type PreserveCleanupArtifactsOptions = {
   imageRegistry?: string;
   imageTag?: string;
   agentImage?: string;
+  images?: ImageManifestConfig['images'];
 };
 
 export function preserveCleanupArtifacts(
   workDir: string,
-  { proxyLogsDir, auditDir, sessionStateDir, dockerHostPathPrefix, imageRegistry, imageTag, agentImage }: PreserveCleanupArtifactsOptions = {},
+  { proxyLogsDir, auditDir, sessionStateDir, dockerHostPathPrefix, imageRegistry, imageTag, agentImage, images }: PreserveCleanupArtifactsOptions = {},
 ): void {
   const timestamp = path.basename(workDir).replace('awf-', '');
   const agentLogsDestination = path.join(os.tmpdir(), `awf-agent-logs-${timestamp}`);
@@ -283,12 +285,14 @@ export function preserveCleanupArtifacts(
     imageRegistry,
     imageTag,
     agentImage,
+    undefined,
+    images,
   );
 }
 
 type RemoveWorkDirectoriesOptions = Pick<
   PreserveCleanupArtifactsOptions,
-  'dockerHostPathPrefix' | 'imageRegistry' | 'imageTag' | 'agentImage'
+  'dockerHostPathPrefix' | 'imageRegistry' | 'imageTag' | 'agentImage' | 'images'
 >;
 
 export function removeWorkDirectories(workDir: string, options: RemoveWorkDirectoriesOptions = {}): void {
@@ -310,6 +314,8 @@ export function removeWorkDirectories(workDir: string, options: RemoveWorkDirect
           options.imageRegistry,
           options.imageTag,
           options.agentImage,
+          undefined,
+          options.images,
         );
         try {
           fs.rmSync(chrootHomeDir, { recursive: true, force: true });

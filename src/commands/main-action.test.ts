@@ -392,6 +392,7 @@ describe('createMainAction', () => {
         MAIN_ACTION_STUB_CONFIG.imageRegistry,
         MAIN_ACTION_STUB_CONFIG.imageTag,
         MAIN_ACTION_STUB_CONFIG.agentImage,
+        MAIN_ACTION_STUB_CONFIG.images,
       );
       expect(mockedHostIptables.cleanupHostIptables).not.toHaveBeenCalled();
       expect(processExitSpy).toHaveBeenCalledWith(1);

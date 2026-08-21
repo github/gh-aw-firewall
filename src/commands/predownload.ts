@@ -1,6 +1,11 @@
 import execa from 'execa';
 import { logger } from '../logger';
 import { buildRuntimeImageRef, parseImageTag } from '../image-tag';
+import {
+  agentImageRole,
+  validateCustomImageManifest,
+  type ImageManifestConfig,
+} from '../image-resolver';
 
 interface PredownloadOptions {
   imageRegistry: string;
@@ -8,6 +13,8 @@ interface PredownloadOptions {
   agentImage: string;
   enableApiProxy: boolean;
   difcProxy?: boolean;
+  /** Compiler-authorized digest-pinned image manifest (from `--config`). */
+  images?: ImageManifestConfig['images'];
 }
 
 /**
@@ -28,6 +35,15 @@ function validateImageReference(image: string): void {
  */
 function resolveImages(options: PredownloadOptions): string[] {
   const { imageRegistry, imageTag, agentImage, enableApiProxy } = options;
+
+  // With a compiler-authorized manifest, only the pinned references may be
+  // pulled — never a registry/tag-derived reference.
+  if (options.images) {
+    const manifestConfig: ImageManifestConfig = { images: options.images };
+    validateCustomImageManifest(manifestConfig);
+    return Object.values(options.images).filter((image): image is string => !!image);
+  }
+
   const parsedImageTag = parseImageTag(imageTag);
   const images: string[] = [];
 
@@ -37,8 +53,7 @@ function resolveImages(options: PredownloadOptions): string[] {
   // Pull agent image based on preset
   const isPreset = agentImage === 'default' || agentImage === 'act';
   if (isPreset) {
-    const imageName = agentImage === 'act' ? 'agent-act' : 'agent';
-    images.push(buildRuntimeImageRef(imageRegistry, imageName, parsedImageTag));
+    images.push(buildRuntimeImageRef(imageRegistry, agentImageRole(agentImage), parsedImageTag));
   } else {
     // Custom image - validate and pull as-is
     validateImageReference(agentImage);

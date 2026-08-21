@@ -5,7 +5,7 @@ import {
   SQUID_PORT,
 } from '../constants';
 import { ACT_PRESET_BASE_IMAGE, getSafeHostUid, getSafeHostGid } from '../host-identity';
-import { resolveRuntimeImage } from '../image-resolver';
+import { agentImageRole, resolveRuntimeImage } from '../image-resolver';
 import { resolveDockerRuntime, runtimeNeedsStaticDns, runtimeUsesComposeAgent } from '../container-runtime';
 import { buildInternalServiceHosts } from './internal-service-hosts';
 import { logger } from '../logger';
@@ -216,8 +216,7 @@ function resolveAgentImageConfig(
 
   if (useGHCR && isPreset && !config.buildLocal) {
     // The GHCR images already have the necessary setup for chroot mode
-    const imageName = agentImage === 'act' ? 'agent-act' : 'agent';
-    const image = resolveRuntimeImage(config, imageName, registry, parsedTag);
+    const image = resolveRuntimeImage(config, agentImageRole(agentImage), registry, parsedTag);
     logger.debug(`Using GHCR image ${image}`);
     return { image };
   }
