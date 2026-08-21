@@ -400,4 +400,41 @@ describe('trackWebSocketTokenUsage', () => {
       }
     }, 10);
   });
+
+  test('uses request-model fallback when WebSocket response omits model metadata', (done) => {
+    const socket = new EventEmitter();
+    const metricsRef = { increment: jest.fn() };
+    const onUsage = jest.fn(() => undefined);
+
+    trackWebSocketTokenUsage(socket, {
+      requestId: 'ws-request-model-fallback',
+      provider: 'copilot',
+      path: '/v1/chat/completions?model=auto',
+      startTime: Date.now(),
+      metrics: metricsRef,
+      requestModel: 'auto',
+      onUsage,
+    });
+
+    socket.emit('data', Buffer.from('HTTP/1.1 101 Switching Protocols\r\n\r\n'));
+    socket.emit('data', buildTextFrame(JSON.stringify({
+      type: 'response.completed',
+      response: {
+        usage: { input_tokens: 120, output_tokens: 30, total_tokens: 150 },
+      },
+    })));
+    socket.emit('close');
+
+    setTimeout(() => {
+      try {
+        expect(onUsage).toHaveBeenCalledWith(
+          expect.objectContaining({ input_tokens: 120, output_tokens: 30 }),
+          'auto',
+        );
+        done();
+      } catch (err) {
+        done(err);
+      }
+    }, 10);
+  });
 });

@@ -112,4 +112,30 @@ describe('computeTokenBudgetUsage', () => {
     });
     expect(logRequest).toHaveBeenCalledTimes(1);
   });
+
+  it('reports dynamic selector accounting policy in token diagnostics', () => {
+    process.env.AWF_MAX_AI_CREDITS = '100';
+    const result = computeTokenBudgetUsage(
+      { logRequest, requestId: 'req-dynamic', provider: 'copilot' },
+      { input_tokens: 1000, output_tokens: 500 },
+      'auto',
+    );
+
+    expect(result).toMatchObject({
+      ai_credits_pricing_source: 'dynamic_selector_fallback',
+      ai_credits_pricing_tier: 'conservative',
+      ai_credits_accounting_policy: 'dynamic_selector_fallback',
+      ai_credits_fallback_pricing_used: true,
+      ai_credits_dynamic_selector: 'copilot:auto',
+    });
+    expect(logRequest).toHaveBeenCalledWith('info', 'token_budget_usage', expect.objectContaining({
+      request_id: 'req-dynamic',
+      provider: 'copilot',
+      model: 'auto',
+      pricing_source: 'dynamic_selector_fallback',
+      accounting_policy: 'dynamic_selector_fallback',
+      fallback_pricing_used: true,
+      dynamic_selector: 'copilot:auto',
+    }));
+  });
 });

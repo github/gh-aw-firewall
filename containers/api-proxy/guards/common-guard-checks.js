@@ -131,7 +131,7 @@ function buildCommonGuardChecks(deps, model, provider = null) {
     // Model-specific guards — only active when a model was identified in the request.
     ...(model ? [
       {
-        block: getModelMultiplierCapBlockState(model),
+        block: getModelMultiplierCapBlockState(model, provider),
         isBlocked: block => !!block,
         statusCode: 400,
         eventName: 'model_multiplier_cap_exceeded',

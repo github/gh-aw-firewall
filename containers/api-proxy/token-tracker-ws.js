@@ -131,10 +131,11 @@ function parseWebSocketFrames(buf, fragments) {
  * @param {string} opts.path - Request path
  * @param {number} opts.startTime - Request start time (Date.now())
  * @param {object} opts.metrics - Metrics module reference
+ * @param {string|null} [opts.requestModel] - Model extracted from the request context, used when response metadata omits model
  * @param {(normalizedUsage: object, model: string|null) => Record<string, number>|void} [opts.onUsage] - Optional callback invoked after normalized usage is extracted
  */
 function trackWebSocketTokenUsage(upstreamSocket, opts) {
-  const { requestId, provider, path: reqPath, startTime, metrics: metricsRef, onUsage } = opts;
+  const { requestId, provider, path: reqPath, startTime, metrics: metricsRef, onUsage, requestModel } = opts;
 
   auditTrack('WS_TRACK_START', { rid: requestId, provider, path: reqPath });
   logRequest('debug', 'ws_token_track_start', {
@@ -238,10 +239,11 @@ function trackWebSocketTokenUsage(upstreamSocket, opts) {
     if (observedCacheReadTokens > 0 && normalized.cache_read_tokens === 0) {
       warnCacheReadRollupMismatch({ logRequest, diag, requestId, provider, model: streamingModel, observedCacheReadTokens, normalizedCacheReadTokens: normalized.cache_read_tokens, streaming: true, transport: 'websocket' });
     }
+    const resolvedModel = streamingModel || requestModel || 'unknown';
     let budgetResult;
     if (typeof onUsage === 'function') {
       try {
-        budgetResult = onUsage(normalized, streamingModel || 'unknown');
+        budgetResult = onUsage(normalized, resolvedModel);
       } catch {
         // best-effort callback
       }
@@ -252,7 +254,7 @@ function trackWebSocketTokenUsage(upstreamSocket, opts) {
     const record = buildTokenUsageRecord(normalized, {
       requestId,
       provider,
-      model: streamingModel,
+      model: streamingModel || requestModel,
       reqPath,
       status: 101,
       streaming: true,
@@ -268,7 +270,7 @@ function trackWebSocketTokenUsage(upstreamSocket, opts) {
     logRequest('info', 'token_usage', {
       request_id: requestId,
       provider,
-      model: streamingModel || 'unknown',
+      model: resolvedModel,
       input_tokens: normalized.input_tokens,
       output_tokens: normalized.output_tokens,
       cache_read_tokens: normalized.cache_read_tokens,

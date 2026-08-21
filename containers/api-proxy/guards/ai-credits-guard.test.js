@@ -5,6 +5,7 @@ const {
   getAiCreditsBlockState,
   buildAiCreditsLimitError,
   checkUnknownModelRejection,
+  isRecognizedDynamicSelector,
   isModelPriceable,
   canonicalizeModel,
   resetAiCreditsGuardForTests,
@@ -77,6 +78,9 @@ describe('ai-credits-guard', () => {
           total: 0.12275,
           pricing_source: 'curated',
           pricing_tier: 'default',
+          accounting_policy: 'concrete_model',
+          fallback_pricing_used: false,
+          dynamic_selector: null,
         },
       },
     });
@@ -665,12 +669,50 @@ describe('ai-credits-guard', () => {
       expect(sonnet5).toBeNull();
     });
 
-    it('rejects the auto selector when runtime pricing cannot be proven', () => {
+    it('allows the Copilot auto selector and rejects unknown-provider auto selectors', () => {
       process.env.AWF_MAX_AI_CREDITS = '10';
       resetAiCreditsGuardForTests();
 
-      expect(checkUnknownModelRejection('auto', PROVIDER_COPILOT)).not.toBeNull();
+      expect(checkUnknownModelRejection('auto', PROVIDER_COPILOT)).toBeNull();
       expect(checkUnknownModelRejection('auto', PROVIDER_OPENAI)).not.toBeNull();
+    });
+  });
+
+  it('uses conservative dynamic-selector fallback pricing for Copilot auto', () => {
+    process.env.AWF_MAX_AI_CREDITS = '10';
+    resetAiCreditsGuardForTests();
+
+    const usage = applyAiCreditsUsage({
+      input_tokens: 1000,
+      output_tokens: 500,
+    }, 'auto', PROVIDER_COPILOT);
+
+    expect(usage).toMatchObject({
+      aiCreditsThisResponse: 1.05,
+      pricingSource: 'dynamic_selector_fallback',
+      pricingTier: 'conservative',
+      accountingPolicy: 'dynamic_selector_fallback',
+      fallbackPricingUsed: true,
+      dynamicSelector: 'copilot:auto',
+    });
+    expect(isRecognizedDynamicSelector('auto', PROVIDER_COPILOT)).toBe(true);
+    expect(isRecognizedDynamicSelector('auto', PROVIDER_OPENAI)).toBe(false);
+    expect(getAiCreditsReflectState()).toEqual({
+      total: 1.05,
+      by_model: {
+        auto: {
+          input_credits: 0.3,
+          cached_input_credits: 0,
+          cache_write_credits: 0,
+          output_credits: 0.75,
+          total: 1.05,
+          pricing_source: 'dynamic_selector_fallback',
+          pricing_tier: 'conservative',
+          accounting_policy: 'dynamic_selector_fallback',
+          fallback_pricing_used: true,
+          dynamic_selector: 'copilot:auto',
+        },
+      },
     });
   });
 

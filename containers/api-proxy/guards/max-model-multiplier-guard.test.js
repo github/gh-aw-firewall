@@ -5,6 +5,7 @@ const {
   buildModelMultiplierCapError,
   resetMaxModelMultiplierGuardForTests,
 } = require('./max-model-multiplier-guard');
+const { PROVIDER_COPILOT, PROVIDER_OPENAI } = require('../provider-names');
 
 describe('max-model-multiplier-guard', () => {
   beforeEach(() => {
@@ -85,10 +86,10 @@ describe('max-model-multiplier-guard', () => {
       expect(getModelMultiplierCapBlockState('unknown-model')).toBeNull();
     });
 
-    it('fails closed for auto unless an explicit multiplier is configured', () => {
+    it('fails closed for Copilot auto unless an explicit multiplier is configured', () => {
       process.env.AWF_MAX_MODEL_MULTIPLIER = '5';
 
-      const state = getModelMultiplierCapBlockState('auto');
+      const state = getModelMultiplierCapBlockState('auto', PROVIDER_COPILOT);
       expect(state).toMatchObject({
         model: 'auto',
         multiplier: null,
@@ -102,7 +103,13 @@ describe('max-model-multiplier-guard', () => {
       process.env.AWF_MAX_MODEL_MULTIPLIER = '5';
       process.env.AWF_EFFECTIVE_TOKEN_MODEL_MULTIPLIERS = JSON.stringify({ auto: 5 });
 
-      expect(getModelMultiplierCapBlockState('auto')).toBeNull();
+      expect(getModelMultiplierCapBlockState('auto', PROVIDER_COPILOT)).toBeNull();
+    });
+
+    it('treats non-Copilot auto as a normal model name', () => {
+      process.env.AWF_MAX_MODEL_MULTIPLIER = '5';
+
+      expect(getModelMultiplierCapBlockState('auto', PROVIDER_OPENAI)).toBeNull();
     });
 
     it('blocks when configured default multiplier for unknown model exceeds cap', () => {

@@ -1,5 +1,5 @@
 const { EventEmitter } = require('events');
-const { createWebSocketTunnel } = require('./websocket-tunnel');
+const { createWebSocketTunnel, extractRequestModelFromUrl } = require('./websocket-tunnel');
 
 function makeSocket() {
   const socket = new EventEmitter();
@@ -11,6 +11,11 @@ function makeSocket() {
 }
 
 describe('websocket-tunnel', () => {
+  it('extracts request model from websocket URL query', () => {
+    expect(extractRequestModelFromUrl('/v1/chat/completions?model=auto')).toBe('auto');
+    expect(extractRequestModelFromUrl('/v1/chat/completions?foo=bar')).toBeNull();
+  });
+
   it('returns 502 when HTTPS_PROXY is not configured', () => {
     const metrics = {
       gaugeDec: jest.fn(),

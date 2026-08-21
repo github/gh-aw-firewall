@@ -2,6 +2,7 @@
 
 const { sanitizeForLog } = require('../logging');
 const { parseModelMultipliers, parsePositiveNumber } = require('./guard-utils');
+const { isRecognizedDynamicSelector } = require('./ai-credits-guard');
 
 const maxModelMultiplierConfigCache = {
   rawCap: undefined,
@@ -65,11 +66,11 @@ function resolveMultiplierForModel(model, config) {
  * @param {string|null} model - The model name from the request body (may be null)
  * @returns {{ model: string, multiplier: number, maxModelMultiplier: number } | null}
  */
-function getModelMultiplierCapBlockState(model) {
+function getModelMultiplierCapBlockState(model, provider = undefined) {
   const config = getMaxModelMultiplierConfig();
   if (!config.cap || !model) return null;
 
-  if (model.toLowerCase() === 'auto' && !Object.hasOwn(config.multipliers, model)) {
+  if (isRecognizedDynamicSelector(model, provider) && !Object.hasOwn(config.multipliers, model)) {
     return {
       model: sanitizeForLog(model),
       multiplier: null,
@@ -99,7 +100,7 @@ function buildModelMultiplierCapError(state) {
     return {
       error: {
         type: 'model_multiplier_cap_unverifiable',
-        message: 'Model "auto" selects a concrete model at runtime, so its multiplier cannot be proven to be within the configured cap. Configure an explicit multiplier for "auto" to opt in.',
+        message: `Model "${state.model}" selects a concrete model at runtime, so its multiplier cannot be proven to be within the configured cap. Configure an explicit multiplier for "${state.model}" to opt in.`,
         model: state.model,
         model_multiplier: null,
         max_model_multiplier: state.maxModelMultiplier,

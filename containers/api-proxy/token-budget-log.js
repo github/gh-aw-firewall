@@ -30,6 +30,9 @@ function computeTokenBudgetUsage({ logRequest, requestId, provider }, normalized
       ai_credits_total: aiCreditsUsage.totalAiCredits,
       pricing_source: aiCreditsUsage.pricingSource,
       pricing_tier: aiCreditsUsage.pricingTier,
+      accounting_policy: aiCreditsUsage.accountingPolicy,
+      fallback_pricing_used: aiCreditsUsage.fallbackPricingUsed,
+      dynamic_selector: aiCreditsUsage.dynamicSelector,
     });
   }
   const budgetFields = {};
@@ -43,6 +46,9 @@ function computeTokenBudgetUsage({ logRequest, requestId, provider }, normalized
     budgetFields.ai_credits_total = aiCreditsUsage.totalAiCredits;
     budgetFields.ai_credits_pricing_source = aiCreditsUsage.pricingSource;
     budgetFields.ai_credits_pricing_tier = aiCreditsUsage.pricingTier;
+    budgetFields.ai_credits_accounting_policy = aiCreditsUsage.accountingPolicy;
+    budgetFields.ai_credits_fallback_pricing_used = aiCreditsUsage.fallbackPricingUsed;
+    budgetFields.ai_credits_dynamic_selector = aiCreditsUsage.dynamicSelector;
     if (aiCreditsUsage.pricingObservedAt) {
       budgetFields.ai_credits_pricing_observed_at = aiCreditsUsage.pricingObservedAt;
     }

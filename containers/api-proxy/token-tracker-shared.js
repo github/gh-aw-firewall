@@ -45,6 +45,9 @@ function mergeBudgetFields(record, budgetResult) {
   for (const field of [
     'ai_credits_pricing_source',
     'ai_credits_pricing_tier',
+    'ai_credits_accounting_policy',
+    'ai_credits_fallback_pricing_used',
+    'ai_credits_dynamic_selector',
     'ai_credits_pricing_observed_at',
     'ai_credits_pricing_api_version',
     'ai_credits_pricing_discount_percent',
