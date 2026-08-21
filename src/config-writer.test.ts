@@ -137,47 +137,121 @@ describe('writeConfigs', () => {
       );
     });
 
-    it('chowns the container workdir on native-root runners', async () => {
+    it('chowns the host workspace on native-root runners', async () => {
       Object.defineProperty(process, 'getuid', { value: () => 0, configurable: true });
       (isNativeRootWithoutSudo as jest.Mock).mockReturnValue(true);
-      const containerWorkDir = path.join(tempDir, 'workspace');
+      const workspaceDir = path.join(tempDir, 'workspace');
+      process.env.GITHUB_WORKSPACE = workspaceDir;
+      fs.mkdirSync(workspaceDir, { recursive: true });
+      fs.chmodSync(workspaceDir, 0o777);
+
+      await writeConfigs(buildWriteConfig(tempDir, { containerWorkDir: workspaceDir }));
+
+      expect(execa.sync).toHaveBeenCalledWith(
+        'chown',
+        ['-h', '-P', '-R', '--', '1000:1000', workspaceDir],
+        expect.objectContaining({ reject: false })
+      );
+    });
+
+    it('chowns the host workspace when the container workdir is beneath it', async () => {
+      Object.defineProperty(process, 'getuid', { value: () => 0, configurable: true });
+      (isNativeRootWithoutSudo as jest.Mock).mockReturnValue(true);
+      const workspaceDir = path.join(tempDir, 'workspace');
+      const containerWorkDir = path.join(workspaceDir, 'packages', 'app');
+      process.env.GITHUB_WORKSPACE = workspaceDir;
       fs.mkdirSync(containerWorkDir, { recursive: true });
-      fs.chmodSync(containerWorkDir, 0o777);
+      fs.chmodSync(workspaceDir, 0o777);
 
       await writeConfigs(buildWriteConfig(tempDir, { containerWorkDir }));
 
       expect(execa.sync).toHaveBeenCalledWith(
         'chown',
-        ['-h', '-P', '-R', '--', '1000:1000', containerWorkDir],
+        ['-h', '-P', '-R', '--', '1000:1000', workspaceDir],
         expect.objectContaining({ reject: false })
       );
     });
 
-    it('throws when the container workdir stays unwritable by the sandbox identity', async () => {
+    it('throws when the host workspace stays unwritable by the sandbox identity', async () => {
       Object.defineProperty(process, 'getuid', { value: () => 0, configurable: true });
       (isNativeRootWithoutSudo as jest.Mock).mockReturnValue(true);
-      const containerWorkDir = path.join(tempDir, 'workspace');
-      fs.mkdirSync(containerWorkDir, { recursive: true });
-      fs.chmodSync(containerWorkDir, 0o755);
+      const workspaceDir = path.join(tempDir, 'workspace');
+      process.env.GITHUB_WORKSPACE = workspaceDir;
+      fs.mkdirSync(workspaceDir, { recursive: true });
+      fs.chmodSync(workspaceDir, 0o755);
 
       await expect(
-        writeConfigs(buildWriteConfig(tempDir, { containerWorkDir }))
+        writeConfigs(buildWriteConfig(tempDir, { containerWorkDir: workspaceDir }))
       ).rejects.toThrow(
-        `Container working directory is not writable by the sandbox identity (1000:1000): ${containerWorkDir}`
+        `Host workspace is not writable by the sandbox identity (1000:1000): ${workspaceDir}`
       );
     });
 
-    it('does not touch the container workdir when not running as native root', async () => {
-      (isNativeRootWithoutSudo as jest.Mock).mockReturnValue(false);
-      const containerWorkDir = path.join(tempDir, 'workspace');
-      fs.mkdirSync(containerWorkDir, { recursive: true });
-      fs.chmodSync(containerWorkDir, 0o755);
+    it.each(['/tmp', '/etc', '/'])(
+      'does not chown an unrelated custom container workdir (%s)',
+      async containerWorkDir => {
+        Object.defineProperty(process, 'getuid', { value: () => 0, configurable: true });
+        (isNativeRootWithoutSudo as jest.Mock).mockReturnValue(true);
+        const workspaceDir = path.join(tempDir, 'workspace');
+        process.env.GITHUB_WORKSPACE = workspaceDir;
+        fs.mkdirSync(workspaceDir, { recursive: true });
 
-      await writeConfigs(buildWriteConfig(tempDir, { containerWorkDir }));
+        await writeConfigs(buildWriteConfig(tempDir, { containerWorkDir }));
+
+        expect(execa.sync).not.toHaveBeenCalledWith(
+          'chown',
+          expect.arrayContaining([containerWorkDir]),
+          expect.anything()
+        );
+      }
+    );
+
+    it('rejects a filesystem root as the host workspace', async () => {
+      Object.defineProperty(process, 'getuid', { value: () => 0, configurable: true });
+      (isNativeRootWithoutSudo as jest.Mock).mockReturnValue(true);
+      process.env.GITHUB_WORKSPACE = '/';
+
+      await expect(
+        writeConfigs(buildWriteConfig(tempDir, { containerWorkDir: '/' }))
+      ).rejects.toThrow('Refusing to repair ownership of filesystem root: /');
 
       expect(execa.sync).not.toHaveBeenCalledWith(
         'chown',
-        ['-h', '-P', '-R', '--', '1000:1000', containerWorkDir],
+        expect.arrayContaining(['/']),
+        expect.anything()
+      );
+    });
+
+    it('rejects a host workspace symlink that resolves to a filesystem root', async () => {
+      Object.defineProperty(process, 'getuid', { value: () => 0, configurable: true });
+      (isNativeRootWithoutSudo as jest.Mock).mockReturnValue(true);
+      const workspaceDir = path.join(tempDir, 'workspace-root');
+      fs.symlinkSync('/', workspaceDir);
+      process.env.GITHUB_WORKSPACE = workspaceDir;
+
+      await expect(
+        writeConfigs(buildWriteConfig(tempDir, { containerWorkDir: workspaceDir }))
+      ).rejects.toThrow('Refusing to repair ownership of filesystem root: /');
+
+      expect(execa.sync).not.toHaveBeenCalledWith(
+        'chown',
+        expect.arrayContaining(['/']),
+        expect.anything()
+      );
+    });
+
+    it('does not touch the host workspace when not running as native root', async () => {
+      (isNativeRootWithoutSudo as jest.Mock).mockReturnValue(false);
+      const workspaceDir = path.join(tempDir, 'workspace');
+      process.env.GITHUB_WORKSPACE = workspaceDir;
+      fs.mkdirSync(workspaceDir, { recursive: true });
+      fs.chmodSync(workspaceDir, 0o755);
+
+      await writeConfigs(buildWriteConfig(tempDir, { containerWorkDir: workspaceDir }));
+
+      expect(execa.sync).not.toHaveBeenCalledWith(
+        'chown',
+        ['-h', '-P', '-R', '--', '1000:1000', workspaceDir],
         expect.anything()
       );
     });

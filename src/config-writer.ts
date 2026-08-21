@@ -186,8 +186,8 @@ function isDirectoryWritableByIdentity(targetDir: string, uid: number, gid: numb
 }
 
 /**
- * Repairs ownership of the container working directory (typically
- * `$GITHUB_WORKSPACE`) and verifies the sandbox identity can write to it.
+ * Repairs ownership of the host workspace mount and verifies the sandbox
+ * identity can write to it.
  *
  * On native-root runners (root with no `SUDO_UID`, e.g. AWS CodeBuild-hosted
  * runners) the checkout is root-owned while the agent runs as the fallback
@@ -205,28 +205,50 @@ function repairContainerWorkDirOwnership(config: WrapperConfig): void {
     return;
   }
 
-  if (!fs.existsSync(containerWorkDir)) {
+  const workspaceDir = process.env.GITHUB_WORKSPACE || process.cwd();
+  if (!path.isAbsolute(workspaceDir)) {
     return;
+  }
+
+  const normalizedWorkspaceDir = path.resolve(workspaceDir);
+  const normalizedContainerWorkDir = path.resolve(containerWorkDir);
+  const relativeWorkDir = path.relative(normalizedWorkspaceDir, normalizedContainerWorkDir);
+  const workDirUsesWorkspaceMount =
+    relativeWorkDir === '' ||
+    (relativeWorkDir !== '..' &&
+      !relativeWorkDir.startsWith(`..${path.sep}`) &&
+      !path.isAbsolute(relativeWorkDir));
+  if (!workDirUsesWorkspaceMount) {
+    return;
+  }
+
+  if (!fs.existsSync(normalizedWorkspaceDir)) {
+    return;
+  }
+
+  const canonicalWorkspaceDir = fs.realpathSync(normalizedWorkspaceDir);
+  if (canonicalWorkspaceDir === path.parse(canonicalWorkspaceDir).root) {
+    throw new Error(`Refusing to repair ownership of filesystem root: ${canonicalWorkspaceDir}`);
   }
 
   const identity = resolveSandboxIdentity();
   if (!identity) {
-    logger.warn(`Skipping ${containerWorkDir} ownership repair because the sandbox identity is invalid`);
+    logger.warn(`Skipping ${canonicalWorkspaceDir} ownership repair because the sandbox identity is invalid`);
     return;
   }
 
-  repairPathOwnership(containerWorkDir, identity.uid, identity.gid);
+  repairPathOwnership(canonicalWorkspaceDir, identity.uid, identity.gid);
 
-  if (!isDirectoryWritableByIdentity(containerWorkDir, identity.uid, identity.gid)) {
+  if (!isDirectoryWritableByIdentity(canonicalWorkspaceDir, identity.uid, identity.gid)) {
     throw new Error(
-      `Container working directory is not writable by the sandbox identity ` +
-      `(${identity.uid}:${identity.gid}): ${containerWorkDir}\n` +
+      `Host workspace is not writable by the sandbox identity ` +
+      `(${identity.uid}:${identity.gid}): ${canonicalWorkspaceDir}\n` +
       `AWF is running as root without SUDO_UID, so it attempted to transfer ` +
-      `ownership of the working directory to the sandbox identity, but the ` +
-      `directory is still not writable.\n` +
+      `ownership of the host workspace to the sandbox identity, but the ` +
+      `workspace is still not writable.\n` +
       `The agent would start and exit successfully without being able to write ` +
       `any files, so AWF is failing early instead.\n` +
-      `  Suggested fix: chown -R ${identity.uid}:${identity.gid} ${containerWorkDir} before invoking AWF.`
+      `  Suggested fix: chown -R ${identity.uid}:${identity.gid} ${canonicalWorkspaceDir} before invoking AWF.`
     );
   }
 }
