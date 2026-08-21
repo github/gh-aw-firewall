@@ -601,6 +601,40 @@
           "type": "string",
           "description": "Working directory inside the agent container."
         },
+        "images": {
+          "type": "object",
+          "description": "Closed manifest of complete digest-pinned infrastructure image references. This compiler-authorized form cannot be combined with imageRegistry, imageTag, agentImage, sysrootImage, per-enclave image overrides, or buildLocal.",
+          "additionalProperties": false,
+          "properties": {
+            "squid": {
+              "$ref": "#/$defs/digestPinnedImage"
+            },
+            "agent": {
+              "$ref": "#/$defs/digestPinnedImage"
+            },
+            "apiProxy": {
+              "$ref": "#/$defs/digestPinnedImage"
+            },
+            "cliProxy": {
+              "$ref": "#/$defs/digestPinnedImage"
+            },
+            "buildTools": {
+              "$ref": "#/$defs/digestPinnedImage"
+            },
+            "enclaveScript": {
+              "$ref": "#/$defs/digestPinnedImage"
+            },
+            "enclaveAgent": {
+              "$ref": "#/$defs/digestPinnedImage"
+            },
+            "enclaveMcpServer": {
+              "$ref": "#/$defs/digestPinnedImage"
+            },
+            "dindStaging": {
+              "$ref": "#/$defs/digestPinnedImage"
+            }
+          }
+        },
         "imageRegistry": {
           "type": "string",
           "description": "Container image registry to pull from. Defaults to \"ghcr.io/github/gh-aw-firewall\"."
@@ -654,7 +688,42 @@
           ],
           "description": "Runtime for the primary agent. \"gvisor\" uses runsc in Docker Compose. \"sbx\" uses a Docker sbx microVM. \"cloud-hypervisor\" selects the explicit Linux/KVM Cloud Hypervisor v53.0 workload preview (GitHub-hosted Ubuntu x86_64 KVM runners only). Infrastructure containers always use the default runc runtime."
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "images"
+            ]
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "imageRegistry"
+                  ]
+                },
+                {
+                  "required": [
+                    "imageTag"
+                  ]
+                },
+                {
+                  "required": [
+                    "agentImage"
+                  ]
+                },
+                {
+                  "required": [
+                    "buildLocal"
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      ]
     },
     "cloudHypervisor": {
       "type": "object",
@@ -1111,6 +1180,11 @@
     }
   },
   "$defs": {
+    "digestPinnedImage": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._:-]*(?:/[a-z0-9][a-z0-9._-]*)+:[A-Za-z0-9_][A-Za-z0-9_.-]*@sha256:[a-f0-9]{64}$",
+      "description": "Complete OCI image reference with a tag and lowercase sha256 digest."
+    },
     "sha256Digest": {
       "type": "string",
       "pattern": "^[A-Fa-f0-9]{64}$",

@@ -311,6 +311,19 @@ function writeAuditArtifacts(
     yaml.dump(redactedCompose, { lineWidth: -1 })
   );
 
+  const images = Object.fromEntries(
+    Object.entries(dockerCompose.services)
+      .filter(([, service]) => typeof service?.image === 'string')
+      .map(([service, definition]) => [
+        service,
+        {
+          image: definition.image,
+          source: config.images ? 'explicit' : 'default',
+        },
+      ]),
+  );
+  writeAuditArtifact(auditDir, 'image-manifest.json', JSON.stringify(images, null, 2));
+
   // Generate and save policy manifest (structured description of all firewall rules)
   const policyManifest = generatePolicyManifest({
     domains: config.allowedDomains,

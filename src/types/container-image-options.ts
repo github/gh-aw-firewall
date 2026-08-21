@@ -4,6 +4,15 @@
 
 export interface ContainerImageOptions {
   /**
+   * Closed, digest-pinned manifest of infrastructure images selected by a
+   * trusted workflow compiler. Values are complete OCI references.
+   */
+  images?: Partial<Record<
+    'squid' | 'agent' | 'apiProxy' | 'cliProxy' | 'buildTools' |
+    'enclaveScript' | 'enclaveAgent' | 'enclaveMcpServer' | 'dindStaging',
+    string
+  >>;
+  /**
    * Docker image registry to use for container images
    * 
    * Allows overriding the default GitHub Container Registry with custom registries

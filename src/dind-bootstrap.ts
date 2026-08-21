@@ -4,6 +4,8 @@ import execa from 'execa';
 import { getLocalDockerEnv } from './docker-host';
 import { logger } from './logger';
 import { WrapperConfig } from './types';
+import { parseImageTag } from './image-tag';
+import { resolveRuntimeImage } from './image-resolver';
 
 const DEFAULT_STAGING_IMAGE = 'ghcr.io/github/gh-aw-firewall/agent:latest';
 const DEFAULT_DIND_WORKDIR = '/tmp/gh-aw';
@@ -111,7 +113,14 @@ export async function runDindBootstrap(config: WrapperConfig): Promise<void> {
     return;
   }
 
-  const stagingImage = dindConfig.stagingImage || DEFAULT_STAGING_IMAGE;
+  const stagingImage = config.images
+    ? resolveRuntimeImage(
+      config,
+      'dind-staging',
+      config.imageRegistry || 'ghcr.io/github/gh-aw-firewall',
+      parseImageTag(config.imageTag || 'latest'),
+    )
+    : dindConfig.stagingImage || DEFAULT_STAGING_IMAGE;
   if (dindConfig.preStageDirs) {
     const workDir = dindConfig.workDir || DEFAULT_DIND_WORKDIR;
     logger.info(`Pre-staging DinD work directory tree at ${workDir}`);

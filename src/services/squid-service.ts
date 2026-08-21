@@ -1,6 +1,7 @@
 import { SQUID_PORT, SQUID_CONTAINER_NAME } from '../constants';
 import { SslConfig } from '../host-env';
 import { parseImageTag, assignImageSource } from '../image-tag';
+import type { RuntimeImageName } from '../image-resolver';
 import { logger } from '../logger';
 import { WrapperConfig } from '../types';
 import { applyHostPathPrefixToVolumes } from './host-path-prefix';
@@ -21,6 +22,7 @@ export interface ImageBuildConfig {
   registry: string;
   parsedTag: ReturnType<typeof parseImageTag>;
   projectRoot: string;
+  resolveImage?: (name: RuntimeImageName) => string;
 }
 
 interface SquidServiceParams {
@@ -37,7 +39,7 @@ interface SquidServiceParams {
  */
 export function buildSquidService(params: SquidServiceParams): any {
   const { config, networkConfig, sslConfig, squidConfigContent, squidLogsPath, imageConfig } = params;
-  const { useGHCR, registry, parsedTag, projectRoot } = imageConfig;
+  const { useGHCR, registry, parsedTag, projectRoot, resolveImage } = imageConfig;
 
   // Build Squid volumes list
   // Note: squid.conf is NOT bind-mounted. Instead, it's passed as a base64-encoded
@@ -170,6 +172,7 @@ export function buildSquidService(params: SquidServiceParams): any {
     useGHCR: useGHCR && !config.sslBump,
     registry, imageName: 'squid', parsedTag, projectRoot, containerDir: 'squid',
   });
+  if (useGHCR && !config.sslBump && resolveImage) squidService.image = resolveImage('squid');
 
   return squidService;
 }

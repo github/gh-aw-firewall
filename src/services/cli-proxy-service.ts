@@ -108,7 +108,7 @@ export function isExternalDifcProxyHost(host: string): boolean {
  */
 export function buildCliProxyService(params: CliProxyServiceParams): CliProxyBuildResult {
   const { config, networkConfig, cliProxyLogsPath, imageConfig } = params;
-  const { useGHCR, registry, parsedTag, projectRoot } = imageConfig;
+  const { useGHCR, registry, parsedTag, projectRoot, resolveImage } = imageConfig;
 
   if (!networkConfig.cliProxyIp || !config.difcProxyHost) {
     throw new Error('buildCliProxyService: cliProxyIp and difcProxyHost are required');
@@ -191,6 +191,7 @@ export function buildCliProxyService(params: CliProxyServiceParams): CliProxyBui
   assignImageSource(cliProxyService, {
     useGHCR, registry, imageName: 'cli-proxy', parsedTag, projectRoot, containerDir: 'cli-proxy',
   });
+  if (useGHCR && resolveImage) cliProxyService.image = resolveImage('cli-proxy');
 
   let relayService: any;
   if (needsEgressRelay) {
@@ -225,6 +226,7 @@ export function buildCliProxyService(params: CliProxyServiceParams): CliProxyBui
     assignImageSource(relayService, {
       useGHCR, registry, imageName: 'cli-proxy', parsedTag, projectRoot, containerDir: 'cli-proxy',
     });
+    if (useGHCR && resolveImage) relayService.image = resolveImage('cli-proxy');
   }
 
   // Tell the agent how to reach the CLI proxy (use cli-proxy's own IP)

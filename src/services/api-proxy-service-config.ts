@@ -22,7 +22,7 @@ export function buildApiProxyServiceConfig(params: ApiProxyServiceConfigParams):
   if (!networkConfig.proxyIp) {
     throw new Error('buildApiProxyServiceConfig: networkConfig.proxyIp is required');
   }
-  const { useGHCR, registry, parsedTag, projectRoot } = imageConfig;
+  const { useGHCR, registry, parsedTag, projectRoot, resolveImage } = imageConfig;
   const shutdownTimeoutMs = resolveApiProxyShutdownTimeoutMs(config);
   const stopGracePeriodSeconds = Math.ceil((shutdownTimeoutMs + 2000) / 1000);
 
@@ -47,6 +47,7 @@ export function buildApiProxyServiceConfig(params: ApiProxyServiceConfigParams):
   assignImageSource(proxyService, {
     useGHCR, registry, imageName: 'api-proxy', parsedTag, projectRoot, containerDir: 'api-proxy',
   });
+  if (useGHCR && resolveImage) proxyService.image = resolveImage('api-proxy');
 
   return proxyService;
 }

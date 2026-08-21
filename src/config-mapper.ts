@@ -104,6 +104,7 @@ export function mapAwfFileConfigToCliOptions(config: AwfFileConfig): Record<stri
     enableDind: config.container?.enableDind,
     workDir: config.container?.workDir,
     containerWorkdir: config.container?.containerWorkDir,
+    images: config.container?.images,
     imageRegistry: config.container?.imageRegistry,
     imageTag: config.container?.imageTag,
     skipPull: config.container?.skipPull,

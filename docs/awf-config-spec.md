@@ -213,6 +213,7 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 - `container.enableDind` → `--enable-dind`
 - `container.workDir` → `--work-dir`
 - `container.containerWorkDir` → `--container-workdir`
+- `container.images` → *(config-only; a closed compiler-authorized manifest of complete `tag@sha256:<digest>` OCI references. Supported keys are `squid`, `agent`, `apiProxy`, `cliProxy`, `buildTools`, `enclaveScript`, `enclaveAgent`, `enclaveMcpServer`, and `dindStaging`. AWF rejects missing enabled roles and never falls back to the official registry. It cannot be combined with legacy image controls, local builds, or per-enclave image overrides. Registry credentials are intentionally not configured by AWF; use a pre-authenticated Docker daemon.)*
 - `container.imageRegistry` → `--image-registry`
 - `container.imageTag` → `--image-tag`
 - `container.skipPull` → `--skip-pull`

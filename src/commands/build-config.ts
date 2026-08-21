@@ -140,6 +140,7 @@ export function buildConfig(inputs: BuildConfigInputs): WrapperConfig {
     workDir: options.workDir as string,
     buildLocal: options.buildLocal as boolean,
     skipPull: options.skipPull as boolean,
+    images: options.images as WrapperConfig['images'],
     agentImage,
     imageRegistry: options.imageRegistry as string,
     imageTag: options.imageTag as string,

@@ -3,6 +3,7 @@ import * as path from 'path';
 import { DockerComposeConfig, WrapperConfig } from './types';
 import { DEFAULT_DNS_SERVERS } from './dns-resolver';
 import { parseImageTag } from './image-tag';
+import { resolveRuntimeImage, validateCustomImageManifest } from './image-resolver';
 import { SslConfig } from './host-env';
 import { getRealUserHome } from './host-identity';
 import { resolveLogPaths } from './log-paths';
@@ -32,6 +33,7 @@ export function generateDockerCompose(
   sslConfig?: SslConfig,
   squidConfigContent?: string
 ): DockerComposeConfig {
+  validateCustomImageManifest(config);
   const projectRoot = path.join(__dirname, '..');
 
   // Guard: --build-local requires full repo checkout (not available in standalone bundle)
@@ -52,7 +54,14 @@ export function generateDockerCompose(
   const parsedImageTag = parseImageTag(config.imageTag || 'latest');
 
   // Shared image build configuration passed to all service builders
-  const imageConfig = { useGHCR, registry, parsedTag: parsedImageTag, projectRoot };
+  const imageConfig = {
+    useGHCR,
+    registry,
+    parsedTag: parsedImageTag,
+    projectRoot,
+    resolveImage: (name: import('./image-resolver').RuntimeImageName) =>
+      resolveRuntimeImage(config, name, registry, parsedImageTag),
+  };
 
   // ── Log / state paths ──────────────────────────────────────────────────────
 

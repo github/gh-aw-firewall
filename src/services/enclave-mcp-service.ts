@@ -1,4 +1,3 @@
-import { buildRuntimeImageRef } from '../image-tag';
 import {
   ENCLAVE_AGENT_API_PROXY_CONTAINER_NAME,
   ENCLAVE_MCP_SERVER_CONTAINER_NAME,
@@ -40,6 +39,7 @@ import {
   OPENAI_ENV,
   VERTEX_ENV,
 } from '../api-proxy-env-constants';
+import { buildRuntimeImageRef } from '../image-tag';
 
 /**
  * Compose assembly for the unified enclave MCP server and its executors.
@@ -88,11 +88,8 @@ export interface EnclaveMcpBuildResult {
 function resolveServerImage(imageConfig: ImageBuildConfig): Record<string, unknown> {
   if (imageConfig.useGHCR) {
     return {
-      image: buildRuntimeImageRef(
-        imageConfig.registry,
-        ENCLAVE_MCP_SERVER_IMAGE_NAME,
-        imageConfig.parsedTag,
-      ),
+      image: imageConfig.resolveImage?.(ENCLAVE_MCP_SERVER_IMAGE_NAME) ??
+        buildRuntimeImageRef(imageConfig.registry, ENCLAVE_MCP_SERVER_IMAGE_NAME, imageConfig.parsedTag),
     };
   }
   return {
@@ -111,11 +108,8 @@ function resolveScriptImage(
 ): { imageRef: string; source: Record<string, unknown> } {
   if (override) return { imageRef: override, source: { image: override } };
   if (imageConfig.useGHCR) {
-    const imageRef = buildRuntimeImageRef(
-      imageConfig.registry,
-      ENCLAVE_SCRIPT_IMAGE_NAME,
-      imageConfig.parsedTag,
-    );
+    const imageRef = imageConfig.resolveImage?.(ENCLAVE_SCRIPT_IMAGE_NAME) ??
+      buildRuntimeImageRef(imageConfig.registry, ENCLAVE_SCRIPT_IMAGE_NAME, imageConfig.parsedTag);
     return { imageRef, source: { image: imageRef } };
   }
   return {
@@ -137,11 +131,8 @@ function resolveAgentImage(
 ): { imageRef: string; source: Record<string, unknown> } {
   if (override) return { imageRef: override, source: { image: override } };
   if (imageConfig.useGHCR) {
-    const imageRef = buildRuntimeImageRef(
-      imageConfig.registry,
-      ENCLAVE_AGENT_IMAGE_NAME,
-      imageConfig.parsedTag,
-    );
+    const imageRef = imageConfig.resolveImage?.(ENCLAVE_AGENT_IMAGE_NAME) ??
+      buildRuntimeImageRef(imageConfig.registry, ENCLAVE_AGENT_IMAGE_NAME, imageConfig.parsedTag);
     return { imageRef, source: { image: imageRef } };
   }
   return {
