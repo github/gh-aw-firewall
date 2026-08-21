@@ -144,12 +144,13 @@ describe('writeConfigs', () => {
       process.env.GITHUB_WORKSPACE = workspaceDir;
       fs.mkdirSync(workspaceDir, { recursive: true });
       fs.chmodSync(workspaceDir, 0o777);
+      const canonicalWorkspaceDir = fs.realpathSync(workspaceDir);
 
       await writeConfigs(buildWriteConfig(tempDir, { containerWorkDir: workspaceDir }));
 
       expect(execa.sync).toHaveBeenCalledWith(
         'chown',
-        ['-h', '-P', '-R', '--', '1000:1000', workspaceDir],
+        ['-h', '-P', '-R', '--', '1000:1000', canonicalWorkspaceDir],
         expect.objectContaining({ reject: false })
       );
     });
@@ -162,12 +163,13 @@ describe('writeConfigs', () => {
       process.env.GITHUB_WORKSPACE = workspaceDir;
       fs.mkdirSync(containerWorkDir, { recursive: true });
       fs.chmodSync(workspaceDir, 0o777);
+      const canonicalWorkspaceDir = fs.realpathSync(workspaceDir);
 
       await writeConfigs(buildWriteConfig(tempDir, { containerWorkDir }));
 
       expect(execa.sync).toHaveBeenCalledWith(
         'chown',
-        ['-h', '-P', '-R', '--', '1000:1000', workspaceDir],
+        ['-h', '-P', '-R', '--', '1000:1000', canonicalWorkspaceDir],
         expect.objectContaining({ reject: false })
       );
     });
@@ -179,11 +181,19 @@ describe('writeConfigs', () => {
       process.env.GITHUB_WORKSPACE = workspaceDir;
       fs.mkdirSync(workspaceDir, { recursive: true });
       fs.chmodSync(workspaceDir, 0o755);
+      const canonicalWorkspaceDir = fs.realpathSync(workspaceDir);
+      const actualStatSync = jest.requireActual<typeof import('fs')>('fs').statSync;
+      (fs.statSync as jest.Mock).mockImplementation((targetPath: fs.PathLike) => {
+        const stat = actualStatSync(targetPath);
+        return String(targetPath) === canonicalWorkspaceDir
+          ? Object.assign(stat, { uid: 0, gid: 0 })
+          : stat;
+      });
 
       await expect(
         writeConfigs(buildWriteConfig(tempDir, { containerWorkDir: workspaceDir }))
       ).rejects.toThrow(
-        `Host workspace is not writable by the sandbox identity (1000:1000): ${workspaceDir}`
+        `Host workspace is not writable by the sandbox identity (1000:1000): ${canonicalWorkspaceDir}`
       );
     });
 
