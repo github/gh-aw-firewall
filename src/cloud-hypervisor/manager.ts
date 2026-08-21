@@ -188,6 +188,18 @@ export class CloudHypervisorManager {
     return this.networkPlan?.guestIp;
   }
 
+  get guestGatewayIp(): string | undefined {
+    return this.networkPlan?.guestGatewayIp;
+  }
+
+  get guestPrefixLength(): number | undefined {
+    return this.networkPlan?.guestPrefixLength;
+  }
+
+  get guestInterfaceName(): string | undefined {
+    return this.networkPlan?.networkInterface.iface_id;
+  }
+
   get networkNamespace(): string | undefined {
     return this.networkPlan?.namespaceName;
   }

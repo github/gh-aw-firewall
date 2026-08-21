@@ -52,11 +52,14 @@ const CLOUD_HYPERVISOR_GUEST_HOME = `${CLOUD_HYPERVISOR_GUEST_WORKSPACE}/.awf-ho
  */
 const CLOUD_HYPERVISOR_PROBE_TIMEOUT_MS = 90_000;
 const CLOUD_HYPERVISOR_GUEST_NETWORK_READY_TIMEOUT_MS = CLOUD_HYPERVISOR_PROBE_TIMEOUT_MS;
-const CLOUD_HYPERVISOR_API_PROXY_PROBE_ATTEMPTS = 3;
-const CLOUD_HYPERVISOR_API_PROXY_PROBE_INITIAL_DELAY_SECONDS = 2;
-// Covers the 60-second Squid probe, three 20-second API proxy attempts,
-// their bounded backoff, and nested-KVM scheduling overhead.
-const CLOUD_HYPERVISOR_CONNECTIVITY_PROBE_TIMEOUT_MS = 150_000;
+const CLOUD_HYPERVISOR_CONNECTIVITY_PROBE_ATTEMPTS = 3;
+const CLOUD_HYPERVISOR_CONNECTIVITY_PROBE_INITIAL_DELAY_SECONDS = 2;
+const CLOUD_HYPERVISOR_MAX_BOOT_ATTEMPTS = 3;
+const CLOUD_HYPERVISOR_BOOT_RETRY_DELAYS_MS = [5_000, 10_000] as const;
+const CLOUD_HYPERVISOR_TCP_PROBE_TIMEOUT_SECONDS = 60;
+const CLOUD_HYPERVISOR_API_PROXY_PROBE_TIMEOUT_SECONDS = 20;
+const CLOUD_HYPERVISOR_CONNECTIVITY_PROBE_BACKOFF_SECONDS = 6;
+const CLOUD_HYPERVISOR_CONNECTIVITY_PROBE_SCHEDULING_GRACE_MS = 30_000;
 const CLOUD_HYPERVISOR_CANCEL_GRACE_MS = 3_000;
 const CLOUD_HYPERVISOR_MAX_TIMEOUT_MS = 86_400_000;
 const MCP_GATEWAY_PORT = 8080;
@@ -70,6 +73,9 @@ interface CloudHypervisorBackendLogger {
 interface CloudHypervisorManagerAdapter {
   readonly paths: Pick<CloudHypervisorManager['paths'], 'runDirectory'>;
   readonly guestIp?: string;
+  readonly guestGatewayIp?: string;
+  readonly guestPrefixLength?: number;
+  readonly guestInterfaceName?: string;
   readonly networkNamespace?: string;
   start(): Promise<unknown>;
   startInstance(): Promise<void>;
@@ -104,6 +110,7 @@ export interface CloudHypervisorRuntimeBackendDependencies {
   stdout: Writable;
   stderr: Writable;
   logger: CloudHypervisorBackendLogger;
+  sleep(milliseconds: number): Promise<void>;
 }
 
 function defaultDependencies(
@@ -146,12 +153,48 @@ function defaultDependencies(
     stdout: process.stdout,
     stderr: process.stderr,
     logger,
+    sleep: (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
   };
 }
 
 /** @internal Exposed only for focused default-policy tests. */
 // ts-prune-ignore-next
 export const cloudHypervisorRuntimeTestHelpers = { defaultDependencies };
+
+type CloudHypervisorReadinessStage =
+  | 'guest-network-readiness'
+  | 'guest-connectivity';
+
+/** @internal Structured sentinel used to permit only pre-agent boot retries. */
+// ts-prune-ignore-next
+export class CloudHypervisorRetryableReadinessError extends Error {
+  readonly code = 'CLOUD_HYPERVISOR_RETRYABLE_READINESS';
+  readonly retryable = true;
+  diagnosticDirectories: readonly string[] = [];
+
+  constructor(
+    readonly stage: CloudHypervisorReadinessStage,
+    readonly bootAttempt: number,
+    detail: string,
+    cause?: unknown,
+  ) {
+    super(
+      `Cloud Hypervisor retryable readiness failure ` +
+      `(stage=${stage}, boot attempt=${bootAttempt}/${CLOUD_HYPERVISOR_MAX_BOOT_ATTEMPTS}): ${detail}`,
+    );
+    this.name = 'CloudHypervisorRetryableReadinessError';
+    if (cause !== undefined) Object.defineProperty(this, 'cause', { value: cause });
+  }
+
+  attachDiagnostics(directories: readonly string[], exhausted: boolean): void {
+    this.diagnosticDirectories = [...directories];
+    if (exhausted) {
+      this.message +=
+        `; boot recovery exhausted after ${CLOUD_HYPERVISOR_MAX_BOOT_ATTEMPTS} attempts` +
+        (directories.length > 0 ? `; diagnostics: ${directories.join(', ')}` : '');
+    }
+  }
+}
 
 /**
  * Stateful adapter for an explicitly enabled, fail-closed Cloud Hypervisor microVM.
@@ -174,6 +217,8 @@ export class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBacken
   private preflightResult: CloudHypervisorPreflightResult | undefined;
   private infrastructure: MicrovmInfrastructureSnapshot | undefined;
   private diagnosticsCollected = false;
+  private agentExecutionStarted = false;
+  private readonly failedBootDiagnostics: string[] = [];
 
   constructor(
     private readonly config: WrapperConfig,
@@ -230,79 +275,91 @@ export class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBacken
       this.infrastructure = infrastructure;
       this.identity = this.dependencies.identity();
       const exports = await this.dependencies.resolveExports();
-      this.manager = this.dependencies.createManager(
-        cloudHypervisor,
-        workDir,
-        infrastructure,
-        exports,
-        this.identity,
-      );
-
       stage = 'topology-revalidation';
       await infrastructure.revalidate();
-      stage = 'vmm-configuration';
-      await this.manager.start();
-      if (!this.manager.guestIp) {
-        throw new Error('Cloud Hypervisor manager did not expose the configured guest IP');
-      }
-      this.environment = buildCloudHypervisorGuestEnvironment(
-        this.config,
-        infrastructure,
-        this.manager.guestIp,
-        exports,
-      );
-      stage = 'guest-boot';
-      await this.manager.startInstance();
-      stage = 'guest-network-readiness';
-      await this.waitForGuestNetworkReady();
-      stage = 'guest-connectivity';
-      await this.probeGuestConnectivity();
-      this.dependencies.logger.info('[cloud-hypervisor] stage=ready');
-    } catch (error) {
-      this.dependencies.logger.warn(
-        `[cloud-hypervisor] stage=${stage} status=failed: ${formatError(error)}`,
-      );
-      // Collect diagnostics (guest serial console, Cloud Hypervisor log,
-      // network plan, counters) once the Cloud Hypervisor process is
-      // confirmed terminated but before stop() deletes the private run
-      // directory. Collecting any earlier (before the process actually
-      // exits) can observe a still-empty guest serial console log, since
-      // Cloud Hypervisor does not guarantee flushing buffered console
-      // output to disk until the process exits. Without this hook at all,
-      // a startup failure would leave nothing for the outer,
-      // --diagnostic-logs-gated collectDiagnostics() call (invoked later,
-      // from the CLI's cleanup path) to find — it would silently no-op on
-      // now-ENOENT paths.
-      const collectPreCleanupDiagnostics =
-        this.config.diagnosticLogs && this.manager
-          ? async () => {
-              try {
-                await this.collectDiagnostics();
-              } catch (diagnosticsError) {
-                this.dependencies.logger.warn(
-                  `[cloud-hypervisor] failed to collect pre-cleanup diagnostics: ${formatError(diagnosticsError)}`,
-                );
-              }
-            }
-          : undefined;
-      try {
-        await this.manager?.stop({ beforeCleanup: collectPreCleanupDiagnostics });
-        // Mark the backend stopped so the CLI's own cleanup path (which
-        // unconditionally calls backend.stop() again after any startup
-        // failure) doesn't invoke a second, redundant manager.stop() --
-        // by this point network/cgroup/run-directory teardown has already
-        // completed. On a *failed* cleanup here, deliberately leave
-        // `stopped` false so that outer cleanup call gets a genuine retry
-        // attempt rather than silently no-op-ing on a botched teardown.
-        this.stopped = true;
-      } catch (cleanupError) {
-        const combined = new Error(
-          `Cloud Hypervisor startup failed: ${formatError(error)}; ` +
-          `microVM cleanup also failed: ${formatError(cleanupError)}`,
+      for (
+        let bootAttempt = 1;
+        bootAttempt <= CLOUD_HYPERVISOR_MAX_BOOT_ATTEMPTS;
+        bootAttempt += 1
+      ) {
+        if (bootAttempt > 1) {
+          const delay = CLOUD_HYPERVISOR_BOOT_RETRY_DELAYS_MS[bootAttempt - 2];
+          this.dependencies.logger.warn(
+            `[cloud-hypervisor] stage=boot-recovery attempt=${bootAttempt}/` +
+            `${CLOUD_HYPERVISOR_MAX_BOOT_ATTEMPTS} delay=${delay}ms`,
+          );
+          await this.dependencies.sleep(delay);
+        }
+        this.manager = this.dependencies.createManager(
+          cloudHypervisor,
+          workDir,
+          infrastructure,
+          exports,
+          this.identity,
         );
-        Object.defineProperty(combined, 'cause', { value: error });
-        Object.assign(combined, { cleanupCause: cleanupError });
-        throw combined;
+        try {
+          stage = 'vmm-configuration';
+          await this.manager.start();
+          const {
+            guestIp,
+            guestGatewayIp,
+            guestPrefixLength,
+            guestInterfaceName,
+          } = this.manager;
+          if (
+            !guestIp ||
+            !guestGatewayIp ||
+            guestPrefixLength === undefined ||
+            !guestInterfaceName
+          ) {
+            throw new Error(
+              'Cloud Hypervisor manager did not expose the configured guest network plan',
+            );
+          }
+          this.environment = buildCloudHypervisorGuestEnvironment(
+            this.config,
+            infrastructure,
+            guestIp,
+            exports,
+          );
+          stage = 'guest-boot';
+          await this.manager.startInstance();
+          stage = 'guest-network-readiness';
+          await this.waitForGuestNetworkReady(bootAttempt);
+          stage = 'guest-connectivity';
+          await this.probeGuestConnectivity(bootAttempt);
+          this.dependencies.logger.info(
+            `[cloud-hypervisor] stage=ready boot-attempt=${bootAttempt}/` +
+            `${CLOUD_HYPERVISOR_MAX_BOOT_ATTEMPTS}`,
+          );
+          return;
+        } catch (error) {
+          this.dependencies.logger.warn(
+            `[cloud-hypervisor] stage=${stage} status=failed ` +
+            `boot-attempt=${bootAttempt}/${CLOUD_HYPERVISOR_MAX_BOOT_ATTEMPTS}: ` +
+            formatError(error),
+          );
+          const finalAttempt = bootAttempt === CLOUD_HYPERVISOR_MAX_BOOT_ATTEMPTS;
+          await this.cleanupFailedBootAttempt(bootAttempt, error, finalAttempt);
+          if (
+            error instanceof CloudHypervisorRetryableReadinessError &&
+            !this.agentExecutionStarted &&
+            !finalAttempt
+          ) {
+            continue;
+          }
+          if (error instanceof CloudHypervisorRetryableReadinessError) {
+            error.attachDiagnostics(this.failedBootDiagnostics, finalAttempt);
+          }
+          this.stopped = true;
+          throw error;
+        }
+      }
+    } catch (error) {
+      if (!this.stopped) {
+        this.dependencies.logger.warn(
+          `[cloud-hypervisor] stage=${stage} status=failed: ${formatError(error)}`,
+        );
       }
       throw error;
     }
@@ -330,6 +387,7 @@ export class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBacken
     const timeoutMs = agentTimeoutMinutes === undefined
       ? undefined
       : agentTimeoutMinutes * 60_000;
+    this.agentExecutionStarted = true;
     const execution = manager.execute({
       requestId,
       argv: ['/bin/sh', '-lc', this.config.agentCommand],
@@ -454,7 +512,7 @@ export class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBacken
     await this.manager?.stop({ preserve });
   }
 
-  private async probeGuestConnectivity(): Promise<void> {
+  private async probeGuestConnectivity(bootAttempt: number): Promise<void> {
     const manager = this.manager!;
     const environment = this.environment!;
     const identity = this.identity;
@@ -474,36 +532,90 @@ export class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBacken
     // case), with the proxy env vars unset so the request reaches the
     // sidecar directly rather than being routed through Squid. Discovered
     // via live-KVM validation on the original BusyBox rootfs.
-    const squidProbe = `nc -v -z -w 60 ${SQUID_IP} 3128`;
-    const apiProxyProbe = this.config.enableApiProxy
-      ? ` && (unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy ALL_PROXY all_proxy; ` +
-        `attempt=1; delay=${CLOUD_HYPERVISOR_API_PROXY_PROBE_INITIAL_DELAY_SECONDS}; ` +
-        `while ! wget -q -T 20 -O /dev/null http://${API_PROXY_IP}:10000/reflect; do ` +
-        `if [ "$attempt" -ge ${CLOUD_HYPERVISOR_API_PROXY_PROBE_ATTEMPTS} ]; then ` +
-        `echo "API proxy /reflect unavailable after $attempt attempts" >&2; exit 1; fi; ` +
-        `sleep "$delay"; attempt=$((attempt + 1)); delay=$((delay * 2)); done)`
-      : '';
-    const topologyPeerProbe = Object.values(this.infrastructure?.topologyPeerIps ?? {})
-      .map((ip) => ` && nc -v -z -w 60 ${ip} ${MCP_GATEWAY_PORT}`)
-      .join('');
+    const probes = [
+      {
+        name: 'squid',
+        command: `nc -v -z -w ${CLOUD_HYPERVISOR_TCP_PROBE_TIMEOUT_SECONDS} ` +
+          `${SQUID_IP} 3128`,
+      },
+    ];
+    if (this.config.enableApiProxy) {
+      probes.push({
+        name: 'api-proxy',
+        command:
+          `unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy ALL_PROXY all_proxy; ` +
+          `wget -q -T ${CLOUD_HYPERVISOR_API_PROXY_PROBE_TIMEOUT_SECONDS} ` +
+          `-O /dev/null http://${API_PROXY_IP}:10000/reflect`,
+      });
+    }
+    for (const [name, ip] of Object.entries(this.infrastructure?.topologyPeerIps ?? {})) {
+      probes.push({
+        name: `topology-peer-${name}`,
+        command: `nc -v -z -w ${CLOUD_HYPERVISOR_TCP_PROBE_TIMEOUT_SECONDS} ` +
+          `${ip} ${MCP_GATEWAY_PORT}`,
+      });
+    }
     const topologyPeerCount = Object.keys(this.infrastructure?.topologyPeerIps ?? {}).length;
+    const probeFunction = [
+      'probe_leg() {',
+      '  leg="$1"',
+      '  command="$2"',
+      '  attempt=1',
+      `  delay=${CLOUD_HYPERVISOR_CONNECTIVITY_PROBE_INITIAL_DELAY_SECONDS}`,
+      '  while true; do',
+      '    if /bin/sh -c "$command"; then',
+      '      return 0',
+      '    else',
+      '      status=$?',
+      '    fi',
+      '    echo "connectivity leg=$leg attempt=$attempt exit=$status" >&2',
+      '    if [ "$status" -eq 126 ] || [ "$status" -eq 127 ]; then',
+      '      echo "connectivity leg=$leg permanent-command-failure exit=$status" >&2',
+      '      return "$status"',
+      '    fi',
+      `    if [ "$attempt" -ge ${CLOUD_HYPERVISOR_CONNECTIVITY_PROBE_ATTEMPTS} ]; then`,
+      '      echo "connectivity leg=$leg exhausted attempts=$attempt exit=$status" >&2',
+      '      return "$status"',
+      '    fi',
+      '    sleep "$delay"',
+      '    attempt=$((attempt + 1))',
+      '    delay=$((delay * 2))',
+      '  done',
+      '}',
+    ].join('\n');
+    const probeCommands = probes
+      .map(({ name, command }) =>
+        `probe_leg ${shellSingleQuote(name)} ${shellSingleQuote(command)} || exit $?`)
+      .join('\n');
     // Capture (bounded) stdout/stderr so a probe failure can report which
     // leg failed and why, rather than only a bare exit code -- useful for
     // diagnosing this compound nc-then-wget command without a full guest
     // command execution's live output stream.
     const stdoutCollector = createBoundedOutputCollector();
     const stderrCollector = createBoundedOutputCollector();
-    const result = await manager.execute({
-      requestId: `probe-${process.pid}-${Date.now()}`,
-      argv: ['/bin/sh', '-c', `set -eu; ${squidProbe}${apiProxyProbe}${topologyPeerProbe}`],
-      env: environment,
-      cwd: CLOUD_HYPERVISOR_GUEST_WORKSPACE,
-      ...identity,
-      timeoutMs: CLOUD_HYPERVISOR_CONNECTIVITY_PROBE_TIMEOUT_MS +
-        topologyPeerCount * 60_000,
-      stdout: stdoutCollector.stream,
-      stderr: stderrCollector.stream,
-    });
+    let result: GuestExecutionResult;
+    try {
+      result = await manager.execute({
+        requestId: `probe-${process.pid}-${Date.now()}`,
+        argv: ['/bin/sh', '-c', `set -u\n${probeFunction}\n${probeCommands}`],
+        env: environment,
+        cwd: CLOUD_HYPERVISOR_GUEST_WORKSPACE,
+        ...identity,
+        timeoutMs: connectivityProbeTimeoutMs(
+          topologyPeerCount,
+          Boolean(this.config.enableApiProxy),
+        ),
+        stdout: stdoutCollector.stream,
+        stderr: stderrCollector.stream,
+      });
+    } catch (error) {
+      throw new CloudHypervisorRetryableReadinessError(
+        'guest-connectivity',
+        bootAttempt,
+        `connectivity probe could not execute: ${formatError(error)}`,
+        error,
+      );
+    }
     if (result.exitCode !== 0) {
       const stdout = stdoutCollector.toString().trim();
       const stderr = stderrCollector.toString().trim();
@@ -515,9 +627,16 @@ export class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBacken
       ]
         .filter((part): part is string => Boolean(part))
         .join('; ');
-      throw new Error(
+      const failure =
         `Cloud Hypervisor guest connectivity probe failed with exit code ${result.exitCode}` +
-          (detail ? ` (${detail})` : ''),
+        (detail ? ` (${detail})` : '');
+      if (result.exitCode === 126 || result.exitCode === 127) {
+        throw new Error(`Cloud Hypervisor guest connectivity configuration is invalid: ${failure}`);
+      }
+      throw new CloudHypervisorRetryableReadinessError(
+        'guest-connectivity',
+        bootAttempt,
+        failure,
       );
     }
     this.dependencies.logger.info(
@@ -531,27 +650,53 @@ export class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBacken
    * loopback up before opening the vsock listener; this bounded check also
    * fails clearly if a mismatched guest image violates that contract.
    */
-  private async waitForGuestNetworkReady(): Promise<void> {
+  private async waitForGuestNetworkReady(bootAttempt: number): Promise<void> {
     const manager = this.manager!;
     const environment = this.environment!;
     const identity = this.identity;
     if (!identity) {
       throw new Error('guest-network-not-ready: Cloud Hypervisor guest identity is not ready');
     }
+    const guestIp = manager.guestIp;
+    const guestGatewayIp = manager.guestGatewayIp;
+    const guestPrefixLength = manager.guestPrefixLength;
+    const guestInterfaceName = manager.guestInterfaceName;
+    if (
+      !guestIp ||
+      !guestGatewayIp ||
+      guestPrefixLength === undefined ||
+      !guestInterfaceName
+    ) {
+      throw new Error('Cloud Hypervisor guest network plan is not ready');
+    }
+    const expectedAddress = `${guestIp}/${guestPrefixLength}`;
     const script = [
       'attempt=1',
       'delay=1',
-      'while [ "$attempt" -le 5 ]; do',
-      "  if ip link show dev lo 2>/dev/null | grep -q '[<,]UP[,>]'; then",
+      `interface=${shellSingleQuote(guestInterfaceName)}`,
+      `address=${shellSingleQuote(expectedAddress)}`,
+      `gateway=${shellSingleQuote(guestGatewayIp)}`,
+      'while [ "$attempt" -le 10 ]; do',
+      "  if ip link show dev lo 2>/dev/null | grep -q '[<,]UP[,>]' &&",
+      "     ip -4 addr show dev lo 2>/dev/null | grep -F -q '127.0.0.1/8' &&",
+      "     ip link show dev \"$interface\" 2>/dev/null | grep -q '[<,]UP[,>]' &&",
+      "     ip link show dev \"$interface\" 2>/dev/null | grep -q 'state UP' &&",
+      '     ip -4 addr show dev "$interface" 2>/dev/null | grep -F -q "$address" &&',
+      '     ip route show default 2>/dev/null | grep -F -q "default via $gateway dev $interface"; then',
       '    exit 0',
       '  fi',
-      '  [ "$attempt" -eq 5 ] && break',
+      '  [ "$attempt" -eq 10 ] && break',
       '  sleep "$delay"',
       '  attempt=$((attempt + 1))',
-      '  [ "$delay" -ge 4 ] || delay=$((delay * 2))',
+      '  [ "$delay" -ge 8 ] || delay=$((delay * 2))',
       'done',
+      'echo "guest data-plane readiness exhausted after $attempt attempts" >&2',
+      'ip addr show >&2 || true',
+      'echo --- >&2',
+      'ip route show >&2 || true',
       'exit 1',
     ].join('\n');
+    const stderrCollector = createBoundedOutputCollector();
     try {
       const result = await manager.execute({
         requestId: `probe-network-ready-${process.pid}-${Date.now()}`,
@@ -560,15 +705,67 @@ export class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBacken
         cwd: CLOUD_HYPERVISOR_GUEST_WORKSPACE,
         ...identity,
         timeoutMs: CLOUD_HYPERVISOR_GUEST_NETWORK_READY_TIMEOUT_MS,
+        stderr: stderrCollector.stream,
       });
       if (result.exitCode === 0) return;
-      throw new Error(`loopback readiness check exited with code ${result.exitCode}`);
-    } catch (error) {
       throw new Error(
-        `guest-network-not-ready: Cloud Hypervisor guest loopback interface lo ` +
-          `did not become UP (${formatError(error)})`,
+        `data-plane readiness check exited with code ${result.exitCode}` +
+        (stderrCollector.toString().trim()
+          ? ` (${stderrCollector.toString().trim()})`
+          : ''),
+      );
+    } catch (error) {
+      throw new CloudHypervisorRetryableReadinessError(
+        'guest-network-readiness',
+        bootAttempt,
+        `guest-network-not-ready: expected lo UP with 127.0.0.1/8, ` +
+          `${guestInterfaceName} state UP with ${expectedAddress}, and default route via ` +
+          `${guestGatewayIp} (${formatError(error)})`,
+        error,
       );
     }
+  }
+
+  private async cleanupFailedBootAttempt(
+    bootAttempt: number,
+    startupError: unknown,
+    finalAttempt: boolean,
+  ): Promise<void> {
+    const manager = this.manager;
+    if (!manager) return;
+    const diagnosticsDirectory = this.getBootDiagnosticsDirectory(bootAttempt);
+    const collectPreCleanupDiagnostics = async (): Promise<void> => {
+      try {
+        await manager.collectDiagnostics(diagnosticsDirectory);
+        this.failedBootDiagnostics.push(diagnosticsDirectory);
+        if (finalAttempt) this.diagnosticsCollected = true;
+      } catch (diagnosticsError) {
+        this.dependencies.logger.warn(
+          `[cloud-hypervisor] failed to collect boot-attempt diagnostics ` +
+          `attempt=${bootAttempt}: ${formatError(diagnosticsError)}`,
+        );
+      }
+    };
+    try {
+      await manager.stop({ beforeCleanup: collectPreCleanupDiagnostics });
+      this.manager = undefined;
+      this.environment = undefined;
+    } catch (cleanupError) {
+      const combined = new Error(
+        `Cloud Hypervisor startup failed: ${formatError(startupError)}; ` +
+        `microVM cleanup also failed: ${formatError(cleanupError)}`,
+      );
+      Object.defineProperty(combined, 'cause', { value: startupError });
+      Object.assign(combined, { cleanupCause: cleanupError });
+      throw combined;
+    }
+  }
+
+  private getBootDiagnosticsDirectory(bootAttempt: number): string {
+    const root = this.config.auditDir
+      ? `${this.config.auditDir}/cloud-hypervisor`
+      : `${this.config.workDir}/diagnostics/cloud-hypervisor`;
+    return `${root}/boot-attempt-${bootAttempt}`;
   }
 
   /**
@@ -662,6 +859,31 @@ export function buildCloudHypervisorGuestEnvironment(
 
 function formatError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function shellSingleQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+function connectivityProbeTimeoutMs(
+  topologyPeerCount: number,
+  enableApiProxy: boolean,
+): number {
+  const tcpLegCount = 1 + topologyPeerCount;
+  const tcpBudgetSeconds = tcpLegCount * (
+    CLOUD_HYPERVISOR_CONNECTIVITY_PROBE_ATTEMPTS *
+      CLOUD_HYPERVISOR_TCP_PROBE_TIMEOUT_SECONDS +
+    CLOUD_HYPERVISOR_CONNECTIVITY_PROBE_BACKOFF_SECONDS
+  );
+  const apiProxyBudgetSeconds = enableApiProxy
+    ? CLOUD_HYPERVISOR_CONNECTIVITY_PROBE_ATTEMPTS *
+        CLOUD_HYPERVISOR_API_PROXY_PROBE_TIMEOUT_SECONDS +
+      CLOUD_HYPERVISOR_CONNECTIVITY_PROBE_BACKOFF_SECONDS
+    : 0;
+  return (
+    (tcpBudgetSeconds + apiProxyBudgetSeconds) * 1_000 +
+    CLOUD_HYPERVISOR_CONNECTIVITY_PROBE_SCHEDULING_GRACE_MS
+  );
 }
 
 /**

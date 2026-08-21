@@ -76,8 +76,10 @@ AWF performs these steps for each run:
    non-root identity.
 7. Start one sandboxed `virtiofsd` process for each validated export.
 8. Create and boot the VM, connect to the guest supervisor over VSOCK, verify
-   guest network readiness (loopback interface UP), and probe infrastructure
-   connectivity.
+   loopback plus the configured guest interface, address, and route, and probe
+   each trusted infrastructure service with bounded retries. An exhausted
+   retryable readiness failure recreates the VM at most twice before the agent
+   command is dispatched.
 9. Execute the agent command and propagate its exit code. Timeouts return
    `124`.
 10. Sync and unmount guest filesystems, stop the VM and VMM, reap `virtiofsd`,
@@ -244,19 +246,30 @@ them only after collecting the diagnostics you need.
 
 ### Guest network readiness timeout
 
-If the guest network readiness check times out (error: `guest-network-not-ready`), the guest's loopback interface did not become UP before the timeout expired. Possible causes:
+If the guest network readiness check times out (error:
+`guest-network-not-ready`), loopback or the configured guest interface,
+address, and default route did not become ready before the bounded phase
+timeout. AWF cleans up and recreates the Cloud Hypervisor VM up to two times,
+with 5-second and 10-second delays, before failing. The wrapped command is
+never dispatched during these recovery attempts.
 
 1. **Guest image mismatch** — The guest supervisor contract requires loopback to be brought up before opening the VSOCK listener. A mismatched or incompatible guest image may violate this ordering.
-2. **Host system issue** — Delays in kernel or KVM initialization may cause the readiness check to timeout. Retry the run; transient delays are sometimes recoverable.
+2. **Host system issue** — Delays in kernel, KVM, interface, address, or route initialization may exhaust all automatic recovery attempts.
 3. **Supervisor crash** — The guest supervisor may have crashed before initializing networking. Check preserved guest logs under `<workDir>/microvm-images/<runId>/` for supervisor output.
 
-Verify the guest image digest and supervisor version match the build expectation, then retry.
+Each failed attempt preserves diagnostics under
+`<workDir>/diagnostics/cloud-hypervisor/boot-attempt-<n>/` (or the equivalent
+`auditDir` path). Verify the recorded interface and route state, guest image
+digest, and supervisor version before retrying the AWF invocation.
 
 ### Guest cannot reach Squid or the API proxy
 
 Check the namespace nftables rules, TAP state, and Squid/API proxy health. The
 guest must not have a direct route to the internet; fixing connectivity by
 loosening the default-deny policy would break the security boundary.
+Squid, API proxy, and topology-peer probes retry independently inside the same
+VM; an exhausted transient failure then enters the bounded pre-agent boot
+recovery described above.
 
 ### VMM boot fails with TAP permission errors
 
