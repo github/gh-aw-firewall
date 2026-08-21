@@ -11,7 +11,7 @@ import * as path from 'path';
 import execa from 'execa';
 import { writeConfigs } from './config-writer';
 import { isOpenSslAvailable } from './ssl-bump';
-import { getRealUserHome } from './host-identity';
+import { getRealUserHome, isNativeRootWithoutSudo } from './host-identity';
 import {
   buildWriteConfig,
   setupConfigWriterTempDir,
@@ -134,6 +134,51 @@ describe('writeConfigs', () => {
         'chown',
         ['-h', '-P', '-R', '--', '1000:1000', ghAwRoot],
         expect.objectContaining({ reject: false })
+      );
+    });
+
+    it('chowns the container workdir on native-root runners', async () => {
+      Object.defineProperty(process, 'getuid', { value: () => 0, configurable: true });
+      (isNativeRootWithoutSudo as jest.Mock).mockReturnValue(true);
+      const containerWorkDir = path.join(tempDir, 'workspace');
+      fs.mkdirSync(containerWorkDir, { recursive: true });
+      fs.chmodSync(containerWorkDir, 0o777);
+
+      await writeConfigs(buildWriteConfig(tempDir, { containerWorkDir }));
+
+      expect(execa.sync).toHaveBeenCalledWith(
+        'chown',
+        ['-h', '-P', '-R', '--', '1000:1000', containerWorkDir],
+        expect.objectContaining({ reject: false })
+      );
+    });
+
+    it('throws when the container workdir stays unwritable by the sandbox identity', async () => {
+      Object.defineProperty(process, 'getuid', { value: () => 0, configurable: true });
+      (isNativeRootWithoutSudo as jest.Mock).mockReturnValue(true);
+      const containerWorkDir = path.join(tempDir, 'workspace');
+      fs.mkdirSync(containerWorkDir, { recursive: true });
+      fs.chmodSync(containerWorkDir, 0o755);
+
+      await expect(
+        writeConfigs(buildWriteConfig(tempDir, { containerWorkDir }))
+      ).rejects.toThrow(
+        `Container working directory is not writable by the sandbox identity (1000:1000): ${containerWorkDir}`
+      );
+    });
+
+    it('does not touch the container workdir when not running as native root', async () => {
+      (isNativeRootWithoutSudo as jest.Mock).mockReturnValue(false);
+      const containerWorkDir = path.join(tempDir, 'workspace');
+      fs.mkdirSync(containerWorkDir, { recursive: true });
+      fs.chmodSync(containerWorkDir, 0o755);
+
+      await writeConfigs(buildWriteConfig(tempDir, { containerWorkDir }));
+
+      expect(execa.sync).not.toHaveBeenCalledWith(
+        'chown',
+        ['-h', '-P', '-R', '--', '1000:1000', containerWorkDir],
+        expect.anything()
       );
     });
 

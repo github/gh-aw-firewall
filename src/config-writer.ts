@@ -13,7 +13,7 @@ import { generateDockerCompose, redactDockerComposeSecrets } from './compose-gen
 import { deriveSensitiveEndpointForms, redactSensitiveValues } from './redact-secrets';
 import { resolveLogPaths } from './log-paths';
 import { DEFAULT_DNS_SERVERS, filterForNetworkIsolation } from './dns-resolver';
-import { getSafeHostGid, getSafeHostUid } from './host-identity';
+import { getSafeHostGid, getSafeHostUid, isNativeRootWithoutSudo } from './host-identity';
 import {
   AGENT_IP,
   API_PROXY_IP,
@@ -104,6 +104,33 @@ function chownTreeWithoutFollowingSymlink(targetPath: string, uid: number, gid: 
   }
 }
 
+/**
+ * Resolves the sandbox identity used inside the agent container, or null when
+ * it is not a usable unprivileged identity.
+ */
+function resolveSandboxIdentity(): { uid: number; gid: number } | null {
+  const uid = Number.parseInt(getSafeHostUid(), 10);
+  const gid = Number.parseInt(getSafeHostGid(), 10);
+  if (!Number.isInteger(uid) || !Number.isInteger(gid) || uid <= 0 || gid <= 0) {
+    return null;
+  }
+  return { uid, gid };
+}
+
+/**
+ * Transfers ownership of a host path to the sandbox identity, logging (rather
+ * than throwing) when the repair cannot be completed.
+ */
+function repairPathOwnership(targetPath: string, uid: number, gid: number): void {
+  try {
+    chownTreeWithoutFollowingSymlink(targetPath, uid, gid);
+    logger.debug(`Transferred ${targetPath} ownership to sandbox user (${uid}:${gid}) before container launch`);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    logger.warn(`Failed to transfer ${targetPath} ownership to sandbox user (${uid}:${gid}): ${message}`);
+  }
+}
+
 function repairRunnerTempGhAwOwnership(): void {
   if (process.getuid?.() !== 0) {
     return;
@@ -119,19 +146,88 @@ function repairRunnerTempGhAwOwnership(): void {
     return;
   }
 
-  const uid = Number.parseInt(getSafeHostUid(), 10);
-  const gid = Number.parseInt(getSafeHostGid(), 10);
-  if (!Number.isInteger(uid) || !Number.isInteger(gid) || uid <= 0 || gid <= 0) {
+  const identity = resolveSandboxIdentity();
+  if (!identity) {
     logger.warn(`Skipping ${ghAwRoot} ownership repair because the sandbox identity is invalid`);
     return;
   }
 
+  repairPathOwnership(ghAwRoot, identity.uid, identity.gid);
+}
+
+/**
+ * Reports whether the sandbox identity can create entries in `targetDir`.
+ *
+ * The host process usually runs as root, which bypasses permission checks, so
+ * `fs.accessSync` cannot answer this question. The mode bits are inspected
+ * directly instead: the sandbox identity has no supplementary groups inside the
+ * container, so owner/group/other is the complete picture.
+ */
+function isDirectoryWritableByIdentity(targetDir: string, uid: number, gid: number): boolean {
+  let stat: fs.Stats;
   try {
-    chownTreeWithoutFollowingSymlink(ghAwRoot, uid, gid);
-    logger.debug(`Transferred ${ghAwRoot} ownership to sandbox user (${uid}:${gid}) before container launch`);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    logger.warn(`Failed to transfer ${ghAwRoot} ownership to sandbox user (${uid}:${gid}): ${message}`);
+    stat = fs.statSync(targetDir);
+  } catch {
+    return false;
+  }
+
+  if (!stat.isDirectory()) {
+    return false;
+  }
+
+  // Write + search permission are both required to create entries in a directory.
+  if (stat.uid === uid) {
+    return (stat.mode & 0o300) === 0o300;
+  }
+  if (stat.gid === gid) {
+    return (stat.mode & 0o030) === 0o030;
+  }
+  return (stat.mode & 0o003) === 0o003;
+}
+
+/**
+ * Repairs ownership of the container working directory (typically
+ * `$GITHUB_WORKSPACE`) and verifies the sandbox identity can write to it.
+ *
+ * On native-root runners (root with no `SUDO_UID`, e.g. AWS CodeBuild-hosted
+ * runners) the checkout is root-owned while the agent runs as the fallback
+ * sandbox identity, so the workdir is writable by mount but not by ownership.
+ * Without this repair the agent silently fails to write and the job reports a
+ * false green.
+ */
+function repairContainerWorkDirOwnership(config: WrapperConfig): void {
+  const containerWorkDir = config.containerWorkDir;
+  if (!containerWorkDir || !path.isAbsolute(containerWorkDir)) {
+    return;
+  }
+
+  if (!isNativeRootWithoutSudo()) {
+    return;
+  }
+
+  if (!fs.existsSync(containerWorkDir)) {
+    return;
+  }
+
+  const identity = resolveSandboxIdentity();
+  if (!identity) {
+    logger.warn(`Skipping ${containerWorkDir} ownership repair because the sandbox identity is invalid`);
+    return;
+  }
+
+  repairPathOwnership(containerWorkDir, identity.uid, identity.gid);
+
+  if (!isDirectoryWritableByIdentity(containerWorkDir, identity.uid, identity.gid)) {
+    throw new Error(
+      `Container working directory is not writable by the sandbox identity ` +
+      `(${identity.uid}:${identity.gid}): ${containerWorkDir}\n` +
+      `AWF is running as root without SUDO_UID, so it attempted to transfer ` +
+      `ownership of the working directory to the sandbox identity, but the ` +
+      `directory is still not writable.\n` +
+      `The agent would start and exit successfully without being able to write ` +
+      `any files, so AWF is failing early instead.\n` +
+      `  Suggested fix: chown -R ${identity.uid}:${identity.gid} ${containerWorkDir} before invoking AWF.`
+    );
   }
 }
 
@@ -386,6 +482,7 @@ export async function writeConfigs(config: WrapperConfig): Promise<void> {
   const logPaths = resolveLogPaths(config);
   prepareWorkDirectories(config, logPaths);
   repairRunnerTempGhAwOwnership();
+  repairContainerWorkDirOwnership(config);
 
   // Use fixed network configuration (network is created by host-iptables.ts)
   const networkConfig: NetworkConfig = {
