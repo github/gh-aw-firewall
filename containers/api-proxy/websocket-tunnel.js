@@ -80,6 +80,7 @@ function createWebSocketTunnel({
     requestId,
     startTime,
     upstreamPath,
+    requestModel,
     onSocketsReady,
   }) {
     const { finalize, abort } = createProxyErrorResponder({
@@ -162,7 +163,7 @@ function createWebSocketTunnel({
           path: sanitizeForLog(req.url),
           startTime,
           metrics,
-          requestModel: extractRequestModelFromUrl(req.url),
+          requestModel: requestModel || extractRequestModelFromUrl(req.url),
           onUsage: (normalizedUsage, model) =>
             computeTokenBudgetUsage({ logRequest, requestId, provider }, normalizedUsage, model),
         });

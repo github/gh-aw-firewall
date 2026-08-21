@@ -362,11 +362,9 @@ describe('proxyWebSocket', () => {
 
 // ── Security guard tests ──────────────────────────────────────────────────────
 //
-// These tests verify that common (non-model-specific) security guards are
+// These tests verify that common and query-model-specific security guards are
 // enforced on the WebSocket upgrade path using the shared buildCommonGuardChecks
-// factory.  Model-specific guards (model_multiplier_cap, retired_model,
-// unknown_model_ai_credits) are intentionally skipped because WebSocket
-// upgrades pass model=null (no JSON body to extract a model from).
+// factory.
 // Guards are triggered by directly calling their apply functions (same
 // technique used in guards/*.test.js unit tests).
 
@@ -377,6 +375,7 @@ describe('proxyWebSocket security guards', () => {
   let applyEffectiveTokenUsage, resetEffectiveTokenGuardForTests;
   let applyPermissionDenied, resetPermissionDeniedGuardForTests;
   let applyAiCreditsUsage, resetAiCreditsGuardForTests;
+  let resetMaxModelMultiplierGuardForTests;
 
   beforeAll(() => {
     jest.resetModules();
@@ -386,6 +385,7 @@ describe('proxyWebSocket security guards', () => {
     ({ applyEffectiveTokenUsage, resetEffectiveTokenGuardForTests } = require('./guards/effective-token-guard'));
     ({ applyPermissionDenied, resetPermissionDeniedGuardForTests } = require('./guards/max-permission-denied-guard'));
     ({ applyAiCreditsUsage, resetAiCreditsGuardForTests } = require('./guards/ai-credits-guard'));
+    ({ resetMaxModelMultiplierGuardForTests } = require('./guards/max-model-multiplier-guard'));
   });
 
   afterAll(() => {
@@ -398,11 +398,14 @@ describe('proxyWebSocket security guards', () => {
     delete process.env.AWF_MAX_EFFECTIVE_TOKENS;
     delete process.env.AWF_MAX_PERMISSION_DENIED;
     delete process.env.AWF_MAX_AI_CREDITS;
+    delete process.env.AWF_MAX_MODEL_MULTIPLIER;
+    delete process.env.AWF_EFFECTIVE_TOKEN_MODEL_MULTIPLIERS;
     resetMaxRunsGuardForTests();
     resetMaxCacheMissesGuardForTests();
     resetEffectiveTokenGuardForTests();
     resetPermissionDeniedGuardForTests();
     resetAiCreditsGuardForTests();
+    resetMaxModelMultiplierGuardForTests();
     jest.restoreAllMocks();
   });
 
@@ -463,6 +466,28 @@ describe('proxyWebSocket security guards', () => {
 
     expect(socket.write).toHaveBeenCalledWith(expect.stringContaining('HTTP/1.1 403 Forbidden'));
     expect(socket.write).toHaveBeenCalledWith(expect.stringContaining('"ai_credits_limit_exceeded"'));
+    expect(socket.destroy).toHaveBeenCalled();
+  });
+
+  it('rejects an unknown WebSocket query model when AI-credit accounting is enabled', () => {
+    process.env.AWF_MAX_AI_CREDITS = '10';
+
+    const socket = makeMockSocket();
+    wsProxy(makeUpgradeReq({ url: '/v1/responses?model=bogus' }), socket, Buffer.alloc(0), 'api.openai.com', {}, 'copilot');
+
+    expect(socket.write).toHaveBeenCalledWith(expect.stringContaining('HTTP/1.1 400 Bad Request'));
+    expect(socket.write).toHaveBeenCalledWith(expect.stringContaining('"unknown_model_ai_credits"'));
+    expect(socket.destroy).toHaveBeenCalled();
+  });
+
+  it('rejects an unverifiable Copilot auto WebSocket model multiplier', () => {
+    process.env.AWF_MAX_MODEL_MULTIPLIER = '1';
+
+    const socket = makeMockSocket();
+    wsProxy(makeUpgradeReq({ url: '/v1/responses?model=auto' }), socket, Buffer.alloc(0), 'api.openai.com', {}, 'copilot');
+
+    expect(socket.write).toHaveBeenCalledWith(expect.stringContaining('HTTP/1.1 400 Bad Request'));
+    expect(socket.write).toHaveBeenCalledWith(expect.stringContaining('"model_multiplier_cap_unverifiable"'));
     expect(socket.destroy).toHaveBeenCalled();
   });
 

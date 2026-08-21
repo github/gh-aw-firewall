@@ -14,10 +14,8 @@ const HTTP_STATUS_LINES = {
  * Writes a raw HTTP error response to the socket and destroys it when any
  * guard triggers, then returns true. Returns false when all guards pass.
  */
-function enforceWebSocketGuards({ socket, logRequest, requestId, provider }, guardDeps) {
-  // WebSocket upgrade requests have no JSON body, so model-specific guards
-  // receive null and are skipped (their getters return null for null models).
-  const guardChecks = buildCommonGuardChecks(guardDeps, null, provider);
+function enforceWebSocketGuards({ socket, logRequest, requestId, provider, requestModel = null }, guardDeps) {
+  const guardChecks = buildCommonGuardChecks(guardDeps, requestModel, provider);
 
   for (const guard of guardChecks) {
     if (!guard.isBlocked(guard.block)) continue;

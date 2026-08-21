@@ -27,14 +27,33 @@ const BUILTIN_FALLBACK_PRICING = Object.freeze({
   output: 15.00,
 });
 
-// Conservative fallback pricing for recognized dynamic selectors whose concrete
-// runtime model is unknown at accounting time.
-const DYNAMIC_SELECTOR_FALLBACK_PRICING = Object.freeze({
-  input: 3.00,
-  cachedInput: 0.30,
-  cacheWrite: 3.75,
-  output: 15.00,
+// Static ceiling for recognized dynamic selectors whose concrete runtime model
+// is unknown at accounting time. These rates bound every priced Copilot model
+// in the curated catalog; retain the ceiling if the catalog is unavailable.
+const DYNAMIC_SELECTOR_PRICING_CEILING = Object.freeze({
+  input: 10.00,
+  cachedInput: 1.00,
+  cacheWrite: 12.50,
+  output: 50.00,
 });
+
+function buildDynamicSelectorFallbackPricing() {
+  const pricing = { ...DYNAMIC_SELECTOR_PRICING_CEILING };
+  for (const catalogPricing of Object.values(pricingByModel)) {
+    for (const field of Object.keys(pricing)) {
+      if (typeof catalogPricing[field] === 'number') {
+        pricing[field] = Math.max(pricing[field], catalogPricing[field]);
+      }
+    }
+  }
+  return Object.freeze(pricing);
+}
+
+const DYNAMIC_SELECTOR_FALLBACK_PRICING = buildDynamicSelectorFallbackPricing();
+
+// Kept separate from the generic unknown-model fallback because a dynamic
+// selector is an explicit provider-supported request, not an unknown model.
+const DYNAMIC_SELECTOR_FALLBACK_PRICING_SOURCE = 'dynamic_selector_fallback';
 
 function getDynamicSelectorDescriptor(model, provider = undefined) {
   if (typeof model !== 'string') return null;
@@ -171,7 +190,7 @@ function resolveLowerPriorityPricing(model, state, options = {}) {
   if (dynamicSelector) {
     return {
       pricing: DYNAMIC_SELECTOR_FALLBACK_PRICING,
-      source: 'dynamic_selector_fallback',
+      source: DYNAMIC_SELECTOR_FALLBACK_PRICING_SOURCE,
       tier: 'conservative',
       accountingPolicy: 'dynamic_selector_fallback',
       dynamicSelector: dynamicSelector.name,

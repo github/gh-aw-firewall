@@ -688,7 +688,7 @@ describe('ai-credits-guard', () => {
     }, 'auto', PROVIDER_COPILOT);
 
     expect(usage).toMatchObject({
-      aiCreditsThisResponse: 1.05,
+      aiCreditsThisResponse: 3.5,
       pricingSource: 'dynamic_selector_fallback',
       pricingTier: 'conservative',
       accountingPolicy: 'dynamic_selector_fallback',
@@ -698,14 +698,14 @@ describe('ai-credits-guard', () => {
     expect(isRecognizedDynamicSelector('auto', PROVIDER_COPILOT)).toBe(true);
     expect(isRecognizedDynamicSelector('auto', PROVIDER_OPENAI)).toBe(false);
     expect(getAiCreditsReflectState()).toEqual({
-      total: 1.05,
+      total: 3.5,
       by_model: {
         auto: {
-          input_credits: 0.3,
+          input_credits: 1,
           cached_input_credits: 0,
           cache_write_credits: 0,
-          output_credits: 0.75,
-          total: 1.05,
+          output_credits: 2.5,
+          total: 3.5,
           pricing_source: 'dynamic_selector_fallback',
           pricing_tier: 'conservative',
           accounting_policy: 'dynamic_selector_fallback',

@@ -1,7 +1,7 @@
 'use strict';
 
 const { enforceWebSocketGuards, enforceWebSocketRateLimit } = require('./websocket-guards');
-const { createWebSocketTunnel } = require('./websocket-tunnel');
+const { createWebSocketTunnel, extractRequestModelFromUrl } = require('./websocket-tunnel');
 
 function createProxyWebSocket({
   limiter,
@@ -97,9 +97,10 @@ function createProxyWebSocket({
       return;
     }
 
+    const requestModel = extractRequestModelFromUrl(req.url);
     const upstreamPath = buildUpstreamPath(req.url, targetHost, basePath);
 
-    if (enforceWebSocketGuards({ socket, logRequest, requestId, provider }, guardDeps)) {
+    if (enforceWebSocketGuards({ socket, logRequest, requestId, provider, requestModel }, guardDeps)) {
       return;
     }
 
@@ -122,6 +123,7 @@ function createProxyWebSocket({
       requestId,
       startTime,
       upstreamPath,
+      requestModel,
       onSocketsReady: lifecycleHooks.onSocketsReady,
     });
   };
