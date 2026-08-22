@@ -144,6 +144,30 @@ ignore:
       type: go-module
       location: "/usr/bin/docker"
 
+  # ── Alpine docker-cli 29.5.3 CopyEscape ──────────────────────────────────────
+  #
+  # CVE-2026-17106 (Docker CLI archive extraction path escape, HIGH):
+  #   A malicious container can race `docker cp` archive creation so that the
+  #   CLI follows an attacker-controlled symlink while extracting onto the host.
+  #
+  #   Risk acceptance — NOT REACHABLE in the enclave MCP server:
+  #     The server invokes a fixed set of Docker lifecycle commands (`run`,
+  #     `rm`, `ps`, `inspect`, `network inspect`, and `info`). It never invokes
+  #     `docker cp` or any other Docker archive extraction command, and callers
+  #     cannot supply arbitrary Docker CLI arguments.
+  #
+  #   No fixed Alpine 3.24 package is available today: docker-cli 29.5.3-r0 is
+  #   current in v3.24/community. Alpine edge has 29.7.2-r0, but mixing an
+  #   unpinned rolling repository into the stable runtime would weaken build
+  #   reproducibility. Revisit when Alpine backports docker-cli >= 29.7.2 to
+  #   v3.24, then rebuild the image and delete this version-scoped exception.
+  #   Advisory: https://security.alpinelinux.org/vuln/CVE-2026-17106
+  - vulnerability: CVE-2026-17106
+    package:
+      name: docker-cli
+      version: "29.5.3-r0"
+      type: apk
+
   # ── stdlib@go1.24.6 embedded in gosu binary ──────────────────────────────────
   #
   # GO-2026-4337 (stdlib go1.24.6 -> 1.24.13 / 1.25.7 / 1.26.0-rc.3, CRITICAL):
@@ -176,6 +200,32 @@ ignore:
       version: "go1.24.6"
       type: go-module
       location: "/usr/local/bin/gosu"
+
+  # ── tar bundled inside the vendored npm CLI ──────────────────────────────────
+  #
+  # GHSA-r292-9mhp-454m (tar <=7.5.20 -> 7.5.21, HIGH):
+  #   Listing or extracting selected members from a crafted archive can recurse
+  #   once per path segment and terminate the Node.js process with stack
+  #   exhaustion.
+  #
+  #   Risk acceptance — NOT REACHABLE through npm's archive extraction:
+  #     This tar copy is npm's private dependency, not an AWF application
+  #     dependency or request handler. npm extracts complete package archives;
+  #     it does not pass an attacker-controlled member-selection list, which is
+  #     required to install the vulnerable filesFilter/mapHas path. The impact
+  #     is process-only denial of service, not code execution or path escape.
+  #
+  #   No official npm distribution contains the fix today: npm 12.0.2 is the
+  #   latest release and still bundles tar 7.5.19. Replacing a dependency inside
+  #   npm's verified tarball would create a locally modified npm distribution.
+  #   Revisit when npm publishes a release bundling tar >= 7.5.21, then update
+  #   the npm pin in all four Dockerfiles and delete this version-scoped entry.
+  #   Advisory: https://github.com/advisories/GHSA-r292-9mhp-454m
+  - vulnerability: GHSA-r292-9mhp-454m
+    package:
+      name: tar
+      version: "7.5.19"
+      type: npm
 
   # ── brace-expansion bundled inside the vendored npm CLI ──────────────────────
   #
