@@ -59,7 +59,7 @@ function resolveWritableOverlay(
 
   const realSourceRoot = fs.realpathSync(localSourceRoot);
   const realSource = fs.realpathSync(localSource);
-  if (!isPathAtOrBelow(realSource, realSourceRoot)) return undefined;
+  if (realSource !== path.resolve(realSourceRoot, relative)) return undefined;
 
   const source = path.join(mount.source, relative);
   const target = mount.target === '/host'

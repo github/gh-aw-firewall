@@ -97,6 +97,31 @@ describe('config-assembly', () => {
     });
   });
 
+  describe('filesystem write policy compatibility', () => {
+    it('accepts DinD after strict security disables it', () => {
+      mockBuildConfigOnce({
+        legacySecurity: false,
+        enableDind: true,
+        filesystemAllowWrite: ['/workspace'],
+      });
+
+      expect(callAssembleWith().enableDind).toBe(false);
+    });
+
+    it('rejects DinD when legacy security leaves it enabled', () => {
+      mockBuildConfigOnce({
+        legacySecurity: true,
+        enableDind: true,
+        filesystemAllowWrite: ['/workspace'],
+      });
+
+      expect(() => callAssembleWith()).toThrow('process.exit(1)');
+      expect(logger.error).toHaveBeenCalledWith(
+        expect.stringContaining('filesystem.allowWrite cannot be combined with Docker-in-Docker access'),
+      );
+    });
+  });
+
   describe('model policy config assembly handoff', () => {
     it('passes allowedModels and disallowedModels from logAndLimits into buildConfig', () => {
       const logAndLimits = {

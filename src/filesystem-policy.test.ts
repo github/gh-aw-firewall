@@ -22,4 +22,9 @@ describe('assertFilesystemWritePolicyCompatibility', () => {
       filesystemAllowWrite: undefined,
     }))).not.toThrow();
   });
+
+  it('rejects effective Docker-in-Docker access', () => {
+    expect(() => assertFilesystemWritePolicyCompatibility(config({ enableDind: true })))
+      .toThrow('filesystem.allowWrite cannot be combined with Docker-in-Docker access');
+  });
 });

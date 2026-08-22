@@ -77,7 +77,6 @@ export function assembleAndValidateConfig(
 
   validateInfrastructureOptions(config);
   try {
-    assertFilesystemWritePolicyCompatibility(config);
     assertCloudHypervisorSelection(config);
   } catch (error) {
     logger.error(`❌ ${error instanceof Error ? error.message : String(error)}`);
@@ -92,6 +91,12 @@ export function assembleAndValidateConfig(
     }
   }
   applySecurityMode(config);
+  try {
+    assertFilesystemWritePolicyCompatibility(config);
+  } catch (error) {
+    logger.error(`❌ ${error instanceof Error ? error.message : String(error)}`);
+    process.exit(1);
+  }
   if (config.containerRuntime === 'cloud-hypervisor') {
     try {
       assertCloudHypervisorRuntimeCompatibility(config);

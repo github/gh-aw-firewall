@@ -111,6 +111,15 @@ describe('applyFilesystemWritePolicy', () => {
     )).toThrow('filesystem.allowWrite path is not an existing path within a writable host mount');
   });
 
+  it('rejects allowlisted symlink aliases within a writable mount', () => {
+    fs.symlinkSync(path.join(workspace, 'blocked'), path.join(workspace, 'alias'));
+
+    expect(() => applyFilesystemWritePolicy(
+      [`${workspace}:/host${workspace}:rw`],
+      [path.join(workspace, 'alias')],
+    )).toThrow('filesystem.allowWrite path is not an existing path within a writable host mount');
+  });
+
   it('does not override a more-specific read-only mount', () => {
     const credential = path.join(workspace, 'allowed', 'credential.json');
     fs.writeFileSync(credential, 'secret');
@@ -135,6 +144,18 @@ describe('applyFilesystemWritePolicy', () => {
       `${daemonSource}:/host/data:ro`,
       `${daemonSource}/allowed:/host/data/allowed:rw`,
     ]);
+  });
+
+  it('rejects runner-visible symlink aliases for custom overlays', () => {
+    fs.symlinkSync(path.join(workspace, 'blocked'), path.join(workspace, 'alias'));
+    const spec = `/daemon${workspace}:/host/data:rw`;
+
+    expect(() => applyFilesystemWritePolicy(
+      [spec],
+      ['/data/alias'],
+      new Set(),
+      new Map([[spec, workspace]]),
+    )).toThrow('filesystem.allowWrite path is not an existing path within a writable host mount');
   });
 
   it('rejects traversal even when called without schema validation', () => {
