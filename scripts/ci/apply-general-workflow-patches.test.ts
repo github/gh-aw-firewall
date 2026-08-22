@@ -1,4 +1,7 @@
-import { applyGeneralWorkflowPatches } from './apply-general-workflow-patches';
+import {
+  applyGeneralWorkflowPatches,
+  usesPublishedAwfRelease,
+} from './apply-general-workflow-patches';
 import { copilotCliDaemonCopyStepSentinel } from './workflow-patch-patterns';
 
 // The gh-aw compiler emits this step for every firewall + arc-dind workflow
@@ -62,5 +65,46 @@ describe('applyGeneralWorkflowPatches Copilot CLI copy step gating', () => {
     const first = applyGeneralWorkflowPatches(lockFileWithEngine('claude'), '/tmp/example.lock.yml');
     const second = applyGeneralWorkflowPatches(first.content, '/tmp/example.lock.yml');
     expect(second.content).toBe(first.content);
+  });
+});
+
+describe('applyGeneralWorkflowPatches published AWF maintenance workflows', () => {
+  const compilerOutput =
+    'jobs:\n' +
+    '  agent:\n' +
+    '    steps:\n' +
+    '      - name: Install AWF binary\n' +
+    '        run: bash "${RUNNER_TEMP}/gh-aw/actions/install_awf_binary.sh" v0.28.2\n' +
+    '      - name: Run agent\n' +
+    '        run: awf --image-tag 0.28.2 --skip-pull -- command\n';
+
+  it.each([
+    'auth-doctor-updater.lock.yml',
+    'doc-maintainer.lock.yml',
+    'model-api-mapping-updater.lock.yml',
+    'sbx-gvisor-doc-updater.lock.yml',
+    'schema-sync.lock.yml',
+    'self-hosted-runner-doctor-updater.lock.yml',
+    'update-release-notes.lock.yml',
+  ])('preserves the published release for %s', workflowFile => {
+    const workflowPath = `/tmp/workflows/${workflowFile}`;
+    const { content, log } = applyGeneralWorkflowPatches(compilerOutput, workflowPath);
+
+    expect(usesPublishedAwfRelease(workflowPath)).toBe(true);
+    expect(content).toContain('install_awf_binary.sh" v0.28.2');
+    expect(content).toContain('--image-tag 0.28.2 --skip-pull');
+    expect(content).not.toContain('--build-local');
+    expect(log).toContain('  Preserved published AWF binary and images for maintenance workflow');
+  });
+
+  it('continues using local builds for validation workflows', () => {
+    const { content } = applyGeneralWorkflowPatches(
+      compilerOutput,
+      '/tmp/workflows/smoke-copilot.lock.yml'
+    );
+
+    expect(content).toContain('Install awf binary (local)');
+    expect(content).toContain('--build-local');
+    expect(content).not.toContain('--image-tag 0.28.2 --skip-pull');
   });
 });

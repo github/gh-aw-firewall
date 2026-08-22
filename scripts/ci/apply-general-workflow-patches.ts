@@ -47,6 +47,21 @@ export interface PatchResult {
   log: string[];
 }
 
+const publishedAwfWorkflowLockFiles = new Set([
+  'auth-doctor-updater.lock.yml',
+  'doc-maintainer.lock.yml',
+  'model-api-mapping-updater.lock.yml',
+  'sbx-gvisor-doc-updater.lock.yml',
+  'schema-sync.lock.yml',
+  'self-hosted-runner-doctor-updater.lock.yml',
+  'update-release-notes.lock.yml',
+]);
+
+export function usesPublishedAwfRelease(workflowPath: string): boolean {
+  const workflowFile = workflowPath.split(/[/\\]/).pop();
+  return workflowFile !== undefined && publishedAwfWorkflowLockFiles.has(workflowFile);
+}
+
 // Applies all general-purpose transforms to a single workflow lock file.
 // `workflowPath` is used only for file-specific conditional transforms
 // (issue-duplication-detector, smoke-copilot, smoke-copilot-byok variants).
@@ -113,120 +128,124 @@ export function applyGeneralWorkflowPatches(
     }
   }
 
-  // Replace "Install awf binary" step with local build steps
-  // Reset global regex state before reuse across multiple files.
-  installStepRegexGlobal.lastIndex = 0;
-  const matches = content.match(installStepRegexGlobal);
-  if (matches) {
-    content = content.replace(
-      installStepRegexGlobal,
-      (_match, indent: string) => buildLocalInstallSteps(indent)
-    );
-    log.push(`  Replaced ${matches.length} awf install step(s) with local build`);
-  }
+  if (usesPublishedAwfRelease(workflowPath)) {
+    log.push(`  Preserved published AWF binary and images for maintenance workflow`);
+  } else {
+    // Replace "Install awf binary" step with local build steps
+    // Reset global regex state before reuse across multiple files.
+    installStepRegexGlobal.lastIndex = 0;
+    const matches = content.match(installStepRegexGlobal);
+    if (matches) {
+      content = content.replace(
+        installStepRegexGlobal,
+        (_match, indent: string) => buildLocalInstallSteps(indent)
+      );
+      log.push(`  Replaced ${matches.length} awf install step(s) with local build`);
+    }
 
-  // Collapse a duplicate "Setup Node.js" step: buildLocalInstallSteps injects a
-  // Setup Node.js step (needed for workflows the compiler leaves without one), but
-  // some workflows already emit an identical Setup Node.js immediately before the
-  // install step, producing two consecutive identical steps. The backreference only
-  // matches byte-identical consecutive blocks, so this never removes a differing or
-  // required step. Loop until stable in case of >2 repeats.
-  while (duplicateSetupNodeRegex.test(content)) {
-    content = content.replace(duplicateSetupNodeRegex, '$1');
-    log.push(`  Collapsed duplicate consecutive Setup Node.js step`);
-  }
+    // Collapse a duplicate "Setup Node.js" step: buildLocalInstallSteps injects a
+    // Setup Node.js step (needed for workflows the compiler leaves without one), but
+    // some workflows already emit an identical Setup Node.js immediately before the
+    // install step, producing two consecutive identical steps. The backreference only
+    // matches byte-identical consecutive blocks, so this never removes a differing or
+    // required step. Loop until stable in case of >2 repeats.
+    while (duplicateSetupNodeRegex.test(content)) {
+      content = content.replace(duplicateSetupNodeRegex, '$1');
+      log.push(`  Collapsed duplicate consecutive Setup Node.js step`);
+    }
 
-  // Ensure a "Checkout repository" step exists before "Install awf dependencies"
-  // in every job. The gh-aw compiler may add jobs (e.g. detection) that reference
-  // install_awf_binary.sh but don't include a checkout step. After we replace the
-  // install step with local build steps (npm ci / npm run build), they need the
-  // repo checked out. We inject a checkout step right before "Install awf dependencies"
-  // if one doesn't already appear earlier in the same job.
-  const lines = content.split('\n');
-  let injectedCheckouts = 0;
-  for (let i = 0; i < lines.length; i++) {
-    const installMatch = lines[i].match(/^(\s+)- name: Install awf dependencies$/);
-    if (!installMatch) continue;
+    // Ensure a "Checkout repository" step exists before "Install awf dependencies"
+    // in every job. The gh-aw compiler may add jobs (e.g. detection) that reference
+    // install_awf_binary.sh but don't include a checkout step. After we replace the
+    // install step with local build steps (npm ci / npm run build), they need the
+    // repo checked out. We inject a checkout step right before "Install awf dependencies"
+    // if one doesn't already appear earlier in the same job.
+    const lines = content.split('\n');
+    let injectedCheckouts = 0;
+    for (let i = 0; i < lines.length; i++) {
+      const installMatch = lines[i].match(/^(\s+)- name: Install awf dependencies$/);
+      if (!installMatch) continue;
 
-    // Walk backwards to find the job boundary (non-indented key ending with ':')
-    // and check whether an *unconditional* "Checkout repository" step exists in
-    // between. Conditional checkouts (e.g. "Checkout repository for patch context"
-    // with an `if:` guard) don't guarantee the repo is available, so we still
-    // need to inject one.
-    let hasCheckout = false;
-    for (let j = i - 1; j >= 0; j--) {
-      if (/^\s+- name: Checkout repository/.test(lines[j])) {
-        // Check if this checkout step has an `if:` condition (next line)
-        const nextLine = j + 1 < lines.length ? lines[j + 1] : '';
-        if (/^\s+if:/.test(nextLine)) {
-          // Conditional checkout — doesn't count, keep searching
-          continue;
+      // Walk backwards to find the job boundary (non-indented key ending with ':')
+      // and check whether an *unconditional* "Checkout repository" step exists in
+      // between. Conditional checkouts (e.g. "Checkout repository for patch context"
+      // with an `if:` guard) don't guarantee the repo is available, so we still
+      // need to inject one.
+      let hasCheckout = false;
+      for (let j = i - 1; j >= 0; j--) {
+        if (/^\s+- name: Checkout repository/.test(lines[j])) {
+          // Check if this checkout step has an `if:` condition (next line)
+          const nextLine = j + 1 < lines.length ? lines[j + 1] : '';
+          if (/^\s+if:/.test(nextLine)) {
+            // Conditional checkout — doesn't count, keep searching
+            continue;
+          }
+          hasCheckout = true;
+          break;
         }
-        hasCheckout = true;
-        break;
+        // Job-level key (e.g. "  agent:" or "  detection:") marks the boundary
+        if (/^  \S+:/.test(lines[j]) && !lines[j].startsWith('    ')) {
+          break;
+        }
       }
-      // Job-level key (e.g. "  agent:" or "  detection:") marks the boundary
-      if (/^  \S+:/.test(lines[j]) && !lines[j].startsWith('    ')) {
-        break;
+
+      if (!hasCheckout) {
+        const indent = installMatch[1];
+        const checkoutStep = [
+          `${indent}- name: Checkout repository`,
+          `${indent}  uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2`,
+          `${indent}  with:`,
+          `${indent}    persist-credentials: false`,
+        ].join('\n');
+        lines.splice(i, 0, checkoutStep);
+        injectedCheckouts++;
+        i += 4; // Skip past the inserted lines
       }
     }
-
-    if (!hasCheckout) {
-      const indent = installMatch[1];
-      const checkoutStep = [
-        `${indent}- name: Checkout repository`,
-        `${indent}  uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2`,
-        `${indent}  with:`,
-        `${indent}    persist-credentials: false`,
-      ].join('\n');
-      lines.splice(i, 0, checkoutStep);
-      injectedCheckouts++;
-      i += 4; // Skip past the inserted lines
+    if (injectedCheckouts > 0) {
+      content = lines.join('\n');
+      log.push(`  Injected ${injectedCheckouts} checkout step(s) before awf build steps`);
     }
-  }
-  if (injectedCheckouts > 0) {
-    content = lines.join('\n');
-    log.push(`  Injected ${injectedCheckouts} checkout step(s) before awf build steps`);
-  }
 
-  // Remove sparse-checkout from agent job checkout (need full repo for npm build)
-  const sparseMatches = content.match(sparseCheckoutRegex);
-  if (sparseMatches) {
-    content = content.replace(sparseCheckoutRegex, '');
-    log.push(`  Removed ${sparseMatches.length} sparse-checkout block(s)`);
-  }
+    // Remove sparse-checkout from agent job checkout (need full repo for npm build)
+    const sparseMatches = content.match(sparseCheckoutRegex);
+    if (sparseMatches) {
+      content = content.replace(sparseCheckoutRegex, '');
+      log.push(`  Removed ${sparseMatches.length} sparse-checkout block(s)`);
+    }
 
-  // Remove shallow depth (depth: 1) since full checkout is needed
-  const depthMatches = content.match(shallowDepthRegex);
-  if (depthMatches) {
-    content = content.replace(shallowDepthRegex, '');
-    log.push(`  Removed ${depthMatches.length} shallow depth setting(s)`);
-  }
+    // Remove shallow depth (depth: 1) since full checkout is needed
+    const depthMatches = content.match(shallowDepthRegex);
+    if (depthMatches) {
+      content = content.replace(shallowDepthRegex, '');
+      log.push(`  Removed ${depthMatches.length} shallow depth setting(s)`);
+    }
 
-  // Replace GHCR image tags with local builds
-  const imageTagMatches = content.match(imageTagRegex);
-  if (imageTagMatches) {
-    content = content.replace(imageTagRegex, '--build-local');
-    log.push(`  Replaced ${imageTagMatches.length} --image-tag/--skip-pull with --build-local`);
-  }
+    // Replace GHCR image tags with local builds
+    const imageTagMatches = content.match(imageTagRegex);
+    if (imageTagMatches) {
+      content = content.replace(imageTagRegex, '--build-local');
+      log.push(`  Replaced ${imageTagMatches.length} --image-tag/--skip-pull with --build-local`);
+    }
 
-  // Replace standalone --skip-pull, including an incompatible generated
-  // "--skip-pull --build-local" pair, with one local-build flag.
-  standaloneSkipPullRegex.lastIndex = 0;
-  const skipPullMatches = content.match(standaloneSkipPullRegex);
-  if (skipPullMatches) {
-    content = content.replace(standaloneSkipPullRegex, '--build-local');
-    log.push(`  Replaced ${skipPullMatches.length} standalone --skip-pull with --build-local`);
-  }
+    // Replace standalone --skip-pull, including an incompatible generated
+    // "--skip-pull --build-local" pair, with one local-build flag.
+    standaloneSkipPullRegex.lastIndex = 0;
+    const skipPullMatches = content.match(standaloneSkipPullRegex);
+    if (skipPullMatches) {
+      content = content.replace(standaloneSkipPullRegex, '--build-local');
+      log.push(`  Replaced ${skipPullMatches.length} standalone --skip-pull with --build-local`);
+    }
 
-  // The compiler's eager image-download step runs before the local AWF build.
-  // Remove only AWF's unreleased images; digest-pinned tool images still pull.
-  if (content.includes('--build-local')) {
-    localAwfImageDownloadRegex.lastIndex = 0;
-    const localAwfImageMatches = content.match(localAwfImageDownloadRegex);
-    if (localAwfImageMatches) {
-      content = content.replace(localAwfImageDownloadRegex, '');
-      log.push(`  Removed ${localAwfImageMatches.length} local AWF image download(s)`);
+    // The compiler's eager image-download step runs before the local AWF build.
+    // Remove only AWF's unreleased images; digest-pinned tool images still pull.
+    if (content.includes('--build-local')) {
+      localAwfImageDownloadRegex.lastIndex = 0;
+      const localAwfImageMatches = content.match(localAwfImageDownloadRegex);
+      if (localAwfImageMatches) {
+        content = content.replace(localAwfImageDownloadRegex, '');
+        log.push(`  Removed ${localAwfImageMatches.length} local AWF image download(s)`);
+      }
     }
   }
 
