@@ -526,7 +526,7 @@ jobs:
         env:
           GH_AW_FILE_ROOT: "${{ runner.temp }}/gh-aw"
           GH_AW_FILE_CONFIG: "{\"files\":[{\"path\":\"safeoutputs/config.json\",\"content_env\":\"GH_AW_SAFE_OUTPUTS_CONFIG\"}]}"
-          GH_AW_SAFE_OUTPUTS_CONFIG: "{\"add_comment\":{\"allowed_repos\":[\"github/gh-aw\"],\"max\":10,\"target\":\"*\"},\"create_issue\":{\"labels\":[\"awf-triage\"],\"max\":10},\"create_report_incomplete_issue\":{},\"missing_data\":{},\"missing_tool\":{},\"noop\":{\"max\":1,\"report-as-issue\":\"false\"},\"report_incomplete\":{}}"
+          GH_AW_SAFE_OUTPUTS_CONFIG: "{\"add_comment\":{\"allowed_repos\":[\"github/gh-aw\"],\"max\":10,\"target\":\"*\"},\"create_issue\":{\"labels\":[\"awf-triage\"],\"max\":10,\"require_temporary_id\":true},\"create_report_incomplete_issue\":{},\"missing_data\":{},\"missing_tool\":{},\"noop\":{\"max\":1,\"report-as-issue\":\"false\"},\"report_incomplete\":{}}"
         with:
           script: |
             const path = require('path');
@@ -541,7 +541,7 @@ jobs:
             {
               "description_suffixes": {
                 "add_comment": " CONSTRAINTS: Maximum 10 comment(s) can be added. Target: *. Supports reply_to_id for discussion threading.",
-                "create_issue": " CONSTRAINTS: Maximum 10 issue(s) can be created. Labels [\"awf-triage\"] will be automatically added."
+                "create_issue": " CONSTRAINTS: Maximum 10 issue(s) can be created. Labels [\"awf-triage\"] will be automatically added. temporary_id is required."
               },
               "repo_params": {
                 "add_comment": {
@@ -549,7 +549,12 @@ jobs:
                   "type": "string"
                 }
               },
-              "dynamic_tools": []
+              "dynamic_tools": [],
+              "required_field_additions": {
+                "create_issue": [
+                  "temporary_id"
+                ]
+              }
             }
           GH_AW_VALIDATION_JSON: |
             {
@@ -1499,7 +1504,7 @@ jobs:
           GH_AW_ALLOWED_DOMAINS: "api.business.githubcopilot.com,api.enterprise.githubcopilot.com,api.github.com,api.githubcopilot.com,api.individual.githubcopilot.com,api.snapcraft.io,archive.ubuntu.com,azure.archive.ubuntu.com,crl.geotrust.com,crl.globalsign.com,crl.identrust.com,crl.sectigo.com,crl.thawte.com,crl.usertrust.com,crl.verisign.com,crl3.digicert.com,crl4.digicert.com,crls.ssl.com,github.com,host.docker.internal,json-schema.org,json.schemastore.org,keyserver.ubuntu.com,ocsp.digicert.com,ocsp.geotrust.com,ocsp.globalsign.com,ocsp.identrust.com,ocsp.sectigo.com,ocsp.ssl.com,ocsp.thawte.com,ocsp.usertrust.com,ocsp.verisign.com,packagecloud.io,packages.cloud.google.com,packages.microsoft.com,ppa.launchpad.net,raw.githubusercontent.com,s.symcb.com,s.symcd.com,security.ubuntu.com,telemetry.enterprise.githubcopilot.com,ts-crl.ws.symantec.com,ts-ocsp.ws.symantec.com,www.googleapis.com"
           GITHUB_SERVER_URL: ${{ github.server_url }}
           GITHUB_API_URL: ${{ github.api_url }}
-          GH_AW_SAFE_OUTPUTS_HANDLER_CONFIG: "{\"add_comment\":{\"allowed_repos\":[\"github/gh-aw\"],\"max\":10,\"target\":\"*\"},\"create_issue\":{\"labels\":[\"awf-triage\"],\"max\":10},\"create_report_incomplete_issue\":{},\"missing_data\":{},\"missing_tool\":{},\"noop\":{\"max\":1,\"report-as-issue\":\"false\"},\"report_incomplete\":{}}"
+          GH_AW_SAFE_OUTPUTS_HANDLER_CONFIG: "{\"add_comment\":{\"allowed_repos\":[\"github/gh-aw\"],\"max\":10,\"target\":\"*\"},\"create_issue\":{\"labels\":[\"awf-triage\"],\"max\":10,\"require_temporary_id\":true},\"create_report_incomplete_issue\":{},\"missing_data\":{},\"missing_tool\":{},\"noop\":{\"max\":1,\"report-as-issue\":\"false\"},\"report_incomplete\":{}}"
         with:
           github-token: ${{ secrets.GH_AW_CROSS_REPO_PAT }}
           script: |

@@ -980,6 +980,18 @@ models.dev catalog:
 Note: Requests without a `model` field in the body (e.g. non-chat endpoints)
 are not subject to this check.
 
+**Recognized dynamic selectors.** The Copilot `auto` model (`copilot:auto`) is
+not subject to `unknown_model_ai_credits` rejection. Because its concrete
+runtime model is not known at request time, the proxy accounts it using a
+conservative fallback ceiling (the maximum per-token rate across the curated
+pricing catalog) rather than rejecting the request or silently under-counting
+spend. Token-usage records for these requests set `pricing_source` and
+`accounting_policy` to `dynamic_selector_fallback`, `pricing_tier` to
+`conservative`, `fallback_pricing_used` to `true`, and `dynamic_selector` to
+`copilot:auto`. This dynamic-selector accounting path applies only to the
+recognized Copilot `auto` selector; other unresolved models still follow the
+fallback/rejection behavior above.
+
 ### 10.7.4 Token Usage JSONL Schema Extensions
 
 When AI credits and/or effective tokens are computed, the `token-usage.jsonl`
