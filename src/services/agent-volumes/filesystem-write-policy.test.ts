@@ -45,6 +45,17 @@ describe('applyFilesystemWritePolicy', () => {
     ]);
   });
 
+  it.each([
+    ['/workspace', '/workspace/allowed'],
+    ['/workspace/allowed', '/workspace'],
+  ])('removes redundant descendant paths regardless of order', (first, second) => {
+    const allowWrite = [first, second].map((value) => value.replace('/workspace', workspace));
+    expect(applyFilesystemWritePolicy(
+      [`${workspace}:/host${workspace}:rw`],
+      allowWrite,
+    )).toEqual([`${workspace}:/host${workspace}:rw`]);
+  });
+
   it('treats an empty allowlist as a deny-all host write boundary', () => {
     expect(applyFilesystemWritePolicy(
       [`${workspace}:/host${workspace}:rw`],

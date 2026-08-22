@@ -87,7 +87,10 @@ export function applyFilesystemWritePolicy(
     }
   }
 
-  const allowedPaths = allowWrite.map((value) => path.posix.normalize(value));
+  const normalizedPaths = [...new Set(allowWrite.map((value) => path.posix.normalize(value)))];
+  const allowedPaths = normalizedPaths.filter((candidate) =>
+    !normalizedPaths.some((parent) => parent !== candidate && isPathAtOrBelow(candidate, parent))
+  );
   const mounts = volumeSpecs.map(parseBindMount);
   const overlays = new Set<string>();
   const matched = new Set<string>();
