@@ -155,6 +155,37 @@ function harness(overrides: Partial<CloudHypervisorRuntimeBackendDependencies> =
   return { order, manager, infra, deps, stdin };
 }
 
+type ExecutionResult = {
+  requestId: string;
+  exitCode: number;
+  signal: null;
+  timedOut: boolean;
+};
+
+function mockNetworkReadyProbeSequence(
+  manager: ReturnType<typeof harness>['manager'],
+): (value: ExecutionResult) => void {
+  let resolveExecution!: (value: ExecutionResult) => void;
+  manager.execute
+    .mockReset()
+    .mockResolvedValueOnce({
+      requestId: 'network-ready',
+      exitCode: 0,
+      signal: null,
+      timedOut: false,
+    })
+    .mockResolvedValueOnce({
+      requestId: 'probe',
+      exitCode: 0,
+      signal: null,
+      timedOut: false,
+    })
+    .mockReturnValueOnce(new Promise((resolve) => {
+      resolveExecution = resolve;
+    }));
+  return resolveExecution;
+}
+
 describe('Cloud Hypervisor runtime backend', () => {
   let eligibilitySpy: jest.SpyInstance;
 
@@ -288,29 +319,7 @@ describe('Cloud Hypervisor runtime backend', () => {
   it('serializes stdin chunks before sending EOF', async () => {
     const { manager, deps, stdin } = harness();
     let releaseFirstWrite!: () => void;
-    let resolveExecution!: (value: {
-      requestId: string;
-      exitCode: number;
-      signal: null;
-      timedOut: boolean;
-    }) => void;
-    manager.execute
-      .mockReset()
-      .mockResolvedValueOnce({
-        requestId: 'network-ready',
-        exitCode: 0,
-        signal: null,
-        timedOut: false,
-      })
-      .mockResolvedValueOnce({
-        requestId: 'probe',
-        exitCode: 0,
-        signal: null,
-        timedOut: false,
-      })
-      .mockReturnValueOnce(new Promise((resolve) => {
-        resolveExecution = resolve;
-      }));
+    const resolveExecution = mockNetworkReadyProbeSequence(manager);
     manager.writeStdin.mockImplementationOnce(() => new Promise<void>((resolve) => {
       releaseFirstWrite = resolve;
     }));
@@ -776,29 +785,7 @@ describe('Cloud Hypervisor runtime backend', () => {
 
   it('cancels an active guest command before stopping', async () => {
     const { manager, deps } = harness();
-    let resolveExecution!: (value: {
-      requestId: string;
-      exitCode: number;
-      signal: null;
-      timedOut: boolean;
-    }) => void;
-    manager.execute
-      .mockReset()
-      .mockResolvedValueOnce({
-        requestId: 'network-ready',
-        exitCode: 0,
-        signal: null,
-        timedOut: false,
-      })
-      .mockResolvedValueOnce({
-        requestId: 'probe',
-        exitCode: 0,
-        signal: null,
-        timedOut: false,
-      })
-      .mockReturnValueOnce(new Promise((resolve) => {
-        resolveExecution = resolve;
-      }));
+    const resolveExecution = mockNetworkReadyProbeSequence(manager);
     manager.cancel.mockImplementationOnce(async () => {
       resolveExecution({
         requestId: 'agent',
