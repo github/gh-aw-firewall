@@ -66,6 +66,7 @@ safe-outputs:
   create-issue:
     max: 10
     labels: [awf-triage]
+    require-temporary-id: true
   add-comment:
     max: 10
     target: "*"
@@ -94,14 +95,12 @@ For each **unprocessed** issue:
    - Title: `[awf] <component>: <summary>`
    - Body: **Problem**, **Context** (link to original), **Root Cause**, **Proposed Solution** — keep to 200 words maximum
    - Labels: `awf-triage`
+   - A unique temporary ID such as `aw_track1`
 
 2. **Comment on the original `github/gh-aw` issue** linking to the newly created tracking issue. Use this exact format:
-   > 🔗 AWF tracking issue: https://github.com/github/gh-aw-firewall/issues/{NUMBER}
+   > 🔗 AWF tracking issue: #aw_track1
 
-   `create_issue` may return a reference like `github/gh-aw-firewall#2159`. Extract only the trailing digits before composing the URL.
-   - Valid: `https://github.com/github/gh-aw-firewall/issues/2159`
-   - Invalid: `https://github.com/github/gh-aw-firewall/issues/github/gh-aw-firewall#2159`
-   - Invalid: `https://github.com/github/gh-aw-firewall/issues/#2159`
+   Use the same temporary ID as the tracking issue. The safe-output processor will resolve it to a clickable cross-repository reference such as `github/gh-aw-firewall#2159`; do not construct the issue URL yourself.
 
    Use the `add_comment` safe output tool with `repo: "github/gh-aw"` and the original issue number.
 
