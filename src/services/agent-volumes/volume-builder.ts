@@ -63,6 +63,11 @@ export function buildAgentVolumes(params: AgentVolumesParams): string[] {
   }
   agentVolumes.push(...buildDockerSocketMount(config));
   agentVolumes.push(...buildSslMounts(sslConfig));
+  const alwaysWritableMounts = new Set(agentVolumes.filter((spec) =>
+    spec.startsWith(`${agentLogsPath}:`) ||
+    spec.startsWith(`${sessionStatePath}:`) ||
+    spec === '/dev/null:/host/dev/null:rw'
+  ));
   const customMounts = buildCustomVolumeMounts(config.volumeMounts, config.dockerHostPathPrefix);
   agentVolumes.push(...customMounts);
 
@@ -77,11 +82,7 @@ export function buildAgentVolumes(params: AgentVolumesParams): string[] {
   const policyVolumes = applyFilesystemWritePolicy(
     agentVolumes,
     config.filesystemAllowWrite,
-    [
-      `${effectiveHome}/.copilot/logs`,
-      `${effectiveHome}/.copilot/session-state`,
-      '/dev/null',
-    ],
+    alwaysWritableMounts,
     localSourceRoots,
   );
 

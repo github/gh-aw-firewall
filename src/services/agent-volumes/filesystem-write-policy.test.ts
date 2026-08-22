@@ -61,11 +61,23 @@ describe('applyFilesystemWritePolicy', () => {
         `${logs}:/host/home/runner/.copilot/logs:rw`,
       ],
       [],
-      ['/home/runner/.copilot/logs'],
+      new Set([`${logs}:/host/home/runner/.copilot/logs:rw`]),
     )).toEqual([
       `${workspace}:/host${workspace}:ro`,
       `${logs}:/host/home/runner/.copilot/logs:rw`,
     ]);
+  });
+
+  it('does not trust custom mounts that target AWF-internal namespaces', () => {
+    const outside = path.join(root, 'outside');
+    fs.mkdirSync(outside);
+    const custom = `${outside}:/host/home/runner/.copilot/logs/escape:rw`;
+
+    expect(applyFilesystemWritePolicy(
+      [custom],
+      [],
+      new Set(),
+    )).toEqual([`${outside}:/host/home/runner/.copilot/logs/escape:ro`]);
   });
 
   it('fails closed for missing, unexposed, and symlink-escaping paths', () => {
@@ -106,7 +118,7 @@ describe('applyFilesystemWritePolicy', () => {
     expect(applyFilesystemWritePolicy(
       [spec],
       ['/data/allowed'],
-      [],
+      new Set(),
       new Map([[spec, workspace]]),
     )).toEqual([
       `${daemonSource}:/host/data:ro`,

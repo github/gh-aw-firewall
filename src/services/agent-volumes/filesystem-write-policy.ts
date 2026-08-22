@@ -76,7 +76,7 @@ function resolveWritableOverlay(
 export function applyFilesystemWritePolicy(
   volumeSpecs: string[],
   allowWrite: string[] | undefined,
-  alwaysWritablePaths: string[] = [],
+  alwaysWritableMounts: ReadonlySet<string> = new Set(),
   localSourceRoots: ReadonlyMap<string, string> = new Map(),
 ): string[] {
   if (allowWrite === undefined) return volumeSpecs;
@@ -88,7 +88,6 @@ export function applyFilesystemWritePolicy(
   }
 
   const allowedPaths = allowWrite.map((value) => path.posix.normalize(value));
-  const internalPaths = alwaysWritablePaths.map((value) => path.posix.normalize(value));
   const mounts = volumeSpecs.map(parseBindMount);
   const overlays = new Set<string>();
   const matched = new Set<string>();
@@ -97,7 +96,7 @@ export function applyFilesystemWritePolicy(
     const mount = mounts[index];
     if (!mount || !mount.writable) return spec;
 
-    if (internalPaths.some((internalPath) => isPathAtOrBelow(mount.logicalTarget, internalPath))) {
+    if (alwaysWritableMounts.has(spec)) {
       return withMode(mount, 'rw');
     }
 
