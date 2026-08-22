@@ -120,6 +120,13 @@ describe('self-hosted runner doctor workflow config', () => {
       expect(content).toContain('`repairRunnerTempGhAwOwnership()`');
       expect(content).toContain('github/gh-aw-firewall#7564, github/gh-aw-firewall#7565');
       expect(content).toContain('| `EACCES` retries reading `${RUNNER_TEMP}/gh-aw/mcp-config/mcp-servers.json` (or similar `${RUNNER_TEMP}/gh-aw` paths) when AWF was invoked as native root (no `sudo`) | B24');
+      // B25 new failure mode (native-root checkout ownership blocks agent writes)
+      expect(content).toContain('| B25 | On native-root runners');
+      expect(content).toContain('**Fixed in AWF (PR github/gh-aw-firewall#7599, merged 2026-08-21):**');
+      expect(content).toContain('`repairContainerWorkDirOwnership(config)`');
+      expect(content).toContain('`isDirectoryWritableByIdentity()`');
+      expect(content).toContain('github/gh-aw-firewall#7593, github/gh-aw-firewall#7599');
+      expect(content).toContain('| `Host workspace is not writable by the sandbox identity (<uid>:<gid>): <path>` | B25 |');
     }
 
     expect(source).toContain('- `unknown shorthand flag: \'d\' in -d` from `docker compose up -d` → A14 (DinD sidecar missing `docker-compose-plugin`)');
@@ -153,6 +160,8 @@ describe('self-hosted runner doctor workflow config', () => {
     for (const playbook of [source, portableAgent]) {
       expect(playbook).toContain('- Repeated `EACCES` retries reading `${RUNNER_TEMP}/gh-aw/mcp-config/mcp-servers.json` (or similar `${RUNNER_TEMP}/gh-aw` paths) when AWF was invoked as native root (no `sudo`) → B24 (root fallback to sandbox uid 1000 leaves root-owned config unreadable; fixed in github/gh-aw-firewall#7565 with `repairRunnerTempGhAwOwnership()`)');
       expect(playbook).toContain('B24 / github/gh-aw-firewall#7564, github/gh-aw-firewall#7565 — On native-root runners');
+      expect(playbook).toContain('- Job exits 0 with no agent output/writes on a native-root runner (no `sudo`), even after `${RUNNER_TEMP}/gh-aw` ownership is fixed, or `Host workspace is not writable by the sandbox identity (<uid>:<gid>): <path>` → B25');
+      expect(playbook).toContain('B25 / github/gh-aw-firewall#7593, github/gh-aw-firewall#7599 — On native-root runners');
     }
   });
 });
