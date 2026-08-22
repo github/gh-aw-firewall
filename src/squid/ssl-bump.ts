@@ -15,7 +15,8 @@ export function generateSslBumpSection(
   sslDbPath: string,
   hasPlainDomains: boolean,
   hasPatterns: boolean,
-  urlPatterns?: string[]
+  urlPatterns?: string[],
+  allowCliProxyArtifactStorage = false,
 ): string {
   // Build the SSL Bump domain list for the bump directive
   let bumpAcls = '';
@@ -81,6 +82,7 @@ ssl_bump stare step2
 
 # Bump (intercept) connections to allowed domains
 ${bumpAcls}
+${allowCliProxyArtifactStorage ? 'ssl_bump bump from_cli_proxy cli_proxy_artifact_storage' : ''}
 
 # Terminate (deny) connections to non-allowed domains
 ssl_bump terminate all

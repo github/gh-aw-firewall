@@ -202,6 +202,17 @@ describe('CLI proxy sidecar (external DIFC proxy)', () => {
         expect(env.no_proxy).toContain('host.docker.internal');
       });
 
+      it('should route artifact redirect downloads through Squid', () => {
+        const configWithCliProxy = { ...mockConfig, difcProxyHost: 'host.docker.internal:18443' };
+        const result = generateDockerCompose(configWithCliProxy, mockNetworkConfigWithCliProxy);
+        const proxy = result.services['cli-proxy'];
+        const env = proxy.environment as Record<string, string>;
+        expect(env.HTTP_PROXY).toBe('http://172.30.0.10:3128');
+        expect(env.HTTPS_PROXY).toBe('http://172.30.0.10:3128');
+        expect(env.https_proxy).toBe('http://172.30.0.10:3128');
+        expect(env.NO_PROXY).not.toContain('blob.core.windows.net');
+      });
+
       it('should configure healthcheck for cli-proxy', () => {
         const configWithCliProxy = { ...mockConfig, difcProxyHost: 'host.docker.internal:18443' };
         const result = generateDockerCompose(configWithCliProxy, mockNetworkConfigWithCliProxy);

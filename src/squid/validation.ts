@@ -1,15 +1,23 @@
 import { DANGEROUS_PORTS } from './policy-manifest';
 
-export function validateApiProxyIp(apiProxyIp?: string): void {
-  if (apiProxyIp === undefined) {
+function validateProxyIp(name: string, ip?: string): void {
+  if (ip === undefined) {
     return;
   }
 
   const octet = '(?:25[0-5]|2[0-4]\\d|1\\d{2}|[1-9]\\d|\\d)';
   const ipv4Re = new RegExp(`^(?:${octet}\\.){3}${octet}$`);
-  if (!ipv4Re.test(apiProxyIp)) {
-    throw new Error(`SECURITY: apiProxyIp must be a valid IPv4 address (0-255 octets), got: ${JSON.stringify(apiProxyIp)}`);
+  if (!ipv4Re.test(ip)) {
+    throw new Error(`SECURITY: ${name} must be a valid IPv4 address (0-255 octets), got: ${JSON.stringify(ip)}`);
   }
+}
+
+export function validateApiProxyIp(apiProxyIp?: string): void {
+  validateProxyIp('apiProxyIp', apiProxyIp);
+}
+
+export function validateCliProxyIp(cliProxyIp?: string): void {
+  validateProxyIp('cliProxyIp', cliProxyIp);
 }
 
 export function validateAndSanitizeHostAccessPort(port: string): string {

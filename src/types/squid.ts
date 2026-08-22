@@ -155,6 +155,14 @@ export interface SquidConfig {
   apiProxyPorts?: number[];
 
   /**
+   * IP address of the credential-isolated CLI proxy sidecar.
+   *
+   * When set, Squid permits this source to follow GitHub artifact redirects to
+   * Azure Blob storage without adding that domain to the agent's allowlist.
+   */
+  cliProxyIp?: string;
+
+  /**
    * Trusted topology-peer hostnames reachable through Squid in network-isolation
    * (topology) mode — the `--topology-attach` container names plus the DIFC/
    * cli-proxy host.

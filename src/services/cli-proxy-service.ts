@@ -1,5 +1,5 @@
 import { CLI_PROXY_CONTAINER_NAME } from '../constants';
-import { EXTERNAL_BRIDGE_NAME, NETWORK_SUBNET } from '../config/network-policy';
+import { EXTERNAL_BRIDGE_NAME, NETWORK_SUBNET, SQUID_PORT } from '../config/network-policy';
 import { isValidIPv4, isValidIPv6 } from '../domain-utils';
 import { parseDifcProxyHost } from '../host-env';
 import { assignImageSource } from '../image-tag';
@@ -152,6 +152,11 @@ export function buildCliProxyService(params: CliProxyServiceParams): CliProxyBui
       // credential-free fixed-target relay on awf-net.
       AWF_DIFC_PROXY_HOST: cliProxyUpstreamHost,
       AWF_DIFC_PROXY_PORT: difcProxyPort,
+      // Route redirects returned by GitHub (including artifact downloads) through
+      // Squid; cli-proxy remains isolated from the external bridge.
+      HTTP_PROXY: `http://${networkConfig.squidIp}:${SQUID_PORT}`,
+      HTTPS_PROXY: `http://${networkConfig.squidIp}:${SQUID_PORT}`,
+      https_proxy: `http://${networkConfig.squidIp}:${SQUID_PORT}`,
       // Pass GITHUB_REPOSITORY for GH_REPO default in entrypoint
       ...(process.env.GITHUB_REPOSITORY && { GITHUB_REPOSITORY: process.env.GITHUB_REPOSITORY }),
       // The gh CLI inside the cli-proxy needs a GitHub token to authenticate API

@@ -92,7 +92,7 @@ The `gh` CLI uses `GH_HOST=localhost:18443`, which matches the cert's SAN.
 - **Write control**: Delegated to the DIFC guard policy (no read-only mode in cli-proxy)
 - **Credential isolation**: Tokens held by the external DIFC proxy, excluded from agent env
 - **Audit logging**: mcpg logs all proxied API calls on the host
-- **Squid routing**: The external DIFC proxy's traffic is not routed through Squid
+- **Squid routing**: The external DIFC proxy's traffic is not routed through Squid. Redirects followed by `gh` inside cli-proxy are routed through Squid; Azure Blob artifact storage is allowed only for the cli-proxy source IP.
 
 ---
 

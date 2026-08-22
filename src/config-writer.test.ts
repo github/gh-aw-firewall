@@ -563,5 +563,22 @@ describe('writeConfigs', () => {
         })
       );
     });
+
+    it('scopes artifact storage egress to the CLI proxy', async () => {
+      const { generateSquidConfig } = jest.requireMock('./squid-config');
+
+      await writeConfigs(
+        buildWriteConfig(tempDir, {
+          allowedDomains: ['github.com'],
+          difcProxyHost: 'host.docker.internal:18443',
+        })
+      );
+
+      expect(generateSquidConfig).toHaveBeenCalledWith(
+        expect.objectContaining({
+          cliProxyIp: '172.30.0.50',
+        })
+      );
+    });
   });
 });

@@ -575,6 +575,9 @@ export async function writeConfigs(config: WrapperConfig): Promise<void> {
       apiProxyIp: networkConfig.proxyIp,
       apiProxyPorts: Object.values(API_PROXY_PORTS),
     } : {}),
+    ...(config.difcProxyHost && networkConfig.cliProxyIp ? {
+      cliProxyIp: networkConfig.cliProxyIp,
+    } : {}),
     // Allow trusted topology peers (MCP gateway, DIFC/cli-proxy) on any port in
     // network-isolation mode, for proxy clients that ignore NO_PROXY. DNS for
     // these Docker-only names is provided via the squid-proxy extra_hosts patch

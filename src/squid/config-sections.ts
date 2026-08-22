@@ -31,12 +31,13 @@ function generateSslSections(options: {
   urlPatterns?: string[];
   domainsByProto: DomainsByProto;
   patternsByProto: PatternsByProto;
+  cliProxyIp?: string;
 }): {
   portConfig: string;
   sslBumpSection: string;
   sslBumpUrlAccessSection: string;
 } {
-  const { port, sslBump, caFiles, sslDbPath, urlPatterns, domainsByProto, patternsByProto } = options;
+  const { port, sslBump, caFiles, sslDbPath, urlPatterns, domainsByProto, patternsByProto, cliProxyIp } = options;
 
   let sslBumpSection = '';
   let sslBumpUrlAccessSection = '';
@@ -51,7 +52,8 @@ function generateSslSections(options: {
       sslDbPath,
       hasPlainDomainsForSslBump,
       hasPatternsForSslBump,
-      urlPatterns
+      urlPatterns,
+      Boolean(cliProxyIp),
     );
     if (urlPatterns && urlPatterns.length > 0) {
       const urlAccessLines = urlPatterns
@@ -218,6 +220,7 @@ function generateConfigSections(options: {
   apiProxyIp?: string;
   dnsServers?: string[];
   topologyPeers?: string[];
+  cliProxyIp?: string;
 }): {
   dlpAclSection: string;
   dlpAccessSection: string;
@@ -246,6 +249,7 @@ function generateConfigSections(options: {
     apiProxyIp,
     dnsServers,
     topologyPeers,
+    cliProxyIp,
   } = options;
 
   const { aclSection: dlpAclSection, accessSection: dlpAccessSection } = generateDlpSections(enableDlp);
@@ -257,6 +261,7 @@ function generateConfigSections(options: {
     urlPatterns,
     domainsByProto,
     patternsByProto,
+    cliProxyIp,
   });
   const portAclsAndRules = generatePortAclsAndRules(enableHostAccess, allowHostPorts, apiProxyPorts);
   const apiProxySection = generateApiProxySection(apiProxyIp);
