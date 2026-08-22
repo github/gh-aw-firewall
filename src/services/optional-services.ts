@@ -119,7 +119,11 @@ function filterAgentVolumesForSysroot(
     return true;
   });
 
-  return dropUnbackedHostHomeOverlays(filtered, hostHomeMountPrefix);
+  return dropUnbackedHostHomeOverlays(
+    filtered,
+    hostHomeMountPrefix,
+    config.filesystemAllowWrite !== undefined,
+  );
 }
 
 /**
@@ -156,7 +160,16 @@ function mountSpecKey(source: string, target: string): string {
  * mountpoint and the agent container fails to start.  The equivalent overlays
  * at the un-prefixed `$HOME` path (on the container's own rootfs) are kept.
  */
-function dropUnbackedHostHomeOverlays(volumes: string[], hostHomeMountPrefix: string): string[] {
+function dropUnbackedHostHomeOverlays(
+  volumes: string[],
+  hostHomeMountPrefix: string,
+  enforceWritePolicy: boolean,
+): string[] {
+  const hasHostHomeMount = volumes.some(volume => {
+    const parts = volume.split(':');
+    return parts[0] !== '/dev/null' &&
+      (parts[1] || '').replace(/\/+$/, '') === hostHomeMountPrefix;
+  });
   const hasWritableHostHome = volumes.some(volume => {
     const parts = volume.split(':');
     if (parts.length < 2) return false;
@@ -177,6 +190,12 @@ function dropUnbackedHostHomeOverlays(volumes: string[], hostHomeMountPrefix: st
 
   const dropped = volumes.length - kept.length;
   if (dropped > 0) {
+    if (enforceWritePolicy && hasHostHomeMount) {
+      throw new Error(
+        `filesystem.allowWrite cannot safely make ${hostHomeMountPrefix} read-only on an ARC/DinD sysroot ` +
+        'because doing so would disable credential-hiding overlays; allow the home mount or remove it',
+      );
+    }
     logger.warn(
       `No writable ${hostHomeMountPrefix} mount survived the sysroot filter; skipping ${dropped} ` +
       'credential-hiding overlay(s) under that path (the container could not start otherwise). ' +

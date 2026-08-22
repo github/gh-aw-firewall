@@ -167,5 +167,24 @@ describe('optional-services helpers', () => {
         '/tmp:/tmp:rw',
       ]);
     });
+
+    it('fails closed when allowWrite makes an explicit ARC/DinD home read-only', () => {
+      const home = '/home/runner/_work/_temp/gh-aw/home';
+      const config: WrapperConfig = {
+        ...baseConfig,
+        workDir: '/tmp/awf-work',
+        filesystemAllowWrite: ['/workspace'],
+        volumeMounts: [`${home}:${home}:rw`],
+      };
+
+      expect(() => testHelpers.filterAgentVolumesForSysroot(
+        [
+          `${home}:/host${home}:ro`,
+          `/dev/null:/host${home}/.npmrc:ro`,
+        ],
+        config,
+        home,
+      )).toThrow('filesystem.allowWrite cannot safely make');
+    });
   });
 });
