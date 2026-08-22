@@ -307,9 +307,10 @@ then maps the backend's `start`/`exec` methods onto the shared
   honoring the agent timeout, workdir, TTY, and computed environment, and dumps
   api-proxy logs on non-zero exit for debugging (`collectDiagnostics()`).
 
-Cleanup: `SbxRuntimeBackend.stop()` calls `removeSandbox(SBX_DEFAULT_NAME)`;
-`main-action.ts` wires this into both signal handling (`fastKillAgentContainer`
-substitution) and the normal cleanup path, running before compose teardown.
+Cleanup: unless `--keep-containers` is set, `SbxRuntimeBackend.stop()` calls
+`removeSandbox(SBX_DEFAULT_NAME)`; `main-action.ts` wires this into both signal
+handling (`fastKillAgentContainer` substitution) and the normal cleanup path,
+running before compose teardown.
 
 ### Networking: crossing the VM boundary
 
