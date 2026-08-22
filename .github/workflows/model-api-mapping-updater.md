@@ -9,9 +9,12 @@ permissions:
   contents: read
   pull-requests: read
   issues: read
+sandbox:
+  agent:
+    id: awf
+    runtime: cloud-hypervisor
 tools:
   github:
-    mode: gh-proxy
     toolsets: [repos]
   bash: true
   edit:

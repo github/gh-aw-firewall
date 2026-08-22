@@ -14,6 +14,7 @@ permissions:
 sandbox:
   agent:
     id: awf
+    runtime: cloud-hypervisor
 if: needs.check_relevant_changes.outputs.has_changes == 'true' && needs.check_relevant_changes.outputs.skip_agent != 'true'
 jobs:
   check_relevant_changes:

@@ -14,6 +14,10 @@ permissions:
 engine: copilot
 strict: true
 timeout-minutes: 20
+sandbox:
+  agent:
+    id: awf
+    runtime: cloud-hypervisor
 network:
   allowed:
     - defaults
@@ -21,7 +25,6 @@ network:
     - github
 tools:
   github:
-    mode: gh-proxy
     toolsets: [default, pull_requests]
   cache-memory: true
   bash: ["*"]

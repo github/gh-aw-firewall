@@ -13,6 +13,7 @@ permissions:
 sandbox:
   agent:
     id: awf
+    runtime: cloud-hypervisor
 max-turns: 50
 engine:
   id: copilot
@@ -40,7 +41,6 @@ tools:
     - "find*"
   edit:
   github:
-    mode: gh-proxy
     toolsets: [pull_requests]
 safe-outputs:
   threat-detection:
