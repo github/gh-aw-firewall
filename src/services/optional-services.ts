@@ -165,19 +165,21 @@ function dropUnbackedHostHomeOverlays(
   hostHomeMountPrefix: string,
   enforceWritePolicy: boolean,
 ): string[] {
+  const containsPath = (parent: string, candidate: string): boolean =>
+    parent === '/' || candidate === parent || candidate.startsWith(`${parent}/`);
   const hasHostHomeExposure = volumes.some(volume => {
     const parts = volume.split(':');
-    const target = (parts[1] || '').replace(/\/+$/, '');
+    const target = (parts[1] || '').replace(/\/+$/, '') || '/';
     return parts[0] !== '/dev/null' &&
-      (target === hostHomeMountPrefix || target.startsWith(`${hostHomeMountPrefix}/`));
+      (containsPath(target, hostHomeMountPrefix) || containsPath(hostHomeMountPrefix, target));
   });
   const hasWritableHostHome = volumes.some(volume => {
     const parts = volume.split(':');
     if (parts.length < 2) return false;
     if (parts[0] === '/dev/null') return false;
-    const target = (parts[1] || '').replace(/\/+$/, '');
+    const target = (parts[1] || '').replace(/\/+$/, '') || '/';
     const mode = parts[2] || 'rw';
-    return target === hostHomeMountPrefix && mode !== 'ro';
+    return containsPath(target, hostHomeMountPrefix) && mode !== 'ro';
   });
 
   if (hasWritableHostHome) return volumes;

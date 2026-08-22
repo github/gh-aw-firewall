@@ -205,5 +205,40 @@ describe('optional-services helpers', () => {
         home,
       )).toThrow('filesystem.allowWrite cannot safely protect');
     });
+
+    it('keeps credential overlays backed by a writable home ancestor mount', () => {
+      const home = '/home/runner';
+      const config: WrapperConfig = {
+        ...baseConfig,
+        workDir: '/tmp/awf-work',
+        filesystemAllowWrite: ['/home'],
+        volumeMounts: ['/shared:/home:rw'],
+      };
+      const volumes = [
+        '/shared:/host/home:rw',
+        `/dev/null:/host${home}/.npmrc:ro`,
+      ];
+
+      expect(testHelpers.filterAgentVolumesForSysroot(volumes, config, home)).toEqual(volumes);
+    });
+
+    it('fails closed for a read-only home ancestor mount', () => {
+      const home = '/home/runner';
+      const config: WrapperConfig = {
+        ...baseConfig,
+        workDir: '/tmp/awf-work',
+        filesystemAllowWrite: ['/workspace'],
+        volumeMounts: ['/shared:/home:rw'],
+      };
+
+      expect(() => testHelpers.filterAgentVolumesForSysroot(
+        [
+          '/shared:/host/home:ro',
+          `/dev/null:/host${home}/.npmrc:ro`,
+        ],
+        config,
+        home,
+      )).toThrow('filesystem.allowWrite cannot safely protect');
+    });
   });
 });
