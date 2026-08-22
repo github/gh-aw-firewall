@@ -38,6 +38,12 @@ describe('generateSquidConfig: CLI proxy artifact storage', () => {
       sslDbPath: '/tmp/ssl_db',
     });
 
-    expect(config).toContain('ssl_bump bump from_cli_proxy cli_proxy_artifact_storage');
+    expect(config).toContain('ssl_bump splice from_cli_proxy cli_proxy_artifact_storage');
+
+    const splice = config.indexOf('ssl_bump splice from_cli_proxy cli_proxy_artifact_storage');
+    const peek = config.indexOf('ssl_bump peek step1');
+    const stare = config.indexOf('ssl_bump stare step2');
+    expect(peek).toBeLessThan(splice);
+    expect(splice).toBeLessThan(stare);
   });
 });
