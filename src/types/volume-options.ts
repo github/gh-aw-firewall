@@ -32,6 +32,15 @@ export interface VolumeOptions {
   volumeMounts?: string[];
 
   /**
+   * Guest-visible absolute paths that may remain writable.
+   *
+   * When defined, writable host bind mounts are made read-only except for
+   * these paths. An empty array makes every non-internal host bind mount
+   * read-only.
+   */
+  filesystemAllowWrite?: string[];
+
+  /**
    * Working directory inside the agent execution container
    *
    * Sets the initial working directory (pwd) for command execution.

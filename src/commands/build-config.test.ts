@@ -327,6 +327,16 @@ describe('buildConfig', () => {
       expect(config.volumeMounts).toEqual(['/host/path:/container/path']);
     });
 
+    it('should pass through filesystemAllowWrite', () => {
+      const config = buildConfig(makeInputs({
+        options: {
+          ...makeInputs().options,
+          filesystemAllowWrite: ['/workspace'],
+        },
+      }));
+      expect(config.filesystemAllowWrite).toEqual(['/workspace']);
+    });
+
     it('should pass through upstreamProxy', () => {
       const proxy = { host: 'proxy.example.com', port: 3128 };
       const config = buildConfig(makeInputs({ upstreamProxy: proxy as any }));

@@ -26,6 +26,7 @@ export function mapAwfFileConfigToCliOptions(config: AwfFileConfig): Record<stri
     upstreamProxy: config.network?.upstreamProxy,
     networkIsolation: config.network?.isolation,
     topologyAttach: config.network?.topologyAttach,
+    filesystemAllowWrite: config.filesystem?.allowWrite,
 
     // apiProxy.enabled is ignored — API proxy is always on (see #6207).
     // We deliberately don't map it to enableApiProxy to avoid triggering

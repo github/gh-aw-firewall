@@ -30,6 +30,15 @@ describe('mapAwfFileConfigToCliOptions', () => {
     expect(result.topologyAttach).toEqual(['mcp-gateway', 'difc-proxy']);
   });
 
+  it('maps filesystem.allowWrite without collapsing an empty boundary', () => {
+    expect(mapAwfFileConfigToCliOptions({
+      filesystem: { allowWrite: ['/workspace', '/tmp/gh-aw/agent'] },
+    }).filesystemAllowWrite).toEqual(['/workspace', '/tmp/gh-aw/agent']);
+    expect(mapAwfFileConfigToCliOptions({
+      filesystem: { allowWrite: [] },
+    }).filesystemAllowWrite).toEqual([]);
+  });
+
   it('returns undefined for unset optional fields', () => {
     const result = mapAwfFileConfigToCliOptions({});
 

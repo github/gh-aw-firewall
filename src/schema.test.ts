@@ -34,6 +34,7 @@ describe('awf-config.schema.json', () => {
       expect.arrayContaining([
         '$schema',
         'network',
+        'filesystem',
         'apiProxy',
         'security',
         'container',
@@ -63,6 +64,9 @@ describe('awf-config.schema.json', () => {
         upstreamProxy: 'http://proxy.corp.example.com:8080',
         isolation: true,
         topologyAttach: ['mcp-gateway', 'difc-proxy'],
+      },
+      filesystem: {
+        allowWrite: ['/home/runner/work/repo/repo', '/tmp/gh-aw/agent'],
       },
       apiProxy: {
         enabled: true,
@@ -166,6 +170,14 @@ describe('awf-config.schema.json', () => {
 
   it('rejects unknown network fields', () => {
     expect(validate({ network: { unknownField: true } })).toBe(false);
+  });
+
+  it('validates filesystem.allowWrite absolute paths', () => {
+    expect(validate({ filesystem: { allowWrite: [] } })).toBe(true);
+    expect(validate({ filesystem: { allowWrite: ['/workspace', '/tmp/gh-aw/agent'] } })).toBe(true);
+    expect(validate({ filesystem: { allowWrite: ['relative/path'] } })).toBe(false);
+    expect(validate({ filesystem: { allowWrite: ['/workspace/**'] } })).toBe(false);
+    expect(validate({ filesystem: { allowWrite: ['/workspace/../etc'] } })).toBe(false);
   });
 
   it('rejects non-string $schema', () => {

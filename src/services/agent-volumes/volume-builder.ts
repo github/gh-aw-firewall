@@ -10,6 +10,7 @@ import { generateHostsFileMount } from './hosts-file';
 import { buildSslMounts } from './ssl-mounts';
 import { buildSystemMounts } from './system-mounts';
 import { buildCustomVolumeMounts, buildWorkspaceMounts } from './workspace-mounts';
+import { applyFilesystemWritePolicy } from './filesystem-write-policy';
 
 interface AgentVolumesParams {
   config: WrapperConfig;
@@ -68,9 +69,19 @@ export function buildAgentVolumes(params: AgentVolumesParams): string[] {
 
   agentVolumes.push(...buildCredentialHidingOverlays(effectiveHome));
 
+  const policyVolumes = applyFilesystemWritePolicy(
+    agentVolumes,
+    config.filesystemAllowWrite,
+    [
+      `${effectiveHome}/.copilot/logs`,
+      `${effectiveHome}/.copilot/session-state`,
+      '/dev/null',
+    ],
+  );
+
   if (config.dockerHostPathPrefix) {
-    return applyHostPathPrefixToVolumes(agentVolumes, config.dockerHostPathPrefix);
+    return applyHostPathPrefixToVolumes(policyVolumes, config.dockerHostPathPrefix);
   }
 
-  return agentVolumes;
+  return policyVolumes;
 }

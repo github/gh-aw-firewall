@@ -17,6 +17,9 @@ export interface AwfFileConfig {
     isolation?: boolean;
     topologyAttach?: string[];
   };
+  filesystem?: {
+    allowWrite?: string[];
+  };
   apiProxy?: {
     enabled?: boolean;
     enableTokenSteering?: boolean;

@@ -45,6 +45,27 @@ describe('agent service', () => {
     expect(volumes.some((v: string) => v.includes('agent-logs'))).toBe(true);
   });
 
+  it('should enforce filesystem.allowWrite with read-only parents and writable overlays', () => {
+    const workspaceDir = process.env.GITHUB_WORKSPACE || process.cwd();
+    const writablePath = `${workspaceDir}/src`;
+    const result = generateDockerCompose(
+      {
+        ...getConfig(),
+        filesystemAllowWrite: [writablePath],
+      },
+      mockNetworkConfig,
+    );
+    const volumes = result.services.agent.volumes as string[];
+
+    expect(volumes).toContain(`${workspaceDir}:${workspaceDir}:ro`);
+    expect(volumes).toContain(`${workspaceDir}:/host${workspaceDir}:ro`);
+    expect(volumes).toContain(`${writablePath}:${writablePath}:rw`);
+    expect(volumes).toContain(`${writablePath}:/host${writablePath}:rw`);
+    expect(volumes).toContain('/tmp:/tmp:ro');
+    expect(volumes).toContain('/tmp:/host/tmp:ro');
+    expect(volumes.some((volume) => volume.includes('/.copilot/logs:rw'))).toBe(true);
+  });
+
   it('should apply dockerHostPathPrefix to bind-mount source paths', () => {
     const configWithPrefix = {
       ...getConfig(),
