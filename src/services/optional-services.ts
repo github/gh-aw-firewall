@@ -165,10 +165,11 @@ function dropUnbackedHostHomeOverlays(
   hostHomeMountPrefix: string,
   enforceWritePolicy: boolean,
 ): string[] {
-  const hasHostHomeMount = volumes.some(volume => {
+  const hasHostHomeExposure = volumes.some(volume => {
     const parts = volume.split(':');
+    const target = (parts[1] || '').replace(/\/+$/, '');
     return parts[0] !== '/dev/null' &&
-      (parts[1] || '').replace(/\/+$/, '') === hostHomeMountPrefix;
+      (target === hostHomeMountPrefix || target.startsWith(`${hostHomeMountPrefix}/`));
   });
   const hasWritableHostHome = volumes.some(volume => {
     const parts = volume.split(':');
@@ -190,9 +191,9 @@ function dropUnbackedHostHomeOverlays(
 
   const dropped = volumes.length - kept.length;
   if (dropped > 0) {
-    if (enforceWritePolicy && hasHostHomeMount) {
+    if (enforceWritePolicy && hasHostHomeExposure) {
       throw new Error(
-        `filesystem.allowWrite cannot safely make ${hostHomeMountPrefix} read-only on an ARC/DinD sysroot ` +
+        `filesystem.allowWrite cannot safely protect ${hostHomeMountPrefix} on an ARC/DinD sysroot ` +
         'because doing so would disable credential-hiding overlays; allow the home mount or remove it',
       );
     }

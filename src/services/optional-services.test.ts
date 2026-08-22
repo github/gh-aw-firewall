@@ -184,7 +184,26 @@ describe('optional-services helpers', () => {
         ],
         config,
         home,
-      )).toThrow('filesystem.allowWrite cannot safely make');
+      )).toThrow('filesystem.allowWrite cannot safely protect');
+    });
+
+    it('fails closed for an explicit ARC/DinD home subdirectory exposure', () => {
+      const home = '/home/runner';
+      const config: WrapperConfig = {
+        ...baseConfig,
+        workDir: '/tmp/awf-work',
+        filesystemAllowWrite: ['/workspace'],
+        volumeMounts: [`${home}/.aws:${home}/.aws:ro`],
+      };
+
+      expect(() => testHelpers.filterAgentVolumesForSysroot(
+        [
+          `${home}/.aws:/host${home}/.aws:ro`,
+          `/dev/null:/host${home}/.aws/credentials:ro`,
+        ],
+        config,
+        home,
+      )).toThrow('filesystem.allowWrite cannot safely protect');
     });
   });
 });
