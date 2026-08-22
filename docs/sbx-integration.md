@@ -274,12 +274,19 @@ widen the mount set to include the libraries those tools need.
 
 ### Wiring into the main workflow (`src/commands/main-action.ts`)
 
-`main-action.ts` decides `useSbx = !runtimeUsesComposeAgent(config.containerRuntime)`
-and, when true, substitutes two functions into the shared workflow runner:
+`main-action.ts` calls `resolveExternalRuntimeBackend(config, startContainers)`
+(`src/external-runtime-backend-resolver.ts`), which returns `undefined` for
+compose runtimes (`runtimeUsesComposeAgent` is `true`) and otherwise looks up a
+factory keyed by `config.containerRuntime`. For `sbx` the factory is
+`createSbxRuntimeBackend`, which constructs a `SbxRuntimeBackend`
+(`src/sbx-runtime-backend.ts`) implementing the `ExternalAgentRuntimeBackend`
+contract (`src/external-runtime-backend.ts`). `adaptExternalRuntimeBackend()`
+then maps the backend's `start`/`exec` methods onto the shared
+`startContainers`/`runAgentCommand` workflow seam:
 
-- **`sbxStartContainers`** wraps the normal `startContainers` (which brings up
+- **`backend.start`** wraps the normal `startContainers` (which brings up
   the infra-only compose: Squid + api-proxy, no agent service), then:
-  1. Verifies `isSbxAvailable()`.
+  1. Verifies `isSbxAvailable()` via `preflight()`.
   2. Builds the agent environment (`buildAgentEnvironment`) using microVM-specific
      network targets (see below), merging credential env
      (`buildAgentCredentialEnv`) when the api-proxy is enabled.
@@ -296,12 +303,13 @@ and, when true, substitutes two functions into the shared workflow runner:
      unreachable after all retries, because an isolated runtime that cannot reach
      `/reflect` cannot do model auto-resolution or credit accounting.
   6. Runs a Squid connectivity diagnostic (`curl --proxy ... https://api.github.com`).
-- **`sbxRunAgentCommand`** runs the actual agent command with `execInSandbox`,
+- **`backend.exec`** runs the actual agent command with `execInSandbox`,
   honoring the agent timeout, workdir, TTY, and computed environment, and dumps
-  api-proxy logs on non-zero exit for debugging.
+  api-proxy logs on non-zero exit for debugging (`collectDiagnostics()`).
 
-Cleanup: when the runtime is microVM and `--keep-containers` is not set,
-`removeSandbox(SBX_DEFAULT_NAME)` runs before compose teardown.
+Cleanup: `SbxRuntimeBackend.stop()` calls `removeSandbox(SBX_DEFAULT_NAME)`;
+`main-action.ts` wires this into both signal handling (`fastKillAgentContainer`
+substitution) and the normal cleanup path, running before compose teardown.
 
 ### Networking: crossing the VM boundary
 
