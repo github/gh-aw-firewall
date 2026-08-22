@@ -81,7 +81,7 @@
           "type": "array",
           "items": {
             "type": "string",
-            "pattern": "^/(?!.*(?:^|/)\\.\\.(?:/|$))[^*?\\[\\]{}]*$"
+            "pattern": "^/(?!\\.\\.(?:/|$))(?!.*(?:/)\\.\\.(?:/|$))[^*?\\[\\]{}]*$"
           },
           "description": "Guest-visible absolute paths that may be writable. When present, existing writable host bind mounts are made read-only outside these paths. An empty array makes all non-internal host bind mounts read-only. Paths must exist and cannot use glob patterns. This option is currently supported by Docker and gVisor compose runtimes."
         }

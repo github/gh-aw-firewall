@@ -178,6 +178,8 @@ describe('awf-config.schema.json', () => {
     expect(validate({ filesystem: { allowWrite: ['relative/path'] } })).toBe(false);
     expect(validate({ filesystem: { allowWrite: ['/workspace/**'] } })).toBe(false);
     expect(validate({ filesystem: { allowWrite: ['/workspace/../etc'] } })).toBe(false);
+    expect(validate({ filesystem: { allowWrite: ['/../etc'] } })).toBe(false);
+    expect(validate({ filesystem: { allowWrite: ['/..'] } })).toBe(false);
   });
 
   it('rejects non-string $schema', () => {

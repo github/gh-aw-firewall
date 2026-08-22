@@ -87,4 +87,37 @@ describe('applyFilesystemWritePolicy', () => {
       [path.join(workspace, 'escape')],
     )).toThrow('filesystem.allowWrite path is not an existing path within a writable host mount');
   });
+
+  it('does not override a more-specific read-only mount', () => {
+    const credential = path.join(workspace, 'allowed', 'credential.json');
+    fs.writeFileSync(credential, 'secret');
+    expect(() => applyFilesystemWritePolicy(
+      [
+        `${workspace}:/host${workspace}:rw`,
+        `/dev/null:/host${credential}:ro`,
+      ],
+      [credential],
+    )).toThrow('filesystem.allowWrite path is not an existing path within a writable host mount');
+  });
+
+  it('checks custom overlays against runner-visible sources', () => {
+    const daemonSource = `/daemon${workspace}`;
+    const spec = `${daemonSource}:/host/data:rw`;
+    expect(applyFilesystemWritePolicy(
+      [spec],
+      ['/data/allowed'],
+      [],
+      new Map([[spec, workspace]]),
+    )).toEqual([
+      `${daemonSource}:/host/data:ro`,
+      `${daemonSource}/allowed:/host/data/allowed:rw`,
+    ]);
+  });
+
+  it('rejects traversal even when called without schema validation', () => {
+    expect(() => applyFilesystemWritePolicy(
+      [`${workspace}:/host${workspace}:rw`],
+      ['/../etc'],
+    )).toThrow("filesystem.allowWrite path must be absolute without '..'");
+  });
 });

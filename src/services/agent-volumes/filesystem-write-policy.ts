@@ -36,23 +36,32 @@ function isPathAtOrBelow(candidate: string, parent: string): boolean {
   return relative === '' || (!relative.startsWith('..') && !path.posix.isAbsolute(relative));
 }
 
+function pathDepth(value: string): number {
+  return value.split('/').filter(Boolean).length;
+}
+
 function withMode(mount: BindMount, mode: 'ro' | 'rw'): string {
   return `${mount.source}:${mount.target}:${mode}`;
 }
 
-function resolveWritableOverlay(mount: BindMount, allowedPath: string): string | undefined {
+function resolveWritableOverlay(
+  mount: BindMount,
+  allowedPath: string,
+  localSourceRoot: string,
+): string | undefined {
   if (!path.isAbsolute(mount.source) || !isPathAtOrBelow(allowedPath, mount.logicalTarget)) {
     return undefined;
   }
 
   const relative = path.posix.relative(mount.logicalTarget, allowedPath);
-  const source = path.join(mount.source, relative);
-  if (!fs.existsSync(source)) return undefined;
+  const localSource = path.join(localSourceRoot, relative);
+  if (!fs.existsSync(localSource)) return undefined;
 
-  const realSourceRoot = fs.realpathSync(mount.source);
-  const realSource = fs.realpathSync(source);
+  const realSourceRoot = fs.realpathSync(localSourceRoot);
+  const realSource = fs.realpathSync(localSource);
   if (!isPathAtOrBelow(realSource, realSourceRoot)) return undefined;
 
+  const source = path.join(mount.source, relative);
   const target = mount.target === '/host'
     ? `/host${allowedPath === '/' ? '' : allowedPath}`
     : path.posix.join(mount.target, relative);
@@ -68,8 +77,15 @@ export function applyFilesystemWritePolicy(
   volumeSpecs: string[],
   allowWrite: string[] | undefined,
   alwaysWritablePaths: string[] = [],
+  localSourceRoots: ReadonlyMap<string, string> = new Map(),
 ): string[] {
   if (allowWrite === undefined) return volumeSpecs;
+
+  for (const value of allowWrite) {
+    if (!path.posix.isAbsolute(value) || value.split('/').includes('..')) {
+      throw new Error(`filesystem.allowWrite path must be absolute without '..': ${value}`);
+    }
+  }
 
   const allowedPaths = allowWrite.map((value) => path.posix.normalize(value));
   const internalPaths = alwaysWritablePaths.map((value) => path.posix.normalize(value));
@@ -90,7 +106,26 @@ export function applyFilesystemWritePolicy(
         matched.add(allowedPath);
         return withMode(mount, 'rw');
       }
-      const overlay = resolveWritableOverlay(mount, allowedPath);
+
+      const coveringMounts = mounts.filter((candidate): candidate is BindMount =>
+        candidate !== undefined && isPathAtOrBelow(allowedPath, candidate.logicalTarget)
+      );
+      const deepestTarget = Math.max(...coveringMounts.map((candidate) => pathDepth(candidate.logicalTarget)));
+      const deepestMounts = coveringMounts.filter(
+        (candidate) => pathDepth(candidate.logicalTarget) === deepestTarget,
+      );
+      if (
+        pathDepth(mount.logicalTarget) !== deepestTarget ||
+        deepestMounts.some((candidate) => !candidate.writable)
+      ) {
+        continue;
+      }
+
+      const overlay = resolveWritableOverlay(
+        mount,
+        allowedPath,
+        localSourceRoots.get(spec) ?? mount.source,
+      );
       if (overlay) {
         matched.add(allowedPath);
         overlays.add(overlay);

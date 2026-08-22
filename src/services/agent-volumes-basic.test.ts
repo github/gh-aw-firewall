@@ -92,6 +92,24 @@ describe('agent service', () => {
     expect(volumes).not.toContain('/daemon-root/sys:/host/sys:ro');
   });
 
+  it('should enforce allowWrite for ARC/DinD custom mount descendants', () => {
+    const source = process.cwd();
+    const result = generateDockerCompose(
+      {
+        ...getConfig(),
+        dockerHostPathPrefix: '/daemon-root',
+        chrootBinariesSourcePath: '/tmp/gh-aw/runner-bin',
+        volumeMounts: [`${source}:/data:rw`],
+        filesystemAllowWrite: ['/data/src'],
+      },
+      mockNetworkConfig,
+    );
+    const volumes = result.services.agent.volumes as string[];
+
+    expect(volumes).toContain(`/daemon-root${source}:/host/data:ro`);
+    expect(volumes).toContain(`/daemon-root${source}/src:/host/data/src:rw`);
+  });
+
   it('should translate the safeoutputs mount when its source equals dockerHostPathPrefix', () => {
     const safeOutputsPath = '/tmp/gh-aw';
     const result = generateDockerCompose(

@@ -63,12 +63,17 @@ export function buildAgentVolumes(params: AgentVolumesParams): string[] {
   }
   agentVolumes.push(...buildDockerSocketMount(config));
   agentVolumes.push(...buildSslMounts(sslConfig));
-  agentVolumes.push(...buildCustomVolumeMounts(config.volumeMounts, config.dockerHostPathPrefix));
+  const customMounts = buildCustomVolumeMounts(config.volumeMounts, config.dockerHostPathPrefix);
+  agentVolumes.push(...customMounts);
 
   logger.debug('Using selective mounting for security (credential files hidden)');
 
   agentVolumes.push(...buildCredentialHidingOverlays(effectiveHome));
 
+  const localCustomMounts = buildCustomVolumeMounts(config.volumeMounts, undefined, { quiet: true });
+  const localSourceRoots = new Map(
+    customMounts.map((spec, index) => [spec, localCustomMounts[index]?.split(':')[0] ?? '']),
+  );
   const policyVolumes = applyFilesystemWritePolicy(
     agentVolumes,
     config.filesystemAllowWrite,
@@ -77,6 +82,7 @@ export function buildAgentVolumes(params: AgentVolumesParams): string[] {
       `${effectiveHome}/.copilot/session-state`,
       '/dev/null',
     ],
+    localSourceRoots,
   );
 
   if (config.dockerHostPathPrefix) {
