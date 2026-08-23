@@ -164,6 +164,104 @@ Temporary microVM workspace data lives under:
 With `--keep-containers`, AWF preserves this directory, the network namespace,
 and runtime diagnostics for investigation.
 
+## Host mount-tree enforcement
+
+Cloud Hypervisor v53 and virtiofsd v1.10 expose no per-path read-only option, so
+a mixed read-only/read-write export cannot be described to the guest, and a
+guest-side read-only mount is not a security boundary. The only trustworthy
+boundary is the host VFS.
+
+`VirtiofsdManager.start()` therefore accepts an optional, strongly typed
+enforcement input:
+
+```ts
+interface VirtiofsdWritableOverlay {
+  readonly source: string;      // canonical host path inside the export source
+  readonly destination: string; // canonical host path inside the export source
+  readonly kind: 'file' | 'directory';
+}
+
+interface VirtiofsdExportMountPlan {
+  readonly tag: string;         // export tag the plan applies to
+  readonly writableOverlays: readonly VirtiofsdWritableOverlay[];
+}
+
+interface VirtiofsdMountEnforcement {
+  readonly plans: readonly VirtiofsdExportMountPlan[];
+}
+```
+
+When the input is omitted, or no plan matches an export tag, that export is
+staged exactly as before. When a plan matches, the export is served from a
+private staged mount tree under the per-run virtiofsd share directory:
+
+1. `mount --rbind <export source> <staged root>` — recursive bind, so nested
+   host mounts are carried into the tree instead of being silently skipped.
+2. `mount --make-rprivate <staged root>` — private propagation before anything
+   writable exists, so neither the read-only attributes nor the later overlays
+   can leak back into the host or the export's peer group.
+3. Every mount in the staged tree is enumerated from `/proc/self/mountinfo` and
+   remounted read-only one at a time, deepest-first, with
+   `mount -o remount,bind,ro,nosuid,nodev <mount point>`. This happens before
+   any overlay exists.
+4. Each writable overlay is bound back in, shallowest first, with
+   `mount --bind <source> <staged destination>` followed by
+   `mount -o remount,bind,rw,nosuid,nodev <staged destination>`. Overlay binds
+   are deliberately non-recursive, so a writable directory never exposes the
+   submounts nested inside it, and the explicit remount sets the flags instead
+   of inheriting whatever the source mount carried.
+
+virtiofsd receives `--announce-submounts` for staged trees so the guest observes
+each writable child bind as its own submount, and keeps its namespace sandbox,
+`--seccomp=kill`, `--inode-file-handles=never`, and caching policy unchanged.
+The guest mount itself stays read-write for a staged export; the host mount
+flags are the enforcement boundary.
+
+### Fail-closed behaviour
+
+- libmount's `ro=recursive` option argument is deliberately **not** used.
+  On util-linux 2.39.3 — the version on GitHub-hosted Ubuntu 24.04 runners —
+  both `mount -o rbind,ro=recursive` and
+  `mount -o remount,bind,ro=recursive` exit 0 while leaving carried-in submounts
+  read-write, which would be a silent security failure. The per-mount remount
+  loop was verified to work on the same host. A preflight check still requires
+  util-linux >= 2.23 for `--make-rprivate`, so a non-util-linux `mount` fails
+  with a clear error.
+- After staging, and again after the overlays are applied, AWF parses
+  `/proc/self/mountinfo` and requires that the staged root exists, that every
+  mount under it is `ro` except the requested overlay destinations, that every
+  mount carries `nosuid` and `nodev`, and that no mount in the tree is shared.
+  The mount tool's exit code is never the only evidence that enforcement
+  succeeded — this verification is what caught the `ro=recursive` behaviour
+  above.
+- Overlay sources must be canonical (`realpath` equality), must resolve inside
+  the export source, must not be symbolic links, and must match the declared
+  kind. Overlay destinations must already exist, may not overlap each other, and
+  an originally read-only export may not receive overlays at all.
+- The staged root must be disjoint from the export source, so the recursive bind
+  can never nest the staged tree inside itself.
+
+### Ordering and cleanup
+
+Teardown reverses setup: writable children are unmounted deepest-first, then the
+staged root is unmounted recursively (`umount -R`, because a recursive bind root
+can carry submounts) and its staging directory is removed. A failed unmount
+stays pending so a later `stop()` retries it. If staging fails part-way, the
+partial tree is rolled back and the original failure is preserved; when rollback
+itself fails, the residual tree is retained and retried during `stop()`.
+
+### Residual limitation
+
+Overlay destinations are validated inside the staged tree, which is already
+recursively read-only and privately propagated, so they cannot be swapped
+between validation and the bind. Overlay *sources* live in the original,
+still-writable export, so a process that can already write to the export could in
+principle replace a source path between validation and the bind. Sources are
+re-validated immediately before each bind, and both the planner and this layer
+require containment inside the export, but this residual setup-time TOCTOU window
+cannot be closed without fd-based mount APIs that the current tooling does not
+expose.
+
 ## Limitations
 
 The preview rejects configurations that weaken or conflict with its boundary,

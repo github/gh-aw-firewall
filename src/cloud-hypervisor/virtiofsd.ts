@@ -3,6 +3,23 @@ import * as path from 'path';
 import execa, { type ExecaChildProcess } from 'execa';
 import type { CloudHypervisorCgroup } from './launcher';
 import type { CloudHypervisorDirectoryExport } from './exports';
+import {
+  StagedHostMountTree,
+  selectMountPlan,
+  type MountTreeDependencies,
+  type MountTreeStats,
+  type VirtiofsdExportMountPlan,
+  type VirtiofsdMountEnforcement,
+} from './mount-tree';
+
+export type {
+  MountTreeDependencies,
+  MountTreeStats,
+  VirtiofsdExportMountPlan,
+  VirtiofsdMountEnforcement,
+  VirtiofsdOverlayKind,
+  VirtiofsdWritableOverlay,
+} from './mount-tree';
 
 const SOCKET_READY_TIMEOUT_MS = 5_000;
 const SOCKET_READY_INTERVAL_MS = 25;
@@ -15,7 +32,7 @@ export interface VirtiofsdDevice {
   readonly logPath: string;
 }
 
-export interface VirtiofsdDependencies {
+export interface VirtiofsdDependencies extends MountTreeDependencies {
   launch(
     command: string,
     args: string[],
@@ -33,6 +50,10 @@ export interface VirtiofsdDependencies {
   mkdir(directory: string, options: { recursive: true; mode: number }): Promise<unknown>;
   rmdir(directory: string): Promise<void>;
   runTool(command: string, args: readonly string[]): Promise<void>;
+  captureTool(command: string, args: readonly string[]): Promise<string>;
+  statPath(filePath: string): Promise<MountTreeStats>;
+  realpath(filePath: string): Promise<string>;
+  readMountInfo(): Promise<string>;
   sleep(milliseconds: number): Promise<void>;
 }
 
@@ -58,6 +79,24 @@ const defaultDependencies: VirtiofsdDependencies = {
       );
     }
   },
+  captureTool: async (command, args) => {
+    const result = await execa(command, [...args], {
+      reject: false,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: { PATH: '/usr/sbin:/usr/bin:/sbin:/bin' },
+      extendEnv: false,
+    });
+    if (result.exitCode !== 0) {
+      throw new Error(
+        `${command} ${args.join(' ')} exited with code ${result.exitCode}: ` +
+        `${result.stderr.trim() || result.stdout.trim()}`,
+      );
+    }
+    return result.stdout;
+  },
+  statPath: fs.lstat,
+  realpath: fs.realpath,
+  readMountInfo: () => fs.readFile('/proc/self/mountinfo', 'utf8'),
   sleep: (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
 };
 
@@ -66,11 +105,14 @@ interface RunningDaemon extends VirtiofsdDevice {
   readonly stdout: BoundedCapture;
   readonly stderr: BoundedCapture;
   readonlyBindPath?: string;
+  mountTree?: StagedHostMountTree;
   socketRemoved: boolean;
 }
 
 export class VirtiofsdManager {
   private readonly running: RunningDaemon[] = [];
+  /** Mount trees whose staging failed with residue that still needs unmounting. */
+  private readonly orphanedMountTrees: StagedHostMountTree[] = [];
 
   constructor(
     private readonly binaryPath: string,
@@ -82,10 +124,19 @@ export class VirtiofsdManager {
     private readonly dependencies: VirtiofsdDependencies = defaultDependencies,
   ) {}
 
-  async start(exports: readonly CloudHypervisorDirectoryExport[]): Promise<VirtiofsdDevice[]> {
+  /**
+   * Starts one virtiofsd per export. When `enforcement` supplies a plan for an
+   * export tag, that export is served from a private, recursively read-only
+   * staged host mount tree with writable child binds. Without a plan the export
+   * is staged exactly as before.
+   */
+  async start(
+    exports: readonly CloudHypervisorDirectoryExport[],
+    enforcement?: VirtiofsdMountEnforcement,
+  ): Promise<VirtiofsdDevice[]> {
     try {
       for (const [index, directoryExport] of exports.entries()) {
-        await this.startOne(directoryExport, index);
+        await this.startOne(directoryExport, index, selectMountPlan(enforcement, directoryExport.tag));
       }
       return this.running.map(({ export: item, socketPath, logPath }) => ({
         export: item,
@@ -107,6 +158,16 @@ export class VirtiofsdManager {
   async stop(): Promise<void> {
     const errors: unknown[] = [];
     const remaining: RunningDaemon[] = [];
+    for (const tree of [...this.orphanedMountTrees]) {
+      try {
+        await tree.unmount();
+      } catch (error) {
+        errors.push(error);
+      }
+      if (!tree.hasResidue) {
+        this.orphanedMountTrees.splice(this.orphanedMountTrees.indexOf(tree), 1);
+      }
+    }
     for (const daemon of [...this.running].reverse()) {
       let processTerminated = daemon.process.exitCode !== null || daemon.process.signalCode !== null;
       try {
@@ -154,12 +215,20 @@ export class VirtiofsdManager {
           errors.push(error);
         }
       }
-      if (!daemon.socketRemoved || daemon.readonlyBindPath) {
+      if (daemon.mountTree) {
+        try {
+          await daemon.mountTree.unmount();
+        } catch (error) {
+          errors.push(error);
+        }
+        if (!daemon.mountTree.hasResidue) daemon.mountTree = undefined;
+      }
+      if (!daemon.socketRemoved || daemon.readonlyBindPath || daemon.mountTree) {
         remaining.unshift(daemon);
       }
     }
     this.running.splice(0, this.running.length, ...remaining);
-    if (this.running.length === 0) {
+    if (this.running.length === 0 && this.orphanedMountTrees.length === 0) {
       try {
         await this.dependencies.rmdir(this.shareDirectory);
       } catch (error) {
@@ -175,12 +244,29 @@ export class VirtiofsdManager {
   private async startOne(
     directoryExport: CloudHypervisorDirectoryExport,
     index: number,
+    plan?: VirtiofsdExportMountPlan,
   ): Promise<void> {
     const socketPath = path.join(this.runDirectory, `virtiofs-${index}.sock`);
     const logPath = path.join(this.runDirectory, `virtiofs-${index}.log`);
     let sharedDirectory = directoryExport.source;
     let readonlyBindPath: string | undefined;
-    if (directoryExport.mode === 'ro') {
+    let mountTree: StagedHostMountTree | undefined;
+    if (plan) {
+      mountTree = new StagedHostMountTree({
+        directoryExport,
+        rootPath: path.join(this.shareDirectory, `${index}-${directoryExport.tag}`),
+        plan,
+        tools: this.tools,
+        dependencies: this.dependencies,
+      });
+      try {
+        await mountTree.stage();
+      } catch (error) {
+        if (mountTree.hasResidue) this.orphanedMountTrees.push(mountTree);
+        throw error;
+      }
+      sharedDirectory = mountTree.rootPath;
+    } else if (directoryExport.mode === 'ro') {
       readonlyBindPath = path.join(this.shareDirectory, `${index}-${directoryExport.tag}`);
       await this.dependencies.mkdir(readonlyBindPath, { recursive: true, mode: 0o700 });
       let bindMounted = false;
@@ -209,7 +295,9 @@ export class VirtiofsdManager {
       }
       sharedDirectory = readonlyBindPath;
     }
-    const args = buildVirtiofsdArgs(directoryExport, socketPath, sharedDirectory);
+    const args = buildVirtiofsdArgs(directoryExport, socketPath, sharedDirectory, {
+      announceSubmounts: mountTree !== undefined,
+    });
     const child = this.dependencies.launch(this.binaryPath, args, {
       reject: false,
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -228,6 +316,7 @@ export class VirtiofsdManager {
       stdout,
       stderr,
       readonlyBindPath,
+      mountTree,
       socketRemoved: false,
     };
     this.running.push(daemon);
@@ -264,10 +353,20 @@ export class VirtiofsdManager {
   }
 }
 
+export interface VirtiofsdArgOptions {
+  /**
+   * Required when the shared directory is a staged mount tree: the guest must
+   * see each writable child bind as its own submount instead of a hole in an
+   * otherwise read-only tree.
+   */
+  readonly announceSubmounts?: boolean;
+}
+
 export function buildVirtiofsdArgs(
   directoryExport: CloudHypervisorDirectoryExport,
   socketPath: string,
   sharedDirectory = directoryExport.source,
+  options: VirtiofsdArgOptions = {},
 ): string[] {
   if (!path.isAbsolute(socketPath)) {
     throw new Error(`virtiofsd socket path must be absolute: ${socketPath}`);
@@ -279,6 +378,7 @@ export function buildVirtiofsdArgs(
     '--seccomp=kill',
     '--cache=auto',
     '--inode-file-handles=never',
+    ...(options.announceSubmounts ? ['--announce-submounts'] : []),
   ];
 }
 
