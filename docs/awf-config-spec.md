@@ -106,8 +106,14 @@ where it is enforced by the host mount tree that backs each virtio-fs export
 Cloud Hypervisor has no always-writable internal mounts, so every export it
 publishes is subject to the policy, including `/tmp/gh-aw` and the guest home
 directory at `/workspace/.awf-home`; paths not covered by `allowWrite` become
-read-only. AWF rejects `filesystem.allowWrite` with the sbx
-runtime and with Docker-in-Docker agent execution.
+read-only. Because every listed path MUST already exist, and because AWF MUST
+NOT auto-create or exempt the guest home, a Cloud Hypervisor workload that needs
+a writable home MUST have the backing host directory
+`$GITHUB_WORKSPACE/.awf-home` created before AWF starts and MUST then list the
+guest path `/workspace/.awf-home` in `allowWrite`; otherwise planning fails
+because the path does not exist within a writable export. AWF rejects
+`filesystem.allowWrite` with the sbx runtime and with Docker-in-Docker agent
+execution.
 
 ### 4.2 Cloud Hypervisor microVM preview
 

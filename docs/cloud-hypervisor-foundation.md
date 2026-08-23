@@ -357,6 +357,39 @@ One consequence is worth stating plainly: the guest `HOME` is
 directory read-only. That is the policy working as specified, not an oversight;
 add the home path to `allowWrite` if the workload needs it.
 
+Doing so has a prerequisite. The workspace export is backed by the host
+workspace directory itself (`$GITHUB_WORKSPACE`, falling back to the current
+working directory), and nothing in the Cloud Hypervisor path creates
+`.awf-home` on the host before planning. That is harmless without a policy,
+because the export is writable and the directory is simply created at runtime.
+Under a narrowing policy the export root is staged read-only, so it can no
+longer be created at runtime — and the planner only accepts paths that already
+exist, so naming it in `allowWrite` fails too, with a single-line error:
+
+```text
+filesystem.allowWrite path is not an existing path within a writable
+Cloud Hypervisor export: /workspace/.awf-home
+```
+
+AWF deliberately does not auto-create or exempt the guest home: doing either
+would either widen the boundary implicitly or reintroduce an always-writable
+internal mount, both of which contradict the narrowing semantics above. Create
+the host directory before AWF starts, then list the guest path:
+
+```bash
+mkdir -p "$GITHUB_WORKSPACE/.awf-home"
+```
+
+```yaml
+filesystem:
+  allowWrite:
+    - /workspace/.awf-home
+```
+
+That yields a `selective` workspace plan — host root staged `ro`, guest mount
+`rw`, one directory overlay at `.awf-home` — leaving the rest of the workspace
+read-only.
+
 ## Limitations
 
 The preview rejects configurations that weaken or conflict with its boundary,
