@@ -164,12 +164,50 @@ Temporary microVM workspace data lives under:
 With `--keep-containers`, AWF preserves this directory, the network namespace,
 and runtime diagnostics for investigation.
 
+### Write-policy planning (inert)
+
+[`src/cloud-hypervisor/filesystem-write-policy.ts`](../src/cloud-hypervisor/filesystem-write-policy.ts)
+plans how a `filesystem.allowWrite` allowlist would narrow validated exports. It
+maps each guest path to the canonical host path beneath the deepest matching
+export, rejects `..`, missing paths, and symlink escapes, and classifies every
+export as unrestricted, read-only, fully writable, or selectively writable.
+
+Read-only enforcement is a host-side property. Each plan entry therefore carries
+two modes: `hostRootMode`, the mode the host backing tree root is staged with —
+the read-only bind that `virtiofsd.ts` already builds for read-only exports —
+and `guestMountMode`, the flags of the guest virtio-fs mount. A selectively
+writable export reports `hostRootMode: 'ro'` with `guestMountMode: 'rw'`:
+mounting a composite tree read-only in the guest would also block its writable
+nodes, because virtio-fs submounts are attached through `d_automount` and
+`finish_automount()` calls
+`do_add_mount(..., path->mnt->mnt_flags | MNT_SHRINKABLE)`, so an announced
+submount inherits `MNT_READONLY` from its parent mount. The host VFS, not the
+guest mount flag, denies writes outside the overlays.
+
+Overlay paths are absolute but canonical in different senses: `guestPath` is
+lexically normalized, while `hostPath` is realpath-canonical and verified not to
+escape the export source.
+
+The planner only removes write access: it never widens a read-only export and
+never introduces a host path that an existing read-write export does not
+already cover. It is pure policy planning and is not yet wired into runtime
+execution — `filesystem.allowWrite` is still rejected for the Cloud Hypervisor
+runtime by [`src/filesystem-policy.ts`](../src/filesystem-policy.ts). The host
+side of that boundary — how a `hostRootMode: 'ro'` root with writable overlays is
+actually staged and enforced — is described in
+[Host mount-tree enforcement](#host-mount-tree-enforcement) below. The two layers
+are independent: neither is wired into runtime execution yet.
+
 ## Host mount-tree enforcement
 
 Cloud Hypervisor v53 and virtiofsd v1.10 expose no per-path read-only option, so
 a mixed read-only/read-write export cannot be described to the guest, and a
 guest-side read-only mount is not a security boundary. The only trustworthy
 boundary is the host VFS.
+
+This is the host-side counterpart to
+[Write-policy planning](#write-policy-planning-inert): the planner decides which
+paths stay writable, and this layer stages a host mount tree that enforces it.
 
 `VirtiofsdManager.start()` therefore accepts an optional, strongly typed
 enforcement input:
@@ -234,7 +272,9 @@ flags are the enforcement boundary.
 - After staging, and again after the overlays are applied, AWF parses
   `/proc/self/mountinfo` and requires that the staged root exists, that every
   mount under it is `ro` except the requested overlay destinations, that every
-  mount carries `nosuid` and `nodev`, and that no mount in the tree is shared.
+  mount carries `nosuid` and `nodev`, and that no mount in the tree carries a
+  propagation peer (`shared:`, `master:`, or `propagate_from:`) — a slave mount
+  would still receive mount events from its master.
   The mount tool's exit code is never the only evidence that enforcement
   succeeded — this verification is what caught the `ro=recursive` behaviour
   above.
@@ -266,9 +306,8 @@ itself fails, the residual tree is retained and retried during `stop()`.
 Overlay destinations are canonicalized and validated inside the staged tree,
 which is already recursively read-only and privately propagated, so they cannot
 be swapped between validation and the bind. Overlay *sources* live in the
-original,
-still-writable export, so a process that can already write to the export could in
-principle replace a source path between validation and the bind. Sources are
+original, still-writable export, so a process that can already write to the
+export could in principle replace a source path between validation and the bind. Sources are
 re-validated immediately before each bind, and both the planner and this layer
 require containment inside the export, but this residual setup-time TOCTOU window
 cannot be closed without fd-based mount APIs that the current tooling does not
