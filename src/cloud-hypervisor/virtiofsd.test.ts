@@ -203,10 +203,47 @@ describe('VirtiofsdManager', () => {
 });
 
 describe('VirtiofsdManager host mount-tree enforcement', () => {
-  it('leaves behaviour untouched when no plan matches an export', async () => {
+  it('fails closed when a plan names an export that does not exist', async () => {
     const deps = dependencies();
     const started = manager(deps);
-    await started.start([workspace, cache], { plans: [{ tag: 'other', writableOverlays: [] }] });
+    // A renamed or mistyped tag must not silently downgrade an export to
+    // unrestricted read-write.
+    await expect(
+      started.start([workspace, cache], { plans: [{ tag: 'other', writableOverlays: [] }] }),
+    ).rejects.toThrow(/unknown export tags: other/);
+    expect(deps.launch).not.toHaveBeenCalled();
+    expect(deps.runTool).not.toHaveBeenCalled();
+  });
+
+  it('leaves unplanned exports on the legacy path when other exports are planned', async () => {
+    const deps = dependencies({
+      readMountInfo: jest
+        .fn()
+        .mockResolvedValue(`30 29 0:42 / ${STAGED_ROOT} ro,nosuid,nodev - ext4 /dev/root ro`),
+    });
+    const started = manager(deps);
+    await started.start([workspace, cache], { plans: [{ tag: 'workspace', writableOverlays: [] }] });
+    const [, workspaceArgs] = (deps.launch as jest.Mock).mock.calls[0];
+    expect(workspaceArgs).toContain('--announce-submounts');
+    const [, cacheArgs] = (deps.launch as jest.Mock).mock.calls[1];
+    expect(cacheArgs).toEqual([
+      '--socket-path=/run/awf/run/virtiofs-1.sock',
+      '--shared-dir=/run/awf-shares/run/1-cache',
+      '--sandbox=namespace',
+      '--seccomp=kill',
+      '--cache=auto',
+      '--inode-file-handles=never',
+    ]);
+    expect(cacheArgs).not.toContain('--announce-submounts');
+    expect(deps.runTool).toHaveBeenCalledWith('/usr/bin/mount', [
+      '--bind', '/host/cache', '/run/awf-shares/run/1-cache',
+    ]);
+  });
+
+  it('leaves behaviour untouched when no enforcement is supplied', async () => {
+    const deps = dependencies();
+    const started = manager(deps);
+    await started.start([workspace, cache]);
     expect(deps.captureTool).not.toHaveBeenCalled();
     const [, workspaceArgs] = (deps.launch as jest.Mock).mock.calls[0];
     expect(workspaceArgs).toEqual([

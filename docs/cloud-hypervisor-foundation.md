@@ -191,9 +191,13 @@ interface VirtiofsdMountEnforcement {
 }
 ```
 
-When the input is omitted, or no plan matches an export tag, that export is
-staged exactly as before. When a plan matches, the export is served from a
-private staged mount tree under the per-run virtiofsd share directory:
+When the input is omitted, or no plan applies to an export tag, that export is
+staged exactly as before, which is what makes partial enforcement possible. A
+plan naming an export tag that does not exist is rejected outright: silently
+dropping it would leave that export unrestricted read-write, so a renamed or
+mistyped tag has to fail rather than downgrade. When a plan matches, the export
+is served from a private staged mount tree under the per-run virtiofsd share
+directory:
 
 1. `mount --rbind <export source> <staged root>` — recursive bind, so nested
    host mounts are carried into the tree instead of being silently skipped.
@@ -238,6 +242,13 @@ flags are the enforcement boundary.
   the export source, must not be symbolic links, and must match the declared
   kind. Overlay destinations must already exist, may not overlap each other, and
   an originally read-only export may not receive overlays at all.
+- Overlay destinations are canonicalized before the bind and must satisfy
+  `realpath` equality and containment under the staged root. `lstat` alone is
+  not enough: it only reveals a symlink in the final component, while the kernel
+  resolves every intermediate component when it binds. A `tools -> /etc` symlink
+  carried in from the export would let destination `tools/sudoers` lstat as an
+  ordinary file and then bind over the host's `/etc/sudoers`. The staged root is
+  itself required to be canonical so that comparison is meaningful.
 - The staged root must be disjoint from the export source, so the recursive bind
   can never nest the staged tree inside itself.
 
@@ -252,9 +263,10 @@ itself fails, the residual tree is retained and retried during `stop()`.
 
 ### Residual limitation
 
-Overlay destinations are validated inside the staged tree, which is already
-recursively read-only and privately propagated, so they cannot be swapped
-between validation and the bind. Overlay *sources* live in the original,
+Overlay destinations are canonicalized and validated inside the staged tree,
+which is already recursively read-only and privately propagated, so they cannot
+be swapped between validation and the bind. Overlay *sources* live in the
+original,
 still-writable export, so a process that can already write to the export could in
 principle replace a source path between validation and the bind. Sources are
 re-validated immediately before each bind, and both the planner and this layer

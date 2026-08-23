@@ -434,9 +434,69 @@ describe('StagedHostMountTree', () => {
       fake,
       plan([{ source: '/host/workspace/out', destination: '/host/workspace/out', kind: 'directory' }]),
       workspace,
-      { realpath: jest.fn().mockResolvedValue('/host/other/out') },
+      {
+        realpath: jest.fn(async (filePath: string) =>
+          filePath === '/host/workspace/out' ? '/host/other/out' : filePath,
+        ),
+      },
     );
-    await expect(staged.stage()).rejects.toThrow(/must be canonical/);
+    await expect(staged.stage()).rejects.toThrow(/source must be canonical/);
+    expect(fake.table.size).toBe(0);
+  });
+
+  it('rejects a destination whose final component is a symlink out of the tree', async () => {
+    const fake = mountTable();
+    const escaped = `${ROOT}/out`;
+    const staged = tree(
+      fake,
+      plan([{ source: '/host/workspace/out', destination: '/host/workspace/out', kind: 'directory' }]),
+      workspace,
+      {
+        realpath: jest.fn(async (filePath: string) =>
+          filePath === escaped ? '/etc' : filePath,
+        ),
+      },
+    );
+    await expect(staged.stage()).rejects.toThrow(/destination must be canonical/);
+    // The escaped path must never reach the kernel.
+    expect(fake.commands.flat()).not.toContain('--bind');
+    expect(fake.table.size).toBe(0);
+  });
+
+  it('rejects a destination reached through an intermediate symlink', async () => {
+    // `<root>/tools` is a symlink to /etc, so lstat of `<root>/tools/sudoers`
+    // reports an ordinary file while the kernel would bind over /etc/sudoers.
+    const fake = mountTable();
+    const staged = tree(
+      fake,
+      plan([
+        {
+          source: '/host/workspace/tools/sudoers',
+          destination: '/host/workspace/tools/sudoers',
+          kind: 'file',
+        },
+      ]),
+      workspace,
+      {
+        realpath: jest.fn(async (filePath: string) =>
+          filePath === `${ROOT}/tools/sudoers` ? '/etc/sudoers' : filePath,
+        ),
+        statPath: jest.fn(async () => stats('file')),
+      },
+    );
+    await expect(staged.stage()).rejects.toThrow(/destination must be canonical/);
+    expect(fake.commands.flat()).not.toContain('--bind');
+    expect(fake.table.size).toBe(0);
+  });
+
+  it('rejects a staged root that is not canonical', async () => {
+    const fake = mountTable();
+    const staged = tree(fake, plan([]), workspace, {
+      realpath: jest.fn(async (filePath: string) =>
+        filePath === ROOT ? '/var/lib/elsewhere' : filePath,
+      ),
+    });
+    await expect(staged.stage()).rejects.toThrow(/root must be canonical/);
     expect(fake.table.size).toBe(0);
   });
 

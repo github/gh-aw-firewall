@@ -6,6 +6,7 @@ import type { CloudHypervisorDirectoryExport } from './exports';
 import {
   StagedHostMountTree,
   selectMountPlan,
+  assertPlansMatchExports,
   type MountTreeDependencies,
   type MountTreeStats,
   type VirtiofsdExportMountPlan,
@@ -128,13 +129,15 @@ export class VirtiofsdManager {
    * Starts one virtiofsd per export. When `enforcement` supplies a plan for an
    * export tag, that export is served from a private, recursively read-only
    * staged host mount tree with writable child binds. Without a plan the export
-   * is staged exactly as before.
+   * is staged exactly as before. A plan naming an export that does not exist is
+   * an error rather than a silent downgrade to unrestricted read-write.
    */
   async start(
     exports: readonly CloudHypervisorDirectoryExport[],
     enforcement?: VirtiofsdMountEnforcement,
   ): Promise<VirtiofsdDevice[]> {
     try {
+      assertPlansMatchExports(enforcement, exports);
       for (const [index, directoryExport] of exports.entries()) {
         await this.startOne(directoryExport, index, selectMountPlan(enforcement, directoryExport.tag));
       }

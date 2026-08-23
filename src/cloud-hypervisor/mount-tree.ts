@@ -136,6 +136,28 @@ export function selectMountPlan(
 }
 
 /**
+ * Fails closed when a plan names an export that does not exist. A silently
+ * dropped plan would downgrade that export to unrestricted read-write, so a
+ * renamed or mistyped tag must be an error. Exports without a plan keep their
+ * existing behaviour, which is what makes partial enforcement possible.
+ */
+export function assertPlansMatchExports(
+  enforcement: VirtiofsdMountEnforcement | undefined,
+  exports: readonly { readonly tag: string }[],
+): void {
+  if (!enforcement) return;
+  const known = new Set(exports.map((item) => item.tag));
+  const unknown = enforcement.plans
+    .map((plan) => plan.tag)
+    .filter((tag) => !known.has(tag));
+  if (unknown.length > 0) {
+    throw new Error(
+      `Cloud Hypervisor mount plans reference unknown export tags: ${[...new Set(unknown)].sort().join(', ')}`,
+    );
+  }
+}
+
+/**
  * A staged mount tree. Instances are created unmounted; {@link stage} performs
  * the privileged work and {@link unmount} tears it down deepest-first. Failed
  * unmounts stay pending so a later call can retry them.
@@ -202,6 +224,15 @@ export class StagedHostMountTree {
     await assertMountToolSupported(tools, dependencies);
     await dependencies.mkdir(this.rootPath, { recursive: true, mode: 0o700 });
     this.rootDirectoryCreated = true;
+    // Overlay destinations are validated by `realpath` equality against paths
+    // built from this root, so the root itself has to be canonical for that
+    // comparison to mean anything.
+    const resolvedRoot = await dependencies.realpath(this.rootPath);
+    if (resolvedRoot !== this.rootPath) {
+      throw new Error(
+        `Staged mount tree root must be canonical: ${this.rootPath} resolves to ${resolvedRoot}`,
+      );
+    }
     await dependencies.runTool(tools.mount, ['--rbind', directoryExport.source, this.rootPath]);
     this.pendingMounts.add(this.rootPath);
     // Private propagation before anything writable exists, so neither the
@@ -346,14 +377,26 @@ export class StagedHostMountTree {
    * The destination is inspected inside the staged tree, which is already
    * recursively read-only and privately propagated, so it cannot be swapped
    * between this check and the bind.
+   *
+   * `lstat` alone is not sufficient: it only reveals a symlink in the final
+   * component, while the kernel resolves every intermediate component when it
+   * binds. A staged `tools -> /etc` symlink would make `tools/sudoers` lstat as
+   * an ordinary file and then bind over the host's `/etc/sudoers`. `realpath`
+   * equality rejects a symlink in any component, and the containment check
+   * keeps the resolved target inside the staged root.
    */
   private async assertOverlayDestination(overlay: ResolvedOverlay): Promise<void> {
-    const stats = await this.options.dependencies.statPath(overlay.stagedDestination);
-    assertStatsMatchKind(
-      stats,
-      overlay.kind,
-      `writable overlay destination ${overlay.stagedDestination}`,
-    );
+    const { dependencies } = this.options;
+    const label = `writable overlay destination ${overlay.stagedDestination}`;
+    const resolved = await dependencies.realpath(overlay.stagedDestination);
+    if (resolved !== overlay.stagedDestination) {
+      throw new Error(
+        `Writable overlay destination must be canonical: ${overlay.stagedDestination} resolves to ${resolved}`,
+      );
+    }
+    assertContainedPath(this.rootPath, resolved, label);
+    const stats = await dependencies.statPath(overlay.stagedDestination);
+    assertStatsMatchKind(stats, overlay.kind, label);
   }
 
   private async assertTreeIsReadonly(): Promise<void> {
