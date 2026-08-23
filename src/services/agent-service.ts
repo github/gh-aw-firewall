@@ -295,10 +295,10 @@ interface IptablesInitServiceParams {
 export function buildIptablesInitService(params: IptablesInitServiceParams): any {
   const { agentService, environment, networkConfig, initSignalDir, dockerHostPathPrefix, hostGatewayIp } = params;
   const setupCommand = [
-    'mkdir -p "$AWF_INIT_SIGNAL_DIR"',
-    `if [ ! -e ${LEGACY_INIT_SIGNAL_DIR} ]; then ln -s "$AWF_INIT_SIGNAL_DIR" ${LEGACY_INIT_SIGNAL_DIR} 2>/dev/null || true; fi`,
-    '/usr/local/bin/setup-iptables.sh > "$AWF_INIT_SIGNAL_DIR/output.log" 2>&1',
-    'touch "$AWF_INIT_SIGNAL_DIR/ready"',
+    'mkdir -p "$$AWF_INIT_SIGNAL_DIR"',
+    `if [ ! -e ${LEGACY_INIT_SIGNAL_DIR} ]; then ln -s "$$AWF_INIT_SIGNAL_DIR" ${LEGACY_INIT_SIGNAL_DIR} 2>/dev/null || true; fi`,
+    '/usr/local/bin/setup-iptables.sh > "$$AWF_INIT_SIGNAL_DIR/output.log" 2>&1',
+    'touch "$$AWF_INIT_SIGNAL_DIR/ready"',
   ].join(' && ');
 
   // The init-signal mount must use the same source path that the agent container uses,
