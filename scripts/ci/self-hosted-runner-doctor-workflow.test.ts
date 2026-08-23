@@ -130,11 +130,14 @@ describe('self-hosted runner doctor workflow config', () => {
     }
 
     // B26 new failure mode (network-isolation artifact ZIP download via blob storage egress)
-    expect(shared).toContain('| B26 | In `--network-isolation` mode');
-    expect(shared).toContain('`error connecting to productionresultssa*.blob.core.windows.net`');
-    expect(shared).toContain('`http_access allow from_cli_proxy cli_proxy_artifact_storage`');
-    expect(shared).toContain('github/gh-aw#54371, github/gh-aw-firewall#7615, github/gh-aw-firewall#7635');
-    expect(shared).toContain('| `error connecting to productionresultssa*.blob.core.windows.net` from `gh run download`/artifact ZIP fetch in `--network-isolation` mode | B26');
+    for (const content of [shared, portableAgent]) {
+      expect(content).toContain('| B26 | In `--network-isolation` mode');
+      expect(content).toContain('`error connecting to productionresultssa*.blob.core.windows.net`');
+      expect(content).toContain('`http_access allow from_cli_proxy cli_proxy_artifact_storage`');
+      expect(content).toContain('github/gh-aw-mcpg#10350');
+      expect(content).toContain('github/gh-aw#54371, github/gh-aw-firewall#7615, github/gh-aw-firewall#7635');
+      expect(content).toContain('| `error connecting to productionresultssa*.blob.core.windows.net` from `gh run download`/artifact ZIP fetch in `--network-isolation` mode | B26');
+    }
 
     expect(source).toContain('- `unknown shorthand flag: \'d\' in -d` from `docker compose up -d` → A14 (DinD sidecar missing `docker-compose-plugin`)');
     expect(source).toContain('- `Rootless artifact permission repair failed` on ARC/DinD squid logs → A15 (`dockerHostPathPrefix` not applied to repair bind mount)');
@@ -171,6 +174,10 @@ describe('self-hosted runner doctor workflow config', () => {
       expect(playbook).toContain('B25 / github/gh-aw-firewall#7593, github/gh-aw-firewall#7599 — On native-root runners');
     }
     expect(source).toContain('- `error connecting to productionresultssa*.blob.core.windows.net` from `gh run download`/artifact ZIP fetch in `--network-isolation` mode → B26');
-    expect(source).toContain('B26 / github/gh-aw#54371, github/gh-aw-firewall#7615, github/gh-aw-firewall#7635 — In `--network-isolation` mode');
+    for (const playbook of [source, portableAgent]) {
+      expect(playbook).toContain('- `error connecting to productionresultssa*.blob.core.windows.net` from `gh run download`/artifact ZIP fetch in `--network-isolation` mode → B26');
+      expect(playbook).toContain('B26 / github/gh-aw#54371, github/gh-aw-firewall#7615, github/gh-aw-firewall#7635 — In `--network-isolation` mode');
+      expect(playbook).toContain('github/gh-aw-mcpg#10350');
+    }
   });
 });
