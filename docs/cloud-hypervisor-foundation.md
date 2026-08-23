@@ -164,6 +164,20 @@ Temporary microVM workspace data lives under:
 With `--keep-containers`, AWF preserves this directory, the network namespace,
 and runtime diagnostics for investigation.
 
+### Write-policy planning (inert)
+
+[`src/cloud-hypervisor/filesystem-write-policy.ts`](../src/cloud-hypervisor/filesystem-write-policy.ts)
+plans how a `filesystem.allowWrite` allowlist would narrow validated exports. It
+maps each guest path to the canonical host path beneath the deepest matching
+export, rejects `..`, missing paths, and symlink escapes, and classifies every
+export as unrestricted, read-only, fully writable, or selectively writable.
+
+The planner only removes write access: it never widens a read-only export and
+never introduces a host path that an existing read-write export does not
+already cover. It is pure policy planning and is not yet wired into runtime
+execution — `filesystem.allowWrite` is still rejected for the Cloud Hypervisor
+runtime by [`src/filesystem-policy.ts`](../src/filesystem-policy.ts).
+
 ## Limitations
 
 The preview rejects configurations that weaken or conflict with its boundary,
