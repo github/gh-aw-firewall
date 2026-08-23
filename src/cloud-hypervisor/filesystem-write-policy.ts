@@ -146,7 +146,11 @@ export function planCloudHypervisorFilesystemWrites(
 
     const overlays: CloudHypervisorWritableOverlay[] = [];
     for (const allowedPath of allowedPaths) {
-      if (isPathAtOrBelow(entry.target, allowedPath)) {
+      // Only an exact match against the export target keeps the whole export
+      // writable. A strict ancestor (e.g. `/` above `/workspace`) is not itself
+      // an existing path reachable within this export, so it must go through
+      // the same host-resolution as any other overlay candidate below.
+      if (allowedPath === entry.target) {
         matched.add(allowedPath);
         return {
           export: entry,

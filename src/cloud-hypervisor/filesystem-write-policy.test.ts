@@ -226,6 +226,17 @@ describe('Cloud Hypervisor filesystem write policy planner', () => {
     });
   });
 
+  it('rejects an ancestor of an export target instead of widening the whole export', () => {
+    // `/` is above every export target, not an existing path reachable within
+    // one, so it must not be treated as a full-export match even though it is
+    // lexically "at or below" itself for every candidate target.
+    expect(() => planCloudHypervisorFilesystemWrites(exports, ['/']))
+      .toThrow(
+        'filesystem.allowWrite path is not an existing path within a writable ' +
+        'Cloud Hypervisor export: /',
+      );
+  });
+
   it('rejects a path outside every export target', () => {
     expect(() => planCloudHypervisorFilesystemWrites(exports, ['/elsewhere']))
       .toThrow(
