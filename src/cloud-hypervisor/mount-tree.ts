@@ -463,10 +463,15 @@ export function parseMountInfo(contents: string): MountInfoEntry[] {
 }
 
 function assertPrivatePropagation(entry: MountInfoEntry): void {
-  const shared = entry.optionalFields.some((field) => field.startsWith('shared:'));
-  if (shared) {
+  const propagation = entry.optionalFields.find(
+    (field) =>
+      field.startsWith('shared:') ||
+      field.startsWith('master:') ||
+      field.startsWith('propagate_from:'),
+  );
+  if (propagation !== undefined) {
     throw new Error(
-      `Staged mount tree propagation would leak: ${entry.mountPoint} is a shared mount`,
+      `Staged mount tree propagation would leak: ${entry.mountPoint} has ${propagation}`,
     );
   }
 }

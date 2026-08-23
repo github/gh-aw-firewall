@@ -372,6 +372,30 @@ describe('StagedHostMountTree', () => {
     await expect(staged.stage()).rejects.toThrow(/propagation would leak/);
   });
 
+  it.each(['master:21', 'propagate_from:21'])(
+    'fails closed when the staged tree retains %s propagation',
+    async (propagation) => {
+      const fake = mountTable();
+      fake.runTool.mockImplementation(async (command: string, args: readonly string[]) => {
+        if (args[0] === '--make-rprivate') return;
+        return undefined;
+      });
+      const deps = dependencies(fake, {
+        readMountInfo: jest
+          .fn()
+          .mockResolvedValue(`30 29 0:42 / ${ROOT} ro,nosuid,nodev ${propagation} - ext4 /dev/root ro`),
+      });
+      const staged = new StagedHostMountTree({
+        directoryExport: workspace,
+        plan: plan([]),
+        rootPath: ROOT,
+        tools,
+        dependencies: deps,
+      });
+      await expect(staged.stage()).rejects.toThrow(/propagation would leak/);
+    },
+  );
+
   it('fails closed when the staged root mount is missing', async () => {
     const fake = mountTable();
     const staged = tree(fake, plan([]), workspace, {
