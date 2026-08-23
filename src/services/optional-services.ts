@@ -11,6 +11,7 @@ import { resolveDockerHostGateway } from './host-gateway';
 import { runtimeUsesIptables } from '../container-runtime';
 import { applyHostPathPrefixToVolumes } from './host-path-prefix';
 import { buildCustomVolumeMounts } from './agent-volumes/workspace-mounts';
+import { resolveComposeFilesystemAllowWrite } from './agent-volumes/filesystem-write-policy';
 import { NetworkConfig, ImageBuildConfig } from './squid-service';
 
 interface AssembleOptionalServicesParams {
@@ -122,7 +123,9 @@ function filterAgentVolumesForSysroot(
   return dropUnbackedHostHomeOverlays(
     filtered,
     hostHomeMountPrefix,
-    config.filesystemAllowWrite !== undefined,
+    // Mirrors the gate in buildAgentVolumes: a microVM runtime's policy is
+    // enforced against its own exports, never against compose bind mounts.
+    resolveComposeFilesystemAllowWrite(config) !== undefined,
   );
 }
 

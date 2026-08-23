@@ -10,7 +10,7 @@ import { generateHostsFileMount } from './hosts-file';
 import { buildSslMounts } from './ssl-mounts';
 import { buildSystemMounts } from './system-mounts';
 import { buildCustomVolumeMounts, buildWorkspaceMounts } from './workspace-mounts';
-import { applyFilesystemWritePolicy } from './filesystem-write-policy';
+import { applyFilesystemWritePolicy, resolveComposeFilesystemAllowWrite } from './filesystem-write-policy';
 
 interface AgentVolumesParams {
   config: WrapperConfig;
@@ -81,7 +81,7 @@ export function buildAgentVolumes(params: AgentVolumesParams): string[] {
   );
   const policyVolumes = applyFilesystemWritePolicy(
     agentVolumes,
-    config.filesystemAllowWrite,
+    resolveComposeFilesystemAllowWrite(config),
     alwaysWritableMounts,
     localSourceRoots,
   );

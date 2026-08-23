@@ -1,5 +1,35 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { runtimeUsesComposeAgent } from '../../container-runtime';
+import type { WrapperConfig } from '../../types';
+
+/**
+ * Resolves the `filesystem.allowWrite` policy that applies to *compose* bind
+ * mounts.
+ *
+ * `filesystem.allowWrite` is expressed in guest-visible paths, and each runtime
+ * realises those paths differently. Compose runtimes (Docker, gVisor) express
+ * them as host bind mounts, so the policy is enforced by rewriting volume
+ * specs. MicroVM runtimes do not: Cloud Hypervisor enforces the same policy
+ * against its own virtio-fs exports via a staged host mount tree (see
+ * `src/cloud-hypervisor/filesystem-write-enforcement.ts`), and sbx rejects the
+ * policy outright in `src/filesystem-policy.ts`.
+ *
+ * Compose generation still builds an agent service object for microVM runtimes
+ * so infra containers can wire `depends_on` edges, even though that service is
+ * omitted from the emitted compose file. Without this gate, a microVM policy
+ * would be evaluated against compose bind mounts that the agent never uses, and
+ * a guest path such as `/workspace/allowed` — perfectly valid for a Cloud
+ * Hypervisor export — would throw the Docker "not backed by a writable host
+ * mount" error during `writeConfigs()`, long before the Cloud Hypervisor
+ * planner ever ran.
+ */
+export function resolveComposeFilesystemAllowWrite(
+  config: Pick<WrapperConfig, 'filesystemAllowWrite' | 'containerRuntime'>,
+): string[] | undefined {
+  if (!runtimeUsesComposeAgent(config.containerRuntime)) return undefined;
+  return config.filesystemAllowWrite;
+}
 
 interface BindMount {
   source: string;

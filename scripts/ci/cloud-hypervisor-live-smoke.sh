@@ -181,6 +181,26 @@ run_case() {
   assert_no_residue
 }
 
+# Requires that a completed case printed every named marker to its guest
+# stdout. `run_case` only checks the final exit status, which cannot
+# distinguish "every probe ran and behaved" from "the guest shell died partway
+# through and the remaining probes never executed" -- the latter leaves host
+# post-checks passing vacuously, because a write that was never attempted
+# also never changed anything.
+assert_sentinels() {
+  local name=$1
+  shift
+  local log="$RUN_ROOT/$name/stdout.log"
+  local sentinel
+  for sentinel in "$@"; do
+    if ! grep -qF "$sentinel" "$log"; then
+      echo "case $name: missing sentinel $sentinel (probe never executed)" >&2
+      tail -50 "$log" >&2
+      return 1
+    fi
+  done
+}
+
 assert_no_residue
 
 # Best-effort, bounded packet capture across the first live case only (never
@@ -298,9 +318,25 @@ cat >"$RUN_ROOT/allow-write.json" <<'JSON'
   }
 }
 JSON
+# Each denial is wrapped in a subshell and followed by a sentinel echo. The
+# guest shell is BusyBox ash: a redirection failure on a POSIX *special*
+# builtin (`:`, `.`, `eval`, ...) is fatal and exits the shell outright, so an
+# earlier `! : > /workspace/input.txt` truncate probe silently skipped the
+# rename and delete probes below it while the host post-checks still passed --
+# nothing had been attempted, so nothing had changed. `printf ''` is a regular
+# builtin (non-fatal), the subshell contains a fatal error even if one occurs,
+# and requiring every sentinel below proves each probe actually ran.
 run_case allow-write 0 \
-  'printf guest-allowed > /workspace/allowed/created.txt && mkdir -p /workspace/allowed/nested/deeper && printf deep > /workspace/allowed/nested/deeper/file.txt && rm /workspace/allowed/removable.txt && printf guest-file > /workspace/allowed-file.txt && grep -q " /workspace/allowed virtiofs " /proc/mounts && grep -q host-input /workspace/input.txt && ! printf blocked > /workspace/blocked/file.txt && ! printf blocked > /workspace/created-at-root.txt && ! mkdir /workspace/blocked-dir && ! : > /workspace/input.txt && ! mv /workspace/rename-me.txt /workspace/renamed.txt && ! rm -f /workspace/blocked/file.txt' \
+  'printf guest-allowed > /workspace/allowed/created.txt && mkdir -p /workspace/allowed/nested/deeper && printf deep > /workspace/allowed/nested/deeper/file.txt && rm /workspace/allowed/removable.txt && printf guest-file > /workspace/allowed-file.txt && grep -q " /workspace/allowed virtiofs " /proc/mounts && grep -q host-input /workspace/input.txt && echo AWF-ALLOWWRITE-ALLOWED-OK && ! ( printf blocked > /workspace/blocked/file.txt ) && echo AWF-ALLOWWRITE-SIBLING-DENIED && ! ( printf blocked > /workspace/created-at-root.txt ) && echo AWF-ALLOWWRITE-CREATE-DENIED && ! ( mkdir /workspace/blocked-dir ) && echo AWF-ALLOWWRITE-MKDIR-DENIED && ! ( printf "" > /workspace/input.txt ) && echo AWF-ALLOWWRITE-TRUNCATE-DENIED && ! ( mv /workspace/rename-me.txt /workspace/renamed.txt ) && echo AWF-ALLOWWRITE-RENAME-DENIED && ! ( rm /workspace/blocked/file.txt ) && echo AWF-ALLOWWRITE-DELETE-DENIED' \
   --config "$RUN_ROOT/allow-write.json"
+assert_sentinels allow-write \
+  AWF-ALLOWWRITE-ALLOWED-OK \
+  AWF-ALLOWWRITE-SIBLING-DENIED \
+  AWF-ALLOWWRITE-CREATE-DENIED \
+  AWF-ALLOWWRITE-MKDIR-DENIED \
+  AWF-ALLOWWRITE-TRUNCATE-DENIED \
+  AWF-ALLOWWRITE-RENAME-DENIED \
+  AWF-ALLOWWRITE-DELETE-DENIED
 test "$(cat "$allow_workspace/allowed/created.txt")" = guest-allowed
 test "$(cat "$allow_workspace/allowed/nested/deeper/file.txt")" = deep
 test "$(cat "$allow_workspace/allowed-file.txt")" = guest-file
@@ -319,8 +355,12 @@ cat >"$RUN_ROOT/allow-write-none.json" <<'JSON'
 { "filesystem": { "allowWrite": [] } }
 JSON
 run_case allow-write-none 0 \
-  'grep -q host-input /workspace/input.txt && grep -q " /workspace virtiofs ro," /proc/mounts && ! printf blocked > /workspace/input.txt && ! printf blocked > /workspace/created.txt' \
+  'grep -q host-input /workspace/input.txt && grep -q " /workspace virtiofs ro," /proc/mounts && echo AWF-ALLOWWRITE-NONE-READ-OK && ! ( printf blocked > /workspace/input.txt ) && echo AWF-ALLOWWRITE-NONE-WRITE-DENIED && ! ( printf blocked > /workspace/created.txt ) && echo AWF-ALLOWWRITE-NONE-CREATE-DENIED' \
   --config "$RUN_ROOT/allow-write-none.json"
+assert_sentinels allow-write-none \
+  AWF-ALLOWWRITE-NONE-READ-OK \
+  AWF-ALLOWWRITE-NONE-WRITE-DENIED \
+  AWF-ALLOWWRITE-NONE-CREATE-DENIED
 test "$(cat "$RUN_ROOT/allow-write-none/workspace/input.txt")" = host-input
 test ! -e "$RUN_ROOT/allow-write-none/workspace/created.txt"
 

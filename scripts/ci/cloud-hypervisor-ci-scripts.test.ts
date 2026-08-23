@@ -183,6 +183,54 @@ describe('cloud-hypervisor-live-smoke.sh', () => {
     expect(source).toContain("grep -q 'filesystem.allowWrite'");
   });
 
+  it('proves every allowWrite denial probe actually executed under BusyBox ash', () => {
+    const source = fs.readFileSync(smokePath, 'utf-8');
+    // Regression: the guest shell is BusyBox ash, where a redirection failure
+    // on a POSIX *special* builtin is fatal and exits the shell. An earlier
+    // `! : > /workspace/input.txt` truncate probe therefore terminated the
+    // guest command before the rename and delete probes ran, while the host
+    // post-checks still passed vacuously -- a write never attempted also never
+    // Comment lines are excluded: the rationale above quotes the old probe.
+    const executableLines = source
+      .split('\n')
+      .filter((line) => !line.trimStart().startsWith('#'));
+    expect(executableLines.some((line) => /!\s*:\s*>/.test(line))).toBe(false);
+    expect(source).toContain('! ( printf "" > /workspace/input.txt )');
+
+    // Every denial probe is subshell-contained (so even a fatal shell error is
+    // isolated) and followed by a sentinel that the suite then requires.
+    for (const probe of [
+      '! ( printf blocked > /workspace/blocked/file.txt )',
+      '! ( printf blocked > /workspace/created-at-root.txt )',
+      '! ( mkdir /workspace/blocked-dir )',
+      '! ( mv /workspace/rename-me.txt /workspace/renamed.txt )',
+      '! ( rm /workspace/blocked/file.txt )',
+    ]) {
+      expect(source).toContain(probe);
+    }
+
+    expect(source).toContain('assert_sentinels() {');
+    expect(source).toContain('missing sentinel $sentinel (probe never executed)');
+    for (const sentinel of [
+      'AWF-ALLOWWRITE-ALLOWED-OK',
+      'AWF-ALLOWWRITE-SIBLING-DENIED',
+      'AWF-ALLOWWRITE-CREATE-DENIED',
+      'AWF-ALLOWWRITE-MKDIR-DENIED',
+      'AWF-ALLOWWRITE-TRUNCATE-DENIED',
+      'AWF-ALLOWWRITE-RENAME-DENIED',
+      'AWF-ALLOWWRITE-DELETE-DENIED',
+      'AWF-ALLOWWRITE-NONE-READ-OK',
+      'AWF-ALLOWWRITE-NONE-WRITE-DENIED',
+      'AWF-ALLOWWRITE-NONE-CREATE-DENIED',
+    ]) {
+      // Emitted by the guest command, and separately required afterwards.
+      expect(source).toContain(`echo ${sentinel}`);
+      expect(source.split(sentinel).length - 1).toBeGreaterThanOrEqual(2);
+    }
+    expect(source).toContain('assert_sentinels allow-write \\');
+    expect(source).toContain('assert_sentinels allow-write-none \\');
+  });
+
   (shellcheckAvailable() ? it : it.skip)('has no shellcheck errors', () => {
     expect(() =>
       execFileSync('shellcheck', ['--severity=error', smokePath]),
