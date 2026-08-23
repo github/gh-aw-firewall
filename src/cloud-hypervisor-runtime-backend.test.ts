@@ -1,3 +1,6 @@
+import { promises as fsPromises } from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import { PassThrough } from 'stream';
 import type { WrapperConfig } from './types';
 import * as hostEligibility from './cloud-hypervisor/host-eligibility';
@@ -224,6 +227,81 @@ describe('Cloud Hypervisor runtime backend', () => {
       if (previousWorkspace === undefined) delete process.env.GITHUB_WORKSPACE;
       else process.env.GITHUB_WORKSPACE = previousWorkspace;
     }
+  });
+
+  it('plans filesystem.allowWrite before any boot attempt and passes it to the manager', async () => {
+    const directory = await fsPromises.realpath(
+      await fsPromises.mkdtemp(path.join(os.tmpdir(), 'ch-backend-write-')),
+    );
+    try {
+      const workspaceSource = path.join(directory, 'workspace');
+      const ghAwSource = path.join(directory, 'gh-aw');
+      await fsPromises.mkdir(path.join(ghAwSource, 'agent'), { recursive: true });
+      await fsPromises.mkdir(workspaceSource, { recursive: true });
+      const resolved = [
+        { tag: 'workspace', source: workspaceSource, target: '/workspace', mode: 'rw' as const },
+        { tag: 'tmp-gh-aw', source: ghAwSource, target: '/tmp/gh-aw', mode: 'rw' as const },
+      ];
+      const { deps } = harness({ resolveExports: jest.fn().mockResolvedValue(resolved) });
+      const backend = new CloudHypervisorRuntimeBackend(
+        config({ filesystemAllowWrite: ['/tmp/gh-aw/agent'] }),
+        deps,
+      );
+
+      await backend.start('/tmp/awf', ['github.com']);
+
+      expect(deps.createManager).toHaveBeenCalledWith(
+        expect.anything(),
+        '/tmp/awf',
+        expect.anything(),
+        [
+          { ...resolved[0], mode: 'ro' },
+          { ...resolved[1], mode: 'rw' },
+        ],
+        { uid: 1000, gid: 1000 },
+        {
+          plans: [
+            { tag: 'workspace', writableOverlays: [] },
+            {
+              tag: 'tmp-gh-aw',
+              writableOverlays: [{
+                source: path.join(ghAwSource, 'agent'),
+                destination: path.join(ghAwSource, 'agent'),
+                kind: 'directory',
+              }],
+            },
+          ],
+        },
+      );
+    } finally {
+      await fsPromises.rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('passes no enforcement argument when filesystem.allowWrite is undefined', async () => {
+    const { deps } = harness();
+    const backend = new CloudHypervisorRuntimeBackend(config(), deps);
+
+    await backend.start('/tmp/awf', ['github.com']);
+
+    const call = (deps.createManager as jest.Mock).mock.calls[0];
+    expect(call[3]).toEqual([
+      { tag: 'workspace', source: '/workspace-host', target: '/workspace', mode: 'rw' },
+    ]);
+    expect(call[5]).toBeUndefined();
+    expect(call).toHaveLength(6);
+  });
+
+  it('fails closed on an unmatched allowlist path before creating a manager', async () => {
+    const { deps } = harness();
+    const backend = new CloudHypervisorRuntimeBackend(
+      config({ filesystemAllowWrite: ['/workspace/does-not-exist'] }),
+      deps,
+    );
+
+    await expect(backend.start('/tmp/awf', ['github.com']))
+      .rejects.toThrow('filesystem.allowWrite path is not an existing path within a writable');
+    expect(deps.createManager).not.toHaveBeenCalled();
   });
 
   it('starts infrastructure, revalidates it, boots and probes before execution', async () => {

@@ -55,6 +55,7 @@ import type { CloudHypervisorHostToolPaths } from './preflight';
 import {
   validateCloudHypervisorExports,
 } from './exports';
+import { hasReadOnlyWorkspaceMountPlan } from './filesystem-write-enforcement';
 import { VirtiofsdManager, type VirtiofsdDevice } from './virtiofsd';
 import {
   buildCloudHypervisorVmConfig,
@@ -249,7 +250,11 @@ export class CloudHypervisorManager {
       await this.network.setup();
       let rootfsSource = artifacts.rootfsPath;
       if (this.guestConfig) {
-        validateCloudHypervisorExports(this.guestConfig.exports);
+        validateCloudHypervisorExports(this.guestConfig.exports, {
+          allowReadOnlyWorkspace: hasReadOnlyWorkspaceMountPlan(
+            this.guestConfig.mountEnforcement,
+          ),
+        });
         const rootfsPreparationDirectory = path.join(
           this.workDir,
           'cloud-hypervisor-rootfs',
@@ -344,7 +349,10 @@ export class CloudHypervisorManager {
           this.cgroup,
           { mount: artifacts.tools.mount, umount: artifacts.tools.umount },
         );
-        this.fsDevices = await this.virtiofsd.start(this.guestConfig.exports);
+        this.fsDevices = await this.virtiofsd.start(
+          this.guestConfig.exports,
+          this.guestConfig.mountEnforcement,
+        );
       }
       await this.client.vmCreate(buildCloudHypervisorVmConfig({
         config: this.config,

@@ -99,8 +99,42 @@ describe('buildCloudHypervisorVmConfig', () => {
     );
   });
 
-  it('sizes cpus/memory from the runtime options and disables NIC offloads', () => {
-    const vmConfig = buildCloudHypervisorVmConfig({
+  it('encodes a policy-narrowed workspace mode only alongside its host mount plan', () => {
+    const exports = [{
+      tag: 'workspace',
+      source: '/workspace',
+      target: '/workspace',
+      mode: 'ro' as const,
+    }];
+
+    expect(buildCloudHypervisorVmConfig({
+      config: config(),
+      paths,
+      networkPlan: networkPlan(),
+      guestConfig: {
+        exports,
+        mountEnforcement: { plans: [{ tag: 'workspace', writableOverlays: [] }] },
+        supervisorBinaryPath: '/opt/awf-supervisor',
+        supervisorSha256: 'a'.repeat(64),
+      },
+    }).payload).toHaveProperty(
+      'cmdline',
+      expect.stringContaining('awf.virtiofs=workspace:L3dvcmtzcGFjZQ:ro'),
+    );
+
+    expect(() => buildCloudHypervisorVmConfig({
+      config: config(),
+      paths,
+      networkPlan: networkPlan(),
+      guestConfig: {
+        exports,
+        supervisorBinaryPath: '/opt/awf-supervisor',
+        supervisorSha256: 'a'.repeat(64),
+      },
+    })).toThrow('Cloud Hypervisor requires read-write tag "workspace" at /workspace');
+  });
+
+  it('sizes cpus/memory from the runtime options and disables NIC offloads', () => {    const vmConfig = buildCloudHypervisorVmConfig({
       config: config({ vcpuCount: 4, memoryMib: 1024 }),
       paths,
       networkPlan: networkPlan(),

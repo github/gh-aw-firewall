@@ -19,6 +19,7 @@ on:
       - 'src/cloud-hypervisor-runtime-backend.ts'
       - 'src/cloud-hypervisor-runtime-backend.test.ts'
       - 'src/microvm/**'
+      - 'src/filesystem-policy.ts'
       - 'src/types/runtime-options.ts'
       - 'scripts/ci/cloud-hypervisor-*.sh'
       - 'docs/cloud-hypervisor-foundation.md'

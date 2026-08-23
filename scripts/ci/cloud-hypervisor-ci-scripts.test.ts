@@ -97,6 +97,9 @@ describe('cloud-hypervisor-live-smoke.sh', () => {
       'api-proxy-reflect',
       'workspace-live-share',
       'runtime-cache-readonly',
+      'allow-write',
+      'allow-write-none',
+      'allow-write-invalid',
       'exit-code',
       'timeout-124',
       'partial-start-cleanup',
@@ -160,6 +163,24 @@ describe('cloud-hypervisor-live-smoke.sh', () => {
     // despite the CLI help text describing it as "enabled by default".
     const source = fs.readFileSync(smokePath, 'utf-8');
     expect(source).toMatch(/COMMON=\(\n(?:.*\n)*?\s*--network-isolation\n/);
+  });
+
+  it('proves filesystem.allowWrite enforcement end to end, including fail-closed', () => {
+    const source = fs.readFileSync(smokePath, 'utf-8');
+    // Selective policy: host-visible persistence of an allowed write, plus
+    // sibling/parent/create/truncate/rename/delete denial outside the list.
+    expect(source).toContain('"allowWrite": ["/workspace/allowed", "/workspace/allowed-file.txt"]');
+    expect(source).toContain('test "$(cat "$allow_workspace/allowed/created.txt")" = guest-allowed');
+    expect(source).toContain('test "$(cat "$allow_workspace/blocked/file.txt")" = host');
+    expect(source).toContain('test ! -e "$allow_workspace/created-at-root.txt"');
+    expect(source).toContain('test ! -e "$allow_workspace/renamed.txt"');
+    // A selective export stays read-write guest-side; only the zero-overlay
+    // narrowing publishes the guest mount itself read-only.
+    expect(source).toContain('grep -q " /workspace/allowed virtiofs " /proc/mounts');
+    expect(source).toContain('grep -q " /workspace virtiofs ro," /proc/mounts');
+    // Unmatched allowlist entries abort the run instead of widening it.
+    expect(source).toContain('run_case allow-write-invalid 1');
+    expect(source).toContain("grep -q 'filesystem.allowWrite'");
   });
 
   (shellcheckAvailable() ? it : it.skip)('has no shellcheck errors', () => {

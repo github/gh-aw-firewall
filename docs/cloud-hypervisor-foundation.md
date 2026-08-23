@@ -164,7 +164,7 @@ Temporary microVM workspace data lives under:
 With `--keep-containers`, AWF preserves this directory, the network namespace,
 and runtime diagnostics for investigation.
 
-### Write-policy planning (inert)
+### Write-policy planning
 
 [`src/cloud-hypervisor/filesystem-write-policy.ts`](../src/cloud-hypervisor/filesystem-write-policy.ts)
 plans how a `filesystem.allowWrite` allowlist would narrow validated exports. It
@@ -190,13 +190,11 @@ escape the export source.
 
 The planner only removes write access: it never widens a read-only export and
 never introduces a host path that an existing read-write export does not
-already cover. It is pure policy planning and is not yet wired into runtime
-execution — `filesystem.allowWrite` is still rejected for the Cloud Hypervisor
-runtime by [`src/filesystem-policy.ts`](../src/filesystem-policy.ts). The host
-side of that boundary — how a `hostRootMode: 'ro'` root with writable overlays is
-actually staged and enforced — is described in
-[Host mount-tree enforcement](#host-mount-tree-enforcement) below. The two layers
-are independent: neither is wired into runtime execution yet.
+already cover. It is pure policy planning; the host side of that boundary — how
+a `hostRootMode: 'ro'` root with writable overlays is actually staged and
+enforced — is described in
+[Host mount-tree enforcement](#host-mount-tree-enforcement) below, and
+[Runtime integration](#runtime-integration) describes how the two are joined.
 
 ## Host mount-tree enforcement
 
@@ -206,7 +204,7 @@ guest-side read-only mount is not a security boundary. The only trustworthy
 boundary is the host VFS.
 
 This is the host-side counterpart to
-[Write-policy planning](#write-policy-planning-inert): the planner decides which
+[Write-policy planning](#write-policy-planning): the planner decides which
 paths stay writable, and this layer stages a host mount tree that enforces it.
 
 `VirtiofsdManager.start()` therefore accepts an optional, strongly typed
@@ -313,6 +311,52 @@ require containment inside the export, but this residual setup-time TOCTOU windo
 cannot be closed without fd-based mount APIs that the current tooling does not
 expose.
 
+## Runtime integration
+
+[`src/cloud-hypervisor/filesystem-write-enforcement.ts`](../src/cloud-hypervisor/filesystem-write-enforcement.ts)
+is the only place where the planner and the host mount tree meet. The Cloud
+Hypervisor runtime backend resolves and validates its exports, then plans the
+policy in a dedicated `filesystem-write-policy` startup stage *before* the boot
+loop, so an invalid allowlist aborts the run before virtiofsd or the guest is
+ever launched, and before any retry can re-attempt it. The resulting
+`VirtiofsdMountEnforcement` is threaded through `createManager()` into
+`CloudHypervisorManager`, which forwards it to `VirtiofsdManager.start()`.
+
+No `internalTags` are passed to the planner. Cloud Hypervisor has no analogue of
+the Docker runtime's always-writable agent-log and session-state binds: every
+export it publishes is host-visible workspace or runner state, and marking one
+internal — `tmp-gh-aw` in particular — would defeat the narrowing that a policy
+such as `allowWrite: ["/tmp/gh-aw/agent"]` exists to express.
+
+The translation is total; there is no fallback path:
+
+| Planner disposition | Guest mount mode | Host staged root | Mount plan passed to virtiofsd |
+| --- | --- | --- | --- |
+| policy absent (`undefined`) | unchanged | unchanged | none — `start()` receives no enforcement argument at all, so behaviour is byte-identical to a run without a policy |
+| unrestricted / fully writable (`hostRootMode: 'rw'`) | `rw` | unchanged | none |
+| fully read-only (`hostRootMode: 'ro'`, no overlays) | `ro` | `ro` | plan with zero overlays |
+| selectively writable (`hostRootMode: 'ro'`, overlays) | `rw` | `ro` | plan with one overlay per allowed path |
+
+A read-only export with zero overlays still gets a plan rather than falling back
+to the legacy single `mount --bind` plus `remount,ro`. The staged tree is the
+only variant that recursively remounts carried-in submounts read-only and
+verifies the result against `/proc/self/mountinfo`, so a policy-narrowed export
+is always served by the stronger path.
+
+Because the host tree is the boundary, a selectively writable export is never
+mounted read-only guest-side. The guest mode is derived from the plan, so
+`validateCloudHypervisorExports()` accepts a read-only `workspace` export only
+when a mount plan for the `workspace` tag actually exists; a read-only workspace
+that nothing enforces is still rejected. Unknown plan tags remain fail-closed
+via `assertPlansMatchExports()`, and the planner's own validation is not
+duplicated here.
+
+One consequence is worth stating plainly: the guest `HOME` is
+`/workspace/.awf-home`, inside the workspace export. A policy that narrows
+`/workspace` — including an empty `allowWrite: []` — makes the agent's home
+directory read-only. That is the policy working as specified, not an oversight;
+add the home path to `allowWrite` if the workload needs it.
+
 ## Limitations
 
 The preview rejects configurations that weaken or conflict with its boundary,
@@ -349,6 +393,10 @@ The live job runs only when explicitly enabled by workflow dispatch or the
 - direct-egress, arbitrary-TCP, DNS, and metadata denial;
 - API proxy reachability and secret non-disclosure;
 - workspace persistence;
+- `filesystem.allowWrite` enforcement — an allowed directory and file write
+  persisting to the host, sibling/parent/create/truncate/rename/delete denial
+  outside the allowlist, an empty allowlist narrowing the whole workspace, and
+  a fail-closed abort on an allowlist entry that matches no export path;
 - exit-code, timeout, and cancellation behavior;
 - device assumptions;
 - partial-start and normal cleanup;

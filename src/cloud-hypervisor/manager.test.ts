@@ -498,6 +498,64 @@ describe('CloudHypervisorManager', () => {
     expect(order).toEqual(['virtiofsd']);
   });
 
+  it('starts virtiofsd without an enforcement argument when no write policy applies', async () => {
+    const virtiofsd = virtiofsdManagerMock();
+    const deps = dependencies({
+      launch: jest.fn().mockReturnValue(processMock()),
+      createVirtiofsdManager: jest.fn().mockReturnValue(virtiofsd),
+    });
+    const manager = new CloudHypervisorManager(
+      config(), '/tmp/awf', deps, 'plain', networkConfig(), guestConfig(),
+    );
+
+    await manager.start();
+
+    expect(virtiofsd.start).toHaveBeenCalledWith(exportsConfig, undefined);
+  });
+
+  it('forwards host mount enforcement and publishes a read-only workspace', async () => {
+    const virtiofsd = virtiofsdManagerMock();
+    const deps = dependencies({
+      launch: jest.fn().mockReturnValue(processMock()),
+      createVirtiofsdManager: jest.fn().mockReturnValue(virtiofsd),
+    });
+    const mountEnforcement = { plans: [{ tag: 'workspace', writableOverlays: [] }] };
+    const narrowedExports = [{ ...exportsConfig[0], mode: 'ro' as const }];
+    const manager = new CloudHypervisorManager(
+      config(),
+      '/tmp/awf',
+      deps,
+      'narrowed',
+      networkConfig(),
+      { ...guestConfig(), exports: narrowedExports, mountEnforcement },
+    );
+
+    const client = await manager.start();
+
+    expect(virtiofsd.start).toHaveBeenCalledWith(narrowedExports, mountEnforcement);
+    expect((client.vmCreate as jest.Mock).mock.calls[0][0].payload.cmdline)
+      .toContain(`awf.virtiofs=workspace:${Buffer.from('/workspace').toString('base64url')}:ro`);
+  });
+
+  it('refuses a read-only workspace that no host mount plan enforces', async () => {
+    const deps = dependencies({ launch: jest.fn().mockReturnValue(processMock()) });
+    const manager = new CloudHypervisorManager(
+      config(),
+      '/tmp/awf',
+      deps,
+      'unenforced',
+      networkConfig(),
+      {
+        ...guestConfig(),
+        exports: [{ ...exportsConfig[0], mode: 'ro' as const }],
+        mountEnforcement: { plans: [{ tag: 'tmp-gh-aw', writableOverlays: [] }] },
+      },
+    );
+
+    await expect(manager.start())
+      .rejects.toThrow('Cloud Hypervisor requires read-write tag "workspace" at /workspace');
+  });
+
   it('preserves the cgroup and run directory when virtiofsd cannot be reaped', async () => {
     const virtiofsd = virtiofsdManagerMock();
     (virtiofsd.stop as jest.Mock).mockRejectedValue(new Error('virtiofsd did not exit'));

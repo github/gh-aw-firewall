@@ -10,9 +10,19 @@ function config(overrides: Partial<WrapperConfig> = {}): WrapperConfig {
 }
 
 describe('assertFilesystemWritePolicyCompatibility', () => {
-  it.each(['sbx', 'cloud-hypervisor'])('rejects the unsupported %s runtime', (containerRuntime) => {
-    expect(() => assertFilesystemWritePolicyCompatibility(config({ containerRuntime })))
-      .toThrow(`filesystem.allowWrite is not yet supported by the ${containerRuntime} runtime`);
+  it('rejects the unsupported sbx runtime', () => {
+    expect(() => assertFilesystemWritePolicyCompatibility(config({ containerRuntime: 'sbx' })))
+      .toThrow('filesystem.allowWrite is not yet supported by the sbx runtime');
+  });
+
+  it('accepts the Cloud Hypervisor runtime, which enforces the policy host-side', () => {
+    expect(() => assertFilesystemWritePolicyCompatibility(config({
+      containerRuntime: 'cloud-hypervisor',
+    }))).not.toThrow();
+    expect(() => assertFilesystemWritePolicyCompatibility(config({
+      containerRuntime: 'cloud-hypervisor',
+      filesystemAllowWrite: [],
+    }))).not.toThrow();
   });
 
   it('accepts compose runtimes and an unset policy', () => {
@@ -26,5 +36,9 @@ describe('assertFilesystemWritePolicyCompatibility', () => {
   it('rejects effective Docker-in-Docker access', () => {
     expect(() => assertFilesystemWritePolicyCompatibility(config({ enableDind: true })))
       .toThrow('filesystem.allowWrite cannot be combined with Docker-in-Docker access');
+    expect(() => assertFilesystemWritePolicyCompatibility(config({
+      containerRuntime: 'cloud-hypervisor',
+      enableDind: true,
+    }))).toThrow('filesystem.allowWrite cannot be combined with Docker-in-Docker access');
   });
 });

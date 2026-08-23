@@ -82,4 +82,23 @@ describe('Cloud Hypervisor directory exports', () => {
       { tag: 'workspace', source: 'relative', target: '/workspace', mode: 'rw' },
     ])).toThrow(/absolute clean/);
   });
+
+  it('only permits a read-only workspace when explicitly allowed', () => {
+    const readOnlyWorkspace = [
+      { tag: 'workspace', source: '/host/work', target: '/workspace', mode: 'ro' as const },
+    ];
+
+    expect(() => validateCloudHypervisorExports(readOnlyWorkspace))
+      .toThrow('Cloud Hypervisor requires read-write tag "workspace" at /workspace');
+    expect(() => validateCloudHypervisorExports(readOnlyWorkspace, {}))
+      .toThrow('Cloud Hypervisor requires read-write tag "workspace" at /workspace');
+    expect(validateCloudHypervisorExports(readOnlyWorkspace, { allowReadOnlyWorkspace: true }))
+      .toEqual(readOnlyWorkspace);
+    // The option relaxes only the mode, never the presence or target of the
+    // workspace export.
+    expect(() => validateCloudHypervisorExports(
+      [{ tag: 'cache', source: '/host/cache', target: '/cache', mode: 'ro' }],
+      { allowReadOnlyWorkspace: true },
+    )).toThrow('Cloud Hypervisor requires tag "workspace" at /workspace');
+  });
 });

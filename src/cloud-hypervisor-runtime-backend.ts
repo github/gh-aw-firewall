@@ -30,6 +30,8 @@ import {
   resolveCloudHypervisorExports,
   type CloudHypervisorDirectoryExport,
 } from './cloud-hypervisor/exports';
+import { planCloudHypervisorFilesystemWriteEnforcement } from './cloud-hypervisor/filesystem-write-enforcement';
+import type { VirtiofsdMountEnforcement } from './cloud-hypervisor/virtiofsd';
 export {
   assertCloudHypervisorPreSecurityCompatibility,
   assertCloudHypervisorRuntimeCompatibility,
@@ -103,6 +105,7 @@ export interface CloudHypervisorRuntimeBackendDependencies {
     infrastructure: MicrovmInfrastructureSnapshot,
     exports: readonly CloudHypervisorDirectoryExport[],
     identity: { uid: number; gid: number },
+    mountEnforcement?: VirtiofsdMountEnforcement,
   ): CloudHypervisorManagerAdapter;
   resolveExports(): Promise<CloudHypervisorDirectoryExport[]>;
   identity(): { uid: number; gid: number };
@@ -121,7 +124,7 @@ function defaultDependencies(
     preflight: runCloudHypervisorPreflight,
     resolveInfrastructure: (enableApiProxy, ipPath, topologyPeerNames) =>
       resolveMicrovmInfrastructure(enableApiProxy, undefined, ipPath, topologyPeerNames),
-    createManager: (config, workDir, infrastructure, exports, identity) =>
+    createManager: (config, workDir, infrastructure, exports, identity, mountEnforcement) =>
       new CloudHypervisorManager(
         config,
         workDir,
@@ -139,6 +142,7 @@ function defaultDependencies(
         },
         {
           exports,
+          ...(mountEnforcement ? { mountEnforcement } : {}),
           supervisorBinaryPath: config.supervisorPath!,
           supervisorSha256: config.sha256!.supervisor!,
           identity,
@@ -274,7 +278,15 @@ export class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBacken
       );
       this.infrastructure = infrastructure;
       this.identity = this.dependencies.identity();
-      const exports = await this.dependencies.resolveExports();
+      stage = 'filesystem-write-policy';
+      // Planned before the boot loop so an invalid or unmatched
+      // `filesystem.allowWrite` entry fails closed before virtiofsd, the VMM,
+      // or the guest is launched, and so every boot attempt reuses one
+      // decision instead of re-resolving host paths per attempt.
+      const { exports, mountEnforcement } = planCloudHypervisorFilesystemWriteEnforcement(
+        await this.dependencies.resolveExports(),
+        this.config.filesystemAllowWrite,
+      );
       stage = 'topology-revalidation';
       await infrastructure.revalidate();
       for (
@@ -296,6 +308,7 @@ export class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBacken
           infrastructure,
           exports,
           this.identity,
+          mountEnforcement,
         );
         try {
           stage = 'vmm-configuration';

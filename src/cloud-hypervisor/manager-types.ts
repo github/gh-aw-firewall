@@ -14,7 +14,7 @@ import type { CloudHypervisorApiClient } from './api-client';
 import type { CloudHypervisorDirectoryExport } from './exports';
 import type { CloudHypervisorCgroup, CloudHypervisorResourceLimits } from './launcher';
 import type { CloudHypervisorHostToolPaths, runCloudHypervisorPreflight } from './preflight';
-import type { VirtiofsdManager } from './virtiofsd';
+import type { VirtiofsdManager, VirtiofsdMountEnforcement } from './virtiofsd';
 
 const API_SOCKET_NAME = 'api.socket';
 const VSOCK_SOCKET_NAME = 'awf-vsock.socket';
@@ -108,6 +108,12 @@ export interface CloudHypervisorManagerNetworkConfig {
 
 export interface CloudHypervisorManagerGuestConfig {
   readonly exports: readonly CloudHypervisorDirectoryExport[];
+  /**
+   * Host mount-tree enforcement derived from `filesystem.allowWrite`. Absent
+   * when no policy was supplied, which keeps virtiofsd staging byte-identical
+   * to its pre-policy behaviour.
+   */
+  readonly mountEnforcement?: VirtiofsdMountEnforcement;
   readonly supervisorBinaryPath: string;
   readonly supervisorSha256: string;
   readonly vsockPort?: number;

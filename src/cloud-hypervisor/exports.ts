@@ -20,6 +20,32 @@ export interface CloudHypervisorExportEnvironment {
 const SAFE_TAG = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,35}$/;
 const MAX_EXPORTS = 4;
 
+/**
+ * Local alias used inside this module. `validateCloudHypervisorExports` takes a
+ * parameter named `exports`, which shadows the CommonJS module object, so a
+ * reference to the exported binding would compile to `exports.<name>` on the
+ * parameter and silently resolve to `undefined`.
+ */
+const WORKSPACE_EXPORT_TAG = 'workspace';
+
+/** Tag of the mandatory workspace export. */
+export const CLOUD_HYPERVISOR_WORKSPACE_EXPORT_TAG = WORKSPACE_EXPORT_TAG;
+
+export interface CloudHypervisorExportValidationOptions {
+  /**
+   * Permits the workspace export to be *published* read-only.
+   *
+   * The declared export layout resolved by
+   * {@link resolveCloudHypervisorExports} always requires a read-write
+   * workspace, and that resolution is validated without this option. Only a
+   * `filesystem.allowWrite` policy may narrow the published workspace mode, and
+   * only when the workspace is additionally staged read-only on the host, which
+   * is the actual boundary. Callers must therefore derive this from the
+   * presence of a workspace host mount plan, never enable it unconditionally.
+   */
+  readonly allowReadOnlyWorkspace?: boolean;
+}
+
 export async function resolveCloudHypervisorExports(
   environment: CloudHypervisorExportEnvironment = process.env,
   cwd = process.cwd(),
@@ -92,6 +118,7 @@ export async function resolveCloudHypervisorExports(
 
 export function validateCloudHypervisorExports(
   exports: readonly CloudHypervisorDirectoryExport[],
+  options: CloudHypervisorExportValidationOptions = {},
 ): CloudHypervisorDirectoryExport[] {
   if (exports.length === 0 || exports.length > MAX_EXPORTS) {
     throw new Error(`Cloud Hypervisor requires 1-${MAX_EXPORTS} directory exports`);
@@ -122,13 +149,19 @@ export function validateCloudHypervisorExports(
       }
     }
     targets.add(entry.target);
-    if (entry.tag === 'workspace') {
-      workspace = entry.target === '/workspace' && entry.mode === 'rw';
+    if (entry.tag === WORKSPACE_EXPORT_TAG) {
+      workspace =
+        entry.target === '/workspace' &&
+        (entry.mode === 'rw' || options.allowReadOnlyWorkspace === true);
     }
     return { ...entry };
   });
   if (!workspace) {
-    throw new Error('Cloud Hypervisor requires read-write tag "workspace" at /workspace');
+    throw new Error(
+      options.allowReadOnlyWorkspace === true
+        ? 'Cloud Hypervisor requires tag "workspace" at /workspace'
+        : 'Cloud Hypervisor requires read-write tag "workspace" at /workspace',
+    );
   }
   return validated;
 }

@@ -280,6 +280,59 @@ run_case runtime-cache-readonly 0 \
   'grep -q cache-readable "$RUNNER_TEMP/gh-aw/awf-virtiofs-ro-probe" && ! printf changed > "$RUNNER_TEMP/gh-aw/awf-virtiofs-ro-probe"'
 test "$(cat "$RUNNER_TEMP/gh-aw/awf-virtiofs-ro-probe")" = cache-readable
 
+# filesystem.allowWrite enforcement (docs/cloud-hypervisor-foundation.md
+# "Runtime integration"). The host mount tree -- not the guest mount mode --
+# is the boundary, so a selective policy publishes /workspace to the guest
+# read-write while virtiofsd only ever sees a read-only staged root with
+# narrow read-write submounts bind-mounted back in.
+allow_workspace="$RUN_ROOT/allow-write/workspace"
+mkdir -p "$allow_workspace/allowed/nested" "$allow_workspace/blocked"
+printf 'host\n' >"$allow_workspace/allowed/removable.txt"
+printf 'host\n' >"$allow_workspace/allowed-file.txt"
+printf 'host\n' >"$allow_workspace/blocked/file.txt"
+printf 'host\n' >"$allow_workspace/rename-me.txt"
+cat >"$RUN_ROOT/allow-write.json" <<'JSON'
+{
+  "filesystem": {
+    "allowWrite": ["/workspace/allowed", "/workspace/allowed-file.txt"]
+  }
+}
+JSON
+run_case allow-write 0 \
+  'printf guest-allowed > /workspace/allowed/created.txt && mkdir -p /workspace/allowed/nested/deeper && printf deep > /workspace/allowed/nested/deeper/file.txt && rm /workspace/allowed/removable.txt && printf guest-file > /workspace/allowed-file.txt && grep -q " /workspace/allowed virtiofs " /proc/mounts && grep -q host-input /workspace/input.txt && ! printf blocked > /workspace/blocked/file.txt && ! printf blocked > /workspace/created-at-root.txt && ! mkdir /workspace/blocked-dir && ! : > /workspace/input.txt && ! mv /workspace/rename-me.txt /workspace/renamed.txt && ! rm -f /workspace/blocked/file.txt' \
+  --config "$RUN_ROOT/allow-write.json"
+test "$(cat "$allow_workspace/allowed/created.txt")" = guest-allowed
+test "$(cat "$allow_workspace/allowed/nested/deeper/file.txt")" = deep
+test "$(cat "$allow_workspace/allowed-file.txt")" = guest-file
+test ! -e "$allow_workspace/allowed/removable.txt"
+test "$(cat "$allow_workspace/blocked/file.txt")" = host
+test "$(cat "$allow_workspace/input.txt")" = host-input
+test -f "$allow_workspace/rename-me.txt"
+test ! -e "$allow_workspace/renamed.txt"
+test ! -e "$allow_workspace/created-at-root.txt"
+test ! -e "$allow_workspace/blocked-dir"
+
+# An empty allowlist narrows every writable export with zero overlays: the
+# guest mount itself is published read-only on top of the read-only staged
+# host root.
+cat >"$RUN_ROOT/allow-write-none.json" <<'JSON'
+{ "filesystem": { "allowWrite": [] } }
+JSON
+run_case allow-write-none 0 \
+  'grep -q host-input /workspace/input.txt && grep -q " /workspace virtiofs ro," /proc/mounts && ! printf blocked > /workspace/input.txt && ! printf blocked > /workspace/created.txt' \
+  --config "$RUN_ROOT/allow-write-none.json"
+test "$(cat "$RUN_ROOT/allow-write-none/workspace/input.txt")" = host-input
+test ! -e "$RUN_ROOT/allow-write-none/workspace/created.txt"
+
+# Fail-closed: an allowlist entry that matches no export path must abort the
+# run before any guest boots, and must leave no staged mount residue.
+cat >"$RUN_ROOT/allow-write-invalid.json" <<'JSON'
+{ "filesystem": { "allowWrite": ["/workspace/does-not-exist"] } }
+JSON
+run_case allow-write-invalid 1 'true' \
+  --config "$RUN_ROOT/allow-write-invalid.json"
+grep -q 'filesystem.allowWrite' "$RUN_ROOT/allow-write-invalid/stderr.log"
+
 run_case exit-code 37 'exit 37'
 run_case timeout-124 124 'sleep 90' --agent-timeout 1
 

@@ -3,7 +3,9 @@ import type { CloudHypervisorOptions } from '../types/runtime-options';
 import {
   validateCloudHypervisorExports,
   type CloudHypervisorDirectoryExport,
+  type CloudHypervisorExportValidationOptions,
 } from './exports';
+import { hasReadOnlyWorkspaceMountPlan } from './filesystem-write-enforcement';
 import {
   CLOUD_HYPERVISOR_GUEST_CID,
   computeCloudHypervisorLandlockRules,
@@ -128,7 +130,9 @@ export function buildSupervisorBootArgs(
     'biosdevname=0',
     `init=${CLOUD_HYPERVISOR_GUEST_SUPERVISOR}`,
     'awf.workspace-mount=/workspace',
-    `awf.virtiofs=${encodeVirtiofsBootArg(guestConfig.exports)}`,
+    `awf.virtiofs=${encodeVirtiofsBootArg(guestConfig.exports, {
+      allowReadOnlyWorkspace: hasReadOnlyWorkspaceMountPlan(guestConfig.mountEnforcement),
+    })}`,
     `awf.vsock-port=${port}`,
     `awf.guest-ip=${networkPlan.guestIp}`,
     `awf.guest-prefix=${networkPlan.guestPrefixLength}`,
@@ -139,8 +143,9 @@ export function buildSupervisorBootArgs(
 
 export function encodeVirtiofsBootArg(
   exports: readonly CloudHypervisorDirectoryExport[],
+  options: CloudHypervisorExportValidationOptions = {},
 ): string {
-  const encoded = validateCloudHypervisorExports(exports)
+  const encoded = validateCloudHypervisorExports(exports, options)
     .map((entry) => (
       `${entry.tag}:${Buffer.from(entry.target).toString('base64url')}:${entry.mode}`
     ))
