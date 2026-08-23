@@ -129,6 +129,13 @@ describe('self-hosted runner doctor workflow config', () => {
       expect(content).toContain('| `Host workspace is not writable by the sandbox identity (<uid>:<gid>): <path>` | B25 |');
     }
 
+    // B26 new failure mode (network-isolation artifact ZIP download via blob storage egress)
+    expect(shared).toContain('| B26 | In `--network-isolation` mode');
+    expect(shared).toContain('`error connecting to productionresultssa*.blob.core.windows.net`');
+    expect(shared).toContain('`http_access allow from_cli_proxy cli_proxy_artifact_storage`');
+    expect(shared).toContain('github/gh-aw#54371, github/gh-aw-firewall#7615, github/gh-aw-firewall#7635');
+    expect(shared).toContain('| `error connecting to productionresultssa*.blob.core.windows.net` from `gh run download`/artifact ZIP fetch in `--network-isolation` mode | B26');
+
     expect(source).toContain('- `unknown shorthand flag: \'d\' in -d` from `docker compose up -d` → A14 (DinD sidecar missing `docker-compose-plugin`)');
     expect(source).toContain('- `Rootless artifact permission repair failed` on ARC/DinD squid logs → A15 (`dockerHostPathPrefix` not applied to repair bind mount)');
     expect(source).toContain('- `EAI_AGAIN` / `ENOTFOUND` resolving a topology-attached DIFC proxy (for example `awmg-cli-proxy`) in network-isolation + topology-attach: if DinD `nslookup` fails, match B12; otherwise B5');
@@ -163,5 +170,7 @@ describe('self-hosted runner doctor workflow config', () => {
       expect(playbook).toContain('- Job exits 0 with no agent output/writes on a native-root runner (no `sudo`), even after `${RUNNER_TEMP}/gh-aw` ownership is fixed, or `Host workspace is not writable by the sandbox identity (<uid>:<gid>): <path>` → B25');
       expect(playbook).toContain('B25 / github/gh-aw-firewall#7593, github/gh-aw-firewall#7599 — On native-root runners');
     }
+    expect(source).toContain('- `error connecting to productionresultssa*.blob.core.windows.net` from `gh run download`/artifact ZIP fetch in `--network-isolation` mode → B26');
+    expect(source).toContain('B26 / github/gh-aw#54371, github/gh-aw-firewall#7615, github/gh-aw-firewall#7635 — In `--network-isolation` mode');
   });
 });
