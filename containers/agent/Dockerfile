@@ -110,8 +110,21 @@ RUN set -eux; \
     # inherited from runner-like base images so they cannot be reactivated.
     for binary in /usr/bin/ping /usr/bin/mtr-packet; do \
       if [ -e "$binary" ]; then \
-        setcap -r "$binary" 2>/dev/null || true; \
-        if getcap "$binary" | grep -q .; then \
+        if ! before_caps="$(getcap "$binary")"; then \
+          echo "ERROR: Failed to inspect file capabilities on $binary" >&2; \
+          exit 1; \
+        fi; \
+        if [ -n "$before_caps" ]; then \
+          if ! setcap -r "$binary"; then \
+            echo "ERROR: Failed to remove file capabilities from $binary" >&2; \
+            exit 1; \
+          fi; \
+        fi; \
+        if ! after_caps="$(getcap "$binary")"; then \
+          echo "ERROR: Failed to inspect file capabilities on $binary after removal" >&2; \
+          exit 1; \
+        fi; \
+        if [ -n "$after_caps" ]; then \
           echo "ERROR: Failed to remove file capabilities from $binary" >&2; \
           exit 1; \
         fi; \
