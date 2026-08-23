@@ -106,6 +106,17 @@ RUN set -eux; \
     apt_update_retry && \
     apt_install_retry $PKGS && \
     apt_upgrade_retry && \
+    # Raw sockets are unavailable to the agent; remove stale file capabilities
+    # inherited from runner-like base images so they cannot be reactivated.
+    for binary in /usr/bin/ping /usr/bin/mtr-packet; do \
+      if [ -e "$binary" ]; then \
+        setcap -r "$binary" 2>/dev/null || true; \
+        if getcap "$binary" | grep -q .; then \
+          echo "ERROR: Failed to remove file capabilities from $binary" >&2; \
+          exit 1; \
+        fi; \
+      fi; \
+    done && \
     # Install gosu 1.19 from GitHub releases (compiled with Go 1.24.6 — avoids Ubuntu's
     # apt gosu which is compiled with Go 1.18 and carries 44 stdlib CVEs including Critical ones).
     # GO-2026-4337 (TLS session resumption in Go stdlib) is reported against this binary by
