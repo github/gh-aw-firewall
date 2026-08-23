@@ -79,7 +79,9 @@ export interface CloudHypervisorFilesystemWritePolicyOptions {
   /**
    * Tags of AWF-owned exports that must remain writable for the sandbox to
    * operate. They are never narrowed, mirroring the always-writable Docker
-   * mounts.
+   * mounts. An allowlist entry that resolves inside such an export is still
+   * validated and consumed, so it is not reported as unmatched, but it produces
+   * no overlay because the whole export is already writable.
    */
   readonly internalTags?: Iterable<string>;
 }
@@ -133,7 +135,21 @@ export function planCloudHypervisorFilesystemWrites(
         overlays: [],
       };
     }
+    // An internal export stays fully writable, but it still consumes allowlist
+    // entries it covers so they are not misreported as unmatched. As above, only
+    // an exact target match is taken directly; a nested path goes through the
+    // same existence/realpath validation as a normal overlay. The resolved
+    // overlay is discarded because the whole export is already writable.
     if (internal) {
+      for (const allowedPath of allowedPaths) {
+        if (
+          allowedPath === entry.target ||
+          (isDeepestWritableExport(exports, entry, allowedPath) &&
+            resolveWritableOverlay(entry, allowedPath) !== undefined)
+        ) {
+          matched.add(allowedPath);
+        }
+      }
       return {
         export: entry,
         disposition: 'writable',

@@ -76,6 +76,73 @@ describe('Cloud Hypervisor filesystem write policy planner', () => {
     expect(plan.exports[2].internal).toBe(true);
   });
 
+  describe('internal exports', () => {
+    let internalSource: string;
+    let withInternal: CloudHypervisorDirectoryExport[];
+
+    beforeEach(async () => {
+      internalSource = path.join(directory, 'internal');
+      await fs.mkdir(path.join(internalSource, 'cache'), { recursive: true });
+      withInternal = [
+        ...exports,
+        { tag: 'tmp-gh-aw', source: internalSource, target: '/tmp/gh-aw', mode: 'rw' },
+      ];
+    });
+
+    const plan = (allowWrite: string[]) =>
+      planCloudHypervisorFilesystemWrites(withInternal, allowWrite, {
+        internalTags: ['tmp-gh-aw'],
+      });
+
+    it('consumes an allowlist entry naming the internal export target exactly', () => {
+      const result = plan(['/tmp/gh-aw']);
+
+      expect(result.exports[2]).toEqual({
+        export: withInternal[2],
+        disposition: 'writable',
+        hostRootMode: 'rw',
+        guestMountMode: 'rw',
+        internal: true,
+        overlays: [],
+      });
+      expect(result.overlays).toEqual([]);
+      expect(result.exports[0].disposition).toBe('read-only');
+    });
+
+    it('consumes an existing nested path inside the internal export without an overlay', () => {
+      const result = plan(['/tmp/gh-aw/cache']);
+
+      expect(result.exports[2].disposition).toBe('writable');
+      expect(result.exports[2].overlays).toEqual([]);
+      expect(result.overlays).toEqual([]);
+    });
+
+    it('rejects a nested path that does not exist inside the internal export', () => {
+      expect(() => plan(['/tmp/gh-aw/missing'])).toThrow(
+        'filesystem.allowWrite path is not an existing path within a writable ' +
+        'Cloud Hypervisor export: /tmp/gh-aw/missing',
+      );
+    });
+
+    it('rejects a strict ancestor of the internal export target', () => {
+      expect(() => plan(['/tmp'])).toThrow(
+        'filesystem.allowWrite path is not an existing path within a writable ' +
+        'Cloud Hypervisor export: /tmp',
+      );
+    });
+
+    it('rejects a symlink that escapes the internal export source', async () => {
+      const outside = path.join(directory, 'internal-outside');
+      await fs.mkdir(outside);
+      await fs.symlink(outside, path.join(internalSource, 'escape'));
+
+      expect(() => plan(['/tmp/gh-aw/escape'])).toThrow(
+        'filesystem.allowWrite path is not an existing path within a writable ' +
+        'Cloud Hypervisor export: /tmp/gh-aw/escape',
+      );
+    });
+  });
+
   it('keeps a whole export writable when its target is allowed', () => {
     const plan = planCloudHypervisorFilesystemWrites(exports, ['/workspace']);
 
