@@ -284,6 +284,7 @@ describe('VirtiofsdManager host mount-tree enforcement', () => {
       ['/usr/bin/mount', ['--make-rprivate', STAGED_ROOT]],
       ['/usr/bin/mount', ['-o', 'remount,bind,ro,nosuid,nodev', STAGED_ROOT]],
       ['/usr/bin/mount', ['--bind', '/host/workspace/out', `${STAGED_ROOT}/out`]],
+      ['/usr/bin/mount', ['--make-rprivate', `${STAGED_ROOT}/out`]],
       ['/usr/bin/mount', ['-o', 'remount,bind,rw,nosuid,nodev', `${STAGED_ROOT}/out`]],
     ]);
     expect(deps.mkdir).toHaveBeenCalledWith(STAGED_ROOT, { recursive: true, mode: 0o700 });

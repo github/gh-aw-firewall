@@ -266,6 +266,15 @@ export class StagedHostMountTree {
         overlay.stagedDestination,
       ]);
       this.pendingMounts.add(overlay.stagedDestination);
+      // A new bind mount joins the *source's* peer group, so an overlay bound
+      // from a shared host mount (the default for `/` under systemd, and what
+      // GitHub-hosted runners provide) arrives shared even though the staged
+      // root was already made private. Making the root private beforehand only
+      // covers mounts that existed at that point, so each overlay has to be
+      // made private in turn -- otherwise the writable overlay would propagate
+      // back into the host peer group and `assertPrivatePropagation()` would
+      // (correctly) refuse to stage the tree at all.
+      await dependencies.runTool(tools.mount, ['--make-rprivate', overlay.stagedDestination]);
       await dependencies.runTool(tools.mount, [
         '-o',
         WRITABLE_REMOUNT_OPTIONS,

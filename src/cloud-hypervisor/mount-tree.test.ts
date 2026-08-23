@@ -64,7 +64,15 @@ function mountTable(options: { ineffectiveRemount?: boolean; shared?: boolean } 
       return;
     }
     if (args[0] === '--bind') {
-      table.set(args[2], { options: ['rw', 'relatime'], optionalFields: [] });
+      // A new bind mount joins the *source's* peer group, so binding from a
+      // shared host mount yields a shared mount even when the destination's
+      // parent is already private. Modelling that is what makes the overlay's
+      // explicit `--make-rprivate` observable here instead of only on a real
+      // kernel.
+      table.set(args[2], {
+        options: ['rw', 'relatime'],
+        optionalFields: options.shared === false ? [] : ['shared:23'],
+      });
       return;
     }
     if (args[0] === '--make-rprivate') {
@@ -275,6 +283,7 @@ describe('StagedHostMountTree', () => {
     await staged.stage();
     expect(fake.commands.slice(4)).toEqual([
       [tools.mount, '--bind', '/host/workspace/out', `${ROOT}/out`],
+      [tools.mount, '--make-rprivate', `${ROOT}/out`],
       [tools.mount, '-o', 'remount,bind,rw,nosuid,nodev', `${ROOT}/out`],
       [
         tools.mount,
@@ -282,6 +291,7 @@ describe('StagedHostMountTree', () => {
         '/host/workspace/deep/nested/state.json',
         `${ROOT}/deep/nested/state.json`,
       ],
+      [tools.mount, '--make-rprivate', `${ROOT}/deep/nested/state.json`],
       [
         tools.mount,
         '-o',
@@ -293,6 +303,26 @@ describe('StagedHostMountTree', () => {
     expect(fake.table.get(`${ROOT}/out`)?.options).toContain('nosuid');
     expect(fake.table.get(ROOT)?.options).toContain('ro');
     expect(fake.table.get(`${ROOT}/nested`)?.options).toContain('ro');
+  });
+
+  it('makes each writable overlay privately propagated so it cannot leak to the host', async () => {
+    // Regression: overlays were previously bound without being made private.
+    // A bind mount joins the source's peer group, so on any host where the
+    // workspace lives under a shared mount -- the default under systemd, and
+    // what GitHub-hosted runners provide -- every selective `allowWrite` run
+    // aborted with "Staged mount tree propagation would leak".
+    const fake = mountTable();
+    const staged = tree(
+      fake,
+      plan([
+        { source: '/host/workspace/out', destination: '/host/workspace/out', kind: 'directory' },
+      ]),
+    );
+    await expect(staged.stage()).resolves.toBeUndefined();
+    expect(fake.commands).toContainEqual([tools.mount, '--make-rprivate', `${ROOT}/out`]);
+    expect(fake.table.get(`${ROOT}/out`)?.optionalFields).toEqual([]);
+    expect(fake.table.get(`${ROOT}/out`)?.options).toContain('rw');
+    expect(fake.table.get(ROOT)?.options).toContain('ro');
   });
 
   it('unmounts children deepest-first and the staged root last', async () => {
@@ -315,7 +345,9 @@ describe('StagedHostMountTree', () => {
       ROOT,
     ]);
     await staged.unmount();
-    expect(fake.commands.slice(8)).toEqual([
+    // Sliced from the end so the assertion stays about unmount ordering rather
+    // than the exact number of staging commands that preceded it.
+    expect(fake.commands.slice(-3)).toEqual([
       [tools.umount, `${ROOT}/deep/nested/state.json`],
       [tools.umount, `${ROOT}/out`],
       [tools.umount, '-R', ROOT],
