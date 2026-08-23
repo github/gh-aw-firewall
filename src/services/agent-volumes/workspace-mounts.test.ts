@@ -48,7 +48,7 @@ describe('buildWorkspaceMounts', () => {
       expect(mounts).toContain('/workspace:/workspace:rw');
       expect(mounts).toContain('/tmp/awf-logs:/home/runner/.copilot/logs:rw');
       expect(mounts).toContain('/tmp/awf-session:/home/runner/.copilot/session-state:rw');
-      expect(mounts).toContain('/tmp/awf-init:/tmp/awf-init:rw');
+      expect(mounts).toContain('/tmp/awf-init:/run/awf-init:rw');
     });
   });
 

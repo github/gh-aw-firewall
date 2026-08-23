@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { logger } from '../../logger';
 import { WrapperConfig } from '../../types';
+import { INIT_SIGNAL_DIR } from '../../constants';
 import { applyHostPathPrefixToVolumes } from '../host-path-prefix';
 import {
   extractCommandBinaryName,
@@ -27,7 +28,7 @@ export function buildWorkspaceMounts(params: WorkspaceMountsParams): string[] {
     `${workspaceDir}:${workspaceDir}:rw`,
     `${agentLogsPath}:${effectiveHome}/.copilot/logs:rw`,
     `${sessionStatePath}:${effectiveHome}/.copilot/session-state:rw`,
-    `${initSignalDir}:/tmp/awf-init:rw`,
+    `${initSignalDir}:${INIT_SIGNAL_DIR}:rw`,
   ];
 
   if (config.enableApiProxy) {

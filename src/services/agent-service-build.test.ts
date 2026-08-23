@@ -124,7 +124,7 @@ describe('agent service', () => {
       expect(initService.entrypoint).toEqual(['/bin/bash']);
       expect(initService.command).toEqual([
         '-c',
-        '/usr/local/bin/setup-iptables.sh > /tmp/awf-init/output.log 2>&1 && touch /tmp/awf-init/ready',
+        'mkdir -p "$AWF_INIT_SIGNAL_DIR" && if [ ! -e /tmp/awf-init ]; then ln -s "$AWF_INIT_SIGNAL_DIR" /tmp/awf-init 2>/dev/null || true; fi && /usr/local/bin/setup-iptables.sh > "$AWF_INIT_SIGNAL_DIR/output.log" 2>&1 && touch "$AWF_INIT_SIGNAL_DIR/ready"',
       ]);
       expect(initService.security_opt).toBeUndefined();
       expect(initService.restart).toBe('no');
@@ -136,8 +136,8 @@ describe('agent service', () => {
       const initService = result.services['iptables-init'] as any;
       const volumes = initService.volumes as string[];
 
-      // Source path is the runner-side init-signal dir, container path is /tmp/awf-init
-      expect(volumes).toContain(`${mockConfig.workDir}/init-signal:/tmp/awf-init:rw`);
+      // Source path is the runner-side init-signal dir, container path is outside /tmp.
+      expect(volumes).toContain(`${mockConfig.workDir}/init-signal:/run/awf-init:rw`);
     });
 
     it('should apply dockerHostPathPrefix to the iptables-init init-signal volume', () => {
@@ -158,10 +158,10 @@ describe('agent service', () => {
       const agentVolumes = result.services.agent.volumes as string[];
 
       const expectedSource = `/host${mockConfig.workDir}/init-signal`;
-      expect(initVolumes).toContain(`${expectedSource}:/tmp/awf-init:rw`);
+      expect(initVolumes).toContain(`${expectedSource}:/run/awf-init:rw`);
 
       // The agent must mount the SAME daemon-side source so they share the ready file.
-      expect(agentVolumes).toContain(`${expectedSource}:/tmp/awf-init:rw`);
+      expect(agentVolumes).toContain(`${expectedSource}:/run/awf-init:rw`);
     });
 
     it('should normalize trailing slash in dockerHostPathPrefix for iptables-init mount', () => {
@@ -174,7 +174,7 @@ describe('agent service', () => {
       const initService = result.services['iptables-init'] as any;
       const initVolumes = initService.volumes as string[];
 
-      expect(initVolumes).toContain(`/host${mockConfig.workDir}/init-signal:/tmp/awf-init:rw`);
+      expect(initVolumes).toContain(`/host${mockConfig.workDir}/init-signal:/run/awf-init:rw`);
     });
 
     // Symmetric invariant: every absolute, non-kernel-virtual bind-mount source on every

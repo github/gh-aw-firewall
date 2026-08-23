@@ -13,6 +13,7 @@ export interface AwfOptions {
   imageTag?: string;
   timeout?: number; // milliseconds
   env?: Record<string, string>;
+  configFile?: string;
   volumeMounts?: string[]; // Volume mounts in format: host_path:container_path[:mode]
   containerWorkDir?: string; // Working directory inside the container
   tty?: boolean; // Allocate pseudo-TTY (required for interactive tools like Claude Code)
@@ -59,6 +60,10 @@ export class AwfRunner {
    */
   async run(command: string, options: AwfOptions = {}): Promise<AwfResult> {
     const args: string[] = [];
+
+    if (options.configFile) {
+      args.push('--config', options.configFile);
+    }
 
     // Add allow-domains
     if (options.allowDomains && options.allowDomains.length > 0) {
@@ -283,6 +288,10 @@ export class AwfRunner {
 
     // Add awf path
     args.push('node', this.awfPath);
+
+    if (options.configFile) {
+      args.push('--config', options.configFile);
+    }
 
     // runWithSudo uses the legacy iptables path
     args.push('--legacy-security');

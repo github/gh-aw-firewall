@@ -166,12 +166,17 @@ else
   echo "[entrypoint] Waiting for iptables initialization from init container..."
   INIT_TIMEOUT=300  # 300 * 0.1s = 30 seconds
   INIT_ELAPSED=0
-  while [ ! -f /tmp/awf-init/ready ]; do
+  INIT_SIGNAL_DIR="${AWF_INIT_SIGNAL_DIR:-/run/awf-init}"
+  LEGACY_INIT_SIGNAL_DIR="/tmp/awf-init"
+  while [ ! -f "${INIT_SIGNAL_DIR}/ready" ] && [ ! -f "${LEGACY_INIT_SIGNAL_DIR}/ready" ]; do
     if [ "$INIT_ELAPSED" -ge "$INIT_TIMEOUT" ]; then
       echo "[entrypoint][ERROR] Timed out waiting for iptables init container after 30s"
-      if [ -f /tmp/awf-init/output.log ]; then
+      if [ -f "${INIT_SIGNAL_DIR}/output.log" ]; then
         echo "[entrypoint] Init container output:"
-        cat /tmp/awf-init/output.log
+        cat "${INIT_SIGNAL_DIR}/output.log"
+      elif [ -f "${LEGACY_INIT_SIGNAL_DIR}/output.log" ]; then
+        echo "[entrypoint] Init container output:"
+        cat "${LEGACY_INIT_SIGNAL_DIR}/output.log"
       else
         echo "[entrypoint] No init container output log found"
       fi

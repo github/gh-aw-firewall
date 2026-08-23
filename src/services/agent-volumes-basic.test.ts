@@ -63,6 +63,8 @@ describe('agent service', () => {
     expect(volumes).toContain(`${writablePath}:/host${writablePath}:rw`);
     expect(volumes).toContain('/tmp:/tmp:ro');
     expect(volumes).toContain('/tmp:/host/tmp:ro');
+    expect(volumes).toContain(`${getConfig().workDir}/init-signal:/run/awf-init:rw`);
+    expect(volumes).not.toContain(`${getConfig().workDir}/init-signal:/tmp/awf-init:rw`);
     expect(volumes.some((volume) => volume.includes('/.copilot/logs:rw'))).toBe(true);
   });
 

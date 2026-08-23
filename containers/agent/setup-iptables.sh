@@ -497,7 +497,11 @@ dump_nat_rules_for_debugging() {
 dump_audit_state() {
   # Dump full iptables state for audit trail
   # Written to the init signal volume so it can be preserved by the host
-  local audit_file="/tmp/awf-init/iptables-audit.txt"
+  local audit_dir="${AWF_INIT_SIGNAL_DIR:-/run/awf-init}"
+  if [ ! -d "$audit_dir" ] && [ -d /tmp/awf-init ]; then
+    audit_dir="/tmp/awf-init"
+  fi
+  local audit_file="${audit_dir}/iptables-audit.txt"
   echo "# iptables audit dump - $(date -u '+%Y-%m-%dT%H:%M:%SZ')" > "$audit_file"
   echo "" >> "$audit_file"
   echo "## IPv4 NAT rules" >> "$audit_file"

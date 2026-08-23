@@ -66,6 +66,7 @@ export function buildAgentVolumes(params: AgentVolumesParams): string[] {
   const alwaysWritableMounts = new Set(agentVolumes.filter((spec) =>
     spec.startsWith(`${agentLogsPath}:`) ||
     spec.startsWith(`${sessionStatePath}:`) ||
+    spec.startsWith(`${initSignalDir}:`) ||
     spec === '/dev/null:/host/dev/null:rw'
   ));
   const customMounts = buildCustomVolumeMounts(config.volumeMounts, config.dockerHostPathPrefix);

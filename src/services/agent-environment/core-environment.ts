@@ -1,4 +1,4 @@
-import { SQUID_PORT } from '../../constants';
+import { INIT_SIGNAL_DIR, SQUID_PORT } from '../../constants';
 import { getRealUserHome } from '../../host-identity';
 import { AgentEnvironmentParams } from './types';
 
@@ -14,6 +14,7 @@ export function buildCoreEnvironment(params: AgentEnvironmentParams): Record<str
     SQUID_PROXY_PORT: SQUID_PORT.toString(),
     HOME: homeDir,
     PATH: '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
+    AWF_INIT_SIGNAL_DIR: INIT_SIGNAL_DIR,
     ...(config.tty ? {
       FORCE_COLOR: '1',
       TERM: 'xterm-256color',
