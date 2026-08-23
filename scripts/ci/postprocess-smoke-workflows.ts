@@ -21,6 +21,9 @@ const repoRoot = path.resolve(__dirname, '../..');
 // using trigger terms.
 const codexWorkflowPaths = [
   path.join(repoRoot, '.github/workflows/smoke-codex.lock.yml'),
+  path.join(repoRoot, '.github/workflows/smoke-gvisor-codex.lock.yml'),
+  path.join(repoRoot, '.github/workflows/smoke-docker-sbx-codex.lock.yml'),
+  path.join(repoRoot, '.github/workflows/smoke-cloud-hypervisor-codex.lock.yml'),
   path.join(repoRoot, '.github/workflows/secret-digger-codex.lock.yml'),
 ];
 
