@@ -38,14 +38,16 @@ describe('Cloud Hypervisor filesystem write policy planner', () => {
       {
         export: exports[0],
         disposition: 'unrestricted',
-        effectiveMode: 'rw',
+        hostRootMode: 'rw',
+        guestMountMode: 'rw',
         internal: false,
         overlays: [],
       },
       {
         export: exports[1],
         disposition: 'unrestricted',
-        effectiveMode: 'ro',
+        hostRootMode: 'ro',
+        guestMountMode: 'ro',
         internal: false,
         overlays: [],
       },
@@ -64,11 +66,12 @@ describe('Cloud Hypervisor filesystem write policy planner', () => {
 
     expect(plan.restricted).toBe(true);
     expect(plan.overlays).toEqual([]);
-    expect(plan.exports.map((entry) => [entry.export.tag, entry.disposition, entry.effectiveMode]))
+    expect(plan.exports.map((entry) =>
+      [entry.export.tag, entry.disposition, entry.hostRootMode, entry.guestMountMode]))
       .toEqual([
-        ['workspace', 'read-only', 'ro'],
-        ['runner-tool-cache', 'read-only', 'ro'],
-        ['tmp-gh-aw', 'writable', 'rw'],
+        ['workspace', 'read-only', 'ro', 'ro'],
+        ['runner-tool-cache', 'read-only', 'ro', 'ro'],
+        ['tmp-gh-aw', 'writable', 'rw', 'rw'],
       ]);
     expect(plan.exports[2].internal).toBe(true);
   });
@@ -80,7 +83,8 @@ describe('Cloud Hypervisor filesystem write policy planner', () => {
     expect(plan.exports[0]).toEqual({
       export: exports[0],
       disposition: 'writable',
-      effectiveMode: 'rw',
+      hostRootMode: 'rw',
+      guestMountMode: 'rw',
       internal: false,
       overlays: [],
     });
@@ -92,7 +96,8 @@ describe('Cloud Hypervisor filesystem write policy planner', () => {
     const plan = planCloudHypervisorFilesystemWrites(exports, ['/workspace/nested/deep']);
 
     expect(plan.exports[0].disposition).toBe('selective');
-    expect(plan.exports[0].effectiveMode).toBe('ro');
+    expect(plan.exports[0].hostRootMode).toBe('ro');
+    expect(plan.exports[0].guestMountMode).toBe('rw');
     expect(plan.overlays).toEqual([
       {
         exportTag: 'workspace',
@@ -102,6 +107,25 @@ describe('Cloud Hypervisor filesystem write policy planner', () => {
         kind: 'directory',
       },
     ]);
+  });
+
+  it('keeps the guest mount read-write wherever a writable overlay exists', () => {
+    const plan = planCloudHypervisorFilesystemWrites(exports, ['/workspace/nested/deep']);
+
+    // A guest-level MS_RDONLY would propagate to announced virtio-fs submounts
+    // (finish_automount passes the parent's mnt_flags), so read-only enforcement
+    // for a selective export must come from the host backing tree instead.
+    for (const entry of plan.exports) {
+      if (entry.overlays.length > 0) {
+        expect(entry.disposition).toBe('selective');
+        expect(entry.guestMountMode).toBe('rw');
+        expect(entry.hostRootMode).toBe('ro');
+      } else {
+        expect(entry.guestMountMode).toBe(entry.hostRootMode);
+      }
+      // A read-write host root is never published to a read-only guest mount.
+      expect(entry.hostRootMode === 'rw' && entry.guestMountMode === 'ro').toBe(false);
+    }
   });
 
   it('supports an existing file as an allowed path', () => {
@@ -195,7 +219,8 @@ describe('Cloud Hypervisor filesystem write policy planner', () => {
     expect(plan.exports[1]).toEqual({
       export: exports[1],
       disposition: 'read-only',
-      effectiveMode: 'ro',
+      hostRootMode: 'ro',
+      guestMountMode: 'ro',
       internal: false,
       overlays: [],
     });

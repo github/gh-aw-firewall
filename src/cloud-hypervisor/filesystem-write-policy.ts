@@ -9,8 +9,8 @@ import type { CloudHypervisorDirectoryExport, CloudHypervisorExportMode } from '
  * - `unrestricted`: no policy was supplied, the declared export mode stands.
  * - `read-only`: the export is exposed read-only under the policy.
  * - `writable`: the whole export stays read-write.
- * - `selective`: the export itself is read-only, but the listed overlays below
- *   it must be re-exported read-write.
+ * - `selective`: the host backing tree is staged read-only outside the listed
+ *   overlays, which stay read-write.
  */
 export type CloudHypervisorExportWriteDisposition =
   | 'unrestricted'
@@ -19,16 +19,18 @@ export type CloudHypervisorExportWriteDisposition =
   | 'selective';
 
 /**
- * A canonical host/guest path pair that must stay writable inside an otherwise
- * read-only export. Both paths are absolute and fully resolved, so a later
- * integration can mount them directly without re-resolving symlinks.
+ * A host/guest path pair that must stay writable inside an otherwise read-only
+ * export. Both paths are absolute, but they are canonical in different senses:
+ * `guestPath` is only lexically normalized (the guest filesystem does not exist
+ * yet at planning time), while `hostPath` is realpath-canonical and verified not
+ * to escape the export source.
  */
 export interface CloudHypervisorWritableOverlay {
   /** Tag of the export this overlay is carved out of. */
   readonly exportTag: string;
-  /** Guest-visible absolute path that must be writable. */
+  /** Guest-visible absolute path that must be writable, lexically normalized. */
   readonly guestPath: string;
-  /** Canonical host path backing {@link guestPath}. */
+  /** Realpath-canonical host path backing {@link guestPath}. */
   readonly hostPath: string;
   /** Path of the overlay relative to the export target/source root. */
   readonly relativePath: string;
@@ -38,8 +40,25 @@ export interface CloudHypervisorWritableOverlay {
 export interface CloudHypervisorExportWritePlan {
   readonly export: CloudHypervisorDirectoryExport;
   readonly disposition: CloudHypervisorExportWriteDisposition;
-  /** Mode the export itself must be published with. */
-  readonly effectiveMode: CloudHypervisorExportMode;
+  /**
+   * Mode the host backing tree root must be staged with. `ro` means the host
+   * VFS — a read-only bind of the export source, as `virtiofsd.ts` already does
+   * for read-only exports — is what denies writes, independently of any guest
+   * mount flag.
+   */
+  readonly hostRootMode: CloudHypervisorExportMode;
+  /**
+   * Mode the guest virtio-fs mount must use.
+   *
+   * A `selective` export deliberately reports `rw` here while `hostRootMode` is
+   * `ro`. Mounting the composite tree read-only in the guest would also block
+   * the writable overlays: virtio-fs submounts are attached through
+   * `d_automount`, and `finish_automount()` calls
+   * `do_add_mount(..., path->mnt->mnt_flags | MNT_SHRINKABLE)`, so an announced
+   * submount inherits `MNT_READONLY` from its parent mount. Guest-side `ro` is
+   * therefore only correct when the whole export is read-only.
+   */
+  readonly guestMountMode: CloudHypervisorExportMode;
   /** True when the export is AWF-owned and stays writable under any policy. */
   readonly internal: boolean;
   /** Non-empty only when {@link disposition} is `selective`. */
@@ -91,7 +110,8 @@ export function planCloudHypervisorFilesystemWrites(
       exports: exports.map((entry) => ({
         export: entry,
         disposition: 'unrestricted',
-        effectiveMode: entry.mode,
+        hostRootMode: entry.mode,
+        guestMountMode: entry.mode,
         internal: internalTags.has(entry.tag),
         overlays: [],
       })),
@@ -107,20 +127,35 @@ export function planCloudHypervisorFilesystemWrites(
       return {
         export: entry,
         disposition: 'read-only',
-        effectiveMode: 'ro',
+        hostRootMode: 'ro',
+        guestMountMode: 'ro',
         internal,
         overlays: [],
       };
     }
     if (internal) {
-      return { export: entry, disposition: 'writable', effectiveMode: 'rw', internal, overlays: [] };
+      return {
+        export: entry,
+        disposition: 'writable',
+        hostRootMode: 'rw',
+        guestMountMode: 'rw',
+        internal,
+        overlays: [],
+      };
     }
 
     const overlays: CloudHypervisorWritableOverlay[] = [];
     for (const allowedPath of allowedPaths) {
       if (isPathAtOrBelow(entry.target, allowedPath)) {
         matched.add(allowedPath);
-        return { export: entry, disposition: 'writable', effectiveMode: 'rw', internal, overlays: [] };
+        return {
+          export: entry,
+          disposition: 'writable',
+          hostRootMode: 'rw',
+          guestMountMode: 'rw',
+          internal,
+          overlays: [],
+        };
       }
       if (!isDeepestWritableExport(exports, entry, allowedPath)) continue;
 
@@ -131,10 +166,14 @@ export function planCloudHypervisorFilesystemWrites(
       }
     }
 
+    // A selective export keeps a read-write guest mount so that writable
+    // overlays are not blocked by an inherited MNT_READONLY; the read-only host
+    // backing tree is what denies writes everywhere else.
     return {
       export: entry,
       disposition: overlays.length > 0 ? 'selective' : 'read-only',
-      effectiveMode: 'ro',
+      hostRootMode: 'ro',
+      guestMountMode: overlays.length > 0 ? 'rw' : 'ro',
       internal,
       overlays,
     };

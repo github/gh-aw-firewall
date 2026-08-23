@@ -172,6 +172,22 @@ maps each guest path to the canonical host path beneath the deepest matching
 export, rejects `..`, missing paths, and symlink escapes, and classifies every
 export as unrestricted, read-only, fully writable, or selectively writable.
 
+Read-only enforcement is a host-side property. Each plan entry therefore carries
+two modes: `hostRootMode`, the mode the host backing tree root is staged with —
+the read-only bind that `virtiofsd.ts` already builds for read-only exports —
+and `guestMountMode`, the flags of the guest virtio-fs mount. A selectively
+writable export reports `hostRootMode: 'ro'` with `guestMountMode: 'rw'`:
+mounting a composite tree read-only in the guest would also block its writable
+nodes, because virtio-fs submounts are attached through `d_automount` and
+`finish_automount()` calls
+`do_add_mount(..., path->mnt->mnt_flags | MNT_SHRINKABLE)`, so an announced
+submount inherits `MNT_READONLY` from its parent mount. The host VFS, not the
+guest mount flag, denies writes outside the overlays.
+
+Overlay paths are absolute but canonical in different senses: `guestPath` is
+lexically normalized, while `hostPath` is realpath-canonical and verified not to
+escape the export source.
+
 The planner only removes write access: it never widens a read-only export and
 never introduces a host path that an existing read-write export does not
 already cover. It is pure policy planning and is not yet wired into runtime
