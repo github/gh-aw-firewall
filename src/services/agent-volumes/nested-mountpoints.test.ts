@@ -680,12 +680,14 @@ describe('nested mountpoint preparation', () => {
     });
 
     function stageSharedTmpLayout() {
-      const unique = path.basename(tmpRoot).replace(/[^a-zA-Z0-9]/g, '');
       // The prefix under test is the literal /tmp, and the whole run has to sit
       // beneath it, so this cannot be redirected into the suite's sandbox (on
-      // macOS os.tmpdir() is /private/var/... and would not nest).
-      const sharedRoot = `/tmp/awf-shared-${unique}`;
+      // macOS os.tmpdir() is /private/var/... and would not nest). mkdtemp
+      // rather than a predictable name, so nothing here can be pre-created or
+      // redirected by another user on a shared machine.
+      const sharedRoot = fs.mkdtempSync('/tmp/awf-shared-');
       sharedRoots.push(sharedRoot);
+      const unique = path.basename(sharedRoot).replace(/[^a-zA-Z0-9]/g, '');
 
       const home = path.join(sharedRoot, 'home', 'runner');
       const workspaceDir = path.join(home, 'work', 'repo', 'repo');
@@ -804,14 +806,18 @@ describe('nested mountpoint preparation', () => {
       const volumes = layout.build([stageWritable(layout)]);
       const requirements = planWithProductionResolver(volumes);
 
-      // Not simulateRuncMountFailures: the prefix rewrites every source that
-      // was not already under /tmp, so on a GitHub runner /opt/hostedtoolcache
-      // becomes /tmp/opt/hostedtoolcache -- a path only the daemon can see, and
-      // one a runner-local model would wrongly report as missing. Assert
-      // instead that every mountpoint the plan demands was actually
-      // materialised, which is what runc needs and is platform-independent.
-      expect(requirements.length).toBeGreaterThan(0);
-      for (const requirement of requirements) {
+      // Only the mounts landing inside the guest's /tmp are asserted here.
+      // ensureNestedMountpoints runs on the topology *before* the prefix is
+      // applied, so re-planning the returned list is only faithful where the
+      // prefix changes nothing -- which is exactly the already-/tmp-rooted
+      // paths this case is about. Anything else is rewritten: on a GitHub
+      // runner /opt/hostedtoolcache becomes the daemon-only
+      // /tmp/opt/hostedtoolcache, which no runner-local check can resolve.
+      const guestTmpMounts = requirements.filter((requirement) =>
+        requirement.containerTarget.startsWith('/tmp/'));
+
+      expect(guestTmpMounts.length).toBeGreaterThan(0);
+      for (const requirement of guestTmpMounts) {
         expect(requirement.kind).not.toBe('unknown');
         expect(requirement.hostPath).toBeDefined();
         expect(fs.existsSync(requirement.hostPath as string)).toBe(true);
