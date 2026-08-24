@@ -20,7 +20,7 @@
  * that as unresolvable would make the whole run directory unclassifiable.
  */
 
-import { isSharedDockerHostPathPrefix } from '../host-path-prefix';
+import { isSharedDockerHostPathPrefix, normalizeDockerHostPathPrefix } from '../host-path-prefix';
 
 export interface ParsedMount {
   source: string;
@@ -70,6 +70,13 @@ export function createLocalSourceResolver(
   customSourceRoots: Map<string, string>,
   dockerHostPathPrefix?: string,
 ): LocalSourceResolver {
+  // The CLI only trims this value, so compare against the canonical form: a raw
+  // `/host/` would otherwise fail the `/host/` prefix test and let a daemon-side
+  // source be treated as runner-local.
+  const daemonOnlyPrefix = dockerHostPathPrefix && !isSharedDockerHostPathPrefix(dockerHostPathPrefix)
+    ? normalizeDockerHostPathPrefix(dockerHostPathPrefix)
+    : '';
+
   return (source: string): string | undefined => {
     for (const [daemonRoot, localRoot] of customSourceRoots) {
       if (source !== daemonRoot && !isPathPrefix(daemonRoot, source)) continue;
@@ -87,11 +94,7 @@ export function createLocalSourceResolver(
     // sides, so the run's own workDir (and everything AWF stages) legitimately
     // sits under the prefix and stays runner-resolvable. Failing closed on it
     // instead would misclassify the entire run directory.
-    if (
-      dockerHostPathPrefix
-      && !isSharedDockerHostPathPrefix(dockerHostPathPrefix)
-      && isPathPrefix(dockerHostPathPrefix, source)
-    ) {
+    if (daemonOnlyPrefix && isPathPrefix(daemonOnlyPrefix, source)) {
       return undefined;
     }
 

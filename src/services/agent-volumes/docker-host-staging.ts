@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { logger } from '../../logger';
-import { isSharedDockerHostPathPrefix } from '../host-path-prefix';
+import { isSharedDockerHostPathPrefix, normalizeDockerHostPathPrefix } from '../host-path-prefix';
 import { WrapperConfig } from '../../types';
 
 const DOCKER_HOST_STAGE_DIR = 'awf-docker-host-stage';
@@ -25,13 +25,6 @@ export function isStagedHostFile(candidate: string): boolean {
 /** Test seam: staging is process-global, so suites must be able to reset it. */
 export function clearStagedHostFiles(): void {
   stagedHostFiles.clear();
-}
-
-function normalizeDockerHostPathPrefix(prefix: string): string {
-  const trimmed = prefix.trim();
-  if (!trimmed) return '';
-  const withLeadingSlash = trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
-  return withLeadingSlash.replace(/\/+$/, '') || '/';
 }
 
 export function shouldUseDockerHostStaging(prefix: string | undefined): boolean {

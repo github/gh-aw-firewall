@@ -370,15 +370,22 @@ describe('nested mountpoint preparation', () => {
     });
 
     it('skips daemon-side covers instead of creating a runner-local tree', () => {
-      const { emptyHome, logs } = makeTree();
-      const resolver = createLocalSourceResolver(new Map(), tmpRoot);
+      const { logs } = makeTree();
+      // A *daemon-only* prefix. This deliberately does not use the suite's own
+      // tmpRoot: under `TMPDIR=/tmp` that is a shared prefix, which is runner
+      // resolvable by design, so the test would assert the opposite of its name
+      // on Linux while still passing on macOS (where realpath yields
+      // /private/var/...).
+      const daemonHome = '/daemon-only/home/runner';
+      const resolver = createLocalSourceResolver(new Map(), '/daemon-only');
       const volumes = [
-        `${emptyHome}:/host/home/runner:ro`,
+        `${daemonHome}:/host/home/runner:ro`,
         `${logs}:/host/home/runner/.copilot/logs:rw`,
       ];
 
       expect(ensureNestedMountpoints(volumes, uid, gid, resolver)).toEqual([]);
-      expect(fs.existsSync(path.join(emptyHome, '.copilot'))).toBe(false);
+      // The cover was left alone rather than fabricated on this filesystem.
+      expect(fs.existsSync('/daemon-only')).toBe(false);
     });
   });
 
