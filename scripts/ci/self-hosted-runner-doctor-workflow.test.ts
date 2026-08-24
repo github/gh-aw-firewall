@@ -100,7 +100,7 @@ describe('self-hosted runner doctor workflow config', () => {
       expect(content).toContain('| `runc` mountpoint creation failure for `/dev/null` credential overlays under `/host$HOME` on `runner.topology: arc-dind` | A20 |');
       expect(content).toContain('| `mkdir -p .../.m2` failing under `set -e` in agent entrypoint on `arc-dind` | A20 |');
       // A21 new failure mode (filesystem.allowWrite nested mountpoint EROFS on ARC/DinD)
-      expect(content).toContain('| A21 | `awf-agent` fails to start with `runc create failed: ... mkdirat /var/lib/docker/overlay2//merged/tmp/awf-init: read-only file system`');
+      expect(content).toContain('| A21 | `awf-agent` fails to start with `runc create failed: ... mkdirat /var/lib/docker/overlay2/<layer-id>/merged/tmp/awf-init: read-only file system`');
       expect(content).toContain('`planNestedMountpoints()`/`ensureNestedMountpoints()`');
       expect(content).toContain('github/gh-aw-firewall#7678, github/gh-aw-firewall#7679, github/gh-aw-firewall#7681');
       expect(content).toContain('| `mkdirat ... : read-only file system` at agent container startup while a `filesystem.allowWrite` policy is active (not the `chroot.binariesSourcePath`-specific A12 case) | A21 |');
