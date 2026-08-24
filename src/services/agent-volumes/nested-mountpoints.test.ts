@@ -99,15 +99,20 @@ describe('nested mountpoint preparation', () => {
       ]);
     });
 
-    it('cannot classify a source that does not exist on this filesystem', () => {
+    it('cannot classify a source that this filesystem cannot see at all', () => {
       const volumes = [
         '/empty-home:/host/home/runner:ro',
-        '/logs:/host/home/runner/.copilot/logs:rw',
+        '/daemon-only/logs:/host/home/runner/.copilot/logs:rw',
       ];
+      // Under --docker-host-path-prefix a source can belong to the daemon's
+      // filesystem, not the runner's. There is nothing here to stat, so the kind
+      // is reported as unknown rather than assumed. A source that is merely
+      // absent is different: the daemon materialises those as directories, and
+      // `resolveSourceKind` classifies them accordingly.
+      const resolver = (source: string): string | undefined =>
+        source.startsWith('/daemon-only/') ? undefined : source;
 
-      // The kind of a bind mountpoint follows its source, so an unreachable
-      // source is reported as unknown rather than assumed to be a directory.
-      expect(planNestedMountpoints(volumes)[0]).toEqual(
+      expect(planNestedMountpoints(volumes, resolver)[0]).toEqual(
         expect.objectContaining({ kind: 'unknown', credentialOverlay: false }),
       );
     });
@@ -253,19 +258,37 @@ describe('nested mountpoint preparation', () => {
       expect(fs.existsSync(path.join(emptyHome, '.netrc'))).toBe(false);
     });
 
-    it('fails closed on a required mountpoint whose source cannot be classified', () => {
+    it('creates a directory for a source the daemon has not materialised yet', () => {
       const { emptyHome } = makeTree();
-      const missingSource = path.join(tmpRoot, 'missing-source');
+      // AWF creates the init signal directory after the volume list is built,
+      // so at this point the source legitimately does not exist. This is the
+      // real shape of the agent's legacy `/tmp/awf-init` bind under a narrowed
+      // `/tmp`, and it must not be mistaken for an unclassifiable source.
+      const notYetCreated = path.join(tmpRoot, 'init-signal');
       const volumes = [
         `${emptyHome}:/host/home/runner:ro`,
-        `${missingSource}:/host/home/runner/.copilot/logs:rw`,
+        `${notYetCreated}:/host/home/runner/.copilot/logs:rw`,
       ];
 
-      // The cover is real, so this mountpoint genuinely has to exist before
-      // launch. Guessing a directory could create the wrong node type, and
+      expect(() => ensureNestedMountpoints(volumes, uid, gid)).not.toThrow();
+      const mountpoint = path.join(emptyHome, '.copilot/logs');
+      expect(fs.statSync(mountpoint).isDirectory()).toBe(true);
+    });
+
+    it('fails closed on a required mountpoint whose source cannot be classified', () => {
+      const { emptyHome } = makeTree();
+      const volumes = [
+        `${emptyHome}:/host/home/runner:ro`,
+        `/daemon-only/opaque:/host/home/runner/.copilot/logs:rw`,
+      ];
+      // A daemon-side source we never staged: there is nothing on this
+      // filesystem to inspect. Guessing could create the wrong node type, and
       // skipping it silently is what produced the opaque EROFS this pass exists
       // to prevent.
-      expect(() => ensureNestedMountpoints(volumes, uid, gid))
+      const resolver = (source: string): string | undefined =>
+        source.startsWith('/daemon-only/') ? undefined : source;
+
+      expect(() => ensureNestedMountpoints(volumes, uid, gid, resolver))
         .toThrow(/could not be classified/);
       expect(fs.existsSync(path.join(emptyHome, '.copilot'))).toBe(false);
     });

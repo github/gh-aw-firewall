@@ -36,13 +36,14 @@ export interface NestedMountpointRequirement {
   credentialOverlay: boolean;
 }
 
-function statKind(candidate: string): 'directory' | 'file' | 'unknown' {
+function statKind(candidate: string): 'directory' | 'file' | 'missing' | 'unknown' {
   try {
     const stats = fs.statSync(candidate);
     if (stats.isDirectory()) return 'directory';
     if (stats.isFile()) return 'file';
     return 'unknown';
-  } catch {
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return 'missing';
     return 'unknown';
   }
 }
@@ -55,8 +56,19 @@ function resolveSourceKind(
   // undefined for them. The staging record is the only surviving evidence of
   // their type.
   if (isStagedHostFile(source)) return 'file';
+  // No local path at all: a daemon-side source we cannot inspect and did not
+  // stage. Guessing here is what the fail-closed path exists to prevent.
   if (localSource === undefined) return 'unknown';
-  return statKind(localSource);
+
+  const kind = statKind(localSource);
+  // A source that simply does not exist yet is not ambiguous. Some AWF-owned
+  // sources (the init signal directory among them) are materialised after the
+  // volume list is built, and the daemon creates a *directory* for any bind
+  // source still missing at launch — so the mountpoint has to be a directory to
+  // match. Verified against a real daemon: binding a missing source yields a
+  // directory on both the host and inside the guest.
+  if (kind === 'missing') return 'directory';
+  return kind;
 }
 
 /**
