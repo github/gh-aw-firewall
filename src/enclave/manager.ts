@@ -28,8 +28,10 @@ import {
   ENCLAVE_MCP_CAPABILITY_ENV,
   resolveEnclaveGatewayContract,
 } from './gateway';
+import { resolveEnclaveGithubGatewayContract } from './github-gateway';
 
 export const ENCLAVE_RUN_LABEL = 'awf.enclave.run';
+export const ENCLAVE_GITHUB_CAPABILITY_KEY_ENV = 'MCP_GATEWAY_ENCLAVE_CAPABILITY_KEY';
 
 export function isEnclaveScriptEnabled(config: WrapperConfig): boolean {
   return config.enclaves?.enabled === true && config.enclaves.executors.script.enabled === true;
@@ -41,6 +43,13 @@ export function isEnclaveAgentEnabled(config: WrapperConfig): boolean {
 
 export function isEnclavesEnabled(config: WrapperConfig): boolean {
   return config.enclaves?.enabled === true;
+}
+
+export function isEnclaveGithubEnabled(config: WrapperConfig): boolean {
+  return (
+    isEnclaveAgentEnabled(config)
+    && config.enclaves?.executors.agent.github?.cli === 'issues-read-v1'
+  );
 }
 
 function ensureDirectory(target: string, mode: number): void {
@@ -59,12 +68,16 @@ function prepareDirectories(
   ensureDirectory(paths.controlDir, 0o700);
   ensureDirectory(paths.auditDir, 0o700);
   ensureDirectory(paths.apiProxyLogsDir, 0o700);
+  // The image's fixed non-root user must create the audit stream through this
+  // bind mount. The parent private root remains 0700 on the host.
+  ensureDirectory(paths.githubCliProxyLogsDir, 0o733);
   ensureDirectory(paths.runDir, 0o770);
   if (process.getuid?.() === 0) {
     const hostUid = parseInt(getSafeHostUid(), 10);
     const hostGid = parseInt(getSafeHostGid(), 10);
     chown(paths.runDir, hostUid, hostGid);
     chown(paths.apiProxyLogsDir, hostUid, hostGid);
+    chown(paths.githubCliProxyLogsDir, hostUid, hostGid);
   }
 }
 
@@ -130,6 +143,21 @@ export async function prepareEnclaves(
   if (!token) {
     errors.push('enclaves require a staging credential in GH_TOKEN or GITHUB_TOKEN on the AWF host');
   }
+  const githubCapabilityKey = env[ENCLAVE_GITHUB_CAPABILITY_KEY_ENV] ?? '';
+  if (isEnclaveGithubEnabled(config)) {
+    if (!/^[0-9a-f]{64}$/.test(githubCapabilityKey)) {
+      errors.push(
+        `${ENCLAVE_GITHUB_CAPABILITY_KEY_ENV} must contain the compiler-issued 256-bit lowercase hex root`,
+      );
+    }
+    try {
+      resolveEnclaveGithubGatewayContract(config, env);
+    } catch (error) {
+      errors.push(
+        error instanceof Error ? error.message : 'enclave GitHub gateway handoff is invalid',
+      );
+    }
+  }
   if (errors.length > 0) {
     throw new Error(`Enclave configuration is invalid:\n  - ${errors.join('\n  - ')}`);
   }
@@ -181,6 +209,12 @@ export async function prepareEnclaves(
   };
   writeExclusive(paths.seedMapPath, serializePrivateRepositorySeedMap(seedMap), 0o600);
   writeExclusive(paths.capabilityPath, `${env[ENCLAVE_MCP_CAPABILITY_ENV]}\n`, 0o600);
+  if (isEnclaveGithubEnabled(config)) {
+    writeExclusive(paths.githubCapabilityKeyPath, `${githubCapabilityKey}\n`, 0o600);
+    const githubRunIdentity = resolveEnclaveGithubGatewayContract(config, env).identity;
+    writeExclusive(paths.githubRunIdentityPath, `${githubRunIdentity}\n`, 0o600);
+    if (env === process.env) delete process.env[ENCLAVE_GITHUB_CAPABILITY_KEY_ENV];
+  }
   logger.info(`Enclaves: staged ${staging.seeds.length} immutable seed(s); staging credential discarded.`);
 }
 

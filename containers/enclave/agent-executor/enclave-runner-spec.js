@@ -11,10 +11,10 @@
  * Isolation properties encoded here:
  *
  *  - `--network <enclave-agent network>`: the enclave joins *only* the
- *    dedicated `internal` enclave-agent network. Its sole reachable peer is
- *    the AWF API proxy; there is no `awf-net`, no `awf-ext`, no Squid, no
- *    general proxy, no primary agent, no broker, no safe-outputs collector, no
- *    MCP gateway, and no CLI proxy.
+ *    dedicated `internal` enclave-agent network. Its mandatory peer is the AWF
+ *    API proxy; issues-read-v1 adds only the PAT-free AWF CLI proxy. There is
+ *    no `awf-net`, no `awf-ext`, no Squid, no general proxy, no primary agent,
+ *    no broker, no safe-outputs collector, and no MCP gateway.
  *  - `--read-only` with the repository seed bind-mounted `ro`: the enclave can
  *    never mutate private source.
  *  - bounded `--tmpfs` mounts for `/tmp` and the `/agent` work/result root.
@@ -121,6 +121,15 @@ function deriveEnclaveContainerSpec({ config, runId, invocationId, seedId, runti
     '-v', `${hostInvocationDir}/out:/awf/out:rw`,
     '-v', `${hostInvocationDir}/session.jsonl:/awf/session.jsonl:rw`,
   ];
+  if (config.githubEnabled) {
+    launchArgs.push(
+      '--env', 'AWF_ENCLAVE_AGENT_GITHUB_ENABLED=true',
+      '--env', `AWF_ENCLAVE_AGENT_GITHUB_PROFILE=${config.githubProfile}`,
+      '--env', `AWF_ENCLAVE_AGENT_GITHUB_PROXY_URL=${config.githubProxyUrl}`,
+      '-v',
+      `${hostInvocationDir}/github-capability:${config.enclaveGithubCapabilityPath}:ro`,
+    );
+  }
 
   if (runtimeName !== undefined) {
     launchArgs.push('--runtime', runtimeName);

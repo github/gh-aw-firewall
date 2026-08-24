@@ -38,10 +38,12 @@ RUN ln -s ../lib/node_modules/@github/copilot/npm-loader.js /usr/local/bin/copil
     && rm -f /usr/bin/pebble \
     && rm -rf /root/.cache/copilot
 COPY enclave/agent-entrypoint.py /usr/local/bin/run-enclave-agent
-RUN chmod 0555 /usr/local/bin/run-enclave-agent \
+COPY enclave/github-cli-wrapper.py /usr/local/bin/gh
+RUN chmod 0555 /usr/local/bin/run-enclave-agent /usr/local/bin/gh \
     && python3 -m py_compile /usr/local/bin/run-enclave-agent \
+    && python3 -m py_compile /usr/local/bin/gh \
     && rm -rf /usr/local/bin/__pycache__ \
-    && mkdir -p /agent /awf/seed
+    && mkdir -p /agent /awf/seed /run/awf-enclave-github
 
 FROM node:22.23.2-alpine3.24 AS enclave-mcp-server
 

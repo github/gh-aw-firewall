@@ -41,6 +41,17 @@ function enclaveEnv(overrides: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
   };
 }
 
+function githubEnclaveEnv(workDir: string, overrides: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
+  const caCert = path.join(workDir, 'enclave-github-ca.crt');
+  fs.writeFileSync(caCert, 'test-ca', { mode: 0o600 });
+  return enclaveEnv({
+    AWF_ENCLAVE_GITHUB_PROXY_CONTAINER: 'compiler-mcpg',
+    AWF_ENCLAVE_GITHUB_PROXY_IDENTITY: 'gh-aw-egh-123456-1-abcdef123456',
+    AWF_ENCLAVE_GITHUB_PROXY_CA_CERT: caCert,
+    ...overrides,
+  });
+}
+
 const repository = { repo: 'octo/private', sensitivity: 'internal' as const };
 
 type EnclaveEntries = NonNullable<Parameters<typeof normalizeEnclavesConfig>[0]>;
@@ -217,6 +228,25 @@ describe('prepareEnclaves fail-closed preflight', () => {
     })).rejects.toThrow(/agent executor requires the AWF API proxy/);
   });
 
+  it.each([
+    undefined,
+    'a'.repeat(63),
+    'A'.repeat(64),
+    'z'.repeat(64),
+  ])('rejects a malformed enclave GitHub capability root (%s)', async (root) => {
+    await expect(prepareEnclaves(agentConfig(workDir, [{
+      agent: {
+        model: 'gpt-test',
+        github: { cli: 'issues-read-v1' },
+      },
+      repos: [repository],
+    }]), {
+      env: githubEnclaveEnv(workDir, { MCP_GATEWAY_ENCLAVE_CAPABILITY_KEY: root }),
+      assertPrimaryAvailable: jest.fn(),
+      assertAgentRuntimeAvailable: jest.fn(),
+    })).rejects.toThrow(/MCP_GATEWAY_ENCLAVE_CAPABILITY_KEY/);
+  });
+
   it('rejects the unimplemented sbx script runtime before staging', async () => {
     await expect(prepareEnclaves(config(workDir, [
       { script: {}, runtime: 'sbx', repos: [repository] },
@@ -259,6 +289,31 @@ describe('prepareEnclaves fail-closed preflight', () => {
     expect(fs.statSync(paths.capabilityPath).mode & 0o777).toBe(0o600);
     expect(paths.root.startsWith(workDir)).toBe(false);
     expect(paths.ingressRoot.startsWith(workDir)).toBe(false);
+  });
+
+  it('stages the GitHub HMAC root as a private mode-0600 file', async () => {
+    const root = '0123456789abcdef'.repeat(4);
+    await prepareEnclaves(agentConfig(workDir, [{
+      agent: {
+        model: 'gpt-test',
+        github: { cli: 'issues-read-v1' },
+      },
+      repos: [repository],
+    }]), {
+      env: githubEnclaveEnv(workDir, { MCP_GATEWAY_ENCLAVE_CAPABILITY_KEY: root }),
+      gitRunner,
+      assertPrimaryAvailable: jest.fn().mockResolvedValue(undefined),
+      assertAgentRuntimeAvailable: jest.fn().mockResolvedValue(undefined),
+    });
+    const paths = resolveEnclavePaths(workDir);
+    expect(fs.readFileSync(paths.githubCapabilityKeyPath, 'utf8').trim()).toBe(root);
+    expect(fs.statSync(paths.githubCapabilityKeyPath).mode & 0o777).toBe(0o600);
+    expect(fs.readFileSync(paths.githubRunIdentityPath, 'utf8').trim())
+      .toBe('gh-aw-egh-123456-1-abcdef123456');
+    expect(fs.statSync(paths.githubRunIdentityPath).mode & 0o777).toBe(0o600);
+    const seedRunId = JSON.parse(fs.readFileSync(paths.seedMapPath, 'utf8')).runId;
+    expect(seedRunId).toMatch(/^[0-9a-f]{32}$/);
+    expect(seedRunId).not.toBe('gh-aw-egh-123456-1-abcdef123456');
   });
 
   it('removes labelled orphan containers and both private roots on teardown', async () => {

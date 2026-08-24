@@ -2,8 +2,6 @@
 
 const defaultDockerClient = require('./docker-client');
 
-const EXPECTED_NETWORK_TOPOLOGY =
-  'true|bridge|172.31.0.0/24,|awf-enclave-agent-api-proxy@172.31.0.30/24,';
 const {
   CLI_GRACE_MS,
   buildRemoveArgs,
@@ -26,6 +24,14 @@ class DockerEnclaveRunner {
   }
 
   async assertNetworkIsolated() {
+    const expectedMembers = ['awf-enclave-agent-api-proxy@172.31.0.30/24,'];
+    if (this.config.githubEnabled) {
+      expectedMembers.push('awf-enclave-agent-cli-proxy@172.31.0.40/24,');
+    }
+    const expectedTopologies = new Set([
+      `true|bridge|172.31.0.0/24,|${expectedMembers.join('')}`,
+      `true|bridge|172.31.0.0/24,|${[...expectedMembers].reverse().join('')}`,
+    ]);
     const network = await this.docker.runDocker([
       'network',
       'inspect',
@@ -34,7 +40,7 @@ class DockerEnclaveRunner {
         '{{range .Containers}}{{.Name}}@{{.IPv4Address}},{{end}}',
       this.config.network,
     ], 30_000);
-    if (network.exitCode !== 0 || network.stdout.trim() !== EXPECTED_NETWORK_TOPOLOGY) {
+    if (network.exitCode !== 0 || !expectedTopologies.has(network.stdout.trim())) {
       throw new Error(
         'The dedicated enclave-agent network is unavailable or not isolated; enclave agents ' +
         'never fall back to another network',

@@ -16,6 +16,7 @@ import { findDockerSocketExposingMount } from './mount-policy';
 
 const RUNTIMES = new Set(['docker', 'gvisor', 'sbx']);
 const ENGINES = new Set(['copilot', 'claude', 'codex', 'gemini']);
+const GITHUB_CLI_PROFILES = new Set(['issues-read-v1']);
 
 /** Engines with a published, audited enclave image and a fixed AWF model loop. */
 const IMPLEMENTED_AGENT_ENGINES = new Set(['copilot']);
@@ -170,6 +171,16 @@ export function validateEnclavesConfig(config: WrapperConfig): string[] {
     }
     if (agent.maxModelTokens !== undefined) {
       validatePositiveInteger('enclaves[].agent.maxModelTokens', agent.maxModelTokens, errors);
+    }
+    if (
+      agent.github !== undefined
+      && (
+        typeof agent.github !== 'object'
+        || agent.github === null
+        || !GITHUB_CLI_PROFILES.has(agent.github.cli)
+      )
+    ) {
+      errors.push('enclaves[].agent.github.cli must be "issues-read-v1"');
     }
   }
 

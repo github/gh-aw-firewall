@@ -19,6 +19,8 @@ import {
   ENCLAVE_AGENT_EGRESS_NETWORK,
   ENCLAVE_AGENT_NETWORK,
   ENCLAVE_AGENT_SUBNET,
+  ENCLAVE_GITHUB_CONTROL_SUBNET,
+  ENCLAVE_GITHUB_CONTROL_NETWORK,
   ENCLAVE_MCP_CONTROL_NETWORK,
 } from './enclave/network';
 import { buildInternalServiceHosts } from './services/internal-service-hosts';
@@ -214,6 +216,16 @@ export function generateDockerCompose(
       name: ENCLAVE_AGENT_EGRESS_NETWORK,
       driver: 'bridge',
     };
+    if (config.enclaves.executors.agent.github?.cli === 'issues-read-v1') {
+      compose.networks[ENCLAVE_GITHUB_CONTROL_NETWORK] = {
+        name: ENCLAVE_GITHUB_CONTROL_NETWORK,
+        driver: 'bridge',
+        internal: true,
+        ipam: {
+          config: [{ subnet: ENCLAVE_GITHUB_CONTROL_SUBNET }],
+        },
+      };
+    }
   }
   if (config.enclaves?.enabled) {
     compose.networks[ENCLAVE_MCP_CONTROL_NETWORK] = {

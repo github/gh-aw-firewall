@@ -27,6 +27,7 @@ function invocationLayout(workDir, invocationId) {
     schemaPath: path.join(root, 'schema.json'),
     outPath: path.join(root, 'out'),
     sessionLogPath: path.join(root, 'session.jsonl'),
+    githubCapabilityPath: path.join(root, 'github-capability'),
   };
 }
 
@@ -38,7 +39,7 @@ function invocationLayout(workDir, invocationId) {
  * it through its `rw` bind mount.
  */
 function createInvocationWorkspace(params) {
-  const { config, invocationId, task, schema } = params;
+  const { config, invocationId, task, schema, githubCapability } = params;
   const layout = invocationLayout(config.workDir, invocationId);
 
   fs.mkdirSync(layout.root, { recursive: true, mode: 0o700 });
@@ -53,6 +54,14 @@ function createInvocationWorkspace(params) {
   fs.chownSync(layout.outPath, config.enclaveUid, config.enclaveGid);
   fs.writeFileSync(layout.sessionLogPath, '', { mode: 0o600 });
   fs.chownSync(layout.sessionLogPath, config.enclaveUid, config.enclaveGid);
+  if (config.githubEnabled) {
+    if (typeof githubCapability !== 'string' || githubCapability.length > 4096) {
+      throw new Error('invalid invocation GitHub capability');
+    }
+    fs.writeFileSync(layout.githubCapabilityPath, `${githubCapability}\n`, { mode: 0o600 });
+    fs.chownSync(layout.githubCapabilityPath, config.enclaveUid, config.enclaveGid);
+    fs.chmodSync(layout.githubCapabilityPath, 0o400);
+  }
 
   return layout;
 }

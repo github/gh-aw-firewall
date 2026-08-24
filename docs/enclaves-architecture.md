@@ -9,7 +9,7 @@ Layer 5 removes the legacy bounded-query and bounded-agent surfaces. AWF now doc
 AWF stages immutable repository seeds on the host, starts one AWF-owned `enclave-mcp-server`, and exposes enabled executors only through `gh-aw-mcpg`.
 
 - **Script executor** — `enclave_run_script` runs a bounded Python script in a no-network, read-only, single-use sandbox.
-- **Agent executor** — `enclave_run_agent` runs the pinned Copilot engine in a bounded single-use enclave whose only network peer is the dedicated API proxy.
+- **Agent executor** — `enclave_run_agent` runs the pinned Copilot engine in a bounded single-use enclave. Its mandatory peer is the dedicated API proxy; `agent.github.cli: issues-read-v1` adds only the PAT-free AWF CLI proxy.
 - **Shared controls** — the `repos` lists of the `enclaves` entries form the only trusted repository catalog; script and agent calls debit the same per-run repository ledger and share one admission lane.
 
 The primary agent never receives a broker socket, wrapper binary, direct MCP server URL, capability, repository seed, ledger state, or alternate transport.
@@ -45,13 +45,19 @@ error immediately instead of entering an unbounded fixed-timing queue.
 - `enclave-mcp-server` joins only the private `awf-enclave-mcp-control` network.
 - The compiler launches `gh-aw-mcpg`, labels it for the run, and gives AWF the gateway identity plus the private `/mcp/awf-enclave` endpoint.
 - The server is reachable **only** through that gateway. AWF never publishes the server on a host port and never hands the primary agent a direct route.
-- When the agent executor is enabled, each invocation joins only the private `awf-enclave-agent` network; its only peer is the dedicated enclave API proxy.
+- When the agent executor is enabled, each invocation joins only the private `awf-enclave-agent` network. Its steady-state peers are the dedicated API proxy and, only for `issues-read-v1`, the PAT-free AWF CLI proxy.
+- The CLI proxy is dual-homed on `awf-enclave-agent` and the internal `awf-enclave-github-control` network. Compiler-owned mcpg joins only the latter under `awf-enclave-github-proxy:18443`; the enclave has no direct mcpg route.
 
-Rollout depends on both sides of the gateway contract:
+The base MCP handoff and late backend rediscovery are present on current defaults:
+gh-aw pins mcpg v0.4.10, which reports MCP Gateway spec 1.16.0. The earlier
+minimum remains spec 1.15.0 and a post-v0.4.8 mcpg release.
 
-1. **Compiler handoff contract** — `github/gh-aw#50920` must emit the enclave upstream, capability, identity label, endpoint, and timeout handoff.
-2. **Late backend rediscovery** — `github/gh-aw-mcpg#10784` must preserve an initially unavailable HTTP backend and rediscover it later.
-3. **Gateway/runtime requirement** — this requires MCP Gateway spec **1.15.0** and the **first mcpg release after v0.4.8 containing it**.
+The optional GitHub path additionally requires the first compiler and mcpg
+releases implementing `issues-read-v1`, the canonical `awf-egh1` capability,
+public-visibility proof, secrecy labels, and the dedicated proxy identity
+handoff. The compiler MUST pin or minimum-version-gate the first supporting AWF
+release. Older AWF versions reject the closed `github` field; there is no
+permissive fallback.
 
 The compiler-generated upstream uses `connectTimeout: 120` and
 `toolTimeout: 630`, covering the maximum 600-second disclosure bucket plus a
@@ -74,6 +80,52 @@ After primary-agent work stops, AWF gives the enclave server a bounded
 lane, reconciles labelled enclaves, and exits before AWF preserves audit
 artifacts and disconnects mcpg from the private control network. AWF never stops
 or removes the externally owned mcpg container.
+
+## Optional issues-read-v1 GitHub access
+
+The profile is disabled by default and configured only on an agent entry:
+
+```yaml
+agent:
+  model: gpt-5
+  github:
+    cli: issues-read-v1
+```
+
+The compiler provides `AWF_ENCLAVE_GITHUB_PROXY_CONTAINER`,
+`AWF_ENCLAVE_GITHUB_PROXY_IDENTITY`, `AWF_ENCLAVE_GITHUB_PROXY_CA_CERT`, and a
+64-character lowercase hexadecimal `MCP_GATEWAY_ENCLAVE_CAPABILITY_KEY`.
+The identity is the compiler-normalized capability run claim
+`gh-aw-egh-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${JOB_HASH}` and matches
+mcpg policy `workflow_run_id` byte for byte. AWF writes the identity and HMAC
+root to separate mode-0600 private files mounted only into
+`enclave-mcp-server`, then removes the root from its host environment. The
+compiler passes policy JSON only to mcpg. The AWF CLI proxy has neither the PAT
+nor the HMAC root.
+
+For every admitted invocation, the MCP server mints
+`awf-egh1.<payload-base64url>.<hmac-base64url>`. The compact JSON payload fields
+are ordered exactly as `v,aud,run,inv,repo,profile,ops,nbf,exp`; the HMAC input
+is ASCII `awf-egh1.` followed by the payload encoding. The token is bound to the
+run, invocation, assigned repository, fixed profile, fixed sorted operation
+set, and deadline, and is mounted read-only into only that single-use enclave.
+The payload `run` is the compiler proxy identity, not AWF's independent random
+seed-map/container-reconciliation run ID.
+
+The enclave-visible `gh` wrapper accepts only `gh api` GET requests for issue
+list, issue get, and issue comments REST paths. It rejects GraphQL, search,
+writes, absolute URLs, alternate hosts, traversal, body flags, auth/config/
+extension/alias commands, arbitrary endpoints, and environment overrides.
+Stock `gh issue list` and `gh issue view --comments` are not supported because
+they commonly use GraphQL.
+
+mcpg validates single-use capabilities, injects its PAT, permits the assigned
+repository or a currently proven-public repository, and attaches the
+authoritative secrecy label. GitHub response data remains inside the enclave.
+Only the existing finite-schema result, shared ledger debit, and timing bucket
+can return to the primary agent. Shutdown drains admissions, removes labelled
+enclaves, stops the PAT-free proxy, preserves private audit, disconnects
+compiler-owned mcpg, and then removes private state.
 
 ## Migration and removals
 

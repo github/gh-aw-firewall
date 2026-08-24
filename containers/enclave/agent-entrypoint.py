@@ -105,12 +105,22 @@ def build_prompt(task: str, schema_text: str) -> str:
             "schema, with no Markdown fence, explanation, surrounding text, or repeated "
             f"schema:\n{schema_text}\n"
         )
+    github_access = ""
+    if os.environ.get("AWF_ENCLAVE_AGENT_GITHUB_ENABLED") == "true":
+        github_access = (
+            " A narrow credential-isolated gh wrapper is available only for REST issue reads. "
+            "Use `gh api --method GET` with repos/{owner}/{repo}/issues, "
+            "repos/{owner}/{repo}/issues/{number}, or "
+            "repos/{owner}/{repo}/issues/{number}/comments. GraphQL, search, writes, "
+            "and other GitHub paths are unavailable."
+        )
     return (
         "You are the native GitHub Copilot CLI running in an AWF enclave-agent enclave.\n"
         "The repository root is your current directory and is mounted read-only at /awf/seed. "
         "/agent and /tmp are bounded writable tmpfs storage. You may use your built-in shell, "
         "bash, file-reading, and search tools. You have no GitHub MCP, no credentials, no host "
-        "filesystem, and no network route except the AWF API proxy used for model inference.\n\n"
+        "filesystem, and no network route except AWF's model and optional GitHub proxies."
+        f"{github_access}\n\n"
         "Complete this task:\n"
         f"{task}\n\n"
         f"{output_contract}"

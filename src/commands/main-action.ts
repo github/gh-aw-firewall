@@ -35,6 +35,12 @@ import {
   connectEnclaveGateway,
   shutdownEnclaveGateway,
 } from '../enclave/gateway';
+import {
+  assertEnclaveGithubGatewayReady,
+  connectEnclaveGithubGateway,
+  disconnectEnclaveGithubGateway,
+  shutdownEnclaveGithubCliProxy,
+} from '../enclave/github-gateway';
 import type { WrapperConfig } from '../types';
 
 const SENSITIVE_CONFIG_KEYS = new Set([
@@ -128,12 +134,39 @@ function buildCleanupFn(
     // until the subsequent compose down removes them.
     if (getContainersStarted()) {
       let enclaveAuditComplete = true;
+      const enclaveGithubEnabled = config.enclaves?.executors.agent.github?.cli === 'issues-read-v1';
       try {
         await shutdownEnclaveGateway(config);
       } catch (error) {
         enclaveAuditComplete = false;
         logger.warn(
           'Enclave gateway did not complete graceful shutdown; preserved enclave audit is marked incomplete.',
+          error,
+        );
+      }
+      try {
+        await shutdownEnclaveGithubCliProxy(config);
+      } catch (error) {
+        enclaveAuditComplete = false;
+        logger.warn(
+          'Enclave GitHub CLI proxy did not stop cleanly before audit preservation.',
+          error,
+        );
+      }
+      if (preserveIptablesAudit(
+        config.workDir,
+        config.auditDir,
+        enclaveGithubEnabled,
+      ) === false) {
+        enclaveAuditComplete = false;
+        logger.warn('One or more protected enclave audit artifacts could not be preserved.');
+      }
+      try {
+        await disconnectEnclaveGithubGateway(config);
+      } catch (error) {
+        enclaveAuditComplete = false;
+        logger.warn(
+          'Compiler-owned enclave GitHub proxy could not be disconnected cleanly.',
           error,
         );
       }
@@ -144,14 +177,13 @@ function buildCleanupFn(
           const markerPath = path.join(targetAuditDir, 'enclave-audit-incomplete.txt');
           fs.writeFileSync(
             markerPath,
-            'Enclave MCP server graceful shutdown was not confirmed; enclave audit artifacts may be incomplete.\n',
+            'Enclave shutdown or protected audit preservation was not confirmed; enclave audit artifacts may be incomplete.\n',
             { mode: 0o644 },
           );
         } catch (error) {
           logger.warn('Failed to write the incomplete enclave audit marker.', error);
         }
       }
-      preserveIptablesAudit(config.workDir, config.auditDir);
       await stopContainers(config.workDir, config.keepContainers);
     }
 
@@ -374,6 +406,8 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
         connectTopologyContainers,
         connectEnclaveGateway,
         assertEnclaveGatewayReady,
+        connectEnclaveGithubGateway,
+        assertEnclaveGithubGatewayReady,
         prepareEnclaves,
       },
       {

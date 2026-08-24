@@ -24,6 +24,18 @@ export const ENCLAVE_AGENT_NETWORK = 'awf-enclave-agent';
 /** Egress bridge joined only by the dedicated agent-enclave API proxy. */
 export const ENCLAVE_AGENT_EGRESS_NETWORK = 'awf-enclave-agent-egress';
 
+/** Private path between the PAT-free enclave CLI proxy and compiler-owned mcpg. */
+export const ENCLAVE_GITHUB_CONTROL_NETWORK = 'awf-enclave-github-control';
+
+/** Fixed subnet for the isolated mcpg control path. */
+export const ENCLAVE_GITHUB_CONTROL_SUBNET = '172.32.0.0/24';
+
+/** Fixed compiler-owned mcpg identity on the private GitHub control network. */
+export const ENCLAVE_GITHUB_PROXY_ALIAS = 'awf-enclave-github-proxy';
+
+/** TLS proxy port fixed by the compiler/mcpg handoff contract. */
+export const ENCLAVE_GITHUB_PROXY_PORT = 18443;
+
 /**
  * Private control network shared only by the AWF-owned enclave MCP server and
  * the externally launched trusted MCP gateway.
@@ -45,6 +57,12 @@ export const ENCLAVE_AGENT_SUBNET = '172.31.0.0/24';
 
 /** Fixed API-proxy address on the agent-enclave network. */
 export const ENCLAVE_AGENT_API_PROXY_IP = '172.31.0.30';
+
+/** Fixed PAT-free CLI-proxy address on the agent-enclave network. */
+export const ENCLAVE_AGENT_CLI_PROXY_IP = '172.31.0.40';
+
+/** Fixed CLI-proxy address on the isolated mcpg control path. */
+export const ENCLAVE_GITHUB_CLI_PROXY_IP = '172.32.0.10';
 
 /**
  * Fixed DNS alias for the API proxy on the agent-enclave network.

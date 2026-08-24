@@ -32,6 +32,11 @@ export type EnclaveRuntime = 'docker' | 'gvisor' | 'sbx';
 export type EnclaveScriptInterpreter = 'python3';
 export type EnclaveAgentEngine = 'copilot' | 'claude' | 'codex' | 'gemini';
 export type EnclaveAgentProfile = 'openai' | 'anthropic';
+export type EnclaveAgentGithubCliProfile = 'issues-read-v1';
+
+export interface EnclaveAgentGithubConfig {
+  cli: EnclaveAgentGithubCliProfile;
+}
 
 export interface EnclaveScriptExecutorConfig {
   enabled: boolean;
@@ -69,6 +74,7 @@ export interface EnclaveAgentExecutorConfig {
   maxInvocations: number;
   maxModelRequests?: number;
   maxModelTokens?: number;
+  github?: EnclaveAgentGithubConfig;
 }
 
 export interface EnclavesConfig {
@@ -102,7 +108,7 @@ export type RawEnclaveScriptExecutorConfig = Pick<
 >;
 export type RawEnclaveAgentExecutorConfig = Pick<
   Partial<EnclaveAgentExecutorConfig>,
-  'engine' | 'profile' | 'maxTaskBytes' | 'maxModelRequests' | 'maxModelTokens'
+  'engine' | 'profile' | 'maxTaskBytes' | 'maxModelRequests' | 'maxModelTokens' | 'github'
 > & { model: string };
 
 interface RawEnclaveEntryBase extends RawEnclaveCommonConfig {

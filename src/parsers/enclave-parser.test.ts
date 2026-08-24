@@ -59,6 +59,18 @@ describe('normalizeEnclavesConfig', () => {
     });
   });
 
+  it('preserves the closed enclave GitHub CLI profile', () => {
+    expect(normalizeEnclavesConfig([
+      {
+        agent: {
+          model: 'gpt-5',
+          github: { cli: 'issues-read-v1' },
+        },
+        repos: [repository],
+      },
+    ])?.executors.agent.github).toEqual({ cli: 'issues-read-v1' });
+  });
+
   it('keeps a repository shared by both entries as one budgeted catalog entry', () => {
     expect(normalizeEnclavesConfig([
       { script: {}, repos: [repository] },
@@ -102,7 +114,10 @@ describe('enclaves JSON Schema', () => {
     })).toEqual([]);
     expect(validateAwfFileConfig({ enclaves: [{ script: {}, repos: [repository] }] })).toEqual([]);
     expect(validateAwfFileConfig({
-      enclaves: [{ agent: { model: 'gpt-5' }, repos: [repository] }],
+      enclaves: [{
+        agent: { model: 'gpt-5', github: { cli: 'issues-read-v1' } },
+        repos: [repository],
+      }],
     })).toEqual([]);
   });
 
@@ -149,6 +164,21 @@ describe('enclaves JSON Schema', () => {
     }).length).toBeGreaterThan(0);
     expect(validateAwfFileConfig({
       enclaves: [{ agent: { model: 'gpt-5', tools: ['shell'] }, repos: [repository] }],
+    }).length).toBeGreaterThan(0);
+    expect(validateAwfFileConfig({
+      enclaves: [{ script: { github: { cli: 'issues-read-v1' } }, repos: [repository] }],
+    }).length).toBeGreaterThan(0);
+    expect(validateAwfFileConfig({
+      enclaves: [{ agent: { model: 'gpt-5', github: { cli: 'read-only' } }, repos: [repository] }],
+    }).length).toBeGreaterThan(0);
+    expect(validateAwfFileConfig({
+      enclaves: [{
+        agent: {
+          model: 'gpt-5',
+          github: { cli: 'issues-read-v1', endpoint: 'https://example.test' },
+        },
+        repos: [repository],
+      }],
     }).length).toBeGreaterThan(0);
     expect(validateAwfFileConfig({
       enclaves: [{

@@ -6,7 +6,15 @@
  * The server only enforces meta-command denial (auth, config, extension).
  */
 
-const { validateArgs, ALWAYS_DENIED_SUBCOMMANDS, PROTECTED_ENV_KEYS, buildExecEnv } = require('./security');
+const {
+  validateArgs,
+  validateEnclaveArgs,
+  summarizeEnclaveArgs,
+  extractInvocationCapability,
+  ALWAYS_DENIED_SUBCOMMANDS,
+  PROTECTED_ENV_KEYS,
+  buildExecEnv,
+} = require('./security');
 const { runGhCommand } = require('./gh-runner');
 
 describe('PROTECTED_ENV_KEYS', () => {
@@ -20,6 +28,11 @@ describe('PROTECTED_ENV_KEYS', () => {
 
   it('should protect GITHUB_TOKEN from agent override', () => {
     expect(PROTECTED_ENV_KEYS.has('GITHUB_TOKEN')).toBe(true);
+  });
+
+  it('should protect enterprise auth tokens from agent override', () => {
+    expect(PROTECTED_ENV_KEYS.has('GH_ENTERPRISE_TOKEN')).toBe(true);
+    expect(PROTECTED_ENV_KEYS.has('GITHUB_ENTERPRISE_TOKEN')).toBe(true);
   });
 
   it('should protect NODE_EXTRA_CA_CERTS from agent override', () => {
@@ -37,6 +50,106 @@ describe('validateArgs', () => {
       const result = validateArgs('pr list');
       expect(result.valid).toBe(false);
       expect(result.error).toContain('array');
+    });
+
+    describe('issues-read-v1 enclave grammar', () => {
+      it.each([
+        [['api', '--method', 'GET', 'repos/octo/private/issues'], 'issues.list'],
+        [['api', 'repos/octo/private/issues/42'], 'issues.get'],
+        [['api', 'repos/octo/private/issues/42/comments?page=2&per_page=20'], 'issues.comments.list'],
+        [['api', 'repos/octo/private/issues?labels=bug,enhancement'], 'issues.list'],
+        [['api', 'repos/octo/private/issues?since=2026-01-02T03:04:05Z'], 'issues.list'],
+      ])('allows a bounded REST issue read', (args, pathClass) => {
+        expect(validateEnclaveArgs(args)).toEqual({ valid: true });
+        expect(summarizeEnclaveArgs(args)).toEqual({
+          profile: 'issues-read-v1',
+          repository: 'octo/private',
+          pathClass,
+        });
+      });
+
+      it.each([
+        ['issue', 'list'],
+        ['api', 'graphql'],
+        ['api', '--method', 'POST', 'repos/octo/private/issues'],
+        ['api', 'https://api.github.com/repos/octo/private/issues'],
+        ['api', 'repos/octo/private/pulls'],
+        ['api', 'repos/octo/private/issues', '--field', 'title=write'],
+        ['api', 'repos/octo/private/issues', '--paginate'],
+        ['api', 'repos/octo/private/issues?per_page=101'],
+        ['api', 'repos/octo/private/issues?per_page=20&per_page=30'],
+        ['api', 'repos/octo/private/issues?redirect=https%3A%2F%2Fattacker.invalid'],
+        ['api', 'repos/octo/private/issues/../pulls'],
+        ['api', 'repos/../../issues'],
+        ['api', 'repos/octo/../issues'],
+        ['api', 'repos/octo/private/issues?labels=bad%escape'],
+        ['api', 'repos/octo/private/issues?page=1?state=open'],
+        ['api', 'repos/Octo/private/issues'],
+      ])('rejects an out-of-profile command (%j)', (...args) => {
+        expect(validateEnclaveArgs(args).valid).toBe(false);
+      });
+
+      it('rejects oversized argument vectors', () => {
+        expect(validateEnclaveArgs(['api', 'repos/octo/private/issues', 'x'.repeat(4097)]).valid)
+          .toBe(false);
+        expect(validateEnclaveArgs(['api', ...Array(16).fill('--silent')]).valid).toBe(false);
+      });
+
+      it('accepts only one structurally canonical invocation bearer', () => {
+        const payload = Buffer.from(JSON.stringify({
+          v: 1,
+          aud: 'gh-aw-enclave-github',
+          run: 'run-123',
+          inv: 'inv-456',
+          repo: 'octo/private',
+          profile: 'issues-read-v1',
+          ops: ['issues.comments.list', 'issues.get', 'issues.list'],
+          nbf: 1787594400,
+          exp: 1787594520,
+        })).toString('base64url');
+        const token = `awf-egh1.${payload}.${'b'.repeat(43)}`;
+        expect(extractInvocationCapability(`Bearer ${token}`)).toBe(token);
+        expect(extractInvocationCapability(token)).toBeUndefined();
+        expect(extractInvocationCapability(`Bearer ${token}=`)).toBeUndefined();
+        expect(extractInvocationCapability(`Bearer ${token}, Bearer ${token}`)).toBeUndefined();
+        const reordered = Buffer.from(JSON.stringify({
+          aud: 'gh-aw-enclave-github',
+          v: 1,
+          run: 'run-123',
+          inv: 'inv-456',
+          repo: 'octo/private',
+          profile: 'issues-read-v1',
+          ops: ['issues.comments.list', 'issues.get', 'issues.list'],
+          nbf: 1787594400,
+          exp: 1787594520,
+        })).toString('base64url');
+        expect(extractInvocationCapability(
+          `Bearer awf-egh1.${reordered}.${'b'.repeat(43)}`,
+        )).toBeUndefined();
+      });
+
+      it('injects only the invocation capability in enclave mode', () => {
+        const original = process.env;
+        process.env = {
+          ...original,
+          AWF_CLI_PROXY_MODE: 'enclave',
+          GH_TOKEN: 'ambient-gh',
+          GITHUB_TOKEN: 'ambient-github',
+          GH_ENTERPRISE_TOKEN: 'ambient-enterprise',
+          GH_HOST: 'awf-enclave-github-proxy:18443',
+        };
+        try {
+          const child = buildExecEnv({ GH_HOST: 'attacker.invalid' }, 'invocation-capability');
+          expect(child.GH_ENTERPRISE_TOKEN).toBe('invocation-capability');
+          expect(child.GH_TOKEN).toBeUndefined();
+          expect(child.GITHUB_TOKEN).toBeUndefined();
+          expect(child.GITHUB_ENTERPRISE_TOKEN).toBeUndefined();
+          expect(child.GH_HOST).toBe('awf-enclave-github-proxy:18443');
+          expect(child).not.toHaveProperty('MCP_GATEWAY_ENCLAVE_CAPABILITY_KEY');
+        } finally {
+          process.env = original;
+        }
+      });
     });
 
     it('should reject args with non-string elements', () => {
@@ -300,5 +413,26 @@ describe('runGhCommand', () => {
     } finally {
       process.env.PATH = savedPath;
     }
+  }, REAL_GH_TIMEOUT_MS);
+
+  it('terminates an active child when the request is cancelled', async () => {
+    const controller = new AbortController();
+    const startedAt = Date.now();
+    const resultPromise = runGhCommand(
+      ['-e', 'setTimeout(() => {}, 30000)'],
+      process.env,
+      null,
+      controller.signal,
+      process.execPath,
+    );
+    setTimeout(() => controller.abort(), 25);
+
+    await expect(resultPromise).resolves.toMatchObject({
+      stdout: '',
+      stderr: 'Command cancelled',
+      exitCode: 1,
+      cancelled: true,
+    });
+    expect(Date.now() - startedAt).toBeLessThan(5000);
   }, REAL_GH_TIMEOUT_MS);
 });

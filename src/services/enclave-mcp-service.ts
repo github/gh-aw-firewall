@@ -1,4 +1,5 @@
 import {
+  ENCLAVE_AGENT_CLI_PROXY_CONTAINER_NAME,
   ENCLAVE_AGENT_API_PROXY_CONTAINER_NAME,
   ENCLAVE_MCP_SERVER_CONTAINER_NAME,
   LOCAL_ENCLAVE_MCP_SERVER_IMAGE,
@@ -9,6 +10,8 @@ import type { EnclaveAgentEngine, EnclaveAgentProfile } from '../types/enclave-o
 import {
   ENCLAVE_SERVER_AUDIT_DIR,
   ENCLAVE_SERVER_CAPABILITY_PATH,
+  ENCLAVE_SERVER_GITHUB_CAPABILITY_KEY_PATH,
+  ENCLAVE_SERVER_GITHUB_RUN_IDENTITY_PATH,
   ENCLAVE_SERVER_CONTROL_DIR,
   ENCLAVE_SERVER_DOCKER_SOCKET_PATH,
   ENCLAVE_SERVER_SEED_MAP_PATH,
@@ -20,8 +23,13 @@ import {
 import {
   ENCLAVE_AGENT_API_PROXY_ALIAS,
   ENCLAVE_AGENT_API_PROXY_IP,
+  ENCLAVE_AGENT_CLI_PROXY_IP,
   ENCLAVE_AGENT_EGRESS_NETWORK,
   ENCLAVE_AGENT_NETWORK,
+  ENCLAVE_GITHUB_CONTROL_NETWORK,
+  ENCLAVE_GITHUB_CLI_PROXY_IP,
+  ENCLAVE_GITHUB_PROXY_ALIAS,
+  ENCLAVE_GITHUB_PROXY_PORT,
   ENCLAVE_MCP_CONTROL_ALIAS,
   ENCLAVE_MCP_CONTROL_NETWORK,
 } from '../enclave/network';
@@ -40,6 +48,9 @@ import {
   VERTEX_ENV,
 } from '../api-proxy-env-constants';
 import { buildRuntimeImageRef } from '../image-tag';
+import { assignImageSource } from '../image-tag';
+import { CLI_PROXY_PORT } from '../types';
+import { resolveEnclaveGithubGatewayContract } from '../enclave/github-gateway';
 
 /**
  * Compose assembly for the unified enclave MCP server and its executors.
@@ -53,11 +64,10 @@ import { buildRuntimeImageRef } from '../image-tag';
  *   never holds a provider credential.
  * - **script enclaves** run with `--network none`.
  * - **agent enclaves** join *only* the dedicated `internal`
- *   {@link ENCLAVE_AGENT_NETWORK}. The sole other member is a dedicated
- *   API-proxy instance whose logs, metrics, and quota state are private to
- *   this subsystem. No primary agent, Squid, general proxy, MCP server, safe
- *   outputs, MCP gateway, or CLI proxy is on that network, and the API proxy
- *   is the only holder of a real credential.
+ *   {@link ENCLAVE_AGENT_NETWORK}. Its mandatory peer is a dedicated API proxy;
+ *   issues-read-v1 adds only a PAT-free AWF CLI proxy. No primary agent, Squid,
+ *   general proxy, MCP server, safe outputs, or MCP gateway is on that network,
+ *   and the API proxy is the only holder of a provider credential.
  * - the **primary agent** receives no socket, capability, direct URL, private
  *   mount, repository list, ledger state, or control metadata. It reaches the
  *   tools only through the externally launched trusted MCP gateway.
@@ -82,6 +92,8 @@ export interface EnclaveMcpBuildResult {
   agentImageService?: Record<string, unknown>;
   /** Dedicated credential sidecar for agent enclaves, when that executor runs. */
   agentApiProxyService?: Record<string, unknown>;
+  /** PAT-free CLI proxy for the optional issues-read-v1 enclave profile. */
+  agentCliProxyService?: Record<string, unknown>;
   service: Record<string, unknown>;
 }
 
@@ -214,6 +226,7 @@ function buildAgentApiProxyService(params: {
   ]) {
     delete environment[key];
   }
+
   const unusedProviderCredentials = params.engine === 'copilot'
     ? [OPENAI_ENV.KEY, ANTHROPIC_ENV.KEY, GEMINI_ENV.KEY, VERTEX_ENV.KEY]
     : params.profile === 'openai'
@@ -221,6 +234,61 @@ function buildAgentApiProxyService(params: {
       : [OPENAI_ENV.KEY, COPILOT_ENV.GITHUB_TOKEN, COPILOT_ENV.PROVIDER_API_KEY, GEMINI_ENV.KEY, VERTEX_ENV.KEY];
   for (const key of unusedProviderCredentials) delete environment[key];
 
+  return service;
+}
+
+function buildAgentCliProxyService(params: {
+  config: WrapperConfig;
+  imageConfig: ImageBuildConfig;
+  logsPath: string;
+}): Record<string, unknown> {
+  const contract = resolveEnclaveGithubGatewayContract(params.config);
+  const service: Record<string, unknown> = {
+    container_name: ENCLAVE_AGENT_CLI_PROXY_CONTAINER_NAME,
+    networks: {
+      [ENCLAVE_AGENT_NETWORK]: {
+        ipv4_address: ENCLAVE_AGENT_CLI_PROXY_IP,
+      },
+      [ENCLAVE_GITHUB_CONTROL_NETWORK]: {
+        ipv4_address: ENCLAVE_GITHUB_CLI_PROXY_IP,
+      },
+    },
+    volumes: applyHostPathPrefixToVolumes(
+      [
+        `${params.logsPath}:/var/log/cli-proxy:rw`,
+        `${contract.caCertPath}:/tmp/proxy-tls/ca.crt:ro`,
+      ],
+      params.config.dockerHostPathPrefix,
+    ),
+    environment: {
+      AWF_CLI_PROXY_MODE: 'enclave',
+      AWF_CLI_PROXY_PROFILE: 'issues-read-v1',
+      AWF_DIFC_PROXY_HOST: ENCLAVE_GITHUB_PROXY_ALIAS,
+      AWF_DIFC_PROXY_PORT: String(ENCLAVE_GITHUB_PROXY_PORT),
+      AWF_CLI_PROXY_LOG_DIR: '/var/log/cli-proxy',
+    },
+    healthcheck: {
+      test: ['CMD', 'curl', '-f', `http://127.0.0.1:${CLI_PROXY_PORT}/health`],
+      interval: '2s',
+      timeout: '2s',
+      retries: 10,
+      start_period: '5s',
+    },
+    ...buildContainerSecurityHardening({ memLimit: '256m', pidsLimit: 50, cpuShares: 256 }),
+    restart: 'no',
+    stop_grace_period: '5s',
+  };
+  assignImageSource(service, {
+    useGHCR: params.imageConfig.useGHCR,
+    registry: params.imageConfig.registry,
+    imageName: 'cli-proxy',
+    parsedTag: params.imageConfig.parsedTag,
+    projectRoot: params.imageConfig.projectRoot,
+    containerDir: 'cli-proxy',
+  });
+  if (params.imageConfig.useGHCR && params.imageConfig.resolveImage) {
+    service.image = params.imageConfig.resolveImage('cli-proxy');
+  }
   return service;
 }
 
@@ -307,6 +375,14 @@ export function buildEnclaveMcpService(params: EnclaveMcpServiceParams): Enclave
       engine: agent.engine,
       profile: agent.profile,
     });
+    if (agent.github?.cli === 'issues-read-v1') {
+      result.agentCliProxyService = buildAgentCliProxyService({
+        config,
+        imageConfig,
+        logsPath: paths.githubCliProxyLogsDir,
+      });
+      dependsOn['enclave-agent-cli-proxy'] = { condition: 'service_healthy' };
+    }
     const apiPort = resolveEnclaveAgentApiPort(agent.engine, agent.profile);
     Object.assign(environment, {
       AWF_ENCLAVE_AGENT_IMAGE: imageRef,
@@ -326,6 +402,16 @@ export function buildEnclaveMcpService(params: EnclaveMcpServiceParams): Enclave
       AWF_ENCLAVE_AGENT_MAX_OUTPUT_BYTES: String(agent.maxOutputBytes),
       AWF_ENCLAVE_AGENT_MAX_PROMPT_BYTES: String(agent.maxTaskBytes),
       AWF_ENCLAVE_AGENT_MAX_INVOCATIONS: String(agent.maxInvocations),
+      AWF_ENCLAVE_AGENT_GITHUB_ENABLED: String(agent.github?.cli === 'issues-read-v1'),
+      ...(agent.github?.cli === 'issues-read-v1' && {
+        AWF_ENCLAVE_AGENT_GITHUB_PROFILE: agent.github.cli,
+        AWF_ENCLAVE_AGENT_GITHUB_PROXY_URL:
+          `http://${ENCLAVE_AGENT_CLI_PROXY_IP}:${CLI_PROXY_PORT}`,
+        AWF_ENCLAVE_AGENT_GITHUB_CAPABILITY_KEY_PATH:
+          ENCLAVE_SERVER_GITHUB_CAPABILITY_KEY_PATH,
+        AWF_ENCLAVE_AGENT_GITHUB_RUN_IDENTITY_PATH:
+          ENCLAVE_SERVER_GITHUB_RUN_IDENTITY_PATH,
+      }),
       ...(agent.maxModelRequests !== undefined && {
         AWF_ENCLAVE_AGENT_MAX_MODEL_REQUESTS: String(agent.maxModelRequests),
       }),
@@ -339,6 +425,21 @@ export function buildEnclaveMcpService(params: EnclaveMcpServiceParams): Enclave
     });
   }
 
+  const serverVolumes = [
+    `${paths.seedsDir}:${ENCLAVE_SERVER_SEEDS_DIR}:ro`,
+    `${paths.workDir}:${ENCLAVE_SERVER_WORK_DIR}:rw`,
+    `${paths.runDir}:${ENCLAVE_SERVER_CAPABILITY_DIR}:ro`,
+    `${paths.controlDir}:${ENCLAVE_SERVER_CONTROL_DIR}:rw`,
+    `${paths.auditDir}:${ENCLAVE_SERVER_AUDIT_DIR}:rw`,
+    `${paths.seedMapPath}:${ENCLAVE_SERVER_SEED_MAP_PATH}:ro`,
+    `${dockerSocketPath}:${ENCLAVE_SERVER_DOCKER_SOCKET_PATH}:rw`,
+  ];
+  if (agent?.github?.cli === 'issues-read-v1') {
+    serverVolumes.push(
+      `${paths.githubCapabilityKeyPath}:${ENCLAVE_SERVER_GITHUB_CAPABILITY_KEY_PATH}:ro`,
+    );
+  }
+
   result.service = {
     container_name: ENCLAVE_MCP_SERVER_CONTAINER_NAME,
     ...resolveServerImage(imageConfig),
@@ -347,18 +448,7 @@ export function buildEnclaveMcpService(params: EnclaveMcpServiceParams): Enclave
         aliases: [ENCLAVE_MCP_CONTROL_ALIAS],
       },
     },
-    volumes: applyHostPathPrefixToVolumes(
-      [
-        `${paths.seedsDir}:${ENCLAVE_SERVER_SEEDS_DIR}:ro`,
-        `${paths.workDir}:${ENCLAVE_SERVER_WORK_DIR}:rw`,
-        `${paths.runDir}:${ENCLAVE_SERVER_CAPABILITY_DIR}:rw`,
-        `${paths.controlDir}:${ENCLAVE_SERVER_CONTROL_DIR}:rw`,
-        `${paths.auditDir}:${ENCLAVE_SERVER_AUDIT_DIR}:rw`,
-        `${paths.seedMapPath}:${ENCLAVE_SERVER_SEED_MAP_PATH}:ro`,
-        `${dockerSocketPath}:${ENCLAVE_SERVER_DOCKER_SOCKET_PATH}:rw`,
-      ],
-      config.dockerHostPathPrefix,
-    ),
+    volumes: applyHostPathPrefixToVolumes(serverVolumes, config.dockerHostPathPrefix),
     environment,
     depends_on: dependsOn,
     healthcheck: {
@@ -387,4 +477,5 @@ export const enclaveMcpServiceTestHelpers = {
   resolveScriptImage,
   resolveServerImage,
   toDaemonVisiblePath,
+  buildAgentCliProxyService,
 };

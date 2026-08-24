@@ -12,15 +12,23 @@
  *   - Max output size limit to prevent memory exhaustion
  *   - Meta-commands (auth, config, extension) are always denied
  *
- * The gh CLI running inside this container has GH_HOST set to the DIFC proxy
- * (localhost:18443 via TCP tunnel), so it never sees GH_TOKEN directly.
- * Write control is handled by the DIFC guard policy, not by this server.
+ * The gh CLI running inside this container has GH_HOST set to the DIFC proxy.
+ * In enclave mode its auth token is only the invocation capability; the
+ * workflow PAT remains exclusively inside mcpg.
  */
 
 const http = require('http');
 const { accessLog } = require('./access-log');
-const { COMMAND_TIMEOUT_MS, runGhCommand } = require('./gh-runner');
-const { validateArgs, ALWAYS_DENIED_SUBCOMMANDS, PROTECTED_ENV_KEYS, buildExecEnv } = require('./security');
+const { COMMAND_TIMEOUT_MS, runGhCommand, terminateActiveCommands } = require('./gh-runner');
+const {
+  validateArgs,
+  ALWAYS_DENIED_SUBCOMMANDS,
+  PROTECTED_ENV_KEYS,
+  buildExecEnv,
+  extractInvocationCapability,
+  capabilityAuditContext,
+  summarizeEnclaveArgs,
+} = require('./security');
 
 const CLI_PROXY_PORT = parseInt(process.env.AWF_CLI_PROXY_PORT || '11000', 10);
 
@@ -120,31 +128,78 @@ async function handleExec(req, res) {
   }
 
   const { args, cwd, stdin, env: extraEnv } = body;
+  const enclaveMode = process.env.AWF_CLI_PROXY_MODE === 'enclave';
+  let capability;
+  if (enclaveMode) {
+    const authorizationNames = req.rawHeaders.filter(
+      (_value, index) => index % 2 === 0 && req.rawHeaders[index].toLowerCase() === 'authorization',
+    );
+    capability = extractInvocationCapability(req.headers.authorization);
+    if (authorizationNames.length !== 1 || capability === undefined) {
+      accessLog({ event: 'exec_denied', error: 'invalid invocation authorization' });
+      return sendError(res, 401, 'Invalid invocation authorization');
+    }
+    if (
+      cwd !== undefined
+      || extraEnv !== undefined
+      || (stdin !== undefined && stdin !== null)
+      || Object.keys(body).some((key) => !['args', 'stdin'].includes(key))
+    ) {
+      accessLog({ event: 'exec_denied', error: 'enclave request contains an unsupported field' });
+      return sendError(res, 400, 'Enclave request contains an unsupported field');
+    }
+  }
 
   // Validate args
   const validation = validateArgs(args);
   if (!validation.valid) {
-    accessLog({ event: 'exec_denied', args, error: validation.error });
+    accessLog({
+      event: 'exec_denied',
+      ...(enclaveMode ? { profile: 'issues-read-v1' } : { args }),
+      error: validation.error,
+    });
     return sendError(res, 403, validation.error);
   }
 
-  accessLog({ event: 'exec_start', args, cwd: cwd || null });
+  const commandAudit = enclaveMode
+    ? { ...capabilityAuditContext(capability), ...summarizeEnclaveArgs(args) }
+    : { args };
+  accessLog({ event: 'exec_start', ...commandAudit, cwd: enclaveMode ? null : (cwd || null) });
 
-  const childEnv = buildExecEnv(extraEnv);
-  const { stdout, stderr, exitCode } = await runGhCommand(args, childEnv, stdin);
+  const childEnv = buildExecEnv(extraEnv, capability);
+  const abortController = new AbortController();
+  const abortOnDisconnect = () => {
+    if (!res.writableEnded) abortController.abort();
+  };
+  res.once('close', abortOnDisconnect);
+  const { stdout, stderr, exitCode, cancelled } = await runGhCommand(
+    args,
+    childEnv,
+    stdin,
+    abortController.signal,
+  );
+  res.removeListener('close', abortOnDisconnect);
+  if (cancelled) {
+    accessLog({
+      event: 'exec_cancelled',
+      ...commandAudit,
+      durationMs: Date.now() - startTime,
+    });
+    return;
+  }
 
   const responseBody = JSON.stringify({ stdout, stderr, exitCode });
 
   const durationMs = Date.now() - startTime;
   accessLog({
     event: 'exec_done',
-    args,
+    ...commandAudit,
     exitCode,
     durationMs,
     stdoutBytes: stdout.length,
     stderrBytes: stderr.length,
     // Include truncated stderr for debugging failures (redact tokens)
-    ...(exitCode !== 0 && stderr ? { stderrPreview: stderr.slice(0, 500) } : {}),
+    ...(!enclaveMode && exitCode !== 0 && stderr ? { stderrPreview: stderr.slice(0, 500) } : {}),
   });
 
   res.writeHead(200, {
@@ -202,6 +257,15 @@ if (require.main === module) {
     console.error('[cli-proxy] Server error:', err);
     process.exit(1);
   });
+
+  const shutdown = () => {
+    terminateActiveCommands();
+    server.close(() => process.exit(0));
+    const timer = setTimeout(() => process.exit(1), 5000);
+    timer.unref();
+  };
+  process.once('SIGINT', shutdown);
+  process.once('SIGTERM', shutdown);
 }
 
 module.exports = { validateArgs, ALWAYS_DENIED_SUBCOMMANDS, PROTECTED_ENV_KEYS, buildExecEnv, runGhCommand };

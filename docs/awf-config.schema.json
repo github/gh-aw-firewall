@@ -1085,6 +1085,23 @@
                 "minimum": 1,
                 "maximum": 10000000,
                 "description": "Maximum model tokens permitted for one agent invocation."
+              },
+              "github": {
+                "type": "object",
+                "additionalProperties": false,
+                "description": "Optional credential-isolated GitHub access for the single-use agent enclave.",
+                "required": [
+                  "cli"
+                ],
+                "properties": {
+                  "cli": {
+                    "type": "string",
+                    "enum": [
+                      "issues-read-v1"
+                    ],
+                    "description": "Closed REST-only issue-read CLI profile."
+                  }
+                }
               }
             }
           },

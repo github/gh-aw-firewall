@@ -19,6 +19,7 @@ jest.mock('./signal-handler');
 jest.mock('./validate-options');
 jest.mock('../sbx-manager');
 jest.mock('../enclave/gateway');
+jest.mock('../enclave/github-gateway');
 jest.mock('../external-runtime-backend-resolver', () => {
   const actual = jest.requireActual('../external-runtime-backend-resolver');
   return {
@@ -40,6 +41,7 @@ import * as signalHandler from './signal-handler';
 import * as validateOptions from './validate-options';
 import * as sbxManager from '../sbx-manager';
 import * as enclaveGateway from '../enclave/gateway';
+import * as enclaveGithubGateway from '../enclave/github-gateway';
 import * as externalRuntimeResolver from '../external-runtime-backend-resolver';
 import { MAIN_ACTION_STUB_CONFIG, setupMainActionTestHarness } from './main-action.test-utils';
 
@@ -64,6 +66,8 @@ const mockedSignalHandler = signalHandler as jest.Mocked<typeof signalHandler>;
 const mockedValidateOptions = validateOptions as jest.Mocked<typeof validateOptions>;
 const mockedSbxManager = sbxManager as jest.Mocked<typeof sbxManager>;
 const mockedEnclaveGateway = enclaveGateway as jest.Mocked<typeof enclaveGateway>;
+const mockedEnclaveGithubGateway =
+  enclaveGithubGateway as jest.Mocked<typeof enclaveGithubGateway>;
 const mockedExternalRuntimeResolver = externalRuntimeResolver as jest.Mocked<typeof externalRuntimeResolver>;
 
 describe('createMainAction', () => {
@@ -832,15 +836,35 @@ describe('createMainAction', () => {
 
       expect(mockedDockerManager.preserveIptablesAudit).toHaveBeenCalledWith(
         MAIN_ACTION_STUB_CONFIG.workDir,
-        MAIN_ACTION_STUB_CONFIG.auditDir
+        MAIN_ACTION_STUB_CONFIG.auditDir,
+        false
       );
       expect(mockedEnclaveGateway.shutdownEnclaveGateway).toHaveBeenCalledWith(
         MAIN_ACTION_STUB_CONFIG
       );
+      expect(mockedEnclaveGithubGateway.shutdownEnclaveGithubCliProxy)
+        .toHaveBeenCalledWith(MAIN_ACTION_STUB_CONFIG);
       expect(
         mockedEnclaveGateway.shutdownEnclaveGateway.mock.invocationCallOrder[0]
       ).toBeLessThan(
+        mockedEnclaveGithubGateway.shutdownEnclaveGithubCliProxy.mock.invocationCallOrder[0]
+      );
+      expect(
+        mockedEnclaveGithubGateway.shutdownEnclaveGithubCliProxy.mock.invocationCallOrder[0]
+      ).toBeLessThan(
         mockedDockerManager.preserveIptablesAudit.mock.invocationCallOrder[0]
+      );
+      expect(mockedEnclaveGithubGateway.disconnectEnclaveGithubGateway)
+        .toHaveBeenCalledWith(MAIN_ACTION_STUB_CONFIG);
+      expect(
+        mockedDockerManager.preserveIptablesAudit.mock.invocationCallOrder[0]
+      ).toBeLessThan(
+        mockedEnclaveGithubGateway.disconnectEnclaveGithubGateway.mock.invocationCallOrder[0]
+      );
+      expect(
+        mockedEnclaveGithubGateway.disconnectEnclaveGithubGateway.mock.invocationCallOrder[0]
+      ).toBeLessThan(
+        mockedDockerManager.stopContainers.mock.invocationCallOrder[0]
       );
       expect(mockedDockerManager.stopContainers).toHaveBeenCalledWith(
         MAIN_ACTION_STUB_CONFIG.workDir,
@@ -868,6 +892,39 @@ describe('createMainAction', () => {
       );
       expect(mockedDockerManager.preserveIptablesAudit).toHaveBeenCalled();
       expect(mockedDockerManager.stopContainers).toHaveBeenCalled();
+    });
+
+    it('marks the protected audit incomplete when preservation fails', async () => {
+      mockedDockerManager.preserveIptablesAudit.mockReturnValueOnce(false);
+      const config = {
+        ...MAIN_ACTION_STUB_CONFIG,
+        enclaves: {
+          enabled: true,
+          executors: {
+            script: { enabled: false },
+            agent: {
+              enabled: true,
+              github: { cli: 'issues-read-v1' },
+            },
+          },
+        },
+      } as unknown as import('../types').WrapperConfig;
+      const performCleanup = testHelpers.buildCleanupFn(
+        config,
+        () => true,
+        () => false,
+      );
+
+      await performCleanup();
+
+      expect(mockedLogger.warn).toHaveBeenCalledWith(
+        'One or more protected enclave audit artifacts could not be preserved.'
+      );
+      expect(mockWriteFileSync).toHaveBeenCalledWith(
+        expect.stringContaining('enclave-audit-incomplete.txt'),
+        expect.stringContaining('protected audit preservation'),
+        { mode: 0o644 },
+      );
     });
   });
 });

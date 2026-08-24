@@ -1,3 +1,5 @@
+import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 
 /* eslint-disable @typescript-eslint/no-require-imports */
@@ -19,6 +21,18 @@ const { loadAgentConfig, loadServerConfig } = require(path.join(
   'enclave',
   'mcp-server',
   'config.js',
+));
+const { mintGithubCapability } = require(path.join(
+  containersRoot,
+  'enclave',
+  'agent-executor',
+  'github-capability.js',
+));
+const { agentWorkspaceAdapter } = require(path.join(
+  containersRoot,
+  'enclave',
+  'mcp-server',
+  'agent-executor.js',
 ));
 /* eslint-enable @typescript-eslint/no-require-imports */
 
@@ -95,6 +109,29 @@ describe('unified enclave agent runner specification', () => {
       '/daemon/private/enclave/work/0123456789abcdef/session.jsonl:/awf/session.jsonl:rw',
     );
     expect(spec.launchArgs).toContain('--entrypoint');
+  });
+
+  it('mounts only the invocation capability for issues-read-v1', () => {
+    const githubSpec = deriveEnclaveContainerSpec({
+      config: {
+        ...trustedConfig,
+        githubEnabled: true,
+        githubProfile: 'issues-read-v1',
+        githubProxyUrl: 'http://172.31.0.40:11000',
+        enclaveGithubCapabilityPath: '/run/awf-enclave-github/capability',
+      },
+      runId: 'abcdef1234567890',
+      invocationId: '0123456789abcdef',
+      seedId: 'b'.repeat(32),
+    });
+    expect(githubSpec.launchArgs).toEqual(expect.arrayContaining([
+      '--env', 'AWF_ENCLAVE_AGENT_GITHUB_PROFILE=issues-read-v1',
+      '--env', 'AWF_ENCLAVE_AGENT_GITHUB_PROXY_URL=http://172.31.0.40:11000',
+      '-v',
+      '/daemon/private/enclave/work/0123456789abcdef/github-capability:' +
+        '/run/awf-enclave-github/capability:ro',
+    ]));
+    expect(githubSpec.launchArgs.join(' ')).not.toMatch(/MCP_GATEWAY|githubCapabilityKey|GH_TOKEN/);
   });
 
   it('never accepts an invocation-supplied control', () => {
@@ -179,6 +216,27 @@ describe('unified enclave agent runner specification', () => {
     await expect(runner.assertAvailable()).resolves.toBeUndefined();
   });
 
+  it('requires the PAT-free CLI proxy as the second steady-state peer when enabled', async () => {
+    const runner = createEnclaveRunner(
+      { ...trustedConfig, backend: 'docker', githubEnabled: true },
+      {
+        docker: {
+          runDocker: async (args: string[]) => ({
+            exitCode: 0,
+            timedOut: false,
+            stdout: args[0] === 'network'
+              ? 'true|bridge|172.31.0.0/24,|' +
+                'awf-enclave-agent-api-proxy@172.31.0.30/24,' +
+                'awf-enclave-agent-cli-proxy@172.31.0.40/24,'
+              : '[]',
+            stderr: '',
+          }),
+        },
+      },
+    );
+    await expect(runner.assertAvailable()).resolves.toBeUndefined();
+  });
+
   it('revalidates exact network membership immediately before every launch', async () => {
     const calls: string[][] = [];
     const runner = createEnclaveRunner(
@@ -205,6 +263,74 @@ describe('unified enclave agent runner specification', () => {
       seedId: 'b'.repeat(32),
     })).rejects.toThrow(/unavailable or not isolated/);
     expect(calls.some((args) => args[0] === 'run')).toBe(false);
+  });
+
+  describe('issues-read-v1 capability serialization', () => {
+    it('matches the canonical mcpg v1 vector byte for byte', () => {
+      expect(mintGithubCapability({
+        keyHex: '000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f',
+        runId: 'run-123',
+        invocationId: 'inv-456',
+        repo: 'octo/private',
+        notBefore: 1787594400,
+        expiresAt: 1787594520,
+      })).toBe(
+        'awf-egh1.' +
+        'eyJ2IjoxLCJhdWQiOiJnaC1hdy1lbmNsYXZlLWdpdGh1YiIsInJ1biI6InJ1bi0xMjMiLCJpbnYiOiJpbnYtNDU2IiwicmVwbyI6Im9jdG8vcHJpdmF0ZSIsInByb2ZpbGUiOiJpc3N1ZXMtcmVhZC12MSIsIm9wcyI6WyJpc3N1ZXMuY29tbWVudHMubGlzdCIsImlzc3Vlcy5nZXQiLCJpc3N1ZXMubGlzdCJdLCJuYmYiOjE3ODc1OTQ0MDAsImV4cCI6MTc4NzU5NDUyMH0.' +
+        '6fDSD-uxmi_fCZMOFmSuckdNBGx5qcWMI1HCgoXtA3o',
+      );
+    });
+
+    it.each([
+      { keyHex: 'A'.repeat(64) },
+      { repo: 'Octo/private' },
+      { runId: '../run' },
+      { notBefore: -1 },
+      { expiresAt: 1787594399 },
+    ])('rejects noncanonical signer input (%j)', (override) => {
+      expect(() => mintGithubCapability({
+        keyHex: '0'.repeat(64),
+        runId: 'run-123',
+        invocationId: 'inv-456',
+        repo: 'octo/private',
+        notBefore: 1787594400,
+        expiresAt: 1787594520,
+        ...override,
+      })).toThrow();
+    });
+
+    it('uses the compiler proxy identity as the token run claim, not the seed runId', () => {
+      const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-capability-run-'));
+      try {
+        const seedRunId = '0123456789abcdef0123456789abcdef';
+        const githubRunIdentity = 'gh-aw-egh-123456-1-abcdef123456';
+        const layout = agentWorkspaceAdapter.createInvocationWorkspace({
+          config: {
+            workDir,
+            auditDir: path.join(workDir, 'audit'),
+            enclaveUid: process.getuid?.() ?? 0,
+            enclaveGid: process.getgid?.() ?? 0,
+            timeoutSeconds: 120,
+            githubEnabled: true,
+            githubCapabilityKey: '0'.repeat(64),
+            githubRunIdentity,
+          },
+          runId: seedRunId,
+          invocationId: 'abcdef1234567890',
+          privateRepo: 'octo/private',
+          schema: { type: 'object' },
+          prompt: 'read one issue',
+        });
+        const token = fs.readFileSync(layout.githubCapabilityPath, 'utf8').trim();
+        const payload = JSON.parse(
+          Buffer.from(token.split('.')[1], 'base64url').toString('utf8'),
+        );
+        expect(payload.run).toBe(githubRunIdentity);
+        expect(payload.run).not.toBe(seedRunId);
+      } finally {
+        fs.rmSync(workDir, { recursive: true, force: true });
+      }
+    });
   });
 });
 
@@ -277,6 +403,26 @@ describe('unified enclave agent server configuration', () => {
   ])('fails closed for an unsupported %s', (name, value) => {
     setEnv({ [name]: value });
     expect(() => loadAgentConfig(server)).toThrow();
+  });
+
+  it('loads the capability root and compiler run identity only from fixed private files', () => {
+    setEnv({
+      AWF_ENCLAVE_AGENT_GITHUB_ENABLED: 'true',
+      AWF_ENCLAVE_AGENT_GITHUB_PROFILE: 'issues-read-v1',
+      AWF_ENCLAVE_AGENT_GITHUB_PROXY_URL: 'http://172.31.0.40:11000',
+      AWF_ENCLAVE_AGENT_GITHUB_CAPABILITY_KEY_PATH:
+        '/run/awf-enclave-mcp/github-capability-key',
+      AWF_ENCLAVE_AGENT_GITHUB_RUN_IDENTITY_PATH:
+        '/run/awf-enclave-mcp/github-run-identity',
+    });
+    const config = loadAgentConfig(server, {
+      readFileSync: (target: string) => target.endsWith('github-capability-key')
+        ? '0'.repeat(64)
+        : 'gh-aw-egh-123456-1-abcdef123456',
+    });
+    expect(config.githubCapabilityKey).toBe('0'.repeat(64));
+    expect(config.githubRunIdentity).toBe('gh-aw-egh-123456-1-abcdef123456');
+    expect(process.env.AWF_ENCLAVE_GITHUB_PROXY_IDENTITY).toBeUndefined();
   });
 
   it('requires an AWF capability before serving either executor', () => {

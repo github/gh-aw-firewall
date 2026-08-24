@@ -25,9 +25,11 @@ fi
 
 # Start the TCP tunnel: localhost:${DIFC_PORT} → ${DIFC_HOST}:${DIFC_PORT}
 # This allows the gh CLI to connect via localhost, matching the cert's SAN.
-echo "[cli-proxy] Starting TCP tunnel: localhost:${DIFC_PORT} → ${DIFC_HOST}:${DIFC_PORT}"
-node /app/tcp-tunnel.js "${DIFC_PORT}" "${DIFC_HOST}" "${DIFC_PORT}" &
-TUNNEL_PID=$!
+if [ "${AWF_CLI_PROXY_MODE:-primary}" != "enclave" ]; then
+  echo "[cli-proxy] Starting TCP tunnel: localhost:${DIFC_PORT} to ${DIFC_HOST}:${DIFC_PORT}"
+  node /app/tcp-tunnel.js "${DIFC_PORT}" "${DIFC_HOST}" "${DIFC_PORT}" &
+  TUNNEL_PID=$!
+fi
 
 # Verify CA cert is available (bind-mounted from host by docker-manager.ts).
 # Unlike the old architecture where mcpg generated the cert at runtime, the
@@ -50,7 +52,11 @@ echo "[cli-proxy] Combined CA bundle created at ${COMBINED_CA}"
 # Configure gh CLI to route through the DIFC proxy via the TCP tunnel
 # Uses localhost because the tunnel makes the DIFC proxy appear on localhost,
 # matching the self-signed cert's SAN.
-export GH_HOST="localhost:${DIFC_PORT}"
+if [ "${AWF_CLI_PROXY_MODE:-primary}" = "enclave" ]; then
+  export GH_HOST="${DIFC_HOST}:${DIFC_PORT}"
+else
+  export GH_HOST="localhost:${DIFC_PORT}"
+fi
 export GH_REPO="${GH_REPO:-$GITHUB_REPOSITORY}"
 # Node.js (server.js / tcp-tunnel.js) uses NODE_EXTRA_CA_CERTS;
 # gh CLI (Go) uses SSL_CERT_FILE pointing to the combined bundle;
@@ -100,6 +106,9 @@ PROBE_OUT_FILE="$(mktemp)"
 PROBE_ERR_FILE="$(mktemp)"
 trap 'rm -f "${PROBE_OUT_FILE}" "${PROBE_ERR_FILE}"' EXIT
 ATTEMPT=1
+if [ "${AWF_CLI_PROXY_MODE:-primary}" = "enclave" ]; then
+  MAX_LIVENESS_ATTEMPTS=0
+fi
 while [ "$ATTEMPT" -le "$MAX_LIVENESS_ATTEMPTS" ]; do
   # Capture stdout (the gh response body) and stderr separately so a
   # "reachable but the forwarded API call failed" result (e.g. wrong API host

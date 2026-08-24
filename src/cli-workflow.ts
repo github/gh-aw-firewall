@@ -49,6 +49,10 @@ export interface WorkflowDependencies {
   connectEnclaveGateway?: (config: WrapperConfig) => Promise<void>;
   /** Proves initialize and the exact enabled tool contracts through mcpg. */
   assertEnclaveGatewayReady?: (config: WrapperConfig) => Promise<void>;
+  /** Attaches compiler-owned mcpg to the PAT-free enclave GitHub control path. */
+  connectEnclaveGithubGateway?: (config: WrapperConfig) => Promise<void>;
+  /** Proves the fixed TLS route through the PAT-free enclave CLI proxy. */
+  assertEnclaveGithubGatewayReady?: (config: WrapperConfig) => Promise<void>;
 }
 
 interface WorkflowCallbacks {
@@ -207,6 +211,19 @@ export async function runMainWorkflow(
         }
         logger.info('Attaching the trusted MCP gateway to the private enclave control path...');
         await dependencies.connectEnclaveGateway(config);
+        if (config.enclaves?.executors.agent.github?.cli === 'issues-read-v1') {
+          if (
+            !dependencies.connectEnclaveGithubGateway
+            || !dependencies.assertEnclaveGithubGatewayReady
+          ) {
+            throw new Error(
+              'issues-read-v1 requires an exclusive enclave GitHub gateway readiness implementation',
+            );
+          }
+          logger.info('Attaching the compiler-owned GitHub proxy to its private control path...');
+          await dependencies.connectEnclaveGithubGateway(config);
+          await dependencies.assertEnclaveGithubGatewayReady(config);
+        }
         logger.info('Proving enclave tools end to end through the MCP gateway...');
         await dependencies.assertEnclaveGatewayReady(config);
       }

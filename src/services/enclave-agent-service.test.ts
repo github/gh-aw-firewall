@@ -10,6 +10,8 @@ import {
   ENCLAVE_AGENT_EGRESS_NETWORK,
   ENCLAVE_AGENT_NETWORK,
   ENCLAVE_AGENT_SUBNET,
+  ENCLAVE_GITHUB_CONTROL_NETWORK,
+  ENCLAVE_GITHUB_CONTROL_SUBNET,
 } from '../enclave/network';
 
 function config(overrides: Partial<WrapperConfig> = {}): WrapperConfig {
@@ -191,6 +193,59 @@ describe('unified enclave agent executor compose assembly', () => {
     expect(() => build({ enclaves }))
       .toThrow(/at least one enclave executor must be enabled/);
   });
+
+  it('builds a PAT-free dual-homed CLI proxy only for issues-read-v1', () => {
+    const directory = fs.mkdtempSync(path.join(__dirname, 'awf-enclave-github-'));
+    const caCert = path.join(directory, 'ca.crt');
+    fs.writeFileSync(caCert, 'test-ca');
+    const originalEnv = process.env;
+    process.env = {
+      ...originalEnv,
+      AWF_ENCLAVE_GITHUB_PROXY_CONTAINER: 'compiler-mcpg',
+      AWF_ENCLAVE_GITHUB_PROXY_IDENTITY: 'gh-aw-egh-123456-1-abcdef123456',
+      AWF_ENCLAVE_GITHUB_PROXY_CA_CERT: caCert,
+    };
+    try {
+      const enclaves = normalizeEnclavesConfig([{
+        agent: {
+          model: 'trusted-model',
+          github: { cli: 'issues-read-v1' },
+        },
+        repos: [{ repo: 'octo/private', sensitivity: 'internal' }],
+      }]);
+      const result = build({ enclaves });
+      const proxy = result.agentCliProxyService as Record<string, any>;
+      expect(proxy.container_name).toBe('awf-enclave-agent-cli-proxy');
+      expect(proxy.networks).toEqual({
+        [ENCLAVE_AGENT_NETWORK]: { ipv4_address: '172.31.0.40' },
+        [ENCLAVE_GITHUB_CONTROL_NETWORK]: { ipv4_address: '172.32.0.10' },
+      });
+      expect(proxy.networks).not.toHaveProperty(ENCLAVE_AGENT_EGRESS_NETWORK);
+      expect(proxy.environment).toMatchObject({
+        AWF_CLI_PROXY_MODE: 'enclave',
+        AWF_CLI_PROXY_PROFILE: 'issues-read-v1',
+        AWF_DIFC_PROXY_HOST: 'awf-enclave-github-proxy',
+        AWF_DIFC_PROXY_PORT: '18443',
+      });
+      expect(JSON.stringify(proxy.environment)).not.toMatch(/TOKEN|CAPABILITY|PAT/);
+      expect(result.service.depends_on).toMatchObject({
+        'enclave-agent-cli-proxy': { condition: 'service_healthy' },
+      });
+      const serverVolumes = result.service.volumes as string[];
+      expect(serverVolumes).toEqual(expect.arrayContaining([
+        expect.stringMatching(/github-capability-key:\/run\/awf-enclave-mcp\/github-capability-key:ro$/),
+      ]));
+      expect(result.service.environment).toMatchObject({
+        AWF_ENCLAVE_AGENT_GITHUB_RUN_IDENTITY_PATH:
+          '/run/awf-enclave-mcp/github-run-identity',
+      });
+      expect(JSON.stringify(result.service.environment))
+        .not.toContain('gh-aw-egh-123456-1-abcdef123456');
+    } finally {
+      process.env = originalEnv;
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('dedicated enclave agent API proxy', () => {
@@ -350,5 +405,48 @@ describe('unified enclave compose topology', () => {
       'enclave-agent-image': { condition: 'service_completed_successfully' },
       'enclave-agent-api-proxy': { condition: 'service_healthy' },
     });
+  });
+
+  it('adds the fixed internal GitHub control network only for the opted-in profile', () => {
+    const directory = fs.mkdtempSync(path.join(__dirname, 'awf-enclave-github-compose-'));
+    const caCert = path.join(directory, 'ca.crt');
+    fs.writeFileSync(caCert, 'test-ca');
+    const originalEnv = process.env;
+    process.env = {
+      ...originalEnv,
+      AWF_ENCLAVE_GITHUB_PROXY_CONTAINER: 'compiler-mcpg',
+      AWF_ENCLAVE_GITHUB_PROXY_IDENTITY: 'gh-aw-egh-123456-1-abcdef123456',
+      AWF_ENCLAVE_GITHUB_PROXY_CA_CERT: caCert,
+    };
+    try {
+      const enclaves = normalizeEnclavesConfig([{
+        agent: {
+          model: 'trusted-model',
+          github: { cli: 'issues-read-v1' },
+        },
+        repos: [{ repo: 'octo/private', sensitivity: 'internal' }],
+      }]);
+      const compose = generateDockerCompose(composeConfig({ enclaves }), networkConfig);
+      expect(compose.networks[ENCLAVE_GITHUB_CONTROL_NETWORK]).toMatchObject({
+        name: ENCLAVE_GITHUB_CONTROL_NETWORK,
+        driver: 'bridge',
+        internal: true,
+        ipam: { config: [{ subnet: ENCLAVE_GITHUB_CONTROL_SUBNET }] },
+      });
+      const enclaveMembers = Object.entries(compose.services)
+        .filter(([, service]) => Object.prototype.hasOwnProperty.call(
+          (service as Record<string, any>).networks ?? {},
+          ENCLAVE_AGENT_NETWORK,
+        ))
+        .map(([name]) => name)
+        .sort();
+      expect(enclaveMembers).toEqual([
+        'enclave-agent-api-proxy',
+        'enclave-agent-cli-proxy',
+      ]);
+    } finally {
+      process.env = originalEnv;
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
   });
 });

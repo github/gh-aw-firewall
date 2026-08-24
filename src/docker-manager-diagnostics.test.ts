@@ -138,6 +138,30 @@ describe('docker-manager diagnostics', () => {
       expect(fs.existsSync(path.join(auditDir, 'iptables-audit.txt'))).toBe(false);
     });
 
+    it('preserves the required GitHub CLI audit independently of iptables audit', () => {
+      const paths = resolveEnclavePaths(getDir());
+      fs.mkdirSync(paths.githubCliProxyLogsDir, { recursive: true });
+      fs.writeFileSync(path.join(paths.githubCliProxyLogsDir, 'access.jsonl'), '{"event":"exec_done"}\n');
+      const auditDir = path.join(getDir(), 'audit');
+      fs.mkdirSync(auditDir, { recursive: true });
+      mockExecaSync.mockReturnValue({ exitCode: 0, stdout: '', stderr: '' });
+
+      expect(preserveIptablesAudit(getDir(), auditDir, true)).toBe(true);
+
+      expect(fs.readFileSync(
+        path.join(auditDir, 'enclave-github-cli-access.jsonl'),
+        'utf8',
+      )).toBe('{"event":"exec_done"}\n');
+      fs.rmSync(paths.root, { recursive: true, force: true });
+    });
+
+    it('reports an incomplete protected audit when the required CLI audit is absent', () => {
+      const auditDir = path.join(getDir(), 'audit');
+      fs.mkdirSync(auditDir, { recursive: true });
+
+      expect(preserveIptablesAudit(getDir(), auditDir, true)).toBe(false);
+    });
+
     it('should do nothing when target audit directory does not exist', () => {
       const initSignalDir = path.join(getDir(), 'init-signal');
       fs.mkdirSync(initSignalDir, { recursive: true });
@@ -195,6 +219,20 @@ describe('docker-manager diagnostics', () => {
         ],
         expect.objectContaining({ reject: false }),
       );
+      fs.rmSync(resolveEnclavePaths(getDir()).root, { recursive: true, force: true });
+    });
+
+    it('does not mark audit incomplete when no agent session directory exists', () => {
+      fs.mkdirSync(resolveEnclavePaths(getDir()).root, { recursive: true });
+      const auditDir = path.join(getDir(), 'audit');
+      fs.mkdirSync(auditDir);
+      mockExecaSync
+        .mockReturnValueOnce({ exitCode: 0, stdout: '', stderr: '' })
+        .mockReturnValueOnce({ exitCode: 0, stdout: '', stderr: '' })
+        .mockReturnValueOnce({ exitCode: 1, stdout: '', stderr: 'sessions missing' });
+
+      expect(preserveIptablesAudit(getDir(), auditDir)).toBe(true);
+
       fs.rmSync(resolveEnclavePaths(getDir()).root, { recursive: true, force: true });
     });
 

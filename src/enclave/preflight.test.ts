@@ -136,6 +136,35 @@ describe('validateEnclavesConfig', () => {
     }))).toEqual([]);
   });
 
+  it('accepts only the closed GitHub CLI profile when schema validation is bypassed', () => {
+    const accepted = normalizeEnclavesConfig([
+      {
+        agent: { model: 'gpt-test', github: { cli: 'issues-read-v1' } },
+        repos: [{ repo: 'octo/private', sensitivity: 'internal' }],
+      },
+    ]);
+    expect(validateEnclavesConfig(config({
+      enclaves: accepted,
+      enableApiProxy: true,
+      copilotGithubToken: 'token',
+    }))).toEqual([]);
+
+    const rejected = normalizeEnclavesConfig([
+      {
+        agent: {
+          model: 'gpt-test',
+          github: { cli: 'read-only' as 'issues-read-v1' },
+        },
+        repos: [{ repo: 'octo/private', sensitivity: 'internal' }],
+      },
+    ]);
+    expect(validateEnclavesConfig(config({
+      enclaves: rejected,
+      enableApiProxy: true,
+      copilotGithubToken: 'token',
+    })).join('\n')).toMatch(/agent\.github\.cli must be "issues-read-v1"/);
+  });
+
   it('rejects an agent executor whose engine has no audited enclave image', () => {
     const enclaves = normalizeEnclavesConfig([
       {

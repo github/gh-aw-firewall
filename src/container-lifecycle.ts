@@ -8,6 +8,7 @@ import {
   API_PROXY_CONTAINER_NAME,
   CLI_PROXY_CONTAINER_NAME,
   ENCLAVE_AGENT_API_PROXY_CONTAINER_NAME,
+  ENCLAVE_AGENT_CLI_PROXY_CONTAINER_NAME,
   ENCLAVE_MCP_SERVER_CONTAINER_NAME,
 } from './constants';
 import { getLocalDockerEnv } from './docker-host';
@@ -310,6 +311,7 @@ export async function startContainers(
       CLI_PROXY_CONTAINER_NAME,
       ENCLAVE_MCP_SERVER_CONTAINER_NAME,
       ENCLAVE_AGENT_API_PROXY_CONTAINER_NAME,
+      ENCLAVE_AGENT_CLI_PROXY_CONTAINER_NAME,
     ], {
       reject: false,
       env: getLocalDockerEnv(),

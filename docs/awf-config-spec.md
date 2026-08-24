@@ -312,6 +312,7 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 - `enclaves[].agent.maxTaskBytes` → *(config-only; no CLI equivalent, see §14)*
 - `enclaves[].agent.maxModelRequests` → *(config-only; no CLI equivalent, see §14)*
 - `enclaves[].agent.maxModelTokens` → *(config-only; no CLI equivalent, see §14)*
+- `enclaves[].agent.github.cli` → *(config-only; closed optional profile, see §14.3)*
 
 When `container.dockerHostPathPrefix` points at a daemon-visible shared `/tmp` path, the implementation stages the invoking CLI binary together with `/etc/passwd`, `/etc/group`, and the generated chroot `/etc/hosts` under that shared path so chroot mode can bootstrap on split-filesystem ARC/DinD hosts.
 
@@ -1751,6 +1752,8 @@ enclaves:
       model: gpt-5
       maxModelRequests: 3
       maxModelTokens: 10000
+      github:
+        cli: issues-read-v1
     runtime: gvisor
     memoryLimit: 256m
     maxOutputBytes: 2048
@@ -1762,7 +1765,7 @@ enclaves:
 ```
 
 - **Script executor** — an entry keyed by `script`; launches a no-network, read-only, single-use Python sandbox. An empty `script: {}` object is valid and selects AWF's pinned defaults.
-- **Agent executor** — an entry keyed by `agent`; launches a bounded single-use Copilot enclave whose only network peer is the dedicated API proxy. `agent.model` is REQUIRED.
+- **Agent executor** — an entry keyed by `agent`; launches a bounded single-use Copilot enclave. `agent.model` is REQUIRED. Optional `agent.github.cli: issues-read-v1` adds the PAT-free AWF CLI proxy as the only additional peer.
 - **Entry-level controls** — `runtime`, `image`, `memoryLimit`, `cpuLimit`, `pidsLimit`, `tmpfsLimit`, `maxOutputBytes`, and `maxInvocations` apply to the entry's selected executor. `script.maxScriptBytes` and agent `maxTaskBytes`, `maxModelRequests`, and `maxModelTokens` remain executor-specific. Network and interpreter are AWF-owned invariants, not input fields.
 
 At most one entry MAY exist per executor kind, and each entry MUST declare exactly one executor key. Every entry's `repos` list is merged into one trusted repository catalog: a repository shared by both entries MUST declare the same `sensitivity`, because sensitivity fixes one shared per-run information budget that both executors debit.
@@ -1799,15 +1802,59 @@ The primary agent MUST NOT receive a broker socket, wrapper binary, direct serve
 
 `enclave-mcp-server` joins only the private `awf-enclave-mcp-control` network. The compiler launches `gh-aw-mcpg`, labels it for the run, and passes AWF the private gateway endpoint plus a run-unique capability/identity handoff. The server is reachable **only** through that gateway.
 
-When the agent executor is enabled, each invocation joins only the dedicated `internal` `awf-enclave-agent` network. Its sole reachable peer is the dedicated enclave API proxy. Squid, the primary agent, the general API proxy, safe outputs, the MCP gateway, and the MCP server itself are excluded from that network.
+When the agent executor is enabled, each invocation joins only the dedicated
+`internal` `awf-enclave-agent` network. Its mandatory peer is the dedicated
+enclave API proxy. With `issues-read-v1`, the only additional peer is an
+AWF-owned PAT-free CLI proxy at `172.31.0.40:11000`. That proxy is dual-homed
+onto the internal `awf-enclave-github-control` network
+(`172.32.0.0/24`), where compiler-owned mcpg is attached under the fixed alias
+`awf-enclave-github-proxy:18443`. mcpg never joins the enclave network.
+Squid, the primary agent, general proxies, safe outputs, the MCP gateway, and
+the MCP server itself remain excluded.
 
-The rollout contract depends on both upstream projects:
+The base compiler handoff from `github/gh-aw#50920` and late backend
+rediscovery from `github/gh-aw-mcpg#10784` are present on current defaults:
+gh-aw pins mcpg v0.4.10 and mcpg reports MCP Gateway spec 1.16.0. The base floor
+remains spec 1.15.0 and a post-v0.4.8 mcpg release.
 
-1. `github/gh-aw#50920` — compiler support for the enclave upstream, capability handoff, identity label, endpoint propagation, and timeout handoff.
-2. `github/gh-aw-mcpg#10784` — late backend rediscovery so an initially unavailable HTTP backend can appear after gateway startup.
-3. MCP Gateway spec **1.15.0** and the **first mcpg release after v0.4.8 containing it**.
+`issues-read-v1` additionally requires the first compiler/mcpg releases with
+the dedicated proxy policy, v1 token vectors, public-visibility proof, secrecy
+labels, and proxy identity/readiness contract. The compiler MUST gate or pin
+the first supporting AWF release. Older AWF versions reject the closed
+`github` field; AWF has no compatibility fallback.
 
 While the backend is still starting, mcpg may return retryable HTTP `503 backend_unavailable`. AWF retries `initialize` with bounded backoff until `AWF_ENCLAVE_MCP_READINESS_TIMEOUT_MS` expires, then fails closed before the primary agent starts.
+
+For `issues-read-v1`, the compiler supplies
+`AWF_ENCLAVE_GITHUB_PROXY_CONTAINER`,
+`AWF_ENCLAVE_GITHUB_PROXY_IDENTITY`,
+`AWF_ENCLAVE_GITHUB_PROXY_CA_CERT`, and
+`MCP_GATEWAY_ENCLAVE_CAPABILITY_KEY`. The last value MUST be exactly 32 random
+bytes encoded as 64 lowercase hexadecimal characters. AWF writes it mode 0600
+beneath the private enclave run root, mounts it read-only only into
+`enclave-mcp-server`, and removes it from the host environment. The proxy
+identity MUST match `^[a-z0-9][a-z0-9-]{0,63}$` and mcpg policy
+`workflow_run_id` byte for byte; AWF stages it in a separate mode-0600 private
+file. Policy JSON reaches only mcpg; the AWF CLI proxy receives no PAT, HMAC
+root, policy, or caller-configurable endpoint.
+
+The server mints one short-lived `awf-egh1` HMAC capability per admitted
+invocation. Its canonical compact JSON field order is
+`v,aud,run,inv,repo,profile,ops,nbf,exp`; the fixed sorted operations are
+`issues.comments.list`, `issues.get`, and `issues.list`. The enclave receives
+only that token as a read-only file. The `run` claim is the compiler proxy
+identity, not AWF's independent random seed-map/container-reconciliation run
+ID. Its `gh` wrapper permits only bounded
+`gh api` GET calls for:
+
+- `repos/{owner}/{repo}/issues`
+- `repos/{owner}/{repo}/issues/{number}`
+- `repos/{owner}/{repo}/issues/{number}/comments`
+
+GraphQL, search, writes, arbitrary paths, absolute or alternate hosts,
+traversal, body/input/field flags, auth/config/extensions/aliases, environment
+overrides, and shell execution are rejected. Stock `gh issue` commands are not
+part of v1 because they commonly use GraphQL.
 
 ### 14.4 Shared ledger and disclosure
 

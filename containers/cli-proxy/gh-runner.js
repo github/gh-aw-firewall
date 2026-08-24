@@ -4,6 +4,20 @@ const { execFile } = require('child_process');
 
 const COMMAND_TIMEOUT_MS = parseInt(process.env.AWF_CLI_PROXY_TIMEOUT_MS || '30000', 10);
 const MAX_OUTPUT_BYTES = parseInt(process.env.AWF_CLI_PROXY_MAX_OUTPUT_BYTES || String(10 * 1024 * 1024), 10);
+const activeChildren = new Set();
+
+function terminateChild(child) {
+  if (!child || child.exitCode !== null || child.killed) return;
+  child.kill('SIGTERM');
+  const timer = setTimeout(() => {
+    if (child.exitCode === null) child.kill('SIGKILL');
+  }, 1000);
+  timer.unref();
+}
+
+function terminateActiveCommands() {
+  for (const child of activeChildren) terminateChild(child);
+}
 
 /**
  * Execute `gh` with the given args, environment, and optional base64-encoded stdin.
@@ -15,9 +29,11 @@ const MAX_OUTPUT_BYTES = parseInt(process.env.AWF_CLI_PROXY_MAX_OUTPUT_BYTES || 
  * @param {string[]} args - Arguments passed to gh (excluding 'gh' itself)
  * @param {NodeJS.ProcessEnv} childEnv - Environment for the child process
  * @param {string|null|undefined} stdin - Optional base64-encoded stdin data
- * @returns {Promise<{stdout: string, stderr: string, exitCode: number}>}
+ * @param {AbortSignal|undefined} signal - Cancels the child when the HTTP client disconnects
+ * @param {string} executable - Command path; overridden only by focused process-lifecycle tests
+ * @returns {Promise<{stdout: string, stderr: string, exitCode: number, cancelled?: boolean}>}
  */
-async function runGhCommand(args, childEnv, stdin) {
+async function runGhCommand(args, childEnv, stdin, signal, executable = 'gh') {
   const normalizeExitCode = code => {
     if (typeof code === 'number' && Number.isFinite(code)) {
       return code;
@@ -33,13 +49,25 @@ async function runGhCommand(args, childEnv, stdin) {
 
   try {
     return await new Promise((resolve, reject) => {
-      const child = execFile('gh', args, {
+      let cancelled = false;
+      const child = execFile(executable, args, {
         cwd: process.cwd(),
         env: childEnv,
         timeout: COMMAND_TIMEOUT_MS,
         maxBuffer: MAX_OUTPUT_BYTES,
         encoding: 'utf8',
       }, (err, childStdout, childStderr) => {
+        activeChildren.delete(child);
+        signal?.removeEventListener('abort', abort);
+        if (cancelled) {
+          resolve({
+            stdout: '',
+            stderr: 'Command cancelled',
+            exitCode: 1,
+            cancelled: true,
+          });
+          return;
+        }
         if (err && err.code === undefined && err.signal) {
           // Killed by timeout or signal
           reject(err);
@@ -51,6 +79,17 @@ async function runGhCommand(args, childEnv, stdin) {
           exitCode: err ? normalizeExitCode(err.code) : 0,
         });
       });
+      activeChildren.add(child);
+
+      const abort = () => {
+        cancelled = true;
+        terminateChild(child);
+      };
+      if (signal?.aborted) {
+        abort();
+      } else {
+        signal?.addEventListener('abort', abort, { once: true });
+      }
 
       // Feed stdin if provided (base64-encoded)
       if (stdin) {
@@ -76,4 +115,5 @@ module.exports = {
   COMMAND_TIMEOUT_MS,
   MAX_OUTPUT_BYTES,
   runGhCommand,
+  terminateActiveCommands,
 };

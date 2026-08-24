@@ -17,6 +17,21 @@ function config(): WrapperConfig {
   } as WrapperConfig;
 }
 
+function githubConfig(): WrapperConfig {
+  return {
+    ...config(),
+    enableApiProxy: true,
+    copilotGithubToken: 'copilot-test-token',
+    enclaves: normalizeEnclavesConfig([{
+      agent: {
+        model: 'trusted-model',
+        github: { cli: 'issues-read-v1' },
+      },
+      repos: [{ repo: 'octo/private', sensitivity: 'internal' }],
+    }]),
+  } as WrapperConfig;
+}
+
 describe('unified enclave workflow integration', () => {
   it('stages before config generation and container startup', async () => {
     const order: string[] = [];
@@ -45,5 +60,70 @@ describe('unified enclave workflow integration', () => {
       logger: { info: jest.fn(), success: jest.fn(), warn: jest.fn() },
       performCleanup: jest.fn(),
     })).rejects.toThrow(/no staging implementation/);
+  });
+
+  it('attaches and proves both private gateways before primary-agent startup', async () => {
+    const order: string[] = [];
+    await runMainWorkflow(githubConfig(), {
+      ensureFirewallNetwork: jest.fn(),
+      setupHostIptables: jest.fn(),
+      prepareEnclaves: jest.fn(),
+      writeConfigs: jest.fn(),
+      startContainers: jest.fn(async (
+        _workDir: string,
+        _domains: string[],
+        _logs?: string,
+        _skipPull?: boolean,
+        _networkReady?: () => Promise<void>,
+        infrastructureReady?: () => Promise<void>,
+      ) => {
+        order.push('infrastructure');
+        await infrastructureReady?.();
+      }),
+      connectEnclaveGateway: jest.fn(async () => { order.push('mcp-connect'); }),
+      connectEnclaveGithubGateway: jest.fn(async () => { order.push('github-connect'); }),
+      assertEnclaveGithubGatewayReady: jest.fn(async () => { order.push('github-ready'); }),
+      assertEnclaveGatewayReady: jest.fn(async () => { order.push('mcp-ready'); }),
+      runAgentCommand: jest.fn(async () => {
+        order.push('agent');
+        return { exitCode: 0 };
+      }),
+    }, {
+      logger: { info: jest.fn(), success: jest.fn(), warn: jest.fn() },
+      performCleanup: jest.fn(),
+    });
+    expect(order).toEqual([
+      'infrastructure',
+      'mcp-connect',
+      'github-connect',
+      'github-ready',
+      'mcp-ready',
+      'agent',
+    ]);
+  });
+
+  it('fails before agent startup when the GitHub gateway lifecycle is absent', async () => {
+    const runAgentCommand = jest.fn();
+    await expect(runMainWorkflow(githubConfig(), {
+      ensureFirewallNetwork: jest.fn(),
+      setupHostIptables: jest.fn(),
+      prepareEnclaves: jest.fn(),
+      writeConfigs: jest.fn(),
+      startContainers: jest.fn(async (
+        _workDir: string,
+        _domains: string[],
+        _logs?: string,
+        _skipPull?: boolean,
+        _networkReady?: () => Promise<void>,
+        infrastructureReady?: () => Promise<void>,
+      ) => infrastructureReady?.()),
+      connectEnclaveGateway: jest.fn(),
+      assertEnclaveGatewayReady: jest.fn(),
+      runAgentCommand,
+    }, {
+      logger: { info: jest.fn(), success: jest.fn(), warn: jest.fn() },
+      performCleanup: jest.fn(),
+    })).rejects.toThrow(/issues-read-v1 requires/);
+    expect(runAgentCommand).not.toHaveBeenCalled();
   });
 });

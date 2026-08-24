@@ -43,6 +43,8 @@ const AGENT_SUPPORTED_BACKENDS = new Set(['docker', 'gvisor']);
 const AGENT_SUPPORTED_ENGINES = new Set(['copilot']);
 const AGENT_SUPPORTED_PROFILES = new Set(['openai', 'anthropic']);
 const AGENT_CONTAINER_PREFIX = 'awf-enclave-agent';
+const GITHUB_CAPABILITY_FILE = '/run/awf-enclave-mcp/github-capability-key';
+const GITHUB_RUN_IDENTITY_FILE = '/run/awf-enclave-mcp/github-run-identity';
 
 function requireEnv(name) {
   const value = process.env[name];
@@ -175,7 +177,7 @@ function loadServerConfig(files = fs) {
  * endpoint, dedicated network, mount points, identity, resource bounds, and
  * disclosure bounds. A request can express none of them.
  */
-function loadAgentConfig(server) {
+function loadAgentConfig(server, files = fs) {
   const backend = requireEnv('AWF_ENCLAVE_AGENT_BACKEND');
   if (!AGENT_SUPPORTED_BACKENDS.has(backend)) {
     throw new Error(`Unsupported AWF_ENCLAVE_AGENT_BACKEND: ${backend}`);
@@ -197,6 +199,35 @@ function loadAgentConfig(server) {
     throw new Error('AWF_ENCLAVE_AGENT_NETWORK is not a Docker network name');
   }
   const cpuLimit = process.env.AWF_ENCLAVE_AGENT_CPU || '1';
+  const githubEnabled = process.env.AWF_ENCLAVE_AGENT_GITHUB_ENABLED === 'true';
+  const githubProfile = process.env.AWF_ENCLAVE_AGENT_GITHUB_PROFILE;
+  const githubProxyUrl = process.env.AWF_ENCLAVE_AGENT_GITHUB_PROXY_URL;
+  const githubCapabilityKeyPath = process.env.AWF_ENCLAVE_AGENT_GITHUB_CAPABILITY_KEY_PATH;
+  const githubRunIdentityPath = process.env.AWF_ENCLAVE_AGENT_GITHUB_RUN_IDENTITY_PATH;
+  let githubCapabilityKey;
+  let githubRunIdentity;
+  if (githubEnabled) {
+    if (githubProfile !== 'issues-read-v1') {
+      throw new Error('AWF_ENCLAVE_AGENT_GITHUB_PROFILE must be issues-read-v1');
+    }
+    if (!/^http:\/\/[0-9.]+:[0-9]+$/.test(githubProxyUrl || '')) {
+      throw new Error('AWF_ENCLAVE_AGENT_GITHUB_PROXY_URL must be a fixed IPv4 HTTP origin');
+    }
+    if (githubCapabilityKeyPath !== GITHUB_CAPABILITY_FILE) {
+      throw new Error('AWF_ENCLAVE_AGENT_GITHUB_CAPABILITY_KEY_PATH is not the fixed private path');
+    }
+    if (githubRunIdentityPath !== GITHUB_RUN_IDENTITY_FILE) {
+      throw new Error('AWF_ENCLAVE_AGENT_GITHUB_RUN_IDENTITY_PATH is not the fixed private path');
+    }
+    githubCapabilityKey = files.readFileSync(githubCapabilityKeyPath, 'utf8').trim();
+    if (!/^[0-9a-f]{64}$/.test(githubCapabilityKey)) {
+      throw new Error('Enclave GitHub capability root is invalid');
+    }
+    githubRunIdentity = files.readFileSync(githubRunIdentityPath, 'utf8').trim();
+    if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(githubRunIdentity)) {
+      throw new Error('Enclave GitHub run identity is invalid');
+    }
+  }
   if (!/^(?:[0-9]{1,2})(?:\.[0-9]{1,3})?$/.test(cpuLimit) || Number(cpuLimit) <= 0) {
     throw new Error('AWF_ENCLAVE_AGENT_CPU must be a positive decimal');
   }
@@ -234,6 +265,12 @@ function loadAgentConfig(server) {
     maxInvocations: positiveInt('AWF_ENCLAVE_AGENT_MAX_INVOCATIONS', 8),
     maxModelRequests: optionalPositiveInt('AWF_ENCLAVE_AGENT_MAX_MODEL_REQUESTS'),
     maxModelTokens: optionalPositiveInt('AWF_ENCLAVE_AGENT_MAX_MODEL_TOKENS'),
+    githubEnabled,
+    githubProfile: githubEnabled ? githubProfile : undefined,
+    githubProxyUrl: githubEnabled ? githubProxyUrl : undefined,
+    githubCapabilityKey,
+    githubRunIdentity,
+    enclaveGithubCapabilityPath: '/run/awf-enclave-github/capability',
     runLabelKey: ENCLAVE_RUN_LABEL,
     invocationLabelKey: ENCLAVE_INVOCATION_LABEL,
     containerPrefix: AGENT_CONTAINER_PREFIX,
@@ -261,6 +298,8 @@ module.exports = {
   SEEDS_DIR,
   CAPABILITY_DIR,
   WORK_DIR,
+  GITHUB_CAPABILITY_FILE,
+  GITHUB_RUN_IDENTITY_FILE,
   isAgentExecutorEnabled,
   isScriptExecutorEnabled,
   loadAgentConfig,

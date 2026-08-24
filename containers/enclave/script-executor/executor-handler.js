@@ -151,8 +151,10 @@ function createExecutorHandler(params) {
     try {
       layout = workspace.createInvocationWorkspace({
         config,
+        runId,
         invocationId,
         seedId: seed.seedId,
+        privateRepo: repoKey,
         schema,
         [payloadKey]: payload,
       });

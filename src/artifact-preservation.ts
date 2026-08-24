@@ -23,11 +23,17 @@ const ENCLAVE_AUDIT_FILES = [
  * Must be called BEFORE stopContainers() because `docker compose down -v` destroys
  * the init-signal volume.
  */
-export function preserveIptablesAudit(workDir: string, auditDir?: string): void {
+export function preserveIptablesAudit(
+  workDir: string,
+  auditDir?: string,
+  requireEnclaveGithubAudit = false,
+): boolean {
   const iptablesAuditSrc = path.join(workDir, 'init-signal', 'iptables-audit.txt');
-  const enclaveRoot = resolveEnclavePaths(workDir).root;
+  const enclavePaths = resolveEnclavePaths(workDir);
+  const enclaveRoot = enclavePaths.root;
   const targetAuditDir = auditDir || path.join(workDir, 'audit');
-  if (!fs.existsSync(targetAuditDir)) return;
+  if (!fs.existsSync(targetAuditDir)) return !requireEnclaveGithubAudit;
+  let complete = true;
 
   if (fs.existsSync(iptablesAuditSrc)) {
     try {
@@ -37,6 +43,22 @@ export function preserveIptablesAudit(workDir: string, auditDir?: string): void 
     } catch (error) {
       logger.debug('Could not copy iptables audit file:', error);
     }
+  }
+
+  const githubCliAuditSrc = path.join(enclavePaths.githubCliProxyLogsDir, 'access.jsonl');
+  if (fs.existsSync(githubCliAuditSrc)) {
+    try {
+      const destination = path.join(targetAuditDir, 'enclave-github-cli-access.jsonl');
+      fs.copyFileSync(githubCliAuditSrc, destination);
+      fs.chmodSync(destination, 0o600);
+      logger.debug('Copied enclave GitHub CLI audit to audit directory');
+    } catch (error) {
+      complete = false;
+      logger.debug('Could not copy enclave GitHub CLI audit:', error);
+    }
+  } else if (requireEnclaveGithubAudit) {
+    complete = false;
+    logger.debug('Required enclave GitHub CLI audit was not available for preservation');
   }
 
   if (fs.existsSync(enclaveRoot)) {
@@ -52,9 +74,11 @@ export function preserveIptablesAudit(workDir: string, auditDir?: string): void 
         if (result.exitCode === 0) {
           logger.debug(`Copied enclave MCP server ${auditFile.source} to audit directory`);
         } else {
+          complete = false;
           logger.debug(`Could not copy enclave ${auditFile.source}:`, result.stderr);
         }
       } catch (error) {
+        complete = false;
         logger.debug(`Could not copy enclave ${auditFile.source}:`, error);
       }
     }
@@ -78,6 +102,7 @@ export function preserveIptablesAudit(workDir: string, auditDir?: string): void 
       logger.debug('Could not copy enclave agent sessions:', error);
     }
   }
+  return complete;
 }
 
 type PreserveDirectoryOptions = {
