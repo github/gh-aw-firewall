@@ -602,36 +602,42 @@ mount_host_cgroupfs() {
 copy_preload_libs() {
   # Copy one-shot-token library to host filesystem for LD_PRELOAD in chroot
   # This prevents tokens from being read multiple times by malicious code
-  # Note: /tmp is always writable in chroot mode (mounted from host /tmp as rw)
+  # Staged under /run/awf-lib, which lives on the container's own writable
+  # rootfs. /tmp cannot be used: it is bind-mounted from the host and
+  # filesystem.allowWrite may narrow it to read-only, which would silently
+  # disable this protection.
   # Sets ONE_SHOT_TOKEN_LIB (empty string if unavailable or incompatible)
   ONE_SHOT_TOKEN_LIB=""
   if [ -f /usr/local/lib/one-shot-token.so ]; then
-    # Create the library directory in /tmp (always writable)
-    if mkdir -p /host/tmp/awf-lib 2>/dev/null; then
+    # Create the library directory on the container rootfs (always writable)
+    if mkdir -p /host/run/awf-lib 2>/dev/null; then
       # Copy the library and verify it exists after copying
-      if cp /usr/local/lib/one-shot-token.so /host/tmp/awf-lib/one-shot-token.so 2>/dev/null && \
-         [ -f /host/tmp/awf-lib/one-shot-token.so ]; then
+      if cp /usr/local/lib/one-shot-token.so /host/run/awf-lib/one-shot-token.so 2>/dev/null && \
+         [ -f /host/run/awf-lib/one-shot-token.so ]; then
         # Probe compatibility with the host's dynamic linker before committing to LD_PRELOAD.
         # Run the probe inside chroot /host so the ELF interpreter and all library paths
         # (e.g. /lib/ld-musl-*.so.1 on Alpine) resolve against the host filesystem, not
         # the container's.  This avoids false negatives where the container's glibc
         # interpreter would accept the .so even though the host loader cannot.
-        if chroot /host /bin/sh -c 'LD_PRELOAD=/tmp/awf-lib/one-shot-token.so /bin/true' 2>/dev/null; then
-          ONE_SHOT_TOKEN_LIB="/tmp/awf-lib/one-shot-token.so"
+        if chroot /host /bin/sh -c 'LD_PRELOAD=/run/awf-lib/one-shot-token.so /bin/true' 2>/dev/null; then
+          ONE_SHOT_TOKEN_LIB="/run/awf-lib/one-shot-token.so"
           echo "[entrypoint] One-shot token library copied to chroot at ${ONE_SHOT_TOKEN_LIB}"
         else
           echo "[entrypoint][WARN] one-shot-token.so failed to load on host dynamic linker (host libc incompatibility, e.g. musl/Alpine)"
           echo "[entrypoint][WARN] Token protection will be disabled (tokens may be readable multiple times)"
-          rm -f /host/tmp/awf-lib/one-shot-token.so 2>/dev/null || true
+          rm -f /host/run/awf-lib/one-shot-token.so 2>/dev/null || true
         fi
       else
-        echo "[entrypoint][WARN] Could not copy one-shot-token library to /tmp/awf-lib"
-        echo "[entrypoint][WARN] Token protection will be disabled (tokens may be readable multiple times)"
+        # The library exists but could not be staged. Continuing would silently
+        # drop a security control, so fail closed instead.
+        echo "[entrypoint][ERROR] Could not copy one-shot-token library to /run/awf-lib" >&2
+        echo "[entrypoint][ERROR] Refusing to start without one-shot token protection" >&2
+        exit 1
       fi
     else
-      echo "[entrypoint][ERROR] Could not create /tmp/awf-lib directory"
-      echo "[entrypoint][ERROR] This should not happen - /tmp is mounted read-write in chroot mode"
-      echo "[entrypoint][WARN] Token protection will be disabled (tokens may be readable multiple times)"
+      echo "[entrypoint][ERROR] Could not create /run/awf-lib directory" >&2
+      echo "[entrypoint][ERROR] Refusing to start without one-shot token protection" >&2
+      exit 1
     fi
   fi
 }
@@ -639,18 +645,19 @@ copy_preload_libs() {
 copy_agent_helper_scripts() {
   # Copy get-claude-key.sh and gh CLI proxy wrapper to chroot-accessible paths.
   # Both scripts are baked into the Docker image but shadowed by host bind mounts
-  # inside chroot. They are copied to /tmp/awf-lib/ (always writable) so they
-  # remain accessible after the chroot activates.
+  # inside chroot. They are copied to /run/awf-lib/ -- on the container's own
+  # writable rootfs, not the host-bound /tmp which filesystem.allowWrite may
+  # narrow to read-only -- so they remain accessible after the chroot activates.
   # Sets CHROOT_KEY_HELPER; may update AWF_HOST_PATH.
 
   # Copy get-claude-key.sh to chroot-accessible path
   # The script is baked into the Docker image at /usr/local/bin/, but the chroot
   # bind-mounts the host's /usr (read-only), shadowing the container's copy.
-  # We must copy it to /tmp/awf-lib/ (writable) before the chroot activates.
+  # We must copy it to /run/awf-lib/ (container rootfs) before the chroot activates.
   CHROOT_KEY_HELPER=""
   if [ -n "$CLAUDE_CODE_API_KEY_HELPER" ] && [ -f "$CLAUDE_CODE_API_KEY_HELPER" ]; then
-    if mkdir -p /host/tmp/awf-lib 2>/dev/null; then
-      CHROOT_KEY_HELPER="/tmp/awf-lib/$(basename "$CLAUDE_CODE_API_KEY_HELPER")"
+    if mkdir -p /host/run/awf-lib 2>/dev/null; then
+      CHROOT_KEY_HELPER="/run/awf-lib/$(basename "$CLAUDE_CODE_API_KEY_HELPER")"
       if cp "$CLAUDE_CODE_API_KEY_HELPER" "/host${CHROOT_KEY_HELPER}" 2>/dev/null && \
          chmod +x "/host${CHROOT_KEY_HELPER}" 2>/dev/null; then
         echo "[entrypoint] Claude key helper copied to chroot at ${CHROOT_KEY_HELPER}"
@@ -680,19 +687,22 @@ copy_agent_helper_scripts() {
 
   # Activate gh CLI proxy wrapper when CLI proxy sidecar is enabled.
   # The wrapper at /usr/local/bin/gh-cli-proxy-wrapper.sh (baked into the image)
-  # is copied to /tmp/awf-lib/gh so it is accessible inside the chroot at a
+  # is copied to /run/awf-lib/gh so it is accessible inside the chroot at a
   # location that takes precedence over the host's /usr/bin/gh mount.
   if [ -n "$AWF_CLI_PROXY_URL" ] && [ -f /usr/local/bin/gh-cli-proxy-wrapper.sh ]; then
-    if mkdir -p /host/tmp/awf-lib 2>/dev/null; then
-      if cp /usr/local/bin/gh-cli-proxy-wrapper.sh /host/tmp/awf-lib/gh 2>/dev/null && \
-         chmod +x /host/tmp/awf-lib/gh 2>/dev/null; then
-        # The chroot will see this as /tmp/awf-lib/gh (the /host prefix is the bind mount)
-        echo "[entrypoint] gh CLI proxy wrapper installed at /tmp/awf-lib/gh (inside chroot)"
-        # Prepend /tmp/awf-lib to PATH so the wrapper takes precedence over host gh
-        export AWF_HOST_PATH="/tmp/awf-lib:${AWF_HOST_PATH:-$PATH}"
-      else
-        echo "[entrypoint][WARN] Could not install gh CLI proxy wrapper"
-      fi
+    if mkdir -p /host/run/awf-lib 2>/dev/null && \
+       cp /usr/local/bin/gh-cli-proxy-wrapper.sh /host/run/awf-lib/gh 2>/dev/null && \
+       chmod +x /host/run/awf-lib/gh 2>/dev/null; then
+      # The chroot will see this as /run/awf-lib/gh (the /host prefix is the bind mount)
+      echo "[entrypoint] gh CLI proxy wrapper installed at /run/awf-lib/gh (inside chroot)"
+      # Prepend /run/awf-lib to PATH so the wrapper takes precedence over host gh
+      export AWF_HOST_PATH="/run/awf-lib:${AWF_HOST_PATH:-$PATH}"
+    else
+      # The CLI proxy is enabled, so an unwrapped gh would bypass credential
+      # mediation entirely. Fail closed rather than silently downgrade.
+      echo "[entrypoint][ERROR] Could not install gh CLI proxy wrapper at /run/awf-lib/gh" >&2
+      echo "[entrypoint][ERROR] Refusing to start with an unmediated gh CLI" >&2
+      exit 1
     fi
   fi
 
@@ -701,7 +711,7 @@ copy_agent_helper_scripts() {
 copy_dind_runner_binary() {
   # In split-filesystem DinD setups with --docker-host-path-prefix pointing at
   # a shared /tmp root, docker-manager stages the invoking CLI binary under
-  # /tmp/awf-runner-bin/<name>. Copy it into /tmp/awf-lib so the chrooted PATH
+  # /tmp/awf-runner-bin/<name>. Copy it into /run/awf-lib so the chrooted PATH
   # can resolve the expected command name (copilot, claude, etc.) without
   # requiring manual bootstrap copies into the daemon's /usr/local/bin.
   # Sets STAGED_RUNNER_BINARY_CHROOT; may update AWF_HOST_PATH.
@@ -710,13 +720,13 @@ copy_dind_runner_binary() {
     if [[ ! "${AWF_STAGED_RUNNER_BINARY_NAME}" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]*$ ]]; then
       echo "[entrypoint][WARN] Ignoring invalid AWF_STAGED_RUNNER_BINARY_NAME=${AWF_STAGED_RUNNER_BINARY_NAME}"
     elif [ -f "/tmp/awf-runner-bin/${AWF_STAGED_RUNNER_BINARY_NAME}" ]; then
-      if mkdir -p /host/tmp/awf-lib 2>/dev/null; then
-        if cp "/tmp/awf-runner-bin/${AWF_STAGED_RUNNER_BINARY_NAME}" "/host/tmp/awf-lib/${AWF_STAGED_RUNNER_BINARY_NAME}" 2>/dev/null && \
-           chmod +x "/host/tmp/awf-lib/${AWF_STAGED_RUNNER_BINARY_NAME}" 2>/dev/null; then
-          STAGED_RUNNER_BINARY_CHROOT="/tmp/awf-lib/${AWF_STAGED_RUNNER_BINARY_NAME}"
+      if mkdir -p /host/run/awf-lib 2>/dev/null; then
+        if cp "/tmp/awf-runner-bin/${AWF_STAGED_RUNNER_BINARY_NAME}" "/host/run/awf-lib/${AWF_STAGED_RUNNER_BINARY_NAME}" 2>/dev/null && \
+           chmod +x "/host/run/awf-lib/${AWF_STAGED_RUNNER_BINARY_NAME}" 2>/dev/null; then
+          STAGED_RUNNER_BINARY_CHROOT="/run/awf-lib/${AWF_STAGED_RUNNER_BINARY_NAME}"
           case ":${AWF_HOST_PATH:-$PATH}:" in
-            *":/tmp/awf-lib:"*) ;;
-            *) export AWF_HOST_PATH="/tmp/awf-lib:${AWF_HOST_PATH:-$PATH}" ;;
+            *":/run/awf-lib:"*) ;;
+            *) export AWF_HOST_PATH="/run/awf-lib:${AWF_HOST_PATH:-$PATH}" ;;
           esac
           echo "[entrypoint] Runner binary staged for chroot at ${STAGED_RUNNER_BINARY_CHROOT}"
         else
@@ -761,7 +771,7 @@ resolve_chroot_binary_path() {
   if [ -n "${AWF_HOST_PATH:-}" ]; then
     search_path="${search_path}${AWF_HOST_PATH}:"
   fi
-  search_path="${search_path}/tmp/awf-runner-bin:/tmp/awf-lib:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+  search_path="${search_path}/tmp/awf-runner-bin:/run/awf-lib:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
   local dir=""
   local IFS=':'
@@ -949,15 +959,15 @@ copy_awf_ca_cert() {
   # Copy AWF CA certificate to chroot-accessible path for ssl-bump TLS trust.
   # NODE_EXTRA_CA_CERTS points to /usr/local/share/ca-certificates/awf-ca.crt which
   # is a Docker volume mount on the container's overlay filesystem. After chroot /host,
-  # this path is inaccessible. Copy to /tmp/awf-lib/ (always writable) and update the
+  # this path is inaccessible. Copy to /run/awf-lib/ (container rootfs) and update the
   # env var so Node.js (Claude Code), curl, git, Python, etc. trust the Squid CA.
   # Sets AWF_CA_CHROOT; exports NODE_EXTRA_CA_CERTS, SSL_CERT_FILE, REQUESTS_CA_BUNDLE.
   AWF_CA_CHROOT=""
   if [ "${AWF_SSL_BUMP_ENABLED}" = "true" ] && [ -f /usr/local/share/ca-certificates/awf-ca.crt ]; then
-    if mkdir -p /host/tmp/awf-lib 2>/dev/null; then
-      if cp /usr/local/share/ca-certificates/awf-ca.crt /host/tmp/awf-lib/awf-ca.crt 2>/dev/null && \
-         [ -f /host/tmp/awf-lib/awf-ca.crt ]; then
-        AWF_CA_CHROOT="/tmp/awf-lib/awf-ca.crt"
+    if mkdir -p /host/run/awf-lib 2>/dev/null; then
+      if cp /usr/local/share/ca-certificates/awf-ca.crt /host/run/awf-lib/awf-ca.crt 2>/dev/null && \
+         [ -f /host/run/awf-lib/awf-ca.crt ]; then
+        AWF_CA_CHROOT="/run/awf-lib/awf-ca.crt"
         export NODE_EXTRA_CA_CERTS="$AWF_CA_CHROOT"
         # SSL_CERT_FILE is respected by curl, git, Python requests, Ruby, and most
         # OpenSSL-based tools. This ensures non-Node.js tools also trust the AWF CA.
@@ -970,7 +980,7 @@ copy_awf_ca_cert() {
         echo "[entrypoint][WARN] Could not copy AWF CA certificate to chroot — ssl-bump TLS may fail"
       fi
     else
-      echo "[entrypoint][WARN] Could not create /host/tmp/awf-lib for CA cert — ssl-bump TLS may fail in chroot"
+      echo "[entrypoint][WARN] Could not create /host/run/awf-lib for CA cert — ssl-bump TLS may fail in chroot"
     fi
   fi
 }
@@ -979,7 +989,7 @@ copy_system_ca_bundle() {
   # Detect and copy the host system CA bundle to a chroot-accessible path.
   # On Amazon Linux / RHEL-family systems, the CA bundle often lives under
   # /etc/pki/. This function finds the system bundle and, when it is not already
-  # accessible in the chroot, copies it to /tmp/awf-lib/ so TLS works regardless
+  # accessible in the chroot, copies it to /run/awf-lib/ so TLS works regardless
   # of distro.
   #
   # In SSL Bump mode, the AWF CA must remain the active trust bundle for MITM
@@ -1052,10 +1062,10 @@ copy_system_ca_bundle() {
   esac
 
   # Bundle is not accessible in chroot. Copy it.
-  if mkdir -p /host/tmp/awf-lib 2>/dev/null; then
-    if cp "$SYSTEM_BUNDLE" /host/tmp/awf-lib/system-ca-certificates.crt 2>/dev/null && \
-       [ -s /host/tmp/awf-lib/system-ca-certificates.crt ]; then
-      local CA_PATH="/tmp/awf-lib/system-ca-certificates.crt"
+  if mkdir -p /host/run/awf-lib 2>/dev/null; then
+    if cp "$SYSTEM_BUNDLE" /host/run/awf-lib/system-ca-certificates.crt 2>/dev/null && \
+       [ -s /host/run/awf-lib/system-ca-certificates.crt ]; then
+      local CA_PATH="/run/awf-lib/system-ca-certificates.crt"
       SYSTEM_CA_CHROOT="$CA_PATH"
       export SSL_CERT_FILE="$CA_PATH"
       export NODE_EXTRA_CA_CERTS="$CA_PATH"
@@ -1067,7 +1077,7 @@ copy_system_ca_bundle() {
       echo "[entrypoint][WARN] Could not copy system CA bundle to chroot — TLS may fail"
     fi
   else
-    echo "[entrypoint][WARN] Could not create /host/tmp/awf-lib for system CA bundle"
+    echo "[entrypoint][WARN] Could not create /host/run/awf-lib for system CA bundle"
   fi
 }
 
@@ -1546,9 +1556,9 @@ run_chroot_command() {
     CLEANUP_CMD="${CLEANUP_CMD}; sed -i '/^[0-9.]\\+[[:space:]]\\+host\\.docker\\.internal\$/d' /etc/hosts 2>/dev/null || true"
     echo "[entrypoint] host.docker.internal will be removed from /etc/hosts on exit"
   fi
-  # Clean up /tmp/awf-lib if anything was copied (one-shot-token, CA cert, key helper)
+  # Clean up /run/awf-lib if anything was copied (one-shot-token, CA cert, key helper)
   if [ -n "${ONE_SHOT_TOKEN_LIB}" ] || [ -n "${AWF_CA_CHROOT}" ] || [ -n "${SYSTEM_CA_CHROOT}" ] || [ -n "${CHROOT_KEY_HELPER}" ] || [ -n "${STAGED_RUNNER_BINARY_CHROOT}" ]; then
-    CLEANUP_CMD="${CLEANUP_CMD}; rm -rf /tmp/awf-lib 2>/dev/null || true"
+    CLEANUP_CMD="${CLEANUP_CMD}; rm -rf /run/awf-lib 2>/dev/null || true"
   fi
   # NOTE: the /usr/local/bin overlay is torn down by cleanup_usr_local_bin_overlay(),
   # which is installed as an EXIT trap in the container's root shell — the chroot
@@ -1616,16 +1626,20 @@ run_non_chroot_command() {
   # Drop capabilities and privileges, then execute the user command
 
   # Activate gh CLI proxy wrapper in non-chroot mode.
-  # Copy the wrapper to /tmp/awf-lib/gh so it takes precedence over
-  # the system gh at /usr/bin/gh (since /tmp/awf-lib is prepended to PATH).
+  # Copy the wrapper to /run/awf-lib/gh so it takes precedence over
+  # the system gh at /usr/bin/gh (since /run/awf-lib is prepended to PATH).
   if [ -n "$AWF_CLI_PROXY_URL" ] && [ -f /usr/local/bin/gh-cli-proxy-wrapper.sh ]; then
-    mkdir -p /tmp/awf-lib
-    if cp /usr/local/bin/gh-cli-proxy-wrapper.sh /tmp/awf-lib/gh 2>/dev/null && \
-       chmod +x /tmp/awf-lib/gh 2>/dev/null; then
-      export PATH="/tmp/awf-lib:${PATH}"
-      echo "[entrypoint] gh CLI proxy wrapper installed at /tmp/awf-lib/gh"
+    mkdir -p /run/awf-lib
+    if cp /usr/local/bin/gh-cli-proxy-wrapper.sh /run/awf-lib/gh 2>/dev/null && \
+       chmod +x /run/awf-lib/gh 2>/dev/null; then
+      export PATH="/run/awf-lib:${PATH}"
+      echo "[entrypoint] gh CLI proxy wrapper installed at /run/awf-lib/gh"
     else
-      echo "[entrypoint][WARN] Could not install gh CLI proxy wrapper"
+      # The CLI proxy is enabled, so an unwrapped gh would bypass credential
+      # mediation entirely. Fail closed rather than silently downgrade.
+      echo "[entrypoint][ERROR] Could not install gh CLI proxy wrapper at /run/awf-lib/gh" >&2
+      echo "[entrypoint][ERROR] Refusing to start with an unmediated gh CLI" >&2
+      exit 1
     fi
   fi
 

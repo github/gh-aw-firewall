@@ -2,7 +2,6 @@ import * as path from 'path';
 import {
   AGENT_CONTAINER_NAME,
   INIT_SIGNAL_DIR,
-  LEGACY_INIT_SIGNAL_DIR,
   IPTABLES_INIT_CONTAINER_NAME,
   SQUID_PORT,
 } from '../constants';
@@ -294,9 +293,13 @@ interface IptablesInitServiceParams {
  */
 export function buildIptablesInitService(params: IptablesInitServiceParams): any {
   const { agentService, environment, networkConfig, initSignalDir, dockerHostPathPrefix, hostGatewayIp } = params;
+  // No legacy-path compatibility shim here: this container has its own mount
+  // namespace and rootfs, so anything created at LEGACY_INIT_SIGNAL_DIR inside
+  // it is invisible to the agent container. Older agent images are supported by
+  // binding the same host source at the legacy path in the *agent* service
+  // instead (see buildWorkspaceMounts).
   const setupCommand = [
     'mkdir -p "$$AWF_INIT_SIGNAL_DIR"',
-    `if [ ! -e ${LEGACY_INIT_SIGNAL_DIR} ]; then ln -s "$$AWF_INIT_SIGNAL_DIR" ${LEGACY_INIT_SIGNAL_DIR} 2>/dev/null || true; fi`,
     '/usr/local/bin/setup-iptables.sh > "$$AWF_INIT_SIGNAL_DIR/output.log" 2>&1',
     'touch "$$AWF_INIT_SIGNAL_DIR/ready"',
   ].join(' && ');

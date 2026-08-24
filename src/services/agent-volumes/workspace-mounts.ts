@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { logger } from '../../logger';
 import { WrapperConfig } from '../../types';
-import { INIT_SIGNAL_DIR } from '../../constants';
+import { INIT_SIGNAL_DIR, LEGACY_INIT_SIGNAL_DIR } from '../../constants';
 import { applyHostPathPrefixToVolumes } from '../host-path-prefix';
 import {
   extractCommandBinaryName,
@@ -29,6 +29,12 @@ export function buildWorkspaceMounts(params: WorkspaceMountsParams): string[] {
     `${agentLogsPath}:${effectiveHome}/.copilot/logs:rw`,
     `${sessionStatePath}:${effectiveHome}/.copilot/session-state:rw`,
     `${initSignalDir}:${INIT_SIGNAL_DIR}:rw`,
+    // Agent images released before the signal directory moved to /run wait on
+    // the legacy path instead. Exposing the same source there keeps a newer CLI
+    // working with an older pinned `--image-tag`. Read-only on purpose: the
+    // agent only polls for `ready`, and the init container writes through its
+    // own read-write mount at INIT_SIGNAL_DIR.
+    `${initSignalDir}:${LEGACY_INIT_SIGNAL_DIR}:ro`,
   ];
 
   if (config.enableApiProxy) {

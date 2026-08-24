@@ -156,7 +156,7 @@ The codebase follows a modular architecture with clear separation of concerns:
 - Selective bind mounts under `/host/`: system binaries `/usr`, `/bin`, `/sbin`, `/lib`, `/lib64`, `/opt`, `/sys`, `/dev` (ro); workspace and `/tmp` (rw); whitelisted `$HOME` subdirs (rw); select `/etc` files — NOT a blanket host FS mount; `/etc/shadow`, unwhitelisted home dirs, and most of `/etc` are excluded
 - `entrypoint.sh` handles: UID/GID remapping → DNS config → SSL CA import → chroot to `/host` → capability drop → run user command as host user
 - **procfs mount**: A container-scoped procfs is mounted at `/host/proc` with `hidepid=2` to support runtimes that read `/proc/self/exe` (Java, .NET) while preventing the agent from reading other processes' `/proc/[pid]/environ` (credential isolation)
-- **iptables init container** (`awf-iptables-init`): separate container sharing agent's network namespace via `network_mode: service:agent`. Runs `setup-iptables.sh` to configure NAT rules before user command starts. Agent waits for `/tmp/awf-init/ready` signal file.
+- **iptables init container** (`awf-iptables-init`): separate container sharing agent's network namespace via `network_mode: service:agent`. Runs `setup-iptables.sh` to configure NAT rules before user command starts. Agent waits for `/run/awf-init/ready` signal file (also accepting the legacy `/tmp/awf-init/ready` so an older pinned agent image still works).
 - Key iptables rules (in `setup-iptables.sh`):
   - Allow localhost (for stdio MCP servers) and DNS
   - Allow traffic to Squid proxy itself

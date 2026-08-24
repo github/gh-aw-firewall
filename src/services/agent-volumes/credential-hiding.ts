@@ -1,6 +1,13 @@
 import * as fs from 'fs';
 import { logger } from '../../logger';
 import { credentialFilesToHide } from '../../config/mount-policy';
+import {
+  LocalSourceResolver,
+  ParsedMount,
+  identityLocalSourceResolver,
+  innermostCoveringMount,
+  parseMount,
+} from './mount-topology';
 
 /**
  * Builds the compose-mode `/dev/null` overlays that blank known on-disk
@@ -24,36 +31,6 @@ export function buildCredentialHidingOverlays(effectiveHome: string): string[] {
   return mounts;
 }
 
-interface ParsedMount {
-  source: string;
-  target: string;
-  mode: string;
-}
-
-function parseMount(spec: string): ParsedMount | undefined {
-  const parts = spec.split(':');
-  if (parts.length < 2 || !parts[0] || !parts[1]) return undefined;
-  return {
-    source: parts[0],
-    target: parts[1].replace(/\/+$/, '') || '/',
-    mode: parts[2] || 'rw',
-  };
-}
-
-/**
- * Finds the innermost real bind whose target contains `target`, i.e. the mount
- * that actually supplies the directory the overlay's mountpoint would live in.
- */
-function innermostCoveringMount(binds: ParsedMount[], target: string): ParsedMount | undefined {
-  let best: ParsedMount | undefined;
-  for (const bind of binds) {
-    const covers = target === bind.target || target.startsWith(`${bind.target}/`);
-    if (!covers) continue;
-    if (!best || bind.target.length > best.target.length) best = bind;
-  }
-  return best;
-}
-
 /**
  * Drops `/dev/null` overlays whose mountpoint cannot physically be created.
  *
@@ -73,7 +50,10 @@ function innermostCoveringMount(binds: ParsedMount[], target: string): ParsedMou
  * This is a no-op unless a write policy is active, since every covering bind is
  * read-write otherwise.
  */
-export function pruneUnmountableCredentialOverlays(volumes: string[]): string[] {
+export function pruneUnmountableCredentialOverlays(
+  volumes: string[],
+  localSourceResolver: LocalSourceResolver = identityLocalSourceResolver,
+): string[] {
   const binds = volumes
     .map(parseMount)
     .filter((mount): mount is ParsedMount => mount !== undefined && mount.source !== '/dev/null');
@@ -92,7 +72,14 @@ export function pruneUnmountableCredentialOverlays(volumes: string[]): string[] 
 
     const suffix = overlay.target.slice(cover.target.length);
     if (!suffix) return true;
-    return fs.existsSync(`${cover.source}${suffix}`);
+
+    // On split-filesystem runners the covering source may be a daemon-side path
+    // that means nothing to `fs` here. Keep the overlay rather than risk
+    // unmasking a credential based on an unrelated runner path.
+    const localCoverSource = localSourceResolver(cover.source);
+    if (localCoverSource === undefined) return true;
+
+    return fs.existsSync(`${localCoverSource}${suffix}`);
   });
 
   const dropped = volumes.length - kept.length;

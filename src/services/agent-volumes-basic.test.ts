@@ -64,6 +64,10 @@ describe('agent service', () => {
     expect(volumes).toContain('/tmp:/tmp:ro');
     expect(volumes).toContain('/tmp:/host/tmp:ro');
     expect(volumes).toContain(`${getConfig().workDir}/init-signal:/run/awf-init:rw`);
+    // Legacy path stays exposed read-only so a newer CLI still works with an
+    // older pinned agent image, and it must not become a writable hole in the
+    // narrowed /tmp tree.
+    expect(volumes).toContain(`${getConfig().workDir}/init-signal:/tmp/awf-init:ro`);
     expect(volumes).not.toContain(`${getConfig().workDir}/init-signal:/tmp/awf-init:rw`);
     expect(volumes.some((volume) => volume.includes('/.copilot/logs:rw'))).toBe(true);
   });

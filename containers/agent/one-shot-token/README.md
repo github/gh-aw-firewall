@@ -174,8 +174,8 @@ exec capsh --drop=$CAPS_TO_DROP -- -c "exec gosu awfuser $COMMAND"
 
 In chroot mode, the library must be accessible from within the chroot (host filesystem). The entrypoint:
 
-1. Copies the library from container to `/host/tmp/awf-lib/one-shot-token.so`
-2. Sets `LD_PRELOAD=/tmp/awf-lib/one-shot-token.so` inside the chroot
+1. Copies the library from container to `/host/run/awf-lib/one-shot-token.so`
+2. Sets `LD_PRELOAD=/run/awf-lib/one-shot-token.so` inside the chroot
 3. Cleans up the library on exit
 
 ## Building

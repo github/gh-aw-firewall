@@ -3,6 +3,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { buildCredentialHidingOverlays, pruneUnmountableCredentialOverlays } from './credential-hiding';
 import { credentialFilesToHide } from '../../config/mount-policy';
+import { createLocalSourceResolver } from './mount-topology';
 
 describe('buildCredentialHidingOverlays', () => {
   it('hides every policy credential file at both home and /host paths', () => {
@@ -128,5 +129,64 @@ describe('pruneUnmountableCredentialOverlays', () => {
     const volumes = [`${hostDir}:/host${HOME}:ro`, '/tmp:/tmp:ro', `${hostDir}:/workspace:rw`];
 
     expect(pruneUnmountableCredentialOverlays(volumes)).toEqual(volumes);
+  });
+
+  describe('split-filesystem runners (--docker-host-path-prefix)', () => {
+    it('keeps an overlay when the covering custom mount maps to a real runner path', () => {
+      const localRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-local-'));
+      fs.mkdirSync(path.join(localRoot, '.docker'), { recursive: true });
+      fs.writeFileSync(path.join(localRoot, '.docker/config.json'), '{}');
+
+      const resolver = createLocalSourceResolver(new Map([['/daemon' + localRoot, localRoot]]), '/daemon');
+      const target = `/host${HOME}/.docker/config.json`;
+
+      const result = pruneUnmountableCredentialOverlays(
+        [`/daemon${localRoot}:/host${HOME}:ro`, overlay(target)],
+        resolver,
+      );
+
+      expect(result).toContain(overlay(target));
+      fs.rmSync(localRoot, { recursive: true, force: true });
+    });
+
+    it('keeps an overlay whose covering custom mount has no known runner path', () => {
+      // Fail closed: probing '/daemon/staged/...' with runner-local fs would
+      // report "missing" and silently unmask a real credential file.
+      const resolver = createLocalSourceResolver(new Map([['/daemon/staged', '']]), '/daemon');
+      const target = `/host${HOME}/.docker/config.json`;
+
+      const result = pruneUnmountableCredentialOverlays(
+        [`/daemon/staged:/host${HOME}:ro`, overlay(target)],
+        resolver,
+      );
+
+      expect(result).toContain(overlay(target));
+    });
+
+    it('keeps an overlay behind an unattributable daemon-prefixed source', () => {
+      const resolver = createLocalSourceResolver(new Map(), '/daemon');
+      const target = `/host${HOME}/.npmrc`;
+
+      const result = pruneUnmountableCredentialOverlays(
+        [`/daemon/tmp/chroot-home:/host${HOME}:ro`, overlay(target)],
+        resolver,
+      );
+
+      expect(result).toContain(overlay(target));
+    });
+
+    it('still drops an unreachable overlay when the runner path is known', () => {
+      const localRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-local-'));
+      const resolver = createLocalSourceResolver(new Map([['/daemon' + localRoot, localRoot]]), '/daemon');
+      const target = `/host${HOME}/.docker/config.json`;
+
+      const result = pruneUnmountableCredentialOverlays(
+        [`/daemon${localRoot}:/host${HOME}:ro`, overlay(target)],
+        resolver,
+      );
+
+      expect(result).not.toContain(overlay(target));
+      fs.rmSync(localRoot, { recursive: true, force: true });
+    });
   });
 });

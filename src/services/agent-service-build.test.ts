@@ -124,7 +124,7 @@ describe('agent service', () => {
       expect(initService.entrypoint).toEqual(['/bin/bash']);
       expect(initService.command).toEqual([
         '-c',
-        'mkdir -p "$$AWF_INIT_SIGNAL_DIR" && if [ ! -e /tmp/awf-init ]; then ln -s "$$AWF_INIT_SIGNAL_DIR" /tmp/awf-init 2>/dev/null || true; fi && /usr/local/bin/setup-iptables.sh > "$$AWF_INIT_SIGNAL_DIR/output.log" 2>&1 && touch "$$AWF_INIT_SIGNAL_DIR/ready"',
+        'mkdir -p "$$AWF_INIT_SIGNAL_DIR" && /usr/local/bin/setup-iptables.sh > "$$AWF_INIT_SIGNAL_DIR/output.log" 2>&1 && touch "$$AWF_INIT_SIGNAL_DIR/ready"',
       ]);
       expect(initService.security_opt).toBeUndefined();
       expect(initService.restart).toBe('no');
