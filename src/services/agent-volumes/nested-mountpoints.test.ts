@@ -128,6 +128,23 @@ describe('nested mountpoint preparation', () => {
 
       expect(planNestedMountpoints(volumes, resolver)[0].hostPath).toBeUndefined();
     });
+
+    // GitHub-hosted runners bind `/opt` read-only and nest the tool cache
+    // inside it, so a requirement exists even with no write policy. It is
+    // already satisfied — source and mountpoint are the same host path — which
+    // is why this has always worked and must keep costing nothing.
+    it('reports already-satisfied system binds without asking for preparation', () => {
+      const volumes = [
+        '/opt:/host/opt:ro',
+        '/opt/hostedtoolcache:/host/opt/hostedtoolcache:rw',
+      ];
+
+      const [requirement] = planNestedMountpoints(volumes);
+      expect(requirement.containerTarget).toBe('/host/opt/hostedtoolcache');
+      // The mountpoint resolves to the mount's own source, so it exists exactly
+      // when the mount does and never needs preparing.
+      expect(requirement.hostPath).toBe(requirement.source);
+    });
   });
 
   describe('ensureNestedMountpoints', () => {
@@ -293,8 +310,18 @@ describe('nested mountpoint preparation', () => {
 
       const volumes = layout.build(undefined);
 
-      expect(planNestedMountpoints(volumes).filter((r) => r.kind === 'directory')).toEqual([]);
+      // `ensureNestedMountpoints` only ever creates a requirement's `hostPath`,
+      // and that is always `coveringSource` + suffix. No requirement is covered
+      // by an AWF-owned bind, so nothing in the staged tree can have been
+      // created...
+      const staged = planNestedMountpoints(volumes)
+        .filter((requirement) => requirement.coveringSource.startsWith(tmpRoot));
+      expect(staged).toEqual([]);
       expect(fs.existsSync(path.join(layout.home, '.copilot/logs'))).toBe(false);
+      expect(fs.existsSync(path.join(layout.home, '.copilot/session-state'))).toBe(false);
+      // ...and every remaining requirement is a system bind AWF has always
+      // emitted (on a GitHub-hosted runner `/opt` covers `/opt/hostedtoolcache`)
+      // whose mountpoint already exists, so nothing was created there either.
       expect(simulateRuncMountFailures(volumes)).toEqual([]);
     });
   });
