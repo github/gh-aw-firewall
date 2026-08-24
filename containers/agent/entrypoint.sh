@@ -1508,8 +1508,13 @@ run_chroot_command() {
   fi
 
   # Write the command to a temporary script file in the chroot
-  # This avoids complex quoting issues with nested shells
-  SCRIPT_FILE="/tmp/awf-cmd-$$.sh"
+  # This avoids complex quoting issues with nested shells.
+  # It lives under /run rather than /tmp because filesystem.allowWrite can
+  # narrow the /tmp bind to read-only, which would make this write fail. /run
+  # inside the chroot is the container's own writable rootfs, so it is always
+  # writable regardless of the host write policy.
+  mkdir -p /host/run 2>/dev/null || true
+  SCRIPT_FILE="/run/awf-cmd-$$.sh"
   build_path_script "$@"
 
   # Execute inside chroot:
