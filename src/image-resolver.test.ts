@@ -33,6 +33,11 @@ describe('custom runtime image manifest', () => {
     expect(imageResolverExports).not.toHaveProperty('DEFAULT_DOH_PROXY_IMAGE');
   });
 
+  it('keeps digest-pinned image validation internals private', () => {
+    expect(imageResolverExports).not.toHaveProperty('DIGEST_PINNED_IMAGE_PATTERN');
+    expect(imageResolverExports).not.toHaveProperty('isDigestPinnedImageReference');
+  });
+
   it('resolves only the digest-pinned configured image', () => {
     const result = resolveRuntimeImage(
       config({ squid: image('squid') }),
