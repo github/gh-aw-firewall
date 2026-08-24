@@ -503,14 +503,48 @@ describe('prepareChrootHomeMounts (sub-function)', () => {
     expect(fs.existsSync(geminiDir)).toBe(false);
   });
 
-  it('refuses existing symlinked nested home tool paths', () => {
-    const sandboxState = path.join(fixture.tempDir, '.local', 'state', 'sandboxes');
+  it('refuses existing symlinked nested home tool paths', () => {    const sandboxState = path.join(fixture.tempDir, '.local', 'state', 'sandboxes');
     const localBin = path.join(fixture.tempDir, '.local', 'bin');
     fs.mkdirSync(sandboxState, { recursive: true });
     fs.symlinkSync(sandboxState, localBin);
 
     expect(() => workdirSetupTestHelpers.prepareChrootHomeMounts(buildConfig()))
       .toThrow(`Refusing to use symlink as directory: ${localBin}`);
+  });
+
+  // Regression: on GitHub-hosted runners the workspace lives under $HOME, so
+  // its /host-prefixed bind lands inside the chroot home. Docker used to create
+  // those parents, but filesystem.allowWrite narrows the chroot home bind to
+  // read-only and runc then fails container init with EROFS.
+  describe('workspace mountpoint', () => {
+    const originalWorkspace = process.env.GITHUB_WORKSPACE;
+
+    afterEach(() => {
+      if (originalWorkspace === undefined) delete process.env.GITHUB_WORKSPACE;
+      else process.env.GITHUB_WORKSPACE = originalWorkspace;
+    });
+
+    it('prepares it inside the chroot home when the workspace is under $HOME', () => {
+      const workspace = path.join(fixture.tempDir, 'work', 'gh-aw-firewall', 'gh-aw-firewall');
+      process.env.GITHUB_WORKSPACE = workspace;
+
+      workdirSetupTestHelpers.prepareChrootHomeMounts(buildConfig());
+
+      const chrootHome = `${fixture.tempDir}-chroot-home`;
+      expect(fs.existsSync(path.join(chrootHome, 'work'))).toBe(true);
+      expect(
+        fs.existsSync(path.join(chrootHome, 'work', 'gh-aw-firewall', 'gh-aw-firewall')),
+      ).toBe(true);
+    });
+
+    it('leaves the chroot home alone when the workspace is outside $HOME', () => {
+      process.env.GITHUB_WORKSPACE = path.join(fixture.tempDir, '..', 'elsewhere', 'workspace');
+
+      workdirSetupTestHelpers.prepareChrootHomeMounts(buildConfig());
+
+      expect(fs.existsSync(path.join(`${fixture.tempDir}-chroot-home`, 'elsewhere'))).toBe(false);
+      expect(fs.existsSync(path.join(`${fixture.tempDir}-chroot-home`, 'workspace'))).toBe(false);
+    });
   });
 });
 

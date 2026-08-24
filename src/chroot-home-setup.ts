@@ -116,4 +116,17 @@ export function prepareChrootHomeMounts(config: WrapperConfig): void {
       logger.debug(`Prepared chroot runner tool cache mountpoint: ${chrootToolCachePath} (${uid}:${gid})`);
     }
   }
+
+  // On GitHub-hosted runners the workspace lives under $HOME
+  // (`/home/runner/work/<repo>/<repo>`), so its `/host`-prefixed bind lands
+  // inside the chroot home. Docker used to create those parents itself, but
+  // once filesystem.allowWrite narrows the chroot home bind to read-only runc
+  // can no longer do so and container init fails with EROFS. Prepare the
+  // mountpoint up front, exactly as for the tool-cache paths above.
+  const workspaceDir = process.env.GITHUB_WORKSPACE || process.cwd();
+  const relativeWorkspacePath = path.relative(effectiveHome, workspaceDir);
+  if (relativeWorkspacePath && !relativeWorkspacePath.startsWith('..') && !path.isAbsolute(relativeWorkspacePath)) {
+    const chrootWorkspacePath = prepareChrootHomeMountpoint(emptyHomeDir, relativeWorkspacePath, uid, gid);
+    logger.debug(`Prepared chroot workspace mountpoint: ${chrootWorkspacePath} (${uid}:${gid})`);
+  }
 }
