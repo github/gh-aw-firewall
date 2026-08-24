@@ -218,7 +218,7 @@ describe('unified enclave agent executor compose assembly', () => {
       expect(proxy.container_name).toBe('awf-enclave-agent-cli-proxy');
       expect(proxy.networks).toEqual({
         [ENCLAVE_AGENT_NETWORK]: { ipv4_address: '172.31.0.40' },
-        [ENCLAVE_GITHUB_CONTROL_NETWORK]: { ipv4_address: '172.32.0.10' },
+        [ENCLAVE_GITHUB_CONTROL_NETWORK]: { ipv4_address: '172.29.0.10' },
       });
       expect(proxy.networks).not.toHaveProperty(ENCLAVE_AGENT_EGRESS_NETWORK);
       expect(proxy.environment).toMatchObject({

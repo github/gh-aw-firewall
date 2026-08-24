@@ -162,6 +162,20 @@ describe('docker-manager diagnostics', () => {
       expect(preserveIptablesAudit(getDir(), auditDir, true)).toBe(false);
     });
 
+    it('refuses a symlinked enclave GitHub CLI audit', () => {
+      const paths = resolveEnclavePaths(getDir());
+      const sensitiveFile = path.join(getDir(), 'sensitive-file');
+      fs.mkdirSync(paths.githubCliProxyLogsDir, { recursive: true });
+      fs.writeFileSync(sensitiveFile, 'must not be copied');
+      fs.symlinkSync(sensitiveFile, path.join(paths.githubCliProxyLogsDir, 'access.jsonl'));
+      const auditDir = path.join(getDir(), 'audit');
+      fs.mkdirSync(auditDir, { recursive: true });
+
+      expect(preserveIptablesAudit(getDir(), auditDir, true)).toBe(false);
+      expect(fs.existsSync(path.join(auditDir, 'enclave-github-cli-access.jsonl'))).toBe(false);
+      fs.rmSync(paths.root, { recursive: true, force: true });
+    });
+
     it('should do nothing when target audit directory does not exist', () => {
       const initSignalDir = path.join(getDir(), 'init-signal');
       fs.mkdirSync(initSignalDir, { recursive: true });

@@ -33,7 +33,7 @@ function network(members = ['awf-enclave-agent-cli-proxy', 'compiler-mcpg']): st
   return JSON.stringify({
     Internal: true,
     Driver: 'bridge',
-    IPAM: { Config: [{ Subnet: '172.32.0.0/24' }] },
+    IPAM: { Config: [{ Subnet: '172.29.0.0/24' }] },
     Containers: Object.fromEntries(members.map((Name, index) => [String(index), { Name }])),
   });
 }
@@ -121,7 +121,7 @@ describe('enclave GitHub gateway handoff', () => {
     JSON.stringify({
       Internal: false,
       Driver: 'bridge',
-      IPAM: { Config: [{ Subnet: '172.32.0.0/24' }] },
+      IPAM: { Config: [{ Subnet: '172.29.0.0/24' }] },
       Containers: {},
     }),
   ])('rejects an inexact control topology', async (inspection) => {

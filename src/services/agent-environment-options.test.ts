@@ -132,6 +132,32 @@ describe('agent environment: options', () => {
     }
   });
 
+  it('does not pass enclave GitHub proxy handoff material with envAll', () => {
+    const handoff = {
+      AWF_ENCLAVE_GITHUB_CAPABILITY_ROOT: 'capability-root',
+      AWF_ENCLAVE_GITHUB_PROXY_CONTAINER: 'compiler-mcpg',
+      AWF_ENCLAVE_GITHUB_PROXY_IDENTITY: 'gh-aw-egh-123456-1-abcdef123456',
+      AWF_ENCLAVE_GITHUB_PROXY_CA_CERT: '/tmp/compiler-ca.crt',
+    };
+    const original = Object.fromEntries(
+      Object.keys(handoff).map(name => [name, process.env[name]]),
+    );
+    Object.assign(process.env, handoff);
+
+    try {
+      const result = generateDockerCompose({ ...mockConfig, envAll: true }, mockNetworkConfig);
+      const env = result.services.agent.environment as Record<string, string>;
+      for (const name of Object.keys(handoff)) {
+        expect(env[name]).toBeUndefined();
+      }
+    } finally {
+      for (const [name, value] of Object.entries(original)) {
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      }
+    }
+  });
+
   it('should exclude multiple variables when excludeEnv contains multiple names', () => {
     const originalTokenA = process.env.TOKEN_A;
     const originalTokenB = process.env.TOKEN_B;

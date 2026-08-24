@@ -1807,7 +1807,7 @@ When the agent executor is enabled, each invocation joins only the dedicated
 enclave API proxy. With `issues-read-v1`, the only additional peer is an
 AWF-owned PAT-free CLI proxy at `172.31.0.40:11000`. That proxy is dual-homed
 onto the internal `awf-enclave-github-control` network
-(`172.32.0.0/24`), where compiler-owned mcpg is attached under the fixed alias
+(`172.29.0.0/24`), where compiler-owned mcpg is attached under the fixed alias
 `awf-enclave-github-proxy:18443`. mcpg never joins the enclave network.
 Squid, the primary agent, general proxies, safe outputs, the MCP gateway, and
 the MCP server itself remain excluded.

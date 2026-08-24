@@ -176,7 +176,7 @@ describe('unified enclave agent runner specification', () => {
 
   it.each([
     'false|bridge|172.31.0.0/24,|awf-enclave-agent-api-proxy@172.31.0.30/24,',
-    'true|bridge|172.32.0.0/24,|awf-enclave-agent-api-proxy@172.31.0.30/24,',
+    'true|bridge|172.29.0.0/24,|awf-enclave-agent-api-proxy@172.31.0.30/24,',
     'true|overlay|172.31.0.0/24,|awf-enclave-agent-api-proxy@172.31.0.30/24,',
     'true|bridge|172.31.0.0/24,|unexpected@172.31.0.40/24,',
     'true|bridge|172.31.0.0/24,|awf-enclave-agent-api-proxy@172.31.0.30/24,unexpected@172.31.0.40/24,',

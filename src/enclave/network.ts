@@ -28,7 +28,7 @@ export const ENCLAVE_AGENT_EGRESS_NETWORK = 'awf-enclave-agent-egress';
 export const ENCLAVE_GITHUB_CONTROL_NETWORK = 'awf-enclave-github-control';
 
 /** Fixed subnet for the isolated mcpg control path. */
-export const ENCLAVE_GITHUB_CONTROL_SUBNET = '172.32.0.0/24';
+export const ENCLAVE_GITHUB_CONTROL_SUBNET = '172.29.0.0/24';
 
 /** Fixed compiler-owned mcpg identity on the private GitHub control network. */
 export const ENCLAVE_GITHUB_PROXY_ALIAS = 'awf-enclave-github-proxy';
@@ -62,7 +62,7 @@ export const ENCLAVE_AGENT_API_PROXY_IP = '172.31.0.30';
 export const ENCLAVE_AGENT_CLI_PROXY_IP = '172.31.0.40';
 
 /** Fixed CLI-proxy address on the isolated mcpg control path. */
-export const ENCLAVE_GITHUB_CLI_PROXY_IP = '172.32.0.10';
+export const ENCLAVE_GITHUB_CLI_PROXY_IP = '172.29.0.10';
 
 /**
  * Fixed DNS alias for the API proxy on the agent-enclave network.

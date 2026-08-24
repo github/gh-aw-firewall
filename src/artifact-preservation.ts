@@ -17,6 +17,42 @@ const ENCLAVE_AUDIT_FILES = [
   { source: 'enclave.jsonl', destination: 'enclave.jsonl' },
   { source: 'runtime-telemetry.jsonl', destination: 'enclave-runtime.jsonl' },
 ] as const;
+const MAX_ENCLAVE_GITHUB_AUDIT_BYTES = 10 * 1024 * 1024;
+
+function copyRegularFileNoFollow(source: string, destination: string): void {
+  const sourceFd = fs.openSync(source, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+  try {
+    const stat = fs.fstatSync(sourceFd);
+    if (!stat.isFile() || stat.size > MAX_ENCLAVE_GITHUB_AUDIT_BYTES) {
+      throw new Error('Enclave GitHub CLI audit must be a bounded regular file');
+    }
+
+    const destinationFd = fs.openSync(
+      destination,
+      fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_TRUNC | fs.constants.O_NOFOLLOW,
+      0o600,
+    );
+    try {
+      const buffer = Buffer.allocUnsafe(Math.min(stat.size, 64 * 1024));
+      let remaining = stat.size;
+      let bytesRead: number;
+      while (
+        remaining > 0
+        && (bytesRead = fs.readSync(sourceFd, buffer, 0, Math.min(buffer.length, remaining), null)) > 0
+      ) {
+        let offset = 0;
+        while (offset < bytesRead) {
+          offset += fs.writeSync(destinationFd, buffer, offset, bytesRead - offset, null);
+        }
+        remaining -= bytesRead;
+      }
+    } finally {
+      fs.closeSync(destinationFd);
+    }
+  } finally {
+    fs.closeSync(sourceFd);
+  }
+}
 
 /**
  * Copies the iptables audit dump from the init-signal volume to the audit directory.
@@ -46,19 +82,21 @@ export function preserveIptablesAudit(
   }
 
   const githubCliAuditSrc = path.join(enclavePaths.githubCliProxyLogsDir, 'access.jsonl');
-  if (fs.existsSync(githubCliAuditSrc)) {
-    try {
-      const destination = path.join(targetAuditDir, 'enclave-github-cli-access.jsonl');
-      fs.copyFileSync(githubCliAuditSrc, destination);
-      fs.chmodSync(destination, 0o600);
-      logger.debug('Copied enclave GitHub CLI audit to audit directory');
-    } catch (error) {
+  try {
+    const destination = path.join(targetAuditDir, 'enclave-github-cli-access.jsonl');
+    copyRegularFileNoFollow(githubCliAuditSrc, destination);
+    fs.chmodSync(destination, 0o600);
+    logger.debug('Copied enclave GitHub CLI audit to audit directory');
+  } catch (error: unknown) {
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
+      if (requireEnclaveGithubAudit) {
+        complete = false;
+        logger.debug('Required enclave GitHub CLI audit was not available for preservation');
+      }
+    } else {
       complete = false;
       logger.debug('Could not copy enclave GitHub CLI audit:', error);
     }
-  } else if (requireEnclaveGithubAudit) {
-    complete = false;
-    logger.debug('Required enclave GitHub CLI audit was not available for preservation');
   }
 
   if (fs.existsSync(enclaveRoot)) {
