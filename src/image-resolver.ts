@@ -33,9 +33,9 @@ const MANIFEST_KEY: Record<RuntimeImageName, ManifestKey> = {
   'doh-proxy': 'dohProxy',
 };
 
-export const DEFAULT_IMAGE_REGISTRY = 'ghcr.io/github/gh-aw-firewall';
-export const DEFAULT_DIND_STAGING_IMAGE = 'ghcr.io/github/gh-aw-firewall/agent:latest';
-export const DEFAULT_DOH_PROXY_IMAGE = 'cloudflare/cloudflared:latest';
+const DEFAULT_IMAGE_REGISTRY = 'ghcr.io/github/gh-aw-firewall';
+const DEFAULT_DIND_STAGING_IMAGE = 'ghcr.io/github/gh-aw-firewall/agent:latest';
+const DEFAULT_DOH_PROXY_IMAGE = 'cloudflare/cloudflared:latest';
 
 /**
  * Roles whose default (non-manifest) image is not published under the AWF

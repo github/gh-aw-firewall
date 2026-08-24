@@ -6,6 +6,7 @@ import {
   resolveRuntimeImage,
   validateCustomImageManifest,
 } from './image-resolver';
+import * as imageResolverExports from './image-resolver';
 import { parseImageTag } from './image-tag';
 import type { WrapperConfig } from './types';
 import { validateAwfFileConfig } from './config-file';
@@ -24,6 +25,12 @@ const config = (images?: WrapperConfig['images']): WrapperConfig => ({
 describe('custom runtime image manifest', () => {
   beforeEach(() => {
     resetRuntimeImageLedger();
+  });
+
+  it('keeps default image constants internal to the resolver', () => {
+    expect(imageResolverExports).not.toHaveProperty('DEFAULT_IMAGE_REGISTRY');
+    expect(imageResolverExports).not.toHaveProperty('DEFAULT_DIND_STAGING_IMAGE');
+    expect(imageResolverExports).not.toHaveProperty('DEFAULT_DOH_PROXY_IMAGE');
   });
 
   it('resolves only the digest-pinned configured image', () => {
