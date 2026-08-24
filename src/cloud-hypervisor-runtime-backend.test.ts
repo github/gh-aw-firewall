@@ -5,7 +5,6 @@ import { PassThrough } from 'stream';
 import type { WrapperConfig } from './types';
 import * as hostEligibility from './cloud-hypervisor/host-eligibility';
 import {
-  CloudHypervisorRuntimeBackend,
   assertCloudHypervisorPreSecurityCompatibility,
   buildCloudHypervisorGuestEnvironment,
   cloudHypervisorRuntimeTestHelpers,
@@ -57,6 +56,20 @@ function config(overrides: Partial<WrapperConfig> = {}): WrapperConfig {
     enableDlp: false,
     ...overrides,
   } as WrapperConfig;
+}
+
+type TestCloudHypervisorRuntimeBackend = ReturnType<typeof createCloudHypervisorRuntimeBackend> & {
+  preserve(): Promise<void>;
+};
+
+function createBackend(
+  backendConfig: WrapperConfig,
+  deps: CloudHypervisorRuntimeBackendDependencies,
+): TestCloudHypervisorRuntimeBackend {
+  return cloudHypervisorRuntimeTestHelpers.createBackendWithDependencies(
+    backendConfig,
+    deps,
+  ) as TestCloudHypervisorRuntimeBackend;
 }
 
 function infrastructure(): MicrovmInfrastructureSnapshot {
@@ -222,7 +235,7 @@ describe('Cloud Hypervisor runtime backend', () => {
         { uid: 1000, gid: 1000 },
       )).toBeDefined();
       expect(createCloudHypervisorRuntimeBackend(config(), startInfrastructure))
-        .toBeInstanceOf(CloudHypervisorRuntimeBackend);
+        .toEqual(expect.objectContaining({ runtime: 'cloud-hypervisor' }));
     } finally {
       if (previousWorkspace === undefined) delete process.env.GITHUB_WORKSPACE;
       else process.env.GITHUB_WORKSPACE = previousWorkspace;
@@ -243,7 +256,7 @@ describe('Cloud Hypervisor runtime backend', () => {
         { tag: 'tmp-gh-aw', source: ghAwSource, target: '/tmp/gh-aw', mode: 'rw' as const },
       ];
       const { deps } = harness({ resolveExports: jest.fn().mockResolvedValue(resolved) });
-      const backend = new CloudHypervisorRuntimeBackend(
+      const backend = createBackend(
         config({ filesystemAllowWrite: ['/tmp/gh-aw/agent'] }),
         deps,
       );
@@ -280,7 +293,7 @@ describe('Cloud Hypervisor runtime backend', () => {
 
   it('passes no enforcement argument when filesystem.allowWrite is undefined', async () => {
     const { deps } = harness();
-    const backend = new CloudHypervisorRuntimeBackend(config(), deps);
+    const backend = createBackend(config(), deps);
 
     await backend.start('/tmp/awf', ['github.com']);
 
@@ -294,7 +307,7 @@ describe('Cloud Hypervisor runtime backend', () => {
 
   it('fails closed on an unmatched allowlist path before creating a manager', async () => {
     const { deps } = harness();
-    const backend = new CloudHypervisorRuntimeBackend(
+    const backend = createBackend(
       config({ filesystemAllowWrite: ['/workspace/does-not-exist'] }),
       deps,
     );
@@ -306,7 +319,7 @@ describe('Cloud Hypervisor runtime backend', () => {
 
   it('starts infrastructure, revalidates it, boots and probes before execution', async () => {
     const { order, manager, deps, stdin } = harness();
-    const backend = new CloudHypervisorRuntimeBackend(config(), deps);
+    const backend = createBackend(config(), deps);
 
     await backend.start('/tmp/awf', ['github.com']);
     const execution = backend.exec('/tmp/awf', ['github.com'], undefined, 1);
@@ -345,7 +358,7 @@ describe('Cloud Hypervisor runtime backend', () => {
       topologyPeerIps: { 'awmg-mcpg': '172.30.0.60' },
     };
     (deps.resolveInfrastructure as jest.Mock).mockResolvedValue(peerInfrastructure);
-    const backend = new CloudHypervisorRuntimeBackend(
+    const backend = createBackend(
       config({ topologyAttach: ['awmg-mcpg'] }),
       deps,
     );
@@ -378,7 +391,7 @@ describe('Cloud Hypervisor runtime backend', () => {
       throw new Error('Cloud Hypervisor is supported only inside GitHub Actions runs');
     });
     const { deps } = harness();
-    const backend = new CloudHypervisorRuntimeBackend(config(), deps);
+    const backend = createBackend(config(), deps);
 
     await expect(backend.start('/tmp/awf', ['github.com']))
       .rejects.toThrow(/supported only inside GitHub Actions runs/);
@@ -387,7 +400,7 @@ describe('Cloud Hypervisor runtime backend', () => {
 
   it('rejects timeouts beyond the guest supervisor limit before infrastructure startup', async () => {
     const { deps } = harness();
-    const backend = new CloudHypervisorRuntimeBackend(config({ agentTimeout: 1441 }), deps);
+    const backend = createBackend(config({ agentTimeout: 1441 }), deps);
 
     await expect(backend.start('/tmp/awf', ['github.com']))
       .rejects.toThrow(/up to 1440 minutes/);
@@ -401,7 +414,7 @@ describe('Cloud Hypervisor runtime backend', () => {
     manager.writeStdin.mockImplementationOnce(() => new Promise<void>((resolve) => {
       releaseFirstWrite = resolve;
     }));
-    const backend = new CloudHypervisorRuntimeBackend(config(), deps);
+    const backend = createBackend(config(), deps);
     await backend.start('/tmp/awf', ['github.com']);
     const execution = backend.exec('/tmp/awf', ['github.com']);
     stdin.write(Buffer.alloc(70_000, 1));
@@ -432,7 +445,7 @@ describe('Cloud Hypervisor runtime backend', () => {
       signal: null,
       timedOut: false,
     }));
-    const backend = new CloudHypervisorRuntimeBackend(config(), deps);
+    const backend = createBackend(config(), deps);
 
     await expect(backend.start('/tmp/awf', ['github.com']))
       .rejects.toThrow(/connectivity probe failed/);
@@ -444,7 +457,7 @@ describe('Cloud Hypervisor runtime backend', () => {
 
   it('waits with bounded backoff for the complete guest data plane before probing connectivity', async () => {
     const { manager, deps } = harness();
-    const backend = new CloudHypervisorRuntimeBackend(config(), deps);
+    const backend = createBackend(config(), deps);
 
     await backend.start('/tmp/awf', ['github.com']);
 
@@ -474,7 +487,7 @@ describe('Cloud Hypervisor runtime backend', () => {
       signal: null,
       timedOut: false,
     });
-    const backend = new CloudHypervisorRuntimeBackend(config(), deps);
+    const backend = createBackend(config(), deps);
 
     await expect(backend.start('/tmp/awf', ['github.com'])).rejects.toMatchObject({
       code: 'CLOUD_HYPERVISOR_RETRYABLE_READINESS',
@@ -507,7 +520,7 @@ describe('Cloud Hypervisor runtime backend', () => {
       signal: null,
       timedOut: false,
     }));
-    const backend = new CloudHypervisorRuntimeBackend(config(), deps);
+    const backend = createBackend(config(), deps);
 
     await expect(backend.start('/tmp/awf', ['github.com']))
       .rejects.toThrow(/connectivity probe failed/);
@@ -537,7 +550,7 @@ describe('Cloud Hypervisor runtime backend', () => {
     manager.stop.mockImplementation(async (options?: { beforeCleanup?: () => Promise<void> }) => {
       await options?.beforeCleanup?.();
     });
-    const backend = new CloudHypervisorRuntimeBackend(
+    const backend = createBackend(
       config({ diagnosticLogs: true } as Partial<WrapperConfig>),
       deps,
     );
@@ -570,7 +583,7 @@ describe('Cloud Hypervisor runtime backend', () => {
       }
       throw new Error(`unexpected request ${request.requestId}`);
     });
-    const backend = new CloudHypervisorRuntimeBackend(config(), deps);
+    const backend = createBackend(config(), deps);
 
     await expect(backend.start('/tmp/awf', ['github.com'])).rejects.toThrow(
       /connectivity probe failed with exit code 1 \(stderr: wget: can't connect to remote host: Connection refused\)/,
@@ -594,7 +607,7 @@ describe('Cloud Hypervisor runtime backend', () => {
       }
       return { requestId: request.requestId, exitCode: 1, signal: null, timedOut: false };
     });
-    const backend = new CloudHypervisorRuntimeBackend(config(), deps);
+    const backend = createBackend(config(), deps);
 
     await expect(backend.start('/tmp/awf', ['github.com'])).rejects.toThrow(
       /guest network state: 1: lo: <LOOPBACK,UP>/,
@@ -616,7 +629,7 @@ describe('Cloud Hypervisor runtime backend', () => {
     }).mockResolvedValueOnce({
       requestId: 'agent', exitCode: 0, signal: null, timedOut: false,
     });
-    const backend = new CloudHypervisorRuntimeBackend(
+    const backend = createBackend(
       config({ enableApiProxy: true } as Partial<WrapperConfig>),
       deps,
     );
@@ -663,7 +676,7 @@ describe('Cloud Hypervisor runtime backend', () => {
     }).mockResolvedValueOnce({
       requestId: 'agent', exitCode: 0, signal: null, timedOut: false,
     });
-    const backend = new CloudHypervisorRuntimeBackend(
+    const backend = createBackend(
       config({ enableApiProxy: true } as Partial<WrapperConfig>),
       deps,
     );
@@ -701,7 +714,7 @@ describe('Cloud Hypervisor runtime backend', () => {
       order.push('stop-directory-removed');
     });
     manager.startInstance.mockRejectedValue(new Error('guest disconnected before readiness'));
-    const backend = new CloudHypervisorRuntimeBackend(
+    const backend = createBackend(
       config({ diagnosticLogs: true } as Partial<WrapperConfig>),
       deps,
     );
@@ -719,7 +732,7 @@ describe('Cloud Hypervisor runtime backend', () => {
   it('preserves boot-attempt diagnostics even when --diagnostic-logs is unset', async () => {
     const { manager, deps } = harness();
     manager.startInstance.mockRejectedValue(new Error('guest disconnected before readiness'));
-    const backend = new CloudHypervisorRuntimeBackend(
+    const backend = createBackend(
       config({ diagnosticLogs: false } as Partial<WrapperConfig>),
       deps,
     );
@@ -742,7 +755,7 @@ describe('Cloud Hypervisor runtime backend', () => {
       await options?.beforeCleanup?.();
     });
     manager.startInstance.mockRejectedValue(new Error('guest disconnected before readiness'));
-    const backend = new CloudHypervisorRuntimeBackend(
+    const backend = createBackend(
       config({ diagnosticLogs: true } as Partial<WrapperConfig>),
       deps,
     );
@@ -755,7 +768,7 @@ describe('Cloud Hypervisor runtime backend', () => {
   it('fails closed when manager readiness or startup cleanup is unavailable', async () => {
     const missingIp = harness();
     Reflect.set(missingIp.manager, 'guestIp', undefined);
-    const backend = new CloudHypervisorRuntimeBackend(config(), missingIp.deps);
+    const backend = createBackend(config(), missingIp.deps);
     await expect(backend.start('/tmp/awf', ['github.com']))
       .rejects.toThrow(/did not expose the configured guest network plan/);
     expect(missingIp.manager.stop).toHaveBeenCalledTimes(1);
@@ -763,7 +776,7 @@ describe('Cloud Hypervisor runtime backend', () => {
     const dualFailure = harness();
     dualFailure.manager.start.mockRejectedValue('VMM configuration failed');
     dualFailure.manager.stop.mockRejectedValue('cleanup failed');
-    const failing = new CloudHypervisorRuntimeBackend(config(), dualFailure.deps);
+    const failing = createBackend(config(), dualFailure.deps);
     await expect(failing.start('/tmp/awf', ['github.com'])).rejects.toMatchObject({
       message: expect.stringContaining('VMM configuration failed'),
       cause: 'VMM configuration failed',
@@ -786,7 +799,7 @@ describe('Cloud Hypervisor runtime backend', () => {
       }
       return { requestId: request.requestId, exitCode: 0, signal: null, timedOut: false };
     });
-    const backend = new CloudHypervisorRuntimeBackend(config(), deps);
+    const backend = createBackend(config(), deps);
 
     await expect(backend.start('/tmp/awf', ['github.com'])).resolves.toBeUndefined();
 
@@ -806,7 +819,7 @@ describe('Cloud Hypervisor runtime backend', () => {
       signal: null,
       timedOut: false,
     }));
-    const backend = new CloudHypervisorRuntimeBackend(config(), deps);
+    const backend = createBackend(config(), deps);
 
     await expect(backend.start('/tmp/awf', ['github.com']))
       .rejects.toThrow(/connectivity configuration is invalid/);
@@ -817,7 +830,7 @@ describe('Cloud Hypervisor runtime backend', () => {
 
   it('does not retry a failed wrapped command after execution starts', async () => {
     const { deps, stdin } = harness();
-    const backend = new CloudHypervisorRuntimeBackend(config(), deps);
+    const backend = createBackend(config(), deps);
     await backend.start('/tmp/awf', ['github.com']);
 
     const execution = backend.exec('/tmp/awf', ['github.com']);
@@ -830,14 +843,14 @@ describe('Cloud Hypervisor runtime backend', () => {
 
   it('rejects execution before readiness and unsupported TTY execution', async () => {
     const cold = harness();
-    await expect(new CloudHypervisorRuntimeBackend(config(), cold.deps).exec(
+    await expect(createBackend(config(), cold.deps).exec(
       '/tmp/awf',
       ['github.com'],
     )).rejects.toThrow(/microVM is not ready/);
 
     const ttyHarness = harness();
     const ttyConfig = config();
-    const ttyBackend = new CloudHypervisorRuntimeBackend(ttyConfig, ttyHarness.deps);
+    const ttyBackend = createBackend(ttyConfig, ttyHarness.deps);
     await ttyBackend.start('/tmp/awf', ['github.com']);
     ttyConfig.tty = true;
     await expect(ttyBackend.exec('/tmp/awf', ['github.com']))
@@ -847,7 +860,7 @@ describe('Cloud Hypervisor runtime backend', () => {
 
   it('preserves a stopped VM once and logs retained artifacts', async () => {
     const { manager, deps } = harness();
-    const backend = new CloudHypervisorRuntimeBackend(config(), deps);
+    const backend = createBackend(config(), deps);
     await backend.start('/tmp/awf', ['github.com']);
 
     await backend.preserve();
@@ -872,7 +885,7 @@ describe('Cloud Hypervisor runtime backend', () => {
         timedOut: false,
       });
     });
-    const backend = new CloudHypervisorRuntimeBackend(config(), deps);
+    const backend = createBackend(config(), deps);
     await backend.start('/tmp/awf', ['github.com']);
     const execution = backend.exec('/tmp/awf', ['github.com']);
 
@@ -889,7 +902,7 @@ describe('Cloud Hypervisor runtime backend', () => {
   it('cancels after stdin forwarding failure without changing command output', async () => {
     const { manager, deps, stdin } = harness();
     manager.writeStdin.mockRejectedValueOnce(new Error('closed stdin'));
-    const backend = new CloudHypervisorRuntimeBackend(config(), deps);
+    const backend = createBackend(config(), deps);
     await backend.start('/tmp/awf', ['github.com']);
     const execution = backend.exec('/tmp/awf', ['github.com']);
     stdin.write('input');
