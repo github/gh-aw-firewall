@@ -2,7 +2,7 @@ import { SslConfig } from '../../host-env';
 import { logger } from '../../logger';
 import { WrapperConfig } from '../../types';
 import { applyHostPathPrefixToVolumes } from '../host-path-prefix';
-import { buildCredentialHidingOverlays } from './credential-hiding';
+import { buildCredentialHidingOverlays, pruneUnmountableCredentialOverlays } from './credential-hiding';
 import { buildDockerSocketMount } from './docker-socket';
 import { buildEtcMounts } from './etc-mounts';
 import { buildHomeMounts } from './home-strategy';
@@ -80,12 +80,12 @@ export function buildAgentVolumes(params: AgentVolumesParams): string[] {
   const localSourceRoots = new Map(
     customMounts.map((spec, index) => [spec, localCustomMounts[index]?.split(':')[0] ?? '']),
   );
-  const policyVolumes = applyFilesystemWritePolicy(
+  const policyVolumes = pruneUnmountableCredentialOverlays(applyFilesystemWritePolicy(
     agentVolumes,
     resolveComposeFilesystemAllowWrite(config),
     alwaysWritableMounts,
     localSourceRoots,
-  );
+  ));
 
   if (config.dockerHostPathPrefix) {
     return applyHostPathPrefixToVolumes(policyVolumes, config.dockerHostPathPrefix);

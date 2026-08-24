@@ -9,23 +9,9 @@ import { credentialFilesToHide } from '../../config/mount-policy';
  *
  * Each credential file is masked twice: once at the real `$HOME` path and once
  * at the chroot `/host$HOME` path (the agent runs chrooted into `/host`).
- *
- * Only files that actually exist on the host are masked. A `/dev/null` overlay
- * requires its mountpoint to already exist: runc creates a missing one by
- * `openat(..., O_CREAT)` on the parent, which fails with EROFS once
- * `filesystem.allowWrite` narrows the `$HOME` bind to read-only, taking the
- * whole agent container down before it starts. Skipping absent files loses no
- * protection, because a file that does not exist cannot leak a credential —
- * every file that does exist is still masked, including inside a read-only
- * parent (mounting over an existing path does not write to the filesystem).
  */
 export function buildCredentialHidingOverlays(effectiveHome: string): string[] {
-  const allCredentialFiles = credentialFilesToHide().map((rel) => `${effectiveHome}/${rel}`);
-  const credentialFiles = allCredentialFiles.filter((credFile) => fs.existsSync(credFile));
-  const skipped = allCredentialFiles.length - credentialFiles.length;
-  if (skipped > 0) {
-    logger.debug(`Skipped ${skipped} credential overlay(s) with no file on the host`);
-  }
+  const credentialFiles = credentialFilesToHide().map((rel) => `${effectiveHome}/${rel}`);
 
   const mounts = credentialFiles.map((credFile) => `/dev/null:${credFile}:ro`);
   logger.debug(`Hidden ${credentialFiles.length} credential file(s) via /dev/null mounts`);
@@ -36,4 +22,86 @@ export function buildCredentialHidingOverlays(effectiveHome: string): string[] {
   logger.debug(`Hidden ${chrootCredentialFiles.length} credential file(s) at /host paths`);
 
   return mounts;
+}
+
+interface ParsedMount {
+  source: string;
+  target: string;
+  mode: string;
+}
+
+function parseMount(spec: string): ParsedMount | undefined {
+  const parts = spec.split(':');
+  if (parts.length < 2 || !parts[0] || !parts[1]) return undefined;
+  return {
+    source: parts[0],
+    target: parts[1].replace(/\/+$/, '') || '/',
+    mode: parts[2] || 'rw',
+  };
+}
+
+/**
+ * Finds the innermost real bind whose target contains `target`, i.e. the mount
+ * that actually supplies the directory the overlay's mountpoint would live in.
+ */
+function innermostCoveringMount(binds: ParsedMount[], target: string): ParsedMount | undefined {
+  let best: ParsedMount | undefined;
+  for (const bind of binds) {
+    const covers = target === bind.target || target.startsWith(`${bind.target}/`);
+    if (!covers) continue;
+    if (!best || bind.target.length > best.target.length) best = bind;
+  }
+  return best;
+}
+
+/**
+ * Drops `/dev/null` overlays whose mountpoint cannot physically be created.
+ *
+ * A bind mount requires its mountpoint to already exist; runc creates a missing
+ * one with `openat`/`mkdirat` on the parent directory. That silently works
+ * while every mount under `$HOME` is read-write, but once `filesystem.allowWrite`
+ * narrows those binds to read-only, runc fails with EROFS and the agent
+ * container dies before it starts.
+ *
+ * An overlay is kept unless its containing bind is read-only *and* the path it
+ * masks does not exist behind that bind. Dropping those loses no protection:
+ * the read-only bind is the only way the agent could reach the path, and there
+ * is nothing there to read. Every credential that is actually reachable is
+ * still masked, because mounting over a path that exists succeeds even inside a
+ * read-only bind.
+ *
+ * This is a no-op unless a write policy is active, since every covering bind is
+ * read-write otherwise.
+ */
+export function pruneUnmountableCredentialOverlays(volumes: string[]): string[] {
+  const binds = volumes
+    .map(parseMount)
+    .filter((mount): mount is ParsedMount => mount !== undefined && mount.source !== '/dev/null');
+
+  const kept = volumes.filter((spec) => {
+    const overlay = parseMount(spec);
+    if (!overlay || overlay.source !== '/dev/null') return true;
+
+    const cover = innermostCoveringMount(binds, overlay.target);
+    // No covering bind: the mountpoint lives on the container's own writable
+    // rootfs, so runc can always create it.
+    if (!cover) return true;
+    if (cover.mode !== 'ro') return true;
+    // Named volumes and other non-path sources cannot be probed on the host.
+    if (!cover.source.startsWith('/')) return true;
+
+    const suffix = overlay.target.slice(cover.target.length);
+    if (!suffix) return true;
+    return fs.existsSync(`${cover.source}${suffix}`);
+  });
+
+  const dropped = volumes.length - kept.length;
+  if (dropped > 0) {
+    logger.debug(
+      `Dropped ${dropped} credential overlay(s) whose target does not exist behind a read-only ` +
+      'mount; those paths are unreadable in the container, so nothing is left unmasked',
+    );
+  }
+
+  return kept;
 }

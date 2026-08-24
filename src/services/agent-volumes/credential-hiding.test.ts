@@ -1,110 +1,132 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { buildCredentialHidingOverlays } from './credential-hiding';
+import { buildCredentialHidingOverlays, pruneUnmountableCredentialOverlays } from './credential-hiding';
 import { credentialFilesToHide } from '../../config/mount-policy';
 
-/**
- * Creates a throwaway home directory containing every credential file in the
- * central policy, so the overlay builder sees them as present on the host.
- */
-function createPopulatedHome(): string {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cred-home-'));
-  for (const rel of credentialFilesToHide()) {
-    const full = path.join(home, rel);
-    fs.mkdirSync(path.dirname(full), { recursive: true });
-    fs.writeFileSync(full, 'DUMMY_SECRET_VALUE');
-  }
-  return home;
-}
-
 describe('buildCredentialHidingOverlays', () => {
-  let home: string;
-
-  beforeEach(() => {
-    home = createPopulatedHome();
-  });
-
-  afterEach(() => {
-    fs.rmSync(home, { recursive: true, force: true });
-  });
-
   it('hides every policy credential file at both home and /host paths', () => {
-    const overlays = buildCredentialHidingOverlays(home);
+    const overlays = buildCredentialHidingOverlays('/home/runner');
     const expectedFiles = credentialFilesToHide();
 
     // One overlay at the real $HOME path and one at the chroot /host path.
     expect(overlays).toHaveLength(expectedFiles.length * 2);
 
     for (const rel of expectedFiles) {
-      expect(overlays).toContain(`/dev/null:${home}/${rel}:ro`);
-      expect(overlays).toContain(`/dev/null:/host${home}/${rel}:ro`);
+      expect(overlays).toContain(`/dev/null:/home/runner/${rel}:ro`);
+      expect(overlays).toContain(`/dev/null:/host/home/runner/${rel}:ro`);
     }
   });
 
   it('masks representative credential files from the central policy', () => {
-    const overlays = buildCredentialHidingOverlays(home);
+    const overlays = buildCredentialHidingOverlays('/home/runner');
 
-    expect(overlays).toContain(`/dev/null:${home}/.docker/config.json:ro`);
-    expect(overlays).toContain(`/dev/null:/host${home}/.docker/config.json:ro`);
-    expect(overlays).toContain(`/dev/null:${home}/.config/gh/hosts.yml:ro`);
-    expect(overlays).toContain(`/dev/null:/host${home}/.config/gh/hosts.yml:ro`);
+    expect(overlays).toContain('/dev/null:/home/runner/.docker/config.json:ro');
+    expect(overlays).toContain('/dev/null:/host/home/runner/.docker/config.json:ro');
+    expect(overlays).toContain('/dev/null:/home/runner/.config/gh/hosts.yml:ro');
+    expect(overlays).toContain('/dev/null:/host/home/runner/.config/gh/hosts.yml:ro');
     // Newly centralized entries (previously only protected by sbx).
-    expect(overlays).toContain(`/dev/null:${home}/.claude/.credentials.json:ro`);
-    expect(overlays).toContain(`/dev/null:${home}/.gemini/oauth_creds.json:ro`);
+    expect(overlays).toContain('/dev/null:/home/runner/.claude/.credentials.json:ro');
+    expect(overlays).toContain('/dev/null:/home/runner/.gemini/oauth_creds.json:ro');
+  });
+});
+
+describe('pruneUnmountableCredentialOverlays', () => {
+  const HOME = '/home/runner';
+  const overlay = (target: string) => `/dev/null:${target}:ro`;
+
+  let hostDir: string;
+
+  beforeEach(() => {
+    hostDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cred-prune-'));
   });
 
-  it('still masks a credential file that is a symlink to a real file', () => {
-    const target = path.join(home, 'real-docker-config.json');
-    fs.writeFileSync(target, 'DUMMY_SECRET_VALUE');
-    const linkPath = path.join(home, '.docker/config.json');
-    fs.rmSync(linkPath);
-    fs.symlinkSync(target, linkPath);
-
-    const overlays = buildCredentialHidingOverlays(home);
-
-    expect(overlays).toContain(`/dev/null:${home}/.docker/config.json:ro`);
-    expect(overlays).toContain(`/dev/null:/host${home}/.docker/config.json:ro`);
+  afterEach(() => {
+    fs.rmSync(hostDir, { recursive: true, force: true });
   });
 
-  // Regression: a `/dev/null` overlay needs its mountpoint to already exist.
-  // runc creates a missing one with openat(O_CREAT) on the parent, which fails
-  // with EROFS once filesystem.allowWrite narrows the $HOME bind to read-only,
-  // killing the agent container before it starts. Absent files carry no
-  // credential, so they must simply be skipped.
-  describe('credential files that do not exist on the host', () => {
-    it('omits overlays for them', () => {
-      const emptyHome = fs.mkdtempSync(path.join(os.tmpdir(), 'cred-empty-'));
-      try {
-        expect(buildCredentialHidingOverlays(emptyHome)).toEqual([]);
-      } finally {
-        fs.rmSync(emptyHome, { recursive: true, force: true });
-      }
-    });
+  it('keeps every overlay when no covering bind is read-only (the no-policy case)', () => {
+    const volumes = [
+      `${hostDir}:/host${HOME}:rw`,
+      `${hostDir}/.config:/host${HOME}/.config:rw`,
+      overlay(`${HOME}/.docker/config.json`),
+      overlay(`/host${HOME}/.docker/config.json`),
+      overlay(`/host${HOME}/.config/gh/hosts.yml`),
+    ];
 
-    it('omits only the absent ones and keeps the rest', () => {
-      const removed = '.docker/config.json';
-      fs.rmSync(path.join(home, removed));
+    expect(pruneUnmountableCredentialOverlays(volumes)).toEqual(volumes);
+  });
 
-      const overlays = buildCredentialHidingOverlays(home);
-      const remaining = credentialFilesToHide().filter((rel) => rel !== removed);
+  it('keeps overlays whose mountpoint exists behind a read-only bind', () => {
+    fs.mkdirSync(path.join(hostDir, '.config/gh'), { recursive: true });
+    fs.writeFileSync(path.join(hostDir, '.config/gh/hosts.yml'), 'DUMMY_SECRET_VALUE');
+    const target = `/host${HOME}/.config/gh/hosts.yml`;
 
-      expect(overlays).toHaveLength(remaining.length * 2);
-      expect(overlays).not.toContain(`/dev/null:${home}/${removed}:ro`);
-      expect(overlays).not.toContain(`/dev/null:/host${home}/${removed}:ro`);
-      for (const rel of remaining) {
-        expect(overlays).toContain(`/dev/null:${home}/${rel}:ro`);
-      }
-    });
+    const result = pruneUnmountableCredentialOverlays([
+      `${hostDir}:/host${HOME}:ro`,
+      overlay(target),
+    ]);
 
-    it('omits overlays for a dangling symlink, which cannot leak anything', () => {
-      const linkPath = path.join(home, '.docker/config.json');
-      fs.rmSync(linkPath);
-      fs.symlinkSync(path.join(home, 'nonexistent-target'), linkPath);
+    expect(result).toContain(overlay(target));
+  });
 
-      const overlays = buildCredentialHidingOverlays(home);
+  it('drops overlays whose mountpoint is missing behind a read-only bind', () => {
+    const target = `/host${HOME}/.docker/config.json`;
 
-      expect(overlays).not.toContain(`/dev/null:${home}/.docker/config.json:ro`);
-    });
+    const result = pruneUnmountableCredentialOverlays([
+      `${hostDir}:/host${HOME}:ro`,
+      overlay(target),
+    ]);
+
+    expect(result).not.toContain(overlay(target));
+    expect(result).toContain(`${hostDir}:/host${HOME}:ro`);
+  });
+
+  it('resolves the mountpoint against the innermost covering bind', () => {
+    // An outer read-only bind that does have the file, and an inner read-only
+    // bind that does not. The inner bind is what supplies the directory, so the
+    // overlay is unmountable and must be dropped.
+    fs.mkdirSync(path.join(hostDir, 'outer/.config/gh'), { recursive: true });
+    fs.writeFileSync(path.join(hostDir, 'outer/.config/gh/hosts.yml'), 'DUMMY');
+    fs.mkdirSync(path.join(hostDir, 'inner'), { recursive: true });
+    const target = `/host${HOME}/.config/gh/hosts.yml`;
+
+    const result = pruneUnmountableCredentialOverlays([
+      `${hostDir}/outer:/host${HOME}:ro`,
+      `${hostDir}/inner:/host${HOME}/.config:ro`,
+      overlay(target),
+    ]);
+
+    expect(result).not.toContain(overlay(target));
+  });
+
+  it('keeps overlays that land on the container rootfs with no covering bind', () => {
+    const volumes = [
+      `${hostDir}:/host${HOME}:ro`,
+      '/dev/null:/host/var/run/docker.sock:ro',
+      '/dev/null:/host/run/docker.sock:ro',
+    ];
+
+    const result = pruneUnmountableCredentialOverlays(volumes);
+
+    expect(result).toContain('/dev/null:/host/var/run/docker.sock:ro');
+    expect(result).toContain('/dev/null:/host/run/docker.sock:ro');
+  });
+
+  it('keeps overlays covered by a named volume, which cannot be probed', () => {
+    const target = `/host${HOME}/.docker/config.json`;
+
+    const result = pruneUnmountableCredentialOverlays([
+      `awf-home:/host${HOME}:ro`,
+      overlay(target),
+    ]);
+
+    expect(result).toContain(overlay(target));
+  });
+
+  it('never drops non-overlay mounts', () => {
+    const volumes = [`${hostDir}:/host${HOME}:ro`, '/tmp:/tmp:ro', `${hostDir}:/workspace:rw`];
+
+    expect(pruneUnmountableCredentialOverlays(volumes)).toEqual(volumes);
   });
 });
