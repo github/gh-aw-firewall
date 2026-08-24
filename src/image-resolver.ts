@@ -58,12 +58,12 @@ const DIGEST = 'sha256:[a-f0-9]{64}';
  * Canonical pattern for a compiler-authorized image reference. Kept in sync
  * with `$defs/digestPinnedImage` in the AWF configuration JSON Schema.
  */
-export const DIGEST_PINNED_IMAGE_PATTERN =
+const DIGEST_PINNED_IMAGE_PATTERN =
   `^${REGISTRY}/${PATH_COMPONENT}(?:/${PATH_COMPONENT})*:${TAG}@${DIGEST}$`;
 
 const DIGEST_PINNED_IMAGE = new RegExp(DIGEST_PINNED_IMAGE_PATTERN);
 
-export function isDigestPinnedImageReference(reference: string): boolean {
+function isDigestPinnedImageReference(reference: string): boolean {
   if (/\s|\$|\{\{/.test(reference)) return false;
   return DIGEST_PINNED_IMAGE.test(reference);
 }
