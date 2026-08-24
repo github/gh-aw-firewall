@@ -306,10 +306,52 @@ describe('nested mountpoint preparation', () => {
 
       const mountpoint = path.join(emptyHome, 'bin/tool');
       expect(created).toEqual([mountpoint]);
-      expect(fs.statSync(mountpoint).isFile()).toBe(true);
-      expect(fs.readFileSync(mountpoint, 'utf8')).toBe('');
+      // A single stat answers both questions: an empty regular file. The
+      // placeholder is never written to, so its size is the assertion.
+      const placeholder = fs.statSync(mountpoint);
+      expect(placeholder.isFile()).toBe(true);
+      expect(placeholder.size).toBe(0);
+      // Owner-only: these paths can land in a world-writable directory, and a
+      // bind does not need its mountpoint to be readable by anyone else.
+      expect(placeholder.mode & 0o077).toBe(0);
       // The parent directory has to be created too, or the file cannot land.
       expect(fs.statSync(path.join(emptyHome, 'bin')).isDirectory()).toBe(true);
+    });
+
+    it('refuses a symlink planted where a file mountpoint belongs', () => {
+      const { emptyHome } = makeTree();
+      const sourceFile = path.join(tmpRoot, 'runner-binary');
+      fs.writeFileSync(sourceFile, '#!/bin/sh\n', { mode: 0o755 });
+      fs.mkdirSync(path.join(emptyHome, 'bin'), { recursive: true });
+      // A dangling symlink needs no race to plant: existsSync() follows it and
+      // reports false, so preparation proceeds, and an exclusive create then
+      // fails with EEXIST. Returning quietly there would hand runc an
+      // attacker-chosen mountpoint in a world-writable directory.
+      fs.symlinkSync('/nonexistent-target', path.join(emptyHome, 'bin/tool'));
+      const volumes = [
+        `${emptyHome}:/host/home/runner:ro`,
+        `${sourceFile}:/host/home/runner/bin/tool:ro`,
+      ];
+
+      expect(() => ensureNestedMountpoints(volumes, uid, gid)).toThrow(/symlink/i);
+      // The plant is reported, never followed and never replaced.
+      expect(fs.lstatSync(path.join(emptyHome, 'bin/tool')).isSymbolicLink()).toBe(true);
+    });
+
+    it('refuses a directory planted where a file mountpoint belongs', () => {
+      const { emptyHome } = makeTree();
+      const sourceFile = path.join(tmpRoot, 'runner-binary');
+      fs.writeFileSync(sourceFile, '#!/bin/sh\n', { mode: 0o755 });
+      fs.mkdirSync(path.join(emptyHome, 'bin/tool'), { recursive: true });
+      const volumes = [
+        `${emptyHome}:/host/home/runner:ro`,
+        `${sourceFile}:/host/home/runner/bin/tool:ro`,
+      ];
+
+      // A directory standing in for a file is not a usable mountpoint: the
+      // daemon rejects the bind with "not a directory" once the run is under
+      // way, which is far later and far more opaque than failing here.
+      expect(() => ensureNestedMountpoints(volumes, uid, gid)).toThrow(/not a regular file/i);
     });
 
     it('leaves an existing file mountpoint untouched', () => {
@@ -517,9 +559,10 @@ describe('nested mountpoint preparation', () => {
       const volumes = layout.build([writable]);
 
       const mountpoint = path.join('/tmp/awf-runner-bin', layout.binaryName);
-      expect(fs.statSync(mountpoint).isFile()).toBe(true);
       // An empty placeholder: it exists only so runc has something to bind over.
-      expect(fs.readFileSync(mountpoint, 'utf8')).toBe('');
+      const placeholder = fs.statSync(mountpoint);
+      expect(placeholder.isFile()).toBe(true);
+      expect(placeholder.size).toBe(0);
       // The bind really is published, and the /tmp cover really is read-only —
       // otherwise this test would pass without exercising anything.
       expect(volumes.some((spec) => spec.endsWith(':/tmp:ro'))).toBe(true);

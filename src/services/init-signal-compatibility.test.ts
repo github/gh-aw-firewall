@@ -66,8 +66,10 @@ describe('init signal directory compatibility', () => {
   describe('old CLI + new agent image', () => {
     it('still accepts a ready-file delivered at the legacy path', () => {
       expect(entrypointSource).toContain('LEGACY_INIT_SIGNAL_DIR="/tmp/awf-init"');
+      // Escaped `\${...}` so this stays a literal shell expansion rather than a
+      // JavaScript one: the assertion is a byte-for-byte excerpt of the script.
       expect(entrypointSource).toContain(
-        'while [ ! -f "${INIT_SIGNAL_DIR}/ready" ] && [ ! -f "${LEGACY_INIT_SIGNAL_DIR}/ready" ]; do',
+        `while [ ! -f "\${INIT_SIGNAL_DIR}/ready" ] && [ ! -f "\${LEGACY_INIT_SIGNAL_DIR}/ready" ]; do`,
       );
     });
   });

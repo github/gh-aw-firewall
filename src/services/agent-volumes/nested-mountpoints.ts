@@ -139,16 +139,25 @@ function isExistingDirectory(candidate: string): boolean {
  * Creates an empty file for runc to bind over.
  *
  * Deliberately exclusive (`wx`): if something already occupies the path we must
- * not truncate it, and a racing creator means the mountpoint exists anyway.
- * Contents are never written — the bind replaces the file's contents wholesale,
- * so the placeholder only has to exist and be of the right type.
+ * not truncate it. Contents are never written — the bind replaces the file's
+ * contents wholesale, so the placeholder only has to exist and be of the right
+ * type. The mode is owner-only because these paths can land in a world-writable
+ * directory (`/tmp/awf-runner-bin` under a narrowed `/tmp`), and a bind does not
+ * care about its mountpoint's permissions.
+ *
+ * An exclusive create is also what makes the symlink check below reachable
+ * rather than theoretical: `O_CREAT | O_EXCL` refuses to follow a symlink, so a
+ * planted one surfaces as `EEXIST` instead of being silently written through.
  */
 function createOwnedPlaceholderFile(filePath: string, uid: number, gid: number): void {
   let handle: number | undefined;
   try {
-    handle = fs.openSync(filePath, 'wx', 0o644);
+    handle = fs.openSync(filePath, 'wx', 0o600);
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === 'EEXIST') return;
+    if ((err as NodeJS.ErrnoException).code === 'EEXIST') {
+      assertUsableFileMountpoint(filePath);
+      return;
+    }
     throw err;
   } finally {
     if (handle !== undefined) fs.closeSync(handle);
@@ -160,6 +169,28 @@ function createOwnedPlaceholderFile(filePath: string, uid: number, gid: number):
     // Ownership is a convenience for the in-container user; the mountpoint
     // itself is what runc needs, and the bind masks the placeholder entirely.
     logger.debug(`Could not chown placeholder mountpoint ${filePath}: ${err}`);
+  }
+}
+
+/**
+ * Accepts an entry that appeared underneath us only if runc could actually bind
+ * over it.
+ *
+ * Reaching here means the path was absent when preparation looked and present a
+ * moment later. A regular file is the benign explanation and is fine to reuse.
+ * Anything else is not: a symlink hands runc a target of someone else's
+ * choosing, and a directory makes the daemon reject the bind with "not a
+ * directory" once the run is already under way. Neither is repaired here —
+ * deleting a path we did not create is how a mountpoint helper turns into a
+ * destructive one — so both fail closed while the context is still useful.
+ */
+function assertUsableFileMountpoint(filePath: string): void {
+  const entry = fs.lstatSync(filePath);
+  if (entry.isSymbolicLink()) {
+    throw new Error(`Refusing to use symlink as bind mountpoint: ${filePath}`);
+  }
+  if (!entry.isFile()) {
+    throw new Error(`Bind mountpoint exists but is not a regular file: ${filePath}`);
   }
 }
 
@@ -208,7 +239,17 @@ export function ensureNestedMountpoints(
 
     const { hostPath } = requirement;
     // The cover resolved, so `planNestedMountpoints` always produced a hostPath.
-    if (hostPath === undefined || fs.existsSync(hostPath)) continue;
+    if (hostPath === undefined) continue;
+    if (fs.existsSync(hostPath)) {
+      // An existing directory mountpoint is the overwhelmingly common case and
+      // is left exactly as it was found. A *file* mountpoint is different: the
+      // daemon rejects the bind outright if the entry is the wrong type, so the
+      // one kind this pass introduces is also the one kind worth checking.
+      if (requirement.kind === 'file' && !requirement.credentialOverlay) {
+        assertUsableFileMountpoint(hostPath);
+      }
+      continue;
+    }
 
     if (requirement.credentialOverlay) {
       unmet.push(
