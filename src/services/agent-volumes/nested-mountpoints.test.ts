@@ -570,4 +570,111 @@ describe('nested mountpoint preparation', () => {
         .toBe(true);
     });
   });
+
+  // A `--docker-host-path-prefix` under /tmp is *shared*, not daemon-only: the
+  // runner and the daemon see the same paths there, which is why AWF stages
+  // files into it with local fs calls and why prefix translation deliberately
+  // leaves an already-/tmp source unrewritten. The run's own workDir then sits
+  // *inside* the prefix, so topology passes still have to resolve it locally.
+  describe('buildAgentVolumes (--docker-host-path-prefix shares /tmp with the runner)', () => {
+    const sharedRoots: string[] = [];
+
+    afterEach(() => {
+      sharedRoots.splice(0).forEach((dir) => fs.rmSync(dir, { recursive: true, force: true }));
+    });
+
+    function stageSharedTmpLayout() {
+      const unique = path.basename(tmpRoot).replace(/[^a-zA-Z0-9]/g, '');
+      // The prefix under test is the literal /tmp, and the whole run has to sit
+      // beneath it, so this cannot be redirected into the suite's sandbox (on
+      // macOS os.tmpdir() is /private/var/... and would not nest).
+      const sharedRoot = `/tmp/awf-shared-${unique}`;
+      sharedRoots.push(sharedRoot);
+
+      const home = path.join(sharedRoot, 'home', 'runner');
+      const workspaceDir = path.join(home, 'work', 'repo', 'repo');
+      const workDir = path.join(sharedRoot, 'awf-run');
+      const emptyHome = `${workDir}-chroot-home`;
+      const agentLogsPath = path.join(workDir, 'agent-logs');
+      const sessionStatePath = path.join(workDir, 'agent-session-state');
+      const initSignalDir = path.join(workDir, 'init-signal');
+
+      [workspaceDir, workDir, emptyHome, agentLogsPath, sessionStatePath, initSignalDir]
+        .forEach((dir) => fs.mkdirSync(dir, { recursive: true }));
+      for (const toolPath of HOME_TOOL_PATHS) {
+        fs.mkdirSync(path.join(home, toolPath), { recursive: true });
+        fs.mkdirSync(path.join(emptyHome, toolPath), { recursive: true });
+      }
+      fs.mkdirSync(path.join(emptyHome, 'work', 'repo', 'repo'), { recursive: true });
+
+      const config = {
+        agentCommand: 'echo',
+        allowedDomains: [],
+        workDir,
+        volumeMounts: [],
+        dockerHostPathPrefix: '/tmp',
+      } as unknown as WrapperConfig;
+
+      return {
+        workspaceDir,
+        initSignalDir,
+        build: (filesystemAllowWrite?: string[]) => buildAgentVolumes({
+          config: { ...config, filesystemAllowWrite } as WrapperConfig,
+          projectRoot: process.cwd(),
+          effectiveHome: home,
+          workspaceDir,
+          agentLogsPath,
+          sessionStatePath,
+          initSignalDir,
+        }),
+      };
+    }
+
+    function stageWritable(layout: ReturnType<typeof stageSharedTmpLayout>): string {
+      const writable = path.join(layout.workspaceDir, 'allowed');
+      fs.mkdirSync(writable, { recursive: true });
+      return writable;
+    }
+
+    it('resolves a workDir nested inside the prefix instead of failing closed', () => {
+      const layout = stageSharedTmpLayout();
+      const writable = stageWritable(layout);
+
+      expect(() => layout.build([writable])).not.toThrow();
+    });
+
+    it('classifies the legacy init signal mountpoint nested under a narrowed /tmp', () => {
+      const layout = stageSharedTmpLayout();
+      const volumes = layout.build([stageWritable(layout)]);
+
+      const legacy = planNestedMountpoints(volumes)
+        .find((requirement) => requirement.containerTarget === '/tmp/awf-init');
+
+      // The source is the run's own init-signal directory, which the CLI just
+      // created locally — being under the shared prefix must not make it
+      // unclassifiable.
+      expect(legacy?.source).toBe(layout.initSignalDir);
+      expect(legacy?.kind).toBe('directory');
+      expect(legacy?.hostPath).toBeDefined();
+      expect(fs.existsSync(legacy?.hostPath as string)).toBe(true);
+    });
+
+    it('prepares the nested home mountpoints when the chroot home is under the prefix', () => {
+      const layout = stageSharedTmpLayout();
+      const volumes = layout.build([stageWritable(layout)]);
+
+      const nestedHomeMounts = planNestedMountpoints(volumes)
+        .filter((requirement) => requirement.containerTarget.includes('/.copilot/'));
+
+      // Guards against passing vacuously: the policy really does narrow a home
+      // bind that covers these, so there is something to prepare.
+      expect(nestedHomeMounts.length).toBeGreaterThan(0);
+      for (const requirement of nestedHomeMounts) {
+        // An unresolvable covering source leaves hostPath undefined, which
+        // silently skips preparation and restores the EROFS failure.
+        expect(requirement.hostPath).toBeDefined();
+        expect(fs.existsSync(requirement.hostPath as string)).toBe(true);
+      }
+    });
+  });
 });

@@ -13,7 +13,14 @@
  * Custom volume mounts are materialised with daemon-side sources, so a runner
  * local `fs` call against them is meaningless. Everything else is still a
  * runner-local path at this stage because the prefix is applied last.
+ *
+ * Being *under* the prefix is therefore not the same as being daemon-only. A
+ * shared prefix (see `isSharedDockerHostPathPrefix`) names one filesystem both
+ * sides can see, and the run's own workDir routinely lives inside it — treating
+ * that as unresolvable would make the whole run directory unclassifiable.
  */
+
+import { isSharedDockerHostPathPrefix } from '../host-path-prefix';
 
 export interface ParsedMount {
   source: string;
@@ -72,9 +79,21 @@ export function createLocalSourceResolver(
     }
 
     // Not a custom mount. Every other source is still runner-local here because
-    // `applyHostPathPrefixToVolumes` runs after this stage. If a source already
-    // carries the daemon prefix we cannot attribute it, so fail closed.
-    if (dockerHostPathPrefix && isPathPrefix(dockerHostPathPrefix, source)) return undefined;
+    // `applyHostPathPrefixToVolumes` runs after this stage. A source that
+    // already carries a *daemon-only* prefix cannot be attributed, so fail
+    // closed.
+    //
+    // A shared prefix is not that case: there the same path is valid on both
+    // sides, so the run's own workDir (and everything AWF stages) legitimately
+    // sits under the prefix and stays runner-resolvable. Failing closed on it
+    // instead would misclassify the entire run directory.
+    if (
+      dockerHostPathPrefix
+      && !isSharedDockerHostPathPrefix(dockerHostPathPrefix)
+      && isPathPrefix(dockerHostPathPrefix, source)
+    ) {
+      return undefined;
+    }
 
     return source;
   };

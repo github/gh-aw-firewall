@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { logger } from '../../logger';
+import { isSharedDockerHostPathPrefix } from '../host-path-prefix';
 import { WrapperConfig } from '../../types';
 
 const DOCKER_HOST_STAGE_DIR = 'awf-docker-host-stage';
@@ -34,9 +35,9 @@ function normalizeDockerHostPathPrefix(prefix: string): string {
 }
 
 export function shouldUseDockerHostStaging(prefix: string | undefined): boolean {
-  if (!prefix) return false;
-  const normalized = normalizeDockerHostPathPrefix(prefix);
-  return normalized === '/tmp' || normalized.startsWith('/tmp/');
+  // Staging writes with local `fs` and expects the daemon to read it back, so
+  // it is only sound when the prefix is genuinely shared.
+  return isSharedDockerHostPathPrefix(prefix);
 }
 
 export function getDockerHostStageRoot(config: WrapperConfig): string {

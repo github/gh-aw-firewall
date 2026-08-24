@@ -20,9 +20,29 @@ function normalizeDockerHostPathPrefix(prefix: string): string {
   return withoutTrailingSlash || '/';
 }
 
+/**
+ * Is this prefix a directory the runner and the Docker daemon *share*, rather
+ * than a daemon-only staging root?
+ *
+ * A /tmp-rooted prefix is the ARC/DinD shared-volume shape: the same path
+ * resolves to the same bytes on both sides. That is why AWF can stage files
+ * into it with ordinary local `fs` calls, why an already-/tmp source is never
+ * rewritten below, and why a source under it stays runner-resolvable. A prefix
+ * like `/host` is the opposite: it exists only inside the daemon.
+ *
+ * Exported because every pass that reasons about prefixed paths needs the same
+ * answer — keeping separate copies of this test is what let a shared prefix be
+ * mistaken for a daemon-only one.
+ */
+export function isSharedDockerHostPathPrefix(prefix: string | undefined): boolean {
+  if (!prefix) return false;
+  const normalized = normalizeDockerHostPathPrefix(prefix);
+  return normalized === '/tmp' || normalized.startsWith('/tmp/');
+}
+
 function shouldPreserveUnprefixedEtcIdentityFile(hostPath: string, dockerHostPathPrefix: string): boolean {
   return (
-    (dockerHostPathPrefix === '/tmp' || dockerHostPathPrefix.startsWith('/tmp/')) &&
+    isSharedDockerHostPathPrefix(dockerHostPathPrefix) &&
     (hostPath === '/etc/passwd' || hostPath === '/etc/group')
   );
 }
