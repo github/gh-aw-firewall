@@ -3,6 +3,7 @@ import {
   AGENT_CONTAINER_NAME,
   INIT_SIGNAL_DIR,
   IPTABLES_INIT_CONTAINER_NAME,
+  LEGACY_INIT_SIGNAL_DIR,
   SQUID_PORT,
 } from '../constants';
 import { ACT_PRESET_BASE_IMAGE, getSafeHostUid, getSafeHostGid } from '../host-identity';
@@ -293,11 +294,6 @@ interface IptablesInitServiceParams {
  */
 export function buildIptablesInitService(params: IptablesInitServiceParams): any {
   const { agentService, environment, networkConfig, initSignalDir, dockerHostPathPrefix, hostGatewayIp } = params;
-  // No legacy-path compatibility shim here: this container has its own mount
-  // namespace and rootfs, so anything created at LEGACY_INIT_SIGNAL_DIR inside
-  // it is invisible to the agent container. Older agent images are supported by
-  // binding the same host source at the legacy path in the *agent* service
-  // instead (see buildWorkspaceMounts).
   const setupCommand = [
     'mkdir -p "$$AWF_INIT_SIGNAL_DIR"',
     '/usr/local/bin/setup-iptables.sh > "$$AWF_INIT_SIGNAL_DIR/output.log" 2>&1',
@@ -308,8 +304,20 @@ export function buildIptablesInitService(params: IptablesInitServiceParams): any
   // otherwise the two containers bind to different daemon-side directories and the
   // ready-file handshake fails. buildAgentVolumes() applies dockerHostPathPrefix to its
   // mounts, so do the same here via the shared helper.
-  const [initSignalMount] = applyHostPathPrefixToVolumes(
-    [`${initSignalDir}:${INIT_SIGNAL_DIR}:rw`],
+  //
+  // The legacy path is bound here as well, and read-write. This container has its
+  // own mount namespace, so the agent-side legacy bind is invisible to it and
+  // cannot help. It matters because setup-iptables.sh in agent images released
+  // before the signal directory moved to /run writes its audit dump to a
+  // hardcoded LEGACY_INIT_SIGNAL_DIR path, under `set -e`: with the directory
+  // absent the redirection fails, the script exits non-zero before the `touch`
+  // above, and the agent waits out its full ready timeout and then fails. Both
+  // paths are the same host directory, so a new image simply ignores this one.
+  const [initSignalMount, legacyInitSignalMount] = applyHostPathPrefixToVolumes(
+    [
+      `${initSignalDir}:${INIT_SIGNAL_DIR}:rw`,
+      `${initSignalDir}:${LEGACY_INIT_SIGNAL_DIR}:rw`,
+    ],
     dockerHostPathPrefix,
   );
 
@@ -323,6 +331,7 @@ export function buildIptablesInitService(params: IptablesInitServiceParams): any
     // Only mount the init signal volume and the iptables setup script
     volumes: [
       initSignalMount,
+      legacyInitSignalMount,
     ],
     environment: {
       // Pass through environment variables needed by setup-iptables.sh

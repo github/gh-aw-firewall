@@ -1,5 +1,7 @@
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
+import { execFileSync } from 'child_process';
 import { generateDockerCompose, mockNetworkConfig, useAgentVolumesTestConfig } from './service-test-setup.test-utils';
 import { INIT_SIGNAL_DIR, LEGACY_INIT_SIGNAL_DIR } from '../constants';
 
@@ -67,6 +69,110 @@ describe('init signal directory compatibility', () => {
       expect(entrypointSource).toContain(
         'while [ ! -f "${INIT_SIGNAL_DIR}/ready" ] && [ ! -f "${LEGACY_INIT_SIGNAL_DIR}/ready" ]; do',
       );
+    });
+  });
+
+  describe('new CLI + old agent image: the init container runs the old script', () => {
+    /**
+     * The audit step of `setup-iptables.sh` as shipped in agent images released
+     * before the signal directory moved to /run. Two properties matter and both
+     * are load-bearing: the script runs under `set -e`, and the audit file path
+     * is hardcoded to the legacy directory rather than read from
+     * `$AWF_INIT_SIGNAL_DIR`. A redirection into a missing directory is a
+     * command failure, so `set -e` aborts the script before the CLI's
+     * `&& touch "$AWF_INIT_SIGNAL_DIR/ready"` ever runs, and the agent then
+     * waits out its full ready timeout.
+     */
+    const OLD_AUDIT_STEP = [
+      'set -e',
+      `audit_file="${LEGACY_INIT_SIGNAL_DIR}/iptables-audit.txt"`,
+      'echo "# iptables audit dump" > "$audit_file"',
+      'echo "## IPv4 NAT rules" >> "$audit_file"',
+      'echo OLD_SCRIPT_COMPLETED',
+    ].join('\n');
+
+    /**
+     * Materialises the init container's filesystem view: every bind target in
+     * the generated service exists as a directory, and nothing else does.
+     */
+    function stageInitContainerRootfs(volumes: string[]): string {
+      const rootfs = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-initns-'));
+      for (const spec of volumes) {
+        const target = spec.split(':')[1];
+        if (target) fs.mkdirSync(path.join(rootfs, target), { recursive: true });
+      }
+      return rootfs;
+    }
+
+    function runOldSetupScript(rootfs: string): { stdout: string; readyExists: boolean } {
+      const script = [
+        `cd "${rootfs}"`,
+        // Rebase the container-absolute paths onto the staged rootfs.
+        OLD_AUDIT_STEP.replace(
+          `audit_file="${LEGACY_INIT_SIGNAL_DIR}`,
+          `audit_file="${rootfs}${LEGACY_INIT_SIGNAL_DIR}`,
+        ),
+        // Exactly how the CLI chains the ready signal after the script.
+        `touch "${rootfs}${INIT_SIGNAL_DIR}/ready"`,
+      ].join('\n');
+
+      let stdout = '';
+      try {
+        stdout = execFileSync('/bin/sh', ['-c', script], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+      } catch (err) {
+        stdout = String((err as { stdout?: string }).stdout ?? '');
+      }
+      return {
+        stdout,
+        readyExists: fs.existsSync(path.join(rootfs, INIT_SIGNAL_DIR.slice(1), 'ready')),
+      };
+    }
+
+    it('lets the old audit dump succeed so the ready signal is still written', () => {
+      const volumes = generateDockerCompose(getConfig(), mockNetworkConfig)
+        .services['iptables-init'].volumes as string[];
+      const rootfs = stageInitContainerRootfs(volumes);
+
+      try {
+        const result = runOldSetupScript(rootfs);
+
+        expect(result.stdout).toContain('OLD_SCRIPT_COMPLETED');
+        expect(result.readyExists).toBe(true);
+      } finally {
+        fs.rmSync(rootfs, { recursive: true, force: true });
+      }
+    });
+
+    it('proves the test would catch the regression it is guarding', () => {
+      // Same script, but with only the current signal directory mounted: this is
+      // the state that stranded an older image, and it must be detectable.
+      const rootfs = stageInitContainerRootfs([`/src:${INIT_SIGNAL_DIR}:rw`]);
+
+      try {
+        const result = runOldSetupScript(rootfs);
+
+        expect(result.stdout).not.toContain('OLD_SCRIPT_COMPLETED');
+        expect(result.readyExists).toBe(false);
+      } finally {
+        fs.rmSync(rootfs, { recursive: true, force: true });
+      }
+    });
+
+    it('mounts the legacy path writable, because the old script writes there', () => {
+      const volumes = generateDockerCompose(getConfig(), mockNetworkConfig)
+        .services['iptables-init'].volumes as string[];
+
+      expect(volumes).toContain(`${getConfig().workDir}/init-signal:${LEGACY_INIT_SIGNAL_DIR}:rw`);
+      expect(volumes).toContain(`${getConfig().workDir}/init-signal:${INIT_SIGNAL_DIR}:rw`);
+    });
+
+    it('keeps both init-signal views on one source, so either path signals the agent', () => {
+      const volumes = (generateDockerCompose(getConfig(), mockNetworkConfig)
+        .services['iptables-init'].volumes as string[])
+        .filter((spec) => spec.includes('init-signal'))
+        .map((spec) => spec.split(':')[0]);
+
+      expect(new Set(volumes).size).toBe(1);
     });
   });
 

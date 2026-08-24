@@ -6,6 +6,7 @@ import {
   planNestedMountpoints,
 } from './nested-mountpoints';
 import { createLocalSourceResolver } from './mount-topology';
+import { pruneUnmountableCredentialOverlays } from './credential-hiding';
 import { HOME_TOOL_PATHS } from '../../config/mount-policy';
 import { buildAgentVolumes } from './volume-builder';
 import { WrapperConfig } from '../../types';
@@ -78,20 +79,37 @@ describe('nested mountpoint preparation', () => {
     });
 
     it('reports the mountpoint a read-only cover cannot create', () => {
+      const emptyHome = path.join(tmpRoot, 'chroot-home');
+      const logs = path.join(tmpRoot, 'agent-logs');
+      [emptyHome, logs].forEach((dir) => fs.mkdirSync(dir, { recursive: true }));
       const volumes = [
-        '/empty-home:/host/home/runner:ro',
-        '/logs:/host/home/runner/.copilot/logs:rw',
+        `${emptyHome}:/host/home/runner:ro`,
+        `${logs}:/host/home/runner/.copilot/logs:rw`,
       ];
 
       expect(planNestedMountpoints(volumes)).toEqual([
         expect.objectContaining({
           containerTarget: '/host/home/runner/.copilot/logs',
           coveringTarget: '/host/home/runner',
-          coveringSource: '/empty-home',
-          hostPath: '/empty-home/.copilot/logs',
+          coveringSource: emptyHome,
+          hostPath: path.join(emptyHome, '.copilot/logs'),
           kind: 'directory',
+          credentialOverlay: false,
         }),
       ]);
+    });
+
+    it('cannot classify a source that does not exist on this filesystem', () => {
+      const volumes = [
+        '/empty-home:/host/home/runner:ro',
+        '/logs:/host/home/runner/.copilot/logs:rw',
+      ];
+
+      // The kind of a bind mountpoint follows its source, so an unreachable
+      // source is reported as unknown rather than assumed to be a directory.
+      expect(planNestedMountpoints(volumes)[0]).toEqual(
+        expect.objectContaining({ kind: 'unknown', credentialOverlay: false }),
+      );
     });
 
     it('attributes the mountpoint to the innermost cover, not the outermost', () => {
@@ -213,18 +231,77 @@ describe('nested mountpoint preparation', () => {
         '/dev/null:/host/home/runner/.netrc:ro',
       ];
 
-      expect(ensureNestedMountpoints(volumes, uid, gid)).toEqual([]);
+      // The real pipeline prunes unmountable overlays first, which is what makes
+      // the mask safe to drop: the path is unreachable behind a read-only bind,
+      // so nothing is left unmasked.
+      const pruned = pruneUnmountableCredentialOverlays(volumes);
+      expect(pruned).not.toContain('/dev/null:/host/home/runner/.netrc:ro');
+      expect(ensureNestedMountpoints(pruned, uid, gid)).toEqual([]);
       expect(fs.existsSync(path.join(emptyHome, '.netrc'))).toBe(false);
     });
 
-    it('skips mounts whose source does not exist on this filesystem', () => {
+    it('refuses to launch rather than create a credential mountpoint itself', () => {
       const { emptyHome } = makeTree();
+      // Same list, but without the prune step: AWF must not quietly paper over
+      // an overlay it cannot satisfy, and it must not create the credential path.
       const volumes = [
         `${emptyHome}:/host/home/runner:ro`,
-        `${path.join(tmpRoot, 'missing-source')}:/host/home/runner/.copilot/logs:rw`,
+        '/dev/null:/host/home/runner/.netrc:ro',
+      ];
+
+      expect(() => ensureNestedMountpoints(volumes, uid, gid)).toThrow(/must not create/);
+      expect(fs.existsSync(path.join(emptyHome, '.netrc'))).toBe(false);
+    });
+
+    it('fails closed on a required mountpoint whose source cannot be classified', () => {
+      const { emptyHome } = makeTree();
+      const missingSource = path.join(tmpRoot, 'missing-source');
+      const volumes = [
+        `${emptyHome}:/host/home/runner:ro`,
+        `${missingSource}:/host/home/runner/.copilot/logs:rw`,
+      ];
+
+      // The cover is real, so this mountpoint genuinely has to exist before
+      // launch. Guessing a directory could create the wrong node type, and
+      // skipping it silently is what produced the opaque EROFS this pass exists
+      // to prevent.
+      expect(() => ensureNestedMountpoints(volumes, uid, gid))
+        .toThrow(/could not be classified/);
+      expect(fs.existsSync(path.join(emptyHome, '.copilot'))).toBe(false);
+    });
+
+    it('creates a file mountpoint for a regular-file bind under a read-only cover', () => {
+      const { emptyHome } = makeTree();
+      const sourceFile = path.join(tmpRoot, 'runner-binary');
+      fs.writeFileSync(sourceFile, '#!/bin/sh\n', { mode: 0o755 });
+      const volumes = [
+        `${emptyHome}:/host/home/runner:ro`,
+        `${sourceFile}:/host/home/runner/bin/tool:ro`,
+      ];
+
+      const created = ensureNestedMountpoints(volumes, uid, gid);
+
+      const mountpoint = path.join(emptyHome, 'bin/tool');
+      expect(created).toEqual([mountpoint]);
+      expect(fs.statSync(mountpoint).isFile()).toBe(true);
+      expect(fs.readFileSync(mountpoint, 'utf8')).toBe('');
+      // The parent directory has to be created too, or the file cannot land.
+      expect(fs.statSync(path.join(emptyHome, 'bin')).isDirectory()).toBe(true);
+    });
+
+    it('leaves an existing file mountpoint untouched', () => {
+      const { emptyHome } = makeTree();
+      const sourceFile = path.join(tmpRoot, 'runner-binary');
+      fs.writeFileSync(sourceFile, '#!/bin/sh\n', { mode: 0o755 });
+      fs.mkdirSync(path.join(emptyHome, 'bin'), { recursive: true });
+      fs.writeFileSync(path.join(emptyHome, 'bin/tool'), 'PRE-EXISTING');
+      const volumes = [
+        `${emptyHome}:/host/home/runner:ro`,
+        `${sourceFile}:/host/home/runner/bin/tool:ro`,
       ];
 
       expect(ensureNestedMountpoints(volumes, uid, gid)).toEqual([]);
+      expect(fs.readFileSync(path.join(emptyHome, 'bin/tool'), 'utf8')).toBe('PRE-EXISTING');
     });
 
     it('skips daemon-side covers instead of creating a runner-local tree', () => {
@@ -323,6 +400,108 @@ describe('nested mountpoint preparation', () => {
       // emitted (on a GitHub-hosted runner `/opt` covers `/opt/hostedtoolcache`)
       // whose mountpoint already exists, so nothing was created there either.
       expect(simulateRuncMountFailures(volumes)).toEqual([]);
+    });
+  });
+
+  // A regular-file bind nested inside a read-only cover needs a *file*
+  // mountpoint. runc cannot create one inside a read-only bind any more than it
+  // can create a directory, so this has to be prepared too. It is reachable on
+  // split-filesystem runners: the agent binary is staged under the daemon path
+  // prefix and published at /tmp/awf-runner-bin/<name>, while a write policy
+  // narrows the /tmp:/tmp bind to read-only.
+  describe('buildAgentVolumes (staged runner binary under --docker-host-path-prefix)', () => {
+    const prefixRoots: string[] = [];
+    const runnerBinPaths: string[] = [];
+
+    afterEach(() => {
+      // Staging and the /tmp cover are both real paths by construction: the
+      // staging root has to sit under the daemon prefix, and the cover bind is
+      // hardcoded to /tmp.
+      prefixRoots.splice(0).forEach((dir) => fs.rmSync(dir, { recursive: true, force: true }));
+      runnerBinPaths.splice(0).forEach((file) => fs.rmSync(file, { force: true }));
+    });
+
+    function stageSplitFsLayout() {
+      const unique = path.basename(tmpRoot).replace(/[^a-zA-Z0-9]/g, '');
+      const binaryName = `awfprobe${unique}`;
+      // shouldUseDockerHostStaging only engages for a prefix under /tmp, so this
+      // cannot be redirected into the test's own sandbox.
+      const dockerHostPathPrefix = `/tmp/awf-prefix-${unique}`;
+      prefixRoots.push(dockerHostPathPrefix);
+      runnerBinPaths.push(path.join('/tmp/awf-runner-bin', binaryName));
+
+      const home = path.join(tmpRoot, 'home', 'runner');
+      const workspaceDir = path.join(home, 'work', 'repo', 'repo');
+      const workDir = path.join(tmpRoot, 'awf-run');
+      const emptyHome = `${workDir}-chroot-home`;
+      const agentLogsPath = path.join(workDir, 'agent-logs');
+      const sessionStatePath = path.join(workDir, 'agent-session-state');
+      const initSignalDir = path.join(workDir, 'init-signal');
+      const binDir = path.join(tmpRoot, 'runner-bin');
+
+      [workspaceDir, workDir, emptyHome, agentLogsPath, sessionStatePath, initSignalDir, binDir]
+        .forEach((dir) => fs.mkdirSync(dir, { recursive: true }));
+      for (const toolPath of HOME_TOOL_PATHS) {
+        fs.mkdirSync(path.join(home, toolPath), { recursive: true });
+        fs.mkdirSync(path.join(emptyHome, toolPath), { recursive: true });
+      }
+      fs.mkdirSync(path.join(emptyHome, 'work', 'repo', 'repo'), { recursive: true });
+
+      const binarySourcePath = path.join(binDir, binaryName);
+      fs.writeFileSync(binarySourcePath, '#!/bin/sh\n', { mode: 0o755 });
+
+      const config = {
+        agentCommand: binarySourcePath,
+        allowedDomains: [],
+        workDir,
+        volumeMounts: [],
+        dockerHostPathPrefix,
+      } as unknown as WrapperConfig;
+
+      return {
+        binaryName,
+        workspaceDir,
+        build: (filesystemAllowWrite?: string[]) => buildAgentVolumes({
+          config: { ...config, filesystemAllowWrite } as WrapperConfig,
+          projectRoot: process.cwd(),
+          effectiveHome: home,
+          workspaceDir,
+          agentLogsPath,
+          sessionStatePath,
+          initSignalDir,
+        }),
+      };
+    }
+
+    it('classifies the staged binary mountpoint as a file, not a directory', () => {
+      const layout = stageSplitFsLayout();
+      const writable = path.join(layout.workspaceDir, 'allowed');
+      fs.mkdirSync(writable, { recursive: true });
+
+      const volumes = layout.build([writable]);
+      const requirement = planNestedMountpoints(volumes)
+        .find((candidate) => candidate.containerTarget.endsWith(`/awf-runner-bin/${layout.binaryName}`));
+
+      expect(requirement).toBeDefined();
+      expect(requirement?.kind).toBe('file');
+    });
+
+    it('creates the file mountpoint runc cannot create under a read-only /tmp', () => {
+      const layout = stageSplitFsLayout();
+      const writable = path.join(layout.workspaceDir, 'allowed');
+      fs.mkdirSync(writable, { recursive: true });
+
+      const volumes = layout.build([writable]);
+
+      const mountpoint = path.join('/tmp/awf-runner-bin', layout.binaryName);
+      expect(fs.statSync(mountpoint).isFile()).toBe(true);
+      // An empty placeholder: it exists only so runc has something to bind over.
+      expect(fs.readFileSync(mountpoint, 'utf8')).toBe('');
+      // The bind really is published, and the /tmp cover really is read-only —
+      // otherwise this test would pass without exercising anything.
+      expect(volumes.some((spec) => spec.endsWith(':/tmp:ro'))).toBe(true);
+      expect(volumes.some((spec) => spec.endsWith(`:/tmp/awf-runner-bin/${layout.binaryName}:ro`)))
+        .toBe(true);
     });
   });
 });
