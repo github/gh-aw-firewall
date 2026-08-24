@@ -802,10 +802,20 @@ describe('nested mountpoint preparation', () => {
     it('leaves no unsatisfiable mountpoint for runc', () => {
       const layout = stageSharedTmpLayout();
       const volumes = layout.build([stageWritable(layout)]);
+      const requirements = planWithProductionResolver(volumes);
 
-      // Sources are runner-local here (a shared prefix is not rewritten), so
-      // the runc model applies directly to the generated list.
-      expect(simulateRuncMountFailures(volumes)).toEqual([]);
+      // Not simulateRuncMountFailures: the prefix rewrites every source that
+      // was not already under /tmp, so on a GitHub runner /opt/hostedtoolcache
+      // becomes /tmp/opt/hostedtoolcache -- a path only the daemon can see, and
+      // one a runner-local model would wrongly report as missing. Assert
+      // instead that every mountpoint the plan demands was actually
+      // materialised, which is what runc needs and is platform-independent.
+      expect(requirements.length).toBeGreaterThan(0);
+      for (const requirement of requirements) {
+        expect(requirement.kind).not.toBe('unknown');
+        expect(requirement.hostPath).toBeDefined();
+        expect(fs.existsSync(requirement.hostPath as string)).toBe(true);
+      }
     });
   });
 });
