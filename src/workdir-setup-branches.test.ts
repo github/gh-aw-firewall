@@ -144,6 +144,91 @@ describe('workdir-setup – createMissingOwnedDirectorySegments non-directory se
       workdirSetupTestHelpers.createMissingOwnedDirectorySegments(childPath, 1000, 1000)
     ).toThrow(`Expected directory but found non-directory path: ${fileSegment}`);
   });
+
+  it('skips an owner-preserving chown so non-root callers do not hit EPERM', () => {
+    // A freshly created directory already belongs to the caller, so chowning it
+    // back to the same owner changes nothing -- but macOS still denies that
+    // syscall to non-root, which used to abort mountpoint preparation.
+    const created = path.join(tempDir, 'nested', 'mountpoint');
+    // Read the ownership the platform actually assigns to a new directory here
+    // rather than assuming the caller's ids: BSD (macOS) gives a new directory
+    // its parent's gid, so under /tmp that is wheel, not the caller's group.
+    const probe = path.join(tempDir, 'ownership-probe');
+    fs.mkdirSync(probe);
+    const { uid, gid } = fs.statSync(probe);
+
+    workdirSetupTestHelpers.createMissingOwnedDirectorySegments(created, uid, gid);
+
+    expect(fs.existsSync(created)).toBe(true);
+    expect(fs.chownSync as unknown as jest.Mock).not.toHaveBeenCalled();
+  });
+
+  it('still chowns when a privileged caller must change owner', () => {
+    const created = path.join(tempDir, 'other-owner');
+    const foreignUid = (process.getuid?.() ?? 0) + 1;
+    const getuid = jest.spyOn(process, 'getuid').mockReturnValue(0);
+
+    try {
+      workdirSetupTestHelpers.createMissingOwnedDirectorySegments(created, foreignUid, 0);
+    } finally {
+      getuid.mockRestore();
+    }
+
+    expect(fs.chownSync as unknown as jest.Mock).toHaveBeenCalledWith(created, foreignUid, 0);
+  });
+
+  it('tolerates an EPERM chown a non-root caller could never satisfy', () => {
+    // getSafeHostGid can map the caller onto a different gid (macOS maps a
+    // system gid into the regular range). Unprivileged AWF cannot grant a
+    // directory away, so this must not abort mountpoint preparation.
+    const created = path.join(tempDir, 'unprivileged');
+    const foreignGid = (process.getgid?.() ?? 0) + 1000;
+    const getuid = jest.spyOn(process, 'getuid').mockReturnValue(501);
+    (fs.chownSync as unknown as jest.Mock).mockImplementation(() => {
+      const error = new Error('EPERM') as NodeJS.ErrnoException;
+      error.code = 'EPERM';
+      throw error;
+    });
+
+    try {
+      workdirSetupTestHelpers.createMissingOwnedDirectorySegments(created, 501, foreignGid);
+    } finally {
+      getuid.mockRestore();
+    }
+
+    expect(fs.existsSync(created)).toBe(true);
+  });
+
+  it('still propagates a chown failure that is not a privilege limit', () => {
+    const created = path.join(tempDir, 'broken');
+    (fs.chownSync as unknown as jest.Mock).mockImplementation(() => {
+      const error = new Error('EIO') as NodeJS.ErrnoException;
+      error.code = 'EIO';
+      throw error;
+    });
+
+    expect(() =>
+      workdirSetupTestHelpers.createMissingOwnedDirectorySegments(created, 4242, 4242)
+    ).toThrow('EIO');
+  });
+
+  it('still propagates an EPERM chown when running privileged', () => {
+    const created = path.join(tempDir, 'privileged-eperm');
+    const getuid = jest.spyOn(process, 'getuid').mockReturnValue(0);
+    (fs.chownSync as unknown as jest.Mock).mockImplementation(() => {
+      const error = new Error('EPERM') as NodeJS.ErrnoException;
+      error.code = 'EPERM';
+      throw error;
+    });
+
+    try {
+      expect(() =>
+        workdirSetupTestHelpers.createMissingOwnedDirectorySegments(created, 4242, 4242)
+      ).toThrow('EPERM');
+    } finally {
+      getuid.mockRestore();
+    }
+  });
 });
 
 describe('workdir-setup – prepareLogDirectories mcp-logs already-exists branch (lines 194-195)', () => {

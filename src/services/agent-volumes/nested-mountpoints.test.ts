@@ -57,6 +57,79 @@ function simulateRuncMountFailures(volumes: string[]): string[] {
   return failures;
 }
 
+/**
+ * Cleanup for the product-owned, *fixed* /tmp paths that a /tmp-rooted
+ * `--docker-host-path-prefix` writes to (`/tmp/awf-init`,
+ * `/tmp/awf-runner-bin`, `/tmp/awf-docker-host-stage`).
+ *
+ * Deliberately removes *files only*, and only files this run provably owns:
+ * the uniquely named staged binary, the mountpoint that was materialised for
+ * it, the per-run random `chroot-*` staging directory, and staged copies that
+ * did not exist before the build.
+ *
+ * It never removes the shared root directories themselves, for two measured
+ * reasons:
+ *   - Several pre-existing suites create them concurrently under
+ *     `maxWorkers`, so deleting one races with a worker that still needs it.
+ *   - `ensureNestedMountpoints` chowns any directory it creates, and macOS
+ *     denies chown to non-root. So on macOS a *missing* `/tmp/awf-init` makes
+ *     unrelated suites fail with EPERM, where a pre-existing one succeeds.
+ * Tests must therefore never depend on these roots being absent or present;
+ * the assertions below read the planned `hostPath` instead of `existsSync`.
+ */
+function makeFixedTmpArtifactTracker(stagedCopies: string[] = []) {
+  const files: string[] = [];
+  const dirs: string[] = [];
+
+  return {
+    /** Call before building, so pre-existing copies are never removed. */
+    noteBeforeBuild(): void {
+      for (const copy of stagedCopies) {
+        if (!fs.existsSync(copy)) files.push(copy);
+      }
+    },
+    /** Attribute this run's artefacts from the specs it actually generated. */
+    trackGenerated(volumes: string[], binaryName: string): void {
+      for (const spec of volumes) {
+        const [source = '', target = ''] = spec.split(':');
+        const chroot = /^(\/tmp\/awf-docker-host-stage\/chroot-[A-Za-z0-9_-]+)\//.exec(source);
+        if (chroot) {
+          dirs.push(chroot[1]);
+          continue;
+        }
+        if (!binaryName || path.basename(source) !== binaryName) continue;
+        // The staged copy is the bind *source*; the mountpoint that
+        // ensureNestedMountpoints had to materialise under the narrowed /tmp
+        // cover is the bind *target*. Both are real files on this machine.
+        for (const candidate of [source, target]) {
+          if (candidate.startsWith('/tmp/')) files.push(candidate);
+        }
+      }
+    },
+    cleanup(): void {
+      files.splice(0).forEach((file) => {
+        try {
+          fs.unlinkSync(file);
+        } catch {
+          // Never created, or already gone.
+        }
+      });
+      // Random per-run name, so a recursive remove here cannot reach anything
+      // another worker owns.
+      dirs.splice(0).forEach((dir) => fs.rmSync(dir, { recursive: true, force: true }));
+    },
+  };
+}
+
+// Staged under fixed, stable names rather than per-run ones, so they can only
+// be reclaimed when this suite is the run that created them.
+const FIXED_TMP_STAGED_COPIES = [
+  '/tmp/awf-docker-host-stage/etc/passwd',
+  '/tmp/awf-docker-host-stage/etc/group',
+  '/tmp/awf-docker-host-stage/identity/passwd',
+  '/tmp/awf-docker-host-stage/identity/group',
+];
+
 describe('nested mountpoint preparation', () => {
   let tmpRoot: string;
 
@@ -390,6 +463,9 @@ describe('nested mountpoint preparation', () => {
   });
 
   describe('buildAgentVolumes (end-to-end topology)', () => {
+    // Narrowing /tmp makes the legacy init bind materialise the shared
+    // /tmp/awf-init mountpoint. That root is intentionally left in place; see
+    // makeFixedTmpArtifactTracker for why removing it is unsafe.
     function stageRunnerLayout() {
       const home = path.join(tmpRoot, 'home', 'runner');
       const workspaceDir = path.join(home, 'work', 'repo', 'repo');
@@ -484,6 +560,9 @@ describe('nested mountpoint preparation', () => {
   describe('buildAgentVolumes (staged runner binary under --docker-host-path-prefix)', () => {
     const prefixRoots: string[] = [];
     const runnerBinPaths: string[] = [];
+    // This case narrows /tmp too, so it also materialises the fixed
+    // /tmp/awf-init and /tmp/awf-runner-bin mountpoints.
+    const fixedTmp = makeFixedTmpArtifactTracker(FIXED_TMP_STAGED_COPIES);
 
     afterEach(() => {
       // Staging and the /tmp cover are both real paths by construction: the
@@ -491,6 +570,7 @@ describe('nested mountpoint preparation', () => {
       // hardcoded to /tmp.
       prefixRoots.splice(0).forEach((dir) => fs.rmSync(dir, { recursive: true, force: true }));
       runnerBinPaths.splice(0).forEach((file) => fs.rmSync(file, { force: true }));
+      fixedTmp.cleanup();
     });
 
     function stageSplitFsLayout() {
@@ -522,6 +602,8 @@ describe('nested mountpoint preparation', () => {
       const binarySourcePath = path.join(binDir, binaryName);
       fs.writeFileSync(binarySourcePath, '#!/bin/sh\n', { mode: 0o755 });
 
+      fixedTmp.noteBeforeBuild();
+
       const config = {
         agentCommand: binarySourcePath,
         allowedDomains: [],
@@ -533,15 +615,19 @@ describe('nested mountpoint preparation', () => {
       return {
         binaryName,
         workspaceDir,
-        build: (filesystemAllowWrite?: string[]) => buildAgentVolumes({
-          config: { ...config, filesystemAllowWrite } as WrapperConfig,
-          projectRoot: process.cwd(),
-          effectiveHome: home,
-          workspaceDir,
-          agentLogsPath,
-          sessionStatePath,
-          initSignalDir,
-        }),
+        build: (filesystemAllowWrite?: string[]) => {
+          const volumes = buildAgentVolumes({
+            config: { ...config, filesystemAllowWrite } as WrapperConfig,
+            projectRoot: process.cwd(),
+            effectiveHome: home,
+            workspaceDir,
+            agentLogsPath,
+            sessionStatePath,
+            initSignalDir,
+          });
+          fixedTmp.trackGenerated(volumes, binaryName);
+          return volumes;
+        },
       };
     }
 
@@ -578,16 +664,19 @@ describe('nested mountpoint preparation', () => {
     });
   });
 
-  // A `--docker-host-path-prefix` under /tmp is *shared*, not daemon-only: the
-  // runner and the daemon see the same paths there, which is why AWF stages
-  // files into it with local fs calls and why prefix translation deliberately
-  // leaves an already-/tmp source unrewritten. The run's own workDir then sits
-  // *inside* the prefix, so topology passes still have to resolve it locally.
+  // A `--docker-host-path-prefix` of exactly /tmp is *shared*: the runner and
+  // the daemon see the same paths there, which is why prefix translation leaves
+  // an already-/tmp source unrewritten. The run's own workDir then sits *inside*
+  // the prefix, so topology passes still have to resolve it locally. (A /tmp
+  // *descendant* such as /tmp/gh-aw is daemon-only and must keep failing
+  // closed — covered in mount-topology.test.ts.)
   describe('buildAgentVolumes (--docker-host-path-prefix shares /tmp with the runner)', () => {
     const sharedRoots: string[] = [];
+    const fixedTmp = makeFixedTmpArtifactTracker(FIXED_TMP_STAGED_COPIES);
 
     afterEach(() => {
       sharedRoots.splice(0).forEach((dir) => fs.rmSync(dir, { recursive: true, force: true }));
+      fixedTmp.cleanup();
     });
 
     function stageSharedTmpLayout() {
@@ -605,8 +694,9 @@ describe('nested mountpoint preparation', () => {
       const agentLogsPath = path.join(workDir, 'agent-logs');
       const sessionStatePath = path.join(workDir, 'agent-session-state');
       const initSignalDir = path.join(workDir, 'init-signal');
+      const binDir = path.join(sharedRoot, 'runner-bin');
 
-      [workspaceDir, workDir, emptyHome, agentLogsPath, sessionStatePath, initSignalDir]
+      [workspaceDir, workDir, emptyHome, agentLogsPath, sessionStatePath, initSignalDir, binDir]
         .forEach((dir) => fs.mkdirSync(dir, { recursive: true }));
       for (const toolPath of HOME_TOOL_PATHS) {
         fs.mkdirSync(path.join(home, toolPath), { recursive: true });
@@ -614,8 +704,18 @@ describe('nested mountpoint preparation', () => {
       }
       fs.mkdirSync(path.join(emptyHome, 'work', 'repo', 'repo'), { recursive: true });
 
+      // A /tmp-rooted prefix also turns on ARC/DinD binary staging, which
+      // publishes to fixed paths named after the command. A unique name keeps
+      // this run's artefacts distinguishable from a concurrent suite's, and
+      // means they can never be mistaken for pre-existing ones.
+      const binaryName = `awfshared${unique}`;
+      const binarySourcePath = path.join(binDir, binaryName);
+      fs.writeFileSync(binarySourcePath, '#!/bin/sh\n', { mode: 0o755 });
+
+      fixedTmp.noteBeforeBuild();
+
       const config = {
-        agentCommand: 'echo',
+        agentCommand: binarySourcePath,
         allowedDomains: [],
         workDir,
         volumeMounts: [],
@@ -625,15 +725,19 @@ describe('nested mountpoint preparation', () => {
       return {
         workspaceDir,
         initSignalDir,
-        build: (filesystemAllowWrite?: string[]) => buildAgentVolumes({
-          config: { ...config, filesystemAllowWrite } as WrapperConfig,
-          projectRoot: process.cwd(),
-          effectiveHome: home,
-          workspaceDir,
-          agentLogsPath,
-          sessionStatePath,
-          initSignalDir,
-        }),
+        build: (filesystemAllowWrite?: string[]) => {
+          const volumes = buildAgentVolumes({
+            config: { ...config, filesystemAllowWrite } as WrapperConfig,
+            projectRoot: process.cwd(),
+            effectiveHome: home,
+            workspaceDir,
+            agentLogsPath,
+            sessionStatePath,
+            initSignalDir,
+          });
+          fixedTmp.trackGenerated(volumes, binaryName);
+          return volumes;
+        },
       };
     }
 
@@ -641,6 +745,16 @@ describe('nested mountpoint preparation', () => {
       const writable = path.join(layout.workspaceDir, 'allowed');
       fs.mkdirSync(writable, { recursive: true });
       return writable;
+    }
+
+    /**
+     * Plans against the resolver the production pipeline actually builds for
+     * this config. `planNestedMountpoints` defaults to an identity resolver,
+     * which would resolve every source regardless of prefix handling and so
+     * could not detect a regression in `createLocalSourceResolver` at all.
+     */
+    function planWithProductionResolver(volumes: string[]) {
+      return planNestedMountpoints(volumes, createLocalSourceResolver(new Map(), '/tmp'));
     }
 
     it('resolves a workDir nested inside the prefix instead of failing closed', () => {
@@ -654,23 +768,24 @@ describe('nested mountpoint preparation', () => {
       const layout = stageSharedTmpLayout();
       const volumes = layout.build([stageWritable(layout)]);
 
-      const legacy = planNestedMountpoints(volumes)
+      const legacy = planWithProductionResolver(volumes)
         .find((requirement) => requirement.containerTarget === '/tmp/awf-init');
 
       // The source is the run's own init-signal directory, which the CLI just
       // created locally — being under the shared prefix must not make it
-      // unclassifiable.
+      // unclassifiable. Asserted on the plan rather than on disk: a
+      // /tmp/awf-init left behind by another suite would otherwise satisfy an
+      // existsSync check without this code path ever running.
       expect(legacy?.source).toBe(layout.initSignalDir);
       expect(legacy?.kind).toBe('directory');
-      expect(legacy?.hostPath).toBeDefined();
-      expect(fs.existsSync(legacy?.hostPath as string)).toBe(true);
+      expect(legacy?.hostPath).toBe('/tmp/awf-init');
     });
 
     it('prepares the nested home mountpoints when the chroot home is under the prefix', () => {
       const layout = stageSharedTmpLayout();
       const volumes = layout.build([stageWritable(layout)]);
 
-      const nestedHomeMounts = planNestedMountpoints(volumes)
+      const nestedHomeMounts = planWithProductionResolver(volumes)
         .filter((requirement) => requirement.containerTarget.includes('/.copilot/'));
 
       // Guards against passing vacuously: the policy really does narrow a home
@@ -682,6 +797,15 @@ describe('nested mountpoint preparation', () => {
         expect(requirement.hostPath).toBeDefined();
         expect(fs.existsSync(requirement.hostPath as string)).toBe(true);
       }
+    });
+
+    it('leaves no unsatisfiable mountpoint for runc', () => {
+      const layout = stageSharedTmpLayout();
+      const volumes = layout.build([stageWritable(layout)]);
+
+      // Sources are runner-local here (a shared prefix is not rewritten), so
+      // the runc model applies directly to the generated list.
+      expect(simulateRuncMountFailures(volumes)).toEqual([]);
     });
   });
 });

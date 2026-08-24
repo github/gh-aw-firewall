@@ -111,7 +111,30 @@ export function createMissingOwnedDirectorySegments(dirPath: string, uid: number
     }
 
     if (created) {
-      fs.chownSync(currentPath, uid, gid);
+      // Only chown when ownership actually has to change, and only when this
+      // process could possibly succeed. A freshly created directory already
+      // belongs to the caller, so an owner-preserving chown is a no-op that
+      // macOS still denies to non-root; and a non-root caller can never hand a
+      // directory to a *different* owner, so attempting it only turns a usable
+      // directory into a hard EPERM failure. AWF runs privileged in production,
+      // where this is unchanged.
+      if (stat.uid !== uid || stat.gid !== gid) {
+        try {
+          fs.chownSync(currentPath, uid, gid);
+        } catch (error) {
+          // An unprivileged caller cannot hand a directory to another owner, so
+          // this can never succeed however often it is retried. Turning that
+          // into a hard failure would abort on a directory that is already
+          // usable, so tolerate exactly that case and nothing else. AWF runs
+          // privileged in production, where the chown still happens and still
+          // propagates any failure.
+          const code = (error as NodeJS.ErrnoException).code;
+          const unprivileged = process.getuid?.() !== 0;
+          if (!unprivileged || (code !== 'EPERM' && code !== 'EACCES')) {
+            throw error;
+          }
+        }
+      }
       fs.chmodSync(currentPath, 0o755);
     }
   }

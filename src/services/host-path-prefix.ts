@@ -26,20 +26,44 @@ export function normalizeDockerHostPathPrefix(prefix: string): string {
 }
 
 /**
- * Is this prefix a directory the runner and the Docker daemon *share*, rather
- * than a daemon-only staging root?
+ * Is this prefix a directory the runner and the Docker daemon see at the *same
+ * path*, rather than a daemon-only view of the runner's filesystem?
  *
- * A /tmp-rooted prefix is the ARC/DinD shared-volume shape: the same path
- * resolves to the same bytes on both sides. That is why AWF can stage files
- * into it with ordinary local `fs` calls, why an already-/tmp source is never
- * rewritten below, and why a source under it stays runner-resolvable. A prefix
- * like `/host` is the opposite: it exists only inside the daemon.
+ * Only the exact `/tmp` shape qualifies, and the reason is structural rather
+ * than conventional. AWF's own workDir (`/tmp/awf-<ts>`) then sits under the
+ * prefix, so `translateBindMountHostPath` leaves every one of its binds
+ * unrewritten — which can only work if the daemon resolves those paths to the
+ * same bytes. A prefix of `/tmp` is therefore a claim that /tmp is shared.
  *
- * Exported because every pass that reasons about prefixed paths needs the same
- * answer — keeping separate copies of this test is what let a shared prefix be
- * mistaken for a daemon-only one.
+ * Descendants are the opposite. `/tmp/gh-aw` is one of `dind-probe`'s
+ * CANDIDATE_PREFIXES, and that loop runs *only* after the probe has confirmed
+ * the daemon cannot see the runner's filesystem: it means the daemon sees
+ * runner path `X` at `/tmp/gh-aw/X`. `buildCustomVolumeMounts` says the same,
+ * translating sources that already start with `/tmp/gh-aw`. Treating such a
+ * prefix as shared would hand back a daemon-namespace path as if it were
+ * runner-local, skipping the fail-closed guard that exists to prevent exactly
+ * that.
+ *
+ * Note this is deliberately narrower than `isTmpRootedDockerHostPathPrefix`,
+ * which gates staging-root selection. Those two questions look alike but are
+ * not the same, so they must not share an answer.
  */
 export function isSharedDockerHostPathPrefix(prefix: string | undefined): boolean {
+  if (!prefix) return false;
+  return normalizeDockerHostPathPrefix(prefix) === '/tmp';
+}
+
+/**
+ * Does this prefix select the /tmp-rooted staging layout introduced for ARC and
+ * DinD (see docs/arc-dind.md)?
+ *
+ * This gates *where AWF stages* chroot prerequisites, not whether a path can be
+ * attributed to the runner, so it keeps its original `/tmp`-or-below meaning.
+ * It is intentionally not narrowed to the shared case: doing so would silently
+ * disable binary and /etc staging for `/tmp/gh-aw` runners, which is precisely
+ * the topology that feature was built for.
+ */
+export function isTmpRootedDockerHostPathPrefix(prefix: string | undefined): boolean {
   if (!prefix) return false;
   const normalized = normalizeDockerHostPathPrefix(prefix);
   return normalized === '/tmp' || normalized.startsWith('/tmp/');
@@ -47,7 +71,7 @@ export function isSharedDockerHostPathPrefix(prefix: string | undefined): boolea
 
 function shouldPreserveUnprefixedEtcIdentityFile(hostPath: string, dockerHostPathPrefix: string): boolean {
   return (
-    isSharedDockerHostPathPrefix(dockerHostPathPrefix) &&
+    isTmpRootedDockerHostPathPrefix(dockerHostPathPrefix) &&
     (hostPath === '/etc/passwd' || hostPath === '/etc/group')
   );
 }

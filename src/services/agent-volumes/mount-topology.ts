@@ -16,8 +16,10 @@
  *
  * Being *under* the prefix is therefore not the same as being daemon-only. A
  * shared prefix (see `isSharedDockerHostPathPrefix`) names one filesystem both
- * sides can see, and the run's own workDir routinely lives inside it — treating
- * that as unresolvable would make the whole run directory unclassifiable.
+ * sides can see at the same path, and the run's own workDir lives inside it —
+ * treating that as unresolvable would make the whole run directory
+ * unclassifiable. The mirror-image mistake is just as bad: a daemon-only
+ * prefix that merely looks shared (`/tmp/gh-aw`) must keep failing closed.
  */
 
 import { isSharedDockerHostPathPrefix, normalizeDockerHostPathPrefix } from '../host-path-prefix';
@@ -73,8 +75,16 @@ export function createLocalSourceResolver(
   // The CLI only trims this value, so compare against the canonical form: a raw
   // `/host/` would otherwise fail the `/host/` prefix test and let a daemon-side
   // source be treated as runner-local.
-  const daemonOnlyPrefix = dockerHostPathPrefix && !isSharedDockerHostPathPrefix(dockerHostPathPrefix)
+  const normalizedPrefix = dockerHostPathPrefix
     ? normalizeDockerHostPathPrefix(dockerHostPathPrefix)
+    : '';
+  // `/` prefixes nothing: `translateBindMountHostPath` returns every mount
+  // unchanged for it, so the generated sources are plain runner paths. Reading
+  // it as a daemon root instead would make *every* absolute source
+  // unattributable and fail the run closed before launch.
+  const isNoOpPrefix = normalizedPrefix === '' || normalizedPrefix === '/';
+  const daemonOnlyPrefix = !isNoOpPrefix && !isSharedDockerHostPathPrefix(normalizedPrefix)
+    ? normalizedPrefix
     : '';
 
   return (source: string): string | undefined => {
