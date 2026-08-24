@@ -274,7 +274,7 @@ jobs:
         run: |
           echo "=== Running container & ops tests ==="
           npm run test:integration -- \
-            --testPathPatterns="(container-workdir|environment-variables|error-handling|exit-code-propagation|log-commands|no-docker|volume-mounts|skip-pull)" \
+            --testPathPatterns="(container-workdir|environment-variables|error-handling|exit-code-propagation|filesystem-allowwrite|log-commands|no-docker|volume-mounts|skip-pull)" \
             --verbose
         env:
           JEST_TIMEOUT: 180000
