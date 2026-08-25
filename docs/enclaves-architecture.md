@@ -111,6 +111,12 @@ run, invocation, assigned repository, fixed profile, fixed sorted operation
 set, and deadline, and is mounted read-only into only that single-use enclave.
 The payload `run` is the compiler proxy identity, not AWF's independent random
 seed-map/container-reconciliation run ID.
+The payload `repo` is the exact canonical lowercase `owner/repo` admitted from
+the enclave repository catalog. AWF never widens it to an owner, wildcard, or
+all-private scope and never sends a DIFC secrecy label. mcpg alone derives the
+invocation agent's exact `private:owner/repo` secrecy tag from the verified
+claim, labels public response data with empty secrecy, and labels other private
+repositories with their own distinct repository tag.
 
 The enclave-visible `gh` wrapper accepts only `gh api` GET requests for issue
 list, issue get, and issue comments REST paths. It rejects GraphQL, search,

@@ -284,6 +284,10 @@ describe('unified enclave agent runner specification', () => {
     it.each([
       { keyHex: 'A'.repeat(64) },
       { repo: 'Octo/private' },
+      { repo: '' },
+      { repo: 'octo' },
+      { repo: 'octo/*' },
+      { repo: 'private:octo/private' },
       { runId: '../run' },
       { notBefore: -1 },
       { expiresAt: 1787594399 },
@@ -299,7 +303,7 @@ describe('unified enclave agent runner specification', () => {
       })).toThrow();
     });
 
-    it('uses the compiler proxy identity as the token run claim, not the seed runId', () => {
+    it('uses the compiler identity and exact assigned repository as capability claims', () => {
       const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-capability-run-'));
       try {
         const seedRunId = '0123456789abcdef0123456789abcdef';
@@ -327,6 +331,11 @@ describe('unified enclave agent runner specification', () => {
         );
         expect(payload.run).toBe(githubRunIdentity);
         expect(payload.run).not.toBe(seedRunId);
+        expect(payload.repo).toBe('octo/private');
+        expect(Object.keys(payload)).toEqual([
+          'v', 'aud', 'run', 'inv', 'repo', 'profile', 'ops', 'nbf', 'exp',
+        ]);
+        expect(JSON.stringify(payload)).not.toMatch(/private:|secrecy|label/i);
       } finally {
         fs.rmSync(workDir, { recursive: true, force: true });
       }

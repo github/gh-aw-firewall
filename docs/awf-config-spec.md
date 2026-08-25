@@ -1851,6 +1851,14 @@ ID. Its `gh` wrapper permits only bounded
 - `repos/{owner}/{repo}/issues/{number}`
 - `repos/{owner}/{repo}/issues/{number}/comments`
 
+The `repo` claim MUST be the exact canonical lowercase `owner/repo` admitted
+for that invocation. AWF MUST NOT substitute an owner-wide, wildcard,
+all-private, empty, or label-shaped value and does not configure the
+invocation's DIFC secrecy label. mcpg derives only the exact
+`private:owner/repo` agent tag from the verified claim; public responses carry
+empty secrecy and any different private repository carries its own distinct
+tag, so the normal `resource secrecy subset-of agent secrecy` check rejects it.
+
 GraphQL, search, writes, arbitrary paths, absolute or alternate hosts,
 traversal, body/input/field flags, auth/config/extensions/aliases, environment
 overrides, and shell execution are rejected. Stock `gh issue` commands are not

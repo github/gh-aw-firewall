@@ -241,6 +241,11 @@ describe('unified enclave agent executor compose assembly', () => {
       });
       expect(JSON.stringify(result.service.environment))
         .not.toContain('gh-aw-egh-123456-1-abcdef123456');
+      for (const environment of [proxy.environment, result.service.environment]) {
+        expect(JSON.stringify(environment)).not.toMatch(
+          /MCP_GATEWAY_ENCLAVE_POLICY_JSON|SECRECY|DIFC.*LABEL|AGENT.*LABEL/,
+        );
+      }
     } finally {
       process.env = originalEnv;
       fs.rmSync(directory, { recursive: true, force: true });
