@@ -1,8 +1,8 @@
-# Unified Enclave Architecture and Migration
+# Unified Enclave Architecture
 
 ## Status
 
-Layer 5 removes the legacy bounded-query and bounded-agent surfaces. AWF now documents one `enclaves` subsystem, one AWF-owned MCP server, and mcpg-only access through the compiler handoff contract.
+Layer 5 establishes one `enclaves` subsystem, one AWF-owned MCP server, and mcpg-only access through the compiler handoff contract.
 
 ## Architecture
 
@@ -132,21 +132,6 @@ Only the existing finite-schema result, shared ledger debit, and timing bucket
 can return to the primary agent. Shutdown drains admissions, removes labelled
 enclaves, stops the PAT-free proxy, preserves private audit, disconnects
 compiler-owned mcpg, and then removes private state.
-
-## Migration and removals
-
-The following legacy surfaces are **removed, not deprecated**:
-
-| Removed surface | Replacement |
-| --- | --- |
-| `boundedQueries` config | an `enclaves` entry keyed by `script` with its `repos` list |
-| `boundedAgents` config | an `enclaves` entry keyed by `agent` with its `repos` list |
-| `bounded-query` wrapper / generated skill | `enclave_run_script` MCP tool |
-| `bounded-agent` wrapper / generated skill | `enclave_run_agent` MCP tool |
-| Separate per-subsystem ledgers | One shared per-repository ledger inside `enclave-mcp-server` |
-| Direct legacy runtime surfaces | Compiler-launched `gh-aw-mcpg` handoff only |
-
-Mixed legacy + unified configuration is no longer a compatibility mode. Tooling should remove the old keys rather than carrying both.
 
 ## Coverage after legacy smoke removal
 

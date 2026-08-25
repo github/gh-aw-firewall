@@ -160,14 +160,6 @@ describe('awf-config.schema.json', () => {
     expect(validate({ unknown: true })).toBe(false);
   });
 
-  it.each([
-    `bounded${'Queries'}`,
-    `bounded${'Agents'}`,
-  ])('rejects removed configuration key %s', (removedKey) => {
-    expect(validate({ [removedKey]: { enabled: true } })).toBe(false);
-    expect(validate.errors).not.toBeNull();
-  });
-
   it('rejects unknown network fields', () => {
     expect(validate({ network: { unknownField: true } })).toBe(false);
   });

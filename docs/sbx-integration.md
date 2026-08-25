@@ -100,7 +100,7 @@ network/lateral denial, PID/memory/CPU/disk/file-size enforcement, explicit
 guest mount targets, credential and cross-invocation isolation, canonical
 failure bytes, timing buckets, and interruption cleanup. See
 [AWF configuration spec §14](awf-config-spec.md#14-unified-enclaves) and
-[Unified Enclave Architecture and Migration](enclaves-architecture.md).
+[Unified Enclave Architecture](enclaves-architecture.md).
 
 ## Part 2 — How AWF uses `sbx`
 

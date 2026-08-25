@@ -1870,22 +1870,7 @@ Script and agent calls debit the same live per-repository balance and share one 
 
 `enclave_run_agent` necessarily sends repository-derived content to the configured model provider through the dedicated API proxy. The ledger bounds what the **calling agent** learns; it does not bound what the **provider** sees.
 
-### 14.5 Migration and removed surfaces
-
-The legacy private-repository surfaces are **removed, not deprecated**:
-
-| Removed surface | Replacement |
-| --- | --- |
-| `boundedQueries` | an `enclaves` entry keyed by `script` with its `repos` list |
-| `boundedAgents` | an `enclaves` entry keyed by `agent` with its `repos` list |
-| `bounded-query` wrapper / generated skill | `enclave_run_script` |
-| `bounded-agent` wrapper / generated skill | `enclave_run_agent` |
-| Separate legacy ledgers | One shared ledger inside `enclave-mcp-server` |
-| Direct legacy runtime handoffs | Compiler-launched `gh-aw-mcpg` handoff only |
-
-Configuration authors MUST remove the old keys instead of carrying a mixed legacy/unified document.
-
-### 14.6 Validation coverage
+### 14.5 Validation coverage
 
 Legacy bounded smoke and runtime-matrix workflow assets have been removed from the owned surface. Until a unified gh-aw enclave smoke workflow exists, local coverage remains unit-focused:
 
@@ -1897,7 +1882,7 @@ Legacy bounded smoke and runtime-matrix workflow assets have been removed from t
 - `src/enclave/mcp-server.test.ts`
 - `src/enclave/agent-mcp-server.test.ts`
 
-See [Unified Enclave Architecture and Migration](enclaves-architecture.md) for the operator-facing summary.
+See [Unified Enclave Architecture](enclaves-architecture.md) for the operator-facing summary.
 
 ## Normative References
 
