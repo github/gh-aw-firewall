@@ -24,8 +24,6 @@ const { createGoogleProviderAdapter } = require('./google-adapter');
  * @param {{ bodyTransform?: ((body: Buffer) => (Buffer | null | Promise<Buffer | null>))|null }} [deps={}] - Injected dependencies
  * @returns {import('./index').ProviderAdapter}
  */
-function createGeminiAdapter(env, deps = {}) {
-  return createGoogleProviderAdapter('gemini', env, deps);
-}
+const createGeminiAdapter = createGoogleProviderAdapter.bind(null, 'gemini');
 
 module.exports = { createGeminiAdapter };

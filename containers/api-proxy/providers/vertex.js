@@ -26,8 +26,6 @@ const { createGoogleProviderAdapter } = require('./google-adapter');
  * @param {{ bodyTransform?: ((body: Buffer) => (Buffer | null | Promise<Buffer | null>))|null }} [deps={}] - Injected dependencies
  * @returns {import('./index').ProviderAdapter}
  */
-function createVertexAdapter(env, deps = {}) {
-  return createGoogleProviderAdapter('vertex', env, deps);
-}
+const createVertexAdapter = createGoogleProviderAdapter.bind(null, 'vertex');
 
 module.exports = { createVertexAdapter };
