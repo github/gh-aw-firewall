@@ -134,7 +134,7 @@ describe('agent environment: options', () => {
 
   it('does not pass enclave GitHub proxy handoff material with envAll', () => {
     const handoff = {
-      AWF_ENCLAVE_GITHUB_CAPABILITY_ROOT: 'capability-root',
+      MCP_GATEWAY_ENCLAVE_CAPABILITY_KEY: '0'.repeat(64),
       AWF_ENCLAVE_GITHUB_PROXY_CONTAINER: 'compiler-mcpg',
       AWF_ENCLAVE_GITHUB_PROXY_IDENTITY: 'gh-aw-egh-123456-1-abcdef123456',
       AWF_ENCLAVE_GITHUB_PROXY_CA_CERT: '/tmp/compiler-ca.crt',

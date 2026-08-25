@@ -30,6 +30,7 @@ describe('startContainers', () => {
         'awf-cli-proxy',
         'awf-enclave-mcp-server',
         'awf-enclave-agent-api-proxy',
+        'awf-enclave-agent-cli-proxy',
       ],
       expect.objectContaining({ reject: false })
     );
