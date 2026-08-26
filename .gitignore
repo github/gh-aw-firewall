@@ -39,3 +39,6 @@ __pycache__/
 # (built binary shares its directory's module name with no extension,
 # easy to accidentally leave behind after a local build/test cycle)
 /guest/microvm-supervisor/microvm-supervisor
+/guest/apple-container-init/apple-guest-init
+/guest/apple-container-init/awf-apple-guest-init
+/guest/apple-container-init/awf-apple-guest-init.sha256

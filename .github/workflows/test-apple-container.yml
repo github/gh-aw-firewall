@@ -1,0 +1,106 @@
+name: Apple Container Transport
+
+# Layer 2 of the Apple Container backend stack: the host-side capability relay
+# and the guest init shim. Neither is wired into a user-visible runtime yet, so
+# there is nothing to exercise end to end here — and there is no GitHub-hosted
+# macOS runner that could, because Apple Container needs
+# Virtualization.framework and hosted macOS reports `kern.hv_support=0`.
+#
+# What this workflow can prove without a live VM is exactly what the design
+# depends on: the guest binary compiles for Linux arm64, its relay and init
+# logic behave, and the compiled-in host/guest contract halves agree.
+
+on:
+  workflow_dispatch:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/test-apple-container.yml'
+      - 'guest/apple-container-init/**'
+      - 'src/apple-container/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: apple-container-transport-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  guest-init:
+    name: Guest init shim (Linux arm64)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.25.0'
+          cache-dependency-path: guest/apple-container-init/go.mod
+
+      - name: Vet guest init shim
+        working-directory: guest/apple-container-init
+        run: go vet ./...
+
+      # The relay tests bind real loopback sockets and Unix sockets, so they
+      # catch forwarding, half-close, and teardown defects here rather than as
+      # an unreachable capability inside a real VM.
+      - name: Test guest init shim
+        working-directory: guest/apple-container-init
+        run: go test ./...
+
+      - name: Build guest init shim for Linux arm64
+        working-directory: guest/apple-container-init
+        run: ./build.sh
+
+      - name: Verify the build is deterministic
+        working-directory: guest/apple-container-init
+        run: |
+          first=$(cut -d' ' -f1 awf-apple-guest-init.sha256)
+          rm -f awf-apple-guest-init awf-apple-guest-init.sha256
+          ./build.sh
+          second=$(cut -d' ' -f1 awf-apple-guest-init.sha256)
+          if [ "$first" != "$second" ]; then
+            echo "guest init build is not deterministic: $first != $second" >&2
+            exit 1
+          fi
+          echo "deterministic digest: $first"
+
+      - name: Verify the binary is a static Linux arm64 executable
+        working-directory: guest/apple-container-init
+        run: |
+          file awf-apple-guest-init | tee /dev/stderr | \
+            grep -q 'ELF 64-bit LSB executable, ARM aarch64'
+          file awf-apple-guest-init | grep -q 'statically linked'
+
+  host-transport:
+    name: Host transport unit tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type-check
+        run: npm run type-check
+
+      - name: Lint the Apple Container module
+        run: npx eslint src/apple-container
+
+      # transport-contract-sync.test.ts parses guest/apple-container-init/
+      # contract.go, so a divergence between the host and guest halves of the
+      # contract fails here instead of inside a VM nobody can reproduce.
+      - name: Run Apple Container unit tests
+        run: npx jest src/apple-container --testTimeout=15000
