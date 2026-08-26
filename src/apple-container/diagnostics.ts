@@ -97,7 +97,7 @@ export async function collectAppleContainerDiagnostics(
   options: AppleContainerDiagnosticsOptions = {},
 ): Promise<AppleContainerDiagnostics> {
   const invoker = cli instanceof AppleContainerCli ? cli : new AppleContainerCli(cli);
-  let timeoutMs = APPLE_CONTAINER_DIAGNOSTICS_TIMEOUT_MS;
+  let timeoutMs: number;
   const planned: Array<{ name: string; args: string[] }> = [];
   try {
     timeoutMs = assertAppleContainerTimeoutMs(
