@@ -157,21 +157,29 @@ describe('planAppleContainerInfrastructure external MCP gateway upstream', () =>
 
   it('refuses a port AWF itself publishes so the guest cannot front Squid', () => {
     expect(() => planAppleContainerInfrastructure(withGateway(SQUID_PORT)))
-      .toThrow(`mcpGatewayUpstreamPort ${SQUID_PORT} is already published by AWF`);
+      .toThrow(`mcpGatewayUpstreamPort ${SQUID_PORT} is reserved for AWF infrastructure`);
   });
 
   it('refuses a credential-injecting API proxy port', () => {
     const anthropic = apiProxyPorts().anthropic;
     expect(() => planAppleContainerInfrastructure(
       withGateway(anthropic, { enableApiProxy: true }),
-    )).toThrow(`mcpGatewayUpstreamPort ${anthropic} is already published by AWF`);
+    )).toThrow(`mcpGatewayUpstreamPort ${anthropic} is reserved for AWF infrastructure`);
   });
 
-  it('allows a provider port when that provider port is not published', () => {
-    // Without --enable-api-proxy nothing publishes 10001, so relaying to a
-    // gateway that happens to have bound it is unambiguous.
-    const plan = planAppleContainerInfrastructure(withGateway(apiProxyPorts().anthropic));
-    expect(plan.externalUpstreams).toHaveLength(1);
+  it('refuses a reserved port even when this run does not publish it', () => {
+    // The guard must not depend on which sidecars this configuration enables:
+    // an API proxy port is reserved whether or not --enable-api-proxy is set,
+    // and so is the Vertex port that no capability can carry.
+    for (const port of [apiProxyPorts().anthropic, apiProxyPorts().vertex, CLI_PROXY_PORT]) {
+      expect(() => planAppleContainerInfrastructure(withGateway(port)))
+        .toThrow('is reserved for AWF infrastructure');
+    }
+  });
+
+  it('accepts a port outside the reserved set', () => {
+    const plan = planAppleContainerInfrastructure(withGateway(9_100));
+    expect(plan.externalUpstreams).toEqual([{ capability: 'mcp-gateway', hostPort: 9_100 }]);
   });
 });
 

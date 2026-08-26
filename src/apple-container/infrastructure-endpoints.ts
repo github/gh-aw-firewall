@@ -133,7 +133,7 @@ export function planAppleContainerInfrastructure(
 
   const publications = planned.map((entry) => Object.freeze({ ...entry, hostPort: entry.containerPort }));
   const services = [...new Set(publications.map((entry) => entry.service))];
-  const externalUpstreams = planExternalUpstreams(config, publications);
+  const externalUpstreams = planExternalUpstreams(config);
 
   const capabilities = [
     ...publications.map((entry) => ({ id: entry.capability, hostPort: entry.hostPort })),
@@ -160,14 +160,14 @@ export function planAppleContainerInfrastructure(
  * 1. The port is re-validated through the same allowlist predicate every other
  *    upstream passes, so a value that reached here from a non-CLI path (config
  *    file, programmatic caller) cannot skip validation.
- * 2. A port AWF itself publishes is refused. Accepting it would silently front
- *    an AWF sidecar — Squid or a credential-injecting API proxy port — on the
- *    guest's MCP gateway endpoint instead of the gateway the operator meant.
+ * 2. Any port AWF reserves for its own infrastructure is refused. Accepting one
+ *    could front an AWF sidecar — Squid or a credential-injecting API proxy
+ *    port — on the guest's MCP gateway endpoint instead of the gateway the
+ *    operator meant. The comparison is against the fixed reserved set rather
+ *    than this run's publications, so the guard does not depend on which
+ *    sidecars this particular configuration happens to enable.
  */
-function planExternalUpstreams(
-  config: WrapperConfig,
-  publications: readonly AppleContainerPortPublication[],
-): AppleContainerExternalUpstream[] {
+function planExternalUpstreams(config: WrapperConfig): AppleContainerExternalUpstream[] {
   const port = config.appleContainer?.mcpGatewayUpstreamPort;
   if (port === undefined) return [];
 
@@ -176,16 +176,25 @@ function planExternalUpstreams(
     'capability mcp-gateway',
   );
 
-  const collision = publications.find((publication) => publication.hostPort === port);
-  if (collision) {
+  if (reservedAwfLoopbackPorts().has(port)) {
     throw new Error(
-      `Apple Container mcpGatewayUpstreamPort ${port} is already published by AWF for the ` +
-      `"${collision.capability}" capability; the external MCP gateway must listen on its own ` +
-      'host loopback port',
+      `Apple Container mcpGatewayUpstreamPort ${port} is reserved for AWF infrastructure; the ` +
+      'external MCP gateway must listen on its own host loopback port',
     );
   }
 
   return [Object.freeze({ capability: 'mcp-gateway' as const, hostPort: port })];
+}
+
+/**
+ * Every loopback port AWF may publish for its own sidecars, regardless of the
+ * current configuration.
+ *
+ * Includes the Vertex provider port even though no capability can carry it: it
+ * is still a port an AWF sidecar can bind, so it must not be relayed to either.
+ */
+function reservedAwfLoopbackPorts(): ReadonlySet<number> {
+  return new Set<number>([SQUID_PORT, CLI_PROXY_PORT, ...Object.values(apiProxyPorts())]);
 }
 
 /** Compose `ports:` entry that binds the publication to loopback only. */

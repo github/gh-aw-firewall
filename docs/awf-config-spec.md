@@ -190,8 +190,9 @@ transport's own threat model.
 a caller starts on host loopback outside AWF's Compose project (gh-aw's
 `awmg-mcpg`). AWF MUST accept only a TCP port in `1..65535`; the upstream host
 is fixed to `127.0.0.1` and MUST NOT be configurable. AWF MUST NOT publish a
-Compose port or require a Compose service for it, MUST reject a port AWF itself
-publishes, MUST reject the setting on any other `containerRuntime`, and MUST
+Compose port or require a Compose service for it, MUST reject any port reserved
+for AWF infrastructure services, MUST reject the setting on any other
+`containerRuntime`, and MUST
 health-probe the upstream before the agent starts. The guest reaches the gateway
 at the compiled-in `http://127.0.0.1:8080` through
 `AWF_APPLE_TRANSPORT_MCP_GATEWAY_URL`. This is ordinary MCP infrastructure and

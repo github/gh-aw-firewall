@@ -90,9 +90,10 @@ Consequences of that split, all of them deliberate:
 - **Only a port is configurable.** The upstream host is fixed to `127.0.0.1` in
   code, so this setting cannot widen the set of addresses a relay will dial. It
   is re-validated through the same loopback/private-address predicate every
-  other upstream passes, and a port AWF itself publishes is refused — otherwise
-  the guest's MCP gateway endpoint could silently front Squid or a
-  credential-injecting API proxy port.
+  other upstream passes, and any port reserved for AWF infrastructure is
+  refused — otherwise the guest's MCP gateway endpoint could silently front
+  Squid or a credential-injecting API proxy port. The reserved set is fixed, so
+  the guard does not depend on which sidecars a given run enables.
 - **The guest shape is unchanged.** The guest still reaches the gateway at the
   compiled-in `http://127.0.0.1:8080` (`AWF_APPLE_TRANSPORT_MCP_GATEWAY_URL`),
   whatever the host port is. No contract version bump: the host port is a host

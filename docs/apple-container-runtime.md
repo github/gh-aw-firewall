@@ -143,8 +143,9 @@ guest, where the workload reaches it at `http://127.0.0.1:8080`
 
 - **Only a port is accepted**, an integer in `1..65535`. The upstream host is
   fixed to `127.0.0.1` and is not configurable, so this cannot point a guest
-  capability at another machine. A port AWF itself publishes (Squid, an API
-  proxy provider port, the CLI proxy) is rejected.
+  capability at another machine. A port reserved for AWF infrastructure (Squid,
+  any API proxy provider port, the CLI proxy) is rejected regardless of which
+  of those sidecars this run enables.
 - **Valid only on this runtime.** Setting it with any other
   `--container-runtime` is an error, not a silently ignored field; every other
   runtime reaches the gateway over its own Docker network.
