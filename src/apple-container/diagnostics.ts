@@ -27,6 +27,7 @@ import {
   assertAppleContainerId,
   assertAppleContainerLineCount,
   assertAppleContainerLogWindow,
+  assertAppleContainerTimeoutMs,
 } from './validation';
 
 /** Default number of trailing log lines captured per container log stream. */
@@ -96,10 +97,12 @@ export async function collectAppleContainerDiagnostics(
   options: AppleContainerDiagnosticsOptions = {},
 ): Promise<AppleContainerDiagnostics> {
   const invoker = cli instanceof AppleContainerCli ? cli : new AppleContainerCli(cli);
-  const timeoutMs = options.timeoutMs ?? APPLE_CONTAINER_DIAGNOSTICS_TIMEOUT_MS;
-
+  let timeoutMs = APPLE_CONTAINER_DIAGNOSTICS_TIMEOUT_MS;
   const planned: Array<{ name: string; args: string[] }> = [];
   try {
+    timeoutMs = assertAppleContainerTimeoutMs(
+      options.timeoutMs ?? APPLE_CONTAINER_DIAGNOSTICS_TIMEOUT_MS,
+    );
     planned.push({ name: 'system-status.json', args: ['system', 'status', '--format', 'json'] });
     planned.push({ name: 'containers.json', args: ['list', '--all', '--format', 'json'] });
     planned.push({

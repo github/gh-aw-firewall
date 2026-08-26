@@ -145,6 +145,35 @@ describe('collectAppleContainerHostFacts', () => {
       macosProductVersion: '26.1.1',
       hypervisorSupported: true,
     });
+
+  });
+
+  it('does not probe macOS or hypervisor on an unsupported architecture', async () => {
+    const readProductVersion = jest.fn();
+    const readHypervisorSupport = jest.fn();
+    await expect(
+      collectAppleContainerHostFacts({
+        platform: 'darwin',
+        arch: 'x64',
+        readProductVersion,
+        readHypervisorSupport,
+      }),
+    ).resolves.toMatchObject({ arch: 'x64', macosProductVersion: '', hypervisorSupported: false });
+    expect(readProductVersion).not.toHaveBeenCalled();
+    expect(readHypervisorSupport).not.toHaveBeenCalled();
+  });
+
+  it('does not probe the hypervisor on an old macOS version', async () => {
+    const readHypervisorSupport = jest.fn();
+    await expect(
+      collectAppleContainerHostFacts({
+        platform: 'darwin',
+        arch: 'arm64',
+        readProductVersion: async () => '15.5',
+        readHypervisorSupport,
+      }),
+    ).resolves.toMatchObject({ macosProductVersion: '15.5', hypervisorSupported: false });
+    expect(readHypervisorSupport).not.toHaveBeenCalled();
   });
 
   it('maps a sw_vers failure to a macos-version host error', async () => {

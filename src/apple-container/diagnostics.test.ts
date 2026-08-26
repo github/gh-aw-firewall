@@ -137,6 +137,19 @@ describe('collectAppleContainerDiagnostics', () => {
     expect(calls[0].options.timeoutMs).toBe(APPLE_CONTAINER_DIAGNOSTICS_TIMEOUT_MS);
   });
 
+  it.each([0, -1, Number.NaN, Number.POSITIVE_INFINITY, 1.5])(
+    'reports an invalid timeout (%p) without invoking the CLI',
+    async (timeoutMs) => {
+      const { cli, calls } = harness();
+      const diagnostics = await collectAppleContainerDiagnostics(cli, { timeoutMs });
+      expect(calls).toHaveLength(0);
+      expect(diagnostics.captures[0]).toMatchObject({
+        name: 'diagnostics-error.txt',
+        ok: false,
+      });
+    },
+  );
+
   it('records a failing capture without aborting the remaining captures', async () => {
     const { cli } = harness((args) =>
       args[0] === 'list'

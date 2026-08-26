@@ -215,7 +215,7 @@ export class AppleContainerCli {
 }
 
 function describeFailure(result: AppleContainerCliResult): string {
-  const command = result.argv.join(' ');
+  const command = redactDiagnosticArgv(result.argv).join(' ');
   const cause = result.timedOut
     ? 'timed out'
     : result.signal
@@ -223,4 +223,14 @@ function describeFailure(result: AppleContainerCliResult): string {
       : `exited with code ${result.exitCode}`;
   const detail = result.stderr.trim() || result.stdout.trim();
   return detail ? `"${command}" ${cause}: ${detail}` : `"${command}" ${cause}`;
+}
+
+function redactDiagnosticArgv(argv: readonly string[]): string[] {
+  return argv.map((value, index) => {
+    if (index > 0 && argv[index - 1] === '--env') {
+      const separator = value.indexOf('=');
+      return separator >= 0 ? `${value.slice(0, separator)}=<redacted>` : '<redacted>';
+    }
+    return value;
+  });
 }

@@ -123,6 +123,14 @@ describe('buildAppleContainerRunArgs resources and process options', () => {
     expect(valuesFor(args, '--label')).toEqual(['awf=agent']);
   });
 
+  it('accepts OCI label punctuation in label names', () => {
+    const args = buildAppleContainerRunArgs({
+      ...MINIMAL,
+      labels: { 'com.example.role-name': 'agent' },
+    });
+    expect(valuesFor(args, '--label')).toEqual(['com.example.role-name=agent']);
+  });
+
   it('rejects an "=" in a label value, which the CLI parses as a third field', () => {
     // Unlike --env, `Parser.labels` splits with maxSplits: 2 and rejects three
     // components, so this must fail here rather than inside `container create`.

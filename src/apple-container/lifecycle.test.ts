@@ -61,6 +61,10 @@ describe('parseAppleContainerVersion', () => {
   it.each(['', 'container CLI', 'unknown build'])('throws on %j', (value) => {
     expect(() => parseAppleContainerVersion(value)).toThrow(/Could not parse/);
   });
+
+  it.each(['container CLI (build: 99.0)', 'release 99.0'])('rejects an unanchored version in %j', (value) => {
+    expect(() => parseAppleContainerVersion(value)).toThrow(/Could not parse/);
+  });
 });
 
 describe('parseCreatedContainerId', () => {

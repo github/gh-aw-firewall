@@ -152,6 +152,15 @@ export async function collectAppleContainerHostFacts(
     };
   }
 
+  if (probe.arch !== 'arm64') {
+    return {
+      platform: probe.platform,
+      arch: probe.arch,
+      macosProductVersion: '',
+      hypervisorSupported: false,
+    };
+  }
+
   let macosProductVersion: string;
   try {
     macosProductVersion = (await probe.readProductVersion()).trim();
@@ -160,6 +169,26 @@ export async function collectAppleContainerHostFacts(
       'macos-version',
       `Could not determine the macOS version: ${formatCause(error)}`,
     );
+  }
+
+  let macosMajor: number;
+  try {
+    macosMajor = parseMacosMajorVersion(macosProductVersion);
+  } catch {
+    return {
+      platform: probe.platform,
+      arch: probe.arch,
+      macosProductVersion,
+      hypervisorSupported: false,
+    };
+  }
+  if (macosMajor < APPLE_CONTAINER_MINIMUM_MACOS_MAJOR) {
+    return {
+      platform: probe.platform,
+      arch: probe.arch,
+      macosProductVersion,
+      hypervisorSupported: false,
+    };
   }
 
   let hypervisorSupported: boolean;

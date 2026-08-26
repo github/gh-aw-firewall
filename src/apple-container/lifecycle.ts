@@ -93,13 +93,14 @@ export class AppleContainerVersionParseError extends Error {
  */
 export function parseAppleContainerVersion(output: string): AppleContainerVersion {
   const raw = output.trim();
-  const match = /\bv?(\d+\.\d+\.\d+|\d+\.\d+)(?![\d.])/.exec(raw);
+  const match =
+    /^(?:container CLI version\s+v?(\d+\.\d+(?:\.\d+)?)|v?(\d+\.\d+(?:\.\d+)?))(?=$|\s|\()/.exec(raw);
   if (!match) {
     throw new AppleContainerVersionParseError(
       `Could not parse Apple Container CLI version from: ${JSON.stringify(output)}`,
     );
   }
-  return { version: match[1], raw };
+  return { version: match[1] ?? match[2], raw };
 }
 
 /**

@@ -27,6 +27,7 @@ import {
   assertAppleContainerEnvValue,
   assertAppleContainerId,
   assertAppleContainerImageReference,
+  assertAppleContainerLabelName,
   assertAppleContainerLabelValue,
   assertAppleContainerMemorySize,
   assertAppleContainerNetworkName,
@@ -219,7 +220,7 @@ export function buildAppleContainerRunArgs(
   }
 
   for (const [name, value] of Object.entries(spec.labels ?? {})) {
-    assertAppleContainerEnvName(name);
+    assertAppleContainerLabelName(name);
     assertAppleContainerLabelValue(name, value);
     args.push('--label', `${name}=${value}`);
   }

@@ -30,7 +30,7 @@ function stubLifecycle(overrides: {
 } = {}): StubLifecycle {
   return {
     cli: { binary: overrides.binary ?? 'container' },
-    version: overrides.version ?? (async () => ({ version: '0.4.1', raw: 'container CLI version 0.4.1' })),
+    version: overrides.version ?? (async () => ({ version: '0.10.1', raw: 'container CLI version 0.10.1' })),
     systemStatus:
       overrides.systemStatus
       ?? (async () => ({ healthy: true, result: { stdout: '{}', stderr: '' } })),
@@ -262,7 +262,7 @@ describe('runAppleContainerPreflight success', () => {
         hypervisorSupported: true,
       },
       cliBinary: '/usr/local/bin/container',
-      cliVersion: '0.4.1',
+      cliVersion: '0.10.1',
     });
   });
 
@@ -274,7 +274,7 @@ describe('runAppleContainerPreflight success', () => {
         spawn: async (_binary, args) => ({
           exitCode: 0,
           signal: null,
-          stdout: args[0] === '--version' ? 'container CLI version 0.4.5' : '{"status":"running"}',
+          stdout: args[0] === '--version' ? 'container CLI version 0.10.5' : '{"status":"running"}',
           stderr: '',
           timedOut: false,
         }),
@@ -283,7 +283,7 @@ describe('runAppleContainerPreflight success', () => {
 
     await expect(promise).resolves.toMatchObject({
       cliBinary: '/opt/container',
-      cliVersion: '0.4.5',
+      cliVersion: '0.10.5',
     });
   });
 });

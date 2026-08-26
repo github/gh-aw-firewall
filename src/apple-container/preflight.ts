@@ -37,7 +37,7 @@ import { AppleContainerLifecycle, AppleContainerVersionParseError } from './life
  * `none` sentinel that `./run-args.ts` depends on for a no-NIC container.
  * Lowering this would silently give an isolated container a default NIC.
  */
-export const APPLE_CONTAINER_MINIMUM_CLI_VERSION = '0.4.0';
+export const APPLE_CONTAINER_MINIMUM_CLI_VERSION = '0.10.0';
 
 /** All the reasons preflight can fail, including host ineligibility. */
 export type AppleContainerPreflightCode =

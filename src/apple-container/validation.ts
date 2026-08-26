@@ -146,6 +146,15 @@ export function assertAppleContainerEnvName(name: string): string {
   return name;
 }
 
+/** Validates a label key without applying the stricter environment-name syntax. */
+export function assertAppleContainerLabelName(name: string): string {
+  assertPrintableToken(name, 'label name');
+  if (name.includes('=')) {
+    throw new Error(`Apple Container label name must not contain "=": ${name}`);
+  }
+  return name;
+}
+
 /**
  * Validates an environment value. Newlines and NULs are rejected because the
  * CLI's `--env` value is a single `KEY=VALUE` argv token; `=` is explicitly
@@ -246,6 +255,14 @@ export function assertAppleContainerStopTimeout(value: number): number {
 export function assertAppleContainerLineCount(value: number): number {
   if (!Number.isSafeInteger(value) || value < 1 || value > 100_000) {
     throw new Error(`Apple Container log line count must be an integer in 1..100000; got ${value}`);
+  }
+  return value;
+}
+
+/** Validates a timeout used to bound a diagnostics command. */
+export function assertAppleContainerTimeoutMs(value: number): number {
+  if (!Number.isSafeInteger(value) || value < 1) {
+    throw new Error(`Apple Container diagnostics timeout must be a positive integer; got ${value}`);
   }
   return value;
 }

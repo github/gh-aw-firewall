@@ -212,6 +212,16 @@ describe('AppleContainerCli.runChecked', () => {
     }
   });
 
+  it('redacts environment values from failing command diagnostics', async () => {
+    const cli = new AppleContainerCli({
+      spawn: async () => spawnResult({ exitCode: 1 }),
+    });
+
+    await expect(
+      cli.runChecked(['create', '--env', 'API_KEY=secret-value', 'image:latest']),
+    ).rejects.toThrow('"container create --env API_KEY=<redacted> image:latest"');
+  });
+
   it('describes a fatal signal when there was no timeout', async () => {
     const cli = new AppleContainerCli({
       spawn: async () => spawnResult({ exitCode: null, signal: 'SIGKILL' }),
