@@ -20,6 +20,9 @@ export {
   CLOUD_HYPERVISOR_DEFAULT_VCPU_COUNT,
   CLOUD_HYPERVISOR_DEFAULT_MEMORY_MIB,
   CLOUD_HYPERVISOR_DEFAULT_API_TIMEOUT_MS,
+  type AppleContainerOptions,
+  APPLE_CONTAINER_DEFAULT_CPUS,
+  APPLE_CONTAINER_DEFAULT_MEMORY,
 } from './runtime-options';
 export { type RateLimitConfig } from './rate-limit';
 export { type FlagValidationResult } from './validation';

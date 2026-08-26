@@ -27,19 +27,46 @@ runs:
   using: 'composite'
   steps:
     - name: Validate runner OS and architecture
+      id: platform
       shell: bash
       run: |
-        if [ "$RUNNER_OS" != "Linux" ]; then
-          echo "::error::This action only supports Linux runners. Current OS: $RUNNER_OS"
-          exit 1
-        fi
+        set -euo pipefail
 
-        # Validate architecture (only x64 is supported)
+        # Two supported install targets:
+        #   Linux x64  — the default AWF runtime (Docker + Squid + agent container).
+        #   macOS arm64 — installs the CLI only, for the Apple Container preview
+        #     runtime. That runtime additionally requires Apple Silicon bare metal
+        #     on macOS 26+ with kern.hv_support=1 and the `container` CLI
+        #     installed and running. GitHub-hosted macOS runners are virtualized
+        #     and report kern.hv_support=0, so `awf` fails preflight there rather
+        #     than falling back to another runtime. Installing the binary here is
+        #     therefore NOT a claim that hosted macOS can run the firewall.
         ARCH=$(uname -m)
-        if [ "$ARCH" != "x86_64" ] && [ "$ARCH" != "amd64" ]; then
-          echo "::error::This action only supports x64 architecture. Current architecture: $ARCH"
-          exit 1
-        fi
+        case "$RUNNER_OS" in
+          Linux)
+            if [ "$ARCH" != "x86_64" ] && [ "$ARCH" != "amd64" ]; then
+              echo "::error::AWF supports x64 Linux runners. Current architecture: $ARCH"
+              exit 1
+            fi
+            BINARY_NAME="awf-linux-x64"
+            BINARY_FORMAT="ELF.*executable"
+            ;;
+          macOS)
+            if [ "$ARCH" != "arm64" ] && [ "$ARCH" != "aarch64" ]; then
+              echo "::error::AWF supports arm64 macOS runners only. Current architecture: $ARCH"
+              exit 1
+            fi
+            BINARY_NAME="awf-darwin-arm64"
+            BINARY_FORMAT="Mach-O 64-bit executable arm64"
+            ;;
+          *)
+            echo "::error::AWF supports Linux and macOS runners. Current OS: $RUNNER_OS"
+            exit 1
+            ;;
+        esac
+
+        echo "binary_name=$BINARY_NAME" >> "$GITHUB_OUTPUT"
+        echo "binary_format=$BINARY_FORMAT" >> "$GITHUB_OUTPUT"
 
     - name: Install awf
       id: install
@@ -47,11 +74,12 @@ runs:
       env:
         INPUT_VERSION: ${{ inputs.version }}
         GITHUB_TOKEN: ${{ github.token }}
+        BINARY_NAME: ${{ steps.platform.outputs.binary_name }}
+        BINARY_FORMAT: ${{ steps.platform.outputs.binary_format }}
       run: |
         set -euo pipefail
 
         REPO="github/gh-aw-firewall"
-        BINARY_NAME="awf-linux-x64"
         INSTALL_DIR="${RUNNER_TEMP}/awf-bin"
 
         # Build auth headers for GitHub API (Bearer is the recommended format for GITHUB_TOKEN)
@@ -143,6 +171,7 @@ runs:
           ENCLAVE_SCRIPT_DIGEST="$(extract_digest enclave-script || true)"
           ENCLAVE_AGENT_DIGEST="$(extract_digest enclave-agent || true)"
           ENCLAVE_MCP_SERVER_DIGEST="$(extract_digest enclave-mcp-server || true)"
+          APPLE_INIT_DIGEST="$(extract_digest apple-init || true)"
 
           [ -n "${SQUID_DIGEST:-}" ] && DIGEST_ENTRIES+=("squid=${SQUID_DIGEST}")
           [ -n "${AGENT_DIGEST:-}" ] && DIGEST_ENTRIES+=("agent=${AGENT_DIGEST}")
@@ -152,6 +181,7 @@ runs:
           [ -n "${ENCLAVE_SCRIPT_DIGEST:-}" ] && DIGEST_ENTRIES+=("enclave-script=${ENCLAVE_SCRIPT_DIGEST}")
           [ -n "${ENCLAVE_AGENT_DIGEST:-}" ] && DIGEST_ENTRIES+=("enclave-agent=${ENCLAVE_AGENT_DIGEST}")
           [ -n "${ENCLAVE_MCP_SERVER_DIGEST:-}" ] && DIGEST_ENTRIES+=("enclave-mcp-server=${ENCLAVE_MCP_SERVER_DIGEST}")
+          [ -n "${APPLE_INIT_DIGEST:-}" ] && DIGEST_ENTRIES+=("apple-init=${APPLE_INIT_DIGEST}")
 
           if [ "${#DIGEST_ENTRIES[@]}" -gt 0 ]; then
             DIGEST_CSV="$(IFS=,; echo "${DIGEST_ENTRIES[*]}")"
@@ -190,7 +220,12 @@ runs:
 
         # Normalize to lowercase for comparison
         EXPECTED_SUM=$(echo "$EXPECTED_SUM" | tr '[:upper:]' '[:lower:]')
-        ACTUAL_SUM=$(sha256sum "$INSTALL_DIR/awf" | awk '{print $1}' | tr '[:upper:]' '[:lower:]')
+        if command -v sha256sum >/dev/null 2>&1; then
+          ACTUAL_SUM=$(sha256sum "$INSTALL_DIR/awf" | awk '{print $1}' | tr '[:upper:]' '[:lower:]')
+        else
+          # macOS ships `shasum`, not `sha256sum`.
+          ACTUAL_SUM=$(shasum -a 256 "$INSTALL_DIR/awf" | awk '{print $1}' | tr '[:upper:]' '[:lower:]')
+        fi
 
         if [ "$EXPECTED_SUM" != "$ACTUAL_SUM" ]; then
           echo "::error::Checksum verification failed!"
@@ -201,9 +236,11 @@ runs:
 
         echo "Checksum verification passed ✓"
 
-        # Verify it's a valid ELF executable
-        if ! file "$INSTALL_DIR/awf" | grep -q "ELF.*executable"; then
-          echo "::error::Downloaded file is not a valid Linux executable"
+        # Verify the binary really is a native executable for this runner, so a
+        # mismatched or truncated download fails here rather than at first use.
+        if ! file "$INSTALL_DIR/awf" | grep -q "$BINARY_FORMAT"; then
+          echo "::error::Downloaded file is not a valid $RUNNER_OS executable (expected: $BINARY_FORMAT)"
+          file "$INSTALL_DIR/awf"
           exit 1
         fi
 
@@ -219,8 +256,12 @@ runs:
         echo "Successfully installed awf ${VERSION} to $INSTALL_DIR"
         echo "awf is now available in PATH for subsequent steps"
 
+    # Linux only. On macOS the Apple Container preview runtime pulls the agent
+    # and init images through Apple Container's own image store, which is
+    # independent of Docker's — a Docker pre-pull here would not populate it,
+    # and AWF verifies presence rather than assuming it.
     - name: Pull Docker images
-      if: ${{ inputs.pull-images == 'true' }}
+      if: ${{ inputs.pull-images == 'true' && runner.os == 'Linux' }}
       shell: bash
       env:
         IMAGE_TAG: ${{ steps.install.outputs.image_tag }}

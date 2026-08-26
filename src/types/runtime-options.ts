@@ -47,6 +47,46 @@ export interface CloudHypervisorOptions {
   sha256?: CloudHypervisorArtifactDigests;
 }
 
+// ─── Apple Container (macOS arm64 microVM preview) ─────────────────────────
+//
+// Selectable via `--container-runtime apple-container`, gated behind explicit
+// `--apple-container-preview` opt-in. The agent runs in an Apple
+// Virtualization.framework VM with `--network none`, and reaches AWF's
+// Docker Compose infrastructure exclusively through the layer-2 published-socket
+// capability transport. Supported only on self-hosted bare-metal Apple Silicon
+// macOS 26+ runners; GitHub-hosted macOS reports `kern.hv_support=0` and fails
+// preflight rather than falling back.
+
+/** Guest vCPU count when `--apple-container-cpus` is not supplied. */
+export const APPLE_CONTAINER_DEFAULT_CPUS = 4;
+
+/** Guest memory when `--apple-container-memory` is not supplied. */
+export const APPLE_CONTAINER_DEFAULT_MEMORY = '8G';
+
+/**
+ * Apple Container preview microVM runtime settings.
+ *
+ * Every field is inert unless `--container-runtime apple-container` is
+ * selected; {@link ../apple-container/runtime-validation} rejects the
+ * combination of Apple Container options with any other runtime.
+ */
+export interface AppleContainerOptions {
+  /** Explicit opt-in. Without it the runtime refuses to resolve a backend. */
+  previewEnabled: boolean;
+  /** Guest vCPU count. */
+  cpus: number;
+  /** Guest memory size, integer with an optional K/M/G/T/P suffix. */
+  memory: string;
+  /**
+   * Complete, digest-pinned reference to the AWF Apple init image that carries
+   * the guest capability relay. Defaults to the manifest/registry-derived
+   * reference; an explicit value must still be digest-pinned.
+   */
+  initImage?: string;
+  /** Path to the `container` CLI when it is not on `PATH`. */
+  cliPath?: string;
+}
+
 export interface RuntimeOptions {
   /**
    * The command to execute inside the firewall container
@@ -213,4 +253,13 @@ export interface RuntimeOptions {
    * GitHub-hosted Ubuntu x86_64 KVM runners.
    */
   cloudHypervisor?: CloudHypervisorOptions;
+
+  /**
+   * Apple Container preview microVM runtime settings.
+   *
+   * Selectable via `--container-runtime apple-container`, gated behind explicit
+   * `--apple-container-preview` opt-in. Supported only on self-hosted
+   * bare-metal Apple Silicon macOS 26+ runners.
+   */
+  appleContainer?: AppleContainerOptions;
 }

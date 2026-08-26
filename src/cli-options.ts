@@ -3,7 +3,11 @@ import * as path from 'path';
 import * as os from 'os';
 import { version } from '../package.json';
 import { collectRulesetFile, collectStringArray, formatItem } from './option-parsers';
-import { CLOUD_HYPERVISOR_RELEASE_VERSION } from './types/runtime-options';
+import {
+  APPLE_CONTAINER_DEFAULT_CPUS,
+  APPLE_CONTAINER_DEFAULT_MEMORY,
+  CLOUD_HYPERVISOR_RELEASE_VERSION,
+} from './types/runtime-options';
 
 // Option group markers used by the custom help formatter to insert section headers.
 // Each key is the long flag name of the first option in a group.
@@ -12,6 +16,7 @@ const optionGroupHeaders: Record<string, string> = {
   'allow-domains': 'Domain Filtering:',
   'build-local': 'Image Management:',
   'cloud-hypervisor-preview': 'Cloud Hypervisor Preview (GitHub-hosted Ubuntu x86_64 KVM only):',
+  'apple-container-preview': 'Apple Container Preview (self-hosted bare-metal Apple Silicon only):',
   'env': 'Container Configuration:',
   'dns-servers': 'Network & Security:',
   'upstream-proxy': 'Network & Security:',
@@ -178,6 +183,8 @@ program
    '                                       "sbx" — Docker sbx microVM with hypervisor isolation.\n' +
    '                                       "cloud-hypervisor" — explicit GitHub-hosted Ubuntu x86_64 KVM\n' +
    '                                       Cloud Hypervisor v53.0 preview.\n' +
+   '                                       "apple-container" — Apple Virtualization.framework VM on\n' +
+   '                                       self-hosted bare-metal Apple Silicon macOS 26+ (preview).\n' +
    '                                       Unknown values are passed through as raw Docker runtime names.'
   )
   // -- Cloud Hypervisor Preview --
@@ -200,6 +207,28 @@ program
   .option('--cloud-hypervisor-kernel-sha256 <digest>', 'Expected SHA-256 digest of the guest kernel.')
   .option('--cloud-hypervisor-rootfs-sha256 <digest>', 'Expected SHA-256 digest of the guest rootfs.')
   .option('--cloud-hypervisor-supervisor-sha256 <digest>', 'Expected SHA-256 digest of the AWF guest supervisor.')
+
+  // -- Apple Container Preview --
+  .option(
+    '--apple-container-preview',
+    'Enable the Apple Container workload-execution preview.\n' +
+    '                                       Self-hosted bare-metal Apple Silicon macOS 26+ runners only\n' +
+    '                                       (kern.hv_support=1). GitHub-hosted macOS fails preflight.',
+    false
+  )
+  .option(
+    '--apple-container-cpus <count>',
+    `Guest virtual CPU count (default: ${APPLE_CONTAINER_DEFAULT_CPUS}).`
+  )
+  .option(
+    '--apple-container-memory <size>',
+    `Guest memory, integer with an optional K/M/G/T/P suffix (default: ${APPLE_CONTAINER_DEFAULT_MEMORY}).`
+  )
+  .option(
+    '--apple-container-init-image <ref>',
+    'Digest-pinned AWF Apple init image carrying the guest capability relay.'
+  )
+  .option('--apple-container-cli <path>', 'Path to the Apple "container" CLI when it is not on PATH.')
 
   // -- Container Configuration --
   .option(

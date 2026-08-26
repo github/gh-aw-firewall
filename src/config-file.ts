@@ -148,6 +148,19 @@ export interface AwfFileConfig {
     apiTimeoutMs?: number;
     sha256?: CloudHypervisorArtifactDigests;
   };
+  /**
+   * Apple Container preview microVM runtime.
+   * Selectable via `container.containerRuntime: "apple-container"`, gated
+   * behind `previewEnabled`/`--apple-container-preview`. Supported only on
+   * self-hosted bare-metal Apple Silicon macOS 26+ runners.
+   */
+  appleContainer?: {
+    previewEnabled?: boolean;
+    cpus?: number;
+    memory?: string;
+    initImage?: string;
+    cliPath?: string;
+  };
   chroot?: {
     binariesSourcePath?: string;
     identity?: {

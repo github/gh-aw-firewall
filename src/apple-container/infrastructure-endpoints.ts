@@ -1,0 +1,201 @@
+/**
+ * Bridges AWF's Docker Compose infrastructure to the Apple Container guest.
+ *
+ * The agent VM has no NIC, and on macOS the Compose sidecars live inside the
+ * Docker Desktop VM, so their `172.30.0.x` addresses are unreachable from the
+ * macOS host as well. Two hops are therefore required, and this module owns the
+ * first one:
+ *
+ * ```
+ *   sidecar container  --(docker publish 127.0.0.1:P)-->  macOS loopback
+ *   macOS loopback     --(layer-2 relay + --publish-socket)-->  guest 127.0.0.1:P
+ * ```
+ *
+ * Three properties matter:
+ *
+ * 1. **Loopback only.** Every publication is bound to `127.0.0.1` explicitly.
+ *    Docker's default (`"3128:3128"`) binds `0.0.0.0`, which would expose an
+ *    open forward proxy and unauthenticated credential-injecting endpoints to
+ *    the entire network the runner sits on. This module rewrites those, it does
+ *    not merely add to them.
+ * 2. **Exactly the required ports.** The publication set is derived from the
+ *    same configuration that derives the capability set, so a port is published
+ *    if and only if a capability relays to it. In particular the Vertex
+ *    provider port is never published, because no capability can carry it.
+ * 3. **Validated before use.** {@link appleContainerLoopbackPortConflicts}
+ *    proves the fixed ports are free before Compose is started, so a port that
+ *    is already in use fails with an actionable message instead of producing a
+ *    relay that silently fronts somebody else's listener.
+ */
+
+import * as net from 'net';
+
+import { apiProxyPorts, CLI_PROXY_PORT, SQUID_PORT } from '../config/network-policy';
+import type { WrapperConfig } from '../types';
+import type { AppleContainerCapabilityId } from './transport-capabilities';
+import type { AppleContainerTransportCapabilityRequest } from './transport-plan';
+
+/**
+ * Address every AWF infrastructure port is published on, and the address every
+ * relay dials. A literal, so the relay never resolves a name.
+ */
+export const APPLE_CONTAINER_LOOPBACK_HOST = '127.0.0.1';
+
+/** Compose service key whose published ports back a capability. */
+export type AppleContainerInfrastructureService = 'squid-proxy' | 'api-proxy' | 'cli-proxy';
+
+export interface AppleContainerPortPublication {
+  readonly service: AppleContainerInfrastructureService;
+  /** Port inside the sidecar container. */
+  readonly containerPort: number;
+  /** Port on macOS loopback. Fixed to `containerPort` (see module comment). */
+  readonly hostPort: number;
+  readonly capability: AppleContainerCapabilityId;
+}
+
+export interface AppleContainerInfrastructurePlan {
+  readonly publications: readonly AppleContainerPortPublication[];
+  readonly capabilities: readonly AppleContainerTransportCapabilityRequest[];
+  /** Compose services that must publish at least one loopback port. */
+  readonly services: readonly AppleContainerInfrastructureService[];
+}
+
+/** Provider ports the transport allowlist covers, in capability order. */
+function apiProxyPublications(): readonly Omit<AppleContainerPortPublication, 'hostPort'>[] {
+  const ports = apiProxyPorts();
+  return [
+    { service: 'api-proxy', containerPort: ports.openai, capability: 'api-proxy-openai' },
+    { service: 'api-proxy', containerPort: ports.anthropic, capability: 'api-proxy-anthropic' },
+    { service: 'api-proxy', containerPort: ports.copilot, capability: 'api-proxy-copilot' },
+    { service: 'api-proxy', containerPort: ports.gemini, capability: 'api-proxy-gemini' },
+    // `ports.vertex` (10004) is deliberately absent: there is no Vertex entry in
+    // APPLE_CONTAINER_TRANSPORT_CAPABILITIES, so it could not be relayed even if
+    // it were published. runtime-validation rejects a Vertex configuration up
+    // front rather than letting it reach here and silently lose its endpoint.
+  ];
+}
+
+/**
+ * Derives the infrastructure publication and capability sets from the config.
+ *
+ * Squid is unconditional: it is the guest's only egress path, and layer 2
+ * refuses a plan without it.
+ */
+export function planAppleContainerInfrastructure(
+  config: WrapperConfig,
+): AppleContainerInfrastructurePlan {
+  const planned: Omit<AppleContainerPortPublication, 'hostPort'>[] = [
+    { service: 'squid-proxy', containerPort: SQUID_PORT, capability: 'squid' },
+  ];
+
+  if (config.enableApiProxy) {
+    planned.push(...apiProxyPublications());
+  }
+  if (config.difcProxyHost) {
+    planned.push({
+      service: 'cli-proxy',
+      containerPort: CLI_PROXY_PORT,
+      capability: 'cli-proxy',
+    });
+  }
+
+  const publications = planned.map((entry) => Object.freeze({ ...entry, hostPort: entry.containerPort }));
+  const services = [...new Set(publications.map((entry) => entry.service))];
+
+  return Object.freeze({
+    publications: Object.freeze(publications),
+    capabilities: Object.freeze(publications.map((entry) => Object.freeze({
+      id: entry.capability,
+      upstream: Object.freeze({ host: APPLE_CONTAINER_LOOPBACK_HOST, port: entry.hostPort }),
+    }))),
+    services: Object.freeze(services),
+  });
+}
+
+/** Compose `ports:` entry that binds the publication to loopback only. */
+export function appleContainerPortMapping(publication: AppleContainerPortPublication): string {
+  return `${APPLE_CONTAINER_LOOPBACK_HOST}:${publication.hostPort}:${publication.containerPort}`;
+}
+
+interface ComposeServiceLike {
+  ports?: unknown;
+  [key: string]: unknown;
+}
+
+/**
+ * Replaces each backing service's `ports` with the loopback-only publication
+ * set for this run.
+ *
+ * Replacement rather than merging is the point: `buildSquidService` publishes
+ * `3128:3128` on all interfaces for the Docker topology, and leaving that entry
+ * in place would keep an open forward proxy listening on every host interface
+ * while the loopback entry sat harmlessly beside it.
+ *
+ * @throws when a service the plan needs is missing from the Compose output,
+ * which would otherwise surface as an unreachable capability inside the VM.
+ */
+export function applyAppleContainerLoopbackPublishing(
+  services: Record<string, unknown>,
+  plan: AppleContainerInfrastructurePlan,
+): void {
+  for (const service of plan.services) {
+    const target = services[service] as ComposeServiceLike | undefined;
+    if (!target || typeof target !== 'object') {
+      throw new Error(
+        `Apple Container infrastructure requires the "${service}" Compose service, which was ` +
+        'not generated for this configuration',
+      );
+    }
+    target.ports = plan.publications
+      .filter((publication) => publication.service === service)
+      .map(appleContainerPortMapping);
+  }
+}
+
+/** Probes one loopback TCP port for an existing listener. */
+async function isPortInUse(port: number, timeoutMs: number): Promise<boolean> {
+  return new Promise<boolean>((resolve) => {
+    const socket = net.connect({ host: APPLE_CONTAINER_LOOPBACK_HOST, port });
+    let settled = false;
+    const finish = (inUse: boolean): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      socket.destroy();
+      resolve(inUse);
+    };
+    const timer = setTimeout(() => finish(false), timeoutMs);
+    timer.unref?.();
+    // A completed connect means something is already listening. Any error —
+    // ECONNREFUSED being the expected one — means the port is free for Docker
+    // to bind. Treating a timeout as "free" is the safe direction here: Docker
+    // itself fails loudly if the bind is actually taken.
+    socket.once('connect', () => finish(true));
+    socket.once('error', () => finish(false));
+  });
+}
+
+export interface AppleContainerPortProbeDependencies {
+  isPortInUse(port: number, timeoutMs: number): Promise<boolean>;
+}
+
+/**
+ * Returns the planned host ports that already have a listener.
+ *
+ * Called before Compose starts so a collision (a second concurrent AWF run, a
+ * stray local Squid) is reported as a named conflict rather than as a Docker
+ * bind error buried in Compose output.
+ */
+export async function appleContainerLoopbackPortConflicts(
+  plan: AppleContainerInfrastructurePlan,
+  dependencies: AppleContainerPortProbeDependencies = { isPortInUse },
+  timeoutMs = 500,
+): Promise<readonly AppleContainerPortPublication[]> {
+  const conflicts: AppleContainerPortPublication[] = [];
+  for (const publication of plan.publications) {
+    if (await dependencies.isPortInUse(publication.hostPort, timeoutMs)) {
+      conflicts.push(publication);
+    }
+  }
+  return conflicts;
+}

@@ -1,0 +1,357 @@
+name: Apple Container Live Smoke (self-hosted)
+
+# Live end-to-end validation of the Apple Container preview runtime.
+#
+# This is the ONLY place the runtime can actually be exercised. Apple Container
+# requires Virtualization.framework, and every GitHub-hosted macOS runner is
+# itself virtualized and reports `kern.hv_support=0` — AWF's preflight fails
+# closed there rather than falling back, by design. So this workflow is gated on
+# a self-hosted, bare-metal Apple Silicon runner and never runs by default.
+#
+# Because it is the repository's only self-hosted job and this repository is
+# public, it is `workflow_dispatch`-only and takes an explicit `ref`. There is
+# deliberately NO `pull_request` trigger, not even a label-gated one: a label
+# gate does not stop an attacker pushing new commits between the label and the
+# checkout (`refs/pull/N/merge` is resolved when the job starts, not when the
+# label was applied), and `npm ci` would then execute lifecycle scripts from an
+# unreviewed `package-lock.json` on a persistent bare-metal host — from which
+# the runner registration token and every later run's secrets are reachable.
+# Running this against a fork PR therefore requires a maintainer to first
+# review the code and then dispatch it by SHA.
+#
+# Three gates, all required:
+#   1. `workflow_dispatch` with a maintainer-supplied `ref` (use a full commit
+#      SHA for anything not already on a protected branch).
+#   2. The `apple-container-live-smoke` environment, so the run additionally
+#      needs whatever reviewers/wait timer that environment is configured with.
+#   3. A runner carrying the `self-hosted`, `macOS`, `ARM64`, and
+#      `apple-container` labels. The last is what distinguishes bare metal from
+#      a hosted macOS VM; it must only be applied to a host where
+#      `kern.hv_support=1`.
+#
+# What it proves, in order: the host is eligible; egress is confined to the
+# allowlist; every bypass path a NIC-less guest might attempt is unreachable;
+# credentials stay on the host side of the VM boundary; writes land only where
+# intended; host secrets are absent; and teardown leaves no VM and no live
+# capability socket behind.
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: >-
+          Commit SHA (preferred) or ref to check out and run. Code at this ref
+          executes on a persistent bare-metal host, so review it first.
+        required: true
+        type: string
+      image_tag:
+        description: >-
+          Digest-carrying --image-tag for the agent and apple-init images
+          (e.g. "0.30.0,agent=sha256:...,apple-init=sha256:..."). Required
+          because the runtime refuses a floating image reference.
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  # Not cancel-in-progress: a cancelled run must still reach its cleanup
+  # assertions, and two concurrent runs would collide on the fixed loopback
+  # ports and the shared `awf-net` Docker network.
+  group: apple-container-live-smoke
+  cancel-in-progress: false
+
+env:
+  ALLOWED_DOMAIN: api.github.com
+  BLOCKED_DOMAIN: example.com
+  # RFC 5737 documentation address: routable-looking, guaranteed not ours.
+  DIRECT_PUBLIC_IP: 203.0.113.10
+  METADATA_IP: 169.254.169.254
+
+jobs:
+  live-smoke:
+    name: Live smoke (bare-metal Apple Silicon)
+    runs-on: [self-hosted, macOS, ARM64, apple-container]
+    # Configure this environment with required reviewers so a dispatch cannot
+    # start executing on the bare-metal host without a second pair of eyes.
+    environment: apple-container-live-smoke
+    timeout-minutes: 60
+    steps:
+      # Checks out exactly the dispatched ref. `persist-credentials: false`
+      # keeps the job's token out of the checkout's git config, so code that
+      # runs later in the job cannot reuse it.
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+
+      # ── Host contract ──────────────────────────────────────────────────────
+      - name: Assert the runner is eligible bare metal
+        run: |
+          set -euo pipefail
+          test "$(uname -s)" = "Darwin"
+          test "$(uname -m)" = "arm64"
+          product=$(sw_vers -productVersion)
+          echo "macOS $product"
+          major=${product%%.*}
+          if [ "$major" -lt 26 ]; then
+            echo "::error::Apple Container requires macOS 26 or newer; found $product"
+            exit 1
+          fi
+          hv=$(sysctl -n kern.hv_support)
+          if [ "$hv" != "1" ]; then
+            echo "::error::kern.hv_support=$hv — this is not bare metal. The"
+            echo "::error::'apple-container' runner label must never be applied to a hosted macOS VM."
+            exit 1
+          fi
+
+      - name: Assert the container CLI is installed and healthy
+        run: |
+          set -euo pipefail
+          container --version
+          container system status --format json
+
+      - name: Set up Node.js
+        uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies and build
+        run: |
+          npm ci
+          npm run build
+
+      - name: Prepare the smoke workspace
+        id: workspace
+        run: |
+          set -euo pipefail
+          root="${RUNNER_TEMP}/apple-smoke"
+          rm -rf "$root"
+          mkdir -p "$root/workspace" "$root/gh-aw"
+          echo "root=$root" >> "$GITHUB_OUTPUT"
+
+      # ── Egress: the allowlist is the whole surface ─────────────────────────
+      - name: Allowed HTTPS succeeds through the Squid capability
+        env:
+          IMAGE_TAG: ${{ inputs.image_tag }}
+        run: |
+          set -euo pipefail
+          ./dist/cli.js \
+            --container-runtime apple-container --apple-container-preview \
+            --image-tag "$IMAGE_TAG" \
+            --allow-domains "$ALLOWED_DOMAIN" \
+            --work-dir "${{ steps.workspace.outputs.root }}/run-allowed" \
+            -- "curl -fsS --max-time 30 -o /dev/null -w '%{http_code}\n' https://$ALLOWED_DOMAIN/zen"
+
+      - name: Every bypass path a NIC-less guest could try is unreachable
+        env:
+          IMAGE_TAG: ${{ inputs.image_tag }}
+        run: |
+          set -euo pipefail
+
+          # Each probe must FAIL. `--network none` means the guest has zero
+          # NICs, so these are unreachable by construction rather than by rule —
+          # which is exactly the property being verified.
+          probes=(
+            "disallowed-domain:curl -fsS --max-time 15 https://$BLOCKED_DOMAIN/"
+            "direct-public-ip:curl -fsS --max-time 15 http://$DIRECT_PUBLIC_IP/"
+            "cloud-metadata:curl -fsS --max-time 15 http://$METADATA_IP/latest/meta-data/"
+            "plain-dns:getent hosts $BLOCKED_DOMAIN"
+            "doh:curl -fsS --max-time 15 -H 'accept: application/dns-json' 'https://1.1.1.1/dns-query?name=example.com'"
+            "ipv6:curl -fsS --max-time 15 -6 'http://[2606:4700:4700::1111]/'"
+            "raw-socket:ping -c 1 -W 5 $DIRECT_PUBLIC_IP"
+            "unproxied-tcp:bash -c 'exec 3<>/dev/tcp/$DIRECT_PUBLIC_IP/443'"
+          )
+
+          for probe in "${probes[@]}"; do
+            name=${probe%%:*}
+            command=${probe#*:}
+            echo "::group::probe $name"
+            set +e
+            ./dist/cli.js \
+              --container-runtime apple-container --apple-container-preview \
+              --image-tag "$IMAGE_TAG" \
+              --allow-domains "$ALLOWED_DOMAIN" \
+              --work-dir "${{ steps.workspace.outputs.root }}/run-$name" \
+              -- "$command"
+            status=$?
+            set -e
+            echo "::endgroup::"
+            if [ "$status" -eq 0 ]; then
+              echo "::error::Bypass probe '$name' SUCCEEDED; the guest reached something it must not."
+              exit 1
+            fi
+            echo "probe $name correctly failed with exit $status"
+          done
+
+      # ── Credentials stay on the host side of the boundary ─────────────────
+      - name: The API proxy works and the guest holds no credential
+        env:
+          IMAGE_TAG: ${{ inputs.image_tag }}
+          ANTHROPIC_API_KEY: ${{ secrets.SMOKE_ANTHROPIC_API_KEY }}
+          # A non-secret prefix of the same key, so the guest can search its own
+          # surface for credential material without the full secret ever being
+          # an argument or an environment value inside the VM. Configure it as a
+          # repository variable alongside the secret.
+          AWF_SMOKE_SECRET_PREFIX: ${{ vars.SMOKE_ANTHROPIC_KEY_PREFIX }}
+        run: |
+          set -euo pipefail
+          # The guest must see an unauthenticated loopback endpoint and never the
+          # real key: the sidecar injects it on the host side. The probe dumps
+          # its own environment, argv, and every readable file under $HOME and
+          # the workspace, then greps for the secret.
+          ./dist/cli.js \
+            --container-runtime apple-container --apple-container-preview \
+            --enable-api-proxy \
+            --image-tag "$IMAGE_TAG" \
+            --allow-domains "$ALLOWED_DOMAIN,api.anthropic.com" \
+            --work-dir "${{ steps.workspace.outputs.root }}/run-credentials" \
+            --env "AWF_SMOKE_SECRET_PREFIX=$AWF_SMOKE_SECRET_PREFIX" \
+            -- 'set -e
+                test -n "$ANTHROPIC_BASE_URL"
+                case "$ANTHROPIC_BASE_URL" in http://127.0.0.1:*) ;; *) echo "unexpected base url: $ANTHROPIC_BASE_URL"; exit 1;; esac
+                curl -fsS --max-time 20 -o /dev/null -w "api-proxy %{http_code}\n" "$ANTHROPIC_BASE_URL/v1/models"
+                { env; cat /proc/self/cmdline | tr "\0" " "; echo; } > /tmp/guest-surface.txt
+                grep -RIl "$AWF_SMOKE_SECRET_PREFIX" /tmp/guest-surface.txt "$HOME" 2>/dev/null && { echo "credential visible in guest"; exit 1; }
+                echo "no credential material visible in the guest"'
+
+      # ── Filesystem: writes land only where intended ───────────────────────
+      - name: Workspace and safe-output writes succeed; everything else does not
+        env:
+          IMAGE_TAG: ${{ inputs.image_tag }}
+        run: |
+          set -euo pipefail
+          workspace="${{ steps.workspace.outputs.root }}/workspace"
+          GITHUB_WORKSPACE="$workspace" ./dist/cli.js \
+            --container-runtime apple-container --apple-container-preview \
+            --image-tag "$IMAGE_TAG" \
+            --allow-domains "$ALLOWED_DOMAIN" \
+            --work-dir "${{ steps.workspace.outputs.root }}/run-fs" \
+            -- 'set -e
+                echo written > "$PWD/awf-smoke-output.txt"
+                echo written > "$HOME/awf-smoke-home.txt"
+                echo written > /tmp/awf-smoke-tmp.txt
+                # The guest root filesystem is mounted read-only.
+                if echo bad > /usr/local/bin/awf-smoke-rootfs 2>/dev/null; then
+                  echo "rootfs is writable"; exit 1
+                fi
+                if echo bad > /etc/awf-smoke-etc 2>/dev/null; then
+                  echo "/etc is writable"; exit 1
+                fi
+                echo "filesystem policy holds"'
+          test -f "$workspace/awf-smoke-output.txt"
+
+      - name: Host secrets are absent from the guest by construction
+        env:
+          IMAGE_TAG: ${{ inputs.image_tag }}
+        run: |
+          set -euo pipefail
+          # Nothing is "hidden" here — these paths were simply never mounted, so
+          # the guest cannot see them regardless of what it does.
+          ./dist/cli.js \
+            --container-runtime apple-container --apple-container-preview \
+            --image-tag "$IMAGE_TAG" \
+            --allow-domains "$ALLOWED_DOMAIN" \
+            --work-dir "${{ steps.workspace.outputs.root }}/run-secrets" \
+            -- 'set -e
+                for path in /Users "$HOME/.ssh" "$HOME/.aws" "$HOME/.docker/config.json" \
+                            /var/run/docker.sock /Library/Keychains; do
+                  if [ -e "$path" ]; then echo "unexpectedly visible: $path"; exit 1; fi
+                done
+                echo "no host credential path is visible"'
+
+      # ── Teardown ──────────────────────────────────────────────────────────
+      - name: A timed-out run is killed and leaves nothing behind
+        env:
+          IMAGE_TAG: ${{ inputs.image_tag }}
+        run: |
+          set -euo pipefail
+          before=$(container list --all --format json)
+          set +e
+          ./dist/cli.js \
+            --container-runtime apple-container --apple-container-preview \
+            --image-tag "$IMAGE_TAG" \
+            --allow-domains "$ALLOWED_DOMAIN" \
+            --agent-timeout 1 \
+            --work-dir "${{ steps.workspace.outputs.root }}/run-timeout" \
+            -- 'sleep 600'
+          status=$?
+          set -e
+          if [ "$status" -ne 124 ]; then
+            echo "::error::Expected the coreutils timeout exit code 124, got $status"
+            exit 1
+          fi
+          # No VM and no capability socket may survive the timeout. The
+          # capability sockets live under /tmp (see
+          # APPLE_CONTAINER_TRANSPORT_BASE_DIRECTORY), not under the work
+          # directory, because macOS caps sun_path at 104 bytes.
+          container list --all --format json | grep -q 'awf-agent-' && {
+            echo "::error::An agent VM survived the timeout"; exit 1; }
+          if find /tmp -maxdepth 2 -name '*.sock' -path '*/awf-apple-*' 2>/dev/null | grep -q .; then
+            echo "::error::A capability socket survived the timeout"
+            find /tmp -maxdepth 2 -name '*.sock' -path '*/awf-apple-*'
+            exit 1
+          fi
+          echo "timeout teardown is clean (was: $(echo "$before" | wc -c) bytes of prior state)"
+
+      - name: A cancelled run is killed and leaves nothing behind
+        env:
+          IMAGE_TAG: ${{ inputs.image_tag }}
+        run: |
+          set -euo pipefail
+          ./dist/cli.js \
+            --container-runtime apple-container --apple-container-preview \
+            --image-tag "$IMAGE_TAG" \
+            --allow-domains "$ALLOWED_DOMAIN" \
+            --work-dir "${{ steps.workspace.outputs.root }}/run-cancel" \
+            -- 'sleep 600' &
+          cli_pid=$!
+          # Give the run long enough to boot the VM and bind every relay, so the
+          # cancellation exercises real teardown rather than an early abort.
+          sleep 90
+          kill -INT "$cli_pid"
+          wait "$cli_pid" || true
+          container list --all --format json | grep -q 'awf-agent-' && {
+            echo "::error::An agent VM survived cancellation"; exit 1; }
+          if find /tmp -maxdepth 2 -name '*.sock' -path '*/awf-apple-*' 2>/dev/null | grep -q .; then
+            echo "::error::A capability socket survived cancellation"
+            find /tmp -maxdepth 2 -name '*.sock' -path '*/awf-apple-*'
+            exit 1
+          fi
+          echo "cancellation teardown is clean"
+
+      - name: Collect diagnostics
+        if: always()
+        run: |
+          set +e
+          container list --all --format json
+          container system logs --last 30m | tail -n 400
+          docker ps -a
+          find "${{ steps.workspace.outputs.root }}" -name 'transport-*.json' -exec cat {} +
+          find /tmp -maxdepth 2 -path '*/awf-apple-*' -name 'transport-summary.json' -exec cat {} +
+
+      - name: Reclaim the runner
+        if: always()
+        run: |
+          set +e
+          # A self-hosted runner is reused, so leftovers are not merely untidy:
+          # a surviving VM or published port would collide with the next run.
+          for id in $(container list --all --format json | grep -o '"id"[^,]*' | grep -o 'awf-agent-[^"]*'); do
+            container kill "$id"
+            container delete --force "$id"
+          done
+          docker compose -f "${{ steps.workspace.outputs.root }}"/*/docker-compose.yml down -v 2>/dev/null
+          rm -rf "${{ steps.workspace.outputs.root }}"
+          rm -rf /tmp/awf-apple-*
+
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: apple-container-live-smoke-diagnostics
+          path: ${{ steps.workspace.outputs.root }}/**/diagnostics/**
+          if-no-files-found: ignore
+          retention-days: 7

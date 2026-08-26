@@ -24,6 +24,11 @@ import {
   ENCLAVE_MCP_CONTROL_NETWORK,
 } from './enclave/network';
 import { buildInternalServiceHosts } from './services/internal-service-hosts';
+import {
+  applyAppleContainerLoopbackPublishing,
+  planAppleContainerInfrastructure,
+} from './apple-container/infrastructure-endpoints';
+import { APPLE_CONTAINER_RUNTIME } from './apple-container/runtime-validation';
 
 /**
  * Generates Docker Compose configuration
@@ -168,7 +173,12 @@ export function generateDockerCompose(
   // In network-isolation mode the internal network blocks host→container traffic,
   // so we also attach api-proxy to the external bridge (`awf-ext`) — same as
   // Squid — so published ports are reachable from outside Docker.
-  if (!includeAgent && services['api-proxy']) {
+  //
+  // Apple Container is handled separately below: its guest has no NIC at all, so
+  // it needs *loopback-scoped* publication for a specific capability set rather
+  // than this broad host-wide publication.
+  const isAppleContainer = config.containerRuntime === APPLE_CONTAINER_RUNTIME;
+  if (!includeAgent && !isAppleContainer && services['api-proxy']) {
     const proxyService = services['api-proxy'];
     if (!proxyService.ports) {
       proxyService.ports = [];
@@ -182,6 +192,29 @@ export function generateDockerCompose(
         ...(proxyService.networks || {}),
         [EXTERNAL_BRIDGE_NAME]: {},
       };
+    }
+  }
+
+  // ── Publish infra ports to macOS loopback for Apple Container ──────────────
+  // The Apple Container guest has zero NICs, and on macOS the sidecars run
+  // inside the Docker Desktop VM, so a capability relay on the macOS host is the
+  // only way in. Publication is loopback-scoped and limited to the exact ports
+  // backing an allowlisted capability, and it *replaces* any broader mapping a
+  // service builder emitted (Squid's default `3128:3128` binds 0.0.0.0).
+  if (isAppleContainer) {
+    const infrastructurePlan = planAppleContainerInfrastructure(config);
+    applyAppleContainerLoopbackPublishing(services, infrastructurePlan);
+    if (config.networkIsolation) {
+      // Same reason as the microVM branch above: the internal topology network
+      // blocks host→container traffic, so every publishing service must also sit
+      // on the external bridge for its loopback publication to be reachable.
+      for (const service of infrastructurePlan.services) {
+        const target = services[service];
+        target.networks = {
+          ...(target.networks || {}),
+          [EXTERNAL_BRIDGE_NAME]: {},
+        };
+      }
     }
   }
 

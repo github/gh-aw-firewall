@@ -1,14 +1,19 @@
-name: Apple Container Transport
+name: Apple Container
 
-# Layer 2 of the Apple Container backend stack: the host-side capability relay
-# and the guest init shim. Neither is wired into a user-visible runtime yet, so
-# there is nothing to exercise end to end here — and there is no GitHub-hosted
-# macOS runner that could, because Apple Container needs
-# Virtualization.framework and hosted macOS reports `kern.hv_support=0`.
+# Hosted CI coverage for the Apple Container backend.
 #
-# What this workflow can prove without a live VM is exactly what the design
-# depends on: the guest binary compiles for Linux arm64, its relay and init
-# logic behave, and the compiled-in host/guest contract halves agree.
+# Nothing here launches a VM, and nothing here can: Apple Container needs
+# Virtualization.framework, and GitHub-hosted macOS runners are themselves
+# virtualized and report `kern.hv_support=0`. Live end-to-end validation runs on
+# a self-hosted bare-metal Apple Silicon runner via
+# `.github/workflows/smoke-apple-container.yml`.
+#
+# What this workflow proves without a live VM is the part the design depends on:
+# the guest binary compiles for Linux arm64 and its relay logic behaves, the
+# compiled-in host/guest contract halves agree, the init image build encodes the
+# same contract, and the host-side runtime selection, compatibility matrix,
+# infrastructure publication, mounts, environment, and lifecycle ordering are
+# all what they claim to be.
 
 on:
   workflow_dispatch:
@@ -18,12 +23,15 @@ on:
       - '.github/workflows/test-apple-container.yml'
       - 'guest/apple-container-init/**'
       - 'src/apple-container/**'
+      - 'src/apple-container-runtime-backend.ts'
+      - 'containers/apple-init/**'
+      - 'scripts/build-apple-init-image.sh'
 
 permissions:
   contents: read
 
 concurrency:
-  group: apple-container-transport-${{ github.ref }}
+  group: apple-container-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -76,8 +84,8 @@ jobs:
             grep -q 'ELF 64-bit LSB executable, ARM aarch64'
           file awf-apple-guest-init | grep -q 'statically linked'
 
-  host-transport:
-    name: Host transport unit tests
+  host-runtime:
+    name: Host runtime unit tests
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -100,7 +108,72 @@ jobs:
         run: npx eslint src/apple-container
 
       # transport-contract-sync.test.ts parses guest/apple-container-init/
-      # contract.go, so a divergence between the host and guest halves of the
-      # contract fails here instead of inside a VM nobody can reproduce.
+      # contract.go, and init-image-contract.test.ts parses
+      # containers/apple-init/Dockerfile, so a divergence between the host half,
+      # the guest half, and the shipped init image fails here instead of inside a
+      # VM nobody can reproduce.
       - name: Run Apple Container unit tests
-        run: npx jest src/apple-container --testTimeout=15000
+        run: |
+          npx jest \
+            src/apple-container \
+            src/apple-container-runtime-backend.test.ts \
+            src/apple-container-runtime-selection.test.ts \
+            --testTimeout=15000
+
+      - name: Verify the generated JSON Schema is in sync
+        run: |
+          npm run generate:schema
+          git diff --exit-code docs/awf-config.schema.json src/awf-config-schema.json
+
+  init-image:
+    name: Init image build (Linux arm64)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    # Requires a digest-pinned reference to Apple's own vminit image. There is
+    # deliberately no default, so forks and PRs from forks skip this job rather
+    # than building against a floating base.
+    if: vars.APPLE_VMINIT_IMAGE != ''
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@49b3bc8e6bdd4a60e6116a5414239cba5943d3cf # v3.2.0
+        with:
+          platforms: arm64
+
+      - name: Build the AWF Apple init image
+        env:
+          AWF_VMINIT_IMAGE: ${{ vars.APPLE_VMINIT_IMAGE }}
+        run: ./scripts/build-apple-init-image.sh awf-apple-init:ci
+
+      # The image has no shell, so the only way to prove the relocation happened
+      # is to export and inspect it.
+      - name: Verify Apple's init was relocated and the shim installed
+        run: |
+          set -euo pipefail
+          id=$(docker create --platform linux/arm64 awf-apple-init:ci)
+          trap 'docker rm -f "$id" >/dev/null 2>&1 || true' EXIT
+          docker export "$id" > init.tar
+          tar -tf init.tar | grep -qx 'sbin/vminitd'
+          tar -tf init.tar | grep -qx 'sbin/vminitd.apple'
+          mkdir -p extracted
+          tar -xf init.tar -C extracted sbin/vminitd
+          file extracted/sbin/vminitd | tee /dev/stderr | \
+            grep -q 'ELF 64-bit LSB executable, ARM aarch64'
+          file extracted/sbin/vminitd | grep -q 'statically linked'
+
+      - name: Verify the recorded contract labels match the host half
+        run: |
+          set -euo pipefail
+          src=src/apple-container/transport-capabilities.ts
+          min=$(sed -n "s/^export const APPLE_CONTAINER_TRANSPORT_MIN_CLI_VERSION = '\\([^']*\\)';$/\\1/p" "$src")
+          max=$(sed -n "s/^export const APPLE_CONTAINER_TRANSPORT_MAX_CLI_VERSION_EXCLUSIVE = '\\([^']*\\)';$/\\1/p" "$src")
+          labels=$(docker image inspect awf-apple-init:ci --format '{{json .Config.Labels}}')
+          echo "$labels"
+          echo "$labels" | grep -q "\"io.github.gh-aw-firewall.apple-init.cli-min-version\":\"$min\""
+          echo "$labels" | grep -q "\"io.github.gh-aw-firewall.apple-init.cli-max-version-exclusive\":\"$max\""
+

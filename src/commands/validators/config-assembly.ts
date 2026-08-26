@@ -14,6 +14,12 @@ import {
   assertCloudHypervisorRuntimeCompatibility,
   assertCloudHypervisorSelection,
 } from '../../cloud-hypervisor/runtime-validation';
+import {
+  APPLE_CONTAINER_RUNTIME,
+  assertAppleContainerPreSecurityCompatibility,
+  assertAppleContainerRuntimeCompatibility,
+  assertAppleContainerSelection,
+} from '../../apple-container/runtime-validation';
 import { assertFilesystemWritePolicyCompatibility } from '../../filesystem-policy';
 
 // ---------------------------------------------------------------------------
@@ -78,6 +84,7 @@ export function assembleAndValidateConfig(
   validateInfrastructureOptions(config);
   try {
     assertCloudHypervisorSelection(config);
+    assertAppleContainerSelection(config);
   } catch (error) {
     logger.error(`❌ ${error instanceof Error ? error.message : String(error)}`);
     process.exit(1);
@@ -85,6 +92,17 @@ export function assembleAndValidateConfig(
   if (config.containerRuntime === 'cloud-hypervisor') {
     try {
       assertCloudHypervisorPreSecurityCompatibility(config);
+    } catch (error) {
+      logger.error(`❌ ${error instanceof Error ? error.message : String(error)}`);
+      process.exit(1);
+    }
+  }
+  // Runs before applySecurityMode for the same reason as the Cloud Hypervisor
+  // guard above: once security mode has resolved, "the operator passed
+  // --legacy-security" is no longer distinguishable from an AWF default.
+  if (config.containerRuntime === APPLE_CONTAINER_RUNTIME) {
+    try {
+      assertAppleContainerPreSecurityCompatibility(config);
     } catch (error) {
       logger.error(`❌ ${error instanceof Error ? error.message : String(error)}`);
       process.exit(1);
@@ -100,6 +118,14 @@ export function assembleAndValidateConfig(
   if (config.containerRuntime === 'cloud-hypervisor') {
     try {
       assertCloudHypervisorRuntimeCompatibility(config);
+    } catch (error) {
+      logger.error(`❌ ${error instanceof Error ? error.message : String(error)}`);
+      process.exit(1);
+    }
+  }
+  if (config.containerRuntime === APPLE_CONTAINER_RUNTIME) {
+    try {
+      assertAppleContainerRuntimeCompatibility(config);
     } catch (error) {
       logger.error(`❌ ${error instanceof Error ? error.message : String(error)}`);
       process.exit(1);

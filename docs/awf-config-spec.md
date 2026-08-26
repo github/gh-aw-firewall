@@ -77,6 +77,7 @@ following top-level properties. All are OPTIONAL:
 | `security` | object | Security and isolation settings |
 | `container` | object | Container and Docker settings |
 | `cloudHypervisor` | object | Cloud Hypervisor v53.0 microVM preview settings (see §4.2) |
+| `appleContainer` | object | Apple Container microVM preview settings (see §4.3) |
 | `chroot` | object | Chroot execution overrides for split-filesystem ARC/DinD runners |
 | `dind` | object | Bootstrap helpers for ARC/DinD split runner/daemon filesystems |
 | `runner` | object | Runner topology declaration (standard vs. ARC/DinD) |
@@ -112,8 +113,8 @@ a writable home MUST have the backing host directory
 `$GITHUB_WORKSPACE/.awf-home` created before AWF starts and MUST then list the
 guest path `/workspace/.awf-home` in `allowWrite`; otherwise planning fails
 because the path does not exist within a writable export. AWF rejects
-`filesystem.allowWrite` with the sbx runtime and with Docker-in-Docker agent
-execution.
+`filesystem.allowWrite` with the sbx runtime, with the Apple Container runtime,
+and with Docker-in-Docker agent execution.
 
 ### 4.2 Cloud Hypervisor microVM preview
 
@@ -147,6 +148,53 @@ request label. They are published as explicitly named release/workflow
 assets, but are not production defaults and are never auto-downloaded. See
 [docs/cloud-hypervisor-foundation.md](./cloud-hypervisor-foundation.md#part-14--ci-workflow)
 for the complete CI workflow specification and troubleshooting reference.
+
+### 4.3 Apple Container microVM preview
+
+The `appleContainer` surface configures the Apple Virtualization.framework
+workload runtime and requires explicit `--apple-container-preview` opt-in plus
+`container.containerRuntime: "apple-container"` to execute a workload. The
+supported host target is a self-hosted **bare-metal Apple Silicon** runner on
+macOS 26 or newer with `kern.hv_support=1`, and an Apple `container` CLI in the
+range `>=0.4.0 <1.0.0`. GitHub-hosted macOS runners are themselves virtualized
+and report `kern.hv_support=0`; they are rejected by
+[`src/apple-container/host-facts.ts`](../src/apple-container/host-facts.ts)
+with no fallback to another runtime.
+
+The agent VM is launched with `--network none`, so it has zero network
+interfaces. Direct IP egress, DNS, DNS-over-HTTPS, IPv6, raw sockets, the cloud
+metadata address, and every host network path are unreachable by construction.
+Infrastructure (Squid, the API proxy sidecar, the CLI proxy) continues to run
+under Docker Compose; AWF publishes exactly the required ports to macOS loopback
+and bridges them into the guest through the closed capability allowlist in
+[`src/apple-container/transport-capabilities.ts`](../src/apple-container/transport-capabilities.ts).
+
+Both the agent image and the AWF `apple-init` image MUST be digest-pinned:
+Apple Container maintains an image store independent of Docker's, so a Docker
+pre-pull does not populate it and `--skip-pull` is honoured by verification
+rather than by assumption.
+
+Configurations that cannot be enforced under this topology are rejected during
+option validation rather than ignored: Docker-in-Docker and ARC split
+filesystems, `--legacy-security`, host access and host ports, enclaves,
+`--topology-attach`, DNS-over-HTTPS, `filesystem.allowWrite`, additional volume
+mounts, `--tty`, `--ssl-bump`, the chroot sysroot, non-default agent images,
+`--build-local`, and Google Vertex AI (whose provider port is deliberately
+outside the capability allowlist). See
+[docs/apple-container-runtime.md](./apple-container-runtime.md) for the full
+supported/unsupported matrix, and
+[docs/apple-container-transport.md](./apple-container-transport.md) for the
+transport's own threat model.
+
+Live end-to-end validation runs only on a self-hosted bare-metal Apple Silicon
+runner via
+[`smoke-apple-container.yml`](../.github/workflows/smoke-apple-container.yml),
+which is `workflow_dispatch`-only against a maintainer-reviewed SHA and runs in
+a protected environment — it has no pull request trigger, because a public
+repository must not execute unreviewed code on a persistent self-hosted host.
+Hosted CI
+(`test-apple-container.yml`) covers the host-side units, the guest binary, and
+the compiled-in host/guest contract, but cannot boot a VM.
 
 ## 5. CLI Mapping
 
@@ -240,7 +288,7 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 - `container.enableDind` → `--enable-dind`
 - `container.workDir` → `--work-dir`
 - `container.containerWorkDir` → `--container-workdir`
-- `container.images` → *(config-only; a closed compiler-authorized manifest of literal, registry-qualified `tag@sha256:<digest>` OCI references. Supported keys are `squid`, `agent`, `apiProxy`, `cliProxy`, `buildTools`, `dohProxy`, `enclaveScript`, `enclaveAgent`, `enclaveMcpServer`, and `dindStaging`. Every image AWF runs — including consumers outside Docker Compose such as DinD staging, `awf predownload --config`, and rootless artifact repair — resolves through this manifest, and the effective per-role references are recorded in `image-manifest.json`. AWF rejects missing enabled roles and never falls back to the official registry. It cannot be combined with controls that would select a different image: `container.imageRegistry`, `container.imageTag`, `container.agentImage`, `container.buildLocal`, `security.sslBump` (requires a locally built Squid image), `runner.sysrootImage`, `dind.stagingImage`, or per-enclave image overrides. Registry credentials are intentionally not configured by AWF; use a pre-authenticated Docker daemon.)*
+- `container.images` → *(config-only; a closed compiler-authorized manifest of literal, registry-qualified `tag@sha256:<digest>` OCI references. Supported keys are `squid`, `agent`, `apiProxy`, `cliProxy`, `buildTools`, `dohProxy`, `enclaveScript`, `enclaveAgent`, `enclaveMcpServer`, `dindStaging`, and `appleInit` (the Apple Container guest init image; see §4.3). Every image AWF runs — including consumers outside Docker Compose such as DinD staging, `awf predownload --config`, and rootless artifact repair — resolves through this manifest, and the effective per-role references are recorded in `image-manifest.json`. AWF rejects missing enabled roles and never falls back to the official registry. It cannot be combined with controls that would select a different image: `container.imageRegistry`, `container.imageTag`, `container.agentImage`, `container.buildLocal`, `security.sslBump` (requires a locally built Squid image), `runner.sysrootImage`, `dind.stagingImage`, or per-enclave image overrides. Registry credentials are intentionally not configured by AWF; use a pre-authenticated Docker daemon.)*
 - `container.imageRegistry` → `--image-registry`
 - `container.imageTag` → `--image-tag`
 - `container.skipPull` → `--skip-pull`
@@ -266,6 +314,11 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 - `cloudHypervisor.sha256.kernel` → `--cloud-hypervisor-kernel-sha256`
 - `cloudHypervisor.sha256.rootfs` → `--cloud-hypervisor-rootfs-sha256`
 - `cloudHypervisor.sha256.supervisor` → `--cloud-hypervisor-supervisor-sha256`
+- `appleContainer.previewEnabled` → `--apple-container-preview` *(requires `container.containerRuntime: "apple-container"` and a self-hosted bare-metal Apple Silicon macOS 26+ runner to execute a workload)*
+- `appleContainer.cpus` → `--apple-container-cpus`
+- `appleContainer.memory` → `--apple-container-memory`
+- `appleContainer.initImage` → `--apple-container-init-image`
+- `appleContainer.cliPath` → `--apple-container-cli`
 - `chroot.binariesSourcePath` → *(config-only; mounts a runner-side binaries directory at `/tmp/awf-runner-bin` inside chroot mode and prepends it to `PATH`)*
 - `chroot.identity.home` → *(config-only; forwarded as `AWF_CHROOT_IDENTITY_HOME` and applied after chroot pivot)*
 - `chroot.identity.user` → *(config-only; forwarded as `AWF_CHROOT_IDENTITY_USER` and applied to `USER`/`LOGNAME` after chroot pivot)*

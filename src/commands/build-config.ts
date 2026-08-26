@@ -4,11 +4,14 @@ import { resolveApiCredentials } from './resolve-credentials';
 import { normalizeEnclavesConfig } from '../parsers/enclave-parser';
 import { logger } from '../logger';
 import {
+  APPLE_CONTAINER_DEFAULT_CPUS,
+  APPLE_CONTAINER_DEFAULT_MEMORY,
   CLOUD_HYPERVISOR_DEFAULT_API_TIMEOUT_MS,
   CLOUD_HYPERVISOR_DEFAULT_BINARY,
   CLOUD_HYPERVISOR_DEFAULT_MEMORY_MIB,
   CLOUD_HYPERVISOR_DEFAULT_VCPU_COUNT,
 } from '../types/runtime-options';
+import { APPLE_CONTAINER_RUNTIME } from '../apple-container/runtime-validation';
 
 /**
  * Resolves the effective `legacySecurity` value from CLI options.
@@ -124,6 +127,7 @@ export function buildConfig(inputs: BuildConfigInputs): WrapperConfig {
   const chrootIdentity = buildChrootIdentity(options);
   const dind = buildDindConfig(options);
   const cloudHypervisor = buildCloudHypervisorConfig(options);
+  const appleContainer = buildAppleContainerConfig(options);
   const apiCredentials = resolveApiCredentials(options, {
     resolvedCopilotApiTarget,
     resolvedCopilotApiBasePath,
@@ -228,6 +232,7 @@ export function buildConfig(inputs: BuildConfigInputs): WrapperConfig {
     chrootIdentity,
     dind,
     cloudHypervisor,
+    appleContainer,
     enclaves: normalizeEnclavesConfig(
       options.enclaves as AwfFileConfig['enclaves'] | undefined,
     ),
@@ -311,6 +316,60 @@ function buildCloudHypervisorConfig(
       ? sha256
       : undefined,
   };
+}
+
+/**
+ * Builds the Apple Container preview runtime config.
+ *
+ * Returns `undefined` unless the runtime is selected or an
+ * `--apple-container-*` flag was passed, so the field stays absent (and
+ * `assertAppleContainerSelection` stays quiet) for every other runtime.
+ * Compatibility, opt-in, and host eligibility are enforced later by
+ * `src/apple-container/runtime-validation.ts` and the backend's preflight.
+ */
+function buildAppleContainerConfig(
+  options: Record<string, unknown>,
+): WrapperConfig['appleContainer'] {
+  const selected = options.containerRuntime === APPLE_CONTAINER_RUNTIME;
+  const configured = options.appleContainerPreview === true
+    || [
+      'appleContainerCpus',
+      'appleContainerMemory',
+      'appleContainerInitImage',
+      'appleContainerCli',
+    ].some((key) => options[key] !== undefined);
+  if (!selected && !configured) return undefined;
+
+  return {
+    previewEnabled: options.appleContainerPreview === true,
+    cpus: parsePositiveIntegerOption(
+      options.appleContainerCpus,
+      '--apple-container-cpus',
+      APPLE_CONTAINER_DEFAULT_CPUS,
+    ),
+    memory: parseAppleContainerMemory(options.appleContainerMemory),
+    initImage: options.appleContainerInitImage as string | undefined,
+    cliPath: options.appleContainerCli as string | undefined,
+  };
+}
+
+/**
+ * Validates `--apple-container-memory` at parse time.
+ *
+ * Layer 1 validates the same grammar before it reaches argv, but rejecting here
+ * means a typo fails during option validation with the flag named, rather than
+ * after the Compose infrastructure is already up.
+ */
+function parseAppleContainerMemory(value: unknown): string {
+  if (value === undefined) return APPLE_CONTAINER_DEFAULT_MEMORY;
+  const text = String(value);
+  if (!/^[1-9][0-9]*[KMGTP]?$/.test(text)) {
+    throw new Error(
+      '--apple-container-memory must be a positive integer with an optional K/M/G/T/P suffix; ' +
+      `got ${text}`,
+    );
+  }
+  return text;
 }
 
 function buildChrootIdentity(

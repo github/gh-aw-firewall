@@ -1,6 +1,6 @@
 import path from 'path';
 
-const IMAGE_DIGEST_KEYS = ['squid', 'agent', 'agent-act', 'api-proxy', 'cli-proxy', 'build-tools', 'enclave-script', 'enclave-agent', 'enclave-mcp-server'] as const;
+const IMAGE_DIGEST_KEYS = ['squid', 'agent', 'agent-act', 'api-proxy', 'cli-proxy', 'build-tools', 'enclave-script', 'enclave-agent', 'enclave-mcp-server', 'apple-init'] as const;
 
 type ImageDigestKey = typeof IMAGE_DIGEST_KEYS[number];
 

@@ -3,6 +3,8 @@ import { runtimeUsesComposeAgent } from './container-runtime';
 import type { ExternalAgentRuntimeBackend } from './external-runtime-backend';
 import { createSbxRuntimeBackend } from './sbx-runtime-backend';
 import { createCloudHypervisorRuntimeBackend } from './cloud-hypervisor-runtime-backend';
+import { createAppleContainerRuntimeBackend } from './apple-container-runtime-backend';
+import { APPLE_CONTAINER_RUNTIME } from './apple-container/runtime-validation';
 import type { WrapperConfig } from './types';
 
 interface ExternalRuntimeBackendFactoryContext {
@@ -23,6 +25,8 @@ const EXTERNAL_RUNTIME_BACKENDS: ExternalRuntimeBackendRegistry = {
     createSbxRuntimeBackend(config, startInfrastructure),
   'cloud-hypervisor': ({ config, startInfrastructure }) =>
     createCloudHypervisorRuntimeBackend(config, startInfrastructure),
+  [APPLE_CONTAINER_RUNTIME]: ({ config, startInfrastructure }) =>
+    createAppleContainerRuntimeBackend(config, startInfrastructure),
 };
 
 /**
@@ -44,6 +48,11 @@ export function resolveExternalRuntimeBackend(
   if (runtime === 'cloud-hypervisor' && !config.cloudHypervisor?.previewEnabled) {
     throw new Error(
       'Cloud Hypervisor workload execution requires explicit --cloud-hypervisor-preview opt-in',
+    );
+  }
+  if (runtime === APPLE_CONTAINER_RUNTIME && !config.appleContainer?.previewEnabled) {
+    throw new Error(
+      'Apple Container workload execution requires explicit --apple-container-preview opt-in',
     );
   }
   const factory = runtime ? registry[runtime] : undefined;

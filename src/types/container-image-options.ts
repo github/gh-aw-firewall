@@ -9,7 +9,8 @@ export interface ContainerImageOptions {
    */
   images?: Partial<Record<
     'squid' | 'agent' | 'apiProxy' | 'cliProxy' | 'buildTools' | 'dohProxy' |
-    'enclaveScript' | 'enclaveAgent' | 'enclaveMcpServer' | 'dindStaging',
+    'enclaveScript' | 'enclaveAgent' | 'enclaveMcpServer' | 'dindStaging' |
+    'appleInit',
     string
   >>;
   /**

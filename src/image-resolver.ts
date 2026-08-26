@@ -3,7 +3,8 @@ import { buildRuntimeImageRef, parseImageTag, type ParsedImageTag } from './imag
 
 export type RuntimeImageName =
   | 'squid' | 'agent' | 'agent-act' | 'api-proxy' | 'cli-proxy' | 'build-tools'
-  | 'enclave-script' | 'enclave-agent' | 'enclave-mcp-server' | 'dind-staging' | 'doh-proxy';
+  | 'enclave-script' | 'enclave-agent' | 'enclave-mcp-server' | 'dind-staging' | 'doh-proxy'
+  | 'apple-init';
 
 type ManifestKey = keyof NonNullable<WrapperConfig['images']>;
 
@@ -31,6 +32,7 @@ const MANIFEST_KEY: Record<RuntimeImageName, ManifestKey> = {
   'enclave-mcp-server': 'enclaveMcpServer',
   'dind-staging': 'dindStaging',
   'doh-proxy': 'dohProxy',
+  'apple-init': 'appleInit',
 };
 
 const DEFAULT_IMAGE_REGISTRY = 'ghcr.io/github/gh-aw-firewall';

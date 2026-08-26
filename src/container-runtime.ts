@@ -116,6 +116,16 @@ const RUNTIME_REGISTRY: Readonly<Record<string, RuntimeCapabilities>> = {
     needsStaticDns: false,
     usesIptables: false,
   },
+  // Apple Virtualization.framework VM launched by the `container` CLI. The
+  // guest has zero NICs (`--network none`), so it reaches AWF infrastructure
+  // only through the published-socket capability transport; Docker's embedded
+  // DNS and host-netns iptables are both structurally inapplicable.
+  'apple-container': {
+    executionModel: 'microvm',
+    dockerRuntime: undefined,
+    needsStaticDns: false,
+    usesIptables: false,
+  },
 };
 
 /**

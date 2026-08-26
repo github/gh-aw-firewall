@@ -1,9 +1,9 @@
-# Apple Container capability transport (internal)
+# Apple Container capability transport
 
-> **Internal design note.** Nothing described here is reachable from the CLI,
-> the config schema, or the runtime resolver. This is layer 2 of the Apple
-> Container backend stack; the selectable runtime lands in a later layer. There
-> is intentionally no user-facing documentation yet.
+> **Design note.** This describes the transport itself — the mechanism by which
+> a NIC-less guest reaches AWF's services. For the user-facing runtime
+> (requirements, setup, options, supported and unsupported features, cleanup,
+> diagnostics), see [apple-container-runtime.md](apple-container-runtime.md).
 
 ## Problem
 
