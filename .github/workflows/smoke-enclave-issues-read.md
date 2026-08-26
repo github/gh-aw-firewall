@@ -43,7 +43,7 @@ sandbox:
     id: awf
     version: v0.28.8
   mcp:
-    version: v0.4.11
+    version: v0.4.12
 strict: false
 concurrency:
   group: smoke-enclave-issues-read
