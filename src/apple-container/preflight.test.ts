@@ -122,7 +122,9 @@ describe('runAppleContainerPreflight CLI gates', () => {
     });
 
     await expect(promise).rejects.toMatchObject({ code: 'cli-missing' });
-    await expect(promise).rejects.toThrow(/github\.com\/apple\/container/);
+    await expect(promise).rejects.toThrow(
+      /(?:^|\s)https?:\/\/github\.com\/apple\/container(?:\/|\s|$)/,
+    );
   });
 
   it('rejects a CLI older than the pinned minimum', async () => {
