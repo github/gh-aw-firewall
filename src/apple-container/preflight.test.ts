@@ -137,7 +137,9 @@ describe('runAppleContainerPreflight CLI gates', () => {
 
     await expect(promise).rejects.toMatchObject({ code: 'cli-version' });
     await expect(promise).rejects.toThrow(
-      new RegExp(`${APPLE_CONTAINER_MINIMUM_CLI_VERSION.replace(/\./g, '\\.')} or newer`),
+      new RegExp(
+        `${APPLE_CONTAINER_MINIMUM_CLI_VERSION.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} or newer`,
+      ),
     );
   });
 
