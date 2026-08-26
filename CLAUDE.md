@@ -49,7 +49,7 @@ The system is orchestrated by `src/cli.ts` and managed by `src/docker-manager.ts
 - **[docs/enclaves-architecture.md](docs/enclaves-architecture.md)** - Unified enclave architecture, MCP gateway handoff, and coverage notes
 - **[docs/cloud-hypervisor-foundation.md](docs/cloud-hypervisor-foundation.md)** - Cloud Hypervisor v53.0 microVM backend (preview): REST API client, secure launcher (network-namespace join + privilege drop + Landlock/seccomp in place of a jailer), manager/backend, GitHub-hosted Ubuntu x86_64 KVM runners only
 - **[docs/apple-container-runtime.md](docs/apple-container-runtime.md)** - Apple Container microVM backend (preview): `--container-runtime apple-container`, self-hosted bare-metal Apple Silicon macOS 26+ only, `--network none` guest reached solely through the published-socket capability transport, infrastructure-only Docker Compose with loopback-scoped port publication
-- **[docs/apple-container-transport.md](docs/apple-container-transport.md)** - Host/guest capability transport design and threat model for the Apple Container backend
+- **[docs/apple-container-transport.md](docs/apple-container-transport.md)** - Host/guest capability transport design and threat model for the Apple Container backend, including the externally owned ordinary MCP gateway upstream (`appleContainer.mcpGatewayUpstreamPort`)
 
 ## Development Workflow
 

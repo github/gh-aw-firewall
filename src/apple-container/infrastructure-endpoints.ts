@@ -20,8 +20,12 @@
  *    not merely add to them.
  * 2. **Exactly the required ports.** The publication set is derived from the
  *    same configuration that derives the capability set, so a port is published
- *    if and only if a capability relays to it. In particular the Vertex
- *    provider port is never published, because no capability can carry it.
+ *    if and only if an AWF-owned capability relays to it. In particular the
+ *    Vertex provider port is never published, because no capability can carry
+ *    it. Capabilities are a superset of publications rather than a mirror of
+ *    them: a capability may instead front an *externally* started host loopback
+ *    listener (the ordinary gh-aw MCP gateway), which AWF relays to but never
+ *    publishes, because it is not an AWF Compose service.
  * 3. **Validated before use.** {@link appleContainerLoopbackPortConflicts}
  *    proves the fixed ports are free before Compose is started, so a port that
  *    is already in use fails with an actionable message instead of producing a
@@ -33,6 +37,7 @@ import * as net from 'net';
 import { apiProxyPorts, CLI_PROXY_PORT, SQUID_PORT } from '../config/network-policy';
 import type { WrapperConfig } from '../types';
 import type { AppleContainerCapabilityId } from './transport-capabilities';
+import { assertAppleContainerUpstreamEndpoint } from './transport-capabilities';
 import type { AppleContainerTransportCapabilityRequest } from './transport-plan';
 
 /**
@@ -53,11 +58,32 @@ export interface AppleContainerPortPublication {
   readonly capability: AppleContainerCapabilityId;
 }
 
+/**
+ * A capability backed by a host listener AWF neither starts nor publishes.
+ *
+ * gh-aw launches its ordinary MCP gateway (`awmg-mcpg`) with a plain
+ * `docker run` outside the AWF Compose project and binds it to macOS loopback
+ * itself. AWF therefore has no Compose service to rewrite and no port to
+ * publish — it only relays. Such a capability appears in
+ * {@link AppleContainerInfrastructurePlan.capabilities} but deliberately never
+ * in `publications` or `services`, so
+ * {@link applyAppleContainerLoopbackPublishing} never searches for a Compose
+ * service that does not exist and {@link appleContainerLoopbackPortConflicts}
+ * never reports the externally owned listener as a conflict — its port being
+ * occupied is the normal case, not an error.
+ */
+export interface AppleContainerExternalUpstream {
+  readonly capability: AppleContainerCapabilityId;
+  readonly hostPort: number;
+}
+
 export interface AppleContainerInfrastructurePlan {
   readonly publications: readonly AppleContainerPortPublication[];
   readonly capabilities: readonly AppleContainerTransportCapabilityRequest[];
   /** Compose services that must publish at least one loopback port. */
   readonly services: readonly AppleContainerInfrastructureService[];
+  /** Capabilities relayed to externally owned host loopback listeners. */
+  readonly externalUpstreams: readonly AppleContainerExternalUpstream[];
 }
 
 /** Provider ports the transport allowlist covers, in capability order. */
@@ -80,6 +106,12 @@ function apiProxyPublications(): readonly Omit<AppleContainerPortPublication, 'h
  *
  * Squid is unconditional: it is the guest's only egress path, and layer 2
  * refuses a plan without it.
+ *
+ * Capabilities are *not* 1:1 with publications. A publication always implies a
+ * capability, but a capability may instead name an externally owned loopback
+ * listener (see {@link AppleContainerExternalUpstream}), in which case AWF
+ * relays to it without publishing anything and without requiring a Compose
+ * service.
  */
 export function planAppleContainerInfrastructure(
   config: WrapperConfig,
@@ -101,15 +133,59 @@ export function planAppleContainerInfrastructure(
 
   const publications = planned.map((entry) => Object.freeze({ ...entry, hostPort: entry.containerPort }));
   const services = [...new Set(publications.map((entry) => entry.service))];
+  const externalUpstreams = planExternalUpstreams(config, publications);
+
+  const capabilities = [
+    ...publications.map((entry) => ({ id: entry.capability, hostPort: entry.hostPort })),
+    ...externalUpstreams.map((entry) => ({ id: entry.capability, hostPort: entry.hostPort })),
+  ].map((entry) => Object.freeze({
+    id: entry.id,
+    upstream: Object.freeze({ host: APPLE_CONTAINER_LOOPBACK_HOST, port: entry.hostPort }),
+  }));
 
   return Object.freeze({
     publications: Object.freeze(publications),
-    capabilities: Object.freeze(publications.map((entry) => Object.freeze({
-      id: entry.capability,
-      upstream: Object.freeze({ host: APPLE_CONTAINER_LOOPBACK_HOST, port: entry.hostPort }),
-    }))),
+    capabilities: Object.freeze(capabilities),
     services: Object.freeze(services),
+    externalUpstreams: Object.freeze(externalUpstreams),
   });
+}
+
+/**
+ * Resolves capabilities that relay to host listeners AWF does not own.
+ *
+ * Today the only entry is the ordinary MCP gateway gh-aw starts outside the AWF
+ * Compose project. Two guards apply beyond the parse-time port check:
+ *
+ * 1. The port is re-validated through the same allowlist predicate every other
+ *    upstream passes, so a value that reached here from a non-CLI path (config
+ *    file, programmatic caller) cannot skip validation.
+ * 2. A port AWF itself publishes is refused. Accepting it would silently front
+ *    an AWF sidecar — Squid or a credential-injecting API proxy port — on the
+ *    guest's MCP gateway endpoint instead of the gateway the operator meant.
+ */
+function planExternalUpstreams(
+  config: WrapperConfig,
+  publications: readonly AppleContainerPortPublication[],
+): AppleContainerExternalUpstream[] {
+  const port = config.appleContainer?.mcpGatewayUpstreamPort;
+  if (port === undefined) return [];
+
+  assertAppleContainerUpstreamEndpoint(
+    { host: APPLE_CONTAINER_LOOPBACK_HOST, port },
+    'capability mcp-gateway',
+  );
+
+  const collision = publications.find((publication) => publication.hostPort === port);
+  if (collision) {
+    throw new Error(
+      `Apple Container mcpGatewayUpstreamPort ${port} is already published by AWF for the ` +
+      `"${collision.capability}" capability; the external MCP gateway must listen on its own ` +
+      'host loopback port',
+    );
+  }
+
+  return [Object.freeze({ capability: 'mcp-gateway' as const, hostPort: port })];
 }
 
 /** Compose `ports:` entry that binds the publication to loopback only. */
@@ -130,6 +206,11 @@ interface ComposeServiceLike {
  * `3128:3128` on all interfaces for the Docker topology, and leaving that entry
  * in place would keep an open forward proxy listening on every host interface
  * while the loopback entry sat harmlessly beside it.
+ *
+ * Only AWF-owned Compose services are touched. `plan.services` is derived from
+ * `plan.publications` alone, so an externally owned upstream (gh-aw's
+ * `awmg-mcpg`) is never looked up here and this function can never demand a
+ * Compose service AWF does not generate.
  *
  * @throws when a service the plan needs is missing from the Compose output,
  * which would otherwise surface as an unreachable capability inside the VM.
@@ -185,6 +266,12 @@ export interface AppleContainerPortProbeDependencies {
  * Called before Compose starts so a collision (a second concurrent AWF run, a
  * stray local Squid) is reported as a named conflict rather than as a Docker
  * bind error buried in Compose output.
+ *
+ * Only `plan.publications` is probed. An externally owned upstream is expected
+ * to already have a listener — that is precisely why AWF relays to it instead
+ * of publishing it — so probing it would turn the normal case into an error.
+ * Its actual reachability is proven later, by the transport manager's upstream
+ * health probe, which refuses to start the agent if the gateway is not up.
  */
 export async function appleContainerLoopbackPortConflicts(
   plan: AppleContainerInfrastructurePlan,

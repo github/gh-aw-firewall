@@ -844,6 +844,12 @@
         "cliPath": {
           "type": "string",
           "description": "Absolute path to the Apple \"container\" CLI when it is not on PATH."
+        },
+        "mcpGatewayUpstreamPort": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535,
+          "description": "Host loopback TCP port of an ordinary MCP gateway started outside AWF (for example gh-aw's awmg-mcpg). AWF relays 127.0.0.1:<port> into the NIC-less guest through the existing mcp-gateway capability, reachable at http://127.0.0.1:8080 inside the guest. The upstream host is fixed to 127.0.0.1 and is not configurable. AWF publishes no port and requires no Compose service for this capability, and the transport health-probes the upstream before the agent starts. This is ordinary MCP infrastructure, not enclave support; enclaves remain rejected by this runtime. Valid only with container.containerRuntime: \"apple-container\"."
         }
       }
     },

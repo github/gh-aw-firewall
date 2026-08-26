@@ -337,8 +337,13 @@ function buildAppleContainerConfig(
       'appleContainerMemory',
       'appleContainerInitImage',
       'appleContainerCli',
+      'appleContainerMcpGatewayUpstreamPort',
     ].some((key) => options[key] !== undefined);
   if (!selected && !configured) return undefined;
+
+  const mcpGatewayUpstreamPort = parseAppleContainerMcpGatewayUpstreamPort(
+    options.appleContainerMcpGatewayUpstreamPort,
+  );
 
   return {
     previewEnabled: options.appleContainerPreview === true,
@@ -350,7 +355,36 @@ function buildAppleContainerConfig(
     memory: parseAppleContainerMemory(options.appleContainerMemory),
     initImage: options.appleContainerInitImage as string | undefined,
     cliPath: options.appleContainerCli as string | undefined,
+    ...(mcpGatewayUpstreamPort === undefined ? {} : { mcpGatewayUpstreamPort }),
   };
+}
+
+/**
+ * Validates `--apple-container-mcp-gateway-upstream-port` at parse time.
+ *
+ * Only the port is accepted; the upstream host is fixed to `127.0.0.1` by the
+ * infrastructure planner, so this option cannot be used to point a guest
+ * capability at an arbitrary address. The value is a TCP port, so anything
+ * outside 1..65535 (including `0`, floats, and non-numeric text) is refused
+ * here rather than surfacing later as a relay that dials nothing.
+ */
+function parseAppleContainerMcpGatewayUpstreamPort(value: unknown): number | undefined {
+  if (value === undefined) return undefined;
+  const text = String(value).trim();
+  if (!/^[0-9]+$/.test(text)) {
+    throw new Error(
+      '--apple-container-mcp-gateway-upstream-port must be an integer TCP port in 1..65535; ' +
+      `got ${text}`,
+    );
+  }
+  const port = Number(text);
+  if (!Number.isSafeInteger(port) || port < 1 || port > 65535) {
+    throw new Error(
+      '--apple-container-mcp-gateway-upstream-port must be an integer TCP port in 1..65535; ' +
+      `got ${text}`,
+    );
+  }
+  return port;
 }
 
 /**

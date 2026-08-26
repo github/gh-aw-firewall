@@ -9,10 +9,12 @@
  * confine anything; the confinement here comes from the missing NIC.
  *
  * The guest still needs to reach a small, fixed set of AWF services that keep
- * running under Docker Compose (Squid, the API proxy, the CLI proxy, the
- * enclave MCP gateway). The only capability transport Apple Container offers a
- * NIC-less VM is `--publish-socket host_path:container_path`, which exposes one
- * host Unix socket at one guest path. This module is the single source of truth
+ * running under Docker Compose (Squid, the API proxy, the CLI proxy) plus, when
+ * configured, an ordinary MCP gateway that a caller such as gh-aw starts on
+ * host loopback outside the AWF Compose project. The only capability transport
+ * Apple Container offers a NIC-less VM is
+ * `--publish-socket host_path:container_path`, which exposes one host Unix
+ * socket at one guest path. This module is the single source of truth
  * for *which* sockets may be published and what they map to:
  *
  * ```
@@ -178,7 +180,13 @@ export const APPLE_CONTAINER_TRANSPORT_CAPABILITIES: readonly AppleContainerCapa
     define('api-proxy-copilot', apiProxyPorts().copilot, 'API proxy: Copilot provider'),
     define('api-proxy-gemini', apiProxyPorts().gemini, 'API proxy: Gemini provider'),
     define('cli-proxy', CLI_PROXY_PORT, 'CLI proxy (DIFC-mediated safe outputs)'),
-    define('mcp-gateway', ENCLAVE_MCP_CONTROL_PORT, 'Enclave MCP gateway streamable HTTP endpoint'),
+    // Ordinary MCP infrastructure. gh-aw starts its MCP gateway itself, outside
+    // the AWF Compose project, and AWF is told only the host loopback port to
+    // relay to (`appleContainer.mcpGatewayUpstreamPort`). The guest port stays
+    // pinned to the enclave control port value so the host and the compiled
+    // guest contract agree; it is a shared constant, not enclave support —
+    // enclaves remain rejected outright by runtime-validation.
+    define('mcp-gateway', ENCLAVE_MCP_CONTROL_PORT, 'MCP gateway streamable HTTP endpoint'),
   ].map((capability) => Object.freeze(capability)));
 
 const CAPABILITIES_BY_ID = new Map<string, AppleContainerCapabilityDefinition>(

@@ -229,6 +229,11 @@ program
     'Digest-pinned AWF Apple init image carrying the guest capability relay.'
   )
   .option('--apple-container-cli <path>', 'Path to the Apple "container" CLI when it is not on PATH.')
+  .option(
+    '--apple-container-mcp-gateway-upstream-port <port>',
+    'Host loopback port of an externally started ordinary MCP gateway to bridge\n' +
+    '                                       into the guest (host is fixed to 127.0.0.1). Not enclave support.'
+  )
 
   // -- Container Configuration --
   .option(

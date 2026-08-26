@@ -48,8 +48,35 @@ export const APPLE_CONTAINER_MAX_TIMEOUT_MS = 86_400_000;
  */
 export function assertAppleContainerSelection(config: WrapperConfig): void {
   if (config.appleContainer && config.containerRuntime !== APPLE_CONTAINER_RUNTIME) {
+    const mcpGatewayPort = config.appleContainer.mcpGatewayUpstreamPort;
+    if (mcpGatewayPort !== undefined) {
+      throw new Error(
+        'appleContainer.mcpGatewayUpstreamPort bridges an external MCP gateway into a NIC-less ' +
+        `Apple Container guest and requires --container-runtime ${APPLE_CONTAINER_RUNTIME}; ` +
+        `the ${config.containerRuntime ?? 'docker'} runtime reaches the gateway over its own ` +
+        'network and must not set it',
+      );
+    }
     throw new Error(
       `Apple Container options require --container-runtime ${APPLE_CONTAINER_RUNTIME}`,
+    );
+  }
+}
+
+/**
+ * Re-validates the MCP gateway upstream port on a fully assembled config.
+ *
+ * The CLI parser already enforces this range, but a config file or a
+ * programmatic caller can populate `appleContainer` directly. A configured
+ * relay target is a network path into an otherwise NIC-less guest, so it is
+ * checked again here rather than trusted because one entry point validated it.
+ */
+function assertAppleContainerMcpGatewayUpstream(appleContainer: AppleContainerOptions): void {
+  const port = appleContainer.mcpGatewayUpstreamPort;
+  if (port === undefined) return;
+  if (!Number.isSafeInteger(port) || port < 1 || port > 65535) {
+    throw new Error(
+      `appleContainer.mcpGatewayUpstreamPort must be an integer TCP port in 1..65535; got ${port}`,
     );
   }
 }
@@ -128,6 +155,7 @@ export function assertAppleContainerRuntimeCompatibility(
   if (!config.networkIsolation) {
     throw new Error('Apple Container preview requires strict --network-isolation security');
   }
+  assertAppleContainerMcpGatewayUpstream(appleContainer);
   assertAppleContainerPreSecurityCompatibility(config);
 
   if (config.agentImage && config.agentImage !== 'default') {

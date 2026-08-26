@@ -379,3 +379,77 @@ describe('probeAppleContainerUpstream', () => {
       .rejects.toThrow();
   });
 });
+
+describe('external MCP gateway capability', () => {
+  const bases: string[] = [];
+  const upstreams: Upstream[] = [];
+
+  function newBase(): string {
+    const base = fs.mkdtempSync('/tmp/awfmg');
+    bases.push(base);
+    return base;
+  }
+
+  afterEach(async () => {
+    for (const upstream of upstreams.splice(0)) await upstream.close();
+    for (const base of bases.splice(0)) fs.rmSync(base, { recursive: true, force: true });
+  });
+
+  it('bridges an externally started gateway to the fixed guest endpoint', async () => {
+    const squid = await startUpstream();
+    // Stands in for gh-aw's `awmg-mcpg`, which AWF never starts or publishes.
+    const gateway = await startUpstream();
+    upstreams.push(squid, gateway);
+    const base = newBase();
+
+    const transport = await startAppleContainerTransport({
+      baseDirectory: base,
+      initImage: INIT_IMAGE,
+      capabilities: [
+        { id: 'squid', upstream: { host: '127.0.0.1', port: squid.port } },
+        { id: 'mcp-gateway', upstream: { host: '127.0.0.1', port: gateway.port } },
+      ],
+    }, { logger: silentLogger() });
+
+    try {
+      // The guest learns the endpoint only through the compiled contract, which
+      // pins the mcp-gateway loopback port at 8080 regardless of the host port.
+      expect(transport.plan.env.AWF_APPLE_TRANSPORT_MCP_GATEWAY_URL)
+        .toBe('http://127.0.0.1:8080');
+      const entry = transport.plan.entries.find((e) => e.capability.id === 'mcp-gateway')!;
+      expect(entry.guestPort).toBe(8080);
+      expect(entry.upstream).toEqual({ host: '127.0.0.1', port: gateway.port });
+      expect(entry.guestSocketPath).toMatch(/\/mcp-gateway\.sock$/);
+      // No credential or host port leaks into the guest environment.
+      expect(JSON.stringify(transport.plan.env)).not.toContain(String(gateway.port));
+      expect(transport.stats()['mcp-gateway'].established).toBe(1);
+    } finally {
+      await transport.stop();
+    }
+  });
+
+  it('refuses to start the agent when the gateway is not listening', async () => {
+    const squid = await startUpstream();
+    upstreams.push(squid);
+    const base = newBase();
+    const dead = await startUpstream();
+    const deadPort = dead.port;
+    await dead.close();
+
+    // Configuring the port does not prove readiness: the upstream health probe
+    // must fail closed so no agent ever sees a socket that leads nowhere.
+    await expect(startAppleContainerTransport({
+      baseDirectory: base,
+      initImage: INIT_IMAGE,
+      capabilities: [
+        { id: 'squid', upstream: { host: '127.0.0.1', port: squid.port } },
+        { id: 'mcp-gateway', upstream: { host: '127.0.0.1', port: deadPort } },
+      ],
+      health: { attempts: 2, retryDelayMs: 0, timeoutMs: 50 },
+    }, { logger: silentLogger(), sleep: jest.fn().mockResolvedValue(undefined) }))
+      .rejects.toThrow(/mcp-gateway/);
+
+    // Full rollback: the Squid relay that already passed must not survive.
+    expect(fs.readdirSync(base)).toEqual([]);
+  });
+});

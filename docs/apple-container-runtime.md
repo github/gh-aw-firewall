@@ -122,6 +122,40 @@ appleContainer:
 | `--apple-container-memory` | `appleContainer.memory` | `8G` | Integer with an optional `K`/`M`/`G`/`T`/`P` suffix. |
 | `--apple-container-init-image` | `appleContainer.initImage` | derived from registry/tag | Must be digest-pinned. |
 | `--apple-container-cli` | `appleContainer.cliPath` | `container` on `PATH` | Absolute path when the CLI is not on `PATH`. |
+| `--apple-container-mcp-gateway-upstream-port` | `appleContainer.mcpGatewayUpstreamPort` | unset | Host loopback port of an externally started ordinary MCP gateway. See [MCP gateway](#mcp-gateway). |
+
+### MCP gateway
+
+gh-aw runs its MCP gateway (`awmg-mcpg`) itself, with a plain `docker run`
+outside AWF's Compose project, and publishes it on host loopback with its own
+authentication. AWF cannot rewrite a publication it does not own, so gh-aw
+passes only the port:
+
+```yaml
+appleContainer:
+  previewEnabled: true
+  mcpGatewayUpstreamPort: 9100
+```
+
+AWF then relays `127.0.0.1:<port>` through an AWF-owned Unix socket into the
+guest, where the workload reaches it at `http://127.0.0.1:8080`
+(`AWF_APPLE_TRANSPORT_MCP_GATEWAY_URL`). The guest still has no NIC.
+
+- **Only a port is accepted**, an integer in `1..65535`. The upstream host is
+  fixed to `127.0.0.1` and is not configurable, so this cannot point a guest
+  capability at another machine. A port AWF itself publishes (Squid, an API
+  proxy provider port, the CLI proxy) is rejected.
+- **Valid only on this runtime.** Setting it with any other
+  `--container-runtime` is an error, not a silently ignored field; every other
+  runtime reaches the gateway over its own Docker network.
+- **AWF publishes nothing for it** and requires no Compose service, so the
+  gateway's port already being in use is the normal case rather than a
+  startup conflict.
+- **Configuring it is not readiness.** AWF health-probes the upstream before
+  any relay binds; if the gateway is not listening, the transport rolls back
+  and the agent never starts.
+- **This is ordinary MCP infrastructure, not enclave support.** Enclaves stay
+  rejected on this runtime (see below).
 
 ## Supported and unsupported
 
@@ -134,7 +168,8 @@ appleContainer:
 | Agent timeout, signals, exit codes | ✅ Exit codes propagate verbatim; a timeout kills the VM and reports `124`. |
 | Diagnostics and `--keep-containers` | ✅ See [Diagnostics](#diagnostics-and-preservation). |
 | **Google Vertex AI** | ❌ The Vertex provider port is not in the transport allowlist. Rejected at validation rather than silently losing its endpoint. |
-| **Enclaves** | ❌ The enclave MCP gateway is a Docker-network peer that has not been proven reachable from a NIC-less guest. |
+| Ordinary MCP gateway (gh-aw `awmg-mcpg`) | ✅ Bridged as a capability when `appleContainer.mcpGatewayUpstreamPort` is set. See [MCP gateway](#mcp-gateway). |
+| **Enclaves** | ❌ The enclave subsystem is a set of Docker-network peers that have not been proven reachable from a NIC-less guest. Rejected regardless of `mcpGatewayUpstreamPort`. |
 | **`--topology-attach`** | ❌ Externally owned peers are not published to macOS loopback, so they cannot be bridged. |
 | **Docker-in-Docker / ARC split filesystems** | ❌ The guest never receives a Docker socket. |
 | **`--enable-host-access`, `--allow-host-ports`** | ❌ Only allowlisted capability sockets cross the boundary. |

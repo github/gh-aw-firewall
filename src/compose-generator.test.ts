@@ -829,4 +829,37 @@ describe('generateDockerCompose', () => {
         }
       });
     });
+
+    describe('Apple Container external MCP gateway', () => {
+      function appleConfig(mcpGatewayUpstreamPort?: number): WrapperConfig {
+        return {
+          ...mockConfig,
+          containerRuntime: 'apple-container',
+          networkIsolation: true,
+          appleContainer: {
+            previewEnabled: true,
+            cpus: 4,
+            memory: '8G',
+            ...(mcpGatewayUpstreamPort === undefined ? {} : { mcpGatewayUpstreamPort }),
+          },
+        } as unknown as WrapperConfig;
+      }
+
+      it('generates no service and publishes no port for the external gateway', () => {
+        const result = generateDockerCompose(appleConfig(9100), mockNetworkConfig);
+
+        // gh-aw owns `awmg-mcpg`; AWF must neither create it nor look for it.
+        expect(Object.keys(result.services)).not.toContain('awmg-mcpg');
+        const published = Object.values(result.services)
+          .flatMap((service) => (service.ports ?? []) as string[]);
+        expect(published.some((entry) => entry.includes('9100'))).toBe(false);
+        expect(published).toContain('127.0.0.1:3128:3128');
+      });
+
+      it('produces the same compose output as when the option is absent', () => {
+        const withPort = generateDockerCompose(appleConfig(9100), mockNetworkConfig);
+        const withoutPort = generateDockerCompose(appleConfig(), mockNetworkConfig);
+        expect(JSON.stringify(withPort.services)).toBe(JSON.stringify(withoutPort.services));
+      });
+    });
 });

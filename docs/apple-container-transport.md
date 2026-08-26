@@ -17,7 +17,9 @@ DoH, IPv6, raw sockets, the `169.254.169.254` metadata address, and every host
 network path simply do not exist inside the VM.
 
 A NIC-less guest still has to reach a handful of AWF services that keep running
-under Docker Compose. The only transport Apple Container offers such a guest is
+under Docker Compose, plus — when configured — one ordinary MCP gateway that a
+caller such as gh-aw starts on host loopback outside the AWF Compose project.
+The only transport Apple Container offers such a guest is
 `--publish-socket host_path:container_path`, which exposes one host Unix socket
 at one guest path and works with no NIC attached. Most tooling — curl, npm, pip,
 the agent CLIs — speaks TCP to a proxy endpoint and cannot be pointed at a Unix
@@ -68,6 +70,41 @@ requires.
 
 A capability whose socket was never published fails to dial, and the connection
 is closed with no data — the same fail-closed outcome as a disabled capability.
+
+## Externally owned upstreams
+
+Most capabilities front an AWF Compose sidecar, so AWF both publishes the host
+port (loopback-scoped) and relays it. One capability does not: the ordinary MCP
+gateway. gh-aw starts `awmg-mcpg` itself with a plain `docker run`, outside the
+AWF Compose project, and binds it to `127.0.0.1`. AWF has no Compose service to
+rewrite and no port to publish, so it is told only the port number, through
+`appleContainer.mcpGatewayUpstreamPort` (`--apple-container-mcp-gateway-upstream-port`).
+
+Consequences of that split, all of them deliberate:
+
+- **Capabilities are a superset of publications.** `planAppleContainerInfrastructure`
+  emits the external capability with no publication and no entry in
+  `plan.services`, so `applyAppleContainerLoopbackPublishing` never searches the
+  Compose output for a service AWF does not generate, and the preflight port
+  conflict probe never reports the gateway's own listener as a collision.
+- **Only a port is configurable.** The upstream host is fixed to `127.0.0.1` in
+  code, so this setting cannot widen the set of addresses a relay will dial. It
+  is re-validated through the same loopback/private-address predicate every
+  other upstream passes, and a port AWF itself publishes is refused — otherwise
+  the guest's MCP gateway endpoint could silently front Squid or a
+  credential-injecting API proxy port.
+- **The guest shape is unchanged.** The guest still reaches the gateway at the
+  compiled-in `http://127.0.0.1:8080` (`AWF_APPLE_TRANSPORT_MCP_GATEWAY_URL`),
+  whatever the host port is. No contract version bump: the host port is a host
+  dial target, not part of the host/guest agreement.
+- **Configuration is not readiness.** Setting the port proves nothing. The
+  transport's upstream health probe must connect to the gateway before any relay
+  binds, and a gateway that is not up rolls the whole transport back and
+  prevents agent execution.
+
+This is ordinary MCP infrastructure, not enclave support. Enclaves remain
+rejected outright by `assertAppleContainerPreSecurityCompatibility`, as does
+`--topology-attach`.
 
 ## Contract versioning
 

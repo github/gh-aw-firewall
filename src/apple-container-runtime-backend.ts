@@ -343,6 +343,15 @@ export class AppleContainerRuntimeBackend implements ExternalAgentRuntimeBackend
           plan.capabilities.map((capability) => capability.id).join(', ')
         }`,
       );
+      for (const upstream of plan.externalUpstreams) {
+        // Externally owned upstreams are the one part of the capability set AWF
+        // does not start or publish, so name them explicitly: a gateway that is
+        // up but wrong is otherwise indistinguishable from an AWF sidecar.
+        this.dependencies.logger.info(
+          `[apple-container] capability ${upstream.capability} relays to externally started ` +
+          `127.0.0.1:${upstream.hostPort}`,
+        );
+      }
 
       stage = 'container-create';
       // Resolved once: the default implementation stats the filesystem, and a

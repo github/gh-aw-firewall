@@ -85,6 +85,22 @@ export interface AppleContainerOptions {
   initImage?: string;
   /** Path to the `container` CLI when it is not on `PATH`. */
   cliPath?: string;
+  /**
+   * Host loopback TCP port of an *externally started* ordinary MCP gateway.
+   *
+   * gh-aw runs its MCP gateway (`awmg-mcpg`) itself, outside AWF's Compose
+   * project, and publishes it on `127.0.0.1`. AWF cannot rewrite a publication
+   * it does not own, so gh-aw hands over only the port number and AWF bridges
+   * it into the NIC-less guest through the existing `mcp-gateway` capability.
+   *
+   * This is ordinary MCP infrastructure, not enclave support: enclaves remain
+   * rejected by {@link ../apple-container/runtime-validation}. The host address
+   * is fixed to `127.0.0.1` and is deliberately not configurable, so this
+   * setting cannot widen the set of hosts AWF is willing to dial.
+   *
+   * Must be in 1..65535 and must not collide with a port AWF itself publishes.
+   */
+  mcpGatewayUpstreamPort?: number;
 }
 
 export interface RuntimeOptions {

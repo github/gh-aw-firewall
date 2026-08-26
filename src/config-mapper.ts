@@ -135,6 +135,9 @@ export function mapAwfFileConfigToCliOptions(config: AwfFileConfig): Record<stri
     appleContainerMemory: config.appleContainer?.memory,
     appleContainerInitImage: config.appleContainer?.initImage,
     appleContainerCli: config.appleContainer?.cliPath,
+    appleContainerMcpGatewayUpstreamPort: toStringIfDefined(
+      config.appleContainer?.mcpGatewayUpstreamPort,
+    ),
     chrootBinariesSourcePath: config.chroot?.binariesSourcePath,
     chrootIdentityHome: config.chroot?.identity?.home,
     chrootIdentityUser: config.chroot?.identity?.user,

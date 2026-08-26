@@ -234,6 +234,29 @@ describe('start', () => {
     expect(options.initImage).toBe(INIT_IMAGE);
   });
 
+  it('requests the externally started MCP gateway without probing its port', async () => {
+    const h = harness(config({
+      enableApiProxy: false,
+      appleContainer: {
+        previewEnabled: true,
+        cpus: 4,
+        memory: '8G',
+        mcpGatewayUpstreamPort: 9_100,
+      },
+    }));
+    await start(h);
+
+    const options = (h.dependencies.startTransport as jest.Mock).mock.calls[0][0];
+    expect(options.capabilities).toEqual([
+      { id: 'squid', upstream: { host: '127.0.0.1', port: 3128 } },
+      { id: 'mcp-gateway', upstream: { host: '127.0.0.1', port: 9_100 } },
+    ]);
+    // gh-aw owns the gateway's publication, so AWF must not treat its live
+    // listener as a startup conflict.
+    const plan = (h.dependencies.findPortConflicts as jest.Mock).mock.calls[0][0];
+    expect(plan.publications.map((entry: { hostPort: number }) => entry.hostPort)).toEqual([3128]);
+  });
+
   it('merges the transport plan into the run spec before creating the container', async () => {
     const h = harness();
     await start(h);

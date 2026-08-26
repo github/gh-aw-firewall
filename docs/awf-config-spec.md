@@ -186,6 +186,17 @@ supported/unsupported matrix, and
 [docs/apple-container-transport.md](./apple-container-transport.md) for the
 transport's own threat model.
 
+`appleContainer.mcpGatewayUpstreamPort` bridges one *ordinary* MCP gateway that
+a caller starts on host loopback outside AWF's Compose project (gh-aw's
+`awmg-mcpg`). AWF MUST accept only a TCP port in `1..65535`; the upstream host
+is fixed to `127.0.0.1` and MUST NOT be configurable. AWF MUST NOT publish a
+Compose port or require a Compose service for it, MUST reject a port AWF itself
+publishes, MUST reject the setting on any other `containerRuntime`, and MUST
+health-probe the upstream before the agent starts. The guest reaches the gateway
+at the compiled-in `http://127.0.0.1:8080` through
+`AWF_APPLE_TRANSPORT_MCP_GATEWAY_URL`. This is ordinary MCP infrastructure and
+does not enable enclaves, which remain rejected on this runtime.
+
 Live end-to-end validation runs only on a self-hosted bare-metal Apple Silicon
 runner via
 [`smoke-apple-container.yml`](../.github/workflows/smoke-apple-container.yml),
@@ -319,6 +330,7 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 - `appleContainer.memory` → `--apple-container-memory`
 - `appleContainer.initImage` → `--apple-container-init-image`
 - `appleContainer.cliPath` → `--apple-container-cli`
+- `appleContainer.mcpGatewayUpstreamPort` → `--apple-container-mcp-gateway-upstream-port` *(host loopback port of an externally started ordinary MCP gateway; host fixed to `127.0.0.1`, valid only with `container.containerRuntime: "apple-container"`)*
 - `chroot.binariesSourcePath` → *(config-only; mounts a runner-side binaries directory at `/tmp/awf-runner-bin` inside chroot mode and prepends it to `PATH`)*
 - `chroot.identity.home` → *(config-only; forwarded as `AWF_CHROOT_IDENTITY_HOME` and applied after chroot pivot)*
 - `chroot.identity.user` → *(config-only; forwarded as `AWF_CHROOT_IDENTITY_USER` and applied to `USER`/`LOGNAME` after chroot pivot)*

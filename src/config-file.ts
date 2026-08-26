@@ -160,6 +160,12 @@ export interface AwfFileConfig {
     memory?: string;
     initImage?: string;
     cliPath?: string;
+    /**
+     * Host loopback port of an externally started ordinary MCP gateway (for
+     * example gh-aw's `awmg-mcpg`). AWF relays `127.0.0.1:<port>` into the
+     * guest's `mcp-gateway` capability; the host is fixed to loopback.
+     */
+    mcpGatewayUpstreamPort?: number;
   };
   chroot?: {
     binariesSourcePath?: string;
