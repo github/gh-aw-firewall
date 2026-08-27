@@ -44,8 +44,10 @@ export function createBoundedOutputCollector(maxBytes = 4096): {
   const stream = new Writable({
     write(chunk: Buffer, _encoding, callback) {
       if (total < maxBytes) {
-        chunks.push(chunk);
-        total += chunk.length;
+        const remaining = maxBytes - total;
+        const boundedChunk = Buffer.from(chunk.subarray(0, remaining));
+        chunks.push(boundedChunk);
+        total += boundedChunk.length;
       }
       callback();
     },
