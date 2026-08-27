@@ -95,7 +95,7 @@ function deriveEnclaveContainerSpec({ config, runId, invocationId, seedId, runti
     '--ulimit', 'nofile=1024:1024',
     '--tmpfs', `/tmp:rw,noexec,nosuid,nodev,size=${config.tmpfsLimit}`,
     '--tmpfs',
-    `${config.enclaveMountDir}:rw,nosuid,nodev,size=${config.tmpfsLimit},` +
+    `${config.enclaveMountDir}:rw,exec,nosuid,nodev,size=${config.tmpfsLimit},` +
       `uid=${config.enclaveUid},gid=${config.enclaveGid},mode=0700`,
     '--hostname', config.enclaveHostname || 'enclave-agent',
     '--workdir', config.enclaveSeedPath,

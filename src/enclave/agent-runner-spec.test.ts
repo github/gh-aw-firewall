@@ -99,7 +99,7 @@ describe('unified enclave agent runner specification', () => {
     ]));
     expect(spec.launchArgs).toContain('/tmp:rw,noexec,nosuid,nodev,size=96m');
     expect(spec.launchArgs).toContain(
-      '/agent:rw,nosuid,nodev,size=96m,uid=65534,gid=65534,mode=0700',
+      '/agent:rw,exec,nosuid,nodev,size=96m,uid=65534,gid=65534,mode=0700',
     );
     expect(spec.launchArgs).toContain(`${trustedConfig.hostSeedsDir}/${'b'.repeat(32)}:/awf/seed:ro`);
     expect(spec.launchArgs).toContain(
