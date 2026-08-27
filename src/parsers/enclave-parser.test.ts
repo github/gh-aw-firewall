@@ -48,7 +48,7 @@ describe('normalizeEnclavesConfig', () => {
     expect(config?.executors.agent.timeout).toBe(120);
   });
 
-  it('provides separate memory headroom for the bounded Copilot tmpfs mounts', () => {
+  it('provides memory headroom beyond the bounded agent tmpfs mounts', () => {
     const config = normalizeEnclavesConfig([
       { agent: { model: 'gpt-5' }, repos: [repository] },
     ]);

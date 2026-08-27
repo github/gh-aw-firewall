@@ -341,7 +341,8 @@ def build_prompt(task: str, schema_text: str) -> str:
     return (
         "You are the native GitHub Copilot CLI running in an AWF enclave-agent enclave.\n"
         "The repository root is your current directory and is mounted read-only at /awf/seed. "
-        "/agent and /tmp are bounded writable tmpfs storage. You may use your built-in shell, "
+        "/agent is an invocation-private writable runtime directory and /tmp is bounded tmpfs. "
+        "You may use your built-in shell, "
         "bash, file-reading, and search tools. You have no GitHub MCP, no credentials, no host "
         "filesystem, and no network route except AWF's model and optional GitHub proxies."
         f"{github_access}\n\n"

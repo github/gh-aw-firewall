@@ -9,13 +9,15 @@ const path = require('path');
  * A enclave agent never writes to the repository: the immutable seed is
  * bind-mounted read-only straight into the enclave, so there is no writable
  * copy of private source anywhere on the host. The workspace therefore holds
- * only three small, broker-owned files:
+ * an invocation-private runtime directory and four small broker-owned files:
  *
  *  - `task.txt`   the caller's byte-bounded task text (read-only in the enclave)
  *  - `schema.json` the caller's finite response schema (read-only in the enclave)
  *  - `out`        a pre-created, size-bounded regular file the enclave writes
  *                 its single JSON answer to
  *  - `session.jsonl` a bounded transcript copied only to broker-private audit
+ *  - `agent`      an ephemeral disk-backed runtime directory owned by the
+ *                 enclave uid and removed with the invocation workspace
  */
 
 /** Layout of one invocation directory, relative to the broker's work dir. */
@@ -28,6 +30,7 @@ function invocationLayout(workDir, invocationId) {
     outPath: path.join(root, 'out'),
     sessionLogPath: path.join(root, 'session.jsonl'),
     githubCapabilityPath: path.join(root, 'github-capability'),
+    agentPath: path.join(root, 'agent'),
   };
 }
 
@@ -54,6 +57,9 @@ function createInvocationWorkspace(params) {
   fs.chownSync(layout.outPath, config.enclaveUid, config.enclaveGid);
   fs.writeFileSync(layout.sessionLogPath, '', { mode: 0o600 });
   fs.chownSync(layout.sessionLogPath, config.enclaveUid, config.enclaveGid);
+  fs.mkdirSync(layout.agentPath, { mode: 0o700 });
+  fs.chownSync(layout.agentPath, config.enclaveUid, config.enclaveGid);
+  fs.chmodSync(layout.agentPath, 0o700);
   if (config.githubEnabled) {
     if (typeof githubCapability !== 'string' || githubCapability.length > 4096) {
       throw new Error('invalid invocation GitHub capability');

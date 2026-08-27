@@ -89,7 +89,7 @@ describe('unified enclave agent runner specification', () => {
       '--user', '65534:65534',
       '--cap-drop', 'ALL',
       '--security-opt', 'no-new-privileges:true',
-      '--security-opt', 'seccomp=unconfined',
+      '--security-opt', 'seccomp=/opt/awf/enclave-seccomp.json',
       '--memory', '768m',
       '--memory-swap', '768m',
       '--cpus', '0.5',
@@ -99,8 +99,9 @@ describe('unified enclave agent runner specification', () => {
       '--pull', 'never',
     ]));
     expect(spec.launchArgs).toContain('/tmp:rw,noexec,nosuid,nodev,size=96m');
+    expect(spec.launchArgs.join(' ')).not.toMatch(/--tmpfs \/agent:/);
     expect(spec.launchArgs).toContain(
-      '/agent:rw,exec,nosuid,nodev,size=96m,uid=65534,gid=65534,mode=0700',
+      '/daemon/private/enclave/work/0123456789abcdef/agent:/agent:rw',
     );
     expect(spec.launchArgs).toContain(`${trustedConfig.hostSeedsDir}/${'b'.repeat(32)}:/awf/seed:ro`);
     expect(spec.launchArgs).toContain(

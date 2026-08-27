@@ -17,8 +17,8 @@
  *    no broker, no safe-outputs collector, and no MCP gateway.
  *  - `--read-only` with the repository seed bind-mounted `ro`: the enclave can
  *    never mutate private source.
- *  - bounded `--tmpfs` mounts for `/tmp` and the `/agent` work/result root,
- *    plus bounded shared memory for native runtimes.
+ *  - bounded `--tmpfs` mounts for `/tmp` and shared memory, plus an
+ *    invocation-private disk-backed `/agent` runtime root.
  *  - fixed non-root uid/gid, `--cap-drop ALL`, `no-new-privileges`, a seccomp
  *    profile, and memory/CPU/PID/file-size/timeout bounds.
  */
@@ -87,8 +87,7 @@ function deriveEnclaveContainerSpec({ config, runId, invocationId, seedId, runti
     '--user', `${config.enclaveUid}:${config.enclaveGid}`,
     '--cap-drop', 'ALL',
     '--security-opt', 'no-new-privileges:true',
-    // Diagnostic experiment: isolate whether the enclave profile causes Copilot's SIGBUS.
-    '--security-opt', 'seccomp=unconfined',
+    '--security-opt', `seccomp=${config.enclaveSeccompPath}`,
     '--memory', config.memoryLimit,
     '--memory-swap', config.memoryLimit,
     '--cpus', String(config.cpuLimit),
@@ -97,9 +96,6 @@ function deriveEnclaveContainerSpec({ config, runId, invocationId, seedId, runti
     '--ulimit', 'nofile=1024:1024',
     '--shm-size', config.tmpfsLimit,
     '--tmpfs', `/tmp:rw,noexec,nosuid,nodev,size=${config.tmpfsLimit}`,
-    '--tmpfs',
-    `${config.enclaveMountDir}:rw,exec,nosuid,nodev,size=${config.tmpfsLimit},` +
-      `uid=${config.enclaveUid},gid=${config.enclaveGid},mode=0700`,
     '--hostname', config.enclaveHostname || 'enclave-agent',
     '--workdir', config.enclaveSeedPath,
     '--env', `AWF_ENCLAVE_AGENT_ENGINE=${config.engine}`,
@@ -123,6 +119,7 @@ function deriveEnclaveContainerSpec({ config, runId, invocationId, seedId, runti
     '-v', `${hostInvocationDir}/schema.json:${config.enclaveSchemaPath}:ro`,
     '-v', `${hostInvocationDir}/out:/awf/out:rw`,
     '-v', `${hostInvocationDir}/session.jsonl:/awf/session.jsonl:rw`,
+    '-v', `${hostInvocationDir}/agent:${config.enclaveMountDir}:rw`,
   ];
   if (config.githubEnabled) {
     launchArgs.push(

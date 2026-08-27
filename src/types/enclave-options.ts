@@ -157,11 +157,11 @@ export const ENCLAVE_AGENT_EXECUTOR_DEFAULTS: Readonly<
   profile: 'openai',
   model: '',
   timeout: 120,
-  // Both bounded tmpfs mounts count toward the container memory cgroup.
+  // Leave headroom for the agent plus bounded /tmp and shared-memory mounts.
   memoryLimit: '1g',
   cpuLimit: '1',
   pidsLimit: 128,
-  // Copilot extracts and memory-maps its native runtime beneath HOME.
+  // Bounds /tmp and shared memory; /agent is invocation-private disk storage.
   tmpfsLimit: '256m',
   maxOutputBytes: 8192,
   maxTaskBytes: 4096,
