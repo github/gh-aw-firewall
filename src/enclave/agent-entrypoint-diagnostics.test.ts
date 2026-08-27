@@ -254,6 +254,7 @@ describe('enclave agent protected entrypoint diagnostics', () => {
           path: 'agent-directory',
           entries: expect.any(Number),
           bytes: expect.any(Number),
+          largestFileBytes: expect.any(Number),
           truncated: false,
         }),
       ]),

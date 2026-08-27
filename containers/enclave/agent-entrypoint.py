@@ -86,6 +86,7 @@ def append_progress(stage: str, **metadata) -> None:
 
 def directory_usage(path: Path) -> dict:
     total_bytes = 0
+    largest_file_bytes = 0
     entries = 0
     truncated = False
     try:
@@ -96,7 +97,10 @@ def directory_usage(path: Path) -> dict:
                     truncated = True
                     break
                 try:
-                    total_bytes += (Path(root) / name).lstat().st_size
+                    entry_stat = (Path(root) / name).lstat()
+                    total_bytes += entry_stat.st_size
+                    if stat.S_ISREG(entry_stat.st_mode):
+                        largest_file_bytes = max(largest_file_bytes, entry_stat.st_size)
                 except OSError:
                     continue
             if truncated:
@@ -106,6 +110,7 @@ def directory_usage(path: Path) -> dict:
     return {
         "entries": min(entries, MAX_RESOURCE_ENTRIES),
         "bytes": total_bytes,
+        "largestFileBytes": largest_file_bytes,
         "truncated": truncated,
     }
 

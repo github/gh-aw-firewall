@@ -27,7 +27,7 @@
 const CLI_GRACE_MS = 5_000;
 
 /** Maximum file size the enclave may create, in bytes (per-file RLIMIT_FSIZE). */
-const ENCLAVE_MAX_FILE_BYTES = 32 * 1024 * 1024;
+const ENCLAVE_MAX_FILE_BYTES = 256 * 1024 * 1024;
 
 /** Labels shared by both enclave executors for unified orphan reconciliation. */
 const ENCLAVE_RUN_LABEL = 'awf.enclave.run';
