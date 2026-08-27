@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Run the pinned native Copilot CLI inside a enclave-agent enclave."""
 
+import errno
 import json
 import os
 import re
@@ -21,6 +22,7 @@ COPILOT_BIN = "/usr/local/bin/copilot"
 
 MAX_INPUT_BYTES = 64 * 1024
 MAX_TRANSCRIPT_BYTES = 1024 * 1024
+MAX_ENGINE_STREAM_BYTES = MAX_TRANSCRIPT_BYTES // 4
 MAX_DIAGNOSTIC_BYTES = 256 * 1024
 MAX_DIAGNOSTIC_FILES = 32
 MAX_STARTUP_RETRIES = 2
@@ -30,6 +32,13 @@ EXIT_INPUT_INVALID = 11
 EXIT_DEADLINE_EXCEEDED = 20
 EXIT_ENGINE_FAILED = 24
 EXIT_RESULT_WRITE_FAILED = 30
+
+
+def truncate_utf8(value: str, max_bytes: int) -> str:
+    encoded = value.encode("utf-8")
+    if len(encoded) <= max_bytes:
+        return value
+    return encoded[:max_bytes].decode("utf-8", errors="ignore")
 
 
 def append_event(event: dict) -> None:
@@ -68,6 +77,115 @@ def redact_diagnostics(value: str) -> str:
     return redacted
 
 
+def append_progress(stage: str, **metadata) -> None:
+    append_event({"event": "progress", "stage": stage, **metadata})
+
+
+def safe_os_error(error: OSError, operation: str) -> None:
+    error_number = error.errno if isinstance(error.errno, int) else None
+    category = {
+        errno.ENOENT: "not-found",
+        errno.EACCES: "permission-denied",
+        errno.ENOEXEC: "not-executable",
+        errno.ENOTDIR: "not-directory",
+        errno.EISDIR: "is-directory",
+        errno.EROFS: "read-only-filesystem",
+    }.get(error_number, "os-error")
+    exception = type(error).__name__
+    if exception not in {
+        "OSError",
+        "FileNotFoundError",
+        "PermissionError",
+        "NotADirectoryError",
+        "IsADirectoryError",
+    }:
+        exception = "OSError"
+    event = {
+        "event": "operation-error",
+        "operation": operation,
+        "exception": exception,
+        "category": category,
+    }
+    if error_number is not None:
+        event["errno"] = error_number
+        try:
+            event["strerror"] = os.strerror(error_number)
+        except (ValueError, OverflowError):
+            pass
+    append_event(event)
+
+
+def preflight_path(
+    identifier: str,
+    path: Path,
+    expected_type: str,
+    *,
+    executable: bool = False,
+    writable: bool = False,
+) -> OSError | None:
+    metadata = {
+        "event": "preflight",
+        "path": identifier,
+        "exists": False,
+        "type": "missing",
+    }
+    try:
+        path_stat = path.stat()
+    except OSError as error:
+        append_event(metadata)
+        return error
+
+    is_file = stat.S_ISREG(path_stat.st_mode)
+    is_directory = stat.S_ISDIR(path_stat.st_mode)
+    actual_type = "file" if is_file else "directory" if is_directory else "other"
+    metadata.update({"exists": True, "type": actual_type})
+    if executable:
+        metadata["executable"] = os.access(path, os.X_OK)
+    if writable:
+        metadata["writable"] = os.access(path, os.W_OK)
+    append_event(metadata)
+
+    type_matches = (
+        (expected_type == "file" and is_file)
+        or (expected_type == "directory" and is_directory)
+    )
+    if not type_matches:
+        error_number = errno.EISDIR if is_directory else errno.ENOTDIR
+        return OSError(error_number, os.strerror(error_number))
+    if executable and not metadata["executable"]:
+        return OSError(errno.ENOEXEC, os.strerror(errno.ENOEXEC))
+    if writable and not metadata["writable"]:
+        return PermissionError(errno.EACCES, os.strerror(errno.EACCES))
+    return None
+
+
+def run_preflight(copilot_logs: Path) -> bool:
+    checks = [
+        ("copilot-executable", Path(COPILOT_BIN), "file", True, False),
+        ("seed-directory", SEED_DIR, "directory", True, False),
+        ("task-input", TASK_PATH, "file", False, False),
+        ("schema-input", SCHEMA_PATH, "file", False, False),
+        ("output-file", OUT_PATH, "file", False, True),
+        ("session-log", SESSION_LOG_PATH, "file", False, True),
+        ("agent-directory", AGENT_DIR, "directory", True, True),
+        ("copilot-log-directory", copilot_logs, "directory", True, True),
+    ]
+    valid = True
+    for identifier, path, expected_type, executable, writable in checks:
+        error = preflight_path(
+            identifier,
+            path,
+            expected_type,
+            executable=executable,
+            writable=writable,
+        )
+        if error is not None:
+            safe_os_error(error, f"preflight-{identifier}")
+            valid = False
+    append_progress("preflight-completed", valid=valid)
+    return valid
+
+
 def read_copilot_diagnostics(log_dir: Path) -> str:
     chunks = []
     remaining = MAX_DIAGNOSTIC_BYTES
@@ -83,12 +201,14 @@ def read_copilot_diagnostics(log_dir: Path) -> str:
                 data = handle.read(remaining + 1)[:remaining]
         except OSError:
             continue
-        relative = path.relative_to(log_dir)
-        chunks.append(f"--- {relative}\n{data.decode('utf-8', errors='replace')}")
+        chunks.append(
+            f"--- diagnostic-{len(chunks) + 1}\n"
+            f"{data.decode('utf-8', errors='replace')}"
+        )
         remaining -= len(data)
         if remaining <= 0:
             break
-    return redact_diagnostics("\n".join(chunks))
+    return truncate_utf8(redact_diagnostics("\n".join(chunks)), MAX_DIAGNOSTIC_BYTES)
 
 
 def build_prompt(task: str, schema_text: str) -> str:
@@ -145,8 +265,8 @@ def append_engine_result(completed: subprocess.CompletedProcess) -> tuple[str, s
     append_event({
         "event": "engine-result",
         "exitCode": completed.returncode,
-        "stdout": stdout[:MAX_TRANSCRIPT_BYTES // 2],
-        "stderr": stderr[:MAX_TRANSCRIPT_BYTES // 2],
+        "stdout": truncate_utf8(redact_diagnostics(stdout), MAX_ENGINE_STREAM_BYTES),
+        "stderr": truncate_utf8(redact_diagnostics(stderr), MAX_ENGINE_STREAM_BYTES),
     })
     return stdout, stderr
 
@@ -155,6 +275,7 @@ def main() -> int:
     if os.environ.get("AWF_ENCLAVE_AGENT_ENGINE") != "copilot":
         append_event({"event": "failure", "category": "configuration-invalid"})
         return EXIT_CONFIGURATION_INVALID
+    append_progress("configuration-accepted", engine="copilot")
     try:
         task = read_bounded(TASK_PATH)
         schema_text = read_bounded(SCHEMA_PATH)
@@ -172,18 +293,41 @@ def main() -> int:
     except (KeyError, OSError, UnicodeDecodeError, ValueError, json.JSONDecodeError):
         append_event({"event": "failure", "category": "input-invalid"})
         return EXIT_INPUT_INVALID
+    append_progress(
+        "input-accepted",
+        taskBytes=len(task.encode("utf-8")),
+        schemaBytes=len(schema_text.encode("utf-8")),
+    )
 
-    (AGENT_DIR / "home").mkdir(mode=0o700, exist_ok=True)
-    (AGENT_DIR / "copilot").mkdir(mode=0o700, exist_ok=True)
-    copilot_logs = AGENT_DIR / "copilot-logs"
-    copilot_logs.mkdir(mode=0o700, exist_ok=True)
+    runtime_paths = [
+        ("home-directory", AGENT_DIR / "home"),
+        ("copilot-directory", AGENT_DIR / "copilot"),
+        ("copilot-log-directory", AGENT_DIR / "copilot-logs"),
+    ]
+    try:
+        for _, path in runtime_paths:
+            path.mkdir(mode=0o700, exist_ok=True)
+    except OSError as error:
+        safe_os_error(error, "runtime-path-creation")
+        append_event({"event": "failure", "category": "engine-failed"})
+        return EXIT_ENGINE_FAILED
+    copilot_logs = runtime_paths[-1][1]
+    append_progress(
+        "runtime-paths-ready",
+        paths=[identifier for identifier, _ in runtime_paths],
+    )
     append_event({
         "event": "session",
         "engine": "copilot",
-        "model": model,
-        "task": task,
-        "schema": json.loads(schema_text),
+        "taskBytes": len(task.encode("utf-8")),
+        "schemaBytes": len(schema_text.encode("utf-8")),
     })
+    if not run_preflight(copilot_logs):
+        diagnostics = read_copilot_diagnostics(copilot_logs)
+        if diagnostics:
+            append_event({"event": "engine-diagnostics", "log": diagnostics})
+        append_event({"event": "failure", "category": "engine-failed"})
+        return EXIT_ENGINE_FAILED
 
     command = [
         COPILOT_BIN,
@@ -214,36 +358,61 @@ def main() -> int:
         if remaining <= 0:
             break
         started = time.monotonic()
+        append_progress("engine-launch-attempt", attempt=attempt + 1)
         try:
-            completed = subprocess.run(
+            process = subprocess.Popen(
                 command,
                 cwd=SEED_DIR,
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                timeout=remaining,
-                check=False,
+                start_new_session=True,
             )
-        except subprocess.TimeoutExpired as error:
-            partial_stdout = (error.stdout or b"").decode("utf-8", errors="replace").strip()
-            partial_stderr = (error.stderr or b"").decode("utf-8", errors="replace")
-            append_event({
-                "event": "engine-result",
-                "exitCode": None,
-                "stdout": partial_stdout[:MAX_TRANSCRIPT_BYTES // 2],
-                "stderr": partial_stderr[:MAX_TRANSCRIPT_BYTES // 2],
-            })
+            append_progress("engine-started", attempt=attempt + 1)
+            try:
+                process_stdout, process_stderr = process.communicate(timeout=remaining)
+            except subprocess.TimeoutExpired:
+                os.killpg(process.pid, signal.SIGKILL)
+                process_stdout, process_stderr = process.communicate()
+                append_event({
+                    "event": "engine-result",
+                    "exitCode": None,
+                    "stdout": truncate_utf8(
+                        redact_diagnostics(process_stdout.decode("utf-8", errors="replace").strip()),
+                        MAX_ENGINE_STREAM_BYTES,
+                    ),
+                    "stderr": truncate_utf8(
+                        redact_diagnostics(process_stderr.decode("utf-8", errors="replace")),
+                        MAX_ENGINE_STREAM_BYTES,
+                    ),
+                })
+                diagnostics = read_copilot_diagnostics(copilot_logs)
+                if diagnostics:
+                    append_event({"event": "engine-diagnostics", "log": diagnostics})
+                append_event({"event": "failure", "category": "deadline-exceeded"})
+                return EXIT_DEADLINE_EXCEEDED
+            completed = subprocess.CompletedProcess(
+                command,
+                process.returncode,
+                process_stdout,
+                process_stderr,
+            )
+        except OSError as error:
+            safe_os_error(error, "engine-launch")
             diagnostics = read_copilot_diagnostics(copilot_logs)
             if diagnostics:
                 append_event({"event": "engine-diagnostics", "log": diagnostics})
-            append_event({"event": "failure", "category": "deadline-exceeded"})
-            return EXIT_DEADLINE_EXCEEDED
-        except OSError:
             append_event({"event": "failure", "category": "engine-failed"})
             return EXIT_ENGINE_FAILED
 
         stdout, _ = append_engine_result(completed)
         runtime = time.monotonic() - started
+        append_progress(
+            "engine-completed",
+            attempt=attempt + 1,
+            exitCode=completed.returncode,
+            runtimeMs=int(runtime * 1000),
+        )
         startup_crash = (
             completed.returncode in {-signal.SIGABRT, -signal.SIGSEGV}
             and not stdout
@@ -267,15 +436,20 @@ def main() -> int:
             append_event({"event": "engine-diagnostics", "log": diagnostics})
         append_event({"event": "failure", "category": "engine-failed"})
         return EXIT_ENGINE_FAILED
+    append_progress("output-normalization-started")
     result = normalize_copilot_output(stdout, schema_text)
     if not result or len(result.encode("utf-8")) > max_output:
         append_event({"event": "failure", "category": "result-write-failed"})
         return EXIT_RESULT_WRITE_FAILED
+    append_progress("output-normalized", outputBytes=len(result.encode("utf-8")))
+    append_progress("output-write-attempt")
     try:
         OUT_PATH.write_text(result, encoding="utf-8")
-    except OSError:
+    except OSError as error:
+        safe_os_error(error, "output-write")
         append_event({"event": "failure", "category": "result-write-failed"})
         return EXIT_RESULT_WRITE_FAILED
+    append_progress("output-written", outputBytes=len(result.encode("utf-8")))
     append_event({"event": "success"})
     return 0
 

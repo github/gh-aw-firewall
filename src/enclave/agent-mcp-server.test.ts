@@ -416,8 +416,10 @@ describe('unified enclave executor accounting', () => {
   it('buckets an enclave engine failure identically to a rejected repository', async () => {
     async function run(runner: Record<string, unknown>, seedMap: Map<string, unknown>) {
       let now = 0;
+      const audit = { failure: jest.fn(), invocation: jest.fn() };
       const broker = agentBroker({
         seedMap,
+        audit,
         ledger: { tryDebit: () => true },
         clock: { nowMs: () => now, sleep: async (ms: number) => { now += ms; } },
         runner,
@@ -429,7 +431,7 @@ describe('unified enclave executor accounting', () => {
       });
       let result = '';
       await broker.handle(validAgentArguments, (value: string) => { result = value; });
-      return { now, result };
+      return { audit, now, result };
     }
     const engineFailure = await run(
       { runScriptContainer: async () => ({ exitCode: 24, timedOut: false }) },
@@ -439,6 +441,11 @@ describe('unified enclave executor accounting', () => {
     expect(engineFailure.result).toBe(CANONICAL_ERROR_RESPONSE_JSON);
     expect(unknownRepo.result).toBe(CANONICAL_ERROR_RESPONSE_JSON);
     expect(engineFailure.now).toBe(unknownRepo.now);
+    expect(engineFailure.audit.failure).toHaveBeenCalledWith(
+      expect.any(String),
+      'enclave-engine-failed',
+      'exit=24',
+    );
   });
 
   it('never leaks an enclave workspace when preservation and teardown are wired', async () => {
