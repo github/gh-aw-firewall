@@ -57,10 +57,30 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install gh-aw
-        uses: github/gh-aw-actions/setup-cli@2a78d04403fdc6907d0f05327cffac9dbad5312d # v0.87.5
+      - name: Checkout enclave-compatible gh-aw compiler
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          version: v0.87.5
+          repository: github/gh-aw
+          ref: 1cf55bdc4f19e5f371b1e7fe888df649695ee48a
+          path: .tmp/gh-aw-compiler
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: .tmp/gh-aw-compiler/go.mod
+          cache: false
+
+      - name: Install enclave-compatible gh-aw
+        run: |
+          mkdir -p "$HOME/.local/share/gh/extensions/gh-aw"
+          go build \
+            -C .tmp/gh-aw-compiler \
+            -ldflags="-X main.version=v0.87.5-108-g1cf55bdc4f -X main.isRelease=true" \
+            -o "$HOME/.local/share/gh/extensions/gh-aw/gh-aw" \
+            ./cmd/gh-aw
+          rm -rf .tmp/gh-aw-compiler
+          gh aw version
 
       - name: Compile + generate SBOMs (Syft)
         env:
