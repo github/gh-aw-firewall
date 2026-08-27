@@ -2,7 +2,8 @@
 
 FROM python:3.14.7-alpine3.24 AS enclave-script
 
-RUN python3 -c 'import json, pathlib, sys; sys.exit(0)' \
+RUN apk upgrade --no-cache \
+    && python3 -c 'import json, pathlib, sys; sys.exit(0)' \
     && test -x /usr/local/bin/python3 \
     && rm -f /sbin/apk
 COPY enclave/script-entrypoint.py /usr/local/bin/run-enclave-script
@@ -47,7 +48,8 @@ RUN chmod 0555 /usr/local/bin/run-enclave-agent /usr/local/bin/gh \
 
 FROM node:22.23.2-alpine3.24 AS enclave-mcp-server
 
-RUN apk add --no-cache docker-cli \
+RUN apk upgrade --no-cache \
+    && apk add --no-cache docker-cli \
     && test -x /usr/bin/docker \
     && rm -rf /usr/local/lib/node_modules/npm \
     && rm -f /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack

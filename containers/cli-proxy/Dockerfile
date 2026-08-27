@@ -26,10 +26,11 @@ FROM node:22.23.2-alpine3.24
 # (Alpine 3.24 ships 8.20.0-r1 by default; the constraint forces the patched build).
 # The alpine community repo includes github-cli — we replace it below with the
 # official release binary to control the exact Go toolchain and module versions.
-RUN apk add --no-cache \
-    "curl>=8.21.0-r0" \
-    ca-certificates \
-    bash
+RUN apk upgrade --no-cache \
+    && apk add --no-cache \
+        "curl>=8.21.0-r0" \
+        ca-certificates \
+        bash
 
 # Build the pinned GitHub CLI release with the patched Go toolchain.
 COPY --from=gh-build /tmp/cli-2.97.0/bin/gh /usr/local/bin/gh
