@@ -182,6 +182,43 @@
       },
       "additionalProperties": true
     },
+    "ai_credits_accounting_policy": {
+      "type": "string",
+      "description": "Accounting policy applied when resolving pricing for this model (e.g. 'concrete_model', 'unknown_model_fallback', 'dynamic_selector_runtime', 'dynamic_selector_fallback'). Present only when apiProxy.maxAiCredits is configured."
+    },
+    "ai_credits_dynamic_selector": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Name of the dynamic model selector used to resolve pricing, when the model was routed through one. Null when no dynamic selector applied. Present only when apiProxy.maxAiCredits is configured."
+    },
+    "ai_credits_fallback_pricing_used": {
+      "type": "boolean",
+      "description": "Whether fallback (non-curated) pricing was used to compute AI credits for this call. Present only when apiProxy.maxAiCredits is configured."
+    },
+    "ai_credits_pricing_api_version": {
+      "type": "string",
+      "description": "API version of the pricing data source used to resolve this model's cost, when known. Present only when apiProxy.maxAiCredits is configured and the pricing source reports a version."
+    },
+    "ai_credits_pricing_discount_percent": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 100,
+      "description": "Promotional discount percentage applied to this model's pricing, when known. Present only when apiProxy.maxAiCredits is configured and a promotion is active."
+    },
+    "ai_credits_pricing_observed_at": {
+      "type": "string",
+      "description": "Timestamp (ISO 8601) at which the pricing data used for this call was observed/fetched, when known. Present only when apiProxy.maxAiCredits is configured."
+    },
+    "ai_credits_pricing_source": {
+      "type": "string",
+      "description": "Source of the pricing data used to compute AI credits (e.g. 'curated', 'models.dev', 'configured_default', 'builtin_fallback'). Present only when apiProxy.maxAiCredits is configured."
+    },
+    "ai_credits_pricing_tier": {
+      "type": "string",
+      "description": "Pricing tier applied when resolving cost for this model (e.g. 'default', 'conservative'). Present only when apiProxy.maxAiCredits is configured."
+    },
     "ai_credits_this_response": {
       "type": "number",
       "minimum": 0,
