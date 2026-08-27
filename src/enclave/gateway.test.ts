@@ -176,7 +176,7 @@ describe('enclave mcpg handoff', () => {
         headers: { Authorization: 'Bearer ${AWF_ENCLAVE_MCP_CAPABILITY}' },
         tools: ['enclave_run_script', 'enclave_run_agent'],
         connectTimeout: 120,
-        toolTimeout: 630,
+        toolTimeout: 660,
       },
       handoff: {
         capabilityEnv: 'AWF_ENCLAVE_MCP_CAPABILITY',
@@ -252,7 +252,7 @@ describe('enclave mcpg handoff', () => {
     };
     expect(buildEnclaveMcpgUpstreamContract(wrapperConfig).server).toMatchObject({
       tools: ['enclave_run_agent'],
-      toolTimeout: 630,
+      toolTimeout: 660,
     });
   });
 
@@ -543,8 +543,8 @@ describe('enclave mcpg handoff', () => {
     expect(mockExeca).toHaveBeenNthCalledWith(
       1,
       'docker',
-      ['compose', 'stop', '-t', '630', 'enclave-mcp-server'],
-      expect.objectContaining({ cwd: '/tmp/awf-test', timeout: 645_000 }),
+      ['compose', 'stop', '-t', '660', 'enclave-mcp-server'],
+      expect.objectContaining({ cwd: '/tmp/awf-test', timeout: 675_000 }),
     );
     expect(mockExeca).toHaveBeenNthCalledWith(
       2,

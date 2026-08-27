@@ -60,7 +60,7 @@ release. Older AWF versions reject the closed `github` field; there is no
 permissive fallback.
 
 The compiler-generated upstream uses `connectTimeout: 120` and
-`toolTimeout: 630`, covering the maximum 600-second disclosure bucket plus a
+`toolTimeout: 660`, covering the maximum 600-second disclosure bucket plus a
 bounded transport allowance. Its tool allowlist contains only the enabled
 executor tools. The compiler generates a fresh 64-character lowercase
 hexadecimal capability, substitutes it into the mcpg authorization header, and
@@ -76,7 +76,7 @@ gateway, and readiness errors never log response bodies, headers, or
 capabilities.
 
 After primary-agent work stops, AWF gives the enclave server a bounded
-630-second stop grace. The server closes admissions, drains its single execution
+660-second stop grace. The server closes admissions, drains its single execution
 lane, reconciles labelled enclaves, and exits before AWF preserves audit
 artifacts and disconnects mcpg from the private control network. AWF never stops
 or removes the externally owned mcpg container.

@@ -1770,7 +1770,7 @@ enclaves:
 
 At most one entry MAY exist per executor kind, and each entry MUST declare exactly one executor key. Every entry's `repos` list is merged into one trusted repository catalog: a repository shared by both entries MUST declare the same `sensitivity`, because sensitivity fixes one shared per-run information budget that both executors debit.
 
-`timeout` is a per-invocation wall-clock bound in seconds. It defaults to `30` for `script` entries and `120` for `agent` entries, and values above `540` are rejected. The canonical enclave MCP tools use a fixed `toolTimeout` of `630` seconds, covering the 600-second disclosure bucket plus a 30-second transport allowance.
+`timeout` is a per-invocation wall-clock bound in seconds. It defaults to `30` for `script` entries and `120` for `agent` entries, and values above `540` are rejected. The canonical enclave MCP tools use a fixed `toolTimeout` of `660` seconds, covering the 600-second disclosure bucket plus a 60-second transport allowance.
 
 `gvisor` requires an exactly registered `runsc` runtime and never falls back. `sbx` remains fail-closed for both executors until the audited capability proof lands.
 

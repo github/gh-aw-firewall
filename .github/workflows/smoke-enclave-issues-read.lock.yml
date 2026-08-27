@@ -1,5 +1,5 @@
-# gh-aw-metadata: {"schema_version":"v4","frontmatter_hash":"9473741678078262e3cc40fe399fb7a2e78177c5ffff105651fb0f61bc923f15","body_hash":"2da025901e8f70a0197dd99c6f702a98be6386e13d4b5ef64f2126e32847136a","compiler_version":"988b210efe36c3c54859ae0506402658c49859c7","agent_id":"copilot","engine_versions":{"copilot":"1.0.34"}}
-# gh-aw-manifest: {"version":1,"secrets":["GH_AW_DEFAULT_OTLP_HEADERS","GH_AW_GITHUB_MCP_SERVER_TOKEN","GH_AW_GITHUB_TOKEN","GITHUB_TOKEN"],"actions":[{"repo":"actions/cache/restore","sha":"55cc8345863c7cc4c66a329aec7e433d2d1c52a9","version":"v6.1.0"},{"repo":"actions/cache/save","sha":"55cc8345863c7cc4c66a329aec7e433d2d1c52a9","version":"v6.1.0"},{"repo":"actions/checkout","sha":"3d3c42e5aac5ba805825da76410c181273ba90b1","version":"v7.0.1"},{"repo":"actions/download-artifact","sha":"3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c","version":"v8.0.1"},{"repo":"actions/github-script","sha":"3a2844b7e9c422d3c10d287c895573f7108da1b3","version":"v9.0.0"},{"repo":"actions/upload-artifact","sha":"043fb46d1a93c77aae656e7c1c64a875d1fc6a0a","version":"v7.0.1"},{"repo":"github/gh-aw/actions/setup","sha":"988b210efe36c3c54859ae0506402658c49859c7","version":"988b210efe36c3c54859ae0506402658c49859c7"}],"containers":[{"image":"ghcr.io/github/gh-aw-firewall/agent:0.28.9","digest":"sha256:54b2fb3068efc15a4cc1bd4033f8fa056a9b1779baeba0cb80ae95ea55e7e343","pinned_image":"ghcr.io/github/gh-aw-firewall/agent:0.28.9@sha256:54b2fb3068efc15a4cc1bd4033f8fa056a9b1779baeba0cb80ae95ea55e7e343"},{"image":"ghcr.io/github/gh-aw-firewall/api-proxy:0.28.9","digest":"sha256:a0ffb1dc926c6e5a500b336893e032a8f167d3db43c869be886874ef14280bb8","pinned_image":"ghcr.io/github/gh-aw-firewall/api-proxy:0.28.9@sha256:a0ffb1dc926c6e5a500b336893e032a8f167d3db43c869be886874ef14280bb8"},{"image":"ghcr.io/github/gh-aw-firewall/enclave-agent:0.28.9","digest":"sha256:8d548153f18d9b44406bebe3f71e2e080c15c89cbf8c0f72e8aa7bc0681efcf2","pinned_image":"ghcr.io/github/gh-aw-firewall/enclave-agent:0.28.9@sha256:8d548153f18d9b44406bebe3f71e2e080c15c89cbf8c0f72e8aa7bc0681efcf2"},{"image":"ghcr.io/github/gh-aw-firewall/enclave-mcp-server:0.28.9","digest":"sha256:9edfa59fe0cf96f86c0be2f3280743a95032cf730526a204f729a06fbe7e4727","pinned_image":"ghcr.io/github/gh-aw-firewall/enclave-mcp-server:0.28.9@sha256:9edfa59fe0cf96f86c0be2f3280743a95032cf730526a204f729a06fbe7e4727"},{"image":"ghcr.io/github/gh-aw-firewall/squid:0.28.9","digest":"sha256:3d5dba0b0a139bbb11b5d5b8b44f277d2b18f69cf43090e3c283d750cf864baa","pinned_image":"ghcr.io/github/gh-aw-firewall/squid:0.28.9@sha256:3d5dba0b0a139bbb11b5d5b8b44f277d2b18f69cf43090e3c283d750cf864baa"},{"image":"ghcr.io/github/gh-aw-mcpg:v0.4.13","digest":"sha256:ec4008521c610e1113ed557ecec0ff64a2c2111e4cfa817bab54d9b7da24c7cc","pinned_image":"ghcr.io/github/gh-aw-mcpg:v0.4.13@sha256:ec4008521c610e1113ed557ecec0ff64a2c2111e4cfa817bab54d9b7da24c7cc"},{"image":"ghcr.io/github/gh-aw-node","digest":"sha256:529d02eb970b1161aa25c593a9c3df57fdfad5a8add328cb3b6eccef66f3183b","pinned_image":"ghcr.io/github/gh-aw-node@sha256:529d02eb970b1161aa25c593a9c3df57fdfad5a8add328cb3b6eccef66f3183b"},{"image":"ghcr.io/github/github-mcp-server:v1.11.0","digest":"sha256:fbec75de11c255213fa08d80fb166abe73d851fff631c51c0079872967720699","pinned_image":"ghcr.io/github/github-mcp-server:v1.11.0@sha256:fbec75de11c255213fa08d80fb166abe73d851fff631c51c0079872967720699"}],"mcp_servers":[{"name":"awf-enclave","tools":["*"]},{"name":"github","tools":["get_me"]},{"name":"safeoutputs","tools":["create_issue","missing_data","missing_tool","noop"]}]}
+# gh-aw-metadata: {"schema_version":"v4","frontmatter_hash":"9473741678078262e3cc40fe399fb7a2e78177c5ffff105651fb0f61bc923f15","body_hash":"2da025901e8f70a0197dd99c6f702a98be6386e13d4b5ef64f2126e32847136a","compiler_version":"v0.87.7-30-g988b210efe-dirty","agent_id":"copilot","engine_versions":{"copilot":"1.0.34"}}
+# gh-aw-manifest: {"version":1,"secrets":["GH_AW_DEFAULT_OTLP_HEADERS","GH_AW_GITHUB_MCP_SERVER_TOKEN","GH_AW_GITHUB_TOKEN","GITHUB_TOKEN"],"actions":[{"repo":"actions/cache/restore","sha":"55cc8345863c7cc4c66a329aec7e433d2d1c52a9","version":"v6.1.0"},{"repo":"actions/cache/save","sha":"55cc8345863c7cc4c66a329aec7e433d2d1c52a9","version":"v6.1.0"},{"repo":"actions/checkout","sha":"3d3c42e5aac5ba805825da76410c181273ba90b1","version":"v7.0.1"},{"repo":"actions/download-artifact","sha":"3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c","version":"v8.0.1"},{"repo":"actions/github-script","sha":"3a2844b7e9c422d3c10d287c895573f7108da1b3","version":"v9.0.0"},{"repo":"actions/upload-artifact","sha":"043fb46d1a93c77aae656e7c1c64a875d1fc6a0a","version":"v7.0.1"},{"repo":"github/gh-aw/actions/setup","sha":"042b8abc880ecd5b2430eb68dc0d684f58674eea","version":"042b8abc880ecd5b2430eb68dc0d684f58674eea"}],"containers":[{"image":"ghcr.io/github/gh-aw-firewall/agent:0.28.9","digest":"sha256:54b2fb3068efc15a4cc1bd4033f8fa056a9b1779baeba0cb80ae95ea55e7e343","pinned_image":"ghcr.io/github/gh-aw-firewall/agent:0.28.9@sha256:54b2fb3068efc15a4cc1bd4033f8fa056a9b1779baeba0cb80ae95ea55e7e343"},{"image":"ghcr.io/github/gh-aw-firewall/api-proxy:0.28.9","digest":"sha256:a0ffb1dc926c6e5a500b336893e032a8f167d3db43c869be886874ef14280bb8","pinned_image":"ghcr.io/github/gh-aw-firewall/api-proxy:0.28.9@sha256:a0ffb1dc926c6e5a500b336893e032a8f167d3db43c869be886874ef14280bb8"},{"image":"ghcr.io/github/gh-aw-firewall/enclave-agent:0.28.9","digest":"sha256:8d548153f18d9b44406bebe3f71e2e080c15c89cbf8c0f72e8aa7bc0681efcf2","pinned_image":"ghcr.io/github/gh-aw-firewall/enclave-agent:0.28.9@sha256:8d548153f18d9b44406bebe3f71e2e080c15c89cbf8c0f72e8aa7bc0681efcf2"},{"image":"ghcr.io/github/gh-aw-firewall/enclave-mcp-server:0.28.9","digest":"sha256:9edfa59fe0cf96f86c0be2f3280743a95032cf730526a204f729a06fbe7e4727","pinned_image":"ghcr.io/github/gh-aw-firewall/enclave-mcp-server:0.28.9@sha256:9edfa59fe0cf96f86c0be2f3280743a95032cf730526a204f729a06fbe7e4727"},{"image":"ghcr.io/github/gh-aw-firewall/squid:0.28.9","digest":"sha256:3d5dba0b0a139bbb11b5d5b8b44f277d2b18f69cf43090e3c283d750cf864baa","pinned_image":"ghcr.io/github/gh-aw-firewall/squid:0.28.9@sha256:3d5dba0b0a139bbb11b5d5b8b44f277d2b18f69cf43090e3c283d750cf864baa"},{"image":"ghcr.io/github/gh-aw-mcpg:v0.4.13","digest":"sha256:ec4008521c610e1113ed557ecec0ff64a2c2111e4cfa817bab54d9b7da24c7cc","pinned_image":"ghcr.io/github/gh-aw-mcpg:v0.4.13@sha256:ec4008521c610e1113ed557ecec0ff64a2c2111e4cfa817bab54d9b7da24c7cc"},{"image":"ghcr.io/github/gh-aw-node","digest":"sha256:529d02eb970b1161aa25c593a9c3df57fdfad5a8add328cb3b6eccef66f3183b","pinned_image":"ghcr.io/github/gh-aw-node@sha256:529d02eb970b1161aa25c593a9c3df57fdfad5a8add328cb3b6eccef66f3183b"},{"image":"ghcr.io/github/github-mcp-server:v1.11.0","digest":"sha256:fbec75de11c255213fa08d80fb166abe73d851fff631c51c0079872967720699","pinned_image":"ghcr.io/github/github-mcp-server:v1.11.0@sha256:fbec75de11c255213fa08d80fb166abe73d851fff631c51c0079872967720699"}],"mcp_servers":[{"name":"awf-enclave","tools":["*"]},{"name":"github","tools":["get_me"]},{"name":"safeoutputs","tools":["create_issue","missing_data","missing_tool","noop"]}]}
 # This file was automatically generated by gh-aw. DO NOT EDIT. To debug this workflow, load the skill at https://github.com/github/gh-aw/blob/main/debug.md
 #
 #    ___                   _   _
@@ -42,7 +42,7 @@
 #   - actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
 #   - actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0 (source v9)
 #   - actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-#   - github/gh-aw/actions/setup@988b210efe36c3c54859ae0506402658c49859c7 # 988b210efe36c3c54859ae0506402658c49859c7
+#   - github/gh-aw/actions/setup@042b8abc880ecd5b2430eb68dc0d684f58674eea # 042b8abc880ecd5b2430eb68dc0d684f58674eea
 #
 # Container images used:
 #   -
@@ -110,7 +110,7 @@ jobs:
     steps:
       - name: Setup Scripts
         id: setup
-        uses: github/gh-aw/actions/setup@988b210efe36c3c54859ae0506402658c49859c7 # 988b210efe36c3c54859ae0506402658c49859c7
+        uses: github/gh-aw/actions/setup@042b8abc880ecd5b2430eb68dc0d684f58674eea # 042b8abc880ecd5b2430eb68dc0d684f58674eea
         with:
           destination: ${{ runner.temp }}/gh-aw/actions
           job-name: ${{ github.job }}
@@ -396,7 +396,7 @@ jobs:
     steps:
       - name: Setup Scripts
         id: setup
-        uses: github/gh-aw/actions/setup@988b210efe36c3c54859ae0506402658c49859c7 # 988b210efe36c3c54859ae0506402658c49859c7
+        uses: github/gh-aw/actions/setup@042b8abc880ecd5b2430eb68dc0d684f58674eea # 042b8abc880ecd5b2430eb68dc0d684f58674eea
         with:
           destination: ${{ runner.temp }}/gh-aw/actions
           job-name: ${{ github.job }}
@@ -755,7 +755,7 @@ jobs:
 
           mkdir -p "$HOME/.copilot"
           GH_AW_NODE=$(which node 2>/dev/null || command -v node 2>/dev/null || echo node)
-          cat << GH_AW_MCP_CONFIG_7b36e4fe3fc5ce28_EOF | "$GH_AW_NODE" "${RUNNER_TEMP}/gh-aw/actions/start_mcp_gateway.cjs"
+          cat << GH_AW_MCP_CONFIG_516ea4508a4adc8b_EOF | "$GH_AW_NODE" "${RUNNER_TEMP}/gh-aw/actions/start_mcp_gateway.cjs"
           {
             "mcpServers": {
               "awf-enclave": {
@@ -764,7 +764,7 @@ jobs:
                 "headers": {"Authorization": "Bearer \${AWF_ENCLAVE_MCP_CAPABILITY}"},
                 "tools": ["enclave_run_agent"],
                 "connectTimeout": 120,
-                "toolTimeout": 630
+                "toolTimeout": 660
               },
               "github": {
                 "type": "stdio",
@@ -838,7 +838,7 @@ jobs:
               }
             }
           }
-          GH_AW_MCP_CONFIG_7b36e4fe3fc5ce28_EOF
+          GH_AW_MCP_CONFIG_516ea4508a4adc8b_EOF
       - name: Mount MCP servers as CLIs
         id: mount-mcp-clis
         continue-on-error: true
@@ -1170,7 +1170,7 @@ jobs:
     steps:
       - name: Setup Scripts
         id: setup
-        uses: github/gh-aw/actions/setup@988b210efe36c3c54859ae0506402658c49859c7 # 988b210efe36c3c54859ae0506402658c49859c7
+        uses: github/gh-aw/actions/setup@042b8abc880ecd5b2430eb68dc0d684f58674eea # 042b8abc880ecd5b2430eb68dc0d684f58674eea
         with:
           destination: ${{ runner.temp }}/gh-aw/actions
           job-name: ${{ github.job }}
@@ -1443,7 +1443,7 @@ jobs:
     steps:
       - name: Setup Scripts
         id: setup
-        uses: github/gh-aw/actions/setup@988b210efe36c3c54859ae0506402658c49859c7 # 988b210efe36c3c54859ae0506402658c49859c7
+        uses: github/gh-aw/actions/setup@042b8abc880ecd5b2430eb68dc0d684f58674eea # 042b8abc880ecd5b2430eb68dc0d684f58674eea
         with:
           destination: ${{ runner.temp }}/gh-aw/actions
           job-name: ${{ github.job }}
