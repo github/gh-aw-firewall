@@ -2,8 +2,9 @@
 # Routes through Squid to respect domain whitelisting
 FROM node:22.23.2-alpine3.24
 
-# Install curl for healthchecks (>=8.21.0-r0 to fix CVE in 8.20.x)
-RUN apk add --no-cache "curl>=8.21.0-r0"
+# Install current Alpine security updates and curl for healthchecks.
+RUN apk upgrade --no-cache \
+    && apk add --no-cache "curl>=8.21.0-r0"
 
 # Replace the vulnerable npm 10.x bundled with Node 22.23.2 with npm 11.18.0.
 # npm 11.18.0 bundles: tar 7.5.19 (fixes GHSA-23hp-3jrh-7fpw/GHSA-8x88-c5mf-7j5w),
