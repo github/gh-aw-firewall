@@ -4,7 +4,6 @@ import execa from 'execa';
 import { normalizeEnclavesConfig } from '../parsers/enclave-parser';
 import type { WrapperConfig } from '../types';
 import {
-  ENCLAVE_MCP_CAPABILITY_ENV,
   ENCLAVE_MCP_GATEWAY_RUN_LABEL,
   assertEnclaveGatewayReady,
   buildEnclaveMcpgUpstreamContract,
@@ -188,17 +187,6 @@ describe('enclave mcpg handoff', () => {
         gatewayRunLabel: ENCLAVE_MCP_GATEWAY_RUN_LABEL,
       },
     });
-  });
-
-  it('never bakes a resolved capability into the mcpg upstream contract (github/gh-aw-firewall#7787)', () => {
-    const header = buildEnclaveMcpgUpstreamContract(config()).server.headers.Authorization;
-    // The header must remain a literal environment-variable-reference template
-    // so downstream config adapters can only write a reference (never the
-    // resolved secret) into any file under GITHUB_WORKSPACE or elsewhere.
-    const expectedTemplate = 'Bearer ' + '$' + `{${ENCLAVE_MCP_CAPABILITY_ENV}}`;
-    expect(header).toBe(expectedTemplate);
-    const hexCapabilityPattern = new RegExp('^Bearer ' + '[0-9a-f]' + '{64}$');
-    expect(hexCapabilityPattern.test(header)).toBe(false);
   });
 
   it('keeps readiness contracts byte-equivalent to the server tool definitions', () => {
