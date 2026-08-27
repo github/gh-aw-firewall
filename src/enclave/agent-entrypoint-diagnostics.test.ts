@@ -117,6 +117,7 @@ function runHarness(scenario: string): HarnessResult {
   try {
     const result = spawnSync('python3', ['-c', harness], {
       encoding: 'utf8',
+      maxBuffer: 8 * 1024 * 1024,
       env: {
         ...process.env,
         ENTRYPOINT: entrypoint,
