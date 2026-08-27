@@ -374,7 +374,10 @@ def main() -> int:
             try:
                 process_stdout, process_stderr = process.communicate(timeout=remaining)
             except subprocess.TimeoutExpired:
-                os.killpg(process.pid, signal.SIGKILL)
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
                 process_stdout, process_stderr = process.communicate()
                 append_event({
                     "event": "engine-result",
