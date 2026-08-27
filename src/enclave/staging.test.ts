@@ -57,6 +57,10 @@ describe('enclave staging', () => {
         );
         fs.writeFileSync(path.join(destination, '.git', 'hooks', 'post-checkout'), 'malicious');
         fs.writeFileSync(path.join(destination, 'README.md'), 'private');
+        fs.mkdirSync(path.join(destination, 'src'), { mode: 0o700 });
+        fs.writeFileSync(path.join(destination, 'src', 'run.sh'), '#!/bin/sh\n', {
+          mode: 0o700,
+        });
       }
       return { stdout: args[0] === 'rev-parse' ? '0123456789abcdef0123456789abcdef01234567\n' : '' };
     };
@@ -75,7 +79,11 @@ describe('enclave staging', () => {
       const seed = path.join(paths.seedsDir, result.seeds[0].seedId);
       expect(fs.existsSync(path.join(seed, '.git', 'hooks'))).toBe(false);
       expect(fs.readFileSync(path.join(seed, '.git', 'config'), 'utf8')).not.toContain(TOKEN);
-      expect(fs.statSync(path.join(seed, 'README.md')).mode & 0o222).toBe(0);
+      expect(fs.statSync(seed).mode & 0o777).toBe(0o555);
+      expect(fs.statSync(path.join(seed, 'src')).mode & 0o777).toBe(0o555);
+      expect(fs.statSync(path.join(seed, 'README.md')).mode & 0o777).toBe(0o444);
+      expect(fs.statSync(path.join(seed, '.git', 'config')).mode & 0o777).toBe(0o444);
+      expect(fs.statSync(path.join(seed, 'src', 'run.sh')).mode & 0o777).toBe(0o555);
     } finally {
       releaseSeedPermissions(paths.seedsDir);
       fs.rmSync(workDir, { recursive: true, force: true });

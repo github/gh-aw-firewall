@@ -225,9 +225,18 @@ function walkAndChmod(target: string, transform: (mode: number, isDir: boolean) 
   fs.chmodSync(target, transform(stat.mode & 0o7777, stat.isDirectory()));
 }
 
-/** Strips every write bit from a staged seed so it becomes immutable. */
+/**
+ * Makes a staged seed immutable and readable by the fixed non-root enclave UID.
+ *
+ * The staging process runs as the host user, while the executor runs as
+ * 65534:65534. Preserve whether regular files are executable, but normalize
+ * access for the read-only bind mount so the executor can traverse the tree.
+ */
 function makeSeedReadOnly(seedPath: string): void {
-  walkAndChmod(seedPath, (mode) => mode & ~0o222);
+  walkAndChmod(seedPath, (mode, isDir) => {
+    if (isDir) return 0o555;
+    return (mode & 0o111) !== 0 ? 0o555 : 0o444;
+  });
 }
 
 /**
