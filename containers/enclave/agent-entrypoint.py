@@ -306,13 +306,13 @@ def main() -> int:
         ("copilot-directory", AGENT_DIR / "copilot"),
         ("copilot-log-directory", AGENT_DIR / "copilot-logs"),
     ]
-    try:
-        for _, path in runtime_paths:
+    for identifier, path in runtime_paths:
+        try:
             path.mkdir(mode=0o700, exist_ok=True)
-    except OSError as error:
-        safe_os_error(error, "runtime-path-creation")
-        append_event({"event": "failure", "category": "engine-failed"})
-        return EXIT_ENGINE_FAILED
+        except OSError as error:
+            safe_os_error(error, f"runtime-path-creation-{identifier}")
+            append_event({"event": "failure", "category": "engine-failed"})
+            return EXIT_ENGINE_FAILED
     copilot_logs = runtime_paths[-1][1]
     append_progress(
         "runtime-paths-ready",
