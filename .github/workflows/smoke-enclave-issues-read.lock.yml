@@ -205,13 +205,6 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          sparse-checkout: |
-            .github
-            .agents
-            .claude
-            .codex
-            .gemini
-            .pi
           sparse-checkout-cone-mode: true
           fetch-depth: 1
       - name: Save agent config folders for base branch restoration
@@ -919,7 +912,16 @@ jobs:
       - name: Copy Copilot session state files to logs
         if: always()
         continue-on-error: true
-        run: bash "${RUNNER_TEMP}/gh-aw/actions/copy_copilot_session_state.sh"
+        run: |
+          SESSION_STATE_SRC="/tmp/gh-aw/sandbox/agent/session-state"
+          LOGS_DIR="/tmp/gh-aw/sandbox/agent/logs"
+          if [ -d "$SESSION_STATE_SRC" ] && [ -n "$(ls -A "$SESSION_STATE_SRC" 2>/dev/null)" ]; then
+            mkdir -p "$LOGS_DIR/session-state"
+            cp -rp "$SESSION_STATE_SRC/." "$LOGS_DIR/session-state/"
+            echo "Copied session state to $LOGS_DIR/session-state"
+          else
+            echo "No session state found at $SESSION_STATE_SRC"
+          fi
       - name: Stop MCP Gateway
         if: always()
         continue-on-error: true
