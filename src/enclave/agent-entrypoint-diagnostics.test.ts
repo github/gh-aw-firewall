@@ -32,6 +32,7 @@ module.OUT_PATH = root / "out"
 module.SESSION_LOG_PATH = root / "session.jsonl"
 module.AGENT_DIR = root / "agent"
 module.TEMP_DIR = root / "tmp"
+module.SHARED_MEMORY_DIR = root / "shm"
 module.COPILOT_BIN = str(root / "copilot")
 
 if scenario == "bounds":
@@ -61,6 +62,7 @@ if scenario == "bounds":
 module.SEED_DIR.mkdir()
 module.AGENT_DIR.mkdir()
 module.TEMP_DIR.mkdir()
+module.SHARED_MEMORY_DIR.mkdir()
 module.TASK_PATH.write_text(os.environ["PRIVATE_TASK"], encoding="utf-8")
 module.SCHEMA_PATH.write_text('{"type":"boolean"}', encoding="utf-8")
 module.OUT_PATH.write_text("", encoding="utf-8")
@@ -238,6 +240,11 @@ describe('enclave agent protected entrypoint diagnostics', () => {
       filesystems: expect.arrayContaining([
         expect.objectContaining({
           path: 'agent-directory',
+          capacityBytes: expect.any(Number),
+          availableBytes: expect.any(Number),
+        }),
+        expect.objectContaining({
+          path: 'shared-memory',
           capacityBytes: expect.any(Number),
           availableBytes: expect.any(Number),
         }),

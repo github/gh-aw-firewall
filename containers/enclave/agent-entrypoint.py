@@ -19,6 +19,7 @@ OUT_PATH = Path("/awf/out")
 SESSION_LOG_PATH = Path("/awf/session.jsonl")
 AGENT_DIR = Path("/agent")
 TEMP_DIR = Path("/tmp")
+SHARED_MEMORY_DIR = Path("/dev/shm")
 COPILOT_BIN = "/usr/local/bin/copilot"
 
 MAX_INPUT_BYTES = 64 * 1024
@@ -148,6 +149,7 @@ def append_resource_snapshot(stage: str) -> None:
     for identifier, path in (
         ("agent-directory", AGENT_DIR),
         ("temporary-directory", TEMP_DIR),
+        ("shared-memory", SHARED_MEMORY_DIR),
     ):
         try:
             filesystem = os.statvfs(path)

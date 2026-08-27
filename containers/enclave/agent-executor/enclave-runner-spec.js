@@ -17,7 +17,8 @@
  *    no broker, no safe-outputs collector, and no MCP gateway.
  *  - `--read-only` with the repository seed bind-mounted `ro`: the enclave can
  *    never mutate private source.
- *  - bounded `--tmpfs` mounts for `/tmp` and the `/agent` work/result root.
+ *  - bounded `--tmpfs` mounts for `/tmp` and the `/agent` work/result root,
+ *    plus bounded shared memory for native runtimes.
  *  - fixed non-root uid/gid, `--cap-drop ALL`, `no-new-privileges`, a seccomp
  *    profile, and memory/CPU/PID/file-size/timeout bounds.
  */
@@ -93,6 +94,7 @@ function deriveEnclaveContainerSpec({ config, runId, invocationId, seedId, runti
     '--pids-limit', String(config.pidsLimit),
     '--ulimit', `fsize=${ENCLAVE_MAX_FILE_BYTES}`,
     '--ulimit', 'nofile=1024:1024',
+    '--shm-size', config.tmpfsLimit,
     '--tmpfs', `/tmp:rw,noexec,nosuid,nodev,size=${config.tmpfsLimit}`,
     '--tmpfs',
     `${config.enclaveMountDir}:rw,exec,nosuid,nodev,size=${config.tmpfsLimit},` +

@@ -95,6 +95,7 @@ describe('unified enclave agent runner specification', () => {
       '--cpus', '0.5',
       '--pids-limit', '47',
       '--ulimit', `fsize=${ENCLAVE_MAX_FILE_BYTES}`,
+      '--shm-size', '96m',
       '--pull', 'never',
     ]));
     expect(spec.launchArgs).toContain('/tmp:rw,noexec,nosuid,nodev,size=96m');
