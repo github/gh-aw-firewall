@@ -24,6 +24,7 @@ import {
   ENCLAVE_MCP_CONTROL_NETWORK,
 } from './enclave/network';
 import { buildInternalServiceHosts } from './services/internal-service-hosts';
+import { filterComposeCapDrop } from './capability-filter';
 
 /**
  * Generates Docker Compose configuration
@@ -234,7 +235,7 @@ export function generateDockerCompose(
       internal: true,
     };
   }
-  return compose;
+  return filterComposeCapDrop(compose);
 }
 
 /**

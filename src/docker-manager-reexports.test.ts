@@ -28,6 +28,7 @@ import * as artifactPreservation from './artifact-preservation';
 import * as containerCleanup from './container-cleanup';
 import * as containerStop from './container-stop';
 import * as diagnosticCollector from './diagnostic-collector';
+import * as capabilityFilter from './capability-filter';
 
 describe('docker-manager re-exports', () => {
   describe('host-env re-exports', () => {
@@ -79,6 +80,24 @@ describe('docker-manager re-exports', () => {
 
     it('re-exports cleanup', () => {
       expect(dockerManager.cleanup).toBe(containerCleanup.cleanup);
+    });
+  });
+
+  describe('capability-filter re-exports', () => {
+    it('re-exports filterCapDrop', () => {
+      expect(dockerManager.filterCapDrop).toBe(capabilityFilter.filterCapDrop);
+    });
+
+    it('re-exports filterComposeCapDrop', () => {
+      expect(dockerManager.filterComposeCapDrop).toBe(capabilityFilter.filterComposeCapDrop);
+    });
+
+    it('re-exports getHostCapabilityBoundingSet', () => {
+      expect(dockerManager.getHostCapabilityBoundingSet).toBe(capabilityFilter.getHostCapabilityBoundingSet);
+    });
+
+    it('re-exports isCapDropSkipped', () => {
+      expect(dockerManager.isCapDropSkipped).toBe(capabilityFilter.isCapDropSkipped);
     });
   });
 });

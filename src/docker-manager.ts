@@ -22,3 +22,10 @@ export {
   preserveIptablesAudit,
   cleanup,
 } from './container-cleanup';
+
+export {
+  filterCapDrop,
+  filterComposeCapDrop,
+  getHostCapabilityBoundingSet,
+  isCapDropSkipped,
+} from './capability-filter';
