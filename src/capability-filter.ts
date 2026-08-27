@@ -1,6 +1,7 @@
-import * as fs from 'fs';
+import { execFileSync } from 'child_process';
 import { logger } from './logger';
 import type { DockerComposeConfig } from './types';
+import { getLocalDockerEnv } from './docker-host';
 
 /**
  * Map of standard Linux capability names (uppercase, without CAP_ prefix) to bit positions in CapBnd.
@@ -61,20 +62,31 @@ export function isCapDropSkipped(): boolean {
 }
 
 /**
- * Reads the host capability bounding set (CapBnd) from /proc/self/status.
- * Returns the BigInt bitmask if available and readable, or null if unavailable.
+ * Parses a Linux capability bounding set from status text.
  */
-export function getHostCapabilityBoundingSet(procStatusPath = '/proc/self/status'): bigint | null {
+function parseCapabilityBoundingSet(content: string): bigint | null {
+  const match = content.match(/^CapBnd:\s*([0-9a-fA-F]+)$/m);
+  if (!match) return null;
   try {
-    if (!fs.existsSync(procStatusPath)) {
-      return null;
-    }
-    const content = fs.readFileSync(procStatusPath, 'utf8');
-    const match = content.match(/^CapBnd:\s*([0-9a-fA-F]+)$/m);
-    if (!match) {
-      return null;
-    }
     return BigInt('0x' + match[1]);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Reads the capability bounding set from a privileged container created by the
+ * Docker daemon used by AWF. This is deliberately daemon-side: the CLI and a
+ * sibling ARC/DinD daemon can have different bounding sets.
+ */
+export function getHostCapabilityBoundingSet(probeImage = 'alpine:latest'): bigint | null {
+  try {
+    const content = execFileSync(
+      'docker',
+      ['run', '--rm', '--pull=never', '--privileged', '--network=none', '--entrypoint', '/bin/sh', probeImage, '-c', 'cat /proc/self/status'],
+      { env: getLocalDockerEnv(), encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 3000 },
+    );
+    return parseCapabilityBoundingSet(content);
   } catch {
     return null;
   }
@@ -134,7 +146,12 @@ export function filterComposeCapDrop(
   if (!composeConfig?.services) {
     return composeConfig;
   }
-  const capBnd = capBndOverride !== undefined ? capBndOverride : getHostCapabilityBoundingSet();
+  const probeImage = Object.values(composeConfig.services)
+    .map((service) => service?.image)
+    .find((image): image is string => typeof image === 'string');
+  const capBnd = capBndOverride !== undefined
+    ? capBndOverride
+    : getHostCapabilityBoundingSet(probeImage);
   for (const service of Object.values(composeConfig.services)) {
     if (service && Array.isArray(service.cap_drop)) {
       const filtered = filterCapDrop(service.cap_drop, capBnd);

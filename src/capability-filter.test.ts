@@ -54,37 +54,16 @@ describe('capability-filter', () => {
   });
 
   describe('getHostCapabilityBoundingSet', () => {
-    it('parses real /proc/self/status on Linux if available', () => {
-      if (fs.existsSync('/proc/self/status')) {
-        const bnd = getHostCapabilityBoundingSet();
-        expect(typeof bnd === 'bigint' || bnd === null).toBe(true);
-      }
+    it('returns null when the daemon probe is unavailable', () => {
+      expect(getHostCapabilityBoundingSet('/nonexistent:latest')).toBeNull();
     });
 
-    it('parses mock proc status file with valid CapBnd', () => {
+    it('does not read the CLI process status', () => {
       const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cap-test-'));
       const procFile = path.join(tmpDir, 'status');
       try {
         fs.writeFileSync(procFile, 'Name:\tbash\nCapBnd:\t000001ffffffffff\nCapEff:\t0000000000000000\n');
-        const bnd = getHostCapabilityBoundingSet(procFile);
-        expect(bnd).toBe(0x000001ffffffffffn);
-      } finally {
-        fs.rmSync(tmpDir, { recursive: true, force: true });
-      }
-    });
-
-    it('returns null when proc status file does not exist', () => {
-      const bnd = getHostCapabilityBoundingSet('/nonexistent/proc/status/path');
-      expect(bnd).toBeNull();
-    });
-
-    it('returns null when CapBnd is missing from file', () => {
-      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cap-test-'));
-      const procFile = path.join(tmpDir, 'status');
-      try {
-        fs.writeFileSync(procFile, 'Name:\tbash\n');
-        const bnd = getHostCapabilityBoundingSet(procFile);
-        expect(bnd).toBeNull();
+        expect(getHostCapabilityBoundingSet(procFile)).toBeNull();
       } finally {
         fs.rmSync(tmpDir, { recursive: true, force: true });
       }
