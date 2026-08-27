@@ -23,7 +23,7 @@ RUN npm_config_ignore_scripts=false npm install -g "@github/copilot@${COPILOT_CL
          -exec sh -c 'rm -rf "$1" && cp -a /usr/local/lib/node_modules/@github/copilot/node_modules/adm-zip "$1"' sh {} \; \
     && copilot --version | grep -q "GitHub Copilot CLI ${COPILOT_CLI_VERSION}"
 
-FROM ubuntu:26.04 AS enclave-agent
+FROM node:24.18.1-trixie-slim AS enclave-agent
 
 ARG COPILOT_CLI_VERSION=1.0.77
 RUN apt-get update \
@@ -31,7 +31,6 @@ RUN apt-get update \
     && test -r /etc/ssl/certs/ca-certificates.crt \
     && rm -rf /var/lib/apt/lists/* \
     && rm -f /usr/bin/apt /usr/bin/apt-get /usr/bin/apt-cache
-COPY --from=enclave-agent-build /usr/local/bin/node /usr/local/bin/node
 COPY --from=enclave-agent-build /usr/local/lib/node_modules/@github/copilot/ /usr/local/lib/node_modules/@github/copilot/
 RUN ln -s ../lib/node_modules/@github/copilot/npm-loader.js /usr/local/bin/copilot \
     && node --version | grep -qE '^v24\.' \
