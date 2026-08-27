@@ -47,7 +47,8 @@ RUN chmod 0555 /usr/local/bin/run-enclave-agent /usr/local/bin/gh \
 
 FROM node:22.23.2-alpine3.24 AS enclave-mcp-server
 
-RUN apk add --no-cache docker-cli \
+RUN apk upgrade --no-cache \
+    && apk add --no-cache docker-cli \
     && test -x /usr/bin/docker \
     && rm -rf /usr/local/lib/node_modules/npm \
     && rm -f /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack
