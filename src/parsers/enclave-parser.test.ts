@@ -48,6 +48,14 @@ describe('normalizeEnclavesConfig', () => {
     expect(config?.executors.agent.timeout).toBe(120);
   });
 
+  it('provides enough bounded agent tmpfs for Copilot native runtime extraction', () => {
+    const config = normalizeEnclavesConfig([
+      { agent: { model: 'gpt-5' }, repos: [repository] },
+    ]);
+    expect(config?.executors.agent.tmpfsLimit).toBe('256m');
+    expect(config?.executors.script.tmpfsLimit).toBe('64m');
+  });
+
   it('preserves trusted executor overrides', () => {
     expect(normalizeEnclavesConfig([
       { script: {}, runtime: 'gvisor', image: 'registry/script@sha256:abc', repos: [repository] },

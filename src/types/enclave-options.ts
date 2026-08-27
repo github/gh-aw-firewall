@@ -160,7 +160,8 @@ export const ENCLAVE_AGENT_EXECUTOR_DEFAULTS: Readonly<
   memoryLimit: '512m',
   cpuLimit: '1',
   pidsLimit: 128,
-  tmpfsLimit: '64m',
+  // Copilot extracts and memory-maps its native runtime beneath HOME.
+  tmpfsLimit: '256m',
   maxOutputBytes: 8192,
   maxTaskBytes: 4096,
   maxInvocations: 8,

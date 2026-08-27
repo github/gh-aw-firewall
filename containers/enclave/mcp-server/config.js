@@ -259,7 +259,7 @@ function loadAgentConfig(server, files = fs) {
     memoryLimit: dockerSize('AWF_ENCLAVE_AGENT_MEMORY', '512m'),
     cpuLimit,
     pidsLimit: positiveInt('AWF_ENCLAVE_AGENT_PIDS', 128),
-    tmpfsLimit: dockerSize('AWF_ENCLAVE_AGENT_TMPFS', '64m'),
+    tmpfsLimit: dockerSize('AWF_ENCLAVE_AGENT_TMPFS', '256m'),
     maxOutputBytes: positiveInt('AWF_ENCLAVE_AGENT_MAX_OUTPUT_BYTES', MAX_RESULT_BYTES, MAX_RESULT_BYTES),
     maxPromptBytes: positiveInt('AWF_ENCLAVE_AGENT_MAX_PROMPT_BYTES', 4096, MAX_TASK_BYTES),
     maxInvocations: positiveInt('AWF_ENCLAVE_AGENT_MAX_INVOCATIONS', 8),
