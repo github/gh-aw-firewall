@@ -22,7 +22,7 @@ tools:
     allowed: []
 enclaves:
   - agent:
-      model: gpt-5
+      model: claude-sonnet-5
       github:
         cli: issues-read-v1
     repos:
