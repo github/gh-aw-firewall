@@ -6,11 +6,11 @@ import type { WrapperConfig } from './types';
 import * as hostEligibility from './cloud-hypervisor/host-eligibility';
 import {
   assertCloudHypervisorPreSecurityCompatibility,
-  buildCloudHypervisorGuestEnvironment,
   cloudHypervisorRuntimeTestHelpers,
   createCloudHypervisorRuntimeBackend,
   type CloudHypervisorRuntimeBackendDependencies,
 } from './cloud-hypervisor-runtime-backend';
+import { buildCloudHypervisorGuestEnvironment } from './cloud-hypervisor/guest-environment-builder';
 import { assertCloudHypervisorSelection } from './cloud-hypervisor/runtime-validation';
 import type { MicrovmInfrastructureSnapshot } from './microvm/infrastructure';
 

@@ -171,6 +171,43 @@ export interface CloudHypervisorPreflightResult {
   kvmGid: number;
 }
 
+export const CLOUD_HYPERVISOR_MAX_BOOT_ATTEMPTS = 3;
+
+type CloudHypervisorReadinessStage =
+  | 'guest-network-readiness'
+  | 'guest-connectivity';
+
+/** @internal Structured sentinel used to permit only pre-agent boot retries. */
+// ts-prune-ignore-next
+export class CloudHypervisorRetryableReadinessError extends Error {
+  readonly code = 'CLOUD_HYPERVISOR_RETRYABLE_READINESS';
+  readonly retryable = true;
+  diagnosticDirectories: readonly string[] = [];
+
+  constructor(
+    readonly stage: CloudHypervisorReadinessStage,
+    readonly bootAttempt: number,
+    detail: string,
+    cause?: unknown,
+  ) {
+    super(
+      `Cloud Hypervisor retryable readiness failure ` +
+      `(stage=${stage}, boot attempt=${bootAttempt}/${CLOUD_HYPERVISOR_MAX_BOOT_ATTEMPTS}): ${detail}`,
+    );
+    this.name = 'CloudHypervisorRetryableReadinessError';
+    if (cause !== undefined) Object.defineProperty(this, 'cause', { value: cause });
+  }
+
+  attachDiagnostics(directories: readonly string[], exhausted: boolean): void {
+    this.diagnosticDirectories = [...directories];
+    if (exhausted) {
+      this.message +=
+        `; boot recovery exhausted after ${CLOUD_HYPERVISOR_MAX_BOOT_ATTEMPTS} attempts` +
+        (directories.length > 0 ? `; diagnostics: ${directories.join(', ')}` : '');
+    }
+  }
+}
+
 async function assertTrustedHostTool(label: string, filePath: string): Promise<void> {
   if (!path.isAbsolute(filePath)) {
     throw new Error(`host tool "${label}" path must be absolute: ${filePath}`);
