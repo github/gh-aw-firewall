@@ -153,6 +153,8 @@ def preflight_path(
         error_number = errno.EISDIR if is_directory else errno.ENOTDIR
         return OSError(error_number, os.strerror(error_number))
     if executable and not metadata["executable"]:
+        if is_directory:
+            return PermissionError(errno.EACCES, os.strerror(errno.EACCES))
         return OSError(errno.ENOEXEC, os.strerror(errno.ENOEXEC))
     if writable and not metadata["writable"]:
         return PermissionError(errno.EACCES, os.strerror(errno.EACCES))
