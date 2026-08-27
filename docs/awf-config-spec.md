@@ -1825,6 +1825,16 @@ the first supporting AWF release. Older AWF versions reject the closed
 
 While the backend is still starting, mcpg may return retryable HTTP `503 backend_unavailable`. AWF retries `initialize` with bounded backoff until `AWF_ENCLAVE_MCP_READINESS_TIMEOUT_MS` expires, then fails closed before the primary agent starts.
 
+`buildEnclaveMcpgUpstreamContract()` emits the mcpg upstream `Authorization`
+header as a literal `AWF_ENCLAVE_MCP_CAPABILITY` environment-variable-reference
+template, never the resolved capability value, and takes no environment
+argument so it cannot bake a real secret into the contract. Any config adapter
+that renders this contract into an engine/tool config file MUST copy the
+template verbatim and resolve it from the MCP client's own process environment
+at request time; persisting the resolved capability to any agent-readable file
+(including under `GITHUB_WORKSPACE`) would make it readable via ordinary
+file-read tools. See github/gh-aw-firewall#7787.
+
 For `issues-read-v1`, the compiler supplies
 `AWF_ENCLAVE_GITHUB_PROXY_CONTAINER`,
 `AWF_ENCLAVE_GITHUB_PROXY_IDENTITY`,

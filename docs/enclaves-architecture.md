@@ -66,6 +66,22 @@ executor tools. The compiler generates a fresh 64-character lowercase
 hexadecimal capability, substitutes it into the mcpg authorization header, and
 passes it to AWF without exposing it to the primary agent.
 
+### Workspace credential exposure
+
+`buildEnclaveMcpgUpstreamContract()` intentionally emits the mcpg upstream
+`Authorization` header as the literal environment-variable-reference template
+`ENCLAVE_MCP_AUTHORIZATION_HEADER_TEMPLATE` (`Bearer` followed by a reference
+to `AWF_ENCLAVE_MCP_CAPABILITY`), never the resolved 64-character hexadecimal
+capability. This function takes no environment argument, so it structurally
+cannot bake a real secret into the contract it returns. Any config-adapter
+that renders this contract into an engine or tool config file (for example
+under `GITHUB_WORKSPACE`) MUST copy this template string verbatim and let the
+MCP client resolve it from its own process environment at request time.
+Resolving the reference and persisting the literal capability to any
+agent-readable file defeats this control and makes the gateway credential
+readable by ordinary file-read tools, not only by code execution or
+process-memory access. See github/gh-aw-firewall#7787.
+
 `gh-aw-mcpg` may start before the enclave server. While the backend is
 unavailable, mcpg returns retryable HTTP `503 backend_unavailable`; AWF retries
 the complete `initialize` handshake with bounded 500 ms backoff until

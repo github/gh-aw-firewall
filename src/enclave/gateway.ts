@@ -19,6 +19,20 @@ export const ENCLAVE_MCP_SERVER_NAME = 'awf-enclave';
 export const ENCLAVE_MCP_UPSTREAM_URL = 'http://awf-enclave-mcp:8080/mcp';
 const MCP_GATEWAY_API_KEY_ENV = 'MCP_GATEWAY_API_KEY';
 
+/**
+ * Literal environment-variable-reference template for the mcpg upstream
+ * `Authorization` header. This is intentionally NOT the resolved capability
+ * value: the compiler handoff contract must carry only this template string
+ * into any generated engine/tool config so the real capability is never
+ * written to a file under `GITHUB_WORKSPACE` (or any other agent-readable
+ * path). Consumers of the contract MUST preserve this string verbatim and
+ * resolve `${AWF_ENCLAVE_MCP_CAPABILITY}` from the process environment only
+ * at request time, never persisting the resolved value to disk. See
+ * github/gh-aw-firewall#7787.
+ */
+export const ENCLAVE_MCP_AUTHORIZATION_HEADER_TEMPLATE =
+  'Bearer ' + '$' + `{${ENCLAVE_MCP_CAPABILITY_ENV}}`;
+
 const DEFAULT_GATEWAY_CONTAINER = 'awmg-mcpg';
 const DEFAULT_READINESS_TIMEOUT_MS = 120_000;
 const REQUEST_TIMEOUT_MS = 5_000;
@@ -148,7 +162,7 @@ export function buildEnclaveMcpgUpstreamContract(config: WrapperConfig): Enclave
     server: {
       type: 'http',
       url: ENCLAVE_MCP_UPSTREAM_URL,
-      headers: { Authorization: 'Bearer ' + '$' + `{${ENCLAVE_MCP_CAPABILITY_ENV}}` },
+      headers: { Authorization: ENCLAVE_MCP_AUTHORIZATION_HEADER_TEMPLATE },
       tools: expectedTools(config).map((tool) => String(tool.name)),
       connectTimeout: 120,
       toolTimeout: ENCLAVE_MCP_OPERATION_TIMEOUT_SECONDS,
