@@ -187,11 +187,8 @@
       "description": "Accounting policy applied when resolving pricing for this model (e.g. 'concrete_model', 'unknown_model_fallback', 'dynamic_selector_runtime', 'dynamic_selector_fallback'). Present only when apiProxy.maxAiCredits is configured."
     },
     "ai_credits_dynamic_selector": {
-      "type": [
-        "string",
-        "null"
-      ],
-      "description": "Name of the dynamic model selector used to resolve pricing, when the model was routed through one. Null when no dynamic selector applied. Present only when apiProxy.maxAiCredits is configured."
+      "type": "string",
+      "description": "Name of the dynamic model selector used to resolve pricing. Present only when apiProxy.maxAiCredits is configured and the model was routed through a dynamic selector."
     },
     "ai_credits_fallback_pricing_used": {
       "type": "boolean",
