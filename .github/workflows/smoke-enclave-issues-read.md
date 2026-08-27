@@ -41,9 +41,9 @@ timeout-minutes: 20
 sandbox:
   agent:
     id: awf
-    version: v0.28.8
+    version: v0.28.9
   mcp:
-    version: v0.4.11
+    version: v0.4.12
 strict: false
 concurrency:
   group: smoke-enclave-issues-read
