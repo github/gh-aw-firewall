@@ -48,11 +48,13 @@ describe('normalizeEnclavesConfig', () => {
     expect(config?.executors.agent.timeout).toBe(120);
   });
 
-  it('provides enough bounded agent tmpfs for Copilot native runtime extraction', () => {
+  it('provides separate memory headroom for the bounded Copilot tmpfs mounts', () => {
     const config = normalizeEnclavesConfig([
       { agent: { model: 'gpt-5' }, repos: [repository] },
     ]);
+    expect(config?.executors.agent.memoryLimit).toBe('1g');
     expect(config?.executors.agent.tmpfsLimit).toBe('256m');
+    expect(config?.executors.script.memoryLimit).toBe('512m');
     expect(config?.executors.script.tmpfsLimit).toBe('64m');
   });
 

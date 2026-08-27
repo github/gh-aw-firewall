@@ -31,6 +31,7 @@ module.SCHEMA_PATH = root / "schema.json"
 module.OUT_PATH = root / "out"
 module.SESSION_LOG_PATH = root / "session.jsonl"
 module.AGENT_DIR = root / "agent"
+module.TEMP_DIR = root / "tmp"
 module.COPILOT_BIN = str(root / "copilot")
 
 if scenario == "bounds":
@@ -59,6 +60,7 @@ if scenario == "bounds":
 
 module.SEED_DIR.mkdir()
 module.AGENT_DIR.mkdir()
+module.TEMP_DIR.mkdir()
 module.TASK_PATH.write_text(os.environ["PRIVATE_TASK"], encoding="utf-8")
 module.SCHEMA_PATH.write_text('{"type":"boolean"}', encoding="utf-8")
 module.OUT_PATH.write_text("", encoding="utf-8")
@@ -230,6 +232,30 @@ describe('enclave agent protected entrypoint diagnostics', () => {
       'output-write-attempt',
       'output-written',
     ]);
+    expect(transcript).toContainEqual(expect.objectContaining({
+      event: 'resource-snapshot',
+      stage: 'before-engine',
+      filesystems: expect.arrayContaining([
+        expect.objectContaining({
+          path: 'agent-directory',
+          capacityBytes: expect.any(Number),
+          availableBytes: expect.any(Number),
+        }),
+      ]),
+      directories: expect.arrayContaining([
+        expect.objectContaining({
+          path: 'agent-directory',
+          entries: expect.any(Number),
+          bytes: expect.any(Number),
+          truncated: false,
+        }),
+      ]),
+      memory: expect.any(Object),
+    }));
+    expect(transcript).toContainEqual(expect.objectContaining({
+      event: 'resource-snapshot',
+      stage: 'after-engine',
+    }));
     expect(result.transcript).not.toContain('private prompt sentinel');
     expect(result.transcript).not.toContain('test-secret-token-value');
     expect(result.transcript).not.toContain('test-model');

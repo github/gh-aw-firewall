@@ -18,6 +18,7 @@ SCHEMA_PATH = Path("/awf/schema.json")
 OUT_PATH = Path("/awf/out")
 SESSION_LOG_PATH = Path("/awf/session.jsonl")
 AGENT_DIR = Path("/agent")
+TEMP_DIR = Path("/tmp")
 COPILOT_BIN = "/usr/local/bin/copilot"
 
 MAX_INPUT_BYTES = 64 * 1024
@@ -25,6 +26,7 @@ MAX_TRANSCRIPT_BYTES = 1024 * 1024
 MAX_ENGINE_STREAM_BYTES = MAX_TRANSCRIPT_BYTES // 4
 MAX_DIAGNOSTIC_BYTES = 256 * 1024
 MAX_DIAGNOSTIC_FILES = 32
+MAX_RESOURCE_ENTRIES = 10_000
 MAX_STARTUP_RETRIES = 2
 STARTUP_CRASH_WINDOW_SECONDS = 30
 EXIT_CONFIGURATION_INVALID = 10
@@ -79,6 +81,104 @@ def redact_diagnostics(value: str) -> str:
 
 def append_progress(stage: str, **metadata) -> None:
     append_event({"event": "progress", "stage": stage, **metadata})
+
+
+def directory_usage(path: Path) -> dict:
+    total_bytes = 0
+    entries = 0
+    truncated = False
+    try:
+        for root, directories, files in os.walk(path):
+            for name in directories + files:
+                entries += 1
+                if entries > MAX_RESOURCE_ENTRIES:
+                    truncated = True
+                    break
+                try:
+                    total_bytes += (Path(root) / name).lstat().st_size
+                except OSError:
+                    continue
+            if truncated:
+                break
+    except OSError:
+        pass
+    return {
+        "entries": min(entries, MAX_RESOURCE_ENTRIES),
+        "bytes": total_bytes,
+        "truncated": truncated,
+    }
+
+
+def read_cgroup_value(name: str) -> int | None:
+    try:
+        value = (Path("/sys/fs/cgroup") / name).read_text(encoding="ascii").strip()
+    except (OSError, UnicodeDecodeError):
+        return None
+    if value == "max":
+        return None
+    try:
+        parsed = int(value)
+    except ValueError:
+        return None
+    return parsed if parsed >= 0 else None
+
+
+def read_cgroup_events() -> dict:
+    allowed = {"high", "max", "oom", "oom_kill"}
+    events = {}
+    try:
+        lines = Path("/sys/fs/cgroup/memory.events").read_text(encoding="ascii").splitlines()
+    except (OSError, UnicodeDecodeError):
+        return events
+    for line in lines:
+        key, separator, value = line.partition(" ")
+        if separator and key in allowed:
+            try:
+                parsed = int(value)
+            except ValueError:
+                continue
+            if parsed >= 0:
+                events[key] = parsed
+    return events
+
+
+def append_resource_snapshot(stage: str) -> None:
+    filesystems = []
+    directories = []
+    for identifier, path in (
+        ("agent-directory", AGENT_DIR),
+        ("temporary-directory", TEMP_DIR),
+    ):
+        try:
+            filesystem = os.statvfs(path)
+            filesystems.append({
+                "path": identifier,
+                "capacityBytes": filesystem.f_blocks * filesystem.f_frsize,
+                "availableBytes": filesystem.f_bavail * filesystem.f_frsize,
+            })
+        except OSError:
+            pass
+        directories.append({"path": identifier, **directory_usage(path)})
+
+    memory = {}
+    for field, cgroup_name in (
+        ("currentBytes", "memory.current"),
+        ("peakBytes", "memory.peak"),
+        ("limitBytes", "memory.max"),
+    ):
+        value = read_cgroup_value(cgroup_name)
+        if value is not None:
+            memory[field] = value
+    events = read_cgroup_events()
+    if events:
+        memory["events"] = events
+    append_event({
+        "event": "resource-snapshot",
+        "stage": stage,
+        "filesystems": filesystems,
+        "directories": directories,
+        "memory": memory,
+    })
 
 
 def safe_os_error(error: OSError, operation: str) -> None:
@@ -355,6 +455,7 @@ def main() -> int:
     deadline = time.monotonic() + timeout
     completed = None
     stdout = ""
+    append_resource_snapshot("before-engine")
     for attempt in range(MAX_STARTUP_RETRIES + 1):
         remaining = deadline - time.monotonic()
         if remaining <= 0:
@@ -394,6 +495,7 @@ def main() -> int:
                 diagnostics = read_copilot_diagnostics(copilot_logs)
                 if diagnostics:
                     append_event({"event": "engine-diagnostics", "log": diagnostics})
+                append_resource_snapshot("after-engine")
                 append_event({"event": "failure", "category": "deadline-exceeded"})
                 return EXIT_DEADLINE_EXCEEDED
             completed = subprocess.CompletedProcess(
@@ -407,11 +509,13 @@ def main() -> int:
             diagnostics = read_copilot_diagnostics(copilot_logs)
             if diagnostics:
                 append_event({"event": "engine-diagnostics", "log": diagnostics})
+            append_resource_snapshot("after-engine")
             append_event({"event": "failure", "category": "engine-failed"})
             return EXIT_ENGINE_FAILED
 
         stdout, _ = append_engine_result(completed)
         runtime = time.monotonic() - started
+        append_resource_snapshot("after-engine")
         append_progress(
             "engine-completed",
             attempt=attempt + 1,

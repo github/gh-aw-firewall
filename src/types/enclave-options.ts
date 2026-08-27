@@ -157,7 +157,8 @@ export const ENCLAVE_AGENT_EXECUTOR_DEFAULTS: Readonly<
   profile: 'openai',
   model: '',
   timeout: 120,
-  memoryLimit: '512m',
+  // Both bounded tmpfs mounts count toward the container memory cgroup.
+  memoryLimit: '1g',
   cpuLimit: '1',
   pidsLimit: 128,
   // Copilot extracts and memory-maps its native runtime beneath HOME.

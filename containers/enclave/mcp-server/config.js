@@ -256,7 +256,7 @@ function loadAgentConfig(server, files = fs) {
     apiEndpoint,
     network,
     timeoutSeconds: positiveInt('AWF_ENCLAVE_AGENT_TIMEOUT', 120, MAX_ENCLAVE_TIMEOUT_SECONDS),
-    memoryLimit: dockerSize('AWF_ENCLAVE_AGENT_MEMORY', '512m'),
+    memoryLimit: dockerSize('AWF_ENCLAVE_AGENT_MEMORY', '1g'),
     cpuLimit,
     pidsLimit: positiveInt('AWF_ENCLAVE_AGENT_PIDS', 128),
     tmpfsLimit: dockerSize('AWF_ENCLAVE_AGENT_TMPFS', '256m'),
