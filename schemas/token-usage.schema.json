@@ -206,6 +206,7 @@
     },
     "ai_credits_pricing_observed_at": {
       "type": "string",
+      "format": "date-time",
       "description": "Timestamp (ISO 8601) at which the pricing data used for this call was observed/fetched, when known. Present only when apiProxy.maxAiCredits is configured."
     },
     "ai_credits_pricing_source": {
