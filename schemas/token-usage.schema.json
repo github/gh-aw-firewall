@@ -192,7 +192,7 @@
     },
     "ai_credits_fallback_pricing_used": {
       "type": "boolean",
-      "description": "Whether fallback (non-curated) pricing was used to compute AI credits for this call. Present only when apiProxy.maxAiCredits is configured."
+      "description": "Whether fallback pricing was used to compute AI credits for this call. Present only when apiProxy.maxAiCredits is configured."
     },
     "ai_credits_pricing_api_version": {
       "type": "string",
