@@ -2,7 +2,8 @@
 
 FROM python:3.14.7-alpine3.24 AS enclave-script
 
-RUN python3 -c 'import json, pathlib, sys; sys.exit(0)' \
+RUN apk upgrade --no-cache \
+    && python3 -c 'import json, pathlib, sys; sys.exit(0)' \
     && test -x /usr/local/bin/python3 \
     && rm -f /sbin/apk
 COPY enclave/script-entrypoint.py /usr/local/bin/run-enclave-script
