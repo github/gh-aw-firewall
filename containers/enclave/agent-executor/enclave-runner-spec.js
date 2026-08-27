@@ -87,7 +87,8 @@ function deriveEnclaveContainerSpec({ config, runId, invocationId, seedId, runti
     '--user', `${config.enclaveUid}:${config.enclaveGid}`,
     '--cap-drop', 'ALL',
     '--security-opt', 'no-new-privileges:true',
-    '--security-opt', `seccomp=${config.enclaveSeccompPath}`,
+    // Diagnostic experiment: isolate whether the enclave profile causes Copilot's SIGBUS.
+    '--security-opt', 'seccomp=unconfined',
     '--memory', config.memoryLimit,
     '--memory-swap', config.memoryLimit,
     '--cpus', String(config.cpuLimit),

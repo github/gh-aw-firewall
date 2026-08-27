@@ -89,7 +89,7 @@ describe('unified enclave agent runner specification', () => {
       '--user', '65534:65534',
       '--cap-drop', 'ALL',
       '--security-opt', 'no-new-privileges:true',
-      '--security-opt', 'seccomp=/opt/awf/enclave-seccomp.json',
+      '--security-opt', 'seccomp=unconfined',
       '--memory', '768m',
       '--memory-swap', '768m',
       '--cpus', '0.5',
