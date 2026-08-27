@@ -324,15 +324,17 @@ def build_prompt(task: str, schema_text: str) -> str:
     schema = json.loads(schema_text)
     if schema.get("type") == "boolean":
         output_contract = (
-            "Your final response MUST be exactly the lowercase JSON literal true or false. "
-            "Do not use quotes, a JSON object, a Markdown fence, an explanation, or any "
-            "surrounding text.\n"
+            "Before finishing, use a shell command to replace /awf/out with exactly the "
+            "lowercase JSON literal true or false. Do not write quotes, a JSON object, a "
+            "Markdown fence, an explanation, or any surrounding text to /awf/out. "
+            "Your conversational response is not the result channel.\n"
         )
     else:
         output_contract = (
-            "Your final response MUST be exactly one JSON value conforming to this finite "
-            "schema, with no Markdown fence, explanation, surrounding text, or repeated "
-            f"schema:\n{schema_text}\n"
+            "Before finishing, use a shell command to replace /awf/out with exactly one JSON "
+            "value conforming to this finite schema. Do not write a Markdown fence, "
+            "explanation, surrounding text, or repeated schema to /awf/out. Your "
+            f"conversational response is not the result channel:\n{schema_text}\n"
         )
     github_access = ""
     if os.environ.get("AWF_ENCLAVE_AGENT_GITHUB_ENABLED") == "true":
@@ -355,18 +357,6 @@ def build_prompt(task: str, schema_text: str) -> str:
         f"{task}\n\n"
         f"{output_contract}"
     )
-
-
-def normalize_copilot_output(stdout: str, schema_text: str) -> str:
-    result = stdout.strip()
-    result = re.sub(r"^●\s*", "", result, count=1)
-    schema_suffix = schema_text.strip()
-    if len(result) > len(schema_suffix) and result.endswith(schema_suffix):
-        result = result[:-len(schema_suffix)].strip()
-    schema = json.loads(schema_text)
-    if schema.get("type") == "boolean" and result in {"True", "False"}:
-        result = result.lower()
-    return result
 
 
 def append_engine_result(completed: subprocess.CompletedProcess) -> tuple[str, str]:
@@ -438,6 +428,12 @@ def main() -> int:
             append_event({"event": "engine-diagnostics", "log": diagnostics})
         append_event({"event": "failure", "category": "engine-failed"})
         return EXIT_ENGINE_FAILED
+    try:
+        OUT_PATH.write_text("", encoding="utf-8")
+    except OSError as error:
+        safe_os_error(error, "output-reset")
+        append_event({"event": "failure", "category": "result-write-failed"})
+        return EXIT_RESULT_WRITE_FAILED
 
     command = [
         COPILOT_BIN,
@@ -554,8 +550,21 @@ def main() -> int:
         append_event({"event": "failure", "category": "engine-failed"})
         return EXIT_ENGINE_FAILED
     append_progress("output-normalization-started")
-    result = normalize_copilot_output(stdout, schema_text)
-    if not result or len(result.encode("utf-8")) > max_output:
+    try:
+        result_bytes = OUT_PATH.read_bytes()
+    except OSError as error:
+        safe_os_error(error, "output-read")
+        append_event({"event": "failure", "category": "result-write-failed"})
+        return EXIT_RESULT_WRITE_FAILED
+    if not result_bytes or len(result_bytes) > max_output:
+        append_event({"event": "failure", "category": "result-write-failed"})
+        return EXIT_RESULT_WRITE_FAILED
+    try:
+        result = result_bytes.decode("utf-8").strip()
+    except UnicodeDecodeError:
+        append_event({"event": "failure", "category": "result-write-failed"})
+        return EXIT_RESULT_WRITE_FAILED
+    if not result:
         append_event({"event": "failure", "category": "result-write-failed"})
         return EXIT_RESULT_WRITE_FAILED
     append_progress("output-normalized", outputBytes=len(result.encode("utf-8")))

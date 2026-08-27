@@ -72,10 +72,13 @@ if scenario != "missing-copilot":
     copilot = Path(module.COPILOT_BIN)
     if scenario == "timeout":
         copilot.write_text("#!/bin/sh\nsleep 30 &\nwait\n", encoding="utf-8")
+    elif scenario == "stdout-only":
+        copilot.write_text("#!/bin/sh\nprintf '%s\\n' true\n", encoding="utf-8")
     else:
         copilot.write_text(
             "#!/bin/sh\n"
-            "printf '%s\\n' true\n"
+            "printf '%s\\n' 'protected conversational output'\n"
+            "printf '%s' true > '" + str(module.OUT_PATH) + "'\n"
             "printf '%s\\n' 'Authorization: Bearer " + os.environ["TEST_API_TOKEN"] + "' >&2\n",
             encoding="utf-8",
         )
@@ -266,6 +269,18 @@ describe('enclave agent protected entrypoint diagnostics', () => {
     }));
     expect(result.transcript).not.toContain('private prompt sentinel');
     expect(result.transcript).not.toContain('test-secret-token-value');
+  });
+
+  it('rejects conversational stdout when the finite result channel is empty', () => {
+    const result = runHarness('stdout-only');
+    const transcript = events(result);
+
+    expect(result.exitCode).toBe(30);
+    expect(result.output).toBe('');
+    expect(transcript).toContainEqual({
+      event: 'failure',
+      category: 'result-write-failed',
+    });
     expect(result.transcript).not.toContain('test-model');
     expect(transcript).toContainEqual(expect.objectContaining({
       event: 'engine-result',
