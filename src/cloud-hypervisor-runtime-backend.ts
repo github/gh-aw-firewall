@@ -1,10 +1,8 @@
-import type { Readable } from 'stream';
-import { Writable } from 'stream';
+import type { Readable, Writable } from 'stream';
 import type { WorkflowDependencies } from './cli-workflow';
 import type { ExternalAgentRuntimeBackend } from './external-runtime-backend';
 import {
   API_PROXY_IP,
-  NETWORK_SUBNET,
   SQUID_IP,
 } from './config/network-policy';
 import {
@@ -17,10 +15,13 @@ import type {
 } from './microvm/vsock-client';
 import type { CloudHypervisorPreflightResult } from './cloud-hypervisor/preflight';
 import { CloudHypervisorManager } from './cloud-hypervisor/manager';
-import { runCloudHypervisorPreflight } from './cloud-hypervisor/preflight';
+import {
+  CLOUD_HYPERVISOR_MAX_BOOT_ATTEMPTS,
+  CloudHypervisorRetryableReadinessError,
+  runCloudHypervisorPreflight,
+} from './cloud-hypervisor/preflight';
 import { getSafeHostGid, getSafeHostUid } from './host-identity';
 import { logger } from './logger';
-import { buildGuestEnvironment } from './microvm/guest-environment';
 import type { CloudHypervisorOptions, WrapperConfig } from './types';
 import {
   assertCloudHypervisorRuntimeCompatibility,
@@ -32,13 +33,24 @@ import {
 } from './cloud-hypervisor/exports';
 import { planCloudHypervisorFilesystemWriteEnforcement } from './cloud-hypervisor/filesystem-write-enforcement';
 import type { VirtiofsdMountEnforcement } from './cloud-hypervisor/virtiofsd';
+import { buildCloudHypervisorGuestEnvironment } from './cloud-hypervisor/guest-environment-builder';
+import {
+  CLOUD_HYPERVISOR_API_PROXY_PROBE_TIMEOUT_SECONDS,
+  CLOUD_HYPERVISOR_CONNECTIVITY_PROBE_ATTEMPTS,
+  CLOUD_HYPERVISOR_TCP_PROBE_TIMEOUT_SECONDS,
+  connectivityProbeTimeoutMs,
+  createBoundedOutputCollector,
+  formatError,
+  shellSingleQuote,
+} from './cloud-hypervisor/backend-utils';
+export { buildCloudHypervisorGuestEnvironment };
+export { CloudHypervisorRetryableReadinessError } from './cloud-hypervisor/preflight';
 export {
   assertCloudHypervisorPreSecurityCompatibility,
   assertCloudHypervisorRuntimeCompatibility,
 } from './cloud-hypervisor/runtime-validation';
 
 const CLOUD_HYPERVISOR_GUEST_WORKSPACE = '/workspace';
-const CLOUD_HYPERVISOR_GUEST_HOME = `${CLOUD_HYPERVISOR_GUEST_WORKSPACE}/.awf-home`;
 /**
  * Generous, not a tight few-second timeout. Live-KVM validation on
  * GitHub-hosted runners showed the guest's own vCPU getting scheduled so
@@ -54,14 +66,8 @@ const CLOUD_HYPERVISOR_GUEST_HOME = `${CLOUD_HYPERVISOR_GUEST_WORKSPACE}/.awf-ho
  */
 const CLOUD_HYPERVISOR_PROBE_TIMEOUT_MS = 90_000;
 const CLOUD_HYPERVISOR_GUEST_NETWORK_READY_TIMEOUT_MS = CLOUD_HYPERVISOR_PROBE_TIMEOUT_MS;
-const CLOUD_HYPERVISOR_CONNECTIVITY_PROBE_ATTEMPTS = 3;
 const CLOUD_HYPERVISOR_CONNECTIVITY_PROBE_INITIAL_DELAY_SECONDS = 2;
-const CLOUD_HYPERVISOR_MAX_BOOT_ATTEMPTS = 3;
 const CLOUD_HYPERVISOR_BOOT_RETRY_DELAYS_MS = [5_000, 10_000] as const;
-const CLOUD_HYPERVISOR_TCP_PROBE_TIMEOUT_SECONDS = 60;
-const CLOUD_HYPERVISOR_API_PROXY_PROBE_TIMEOUT_SECONDS = 20;
-const CLOUD_HYPERVISOR_CONNECTIVITY_PROBE_BACKOFF_SECONDS = 6;
-const CLOUD_HYPERVISOR_CONNECTIVITY_PROBE_SCHEDULING_GRACE_MS = 30_000;
 const CLOUD_HYPERVISOR_CANCEL_GRACE_MS = 3_000;
 const CLOUD_HYPERVISOR_MAX_TIMEOUT_MS = 86_400_000;
 const MCP_GATEWAY_PORT = 8080;
@@ -174,41 +180,6 @@ export const cloudHypervisorRuntimeTestHelpers = {
   defaultDependencies,
   createBackendWithDependencies,
 };
-
-type CloudHypervisorReadinessStage =
-  | 'guest-network-readiness'
-  | 'guest-connectivity';
-
-/** @internal Structured sentinel used to permit only pre-agent boot retries. */
-// ts-prune-ignore-next
-export class CloudHypervisorRetryableReadinessError extends Error {
-  readonly code = 'CLOUD_HYPERVISOR_RETRYABLE_READINESS';
-  readonly retryable = true;
-  diagnosticDirectories: readonly string[] = [];
-
-  constructor(
-    readonly stage: CloudHypervisorReadinessStage,
-    readonly bootAttempt: number,
-    detail: string,
-    cause?: unknown,
-  ) {
-    super(
-      `Cloud Hypervisor retryable readiness failure ` +
-      `(stage=${stage}, boot attempt=${bootAttempt}/${CLOUD_HYPERVISOR_MAX_BOOT_ATTEMPTS}): ${detail}`,
-    );
-    this.name = 'CloudHypervisorRetryableReadinessError';
-    if (cause !== undefined) Object.defineProperty(this, 'cause', { value: cause });
-  }
-
-  attachDiagnostics(directories: readonly string[], exhausted: boolean): void {
-    this.diagnosticDirectories = [...directories];
-    if (exhausted) {
-      this.message +=
-        `; boot recovery exhausted after ${CLOUD_HYPERVISOR_MAX_BOOT_ATTEMPTS} attempts` +
-        (directories.length > 0 ? `; diagnostics: ${directories.join(', ')}` : '');
-    }
-  }
-}
 
 /**
  * Stateful adapter for an explicitly enabled, fail-closed Cloud Hypervisor microVM.
@@ -830,111 +801,6 @@ class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBackend {
       return '';
     }
   }
-}
-
-export function buildCloudHypervisorGuestEnvironment(
-  config: WrapperConfig,
-  infrastructure: Pick<
-    MicrovmInfrastructureSnapshot,
-    'squidIp' | 'apiProxyIp' | 'topologyPeerIps'
-  >,
-  guestIp = '100.64.0.2',
-  exports: readonly CloudHypervisorDirectoryExport[] = [],
-): Record<string, string> {
-  const networkConfig = {
-    subnet: NETWORK_SUBNET,
-    squidIp: infrastructure.squidIp,
-    agentIp: guestIp,
-    proxyIp: infrastructure.apiProxyIp,
-  };
-  const environment = buildGuestEnvironment({
-    config,
-    networkConfig,
-    home: CLOUD_HYPERVISOR_GUEST_HOME,
-    workspace: CLOUD_HYPERVISOR_GUEST_WORKSPACE,
-    runtimeName: 'cloud-hypervisor',
-    runtimeDisplayName: 'Cloud Hypervisor',
-  });
-  const topologyPeerBypasses = Object.entries(infrastructure.topologyPeerIps)
-    .flatMap(([name, ip]) => [name, ip]);
-  if (topologyPeerBypasses.length > 0) {
-    const noProxy = new Set((environment.NO_PROXY ?? '').split(',').filter(Boolean));
-    topologyPeerBypasses.forEach((peer) => noProxy.add(peer));
-    environment.NO_PROXY = [...noProxy].join(',');
-    environment.no_proxy = environment.NO_PROXY;
-  }
-  environment.GITHUB_WORKSPACE = CLOUD_HYPERVISOR_GUEST_WORKSPACE;
-  for (const name of ['RUNNER_TOOL_CACHE', 'AGENT_TOOLSDIRECTORY', 'RUNNER_TEMP'] as const) {
-    delete environment[name];
-  }
-  const toolCache = exports.find((entry) => entry.tag === 'runner-tool-cache');
-  if (toolCache) {
-    if (process.env.RUNNER_TOOL_CACHE) environment.RUNNER_TOOL_CACHE = toolCache.target;
-    else environment.AGENT_TOOLSDIRECTORY = toolCache.target;
-  }
-  const runnerTemp = exports.find((entry) => entry.tag === 'runner-temp-gh-aw');
-  if (runnerTemp) {
-    environment.RUNNER_TEMP = runnerTemp.target.slice(0, -'/gh-aw'.length);
-  }
-  return environment;
-}
-
-function formatError(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
-function shellSingleQuote(value: string): string {
-  return `'${value.replace(/'/g, `'\\''`)}'`;
-}
-
-function connectivityProbeTimeoutMs(
-  topologyPeerCount: number,
-  enableApiProxy: boolean,
-): number {
-  const tcpLegCount = 1 + topologyPeerCount;
-  const tcpBudgetSeconds = tcpLegCount * (
-    CLOUD_HYPERVISOR_CONNECTIVITY_PROBE_ATTEMPTS *
-      CLOUD_HYPERVISOR_TCP_PROBE_TIMEOUT_SECONDS +
-    CLOUD_HYPERVISOR_CONNECTIVITY_PROBE_BACKOFF_SECONDS
-  );
-  const apiProxyBudgetSeconds = enableApiProxy
-    ? CLOUD_HYPERVISOR_CONNECTIVITY_PROBE_ATTEMPTS *
-        CLOUD_HYPERVISOR_API_PROXY_PROBE_TIMEOUT_SECONDS +
-      CLOUD_HYPERVISOR_CONNECTIVITY_PROBE_BACKOFF_SECONDS
-    : 0;
-  return (
-    (tcpBudgetSeconds + apiProxyBudgetSeconds) * 1_000 +
-    CLOUD_HYPERVISOR_CONNECTIVITY_PROBE_SCHEDULING_GRACE_MS
-  );
-}
-
-/**
- * A bounded, in-memory Writable for capturing a guest command's stdout or
- * stderr without printing it live (unlike the real agent command, whose
- * output streams directly to the user). Used to enrich probeGuestConnectivity()
- * failure messages with what the guest actually printed, discarding
- * anything past the byte cap so a runaway/looping command can't grow
- * memory unbounded.
- */
-function createBoundedOutputCollector(maxBytes = 4096): {
-  readonly stream: Writable;
-  toString(): string;
-} {
-  const chunks: Buffer[] = [];
-  let total = 0;
-  const stream = new Writable({
-    write(chunk: Buffer, _encoding, callback) {
-      if (total < maxBytes) {
-        chunks.push(chunk);
-        total += chunk.length;
-      }
-      callback();
-    },
-  });
-  return {
-    stream,
-    toString: () => Buffer.concat(chunks).subarray(0, maxBytes).toString('utf8'),
-  };
 }
 
 export function createCloudHypervisorRuntimeBackend(
