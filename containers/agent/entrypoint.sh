@@ -411,7 +411,7 @@ fi
 }
 
 warn_codex_auto_model() {
-if [ -z "${AWF_API_PROXY_IP:-}" ]; then
+if [ -z "${OPENAI_BASE_URL:-}" ]; then
   return
 fi
 

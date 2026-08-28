@@ -270,6 +270,7 @@ run_warn_codex_auto_model_fixture() {
   output="$(
     env \
       AWF_API_PROXY_IP="172.30.0.30" \
+      OPENAI_BASE_URL="http://172.30.0.30:10000" \
       GH_AW_AWF_ENGINE_NAME="codex" \
       GH_AW_MODEL_AGENT_CODEX="auto" \
       bash -c '
@@ -291,6 +292,18 @@ run_warn_codex_auto_model_fixture() {
       AWF_API_PROXY_IP="172.30.0.30" \
       GH_AW_AWF_ENGINE_NAME="codex" \
       GH_AW_MODEL_AGENT_CODEX="gpt-5-codex" \
+      bash -c '
+        . "$1"
+        warn_codex_auto_model
+      ' _ "${ENTRYPOINT}" 2>&1
+  )"
+  [ -z "${output}" ]
+
+  output="$(
+    env \
+      AWF_API_PROXY_IP="172.30.0.30" \
+      GH_AW_AWF_ENGINE_NAME="codex" \
+      GH_AW_MODEL_AGENT_CODEX="auto" \
       bash -c '
         . "$1"
         warn_codex_auto_model

@@ -160,8 +160,8 @@ ChatGPT catalog lookup cannot be used even if `chatgpt.com` is on the network
 allowlist.
 
 **Solution:** Set an explicit Codex model instead of `auto`, for example
-`model: gpt-5-codex` in workflow frontmatter or `codex exec --model
-gpt-5-codex ...` for direct CLI usage.
+`model: gpt-5.3-codex` in workflow frontmatter or `codex exec --model
+gpt-5.3-codex ...` for direct CLI usage.
 
 ## Permission Issues
 

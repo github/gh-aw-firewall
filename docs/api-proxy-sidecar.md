@@ -95,13 +95,13 @@ export OPENAI_API_KEY="sk-..."
 
 sudo awf \
   --allow-domains api.openai.com \
-  -- npx @openai/codex --model gpt-5-codex -p "write a hello world function"
+  -- npx @openai/codex --model gpt-5.3-codex -p "write a hello world function"
 ```
 
 The agent container automatically uses `http://172.30.0.30:10000` as the OpenAI base URL.
 
 When Codex runs through the AWF API proxy, use an explicit model such as
-`gpt-5-codex`. Codex's `auto` model alias depends on ChatGPT-authenticated
+`gpt-5.3-codex`. Codex's `auto` model alias depends on ChatGPT-authenticated
 remote model/plugin metadata resolution; API-key based proxy routing cannot use
 that catalog even when `chatgpt.com` is allowed, so `auto` can fail with
 `The requested model is not supported`.
