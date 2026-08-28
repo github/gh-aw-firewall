@@ -34,6 +34,13 @@ describe('docker-manager (barrel re-exports)', () => {
     expect(typeof dockerManager.cleanup).toBe('function');
   });
 
+  it('re-exports capability-filter symbols', () => {
+    expect(typeof dockerManager.filterCapDrop).toBe('function');
+    expect(typeof dockerManager.filterComposeCapDrop).toBe('function');
+    expect(typeof dockerManager.getHostCapabilityBoundingSet).toBe('function');
+    expect(typeof dockerManager.isCapDropSkipped).toBe('function');
+  });
+
   it('exposes no unexpected additional exports', () => {
     const expectedExports = new Set([
       'setAwfDockerHost',
@@ -47,6 +54,10 @@ describe('docker-manager (barrel re-exports)', () => {
       'stopContainers',
       'preserveIptablesAudit',
       'cleanup',
+      'filterCapDrop',
+      'filterComposeCapDrop',
+      'getHostCapabilityBoundingSet',
+      'isCapDropSkipped',
     ]);
     const actualExports = new Set(Object.keys(dockerManager));
     expect(actualExports).toEqual(expectedExports);

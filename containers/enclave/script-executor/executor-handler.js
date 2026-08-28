@@ -59,6 +59,7 @@ function createExecutorHandler(params) {
   const telemetry = params.telemetry || { emit() {} };
   const executorKind = params.executorKind || 'script';
   const uniformTiming = params.uniformTiming === true;
+  const responseJitterSource = params.responseJitterSource;
   if (executorKind !== 'script' && executorKind !== 'agent') {
     throw new Error('createExecutorHandler requires a known executor kind');
   }
@@ -108,7 +109,12 @@ function createExecutorHandler(params) {
       audit.failure(invocationId, reason, detail);
       emitInvocationTelemetry(telemetryCategory);
       if (admissionStartMs !== undefined) {
-        await waitForBucket(admissionStartMs, clock.nowMs() - admissionStartMs, clock);
+        await waitForBucket(
+          admissionStartMs,
+          clock.nowMs() - admissionStartMs,
+          clock,
+          responseJitterSource,
+        );
       }
       safeRespond(CANONICAL_ERROR_RESPONSE_JSON);
     };
@@ -227,7 +233,12 @@ function createExecutorHandler(params) {
     }
 
     const elapsedMs = clock.nowMs() - startMs;
-    const { bucketMs, overflowed } = await waitForBucket(startMs, elapsedMs, clock);
+    const { bucketMs, overflowed } = await waitForBucket(
+      startMs,
+      elapsedMs,
+      clock,
+      responseJitterSource,
+    );
 
     if (overflowed) {
       // Fail closed: processing (not the script itself, whose timeout
@@ -306,7 +317,12 @@ function createExecutorHandler(params) {
         if (uniformTiming) {
           const queued = lane.tail.then(async () => {
             const startMs = clock.nowMs();
-            await waitForBucket(startMs, clock.nowMs() - startMs, clock);
+            await waitForBucket(
+              startMs,
+              clock.nowMs() - startMs,
+              clock,
+              responseJitterSource,
+            );
             safeRespond(CANONICAL_ERROR_RESPONSE_JSON);
           });
           lane.tail = queued.then(

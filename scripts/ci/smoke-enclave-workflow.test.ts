@@ -22,7 +22,7 @@ describe('smoke enclave build workflow', () => {
   });
 
   it('uses the compatible gateway and local AWF build', () => {
-    expect(lock).toContain('ghcr.io/github/gh-aw-mcpg:v0.4.10');
+    expect(lock).toContain('ghcr.io/github/gh-aw-mcpg:v0.4.12');
     expect(lock).toContain('"awf-enclave": {\n                "required": false,');
     expect(lock).toContain('Install awf binary (local)');
     expect(lock).toContain('--build-local');

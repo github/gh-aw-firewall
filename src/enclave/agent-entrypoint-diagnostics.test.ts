@@ -286,9 +286,13 @@ describe('enclave agent protected entrypoint diagnostics', () => {
     expect(transcript).toContainEqual(expect.objectContaining({
       event: 'engine-result',
       exitCode: 0,
-      stderr: expect.stringContaining('[REDACTED]'),
+      stdout: 'true',
+      stderr: '',
     }));
-    expect(transcript[transcript.length - 1]).toEqual({ event: 'success' });
+    expect(transcript[transcript.length - 1]).toEqual({
+      event: 'failure',
+      category: 'result-write-failed',
+    });
   });
 
   it('kills the launched process group and records a bounded deadline failure', () => {

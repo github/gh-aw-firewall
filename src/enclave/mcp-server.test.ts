@@ -310,6 +310,7 @@ describe('unified enclave ledger and timing', () => {
       ledger,
       executorKind: 'script',
       uniformTiming: true,
+      responseJitterSource: () => 0,
       clock,
       runner: {
         runScriptContainer: async () => {
@@ -328,7 +329,7 @@ describe('unified enclave ledger and timing', () => {
     let result = '';
     await broker.handle(validArguments, (value: string) => { result = value; });
     expect(result).toBe('{"status":"ok","result":true}');
-    expect(ledger.tryDebit).toHaveBeenCalledWith('octo/private', 5, 'script');
+    expect(ledger.tryDebit).toHaveBeenCalledWith('octo/private', 6, 'script');
     expect(sleeps).toEqual([25]);
     expect(now).toBe(100);
   });
@@ -350,6 +351,7 @@ describe('unified enclave ledger and timing', () => {
         ledger: { tryDebit: () => debit },
         executorKind: 'script',
         uniformTiming: true,
+        responseJitterSource: () => 0,
         clock: {
           nowMs: () => now,
           sleep: async (ms: number) => { now += ms; },
@@ -364,7 +366,7 @@ describe('unified enclave ledger and timing', () => {
     const exhausted = await rejected(new Map([
       ['octo/private', { seedId: 'a'.repeat(16), sensitivity: 'confidential' }],
     ]), false);
-    expect(unknown).toEqual({ now: 10, result: CANONICAL_ERROR_RESPONSE_JSON });
+    expect(unknown).toEqual({ now: 100, result: CANONICAL_ERROR_RESPONSE_JSON });
     expect(exhausted).toEqual(unknown);
   });
 
@@ -388,6 +390,7 @@ describe('unified enclave ledger and timing', () => {
       ledger: { tryDebit: jest.fn() },
       executorKind: 'script',
       uniformTiming: true,
+      responseJitterSource: () => 0,
       clock,
       runner: {},
     });
@@ -396,7 +399,7 @@ describe('unified enclave ledger and timing', () => {
     let response = '';
     await broker.handle(validArguments, (value: string) => { response = value; });
     expect(response).toBe(CANONICAL_ERROR_RESPONSE_JSON);
-    expect(now - startedAt).toBe(10);
+    expect(now - startedAt).toBe(100);
   });
 
   it('starts an exhausted invocation timing bucket after queued work completes', async () => {
@@ -416,6 +419,7 @@ describe('unified enclave ledger and timing', () => {
       ledger: { tryDebit: () => true },
       executorKind: 'script',
       uniformTiming: true,
+      responseJitterSource: () => 0,
       clock: {
         nowMs: () => now,
         sleep: async (ms: number) => {
@@ -441,7 +445,7 @@ describe('unified enclave ledger and timing', () => {
     await Promise.all([first, second]);
 
     expect(responses).toEqual(['{"status":"ok","result":true}', CANONICAL_ERROR_RESPONSE_JSON]);
-    expect(sleeps).toEqual([50, 10]);
-    expect(now).toBe(110);
+    expect(sleeps).toEqual([50, 100]);
+    expect(now).toBe(200);
   });
 });

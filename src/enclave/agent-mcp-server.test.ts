@@ -255,6 +255,7 @@ describe('unified enclave executor accounting', () => {
       validateRequest: createAgentRequestValidator(4096),
       exitCategories: ENCLAVE_EXIT_CATEGORIES,
       uniformTiming: true,
+      responseJitterSource: () => 0,
       ...overrides,
     });
   }
@@ -275,7 +276,7 @@ describe('unified enclave executor accounting', () => {
     let result = '';
     await broker.handle(validAgentArguments, (value: string) => { result = value; });
     expect(result).toBe('{"status":"ok","result":true}');
-    expect(ledger.tryDebit).toHaveBeenCalledWith('octo/private', 5, 'agent');
+    expect(ledger.tryDebit).toHaveBeenCalledWith('octo/private', 6, 'agent');
   });
 
   it('exhausts one live balance across script and agent invocations', () => {
