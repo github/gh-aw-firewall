@@ -1,5 +1,6 @@
 'use strict';
 
+const crypto = require('crypto');
 const { TIMING_BUCKETS_MS } = require('./finite-disclosure');
 
 /**
@@ -45,6 +46,14 @@ const { TIMING_BUCKETS_MS } = require('./finite-disclosure');
  */
 const TIMER_WAKE_TOLERANCE_MS = 1_000;
 
+/** Maximum secret-independent delay added after reaching a timing bucket. */
+const MAX_RESPONSE_JITTER_MS = 1_000;
+
+/** Returns an integer jitter in the inclusive range 0..MAX_RESPONSE_JITTER_MS. */
+function randomResponseJitterMs() {
+  return crypto.randomInt(0, MAX_RESPONSE_JITTER_MS + 1);
+}
+
 /** Resolves the smallest configured bucket at or after `elapsedMs`. */
 function resolveTimingBucket(elapsedMs) {
   for (const bucketMs of TIMING_BUCKETS_MS) {
@@ -72,7 +81,7 @@ function createRealClock() {
  * @returns `{ bucketMs, overflowed }`. When `overflowed` is `true`, the
  *   caller must fail closed (canonical error) rather than waiting further.
  */
-async function waitForBucket(startMs, elapsedMs, clock) {
+async function waitForBucket(startMs, elapsedMs, clock, jitterSource = randomResponseJitterMs) {
   let observedElapsedMs = Math.max(elapsedMs, clock.nowMs() - startMs);
 
   while (true) {
@@ -82,6 +91,8 @@ async function waitForBucket(startMs, elapsedMs, clock) {
     const targetMs = startMs + bucketMs;
     const remainingMs = targetMs - clock.nowMs();
     if (remainingMs === 0) {
+      const jitterMs = jitterSource();
+      if (jitterMs > 0) await clock.sleep(jitterMs);
       return { bucketMs, overflowed: false };
     }
     if (remainingMs < 0) {
@@ -93,6 +104,8 @@ async function waitForBucket(startMs, elapsedMs, clock) {
     const wakeMs = clock.nowMs();
     const isFinalBucket = bucketMs === TIMING_BUCKETS_MS[TIMING_BUCKETS_MS.length - 1];
     if (wakeMs <= targetMs + TIMER_WAKE_TOLERANCE_MS || isFinalBucket) {
+      const jitterMs = jitterSource();
+      if (jitterMs > 0) await clock.sleep(jitterMs);
       return { bucketMs, overflowed: false };
     }
 
@@ -103,6 +116,8 @@ async function waitForBucket(startMs, elapsedMs, clock) {
 module.exports = {
   TIMING_BUCKETS_MS,
   TIMER_WAKE_TOLERANCE_MS,
+  MAX_RESPONSE_JITTER_MS,
+  randomResponseJitterMs,
   resolveTimingBucket,
   createRealClock,
   waitForBucket,

@@ -13,16 +13,19 @@ const containerDisclosure = require(path.join(containerRoot, 'finite-disclosure.
   TIMING_BUCKETS_MS: number[];
 };
 const {
+  MAX_RESPONSE_JITTER_MS,
   TIMER_WAKE_TOLERANCE_MS,
   resolveTimingBucket,
   waitForBucket,
 } = require(path.join(containerRoot, 'fixed-timing.js')) as {
+  MAX_RESPONSE_JITTER_MS: number;
   TIMER_WAKE_TOLERANCE_MS: number;
   resolveTimingBucket: (elapsedMs: number) => { bucketMs: number; overflowed: boolean };
   waitForBucket: (
     startMs: number,
     elapsedMs: number,
     clock: { nowMs: () => number; sleep: (ms: number) => Promise<void> },
+    jitterSource?: () => number,
   ) => Promise<{ bucketMs: number; overflowed: boolean }>;
 };
 /* eslint-enable @typescript-eslint/no-require-imports */
@@ -70,22 +73,52 @@ describe('finite-disclosure timing buckets', () => {
     expect(TIMER_WAKE_TOLERANCE_MS).toBe(1_000);
 
     let nowMs = 20_000;
-    const withinTolerance = await waitForBucket(0, nowMs, {
-      nowMs: () => nowMs,
-      sleep: async (ms) => {
-        nowMs += ms + TIMER_WAKE_TOLERANCE_MS;
+    const withinTolerance = await waitForBucket(
+      0,
+      nowMs,
+      {
+        nowMs: () => nowMs,
+        sleep: async (ms) => {
+          nowMs += ms + TIMER_WAKE_TOLERANCE_MS;
+        },
       },
-    });
+      () => 0,
+    );
     expect(withinTolerance).toEqual({ bucketMs: 60_000, overflowed: false });
 
     nowMs = 20_000;
     let sleepCount = 0;
-    const beyondTolerance = await waitForBucket(0, nowMs, {
-      nowMs: () => nowMs,
-      sleep: async (ms) => {
-        nowMs += ms + (sleepCount++ === 0 ? TIMER_WAKE_TOLERANCE_MS + 1 : 0);
+    const beyondTolerance = await waitForBucket(
+      0,
+      nowMs,
+      {
+        nowMs: () => nowMs,
+        sleep: async (ms) => {
+          nowMs += ms + (sleepCount++ === 0 ? TIMER_WAKE_TOLERANCE_MS + 1 : 0);
+        },
       },
-    });
+      () => 0,
+    );
     expect(beyondTolerance).toEqual({ bucketMs: 120_000, overflowed: false });
+  });
+
+  it('adds bounded secret-independent response jitter after the bucket', async () => {
+    expect(MAX_RESPONSE_JITTER_MS).toBe(1_000);
+
+    let nowMs = 60_000;
+    const result = await waitForBucket(
+      0,
+      nowMs,
+      {
+        nowMs: () => nowMs,
+        sleep: async (ms) => {
+          nowMs += ms;
+        },
+      },
+      () => MAX_RESPONSE_JITTER_MS,
+    );
+
+    expect(result).toEqual({ bucketMs: 60_000, overflowed: false });
+    expect(nowMs).toBe(61_000);
   });
 });
