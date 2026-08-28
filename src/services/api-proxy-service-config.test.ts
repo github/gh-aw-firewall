@@ -180,14 +180,41 @@ describe('API proxy sidecar: service configuration', () => {
           ...mockConfig,
           enableApiProxy: true,
           openaiApiKey: 'sk-test-key',
-          apiProxyCaCert: '/tmp/upstream-ca.crt',
+          apiProxyCaCert: '/etc/hosts',
         };
         const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
         const proxy = result.services['api-proxy'];
         const env = proxy.environment as Record<string, string>;
         const caPath = '/usr/local/share/ca-certificates/awf-upstream-ca.crt';
         expect(env.NODE_EXTRA_CA_CERTS).toBe(caPath);
-        expect(proxy.volumes).toContain(`/tmp/upstream-ca.crt:${caPath}:ro`);
+        expect(proxy.volumes).toContain(`/etc/hosts:${caPath}:ro`);
+      });
+
+      it('should resolve relative CA cert paths from the invocation directory', () => {
+        const configWithProxy = {
+          ...mockConfig,
+          enableApiProxy: true,
+          openaiApiKey: 'sk-test-key',
+          apiProxyCaCert: 'src/services/api-proxy-service-config.test.ts',
+        };
+        const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+        expect(result.services['api-proxy'].volumes).toContain(
+          `${process.cwd()}/src/services/api-proxy-service-config.test.ts:/usr/local/share/ca-certificates/awf-upstream-ca.crt:ro`,
+        );
+      });
+
+      it.each([
+        ['', 'must be a non-empty path'],
+        ['/path/that/does/not/exist', 'file does not exist'],
+        ['/tmp', 'must refer to a file'],
+      ])('should reject invalid CA cert path %s', (caCert, message) => {
+        const configWithProxy = {
+          ...mockConfig,
+          enableApiProxy: true,
+          openaiApiKey: 'sk-test-key',
+          apiProxyCaCert: caCert,
+        };
+        expect(() => generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy)).toThrow(message);
       });
 
       it('should set ANTHROPIC_BASE_URL in agent when Anthropic key is provided', () => {
