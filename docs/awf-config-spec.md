@@ -115,6 +115,13 @@ because the path does not exist within a writable export. AWF rejects
 `filesystem.allowWrite` with the sbx runtime and with Docker-in-Docker agent
 execution.
 
+Any directory the workload writes to at run time — including caller-owned ones
+under `/tmp/gh-aw` such as gh-aw's repo-memory directory `/tmp/gh-aw/repo-memory`
+— MUST appear in `allowWrite`, or writes to it fail with `EROFS`. To make that
+diagnosable, the Cloud Hypervisor runtime logs the resolved boundary (per export:
+writable, read-only, or read-only with named writable paths) before the guest
+boots.
+
 ### 4.2 Cloud Hypervisor microVM preview
 
 The `cloudHypervisor` surface pins Cloud Hypervisor v53.0 artifacts and

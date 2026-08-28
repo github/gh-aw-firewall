@@ -263,10 +263,18 @@ class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBackend {
       // `filesystem.allowWrite` entry fails closed before virtiofsd, the VMM,
       // or the guest is launched, and so every boot attempt reuses one
       // decision instead of re-resolving host paths per attempt.
-      const { exports, mountEnforcement } = planCloudHypervisorFilesystemWriteEnforcement(
+      const { exports, mountEnforcement, writeBoundary } = planCloudHypervisorFilesystemWriteEnforcement(
         await this.dependencies.resolveExports(),
         this.config.filesystemAllowWrite,
       );
+      if (writeBoundary.length > 0) {
+        // Without this line a guest path missing from `filesystem.allowWrite`
+        // only ever surfaces as an unexplained EROFS inside the workload.
+        this.dependencies.logger.info(
+          `[cloud-hypervisor] stage=filesystem-write-policy boundary ${writeBoundary.join(' ')} ` +
+          '(writes outside these paths fail with EROFS; widen filesystem.allowWrite to permit them)',
+        );
+      }
       stage = 'topology-revalidation';
       await infrastructure.revalidate();
       for (

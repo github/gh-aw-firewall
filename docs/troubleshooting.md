@@ -211,6 +211,35 @@
 
 **Note:** Debug output goes to stderr. Use `2>&1 | tee debug.log` to capture it.
 
+### Read-Only Filesystem (`EROFS`) Inside the Sandbox
+
+**Problem:** A command that writes to a path AWF normally exposes read-write — for
+example gh-aw's repo-memory directory `/tmp/gh-aw/repo-memory/default` — fails with
+`Read-only file system` / `EROFS`.
+
+**Cause:** AWF does not mount any `/tmp` subdirectory read-only on its own. A
+read-only view of such a path comes from a `filesystem.allowWrite` policy in the
+AWF config file: when that key is present, every writable host mount is narrowed
+to the listed guest-visible paths and everything else becomes read-only (see
+[awf-config-spec.md §4.1](./awf-config-spec.md#41-filesystem-write-boundary)).
+
+**Solution:**
+1. Find the effective boundary in the run log. For the Cloud Hypervisor runtime AWF
+   logs it before the guest boots:
+   ```
+   [cloud-hypervisor] stage=filesystem-write-policy boundary /workspace=ro /tmp/gh-aw=ro except /tmp/gh-aw/agent (writes outside these paths fail with EROFS; widen filesystem.allowWrite to permit them)
+   ```
+2. Add the directory the workload must write to `filesystem.allowWrite`:
+   ```json
+   { "filesystem": { "allowWrite": ["/tmp/gh-aw/agent", "/tmp/gh-aw/repo-memory"] } }
+   ```
+   Every listed path must already exist on the host before AWF starts, otherwise
+   planning fails closed with `filesystem.allowWrite path is not an existing path
+   within a writable ...`.
+3. When AWF is launched by the gh-aw compiler, the list is generated from the
+   workflow's `sandbox.agent.config.filesystem.allowWrite`; the directory has to be
+   declared there rather than passed to AWF directly.
+
 ## MCP Server Issues
 
 ### MCP Server Can't Connect

@@ -2,7 +2,7 @@ import { promises as fs } from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import type { CloudHypervisorDirectoryExport } from './exports';
-import { planCloudHypervisorFilesystemWrites } from './filesystem-write-policy';
+import { planCloudHypervisorFilesystemWrites, summarizeCloudHypervisorFilesystemWriteBoundary } from './filesystem-write-policy';
 
 describe('Cloud Hypervisor filesystem write policy planner', () => {
   let directory: string;
@@ -370,5 +370,33 @@ describe('Cloud Hypervisor filesystem write policy planner', () => {
     expect(plan.exports[0].overlays.map((overlay) => overlay.guestPath))
       .toEqual(['/workspace/nested/deep', '/workspace/nested/file.txt']);
     expect(plan.overlays).toHaveLength(2);
+  });
+
+  describe('write boundary summary', () => {
+    it('describes nothing when no policy is in force', () => {
+      const plan = planCloudHypervisorFilesystemWrites(exports, undefined);
+
+      expect(summarizeCloudHypervisorFilesystemWriteBoundary(plan)).toEqual([]);
+    });
+
+    it('names the writable paths of every export so an EROFS is explainable', () => {
+      const plan = planCloudHypervisorFilesystemWrites(exports, [
+        '/workspace/nested/deep',
+      ]);
+
+      expect(summarizeCloudHypervisorFilesystemWriteBoundary(plan)).toEqual([
+        '/workspace=ro except /workspace/nested/deep',
+        '/tools=ro',
+      ]);
+    });
+
+    it('reports a fully writable export without an exception list', () => {
+      const plan = planCloudHypervisorFilesystemWrites(exports, ['/workspace']);
+
+      expect(summarizeCloudHypervisorFilesystemWriteBoundary(plan)).toEqual([
+        '/workspace=rw',
+        '/tools=ro',
+      ]);
+    });
   });
 });

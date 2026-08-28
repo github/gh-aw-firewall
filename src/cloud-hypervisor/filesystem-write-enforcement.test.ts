@@ -45,6 +45,7 @@ describe('Cloud Hypervisor filesystem write enforcement translation', () => {
     // verbatim so virtiofsd's legacy staging path stays byte-identical.
     result.exports.forEach((entry, index) => expect(entry).toBe(exports[index]));
     expect(hasReadOnlyWorkspaceMountPlan(result.mountEnforcement)).toBe(false);
+    expect(result.writeBoundary).toEqual([]);
   });
 
   it('narrows every writable export for an empty allowlist without exempting /tmp/gh-aw', () => {
@@ -86,6 +87,14 @@ describe('Cloud Hypervisor filesystem write enforcement translation', () => {
           kind: 'directory',
         }],
       },
+    ]);
+    // The motivating gh-aw failure was a write to /tmp/gh-aw/repo-memory, which
+    // this policy leaves read-only; the boundary line is what makes that visible
+    // before the guest reports a bare EROFS.
+    expect(result.writeBoundary).toEqual([
+      '/workspace=ro',
+      '/tools=ro',
+      '/tmp/gh-aw=ro except /tmp/gh-aw/agent',
     ]);
   });
 

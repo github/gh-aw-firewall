@@ -215,6 +215,36 @@ export function planCloudHypervisorFilesystemWrites(
   };
 }
 
+/**
+ * Renders the effective write boundary as one human-readable line per export.
+ *
+ * `filesystem.allowWrite` narrows guest paths that the workload never declared
+ * itself, so a directory that is simply absent from the list fails at write
+ * time with a bare `EROFS` and no indication of where the read-only view came
+ * from. Reporting the resolved boundary once, before the guest boots, is what
+ * turns that into an answerable question.
+ *
+ * Returns an empty list when no policy is in force: there is no boundary to
+ * describe and nothing should be logged.
+ */
+export function summarizeCloudHypervisorFilesystemWriteBoundary(
+  plan: CloudHypervisorFilesystemWritePlan,
+): string[] {
+  if (!plan.restricted) return [];
+
+  return plan.exports.map((entry) => {
+    const target = entry.export.target;
+    switch (entry.disposition) {
+      case 'writable':
+        return `${target}=rw`;
+      case 'selective':
+        return `${target}=ro except ${entry.overlays.map((overlay) => overlay.guestPath).join(',')}`;
+      default:
+        return `${target}=ro`;
+    }
+  });
+}
+
 function normalizeAllowedPaths(allowWrite: readonly string[]): string[] {
   for (const value of allowWrite) {
     if (!path.posix.isAbsolute(value) || value.split('/').includes('..') || value.includes('\0')) {

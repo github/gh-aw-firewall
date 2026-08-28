@@ -4,6 +4,7 @@ import {
 } from './exports';
 import {
   planCloudHypervisorFilesystemWrites,
+  summarizeCloudHypervisorFilesystemWriteBoundary,
   type CloudHypervisorFilesystemWritePlan,
 } from './filesystem-write-policy';
 import type {
@@ -33,6 +34,12 @@ export interface CloudHypervisorFilesystemWriteEnforcement {
    * including virtiofsd's argument vector.
    */
   readonly mountEnforcement?: VirtiofsdMountEnforcement;
+  /**
+   * Human-readable description of the resolved write boundary, one entry per
+   * export. Empty when `filesystem.allowWrite` was absent, so callers log
+   * nothing for an unrestricted run.
+   */
+  readonly writeBoundary: readonly string[];
 }
 
 /**
@@ -64,7 +71,7 @@ export function toCloudHypervisorFilesystemWriteEnforcement(
   if (!plan.restricted) {
     // No policy: the exports and the virtiofsd invocation must be exactly what
     // they were before this feature existed, so no enforcement is produced.
-    return { exports: plan.exports.map((entry) => entry.export) };
+    return { exports: plan.exports.map((entry) => entry.export), writeBoundary: [] };
   }
 
   const plans: VirtiofsdExportMountPlan[] = [];
@@ -89,7 +96,11 @@ export function toCloudHypervisorFilesystemWriteEnforcement(
     return { ...entry.export, mode: entry.guestMountMode };
   });
 
-  return { exports: publishedExports, mountEnforcement: { plans } };
+  return {
+    exports: publishedExports,
+    mountEnforcement: { plans },
+    writeBoundary: summarizeCloudHypervisorFilesystemWriteBoundary(plan),
+  };
 }
 
 /**
