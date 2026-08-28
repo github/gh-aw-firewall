@@ -11,7 +11,7 @@ env:
 name: Smoke Enclave Issues Read
 engine:
   id: copilot
-  version: 1.0.34
+  version: 1.0.80
 network:
   allowed:
     - defaults
