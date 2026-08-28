@@ -289,7 +289,8 @@ describe('Cloud Hypervisor runtime backend', () => {
       expect(deps.logger.info).toHaveBeenCalledWith(
         '[cloud-hypervisor] stage=filesystem-write-policy boundary /workspace=ro ' +
         '/tmp/gh-aw=ro except /tmp/gh-aw/agent ' +
-        '(writes outside these paths fail with EROFS; widen filesystem.allowWrite to permit them)',
+        '(writes outside these paths fail with EROFS; for paths under originally writable exports, ' +
+        'widen filesystem.allowWrite to permit them)',
       );
     } finally {
       await fsPromises.rm(directory, { recursive: true, force: true });

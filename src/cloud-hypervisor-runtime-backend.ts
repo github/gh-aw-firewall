@@ -272,7 +272,8 @@ class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBackend {
         // only ever surfaces as an unexplained EROFS inside the workload.
         this.dependencies.logger.info(
           `[cloud-hypervisor] stage=filesystem-write-policy boundary ${writeBoundary.join(' ')} ` +
-          '(writes outside these paths fail with EROFS; widen filesystem.allowWrite to permit them)',
+          '(writes outside these paths fail with EROFS; for paths under originally writable exports, ' +
+          'widen filesystem.allowWrite to permit them)',
         );
       }
       stage = 'topology-revalidation';

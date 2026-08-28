@@ -217,11 +217,11 @@
 example gh-aw's repo-memory directory `/tmp/gh-aw/repo-memory/default` — fails with
 `Read-only file system` / `EROFS`.
 
-**Cause:** AWF does not mount any `/tmp` subdirectory read-only on its own. A
-read-only view of such a path comes from a `filesystem.allowWrite` policy in the
-AWF config file: when that key is present, every writable host mount is narrowed
-to the listed guest-visible paths and everything else becomes read-only (see
-[awf-config-spec.md §4.1](./awf-config-spec.md#41-filesystem-write-boundary)).
+**Cause:** In the Cloud Hypervisor repo-memory case, AWF's normal `/tmp` export
+is read-write. The read-only view of `/tmp/gh-aw/repo-memory` comes from a
+`filesystem.allowWrite` policy in the AWF config file: when that key is present,
+the writable export is narrowed to the listed guest-visible paths and everything
+else becomes read-only (see [awf-config-spec.md §4.1](./awf-config-spec.md#41-filesystem-write-boundary)).
 
 **Solution:**
 1. Find the effective boundary in the run log. For the Cloud Hypervisor runtime AWF
