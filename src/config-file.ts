@@ -22,6 +22,7 @@ export interface AwfFileConfig {
   };
   apiProxy?: {
     enabled?: boolean;
+    caCert?: string;
     enableTokenSteering?: boolean;
     anthropicAutoCache?: boolean;
     anthropicCacheTailTtl?: string;

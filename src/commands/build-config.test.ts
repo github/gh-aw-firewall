@@ -145,6 +145,13 @@ describe('buildConfig', () => {
       expect(config.agentCommand).toBe('curl https://api.github.com');
     });
 
+    it('should pass through apiProxyCaCert', () => {
+      const config = buildConfig(makeInputs({
+        options: { ...makeInputs().options, apiProxyCaCert: '/tmp/upstream-ca.crt' },
+      }));
+      expect(config.apiProxyCaCert).toBe('/tmp/upstream-ca.crt');
+    });
+
     it('should set logLevel from inputs', () => {
       const config = buildConfig(makeInputs({ logLevel: 'debug' }));
       expect(config.logLevel).toBe('debug');

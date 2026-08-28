@@ -313,6 +313,16 @@ describe('mapAwfFileConfigToCliOptions', () => {
     expect(result.difcProxyCaCert).toBe('/path/ca.crt');
   });
 
+  it('maps apiProxy.caCert', () => {
+    const result = mapAwfFileConfigToCliOptions({
+      apiProxy: {
+        caCert: '/path/api-proxy-ca.crt',
+      },
+    });
+
+    expect(result.apiProxyCaCert).toBe('/path/api-proxy-ca.crt');
+  });
+
   it('maps security.legacySecurity boolean', () => {
     const result = mapAwfFileConfigToCliOptions({
       security: { legacySecurity: true },

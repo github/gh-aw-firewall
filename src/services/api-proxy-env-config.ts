@@ -8,6 +8,7 @@ import { buildNoProxyEnv } from './no-proxy-utils';
 import { resolveOpenAiBaseUrlFromEnv } from '../openai-base-url-env';
 
 const DEFAULT_API_PROXY_SHUTDOWN_TIMEOUT_MS = 8000;
+export const API_PROXY_UPSTREAM_CA_CERT_CONTAINER_PATH = '/usr/local/share/ca-certificates/awf-upstream-ca.crt';
 
 /**
  * Builds provider API target/basePath environment variables for the api-proxy container.
@@ -333,6 +334,7 @@ function buildOidcEnv(config: WrapperConfig): Record<string, string> {
 
 export function buildApiProxyBaseEnv(config: WrapperConfig, networkConfig: NetworkConfig): Record<string, string> {
   return {
+    ...(config.apiProxyCaCert && { NODE_EXTRA_CA_CERTS: API_PROXY_UPSTREAM_CA_CERT_CONTAINER_PATH }),
     ...buildCredentialEnv(config),
     ...buildProviderRoutingEnv(config),
     ...buildProxyRoutingEnv(networkConfig),

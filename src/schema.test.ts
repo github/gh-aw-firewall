@@ -70,6 +70,7 @@ describe('awf-config.schema.json', () => {
       },
       apiProxy: {
         enabled: true,
+        caCert: '/path/to/api-proxy-ca.crt',
         anthropicAutoCache: true,
         anthropicCacheTailTtl: '5m',
         maxEffectiveTokens: 100000,

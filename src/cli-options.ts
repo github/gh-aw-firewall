@@ -389,6 +389,10 @@ program
     'Base path prefix for Vertex API requests',
   )
   .option(
+    '--api-proxy-ca-cert <path>',
+    'Path to an additional CA certificate for api-proxy upstream TLS verification',
+  )
+  .option(
     '--anthropic-auto-cache',
     'Enable Anthropic prompt-cache optimizations in the API proxy (requires --enable-api-proxy).\n' +
     '                                       Injects cache breakpoints on tools/system/messages, upgrades TTL to 1h,\n' +

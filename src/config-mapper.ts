@@ -31,6 +31,7 @@ export function mapAwfFileConfigToCliOptions(config: AwfFileConfig): Record<stri
     // apiProxy.enabled is ignored — API proxy is always on (see #6207).
     // We deliberately don't map it to enableApiProxy to avoid triggering
     // CLI deprecation warnings/errors from config-file values.
+    apiProxyCaCert: config.apiProxy?.caCert,
     enableTokenSteering: config.apiProxy?.enableTokenSteering,
     anthropicAutoCache: config.apiProxy?.anthropicAutoCache,
     anthropicCacheTailTtl: config.apiProxy?.anthropicCacheTailTtl as '5m' | '1h' | undefined,

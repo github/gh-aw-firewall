@@ -4,6 +4,22 @@
 
 export interface ApiProxyRoutingOptions {
   /**
+   * Host path to an additional CA certificate for api-proxy upstream TLS.
+   *
+   * When set, the file is mounted read-only into the api-proxy sidecar and
+   * exposed through `NODE_EXTRA_CA_CERTS` so Node.js trusts private or
+   * corporate CAs in addition to its built-in root store.
+   *
+   * Can be set via:
+   * - Config path: `apiProxy.caCert`
+   * - CLI flag: `--api-proxy-ca-cert <path>`
+   *
+   * @default undefined
+   * @example '/tmp/awf/upstream-ca.crt'
+   */
+  apiProxyCaCert?: string;
+
+  /**
    * Copilot BYOK provider type hint forwarded to the API proxy sidecar.
    *
    * When set, the sidecar uses this hint to select provider-specific behavior

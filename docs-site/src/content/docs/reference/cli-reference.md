@@ -60,6 +60,7 @@ awf [options] -- <command>
 | `--copilot-api-target <host>` | string | `api.githubcopilot.com` | Target hostname for Copilot API requests |
 | `--openai-api-target <host>` | string | `api.openai.com` | Target hostname for OpenAI API requests |
 | `--openai-api-base-path <path>` | string | — | Base path prefix for OpenAI API requests |
+| `--api-proxy-ca-cert <path>` | string | — | Additional CA certificate for api-proxy upstream TLS verification |
 | `--anthropic-api-target <host>` | string | `api.anthropic.com` | Target hostname for Anthropic API requests |
 | `--anthropic-api-base-path <path>` | string | — | Base path prefix for Anthropic API requests |
 | `--gemini-api-target <host>` | string | `generativelanguage.googleapis.com` | Target hostname for Gemini API requests |
@@ -821,6 +822,21 @@ sudo -E awf --enable-api-proxy \
   --openai-api-target myworkspace.cloud.databricks.com \
   --openai-api-base-path /serving-endpoints \
   --allow-domains myworkspace.cloud.databricks.com \
+  -- command
+```
+
+### `--api-proxy-ca-cert <path>`
+
+Path to an additional CA certificate used by the api-proxy sidecar when verifying TLS for custom upstream provider targets. AWF bind-mounts the file read-only into the sidecar and sets `NODE_EXTRA_CA_CERTS`; Node's built-in roots remain trusted.
+
+- **Default:** none
+- **Requires:** API proxy sidecar
+
+```bash
+sudo -E awf \
+  --openai-api-target llm-router.internal.example.com \
+  --api-proxy-ca-cert /etc/ssl/certs/corporate-ca.crt \
+  --allow-domains llm-router.internal.example.com \
   -- command
 ```
 

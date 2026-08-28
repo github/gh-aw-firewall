@@ -4,6 +4,7 @@ describe('ApiProxyOptions', () => {
   it('composes fields from credential, routing, model, and diagnostics options', () => {
     const options: ApiProxyOptions = {
       enableApiProxy: true,
+      apiProxyCaCert: '/tmp/upstream-ca.crt',
       openaiApiKey: 'test-key',
       openaiApiTarget: 'api.openai.com',
       modelAliases: { default: ['openai/*'] },
@@ -11,6 +12,7 @@ describe('ApiProxyOptions', () => {
     };
 
     expect(options.enableApiProxy).toBe(true);
+    expect(options.apiProxyCaCert).toBe('/tmp/upstream-ca.crt');
     expect(options.openaiApiTarget).toBe('api.openai.com');
     expect(options.modelAliases).toEqual({ default: ['openai/*'] });
     expect(options.debugTokens).toBe(true);

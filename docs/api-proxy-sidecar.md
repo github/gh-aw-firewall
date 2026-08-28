@@ -151,6 +151,7 @@ The API proxy sidecar receives **real credentials** and routing configuration:
 | `GOOGLE_API_KEY` | Real API key | env set on host | Google Vertex AI API key (injected into `x-goog-api-key` header) |
 | `GITHUB_RUN_ID` | Forwarded GitHub Actions value | `GITHUB_RUN_ID` set on host (GitHub Actions runs) | Combined with `GITHUB_RUN_ATTEMPT` to derive a stable per-run `X-Interaction-Id` for Copilot API requests (CAPI prompt-cache key); see [Prompt-cache and attribution headers](./auth-matrix.md#prompt-cache-and-attribution-headers-githubcopilotcom-only) in the auth matrix. |
 | `GITHUB_RUN_ATTEMPT` | Forwarded GitHub Actions value | `GITHUB_RUN_ATTEMPT` set on host (GitHub Actions runs) | Paired with `GITHUB_RUN_ID` for the `X-Interaction-Id` derivation above; defaults to `1` if unset. |
+| `NODE_EXTRA_CA_CERTS` | `/usr/local/share/ca-certificates/awf-upstream-ca.crt` | `apiProxy.caCert` / `--api-proxy-ca-cert` set | Extends Node's trusted roots for private or corporate upstream gateways. |
 | `HTTP_PROXY` | `http://172.30.0.10:3128` | Always | Routes through Squid; sidecar traffic is exempt from domain ACLs |
 | `HTTPS_PROXY` | `http://172.30.0.10:3128` | Always | Routes through Squid; sidecar traffic is exempt from domain ACLs |
 

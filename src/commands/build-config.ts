@@ -176,6 +176,7 @@ export function buildConfig(inputs: BuildConfigInputs): WrapperConfig {
     legacySecurity: resolveLegacySecurity(options),
     allowedUrls,
     enableApiProxy: options.enableApiProxy as boolean | undefined,
+    apiProxyCaCert: options.apiProxyCaCert as string | undefined,
     modelFallback:
       options.modelFallback as { enabled?: boolean; strategy?: 'middle_power' } | undefined,
     requestedModel: options.requestedModel as string | undefined,

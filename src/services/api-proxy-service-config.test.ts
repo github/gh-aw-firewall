@@ -175,6 +175,21 @@ describe('API proxy sidecar: service configuration', () => {
         expect(env.HTTPS_PROXY).toBe('http://172.30.0.10:3128');
       });
 
+      it('should mount API proxy CA cert read-only and set NODE_EXTRA_CA_CERTS', () => {
+        const configWithProxy = {
+          ...mockConfig,
+          enableApiProxy: true,
+          openaiApiKey: 'sk-test-key',
+          apiProxyCaCert: '/tmp/upstream-ca.crt',
+        };
+        const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+        const proxy = result.services['api-proxy'];
+        const env = proxy.environment as Record<string, string>;
+        const caPath = '/usr/local/share/ca-certificates/awf-upstream-ca.crt';
+        expect(env.NODE_EXTRA_CA_CERTS).toBe(caPath);
+        expect(proxy.volumes).toContain(`/tmp/upstream-ca.crt:${caPath}:ro`);
+      });
+
       it('should set ANTHROPIC_BASE_URL in agent when Anthropic key is provided', () => {
         const configWithProxy = { ...mockConfig, enableApiProxy: true, anthropicApiKey: 'sk-ant-test-key' };
         const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);

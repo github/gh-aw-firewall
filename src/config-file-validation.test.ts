@@ -76,6 +76,15 @@ describe('validateAwfFileConfig', () => {
     expect(errors).toContain('config.apiProxy.enableOpenCode is not supported');
   });
 
+  it('accepts string apiProxy.caCert', () => {
+    expect(validateAwfFileConfig({ apiProxy: { caCert: '/path/to/api-proxy-ca.crt' } })).toEqual([]);
+  });
+
+  it('rejects non-string apiProxy.caCert', () => {
+    const errors = validateAwfFileConfig({ apiProxy: { caCert: 456 } });
+    expect(errors).toContain('config.apiProxy.caCert must be a string');
+  });
+
   it('accepts boolean apiProxy.enableTokenSteering', () => {
     expect(validateAwfFileConfig({ apiProxy: { enableTokenSteering: true } })).toEqual([]);
     expect(validateAwfFileConfig({ apiProxy: { enableTokenSteering: false } })).toEqual([]);

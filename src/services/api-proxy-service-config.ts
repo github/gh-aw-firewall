@@ -7,7 +7,11 @@ import { getSafeHostGid, getSafeHostUid } from '../host-identity';
 import { NetworkConfig, ImageBuildConfig } from './squid-service';
 import { applyHostPathPrefixToVolumes } from './host-path-prefix';
 import { buildContainerSecurityHardening } from './service-security';
-import { buildApiProxyBaseEnv, resolveApiProxyShutdownTimeoutMs } from './api-proxy-env-config';
+import {
+  API_PROXY_UPSTREAM_CA_CERT_CONTAINER_PATH,
+  buildApiProxyBaseEnv,
+  resolveApiProxyShutdownTimeoutMs,
+} from './api-proxy-env-config';
 import { buildApiProxyLifecycleConfig } from './api-proxy-lifecycle-config';
 
 interface ApiProxyServiceConfigParams {
@@ -34,6 +38,7 @@ export function buildApiProxyServiceConfig(params: ApiProxyServiceConfigParams):
       [
         // Mount log directory for api-proxy logs
         `${apiProxyLogsPath}:/var/log/api-proxy:rw`,
+        ...(config.apiProxyCaCert ? [`${config.apiProxyCaCert}:${API_PROXY_UPSTREAM_CA_CERT_CONTAINER_PATH}:ro`] : []),
       ],
       config.dockerHostPathPrefix,
     ),
