@@ -22,6 +22,7 @@ import {
 } from './container-startup-diagnostics';
 import { checkSquidLogs } from './squid-log-reader';
 import { isGvisorRuntime } from './container-runtime';
+import { removeConflictingComposeNetworks } from './compose-network-conflicts';
 
 const GVISOR_RETRYABLE_AGENT_EXIT_CODES = new Set([134, 139]);
 const MAX_GVISOR_AGENT_RETRIES = 1;
@@ -320,6 +321,12 @@ export async function startContainers(
     // Ignore errors if containers don't exist
     logger.debug('No existing containers to remove (this is normal)');
   }
+
+  // Reclaim fixed-name Docker networks (e.g. `awf-net`) left behind by a
+  // previous run. Compose refuses to attach to a network it did not create for
+  // this project ("a network with name awf-net exists but was not created for
+  // project ..."), which otherwise blocks startup entirely.
+  await removeConflictingComposeNetworks(workDir);
 
   const composeArgs = getComposeUpArgs(skipPull);
   const runComposeUp = onInfrastructureReady

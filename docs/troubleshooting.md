@@ -49,6 +49,18 @@
    docker network rm awf-net
    ```
 
+### Network Name Collision
+
+**Problem:** Docker Compose repeatedly warns `a network with name awf-net exists but was not created for project "awf-<timestamp>"` and containers never start.
+
+**Cause:** A previous AWF run was killed (timeout, `SIGKILL`, runner eviction) before its Docker network was removed. Compose will not attach to a fixed-name network that belongs to a different project.
+
+**Solution:** AWF now reclaims these orphaned networks automatically before `docker compose up`. If the network still cannot be removed (for example, a live container from another tool is attached to it), remove it manually:
+```bash
+docker network inspect awf-net
+docker network rm awf-net
+```
+
 ## Self-Hosted Runner Issues
 
 ### ARC / DinD Split Filesystem

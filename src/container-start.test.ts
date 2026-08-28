@@ -91,6 +91,36 @@ describe('startContainers', () => {
     );
   });
 
+  it('should remove an orphaned fixed-name network before starting', async () => {
+    // Compose file pinning `awf-net` (network-isolation/topology mode)
+    fs.writeFileSync(
+      path.join(getDir(), 'docker-compose.yml'),
+      'services: {}\nnetworks:\n  awf-net:\n    name: awf-net\n    internal: true\n'
+    );
+
+    // docker rm -f
+    mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
+    // docker network inspect -> owned by a previous project
+    mockExecaFn.mockResolvedValueOnce({ stdout: 'awf-1111111111', stderr: '', exitCode: 0 } as any);
+    // docker network rm
+    mockExecaFn.mockResolvedValueOnce({ stdout: 'awf-net', stderr: '', exitCode: 0 } as any);
+    // docker compose up
+    mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
+
+    await startContainers(getDir(), ['github.com']);
+
+    expect(mockExecaFn).toHaveBeenCalledWith(
+      'docker',
+      ['network', 'rm', 'awf-net'],
+      expect.objectContaining({ reject: false })
+    );
+    expect(mockExecaFn).toHaveBeenCalledWith(
+      'docker',
+      ['compose', 'up', '-d'],
+      expect.objectContaining({ cwd: getDir() })
+    );
+  });
+
   it('should handle docker compose failure', async () => {
     mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
     mockExecaFn.mockRejectedValueOnce(new Error('Docker compose failed'));
