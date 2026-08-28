@@ -65,7 +65,15 @@ async function inspectNetwork(name: string, format: string): Promise<string | nu
   return result.exitCode === 0 ? result.stdout : null;
 }
 
-async function disconnectAttachedContainers(name: string): Promise<void> {
+async function inspectContainer(id: string, format: string): Promise<string | null> {
+  const result = await execa('docker', ['inspect', id, '--format', format], {
+    reject: false,
+    env: getLocalDockerEnv(),
+  });
+  return result.exitCode === 0 ? result.stdout : null;
+}
+
+async function disconnectStaleContainers(name: string, projectName: string): Promise<void> {
   const raw = await inspectNetwork(name, '{{json .Containers}}');
   if (!raw) return;
   let containers: Record<string, unknown>;
@@ -75,6 +83,18 @@ async function disconnectAttachedContainers(name: string): Promise<void> {
     return;
   }
   for (const containerId of Object.keys(containers)) {
+    const container = await inspectContainer(containerId, '{{json .Config.Labels}}\t{{.State.Status}}');
+    if (!container) continue;
+    const [labelsJson, status] = container.split('\t');
+    let labels: Record<string, unknown> | null;
+    try {
+      labels = JSON.parse(labelsJson) || {};
+    } catch {
+      continue;
+    }
+    if (labels?.[COMPOSE_PROJECT_LABEL] !== projectName || status.trim() === 'running') {
+      continue;
+    }
     await execa('docker', ['network', 'disconnect', '-f', name, containerId], {
       reject: false,
       env: getLocalDockerEnv(),
@@ -124,7 +144,7 @@ export async function removeConflictingComposeNetworks(workDir: string): Promise
         // The network still has (possibly stale) endpoints attached. Detach them
         // and retry once — leftover endpoints from killed containers otherwise
         // pin the network forever.
-        await disconnectAttachedContainers(name);
+        await disconnectStaleContainers(name, labels.trim());
         removal = await execa('docker', ['network', 'rm', name], {
           reject: false,
           env: getLocalDockerEnv(),

@@ -58,6 +58,12 @@
 **Solution:** AWF now reclaims these orphaned networks automatically before `docker compose up`. If the network still cannot be removed (for example, a live container from another tool is attached to it), remove it manually:
 ```bash
 docker network inspect awf-net
+```
+Stop or force-disconnect each attached endpoint listed by the inspection, then remove
+the network:
+```bash
+docker stop <container>
+docker network disconnect -f awf-net <container>
 docker network rm awf-net
 ```
 

@@ -147,6 +147,12 @@ describe('compose-network-conflicts', () => {
         stderr: '',
         exitCode: 0,
       } as any);
+      // inspect the endpoint: stale container from the same Compose project
+      mockExecaFn.mockResolvedValueOnce({
+        stdout: '{"com.docker.compose.project":"awf-1111111111"}\texited',
+        stderr: '',
+        exitCode: 0,
+      } as any);
       // disconnect
       mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
       // second rm succeeds
@@ -159,7 +165,32 @@ describe('compose-network-conflicts', () => {
         ['network', 'disconnect', '-f', 'awf-net', 'abc123'],
         expect.objectContaining({ reject: false })
       );
-      expect(mockExecaFn).toHaveBeenCalledTimes(5);
+      expect(mockExecaFn).toHaveBeenCalledTimes(6);
+    });
+
+    it('leaves running containers from other tools attached', async () => {
+      writeCompose(getDir(), { 'awf-net': { name: 'awf-net' } });
+      mockExecaFn.mockResolvedValueOnce({ stdout: 'awf-1111111111', stderr: '', exitCode: 0 } as any);
+      mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: 'has active endpoints', exitCode: 1 } as any);
+      mockExecaFn.mockResolvedValueOnce({
+        stdout: JSON.stringify({ external123: { Name: 'other-tool' } }),
+        stderr: '',
+        exitCode: 0,
+      } as any);
+      mockExecaFn.mockResolvedValueOnce({
+        stdout: '{"com.docker.compose.project":"other-project"}\trunning',
+        stderr: '',
+        exitCode: 0,
+      } as any);
+      mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: 'has active endpoints', exitCode: 1 } as any);
+
+      await removeConflictingComposeNetworks(getDir());
+
+      expect(mockExecaFn).not.toHaveBeenCalledWith(
+        'docker',
+        ['network', 'disconnect', '-f', 'awf-net', 'external123'],
+        expect.anything()
+      );
     });
 
     it('does not throw when the network cannot be removed', async () => {
