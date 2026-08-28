@@ -1137,7 +1137,7 @@
           "timeout": {
             "type": "integer",
             "minimum": 1,
-            "maximum": 540,
+            "maximum": 4740,
             "description": "Per-invocation wall-clock timeout in seconds. Defaults to 30 for \"script\" entries and 120 for \"agent\" entries."
           },
           "runtime": {

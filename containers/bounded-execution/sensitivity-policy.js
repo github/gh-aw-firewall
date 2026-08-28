@@ -9,8 +9,8 @@
  * schema/result validation and operational limits (`maxInvocations`,
  * timeouts, sandboxing) as every other category, but its responses are not
  * debited against a confidentiality ledger. `sealed` is `0`, which —
- * because every accepted query's minimum charge is 4 bits (1 status bit +
- * 3 timing bits) — always exceeds the remaining balance, so a `sealed`
+ * because every accepted query's minimum charge is 5 bits (1 status bit +
+ * 4 timing bits) — always exceeds the remaining balance, so a `sealed`
  * repository can never fund a single query and therefore never copies a
  * seed or launches Python.
  */

@@ -205,10 +205,13 @@ describe('enclaves JSON Schema', () => {
       }],
     })).toEqual([]);
     expect(validateAwfFileConfig({
-      enclaves: [{ script: {}, repos: [repository], timeout: 541 }],
+      enclaves: [{ agent: { model: 'gpt-5' }, repos: [repository], timeout: 4740 }],
+    })).toEqual([]);
+    expect(validateAwfFileConfig({
+      enclaves: [{ script: {}, repos: [repository], timeout: 4741 }],
     }).length).toBeGreaterThan(0);
     expect(validateAwfFileConfig({
-      enclaves: [{ agent: { model: 'gpt-5' }, repos: [repository], timeout: 541 }],
+      enclaves: [{ agent: { model: 'gpt-5' }, repos: [repository], timeout: 4741 }],
     }).length).toBeGreaterThan(0);
   });
 });

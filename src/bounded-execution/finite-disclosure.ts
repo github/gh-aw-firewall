@@ -81,7 +81,20 @@ export const MAX_RESULT_BYTES = 8 * 1024;
 export const MAX_PRIVATE_REPO_LENGTH = 140;
 
 /** Number of observable response-timing buckets (see `docs/awf-config-spec.md` §14). */
-export const TIMING_BUCKETS_MS: readonly number[] = [10, 100, 1_000, 10_000, 60_000, 600_000];
+export const TIMING_BUCKETS_MS: readonly number[] = [
+  100,
+  1_000,
+  10_000,
+  60_000,
+  120_000,
+  180_000,
+  240_000,
+  300_000,
+  600_000,
+  1_200_000,
+  2_400_000,
+  4_800_000,
+];
 
 /**
  * Time reserved inside the final bucket for Docker termination, result
@@ -96,7 +109,7 @@ export const MAX_ENCLAVE_TIMEOUT_SECONDS =
 
 /**
  * Bits reserved for the timing side channel: `ceil(log2(TIMING_BUCKETS_MS.length))`.
- * Fixed at 3 for the current six-bucket design; recomputed defensively below
+ * Fixed at 4 for the current twelve-bucket design; recomputed defensively below
  * so the constant can never silently drift out of sync with the bucket list.
  */
 export const TIMING_BUCKET_BITS = ceilLog2(TIMING_BUCKETS_MS.length);

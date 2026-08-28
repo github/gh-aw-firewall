@@ -43,7 +43,7 @@ const { TIMING_BUCKETS_MS } = require('./finite-disclosure');
  * this bound are padded to the next fixed boundary instead of being returned
  * at a continuously varying late time.
  */
-const TIMER_WAKE_TOLERANCE_MS = 5;
+const TIMER_WAKE_TOLERANCE_MS = 1_000;
 
 /** Resolves the smallest configured bucket at or after `elapsedMs`. */
 function resolveTimingBucket(elapsedMs) {
