@@ -67,6 +67,21 @@ executor tools. The compiler generates a fresh 64-character lowercase
 hexadecimal capability, substitutes it into the mcpg authorization header, and
 passes it to AWF without exposing it to the primary agent.
 
+### Gateway authorization boundaries
+
+There are two separate authorization hops. AWF's upstream contract
+authenticates mcpg to the AWF-owned enclave server with the
+`AWF_ENCLAVE_MCP_CAPABILITY`. mcpg independently authenticates the client-facing
+gateway endpoint with its gateway agent ID/API key; that is the credential
+returned in mcpg's rewritten gateway output.
+
+Engine config adapters consume mcpg's rewritten output, not AWF's upstream
+contract. Therefore adapters MUST treat the client-facing `Authorization`
+header as a runtime-only value: they must not resolve it while generating
+configuration, and must never persist the resolved gateway credential under
+`GITHUB_WORKSPACE` or any other agent-readable path. AWF's upstream template
+does not enforce this downstream requirement.
+
 `gh-aw-mcpg` may start before the enclave server. While the backend is
 unavailable, mcpg returns retryable HTTP `503 backend_unavailable`; AWF retries
 the complete `initialize` handshake with bounded 500 ms backoff until

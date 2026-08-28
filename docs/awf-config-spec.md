@@ -1825,6 +1825,19 @@ the first supporting AWF release. Older AWF versions reject the closed
 
 While the backend is still starting, mcpg may return retryable HTTP `503 backend_unavailable`. AWF retries `initialize` with bounded backoff until `AWF_ENCLAVE_MCP_READINESS_TIMEOUT_MS` expires, then fails closed before the primary agent starts.
 
+The gateway has two separate authorization hops. AWF's upstream
+`Authorization` header authenticates mcpg to the AWF-owned enclave server with
+`AWF_ENCLAVE_MCP_CAPABILITY`. mcpg then generates the client-facing gateway
+`Authorization` header from its gateway agent ID/API key; this is the header
+present in mcpg's rewritten gateway output consumed by engine config adapters.
+That downstream credential is distinct from the AWF capability.
+
+Adapters consuming mcpg's rewritten output MUST keep the client-facing
+`Authorization` value runtime-only: they must not resolve it while generating
+configuration or persist the resolved credential under `GITHUB_WORKSPACE` (or
+any other agent-readable path). The AWF upstream contract cannot enforce this
+requirement on the downstream output/converter path.
+
 For `issues-read-v1`, the compiler supplies
 `AWF_ENCLAVE_GITHUB_PROXY_CONTAINER`,
 `AWF_ENCLAVE_GITHUB_PROXY_IDENTITY`,
