@@ -23,6 +23,7 @@ required_functions=(
   check_service_health
   configure_claude_api_key
   configure_jvm_proxy
+  warn_codex_auto_model
   log_environment_details
   determine_capabilities_to_drop
   log_execution_context
@@ -75,6 +76,7 @@ required_calls=(
   'check_service_health'
   'configure_claude_api_key'
   'configure_jvm_proxy'
+  'warn_codex_auto_model'
   'log_environment_details'
   'determine_capabilities_to_drop'
   'log_execution_context "$@"'
@@ -261,6 +263,46 @@ elif run_configure_jvm_proxy_readonly_home_fixture; then
   pass "configure_jvm_proxy() survives an existing but read-only .m2/.gradle"
 else
   fail "configure_jvm_proxy() aborts when .m2/.gradle exist on a read-only home"
+fi
+
+run_warn_codex_auto_model_fixture() {
+  local output
+  output="$(
+    env \
+      AWF_API_PROXY_IP="172.30.0.30" \
+      GH_AW_AWF_ENGINE_NAME="codex" \
+      GH_AW_MODEL_AGENT_CODEX="auto" \
+      bash -c '
+        . "$1"
+        warn_codex_auto_model
+      ' _ "${ENTRYPOINT}" 2>&1
+  )"
+  case "${output}" in
+    *"Codex model 'auto' is not supported with AWF api-proxy/API-key routing."*\
+*"Set an explicit Codex model in workflow frontmatter"*)
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+
+  output="$(
+    env \
+      AWF_API_PROXY_IP="172.30.0.30" \
+      GH_AW_AWF_ENGINE_NAME="codex" \
+      GH_AW_MODEL_AGENT_CODEX="gpt-5-codex" \
+      bash -c '
+        . "$1"
+        warn_codex_auto_model
+      ' _ "${ENTRYPOINT}" 2>&1
+  )"
+  [ -z "${output}" ]
+}
+
+if run_warn_codex_auto_model_fixture; then
+  pass "warn_codex_auto_model() warns only for codex model auto under api-proxy"
+else
+  fail "warn_codex_auto_model() did not warn correctly for codex model auto under api-proxy"
 fi
 
 echo ""

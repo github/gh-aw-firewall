@@ -410,6 +410,26 @@ GRADLE_EOF
 fi
 }
 
+warn_codex_auto_model() {
+if [ -z "${AWF_API_PROXY_IP:-}" ]; then
+  return
+fi
+
+local CODEX_MODEL="${GH_AW_MODEL_AGENT_CODEX:-}"
+if [ -z "${CODEX_MODEL}" ]; then
+  return
+fi
+
+local ENGINE_NAME="${GH_AW_AWF_ENGINE_NAME:-${GH_AW_ENGINE_ID:-}}"
+case "${ENGINE_NAME}:${CODEX_MODEL}" in
+  [Cc][Oo][Dd][Ee][Xx]:[Aa][Uu][Tt][Oo])
+    echo "[entrypoint][WARN] Codex model 'auto' is not supported with AWF api-proxy/API-key routing."
+    echo "[entrypoint][WARN] Codex resolves 'auto' through ChatGPT-authenticated remote model metadata; API-key auth cannot access that catalog."
+    echo "[entrypoint][WARN] Set an explicit Codex model in workflow frontmatter (for example, model: gpt-5-codex) before running under AWF."
+    ;;
+esac
+}
+
 log_environment_details() {
 # Print proxy environment
 echo "[entrypoint] Proxy configuration:"
@@ -1673,6 +1693,7 @@ wait_for_iptables
 check_service_health
 configure_claude_api_key
 configure_jvm_proxy
+warn_codex_auto_model
 log_environment_details
 determine_capabilities_to_drop
 log_execution_context "$@"
