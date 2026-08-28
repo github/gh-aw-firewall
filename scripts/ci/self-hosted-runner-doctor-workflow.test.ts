@@ -152,7 +152,7 @@ describe('self-hosted runner doctor workflow config', () => {
       expect(content).toContain('| `error connecting to productionresultssa*.blob.core.windows.net` from `gh run download`/artifact ZIP fetch in `--network-isolation` mode | B26');
       // B27 new failure mode (stale awf-net collision on persistent self-hosted runners)
       expect(content).toContain('| B27 | Docker Compose refuses to start AWF containers with repeated warnings: `a network with name awf-net exists but was not created for project');
-      expect(content).toContain('`generateDockerCompose()` in `src/docker-manager.ts` names the Docker network `awf-net`');
+      expect(content).toContain('`generateDockerCompose()` in `src/compose-generator.ts` names the Docker network `awf-net`');
       expect(content).toContain('**Fixed in AWF (PR github/gh-aw-firewall#7817, merged 2026-08-28):**');
       expect(content).toContain('github/gh-aw#56463, github/gh-aw-firewall#7809, github/gh-aw-firewall#7817');
       expect(content).toContain('| `a network with name awf-net exists but was not created for project` | B27');
