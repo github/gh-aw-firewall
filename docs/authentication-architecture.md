@@ -481,8 +481,14 @@ export OPENAI_API_KEY="sk-..."
 
 sudo awf \
     --allow-domains api.openai.com \
-    "codex --prompt 'Hello world'"
+    "codex --model gpt-5.3-codex --prompt 'Hello world'"
 ```
+
+Use an explicit model such as `gpt-5.3-codex` rather than Codex's `auto` model
+alias. `auto` depends on ChatGPT-authenticated remote model/plugin metadata
+resolution, which API-key based proxy routing cannot use even when
+`chatgpt.com` is allowed, so `auto` can fail with `The requested model is not
+supported` (see [docs/api-proxy-sidecar.md](api-proxy-sidecar.md#codex-openai-example)).
 
 **Example 3: Using both providers**
 
