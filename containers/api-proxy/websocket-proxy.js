@@ -69,6 +69,11 @@ function createProxyWebSocket({
    * @param {Object} injectHeaders - Auth headers to inject
    * @param {string} provider - Provider name for logging and metrics
    * @param {string} [basePath=''] - Optional base-path prefix
+   * @param {Object} [lifecycleHooks={}]
+   * @param {(clientSocket: import('net').Socket, upstreamSocket: import('net').Socket) => void} [lifecycleHooks.onSocketsReady]
+   * @param {'http'|'https'} [lifecycleHooks.targetScheme='https'] - Scheme to
+   *   dial the upstream on; 'http' skips the TLS handshake and CONNECTs to
+   *   port 80 instead of 443.
    */
   return function proxyWebSocket(req, socket, head, targetHost, injectHeaders, provider, basePath = '', lifecycleHooks = {}) {
     const startTime = Date.now();
@@ -118,6 +123,7 @@ function createProxyWebSocket({
       socket,
       head,
       targetHost,
+      targetScheme: lifecycleHooks.targetScheme || 'https',
       injectHeaders,
       provider,
       requestId,

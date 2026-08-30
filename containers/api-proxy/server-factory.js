@@ -112,6 +112,7 @@ function createWebSocketUpgradeHandler(adapter, proxyWebSocket) {
           trackUpgradeSocket(clientSocket);
           trackUpgradeSocket(upstreamSocket);
         },
+        targetScheme: adapter.getTargetScheme ? adapter.getTargetScheme(req) : 'https',
       }
     );
   };

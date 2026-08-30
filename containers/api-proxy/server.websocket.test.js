@@ -263,6 +263,34 @@ describe('proxyWebSocket', () => {
       expect(capturedOptions.port).toBe(3128);
     });
 
+    it('CONNECTs to port 80 and skips TLS for an explicit http:// target scheme', () => {
+      let capturedOptions;
+      jest.spyOn(http, 'request').mockImplementation((options) => {
+        capturedOptions = options;
+        return connectReq;
+      });
+      const tlsSpy = jest.spyOn(tls, 'connect');
+
+      setImmediate(() => connectReq.emit('connect', { statusCode: 200 }, tunnel));
+
+      wsProxy(
+        makeUpgradeReq(), socket, Buffer.alloc(0), 'gateway.example.com', { 'Authorization': '******' }, 'openai',
+        '', { targetScheme: 'http' }
+      );
+
+      return new Promise(resolve => setImmediate(() => setImmediate(() => {
+        expect(capturedOptions.path).toBe('gateway.example.com:80');
+        expect(tlsSpy).not.toHaveBeenCalled();
+        const upgradeWrite = tunnel.write.mock.calls.find(
+          c => typeof c[0] === 'string' && c[0].startsWith('GET ')
+        );
+        expect(upgradeWrite).toBeDefined();
+        expect(tunnel.pipe).toHaveBeenCalledWith(socket);
+        expect(socket.pipe).toHaveBeenCalledWith(tunnel);
+        resolve();
+      })));
+    });
+
     it('forwards buffered head bytes to the upstream after upgrade', () => {
       jest.spyOn(http, 'request').mockReturnValue(connectReq);
       jest.spyOn(tls, 'connect').mockReturnValue(tlsSocket);

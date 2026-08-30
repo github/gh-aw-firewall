@@ -89,7 +89,14 @@ function buildRequest(url, opts, timeoutMs) {
     path: parsed.pathname + parsed.search,
     method: opts.method,
     headers: { ...opts.headers },
-    ...(isHttps && proxyAgent ? { agent: proxyAgent } : {}),
+    // proxyAgent (HttpsProxyAgent) tunnels via CONNECT regardless of target
+    // scheme — it only upgrades the tunnelled socket to TLS when the request
+    // itself is dispatched through the `https` module (secureEndpoint=true).
+    // So it must be attached for plain-HTTP targets too, or an explicit
+    // `http://` target (which the runner-side allowlist opens on port 80
+    // for) bypasses Squid entirely and dials the host directly. See
+    // github-oidc.js's getProxyAgent() for the same pattern.
+    ...(proxyAgent ? { agent: proxyAgent } : {}),
     timeout: timeoutMs,
   };
   return { mod, reqOpts };
