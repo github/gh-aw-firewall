@@ -218,7 +218,7 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 - `apiProxy.auth.anthropicServiceAccountId` → *(config-only; maps to `AWF_AUTH_ANTHROPIC_SERVICE_ACCOUNT_ID`)*
 - `apiProxy.auth.anthropicWorkspaceId` → *(config-only; maps to `AWF_AUTH_ANTHROPIC_WORKSPACE_ID`)*
 - `apiProxy.auth.anthropicTokenUrl` → *(config-only; maps to `AWF_AUTH_ANTHROPIC_TOKEN_URL`)*
-- `apiProxy.targets.<provider>.host` → `--<provider>-api-target` *(except `antigravity.host`, which maps to the Gemini flag below)*
+- `apiProxy.targets.<provider>.host` → `--<provider>-api-target` *(except `antigravity.host`, which maps to the Gemini flag below). Accepts a bare hostname or a full URL; a bare hostname or explicit `https://` URL both dial the target over HTTPS on port 443 (the default), while an explicit `http://` URL dials it in cleartext on port 80 — matching the runner-side allowlist, which already adds an `http://`-scoped allowlist entry for such targets. Custom ports are not supported: `http://host` always dials port 80 and `https://host` always dials port 443.)*
 - `apiProxy.targets.antigravity.host` → `--gemini-api-target`
 - `apiProxy.targets.copilot.extraHeaders` → *(config-only; non-sensitive supplemental BYOK headers, maps to `AWF_BYOK_EXTRA_HEADERS`)*
 - `apiProxy.targets.copilot.extraBodyFields` → *(config-only; non-sensitive supplemental BYOK body fields, maps to `AWF_BYOK_EXTRA_BODY_FIELDS`)*
