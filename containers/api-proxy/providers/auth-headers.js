@@ -9,6 +9,24 @@
  */
 
 /**
+ * Build an `Authorization` header using the given scheme prefix (e.g. `Bearer`,
+ * `token`), optionally merged with extra headers.
+ *
+ * This is the single place that assembles an `Authorization` header value, so
+ * every adapter that needs a non-default prefix (e.g. Copilot's Enterprise
+ * `token <value>` scheme) composes it from here instead of concatenating the
+ * prefix and token itself.
+ *
+ * @param {string} prefix - The auth scheme prefix (e.g. `Bearer`, `token`)
+ * @param {string} token
+ * @param {Record<string, string>} [extraHeaders]
+ * @returns {Record<string, string>}
+ */
+function tokenAuthHeaders(prefix, token, extraHeaders) {
+  return { ...extraHeaders, 'Authorization': prefix + ' ' + token };
+}
+
+/**
  * Build a `Bearer` Authorization header, optionally merged with extra headers.
  *
  * @param {string} token
@@ -16,7 +34,7 @@
  * @returns {Record<string, string>}
  */
 function bearerAuthHeaders(token, extraHeaders) {
-  return { ...extraHeaders, 'Authorization': 'Bearer ' + token };
+  return tokenAuthHeaders('Bearer', token, extraHeaders);
 }
 
 /**
@@ -43,4 +61,4 @@ function withCopilotIntegration(headers, integrationId) {
   return { ...headers, 'Copilot-Integration-Id': integrationId };
 }
 
-module.exports = { bearerAuthHeaders, providerKeyHeaders, withCopilotIntegration };
+module.exports = { tokenAuthHeaders, bearerAuthHeaders, providerKeyHeaders, withCopilotIntegration };

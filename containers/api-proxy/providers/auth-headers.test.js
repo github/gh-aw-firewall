@@ -1,6 +1,6 @@
 'use strict';
 
-const { bearerAuthHeaders, providerKeyHeaders, withCopilotIntegration } = require('./auth-headers');
+const { tokenAuthHeaders, bearerAuthHeaders, providerKeyHeaders, withCopilotIntegration } = require('./auth-headers');
 
 describe('bearerAuthHeaders', () => {
   it('builds an Authorization: Bearer ... header', () => {
@@ -66,5 +66,29 @@ describe('withCopilotIntegration', () => {
       'Authorization': 'Bearer my-tok',
       'Copilot-Integration-Id': 'awf',
     });
+  });
+});
+
+describe('tokenAuthHeaders', () => {
+  it('builds an Authorization header using the given prefix and token', () => {
+    expect(tokenAuthHeaders('token', 'gh-tok')).toEqual({ 'Authorization': 'token gh-tok' });
+  });
+
+
+  it('merges extra headers alongside the Authorization header', () => {
+    expect(tokenAuthHeaders('token', 'gh-tok', { 'X-GitHub-Api-Version': '2026-07-01' })).toEqual({
+      'X-GitHub-Api-Version': '2026-07-01',
+      'Authorization': 'token gh-tok',
+    });
+  });
+
+  it('does not mutate the extraHeaders argument', () => {
+    const extra = { 'x-custom': 'val' };
+    tokenAuthHeaders('token', 'gh-tok', extra);
+    expect(extra).toEqual({ 'x-custom': 'val' });
+  });
+
+  it('is the basis for bearerAuthHeaders', () => {
+    expect(bearerAuthHeaders('tok')).toEqual(tokenAuthHeaders('Bearer', 'tok'));
   });
 });
