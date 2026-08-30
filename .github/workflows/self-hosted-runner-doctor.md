@@ -144,6 +144,7 @@ Prefer the narrowest match. Examples:
 - `mkdirat ... : read-only file system` at agent container startup while a `filesystem.allowWrite` policy is active (not the `chroot.binariesSourcePath`-specific A12 case) → A21; `[entrypoint][WARN] Could not copy one-shot-token library to /tmp/awf-lib` followed by `Token protection will be disabled` → A21 (silent security-feature degradation under `filesystem.allowWrite`, fixed in github/gh-aw-firewall#7679)
 - `invalid CapDrop: capability not supported by your kernel or not available in the current environment` → A22 (host capability bounding set trimmed below AWF's hardcoded `cap_drop` list, e.g. Talos; fixed in github/gh-aw-firewall#7795)
 - `a network with name awf-net exists but was not created for project` → B27 (orphaned fixed-name `awf-net` from a prior run on a persistent self-hosted runner; fixed in github/gh-aw-firewall#7817)
+- TLS/certificate verification failure from api-proxy against a custom `--openai-api-target`/`--anthropic-api-target` internal endpoint using a private/corporate CA → B28 (api-proxy sidecar had no custom CA trust extension point; fixed in github/gh-aw-firewall#7816 with `apiProxy.caCert`/`--api-proxy-ca-cert`)
 - `SIGSEGV` / `SIGABRT` crash with Claude Code (Bun runtime) under `--container-runtime gvisor`; retries all fail → D7 (JSC JIT incompatible with gVisor W^X restrictions; AWF ≥ github/gh-aw-firewall#6276 auto-injects `BUN_JSC_useJIT=0`; for older AWF pass `--env BUN_JSC_useJIT=0`)
 
 ### 4. Check for known gaps and notable fixes

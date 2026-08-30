@@ -156,6 +156,10 @@ describe('self-hosted runner doctor workflow config', () => {
       expect(content).toContain('**Fixed in AWF (PR github/gh-aw-firewall#7817, merged 2026-08-28):**');
       expect(content).toContain('github/gh-aw#56463, github/gh-aw-firewall#7809, github/gh-aw-firewall#7817');
       expect(content).toContain('| `a network with name awf-net exists but was not created for project` | B27');
+      expect(content).toContain('| B28 | Custom `apiProxy` targets pointing at an internal/corporate LLM router (`--openai-api-target`, `--anthropic-api-target`, etc.) fail TLS verification when the upstream endpoint\'s certificate chains to a private or corporate CA not present in the api-proxy sidecar\'s trust store |');
+      expect(content).toContain('`apiProxy.caCert` config field and `--api-proxy-ca-cert <path>` CLI flag');
+      expect(content).toContain('github/gh-aw-firewall#7807, github/gh-aw-firewall#7816');
+      expect(content).toContain('| TLS/certificate verification failure from api-proxy against a custom `--openai-api-target`/`--anthropic-api-target` internal endpoint using a private/corporate CA | B28');
     }
 
     expect(source).toContain('- `unknown shorthand flag: \'d\' in -d` from `docker compose up -d` → A14 (DinD sidecar missing `docker-compose-plugin`)');
@@ -169,6 +173,7 @@ describe('self-hosted runner doctor workflow config', () => {
     expect(source).toContain('- `mkdirat ... : read-only file system` at agent container startup while a `filesystem.allowWrite` policy is active (not the `chroot.binariesSourcePath`-specific A12 case) → A21; `[entrypoint][WARN] Could not copy one-shot-token library to /tmp/awf-lib` followed by `Token protection will be disabled` → A21');
     expect(source).toContain('- `invalid CapDrop: capability not supported by your kernel or not available in the current environment` → A22');
     expect(source).toContain('- `a network with name awf-net exists but was not created for project` → B27');
+    expect(source).toContain('- TLS/certificate verification failure from api-proxy against a custom `--openai-api-target`/`--anthropic-api-target` internal endpoint using a private/corporate CA → B28 (api-proxy sidecar had no custom CA trust extension point; fixed in github/gh-aw-firewall#7816 with `apiProxy.caCert`/`--api-proxy-ca-cert`)');
     expect(source).toContain('B12 / github/gh-aw-firewall#6326, github/gh-aw-firewall#6328 — On ARC/DinD, a topology-attached DIFC proxy addressed by Kubernetes Service name can remain unresolvable from DinD containers even after the ordering fix.');
     expect(source).toContain('D8 / github/gh-aw-firewall#6401, github/gh-aw-firewall#6326 — Under `--container-runtime gvisor` or raw `runsc`, MCP calls to the gateway at `172.30.0.1:8080` could be misrouted through Squid and fail with `403 ERR_ACCESS_DENIED`');
     expect(source).toContain('D9 / github/gh-aw-firewall#6336 — sbx microVMs previously mounted the entire host `$HOME`, exposing credentials such as `~/.aws/credentials`, `~/.ssh/id_rsa`, and `~/.docker/config.json`.');
