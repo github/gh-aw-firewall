@@ -342,6 +342,10 @@ export function buildApiProxyBaseEnv(config: WrapperConfig, networkConfig: Netwo
     ...buildRateLimitEnv(config),
     ...buildModelPolicyEnv(config),
     ...buildOidcEnv(config),
+    // Only set when the host validated a caller-owned guard-result pipe
+    // (AWF_GUARD_RESULT_FD): without it, the proxy must not expose the
+    // /guard-snapshot endpoint or pay any guard-tracking overhead.
+    ...(config.guardResultChannelEnabled && { AWF_GUARD_RESULT_ENABLED: '1' }),
   };
 }
 

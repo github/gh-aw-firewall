@@ -1,5 +1,13 @@
 const { EventEmitter } = require('events');
-const { createWebSocketTunnel, extractRequestModelFromUrl } = require('./websocket-tunnel');
+const {
+  createWebSocketTunnel,
+  extractRequestModelFromUrl,
+  attachHandshakeStatusRecorder,
+} = require('./websocket-tunnel');
+const {
+  resetGuardResultTrackerForTests,
+  getGuardResultSnapshot,
+} = require('./guards/guard-result-tracker');
 
 function makeSocket() {
   const socket = new EventEmitter();
@@ -47,5 +55,54 @@ describe('websocket-tunnel', () => {
 
     expect(socket.write).toHaveBeenCalledWith(expect.stringContaining('HTTP/1.1 502 Bad Gateway'));
     expect(socket.destroy).toHaveBeenCalled();
+  });
+
+  describe('attachHandshakeStatusRecorder', () => {
+    beforeEach(() => {
+      resetGuardResultTrackerForTests();
+      process.env.AWF_GUARD_RESULT_ENABLED = '1';
+    });
+
+    afterEach(() => {
+      resetGuardResultTrackerForTests();
+      delete process.env.AWF_GUARD_RESULT_ENABLED;
+    });
+
+    it('records a 403 upstream WebSocket handshake rejection', () => {
+      const tlsSocket = new EventEmitter();
+      attachHandshakeStatusRecorder(tlsSocket);
+      tlsSocket.emit('data', Buffer.from('HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n'));
+      const snapshot = getGuardResultSnapshot();
+      expect(snapshot.upstream_403_count).toBe(1);
+      expect(snapshot.final_event).toBe('upstream_403');
+    });
+
+    it('records a 401 upstream WebSocket handshake rejection', () => {
+      const tlsSocket = new EventEmitter();
+      attachHandshakeStatusRecorder(tlsSocket);
+      tlsSocket.emit('data', Buffer.from('HTTP/1.1 401 Unauthorized\r\n\r\n'));
+      // 401 isn't tracked as a distinct counter (matching the HTTP request
+      // path in upstream-log.js), but must not throw or be misclassified.
+      const snapshot = getGuardResultSnapshot();
+      expect(snapshot.upstream_403_count).toBe(0);
+    });
+
+    it('does not record a successful 101 handshake upgrade', () => {
+      const tlsSocket = new EventEmitter();
+      attachHandshakeStatusRecorder(tlsSocket);
+      tlsSocket.emit('data', Buffer.from('HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\n\r\n'));
+      const snapshot = getGuardResultSnapshot();
+      expect(snapshot.upstream_403_count).toBe(0);
+      expect(snapshot.final_event).toBeNull();
+    });
+
+    it('only parses the first data chunk and ignores subsequent WebSocket frames', () => {
+      const tlsSocket = new EventEmitter();
+      attachHandshakeStatusRecorder(tlsSocket);
+      tlsSocket.emit('data', Buffer.from('HTTP/1.1 403 Forbidden\r\n\r\n'));
+      tlsSocket.emit('data', Buffer.from([0x81, 0x03, 0x34, 0x30, 0x33])); // binary frame, not a status line
+      const snapshot = getGuardResultSnapshot();
+      expect(snapshot.upstream_403_count).toBe(1);
+    });
   });
 });

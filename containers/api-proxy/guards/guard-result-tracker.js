@@ -17,6 +17,7 @@
  */
 
 const crypto = require('crypto');
+const metrics = require('../metrics');
 const { getAiCreditsReflectState, getAiCreditsBlockState } = require('./ai-credits-guard');
 
 /** Event name recorded by proxy-guards.js when the local AI-credits guard blocks a request. */
@@ -39,6 +40,20 @@ function createGuardResultState() {
 let state = createGuardResultState();
 
 /**
+ * Whether the host validated a caller-owned guard-result pipe
+ * (`AWF_GUARD_RESULT_FD`) before starting the agent. Without it, this
+ * tracker — and the `/guard-snapshot` endpoint that exposes it — must be
+ * fully inert: no new code path is exercised on the request hot path when
+ * the feature is unused. Read on every call (not cached at module load) so
+ * tests can toggle it via `process.env`.
+ *
+ * @returns {boolean}
+ */
+function isGuardResultTrackingEnabled() {
+  return process.env.AWF_GUARD_RESULT_ENABLED === '1';
+}
+
+/**
  * Records a local guard-block event. Only the AI-credits-limit event is
  * tracked here — other guards (max-runs, permission-denied, etc.) are not
  * relevant to the upstream-vs-local-403 ambiguity this tracker resolves.
@@ -46,6 +61,7 @@ let state = createGuardResultState();
  * @param {string} eventName - The `eventName` passed to sendGuardBlockedResponse.
  */
 function recordLocalGuardEvent(eventName) {
+  if (!isGuardResultTrackingEnabled()) return;
   if (eventName !== LOCAL_AI_CREDITS_GUARD_EVENT) return;
   state.localAiCreditsLimitRejections += 1;
   state.finalEvent = FINAL_EVENT_LOCAL_LIMIT;
@@ -61,6 +77,7 @@ function recordLocalGuardEvent(eventName) {
  * @param {number} statusCode
  */
 function recordUpstreamStatus(statusCode) {
+  if (!isGuardResultTrackingEnabled()) return;
   if (statusCode !== 403) return;
   state.upstream403Count += 1;
   state.finalEvent = FINAL_EVENT_UPSTREAM_403;
@@ -81,6 +98,7 @@ function getGuardResultSnapshot() {
   return {
     proxy_id: state.proxyId,
     generated_at: Date.now(),
+    active_requests: metrics.getSummary().active_requests,
     local_ai_credits_limit_rejections: state.localAiCreditsLimitRejections,
     upstream_403_count: state.upstream403Count,
     final_event: state.finalEvent,
@@ -99,6 +117,7 @@ module.exports = {
   LOCAL_AI_CREDITS_GUARD_EVENT,
   FINAL_EVENT_LOCAL_LIMIT,
   FINAL_EVENT_UPSTREAM_403,
+  isGuardResultTrackingEnabled,
   recordLocalGuardEvent,
   recordUpstreamStatus,
   getGuardResultSnapshot,

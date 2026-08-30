@@ -1,5 +1,6 @@
 import { PROXY_ENV_VARS } from '../../upstream-proxy';
 import { WrapperConfig } from '../../types';
+import { GUARD_RESULT_FD_ENV_VAR } from '../../guard-result';
 
 export function buildExclusionSet(config: WrapperConfig): Set<string> {
   const excludedEnvVars = new Set([
@@ -31,6 +32,11 @@ export function buildExclusionSet(config: WrapperConfig): Set<string> {
     'AWF_ENCLAVE_GITHUB_PROXY_CONTAINER',
     'AWF_ENCLAVE_GITHUB_PROXY_IDENTITY',
     'AWF_ENCLAVE_GITHUB_PROXY_CA_CERT',
+    // The guard-result pipe descriptor is a trust boundary between AWF's
+    // host process and the untrusted agent: it must never reach the agent
+    // via --env-all passthrough, an --env-file entry, or an explicit
+    // --env override, regardless of how it was reintroduced.
+    GUARD_RESULT_FD_ENV_VAR,
   ]);
 
   if (config.enableApiProxy) {

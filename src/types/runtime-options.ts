@@ -139,6 +139,20 @@ export interface RuntimeOptions {
   excludeEnv?: string[];
 
   /**
+   * Internal runtime flag: set by main-action.ts once `AWF_GUARD_RESULT_FD`
+   * has been resolved and validated, before any container is started. Never
+   * set from a CLI flag or config file.
+   *
+   * Gates the API proxy's `/guard-snapshot` endpoint and guard-result
+   * tracking: without a validated result channel, the proxy behaves exactly
+   * as it did before this feature existed — no new endpoint, no tracking
+   * overhead, on every request.
+   *
+   * @internal
+   */
+  guardResultChannelEnabled?: boolean;
+
+  /**
    * Path to a file containing environment variables to inject into the container
    *
    * The file should contain KEY=VALUE pairs, one per line. Lines starting with

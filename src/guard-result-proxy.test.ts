@@ -3,6 +3,7 @@ import {
   areGuardContainersRemoved,
   captureGuardSnapshotPair,
   fetchProxyGuardSnapshot,
+  isDockerAccessExposedToAgent,
 } from './guard-result-proxy';
 import { AGENT_CONTAINER_NAME, API_PROXY_CONTAINER_NAME, SQUID_CONTAINER_NAME } from './constants';
 
@@ -14,6 +15,7 @@ function snapshotJson(overrides: Record<string, unknown> = {}) {
   return JSON.stringify({
     proxy_id: 'proxy-1',
     generated_at: 1000,
+    active_requests: 0,
     local_ai_credits_limit_rejections: 0,
     upstream_403_count: 0,
     final_event: null,
@@ -116,5 +118,16 @@ describe('areGuardContainersRemoved', () => {
   it('returns false when the docker command fails', async () => {
     mockExecaFn.mockRejectedValueOnce(new Error('docker not available'));
     expect(await areGuardContainersRemoved()).toBe(false);
+  });
+});
+
+describe('isDockerAccessExposedToAgent', () => {
+  it('returns true when --enable-dind is on', () => {
+    expect(isDockerAccessExposedToAgent({ enableDind: true })).toBe(true);
+  });
+
+  it('returns false when --enable-dind is off or unset', () => {
+    expect(isDockerAccessExposedToAgent({ enableDind: false })).toBe(false);
+    expect(isDockerAccessExposedToAgent({})).toBe(false);
   });
 });

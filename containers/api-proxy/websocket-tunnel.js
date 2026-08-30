@@ -5,6 +5,57 @@ const tls = require('tls');
 const { URL } = require('url');
 const { computeTokenBudgetUsage } = require('./token-budget-log');
 const { applyCopilotHostHeaders, mergeInjectedHeaders } = require('./request-headers');
+const { recordUpstreamStatus } = require('./guards/guard-result-tracker');
+
+/** Maximum bytes buffered while waiting for the upstream handshake status line. */
+const MAX_HANDSHAKE_STATUS_LINE_BYTES = 4096;
+
+/**
+ * Attaches a non-destructive 'data' listener to the upstream TLS socket that
+ * parses the raw HTTP status line of the WebSocket upgrade response (e.g.
+ * `HTTP/1.1 101 Switching Protocols` on success, or `HTTP/1.1 403 Forbidden`
+ * when the upstream rejects the upgrade) and records 401/403 outcomes via
+ * the guard-result tracker.
+ *
+ * `websocket-tunnel.js` forwards the raw upgrade response by piping
+ * `tlsSocket` directly to the client socket rather than parsing it as an
+ * `http.IncomingMessage`, so without this, an upstream WebSocket 401/403 was
+ * never recorded — only the HTTP request path (`upstream-log.js`) was.
+ * Multiple 'data' listeners may coexist on the same socket (this module
+ * already relies on that for `trackWebSocketTokenUsage`), so this listener
+ * observes the same bytes without interfering with piping.
+ */
+function attachHandshakeStatusRecorder(tlsSocket) {
+  let buffer = Buffer.alloc(0);
+  let done = false;
+
+  function onData(chunk) {
+    if (done) return;
+    buffer = Buffer.concat([buffer, chunk]);
+
+    const lineEnd = buffer.indexOf('\r\n');
+    if (lineEnd === -1) {
+      if (buffer.length > MAX_HANDSHAKE_STATUS_LINE_BYTES) {
+        done = true;
+        tlsSocket.removeListener('data', onData);
+      }
+      return;
+    }
+
+    done = true;
+    tlsSocket.removeListener('data', onData);
+
+    const statusLine = buffer.subarray(0, lineEnd).toString('latin1');
+    const match = /^HTTP\/\d\.\d\s+(\d{3})/.exec(statusLine);
+    if (!match) return;
+    const statusCode = Number.parseInt(match[1], 10);
+    if (statusCode === 401 || statusCode === 403) {
+      recordUpstreamStatus(statusCode);
+    }
+  }
+
+  tlsSocket.on('data', onData);
+}
 
 function extractRequestModelFromUrl(url) {
   if (typeof url !== 'string' || !url.startsWith('/')) return null;
@@ -146,6 +197,7 @@ function createWebSocketTunnel({
           upgradeReqStr += `${name}: ${value}\r\n`;
         }
         upgradeReqStr += '\r\n';
+        attachHandshakeStatusRecorder(tlsSocket);
         tlsSocket.write(upgradeReqStr);
 
         if (head && head.length > 0) tlsSocket.write(head);
@@ -188,4 +240,6 @@ function createWebSocketTunnel({
 module.exports = {
   createWebSocketTunnel,
   extractRequestModelFromUrl,
+  // Exported for unit testing only.
+  attachHandshakeStatusRecorder,
 };

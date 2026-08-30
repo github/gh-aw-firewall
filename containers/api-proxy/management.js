@@ -17,7 +17,7 @@
 
 const metrics = require('./metrics');
 const { getModelApiMappingReflect } = require('./model-api-mapping');
-const { getGuardResultSnapshot } = require('./guards/guard-result-tracker');
+const { getGuardResultSnapshot, isGuardResultTrackingEnabled } = require('./guards/guard-result-tracker');
 
 /**
  * @typedef {object} ManagementDeps
@@ -144,7 +144,7 @@ function createManagementHandlers(deps) {
       res.end(JSON.stringify(reflectEndpoints()));
       return true;
     }
-    if (req.method === 'GET' && req.url === '/guard-snapshot') {
+    if (req.method === 'GET' && req.url === '/guard-snapshot' && isGuardResultTrackingEnabled()) {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(getGuardResultSnapshot()));
       return true;

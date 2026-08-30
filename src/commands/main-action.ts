@@ -50,7 +50,11 @@ import {
   validateGuardResultFd,
   writeGuardResult,
 } from '../guard-result';
-import { areGuardContainersRemoved, captureGuardSnapshotPair } from '../guard-result-proxy';
+import {
+  areGuardContainersRemoved,
+  captureGuardSnapshotPair,
+  isDockerAccessExposedToAgent,
+} from '../guard-result-proxy';
 
 const SENSITIVE_CONFIG_KEYS = new Set([
   'openaiApiKey',
@@ -212,8 +216,10 @@ function buildCleanupFn(
       // Capture the authoritative guard evidence from the still-running API
       // proxy before it is removed below. Must happen before stopContainers()
       // so the snapshots reflect the real, running proxy state — not files
-      // the agent could have modified.
-      if (guardConfig && config.enableApiProxy) {
+      // the agent could have modified. Skipped entirely when the agent has
+      // Docker access (`--enable-dind`): that evidence can never be trusted,
+      // so there is no reason to touch the Docker daemon for it at all.
+      if (guardConfig && config.enableApiProxy && !isDockerAccessExposedToAgent(config)) {
         guardSnapshots = await captureGuardSnapshotPair();
       }
       await stopContainers(config.workDir, config.keepContainers);
@@ -257,7 +263,11 @@ function buildCleanupFn(
     // there is nothing for the agent to forge, redirect, or replace with a
     // symlink; the descriptor is a caller-owned pipe the agent never saw.
     if (guardConfig) {
-      const containersRemoved = config.keepContainers ? false : await areGuardContainersRemoved();
+      const dockerAccessExposedToAgent = isDockerAccessExposedToAgent(config);
+      const containersRemoved =
+        config.keepContainers || dockerAccessExposedToAgent
+          ? false
+          : await areGuardContainersRemoved();
       const result = classifyGuardResult({
         awfInvocationId: guardConfig.invocationId,
         agentExitCode: guardConfig.getAgentExitCode(),
@@ -266,6 +276,7 @@ function buildCleanupFn(
         containersRemoved,
         apiProxyEnabled: guardConfig.apiProxyEnabled,
         interrupted: signal !== undefined,
+        dockerAccessExposedToAgent,
       });
       writeGuardResult(guardConfig.fd, result);
     }
@@ -402,6 +413,10 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
     process.exit(1);
     return;
   }
+  // Gate the API proxy's guard-snapshot endpoint and tracking behind this
+  // validated channel: without it, the proxy behaves exactly as it did
+  // before this feature existed.
+  config.guardResultChannelEnabled = guardResultFd !== undefined;
   const awfInvocationId = randomUUID();
 
   let exitCode = 0;

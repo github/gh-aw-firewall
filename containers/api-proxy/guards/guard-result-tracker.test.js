@@ -8,17 +8,20 @@ const {
   resetGuardResultTrackerForTests,
 } = require('./guard-result-tracker');
 const { resetAiCreditsGuardForTests } = require('./ai-credits-guard');
+const metrics = require('../metrics');
 
 describe('guard-result-tracker', () => {
   beforeEach(() => {
     resetGuardResultTrackerForTests();
     resetAiCreditsGuardForTests();
+    process.env.AWF_GUARD_RESULT_ENABLED = '1';
   });
 
   afterEach(() => {
     resetGuardResultTrackerForTests();
     resetAiCreditsGuardForTests();
     delete process.env.AWF_MAX_AI_CREDITS;
+    delete process.env.AWF_GUARD_RESULT_ENABLED;
   });
 
   it('starts with zero counts and no final event', () => {
@@ -27,8 +30,19 @@ describe('guard-result-tracker', () => {
     expect(snapshot.upstream_403_count).toBe(0);
     expect(snapshot.final_event).toBeNull();
     expect(snapshot.final_event_at).toBeNull();
+    expect(snapshot.active_requests).toBe(0);
     expect(typeof snapshot.proxy_id).toBe('string');
     expect(snapshot.proxy_id.length).toBeGreaterThan(0);
+  });
+
+  it('reflects in-flight requests tracked by the shared metrics gauge', () => {
+    metrics.gaugeInc('active_requests', { provider: 'openai' });
+    try {
+      expect(getGuardResultSnapshot().active_requests).toBe(1);
+    } finally {
+      metrics.gaugeDec('active_requests', { provider: 'openai' });
+    }
+    expect(getGuardResultSnapshot().active_requests).toBe(0);
   });
 
   it('generates a stable proxy_id across snapshots until reset', () => {
@@ -91,5 +105,15 @@ describe('guard-result-tracker', () => {
   it('reports a null ai_credits_max when no limit is configured', () => {
     const snapshot = getGuardResultSnapshot();
     expect(snapshot.ai_credits_max).toBeNull();
+  });
+
+  it('does not record events when the guard-result channel was not validated by the host', () => {
+    delete process.env.AWF_GUARD_RESULT_ENABLED;
+    recordLocalGuardEvent(LOCAL_AI_CREDITS_GUARD_EVENT);
+    recordUpstreamStatus(403);
+    const snapshot = getGuardResultSnapshot();
+    expect(snapshot.local_ai_credits_limit_rejections).toBe(0);
+    expect(snapshot.upstream_403_count).toBe(0);
+    expect(snapshot.final_event).toBeNull();
   });
 });

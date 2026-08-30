@@ -2,6 +2,7 @@ import execa from 'execa';
 import { getLocalDockerEnv } from './docker-host';
 import { AGENT_CONTAINER_NAME, API_PROXY_CONTAINER_NAME, SQUID_CONTAINER_NAME } from './constants';
 import { GuardSnapshot } from './guard-result';
+import { WrapperConfig } from './types';
 
 /**
  * Docker-facing helpers for the guard result channel: fetching authoritative
@@ -12,6 +13,22 @@ import { GuardSnapshot } from './guard-result';
  * Kept separate from `guard-result.ts` so the pure classification logic can
  * be unit tested without a Docker daemon.
  */
+
+/**
+ * Whether the agent container was given access to the same Docker daemon
+ * AWF uses for these checks (via `--enable-dind`, which bind-mounts the
+ * Docker socket into the agent — see `services/agent-volumes/docker-socket.ts`).
+ *
+ * When true, the evidence gathered here is not trustworthy: an agent with
+ * Docker access could rename, recreate, or otherwise manipulate the
+ * fixed-name containers this module inspects, or arrange for their removal
+ * to be observed before it actually happens. The guard result channel must
+ * refuse to confirm a budget stop in that case rather than rely on `docker
+ * exec`/`docker ps` output that the agent could have influenced.
+ */
+export function isDockerAccessExposedToAgent(config: Pick<WrapperConfig, 'enableDind'>): boolean {
+  return config.enableDind === true;
+}
 
 /** Delay between the two snapshots captured to prove the proxy is quiescent. */
 export const GUARD_SNAPSHOT_INTERVAL_MS = 150;

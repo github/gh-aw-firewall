@@ -229,7 +229,10 @@ describe('createMainAction', () => {
     it('runs DinD bootstrap before workflow execution', async () => {
       const action = createMainAction(getOptionValueSource);
       await action(['echo hi'], {});
-      expect(mockedDindBootstrap.runDindBootstrap).toHaveBeenCalledWith(MAIN_ACTION_STUB_CONFIG);
+      expect(mockedDindBootstrap.runDindBootstrap).toHaveBeenCalledWith({
+        ...MAIN_ACTION_STUB_CONFIG,
+        guardResultChannelEnabled: false,
+      });
     });
 
     it('skips probe and DinD bootstrap when dockerHostPathPrefix is already set', async () => {

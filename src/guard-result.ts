@@ -32,6 +32,8 @@ export type GuardFinalEvent = 'local_ai_credits_limit' | 'upstream_403' | null;
 export interface GuardSnapshot {
   proxy_id: string;
   generated_at: number;
+  /** Number of in-flight requests at the moment this snapshot was taken. */
+  active_requests: number;
   local_ai_credits_limit_rejections: number;
   upstream_403_count: number;
   final_event: GuardFinalEvent;
@@ -82,16 +84,40 @@ export function resolveGuardResultFd(env: NodeJS.ProcessEnv): number | undefined
   return fd;
 }
 
+/** Standard descriptors that must never be accepted as the guard result channel. */
+const STANDARD_FDS = new Set([0, 1, 2]);
+
+/** POSIX file status access-mode mask (low two bits of the open flags). */
+const O_ACCMODE = 0o3;
+/** POSIX `O_WRONLY` / `O_RDWR` values: both grant write access. */
+const O_WRONLY = 0o1;
+const O_RDWR = 0o2;
+
 /**
  * Validates that the given file descriptor refers to a pipe (FIFO) that is
  * open for writing. Throws a descriptive error otherwise.
  *
  * This must be called — and must succeed — before the agent container
  * starts. A regular file, a symlink target, a directory, or a closed
- * descriptor are all rejected: only an anonymous pipe held by the trusted
- * caller is accepted.
+ * descriptor are all rejected: only the write end of a pipe held by the
+ * trusted caller is accepted.
+ *
+ * Standard descriptors (0/1/2) are rejected outright: `fstat().isFIFO()`
+ * alone cannot rule out stdout/stderr being piped by the caller's shell,
+ * which would let agent-controlled output share the alleged result
+ * channel. The open file's access mode is also verified via
+ * `/proc/self/fdinfo`, since `isFIFO()` is equally true for a FIFO's read
+ * end — without this check, a caller mistake supplying the read end would
+ * only be discovered after the run, once delivery silently fails.
  */
 export function validateGuardResultFd(fd: number): void {
+  if (STANDARD_FDS.has(fd)) {
+    throw new Error(
+      `${GUARD_RESULT_FD_ENV_VAR}=${fd} must not be a standard descriptor (stdin/stdout/stderr); ` +
+        'supply a dedicated pipe file descriptor',
+    );
+  }
+
   let stats: fs.Stats;
   try {
     stats = fs.fstatSync(fd);
@@ -108,6 +134,26 @@ export function validateGuardResultFd(fd: number): void {
         'directory, or other descriptor type as the guard result channel',
     );
   }
+
+  let accessMode: number;
+  try {
+    const fdinfo = fs.readFileSync(`/proc/self/fdinfo/${fd}`, 'utf8');
+    const match = /^flags:\s*(\d+)/m.exec(fdinfo);
+    if (!match) throw new Error('flags field not found in fdinfo');
+    accessMode = Number.parseInt(match[1], 8) & O_ACCMODE;
+  } catch (err) {
+    throw new Error(
+      `${GUARD_RESULT_FD_ENV_VAR}=${fd} write access could not be verified: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+  }
+  if (accessMode !== O_WRONLY && accessMode !== O_RDWR) {
+    throw new Error(
+      `${GUARD_RESULT_FD_ENV_VAR}=${fd} is not open for writing; the write end of the pipe must be ` +
+        'supplied, not the read end',
+    );
+  }
 }
 
 /** Inputs needed to classify a run's outcome for the guard result. */
@@ -119,6 +165,13 @@ export interface ClassifyGuardResultInput {
   containersRemoved: boolean;
   apiProxyEnabled: boolean;
   interrupted: boolean;
+  /**
+   * True when the agent container was given access to the Docker daemon
+   * (`--enable-dind`). In that case the agent could tamper with the very
+   * containers and snapshots this classification relies on, so the
+   * evidence can never be trusted regardless of what it shows.
+   */
+  dockerAccessExposedToAgent: boolean;
 }
 
 /**
@@ -155,15 +208,31 @@ export function classifyGuardResult(input: ClassifyGuardResultInput): GuardResul
 
   if (!input.apiProxyEnabled) return unconfirmed('api_proxy_not_enabled');
   if (input.interrupted) return unconfirmed('interrupted_by_signal');
+  // Reject before even looking at any snapshot: if the agent had Docker
+  // access, none of the evidence gathered via `docker exec`/`docker ps` can
+  // be trusted, since the agent could have manipulated the containers or
+  // their observed state.
+  if (input.dockerAccessExposedToAgent) return unconfirmed('docker_access_exposed_to_agent');
   if (!input.snapshots) return unconfirmed('no_proxy_snapshot_available');
 
   const [a, b] = input.snapshots;
 
   if (a.proxy_id !== b.proxy_id) return unconfirmed('proxy_id_mismatch');
+  // Snapshots must be genuinely time-ordered: an equal or reversed pair
+  // proves nothing about the interval between them (e.g. a cached or
+  // replayed response), so it cannot be used as evidence of quiescence.
+  if (!(b.generated_at > a.generated_at)) return unconfirmed('snapshots_not_time_ordered');
+  // Both snapshots must show zero in-flight requests: a request that is
+  // still active could still change the credit total or final event after
+  // this evidence was gathered.
+  if (a.active_requests !== 0 || b.active_requests !== 0) {
+    return unconfirmed('active_requests_not_quiescent');
+  }
   if (
     a.local_ai_credits_limit_rejections !== b.local_ai_credits_limit_rejections ||
     a.upstream_403_count !== b.upstream_403_count ||
     a.final_event !== b.final_event ||
+    a.final_event_at !== b.final_event_at ||
     a.ai_credits_total !== b.ai_credits_total
   ) {
     return unconfirmed('snapshots_not_quiescent');
@@ -174,6 +243,12 @@ export function classifyGuardResult(input: ClassifyGuardResultInput): GuardResul
     return unconfirmed('agent_exit_code_not_nonzero');
   }
   if (b.final_event !== 'local_ai_credits_limit') return unconfirmed('final_event_not_local_limit');
+  // The final event's own timestamp must be internally consistent: it can
+  // never postdate the snapshot that observed it, and it must be present
+  // whenever a final event is reported.
+  if (b.final_event_at === null || b.final_event_at > b.generated_at) {
+    return unconfirmed('final_event_timestamp_invalid');
+  }
   if (b.ai_credits_max === null || b.ai_credits_total < b.ai_credits_max) {
     return unconfirmed('ai_credits_below_configured_limit');
   }
@@ -200,20 +275,37 @@ export function serializeGuardResult(result: GuardResult): string {
 }
 
 /**
+ * Maximum size, in bytes, of the serialized guard result. POSIX guarantees
+ * that writes of up to `PIPE_BUF` (4096 bytes on Linux) to a pipe are
+ * atomic, so a payload larger than this could be interleaved with other
+ * writers or observed as a partial record by the reader. The channel
+ * contract is exactly one write, no larger than this limit.
+ */
+export const GUARD_RESULT_MAX_BYTES = 4096;
+
+/**
  * Writes the guard result to the given file descriptor and closes it.
  *
- * Handles partial writes (pipes can accept less than the full buffer in a
- * single write) by looping until the whole payload has been written. Never
- * throws — a failure to deliver the result must not crash AWF's own exit
- * path; the caller simply never receives a result and must treat that as
- * unconfirmed, per the documented trust rules.
+ * Validates the serialized size against {@link GUARD_RESULT_MAX_BYTES} and
+ * issues exactly one write; a short write (the pipe accepted fewer bytes
+ * than requested) is treated as delivery failure rather than retried, since
+ * a retry could produce two concatenated fragments the reader cannot frame.
+ * Never throws — a failure to deliver the result must not crash AWF's own
+ * exit path; the caller simply never receives a result and must treat that
+ * as unconfirmed, per the documented trust rules.
  */
 export function writeGuardResult(fd: number, result: GuardResult): void {
   try {
     const buffer = Buffer.from(serializeGuardResult(result), 'utf8');
-    let offset = 0;
-    while (offset < buffer.length) {
-      offset += fs.writeSync(fd, buffer, offset, buffer.length - offset);
+    if (buffer.length > GUARD_RESULT_MAX_BYTES) {
+      throw new Error(
+        `Serialized guard result is ${buffer.length} bytes, exceeding the ${GUARD_RESULT_MAX_BYTES}-byte ` +
+          'atomic-write limit for the guard result channel',
+      );
+    }
+    const written = fs.writeSync(fd, buffer, 0, buffer.length);
+    if (written !== buffer.length) {
+      throw new Error(`Short write to guard result pipe: wrote ${written} of ${buffer.length} bytes`);
     }
   } catch {
     // Best-effort delivery only; see doc comment above.
