@@ -1,6 +1,7 @@
 'use strict';
 
 const { buildCommonGuardChecks } = require('./guards/common-guard-checks');
+const { recordLocalGuardEvent } = require('./guards/guard-result-tracker');
 
 /** Maps numeric status codes used by guards to HTTP/1.1 reason phrases. */
 const HTTP_STATUS_LINES = {
@@ -21,6 +22,7 @@ function enforceWebSocketGuards({ socket, logRequest, requestId, provider, reque
     if (!guard.isBlocked(guard.block)) continue;
 
     const block = guard.block;
+    recordLocalGuardEvent(guard.eventName);
     logRequest('warn', guard.eventName, {
       request_id: requestId,
       provider,

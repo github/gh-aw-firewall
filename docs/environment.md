@@ -164,6 +164,21 @@ The following environment variables are set internally by the firewall and used 
 
 **Note:** Most of these are set automatically based on CLI options and should not be overridden manually. `AWF_SESSION_STATE_DIR` is an exception — it is the environment-variable equivalent of `--session-state-dir` and can be set by users to configure a predictable session-state output path. `AWF_SKIP_CAP_DROP` is a host-side emergency escape hatch, not a normal user configuration option.
 
+## Guard Result Channel (`AWF_GUARD_RESULT_FD`)
+
+`AWF_GUARD_RESULT_FD` is set by a **trusted caller** (not by AWF itself) to the
+numeric file descriptor of the write end of an anonymous pipe the caller
+created and keeps the read end of. When present, AWF validates that the
+descriptor is an open FIFO write end *before* the agent starts (failing fast
+with a non-zero exit if it is invalid), strips the variable from the agent's
+own environment so the agent can never see or write to it, and — after the
+agent exits and containers are verified removed — writes one small JSON
+result describing whether the run was confirmed stopped by AWF's local AI
+Credits guard, hit a real upstream 403, or remains unconfirmed. The result
+contains no prompts, credentials, headers, bodies, or model content. If the
+variable is absent, AWF behaves exactly as it does without this feature. See
+`src/guard-result.ts` for the schema and trust rules.
+
 ## GitHub Actions `setup-*` Tool Availability
 
 Tools installed by GitHub Actions `setup-*` actions (e.g., `astral-sh/setup-uv`, `actions/setup-node`, `ruby/setup-ruby`, `actions/setup-python`) are **automatically available inside the AWF chroot**. This works by:

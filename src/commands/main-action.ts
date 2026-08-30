@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { randomUUID } from 'crypto';
 import { logger } from '../logger';
 import {
   writeConfigs,
@@ -42,6 +43,14 @@ import {
   shutdownEnclaveGithubCliProxy,
 } from '../enclave/github-gateway';
 import type { WrapperConfig } from '../types';
+import {
+  GUARD_RESULT_FD_ENV_VAR,
+  classifyGuardResult,
+  resolveGuardResultFd,
+  validateGuardResultFd,
+  writeGuardResult,
+} from '../guard-result';
+import { areGuardContainersRemoved, captureGuardSnapshotPair } from '../guard-result-proxy';
 
 const SENSITIVE_CONFIG_KEYS = new Set([
   'openaiApiKey',
@@ -98,14 +107,30 @@ function persistConfigAuditArtifact(
   }
 }
 
+/**
+ * Runtime context needed to emit the authoritative guard result after
+ * cleanup, when the caller configured a result pipe via `AWF_GUARD_RESULT_FD`.
+ */
+interface GuardResultRuntimeConfig {
+  fd: number;
+  invocationId: string;
+  apiProxyEnabled: boolean;
+  getAgentExitCode: () => number | null;
+}
+
 function buildCleanupFn(
   config: WrapperConfig,
   getContainersStarted: () => boolean,
   getHostIptablesSetup: () => boolean,
   externalRuntimeBackend?: ExternalAgentRuntimeBackend,
+  guardConfig?: GuardResultRuntimeConfig,
 ) {
   return async (signal?: string) => {
     let externalRuntimeCleanupError: unknown;
+    // Two closely-spaced snapshots captured from the still-running API proxy,
+    // before it is torn down, so a caller can verify the proxy was quiescent
+    // between the moment the agent exited and the moment cleanup began.
+    let guardSnapshots: Awaited<ReturnType<typeof captureGuardSnapshotPair>> = null;
     if (signal) {
       logger.info(`Received ${signal}, cleaning up...`);
     }
@@ -184,6 +209,13 @@ function buildCleanupFn(
           logger.warn('Failed to write the incomplete enclave audit marker.', error);
         }
       }
+      // Capture the authoritative guard evidence from the still-running API
+      // proxy before it is removed below. Must happen before stopContainers()
+      // so the snapshots reflect the real, running proxy state — not files
+      // the agent could have modified.
+      if (guardConfig && config.enableApiProxy) {
+        guardSnapshots = await captureGuardSnapshotPair();
+      }
       await stopContainers(config.workDir, config.keepContainers);
     }
 
@@ -218,6 +250,26 @@ function buildCleanupFn(
       logger.info(`Squid logs available at: ${config.workDir}/squid-logs/`);
       logger.info(`Host iptables rules preserved (--keep-containers enabled)`);
     }
+
+    // Emit the authoritative guard result last, after every cleanup step has
+    // run and container removal can be verified. Writing here — rather than
+    // to a file the agent could reach — is what makes the result trustworthy:
+    // there is nothing for the agent to forge, redirect, or replace with a
+    // symlink; the descriptor is a caller-owned pipe the agent never saw.
+    if (guardConfig) {
+      const containersRemoved = config.keepContainers ? false : await areGuardContainersRemoved();
+      const result = classifyGuardResult({
+        awfInvocationId: guardConfig.invocationId,
+        agentExitCode: guardConfig.getAgentExitCode(),
+        snapshots: guardSnapshots,
+        cleanupSucceeded: !externalRuntimeCleanupError,
+        containersRemoved,
+        apiProxyEnabled: guardConfig.apiProxyEnabled,
+        interrupted: signal !== undefined,
+      });
+      writeGuardResult(guardConfig.fd, result);
+    }
+
     if (externalRuntimeCleanupError) throw externalRuntimeCleanupError;
   };
 }
@@ -292,6 +344,16 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
     };
   }
 
+  // Defense in depth: the guard-result descriptor must never reach the agent
+  // container, even if it were accidentally passed through --env or a config
+  // file. AWF's own env-var resolution never adds it to the agent's
+  // environment, but this guarantees a caller mistake cannot leak it.
+  if (config.additionalEnv && GUARD_RESULT_FD_ENV_VAR in config.additionalEnv) {
+    const sanitizedEnv = { ...config.additionalEnv };
+    delete sanitizedEnv[GUARD_RESULT_FD_ENV_VAR];
+    config.additionalEnv = sanitizedEnv;
+  }
+
   // Apply --docker-host override for AWF's own container operations.
   // This must be called before startContainers/stopContainers/runAgentCommand.
   setAwfDockerHost(config.awfDockerHost);
@@ -326,9 +388,34 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
   logger.debug(`DNS servers: ${(config.dnsServers ?? []).join(', ')}`);
 
 
+  // Resolve and validate the optional guard-result pipe *before* anything
+  // else runs. Per the design, an absent AWF_GUARD_RESULT_FD is a no-op
+  // (existing behavior is fully preserved); a present-but-invalid descriptor
+  // must fail fast, before the agent — or any container — ever starts.
+  let guardResultFd: number | undefined;
+  try {
+    guardResultFd = resolveGuardResultFd(process.env);
+    if (guardResultFd !== undefined) validateGuardResultFd(guardResultFd);
+  } catch (error) {
+    logger.error('Invalid AWF_GUARD_RESULT_FD; refusing to start the agent.', error);
+    console.error('Process exiting with code: 1');
+    process.exit(1);
+    return;
+  }
+  const awfInvocationId = randomUUID();
+
   let exitCode = 0;
   let containersStarted = false;
   let hostIptablesSetup = false;
+  let guardAgentExitCode: number | null = null;
+  const guardConfig = guardResultFd !== undefined
+    ? {
+        fd: guardResultFd,
+        invocationId: awfInvocationId,
+        apiProxyEnabled: config.enableApiProxy === true,
+        getAgentExitCode: () => guardAgentExitCode,
+      }
+    : undefined;
   let externalRuntimeBackend: ExternalAgentRuntimeBackend | undefined;
   try {
     externalRuntimeBackend = resolveExternalRuntimeBackend(config, startContainers);
@@ -338,6 +425,8 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
       config,
       () => containersStarted,
       () => hostIptablesSetup,
+      undefined,
+      guardConfig,
     )();
     console.error('Process exiting with code: 1');
     process.exit(1);
@@ -349,6 +438,7 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
     () => containersStarted,
     () => hostIptablesSetup,
     externalRuntimeBackend,
+    guardConfig,
   );
 
   // Register signal handlers for graceful shutdown
@@ -369,9 +459,21 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
     const externalWorkflowDependencies = externalRuntimeBackend
       ? adaptExternalRuntimeBackend(externalRuntimeBackend)
       : undefined;
-    const workflowRunAgentCommand = externalWorkflowDependencies?.runAgentCommand
+    const baseRunAgentCommand = externalWorkflowDependencies?.runAgentCommand
       ?? ((workDir: string, allowedDomains: string[], proxyLogsDir?: string, agentTimeoutMinutes?: number) =>
         runAgentCommand(workDir, allowedDomains, proxyLogsDir, agentTimeoutMinutes, config.containerRuntime));
+    const workflowRunAgentCommand = async (
+      workDir: string,
+      allowedDomains: string[],
+      proxyLogsDir?: string,
+      agentTimeoutMinutes?: number,
+    ) => {
+      const result = await baseRunAgentCommand(workDir, allowedDomains, proxyLogsDir, agentTimeoutMinutes);
+      // Recorded for the guard result only; never exposed to the agent, which
+      // cannot influence this value after the fact.
+      guardAgentExitCode = result?.exitCode ?? null;
+      return result;
+    };
     const workflowCollectDiagnosticLogs = externalRuntimeBackend
       ? async (workDir: string): Promise<void> => {
          const results = await Promise.allSettled([

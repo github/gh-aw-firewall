@@ -2,6 +2,7 @@
 
 const { COPILOT_PLACEHOLDER_TOKEN } = require('./providers/copilot-byok');
 const { stripBearerPrefix } = require('./providers/copilot-auth');
+const { recordUpstreamStatus } = require('./guards/guard-result-tracker');
 
 // Paths that represent actual LLM inference calls (should count against maxRuns).
 // Non-inference endpoints (e.g., GET /models) are excluded.
@@ -90,6 +91,7 @@ function createLogUpstreamAuthError({
       : `Upstream returned ${statusCode} — check that the API key is valid and correctly formatted`;
 
     if (statusCode === 401 || statusCode === 403) {
+      recordUpstreamStatus(statusCode);
       applyPermissionDenied();
       logRequest('warn', 'upstream_auth_error', {
         request_id: requestId, provider, status: statusCode,

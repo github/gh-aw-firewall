@@ -12,6 +12,7 @@
 const metrics = require('./metrics');
 const { logRequest, sanitizeForLog } = require('./logging');
 const { writeBlockedRequestDiag } = require('./blocked-request-diagnostics');
+const { recordLocalGuardEvent } = require('./guards/guard-result-tracker');
 const { buildCommonGuardChecks } = require('./guards/common-guard-checks');
 const {
   getEffectiveTokenBlockState,
@@ -117,6 +118,7 @@ function sendGuardBlockedResponse(block, {
 }) {
   const duration = Date.now() - startTime;
   const guardLogFields = buildLogFields(block);
+  recordLocalGuardEvent(eventName);
   metrics.gaugeDec('active_requests', { provider });
   metrics.increment('requests_total', { provider, method: req.method, status_class: '4xx' });
   metrics.observe('request_duration_ms', duration, { provider });

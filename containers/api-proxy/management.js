@@ -7,7 +7,8 @@
  *   1. /health — aggregate health and key-validation status
  *   2. /metrics — raw metrics snapshot
  *   3. /reflect — list all proxy endpoints with their models cache
- *   4. handleManagementEndpoint — route the above on the designated management port
+ *   4. /guard-snapshot — local-limit vs. upstream-403 guard classification state
+ *   5. handleManagementEndpoint — route the above on the designated management port
  *
  * All functions are returned by createManagementHandlers(), which accepts
  * getter callbacks for the shared server state (adapters, models cache, etc.)
@@ -16,6 +17,7 @@
 
 const metrics = require('./metrics');
 const { getModelApiMappingReflect } = require('./model-api-mapping');
+const { getGuardResultSnapshot } = require('./guards/guard-result-tracker');
 
 /**
  * @typedef {object} ManagementDeps
@@ -140,6 +142,11 @@ function createManagementHandlers(deps) {
     if (req.method === 'GET' && req.url === '/reflect') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(reflectEndpoints()));
+      return true;
+    }
+    if (req.method === 'GET' && req.url === '/guard-snapshot') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(getGuardResultSnapshot()));
       return true;
     }
     return false;
