@@ -6,6 +6,8 @@
 
 const {
   normalizeApiTarget,
+  getTargetScheme,
+  stripTargetScheme,
   parseApiTargetAndBasePath,
   normalizeBasePath,
   buildUpstreamPath,
@@ -19,8 +21,8 @@ describe('normalizeApiTarget', () => {
     expect(normalizeApiTarget('https://my-gateway.example.com')).toBe('my-gateway.example.com');
   });
 
-  it('should strip http:// prefix', () => {
-    expect(normalizeApiTarget('http://my-gateway.example.com')).toBe('my-gateway.example.com');
+  it('should preserve an explicit http:// prefix', () => {
+    expect(normalizeApiTarget('http://my-gateway.example.com')).toBe('http://my-gateway.example.com');
   });
 
   it('should preserve bare hostname', () => {
@@ -50,6 +52,27 @@ describe('normalizeApiTarget', () => {
 
   it('should discard query and fragment from URL', () => {
     expect(normalizeApiTarget('https://my-gateway.example.com/path?key=val#frag')).toBe('my-gateway.example.com');
+  });
+
+  it('should discard port from an explicit http:// URL while preserving the scheme', () => {
+    expect(normalizeApiTarget('http://my-gateway.example.com:8080')).toBe('http://my-gateway.example.com');
+  });
+});
+
+describe('getTargetScheme / stripTargetScheme', () => {
+  it('returns https for a bare hostname', () => {
+    expect(getTargetScheme('api.openai.com')).toBe('https');
+    expect(stripTargetScheme('api.openai.com')).toBe('api.openai.com');
+  });
+
+  it('returns http and strips the prefix for an explicit http:// target', () => {
+    expect(getTargetScheme('http://gateway.example.com')).toBe('http');
+    expect(stripTargetScheme('http://gateway.example.com')).toBe('gateway.example.com');
+  });
+
+  it('handles undefined targets gracefully', () => {
+    expect(getTargetScheme(undefined)).toBe('https');
+    expect(stripTargetScheme(undefined)).toBeUndefined();
   });
 });
 

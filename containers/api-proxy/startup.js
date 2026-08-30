@@ -94,6 +94,13 @@ function bootPrimary({
         message: `${adapter.name} proxy listening on port ${adapter.port}`,
         target: adapter.isEnabled() ? adapter.getTargetHost() : '(not configured)',
       });
+      if (adapter.isEnabled() && adapter.getTargetScheme && adapter.getTargetScheme() === 'http') {
+        logRequest('warn', 'insecure_api_target', {
+          message: `${adapter.name} target is configured with an explicit http:// scheme; ` +
+            'the provider credential injected by this sidecar will be sent in cleartext to that host.',
+          target: adapter.getTargetHost(),
+        });
+      }
       if (adapter.participatesInValidation) {
         onListenerReady();
       }

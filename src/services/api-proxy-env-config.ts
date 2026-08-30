@@ -1,5 +1,5 @@
 import { SQUID_PORT } from '../constants';
-import { stripScheme } from '../host-env';
+import { normalizeApiTargetScheme } from '../host-env';
 import { WrapperConfig } from '../types';
 import { getConfigEnvValue, getLowerCaseProcessEnvValue, pickEnvVars } from '../env-utils';
 import { OPENAI_ENV, ANTHROPIC_ENV, GEMINI_ENV, COPILOT_ENV, VERTEX_ENV, OIDC_AUTH_ENV_VARS, OIDC_AUTH_ENV_MAPPING } from '../api-proxy-env-constants';
@@ -37,7 +37,7 @@ export function buildProviderTargetEnv(config: WrapperConfig): Record<string, st
   ];
 
   for (const { target, basePath, envTarget, envBasePath, stripTarget } of providers) {
-    if (target) env[envTarget] = stripTarget ? stripScheme(target) : target;
+    if (target) env[envTarget] = stripTarget ? normalizeApiTargetScheme(target) : target;
     if (basePath) env[envBasePath] = basePath;
   }
   if (secretOpenAiBaseUrl) {
@@ -119,10 +119,13 @@ function buildProviderRoutingEnv(config: WrapperConfig): Record<string, string> 
   const openAiEndpointOverride = resolveOpenAiEndpointOverride(config);
 
   return {
-    // Configurable API targets (for GHES/GHEC / custom endpoints)
-    // Strip any scheme prefix — server.js also normalizes defensively, but
-    // stripping here prevents a scheme-prefixed hostname from reaching the
-    // container at all (belt-and-suspenders for gh-aw#25137).
+    // Configurable API targets (for GHES/GHEC / custom endpoints).
+    // An explicit https:// scheme (or no scheme) is stripped to a bare hostname,
+    // matching prior behavior; an explicit http:// scheme is preserved so the
+    // sidecar dials the target in cleartext on port 80 instead of always
+    // assuming HTTPS on 443 (see gh-aw-firewall#7862). server.js's
+    // normalizeApiTarget() re-validates and normalizes this defensively
+    // (gh-aw#25137), so any other scheme or malformed value is rejected there.
     ...buildProviderTargetEnv(config),
     // Forward GITHUB_SERVER_URL so api-proxy can auto-derive enterprise endpoints
     ...(process.env.GITHUB_SERVER_URL && { GITHUB_SERVER_URL: process.env.GITHUB_SERVER_URL }),

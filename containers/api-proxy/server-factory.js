@@ -34,7 +34,8 @@ function createProxyHandler(adapter, checkRateLimit, proxyRequest) {
       adapter.name,
       adapter.getBasePath(req),
       adapter.getBodyTransform(),
-      adapter.getRequestSigner ? adapter.getRequestSigner() : null
+      adapter.getRequestSigner ? adapter.getRequestSigner() : null,
+      adapter.getTargetScheme ? adapter.getTargetScheme(req) : 'https'
     );
   };
 }

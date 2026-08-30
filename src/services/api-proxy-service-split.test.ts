@@ -97,6 +97,26 @@ describe('API proxy split builders', () => {
     }
   });
 
+  it('buildProviderTargetEnv preserves an explicit http:// scheme for API targets', () => {
+    const env = buildProviderTargetEnv({
+      ...baseConfig,
+      workDir: '/tmp/awf-test',
+      anthropicApiTarget: 'http://gateway.example.com',
+    });
+
+    expect(env.ANTHROPIC_API_TARGET).toBe('http://gateway.example.com');
+  });
+
+  it('buildProviderTargetEnv strips an explicit https:// scheme for API targets', () => {
+    const env = buildProviderTargetEnv({
+      ...baseConfig,
+      workDir: '/tmp/awf-test',
+      anthropicApiTarget: 'https://gateway.example.com',
+    });
+
+    expect(env.ANTHROPIC_API_TARGET).toBe('gateway.example.com');
+  });
+
   it('buildAgentCredentialEnv builds isolated agent credentials', () => {
     const agentEnvAdditions = buildAgentCredentialEnv({
       config: {

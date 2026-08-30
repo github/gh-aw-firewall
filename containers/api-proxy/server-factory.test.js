@@ -53,6 +53,7 @@ describe('createProviderServer', () => {
       '',
       null,
       requestSigner,
+      'https',
     );
   });
 

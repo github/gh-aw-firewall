@@ -66,6 +66,66 @@ describe('upstream-http', () => {
     expect(handleUpstreamResponse).toHaveBeenCalled();
   });
 
+  test('dispatches upstream HTTP requests on port 80 when targetScheme is http', () => {
+    const proxyReq = { on: jest.fn(), write: jest.fn(), end: jest.fn() };
+    const httpRequest = jest.fn((_options, cb) => {
+      cb({ statusCode: 200, headers: {} });
+      return proxyReq;
+    });
+    const httpsRequest = jest.fn();
+    const handleUpstreamResponse = jest.fn();
+    const proxyAgent = { keepAlive: true };
+
+    const sendUpstreamRequest = createSendUpstreamRequest({
+      https: { request: httpsRequest },
+      http: { request: httpRequest },
+      proxyAgent,
+      handleUpstreamResponse,
+      sleep: jest.fn(() => Promise.resolve()),
+      otel: { endSpanError: jest.fn() },
+      handleRequestError: jest.fn(),
+      metrics: { increment: jest.fn(), observe: jest.fn() },
+    });
+
+    sendUpstreamRequest({ authorization: '******' }, createContext({ targetScheme: 'http' }));
+
+    expect(httpsRequest).not.toHaveBeenCalled();
+    expect(httpRequest).toHaveBeenCalledWith(expect.objectContaining({
+      hostname: 'api.example.com',
+      port: 80,
+      path: '/v1/chat/completions',
+      method: 'POST',
+      headers: { authorization: '******' },
+      agent: proxyAgent,
+    }), expect.any(Function));
+    expect(proxyReq.write).toHaveBeenCalledWith(Buffer.from('{"ok":true}'));
+    expect(proxyReq.end).toHaveBeenCalled();
+    expect(handleUpstreamResponse).toHaveBeenCalled();
+  });
+
+  test('defaults to HTTPS on port 443 when targetScheme is omitted', () => {
+    const proxyReq = { on: jest.fn(), write: jest.fn(), end: jest.fn() };
+    const httpsRequest = jest.fn((_options, cb) => {
+      cb({ statusCode: 200, headers: {} });
+      return proxyReq;
+    });
+
+    const sendUpstreamRequest = createSendUpstreamRequest({
+      https: { request: httpsRequest },
+      http: { request: jest.fn() },
+      proxyAgent: undefined,
+      handleUpstreamResponse: jest.fn(),
+      sleep: jest.fn(() => Promise.resolve()),
+      otel: { endSpanError: jest.fn() },
+      handleRequestError: jest.fn(),
+      metrics: { increment: jest.fn(), observe: jest.fn() },
+    });
+
+    sendUpstreamRequest({}, createContext());
+
+    expect(httpsRequest).toHaveBeenCalledWith(expect.objectContaining({ port: 443 }), expect.any(Function));
+  });
+
   test('applies model-not-supported backoff before recursive retry', async () => {
     const proxyReq = { on: jest.fn(), write: jest.fn(), end: jest.fn() };
     const responseCallbacks = [];

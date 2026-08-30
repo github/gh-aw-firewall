@@ -83,6 +83,37 @@ export function stripScheme(value: string): string {
 }
 
 /**
+ * Normalizes an API target value the same way stripScheme() does, except an
+ * explicit `http://` scheme is preserved (as an `http://<hostname>` prefix)
+ * instead of being discarded.
+ *
+ * Bare hostnames and explicit `https://` URLs both still normalize to a bare
+ * hostname (HTTPS remains the implicit default). Preserving an explicit
+ * `http://` lets the api-proxy sidecar dial the target in cleartext on port 80
+ * instead of always assuming HTTPS on port 443 (see github/gh-aw-firewall#7862) — this
+ * mirrors the runner-side allowlist (resolveApiTargetsToAllowedDomains), which
+ * already treats `http://` targets as a supported, explicitly opted-in
+ * configuration. The mirrored normalizeApiTarget() in the api-proxy sidecar
+ * (containers/api-proxy/proxy-utils.js) re-validates and re-normalizes this
+ * value defensively.
+ */
+export function normalizeApiTargetScheme(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return trimmed;
+
+  const hasScheme = /^[a-zA-Z][a-zA-Z\d+\-.]*:\/\//.test(trimmed);
+  const candidate = hasScheme ? trimmed : `https://${trimmed}`;
+
+  try {
+    const parsed = new URL(candidate);
+    if (!parsed.hostname) return trimmed;
+    return parsed.protocol === 'http:' ? `http://${parsed.hostname}` : parsed.hostname;
+  } catch {
+    return trimmed;
+  }
+}
+
+/**
  * Parses a host:port string into separate host and port components.
  * Supports IPv6 bracketed notation (e.g., [::1]:18443), plain host:port,
  * and optional scheme prefixes.

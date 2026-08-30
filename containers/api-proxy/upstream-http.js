@@ -21,15 +21,16 @@ function rebuildBodyFramingHeaders(headers, bodyLength) {
 }
 
 /**
- * Create and dispatch the upstream HTTPS request.
+ * Create and dispatch the upstream HTTP(S) request.
  * Sets up the proxyReq error handler, writes the body, and delegates response
  * handling to handleUpstreamResponse (including the one-shot retry path).
  *
- * @param {{ https: import('https'), proxyAgent: import('http').Agent, handleUpstreamResponse: Function, sleep: Function, otel: object, handleRequestError: Function, metrics: object }} deps
+ * @param {{ https: import('https'), http: import('http'), proxyAgent: import('http').Agent, handleUpstreamResponse: Function, sleep: Function, otel: object, handleRequestError: Function, metrics: object }} deps
  * @returns {(requestHeaders: object, ctx: object) => void}
  */
 function createSendUpstreamRequest({
   https,
+  http,
   proxyAgent,
   handleUpstreamResponse,
   sleep,
@@ -42,6 +43,7 @@ function createSendUpstreamRequest({
     requestSigner = null,
     hasRetried = false,
     modelNotSupportedRetryCount = 0,
+    targetScheme = 'https',
   }) {
     let outboundHeaders = requestHeaders;
     if (requestSigner) {
@@ -67,13 +69,19 @@ function createSendUpstreamRequest({
       }
     }
 
+    // Honor an explicit http:// target scheme (see proxy-utils.js normalizeApiTarget)
+    // by dialing the upstream in cleartext on port 80 instead of always assuming
+    // HTTPS on 443. Bare hostnames and explicit https:// targets both default to
+    // 'https', matching prior behavior.
+    const isHttp = targetScheme === 'http';
+    const mod = isHttp ? http : https;
     const options = {
-      hostname: targetHost, port: 443, path: upstreamPath,
+      hostname: targetHost, port: isHttp ? 80 : 443, path: upstreamPath,
       method: req.method, headers: outboundHeaders,
       agent: proxyAgent,
     };
 
-    const proxyReq = https.request(options, (proxyRes) => {
+    const proxyReq = mod.request(options, (proxyRes) => {
       handleUpstreamResponse(proxyRes, outboundHeaders, {
         body, res, provider, requestId, req, targetHost, startTime, span, requestBytes,
         hasRetried,
@@ -82,6 +90,7 @@ function createSendUpstreamRequest({
           body, targetHost, upstreamPath, req, res, provider, requestId, startTime, span, requestBytes, requestSigner,
           hasRetried: true,
           modelNotSupportedRetryCount,
+          targetScheme,
         }),
         onModelNotSupportedRetry: () => {
           const delayMs = MODEL_NOT_SUPPORTED_RETRY_DELAYS_MS[modelNotSupportedRetryCount] ?? 2000;
@@ -90,6 +99,7 @@ function createSendUpstreamRequest({
               body, targetHost, upstreamPath, req, res, provider, requestId, startTime, span, requestBytes, requestSigner,
               hasRetried,
               modelNotSupportedRetryCount: modelNotSupportedRetryCount + 1,
+              targetScheme,
             });
           });
         },
@@ -124,6 +134,7 @@ function createSendUpstreamRequest({
             requestBytes: newBody.length, requestSigner,
             hasRetried,
             modelNotSupportedRetryCount,
+            targetScheme,
           });
           return true;
         },

@@ -20,6 +20,8 @@
 const {
   normalizeBasePath,
   composeBodyTransforms,
+  getTargetScheme,
+  stripTargetScheme,
 } = require('../proxy-utils');
 const { createOidcAwareProviderAdapter } = require('../adapter-factory');
 const { sanitizeNullToolCallTypes } = require('../body-transform');
@@ -217,7 +219,7 @@ function createCopilotAdapter(env, deps = {}) {
         // Skip the fetch when no BYOK key is configured.
         if (!apiKey) return null;
         return {
-          url: `https://${rawTarget}${modelsPath}`,
+          url: `${getTargetScheme(rawTarget)}://${stripTargetScheme(rawTarget)}${modelsPath}`,
           opts: {
             method: 'GET',
             headers: bearerAuthHeaders(apiKey),

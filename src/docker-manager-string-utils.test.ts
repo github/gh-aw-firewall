@@ -1,4 +1,4 @@
-import { stripScheme } from './host-env';
+import { stripScheme, normalizeApiTargetScheme } from './host-env';
 import { hostEnvTestHelpers } from './host-env.test-utils';
 import { ACT_PRESET_BASE_IMAGE } from './host-identity';
 import { extractGhHostFromServerUrl } from './github-env';
@@ -121,6 +121,32 @@ describe('docker-manager string/network utilities', () => {
 
     it('should trim surrounding whitespace before processing', () => {
       expect(stripScheme('  api.openai.com  ')).toBe('api.openai.com');
+    });
+  });
+
+  describe('normalizeApiTargetScheme', () => {
+    it('should strip https:// prefix', () => {
+      expect(normalizeApiTargetScheme('https://my-gateway.example.com')).toBe('my-gateway.example.com');
+    });
+
+    it('should preserve an explicit http:// prefix', () => {
+      expect(normalizeApiTargetScheme('http://my-gateway.example.com')).toBe('http://my-gateway.example.com');
+    });
+
+    it('should preserve bare hostname', () => {
+      expect(normalizeApiTargetScheme('api.openai.com')).toBe('api.openai.com');
+    });
+
+    it('should discard the port from an explicit http:// URL while preserving the scheme', () => {
+      expect(normalizeApiTargetScheme('http://my-gateway.example.com:8080')).toBe('http://my-gateway.example.com');
+    });
+
+    it('should normalize a URL with a path to just the hostname', () => {
+      expect(normalizeApiTargetScheme('https://my-gateway.example.com/some-path')).toBe('my-gateway.example.com');
+    });
+
+    it('should return the trimmed input for a malformed URL', () => {
+      expect(normalizeApiTargetScheme('  ')).toBe('');
     });
   });
 });

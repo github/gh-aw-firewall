@@ -7,6 +7,7 @@
  * should be reviewed carefully for header-injection and SSRF risks.
  */
 
+const http = require('http');
 const https = require('https');
 const { HTTPS_PROXY, proxyAgent } = require('./http-client');
 const { createBodyHandler, sleep, _setSleepForTests, _resetSleepForTests } = require('./body-handler');
@@ -191,6 +192,7 @@ const { handleUpstreamResponse } = createUpstreamResponseHandlers({
 
 const sendUpstreamRequest = createSendUpstreamRequest({
   https,
+  http,
   proxyAgent,
   handleUpstreamResponse,
   sleep,
@@ -212,8 +214,9 @@ const sendUpstreamRequest = createSendUpstreamRequest({
  * @param {string} [basePath=''] - Optional base-path prefix
  * @param {((body: Buffer) => (Buffer | null | Promise<Buffer | null>)) | null} [bodyTransform=null]
  * @param {((request: object) => Record<string,string>) | null} [requestSigner=null]
+ * @param {'http'|'https'} [targetScheme='https'] - Upstream scheme (see proxy-utils.js normalizeApiTarget)
  */
-function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = '', bodyTransform = null, requestSigner = null) {
+function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = '', bodyTransform = null, requestSigner = null, targetScheme = 'https') {
   const clientRequestId = req.headers['x-request-id'];
   const requestId = isValidRequestId(clientRequestId) ? clientRequestId : generateRequestId();
   const startTime = Date.now();
@@ -276,6 +279,7 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
 
     sendUpstreamRequest(headers, {
       body, targetHost, upstreamPath, req, res, provider, requestId, startTime, span, requestBytes, requestSigner,
+      targetScheme,
     });
   });
 }

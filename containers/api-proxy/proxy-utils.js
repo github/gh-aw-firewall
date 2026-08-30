@@ -11,14 +11,23 @@
 const { URL } = require('url');
 
 /**
- * Normalizes an API target value to a bare hostname.
- * Accepts either a hostname or a full URL and extracts only the hostname,
- * discarding any scheme, path, query, fragment, credentials, or port.
- * Path configuration must be provided separately via the existing
+ * Normalizes an API target value to a hostname, optionally prefixed with an
+ * explicit `http://` scheme.
+ * Accepts either a hostname or a full URL and extracts the hostname,
+ * discarding any path, query, fragment, credentials, or port. Path
+ * configuration must be provided separately via the existing
  * *_API_BASE_PATH environment variables.
  *
+ * A bare hostname or an explicit `https://` URL both normalize to the bare
+ * hostname (HTTPS is the implicit default, matching existing behavior).
+ * An explicit `http://` URL preserves the `http://` prefix so that
+ * downstream consumers (see getTargetScheme/stripTargetScheme) can dial the
+ * target in cleartext on port 80 instead of always assuming HTTPS on 443 —
+ * this mirrors the runner-side allowlist, which already treats `http://`
+ * targets as a supported, explicitly opted-in configuration.
+ *
  * @param {string|undefined} value - Raw env var value
- * @returns {string|undefined} Bare hostname, the original falsy value if input is falsy (e.g. '' stays ''), or undefined if parsing fails
+ * @returns {string|undefined} Hostname (optionally `http://`-prefixed), the original falsy value if input is falsy (e.g. '' stays ''), or undefined if parsing fails
  */
 function normalizeApiTarget(value) {
   if (!value) return value;
@@ -38,10 +47,38 @@ function normalizeApiTarget(value) {
       );
     }
 
-    return parsed.hostname || undefined;
+    if (!parsed.hostname) return undefined;
+    return parsed.protocol === 'http:' ? `http://${parsed.hostname}` : parsed.hostname;
   }
 
   return undefined;
+}
+
+/**
+ * Returns the scheme implied by a normalized API target (see normalizeApiTarget):
+ * 'http' when the target carries the explicit `http://` prefix, 'https' otherwise
+ * (the default).
+ *
+ * @param {string|undefined} rawTarget - Value returned by normalizeApiTarget (or a default hostname)
+ * @returns {'http'|'https'}
+ */
+function getTargetScheme(rawTarget) {
+  return typeof rawTarget === 'string' && rawTarget.startsWith('http://') ? 'http' : 'https';
+}
+
+/**
+ * Strips the explicit `http://` scheme prefix added by normalizeApiTarget (if
+ * present), recovering the bare hostname for use in Host headers, request
+ * signing, logging, and other places that must never see a scheme prefix.
+ *
+ * @param {string|undefined} rawTarget - Value returned by normalizeApiTarget (or a default hostname)
+ * @returns {string|undefined} Bare hostname
+ */
+function stripTargetScheme(rawTarget) {
+  if (typeof rawTarget === 'string' && rawTarget.startsWith('http://')) {
+    return rawTarget.slice('http://'.length);
+  }
+  return rawTarget;
 }
 
 /**
@@ -78,6 +115,7 @@ function parseApiTargetUrl(value) {
       kind: 'ok',
       safe,
       hostname: parsed.hostname,
+      protocol: parsed.protocol,
       pathname: parsed.pathname,
       search: parsed.search,
       hash: parsed.hash,
@@ -309,6 +347,8 @@ function sanitizeAcceptEncoding(value) {
 
 module.exports = {
   normalizeApiTarget,
+  getTargetScheme,
+  stripTargetScheme,
   parseApiTargetAndBasePath,
   normalizeBasePath,
   buildUpstreamPath,

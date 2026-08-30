@@ -17,6 +17,8 @@ const {
   normalizeBasePath,
   makeProviderNotConfiguredResponse,
   makeUnconfiguredHealthResponse,
+  getTargetScheme,
+  stripTargetScheme,
 } = require('./proxy-utils');
 
 /**
@@ -133,6 +135,8 @@ function createAdapterMethods(opts) {
   } = opts;
 
   const resolveValue = (value) => (typeof value === 'function' ? value() : value);
+  const targetScheme = getTargetScheme(rawTarget);
+  const targetHost = stripTargetScheme(rawTarget);
 
   const builtValidationProbe = getValidationProbe || (() => {
     const skip = validationSkip ? validationSkip() : null;
@@ -142,7 +146,7 @@ function createAdapterMethods(opts) {
       return { skip: true, reason: 'Custom target; validation skipped' };
     }
     return {
-      url: `https://${rawTarget}${validationPath}`,
+      url: `${targetScheme}://${targetHost}${validationPath}`,
       opts: {
         method: validationMethod,
         headers: resolveValue(validationHeaders),
@@ -160,7 +164,7 @@ function createAdapterMethods(opts) {
     const modelsPrefix = basePath === '/' ? '' : basePath;
     const path = modelsPrefix ? `${modelsPrefix}/models` : modelsPath;
     return {
-      url: `https://${rawTarget}${path}`,
+      url: `${targetScheme}://${targetHost}${path}`,
       opts: { method: 'GET', headers: resolveValue(modelsFetchHeaders) },
       cacheKey: modelsCacheKey,
     };
@@ -177,7 +181,8 @@ function createAdapterMethods(opts) {
   }));
 
   return {
-    getTargetHost() { return rawTarget; },
+    getTargetHost() { return targetHost; },
+    getTargetScheme() { return targetScheme; },
     getBasePath() { return basePath; },
     participatesInValidation,
     getValidationProbe: builtValidationProbe,
