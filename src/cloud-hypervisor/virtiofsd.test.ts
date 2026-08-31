@@ -485,6 +485,26 @@ describe('VirtiofsdManager', () => {
     await expect(manager(deps).start([workspace])).resolves.toHaveLength(1);
   });
 
+  it('retries when a discovered sandbox worker exits before identity capture', async () => {
+    const deps = dependencies();
+    const readFile = deps.readFile;
+    let discovery = 0;
+    deps.readFile = jest.fn(async (filePath: string, encoding: BufferEncoding) => {
+      if (filePath.endsWith('/children')) {
+        discovery += 1;
+        return discovery === 1 ? '1099' : '1100';
+      }
+      if (filePath === '/proc/1099/comm') return 'virtiofsd\n';
+      if (filePath === '/proc/1099/stat') {
+        throw Object.assign(new Error('exited'), { code: 'ENOENT' });
+      }
+      return readFile(filePath, encoding);
+    });
+
+    await expect(manager(deps).start([workspace])).resolves.toHaveLength(1);
+    expect(deps.sleep).toHaveBeenCalled();
+  });
+
   it('surfaces an unexpected procfs error while discovering the sandbox worker', async () => {
     const deps = dependencies();
     const readFile = deps.readFile;
