@@ -6,8 +6,10 @@ import {
   isCapDropSkipped,
   filterCapDrop,
   filterComposeCapDrop,
-  LINUX_CAPABILITY_MAP,
+  testHelpers,
 } from './capability-filter';
+
+const { LINUX_CAPABILITY_MAP } = testHelpers;
 import { DockerComposeConfig } from './types';
 import { generateDockerCompose } from './compose-generator';
 import { WrapperConfig } from './types';

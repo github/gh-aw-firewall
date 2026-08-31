@@ -7,7 +7,7 @@ import { getLocalDockerEnv } from './docker-host';
  * Map of standard Linux capability names (uppercase, without CAP_ prefix) to bit positions in CapBnd.
  * Reference: Linux kernel include/uapi/linux/capability.h
  */
-export const LINUX_CAPABILITY_MAP: Record<string, number> = {
+const LINUX_CAPABILITY_MAP: Record<string, number> = {
   CHOWN: 0,
   DAC_OVERRIDE: 1,
   DAC_READ_SEARCH: 2,
@@ -164,3 +164,7 @@ export function filterComposeCapDrop(
   }
   return composeConfig;
 }
+
+/** @internal Exposed for unit tests only. */
+// ts-prune-ignore-next
+export const testHelpers = { LINUX_CAPABILITY_MAP };
