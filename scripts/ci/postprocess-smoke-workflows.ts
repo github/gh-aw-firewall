@@ -76,19 +76,24 @@ for (const workflowPath of codexWorkflowPaths) {
 // The compiler doesn't support sandbox.agent.containerRuntime yet, so we inject it here.
 const runtimeCmdPattern = /awf --config /g;
 
-const gvisorLockPath = path.join(workflowsDir, 'smoke-gvisor.lock.yml');
-try {
-  const gvisorContent = fs.readFileSync(gvisorLockPath, 'utf-8');
-  const replacedContent = gvisorContent.replace(runtimeCmdPattern, 'awf --container-runtime gvisor --config ');
-  if (replacedContent !== gvisorContent) {
-    fs.writeFileSync(gvisorLockPath, replacedContent);
-    console.log(`  Injected --container-runtime gvisor into AWF command`);
-    console.log(`Updated ${gvisorLockPath}`);
-  } else {
-    console.log(`Skipping ${gvisorLockPath}: no AWF command found to patch.`);
+const gvisorLockPaths = [
+  path.join(workflowsDir, 'smoke-gvisor.lock.yml'),
+  path.join(workflowsDir, 'smoke-playwright-gvisor.lock.yml'),
+];
+for (const gvisorLockPath of gvisorLockPaths) {
+  try {
+    const gvisorContent = fs.readFileSync(gvisorLockPath, 'utf-8');
+    const replacedContent = gvisorContent.replace(runtimeCmdPattern, 'awf --container-runtime gvisor --config ');
+    if (replacedContent !== gvisorContent) {
+      fs.writeFileSync(gvisorLockPath, replacedContent);
+      console.log(`  Injected --container-runtime gvisor into AWF command`);
+      console.log(`Updated ${gvisorLockPath}`);
+    } else {
+      console.log(`Skipping ${gvisorLockPath}: no AWF command found to patch.`);
+    }
+  } catch {
+    console.log(`Skipping ${gvisorLockPath}: file not found.`);
   }
-} catch {
-  console.log(`Skipping ${gvisorLockPath}: file not found.`);
 }
 
 // sbx CLI install + daemon auth steps that gh-aw v0.82.8 dropped from compilation.
@@ -176,49 +181,56 @@ const SBX_REFRESH_CREDENTIALS_STEP =
 const SBX_LOCKDOWN_ANCHOR = '      - name: Determine automatic lockdown mode for GitHub MCP Server';
 const SBX_EXECUTE_ANCHOR = '      - name: Execute GitHub Copilot CLI';
 
-const sbxLockPath = path.join(workflowsDir, 'smoke-docker-sbx.lock.yml');
-try {
-  const sbxOriginal = fs.readFileSync(sbxLockPath, 'utf-8');
-  let sbxContent = sbxOriginal;
+const sbxLockPaths = [
+  path.join(workflowsDir, 'smoke-docker-sbx.lock.yml'),
+  path.join(workflowsDir, 'smoke-playwright-docker-sbx.lock.yml'),
+];
+for (const sbxLockPath of sbxLockPaths) {
+  try {
+    const sbxOriginal = fs.readFileSync(sbxLockPath, 'utf-8');
+    let sbxContent = sbxOriginal;
 
-  // (1) Inject --container-runtime sbx into AWF command
-  runtimeCmdPattern.lastIndex = 0;
-  const sbxWithRuntime = sbxContent.replace(runtimeCmdPattern, 'awf --container-runtime sbx --config ');
-  if (sbxWithRuntime !== sbxContent) {
-    sbxContent = sbxWithRuntime;
-    console.log(`  Injected --container-runtime sbx into AWF command`);
-  }
-
-  // (2) Inject sbx CLI install + daemon auth steps (dropped by gh-aw v0.82.8 compiler)
-  if (!sbxContent.includes('- name: Install Docker sbx CLI')) {
-    if (sbxContent.includes(SBX_LOCKDOWN_ANCHOR)) {
-      sbxContent = sbxContent.replace(SBX_LOCKDOWN_ANCHOR, SBX_INSTALL_AND_AUTH_STEPS + SBX_LOCKDOWN_ANCHOR);
-      console.log(`  Injected sbx CLI install and daemon auth steps`);
-    } else {
-      console.log(`  WARNING: Could not find lockdown anchor; sbx install/auth steps not injected`);
+    // (1) Inject --container-runtime sbx into AWF command
+    if (!sbxContent.includes('--container-runtime sbx')) {
+      runtimeCmdPattern.lastIndex = 0;
+      const sbxWithRuntime = sbxContent.replace(runtimeCmdPattern, 'awf --container-runtime sbx --config ');
+      if (sbxWithRuntime !== sbxContent) {
+        sbxContent = sbxWithRuntime;
+        console.log(`  Injected --container-runtime sbx into AWF command`);
+      }
     }
-  } else {
-    console.log(`  sbx CLI install and auth steps already present`);
-  }
 
-  // (3) Inject sbx credential refresh step immediately before agent execution
-  if (!sbxContent.includes('- name: Refresh sbx credentials')) {
-    if (sbxContent.includes(SBX_EXECUTE_ANCHOR)) {
-      sbxContent = sbxContent.replace(SBX_EXECUTE_ANCHOR, SBX_REFRESH_CREDENTIALS_STEP + SBX_EXECUTE_ANCHOR);
-      console.log(`  Injected sbx credential refresh step`);
+    // (2) Inject sbx CLI install + daemon auth steps (dropped by gh-aw v0.82.8 compiler)
+    if (!sbxContent.includes('- name: Install Docker sbx CLI')) {
+      if (sbxContent.includes(SBX_LOCKDOWN_ANCHOR)) {
+        sbxContent = sbxContent.replace(SBX_LOCKDOWN_ANCHOR, SBX_INSTALL_AND_AUTH_STEPS + SBX_LOCKDOWN_ANCHOR);
+        console.log(`  Injected sbx CLI install and daemon auth steps`);
+      } else {
+        console.log(`  WARNING: Could not find lockdown anchor; sbx install/auth steps not injected`);
+      }
     } else {
-      console.log(`  WARNING: Could not find execute anchor; sbx credential refresh step not injected`);
+      console.log(`  sbx CLI install and auth steps already present`);
     }
-  } else {
-    console.log(`  sbx credential refresh step already present`);
-  }
 
-  if (sbxContent !== sbxOriginal) {
-    fs.writeFileSync(sbxLockPath, sbxContent);
-    console.log(`Updated ${sbxLockPath}`);
-  } else {
-    console.log(`Skipping ${sbxLockPath}: no changes needed.`);
+    // (3) Inject sbx credential refresh step immediately before agent execution
+    if (!sbxContent.includes('- name: Refresh sbx credentials')) {
+      if (sbxContent.includes(SBX_EXECUTE_ANCHOR)) {
+        sbxContent = sbxContent.replace(SBX_EXECUTE_ANCHOR, SBX_REFRESH_CREDENTIALS_STEP + SBX_EXECUTE_ANCHOR);
+        console.log(`  Injected sbx credential refresh step`);
+      } else {
+        console.log(`  WARNING: Could not find execute anchor; sbx credential refresh step not injected`);
+      }
+    } else {
+      console.log(`  sbx credential refresh step already present`);
+    }
+
+    if (sbxContent !== sbxOriginal) {
+      fs.writeFileSync(sbxLockPath, sbxContent);
+      console.log(`Updated ${sbxLockPath}`);
+    } else {
+      console.log(`Skipping ${sbxLockPath}: no changes needed.`);
+    }
+  } catch {
+    console.log(`Skipping ${sbxLockPath}: file not found.`);
   }
-} catch {
-  console.log(`Skipping ${sbxLockPath}: file not found.`);
 }
