@@ -126,6 +126,20 @@ export function applyGeneralWorkflowPatches(
       );
       log.push(`  Exposed gateway API key to AWF readiness checks`);
     }
+
+    const gatewayKeyExclusion = '--exclude-env MCP_GATEWAY_API_KEY';
+    if (content.includes(gatewayKeyExclusion)) {
+      log.push(`  Gateway API key already excluded from the primary agent`);
+    } else {
+      const gatewayAgentIdExclusion = '--exclude-env MCP_GATEWAY_AGENT_ID';
+      if (content.includes(gatewayAgentIdExclusion)) {
+        content = content.replace(
+          gatewayAgentIdExclusion,
+          `${gatewayKeyExclusion} ${gatewayAgentIdExclusion}`
+        );
+        log.push(`  Excluded gateway API key from the primary agent`);
+      }
+    }
   }
 
   if (usesPublishedAwfRelease(workflowPath)) {

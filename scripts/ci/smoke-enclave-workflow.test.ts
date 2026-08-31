@@ -22,7 +22,7 @@ describe('smoke enclave build workflow', () => {
   });
 
   it('uses the compatible gateway and local AWF build', () => {
-    expect(lock).toContain('ghcr.io/github/gh-aw-mcpg:v0.4.13');
+    expect(lock).toContain('ghcr.io/github/gh-aw-mcpg:v0.4.14');
     expect(lock).toContain('"awf-enclave": {\n                "required": false,');
     expect(lock).toContain('Install awf binary (local)');
     expect(lock).toContain('--build-local');
@@ -34,6 +34,7 @@ describe('smoke enclave build workflow', () => {
       '                "type": "http",',
       '                "url": "http://awf-enclave-mcp:8080/mcp"',
       '      - name: Execute GitHub Copilot CLI',
+      '        run: awf --env-all --exclude-env MCP_GATEWAY_AGENT_ID',
       '        env:',
       '          AWF_REFLECT_ENABLED: 1',
     ].join('\n');
@@ -43,6 +44,9 @@ describe('smoke enclave build workflow', () => {
     expect(first).toContain('"awf-enclave": {\n                "required": false,');
     expect(first).toContain(
       'MCP_GATEWAY_API_KEY: ${{ steps.start-mcp-gateway.outputs.gateway-api-key }}'
+    );
+    expect(first).toContain(
+      '--exclude-env MCP_GATEWAY_API_KEY --exclude-env MCP_GATEWAY_AGENT_ID'
     );
     expect(second).toBe(first);
   });
