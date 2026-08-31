@@ -49,6 +49,7 @@ import type {
   CloudHypervisorHostToolPaths,
   CloudHypervisorPreflightResult,
 } from './preflight';
+import { copySparseFileWithRsync } from './preflight';
 import {
   verifyCloudHypervisorConfinement,
   type CloudHypervisorConfinementEvidence,
@@ -79,6 +80,7 @@ const defaultDependencies: CloudHypervisorManagerDependencies = {
   launch: (command, args, options) => execa(command, args, options),
   mkdir: fs.mkdir,
   copyFile: fs.copyFile,
+  copySparseFile: copySparseFileWithRsync,
   chmod: fs.chmod,
   chown: fs.chown,
   writeFile: fs.writeFile,

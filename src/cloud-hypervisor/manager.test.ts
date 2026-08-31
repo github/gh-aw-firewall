@@ -180,6 +180,7 @@ function dependencies(
     launch: jest.fn().mockReturnValue(processMock()),
     mkdir: jest.fn().mockResolvedValue(undefined),
     copyFile: jest.fn().mockResolvedValue(undefined),
+    copySparseFile: jest.fn().mockResolvedValue(undefined),
     chmod: jest.fn().mockResolvedValue(undefined),
     chown: jest.fn().mockResolvedValue(undefined),
     writeFile: jest.fn().mockResolvedValue(undefined),
@@ -391,6 +392,11 @@ describe('CloudHypervisorManager', () => {
       '/run/awf-cloud-hypervisor/cloud-hypervisor/run-1',
       2001,
       2002,
+    );
+    expect(deps.copySparseFile).toHaveBeenCalledWith(
+      '/usr/bin/rsync',
+      '/opt/rootfs.ext4',
+      '/run/awf-cloud-hypervisor/cloud-hypervisor/run-1/rootfs.ext4',
     );
     expect(deps.createNetwork).toHaveBeenCalledWith(
       expect.objectContaining({

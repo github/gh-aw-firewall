@@ -88,6 +88,7 @@ function dependencies(
         ? { bundlePath: '/snapshot/manifest.sigstore.jsonl' }
         : {}),
     })),
+    copySparseFile: jest.fn().mockResolvedValue(undefined),
     removeArtifactSnapshot: jest.fn().mockResolvedValue(undefined),
     verifyManifestAttestation: jest.fn().mockResolvedValue(undefined),
     assertToolAvailable: jest.fn(async (tool: string) => `/usr/bin/${tool}`),
@@ -274,6 +275,13 @@ describe('Cloud Hypervisor preflight (foundation only)', () => {
       '/usr/bin/gh',
       '/snapshot/manifest.json',
       '/snapshot/manifest.sigstore.jsonl',
+    );
+    const sparseCopy = (deps.createArtifactSnapshot as jest.Mock).mock.calls[0][1];
+    await sparseCopy('/source/rootfs.ext4', '/snapshot/rootfs.ext4');
+    expect(deps.copySparseFile).toHaveBeenCalledWith(
+      '/usr/bin/rsync',
+      '/source/rootfs.ext4',
+      '/snapshot/rootfs.ext4',
     );
     expect(result.tools).toEqual({
       getfacl: '/usr/bin/getfacl',
