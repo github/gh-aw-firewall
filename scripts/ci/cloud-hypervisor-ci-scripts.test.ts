@@ -182,8 +182,13 @@ describe('cloud-hypervisor-live-smoke.sh', () => {
     expect(source).toContain('(vmh|vmn|vmt)');
     expect(source).toContain('CGROUP_ROOT');
     expect(source).toContain("pgrep -f '[c]loud-hypervisor --api-socket'");
-    expect(source).toContain('$ARTIFACT_DIR/[c]loud-hypervisor --api-socket');
-    expect(source).toContain('$ARTIFACT_DIR/[v]irtiofsd.*--shared-dir=');
+    expect(source).toContain("pgrep -f '[v]irtiofsd.*--shared-dir='");
+    expect(source).not.toContain(
+      'pgrep -f "$ARTIFACT_DIR/[c]loud-hypervisor --api-socket"',
+    );
+    expect(source).not.toContain(
+      'pgrep -f "$ARTIFACT_DIR/[v]irtiofsd.*--shared-dir="',
+    );
   });
 
   it('uses process probes that exclude their own command line but match live targets', () => {
@@ -194,12 +199,8 @@ describe('cloud-hypervisor-live-smoke.sh', () => {
         target: `${artifactDir}/cloud-hypervisor --api-socket /run/awf.sock`,
       },
       {
-        pattern: `${artifactDir}/[c]loud-hypervisor --api-socket`,
-        target: `${artifactDir}/cloud-hypervisor --api-socket /run/awf.sock`,
-      },
-      {
-        pattern: `${artifactDir}/[v]irtiofsd.*--shared-dir=`,
-        target: `${artifactDir}/virtiofsd --socket-path=/run/vhost.sock --shared-dir=/workspace`,
+        pattern: '[v]irtiofsd.*--shared-dir=',
+        target: `/run/awf-cloud-hypervisor/snapshot/virtiofsd --socket-path=/run/vhost.sock --shared-dir=/workspace`,
       },
     ];
 
