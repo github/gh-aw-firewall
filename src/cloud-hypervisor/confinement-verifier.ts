@@ -242,7 +242,11 @@ function verifyThreadStatus(
   }
   assertIdentityField(status.Uid, options.identity.uid, 'UID', taskId);
   assertIdentityField(status.Gid, options.identity.gid, 'GID', taskId);
-  const groups = parseNumericFields(requiredStatus(status, 'Groups', taskId), 'Groups');
+  const groupStatus = status.Groups;
+  if (groupStatus === undefined) {
+    throw new Error(`Cloud Hypervisor thread ${taskId} is missing /proc status field Groups`);
+  }
+  const groups = parseNumericFields(groupStatus, 'Groups');
   if (groups.join(',') !== options.launchPolicy.supplementaryGroups.join(',')) {
     throw new Error(
       `Cloud Hypervisor thread ${taskId} has supplementary groups ${groups.join(',') || 'none'}, ` +

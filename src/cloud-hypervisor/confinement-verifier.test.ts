@@ -22,14 +22,14 @@ function launchPolicy(): CloudHypervisorLaunchConfinementPolicy {
   };
 }
 
-function status(name: string, seccomp: number, taskId = PID): string {
+function status(name: string, seccomp: number, taskId = PID, groups = '978'): string {
   return [
     `Name:\t${name}`,
     `Pid:\t${taskId}`,
     `Tgid:\t${PID}`,
     'Uid:\t1000\t1000\t1000\t1000',
     'Gid:\t1001\t1001\t1001\t1001',
-    'Groups:\t978',
+    `Groups:\t${groups}`,
     `CapInh:\t${CAPABILITY_MASK}`,
     `CapPrm:\t${CAPABILITY_MASK}`,
     `CapEff:\t${CAPABILITY_MASK}`,
@@ -50,13 +50,14 @@ function dependencies(overrides: {
   executable?: string;
   workerStatus?: string;
   cgroupProcs?: string;
+  groups?: string;
 } = {}): CloudHypervisorConfinementVerifierDependencies {
   const statReads = [...(overrides.statReads ?? [procStat('98765'), procStat('98765')])];
   const files: Record<string, string> = {
-    [`/proc/${PID}/task/${PID}/status`]: status('cloud-hypervis', 0),
+    [`/proc/${PID}/task/${PID}/status`]: status('cloud-hypervis', 0, PID, overrides.groups),
     [`/proc/${PID}/task/${PID + 1}/status`]:
-      overrides.workerStatus ?? status('vmm', 2, PID + 1),
-    [`/proc/${PID}/task/${PID + 2}/status`]: status('http-server', 2, PID + 2),
+      overrides.workerStatus ?? status('vmm', 2, PID + 1, overrides.groups),
+    [`/proc/${PID}/task/${PID + 2}/status`]: status('http-server', 2, PID + 2, overrides.groups),
     [`/proc/${PID}/cgroup`]: '0::/awf-cloud-hypervisor/run-1\n',
     [`${CGROUP}/cgroup.procs`]: overrides.cgroupProcs ?? `${PID}\n`,
     [`${CGROUP}/memory.max`]: '805306368\n',
@@ -139,6 +140,21 @@ describe('verifyCloudHypervisorConfinement', () => {
         membership: '/awf-cloud-hypervisor/run-1',
       }),
     }));
+  });
+
+  it('accepts an empty Groups field when no supplementary groups are expected', async () => {
+    const verificationOptions = options();
+    verificationOptions.launchPolicy = {
+      ...verificationOptions.launchPolicy,
+      supplementaryGroups: [],
+    };
+
+    const result = await verifyCloudHypervisorConfinement(
+      verificationOptions,
+      dependencies({ groups: '' }),
+    );
+
+    expect(result.identity.supplementaryGroups).toEqual([]);
   });
 
   it('fails closed when PID identity changes while evidence is collected', async () => {
