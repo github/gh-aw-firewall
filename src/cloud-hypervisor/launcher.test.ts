@@ -16,7 +16,7 @@ describe('buildCloudHypervisorLaunchCommand', () => {
     logFilePath: '/run/awf/cloud-hypervisor.log',
   };
 
-  it('joins the namespace, drops privileges but retains the kvm group and CAP_NET_ADMIN, then execs Cloud Hypervisor with no shell', () => {
+  it('joins the namespace, retains only the kvm group, empties all capability sets, and execs Cloud Hypervisor with no shell', () => {
     const result = buildCloudHypervisorLaunchCommand(baseOptions);
     expect(result.command).toBe('/usr/sbin/ip');
     expect(result.args).toEqual([
@@ -26,9 +26,9 @@ describe('buildCloudHypervisorLaunchCommand', () => {
       '--regid=1000',
       '--groups=978',
       '--no-new-privs',
-      '--inh-caps=-all,+net_admin',
-      '--bounding-set=-all,+net_admin',
-      '--ambient-caps=+net_admin',
+      '--inh-caps=-all',
+      '--bounding-set=-all',
+      '--ambient-caps=-all',
       '--',
       '/opt/cloud-hypervisor',
       '--api-socket', 'path=/run/awf/api.socket',
@@ -37,6 +37,7 @@ describe('buildCloudHypervisorLaunchCommand', () => {
       '--seccomp', 'true',
     ]);
     expect(result.args).not.toContain('--clear-groups');
+    expect(result.args.some((arg) => arg.includes('+net_admin'))).toBe(false);
     // No argument contains shell metacharacters that would matter if ever
     // interpolated; more importantly, args are a plain array (never joined
     // into a shell string) so metacharacters have no special meaning here.
@@ -77,7 +78,7 @@ describe('computeCloudHypervisorLandlockRules', () => {
       { path: '/run/awf/run', access: 'rw' },
       { path: '/dev/kvm', access: 'rw' },
       { path: '/dev/net/tun', access: 'rw' },
-      { path: '/sys/class/net/vmtabc123', access: 'r' },
+      { path: '/sys/class/net/vmtabc123/tun_flags', access: 'r' },
     ]);
     expect(rules).not.toEqual(expect.arrayContaining([
       expect.objectContaining({ path: '/host/workspace' }),
@@ -97,7 +98,7 @@ describe('computeCloudHypervisorLandlockRules', () => {
     expect(rules.some((rule) => rule.path.includes('workspace'))).toBe(false);
   });
 
-  it('grants read access to the TAP sysfs directory so tun_flags is readable under Landlock', () => {
+  it('grants read access only to the TAP tun_flags attribute required under Landlock', () => {
     // Regression test: /sys/class/net/<tap>/tun_flags is a world-readable
     // (0444) kernel sysfs attribute with no capability requirement of its
     // own, but Landlock still blocks the read if the path isn't in the
@@ -112,7 +113,8 @@ describe('computeCloudHypervisorLandlockRules', () => {
       tapName: 'vmtabc123',
     });
 
-    expect(rules).toContainEqual({ path: '/sys/class/net/vmtabc123', access: 'r' });
+    expect(rules).toContainEqual({ path: '/sys/class/net/vmtabc123/tun_flags', access: 'r' });
+    expect(rules).not.toContainEqual({ path: '/sys/class/net/vmtabc123', access: 'r' });
   });
 });
 
