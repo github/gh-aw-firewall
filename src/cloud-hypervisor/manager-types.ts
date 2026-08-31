@@ -100,6 +100,7 @@ export interface CloudHypervisorManagerDependencies {
   createRootfsPreparer(
     config: MicrovmRootfsConfig,
     tools: CloudHypervisorHostToolPaths,
+    copyRootfs: (source: string, destination: string) => Promise<void>,
   ): MicrovmRootfsPreparer;
   createVirtiofsdManager(
     binaryPath: string,

@@ -234,7 +234,10 @@ const defaultDependencies: CloudHypervisorPreflightDependencies = {
 };
 
 /** @internal Exposed only for focused host-probe tests. */
-export const cloudHypervisorPreflightTestHelpers = { defaultDependencies };
+export const cloudHypervisorPreflightTestHelpers = {
+  defaultDependencies,
+  createArtifactSnapshot,
+};
 
 export interface CloudHypervisorPreflightResult {
   version: string;

@@ -96,7 +96,7 @@ const defaultDependencies: CloudHypervisorManagerDependencies = {
     undefined,
     reservation,
   ),
-  createRootfsPreparer: (config, tools) => new MicrovmRootfsPreparer(config, {
+  createRootfsPreparer: (config, tools, copyRootfs) => new MicrovmRootfsPreparer(config, {
     runTool: async (command, args) => {
       const tool = tools[command as keyof CloudHypervisorHostToolPaths] ?? command;
       const result = await execa(tool, [...args], {
@@ -107,6 +107,7 @@ const defaultDependencies: CloudHypervisorManagerDependencies = {
       if (result.exitCode === 0 || (command === 'e2fsck' && result.exitCode === 1)) return;
       throw new Error(`${tool} exited with code ${result.exitCode}: ${result.stderr.trim()}`);
     },
+    copyRootfs,
   }),
   createVirtiofsdManager: (binaryPath, runDirectory, shareDirectory, identity, cgroup, tools) =>
     new VirtiofsdManager(binaryPath, runDirectory, shareDirectory, identity, cgroup, tools),

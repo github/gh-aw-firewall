@@ -120,9 +120,9 @@ AWF copies the manifest, bundle, VMM, `virtiofsd`, kernel, rootfs, and
 supervisor into a root-owned, non-writable snapshot under
 `/run/awf-cloud-hypervisor/trusted-artifacts/`. Verification and execution use
 only that snapshot, preventing caller-controlled path replacement between
-checking and use. Rootfs snapshot and run staging preserve sparse ext4 holes so
-the trusted copies do not multiply the image's logical size into host disk
-exhaustion. The local bundle
+checking and use. Rootfs snapshot, writable preparation, and run staging
+preserve sparse ext4 holes so the trusted copies do not multiply the image's
+logical size into host disk exhaustion. The local bundle
 avoids a GitHub API lookup. `gh` may still need network access to initialize or
 refresh Sigstore trust-root material unless that material is already cached or
 provisioned on the runner. Missing, mutable, incorrectly owned, renamed, or

@@ -255,7 +255,7 @@ describe('CloudHypervisorManager', () => {
       baseRootfsPath: '/opt/rootfs',
       supervisorBinaryPath: '/opt/supervisor',
       supervisorSha256: 'a'.repeat(64),
-    }, hostTools)).toBeDefined();
+    }, hostTools, jest.fn())).toBeDefined();
     expect(defaults.createVirtiofsdManager(
       '/opt/virtiofsd',
       '/run/awf',
@@ -590,6 +590,17 @@ describe('CloudHypervisorManager', () => {
         },
       }),
       hostTools,
+      expect.any(Function),
+    );
+    const writableRootfsCopy = (deps.createRootfsPreparer as jest.Mock).mock.calls[0][2];
+    await writableRootfsCopy(
+      '/snapshot/rootfs.ext4',
+      '/tmp/awf/cloud-hypervisor-rootfs/guest/rootfs.ext4',
+    );
+    expect(deps.copySparseFile).toHaveBeenCalledWith(
+      '/usr/bin/rsync',
+      '/snapshot/rootfs.ext4',
+      '/tmp/awf/cloud-hypervisor-rootfs/guest/rootfs.ext4',
     );
     expect(deps.createNetwork).toHaveBeenCalledWith(
       expect.objectContaining({

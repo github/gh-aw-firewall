@@ -115,7 +115,8 @@ export async function startCloudHypervisor(
           ...(networkConfig.apiProxyIp ? { 'api-proxy': networkConfig.apiProxyIp } : {}),
           ...(networkConfig.hostAliases ?? {}),
         },
-      }, artifacts.tools);
+      }, artifacts.tools, (source, destination) =>
+        dependencies.copySparseFile(artifacts.tools.rsync, source, destination));
       context.setRootfsPreparer(rootfsPreparer);
       rootfsSource = await rootfsPreparer.prepare();
     }
