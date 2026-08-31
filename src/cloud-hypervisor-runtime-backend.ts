@@ -113,7 +113,8 @@ export interface CloudHypervisorRuntimeBackendDependencies {
     infrastructure: MicrovmInfrastructureSnapshot,
     exports: readonly CloudHypervisorDirectoryExport[],
     identity: { uid: number; gid: number },
-    mountEnforcement?: VirtiofsdMountEnforcement,
+    mountEnforcement: VirtiofsdMountEnforcement | undefined,
+    verifiedArtifacts: CloudHypervisorPreflightResult,
   ): CloudHypervisorManagerAdapter;
   resolveExports(mountPolicy: CloudHypervisorOptions['mountPolicy']): Promise<CloudHypervisorDirectoryExport[]>;
   identity(): { uid: number; gid: number };
@@ -133,7 +134,15 @@ function defaultDependencies(
     preflight: runCloudHypervisorPreflight,
     resolveInfrastructure: (enableApiProxy, ipPath, topologyPeerNames) =>
       resolveMicrovmInfrastructure(enableApiProxy, undefined, ipPath, topologyPeerNames),
-    createManager: (config, workDir, infrastructure, exports, identity, mountEnforcement) =>
+    createManager: (
+      config,
+      workDir,
+      infrastructure,
+      exports,
+      identity,
+      mountEnforcement,
+      verifiedArtifacts,
+    ) =>
       new CloudHypervisorManager(
         config,
         workDir,
@@ -156,6 +165,7 @@ function defaultDependencies(
           supervisorSha256: config.sha256!.supervisor!,
           identity,
         },
+        verifiedArtifacts,
       ),
     resolveExports: (mountPolicy) => resolveCloudHypervisorExports(
       process.env,
@@ -316,6 +326,7 @@ class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBackend {
           exports,
           this.identity,
           mountEnforcement,
+          this.preflightResult!,
         );
         try {
           stage = 'vmm-configuration';

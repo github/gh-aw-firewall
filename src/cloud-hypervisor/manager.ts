@@ -45,7 +45,10 @@ import {
   type CloudHypervisorRunPaths,
 } from './manager-types';
 import { runCloudHypervisorPreflight } from './preflight';
-import type { CloudHypervisorHostToolPaths } from './preflight';
+import type {
+  CloudHypervisorHostToolPaths,
+  CloudHypervisorPreflightResult,
+} from './preflight';
 import {
   verifyCloudHypervisorConfinement,
   type CloudHypervisorConfinementEvidence,
@@ -215,6 +218,7 @@ export class CloudHypervisorManager {
     runId?: string,
     private readonly networkConfig?: CloudHypervisorManagerNetworkConfig,
     private readonly guestConfig?: CloudHypervisorManagerGuestConfig,
+    private readonly verifiedArtifacts?: CloudHypervisorPreflightResult,
   ) {
     this.paths = createCloudHypervisorRunPaths(config.cloudHypervisorBinary, runId);
   }
@@ -227,6 +231,7 @@ export class CloudHypervisorManager {
       paths: this.paths,
       networkConfig: this.networkConfig,
       guestConfig: this.guestConfig,
+      verifiedArtifacts: this.verifiedArtifacts,
       stdoutCapture: this.stdoutCapture,
       stderrCapture: this.stderrCapture,
       setNetworkPlan: (value) => { this.networkPlan = value; },

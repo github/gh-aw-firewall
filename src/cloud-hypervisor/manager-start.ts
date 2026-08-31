@@ -32,6 +32,7 @@ import { buildCloudHypervisorVmConfig } from './vm-config-builder';
 import type { BoundedOutputCapture } from './diagnostics';
 import type { CloudHypervisorConfinementEvidence } from './confinement-verifier';
 import type { CloudHypervisorVmmIdentityManager } from './vmm-identity';
+import type { CloudHypervisorPreflightResult } from './preflight';
 
 export interface CloudHypervisorStartContext {
   config: CloudHypervisorOptions;
@@ -40,6 +41,7 @@ export interface CloudHypervisorStartContext {
   paths: CloudHypervisorRunPaths;
   networkConfig?: CloudHypervisorManagerNetworkConfig;
   guestConfig?: CloudHypervisorManagerGuestConfig;
+  verifiedArtifacts?: CloudHypervisorPreflightResult;
   stdoutCapture: BoundedOutputCapture;
   stderrCapture: BoundedOutputCapture;
   setNetworkPlan(plan: MicrovmNetworkPlan | undefined): void;
@@ -60,7 +62,7 @@ export async function startCloudHypervisor(
   context: CloudHypervisorStartContext,
 ): Promise<CloudHypervisorApiClient> {
   const {
-    config, workDir, dependencies, paths, networkConfig, guestConfig,
+    config, workDir, dependencies, paths, networkConfig, guestConfig, verifiedArtifacts,
   } = context;
   if (!networkConfig) {
     throw new Error(
@@ -70,7 +72,7 @@ export async function startCloudHypervisor(
 
   let startupError: unknown;
   try {
-    const artifacts = await dependencies.preflight(config);
+    const artifacts = verifiedArtifacts ?? await dependencies.preflight(config);
     const guestIdentity = guestConfig?.identity ?? dependencies.resolveIdentity();
     const vmmIdentityManager = dependencies.createVmmIdentity(paths.runId, {
       getfacl: artifacts.tools.getfacl,
