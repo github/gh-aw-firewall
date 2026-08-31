@@ -120,13 +120,13 @@ assert_no_residue() {
     echo "Cloud Hypervisor cgroup residue detected" >&2
     return 1
   fi
-  if sudo pgrep -f 'cloud-hypervisor --api-socket' >/dev/null 2>&1; then
-    sudo pgrep -af 'cloud-hypervisor --api-socket' >&2
+  if sudo pgrep -f '[c]loud-hypervisor --api-socket' >/dev/null 2>&1; then
+    sudo pgrep -af '[c]loud-hypervisor --api-socket' >&2
     echo "Cloud Hypervisor process residue detected" >&2
     return 1
   fi
-  if sudo pgrep -f "$ARTIFACT_DIR/virtiofsd.*--shared-dir=" >/dev/null 2>&1; then
-    sudo pgrep -af "$ARTIFACT_DIR/virtiofsd.*--shared-dir=" >&2
+  if sudo pgrep -f "$ARTIFACT_DIR/[v]irtiofsd.*--shared-dir=" >/dev/null 2>&1; then
+    sudo pgrep -af "$ARTIFACT_DIR/[v]irtiofsd.*--shared-dir=" >&2
     echo "Cloud Hypervisor virtiofsd process residue detected" >&2
     return 1
   fi
@@ -569,7 +569,7 @@ for _ in $(seq 1 90); do
      sudo ip netns list | grep -q '^awfvm-' &&
      sudo find /run/awf-cloud-hypervisor/pending-cleanup -maxdepth 1 -name '*.json' | grep -q . &&
      sudo find "$CGROUP_ROOT" -mindepth 1 -maxdepth 1 -type d | grep -q . &&
-     sudo pgrep -f "$ARTIFACT_DIR/cloud-hypervisor --api-socket" >/dev/null; then
+     sudo pgrep -f "$ARTIFACT_DIR/[c]loud-hypervisor --api-socket" >/dev/null; then
     break
   fi
   sleep 1
@@ -591,7 +591,7 @@ sudo ip netns list | grep -q '^awfvm-' || {
   echo "process-death: abrupt exit did not leave the expected recovery fixture" >&2
   exit 1
 }
-sudo pgrep -f "$ARTIFACT_DIR/cloud-hypervisor --api-socket" >/dev/null || {
+sudo pgrep -f "$ARTIFACT_DIR/[c]loud-hypervisor --api-socket" >/dev/null || {
   echo "process-death: VMM did not survive abrupt owner death" >&2
   exit 1
 }

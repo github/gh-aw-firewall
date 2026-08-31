@@ -138,6 +138,12 @@ describe('Cloud Hypervisor CI workflow', () => {
     expect(cleanupStep?.if).toBe('always()');
     expect(cleanupStep?.run).toContain('awfvm-');
     expect(cleanupStep?.run).toContain('awf-cloud-hypervisor');
+    expect(cleanupStep?.run).toContain(
+      "pgrep -f '[c]loud-hypervisor --api-socket'",
+    );
+    expect(cleanupStep?.run).not.toContain(
+      "pgrep -f 'cloud-hypervisor --api-socket'",
+    );
 
     const diagnosticsStep = steps.find((step) => step.name === 'Collect redacted diagnostics');
     expect(diagnosticsStep?.if).toBe('always()');

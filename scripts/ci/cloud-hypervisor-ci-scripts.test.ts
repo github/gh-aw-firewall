@@ -181,7 +181,33 @@ describe('cloud-hypervisor-live-smoke.sh', () => {
     expect(source).toContain("grep -q '^awfvm-'");
     expect(source).toContain('(vmh|vmn|vmt)');
     expect(source).toContain('CGROUP_ROOT');
-    expect(source).toContain("pgrep -f 'cloud-hypervisor --api-socket'");
+    expect(source).toContain("pgrep -f '[c]loud-hypervisor --api-socket'");
+    expect(source).toContain('$ARTIFACT_DIR/[c]loud-hypervisor --api-socket');
+    expect(source).toContain('$ARTIFACT_DIR/[v]irtiofsd.*--shared-dir=');
+  });
+
+  it('uses process probes that exclude their own command line but match live targets', () => {
+    const artifactDir = '/tmp/cloud-hypervisor-test-x86_64';
+    const probes = [
+      {
+        pattern: '[c]loud-hypervisor --api-socket',
+        target: `${artifactDir}/cloud-hypervisor --api-socket /run/awf.sock`,
+      },
+      {
+        pattern: `${artifactDir}/[c]loud-hypervisor --api-socket`,
+        target: `${artifactDir}/cloud-hypervisor --api-socket /run/awf.sock`,
+      },
+      {
+        pattern: `${artifactDir}/[v]irtiofsd.*--shared-dir=`,
+        target: `${artifactDir}/virtiofsd --socket-path=/run/vhost.sock --shared-dir=/workspace`,
+      },
+    ];
+
+    for (const probe of probes) {
+      const expression = new RegExp(probe.pattern);
+      expect(expression.test(`sudo pgrep -f '${probe.pattern}'`)).toBe(false);
+      expect(expression.test(probe.target)).toBe(true);
+    }
   });
 
   it('uses the conspicuous dual opt-in for same-run unattested test artifacts', () => {
