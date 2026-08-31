@@ -111,7 +111,12 @@ Preflight first verifies the manifest itself with the bundled attestation,
 constraining the certificate identity to this repository's release workflow
 and rejecting self-hosted signers. Only after that succeeds does AWF parse the
 manifest, require its release tag to match both the operator's expected tag and
-the running AWF version, and verify every local artifact. The local bundle
+the running AWF version, and verify every local artifact. Before verification,
+AWF copies the manifest, bundle, VMM, `virtiofsd`, kernel, rootfs, and
+supervisor into a root-owned, non-writable snapshot under
+`/run/awf-cloud-hypervisor/trusted-artifacts/`. Verification and execution use
+only that snapshot, preventing caller-controlled path replacement between
+checking and use. The local bundle
 avoids a GitHub API lookup. `gh` may still need network access to initialize or
 refresh Sigstore trust-root material unless that material is already cached or
 provisioned on the runner. Missing, mutable, incorrectly owned, renamed, or

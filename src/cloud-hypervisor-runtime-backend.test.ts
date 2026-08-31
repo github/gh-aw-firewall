@@ -83,11 +83,12 @@ function infrastructure(): MicrovmInfrastructureSnapshot {
 
 const preflightResult = {
   version: '53.0',
-  cloudHypervisorBinary: '/opt/cloud-hypervisor',
-  virtiofsdBinary: '/opt/virtiofsd',
-  kernelPath: '/opt/kernel',
-  rootfsPath: '/opt/rootfs',
-  supervisorPath: '/opt/supervisor',
+  cloudHypervisorBinary: '/snapshot/cloud-hypervisor',
+  virtiofsdBinary: '/snapshot/virtiofsd',
+  kernelPath: '/snapshot/vmlinux.bin',
+  rootfsPath: '/snapshot/rootfs.ext4',
+  supervisorPath: '/snapshot/awf-supervisor',
+  artifactSnapshotDirectory: '/snapshot',
   artifactDigests: {
     cloudHypervisor: 'a'.repeat(64),
     virtiofsd: 'a'.repeat(64),
@@ -170,6 +171,7 @@ function harness(overrides: Partial<CloudHypervisorRuntimeBackendDependencies> =
       warn: jest.fn(),
     },
     sleep: jest.fn().mockResolvedValue(undefined),
+    removeArtifactSnapshot: jest.fn().mockResolvedValue(undefined),
     ...overrides,
   };
   return { order, manager, infra, deps, stdin };
@@ -272,7 +274,13 @@ describe('Cloud Hypervisor runtime backend', () => {
 
       expect(deps.resolveExports).toHaveBeenCalledWith('workspace-only');
       expect(deps.createManager).toHaveBeenCalledWith(
-        expect.objectContaining({ sha256: preflightResult.artifactDigests }),
+        expect.objectContaining({
+          cloudHypervisorBinary: '/snapshot/cloud-hypervisor',
+          kernelPath: '/snapshot/vmlinux.bin',
+          rootfsPath: '/snapshot/rootfs.ext4',
+          supervisorPath: '/snapshot/awf-supervisor',
+          sha256: preflightResult.artifactDigests,
+        }),
         '/tmp/awf',
         expect.anything(),
         [
@@ -935,8 +943,12 @@ describe('Cloud Hypervisor runtime backend', () => {
 
     expect(manager.stop).toHaveBeenCalledWith({ preserve: true });
     expect(manager.stop).toHaveBeenCalledTimes(1);
+    expect(deps.removeArtifactSnapshot).not.toHaveBeenCalled();
     expect(deps.logger.info).toHaveBeenCalledWith(
       '[cloud-hypervisor] Preserved network namespace: awfvm-test',
+    );
+    expect(deps.logger.info).toHaveBeenCalledWith(
+      '[cloud-hypervisor] Preserved trusted artifacts: /snapshot',
     );
   });
 
@@ -963,6 +975,7 @@ describe('Cloud Hypervisor runtime backend', () => {
       expect.stringMatching(/^agent-/),
     );
     expect(manager.stop).toHaveBeenCalledWith({ preserve: false });
+    expect(deps.removeArtifactSnapshot).toHaveBeenCalledWith('/snapshot');
   });
 
   it('cancels after stdin forwarding failure without changing command output', async () => {

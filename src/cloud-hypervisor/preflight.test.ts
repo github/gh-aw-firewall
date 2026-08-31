@@ -76,6 +76,19 @@ function dependencies(
     )),
     sha256: jest.fn().mockResolvedValue(digest),
     readFile: jest.fn().mockResolvedValue(manifest()),
+    createArtifactSnapshot: jest.fn(async (sources) => ({
+      directory: '/run/awf-cloud-hypervisor/trusted-artifacts/run-test',
+      cloudHypervisorBinary: '/snapshot/cloud-hypervisor',
+      virtiofsdBinary: '/snapshot/virtiofsd',
+      kernelPath: '/snapshot/vmlinux.bin',
+      rootfsPath: '/snapshot/rootfs.ext4',
+      supervisorPath: '/snapshot/awf-supervisor',
+      ...(sources.manifestPath ? { manifestPath: '/snapshot/manifest.json' } : {}),
+      ...(sources.bundlePath
+        ? { bundlePath: '/snapshot/manifest.sigstore.jsonl' }
+        : {}),
+    })),
+    removeArtifactSnapshot: jest.fn().mockResolvedValue(undefined),
     verifyManifestAttestation: jest.fn().mockResolvedValue(undefined),
     assertToolAvailable: jest.fn(async (tool: string) => `/usr/bin/${tool}`),
     assertHostPolicy: jest.fn().mockResolvedValue(2),
@@ -241,7 +254,12 @@ describe('Cloud Hypervisor preflight (foundation only)', () => {
     }), deps);
 
     expect(result.version).toBe('53.0');
-    expect(result.virtiofsdBinary).toBe('/opt/virtiofsd');
+    expect(result.cloudHypervisorBinary).toBe('/snapshot/cloud-hypervisor');
+    expect(result.virtiofsdBinary).toBe('/snapshot/virtiofsd');
+    expect(result.kernelPath).toBe('/snapshot/vmlinux.bin');
+    expect(result.rootfsPath).toBe('/snapshot/rootfs.ext4');
+    expect(result.supervisorPath).toBe('/snapshot/awf-supervisor');
+    expect(result.artifactSnapshotDirectory).toContain('run-test');
     expect(result.cgroupVersion).toBe(2);
     expect(result.kvmGid).toBe(978);
     expect(deps.resolveKvmGid).toHaveBeenCalledTimes(1);
@@ -254,8 +272,8 @@ describe('Cloud Hypervisor preflight (foundation only)', () => {
     expect(deps.assertDockerInfrastructure).toHaveBeenCalledWith('/usr/bin/docker');
     expect(deps.verifyManifestAttestation).toHaveBeenCalledWith(
       '/usr/bin/gh',
-      '/opt/manifest.json',
-      '/opt/manifest.sigstore.jsonl',
+      '/snapshot/manifest.json',
+      '/snapshot/manifest.sigstore.jsonl',
     );
     expect(result.tools).toEqual({
       ip: '/usr/bin/ip',
@@ -322,14 +340,19 @@ describe('Cloud Hypervisor preflight (foundation only)', () => {
 
   it('fails closed when attestation verification fails before reading the manifest', async () => {
     const readFile = jest.fn();
+    const removeArtifactSnapshot = jest.fn().mockResolvedValue(undefined);
     await expect(runCloudHypervisorPreflight(
       config(),
       dependencies({
         readFile,
+        removeArtifactSnapshot,
         verifyManifestAttestation: jest.fn().mockRejectedValue(new Error('bad signature')),
       }),
     )).rejects.toThrow(/bad signature/);
     expect(readFile).not.toHaveBeenCalled();
+    expect(removeArtifactSnapshot).toHaveBeenCalledWith(
+      '/run/awf-cloud-hypervisor/trusted-artifacts/run-test',
+    );
   });
 
   it('requires conspicuous dual opt-in for development-only legacy digests', async () => {
@@ -388,7 +411,7 @@ describe('Cloud Hypervisor preflight (foundation only)', () => {
       dependencies({
         runVersion,
         sha256: jest.fn(async (filePath: string) => (
-          filePath === '/opt/cloud-hypervisor' ? 'b'.repeat(64) : digest
+          filePath === '/snapshot/cloud-hypervisor' ? 'b'.repeat(64) : digest
         )),
       }),
     )).rejects.toThrow(/Cloud Hypervisor binary SHA-256 mismatch/);
