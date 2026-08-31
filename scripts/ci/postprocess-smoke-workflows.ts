@@ -234,3 +234,41 @@ for (const sbxLockPath of sbxLockPaths) {
     console.log(`Skipping ${sbxLockPath}: file not found.`);
   }
 }
+
+// The current local AWF requires attested Cloud Hypervisor manifests, while the
+// latest published test bundle predates manifest attestations. Keep the local
+// build covered by the smoke workflow using AWF's explicit dual development
+// opt-in until a release publishes the new attestation artifact.
+const playwrightCloudLockPath = path.join(
+  workflowsDir,
+  'smoke-playwright-cloud-hypervisor.lock.yml',
+);
+try {
+  const cloudOriginal = fs.readFileSync(playwrightCloudLockPath, 'utf-8');
+  let cloudContent = cloudOriginal;
+
+  if (!cloudContent.includes('--cloud-hypervisor-development-allow-unattested-artifacts')) {
+    cloudContent = cloudContent.replace(
+      '--cloud-hypervisor-preview ',
+      '--cloud-hypervisor-preview --cloud-hypervisor-development-allow-unattested-artifacts ',
+    );
+  }
+  if (!cloudContent.includes('AWF_CLOUD_HYPERVISOR_DEVELOPMENT_ALLOW_UNATTESTED_ARTIFACTS: "1"')) {
+    cloudContent = cloudContent.replace(
+      '        env:\n          AWF_REFLECT_ENABLED: 1\n',
+      '        env:\n' +
+        '          AWF_CLOUD_HYPERVISOR_DEVELOPMENT_ALLOW_UNATTESTED_ARTIFACTS: "1"\n' +
+        '          AWF_REFLECT_ENABLED: 1\n',
+    );
+  }
+
+  if (cloudContent !== cloudOriginal) {
+    fs.writeFileSync(playwrightCloudLockPath, cloudContent);
+    console.log('  Enabled explicit development artifacts for Cloud Hypervisor smoke');
+    console.log(`Updated ${playwrightCloudLockPath}`);
+  } else {
+    console.log(`Skipping ${playwrightCloudLockPath}: Cloud Hypervisor smoke already patched.`);
+  }
+} catch {
+  console.log(`Skipping ${playwrightCloudLockPath}: file not found.`);
+}

@@ -11,6 +11,12 @@ PLAYWRIGHT_LOG="$RESULT_DIR/playwright.log"
 BLOCKED_LOG="$RESULT_DIR/blocked-egress.log"
 SERVER_PID=
 EXPECTED_RUNTIME="${1:?usage: run-playwright-loopback-smoke.sh <runtime>}"
+PLAYWRIGHT_ROOT=/tmp/gh-aw/playwright
+PLAYWRIGHT_CLI_ROOT="$PLAYWRIGHT_ROOT/cli"
+PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-$PLAYWRIGHT_ROOT/browsers}"
+
+export PATH="$PLAYWRIGHT_CLI_ROOT/node_modules/.bin:$PATH"
+export PLAYWRIGHT_BROWSERS_PATH
 
 mkdir -p "$RESULT_DIR"
 : > "$SERVER_LOG"
@@ -28,7 +34,12 @@ cleanup() {
 trap cleanup EXIT
 
 if ! command -v playwright-cli >/dev/null 2>&1; then
-  echo "playwright-cli is not available inside the agent sandbox" >&2
+  echo "Pre-staged playwright-cli is not available inside the agent sandbox" >&2
+  exit 1
+fi
+
+if [ ! -d "$PLAYWRIGHT_BROWSERS_PATH" ]; then
+  echo "Pre-staged Playwright browser directory is not available inside the agent sandbox" >&2
   exit 1
 fi
 
@@ -99,9 +110,6 @@ fs.writeFileSync(process.argv[2], JSON.stringify({
   outputMode: "stdout",
 }, null, 2), { mode: 0o600 });
 NODE
-
-playwright-cli install-browser chromium \
-  >>"$PLAYWRIGHT_LOG" 2>&1
 
 node "$SERVER_SCRIPT" >"$SERVER_LOG" 2>&1 &
 SERVER_PID=$!

@@ -585,6 +585,19 @@ mount_host_procfs() {
   fi
 }
 
+mount_host_devpts() {
+  # A private devpts instance keeps PTYs inside the container and avoids exposing
+  # the host devpts mount through the chroot. gVisor also requires scoped PTYs.
+  mkdir -p /host/dev/pts
+  if mount -t devpts -o newinstance,nosuid,noexec,ptmxmode=0666,mode=0620,gid=5 devpts /host/dev/pts; then
+    echo "[entrypoint] Mounted devpts at /host/dev/pts (newinstance,nosuid,noexec)"
+  else
+    echo "[entrypoint][ERROR] Failed to mount devpts at /host/dev/pts"
+    echo "[entrypoint][ERROR] This is required for terminal allocation inside the chroot"
+    exit 1
+  fi
+}
+
 mount_host_cgroupfs() {
   # Bind-mount the container's own (real, pre-chroot) cgroup subtree at /host/sys/fs/cgroup,
   # read-only, so pids.max/pids.current (and other cgroup limits) are visible to tools
@@ -1508,6 +1521,7 @@ run_chroot_command() {
   echo "[entrypoint] Chroot mode: running command inside host filesystem (/host)"
 
   mount_host_procfs
+  mount_host_devpts
   mount_host_cgroupfs
   check_chroot_prereqs
   copy_preload_libs

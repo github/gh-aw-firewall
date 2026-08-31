@@ -21,17 +21,13 @@ engine:
   version: 1.0.34
 network:
   allowed:
-    - cdn.playwright.dev
-    - playwright.download.prss.microsoft.com
     - packagefeedproxy.microsoft.io
     - "*.pkgs.visualstudio.com"
   blocked:
     - node
 steps:
-  - name: Install Playwright CLI from Microsoft registry
-    run: |
-      test "$(npm view @playwright/cli@0.1.18 version --registry="$NPM_CONFIG_REGISTRY")" = "0.1.18"
-      npm install -g @playwright/cli@0.1.18 --registry="$NPM_CONFIG_REGISTRY"
+  - name: Stage Playwright CLI and browser
+    run: bash scripts/ci/stage-playwright-loopback-smoke.sh
     timeout-minutes: 10
 tools:
   bash:
@@ -45,7 +41,7 @@ timeout-minutes: 30
 sandbox:
   agent:
     id: awf
-    version: v0.28.1
+    version: v0.28.10
     runtime: cloud-hypervisor
 strict: false
 post-steps:
