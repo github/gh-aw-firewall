@@ -16,12 +16,12 @@ import type { CloudHypervisorLandlockRule } from './api-client';
  *     per-run namespace {@link https://man7.org/linux/man-pages/man8/ip-netns.8.html}
  *     without an intermediate fork, so the resulting process keeps the PID
  *     the host process observes.
- *  2. **Privilege drop** — `setpriv --reuid --regid --clear-groups
- *     --no-new-privs --inh-caps=-all --bounding-set=-all` execs the Cloud
- *     Hypervisor binary as the non-root operator uid/gid with an empty
- *     capability bounding set and `no_new_privs` set, before any guest code
- *     runs. This requires operator preconditions including kvm-group membership,
- *     `/dev/kvm` access).
+ *  2. **Privilege drop** — `setpriv --reuid --regid --groups=<kvm-gid>
+ *     --no-new-privs --inh-caps=-all --bounding-set=-all
+ *     --ambient-caps=-all` execs the Cloud Hypervisor binary as the non-root
+ *     operator uid/gid with empty capability sets and `no_new_privs` set,
+ *     before any guest code runs. The sole supplementary group grants
+ *     `/dev/kvm` access without a process capability.
  *  3. **Filesystem confinement** — Cloud Hypervisor has no chroot of its
  *     own, and jailer's userspace chroot+pivot_root cannot be replicated
  *     for a foreign static binary without reimplementing jailer itself.
@@ -57,7 +57,7 @@ export interface CloudHypervisorLaunchPaths {
   readonly apiSocketPath: string;
   readonly vsockSocketPath: string;
   /** Host TAP interface name (e.g. `vmt<token>`), for the
-   * `/sys/class/net/<tapName>` Landlock rule — see
+   * `/sys/class/net/<tapName>/tun_flags` Landlock rule — see
    * {@link computeCloudHypervisorLandlockRules}. */
   readonly tapName: string;
 }
@@ -79,10 +79,10 @@ export interface CloudHypervisorLaunchToolPaths {
 
 /**
  * Builds the argv AWF spawns to launch Cloud Hypervisor: join the prepared
- * network namespace, drop to the non-root operator identity retaining
- * exactly two things it needs to configure its own virtio-net TAP device,
- * then exec the pinned Cloud Hypervisor binary with only its API socket
- * configured; the VM itself is created and booted afterwards over that socket.
+ * network namespace, drop to the non-root operator identity with no
+ * capabilities, then exec the pinned Cloud Hypervisor binary with only its API
+ * socket configured; the VM itself is created and booted afterwards over that
+ * socket.
  *
  * The launched process retains exactly one supplementary group: the group
  * that owns `/dev/kvm` (resolved by preflight). A blanket `--clear-groups`
@@ -92,17 +92,13 @@ export interface CloudHypervisorLaunchToolPaths {
  * launch fail with EACCES opening `/dev/kvm` even though preflight (which
  * runs as root) passed.
  *
- * It also retains exactly one capability: `CAP_NET_ADMIN`, via the
- * bounding, inheritable, and ambient sets together (ambient capabilities
- * are what let a specific capability survive `execve()` of a plain,
- * non-file-capability-aware binary like `cloud-hypervisor` across a uid
- * change, even under `--no-new-privs`). Cloud Hypervisor's virtio-net
- * backend needs it to finish configuring the already-created,
- * already-owned TAP device (observed live: `vm.boot` otherwise fails with
- * "Failed to read the TAP flags from sysfs: Permission denied", even
- * though the TAP device node itself is owned by the target uid/gid). This
- * is a deliberate, minimal, single-capability exception to an otherwise
- * fully empty capability set — not a broad grant.
+ * The network manager creates, configures, and brings up the TAP before this
+ * process starts, with the target uid/gid recorded as its owner. Cloud
+ * Hypervisor therefore only needs ordinary `/dev/net/tun` access to reopen that
+ * TAP and read-only Landlock access to its `tun_flags` sysfs attribute. The
+ * earlier `CAP_NET_ADMIN` requirement was a Landlock denial misdiagnosed as a
+ * TAP ownership failure; retaining it would let a compromised VMM reconfigure
+ * the namespace firewall and interfaces.
  */
 export function buildCloudHypervisorLaunchCommand(options: {
   readonly tools: CloudHypervisorLaunchToolPaths;
@@ -138,11 +134,9 @@ export function buildCloudHypervisorLaunchCommand(options: {
       // also drop kvm access).
       `--groups=${options.kvmGid}`,
       '--no-new-privs',
-      // CAP_NET_ADMIN is the sole exception to an otherwise fully empty
-      // capability set — see the function doc comment above for why.
-      '--inh-caps=-all,+net_admin',
-      '--bounding-set=-all,+net_admin',
-      '--ambient-caps=+net_admin',
+      '--inh-caps=-all',
+      '--bounding-set=-all',
+      '--ambient-caps=-all',
       '--',
       options.cloudHypervisorBinary,
       '--api-socket', `path=${options.apiSocketPath}`,
@@ -160,7 +154,7 @@ export function buildCloudHypervisorLaunchCommand(options: {
  * read-write access to the private run directory (for the API and vsock
  * UNIX domain sockets it creates there), read-write access to the device
  * nodes it must reopen for virtio-net TAP attachment and KVM ioctls, and
- * read access to the TAP's own sysfs device directory. Cloud Hypervisor's
+ * read access to the TAP's own sysfs flags attribute. Cloud Hypervisor's
  * virtio-net setup reads `/sys/class/net/<tapName>/tun_flags` (a
  * world-readable, `0444` file with no capability requirement of its own)
  * to detect multi-queue support; without a Landlock rule for it, that read
@@ -180,7 +174,7 @@ export function computeCloudHypervisorLandlockRules(
     { path: paths.runDirectory, access: 'rw' },
     { path: '/dev/kvm', access: 'rw' },
     { path: '/dev/net/tun', access: 'rw' },
-    { path: `/sys/class/net/${paths.tapName}`, access: 'r' },
+    { path: `/sys/class/net/${paths.tapName}/tun_flags`, access: 'r' },
   ];
   return rules;
 }
