@@ -17,7 +17,7 @@ set -euo pipefail
 #   - security-assertions: while a run is live, inspects the host-visible
 #     Cloud Hypervisor process and its own vm.info response to confirm the
 #     launcher's jailer-replacement boundary (netns join, non-root identity,
-#     capability set limited to CAP_NET_ADMIN alone, no_new_privs, active
+#     empty capability sets, no_new_privs, active
 #     seccomp filter, per-run cgroup membership/limits, landlock_enable
 #     reflected in vm.create, and an exactly-minimal disk/fs/net/vsock device
 #     set with no path to the host-only API socket) — see
@@ -496,8 +496,8 @@ assert_no_residue
 # --- Cloud Hypervisor-specific live security assertions -------------------
 #
 # Reproduces the launcher's jailer-replacement boundary live, while a run is
-# in flight: netns-join + non-root privilege drop + capability set limited
-# to CAP_NET_ADMIN alone + no_new_privs + active seccomp filter + per-run
+# in flight: netns-join + non-root privilege drop + empty capability sets +
+# no_new_privs + active seccomp filter + per-run
 # cgroup membership/limits + landlock_enable reflected in vm.create + an
 # exactly-minimal disk/net/vsock device set (see
 # src/cloud-hypervisor/launcher.ts and manager.ts).
@@ -556,13 +556,14 @@ proc_uid=$(sudo stat -c %u "/proc/$vmm_pid" 2>/dev/null || echo "")
 [ -n "$proc_uid" ] || fail_security "could not stat /proc/$vmm_pid"
 [ "$proc_uid" != "0" ] || fail_security "Cloud Hypervisor process is running as root"
 
-# Capability set limited to CAP_NET_ADMIN alone (setpriv --inh-caps=-all,
-# +net_admin --bounding-set=-all,+net_admin --ambient-caps=+net_admin).
-# CAP_NET_ADMIN's bit is 12, so the expected 64-bit CapEff bitmask is
-# exactly 0x1000: 0000000000001000.
-cap_eff=$(sudo awk '/^CapEff:/{print $2}' "/proc/$vmm_pid/status" 2>/dev/null || echo "")
-[ "$cap_eff" = "0000000000001000" ] \
-  || fail_security "process capability set is not exactly CAP_NET_ADMIN: ${cap_eff:-unknown}"
+# Every capability set is empty. In particular, a zero CapBnd prevents the
+# non-root VMM from regaining CAP_NET_ADMIN after exec.
+for cap_field in CapInh CapPrm CapEff CapBnd CapAmb; do
+  cap_value=$(sudo awk -v field="$cap_field:" '$1 == field { print $2 }' \
+    "/proc/$vmm_pid/status" 2>/dev/null || echo "")
+  [ "$cap_value" = "0000000000000000" ] \
+    || fail_security "$cap_field is not empty: ${cap_value:-unknown}"
+done
 
 # no_new_privs set (setpriv --no-new-privs).
 no_new_privs=$(sudo awk '/^NoNewPrivs:/{print $2}' "/proc/$vmm_pid/status" 2>/dev/null || echo "")
@@ -673,6 +674,17 @@ node -e '
 
   if (config.landlock_enable !== true) {
     throw new Error("landlock_enable is not true in vm.info: " + JSON.stringify(config.landlock_enable));
+  }
+  const tapSysfsPath = "/sys/class/net/" + expectedTap + "/tun_flags";
+  const tapSysfsRules = (config.landlock_rules || [])
+    .filter(rule => rule.path === tapSysfsPath);
+  if (tapSysfsRules.length !== 1 || tapSysfsRules[0].access !== "r") {
+    throw new Error("TAP tun_flags Landlock rule is not exactly read-only: " +
+      JSON.stringify(tapSysfsRules));
+  }
+  if ((config.landlock_rules || []).some(rule =>
+    rule.path === "/sys/class/net/" + expectedTap)) {
+    throw new Error("Landlock grants the VMM the broader TAP sysfs directory");
   }
 
   const disks = config.disks || [];

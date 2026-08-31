@@ -6,7 +6,10 @@ import {
   buildVirtiofsdArgs,
   type VirtiofsdDependencies,
 } from './virtiofsd';
-import { VIRTIOFSD_ENVIRONMENT } from './virtiofsd-sandbox';
+import {
+  VIRTIOFSD_ENVIRONMENT,
+  captureVirtiofsdProcessIdentity,
+} from './virtiofsd-sandbox';
 
 const workspace = {
   tag: 'workspace',
@@ -214,6 +217,9 @@ describe('VirtiofsdManager', () => {
     expect(deps.runTool).toHaveBeenCalledWith('/usr/bin/mount', [
       '-o', 'remount,bind,ro,nosuid,nodev', '/run/awf-shares/run/1-cache',
     ]);
+    const launched = (deps.launch as jest.Mock).mock.results[0].value as ExecaChildProcess<string>;
+    launched.stdout?.emit('data', 'virtiofsd stdout');
+    launched.stderr?.emit('data', 'virtiofsd stderr');
 
     await manager.stop();
     expect(deps.writeFile).toHaveBeenCalledTimes(4);
@@ -281,6 +287,220 @@ describe('VirtiofsdManager', () => {
     await expect(manager(deps).start([workspace])).rejects.toThrow(
       /worker is not in its expected cgroup|parent is not in its expected cgroup/,
     );
+  });
+
+  it('rejects malformed and unsafe process identities', async () => {
+    const deps = dependencies();
+    await expect(captureVirtiofsdProcessIdentity(1, deps)).rejects.toThrow(/invalid PID/);
+
+    deps.readFile = jest.fn().mockResolvedValue('100 malformed');
+    await expect(captureVirtiofsdProcessIdentity(100, deps)).rejects.toThrow(
+      /malformed \/proc stat data/,
+    );
+
+    deps.readFile = jest.fn().mockResolvedValue('100 (virtiofsd) S');
+    await expect(captureVirtiofsdProcessIdentity(100, deps)).rejects.toThrow(
+      /no valid process start time/,
+    );
+  });
+
+  it.each([
+    {
+      name: 'parent capabilities',
+      mutate: (deps: VirtiofsdDependencies) => {
+        const readFile = deps.readFile;
+        deps.readFile = jest.fn(async (filePath: string, encoding: BufferEncoding) => {
+          const contents = await readFile(filePath, encoding);
+          return filePath === '/proc/100/status'
+            ? contents.replace('CapEff:\t0000000000000000', 'CapEff:\t0000000000000001')
+            : contents;
+        });
+      },
+      error: /parent CapEff is not empty/,
+    },
+    {
+      name: 'worker capabilities',
+      mutate: (deps: VirtiofsdDependencies) => {
+        const readFile = deps.readFile;
+        deps.readFile = jest.fn(async (filePath: string, encoding: BufferEncoding) => {
+          const contents = await readFile(filePath, encoding);
+          return filePath === '/proc/1100/status'
+            ? contents.split('00000000880000db').join('0000000000000000')
+            : contents;
+        });
+      },
+      error: /worker capabilities differ/,
+    },
+    {
+      name: 'worker NoNewPrivs',
+      mutate: (deps: VirtiofsdDependencies) => {
+        const readFile = deps.readFile;
+        deps.readFile = jest.fn(async (filePath: string, encoding: BufferEncoding) => {
+          const contents = await readFile(filePath, encoding);
+          return filePath === '/proc/1100/status'
+            ? contents.replace('NoNewPrivs:\t1', 'NoNewPrivs:\t0')
+            : contents;
+        });
+      },
+      error: /missing NoNewPrivs/,
+    },
+    {
+      name: 'worker uid',
+      mutate: (deps: VirtiofsdDependencies) => {
+        const readFile = deps.readFile;
+        deps.readFile = jest.fn(async (filePath: string, encoding: BufferEncoding) => {
+          const contents = await readFile(filePath, encoding);
+          return filePath === '/proc/1100/status'
+            ? contents.replace('Uid:\t0\t0\t0\t0', 'Uid:\t1000\t1000\t1000\t1000')
+            : contents;
+        });
+      },
+      error: /worker uid\/gid differs/,
+    },
+    {
+      name: 'mount namespace',
+      mutate: (deps: VirtiofsdDependencies) => {
+        const readlink = deps.readlink;
+        deps.readlink = jest.fn(async (filePath: string) => (
+          filePath === '/proc/1100/ns/mnt' ? 'mnt:[1]' : readlink(filePath)
+        ));
+      },
+      error: /did not isolate its mnt namespace/,
+    },
+    {
+      name: 'pivoted root',
+      mutate: (deps: VirtiofsdDependencies) => {
+        deps.statIdentity = jest.fn(async (filePath: string) => (
+          filePath === '/proc/1100/root' ? { dev: 8, ino: 43 } : { dev: 8, ino: 42 }
+        ));
+      },
+      error: /root is not its declared export/,
+    },
+    {
+      name: 'trusted executable',
+      mutate: (deps: VirtiofsdDependencies) => {
+        const readlink = deps.readlink;
+        deps.readlink = jest.fn(async (filePath: string) => (
+          filePath === '/proc/100/exe' ? '/tmp/substituted' : readlink(filePath)
+        ));
+      },
+      error: /parent executable differs from the trusted binary/,
+    },
+    {
+      name: 'launch arguments',
+      mutate: (deps: VirtiofsdDependencies) => {
+        const readFile = deps.readFile;
+        deps.readFile = jest.fn(async (filePath: string, encoding: BufferEncoding) => {
+          const contents = await readFile(filePath, encoding);
+          return filePath === '/proc/100/cmdline'
+            ? contents.replace('--sandbox=namespace', '--sandbox=none')
+            : contents;
+        });
+      },
+      error: /command line does not match/,
+    },
+  ])('fails closed when $name verification fails', async ({ mutate, error }) => {
+    const deps = dependencies();
+    mutate(deps);
+    await expect(manager(deps).start([workspace])).rejects.toThrow(error);
+    expect(deps.chown).not.toHaveBeenCalled();
+    expect(deps.rm).toHaveBeenCalledWith('/run/awf/run/virtiofs-0.sock', { force: true });
+  });
+
+  it('rejects a cgroup path outside the unified hierarchy', async () => {
+    const deps = dependencies();
+    const cgroup = {
+      cgroupPath: '/tmp/not-a-cgroup',
+      assign: jest.fn().mockResolvedValue(undefined),
+    };
+    await expect(manager(deps, cgroup).start([workspace])).rejects.toThrow(
+      /expected cgroup is outside cgroup v2/,
+    );
+  });
+
+  it('rejects a parent identity that changes during verification', async () => {
+    const deps = dependencies();
+    const readFile = deps.readFile;
+    let parentStatReads = 0;
+    deps.readFile = jest.fn(async (filePath: string, encoding: BufferEncoding) => {
+      const contents = await readFile(filePath, encoding);
+      if (filePath !== '/proc/100/stat' || ++parentStatReads < 3) return contents;
+      return contents.replace(/\d+$/, '999999');
+    });
+    await expect(manager(deps).start([workspace])).rejects.toThrow(
+      /parent process identity changed/,
+    );
+  });
+
+  it('ignores invalid and exited child candidates while discovering the sandbox worker', async () => {
+    const deps = dependencies();
+    const readFile = deps.readFile;
+    deps.readFile = jest.fn(async (filePath: string, encoding: BufferEncoding) => {
+      if (filePath.endsWith('/children')) return '0 1 999 1100';
+      if (filePath === '/proc/999/comm') {
+        throw Object.assign(new Error('exited'), { code: 'ENOENT' });
+      }
+      return readFile(filePath, encoding);
+    });
+    await expect(manager(deps).start([workspace])).resolves.toHaveLength(1);
+  });
+
+  it('surfaces an unexpected procfs error while discovering the sandbox worker', async () => {
+    const deps = dependencies();
+    const readFile = deps.readFile;
+    deps.readFile = jest.fn(async (filePath: string, encoding: BufferEncoding) => {
+      if (filePath.endsWith('/children')) return '999';
+      if (filePath === '/proc/999/comm') {
+        throw Object.assign(new Error('proc denied'), { code: 'EACCES' });
+      }
+      return readFile(filePath, encoding);
+    });
+    await expect(manager(deps).start([workspace])).rejects.toThrow(/proc denied/);
+  });
+
+  it('fails closed when the sandbox worker does not appear before the deadline', async () => {
+    const deps = dependencies();
+    const readFile = deps.readFile;
+    deps.readFile = jest.fn(async (filePath: string, encoding: BufferEncoding) => (
+      filePath.endsWith('/children') ? '' : readFile(filePath, encoding)
+    ));
+    const now = jest.spyOn(Date, 'now')
+      .mockReturnValueOnce(1_000)
+      .mockReturnValueOnce(6_001);
+    try {
+      await expect(manager(deps).start([workspace])).rejects.toThrow(
+        /did not create its sandbox worker/,
+      );
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it.each([
+    { unsafeSandbox: false, expected: /writing virtiofsd confinement evidence failed/ },
+    {
+      unsafeSandbox: true,
+      expected: /sandbox verification failed: .*writing confinement evidence failed/,
+    },
+  ])('surfaces evidence write failure (unsafe=$unsafeSandbox)', async ({
+    unsafeSandbox,
+    expected,
+  }) => {
+    const deps = dependencies();
+    const readFile = deps.readFile;
+    if (unsafeSandbox) {
+      deps.readFile = jest.fn(async (filePath: string, encoding: BufferEncoding) => (
+        filePath.endsWith('/environ')
+          ? 'PATH=/usr/bin\0SECRET_TOKEN=exposed\0'
+          : readFile(filePath, encoding)
+      ));
+    }
+    const writeFile = deps.writeFile;
+    deps.writeFile = jest.fn(async (filePath: string, contents, options) => {
+      if (filePath.endsWith('-confinement.json')) throw new Error('disk full');
+      return writeFile(filePath, contents, options);
+    });
+    await expect(manager(deps).start([workspace])).rejects.toThrow(expected);
   });
 
   it('retains failed bind cleanup so a later stop can retry it', async () => {

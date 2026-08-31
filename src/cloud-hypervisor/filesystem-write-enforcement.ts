@@ -29,9 +29,9 @@ export interface CloudHypervisorFilesystemWriteEnforcement {
    */
   readonly exports: readonly CloudHypervisorDirectoryExport[];
   /**
-   * Host mount-tree enforcement, or `undefined` when `filesystem.allowWrite`
-   * was absent. `undefined` is what preserves byte-identical legacy staging,
-   * including virtiofsd's argument vector.
+   * Host mount-tree enforcement. This is always present for an opted-in runner
+   * tool cache so carried-in submounts are recursively verified read-only, and
+   * may also be present when `filesystem.allowWrite` narrows writable exports.
    */
   readonly mountEnforcement?: VirtiofsdMountEnforcement;
   /**
@@ -53,6 +53,10 @@ export interface CloudHypervisorFilesystemWriteEnforcement {
  * directory, which is not an export at all. In particular `tmp-gh-aw` is *not*
  * internal — the motivating policy allows only `/tmp/gh-aw/agent`, and exempting
  * the whole export would silently widen it back to fully writable.
+ *
+ * The runner tool cache is a separate mandatory boundary: even without an
+ * allowlist it receives a zero-overlay mount plan so nested host mounts cannot
+ * bypass the declared read-only export mode.
  */
 export function planCloudHypervisorFilesystemWriteEnforcement(
   exports: readonly CloudHypervisorDirectoryExport[],
@@ -69,9 +73,17 @@ export function toCloudHypervisorFilesystemWriteEnforcement(
   plan: CloudHypervisorFilesystemWritePlan,
 ): CloudHypervisorFilesystemWriteEnforcement {
   if (!plan.restricted) {
-    // No policy: the exports and the virtiofsd invocation must be exactly what
-    // they were before this feature existed, so no enforcement is produced.
-    return { exports: plan.exports.map((entry) => entry.export), writeBoundary: [] };
+    const exports = plan.exports.map((entry) => entry.export);
+    const mandatoryPlans = exports
+      .filter((entry) => entry.tag === 'runner-tool-cache' && entry.mode === 'ro')
+      .map((entry) => ({ tag: entry.tag, writableOverlays: [] }));
+    return {
+      exports,
+      ...(mandatoryPlans.length > 0
+        ? { mountEnforcement: { plans: mandatoryPlans } }
+        : {}),
+      writeBoundary: [],
+    };
   }
 
   const plans: VirtiofsdExportMountPlan[] = [];

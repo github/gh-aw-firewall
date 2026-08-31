@@ -6,8 +6,11 @@ import { logger } from '../logger';
 import {
   CLOUD_HYPERVISOR_DEFAULT_API_TIMEOUT_MS,
   CLOUD_HYPERVISOR_DEFAULT_BINARY,
+  CLOUD_HYPERVISOR_DEFAULT_MOUNT_POLICY,
   CLOUD_HYPERVISOR_DEFAULT_MEMORY_MIB,
   CLOUD_HYPERVISOR_DEFAULT_VCPU_COUNT,
+  CLOUD_HYPERVISOR_MOUNT_POLICIES,
+  type CloudHypervisorMountPolicy,
 } from '../types/runtime-options';
 
 /**
@@ -263,6 +266,7 @@ function buildCloudHypervisorConfig(
   const selected = options.containerRuntime === 'cloud-hypervisor';
   const configured = options.cloudHypervisorPreview === true
     || [
+      'cloudHypervisorMountPolicy',
       'cloudHypervisorBinary',
       'cloudHypervisorKernel',
       'cloudHypervisorRootfs',
@@ -288,6 +292,7 @@ function buildCloudHypervisorConfig(
 
   return {
     previewEnabled: options.cloudHypervisorPreview === true,
+    mountPolicy: parseCloudHypervisorMountPolicy(options.cloudHypervisorMountPolicy),
     cloudHypervisorBinary:
       (options.cloudHypervisorBinary as string | undefined) ?? CLOUD_HYPERVISOR_DEFAULT_BINARY,
     kernelPath: options.cloudHypervisorKernel as string | undefined,
@@ -312,6 +317,19 @@ function buildCloudHypervisorConfig(
       ? sha256
       : undefined,
   };
+}
+
+function parseCloudHypervisorMountPolicy(value: unknown): CloudHypervisorMountPolicy {
+  const policy = value ?? CLOUD_HYPERVISOR_DEFAULT_MOUNT_POLICY;
+  if (
+    typeof policy !== 'string' ||
+    !CLOUD_HYPERVISOR_MOUNT_POLICIES.includes(policy as CloudHypervisorMountPolicy)
+  ) {
+    throw new Error(
+      '--cloud-hypervisor-mount-policy must be "workspace-only" or "workspace-and-tool-cache"',
+    );
+  }
+  return policy as CloudHypervisorMountPolicy;
 }
 
 function buildChrootIdentity(

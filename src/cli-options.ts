@@ -3,7 +3,9 @@ import * as path from 'path';
 import * as os from 'os';
 import { version } from '../package.json';
 import { collectRulesetFile, collectStringArray, formatItem } from './option-parsers';
-import { CLOUD_HYPERVISOR_RELEASE_VERSION } from './types/runtime-options';
+import {
+  CLOUD_HYPERVISOR_RELEASE_VERSION,
+} from './types/runtime-options';
 
 // Option group markers used by the custom help formatter to insert section headers.
 // Each key is the long flag name of the first option in a group.
@@ -187,6 +189,12 @@ program
    '                                       GitHub-hosted Ubuntu x86_64 KVM runners only. Requires local Docker\n' +
    '                                       and pinned guest artifacts.',
    false
+  )
+  .option(
+    '--cloud-hypervisor-mount-policy <policy>',
+    'Host directory exposure policy: "workspace-only" (secure default; also keeps narrow gh-aw\n' +
+    '                                       runtime directories) or "workspace-and-tool-cache" (explicitly mounts\n' +
+    '                                       RUNNER_TOOL_CACHE/AGENT_TOOLSDIRECTORY read-only).',
   )
   .option('--cloud-hypervisor-binary <path>', `Path to the Cloud Hypervisor v${CLOUD_HYPERVISOR_RELEASE_VERSION} binary.`)
   .option('--cloud-hypervisor-kernel <path>', 'Path to the PCI-capable guest Linux kernel image.')

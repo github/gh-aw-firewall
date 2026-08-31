@@ -19,6 +19,13 @@ export const CLOUD_HYPERVISOR_DEFAULT_BINARY = '/usr/local/bin/cloud-hypervisor'
 export const CLOUD_HYPERVISOR_DEFAULT_VCPU_COUNT = 2;
 export const CLOUD_HYPERVISOR_DEFAULT_MEMORY_MIB = 512;
 export const CLOUD_HYPERVISOR_DEFAULT_API_TIMEOUT_MS = 5_000;
+export const CLOUD_HYPERVISOR_MOUNT_POLICIES = [
+  'workspace-only',
+  'workspace-and-tool-cache',
+] as const;
+export type CloudHypervisorMountPolicy = typeof CLOUD_HYPERVISOR_MOUNT_POLICIES[number];
+export const CLOUD_HYPERVISOR_DEFAULT_MOUNT_POLICY: CloudHypervisorMountPolicy =
+  'workspace-only';
 
 export interface CloudHypervisorArtifactDigests {
   cloudHypervisor?: string;
@@ -37,6 +44,8 @@ export interface CloudHypervisorArtifactDigests {
  */
 export interface CloudHypervisorOptions {
   previewEnabled: boolean;
+  /** Host exposure policy; runner tool-cache access always requires explicit opt-in. */
+  mountPolicy: CloudHypervisorMountPolicy;
   cloudHypervisorBinary: string;
   kernelPath?: string;
   rootfsPath?: string;

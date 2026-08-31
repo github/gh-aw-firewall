@@ -93,6 +93,7 @@ interface CloudHypervisorManagerAdapter {
   endStdin(requestId?: string): Promise<void>;
   stop(options?: { preserve?: boolean; beforeCleanup?: () => Promise<void> }): Promise<void>;
   collectDiagnostics(directory: string): Promise<void>;
+  collectGuestOutputAudit(directory: string): Promise<void>;
 }
 
 /** @internal Exposed only for unit tests — not part of the public API. */
@@ -113,7 +114,7 @@ export interface CloudHypervisorRuntimeBackendDependencies {
     identity: { uid: number; gid: number },
     mountEnforcement?: VirtiofsdMountEnforcement,
   ): CloudHypervisorManagerAdapter;
-  resolveExports(): Promise<CloudHypervisorDirectoryExport[]>;
+  resolveExports(mountPolicy: CloudHypervisorOptions['mountPolicy']): Promise<CloudHypervisorDirectoryExport[]>;
   identity(): { uid: number; gid: number };
   stdin: Readable & { isTTY?: boolean };
   stdout: Writable;
@@ -154,7 +155,11 @@ function defaultDependencies(
           identity,
         },
       ),
-    resolveExports: () => resolveCloudHypervisorExports(),
+    resolveExports: (mountPolicy) => resolveCloudHypervisorExports(
+      process.env,
+      process.cwd(),
+      mountPolicy,
+    ),
     identity: () => ({
       uid: Number(getSafeHostUid()),
       gid: Number(getSafeHostGid()),
@@ -264,7 +269,7 @@ class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBackend {
       // or the guest is launched, and so every boot attempt reuses one
       // decision instead of re-resolving host paths per attempt.
       const { exports, mountEnforcement, writeBoundary } = planCloudHypervisorFilesystemWriteEnforcement(
-        await this.dependencies.resolveExports(),
+        await this.dependencies.resolveExports(cloudHypervisor.mountPolicy),
         this.config.filesystemAllowWrite,
       );
       if (writeBoundary.length > 0) {
@@ -400,6 +405,7 @@ class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBackend {
       ...(timeoutMs === undefined ? {} : { timeoutMs }),
       stdout: this.dependencies.stdout,
       stderr: this.dependencies.stderr,
+      filterWorkflowCommands: true,
     });
     this.activeExecution = { requestId, promise: execution };
 
@@ -438,6 +444,9 @@ class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBackend {
       this.dependencies.stdin.off('end', onEnd);
       await forwarding;
       this.activeExecution = undefined;
+      if (this.config.auditDir) {
+        await manager.collectGuestOutputAudit(`${this.config.auditDir}/cloud-hypervisor`);
+      }
     }
   };
 

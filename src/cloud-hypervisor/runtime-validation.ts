@@ -1,5 +1,6 @@
 import { getLocalDockerEnv } from '../docker-host';
 import type { CloudHypervisorOptions, WrapperConfig } from '../types';
+import { CLOUD_HYPERVISOR_MOUNT_POLICIES } from '../types/runtime-options';
 import { assertGithubHostedRunnerEligibility } from './host-eligibility';
 
 /**
@@ -28,6 +29,11 @@ export function assertCloudHypervisorRuntimeCompatibility(
   if (!cloudHypervisor.previewEnabled) {
     throw new Error(
       'Cloud Hypervisor workload execution requires explicit --cloud-hypervisor-preview opt-in',
+    );
+  }
+  if (!CLOUD_HYPERVISOR_MOUNT_POLICIES.includes(cloudHypervisor.mountPolicy)) {
+    throw new Error(
+      'Cloud Hypervisor mount policy must be "workspace-only" or "workspace-and-tool-cache"',
     );
   }
   if (!config.networkIsolation || config.legacySecurity) {

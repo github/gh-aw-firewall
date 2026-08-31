@@ -259,6 +259,15 @@ describe('awf-config.schema.json', () => {
     expect(validate({ container: { runnerToolCachePath: 123 } })).toBe(false);
   });
 
+  it('validates Cloud Hypervisor mount policies', () => {
+    expect(validate({ cloudHypervisor: { mountPolicy: 'workspace-only' } })).toBe(true);
+    expect(validate({
+      cloudHypervisor: { mountPolicy: 'workspace-and-tool-cache' },
+    })).toBe(true);
+    expect(validate({ cloudHypervisor: { mountPolicy: 'automatic' } })).toBe(false);
+    expect(validate({ cloudHypervisor: { mountPolicy: true } })).toBe(false);
+  });
+
   it('accepts valid container.mounts array', () => {
     expect(validate({ container: { mounts: ['/tmp/gh-aw:/tmp/gh-aw:ro'] } })).toBe(true);
     expect(validate({ container: { mounts: ['/tmp/gh-aw:/tmp/gh-aw:rw', '/data:/data'] } })).toBe(true);
