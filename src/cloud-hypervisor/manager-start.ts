@@ -30,6 +30,7 @@ import { hasReadOnlyWorkspaceMountPlan } from './filesystem-write-enforcement';
 import type { VirtiofsdManager, VirtiofsdDevice } from './virtiofsd';
 import { buildCloudHypervisorVmConfig } from './vm-config-builder';
 import type { BoundedOutputCapture } from './diagnostics';
+import type { CloudHypervisorCleanupHandle } from './cleanup-registry';
 
 export interface CloudHypervisorStartContext {
   config: CloudHypervisorOptions;
@@ -48,6 +49,7 @@ export interface CloudHypervisorStartContext {
   setClient(client: CloudHypervisorApiClient | undefined): void;
   setVirtiofsd(virtiofsd: VirtiofsdManager | undefined): void;
   setFsDevices(devices: VirtiofsdDevice[]): void;
+  setCleanupRecord(record: CloudHypervisorCleanupHandle | undefined): void;
   getFsDevices(): VirtiofsdDevice[];
   stop(): Promise<void>;
 }
@@ -67,6 +69,7 @@ export async function startCloudHypervisor(
   let startupError: unknown;
   try {
     const artifacts = await dependencies.preflight(config);
+    await dependencies.cleanupRegistry.reapPending(artifacts.tools.ip, artifacts.tools.umount);
     const identity = guestConfig?.identity ?? dependencies.resolveIdentity();
     const networkPlan = createMicrovmNetworkPlan(paths.runId, {
       ...networkConfig,
@@ -75,7 +78,16 @@ export async function startCloudHypervisor(
       tapVnetHdr: true,
     });
     context.setNetworkPlan(networkPlan);
-    const network = dependencies.createNetwork(networkPlan, artifacts.tools);
+    const cleanupRecord = await dependencies.cleanupRegistry.create(
+      paths,
+      networkPlan,
+      artifacts.cloudHypervisorBinary,
+      artifacts.tools.ip,
+    );
+    context.setCleanupRecord(cleanupRecord);
+    const network = dependencies.createNetwork(networkPlan, artifacts.tools, {
+      resourceCreated: (resource) => cleanupRecord.captureNetworkResource(resource),
+    });
     context.setNetwork(network);
     await network.setup();
     let rootfsSource = artifacts.rootfsPath;
@@ -102,12 +114,14 @@ export async function startCloudHypervisor(
     }
 
     await prepareRunDirectory(dependencies, paths, identity);
+    await cleanupRecord.captureRunDirectory();
     const cgroup = dependencies.createCgroup(
       paths.cgroupPath,
       { memoryMib: config.memoryMib, vcpuCount: config.vcpuCount },
     );
     context.setCgroup(cgroup);
     await cgroup.setup();
+    await cleanupRecord.captureCgroup();
     await stageArtifact(dependencies, artifacts.kernelPath, paths.kernelPath, 0o400, identity);
     await stageArtifact(dependencies, rootfsSource, paths.rootfsPath, 0o600, identity);
     await stageDiagnosticFile(dependencies, paths.logPath, identity);
@@ -122,6 +136,9 @@ export async function startCloudHypervisor(
       apiSocketPath: paths.apiSocketPath,
       logFilePath: paths.logPath,
     });
+    await cleanupRecord.prepareProcess(
+      'vmm', artifacts.cloudHypervisorBinary, paths.apiSocketPath,
+    );
     const child = dependencies.launch(launchCommand.command, [...launchCommand.args], {
       reject: false,
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -133,7 +150,9 @@ export async function startCloudHypervisor(
     context.setProcess(child);
     child.stdout?.on('data', (chunk: Buffer | string) => context.stdoutCapture.append(chunk));
     child.stderr?.on('data', (chunk: Buffer | string) => context.stderrCapture.append(chunk));
-    if (child.pid !== undefined) await cgroup.assign(child.pid);
+    if (child.pid === undefined) throw new Error('Cloud Hypervisor process did not expose a PID');
+    await cleanupRecord.captureProcess('vmm', child.pid);
+    await cgroup.assign(child.pid);
 
     await waitForApiSocket(dependencies, paths, config.apiTimeoutMs, child);
     const client = dependencies.createClient(paths.apiSocketPath, config.apiTimeoutMs);
@@ -143,9 +162,11 @@ export async function startCloudHypervisor(
       const virtiofsd = dependencies.createVirtiofsdManager(
         artifacts.virtiofsdBinary, paths.runDirectory, paths.virtiofsdShareDirectory,
         identity, cgroup, { mount: artifacts.tools.mount, umount: artifacts.tools.umount },
+        cleanupRecord,
       );
       context.setVirtiofsd(virtiofsd);
       context.setFsDevices(await virtiofsd.start(guestConfig.exports, guestConfig.mountEnforcement));
+      await cleanupRecord.captureVirtiofsdResources();
     }
     await client.vmCreate(buildCloudHypervisorVmConfig({
       config, paths, networkPlan, ...(guestConfig ? { guestConfig } : {}),

@@ -18,6 +18,7 @@ export type {
   MicrovmNetworkLifecycle,
   MicrovmNetworkPlan,
   MicrovmNetworkPlanOptions,
+  MicrovmNetworkResourceObserver,
   MicrovmNetworkRulesetFile,
   MicrovmTapInterface,
 } from './network-types';

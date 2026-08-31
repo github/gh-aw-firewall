@@ -20,6 +20,10 @@ import {
   type CloudHypervisorManagerNetworkConfig,
 } from './manager';
 import type { CloudHypervisorHostToolPaths } from './preflight';
+import type {
+  CloudHypervisorCleanupHandle,
+  CloudHypervisorCleanupRegistry,
+} from './cleanup-registry';
 
 const hostTools: CloudHypervisorHostToolPaths = {
   ip: '/usr/bin/ip',
@@ -121,6 +125,25 @@ function cgroupMock(): CloudHypervisorCgroup {
   } as unknown as CloudHypervisorCgroup;
 }
 
+function cleanupHandleMock(): CloudHypervisorCleanupHandle {
+  return {
+    captureNetworkResource: jest.fn().mockResolvedValue(undefined),
+    captureRunDirectory: jest.fn().mockResolvedValue(undefined),
+    captureCgroup: jest.fn().mockResolvedValue(undefined),
+    captureVirtiofsdResources: jest.fn().mockResolvedValue(undefined),
+    prepareProcess: jest.fn().mockResolvedValue(undefined),
+    captureProcess: jest.fn().mockResolvedValue(undefined),
+    complete: jest.fn().mockResolvedValue(undefined),
+  };
+}
+
+function cleanupRegistryMock(): CloudHypervisorCleanupRegistry {
+  return {
+    reapPending: jest.fn().mockResolvedValue(undefined),
+    create: jest.fn().mockResolvedValue(cleanupHandleMock()),
+  };
+}
+
 function dependencies(
   overrides: Partial<CloudHypervisorManagerDependencies> = {},
 ): CloudHypervisorManagerDependencies {
@@ -157,6 +180,7 @@ function dependencies(
     sleep: jest.fn().mockResolvedValue(undefined),
     createClient: jest.fn().mockReturnValue(client),
     createNetwork: jest.fn((plan) => networkLifecycle(plan)),
+    cleanupRegistry: cleanupRegistryMock(),
     createRootfsPreparer: jest.fn(() => rootfsPreparerMock()),
     createVirtiofsdManager: jest.fn(() => virtiofsdManagerMock()),
     createVsockClient: jest.fn(),
@@ -316,6 +340,7 @@ describe('CloudHypervisorManager', () => {
         tapVnetHdr: true,
       }),
       hostTools,
+      expect.any(Object),
     );
     const lifecycle = (deps.createNetwork as jest.Mock).mock.results[0]
       .value as MicrovmNetworkLifecycle;
@@ -399,6 +424,41 @@ describe('CloudHypervisorManager', () => {
     expect(order).toEqual(['network', 'cgroup', 'run-directory']);
   });
 
+  it('commits cleanup intent before resources and removes it only after teardown', async () => {
+    const order: string[] = [];
+    const handle = cleanupHandleMock();
+    (handle.complete as jest.Mock).mockImplementation(async () => { order.push('record-complete'); });
+    const registry: CloudHypervisorCleanupRegistry = {
+      reapPending: jest.fn(async () => { order.push('reap'); }),
+      create: jest.fn(async () => {
+        order.push('record-create');
+        return handle;
+      }),
+    };
+    const deps = dependencies({
+      cleanupRegistry: registry,
+      createNetwork: jest.fn((plan) => ({
+        plan,
+        setup: jest.fn(async () => {
+          order.push('network-setup');
+          return plan;
+        }),
+        cleanup: jest.fn(async () => { order.push('network-cleanup'); }),
+      })),
+      rm: jest.fn(async () => { order.push('run-directory'); }),
+    });
+    const manager = new CloudHypervisorManager(
+      config(), '/tmp/awf', deps, 'durable-order', networkConfig(),
+    );
+
+    await manager.start();
+    await manager.stop();
+
+    expect(order.indexOf('reap')).toBeLessThan(order.indexOf('record-create'));
+    expect(order.indexOf('record-create')).toBeLessThan(order.indexOf('network-setup'));
+    expect(order.slice(-3)).toEqual(['network-cleanup', 'run-directory', 'record-complete']);
+  });
+
   it('configures one rootfs disk and virtio-fs devices, then stops daemons after the VMM', async () => {
     const order: string[] = [];
     const child = processMock();
@@ -457,6 +517,7 @@ describe('CloudHypervisorManager', () => {
         ]),
       }),
       hostTools,
+      expect.any(Object),
     );
     expect(client.vmCreate).toHaveBeenCalledWith(expect.objectContaining({
       payload: expect.objectContaining({ cmdline: expect.stringContaining('init=/usr/sbin/awf-supervisor') }),
@@ -559,8 +620,14 @@ describe('CloudHypervisorManager', () => {
   it('preserves the cgroup and run directory when virtiofsd cannot be reaped', async () => {
     const virtiofsd = virtiofsdManagerMock();
     (virtiofsd.stop as jest.Mock).mockRejectedValue(new Error('virtiofsd did not exit'));
+    const handle = cleanupHandleMock();
+    const registry: CloudHypervisorCleanupRegistry = {
+      reapPending: jest.fn().mockResolvedValue(undefined),
+      create: jest.fn().mockResolvedValue(handle),
+    };
     const deps = dependencies({
       createVirtiofsdManager: jest.fn().mockReturnValue(virtiofsd),
+      cleanupRegistry: registry,
     });
     const manager = new CloudHypervisorManager(
       config(),
@@ -583,6 +650,7 @@ describe('CloudHypervisorManager', () => {
     expect(lifecycle.cleanup).not.toHaveBeenCalled();
     expect(cgroup.cleanup).not.toHaveBeenCalled();
     expect(deps.rm).not.toHaveBeenCalled();
+    expect(handle.complete).not.toHaveBeenCalled();
   });
 
   it('retries the vsock connect on the guest-not-ready-yet boot race, with a fresh client each attempt', async () => {
@@ -855,6 +923,7 @@ describe('CloudHypervisorManager', () => {
       namespaceName: 'ns',
       netnsPath: '/var/run/netns/ns',
       nftTableName: 'table',
+      hostForwardRuleComment: 'awf:awf_vm_0123456789ab',
       infrastructureBridge: 'awfbr0',
       hostVethName: 'host',
       namespaceVethName: 'namespace',

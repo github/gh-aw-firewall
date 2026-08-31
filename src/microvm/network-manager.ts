@@ -7,6 +7,7 @@ import type {
   MicrovmConnectivityProbe,
   MicrovmNetworkLifecycle,
   MicrovmNetworkPlan,
+  MicrovmNetworkResourceObserver,
 } from './network-types';
 
 export class MicrovmNetworkManager implements MicrovmNetworkLifecycle {
@@ -19,6 +20,7 @@ export class MicrovmNetworkManager implements MicrovmNetworkLifecycle {
     readonly plan: MicrovmNetworkPlan,
     private readonly commands = new LinuxNetworkCommands(),
     private readonly probe?: MicrovmConnectivityProbe,
+    private readonly observer?: MicrovmNetworkResourceObserver,
   ) {}
 
   async setup(): Promise<MicrovmNetworkPlan> {
@@ -31,16 +33,19 @@ export class MicrovmNetworkManager implements MicrovmNetworkLifecycle {
     try {
       await this.commands.ip(['netns', 'add', this.plan.namespaceName]);
       this.namespaceCreated = true;
+      await this.observer?.resourceCreated('netns');
       await this.commands.ip([
         'link', 'add', this.plan.hostVethName,
         'type', 'veth',
         'peer', 'name', this.plan.namespaceVethName,
       ]);
       this.hostVethCreated = true;
+      await this.observer?.resourceCreated('hostVeth');
       await this.commands.ip([
         'link', 'set', this.plan.namespaceVethName,
         'netns', this.plan.namespaceName,
       ]);
+      await this.observer?.resourceCreated('namespaceVeth');
       await this.commands.ip([
         'link', 'set', this.plan.hostVethName,
         'master', this.plan.infrastructureBridge,
@@ -53,7 +58,10 @@ export class MicrovmNetworkManager implements MicrovmNetworkLifecycle {
       // default-drop policy. Must happen before any guest traffic can
       // possibly flow (i.e. before the tap/guest side is even brought
       // up below).
-      await this.commands.ensureBridgeForwardAcceptRule(this.plan.infrastructureBridge);
+      await this.commands.ensureBridgeForwardAcceptRule(
+        this.plan.infrastructureBridge,
+        this.plan.hostForwardRuleComment,
+      );
       this.dockerUserRuleInserted = true;
 
       await this.commands.ipInNamespace(this.plan.namespaceName, [
@@ -64,6 +72,7 @@ export class MicrovmNetworkManager implements MicrovmNetworkLifecycle {
         'group', String(this.plan.tapOwnerGid),
         ...(this.plan.tapVnetHdr ? ['vnet_hdr'] : []),
       ]);
+      await this.observer?.resourceCreated('tap');
       await this.commands.ipInNamespace(this.plan.namespaceName, [
         'addr', 'add',
         `${this.plan.guestGatewayIp}/${this.plan.guestPrefixLength}`,
@@ -140,7 +149,10 @@ export class MicrovmNetworkManager implements MicrovmNetworkLifecycle {
 
     if (this.dockerUserRuleInserted) {
       await attempt(async () => {
-        await this.commands.removeBridgeForwardAcceptRule(this.plan.infrastructureBridge);
+        await this.commands.removeBridgeForwardAcceptRule(
+          this.plan.infrastructureBridge,
+          this.plan.hostForwardRuleComment,
+        );
         this.dockerUserRuleInserted = false;
       });
     }

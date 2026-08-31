@@ -12,6 +12,7 @@ import type { CloudHypervisorCgroup } from './launcher';
 import type { MicrovmRootfsPreparer } from '../microvm/rootfs';
 import type { VirtiofsdManager, VirtiofsdDevice } from './virtiofsd';
 import type { CloudHypervisorGuestChannel } from './guest-execution';
+import type { CloudHypervisorCleanupHandle } from './cleanup-registry';
 
 const SHUTDOWN_GRACE_MS = 5_000;
 
@@ -28,6 +29,7 @@ export interface CloudHypervisorStopContext {
   fsDevices: VirtiofsdDevice[];
   guest?: CloudHypervisorGuestChannel;
   cgroup?: CloudHypervisorCgroup;
+  cleanupRecord?: CloudHypervisorCleanupHandle;
   instanceStarted: boolean;
   lastVmInfo?: CloudHypervisorVmInfo;
   lastVmCounters?: CloudHypervisorVmCounters;
@@ -117,6 +119,7 @@ export async function stopCloudHypervisor(context: CloudHypervisorStopContext): 
   if (context.preserve) {
     try { await context.cgroup?.cleanup(); } catch (error) { errors.push(error); }
     context.setCgroup(undefined);
+    if (errors.length === 0) await context.cleanupRecord?.complete();
     throwCleanupErrors(errors, 'Cloud Hypervisor preservation failed: ');
     return;
   }
@@ -132,6 +135,7 @@ export async function stopCloudHypervisor(context: CloudHypervisorStopContext): 
       );
     } catch (error) { errors.push(error); }
   }
+  if (errors.length === 0) await context.cleanupRecord?.complete();
   throwCleanupErrors(errors, 'Cloud Hypervisor cleanup failed: ');
 }
 

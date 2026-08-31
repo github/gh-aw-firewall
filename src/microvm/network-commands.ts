@@ -128,27 +128,45 @@ export class LinuxNetworkCommands {
    * nftables allowlist (which still restricts what the guest can send in
    * the first place).
    */
-  async ensureBridgeForwardAcceptRule(bridgeName: string): Promise<void> {
+  async ensureBridgeForwardAcceptRule(bridgeName: string, comment: string): Promise<void> {
+    assertIptablesComment(comment);
+    const rule = [
+      '-t', 'filter', '-C', 'DOCKER-USER',
+      '-i', bridgeName, '-o', bridgeName,
+      '-m', 'comment', '--comment', comment,
+      '-j', 'ACCEPT',
+    ];
     const checkResult = await this.execute(
       'iptables',
-      ['-t', 'filter', '-C', 'DOCKER-USER', '-i', bridgeName, '-o', bridgeName, '-j', 'ACCEPT'],
+      rule,
       { reject: false },
     );
     const exitCode = (checkResult as { exitCode?: number } | undefined)?.exitCode;
     if (exitCode === 0) return;
     await this.execute(
       'iptables',
-      ['-t', 'filter', '-I', 'DOCKER-USER', '1', '-i', bridgeName, '-o', bridgeName, '-j', 'ACCEPT'],
+      [
+        '-t', 'filter', '-I', 'DOCKER-USER', '1',
+        '-i', bridgeName, '-o', bridgeName,
+        '-m', 'comment', '--comment', comment,
+        '-j', 'ACCEPT',
+      ],
       { reject: true },
     );
   }
 
   /** Removes the rule `ensureBridgeForwardAcceptRule` installs, if present. Tolerant of it already being gone or the underlying command failing outright. */
-  async removeBridgeForwardAcceptRule(bridgeName: string): Promise<void> {
+  async removeBridgeForwardAcceptRule(bridgeName: string, comment: string): Promise<void> {
+    assertIptablesComment(comment);
     try {
       await this.execute(
         'iptables',
-        ['-t', 'filter', '-D', 'DOCKER-USER', '-i', bridgeName, '-o', bridgeName, '-j', 'ACCEPT'],
+        [
+          '-t', 'filter', '-D', 'DOCKER-USER',
+          '-i', bridgeName, '-o', bridgeName,
+          '-m', 'comment', '--comment', comment,
+          '-j', 'ACCEPT',
+        ],
         { reject: false },
       );
     } catch {
@@ -156,6 +174,7 @@ export class LinuxNetworkCommands {
       // binary itself being unavailable, must not fail the caller's own
       // cleanup sequence.
     }
+
   }
 
   /**
@@ -311,5 +330,11 @@ export class LinuxNetworkCommands {
       '--- ip -s link show (host/default namespace: per-port RX/TX counters, incl. container veths) ---',
       hostLinkStats || '(empty or unavailable)',
     ].join('\n');
+  }
+}
+
+function assertIptablesComment(comment: string): void {
+  if (!/^awf:awf_vm_[0-9a-f]{12}$/.test(comment)) {
+    throw new Error(`Unsafe microVM iptables rule comment: ${comment}`);
   }
 }

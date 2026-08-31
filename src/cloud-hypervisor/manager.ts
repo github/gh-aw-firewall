@@ -47,6 +47,10 @@ import type { CloudHypervisorHostToolPaths } from './preflight';
 import { startCloudHypervisor } from './manager-start';
 import { stopCloudHypervisor } from './manager-stop';
 import { VirtiofsdManager, type VirtiofsdDevice } from './virtiofsd';
+import {
+  DurableCloudHypervisorCleanupRegistry,
+  type CloudHypervisorCleanupHandle,
+} from './cleanup-registry';
 
 export {
   CLOUD_HYPERVISOR_GUEST_VSOCK_PORT,
@@ -77,10 +81,13 @@ const defaultDependencies: CloudHypervisorManagerDependencies = {
   rm: fs.rm,
   sleep: (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
   createClient: (socketPath, timeoutMs) => new CloudHypervisorApiClient({ socketPath, timeoutMs }),
-  createNetwork: (plan, tools) => new MicrovmNetworkManager(
+  createNetwork: (plan, tools, observer) => new MicrovmNetworkManager(
     plan,
     new LinuxNetworkCommands(undefined, tools),
+    undefined,
+    observer,
   ),
+  cleanupRegistry: new DurableCloudHypervisorCleanupRegistry(),
   createRootfsPreparer: (config, tools) => new MicrovmRootfsPreparer(config, {
     runTool: async (command, args) => {
       const tool = tools[command as keyof CloudHypervisorHostToolPaths] ?? command;
@@ -93,8 +100,11 @@ const defaultDependencies: CloudHypervisorManagerDependencies = {
       throw new Error(`${tool} exited with code ${result.exitCode}: ${result.stderr.trim()}`);
     },
   }),
-  createVirtiofsdManager: (binaryPath, runDirectory, shareDirectory, identity, cgroup, tools) =>
-    new VirtiofsdManager(binaryPath, runDirectory, shareDirectory, identity, cgroup, tools),
+  createVirtiofsdManager: (
+    binaryPath, runDirectory, shareDirectory, identity, cgroup, tools, cleanupRecord,
+  ) => new VirtiofsdManager(
+    binaryPath, runDirectory, shareDirectory, identity, cgroup, tools, undefined, cleanupRecord,
+  ),
   createVsockClient: (socketPath, guestPort, timeoutMs) => new MicrovmVsockClient({
     socketPath,
     guestPort,
@@ -160,6 +170,7 @@ export class CloudHypervisorManager {
   private fsDevices: VirtiofsdDevice[] = [];
   private guest: CloudHypervisorGuestChannel | undefined;
   private cgroup: CloudHypervisorCgroup | undefined;
+  private cleanupRecord: CloudHypervisorCleanupHandle | undefined;
   private networkPlan: MicrovmNetworkPlan | undefined;
   private instanceStarted = false;
   // Snapshotted in stop(), before any shutdown attempt, since the API
@@ -219,6 +230,7 @@ export class CloudHypervisorManager {
       setClient: (value) => { this.client = value; },
       setVirtiofsd: (value) => { this.virtiofsd = value; },
       setFsDevices: (value) => { this.fsDevices = value; },
+      setCleanupRecord: (value) => { this.cleanupRecord = value; },
       getFsDevices: () => this.fsDevices,
       stop: () => this.stop(),
     });
@@ -289,6 +301,7 @@ export class CloudHypervisorManager {
       fsDevices: this.fsDevices,
       guest: this.guest,
       cgroup: this.cgroup,
+      cleanupRecord: this.cleanupRecord,
       instanceStarted: this.instanceStarted,
       lastVmInfo: this.lastVmInfo,
       lastVmCounters: this.lastVmCounters,

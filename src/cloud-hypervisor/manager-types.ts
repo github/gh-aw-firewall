@@ -7,6 +7,7 @@ import {
   type MicrovmControlPeer,
   type MicrovmNetworkLifecycle,
   type MicrovmNetworkPlan,
+  type MicrovmNetworkResourceObserver,
 } from '../microvm/network';
 import type { MicrovmVsockClient } from '../microvm/vsock-client';
 import type { MicrovmRootfsConfig, MicrovmRootfsPreparer } from '../microvm/rootfs';
@@ -15,6 +16,10 @@ import type { CloudHypervisorDirectoryExport } from './exports';
 import type { CloudHypervisorCgroup, CloudHypervisorResourceLimits } from './launcher';
 import type { CloudHypervisorHostToolPaths, runCloudHypervisorPreflight } from './preflight';
 import type { VirtiofsdManager, VirtiofsdMountEnforcement } from './virtiofsd';
+import type {
+  CloudHypervisorCleanupHandle,
+  CloudHypervisorCleanupRegistry,
+} from './cleanup-registry';
 
 const API_SOCKET_NAME = 'api.socket';
 const VSOCK_SOCKET_NAME = 'awf-vsock.socket';
@@ -79,7 +84,12 @@ export interface CloudHypervisorManagerDependencies {
   rm(directory: string, options: { recursive: true; force: true }): Promise<void>;
   sleep(milliseconds: number): Promise<void>;
   createClient(socketPath: string, timeoutMs: number): CloudHypervisorApiClient;
-  createNetwork(plan: MicrovmNetworkPlan, tools: CloudHypervisorHostToolPaths): MicrovmNetworkLifecycle;
+  createNetwork(
+    plan: MicrovmNetworkPlan,
+    tools: CloudHypervisorHostToolPaths,
+    observer?: MicrovmNetworkResourceObserver,
+  ): MicrovmNetworkLifecycle;
+  cleanupRegistry: CloudHypervisorCleanupRegistry;
   createRootfsPreparer(
     config: MicrovmRootfsConfig,
     tools: CloudHypervisorHostToolPaths,
@@ -91,6 +101,7 @@ export interface CloudHypervisorManagerDependencies {
     identity: { uid: number; gid: number },
     cgroup: CloudHypervisorCgroup,
     tools: Pick<CloudHypervisorHostToolPaths, 'mount' | 'umount'>,
+    cleanupRecord?: CloudHypervisorCleanupHandle,
   ): VirtiofsdManager;
   createVsockClient(socketPath: string, guestPort: number, timeoutMs: number): MicrovmVsockClient;
   createCgroup(cgroupPath: string, limits: CloudHypervisorResourceLimits): CloudHypervisorCgroup;

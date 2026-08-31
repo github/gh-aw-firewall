@@ -3,6 +3,7 @@ import * as path from 'path';
 import execa, { type ExecaChildProcess } from 'execa';
 import type { CloudHypervisorCgroup } from './launcher';
 import type { CloudHypervisorDirectoryExport } from './exports';
+import type { CloudHypervisorCleanupHandle } from './cleanup-registry';
 import {
   StagedHostMountTree,
   selectMountPlan,
@@ -123,6 +124,7 @@ export class VirtiofsdManager {
     private readonly cgroup: Pick<CloudHypervisorCgroup, 'assign'>,
     private readonly tools: { readonly mount: string; readonly umount: string },
     private readonly dependencies: VirtiofsdDependencies = defaultDependencies,
+    private readonly cleanupRecord?: CloudHypervisorCleanupHandle,
   ) {}
 
   /**
@@ -301,6 +303,13 @@ export class VirtiofsdManager {
     const args = buildVirtiofsdArgs(directoryExport, socketPath, sharedDirectory, {
       announceSubmounts: mountTree !== undefined,
     });
+    const cleanupKey = `virtiofsd-${index}`;
+    await this.cleanupRecord?.prepareProcess(
+      cleanupKey,
+      this.binaryPath,
+      socketPath,
+      sharedDirectory,
+    );
     const child = this.dependencies.launch(this.binaryPath, args, {
       reject: false,
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -326,6 +335,7 @@ export class VirtiofsdManager {
     if (!child.pid) throw new Error(`virtiofsd for "${directoryExport.tag}" did not expose a PID`);
     await this.cgroup.assign(child.pid);
     await this.waitForSocket(daemon);
+    await this.cleanupRecord?.captureProcess(cleanupKey, child.pid);
     await this.dependencies.chown(socketPath, this.identity.uid, this.identity.gid);
   }
 

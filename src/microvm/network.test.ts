@@ -279,11 +279,13 @@ describe('microVM network lifecycle', () => {
     expect(calls[5].args).toEqual([
       '-t', 'filter', '-C', 'DOCKER-USER',
       '-i', plan.infrastructureBridge, '-o', plan.infrastructureBridge,
+      '-m', 'comment', '--comment', plan.hostForwardRuleComment,
       '-j', 'ACCEPT',
     ]);
     expect(calls[6].args).toEqual([
       '-t', 'filter', '-I', 'DOCKER-USER', '1',
       '-i', plan.infrastructureBridge, '-o', plan.infrastructureBridge,
+      '-m', 'comment', '--comment', plan.hostForwardRuleComment,
       '-j', 'ACCEPT',
     ]);
     expect(calls[7].args).toEqual([
@@ -306,6 +308,21 @@ describe('microVM network lifecycle', () => {
     expect(calls[16].args[5]).toMatch(/awf-nft-[0-9a-f]{16}\.nft$/);
     expect(calls[16].options).toEqual({ reject: true });
     expect(probe.verify).toHaveBeenCalledWith(plan);
+  });
+
+  it('publishes each resource identity immediately after creation', async () => {
+    const plan = createPlan();
+    const { commands } = commandHarness();
+    const observed: string[] = [];
+    const observer = {
+      resourceCreated: jest.fn(async (resource: string) => {
+        observed.push(resource);
+      }),
+    };
+
+    await new MicrovmNetworkManager(plan, commands, undefined, observer).setup();
+
+    expect(observed).toEqual(['netns', 'hostVeth', 'namespaceVeth', 'tap']);
   });
 
   it.each([
@@ -538,6 +555,7 @@ describe('microVM network lifecycle', () => {
     expect(insertCall?.args).toEqual([
       '-t', 'filter', '-I', 'DOCKER-USER', '1',
       '-i', plan.infrastructureBridge, '-o', plan.infrastructureBridge,
+      '-m', 'comment', '--comment', plan.hostForwardRuleComment,
       '-j', 'ACCEPT',
     ]);
 
@@ -546,6 +564,7 @@ describe('microVM network lifecycle', () => {
     expect(deleteCall?.args).toEqual([
       '-t', 'filter', '-D', 'DOCKER-USER',
       '-i', plan.infrastructureBridge, '-o', plan.infrastructureBridge,
+      '-m', 'comment', '--comment', plan.hostForwardRuleComment,
       '-j', 'ACCEPT',
     ]);
     // Removal must be tolerant of the rule already being gone (e.g. a
@@ -581,11 +600,17 @@ describe('LinuxNetworkCommands.ensureBridgeForwardAcceptRule / removeBridgeForwa
       }),
     );
 
-    await commands.ensureBridgeForwardAcceptRule('awfbr0');
+    await commands.ensureBridgeForwardAcceptRule('awfbr0', 'awf:awf_vm_0123456789ab');
 
     expect(calls).toEqual([
-      { args: ['-t', 'filter', '-C', 'DOCKER-USER', '-i', 'awfbr0', '-o', 'awfbr0', '-j', 'ACCEPT'] },
-      { args: ['-t', 'filter', '-I', 'DOCKER-USER', '1', '-i', 'awfbr0', '-o', 'awfbr0', '-j', 'ACCEPT'] },
+      { args: [
+        '-t', 'filter', '-C', 'DOCKER-USER', '-i', 'awfbr0', '-o', 'awfbr0',
+        '-m', 'comment', '--comment', 'awf:awf_vm_0123456789ab', '-j', 'ACCEPT',
+      ] },
+      { args: [
+        '-t', 'filter', '-I', 'DOCKER-USER', '1', '-i', 'awfbr0', '-o', 'awfbr0',
+        '-m', 'comment', '--comment', 'awf:awf_vm_0123456789ab', '-j', 'ACCEPT',
+      ] },
     ]);
   });
 
@@ -598,10 +623,13 @@ describe('LinuxNetworkCommands.ensureBridgeForwardAcceptRule / removeBridgeForwa
       }),
     );
 
-    await commands.ensureBridgeForwardAcceptRule('awfbr0');
+    await commands.ensureBridgeForwardAcceptRule('awfbr0', 'awf:awf_vm_0123456789ab');
 
     expect(calls).toEqual([
-      { args: ['-t', 'filter', '-C', 'DOCKER-USER', '-i', 'awfbr0', '-o', 'awfbr0', '-j', 'ACCEPT'] },
+      { args: [
+        '-t', 'filter', '-C', 'DOCKER-USER', '-i', 'awfbr0', '-o', 'awfbr0',
+        '-m', 'comment', '--comment', 'awf:awf_vm_0123456789ab', '-j', 'ACCEPT',
+      ] },
     ]);
   });
 
@@ -612,7 +640,10 @@ describe('LinuxNetworkCommands.ensureBridgeForwardAcceptRule / removeBridgeForwa
       }),
     );
 
-    await expect(commands.removeBridgeForwardAcceptRule('awfbr0')).resolves.toBeUndefined();
+    await expect(commands.removeBridgeForwardAcceptRule(
+      'awfbr0',
+      'awf:awf_vm_0123456789ab',
+    )).resolves.toBeUndefined();
   });
 });
 
