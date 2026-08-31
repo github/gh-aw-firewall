@@ -281,6 +281,8 @@ describe('CloudHypervisorVmmIdentityManager', () => {
     const base = dependencies();
     const manager = new CloudHypervisorVmmIdentityManager('reused-account', tools, base.deps);
     await manager.allocate();
+    await manager.grantDeviceAccess();
+    (base.deps.run as jest.Mock).mockClear();
     const originalRun = base.deps.run;
     base.deps.run = jest.fn(async (command, args) => {
       if (command === tools.id && args[0] === '-u') return { stdout: '24001\n', stderr: '' };
@@ -296,6 +298,10 @@ describe('CloudHypervisorVmmIdentityManager', () => {
     });
 
     await expect(manager.cleanup()).rejects.toThrow(/Refusing to remove reused/);
+    expect(base.deps.run).not.toHaveBeenCalledWith(
+      tools.setfacl,
+      expect.arrayContaining(['--remove']),
+    );
     expect(base.deps.run).not.toHaveBeenCalledWith(
       tools.userdel,
       [expect.stringMatching(/^awfvmm-/)],

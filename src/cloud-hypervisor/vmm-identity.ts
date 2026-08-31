@@ -210,6 +210,12 @@ export class CloudHypervisorVmmIdentityManager {
         return;
       }
       if (!identity) return;
+      const current = await this.resolveAndValidateAccount(identity.name);
+      if (current.uid !== identity.uid || current.gid !== identity.gid) {
+        throw new Error(
+          `Refusing to remove reused Cloud Hypervisor VMM account ${identity.name}`,
+        );
+      }
       const errors: unknown[] = [];
       for (const devicePath of [...this.aclPaths].reverse()) {
         try {
@@ -230,12 +236,6 @@ export class CloudHypervisorVmmIdentityManager {
       if (errors.length > 0 || this.aclPaths.size > 0) {
         throw new Error(
           `Cloud Hypervisor VMM ACL cleanup failed: ${errors.map(formatError).join('; ')}`,
-        );
-      }
-      const current = await this.resolveAndValidateAccount(identity.name);
-      if (current.uid !== identity.uid || current.gid !== identity.gid) {
-        throw new Error(
-          `Refusing to remove reused Cloud Hypervisor VMM account ${identity.name}`,
         );
       }
       await this.removeAccountState(identity.name);
