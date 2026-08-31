@@ -356,7 +356,7 @@ describe('CloudHypervisorManager', () => {
     expect(deps.verifyConfinement).toHaveBeenCalledWith(expect.objectContaining({
       pid: 4242,
       expectedExecutable: '/opt/cloud-hypervisor',
-      identity: { uid: 1000, gid: 1000 },
+      identity: expect.objectContaining({ uid: 2001, gid: 2002 }),
       networkNamespace: expect.stringMatching(/^awfvm-/),
       cgroupPath: expect.stringContaining('awf-cloud-hypervisor/run-1'),
       cgroupLimits: {
