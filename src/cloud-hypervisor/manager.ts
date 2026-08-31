@@ -46,6 +46,7 @@ import {
 } from './manager-types';
 import { runCloudHypervisorPreflight } from './preflight';
 import type { CloudHypervisorHostToolPaths } from './preflight';
+import type { CloudHypervisorPreflightResult } from './preflight';
 import {
   verifyCloudHypervisorConfinement,
   type CloudHypervisorConfinementEvidence,
@@ -222,15 +223,19 @@ export class CloudHypervisorManager {
     runId?: string,
     private readonly networkConfig?: CloudHypervisorManagerNetworkConfig,
     private readonly guestConfig?: CloudHypervisorManagerGuestConfig,
+    private readonly preflightResult?: CloudHypervisorPreflightResult,
   ) {
     this.paths = createCloudHypervisorRunPaths(config.cloudHypervisorBinary, runId);
   }
 
   async start(): Promise<CloudHypervisorApiClient> {
+    const dependencies = this.preflightResult
+      ? { ...this.dependencies, preflight: async () => this.preflightResult! }
+      : this.dependencies;
     return startCloudHypervisor({
       config: this.config,
       workDir: this.workDir,
-      dependencies: this.dependencies,
+      dependencies,
       paths: this.paths,
       networkConfig: this.networkConfig,
       guestConfig: this.guestConfig,

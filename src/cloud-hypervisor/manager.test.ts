@@ -417,6 +417,31 @@ describe('CloudHypervisorManager', () => {
     expect(lifecycle.setup).toHaveBeenCalledTimes(1);
   });
 
+  it('reuses a verified artifact snapshot instead of running preflight again', async () => {
+    const deps = dependencies();
+    const verified = await deps.preflight(config());
+    (deps.preflight as jest.Mock).mockReset().mockRejectedValue(
+      new Error('preflight must not rerun'),
+    );
+    const manager = new CloudHypervisorManager(
+      config(),
+      '/tmp/awf',
+      deps,
+      'verified-snapshot',
+      networkConfig(),
+      undefined,
+      verified,
+    );
+
+    await expect(manager.start()).resolves.toBeDefined();
+    expect(deps.preflight).not.toHaveBeenCalled();
+    expect(deps.copyFile).toHaveBeenCalledWith(
+      verified.rootfsPath,
+      expect.stringContaining('/rootfs.ext4'),
+      constants.COPYFILE_EXCL,
+    );
+  });
+
   it('terminates the partial process and removes its run directory on readiness failure', async () => {
     const child = processMock();
     const missing = Object.assign(new Error('missing'), { code: 'ENOENT' });

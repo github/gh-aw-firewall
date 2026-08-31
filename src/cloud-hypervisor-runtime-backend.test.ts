@@ -243,6 +243,8 @@ describe('Cloud Hypervisor runtime backend', () => {
         infrastructure(),
         [{ tag: 'workspace', source: '/workspace', target: '/workspace', mode: 'rw' }],
         { uid: 1000, gid: 1000 },
+        undefined,
+        preflightResult,
       )).toBeDefined();
       expect(createCloudHypervisorRuntimeBackend(config(), startInfrastructure))
         .toEqual(expect.objectContaining({ runtime: 'cloud-hypervisor' }));
@@ -302,6 +304,7 @@ describe('Cloud Hypervisor runtime backend', () => {
             },
           ],
         },
+        preflightResult,
       );
       expect(deps.logger.info).toHaveBeenCalledWith(
         '[cloud-hypervisor] stage=filesystem-write-policy boundary /workspace=ro ' +
@@ -325,7 +328,8 @@ describe('Cloud Hypervisor runtime backend', () => {
       { tag: 'workspace', source: '/workspace-host', target: '/workspace', mode: 'rw' },
     ]);
     expect(call[5]).toBeUndefined();
-    expect(call).toHaveLength(6);
+    expect(call[6]).toBe(preflightResult);
+    expect(call).toHaveLength(7);
     expect(deps.logger.info).not.toHaveBeenCalledWith(
       expect.stringContaining('stage=filesystem-write-policy'),
     );
@@ -385,6 +389,27 @@ describe('Cloud Hypervisor runtime backend', () => {
       expect.stringMatching(/^agent-/),
     );
     expect(manager.collectGuestOutputAudit).not.toHaveBeenCalled();
+  });
+
+  it('reuses the CLI preflight snapshot when workflow startup begins', async () => {
+    const { deps } = harness();
+    const backend = createBackend(config(), deps);
+
+    await backend.preflight();
+    await backend.start('/tmp/awf', ['github.com']);
+    await backend.stop();
+
+    expect(deps.preflight).toHaveBeenCalledTimes(1);
+    expect(deps.createManager).toHaveBeenCalledWith(
+      expect.anything(),
+      '/tmp/awf',
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      undefined,
+      preflightResult,
+    );
+    expect(deps.removeArtifactSnapshot).toHaveBeenCalledWith('/snapshot');
   });
 
   it('persists bounded raw guest output when an audit directory is configured', async () => {

@@ -114,6 +114,7 @@ export interface CloudHypervisorRuntimeBackendDependencies {
     exports: readonly CloudHypervisorDirectoryExport[],
     identity: { uid: number; gid: number },
     mountEnforcement?: VirtiofsdMountEnforcement,
+    preflightResult?: CloudHypervisorPreflightResult,
   ): CloudHypervisorManagerAdapter;
   resolveExports(mountPolicy: CloudHypervisorOptions['mountPolicy']): Promise<CloudHypervisorDirectoryExport[]>;
   identity(): { uid: number; gid: number };
@@ -133,7 +134,9 @@ function defaultDependencies(
     preflight: runCloudHypervisorPreflight,
     resolveInfrastructure: (enableApiProxy, ipPath, topologyPeerNames) =>
       resolveMicrovmInfrastructure(enableApiProxy, undefined, ipPath, topologyPeerNames),
-    createManager: (config, workDir, infrastructure, exports, identity, mountEnforcement) =>
+    createManager: (
+      config, workDir, infrastructure, exports, identity, mountEnforcement, preflightResult,
+    ) =>
       new CloudHypervisorManager(
         config,
         workDir,
@@ -156,6 +159,7 @@ function defaultDependencies(
           supervisorSha256: config.sha256!.supervisor!,
           identity,
         },
+        preflightResult,
       ),
     resolveExports: (mountPolicy) => resolveCloudHypervisorExports(
       process.env,
@@ -248,7 +252,7 @@ class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBackend {
       '[cloud-hypervisor] runtime=cloud-hypervisor maturity=preview fallback=disabled',
     );
     try {
-      await this.preflight();
+      if (!this.preflightResult) await this.preflight();
       stage = 'compose-infrastructure';
       await this.dependencies.startInfrastructure(
         workDir,
@@ -316,6 +320,7 @@ class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBackend {
           exports,
           this.identity,
           mountEnforcement,
+          this.preflightResult,
         );
         try {
           stage = 'vmm-configuration';
