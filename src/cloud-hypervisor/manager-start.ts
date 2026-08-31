@@ -206,9 +206,6 @@ export async function startCloudHypervisor(
       ...(guestConfig ? { guestConfig: { ...guestConfig, identity: guestIdentity } } : {}),
       fsDevices: context.getFsDevices(),
     }));
-    if (guestConfig) {
-      await vmmIdentityManager.validateOwnedPaths([paths.vsockSocketPath]);
-    }
     return client;
   } catch (error) {
     startupError = error;

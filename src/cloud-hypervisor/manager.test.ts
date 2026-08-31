@@ -598,8 +598,25 @@ describe('CloudHypervisorManager', () => {
     expect(vmConfig.landlock_rules).not.toEqual(expect.arrayContaining([
       expect.objectContaining({ path: '/workspace' }),
     ]));
+    const vmmIdentity = (deps.createVmmIdentity as jest.Mock).mock.results[0]
+      .value as CloudHypervisorVmmIdentityManager;
+    expect(vmmIdentity.validateOwnedPaths).not.toHaveBeenCalledWith([
+      '/run/awf-cloud-hypervisor/cloud-hypervisor/guest/awf-vsock.socket',
+    ]);
     await manager.startInstance();
     expect(client.vmBoot).toHaveBeenCalledTimes(1);
+    expect(vmmIdentity.validateOwnedPaths).toHaveBeenCalledWith([
+      '/run/awf-cloud-hypervisor/cloud-hypervisor/guest/awf-vsock.socket',
+    ]);
+    const ownershipValidationOrder = (vmmIdentity.validateOwnedPaths as jest.Mock)
+      .mock.invocationCallOrder;
+    const vsockOwnershipValidationOrder =
+      ownershipValidationOrder[ownershipValidationOrder.length - 1];
+    expect(vsockOwnershipValidationOrder).toBeGreaterThan(
+      (client.vmBoot as jest.Mock).mock.invocationCallOrder[0],
+    );
+    expect((deps.createVsockClient as jest.Mock).mock.invocationCallOrder[0])
+      .toBeGreaterThan(vsockOwnershipValidationOrder);
     expect(deps.createVsockClient).toHaveBeenCalledWith(
       expect.stringContaining('/run/awf-cloud-hypervisor/cloud-hypervisor/guest/awf-vsock.socket'),
       52,

@@ -245,6 +245,10 @@ export class CloudHypervisorManager {
     await this.client.vmBoot();
     this.instanceStarted = true;
     if (this.guestConfig) {
+      if (!this.vmmIdentity) {
+        throw new Error('Cloud Hypervisor VMM identity is not configured');
+      }
+      await this.vmmIdentity.validateOwnedPaths([this.paths.vsockSocketPath]);
       this.guest = await CloudHypervisorGuestChannel.connect(
         this.dependencies,
         this.paths.vsockSocketPath,
