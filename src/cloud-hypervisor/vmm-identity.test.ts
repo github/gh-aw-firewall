@@ -846,8 +846,8 @@ describe('CloudHypervisorVmmIdentityManager', () => {
 
   it('uses random non-PID account names for repeated allocations', () => {
     expect(new CloudHypervisorVmmIdentityManager('default-dependencies', tools)).toBeDefined();
-    const first = createAccountName('same-run');
-    const second = createAccountName('same-run');
+    const first = createAccountName();
+    const second = createAccountName();
     expect(first).toMatch(/^awfvmm-[a-f0-9]{20}$/);
     expect(second).not.toBe(first);
     expect(first).not.toContain(String(process.pid));

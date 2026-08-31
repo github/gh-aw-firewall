@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from 'crypto';
+import { randomBytes } from 'crypto';
 import { promises as fs } from 'fs';
 import * as path from 'path';
 import execa from 'execa';
@@ -99,7 +99,7 @@ export class CloudHypervisorVmmIdentityManager {
           `Cloud Hypervisor VMM account cleanup is still pending: ${this.provisionalAccountName}`,
         );
       }
-      const name = createAccountName(this.runId);
+      const name = createAccountName();
       if (await this.accountExists(name)) {
         throw new Error(`Cloud Hypervisor VMM account already exists: ${name}`);
       }
@@ -449,13 +449,8 @@ export class CloudHypervisorVmmIdentityManager {
   }
 }
 
-export function createAccountName(runId: string): string {
-  const digest = createHash('sha256')
-    .update(runId)
-    .update(randomBytes(16))
-    .digest('hex')
-    .slice(0, 20);
-  return `${ACCOUNT_PREFIX}${digest}`;
+export function createAccountName(): string {
+  return `${ACCOUNT_PREFIX}${randomBytes(10).toString('hex')}`;
 }
 
 /** @internal Exposed only for focused lock-owner tests. */
