@@ -230,6 +230,7 @@ class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBackend {
   ) {}
 
   async preflight(): Promise<void> {
+    if (this.preflightResult) return;
     const cloudHypervisor = requireCloudHypervisorConfig(this.config);
     if (
       this.config.agentTimeout !== undefined &&

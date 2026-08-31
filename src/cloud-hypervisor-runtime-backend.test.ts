@@ -342,6 +342,18 @@ describe('Cloud Hypervisor runtime backend', () => {
     );
   });
 
+  it('reuses and cleans the snapshot created by the explicit preflight phase', async () => {
+    const { deps } = harness();
+    const backend = createBackend(config(), deps);
+
+    await backend.preflight();
+    await backend.start('/tmp/awf', ['github.com']);
+    await backend.stop();
+
+    expect(deps.preflight).toHaveBeenCalledTimes(1);
+    expect(deps.removeArtifactSnapshot).toHaveBeenCalledWith('/snapshot');
+  });
+
   it('fails closed on an unmatched allowlist path before creating a manager', async () => {
     const { deps } = harness();
     const backend = createBackend(
