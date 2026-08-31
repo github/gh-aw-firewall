@@ -124,9 +124,10 @@ boots.
 
 ### 4.2 Cloud Hypervisor microVM preview
 
-The `cloudHypervisor` surface pins Cloud Hypervisor v53.0 artifacts and
-digests (binary, PCI-capable guest kernel, rootfs, and the shared AWF guest
-supervisor) and requires explicit `--cloud-hypervisor-preview` opt-in plus
+The `cloudHypervisor` surface binds Cloud Hypervisor v53.0, `virtiofsd`, the
+PCI-capable guest kernel, rootfs, and shared AWF guest supervisor to one
+release-pinned GitHub-attested manifest. It requires explicit
+`--cloud-hypervisor-preview` opt-in plus
 `container.containerRuntime:
 "cloud-hypervisor"` to execute a workload. Supported host target is
 GitHub-hosted Ubuntu `x86_64` runners with KVM only — self-hosted and
@@ -154,6 +155,20 @@ request label. They are published as explicitly named release/workflow
 assets, but are not production defaults and are never auto-downloaded. See
 [docs/cloud-hypervisor-foundation.md](./cloud-hypervisor-foundation.md#part-14--ci-workflow)
 for the complete CI workflow specification and troubleshooting reference.
+
+Normal execution requires `artifactManifestPath`,
+`artifactManifestBundlePath`, and `artifactReleaseTag`. AWF verifies the
+Sigstore bundle offline with `gh attestation verify`, constraining the signer
+to `github/gh-aw-firewall/.github/workflows/release.yml`, before parsing any
+manifest field. It then verifies all five local artifact names and SHA-256
+digests. The legacy `sha256` object is not a trust root.
+
+Same-run development builds may set
+`developmentAllowUnattestedArtifacts: true` only when the process environment
+also contains
+`AWF_CLOUD_HYPERVISOR_DEVELOPMENT_ALLOW_UNATTESTED_ARTIFACTS=1`. This
+preview-only dual opt-in still requires all five hashes and must not be used
+for release artifacts.
 
 ## 5. CLI Mapping
 
@@ -266,10 +281,14 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 - `cloudHypervisor.kernelPath` → `--cloud-hypervisor-kernel`
 - `cloudHypervisor.rootfsPath` → `--cloud-hypervisor-rootfs`
 - `cloudHypervisor.supervisorPath` → `--cloud-hypervisor-supervisor`
+- `cloudHypervisor.artifactManifestPath` → `--cloud-hypervisor-artifact-manifest`
+- `cloudHypervisor.artifactManifestBundlePath` → `--cloud-hypervisor-artifact-manifest-bundle`
+- `cloudHypervisor.artifactReleaseTag` → `--cloud-hypervisor-artifact-release-tag`
+- `cloudHypervisor.developmentAllowUnattestedArtifacts` → `--cloud-hypervisor-development-allow-unattested-artifacts` *(development only; also requires the matching environment variable and complete legacy hashes)*
 - `cloudHypervisor.vcpuCount` → `--cloud-hypervisor-vcpus`
 - `cloudHypervisor.memoryMib` → `--cloud-hypervisor-memory-mib`
 - `cloudHypervisor.apiTimeoutMs` → `--cloud-hypervisor-api-timeout-ms`
-- `cloudHypervisor.sha256.cloudHypervisor` → `--cloud-hypervisor-binary-sha256`
+- `cloudHypervisor.sha256.cloudHypervisor` → `--cloud-hypervisor-binary-sha256` *(development bypass only)*
 - `cloudHypervisor.sha256.virtiofsd` → `--cloud-hypervisor-virtiofsd-sha256`
 - `cloudHypervisor.sha256.kernel` → `--cloud-hypervisor-kernel-sha256`
 - `cloudHypervisor.sha256.rootfs` → `--cloud-hypervisor-rootfs-sha256`

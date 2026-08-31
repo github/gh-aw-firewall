@@ -43,16 +43,38 @@ export function assertCloudHypervisorRuntimeCompatibility(
       'Cloud Hypervisor preview requires explicit kernel, rootfs, and guest supervisor artifacts',
     );
   }
-  const digests = cloudHypervisor.sha256;
-  if (
-    !digests?.cloudHypervisor ||
-    !digests.virtiofsd ||
-    !digests.kernel ||
-    !digests.rootfs ||
-    !digests.supervisor
+  if (cloudHypervisor.developmentAllowUnattestedArtifacts) {
+    if (
+      process.env.AWF_CLOUD_HYPERVISOR_DEVELOPMENT_ALLOW_UNATTESTED_ARTIFACTS !== '1'
+    ) {
+      throw new Error(
+        'Cloud Hypervisor development artifact bypass requires ' +
+        'AWF_CLOUD_HYPERVISOR_DEVELOPMENT_ALLOW_UNATTESTED_ARTIFACTS=1',
+      );
+    }
+    const digests = cloudHypervisor.sha256;
+    if (
+      !digests?.cloudHypervisor ||
+      !digests.virtiofsd ||
+      !digests.kernel ||
+      !digests.rootfs ||
+      !digests.supervisor
+    ) {
+      throw new Error(
+        'Cloud Hypervisor development artifact bypass requires SHA-256 digests for all five artifacts',
+      );
+    }
+  } else if (
+    !cloudHypervisor.artifactManifestPath ||
+    !cloudHypervisor.artifactManifestBundlePath ||
+    !cloudHypervisor.artifactReleaseTag
   ) {
     throw new Error(
-      'Cloud Hypervisor preview requires SHA-256 digests for cloud-hypervisor, virtiofsd, kernel, rootfs, and supervisor',
+      'Cloud Hypervisor preview requires an artifact manifest, attestation bundle, and expected release tag',
+    );
+  } else if (cloudHypervisor.sha256) {
+    throw new Error(
+      'Caller-supplied Cloud Hypervisor SHA-256 values are accepted only by the explicit development artifact bypass',
     );
   }
 }

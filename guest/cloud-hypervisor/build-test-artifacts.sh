@@ -32,6 +32,7 @@ LINUX_SHA256=bc3c45faf6f5f0450666c75fa9dad9bc7c0cf7c7cba0dbd94e5cfdc58229c116
 KERNEL_CONFIG_SHA256=adbc70ab5e89213ba00594b12d25e09bdf8bb1ed3c252d7449326bb14c22963b
 SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH:-1767225600}
 BUILD_TOOLS_IMAGE=${BUILD_TOOLS_IMAGE:-ghcr.io/github/gh-aw-firewall/build-tools:latest}
+RELEASE_TAG=${VERSION:-v0.0.0-development}
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 OUTPUT=${OUTPUT:-"$ROOT/release/cloud-hypervisor-test-x86_64"}
@@ -230,6 +231,39 @@ cat >"$OUTPUT/manifest.json" <<EOF
   "purpose": "AWF Cloud Hypervisor preview test artifacts; not production defaults",
   "architecture": "x86_64",
   "sourceDateEpoch": ${SOURCE_DATE_EPOCH},
+  "release": {
+    "repository": "github/gh-aw-firewall",
+    "workflow": "github/gh-aw-firewall/.github/workflows/release.yml",
+    "tag": "${RELEASE_TAG}",
+    "sourceCommit": "$(git -C "$ROOT" rev-parse HEAD)"
+  },
+  "artifacts": {
+    "cloudHypervisor": {
+      "file": "cloud-hypervisor",
+      "version": "${CLOUD_HYPERVISOR_VERSION}",
+      "sha256": "$(sha256sum "$OUTPUT/cloud-hypervisor" | awk '{print $1}')"
+    },
+    "virtiofsd": {
+      "file": "virtiofsd",
+      "version": "${VIRTIOFSD_VERSION}",
+      "sha256": "$(sha256sum "$OUTPUT/virtiofsd" | awk '{print $1}')"
+    },
+    "kernel": {
+      "file": "vmlinux.bin",
+      "version": "${LINUX_VERSION}",
+      "sha256": "$(sha256sum "$OUTPUT/vmlinux.bin" | awk '{print $1}')"
+    },
+    "rootfs": {
+      "file": "rootfs.ext4",
+      "version": "${RELEASE_TAG}",
+      "sha256": "$(sha256sum "$OUTPUT/rootfs.ext4" | awk '{print $1}')"
+    },
+    "supervisor": {
+      "file": "awf-supervisor",
+      "version": "${RELEASE_TAG}",
+      "sha256": "$(sha256sum "$OUTPUT/awf-supervisor" | awk '{print $1}')"
+    }
+  },
   "cloudHypervisor": {
     "version": "${CLOUD_HYPERVISOR_VERSION}",
     "binarySha256": "${CLOUD_HYPERVISOR_BINARY_SHA256}"

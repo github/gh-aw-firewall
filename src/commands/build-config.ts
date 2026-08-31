@@ -262,11 +262,15 @@ function buildCloudHypervisorConfig(
 ): WrapperConfig['cloudHypervisor'] {
   const selected = options.containerRuntime === 'cloud-hypervisor';
   const configured = options.cloudHypervisorPreview === true
+    || options.cloudHypervisorDevelopmentAllowUnattestedArtifacts === true
     || [
       'cloudHypervisorBinary',
       'cloudHypervisorKernel',
       'cloudHypervisorRootfs',
       'cloudHypervisorSupervisor',
+      'cloudHypervisorArtifactManifest',
+      'cloudHypervisorArtifactManifestBundle',
+      'cloudHypervisorArtifactReleaseTag',
       'cloudHypervisorVcpus',
       'cloudHypervisorMemoryMib',
       'cloudHypervisorApiTimeoutMs',
@@ -293,6 +297,12 @@ function buildCloudHypervisorConfig(
     kernelPath: options.cloudHypervisorKernel as string | undefined,
     rootfsPath: options.cloudHypervisorRootfs as string | undefined,
     supervisorPath: options.cloudHypervisorSupervisor as string | undefined,
+    artifactManifestPath: options.cloudHypervisorArtifactManifest as string | undefined,
+    artifactManifestBundlePath:
+      options.cloudHypervisorArtifactManifestBundle as string | undefined,
+    artifactReleaseTag: options.cloudHypervisorArtifactReleaseTag as string | undefined,
+    developmentAllowUnattestedArtifacts:
+      options.cloudHypervisorDevelopmentAllowUnattestedArtifacts === true,
     vcpuCount: parsePositiveIntegerOption(
       options.cloudHypervisorVcpus,
       '--cloud-hypervisor-vcpus',

@@ -13,8 +13,7 @@ import {
 import { buildCloudHypervisorGuestEnvironment } from './cloud-hypervisor/guest-environment-builder';
 import { assertCloudHypervisorSelection } from './cloud-hypervisor/runtime-validation';
 import type { MicrovmInfrastructureSnapshot } from './microvm/infrastructure';
-
-const digest = 'a'.repeat(64);
+import { CLOUD_HYPERVISOR_ARTIFACT_RELEASE_TAG } from './cloud-hypervisor/artifact-manifest';
 
 function config(overrides: Partial<WrapperConfig> = {}): WrapperConfig {
   return {
@@ -25,16 +24,12 @@ function config(overrides: Partial<WrapperConfig> = {}): WrapperConfig {
       kernelPath: '/opt/kernel',
       rootfsPath: '/opt/rootfs',
       supervisorPath: '/opt/supervisor',
+      artifactManifestPath: '/opt/manifest.json',
+      artifactManifestBundlePath: '/opt/manifest.sigstore.jsonl',
+      artifactReleaseTag: CLOUD_HYPERVISOR_ARTIFACT_RELEASE_TAG,
       vcpuCount: 2,
       memoryMib: 512,
       apiTimeoutMs: 5000,
-      sha256: {
-        cloudHypervisor: digest,
-        virtiofsd: digest,
-        kernel: digest,
-        rootfs: digest,
-        supervisor: digest,
-      },
     },
     agentCommand: 'printf hello',
     allowedDomains: ['github.com'],
@@ -92,6 +87,13 @@ const preflightResult = {
   kernelPath: '/opt/kernel',
   rootfsPath: '/opt/rootfs',
   supervisorPath: '/opt/supervisor',
+  artifactDigests: {
+    cloudHypervisor: 'a'.repeat(64),
+    virtiofsd: 'a'.repeat(64),
+    kernel: 'a'.repeat(64),
+    rootfs: 'a'.repeat(64),
+    supervisor: 'a'.repeat(64),
+  },
   cgroupVersion: 2 as const,
   kvmGid: 978,
   tools: {
@@ -228,7 +230,10 @@ describe('Cloud Hypervisor runtime backend', () => {
         gid: expect.any(Number),
       });
       expect(defaults.createManager(
-        config().cloudHypervisor!,
+        {
+          ...config().cloudHypervisor!,
+          sha256: preflightResult.artifactDigests,
+        },
         '/tmp/awf',
         infrastructure(),
         [{ tag: 'workspace', source: '/workspace', target: '/workspace', mode: 'rw' }],
@@ -264,7 +269,7 @@ describe('Cloud Hypervisor runtime backend', () => {
       await backend.start('/tmp/awf', ['github.com']);
 
       expect(deps.createManager).toHaveBeenCalledWith(
-        expect.anything(),
+        expect.objectContaining({ sha256: preflightResult.artifactDigests }),
         '/tmp/awf',
         expect.anything(),
         [

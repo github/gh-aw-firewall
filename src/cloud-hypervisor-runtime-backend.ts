@@ -251,6 +251,10 @@ class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBackend {
 
       stage = 'infrastructure-discovery';
       const cloudHypervisor = requireCloudHypervisorConfig(this.config);
+      const verifiedCloudHypervisor = {
+        ...cloudHypervisor,
+        sha256: this.preflightResult!.artifactDigests,
+      };
       const infrastructure = await this.dependencies.resolveInfrastructure(
         Boolean(this.config.enableApiProxy),
         this.preflightResult?.tools.ip,
@@ -292,7 +296,7 @@ class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBackend {
           await this.dependencies.sleep(delay);
         }
         this.manager = this.dependencies.createManager(
-          cloudHypervisor,
+          verifiedCloudHypervisor,
           workDir,
           infrastructure,
           exports,
