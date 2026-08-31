@@ -10,6 +10,7 @@ import {
   cloudHypervisorPreflightTestHelpers,
   parseCloudHypervisorVersion,
   parseVirtiofsdVersion,
+  copySparseFileWithRsync,
   runCloudHypervisorPreflight,
   type CloudHypervisorPreflightDependencies,
 } from './preflight';
@@ -88,6 +89,7 @@ function dependencies(
         ? { bundlePath: '/snapshot/manifest.sigstore.jsonl' }
         : {}),
     })),
+    copySparseFile: jest.fn().mockResolvedValue(undefined),
     removeArtifactSnapshot: jest.fn().mockResolvedValue(undefined),
     verifyManifestAttestation: jest.fn().mockResolvedValue(undefined),
     assertToolAvailable: jest.fn(async (tool: string) => `/usr/bin/${tool}`),
@@ -248,6 +250,98 @@ describe('Cloud Hypervisor preflight (foundation only)', () => {
     expect(() => parseVirtiofsdVersion('virtiofsd unknown')).toThrow(/Could not parse/);
   });
 
+  it('copies sparse rootfs images with the trusted rsync binary', async () => {
+    mockedExeca.mockResolvedValue({
+      exitCode: 0,
+      stdout: '',
+      stderr: '',
+    } as never);
+
+    await copySparseFileWithRsync(
+      '/usr/bin/rsync',
+      '/source/rootfs.ext4',
+      '/destination/rootfs.ext4',
+    );
+
+    expect(mockedExeca).toHaveBeenCalledWith(
+      '/usr/bin/rsync',
+      [
+        '--sparse',
+        '--',
+        '/source/rootfs.ext4',
+        '/destination/rootfs.ext4',
+      ],
+      {
+        reject: false,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      },
+    );
+  });
+
+  it('fails closed when the sparse rootfs copy fails', async () => {
+    mockedExeca.mockResolvedValue({
+      exitCode: 23,
+      stdout: '',
+      stderr: 'No space left on device',
+    } as never);
+
+    await expect(copySparseFileWithRsync(
+      '/usr/bin/rsync',
+      '/source/rootfs.ext4',
+      '/destination/rootfs.ext4',
+    )).rejects.toThrow(
+      'sparse artifact copy failed with code 23: No space left on device',
+    );
+  });
+
+  it('uses sparse copying only for the trusted rootfs snapshot', async () => {
+    const snapshotDirectory = '/run/awf-cloud-hypervisor/trusted-artifacts/snapshot-test';
+    jest.spyOn(fs, 'mkdir').mockResolvedValue(undefined);
+    jest.spyOn(fs, 'mkdtemp').mockResolvedValue(snapshotDirectory);
+    const copyFile = jest.spyOn(fs, 'copyFile').mockResolvedValue(undefined);
+    jest.spyOn(fs, 'chmod').mockResolvedValue(undefined);
+    const copySparseFile = jest.fn().mockResolvedValue(undefined);
+    const sources = {
+      cloudHypervisorBinary: '/source/cloud-hypervisor',
+      virtiofsdBinary: '/source/virtiofsd',
+      kernelPath: '/source/vmlinux.bin',
+      rootfsPath: '/source/rootfs.ext4',
+      supervisorPath: '/source/awf-supervisor',
+      manifestPath: '/source/manifest.json',
+      bundlePath: '/source/manifest.sigstore.jsonl',
+    };
+
+    const snapshot = await cloudHypervisorPreflightTestHelpers.createArtifactSnapshot(
+      sources,
+      copySparseFile,
+    );
+
+    expect(snapshot.rootfsPath).toBe(`${snapshotDirectory}/rootfs.ext4`);
+    expect(copySparseFile).toHaveBeenCalledWith(
+      '/source/rootfs.ext4',
+      `${snapshotDirectory}/rootfs.ext4`,
+    );
+    for (const [source, name] of [
+      [sources.cloudHypervisorBinary, 'cloud-hypervisor'],
+      [sources.virtiofsdBinary, 'virtiofsd'],
+      [sources.kernelPath, 'vmlinux.bin'],
+      [sources.supervisorPath, 'awf-supervisor'],
+      [sources.manifestPath, 'manifest.json'],
+      [sources.bundlePath, 'manifest.sigstore.jsonl'],
+    ]) {
+      expect(copyFile).toHaveBeenCalledWith(
+        source,
+        `${snapshotDirectory}/${name}`,
+        constants.COPYFILE_EXCL,
+      );
+    }
+    expect(copyFile).not.toHaveBeenCalledWith(
+      sources.rootfsPath,
+      expect.any(String),
+      expect.any(Number),
+    );
+  });
+
   it('verifies the attested manifest before its five artifact digests', async () => {
     const deps = dependencies();
     const result = await runCloudHypervisorPreflight(config({
@@ -274,6 +368,13 @@ describe('Cloud Hypervisor preflight (foundation only)', () => {
       '/usr/bin/gh',
       '/snapshot/manifest.json',
       '/snapshot/manifest.sigstore.jsonl',
+    );
+    const sparseCopy = (deps.createArtifactSnapshot as jest.Mock).mock.calls[0][1];
+    await sparseCopy('/source/rootfs.ext4', '/snapshot/rootfs.ext4');
+    expect(deps.copySparseFile).toHaveBeenCalledWith(
+      '/usr/bin/rsync',
+      '/source/rootfs.ext4',
+      '/snapshot/rootfs.ext4',
     );
     expect(result.tools).toEqual({
       getfacl: '/usr/bin/getfacl',

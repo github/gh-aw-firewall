@@ -99,8 +99,10 @@ export async function stageArtifact(
   destination: string,
   mode: number,
   identity: CloudHypervisorIdentity,
+  copy?: () => Promise<void>,
 ): Promise<void> {
-  await dependencies.copyFile(source, destination, constants.COPYFILE_EXCL);
+  if (copy) await copy();
+  else await dependencies.copyFile(source, destination, constants.COPYFILE_EXCL);
   await dependencies.chown(destination, identity.uid, identity.gid);
   await dependencies.chmod(destination, mode);
 }

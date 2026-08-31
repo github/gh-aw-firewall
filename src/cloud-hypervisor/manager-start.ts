@@ -149,7 +149,8 @@ export async function startCloudHypervisor(
           ...(networkConfig.apiProxyIp ? { 'api-proxy': networkConfig.apiProxyIp } : {}),
           ...(networkConfig.hostAliases ?? {}),
         },
-      }, artifacts.tools);
+      }, artifacts.tools, (source, destination) =>
+        dependencies.copySparseFile(artifacts.tools.rsync, source, destination));
       context.setRootfsPreparer(rootfsPreparer);
       rootfsSource = await rootfsPreparer.prepare();
     }
@@ -164,7 +165,18 @@ export async function startCloudHypervisor(
     await cgroup.setup();
     await cleanupRecord.captureCgroup();
     await stageArtifact(dependencies, artifacts.kernelPath, paths.kernelPath, 0o400, identity);
-    await stageArtifact(dependencies, rootfsSource, paths.rootfsPath, 0o600, identity);
+    await stageArtifact(
+      dependencies,
+      rootfsSource,
+      paths.rootfsPath,
+      0o600,
+      identity,
+      () => dependencies.copySparseFile(
+        artifacts.tools.rsync,
+        rootfsSource,
+        paths.rootfsPath,
+      ),
+    );
     await stageDiagnosticFile(dependencies, paths.logPath, identity);
     await stageDiagnosticFile(dependencies, paths.serialLogPath, identity);
     await vmmIdentityManager.validateOwnedPaths([

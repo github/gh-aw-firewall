@@ -209,6 +209,7 @@ function dependencies(
     launch: jest.fn().mockReturnValue(processMock()),
     mkdir: jest.fn().mockResolvedValue(undefined),
     copyFile: jest.fn().mockResolvedValue(undefined),
+    copySparseFile: jest.fn().mockResolvedValue(undefined),
     chmod: jest.fn().mockResolvedValue(undefined),
     chown: jest.fn().mockResolvedValue(undefined),
     writeFile: jest.fn().mockResolvedValue(undefined),
@@ -284,7 +285,7 @@ describe('CloudHypervisorManager', () => {
       baseRootfsPath: '/opt/rootfs',
       supervisorBinaryPath: '/opt/supervisor',
       supervisorSha256: 'a'.repeat(64),
-    }, hostTools)).toBeDefined();
+    }, hostTools, jest.fn())).toBeDefined();
     expect(defaults.createVirtiofsdManager(
       '/opt/virtiofsd',
       '/run/awf',
@@ -426,6 +427,11 @@ describe('CloudHypervisorManager', () => {
       2001,
       2002,
     );
+    expect(deps.copySparseFile).toHaveBeenCalledWith(
+      '/usr/bin/rsync',
+      '/opt/rootfs.ext4',
+      '/run/awf-cloud-hypervisor/cloud-hypervisor/run-1/rootfs.ext4',
+    );
     expect(deps.createNetwork).toHaveBeenCalledWith(
       expect.objectContaining({
         infrastructureBridge: 'awfbr0',
@@ -469,10 +475,10 @@ describe('CloudHypervisorManager', () => {
 
     await expect(manager.start()).resolves.toBeDefined();
     expect(deps.preflight).not.toHaveBeenCalled();
-    expect(deps.copyFile).toHaveBeenCalledWith(
+    expect(deps.copySparseFile).toHaveBeenCalledWith(
+      '/usr/bin/rsync',
       verified.rootfsPath,
       expect.stringContaining('/rootfs.ext4'),
-      constants.COPYFILE_EXCL,
     );
   });
 
@@ -706,6 +712,17 @@ describe('CloudHypervisorManager', () => {
         },
       }),
       hostTools,
+      expect.any(Function),
+    );
+    const writableRootfsCopy = (deps.createRootfsPreparer as jest.Mock).mock.calls[0][2];
+    await writableRootfsCopy(
+      '/snapshot/rootfs.ext4',
+      '/tmp/awf/cloud-hypervisor-rootfs/guest/rootfs.ext4',
+    );
+    expect(deps.copySparseFile).toHaveBeenCalledWith(
+      '/usr/bin/rsync',
+      '/snapshot/rootfs.ext4',
+      '/tmp/awf/cloud-hypervisor-rootfs/guest/rootfs.ext4',
     );
     expect(deps.createNetwork).toHaveBeenCalledWith(
       expect.objectContaining({

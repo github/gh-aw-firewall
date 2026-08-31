@@ -314,6 +314,7 @@ export class MicrovmWorkspaceImage {
         this.tools?.[command as keyof MicrovmWorkspaceHostTools] ?? command,
         args,
       ),
+      copyRootfs: fs.copyFile,
     });
     await preparer.prepare();
   }

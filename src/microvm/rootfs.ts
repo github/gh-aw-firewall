@@ -14,6 +14,7 @@ export interface MicrovmRootfsConfig {
 
 export interface MicrovmRootfsDependencies {
   runTool(command: string, args: readonly string[]): Promise<void>;
+  copyRootfs(source: string, destination: string): Promise<void>;
 }
 
 export class MicrovmRootfsPreparer {
@@ -41,7 +42,7 @@ export class MicrovmRootfsPreparer {
       );
     }
     await fs.mkdir(this.config.runDirectory, { recursive: true, mode: 0o700 });
-    await fs.copyFile(this.config.baseRootfsPath, this.rootfsImagePath);
+    await this.dependencies.copyRootfs(this.config.baseRootfsPath, this.rootfsImagePath);
     const localSupervisor = path.join(this.config.runDirectory, 'awf-supervisor');
     const guestSupervisor = this.config.supervisorGuestPath ?? '/sbin/awf-supervisor';
     await fs.copyFile(this.config.supervisorBinaryPath, localSupervisor);
