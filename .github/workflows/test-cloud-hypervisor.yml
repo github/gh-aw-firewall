@@ -279,7 +279,7 @@ jobs:
             echo "::error::Cloud Hypervisor cgroup residue remains after cleanup"
             exit 1
           fi
-          if pgrep -f 'cloud-hypervisor --api-socket' >/dev/null 2>&1; then
+          if sudo pgrep -f 'cloud-hypervisor --api-socket' >/dev/null 2>&1; then
             echo "::error::Cloud Hypervisor process residue remains after cleanup"
             exit 1
           fi
