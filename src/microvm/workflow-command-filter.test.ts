@@ -50,6 +50,29 @@ describe('WorkflowCommandFilter', () => {
     );
   });
 
+  it('neutralizes legacy workflow syntax anywhere across chunk boundaries', () => {
+    const chunks = [
+      Buffer.from('prefix #'),
+      Buffer.from('#'),
+      Buffer.from('[add-mask]secret\r\n'),
+      Buffer.from('::'),
+      Buffer.from('##'),
+      Buffer.from('[set-output name=x]owned\n'),
+    ];
+
+    expect(filter(chunks).toString()).toBe(
+      'prefix [awf blocked workflow command] # #[add-mask]secret\r\n' +
+      '::[awf blocked workflow command] # #[set-output name=x]owned\n',
+    );
+  });
+
+  it('preserves incomplete and false legacy candidates', () => {
+    for (const input of ['#', '##', '#x', '##x', 'ordinary # text']) {
+      expect(filter(Array.from(Buffer.from(input), (byte) => Buffer.from([byte]))).toString())
+        .toBe(input);
+    }
+  });
+
   it('matches the runner whitespace trim across split UTF-8 sequences', () => {
     const whitespace = [
       '\u0085',

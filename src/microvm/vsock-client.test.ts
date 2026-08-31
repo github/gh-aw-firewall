@@ -718,6 +718,74 @@ describe('MicrovmVsockClient', () => {
     await server.close();
   });
 
+  it('flushes pending filter bytes before rejecting an abrupt disconnect', async () => {
+    const server = await createServer((frame, socket) => {
+      if (frame.type !== 'execute') return;
+      socket.write(encodeGuestFrame({
+        version: 1,
+        type: 'stdout',
+        requestId: frame.requestId,
+        data: Buffer.from('trailing::').toString('base64'),
+      }), () => socket.destroy());
+    });
+    const output = new PassThrough();
+    const chunks: Buffer[] = [];
+    output.on('data', (chunk) => chunks.push(chunk));
+    const client = new MicrovmVsockClient({
+      socketPath: server.socketPath,
+      guestPort: 52,
+    });
+
+    await client.connect();
+    await expect(client.execute({
+      requestId: 'disconnect-filter',
+      argv: ['true'],
+      env: {},
+      cwd: '/workspace',
+      uid: 1000,
+      gid: 1000,
+      stdout: output,
+      filterWorkflowCommands: true,
+    })).rejects.toThrow(/disconnected/);
+
+    expect(Buffer.concat(chunks).toString()).toBe('trailing::');
+    await server.close();
+  });
+
+  it('rejects when a backpressured output stream errors', async () => {
+    const server = await createServer((frame, socket) => {
+      if (frame.type !== 'execute') return;
+      socket.write(encodeGuestFrame({
+        version: 1,
+        type: 'stdout',
+        requestId: frame.requestId,
+        data: Buffer.from('output').toString('base64'),
+      }));
+    });
+    const output = new Writable({
+      highWaterMark: 1,
+      write(_chunk, _encoding, callback) {
+        callback(new Error('output failed'));
+      },
+    });
+    const client = new MicrovmVsockClient({
+      socketPath: server.socketPath,
+      guestPort: 52,
+    });
+
+    await client.connect();
+    await expect(client.execute({
+      requestId: 'output-error',
+      argv: ['true'],
+      env: {},
+      cwd: '/workspace',
+      uid: 1000,
+      gid: 1000,
+      stdout: output,
+    })).rejects.toThrow('output failed');
+    await server.close();
+  });
+
   it('rejects writes after a connected transport is destroyed', async () => {
     const server = await createServer(() => undefined);
     const client = new MicrovmVsockClient({

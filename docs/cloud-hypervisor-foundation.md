@@ -151,8 +151,10 @@ them to the runner log. A streaming byte filter neutralizes lines that begin,
 after optional runner-recognized leading whitespace, with GitHub Actions workflow-command
 syntax such as `::set-output::`, `::add-mask::`, or `::stop-commands::`. The
 filter operates across VSOCK frame boundaries, preserves non-command and
-non-UTF-8 bytes, and buffers at most two candidate bytes rather than a complete
-line. Output writes continue to honor stream backpressure.
+non-UTF-8 bytes, and retains only constant-size command candidates rather than
+complete lines. It also neutralizes the runner's legacy `##[...]` command form
+wherever it appears in a line. Output writes continue to honor stream
+backpressure.
 
 AWF intentionally has no workflow-command allowlist for guest output. Unlike a
 trusted host helper, the guest cannot prove that an informational annotation

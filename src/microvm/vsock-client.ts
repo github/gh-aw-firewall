@@ -196,18 +196,7 @@ export class MicrovmVsockClient {
           }).catch((error) => this.fail(toError(error)));
           pending.cancellation = setTimeout(() => {
             if (this.pending !== pending) return;
-            void this.flushPendingOutput(pending).then(() => {
-              if (this.pending !== pending) return;
-              this.completePending({
-                version: GUEST_PROTOCOL_VERSION,
-                type: 'result',
-                requestId,
-                exitCode: 124,
-                signal: null,
-                timedOut: true,
-              });
-              this.socket?.destroy();
-            }).catch((error) => this.fail(toError(error)));
+            void this.completeTimedOutPending(pending);
           }, this.cancellationGraceMs);
         }, request.timeoutMs);
       }
@@ -332,7 +321,6 @@ export class MicrovmVsockClient {
     if (frame.type === 'error') {
       const error = new GuestExecutionError(frame);
       if (this.pending?.requestId === frame.requestId) {
-        await this.flushPendingOutput(this.pending);
         this.rejectPending(error);
       } else {
         this.fail(error);
@@ -414,12 +402,39 @@ export class MicrovmVsockClient {
     }
   }
 
+  private async completeTimedOutPending(pending: PendingExecution): Promise<void> {
+    try {
+      await this.flushPendingOutput(pending);
+      if (this.pending !== pending) return;
+      this.completePending({
+        version: GUEST_PROTOCOL_VERSION,
+        type: 'result',
+        requestId: pending.requestId,
+        exitCode: 124,
+        signal: null,
+        timedOut: true,
+      });
+      this.socket?.destroy();
+    } catch (error) {
+      this.fail(toError(error));
+    }
+  }
+
   private rejectPending(error: Error): void {
     if (!this.pending) return;
-    clearTimeout(this.pending.timeout);
-    clearTimeout(this.pending.cancellation);
     const pending = this.pending;
+    clearTimeout(pending.timeout);
+    clearTimeout(pending.cancellation);
     this.pending = undefined;
+    void this.finishRejectedPending(pending, error);
+  }
+
+  private async finishRejectedPending(pending: PendingExecution, error: Error): Promise<void> {
+    try {
+      await this.flushPendingOutput(pending);
+    } catch {
+      // Preserve the transport/protocol error that terminated the request.
+    }
     pending.reject(error);
   }
 

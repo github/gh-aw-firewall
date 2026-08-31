@@ -1,5 +1,6 @@
 const BLOCKED_COMMAND_PREFIX = Buffer.from('[awf blocked workflow command] ', 'ascii');
 const NEUTRALIZED_COMMAND_START = Buffer.from(': :', 'ascii');
+const NEUTRALIZED_LEGACY_COMMAND_START = Buffer.from('# #[', 'ascii');
 
 function isAsciiWhitespace(byte: number): boolean {
   return byte === 0x09 || byte === 0x0b || byte === 0x0c || byte === 0x20;
@@ -52,12 +53,13 @@ function isAsciiLetter(byte: number): boolean {
 
 /**
  * Neutralizes GitHub Actions workflow commands in an untrusted byte stream.
- * It buffers at most two candidate bytes, so arbitrary chunks and long lines
+ * It buffers at most four candidate bytes, so arbitrary chunks and long lines
  * do not require decoding or line-sized buffering.
  */
 export class WorkflowCommandFilter {
   private lineCanStartCommand = true;
   private candidateColons = 0;
+  private legacyCandidate: number[] = [];
   private unicodeWhitespaceCandidate: number[] = [];
 
   push(data: Buffer): Buffer {
@@ -74,13 +76,53 @@ export class WorkflowCommandFilter {
     const trailing = Buffer.from([
       ...this.unicodeWhitespaceCandidate,
       ...Array<number>(this.candidateColons).fill(0x3a),
+      ...this.legacyCandidate,
     ]);
     this.unicodeWhitespaceCandidate = [];
     this.candidateColons = 0;
+    this.legacyCandidate = [];
     return trailing;
   }
 
   private processByte(byte: number, output: number[]): void {
+    if (this.legacyCandidate.length === 1) {
+      if (byte === 0x23) {
+        this.legacyCandidate.push(byte);
+        return;
+      }
+      this.processV2Byte(0x23, output);
+      this.legacyCandidate = [];
+    } else if (this.legacyCandidate.length === 2) {
+      this.legacyCandidate = [];
+      if (byte === 0x5b) {
+        this.flushV2Candidate(output);
+        output.push(...BLOCKED_COMMAND_PREFIX, ...NEUTRALIZED_LEGACY_COMMAND_START);
+        this.lineCanStartCommand = false;
+        return;
+      }
+      this.processV2Byte(0x23, output);
+      this.processV2Byte(0x23, output);
+    }
+
+    if (byte === 0x23) {
+      this.legacyCandidate.push(byte);
+      return;
+    }
+    this.processV2Byte(byte, output);
+  }
+
+  private flushV2Candidate(output: number[]): void {
+    if (this.unicodeWhitespaceCandidate.length > 0) {
+      output.push(...this.unicodeWhitespaceCandidate);
+      this.unicodeWhitespaceCandidate = [];
+    }
+    if (this.candidateColons > 0) {
+      output.push(...Array<number>(this.candidateColons).fill(0x3a));
+      this.candidateColons = 0;
+    }
+  }
+
+  private processV2Byte(byte: number, output: number[]): void {
     if (this.unicodeWhitespaceCandidate.length > 0) {
       this.unicodeWhitespaceCandidate.push(byte);
       const status = unicodeWhitespaceStatus(this.unicodeWhitespaceCandidate);
