@@ -81,6 +81,7 @@ interface LockOwner {
 
 export class CloudHypervisorVmmIdentityManager {
   private identity: CloudHypervisorVmmIdentity | undefined;
+  private provisionalAccountName: string | undefined;
   private readonly aclPaths = new Set<string>();
 
   constructor(
@@ -92,6 +93,12 @@ export class CloudHypervisorVmmIdentityManager {
   async allocate(): Promise<CloudHypervisorVmmIdentity> {
     if (this.identity) return this.identity;
     return this.withAccountLock(async () => {
+      if (this.identity) return this.identity;
+      if (this.provisionalAccountName) {
+        throw new Error(
+          `Cloud Hypervisor VMM account cleanup is still pending: ${this.provisionalAccountName}`,
+        );
+      }
       const name = createAccountName(this.runId);
       if (await this.accountExists(name)) {
         throw new Error(`Cloud Hypervisor VMM account already exists: ${name}`);
@@ -106,12 +113,25 @@ export class CloudHypervisorVmmIdentityManager {
           '--comment', `AWF Cloud Hypervisor ${this.runId}`,
           name,
         ]);
+        this.provisionalAccountName = name;
         const identity = await this.resolveAndValidateAccount(name);
         this.identity = identity;
+        this.provisionalAccountName = undefined;
         return identity;
       } catch (error) {
         if (await this.accountExists(name)) {
-          await this.removeAccountByName(name).catch(() => undefined);
+          this.provisionalAccountName = name;
+        }
+        if (this.provisionalAccountName) {
+          try {
+            await this.removeAccountState(name);
+            this.provisionalAccountName = undefined;
+          } catch (rollbackError) {
+            throw new Error(
+              `Cloud Hypervisor VMM account allocation failed: ${formatError(error)}; ` +
+              `rollback also failed: ${formatError(rollbackError)}`,
+            );
+          }
         }
         throw error;
       }
@@ -121,6 +141,9 @@ export class CloudHypervisorVmmIdentityManager {
   async grantDeviceAccess(): Promise<void> {
     const identity = this.requireIdentity();
     await this.withAccountLock(async () => {
+      if (this.identity !== identity) {
+        throw new Error('Cloud Hypervisor VMM identity changed before device ACL grant');
+      }
       for (const devicePath of VMM_DEVICE_PATHS) {
         await this.dependencies.run(this.tools.setfacl, [
           '--modify', `user:${identity.uid}:rw`, devicePath,
@@ -176,8 +199,17 @@ export class CloudHypervisorVmmIdentityManager {
 
   async cleanup(): Promise<void> {
     const identity = this.identity;
-    if (!identity) return;
+    const provisionalAccountName = this.provisionalAccountName;
+    if (!identity && !provisionalAccountName) return;
     await this.withAccountLock(async () => {
+      if (identity && this.identity !== identity) return;
+      if (!identity && provisionalAccountName) {
+        if (this.provisionalAccountName !== provisionalAccountName) return;
+        await this.removeAccountState(provisionalAccountName);
+        this.provisionalAccountName = undefined;
+        return;
+      }
+      if (!identity) return;
       const errors: unknown[] = [];
       for (const devicePath of [...this.aclPaths].reverse()) {
         try {
@@ -206,13 +238,15 @@ export class CloudHypervisorVmmIdentityManager {
           `Refusing to remove reused Cloud Hypervisor VMM account ${identity.name}`,
         );
       }
-      await this.removeAccountByName(identity.name);
+      await this.removeAccountState(identity.name);
       this.identity = undefined;
     });
   }
 
-  private async removeAccountByName(name: string): Promise<void> {
-    await this.dependencies.run(this.tools.userdel, [name]);
+  private async removeAccountState(name: string): Promise<void> {
+    if (await this.accountExists(name)) {
+      await this.dependencies.run(this.tools.userdel, [name]);
+    }
     if (await this.groupExists(name)) {
       await this.dependencies.run(this.tools.groupdel, [name]);
     }
@@ -424,16 +458,35 @@ export function createAccountName(runId: string): string {
   return `${ACCOUNT_PREFIX}${digest}`;
 }
 
-async function readProcessStartTime(pid: number): Promise<string | undefined> {
+/** @internal Exposed only for focused lock-owner tests. */
+export const cloudHypervisorVmmIdentityTestHelpers = {
+  defaultRun: defaultDependencies.run,
+  defaultSleep: defaultDependencies.sleep,
+  formatError,
+  isLockOwner,
+  isSameLockOwner,
+  parseProcessStatStartTime,
+  parsePositiveInteger,
+  readProcessStartTime,
+};
+
+async function readProcessStartTime(
+  pid: number,
+  readFile: typeof fs.readFile = fs.readFile,
+): Promise<string | undefined> {
   try {
-    const stat = await fs.readFile(`/proc/${pid}/stat`, 'utf8');
-    const close = stat.lastIndexOf(')');
-    const fields = stat.slice(close + 2).split(' ');
-    return fields[19];
+    const stat = await readFile(`/proc/${pid}/stat`, 'utf8');
+    return parseProcessStatStartTime(stat);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
     throw error;
   }
+}
+
+function parseProcessStatStartTime(stat: string): string | undefined {
+  const close = stat.lastIndexOf(')');
+  const fields = stat.slice(close + 2).split(' ');
+  return fields[19];
 }
 
 function parsePositiveInteger(value: string, label: string): number {

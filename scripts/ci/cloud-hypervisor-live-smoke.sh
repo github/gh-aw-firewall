@@ -782,5 +782,8 @@ fi
 if getfacl --absolute-names --numeric /dev/kvm 2>/dev/null | grep -q "^user:$proc_uid:"; then
   fail_security "per-run /dev/kvm ACL remains after cancellation for uid $proc_uid"
 fi
+if getfacl --absolute-names --numeric /dev/net/tun 2>/dev/null | grep -q "^user:$proc_uid:"; then
+  fail_security "per-run /dev/net/tun ACL remains after cancellation for uid $proc_uid"
+fi
 
 echo "Cloud Hypervisor live smoke/security suite passed."

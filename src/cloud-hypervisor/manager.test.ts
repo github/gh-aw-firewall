@@ -1030,6 +1030,9 @@ describe('CloudHypervisorManager', () => {
       expect.stringContaining('/run/awf-cloud-hypervisor/'),
       { recursive: true, force: true },
     );
+    const vmmIdentity = (deps.createVmmIdentity as jest.Mock).mock.results[0]
+      .value as CloudHypervisorVmmIdentityManager;
+    expect(vmmIdentity.cleanup).toHaveBeenCalledTimes(1);
   });
 
   it('builds explicit supervisor boot cmdline with PCI-required root/interface naming', () => {

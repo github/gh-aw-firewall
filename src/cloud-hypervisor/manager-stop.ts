@@ -52,6 +52,7 @@ export interface CloudHypervisorStopContext {
 
 export async function stopCloudHypervisor(context: CloudHypervisorStopContext): Promise<void> {
   const errors: unknown[] = [];
+  let identityResourcesRemoved = true;
   const instanceWasStarted = context.instanceStarted;
   if (context.client && instanceWasStarted) {
     try { context.setLastVmInfo(await context.client.vmInfo()); } catch { context.setLastVmInfo(undefined); }
@@ -124,7 +125,7 @@ export async function stopCloudHypervisor(context: CloudHypervisorStopContext): 
     return;
   }
   try { await context.network?.cleanup(); context.setNetwork(undefined); context.setNetworkPlan(undefined); }
-  catch (error) { errors.push(error); }
+  catch (error) { identityResourcesRemoved = false; errors.push(error); }
   try { await context.cgroup?.cleanup(); } catch (error) { errors.push(error); }
   context.setCgroup(undefined);
   if (!instanceWasStarted || terminationConfirmed) {
@@ -133,9 +134,9 @@ export async function stopCloudHypervisor(context: CloudHypervisorStopContext): 
         path.join(context.paths.runBaseDir, path.basename(context.config.cloudHypervisorBinary), context.paths.runId),
         { recursive: true, force: true },
       );
-    } catch (error) { errors.push(error); }
+    } catch (error) { identityResourcesRemoved = false; errors.push(error); }
   }
-  if (errors.length === 0) {
+  if (identityResourcesRemoved) {
     try {
       await context.vmmIdentity?.cleanup();
       context.setVmmIdentity(undefined);
