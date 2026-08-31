@@ -233,18 +233,41 @@ async function waitForWorker(
     for (const value of children) {
       const candidate = Number(value);
       if (!Number.isSafeInteger(candidate) || candidate <= 1) continue;
+      let identity: VirtiofsdProcessIdentity;
       try {
         const comm = await dependencies.readFile(`/proc/${candidate}/comm`, 'utf8');
         if (comm.trim() !== 'virtiofsd') continue;
-        const identity = await captureVirtiofsdProcessIdentity(candidate, dependencies);
-        assertExecutable(identity.executable, expectedExecutable, 'worker');
+        identity = await captureVirtiofsdProcessIdentity(candidate, dependencies);
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code === 'ENOENT' || code === 'ESRCH') continue;
+        throw error;
+      }
+      assertExecutable(identity.executable, expectedExecutable, 'worker');
+      try {
         await assignToCgroup(candidate);
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code === 'ESRCH') continue;
+        if (code === 'ENOENT') {
+          try {
+            await captureVirtiofsdProcessIdentity(candidate, dependencies);
+          } catch (identityError) {
+            const identityCode = (identityError as NodeJS.ErrnoException).code;
+            if (identityCode === 'ENOENT' || identityCode === 'ESRCH') continue;
+            throw identityError;
+          }
+        }
+        throw error;
+      }
+      try {
         const current = await captureVirtiofsdProcessIdentity(candidate, dependencies);
         assertSameIdentity(identity, current, 'worker');
         return current;
       } catch (error) {
         const code = (error as NodeJS.ErrnoException).code;
-        if (code !== 'ENOENT' && code !== 'ESRCH') throw error;
+        if (code === 'ENOENT' || code === 'ESRCH') continue;
+        throw error;
       }
     }
     await dependencies.sleep(WORKER_READY_INTERVAL_MS);

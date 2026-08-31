@@ -505,6 +505,47 @@ describe('VirtiofsdManager', () => {
     expect(deps.sleep).toHaveBeenCalled();
   });
 
+  it('retries with a replacement worker when cgroup assignment reports ESRCH', async () => {
+    const deps = dependencies();
+    const readFile = deps.readFile;
+    let discovery = 0;
+    deps.readFile = jest.fn(async (filePath: string, encoding: BufferEncoding) => {
+      if (filePath.endsWith('/children')) {
+        discovery += 1;
+        return discovery === 1 ? '1099' : '1100';
+      }
+      return readFile(filePath, encoding);
+    });
+    const cgroup = {
+      cgroupPath: '/sys/fs/cgroup/awf-cloud-hypervisor/test',
+      assign: jest.fn()
+        .mockResolvedValueOnce(undefined)
+        .mockRejectedValueOnce(Object.assign(new Error('gone'), { code: 'ESRCH' }))
+        .mockResolvedValue(undefined),
+    };
+
+    await expect(manager(deps, cgroup).start([workspace])).resolves.toHaveLength(1);
+    expect(cgroup.assign).toHaveBeenNthCalledWith(2, 1099);
+    expect(cgroup.assign).toHaveBeenNthCalledWith(3, 1100);
+  });
+
+  it('does not retry cgroup ENOENT while the candidate worker still exists', async () => {
+    const deps = dependencies();
+    const cgroup = {
+      cgroupPath: '/sys/fs/cgroup/awf-cloud-hypervisor/test',
+      assign: jest.fn()
+        .mockResolvedValueOnce(undefined)
+        .mockRejectedValue(Object.assign(
+          new Error('cgroup disappeared'),
+          { code: 'ENOENT' },
+        )),
+    };
+
+    await expect(manager(deps, cgroup).start([workspace]))
+      .rejects.toThrow(/cgroup disappeared/);
+    expect(deps.sleep).not.toHaveBeenCalled();
+  });
+
   it('surfaces an unexpected procfs error while discovering the sandbox worker', async () => {
     const deps = dependencies();
     const readFile = deps.readFile;
