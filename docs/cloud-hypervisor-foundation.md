@@ -151,9 +151,32 @@ rootfs. AWF injects the binary built from `guest/microvm-supervisor/` into the
 per-run rootfs.
 
 The workspace is a live read-write virtio-fs export mounted at `/workspace`.
-Validated additional exports use separate sandboxed `virtiofsd` processes.
+The default `workspace-only` mount policy does not infer tool-cache exposure
+from the host environment. Narrow gh-aw runtime directories
+(`RUNNER_TEMP/gh-aw` and `/tmp/gh-aw`) remain eligible when present, and every
+validated export uses a separate sandboxed `virtiofsd` process.
 The workspace path is never exposed directly to the VMM process through its
 Landlock rules.
+
+Use `--cloud-hypervisor-mount-policy workspace-and-tool-cache` (or
+`cloudHypervisor.mountPolicy: workspace-and-tool-cache`) only when the guest
+must execute runner-installed tools. This explicit opt-in selects
+`RUNNER_TOOL_CACHE`, falling back to `AGENT_TOOLSDIRECTORY`, requires the path
+to be an existing real directory, and exports the entire selected directory.
+AWF stages that export read-only in the host VFS before launching virtiofsd;
+guest mount flags alone are never treated as enforcement.
+
+AWF removes `RUNNER_TOOL_CACHE`, `AGENT_TOOLSDIRECTORY`, and `RUNNER_TEMP` from
+the inherited guest environment, then adds back only values backed by mounted
+exports. It never scans a cache to decide whether exposure is safe.
+
+:::caution[Preview migration]
+Earlier preview builds automatically exported a present runner tool cache.
+The secure default is now `workspace-only`. gh-aw-generated commands that scan
+`RUNNER_TOOL_CACHE` must add
+`--cloud-hypervisor-mount-policy workspace-and-tool-cache`; commands that do
+not need cached runner tools require no migration.
+:::
 
 Temporary microVM workspace data lives under:
 

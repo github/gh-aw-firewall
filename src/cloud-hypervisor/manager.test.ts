@@ -59,6 +59,7 @@ function virtiofsdManagerMock(): VirtiofsdManager {
 function config(overrides: Partial<CloudHypervisorOptions> = {}): CloudHypervisorOptions {
   return {
     previewEnabled: true,
+    mountPolicy: 'workspace-only',
     cloudHypervisorBinary: '/opt/cloud-hypervisor',
     kernelPath: '/opt/vmlinux',
     rootfsPath: '/opt/rootfs.ext4',
