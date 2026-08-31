@@ -2,10 +2,9 @@ import * as path from 'path';
 import type { ExecaChildProcess } from 'execa';
 import type { CloudHypervisorOptions } from '../types/runtime-options';
 import type { MicrovmRootfsPreparer } from '../microvm/rootfs';
-import {
-  createMicrovmNetworkPlan,
-  type MicrovmNetworkLifecycle,
-  type MicrovmNetworkPlan,
+import type {
+  MicrovmNetworkLifecycle,
+  MicrovmNetworkPlan,
 } from '../microvm/network';
 import type { CloudHypervisorApiClient } from './api-client';
 import {
@@ -85,14 +84,15 @@ export async function startCloudHypervisor(
     });
     context.setVmmIdentity(vmmIdentityManager);
     const identity = await vmmIdentityManager.allocate();
-    const networkPlan = createMicrovmNetworkPlan(paths.runId, {
+    const reservation = await dependencies.reserveNetwork(paths.runId, {
       ...networkConfig,
       tapOwnerUid: identity.uid,
       tapOwnerGid: identity.gid,
       tapVnetHdr: true,
-    });
+    }, artifacts.tools);
+    const networkPlan = reservation.plan;
     context.setNetworkPlan(networkPlan);
-    const network = dependencies.createNetwork(networkPlan, artifacts.tools);
+    const network = dependencies.createNetwork(networkPlan, artifacts.tools, reservation);
     context.setNetwork(network);
     await network.setup();
     let rootfsSource = artifacts.rootfsPath;

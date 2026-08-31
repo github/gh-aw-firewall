@@ -200,7 +200,7 @@ describe('Cloud Hypervisor preflight (foundation only)', () => {
       constants.R_OK | constants.W_OK,
     );
     expect(deps.sha256).toHaveBeenCalledTimes(5);
-    expect(deps.assertToolAvailable).toHaveBeenCalledTimes(18);
+    expect(deps.assertToolAvailable).toHaveBeenCalledTimes(19);
     expect(deps.assertDockerInfrastructure).toHaveBeenCalledWith('/usr/bin/docker');
     expect(result.tools).toEqual({
       getfacl: '/usr/bin/getfacl',
@@ -210,6 +210,7 @@ describe('Cloud Hypervisor preflight (foundation only)', () => {
       ip: '/usr/bin/ip',
       nft: '/usr/bin/nft',
       sysctl: '/usr/bin/sysctl',
+      flock: '/usr/bin/flock',
       mke2fs: '/usr/bin/mke2fs',
       debugfs: '/usr/bin/debugfs',
       e2fsck: '/usr/bin/e2fsck',

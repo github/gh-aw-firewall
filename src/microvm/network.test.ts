@@ -46,6 +46,7 @@ function commandHarness(failAt?: number): {
       if (options.reject && ++rejectingCall === failAt) {
         throw new Error(`stage ${failAt} failed`);
       }
+      return { exitCode: args.includes('-C') ? 1 : 0 };
     }),
   );
   return { calls, commands };
@@ -279,11 +280,13 @@ describe('microVM network lifecycle', () => {
     expect(calls[5].args).toEqual([
       '-t', 'filter', '-C', 'DOCKER-USER',
       '-i', plan.infrastructureBridge, '-o', plan.infrastructureBridge,
+      '-m', 'comment', '--comment', `awf-microvm-${plan.resourceToken}`,
       '-j', 'ACCEPT',
     ]);
     expect(calls[6].args).toEqual([
       '-t', 'filter', '-I', 'DOCKER-USER', '1',
       '-i', plan.infrastructureBridge, '-o', plan.infrastructureBridge,
+      '-m', 'comment', '--comment', `awf-microvm-${plan.resourceToken}`,
       '-j', 'ACCEPT',
     ]);
     expect(calls[7].args).toEqual([
@@ -430,6 +433,49 @@ describe('microVM network lifecycle', () => {
     expect(calls.some((call) => call.args.includes('flush'))).toBe(false);
   });
 
+  it('cleans up only its own reservation and bridge rule while another run is active', async () => {
+    const firstPlan = createPlan('concurrent-first');
+    const secondPlan = createPlan('concurrent-second');
+    const { calls, commands } = commandHarness();
+    const firstReservation = {
+      plan: firstPlan,
+      release: jest.fn().mockResolvedValue(undefined),
+    };
+    const secondReservation = {
+      plan: secondPlan,
+      release: jest.fn().mockResolvedValue(undefined),
+    };
+    const first = new MicrovmNetworkManager(
+      firstPlan,
+      commands,
+      undefined,
+      firstReservation,
+    );
+    const second = new MicrovmNetworkManager(
+      secondPlan,
+      commands,
+      undefined,
+      secondReservation,
+    );
+
+    await first.setup();
+    await second.setup();
+    await first.cleanup();
+
+    expect(firstReservation.release).toHaveBeenCalledTimes(1);
+    expect(secondReservation.release).not.toHaveBeenCalled();
+    const deletedRuleComments = calls
+      .filter((call) => call.args.includes('-D'))
+      .map((call) => call.args[call.args.indexOf('--comment') + 1]);
+    expect(deletedRuleComments).toEqual([`awf-microvm-${firstPlan.resourceToken}`]);
+    expect(calls.some((call) => (
+      call.args.includes('delete') && call.args.includes(secondPlan.namespaceName)
+    ))).toBe(false);
+
+    await second.cleanup();
+    expect(secondReservation.release).toHaveBeenCalledTimes(1);
+  });
+
   it('retains the namespace and nft policy for a retry when host veth deletion fails', async () => {
     const plan = createPlan('cleanup-retry');
     let hostVethDeleteFailed = false;
@@ -482,6 +528,7 @@ describe('microVM network lifecycle', () => {
       }
       return originalIp(args, reject);
     });
+
     const manager = new MicrovmNetworkManager(plan, commands);
 
     await manager.setup();
@@ -493,6 +540,27 @@ describe('microVM network lifecycle', () => {
       && call.args[1] === 'delete'
       && call.args[2] === plan.namespaceName
     ))).toHaveLength(1);
+  });
+
+  it('retains its reservation for retry when its owned firewall rule remains', async () => {
+    const plan = createPlan('firewall-cleanup-retry');
+    const { commands } = commandHarness();
+    const reservation = {
+      plan,
+      release: jest.fn().mockResolvedValue(undefined),
+    };
+    const removeRule = jest.spyOn(commands, 'removeBridgeForwardAcceptRule')
+      .mockRejectedValueOnce(new Error('owned rule remains'))
+      .mockResolvedValueOnce(undefined);
+    const manager = new MicrovmNetworkManager(plan, commands, undefined, reservation);
+
+    await manager.setup();
+    await expect(manager.cleanup()).rejects.toThrow('owned rule remains');
+    expect(reservation.release).not.toHaveBeenCalled();
+
+    await expect(manager.cleanup()).resolves.toBeUndefined();
+    expect(removeRule).toHaveBeenCalledTimes(2);
+    expect(reservation.release).toHaveBeenCalledTimes(1);
   });
 
   it('captureDiagnostics delegates to the namespace and host bridge once setup completes, and is empty before/after', async () => {
@@ -538,6 +606,7 @@ describe('microVM network lifecycle', () => {
     expect(insertCall?.args).toEqual([
       '-t', 'filter', '-I', 'DOCKER-USER', '1',
       '-i', plan.infrastructureBridge, '-o', plan.infrastructureBridge,
+      '-m', 'comment', '--comment', `awf-microvm-${plan.resourceToken}`,
       '-j', 'ACCEPT',
     ]);
 
@@ -546,6 +615,7 @@ describe('microVM network lifecycle', () => {
     expect(deleteCall?.args).toEqual([
       '-t', 'filter', '-D', 'DOCKER-USER',
       '-i', plan.infrastructureBridge, '-o', plan.infrastructureBridge,
+      '-m', 'comment', '--comment', `awf-microvm-${plan.resourceToken}`,
       '-j', 'ACCEPT',
     ]);
     // Removal must be tolerant of the rule already being gone (e.g. a
@@ -581,11 +651,11 @@ describe('LinuxNetworkCommands.ensureBridgeForwardAcceptRule / removeBridgeForwa
       }),
     );
 
-    await commands.ensureBridgeForwardAcceptRule('awfbr0');
+    await commands.ensureBridgeForwardAcceptRule('awfbr0', '0123456789ab');
 
     expect(calls).toEqual([
-      { args: ['-t', 'filter', '-C', 'DOCKER-USER', '-i', 'awfbr0', '-o', 'awfbr0', '-j', 'ACCEPT'] },
-      { args: ['-t', 'filter', '-I', 'DOCKER-USER', '1', '-i', 'awfbr0', '-o', 'awfbr0', '-j', 'ACCEPT'] },
+      { args: ['-t', 'filter', '-C', 'DOCKER-USER', '-i', 'awfbr0', '-o', 'awfbr0', '-m', 'comment', '--comment', 'awf-microvm-0123456789ab', '-j', 'ACCEPT'] },
+      { args: ['-t', 'filter', '-I', 'DOCKER-USER', '1', '-i', 'awfbr0', '-o', 'awfbr0', '-m', 'comment', '--comment', 'awf-microvm-0123456789ab', '-j', 'ACCEPT'] },
     ]);
   });
 
@@ -598,21 +668,32 @@ describe('LinuxNetworkCommands.ensureBridgeForwardAcceptRule / removeBridgeForwa
       }),
     );
 
-    await commands.ensureBridgeForwardAcceptRule('awfbr0');
+    await commands.ensureBridgeForwardAcceptRule('awfbr0', '0123456789ab');
 
     expect(calls).toEqual([
-      { args: ['-t', 'filter', '-C', 'DOCKER-USER', '-i', 'awfbr0', '-o', 'awfbr0', '-j', 'ACCEPT'] },
+      { args: ['-t', 'filter', '-C', 'DOCKER-USER', '-i', 'awfbr0', '-o', 'awfbr0', '-m', 'comment', '--comment', 'awf-microvm-0123456789ab', '-j', 'ACCEPT'] },
     ]);
   });
 
-  it('removeBridgeForwardAcceptRule never throws even if the rule is already gone', async () => {
+  it('removeBridgeForwardAcceptRule accepts an already-absent owned rule', async () => {
     const commands = new LinuxNetworkCommands(
-      jest.fn(async () => {
-        throw new Error('Bad rule (does a matching rule exist in that chain?)');
-      }),
+      jest.fn(async () => ({ exitCode: 1 })),
     );
 
-    await expect(commands.removeBridgeForwardAcceptRule('awfbr0')).resolves.toBeUndefined();
+    await expect(commands.removeBridgeForwardAcceptRule('awfbr0', '0123456789ab'))
+      .resolves.toBeUndefined();
+  });
+
+  it('removeBridgeForwardAcceptRule reports a deletion that leaves the owned rule live', async () => {
+    const commands = new LinuxNetworkCommands(
+      jest.fn(async (_command, args) => ({
+        exitCode: args.includes('-C') ? 0 : 1,
+        stderr: 'permission denied',
+      })),
+    );
+
+    await expect(commands.removeBridgeForwardAcceptRule('awfbr0', '0123456789ab'))
+      .rejects.toThrow(/permission denied/);
   });
 });
 

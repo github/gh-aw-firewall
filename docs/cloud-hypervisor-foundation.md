@@ -203,12 +203,36 @@ proxy endpoint and non-secret execution settings.
 
 ### Network egress
 
-Each run uses deterministic, length-bounded resource names:
+Before creating network resources, each run acquires an OS-held `flock` on the
+root-owned `0700` directory `/run/awf-microvm-network/`. While holding that
+lock, AWF atomically chooses an unused `/30` guest subnet, bridge-side source
+address, and random resource token after checking durable reservations plus
+live namespaces, interfaces, addresses, and routes in every named namespace.
+It writes a mode `0600` reservation containing
+the kernel boot ID, owner PID, process start time, and a unique lease ID before
+releasing the lock. The kernel releases the allocation lock automatically if
+the allocator exits, so there is no stale lock file ownership protocol or
+TOCTOU cleanup window.
+
+Each reservation produces length-bounded resource names:
 
 - namespace: `awfvm-<token>`
 - host veth: `vmh<token>`
 - namespace veth: `vmn<token>`
 - TAP device: `vmt<token>`
+
+Allocation is intentionally not deterministic: diagnostics record the selected
+token, subnet, and reservation path in `network-plan.json`. This keeps incident
+diagnostics reproducible without making concurrency depend on a hash collision
+not occurring.
+
+Cleanup removes only resources named by that run and deletes the reservation
+only when its lease and process identity still match the durable record.
+Per-run `DOCKER-USER` rules carry the reservation token in an iptables comment,
+so one concurrent run cannot delete another run's otherwise-identical bridge
+rule. A dead owner's reservation is reclaimed only after its boot/PID/start-time
+identity is stale and none of its namespace, interfaces, or subnet routes
+remain live.
 
 The namespace connects the guest TAP to AWF's host-side infrastructure.
 nftables permits only the required paths to Squid and the API proxy and denies

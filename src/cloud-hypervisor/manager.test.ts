@@ -5,6 +5,7 @@ import type {
   MicrovmNetworkLifecycle,
   MicrovmNetworkPlan,
 } from '../microvm/network';
+import { createMicrovmNetworkPlan } from '../microvm/network';
 import type { MicrovmVsockClient } from '../microvm/vsock-client';
 import type { MicrovmRootfsPreparer } from '../microvm/rootfs';
 import type { CloudHypervisorOptions } from '../types/runtime-options';
@@ -31,6 +32,7 @@ const hostTools: CloudHypervisorHostToolPaths = {
   ip: '/usr/bin/ip',
   nft: '/usr/sbin/nft',
   sysctl: '/usr/sbin/sysctl',
+  flock: '/usr/bin/flock',
   mke2fs: '/usr/sbin/mke2fs',
   debugfs: '/usr/sbin/debugfs',
   e2fsck: '/usr/sbin/e2fsck',
@@ -186,6 +188,10 @@ function dependencies(
     rm: jest.fn().mockResolvedValue(undefined),
     sleep: jest.fn().mockResolvedValue(undefined),
     createClient: jest.fn().mockReturnValue(client),
+    reserveNetwork: jest.fn(async (runId, options) => {
+      const plan = createMicrovmNetworkPlan(runId, options);
+      return { plan, release: jest.fn().mockResolvedValue(undefined) };
+    }),
     createNetwork: jest.fn((plan) => networkLifecycle(plan)),
     createRootfsPreparer: jest.fn(() => rootfsPreparerMock()),
     createVirtiofsdManager: jest.fn(() => virtiofsdManagerMock()),
@@ -238,7 +244,11 @@ describe('CloudHypervisorManager', () => {
     await expect(child).resolves.toMatchObject({ exitCode: 0 });
     await expect(defaults.sleep(0)).resolves.toBeUndefined();
     expect(defaults.createClient('/tmp/api.socket', 100)).toBeDefined();
-    expect(defaults.createNetwork({} as MicrovmNetworkPlan, hostTools)).toBeDefined();
+    expect(defaults.createNetwork(
+      {} as MicrovmNetworkPlan,
+      hostTools,
+      { plan: {} as MicrovmNetworkPlan, release: jest.fn() },
+    )).toBeDefined();
     expect(defaults.createRootfsPreparer({
       runDirectory: '/work/rootfs',
       baseRootfsPath: '/opt/rootfs',
@@ -390,6 +400,7 @@ describe('CloudHypervisorManager', () => {
         tapVnetHdr: true,
       }),
       hostTools,
+      expect.objectContaining({ plan: expect.objectContaining({ runId: 'run-1' }) }),
     );
     const lifecycle = (deps.createNetwork as jest.Mock).mock.results[0]
       .value as MicrovmNetworkLifecycle;
@@ -581,6 +592,7 @@ describe('CloudHypervisorManager', () => {
         ]),
       }),
       hostTools,
+      expect.objectContaining({ plan: expect.objectContaining({ runId: 'guest' }) }),
     );
     expect(client.vmCreate).toHaveBeenCalledWith(expect.objectContaining({
       payload: expect.objectContaining({ cmdline: expect.stringContaining('init=/usr/sbin/awf-supervisor') }),
@@ -1055,6 +1067,7 @@ describe('CloudHypervisorManager', () => {
   it('builds explicit supervisor boot cmdline with PCI-required root/interface naming', () => {
     const args = buildSupervisorBootArgs({
       runId: 'run',
+      resourceToken: '000000000000',
       namespaceName: 'ns',
       netnsPath: '/var/run/netns/ns',
       nftTableName: 'table',

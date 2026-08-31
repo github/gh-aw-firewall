@@ -2,6 +2,7 @@ export interface MicrovmNetworkHostTools {
   readonly ip: string;
   readonly nft: string;
   readonly sysctl: string;
+  readonly flock: string;
 }
 
 /**
@@ -49,8 +50,17 @@ export interface MicrovmNetworkPlanOptions {
   readonly tapVnetHdr?: boolean;
 }
 
+export interface MicrovmNetworkPlanAllocation {
+  readonly resourceToken: string;
+  readonly subnetIndex: number;
+  readonly infrastructureIp?: string;
+  readonly reservationPath?: string;
+}
+
 export interface MicrovmNetworkPlan {
   readonly runId: string;
+  readonly resourceToken: string;
+  readonly reservationPath?: string;
   readonly namespaceName: string;
   readonly netnsPath: string;
   readonly nftTableName: string;
@@ -88,6 +98,11 @@ export interface MicrovmNetworkLifecycle {
    * `cleanup()`). Not required by every implementer/mock.
    */
   captureDiagnostics?(): Promise<string>;
+}
+
+export interface MicrovmNetworkReservation {
+  readonly plan: MicrovmNetworkPlan;
+  release(): Promise<void>;
 }
 
 export interface MicrovmNetworkCommandOptions {

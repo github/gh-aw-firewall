@@ -47,6 +47,7 @@ export class LinuxNetworkCommands {
       ip: 'ip',
       nft: 'nft',
       sysctl: 'sysctl',
+      flock: 'flock',
     },
     private readonly rulesetFile: MicrovmNetworkRulesetFile = defaultRulesetFile,
   ) {}
@@ -128,34 +129,55 @@ export class LinuxNetworkCommands {
    * nftables allowlist (which still restricts what the guest can send in
    * the first place).
    */
-  async ensureBridgeForwardAcceptRule(bridgeName: string): Promise<void> {
+  async ensureBridgeForwardAcceptRule(bridgeName: string, resourceToken: string): Promise<void> {
+    const ownership = ['-m', 'comment', '--comment', `awf-microvm-${resourceToken}`];
     const checkResult = await this.execute(
       'iptables',
-      ['-t', 'filter', '-C', 'DOCKER-USER', '-i', bridgeName, '-o', bridgeName, '-j', 'ACCEPT'],
+      [
+        '-t', 'filter', '-C', 'DOCKER-USER',
+        '-i', bridgeName, '-o', bridgeName,
+        ...ownership, '-j', 'ACCEPT',
+      ],
       { reject: false },
     );
     const exitCode = (checkResult as { exitCode?: number } | undefined)?.exitCode;
     if (exitCode === 0) return;
     await this.execute(
       'iptables',
-      ['-t', 'filter', '-I', 'DOCKER-USER', '1', '-i', bridgeName, '-o', bridgeName, '-j', 'ACCEPT'],
+      [
+        '-t', 'filter', '-I', 'DOCKER-USER', '1',
+        '-i', bridgeName, '-o', bridgeName,
+        ...ownership, '-j', 'ACCEPT',
+      ],
       { reject: true },
     );
   }
 
-  /** Removes the rule `ensureBridgeForwardAcceptRule` installs, if present. Tolerant of it already being gone or the underlying command failing outright. */
-  async removeBridgeForwardAcceptRule(bridgeName: string): Promise<void> {
-    try {
-      await this.execute(
-        'iptables',
-        ['-t', 'filter', '-D', 'DOCKER-USER', '-i', bridgeName, '-o', bridgeName, '-j', 'ACCEPT'],
-        { reject: false },
-      );
-    } catch {
-      // Best-effort cleanup: an already-removed rule, or the iptables
-      // binary itself being unavailable, must not fail the caller's own
-      // cleanup sequence.
-    }
+  /** Removes only this reservation's rule and verifies a failed delete means it was already absent. */
+  async removeBridgeForwardAcceptRule(bridgeName: string, resourceToken: string): Promise<void> {
+    const rule = [
+      '-t', 'filter', 'DOCKER-USER',
+      '-i', bridgeName, '-o', bridgeName,
+      '-m', 'comment', '--comment', `awf-microvm-${resourceToken}`,
+      '-j', 'ACCEPT',
+    ];
+    const deletion = await this.execute(
+      'iptables',
+      [rule[0], rule[1], '-D', ...rule.slice(2)],
+      { reject: false },
+    ) as { exitCode?: number; stderr?: string } | undefined;
+    if (deletion?.exitCode === 0) return;
+
+    const check = await this.execute(
+      'iptables',
+      [rule[0], rule[1], '-C', ...rule.slice(2)],
+      { reject: false },
+    ) as { exitCode?: number; stderr?: string } | undefined;
+    if (check?.exitCode === 1) return;
+    throw new Error(
+      `Failed to remove owned DOCKER-USER rule awf-microvm-${resourceToken}: ` +
+      (deletion?.stderr ?? check?.stderr ?? 'iptables returned an unknown status'),
+    );
   }
 
   /**
