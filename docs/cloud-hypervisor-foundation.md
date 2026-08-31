@@ -74,15 +74,20 @@ AWF performs these steps for each run:
    run directory.
 6. Create a bounded cgroup v2 leaf and launch Cloud Hypervisor as the invoking
    non-root identity.
-7. Start one sandboxed `virtiofsd` process for each validated export.
-8. Create and boot the VM, connect to the guest supervisor over VSOCK, verify
+7. After the API responds, verify the launched VMM's trusted host `/proc` and
+   cgroup state. AWF fails closed before `vm.create` if the PID identity,
+   executable, credentials, capabilities, `no_new_privs`, seccomp worker,
+   network namespace, cgroup membership, or resource limits differ from the
+   launch policy.
+8. Start one sandboxed `virtiofsd` process for each validated export.
+9. Create and boot the VM, connect to the guest supervisor over VSOCK, verify
    loopback plus the configured guest interface, address, and route, and probe
    each trusted infrastructure service with bounded retries. An exhausted
    retryable readiness failure recreates the VM at most twice before the agent
    command is dispatched.
-9. Execute the agent command and propagate its exit code. Timeouts return
+10. Execute the agent command and propagate its exit code. Timeouts return
    `124`.
-10. Sync and unmount guest filesystems, stop the VM and VMM, reap `virtiofsd`,
+11. Sync and unmount guest filesystems, stop the VM and VMM, reap `virtiofsd`,
     and remove network, cgroup, and run-directory resources.
 
 Cleanup is idempotent and aggregates errors so one cleanup failure does not
@@ -118,6 +123,23 @@ shell. The process:
 - uses Cloud Hypervisor's seccomp filter;
 - receives a minimal Landlock filesystem allowlist; and
 - belongs to a cgroup v2 leaf with explicit memory, CPU, and PID limits.
+
+API socket readiness alone is not treated as proof of confinement. Before
+creating any VM or starting `virtiofsd`, AWF reads the VMM's host `/proc`
+records and cgroup files as root. It verifies the PID twice using the kernel
+start-time field and executable symlink to reject process-exit and PID-reuse
+races. Credentials and capability sets are checked against the launcher's
+current policy for every observed thread, and both the `vmm` worker and
+`http-server` API thread must be in seccomp filter mode. The verifier also
+compares network namespace inode links, requires exclusive membership in the
+per-run cgroup, and checks the exact memory, CPU, and PID limits computed by the
+cgroup policy.
+
+Successful verification produces bounded structured evidence in
+`confinement.json` alongside the other run diagnostics. The evidence records
+the stable process identity, expected credentials and capabilities, relevant
+seccomp thread IDs, namespace inode, and cgroup membership and limits; it does
+not copy unbounded `/proc` content.
 
 The private run directory is under
 `/run/awf-cloud-hypervisor/<binary>/<runId>/`. Its per-run leaf is accessible
@@ -467,7 +489,8 @@ sudo nft list ruleset
 
 Inspect preserved workspace data under
 `<workDir>/microvm-images/<runId>/` and VMM diagnostics under the run's
-preserved log directory.
+preserved log directory. `confinement.json` contains the production
+post-launch verification evidence captured before `vm.create`.
 
 :::caution
 Preserved namespaces and processes continue consuming host resources. Remove

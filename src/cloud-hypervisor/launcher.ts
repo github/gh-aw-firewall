@@ -70,11 +70,48 @@ export interface CloudHypervisorLaunchIdentity {
 export interface CloudHypervisorLaunchCommand {
   readonly command: string;
   readonly args: readonly string[];
+  readonly confinementPolicy: CloudHypervisorLaunchConfinementPolicy;
 }
 
 export interface CloudHypervisorLaunchToolPaths {
   readonly ip: string;
   readonly setpriv: string;
+}
+
+export interface CloudHypervisorLaunchConfinementPolicy {
+  readonly supplementaryGroups: readonly number[];
+  readonly capabilities: {
+    readonly inheritable: string;
+    readonly permitted: string;
+    readonly effective: string;
+    readonly bounding: string;
+    readonly ambient: string;
+  };
+  readonly noNewPrivs: 1;
+}
+
+const CLOUD_HYPERVISOR_ALLOWED_CAPABILITIES = [
+  { setprivName: 'net_admin', bit: 12 },
+] as const;
+
+function buildCloudHypervisorConfinementPolicy(
+  kvmGid: number,
+): CloudHypervisorLaunchConfinementPolicy {
+  const capabilityMask = CLOUD_HYPERVISOR_ALLOWED_CAPABILITIES
+    .reduce((mask, capability) => mask | (1n << BigInt(capability.bit)), 0n)
+    .toString(16)
+    .padStart(16, '0');
+  return {
+    supplementaryGroups: [kvmGid],
+    capabilities: {
+      inheritable: capabilityMask,
+      permitted: capabilityMask,
+      effective: capabilityMask,
+      bounding: capabilityMask,
+      ambient: capabilityMask,
+    },
+    noNewPrivs: 1,
+  };
 }
 
 /**
@@ -125,6 +162,12 @@ export function buildCloudHypervisorLaunchCommand(options: {
   if (!path.isAbsolute(options.apiSocketPath)) {
     throw new Error(`Cloud Hypervisor API socket path must be absolute: ${options.apiSocketPath}`);
   }
+  const setprivCapabilities = CLOUD_HYPERVISOR_ALLOWED_CAPABILITIES
+    .map((capability) => `+${capability.setprivName}`)
+    .join(',');
+  const resetCapabilitySet = setprivCapabilities
+    ? `-all,${setprivCapabilities}`
+    : '-all';
 
   return {
     command: options.tools.ip,
@@ -140,9 +183,9 @@ export function buildCloudHypervisorLaunchCommand(options: {
       '--no-new-privs',
       // CAP_NET_ADMIN is the sole exception to an otherwise fully empty
       // capability set — see the function doc comment above for why.
-      '--inh-caps=-all,+net_admin',
-      '--bounding-set=-all,+net_admin',
-      '--ambient-caps=+net_admin',
+      `--inh-caps=${resetCapabilitySet}`,
+      `--bounding-set=${resetCapabilitySet}`,
+      `--ambient-caps=${setprivCapabilities || '-all'}`,
       '--',
       options.cloudHypervisorBinary,
       '--api-socket', `path=${options.apiSocketPath}`,
@@ -150,6 +193,7 @@ export function buildCloudHypervisorLaunchCommand(options: {
       '-v',
       '--seccomp', 'true',
     ],
+    confinementPolicy: buildCloudHypervisorConfinementPolicy(options.kvmGid),
   };
 }
 
@@ -188,6 +232,12 @@ export function computeCloudHypervisorLandlockRules(
 export interface CloudHypervisorResourceLimits {
   readonly memoryMib: number;
   readonly vcpuCount: number;
+}
+
+export interface CloudHypervisorCgroupLimits {
+  readonly memoryMax: string;
+  readonly cpuMax: string;
+  readonly pidsMax: string;
 }
 
 /** Fixed VMM/guest-overhead headroom added on top of configured guest memory. */
@@ -243,6 +293,18 @@ const defaultCgroupDependencies: CloudHypervisorCgroupDependencies = {
   sleep: (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
 };
 
+export function computeCloudHypervisorCgroupLimits(
+  limits: CloudHypervisorResourceLimits,
+): CloudHypervisorCgroupLimits {
+  const memoryMaxBytes = (limits.memoryMib + CGROUP_MEMORY_HEADROOM_MIB) * 1024 * 1024;
+  const cpuQuotaUs = limits.vcpuCount * CGROUP_V2_PERIOD_US + CGROUP_CPU_HEADROOM_QUOTA_US;
+  return {
+    memoryMax: String(memoryMaxBytes),
+    cpuMax: `${cpuQuotaUs} ${CGROUP_V2_PERIOD_US}`,
+    pidsMax: String(CGROUP_MAX_PIDS),
+  };
+}
+
 /**
  * Places one Cloud Hypervisor run under an explicit memory/CPU/PID cgroup,
  * created before launch and assigned by PID immediately after spawn (moving
@@ -277,14 +339,14 @@ export class CloudHypervisorCgroup {
     await this.dependencies.mkdir(this.cgroupPath);
     this.created = true;
 
-    const memoryMaxBytes = (this.limits.memoryMib + CGROUP_MEMORY_HEADROOM_MIB) * 1024 * 1024;
-    const cpuQuotaUs = this.limits.vcpuCount * CGROUP_V2_PERIOD_US + CGROUP_CPU_HEADROOM_QUOTA_US;
-    await this.dependencies.writeFile(path.join(this.cgroupPath, 'memory.max'), String(memoryMaxBytes));
-    await this.dependencies.writeFile(
-      path.join(this.cgroupPath, 'cpu.max'),
-      `${cpuQuotaUs} ${CGROUP_V2_PERIOD_US}`,
-    );
-    await this.dependencies.writeFile(path.join(this.cgroupPath, 'pids.max'), String(CGROUP_MAX_PIDS));
+    const expected = this.expectedLimits();
+    await this.dependencies.writeFile(path.join(this.cgroupPath, 'memory.max'), expected.memoryMax);
+    await this.dependencies.writeFile(path.join(this.cgroupPath, 'cpu.max'), expected.cpuMax);
+    await this.dependencies.writeFile(path.join(this.cgroupPath, 'pids.max'), expected.pidsMax);
+  }
+
+  expectedLimits(): CloudHypervisorCgroupLimits {
+    return computeCloudHypervisorCgroupLimits(this.limits);
   }
 
   async assign(pid: number): Promise<void> {

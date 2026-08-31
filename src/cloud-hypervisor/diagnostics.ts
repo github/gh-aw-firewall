@@ -21,6 +21,7 @@ import {
   type CloudHypervisorRunPaths,
 } from './manager-types';
 import type { VirtiofsdDevice } from './virtiofsd';
+import type { CloudHypervisorConfinementEvidence } from './confinement-verifier';
 
 /** Reads at most `maxBytes` from the end of `filePath`. */
 export async function readBoundedTail(filePath: string, maxBytes: number): Promise<Buffer> {
@@ -160,6 +161,7 @@ export interface CloudHypervisorDiagnosticsContext {
   lastVmInfo: CloudHypervisorVmInfo | undefined;
   lastVmCounters: CloudHypervisorVmCounters | undefined;
   fsDevices: readonly VirtiofsdDevice[];
+  confinementEvidence: CloudHypervisorConfinementEvidence | undefined;
 }
 
 export async function collectCloudHypervisorDiagnostics(
@@ -260,6 +262,11 @@ export async function collectCloudHypervisorDiagnostics(
       memoryMib: config.memoryMib,
       instanceStarted: context.instanceStarted,
     }, null, 2)}\n`,
+    { mode: 0o600 },
+  );
+  await dependencies.writeFile(
+    path.join(directory, 'confinement.json'),
+    `${JSON.stringify(context.confinementEvidence ?? null, null, 2)}\n`,
     { mode: 0o600 },
   );
 }

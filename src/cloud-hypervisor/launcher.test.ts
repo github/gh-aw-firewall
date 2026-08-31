@@ -37,6 +37,17 @@ describe('buildCloudHypervisorLaunchCommand', () => {
       '--seccomp', 'true',
     ]);
     expect(result.args).not.toContain('--clear-groups');
+    expect(result.confinementPolicy).toEqual({
+      supplementaryGroups: [978],
+      capabilities: {
+        inheritable: '0000000000001000',
+        permitted: '0000000000001000',
+        effective: '0000000000001000',
+        bounding: '0000000000001000',
+        ambient: '0000000000001000',
+      },
+      noNewPrivs: 1,
+    });
     // No argument contains shell metacharacters that would matter if ever
     // interpolated; more importantly, args are a plain array (never joined
     // into a shell string) so metacharacters have no special meaning here.

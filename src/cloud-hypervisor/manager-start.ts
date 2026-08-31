@@ -30,6 +30,7 @@ import { hasReadOnlyWorkspaceMountPlan } from './filesystem-write-enforcement';
 import type { VirtiofsdManager, VirtiofsdDevice } from './virtiofsd';
 import { buildCloudHypervisorVmConfig } from './vm-config-builder';
 import type { BoundedOutputCapture } from './diagnostics';
+import type { CloudHypervisorConfinementEvidence } from './confinement-verifier';
 
 export interface CloudHypervisorStartContext {
   config: CloudHypervisorOptions;
@@ -46,6 +47,7 @@ export interface CloudHypervisorStartContext {
   setCgroup(cgroup: CloudHypervisorCgroup | undefined): void;
   setProcess(process: ExecaChildProcess<string> | undefined): void;
   setClient(client: CloudHypervisorApiClient | undefined): void;
+  setConfinementEvidence(evidence: CloudHypervisorConfinementEvidence | undefined): void;
   setVirtiofsd(virtiofsd: VirtiofsdManager | undefined): void;
   setFsDevices(devices: VirtiofsdDevice[]): void;
   getFsDevices(): VirtiofsdDevice[];
@@ -139,6 +141,18 @@ export async function startCloudHypervisor(
     const client = dependencies.createClient(paths.apiSocketPath, config.apiTimeoutMs);
     context.setClient(client);
     await client.ping();
+    if (child.pid === undefined) {
+      throw new Error('Cloud Hypervisor launcher did not report a PID for confinement verification');
+    }
+    context.setConfinementEvidence(await dependencies.verifyConfinement({
+      pid: child.pid,
+      expectedExecutable: config.cloudHypervisorBinary,
+      identity,
+      launchPolicy: launchCommand.confinementPolicy,
+      networkNamespace: networkPlan.namespaceName,
+      cgroupPath: paths.cgroupPath,
+      cgroupLimits: cgroup.expectedLimits(),
+    }));
     if (guestConfig) {
       const virtiofsd = dependencies.createVirtiofsdManager(
         artifacts.virtiofsdBinary, paths.runDirectory, paths.virtiofsdShareDirectory,

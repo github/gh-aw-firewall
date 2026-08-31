@@ -44,6 +44,10 @@ import {
 } from './manager-types';
 import { runCloudHypervisorPreflight } from './preflight';
 import type { CloudHypervisorHostToolPaths } from './preflight';
+import {
+  verifyCloudHypervisorConfinement,
+  type CloudHypervisorConfinementEvidence,
+} from './confinement-verifier';
 import { startCloudHypervisor } from './manager-start';
 import { stopCloudHypervisor } from './manager-stop';
 import { VirtiofsdManager, type VirtiofsdDevice } from './virtiofsd';
@@ -103,6 +107,7 @@ const defaultDependencies: CloudHypervisorManagerDependencies = {
     writeTimeoutMs: timeoutMs,
   }),
   createCgroup: (cgroupPath, limits) => new CloudHypervisorCgroup(cgroupPath, limits),
+  verifyConfinement: verifyCloudHypervisorConfinement,
   resolveIdentity: resolveCloudHypervisorIdentity,
 };
 
@@ -161,6 +166,7 @@ export class CloudHypervisorManager {
   private guest: CloudHypervisorGuestChannel | undefined;
   private cgroup: CloudHypervisorCgroup | undefined;
   private networkPlan: MicrovmNetworkPlan | undefined;
+  private confinementEvidence: CloudHypervisorConfinementEvidence | undefined;
   private instanceStarted = false;
   // Snapshotted in stop(), before any shutdown attempt, since the API
   // socket becomes unresponsive once the process is asked to exit --
@@ -217,6 +223,7 @@ export class CloudHypervisorManager {
       setCgroup: (value) => { this.cgroup = value; },
       setProcess: (value) => { this.process = value; },
       setClient: (value) => { this.client = value; },
+      setConfinementEvidence: (value) => { this.confinementEvidence = value; },
       setVirtiofsd: (value) => { this.virtiofsd = value; },
       setFsDevices: (value) => { this.fsDevices = value; },
       getFsDevices: () => this.fsDevices,
@@ -322,6 +329,7 @@ export class CloudHypervisorManager {
       lastVmInfo: this.lastVmInfo,
       lastVmCounters: this.lastVmCounters,
       fsDevices: this.fsDevices,
+      confinementEvidence: this.confinementEvidence,
     });
   }
 }
