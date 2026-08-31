@@ -130,7 +130,25 @@ export async function resolveCloudHypervisorExports(
     seenExports.set(key, exports.length);
     exports.push(resolvedExport);
   }
-  return validateCloudHypervisorExports(exports);
+  const validated = validateCloudHypervisorExports(exports);
+  const runnerToolCache = validated.find((entry) => entry.tag === 'runner-tool-cache');
+  if (runnerToolCache) {
+    const writableAlias = validated.find((entry) => (
+      entry.mode === 'rw' &&
+      (
+        entry.source === runnerToolCache.source ||
+        containsPath(entry.source, runnerToolCache.source) ||
+        containsPath(runnerToolCache.source, entry.source)
+      )
+    ));
+    if (writableAlias) {
+      throw new Error(
+        `Cloud Hypervisor runner tool cache source overlaps writable export "${writableAlias.tag}": ` +
+        `${runnerToolCache.source}`,
+      );
+    }
+  }
+  return validated;
 }
 
 export function validateCloudHypervisorExports(

@@ -153,8 +153,9 @@ the full architecture and security-boundary writeup.
 - `workspace-and-tool-cache` explicitly opts into exporting the whole path
   named by `RUNNER_TOOL_CACHE`, falling back to `AGENT_TOOLSDIRECTORY`. AWF
   requires that value to name an existing real directory and stages it
-  read-only on the host before virtiofsd starts. Missing paths and unknown
-  policy values are errors.
+  recursively read-only on the host before virtiofsd starts. Cache paths that
+  overlap writable export sources, missing paths, and unknown policy values are
+  errors.
 
 AWF forwards `RUNNER_TOOL_CACHE` or `AGENT_TOOLSDIRECTORY` into the guest only
 when the corresponding export exists. gh-aw versions that generate a command

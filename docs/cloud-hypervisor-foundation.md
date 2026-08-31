@@ -163,8 +163,11 @@ Use `--cloud-hypervisor-mount-policy workspace-and-tool-cache` (or
 must execute runner-installed tools. This explicit opt-in selects
 `RUNNER_TOOL_CACHE`, falling back to `AGENT_TOOLSDIRECTORY`, requires the path
 to be an existing real directory, and exports the entire selected directory.
-AWF stages that export read-only in the host VFS before launching virtiofsd;
-guest mount flags alone are never treated as enforcement.
+AWF recursively stages and verifies that export read-only in a private host VFS
+mount tree before launching virtiofsd, including any carried-in submounts;
+guest mount flags alone are never treated as enforcement. The canonical cache
+source must not equal, contain, or be contained by any writable export source,
+so a second guest path cannot alias the cache with write access.
 
 AWF removes `RUNNER_TOOL_CACHE`, `AGENT_TOOLSDIRECTORY`, and `RUNNER_TEMP` from
 the inherited guest environment, then adds back only values backed by mounted

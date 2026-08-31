@@ -66,6 +66,27 @@ describe('Cloud Hypervisor directory exports', () => {
     ]));
   });
 
+  it('rejects a tool cache that aliases a writable export source', async () => {
+    const workspace = path.join(directory, 'workspace');
+    const tools = path.join(workspace, 'tools');
+    await fs.mkdir(tools, { recursive: true });
+
+    await expect(resolveCloudHypervisorExports(
+      { GITHUB_WORKSPACE: workspace, RUNNER_TOOL_CACHE: tools },
+      directory,
+      'workspace-and-tool-cache',
+    )).rejects.toThrow(
+      'Cloud Hypervisor runner tool cache source overlaps writable export "workspace"',
+    );
+    await expect(resolveCloudHypervisorExports(
+      { GITHUB_WORKSPACE: tools, RUNNER_TOOL_CACHE: workspace },
+      directory,
+      'workspace-and-tool-cache',
+    )).rejects.toThrow(
+      'Cloud Hypervisor runner tool cache source overlaps writable export "workspace"',
+    );
+  });
+
   it('uses AGENT_TOOLSDIRECTORY only under the explicit opt-in policy', async () => {
     const workspace = path.join(directory, 'workspace');
     const tools = path.join(directory, 'agent-tools');
