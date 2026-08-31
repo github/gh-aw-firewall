@@ -7,8 +7,9 @@ set -euo pipefail
 # This covers allowed/blocked domains, direct
 # egress, arbitrary TCP, DNS, metadata IP, mandatory API-proxy reflect with
 # secret-sentinel absence, live workspace sharing incl. symlinks/permissions,
-# exit-code propagation, timeout, SIGTERM cancellation, partial-start
-# rollback, keep/preserve diagnostics, plus backend-specific live checks:
+# exit-code propagation, timeout, SIGTERM cancellation, abrupt process-death
+# recovery, partial-start rollback, keep/preserve diagnostics, plus
+# backend-specific live checks:
 #
 #   - device-assumptions: confirms eth0, the sole /dev/vda block disk, and
 #     virtio-fs workspace layout documented in Part 6.
@@ -98,6 +99,11 @@ assert_no_residue() {
   if sudo ip -o link show | grep -Eq ' (vmh|vmn|vmt)[0-9a-f]{12}[:@]'; then
     sudo ip -o link show >&2
     echo "Cloud Hypervisor veth/TAP residue detected" >&2
+    return 1
+  fi
+  if sudo iptables -S DOCKER-USER | grep -q -- '--comment awf:awf_vm_'; then
+    sudo iptables -S DOCKER-USER >&2
+    echo "Cloud Hypervisor per-run bridge rule residue detected" >&2
     return 1
   fi
   # $CGROUP_ROOT (.../awf-cloud-hypervisor) is a *parent* cgroup that
@@ -533,6 +539,65 @@ if [ "$cleanup_ms" -gt "$CLEANUP_CEILING_MS" ]; then
   exit 1
 fi
 
+# SIGKILL cannot run in-process finally/signal cleanup. Kill the root AWF Node
+# process itself, prove its VMM/netns/cgroup survive, then let the next ordinary
+# invocation recover them through the durable identity-validated registry.
+crash_work="$RUN_ROOT/process-death/work"
+crash_workspace="$RUN_ROOT/process-death/workspace"
+crash_audit="$RUN_ROOT/process-death/audit"
+mkdir -p "$crash_work" "$crash_workspace" "$crash_audit"
+(
+  export GITHUB_WORKSPACE="$crash_workspace"
+  export OPENAI_API_KEY="$SECRET_SENTINEL"
+  exec sudo -E node "$ROOT/dist/cli.js" \
+    "${COMMON[@]}" \
+    --work-dir "$crash_work" \
+    --audit-dir "$crash_audit" \
+    -- 'sleep 300'
+) >"$RUN_ROOT/process-death/stdout.log" 2>"$RUN_ROOT/process-death/stderr.log" &
+crash_wrapper_pid=$!
+crash_node_pid=
+for _ in $(seq 1 90); do
+  for candidate in $(pgrep -f "node $ROOT/dist/cli.js.*--work-dir $crash_work" || true); do
+    [ "$candidate" = "$crash_wrapper_pid" ] && continue
+    candidate_exe=$(sudo readlink "/proc/$candidate/exe" 2>/dev/null || true)
+    case "$candidate_exe" in
+      */node) crash_node_pid=$candidate; break ;;
+    esac
+  done
+  if [ -n "$crash_node_pid" ] &&
+     sudo ip netns list | grep -q '^awfvm-' &&
+     sudo find /run/awf-cloud-hypervisor/pending-cleanup -maxdepth 1 -name '*.json' | grep -q . &&
+     sudo find "$CGROUP_ROOT" -mindepth 1 -maxdepth 1 -type d | grep -q . &&
+     pgrep -f "$ARTIFACT_DIR/cloud-hypervisor --api-socket" >/dev/null; then
+    break
+  fi
+  sleep 1
+done
+[ -n "$crash_node_pid" ] || {
+  echo "process-death: AWF process did not become live" >&2
+  exit 1
+}
+sudo kill -KILL "$crash_node_pid"
+set +e
+wait "$crash_wrapper_pid"
+crash_status=$?
+set -e
+[ "$crash_status" -ne 0 ] || {
+  echo "process-death: SIGKILL unexpectedly returned success" >&2
+  exit 1
+}
+sudo ip netns list | grep -q '^awfvm-' || {
+  echo "process-death: abrupt exit did not leave the expected recovery fixture" >&2
+  exit 1
+}
+pgrep -f "$ARTIFACT_DIR/cloud-hypervisor --api-socket" >/dev/null || {
+  echo "process-death: VMM did not survive abrupt owner death" >&2
+  exit 1
+}
+run_case process-death-reaper 0 'true'
+assert_no_residue
+
 keep_work="$RUN_ROOT/keep/work"
 keep_workspace="$RUN_ROOT/keep/workspace"
 keep_audit="$RUN_ROOT/keep/audit"
@@ -586,6 +651,16 @@ sudo find "$keep_audit/cloud-hypervisor" -type f -size +1048576c -print -quit \
     exit 1
   }
 
+readarray -t keep_forward_rule < <(
+  sudo node -e '
+    const plan = require(process.argv[1]);
+    console.log(plan.infrastructureBridge);
+    console.log(plan.hostForwardRuleComment);
+  ' "$keep_audit/cloud-hypervisor/network-plan.json"
+)
+sudo iptables -t filter -D DOCKER-USER \
+  -i "${keep_forward_rule[0]}" -o "${keep_forward_rule[0]}" \
+  -m comment --comment "${keep_forward_rule[1]}" -j ACCEPT
 while read -r namespace _; do
   case "$namespace" in
     awfvm-*) sudo ip netns delete "$namespace" ;;

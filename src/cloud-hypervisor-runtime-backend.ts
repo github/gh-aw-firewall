@@ -95,6 +95,7 @@ interface CloudHypervisorManagerAdapter {
   stop(options?: { preserve?: boolean; beforeCleanup?: () => Promise<void> }): Promise<void>;
   collectDiagnostics(directory: string): Promise<void>;
   collectGuestOutputAudit(directory: string): Promise<void>;
+  completeCleanupRecord(): Promise<void>;
 }
 
 /** @internal Exposed only for unit tests — not part of the public API. */
@@ -223,6 +224,7 @@ class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBackend {
   private diagnosticsCollected = false;
   private agentExecutionStarted = false;
   private readonly failedBootDiagnostics: string[] = [];
+  private readonly cleanedManagers = new Set<CloudHypervisorManagerAdapter>();
 
   constructor(
     private readonly config: WrapperConfig,
@@ -259,7 +261,7 @@ class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBackend {
       '[cloud-hypervisor] runtime=cloud-hypervisor maturity=preview fallback=disabled',
     );
     try {
-      await this.preflight();
+      if (!this.preflightResult) await this.preflight();
       stage = 'compose-infrastructure';
       await this.dependencies.startInfrastructure(
         workDir,
@@ -553,7 +555,10 @@ class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBackend {
         new Promise<void>((resolve) => setTimeout(resolve, CLOUD_HYPERVISOR_CANCEL_GRACE_MS)),
       ]);
     }
-    await this.manager?.stop({ preserve });
+    if (this.manager) {
+      await this.manager.stop({ preserve });
+      if (!preserve) this.cleanedManagers.add(this.manager);
+    }
     if (!preserve) await this.cleanupArtifactSnapshot();
   }
 
@@ -562,6 +567,11 @@ class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBackend {
     if (!directory) return;
     await this.dependencies.removeArtifactSnapshot(directory);
     this.preflightResult = undefined;
+    if (this.manager) this.cleanedManagers.add(this.manager);
+    for (const manager of this.cleanedManagers) {
+      await manager.completeCleanupRecord();
+    }
+    this.cleanedManagers.clear();
   }
 
   private async probeGuestConnectivity(bootAttempt: number): Promise<void> {
@@ -800,6 +810,7 @@ class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBackend {
     };
     try {
       await manager.stop({ beforeCleanup: collectPreCleanupDiagnostics });
+      this.cleanedManagers.add(manager);
       this.manager = undefined;
       this.environment = undefined;
     } catch (cleanupError) {

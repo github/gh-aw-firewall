@@ -25,6 +25,7 @@ function networkPlan(): MicrovmNetworkPlan {
     namespaceName: 'ns',
     netnsPath: '/var/run/netns/ns',
     nftTableName: 'table',
+    hostForwardRuleComment: 'awf:awf_vm_0123456789ab',
     infrastructureBridge: 'awfbr0',
     hostVethName: 'host',
     namespaceVethName: 'namespace',

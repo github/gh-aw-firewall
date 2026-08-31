@@ -101,7 +101,12 @@ function dependencies(overrides: Partial<CloudHypervisorVmmIdentityDependencies>
 describe('CloudHypervisorVmmIdentityManager', () => {
   it('creates a no-login system account, validates resources, grants ACLs, and removes exact state', async () => {
     const { deps, run } = dependencies();
-    const manager = new CloudHypervisorVmmIdentityManager('run-1', tools, deps);
+    const observer = {
+      prepareAccount: jest.fn().mockResolvedValue(undefined),
+      captureIdentity: jest.fn().mockResolvedValue(undefined),
+      prepareAcl: jest.fn().mockResolvedValue(undefined),
+    };
+    const manager = new CloudHypervisorVmmIdentityManager('run-1', tools, deps, observer);
 
     const identity = await manager.allocate();
     expect(identity).toEqual({
@@ -116,10 +121,21 @@ describe('CloudHypervisorVmmIdentityManager', () => {
       '--home-dir', '/nonexistent',
       '--shell', '/usr/sbin/nologin',
     ]));
+    const useraddCall = run.mock.calls.findIndex(([command]) => command === tools.useradd);
+    expect(observer.prepareAccount.mock.invocationCallOrder[0])
+      .toBeLessThan(run.mock.invocationCallOrder[useraddCall]);
+    expect(observer.captureIdentity).toHaveBeenCalledWith(identity);
 
     await manager.validateOwnedPaths(['/run/awf/kernel', '/run/awf/rootfs']);
     await manager.validateTapOwnership(tools.ip, 'awfvm-123', 'vmt123');
     await manager.grantDeviceAccess();
+    for (const devicePath of ['/dev/kvm', '/dev/net/tun']) {
+      const prepareCall = observer.prepareAcl.mock.calls.findIndex(([value]) => value === devicePath);
+      const grantCall = run.mock.calls.findIndex(([command, args]) =>
+        command === tools.setfacl && args[0] === '--modify' && args[2] === devicePath);
+      expect(observer.prepareAcl.mock.invocationCallOrder[prepareCall])
+        .toBeLessThan(run.mock.invocationCallOrder[grantCall]);
+    }
     expect(run).toHaveBeenCalledWith(
       tools.setfacl,
       ['--modify', 'user:23001:rw', '/dev/kvm'],

@@ -64,6 +64,7 @@ export interface MicrovmNetworkPlan {
   readonly namespaceName: string;
   readonly netnsPath: string;
   readonly nftTableName: string;
+  readonly hostForwardRuleComment: string;
   readonly infrastructureBridge: string;
   readonly hostVethName: string;
   readonly namespaceVethName: string;
@@ -98,6 +99,10 @@ export interface MicrovmNetworkLifecycle {
    * `cleanup()`). Not required by every implementer/mock.
    */
   captureDiagnostics?(): Promise<string>;
+}
+
+export interface MicrovmNetworkResourceObserver {
+  resourceCreated(resource: 'netns' | 'hostVeth' | 'namespaceVeth' | 'tap'): Promise<void>;
 }
 
 export interface MicrovmNetworkReservation {

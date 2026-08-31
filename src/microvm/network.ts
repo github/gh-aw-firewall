@@ -23,6 +23,7 @@ export type {
   MicrovmNetworkPlan,
   MicrovmNetworkPlanAllocation,
   MicrovmNetworkPlanOptions,
+  MicrovmNetworkResourceObserver,
   MicrovmNetworkReservation,
   MicrovmNetworkRulesetFile,
   MicrovmTapInterface,

@@ -1,6 +1,7 @@
 import type { ExecaChildProcess } from 'execa';
 import { PassThrough } from 'stream';
 import type { CloudHypervisorCgroup } from './launcher';
+import type { CloudHypervisorCleanupHandle } from './cleanup-registry';
 import {
   VirtiofsdManager,
   buildVirtiofsdArgs,
@@ -176,6 +177,10 @@ describe('VirtiofsdManager', () => {
       cgroupPath: '/sys/fs/cgroup/awf-cloud-hypervisor/test',
       assign: jest.fn().mockResolvedValue(undefined),
     } as unknown as CloudHypervisorCgroup;
+    const cleanupRecord = {
+      prepareProcess: jest.fn().mockResolvedValue(undefined),
+      captureProcess: jest.fn().mockResolvedValue(undefined),
+    } as unknown as CloudHypervisorCleanupHandle;
     const manager = new VirtiofsdManager(
       '/opt/virtiofsd',
       '/run/awf/run',
@@ -184,6 +189,7 @@ describe('VirtiofsdManager', () => {
       cgroup,
       { mount: '/usr/bin/mount', umount: '/usr/bin/umount' },
       deps,
+      cleanupRecord,
     );
     const devices = await manager.start([workspace, cache]);
     expect(devices.map((device) => device.socketPath)).toEqual([
@@ -205,6 +211,14 @@ describe('VirtiofsdManager', () => {
     expect(cgroup.assign).toHaveBeenNthCalledWith(2, 1100);
     expect(cgroup.assign).toHaveBeenNthCalledWith(3, 101);
     expect(cgroup.assign).toHaveBeenNthCalledWith(4, 1101);
+    expect(cleanupRecord.prepareProcess).toHaveBeenCalledWith(
+      'virtiofsd-0', '/opt/virtiofsd', '/run/awf/run/virtiofs-0.sock', '/host/workspace',
+    );
+    expect(cleanupRecord.prepareProcess).toHaveBeenCalledWith(
+      'virtiofsd-0-worker', '/opt/virtiofsd', '/run/awf/run/virtiofs-0.sock', '/host/workspace',
+    );
+    expect(cleanupRecord.captureProcess).toHaveBeenCalledWith('virtiofsd-0', 100);
+    expect(cleanupRecord.captureProcess).toHaveBeenCalledWith('virtiofsd-0-worker', 1100);
     expect(deps.chown).toHaveBeenCalledWith('/run/awf/run/virtiofs-0.sock', 1000, 1000);
     expect(deps.writeFile).toHaveBeenCalledWith(
       '/run/awf/run/virtiofs-0-confinement.json',

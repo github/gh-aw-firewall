@@ -95,7 +95,37 @@ AWF performs these steps for each run:
     and delete the exact per-run account.
 
 Cleanup is idempotent and aggregates errors so one cleanup failure does not
-skip later cleanup steps.
+skip later cleanup steps. Before the first privileged per-run resource is
+created, AWF atomically writes a root-owned mode-`0600` recovery record under
+`/run/awf-cloud-hypervisor/pending-cleanup/`, itself a root-owned mode-`0700`
+directory. The record contains the owning AWF PID, `/proc` start time,
+executable identity, exact resource names, and immutable inode/ifindex
+identities captured immediately after each attested artifact snapshot,
+namespace, interface, run directory, cgroup, VMM, and `virtiofsd` process
+becomes live. The host bridge-forwarding
+rule is tagged with a per-run iptables comment and recorded by its exact tuple,
+so concurrent runs do not share an anonymously owned rule. Dedicated VMM
+account and device-ACL intent is persisted before `useradd`
+or `setfacl` runs. Recovery validates the account's random name, run-specific
+passwd metadata, numeric uid/gid, and exact numeric ACL entries before removing
+them.
+Any staged virtio-fs bind mounts are recorded by mount ID, device, root, target,
+filesystem type, and source; stale recovery revalidates and unmounts them
+deepest-first before removing their inode-validated share directory.
+The backend deletes the shared verified-artifact snapshot before completing
+each successfully cleaned manager record, including failed boot attempts.
+
+Every subsequent Cloud Hypervisor startup reaps stale records before creating
+its own resources. A record whose owner still has the same PID, start time,
+executable inode, credentials, and network namespace is active and is skipped,
+so concurrent sibling runs cannot reap one another. For an abandoned record,
+AWF revalidates every existing resource and process immediately before acting.
+It never treats a name or PID alone as ownership evidence: PID reuse, a changed
+namespace/interface inode or ifindex, an uncommitted launch identity, malformed
+state, or an unsafe record mode stops cleanup, reports an error, and preserves
+the record and resources for diagnosis. The record is removed only after normal
+teardown succeeds. `--keep-containers` is an explicit diagnostic opt-out: its
+record is removed while the requested resources remain preserved.
 
 ## Security boundaries
 

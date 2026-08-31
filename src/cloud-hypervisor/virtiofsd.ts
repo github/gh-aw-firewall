@@ -3,6 +3,7 @@ import * as path from 'path';
 import execa, { type ExecaChildProcess } from 'execa';
 import type { CloudHypervisorCgroup } from './launcher';
 import type { CloudHypervisorDirectoryExport } from './exports';
+import type { CloudHypervisorCleanupHandle } from './cleanup-registry';
 import {
   StagedHostMountTree,
   selectMountPlan,
@@ -134,6 +135,7 @@ export class VirtiofsdManager {
     private readonly cgroup: Pick<CloudHypervisorCgroup, 'assign' | 'cgroupPath'>,
     private readonly tools: { readonly mount: string; readonly umount: string },
     private readonly dependencies: VirtiofsdDependencies = defaultDependencies,
+    private readonly cleanupRecord?: CloudHypervisorCleanupHandle,
   ) {}
 
   /**
@@ -318,7 +320,21 @@ export class VirtiofsdManager {
     const args = buildVirtiofsdArgs(directoryExport, socketPath, sharedDirectory, {
       announceSubmounts: mountTree !== undefined,
     });
+    const cleanupKey = `virtiofsd-${index}`;
+    const workerCleanupKey = `${cleanupKey}-worker`;
     const expectedExecutable = await this.dependencies.realpath(this.binaryPath);
+    await this.cleanupRecord?.prepareProcess(
+      cleanupKey,
+      expectedExecutable,
+      socketPath,
+      sharedDirectory,
+    );
+    await this.cleanupRecord?.prepareProcess(
+      workerCleanupKey,
+      expectedExecutable,
+      socketPath,
+      sharedDirectory,
+    );
     const child = this.dependencies.launch(this.binaryPath, args, {
       reject: false,
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -352,7 +368,7 @@ export class VirtiofsdManager {
     await this.cgroup.assign(child.pid);
     const parentIdentity = await captureVirtiofsdProcessIdentity(child.pid, this.dependencies);
     await this.waitForSocket(daemon);
-    await verifyVirtiofsdSandbox({
+    const workerIdentity = await verifyVirtiofsdSandbox({
       exportTag: directoryExport.tag,
       parentIdentity,
       expectedExecutable,
@@ -362,6 +378,8 @@ export class VirtiofsdManager {
       evidencePath,
       assignToCgroup: (pid) => this.cgroup.assign(pid),
     }, this.dependencies);
+    await this.cleanupRecord?.captureProcess(cleanupKey, child.pid);
+    await this.cleanupRecord?.captureProcess(workerCleanupKey, workerIdentity.pid);
     await this.dependencies.chown(socketPath, this.identity.uid, this.identity.gid);
   }
 

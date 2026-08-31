@@ -88,7 +88,7 @@ export async function captureVirtiofsdProcessIdentity(
 export async function verifyVirtiofsdSandbox(
   options: VirtiofsdSandboxVerificationOptions,
   dependencies: VirtiofsdSandboxDependencies,
-): Promise<void> {
+): Promise<VirtiofsdProcessIdentity> {
   const evidence: Record<string, unknown> = {
     version: 1,
     verified: false,
@@ -103,6 +103,7 @@ export async function verifyVirtiofsdSandbox(
     root: null,
   };
   let verificationError: unknown;
+  let verifiedWorker: VirtiofsdProcessIdentity | undefined;
 
   try {
     const currentParent = await captureVirtiofsdProcessIdentity(
@@ -187,6 +188,7 @@ export async function verifyVirtiofsdSandbox(
       await captureVirtiofsdProcessIdentity(workerPid, dependencies),
       'worker',
     );
+    verifiedWorker = workerIdentity;
     evidence.verified = true;
   } catch (error) {
     verificationError = error;
@@ -211,6 +213,8 @@ export async function verifyVirtiofsdSandbox(
   if (verificationError !== undefined) {
     throw new Error(`virtiofsd sandbox verification failed: ${formatError(verificationError)}`);
   }
+  if (!verifiedWorker) throw new Error('virtiofsd sandbox verification produced no worker identity');
+  return verifiedWorker;
 }
 
 async function waitForWorker(

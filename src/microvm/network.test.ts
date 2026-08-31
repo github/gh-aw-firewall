@@ -46,7 +46,7 @@ function commandHarness(failAt?: number): {
       if (options.reject && ++rejectingCall === failAt) {
         throw new Error(`stage ${failAt} failed`);
       }
-      return { exitCode: args.includes('-C') ? 1 : 0 };
+      return { exitCode: args.includes('-C') ? 1 : 0, stderr: '' };
     }),
   );
   return { calls, commands };
@@ -309,6 +309,21 @@ describe('microVM network lifecycle', () => {
     expect(calls[16].args[5]).toMatch(/awf-nft-[0-9a-f]{16}\.nft$/);
     expect(calls[16].options).toEqual({ reject: true });
     expect(probe.verify).toHaveBeenCalledWith(plan);
+  });
+
+  it('publishes each resource identity immediately after creation', async () => {
+    const plan = createPlan();
+    const { commands } = commandHarness();
+    const observed: string[] = [];
+    const observer = {
+      resourceCreated: jest.fn(async (resource: string) => {
+        observed.push(resource);
+      }),
+    };
+
+    await new MicrovmNetworkManager(plan, commands, undefined, undefined, observer).setup();
+
+    expect(observed).toEqual(['netns', 'hostVeth', 'namespaceVeth', 'tap']);
   });
 
   it.each([
@@ -693,7 +708,16 @@ describe('LinuxNetworkCommands.ensureBridgeForwardAcceptRule / removeBridgeForwa
     );
 
     await expect(commands.removeBridgeForwardAcceptRule('awfbr0', '0123456789ab'))
-      .rejects.toThrow(/permission denied/);
+      .rejects.toThrow(/rule .* remains after deletion/i);
+  });
+
+  it('propagates uncertainty when bridge-rule absence cannot be verified', async () => {
+    const commands = new LinuxNetworkCommands(
+      jest.fn(async () => ({ exitCode: 2, stderr: 'xtables lock busy' })),
+    );
+
+    await expect(commands.removeBridgeForwardAcceptRule('awfbr0', '0123456789ab'))
+      .rejects.toThrow(/could not verify removal.*xtables lock busy/i);
   });
 });
 

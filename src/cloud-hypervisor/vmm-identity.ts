@@ -28,6 +28,12 @@ export interface CloudHypervisorVmmIdentityToolPaths {
   readonly userdel: string;
 }
 
+export interface CloudHypervisorVmmIdentityObserver {
+  prepareAccount(name: string): Promise<void>;
+  captureIdentity(identity: CloudHypervisorVmmIdentity): Promise<void>;
+  prepareAcl(path: string): Promise<void>;
+}
+
 export interface CloudHypervisorVmmIdentityDependencies {
   mkdir(directory: string, options?: { recursive?: boolean; mode?: number }): Promise<unknown>;
   writeFile(filePath: string, contents: string, options?: { flag?: string; mode?: number }): Promise<void>;
@@ -88,6 +94,7 @@ export class CloudHypervisorVmmIdentityManager {
     private readonly runId: string,
     private readonly tools: CloudHypervisorVmmIdentityToolPaths,
     private readonly dependencies: CloudHypervisorVmmIdentityDependencies = defaultDependencies,
+    private readonly observer?: CloudHypervisorVmmIdentityObserver,
   ) {}
 
   async allocate(): Promise<CloudHypervisorVmmIdentity> {
@@ -104,6 +111,7 @@ export class CloudHypervisorVmmIdentityManager {
         throw new Error(`Cloud Hypervisor VMM account already exists: ${name}`);
       }
       try {
+        await this.observer?.prepareAccount(name);
         await this.dependencies.run(this.tools.useradd, [
           '--system',
           '--user-group',
@@ -115,6 +123,7 @@ export class CloudHypervisorVmmIdentityManager {
         ]);
         this.provisionalAccountName = name;
         const identity = await this.resolveAndValidateAccount(name);
+        await this.observer?.captureIdentity(identity);
         this.identity = identity;
         this.provisionalAccountName = undefined;
         return identity;
@@ -145,6 +154,7 @@ export class CloudHypervisorVmmIdentityManager {
         throw new Error('Cloud Hypervisor VMM identity changed before device ACL grant');
       }
       for (const devicePath of VMM_DEVICE_PATHS) {
+        await this.observer?.prepareAcl(devicePath);
         await this.dependencies.run(this.tools.setfacl, [
           '--modify', `user:${identity.uid}:rw`, devicePath,
         ]);

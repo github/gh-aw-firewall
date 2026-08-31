@@ -130,6 +130,7 @@ export class LinuxNetworkCommands {
    * the first place).
    */
   async ensureBridgeForwardAcceptRule(bridgeName: string, resourceToken: string): Promise<void> {
+    assertResourceToken(resourceToken);
     const ownership = ['-m', 'comment', '--comment', `awf-microvm-${resourceToken}`];
     const checkResult = await this.execute(
       'iptables',
@@ -155,6 +156,7 @@ export class LinuxNetworkCommands {
 
   /** Removes only this reservation's rule and verifies a failed delete means it was already absent. */
   async removeBridgeForwardAcceptRule(bridgeName: string, resourceToken: string): Promise<void> {
+    assertResourceToken(resourceToken);
     const rule = [
       '-t', 'filter', 'DOCKER-USER',
       '-i', bridgeName, '-o', bridgeName,
@@ -166,17 +168,24 @@ export class LinuxNetworkCommands {
       [rule[0], rule[1], '-D', ...rule.slice(2)],
       { reject: false },
     ) as { exitCode?: number; stderr?: string } | undefined;
-    if (deletion?.exitCode === 0) return;
-
     const check = await this.execute(
       'iptables',
       [rule[0], rule[1], '-C', ...rule.slice(2)],
       { reject: false },
     ) as { exitCode?: number; stderr?: string } | undefined;
-    if (check?.exitCode === 1) return;
+    const checkStderr = String(check?.stderr ?? '').trim();
+    if (
+      check?.exitCode === 1 &&
+      (checkStderr === '' || /Bad rule \(does a matching rule exist in that chain\?\)/i.test(checkStderr))
+    ) {
+      return;
+    }
+    if (check?.exitCode === 0) {
+      throw new Error(`Owned DOCKER-USER rule awf-microvm-${resourceToken} remains after deletion`);
+    }
     throw new Error(
-      `Failed to remove owned DOCKER-USER rule awf-microvm-${resourceToken}: ` +
-      (deletion?.stderr ?? check?.stderr ?? 'iptables returned an unknown status'),
+      `Could not verify removal of owned DOCKER-USER rule awf-microvm-${resourceToken}: ` +
+      (check?.stderr ?? deletion?.stderr ?? 'iptables returned an unknown status'),
     );
   }
 
@@ -333,5 +342,11 @@ export class LinuxNetworkCommands {
       '--- ip -s link show (host/default namespace: per-port RX/TX counters, incl. container veths) ---',
       hostLinkStats || '(empty or unavailable)',
     ].join('\n');
+  }
+}
+
+function assertResourceToken(resourceToken: string): void {
+  if (!/^[0-9a-f]{12}$/.test(resourceToken)) {
+    throw new Error(`Unsafe microVM resource token: ${resourceToken}`);
   }
 }

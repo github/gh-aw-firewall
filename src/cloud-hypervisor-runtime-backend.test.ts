@@ -152,6 +152,7 @@ function harness(overrides: Partial<CloudHypervisorRuntimeBackendDependencies> =
     endStdin: jest.fn().mockResolvedValue(undefined),
     collectDiagnostics: jest.fn().mockResolvedValue(undefined),
     collectGuestOutputAudit: jest.fn().mockResolvedValue(undefined),
+    completeCleanupRecord: jest.fn().mockResolvedValue(undefined),
     stop: jest.fn(async (options?: { beforeCleanup?: () => Promise<void> }) => {
       order.push('vm-stop');
       await options?.beforeCleanup?.();
@@ -408,6 +409,30 @@ describe('Cloud Hypervisor runtime backend', () => {
       expect.stringMatching(/^agent-/),
     );
     expect(manager.collectGuestOutputAudit).not.toHaveBeenCalled();
+  });
+
+  it('reuses the CLI preflight snapshot when workflow startup begins', async () => {
+    const { deps, manager } = harness();
+    const backend = createBackend(config(), deps);
+
+    await backend.preflight();
+    await backend.start('/tmp/awf', ['github.com']);
+    await backend.stop();
+
+    expect(deps.preflight).toHaveBeenCalledTimes(1);
+    expect(deps.createManager).toHaveBeenCalledWith(
+      expect.anything(),
+      '/tmp/awf',
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      undefined,
+      preflightResult,
+    );
+    expect(deps.removeArtifactSnapshot).toHaveBeenCalledWith('/snapshot');
+    expect(manager.completeCleanupRecord).toHaveBeenCalledTimes(1);
+    expect((deps.removeArtifactSnapshot as jest.Mock).mock.invocationCallOrder[0])
+      .toBeLessThan(manager.completeCleanupRecord.mock.invocationCallOrder[0]);
   });
 
   it('persists bounded raw guest output when an audit directory is configured', async () => {

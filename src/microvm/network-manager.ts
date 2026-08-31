@@ -7,6 +7,7 @@ import type {
   MicrovmConnectivityProbe,
   MicrovmNetworkLifecycle,
   MicrovmNetworkPlan,
+  MicrovmNetworkResourceObserver,
   MicrovmNetworkReservation,
 } from './network-types';
 
@@ -22,6 +23,7 @@ export class MicrovmNetworkManager implements MicrovmNetworkLifecycle {
     private readonly commands = new LinuxNetworkCommands(),
     private readonly probe?: MicrovmConnectivityProbe,
     private readonly reservation?: MicrovmNetworkReservation,
+    private readonly observer?: MicrovmNetworkResourceObserver,
   ) {}
 
   async setup(): Promise<MicrovmNetworkPlan> {
@@ -34,16 +36,19 @@ export class MicrovmNetworkManager implements MicrovmNetworkLifecycle {
     try {
       await this.commands.ip(['netns', 'add', this.plan.namespaceName]);
       this.namespaceCreated = true;
+      await this.observer?.resourceCreated('netns');
       await this.commands.ip([
         'link', 'add', this.plan.hostVethName,
         'type', 'veth',
         'peer', 'name', this.plan.namespaceVethName,
       ]);
       this.hostVethCreated = true;
+      await this.observer?.resourceCreated('hostVeth');
       await this.commands.ip([
         'link', 'set', this.plan.namespaceVethName,
         'netns', this.plan.namespaceName,
       ]);
+      await this.observer?.resourceCreated('namespaceVeth');
       await this.commands.ip([
         'link', 'set', this.plan.hostVethName,
         'master', this.plan.infrastructureBridge,
@@ -70,6 +75,7 @@ export class MicrovmNetworkManager implements MicrovmNetworkLifecycle {
         'group', String(this.plan.tapOwnerGid),
         ...(this.plan.tapVnetHdr ? ['vnet_hdr'] : []),
       ]);
+      await this.observer?.resourceCreated('tap');
       await this.commands.ipInNamespace(this.plan.namespaceName, [
         'addr', 'add',
         `${this.plan.guestGatewayIp}/${this.plan.guestPrefixLength}`,

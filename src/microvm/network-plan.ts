@@ -82,6 +82,7 @@ export function createMicrovmNetworkPlan(
     namespaceName,
     netnsPath: `${NETNS_DIRECTORY}/${namespaceName}`,
     nftTableName,
+    hostForwardRuleComment: `awf-microvm-${token}`,
     infrastructureBridge: options.infrastructureBridge,
     hostVethName,
     namespaceVethName,

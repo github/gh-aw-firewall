@@ -12,6 +12,7 @@ import type { CloudHypervisorCgroup } from './launcher';
 import type { MicrovmRootfsPreparer } from '../microvm/rootfs';
 import type { VirtiofsdManager, VirtiofsdDevice } from './virtiofsd';
 import type { CloudHypervisorGuestChannel } from './guest-execution';
+import type { CloudHypervisorCleanupHandle } from './cleanup-registry';
 import type { CloudHypervisorVmmIdentityManager } from './vmm-identity';
 
 const SHUTDOWN_GRACE_MS = 5_000;
@@ -29,6 +30,8 @@ export interface CloudHypervisorStopContext {
   fsDevices: VirtiofsdDevice[];
   guest?: CloudHypervisorGuestChannel;
   cgroup?: CloudHypervisorCgroup;
+  cleanupRecord?: CloudHypervisorCleanupHandle;
+  deferCleanupRecordCompletion: boolean;
   vmmIdentity?: CloudHypervisorVmmIdentityManager;
   instanceStarted: boolean;
   lastVmInfo?: CloudHypervisorVmInfo;
@@ -45,6 +48,7 @@ export interface CloudHypervisorStopContext {
   setGuest(guest: CloudHypervisorGuestChannel | undefined): void;
   setCgroup(cgroup: CloudHypervisorCgroup | undefined): void;
   setVmmIdentity(identity: CloudHypervisorVmmIdentityManager | undefined): void;
+  setCleanupRecordReady(ready: boolean): void;
   setInstanceStarted(started: boolean): void;
   setLastVmInfo(info: CloudHypervisorVmInfo | undefined): void;
   setLastVmCounters(counters: CloudHypervisorVmCounters | undefined): void;
@@ -121,6 +125,8 @@ export async function stopCloudHypervisor(context: CloudHypervisorStopContext): 
   if (context.preserve) {
     try { await context.cgroup?.cleanup(); } catch (error) { errors.push(error); }
     context.setCgroup(undefined);
+    if (errors.length === 0) await context.cleanupRecord?.complete();
+    if (errors.length === 0) context.setCleanupRecordReady(false);
     throwCleanupErrors(errors, 'Cloud Hypervisor preservation failed: ');
     return;
   }
@@ -147,6 +153,14 @@ export async function stopCloudHypervisor(context: CloudHypervisorStopContext): 
     errors.push(new Error(
       'Cloud Hypervisor VMM identity retained because owned run resources could not be fully removed',
     ));
+  }
+  if (errors.length === 0) {
+    if (context.deferCleanupRecordCompletion) {
+      context.setCleanupRecordReady(true);
+    } else {
+      await context.cleanupRecord?.complete();
+      context.setCleanupRecordReady(false);
+    }
   }
   throwCleanupErrors(errors, 'Cloud Hypervisor cleanup failed: ');
 }

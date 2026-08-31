@@ -7,6 +7,7 @@ import {
   type MicrovmControlPeer,
   type MicrovmNetworkLifecycle,
   type MicrovmNetworkPlan,
+  type MicrovmNetworkResourceObserver,
   type MicrovmNetworkPlanOptions,
   type MicrovmNetworkReservation,
 } from '../microvm/network';
@@ -17,9 +18,14 @@ import type { CloudHypervisorDirectoryExport } from './exports';
 import type { CloudHypervisorCgroup, CloudHypervisorResourceLimits } from './launcher';
 import type { CloudHypervisorHostToolPaths, runCloudHypervisorPreflight } from './preflight';
 import type { VirtiofsdManager, VirtiofsdMountEnforcement } from './virtiofsd';
+import type {
+  CloudHypervisorCleanupHandle,
+  CloudHypervisorCleanupRegistry,
+} from './cleanup-registry';
 import type { verifyCloudHypervisorConfinement } from './confinement-verifier';
 import type {
   CloudHypervisorVmmIdentityManager,
+  CloudHypervisorVmmIdentityObserver,
   CloudHypervisorVmmIdentityToolPaths,
 } from './vmm-identity';
 
@@ -96,7 +102,9 @@ export interface CloudHypervisorManagerDependencies {
     plan: MicrovmNetworkPlan,
     tools: CloudHypervisorHostToolPaths,
     reservation: MicrovmNetworkReservation,
+    observer?: MicrovmNetworkResourceObserver,
   ): MicrovmNetworkLifecycle;
+  cleanupRegistry: CloudHypervisorCleanupRegistry;
   createRootfsPreparer(
     config: MicrovmRootfsConfig,
     tools: CloudHypervisorHostToolPaths,
@@ -109,6 +117,7 @@ export interface CloudHypervisorManagerDependencies {
     identity: { uid: number; gid: number },
     cgroup: CloudHypervisorCgroup,
     tools: Pick<CloudHypervisorHostToolPaths, 'mount' | 'umount'>,
+    cleanupRecord?: CloudHypervisorCleanupHandle,
   ): VirtiofsdManager;
   createVsockClient(socketPath: string, guestPort: number, timeoutMs: number): MicrovmVsockClient;
   createCgroup(cgroupPath: string, limits: CloudHypervisorResourceLimits): CloudHypervisorCgroup;
@@ -116,6 +125,7 @@ export interface CloudHypervisorManagerDependencies {
   createVmmIdentity(
     runId: string,
     tools: CloudHypervisorVmmIdentityToolPaths,
+    observer?: CloudHypervisorVmmIdentityObserver,
   ): CloudHypervisorVmmIdentityManager;
   resolveIdentity(): { uid: number; gid: number };
 }

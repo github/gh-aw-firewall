@@ -252,13 +252,14 @@ jobs:
         if: always()
         run: |
           set -euo pipefail
-          while read -r namespace _; do
-            case "$namespace" in
-              awfvm-*) sudo ip netns delete "$namespace" ;;
-            esac
-          done < <(sudo ip netns list)
           if sudo ip netns list | grep -q '^awfvm-'; then
+            sudo ip netns list >&2
             echo "::error::Cloud Hypervisor namespace residue remains after cleanup"
+            exit 1
+          fi
+          if sudo iptables -S DOCKER-USER | grep -q -- '--comment awf:awf_vm_'; then
+            sudo iptables -S DOCKER-USER >&2
+            echo "::error::Cloud Hypervisor bridge-rule residue remains after cleanup"
             exit 1
           fi
           # /sys/fs/cgroup/awf-cloud-hypervisor is a parent cgroup that

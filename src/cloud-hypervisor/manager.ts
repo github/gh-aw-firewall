@@ -57,6 +57,10 @@ import {
 import { startCloudHypervisor } from './manager-start';
 import { stopCloudHypervisor } from './manager-stop';
 import { VirtiofsdManager, type VirtiofsdDevice } from './virtiofsd';
+import {
+  DurableCloudHypervisorCleanupRegistry,
+  type CloudHypervisorCleanupHandle,
+} from './cleanup-registry';
 import { CloudHypervisorVmmIdentityManager } from './vmm-identity';
 
 export {
@@ -90,12 +94,14 @@ const defaultDependencies: CloudHypervisorManagerDependencies = {
   sleep: (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
   createClient: (socketPath, timeoutMs) => new CloudHypervisorApiClient({ socketPath, timeoutMs }),
   reserveNetwork: reserveMicrovmNetworkPlan,
-  createNetwork: (plan, tools, reservation) => new MicrovmNetworkManager(
+  createNetwork: (plan, tools, reservation, observer) => new MicrovmNetworkManager(
     plan,
     new LinuxNetworkCommands(undefined, tools),
     undefined,
     reservation,
+    observer,
   ),
+  cleanupRegistry: new DurableCloudHypervisorCleanupRegistry(),
   createRootfsPreparer: (config, tools, copyRootfs) => new MicrovmRootfsPreparer(config, {
     runTool: async (command, args) => {
       const tool = tools[command as keyof CloudHypervisorHostToolPaths] ?? command;
@@ -109,8 +115,11 @@ const defaultDependencies: CloudHypervisorManagerDependencies = {
     },
     copyRootfs,
   }),
-  createVirtiofsdManager: (binaryPath, runDirectory, shareDirectory, identity, cgroup, tools) =>
-    new VirtiofsdManager(binaryPath, runDirectory, shareDirectory, identity, cgroup, tools),
+  createVirtiofsdManager: (
+    binaryPath, runDirectory, shareDirectory, identity, cgroup, tools, cleanupRecord,
+  ) => new VirtiofsdManager(
+    binaryPath, runDirectory, shareDirectory, identity, cgroup, tools, undefined, cleanupRecord,
+  ),
   createVsockClient: (socketPath, guestPort, timeoutMs) => new MicrovmVsockClient({
     socketPath,
     guestPort,
@@ -120,7 +129,8 @@ const defaultDependencies: CloudHypervisorManagerDependencies = {
   }),
   createCgroup: (cgroupPath, limits) => new CloudHypervisorCgroup(cgroupPath, limits),
   verifyConfinement: verifyCloudHypervisorConfinement,
-  createVmmIdentity: (runId, tools) => new CloudHypervisorVmmIdentityManager(runId, tools),
+  createVmmIdentity: (runId, tools, observer) =>
+    new CloudHypervisorVmmIdentityManager(runId, tools, undefined, observer),
   resolveIdentity: resolveCloudHypervisorIdentity,
 };
 
@@ -178,6 +188,8 @@ export class CloudHypervisorManager {
   private fsDevices: VirtiofsdDevice[] = [];
   private guest: CloudHypervisorGuestChannel | undefined;
   private cgroup: CloudHypervisorCgroup | undefined;
+  private cleanupRecord: CloudHypervisorCleanupHandle | undefined;
+  private cleanupRecordReady = false;
   private vmmIdentity: CloudHypervisorVmmIdentityManager | undefined;
   private networkPlan: MicrovmNetworkPlan | undefined;
   private confinementEvidence: CloudHypervisorConfinementEvidence | undefined;
@@ -247,6 +259,7 @@ export class CloudHypervisorManager {
       setConfinementEvidence: (value) => { this.confinementEvidence = value; },
       setVirtiofsd: (value) => { this.virtiofsd = value; },
       setFsDevices: (value) => { this.fsDevices = value; },
+      setCleanupRecord: (value) => { this.cleanupRecord = value; },
       getFsDevices: () => this.fsDevices,
       stop: () => this.stop(),
     });
@@ -325,6 +338,10 @@ export class CloudHypervisorManager {
       fsDevices: this.fsDevices,
       guest: this.guest,
       cgroup: this.cgroup,
+      cleanupRecord: this.cleanupRecord,
+      deferCleanupRecordCompletion: Boolean(
+        this.verifiedArtifacts?.artifactSnapshotDirectory,
+      ),
       vmmIdentity: this.vmmIdentity,
       instanceStarted: this.instanceStarted,
       lastVmInfo: this.lastVmInfo,
@@ -340,10 +357,18 @@ export class CloudHypervisorManager {
       setGuest: (value) => { this.guest = value; },
       setCgroup: (value) => { this.cgroup = value; },
       setVmmIdentity: (value) => { this.vmmIdentity = value; },
+      setCleanupRecordReady: (value) => { this.cleanupRecordReady = value; },
       setInstanceStarted: (value) => { this.instanceStarted = value; },
       setLastVmInfo: (value) => { this.lastVmInfo = value; },
       setLastVmCounters: (value) => { this.lastVmCounters = value; },
     });
+  }
+
+  async completeCleanupRecord(): Promise<void> {
+    if (!this.cleanupRecordReady) return;
+    await this.cleanupRecord?.complete();
+    this.cleanupRecord = undefined;
+    this.cleanupRecordReady = false;
   }
 
   async collectDiagnostics(directory: string): Promise<void> {
