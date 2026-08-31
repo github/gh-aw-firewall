@@ -119,7 +119,8 @@ shell. The process:
 - runs as the non-root identity recorded by `SUDO_UID` and `SUDO_GID`;
 - keeps only the KVM supplementary group;
 - sets `no_new_privs`;
-- retains only `CAP_NET_ADMIN`, which the virtio-net TAP setup requires;
+- has empty inheritable, permitted, effective, bounding, and ambient capability
+  sets;
 - uses Cloud Hypervisor's seccomp filter;
 - receives a minimal Landlock filesystem allowlist; and
 - belongs to a cgroup v2 leaf with explicit memory, CPU, and PID limits.
@@ -526,9 +527,10 @@ recovery described above.
 
 ### VMM boot fails with TAP permission errors
 
-Verify the launcher retained only `CAP_NET_ADMIN`, the TAP belongs to the
-expected namespace, and the Landlock allowlist includes the TAP's
-`/sys/class/net/<tapName>` directory read-only.
+Verify the TAP was pre-created with the VMM uid/gid and `vnet_hdr` in the
+expected namespace, `/dev/net/tun` is accessible, and the Landlock allowlist
+includes `/sys/class/net/<tapName>/tun_flags` read-only. Do not grant
+`CAP_NET_ADMIN`; the VMM capability sets must remain empty.
 
 ## Related documentation
 
