@@ -128,7 +128,18 @@ export async function startCloudHypervisor(
     context.setCgroup(cgroup);
     await cgroup.setup();
     await stageArtifact(dependencies, artifacts.kernelPath, paths.kernelPath, 0o400, identity);
-    await stageArtifact(dependencies, rootfsSource, paths.rootfsPath, 0o600, identity);
+    await stageArtifact(
+      dependencies,
+      rootfsSource,
+      paths.rootfsPath,
+      0o600,
+      identity,
+      () => dependencies.copySparseFile(
+        artifacts.tools.rsync,
+        rootfsSource,
+        paths.rootfsPath,
+      ),
+    );
     await stageDiagnosticFile(dependencies, paths.logPath, identity);
     await stageDiagnosticFile(dependencies, paths.serialLogPath, identity);
     await vmmIdentityManager.validateOwnedPaths([

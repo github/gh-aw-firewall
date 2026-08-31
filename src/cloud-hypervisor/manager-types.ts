@@ -78,6 +78,7 @@ export interface CloudHypervisorManagerDependencies {
   ): ExecaChildProcess<string>;
   mkdir(directory: string, options: { recursive: true; mode: number }): Promise<unknown>;
   copyFile(source: string, destination: string, flags: number): Promise<void>;
+  copySparseFile(rsyncBinaryPath: string, source: string, destination: string): Promise<void>;
   chmod(filePath: string, mode: number): Promise<void>;
   chown(filePath: string, uid: number, gid: number): Promise<void>;
   writeFile: typeof fs.writeFile;

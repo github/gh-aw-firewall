@@ -46,7 +46,9 @@ export interface CloudHypervisorPreflightDependencies {
   readFile(filePath: string): Promise<string>;
   createArtifactSnapshot(
     sources: CloudHypervisorArtifactSnapshotSources,
+    copySparseFile: (source: string, destination: string) => Promise<void>,
   ): Promise<CloudHypervisorArtifactSnapshot>;
+  copySparseFile(rsyncBinaryPath: string, source: string, destination: string): Promise<void>;
   removeArtifactSnapshot(directory: string): Promise<void>;
   verifyManifestAttestation(
     ghBinaryPath: string,
@@ -132,6 +134,7 @@ const defaultDependencies: CloudHypervisorPreflightDependencies = {
   sha256: calculateSha256,
   readFile: async (filePath) => fs.readFile(filePath, 'utf8'),
   createArtifactSnapshot: createArtifactSnapshot,
+  copySparseFile: copySparseFileWithRsync,
   removeArtifactSnapshot: async (directory) => {
     await fs.rm(directory, { recursive: true, force: true });
   },
@@ -252,6 +255,7 @@ export const CLOUD_HYPERVISOR_MAX_BOOT_ATTEMPTS = 3;
 
 async function createArtifactSnapshot(
   sources: CloudHypervisorArtifactSnapshotSources,
+  copySparseFile: (source: string, destination: string) => Promise<void>,
 ): Promise<CloudHypervisorArtifactSnapshot> {
   await fs.mkdir(CLOUD_HYPERVISOR_ARTIFACT_SNAPSHOT_ROOT, {
     recursive: true,
@@ -267,7 +271,11 @@ async function createArtifactSnapshot(
     mode: number,
   ): Promise<string> => {
     const destination = path.join(directory, name);
-    await fs.copyFile(source, destination, constants.COPYFILE_EXCL);
+    if (name === 'rootfs.ext4') {
+      await copySparseFile(source, destination);
+    } else {
+      await fs.copyFile(source, destination, constants.COPYFILE_EXCL);
+    }
     await fs.chmod(destination, mode);
     return destination;
   };
@@ -287,6 +295,7 @@ async function createArtifactSnapshot(
     if (sources.manifestPath) {
       snapshot.manifestPath = await copy(sources.manifestPath, 'manifest.json', 0o444);
     }
+
     if (sources.bundlePath) {
       snapshot.bundlePath = await copy(
         sources.bundlePath,
@@ -299,6 +308,22 @@ async function createArtifactSnapshot(
   } catch (error) {
     await fs.rm(directory, { recursive: true, force: true });
     throw error;
+  }
+}
+
+export async function copySparseFileWithRsync(
+  rsyncBinaryPath: string,
+  source: string,
+  destination: string,
+): Promise<void> {
+  const result = await execa(rsyncBinaryPath, ['--sparse', '--', source, destination], {
+    reject: false,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  if (result.exitCode !== 0) {
+    throw new Error(
+      `sparse artifact copy failed with code ${result.exitCode}: ${result.stderr.trim()}`,
+    );
   }
 }
 
@@ -631,19 +656,23 @@ export async function runCloudHypervisorPreflight(
     );
   }
 
-  const snapshot = await dependencies.createArtifactSnapshot({
-    cloudHypervisorBinary: config.cloudHypervisorBinary,
-    virtiofsdBinary,
-    kernelPath: config.kernelPath,
-    rootfsPath: config.rootfsPath,
-    supervisorPath: config.supervisorPath,
-    ...(!developmentBypass
-      ? {
-        manifestPath: config.artifactManifestPath!,
-        bundlePath: config.artifactManifestBundlePath!,
-      }
-      : {}),
-  });
+  const snapshot = await dependencies.createArtifactSnapshot(
+    {
+      cloudHypervisorBinary: config.cloudHypervisorBinary,
+      virtiofsdBinary,
+      kernelPath: config.kernelPath,
+      rootfsPath: config.rootfsPath,
+      supervisorPath: config.supervisorPath,
+      ...(!developmentBypass
+        ? {
+          manifestPath: config.artifactManifestPath!,
+          bundlePath: config.artifactManifestBundlePath!,
+        }
+        : {}),
+    },
+    (source, destination) =>
+      dependencies.copySparseFile(tools.rsync, source, destination),
+  );
   try {
     let artifactDigests: Required<CloudHypervisorArtifactDigests>;
     if (developmentBypass) {
