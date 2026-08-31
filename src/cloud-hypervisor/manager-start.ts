@@ -10,6 +10,7 @@ import {
 import type { CloudHypervisorApiClient } from './api-client';
 import {
   prepareRunDirectory,
+  preserveVirtiofsdStartupEvidence,
   stageArtifact,
   stageDiagnosticFile,
   waitForApiSocket,
@@ -145,7 +146,14 @@ export async function startCloudHypervisor(
         identity, cgroup, { mount: artifacts.tools.mount, umount: artifacts.tools.umount },
       );
       context.setVirtiofsd(virtiofsd);
-      context.setFsDevices(await virtiofsd.start(guestConfig.exports, guestConfig.mountEnforcement));
+      try {
+        context.setFsDevices(
+          await virtiofsd.start(guestConfig.exports, guestConfig.mountEnforcement),
+        );
+      } catch (error) {
+        context.setFsDevices(virtiofsd.getDiagnosticDevices());
+        throw error;
+      }
     }
     await client.vmCreate(buildCloudHypervisorVmConfig({
       config, paths, networkPlan, ...(guestConfig ? { guestConfig } : {}),
@@ -156,6 +164,24 @@ export async function startCloudHypervisor(
     startupError = error;
   }
 
+  const startupEvidenceDirectory = path.join(
+    workDir,
+    'diagnostics',
+    'cloud-hypervisor',
+    `startup-${paths.runId}`,
+  );
+  try {
+    await preserveVirtiofsdStartupEvidence(
+      dependencies,
+      context.getFsDevices(),
+      startupEvidenceDirectory,
+    );
+  } catch (evidenceError) {
+    startupError = new Error(
+      `${formatError(startupError)}; preserving virtiofsd confinement evidence failed: ` +
+      formatError(evidenceError),
+    );
+  }
   try {
     await context.stop();
   } catch (cleanupError) {

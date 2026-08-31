@@ -1,4 +1,5 @@
 import type { ExecaChildProcess } from 'execa';
+import { constants } from 'fs';
 import { PassThrough } from 'stream';
 import type {
   MicrovmNetworkLifecycle,
@@ -46,13 +47,18 @@ function rootfsPreparerMock(): MicrovmRootfsPreparer {
 }
 
 function virtiofsdManagerMock(): VirtiofsdManager {
+  const devices = exportsConfig.map((item, index) => ({
+    export: item,
+    socketPath: `/run/virtiofs-${index}.sock`,
+    logPath: `/run/virtiofs-${index}.log`,
+    evidencePath: `/run/virtiofs-${index}-confinement.json`,
+  }));
   return {
-    start: jest.fn(async (exports: readonly CloudHypervisorDirectoryExport[]) => exports.map((item, index) => ({
-      export: item,
-      socketPath: `/run/virtiofs-${index}.sock`,
-      logPath: `/run/virtiofs-${index}.log`,
-    }))),
+    start: jest.fn(async (exports: readonly CloudHypervisorDirectoryExport[]) => devices.map(
+      (device, index) => ({ ...device, export: exports[index] }),
+    )),
     stop: jest.fn().mockResolvedValue(undefined),
+    getDiagnosticDevices: jest.fn(() => devices),
   } as unknown as VirtiofsdManager;
 }
 
@@ -407,6 +413,7 @@ describe('CloudHypervisorManager', () => {
       order.push('virtiofsd');
       expect(child.exitCode).toBe(0);
     });
+
     const guestClient = {
       connect: jest.fn().mockResolvedValue({
         version: 1,
@@ -496,6 +503,41 @@ describe('CloudHypervisorManager', () => {
     expect(client.vmmShutdown).toHaveBeenCalledTimes(1);
     expect(virtiofsd.stop).toHaveBeenCalledTimes(1);
     expect(order).toEqual(['virtiofsd']);
+  });
+
+  it('preserves failed virtiofsd confinement evidence before partial-start cleanup', async () => {
+    const virtiofsd = virtiofsdManagerMock();
+    (virtiofsd.start as jest.Mock).mockRejectedValue(
+      new Error('virtiofsd sandbox verification failed'),
+    );
+    const deps = dependencies({
+      createVirtiofsdManager: jest.fn().mockReturnValue(virtiofsd),
+    });
+    const manager = new CloudHypervisorManager(
+      config(),
+      '/tmp/awf',
+      deps,
+      'virtiofs-failure',
+      networkConfig(),
+      guestConfig(),
+    );
+
+    await expect(manager.start()).rejects.toThrow(/sandbox verification failed/);
+    expect(deps.copyFile).toHaveBeenCalledWith(
+      '/run/virtiofs-0-confinement.json',
+      expect.stringMatching(
+        /^\/tmp\/awf\/diagnostics\/cloud-hypervisor\/startup-.*\/virtiofs-0-confinement\.json$/,
+      ),
+      constants.COPYFILE_EXCL,
+    );
+    const copyCallOrder = (deps.copyFile as jest.Mock).mock.invocationCallOrder;
+    const evidenceCopyOrder = copyCallOrder[copyCallOrder.length - 1];
+    const runRemoval = (deps.rm as jest.Mock).mock.calls.findIndex(
+      ([target]) => String(target).startsWith('/run/awf-cloud-hypervisor/'),
+    );
+    expect(evidenceCopyOrder).toBeLessThan(
+      (deps.rm as jest.Mock).mock.invocationCallOrder[runRemoval],
+    );
   });
 
   it('starts virtiofsd without an enforcement argument when no write policy applies', async () => {

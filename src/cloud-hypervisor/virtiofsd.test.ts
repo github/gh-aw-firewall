@@ -6,6 +6,7 @@ import {
   buildVirtiofsdArgs,
   type VirtiofsdDependencies,
 } from './virtiofsd';
+import { VIRTIOFSD_ENVIRONMENT } from './virtiofsd-sandbox';
 
 const workspace = {
   tag: 'workspace',
@@ -42,8 +43,49 @@ function dependencies(
   overrides: Partial<VirtiofsdDependencies> = {},
 ): VirtiofsdDependencies {
   let pid = 100;
+  const launches = new Map<number, string[]>();
+  const launch = jest.fn((command: string, args: string[]) => {
+    const nextPid = pid++;
+    launches.set(nextPid, [command, ...args]);
+    return processMock(nextPid);
+  });
+  const readFile = jest.fn(async (filePath: string) => {
+    const match = /^\/proc\/(\d+)\//.exec(filePath);
+    const processPid = match ? Number(match[1]) : 0;
+    const parentPid = processPid >= 1_000 ? processPid - 1_000 : processPid;
+    const isWorker = processPid >= 1_000;
+    if (filePath.endsWith('/stat')) {
+      const fields = Array(20).fill('0');
+      fields[19] = String(processPid * 10);
+      return `${processPid} (virtiofsd) ${fields.join(' ')}`;
+    }
+    if (filePath.endsWith('/children')) return String(parentPid + 1_000);
+    if (filePath.endsWith('/comm')) return 'virtiofsd\n';
+    if (filePath.endsWith('/cmdline')) return `${(launches.get(parentPid) ?? []).join('\0')}\0`;
+    if (filePath.endsWith('/status')) {
+      const zero = '0000000000000000';
+      const reviewed = '00000000880000db';
+      return [
+        'Uid:\t0\t0\t0\t0',
+        'Gid:\t0\t0\t0\t0',
+        `CapInh:\t${zero}`,
+        `CapPrm:\t${isWorker ? reviewed : zero}`,
+        `CapEff:\t${isWorker ? reviewed : zero}`,
+        `CapBnd:\t${isWorker ? reviewed : zero}`,
+        `CapAmb:\t${zero}`,
+        `NoNewPrivs:\t${isWorker ? 1 : 0}`,
+        `Seccomp:\t${isWorker ? 2 : 0}`,
+      ].join('\n');
+    }
+    if (filePath.endsWith('/environ')) {
+      return `${Object.entries(VIRTIOFSD_ENVIRONMENT)
+        .map(([name, value]) => `${name}=${value}`).join('\0')}\0`;
+    }
+    if (filePath.endsWith('/cgroup')) return '0::/awf-cloud-hypervisor/test\n';
+    throw Object.assign(new Error(`unexpected read: ${filePath}`), { code: 'ENOENT' });
+  });
   return {
-    launch: jest.fn(() => processMock(pid++)),
+    launch,
     lstat: jest.fn().mockResolvedValue({ isSocket: () => true }),
     chown: jest.fn().mockResolvedValue(undefined),
     writeFile: jest.fn().mockResolvedValue(undefined),
@@ -58,6 +100,13 @@ function dependencies(
       isSymbolicLink: () => false,
     }),
     realpath: jest.fn(async (filePath: string) => filePath),
+    readFile,
+    readlink: jest.fn(async (filePath: string) => {
+      if (filePath.endsWith('/exe')) return '/opt/virtiofsd';
+      if (filePath.startsWith('/proc/self/ns/')) return `${filePath.split('/').pop()}:[1]`;
+      return `${filePath.split('/').pop()}:[2]`;
+    }),
+    statIdentity: jest.fn().mockResolvedValue({ dev: 8, ino: 42 }),
     readMountInfo: jest
       .fn()
       .mockResolvedValueOnce(`30 29 0:42 / ${STAGED_ROOT} ro,nosuid,nodev - ext4 /dev/root ro`)
@@ -73,13 +122,19 @@ function dependencies(
   };
 }
 
-function manager(deps: VirtiofsdDependencies, cgroup?: Pick<CloudHypervisorCgroup, 'assign'>) {
+function manager(
+  deps: VirtiofsdDependencies,
+  cgroup?: Pick<CloudHypervisorCgroup, 'assign' | 'cgroupPath'>,
+) {
   return new VirtiofsdManager(
     '/opt/virtiofsd',
     '/run/awf/run',
     '/run/awf-shares/run',
     { uid: 1000, gid: 1000 },
-    cgroup ?? { assign: jest.fn().mockResolvedValue(undefined) },
+    cgroup ?? {
+      cgroupPath: '/sys/fs/cgroup/awf-cloud-hypervisor/test',
+      assign: jest.fn().mockResolvedValue(undefined),
+    },
     { mount: '/usr/bin/mount', umount: '/usr/bin/umount' },
     deps,
   );
@@ -114,7 +169,10 @@ describe('VirtiofsdManager', () => {
 
   it('starts one daemon per export, assigns the shared cgroup, and cleans residue', async () => {
     const deps = dependencies();
-    const cgroup = { assign: jest.fn().mockResolvedValue(undefined) } as unknown as CloudHypervisorCgroup;
+    const cgroup = {
+      cgroupPath: '/sys/fs/cgroup/awf-cloud-hypervisor/test',
+      assign: jest.fn().mockResolvedValue(undefined),
+    } as unknown as CloudHypervisorCgroup;
     const manager = new VirtiofsdManager(
       '/opt/virtiofsd',
       '/run/awf/run',
@@ -136,13 +194,20 @@ describe('VirtiofsdManager', () => {
       {
         reject: false,
         stdio: ['ignore', 'pipe', 'pipe'],
-        env: { PATH: '/usr/sbin:/usr/bin:/sbin:/bin' },
+        env: VIRTIOFSD_ENVIRONMENT,
         extendEnv: false,
       },
     );
     expect(cgroup.assign).toHaveBeenNthCalledWith(1, 100);
-    expect(cgroup.assign).toHaveBeenNthCalledWith(2, 101);
+    expect(cgroup.assign).toHaveBeenNthCalledWith(2, 1100);
+    expect(cgroup.assign).toHaveBeenNthCalledWith(3, 101);
+    expect(cgroup.assign).toHaveBeenNthCalledWith(4, 1101);
     expect(deps.chown).toHaveBeenCalledWith('/run/awf/run/virtiofs-0.sock', 1000, 1000);
+    expect(deps.writeFile).toHaveBeenCalledWith(
+      '/run/awf/run/virtiofs-0-confinement.json',
+      expect.stringContaining('"verified": true'),
+      { mode: 0o600 },
+    );
     expect(deps.runTool).toHaveBeenCalledWith('/usr/bin/mount', [
       '--bind', '/host/cache', '/run/awf-shares/run/1-cache',
     ]);
@@ -151,7 +216,7 @@ describe('VirtiofsdManager', () => {
     ]);
 
     await manager.stop();
-    expect(deps.writeFile).toHaveBeenCalledTimes(2);
+    expect(deps.writeFile).toHaveBeenCalledTimes(4);
     expect(deps.rm).toHaveBeenCalledWith('/run/awf/run/virtiofs-0.sock', { force: true });
     expect(deps.runTool).toHaveBeenCalledWith(
       '/usr/bin/umount',
@@ -168,12 +233,54 @@ describe('VirtiofsdManager', () => {
       '/run/awf/run',
       '/run/awf-shares/run',
       { uid: 1000, gid: 1000 },
-      { assign: jest.fn().mockResolvedValue(undefined) },
+      {
+        cgroupPath: '/sys/fs/cgroup/awf-cloud-hypervisor/test',
+        assign: jest.fn().mockResolvedValue(undefined),
+      },
       { mount: '/usr/bin/mount', umount: '/usr/bin/umount' },
       deps,
     );
     await expect(manager.start([workspace])).rejects.toThrow(/exited before socket readiness/);
     expect(deps.rm).toHaveBeenCalledWith('/run/awf/run/virtiofs-0.sock', { force: true });
+  });
+
+  it('fails closed, records evidence, and withholds the socket when the sandbox is unsafe', async () => {
+    const deps = dependencies();
+    const readFile = deps.readFile;
+    deps.readFile = jest.fn(async (filePath: string, encoding: BufferEncoding) => {
+      if (filePath.endsWith('/environ')) return 'PATH=/usr/bin\0SECRET_TOKEN=exposed\0';
+      return readFile(filePath, encoding);
+    });
+    const started = manager(deps);
+
+    await expect(started.start([workspace])).rejects.toThrow(
+      /inherited unexpected environment variables/,
+    );
+    expect(deps.chown).not.toHaveBeenCalled();
+    expect(deps.writeFile).toHaveBeenCalledWith(
+      '/run/awf/run/virtiofs-0-confinement.json',
+      expect.stringContaining('"verified": false'),
+      { mode: 0o600 },
+    );
+    expect(started.getDiagnosticDevices()).toEqual([
+      expect.objectContaining({
+        evidencePath: '/run/awf/run/virtiofs-0-confinement.json',
+      }),
+    ]);
+    expect(deps.rm).toHaveBeenCalledWith('/run/awf/run/virtiofs-0.sock', { force: true });
+  });
+
+  it('rejects a sandbox worker outside the assigned cgroup', async () => {
+    const deps = dependencies();
+    const readFile = deps.readFile;
+    deps.readFile = jest.fn(async (filePath: string, encoding: BufferEncoding) => {
+      if (filePath.endsWith('/cgroup')) return '0::/system.slice\n';
+      return readFile(filePath, encoding);
+    });
+
+    await expect(manager(deps).start([workspace])).rejects.toThrow(
+      /worker is not in its expected cgroup|parent is not in its expected cgroup/,
+    );
   });
 
   it('retains failed bind cleanup so a later stop can retry it', async () => {
@@ -190,7 +297,10 @@ describe('VirtiofsdManager', () => {
       '/run/awf/run',
       '/run/awf-shares/run',
       { uid: 1000, gid: 1000 },
-      { assign: jest.fn().mockResolvedValue(undefined) },
+      {
+        cgroupPath: '/sys/fs/cgroup/awf-cloud-hypervisor/test',
+        assign: jest.fn().mockResolvedValue(undefined),
+      },
       { mount: '/usr/bin/mount', umount: '/usr/bin/umount' },
       deps,
     );
