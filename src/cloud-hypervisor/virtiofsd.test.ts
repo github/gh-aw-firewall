@@ -332,6 +332,32 @@ describe('VirtiofsdManager', () => {
       error: /worker capabilities differ/,
     },
     {
+      name: 'worker inheritable capabilities',
+      mutate: (deps: VirtiofsdDependencies) => {
+        const readFile = deps.readFile;
+        deps.readFile = jest.fn(async (filePath: string, encoding: BufferEncoding) => {
+          const contents = await readFile(filePath, encoding);
+          return filePath === '/proc/1100/status'
+            ? contents.replace('CapInh:\t0000000000000000', 'CapInh:\t0000000000000001')
+            : contents;
+        });
+      },
+      error: /worker capabilities differ/,
+    },
+    {
+      name: 'worker bounding capabilities',
+      mutate: (deps: VirtiofsdDependencies) => {
+        const readFile = deps.readFile;
+        deps.readFile = jest.fn(async (filePath: string, encoding: BufferEncoding) => {
+          const contents = await readFile(filePath, encoding);
+          return filePath === '/proc/1100/status'
+            ? contents.replace('CapBnd:\t00000000880000db', 'CapBnd:\t0000000000000000')
+            : contents;
+        });
+      },
+      error: /bounding set excludes reviewed runtime capabilities/,
+    },
+    {
       name: 'worker NoNewPrivs',
       mutate: (deps: VirtiofsdDependencies) => {
         const readFile = deps.readFile;

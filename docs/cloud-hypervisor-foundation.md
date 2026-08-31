@@ -159,8 +159,9 @@ configuration, AWF verifies the live parent and worker through `/proc`:
   exact socket, export, sandbox, and seccomp arguments;
 - parent and worker UIDs/GIDs match the reviewed root namespace identity;
 - every parent capability set is empty, while the worker effective and
-  permitted masks equal the pinned minimal virtiofsd set and its ambient set is
-  empty;
+  permitted masks equal the pinned minimal virtiofsd set, its inheritable and
+  ambient sets are empty, and its bounding set contains the capabilities
+  needed during sandbox setup (rendered non-acquirable after `NoNewPrivs`);
 - the worker has `NoNewPrivs: 1` and seccomp filter mode `2`;
 - the worker mount, PID, and network namespaces differ from the host;
 - the worker root inode is the inode of the declared export, proving the
