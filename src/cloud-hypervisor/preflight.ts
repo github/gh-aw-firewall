@@ -47,6 +47,8 @@ export type CloudHypervisorHostToolPaths = Readonly<{
   ip: string;
   nft: string;
   sysctl: string;
+  /** util-linux `flock`, used to serialize durable microVM network reservations. */
+  flock: string;
   mke2fs: string;
   debugfs: string;
   e2fsck: string;
@@ -62,7 +64,7 @@ export type CloudHypervisorHostToolPaths = Readonly<{
   setpriv: string;
 }>;
 const CLOUD_HYPERVISOR_HOST_TOOLS: (keyof CloudHypervisorHostToolPaths)[] = [
-  'ip', 'nft', 'sysctl', 'mke2fs', 'debugfs', 'e2fsck', 'rsync', 'mount', 'umount', 'setpriv',
+  'ip', 'nft', 'sysctl', 'flock', 'mke2fs', 'debugfs', 'e2fsck', 'rsync', 'mount', 'umount', 'setpriv',
 ];
 
 const defaultDependencies: CloudHypervisorPreflightDependencies = {

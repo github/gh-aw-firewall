@@ -1,9 +1,11 @@
 import type { ExecaChildProcess } from 'execa';
+import { constants } from 'fs';
 import { PassThrough } from 'stream';
 import type {
   MicrovmNetworkLifecycle,
   MicrovmNetworkPlan,
 } from '../microvm/network';
+import { createMicrovmNetworkPlan } from '../microvm/network';
 import type { MicrovmVsockClient } from '../microvm/vsock-client';
 import type { MicrovmRootfsPreparer } from '../microvm/rootfs';
 import type { CloudHypervisorOptions } from '../types/runtime-options';
@@ -29,6 +31,7 @@ const hostTools: CloudHypervisorHostToolPaths = {
   ip: '/usr/bin/ip',
   nft: '/usr/sbin/nft',
   sysctl: '/usr/sbin/sysctl',
+  flock: '/usr/bin/flock',
   mke2fs: '/usr/sbin/mke2fs',
   debugfs: '/usr/sbin/debugfs',
   e2fsck: '/usr/sbin/e2fsck',
@@ -50,13 +53,18 @@ function rootfsPreparerMock(): MicrovmRootfsPreparer {
 }
 
 function virtiofsdManagerMock(): VirtiofsdManager {
+  const devices = exportsConfig.map((item, index) => ({
+    export: item,
+    socketPath: `/run/virtiofs-${index}.sock`,
+    logPath: `/run/virtiofs-${index}.log`,
+    evidencePath: `/run/virtiofs-${index}-confinement.json`,
+  }));
   return {
-    start: jest.fn(async (exports: readonly CloudHypervisorDirectoryExport[]) => exports.map((item, index) => ({
-      export: item,
-      socketPath: `/run/virtiofs-${index}.sock`,
-      logPath: `/run/virtiofs-${index}.log`,
-    }))),
+    start: jest.fn(async (exports: readonly CloudHypervisorDirectoryExport[]) => devices.map(
+      (device, index) => ({ ...device, export: exports[index] }),
+    )),
     stop: jest.fn().mockResolvedValue(undefined),
+    getDiagnosticDevices: jest.fn(() => devices),
   } as unknown as VirtiofsdManager;
 }
 
@@ -185,6 +193,10 @@ function dependencies(
     rm: jest.fn().mockResolvedValue(undefined),
     sleep: jest.fn().mockResolvedValue(undefined),
     createClient: jest.fn().mockReturnValue(client),
+    reserveNetwork: jest.fn(async (runId, options) => {
+      const plan = createMicrovmNetworkPlan(runId, options);
+      return { plan, release: jest.fn().mockResolvedValue(undefined) };
+    }),
     createNetwork: jest.fn((plan) => networkLifecycle(plan)),
     cleanupRegistry: cleanupRegistryMock(),
     createRootfsPreparer: jest.fn(() => rootfsPreparerMock()),
@@ -237,7 +249,11 @@ describe('CloudHypervisorManager', () => {
     await expect(child).resolves.toMatchObject({ exitCode: 0 });
     await expect(defaults.sleep(0)).resolves.toBeUndefined();
     expect(defaults.createClient('/tmp/api.socket', 100)).toBeDefined();
-    expect(defaults.createNetwork({} as MicrovmNetworkPlan, hostTools)).toBeDefined();
+    expect(defaults.createNetwork(
+      {} as MicrovmNetworkPlan,
+      hostTools,
+      { plan: {} as MicrovmNetworkPlan, release: jest.fn() },
+    )).toBeDefined();
     expect(defaults.createRootfsPreparer({
       runDirectory: '/work/rootfs',
       baseRootfsPath: '/opt/rootfs',
@@ -393,6 +409,7 @@ describe('CloudHypervisorManager', () => {
         tapVnetHdr: true,
       }),
       hostTools,
+      expect.objectContaining({ plan: expect.objectContaining({ runId: 'run-1' }) }),
       expect.any(Object),
     );
     const lifecycle = (deps.createNetwork as jest.Mock).mock.results[0]
@@ -543,6 +560,31 @@ describe('CloudHypervisorManager', () => {
     expect(order.slice(-3)).toEqual(['network-cleanup', 'run-directory', 'record-complete']);
   });
 
+  it('releases the network reservation when durable cleanup record creation fails', async () => {
+    const release = jest.fn().mockResolvedValue(undefined);
+    const deps = dependencies({
+      reserveNetwork: jest.fn(async (runId, options) => ({
+        plan: createMicrovmNetworkPlan(runId, options),
+        release,
+      })),
+      cleanupRegistry: {
+        reapPending: jest.fn().mockResolvedValue(undefined),
+        create: jest.fn().mockRejectedValue(new Error('registry unavailable')),
+      },
+    });
+    const manager = new CloudHypervisorManager(
+      config(),
+      '/tmp/awf',
+      deps,
+      'record-failure',
+      networkConfig(),
+    );
+
+    await expect(manager.start()).rejects.toThrow('registry unavailable');
+    expect(release).toHaveBeenCalledTimes(1);
+    expect(deps.createNetwork).not.toHaveBeenCalled();
+  });
+
   it('configures one rootfs disk and virtio-fs devices, then stops daemons after the VMM', async () => {
     const order: string[] = [];
     const child = processMock();
@@ -551,6 +593,7 @@ describe('CloudHypervisorManager', () => {
       order.push('virtiofsd');
       expect(child.exitCode).toBe(0);
     });
+
     const guestClient = {
       connect: jest.fn().mockResolvedValue({
         version: 1,
@@ -601,6 +644,7 @@ describe('CloudHypervisorManager', () => {
         ]),
       }),
       hostTools,
+      expect.objectContaining({ plan: expect.objectContaining({ runId: 'guest' }) }),
       expect.any(Object),
     );
     expect(client.vmCreate).toHaveBeenCalledWith(expect.objectContaining({
@@ -665,6 +709,41 @@ describe('CloudHypervisorManager', () => {
     expect(client.vmmShutdown).toHaveBeenCalledTimes(1);
     expect(virtiofsd.stop).toHaveBeenCalledTimes(1);
     expect(order).toEqual(['virtiofsd']);
+  });
+
+  it('preserves failed virtiofsd confinement evidence before partial-start cleanup', async () => {
+    const virtiofsd = virtiofsdManagerMock();
+    (virtiofsd.start as jest.Mock).mockRejectedValue(
+      new Error('virtiofsd sandbox verification failed'),
+    );
+    const deps = dependencies({
+      createVirtiofsdManager: jest.fn().mockReturnValue(virtiofsd),
+    });
+    const manager = new CloudHypervisorManager(
+      config(),
+      '/tmp/awf',
+      deps,
+      'virtiofs-failure',
+      networkConfig(),
+      guestConfig(),
+    );
+
+    await expect(manager.start()).rejects.toThrow(/sandbox verification failed/);
+    expect(deps.copyFile).toHaveBeenCalledWith(
+      '/run/virtiofs-0-confinement.json',
+      expect.stringMatching(
+        /^\/tmp\/awf\/diagnostics\/cloud-hypervisor\/startup-.*\/virtiofs-0-confinement\.json$/,
+      ),
+      constants.COPYFILE_EXCL,
+    );
+    const copyCallOrder = (deps.copyFile as jest.Mock).mock.invocationCallOrder;
+    const evidenceCopyOrder = copyCallOrder[copyCallOrder.length - 1];
+    const runRemoval = (deps.rm as jest.Mock).mock.calls.findIndex(
+      ([target]) => String(target).startsWith('/run/awf-cloud-hypervisor/'),
+    );
+    expect(evidenceCopyOrder).toBeLessThan(
+      (deps.rm as jest.Mock).mock.invocationCallOrder[runRemoval],
+    );
   });
 
   it('starts virtiofsd without an enforcement argument when no write policy applies', async () => {
@@ -1028,6 +1107,7 @@ describe('CloudHypervisorManager', () => {
   it('builds explicit supervisor boot cmdline with PCI-required root/interface naming', () => {
     const args = buildSupervisorBootArgs({
       runId: 'run',
+      resourceToken: '000000000000',
       namespaceName: 'ns',
       netnsPath: '/var/run/netns/ns',
       nftTableName: 'table',

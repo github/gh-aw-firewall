@@ -2,14 +2,14 @@ import * as path from 'path';
 import type { ExecaChildProcess } from 'execa';
 import type { CloudHypervisorOptions } from '../types/runtime-options';
 import type { MicrovmRootfsPreparer } from '../microvm/rootfs';
-import {
-  createMicrovmNetworkPlan,
-  type MicrovmNetworkLifecycle,
-  type MicrovmNetworkPlan,
+import type {
+  MicrovmNetworkLifecycle,
+  MicrovmNetworkPlan,
 } from '../microvm/network';
 import type { CloudHypervisorApiClient } from './api-client';
 import {
   prepareRunDirectory,
+  preserveVirtiofsdStartupEvidence,
   stageArtifact,
   stageDiagnosticFile,
   waitForApiSocket,
@@ -73,21 +73,35 @@ export async function startCloudHypervisor(
     const artifacts = await dependencies.preflight(config);
     await dependencies.cleanupRegistry.reapPending(artifacts.tools.ip, artifacts.tools.umount);
     const identity = guestConfig?.identity ?? dependencies.resolveIdentity();
-    const networkPlan = createMicrovmNetworkPlan(paths.runId, {
+    const reservation = await dependencies.reserveNetwork(paths.runId, {
       ...networkConfig,
       tapOwnerUid: identity.uid,
       tapOwnerGid: identity.gid,
       tapVnetHdr: true,
-    });
+    }, artifacts.tools);
+    const networkPlan = reservation.plan;
     context.setNetworkPlan(networkPlan);
-    const cleanupRecord = await dependencies.cleanupRegistry.create(
-      paths,
-      networkPlan,
-      artifacts.cloudHypervisorBinary,
-      artifacts.tools.ip,
-    );
+    let cleanupRecord: CloudHypervisorCleanupHandle;
+    try {
+      cleanupRecord = await dependencies.cleanupRegistry.create(
+        paths,
+        networkPlan,
+        artifacts.cloudHypervisorBinary,
+        artifacts.tools.ip,
+      );
+    } catch (error) {
+      try {
+        await reservation.release();
+      } catch (releaseError) {
+        throw new Error(
+          `Creating the durable cleanup record failed: ${formatError(error)}; ` +
+          `releasing the network reservation also failed: ${formatError(releaseError)}`,
+        );
+      }
+      throw error;
+    }
     context.setCleanupRecord(cleanupRecord);
-    const network = dependencies.createNetwork(networkPlan, artifacts.tools, {
+    const network = dependencies.createNetwork(networkPlan, artifacts.tools, reservation, {
       resourceCreated: (resource) => cleanupRecord.captureNetworkResource(resource),
     });
     context.setNetwork(network);
@@ -179,8 +193,15 @@ export async function startCloudHypervisor(
         cleanupRecord,
       );
       context.setVirtiofsd(virtiofsd);
-      context.setFsDevices(await virtiofsd.start(guestConfig.exports, guestConfig.mountEnforcement));
-      await cleanupRecord.captureVirtiofsdResources();
+      try {
+        context.setFsDevices(
+          await virtiofsd.start(guestConfig.exports, guestConfig.mountEnforcement),
+        );
+        await cleanupRecord.captureVirtiofsdResources();
+      } catch (error) {
+        context.setFsDevices(virtiofsd.getDiagnosticDevices());
+        throw error;
+      }
     }
     await client.vmCreate(buildCloudHypervisorVmConfig({
       config, paths, networkPlan, ...(guestConfig ? { guestConfig } : {}),
@@ -191,6 +212,24 @@ export async function startCloudHypervisor(
     startupError = error;
   }
 
+  const startupEvidenceDirectory = path.join(
+    workDir,
+    'diagnostics',
+    'cloud-hypervisor',
+    `startup-${paths.runId}`,
+  );
+  try {
+    await preserveVirtiofsdStartupEvidence(
+      dependencies,
+      context.getFsDevices(),
+      startupEvidenceDirectory,
+    );
+  } catch (evidenceError) {
+    startupError = new Error(
+      `${formatError(startupError)}; preserving virtiofsd confinement evidence failed: ` +
+      formatError(evidenceError),
+    );
+  }
   try {
     await context.stop();
   } catch (cleanupError) {

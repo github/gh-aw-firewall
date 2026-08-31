@@ -79,7 +79,8 @@ AWF performs these steps for each run:
    executable, credentials, capabilities, `no_new_privs`, seccomp worker,
    network namespace, cgroup membership, or resource limits differ from the
    launch policy.
-8. Start one sandboxed `virtiofsd` process for each validated export.
+8. Start one sandboxed `virtiofsd` process for each validated export and verify
+   its live confinement state from procfs.
 9. Create and boot the VM, connect to the guest supervisor over VSOCK, verify
    loopback plus the configured guest interface, address, and route, and probe
    each trusted infrastructure service with bounded retries. An exhausted
@@ -169,6 +170,40 @@ The private run directory is under
 `/run/awf-cloud-hypervisor/<binary>/<runId>/`. Its per-run leaf is accessible
 only to the selected non-root identity and root.
 
+### virtiofsd confinement
+
+AWF launches the pinned `virtiofsd` binary as root because its namespace
+sandbox must create the export mount tree, unshare namespaces, and pivot its
+worker root. Root launch is not treated as proof that the sandbox succeeded.
+Before any virtio-fs socket is included in the Cloud Hypervisor VM
+configuration, AWF verifies the live parent and worker through `/proc`:
+
+- the parent PID still has its launch-time start value, trusted executable, and
+  exact socket, export, sandbox, and seccomp arguments;
+- parent and worker UIDs/GIDs match the reviewed root namespace identity;
+- every parent capability set is empty, while the worker effective and
+  permitted masks equal the pinned minimal virtiofsd set, its inheritable and
+  ambient sets are empty, and its bounding set contains the capabilities
+  needed during sandbox setup (rendered non-acquirable after `NoNewPrivs`);
+- the worker has `NoNewPrivs: 1` and seccomp filter mode `2`;
+- the worker mount, PID, and network namespaces differ from the host;
+- the worker root inode is the inode of the declared export, proving the
+  namespace sandbox pivoted to the intended tree;
+- parent and worker belong only to the run's bounded cgroup v2 leaf; and
+- parent and worker environments contain only `PATH`, `HOME`, `LANG`, and
+  `LC_ALL`, with no inherited provider credentials or other host variables.
+
+Any mismatch terminates all partially started daemons and aborts startup before
+`vm.create`. The observations are written with mode `0600` to
+`virtiofs-<index>-confinement.json` in the private run directory and copied into
+the diagnostic bundle as
+`virtiofs-<index>-<tag>-confinement.json`. When verification itself rejects
+startup, AWF preserves the failure record under
+`<workDir>/diagnostics/cloud-hypervisor/startup-<runId>/` before partial-start
+cleanup removes the private run directory. This verification follows the
+proven post-launch model from `agent-microvm` v0.9.0 rather than relying only on
+`--sandbox=namespace` and socket existence.
+
 ### Credential isolation
 
 The API proxy is mandatory. Provider credentials remain in the host-side proxy
@@ -177,12 +212,36 @@ proxy endpoint and non-secret execution settings.
 
 ### Network egress
 
-Each run uses deterministic, length-bounded resource names:
+Before creating network resources, each run acquires an OS-held `flock` on the
+root-owned `0700` directory `/run/awf-microvm-network/`. While holding that
+lock, AWF atomically chooses an unused `/30` guest subnet, bridge-side source
+address, and random resource token after checking durable reservations plus
+live namespaces, interfaces, addresses, and routes in every named namespace.
+It writes a mode `0600` reservation containing
+the kernel boot ID, owner PID, process start time, and a unique lease ID before
+releasing the lock. The kernel releases the allocation lock automatically if
+the allocator exits, so there is no stale lock file ownership protocol or
+TOCTOU cleanup window.
+
+Each reservation produces length-bounded resource names:
 
 - namespace: `awfvm-<token>`
 - host veth: `vmh<token>`
 - namespace veth: `vmn<token>`
 - TAP device: `vmt<token>`
+
+Allocation is intentionally not deterministic: diagnostics record the selected
+token, subnet, and reservation path in `network-plan.json`. This keeps incident
+diagnostics reproducible without making concurrency depend on a hash collision
+not occurring.
+
+Cleanup removes only resources named by that run and deletes the reservation
+only when its lease and process identity still match the durable record.
+Per-run `DOCKER-USER` rules carry the reservation token in an iptables comment,
+so one concurrent run cannot delete another run's otherwise-identical bridge
+rule. A dead owner's reservation is reclaimed only after its boot/PID/start-time
+identity is stale and none of its namespace, interfaces, or subnet routes
+remain live.
 
 The namespace connects the guest TAP to AWF's host-side infrastructure.
 nftables permits only the required paths to Squid and the API proxy and denies

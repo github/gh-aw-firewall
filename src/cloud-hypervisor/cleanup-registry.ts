@@ -922,7 +922,7 @@ function validateRecord(
     !record.paths?.cgroupPath.endsWith(`/${record.runId}`) ||
     !record.paths?.virtiofsdShareDirectory.endsWith(`/${record.runId}`) ||
     record.network?.netnsPath !== `/var/run/netns/${record.network.namespaceName}`
-    || !/^awf:awf_vm_[0-9a-f]{12}$/.test(record.network.hostForwardRuleComment)
+    || !/^awf-microvm-[0-9a-f]{12}$/.test(record.network.hostForwardRuleComment)
     || !/^[A-Za-z0-9_.-]{1,15}$/.test(record.network.infrastructureBridge)
   ) throw new Error('cleanup record paths are not run-scoped');
   validateProcessIdentity(record.owner, 'cleanup record owner');

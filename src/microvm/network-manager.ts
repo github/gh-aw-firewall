@@ -8,6 +8,7 @@ import type {
   MicrovmNetworkLifecycle,
   MicrovmNetworkPlan,
   MicrovmNetworkResourceObserver,
+  MicrovmNetworkReservation,
 } from './network-types';
 
 export class MicrovmNetworkManager implements MicrovmNetworkLifecycle {
@@ -15,11 +16,13 @@ export class MicrovmNetworkManager implements MicrovmNetworkLifecycle {
   private namespaceCreated = false;
   private hostVethCreated = false;
   private dockerUserRuleInserted = false;
+  private reservationReleased = false;
 
   constructor(
     readonly plan: MicrovmNetworkPlan,
     private readonly commands = new LinuxNetworkCommands(),
     private readonly probe?: MicrovmConnectivityProbe,
+    private readonly reservation?: MicrovmNetworkReservation,
     private readonly observer?: MicrovmNetworkResourceObserver,
   ) {}
 
@@ -60,7 +63,7 @@ export class MicrovmNetworkManager implements MicrovmNetworkLifecycle {
       // up below).
       await this.commands.ensureBridgeForwardAcceptRule(
         this.plan.infrastructureBridge,
-        this.plan.hostForwardRuleComment,
+        this.plan.resourceToken,
       );
       this.dockerUserRuleInserted = true;
 
@@ -151,7 +154,7 @@ export class MicrovmNetworkManager implements MicrovmNetworkLifecycle {
       await attempt(async () => {
         await this.commands.removeBridgeForwardAcceptRule(
           this.plan.infrastructureBridge,
-          this.plan.hostForwardRuleComment,
+          this.plan.resourceToken,
         );
         this.dockerUserRuleInserted = false;
       });
@@ -166,6 +169,18 @@ export class MicrovmNetworkManager implements MicrovmNetworkLifecycle {
       await attempt(async () => {
         await this.commands.ip(['netns', 'delete', this.plan.namespaceName]);
         this.namespaceCreated = false;
+      });
+    }
+    if (
+      !this.namespaceCreated
+      && !this.hostVethCreated
+      && !this.dockerUserRuleInserted
+      && this.reservation
+      && !this.reservationReleased
+    ) {
+      await attempt(async () => {
+        await this.reservation!.release();
+        this.reservationReleased = true;
       });
     }
     this.setupComplete = false;

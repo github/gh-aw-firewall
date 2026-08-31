@@ -47,6 +47,7 @@ export class LinuxNetworkCommands {
       ip: 'ip',
       nft: 'nft',
       sysctl: 'sysctl',
+      flock: 'flock',
     },
     private readonly rulesetFile: MicrovmNetworkRulesetFile = defaultRulesetFile,
   ) {}
@@ -128,17 +129,16 @@ export class LinuxNetworkCommands {
    * nftables allowlist (which still restricts what the guest can send in
    * the first place).
    */
-  async ensureBridgeForwardAcceptRule(bridgeName: string, comment: string): Promise<void> {
-    assertIptablesComment(comment);
-    const rule = [
-      '-t', 'filter', '-C', 'DOCKER-USER',
-      '-i', bridgeName, '-o', bridgeName,
-      '-m', 'comment', '--comment', comment,
-      '-j', 'ACCEPT',
-    ];
+  async ensureBridgeForwardAcceptRule(bridgeName: string, resourceToken: string): Promise<void> {
+    assertResourceToken(resourceToken);
+    const ownership = ['-m', 'comment', '--comment', `awf-microvm-${resourceToken}`];
     const checkResult = await this.execute(
       'iptables',
-      rule,
+      [
+        '-t', 'filter', '-C', 'DOCKER-USER',
+        '-i', bridgeName, '-o', bridgeName,
+        ...ownership, '-j', 'ACCEPT',
+      ],
       { reject: false },
     );
     const exitCode = (checkResult as { exitCode?: number } | undefined)?.exitCode;
@@ -148,44 +148,44 @@ export class LinuxNetworkCommands {
       [
         '-t', 'filter', '-I', 'DOCKER-USER', '1',
         '-i', bridgeName, '-o', bridgeName,
-        '-m', 'comment', '--comment', comment,
-        '-j', 'ACCEPT',
+        ...ownership, '-j', 'ACCEPT',
       ],
       { reject: true },
     );
   }
 
-  /** Removes the rule `ensureBridgeForwardAcceptRule` installs and verifies it is absent. */
-  async removeBridgeForwardAcceptRule(bridgeName: string, comment: string): Promise<void> {
-    assertIptablesComment(comment);
+  /** Removes only this reservation's rule and verifies a failed delete means it was already absent. */
+  async removeBridgeForwardAcceptRule(bridgeName: string, resourceToken: string): Promise<void> {
+    assertResourceToken(resourceToken);
     const rule = [
-      '-t', 'filter', '-C', 'DOCKER-USER',
+      '-t', 'filter', 'DOCKER-USER',
       '-i', bridgeName, '-o', bridgeName,
-      '-m', 'comment', '--comment', comment,
+      '-m', 'comment', '--comment', `awf-microvm-${resourceToken}`,
       '-j', 'ACCEPT',
     ];
-    await this.execute(
+    const deletion = await this.execute(
       'iptables',
-      rule.map((argument) => argument === '-C' ? '-D' : argument),
+      [rule[0], rule[1], '-D', ...rule.slice(2)],
       { reject: false },
-    );
-    const checkResult = await this.execute('iptables', rule, { reject: false });
-    const exitCode = (checkResult as { exitCode?: number } | undefined)?.exitCode;
-    const stderr = String(
-      (checkResult as { stderr?: unknown } | undefined)?.stderr ?? '',
-    ).trim();
+    ) as { exitCode?: number; stderr?: string } | undefined;
+    const check = await this.execute(
+      'iptables',
+      [rule[0], rule[1], '-C', ...rule.slice(2)],
+      { reject: false },
+    ) as { exitCode?: number; stderr?: string } | undefined;
+    const checkStderr = String(check?.stderr ?? '').trim();
     if (
-      exitCode === 1 &&
-      (stderr === '' || /Bad rule \(does a matching rule exist in that chain\?\)/i.test(stderr))
+      check?.exitCode === 1 &&
+      (checkStderr === '' || /Bad rule \(does a matching rule exist in that chain\?\)/i.test(checkStderr))
     ) {
       return;
     }
-    if (exitCode === 0) {
-      throw new Error(`iptables rule still exists after deletion: ${comment}`);
+    if (check?.exitCode === 0) {
+      throw new Error(`Owned DOCKER-USER rule awf-microvm-${resourceToken} remains after deletion`);
     }
     throw new Error(
-      `could not verify iptables rule deletion for ${comment}: ` +
-      `exit ${String(exitCode)}${stderr ? `: ${stderr}` : ''}`,
+      `Could not verify removal of owned DOCKER-USER rule awf-microvm-${resourceToken}: ` +
+      (check?.stderr ?? deletion?.stderr ?? 'iptables returned an unknown status'),
     );
   }
 
@@ -345,8 +345,8 @@ export class LinuxNetworkCommands {
   }
 }
 
-function assertIptablesComment(comment: string): void {
-  if (!/^awf:awf_vm_[0-9a-f]{12}$/.test(comment)) {
-    throw new Error(`Unsafe microVM iptables rule comment: ${comment}`);
+function assertResourceToken(resourceToken: string): void {
+  if (!/^[0-9a-f]{12}$/.test(resourceToken)) {
+    throw new Error(`Unsafe microVM resource token: ${resourceToken}`);
   }
 }

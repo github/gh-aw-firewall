@@ -114,6 +114,24 @@ export async function stageDiagnosticFile(
   await dependencies.chown(destination, identity.uid, identity.gid);
 }
 
+export async function preserveVirtiofsdStartupEvidence(
+  dependencies: CloudHypervisorManagerDependencies,
+  devices: readonly VirtiofsdDevice[],
+  directory: string,
+): Promise<void> {
+  if (devices.length === 0) return;
+  await dependencies.mkdir(directory, { recursive: true, mode: 0o700 });
+  for (const device of devices) {
+    try {
+      const destination = path.join(directory, path.basename(device.evidencePath));
+      await dependencies.copyFile(device.evidencePath, destination, constants.COPYFILE_EXCL);
+      await dependencies.chmod(destination, 0o600);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
+  }
+}
+
 async function copyBoundedDiagnostic(
   dependencies: CloudHypervisorManagerDependencies,
   source: string,
@@ -252,6 +270,11 @@ export async function collectCloudHypervisorDiagnostics(
       dependencies,
       device.logPath,
       path.join(directory, `virtiofs-${index}-${device.export.tag}.log`),
+    );
+    await copyBoundedDiagnostic(
+      dependencies,
+      device.evidencePath,
+      path.join(directory, `virtiofs-${index}-${device.export.tag}-confinement.json`),
     );
   }
   await dependencies.writeFile(

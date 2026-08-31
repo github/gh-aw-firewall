@@ -13,6 +13,12 @@ import {
   type VirtiofsdExportMountPlan,
   type VirtiofsdMountEnforcement,
 } from './mount-tree';
+import {
+  VIRTIOFSD_ENVIRONMENT,
+  captureVirtiofsdProcessIdentity,
+  verifyVirtiofsdSandbox,
+  type VirtiofsdSandboxDependencies,
+} from './virtiofsd-sandbox';
 
 export type {
   MountTreeDependencies,
@@ -32,9 +38,11 @@ export interface VirtiofsdDevice {
   readonly export: CloudHypervisorDirectoryExport;
   readonly socketPath: string;
   readonly logPath: string;
+  readonly evidencePath: string;
 }
 
-export interface VirtiofsdDependencies extends MountTreeDependencies {
+export interface VirtiofsdDependencies
+  extends MountTreeDependencies, VirtiofsdSandboxDependencies {
   launch(
     command: string,
     args: string[],
@@ -47,7 +55,7 @@ export interface VirtiofsdDependencies extends MountTreeDependencies {
   ): ExecaChildProcess<string>;
   lstat(filePath: string): Promise<{ isSocket(): boolean }>;
   chown(filePath: string, uid: number, gid: number): Promise<void>;
-  writeFile(filePath: string, contents: Buffer, options: { mode: number }): Promise<void>;
+  writeFile(filePath: string, contents: Buffer | string, options: { mode: number }): Promise<void>;
   rm(filePath: string, options: { force: true }): Promise<void>;
   mkdir(directory: string, options: { recursive: true; mode: number }): Promise<unknown>;
   rmdir(directory: string): Promise<void>;
@@ -56,7 +64,6 @@ export interface VirtiofsdDependencies extends MountTreeDependencies {
   statPath(filePath: string): Promise<MountTreeStats>;
   realpath(filePath: string): Promise<string>;
   readMountInfo(): Promise<string>;
-  sleep(milliseconds: number): Promise<void>;
 }
 
 const defaultDependencies: VirtiofsdDependencies = {
@@ -64,6 +71,9 @@ const defaultDependencies: VirtiofsdDependencies = {
   lstat: fs.lstat,
   chown: fs.chown,
   writeFile: fs.writeFile,
+  readFile: fs.readFile,
+  readlink: fs.readlink,
+  statIdentity: (filePath) => fs.stat(filePath, { bigint: true }),
   rm: (filePath, options) => fs.rm(filePath, options),
   mkdir: fs.mkdir,
   rmdir: fs.rmdir,
@@ -113,6 +123,7 @@ interface RunningDaemon extends VirtiofsdDevice {
 
 export class VirtiofsdManager {
   private readonly running: RunningDaemon[] = [];
+  private readonly diagnosticDevices: VirtiofsdDevice[] = [];
   /** Mount trees whose staging failed with residue that still needs unmounting. */
   private readonly orphanedMountTrees: StagedHostMountTree[] = [];
 
@@ -121,7 +132,7 @@ export class VirtiofsdManager {
     private readonly runDirectory: string,
     private readonly shareDirectory: string,
     private readonly identity: { uid: number; gid: number },
-    private readonly cgroup: Pick<CloudHypervisorCgroup, 'assign'>,
+    private readonly cgroup: Pick<CloudHypervisorCgroup, 'assign' | 'cgroupPath'>,
     private readonly tools: { readonly mount: string; readonly umount: string },
     private readonly dependencies: VirtiofsdDependencies = defaultDependencies,
     private readonly cleanupRecord?: CloudHypervisorCleanupHandle,
@@ -143,10 +154,11 @@ export class VirtiofsdManager {
       for (const [index, directoryExport] of exports.entries()) {
         await this.startOne(directoryExport, index, selectMountPlan(enforcement, directoryExport.tag));
       }
-      return this.running.map(({ export: item, socketPath, logPath }) => ({
+      return this.running.map(({ export: item, socketPath, logPath, evidencePath }) => ({
         export: item,
         socketPath,
         logPath,
+        evidencePath,
       }));
     } catch (error) {
       try {
@@ -246,6 +258,10 @@ export class VirtiofsdManager {
     }
   }
 
+  getDiagnosticDevices(): VirtiofsdDevice[] {
+    return this.diagnosticDevices.map((device) => ({ ...device }));
+  }
+
   private async startOne(
     directoryExport: CloudHypervisorDirectoryExport,
     index: number,
@@ -253,6 +269,7 @@ export class VirtiofsdManager {
   ): Promise<void> {
     const socketPath = path.join(this.runDirectory, `virtiofs-${index}.sock`);
     const logPath = path.join(this.runDirectory, `virtiofs-${index}.log`);
+    const evidencePath = path.join(this.runDirectory, `virtiofs-${index}-confinement.json`);
     let sharedDirectory = directoryExport.source;
     let readonlyBindPath: string | undefined;
     let mountTree: StagedHostMountTree | undefined;
@@ -304,16 +321,24 @@ export class VirtiofsdManager {
       announceSubmounts: mountTree !== undefined,
     });
     const cleanupKey = `virtiofsd-${index}`;
+    const workerCleanupKey = `${cleanupKey}-worker`;
+    const expectedExecutable = await this.dependencies.realpath(this.binaryPath);
     await this.cleanupRecord?.prepareProcess(
       cleanupKey,
-      this.binaryPath,
+      expectedExecutable,
+      socketPath,
+      sharedDirectory,
+    );
+    await this.cleanupRecord?.prepareProcess(
+      workerCleanupKey,
+      expectedExecutable,
       socketPath,
       sharedDirectory,
     );
     const child = this.dependencies.launch(this.binaryPath, args, {
       reject: false,
       stdio: ['ignore', 'pipe', 'pipe'],
-      env: { PATH: '/usr/sbin:/usr/bin:/sbin:/bin' },
+      env: VIRTIOFSD_ENVIRONMENT,
       extendEnv: false,
     });
     const stdout = new BoundedCapture(CAPTURE_LIMIT_BYTES);
@@ -324,6 +349,7 @@ export class VirtiofsdManager {
       export: directoryExport,
       socketPath,
       logPath,
+      evidencePath,
       process: child,
       stdout,
       stderr,
@@ -332,10 +358,28 @@ export class VirtiofsdManager {
       socketRemoved: false,
     };
     this.running.push(daemon);
+    this.diagnosticDevices.push({
+      export: directoryExport,
+      socketPath,
+      logPath,
+      evidencePath,
+    });
     if (!child.pid) throw new Error(`virtiofsd for "${directoryExport.tag}" did not expose a PID`);
     await this.cgroup.assign(child.pid);
+    const parentIdentity = await captureVirtiofsdProcessIdentity(child.pid, this.dependencies);
     await this.waitForSocket(daemon);
+    const workerIdentity = await verifyVirtiofsdSandbox({
+      exportTag: directoryExport.tag,
+      parentIdentity,
+      expectedExecutable,
+      socketPath,
+      sharedDirectory,
+      cgroupPath: this.cgroup.cgroupPath,
+      evidencePath,
+      assignToCgroup: (pid) => this.cgroup.assign(pid),
+    }, this.dependencies);
     await this.cleanupRecord?.captureProcess(cleanupKey, child.pid);
+    await this.cleanupRecord?.captureProcess(workerCleanupKey, workerIdentity.pid);
     await this.dependencies.chown(socketPath, this.identity.uid, this.identity.gid);
   }
 
