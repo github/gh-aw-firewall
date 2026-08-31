@@ -124,6 +124,11 @@ export function mapAwfFileConfigToCliOptions(config: AwfFileConfig): Record<stri
     cloudHypervisorKernel: config.cloudHypervisor?.kernelPath,
     cloudHypervisorRootfs: config.cloudHypervisor?.rootfsPath,
     cloudHypervisorSupervisor: config.cloudHypervisor?.supervisorPath,
+    cloudHypervisorArtifactManifest: config.cloudHypervisor?.artifactManifestPath,
+    cloudHypervisorArtifactManifestBundle: config.cloudHypervisor?.artifactManifestBundlePath,
+    cloudHypervisorArtifactReleaseTag: config.cloudHypervisor?.artifactReleaseTag,
+    cloudHypervisorDevelopmentAllowUnattestedArtifacts:
+      config.cloudHypervisor?.developmentAllowUnattestedArtifacts,
     cloudHypervisorVcpus: config.cloudHypervisor?.vcpuCount,
     cloudHypervisorMemoryMib: config.cloudHypervisor?.memoryMib,
     cloudHypervisorApiTimeoutMs: config.cloudHypervisor?.apiTimeoutMs,

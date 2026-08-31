@@ -8,6 +8,14 @@ const artifactBuildPath = path.resolve(
   __dirname,
   '../../guest/cloud-hypervisor/build-test-artifacts.sh'
 );
+const artifactVerifyPath = path.resolve(
+  __dirname,
+  '../../guest/cloud-hypervisor/verify-test-artifacts.sh'
+);
+const releaseWorkflowPath = path.resolve(
+  __dirname,
+  '../../.github/workflows/release.yml'
+);
 
 function shellcheckAvailable(): boolean {
   try {
@@ -32,6 +40,32 @@ describe('build-test-artifacts.sh', () => {
     expect(source).toContain('local partial="${destination}.part"');
     expect(source).toContain('sha256sum --check --status');
     expect(source).toContain('mv -- "$partial" "$destination"');
+  });
+
+  it('emits one release-pinned manifest covering every trusted runtime artifact', () => {
+    const source = fs.readFileSync(artifactBuildPath, 'utf-8');
+    for (const key of ['cloudHypervisor', 'virtiofsd', 'kernel', 'rootfs', 'supervisor']) {
+      expect(source).toContain(`"${key}": {`);
+    }
+    expect(source).toContain('"repository": "github/gh-aw-firewall"');
+    expect(source).toContain(
+      '"workflow": "github/gh-aw-firewall/.github/workflows/release.yml"',
+    );
+    const verifier = fs.readFileSync(artifactVerifyPath, 'utf-8');
+    expect(verifier).toContain('.artifacts.${key}.sha256');
+  });
+
+  it('attests the manifest and publishes its offline verification bundle', () => {
+    const workflow = fs.readFileSync(releaseWorkflowPath, 'utf-8');
+    expect(workflow).toContain(
+      'subject-path: release/cloud-hypervisor-test-x86_64/manifest.json',
+    );
+    expect(workflow).toContain(
+      '${{ steps.attest_cloud_hypervisor_manifest.outputs.bundle-path }}',
+    );
+    expect(workflow).toContain(
+      'release/cloud-hypervisor-test-x86_64.manifest.sigstore.jsonl',
+    );
   });
 });
 
@@ -150,8 +184,14 @@ describe('cloud-hypervisor-live-smoke.sh', () => {
     expect(source).toContain("pgrep -f 'cloud-hypervisor --api-socket'");
   });
 
-  it('passes the pinned artifact digests as distinct --cloud-hypervisor-*-sha256 flags', () => {
+  it('uses the conspicuous dual opt-in for same-run unattested test artifacts', () => {
     const source = fs.readFileSync(smokePath, 'utf-8');
+    expect(source).toContain(
+      'AWF_CLOUD_HYPERVISOR_DEVELOPMENT_ALLOW_UNATTESTED_ARTIFACTS=1',
+    );
+    expect(source).toContain(
+      '--cloud-hypervisor-development-allow-unattested-artifacts',
+    );
     expect(source).toContain('--cloud-hypervisor-binary-sha256');
     expect(source).toContain('--cloud-hypervisor-kernel-sha256');
     expect(source).toContain('--cloud-hypervisor-rootfs-sha256');

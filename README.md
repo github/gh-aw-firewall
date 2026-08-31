@@ -94,7 +94,7 @@ See [GitHub Actions](docs/github_actions.md) for advanced setup and `awf logs su
 - [Diagnosing AWF failures](docs/diagnosing-awf-failures.md) — use the Self-Hosted Runner Doctor agent to triage self-hosted/ARC/GHES/GHEC failures
 - [Auth Doctor Updater workflow](.github/workflows/auth-doctor-updater.md) — daily/manual audit that opens bounded PRs with evidence-backed authentication and API-proxy documentation corrections
 - [Image verification](docs/image-verification.md) — cosign signature verification
-- [Cloud Hypervisor integration (preview)](docs/cloud-hypervisor-foundation.md) — Cloud Hypervisor v53.0 microVM backend: explicit opt-in, GitHub-hosted Ubuntu x86_64 KVM runners only, operator-managed artifacts with mandatory SHA-256 digests, Landlock/seccomp-confined launcher in place of a jailer, fail-closed egress, mandatory API proxy credential isolation
+- [Cloud Hypervisor integration (preview)](docs/cloud-hypervisor-foundation.md) — Cloud Hypervisor v53.0 microVM backend: explicit opt-in, GitHub-hosted Ubuntu x86_64 KVM runners only, release-pinned GitHub-attested artifact manifests, Landlock/seccomp-confined launcher in place of a jailer, fail-closed egress, mandatory API proxy credential isolation
 
 ## Development
 

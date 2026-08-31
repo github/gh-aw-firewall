@@ -200,6 +200,16 @@ program
   .option('--cloud-hypervisor-kernel <path>', 'Path to the PCI-capable guest Linux kernel image.')
   .option('--cloud-hypervisor-rootfs <path>', 'Path to the guest root filesystem image.')
   .option('--cloud-hypervisor-supervisor <path>', 'Path to the built AWF guest supervisor.')
+  .option('--cloud-hypervisor-artifact-manifest <path>', 'Path to the release-pinned Cloud Hypervisor artifact manifest.')
+  .option('--cloud-hypervisor-artifact-manifest-bundle <path>', 'Path to the manifest GitHub artifact-attestation bundle for offline verification.')
+  .option('--cloud-hypervisor-artifact-release-tag <tag>', 'Expected AWF release tag recorded by the attested artifact manifest.')
+  .option(
+    '--cloud-hypervisor-development-allow-unattested-artifacts',
+    'DEVELOPMENT ONLY: allow legacy caller-supplied hashes when the matching\n' +
+    '                                       AWF_CLOUD_HYPERVISOR_DEVELOPMENT_ALLOW_UNATTESTED_ARTIFACTS=1\n' +
+    '                                       environment variable is also set.',
+    false,
+  )
   .option('--cloud-hypervisor-vcpus <count>', 'Guest virtual CPU count (default: 2).')
   .option('--cloud-hypervisor-memory-mib <mib>', 'Guest memory in MiB (default: 512).')
   .option('--cloud-hypervisor-api-timeout-ms <ms>', 'Bounded API socket readiness timeout in milliseconds (default: 5000).')

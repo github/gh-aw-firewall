@@ -13,8 +13,7 @@ import {
 import { buildCloudHypervisorGuestEnvironment } from './cloud-hypervisor/guest-environment-builder';
 import { assertCloudHypervisorSelection } from './cloud-hypervisor/runtime-validation';
 import type { MicrovmInfrastructureSnapshot } from './microvm/infrastructure';
-
-const digest = 'a'.repeat(64);
+import { CLOUD_HYPERVISOR_ARTIFACT_RELEASE_TAG } from './cloud-hypervisor/artifact-manifest';
 
 function config(overrides: Partial<WrapperConfig> = {}): WrapperConfig {
   return {
@@ -26,16 +25,12 @@ function config(overrides: Partial<WrapperConfig> = {}): WrapperConfig {
       kernelPath: '/opt/kernel',
       rootfsPath: '/opt/rootfs',
       supervisorPath: '/opt/supervisor',
+      artifactManifestPath: '/opt/manifest.json',
+      artifactManifestBundlePath: '/opt/manifest.sigstore.jsonl',
+      artifactReleaseTag: CLOUD_HYPERVISOR_ARTIFACT_RELEASE_TAG,
       vcpuCount: 2,
       memoryMib: 512,
       apiTimeoutMs: 5000,
-      sha256: {
-        cloudHypervisor: digest,
-        virtiofsd: digest,
-        kernel: digest,
-        rootfs: digest,
-        supervisor: digest,
-      },
     },
     agentCommand: 'printf hello',
     allowedDomains: ['github.com'],
@@ -88,11 +83,19 @@ function infrastructure(): MicrovmInfrastructureSnapshot {
 
 const preflightResult = {
   version: '53.0',
-  cloudHypervisorBinary: '/opt/cloud-hypervisor',
-  virtiofsdBinary: '/opt/virtiofsd',
-  kernelPath: '/opt/kernel',
-  rootfsPath: '/opt/rootfs',
-  supervisorPath: '/opt/supervisor',
+  cloudHypervisorBinary: '/snapshot/cloud-hypervisor',
+  virtiofsdBinary: '/snapshot/virtiofsd',
+  kernelPath: '/snapshot/vmlinux.bin',
+  rootfsPath: '/snapshot/rootfs.ext4',
+  supervisorPath: '/snapshot/awf-supervisor',
+  artifactSnapshotDirectory: '/snapshot',
+  artifactDigests: {
+    cloudHypervisor: 'a'.repeat(64),
+    virtiofsd: 'a'.repeat(64),
+    kernel: 'a'.repeat(64),
+    rootfs: 'a'.repeat(64),
+    supervisor: 'a'.repeat(64),
+  },
   cgroupVersion: 2 as const,
   kvmGid: 978,
   tools: {
@@ -176,6 +179,7 @@ function harness(overrides: Partial<CloudHypervisorRuntimeBackendDependencies> =
       warn: jest.fn(),
     },
     sleep: jest.fn().mockResolvedValue(undefined),
+    removeArtifactSnapshot: jest.fn().mockResolvedValue(undefined),
     ...overrides,
   };
   return { order, manager, infra, deps, stdin };
@@ -238,7 +242,10 @@ describe('Cloud Hypervisor runtime backend', () => {
         gid: expect.any(Number),
       });
       expect(defaults.createManager(
-        config().cloudHypervisor!,
+        {
+          ...config().cloudHypervisor!,
+          sha256: preflightResult.artifactDigests,
+        },
         '/tmp/awf',
         infrastructure(),
         [{ tag: 'workspace', source: '/workspace', target: '/workspace', mode: 'rw' }],
@@ -275,7 +282,13 @@ describe('Cloud Hypervisor runtime backend', () => {
 
       expect(deps.resolveExports).toHaveBeenCalledWith('workspace-only');
       expect(deps.createManager).toHaveBeenCalledWith(
-        expect.anything(),
+        expect.objectContaining({
+          cloudHypervisorBinary: '/snapshot/cloud-hypervisor',
+          kernelPath: '/snapshot/vmlinux.bin',
+          rootfsPath: '/snapshot/rootfs.ext4',
+          supervisorPath: '/snapshot/awf-supervisor',
+          sha256: preflightResult.artifactDigests,
+        }),
         '/tmp/awf',
         expect.anything(),
         [
@@ -938,8 +951,12 @@ describe('Cloud Hypervisor runtime backend', () => {
 
     expect(manager.stop).toHaveBeenCalledWith({ preserve: true });
     expect(manager.stop).toHaveBeenCalledTimes(1);
+    expect(deps.removeArtifactSnapshot).not.toHaveBeenCalled();
     expect(deps.logger.info).toHaveBeenCalledWith(
       '[cloud-hypervisor] Preserved network namespace: awfvm-test',
+    );
+    expect(deps.logger.info).toHaveBeenCalledWith(
+      '[cloud-hypervisor] Preserved trusted artifacts: /snapshot',
     );
   });
 
@@ -966,6 +983,7 @@ describe('Cloud Hypervisor runtime backend', () => {
       expect.stringMatching(/^agent-/),
     );
     expect(manager.stop).toHaveBeenCalledWith({ preserve: false });
+    expect(deps.removeArtifactSnapshot).toHaveBeenCalledWith('/snapshot');
   });
 
   it('cancels after stdin forwarding failure without changing command output', async () => {

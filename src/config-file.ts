@@ -148,6 +148,10 @@ export interface AwfFileConfig {
     kernelPath?: string;
     rootfsPath?: string;
     supervisorPath?: string;
+    artifactManifestPath?: string;
+    artifactManifestBundlePath?: string;
+    artifactReleaseTag?: string;
+    developmentAllowUnattestedArtifacts?: boolean;
     vcpuCount?: number;
     memoryMib?: number;
     apiTimeoutMs?: number;

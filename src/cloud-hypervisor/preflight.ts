@@ -4,8 +4,16 @@ import * as path from 'path';
 import execa from 'execa';
 import {
   CLOUD_HYPERVISOR_RELEASE_VERSION,
+  type CloudHypervisorArtifactDigests,
   type CloudHypervisorOptions,
 } from '../types/runtime-options';
+import {
+  CLOUD_HYPERVISOR_ARTIFACT_REPOSITORY,
+  CLOUD_HYPERVISOR_ARTIFACT_SIGNER_WORKFLOW,
+  artifactDigestsFromManifest,
+  assertArtifactBasenames,
+  parseCloudHypervisorArtifactManifest,
+} from './artifact-manifest';
 
 /**
  * Fail-closed host and artifact validation for the Cloud Hypervisor v53.0
@@ -35,6 +43,16 @@ export interface CloudHypervisorPreflightDependencies {
   }>;
   runVersion(binaryPath: string): Promise<string>;
   sha256(filePath: string): Promise<string>;
+  readFile(filePath: string): Promise<string>;
+  createArtifactSnapshot(
+    sources: CloudHypervisorArtifactSnapshotSources,
+  ): Promise<CloudHypervisorArtifactSnapshot>;
+  removeArtifactSnapshot(directory: string): Promise<void>;
+  verifyManifestAttestation(
+    ghBinaryPath: string,
+    manifestPath: string,
+    bundlePath: string,
+  ): Promise<void>;
   assertToolAvailable(tool: string): Promise<string>;
   assertHostPolicy(): Promise<2>;
   assertDockerInfrastructure(dockerBinaryPath: string): Promise<void>;
@@ -70,6 +88,23 @@ export type CloudHypervisorHostToolPaths = Readonly<{
   useradd: string;
   userdel: string;
 }>;
+
+export interface CloudHypervisorArtifactSnapshotSources {
+  cloudHypervisorBinary: string;
+  virtiofsdBinary: string;
+  kernelPath: string;
+  rootfsPath: string;
+  supervisorPath: string;
+  manifestPath?: string;
+  bundlePath?: string;
+}
+
+export interface CloudHypervisorArtifactSnapshot extends CloudHypervisorArtifactSnapshotSources {
+  directory: string;
+}
+
+const CLOUD_HYPERVISOR_ARTIFACT_SNAPSHOT_ROOT =
+  '/run/awf-cloud-hypervisor/trusted-artifacts';
 const CLOUD_HYPERVISOR_HOST_TOOLS: (keyof CloudHypervisorHostToolPaths)[] = [
   'getent', 'getfacl', 'groupdel', 'id', 'ip', 'nft', 'sysctl', 'flock', 'mke2fs', 'debugfs', 'e2fsck',
   'rsync', 'mount', 'umount', 'setfacl', 'setpriv', 'useradd', 'userdel',
@@ -95,6 +130,36 @@ const defaultDependencies: CloudHypervisorPreflightDependencies = {
     return `${result.stdout}\n${result.stderr}`.trim();
   },
   sha256: calculateSha256,
+  readFile: async (filePath) => fs.readFile(filePath, 'utf8'),
+  createArtifactSnapshot: createArtifactSnapshot,
+  removeArtifactSnapshot: async (directory) => {
+    await fs.rm(directory, { recursive: true, force: true });
+  },
+  verifyManifestAttestation: async (ghBinaryPath, manifestPath, bundlePath) => {
+    const result = await execa(ghBinaryPath, [
+      'attestation',
+      'verify',
+      manifestPath,
+      '--repo',
+      CLOUD_HYPERVISOR_ARTIFACT_REPOSITORY,
+      '--bundle',
+      bundlePath,
+      '--signer-workflow',
+      CLOUD_HYPERVISOR_ARTIFACT_SIGNER_WORKFLOW,
+      '--deny-self-hosted-runners',
+    ], {
+      reject: false,
+      timeout: 30_000,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    if (result.exitCode !== 0) {
+      throw new Error(
+        `GitHub artifact attestation verification failed with code ${result.exitCode}: ${
+          result.stderr.trim()
+        }`,
+      );
+    }
+  },
   assertToolAvailable: async (tool) => {
     const searchPath = process.env.PATH ?? '';
     for (const directory of searchPath.split(path.delimiter)) {
@@ -175,6 +240,8 @@ export interface CloudHypervisorPreflightResult {
   kernelPath: string;
   rootfsPath: string;
   supervisorPath: string;
+  artifactSnapshotDirectory: string;
+  artifactDigests: Required<CloudHypervisorArtifactDigests>;
   tools: CloudHypervisorHostToolPaths;
   cgroupVersion: 2;
   /** Group ID that owns `/dev/kvm`, retained as the launcher's sole supplementary group. */
@@ -182,6 +249,58 @@ export interface CloudHypervisorPreflightResult {
 }
 
 export const CLOUD_HYPERVISOR_MAX_BOOT_ATTEMPTS = 3;
+
+async function createArtifactSnapshot(
+  sources: CloudHypervisorArtifactSnapshotSources,
+): Promise<CloudHypervisorArtifactSnapshot> {
+  await fs.mkdir(CLOUD_HYPERVISOR_ARTIFACT_SNAPSHOT_ROOT, {
+    recursive: true,
+    mode: 0o711,
+  });
+  await fs.chmod(CLOUD_HYPERVISOR_ARTIFACT_SNAPSHOT_ROOT, 0o711);
+  const directory = await fs.mkdtemp(
+    path.join(CLOUD_HYPERVISOR_ARTIFACT_SNAPSHOT_ROOT, 'run-'),
+  );
+  const copy = async (
+    source: string,
+    name: string,
+    mode: number,
+  ): Promise<string> => {
+    const destination = path.join(directory, name);
+    await fs.copyFile(source, destination, constants.COPYFILE_EXCL);
+    await fs.chmod(destination, mode);
+    return destination;
+  };
+  try {
+    const snapshot: CloudHypervisorArtifactSnapshot = {
+      directory,
+      cloudHypervisorBinary: await copy(
+        sources.cloudHypervisorBinary,
+        'cloud-hypervisor',
+        0o555,
+      ),
+      virtiofsdBinary: await copy(sources.virtiofsdBinary, 'virtiofsd', 0o555),
+      kernelPath: await copy(sources.kernelPath, 'vmlinux.bin', 0o444),
+      rootfsPath: await copy(sources.rootfsPath, 'rootfs.ext4', 0o444),
+      supervisorPath: await copy(sources.supervisorPath, 'awf-supervisor', 0o555),
+    };
+    if (sources.manifestPath) {
+      snapshot.manifestPath = await copy(sources.manifestPath, 'manifest.json', 0o444);
+    }
+    if (sources.bundlePath) {
+      snapshot.bundlePath = await copy(
+        sources.bundlePath,
+        'manifest.sigstore.jsonl',
+        0o444,
+      );
+    }
+    await fs.chmod(directory, 0o555);
+    return snapshot;
+  } catch (error) {
+    await fs.rm(directory, { recursive: true, force: true });
+    throw error;
+  }
+}
 
 type CloudHypervisorReadinessStage =
   | 'guest-network-readiness'
@@ -363,12 +482,25 @@ async function assertDigest(
   if (!/^[a-fA-F0-9]{64}$/.test(expected)) {
     throw new Error(`${label} SHA-256 must contain exactly 64 hexadecimal characters`);
   }
+
   const actual = await dependencies.sha256(filePath);
   if (actual.toLowerCase() !== expected.toLowerCase()) {
     throw new Error(
       `${label} SHA-256 mismatch: expected ${expected.toLowerCase()}, got ${actual.toLowerCase()}`,
     );
   }
+}
+
+function hasCompleteArtifactDigests(
+  digests: CloudHypervisorArtifactDigests | undefined,
+): digests is Required<CloudHypervisorArtifactDigests> {
+  return Boolean(
+    digests?.cloudHypervisor &&
+    digests.virtiofsd &&
+    digests.kernel &&
+    digests.rootfs &&
+    digests.supervisor,
+  );
 }
 
 /**
@@ -398,6 +530,26 @@ export async function runCloudHypervisorPreflight(
   if (!config.kernelPath || !config.rootfsPath || !config.supervisorPath) {
     throw new Error(
       'Cloud Hypervisor requires guest kernel, rootfs, and supervisor artifact paths',
+    );
+  }
+  const developmentBypass = config.developmentAllowUnattestedArtifacts === true;
+  if (
+    developmentBypass &&
+    process.env.AWF_CLOUD_HYPERVISOR_DEVELOPMENT_ALLOW_UNATTESTED_ARTIFACTS !== '1'
+  ) {
+    throw new Error(
+      'Cloud Hypervisor development artifact bypass requires ' +
+      'AWF_CLOUD_HYPERVISOR_DEVELOPMENT_ALLOW_UNATTESTED_ARTIFACTS=1',
+    );
+  }
+  if (
+    !developmentBypass &&
+    (!config.artifactManifestPath ||
+      !config.artifactManifestBundlePath ||
+      !config.artifactReleaseTag)
+  ) {
+    throw new Error(
+      'Cloud Hypervisor requires an artifact manifest, attestation bundle, and expected release tag',
     );
   }
 
@@ -464,64 +616,127 @@ export async function runCloudHypervisorPreflight(
     constants.R_OK,
     dependencies,
   );
-  await assertDigest(
-    'Cloud Hypervisor binary',
-    config.cloudHypervisorBinary,
-    config.sha256?.cloudHypervisor,
-    dependencies,
-  );
-  await assertDigest(
-    'virtiofsd binary',
-    virtiofsdBinary,
-    config.sha256?.virtiofsd,
-    dependencies,
-  );
-
-  const version = parseCloudHypervisorVersion(
-    await dependencies.runVersion(config.cloudHypervisorBinary),
-  );
-  if (version !== CLOUD_HYPERVISOR_RELEASE_VERSION) {
-    throw new Error(
-      `Cloud Hypervisor is pinned to v${CLOUD_HYPERVISOR_RELEASE_VERSION}; found v${version}`,
+  if (!developmentBypass) {
+    await assertTrustedRegularFile(
+      'Cloud Hypervisor artifact manifest',
+      config.artifactManifestPath!,
+      constants.R_OK,
+      dependencies,
     );
-  }
-  const virtiofsdVersion = parseVirtiofsdVersion(
-    await dependencies.runVersion(virtiofsdBinary),
-  );
-  if (virtiofsdVersion !== VIRTIOFSD_RELEASE_VERSION) {
-    throw new Error(
-      `virtiofsd is pinned to v${VIRTIOFSD_RELEASE_VERSION}; found v${virtiofsdVersion}`,
+    await assertTrustedRegularFile(
+      'Cloud Hypervisor artifact attestation bundle',
+      config.artifactManifestBundlePath!,
+      constants.R_OK,
+      dependencies,
     );
   }
 
-  await assertDigest(
-    'Cloud Hypervisor guest kernel',
-    config.kernelPath,
-    config.sha256?.kernel,
-    dependencies,
-  );
-  await assertDigest(
-    'Cloud Hypervisor rootfs',
-    config.rootfsPath,
-    config.sha256?.rootfs,
-    dependencies,
-  );
-  await assertDigest(
-    'Cloud Hypervisor guest supervisor',
-    config.supervisorPath,
-    config.sha256?.supervisor,
-    dependencies,
-  );
-
-  return {
-    version,
+  const snapshot = await dependencies.createArtifactSnapshot({
     cloudHypervisorBinary: config.cloudHypervisorBinary,
     virtiofsdBinary,
     kernelPath: config.kernelPath,
     rootfsPath: config.rootfsPath,
     supervisorPath: config.supervisorPath,
-    tools,
-    cgroupVersion,
-    kvmGid,
-  };
+    ...(!developmentBypass
+      ? {
+        manifestPath: config.artifactManifestPath!,
+        bundlePath: config.artifactManifestBundlePath!,
+      }
+      : {}),
+  });
+  try {
+    let artifactDigests: Required<CloudHypervisorArtifactDigests>;
+    if (developmentBypass) {
+      if (!hasCompleteArtifactDigests(config.sha256)) {
+      throw new Error(
+        'Cloud Hypervisor development artifact bypass requires SHA-256 digests for all five artifacts',
+      );
+      }
+      artifactDigests = config.sha256;
+    } else {
+      const ghBinaryPath = await dependencies.assertToolAvailable('gh');
+      await dependencies.verifyManifestAttestation(
+      ghBinaryPath,
+      snapshot.manifestPath!,
+      snapshot.bundlePath!,
+      );
+      const manifest = parseCloudHypervisorArtifactManifest(
+      await dependencies.readFile(snapshot.manifestPath!),
+      config.artifactReleaseTag!,
+      );
+      assertArtifactBasenames(manifest, {
+      cloudHypervisor: config.cloudHypervisorBinary,
+      virtiofsd: virtiofsdBinary,
+      kernel: config.kernelPath,
+      rootfs: config.rootfsPath,
+      supervisor: config.supervisorPath,
+      });
+      artifactDigests = artifactDigestsFromManifest(manifest);
+    }
+    await assertDigest(
+      'Cloud Hypervisor binary',
+      snapshot.cloudHypervisorBinary,
+      artifactDigests.cloudHypervisor,
+      dependencies,
+    );
+    await assertDigest(
+      'virtiofsd binary',
+      snapshot.virtiofsdBinary,
+      artifactDigests.virtiofsd,
+      dependencies,
+    );
+
+    const version = parseCloudHypervisorVersion(
+      await dependencies.runVersion(snapshot.cloudHypervisorBinary),
+    );
+    if (version !== CLOUD_HYPERVISOR_RELEASE_VERSION) {
+      throw new Error(
+      `Cloud Hypervisor is pinned to v${CLOUD_HYPERVISOR_RELEASE_VERSION}; found v${version}`,
+      );
+    }
+    const virtiofsdVersion = parseVirtiofsdVersion(
+      await dependencies.runVersion(snapshot.virtiofsdBinary),
+    );
+    if (virtiofsdVersion !== VIRTIOFSD_RELEASE_VERSION) {
+      throw new Error(
+      `virtiofsd is pinned to v${VIRTIOFSD_RELEASE_VERSION}; found v${virtiofsdVersion}`,
+      );
+    }
+
+    await assertDigest(
+      'Cloud Hypervisor guest kernel',
+      snapshot.kernelPath,
+      artifactDigests.kernel,
+      dependencies,
+    );
+    await assertDigest(
+      'Cloud Hypervisor rootfs',
+      snapshot.rootfsPath,
+      artifactDigests.rootfs,
+      dependencies,
+    );
+    await assertDigest(
+      'Cloud Hypervisor guest supervisor',
+      snapshot.supervisorPath,
+      artifactDigests.supervisor,
+      dependencies,
+    );
+
+    return {
+      version,
+      cloudHypervisorBinary: snapshot.cloudHypervisorBinary,
+      virtiofsdBinary: snapshot.virtiofsdBinary,
+      kernelPath: snapshot.kernelPath,
+      rootfsPath: snapshot.rootfsPath,
+      supervisorPath: snapshot.supervisorPath,
+      artifactSnapshotDirectory: snapshot.directory,
+      artifactDigests,
+      tools,
+      cgroupVersion,
+      kvmGid,
+    };
+  } catch (error) {
+    await dependencies.removeArtifactSnapshot(snapshot.directory);
+    throw error;
+  }
 }

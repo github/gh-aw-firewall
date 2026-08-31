@@ -1,4 +1,5 @@
 import type { Readable, Writable } from 'stream';
+import { promises as fs } from 'fs';
 import type { WorkflowDependencies } from './cli-workflow';
 import type { ExternalAgentRuntimeBackend } from './external-runtime-backend';
 import {
@@ -121,6 +122,7 @@ export interface CloudHypervisorRuntimeBackendDependencies {
   stderr: Writable;
   logger: CloudHypervisorBackendLogger;
   sleep(milliseconds: number): Promise<void>;
+  removeArtifactSnapshot(directory: string): Promise<void>;
 }
 
 function defaultDependencies(
@@ -169,6 +171,9 @@ function defaultDependencies(
     stderr: process.stderr,
     logger,
     sleep: (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
+    removeArtifactSnapshot: async (directory) => {
+      await fs.rm(directory, { recursive: true, force: true });
+    },
   };
 }
 
@@ -256,6 +261,14 @@ class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBackend {
 
       stage = 'infrastructure-discovery';
       const cloudHypervisor = requireCloudHypervisorConfig(this.config);
+      const verifiedCloudHypervisor = {
+        ...cloudHypervisor,
+        cloudHypervisorBinary: this.preflightResult!.cloudHypervisorBinary,
+        kernelPath: this.preflightResult!.kernelPath,
+        rootfsPath: this.preflightResult!.rootfsPath,
+        supervisorPath: this.preflightResult!.supervisorPath,
+        sha256: this.preflightResult!.artifactDigests,
+      };
       const infrastructure = await this.dependencies.resolveInfrastructure(
         Boolean(this.config.enableApiProxy),
         this.preflightResult?.tools.ip,
@@ -297,7 +310,7 @@ class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBackend {
           await this.dependencies.sleep(delay);
         }
         this.manager = this.dependencies.createManager(
-          cloudHypervisor,
+          verifiedCloudHypervisor,
           workDir,
           infrastructure,
           exports,
@@ -363,6 +376,7 @@ class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBackend {
         }
       }
     } catch (error) {
+      await this.cleanupArtifactSnapshot();
       if (!this.stopped) {
         this.dependencies.logger.warn(
           `[cloud-hypervisor] stage=${stage} status=failed: ${formatError(error)}`,
@@ -501,6 +515,13 @@ class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBackend {
             `[cloud-hypervisor] Preserved network namespace: ${this.manager.networkNamespace}`,
           );
         }
+        if (this.preflightResult?.artifactSnapshotDirectory) {
+          this.dependencies.logger.info(
+            `[cloud-hypervisor] Preserved trusted artifacts: ${
+              this.preflightResult.artifactSnapshotDirectory
+            }`,
+          );
+        }
       }
     } finally {
       this.stopping = undefined;
@@ -521,6 +542,14 @@ class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBackend {
       ]);
     }
     await this.manager?.stop({ preserve });
+    if (!preserve) await this.cleanupArtifactSnapshot();
+  }
+
+  private async cleanupArtifactSnapshot(): Promise<void> {
+    const directory = this.preflightResult?.artifactSnapshotDirectory;
+    if (!directory) return;
+    await this.dependencies.removeArtifactSnapshot(directory);
+    this.preflightResult = undefined;
   }
 
   private async probeGuestConnectivity(bootAttempt: number): Promise<void> {

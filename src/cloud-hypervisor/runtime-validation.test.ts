@@ -25,16 +25,12 @@ function config(overrides: Partial<WrapperConfig> = {}): WrapperConfig {
       kernelPath: '/opt/kernel',
       rootfsPath: '/opt/rootfs',
       supervisorPath: '/opt/supervisor',
+      artifactManifestPath: '/opt/manifest.json',
+      artifactManifestBundlePath: '/opt/manifest.sigstore.jsonl',
+      artifactReleaseTag: 'v0.23.1',
       vcpuCount: 2,
       memoryMib: 512,
       apiTimeoutMs: 5000,
-      sha256: {
-        cloudHypervisor: digest,
-        virtiofsd: digest,
-        kernel: digest,
-        rootfs: digest,
-        supervisor: digest,
-      },
     },
     ...overrides,
   } as WrapperConfig;
@@ -89,19 +85,43 @@ describe('Cloud Hypervisor runtime validation', () => {
     [{
       cloudHypervisor: {
         ...config().cloudHypervisor!,
-        sha256: { ...config().cloudHypervisor!.sha256, virtiofsd: undefined },
+        artifactManifestBundlePath: undefined,
       },
-    }, /requires SHA-256 digests/],
+    }, /requires an artifact manifest/],
     [{
       cloudHypervisor: {
         ...config().cloudHypervisor!,
-        sha256: { ...config().cloudHypervisor!.sha256, supervisor: undefined },
+        artifactReleaseTag: undefined,
       },
-    }, /requires SHA-256 digests/],
+    }, /requires an artifact manifest/],
   ] as const)('rejects incomplete runtime configuration %#', (overrides, error) => {
     expect(() => assertCloudHypervisorRuntimeCompatibility(
       config(overrides as Partial<WrapperConfig>),
     )).toThrow(error);
+  });
+
+  it('allows legacy hashes only with both explicit development opt-ins', () => {
+    const legacy = config({
+      cloudHypervisor: {
+        ...config().cloudHypervisor!,
+        artifactManifestPath: undefined,
+        artifactManifestBundlePath: undefined,
+        artifactReleaseTag: undefined,
+        developmentAllowUnattestedArtifacts: true,
+        sha256: {
+          cloudHypervisor: digest,
+          virtiofsd: digest,
+          kernel: digest,
+          rootfs: digest,
+          supervisor: digest,
+        },
+      },
+    });
+    expect(() => assertCloudHypervisorRuntimeCompatibility(legacy))
+      .toThrow(/AWF_CLOUD_HYPERVISOR_DEVELOPMENT_ALLOW_UNATTESTED_ARTIFACTS=1/);
+    process.env.AWF_CLOUD_HYPERVISOR_DEVELOPMENT_ALLOW_UNATTESTED_ARTIFACTS = '1';
+    expect(() => assertCloudHypervisorRuntimeCompatibility(legacy)).not.toThrow();
+    delete process.env.AWF_CLOUD_HYPERVISOR_DEVELOPMENT_ALLOW_UNATTESTED_ARTIFACTS;
   });
 
   it('fails closed on a mistyped mount policy', () => {

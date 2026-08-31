@@ -59,6 +59,21 @@ debugfs -R 'cat /usr/lib/os-release' "$ARTIFACT_DIR/rootfs.ext4" 2>/dev/null \
 grep -F '"purpose": "AWF Cloud Hypervisor preview test artifacts; not production defaults"' \
   "$ARTIFACT_DIR/manifest.json"
 grep -F '"base": "awf-build-tools"' "$ARTIFACT_DIR/manifest.json"
+test "$(jq -r '.release.repository' "$ARTIFACT_DIR/manifest.json")" = 'github/gh-aw-firewall'
+test "$(jq -r '.release.workflow' "$ARTIFACT_DIR/manifest.json")" = \
+  'github/gh-aw-firewall/.github/workflows/release.yml'
+for entry in \
+  'cloudHypervisor:cloud-hypervisor' \
+  'virtiofsd:virtiofsd' \
+  'kernel:vmlinux.bin' \
+  'rootfs:rootfs.ext4' \
+  'supervisor:awf-supervisor'; do
+  key=${entry%%:*}
+  file=${entry#*:}
+  test "$(jq -r ".artifacts.${key}.file" "$ARTIFACT_DIR/manifest.json")" = "$file"
+  test "$(jq -r ".artifacts.${key}.sha256" "$ARTIFACT_DIR/manifest.json")" = \
+    "$(sha256sum "$ARTIFACT_DIR/$file" | awk '{print $1}')"
+done
 grep -F '"configOverlay": "scripts/config --enable FUSE_FS --enable VIRTIO_FS followed by olddefconfig"' \
   "$ARTIFACT_DIR/manifest.json"
 grep -F '"spdxVersion": "SPDX-2.3"' "$ARTIFACT_DIR/sbom.spdx.json"
