@@ -125,7 +125,108 @@ assert_no_residue() {
     echo "Cloud Hypervisor run-directory residue detected" >&2
     return 1
   fi
+  if sudo find /run/awf-microvm-network/reservations -name '*.json' -print -quit \
+    2>/dev/null | grep -q .; then
+    sudo find /run/awf-microvm-network/reservations -name '*.json' -print >&2
+    echo "Cloud Hypervisor network reservation residue detected" >&2
+    return 1
+  fi
 }
+
+# Exercise the real root-owned registry and kernel-held flock from independent
+# processes before booting a VM. Using the same run ID deliberately gives both
+# allocators the same first-choice subnet; the second must select another one.
+reservation_probe() {
+  local output=$1
+  exec env AWF_ROOT="$ROOT" sudo -E node -e '
+    const path = require("path");
+    const { reserveMicrovmNetworkPlan } = require(
+      path.join(process.env.AWF_ROOT, "dist/microvm/network.js")
+    );
+    (async () => {
+      const reservation = await reserveMicrovmNetworkPlan(
+        "live-concurrent-reservation",
+        {
+          infrastructureBridge: "awfbr0",
+          enableApiProxy: true,
+          tapOwnerUid: 1000,
+          tapOwnerGid: 1000,
+        },
+        { ip: "ip", nft: "nft", sysctl: "sysctl", flock: "flock" },
+      );
+      const stop = async () => {
+        await reservation.release();
+        process.exit(0);
+      };
+      process.on("SIGTERM", () => {
+        void stop().catch((error) => {
+          console.error(error);
+          process.exit(1);
+        });
+      });
+      process.stdout.write(JSON.stringify(reservation.plan) + "\n");
+      setInterval(() => {}, 1000);
+    })().catch((error) => {
+      console.error(error);
+      process.exit(1);
+    });
+  ' >"$output" 2>"$output.stderr"
+}
+
+reservation_first_pid=
+reservation_second_pid=
+cleanup_reservation_probes() {
+  for pid in "$reservation_first_pid" "$reservation_second_pid"; do
+    if [ -n "$pid" ]; then
+      kill -TERM "$pid" 2>/dev/null || true
+      wait "$pid" 2>/dev/null || true
+    fi
+  done
+}
+trap cleanup_reservation_probes EXIT
+reservation_probe "$RUN_ROOT/reservation-first.json" &
+reservation_first_pid=$!
+reservation_probe "$RUN_ROOT/reservation-second.json" &
+reservation_second_pid=$!
+for _ in $(seq 1 100); do
+  [ -s "$RUN_ROOT/reservation-first.json" ] \
+    && [ -s "$RUN_ROOT/reservation-second.json" ] && break
+  sleep 0.1
+done
+[ -s "$RUN_ROOT/reservation-first.json" ] || {
+  cat "$RUN_ROOT/reservation-first.json.stderr" >&2
+  exit 1
+}
+[ -s "$RUN_ROOT/reservation-second.json" ] || {
+  cat "$RUN_ROOT/reservation-second.json.stderr" >&2
+  exit 1
+}
+node -e '
+  const fs = require("fs");
+  const first = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+  const second = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+  if (first.guestSubnet === second.guestSubnet) throw new Error("concurrent subnet collision");
+  if (first.infrastructureIp === second.infrastructureIp) {
+    throw new Error("concurrent infrastructure address collision");
+  }
+  if (first.resourceToken === second.resourceToken) throw new Error("concurrent token collision");
+' "$RUN_ROOT/reservation-first.json" "$RUN_ROOT/reservation-second.json"
+second_reservation=$(node -e '
+  const fs = require("fs");
+  process.stdout.write(JSON.parse(fs.readFileSync(process.argv[1], "utf8")).reservationPath);
+' "$RUN_ROOT/reservation-second.json")
+kill -TERM "$reservation_first_pid"
+wait "$reservation_first_pid"
+reservation_first_pid=
+sudo test -f "$second_reservation" || {
+  echo "first allocator removed the second allocator reservation" >&2
+  exit 1
+}
+kill -TERM "$reservation_second_pid"
+wait "$reservation_second_pid"
+reservation_second_pid=
+trap - EXIT
+assert_no_residue
 
 run_case() {
   local name=$1
@@ -485,6 +586,10 @@ while read -r namespace _; do
     awfvm-*) sudo ip netns delete "$namespace" ;;
   esac
 done < <(sudo ip netns list)
+# The preserved CLI process has exited, so these owner identities are stale.
+# This is explicit test-harness teardown, analogous to the forced run-directory
+# cleanup below; normal runtime cleanup uses the lease-checked release path.
+sudo find /run/awf-microvm-network/reservations -name '*.json' -delete 2>/dev/null || true
 sudo docker compose -f "$keep_work/docker-compose.yml" down --volumes --remove-orphans
 # --keep-containers intentionally preserves the private run directory (see
 # CLOUD_HYPERVISOR_RUN_ROOT in src/cloud-hypervisor/manager.ts); clean it up
@@ -612,16 +717,9 @@ esac
 # startup and could fail on a valid but slower runner; polling for "Running"
 # also proves these assertions inspect a live VM, not merely a launched VMM.
 #
-# The expected TAP name is derived exactly like
-# createMicrovmNetworkPlan() (src/microvm/network.ts): `vmt` + the first 12
-# hex characters of sha256(runId). The per-run network namespace shares
-# the same token (`awfvm-` + token) and is where the TAP device actually
-# lives -- checking for it in the root/default namespace, which is what
-# actually hosts this script, would never find a namespace-scoped
-# interface regardless of whether it truly exists.
-run_token=$(printf '%s' "$run_id" | sha256sum | cut -c1-12)
-expected_tap="vmt$run_token"
-expected_namespace="awfvm-$run_token"
+# Resource tokens are reservation-selected rather than deterministically
+# derived from runId. Read the selected TAP from the live VMM config below,
+# validate its shape, then derive the namespace sharing that token.
 expected_rootfs_path="$run_directory/rootfs.ext4"
 expected_vsock_socket="$run_directory/awf-vsock.socket"
 
@@ -636,6 +734,22 @@ for _ in $(seq 1 30); do
   sleep 1
 done
 [ -n "$vm_info" ] || fail_security "vm.info never reported state \"Running\" within the poll window"
+expected_tap=$(node -e '
+  const info = JSON.parse(process.argv[1]);
+  process.stdout.write(info.config?.net?.[0]?.tap || "");
+' "$vm_info")
+case "$expected_tap" in
+  vmt[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) ;;
+  *) fail_security "reservation-selected TAP has unsafe shape: $expected_tap" ;;
+esac
+run_token=${expected_tap#vmt}
+expected_namespace="awfvm-$run_token"
+reservation_path="/run/awf-microvm-network/reservations/$run_token.json"
+sudo test -f "$reservation_path" \
+  || fail_security "live network reservation is missing: $reservation_path"
+reservation_owner=$(sudo stat -c '%u:%a' "$reservation_path")
+[ "$reservation_owner" = "0:600" ] \
+  || fail_security "network reservation ownership/mode is not root:600: $reservation_owner"
 
 node -e '
   const [

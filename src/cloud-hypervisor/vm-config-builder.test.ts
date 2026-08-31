@@ -20,6 +20,7 @@ function config(overrides: Partial<CloudHypervisorOptions> = {}): CloudHyperviso
 function networkPlan(): MicrovmNetworkPlan {
   return {
     runId: 'run',
+    resourceToken: '000000000000',
     namespaceName: 'ns',
     netnsPath: '/var/run/netns/ns',
     nftTableName: 'table',

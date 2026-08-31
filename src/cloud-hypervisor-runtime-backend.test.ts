@@ -98,6 +98,7 @@ const preflightResult = {
     ip: '/usr/bin/ip',
     nft: '/usr/sbin/nft',
     sysctl: '/usr/sbin/sysctl',
+    flock: '/usr/bin/flock',
     mke2fs: '/usr/sbin/mke2fs',
     debugfs: '/usr/sbin/debugfs',
     e2fsck: '/usr/sbin/e2fsck',

@@ -5,6 +5,7 @@ import { getSafeHostGid, getSafeHostUid } from '../host-identity';
 import {
   LinuxNetworkCommands,
   MicrovmNetworkManager,
+  reserveMicrovmNetworkPlan,
   type MicrovmNetworkLifecycle,
   type MicrovmNetworkPlan,
 } from '../microvm/network';
@@ -77,9 +78,12 @@ const defaultDependencies: CloudHypervisorManagerDependencies = {
   rm: fs.rm,
   sleep: (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
   createClient: (socketPath, timeoutMs) => new CloudHypervisorApiClient({ socketPath, timeoutMs }),
-  createNetwork: (plan, tools) => new MicrovmNetworkManager(
+  reserveNetwork: reserveMicrovmNetworkPlan,
+  createNetwork: (plan, tools, reservation) => new MicrovmNetworkManager(
     plan,
     new LinuxNetworkCommands(undefined, tools),
+    undefined,
+    reservation,
   ),
   createRootfsPreparer: (config, tools) => new MicrovmRootfsPreparer(config, {
     runTool: async (command, args) => {

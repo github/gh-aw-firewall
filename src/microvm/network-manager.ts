@@ -7,6 +7,7 @@ import type {
   MicrovmConnectivityProbe,
   MicrovmNetworkLifecycle,
   MicrovmNetworkPlan,
+  MicrovmNetworkReservation,
 } from './network-types';
 
 export class MicrovmNetworkManager implements MicrovmNetworkLifecycle {
@@ -14,11 +15,13 @@ export class MicrovmNetworkManager implements MicrovmNetworkLifecycle {
   private namespaceCreated = false;
   private hostVethCreated = false;
   private dockerUserRuleInserted = false;
+  private reservationReleased = false;
 
   constructor(
     readonly plan: MicrovmNetworkPlan,
     private readonly commands = new LinuxNetworkCommands(),
     private readonly probe?: MicrovmConnectivityProbe,
+    private readonly reservation?: MicrovmNetworkReservation,
   ) {}
 
   async setup(): Promise<MicrovmNetworkPlan> {
@@ -53,7 +56,10 @@ export class MicrovmNetworkManager implements MicrovmNetworkLifecycle {
       // default-drop policy. Must happen before any guest traffic can
       // possibly flow (i.e. before the tap/guest side is even brought
       // up below).
-      await this.commands.ensureBridgeForwardAcceptRule(this.plan.infrastructureBridge);
+      await this.commands.ensureBridgeForwardAcceptRule(
+        this.plan.infrastructureBridge,
+        this.plan.resourceToken,
+      );
       this.dockerUserRuleInserted = true;
 
       await this.commands.ipInNamespace(this.plan.namespaceName, [
@@ -140,7 +146,10 @@ export class MicrovmNetworkManager implements MicrovmNetworkLifecycle {
 
     if (this.dockerUserRuleInserted) {
       await attempt(async () => {
-        await this.commands.removeBridgeForwardAcceptRule(this.plan.infrastructureBridge);
+        await this.commands.removeBridgeForwardAcceptRule(
+          this.plan.infrastructureBridge,
+          this.plan.resourceToken,
+        );
         this.dockerUserRuleInserted = false;
       });
     }
@@ -154,6 +163,18 @@ export class MicrovmNetworkManager implements MicrovmNetworkLifecycle {
       await attempt(async () => {
         await this.commands.ip(['netns', 'delete', this.plan.namespaceName]);
         this.namespaceCreated = false;
+      });
+    }
+    if (
+      !this.namespaceCreated
+      && !this.hostVethCreated
+      && !this.dockerUserRuleInserted
+      && this.reservation
+      && !this.reservationReleased
+    ) {
+      await attempt(async () => {
+        await this.reservation!.release();
+        this.reservationReleased = true;
       });
     }
     this.setupComplete = false;

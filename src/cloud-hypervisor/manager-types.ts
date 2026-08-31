@@ -7,6 +7,8 @@ import {
   type MicrovmControlPeer,
   type MicrovmNetworkLifecycle,
   type MicrovmNetworkPlan,
+  type MicrovmNetworkPlanOptions,
+  type MicrovmNetworkReservation,
 } from '../microvm/network';
 import type { MicrovmVsockClient } from '../microvm/vsock-client';
 import type { MicrovmRootfsConfig, MicrovmRootfsPreparer } from '../microvm/rootfs';
@@ -79,7 +81,16 @@ export interface CloudHypervisorManagerDependencies {
   rm(directory: string, options: { recursive: true; force: true }): Promise<void>;
   sleep(milliseconds: number): Promise<void>;
   createClient(socketPath: string, timeoutMs: number): CloudHypervisorApiClient;
-  createNetwork(plan: MicrovmNetworkPlan, tools: CloudHypervisorHostToolPaths): MicrovmNetworkLifecycle;
+  reserveNetwork(
+    runId: string,
+    options: MicrovmNetworkPlanOptions,
+    tools: CloudHypervisorHostToolPaths,
+  ): Promise<MicrovmNetworkReservation>;
+  createNetwork(
+    plan: MicrovmNetworkPlan,
+    tools: CloudHypervisorHostToolPaths,
+    reservation: MicrovmNetworkReservation,
+  ): MicrovmNetworkLifecycle;
   createRootfsPreparer(
     config: MicrovmRootfsConfig,
     tools: CloudHypervisorHostToolPaths,

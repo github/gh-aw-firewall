@@ -4,6 +4,10 @@
 export { LinuxNetworkCommands } from './network-commands';
 export { MicrovmNetworkManager } from './network-manager';
 export {
+  MicrovmNetworkReservationRegistry,
+  reserveMicrovmNetworkPlan,
+} from './network-reservation';
+export {
   assertSafeMicrovmRunId,
   createMicrovmNetworkPlan,
   generateMicrovmNftRuleset,
@@ -17,7 +21,9 @@ export type {
   MicrovmNetworkHostTools,
   MicrovmNetworkLifecycle,
   MicrovmNetworkPlan,
+  MicrovmNetworkPlanAllocation,
   MicrovmNetworkPlanOptions,
+  MicrovmNetworkReservation,
   MicrovmNetworkRulesetFile,
   MicrovmTapInterface,
 } from './network-types';

@@ -11,6 +11,7 @@ import {
 import type {
   MicrovmAllowedEndpoint,
   MicrovmControlPeer,
+  MicrovmNetworkPlanAllocation,
   MicrovmNetworkPlan,
   MicrovmNetworkPlanOptions,
 } from './network-types';
@@ -25,6 +26,7 @@ const BLOCKED_MULTICAST_CIDR = '224.0.0.0/4';
 export function createMicrovmNetworkPlan(
   runId: string,
   options: MicrovmNetworkPlanOptions,
+  allocation?: MicrovmNetworkPlanAllocation,
 ): MicrovmNetworkPlan {
   assertSafeMicrovmRunId(runId);
   assertInterfaceName(options.infrastructureBridge, 'infrastructure bridge');
@@ -32,8 +34,15 @@ export function createMicrovmNetworkPlan(
   assertPositiveIdentity(options.tapOwnerGid, 'tap owner gid');
 
   const digest = createHash('sha256').update(runId).digest();
-  const token = digest.toString('hex').slice(0, 12);
-  const subnetIndex = digest.readUInt32BE(0) & (GUEST_SUBNET_COUNT - 1);
+  const token = allocation?.resourceToken ?? digest.toString('hex').slice(0, 12);
+  if (!/^[0-9a-f]{12}$/.test(token)) {
+    throw new Error(`Unsafe microVM resource token: ${token}`);
+  }
+  const subnetIndex = allocation?.subnetIndex
+    ?? (digest.readUInt32BE(0) & (GUEST_SUBNET_COUNT - 1));
+  if (!Number.isInteger(subnetIndex) || subnetIndex < 0 || subnetIndex >= GUEST_SUBNET_COUNT) {
+    throw new Error(`Invalid microVM subnet index: ${subnetIndex}`);
+  }
   const subnetBase = GUEST_NETWORK_BASE + subnetIndex * 4;
   const guestGatewayIp = integerToIpv4(subnetBase + 1);
   const guestIp = integerToIpv4(subnetBase + 2);
@@ -68,6 +77,8 @@ export function createMicrovmNetworkPlan(
   );
   const plan: MicrovmNetworkPlan = {
     runId,
+    resourceToken: token,
+    ...(allocation?.reservationPath ? { reservationPath: allocation.reservationPath } : {}),
     namespaceName,
     netnsPath: `${NETNS_DIRECTORY}/${namespaceName}`,
     nftTableName,
@@ -75,7 +86,7 @@ export function createMicrovmNetworkPlan(
     hostVethName,
     namespaceVethName,
     tapName,
-    infrastructureIp: AGENT_IP,
+    infrastructureIp: allocation?.infrastructureIp ?? AGENT_IP,
     infrastructureCidr: NETWORK_SUBNET,
     hostGatewayIp: HOST_GATEWAY,
     guestSubnet: `${integerToIpv4(subnetBase)}/${GUEST_PREFIX_LENGTH}`,
@@ -248,6 +259,12 @@ function validatePlan(plan: MicrovmNetworkPlan): void {
   assertIpv4(plan.infrastructureIp, 'infrastructure IP');
   assertCidr(plan.infrastructureCidr, 'infrastructure CIDR');
   assertIpv4(plan.hostGatewayIp, 'host gateway IP');
+  if (!isInCidr(plan.infrastructureIp, plan.infrastructureCidr)) {
+    throw new Error(
+      `microVM infrastructure IP ${plan.infrastructureIp} is outside ` +
+      plan.infrastructureCidr,
+    );
+  }
   assertCidr(plan.guestSubnet, 'guest subnet');
   assertIpv4(plan.guestIp, 'guest IP');
   assertIpv4(plan.guestGatewayIp, 'guest gateway IP');
