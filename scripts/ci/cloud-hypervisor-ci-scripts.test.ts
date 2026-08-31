@@ -162,6 +162,12 @@ describe('cloud-hypervisor-live-smoke.sh', () => {
     expect(source).toContain('landlock_enable');
     expect(source).toContain('"/tun_flags"');
     expect(source).toContain('cgroup.procs');
+    expect(source).toContain(
+      'sudo getfacl --absolute-names --numeric /dev/kvm',
+    );
+    expect(source).toContain(
+      'sudo getfacl --absolute-names --numeric /dev/net/tun',
+    );
   });
 
   it('measures non-flaky boot-readiness and cleanup-time baselines', () => {

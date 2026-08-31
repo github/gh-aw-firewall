@@ -755,7 +755,7 @@ printf '%s' "$vmm_name" | grep -Eq '^awfvmm-[0-9a-f]{20}$' \
   || fail_security "Cloud Hypervisor account name is not a random per-run name: $vmm_name"
 [ "$(id -G "$vmm_name")" = "$vmm_gid" ] \
   || fail_security "Cloud Hypervisor account inherited supplementary groups"
-getfacl --absolute-names --numeric /dev/kvm 2>/dev/null \
+sudo getfacl --absolute-names --numeric /dev/kvm 2>/dev/null \
   | grep -q "^user:$proc_uid:rw-" \
   || fail_security "Cloud Hypervisor uid lacks its scoped /dev/kvm ACL"
 
@@ -973,10 +973,10 @@ assert_no_residue
 if getent passwd "$vmm_name" >/dev/null; then
   fail_security "per-run Cloud Hypervisor account remains after cancellation: $vmm_name"
 fi
-if getfacl --absolute-names --numeric /dev/kvm 2>/dev/null | grep -q "^user:$proc_uid:"; then
+if sudo getfacl --absolute-names --numeric /dev/kvm 2>/dev/null | grep -q "^user:$proc_uid:"; then
   fail_security "per-run /dev/kvm ACL remains after cancellation for uid $proc_uid"
 fi
-if getfacl --absolute-names --numeric /dev/net/tun 2>/dev/null | grep -q "^user:$proc_uid:"; then
+if sudo getfacl --absolute-names --numeric /dev/net/tun 2>/dev/null | grep -q "^user:$proc_uid:"; then
   fail_security "per-run /dev/net/tun ACL remains after cancellation for uid $proc_uid"
 fi
 
