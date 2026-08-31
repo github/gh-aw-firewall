@@ -99,6 +99,10 @@ const preflightResult = {
   cgroupVersion: 2 as const,
   kvmGid: 978,
   tools: {
+    getfacl: '/usr/bin/getfacl',
+    getent: '/usr/bin/getent',
+    groupdel: '/usr/sbin/groupdel',
+    id: '/usr/bin/id',
     ip: '/usr/bin/ip',
     nft: '/usr/sbin/nft',
     sysctl: '/usr/sbin/sysctl',
@@ -110,6 +114,9 @@ const preflightResult = {
     mount: '/usr/bin/mount',
     umount: '/usr/bin/umount',
     setpriv: '/usr/bin/setpriv',
+    setfacl: '/usr/bin/setfacl',
+    useradd: '/usr/sbin/useradd',
+    userdel: '/usr/sbin/userdel',
   },
 };
 
@@ -145,6 +152,7 @@ function harness(overrides: Partial<CloudHypervisorRuntimeBackendDependencies> =
     endStdin: jest.fn().mockResolvedValue(undefined),
     collectDiagnostics: jest.fn().mockResolvedValue(undefined),
     collectGuestOutputAudit: jest.fn().mockResolvedValue(undefined),
+    completeCleanupRecord: jest.fn().mockResolvedValue(undefined),
     stop: jest.fn(async (options?: { beforeCleanup?: () => Promise<void> }) => {
       order.push('vm-stop');
       await options?.beforeCleanup?.();
@@ -392,7 +400,7 @@ describe('Cloud Hypervisor runtime backend', () => {
   });
 
   it('reuses the CLI preflight snapshot when workflow startup begins', async () => {
-    const { deps } = harness();
+    const { deps, manager } = harness();
     const backend = createBackend(config(), deps);
 
     await backend.preflight();
@@ -410,6 +418,9 @@ describe('Cloud Hypervisor runtime backend', () => {
       preflightResult,
     );
     expect(deps.removeArtifactSnapshot).toHaveBeenCalledWith('/snapshot');
+    expect(manager.completeCleanupRecord).toHaveBeenCalledTimes(1);
+    expect((deps.removeArtifactSnapshot as jest.Mock).mock.invocationCallOrder[0])
+      .toBeLessThan(manager.completeCleanupRecord.mock.invocationCallOrder[0]);
   });
 
   it('persists bounded raw guest output when an audit directory is configured', async () => {

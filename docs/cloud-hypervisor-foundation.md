@@ -72,8 +72,10 @@ AWF performs these steps for each run:
    policy.
 5. Copy the rootfs, inject the guest supervisor, and stage files in a private
    run directory.
-6. Create a bounded cgroup v2 leaf and launch Cloud Hypervisor as the invoking
-   non-root identity.
+6. Allocate a random-named, dedicated per-run system account, grant its
+   host-assigned uid/gid temporary access only to KVM/TUN, the pre-created TAP,
+   staged files, and required sockets, then launch Cloud Hypervisor under that
+   identity in a bounded cgroup v2 leaf.
 7. After the API responds, verify the launched VMM's trusted host `/proc` and
    cgroup state. AWF fails closed before `vm.create` if the PID identity,
    executable, credentials, capabilities, `no_new_privs`, seccomp worker,
@@ -89,7 +91,8 @@ AWF performs these steps for each run:
 10. Execute the agent command and propagate its exit code. Timeouts return
    `124`.
 11. Sync and unmount guest filesystems, stop the VM and VMM, reap `virtiofsd`,
-    and remove network, cgroup, and run-directory resources.
+    remove network, cgroup, and run-directory resources, revoke device ACLs,
+    and delete the exact per-run account.
 
 Cleanup is idempotent and aggregates errors so one cleanup failure does not
 skip later cleanup steps. Before the first privileged per-run resource is
@@ -97,13 +100,20 @@ created, AWF atomically writes a root-owned mode-`0600` recovery record under
 `/run/awf-cloud-hypervisor/pending-cleanup/`, itself a root-owned mode-`0700`
 directory. The record contains the owning AWF PID, `/proc` start time,
 executable identity, exact resource names, and immutable inode/ifindex
-identities captured immediately after each namespace, interface, run directory,
-cgroup, VMM, and `virtiofsd` process becomes live. The host bridge-forwarding
+identities captured immediately after each attested artifact snapshot,
+namespace, interface, run directory, cgroup, VMM, and `virtiofsd` process
+becomes live. The host bridge-forwarding
 rule is tagged with a per-run iptables comment and recorded by its exact tuple,
-so concurrent runs do not share an anonymously owned rule. Any staged
-virtio-fs bind mounts are recorded by mount ID, device, root, target, filesystem
-type, and source; stale recovery revalidates and unmounts them deepest-first
-before removing their inode-validated share directory.
+so concurrent runs do not share an anonymously owned rule. Dedicated VMM
+account and device-ACL intent is persisted before `useradd`
+or `setfacl` runs. Recovery validates the account's random name, run-specific
+passwd metadata, numeric uid/gid, and exact numeric ACL entries before removing
+them.
+Any staged virtio-fs bind mounts are recorded by mount ID, device, root, target,
+filesystem type, and source; stale recovery revalidates and unmounts them
+deepest-first before removing their inode-validated share directory.
+The backend deletes the shared verified-artifact snapshot before completing
+each successfully cleaned manager record, including failed boot attempts.
 
 Every subsequent Cloud Hypervisor startup reaps stale records before creating
 its own resources. A record whose owner still has the same PID, start time,
@@ -186,8 +196,11 @@ release or production use.
 AWF launches Cloud Hypervisor through `ip netns exec` and `setpriv` without a
 shell. The process:
 
-- runs as the non-root identity recorded by `SUDO_UID` and `SUDO_GID`;
-- keeps only the KVM supplementary group;
+- runs as a random `awfvmm-<token>` system account allocated for that run,
+  independently of `SUDO_UID` and `SUDO_GID`;
+- has no home, login shell, or supplementary groups;
+- receives temporary uid-specific ACLs for `/dev/kvm` and `/dev/net/tun`;
+- owns only its run directory, staged VMM files and sockets, and TAP;
 - sets `no_new_privs`;
 - has empty inheritable, permitted, effective, bounding, and ambient capability
   sets;
@@ -214,7 +227,15 @@ not copy unbounded `/proc` content.
 
 The private run directory is under
 `/run/awf-cloud-hypervisor/<binary>/<runId>/`. Its per-run leaf is accessible
-only to the selected non-root identity and root.
+only to the dedicated VMM identity and root. Account allocation and deletion
+are serialized by an owner-token lock that validates both PID and process start
+time before reclaiming stale state, preventing PID reuse from stealing a live
+lock. Cleanup validates the exact account uid/gid before deletion and revokes
+only that run's ACL entries, so concurrent sibling runs remain untouched.
+
+The guest command still uses the invoking workspace uid/gid. That guest
+identity is carried separately through the supervisor protocol and is never
+reused as the host VMM identity.
 
 ### virtiofsd confinement
 
@@ -229,8 +250,8 @@ configuration, AWF verifies the live parent and worker through `/proc`:
 - parent and worker UIDs/GIDs match the reviewed root namespace identity;
 - every parent capability set is empty, while the worker effective and
   permitted masks equal the pinned minimal virtiofsd set, its inheritable and
-  ambient sets are empty, and its bounding set is empty so those setup
-  capabilities cannot be reacquired across exec;
+  ambient sets are empty, and its host bounding set remains empty after
+  entering the user namespace;
 - the worker has `NoNewPrivs: 1` and seccomp filter mode `2`;
 - the worker mount, PID, and network namespaces differ from the host;
 - the worker root inode is the inode of the declared export, proving the

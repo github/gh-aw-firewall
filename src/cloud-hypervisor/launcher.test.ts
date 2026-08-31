@@ -10,13 +10,12 @@ describe('buildCloudHypervisorLaunchCommand', () => {
     tools: { ip: '/usr/sbin/ip', setpriv: '/usr/bin/setpriv' },
     namespaceName: 'awfch-abc123',
     identity: { uid: 1000, gid: 1000 },
-    kvmGid: 978,
     cloudHypervisorBinary: '/opt/cloud-hypervisor',
     apiSocketPath: '/run/awf/api.socket',
     logFilePath: '/run/awf/cloud-hypervisor.log',
   };
 
-  it('joins the namespace, retains only the kvm group, empties all capability sets, and execs Cloud Hypervisor with no shell', () => {
+  it('joins the namespace, drops privileges and groups, empties capabilities, then execs without a shell', () => {
     const result = buildCloudHypervisorLaunchCommand(baseOptions);
     expect(result.command).toBe('/usr/sbin/ip');
     expect(result.args).toEqual([
@@ -24,7 +23,7 @@ describe('buildCloudHypervisorLaunchCommand', () => {
       '/usr/bin/setpriv',
       '--reuid=1000',
       '--regid=1000',
-      '--groups=978',
+      '--clear-groups',
       '--no-new-privs',
       '--inh-caps=-all',
       '--bounding-set=-all',
@@ -36,9 +35,9 @@ describe('buildCloudHypervisorLaunchCommand', () => {
       '-v',
       '--seccomp', 'true',
     ]);
-    expect(result.args).not.toContain('--clear-groups');
+    expect(result.args).toContain('--clear-groups');
     expect(result.confinementPolicy).toEqual({
-      supplementaryGroups: [978],
+      supplementaryGroups: [],
       capabilities: {
         inheritable: '0000000000000000',
         permitted: '0000000000000000',
@@ -59,16 +58,11 @@ describe('buildCloudHypervisorLaunchCommand', () => {
     ['unsafe namespace name', { namespaceName: '../etc' }, /Unsafe Cloud Hypervisor network namespace name/],
     ['zero uid', { identity: { uid: 0, gid: 1000 } }, /uid must be a positive integer/],
     ['negative gid', { identity: { uid: 1000, gid: -1 } }, /gid must be a positive integer/],
-    ['negative kvm gid', { kvmGid: -1 }, /\/dev\/kvm group id must be a non-negative integer/],
     ['relative binary path', { cloudHypervisorBinary: 'cloud-hypervisor' }, /binary path must be absolute/],
     ['relative socket path', { apiSocketPath: 'api.socket' }, /API socket path must be absolute/],
   ])('rejects %s', (_label, overrides, error) => {
     expect(() => buildCloudHypervisorLaunchCommand({ ...baseOptions, ...overrides }))
       .toThrow(error);
-  });
-
-  it('accepts a kvm gid of 0 (root-owned /dev/kvm on unusual hosts)', () => {
-    expect(() => buildCloudHypervisorLaunchCommand({ ...baseOptions, kvmGid: 0 })).not.toThrow();
   });
 });
 

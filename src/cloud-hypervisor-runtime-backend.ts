@@ -95,6 +95,7 @@ interface CloudHypervisorManagerAdapter {
   stop(options?: { preserve?: boolean; beforeCleanup?: () => Promise<void> }): Promise<void>;
   collectDiagnostics(directory: string): Promise<void>;
   collectGuestOutputAudit(directory: string): Promise<void>;
+  completeCleanupRecord(): Promise<void>;
 }
 
 /** @internal Exposed only for unit tests — not part of the public API. */
@@ -113,8 +114,8 @@ export interface CloudHypervisorRuntimeBackendDependencies {
     infrastructure: MicrovmInfrastructureSnapshot,
     exports: readonly CloudHypervisorDirectoryExport[],
     identity: { uid: number; gid: number },
-    mountEnforcement?: VirtiofsdMountEnforcement,
-    preflightResult?: CloudHypervisorPreflightResult,
+    mountEnforcement: VirtiofsdMountEnforcement | undefined,
+    verifiedArtifacts: CloudHypervisorPreflightResult,
   ): CloudHypervisorManagerAdapter;
   resolveExports(mountPolicy: CloudHypervisorOptions['mountPolicy']): Promise<CloudHypervisorDirectoryExport[]>;
   identity(): { uid: number; gid: number };
@@ -135,7 +136,13 @@ function defaultDependencies(
     resolveInfrastructure: (enableApiProxy, ipPath, topologyPeerNames) =>
       resolveMicrovmInfrastructure(enableApiProxy, undefined, ipPath, topologyPeerNames),
     createManager: (
-      config, workDir, infrastructure, exports, identity, mountEnforcement, preflightResult,
+      config,
+      workDir,
+      infrastructure,
+      exports,
+      identity,
+      mountEnforcement,
+      verifiedArtifacts,
     ) =>
       new CloudHypervisorManager(
         config,
@@ -159,7 +166,7 @@ function defaultDependencies(
           supervisorSha256: config.sha256!.supervisor!,
           identity,
         },
-        preflightResult,
+        verifiedArtifacts,
       ),
     resolveExports: (mountPolicy) => resolveCloudHypervisorExports(
       process.env,
@@ -217,6 +224,7 @@ class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBackend {
   private diagnosticsCollected = false;
   private agentExecutionStarted = false;
   private readonly failedBootDiagnostics: string[] = [];
+  private readonly cleanedManagers = new Set<CloudHypervisorManagerAdapter>();
 
   constructor(
     private readonly config: WrapperConfig,
@@ -320,7 +328,7 @@ class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBackend {
           exports,
           this.identity,
           mountEnforcement,
-          this.preflightResult,
+          this.preflightResult!,
         );
         try {
           stage = 'vmm-configuration';
@@ -546,7 +554,10 @@ class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBackend {
         new Promise<void>((resolve) => setTimeout(resolve, CLOUD_HYPERVISOR_CANCEL_GRACE_MS)),
       ]);
     }
-    await this.manager?.stop({ preserve });
+    if (this.manager) {
+      await this.manager.stop({ preserve });
+      if (!preserve) this.cleanedManagers.add(this.manager);
+    }
     if (!preserve) await this.cleanupArtifactSnapshot();
   }
 
@@ -555,6 +566,11 @@ class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBackend {
     if (!directory) return;
     await this.dependencies.removeArtifactSnapshot(directory);
     this.preflightResult = undefined;
+    if (this.manager) this.cleanedManagers.add(this.manager);
+    for (const manager of this.cleanedManagers) {
+      await manager.completeCleanupRecord();
+    }
+    this.cleanedManagers.clear();
   }
 
   private async probeGuestConnectivity(bootAttempt: number): Promise<void> {
@@ -793,6 +809,7 @@ class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBackend {
     };
     try {
       await manager.stop({ beforeCleanup: collectPreCleanupDiagnostics });
+      this.cleanedManagers.add(manager);
       this.manager = undefined;
       this.environment = undefined;
     } catch (cleanupError) {

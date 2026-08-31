@@ -140,8 +140,7 @@ export async function verifyVirtiofsdSandbox(
     ) {
       throw new Error('virtiofsd worker capabilities differ from the reviewed sandbox set');
     }
-    const workerBounding = worker.capabilities.CapBnd ?? '';
-    if (!ZERO_CAPABILITIES.test(workerBounding)) {
+    if (!ZERO_CAPABILITIES.test(worker.capabilities.CapBnd ?? '')) {
       throw new Error('virtiofsd worker bounding capability set is not empty');
     }
     if (worker.noNewPrivs !== 1 || worker.seccomp !== 2) {

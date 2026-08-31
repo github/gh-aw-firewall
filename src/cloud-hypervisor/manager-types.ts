@@ -23,6 +23,11 @@ import type {
   CloudHypervisorCleanupRegistry,
 } from './cleanup-registry';
 import type { verifyCloudHypervisorConfinement } from './confinement-verifier';
+import type {
+  CloudHypervisorVmmIdentityManager,
+  CloudHypervisorVmmIdentityObserver,
+  CloudHypervisorVmmIdentityToolPaths,
+} from './vmm-identity';
 
 const API_SOCKET_NAME = 'api.socket';
 const VSOCK_SOCKET_NAME = 'awf-vsock.socket';
@@ -115,6 +120,11 @@ export interface CloudHypervisorManagerDependencies {
   createVsockClient(socketPath: string, guestPort: number, timeoutMs: number): MicrovmVsockClient;
   createCgroup(cgroupPath: string, limits: CloudHypervisorResourceLimits): CloudHypervisorCgroup;
   verifyConfinement: typeof verifyCloudHypervisorConfinement;
+  createVmmIdentity(
+    runId: string,
+    tools: CloudHypervisorVmmIdentityToolPaths,
+    observer?: CloudHypervisorVmmIdentityObserver,
+  ): CloudHypervisorVmmIdentityManager;
   resolveIdentity(): { uid: number; gid: number };
 }
 

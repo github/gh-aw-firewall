@@ -45,8 +45,10 @@ import {
   type CloudHypervisorRunPaths,
 } from './manager-types';
 import { runCloudHypervisorPreflight } from './preflight';
-import type { CloudHypervisorHostToolPaths } from './preflight';
-import type { CloudHypervisorPreflightResult } from './preflight';
+import type {
+  CloudHypervisorHostToolPaths,
+  CloudHypervisorPreflightResult,
+} from './preflight';
 import {
   verifyCloudHypervisorConfinement,
   type CloudHypervisorConfinementEvidence,
@@ -58,6 +60,7 @@ import {
   DurableCloudHypervisorCleanupRegistry,
   type CloudHypervisorCleanupHandle,
 } from './cleanup-registry';
+import { CloudHypervisorVmmIdentityManager } from './vmm-identity';
 
 export {
   CLOUD_HYPERVISOR_GUEST_VSOCK_PORT,
@@ -123,6 +126,8 @@ const defaultDependencies: CloudHypervisorManagerDependencies = {
   }),
   createCgroup: (cgroupPath, limits) => new CloudHypervisorCgroup(cgroupPath, limits),
   verifyConfinement: verifyCloudHypervisorConfinement,
+  createVmmIdentity: (runId, tools, observer) =>
+    new CloudHypervisorVmmIdentityManager(runId, tools, undefined, observer),
   resolveIdentity: resolveCloudHypervisorIdentity,
 };
 
@@ -181,6 +186,8 @@ export class CloudHypervisorManager {
   private guest: CloudHypervisorGuestChannel | undefined;
   private cgroup: CloudHypervisorCgroup | undefined;
   private cleanupRecord: CloudHypervisorCleanupHandle | undefined;
+  private cleanupRecordReady = false;
+  private vmmIdentity: CloudHypervisorVmmIdentityManager | undefined;
   private networkPlan: MicrovmNetworkPlan | undefined;
   private confinementEvidence: CloudHypervisorConfinementEvidence | undefined;
   private instanceStarted = false;
@@ -223,28 +230,27 @@ export class CloudHypervisorManager {
     runId?: string,
     private readonly networkConfig?: CloudHypervisorManagerNetworkConfig,
     private readonly guestConfig?: CloudHypervisorManagerGuestConfig,
-    private readonly preflightResult?: CloudHypervisorPreflightResult,
+    private readonly verifiedArtifacts?: CloudHypervisorPreflightResult,
   ) {
     this.paths = createCloudHypervisorRunPaths(config.cloudHypervisorBinary, runId);
   }
 
   async start(): Promise<CloudHypervisorApiClient> {
-    const dependencies = this.preflightResult
-      ? { ...this.dependencies, preflight: async () => this.preflightResult! }
-      : this.dependencies;
     return startCloudHypervisor({
       config: this.config,
       workDir: this.workDir,
-      dependencies,
+      dependencies: this.dependencies,
       paths: this.paths,
       networkConfig: this.networkConfig,
       guestConfig: this.guestConfig,
+      verifiedArtifacts: this.verifiedArtifacts,
       stdoutCapture: this.stdoutCapture,
       stderrCapture: this.stderrCapture,
       setNetworkPlan: (value) => { this.networkPlan = value; },
       setNetwork: (value) => { this.network = value; },
       setRootfsPreparer: (value) => { this.rootfsPreparer = value; },
       setCgroup: (value) => { this.cgroup = value; },
+      setVmmIdentity: (value) => { this.vmmIdentity = value; },
       setProcess: (value) => { this.process = value; },
       setClient: (value) => { this.client = value; },
       setConfinementEvidence: (value) => { this.confinementEvidence = value; },
@@ -261,6 +267,10 @@ export class CloudHypervisorManager {
     await this.client.vmBoot();
     this.instanceStarted = true;
     if (this.guestConfig) {
+      if (!this.vmmIdentity) {
+        throw new Error('Cloud Hypervisor VMM identity is not configured');
+      }
+      await this.vmmIdentity.validateOwnedPaths([this.paths.vsockSocketPath]);
       this.guest = await CloudHypervisorGuestChannel.connect(
         this.dependencies,
         this.paths.vsockSocketPath,
@@ -326,6 +336,10 @@ export class CloudHypervisorManager {
       guest: this.guest,
       cgroup: this.cgroup,
       cleanupRecord: this.cleanupRecord,
+      deferCleanupRecordCompletion: Boolean(
+        this.verifiedArtifacts?.artifactSnapshotDirectory,
+      ),
+      vmmIdentity: this.vmmIdentity,
       instanceStarted: this.instanceStarted,
       lastVmInfo: this.lastVmInfo,
       lastVmCounters: this.lastVmCounters,
@@ -339,10 +353,19 @@ export class CloudHypervisorManager {
       setFsDevices: (value) => { this.fsDevices = value; },
       setGuest: (value) => { this.guest = value; },
       setCgroup: (value) => { this.cgroup = value; },
+      setVmmIdentity: (value) => { this.vmmIdentity = value; },
+      setCleanupRecordReady: (value) => { this.cleanupRecordReady = value; },
       setInstanceStarted: (value) => { this.instanceStarted = value; },
       setLastVmInfo: (value) => { this.lastVmInfo = value; },
       setLastVmCounters: (value) => { this.lastVmCounters = value; },
     });
+  }
+
+  async completeCleanupRecord(): Promise<void> {
+    if (!this.cleanupRecordReady) return;
+    await this.cleanupRecord?.complete();
+    this.cleanupRecord = undefined;
+    this.cleanupRecordReady = false;
   }
 
   async collectDiagnostics(directory: string): Promise<void> {

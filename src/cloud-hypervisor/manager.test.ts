@@ -26,8 +26,13 @@ import type {
   CloudHypervisorCleanupHandle,
   CloudHypervisorCleanupRegistry,
 } from './cleanup-registry';
+import type { CloudHypervisorVmmIdentityManager } from './vmm-identity';
 
 const hostTools: CloudHypervisorHostToolPaths = {
+  getfacl: '/usr/bin/getfacl',
+  getent: '/usr/bin/getent',
+  groupdel: '/usr/sbin/groupdel',
+  id: '/usr/bin/id',
   ip: '/usr/bin/ip',
   nft: '/usr/sbin/nft',
   sysctl: '/usr/sbin/sysctl',
@@ -39,6 +44,9 @@ const hostTools: CloudHypervisorHostToolPaths = {
   mount: '/usr/bin/mount',
   umount: '/usr/bin/umount',
   setpriv: '/usr/bin/setpriv',
+  setfacl: '/usr/bin/setfacl',
+  useradd: '/usr/sbin/useradd',
+  userdel: '/usr/sbin/userdel',
 };
 
 const exportsConfig = [
@@ -141,6 +149,11 @@ function cgroupMock(): CloudHypervisorCgroup {
 
 function cleanupHandleMock(): CloudHypervisorCleanupHandle {
   return {
+    captureNetworkPlan: jest.fn().mockResolvedValue(undefined),
+    captureArtifactSnapshot: jest.fn().mockResolvedValue(undefined),
+    prepareVmmAccount: jest.fn().mockResolvedValue(undefined),
+    captureVmmIdentity: jest.fn().mockResolvedValue(undefined),
+    prepareVmmAcl: jest.fn().mockResolvedValue(undefined),
     captureNetworkResource: jest.fn().mockResolvedValue(undefined),
     captureRunDirectory: jest.fn().mockResolvedValue(undefined),
     captureCgroup: jest.fn().mockResolvedValue(undefined),
@@ -154,8 +167,19 @@ function cleanupHandleMock(): CloudHypervisorCleanupHandle {
 function cleanupRegistryMock(): CloudHypervisorCleanupRegistry {
   return {
     reapPending: jest.fn().mockResolvedValue(undefined),
+    createPending: jest.fn().mockResolvedValue(cleanupHandleMock()),
     create: jest.fn().mockResolvedValue(cleanupHandleMock()),
   };
+}
+
+function vmmIdentityMock(): CloudHypervisorVmmIdentityManager {
+  return {
+    allocate: jest.fn().mockResolvedValue({ name: 'awfvmm-test', uid: 2001, gid: 2002 }),
+    grantDeviceAccess: jest.fn().mockResolvedValue(undefined),
+    validateOwnedPaths: jest.fn().mockResolvedValue(undefined),
+    validateTapOwnership: jest.fn().mockResolvedValue(undefined),
+    cleanup: jest.fn().mockResolvedValue(undefined),
+  } as unknown as CloudHypervisorVmmIdentityManager;
 }
 
 function dependencies(
@@ -232,6 +256,7 @@ function dependencies(
         },
       },
     }),
+    createVmmIdentity: jest.fn(() => vmmIdentityMock()),
     resolveIdentity: jest.fn().mockReturnValue({ uid: 1000, gid: 1000 }),
     ...overrides,
   };
@@ -325,9 +350,9 @@ describe('CloudHypervisorManager', () => {
       expect.arrayContaining([
         'netns', 'exec', expect.stringMatching(/^awfvm-/),
         '/usr/bin/setpriv',
-        '--reuid=1000',
-        '--regid=1000',
-        '--groups=978',
+        '--reuid=2001',
+        '--regid=2002',
+        '--clear-groups',
       ]),
       expect.objectContaining({
         reject: false,
@@ -368,14 +393,14 @@ describe('CloudHypervisorManager', () => {
     const cgroup = (deps.createCgroup as jest.Mock).mock.results[0].value as CloudHypervisorCgroup;
     expect(cgroup.setup).toHaveBeenCalledTimes(1);
     expect(cgroup.assign).toHaveBeenCalledWith(4242);
-    const cleanupRecord = await (deps.cleanupRegistry.create as jest.Mock).mock.results[0].value as
+    const cleanupRecord = await (deps.cleanupRegistry.createPending as jest.Mock).mock.results[0].value as
       CloudHypervisorCleanupHandle;
     expect((cgroup.assign as jest.Mock).mock.invocationCallOrder[0])
       .toBeLessThan((cleanupRecord.captureProcess as jest.Mock).mock.invocationCallOrder[0]);
     expect(deps.verifyConfinement).toHaveBeenCalledWith(expect.objectContaining({
       pid: 4242,
       expectedExecutable: '/opt/cloud-hypervisor',
-      identity: { uid: 1000, gid: 1000 },
+      identity: expect.objectContaining({ uid: 2001, gid: 2002 }),
       networkNamespace: expect.stringMatching(/^awfvm-/),
       cgroupPath: expect.stringContaining('awf-cloud-hypervisor/run-1'),
       cgroupLimits: {
@@ -398,14 +423,14 @@ describe('CloudHypervisorManager', () => {
     );
     expect(deps.chown).toHaveBeenCalledWith(
       '/run/awf-cloud-hypervisor/cloud-hypervisor/run-1',
-      1000,
-      1000,
+      2001,
+      2002,
     );
     expect(deps.createNetwork).toHaveBeenCalledWith(
       expect.objectContaining({
         infrastructureBridge: 'awfbr0',
-        tapOwnerUid: 1000,
-        tapOwnerGid: 1000,
+        tapOwnerUid: 2001,
+        tapOwnerGid: 2002,
         tapVnetHdr: true,
       }),
       hostTools,
@@ -415,6 +440,15 @@ describe('CloudHypervisorManager', () => {
     const lifecycle = (deps.createNetwork as jest.Mock).mock.results[0]
       .value as MicrovmNetworkLifecycle;
     expect(lifecycle.setup).toHaveBeenCalledTimes(1);
+    const vmmIdentity = (deps.createVmmIdentity as jest.Mock).mock.results[0]
+      .value as CloudHypervisorVmmIdentityManager;
+    expect(vmmIdentity.allocate).toHaveBeenCalledTimes(1);
+    expect(vmmIdentity.validateTapOwnership).toHaveBeenCalledWith(
+      '/usr/bin/ip',
+      expect.stringMatching(/^awfvm-/),
+      expect.stringMatching(/^vmt/),
+    );
+    expect(vmmIdentity.grantDeviceAccess).toHaveBeenCalledTimes(1);
   });
 
   it('reuses a verified artifact snapshot instead of running preflight again', async () => {
@@ -472,6 +506,9 @@ describe('CloudHypervisorManager', () => {
     expect(lifecycle.cleanup).toHaveBeenCalledTimes(1);
     const cgroup = (deps.createCgroup as jest.Mock).mock.results[0].value as CloudHypervisorCgroup;
     expect(cgroup.cleanup).toHaveBeenCalledTimes(1);
+    const vmmIdentity = (deps.createVmmIdentity as jest.Mock).mock.results[0]
+      .value as CloudHypervisorVmmIdentityManager;
+    expect(vmmIdentity.cleanup).toHaveBeenCalledTimes(1);
   });
 
   it('fails closed and never creates a VM when runtime confinement verification fails', async () => {
@@ -535,6 +572,12 @@ describe('CloudHypervisorManager', () => {
       rm: jest.fn(async () => {
         order.push('run-directory');
       }),
+      createVmmIdentity: jest.fn(() => ({
+        ...vmmIdentityMock(),
+        cleanup: jest.fn(async () => {
+          order.push('vmm-identity');
+        }),
+      } as unknown as CloudHypervisorVmmIdentityManager)),
     });
     const manager = new CloudHypervisorManager(
       config(),
@@ -547,7 +590,7 @@ describe('CloudHypervisorManager', () => {
     await manager.start();
     await manager.stop();
 
-    expect(order).toEqual(['network', 'cgroup', 'run-directory']);
+    expect(order).toEqual(['network', 'cgroup', 'run-directory', 'vmm-identity']);
   });
 
   it('commits cleanup intent before resources and removes it only after teardown', async () => {
@@ -556,10 +599,11 @@ describe('CloudHypervisorManager', () => {
     (handle.complete as jest.Mock).mockImplementation(async () => { order.push('record-complete'); });
     const registry: CloudHypervisorCleanupRegistry = {
       reapPending: jest.fn(async () => { order.push('reap'); }),
-      create: jest.fn(async () => {
+      createPending: jest.fn(async () => {
         order.push('record-create');
         return handle;
       }),
+      create: jest.fn().mockResolvedValue(handle),
     };
     const deps = dependencies({
       cleanupRegistry: registry,
@@ -585,7 +629,7 @@ describe('CloudHypervisorManager', () => {
     expect(order.slice(-3)).toEqual(['network-cleanup', 'run-directory', 'record-complete']);
   });
 
-  it('releases the network reservation when durable cleanup record creation fails', async () => {
+  it('creates no network reservation when durable cleanup record creation fails', async () => {
     const release = jest.fn().mockResolvedValue(undefined);
     const deps = dependencies({
       reserveNetwork: jest.fn(async (runId, options) => ({
@@ -594,6 +638,7 @@ describe('CloudHypervisorManager', () => {
       })),
       cleanupRegistry: {
         reapPending: jest.fn().mockResolvedValue(undefined),
+        createPending: jest.fn().mockRejectedValue(new Error('registry unavailable')),
         create: jest.fn().mockRejectedValue(new Error('registry unavailable')),
       },
     });
@@ -606,7 +651,7 @@ describe('CloudHypervisorManager', () => {
     );
 
     await expect(manager.start()).rejects.toThrow('registry unavailable');
-    expect(release).toHaveBeenCalledTimes(1);
+    expect(release).not.toHaveBeenCalled();
     expect(deps.createNetwork).not.toHaveBeenCalled();
   });
 
@@ -688,8 +733,25 @@ describe('CloudHypervisorManager', () => {
     expect(vmConfig.landlock_rules).not.toEqual(expect.arrayContaining([
       expect.objectContaining({ path: '/workspace' }),
     ]));
+    const vmmIdentity = (deps.createVmmIdentity as jest.Mock).mock.results[0]
+      .value as CloudHypervisorVmmIdentityManager;
+    expect(vmmIdentity.validateOwnedPaths).not.toHaveBeenCalledWith([
+      '/run/awf-cloud-hypervisor/cloud-hypervisor/guest/awf-vsock.socket',
+    ]);
     await manager.startInstance();
     expect(client.vmBoot).toHaveBeenCalledTimes(1);
+    expect(vmmIdentity.validateOwnedPaths).toHaveBeenCalledWith([
+      '/run/awf-cloud-hypervisor/cloud-hypervisor/guest/awf-vsock.socket',
+    ]);
+    const ownershipValidationOrder = (vmmIdentity.validateOwnedPaths as jest.Mock)
+      .mock.invocationCallOrder;
+    const vsockOwnershipValidationOrder =
+      ownershipValidationOrder[ownershipValidationOrder.length - 1];
+    expect(vsockOwnershipValidationOrder).toBeGreaterThan(
+      (client.vmBoot as jest.Mock).mock.invocationCallOrder[0],
+    );
+    expect((deps.createVsockClient as jest.Mock).mock.invocationCallOrder[0])
+      .toBeGreaterThan(vsockOwnershipValidationOrder);
     expect(deps.createVsockClient).toHaveBeenCalledWith(
       expect.stringContaining('/run/awf-cloud-hypervisor/cloud-hypervisor/guest/awf-vsock.socket'),
       52,
@@ -835,6 +897,7 @@ describe('CloudHypervisorManager', () => {
     const handle = cleanupHandleMock();
     const registry: CloudHypervisorCleanupRegistry = {
       reapPending: jest.fn().mockResolvedValue(undefined),
+      createPending: jest.fn().mockResolvedValue(handle),
       create: jest.fn().mockResolvedValue(handle),
     };
     const deps = dependencies({
@@ -1127,6 +1190,9 @@ describe('CloudHypervisorManager', () => {
       expect.stringContaining('/run/awf-cloud-hypervisor/'),
       { recursive: true, force: true },
     );
+    const vmmIdentity = (deps.createVmmIdentity as jest.Mock).mock.results[0]
+      .value as CloudHypervisorVmmIdentityManager;
+    expect(vmmIdentity.cleanup).toHaveBeenCalledTimes(1);
   });
 
   it('builds explicit supervisor boot cmdline with PCI-required root/interface naming', () => {

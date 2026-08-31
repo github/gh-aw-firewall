@@ -171,6 +171,78 @@ describe('DurableCloudHypervisorCleanupRegistry', () => {
     expect((await fs.stat(path.dirname(recordPath))).mode & 0o777).toBe(0o700);
   });
 
+  it('journals and reaps the exact dedicated VMM account and ACL identity', async () => {
+    const paths = runPaths('vmm-account-recovery');
+    const account = 'awfvmm-0123456789abcdef0123';
+    let userExists = true;
+    let groupExists = true;
+    let aclExists = true;
+    const tools = {
+      getfacl: '/usr/bin/getfacl',
+      getent: '/usr/bin/getent',
+      groupdel: '/usr/sbin/groupdel',
+      id: '/usr/bin/id',
+      ip: '/usr/bin/ip',
+      setfacl: '/usr/bin/setfacl',
+      useradd: '/usr/sbin/useradd',
+      userdel: '/usr/sbin/userdel',
+    };
+    const run = jest.fn(async (command: string, args: readonly string[]) => {
+      if (command === tools.getent && args[0] === 'passwd') {
+        return userExists
+          ? {
+            exitCode: 0,
+            stdout: `${account}:x:23001:23002:AWF Cloud Hypervisor ${paths.runId}:` +
+              '/nonexistent:/usr/sbin/nologin\n',
+            stderr: '',
+          }
+          : { exitCode: 2, stdout: '', stderr: '' };
+      }
+      if (command === tools.getent && args[0] === 'group') {
+        return groupExists
+          ? { exitCode: 0, stdout: `${account}:x:23002:\n`, stderr: '' }
+          : { exitCode: 2, stdout: '', stderr: '' };
+      }
+      if (command === tools.getfacl) {
+        return {
+          exitCode: 0,
+          stdout: aclExists ? 'user:23001:rw-\n' : '',
+          stderr: '',
+        };
+      }
+      if (command === tools.id) {
+        if (!userExists) return { exitCode: 1, stdout: '', stderr: '' };
+        if (args[0] === '-u') return { exitCode: 0, stdout: '23001\n', stderr: '' };
+        return { exitCode: 0, stdout: '23002\n', stderr: '' };
+      }
+      if (command === tools.setfacl) aclExists = false;
+      if (command === tools.userdel) userExists = false;
+      if (command === tools.groupdel) groupExists = false;
+      return { exitCode: 0, stdout: '', stderr: '' };
+    });
+    const registry = new DurableCloudHypervisorCleanupRegistry(dependencies({ run }));
+    const handle = await registry.createPending(paths, process.execPath, tools.ip);
+    const snapshot = path.join(paths.runBaseDir, 'trusted-artifacts', 'run-snapshot');
+    await fs.mkdir(snapshot, { recursive: true });
+    await handle.captureArtifactSnapshot(snapshot);
+    await handle.prepareVmmAccount(account);
+    await handle.captureVmmIdentity({ name: account, uid: 23001, gid: 23002 });
+    await handle.prepareVmmAcl('/dev/kvm');
+    ownerStartTime = '2000';
+
+    await registry.reapPending(tools.ip, '/usr/bin/umount', tools);
+
+    expect(run).toHaveBeenCalledWith(tools.setfacl, [
+      '--remove', 'user:23001', '/dev/kvm',
+    ]);
+    expect(run).toHaveBeenCalledWith(tools.userdel, [account]);
+    expect(run).toHaveBeenCalledWith(tools.groupdel, [account]);
+    await expect(fs.access(snapshot)).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(fs.access(
+      path.join(temporaryRoot, 'pending-cleanup', `${paths.runId}.json`),
+    )).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
   it('requires root and refuses to replace an existing run record', async () => {
     const paths = runPaths('exclusive-record');
     const plan = networkPlan(paths.runId);

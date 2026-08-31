@@ -62,6 +62,10 @@ export interface CloudHypervisorPreflightDependencies {
 }
 
 export type CloudHypervisorHostToolPaths = Readonly<{
+  getfacl: string;
+  getent: string;
+  groupdel: string;
+  id: string;
   ip: string;
   nft: string;
   sysctl: string;
@@ -80,6 +84,9 @@ export type CloudHypervisorHostToolPaths = Readonly<{
    * this for Cloud Hypervisor). See `src/cloud-hypervisor/launcher.ts`.
    */
   setpriv: string;
+  setfacl: string;
+  useradd: string;
+  userdel: string;
 }>;
 
 export interface CloudHypervisorArtifactSnapshotSources {
@@ -99,7 +106,8 @@ export interface CloudHypervisorArtifactSnapshot extends CloudHypervisorArtifact
 const CLOUD_HYPERVISOR_ARTIFACT_SNAPSHOT_ROOT =
   '/run/awf-cloud-hypervisor/trusted-artifacts';
 const CLOUD_HYPERVISOR_HOST_TOOLS: (keyof CloudHypervisorHostToolPaths)[] = [
-  'ip', 'nft', 'sysctl', 'flock', 'mke2fs', 'debugfs', 'e2fsck', 'rsync', 'mount', 'umount', 'setpriv',
+  'getent', 'getfacl', 'groupdel', 'id', 'ip', 'nft', 'sysctl', 'flock', 'mke2fs', 'debugfs', 'e2fsck',
+  'rsync', 'mount', 'umount', 'setfacl', 'setpriv', 'useradd', 'userdel',
 ];
 
 const defaultDependencies: CloudHypervisorPreflightDependencies = {

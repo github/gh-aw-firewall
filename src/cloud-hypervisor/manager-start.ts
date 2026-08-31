@@ -32,6 +32,8 @@ import { buildCloudHypervisorVmConfig } from './vm-config-builder';
 import type { BoundedOutputCapture } from './diagnostics';
 import type { CloudHypervisorCleanupHandle } from './cleanup-registry';
 import type { CloudHypervisorConfinementEvidence } from './confinement-verifier';
+import type { CloudHypervisorVmmIdentityManager } from './vmm-identity';
+import type { CloudHypervisorPreflightResult } from './preflight';
 
 export interface CloudHypervisorStartContext {
   config: CloudHypervisorOptions;
@@ -40,12 +42,14 @@ export interface CloudHypervisorStartContext {
   paths: CloudHypervisorRunPaths;
   networkConfig?: CloudHypervisorManagerNetworkConfig;
   guestConfig?: CloudHypervisorManagerGuestConfig;
+  verifiedArtifacts?: CloudHypervisorPreflightResult;
   stdoutCapture: BoundedOutputCapture;
   stderrCapture: BoundedOutputCapture;
   setNetworkPlan(plan: MicrovmNetworkPlan | undefined): void;
   setNetwork(network: MicrovmNetworkLifecycle | undefined): void;
   setRootfsPreparer(preparer: MicrovmRootfsPreparer | undefined): void;
   setCgroup(cgroup: CloudHypervisorCgroup | undefined): void;
+  setVmmIdentity(identity: CloudHypervisorVmmIdentityManager | undefined): void;
   setProcess(process: ExecaChildProcess<string> | undefined): void;
   setClient(client: CloudHypervisorApiClient | undefined): void;
   setConfinementEvidence(evidence: CloudHypervisorConfinementEvidence | undefined): void;
@@ -60,7 +64,7 @@ export async function startCloudHypervisor(
   context: CloudHypervisorStartContext,
 ): Promise<CloudHypervisorApiClient> {
   const {
-    config, workDir, dependencies, paths, networkConfig, guestConfig,
+    config, workDir, dependencies, paths, networkConfig, guestConfig, verifiedArtifacts,
   } = context;
   if (!networkConfig) {
     throw new Error(
@@ -70,9 +74,37 @@ export async function startCloudHypervisor(
 
   let startupError: unknown;
   try {
-    const artifacts = await dependencies.preflight(config);
-    await dependencies.cleanupRegistry.reapPending(artifacts.tools.ip, artifacts.tools.umount);
-    const identity = guestConfig?.identity ?? dependencies.resolveIdentity();
+    const artifacts = verifiedArtifacts ?? await dependencies.preflight(config);
+    const vmmTools = {
+      getfacl: artifacts.tools.getfacl,
+      getent: artifacts.tools.getent,
+      groupdel: artifacts.tools.groupdel,
+      id: artifacts.tools.id,
+      ip: artifacts.tools.ip,
+      setfacl: artifacts.tools.setfacl,
+      useradd: artifacts.tools.useradd,
+      userdel: artifacts.tools.userdel,
+    };
+    await dependencies.cleanupRegistry.reapPending(
+      artifacts.tools.ip,
+      artifacts.tools.umount,
+      vmmTools,
+    );
+    const guestIdentity = guestConfig?.identity ?? dependencies.resolveIdentity();
+    const cleanupRecord = await dependencies.cleanupRegistry.createPending(
+      paths,
+      artifacts.cloudHypervisorBinary,
+      artifacts.tools.ip,
+    );
+    context.setCleanupRecord(cleanupRecord);
+    await cleanupRecord.captureArtifactSnapshot(artifacts.artifactSnapshotDirectory);
+    const vmmIdentityManager = dependencies.createVmmIdentity(paths.runId, vmmTools, {
+      prepareAccount: (name) => cleanupRecord.prepareVmmAccount(name),
+      captureIdentity: (identity) => cleanupRecord.captureVmmIdentity(identity),
+      prepareAcl: (aclPath) => cleanupRecord.prepareVmmAcl(aclPath),
+    });
+    context.setVmmIdentity(vmmIdentityManager);
+    const identity = await vmmIdentityManager.allocate();
     const reservation = await dependencies.reserveNetwork(paths.runId, {
       ...networkConfig,
       tapOwnerUid: identity.uid,
@@ -81,14 +113,8 @@ export async function startCloudHypervisor(
     }, artifacts.tools);
     const networkPlan = reservation.plan;
     context.setNetworkPlan(networkPlan);
-    let cleanupRecord: CloudHypervisorCleanupHandle;
     try {
-      cleanupRecord = await dependencies.cleanupRegistry.create(
-        paths,
-        networkPlan,
-        artifacts.cloudHypervisorBinary,
-        artifacts.tools.ip,
-      );
+      await cleanupRecord.captureNetworkPlan(networkPlan);
     } catch (error) {
       try {
         await reservation.release();
@@ -100,7 +126,6 @@ export async function startCloudHypervisor(
       }
       throw error;
     }
-    context.setCleanupRecord(cleanupRecord);
     const network = dependencies.createNetwork(networkPlan, artifacts.tools, reservation, {
       resourceCreated: (resource) => cleanupRecord.captureNetworkResource(resource),
     });
@@ -142,12 +167,24 @@ export async function startCloudHypervisor(
     await stageArtifact(dependencies, rootfsSource, paths.rootfsPath, 0o600, identity);
     await stageDiagnosticFile(dependencies, paths.logPath, identity);
     await stageDiagnosticFile(dependencies, paths.serialLogPath, identity);
+    await vmmIdentityManager.validateOwnedPaths([
+      paths.runDirectory,
+      paths.kernelPath,
+      paths.rootfsPath,
+      paths.logPath,
+      paths.serialLogPath,
+    ]);
+    await vmmIdentityManager.validateTapOwnership(
+      artifacts.tools.ip,
+      networkPlan.namespaceName,
+      networkPlan.tapName,
+    );
+    await vmmIdentityManager.grantDeviceAccess();
 
     const launchCommand = buildCloudHypervisorLaunchCommand({
       tools: { ip: artifacts.tools.ip, setpriv: artifacts.tools.setpriv },
       namespaceName: networkPlan.namespaceName,
       identity,
-      kvmGid: artifacts.kvmGid,
       cloudHypervisorBinary: config.cloudHypervisorBinary,
       apiSocketPath: paths.apiSocketPath,
       logFilePath: paths.logPath,
@@ -171,6 +208,7 @@ export async function startCloudHypervisor(
     await cleanupRecord.captureProcess('vmm', child.pid);
 
     await waitForApiSocket(dependencies, paths, config.apiTimeoutMs, child);
+    await vmmIdentityManager.validateOwnedPaths([paths.apiSocketPath]);
     const client = dependencies.createClient(paths.apiSocketPath, config.apiTimeoutMs);
     context.setClient(client);
     await client.ping();
@@ -202,9 +240,15 @@ export async function startCloudHypervisor(
         context.setFsDevices(virtiofsd.getDiagnosticDevices());
         throw error;
       }
+      await vmmIdentityManager.validateOwnedPaths(
+        context.getFsDevices().map((device) => device.socketPath),
+      );
     }
     await client.vmCreate(buildCloudHypervisorVmConfig({
-      config, paths, networkPlan, ...(guestConfig ? { guestConfig } : {}),
+      config,
+      paths,
+      networkPlan,
+      ...(guestConfig ? { guestConfig: { ...guestConfig, identity: guestIdentity } } : {}),
       fsDevices: context.getFsDevices(),
     }));
     return client;

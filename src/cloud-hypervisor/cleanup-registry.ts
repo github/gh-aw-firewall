@@ -4,6 +4,10 @@ import * as path from 'path';
 import execa from 'execa';
 import type { MicrovmNetworkPlan } from '../microvm/network';
 import type { CloudHypervisorRunPaths } from './manager-types';
+import type {
+  CloudHypervisorVmmIdentity,
+  CloudHypervisorVmmIdentityToolPaths,
+} from './vmm-identity';
 
 const CLEANUP_DIRECTORY_NAME = 'pending-cleanup';
 const RECORD_VERSION = 1;
@@ -61,8 +65,9 @@ interface CleanupRecord {
     readonly runDirectory: string;
     readonly cgroupPath: string;
     readonly virtiofsdShareDirectory: string;
+    artifactSnapshotDirectory?: string;
   };
-  readonly network: {
+  network?: {
     readonly namespaceName: string;
     readonly netnsPath: string;
     readonly hostVethName: string;
@@ -75,12 +80,20 @@ interface CleanupRecord {
     runDirectory?: FileIdentity;
     cgroup?: FileIdentity;
     virtiofsdShareDirectory?: FileIdentity;
+    artifactSnapshotDirectory?: FileIdentity;
     netns?: FileIdentity;
     hostVeth?: InterfaceIdentity;
     namespaceVeth?: InterfaceIdentity;
     tap?: InterfaceIdentity;
   };
   readonly processes: Record<string, RecordedProcess>;
+  vmmIdentity?: {
+    state: 'pending' | 'live';
+    name: string;
+    uid?: number;
+    gid?: number;
+    aclPaths: string[];
+  };
   mounts: MountIdentity[];
   updatedAt: string;
 }
@@ -89,6 +102,11 @@ export type CloudHypervisorNetworkResource =
   'netns' | 'hostVeth' | 'namespaceVeth' | 'tap';
 
 export interface CloudHypervisorCleanupHandle {
+  captureNetworkPlan(plan: MicrovmNetworkPlan): Promise<void>;
+  captureArtifactSnapshot(directory: string): Promise<void>;
+  prepareVmmAccount(name: string): Promise<void>;
+  captureVmmIdentity(identity: CloudHypervisorVmmIdentity): Promise<void>;
+  prepareVmmAcl(path: string): Promise<void>;
   captureNetworkResource(resource: CloudHypervisorNetworkResource): Promise<void>;
   captureRunDirectory(): Promise<void>;
   captureCgroup(): Promise<void>;
@@ -104,7 +122,16 @@ export interface CloudHypervisorCleanupHandle {
 }
 
 export interface CloudHypervisorCleanupRegistry {
-  reapPending(ipPath: string, umountPath: string): Promise<void>;
+  reapPending(
+    ipPath: string,
+    umountPath: string,
+    vmmTools?: CloudHypervisorVmmIdentityToolPaths,
+  ): Promise<void>;
+  createPending(
+    paths: CloudHypervisorRunPaths,
+    cloudHypervisorBinary: string,
+    ipPath: string,
+  ): Promise<CloudHypervisorCleanupHandle>;
   create(
     paths: CloudHypervisorRunPaths,
     plan: MicrovmNetworkPlan,
@@ -189,7 +216,11 @@ export class DurableCloudHypervisorCleanupRegistry implements CloudHypervisorCle
     };
   }
 
-  async reapPending(ipPath: string, umountPath: string): Promise<void> {
+  async reapPending(
+    ipPath: string,
+    umountPath: string,
+    vmmTools?: CloudHypervisorVmmIdentityToolPaths,
+  ): Promise<void> {
     await this.ensureRegistryDirectory();
     const names = await this.dependencies.readdir(this.dependencies.rootDirectory);
     const errors: string[] = [];
@@ -202,7 +233,7 @@ export class DurableCloudHypervisorCleanupRegistry implements CloudHypervisorCle
         const release = await this.claim(recordPath);
         if (!release) continue;
         try {
-          await this.reapRecord(recordPath, record, ipPath, umountPath);
+          await this.reapRecord(recordPath, record, ipPath, umountPath, vmmTools);
         } finally {
           await release();
         }
@@ -223,6 +254,23 @@ export class DurableCloudHypervisorCleanupRegistry implements CloudHypervisorCle
     cloudHypervisorBinary: string,
     ipPath: string,
   ): Promise<CloudHypervisorCleanupHandle> {
+    return this.createRecord(paths, plan, cloudHypervisorBinary, ipPath);
+  }
+
+  async createPending(
+    paths: CloudHypervisorRunPaths,
+    cloudHypervisorBinary: string,
+    ipPath: string,
+  ): Promise<CloudHypervisorCleanupHandle> {
+    return this.createRecord(paths, undefined, cloudHypervisorBinary, ipPath);
+  }
+
+  private async createRecord(
+    paths: CloudHypervisorRunPaths,
+    plan: MicrovmNetworkPlan | undefined,
+    cloudHypervisorBinary: string,
+    ipPath: string,
+  ): Promise<CloudHypervisorCleanupHandle> {
     await this.ensureRegistryDirectory();
     assertSafeRecordPaths(paths, plan);
     const recordPath = path.join(this.dependencies.rootDirectory, `${paths.runId}.json`);
@@ -238,7 +286,7 @@ export class DurableCloudHypervisorCleanupRegistry implements CloudHypervisorCle
         cgroupPath: paths.cgroupPath,
         virtiofsdShareDirectory: paths.virtiofsdShareDirectory,
       },
-      network: {
+      ...(plan ? { network: {
         namespaceName: plan.namespaceName,
         netnsPath: plan.netnsPath,
         hostVethName: plan.hostVethName,
@@ -246,7 +294,7 @@ export class DurableCloudHypervisorCleanupRegistry implements CloudHypervisorCle
         tapName: plan.tapName,
         infrastructureBridge: plan.infrastructureBridge,
         hostForwardRuleComment: plan.hostForwardRuleComment,
-      },
+      } } : {}),
       identities: {},
       processes: {},
       mounts: [],
@@ -266,24 +314,90 @@ export class DurableCloudHypervisorCleanupRegistry implements CloudHypervisorCle
       await this.writeRecord(recordPath, record, false);
     };
     return {
+      captureNetworkPlan: async (plan) => {
+        assertSafeRecordPaths({
+          ...record.paths,
+          runId: record.runId,
+          runBaseDir: path.dirname(path.dirname(record.paths.runDirectory)),
+        } as CloudHypervisorRunPaths, plan);
+        if (record.network) throw new Error('Cleanup network plan is already committed');
+        record.network = {
+          namespaceName: plan.namespaceName,
+          netnsPath: plan.netnsPath,
+          hostVethName: plan.hostVethName,
+          namespaceVethName: plan.namespaceVethName,
+          tapName: plan.tapName,
+          infrastructureBridge: plan.infrastructureBridge,
+          hostForwardRuleComment: plan.hostForwardRuleComment,
+        };
+        await update();
+      },
+      captureArtifactSnapshot: async (directory) => {
+        const snapshotRoot = path.join(
+          path.dirname(path.dirname(record.paths.runDirectory)),
+          'trusted-artifacts',
+        );
+        if (
+          !path.isAbsolute(directory) ||
+          path.dirname(directory) !== snapshotRoot ||
+          !/^run-[A-Za-z0-9_-]+$/.test(path.basename(directory))
+        ) throw new Error(`Unsafe artifact snapshot cleanup path: ${directory}`);
+        record.paths.artifactSnapshotDirectory = directory;
+        record.identities.artifactSnapshotDirectory =
+          await this.captureFileIdentity(directory);
+        await update();
+      },
+      prepareVmmAccount: async (name) => {
+        if (!/^awfvmm-[a-f0-9]{20}$/.test(name) || record.vmmIdentity) {
+          throw new Error(`Unsafe or duplicate VMM cleanup account: ${name}`);
+        }
+        record.vmmIdentity = { state: 'pending', name, aclPaths: [] };
+        await update();
+      },
+      captureVmmIdentity: async (identity) => {
+        const pending = record.vmmIdentity;
+        if (
+          !pending ||
+          pending.name !== identity.name ||
+          !Number.isSafeInteger(identity.uid) ||
+          identity.uid <= 0 ||
+          !Number.isSafeInteger(identity.gid) ||
+          identity.gid <= 0
+        ) throw new Error('VMM cleanup identity does not match its pending account');
+        record.vmmIdentity = { ...pending, state: 'live', uid: identity.uid, gid: identity.gid };
+        await update();
+      },
+      prepareVmmAcl: async (aclPath) => {
+        if (!record.vmmIdentity || record.vmmIdentity.state !== 'live') {
+          throw new Error('VMM cleanup identity is not committed before ACL grant');
+        }
+        if (aclPath !== '/dev/kvm' && aclPath !== '/dev/net/tun') {
+          throw new Error(`Unsafe VMM ACL cleanup path: ${aclPath}`);
+        }
+        if (!record.vmmIdentity.aclPaths.includes(aclPath)) {
+          record.vmmIdentity.aclPaths.push(aclPath);
+          await update();
+        }
+      },
       captureNetworkResource: async (resource) => {
+        const network = requireNetwork(record);
         switch (resource) {
           case 'netns':
-            record.identities.netns = await this.captureFileIdentity(record.network.netnsPath);
+            record.identities.netns = await this.captureFileIdentity(network.netnsPath);
             break;
           case 'hostVeth':
             record.identities.hostVeth = await this.captureInterfaceIdentity(
-              ipPath, record.network.hostVethName,
+              ipPath, network.hostVethName,
             );
             break;
           case 'namespaceVeth':
             record.identities.namespaceVeth = await this.captureInterfaceIdentity(
-              ipPath, record.network.namespaceVethName, record.network.namespaceName,
+              ipPath, network.namespaceVethName, network.namespaceName,
             );
             break;
           case 'tap':
             record.identities.tap = await this.captureInterfaceIdentity(
-              ipPath, record.network.tapName, record.network.namespaceName,
+              ipPath, network.tapName, network.namespaceName,
             );
             break;
         }
@@ -370,6 +484,7 @@ export class DurableCloudHypervisorCleanupRegistry implements CloudHypervisorCle
     record: CleanupRecord,
     ipPath: string,
     umountPath: string,
+    vmmTools?: CloudHypervisorVmmIdentityToolPaths,
   ): Promise<void> {
     await this.validateRecordResources(record, ipPath);
     for (const [key, recorded] of Object.entries(record.processes)) {
@@ -381,7 +496,7 @@ export class DurableCloudHypervisorCleanupRegistry implements CloudHypervisorCle
       }
     }
     await this.unmountVirtiofsdResources(record, umountPath);
-    await this.deleteNetwork(record, ipPath);
+    if (record.network) await this.deleteNetwork(record, ipPath);
     await removeExactDirectory(
       record.paths.cgroupPath, record.identities.cgroup, this.dependencies, false,
     );
@@ -396,12 +511,27 @@ export class DurableCloudHypervisorCleanupRegistry implements CloudHypervisorCle
       this.dependencies,
       true,
     );
+    if (record.paths.artifactSnapshotDirectory) {
+      await this.assertNoMountsUnder(record.paths.artifactSnapshotDirectory);
+      await removeExactDirectory(
+        record.paths.artifactSnapshotDirectory,
+        record.identities.artifactSnapshotDirectory,
+        this.dependencies,
+        true,
+      );
+    }
+    await this.deleteVmmIdentity(record, vmmTools);
     await this.dependencies.unlink(recordPath);
   }
 
   private async validateRecordResources(record: CleanupRecord, ipPath: string): Promise<void> {
-    const netnsExists = await pathExists(record.network.netnsPath, this.dependencies.lstat);
-    await this.validateFileIfPresent(record.network.netnsPath, record.identities.netns, 'netns');
+    const network = record.network;
+    const netnsExists = network
+      ? await pathExists(network.netnsPath, this.dependencies.lstat)
+      : false;
+    if (network) {
+      await this.validateFileIfPresent(network.netnsPath, record.identities.netns, 'netns');
+    }
     await this.validateFileIfPresent(
       record.paths.runDirectory, record.identities.runDirectory, 'run directory',
     );
@@ -411,56 +541,166 @@ export class DurableCloudHypervisorCleanupRegistry implements CloudHypervisorCle
       record.identities.virtiofsdShareDirectory,
       'virtiofsd share directory',
     );
-    await this.validateInterfaceIfPresent(
-      ipPath, record.network.hostVethName, record.identities.hostVeth, undefined,
+    if (record.paths.artifactSnapshotDirectory) {
+      await this.validateFileIfPresent(
+        record.paths.artifactSnapshotDirectory,
+        record.identities.artifactSnapshotDirectory,
+        'artifact snapshot directory',
+      );
+    }
+    if (network) await this.validateInterfaceIfPresent(
+      ipPath, network.hostVethName, record.identities.hostVeth, undefined,
     );
-    if (netnsExists) {
+    if (network && netnsExists) {
       await this.validateInterfaceIfPresent(
         ipPath,
-        record.network.namespaceVethName,
+        network.namespaceVethName,
         record.identities.namespaceVeth,
-        record.network.namespaceName,
+        network.namespaceName,
       );
       await this.validateInterfaceIfPresent(
-        ipPath, record.network.tapName, record.identities.tap, record.network.namespaceName,
+        ipPath, network.tapName, record.identities.tap, network.namespaceName,
       );
     }
   }
 
   private async deleteNetwork(record: CleanupRecord, ipPath: string): Promise<void> {
-    if (await this.interfaceExists(ipPath, record.network.hostVethName)) {
+    const network = requireNetwork(record);
+    if (await this.interfaceExists(ipPath, network.hostVethName)) {
       await this.validateInterfaceIfPresent(
         ipPath,
-        record.network.hostVethName,
+        network.hostVethName,
         record.identities.hostVeth,
         undefined,
       );
-      await this.runChecked(ipPath, ['link', 'delete', record.network.hostVethName]);
+      await this.runChecked(ipPath, ['link', 'delete', network.hostVethName]);
     }
-    if (await pathExists(record.network.netnsPath, this.dependencies.lstat)) {
+    if (await pathExists(network.netnsPath, this.dependencies.lstat)) {
       await this.validateFileIfPresent(
-        record.network.netnsPath,
+        network.netnsPath,
         record.identities.netns,
         'netns',
       );
-      await this.runChecked(ipPath, ['netns', 'delete', record.network.namespaceName]);
+      await this.runChecked(ipPath, ['netns', 'delete', network.namespaceName]);
     }
     const rule = bridgeForwardRule(
       '-C',
-      record.network.infrastructureBridge,
-      record.network.hostForwardRuleComment,
+      network.infrastructureBridge,
+      network.hostForwardRuleComment,
     );
     const checked = await this.dependencies.run('iptables', rule);
     if (checked.exitCode === 0) {
       await this.runChecked('iptables', bridgeForwardRule(
         '-D',
-        record.network.infrastructureBridge,
-        record.network.hostForwardRuleComment,
+        network.infrastructureBridge,
+        network.hostForwardRuleComment,
       ));
     } else if (checked.exitCode !== 1) {
       throw new Error(
         `Could not revalidate per-run bridge rule: ${checked.stderr.trim() || checked.stdout.trim()}`,
       );
+    }
+  }
+
+  private async deleteVmmIdentity(
+    record: CleanupRecord,
+    tools: CloudHypervisorVmmIdentityToolPaths | undefined,
+  ): Promise<void> {
+    const identity = record.vmmIdentity;
+    if (!identity) return;
+    if (!tools) throw new Error('VMM cleanup tools are unavailable for a recorded account');
+    if (identity.aclPaths.length > 0 && identity.state !== 'live') {
+      throw new Error(`VMM ACL intent lacks a committed numeric identity: ${identity.name}`);
+    }
+    if (identity.state === 'live') {
+      for (const aclPath of [...identity.aclPaths].reverse()) {
+        let acl = await this.dependencies.run(tools.getfacl, [
+          '--absolute-names', '--numeric', aclPath,
+        ]);
+        if (acl.exitCode !== 0) {
+          throw new Error(`VMM ACL revalidation failed for ${aclPath}: ${acl.stderr.trim()}`);
+        }
+        if (acl.stdout.split(/\r?\n/).some((line) => line.startsWith(`user:${identity.uid}:`))) {
+          await this.runChecked(tools.setfacl, [
+            '--remove', `user:${identity.uid}`, aclPath,
+          ]);
+          acl = await this.dependencies.run(tools.getfacl, [
+            '--absolute-names', '--numeric', aclPath,
+          ]);
+          if (
+            acl.exitCode !== 0 ||
+            acl.stdout.split(/\r?\n/).some((line) =>
+              line.startsWith(`user:${identity.uid}:`))
+          ) throw new Error(`VMM ACL removal validation failed for ${aclPath}`);
+        }
+      }
+    }
+    let expectedGid = identity.state === 'live' ? identity.gid : undefined;
+    const passwd = await this.dependencies.run(tools.getent, ['passwd', identity.name]);
+    if (passwd.exitCode === 0) {
+      const fields = passwd.stdout.trim().split(':');
+      if (
+        fields.length !== 7 ||
+        fields[0] !== identity.name ||
+        fields[4] !== `AWF Cloud Hypervisor ${record.runId}` ||
+        fields[5] !== '/nonexistent' ||
+        fields[6] !== '/usr/sbin/nologin' ||
+        (identity.state === 'live' &&
+          (fields[2] !== String(identity.uid) || fields[3] !== String(identity.gid)))
+      ) throw new Error(`VMM account identity changed: ${identity.name}`);
+      const uid = Number(fields[2]);
+      const gid = Number(fields[3]);
+      if (
+        !Number.isSafeInteger(uid) ||
+        uid <= 0 ||
+        !Number.isSafeInteger(gid) ||
+        gid <= 0
+      ) {
+        throw new Error(`VMM account uid is invalid: ${identity.name}`);
+      }
+      expectedGid = gid;
+      if (identity.state === 'live') {
+        const [currentUid, currentGid, currentGroups] = await Promise.all([
+          this.dependencies.run(tools.id, ['-u', identity.name]),
+          this.dependencies.run(tools.id, ['-g', identity.name]),
+          this.dependencies.run(tools.id, ['-G', identity.name]),
+        ]);
+        if (
+          currentUid.exitCode !== 0 ||
+          currentUid.stdout.trim() !== String(identity.uid) ||
+          currentGid.exitCode !== 0 ||
+          currentGid.stdout.trim() !== String(identity.gid) ||
+          currentGroups.exitCode !== 0 ||
+          currentGroups.stdout.trim() !== String(identity.gid)
+        ) throw new Error(`VMM account runtime identity changed: ${identity.name}`);
+      }
+      await this.runChecked(tools.userdel, [identity.name]);
+      const removed = await this.dependencies.run(tools.id, ['-u', identity.name]);
+      if (removed.exitCode !== 1) {
+        throw new Error(`VMM account deletion could not be verified: ${identity.name}`);
+      }
+    } else if (passwd.exitCode !== 2) {
+      throw new Error(`Could not revalidate VMM account ${identity.name}: ${passwd.stderr.trim()}`);
+    }
+    const group = await this.dependencies.run(tools.getent, ['group', identity.name]);
+    if (group.exitCode === 0) {
+      const fields = group.stdout.trim().split(':');
+      if (
+        expectedGid === undefined ||
+        fields.length !== 4 ||
+        fields[0] !== identity.name ||
+        fields[2] !== String(expectedGid) ||
+        fields[3] !== ''
+      ) {
+        throw new Error(`VMM group identity changed: ${identity.name}`);
+      }
+      await this.runChecked(tools.groupdel, [identity.name]);
+      const removed = await this.dependencies.run(tools.getent, ['group', identity.name]);
+      if (removed.exitCode !== 2) {
+        throw new Error(`VMM group deletion could not be verified: ${identity.name}`);
+      }
+    } else if (group.exitCode !== 2) {
+      throw new Error(`Could not revalidate VMM group ${identity.name}: ${group.stderr.trim()}`);
     }
   }
 
@@ -921,9 +1161,18 @@ function validateRecord(
     !record.paths?.runDirectory.endsWith(`/${record.runId}`) ||
     !record.paths?.cgroupPath.endsWith(`/${record.runId}`) ||
     !record.paths?.virtiofsdShareDirectory.endsWith(`/${record.runId}`) ||
-    record.network?.netnsPath !== `/var/run/netns/${record.network.namespaceName}`
-    || !/^awf-microvm-[0-9a-f]{12}$/.test(record.network.hostForwardRuleComment)
-    || !/^[A-Za-z0-9_.-]{1,15}$/.test(record.network.infrastructureBridge)
+    (record.paths.artifactSnapshotDirectory !== undefined && (
+      path.dirname(record.paths.artifactSnapshotDirectory) !== path.join(
+        path.dirname(path.dirname(record.paths.runDirectory)),
+        'trusted-artifacts',
+      ) ||
+      !/^run-[A-Za-z0-9_-]+$/.test(path.basename(record.paths.artifactSnapshotDirectory))
+    )) ||
+    (record.network !== undefined && (
+      record.network.netnsPath !== `/var/run/netns/${record.network.namespaceName}` ||
+      !/^awf-microvm-[0-9a-f]{12}$/.test(record.network.hostForwardRuleComment) ||
+      !/^[A-Za-z0-9_.-]{1,15}$/.test(record.network.infrastructureBridge)
+    ))
   ) throw new Error('cleanup record paths are not run-scoped');
   validateProcessIdentity(record.owner, 'cleanup record owner');
   if (
@@ -943,6 +1192,23 @@ function validateRecord(
     ) throw new Error(`cleanup process record is malformed: ${key}`);
     if (processRecord.identity) validateProcessIdentity(processRecord.identity, `process "${key}"`);
   }
+  if (record.vmmIdentity) {
+    const identity = record.vmmIdentity;
+    if (
+      !/^awfvmm-[a-f0-9]{20}$/.test(identity.name) ||
+      (identity.state !== 'pending' && identity.state !== 'live') ||
+      !Array.isArray(identity.aclPaths) ||
+      identity.aclPaths.some((aclPath) =>
+        aclPath !== '/dev/kvm' && aclPath !== '/dev/net/tun') ||
+      new Set(identity.aclPaths).size !== identity.aclPaths.length ||
+      (identity.state === 'live' && (
+        !Number.isSafeInteger(identity.uid) ||
+        identity.uid! <= 0 ||
+        !Number.isSafeInteger(identity.gid) ||
+        identity.gid! <= 0
+      ))
+    ) throw new Error('cleanup VMM identity is malformed');
+  }
   for (const mount of record.mounts) {
     if (
       !Number.isSafeInteger(mount.mountId) ||
@@ -961,14 +1227,19 @@ function validateRecord(
 
 function assertSafeRecordPaths(
   paths: CloudHypervisorRunPaths,
-  plan: MicrovmNetworkPlan,
+  plan: MicrovmNetworkPlan | undefined,
 ): void {
   if (
-    plan.runId !== paths.runId ||
+    (plan !== undefined && plan.runId !== paths.runId) ||
     !paths.runDirectory.startsWith(`${paths.runBaseDir}${path.sep}`) ||
     !paths.runDirectory.endsWith(`${path.sep}${paths.runId}`) ||
     !paths.cgroupPath.endsWith(`${path.sep}${paths.runId}`)
   ) throw new Error('Cloud Hypervisor cleanup resources are not scoped to one run');
+}
+
+function requireNetwork(record: CleanupRecord): NonNullable<CleanupRecord['network']> {
+  if (!record.network) throw new Error('Cleanup network plan is not committed');
+  return record.network;
 }
 
 function assertSafeProcessKey(key: string): void {
