@@ -74,7 +74,7 @@ function dependencies(
         `CapInh:\t${zero}`,
         `CapPrm:\t${isWorker ? reviewed : zero}`,
         `CapEff:\t${isWorker ? reviewed : zero}`,
-        `CapBnd:\t${isWorker ? reviewed : zero}`,
+        `CapBnd:\t${zero}`,
         `CapAmb:\t${zero}`,
         `NoNewPrivs:\t${isWorker ? 1 : 0}`,
         `Seccomp:\t${isWorker ? 2 : 0}`,
@@ -351,11 +351,11 @@ describe('VirtiofsdManager', () => {
         deps.readFile = jest.fn(async (filePath: string, encoding: BufferEncoding) => {
           const contents = await readFile(filePath, encoding);
           return filePath === '/proc/1100/status'
-            ? contents.replace('CapBnd:\t00000000880000db', 'CapBnd:\t0000000000000000')
+            ? contents.replace('CapBnd:\t0000000000000000', 'CapBnd:\t00000000880000db')
             : contents;
         });
       },
-      error: /bounding set excludes reviewed runtime capabilities/,
+      error: /bounding capability set is not empty/,
     },
     {
       name: 'worker NoNewPrivs',
