@@ -21,8 +21,13 @@ import {
   type CloudHypervisorManagerNetworkConfig,
 } from './manager';
 import type { CloudHypervisorHostToolPaths } from './preflight';
+import type { CloudHypervisorVmmIdentityManager } from './vmm-identity';
 
 const hostTools: CloudHypervisorHostToolPaths = {
+  getfacl: '/usr/bin/getfacl',
+  getent: '/usr/bin/getent',
+  groupdel: '/usr/sbin/groupdel',
+  id: '/usr/bin/id',
   ip: '/usr/bin/ip',
   nft: '/usr/sbin/nft',
   sysctl: '/usr/sbin/sysctl',
@@ -33,6 +38,9 @@ const hostTools: CloudHypervisorHostToolPaths = {
   mount: '/usr/bin/mount',
   umount: '/usr/bin/umount',
   setpriv: '/usr/bin/setpriv',
+  setfacl: '/usr/bin/setfacl',
+  useradd: '/usr/sbin/useradd',
+  userdel: '/usr/sbin/userdel',
 };
 
 const exportsConfig = [
@@ -133,6 +141,16 @@ function cgroupMock(): CloudHypervisorCgroup {
   } as unknown as CloudHypervisorCgroup;
 }
 
+function vmmIdentityMock(): CloudHypervisorVmmIdentityManager {
+  return {
+    allocate: jest.fn().mockResolvedValue({ name: 'awfvmm-test', uid: 2001, gid: 2002 }),
+    grantDeviceAccess: jest.fn().mockResolvedValue(undefined),
+    validateOwnedPaths: jest.fn().mockResolvedValue(undefined),
+    validateTapOwnership: jest.fn().mockResolvedValue(undefined),
+    cleanup: jest.fn().mockResolvedValue(undefined),
+  } as unknown as CloudHypervisorVmmIdentityManager;
+}
+
 function dependencies(
   overrides: Partial<CloudHypervisorManagerDependencies> = {},
 ): CloudHypervisorManagerDependencies {
@@ -202,6 +220,7 @@ function dependencies(
         },
       },
     }),
+    createVmmIdentity: jest.fn(() => vmmIdentityMock()),
     resolveIdentity: jest.fn().mockReturnValue({ uid: 1000, gid: 1000 }),
     ...overrides,
   };
@@ -291,9 +310,9 @@ describe('CloudHypervisorManager', () => {
       expect.arrayContaining([
         'netns', 'exec', expect.stringMatching(/^awfvm-/),
         '/usr/bin/setpriv',
-        '--reuid=1000',
-        '--regid=1000',
-        '--groups=978',
+        '--reuid=2001',
+        '--regid=2002',
+        '--clear-groups',
       ]),
       expect.objectContaining({
         reject: false,
@@ -360,14 +379,14 @@ describe('CloudHypervisorManager', () => {
     );
     expect(deps.chown).toHaveBeenCalledWith(
       '/run/awf-cloud-hypervisor/cloud-hypervisor/run-1',
-      1000,
-      1000,
+      2001,
+      2002,
     );
     expect(deps.createNetwork).toHaveBeenCalledWith(
       expect.objectContaining({
         infrastructureBridge: 'awfbr0',
-        tapOwnerUid: 1000,
-        tapOwnerGid: 1000,
+        tapOwnerUid: 2001,
+        tapOwnerGid: 2002,
         tapVnetHdr: true,
       }),
       hostTools,
@@ -375,6 +394,15 @@ describe('CloudHypervisorManager', () => {
     const lifecycle = (deps.createNetwork as jest.Mock).mock.results[0]
       .value as MicrovmNetworkLifecycle;
     expect(lifecycle.setup).toHaveBeenCalledTimes(1);
+    const vmmIdentity = (deps.createVmmIdentity as jest.Mock).mock.results[0]
+      .value as CloudHypervisorVmmIdentityManager;
+    expect(vmmIdentity.allocate).toHaveBeenCalledTimes(1);
+    expect(vmmIdentity.validateTapOwnership).toHaveBeenCalledWith(
+      '/usr/bin/ip',
+      expect.stringMatching(/^awfvm-/),
+      expect.stringMatching(/^vmt/),
+    );
+    expect(vmmIdentity.grantDeviceAccess).toHaveBeenCalledTimes(1);
   });
 
   it('terminates the partial process and removes its run directory on readiness failure', async () => {
@@ -407,6 +435,9 @@ describe('CloudHypervisorManager', () => {
     expect(lifecycle.cleanup).toHaveBeenCalledTimes(1);
     const cgroup = (deps.createCgroup as jest.Mock).mock.results[0].value as CloudHypervisorCgroup;
     expect(cgroup.cleanup).toHaveBeenCalledTimes(1);
+    const vmmIdentity = (deps.createVmmIdentity as jest.Mock).mock.results[0]
+      .value as CloudHypervisorVmmIdentityManager;
+    expect(vmmIdentity.cleanup).toHaveBeenCalledTimes(1);
   });
 
   it('fails closed and never creates a VM when runtime confinement verification fails', async () => {
@@ -470,6 +501,12 @@ describe('CloudHypervisorManager', () => {
       rm: jest.fn(async () => {
         order.push('run-directory');
       }),
+      createVmmIdentity: jest.fn(() => ({
+        ...vmmIdentityMock(),
+        cleanup: jest.fn(async () => {
+          order.push('vmm-identity');
+        }),
+      } as unknown as CloudHypervisorVmmIdentityManager)),
     });
     const manager = new CloudHypervisorManager(
       config(),
@@ -482,7 +519,7 @@ describe('CloudHypervisorManager', () => {
     await manager.start();
     await manager.stop();
 
-    expect(order).toEqual(['network', 'cgroup', 'run-directory']);
+    expect(order).toEqual(['network', 'cgroup', 'run-directory', 'vmm-identity']);
   });
 
   it('configures one rootfs disk and virtio-fs devices, then stops daemons after the VMM', async () => {

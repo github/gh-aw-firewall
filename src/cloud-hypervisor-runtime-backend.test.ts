@@ -96,6 +96,10 @@ const preflightResult = {
   cgroupVersion: 2 as const,
   kvmGid: 978,
   tools: {
+    getfacl: '/usr/bin/getfacl',
+    getent: '/usr/bin/getent',
+    groupdel: '/usr/sbin/groupdel',
+    id: '/usr/bin/id',
     ip: '/usr/bin/ip',
     nft: '/usr/sbin/nft',
     sysctl: '/usr/sbin/sysctl',
@@ -106,6 +110,9 @@ const preflightResult = {
     mount: '/usr/bin/mount',
     umount: '/usr/bin/umount',
     setpriv: '/usr/bin/setpriv',
+    setfacl: '/usr/bin/setfacl',
+    useradd: '/usr/sbin/useradd',
+    userdel: '/usr/sbin/userdel',
   },
 };
 

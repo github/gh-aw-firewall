@@ -16,12 +16,10 @@ import type { CloudHypervisorLandlockRule } from './api-client';
  *     per-run namespace {@link https://man7.org/linux/man-pages/man8/ip-netns.8.html}
  *     without an intermediate fork, so the resulting process keeps the PID
  *     the host process observes.
- *  2. **Privilege drop** — `setpriv --reuid --regid --groups=<kvm-gid>
- *     --no-new-privs --inh-caps=-all --bounding-set=-all
- *     --ambient-caps=-all` execs the Cloud Hypervisor binary as the non-root
- *     operator uid/gid with empty capability sets and `no_new_privs` set,
- *     before any guest code runs. The sole supplementary group grants
- *     `/dev/kvm` access without a process capability.
+ *  2. **Privilege drop** — `setpriv --reuid --regid --clear-groups
+ *     --no-new-privs --inh-caps=-all --bounding-set=-all` execs the Cloud
+ *     Hypervisor binary as a dedicated per-run system uid/gid with no
+ *     supplementary groups and `no_new_privs` set, before any guest code runs.
  *  3. **Filesystem confinement** — Cloud Hypervisor has no chroot of its
  *     own, and jailer's userspace chroot+pivot_root cannot be replicated
  *     for a foreign static binary without reimplementing jailer itself.
@@ -95,15 +93,13 @@ const CLOUD_HYPERVISOR_ALLOWED_CAPABILITIES: readonly {
   readonly bit: number;
 }[] = [];
 
-function buildCloudHypervisorConfinementPolicy(
-  kvmGid: number,
-): CloudHypervisorLaunchConfinementPolicy {
+function buildCloudHypervisorConfinementPolicy(): CloudHypervisorLaunchConfinementPolicy {
   const capabilityMask = CLOUD_HYPERVISOR_ALLOWED_CAPABILITIES
     .reduce((mask, capability) => mask | (1n << BigInt(capability.bit)), 0n)
     .toString(16)
     .padStart(16, '0');
   return {
-    supplementaryGroups: [kvmGid],
+    supplementaryGroups: [],
     capabilities: {
       inheritable: capabilityMask,
       permitted: capabilityMask,
@@ -117,18 +113,14 @@ function buildCloudHypervisorConfinementPolicy(
 
 /**
  * Builds the argv AWF spawns to launch Cloud Hypervisor: join the prepared
- * network namespace, drop to the non-root operator identity with no
+ * network namespace, drop to the dedicated per-run VMM identity with no
  * capabilities, then exec the pinned Cloud Hypervisor binary with only its API
  * socket configured; the VM itself is created and booted afterwards over that
  * socket.
  *
- * The launched process retains exactly one supplementary group: the group
- * that owns `/dev/kvm` (resolved by preflight). A blanket `--clear-groups`
- * would also drop that membership, and since the documented supported
- * setup relies on kvm-group access for the non-root operator identity
- * (see docs/cloud-hypervisor-foundation.md), that would make every real
- * launch fail with EACCES opening `/dev/kvm` even though preflight (which
- * runs as root) passed.
+ * The launched process has no supplementary groups. Temporary per-run ACLs
+ * grant its uid access to `/dev/kvm` and `/dev/net/tun`, avoiding membership
+ * in a persistent host group.
  *
  * The network manager creates, configures, and brings up the TAP before this
  * process starts, with the target uid/gid recorded as its owner. Cloud
@@ -142,7 +134,6 @@ export function buildCloudHypervisorLaunchCommand(options: {
   readonly tools: CloudHypervisorLaunchToolPaths;
   readonly namespaceName: string;
   readonly identity: CloudHypervisorLaunchIdentity;
-  readonly kvmGid: number;
   readonly cloudHypervisorBinary: string;
   readonly apiSocketPath: string;
   readonly logFilePath: string;
@@ -150,9 +141,6 @@ export function buildCloudHypervisorLaunchCommand(options: {
   assertSafeNamespaceName(options.namespaceName);
   assertPositiveIdentity(options.identity.uid, 'uid');
   assertPositiveIdentity(options.identity.gid, 'gid');
-  if (!Number.isSafeInteger(options.kvmGid) || options.kvmGid < 0) {
-    throw new Error(`Cloud Hypervisor launch /dev/kvm group id must be a non-negative integer: ${options.kvmGid}`);
-  }
   if (!path.isAbsolute(options.cloudHypervisorBinary)) {
     throw new Error(`Cloud Hypervisor binary path must be absolute: ${options.cloudHypervisorBinary}`);
   }
@@ -173,10 +161,7 @@ export function buildCloudHypervisorLaunchCommand(options: {
       options.tools.setpriv,
       `--reuid=${options.identity.uid}`,
       `--regid=${options.identity.gid}`,
-      // Replaces the operator's full supplementary group list with only
-      // the /dev/kvm-owning group, instead of --clear-groups (which would
-      // also drop kvm access).
-      `--groups=${options.kvmGid}`,
+      '--clear-groups',
       '--no-new-privs',
       `--inh-caps=${resetCapabilitySet}`,
       `--bounding-set=${resetCapabilitySet}`,
@@ -188,7 +173,7 @@ export function buildCloudHypervisorLaunchCommand(options: {
       '-v',
       '--seccomp', 'true',
     ],
-    confinementPolicy: buildCloudHypervisorConfinementPolicy(options.kvmGid),
+    confinementPolicy: buildCloudHypervisorConfinementPolicy(),
   };
 }
 

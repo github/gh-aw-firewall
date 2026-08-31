@@ -555,6 +555,24 @@ done
 proc_uid=$(sudo stat -c %u "/proc/$vmm_pid" 2>/dev/null || echo "")
 [ -n "$proc_uid" ] || fail_security "could not stat /proc/$vmm_pid"
 [ "$proc_uid" != "0" ] || fail_security "Cloud Hypervisor process is running as root"
+operator_uid=$(id -u)
+[ "$proc_uid" != "$operator_uid" ] \
+  || fail_security "Cloud Hypervisor process reused the invoking operator uid $operator_uid"
+vmm_passwd=$(getent passwd "$proc_uid" || true)
+[ -n "$vmm_passwd" ] || fail_security "no passwd entry for Cloud Hypervisor uid $proc_uid"
+vmm_name=$(printf '%s' "$vmm_passwd" | cut -d: -f1)
+vmm_gid=$(printf '%s' "$vmm_passwd" | cut -d: -f4)
+[ "$(printf '%s' "$vmm_passwd" | cut -d: -f6)" = "/nonexistent" ] \
+  || fail_security "Cloud Hypervisor account has an unexpected home directory"
+[ "$(printf '%s' "$vmm_passwd" | cut -d: -f7)" = "/usr/sbin/nologin" ] \
+  || fail_security "Cloud Hypervisor account has an interactive shell"
+printf '%s' "$vmm_name" | grep -Eq '^awfvmm-[0-9a-f]{20}$' \
+  || fail_security "Cloud Hypervisor account name is not a random per-run name: $vmm_name"
+[ "$(id -G "$vmm_name")" = "$vmm_gid" ] \
+  || fail_security "Cloud Hypervisor account inherited supplementary groups"
+getfacl --absolute-names --numeric /dev/kvm 2>/dev/null \
+  | grep -q "^user:$proc_uid:rw-" \
+  || fail_security "Cloud Hypervisor uid lacks its scoped /dev/kvm ACL"
 
 # Every capability set is empty. In particular, a zero CapBnd prevents the
 # non-root VMM from regaining CAP_NET_ADMIN after exec.
@@ -739,6 +757,14 @@ node -e '
 # `ip netns exec`, not a bare `ip link show`.
 sudo ip netns exec "$expected_namespace" ip link show "$expected_tap" >/dev/null 2>&1 \
   || fail_security "expected TAP interface $expected_tap not found in namespace $expected_namespace"
+tap_details=$(sudo ip netns exec "$expected_namespace" \
+  ip -details tuntap show dev "$expected_tap" 2>/dev/null || true)
+tap_line=$(printf '%s\n' "$tap_details" | grep "^${expected_tap}: " || true)
+[ -n "$tap_line" ] || fail_security "expected TAP details were not found: $tap_details"
+printf '%s' "$tap_line" | grep -Eq "(^|[[:space:]])user[[:space:]]+$proc_uid([[:space:]]|$)" \
+  || fail_security "TAP is not owned by the per-run VMM uid $proc_uid: $tap_details"
+printf '%s' "$tap_line" | grep -Eq "(^|[[:space:]])group[[:space:]]+$vmm_gid([[:space:]]|$)" \
+  || fail_security "TAP is not owned by the per-run VMM gid $vmm_gid: $tap_details"
 
 kill -TERM "$sec_pid"
 set +e
@@ -750,5 +776,11 @@ set -e
   exit 1
 }
 assert_no_residue
+if getent passwd "$vmm_name" >/dev/null; then
+  fail_security "per-run Cloud Hypervisor account remains after cancellation: $vmm_name"
+fi
+if getfacl --absolute-names --numeric /dev/kvm 2>/dev/null | grep -q "^user:$proc_uid:"; then
+  fail_security "per-run /dev/kvm ACL remains after cancellation for uid $proc_uid"
+fi
 
 echo "Cloud Hypervisor live smoke/security suite passed."

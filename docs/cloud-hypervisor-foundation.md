@@ -72,8 +72,10 @@ AWF performs these steps for each run:
    policy.
 5. Copy the rootfs, inject the guest supervisor, and stage files in a private
    run directory.
-6. Create a bounded cgroup v2 leaf and launch Cloud Hypervisor as the invoking
-   non-root identity.
+6. Allocate a random-named, dedicated per-run system account, grant its
+   host-assigned uid/gid temporary access only to KVM/TUN, the pre-created TAP,
+   staged files, and required sockets, then launch Cloud Hypervisor under that
+   identity in a bounded cgroup v2 leaf.
 7. After the API responds, verify the launched VMM's trusted host `/proc` and
    cgroup state. AWF fails closed before `vm.create` if the PID identity,
    executable, credentials, capabilities, `no_new_privs`, seccomp worker,
@@ -89,7 +91,8 @@ AWF performs these steps for each run:
 10. Execute the agent command and propagate its exit code. Timeouts return
    `124`.
 11. Sync and unmount guest filesystems, stop the VM and VMM, reap `virtiofsd`,
-    and remove network, cgroup, and run-directory resources.
+    remove network, cgroup, and run-directory resources, revoke device ACLs,
+    and delete the exact per-run account.
 
 Cleanup is idempotent and aggregates errors so one cleanup failure does not
 skip later cleanup steps.
@@ -117,8 +120,11 @@ supervisor, or filesystem daemon runs inside a trusted part of the boundary.
 AWF launches Cloud Hypervisor through `ip netns exec` and `setpriv` without a
 shell. The process:
 
-- runs as the non-root identity recorded by `SUDO_UID` and `SUDO_GID`;
-- keeps only the KVM supplementary group;
+- runs as a random `awfvmm-<token>` system account allocated for that run,
+  independently of `SUDO_UID` and `SUDO_GID`;
+- has no home, login shell, or supplementary groups;
+- receives temporary uid-specific ACLs for `/dev/kvm` and `/dev/net/tun`;
+- owns only its run directory, staged VMM files and sockets, and TAP;
 - sets `no_new_privs`;
 - has empty inheritable, permitted, effective, bounding, and ambient capability
   sets;
@@ -145,7 +151,15 @@ not copy unbounded `/proc` content.
 
 The private run directory is under
 `/run/awf-cloud-hypervisor/<binary>/<runId>/`. Its per-run leaf is accessible
-only to the selected non-root identity and root.
+only to the dedicated VMM identity and root. Account allocation and deletion
+are serialized by an owner-token lock that validates both PID and process start
+time before reclaiming stale state, preventing PID reuse from stealing a live
+lock. Cleanup validates the exact account uid/gid before deletion and revokes
+only that run's ACL entries, so concurrent sibling runs remain untouched.
+
+The guest command still uses the invoking workspace uid/gid. That guest
+identity is carried separately through the supervisor protocol and is never
+reused as the host VMM identity.
 
 ### virtiofsd confinement
 
