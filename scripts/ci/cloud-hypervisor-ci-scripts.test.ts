@@ -162,9 +162,9 @@ describe('cloud-hypervisor-live-smoke.sh', () => {
     expect(source).toContain('landlock_enable');
     expect(source).toContain('"/tun_flags"');
     expect(source).toContain('cgroup.procs');
-    expect(source).toContain(
-      'sudo getfacl --absolute-names --numeric /dev/kvm',
-    );
+    expect(
+      source.match(/sudo getfacl --absolute-names --numeric \/dev\/kvm/g),
+    ).toHaveLength(2);
     expect(source).toContain(
       'sudo getfacl --absolute-names --numeric /dev/net/tun',
     );
