@@ -48,9 +48,14 @@ digest() {
   awk -v file="$1" '$2 == file { print $1; exit }' "$ARTIFACT_DIR/SHA256SUMS"
 }
 
+# These are same-run CI artifacts rather than release assets. The bypass is
+# deliberately dual-opt-in so it cannot be enabled by an omitted manifest.
+export AWF_CLOUD_HYPERVISOR_DEVELOPMENT_ALLOW_UNATTESTED_ARTIFACTS=1
+
 COMMON=(
   --container-runtime cloud-hypervisor
   --cloud-hypervisor-preview
+  --cloud-hypervisor-development-allow-unattested-artifacts
   # Explicit, even though --network-isolation is documented as "enabled by
   # default": the paired --network-isolation/--no-network-isolation
   # commander.js options resolve to `undefined` (not `true`) when neither

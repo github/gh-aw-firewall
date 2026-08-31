@@ -125,15 +125,61 @@ The runtime accepts only GitHub-hosted Ubuntu x86_64 runners. Preflight verifies
 the GitHub Actions environment markers, `/dev/kvm`, the KVM group, cgroup v2,
 Landlock, and required tools before creating the VM.
 
-AWF never downloads runtime artifacts automatically. You must provide the
-Cloud Hypervisor binary, guest kernel, rootfs, supervisor, and `virtiofsd`
-paths together with their expected SHA-256 digests. Preflight rejects missing,
-mutable, incorrectly owned, or digest-mismatched artifacts.
+AWF never downloads runtime artifacts automatically. Each AWF release publishes
+one Cloud Hypervisor manifest and its GitHub artifact-attestation Sigstore
+bundle alongside the artifact archive. The manifest records the release tag,
+source commit, exact Cloud Hypervisor, `virtiofsd`, kernel, rootfs, and
+supervisor versions, canonical filenames, and SHA-256 digests.
+
+Preflight first verifies the manifest itself with the bundled attestation,
+constraining the certificate identity to this repository's release workflow
+and rejecting self-hosted signers. Only after that succeeds does AWF parse the
+manifest, require its release tag to match both the operator's expected tag and
+the running AWF version, and verify every local artifact. Before verification,
+AWF copies the manifest, bundle, VMM, `virtiofsd`, kernel, rootfs, and
+supervisor into a root-owned, non-writable snapshot under
+`/run/awf-cloud-hypervisor/trusted-artifacts/`. Verification and execution use
+only that snapshot, preventing caller-controlled path replacement between
+checking and use. The local bundle
+avoids a GitHub API lookup. `gh` may still need network access to initialize or
+refresh Sigstore trust-root material unless that material is already cached or
+provisioned on the runner. Missing, mutable, incorrectly owned, renamed, or
+digest-mismatched artifacts fail closed.
 
 :::danger[Fail-closed verification]
 Do not bypass artifact verification. A substituted VMM, kernel, rootfs,
 supervisor, or filesystem daemon runs inside a trusted part of the boundary.
 :::
+
+### Threat model and migration
+
+The manifest prevents a caller from making a substituted artifact trusted by
+supplying its matching hash. An attacker must instead compromise the protected
+release workflow's GitHub OIDC identity or Sigstore verification chain. The
+mechanism does not defend against compromise of the already trusted local
+`gh` executable, host root, or the release workflow itself. AWF also rejects
+validly attested manifests from older releases, preventing silent rollback
+when the caller controls configuration.
+
+For a release such as `v0.24.0`, download and extract
+`cloud-hypervisor-test-x86_64.tar.gz`, then download:
+
+- `cloud-hypervisor-test-x86_64.manifest.json`
+- `cloud-hypervisor-test-x86_64.manifest.sigstore.jsonl`
+
+Replace the five `--cloud-hypervisor-*-sha256` trust arguments with:
+
+```text
+--cloud-hypervisor-artifact-manifest /trusted/manifest.json
+--cloud-hypervisor-artifact-manifest-bundle /trusted/manifest.sigstore.jsonl
+--cloud-hypervisor-artifact-release-tag v0.24.0
+```
+
+Ephemeral same-run development artifacts can use
+`--cloud-hypervisor-development-allow-unattested-artifacts` only together with
+`AWF_CLOUD_HYPERVISOR_DEVELOPMENT_ALLOW_UNATTESTED_ARTIFACTS=1` and all five
+legacy hashes. This conspicuous dual opt-in is preview-only and unsuitable for
+release or production use.
 
 ### VMM confinement
 

@@ -826,6 +826,8 @@ jobs:
             release/cloud-hypervisor-test-x86_64.SHA256SUMS
           cp cloud-hypervisor-release-assets/manifest.json \
             release/cloud-hypervisor-test-x86_64.manifest.json
+          cp cloud-hypervisor-release-assets/manifest.sigstore.jsonl \
+            release/cloud-hypervisor-test-x86_64.manifest.sigstore.jsonl
           cp cloud-hypervisor-release-assets/sbom.spdx.json \
             release/cloud-hypervisor-test-x86_64.sbom.spdx.json
 
@@ -987,6 +989,7 @@ jobs:
             release/cloud-hypervisor-test-x86_64.tar.gz
             release/cloud-hypervisor-test-x86_64.SHA256SUMS
             release/cloud-hypervisor-test-x86_64.manifest.json
+            release/cloud-hypervisor-test-x86_64.manifest.sigstore.jsonl
             release/cloud-hypervisor-test-x86_64.sbom.spdx.json
             release/containers.txt
             release/awf-config.schema.json
@@ -1041,6 +1044,19 @@ jobs:
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: release/cloud-hypervisor-test-x86_64/awf-cloud-hypervisor-test-x86_64.tar.gz
+
+      - name: Attest release-pinned guest artifact manifest
+        id: attest_cloud_hypervisor_manifest
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: release/cloud-hypervisor-test-x86_64/manifest.json
+
+      - name: Bundle manifest attestation for offline verification
+        env:
+          BUNDLE_PATH: ${{ steps.attest_cloud_hypervisor_manifest.outputs.bundle-path }}
+        run: |
+          cp "$BUNDLE_PATH" \
+            release/cloud-hypervisor-test-x86_64/manifest.sigstore.jsonl
 
       - name: Upload Cloud Hypervisor test artifacts
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0

@@ -50,9 +50,14 @@ export interface CloudHypervisorOptions {
   kernelPath?: string;
   rootfsPath?: string;
   supervisorPath?: string;
+  artifactManifestPath?: string;
+  artifactManifestBundlePath?: string;
+  artifactReleaseTag?: string;
+  developmentAllowUnattestedArtifacts?: boolean;
   vcpuCount: number;
   memoryMib: number;
   apiTimeoutMs: number;
+  /** Development-only legacy digest pins; never a provenance trust root. */
   sha256?: CloudHypervisorArtifactDigests;
 }
 
