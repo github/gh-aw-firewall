@@ -614,6 +614,110 @@ describe('MicrovmVsockClient', () => {
     await server.close();
   });
 
+  it('filters only presented output while preserving exact raw audit bytes', async () => {
+    const rawChunks = [
+      Buffer.from('plain\r\n  :'),
+      Buffer.from(':set-output name=result::owned\n'),
+      Buffer.from([0xff, 0xfe, 0x0a]),
+    ];
+    const server = await createServer((frame, socket) => {
+      if (frame.type !== 'execute') return;
+      for (const chunk of rawChunks) {
+        socket.write(encodeGuestFrame({
+          version: 1,
+          type: 'stdout',
+          requestId: frame.requestId,
+          data: chunk.toString('base64'),
+        }));
+      }
+      socket.write(encodeGuestFrame({
+        version: 1,
+        type: 'result',
+        requestId: frame.requestId,
+        exitCode: 0,
+        signal: null,
+        timedOut: false,
+      }));
+    });
+    const presented: Buffer[] = [];
+    const audited: Buffer[] = [];
+    const output = new Writable({
+      highWaterMark: 1,
+      write(chunk: Buffer, _encoding, callback) {
+        presented.push(Buffer.from(chunk));
+        setImmediate(callback);
+      },
+    });
+    const rawOutput = new Writable({
+      highWaterMark: 1,
+      write(chunk: Buffer, _encoding, callback) {
+        audited.push(Buffer.from(chunk));
+        setImmediate(callback);
+      },
+    });
+    const client = new MicrovmVsockClient({
+      socketPath: server.socketPath,
+      guestPort: 52,
+    });
+
+    await client.connect();
+    await expect(client.execute({
+      requestId: 'filtered',
+      argv: ['true'],
+      env: {},
+      cwd: '/workspace',
+      uid: 1000,
+      gid: 1000,
+      stdout: output,
+      rawStdout: rawOutput,
+      filterWorkflowCommands: true,
+    })).resolves.toEqual(expect.objectContaining({ exitCode: 0 }));
+
+    expect(Buffer.concat(audited)).toEqual(Buffer.concat(rawChunks));
+    expect(Buffer.concat(presented)).toEqual(Buffer.concat([
+      Buffer.from('plain\r\n  [awf blocked workflow command] : :set-output name=result::owned\n'),
+      Buffer.from([0xff, 0xfe, 0x0a]),
+    ]));
+    client.destroy();
+    await server.close();
+  });
+
+  it('flushes a trailing command candidate when cancellation grace expires', async () => {
+    const server = await createServer((frame, socket) => {
+      if (frame.type !== 'execute') return;
+      socket.write(encodeGuestFrame({
+        version: 1,
+        type: 'stdout',
+        requestId: frame.requestId,
+        data: Buffer.from('trailing::').toString('base64'),
+      }));
+    });
+    const output = new PassThrough();
+    const chunks: Buffer[] = [];
+    output.on('data', (chunk) => chunks.push(chunk));
+    const client = new MicrovmVsockClient({
+      socketPath: server.socketPath,
+      guestPort: 52,
+      cancellationGraceMs: 5,
+    });
+
+    await client.connect();
+    await expect(client.execute({
+      requestId: 'timeout-filter',
+      argv: ['sleep', '10'],
+      env: {},
+      cwd: '/workspace',
+      uid: 1000,
+      gid: 1000,
+      timeoutMs: 5,
+      stdout: output,
+      filterWorkflowCommands: true,
+    })).resolves.toEqual(expect.objectContaining({ exitCode: 124 }));
+
+    expect(Buffer.concat(chunks).toString()).toBe('trailing::');
+    await server.close();
+  });
+
   it('rejects writes after a connected transport is destroyed', async () => {
     const server = await createServer(() => undefined);
     const client = new MicrovmVsockClient({

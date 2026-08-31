@@ -489,6 +489,30 @@ describe('CloudHypervisorManager', () => {
       uid: 1000,
       gid: 1000,
     })).resolves.toEqual(expect.objectContaining({ exitCode: 0 }));
+    const forwardedRequest = (guestClient.execute as jest.Mock).mock.calls[0][0];
+    const rawGuestStdout = Buffer.concat([
+      Buffer.from('discarded prefix'),
+      Buffer.alloc(1024 * 1024, 0x7a),
+    ]);
+    forwardedRequest.rawStdout.write(rawGuestStdout);
+    forwardedRequest.rawStderr.write(Buffer.from([0xff, 0x00, 0xfe]));
+    await manager.collectDiagnostics('/tmp/diagnostics');
+    expect(deps.writeFile).toHaveBeenCalledWith(
+      '/tmp/diagnostics/guest-stdout.raw.log',
+      Buffer.alloc(1024 * 1024, 0x7a),
+      { mode: 0o600 },
+    );
+    expect(deps.writeFile).toHaveBeenCalledWith(
+      '/tmp/diagnostics/guest-stderr.raw.log',
+      Buffer.from([0xff, 0x00, 0xfe]),
+      { mode: 0o600 },
+    );
+    await manager.collectGuestOutputAudit('/tmp/audit/cloud-hypervisor');
+    expect(deps.writeFile).toHaveBeenCalledWith(
+      '/tmp/audit/cloud-hypervisor/guest-stdout.raw.log',
+      Buffer.alloc(1024 * 1024, 0x7a),
+      { mode: 0o600 },
+    );
     await manager.stop();
 
     expect(guestClient.shutdown).toHaveBeenCalledTimes(1);

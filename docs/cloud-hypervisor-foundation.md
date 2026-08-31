@@ -144,6 +144,34 @@ direct internet, arbitrary TCP, direct DNS, and instance metadata access.
 Guest proxy environment variables improve client compatibility, but the
 namespace policy is the enforcement boundary.
 
+### Untrusted guest output
+
+Guest stdout and stderr cross a host-side presentation boundary before AWF writes
+them to the runner log. A streaming byte filter neutralizes lines that begin,
+after optional runner-recognized leading whitespace, with GitHub Actions workflow-command
+syntax such as `::set-output::`, `::add-mask::`, or `::stop-commands::`. The
+filter operates across VSOCK frame boundaries, preserves non-command and
+non-UTF-8 bytes, and buffers at most two candidate bytes rather than a complete
+line. Output writes continue to honor stream backpressure.
+
+AWF intentionally has no workflow-command allowlist for guest output. Unlike a
+trusted host helper, the guest cannot prove that an informational annotation
+such as `::error::` came from a trusted producer, so allowing any command name
+would preserve an unnecessary runner-control channel.
+
+Filtering applies only to the live runner-facing stdout and stderr streams.
+Internal readiness probes retain their original bytes and semantics. Before
+filtering, AWF also captures the exact raw guest streams in bounded 1 MiB tails.
+Diagnostic collection writes these private files with mode `0600`:
+
+- `guest-stdout.raw.log`
+- `guest-stderr.raw.log`
+
+They are stored alongside the other Cloud Hypervisor diagnostics under the
+configured audit directory, or under the work-directory diagnostics path when
+no audit directory is configured. This preserves forensic evidence without
+allowing raw guest bytes to reach the GitHub Actions command parser.
+
 ## Guest and workspace
 
 The guest boots a pinned PCI-capable Linux kernel and deterministic BusyBox

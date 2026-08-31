@@ -25,6 +25,7 @@ import {
   BoundedOutputCapture,
   collectCloudHypervisorDiagnostics,
   readBoundedTail,
+  writeGuestOutputAudit,
 } from './diagnostics';
 import {
   CloudHypervisorGuestChannel,
@@ -169,6 +170,10 @@ export class CloudHypervisorManager {
   private lastVmCounters: CloudHypervisorVmCounters | undefined;
   private readonly stdoutCapture = new BoundedOutputCapture(CLOUD_HYPERVISOR_CAPTURE_LIMIT_BYTES);
   private readonly stderrCapture = new BoundedOutputCapture(CLOUD_HYPERVISOR_CAPTURE_LIMIT_BYTES);
+  private readonly guestStdoutCapture = new BoundedOutputCapture(CLOUD_HYPERVISOR_CAPTURE_LIMIT_BYTES);
+  private readonly guestStderrCapture = new BoundedOutputCapture(CLOUD_HYPERVISOR_CAPTURE_LIMIT_BYTES);
+  private readonly guestStdoutAudit = this.guestStdoutCapture.writable();
+  private readonly guestStderrAudit = this.guestStderrCapture.writable();
 
   get guestIp(): string | undefined {
     return this.networkPlan?.guestIp;
@@ -244,7 +249,11 @@ export class CloudHypervisorManager {
     if (!this.guest) {
       throw new Error('Cloud Hypervisor guest supervisor is not ready');
     }
-    return this.guest.execute(request);
+    return this.guest.execute({
+      ...request,
+      rawStdout: this.guestStdoutAudit,
+      rawStderr: this.guestStderrAudit,
+    });
   }
 
   cancel(reason = 'host cancellation', requestId?: string): Promise<void> {
@@ -315,6 +324,8 @@ export class CloudHypervisorManager {
       config: this.config,
       stdoutCapture: this.stdoutCapture,
       stderrCapture: this.stderrCapture,
+      guestStdoutCapture: this.guestStdoutCapture,
+      guestStderrCapture: this.guestStderrCapture,
       network: this.network,
       networkPlan: this.networkPlan,
       client: this.client,
@@ -323,5 +334,14 @@ export class CloudHypervisorManager {
       lastVmCounters: this.lastVmCounters,
       fsDevices: this.fsDevices,
     });
+  }
+
+  async collectGuestOutputAudit(directory: string): Promise<void> {
+    await writeGuestOutputAudit(
+      directory,
+      this.dependencies,
+      this.guestStdoutCapture,
+      this.guestStderrCapture,
+    );
   }
 }

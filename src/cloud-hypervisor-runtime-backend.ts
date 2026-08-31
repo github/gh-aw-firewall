@@ -93,6 +93,7 @@ interface CloudHypervisorManagerAdapter {
   endStdin(requestId?: string): Promise<void>;
   stop(options?: { preserve?: boolean; beforeCleanup?: () => Promise<void> }): Promise<void>;
   collectDiagnostics(directory: string): Promise<void>;
+  collectGuestOutputAudit(directory: string): Promise<void>;
 }
 
 /** @internal Exposed only for unit tests — not part of the public API. */
@@ -400,6 +401,7 @@ class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBackend {
       ...(timeoutMs === undefined ? {} : { timeoutMs }),
       stdout: this.dependencies.stdout,
       stderr: this.dependencies.stderr,
+      filterWorkflowCommands: true,
     });
     this.activeExecution = { requestId, promise: execution };
 
@@ -438,6 +440,9 @@ class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBackend {
       this.dependencies.stdin.off('end', onEnd);
       await forwarding;
       this.activeExecution = undefined;
+      if (this.config.auditDir) {
+        await manager.collectGuestOutputAudit(`${this.config.auditDir}/cloud-hypervisor`);
+      }
     }
   };
 

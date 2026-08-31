@@ -139,6 +139,7 @@ function harness(overrides: Partial<CloudHypervisorRuntimeBackendDependencies> =
     writeStdin: jest.fn().mockResolvedValue(undefined),
     endStdin: jest.fn().mockResolvedValue(undefined),
     collectDiagnostics: jest.fn().mockResolvedValue(undefined),
+    collectGuestOutputAudit: jest.fn().mockResolvedValue(undefined),
     stop: jest.fn(async (options?: { beforeCleanup?: () => Promise<void> }) => {
       order.push('vm-stop');
       await options?.beforeCleanup?.();
@@ -353,10 +354,59 @@ describe('Cloud Hypervisor runtime backend', () => {
       uid: 1000,
       gid: 1000,
       timeoutMs: 60_000,
+      filterWorkflowCommands: true,
     }));
+    expect(manager.execute).toHaveBeenNthCalledWith(
+      1,
+      expect.not.objectContaining({ filterWorkflowCommands: true }),
+    );
+    expect(manager.execute).toHaveBeenNthCalledWith(
+      2,
+      expect.not.objectContaining({ filterWorkflowCommands: true }),
+    );
     expect(manager.writeStdin).toHaveBeenCalledWith(
       Buffer.from('input'),
       expect.stringMatching(/^agent-/),
+    );
+    expect(manager.collectGuestOutputAudit).not.toHaveBeenCalled();
+  });
+
+  it('persists bounded raw guest output when an audit directory is configured', async () => {
+    const { manager, deps, stdin } = harness();
+    const backend = createBackend(config({ auditDir: '/tmp/audit' }), deps);
+
+    await backend.start('/tmp/awf', ['github.com']);
+    const execution = backend.exec('/tmp/awf', ['github.com']);
+    stdin.end();
+    await expect(execution).resolves.toEqual({ exitCode: 23 });
+
+    expect(manager.collectGuestOutputAudit).toHaveBeenCalledWith(
+      '/tmp/audit/cloud-hypervisor',
+    );
+  });
+
+  it('persists raw guest output after a failed agent execution', async () => {
+    const { manager, deps, stdin } = harness();
+    manager.execute.mockReset().mockImplementationOnce(async (request) => ({
+      requestId: request.requestId,
+      exitCode: 0,
+      signal: null,
+      timedOut: false,
+    })).mockImplementationOnce(async (request) => ({
+      requestId: request.requestId,
+      exitCode: 0,
+      signal: null,
+      timedOut: false,
+    })).mockRejectedValueOnce(new Error('guest transport failed'));
+    const backend = createBackend(config({ auditDir: '/tmp/audit' }), deps);
+
+    await backend.start('/tmp/awf', ['github.com']);
+    const execution = backend.exec('/tmp/awf', ['github.com']);
+    stdin.end();
+    await expect(execution).rejects.toThrow('guest transport failed');
+
+    expect(manager.collectGuestOutputAudit).toHaveBeenCalledWith(
+      '/tmp/audit/cloud-hypervisor',
     );
   });
 
