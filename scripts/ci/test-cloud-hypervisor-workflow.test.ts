@@ -139,7 +139,7 @@ describe('Cloud Hypervisor CI workflow', () => {
     expect(cleanupStep?.run).toContain('awfvm-');
     expect(cleanupStep?.run).toContain('awf-cloud-hypervisor');
     expect(cleanupStep?.run).toContain(
-      "pgrep -f '[c]loud-hypervisor --api-socket'",
+      "pgrep -f '/run/awf-cloud-hypervisor/trusted-artifacts/run-[^/]*/[c]loud-hypervisor --api-socket'",
     );
     expect(cleanupStep?.run).not.toContain(
       "pgrep -f 'cloud-hypervisor --api-socket'",
