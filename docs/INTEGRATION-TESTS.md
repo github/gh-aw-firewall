@@ -237,7 +237,7 @@ following behavior:
 | `partial-start-cleanup` | Corrupt rootfs causes clean failure; no residue |
 | `cancellation` | `SIGTERM` cleans up residue within a non-flaky time ceiling; exits 143 |
 | `keep` | `--keep-containers` preserves namespace/run-directory; diagnostics ≤1 MiB |
-| `security-assertions` **(CH-only)** | Live jailer-replacement boundary: non-root uid, `CapEff` limited to `CAP_NET_ADMIN` alone, `no_new_privs`, active seccomp filter, per-run cgroup membership/bounded memory, `landlock_enable` + exactly-minimal disk/net/vsock topology via `vm.info` |
+| `security-assertions` **(CH-only)** | Live jailer-replacement boundary: non-root uid, empty `CapInh`/`CapPrm`/`CapEff`/`CapBnd`/`CapAmb`, `no_new_privs`, active seccomp filter, per-run cgroup membership/bounded memory, `landlock_enable` + exactly-minimal disk/net/vsock topology via `vm.info` |
 
 After every case, the suite asserts no `awfvm-*` namespaces,
 `vmh*`/`vmn*`/`vmt*` interfaces, `awf-cloud-hypervisor` cgroup entries, or

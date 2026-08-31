@@ -149,6 +149,9 @@ describe('VirtiofsdManager', () => {
     expect(deps.runTool).toHaveBeenCalledWith('/usr/bin/mount', [
       '-o', 'remount,bind,ro,nosuid,nodev', '/run/awf-shares/run/1-cache',
     ]);
+    const launched = (deps.launch as jest.Mock).mock.results[0].value as ExecaChildProcess<string>;
+    launched.stdout?.emit('data', 'virtiofsd stdout');
+    launched.stderr?.emit('data', 'virtiofsd stderr');
 
     await manager.stop();
     expect(deps.writeFile).toHaveBeenCalledTimes(2);

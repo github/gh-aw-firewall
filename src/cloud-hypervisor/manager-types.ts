@@ -20,6 +20,7 @@ import type {
   CloudHypervisorCleanupHandle,
   CloudHypervisorCleanupRegistry,
 } from './cleanup-registry';
+import type { verifyCloudHypervisorConfinement } from './confinement-verifier';
 
 const API_SOCKET_NAME = 'api.socket';
 const VSOCK_SOCKET_NAME = 'awf-vsock.socket';
@@ -105,6 +106,7 @@ export interface CloudHypervisorManagerDependencies {
   ): VirtiofsdManager;
   createVsockClient(socketPath: string, guestPort: number, timeoutMs: number): MicrovmVsockClient;
   createCgroup(cgroupPath: string, limits: CloudHypervisorResourceLimits): CloudHypervisorCgroup;
+  verifyConfinement: typeof verifyCloudHypervisorConfinement;
   resolveIdentity(): { uid: number; gid: number };
 }
 

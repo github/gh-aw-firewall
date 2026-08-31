@@ -1,5 +1,10 @@
 import { promises as fs } from 'fs';
 import * as path from 'path';
+import {
+  CLOUD_HYPERVISOR_DEFAULT_MOUNT_POLICY,
+  CLOUD_HYPERVISOR_MOUNT_POLICIES,
+  type CloudHypervisorMountPolicy,
+} from '../types/runtime-options';
 
 export type CloudHypervisorExportMode = 'ro' | 'rw';
 
@@ -49,19 +54,29 @@ export interface CloudHypervisorExportValidationOptions {
 export async function resolveCloudHypervisorExports(
   environment: CloudHypervisorExportEnvironment = process.env,
   cwd = process.cwd(),
+  mountPolicy: CloudHypervisorMountPolicy = CLOUD_HYPERVISOR_DEFAULT_MOUNT_POLICY,
 ): Promise<CloudHypervisorDirectoryExport[]> {
+  if (!CLOUD_HYPERVISOR_MOUNT_POLICIES.includes(mountPolicy)) {
+    throw new Error(`Unsupported Cloud Hypervisor mount policy: ${String(mountPolicy)}`);
+  }
   const workspace = environment.GITHUB_WORKSPACE || cwd;
   const candidates: Array<CloudHypervisorDirectoryExport & { required: boolean }> = [
     { tag: 'workspace', source: workspace, target: '/workspace', mode: 'rw', required: true },
   ];
-  const toolCache = environment.RUNNER_TOOL_CACHE || environment.AGENT_TOOLSDIRECTORY;
-  if (toolCache) {
+  if (mountPolicy === 'workspace-and-tool-cache') {
+    const toolCache = environment.RUNNER_TOOL_CACHE || environment.AGENT_TOOLSDIRECTORY;
+    if (!toolCache) {
+      throw new Error(
+        'Cloud Hypervisor mount policy "workspace-and-tool-cache" requires ' +
+        'RUNNER_TOOL_CACHE or AGENT_TOOLSDIRECTORY',
+      );
+    }
     candidates.push({
       tag: 'runner-tool-cache',
       source: toolCache,
       target: toolCache,
       mode: 'ro',
-      required: false,
+      required: true,
     });
   }
   if (environment.RUNNER_TEMP) {
@@ -92,7 +107,9 @@ export async function resolveCloudHypervisorExports(
     } catch (error) {
       if (!candidate.required && (error as NodeJS.ErrnoException).code === 'ENOENT') continue;
       throw new Error(
-        `${candidate.required ? 'Cloud Hypervisor workspace' : `Cloud Hypervisor export "${candidate.tag}"`} ` +
+        `${candidate.tag === WORKSPACE_EXPORT_TAG
+          ? 'Cloud Hypervisor workspace'
+          : `Cloud Hypervisor export "${candidate.tag}"`} ` +
         `must be an existing real directory: ${candidate.source}: ${
           error instanceof Error ? error.message : String(error)
         }`,
@@ -113,7 +130,25 @@ export async function resolveCloudHypervisorExports(
     seenExports.set(key, exports.length);
     exports.push(resolvedExport);
   }
-  return validateCloudHypervisorExports(exports);
+  const validated = validateCloudHypervisorExports(exports);
+  const runnerToolCache = validated.find((entry) => entry.tag === 'runner-tool-cache');
+  if (runnerToolCache) {
+    const writableAlias = validated.find((entry) => (
+      entry.mode === 'rw' &&
+      (
+        entry.source === runnerToolCache.source ||
+        containsPath(entry.source, runnerToolCache.source) ||
+        containsPath(runnerToolCache.source, entry.source)
+      )
+    ));
+    if (writableAlias) {
+      throw new Error(
+        `Cloud Hypervisor runner tool cache source overlaps writable export "${writableAlias.tag}": ` +
+        `${runnerToolCache.source}`,
+      );
+    }
+  }
+  return validated;
 }
 
 export function validateCloudHypervisorExports(

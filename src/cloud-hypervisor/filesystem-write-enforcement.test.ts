@@ -35,17 +35,25 @@ describe('Cloud Hypervisor filesystem write enforcement translation', () => {
     await fs.rm(directory, { recursive: true, force: true });
   });
 
-  it('produces no enforcement and untouched exports when the policy is undefined', () => {
+  it('recursively enforces an opted-in tool cache when the write policy is undefined', () => {
     const result = planCloudHypervisorFilesystemWriteEnforcement(exports, undefined);
 
-    expect(result.mountEnforcement).toBeUndefined();
-    expect('mountEnforcement' in result).toBe(false);
+    expect(result.mountEnforcement).toEqual({
+      plans: [{ tag: 'runner-tool-cache', writableOverlays: [] }],
+    });
     expect(result.exports).toEqual(exports);
-    // Identity matters: the published list must be the resolved exports
-    // verbatim so virtiofsd's legacy staging path stays byte-identical.
     result.exports.forEach((entry, index) => expect(entry).toBe(exports[index]));
     expect(hasReadOnlyWorkspaceMountPlan(result.mountEnforcement)).toBe(false);
     expect(result.writeBoundary).toEqual([]);
+  });
+
+  it('preserves legacy staging without a write policy or tool-cache export', () => {
+    const withoutToolCache = exports.filter((entry) => entry.tag !== 'runner-tool-cache');
+    const result = planCloudHypervisorFilesystemWriteEnforcement(withoutToolCache, undefined);
+
+    expect(result.mountEnforcement).toBeUndefined();
+    expect('mountEnforcement' in result).toBe(false);
+    expect(result.exports).toEqual(withoutToolCache);
   });
 
   it('narrows every writable export for an empty allowlist without exempting /tmp/gh-aw', () => {

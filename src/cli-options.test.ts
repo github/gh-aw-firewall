@@ -16,6 +16,7 @@ describe('cli-options program', () => {
     program.setOptionValueWithSource('env', [], 'default');
     program.setOptionValueWithSource('excludeEnv', [], 'default');
     program.setOptionValueWithSource('mount', [], 'default');
+    program.setOptionValueWithSource('cloudHypervisorMountPolicy', undefined, 'default');
   });
 
   it('exposes the expected metadata', () => {
@@ -79,6 +80,24 @@ describe('cli-options program', () => {
     const opts = program.opts();
     expect(opts.vertexApiTarget).toBe('vertex.internal');
     expect(opts.vertexApiBasePath).toBe('/v1beta1');
+  });
+
+  it('leaves mount-policy defaulting to config assembly and parses explicit tool-cache opt-in', () => {
+    program.parse(['node', 'awf', '--', 'true'], { from: 'node' });
+    expect(program.opts().cloudHypervisorMountPolicy).toBeUndefined();
+
+    program.parse(
+      [
+        'node',
+        'awf',
+        '--cloud-hypervisor-mount-policy',
+        'workspace-and-tool-cache',
+        '--',
+        'true',
+      ],
+      { from: 'node' },
+    );
+    expect(program.opts().cloudHypervisorMountPolicy).toBe('workspace-and-tool-cache');
   });
 
   describe('custom formatHelp', () => {

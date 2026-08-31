@@ -31,6 +31,7 @@ import type { VirtiofsdManager, VirtiofsdDevice } from './virtiofsd';
 import { buildCloudHypervisorVmConfig } from './vm-config-builder';
 import type { BoundedOutputCapture } from './diagnostics';
 import type { CloudHypervisorCleanupHandle } from './cleanup-registry';
+import type { CloudHypervisorConfinementEvidence } from './confinement-verifier';
 
 export interface CloudHypervisorStartContext {
   config: CloudHypervisorOptions;
@@ -47,6 +48,7 @@ export interface CloudHypervisorStartContext {
   setCgroup(cgroup: CloudHypervisorCgroup | undefined): void;
   setProcess(process: ExecaChildProcess<string> | undefined): void;
   setClient(client: CloudHypervisorApiClient | undefined): void;
+  setConfinementEvidence(evidence: CloudHypervisorConfinementEvidence | undefined): void;
   setVirtiofsd(virtiofsd: VirtiofsdManager | undefined): void;
   setFsDevices(devices: VirtiofsdDevice[]): void;
   setCleanupRecord(record: CloudHypervisorCleanupHandle | undefined): void;
@@ -151,13 +153,25 @@ export async function startCloudHypervisor(
     child.stdout?.on('data', (chunk: Buffer | string) => context.stdoutCapture.append(chunk));
     child.stderr?.on('data', (chunk: Buffer | string) => context.stderrCapture.append(chunk));
     if (child.pid === undefined) throw new Error('Cloud Hypervisor process did not expose a PID');
-    await cleanupRecord.captureProcess('vmm', child.pid);
     await cgroup.assign(child.pid);
+    await cleanupRecord.captureProcess('vmm', child.pid);
 
     await waitForApiSocket(dependencies, paths, config.apiTimeoutMs, child);
     const client = dependencies.createClient(paths.apiSocketPath, config.apiTimeoutMs);
     context.setClient(client);
     await client.ping();
+    if (child.pid === undefined) {
+      throw new Error('Cloud Hypervisor launcher did not report a PID for confinement verification');
+    }
+    context.setConfinementEvidence(await dependencies.verifyConfinement({
+      pid: child.pid,
+      expectedExecutable: config.cloudHypervisorBinary,
+      identity,
+      launchPolicy: launchCommand.confinementPolicy,
+      networkNamespace: networkPlan.namespaceName,
+      cgroupPath: paths.cgroupPath,
+      cgroupLimits: cgroup.expectedLimits(),
+    }));
     if (guestConfig) {
       const virtiofsd = dependencies.createVirtiofsdManager(
         artifacts.virtiofsdBinary, paths.runDirectory, paths.virtiofsdShareDirectory,

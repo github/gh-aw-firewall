@@ -252,8 +252,8 @@ runs the agent in a hardware-isolated microVM:
   proxy.
 - The mandatory API proxy keeps provider credentials out of the guest
   environment.
-- The VMM runs as a non-root identity with `no_new_privs`, a minimal capability
-  set, Landlock filesystem rules, seccomp, and explicit cgroup v2 limits.
+- The VMM runs as a non-root identity with `no_new_privs`, empty capability
+  sets, Landlock filesystem rules, seccomp, and explicit cgroup v2 limits.
 - The preview supports only GitHub-hosted Ubuntu x86_64 KVM runners and fails
   closed on unsupported hosts or missing artifacts.
 

@@ -20,6 +20,7 @@ function config(overrides: Partial<WrapperConfig> = {}): WrapperConfig {
     tty: false,
     cloudHypervisor: {
       previewEnabled: true,
+      mountPolicy: 'workspace-only',
       cloudHypervisorBinary: '/opt/cloud-hypervisor',
       kernelPath: '/opt/kernel',
       rootfsPath: '/opt/rootfs',
@@ -101,6 +102,17 @@ describe('Cloud Hypervisor runtime validation', () => {
     expect(() => assertCloudHypervisorRuntimeCompatibility(
       config(overrides as Partial<WrapperConfig>),
     )).toThrow(error);
+  });
+
+  it('fails closed on a mistyped mount policy', () => {
+    expect(() => assertCloudHypervisorRuntimeCompatibility(config({
+      cloudHypervisor: {
+        ...config().cloudHypervisor!,
+        mountPolicy: 'automatic' as 'workspace-only',
+      },
+    }))).toThrow(
+      'Cloud Hypervisor mount policy must be "workspace-only" or "workspace-and-tool-cache"',
+    );
   });
 
   it.each([

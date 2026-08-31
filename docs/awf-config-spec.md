@@ -144,6 +144,25 @@ for the guest artifact build/verification pipeline. See
 [docs/cloud-hypervisor-foundation.md](./cloud-hypervisor-foundation.md) for
 the full architecture and security-boundary writeup.
 
+`cloudHypervisor.mountPolicy` controls host directory exposure:
+
+- `workspace-only` is the default and recommended secure posture. It does not
+  infer a mount from `RUNNER_TOOL_CACHE` or `AGENT_TOOLSDIRECTORY`. The
+  workspace and the narrow gh-aw runtime directories (`RUNNER_TEMP/gh-aw` and
+  `/tmp/gh-aw`) remain eligible when present so generated workflows can run.
+- `workspace-and-tool-cache` explicitly opts into exporting the whole path
+  named by `RUNNER_TOOL_CACHE`, falling back to `AGENT_TOOLSDIRECTORY`. AWF
+  requires that value to name an existing real directory and stages it
+  recursively read-only on the host before virtiofsd starts. Cache paths that
+  overlap writable export sources, missing paths, and unknown policy values are
+  errors.
+
+AWF forwards `RUNNER_TOOL_CACHE` or `AGENT_TOOLSDIRECTORY` into the guest only
+when the corresponding export exists. gh-aw versions that generate a command
+which scans `RUNNER_TOOL_CACHE` must emit
+`--cloud-hypervisor-mount-policy workspace-and-tool-cache`; workflows that do
+not need runner-installed tools should retain the default.
+
 Release test artifacts (`cloud-hypervisor-test-x86_64`) are x86_64
 test/preview artifacts built and verified by both the release workflow and
 [`test-cloud-hypervisor.yml`](../.github/workflows/test-cloud-hypervisor.yml),
@@ -262,6 +281,7 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 - `container.containerRuntime` → `--container-runtime` *(user-facing runtime name: `"gvisor"` for an OCI runtime in Compose, `"sbx"` for a Docker sbx microVM, or `"cloud-hypervisor"` for the explicit Cloud Hypervisor v53.0 workload preview (GitHub-hosted Ubuntu x86_64 KVM runners only; see §4.2). gVisor translates to `"runsc"` and injects `extra_hosts` for its DNS workaround. For sbx and Cloud Hypervisor, infrastructure stays in Compose while the primary agent runs in a microVM.)*
 - `filesystem.allowWrite[]` → *(config-only; no CLI equivalent; narrows existing writable host binds to the listed guest-visible absolute paths, see §4.1)*
 - `cloudHypervisor.previewEnabled` → `--cloud-hypervisor-preview` *(requires `container.containerRuntime: "cloud-hypervisor"` and a GitHub-hosted Ubuntu x86_64 KVM runner to execute a workload)*
+- `cloudHypervisor.mountPolicy` → `--cloud-hypervisor-mount-policy` *(`workspace-only` by default; use `workspace-and-tool-cache` only when the workload needs the runner tool cache)*
 - `cloudHypervisor.cloudHypervisorBinary` → `--cloud-hypervisor-binary`
 - `cloudHypervisor.kernelPath` → `--cloud-hypervisor-kernel`
 - `cloudHypervisor.rootfsPath` → `--cloud-hypervisor-rootfs`

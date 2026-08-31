@@ -14,12 +14,15 @@ export { type UpstreamProxyConfig } from './upstream-proxy';
 export { type LogLevel } from './log-level';
 export {
   type CloudHypervisorArtifactDigests,
+  type CloudHypervisorMountPolicy,
   type CloudHypervisorOptions,
   CLOUD_HYPERVISOR_RELEASE_VERSION,
   CLOUD_HYPERVISOR_DEFAULT_BINARY,
   CLOUD_HYPERVISOR_DEFAULT_VCPU_COUNT,
   CLOUD_HYPERVISOR_DEFAULT_MEMORY_MIB,
   CLOUD_HYPERVISOR_DEFAULT_API_TIMEOUT_MS,
+  CLOUD_HYPERVISOR_DEFAULT_MOUNT_POLICY,
+  CLOUD_HYPERVISOR_MOUNT_POLICIES,
 } from './runtime-options';
 export { type RateLimitConfig } from './rate-limit';
 export { type FlagValidationResult } from './validation';

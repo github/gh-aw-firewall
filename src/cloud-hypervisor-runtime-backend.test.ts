@@ -21,6 +21,7 @@ function config(overrides: Partial<WrapperConfig> = {}): WrapperConfig {
     containerRuntime: 'cloud-hypervisor',
     cloudHypervisor: {
       previewEnabled: true,
+      mountPolicy: 'workspace-only',
       cloudHypervisorBinary: '/opt/cloud-hypervisor',
       kernelPath: '/opt/kernel',
       rootfsPath: '/opt/rootfs',
@@ -139,6 +140,7 @@ function harness(overrides: Partial<CloudHypervisorRuntimeBackendDependencies> =
     writeStdin: jest.fn().mockResolvedValue(undefined),
     endStdin: jest.fn().mockResolvedValue(undefined),
     collectDiagnostics: jest.fn().mockResolvedValue(undefined),
+    collectGuestOutputAudit: jest.fn().mockResolvedValue(undefined),
     stop: jest.fn(async (options?: { beforeCleanup?: () => Promise<void> }) => {
       order.push('vm-stop');
       await options?.beforeCleanup?.();
@@ -220,7 +222,7 @@ describe('Cloud Hypervisor runtime backend', () => {
     const previousWorkspace = process.env.GITHUB_WORKSPACE;
     process.env.GITHUB_WORKSPACE = process.cwd();
     try {
-      await expect(defaults.resolveExports()).resolves.toEqual(expect.arrayContaining([
+      await expect(defaults.resolveExports('workspace-only')).resolves.toEqual(expect.arrayContaining([
         expect.objectContaining({ tag: 'workspace', target: '/workspace', mode: 'rw' }),
       ]));
       expect(defaults.identity()).toEqual({
@@ -263,6 +265,7 @@ describe('Cloud Hypervisor runtime backend', () => {
 
       await backend.start('/tmp/awf', ['github.com']);
 
+      expect(deps.resolveExports).toHaveBeenCalledWith('workspace-only');
       expect(deps.createManager).toHaveBeenCalledWith(
         expect.anything(),
         '/tmp/awf',
@@ -353,10 +356,59 @@ describe('Cloud Hypervisor runtime backend', () => {
       uid: 1000,
       gid: 1000,
       timeoutMs: 60_000,
+      filterWorkflowCommands: true,
     }));
+    expect(manager.execute).toHaveBeenNthCalledWith(
+      1,
+      expect.not.objectContaining({ filterWorkflowCommands: true }),
+    );
+    expect(manager.execute).toHaveBeenNthCalledWith(
+      2,
+      expect.not.objectContaining({ filterWorkflowCommands: true }),
+    );
     expect(manager.writeStdin).toHaveBeenCalledWith(
       Buffer.from('input'),
       expect.stringMatching(/^agent-/),
+    );
+    expect(manager.collectGuestOutputAudit).not.toHaveBeenCalled();
+  });
+
+  it('persists bounded raw guest output when an audit directory is configured', async () => {
+    const { manager, deps, stdin } = harness();
+    const backend = createBackend(config({ auditDir: '/tmp/audit' }), deps);
+
+    await backend.start('/tmp/awf', ['github.com']);
+    const execution = backend.exec('/tmp/awf', ['github.com']);
+    stdin.end();
+    await expect(execution).resolves.toEqual({ exitCode: 23 });
+
+    expect(manager.collectGuestOutputAudit).toHaveBeenCalledWith(
+      '/tmp/audit/cloud-hypervisor',
+    );
+  });
+
+  it('persists raw guest output after a failed agent execution', async () => {
+    const { manager, deps, stdin } = harness();
+    manager.execute.mockReset().mockImplementationOnce(async (request) => ({
+      requestId: request.requestId,
+      exitCode: 0,
+      signal: null,
+      timedOut: false,
+    })).mockImplementationOnce(async (request) => ({
+      requestId: request.requestId,
+      exitCode: 0,
+      signal: null,
+      timedOut: false,
+    })).mockRejectedValueOnce(new Error('guest transport failed'));
+    const backend = createBackend(config({ auditDir: '/tmp/audit' }), deps);
+
+    await backend.start('/tmp/awf', ['github.com']);
+    const execution = backend.exec('/tmp/awf', ['github.com']);
+    stdin.end();
+    await expect(execution).rejects.toThrow('guest transport failed');
+
+    expect(manager.collectGuestOutputAudit).toHaveBeenCalledWith(
+      '/tmp/audit/cloud-hypervisor',
     );
   });
 
@@ -1011,6 +1063,34 @@ describe('Cloud Hypervisor runtime backend', () => {
     } finally {
       if (previousToolCache === undefined) delete process.env.RUNNER_TOOL_CACHE;
       else process.env.RUNNER_TOOL_CACHE = previousToolCache;
+      if (previousRunnerTemp === undefined) delete process.env.RUNNER_TEMP;
+      else process.env.RUNNER_TEMP = previousRunnerTemp;
+    }
+  });
+
+  it('does not forward runner path variables without matching exports', () => {
+    const previousToolCache = process.env.RUNNER_TOOL_CACHE;
+    const previousAgentTools = process.env.AGENT_TOOLSDIRECTORY;
+    const previousRunnerTemp = process.env.RUNNER_TEMP;
+    try {
+      process.env.RUNNER_TOOL_CACHE = '/opt/hostedtoolcache';
+      process.env.AGENT_TOOLSDIRECTORY = '/opt/agent-tools';
+      process.env.RUNNER_TEMP = '/home/runner/work/_temp';
+      const environment = buildCloudHypervisorGuestEnvironment(
+        config(),
+        infrastructure(),
+        '100.64.0.2',
+        [{ tag: 'workspace', source: '/host/workspace', target: '/workspace', mode: 'rw' }],
+      );
+
+      expect(environment.RUNNER_TOOL_CACHE).toBeUndefined();
+      expect(environment.AGENT_TOOLSDIRECTORY).toBeUndefined();
+      expect(environment.RUNNER_TEMP).toBeUndefined();
+    } finally {
+      if (previousToolCache === undefined) delete process.env.RUNNER_TOOL_CACHE;
+      else process.env.RUNNER_TOOL_CACHE = previousToolCache;
+      if (previousAgentTools === undefined) delete process.env.AGENT_TOOLSDIRECTORY;
+      else process.env.AGENT_TOOLSDIRECTORY = previousAgentTools;
       if (previousRunnerTemp === undefined) delete process.env.RUNNER_TEMP;
       else process.env.RUNNER_TEMP = previousRunnerTemp;
     }
