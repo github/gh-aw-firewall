@@ -590,6 +590,10 @@ mount_host_devpts() {
   # the host devpts mount through the chroot. gVisor also requires scoped PTYs.
   mkdir -p /host/dev/pts
   if mount -t devpts -o newinstance,nosuid,noexec,ptmxmode=0666,mode=0620,gid=5 devpts /host/dev/pts; then
+    if ! mount --bind /host/dev/pts/ptmx /host/dev/ptmx; then
+      echo "[entrypoint][ERROR] Failed to connect /host/dev/ptmx to the private devpts instance"
+      exit 1
+    fi
     echo "[entrypoint] Mounted devpts at /host/dev/pts (newinstance,nosuid,noexec)"
   else
     echo "[entrypoint][ERROR] Failed to mount devpts at /host/dev/pts"

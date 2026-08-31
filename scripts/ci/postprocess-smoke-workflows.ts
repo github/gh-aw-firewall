@@ -253,6 +253,12 @@ try {
       '--cloud-hypervisor-preview --cloud-hypervisor-development-allow-unattested-artifacts ',
     );
   }
+  if (!cloudContent.includes('--cloud-hypervisor-mount-policy workspace-and-tool-cache')) {
+    cloudContent = cloudContent.replace(
+      '--cloud-hypervisor-preview ',
+      '--cloud-hypervisor-preview --cloud-hypervisor-mount-policy workspace-and-tool-cache ',
+    );
+  }
   if (!cloudContent.includes('AWF_CLOUD_HYPERVISOR_DEVELOPMENT_ALLOW_UNATTESTED_ARTIFACTS: "1"')) {
     cloudContent = cloudContent.replace(
       '        env:\n          AWF_REFLECT_ENABLED: 1\n',

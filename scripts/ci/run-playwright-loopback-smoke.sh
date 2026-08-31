@@ -97,9 +97,12 @@ const fs = require("node:fs");
 
 fs.writeFileSync(process.argv[2], JSON.stringify({
   browser: {
+    browserName: "chromium",
     isolated: true,
     launchOptions: {
       headless: true,
+      chromiumSandbox: false,
+      args: ["--no-sandbox", "--disable-setuid-sandbox"],
       proxy: {
         server: process.argv[3],
         bypass: "localhost,127.0.0.1",
