@@ -144,7 +144,7 @@ jobs:
       - name: Grant workflow user access to KVM
         run: |
           if [ -e /dev/kvm ]; then
-            sudo chmod 666 /dev/kvm
+            sudo setfacl --modify "user:$(id -u):rw" /dev/kvm
           fi
 
       - name: Verify capable host and artifact digests
