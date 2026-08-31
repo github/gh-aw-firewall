@@ -3,9 +3,7 @@ import * as path from 'path';
 const WORKER_READY_TIMEOUT_MS = 5_000;
 const WORKER_READY_INTERVAL_MS = 50;
 const REVIEWED_WORKER_CAPABILITIES = '00000000880000db';
-const REVIEWED_WORKER_CAPABILITY_BITS = BigInt(`0x${REVIEWED_WORKER_CAPABILITIES}`);
 const ZERO_CAPABILITIES = /^0+$/;
-const CAPABILITY_MASK = /^[0-9a-f]{16}$/;
 const REQUIRED_NAMESPACES = ['mnt', 'pid', 'net'] as const;
 const CAPABILITY_FIELDS = ['CapInh', 'CapPrm', 'CapEff', 'CapBnd', 'CapAmb'] as const;
 const CGROUP_ROOT = '/sys/fs/cgroup';
@@ -143,12 +141,8 @@ export async function verifyVirtiofsdSandbox(
       throw new Error('virtiofsd worker capabilities differ from the reviewed sandbox set');
     }
     const workerBounding = worker.capabilities.CapBnd ?? '';
-    if (
-      !CAPABILITY_MASK.test(workerBounding) ||
-      (BigInt(`0x${workerBounding}`) & REVIEWED_WORKER_CAPABILITY_BITS) !==
-        REVIEWED_WORKER_CAPABILITY_BITS
-    ) {
-      throw new Error('virtiofsd worker bounding set excludes reviewed runtime capabilities');
+    if (!ZERO_CAPABILITIES.test(workerBounding)) {
+      throw new Error('virtiofsd worker bounding capability set is not empty');
     }
     if (worker.noNewPrivs !== 1 || worker.seccomp !== 2) {
       throw new Error('virtiofsd worker is missing NoNewPrivs or seccomp filtering');
