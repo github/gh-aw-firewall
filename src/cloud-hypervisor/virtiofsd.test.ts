@@ -485,25 +485,40 @@ describe('VirtiofsdManager', () => {
     await expect(manager(deps).start([workspace])).resolves.toHaveLength(1);
   });
 
-  it('retries when a discovered sandbox worker exits before identity capture', async () => {
+  it('ignores a child candidate that is not virtiofsd', async () => {
     const deps = dependencies();
     const readFile = deps.readFile;
-    let discovery = 0;
     deps.readFile = jest.fn(async (filePath: string, encoding: BufferEncoding) => {
-      if (filePath.endsWith('/children')) {
-        discovery += 1;
-        return discovery === 1 ? '1099' : '1100';
-      }
-      if (filePath === '/proc/1099/comm') return 'virtiofsd\n';
-      if (filePath === '/proc/1099/stat') {
-        throw Object.assign(new Error('exited'), { code: 'ENOENT' });
-      }
+      if (filePath.endsWith('/children')) return '1099 1100';
+      if (filePath === '/proc/1099/comm') return 'other-process\n';
       return readFile(filePath, encoding);
     });
 
     await expect(manager(deps).start([workspace])).resolves.toHaveLength(1);
-    expect(deps.sleep).toHaveBeenCalled();
   });
+
+  it.each(['ENOENT', 'ESRCH'])(
+    'retries when a discovered sandbox worker exits before identity capture (%s)',
+    async (code) => {
+      const deps = dependencies();
+      const readFile = deps.readFile;
+      let discovery = 0;
+      deps.readFile = jest.fn(async (filePath: string, encoding: BufferEncoding) => {
+        if (filePath.endsWith('/children')) {
+          discovery += 1;
+          return discovery === 1 ? '1099' : '1100';
+        }
+        if (filePath === '/proc/1099/comm') return 'virtiofsd\n';
+        if (filePath === '/proc/1099/stat') {
+          throw Object.assign(new Error('exited'), { code });
+        }
+        return readFile(filePath, encoding);
+      });
+
+      await expect(manager(deps).start([workspace])).resolves.toHaveLength(1);
+      expect(deps.sleep).toHaveBeenCalled();
+    },
+  );
 
   it('retries with a replacement worker when cgroup assignment reports ESRCH', async () => {
     const deps = dependencies();
@@ -544,6 +559,108 @@ describe('VirtiofsdManager', () => {
     await expect(manager(deps, cgroup).start([workspace]))
       .rejects.toThrow(/cgroup disappeared/);
     expect(deps.sleep).not.toHaveBeenCalled();
+  });
+
+  it('surfaces unexpected cgroup assignment errors immediately', async () => {
+    const deps = dependencies();
+    const cgroup = {
+      cgroupPath: '/sys/fs/cgroup/awf-cloud-hypervisor/test',
+      assign: jest.fn()
+        .mockResolvedValueOnce(undefined)
+        .mockRejectedValueOnce(Object.assign(new Error('assignment denied'), { code: 'EACCES' })),
+    };
+
+    await expect(manager(deps, cgroup).start([workspace]))
+      .rejects.toThrow(/assignment denied/);
+    expect(deps.sleep).not.toHaveBeenCalled();
+  });
+
+  it.each(['ENOENT', 'ESRCH'])(
+    'retries cgroup ENOENT when procfs confirms the candidate exited (%s)',
+    async (code) => {
+      const deps = dependencies();
+      const readFile = deps.readFile;
+      let discovery = 0;
+      let candidateStatReads = 0;
+      deps.readFile = jest.fn(async (filePath: string, encoding: BufferEncoding) => {
+        if (filePath.endsWith('/children')) {
+          discovery += 1;
+          return discovery === 1 ? '1099' : '1100';
+        }
+        if (filePath === '/proc/1099/stat' && ++candidateStatReads === 2) {
+          throw Object.assign(new Error('exited'), { code });
+        }
+        return readFile(filePath, encoding);
+      });
+      const cgroup = {
+        cgroupPath: '/sys/fs/cgroup/awf-cloud-hypervisor/test',
+        assign: jest.fn()
+          .mockResolvedValueOnce(undefined)
+          .mockRejectedValueOnce(Object.assign(new Error('missing target'), { code: 'ENOENT' }))
+          .mockResolvedValue(undefined),
+      };
+
+      await expect(manager(deps, cgroup).start([workspace])).resolves.toHaveLength(1);
+      expect(cgroup.assign).toHaveBeenNthCalledWith(2, 1099);
+      expect(cgroup.assign).toHaveBeenNthCalledWith(3, 1100);
+    },
+  );
+
+  it('surfaces unexpected procfs errors while confirming cgroup ENOENT', async () => {
+    const deps = dependencies();
+    const readFile = deps.readFile;
+    let candidateStatReads = 0;
+    deps.readFile = jest.fn(async (filePath: string, encoding: BufferEncoding) => {
+      if (filePath === '/proc/1100/stat' && ++candidateStatReads === 2) {
+        throw Object.assign(new Error('proc denied'), { code: 'EACCES' });
+      }
+      return readFile(filePath, encoding);
+    });
+    const cgroup = {
+      cgroupPath: '/sys/fs/cgroup/awf-cloud-hypervisor/test',
+      assign: jest.fn()
+        .mockResolvedValueOnce(undefined)
+        .mockRejectedValueOnce(Object.assign(new Error('missing target'), { code: 'ENOENT' })),
+    };
+
+    await expect(manager(deps, cgroup).start([workspace])).rejects.toThrow(/proc denied/);
+  });
+
+  it.each(['ENOENT', 'ESRCH'])(
+    'retries when the assigned worker exits before identity revalidation (%s)',
+    async (code) => {
+      const deps = dependencies();
+      const readFile = deps.readFile;
+      let discovery = 0;
+      let candidateStatReads = 0;
+      deps.readFile = jest.fn(async (filePath: string, encoding: BufferEncoding) => {
+        if (filePath.endsWith('/children')) {
+          discovery += 1;
+          return discovery === 1 ? '1099' : '1100';
+        }
+        if (filePath === '/proc/1099/stat' && ++candidateStatReads === 2) {
+          throw Object.assign(new Error('exited'), { code });
+        }
+        return readFile(filePath, encoding);
+      });
+
+      await expect(manager(deps).start([workspace])).resolves.toHaveLength(1);
+      expect(deps.sleep).toHaveBeenCalled();
+    },
+  );
+
+  it('surfaces unexpected procfs errors during worker identity revalidation', async () => {
+    const deps = dependencies();
+    const readFile = deps.readFile;
+    let candidateStatReads = 0;
+    deps.readFile = jest.fn(async (filePath: string, encoding: BufferEncoding) => {
+      if (filePath === '/proc/1100/stat' && ++candidateStatReads === 2) {
+        throw Object.assign(new Error('proc denied'), { code: 'EACCES' });
+      }
+      return readFile(filePath, encoding);
+    });
+
+    await expect(manager(deps).start([workspace])).rejects.toThrow(/proc denied/);
   });
 
   it('surfaces an unexpected procfs error while discovering the sandbox worker', async () => {
