@@ -1058,7 +1058,7 @@ describe('CloudHypervisorManager', () => {
       createVsockClient: jest.fn().mockReturnValue(guestClient),
     });
     const manager = new CloudHypervisorManager(
-      config(),
+      config({ apiTimeoutMs: 1_000 }),
       '/tmp/awf',
       deps,
       'ready-guest',
