@@ -4,7 +4,7 @@ This guide explains how to wire a new LLM provider into the AWF API proxy in thr
 
 1. Create an adapter file in this directory (`providers/<name>.js`)
 2. Register it in `providers/index.js`
-3. Update the Dockerfile COPY list
+3. Add the provider port and credential-isolation wiring
 
 The core proxy engine (`server.js`) is completely agnostic of provider details — it only calls the methods defined on the `ProviderAdapter` interface. You never need to touch the core to add a new provider.
 
@@ -140,21 +140,25 @@ If your provider needs model-alias rewriting, also add a corresponding
 `myProviderBodyTransform` in server.js (mirroring how the existing transforms
 are built and passed into `createAllAdapters`).
 
-## Step 3 — Update the Dockerfile
+## Step 3 — Add the provider port and credential isolation
 
-Add the new adapter file to the explicit `COPY` list in `containers/api-proxy/Dockerfile`:
-
-```dockerfile
-COPY server.js logging.js metrics.js rate-limiter.js token-tracker.js \
-     model-resolver.js proxy-utils.js anthropic-cache.js anthropic-transforms.js ./
-COPY providers/ ./providers/
-```
-
-Also update the `EXPOSE` directive to include the new port:
+The Dockerfile already copies the complete `providers/` directory. Add the new
+port to its `EXPOSE` directive:
 
 ```dockerfile
-EXPOSE 10000 10001 10002 10003 <NEW_PORT>
+EXPOSE 10000 10001 10002 10003 10004 <NEW_PORT>
 ```
+
+Add the port to `src/config/sandbox-network-policy.json`, then extend the closed
+`NetworkPolicy` shape and validation in `src/config/network-policy.ts` and its
+compatibility mapping in `src/types/ports.ts`. `src/host-iptables-rules.ts`
+derives its rules from `Object.values(API_PROXY_PORTS)`, so it normally requires
+no direct change.
+
+Forward credentials only to the API-proxy sidecar through
+`src/services/api-proxy-env-config.ts`, and add every credential variable to
+`src/services/agent-environment/excluded-vars.ts`. Do not pass provider
+credentials through the agent environment.
 
 ---
 
@@ -162,10 +166,9 @@ EXPOSE 10000 10001 10002 10003 <NEW_PORT>
 
 - [ ] `providers/<name>.js` created and exports `create<Name>Adapter`
 - [ ] Adapter registered in `providers/index.js` (`createAllAdapters` + exports)
-- [ ] `Dockerfile` updated: `providers/` in COPY list, port in EXPOSE
-- [ ] `src/types/ports.ts` updated with the new provider port constant
-- [ ] `src/host-iptables-rules.ts` updated if port-allowlisting logic needs changes
-- [ ] Add provider env vars to `src/docker-manager.ts` if they need forwarding from the host
+- [ ] `Dockerfile` updated with the new port in EXPOSE
+- [ ] `src/config/sandbox-network-policy.json`, `src/config/network-policy.ts`, and `src/types/ports.ts` updated with the new provider port
+- [ ] Credentials forwarded in `src/services/api-proxy-env-config.ts` and excluded in `src/services/agent-environment/excluded-vars.ts`
 - [ ] Add domain to `docs/allowed-domains.md` or equivalent if the upstream is new
 - [ ] Write adapter unit tests in `providers/<name>.test.js`
 
@@ -190,4 +193,10 @@ describe('MyProvider adapter', () => {
     expect(adapter.isEnabled()).toBe(false);
   });
 });
+```
+
+Run the adapter's tests from the API-proxy directory:
+
+```bash
+cd containers/api-proxy && npm test -- providers/<name>.test.js
 ```
