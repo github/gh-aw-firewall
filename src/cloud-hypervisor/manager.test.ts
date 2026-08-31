@@ -352,6 +352,10 @@ describe('CloudHypervisorManager', () => {
     const cgroup = (deps.createCgroup as jest.Mock).mock.results[0].value as CloudHypervisorCgroup;
     expect(cgroup.setup).toHaveBeenCalledTimes(1);
     expect(cgroup.assign).toHaveBeenCalledWith(4242);
+    const cleanupRecord = await (deps.cleanupRegistry.create as jest.Mock).mock.results[0].value as
+      CloudHypervisorCleanupHandle;
+    expect((cgroup.assign as jest.Mock).mock.invocationCallOrder[0])
+      .toBeLessThan((cleanupRecord.captureProcess as jest.Mock).mock.invocationCallOrder[0]);
     expect(deps.verifyConfinement).toHaveBeenCalledWith(expect.objectContaining({
       pid: 4242,
       expectedExecutable: '/opt/cloud-hypervisor',
