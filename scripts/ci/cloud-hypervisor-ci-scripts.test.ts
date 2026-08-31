@@ -153,10 +153,14 @@ describe('cloud-hypervisor-live-smoke.sh', () => {
     expect(source).toContain('/dev/vdb');
     expect(source).toContain('eth0');
     expect(source).toContain('sec_work=');
-    expect(source).toContain('CapEff');
+    for (const field of ['CapInh', 'CapPrm', 'CapEff', 'CapBnd', 'CapAmb']) {
+      expect(source).toContain(field);
+    }
+    expect(source).toContain('0000000000000000');
     expect(source).toContain('NoNewPrivs');
     expect(source).toContain('Seccomp');
     expect(source).toContain('landlock_enable');
+    expect(source).toContain('"/tun_flags"');
     expect(source).toContain('cgroup.procs');
   });
 

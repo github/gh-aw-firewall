@@ -58,6 +58,7 @@ describe('Cloud Hypervisor configuration (foundation only)', () => {
     const mapped = mapAwfFileConfigToCliOptions({
       cloudHypervisor: {
         previewEnabled: true,
+        mountPolicy: 'workspace-and-tool-cache',
         cloudHypervisorBinary: '/opt/cloud-hypervisor',
         kernelPath: '/opt/vmlinux',
         rootfsPath: '/opt/rootfs.ext4',
@@ -74,6 +75,7 @@ describe('Cloud Hypervisor configuration (foundation only)', () => {
 
     expect(mapped).toEqual(expect.objectContaining({
       cloudHypervisorPreview: true,
+      cloudHypervisorMountPolicy: 'workspace-and-tool-cache',
       cloudHypervisorBinary: '/opt/cloud-hypervisor',
       cloudHypervisorKernel: '/opt/vmlinux',
       cloudHypervisorRootfs: '/opt/rootfs.ext4',
@@ -93,6 +95,7 @@ describe('Cloud Hypervisor configuration (foundation only)', () => {
   it('applies explicit safe defaults when Cloud Hypervisor is configured', () => {
     expect(buildCloudHypervisorConfig({ cloudHypervisorPreview: true })).toEqual({
       previewEnabled: true,
+      mountPolicy: 'workspace-only',
       cloudHypervisorBinary: CLOUD_HYPERVISOR_DEFAULT_BINARY,
       kernelPath: undefined,
       rootfsPath: undefined,
@@ -115,6 +118,14 @@ describe('Cloud Hypervisor configuration (foundation only)', () => {
     })).toBeUndefined();
   });
 
+  it('treats an explicitly configured secure mount policy as Cloud Hypervisor configuration', () => {
+    expect(buildCloudHypervisorConfig({
+      cloudHypervisorMountPolicy: 'workspace-only',
+    })).toEqual(expect.objectContaining({
+      mountPolicy: 'workspace-only',
+    }));
+  });
+
   it('validates positive resources, digests, and unknown keys', () => {
     expect(validateAwfFileConfig({
       cloudHypervisor: {
@@ -129,6 +140,17 @@ describe('Cloud Hypervisor configuration (foundation only)', () => {
       .toContain('config.cloudHypervisor.sha256.kernel must match pattern "^[A-Fa-f0-9]{64}$"');
     expect(validateAwfFileConfig({ cloudHypervisor: { unsupported: true } }))
       .toContain('config.cloudHypervisor.unsupported is not supported');
+    expect(validateAwfFileConfig({ cloudHypervisor: { mountPolicy: 'automatic' } }))
+      .toContain('config.cloudHypervisor.mountPolicy must be one of: workspace-only, workspace-and-tool-cache');
+  });
+
+  it('rejects unknown CLI mount policies', () => {
+    expect(() => buildCloudHypervisorConfig({
+      containerRuntime: 'cloud-hypervisor',
+      cloudHypervisorMountPolicy: 'automatic',
+    })).toThrow(
+      '--cloud-hypervisor-mount-policy must be "workspace-only" or "workspace-and-tool-cache"',
+    );
   });
 
   it('accepts "cloud-hypervisor" as a container runtime', () => {

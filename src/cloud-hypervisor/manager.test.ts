@@ -59,6 +59,7 @@ function virtiofsdManagerMock(): VirtiofsdManager {
 function config(overrides: Partial<CloudHypervisorOptions> = {}): CloudHypervisorOptions {
   return {
     previewEnabled: true,
+    mountPolicy: 'workspace-only',
     cloudHypervisorBinary: '/opt/cloud-hypervisor',
     kernelPath: '/opt/vmlinux',
     rootfsPath: '/opt/rootfs.ext4',
@@ -117,6 +118,11 @@ function cgroupMock(): CloudHypervisorCgroup {
     cgroupPath: '/sys/fs/cgroup/awf-cloud-hypervisor/run',
     setup: jest.fn().mockResolvedValue(undefined),
     assign: jest.fn().mockResolvedValue(undefined),
+    expectedLimits: jest.fn().mockReturnValue({
+      memoryMax: String(768 * 1024 * 1024),
+      cpuMax: '300000 100000',
+      pidsMax: '256',
+    }),
     cleanup: jest.fn().mockResolvedValue(undefined),
   } as unknown as CloudHypervisorCgroup;
 }
@@ -161,6 +167,35 @@ function dependencies(
     createVirtiofsdManager: jest.fn(() => virtiofsdManagerMock()),
     createVsockClient: jest.fn(),
     createCgroup: jest.fn(() => cgroupMock()),
+    verifyConfinement: jest.fn().mockResolvedValue({
+      schemaVersion: 1,
+      verifiedAt: '2026-08-31T00:00:00.000Z',
+      process: {
+        pid: 4242,
+        startTimeTicks: '123',
+        executable: '/opt/cloud-hypervisor',
+      },
+      identity: { uid: 1000, gid: 1000, supplementaryGroups: [978] },
+      capabilities: {
+        inheritable: '0000000000001000',
+        permitted: '0000000000001000',
+        effective: '0000000000001000',
+        bounding: '0000000000001000',
+        ambient: '0000000000001000',
+      },
+      noNewPrivs: 1,
+      seccomp: { mode: 2, relevantThreadIds: [4243], observedThreadCount: 2 },
+      networkNamespace: { name: 'awfvm-test', inode: 'net:[42]' },
+      cgroup: {
+        path: '/sys/fs/cgroup/awf-cloud-hypervisor/run',
+        membership: '/awf-cloud-hypervisor/run',
+        limits: {
+          memoryMax: String(768 * 1024 * 1024),
+          cpuMax: '300000 100000',
+          pidsMax: '256',
+        },
+      },
+    }),
     resolveIdentity: jest.fn().mockReturnValue({ uid: 1000, gid: 1000 }),
     ...overrides,
   };
@@ -293,6 +328,20 @@ describe('CloudHypervisorManager', () => {
     const cgroup = (deps.createCgroup as jest.Mock).mock.results[0].value as CloudHypervisorCgroup;
     expect(cgroup.setup).toHaveBeenCalledTimes(1);
     expect(cgroup.assign).toHaveBeenCalledWith(4242);
+    expect(deps.verifyConfinement).toHaveBeenCalledWith(expect.objectContaining({
+      pid: 4242,
+      expectedExecutable: '/opt/cloud-hypervisor',
+      identity: { uid: 1000, gid: 1000 },
+      networkNamespace: expect.stringMatching(/^awfvm-/),
+      cgroupPath: expect.stringContaining('awf-cloud-hypervisor/run-1'),
+      cgroupLimits: {
+        memoryMax: String(768 * 1024 * 1024),
+        cpuMax: '300000 100000',
+        pidsMax: '256',
+      },
+    }));
+    expect((deps.verifyConfinement as jest.Mock).mock.invocationCallOrder[0])
+      .toBeLessThan((client.vmCreate as jest.Mock).mock.invocationCallOrder[0]);
     // Private run directory: ancestor levels stay traversable-only (0711,
     // root-owned); only the leaf is chowned to the non-root identity.
     expect(deps.mkdir).toHaveBeenCalledWith('/run/awf-cloud-hypervisor', { recursive: true, mode: 0o711 });
@@ -354,6 +403,32 @@ describe('CloudHypervisorManager', () => {
     expect(cgroup.cleanup).toHaveBeenCalledTimes(1);
   });
 
+  it('fails closed and never creates a VM when runtime confinement verification fails', async () => {
+    const child = processMock();
+    const deps = dependencies({
+      launch: jest.fn().mockReturnValue(child),
+      verifyConfinement: jest.fn().mockRejectedValue(
+        new Error('Cloud Hypervisor CapEff does not match launch policy'),
+      ),
+    });
+    const manager = new CloudHypervisorManager(
+      config(),
+      '/tmp/awf',
+      deps,
+      'unconfined',
+      networkConfig(),
+    );
+
+    await expect(manager.start()).rejects.toThrow(/CapEff does not match launch policy/);
+    const client = (deps.createClient as jest.Mock).mock.results[0].value as CloudHypervisorApiClient;
+    expect(client.ping).toHaveBeenCalledTimes(1);
+    expect(client.vmCreate).not.toHaveBeenCalled();
+    expect(child.kill).toHaveBeenCalledWith(
+      'SIGTERM',
+      { forceKillAfterTimeout: 2_000 },
+    );
+  });
+
   it('refuses to launch without host-side network enforcement', async () => {
     const deps = dependencies();
     const manager = new CloudHypervisorManager(config(), '/tmp/awf', deps, 'unsafe');
@@ -377,6 +452,11 @@ describe('CloudHypervisorManager', () => {
         cgroupPath: '/sys/fs/cgroup/awf-cloud-hypervisor/cleanup',
         setup: jest.fn().mockResolvedValue(undefined),
         assign: jest.fn().mockResolvedValue(undefined),
+        expectedLimits: jest.fn().mockReturnValue({
+          memoryMax: String(768 * 1024 * 1024),
+          cpuMax: '300000 100000',
+          pidsMax: '256',
+        }),
         cleanup: jest.fn(async () => {
           order.push('cgroup');
         }),
@@ -489,6 +569,30 @@ describe('CloudHypervisorManager', () => {
       uid: 1000,
       gid: 1000,
     })).resolves.toEqual(expect.objectContaining({ exitCode: 0 }));
+    const forwardedRequest = (guestClient.execute as jest.Mock).mock.calls[0][0];
+    const rawGuestStdout = Buffer.concat([
+      Buffer.from('discarded prefix'),
+      Buffer.alloc(1024 * 1024, 0x7a),
+    ]);
+    forwardedRequest.rawStdout.write(rawGuestStdout);
+    forwardedRequest.rawStderr.write(Buffer.from([0xff, 0x00, 0xfe]));
+    await manager.collectDiagnostics('/tmp/diagnostics');
+    expect(deps.writeFile).toHaveBeenCalledWith(
+      '/tmp/diagnostics/guest-stdout.raw.log',
+      Buffer.alloc(1024 * 1024, 0x7a),
+      { mode: 0o600 },
+    );
+    expect(deps.writeFile).toHaveBeenCalledWith(
+      '/tmp/diagnostics/guest-stderr.raw.log',
+      Buffer.from([0xff, 0x00, 0xfe]),
+      { mode: 0o600 },
+    );
+    await manager.collectGuestOutputAudit('/tmp/audit/cloud-hypervisor');
+    expect(deps.writeFile).toHaveBeenCalledWith(
+      '/tmp/audit/cloud-hypervisor/guest-stdout.raw.log',
+      Buffer.alloc(1024 * 1024, 0x7a),
+      { mode: 0o600 },
+    );
     await manager.stop();
 
     expect(guestClient.shutdown).toHaveBeenCalledTimes(1);
@@ -1057,6 +1161,11 @@ describe('CloudHypervisorManager', () => {
     expect(deps.writeFile).toHaveBeenCalledWith(
       '/tmp/diagnostics/counters.json',
       expect.stringContaining('rx_bytes'),
+      { mode: 0o600 },
+    );
+    expect(deps.writeFile).toHaveBeenCalledWith(
+      '/tmp/diagnostics/confinement.json',
+      expect.stringContaining('"schemaVersion": 1'),
       { mode: 0o600 },
     );
   });

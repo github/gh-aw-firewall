@@ -15,6 +15,7 @@ import type { CloudHypervisorDirectoryExport } from './exports';
 import type { CloudHypervisorCgroup, CloudHypervisorResourceLimits } from './launcher';
 import type { CloudHypervisorHostToolPaths, runCloudHypervisorPreflight } from './preflight';
 import type { VirtiofsdManager, VirtiofsdMountEnforcement } from './virtiofsd';
+import type { verifyCloudHypervisorConfinement } from './confinement-verifier';
 
 const API_SOCKET_NAME = 'api.socket';
 const VSOCK_SOCKET_NAME = 'awf-vsock.socket';
@@ -94,6 +95,7 @@ export interface CloudHypervisorManagerDependencies {
   ): VirtiofsdManager;
   createVsockClient(socketPath: string, guestPort: number, timeoutMs: number): MicrovmVsockClient;
   createCgroup(cgroupPath: string, limits: CloudHypervisorResourceLimits): CloudHypervisorCgroup;
+  verifyConfinement: typeof verifyCloudHypervisorConfinement;
   resolveIdentity(): { uid: number; gid: number };
 }
 

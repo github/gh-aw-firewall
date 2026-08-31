@@ -25,6 +25,7 @@ import {
   BoundedOutputCapture,
   collectCloudHypervisorDiagnostics,
   readBoundedTail,
+  writeGuestOutputAudit,
 } from './diagnostics';
 import {
   CloudHypervisorGuestChannel,
@@ -44,6 +45,10 @@ import {
 } from './manager-types';
 import { runCloudHypervisorPreflight } from './preflight';
 import type { CloudHypervisorHostToolPaths } from './preflight';
+import {
+  verifyCloudHypervisorConfinement,
+  type CloudHypervisorConfinementEvidence,
+} from './confinement-verifier';
 import { startCloudHypervisor } from './manager-start';
 import { stopCloudHypervisor } from './manager-stop';
 import { VirtiofsdManager, type VirtiofsdDevice } from './virtiofsd';
@@ -103,6 +108,7 @@ const defaultDependencies: CloudHypervisorManagerDependencies = {
     writeTimeoutMs: timeoutMs,
   }),
   createCgroup: (cgroupPath, limits) => new CloudHypervisorCgroup(cgroupPath, limits),
+  verifyConfinement: verifyCloudHypervisorConfinement,
   resolveIdentity: resolveCloudHypervisorIdentity,
 };
 
@@ -161,6 +167,7 @@ export class CloudHypervisorManager {
   private guest: CloudHypervisorGuestChannel | undefined;
   private cgroup: CloudHypervisorCgroup | undefined;
   private networkPlan: MicrovmNetworkPlan | undefined;
+  private confinementEvidence: CloudHypervisorConfinementEvidence | undefined;
   private instanceStarted = false;
   // Snapshotted in stop(), before any shutdown attempt, since the API
   // socket becomes unresponsive once the process is asked to exit --
@@ -169,6 +176,10 @@ export class CloudHypervisorManager {
   private lastVmCounters: CloudHypervisorVmCounters | undefined;
   private readonly stdoutCapture = new BoundedOutputCapture(CLOUD_HYPERVISOR_CAPTURE_LIMIT_BYTES);
   private readonly stderrCapture = new BoundedOutputCapture(CLOUD_HYPERVISOR_CAPTURE_LIMIT_BYTES);
+  private readonly guestStdoutCapture = new BoundedOutputCapture(CLOUD_HYPERVISOR_CAPTURE_LIMIT_BYTES);
+  private readonly guestStderrCapture = new BoundedOutputCapture(CLOUD_HYPERVISOR_CAPTURE_LIMIT_BYTES);
+  private readonly guestStdoutAudit = this.guestStdoutCapture.writable();
+  private readonly guestStderrAudit = this.guestStderrCapture.writable();
 
   get guestIp(): string | undefined {
     return this.networkPlan?.guestIp;
@@ -217,6 +228,7 @@ export class CloudHypervisorManager {
       setCgroup: (value) => { this.cgroup = value; },
       setProcess: (value) => { this.process = value; },
       setClient: (value) => { this.client = value; },
+      setConfinementEvidence: (value) => { this.confinementEvidence = value; },
       setVirtiofsd: (value) => { this.virtiofsd = value; },
       setFsDevices: (value) => { this.fsDevices = value; },
       getFsDevices: () => this.fsDevices,
@@ -244,7 +256,11 @@ export class CloudHypervisorManager {
     if (!this.guest) {
       throw new Error('Cloud Hypervisor guest supervisor is not ready');
     }
-    return this.guest.execute(request);
+    return this.guest.execute({
+      ...request,
+      rawStdout: this.guestStdoutAudit,
+      rawStderr: this.guestStderrAudit,
+    });
   }
 
   cancel(reason = 'host cancellation', requestId?: string): Promise<void> {
@@ -315,6 +331,8 @@ export class CloudHypervisorManager {
       config: this.config,
       stdoutCapture: this.stdoutCapture,
       stderrCapture: this.stderrCapture,
+      guestStdoutCapture: this.guestStdoutCapture,
+      guestStderrCapture: this.guestStderrCapture,
       network: this.network,
       networkPlan: this.networkPlan,
       client: this.client,
@@ -322,6 +340,16 @@ export class CloudHypervisorManager {
       lastVmInfo: this.lastVmInfo,
       lastVmCounters: this.lastVmCounters,
       fsDevices: this.fsDevices,
+      confinementEvidence: this.confinementEvidence,
     });
+  }
+
+  async collectGuestOutputAudit(directory: string): Promise<void> {
+    await writeGuestOutputAudit(
+      directory,
+      this.dependencies,
+      this.guestStdoutCapture,
+      this.guestStderrCapture,
+    );
   }
 }

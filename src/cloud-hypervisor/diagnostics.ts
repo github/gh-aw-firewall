@@ -1,5 +1,6 @@
 import { constants, promises as fs } from 'fs';
 import * as path from 'path';
+import { Writable } from 'stream';
 import type { ExecaChildProcess } from 'execa';
 import type { MicrovmNetworkLifecycle, MicrovmNetworkPlan } from '../microvm/network';
 import {
@@ -21,6 +22,7 @@ import {
   type CloudHypervisorRunPaths,
 } from './manager-types';
 import type { VirtiofsdDevice } from './virtiofsd';
+import type { CloudHypervisorConfinementEvidence } from './confinement-verifier';
 
 /** Reads at most `maxBytes` from the end of `filePath`. */
 export async function readBoundedTail(filePath: string, maxBytes: number): Promise<Buffer> {
@@ -54,6 +56,15 @@ export class BoundedOutputCapture {
 
   contents(): Buffer {
     return this.buffer;
+  }
+
+  writable(): Writable {
+    return new Writable({
+      write: (chunk: Buffer, _encoding, callback) => {
+        this.append(chunk);
+        callback();
+      },
+    });
   }
 }
 
@@ -151,6 +162,8 @@ export interface CloudHypervisorDiagnosticsContext {
   config: CloudHypervisorOptions;
   stdoutCapture: BoundedOutputCapture;
   stderrCapture: BoundedOutputCapture;
+  guestStdoutCapture: BoundedOutputCapture;
+  guestStderrCapture: BoundedOutputCapture;
   network: MicrovmNetworkLifecycle | undefined;
   networkPlan: MicrovmNetworkPlan | undefined;
   client: CloudHypervisorApiClient | undefined;
@@ -160,6 +173,26 @@ export interface CloudHypervisorDiagnosticsContext {
   lastVmInfo: CloudHypervisorVmInfo | undefined;
   lastVmCounters: CloudHypervisorVmCounters | undefined;
   fsDevices: readonly VirtiofsdDevice[];
+  confinementEvidence: CloudHypervisorConfinementEvidence | undefined;
+}
+
+export async function writeGuestOutputAudit(
+  directory: string,
+  dependencies: Pick<CloudHypervisorManagerDependencies, 'mkdir' | 'writeFile'>,
+  stdoutCapture: BoundedOutputCapture,
+  stderrCapture: BoundedOutputCapture,
+): Promise<void> {
+  await dependencies.mkdir(directory, { recursive: true, mode: 0o700 });
+  await dependencies.writeFile(
+    path.join(directory, 'guest-stdout.raw.log'),
+    stdoutCapture.contents(),
+    { mode: 0o600 },
+  );
+  await dependencies.writeFile(
+    path.join(directory, 'guest-stderr.raw.log'),
+    stderrCapture.contents(),
+    { mode: 0o600 },
+  );
 }
 
 export async function collectCloudHypervisorDiagnostics(
@@ -198,6 +231,12 @@ export async function collectCloudHypervisorDiagnostics(
   };
   await writeBounded('launcher-stdout.log', context.stdoutCapture.contents());
   await writeBounded('launcher-stderr.log', context.stderrCapture.contents());
+  await writeGuestOutputAudit(
+    directory,
+    dependencies,
+    context.guestStdoutCapture,
+    context.guestStderrCapture,
+  );
   await copyBoundedDiagnostic(
     dependencies,
     paths.logPath,
@@ -260,6 +299,11 @@ export async function collectCloudHypervisorDiagnostics(
       memoryMib: config.memoryMib,
       instanceStarted: context.instanceStarted,
     }, null, 2)}\n`,
+    { mode: 0o600 },
+  );
+  await dependencies.writeFile(
+    path.join(directory, 'confinement.json'),
+    `${JSON.stringify(context.confinementEvidence ?? null, null, 2)}\n`,
     { mode: 0o600 },
   );
 }

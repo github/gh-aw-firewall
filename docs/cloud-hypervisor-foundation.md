@@ -74,15 +74,20 @@ AWF performs these steps for each run:
    run directory.
 6. Create a bounded cgroup v2 leaf and launch Cloud Hypervisor as the invoking
    non-root identity.
-7. Start one sandboxed `virtiofsd` process for each validated export.
-8. Create and boot the VM, connect to the guest supervisor over VSOCK, verify
+7. After the API responds, verify the launched VMM's trusted host `/proc` and
+   cgroup state. AWF fails closed before `vm.create` if the PID identity,
+   executable, credentials, capabilities, `no_new_privs`, seccomp worker,
+   network namespace, cgroup membership, or resource limits differ from the
+   launch policy.
+8. Start one sandboxed `virtiofsd` process for each validated export.
+9. Create and boot the VM, connect to the guest supervisor over VSOCK, verify
    loopback plus the configured guest interface, address, and route, and probe
    each trusted infrastructure service with bounded retries. An exhausted
    retryable readiness failure recreates the VM at most twice before the agent
    command is dispatched.
-9. Execute the agent command and propagate its exit code. Timeouts return
+10. Execute the agent command and propagate its exit code. Timeouts return
    `124`.
-10. Sync and unmount guest filesystems, stop the VM and VMM, reap `virtiofsd`,
+11. Sync and unmount guest filesystems, stop the VM and VMM, reap `virtiofsd`,
     and remove network, cgroup, and run-directory resources.
 
 Cleanup is idempotent and aggregates errors so one cleanup failure does not
@@ -155,10 +160,28 @@ shell. The process:
 - runs as the non-root identity recorded by `SUDO_UID` and `SUDO_GID`;
 - keeps only the KVM supplementary group;
 - sets `no_new_privs`;
-- retains only `CAP_NET_ADMIN`, which the virtio-net TAP setup requires;
+- has empty inheritable, permitted, effective, bounding, and ambient capability
+  sets;
 - uses Cloud Hypervisor's seccomp filter;
 - receives a minimal Landlock filesystem allowlist; and
 - belongs to a cgroup v2 leaf with explicit memory, CPU, and PID limits.
+
+API socket readiness alone is not treated as proof of confinement. Before
+creating any VM or starting `virtiofsd`, AWF reads the VMM's host `/proc`
+records and cgroup files as root. It verifies the PID twice using the kernel
+start-time field and executable symlink to reject process-exit and PID-reuse
+races. Credentials and capability sets are checked against the launcher's
+current policy for every observed thread, and both the `vmm` worker and
+`http-server` API thread must be in seccomp filter mode. The verifier also
+compares network namespace inode links, requires exclusive membership in the
+per-run cgroup, and checks the exact memory, CPU, and PID limits computed by the
+cgroup policy.
+
+Successful verification produces bounded structured evidence in
+`confinement.json` alongside the other run diagnostics. The evidence records
+the stable process identity, expected credentials and capabilities, relevant
+seccomp thread IDs, namespace inode, and cgroup membership and limits; it does
+not copy unbounded `/proc` content.
 
 The private run directory is under
 `/run/awf-cloud-hypervisor/<binary>/<runId>/`. Its per-run leaf is accessible
@@ -185,6 +208,36 @@ direct internet, arbitrary TCP, direct DNS, and instance metadata access.
 Guest proxy environment variables improve client compatibility, but the
 namespace policy is the enforcement boundary.
 
+### Untrusted guest output
+
+Guest stdout and stderr cross a host-side presentation boundary before AWF writes
+them to the runner log. A streaming byte filter neutralizes lines that begin,
+after optional runner-recognized leading whitespace, with GitHub Actions workflow-command
+syntax such as `::set-output::`, `::add-mask::`, or `::stop-commands::`. The
+filter operates across VSOCK frame boundaries, preserves non-command and
+non-UTF-8 bytes, and retains only constant-size command candidates rather than
+complete lines. It also neutralizes the runner's legacy `##[...]` command form
+wherever it appears in a line. Output writes continue to honor stream
+backpressure.
+
+AWF intentionally has no workflow-command allowlist for guest output. Unlike a
+trusted host helper, the guest cannot prove that an informational annotation
+such as `::error::` came from a trusted producer, so allowing any command name
+would preserve an unnecessary runner-control channel.
+
+Filtering applies only to the live runner-facing stdout and stderr streams.
+Internal readiness probes retain their original bytes and semantics. Before
+filtering, AWF also captures the exact raw guest streams in bounded 1 MiB tails.
+Diagnostic collection writes these private files with mode `0600`:
+
+- `guest-stdout.raw.log`
+- `guest-stderr.raw.log`
+
+They are stored alongside the other Cloud Hypervisor diagnostics under the
+configured audit directory, or under the work-directory diagnostics path when
+no audit directory is configured. This preserves forensic evidence without
+allowing raw guest bytes to reach the GitHub Actions command parser.
+
 ## Guest and workspace
 
 The guest boots a pinned PCI-capable Linux kernel and deterministic BusyBox
@@ -192,9 +245,35 @@ rootfs. AWF injects the binary built from `guest/microvm-supervisor/` into the
 per-run rootfs.
 
 The workspace is a live read-write virtio-fs export mounted at `/workspace`.
-Validated additional exports use separate sandboxed `virtiofsd` processes.
+The default `workspace-only` mount policy does not infer tool-cache exposure
+from the host environment. Narrow gh-aw runtime directories
+(`RUNNER_TEMP/gh-aw` and `/tmp/gh-aw`) remain eligible when present, and every
+validated export uses a separate sandboxed `virtiofsd` process.
 The workspace path is never exposed directly to the VMM process through its
 Landlock rules.
+
+Use `--cloud-hypervisor-mount-policy workspace-and-tool-cache` (or
+`cloudHypervisor.mountPolicy: workspace-and-tool-cache`) only when the guest
+must execute runner-installed tools. This explicit opt-in selects
+`RUNNER_TOOL_CACHE`, falling back to `AGENT_TOOLSDIRECTORY`, requires the path
+to be an existing real directory, and exports the entire selected directory.
+AWF recursively stages and verifies that export read-only in a private host VFS
+mount tree before launching virtiofsd, including any carried-in submounts;
+guest mount flags alone are never treated as enforcement. The canonical cache
+source must not equal, contain, or be contained by any writable export source,
+so a second guest path cannot alias the cache with write access.
+
+AWF removes `RUNNER_TOOL_CACHE`, `AGENT_TOOLSDIRECTORY`, and `RUNNER_TEMP` from
+the inherited guest environment, then adds back only values backed by mounted
+exports. It never scans a cache to decide whether exposure is safe.
+
+:::caution[Preview migration]
+Earlier preview builds automatically exported a present runner tool cache.
+The secure default is now `workspace-only`. gh-aw-generated commands that scan
+`RUNNER_TOOL_CACHE` must add
+`--cloud-hypervisor-mount-policy workspace-and-tool-cache`; commands that do
+not need cached runner tools require no migration.
+:::
 
 Temporary microVM workspace data lives under:
 
@@ -508,7 +587,8 @@ sudo nft list ruleset
 
 Inspect preserved workspace data under
 `<workDir>/microvm-images/<runId>/` and VMM diagnostics under the run's
-preserved log directory.
+preserved log directory. `confinement.json` contains the production
+post-launch verification evidence captured before `vm.create`.
 
 :::caution
 Preserved namespaces and processes continue consuming host resources. Remove
@@ -544,9 +624,10 @@ recovery described above.
 
 ### VMM boot fails with TAP permission errors
 
-Verify the launcher retained only `CAP_NET_ADMIN`, the TAP belongs to the
-expected namespace, and the Landlock allowlist includes the TAP's
-`/sys/class/net/<tapName>` directory read-only.
+Verify the TAP was pre-created with the VMM uid/gid and `vnet_hdr` in the
+expected namespace, `/dev/net/tun` is accessible, and the Landlock allowlist
+includes `/sys/class/net/<tapName>/tun_flags` read-only. Do not grant
+`CAP_NET_ADMIN`; the VMM capability sets must remain empty.
 
 ## Related documentation
 

@@ -3,7 +3,10 @@ import * as path from 'path';
 import * as yaml from 'js-yaml';
 import { validateWithSchema } from './schema-validator';
 import type { RawEnclavesConfig } from './types/enclave-options';
-import type { CloudHypervisorArtifactDigests } from './types/runtime-options';
+import type {
+  CloudHypervisorArtifactDigests,
+  CloudHypervisorMountPolicy,
+} from './types/runtime-options';
 
 /** @internal Used only by config-file helpers — not part of public API */
 // ts-prune-ignore-next
@@ -140,6 +143,7 @@ export interface AwfFileConfig {
    */
   cloudHypervisor?: {
     previewEnabled?: boolean;
+    mountPolicy?: CloudHypervisorMountPolicy;
     cloudHypervisorBinary?: string;
     kernelPath?: string;
     rootfsPath?: string;
