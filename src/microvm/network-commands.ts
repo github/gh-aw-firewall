@@ -155,26 +155,38 @@ export class LinuxNetworkCommands {
     );
   }
 
-  /** Removes the rule `ensureBridgeForwardAcceptRule` installs, if present. Tolerant of it already being gone or the underlying command failing outright. */
+  /** Removes the rule `ensureBridgeForwardAcceptRule` installs and verifies it is absent. */
   async removeBridgeForwardAcceptRule(bridgeName: string, comment: string): Promise<void> {
     assertIptablesComment(comment);
-    try {
-      await this.execute(
-        'iptables',
-        [
-          '-t', 'filter', '-D', 'DOCKER-USER',
-          '-i', bridgeName, '-o', bridgeName,
-          '-m', 'comment', '--comment', comment,
-          '-j', 'ACCEPT',
-        ],
-        { reject: false },
-      );
-    } catch {
-      // Best-effort cleanup: an already-removed rule, or the iptables
-      // binary itself being unavailable, must not fail the caller's own
-      // cleanup sequence.
+    const rule = [
+      '-t', 'filter', '-C', 'DOCKER-USER',
+      '-i', bridgeName, '-o', bridgeName,
+      '-m', 'comment', '--comment', comment,
+      '-j', 'ACCEPT',
+    ];
+    await this.execute(
+      'iptables',
+      rule.map((argument) => argument === '-C' ? '-D' : argument),
+      { reject: false },
+    );
+    const checkResult = await this.execute('iptables', rule, { reject: false });
+    const exitCode = (checkResult as { exitCode?: number } | undefined)?.exitCode;
+    const stderr = String(
+      (checkResult as { stderr?: unknown } | undefined)?.stderr ?? '',
+    ).trim();
+    if (
+      exitCode === 1 &&
+      (stderr === '' || /Bad rule \(does a matching rule exist in that chain\?\)/i.test(stderr))
+    ) {
+      return;
     }
-
+    if (exitCode === 0) {
+      throw new Error(`iptables rule still exists after deletion: ${comment}`);
+    }
+    throw new Error(
+      `could not verify iptables rule deletion for ${comment}: ` +
+      `exit ${String(exitCode)}${stderr ? `: ${stderr}` : ''}`,
+    );
   }
 
   /**

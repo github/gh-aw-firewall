@@ -571,12 +571,14 @@ export class DurableCloudHypervisorCleanupRegistry implements CloudHypervisorCle
     const status = await this.dependencies.readFile(`/proc/${pid}/status`, 'utf8');
     const uid = parseStatusIdentity(status, 'Uid');
     const gid = parseStatusIdentity(status, 'Gid');
-    const executable = await this.dependencies.realpath(`/proc/${pid}/exe`);
+    const executableLink = `/proc/${pid}/exe`;
+    const executable = (await this.dependencies.readlink(executableLink))
+      .replace(/ \(deleted\)$/, '');
     return {
       pid,
       startTime,
       executable,
-      executableIdentity: await this.captureFileIdentity(executable),
+      executableIdentity: await this.captureFollowedFileIdentity(executableLink),
       uid,
       gid,
       networkNamespace: await this.dependencies.readlink(`/proc/${pid}/ns/net`),
@@ -613,6 +615,11 @@ export class DurableCloudHypervisorCleanupRegistry implements CloudHypervisorCle
 
   private async captureFileIdentity(filePath: string): Promise<FileIdentity> {
     const value = await this.dependencies.lstat(filePath, { bigint: true });
+    return { device: value.dev.toString(), inode: value.ino.toString() };
+  }
+
+  private async captureFollowedFileIdentity(filePath: string): Promise<FileIdentity> {
+    const value = await this.dependencies.stat(filePath, { bigint: true });
     return { device: value.dev.toString(), inode: value.ino.toString() };
   }
 

@@ -46,6 +46,7 @@ function commandHarness(failAt?: number): {
       if (options.reject && ++rejectingCall === failAt) {
         throw new Error(`stage ${failAt} failed`);
       }
+      return { exitCode: args.includes('-C') ? 1 : 0, stderr: '' };
     }),
   );
   return { calls, commands };
@@ -633,10 +634,14 @@ describe('LinuxNetworkCommands.ensureBridgeForwardAcceptRule / removeBridgeForwa
     ]);
   });
 
-  it('removeBridgeForwardAcceptRule never throws even if the rule is already gone', async () => {
+  it('accepts an explicitly verified already-absent bridge rule', async () => {
+    const calls: string[][] = [];
     const commands = new LinuxNetworkCommands(
-      jest.fn(async () => {
-        throw new Error('Bad rule (does a matching rule exist in that chain?)');
+      jest.fn(async (_command, args) => {
+        calls.push([...args]);
+        return args.includes('-C')
+          ? { exitCode: 1, stderr: '' }
+          : { exitCode: 1, stderr: 'Bad rule (does a matching rule exist in that chain?)' };
       }),
     );
 
@@ -644,6 +649,31 @@ describe('LinuxNetworkCommands.ensureBridgeForwardAcceptRule / removeBridgeForwa
       'awfbr0',
       'awf:awf_vm_0123456789ab',
     )).resolves.toBeUndefined();
+    expect(calls).toHaveLength(2);
+  });
+
+  it('fails when a bridge rule remains after deletion', async () => {
+    const commands = new LinuxNetworkCommands(
+      jest.fn(async (_command, args) => (
+        args.includes('-C') ? { exitCode: 0 } : { exitCode: 2, stderr: 'xtables lock busy' }
+      )),
+    );
+
+    await expect(commands.removeBridgeForwardAcceptRule(
+      'awfbr0',
+      'awf:awf_vm_0123456789ab',
+    )).rejects.toThrow(/rule still exists after deletion/);
+  });
+
+  it('propagates uncertainty when bridge-rule absence cannot be verified', async () => {
+    const commands = new LinuxNetworkCommands(
+      jest.fn(async () => ({ exitCode: 2, stderr: 'xtables lock busy' })),
+    );
+
+    await expect(commands.removeBridgeForwardAcceptRule(
+      'awfbr0',
+      'awf:awf_vm_0123456789ab',
+    )).rejects.toThrow(/could not verify iptables rule deletion.*xtables lock busy/);
   });
 });
 
