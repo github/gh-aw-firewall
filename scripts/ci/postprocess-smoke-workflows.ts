@@ -294,9 +294,11 @@ for (const [lockFile, runtime] of playwrightRuntimeLockPaths) {
       console.log(`Skipping ${lockPath}: Playwright fixture already injected.`);
       continue;
     }
+    const harnessCommand =
+      '"$GH_AW_NODE_EXEC" "${RUNNER_TEMP}/gh-aw/actions/copilot_harness.cjs"';
     const content = original.replace(
-      "-- /bin/bash -c 'set +o histexpand; ",
-      `-- /bin/bash -c 'set +o histexpand; ${fixtureCommand}`,
+      harnessCommand,
+      `${fixtureCommand}${harnessCommand}`,
     );
     if (content === original) {
       console.log(`  WARNING: Could not inject Playwright fixture into ${lockPath}`);

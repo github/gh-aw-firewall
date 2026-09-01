@@ -18,7 +18,10 @@ PLAYWRIGHT_SYSROOT="$PLAYWRIGHT_ROOT/sysroot"
 
 export PATH="$PLAYWRIGHT_CLI_ROOT/node_modules/.bin:$PATH"
 export PLAYWRIGHT_BROWSERS_PATH
-export LD_LIBRARY_PATH="$PLAYWRIGHT_SYSROOT/lib/x86_64-linux-gnu:$PLAYWRIGHT_SYSROOT/usr/lib/x86_64-linux-gnu${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+
+if [[ "$EXPECTED_RUNTIME" == "docker-sbx" || "$EXPECTED_RUNTIME" == "cloud-hypervisor" ]]; then
+  export LD_LIBRARY_PATH="$PLAYWRIGHT_SYSROOT/lib/x86_64-linux-gnu:$PLAYWRIGHT_SYSROOT/usr/lib/x86_64-linux-gnu${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+fi
 
 mkdir -p "$RESULT_DIR"
 : > "$SERVER_LOG"
@@ -34,6 +37,19 @@ cleanup() {
   fi
 }
 trap cleanup EXIT
+
+print_failure_diagnostics() {
+  status=$?
+  echo "Playwright loopback fixture failed with exit code $status" >&2
+  for log_file in "$PLAYWRIGHT_LOG" "$BLOCKED_LOG" "$SERVER_LOG"; do
+    if [ -s "$log_file" ]; then
+      echo "===== $log_file =====" >&2
+      tail -n 100 "$log_file" >&2
+    fi
+  done
+  exit "$status"
+}
+trap print_failure_diagnostics ERR
 
 if ! command -v playwright-cli >/dev/null 2>&1; then
   echo "Pre-staged playwright-cli is not available inside the agent sandbox" >&2
