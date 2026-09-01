@@ -12,7 +12,7 @@ import {
   validateRecord,
 } from './cleanup-identity';
 import { DurableCloudHypervisorCleanupRegistry } from './cleanup-registry';
-import { createCleanupRegistryTestHarness } from './cleanup-registry.test-support';
+import { createCleanupRegistryTestHarness } from './cleanup-registry.test-utils';
 
 describe('cleanup identity primitives', () => {
   let harness: Awaited<ReturnType<typeof createCleanupRegistryTestHarness>>;

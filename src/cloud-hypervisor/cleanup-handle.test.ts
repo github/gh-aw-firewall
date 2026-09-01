@@ -1,7 +1,7 @@
 import { promises as fs } from 'fs';
 import * as path from 'path';
 import { DurableCloudHypervisorCleanupRegistry } from './cleanup-registry';
-import { createCleanupRegistryTestHarness } from './cleanup-registry.test-support';
+import { createCleanupRegistryTestHarness } from './cleanup-registry.test-utils';
 
 describe('cleanup handle integration', () => {
   let harness: Awaited<ReturnType<typeof createCleanupRegistryTestHarness>>;

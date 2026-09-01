@@ -1,7 +1,7 @@
 import type { PathLike } from 'fs';
 import { promises as fs } from 'fs';
 import { DurableCloudHypervisorCleanupRegistry } from './cleanup-registry';
-import { createCleanupRegistryTestHarness } from './cleanup-registry.test-support';
+import { createCleanupRegistryTestHarness } from './cleanup-registry.test-utils';
 
 describe('cleanup process recovery', () => {
   let harness: Awaited<ReturnType<typeof createCleanupRegistryTestHarness>>;
