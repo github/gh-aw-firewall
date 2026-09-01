@@ -6,8 +6,10 @@ PLAYWRIGHT_CLI_VERSION='0.1.18'
 PLAYWRIGHT_ROOT='/tmp/gh-aw/playwright'
 PLAYWRIGHT_CLI_ROOT="${PLAYWRIGHT_ROOT}/cli"
 PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_ROOT}/browsers"
+PLAYWRIGHT_SYSROOT="${PLAYWRIGHT_ROOT}/sysroot"
+BUILD_TOOLS_IMAGE='ghcr.io/github/gh-aw-firewall/build-tools@sha256:b2d1b8424592488d0696e7181ce979409526a8c8821518c9ec8c45d676308722'
 
-mkdir -p "$PLAYWRIGHT_CLI_ROOT" "$PLAYWRIGHT_BROWSERS_PATH"
+mkdir -p "$PLAYWRIGHT_CLI_ROOT" "$PLAYWRIGHT_BROWSERS_PATH" "$PLAYWRIGHT_SYSROOT"
 
 resolved_version="$(npm view \
   --registry "$MICROSOFT_NPM_REGISTRY" \
@@ -29,3 +31,35 @@ npm install \
 PLAYWRIGHT_BROWSERS_PATH="$PLAYWRIGHT_BROWSERS_PATH" \
   "${PLAYWRIGHT_CLI_ROOT}/node_modules/.bin/playwright-cli" install-browser chromium
 
+docker run --rm \
+  --mount "type=bind,source=${PLAYWRIGHT_SYSROOT},target=/out" \
+  "$BUILD_TOOLS_IMAGE" \
+  bash -c '
+    set -euo pipefail
+    apt-get update >/dev/null
+    apt-get install --reinstall --download-only --yes --no-install-recommends \
+      libasound2 \
+      libatk-bridge2.0-0 \
+      libatk1.0-0 \
+      libatspi2.0-0 \
+      libcairo2 \
+      libcups2 \
+      libdbus-1-3 \
+      libdrm2 \
+      libgbm1 \
+      libglib2.0-0 \
+      libnspr4 \
+      libnss3 \
+      libpango-1.0-0 \
+      libx11-6 \
+      libxcb1 \
+      libxcomposite1 \
+      libxdamage1 \
+      libxext6 \
+      libxfixes3 \
+      libxkbcommon0 \
+      libxrandr2 >/dev/null
+    for package in /var/cache/apt/archives/*.deb; do
+      dpkg-deb --extract "$package" /out
+    done
+  '

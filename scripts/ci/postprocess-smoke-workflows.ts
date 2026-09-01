@@ -278,3 +278,34 @@ try {
 } catch {
   console.log(`Skipping ${playwrightCloudLockPath}: file not found.`);
 }
+
+const playwrightRuntimeLockPaths = new Map([
+  ['smoke-playwright-runc.lock.yml', 'docker-runc'],
+  ['smoke-playwright-gvisor.lock.yml', 'gvisor'],
+  ['smoke-playwright-docker-sbx.lock.yml', 'docker-sbx'],
+  ['smoke-playwright-cloud-hypervisor.lock.yml', 'cloud-hypervisor'],
+]);
+for (const [lockFile, runtime] of playwrightRuntimeLockPaths) {
+  const lockPath = path.join(workflowsDir, lockFile);
+  try {
+    const original = fs.readFileSync(lockPath, 'utf-8');
+    const fixtureCommand = `bash scripts/ci/run-playwright-loopback-smoke.sh ${runtime} && `;
+    if (original.includes(fixtureCommand)) {
+      console.log(`Skipping ${lockPath}: Playwright fixture already injected.`);
+      continue;
+    }
+    const content = original.replace(
+      "-- /bin/bash -c 'set +o histexpand; ",
+      `-- /bin/bash -c 'set +o histexpand; ${fixtureCommand}`,
+    );
+    if (content === original) {
+      console.log(`  WARNING: Could not inject Playwright fixture into ${lockPath}`);
+      continue;
+    }
+    fs.writeFileSync(lockPath, content);
+    console.log(`  Injected Playwright ${runtime} fixture into AWF command`);
+    console.log(`Updated ${lockPath}`);
+  } catch {
+    console.log(`Skipping ${lockPath}: file not found.`);
+  }
+}

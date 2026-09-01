@@ -14,9 +14,11 @@ EXPECTED_RUNTIME="${1:?usage: run-playwright-loopback-smoke.sh <runtime>}"
 PLAYWRIGHT_ROOT=/tmp/gh-aw/playwright
 PLAYWRIGHT_CLI_ROOT="$PLAYWRIGHT_ROOT/cli"
 PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-$PLAYWRIGHT_ROOT/browsers}"
+PLAYWRIGHT_SYSROOT="$PLAYWRIGHT_ROOT/sysroot"
 
 export PATH="$PLAYWRIGHT_CLI_ROOT/node_modules/.bin:$PATH"
 export PLAYWRIGHT_BROWSERS_PATH
+export LD_LIBRARY_PATH="$PLAYWRIGHT_SYSROOT/lib/x86_64-linux-gnu:$PLAYWRIGHT_SYSROOT/usr/lib/x86_64-linux-gnu${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 
 mkdir -p "$RESULT_DIR"
 : > "$SERVER_LOG"
@@ -40,6 +42,11 @@ fi
 
 if [ ! -d "$PLAYWRIGHT_BROWSERS_PATH" ]; then
   echo "Pre-staged Playwright browser directory is not available inside the agent sandbox" >&2
+  exit 1
+fi
+
+if [ ! -d "$PLAYWRIGHT_SYSROOT/usr/lib/x86_64-linux-gnu" ]; then
+  echo "Pre-staged Playwright runtime libraries are not available inside the agent sandbox" >&2
   exit 1
 fi
 
