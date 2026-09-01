@@ -130,6 +130,8 @@ fs.writeFileSync(process.argv[2], JSON.stringify({
         "--disable-setuid-sandbox",
         "--disable-dev-shm-usage",
         "--disable-gpu",
+        `--proxy-server=${process.argv[3]}`,
+        "--proxy-bypass-list=localhost;127.0.0.1",
       ],
       proxy: {
         server: process.argv[3],
