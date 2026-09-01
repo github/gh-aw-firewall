@@ -13,8 +13,8 @@
 const { createOpenAIAdapter } = require('./providers/openai');
 const { createAnthropicAdapter } = require('./providers/anthropic');
 const { createCopilotAdapter } = require('./providers/copilot');
-const { createGeminiAdapter } = require('./providers/gemini');
-const { createVertexAdapter } = require('./providers/vertex');
+const { GOOGLE_PROVIDER_ADAPTER_FACTORIES } = require('./providers/google-adapter');
+const { gemini: createGeminiAdapter, vertex: createVertexAdapter } = GOOGLE_PROVIDER_ADAPTER_FACTORIES;
 
 // ---------------------------------------------------------------------------
 // Helpers

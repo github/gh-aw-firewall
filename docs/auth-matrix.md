@@ -247,7 +247,7 @@ Selecting `AWF_AUTH_PROVIDER=aws` signs Copilot-adapter HTTP requests at final d
 ## Provider: Google Gemini
 
 **Port:** 10003  
-**Implementation:** `containers/api-proxy/providers/gemini.js`
+**Implementation:** `containers/api-proxy/providers/google-adapter.js` (Gemini factory from the declarative `google-provider-specs.js` registry)
 
 ### Static API Key
 
@@ -277,7 +277,7 @@ Google says the Gemini API will reject standard API keys beginning in September 
 ## Provider: Google Vertex AI
 
 **Port:** 10004
-**Implementation:** `containers/api-proxy/providers/vertex.js` (shares `createGoogleApiKeyAdapter` with the Gemini adapter via `google-adapter.js`)
+**Implementation:** `containers/api-proxy/providers/google-adapter.js` (Vertex factory from the declarative `google-provider-specs.js` registry)
 
 ### Static API Key
 
