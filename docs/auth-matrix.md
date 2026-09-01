@@ -461,10 +461,10 @@ Adds `x-session-id` header automatically in BYOK mode unless already present.
 | Copilot | AWS Bedrock OIDC + SigV4 | — | ✅ | `aws-oidc-token-provider.js`, `server.auth-matrix.test.js` |
 | Copilot | GCP OIDC | — | ✅ | `gcp-oidc-token-provider.js`, `server.auth-matrix.test.js` |
 | Copilot | GHES + BYOK | GHES | ✅ | `server.auth-matrix.test.js` |
-| Gemini | Static key | — | ✅ | `gemini.js`, `google-adapter.js` |
+| Gemini | Static key | — | ✅ | `google-adapter.js`, `google-provider-specs.js` |
 | Gemini | GCP WIF | — | ❌ not impl | Use the OpenAI adapter with GCP OIDC pointed at a Vertex endpoint instead (see [Google Gemini](#provider-google-gemini)) |
-| Vertex AI | Static key | — | ✅ | `vertex.js`, `google-adapter.js` |
-| Vertex AI | GCP WIF | — | ❌ not impl | No OIDC support in `vertex.js`; see [Provider: Google Vertex AI](#provider-google-vertex-ai) |
+| Vertex AI | Static key | — | ✅ | `google-adapter.js`, `google-provider-specs.js` |
+| Vertex AI | GCP WIF | — | ❌ not impl | No OIDC support in the shared Google adapter; see [Provider: Google Vertex AI](#provider-google-vertex-ai) |
 
 :::note
 "Implementation" column lists source files, not line numbers — line references go stale quickly as the code evolves. Use your editor's search to locate the relevant logic within each file.
