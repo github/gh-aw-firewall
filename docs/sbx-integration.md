@@ -317,10 +317,10 @@ running before compose teardown.
 Inside the microVM, AWF's internal Docker network (`172.30.0.0/24`) is **not
 reachable** — the VM is on its own network. AWF compensates with two indirections:
 
-- **Squid** is reached at the **sbx gateway IP** (`172.17.0.0` in code, i.e. the
-  docker0 bridge range) on its published port `3128`, rather than the internal
-  `172.30.0.10`. AWF sets `HTTP_PROXY`/`HTTPS_PROXY` inside the sandbox to
-  `http://172.17.0.0:3128`, so proxy-aware agent tools route through AWF's Squid
+- **Squid** is reached through the host gateway (`host.docker.internal`) on its
+  published port `3128`, rather than the internal `172.30.0.10`. AWF sets
+  `HTTP_PROXY`/`HTTPS_PROXY` inside the sandbox to
+  `http://host.docker.internal:3128`, so proxy-aware agent tools route through AWF's Squid
   domain ACL. `DOCKER_SANDBOXES_PROXY` (the sbx daemon-level upstream knob) is
   **not** currently set by AWF — it must be present when the sbx daemon starts, a
   point AWF does not control — so the sbx daemon's own egress is not filtered by
@@ -438,8 +438,8 @@ sandbox egress through AWF's host-side Squid:
   `HTTPS_PROXY` settings may improve client compatibility, but are not an
   enforceable security boundary.
 - Reproduce the boundary-crossing addressing pattern: sbx reaches Squid at the
-  **bridge gateway IP + published port** (not the internal `172.30.0.x`) via
-  `SBX_GATEWAY_IP`/`SBX_HOST_DOCKER_INTERNAL` in `src/sbx-runtime-backend.ts`,
+  **host gateway + published port** (not the internal `172.30.0.x`) via
+  `SBX_GATEWAY_HOST`/`SBX_HOST_DOCKER_INTERNAL` in `src/sbx-runtime-backend.ts`,
   because the sbx microVM sits outside `awf-net`. Cloud Hypervisor instead uses
   an AWF-managed namespace, veth pair, TAP device, and nftables policy. Pick the
   addressing model that matches how your VMM attaches to the host.

@@ -6,7 +6,7 @@ import {
 } from './sbx-runtime-backend';
 import type { WrapperConfig } from './types';
 
-const SBX_GATEWAY_IP = '172.17.0.0';
+const SBX_GATEWAY_HOST = 'host.docker.internal';
 const SBX_HOST_DOCKER_INTERNAL = 'host.docker.internal';
 
 function createConfig(overrides: Partial<WrapperConfig> = {}): WrapperConfig {
@@ -95,7 +95,7 @@ describe('SbxRuntimeBackend', () => {
     expect(dependencies.assertApiProxyReflect).toHaveBeenCalledWith(
       'awf-agent-created',
       expect.objectContaining({
-        HTTPS_PROXY: `http://${SBX_GATEWAY_IP}:3128`,
+        HTTPS_PROXY: `http://${SBX_GATEWAY_HOST}:3128`,
         AWF_API_PROXY_IP: SBX_HOST_DOCKER_INTERNAL,
       }),
       '/workspace',

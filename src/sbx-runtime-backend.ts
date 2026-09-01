@@ -22,8 +22,8 @@ import {
 } from './host-iptables-shared';
 import type { WrapperConfig } from './types';
 
-const SBX_GATEWAY_IP = '172.17.0.0';
 const SBX_HOST_DOCKER_INTERNAL = 'host.docker.internal';
+const SBX_GATEWAY_HOST = SBX_HOST_DOCKER_INTERNAL;
 
 interface SbxBackendLogger {
   debug(message: string, ...args: unknown[]): void;
@@ -113,7 +113,7 @@ export class SbxRuntimeBackend implements ExternalAgentRuntimeBackend {
       config: this.config,
       networkConfig: {
         subnet: NETWORK_SUBNET,
-        squidIp: SBX_GATEWAY_IP,
+        squidIp: SBX_GATEWAY_HOST,
         agentIp: AGENT_IP,
         proxyIp: this.config.enableApiProxy ? SBX_HOST_DOCKER_INTERNAL : undefined,
         dohProxyIp: this.config.dnsOverHttps ? DOH_PROXY_IP : undefined,
@@ -129,7 +129,7 @@ export class SbxRuntimeBackend implements ExternalAgentRuntimeBackend {
           config: this.config,
           networkConfig: {
             subnet: NETWORK_SUBNET,
-            squidIp: SBX_GATEWAY_IP,
+            squidIp: SBX_GATEWAY_HOST,
             agentIp: AGENT_IP,
             proxyIp: SBX_HOST_DOCKER_INTERNAL,
           },
@@ -157,8 +157,8 @@ export class SbxRuntimeBackend implements ExternalAgentRuntimeBackend {
 
     this.dependencies.logger.info('[sbx-diag] Verifying squid proxy connectivity...');
     const diagnosticCommand = [
-      `echo -n "squid ${SBX_GATEWAY_IP}:3128 -> "`,
-      `curl -sS --max-time 5 --proxy "http://${SBX_GATEWAY_IP}:3128" -o /dev/null -w "%{http_code}" https://api.github.com/ 2>&1`,
+      `echo -n "squid ${SBX_GATEWAY_HOST}:3128 -> "`,
+      `curl -sS --max-time 5 --proxy "http://${SBX_GATEWAY_HOST}:3128" -o /dev/null -w "%{http_code}" https://api.github.com/ 2>&1`,
       'echo ""',
     ].join(' && ');
     const diagnosticResult = await this.dependencies.execInSandbox(
