@@ -29,6 +29,7 @@ import {
   issueDuplicationConclusionConcurrencyRegex,
   issueDuplicationConclusionConcurrencySentinel,
   ripgrepInstallStepRegex,
+  preserveAttestedCloudHypervisorArtifacts,
 } from './workflow-patch-patterns';
 import {
   buildCopySessionStateStep,
@@ -104,6 +105,30 @@ describe('ripgrepInstallStepRegex', () => {
 
     expect(ripgrepInstallStepRegex.test(input)).toBe(true);
     ripgrepInstallStepRegex.lastIndex = 0;
+  });
+
+  describe('preserveAttestedCloudHypervisorArtifacts', () => {
+    it('removes the legacy bypass and retains attested manifest verification', () => {
+      const input =
+        '          AWF_CLOUD_HYPERVISOR_DEVELOPMENT_ALLOW_UNATTESTED_ARTIFACTS: "1"\n' +
+        '          sudo awf --cloud-hypervisor-artifact-manifest "$MANIFEST" ' +
+        '--cloud-hypervisor-preview --cloud-hypervisor-development-allow-unattested-artifacts --build-local\n';
+
+      const output = preserveAttestedCloudHypervisorArtifacts(input);
+
+      expect(output).toContain('--cloud-hypervisor-artifact-manifest "$MANIFEST"');
+      expect(output).toContain('--cloud-hypervisor-mount-policy workspace-and-tool-cache');
+      expect(output).not.toContain('DEVELOPMENT_ALLOW_UNATTESTED_ARTIFACTS');
+      expect(output).not.toContain('--cloud-hypervisor-development-allow-unattested-artifacts');
+    });
+
+    it('is idempotent when the attested workflow is already patched', () => {
+      const input =
+        'sudo awf --cloud-hypervisor-preview ' +
+        '--cloud-hypervisor-mount-policy workspace-and-tool-cache --build-local\n';
+
+      expect(preserveAttestedCloudHypervisorArtifacts(input)).toBe(input);
+    });
   });
 
   it('matches an installer that already has a step timeout', () => {

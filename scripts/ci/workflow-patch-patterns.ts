@@ -42,6 +42,21 @@ export const standaloneSkipPullRegex = /--skip-pull(?:\s+--build-local)?/g;
 export const localAwfImageDownloadRegex =
   /\s+ghcr\.io\/github\/gh-aw-firewall\/(?:agent|api-proxy|squid):[0-9.]+(?:@sha256:[a-f0-9]{64})?/g;
 
+export function preserveAttestedCloudHypervisorArtifacts(content: string): string {
+  let patched = content
+    .replace(' --cloud-hypervisor-development-allow-unattested-artifacts', '')
+    .replace('          AWF_CLOUD_HYPERVISOR_DEVELOPMENT_ALLOW_UNATTESTED_ARTIFACTS: "1"\n', '');
+
+  if (!patched.includes('--cloud-hypervisor-mount-policy workspace-and-tool-cache')) {
+    patched = patched.replace(
+      '--cloud-hypervisor-preview ',
+      '--cloud-hypervisor-preview --cloud-hypervisor-mount-policy workspace-and-tool-cache ',
+    );
+  }
+
+  return patched;
+}
+
 // Inject --session-state-dir into AWF invocations so Copilot CLI session-state
 // (events.jsonl) is written to a predictable host path that artifact upload can
 // read. A global regex is used because some lock files contain two agent jobs.
