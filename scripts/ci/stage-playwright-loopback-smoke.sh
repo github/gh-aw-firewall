@@ -51,6 +51,7 @@ docker run --rm \
       libnspr4 \
       libnss3 \
       libpango-1.0-0 \
+      libpcre3 \
       libx11-6 \
       libxcb1 \
       libxcomposite1 \

@@ -125,7 +125,12 @@ fs.writeFileSync(process.argv[2], JSON.stringify({
     launchOptions: {
       headless: true,
       chromiumSandbox: false,
-      args: ["--no-sandbox", "--disable-setuid-sandbox"],
+      args: [
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-dev-shm-usage",
+        "--disable-gpu",
+      ],
       proxy: {
         server: process.argv[3],
         bypass: "localhost,127.0.0.1",
@@ -178,11 +183,11 @@ if [ "$TITLE_OBSERVED" != true ]; then
   exit 1
 fi
 
-set +e
-playwright-cli goto https://example.com \
-  >"$BLOCKED_LOG" 2>&1
-BLOCKED_EXIT=$?
-set -e
+if playwright-cli goto https://example.com >"$BLOCKED_LOG" 2>&1; then
+  BLOCKED_EXIT=0
+else
+  BLOCKED_EXIT=$?
+fi
 if [ "$BLOCKED_EXIT" -eq 0 ]; then
   echo "Playwright unexpectedly reached non-allowlisted example.com" >&2
   exit 1
