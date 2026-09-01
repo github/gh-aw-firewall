@@ -46,8 +46,11 @@ docker run --rm \
       libcups2 \
       libdbus-1-3 \
       libdrm2 \
+      libfontconfig1 \
+      libfreetype6 \
       libgbm1 \
       libglib2.0-0 \
+      libharfbuzz0b \
       libnspr4 \
       libnss3 \
       libpango-1.0-0 \
@@ -59,7 +62,8 @@ docker run --rm \
       libxext6 \
       libxfixes3 \
       libxkbcommon0 \
-      libxrandr2 >/dev/null
+      libxrandr2 \
+      libxrender1 >/dev/null
     for package in /var/cache/apt/archives/*.deb; do
       dpkg-deb --extract "$package" /out
     done
