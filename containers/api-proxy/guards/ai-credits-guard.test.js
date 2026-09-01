@@ -581,6 +581,26 @@ describe('ai-credits-guard', () => {
     it('strips compact date suffixes in canonicalized model names', () => {
       expect(canonicalizeModel('claude-sonnet-4-6-20260601')).toBe('claude-sonnet-4-6');
     });
+
+    it('strips URL-style model parameters before pricing lookup', () => {
+      process.env.AWF_MAX_AI_CREDITS = '10';
+      resetAiCreditsGuardForTests();
+
+      const usage = applyAiCreditsUsage({
+        input_tokens: 2000,
+        cache_read_tokens: 1000,
+        cache_write_tokens: 500,
+        output_tokens: 100,
+      }, 'claude-sonnet-5?effort=high', PROVIDER_COPILOT);
+
+      expect(usage).toMatchObject({
+        aiCreditsThisResponse: 0.9675,
+        pricingSource: 'curated',
+      });
+      expect(checkUnknownModelRejection('claude-sonnet-5?effort=high', PROVIDER_COPILOT)).toBeNull();
+      expect(canonicalizeModel('claude-sonnet-5?effort=high')).toBe('claude-sonnet-5');
+      expect(getAiCreditsReflectState().by_model['claude-sonnet-5?effort=high'].total).toBeCloseTo(0.9675, 10);
+    });
   });
 
   describe('default pricing fallback', () => {

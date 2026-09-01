@@ -128,20 +128,23 @@ function getAiCreditsConfig() {
  */
 function canonicalizeModel(model) {
   const bare = model.includes('/') ? model.slice(model.indexOf('/') + 1) : model;
-  const withoutDateSuffix = bare.replace(/(-alpha)?-(\d{4}-\d{2}-\d{2}|\d{8})$/, '');
+  const parameterIndex = bare.indexOf('?');
+  const withoutParameters = parameterIndex === -1 ? bare : bare.slice(0, parameterIndex);
+  const withoutDateSuffix = withoutParameters.replace(/(-alpha)?-(\d{4}-\d{2}-\d{2}|\d{8})$/, '');
   return withoutDateSuffix.replace(/[._]/g, '-');
 }
 
 function resolveModelPricing(model, state = aiCreditsState, provider = undefined, inputTokens = 0, options = {}) {
-  const operatorPricing = provider ? resolveProviderPricingOverlay(provider, model) : null;
+  const pricingModel = model.includes('?') ? model.slice(0, model.indexOf('?')) : model;
+  const operatorPricing = provider ? resolveProviderPricingOverlay(provider, pricingModel) : null;
   if (operatorPricing) return operatorPricing;
 
-  const runtime = provider ? resolveRuntimePricing(provider, model, inputTokens) : null;
+  const runtime = provider ? resolveRuntimePricing(provider, pricingModel, inputTokens) : null;
   if (runtime && ['input', 'cachedInput', 'cacheWrite', 'output']
     .every(field => Object.hasOwn(runtime.pricing, field))) {
     return runtime;
   }
-  const fallback = resolveLowerPriorityPricing(model, state, { ...options, provider });
+  const fallback = resolveLowerPriorityPricing(pricingModel, state, { ...options, provider, originalModel: model });
   if (!runtime) return fallback;
   const mergedPricing = {};
   for (const field of ['input', 'cachedInput', 'cacheWrite', 'output']) {
@@ -202,11 +205,12 @@ function resolveLowerPriorityPricing(model, state, options = {}) {
   // so that probing a model neither emits an operator-facing warning nor marks the
   // model as already-warned — which would suppress the warning if it is genuinely
   // requested later.
-  if (!options.quiet && !state.warnedUnknownModels.has(model)) {
+  const warningModel = options.originalModel || model;
+  if (!options.quiet && !state.warnedUnknownModels.has(warningModel)) {
     logRequest('warn', 'unknown_model_ai_credits_pricing', {
-      model: sanitizeForLog(model),
+      model: sanitizeForLog(warningModel),
     });
-    state.warnedUnknownModels.add(model);
+    state.warnedUnknownModels.add(warningModel);
   }
 
   // Fall back to configured default pricing if available

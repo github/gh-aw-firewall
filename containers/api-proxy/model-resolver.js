@@ -28,6 +28,32 @@ const {
   tryMiddlePowerFallback,
 } = require('./model-fallback');
 
+function splitModelParameters(model) {
+  if (typeof model !== 'string') return { baseModel: model, parameterSuffix: '' };
+  const queryIndex = model.indexOf('?');
+  if (queryIndex === -1) return { baseModel: model, parameterSuffix: '' };
+  return {
+    baseModel: model.slice(0, queryIndex),
+    parameterSuffix: model.slice(queryIndex),
+  };
+}
+
+function appendModelParameters(model, parameterSuffix) {
+  if (!parameterSuffix || typeof model !== 'string' || model.includes('?')) return model;
+  return `${model}${parameterSuffix}`;
+}
+
+function applyModelParametersToResolution(resolution, parameterSuffix) {
+  if (!resolution || !parameterSuffix) return resolution;
+  return {
+    ...resolution,
+    resolvedModel: appendModelParameters(resolution.resolvedModel, parameterSuffix),
+    ...(Array.isArray(resolution.candidates)
+      ? { candidates: resolution.candidates.map(candidate => appendModelParameters(candidate, parameterSuffix)) }
+      : {}),
+  };
+}
+
 /**
  * Check whether a model name is permitted by the given policy config.
  * This is an inline copy of the logic from model-policy-guard.js to avoid a
@@ -104,6 +130,7 @@ function parseModelAliases(rawConfig) {
  * @returns {{ resolvedModel: string, log: string[], fallback?: object } | null}
  */
 function _resolveDirectMatch(key, requestedModel, currentProvider, availableModels, fallbackConfig, log, modelPolicyConfig) {
+  const { parameterSuffix } = splitModelParameters(requestedModel);
   const providerModels = (availableModels[currentProvider] || []);
 
   // 1. Direct match: model name already in the provider's available list
@@ -115,7 +142,7 @@ function _resolveDirectMatch(key, requestedModel, currentProvider, availableMode
     }
     log.push(`[model-resolver] direct match: "${requestedModel}" → "${direct}"`);
     return {
-      resolvedModel: direct,
+      resolvedModel: appendModelParameters(direct, parameterSuffix),
       log,
       fallback: fallbackConfig.enabled
         ? { activated: false, selection_method: 'middle_power_median', reason: 'direct_match' }
@@ -136,7 +163,7 @@ function _resolveDirectMatch(key, requestedModel, currentProvider, availableMode
       const fallback = sorted[0];
       log.push(`[model-resolver] requested model "${requestedModel}" not available, falling back to "${fallback}"`);
       return {
-        resolvedModel: fallback,
+        resolvedModel: appendModelParameters(fallback, parameterSuffix),
         log,
         fallback: fallbackConfig.enabled
           ? { activated: false, selection_method: 'middle_power_median', reason: 'family_version_fallback' }
@@ -146,10 +173,10 @@ function _resolveDirectMatch(key, requestedModel, currentProvider, availableMode
   }
 
   // 3. Middle-power fallback
-  return tryMiddlePowerFallback(
+  return applyModelParametersToResolution(tryMiddlePowerFallback(
     requestedModel, availableModels, currentProvider,
     'no_alias_match_and_not_in_available_models', fallbackConfig, log
-  );
+  ), parameterSuffix);
 }
 
 /**
@@ -172,6 +199,7 @@ function _resolveDirectMatch(key, requestedModel, currentProvider, availableMode
  * @returns {{ resolvedModel: string, log: string[], fallback?: object } | null}
  */
 function _resolveAliasPatterns(aliasKey, aliasDefinition, requestedModel, aliases, availableModels, currentProvider, newChain, fallbackConfig, log, modelPolicyConfig) {
+  const { parameterSuffix } = splitModelParameters(requestedModel);
   const patterns = aliasDefinition.patterns;
   log.push(`[model-resolver] alias: "${requestedModel}" → [${patterns.join(', ')}]`);
 
@@ -259,10 +287,10 @@ function _resolveAliasPatterns(aliasKey, aliasDefinition, requestedModel, aliase
     });
     const fallbackAllowed = !isNestedReference || targetsCurrentProvider;
     if (aliasDefinition.fallback && fallbackAllowed && hasProviderPattern && !modelPolicyConfig) {
-      return tryMiddlePowerFallback(
+      return applyModelParametersToResolution(tryMiddlePowerFallback(
         requestedModel, availableModels, currentProvider,
         'no_alias_match_and_not_in_available_models', fallbackConfig, log
-      );
+      ), parameterSuffix);
     }
     return null;
   }
@@ -281,8 +309,8 @@ function _resolveAliasPatterns(aliasKey, aliasDefinition, requestedModel, aliase
   );
 
   return {
-    resolvedModel: resolved,
-    candidates: unique,
+    resolvedModel: appendModelParameters(resolved, parameterSuffix),
+    candidates: unique.map(candidate => appendModelParameters(candidate, parameterSuffix)),
     log,
     fallback: fallbackConfig.enabled
       ? {
@@ -327,7 +355,8 @@ function resolveModel(
   preferDirectRequest = true
 ) {
   const log = [];
-  const key = requestedModel.toLowerCase();
+  const { baseModel, parameterSuffix } = splitModelParameters(requestedModel);
+  const key = baseModel.toLowerCase();
   const fallbackConfig = normalizeFallbackConfig(modelFallbackConfig);
 
   if (currentProvider === 'copilot' && key === 'auto') {
@@ -362,8 +391,8 @@ function resolveModel(
       }
       log.push(`[model-resolver] direct match: "${requestedModel}" → "${direct}"`);
       return {
-        resolvedModel: direct,
-        candidates: [direct],
+        resolvedModel: appendModelParameters(direct, parameterSuffix),
+        candidates: [appendModelParameters(direct, parameterSuffix)],
         log,
         fallback: fallbackConfig.enabled
           ? { activated: false, selection_method: 'middle_power_median', reason: 'direct_match' }

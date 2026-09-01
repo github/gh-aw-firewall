@@ -102,6 +102,18 @@ describe('resolveModel', () => {
     expect(result.resolvedModel).toBe('claude-sonnet-4.6');
   });
 
+  it('preserves URL-style model parameters when resolving aliases', () => {
+    const result = resolveModel(
+      'sonnet?effort=high',
+      aliases,
+      { ...availableModels, copilot: ['claude-sonnet-5', ...availableModels.copilot] },
+      'copilot'
+    );
+    expect(result).not.toBeNull();
+    expect(result.resolvedModel).toBe('claude-sonnet-5?effort=high');
+    expect(result.candidates[0]).toBe('claude-sonnet-5?effort=high');
+  });
+
   it('should resolve a simple alias to anthropic models', () => {
     const result = resolveModel('sonnet', aliases, availableModels, 'anthropic');
     expect(result).not.toBeNull();
@@ -387,6 +399,22 @@ describe('rewriteModelInBody', () => {
     expect(result.originalModel).toBe('sonnet');
     const parsed = JSON.parse(result.body.toString('utf8'));
     expect(parsed.model).toBe('claude-sonnet-4.6');
+  });
+
+  it('should rewrite model aliases while preserving URL-style parameters for the provider', () => {
+    const body = Buffer.from(JSON.stringify({ model: 'sonnet?effort=high', messages: [] }));
+    const result = rewriteModelInBody(
+      body,
+      'copilot',
+      aliases,
+      { copilot: ['claude-sonnet-5', ...availableModels.copilot] }
+    );
+
+    expect(result).not.toBeNull();
+    expect(result.originalModel).toBe('sonnet?effort=high');
+    expect(result.resolvedModel).toBe('claude-sonnet-5?effort=high');
+    const parsed = JSON.parse(result.body.toString('utf8'));
+    expect(parsed.model).toBe('claude-sonnet-5?effort=high');
   });
 
   it('should return null for a model with no alias', () => {
