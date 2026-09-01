@@ -42,15 +42,41 @@ export const standaloneSkipPullRegex = /--skip-pull(?:\s+--build-local)?/g;
 export const localAwfImageDownloadRegex =
   /\s+ghcr\.io\/github\/gh-aw-firewall\/(?:agent|api-proxy|squid):[0-9.]+(?:@sha256:[a-f0-9]{64})?/g;
 
-export function preserveAttestedCloudHypervisorArtifacts(content: string): string {
-  let patched = content
-    .replace(' --cloud-hypervisor-development-allow-unattested-artifacts', '')
-    .replace('          AWF_CLOUD_HYPERVISOR_DEVELOPMENT_ALLOW_UNATTESTED_ARTIFACTS: "1"\n', '');
+const cloudHypervisorDigestArgs =
+  ' --cloud-hypervisor-binary-sha256 "$(jq -er \'.artifacts.cloudHypervisor.sha256\' "${GH_AW_CLOUD_HYPERVISOR_ARTIFACT_MANIFEST}")"' +
+  ' --cloud-hypervisor-virtiofsd-sha256 "$(jq -er \'.artifacts.virtiofsd.sha256\' "${GH_AW_CLOUD_HYPERVISOR_ARTIFACT_MANIFEST}")"' +
+  ' --cloud-hypervisor-kernel-sha256 "$(jq -er \'.artifacts.kernel.sha256\' "${GH_AW_CLOUD_HYPERVISOR_ARTIFACT_MANIFEST}")"' +
+  ' --cloud-hypervisor-rootfs-sha256 "$(jq -er \'.artifacts.rootfs.sha256\' "${GH_AW_CLOUD_HYPERVISOR_ARTIFACT_MANIFEST}")"' +
+  ' --cloud-hypervisor-supervisor-sha256 "$(jq -er \'.artifacts.supervisor.sha256\' "${GH_AW_CLOUD_HYPERVISOR_ARTIFACT_MANIFEST}")"';
+
+export function patchLocalBuildCloudHypervisorArtifacts(content: string): string {
+  let patched = content;
 
   if (!patched.includes('--cloud-hypervisor-mount-policy workspace-and-tool-cache')) {
     patched = patched.replace(
       '--cloud-hypervisor-preview ',
       '--cloud-hypervisor-preview --cloud-hypervisor-mount-policy workspace-and-tool-cache ',
+    );
+  }
+  if (!patched.includes('--cloud-hypervisor-development-allow-unattested-artifacts')) {
+    patched = patched.replace(
+      '--cloud-hypervisor-preview ',
+      '--cloud-hypervisor-preview --cloud-hypervisor-development-allow-unattested-artifacts ',
+    );
+  }
+  if (!patched.includes('--cloud-hypervisor-binary-sha256')) {
+    patched = patched.replace(
+      ' --cloud-hypervisor-supervisor "${GH_AW_CLOUD_HYPERVISOR_SUPERVISOR}"',
+      ' --cloud-hypervisor-supervisor "${GH_AW_CLOUD_HYPERVISOR_SUPERVISOR}"' +
+        cloudHypervisorDigestArgs,
+    );
+  }
+  if (!patched.includes('AWF_CLOUD_HYPERVISOR_DEVELOPMENT_ALLOW_UNATTESTED_ARTIFACTS: "1"')) {
+    patched = patched.replace(
+      '        env:\n          AWF_REFLECT_ENABLED: 1\n',
+      '        env:\n' +
+        '          AWF_CLOUD_HYPERVISOR_DEVELOPMENT_ALLOW_UNATTESTED_ARTIFACTS: "1"\n' +
+        '          AWF_REFLECT_ENABLED: 1\n',
     );
   }
 
