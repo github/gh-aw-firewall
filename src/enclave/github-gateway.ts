@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import execa from 'execa';
 import {
-  ENCLAVE_AGENT_CLI_PROXY_CONTAINER_NAME,
+  ENCLAVE_AGENT_GITHUB_MCP_CONTAINER_NAME,
 } from '../constants';
 import { getLocalDockerEnv } from '../docker-host';
 import type { WrapperConfig } from '../types';
@@ -132,7 +132,7 @@ async function assertControlNetworkMembership(
   }
   const containers = network.Containers ?? {};
   const names = Object.values(containers).map((entry) => entry.Name).filter(Boolean).sort();
-  const expected = [ENCLAVE_AGENT_CLI_PROXY_CONTAINER_NAME, contract.containerName].sort();
+  const expected = [ENCLAVE_AGENT_GITHUB_MCP_CONTAINER_NAME, contract.containerName].sort();
   if (JSON.stringify(names) !== JSON.stringify(expected)) {
     throw new Error('Enclave GitHub control network contains an unexpected member');
   }
@@ -204,18 +204,18 @@ export async function assertEnclaveGithubGatewayReady(config: WrapperConfig): Pr
       'inspect',
       '--format',
       '{{.State.Running}}|{{if .State.Health}}{{.State.Health.Status}}{{else}}missing{{end}}',
-      ENCLAVE_AGENT_CLI_PROXY_CONTAINER_NAME,
+      ENCLAVE_AGENT_GITHUB_MCP_CONTAINER_NAME,
     ],
     { env: getLocalDockerEnv(), reject: false, timeout: 10_000 },
   );
   if (result.exitCode !== 0 || result.stdout.trim() !== 'true|healthy') {
-    throw new Error('Enclave GitHub CLI proxy did not prove the issues-read-v1 route ready');
+    throw new Error('Enclave GitHub MCP bridge did not prove the issues-read-v1 route ready');
   }
   const upstream = await execa(
     'docker',
     [
       'exec',
-      ENCLAVE_AGENT_CLI_PROXY_CONTAINER_NAME,
+      ENCLAVE_AGENT_GITHUB_MCP_CONTAINER_NAME,
       'curl',
       '--silent',
       '--show-error',
@@ -228,7 +228,7 @@ export async function assertEnclaveGithubGatewayReady(config: WrapperConfig): Pr
     { env: getLocalDockerEnv(), reject: false, timeout: 10_000 },
   );
   if (upstream.exitCode !== 0) {
-    throw new Error('Enclave GitHub CLI proxy could not establish the fixed TLS route to mcpg');
+    throw new Error('Enclave GitHub MCP bridge could not establish the fixed TLS route to mcpg');
   }
 }
 
@@ -248,15 +248,15 @@ export async function disconnectEnclaveGithubGateway(
   }
 }
 
-export async function shutdownEnclaveGithubCliProxy(config: WrapperConfig): Promise<void> {
+export async function shutdownEnclaveGithubMcpBridge(config: WrapperConfig): Promise<void> {
   if (!isEnclaveGithubEnabled(config) || config.keepContainers) return;
   const result = await execa(
     'docker',
-    ['stop', '--time', '5', ENCLAVE_AGENT_CLI_PROXY_CONTAINER_NAME],
+    ['stop', '--time', '5', ENCLAVE_AGENT_GITHUB_MCP_CONTAINER_NAME],
     { env: getLocalDockerEnv(), reject: false, timeout: 15_000 },
   );
   if (result.exitCode !== 0) {
-    throw new Error('Failed to stop the enclave GitHub CLI proxy before audit preservation');
+    throw new Error('Failed to stop the enclave GitHub MCP bridge before audit preservation');
   }
 }
 

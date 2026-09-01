@@ -1813,7 +1813,7 @@ enclaves:
 ```
 
 - **Script executor** — an entry keyed by `script`; launches a no-network, read-only, single-use Python sandbox. An empty `script: {}` object is valid and selects AWF's pinned defaults.
-- **Agent executor** — an entry keyed by `agent`; launches a bounded single-use Copilot enclave. `agent.model` is REQUIRED. Optional `agent.github.cli: issues-read-v1` adds the PAT-free AWF CLI proxy as the only additional peer.
+- **Agent executor** — an entry keyed by `agent`; launches a bounded single-use Copilot enclave. `agent.model` is REQUIRED. Optional `agent.github.cli: issues-read-v1` adds the PAT-free AWF GitHub MCP bridge as the only additional peer.
 - **Entry-level controls** — `runtime`, `image`, `memoryLimit`, `cpuLimit`, `pidsLimit`, `tmpfsLimit`, `maxOutputBytes`, and `maxInvocations` apply to the entry's selected executor. `script.maxScriptBytes` and agent `maxTaskBytes`, `maxModelRequests`, and `maxModelTokens` remain executor-specific. Network and interpreter are AWF-owned invariants, not input fields.
 
 At most one entry MAY exist per executor kind, and each entry MUST declare exactly one executor key. Every entry's `repos` list is merged into one trusted repository catalog: a repository shared by both entries MUST declare the same `sensitivity`, because sensitivity fixes one shared per-run information budget that both executors debit.
@@ -1853,7 +1853,7 @@ The primary agent MUST NOT receive a broker socket, wrapper binary, direct serve
 When the agent executor is enabled, each invocation joins only the dedicated
 `internal` `awf-enclave-agent` network. Its mandatory peer is the dedicated
 enclave API proxy. With `issues-read-v1`, the only additional peer is an
-AWF-owned PAT-free CLI proxy at `172.31.0.40:11000`. That proxy is dual-homed
+AWF-owned PAT-free MCP bridge at `172.31.0.40:11000/mcp`. That bridge is dual-homed
 onto the internal `awf-enclave-github-control` network
 (`172.29.0.0/24`), where compiler-owned mcpg is attached under the fixed alias
 `awf-enclave-github-proxy:18443`. mcpg never joins the enclave network.
@@ -1861,9 +1861,9 @@ Squid, the primary agent, general proxies, safe outputs, the MCP gateway, and
 the MCP server itself remain excluded.
 
 The base compiler handoff from `github/gh-aw#50920` and late backend
-rediscovery from `github/gh-aw-mcpg#10784` are present on current defaults:
-gh-aw pins mcpg v0.4.10 and mcpg reports MCP Gateway spec 1.16.0. The base floor
-remains spec 1.15.0 and a post-v0.4.8 mcpg release.
+rediscovery from `github/gh-aw-mcpg#10784` are present in mcpg v0.4.15, which
+reports MCP Gateway spec 1.16.0. The base floor remains spec 1.15.0 and a
+post-v0.4.8 mcpg release.
 
 `issues-read-v1` additionally requires the first compiler/mcpg releases with
 the dedicated proxy policy, v1 token vectors, public-visibility proof, secrecy
@@ -1896,7 +1896,7 @@ beneath the private enclave run root, mounts it read-only only into
 `enclave-mcp-server`, and removes it from the host environment. The proxy
 identity MUST match `^[a-z0-9][a-z0-9-]{0,63}$` and mcpg policy
 `workflow_run_id` byte for byte; AWF stages it in a separate mode-0600 private
-file. Policy JSON reaches only mcpg; the AWF CLI proxy receives no PAT, HMAC
+file. Policy JSON reaches only mcpg; the AWF MCP bridge receives no PAT, HMAC
 root, policy, or caller-configurable endpoint.
 
 The server mints one short-lived `awf-egh1` HMAC capability per admitted
@@ -1905,12 +1905,12 @@ invocation. Its canonical compact JSON field order is
 `issues.comments.list`, `issues.get`, and `issues.list`. The enclave receives
 only that token as a read-only file. The `run` claim is the compiler proxy
 identity, not AWF's independent random seed-map/container-reconciliation run
-ID. Its `gh` wrapper permits only bounded
-`gh api` GET calls for:
+ID. The enclave contains no `gh` executable. Its invocation-private MCP
+configuration exposes only:
 
-- `repos/{owner}/{repo}/issues`
-- `repos/{owner}/{repo}/issues/{number}`
-- `repos/{owner}/{repo}/issues/{number}/comments`
+- `list_issues`
+- `issue_read` with method `get`
+- `issue_read` with method `get_comments`
 
 The `repo` claim MUST be the exact canonical lowercase `owner/repo` admitted
 for that invocation. AWF MUST NOT substitute an owner-wide, wildcard,
@@ -1920,10 +1920,10 @@ invocation's DIFC secrecy label. mcpg derives only the exact
 empty secrecy and any different private repository carries its own distinct
 tag, so the normal `resource secrecy subset-of agent secrecy` check rejects it.
 
-GraphQL, search, writes, arbitrary paths, absolute or alternate hosts,
-traversal, body/input/field flags, auth/config/extensions/aliases, environment
-overrides, and shell execution are rejected. Stock `gh issue` commands are not
-part of v1 because they commonly use GraphQL.
+The PAT-free MCP bridge translates those calls to the existing
+capability-protected mcpg issue routes. GraphQL, search, writes, arbitrary tools
+or methods, absolute or alternate endpoints, extra arguments, and shell
+execution are rejected.
 
 ### 14.4 Shared ledger and disclosure
 

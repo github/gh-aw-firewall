@@ -81,21 +81,21 @@ export function preserveIptablesAudit(
     }
   }
 
-  const githubCliAuditSrc = path.join(enclavePaths.githubCliProxyLogsDir, 'access.jsonl');
+  const githubMcpAuditSrc = path.join(enclavePaths.githubMcpBridgeLogsDir, 'access.jsonl');
   try {
-    const destination = path.join(targetAuditDir, 'enclave-github-cli-access.jsonl');
-    copyRegularFileNoFollow(githubCliAuditSrc, destination);
+    const destination = path.join(targetAuditDir, 'enclave-github-mcp-access.jsonl');
+    copyRegularFileNoFollow(githubMcpAuditSrc, destination);
     fs.chmodSync(destination, 0o600);
-    logger.debug('Copied enclave GitHub CLI audit to audit directory');
+    logger.debug('Copied enclave GitHub MCP audit to audit directory');
   } catch (error: unknown) {
     if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
       if (requireEnclaveGithubAudit) {
         complete = false;
-        logger.debug('Required enclave GitHub CLI audit was not available for preservation');
+        logger.debug('Required enclave GitHub MCP audit was not available for preservation');
       }
     } else {
       complete = false;
-      logger.debug('Could not copy enclave GitHub CLI audit:', error);
+      logger.debug('Could not copy enclave GitHub MCP audit:', error);
     }
   }
 

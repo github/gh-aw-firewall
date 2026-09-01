@@ -194,7 +194,7 @@ describe('unified enclave agent executor compose assembly', () => {
       .toThrow(/at least one enclave executor must be enabled/);
   });
 
-  it('builds a PAT-free dual-homed CLI proxy only for issues-read-v1', () => {
+  it('builds a PAT-free dual-homed MCP bridge only for issues-read-v1', () => {
     const directory = fs.mkdtempSync(path.join(__dirname, 'awf-enclave-github-'));
     const caCert = path.join(directory, 'ca.crt');
     fs.writeFileSync(caCert, 'test-ca');
@@ -214,22 +214,21 @@ describe('unified enclave agent executor compose assembly', () => {
         repos: [{ repo: 'octo/private', sensitivity: 'internal' }],
       }]);
       const result = build({ enclaves });
-      const proxy = result.agentCliProxyService as Record<string, any>;
-      expect(proxy.container_name).toBe('awf-enclave-agent-cli-proxy');
+      const proxy = result.agentGithubMcpService as Record<string, any>;
+      expect(proxy.container_name).toBe('awf-enclave-agent-github-mcp');
       expect(proxy.networks).toEqual({
         [ENCLAVE_AGENT_NETWORK]: { ipv4_address: '172.31.0.40' },
         [ENCLAVE_GITHUB_CONTROL_NETWORK]: { ipv4_address: '172.29.0.10' },
       });
       expect(proxy.networks).not.toHaveProperty(ENCLAVE_AGENT_EGRESS_NETWORK);
       expect(proxy.environment).toMatchObject({
-        AWF_CLI_PROXY_MODE: 'enclave',
-        AWF_CLI_PROXY_PROFILE: 'issues-read-v1',
+        AWF_CLI_PROXY_MODE: 'enclave-mcp',
         AWF_DIFC_PROXY_HOST: 'awf-enclave-github-proxy',
         AWF_DIFC_PROXY_PORT: '18443',
       });
       expect(JSON.stringify(proxy.environment)).not.toMatch(/TOKEN|CAPABILITY|PAT/);
       expect(result.service.depends_on).toMatchObject({
-        'enclave-agent-cli-proxy': { condition: 'service_healthy' },
+        'enclave-agent-github-mcp': { condition: 'service_healthy' },
       });
       const serverVolumes = result.service.volumes as string[];
       expect(serverVolumes).toEqual(expect.arrayContaining([
@@ -447,7 +446,7 @@ describe('unified enclave compose topology', () => {
         .sort();
       expect(enclaveMembers).toEqual([
         'enclave-agent-api-proxy',
-        'enclave-agent-cli-proxy',
+        'enclave-agent-github-mcp',
       ]);
     } finally {
       process.env = originalEnv;

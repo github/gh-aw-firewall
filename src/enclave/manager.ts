@@ -70,14 +70,14 @@ function prepareDirectories(
   ensureDirectory(paths.apiProxyLogsDir, 0o700);
   // The image's fixed non-root user must create the audit stream through this
   // bind mount. The parent private root remains 0700 on the host.
-  ensureDirectory(paths.githubCliProxyLogsDir, 0o733);
+  ensureDirectory(paths.githubMcpBridgeLogsDir, 0o733);
   ensureDirectory(paths.runDir, 0o770);
   if (process.getuid?.() === 0) {
     const hostUid = parseInt(getSafeHostUid(), 10);
     const hostGid = parseInt(getSafeHostGid(), 10);
     chown(paths.runDir, hostUid, hostGid);
     chown(paths.apiProxyLogsDir, hostUid, hostGid);
-    chown(paths.githubCliProxyLogsDir, hostUid, hostGid);
+    chown(paths.githubMcpBridgeLogsDir, hostUid, hostGid);
   }
 }
 

@@ -15,6 +15,6 @@ describe('resolveEnclavePaths', () => {
       path.join(paths.runDir, 'github-run-identity'),
     );
     expect(paths.auditDir.startsWith(paths.root)).toBe(true);
-    expect(paths.githubCliProxyLogsDir.startsWith(paths.root)).toBe(true);
+    expect(paths.githubMcpBridgeLogsDir.startsWith(paths.root)).toBe(true);
   });
 });

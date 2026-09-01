@@ -5,6 +5,7 @@ import errno
 import json
 import os
 import re
+import shutil
 import signal
 import stat
 import subprocess
@@ -21,6 +22,8 @@ AGENT_DIR = Path("/agent")
 TEMP_DIR = Path("/tmp")
 SHARED_MEMORY_DIR = Path("/dev/shm")
 COPILOT_BIN = "/usr/local/bin/copilot"
+GITHUB_CAPABILITY_PATH = Path("/run/awf-enclave-github/capability")
+GITHUB_MCP_CONFIG_PATH = AGENT_DIR / "github-mcp.json"
 
 MAX_INPUT_BYTES = 64 * 1024
 MAX_TRANSCRIPT_BYTES = 1024 * 1024
@@ -77,6 +80,12 @@ def redact_diagnostics(value: str) -> str:
     for name, secret in os.environ.items():
         if secret and secret != "******" and re.search(r"(?:TOKEN|KEY|SECRET|CREDENTIAL)", name):
             redacted = redacted.replace(secret, "[REDACTED]")
+    try:
+        capability = GITHUB_CAPABILITY_PATH.read_text(encoding="ascii").strip()
+        if capability:
+            redacted = redacted.replace(capability, "[REDACTED]")
+    except (OSError, UnicodeDecodeError):
+        pass
     return redacted
 
 
@@ -280,6 +289,14 @@ def run_preflight(copilot_logs: Path) -> bool:
         ("copilot-log-directory", copilot_logs, "directory", True, True),
     ]
     valid = True
+    if shutil.which("gh") is not None:
+        append_event({
+            "event": "preflight",
+            "path": "github-cli",
+            "exists": True,
+            "type": "forbidden-executable",
+        })
+        valid = False
     for identifier, path, expected_type, executable, writable in checks:
         error = preflight_path(
             identifier,
@@ -290,6 +307,15 @@ def run_preflight(copilot_logs: Path) -> bool:
         )
         if error is not None:
             safe_os_error(error, f"preflight-{identifier}")
+            valid = False
+    if os.environ.get("AWF_ENCLAVE_AGENT_GITHUB_ENABLED") == "true":
+        error = preflight_path(
+            "github-capability",
+            GITHUB_CAPABILITY_PATH,
+            "file",
+        )
+        if error is not None:
+            safe_os_error(error, "preflight-github-capability")
             valid = False
     append_progress("preflight-completed", valid=valid)
     return valid
@@ -339,24 +365,50 @@ def build_prompt(task: str, schema_text: str) -> str:
     github_access = ""
     if os.environ.get("AWF_ENCLAVE_AGENT_GITHUB_ENABLED") == "true":
         github_access = (
-            " A narrow credential-isolated gh wrapper is available only for REST issue reads. "
-            "Use `gh api --method GET` with repos/{owner}/{repo}/issues, "
-            "repos/{owner}/{repo}/issues/{number}, or "
-            "repos/{owner}/{repo}/issues/{number}/comments. GraphQL, search, writes, "
-            "and other GitHub paths are unavailable."
+            " A credential-isolated GitHub MCP server exposes only `list_issues` and "
+            "`issue_read`. For `issue_read`, only methods `get` and `get_comments` are "
+            "available. Use those MCP tools for GitHub reads. GitHub CLI, GraphQL, search, "
+            "writes, and all other GitHub tools are unavailable."
         )
     return (
         "You are the native GitHub Copilot CLI running in an AWF enclave-agent enclave.\n"
         "The repository root is your current directory and is mounted read-only at /awf/seed. "
         "/agent is an invocation-private writable runtime directory and /tmp is bounded tmpfs. "
         "You may use your built-in shell, "
-        "bash, file-reading, and search tools. You have no GitHub MCP, no credentials, no host "
-        "filesystem, and no network route except AWF's model and optional GitHub proxies."
+        "bash, file-reading, and search tools. You have no GitHub credentials, no host "
+        "filesystem, and no network route except AWF's model proxy and optional GitHub MCP bridge."
         f"{github_access}\n\n"
         "Complete this task:\n"
         f"{task}\n\n"
         f"{output_contract}"
     )
+
+
+def configure_github_mcp() -> None:
+    if os.environ.get("AWF_ENCLAVE_AGENT_GITHUB_ENABLED") != "true":
+        return
+    if os.environ.get("AWF_ENCLAVE_AGENT_GITHUB_PROFILE") != "issues-read-v1":
+        raise ValueError("unsupported GitHub MCP profile")
+    endpoint = os.environ.get("AWF_ENCLAVE_AGENT_GITHUB_MCP_URL", "")
+    if not re.fullmatch(r"http://[0-9.]+:[0-9]+/mcp", endpoint):
+        raise ValueError("invalid GitHub MCP endpoint")
+    capability = GITHUB_CAPABILITY_PATH.read_text(encoding="ascii").strip()
+    if not re.fullmatch(r"awf-egh1\.[A-Za-z0-9_-]{1,2048}\.[A-Za-z0-9_-]{43}", capability):
+        raise ValueError("invalid GitHub MCP invocation capability")
+    config = {
+        "mcpServers": {
+            "github": {
+                "type": "http",
+                "url": endpoint,
+                "headers": {"Authorization": f"Bearer {capability}"},
+            }
+        }
+    }
+    GITHUB_MCP_CONFIG_PATH.write_text(
+        json.dumps(config, separators=(",", ":")),
+        encoding="utf-8",
+    )
+    GITHUB_MCP_CONFIG_PATH.chmod(0o600)
 
 
 def append_engine_result(completed: subprocess.CompletedProcess) -> tuple[str, str]:
@@ -412,6 +464,11 @@ def main() -> int:
             append_event({"event": "failure", "category": "engine-failed"})
             return EXIT_ENGINE_FAILED
     copilot_logs = runtime_paths[-1][1]
+    try:
+        configure_github_mcp()
+    except (OSError, UnicodeDecodeError, ValueError):
+        append_event({"event": "failure", "category": "configuration-invalid"})
+        return EXIT_CONFIGURATION_INVALID
     append_progress(
         "runtime-paths-ready",
         paths=[identifier for identifier, _ in runtime_paths],
@@ -452,6 +509,8 @@ def main() -> int:
         "--log-level", "all",
         "--log-dir", str(copilot_logs),
     ]
+    if os.environ.get("AWF_ENCLAVE_AGENT_GITHUB_ENABLED") == "true":
+        command.extend(["--additional-mcp-config", f"@{GITHUB_MCP_CONFIG_PATH}"])
     if max_model_requests is not None:
         command.extend(["--max-model-requests", max_model_requests])
     if max_model_tokens is not None:

@@ -9,8 +9,8 @@ export interface EnclavePaths {
   auditDir: string;
   /** Dedicated agent-enclave API-proxy telemetry. Never agent-visible. */
   apiProxyLogsDir: string;
-  /** Dedicated enclave GitHub CLI policy audit. Never agent-visible. */
-  githubCliProxyLogsDir: string;
+  /** Dedicated enclave GitHub MCP policy audit. Never agent-visible. */
+  githubMcpBridgeLogsDir: string;
   seedMapPath: string;
   ingressRoot: string;
   runDir: string;
@@ -58,7 +58,7 @@ export function resolveEnclavePaths(
     controlDir: path.join(root, 'control'),
     auditDir: path.join(root, 'audit'),
     apiProxyLogsDir: path.join(root, 'api-proxy-logs'),
-    githubCliProxyLogsDir: path.join(root, 'github-cli-proxy-logs'),
+    githubMcpBridgeLogsDir: path.join(root, 'github-mcp-bridge-logs'),
     seedMapPath: path.join(root, 'seed-map.json'),
     ingressRoot,
     runDir,

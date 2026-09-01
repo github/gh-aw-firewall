@@ -25,6 +25,7 @@ spec.loader.exec_module(module)
 
 root = Path(os.environ["HARNESS_ROOT"])
 scenario = os.environ["SCENARIO"]
+os.environ["PATH"] = os.environ["TEST_PATH"]
 module.SEED_DIR = root / "seed"
 module.TASK_PATH = root / "task.txt"
 module.SCHEMA_PATH = root / "schema.json"
@@ -34,6 +35,23 @@ module.AGENT_DIR = root / "agent"
 module.TEMP_DIR = root / "tmp"
 module.SHARED_MEMORY_DIR = root / "shm"
 module.COPILOT_BIN = str(root / "copilot")
+module.GITHUB_CAPABILITY_PATH = root / "github-capability"
+module.GITHUB_MCP_CONFIG_PATH = module.AGENT_DIR / "github-mcp.json"
+
+if scenario == "github-config":
+    module.AGENT_DIR.mkdir()
+    module.GITHUB_CAPABILITY_PATH.write_text(
+        os.environ["TEST_GITHUB_CAPABILITY"],
+        encoding="ascii",
+    )
+    module.configure_github_mcp()
+    print(json.dumps({
+        "exitCode": 0,
+        "transcript": module.redact_diagnostics(os.environ["TEST_GITHUB_CAPABILITY"]),
+        "transcriptBytes": 0,
+        "output": module.GITHUB_MCP_CONFIG_PATH.read_text(encoding="utf-8"),
+    }))
+    raise SystemExit(0)
 
 if scenario == "bounds":
     module.SESSION_LOG_PATH.write_text("", encoding="utf-8")
@@ -84,6 +102,11 @@ if scenario != "missing-copilot":
         )
     copilot.chmod(0o644 if scenario == "non-executable-copilot" else 0o755)
 
+if scenario == "unexpected-gh":
+    gh = root / "gh"
+    gh.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    gh.chmod(0o755)
+
 if scenario == "missing-seed":
     module.SEED_DIR.rmdir()
 
@@ -133,10 +156,17 @@ function runHarness(scenario: string): HarnessResult {
         PRIVATE_TASK: 'private prompt sentinel',
         PRIVATE_PATH: '/private/repository/secret-path',
         TEST_API_TOKEN: 'test-secret-token-value',
+        TEST_GITHUB_CAPABILITY: `awf-egh1.${'a'.repeat(16)}.${'b'.repeat(43)}`,
+        TEST_PATH: `${root}:/usr/bin:/bin`,
         AWF_ENCLAVE_AGENT_ENGINE: 'copilot',
         AWF_ENCLAVE_AGENT_MAX_OUTPUT_BYTES: '1024',
         AWF_ENCLAVE_AGENT_DEADLINE_SECONDS: scenario === 'timeout' ? '1' : '5',
         AWF_ENCLAVE_AGENT_MODEL: 'test-model',
+        ...(scenario === 'github-config' ? {
+          AWF_ENCLAVE_AGENT_GITHUB_ENABLED: 'true',
+          AWF_ENCLAVE_AGENT_GITHUB_PROFILE: 'issues-read-v1',
+          AWF_ENCLAVE_AGENT_GITHUB_MCP_URL: 'http://172.31.0.40:11000/mcp',
+        } : {}),
       },
     });
     if (result.status !== 0) {
@@ -173,6 +203,37 @@ describe('enclave agent protected entrypoint diagnostics', () => {
     }));
     expect(transcript[transcript.length - 1])
       .toEqual({ event: 'failure', category: 'engine-failed' });
+  });
+
+  it('fails closed when a gh executable is available', () => {
+    const result = runHarness('unexpected-gh');
+    const transcript = events(result);
+
+    expect(result.exitCode).toBe(24);
+    expect(transcript).toContainEqual({
+      event: 'preflight',
+      path: 'github-cli',
+      exists: true,
+      type: 'forbidden-executable',
+    });
+  });
+
+  it('writes a private MCP-only configuration and redacts its capability', () => {
+    const result = runHarness('github-config');
+    const config = JSON.parse(result.output);
+
+    expect(config).toEqual({
+      mcpServers: {
+        github: {
+          type: 'http',
+          url: 'http://172.31.0.40:11000/mcp',
+          headers: {
+            Authorization: expect.stringMatching(/^Bearer awf-egh1\./),
+          },
+        },
+      },
+    });
+    expect(result.transcript).toBe('[REDACTED]');
   });
 
   it('identifies a missing working directory without logging its path', () => {

@@ -10,7 +10,7 @@ import {
   disconnectEnclaveGithubGateway,
   enclaveGithubGatewayTestHelpers,
   resolveEnclaveGithubGatewayContract,
-  shutdownEnclaveGithubCliProxy,
+  shutdownEnclaveGithubMcpBridge,
 } from './github-gateway';
 
 jest.mock('execa', () => ({ __esModule: true, default: jest.fn() }));
@@ -29,7 +29,7 @@ function enabledConfig(): WrapperConfig {
   } as WrapperConfig;
 }
 
-function network(members = ['awf-enclave-agent-cli-proxy', 'compiler-mcpg']): string {
+function network(members = ['awf-enclave-agent-github-mcp', 'compiler-mcpg']): string {
   return JSON.stringify({
     Internal: true,
     Driver: 'bridge',
@@ -116,8 +116,8 @@ describe('enclave GitHub gateway handoff', () => {
   });
 
   it.each([
-    network(['awf-enclave-agent-cli-proxy']),
-    network(['awf-enclave-agent-cli-proxy', 'compiler-mcpg', 'unexpected']),
+    network(['awf-enclave-agent-github-mcp']),
+    network(['awf-enclave-agent-github-mcp', 'compiler-mcpg', 'unexpected']),
     JSON.stringify({
       Internal: false,
       Driver: 'bridge',
@@ -150,12 +150,12 @@ describe('enclave GitHub gateway handoff', () => {
     ).rejects.toThrow(/fixed private alias/);
   });
 
-  it('stops the PAT-free CLI proxy before audit preservation', async () => {
+  it('stops the PAT-free MCP bridge before audit preservation', async () => {
     mockExeca.mockResolvedValue({ exitCode: 0, stdout: '', stderr: '' });
-    await shutdownEnclaveGithubCliProxy(enabledConfig());
+    await shutdownEnclaveGithubMcpBridge(enabledConfig());
     expect(mockExeca).toHaveBeenCalledWith(
       'docker',
-      ['stop', '--time', '5', 'awf-enclave-agent-cli-proxy'],
+      ['stop', '--time', '5', 'awf-enclave-agent-github-mcp'],
       expect.any(Object),
     );
   });

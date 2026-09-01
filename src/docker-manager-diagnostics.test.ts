@@ -138,10 +138,10 @@ describe('docker-manager diagnostics', () => {
       expect(fs.existsSync(path.join(auditDir, 'iptables-audit.txt'))).toBe(false);
     });
 
-    it('preserves the required GitHub CLI audit independently of iptables audit', () => {
+    it('preserves the required GitHub MCP audit independently of iptables audit', () => {
       const paths = resolveEnclavePaths(getDir());
-      fs.mkdirSync(paths.githubCliProxyLogsDir, { recursive: true });
-      fs.writeFileSync(path.join(paths.githubCliProxyLogsDir, 'access.jsonl'), '{"event":"exec_done"}\n');
+      fs.mkdirSync(paths.githubMcpBridgeLogsDir, { recursive: true });
+      fs.writeFileSync(path.join(paths.githubMcpBridgeLogsDir, 'access.jsonl'), '{"event":"tools_call"}\n');
       const auditDir = path.join(getDir(), 'audit');
       fs.mkdirSync(auditDir, { recursive: true });
       mockExecaSync.mockReturnValue({ exitCode: 0, stdout: '', stderr: '' });
@@ -149,30 +149,30 @@ describe('docker-manager diagnostics', () => {
       expect(preserveIptablesAudit(getDir(), auditDir, true)).toBe(true);
 
       expect(fs.readFileSync(
-        path.join(auditDir, 'enclave-github-cli-access.jsonl'),
+        path.join(auditDir, 'enclave-github-mcp-access.jsonl'),
         'utf8',
-      )).toBe('{"event":"exec_done"}\n');
+      )).toBe('{"event":"tools_call"}\n');
       fs.rmSync(paths.root, { recursive: true, force: true });
     });
 
-    it('reports an incomplete protected audit when the required CLI audit is absent', () => {
+    it('reports an incomplete protected audit when the required MCP audit is absent', () => {
       const auditDir = path.join(getDir(), 'audit');
       fs.mkdirSync(auditDir, { recursive: true });
 
       expect(preserveIptablesAudit(getDir(), auditDir, true)).toBe(false);
     });
 
-    it('refuses a symlinked enclave GitHub CLI audit', () => {
+    it('refuses a symlinked enclave GitHub MCP audit', () => {
       const paths = resolveEnclavePaths(getDir());
       const sensitiveFile = path.join(getDir(), 'sensitive-file');
-      fs.mkdirSync(paths.githubCliProxyLogsDir, { recursive: true });
+      fs.mkdirSync(paths.githubMcpBridgeLogsDir, { recursive: true });
       fs.writeFileSync(sensitiveFile, 'must not be copied');
-      fs.symlinkSync(sensitiveFile, path.join(paths.githubCliProxyLogsDir, 'access.jsonl'));
+      fs.symlinkSync(sensitiveFile, path.join(paths.githubMcpBridgeLogsDir, 'access.jsonl'));
       const auditDir = path.join(getDir(), 'audit');
       fs.mkdirSync(auditDir, { recursive: true });
 
       expect(preserveIptablesAudit(getDir(), auditDir, true)).toBe(false);
-      expect(fs.existsSync(path.join(auditDir, 'enclave-github-cli-access.jsonl'))).toBe(false);
+      expect(fs.existsSync(path.join(auditDir, 'enclave-github-mcp-access.jsonl'))).toBe(false);
       fs.rmSync(paths.root, { recursive: true, force: true });
     });
 

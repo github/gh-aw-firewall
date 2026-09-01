@@ -842,15 +842,15 @@ describe('createMainAction', () => {
       expect(mockedEnclaveGateway.shutdownEnclaveGateway).toHaveBeenCalledWith(
         MAIN_ACTION_STUB_CONFIG
       );
-      expect(mockedEnclaveGithubGateway.shutdownEnclaveGithubCliProxy)
+      expect(mockedEnclaveGithubGateway.shutdownEnclaveGithubMcpBridge)
         .toHaveBeenCalledWith(MAIN_ACTION_STUB_CONFIG);
       expect(
         mockedEnclaveGateway.shutdownEnclaveGateway.mock.invocationCallOrder[0]
       ).toBeLessThan(
-        mockedEnclaveGithubGateway.shutdownEnclaveGithubCliProxy.mock.invocationCallOrder[0]
+        mockedEnclaveGithubGateway.shutdownEnclaveGithubMcpBridge.mock.invocationCallOrder[0]
       );
       expect(
-        mockedEnclaveGithubGateway.shutdownEnclaveGithubCliProxy.mock.invocationCallOrder[0]
+        mockedEnclaveGithubGateway.shutdownEnclaveGithubMcpBridge.mock.invocationCallOrder[0]
       ).toBeLessThan(
         mockedDockerManager.preserveIptablesAudit.mock.invocationCallOrder[0]
       );

@@ -39,7 +39,7 @@ import {
   assertEnclaveGithubGatewayReady,
   connectEnclaveGithubGateway,
   disconnectEnclaveGithubGateway,
-  shutdownEnclaveGithubCliProxy,
+  shutdownEnclaveGithubMcpBridge,
 } from '../enclave/github-gateway';
 import type { WrapperConfig } from '../types';
 
@@ -145,11 +145,11 @@ function buildCleanupFn(
         );
       }
       try {
-        await shutdownEnclaveGithubCliProxy(config);
+        await shutdownEnclaveGithubMcpBridge(config);
       } catch (error) {
         enclaveAuditComplete = false;
         logger.warn(
-          'Enclave GitHub CLI proxy did not stop cleanly before audit preservation.',
+          'Enclave GitHub MCP bridge did not stop cleanly before audit preservation.',
           error,
         );
       }

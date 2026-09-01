@@ -119,7 +119,7 @@ describe('unified enclave agent runner specification', () => {
         ...trustedConfig,
         githubEnabled: true,
         githubProfile: 'issues-read-v1',
-        githubProxyUrl: 'http://172.31.0.40:11000',
+        githubMcpUrl: 'http://172.31.0.40:11000/mcp',
         enclaveGithubCapabilityPath: '/run/awf-enclave-github/capability',
       },
       runId: 'abcdef1234567890',
@@ -128,7 +128,7 @@ describe('unified enclave agent runner specification', () => {
     });
     expect(githubSpec.launchArgs).toEqual(expect.arrayContaining([
       '--env', 'AWF_ENCLAVE_AGENT_GITHUB_PROFILE=issues-read-v1',
-      '--env', 'AWF_ENCLAVE_AGENT_GITHUB_PROXY_URL=http://172.31.0.40:11000',
+      '--env', 'AWF_ENCLAVE_AGENT_GITHUB_MCP_URL=http://172.31.0.40:11000/mcp',
       '-v',
       '/daemon/private/enclave/work/0123456789abcdef/github-capability:' +
         '/run/awf-enclave-github/capability:ro',
@@ -218,7 +218,7 @@ describe('unified enclave agent runner specification', () => {
     await expect(runner.assertAvailable()).resolves.toBeUndefined();
   });
 
-  it('requires the PAT-free CLI proxy as the second steady-state peer when enabled', async () => {
+  it('requires the PAT-free MCP bridge as the second steady-state peer when enabled', async () => {
     const runner = createEnclaveRunner(
       { ...trustedConfig, backend: 'docker', githubEnabled: true },
       {
@@ -229,7 +229,7 @@ describe('unified enclave agent runner specification', () => {
             stdout: args[0] === 'network'
               ? 'true|bridge|172.31.0.0/24,|' +
                 'awf-enclave-agent-api-proxy@172.31.0.30/24,' +
-                'awf-enclave-agent-cli-proxy@172.31.0.40/24,'
+                'awf-enclave-agent-github-mcp@172.31.0.40/24,'
               : '[]',
             stderr: '',
           }),
@@ -420,7 +420,7 @@ describe('unified enclave agent server configuration', () => {
     setEnv({
       AWF_ENCLAVE_AGENT_GITHUB_ENABLED: 'true',
       AWF_ENCLAVE_AGENT_GITHUB_PROFILE: 'issues-read-v1',
-      AWF_ENCLAVE_AGENT_GITHUB_PROXY_URL: 'http://172.31.0.40:11000',
+      AWF_ENCLAVE_AGENT_GITHUB_MCP_URL: 'http://172.31.0.40:11000/mcp',
       AWF_ENCLAVE_AGENT_GITHUB_CAPABILITY_KEY_PATH:
         '/run/awf-enclave-mcp/github-capability-key',
       AWF_ENCLAVE_AGENT_GITHUB_RUN_IDENTITY_PATH:

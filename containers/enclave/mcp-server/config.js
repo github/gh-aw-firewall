@@ -201,7 +201,7 @@ function loadAgentConfig(server, files = fs) {
   const cpuLimit = process.env.AWF_ENCLAVE_AGENT_CPU || '1';
   const githubEnabled = process.env.AWF_ENCLAVE_AGENT_GITHUB_ENABLED === 'true';
   const githubProfile = process.env.AWF_ENCLAVE_AGENT_GITHUB_PROFILE;
-  const githubProxyUrl = process.env.AWF_ENCLAVE_AGENT_GITHUB_PROXY_URL;
+  const githubMcpUrl = process.env.AWF_ENCLAVE_AGENT_GITHUB_MCP_URL;
   const githubCapabilityKeyPath = process.env.AWF_ENCLAVE_AGENT_GITHUB_CAPABILITY_KEY_PATH;
   const githubRunIdentityPath = process.env.AWF_ENCLAVE_AGENT_GITHUB_RUN_IDENTITY_PATH;
   let githubCapabilityKey;
@@ -210,8 +210,8 @@ function loadAgentConfig(server, files = fs) {
     if (githubProfile !== 'issues-read-v1') {
       throw new Error('AWF_ENCLAVE_AGENT_GITHUB_PROFILE must be issues-read-v1');
     }
-    if (!/^http:\/\/[0-9.]+:[0-9]+$/.test(githubProxyUrl || '')) {
-      throw new Error('AWF_ENCLAVE_AGENT_GITHUB_PROXY_URL must be a fixed IPv4 HTTP origin');
+    if (!/^http:\/\/[0-9.]+:[0-9]+\/mcp$/.test(githubMcpUrl || '')) {
+      throw new Error('AWF_ENCLAVE_AGENT_GITHUB_MCP_URL must be a fixed IPv4 MCP endpoint');
     }
     if (githubCapabilityKeyPath !== GITHUB_CAPABILITY_FILE) {
       throw new Error('AWF_ENCLAVE_AGENT_GITHUB_CAPABILITY_KEY_PATH is not the fixed private path');
@@ -267,7 +267,7 @@ function loadAgentConfig(server, files = fs) {
     maxModelTokens: optionalPositiveInt('AWF_ENCLAVE_AGENT_MAX_MODEL_TOKENS'),
     githubEnabled,
     githubProfile: githubEnabled ? githubProfile : undefined,
-    githubProxyUrl: githubEnabled ? githubProxyUrl : undefined,
+    githubMcpUrl: githubEnabled ? githubMcpUrl : undefined,
     githubCapabilityKey,
     githubRunIdentity,
     enclaveGithubCapabilityPath: '/run/awf-enclave-github/capability',
