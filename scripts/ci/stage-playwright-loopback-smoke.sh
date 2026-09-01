@@ -42,28 +42,47 @@ docker run --rm \
       libatk-bridge2.0-0 \
       libatk1.0-0 \
       libatspi2.0-0 \
+      libbrotli1 \
+      libbsd0 \
       libcairo2 \
       libcups2 \
+      libdatrie1 \
       libdbus-1-3 \
       libdrm2 \
+      libexpat1 \
+      libffi8 \
       libfontconfig1 \
       libfreetype6 \
+      libfribidi0 \
       libgbm1 \
       libglib2.0-0 \
+      libgraphite2-3 \
       libharfbuzz0b \
+      libmd0 \
+      libmount1 \
       libnspr4 \
       libnss3 \
       libpango-1.0-0 \
       libpcre3 \
+      libpixman-1-0 \
+      libpng16-16 \
+      libselinux1 \
+      libthai0 \
+      libuuid1 \
       libx11-6 \
+      libxau6 \
       libxcb1 \
+      libxcb-render0 \
+      libxcb-shm0 \
       libxcomposite1 \
       libxdamage1 \
+      libxdmcp6 \
       libxext6 \
       libxfixes3 \
       libxkbcommon0 \
       libxrandr2 \
-      libxrender1 >/dev/null
+      libxrender1 \
+      zlib1g >/dev/null
     for package in /var/cache/apt/archives/*.deb; do
       dpkg-deb --extract "$package" /out
     done
