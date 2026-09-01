@@ -22,7 +22,7 @@ function dependencies(overrides: Partial<CloudHypervisorVmmIdentityDependencies>
   let accountExists = false;
   let groupExists = false;
   let accountName = '';
-  let ownerContents = '';
+  const ownerContents = new Map<string, string>();
   const aclPaths = new Set<string>();
   const run = jest.fn(async (command: string, args: readonly string[]) => {
     if (command === tools.useradd) {
@@ -80,12 +80,15 @@ function dependencies(overrides: Partial<CloudHypervisorVmmIdentityDependencies>
         lockExists = true;
       }
     }),
-    writeFile: jest.fn(async (_filePath, contents) => {
-      ownerContents = contents;
+    writeFile: jest.fn(async (filePath, contents) => {
+      ownerContents.set(filePath, contents);
     }),
-    readFile: jest.fn(async () => ownerContents),
+    readFile: jest.fn(async (filePath) => ownerContents.get(filePath) ?? ''),
     rm: jest.fn(async (directory) => {
       if (directory.endsWith('.account-lock')) lockExists = false;
+      for (const filePath of ownerContents.keys()) {
+        if (filePath.startsWith(`${directory}/`)) ownerContents.delete(filePath);
+      }
     }),
     rmdir: jest.fn().mockResolvedValue(undefined),
     lstat: jest.fn().mockResolvedValue({ uid: 23001, gid: 23002, ino: 1, mtimeMs: 0 }),
@@ -105,6 +108,7 @@ describe('CloudHypervisorVmmIdentityManager', () => {
       prepareAccount: jest.fn().mockResolvedValue(undefined),
       captureIdentity: jest.fn().mockResolvedValue(undefined),
       prepareAcl: jest.fn().mockResolvedValue(undefined),
+      releaseAcl: jest.fn().mockResolvedValue(undefined),
     };
     const manager = new CloudHypervisorVmmIdentityManager('run-1', tools, deps, observer);
 
@@ -128,13 +132,21 @@ describe('CloudHypervisorVmmIdentityManager', () => {
 
     await manager.validateOwnedPaths(['/run/awf/kernel', '/run/awf/rootfs']);
     await manager.validateTapOwnership(tools.ip, 'awfvm-123', 'vmt123');
-    await manager.grantDeviceAccess();
+    const operation = jest.fn().mockResolvedValue(undefined);
+    await manager.withDeviceAccess(operation);
     for (const devicePath of ['/dev/kvm', '/dev/net/tun']) {
       const prepareCall = observer.prepareAcl.mock.calls.findIndex(([value]) => value === devicePath);
       const grantCall = run.mock.calls.findIndex(([command, args]) =>
         command === tools.setfacl && args[0] === '--modify' && args[2] === devicePath);
       expect(observer.prepareAcl.mock.invocationCallOrder[prepareCall])
         .toBeLessThan(run.mock.invocationCallOrder[grantCall]);
+      const revokeCall = run.mock.calls.findIndex(([command, args]) =>
+        command === tools.setfacl && args[0] === '--remove' && args[2] === devicePath);
+      expect(run.mock.invocationCallOrder[grantCall])
+        .toBeLessThan(operation.mock.invocationCallOrder[0]);
+      expect(operation.mock.invocationCallOrder[0])
+        .toBeLessThan(run.mock.invocationCallOrder[revokeCall]);
+      expect(observer.releaseAcl).toHaveBeenCalledWith(devicePath);
     }
     expect(run).toHaveBeenCalledWith(
       tools.setfacl,
@@ -163,6 +175,7 @@ describe('CloudHypervisorVmmIdentityManager', () => {
     const useraddGate = new Promise<void>((resolve) => {
       releaseUseradd = resolve;
     });
+
     const base = dependencies({
       sleep: (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
     });
@@ -182,6 +195,22 @@ describe('CloudHypervisorVmmIdentityManager', () => {
     expect((base.deps.run as jest.Mock).mock.calls.filter(
       ([command]) => command === tools.useradd,
     )).toHaveLength(1);
+  });
+
+  it('revokes device access when the protected operation fails', async () => {
+    const base = dependencies();
+    const manager = new CloudHypervisorVmmIdentityManager('failed-operation', tools, base.deps);
+    await manager.allocate();
+
+    await expect(manager.withDeviceAccess(async () => {
+      throw new Error('vm.create failed');
+    })).rejects.toThrow('vm.create failed');
+    for (const devicePath of ['/dev/kvm', '/dev/net/tun']) {
+      expect(base.run).toHaveBeenCalledWith(
+        tools.setfacl,
+        ['--remove', 'user:23001', devicePath],
+      );
+    }
   });
 
   it('rejects inherited supplementary groups and rolls back the account', async () => {
@@ -271,7 +300,8 @@ describe('CloudHypervisorVmmIdentityManager', () => {
     });
     const grantManager = new CloudHypervisorVmmIdentityManager('acl-grant', tools, grantBase.deps);
     await grantManager.allocate();
-    await expect(grantManager.grantDeviceAccess()).rejects.toThrow(/ACL validation failed/);
+    await expect(grantManager.withDeviceAccess(async () => undefined))
+      .rejects.toThrow(/ACL validation failed/);
 
     const removalBase = dependencies();
     const removalManager = new CloudHypervisorVmmIdentityManager(
@@ -280,7 +310,6 @@ describe('CloudHypervisorVmmIdentityManager', () => {
       removalBase.deps,
     );
     const identity = await removalManager.allocate();
-    await removalManager.grantDeviceAccess();
     const removalOriginalRun = removalBase.deps.run;
     removalBase.deps.run = jest.fn(async (command, args) => {
       if (command === tools.setfacl && args[0] === '--remove') {
@@ -289,7 +318,8 @@ describe('CloudHypervisorVmmIdentityManager', () => {
       return removalOriginalRun(command, args);
     });
 
-    await expect(removalManager.cleanup()).rejects.toThrow(/ACL removal validation failed/);
+    await expect(removalManager.withDeviceAccess(async () => undefined))
+      .rejects.toThrow(/ACL removal validation failed/);
     expect(removalBase.deps.run).not.toHaveBeenCalledWith(tools.userdel, [identity.name]);
   });
 
@@ -297,7 +327,7 @@ describe('CloudHypervisorVmmIdentityManager', () => {
     const base = dependencies();
     const manager = new CloudHypervisorVmmIdentityManager('reused-account', tools, base.deps);
     await manager.allocate();
-    await manager.grantDeviceAccess();
+    await manager.withDeviceAccess(async () => undefined);
     (base.deps.run as jest.Mock).mockClear();
     const originalRun = base.deps.run;
     base.deps.run = jest.fn(async (command, args) => {
@@ -771,7 +801,7 @@ describe('CloudHypervisorVmmIdentityManager', () => {
     await manager.allocate();
     let lockAttempt = 0;
     base.deps.mkdir = jest.fn(async (directory) => {
-      if (directory.endsWith('.account-lock') && lockAttempt++ === 0) {
+      if (directory.endsWith('.device-acl-lock') && lockAttempt++ === 0) {
         throw Object.assign(new Error('exists'), { code: 'EEXIST' });
       }
     });
@@ -782,7 +812,7 @@ describe('CloudHypervisorVmmIdentityManager', () => {
       Reflect.set(manager, 'identity', undefined);
     });
 
-    await expect(manager.grantDeviceAccess()).rejects.toThrow(/identity changed/);
+    await expect(manager.withDeviceAccess(async () => undefined)).rejects.toThrow(/identity changed/);
   });
 
   it('rejects removal when acquired lock ownership changes', async () => {
@@ -805,7 +835,6 @@ describe('CloudHypervisorVmmIdentityManager', () => {
     const base = dependencies();
     const manager = new CloudHypervisorVmmIdentityManager('run-3', tools, base.deps);
     const identity = await manager.allocate();
-    await manager.grantDeviceAccess();
     const originalRun = base.deps.run;
     base.deps.run = jest.fn(async (command, args) => {
       if (
@@ -818,6 +847,8 @@ describe('CloudHypervisorVmmIdentityManager', () => {
       return originalRun(command, args);
     });
 
+    await expect(manager.withDeviceAccess(async () => undefined))
+      .rejects.toThrow(/ACL cleanup failed/);
     await expect(manager.cleanup()).rejects.toThrow(/ACL cleanup failed/);
     expect(base.deps.run).not.toHaveBeenCalledWith(tools.userdel, [identity.name]);
   });

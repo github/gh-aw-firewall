@@ -243,6 +243,24 @@ describe('DurableCloudHypervisorCleanupRegistry', () => {
     )).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
+  it('removes revoked device ACLs from durable cleanup intent', async () => {
+    const paths = runPaths('released-vmm-acl');
+    const registry = new DurableCloudHypervisorCleanupRegistry(dependencies());
+    const handle = await registry.createPending(paths, process.execPath, '/usr/bin/ip');
+    const account = 'awfvmm-0123456789abcdef0123';
+    await handle.prepareVmmAccount(account);
+    await handle.captureVmmIdentity({ name: account, uid: 23001, gid: 23002 });
+    await handle.prepareVmmAcl('/dev/kvm');
+    await handle.releaseVmmAcl('/dev/kvm');
+
+    const record = JSON.parse(await fs.readFile(
+      path.join(temporaryRoot, 'pending-cleanup', `${paths.runId}.json`),
+      'utf8',
+    )) as { vmmIdentity: { aclPaths: string[] } };
+    expect(record.vmmIdentity.aclPaths).toEqual([]);
+    await expect(handle.releaseVmmAcl('/dev/kvm')).rejects.toThrow(/intent is missing/);
+  });
+
   it('requires root and refuses to replace an existing run record', async () => {
     const paths = runPaths('exclusive-record');
     const plan = networkPlan(paths.runId);

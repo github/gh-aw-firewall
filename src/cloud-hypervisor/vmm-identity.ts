@@ -5,9 +5,10 @@ import execa from 'execa';
 
 const ACCOUNT_PREFIX = 'awfvmm-';
 const ACCOUNT_LOCK_DIRECTORY = '/run/awf-cloud-hypervisor/.account-lock';
-const ACCOUNT_REAPER_DIRECTORY = path.join(ACCOUNT_LOCK_DIRECTORY, '.reaper');
+const DEVICE_ACL_LOCK_DIRECTORY = '/run/awf-cloud-hypervisor/.device-acl-lock';
 const ACCOUNT_LOCK_RETRY_MS = 25;
 const ACCOUNT_LOCK_TIMEOUT_MS = 10_000;
+const DEVICE_ACL_LOCK_TIMEOUT_MS = 60_000;
 const INCOMPLETE_LOCK_STALE_MS = 1_000;
 const VMM_DEVICE_PATHS = ['/dev/kvm', '/dev/net/tun'] as const;
 
@@ -32,6 +33,7 @@ export interface CloudHypervisorVmmIdentityObserver {
   prepareAccount(name: string): Promise<void>;
   captureIdentity(identity: CloudHypervisorVmmIdentity): Promise<void>;
   prepareAcl(path: string): Promise<void>;
+  releaseAcl(path: string): Promise<void>;
 }
 
 export interface CloudHypervisorVmmIdentityDependencies {
@@ -147,25 +149,33 @@ export class CloudHypervisorVmmIdentityManager {
     });
   }
 
-  async grantDeviceAccess(): Promise<void> {
+  async withDeviceAccess<T>(operation: () => Promise<T>): Promise<T> {
     const identity = this.requireIdentity();
-    await this.withAccountLock(async () => {
+    return this.withDeviceAclLock(async () => {
       if (this.identity !== identity) {
         throw new Error('Cloud Hypervisor VMM identity changed before device ACL grant');
       }
-      for (const devicePath of VMM_DEVICE_PATHS) {
-        await this.observer?.prepareAcl(devicePath);
-        await this.dependencies.run(this.tools.setfacl, [
-          '--modify', `user:${identity.uid}:rw`, devicePath,
-        ]);
-        this.aclPaths.add(devicePath);
-        const { stdout } = await this.dependencies.run(this.tools.getfacl, [
-          '--absolute-names', '--numeric', devicePath,
-        ]);
-        if (!stdout.split(/\r?\n/).includes(`user:${identity.uid}:rw-`)) {
-          throw new Error(`Cloud Hypervisor VMM ACL validation failed for ${devicePath}`);
-        }
+      let result: T | undefined;
+      let operationError: unknown;
+      try {
+        await this.grantDeviceAccessLocked(identity);
+        result = await operation();
+      } catch (error) {
+        operationError = error;
       }
+      try {
+        await this.revokeDeviceAccessLocked(identity);
+      } catch (revokeError) {
+        if (operationError) {
+          throw new Error(
+            `Cloud Hypervisor device operation failed: ${formatError(operationError)}; ` +
+            `ACL revocation also failed: ${formatError(revokeError)}`,
+          );
+        }
+        throw revokeError;
+      }
+      if (operationError) throw operationError;
+      return result as T;
     });
   }
 
@@ -226,31 +236,52 @@ export class CloudHypervisorVmmIdentityManager {
           `Refusing to remove reused Cloud Hypervisor VMM account ${identity.name}`,
         );
       }
-      const errors: unknown[] = [];
-      for (const devicePath of [...this.aclPaths].reverse()) {
-        try {
-          await this.dependencies.run(this.tools.setfacl, [
-            '--remove', `user:${identity.uid}`, devicePath,
-          ]);
-          const { stdout } = await this.dependencies.run(this.tools.getfacl, [
-            '--absolute-names', '--numeric', devicePath,
-          ]);
-          if (stdout.split(/\r?\n/).some((line) => line.startsWith(`user:${identity.uid}:`))) {
-            throw new Error(`Cloud Hypervisor VMM ACL removal validation failed for ${devicePath}`);
-          }
-          this.aclPaths.delete(devicePath);
-        } catch (error) {
-          errors.push(error);
-        }
-      }
-      if (errors.length > 0 || this.aclPaths.size > 0) {
-        throw new Error(
-          `Cloud Hypervisor VMM ACL cleanup failed: ${errors.map(formatError).join('; ')}`,
-        );
-      }
+      await this.withDeviceAclLock(() => this.revokeDeviceAccessLocked(identity));
       await this.removeAccountState(identity.name);
       this.identity = undefined;
     });
+  }
+
+  private async grantDeviceAccessLocked(identity: CloudHypervisorVmmIdentity): Promise<void> {
+    for (const devicePath of VMM_DEVICE_PATHS) {
+      await this.observer?.prepareAcl(devicePath);
+      await this.dependencies.run(this.tools.setfacl, [
+        '--modify', `user:${identity.uid}:rw`, devicePath,
+      ]);
+      this.aclPaths.add(devicePath);
+      const { stdout } = await this.dependencies.run(this.tools.getfacl, [
+        '--absolute-names', '--numeric', devicePath,
+      ]);
+      if (!stdout.split(/\r?\n/).includes(`user:${identity.uid}:rw-`)) {
+        throw new Error(`Cloud Hypervisor VMM ACL validation failed for ${devicePath}`);
+      }
+    }
+  }
+
+  private async revokeDeviceAccessLocked(identity: CloudHypervisorVmmIdentity): Promise<void> {
+    const errors: unknown[] = [];
+    for (const devicePath of [...this.aclPaths].reverse()) {
+      try {
+        await this.dependencies.run(this.tools.setfacl, [
+          '--remove', `user:${identity.uid}`, devicePath,
+        ]);
+        const { stdout } = await this.dependencies.run(this.tools.getfacl, [
+          '--absolute-names', '--numeric', devicePath,
+        ]);
+        if (stdout.split(/\r?\n/).some((line) => line.startsWith(`user:${identity.uid}:`))) {
+          throw new Error(`Cloud Hypervisor VMM ACL removal validation failed for ${devicePath}`);
+        }
+        await this.observer?.releaseAcl(devicePath);
+        this.aclPaths.delete(devicePath);
+      } catch (error) {
+        errors.push(error);
+      }
+    }
+    if (errors.length > 0 || this.aclPaths.size > 0) {
+      throw new Error(
+        `Cloud Hypervisor VMM ACL cleanup failed: ${errors.map(formatError).join('; ')}`,
+      );
+    }
   }
 
   private async removeAccountState(name: string): Promise<void> {
@@ -322,20 +353,32 @@ export class CloudHypervisorVmmIdentityManager {
   }
 
   private async withAccountLock<T>(operation: () => Promise<T>): Promise<T> {
-    const parent = path.dirname(ACCOUNT_LOCK_DIRECTORY);
+    return this.withLock(ACCOUNT_LOCK_DIRECTORY, ACCOUNT_LOCK_TIMEOUT_MS, operation);
+  }
+
+  private async withDeviceAclLock<T>(operation: () => Promise<T>): Promise<T> {
+    return this.withLock(DEVICE_ACL_LOCK_DIRECTORY, DEVICE_ACL_LOCK_TIMEOUT_MS, operation);
+  }
+
+  private async withLock<T>(
+    lockDirectory: string,
+    timeoutMs: number,
+    operation: () => Promise<T>,
+  ): Promise<T> {
+    const parent = path.dirname(lockDirectory);
     await this.dependencies.mkdir(parent, { recursive: true, mode: 0o711 });
     const startTime = await this.dependencies.processStartTime(this.dependencies.pid);
-    if (!startTime) throw new Error('Cannot determine AWF process start time for VMM account lock');
+    if (!startTime) throw new Error('Cannot determine AWF process start time for VMM identity lock');
     const owner: LockOwner = {
       pid: this.dependencies.pid,
       startTime,
       nonce: randomBytes(16).toString('hex'),
     };
-    const deadline = Date.now() + ACCOUNT_LOCK_TIMEOUT_MS;
+    const deadline = Date.now() + timeoutMs;
     for (;;) {
       let acquired = false;
       try {
-        await this.dependencies.mkdir(ACCOUNT_LOCK_DIRECTORY, { mode: 0o700 });
+        await this.dependencies.mkdir(lockDirectory, { mode: 0o700 });
         acquired = true;
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
@@ -343,32 +386,33 @@ export class CloudHypervisorVmmIdentityManager {
       if (acquired) {
         try {
           await this.dependencies.writeFile(
-            path.join(ACCOUNT_LOCK_DIRECTORY, 'owner.json'),
+            path.join(lockDirectory, 'owner.json'),
             `${JSON.stringify(owner)}\n`,
             { flag: 'wx', mode: 0o600 },
           );
           return await operation();
         } finally {
-          await this.removeOwnedLock(owner);
+          await this.removeOwnedLock(lockDirectory, owner);
         }
       }
-      await this.reclaimStaleLock();
+      await this.reclaimStaleLock(lockDirectory);
       if (Date.now() >= deadline) {
-        throw new Error('Timed out waiting for the Cloud Hypervisor VMM account lock');
+        throw new Error('Timed out waiting for the Cloud Hypervisor VMM identity lock');
       }
       await this.dependencies.sleep(ACCOUNT_LOCK_RETRY_MS);
     }
   }
 
-  private async reclaimStaleLock(): Promise<void> {
+  private async reclaimStaleLock(lockDirectory: string): Promise<void> {
+    const reaperDirectory = path.join(lockDirectory, '.reaper');
     let initialStats: Awaited<ReturnType<CloudHypervisorVmmIdentityDependencies['lstat']>>;
     try {
-      initialStats = await this.dependencies.lstat(ACCOUNT_LOCK_DIRECTORY);
+      initialStats = await this.dependencies.lstat(lockDirectory);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
       throw error;
     }
-    let owner = await this.readLockOwner();
+    let owner = await this.readLockOwner(lockDirectory);
     if (
       !owner &&
       (initialStats.mtimeMs === undefined ||
@@ -380,15 +424,15 @@ export class CloudHypervisorVmmIdentityManager {
       const liveStartTime = await this.dependencies.processStartTime(owner.pid);
       if (liveStartTime === owner.startTime) return;
     }
-    if (!await this.tryClaimReaper(initialStats)) return;
+    if (!await this.tryClaimReaper(reaperDirectory, initialStats)) return;
     try {
-      const currentStats = await this.dependencies.lstat(ACCOUNT_LOCK_DIRECTORY);
+      const currentStats = await this.dependencies.lstat(lockDirectory);
       if (
         initialStats.ino === undefined ||
         currentStats.ino === undefined ||
         currentStats.ino !== initialStats.ino
       ) return;
-      owner = await this.readLockOwner();
+      owner = await this.readLockOwner(lockDirectory);
       if (owner) {
         const liveStartTime = await this.dependencies.processStartTime(owner.pid);
         if (liveStartTime === owner.startTime) return;
@@ -398,18 +442,18 @@ export class CloudHypervisorVmmIdentityManager {
       ) {
         return;
       }
-      await this.dependencies.rm(ACCOUNT_LOCK_DIRECTORY, { recursive: true, force: true });
+      await this.dependencies.rm(lockDirectory, { recursive: true, force: true });
     } finally {
-      await this.dependencies.rmdir(ACCOUNT_REAPER_DIRECTORY).catch((error) => {
+      await this.dependencies.rmdir(reaperDirectory).catch((error) => {
         if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
       });
     }
   }
 
-  private async readLockOwner(): Promise<LockOwner | undefined> {
+  private async readLockOwner(lockDirectory: string): Promise<LockOwner | undefined> {
     try {
       const parsed = JSON.parse(
-        await this.dependencies.readFile(path.join(ACCOUNT_LOCK_DIRECTORY, 'owner.json'), 'utf8'),
+        await this.dependencies.readFile(path.join(lockDirectory, 'owner.json'), 'utf8'),
       ) as LockOwner;
       return isLockOwner(parsed) ? parsed : undefined;
     } catch (error) {
@@ -422,10 +466,11 @@ export class CloudHypervisorVmmIdentityManager {
   }
 
   private async tryClaimReaper(
+    reaperDirectory: string,
     lockStats: Awaited<ReturnType<CloudHypervisorVmmIdentityDependencies['lstat']>>,
   ): Promise<boolean> {
     try {
-      await this.dependencies.mkdir(ACCOUNT_REAPER_DIRECTORY, { mode: 0o700 });
+      await this.dependencies.mkdir(reaperDirectory, { mode: 0o700 });
       return true;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'EEXIST') {
@@ -433,13 +478,13 @@ export class CloudHypervisorVmmIdentityManager {
         throw error;
       }
       try {
-        const reaperStats = await this.dependencies.lstat(ACCOUNT_REAPER_DIRECTORY);
+        const reaperStats = await this.dependencies.lstat(reaperDirectory);
         if (
           lockStats.ino !== undefined &&
           reaperStats.mtimeMs !== undefined &&
           Date.now() - reaperStats.mtimeMs >= INCOMPLETE_LOCK_STALE_MS
         ) {
-          await this.dependencies.rmdir(ACCOUNT_REAPER_DIRECTORY);
+          await this.dependencies.rmdir(reaperDirectory);
         }
       } catch (reaperError) {
         if ((reaperError as NodeJS.ErrnoException).code !== 'ENOENT') throw reaperError;
@@ -448,14 +493,14 @@ export class CloudHypervisorVmmIdentityManager {
     }
   }
 
-  private async removeOwnedLock(owner: LockOwner): Promise<void> {
+  private async removeOwnedLock(lockDirectory: string, owner: LockOwner): Promise<void> {
     const current = JSON.parse(
-      await this.dependencies.readFile(path.join(ACCOUNT_LOCK_DIRECTORY, 'owner.json'), 'utf8'),
+      await this.dependencies.readFile(path.join(lockDirectory, 'owner.json'), 'utf8'),
     ) as LockOwner;
     if (!isSameLockOwner(owner, current)) {
       throw new Error('Cloud Hypervisor VMM account lock ownership changed unexpectedly');
     }
-    await this.dependencies.rm(ACCOUNT_LOCK_DIRECTORY, { recursive: true, force: true });
+    await this.dependencies.rm(lockDirectory, { recursive: true, force: true });
   }
 }
 

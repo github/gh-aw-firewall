@@ -154,6 +154,7 @@ function cleanupHandleMock(): CloudHypervisorCleanupHandle {
     prepareVmmAccount: jest.fn().mockResolvedValue(undefined),
     captureVmmIdentity: jest.fn().mockResolvedValue(undefined),
     prepareVmmAcl: jest.fn().mockResolvedValue(undefined),
+    releaseVmmAcl: jest.fn().mockResolvedValue(undefined),
     captureNetworkResource: jest.fn().mockResolvedValue(undefined),
     captureRunDirectory: jest.fn().mockResolvedValue(undefined),
     captureCgroup: jest.fn().mockResolvedValue(undefined),
@@ -175,7 +176,7 @@ function cleanupRegistryMock(): CloudHypervisorCleanupRegistry {
 function vmmIdentityMock(): CloudHypervisorVmmIdentityManager {
   return {
     allocate: jest.fn().mockResolvedValue({ name: 'awfvmm-test', uid: 2001, gid: 2002 }),
-    grantDeviceAccess: jest.fn().mockResolvedValue(undefined),
+    withDeviceAccess: jest.fn(async (operation: () => Promise<unknown>) => operation()),
     validateOwnedPaths: jest.fn().mockResolvedValue(undefined),
     validateTapOwnership: jest.fn().mockResolvedValue(undefined),
     cleanup: jest.fn().mockResolvedValue(undefined),
@@ -454,7 +455,7 @@ describe('CloudHypervisorManager', () => {
       expect.stringMatching(/^awfvm-/),
       expect.stringMatching(/^vmt/),
     );
-    expect(vmmIdentity.grantDeviceAccess).toHaveBeenCalledTimes(1);
+    expect(vmmIdentity.withDeviceAccess).toHaveBeenCalledTimes(1);
   });
 
   it('reuses a verified artifact snapshot instead of running preflight again', async () => {

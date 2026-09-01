@@ -118,9 +118,10 @@ function buildCloudHypervisorConfinementPolicy(): CloudHypervisorLaunchConfineme
  * socket configured; the VM itself is created and booted afterwards over that
  * socket.
  *
- * The launched process has no supplementary groups. Temporary per-run ACLs
- * grant its uid access to `/dev/kvm` and `/dev/net/tun`, avoiding membership
- * in a persistent host group.
+ * The launched process has no supplementary groups. A serialized, temporary
+ * per-run ACL lease grants its uid access to `/dev/kvm` and `/dev/net/tun`
+ * only through VM creation, avoiding both persistent host-group membership and
+ * long-lived access to shared host devices.
  *
  * The network manager creates, configures, and brings up the TAP before this
  * process starts, with the target uid/gid recorded as its owner. Cloud

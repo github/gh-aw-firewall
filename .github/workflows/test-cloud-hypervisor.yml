@@ -141,12 +141,6 @@ jobs:
             "$RUNNER_TEMP/cloud-hypervisor-test-x86_64/virtiofsd" \
             "$RUNNER_TEMP/cloud-hypervisor-test-x86_64/awf-supervisor"
 
-      - name: Grant workflow user access to KVM
-        run: |
-          if [ -e /dev/kvm ]; then
-            sudo setfacl --modify "user:$(id -u):rw" /dev/kvm
-          fi
-
       - name: Verify capable host and artifact digests
         run: |
           ./scripts/ci/cloud-hypervisor-host-preflight.sh \

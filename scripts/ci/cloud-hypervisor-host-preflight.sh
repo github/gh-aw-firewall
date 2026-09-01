@@ -36,8 +36,8 @@ case "${ImageOS:-}" in
 esac
 
 [ -c /dev/kvm ] || fail "/dev/kvm is missing; use a KVM-capable host."
-[ -r /dev/kvm ] && [ -w /dev/kvm ] \
-  || fail "/dev/kvm must be readable and writable by the workflow user."
+sudo -n test -r /dev/kvm -a -w /dev/kvm \
+  || fail "/dev/kvm must be readable and writable by the privileged AWF orchestrator."
 
 for control in \
   /proc/sys/net/ipv4/ip_forward \

@@ -107,6 +107,7 @@ export interface CloudHypervisorCleanupHandle {
   prepareVmmAccount(name: string): Promise<void>;
   captureVmmIdentity(identity: CloudHypervisorVmmIdentity): Promise<void>;
   prepareVmmAcl(path: string): Promise<void>;
+  releaseVmmAcl(path: string): Promise<void>;
   captureNetworkResource(resource: CloudHypervisorNetworkResource): Promise<void>;
   captureRunDirectory(): Promise<void>;
   captureCgroup(): Promise<void>;
@@ -378,6 +379,15 @@ export class DurableCloudHypervisorCleanupRegistry implements CloudHypervisorCle
           record.vmmIdentity.aclPaths.push(aclPath);
           await update();
         }
+      },
+      releaseVmmAcl: async (aclPath) => {
+        if (!record.vmmIdentity || record.vmmIdentity.state !== 'live') {
+          throw new Error('VMM cleanup identity is not committed before ACL release');
+        }
+        const index = record.vmmIdentity.aclPaths.indexOf(aclPath);
+        if (index < 0) throw new Error(`VMM ACL cleanup intent is missing for ${aclPath}`);
+        record.vmmIdentity.aclPaths.splice(index, 1);
+        await update();
       },
       captureNetworkResource: async (resource) => {
         const network = requireNetwork(record);

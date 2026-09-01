@@ -123,16 +123,13 @@ describe('Cloud Hypervisor CI workflow', () => {
     expect(restoreStep.run).toContain('cloud-hypervisor-test-x86_64/awf-supervisor');
   });
 
-  it('grants the workflow user scoped KVM access without making the device world-writable', () => {
+  it('does not grant the workflow user direct KVM access', () => {
     const doc = loadWorkflow();
-    const grantStep = doc.jobs['live-kvm'].steps?.find(
-      (step) => step.name === 'Grant workflow user access to KVM',
-    );
-
-    expect(grantStep?.run).toContain(
-      'sudo setfacl --modify "user:$(id -u):rw" /dev/kvm',
-    );
-    expect(grantStep?.run).not.toContain('chmod 666 /dev/kvm');
+    const source = (doc.jobs['live-kvm'].steps ?? [])
+      .map((step) => step.run ?? '')
+      .join('\n');
+    expect(source).not.toContain('setfacl');
+    expect(source).not.toContain('chmod 666 /dev/kvm');
   });
 
   it('verifies digests before running the live suite and cleans up unconditionally', () => {

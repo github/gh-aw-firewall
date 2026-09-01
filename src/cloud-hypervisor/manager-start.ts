@@ -102,6 +102,7 @@ export async function startCloudHypervisor(
       prepareAccount: (name) => cleanupRecord.prepareVmmAccount(name),
       captureIdentity: (identity) => cleanupRecord.captureVmmIdentity(identity),
       prepareAcl: (aclPath) => cleanupRecord.prepareVmmAcl(aclPath),
+      releaseAcl: (aclPath) => cleanupRecord.releaseVmmAcl(aclPath),
     });
     context.setVmmIdentity(vmmIdentityManager);
     const identity = await vmmIdentityManager.allocate();
@@ -191,79 +192,79 @@ export async function startCloudHypervisor(
       networkPlan.namespaceName,
       networkPlan.tapName,
     );
-    await vmmIdentityManager.grantDeviceAccess();
-
-    const launchCommand = buildCloudHypervisorLaunchCommand({
-      tools: { ip: artifacts.tools.ip, setpriv: artifacts.tools.setpriv },
-      namespaceName: networkPlan.namespaceName,
-      identity,
-      cloudHypervisorBinary: config.cloudHypervisorBinary,
-      apiSocketPath: paths.apiSocketPath,
-      logFilePath: paths.logPath,
-    });
-    await cleanupRecord.prepareProcess(
-      'vmm', artifacts.cloudHypervisorBinary, paths.apiSocketPath,
-    );
-    const child = dependencies.launch(launchCommand.command, [...launchCommand.args], {
-      reject: false,
-      stdio: ['ignore', 'pipe', 'pipe'],
-      // Cloud Hypervisor directly processes untrusted guest/device input, so
-      // its environment must not expose the host's provider credentials.
-      extendEnv: false,
-      env: { PATH: '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin' },
-    });
-    context.setProcess(child);
-    child.stdout?.on('data', (chunk: Buffer | string) => context.stdoutCapture.append(chunk));
-    child.stderr?.on('data', (chunk: Buffer | string) => context.stderrCapture.append(chunk));
-    if (child.pid === undefined) throw new Error('Cloud Hypervisor process did not expose a PID');
-    await cgroup.assign(child.pid);
-    await cleanupRecord.captureProcess('vmm', child.pid);
-
-    await waitForApiSocket(dependencies, paths, config.apiTimeoutMs, child);
-    await vmmIdentityManager.validateOwnedPaths([paths.apiSocketPath]);
-    const client = dependencies.createClient(paths.apiSocketPath, config.apiTimeoutMs);
-    context.setClient(client);
-    await client.ping();
-    if (child.pid === undefined) {
-      throw new Error('Cloud Hypervisor launcher did not report a PID for confinement verification');
-    }
-    context.setConfinementEvidence(await dependencies.verifyConfinement({
-      pid: child.pid,
-      expectedExecutable: config.cloudHypervisorBinary,
-      identity,
-      launchPolicy: launchCommand.confinementPolicy,
-      networkNamespace: networkPlan.namespaceName,
-      cgroupPath: paths.cgroupPath,
-      cgroupLimits: cgroup.expectedLimits(),
-    }));
-    if (guestConfig) {
-      const virtiofsd = dependencies.createVirtiofsdManager(
-        artifacts.virtiofsdBinary, paths.runDirectory, paths.virtiofsdShareDirectory,
-        identity, cgroup, { mount: artifacts.tools.mount, umount: artifacts.tools.umount },
-        cleanupRecord,
+    return await vmmIdentityManager.withDeviceAccess(async () => {
+      const launchCommand = buildCloudHypervisorLaunchCommand({
+        tools: { ip: artifacts.tools.ip, setpriv: artifacts.tools.setpriv },
+        namespaceName: networkPlan.namespaceName,
+        identity,
+        cloudHypervisorBinary: config.cloudHypervisorBinary,
+        apiSocketPath: paths.apiSocketPath,
+        logFilePath: paths.logPath,
+      });
+      await cleanupRecord.prepareProcess(
+        'vmm', artifacts.cloudHypervisorBinary, paths.apiSocketPath,
       );
-      context.setVirtiofsd(virtiofsd);
-      try {
-        context.setFsDevices(
-          await virtiofsd.start(guestConfig.exports, guestConfig.mountEnforcement),
-        );
-        await cleanupRecord.captureVirtiofsdResources();
-      } catch (error) {
-        context.setFsDevices(virtiofsd.getDiagnosticDevices());
-        throw error;
+      const child = dependencies.launch(launchCommand.command, [...launchCommand.args], {
+        reject: false,
+        stdio: ['ignore', 'pipe', 'pipe'],
+        // Cloud Hypervisor directly processes untrusted guest/device input, so
+        // its environment must not expose the host's provider credentials.
+        extendEnv: false,
+        env: { PATH: '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin' },
+      });
+      context.setProcess(child);
+      child.stdout?.on('data', (chunk: Buffer | string) => context.stdoutCapture.append(chunk));
+      child.stderr?.on('data', (chunk: Buffer | string) => context.stderrCapture.append(chunk));
+      if (child.pid === undefined) throw new Error('Cloud Hypervisor process did not expose a PID');
+      await cgroup.assign(child.pid);
+      await cleanupRecord.captureProcess('vmm', child.pid);
+
+      await waitForApiSocket(dependencies, paths, config.apiTimeoutMs, child);
+      await vmmIdentityManager.validateOwnedPaths([paths.apiSocketPath]);
+      const client = dependencies.createClient(paths.apiSocketPath, config.apiTimeoutMs);
+      context.setClient(client);
+      await client.ping();
+      if (child.pid === undefined) {
+        throw new Error('Cloud Hypervisor launcher did not report a PID for confinement verification');
       }
-      await vmmIdentityManager.validateOwnedPaths(
-        context.getFsDevices().map((device) => device.socketPath),
-      );
-    }
-    await client.vmCreate(buildCloudHypervisorVmConfig({
-      config,
-      paths,
-      networkPlan,
-      ...(guestConfig ? { guestConfig: { ...guestConfig, identity: guestIdentity } } : {}),
-      fsDevices: context.getFsDevices(),
-    }));
-    return client;
+      context.setConfinementEvidence(await dependencies.verifyConfinement({
+        pid: child.pid,
+        expectedExecutable: config.cloudHypervisorBinary,
+        identity,
+        launchPolicy: launchCommand.confinementPolicy,
+        networkNamespace: networkPlan.namespaceName,
+        cgroupPath: paths.cgroupPath,
+        cgroupLimits: cgroup.expectedLimits(),
+      }));
+      if (guestConfig) {
+        const virtiofsd = dependencies.createVirtiofsdManager(
+          artifacts.virtiofsdBinary, paths.runDirectory, paths.virtiofsdShareDirectory,
+          identity, cgroup, { mount: artifacts.tools.mount, umount: artifacts.tools.umount },
+          cleanupRecord,
+        );
+        context.setVirtiofsd(virtiofsd);
+        try {
+          context.setFsDevices(
+            await virtiofsd.start(guestConfig.exports, guestConfig.mountEnforcement),
+          );
+          await cleanupRecord.captureVirtiofsdResources();
+        } catch (error) {
+          context.setFsDevices(virtiofsd.getDiagnosticDevices());
+          throw error;
+        }
+        await vmmIdentityManager.validateOwnedPaths(
+          context.getFsDevices().map((device) => device.socketPath),
+        );
+      }
+      await client.vmCreate(buildCloudHypervisorVmConfig({
+        config,
+        paths,
+        networkPlan,
+        ...(guestConfig ? { guestConfig: { ...guestConfig, identity: guestIdentity } } : {}),
+        fsDevices: context.getFsDevices(),
+      }));
+      return client;
+    });
   } catch (error) {
     startupError = error;
   }
