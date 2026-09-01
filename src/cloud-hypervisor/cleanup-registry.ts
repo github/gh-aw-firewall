@@ -4,99 +4,39 @@ import * as path from 'path';
 import execa from 'execa';
 import type { MicrovmNetworkPlan } from '../microvm/network';
 import type { CloudHypervisorRunPaths } from './manager-types';
-import type {
-  CloudHypervisorVmmIdentity,
-  CloudHypervisorVmmIdentityToolPaths,
-} from './vmm-identity';
+import type { CloudHypervisorVmmIdentityToolPaths } from './vmm-identity';
+import { createCleanupHandle } from './cleanup-handle';
+import {
+  assertSafeRecordPaths,
+  validateProcessIdentity,
+  validateRecord,
+  CLEANUP_RECORD_VERSION,
+  sameFileIdentity,
+  sameMountIdentity,
+  type CleanupRecord,
+  type FileIdentity,
+  type InterfaceIdentity,
+  type MountIdentity,
+  type ProcessIdentity,
+  type RecordedProcess,
+} from './cleanup-identity';
+import {
+  bridgeForwardRule,
+  captureFileIdentity,
+  captureInterfaceIdentity,
+  captureProcessIdentity,
+  interfaceExists,
+  processMatches,
+  readMounts,
+  tryCaptureInterfaceIdentity,
+  tryKill,
+} from './cleanup-process';
 
 const CLEANUP_DIRECTORY_NAME = 'pending-cleanup';
-const RECORD_VERSION = 1;
 const PROCESS_STOP_WAIT_MS = 2_000;
 const PROCESS_STOP_INTERVAL_MS = 50;
-const PROCESS_IDENTITY_WAIT_MS = 2_000;
-const PROCESS_IDENTITY_INTERVAL_MS = 10;
 const CGROUP_REMOVAL_WAIT_MS = 5_000;
 const CGROUP_REMOVAL_INTERVAL_MS = 100;
-
-interface FileIdentity {
-  readonly device: string;
-  readonly inode: string;
-}
-
-interface ProcessIdentity {
-  readonly pid: number;
-  readonly startTime: string;
-  readonly executable: string;
-  readonly executableIdentity: FileIdentity;
-  readonly uid: number;
-  readonly gid: number;
-  readonly networkNamespace: string;
-}
-
-interface InterfaceIdentity {
-  readonly name: string;
-  readonly namespace?: string;
-  readonly ifindex: number;
-}
-
-interface MountIdentity {
-  readonly mountId: number;
-  readonly device: string;
-  readonly root: string;
-  readonly mountPoint: string;
-  readonly filesystemType: string;
-  readonly source: string;
-}
-
-interface RecordedProcess {
-  readonly state: 'pending' | 'live';
-  readonly executable: string;
-  readonly socketPath: string;
-  readonly sourcePath?: string;
-  readonly identity?: ProcessIdentity;
-}
-
-interface CleanupRecord {
-  readonly version: 1;
-  readonly runId: string;
-  readonly owner: ProcessIdentity;
-  readonly cloudHypervisorBinary: string;
-  readonly paths: {
-    readonly runDirectory: string;
-    readonly cgroupPath: string;
-    readonly virtiofsdShareDirectory: string;
-    artifactSnapshotDirectory?: string;
-  };
-  network?: {
-    readonly namespaceName: string;
-    readonly netnsPath: string;
-    readonly hostVethName: string;
-    readonly namespaceVethName: string;
-    readonly tapName: string;
-    readonly infrastructureBridge: string;
-    readonly hostForwardRuleComment: string;
-  };
-  readonly identities: {
-    runDirectory?: FileIdentity;
-    cgroup?: FileIdentity;
-    virtiofsdShareDirectory?: FileIdentity;
-    artifactSnapshotDirectory?: FileIdentity;
-    netns?: FileIdentity;
-    hostVeth?: InterfaceIdentity;
-    namespaceVeth?: InterfaceIdentity;
-    tap?: InterfaceIdentity;
-  };
-  readonly processes: Record<string, RecordedProcess>;
-  vmmIdentity?: {
-    state: 'pending' | 'live';
-    name: string;
-    uid?: number;
-    gid?: number;
-    aclPaths: string[];
-  };
-  mounts: MountIdentity[];
-  updatedAt: string;
-}
 
 export type CloudHypervisorNetworkResource =
   'netns' | 'hostVeth' | 'namespaceVeth' | 'tap';
@@ -105,7 +45,7 @@ export interface CloudHypervisorCleanupHandle {
   captureNetworkPlan(plan: MicrovmNetworkPlan): Promise<void>;
   captureArtifactSnapshot(directory: string): Promise<void>;
   prepareVmmAccount(name: string): Promise<void>;
-  captureVmmIdentity(identity: CloudHypervisorVmmIdentity): Promise<void>;
+  captureVmmIdentity(identity: import('./vmm-identity').CloudHypervisorVmmIdentity): Promise<void>;
   prepareVmmAcl(path: string): Promise<void>;
   releaseVmmAcl(path: string): Promise<void>;
   captureNetworkResource(resource: CloudHypervisorNetworkResource): Promise<void>;
@@ -278,7 +218,7 @@ export class DurableCloudHypervisorCleanupRegistry implements CloudHypervisorCle
     const owner = await this.captureProcessIdentity(this.dependencies.processId);
     const binary = await this.dependencies.realpath(cloudHypervisorBinary);
     const record: CleanupRecord = {
-      version: RECORD_VERSION,
+      version: CLEANUP_RECORD_VERSION,
       runId: paths.runId,
       owner,
       cloudHypervisorBinary: binary,
@@ -302,191 +242,21 @@ export class DurableCloudHypervisorCleanupRegistry implements CloudHypervisorCle
       updatedAt: new Date().toISOString(),
     };
     await this.writeRecord(recordPath, record, true);
-    return this.createHandle(recordPath, record, ipPath);
-  }
-
-  private createHandle(
-    recordPath: string,
-    record: CleanupRecord,
-    ipPath: string,
-  ): CloudHypervisorCleanupHandle {
-    const update = async (): Promise<void> => {
-      record.updatedAt = new Date().toISOString();
-      await this.writeRecord(recordPath, record, false);
-    };
-    return {
-      captureNetworkPlan: async (plan) => {
-        assertSafeRecordPaths({
-          ...record.paths,
-          runId: record.runId,
-          runBaseDir: path.dirname(path.dirname(record.paths.runDirectory)),
-        } as CloudHypervisorRunPaths, plan);
-        if (record.network) throw new Error('Cleanup network plan is already committed');
-        record.network = {
-          namespaceName: plan.namespaceName,
-          netnsPath: plan.netnsPath,
-          hostVethName: plan.hostVethName,
-          namespaceVethName: plan.namespaceVethName,
-          tapName: plan.tapName,
-          infrastructureBridge: plan.infrastructureBridge,
-          hostForwardRuleComment: plan.hostForwardRuleComment,
-        };
-        await update();
-      },
-      captureArtifactSnapshot: async (directory) => {
-        const snapshotRoot = path.join(
-          path.dirname(path.dirname(record.paths.runDirectory)),
-          'trusted-artifacts',
-        );
-        if (
-          !path.isAbsolute(directory) ||
-          path.dirname(directory) !== snapshotRoot ||
-          !/^run-[A-Za-z0-9_-]+$/.test(path.basename(directory))
-        ) throw new Error(`Unsafe artifact snapshot cleanup path: ${directory}`);
-        record.paths.artifactSnapshotDirectory = directory;
-        record.identities.artifactSnapshotDirectory =
-          await this.captureFileIdentity(directory);
-        await update();
-      },
-      prepareVmmAccount: async (name) => {
-        if (!/^awfvmm-[a-f0-9]{20}$/.test(name) || record.vmmIdentity) {
-          throw new Error(`Unsafe or duplicate VMM cleanup account: ${name}`);
-        }
-        record.vmmIdentity = { state: 'pending', name, aclPaths: [] };
-        await update();
-      },
-      captureVmmIdentity: async (identity) => {
-        const pending = record.vmmIdentity;
-        if (
-          !pending ||
-          pending.name !== identity.name ||
-          !Number.isSafeInteger(identity.uid) ||
-          identity.uid <= 0 ||
-          !Number.isSafeInteger(identity.gid) ||
-          identity.gid <= 0
-        ) throw new Error('VMM cleanup identity does not match its pending account');
-        record.vmmIdentity = { ...pending, state: 'live', uid: identity.uid, gid: identity.gid };
-        await update();
-      },
-      prepareVmmAcl: async (aclPath) => {
-        if (!record.vmmIdentity || record.vmmIdentity.state !== 'live') {
-          throw new Error('VMM cleanup identity is not committed before ACL grant');
-        }
-        if (aclPath !== '/dev/kvm' && aclPath !== '/dev/net/tun') {
-          throw new Error(`Unsafe VMM ACL cleanup path: ${aclPath}`);
-        }
-        if (!record.vmmIdentity.aclPaths.includes(aclPath)) {
-          record.vmmIdentity.aclPaths.push(aclPath);
-          await update();
-        }
-      },
-      releaseVmmAcl: async (aclPath) => {
-        if (!record.vmmIdentity || record.vmmIdentity.state !== 'live') {
-          throw new Error('VMM cleanup identity is not committed before ACL release');
-        }
-        const index = record.vmmIdentity.aclPaths.indexOf(aclPath);
-        if (index < 0) throw new Error(`VMM ACL cleanup intent is missing for ${aclPath}`);
-        record.vmmIdentity.aclPaths.splice(index, 1);
-        await update();
-      },
-      captureNetworkResource: async (resource) => {
-        const network = requireNetwork(record);
-        switch (resource) {
-          case 'netns':
-            record.identities.netns = await this.captureFileIdentity(network.netnsPath);
-            break;
-          case 'hostVeth':
-            record.identities.hostVeth = await this.captureInterfaceIdentity(
-              ipPath, network.hostVethName,
-            );
-            break;
-          case 'namespaceVeth':
-            record.identities.namespaceVeth = await this.captureInterfaceIdentity(
-              ipPath, network.namespaceVethName, network.namespaceName,
-            );
-            break;
-          case 'tap':
-            record.identities.tap = await this.captureInterfaceIdentity(
-              ipPath, network.tapName, network.namespaceName,
-            );
-            break;
-        }
-        await update();
-      },
-      captureRunDirectory: async () => {
-        record.identities.runDirectory = await this.captureFileIdentity(record.paths.runDirectory);
-        await update();
-      },
-      captureCgroup: async () => {
-        record.identities.cgroup = await this.captureFileIdentity(record.paths.cgroupPath);
-        await update();
-      },
-      captureVirtiofsdResources: async () => {
-        if (await pathExists(record.paths.virtiofsdShareDirectory, this.dependencies.lstat)) {
-          record.identities.virtiofsdShareDirectory = await this.captureFileIdentity(
-            record.paths.virtiofsdShareDirectory,
-          );
-          record.mounts = (await this.readMounts()).filter((mount) =>
-            mount.mountPoint === record.paths.virtiofsdShareDirectory ||
-            mount.mountPoint.startsWith(`${record.paths.virtiofsdShareDirectory}${path.sep}`),
-          );
-        }
-        await update();
-      },
-      prepareProcess: async (key, executable, socketPath, sourcePath) => {
-        assertSafeProcessKey(key);
-        // The key is restricted to a non-prototypal identifier alphabet above.
-        // eslint-disable-next-line security/detect-object-injection
-        record.processes[key] = {
-          state: 'pending',
-          executable: await this.dependencies.realpath(executable),
-          socketPath,
-          ...(sourcePath ? { sourcePath } : {}),
-        };
-        await update();
-      },
-      captureProcess: async (key, pid) => {
-        assertSafeProcessKey(key);
-        // The key is restricted to a non-prototypal identifier alphabet above.
-        // eslint-disable-next-line security/detect-object-injection
-        const pending = record.processes[key];
-        if (!pending) throw new Error(`Cleanup identity was not prepared for process "${key}"`);
-        const expectedNetworkNamespace = key === 'vmm'
-          ? `net:[${record.identities.netns?.inode}]`
-          : undefined;
-        const requiresPrivateNetworkNamespace = key.startsWith('virtiofsd-');
-        const deadline = Date.now() + PROCESS_IDENTITY_WAIT_MS;
-        let identity: ProcessIdentity;
-        for (;;) {
-          identity = await this.captureProcessIdentity(pid);
-          if (
-            identity.executable === pending.executable &&
-            (
-              expectedNetworkNamespace === undefined ||
-              identity.networkNamespace === expectedNetworkNamespace
-            ) &&
-            (
-              !requiresPrivateNetworkNamespace ||
-              identity.networkNamespace !== record.owner.networkNamespace
-            )
-          ) break;
-          if (Date.now() >= deadline) {
-            throw new Error(`Process "${key}" did not match its prepared cleanup identity`);
-          }
-          // execa returns after fork; allow the trusted ip -> setpriv -> target
-          // exec chain to finish before requiring the final executable/netns.
-          await this.dependencies.sleep(PROCESS_IDENTITY_INTERVAL_MS);
-        }
-        // eslint-disable-next-line security/detect-object-injection
-        record.processes[key] = { ...pending, state: 'live', identity };
-        await update();
-      },
-      complete: async () => {
-        await this.dependencies.unlink(recordPath).catch((error: NodeJS.ErrnoException) => {
-          if (error.code !== 'ENOENT') throw error;
-        });
-      },
-    };
+    return createCleanupHandle({
+      recordPath,
+      record,
+      ipPath,
+      persist: () => this.writeRecord(recordPath, record, false),
+      unlink: this.dependencies.unlink,
+      realpath: this.dependencies.realpath,
+      sleep: this.dependencies.sleep,
+      pathExists: (filePath) => pathExists(filePath, this.dependencies.lstat),
+      captureFileIdentity: (filePath) => this.captureFileIdentity(filePath),
+      captureInterfaceIdentity: (commandPath, name, namespace) =>
+        this.captureInterfaceIdentity(commandPath, name, namespace),
+      captureProcessIdentity: (pid) => this.captureProcessIdentity(pid),
+      readMounts: () => this.readMounts(),
+    });
   }
 
   private async reapRecord(
@@ -536,9 +306,7 @@ export class DurableCloudHypervisorCleanupRegistry implements CloudHypervisorCle
 
   private async validateRecordResources(record: CleanupRecord, ipPath: string): Promise<void> {
     const network = record.network;
-    const netnsExists = network
-      ? await pathExists(network.netnsPath, this.dependencies.lstat)
-      : false;
+    const netnsExists = network ? await pathExists(network.netnsPath, this.dependencies.lstat) : false;
     if (network) {
       await this.validateFileIfPresent(network.netnsPath, record.identities.netns, 'netns');
     }
@@ -558,9 +326,11 @@ export class DurableCloudHypervisorCleanupRegistry implements CloudHypervisorCle
         'artifact snapshot directory',
       );
     }
-    if (network) await this.validateInterfaceIfPresent(
-      ipPath, network.hostVethName, record.identities.hostVeth, undefined,
-    );
+    if (network) {
+      await this.validateInterfaceIfPresent(
+        ipPath, network.hostVethName, record.identities.hostVeth, undefined,
+      );
+    }
     if (network && netnsExists) {
       await this.validateInterfaceIfPresent(
         ipPath,
@@ -631,16 +401,11 @@ export class DurableCloudHypervisorCleanupRegistry implements CloudHypervisorCle
           throw new Error(`VMM ACL revalidation failed for ${aclPath}: ${acl.stderr.trim()}`);
         }
         if (acl.stdout.split(/\r?\n/).some((line) => line.startsWith(`user:${identity.uid}:`))) {
-          await this.runChecked(tools.setfacl, [
-            '--remove', `user:${identity.uid}`, aclPath,
-          ]);
-          acl = await this.dependencies.run(tools.getfacl, [
-            '--absolute-names', '--numeric', aclPath,
-          ]);
+          await this.runChecked(tools.setfacl, ['--remove', `user:${identity.uid}`, aclPath]);
+          acl = await this.dependencies.run(tools.getfacl, ['--absolute-names', '--numeric', aclPath]);
           if (
             acl.exitCode !== 0 ||
-            acl.stdout.split(/\r?\n/).some((line) =>
-              line.startsWith(`user:${identity.uid}:`))
+            acl.stdout.split(/\r?\n/).some((line) => line.startsWith(`user:${identity.uid}:`))
           ) throw new Error(`VMM ACL removal validation failed for ${aclPath}`);
         }
       }
@@ -715,7 +480,7 @@ export class DurableCloudHypervisorCleanupRegistry implements CloudHypervisorCle
   }
 
   private async stopProcess(identity: ProcessIdentity, recorded: RecordedProcess): Promise<void> {
-    if (!this.tryKill(identity.pid, 'SIGTERM')) {
+    if (!tryKill(this.dependencies.kill, identity.pid, 'SIGTERM')) {
       if (await this.processMatches(identity, recorded)) {
         throw new Error(`process ${identity.pid} still matches after kill reported ESRCH`);
       }
@@ -727,7 +492,7 @@ export class DurableCloudHypervisorCleanupRegistry implements CloudHypervisorCle
       await this.dependencies.sleep(PROCESS_STOP_INTERVAL_MS);
     }
     if (!(await this.processMatches(identity, recorded))) return;
-    if (!this.tryKill(identity.pid, 'SIGKILL')) {
+    if (!tryKill(this.dependencies.kill, identity.pid, 'SIGKILL')) {
       if (await this.processMatches(identity, recorded)) {
         throw new Error(`process ${identity.pid} still matches after kill reported ESRCH`);
       }
@@ -740,16 +505,6 @@ export class DurableCloudHypervisorCleanupRegistry implements CloudHypervisorCle
     throw new Error(`identity-validated process ${identity.pid} did not exit`);
   }
 
-  private tryKill(pid: number, signal: NodeJS.Signals): boolean {
-    try {
-      this.dependencies.kill(pid, signal);
-      return true;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ESRCH') return false;
-      throw error;
-    }
-  }
-
   private async unmountVirtiofsdResources(
     record: CleanupRecord,
     umountPath: string,
@@ -757,9 +512,7 @@ export class DurableCloudHypervisorCleanupRegistry implements CloudHypervisorCle
     for (const expected of [...record.mounts].sort(
       (left, right) => right.mountPoint.length - left.mountPoint.length,
     )) {
-      const current = (await this.readMounts()).find(
-        (mount) => mount.mountPoint === expected.mountPoint,
-      );
+      const current = (await this.readMounts()).find((mount) => mount.mountPoint === expected.mountPoint);
       if (!current) continue;
       if (!sameMountIdentity(current, expected)) {
         throw new Error(`mount identity changed: ${expected.mountPoint}`);
@@ -769,8 +522,7 @@ export class DurableCloudHypervisorCleanupRegistry implements CloudHypervisorCle
   }
 
   private async readMounts(): Promise<MountIdentity[]> {
-    const text = await this.dependencies.readFile('/proc/self/mountinfo', 'utf8');
-    return text.split(/\r?\n/).filter(Boolean).map(parseMountInfoLine);
+    return readMounts(this.dependencies.readFile);
   }
 
   private async assertNoMountsUnder(directory: string): Promise<void> {
@@ -811,66 +563,15 @@ export class DurableCloudHypervisorCleanupRegistry implements CloudHypervisorCle
   }
 
   private async captureProcessIdentity(pid: number): Promise<ProcessIdentity> {
-    if (!Number.isSafeInteger(pid) || pid <= 1) throw new Error(`Unsafe process id: ${pid}`);
-    const statText = await this.dependencies.readFile(`/proc/${pid}/stat`, 'utf8');
-    const closingParen = statText.lastIndexOf(')');
-    if (closingParen < 0) throw new Error(`Malformed /proc/${pid}/stat`);
-    const fields = statText.slice(closingParen + 2).trim().split(/\s+/);
-    const startTime = fields[19];
-    if (!startTime) throw new Error(`Missing process start time for PID ${pid}`);
-    const status = await this.dependencies.readFile(`/proc/${pid}/status`, 'utf8');
-    const uid = parseStatusIdentity(status, 'Uid');
-    const gid = parseStatusIdentity(status, 'Gid');
-    const executableLink = `/proc/${pid}/exe`;
-    const executable = (await this.dependencies.readlink(executableLink))
-      .replace(/ \(deleted\)$/, '');
-    return {
-      pid,
-      startTime,
-      executable,
-      executableIdentity: await this.captureFollowedFileIdentity(executableLink),
-      uid,
-      gid,
-      networkNamespace: await this.dependencies.readlink(`/proc/${pid}/ns/net`),
-    };
+    return captureProcessIdentity(this.dependencies, pid);
   }
 
-  private async processMatches(
-    expected: ProcessIdentity,
-    recorded?: RecordedProcess,
-  ): Promise<boolean> {
-    try {
-      const current = await this.captureProcessIdentity(expected.pid);
-      if (
-        current.startTime !== expected.startTime ||
-        current.executable !== expected.executable ||
-        !sameFileIdentity(current.executableIdentity, expected.executableIdentity) ||
-        current.uid !== expected.uid ||
-        current.gid !== expected.gid ||
-        current.networkNamespace !== expected.networkNamespace
-      ) return false;
-      if (recorded) {
-        const cmdline = await this.dependencies.readFile(`/proc/${expected.pid}/cmdline`, 'utf8');
-        if (
-          !cmdline.includes(recorded.socketPath) ||
-          (recorded.sourcePath !== undefined && !cmdline.includes(recorded.sourcePath))
-        ) return false;
-      }
-      return true;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
-      throw error;
-    }
+  private async processMatches(expected: ProcessIdentity, recorded?: RecordedProcess): Promise<boolean> {
+    return processMatches(this.dependencies, expected, recorded);
   }
 
   private async captureFileIdentity(filePath: string): Promise<FileIdentity> {
-    const value = await this.dependencies.lstat(filePath, { bigint: true });
-    return { device: value.dev.toString(), inode: value.ino.toString() };
-  }
-
-  private async captureFollowedFileIdentity(filePath: string): Promise<FileIdentity> {
-    const value = await this.dependencies.stat(filePath, { bigint: true });
-    return { device: value.dev.toString(), inode: value.ino.toString() };
+    return captureFileIdentity(this.dependencies.lstat, filePath);
   }
 
   private async captureInterfaceIdentity(
@@ -878,9 +579,7 @@ export class DurableCloudHypervisorCleanupRegistry implements CloudHypervisorCle
     name: string,
     namespace?: string,
   ): Promise<InterfaceIdentity> {
-    const identity = await this.tryCaptureInterfaceIdentity(ipPath, name, namespace);
-    if (!identity) throw new Error(`Could not capture interface identity for "${name}"`);
-    return identity;
+    return captureInterfaceIdentity(this.dependencies.run, ipPath, name, namespace);
   }
 
   private async tryCaptureInterfaceIdentity(
@@ -888,33 +587,21 @@ export class DurableCloudHypervisorCleanupRegistry implements CloudHypervisorCle
     name: string,
     namespace?: string,
   ): Promise<InterfaceIdentity | undefined> {
-    const args = namespace
-      ? ['netns', 'exec', namespace, ipPath, '-json', 'link', 'show', 'dev', name]
-      : ['-json', 'link', 'show', 'dev', name];
-    const result = await this.dependencies.run(ipPath, args);
-    if (result.exitCode !== 0) {
-      if (/does not exist|cannot find device/i.test(result.stderr)) return undefined;
-      throw new Error(`${ipPath} ${args.join(' ')} failed: ${result.stderr.trim()}`);
-    }
-    const parsed = JSON.parse(result.stdout) as unknown;
-    if (!Array.isArray(parsed) || parsed.length !== 1) {
-      throw new Error(`Unexpected interface inspection for "${name}"`);
-    }
-    const item = parsed[0] as { ifindex?: unknown; ifname?: unknown };
-    if (item.ifname !== name || !Number.isSafeInteger(item.ifindex)) {
-      throw new Error(`Invalid interface inspection for "${name}"`);
-    }
-    return { name, ...(namespace ? { namespace } : {}), ifindex: item.ifindex as number };
+    return tryCaptureInterfaceIdentity(this.dependencies.run, ipPath, name, namespace);
   }
 
   private async interfaceExists(ipPath: string, name: string): Promise<boolean> {
-    return (await this.tryCaptureInterfaceIdentity(ipPath, name)) !== undefined;
+    return interfaceExists(this.dependencies.run, ipPath, name);
   }
 
   private async readRecord(recordPath: string): Promise<CleanupRecord> {
     const fileStat = await this.dependencies.lstat(recordPath);
-    if (!fileStat.isFile() || fileStat.isSymbolicLink() || fileStat.uid !== 0 ||
-        (fileStat.mode & 0o777) !== 0o600) {
+    if (
+      !fileStat.isFile() ||
+      fileStat.isSymbolicLink() ||
+      fileStat.uid !== 0 ||
+      (fileStat.mode & 0o777) !== 0o600
+    ) {
       throw new Error('cleanup record is not a root-owned mode-0600 regular file');
     }
     const parsed = JSON.parse(await this.dependencies.readFile(recordPath, 'utf8')) as CleanupRecord;
@@ -934,7 +621,8 @@ export class DurableCloudHypervisorCleanupRegistry implements CloudHypervisorCle
       0o600,
     );
     try {
-      await handle.writeFile(`${JSON.stringify(record, null, 2)}\n`);
+      await handle.writeFile(`${JSON.stringify(record, null, 2)}
+`);
       await handle.sync();
     } finally {
       await handle.close();
@@ -954,7 +642,11 @@ export class DurableCloudHypervisorCleanupRegistry implements CloudHypervisorCle
         await this.dependencies.rename(temporaryPath, recordPath);
       }
       const directory = await this.dependencies.open(this.dependencies.rootDirectory, 'r');
-      try { await directory.sync(); } finally { await directory.close(); }
+      try {
+        await directory.sync();
+      } finally {
+        await directory.close();
+      }
     } catch (error) {
       await this.dependencies.unlink(temporaryPath).catch(() => undefined);
       throw error;
@@ -987,7 +679,8 @@ export class DurableCloudHypervisorCleanupRegistry implements CloudHypervisorCle
       const temporaryPath = `${lockPath}.tmp-${this.dependencies.processId}-${randomBytes(6).toString('hex')}`;
       const handle = await this.dependencies.open(temporaryPath, 'wx', 0o600);
       try {
-        await handle.writeFile(`${JSON.stringify(owner)}\n`);
+        await handle.writeFile(`${JSON.stringify(owner)}
+`);
         await handle.sync();
       } finally {
         await handle.close();
@@ -1038,7 +731,8 @@ export class DurableCloudHypervisorCleanupRegistry implements CloudHypervisorCle
       const claimedTemporaryPath = `${claimedPath}.tmp-${this.dependencies.processId}-${randomBytes(6).toString('hex')}`;
       const claimedHandle = await this.dependencies.open(claimedTemporaryPath, 'wx', 0o600);
       try {
-        await claimedHandle.writeFile(`${JSON.stringify(owner)}\n`);
+        await claimedHandle.writeFile(`${JSON.stringify(owner)}
+`);
         await claimedHandle.sync();
       } finally {
         await claimedHandle.close();
@@ -1133,203 +827,29 @@ async function removeExactDirectory(
   ) throw new Error(`${directory} identity changed`);
   if (recursive) {
     await dependencies.rm(directory, { recursive: true, force: false });
-  } else {
-    const deadline = Date.now() + CGROUP_REMOVAL_WAIT_MS;
-    for (;;) {
-      try {
-        await dependencies.rmdir(directory);
-        return;
-      } catch (error) {
-        const code = (error as NodeJS.ErrnoException).code;
-        if (
-          (code !== 'EBUSY' && code !== 'ENOTEMPTY') ||
-          Date.now() >= deadline
-        ) throw error;
-        const retryIdentity = await dependencies.lstat(directory, { bigint: true });
-        if (
-          retryIdentity.dev.toString() !== expected.device ||
-          retryIdentity.ino.toString() !== expected.inode
-        ) throw new Error(`${directory} identity changed during cgroup drain`);
-        await dependencies.sleep(CGROUP_REMOVAL_INTERVAL_MS);
-      }
+    return;
+  }
+  const deadline = Date.now() + CGROUP_REMOVAL_WAIT_MS;
+  for (;;) {
+    try {
+      await dependencies.rmdir(directory);
+      return;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if ((code !== 'EBUSY' && code !== 'ENOTEMPTY') || Date.now() >= deadline) throw error;
+      const retryIdentity = await dependencies.lstat(directory, { bigint: true });
+      if (
+        retryIdentity.dev.toString() !== expected.device ||
+        retryIdentity.ino.toString() !== expected.inode
+      ) throw new Error(`${directory} identity changed during cgroup drain`);
+      await dependencies.sleep(CGROUP_REMOVAL_INTERVAL_MS);
     }
   }
-}
-
-function validateRecord(
-  record: CleanupRecord,
-  recordPath: string,
-  registryRoot: string,
-): void {
-  if (
-    record?.version !== RECORD_VERSION ||
-    !record.runId ||
-    !/^[A-Za-z0-9_.-]+$/.test(record.runId) ||
-    path.join(registryRoot, `${record.runId}.json`) !== recordPath
-  ) throw new Error('invalid cleanup record identity');
-  if (
-    !record.paths?.runDirectory.endsWith(`/${record.runId}`) ||
-    !record.paths?.cgroupPath.endsWith(`/${record.runId}`) ||
-    !record.paths?.virtiofsdShareDirectory.endsWith(`/${record.runId}`) ||
-    (record.paths.artifactSnapshotDirectory !== undefined && (
-      path.dirname(record.paths.artifactSnapshotDirectory) !== path.join(
-        path.dirname(path.dirname(record.paths.runDirectory)),
-        'trusted-artifacts',
-      ) ||
-      !/^run-[A-Za-z0-9_-]+$/.test(path.basename(record.paths.artifactSnapshotDirectory))
-    )) ||
-    (record.network !== undefined && (
-      record.network.netnsPath !== `/var/run/netns/${record.network.namespaceName}` ||
-      !/^awf-microvm-[0-9a-f]{12}$/.test(record.network.hostForwardRuleComment) ||
-      !/^[A-Za-z0-9_.-]{1,15}$/.test(record.network.infrastructureBridge)
-    ))
-  ) throw new Error('cleanup record paths are not run-scoped');
-  validateProcessIdentity(record.owner, 'cleanup record owner');
-  if (
-    typeof record.processes !== 'object' ||
-    record.processes === null ||
-    Array.isArray(record.processes) ||
-    !Array.isArray(record.mounts)
-  ) throw new Error('cleanup record resource identities are malformed');
-  for (const [key, processRecord] of Object.entries(record.processes)) {
-    assertSafeProcessKey(key);
-    if (
-      (processRecord.state !== 'pending' && processRecord.state !== 'live') ||
-      !path.isAbsolute(processRecord.executable) ||
-      !path.isAbsolute(processRecord.socketPath) ||
-      (processRecord.sourcePath !== undefined && !path.isAbsolute(processRecord.sourcePath)) ||
-      (processRecord.state === 'live' && processRecord.identity === undefined)
-    ) throw new Error(`cleanup process record is malformed: ${key}`);
-    if (processRecord.identity) validateProcessIdentity(processRecord.identity, `process "${key}"`);
-  }
-  if (record.vmmIdentity) {
-    const identity = record.vmmIdentity;
-    if (
-      !/^awfvmm-[a-f0-9]{20}$/.test(identity.name) ||
-      (identity.state !== 'pending' && identity.state !== 'live') ||
-      !Array.isArray(identity.aclPaths) ||
-      identity.aclPaths.some((aclPath) =>
-        aclPath !== '/dev/kvm' && aclPath !== '/dev/net/tun') ||
-      new Set(identity.aclPaths).size !== identity.aclPaths.length ||
-      (identity.state === 'live' && (
-        !Number.isSafeInteger(identity.uid) ||
-        identity.uid! <= 0 ||
-        !Number.isSafeInteger(identity.gid) ||
-        identity.gid! <= 0
-      ))
-    ) throw new Error('cleanup VMM identity is malformed');
-  }
-  for (const mount of record.mounts) {
-    if (
-      !Number.isSafeInteger(mount.mountId) ||
-      mount.mountId <= 0 ||
-      !mount.device ||
-      !path.isAbsolute(mount.mountPoint) ||
-      (
-        mount.mountPoint !== record.paths.virtiofsdShareDirectory &&
-        !mount.mountPoint.startsWith(`${record.paths.virtiofsdShareDirectory}${path.sep}`)
-      ) ||
-      !mount.filesystemType ||
-      !mount.source
-    ) throw new Error('cleanup mount identity is malformed');
-  }
-}
-
-function assertSafeRecordPaths(
-  paths: CloudHypervisorRunPaths,
-  plan: MicrovmNetworkPlan | undefined,
-): void {
-  if (
-    (plan !== undefined && plan.runId !== paths.runId) ||
-    !paths.runDirectory.startsWith(`${paths.runBaseDir}${path.sep}`) ||
-    !paths.runDirectory.endsWith(`${path.sep}${paths.runId}`) ||
-    !paths.cgroupPath.endsWith(`${path.sep}${paths.runId}`)
-  ) throw new Error('Cloud Hypervisor cleanup resources are not scoped to one run');
 }
 
 function requireNetwork(record: CleanupRecord): NonNullable<CleanupRecord['network']> {
   if (!record.network) throw new Error('Cleanup network plan is not committed');
   return record.network;
-}
-
-function assertSafeProcessKey(key: string): void {
-  if (
-    !/^[A-Za-z0-9_.-]+$/.test(key) ||
-    key === '__proto__' ||
-    key === 'constructor' ||
-    key === 'prototype'
-  ) throw new Error(`Unsafe cleanup process key: ${key}`);
-}
-
-function parseStatusIdentity(status: string, name: 'Uid' | 'Gid'): number {
-  const line = status.split(/\r?\n/).find((candidate) => candidate.startsWith(`${name}:`));
-  const identities = line?.slice(name.length + 1).trim().split(/\s+/);
-  if (
-    identities?.length !== 4 ||
-    !identities.every((value) => /^\d+$/.test(value) && value === identities[0])
-  ) {
-    throw new Error(`Process ${name} identities are not stable`);
-  }
-
-  return Number(identities[0]);
-}
-
-function validateProcessIdentity(identity: ProcessIdentity, label: string): void {
-  if (
-    !identity ||
-    !Number.isSafeInteger(identity.pid) ||
-    identity.pid <= 1 ||
-    !/^\d+$/.test(identity.startTime) ||
-    !path.isAbsolute(identity.executable) ||
-    !/^\d+$/.test(identity.executableIdentity?.device) ||
-    !/^\d+$/.test(identity.executableIdentity?.inode) ||
-    !Number.isSafeInteger(identity.uid) ||
-    identity.uid < 0 ||
-    !Number.isSafeInteger(identity.gid) ||
-    identity.gid < 0 ||
-    !/^net:\[\d+\]$/.test(identity.networkNamespace)
-  ) throw new Error(`${label} identity is malformed`);
-}
-
-function sameFileIdentity(left: FileIdentity, right: FileIdentity): boolean {
-  return left.device === right.device && left.inode === right.inode;
-}
-
-function sameMountIdentity(left: MountIdentity, right: MountIdentity): boolean {
-  return left.mountId === right.mountId &&
-    left.device === right.device &&
-    left.root === right.root &&
-    left.mountPoint === right.mountPoint &&
-    left.filesystemType === right.filesystemType &&
-    left.source === right.source;
-}
-
-function parseMountInfoLine(line: string): MountIdentity {
-  const fields = line.split(' ');
-  const separator = fields.indexOf('-');
-  const mountId = Number(fields[0]);
-  if (
-    separator < 6 ||
-    !Number.isSafeInteger(mountId) ||
-    !fields[2] ||
-    !fields[3] ||
-    !fields[4] ||
-    !fields[separator + 1] ||
-    !fields[separator + 2]
-  ) throw new Error('Malformed /proc/self/mountinfo entry');
-  return {
-    mountId,
-    device: fields[2],
-    root: decodeMountInfoPath(fields[3]),
-    mountPoint: decodeMountInfoPath(fields[4]),
-    filesystemType: fields[separator + 1],
-    source: decodeMountInfoPath(fields[separator + 2]),
-  };
-}
-
-function decodeMountInfoPath(value: string): string {
-  return value.replace(/\\([0-7]{3})/g, (_match, octal: string) =>
-    String.fromCharCode(Number.parseInt(octal, 8)));
 }
 
 async function pathExists(
@@ -1347,17 +867,4 @@ async function pathExists(
 
 function formatError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-function bridgeForwardRule(
-  operation: '-C' | '-D',
-  bridge: string,
-  comment: string,
-): string[] {
-  return [
-    '-t', 'filter', operation, 'DOCKER-USER',
-    '-i', bridge, '-o', bridge,
-    '-m', 'comment', '--comment', comment,
-    '-j', 'ACCEPT',
-  ];
 }
