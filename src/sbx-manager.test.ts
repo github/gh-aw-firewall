@@ -153,7 +153,7 @@ describe('sbx-manager', () => {
   });
 
   describe('assertSbxEgressEnforced', () => {
-    it('probes denied domains with every proxy environment variable removed', async () => {
+    it('probes denied domains without proxy environment variables or curl configuration', async () => {
       mockExecaFn.mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' });
 
       await expect(assertSbxEgressEnforced(
@@ -168,9 +168,23 @@ describe('sbx-manager', () => {
       expect(command).toContain('env -u HTTP_PROXY -u HTTPS_PROXY');
       expect(command).toContain('-u ALL_PROXY -u all_proxy');
       expect(command).toContain('https://1.1.1.1/');
-      expect(command).toContain('curl --fail --insecure --silent');
+      expect(command).toContain('curl --disable --fail --insecure --silent');
       expect(command).toContain('exit 86');
       expect(spawnSync('bash', ['-n', '-c', command]).status).toBe(0);
+    });
+
+    it('does not select a probe covered by a mixed-case plain-domain allowlist', async () => {
+      mockExecaFn.mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' });
+
+      await expect(assertSbxEgressEnforced(
+        'awf-agent-test',
+        {},
+        ['EXAMPLE.COM'],
+      )).resolves.toBeUndefined();
+
+      const args: string[] = mockExecaFn.mock.calls[0][1];
+      const command = args[args.length - 1];
+      expect(command).not.toContain('https://example.com/');
     });
 
     it('rejects startup when a direct request reaches the internet', async () => {

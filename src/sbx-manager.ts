@@ -582,7 +582,7 @@ export async function assertSbxEgressEnforced(
   const probeCommands = probeDomains.map(domain =>
     `if env -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy ` +
     `-u ALL_PROXY -u all_proxy -u NO_PROXY -u no_proxy ` +
-    `curl --fail --insecure --silent --show-error --connect-timeout 5 --max-time 10 ` +
+    `curl --disable --fail --insecure --silent --show-error --connect-timeout 5 --max-time 10 ` +
     `--output /dev/null "https://${domain}/"; then ` +
     `echo "Direct sbx egress reached ${domain} without proxy environment variables" >&2; ` +
     'exit 86; fi'
@@ -617,7 +617,7 @@ function selectDeniedProbeDomains(allowedDomains: string[]): string[] {
       const entry = { domain, protocol: 'https' as const };
       const plainMatch = parsed.plainDomains.some(allowed => {
         if (allowed.protocol !== 'both' && allowed.protocol !== 'https') return false;
-        const allowedDomain = allowed.domain.replace(/^\./, '');
+        const allowedDomain = allowed.domain.replace(/^\./, '').toLowerCase();
         return domain === allowedDomain || domain.endsWith(`.${allowedDomain}`);
       });
       return !plainMatch && !isDomainMatchedByPattern(entry, parsed.patterns);
