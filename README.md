@@ -41,7 +41,7 @@ use `awf --reflect`. It prints the `/reflect` JSON response to stdout.
 - **Declarative config support**: `--config <path>` with JSON/YAML + published JSON Schema
 - **Domain and URL controls**: allow/deny domain rules, SSL Bump (`--ssl-bump`), and URL patterns (`--allow-urls`, requires `--ssl-bump`)
 - **Data protection controls**: DLP scanning (`--enable-dlp`), DNS-over-HTTPS, and agent runtime limits (`--agent-timeout`)
-- **API proxy capabilities**: OpenAI, Anthropic, Copilot, and Gemini targets with rate limits, token steering, and Anthropic auto-cache
+- **API proxy capabilities**: OpenAI, Anthropic, Copilot, Gemini, and Google Vertex AI targets with rate limits, token steering, and Anthropic auto-cache
 - **Infrastructure flexibility**: upstream proxy chaining, host service access, Docker-in-Docker, custom mounts, memory limits, and TTY mode
 - **Operational tooling**: pre-download images and inspect logs/stats/summaries/audits from live or saved runs
 
