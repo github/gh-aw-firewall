@@ -189,8 +189,13 @@ else
   BLOCKED_EXIT=$?
 fi
 if [ "$BLOCKED_EXIT" -eq 0 ]; then
-  echo "Playwright unexpectedly reached non-allowlisted example.com" >&2
-  exit 1
+  BLOCKED_TITLE=$(playwright-cli --raw eval "() => document.title" 2>>"$BLOCKED_LOG")
+  printf 'Blocked navigation title: %s\n' "$BLOCKED_TITLE" >>"$BLOCKED_LOG"
+  if [[ "$BLOCKED_TITLE" != ERROR:* ]]; then
+    echo "Playwright unexpectedly reached non-allowlisted example.com" >&2
+    cat "$BLOCKED_LOG" >&2
+    exit 1
+  fi
 fi
 
 cat > "$RESULT_FILE" <<EOF
