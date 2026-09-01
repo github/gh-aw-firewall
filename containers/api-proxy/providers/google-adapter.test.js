@@ -1,6 +1,6 @@
 'use strict';
 
-const { createGoogleProviderAdapter } = require('./google-adapter');
+const { createGoogleProviderAdapter, makeGoogleProviderFactory } = require('./google-adapter');
 const { GOOGLE_PROVIDER_SPECS } = require('./google-provider-specs');
 const { createGeminiAdapter } = require('./gemini');
 const { createVertexAdapter } = require('./vertex');
@@ -8,6 +8,13 @@ const { createVertexAdapter } = require('./vertex');
 describe('createGoogleProviderAdapter', () => {
   it('throws for an unknown provider key', () => {
     expect(() => createGoogleProviderAdapter('bogus', {})).toThrow(/Unknown Google provider spec: bogus/);
+  });
+
+  it('creates reusable provider factories from provider keys', () => {
+    const createGemini = makeGoogleProviderFactory('gemini');
+    expect(createGemini({ GEMINI_API_KEY: 'key' }).getAuthHeaders()).toEqual({
+      'x-goog-api-key': 'key',
+    });
   });
 
   it('derives gemini ports, targets and messages from the spec', () => {

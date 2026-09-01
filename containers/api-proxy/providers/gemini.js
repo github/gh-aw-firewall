@@ -15,7 +15,7 @@
  * All configuration lives in GOOGLE_PROVIDER_SPECS.gemini (google-provider-specs.js).
  */
 
-const { createGoogleProviderAdapter } = require('./google-adapter');
+const { makeGoogleProviderFactory } = require('./google-adapter');
 
 /**
  * Create the Google Gemini provider adapter.
@@ -24,6 +24,6 @@ const { createGoogleProviderAdapter } = require('./google-adapter');
  * @param {{ bodyTransform?: ((body: Buffer) => (Buffer | null | Promise<Buffer | null>))|null }} [deps={}] - Injected dependencies
  * @returns {import('./index').ProviderAdapter}
  */
-const createGeminiAdapter = createGoogleProviderAdapter.bind(null, 'gemini');
+const createGeminiAdapter = makeGoogleProviderFactory('gemini');
 
 module.exports = { createGeminiAdapter };

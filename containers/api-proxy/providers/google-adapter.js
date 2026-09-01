@@ -126,4 +126,14 @@ function createGoogleProviderAdapter(providerKey, env, deps = {}) {
   });
 }
 
-module.exports = { createGoogleApiKeyAdapter, createGoogleProviderAdapter };
+/**
+ * Create a named Google provider adapter factory.
+ *
+ * @param {string} providerKey - Key into GOOGLE_PROVIDER_SPECS (e.g. 'gemini')
+ * @returns {(env: Record<string, string|undefined>, deps?: { bodyTransform?: ((body: Buffer) => (Buffer | null | Promise<Buffer | null>))|null }) => import('./index').ProviderAdapter}
+ */
+function makeGoogleProviderFactory(providerKey) {
+  return (env, deps = {}) => createGoogleProviderAdapter(providerKey, env, deps);
+}
+
+module.exports = { createGoogleApiKeyAdapter, createGoogleProviderAdapter, makeGoogleProviderFactory };

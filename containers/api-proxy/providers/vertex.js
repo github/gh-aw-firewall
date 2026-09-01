@@ -17,7 +17,7 @@
  * All configuration lives in GOOGLE_PROVIDER_SPECS.vertex (google-provider-specs.js).
  */
 
-const { createGoogleProviderAdapter } = require('./google-adapter');
+const { makeGoogleProviderFactory } = require('./google-adapter');
 
 /**
  * Create the Google Vertex AI provider adapter.
@@ -26,6 +26,6 @@ const { createGoogleProviderAdapter } = require('./google-adapter');
  * @param {{ bodyTransform?: ((body: Buffer) => (Buffer | null | Promise<Buffer | null>))|null }} [deps={}] - Injected dependencies
  * @returns {import('./index').ProviderAdapter}
  */
-const createVertexAdapter = createGoogleProviderAdapter.bind(null, 'vertex');
+const createVertexAdapter = makeGoogleProviderFactory('vertex');
 
 module.exports = { createVertexAdapter };
