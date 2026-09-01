@@ -33,9 +33,19 @@ import {
 } from './config/mount-policy';
 import { assertRealDirectory } from './fs-utils';
 import { getRealUserHome } from './host-identity';
+import { isDomainMatchedByPattern, parseDomainList } from './domain-matchers';
 
 /** Name prefix for AWF-managed sandboxes. */
 const SBX_NAME_PREFIX = 'awf-agent';
+const SBX_EGRESS_PROBE_DOMAINS = [
+  '1.1.1.1',
+  'example.com',
+  'example.org',
+  'example.net',
+  'iana.org',
+  'microsoft.com',
+  'google.com',
+] as const;
 
 /**
  * Env vars that must NEVER reach the sbx CLI or sandbox interior.
@@ -544,6 +554,75 @@ export async function assertSbxApiProxyReflect(
   if (result.exitCode !== 0) {
     throw new Error('sbx sandbox cannot reach the API proxy /reflect endpoint');
   }
+}
+
+/**
+ * Fails closed when an sbx guest can reach a domain that Squid policy denies
+ * after every conventional proxy environment variable has been removed.
+ *
+ * The check is opt-in because AWF does not own the long-lived sbx daemon.
+ * An orchestrator must start that daemon with DOCKER_SANDBOXES_PROXY chained
+ * to AWF's published Squid endpoint before enabling this verification.
+ */
+export async function assertSbxEgressEnforced(
+  name: string,
+  environment: Record<string, string>,
+  allowedDomains: string[],
+  workDir?: string,
+): Promise<void> {
+  const probeDomains = selectDeniedProbeDomains(allowedDomains);
+  if (probeDomains.length === 0) {
+    throw new Error(
+      'Cannot verify Docker sbx egress: the allowlist covers every built-in probe domain',
+    );
+  }
+
+  // Ignore certificate trust so TLS interception cannot masquerade as blocked
+  // transport; HTTP error responses still count as blocked via --fail.
+  const probeCommands = probeDomains.map(domain =>
+    `if env -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy ` +
+    `-u ALL_PROXY -u all_proxy -u NO_PROXY -u no_proxy ` +
+    `curl --fail --insecure --silent --show-error --connect-timeout 5 --max-time 10 ` +
+    `--output /dev/null "https://${domain}/"; then ` +
+    `echo "Direct sbx egress reached ${domain} without proxy environment variables" >&2; ` +
+    'exit 86; fi'
+  );
+  const command = [
+    'command -v curl >/dev/null || exit 127',
+    ...probeCommands,
+  ].join(' && ');
+
+  const result = await execInSandbox(name, command, {
+    timeoutMinutes: 1,
+    workDir,
+    environment,
+  });
+  if (result.exitCode === 86) {
+    throw new Error(
+      'Docker sbx direct egress bypassed Squid; ensure the sbx daemon was started with ' +
+      'DOCKER_SANDBOXES_PROXY pointing to AWF Squid',
+    );
+  }
+  if (result.exitCode !== 0) {
+    throw new Error(
+      `Could not verify Docker sbx egress enforcement (probe exit ${result.exitCode})`,
+    );
+  }
+}
+
+function selectDeniedProbeDomains(allowedDomains: string[]): string[] {
+  const parsed = parseDomainList(allowedDomains);
+  return SBX_EGRESS_PROBE_DOMAINS
+    .filter(domain => {
+      const entry = { domain, protocol: 'https' as const };
+      const plainMatch = parsed.plainDomains.some(allowed => {
+        if (allowed.protocol !== 'both' && allowed.protocol !== 'https') return false;
+        const allowedDomain = allowed.domain.replace(/^\./, '');
+        return domain === allowedDomain || domain.endsWith(`.${allowedDomain}`);
+      });
+      return !plainMatch && !isDomainMatchedByPattern(entry, parsed.patterns);
+    })
+    .slice(0, 3);
 }
 
 /**

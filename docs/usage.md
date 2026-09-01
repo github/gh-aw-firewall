@@ -78,6 +78,8 @@ Options:
                                proxy) instead of host iptables. Requires no sudo / NET_ADMIN, so it
                                works inside ARC / Kubernetes DinD runners. Not yet supported with
                                --dns-over-https or --enable-host-access. (default: false)
+  --verify-sbx-egress          Fail before agent startup unless Docker sbx blocks direct
+                               non-proxy HTTPS egress. Requires --container-runtime sbx.
   --topology-attach <name>     With --network-isolation, attach an externally-launched trusted
                                container (by name) to the internal network so the agent can reach
                                it without giving it an egress path. Repeatable. Example:

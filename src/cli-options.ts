@@ -299,6 +299,11 @@ program
     'Disable network-isolation mode (requires --legacy-security).'
   )
   .option(
+    '--verify-sbx-egress',
+    'Fail before agent startup unless Docker sbx blocks direct non-proxy egress.',
+    false
+  )
+  .option(
     '--topology-attach <name>',
     'With --network-isolation, attach an externally-launched trusted container\n' +
     '                                       (by name) to the internal network so the agent can reach it.\n' +

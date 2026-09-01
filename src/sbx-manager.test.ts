@@ -1,5 +1,6 @@
 import {
   assertSbxApiProxyReflect,
+  assertSbxEgressEnforced,
   createSandbox,
   execInSandbox,
   isSbxAvailable,
@@ -148,6 +149,58 @@ describe('sbx-manager', () => {
   describe('SBX_DEFAULT_NAME', () => {
     it('has awf-agent prefix and process pid', () => {
       expect(SBX_DEFAULT_NAME).toMatch(/^awf-agent-\d+$/);
+    });
+  });
+
+  describe('assertSbxEgressEnforced', () => {
+    it('probes denied domains with every proxy environment variable removed', async () => {
+      mockExecaFn.mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' });
+
+      await expect(assertSbxEgressEnforced(
+        'awf-agent-test',
+        { HTTPS_PROXY: 'http://host.docker.internal:3128' },
+        ['github.com'],
+        '/workspace',
+      )).resolves.toBeUndefined();
+
+      const args: string[] = mockExecaFn.mock.calls[0][1];
+      const command = args[args.length - 1];
+      expect(command).toContain('env -u HTTP_PROXY -u HTTPS_PROXY');
+      expect(command).toContain('-u ALL_PROXY -u all_proxy');
+      expect(command).toContain('https://1.1.1.1/');
+      expect(command).toContain('curl --fail --insecure --silent');
+      expect(command).toContain('exit 86');
+      expect(spawnSync('bash', ['-n', '-c', command]).status).toBe(0);
+    });
+
+    it('rejects startup when a direct request reaches the internet', async () => {
+      mockExecaFn.mockResolvedValueOnce({ exitCode: 86, stdout: '', stderr: '' });
+
+      await expect(assertSbxEgressEnforced(
+        'awf-agent-test',
+        {},
+        ['github.com'],
+      )).rejects.toThrow('direct egress bypassed Squid');
+    });
+
+    it('fails closed when the probe cannot execute', async () => {
+      mockExecaFn.mockResolvedValueOnce({ exitCode: 127, stdout: '', stderr: '' });
+
+      await expect(assertSbxEgressEnforced(
+        'awf-agent-test',
+        {},
+        ['github.com'],
+      )).rejects.toThrow('Could not verify Docker sbx egress enforcement');
+    });
+
+    it('fails when the allowlist covers every built-in probe domain', async () => {
+      await expect(assertSbxEgressEnforced(
+        'awf-agent-test',
+        {},
+        ['1.1.1.1', '*.com', '*.org', '*.net'],
+      )).rejects.toThrow('allowlist covers every built-in probe domain');
+
+      expect(mockExecaFn).not.toHaveBeenCalled();
     });
   });
 

@@ -132,6 +132,18 @@ export interface NetworkOptions {
   networkIsolation?: boolean;
 
   /**
+   * Verify that Docker sbx prevents direct egress when proxy environment
+   * variables are removed.
+   *
+   * This is intended for orchestrators that start the sbx daemon with
+   * DOCKER_SANDBOXES_PROXY chained to AWF's Squid proxy. When enabled, AWF
+   * performs a fail-closed preflight before starting the agent.
+   *
+   * @default false
+   */
+  verifySbxEgress?: boolean;
+
+  /**
    * Externally-launched trusted containers to attach to the internal topology
    * network when `networkIsolation` is enabled.
    *

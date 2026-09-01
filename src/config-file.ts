@@ -18,6 +18,7 @@ export interface AwfFileConfig {
     dnsServers?: string[];
     upstreamProxy?: string;
     isolation?: boolean;
+    verifySbxEgress?: boolean;
     topologyAttach?: string[];
   };
   filesystem?: {

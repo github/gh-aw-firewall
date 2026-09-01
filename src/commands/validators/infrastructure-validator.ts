@@ -89,6 +89,11 @@ export function validateFeatureFlagCompatibility(config: WrapperConfig): void {
     process.exit(1);
   }
 
+  if (config.verifySbxEgress && config.containerRuntime !== 'sbx') {
+    logger.error('❌ --verify-sbx-egress requires --container-runtime sbx.');
+    process.exit(1);
+  }
+
   // Warn if --env-all is used
   if (config.envAll) {
     logger.warn('⚠️  Using --env-all: All host environment variables will be passed to container');

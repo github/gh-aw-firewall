@@ -25,6 +25,7 @@ export function mapAwfFileConfigToCliOptions(config: AwfFileConfig): Record<stri
     dnsServers: joinComma(config.network?.dnsServers),
     upstreamProxy: config.network?.upstreamProxy,
     networkIsolation: config.network?.isolation,
+    verifySbxEgress: config.network?.verifySbxEgress,
     topologyAttach: config.network?.topologyAttach,
     filesystemAllowWrite: config.filesystem?.allowWrite,
 

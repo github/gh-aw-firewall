@@ -26,6 +26,28 @@ describe('config-assembly', () => {
         '--enable-token-steering requires --enable-api-proxy',
       );
     });
+
+    it('should exit if sbx egress verification is used with another runtime', () => {
+      mockBuildConfigOnce({ verifySbxEgress: true, containerRuntime: 'gvisor' });
+
+      expect(() => {
+        callAssembleWith();
+      }).toThrow('process.exit(1)');
+
+      expect(logger.error).toHaveBeenCalledWith(
+        expect.stringContaining('--verify-sbx-egress requires --container-runtime sbx'),
+      );
+    });
+
+    it('should accept sbx egress verification with the sbx runtime', () => {
+      mockBuildConfigOnce({ verifySbxEgress: true, containerRuntime: 'sbx' });
+
+      expect(() => {
+        callAssembleWith();
+      }).not.toThrow();
+
+      expect(getMockExit()).not.toHaveBeenCalled();
+    });
   });
 
   describe('network-isolation validation', () => {

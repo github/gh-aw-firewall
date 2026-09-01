@@ -67,6 +67,15 @@ matter to AWF:
 This upstream-proxy hook is the single most important integration point for AWF:
 it lets AWF interpose its own Squid proxy *underneath* Docker's sandbox proxy.
 
+When an orchestrator starts the daemon with that setting, pass
+`--verify-sbx-egress` (or set `network.verifySbxEgress: true`) to make AWF run a
+fail-closed preflight before the agent starts. The preflight removes all standard
+proxy environment variables and attempts direct HTTPS connections to domains
+outside the allowlist and to a stable public IP address. Any successful
+connection aborts startup. The IP probe ensures that blocking only direct DNS is
+not mistaken for complete egress enforcement. This verifies the daemon-level
+control independently of cooperative client proxy settings.
+
 ### Lifecycle and CLI surface
 
 | Command | Purpose |

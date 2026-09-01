@@ -21,12 +21,17 @@ describe('mapAwfFileConfigToCliOptions', () => {
     expect(result.rateLimitRpm).toBe('60');
   });
 
-  it('maps network-isolation and topology-attach', () => {
+  it('maps network-isolation, sbx egress verification, and topology-attach', () => {
     const result = mapAwfFileConfigToCliOptions({
-      network: { isolation: true, topologyAttach: ['mcp-gateway', 'difc-proxy'] },
+      network: {
+        isolation: true,
+        verifySbxEgress: true,
+        topologyAttach: ['mcp-gateway', 'difc-proxy'],
+      },
     });
 
     expect(result.networkIsolation).toBe(true);
+    expect(result.verifySbxEgress).toBe(true);
     expect(result.topologyAttach).toEqual(['mcp-gateway', 'difc-proxy']);
   });
 
@@ -47,6 +52,7 @@ describe('mapAwfFileConfigToCliOptions', () => {
     expect(result.dnsServers).toBeUndefined();
     expect(result.upstreamProxy).toBeUndefined();
     expect(result.networkIsolation).toBeUndefined();
+    expect(result.verifySbxEgress).toBeUndefined();
     expect(result.topologyAttach).toBeUndefined();
     expect(result.enableApiProxy).toBeUndefined();
     expect(result.sslBump).toBeUndefined();

@@ -35,6 +35,7 @@ function createDependencies(
     createSandbox: jest.fn().mockResolvedValue('awf-agent-created'),
     execInSandbox: jest.fn().mockResolvedValue({ exitCode: 0 }),
     assertApiProxyReflect: jest.fn().mockResolvedValue(undefined),
+    assertEgressEnforced: jest.fn().mockResolvedValue(undefined),
     removeSandbox: jest.fn().mockResolvedValue(undefined),
     execHostCommand: jest.fn()
       .mockReturnValueOnce('proxy log\n')
@@ -150,6 +151,44 @@ describe('SbxRuntimeBackend', () => {
 
     await expect(backend.exec('/tmp/awf-test', ['github.com'])).rejects.toThrow(
       'Sandbox not created',
+    );
+  });
+
+  it('verifies direct egress before agent execution when requested', async () => {
+    const dependencies = createDependencies();
+    const backend = new SbxRuntimeBackend(
+      createConfig({
+        verifySbxEgress: true,
+        sensitiveAllowedDomains: ['private.example.com'],
+      }),
+      dependencies,
+    );
+
+    await backend.start('/tmp/awf-test', ['github.com']);
+
+    expect(dependencies.assertEgressEnforced).toHaveBeenCalledWith(
+      'awf-agent-created',
+      expect.objectContaining({
+        HTTPS_PROXY: `http://${SBX_GATEWAY_HOST}:3128`,
+      }),
+      ['github.com', 'private.example.com'],
+      '/workspace',
+    );
+  });
+
+  it('fails startup when direct egress verification fails', async () => {
+    const dependencies = createDependencies({
+      assertEgressEnforced: jest.fn().mockRejectedValue(
+        new Error('Docker sbx direct egress bypassed Squid'),
+      ),
+    });
+    const backend = new SbxRuntimeBackend(
+      createConfig({ verifySbxEgress: true }),
+      dependencies,
+    );
+
+    await expect(backend.start('/tmp/awf-test', ['github.com'])).rejects.toThrow(
+      'Docker sbx direct egress bypassed Squid',
     );
   });
 

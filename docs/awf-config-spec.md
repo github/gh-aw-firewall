@@ -206,6 +206,7 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 - `network.dnsServers[]` → `--dns-servers <csv>`
 - `network.upstreamProxy` → `--upstream-proxy`
 - `network.isolation` → `--network-isolation` *(experimental; enforces egress via Docker network topology instead of host iptables)*
+- `network.verifySbxEgress` → `--verify-sbx-egress` *(fail-closed verification that Docker sbx direct traffic cannot bypass Squid; requires the sbx runtime)*
 - `network.topologyAttach[]` → `--topology-attach <name>` *(repeatable; requires `network.isolation: true`)*
 - `apiProxy.enabled` → `--enable-api-proxy` *([DEPRECATED] API proxy is always enabled; this flag is ignored)*
 - `apiProxy.caCert` → `--api-proxy-ca-cert <path>` *(mounts an additional CA certificate into the api-proxy sidecar and sets `NODE_EXTRA_CA_CERTS` for upstream TLS verification)*

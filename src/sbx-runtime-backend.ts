@@ -4,6 +4,7 @@ import type { ExternalAgentRuntimeBackend } from './external-runtime-backend';
 import { logger } from './logger';
 import {
   assertSbxApiProxyReflect,
+  assertSbxEgressEnforced,
   createSandbox,
   execInSandbox,
   isSbxAvailable,
@@ -41,6 +42,7 @@ export interface SbxRuntimeBackendDependencies {
   createSandbox: typeof createSandbox;
   execInSandbox: typeof execInSandbox;
   assertApiProxyReflect: typeof assertSbxApiProxyReflect;
+  assertEgressEnforced: typeof assertSbxEgressEnforced;
   removeSandbox: typeof removeSandbox;
   execHostCommand(command: string, options: HostCommandOptions): string;
   getWorkspaceDir(): string;
@@ -56,6 +58,7 @@ function defaultDependencies(
     createSandbox,
     execInSandbox,
     assertApiProxyReflect: assertSbxApiProxyReflect,
+    assertEgressEnforced: assertSbxEgressEnforced,
     removeSandbox,
     execHostCommand: (command, options) => execSync(command, options),
     getWorkspaceDir: () => process.env.GITHUB_WORKSPACE || process.cwd(),
@@ -173,6 +176,17 @@ export class SbxRuntimeBackend implements ExternalAgentRuntimeBackend {
     this.dependencies.logger.info(
       `[sbx-diag] Connectivity check exited with code ${diagnosticResult.exitCode}`,
     );
+
+    if (this.config.verifySbxEgress) {
+      this.dependencies.logger.info('[sbx] Verifying direct egress cannot bypass Squid...');
+      await this.dependencies.assertEgressEnforced(
+        this.sandboxName,
+        this.environment,
+        [...allowedDomains, ...(this.config.sensitiveAllowedDomains ?? [])],
+        this.config.containerWorkDir,
+      );
+      this.dependencies.logger.info('[sbx] Direct egress verification passed');
+    }
   };
 
   readonly exec: WorkflowDependencies['runAgentCommand'] = async (
