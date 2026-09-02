@@ -9,9 +9,9 @@ ARG BASE_IMAGE=ubuntu:22.04
 
 FROM golang:1.26.6-alpine@sha256:af8d6740070b8906d12eae1c3e3ea0957fb63f492051ea05e354c38ef9fe88df AS gh-build
 
-ARG GH_VERSION=2.97.0
-ARG GH_SOURCE_SHA256=18cd1280f70911c9c16dd5965cdac0b9e6b16e54466f0c892ce2829ecdd339a6
-ARG GH_SOURCE_DATE_EPOCH=1785488640
+ARG GH_VERSION=2.98.0
+ARG GH_SOURCE_SHA256=abada9e8b550547ac93f99250f3ad4d90ad623fa245cb54cb058f78030a6a5f6
+ARG GH_SOURCE_DATE_EPOCH=1787263311
 RUN wget -q "https://github.com/cli/cli/archive/refs/tags/v${GH_VERSION}.tar.gz" -O /tmp/gh.tar.gz \
     && echo "${GH_SOURCE_SHA256}  /tmp/gh.tar.gz" | sha256sum -c - \
     && tar -xzf /tmp/gh.tar.gz -C /tmp \
@@ -217,8 +217,8 @@ RUN set -eux; \
     rm -rf /var/lib/apt/lists/*
 
 # Build the pinned GitHub CLI release with the patched Go toolchain.
-COPY --from=gh-build /tmp/cli-2.97.0/bin/gh /usr/local/bin/gh
-RUN gh --version | grep -qE '^gh version 2\.97\.0'
+COPY --from=gh-build /tmp/cli-2.98.0/bin/gh /usr/local/bin/gh
+RUN gh --version | grep -qE '^gh version 2\.98\.0'
 
 # Create non-root user with UID/GID matching host user
 # This allows the user command to run with appropriate permissions
