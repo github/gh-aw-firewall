@@ -265,6 +265,7 @@ function dependencies(
 }
 
 describe('CloudHypervisorManager', () => {
+  describe('construction', () => {
   it('constructs the default host adapters and non-root identity', async () => {
     const defaults = cloudHypervisorManagerTestHelpers.defaultDependencies;
     const child = defaults.launch(process.execPath, ['-e', ''], {
@@ -335,7 +336,9 @@ describe('CloudHypervisorManager', () => {
       '../escape',
     )).toThrow(/Unsafe microVM run id/);
   });
+  });
 
+  describe('launch and boot', () => {
   it('launches via the secure launcher and creates/boots the VM over the API', async () => {
     const deps = dependencies();
     const manager = new CloudHypervisorManager(
@@ -815,7 +818,9 @@ describe('CloudHypervisorManager', () => {
     expect(virtiofsd.stop).toHaveBeenCalledTimes(1);
     expect(order).toEqual(['virtiofsd']);
   });
+  });
 
+  describe('virtiofsd lifecycle', () => {
   it('preserves failed virtiofsd confinement evidence before partial-start cleanup', async () => {
     const virtiofsd = virtiofsdManagerMock();
     (virtiofsd.start as jest.Mock).mockRejectedValue(
@@ -945,7 +950,9 @@ describe('CloudHypervisorManager', () => {
     expect(deps.rm).not.toHaveBeenCalled();
     expect(handle.complete).not.toHaveBeenCalled();
   });
+  });
 
+  describe('guest connectivity', () => {
   it('retries the vsock connect on the guest-not-ready-yet boot race, with a fresh client each attempt', async () => {
     // Regression test: Cloud Hypervisor's vsock-over-UDS multiplexer closes
     // the host-facing connection immediately if the guest isn't yet
@@ -1096,7 +1103,9 @@ describe('CloudHypervisorManager', () => {
     expect(guestClient.resize).toHaveBeenCalledWith(80, 24, 'request');
     await manager.stop();
   });
+  });
 
+  describe('stop and cleanup', () => {
   it('quiesces and stops virtiofsd while preserving the run directory and network in keep mode', async () => {
     const child = processMock();
     const virtiofsd = virtiofsdManagerMock();
@@ -1382,7 +1391,9 @@ describe('CloudHypervisorManager', () => {
     );
     expect(deps.sleep).not.toHaveBeenCalled();
   });
+  });
 
+  describe('diagnostics collection', () => {
   it('collects bounded diagnostics including VM counters', async () => {
     const oversized = Buffer.alloc(1024 * 1024 + 128, 0x61);
     const child = processMock();
@@ -1550,5 +1561,6 @@ describe('CloudHypervisorManager', () => {
       expect.stringContaining('capture failed: ip netns exec failed'),
       { mode: 0o600 },
     );
+  });
   });
 });
