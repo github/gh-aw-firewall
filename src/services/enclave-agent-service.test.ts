@@ -10,8 +10,6 @@ import {
   ENCLAVE_AGENT_EGRESS_NETWORK,
   ENCLAVE_AGENT_NETWORK,
   ENCLAVE_AGENT_SUBNET,
-  ENCLAVE_GITHUB_CONTROL_NETWORK,
-  ENCLAVE_GITHUB_CONTROL_SUBNET,
 } from '../enclave/network';
 
 function config(overrides: Partial<WrapperConfig> = {}): WrapperConfig {
@@ -194,16 +192,14 @@ describe('unified enclave agent executor compose assembly', () => {
       .toThrow(/at least one enclave executor must be enabled/);
   });
 
-  it('builds a PAT-free dual-homed CLI proxy only for issues-read-v1', () => {
-    const directory = fs.mkdtempSync(path.join(__dirname, 'awf-enclave-github-'));
-    const caCert = path.join(directory, 'ca.crt');
-    fs.writeFileSync(caCert, 'test-ca');
+  it('configures direct shared-mcpg access only for issues-read-v1', () => {
     const originalEnv = process.env;
     process.env = {
       ...originalEnv,
-      AWF_ENCLAVE_GITHUB_PROXY_CONTAINER: 'compiler-mcpg',
-      AWF_ENCLAVE_GITHUB_PROXY_IDENTITY: 'gh-aw-egh-123456-1-abcdef123456',
-      AWF_ENCLAVE_GITHUB_PROXY_CA_CERT: caCert,
+      AWF_ENCLAVE_MCP_GATEWAY_CONTAINER: 'compiler-mcpg',
+      AWF_ENCLAVE_MCP_GATEWAY_ENDPOINT: 'http://127.0.0.1:8080',
+      AWF_ENCLAVE_MCP_GATEWAY_IDENTITY: 'primaryAgentId0123456789abcdef012345',
+      AWF_ENCLAVE_GITHUB_MCP_AGENT_ID: 'enclaveAgentId0123456789abcdef012345',
     };
     try {
       const enclaves = normalizeEnclavesConfig([{
@@ -214,41 +210,19 @@ describe('unified enclave agent executor compose assembly', () => {
         repos: [{ repo: 'octo/private', sensitivity: 'internal' }],
       }]);
       const result = build({ enclaves });
-      const proxy = result.agentCliProxyService as Record<string, any>;
-      expect(proxy.container_name).toBe('awf-enclave-agent-cli-proxy');
-      expect(proxy.networks).toEqual({
-        [ENCLAVE_AGENT_NETWORK]: { ipv4_address: '172.31.0.40' },
-        [ENCLAVE_GITHUB_CONTROL_NETWORK]: { ipv4_address: '172.29.0.10' },
-      });
-      expect(proxy.networks).not.toHaveProperty(ENCLAVE_AGENT_EGRESS_NETWORK);
-      expect(proxy.environment).toMatchObject({
-        AWF_CLI_PROXY_MODE: 'enclave',
-        AWF_CLI_PROXY_PROFILE: 'issues-read-v1',
-        AWF_DIFC_PROXY_HOST: 'awf-enclave-github-proxy',
-        AWF_DIFC_PROXY_PORT: '18443',
-      });
-      expect(JSON.stringify(proxy.environment)).not.toMatch(/TOKEN|CAPABILITY|PAT/);
-      expect(result.service.depends_on).toMatchObject({
-        'enclave-agent-cli-proxy': { condition: 'service_healthy' },
-      });
       const serverVolumes = result.service.volumes as string[];
       expect(serverVolumes).toEqual(expect.arrayContaining([
-        expect.stringMatching(/github-capability-key:\/run\/awf-enclave-mcp\/github-capability-key:ro$/),
+        expect.stringMatching(/github-agent-id:\/run\/awf-enclave-mcp\/github-agent-id:ro$/),
       ]));
       expect(result.service.environment).toMatchObject({
-        AWF_ENCLAVE_AGENT_GITHUB_RUN_IDENTITY_PATH:
-          '/run/awf-enclave-mcp/github-run-identity',
+        AWF_ENCLAVE_AGENT_GITHUB_MCP_URL: 'http://172.31.0.40:8080/mcp/github',
+        AWF_ENCLAVE_AGENT_GITHUB_AGENT_ID_PATH:
+          '/run/awf-enclave-mcp/github-agent-id',
+        AWF_ENCLAVE_AGENT_GITHUB_GATEWAY_CONTAINER: 'compiler-mcpg',
       });
-      expect(JSON.stringify(result.service.environment))
-        .not.toContain('gh-aw-egh-123456-1-abcdef123456');
-      for (const environment of [proxy.environment, result.service.environment]) {
-        expect(JSON.stringify(environment)).not.toMatch(
-          /MCP_GATEWAY_ENCLAVE_POLICY_JSON|SECRECY|DIFC.*LABEL|AGENT.*LABEL/,
-        );
-      }
+      expect(JSON.stringify(result.service.environment)).not.toContain('primaryAgentId');
     } finally {
       process.env = originalEnv;
-      fs.rmSync(directory, { recursive: true, force: true });
     }
   });
 });
@@ -412,16 +386,14 @@ describe('unified enclave compose topology', () => {
     });
   });
 
-  it('adds the fixed internal GitHub control network only for the opted-in profile', () => {
-    const directory = fs.mkdtempSync(path.join(__dirname, 'awf-enclave-github-compose-'));
-    const caCert = path.join(directory, 'ca.crt');
-    fs.writeFileSync(caCert, 'test-ca');
+  it('does not add a dedicated GitHub bridge service for the opted-in profile', () => {
     const originalEnv = process.env;
     process.env = {
       ...originalEnv,
-      AWF_ENCLAVE_GITHUB_PROXY_CONTAINER: 'compiler-mcpg',
-      AWF_ENCLAVE_GITHUB_PROXY_IDENTITY: 'gh-aw-egh-123456-1-abcdef123456',
-      AWF_ENCLAVE_GITHUB_PROXY_CA_CERT: caCert,
+      AWF_ENCLAVE_MCP_GATEWAY_CONTAINER: 'compiler-mcpg',
+      AWF_ENCLAVE_MCP_GATEWAY_ENDPOINT: 'http://127.0.0.1:8080',
+      AWF_ENCLAVE_MCP_GATEWAY_IDENTITY: 'primaryAgentId0123456789abcdef012345',
+      AWF_ENCLAVE_GITHUB_MCP_AGENT_ID: 'enclaveAgentId0123456789abcdef012345',
     };
     try {
       const enclaves = normalizeEnclavesConfig([{
@@ -432,12 +404,7 @@ describe('unified enclave compose topology', () => {
         repos: [{ repo: 'octo/private', sensitivity: 'internal' }],
       }]);
       const compose = generateDockerCompose(composeConfig({ enclaves }), networkConfig);
-      expect(compose.networks[ENCLAVE_GITHUB_CONTROL_NETWORK]).toMatchObject({
-        name: ENCLAVE_GITHUB_CONTROL_NETWORK,
-        driver: 'bridge',
-        internal: true,
-        ipam: { config: [{ subnet: ENCLAVE_GITHUB_CONTROL_SUBNET }] },
-      });
+      expect(compose.services).not.toHaveProperty('enclave-agent-github-mcp');
       const enclaveMembers = Object.entries(compose.services)
         .filter(([, service]) => Object.prototype.hasOwnProperty.call(
           (service as Record<string, any>).networks ?? {},
@@ -445,13 +412,9 @@ describe('unified enclave compose topology', () => {
         ))
         .map(([name]) => name)
         .sort();
-      expect(enclaveMembers).toEqual([
-        'enclave-agent-api-proxy',
-        'enclave-agent-cli-proxy',
-      ]);
+      expect(enclaveMembers).toEqual(['enclave-agent-api-proxy']);
     } finally {
       process.env = originalEnv;
-      fs.rmSync(directory, { recursive: true, force: true });
     }
   });
 });

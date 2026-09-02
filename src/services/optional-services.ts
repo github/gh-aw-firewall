@@ -359,13 +359,11 @@ function assembleEnclaveMcpService(params: AssembleOptionalServicesParams): void
     scriptImageService,
     agentImageService,
     agentApiProxyService,
-    agentCliProxyService,
     service,
   } = buildEnclaveMcpService({ config, imageConfig, networkConfig: params.networkConfig });
   if (scriptImageService) services['enclave-script-image'] = scriptImageService;
   if (agentImageService) services['enclave-agent-image'] = agentImageService;
   if (agentApiProxyService) services['enclave-agent-api-proxy'] = agentApiProxyService;
-  if (agentCliProxyService) services['enclave-agent-cli-proxy'] = agentCliProxyService;
   services['enclave-mcp-server'] = service;
   // The gateway readiness gate is host-orchestrated before agent startup. There
   // is deliberately no agent dependency, mount, environment, or direct URL.

@@ -136,4 +136,16 @@ function makeGoogleProviderFactory(providerKey) {
   return (env, deps = {}) => createGoogleProviderAdapter(providerKey, env, deps);
 }
 
-module.exports = { createGoogleApiKeyAdapter, createGoogleProviderAdapter, makeGoogleProviderFactory };
+const GOOGLE_PROVIDER_ADAPTER_FACTORIES = Object.fromEntries(
+  Object.keys(GOOGLE_PROVIDER_SPECS).map((providerKey) => [
+    providerKey,
+    makeGoogleProviderFactory(providerKey),
+  ]),
+);
+
+module.exports = {
+  createGoogleApiKeyAdapter,
+  createGoogleProviderAdapter,
+  makeGoogleProviderFactory,
+  GOOGLE_PROVIDER_ADAPTER_FACTORIES,
+};

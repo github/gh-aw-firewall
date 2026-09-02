@@ -43,7 +43,7 @@ sandbox:
     id: awf
     version: v0.28.9
   mcp:
-    version: v0.4.13
+    version: v0.4.15
 strict: false
 concurrency:
   group: smoke-enclave-issues-read
@@ -124,18 +124,18 @@ Pass this exact finite-disclosure schema:
 Give the enclave agent this task:
 
 ```text
-Use only the narrow gh wrapper and run each command exactly once:
+Use only the `github` MCP server and call each tool exactly once:
 
-1. gh api --method GET 'repos/github/gh-aw/issues?per_page=1'
-2. gh api --method GET 'repos/github/gh-aw/issues/50920'
-3. gh api --method GET 'repos/github/gh-aw/issues/50920/comments?per_page=1'
+1. `list_issues` with `owner: "github"`, `repo: "gh-aw"`, and `perPage: 1`
+2. `issue_read` with `owner: "github"`, `repo: "gh-aw"`, `method: "get"`, and `issue_number: 50920`
+3. `issue_read` with `owner: "github"`, `repo: "gh-aw"`, `method: "get_comments"`, `issue_number: 50920`, and `perPage: 1`
 
 Return exactly:
 {"list_read":true,"issue_read":true,"comments_read":true}
 
-Set a value to false if its command fails, the list or comments response is not
+Set a value to false if its tool call fails, the list or comments response is not
 a JSON array, or the issue response does not contain number 50920. Do not use
-stock gh issue commands, GraphQL, search, writes, or any other GitHub endpoint.
+GitHub CLI, GraphQL, search, writes, or any other GitHub tool.
 ```
 
 The test passes only when all three returned booleans are `true`.

@@ -3,7 +3,6 @@
 const { createEnclaveRunner } = require('../agent-executor/enclave-runner');
 const agentWorkspace = require('../agent-executor/workspace');
 const { validateEnclaveAgentRequest } = require('../agent-executor/framing');
-const { mintGithubCapability } = require('../agent-executor/github-capability');
 
 /**
  * Adapters that let the unified enclave MCP server drive the audited
@@ -60,23 +59,12 @@ function createAgentRequestValidator(maxPromptBytes) {
  */
 const agentWorkspaceAdapter = {
   createInvocationWorkspace({ config, invocationId, privateRepo, schema, prompt }) {
-    const now = Math.floor(Date.now() / 1000);
-    const githubCapability = config.githubEnabled
-      ? mintGithubCapability({
-          keyHex: config.githubCapabilityKey,
-          runId: config.githubRunIdentity,
-          invocationId,
-          repo: privateRepo,
-          notBefore: now,
-          expiresAt: now + config.timeoutSeconds + 5,
-        })
-      : undefined;
     return agentWorkspace.createInvocationWorkspace({
       config,
       invocationId,
       schema,
       task: prompt,
-      githubCapability,
+      githubAgentId: config.githubEnabled ? config.githubAgentId : undefined,
     });
   },
   readQueryOutput(outPath, maxOutputBytes) {
