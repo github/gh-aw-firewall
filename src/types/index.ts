@@ -46,6 +46,7 @@ export {
   type OutputFormat,
   type LogStatsFormat,
   type LogSource,
+  type StartupDiagnostic,
   type EnhancedLogEntry,
 } from './logging';
 

@@ -10,6 +10,7 @@ import execa from 'execa';
 import { LogSource } from '../types';
 import { logger } from '../logger';
 import { SQUID_CONTAINER_NAME } from '../constants';
+import { hasStartupDiagnostic } from './startup-diagnostics';
 
 /**
  * Discovers all available log sources (running containers and preserved log directories)
@@ -37,7 +38,8 @@ export async function discoverLogSources(): Promise<LogSource[]> {
   // Check AWF_LOGS_DIR environment variable
   // Supports two layouts:
   // 1. Direct: AWF_LOGS_DIR/access.log (when --proxy-logs-dir is used)
-  // 2. Nested: AWF_LOGS_DIR/squid-logs/access.log (legacy format)
+  // 2. Direct startup diagnostic when AWF failed before Squid wrote access.log
+  // 3. Nested: AWF_LOGS_DIR/squid-logs/access.log (legacy format)
   const envLogsDir = process.env.AWF_LOGS_DIR;
   if (envLogsDir) {
     // First check for direct access.log (from --proxy-logs-dir)
@@ -46,9 +48,9 @@ export async function discoverLogSources(): Promise<LogSource[]> {
     const nestedSquidLogsPath = path.join(envLogsDir, 'squid-logs');
     const nestedAccessLogPath = path.join(nestedSquidLogsPath, 'access.log');
 
-    if (fs.existsSync(directAccessLogPath)) {
+    if (fs.existsSync(directAccessLogPath) || hasStartupDiagnostic(envLogsDir)) {
       // Direct layout: logs are in AWF_LOGS_DIR directly
-      const stat = fs.statSync(directAccessLogPath);
+      const stat = fs.statSync(fs.existsSync(directAccessLogPath) ? directAccessLogPath : envLogsDir);
       const timestamp = stat.mtimeMs;
       const date = new Date(timestamp);
       sources.push({
@@ -195,13 +197,13 @@ export async function validateSource(source: string): Promise<LogSource> {
 
     if (stat.isDirectory()) {
       const accessLogPath = path.join(resolvedPath, 'access.log');
-      if (fs.existsSync(accessLogPath)) {
+      if (fs.existsSync(accessLogPath) || hasStartupDiagnostic(resolvedPath)) {
         return {
           type: 'preserved',
           path: resolvedPath,
         };
       }
-      throw new Error(`Directory does not contain access.log: ${resolvedPath}`);
+      throw new Error(`Directory does not contain access.log or AWF startup diagnostics: ${resolvedPath}`);
     }
 
     // If it's a file, assume it's the access.log itself

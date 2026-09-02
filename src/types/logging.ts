@@ -104,6 +104,18 @@ export interface LogSource {
   dateStr?: string;
 }
 
+/**
+ * Host-side diagnostic captured when AWF fails before Squid can emit access.log.
+ */
+export interface StartupDiagnostic {
+  /** ISO-8601 timestamp when the diagnostic was recorded */
+  timestamp: string;
+  /** Startup phase that failed */
+  phase: string;
+  /** Redacted error message */
+  message: string;
+}
+
 
 /**
  * Extended log entry with PID tracking information

@@ -402,6 +402,38 @@ describe('createMainAction', () => {
       expect(processExitSpy).toHaveBeenCalledWith(1);
     });
 
+    it('writes a startup diagnostic marker for fatal workflow errors', async () => {
+      mockedCliWorkflow.runMainWorkflow.mockRejectedValue(new Error('Refusing to use symlink as bind mountpoint: /usr/local/bin/npm'));
+      const action = createMainAction(getOptionValueSource);
+
+      await expect(action(['echo hi'], {})).rejects.toThrow('process.exit: 1');
+
+      expect(mockMkdirSync).toHaveBeenCalledWith('/tmp/awf-test/squid-logs', {
+        recursive: true,
+        mode: 0o755,
+      });
+      expect(mockWriteFileSync).toHaveBeenCalledWith(
+        '/tmp/awf-test/squid-logs/awf-startup-error.json',
+        expect.stringContaining('Refusing to use symlink as bind mountpoint: /usr/local/bin/npm'),
+        { mode: 0o644 },
+      );
+    });
+
+    it('redacts startup diagnostic error messages', async () => {
+      mockedRedactSecrets.redactSecrets.mockReturnValue('[REDACTED]');
+
+      testHelpers.writeStartupFailureDiagnostic(
+        { ...MAIN_ACTION_STUB_CONFIG, proxyLogsDir: '/tmp/custom-logs' } as import('../types').WrapperConfig,
+        new Error('secret-bearing failure'),
+      );
+
+      expect(mockWriteFileSync).toHaveBeenCalledWith(
+        '/tmp/custom-logs/awf-startup-error.json',
+        expect.stringContaining('[REDACTED]'),
+        { mode: 0o644 },
+      );
+    });
+
     describe('when external runtime resolution fails', () => {
       it('uses fatal-error cleanup and exits with code 1', async () => {
         mockedExternalRuntimeResolver.resolveExternalRuntimeBackend.mockImplementationOnce(() => {

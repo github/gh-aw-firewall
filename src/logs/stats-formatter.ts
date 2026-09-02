@@ -34,8 +34,15 @@ function formatStatsJson(stats: AggregatedStats): string {
   if (stats.byRule) {
     output.byRule = stats.byRule;
   }
+  if (stats.startupDiagnostics) {
+    output.startupDiagnostics = stats.startupDiagnostics;
+  }
 
   return JSON.stringify(output, null, 2);
+}
+
+function formatStartupDiagnosticLine(timestamp: string, phase: string, message: string): string {
+  return `${timestamp} ${phase}: ${message}`;
 }
 
 /**
@@ -89,6 +96,14 @@ function formatStatsMarkdown(stats: AggregatedStats): string {
     }
   } else {
     lines.push('No firewall activity detected.');
+  }
+
+  if (stats.startupDiagnostics && stats.startupDiagnostics.length > 0) {
+    lines.push('');
+    lines.push('⚠️ AWF startup diagnostics were captured before Squid emitted access.log:');
+    for (const diagnostic of stats.startupDiagnostics) {
+      lines.push(`- ${formatStartupDiagnosticLine(diagnostic.timestamp, diagnostic.phase, diagnostic.message)}`);
+    }
   }
 
   // Policy rules section (when available)
@@ -159,6 +174,14 @@ function formatStatsPretty(
     const endDate = new Date(stats.timeRange.end * 1000);
     lines.push('');
     lines.push(c.gray(`Time Range: ${startDate.toISOString()} - ${endDate.toISOString()}`));
+  }
+
+  if (stats.startupDiagnostics && stats.startupDiagnostics.length > 0) {
+    lines.push('');
+    lines.push(c.bold('Startup Diagnostics:'));
+    for (const diagnostic of stats.startupDiagnostics) {
+      lines.push(`  ${formatStartupDiagnosticLine(diagnostic.timestamp, diagnostic.phase, diagnostic.message)}`);
+    }
   }
 
   // Domain breakdown

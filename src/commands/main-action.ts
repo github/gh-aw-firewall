@@ -30,6 +30,7 @@ import { adaptExternalRuntimeBackend } from '../external-runtime-backend';
 import type { ExternalAgentRuntimeBackend } from '../external-runtime-backend';
 import { resolveExternalRuntimeBackend } from '../external-runtime-backend-resolver';
 import { prepareEnclaves, teardownEnclaves } from '../enclave/manager';
+import { getStartupDiagnosticPath } from '../logs/startup-diagnostics';
 import {
   assertEnclaveGatewayReady,
   connectEnclaveGateway,
@@ -94,6 +95,25 @@ function persistConfigAuditArtifact(
     }
   } catch (err) {
     logger.debug(`Failed to write resolved config artifact: ${err}`);
+  }
+}
+
+function writeStartupFailureDiagnostic(config: WrapperConfig, error: unknown, phase = 'startup'): void {
+  try {
+    const proxyLogsDir = config.proxyLogsDir || path.join(config.workDir, 'squid-logs');
+    fs.mkdirSync(proxyLogsDir, { recursive: true, mode: 0o755 });
+    const message = error instanceof Error ? error.message : String(error);
+    fs.writeFileSync(
+      getStartupDiagnosticPath(proxyLogsDir),
+      JSON.stringify({
+        timestamp: new Date().toISOString(),
+        phase,
+        message: redactSecrets(message),
+      }, null, 2) + '\n',
+      { mode: 0o644 },
+    );
+  } catch (diagnosticError) {
+    logger.debug(`Failed to write AWF startup diagnostic: ${diagnosticError}`);
   }
 }
 
@@ -322,6 +342,7 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
     externalRuntimeBackend = resolveExternalRuntimeBackend(config, startContainers);
   } catch (error) {
     logger.error('Fatal error:', error);
+    writeStartupFailureDiagnostic(config, error);
     await buildCleanupFn(
       config,
       () => containersStarted,
@@ -414,6 +435,7 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
     process.exit(exitCode);
   } catch (error) {
     logger.error('Fatal error:', error);
+    writeStartupFailureDiagnostic(config, error);
     await performCleanup();
     console.error(`Process exiting with code: 1`);
     process.exit(1);
@@ -426,5 +448,6 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
 export const testHelpers = {
   redactConfigForLogging,
   persistConfigAuditArtifact,
+  writeStartupFailureDiagnostic,
   buildCleanupFn,
 };

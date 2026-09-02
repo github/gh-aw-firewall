@@ -9,6 +9,7 @@ import { LogSource, ParsedLogEntry } from '../types';
 import { parseLogLine, parseAuditJsonlLine } from './log-parser';
 import { logger } from '../logger';
 import { isInternalAwfDomain } from './internal-domain-filter';
+import { readStartupDiagnostics } from './startup-diagnostics';
 
 /**
  * Statistics for a single domain
@@ -42,6 +43,8 @@ export interface AggregatedStats {
   timeRange: { start: number; end: number } | null;
   /** Per-rule hit statistics (populated when policy manifest is available) */
   byRule?: import('./audit-enricher').RuleStats[];
+  /** Startup diagnostics captured before Squid emitted access.log */
+  startupDiagnostics?: import('../types').StartupDiagnostic[];
 }
 
 /**
@@ -232,7 +235,12 @@ export async function loadAndAggregate(
   knownTopologyPeers?: ReadonlySet<string>
 ): Promise<AggregatedStats> {
   const entries = await loadAllLogs(source);
-  return aggregateLogs(entries, knownTopologyPeers);
+  const stats = aggregateLogs(entries, knownTopologyPeers);
+  const startupDiagnostics = readStartupDiagnostics(source);
+  if (startupDiagnostics.length > 0) {
+    stats.startupDiagnostics = startupDiagnostics;
+  }
+  return stats;
 }
 
 /** @internal Exposed only for unit tests — not part of the public API. */

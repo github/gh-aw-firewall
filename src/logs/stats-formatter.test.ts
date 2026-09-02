@@ -21,6 +21,19 @@ describe('stats-formatter', () => {
       expect(parsed.byDomain).toEqual({});
     });
 
+    it('should include startup diagnostics in JSON', () => {
+      const stats = createEmptyStats();
+      stats.startupDiagnostics = [{
+        timestamp: '2026-09-02T12:45:57.000Z',
+        phase: 'startup',
+        message: 'Refusing to use symlink as bind mountpoint: /usr/local/bin/npm',
+      }];
+
+      const parsed = JSON.parse(formatStats(stats, 'json'));
+
+      expect(parsed.startupDiagnostics).toEqual(stats.startupDiagnostics);
+    });
+
     it('should format stats with domains as JSON', () => {
       const stats = createSampleStats();
       const output = formatStats(stats, 'json');
@@ -64,6 +77,20 @@ describe('stats-formatter', () => {
       expect(output).toContain('0 allowed');
       expect(output).toContain('0 blocked');
       expect(output).toContain('0 unique domains');
+    });
+
+    it('should surface startup diagnostics in markdown when no access log entries exist', () => {
+      const stats = createEmptyStats();
+      stats.startupDiagnostics = [{
+        timestamp: '2026-09-02T12:45:57.000Z',
+        phase: 'startup',
+        message: 'Refusing to use symlink as bind mountpoint: /usr/local/bin/npm',
+      }];
+
+      const output = formatStats(stats, 'markdown');
+
+      expect(output).toContain('AWF startup diagnostics were captured');
+      expect(output).toContain('startup: Refusing to use symlink as bind mountpoint: /usr/local/bin/npm');
     });
 
     it('should format stats with domains as markdown', () => {
@@ -132,6 +159,20 @@ describe('stats-formatter', () => {
       expect(output).toContain('Firewall Statistics');
       expect(output).toContain('Total Requests:  0');
       expect(output).toContain('Unique Domains:  0');
+    });
+
+    it('should surface startup diagnostics in pretty output', () => {
+      const stats = createEmptyStats();
+      stats.startupDiagnostics = [{
+        timestamp: '2026-09-02T12:45:57.000Z',
+        phase: 'startup',
+        message: 'Refusing to use symlink as bind mountpoint: /usr/local/bin/npm',
+      }];
+
+      const output = formatStats(stats, 'pretty', false);
+
+      expect(output).toContain('Startup Diagnostics:');
+      expect(output).toContain('startup: Refusing to use symlink as bind mountpoint: /usr/local/bin/npm');
     });
 
     it('should format stats with percentages', () => {
