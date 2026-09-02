@@ -1,9 +1,11 @@
 'use strict';
 
-const { createGoogleProviderAdapter, makeGoogleProviderFactory } = require('./google-adapter');
+const {
+  createGoogleProviderAdapter,
+  makeGoogleProviderFactory,
+  GOOGLE_PROVIDER_ADAPTER_FACTORIES,
+} = require('./google-adapter');
 const { GOOGLE_PROVIDER_SPECS } = require('./google-provider-specs');
-const { createGeminiAdapter } = require('./gemini');
-const { createVertexAdapter } = require('./vertex');
 
 describe('createGoogleProviderAdapter', () => {
   it('throws for an unknown provider key', () => {
@@ -13,6 +15,16 @@ describe('createGoogleProviderAdapter', () => {
   it('creates reusable provider factories from provider keys', () => {
     const createGemini = makeGoogleProviderFactory('gemini');
     expect(createGemini({ GEMINI_API_KEY: 'key' }).getAuthHeaders()).toEqual({
+      'x-goog-api-key': 'key',
+    });
+  });
+
+  it('exports factories for every declared Google provider', () => {
+    expect(Object.keys(GOOGLE_PROVIDER_ADAPTER_FACTORIES)).toEqual(Object.keys(GOOGLE_PROVIDER_SPECS));
+    expect(GOOGLE_PROVIDER_ADAPTER_FACTORIES.gemini({ GEMINI_API_KEY: 'key' }).getAuthHeaders()).toEqual({
+      'x-goog-api-key': 'key',
+    });
+    expect(GOOGLE_PROVIDER_ADAPTER_FACTORIES.vertex({ GOOGLE_API_KEY: 'key' }).getAuthHeaders()).toEqual({
       'x-goog-api-key': 'key',
     });
   });
@@ -47,15 +59,15 @@ describe('createGoogleProviderAdapter', () => {
   });
 
   it('applies the gemini URL transform and omits it for vertex', () => {
-    const gemini = createGeminiAdapter({ GEMINI_API_KEY: 'k' });
-    const vertex = createVertexAdapter({ GOOGLE_API_KEY: 'k' });
+    const gemini = GOOGLE_PROVIDER_ADAPTER_FACTORIES.gemini({ GEMINI_API_KEY: 'k' });
+    const vertex = GOOGLE_PROVIDER_ADAPTER_FACTORIES.vertex({ GOOGLE_API_KEY: 'k' });
     expect(gemini.transformRequestUrl('/v1beta/models?key=secret')).toBe('/v1beta/models');
     expect(vertex.transformRequestUrl).toBeUndefined();
   });
 
   it('exposes a models fetch config only when the spec defines a models path', () => {
-    const gemini = createGeminiAdapter({ GEMINI_API_KEY: 'k' });
-    const vertex = createVertexAdapter({ GOOGLE_API_KEY: 'k' });
+    const gemini = GOOGLE_PROVIDER_ADAPTER_FACTORIES.gemini({ GEMINI_API_KEY: 'k' });
+    const vertex = GOOGLE_PROVIDER_ADAPTER_FACTORIES.vertex({ GOOGLE_API_KEY: 'k' });
     expect(gemini.getModelsFetchConfig()).toMatchObject({
       url: 'https://generativelanguage.googleapis.com/v1beta/models',
     });
@@ -64,7 +76,7 @@ describe('createGoogleProviderAdapter', () => {
   });
 
   it('authenticates both providers with the x-goog-api-key header', () => {
-    expect(createGeminiAdapter({ GEMINI_API_KEY: 'g' }).getAuthHeaders()).toEqual({ 'x-goog-api-key': 'g' });
-    expect(createVertexAdapter({ GOOGLE_API_KEY: 'v' }).getAuthHeaders()).toEqual({ 'x-goog-api-key': 'v' });
+    expect(GOOGLE_PROVIDER_ADAPTER_FACTORIES.gemini({ GEMINI_API_KEY: 'g' }).getAuthHeaders()).toEqual({ 'x-goog-api-key': 'g' });
+    expect(GOOGLE_PROVIDER_ADAPTER_FACTORIES.vertex({ GOOGLE_API_KEY: 'v' }).getAuthHeaders()).toEqual({ 'x-goog-api-key': 'v' });
   });
 });

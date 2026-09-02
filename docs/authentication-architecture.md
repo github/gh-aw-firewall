@@ -796,7 +796,7 @@ OIDC authentication is configured via `apiProxy.auth` in the AWF config file or 
 | `containers/api-proxy/providers/openai.js` | OpenAI adapter — selects OIDC provider based on `AWF_AUTH_PROVIDER` |
 | `containers/api-proxy/providers/anthropic.js` | Anthropic adapter — static `x-api-key` or WIF `Authorization: Bearer` |
 | `containers/api-proxy/providers/copilot.js`, `copilot-auth.js`, `copilot-byok.js` | Copilot adapter — GitHub token, BYOK, and OIDC handling, `token`/`Bearer` prefix logic |
-| `containers/api-proxy/providers/gemini.js`, `vertex.js`, `google-adapter.js`, `google-provider-specs.js` | Gemini and Vertex AI adapters (declarative specs) — static `x-goog-api-key` only, no OIDC |
+| `containers/api-proxy/providers/google-adapter.js`, `google-provider-specs.js` | Gemini and Vertex AI adapters (declarative specs) — static `x-goog-api-key` only, no OIDC |
 | `containers/agent/setup-iptables.sh` | iptables rules for api-proxy routing |
 | `containers/agent/entrypoint.sh` | Entrypoint token cleanup, capability drop |
 | `containers/agent/api-proxy-health-check.sh` | Pre-flight credential isolation verification |
