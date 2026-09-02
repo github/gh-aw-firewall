@@ -331,7 +331,7 @@ describe('enclave mcpg handoff', () => {
         third: { Name: 'unexpected' },
       }),
       stderr: '',
-    }, /unexpected member/],
+    }, /expected: awf-enclave-mcp-server, awmg-mcpg; actual: awf-enclave-mcp-server, awmg-mcpg, unexpected/],
   ])('fails closed on invalid control-network membership', async (networkResult, expected) => {
     mockExeca
       .mockResolvedValueOnce({
@@ -344,8 +344,15 @@ describe('enclave mcpg handoff', () => {
         }),
       })
       .mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' })
-      .mockResolvedValueOnce(networkResult);
+      .mockResolvedValueOnce(networkResult)
+      .mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' });
     await expect(connectEnclaveGateway(config(), env())).rejects.toThrow(expected);
+    expect(mockExeca).toHaveBeenNthCalledWith(
+      4,
+      'docker',
+      ['network', 'disconnect', '-f', 'awf-enclave-mcp-control', 'awmg-mcpg'],
+      expect.objectContaining({ reject: false }),
+    );
   });
 
   it('proves initialize and the exact tool contracts through the gateway', async () => {

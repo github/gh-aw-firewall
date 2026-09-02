@@ -279,7 +279,10 @@ async function assertControlNetworkMembership(contract: EnclaveGatewayContract):
   const names = Object.values(containers).map((entry) => entry.Name).filter(Boolean).sort();
   const expected = [ENCLAVE_MCP_SERVER_CONTAINER_NAME, contract.containerName].sort();
   if (JSON.stringify(names) !== JSON.stringify(expected)) {
-    throw new Error('Enclave MCP control network contains an unexpected member');
+    throw new Error(
+      `Enclave MCP control network contains unexpected members `
+      + `(expected: ${expected.join(', ')}; actual: ${names.join(', ') || '<none>'})`,
+    );
   }
 }
 
@@ -300,7 +303,17 @@ export async function connectEnclaveGateway(
   ) {
     throw new Error('Failed to attach the trusted enclave MCP gateway to its private control network');
   }
-  await assertControlNetworkMembership(contract);
+  try {
+    await assertControlNetworkMembership(contract);
+  } catch (error) {
+    // Leave the fixed-name control network reusable by startup retries.
+    await execa(
+      'docker',
+      ['network', 'disconnect', '-f', ENCLAVE_MCP_CONTROL_NETWORK, contract.containerName],
+      { env: getLocalDockerEnv(), reject: false, timeout: 10_000 },
+    );
+    throw error;
+  }
 }
 
 function postJsonRpc(
