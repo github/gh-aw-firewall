@@ -12,12 +12,16 @@ FROM golang:1.26.6-alpine@sha256:af8d6740070b8906d12eae1c3e3ea0957fb63f492051ea0
 ARG GH_VERSION=2.98.0
 ARG GH_SOURCE_SHA256=abada9e8b550547ac93f99250f3ad4d90ad623fa245cb54cb058f78030a6a5f6
 ARG GH_SOURCE_DATE_EPOCH=1787263311
+ARG GH_GRPC_VERSION=1.83.2
 RUN wget -q "https://github.com/cli/cli/archive/refs/tags/v${GH_VERSION}.tar.gz" -O /tmp/gh.tar.gz \
     && echo "${GH_SOURCE_SHA256}  /tmp/gh.tar.gz" | sha256sum -c - \
     && tar -xzf /tmp/gh.tar.gz -C /tmp \
     && cd "/tmp/cli-${GH_VERSION}" \
+    && go get "google.golang.org/grpc@v${GH_GRPC_VERSION}" \
     && CGO_ENABLED=0 GH_VERSION="${GH_VERSION}" SOURCE_DATE_EPOCH="${GH_SOURCE_DATE_EPOCH}" \
          go run ./script/build.go bin/gh \
+    && go version -m bin/gh | awk -v version="v${GH_GRPC_VERSION}" \
+         '$1 == "dep" && $2 == "google.golang.org/grpc" && $3 == version { found=1 } END { exit !found }' \
     && /tmp/cli-${GH_VERSION}/bin/gh --version
 
 FROM ${BASE_IMAGE} AS one-shot-token-build

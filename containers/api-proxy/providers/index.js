@@ -12,8 +12,7 @@
 const { createOpenAIAdapter } = require('./openai');
 const { createAnthropicAdapter } = require('./anthropic');
 const { createCopilotAdapter } = require('./copilot');
-const { createGeminiAdapter } = require('./gemini');
-const { createVertexAdapter } = require('./vertex');
+const { GOOGLE_PROVIDER_ADAPTER_FACTORIES } = require('./google-adapter');
 
 /**
  * @typedef {Object} ProbeConfig
@@ -104,8 +103,8 @@ function createAllAdapters(env, deps = {}) {
   const openai    = createOpenAIAdapter(env,    { bodyTransform: deps.openaiBodyTransform    || null });
   const anthropic = createAnthropicAdapter(env, { bodyTransform: deps.anthropicBodyTransform || null });
   const copilot   = createCopilotAdapter(env,   { bodyTransform: deps.copilotBodyTransform   || null });
-  const gemini    = createGeminiAdapter(env,    { bodyTransform: deps.geminiBodyTransform    || null });
-  const vertex    = createVertexAdapter(env,    { bodyTransform: deps.vertexBodyTransform    || null });
+  const gemini    = GOOGLE_PROVIDER_ADAPTER_FACTORIES.gemini(env, { bodyTransform: deps.geminiBodyTransform || null });
+  const vertex    = GOOGLE_PROVIDER_ADAPTER_FACTORIES.vertex(env, { bodyTransform: deps.vertexBodyTransform || null });
 
   return [openai, anthropic, copilot, gemini, vertex];
 }
