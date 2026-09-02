@@ -113,7 +113,9 @@ function mountedChrootRoots(params: ContainerWorkDirMountsParams): string[] {
     workspaceDir,
     '/tmp',
     ...systemDirectories(useSysroot),
-    ...HOME_TOOL_PATHS.map((toolPath) => path.posix.join(effectiveHome, toolPath)),
+    ...HOME_TOOL_PATHS
+      .filter((toolPath) => toolPath !== '.gemini' || Boolean(config.geminiApiKey || config.googleApiKey))
+      .map((toolPath) => path.posix.join(effectiveHome, toolPath)),
     ...customTargets,
   ];
 }
