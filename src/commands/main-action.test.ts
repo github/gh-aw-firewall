@@ -51,6 +51,10 @@ const {
   chmodSync: mockChmodSync,
   openSync: mockOpenSync,
   closeSync: mockCloseSync,
+  lstatSync: mockLstatSync,
+  fstatSync: mockFstatSync,
+  fchmodSync: mockFchmodSync,
+  fsyncSync: mockFsyncSync,
 } = mainActionFsMocks;
 
 const mockedLogger = logger as jest.Mocked<typeof logger>;
@@ -88,6 +92,12 @@ describe('createMainAction', () => {
       mockedCliWorkflow,
       mockedSbxManager,
     });
+    mockedRedactSecrets.deriveSensitiveEndpointForms.mockImplementation((domains?: string[]) =>
+      domains ?? []
+    );
+    mockedRedactSecrets.redactSensitiveValues.mockImplementation((value: string, values: string[]) =>
+      values.reduce((redacted, sensitive) => redacted.split(sensitive).join('[REDACTED]'), value)
+    );
     processExitSpy = harness.processExitSpy;
     consoleErrorSpy = harness.consoleErrorSpy;
     getOptionValueSource = harness.getOptionValueSource;
@@ -413,9 +423,26 @@ describe('createMainAction', () => {
         mode: 0o755,
       });
       expect(mockWriteFileSync).toHaveBeenCalledWith(
-        '/tmp/awf-test/squid-logs/awf-startup-error.json',
+        42,
         expect.stringContaining('Refusing to use symlink as bind mountpoint: /usr/local/bin/npm'),
-        { mode: 0o644 },
+      );
+      expect(mockFchmodSync).toHaveBeenNthCalledWith(1, 42, 0o600);
+      expect(mockFsyncSync).toHaveBeenCalledWith(42);
+      expect(mockFchmodSync).toHaveBeenNthCalledWith(2, 42, 0o644);
+    });
+
+    it('does not classify agent command failures as startup failures', async () => {
+      mockedCliWorkflow.runMainWorkflow.mockImplementationOnce(async (_config, dependencies) => {
+        await dependencies.runAgentCommand('/tmp/awf-test', ['github.com']);
+        throw new Error('agent command failed');
+      });
+      const action = createMainAction(getOptionValueSource);
+
+      await expect(action(['echo hi'], {})).rejects.toThrow('process.exit: 1');
+
+      expect(mockWriteFileSync).not.toHaveBeenCalledWith(
+        42,
+        expect.stringContaining('"phase": "startup"'),
       );
     });
 
@@ -428,9 +455,44 @@ describe('createMainAction', () => {
       );
 
       expect(mockWriteFileSync).toHaveBeenCalledWith(
-        '/tmp/custom-logs/awf-startup-error.json',
+        42,
         expect.stringContaining('[REDACTED]'),
-        { mode: 0o644 },
+      );
+    });
+
+    it('refuses symlinked log directories and diagnostic files', () => {
+      (mockLstatSync as jest.Mock).mockReturnValueOnce({ isSymbolicLink: () => true });
+      testHelpers.writeStartupFailureDiagnostic(MAIN_ACTION_STUB_CONFIG, new Error('startup failed'));
+      expect(mockOpenSync).not.toHaveBeenCalled();
+      expect(mockWriteFileSync).not.toHaveBeenCalled();
+
+      (mockLstatSync as jest.Mock).mockReturnValue({ isSymbolicLink: () => false });
+      const symlinkError = Object.assign(new Error('ELOOP'), { code: 'ELOOP' });
+      mockOpenSync.mockImplementationOnce(() => { throw symlinkError; });
+      testHelpers.writeStartupFailureDiagnostic(MAIN_ACTION_STUB_CONFIG, new Error('startup failed'));
+      expect(mockWriteFileSync).not.toHaveBeenCalled();
+    });
+
+    it('refuses non-regular diagnostic files', () => {
+      (mockFstatSync as jest.Mock).mockReturnValueOnce({ isFile: () => false });
+      testHelpers.writeStartupFailureDiagnostic(MAIN_ACTION_STUB_CONFIG, new Error('startup failed'));
+      expect(mockWriteFileSync).not.toHaveBeenCalled();
+      expect(mockCloseSync).toHaveBeenCalledWith(42);
+    });
+
+    it('redacts secret-derived endpoint forms from startup diagnostics', () => {
+      mockedRedactSecrets.deriveSensitiveEndpointForms.mockReturnValue([
+        'sensitive.example.com:443',
+        'sensitive.example.com',
+      ]);
+      testHelpers.writeStartupFailureDiagnostic({
+        ...MAIN_ACTION_STUB_CONFIG,
+        sensitiveAllowedDomains: ['https://sensitive.example.com'],
+      } as import('../types').WrapperConfig, new Error('failed to reach sensitive.example.com:443'));
+
+      expect(mockWriteFileSync).toHaveBeenCalledWith(
+        42,
+        expect.not.stringContaining('sensitive.example.com'),
       );
     });
 

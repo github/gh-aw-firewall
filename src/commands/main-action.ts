@@ -18,8 +18,9 @@ import {
   cleanupHostIptables,
 } from '../host-iptables';
 import { runMainWorkflow } from '../cli-workflow';
-import { redactSecrets } from '../redact-secrets';
+import { deriveSensitiveEndpointForms, redactSecrets, redactSensitiveValues } from '../redact-secrets';
 import { joinShellArgs } from '../option-parsers';
+import { assertRealDirectory } from '../fs-utils';
 import { applyConfigFilePrecedence } from './preflight';
 import { registerSignalHandlers } from './signal-handler';
 import { validateOptions } from './validate-options';
@@ -102,16 +103,33 @@ function writeStartupFailureDiagnostic(config: WrapperConfig, error: unknown, ph
   try {
     const proxyLogsDir = config.proxyLogsDir || path.join(config.workDir, 'squid-logs');
     fs.mkdirSync(proxyLogsDir, { recursive: true, mode: 0o755 });
-    const message = error instanceof Error ? error.message : String(error);
-    fs.writeFileSync(
-      getStartupDiagnosticPath(proxyLogsDir),
-      JSON.stringify({
+    assertRealDirectory(proxyLogsDir);
+    const message = redactSensitiveValues(
+      redactSecrets(error instanceof Error ? error.message : String(error)),
+      deriveSensitiveEndpointForms(config.sensitiveAllowedDomains),
+    );
+    const flags =
+      fs.constants.O_WRONLY |
+      fs.constants.O_CREAT |
+      fs.constants.O_TRUNC |
+      fs.constants.O_NONBLOCK |
+      (fs.constants.O_NOFOLLOW ?? 0);
+    const fd = fs.openSync(getStartupDiagnosticPath(proxyLogsDir), flags, 0o600);
+    try {
+      if (!fs.fstatSync(fd).isFile()) {
+        throw new Error('Refusing to write startup diagnostic to a non-regular file');
+      }
+      fs.fchmodSync(fd, 0o600);
+      fs.writeFileSync(fd, JSON.stringify({
         timestamp: new Date().toISOString(),
         phase,
-        message: redactSecrets(message),
-      }, null, 2) + '\n',
-      { mode: 0o644 },
-    );
+        message,
+      }, null, 2) + '\n');
+      fs.fsyncSync(fd);
+      fs.fchmodSync(fd, 0o644);
+    } finally {
+      fs.closeSync(fd);
+    }
   } catch (diagnosticError) {
     logger.debug(`Failed to write AWF startup diagnostic: ${diagnosticError}`);
   }
@@ -336,13 +354,16 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
 
   let exitCode = 0;
   let containersStarted = false;
+  let agentCommandStarted = false;
   let hostIptablesSetup = false;
   let externalRuntimeBackend: ExternalAgentRuntimeBackend | undefined;
   try {
     externalRuntimeBackend = resolveExternalRuntimeBackend(config, startContainers);
   } catch (error) {
     logger.error('Fatal error:', error);
-    writeStartupFailureDiagnostic(config, error);
+    if (!agentCommandStarted) {
+      writeStartupFailureDiagnostic(config, error);
+    }
     await buildCleanupFn(
       config,
       () => containersStarted,
@@ -381,6 +402,15 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
     const workflowRunAgentCommand = externalWorkflowDependencies?.runAgentCommand
       ?? ((workDir: string, allowedDomains: string[], proxyLogsDir?: string, agentTimeoutMinutes?: number) =>
         runAgentCommand(workDir, allowedDomains, proxyLogsDir, agentTimeoutMinutes, config.containerRuntime));
+    const trackedRunAgentCommand = async (
+      workDir: string,
+      allowedDomains: string[],
+      proxyLogsDir?: string,
+      agentTimeoutMinutes?: number,
+    ) => {
+      agentCommandStarted = true;
+      return workflowRunAgentCommand(workDir, allowedDomains, proxyLogsDir, agentTimeoutMinutes);
+    };
     const workflowCollectDiagnosticLogs = externalRuntimeBackend
       ? async (workDir: string): Promise<void> => {
          const results = await Promise.allSettled([
@@ -409,7 +439,7 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
         setupHostIptables,
         writeConfigs,
         startContainers: externalWorkflowDependencies?.startContainers ?? startContainers,
-        runAgentCommand: workflowRunAgentCommand,
+        runAgentCommand: trackedRunAgentCommand,
         collectDiagnosticLogs: workflowCollectDiagnosticLogs,
         assertTopologySupported,
         connectTopologyContainers,
@@ -433,9 +463,12 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
 
     console.error(`Process exiting with code: ${exitCode}`);
     process.exit(exitCode);
+    return;
   } catch (error) {
     logger.error('Fatal error:', error);
-    writeStartupFailureDiagnostic(config, error);
+    if (!agentCommandStarted) {
+      writeStartupFailureDiagnostic(config, error);
+    }
     await performCleanup();
     console.error(`Process exiting with code: 1`);
     process.exit(1);
