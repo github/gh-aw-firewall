@@ -277,7 +277,7 @@ Google says the Gemini API will reject standard API keys beginning in September 
 ## Provider: Google Vertex AI
 
 **Port:** 10004
-**Implementation:** `containers/api-proxy/providers/vertex.js` (shares `createGoogleApiKeyAdapter` with the Gemini adapter via `google-adapter.js`)
+**Implementation:** `containers/api-proxy/providers/vertex.js` (built from the shared `makeGoogleProviderFactory('vertex')` in `google-adapter.js`, which wraps `createGoogleApiKeyAdapter`; the Gemini adapter is generated the same way via `makeGoogleProviderFactory('gemini')`)
 
 ### Static API Key
 
