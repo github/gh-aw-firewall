@@ -92,12 +92,16 @@ function resolveGithubAgentId(config: WrapperConfig, env: NodeJS.ProcessEnv): st
     return env[ENCLAVE_GITHUB_MCP_AGENT_ID_ENV];
   }
   const agentIdPath = resolveEnclavePaths(config.workDir).githubAgentIdPath;
+  let fd: number | undefined;
   try {
-    const stat = fs.lstatSync(agentIdPath);
-    if (!stat.isFile() || stat.isSymbolicLink() || (stat.mode & 0o077) !== 0) return undefined;
-    return fs.readFileSync(agentIdPath, 'ascii').trim();
+    fd = fs.openSync(agentIdPath, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+    const stat = fs.fstatSync(fd);
+    if (!stat.isFile() || (stat.mode & 0o077) !== 0) return undefined;
+    return fs.readFileSync(fd, 'ascii').trim();
   } catch {
     return undefined;
+  } finally {
+    if (fd !== undefined) fs.closeSync(fd);
   }
 }
 
