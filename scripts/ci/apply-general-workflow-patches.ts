@@ -81,8 +81,12 @@ export function applyGeneralWorkflowPatches(
           : line
       )
       .join('\n');
+    content = content.replace(
+      '"GITHUB_TOOLSETS": "context"',
+      '"GITHUB_TOOLSETS": "context,issues"'
+    );
     if (content !== original) {
-      log.push('  Normalized shared-gateway safeoutputs policy server ID');
+      log.push('  Normalized shared-gateway policy server IDs and toolsets');
     }
   }
 
@@ -110,7 +114,10 @@ export function applyGeneralWorkflowPatches(
   // The enclave backend starts inside AWF, after mcpg. Keep it in the agent's
   // gateway config but exempt it from the eager startup connectivity check so
   // mcpg can rediscover it once AWF attaches and launches the backend.
-  if (workflowPath.endsWith('smoke-enclave-build-test.lock.yml')) {
+  const isEnclaveSmoke =
+    workflowPath.endsWith('smoke-enclave-build-test.lock.yml') ||
+    workflowPath.endsWith('smoke-enclave-issues-read.lock.yml');
+  if (isEnclaveSmoke) {
     const optionalEnclaveServer = '"awf-enclave": {\n                "required": false,';
     if (content.includes(optionalEnclaveServer)) {
       log.push(`  Enclave MCP backend already marked optional during gateway startup`);
@@ -125,7 +132,9 @@ export function applyGeneralWorkflowPatches(
       );
       log.push(`  Marked enclave MCP backend optional during gateway startup`);
     }
+  }
 
+  if (workflowPath.endsWith('smoke-enclave-build-test.lock.yml')) {
     const gatewayKeyEnv =
       '          MCP_GATEWAY_API_KEY: ${{ steps.start-mcp-gateway.outputs.gateway-api-key }}';
     const agentEnvAnchor = '        env:\n          AWF_REFLECT_ENABLED: 1';

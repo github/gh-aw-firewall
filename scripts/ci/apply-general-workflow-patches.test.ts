@@ -110,9 +110,12 @@ describe('applyGeneralWorkflowPatches published AWF maintenance workflows', () =
 });
 
 describe('applyGeneralWorkflowPatches shared enclave gateway policy', () => {
-  it('normalizes only the generated safeoutputs policy server ID', () => {
+  it('normalizes the generated shared gateway handoff', () => {
     const compiled =
       '              "safeoutputs": {"type": "stdio"},\n' +
+      '                  "GITHUB_TOOLSETS": "context"\n' +
+      '              "awf-enclave": {\n' +
+      '                "type": "http",\n' +
       '              "agentPolicies": {"primary":{"servers":["github","safe-outputs"]}},\n';
 
     const { content, log } = applyGeneralWorkflowPatches(
@@ -122,7 +125,9 @@ describe('applyGeneralWorkflowPatches shared enclave gateway policy', () => {
 
     expect(content).toContain('"safeoutputs": {"type": "stdio"}');
     expect(content).toContain('"servers":["github","safeoutputs"]');
+    expect(content).toContain('"GITHUB_TOOLSETS": "context,issues"');
+    expect(content).toContain('"awf-enclave": {\n                "required": false,');
     expect(content).not.toContain('"servers":["github","safe-outputs"]');
-    expect(log).toContain('  Normalized shared-gateway safeoutputs policy server ID');
+    expect(log).toContain('  Normalized shared-gateway policy server IDs and toolsets');
   });
 });

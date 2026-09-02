@@ -754,6 +754,7 @@ jobs:
           {
             "mcpServers": {
               "awf-enclave": {
+                "required": false,
                 "type": "http",
                 "url": "http://awf-enclave-mcp:8080/mcp",
                 "headers": {"Authorization": "Bearer \${AWF_ENCLAVE_MCP_CAPABILITY}"},
@@ -769,7 +770,7 @@ jobs:
                   "GITHUB_HOST": "${GITHUB_SERVER_URL}",
                   "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_MCP_SERVER_TOKEN}",
                   "GITHUB_READ_ONLY": "1",
-                  "GITHUB_TOOLSETS": "context"
+                  "GITHUB_TOOLSETS": "context,issues"
                 },
                 "guard-policies": {
                   "allow-only": {
