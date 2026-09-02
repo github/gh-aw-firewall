@@ -85,8 +85,13 @@ function isCopilotHost(targetHost) {
     (typeof targetHost === 'string' && targetHost.endsWith('.githubcopilot.com'));
 }
 
+function isCopilotIntegrationHost(targetHost) {
+  return isCopilotHost(targetHost)
+    || (typeof targetHost === 'string' && /^copilot-api\.[^.]+\.ghe\.com$/.test(targetHost));
+}
+
 function mergeInjectedHeaders(headers, injectHeaders, targetHost) {
-  const copilotHost = isCopilotHost(targetHost);
+  const copilotHost = isCopilotIntegrationHost(targetHost);
   for (const [name, value] of Object.entries(injectHeaders)) {
     if (!copilotHost && name.toLowerCase() === 'copilot-integration-id') continue;
     headers[name] = value;

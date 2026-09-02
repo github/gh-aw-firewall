@@ -5,6 +5,7 @@ const { COPILOT_PLACEHOLDER_TOKEN } = require('./copilot-byok');
 const { URL } = require('url');
 
 const COPILOT_DUMMY_BYOK_OFFLINE_TOKEN = 'dummy-byok-key-for-offline-mode';
+const COPILOT_LEGACY_PLACEHOLDER_TOKEN = 'placeholder-token-for-credential-isolation';
 
 /**
  * Strip any accidental "Bearer " or "token " prefix from a raw credential
@@ -24,12 +25,13 @@ function stripBearerPrefix(value) {
 
 /**
  * Returns the COPILOT_PROVIDER_API_KEY value from env if it is a real BYOK credential,
- * or undefined in three cases:
+ * or undefined in four cases:
  *   1. COPILOT_PROVIDER_API_KEY is not set (or is empty/whitespace-only).
  *   2. COPILOT_PROVIDER_API_KEY equals the known AWF placeholder sentinel — it was injected
  *      by AWF for credential isolation and is not a usable BYOK credential.
  *   3. COPILOT_PROVIDER_API_KEY equals gh-aw's offline-mode dummy BYOK sentinel
  *      (`dummy-byok-key-for-offline-mode`) and should not suppress COPILOT_GITHUB_TOKEN.
+ *   4. COPILOT_PROVIDER_API_KEY equals the legacy credential-isolation placeholder.
  *
  * The case-(2) placeholder check is defense-in-depth: in AWF's normal flow the placeholder
  * is never written into the sidecar's own COPILOT_PROVIDER_API_KEY (src/services/api-proxy-
@@ -44,7 +46,9 @@ function stripBearerPrefix(value) {
  */
 function resolveApiKey(env) {
   const key = stripBearerPrefix(env.COPILOT_PROVIDER_API_KEY);
-  return (key === COPILOT_PLACEHOLDER_TOKEN || key === COPILOT_DUMMY_BYOK_OFFLINE_TOKEN)
+  return (key === COPILOT_PLACEHOLDER_TOKEN
+    || key === COPILOT_DUMMY_BYOK_OFFLINE_TOKEN
+    || key === COPILOT_LEGACY_PLACEHOLDER_TOKEN)
     ? undefined
     : key;
 }
@@ -165,7 +169,7 @@ function isGithubCopilotCatalogTarget(rawTarget) {
   return target === 'api.githubcopilot.com'
     || target === 'api.enterprise.githubcopilot.com'
     || target.endsWith('.githubcopilot.com')
-    || target.endsWith('.ghe.com');
+    || isGhecCopilotApiTarget(target);
 }
 
 function getCopilotModelFallbackPolicy(modelFallback, env = process.env) {
@@ -248,6 +252,15 @@ function isGhecCopilotApiTarget(target) {
   return /^copilot-api\.[^.]+\.ghe\.com$/.test(target);
 }
 
+function isFineGrainedPat(token) {
+  return typeof token === 'string' && token.startsWith('github_pat_');
+}
+
+function getGitHubTokenAuthPrefix(token, resolvedTarget, env = process.env) {
+  if (isFineGrainedPat(token)) return 'Bearer';
+  return copilotTargetRequiresGitHubTokenPrefix(resolvedTarget, env) ? 'token' : 'Bearer';
+}
+
 /**
  * Decide whether a GitHub OAuth/PAT token sent to the Copilot API must use the
  * `token <value>` Authorization prefix instead of `Bearer <value>`.
@@ -299,6 +312,7 @@ module.exports = {
   isGithubCopilotCatalogTarget,
   isGhesInstance,
   classifyGithubServerHost,
+  getGitHubTokenAuthPrefix,
   copilotTargetRequiresGitHubTokenPrefix,
   getCopilotModelFallbackPolicy,
   // Exported for unit-test access only; not part of the public API.
@@ -312,6 +326,7 @@ module.exports = {
     isGithubCopilotCatalogTarget,
     isGhesInstance,
     classifyGithubServerHost,
+    getGitHubTokenAuthPrefix,
     copilotTargetRequiresGitHubTokenPrefix,
     getCopilotModelFallbackPolicy,
   },

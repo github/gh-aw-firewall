@@ -150,6 +150,13 @@ describe('copilot interaction/integration headers', () => {
     expect(headers['copilot-integration-id']).toBeUndefined();
   });
 
+  test('preserves the integration id without adding interaction headers on canonical GHEC hosts', () => {
+    const headers = buildCopilotHeaders({}, { targetHost: 'copilot-api.myorg.ghe.com' });
+    expect(headers['Copilot-Integration-Id']).toBe('agentic-workflows');
+    expect(headers['x-interaction-id']).toBeUndefined();
+    expect(headers['x-initiator']).toBeUndefined();
+  });
+
   test('does not inject on other providers', () => {
     const headers = buildRequestHeaders(Buffer.from('{}'), 2, { headers: {} }, {
       injectHeaders: {},

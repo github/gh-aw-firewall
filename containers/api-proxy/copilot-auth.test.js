@@ -5,6 +5,7 @@ const {
     stripBearerPrefix,
     classifyGithubServerHost,
     isGhesInstance,
+    getGitHubTokenAuthPrefix,
     copilotTargetRequiresGitHubTokenPrefix,
   },
 } = require('./providers/copilot-auth');
@@ -145,6 +146,13 @@ describe('resolveCopilotAuthToken', () => {
       COPILOT_PROVIDER_API_KEY: 'dummy-byok-key-for-offline-mode',
     })).toBe('gho_real_token');
   });
+
+  it('uses COPILOT_GITHUB_TOKEN when COPILOT_PROVIDER_API_KEY is the legacy placeholder', () => {
+    expect(resolveCopilotAuthToken({
+      COPILOT_GITHUB_TOKEN: 'github_pat_fine_grained',
+      COPILOT_PROVIDER_API_KEY: 'placeholder-token-for-credential-isolation',
+    })).toBe('github_pat_fine_grained');
+  });
 });
 
 describe('resolveApiKey', () => {
@@ -158,6 +166,10 @@ describe('resolveApiKey', () => {
 
   it('returns undefined when COPILOT_PROVIDER_API_KEY is the offline-mode dummy sentinel', () => {
     expect(resolveApiKey({ COPILOT_PROVIDER_API_KEY: 'dummy-byok-key-for-offline-mode' })).toBeUndefined();
+  });
+
+  it('returns undefined when COPILOT_PROVIDER_API_KEY is the legacy placeholder', () => {
+    expect(resolveApiKey({ COPILOT_PROVIDER_API_KEY: 'placeholder-token-for-credential-isolation' })).toBeUndefined();
   });
 
   it('returns undefined when COPILOT_PROVIDER_API_KEY is not set', () => {
@@ -253,6 +265,20 @@ describe('classifyGithubServerHost', () => {
 describe('copilotTargetRequiresGitHubTokenPrefix', () => {
   it('returns true for the Enterprise Copilot endpoint', () => {
     expect(copilotTargetRequiresGitHubTokenPrefix('api.enterprise.githubcopilot.com', {})).toBe(true);
+  });
+
+  describe('getGitHubTokenAuthPrefix', () => {
+    it.each([
+      'api.business.githubcopilot.com',
+      'api.enterprise.githubcopilot.com',
+      'copilot-api.myorg.ghe.com',
+    ])('uses ****** fine-grained PATs on %s', (target) => {
+      expect(getGitHubTokenAuthPrefix('github_pat_fine_grained', target)).toBe('Bearer');
+    });
+
+    it('retains token for a classic PAT on a Business target', () => {
+      expect(getGitHubTokenAuthPrefix('ghp_classic', 'api.business.githubcopilot.com')).toBe('token');
+    });
   });
 
   it('returns true for the Business Copilot endpoint', () => {
