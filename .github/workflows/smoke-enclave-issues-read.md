@@ -41,7 +41,7 @@ timeout-minutes: 20
 sandbox:
   agent:
     id: awf
-    version: v0.28.9
+    version: v0.28.13
   mcp:
     version: v0.4.15
 strict: false
