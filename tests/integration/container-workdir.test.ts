@@ -92,7 +92,8 @@ describe('Container Working Directory', () => {
     // the AWF workspace mount: the directory must exist inside the sandbox at
     // the same absolute path, otherwise the agent falls back to / and keeps
     // retrying `cd`. See github/gh-aw-firewall#8015.
-    const externalWorkDir = fs.mkdtempSync(path.join(os.homedir(), 'awf-external-workdir-'));
+    const externalRoot = os.homedir() === '/root' ? '/var/tmp' : os.homedir();
+    const externalWorkDir = fs.mkdtempSync(path.join(externalRoot, 'awf-external-workdir-'));
     fs.writeFileSync(path.join(externalWorkDir, 'marker.txt'), 'marker\n');
 
     try {
