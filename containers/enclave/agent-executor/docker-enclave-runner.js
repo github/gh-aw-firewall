@@ -26,7 +26,7 @@ class DockerEnclaveRunner {
   async assertNetworkIsolated() {
     const expectedMembers = ['awf-enclave-agent-api-proxy@172.31.0.30/24,'];
     if (this.config.githubEnabled) {
-      expectedMembers.push('awf-enclave-agent-github-mcp@172.31.0.40/24,');
+      expectedMembers.push(`${this.config.githubGatewayContainer}@172.31.0.40/24,`);
     }
     const expectedTopologies = new Set([
       `true|bridge|172.31.0.0/24,|${expectedMembers.join('')}`,

@@ -22,12 +22,6 @@ const { loadAgentConfig, loadServerConfig } = require(path.join(
   'mcp-server',
   'config.js',
 ));
-const { mintGithubCapability } = require(path.join(
-  containersRoot,
-  'enclave',
-  'agent-executor',
-  'github-capability.js',
-));
 const { agentWorkspaceAdapter } = require(path.join(
   containersRoot,
   'enclave',
@@ -62,6 +56,7 @@ const trustedConfig = {
   runLabelKey: ENCLAVE_RUN_LABEL,
   invocationLabelKey: ENCLAVE_INVOCATION_LABEL,
   containerPrefix: 'awf-enclave-agent',
+  githubGatewayContainer: 'awmg-mcpg',
 };
 
 describe('unified enclave agent runner specification', () => {
@@ -113,14 +108,14 @@ describe('unified enclave agent runner specification', () => {
     expect(spec.launchArgs).toContain('--entrypoint');
   });
 
-  it('mounts only the invocation capability for issues-read-v1', () => {
+  it('mounts only the gateway agent identity for issues-read-v1', () => {
     const githubSpec = deriveEnclaveContainerSpec({
       config: {
         ...trustedConfig,
         githubEnabled: true,
         githubProfile: 'issues-read-v1',
-        githubMcpUrl: 'http://172.31.0.40:11000/mcp',
-        enclaveGithubCapabilityPath: '/run/awf-enclave-github/capability',
+        githubMcpUrl: 'http://172.31.0.40:8080/mcp/github',
+        enclaveGithubAgentIdPath: '/run/awf-enclave-github/agent-id',
       },
       runId: 'abcdef1234567890',
       invocationId: '0123456789abcdef',
@@ -128,10 +123,10 @@ describe('unified enclave agent runner specification', () => {
     });
     expect(githubSpec.launchArgs).toEqual(expect.arrayContaining([
       '--env', 'AWF_ENCLAVE_AGENT_GITHUB_PROFILE=issues-read-v1',
-      '--env', 'AWF_ENCLAVE_AGENT_GITHUB_MCP_URL=http://172.31.0.40:11000/mcp',
+      '--env', 'AWF_ENCLAVE_AGENT_GITHUB_MCP_URL=http://172.31.0.40:8080/mcp/github',
       '-v',
-      '/daemon/private/enclave/work/0123456789abcdef/github-capability:' +
-        '/run/awf-enclave-github/capability:ro',
+      '/daemon/private/enclave/work/0123456789abcdef/github-agent-id:' +
+      '/run/awf-enclave-github/agent-id:ro',
     ]));
     expect(githubSpec.launchArgs.join(' ')).not.toMatch(/MCP_GATEWAY|githubCapabilityKey|GH_TOKEN/);
   });
@@ -218,7 +213,7 @@ describe('unified enclave agent runner specification', () => {
     await expect(runner.assertAvailable()).resolves.toBeUndefined();
   });
 
-  it('requires the PAT-free MCP bridge as the second steady-state peer when enabled', async () => {
+  it('requires shared mcpg as the second steady-state peer when enabled', async () => {
     const runner = createEnclaveRunner(
       { ...trustedConfig, backend: 'docker', githubEnabled: true },
       {
@@ -229,7 +224,7 @@ describe('unified enclave agent runner specification', () => {
             stdout: args[0] === 'network'
               ? 'true|bridge|172.31.0.0/24,|' +
                 'awf-enclave-agent-api-proxy@172.31.0.30/24,' +
-                'awf-enclave-agent-github-mcp@172.31.0.40/24,'
+                'awmg-mcpg@172.31.0.40/24,'
               : '[]',
             stderr: '',
           }),
@@ -267,49 +262,11 @@ describe('unified enclave agent runner specification', () => {
     expect(calls.some((args) => args[0] === 'run')).toBe(false);
   });
 
-  describe('issues-read-v1 capability serialization', () => {
-    it('matches the canonical mcpg v1 vector byte for byte', () => {
-      expect(mintGithubCapability({
-        keyHex: '000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f',
-        runId: 'run-123',
-        invocationId: 'inv-456',
-        repo: 'octo/private',
-        notBefore: 1787594400,
-        expiresAt: 1787594520,
-      })).toBe(
-        'awf-egh1.' +
-        'eyJ2IjoxLCJhdWQiOiJnaC1hdy1lbmNsYXZlLWdpdGh1YiIsInJ1biI6InJ1bi0xMjMiLCJpbnYiOiJpbnYtNDU2IiwicmVwbyI6Im9jdG8vcHJpdmF0ZSIsInByb2ZpbGUiOiJpc3N1ZXMtcmVhZC12MSIsIm9wcyI6WyJpc3N1ZXMuY29tbWVudHMubGlzdCIsImlzc3Vlcy5nZXQiLCJpc3N1ZXMubGlzdCJdLCJuYmYiOjE3ODc1OTQ0MDAsImV4cCI6MTc4NzU5NDUyMH0.' +
-        '6fDSD-uxmi_fCZMOFmSuckdNBGx5qcWMI1HCgoXtA3o',
-      );
-    });
-
-    it.each([
-      { keyHex: 'A'.repeat(64) },
-      { repo: 'Octo/private' },
-      { repo: '' },
-      { repo: 'octo' },
-      { repo: 'octo/*' },
-      { repo: 'private:octo/private' },
-      { runId: '../run' },
-      { notBefore: -1 },
-      { expiresAt: 1787594399 },
-    ])('rejects noncanonical signer input (%j)', (override) => {
-      expect(() => mintGithubCapability({
-        keyHex: '0'.repeat(64),
-        runId: 'run-123',
-        invocationId: 'inv-456',
-        repo: 'octo/private',
-        notBefore: 1787594400,
-        expiresAt: 1787594520,
-        ...override,
-      })).toThrow();
-    });
-
-    it('uses the compiler identity and exact assigned repository as capability claims', () => {
-      const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-capability-run-'));
+  describe('issues-read-v1 gateway identity', () => {
+    it('copies only the compiler-issued enclave identity into an invocation', () => {
+      const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-gateway-identity-'));
       try {
-        const seedRunId = '0123456789abcdef0123456789abcdef';
-        const githubRunIdentity = 'gh-aw-egh-123456-1-abcdef123456';
+        const githubAgentId = 'enclaveAgentId0123456789abcdef012345';
         const layout = agentWorkspaceAdapter.createInvocationWorkspace({
           config: {
             workDir,
@@ -318,26 +275,16 @@ describe('unified enclave agent runner specification', () => {
             enclaveGid: process.getgid?.() ?? 0,
             timeoutSeconds: 120,
             githubEnabled: true,
-            githubCapabilityKey: '0'.repeat(64),
-            githubRunIdentity,
+            githubAgentId,
           },
-          runId: seedRunId,
+          runId: '0123456789abcdef0123456789abcdef',
           invocationId: 'abcdef1234567890',
           privateRepo: 'octo/private',
           schema: { type: 'object' },
           prompt: 'read one issue',
         });
-        const token = fs.readFileSync(layout.githubCapabilityPath, 'utf8').trim();
-        const payload = JSON.parse(
-          Buffer.from(token.split('.')[1], 'base64url').toString('utf8'),
-        );
-        expect(payload.run).toBe(githubRunIdentity);
-        expect(payload.run).not.toBe(seedRunId);
-        expect(payload.repo).toBe('octo/private');
-        expect(Object.keys(payload)).toEqual([
-          'v', 'aud', 'run', 'inv', 'repo', 'profile', 'ops', 'nbf', 'exp',
-        ]);
-        expect(JSON.stringify(payload)).not.toMatch(/private:|secrecy|label/i);
+        expect(fs.readFileSync(layout.githubAgentIdPath, 'utf8').trim()).toBe(githubAgentId);
+        expect(fs.statSync(layout.githubAgentIdPath).mode & 0o777).toBe(0o400);
       } finally {
         fs.rmSync(workDir, { recursive: true, force: true });
       }
@@ -416,24 +363,20 @@ describe('unified enclave agent server configuration', () => {
     expect(() => loadAgentConfig(server)).toThrow();
   });
 
-  it('loads the capability root and compiler run identity only from fixed private files', () => {
+  it('loads the compiler-issued GitHub MCP identity only from its fixed private file', () => {
     setEnv({
       AWF_ENCLAVE_AGENT_GITHUB_ENABLED: 'true',
       AWF_ENCLAVE_AGENT_GITHUB_PROFILE: 'issues-read-v1',
-      AWF_ENCLAVE_AGENT_GITHUB_MCP_URL: 'http://172.31.0.40:11000/mcp',
-      AWF_ENCLAVE_AGENT_GITHUB_CAPABILITY_KEY_PATH:
-        '/run/awf-enclave-mcp/github-capability-key',
-      AWF_ENCLAVE_AGENT_GITHUB_RUN_IDENTITY_PATH:
-        '/run/awf-enclave-mcp/github-run-identity',
+      AWF_ENCLAVE_AGENT_GITHUB_MCP_URL: 'http://172.31.0.40:8080/mcp/github',
+      AWF_ENCLAVE_AGENT_GITHUB_GATEWAY_CONTAINER: 'awmg-mcpg',
+      AWF_ENCLAVE_AGENT_GITHUB_AGENT_ID_PATH:
+        '/run/awf-enclave-mcp/github-agent-id',
     });
     const config = loadAgentConfig(server, {
-      readFileSync: (target: string) => target.endsWith('github-capability-key')
-        ? '0'.repeat(64)
-        : 'gh-aw-egh-123456-1-abcdef123456',
+      readFileSync: () => 'enclaveAgentId0123456789abcdef012345',
     });
-    expect(config.githubCapabilityKey).toBe('0'.repeat(64));
-    expect(config.githubRunIdentity).toBe('gh-aw-egh-123456-1-abcdef123456');
-    expect(process.env.AWF_ENCLAVE_GITHUB_PROXY_IDENTITY).toBeUndefined();
+    expect(config.githubAgentId).toBe('enclaveAgentId0123456789abcdef012345');
+    expect(config.githubGatewayContainer).toBe('awmg-mcpg');
   });
 
   it('requires an AWF capability before serving either executor', () => {

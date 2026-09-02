@@ -35,19 +35,16 @@ function enclaveEnv(overrides: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
     GH_TOKEN: 'secret',
     AWF_ENCLAVE_MCP_CAPABILITY: 'a'.repeat(64),
     AWF_ENCLAVE_MCP_GATEWAY_IDENTITY: 'test-run-identity',
+    AWF_ENCLAVE_MCP_GATEWAY_CONTAINER: 'awmg-mcpg',
     AWF_ENCLAVE_MCP_GATEWAY_ENDPOINT: 'http://127.0.0.1:8080/mcp/awf-enclave',
     MCP_GATEWAY_API_KEY: 'g'.repeat(48),
     ...overrides,
   };
 }
 
-function githubEnclaveEnv(workDir: string, overrides: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
-  const caCert = path.join(workDir, 'enclave-github-ca.crt');
-  fs.writeFileSync(caCert, 'test-ca', { mode: 0o600 });
+function githubEnclaveEnv(_workDir: string, overrides: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
   return enclaveEnv({
-    AWF_ENCLAVE_GITHUB_PROXY_CONTAINER: 'compiler-mcpg',
-    AWF_ENCLAVE_GITHUB_PROXY_IDENTITY: 'gh-aw-egh-123456-1-abcdef123456',
-    AWF_ENCLAVE_GITHUB_PROXY_CA_CERT: caCert,
+    AWF_ENCLAVE_GITHUB_MCP_AGENT_ID: 'enclaveAgentId0123456789abcdef012345',
     ...overrides,
   });
 }
@@ -230,10 +227,9 @@ describe('prepareEnclaves fail-closed preflight', () => {
 
   it.each([
     undefined,
-    'a'.repeat(63),
-    'A'.repeat(64),
-    'z'.repeat(64),
-  ])('rejects a malformed enclave GitHub capability root (%s)', async (root) => {
+    'a'.repeat(31),
+    'bad identity with spaces',
+  ])('rejects a malformed enclave GitHub MCP agent identity (%s)', async (agentId) => {
     await expect(prepareEnclaves(agentConfig(workDir, [{
       agent: {
         model: 'gpt-test',
@@ -241,10 +237,10 @@ describe('prepareEnclaves fail-closed preflight', () => {
       },
       repos: [repository],
     }]), {
-      env: githubEnclaveEnv(workDir, { MCP_GATEWAY_ENCLAVE_CAPABILITY_KEY: root }),
+      env: githubEnclaveEnv(workDir, { AWF_ENCLAVE_GITHUB_MCP_AGENT_ID: agentId }),
       assertPrimaryAvailable: jest.fn(),
       assertAgentRuntimeAvailable: jest.fn(),
-    })).rejects.toThrow(/MCP_GATEWAY_ENCLAVE_CAPABILITY_KEY/);
+    })).rejects.toThrow(/AWF_ENCLAVE_GITHUB_MCP_AGENT_ID/);
   });
 
   it('rejects the unimplemented sbx script runtime before staging', async () => {
@@ -291,8 +287,8 @@ describe('prepareEnclaves fail-closed preflight', () => {
     expect(paths.ingressRoot.startsWith(workDir)).toBe(false);
   });
 
-  it('stages the GitHub HMAC root as a private mode-0600 file', async () => {
-    const root = '0123456789abcdef'.repeat(4);
+  it('stages the enclave GitHub MCP identity as a private mode-0600 file', async () => {
+    const agentId = 'enclaveAgentId0123456789abcdef012345';
     await prepareEnclaves(agentConfig(workDir, [{
       agent: {
         model: 'gpt-test',
@@ -300,20 +296,17 @@ describe('prepareEnclaves fail-closed preflight', () => {
       },
       repos: [repository],
     }]), {
-      env: githubEnclaveEnv(workDir, { MCP_GATEWAY_ENCLAVE_CAPABILITY_KEY: root }),
+      env: githubEnclaveEnv(workDir, { AWF_ENCLAVE_GITHUB_MCP_AGENT_ID: agentId }),
       gitRunner,
       assertPrimaryAvailable: jest.fn().mockResolvedValue(undefined),
       assertAgentRuntimeAvailable: jest.fn().mockResolvedValue(undefined),
     });
     const paths = resolveEnclavePaths(workDir);
-    expect(fs.readFileSync(paths.githubCapabilityKeyPath, 'utf8').trim()).toBe(root);
-    expect(fs.statSync(paths.githubCapabilityKeyPath).mode & 0o777).toBe(0o600);
-    expect(fs.readFileSync(paths.githubRunIdentityPath, 'utf8').trim())
-      .toBe('gh-aw-egh-123456-1-abcdef123456');
-    expect(fs.statSync(paths.githubRunIdentityPath).mode & 0o777).toBe(0o600);
+    expect(fs.readFileSync(paths.githubAgentIdPath, 'utf8').trim()).toBe(agentId);
+    expect(fs.statSync(paths.githubAgentIdPath).mode & 0o777).toBe(0o600);
     const seedRunId = JSON.parse(fs.readFileSync(paths.seedMapPath, 'utf8')).runId;
     expect(seedRunId).toMatch(/^[0-9a-f]{32}$/);
-    expect(seedRunId).not.toBe('gh-aw-egh-123456-1-abcdef123456');
+    expect(seedRunId).not.toBe(agentId);
   });
 
   it('removes labelled orphan containers and both private roots on teardown', async () => {

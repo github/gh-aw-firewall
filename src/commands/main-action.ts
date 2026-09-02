@@ -39,7 +39,6 @@ import {
   assertEnclaveGithubGatewayReady,
   connectEnclaveGithubGateway,
   disconnectEnclaveGithubGateway,
-  shutdownEnclaveGithubMcpBridge,
 } from '../enclave/github-gateway';
 import type { WrapperConfig } from '../types';
 
@@ -134,7 +133,6 @@ function buildCleanupFn(
     // until the subsequent compose down removes them.
     if (getContainersStarted()) {
       let enclaveAuditComplete = true;
-      const enclaveGithubEnabled = config.enclaves?.executors.agent.github?.cli === 'issues-read-v1';
       try {
         await shutdownEnclaveGateway(config);
       } catch (error) {
@@ -144,19 +142,9 @@ function buildCleanupFn(
           error,
         );
       }
-      try {
-        await shutdownEnclaveGithubMcpBridge(config);
-      } catch (error) {
-        enclaveAuditComplete = false;
-        logger.warn(
-          'Enclave GitHub MCP bridge did not stop cleanly before audit preservation.',
-          error,
-        );
-      }
       if (preserveIptablesAudit(
         config.workDir,
         config.auditDir,
-        enclaveGithubEnabled,
       ) === false) {
         enclaveAuditComplete = false;
         logger.warn('One or more protected enclave audit artifacts could not be preserved.');
@@ -166,7 +154,7 @@ function buildCleanupFn(
       } catch (error) {
         enclaveAuditComplete = false;
         logger.warn(
-          'Compiler-owned enclave GitHub proxy could not be disconnected cleanly.',
+          'Compiler-owned shared MCP gateway could not be disconnected cleanly.',
           error,
         );
       }

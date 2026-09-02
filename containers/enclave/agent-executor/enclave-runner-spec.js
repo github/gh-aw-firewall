@@ -12,7 +12,7 @@
  *
  *  - `--network <enclave-agent network>`: the enclave joins *only* the
  *    dedicated `internal` enclave-agent network. Its mandatory peer is the AWF
- *    API proxy; issues-read-v1 adds only the PAT-free AWF MCP bridge. There is
+ *    API proxy; issues-read-v1 adds only compiler-owned shared mcpg. There is
  *    no `awf-net`, no `awf-ext`, no Squid, no general proxy, no primary agent,
  *    no broker, no safe-outputs collector, and no MCP gateway.
  *  - `--read-only` with the repository seed bind-mounted `ro`: the enclave can
@@ -127,7 +127,7 @@ function deriveEnclaveContainerSpec({ config, runId, invocationId, seedId, runti
       '--env', `AWF_ENCLAVE_AGENT_GITHUB_PROFILE=${config.githubProfile}`,
       '--env', `AWF_ENCLAVE_AGENT_GITHUB_MCP_URL=${config.githubMcpUrl}`,
       '-v',
-      `${hostInvocationDir}/github-capability:${config.enclaveGithubCapabilityPath}:ro`,
+      `${hostInvocationDir}/github-agent-id:${config.enclaveGithubAgentIdPath}:ro`,
     );
   }
 

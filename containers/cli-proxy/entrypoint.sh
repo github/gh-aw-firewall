@@ -23,18 +23,9 @@ if [ "${AWF_CLI_PROXY_RELAY_ONLY:-}" = "1" ]; then
   exec node /app/tcp-tunnel.js "${DIFC_PORT}" "${DIFC_HOST}" "${DIFC_PORT}" "0.0.0.0"
 fi
 
-CLI_PROXY_MODE="${AWF_CLI_PROXY_MODE:-primary}"
-case "${CLI_PROXY_MODE}" in
-  primary|enclave-mcp) ;;
-  *)
-    echo "[cli-proxy] ERROR: Unsupported AWF_CLI_PROXY_MODE: ${CLI_PROXY_MODE}"
-    exit 1
-    ;;
-esac
-
 # Start the TCP tunnel: localhost:${DIFC_PORT} → ${DIFC_HOST}:${DIFC_PORT}
 # This allows the gh CLI to connect via localhost, matching the cert's SAN.
-if [ "${CLI_PROXY_MODE}" = "primary" ]; then
+if [ "${AWF_CLI_PROXY_MODE:-primary}" != "enclave" ]; then
   echo "[cli-proxy] Starting TCP tunnel: localhost:${DIFC_PORT} to ${DIFC_HOST}:${DIFC_PORT}"
   node /app/tcp-tunnel.js "${DIFC_PORT}" "${DIFC_HOST}" "${DIFC_PORT}" &
   TUNNEL_PID=$!
@@ -51,12 +42,6 @@ if [ ! -f /tmp/proxy-tls/ca.crt ]; then
 fi
 echo "[cli-proxy] TLS certificate available"
 
-if [ "${CLI_PROXY_MODE}" = "enclave-mcp" ]; then
-  export NODE_EXTRA_CA_CERTS="/tmp/proxy-tls/ca.crt"
-  echo "[cli-proxy] Starting credential-free enclave GitHub MCP bridge..."
-  exec node /app/server.js
-fi
-
 # Build a combined CA bundle so the gh CLI (Go binary) trusts the DIFC proxy's
 # self-signed cert.  NODE_EXTRA_CA_CERTS only helps Node.js; Go programs use
 # the system store or SSL_CERT_FILE.
@@ -67,7 +52,11 @@ echo "[cli-proxy] Combined CA bundle created at ${COMBINED_CA}"
 # Configure gh CLI to route through the DIFC proxy via the TCP tunnel
 # Uses localhost because the tunnel makes the DIFC proxy appear on localhost,
 # matching the self-signed cert's SAN.
-export GH_HOST="localhost:${DIFC_PORT}"
+if [ "${AWF_CLI_PROXY_MODE:-primary}" = "enclave" ]; then
+  export GH_HOST="${DIFC_HOST}:${DIFC_PORT}"
+else
+  export GH_HOST="localhost:${DIFC_PORT}"
+fi
 export GH_REPO="${GH_REPO:-$GITHUB_REPOSITORY}"
 # Node.js (server.js / tcp-tunnel.js) uses NODE_EXTRA_CA_CERTS;
 # gh CLI (Go) uses SSL_CERT_FILE pointing to the combined bundle;
@@ -117,6 +106,9 @@ PROBE_OUT_FILE="$(mktemp)"
 PROBE_ERR_FILE="$(mktemp)"
 trap 'rm -f "${PROBE_OUT_FILE}" "${PROBE_ERR_FILE}"' EXIT
 ATTEMPT=1
+if [ "${AWF_CLI_PROXY_MODE:-primary}" = "enclave" ]; then
+  MAX_LIVENESS_ATTEMPTS=0
+fi
 while [ "$ATTEMPT" -le "$MAX_LIVENESS_ATTEMPTS" ]; do
   # Capture stdout (the gh response body) and stderr separately so a
   # "reachable but the forwarded API call failed" result (e.g. wrong API host

@@ -22,7 +22,7 @@ AGENT_DIR = Path("/agent")
 TEMP_DIR = Path("/tmp")
 SHARED_MEMORY_DIR = Path("/dev/shm")
 COPILOT_BIN = "/usr/local/bin/copilot"
-GITHUB_CAPABILITY_PATH = Path("/run/awf-enclave-github/capability")
+GITHUB_AGENT_ID_PATH = Path("/run/awf-enclave-github/agent-id")
 GITHUB_MCP_CONFIG_PATH = AGENT_DIR / "github-mcp.json"
 
 MAX_INPUT_BYTES = 64 * 1024
@@ -81,9 +81,9 @@ def redact_diagnostics(value: str) -> str:
         if secret and secret != "******" and re.search(r"(?:TOKEN|KEY|SECRET|CREDENTIAL)", name):
             redacted = redacted.replace(secret, "[REDACTED]")
     try:
-        capability = GITHUB_CAPABILITY_PATH.read_text(encoding="ascii").strip()
-        if capability:
-            redacted = redacted.replace(capability, "[REDACTED]")
+        agent_id = GITHUB_AGENT_ID_PATH.read_text(encoding="ascii").strip()
+        if agent_id:
+            redacted = redacted.replace(agent_id, "[REDACTED]")
     except (OSError, UnicodeDecodeError):
         pass
     return redacted
@@ -310,12 +310,12 @@ def run_preflight(copilot_logs: Path) -> bool:
             valid = False
     if os.environ.get("AWF_ENCLAVE_AGENT_GITHUB_ENABLED") == "true":
         error = preflight_path(
-            "github-capability",
-            GITHUB_CAPABILITY_PATH,
+            "github-agent-id",
+            GITHUB_AGENT_ID_PATH,
             "file",
         )
         if error is not None:
-            safe_os_error(error, "preflight-github-capability")
+            safe_os_error(error, "preflight-github-agent-id")
             valid = False
     append_progress("preflight-completed", valid=valid)
     return valid
@@ -376,7 +376,7 @@ def build_prompt(task: str, schema_text: str) -> str:
         "/agent is an invocation-private writable runtime directory and /tmp is bounded tmpfs. "
         "You may use your built-in shell, "
         "bash, file-reading, and search tools. You have no GitHub credentials, no host "
-        "filesystem, and no network route except AWF's model proxy and optional GitHub MCP bridge."
+        "filesystem, and no network route except AWF's model proxy and optional shared GitHub MCP gateway."
         f"{github_access}\n\n"
         "Complete this task:\n"
         f"{task}\n\n"
@@ -390,17 +390,17 @@ def configure_github_mcp() -> None:
     if os.environ.get("AWF_ENCLAVE_AGENT_GITHUB_PROFILE") != "issues-read-v1":
         raise ValueError("unsupported GitHub MCP profile")
     endpoint = os.environ.get("AWF_ENCLAVE_AGENT_GITHUB_MCP_URL", "")
-    if not re.fullmatch(r"http://[0-9.]+:[0-9]+/mcp", endpoint):
+    if not re.fullmatch(r"http://[0-9.]+:[0-9]+/mcp/github", endpoint):
         raise ValueError("invalid GitHub MCP endpoint")
-    capability = GITHUB_CAPABILITY_PATH.read_text(encoding="ascii").strip()
-    if not re.fullmatch(r"awf-egh1\.[A-Za-z0-9_-]{1,2048}\.[A-Za-z0-9_-]{43}", capability):
-        raise ValueError("invalid GitHub MCP invocation capability")
+    agent_id = GITHUB_AGENT_ID_PATH.read_text(encoding="ascii").strip()
+    if not re.fullmatch(r"[A-Za-z0-9_-]{32,128}", agent_id):
+        raise ValueError("invalid GitHub MCP agent identity")
     config = {
         "mcpServers": {
             "github": {
                 "type": "http",
                 "url": endpoint,
-                "headers": {"Authorization": f"Bearer {capability}"},
+                "headers": {"Authorization": agent_id},
             }
         }
     }

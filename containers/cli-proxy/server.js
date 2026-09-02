@@ -1,6 +1,6 @@
 'use strict';
 /**
- * CLI Proxy and enclave GitHub MCP bridge HTTP server
+ * CLI Proxy HTTP server
  *
  * Listens on port 11000 and provides two endpoints:
  *   GET  /health  - Health check (returns 200 JSON)
@@ -12,13 +12,13 @@
  *   - Max output size limit to prevent memory exhaustion
  *   - Meta-commands (auth, config, extension) are always denied
  *
- * Normal CLI proxy mode runs gh with GH_HOST set to the DIFC proxy. Enclave MCP
- * mode never exposes /exec and forwards only bounded issue reads to mcpg.
+ * The gh CLI running inside this container has GH_HOST set to the DIFC proxy.
+ * In enclave mode its auth token is only the invocation capability; the
+ * workflow PAT remains exclusively inside mcpg.
  */
 
 const http = require('http');
 const { accessLog } = require('./access-log');
-const { handleEnclaveMcp } = require('./enclave-mcp');
 const { COMMAND_TIMEOUT_MS, runGhCommand, terminateActiveCommands } = require('./gh-runner');
 const {
   validateArgs,
@@ -88,10 +88,7 @@ function sendError(res, statusCode, message) {
  * Handle GET /health
  */
 function handleHealth(res) {
-  const service = process.env.AWF_CLI_PROXY_MODE === 'enclave-mcp'
-    ? 'enclave-github-mcp'
-    : 'cli-proxy';
-  const body = JSON.stringify({ status: 'ok', service });
+  const body = JSON.stringify({ status: 'ok', service: 'cli-proxy' });
   res.writeHead(200, {
     'Content-Type': 'application/json',
     'Content-Length': Buffer.byteLength(body),
@@ -220,21 +217,7 @@ async function requestHandler(req, res) {
     return handleHealth(res);
   }
 
-  if (
-    process.env.AWF_CLI_PROXY_MODE === 'enclave-mcp'
-    && req.method === 'POST'
-    && req.url === '/mcp'
-  ) {
-    const raw = await readBody(req, res);
-    if (raw !== null) await handleEnclaveMcp(req, res, raw);
-    return;
-  }
-
-  if (
-    (process.env.AWF_CLI_PROXY_MODE || 'primary') === 'primary'
-    && req.method === 'POST'
-    && req.url === '/exec'
-  ) {
+  if (req.method === 'POST' && req.url === '/exec') {
     return handleExec(req, res);
   }
 
@@ -262,11 +245,9 @@ if (require.main === module) {
       event: 'server_start',
       port: CLI_PROXY_PORT,
       timeoutMs: COMMAND_TIMEOUT_MS,
-      upstreamHost: process.env.AWF_DIFC_PROXY_HOST || '(not set)',
+      ghHost: process.env.GH_HOST || '(not set)',
       caCert: process.env.NODE_EXTRA_CA_CERTS || '(not set)',
-      hasGhToken: process.env.AWF_CLI_PROXY_MODE === 'enclave-mcp'
-        ? false
-        : !!process.env.GH_TOKEN,
+      hasGhToken: !!process.env.GH_TOKEN,
     });
     console.log(`[cli-proxy] HTTP server listening on port ${CLI_PROXY_PORT}`);
   });
@@ -287,11 +268,4 @@ if (require.main === module) {
   process.once('SIGTERM', shutdown);
 }
 
-module.exports = {
-  validateArgs,
-  ALWAYS_DENIED_SUBCOMMANDS,
-  PROTECTED_ENV_KEYS,
-  buildExecEnv,
-  runGhCommand,
-  requestHandler,
-};
+module.exports = { validateArgs, ALWAYS_DENIED_SUBCOMMANDS, PROTECTED_ENV_KEYS, buildExecEnv, runGhCommand };

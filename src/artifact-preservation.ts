@@ -17,43 +17,6 @@ const ENCLAVE_AUDIT_FILES = [
   { source: 'enclave.jsonl', destination: 'enclave.jsonl' },
   { source: 'runtime-telemetry.jsonl', destination: 'enclave-runtime.jsonl' },
 ] as const;
-const MAX_ENCLAVE_GITHUB_AUDIT_BYTES = 10 * 1024 * 1024;
-
-function copyRegularFileNoFollow(source: string, destination: string): void {
-  const sourceFd = fs.openSync(source, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
-  try {
-    const stat = fs.fstatSync(sourceFd);
-    if (!stat.isFile() || stat.size > MAX_ENCLAVE_GITHUB_AUDIT_BYTES) {
-      throw new Error('Enclave GitHub CLI audit must be a bounded regular file');
-    }
-
-    const destinationFd = fs.openSync(
-      destination,
-      fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_TRUNC | fs.constants.O_NOFOLLOW,
-      0o600,
-    );
-    try {
-      const buffer = Buffer.allocUnsafe(Math.min(stat.size, 64 * 1024));
-      let remaining = stat.size;
-      let bytesRead: number;
-      while (
-        remaining > 0
-        && (bytesRead = fs.readSync(sourceFd, buffer, 0, Math.min(buffer.length, remaining), null)) > 0
-      ) {
-        let offset = 0;
-        while (offset < bytesRead) {
-          offset += fs.writeSync(destinationFd, buffer, offset, bytesRead - offset, null);
-        }
-        remaining -= bytesRead;
-      }
-    } finally {
-      fs.closeSync(destinationFd);
-    }
-  } finally {
-    fs.closeSync(sourceFd);
-  }
-}
-
 /**
  * Copies the iptables audit dump from the init-signal volume to the audit directory.
  * Must be called BEFORE stopContainers() because `docker compose down -v` destroys
@@ -62,13 +25,12 @@ function copyRegularFileNoFollow(source: string, destination: string): void {
 export function preserveIptablesAudit(
   workDir: string,
   auditDir?: string,
-  requireEnclaveGithubAudit = false,
 ): boolean {
   const iptablesAuditSrc = path.join(workDir, 'init-signal', 'iptables-audit.txt');
   const enclavePaths = resolveEnclavePaths(workDir);
   const enclaveRoot = enclavePaths.root;
   const targetAuditDir = auditDir || path.join(workDir, 'audit');
-  if (!fs.existsSync(targetAuditDir)) return !requireEnclaveGithubAudit;
+  if (!fs.existsSync(targetAuditDir)) return true;
   let complete = true;
 
   if (fs.existsSync(iptablesAuditSrc)) {
@@ -78,24 +40,6 @@ export function preserveIptablesAudit(
       logger.debug('Copied iptables audit state to audit directory');
     } catch (error) {
       logger.debug('Could not copy iptables audit file:', error);
-    }
-  }
-
-  const githubMcpAuditSrc = path.join(enclavePaths.githubMcpBridgeLogsDir, 'access.jsonl');
-  try {
-    const destination = path.join(targetAuditDir, 'enclave-github-mcp-access.jsonl');
-    copyRegularFileNoFollow(githubMcpAuditSrc, destination);
-    fs.chmodSync(destination, 0o600);
-    logger.debug('Copied enclave GitHub MCP audit to audit directory');
-  } catch (error: unknown) {
-    if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
-      if (requireEnclaveGithubAudit) {
-        complete = false;
-        logger.debug('Required enclave GitHub MCP audit was not available for preservation');
-      }
-    } else {
-      complete = false;
-      logger.debug('Could not copy enclave GitHub MCP audit:', error);
     }
   }
 

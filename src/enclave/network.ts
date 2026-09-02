@@ -7,8 +7,8 @@
  * collector, or the MCP gateway. Its only mandatory peer is a dedicated AWF
  * API proxy instance that joins a separate egress bridge and is the only
  * component holding a real provider credential. When GitHub access is enabled,
- * a PAT-free MCP bridge is the only additional peer; mcpg remains on a separate
- * control network.
+ * compiler-owned mcpg is the only additional peer and enforces the enclave's
+ * independent server, tool, and repository policy.
  *
  * The enclave MCP server that *launches* these enclaves never joins this
  * network. It joins only the separate internal MCP control network and reaches
@@ -24,12 +24,6 @@ export const ENCLAVE_AGENT_NETWORK = 'awf-enclave-agent';
 
 /** Egress bridge joined only by the dedicated agent-enclave API proxy. */
 export const ENCLAVE_AGENT_EGRESS_NETWORK = 'awf-enclave-agent-egress';
-
-/** Private path between the PAT-free enclave MCP bridge and compiler-owned mcpg. */
-export const ENCLAVE_GITHUB_CONTROL_NETWORK = 'awf-enclave-github-control';
-
-/** Fixed subnet for the isolated mcpg control path. */
-export const ENCLAVE_GITHUB_CONTROL_SUBNET = '172.29.0.0/24';
 
 /** Fixed compiler-owned mcpg identity on the private GitHub control network. */
 export const ENCLAVE_GITHUB_PROXY_ALIAS = 'awf-enclave-github-proxy';
@@ -59,11 +53,11 @@ export const ENCLAVE_AGENT_SUBNET = '172.31.0.0/24';
 /** Fixed API-proxy address on the agent-enclave network. */
 export const ENCLAVE_AGENT_API_PROXY_IP = '172.31.0.30';
 
-/** Fixed PAT-free MCP-bridge address on the agent-enclave network. */
-export const ENCLAVE_AGENT_GITHUB_MCP_BRIDGE_IP = '172.31.0.40';
+/** Fixed shared-mcpg address on the agent-enclave network. */
+export const ENCLAVE_AGENT_GITHUB_MCP_IP = '172.31.0.40';
 
-/** Fixed MCP-bridge address on the isolated mcpg control path. */
-export const ENCLAVE_GITHUB_MCP_BRIDGE_CONTROL_IP = '172.29.0.10';
+/** Fixed alias for the shared gateway's GitHub MCP route. */
+export const ENCLAVE_GITHUB_MCP_ALIAS = 'awf-enclave-github-mcp';
 
 /**
  * Fixed DNS alias for the API proxy on the agent-enclave network.

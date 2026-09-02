@@ -35,19 +35,19 @@ module.AGENT_DIR = root / "agent"
 module.TEMP_DIR = root / "tmp"
 module.SHARED_MEMORY_DIR = root / "shm"
 module.COPILOT_BIN = str(root / "copilot")
-module.GITHUB_CAPABILITY_PATH = root / "github-capability"
+module.GITHUB_AGENT_ID_PATH = root / "github-agent-id"
 module.GITHUB_MCP_CONFIG_PATH = module.AGENT_DIR / "github-mcp.json"
 
 if scenario == "github-config":
     module.AGENT_DIR.mkdir()
-    module.GITHUB_CAPABILITY_PATH.write_text(
-        os.environ["TEST_GITHUB_CAPABILITY"],
+    module.GITHUB_AGENT_ID_PATH.write_text(
+        os.environ["TEST_GITHUB_AGENT_ID"],
         encoding="ascii",
     )
     module.configure_github_mcp()
     print(json.dumps({
         "exitCode": 0,
-        "transcript": module.redact_diagnostics(os.environ["TEST_GITHUB_CAPABILITY"]),
+        "transcript": module.redact_diagnostics(os.environ["TEST_GITHUB_AGENT_ID"]),
         "transcriptBytes": 0,
         "output": module.GITHUB_MCP_CONFIG_PATH.read_text(encoding="utf-8"),
     }))
@@ -156,7 +156,7 @@ function runHarness(scenario: string): HarnessResult {
         PRIVATE_TASK: 'private prompt sentinel',
         PRIVATE_PATH: '/private/repository/secret-path',
         TEST_API_TOKEN: 'test-secret-token-value',
-        TEST_GITHUB_CAPABILITY: `awf-egh1.${'a'.repeat(16)}.${'b'.repeat(43)}`,
+        TEST_GITHUB_AGENT_ID: 'enclaveAgentId0123456789abcdef012345',
         TEST_PATH: `${root}:/usr/bin:/bin`,
         AWF_ENCLAVE_AGENT_ENGINE: 'copilot',
         AWF_ENCLAVE_AGENT_MAX_OUTPUT_BYTES: '1024',
@@ -165,7 +165,7 @@ function runHarness(scenario: string): HarnessResult {
         ...(scenario === 'github-config' ? {
           AWF_ENCLAVE_AGENT_GITHUB_ENABLED: 'true',
           AWF_ENCLAVE_AGENT_GITHUB_PROFILE: 'issues-read-v1',
-          AWF_ENCLAVE_AGENT_GITHUB_MCP_URL: 'http://172.31.0.40:11000/mcp',
+          AWF_ENCLAVE_AGENT_GITHUB_MCP_URL: 'http://172.31.0.40:8080/mcp/github',
         } : {}),
       },
     });
@@ -218,7 +218,7 @@ describe('enclave agent protected entrypoint diagnostics', () => {
     });
   });
 
-  it('writes a private MCP-only configuration and redacts its capability', () => {
+  it('writes a private MCP-only configuration and redacts its agent identity', () => {
     const result = runHarness('github-config');
     const config = JSON.parse(result.output);
 
@@ -226,9 +226,9 @@ describe('enclave agent protected entrypoint diagnostics', () => {
       mcpServers: {
         github: {
           type: 'http',
-          url: 'http://172.31.0.40:11000/mcp',
+          url: 'http://172.31.0.40:8080/mcp/github',
           headers: {
-            Authorization: expect.stringMatching(/^Bearer awf-egh1\./),
+            Authorization: 'enclaveAgentId0123456789abcdef012345',
           },
         },
       },

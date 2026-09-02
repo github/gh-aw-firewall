@@ -9,7 +9,7 @@ Layer 5 establishes one `enclaves` subsystem, one AWF-owned MCP server, and mcpg
 AWF stages immutable repository seeds on the host, starts one AWF-owned `enclave-mcp-server`, and exposes enabled executors only through `gh-aw-mcpg`.
 
 - **Script executor** — `enclave_run_script` runs a bounded Python script in a no-network, read-only, single-use sandbox.
-- **Agent executor** — `enclave_run_agent` runs the pinned Copilot engine in a bounded single-use enclave. Its mandatory peer is the dedicated API proxy; `agent.github.cli: issues-read-v1` adds only the PAT-free AWF GitHub MCP bridge.
+- **Agent executor** — `enclave_run_agent` runs the pinned Copilot engine in a bounded single-use enclave. Its mandatory peer is the dedicated API proxy; `agent.github.cli: issues-read-v1` also permits a direct connection to compiler-owned shared mcpg.
 - **Shared controls** — the `repos` lists of the `enclaves` entries form the only trusted repository catalog; script and agent calls debit the same per-run repository ledger and share one admission lane.
 
 The primary agent never receives a broker socket, wrapper binary, direct MCP server URL, capability, repository seed, ledger state, or alternate transport.
@@ -45,19 +45,18 @@ error immediately instead of entering an unbounded fixed-timing queue.
 - `enclave-mcp-server` joins only the private `awf-enclave-mcp-control` network.
 - The compiler launches `gh-aw-mcpg`, labels it for the run, and gives AWF the gateway identity plus the private `/mcp/awf-enclave` endpoint.
 - The server is reachable **only** through that gateway. AWF never publishes the server on a host port and never hands the primary agent a direct route.
-- When the agent executor is enabled, each invocation joins only the private `awf-enclave-agent` network. Its steady-state peers are the dedicated API proxy and, only for `issues-read-v1`, the PAT-free AWF GitHub MCP bridge.
-- The MCP bridge is dual-homed on `awf-enclave-agent` and the internal `awf-enclave-github-control` network. Compiler-owned mcpg joins only the latter under `awf-enclave-github-proxy:18443`; the enclave has no direct mcpg route.
+- When the agent executor is enabled, each invocation joins only the private `awf-enclave-agent` network. Its steady-state peers are the dedicated API proxy and, only for `issues-read-v1`, compiler-owned shared mcpg.
+- AWF attaches the existing mcpg container directly to that network at `172.31.0.40` with alias `awf-enclave-github-mcp`. No AWF bridge, GitHub CLI, Squid, primary agent, general API proxy, safe-output service, or other peer joins the network.
 
 The base MCP handoff and late backend rediscovery are present in mcpg v0.4.15,
 which reports MCP Gateway spec 1.16.0. The earlier minimum remains spec 1.15.0
 and a post-v0.4.8 mcpg release.
 
-The optional GitHub path additionally requires the first compiler and mcpg
-releases implementing `issues-read-v1`, the canonical `awf-egh1` capability,
-public-visibility proof, secrecy labels, and the dedicated proxy identity
-handoff. The compiler MUST pin or minimum-version-gate the first supporting AWF
-release. Older AWF versions reject the closed `github` field; there is no
-permissive fallback.
+The optional GitHub path additionally requires compiler support for mcpg
+multi-agent identities and policies (tracked by `github/gh-aw#57787`). The
+compiler MUST pin or minimum-version-gate the first supporting AWF release.
+Older AWF versions reject the closed `github` field; there is no permissive
+fallback.
 
 The compiler-generated upstream uses `connectTimeout: 120` and
 `toolTimeout: 4860`, covering the maximum 4800-second disclosure bucket, up to
@@ -97,7 +96,7 @@ lane, reconciles labelled enclaves, and exits before AWF preserves audit
 artifacts and disconnects mcpg from the private control network. AWF never stops
 or removes the externally owned mcpg container.
 
-## Optional issues-read-v1 GitHub access
+## Optional `issues-read-v1` GitHub access
 
 The profile is disabled by default and configured only on an agent entry:
 
@@ -108,46 +107,41 @@ agent:
     cli: issues-read-v1
 ```
 
-The compiler provides `AWF_ENCLAVE_GITHUB_PROXY_CONTAINER`,
-`AWF_ENCLAVE_GITHUB_PROXY_IDENTITY`, `AWF_ENCLAVE_GITHUB_PROXY_CA_CERT`, and a
-64-character lowercase hexadecimal `MCP_GATEWAY_ENCLAVE_CAPABILITY_KEY`.
-The identity is the compiler-normalized capability run claim
-`gh-aw-egh-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${JOB_HASH}` and matches
-mcpg policy `workflow_run_id` byte for byte. AWF writes the identity and HMAC
-root to separate mode-0600 private files mounted only into
-`enclave-mcp-server`, then removes the root from its host environment. The
-compiler passes policy JSON only to mcpg. The AWF MCP bridge has neither the PAT
-nor the HMAC root.
+The compiler provides the shared gateway handoff
+`AWF_ENCLAVE_MCP_GATEWAY_CONTAINER`, `AWF_ENCLAVE_MCP_GATEWAY_ENDPOINT`, and
+`AWF_ENCLAVE_MCP_GATEWAY_IDENTITY`, plus a distinct
+`AWF_ENCLAVE_GITHUB_MCP_AGENT_ID`. It configures that enclave identity in
+mcpg's `gateway.agentIds` and `gateway.agentPolicies`, allowing only the
+`github` server, the `list_issues` and `issue_read` tools, and the repositories
+from the trusted enclave catalog. The primary agent never receives the enclave
+identity.
 
-For every admitted invocation, the MCP server mints
-`awf-egh1.<payload-base64url>.<hmac-base64url>`. The compact JSON payload fields
-are ordered exactly as `v,aud,run,inv,repo,profile,ops,nbf,exp`; the HMAC input
-is ASCII `awf-egh1.` followed by the payload encoding. The token is bound to the
-run, invocation, assigned repository, fixed profile, fixed sorted operation
-set, and deadline, and is mounted read-only into only that single-use enclave.
-The payload `run` is the compiler proxy identity, not AWF's independent random
-seed-map/container-reconciliation run ID.
-The payload `repo` is the exact canonical lowercase `owner/repo` admitted from
-the enclave repository catalog. AWF never widens it to an owner, wildcard, or
-all-private scope and never sends a DIFC secrecy label. mcpg alone derives the
-invocation agent's exact `private:owner/repo` secrecy tag from the verified
-claim, labels public response data with empty secrecy, and labels other private
-repositories with their own distinct repository tag.
+AWF validates and stages the enclave identity in a mode-0600 private file,
+removes it from the host environment, and copies it into each invocation's
+private workspace. The single-use enclave mounts that copy read-only and sends
+it directly as the `Authorization` value to
+`http://172.31.0.40:8080/mcp/github`. AWF initializes a session through that
+endpoint before primary-agent work begins and requires the advertised tool set
+to be exactly `list_issues` and `issue_read`.
+
+The mcpg identity is job-lifetime, not per-invocation. Consequently, mcpg
+enforces the union of repositories configured for the enclave agent rather than
+binding the credential to one invocation's assigned repository, and the
+identity is not independently expired or revoked after each invocation. This
+weaker lifetime and repository scope is an explicit tradeoff of direct shared
+mcpg access; AWF still isolates each identity file and enclave process and
+retains its own per-invocation seed, admission, ledger, output-schema, and
+timing controls.
 
 The enclave image contains no `gh` executable and fails preflight if one is
 available. Copilot receives one invocation-private MCP configuration exposing
-only `list_issues` and `issue_read`; `issue_read` permits only `get` and
-`get_comments`. The credential-free bridge translates those calls to the
-existing capability-protected mcpg route. It rejects GraphQL, search, writes,
-arbitrary tools or methods, alternate endpoints, and extra arguments.
-
-mcpg validates single-use capabilities, injects its PAT, permits the assigned
-repository or a currently proven-public repository, and attaches the
-authoritative secrecy label. GitHub response data remains inside the enclave.
+only the compiler-policy-limited direct mcpg endpoint. mcpg injects its GitHub
+credential and enforces the configured tools and repositories. GitHub response
+data remains inside the enclave.
 Only the existing finite-schema result, shared ledger debit, and timing bucket
 can return to the primary agent. Shutdown drains admissions, removes labelled
-enclaves, stops the PAT-free MCP bridge, preserves private audit, disconnects
-compiler-owned mcpg, and then removes private state.
+enclaves, disconnects compiler-owned mcpg from the enclave network, and then
+removes private state. AWF never stops or removes the shared gateway container.
 
 ## Coverage after legacy smoke removal
 

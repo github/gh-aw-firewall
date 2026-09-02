@@ -9,30 +9,24 @@ export interface EnclavePaths {
   auditDir: string;
   /** Dedicated agent-enclave API-proxy telemetry. Never agent-visible. */
   apiProxyLogsDir: string;
-  /** Dedicated enclave GitHub MCP policy audit. Never agent-visible. */
-  githubMcpBridgeLogsDir: string;
   seedMapPath: string;
   ingressRoot: string;
   runDir: string;
   capabilityPath: string;
-  githubCapabilityKeyPath: string;
-  githubRunIdentityPath: string;
+  githubAgentIdPath: string;
 }
 
 export const ENCLAVE_PRIVATE_BASE_DIR = '/var/tmp';
 export const ENCLAVE_CAPABILITY_FILENAME = 'auth-token';
-export const ENCLAVE_GITHUB_CAPABILITY_KEY_FILENAME = 'github-capability-key';
-export const ENCLAVE_GITHUB_RUN_IDENTITY_FILENAME = 'github-run-identity';
+export const ENCLAVE_GITHUB_AGENT_ID_FILENAME = 'github-agent-id';
 
 export const ENCLAVE_SERVER_SEEDS_DIR = '/srv/awf/seeds';
 export const ENCLAVE_SERVER_WORK_DIR = '/srv/awf/work';
 export const ENCLAVE_SERVER_SEED_MAP_PATH = '/srv/awf/seed-map.json';
 export const ENCLAVE_SERVER_CAPABILITY_DIR = '/run/awf-enclave-mcp';
 export const ENCLAVE_SERVER_CAPABILITY_PATH = `${ENCLAVE_SERVER_CAPABILITY_DIR}/${ENCLAVE_CAPABILITY_FILENAME}`;
-export const ENCLAVE_SERVER_GITHUB_CAPABILITY_KEY_PATH =
-  `${ENCLAVE_SERVER_CAPABILITY_DIR}/${ENCLAVE_GITHUB_CAPABILITY_KEY_FILENAME}`;
-export const ENCLAVE_SERVER_GITHUB_RUN_IDENTITY_PATH =
-  `${ENCLAVE_SERVER_CAPABILITY_DIR}/${ENCLAVE_GITHUB_RUN_IDENTITY_FILENAME}`;
+export const ENCLAVE_SERVER_GITHUB_AGENT_ID_PATH =
+  `${ENCLAVE_SERVER_CAPABILITY_DIR}/${ENCLAVE_GITHUB_AGENT_ID_FILENAME}`;
 export const ENCLAVE_SERVER_CONTROL_DIR = '/run/awf-enclave-mcp-control';
 export const ENCLAVE_SERVER_AUDIT_DIR = '/var/log/awf-enclave';
 export const ENCLAVE_SERVER_DOCKER_SOCKET_PATH = '/var/run/docker.sock';
@@ -58,13 +52,11 @@ export function resolveEnclavePaths(
     controlDir: path.join(root, 'control'),
     auditDir: path.join(root, 'audit'),
     apiProxyLogsDir: path.join(root, 'api-proxy-logs'),
-    githubMcpBridgeLogsDir: path.join(root, 'github-mcp-bridge-logs'),
     seedMapPath: path.join(root, 'seed-map.json'),
     ingressRoot,
     runDir,
     capabilityPath: path.join(runDir, ENCLAVE_CAPABILITY_FILENAME),
-    githubCapabilityKeyPath: path.join(runDir, ENCLAVE_GITHUB_CAPABILITY_KEY_FILENAME),
-    githubRunIdentityPath: path.join(runDir, ENCLAVE_GITHUB_RUN_IDENTITY_FILENAME),
+    githubAgentIdPath: path.join(runDir, ENCLAVE_GITHUB_AGENT_ID_FILENAME),
   };
 }
 

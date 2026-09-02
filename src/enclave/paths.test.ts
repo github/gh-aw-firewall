@@ -8,13 +8,7 @@ describe('resolveEnclavePaths', () => {
     expect(paths.ingressRoot).toMatch(/^\/private\/awf-enclave-control-/);
     expect(paths.ingressRoot).not.toContain(paths.root);
     expect(paths.capabilityPath).toBe(path.join(paths.runDir, 'auth-token'));
-    expect(paths.githubCapabilityKeyPath).toBe(
-      path.join(paths.runDir, 'github-capability-key'),
-    );
-    expect(paths.githubRunIdentityPath).toBe(
-      path.join(paths.runDir, 'github-run-identity'),
-    );
+    expect(paths.githubAgentIdPath).toBe(path.join(paths.runDir, 'github-agent-id'));
     expect(paths.auditDir.startsWith(paths.root)).toBe(true);
-    expect(paths.githubMcpBridgeLogsDir.startsWith(paths.root)).toBe(true);
   });
 });

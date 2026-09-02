@@ -29,10 +29,7 @@ describe('buildExclusionSet', () => {
         'AWF_ENCLAVE_MCP_GATEWAY_ENDPOINT',
         'AWF_ENCLAVE_MCP_GATEWAY_CONTAINER',
         'AWF_ENCLAVE_MCP_READINESS_TIMEOUT_MS',
-        'MCP_GATEWAY_ENCLAVE_CAPABILITY_KEY',
-        'AWF_ENCLAVE_GITHUB_PROXY_CONTAINER',
-        'AWF_ENCLAVE_GITHUB_PROXY_IDENTITY',
-        'AWF_ENCLAVE_GITHUB_PROXY_CA_CERT',
+        'AWF_ENCLAVE_GITHUB_MCP_AGENT_ID',
       ]) {
         expect(excluded.has(name)).toBe(true);
       }

@@ -1,5 +1,4 @@
 import {
-  ENCLAVE_AGENT_GITHUB_MCP_CONTAINER_NAME,
   ENCLAVE_AGENT_API_PROXY_CONTAINER_NAME,
   ENCLAVE_MCP_SERVER_CONTAINER_NAME,
   LOCAL_ENCLAVE_MCP_SERVER_IMAGE,
@@ -10,8 +9,7 @@ import type { EnclaveAgentEngine, EnclaveAgentProfile } from '../types/enclave-o
 import {
   ENCLAVE_SERVER_AUDIT_DIR,
   ENCLAVE_SERVER_CAPABILITY_PATH,
-  ENCLAVE_SERVER_GITHUB_CAPABILITY_KEY_PATH,
-  ENCLAVE_SERVER_GITHUB_RUN_IDENTITY_PATH,
+  ENCLAVE_SERVER_GITHUB_AGENT_ID_PATH,
   ENCLAVE_SERVER_CONTROL_DIR,
   ENCLAVE_SERVER_DOCKER_SOCKET_PATH,
   ENCLAVE_SERVER_SEED_MAP_PATH,
@@ -23,13 +21,8 @@ import {
 import {
   ENCLAVE_AGENT_API_PROXY_ALIAS,
   ENCLAVE_AGENT_API_PROXY_IP,
-  ENCLAVE_AGENT_GITHUB_MCP_BRIDGE_IP,
   ENCLAVE_AGENT_EGRESS_NETWORK,
   ENCLAVE_AGENT_NETWORK,
-  ENCLAVE_GITHUB_CONTROL_NETWORK,
-  ENCLAVE_GITHUB_MCP_BRIDGE_CONTROL_IP,
-  ENCLAVE_GITHUB_PROXY_ALIAS,
-  ENCLAVE_GITHUB_PROXY_PORT,
   ENCLAVE_MCP_CONTROL_ALIAS,
   ENCLAVE_MCP_CONTROL_NETWORK,
 } from '../enclave/network';
@@ -48,9 +41,10 @@ import {
   VERTEX_ENV,
 } from '../api-proxy-env-constants';
 import { buildRuntimeImageRef } from '../image-tag';
-import { assignImageSource } from '../image-tag';
-import { CLI_PROXY_PORT } from '../types';
-import { resolveEnclaveGithubGatewayContract } from '../enclave/github-gateway';
+import {
+  ENCLAVE_GITHUB_MCP_INTERNAL_URL,
+  resolveEnclaveGithubGatewayContract,
+} from '../enclave/github-gateway';
 
 /**
  * Compose assembly for the unified enclave MCP server and its executors.
@@ -65,7 +59,7 @@ import { resolveEnclaveGithubGatewayContract } from '../enclave/github-gateway';
  * - **script enclaves** run with `--network none`.
  * - **agent enclaves** join *only* the dedicated `internal`
  *   {@link ENCLAVE_AGENT_NETWORK}. Its mandatory peer is a dedicated API proxy;
- *   issues-read-v1 adds only a PAT-free AWF MCP bridge. No primary agent, Squid,
+ *   issues-read-v1 adds only the policy-isolated shared MCP gateway. No primary agent, Squid,
  *   general proxy, MCP server, safe outputs, or MCP gateway is on that network,
  *   and the API proxy is the only holder of a provider credential.
  * - the **primary agent** receives no socket, capability, direct URL, private
@@ -92,8 +86,6 @@ export interface EnclaveMcpBuildResult {
   agentImageService?: Record<string, unknown>;
   /** Dedicated credential sidecar for agent enclaves, when that executor runs. */
   agentApiProxyService?: Record<string, unknown>;
-  /** PAT-free MCP bridge for the optional issues-read-v1 enclave profile. */
-  agentGithubMcpService?: Record<string, unknown>;
   service: Record<string, unknown>;
 }
 
@@ -237,61 +229,6 @@ function buildAgentApiProxyService(params: {
   return service;
 }
 
-function buildAgentGithubMcpService(params: {
-  config: WrapperConfig;
-  imageConfig: ImageBuildConfig;
-  logsPath: string;
-}): Record<string, unknown> {
-  const contract = resolveEnclaveGithubGatewayContract(params.config);
-  const service: Record<string, unknown> = {
-    container_name: ENCLAVE_AGENT_GITHUB_MCP_CONTAINER_NAME,
-    networks: {
-      [ENCLAVE_AGENT_NETWORK]: {
-        ipv4_address: ENCLAVE_AGENT_GITHUB_MCP_BRIDGE_IP,
-      },
-      [ENCLAVE_GITHUB_CONTROL_NETWORK]: {
-        ipv4_address: ENCLAVE_GITHUB_MCP_BRIDGE_CONTROL_IP,
-      },
-    },
-    volumes: applyHostPathPrefixToVolumes(
-      [
-        `${params.logsPath}:/var/log/cli-proxy:rw`,
-        `${contract.caCertPath}:/tmp/proxy-tls/ca.crt:ro`,
-      ],
-      params.config.dockerHostPathPrefix,
-    ),
-    environment: {
-      AWF_CLI_PROXY_MODE: 'enclave-mcp',
-      AWF_CLI_PROXY_PROFILE: 'issues-read-v1',
-      AWF_DIFC_PROXY_HOST: ENCLAVE_GITHUB_PROXY_ALIAS,
-      AWF_DIFC_PROXY_PORT: String(ENCLAVE_GITHUB_PROXY_PORT),
-      AWF_CLI_PROXY_LOG_DIR: '/var/log/cli-proxy',
-    },
-    healthcheck: {
-      test: ['CMD', 'curl', '-f', `http://127.0.0.1:${CLI_PROXY_PORT}/health`],
-      interval: '2s',
-      timeout: '2s',
-      retries: 10,
-      start_period: '5s',
-    },
-    ...buildContainerSecurityHardening({ memLimit: '256m', pidsLimit: 50, cpuShares: 256 }),
-    restart: 'no',
-    stop_grace_period: '5s',
-  };
-  assignImageSource(service, {
-    useGHCR: params.imageConfig.useGHCR,
-    registry: params.imageConfig.registry,
-    imageName: 'cli-proxy',
-    parsedTag: params.imageConfig.parsedTag,
-    projectRoot: params.imageConfig.projectRoot,
-    containerDir: 'cli-proxy',
-  });
-  if (params.imageConfig.useGHCR && params.imageConfig.resolveImage) {
-    service.image = params.imageConfig.resolveImage('cli-proxy');
-  }
-  return service;
-}
-
 export function buildEnclaveMcpService(params: EnclaveMcpServiceParams): EnclaveMcpBuildResult {
   const { config, imageConfig } = params;
   const enclaves = config.enclaves;
@@ -358,6 +295,9 @@ export function buildEnclaveMcpService(params: EnclaveMcpServiceParams): Enclave
       throw new Error('buildEnclaveMcpService: the enclave agent executor requires network configuration');
     }
     const { imageRef, source } = resolveAgentImage(imageConfig, agent.image);
+    const githubGatewayContract = agent.github?.cli === 'issues-read-v1'
+      ? resolveEnclaveGithubGatewayContract(config)
+      : undefined;
     result.agentImageService = {
       ...source,
       network_mode: 'none',
@@ -375,14 +315,6 @@ export function buildEnclaveMcpService(params: EnclaveMcpServiceParams): Enclave
       engine: agent.engine,
       profile: agent.profile,
     });
-    if (agent.github?.cli === 'issues-read-v1') {
-      result.agentGithubMcpService = buildAgentGithubMcpService({
-        config,
-        imageConfig,
-        logsPath: paths.githubMcpBridgeLogsDir,
-      });
-      dependsOn['enclave-agent-github-mcp'] = { condition: 'service_healthy' };
-    }
     const apiPort = resolveEnclaveAgentApiPort(agent.engine, agent.profile);
     Object.assign(environment, {
       AWF_ENCLAVE_AGENT_IMAGE: imageRef,
@@ -405,12 +337,9 @@ export function buildEnclaveMcpService(params: EnclaveMcpServiceParams): Enclave
       AWF_ENCLAVE_AGENT_GITHUB_ENABLED: String(agent.github?.cli === 'issues-read-v1'),
       ...(agent.github?.cli === 'issues-read-v1' && {
         AWF_ENCLAVE_AGENT_GITHUB_PROFILE: agent.github.cli,
-        AWF_ENCLAVE_AGENT_GITHUB_MCP_URL:
-          `http://${ENCLAVE_AGENT_GITHUB_MCP_BRIDGE_IP}:${CLI_PROXY_PORT}/mcp`,
-        AWF_ENCLAVE_AGENT_GITHUB_CAPABILITY_KEY_PATH:
-          ENCLAVE_SERVER_GITHUB_CAPABILITY_KEY_PATH,
-        AWF_ENCLAVE_AGENT_GITHUB_RUN_IDENTITY_PATH:
-          ENCLAVE_SERVER_GITHUB_RUN_IDENTITY_PATH,
+        AWF_ENCLAVE_AGENT_GITHUB_MCP_URL: ENCLAVE_GITHUB_MCP_INTERNAL_URL,
+        AWF_ENCLAVE_AGENT_GITHUB_AGENT_ID_PATH: ENCLAVE_SERVER_GITHUB_AGENT_ID_PATH,
+        AWF_ENCLAVE_AGENT_GITHUB_GATEWAY_CONTAINER: githubGatewayContract?.containerName,
       }),
       ...(agent.maxModelRequests !== undefined && {
         AWF_ENCLAVE_AGENT_MAX_MODEL_REQUESTS: String(agent.maxModelRequests),
@@ -436,7 +365,7 @@ export function buildEnclaveMcpService(params: EnclaveMcpServiceParams): Enclave
   ];
   if (agent?.github?.cli === 'issues-read-v1') {
     serverVolumes.push(
-      `${paths.githubCapabilityKeyPath}:${ENCLAVE_SERVER_GITHUB_CAPABILITY_KEY_PATH}:ro`,
+      `${paths.githubAgentIdPath}:${ENCLAVE_SERVER_GITHUB_AGENT_ID_PATH}:ro`,
     );
   }
 
@@ -477,5 +406,4 @@ export const enclaveMcpServiceTestHelpers = {
   resolveScriptImage,
   resolveServerImage,
   toDaemonVisiblePath,
-  buildAgentGithubMcpService,
 };

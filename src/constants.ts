@@ -11,7 +11,6 @@ export const DOH_PROXY_CONTAINER_NAME = 'awf-doh-proxy';
 export const CLI_PROXY_CONTAINER_NAME = 'awf-cli-proxy';
 export const ENCLAVE_MCP_SERVER_CONTAINER_NAME = 'awf-enclave-mcp-server';
 export const ENCLAVE_AGENT_API_PROXY_CONTAINER_NAME = 'awf-enclave-agent-api-proxy';
-export const ENCLAVE_AGENT_GITHUB_MCP_CONTAINER_NAME = 'awf-enclave-agent-github-mcp';
 export const LOCAL_ENCLAVE_MCP_SERVER_IMAGE = 'awf-enclave-mcp-server:local';
 export const INIT_SIGNAL_DIR = '/run/awf-init';
 export const LEGACY_INIT_SIGNAL_DIR = '/tmp/awf-init';

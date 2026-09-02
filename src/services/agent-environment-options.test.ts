@@ -132,12 +132,12 @@ describe('agent environment: options', () => {
     }
   });
 
-  it('does not pass enclave GitHub proxy handoff material with envAll', () => {
+  it('does not pass enclave GitHub MCP handoff material with envAll', () => {
     const handoff = {
-      MCP_GATEWAY_ENCLAVE_CAPABILITY_KEY: '0'.repeat(64),
-      AWF_ENCLAVE_GITHUB_PROXY_CONTAINER: 'compiler-mcpg',
-      AWF_ENCLAVE_GITHUB_PROXY_IDENTITY: 'gh-aw-egh-123456-1-abcdef123456',
-      AWF_ENCLAVE_GITHUB_PROXY_CA_CERT: '/tmp/compiler-ca.crt',
+      AWF_ENCLAVE_MCP_GATEWAY_CONTAINER: 'compiler-mcpg',
+      AWF_ENCLAVE_MCP_GATEWAY_ENDPOINT: 'http://127.0.0.1:8080',
+      AWF_ENCLAVE_MCP_GATEWAY_IDENTITY: 'primaryAgentId0123456789abcdef012345',
+      AWF_ENCLAVE_GITHUB_MCP_AGENT_ID: 'enclaveAgentId0123456789abcdef012345',
     };
     const original = Object.fromEntries(
       Object.keys(handoff).map(name => [name, process.env[name]]),
