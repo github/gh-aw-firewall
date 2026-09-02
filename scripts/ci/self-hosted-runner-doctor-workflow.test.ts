@@ -119,6 +119,7 @@ describe('self-hosted runner doctor workflow config', () => {
       expect(content).toContain('`filterAgentVolumesForSysroot()` now prefixes `config.workDir`/`effectiveHome` before comparing against mount sources');
       expect(content).toContain('github/gh-aw#57468, github/gh-aw-firewall#7994, github/gh-aw-firewall#7998');
       expect(content).toContain('| `error mounting "/dev/null" to .../home/.npmrc: create mountpoint ...: read-only file system` (or `.docker/config.json`, `.composer/auth.json`) on `arc-dind` with `--docker-host-path-prefix` set | A23');
+      expect(content).toContain('surviving prefixed `${workDir}-chroot-home:/host$HOME` mount');
       // B23 update: PR #7245 fixes the AWF-side gap
       expect(content).toContain('**Fixed on the AWF side (PR github/gh-aw-firewall#7245, merged 2026-08-11):**');
       expect(content).toContain('`ensure_usr_local_bin_shims()`');
@@ -148,6 +149,9 @@ describe('self-hosted runner doctor workflow config', () => {
       expect(content).toContain('github/gh-aw-firewall#7593, github/gh-aw-firewall#7599');
       expect(content).toContain('| `Host workspace is not writable by the sandbox identity (<uid>:<gid>): <path>` | B25 |');
     }
+
+    expect(source).toContain('surviving prefixed `${workDir}-chroot-home:/host$HOME` mount');
+    expect(portableAgent).toContain('surviving prefixed `${workDir}-chroot-home:/host$HOME` mount');
 
     // B26 new failure mode (network-isolation artifact ZIP download via blob storage egress)
     for (const content of [shared, portableAgent]) {
