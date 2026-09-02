@@ -234,6 +234,50 @@ describe('unified enclave agent runner specification', () => {
     await expect(runner.assertAvailable()).resolves.toBeUndefined();
   });
 
+  it('accepts the proxy-only startup topology before shared mcpg is attached', async () => {
+    const runner = createEnclaveRunner(
+      { ...trustedConfig, backend: 'docker', githubEnabled: true },
+      {
+        docker: {
+          runDocker: async (args: string[]) => ({
+            exitCode: 0,
+            timedOut: false,
+            stdout: args[0] === 'network'
+              ? 'true|bridge|172.31.0.0/24,|awf-enclave-agent-api-proxy@172.31.0.30/24,'
+              : '[]',
+            stderr: '',
+          }),
+        },
+      },
+    );
+    await expect(runner.assertAvailable()).resolves.toBeUndefined();
+  });
+
+  it('still requires shared mcpg immediately before an enclave launch', async () => {
+    const runner = createEnclaveRunner(
+      { ...trustedConfig, backend: 'docker', githubEnabled: true },
+      {
+        docker: {
+          runDocker: async (args: string[]) => ({
+            exitCode: 0,
+            timedOut: false,
+            stdout: args[0] === 'network'
+              ? 'true|bridge|172.31.0.0/24,|awf-enclave-agent-api-proxy@172.31.0.30/24,'
+              : '',
+            stderr: '',
+          }),
+        },
+      },
+    );
+    await expect(runner.runEnclaveContainer({
+      config: trustedConfig,
+      runId: 'abcdef1234567890',
+      invocationId: '0123456789abcdef',
+      seedId: 'b'.repeat(32),
+      timeoutMs: 1000,
+    })).rejects.toThrow(/unavailable or not isolated/);
+  });
+
   it('revalidates exact network membership immediately before every launch', async () => {
     const calls: string[][] = [];
     const runner = createEnclaveRunner(

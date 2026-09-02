@@ -23,15 +23,21 @@ class DockerEnclaveRunner {
     this.cleanupTail = Promise.resolve();
   }
 
-  async assertNetworkIsolated() {
-    const expectedMembers = ['awf-enclave-agent-api-proxy@172.31.0.30/24,'];
+  async assertNetworkIsolated(requireGithubGateway = true) {
+    const proxyMember = 'awf-enclave-agent-api-proxy@172.31.0.30/24,';
+    const expectedMemberSets = [[proxyMember]];
     if (this.config.githubEnabled) {
-      expectedMembers.push(`${this.config.githubGatewayContainer}@172.31.0.40/24,`);
+      const steadyStateMembers = [
+        proxyMember,
+        `${this.config.githubGatewayContainer}@172.31.0.40/24,`,
+      ];
+      if (requireGithubGateway) expectedMemberSets.splice(0, 1, steadyStateMembers);
+      else expectedMemberSets.push(steadyStateMembers);
     }
-    const expectedTopologies = new Set([
-      `true|bridge|172.31.0.0/24,|${expectedMembers.join('')}`,
-      `true|bridge|172.31.0.0/24,|${[...expectedMembers].reverse().join('')}`,
-    ]);
+    const expectedTopologies = new Set(expectedMemberSets.flatMap((members) => [
+      `true|bridge|172.31.0.0/24,|${members.join('')}`,
+      `true|bridge|172.31.0.0/24,|${[...members].reverse().join('')}`,
+    ]));
     const network = await this.docker.runDocker([
       'network',
       'inspect',
@@ -53,7 +59,9 @@ class DockerEnclaveRunner {
     if (image.exitCode !== 0) {
       throw new Error('Enclave image is not available locally');
     }
-    await this.assertNetworkIsolated();
+    // The shared gateway is attached by the host readiness gate after this
+    // server starts. Every launch still requires the steady-state topology.
+    await this.assertNetworkIsolated(false);
   }
 
   spec(runId, invocationId, seedId) {
