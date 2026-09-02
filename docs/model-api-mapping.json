@@ -1,9 +1,9 @@
 {
   "title": "Model-to-API Endpoint Mapping",
   "description": "Maps AI model families to their supported API endpoints. Used to determine which endpoint (chat/completions vs responses vs messages) a model requires.",
-  "lastUpdated": "2026-08-14T05:41:00Z",
+  "lastUpdated": "2026-09-02T07:03:56Z",
   "sources": {
-    "openai": "https://platform.openai.com/docs/models",
+    "openai": "https://developers.openai.com/api/docs/models",
     "anthropic": "https://docs.anthropic.com/en/docs/about-claude/models"
   },
   "providers": {
