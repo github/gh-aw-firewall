@@ -5,6 +5,12 @@ import { applyGeneralWorkflowPatches } from './apply-general-workflow-patches';
 const workflowsDir = path.resolve(__dirname, '../../.github/workflows');
 const sourcePath = path.join(workflowsDir, 'smoke-enclave-build-test.md');
 const lockPath = path.join(workflowsDir, 'smoke-enclave-build-test.lock.yml');
+const issuesSourcePath = path.join(workflowsDir, 'smoke-enclave-issues-read.md');
+const issuesLockPath = path.join(workflowsDir, 'smoke-enclave-issues-read.lock.yml');
+
+function countOccurrences(content: string, value: string): number {
+  return content.split(value).length - 1;
+}
 
 describe('smoke enclave build workflow', () => {
   const source = fs.readFileSync(sourcePath, 'utf8');
@@ -81,5 +87,45 @@ describe('smoke enclave build workflow', () => {
     expect(source).toContain('"type": "enum", "values": ["github.com/github/gh-aw"]');
     expect(source).not.toContain('"properties": {');
     expect(source).not.toContain('"additionalProperties": false');
+  });
+});
+
+describe('smoke enclave issues workflow', () => {
+  const source = fs.readFileSync(issuesSourcePath, 'utf8');
+  const lock = fs.readFileSync(issuesLockPath, 'utf8');
+
+  it('uses one shared multi-agent MCP gateway', () => {
+    expect(countOccurrences(lock, '- name: Start MCP Gateway')).toBe(1);
+    expect(lock).not.toContain('Start Enclave GitHub Proxy');
+    expect(lock).not.toContain('Stop Enclave GitHub Proxy');
+    expect(lock).not.toContain('AWF_ENCLAVE_GITHUB_PROXY_');
+    expect(lock).toContain(
+      '"agentIds": ["${MCP_GATEWAY_AGENT_ID}","${AWF_ENCLAVE_GITHUB_MCP_AGENT_ID}"]'
+    );
+  });
+
+  it('restricts the enclave identity to the declared GitHub read surface', () => {
+    expect(lock).toContain(
+      '"${AWF_ENCLAVE_GITHUB_MCP_AGENT_ID}":{"servers":["github"],' +
+        '"tools":{"github":["list_issues","issue_read"]},' +
+        '"allow-only":{"min-integrity":"approved","repos":["github/gh-aw"]}}'
+    );
+    expect(source).toContain('Use only the `github` MCP server');
+    expect(source).toContain('GitHub CLI, GraphQL, search, writes, or any other GitHub tool');
+  });
+
+  it('keeps the enclave identity out of the primary agent', () => {
+    expect(lock).toContain(
+      'AWF_ENCLAVE_GITHUB_MCP_AGENT_ID=$(openssl rand -base64 45'
+    );
+    expect(lock).toContain('echo "::add-mask::${AWF_ENCLAVE_GITHUB_MCP_AGENT_ID}"');
+    expect(lock).toContain('--exclude-env AWF_ENCLAVE_GITHUB_MCP_AGENT_ID');
+    expect(lock).toContain('--exclude-env MCP_GATEWAY_AGENT_ID');
+  });
+
+  it('tests the local AWF implementation with mcpg v0.4.15', () => {
+    expect(lock).toContain('ghcr.io/github/gh-aw-mcpg:v0.4.15');
+    expect(lock).toContain('Install awf binary (local)');
+    expect(lock).toContain('--build-local');
   });
 });

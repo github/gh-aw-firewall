@@ -694,21 +694,6 @@ jobs:
             setupGlobals(core, github, context, exec, io, getOctokit);
             const { main } = require(path.join(actionsDir, 'generate_safe_outputs_tools.cjs'));
             await main();
-      - name: Start Enclave GitHub Proxy
-        env:
-          GH_TOKEN: ${{ secrets.GH_AW_GITHUB_MCP_SERVER_TOKEN || secrets.GH_AW_GITHUB_TOKEN }}
-          GITHUB_SERVER_URL: ${{ github.server_url }}
-          GITHUB_API_URL: ${{ github.api_url }}
-          GH_HOST: ${{ env.GH_HOST }}
-          GITHUB_HOST: ${{ env.GITHUB_HOST }}
-          GITHUB_ENTERPRISE_HOST: ${{ env.GITHUB_ENTERPRISE_HOST }}
-          GITHUB_GRAPHQL_URL: ${{ env.GITHUB_GRAPHQL_URL }}
-          GITHUB_COPILOT_BASE_URL: ${{ env.GITHUB_COPILOT_BASE_URL }}
-          ENCLAVE_GITHUB_PROXY_IMAGE: 'ghcr.io/github/gh-aw-mcpg:v0.4.15'
-          ENCLAVE_GITHUB_PROXY_ALIAS: awf-enclave-github-proxy
-          ENCLAVE_GITHUB_PROXY_POLICY_TEMPLATE: '{"version":1,"workflow_run_id":"","profile":"issues-read-v1","audience":"gh-aw-enclave-github","repositories":[{"repo":"github/gh-aw","sensitivity":"internal"}],"public_min_integrity":"approved","allowed_operations":["issues.comments.list","issues.get","issues.list"],"max_capability_ttl_seconds":600}'
-        run: |
-          bash "${RUNNER_TEMP}/gh-aw/actions/start_enclave_github_proxy.sh"
       - name: Start MCP Gateway
         id: start-mcp-gateway
         env:
@@ -754,6 +739,9 @@ jobs:
           export AWF_ENCLAVE_MCP_GATEWAY_CONTAINER="awmg-mcpg"
           export AWF_ENCLAVE_MCP_GATEWAY_ENDPOINT="http://localhost:${MCP_GATEWAY_PORT}/mcp/awf-enclave"
           export AWF_ENCLAVE_MCP_READINESS_TIMEOUT_MS="120000"
+          AWF_ENCLAVE_GITHUB_MCP_AGENT_ID=$(openssl rand -base64 45 | tr -d '/+=')
+          echo "::add-mask::${AWF_ENCLAVE_GITHUB_MCP_AGENT_ID}"
+          export AWF_ENCLAVE_GITHUB_MCP_AGENT_ID
           # The eager checker runs inside start_mcp_gateway.cjs in this step.
           export GH_AW_MCP_DEFERRED_SERVERS="awf-enclave"
           {
@@ -763,6 +751,7 @@ jobs:
             printf '%s=%s\n' AWF_ENCLAVE_MCP_GATEWAY_CONTAINER "$AWF_ENCLAVE_MCP_GATEWAY_CONTAINER"
             printf '%s=%s\n' AWF_ENCLAVE_MCP_GATEWAY_ENDPOINT "$AWF_ENCLAVE_MCP_GATEWAY_ENDPOINT"
             printf '%s=%s\n' AWF_ENCLAVE_MCP_READINESS_TIMEOUT_MS "$AWF_ENCLAVE_MCP_READINESS_TIMEOUT_MS"
+            printf '%s=%s\n' AWF_ENCLAVE_GITHUB_MCP_AGENT_ID "$AWF_ENCLAVE_GITHUB_MCP_AGENT_ID"
           } >> "$GITHUB_ENV"
           export DEBUG="*"
 
@@ -774,7 +763,7 @@ jobs:
 
           mkdir -p "$HOME/.copilot"
           GH_AW_NODE=$(which node 2>/dev/null || command -v node 2>/dev/null || echo node)
-          cat << GH_AW_MCP_CONFIG_97bb0d23651d1eaf_EOF | "$GH_AW_NODE" "${RUNNER_TEMP}/gh-aw/actions/start_mcp_gateway.cjs"
+          cat << GH_AW_MCP_CONFIG_a3df8db2e054cbc3_EOF | "$GH_AW_NODE" "${RUNNER_TEMP}/gh-aw/actions/start_mcp_gateway.cjs"
           {
             "mcpServers": {
               "awf-enclave": {
@@ -847,7 +836,8 @@ jobs:
             "gateway": {
               "port": $MCP_GATEWAY_PORT,
               "domain": "${MCP_GATEWAY_DOMAIN}",
-              "agentId": "${MCP_GATEWAY_AGENT_ID}",
+              "agentIds": ["${MCP_GATEWAY_AGENT_ID}","${AWF_ENCLAVE_GITHUB_MCP_AGENT_ID}"],
+              "agentPolicies": {"${AWF_ENCLAVE_GITHUB_MCP_AGENT_ID}":{"servers":["github"],"tools":{"github":["list_issues","issue_read"]},"allow-only":{"min-integrity":"approved","repos":["github/gh-aw"]}},"${MCP_GATEWAY_AGENT_ID}":{"servers":["awf-enclave","github","safe-outputs"],"tools":{"github":["get_me"]}}},
               "payloadDir": "${MCP_GATEWAY_PAYLOAD_DIR}",
               "startupTimeout": 120,
               "opentelemetry": {
@@ -857,7 +847,7 @@ jobs:
               }
             }
           }
-          GH_AW_MCP_CONFIG_97bb0d23651d1eaf_EOF
+          GH_AW_MCP_CONFIG_a3df8db2e054cbc3_EOF
       - name: Mount MCP servers as CLIs
         id: mount-mcp-clis
         continue-on-error: true
@@ -933,7 +923,7 @@ jobs:
           GH_AW_AWF_LOG_FILE=/tmp/gh-aw/agent-stdio.log \
           GH_AW_AWF_ATTEMPT_LOG_NAME=copilot \
           bash "${RUNNER_TEMP}/gh-aw/actions/run_awf_with_startup_retries.sh" -- \
-            awf --config "${RUNNER_TEMP}/gh-aw/awf-config.json" --container-workdir "${GITHUB_WORKSPACE}" --mount "${RUNNER_TEMP}/gh-aw:${RUNNER_TEMP}/gh-aw:ro" --mount "${RUNNER_TEMP}/gh-aw:/host${RUNNER_TEMP}/gh-aw:ro" ${GH_AW_TOOL_CACHE_MOUNT:+--mount "$GH_AW_TOOL_CACHE_MOUNT"} ${GH_AW_DOCKER_HOST:+--docker-host "$GH_AW_DOCKER_HOST"} --env-all --exclude-env ACTIONS_ID_TOKEN_REQUEST_TOKEN --exclude-env ACTIONS_ID_TOKEN_REQUEST_URL --exclude-env AWF_ENCLAVE_GITHUB_PROXY_CA_CERT --exclude-env AWF_ENCLAVE_GITHUB_PROXY_CONTAINER --exclude-env AWF_ENCLAVE_GITHUB_PROXY_IDENTITY --exclude-env AWF_ENCLAVE_MCP_CAPABILITY --exclude-env AWF_ENCLAVE_MCP_GATEWAY_CONTAINER --exclude-env AWF_ENCLAVE_MCP_GATEWAY_ENDPOINT --exclude-env AWF_ENCLAVE_MCP_GATEWAY_IDENTITY --exclude-env AWF_ENCLAVE_MCP_READINESS_TIMEOUT_MS --exclude-env COPILOT_GITHUB_TOKEN --exclude-env GITHUB_MCP_SERVER_TOKEN --exclude-env MCP_GATEWAY_AGENT_ID --exclude-env MCP_GATEWAY_ENCLAVE_CAPABILITY_KEY --mount /tmp/gh-aw:/tmp/gh-aw:rw --log-level info --build-local \
+            awf --config "${RUNNER_TEMP}/gh-aw/awf-config.json" --container-workdir "${GITHUB_WORKSPACE}" --mount "${RUNNER_TEMP}/gh-aw:${RUNNER_TEMP}/gh-aw:ro" --mount "${RUNNER_TEMP}/gh-aw:/host${RUNNER_TEMP}/gh-aw:ro" ${GH_AW_TOOL_CACHE_MOUNT:+--mount "$GH_AW_TOOL_CACHE_MOUNT"} ${GH_AW_DOCKER_HOST:+--docker-host "$GH_AW_DOCKER_HOST"} --env-all --exclude-env ACTIONS_ID_TOKEN_REQUEST_TOKEN --exclude-env ACTIONS_ID_TOKEN_REQUEST_URL --exclude-env AWF_ENCLAVE_GITHUB_MCP_AGENT_ID --exclude-env AWF_ENCLAVE_MCP_CAPABILITY --exclude-env AWF_ENCLAVE_MCP_GATEWAY_CONTAINER --exclude-env AWF_ENCLAVE_MCP_GATEWAY_ENDPOINT --exclude-env AWF_ENCLAVE_MCP_GATEWAY_IDENTITY --exclude-env AWF_ENCLAVE_MCP_READINESS_TIMEOUT_MS --exclude-env COPILOT_GITHUB_TOKEN --exclude-env GITHUB_MCP_SERVER_TOKEN --exclude-env MCP_GATEWAY_AGENT_ID --mount /tmp/gh-aw:/tmp/gh-aw:rw --log-level info --build-local \
             -- /bin/bash -c 'set +o histexpand; export PATH="${RUNNER_TEMP}/gh-aw/mcp-cli/bin:$PATH" && : "${RUNNER_TOOL_CACHE:?RUNNER_TOOL_CACHE must be set}"; GH_AW_TOOL_CACHE="$RUNNER_TOOL_CACHE"; export PATH="$(find "$GH_AW_TOOL_CACHE" -maxdepth 5 -type d -name bin 2>/dev/null | tr '\''\n'\'' '\'':'\'')$PATH"; [ -n "$GOROOT" ] && export PATH="$GOROOT/bin:$PATH" || true; [ -n "$ERLANG_HOME" ] && export PATH="$ERLANG_HOME/bin:$PATH" || true && GH_AW_NODE_EXEC="${GH_AW_NODE_BIN:-}"; if [ -z "$GH_AW_NODE_EXEC" ] || [ ! -x "$GH_AW_NODE_EXEC" ]; then GH_AW_NODE_EXEC="$(command -v node 2>/dev/null || true)"; fi; if [ -z "$GH_AW_NODE_EXEC" ]; then echo "node runtime missing on this runner — check runtimes.node in workflow YAML" >&2; exit 127; fi; GH_AW_NPM_GLOBAL_ROOT="$(npm root -g 2>/dev/null || true)"; if [ -n "$GH_AW_NPM_GLOBAL_ROOT" ]; then export NODE_PATH="${GH_AW_NPM_GLOBAL_ROOT}${NODE_PATH:+:${NODE_PATH}}"; fi; "$GH_AW_NODE_EXEC" "${RUNNER_TEMP}/gh-aw/actions/copilot_harness.cjs" "${RUNNER_TEMP}/gh-aw/bin/copilot" --add-dir /tmp/gh-aw/ --log-level all --log-dir /tmp/gh-aw/sandbox/agent/logs/ --disable-builtin-mcps --no-ask-user --allow-all-tools --allow-all-paths --add-dir "${GITHUB_WORKSPACE}" --prompt-file /tmp/gh-aw/aw-prompts/prompt.txt'
         env:
           AWF_REFLECT_ENABLED: 1
@@ -965,10 +955,6 @@ jobs:
           RUNNER_TEMP: ${{ runner.temp }}
           S2STOKENS: true
           TRACEPARENT: ${{ env.GITHUB_AW_OTEL_TRACE_ID != '' && env.GITHUB_AW_OTEL_PARENT_SPAN_ID != '' && format('00-{0}-{1}-01', env.GITHUB_AW_OTEL_TRACE_ID, env.GITHUB_AW_OTEL_PARENT_SPAN_ID) || '' }}
-      - name: Stop Enclave GitHub Proxy
-        if: always()
-        continue-on-error: true
-        run: bash "${RUNNER_TEMP}/gh-aw/actions/stop_enclave_github_proxy.sh"
       - name: Detect agent errors
         if: always()
         id: detect-agent-errors
