@@ -126,6 +126,10 @@ describe('smoke enclave issues workflow', () => {
     expect(lock).toContain('echo "::add-mask::${AWF_ENCLAVE_GITHUB_MCP_AGENT_ID}"');
     expect(lock).toContain('--exclude-env AWF_ENCLAVE_GITHUB_MCP_AGENT_ID');
     expect(lock).toContain('--exclude-env MCP_GATEWAY_AGENT_ID');
+    expect(lock).toContain(
+      'MCP_GATEWAY_API_KEY: ${{ steps.start-mcp-gateway.outputs.gateway-api-key }}'
+    );
+    expect(lock).toContain('--exclude-env MCP_GATEWAY_API_KEY');
   });
 
   it('tests the local AWF implementation with mcpg v0.4.15', () => {

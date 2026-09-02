@@ -134,7 +134,7 @@ export function applyGeneralWorkflowPatches(
     }
   }
 
-  if (workflowPath.endsWith('smoke-enclave-build-test.lock.yml')) {
+  if (isEnclaveSmoke) {
     const gatewayKeyEnv =
       '          MCP_GATEWAY_API_KEY: ${{ steps.start-mcp-gateway.outputs.gateway-api-key }}';
     const agentEnvAnchor = '        env:\n          AWF_REFLECT_ENABLED: 1';

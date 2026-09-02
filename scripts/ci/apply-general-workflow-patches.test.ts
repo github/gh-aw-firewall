@@ -116,7 +116,10 @@ describe('applyGeneralWorkflowPatches shared enclave gateway policy', () => {
       '                  "GITHUB_TOOLSETS": "context"\n' +
       '              "awf-enclave": {\n' +
       '                "type": "http",\n' +
-      '              "agentPolicies": {"primary":{"servers":["github","safe-outputs"]}},\n';
+      '              "agentPolicies": {"primary":{"servers":["github","safe-outputs"]}},\n' +
+      '        env:\n' +
+      '          AWF_REFLECT_ENABLED: 1\n' +
+      '        run: awf --exclude-env MCP_GATEWAY_AGENT_ID\n';
 
     const { content, log } = applyGeneralWorkflowPatches(
       compiled,
