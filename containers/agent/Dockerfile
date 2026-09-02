@@ -107,22 +107,44 @@ RUN set -eux; \
         apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 upgrade -y; \
     }; \
     PKGS="iptables curl ca-certificates git gnupg dnsutils net-tools netcat-openbsd libcap2-bin libgdiplus libev-dev libssl-dev php-intl php-gd python3"; \
+    apt_update_retry && \
+    apt_install_retry $PKGS && \
     # Chromium/Playwright native runtime libraries. The agent uses selective bind
     # mounts (not a full host filesystem mount), so Playwright-managed browsers
-    # cannot pick these up from the host and must be present in the image.
+    # cannot pick these up from the host /usr. Installing the packages here is not
+    # by itself sufficient either: AWF_CHROOT_ENABLED=true chroots to /host and
+    # buildSystemMounts() bind-mounts the runner's own /usr, /lib, etc. over the
+    # image's, shadowing anything installed in this layer. To make these libraries
+    # visible inside the chroot, we record which files they own in a manifest so
+    # entrypoint.sh can stage copies under /run/awf-lib (the container's own
+    # writable rootfs, not bind-mounted) and point LD_LIBRARY_PATH at them before
+    # exec'ing the user command. See copy_browser_libs() in entrypoint.sh.
     BROWSER_PKGS="libasound2 libatk-bridge2.0-0 libatk1.0-0 libatspi2.0-0 libcairo2 libcups2 libdbus-1-3 libdrm2 libexpat1 libgbm1 libglib2.0-0 libnspr4 libnss3 libpango-1.0-0 libpangocairo-1.0-0 libx11-6 libxcb1 libxcomposite1 libxdamage1 libxext6 libxfixes3 libxkbcommon0 libxrandr2 libxrender1 libxshmfence1 fonts-liberation"; \
-    apt_update_retry && \
     # Ubuntu 24.04 renamed several of these to time_t-64 variants (e.g. libasound2t64),
     # and the old names became ambiguous virtual packages. Prefer the t64 package when
     # the base image provides one, otherwise keep the 22.04 name.
+    BROWSER_ACTUAL_PKGS=""; \
     for pkg in $BROWSER_PKGS; do \
       if apt-cache show "${pkg}t64" >/dev/null 2>&1; then \
-        PKGS="$PKGS ${pkg}t64"; \
+        BROWSER_ACTUAL_PKGS="$BROWSER_ACTUAL_PKGS ${pkg}t64"; \
       else \
-        PKGS="$PKGS $pkg"; \
+        BROWSER_ACTUAL_PKGS="$BROWSER_ACTUAL_PKGS $pkg"; \
       fi; \
     done && \
-    apt_install_retry $PKGS && \
+    # Installed separately (rather than folded into $PKGS) so we can diff the
+    # dpkg selection list before/after and capture the *transitive* dependency
+    # closure (fontconfig, freetype, harfbuzz, ...) that apt pulls in automatically,
+    # not just the packages named above.
+    dpkg-query -W -f='${Package}\n' | sort -u > /tmp/pkgs-before-browser.txt && \
+    apt_install_retry $BROWSER_ACTUAL_PKGS && \
+    dpkg-query -W -f='${Package}\n' | sort -u > /tmp/pkgs-after-browser.txt && \
+    comm -13 /tmp/pkgs-before-browser.txt /tmp/pkgs-after-browser.txt > /tmp/browser-pkgs-installed.txt && \
+    mkdir -p /usr/local/share/awf && \
+    dpkg -L $(cat /tmp/browser-pkgs-installed.txt) 2>/dev/null \
+      | while IFS= read -r f; do [ -f "$f" ] && printf '%s\n' "$f"; done \
+      | grep -E '\.so(\.[0-9]+)*$' \
+      | sort -u > /usr/local/share/awf/browser-libs.manifest && \
+    rm -f /tmp/pkgs-before-browser.txt /tmp/pkgs-after-browser.txt /tmp/browser-pkgs-installed.txt && \
     apt_upgrade_retry && \
     # Raw sockets are unavailable to the agent; remove stale file capabilities
     # inherited from runner-like base images so they cannot be reactivated.

@@ -662,6 +662,55 @@ copy_preload_libs() {
   fi
 }
 
+copy_browser_libs() {
+  # Stage the Chromium/Playwright runtime shared libraries baked into the image
+  # (containers/agent/Dockerfile: BROWSER_PKGS) so they are visible inside the
+  # chroot. Installing the packages into the image's /usr is not sufficient on
+  # its own: AWF_CHROOT_ENABLED=true chroots to /host, and buildSystemMounts()
+  # bind-mounts the runner's own /usr, /lib, etc. over the image's, shadowing
+  # anything installed in this layer.
+  #
+  # The Dockerfile records the manifest of .so files owned by those packages
+  # (including their transitive dependencies, e.g. fontconfig/freetype/harfbuzz)
+  # at /usr/local/share/awf/browser-libs.manifest. We copy each one, preserving
+  # its original directory structure, under /run/awf-lib/browser-libs -- which
+  # lives on the container's own writable rootfs (not bind-mounted) -- and point
+  # LD_LIBRARY_PATH at the resulting directories.
+  #
+  # Sets BROWSER_LD_LIBRARY_PATH (empty string if unavailable or nothing to stage).
+  BROWSER_LD_LIBRARY_PATH=""
+  MANIFEST="/usr/local/share/awf/browser-libs.manifest"
+  if [ -s "$MANIFEST" ]; then
+    STAGE_ROOT="/host/run/awf-lib/browser-libs"
+    if mkdir -p "$STAGE_ROOT" 2>/dev/null; then
+      LIB_DIRS=""
+      while IFS= read -r lib; do
+        [ -z "$lib" ] && continue
+        [ -f "$lib" ] || continue
+        dest="${STAGE_ROOT}${lib}"
+        dest_dir="$(dirname "$dest")"
+        if mkdir -p "$dest_dir" 2>/dev/null && cp -a "$lib" "$dest" 2>/dev/null; then
+          rel_dir="$(dirname "$lib")"
+          case " $LIB_DIRS " in
+            *" $rel_dir "*) ;;
+            *) LIB_DIRS="$LIB_DIRS $rel_dir" ;;
+          esac
+        else
+          echo "[entrypoint][WARN] Could not stage browser runtime library $lib" >&2
+        fi
+      done < "$MANIFEST"
+      if [ -n "$LIB_DIRS" ]; then
+        for rel_dir in $LIB_DIRS; do
+          BROWSER_LD_LIBRARY_PATH="${BROWSER_LD_LIBRARY_PATH:+$BROWSER_LD_LIBRARY_PATH:}/run/awf-lib/browser-libs${rel_dir}"
+        done
+        echo "[entrypoint] Chromium/Playwright runtime libraries staged for chroot at ${STAGE_ROOT}"
+      fi
+    else
+      echo "[entrypoint][WARN] Could not create ${STAGE_ROOT}; Chromium/Playwright browsers may fail to launch" >&2
+    fi
+  fi
+}
+
 copy_agent_helper_scripts() {
   # Copy get-claude-key.sh and gh CLI proxy wrapper to chroot-accessible paths.
   # Both scripts are baked into the Docker image but shadowed by host bind mounts
