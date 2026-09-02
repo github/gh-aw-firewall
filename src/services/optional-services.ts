@@ -9,7 +9,7 @@ import { buildEnclaveMcpService } from './enclave-mcp-service';
 import { buildSysrootStageService, isSysrootEnabled } from './sysroot-service';
 import { resolveDockerHostGateway } from './host-gateway';
 import { runtimeUsesIptables } from '../container-runtime';
-import { applyHostPathPrefixToVolumes } from './host-path-prefix';
+import { applyHostPathPrefixToVolumes, normalizeDockerHostPathPrefix, prefixHostPath } from './host-path-prefix';
 import { buildCustomVolumeMounts } from './agent-volumes/workspace-mounts';
 import { resolveComposeFilesystemAllowWrite } from './agent-volumes/filesystem-write-policy';
 import { NetworkConfig, ImageBuildConfig } from './squid-service';
@@ -71,7 +71,18 @@ function filterAgentVolumesForSysroot(
     '/host/lib64',
     '/host/opt',
   ]);
-  const normalizedWorkDirPrefix = config.workDir.replace(/\/+$/, '');
+  // `agentVolumes` has already had `--docker-host-path-prefix` applied (it's
+  // the last step of `buildAgentVolumes`), so a bare `workDir`/`effectiveHome`
+  // no longer matches its own derived mount sources once that prefix is set.
+  // Prefix them the same way before comparing, or every match below silently
+  // stops firing on split-fs (ARC/DinD) runs — see gh-aw-firewall#7994.
+  const normalizedDockerHostPathPrefix = config.dockerHostPathPrefix
+    ? normalizeDockerHostPathPrefix(config.dockerHostPathPrefix)
+    : '';
+  const prefixedHostPath = (hostPath: string): string =>
+    normalizedDockerHostPathPrefix ? prefixHostPath(hostPath, normalizedDockerHostPathPrefix) : hostPath;
+  const normalizedWorkDirPrefix = prefixedHostPath(config.workDir).replace(/\/+$/, '');
+  const prefixedEffectiveHome = prefixedHostPath(effectiveHome);
   const hostHomeMountPrefix = `/host${effectiveHome}`;
   // Source:target pairs of explicitly supplied `--mount` specs.  Their sources
   // are chosen by the caller (the gh-aw compiler or the user), who asserts the
@@ -108,12 +119,12 @@ function filterAgentVolumesForSysroot(
     // daemon visibility, and a writable `/host$HOME` is required for the
     // credential-hiding overlays and the agent entrypoint to work.
     if (
-      source.startsWith(effectiveHome) &&
+      source.startsWith(prefixedEffectiveHome) &&
       target.startsWith(hostHomeMountPrefix) &&
       !explicitMountSpecs.has(mountSpecKey(source, target))
     ) {
       const normalizedSource = source.replace(/\/+$/, '') || '/';
-      const relPath = normalizedSource.slice(effectiveHome.length);
+      const relPath = normalizedSource.slice(prefixedEffectiveHome.length);
       if (relPath.startsWith('/.') || relPath === '') return false;
     }
 
