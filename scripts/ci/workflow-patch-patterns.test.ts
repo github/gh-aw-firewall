@@ -20,7 +20,8 @@ describe('standaloneSkipPullRegex', () => {
         'b'.repeat(64) +
         ' ghcr.io/github/gh-aw-firewall/squid:0.28.0@sha256:' +
         'c'.repeat(64) +
-        ' ' +
+        ' ghcr.io/github/gh-aw-firewall/enclave-agent:0.28.0 ' +
+        'ghcr.io/github/gh-aw-firewall/enclave-mcp-server:0.28.0 ' +
         'ghcr.io/github/gh-aw-node@sha256:abc';
 
       expect(command.replace(localAwfImageDownloadRegex, '')).toBe(

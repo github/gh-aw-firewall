@@ -127,5 +127,8 @@ describe('smoke enclave issues workflow', () => {
     expect(lock).toContain('ghcr.io/github/gh-aw-mcpg:v0.4.15');
     expect(lock).toContain('Install awf binary (local)');
     expect(lock).toContain('--build-local');
+    expect(lock).not.toMatch(
+      /download_docker_images\.sh[^\n]*ghcr\.io\/github\/gh-aw-firewall\/enclave-(?:agent|mcp-server)/
+    );
   });
 });

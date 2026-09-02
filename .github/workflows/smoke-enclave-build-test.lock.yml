@@ -47,7 +47,7 @@
 # Container images used:
 #   -
 #   -
-#   - ghcr.io/github/gh-aw-firewall/enclave-mcp-server:0.28.1@sha256:1cb97151e32ac08f9265b323e7990aaa69ffefee54b7ababcf44d9bdd03efb40
+#   -
 #   - ghcr.io/github/gh-aw-firewall/enclave-script:0.28.1@sha256:daed9f725e293344d16657b0c10a99e91ba90dac1638bf20cd6b4a7e7dfcc8ae
 #   -
 #   - ghcr.io/github/gh-aw-mcpg:v0.4.14@sha256:b2f0c2b2f17b5fbe809e5bb99dc185b6ddd70df25295dc63a6d526350334eff5
@@ -541,7 +541,7 @@ jobs:
           GH_AW_SKILL_DIR: ".github/skills"
         run: bash "${RUNNER_TEMP}/gh-aw/actions/restore_inline_skills.sh"
       - name: Download container images
-        run: bash "${RUNNER_TEMP}/gh-aw/actions/download_docker_images.sh" ghcr.io/github/gh-aw-firewall/enclave-mcp-server:0.28.1@sha256:1cb97151e32ac08f9265b323e7990aaa69ffefee54b7ababcf44d9bdd03efb40 ghcr.io/github/gh-aw-firewall/enclave-script:0.28.1@sha256:daed9f725e293344d16657b0c10a99e91ba90dac1638bf20cd6b4a7e7dfcc8ae ghcr.io/github/gh-aw-mcpg:v0.4.14@sha256:b2f0c2b2f17b5fbe809e5bb99dc185b6ddd70df25295dc63a6d526350334eff5 ghcr.io/github/gh-aw-node@sha256:0daa8971fa4732b647150cb6524a6b0804b68d5d24f6f58b5dd1af23bd63fb23 ghcr.io/github/github-mcp-server:v1.11.0@sha256:fbec75de11c255213fa08d80fb166abe73d851fff631c51c0079872967720699
+        run: bash "${RUNNER_TEMP}/gh-aw/actions/download_docker_images.sh" ghcr.io/github/gh-aw-firewall/enclave-script:0.28.1@sha256:daed9f725e293344d16657b0c10a99e91ba90dac1638bf20cd6b4a7e7dfcc8ae ghcr.io/github/gh-aw-mcpg:v0.4.14@sha256:b2f0c2b2f17b5fbe809e5bb99dc185b6ddd70df25295dc63a6d526350334eff5 ghcr.io/github/gh-aw-node@sha256:0daa8971fa4732b647150cb6524a6b0804b68d5d24f6f58b5dd1af23bd63fb23 ghcr.io/github/github-mcp-server:v1.11.0@sha256:fbec75de11c255213fa08d80fb166abe73d851fff631c51c0079872967720699
       - name: Prepare Safe Outputs Directories
         run: |
           mkdir -p "${RUNNER_TEMP}/gh-aw/safeoutputs"
