@@ -1,9 +1,9 @@
 {
   "title": "Model-to-API Endpoint Mapping",
   "description": "Maps AI model families to their supported API endpoints. Used to determine which endpoint (chat/completions vs responses vs messages) a model requires.",
-  "lastUpdated": "2026-08-12T05:43:00Z",
+  "lastUpdated": "2026-09-02T07:03:56Z",
   "sources": {
-    "openai": "https://platform.openai.com/docs/models",
+    "openai": "https://developers.openai.com/api/docs/models",
     "anthropic": "https://docs.anthropic.com/en/docs/about-claude/models"
   },
   "providers": {
@@ -38,10 +38,16 @@
           "notes": "Supports both endpoints. Includes gpt-5.6-sol, gpt-5.6-terra, gpt-5.6-luna per OpenAI SDK ChatModel. gpt-5.6-cyber is responses-only (see separate entry above)."
         },
         {
+          "family": "gpt-5.5-pro",
+          "patterns": ["gpt-5.5-pro", "gpt-5.5-pro-*"],
+          "endpoints": ["responses"],
+          "notes": "Responses API only (ResponsesOnlyModel per OpenAI OpenAPI spec). More specific than gpt-5.5* pattern below. Includes dated variants like gpt-5.5-pro-2026-04-23."
+        },
+        {
           "family": "gpt-5.5",
           "patterns": ["gpt-5.5*"],
           "endpoints": ["chat_completions", "responses"],
-          "notes": "Supports both endpoints. Listed on the official GPT-5.5 model page."
+          "notes": "Supports both endpoints. Listed on the official GPT-5.5 model page. gpt-5.5-pro is responses-only (see separate entry above)."
         },
         {
           "family": "gpt-5.4",

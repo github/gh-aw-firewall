@@ -42,6 +42,13 @@ describe('model-api-mapping', () => {
       expect(result.endpoints).toContain('responses');
     });
 
+    it('finds GPT-5.5-pro as responses-only', () => {
+      const result = lookupModelEndpoints('gpt-5.5-pro', 'openai');
+      expect(result).not.toBeNull();
+      expect(result.family).toBe('gpt-5.5-pro');
+      expect(result.endpoints).toEqual(['responses']);
+    });
+
     it('finds GPT-5.1 as supporting both endpoints', () => {
       const result = lookupModelEndpoints('gpt-5.1-codex', 'openai');
       expect(result).not.toBeNull();
@@ -136,7 +143,7 @@ describe('model-api-mapping', () => {
       expect(reflect.available).toBe(true);
       expect(reflect.providers).toContain('openai');
       expect(reflect.providers).toContain('anthropic');
-      expect(reflect.last_updated).toBe('2026-08-12T05:43:00Z');
+      expect(reflect.last_updated).toBe('2026-09-02T07:03:56Z');
       expect(reflect.models.anthropic.models[0].family).toBe('claude-opus-5');
       expect(reflect.error).toBeNull();
     });
