@@ -30,6 +30,7 @@ required_functions=(
   mount_host_procfs
   mount_host_cgroupfs
   copy_preload_libs
+  copy_browser_libs
   copy_agent_helper_scripts
   copy_dind_runner_binary
   resolve_chroot_binary_path
@@ -122,6 +123,7 @@ chroot_helpers=(
   'mount_host_cgroupfs'
   'check_chroot_prereqs'
   'copy_preload_libs'
+  'copy_browser_libs'
   'copy_agent_helper_scripts'
   'copy_dind_runner_binary'
   'ensure_usr_local_bin_shims'
@@ -220,6 +222,81 @@ if grep -Eq '\[ -n "\$\{SYSTEM_CA_CHROOT\}" \]' "${ENTRYPOINT}"; then
   pass "run_chroot_command() cleans up copied system CA bundles"
 else
   fail "run_chroot_command() does not clean up copied system CA bundles"
+fi
+
+# copy_browser_libs() must stage the Chromium/Playwright runtime libraries
+# recorded in the Dockerfile's manifest (containers/agent/Dockerfile:
+# /usr/local/share/awf/browser-libs.manifest) under /run/awf-lib/browser-libs
+# -- on the container's own writable rootfs, not the /host bind mount -- and
+# export their directories via BROWSER_LD_LIBRARY_PATH. This directly
+# exercises the staging mechanism that makes the packages installed by
+# BROWSER_PKGS visible inside the chroot, where buildSystemMounts() otherwise
+# shadows the image's /usr, /lib, etc. with the runner's own.
+run_copy_browser_libs_fixture() {
+  local tmp_dir
+  tmp_dir="$(mktemp -d)"
+  local host_root="${tmp_dir}/host-root"
+  local fixture_entrypoint="${tmp_dir}/entrypoint-fixture.sh"
+  local fake_lib_dir="${tmp_dir}/image-rootfs/usr/lib/x86_64-linux-gnu"
+  local fake_lib="${fake_lib_dir}/libnspr4.so"
+  local manifest="${tmp_dir}/browser-libs.manifest"
+
+  mkdir -p "${host_root}" "${fake_lib_dir}"
+  printf 'real-libnspr4-bytes' > "${fake_lib}"
+  printf '%s\n' "${fake_lib}" > "${manifest}"
+
+  awk '$0 != "main \"$@\""' "${ENTRYPOINT}" > "${fixture_entrypoint}"
+  sed -i "s#/host#\${AWF_TEST_HOST_ROOT}#g" "${fixture_entrypoint}"
+  sed -i "s#/usr/local/share/awf/browser-libs.manifest#\${AWF_TEST_MANIFEST}#g" "${fixture_entrypoint}"
+
+  (
+    set -e
+    # shellcheck disable=SC1090
+    . "${fixture_entrypoint}"
+
+    AWF_TEST_HOST_ROOT="${host_root}"
+    AWF_TEST_MANIFEST="${manifest}"
+
+    unset BROWSER_LD_LIBRARY_PATH
+    copy_browser_libs
+
+    staged_lib="${host_root}/run/awf-lib/browser-libs${fake_lib}"
+    [ -f "${staged_lib}" ]
+    [ "$(cat "${staged_lib}")" = "real-libnspr4-bytes" ]
+    [ "${BROWSER_LD_LIBRARY_PATH}" = "/run/awf-lib/browser-libs${fake_lib_dir}" ]
+
+    # Simulate buildSystemMounts() shadowing the image's own /usr/lib with the
+    # runner's: overwrite the original library path with different content
+    # (as if the host's own libnspr4.so.0 had been bind-mounted over it).
+    printf 'shadowed-by-host-bind-mount' > "${fake_lib}"
+
+    # The staged copy under /run/awf-lib must be unaffected by the shadowing,
+    # proving Chromium resolves the image-provided library via
+    # LD_LIBRARY_PATH rather than being silently broken by the chroot bind mount.
+    [ "$(cat "${staged_lib}")" = "real-libnspr4-bytes" ]
+  )
+  local result=$?
+  rm -rf "${tmp_dir}"
+  return "${result}"
+}
+
+if run_copy_browser_libs_fixture; then
+  pass "copy_browser_libs() stages manifest libraries under /run/awf-lib and survives /usr shadowing"
+else
+  fail "copy_browser_libs() does not stage Chromium/Playwright runtime libraries correctly"
+fi
+
+if grep -Eq '\[ -n "\$\{BROWSER_LD_LIBRARY_PATH\}" \]' "${ENTRYPOINT}"; then
+  pass "run_chroot_command() cleans up staged browser runtime libraries"
+else
+  fail "run_chroot_command() does not clean up staged browser runtime libraries"
+fi
+
+if grep -Fq 'LD_LIBRARY_PATH_CMD' "${ENTRYPOINT}" && \
+   grep -Fq 'export LD_LIBRARY_PATH=${BROWSER_LD_LIBRARY_PATH}' "${ENTRYPOINT}"; then
+  pass "run_chroot_command() exports LD_LIBRARY_PATH from BROWSER_LD_LIBRARY_PATH before exec"
+else
+  fail "run_chroot_command() does not export LD_LIBRARY_PATH from BROWSER_LD_LIBRARY_PATH"
 fi
 
 # configure_jvm_proxy must not abort the entrypoint (set -e) when $HOME is

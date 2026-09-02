@@ -1560,6 +1560,7 @@ run_chroot_command() {
   mount_host_cgroupfs
   check_chroot_prereqs
   copy_preload_libs
+  copy_browser_libs
   copy_agent_helper_scripts
   copy_dind_runner_binary
   ensure_usr_local_bin_shims
@@ -1625,8 +1626,8 @@ run_chroot_command() {
     CLEANUP_CMD="${CLEANUP_CMD}; sed -i '/^[0-9.]\\+[[:space:]]\\+host\\.docker\\.internal\$/d' /etc/hosts 2>/dev/null || true"
     echo "[entrypoint] host.docker.internal will be removed from /etc/hosts on exit"
   fi
-  # Clean up /run/awf-lib if anything was copied (one-shot-token, CA cert, key helper)
-  if [ -n "${ONE_SHOT_TOKEN_LIB}" ] || [ -n "${AWF_CA_CHROOT}" ] || [ -n "${SYSTEM_CA_CHROOT}" ] || [ -n "${CHROOT_KEY_HELPER}" ] || [ -n "${STAGED_RUNNER_BINARY_CHROOT}" ]; then
+  # Clean up /run/awf-lib if anything was copied (one-shot-token, CA cert, key helper, browser libs)
+  if [ -n "${ONE_SHOT_TOKEN_LIB}" ] || [ -n "${AWF_CA_CHROOT}" ] || [ -n "${SYSTEM_CA_CHROOT}" ] || [ -n "${CHROOT_KEY_HELPER}" ] || [ -n "${STAGED_RUNNER_BINARY_CHROOT}" ] || [ -n "${BROWSER_LD_LIBRARY_PATH}" ]; then
     CLEANUP_CMD="${CLEANUP_CMD}; rm -rf /run/awf-lib 2>/dev/null || true"
   fi
   # NOTE: the /usr/local/bin overlay is torn down by cleanup_usr_local_bin_overlay(),
@@ -1682,10 +1683,18 @@ run_chroot_command() {
     LD_PRELOAD_CMD="export LD_PRELOAD=${ONE_SHOT_TOKEN_LIB};"
   fi
 
+  # Build LD_LIBRARY_PATH command so Chromium/Playwright can resolve the
+  # staged browser runtime libraries (see copy_browser_libs above).
+  LD_LIBRARY_PATH_CMD=""
+  if [ -n "${BROWSER_LD_LIBRARY_PATH}" ]; then
+    LD_LIBRARY_PATH_CMD="export LD_LIBRARY_PATH=${BROWSER_LD_LIBRARY_PATH}\${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH};"
+  fi
+
   run_command_with_stdout run_agent_with_token_protection chroot /host /bin/bash -c "
     cd '${CHROOT_WORKDIR}' 2>/dev/null || cd / 2>/dev/null || true
     trap '${CLEANUP_CMD}' EXIT
     ${LD_PRELOAD_CMD}
+    ${LD_LIBRARY_PATH_CMD}
     exec capsh --drop=${CAPS_TO_DROP} ${CAPSH_IDENTITY_ARGS} -- -c 'exec ${SCRIPT_FILE}'
   "
 }

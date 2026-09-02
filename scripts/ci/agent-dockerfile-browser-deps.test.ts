@@ -37,10 +37,10 @@ apt-cache() {
   done
   return 100
 }
-PKGS="iptables"
+BROWSER_ACTUAL_PKGS=""
 BROWSER_PKGS="${readBrowserPackages().join(' ')}"
 ${readResolutionScript()}
-echo "$PKGS"
+echo "$BROWSER_ACTUAL_PKGS"
 `;
 
   const result = spawnSync('bash', ['-c', script], { encoding: 'utf-8' });
@@ -85,7 +85,7 @@ describe('agent Dockerfile Chromium runtime dependencies', () => {
   it('keeps the 22.04 names when the base image has no t64 packages', () => {
     const resolved = runResolution([]);
 
-    expect(resolved.split(/\s+/)).toEqual(['iptables', ...readBrowserPackages()]);
+    expect(resolved.split(/\s+/).filter(Boolean)).toEqual(readBrowserPackages());
   });
 
   it('prefers t64 packages when the base image provides them', () => {
@@ -98,7 +98,14 @@ describe('agent Dockerfile Chromium runtime dependencies', () => {
     expect(resolved).toContain('libnss3');
   });
 
-  it('installs the resolved browser packages with the other agent packages', () => {
+  it('installs the resolved browser packages separately so their transitive deps can be diffed', () => {
     expect(readDockerfile()).toMatch(/apt_install_retry \$PKGS/);
+    expect(readDockerfile()).toMatch(/apt_install_retry \$BROWSER_ACTUAL_PKGS/);
+  });
+
+  it('records the installed .so files into a manifest entrypoint.sh stages for the chroot', () => {
+    const dockerfile = readDockerfile();
+    expect(dockerfile).toMatch(/\/usr\/local\/share\/awf\/browser-libs\.manifest/);
+    expect(dockerfile).toMatch(/dpkg -L \$\(cat \/tmp\/browser-pkgs-installed\.txt\)/);
   });
 });
