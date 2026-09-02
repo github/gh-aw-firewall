@@ -71,6 +71,9 @@ The `default` preset image (based on Ubuntu 22.04) includes the following pre-in
 | capsh | — | `libcap2-bin` | Capability management |
 | gnupg | 2.2.27 | `gnupg` | GPG encryption |
 | ca-certificates | — | `ca-certificates` | Trusted root certificates |
+| Chromium runtime libraries | — | see below | Shared libraries required by Playwright-managed browsers |
+
+**Chromium/Playwright runtime libraries:** Because the agent uses selective bind mounts instead of a full host filesystem mount, browsers downloaded by Playwright cannot rely on host libraries. The image therefore preinstalls `libasound2`, `libatk-bridge2.0-0`, `libatk1.0-0`, `libatspi2.0-0`, `libcairo2`, `libcups2`, `libdbus-1-3`, `libdrm2`, `libexpat1`, `libgbm1`, `libglib2.0-0`, `libnspr4`, `libnss3`, `libpango-1.0-0`, `libpangocairo-1.0-0`, `libx11-6`, `libxcb1`, `libxcomposite1`, `libxdamage1`, `libxext6`, `libxfixes3`, `libxkbcommon0`, `libxrandr2`, `libxrender1`, `libxshmfence1`, and `fonts-liberation` (plus their transitive dependencies). On Ubuntu 24.04 base images the `t64` variants of these packages are installed automatically.
 
 **⚠️ Docker CLI Stub:** The `docker` command is present but is a stub—there is no Docker daemon running inside the container. Docker-in-Docker is not supported. Use `--mount` to access Docker sockets from the host if needed.
 

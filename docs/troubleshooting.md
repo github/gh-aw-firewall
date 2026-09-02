@@ -364,6 +364,37 @@ AWF uses a forward proxy (Squid) for HTTPS egress control rather than transparen
 - **Java tools**: Use `JAVA_TOOL_OPTIONS` with JVM system properties (set automatically by AWF)
 - **Maven**: Requires `~/.m2/settings.xml` (must be configured manually — see above)
 
+## Playwright / Chromium Issues
+
+### Browser fails to launch with missing shared libraries
+
+**Problem:** `playwright-cli` (or `npx playwright`) fails to start Chromium with errors such as:
+
+```
+error while loading shared libraries: libnspr4.so: cannot open shared object file
+Host system is missing dependencies to run browsers.
+```
+
+**Cause:** The agent container uses selective bind mounts rather than a full host filesystem mount, so browsers downloaded by Playwright cannot pick up native libraries installed on the host.
+
+**Solution:** The agent image preinstalls Chromium's native runtime libraries (`libnspr4`, `libnss3`, `libatk1.0-0`, `libatk-bridge2.0-0`, `libatspi2.0-0`, `libcups2`, `libdrm2`, `libgbm1`, `libpango-1.0-0`, `libxkbcommon0`, `libxcomposite1`, `libxdamage1`, `libxrandr2`, `libasound2`, `fonts-liberation`, and related packages). Use a current agent image (`--image-tag latest`, or `--build-local` when building from source) and the browser will launch.
+
+Verify the libraries are present inside the sandbox:
+
+```bash
+sudo awf --allow-domains '' -- bash -c 'ldd $(find ~/.cache/ms-playwright -name headless_shell | head -1) | grep "not found" || echo "all libraries resolved"'
+```
+
+If you pin an older agent image, or you use a custom base image, install the dependencies yourself before running the browser:
+
+```bash
+npx playwright install-deps chromium
+```
+
+### Browser downloads are blocked
+
+Playwright downloads browser binaries from `cdn.playwright.dev`. Either add that domain to `--allow-domains`, or download the browsers on the host before the sandbox starts and point `PLAYWRIGHT_BROWSERS_PATH` at the staged directory.
+
 ## Harness Binary Resolution Issues
 
 ### `spawn /usr/local/bin/<tool> ENOENT` (hardcoded absolute paths)

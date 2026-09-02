@@ -107,7 +107,21 @@ RUN set -eux; \
         apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 upgrade -y; \
     }; \
     PKGS="iptables curl ca-certificates git gnupg dnsutils net-tools netcat-openbsd libcap2-bin libgdiplus libev-dev libssl-dev php-intl php-gd python3"; \
+    # Chromium/Playwright native runtime libraries. The agent uses selective bind
+    # mounts (not a full host filesystem mount), so Playwright-managed browsers
+    # cannot pick these up from the host and must be present in the image.
+    BROWSER_PKGS="libasound2 libatk-bridge2.0-0 libatk1.0-0 libatspi2.0-0 libcairo2 libcups2 libdbus-1-3 libdrm2 libexpat1 libgbm1 libglib2.0-0 libnspr4 libnss3 libpango-1.0-0 libpangocairo-1.0-0 libx11-6 libxcb1 libxcomposite1 libxdamage1 libxext6 libxfixes3 libxkbcommon0 libxrandr2 libxrender1 libxshmfence1 fonts-liberation"; \
     apt_update_retry && \
+    # Ubuntu 24.04 renamed several of these to time_t-64 variants (e.g. libasound2t64),
+    # and the old names became ambiguous virtual packages. Prefer the t64 package when
+    # the base image provides one, otherwise keep the 22.04 name.
+    for pkg in $BROWSER_PKGS; do \
+      if apt-cache show "${pkg}t64" >/dev/null 2>&1; then \
+        PKGS="$PKGS ${pkg}t64"; \
+      else \
+        PKGS="$PKGS $pkg"; \
+      fi; \
+    done && \
     apt_install_retry $PKGS && \
     apt_upgrade_retry && \
     # Raw sockets are unavailable to the agent; remove stale file capabilities

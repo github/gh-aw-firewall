@@ -76,6 +76,11 @@ The default `agent` image (based on Ubuntu 22.04) includes the following pre-ins
 | libssl-dev | — | `libssl-dev` | OpenSSL development headers for native extensions |
 | php-intl | — | `php-intl` | PHP Internationalization extension |
 | php-gd | — | `php-gd` | PHP GD graphics extension |
+| Chromium runtime libraries | — | see below | Shared libraries required by Playwright-managed browsers |
+
+:::note[Chromium/Playwright runtime libraries]
+Because the agent uses selective bind mounts instead of a full host filesystem mount, browsers downloaded by Playwright cannot rely on host libraries. The image therefore preinstalls `libasound2`, `libatk-bridge2.0-0`, `libatk1.0-0`, `libatspi2.0-0`, `libcairo2`, `libcups2`, `libdbus-1-3`, `libdrm2`, `libexpat1`, `libgbm1`, `libglib2.0-0`, `libnspr4`, `libnss3`, `libpango-1.0-0`, `libpangocairo-1.0-0`, `libx11-6`, `libxcb1`, `libxcomposite1`, `libxdamage1`, `libxext6`, `libxfixes3`, `libxkbcommon0`, `libxrandr2`, `libxrender1`, `libxshmfence1`, and `fonts-liberation` (plus their transitive dependencies). On Ubuntu 24.04 base images the `t64` variants of these packages are installed automatically.
+:::
 
 :::caution[Docker CLI Stub]
 The `docker` command is present but is a stub—there is no Docker daemon running inside the container. Docker-in-Docker is not supported. Use `--mount` to access Docker sockets from the host if needed.
