@@ -108,3 +108,21 @@ describe('applyGeneralWorkflowPatches published AWF maintenance workflows', () =
     expect(content).not.toContain('--image-tag 0.28.2 --skip-pull');
   });
 });
+
+describe('applyGeneralWorkflowPatches shared enclave gateway policy', () => {
+  it('normalizes only the generated safeoutputs policy server ID', () => {
+    const compiled =
+      '              "safeoutputs": {"type": "stdio"},\n' +
+      '              "agentPolicies": {"primary":{"servers":["github","safe-outputs"]}},\n';
+
+    const { content, log } = applyGeneralWorkflowPatches(
+      compiled,
+      '/tmp/workflows/smoke-enclave-issues-read.lock.yml'
+    );
+
+    expect(content).toContain('"safeoutputs": {"type": "stdio"}');
+    expect(content).toContain('"servers":["github","safeoutputs"]');
+    expect(content).not.toContain('"servers":["github","safe-outputs"]');
+    expect(log).toContain('  Normalized shared-gateway safeoutputs policy server ID');
+  });
+});

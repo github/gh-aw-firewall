@@ -102,6 +102,9 @@ describe('smoke enclave issues workflow', () => {
     expect(lock).toContain(
       '"agentIds": ["${MCP_GATEWAY_AGENT_ID}","${AWF_ENCLAVE_GITHUB_MCP_AGENT_ID}"]'
     );
+    expect(lock).toContain(
+      '"${MCP_GATEWAY_AGENT_ID}":{"servers":["awf-enclave","github","safeoutputs"]'
+    );
   });
 
   it('restricts the enclave identity to the declared GitHub read surface', () => {

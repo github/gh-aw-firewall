@@ -824,7 +824,7 @@ jobs:
               "port": $MCP_GATEWAY_PORT,
               "domain": "${MCP_GATEWAY_DOMAIN}",
               "agentIds": ["${MCP_GATEWAY_AGENT_ID}","${AWF_ENCLAVE_GITHUB_MCP_AGENT_ID}"],
-              "agentPolicies": {"${AWF_ENCLAVE_GITHUB_MCP_AGENT_ID}":{"servers":["github"],"tools":{"github":["list_issues","issue_read"]},"allow-only":{"min-integrity":"approved","repos":["github/gh-aw"]}},"${MCP_GATEWAY_AGENT_ID}":{"servers":["awf-enclave","github","safe-outputs"],"tools":{"github":["get_me"]}}},
+              "agentPolicies": {"${AWF_ENCLAVE_GITHUB_MCP_AGENT_ID}":{"servers":["github"],"tools":{"github":["list_issues","issue_read"]},"allow-only":{"min-integrity":"approved","repos":["github/gh-aw"]}},"${MCP_GATEWAY_AGENT_ID}":{"servers":["awf-enclave","github","safeoutputs"],"tools":{"github":["get_me"]}}},
               "payloadDir": "${MCP_GATEWAY_PAYLOAD_DIR}",
               "startupTimeout": 120,
               "opentelemetry": {

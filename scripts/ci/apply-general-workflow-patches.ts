@@ -71,6 +71,21 @@ export function applyGeneralWorkflowPatches(
 ): PatchResult {
   const log: string[] = [];
 
+  if (workflowPath.endsWith('smoke-enclave-issues-read.lock.yml')) {
+    const original = content;
+    content = content
+      .split('\n')
+      .map(line =>
+        line.includes('"agentPolicies":')
+          ? line.replace(/"safe-outputs"/g, '"safeoutputs"')
+          : line
+      )
+      .join('\n');
+    if (content !== original) {
+      log.push('  Normalized shared-gateway safeoutputs policy server ID');
+    }
+  }
+
   // Bound the generated installer in smoke workflows and the build-test workflow.
   // install_ripgrep.sh uses apt-get update -qq without its own timeout, so a bad
   // hosted-runner mirror otherwise leaves the whole agent job running for hours.
