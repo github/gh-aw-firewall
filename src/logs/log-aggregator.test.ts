@@ -537,5 +537,29 @@ describe('log-aggregator', () => {
       expect(stats.deniedRequests).toBe(1);
       expect(stats.uniqueDomains).toBe(2);
     });
+
+    it('should include startup diagnostics when no access.log exists', async () => {
+      const source: LogSource = {
+        type: 'preserved',
+        path: '/tmp/squid-logs-startup',
+      };
+      mockedFs.existsSync.mockImplementation((p) => (
+        p === '/tmp/squid-logs-startup/awf-startup-error.json'
+      ));
+      mockedFs.readFileSync.mockReturnValue(JSON.stringify({
+        timestamp: '2026-09-02T12:45:57.000Z',
+        phase: 'startup',
+        message: 'Refusing to use symlink as bind mountpoint: /usr/local/bin/npm',
+      }));
+
+      const stats = await loadAndAggregate(source);
+
+      expect(stats.totalRequests).toBe(0);
+      expect(stats.startupDiagnostics).toEqual([{
+        timestamp: '2026-09-02T12:45:57.000Z',
+        phase: 'startup',
+        message: 'Refusing to use symlink as bind mountpoint: /usr/local/bin/npm',
+      }]);
+    });
   });
 });

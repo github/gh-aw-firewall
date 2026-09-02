@@ -121,6 +121,18 @@ describe('log-discovery', () => {
       expect(sources).toEqual([]);
     });
 
+    it('should include preserved /tmp logs with startup diagnostics and no access.log', async () => {
+      const logDir = path.join(os.tmpdir(), 'squid-logs-1234567890');
+      const startupDiagnosticPath = path.join(logDir, 'awf-startup-error.json');
+
+      mockedGlob.mockResolvedValue([logDir]);
+      mockedFs.existsSync.mockImplementation((p) => p === startupDiagnosticPath);
+
+      const sources = await discoverLogSources();
+
+      expect(sources.some((s) => s.type === 'preserved' && s.path === logDir)).toBe(true);
+    });
+
     it('should skip directories with invalid timestamps', async () => {
       const logDir = path.join(os.tmpdir(), 'squid-logs-invalid');
 

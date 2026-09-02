@@ -95,9 +95,9 @@ export async function discoverLogSources(): Promise<LogSource[]> {
       continue;
     }
 
-    // Check if access.log exists
+    // Check if access.log or a startup diagnostic exists
     const accessLogPath = path.join(dir, 'access.log');
-    if (!fs.existsSync(accessLogPath)) {
+    if (!fs.existsSync(accessLogPath) && !hasStartupDiagnostic(dir)) {
       logger.debug(`Skipping log directory without access.log: ${dir}`);
       continue;
     }
