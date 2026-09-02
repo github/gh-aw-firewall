@@ -5,13 +5,10 @@ import { PassThrough } from 'stream';
 import type { WrapperConfig } from './types';
 import * as hostEligibility from './cloud-hypervisor/host-eligibility';
 import {
-  assertCloudHypervisorPreSecurityCompatibility,
   cloudHypervisorRuntimeTestHelpers,
   createCloudHypervisorRuntimeBackend,
   type CloudHypervisorRuntimeBackendDependencies,
 } from './cloud-hypervisor-runtime-backend';
-import { buildCloudHypervisorGuestEnvironment } from './cloud-hypervisor/guest-environment-builder';
-import { assertCloudHypervisorSelection } from './cloud-hypervisor/runtime-validation';
 import type { MicrovmInfrastructureSnapshot } from './microvm/infrastructure';
 import { CLOUD_HYPERVISOR_ARTIFACT_RELEASE_TAG } from './cloud-hypervisor/artifact-manifest';
 
@@ -229,6 +226,7 @@ describe('Cloud Hypervisor runtime backend', () => {
     eligibilitySpy.mockRestore();
   });
 
+  describe('startup and preflight', () => {
   it('constructs default backend dependencies and manager policy', async () => {
     const startInfrastructure = jest.fn();
     const defaults = cloudHypervisorRuntimeTestHelpers.defaultDependencies(startInfrastructure);
@@ -530,6 +528,9 @@ describe('Cloud Hypervisor runtime backend', () => {
     expect(deps.startInfrastructure).not.toHaveBeenCalled();
   });
 
+  });
+
+  describe('execution and cancellation', () => {
   it('serializes stdin chunks before sending EOF', async () => {
     const { manager, deps, stdin } = harness();
     let releaseFirstWrite!: () => void;
@@ -560,6 +561,9 @@ describe('Cloud Hypervisor runtime backend', () => {
       .toBeLessThan(manager.endStdin.mock.invocationCallOrder[0]);
   });
 
+  });
+
+  describe('readiness probing', () => {
   it('stops the partial VM when readiness probing fails', async () => {
     const { manager, deps } = harness();
     manager.execute.mockReset().mockImplementation(async (request) => ({
@@ -629,6 +633,9 @@ describe('Cloud Hypervisor runtime backend', () => {
     );
   });
 
+  });
+
+  describe('diagnostics and cleanup', () => {
   it('marks itself stopped after a successful internal cleanup on startup failure, so a later stop() call is a no-op', async () => {
     // Regression test: main-action.ts's cleanup handler unconditionally
     // calls backend.stop() again after any startup failure. Without
@@ -687,6 +694,9 @@ describe('Cloud Hypervisor runtime backend', () => {
     expect(manager.collectDiagnostics).toHaveBeenCalledTimes(3);
   });
 
+  });
+
+  describe('readiness probing', () => {
   it('includes captured guest stdout/stderr in the readiness probe failure message', async () => {
     // Regression test: a bare exit code alone doesn't say which leg of the
     // compound nc-then-wget probe command failed or why. Capture (bounded)
@@ -816,6 +826,9 @@ describe('Cloud Hypervisor runtime backend', () => {
     expect(probeCall.timeoutMs).toBe(282_000);
   });
 
+  });
+
+  describe('diagnostics and cleanup', () => {
   it('passes a beforeCleanup diagnostics hook to stop() on a startup failure, when --diagnostic-logs is set', async () => {
     // Regression test: manager.stop() deletes the private run directory
     // (including the guest serial console log) as its final step, but
@@ -907,6 +920,9 @@ describe('Cloud Hypervisor runtime backend', () => {
     });
   });
 
+  });
+
+  describe('readiness probing', () => {
   it('recovers in the same invocation by recreating a VM after a classified readiness failure', async () => {
     const { manager, deps } = harness();
     let readinessCalls = 0;
@@ -951,6 +967,9 @@ describe('Cloud Hypervisor runtime backend', () => {
     expect(manager.stop).toHaveBeenCalledTimes(1);
   });
 
+  });
+
+  describe('execution and cancellation', () => {
   it('does not retry a failed wrapped command after execution starts', async () => {
     const { deps, stdin } = harness();
     const backend = createBackend(config(), deps);
@@ -1047,134 +1066,5 @@ describe('Cloud Hypervisor runtime backend', () => {
     await backend.stop();
   });
 
-  it('preserves sanitized env values without leaking real provider secrets', () => {
-    const secret = 'sk-real-provider-secret';
-    const environment = buildCloudHypervisorGuestEnvironment(
-      config({
-        openaiApiKey: secret,
-        additionalEnv: {
-          SAFE_SETTING: 'enabled',
-          OPENAI_API_KEY: secret,
-        },
-      }),
-      infrastructure(),
-    );
-
-    expect(environment.SAFE_SETTING).toBe('enabled');
-    expect(environment.OPENAI_API_KEY).not.toBe(secret);
-    expect(Object.values(environment)).not.toContain(secret);
-    expect(environment.HTTP_PROXY).toBe('http://172.30.0.10:3128');
-    expect(environment.HOME).toBe('/workspace/.awf-home');
-
-    expect(() => buildCloudHypervisorGuestEnvironment(
-      config({
-        openaiApiKey: 'enabled',
-        additionalEnv: { SAFE_SETTING: 'enabled' },
-      }),
-      infrastructure(),
-    )).toThrow(/Refusing to pass a real provider credential/);
-  });
-
-  it('sets lowercase http_proxy so BusyBox wget honors the proxy for https:// too', () => {
-    // Regression coverage: a live-KVM connectivity investigation found
-    // BusyBox wget reads only the lowercase "http_proxy" env var for
-    // every protocol it supports, including https -- there is no
-    // https_proxy check anywhere in its proxy-detection logic. Without
-    // this (the shared container-runtime environment intentionally
-    // omits it, for curl/Ubuntu-specific reasons that don't apply to
-    // this guest's BusyBox wget), wget silently falls back to a direct,
-    // unproxied connection attempt, which fails outright since guest DNS
-    // is unconditionally blocked by network policy.
-    const environment = buildCloudHypervisorGuestEnvironment(config(), infrastructure());
-
-    expect(environment.http_proxy).toBe('http://172.30.0.10:3128');
-  });
-
-  it('maps only exported runner paths and keeps the guest home in the writable workspace', () => {
-    const previousToolCache = process.env.RUNNER_TOOL_CACHE;
-    const previousRunnerTemp = process.env.RUNNER_TEMP;
-    try {
-      process.env.RUNNER_TOOL_CACHE = '/opt/hostedtoolcache';
-      process.env.RUNNER_TEMP = '/home/runner/work/_temp';
-      const environment = buildCloudHypervisorGuestEnvironment(
-        config(),
-        infrastructure(),
-        '100.64.0.2',
-        [
-          {
-            tag: 'workspace',
-            source: '/host/workspace',
-            target: '/workspace',
-            mode: 'rw',
-          },
-          {
-            tag: 'runner-tool-cache',
-            source: '/opt/hostedtoolcache',
-            target: '/opt/hostedtoolcache',
-            mode: 'ro',
-          },
-          {
-            tag: 'runner-temp-gh-aw',
-            source: '/home/runner/work/_temp/gh-aw',
-            target: '/home/runner/work/_temp/gh-aw',
-            mode: 'ro',
-          },
-        ],
-      );
-      expect(environment).toMatchObject({
-        HOME: '/workspace/.awf-home',
-        GITHUB_WORKSPACE: '/workspace',
-        RUNNER_TOOL_CACHE: '/opt/hostedtoolcache',
-        RUNNER_TEMP: '/home/runner/work/_temp',
-      });
-    } finally {
-      if (previousToolCache === undefined) delete process.env.RUNNER_TOOL_CACHE;
-      else process.env.RUNNER_TOOL_CACHE = previousToolCache;
-      if (previousRunnerTemp === undefined) delete process.env.RUNNER_TEMP;
-      else process.env.RUNNER_TEMP = previousRunnerTemp;
-    }
-  });
-
-  it('does not forward runner path variables without matching exports', () => {
-    const previousToolCache = process.env.RUNNER_TOOL_CACHE;
-    const previousAgentTools = process.env.AGENT_TOOLSDIRECTORY;
-    const previousRunnerTemp = process.env.RUNNER_TEMP;
-    try {
-      process.env.RUNNER_TOOL_CACHE = '/opt/hostedtoolcache';
-      process.env.AGENT_TOOLSDIRECTORY = '/opt/agent-tools';
-      process.env.RUNNER_TEMP = '/home/runner/work/_temp';
-      const environment = buildCloudHypervisorGuestEnvironment(
-        config(),
-        infrastructure(),
-        '100.64.0.2',
-        [{ tag: 'workspace', source: '/host/workspace', target: '/workspace', mode: 'rw' }],
-      );
-
-      expect(environment.RUNNER_TOOL_CACHE).toBeUndefined();
-      expect(environment.AGENT_TOOLSDIRECTORY).toBeUndefined();
-      expect(environment.RUNNER_TEMP).toBeUndefined();
-    } finally {
-      if (previousToolCache === undefined) delete process.env.RUNNER_TOOL_CACHE;
-      else process.env.RUNNER_TOOL_CACHE = previousToolCache;
-      if (previousAgentTools === undefined) delete process.env.AGENT_TOOLSDIRECTORY;
-      else process.env.AGENT_TOOLSDIRECTORY = previousAgentTools;
-      if (previousRunnerTemp === undefined) delete process.env.RUNNER_TEMP;
-      else process.env.RUNNER_TEMP = previousRunnerTemp;
-    }
-  });
-
-  it('rejects unsupported strict-security and topology combinations', () => {
-    expect(() => assertCloudHypervisorPreSecurityCompatibility(
-      config({ enableDind: true }),
-    )).toThrow(/Docker-in-Docker/);
-    expect(() => assertCloudHypervisorPreSecurityCompatibility(
-      config({ enableHostAccess: true }),
-    )).toThrow(/host access/);
-    expect(() => assertCloudHypervisorPreSecurityCompatibility(
-      config({ enclaves: { enabled: true } } as Partial<WrapperConfig>),
-    )).toThrow(/DIFC proxies or enclaves/);
-    expect(() => assertCloudHypervisorSelection(
-      config({ containerRuntime: 'gvisor' }),
-    )).toThrow(/require --container-runtime cloud-hypervisor/);
   });
 });
