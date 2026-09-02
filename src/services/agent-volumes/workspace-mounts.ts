@@ -146,7 +146,9 @@ export function buildContainerWorkDirMounts(params: ContainerWorkDirMountsParams
 
   // Credential paths are checked first: a hidden path must never be mounted
   // just because a broader tool-directory mount appears to cover it.
-  if (hiddenHostRoots(effectiveHome).some((root) => isAtOrBelow(workDir, root))) {
+  if (hiddenHostRoots(effectiveHome).some((root) =>
+    isAtOrBelow(workDir, root) || isAtOrBelow(root, workDir)
+  )) {
     logger.warn(
       `Container working directory ${workDir} is inside a host path that AWF deliberately hides from ` +
       'the sandbox; it will not be mounted and the agent will start in / instead'
