@@ -157,6 +157,15 @@ describe('copilot interaction/integration headers', () => {
     expect(headers['x-initiator']).toBeUndefined();
   });
 
+  test('preserves a case-variant caller integration id on canonical GHEC hosts', () => {
+    const headers = buildCopilotHeaders(
+      { 'copilot-integration-id': 'from-caller' },
+      { targetHost: 'copilot-api.myorg.ghe.com' }
+    );
+    expect(Object.entries(headers).filter(([name]) => name.toLowerCase() === 'copilot-integration-id'))
+      .toEqual([['copilot-integration-id', 'from-caller']]);
+  });
+
   test('does not inject on other providers', () => {
     const headers = buildRequestHeaders(Buffer.from('{}'), 2, { headers: {} }, {
       injectHeaders: {},

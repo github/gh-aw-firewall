@@ -450,6 +450,17 @@ describe('reflectEndpoints', () => {
     expect(providers).toEqual(['openai', 'anthropic', 'copilot', 'gemini', 'vertex']);
   });
 
+  it('should expose safe Copilot diagnostics in the reflect response', () => {
+    const copilot = reflectEndpoints().endpoints.find((endpoint) => endpoint.provider === 'copilot');
+    expect(copilot).toEqual(expect.objectContaining({
+      credential_kind: expect.any(String),
+      selected_scheme: expect.any(String),
+      inference_credential_source: expect.any(String),
+      inference_selected_scheme: expect.any(String),
+      integration_id_source: expect.any(String),
+    }));
+  });
+
   it('should report models_fetch_complete false before fetch runs', () => {
     const result = reflectEndpoints();
     expect(result.models_fetch_complete).toBe(false);

@@ -104,6 +104,11 @@ function createManagementHandlers(deps) {
           models:     info.models_cache_key !== null ? (cachedModels[info.models_cache_key] || null) : null,
           model_metadata: runtimeModelMetadata[adapter.name] || null,
           models_url: info.models_url,
+          ...(info.credential_kind !== undefined && { credential_kind: info.credential_kind }),
+          ...(info.selected_scheme !== undefined && { selected_scheme: info.selected_scheme }),
+          ...(info.inference_credential_source !== undefined && { inference_credential_source: info.inference_credential_source }),
+          ...(info.inference_selected_scheme !== undefined && { inference_selected_scheme: info.inference_selected_scheme }),
+          ...(info.integration_id_source !== undefined && { integration_id_source: info.integration_id_source }),
         };
       }),
       models_fetch_complete: isModelFetchComplete(),

@@ -94,7 +94,11 @@ function mergeInjectedHeaders(headers, injectHeaders, targetHost) {
   const copilotHost = isCopilotIntegrationHost(targetHost);
   for (const [name, value] of Object.entries(injectHeaders)) {
     if (!copilotHost && name.toLowerCase() === 'copilot-integration-id') continue;
-    headers[name] = value;
+    if (copilotHost && name.toLowerCase() === 'copilot-integration-id') {
+      ensureHeader(headers, name, value);
+    } else {
+      headers[name] = value;
+    }
   }
 }
 

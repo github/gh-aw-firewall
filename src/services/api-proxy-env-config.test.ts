@@ -147,6 +147,15 @@ describe('buildProviderRoutingEnv', () => {
     expect(env.COPILOT_INTEGRATION_ID).toBeUndefined();
   });
 
+  it('forwards GITHUB_COPILOT_INTEGRATION_ID trimmed when set in additionalEnv', () => {
+    const env = buildProviderRoutingEnv({
+      ...baseConfig,
+      workDir: '/tmp/awf-test',
+      additionalEnv: { GITHUB_COPILOT_INTEGRATION_ID: '  github-integration  ' },
+    });
+    expect(env.GITHUB_COPILOT_INTEGRATION_ID).toBe('github-integration');
+  });
+
   it('forwards the default api-proxy shutdown timeout', () => {
     const env = buildProviderRoutingEnv({ ...baseConfig, workDir: '/tmp/awf-test' });
     expect(env.AWF_API_PROXY_SHUTDOWN_TIMEOUT_MS).toBe('8000');
