@@ -1,4 +1,43 @@
-import { applyHostPathPrefixToVolumes } from './host-path-prefix';
+import { applyHostPathPrefixToVolumes, prefixHostPath } from './host-path-prefix';
+
+describe('prefixHostPath', () => {
+  it('prepends the normalized prefix to an absolute path', () => {
+    expect(prefixHostPath('/tmp/awf-12345', '/host')).toBe('/host/tmp/awf-12345');
+  });
+
+  it('matches the source rewrite applied to a mount derived from the same path', () => {
+    // A caller comparing a bare path (e.g. workDir) against an already
+    // host-path-prefixed mount source must apply the exact same rewrite, or
+    // the comparison silently stops matching once a prefix is set.
+    const workDir = '/tmp/awf-12345';
+    const mount = `${workDir}-chroot-home:/host/home/runner:rw`;
+    const [translatedMount] = applyHostPathPrefixToVolumes([mount], '/host');
+    const translatedSource = translatedMount.split(':')[0];
+    expect(translatedSource.startsWith(prefixHostPath(workDir, '/host'))).toBe(true);
+  });
+
+  it('leaves relative paths untouched', () => {
+    expect(prefixHostPath('relative/path', '/host')).toBe('relative/path');
+  });
+
+  it('is a no-op when the prefix is "/"', () => {
+    expect(prefixHostPath('/home/runner', '/')).toBe('/home/runner');
+  });
+
+  it('leaves a path already under the prefix untouched', () => {
+    expect(prefixHostPath('/host/home/runner', '/host')).toBe('/host/home/runner');
+    expect(prefixHostPath('/host', '/host')).toBe('/host');
+  });
+
+  it('re-prefixes an already-prefixed path when translateAlreadyPrefixedPaths is set', () => {
+    expect(prefixHostPath('/host/home/runner', '/host', { translateAlreadyPrefixedPaths: true }))
+      .toBe('/host/host/home/runner');
+  });
+
+  it('maps the bare root to the prefix itself', () => {
+    expect(prefixHostPath('/', '/host')).toBe('/host');
+  });
+});
 
 describe('applyHostPathPrefixToVolumes', () => {
   it('returns volumes unchanged when prefix is undefined', () => {

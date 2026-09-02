@@ -240,5 +240,63 @@ describe('optional-services helpers', () => {
         home,
       )).toThrow('filesystem.allowWrite cannot safely protect');
     });
+
+    // Regression test for gh-aw-firewall#7994: `buildAgentVolumes` applies
+    // `--docker-host-path-prefix` translation *before* this filter runs, so a
+    // volume derived from `workDir`/`effectiveHome` arrives here with a
+    // prefixed source (e.g. `/host/tmp/awf-work-chroot-home`). Comparing that
+    // against the raw, unprefixed `config.workDir`/`effectiveHome` silently
+    // stopped matching, letting the chroot-home mount and $HOME dot-directory
+    // binds survive pointing at a path the Docker daemon cannot see — which
+    // is what produced the `/dev/null` -> `.npmrc` mountpoint EROFS failure.
+    describe('with --docker-host-path-prefix set', () => {
+      it('still drops the prefixed chroot-home volume and home dot-dir mounts', () => {
+        const config: WrapperConfig = {
+          ...baseConfig,
+          workDir: '/tmp/awf-work',
+          dockerHostPathPrefix: '/host',
+        };
+        const home = '/home/runner';
+
+        const filtered = testHelpers.filterAgentVolumesForSysroot(
+          [
+            '/host/usr:/host/usr:ro',
+            '/host/tmp/awf-work-chroot-home:/host/home/runner:rw',
+            '/host/home/runner/.npm:/host/home/runner/.npm:rw',
+            '/host/home/runner/_work/_temp/gh-aw:/host/home/runner/_work/_temp/gh-aw:rw',
+            '/host/tmp:/tmp:rw',
+            `/dev/null:/host${home}/.npmrc:ro`,
+            `/dev/null:/host${home}/.docker/config.json:ro`,
+            `/dev/null:/host${home}/.composer/auth.json:ro`,
+          ],
+          config,
+          home,
+        );
+
+        expect(filtered).toEqual([
+          '/host/home/runner/_work/_temp/gh-aw:/host/home/runner/_work/_temp/gh-aw:rw',
+          '/host/tmp:/tmp:rw',
+        ]);
+      });
+
+      it('keeps the credential overlays when an explicit --mount backs the prefixed home root', () => {
+        const home = '/home/runner';
+        const config: WrapperConfig = {
+          ...baseConfig,
+          workDir: '/tmp/awf-work',
+          dockerHostPathPrefix: '/host',
+          volumeMounts: [`${home}/:/host${home}:rw`],
+        };
+
+        const volumes = [
+          `/host${home}/:/host${home}:rw`,
+          `/dev/null:/host${home}/.npmrc:ro`,
+          `/dev/null:/host${home}/.docker/config.json:ro`,
+          `/dev/null:/host${home}/.composer/auth.json:ro`,
+        ];
+
+        expect(testHelpers.filterAgentVolumesForSysroot(volumes, config, home)).toEqual(volumes);
+      });
+    });
   });
 });

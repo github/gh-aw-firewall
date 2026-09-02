@@ -767,6 +767,65 @@ describe('generateDockerCompose', () => {
         expect(volumes.some(v => v.split(':')[0] === '/tmp/awf-12345-chroot-home')).toBe(false);
         expect(volumes.some(v => v.split(':')[0].startsWith('/tmp/awf-12345'))).toBe(false);
       });
+
+      // Regression test for gh-aw-firewall#7994: on real ARC/DinD runners
+      // `--docker-host-path-prefix` is set alongside `runnerTopology: arc-dind`.
+      // `buildAgentVolumes` applies that prefix before this split-fs filter
+      // ever sees the volumes, so a chroot-home/`$HOME` dot-dir mount that
+      // should have been dropped as workDir/home-derived instead survived
+      // pointing at a daemon-invisible path — and Docker failed creating the
+      // `/dev/null` -> `.npmrc` mountpoint with a read-only-filesystem error.
+      it('drops the prefixed chroot-home volume and credential overlays when docker-host-path-prefix is set', () => {
+        const config = {
+          ...mockConfig,
+          runnerTopology: 'arc-dind' as const,
+          workDir: '/tmp/awf-12345',
+          dockerHostPathPrefix: '/host',
+        };
+        const result = generateDockerCompose(config, mockNetworkConfig);
+        const volumes = result.services.agent.volumes as string[];
+        const effectiveHome = getRealUserHome();
+
+        // No mount sourced from the (prefixed) workDir or its chroot-home
+        // sibling should survive — the daemon cannot resolve either path.
+        expect(volumes.some(v => v.split(':')[0].includes('/tmp/awf-12345'))).toBe(false);
+
+        // Without an explicit writable `--mount` for the home root, the
+        // credential-hiding overlays for these exact files (the ones named in
+        // the issue) must be dropped rather than emitted against a mountpoint
+        // Docker cannot create.
+        for (const credentialFile of ['.npmrc', '.docker/config.json', '.composer/auth.json']) {
+          expect(volumes).not.toContain(`/dev/null:/host${effectiveHome}/${credentialFile}:ro`);
+        }
+
+        // The direct (non-chroot) overlays on the container's own rootfs are
+        // unaffected and still mask the same files.
+        for (const credentialFile of ['.npmrc', '.docker/config.json', '.composer/auth.json']) {
+          expect(volumes).toContain(`/dev/null:${effectiveHome}/${credentialFile}:ro`);
+        }
+      });
+
+      it('keeps prefixed credential overlays mountable when an explicit writable home mount is supplied', () => {
+        const effectiveHome = getRealUserHome();
+        const config = {
+          ...mockConfig,
+          runnerTopology: 'arc-dind' as const,
+          workDir: '/tmp/awf-12345',
+          dockerHostPathPrefix: '/host',
+          volumeMounts: [`${effectiveHome}/:/host${effectiveHome}:rw`],
+        };
+        const result = generateDockerCompose(config, mockNetworkConfig);
+        const volumes = result.services.agent.volumes as string[];
+
+        // The explicitly supplied home-root mount survives, prefixed exactly
+        // once, and is still writable — so runc can create the credential
+        // mountpoints nested inside it.
+        expect(volumes).toContain(`/host${effectiveHome}/:/host${effectiveHome}:rw`);
+
+        for (const credentialFile of ['.npmrc', '.docker/config.json', '.composer/auth.json']) {
+          expect(volumes).toContain(`/dev/null:/host${effectiveHome}/${credentialFile}:ro`);
+        }
+      });
     });
 
     // Regression: `filesystem.allowWrite` is expressed in guest-visible paths,
