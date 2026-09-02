@@ -29,7 +29,7 @@ function invocationLayout(workDir, invocationId) {
     schemaPath: path.join(root, 'schema.json'),
     outPath: path.join(root, 'out'),
     sessionLogPath: path.join(root, 'session.jsonl'),
-    githubCapabilityPath: path.join(root, 'github-capability'),
+    githubAgentIdPath: path.join(root, 'github-agent-id'),
     agentPath: path.join(root, 'agent'),
   };
 }
@@ -42,7 +42,7 @@ function invocationLayout(workDir, invocationId) {
  * it through its `rw` bind mount.
  */
 function createInvocationWorkspace(params) {
-  const { config, invocationId, task, schema, githubCapability } = params;
+  const { config, invocationId, task, schema, githubAgentId } = params;
   const layout = invocationLayout(config.workDir, invocationId);
 
   fs.mkdirSync(layout.root, { recursive: true, mode: 0o700 });
@@ -61,12 +61,12 @@ function createInvocationWorkspace(params) {
   fs.chownSync(layout.agentPath, config.enclaveUid, config.enclaveGid);
   fs.chmodSync(layout.agentPath, 0o700);
   if (config.githubEnabled) {
-    if (typeof githubCapability !== 'string' || githubCapability.length > 4096) {
-      throw new Error('invalid invocation GitHub capability');
+    if (typeof githubAgentId !== 'string' || !/^[A-Za-z0-9_-]{32,128}$/.test(githubAgentId)) {
+      throw new Error('invalid enclave GitHub MCP agent identity');
     }
-    fs.writeFileSync(layout.githubCapabilityPath, `${githubCapability}\n`, { mode: 0o600 });
-    fs.chownSync(layout.githubCapabilityPath, config.enclaveUid, config.enclaveGid);
-    fs.chmodSync(layout.githubCapabilityPath, 0o400);
+    fs.writeFileSync(layout.githubAgentIdPath, `${githubAgentId}\n`, { mode: 0o600 });
+    fs.chownSync(layout.githubAgentIdPath, config.enclaveUid, config.enclaveGid);
+    fs.chmodSync(layout.githubAgentIdPath, 0o400);
   }
 
   return layout;

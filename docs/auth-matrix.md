@@ -247,7 +247,7 @@ Selecting `AWF_AUTH_PROVIDER=aws` signs Copilot-adapter HTTP requests at final d
 ## Provider: Google Gemini
 
 **Port:** 10003  
-**Implementation:** `containers/api-proxy/providers/gemini.js`
+**Implementation:** `containers/api-proxy/providers/google-adapter.js` (Gemini factory from the declarative `google-provider-specs.js` registry)
 
 ### Static API Key
 
@@ -277,7 +277,7 @@ Google says the Gemini API will reject standard API keys beginning in September 
 ## Provider: Google Vertex AI
 
 **Port:** 10004
-**Implementation:** `containers/api-proxy/providers/vertex.js` (built from the shared `makeGoogleProviderFactory('vertex')` in `google-adapter.js`, which wraps `createGoogleApiKeyAdapter`; the Gemini adapter is generated the same way via `makeGoogleProviderFactory('gemini')`)
+**Implementation:** `containers/api-proxy/providers/google-adapter.js` (Vertex factory from the declarative `google-provider-specs.js` registry)
 
 ### Static API Key
 
@@ -461,10 +461,10 @@ Adds `x-session-id` header automatically in BYOK mode unless already present.
 | Copilot | AWS Bedrock OIDC + SigV4 | — | ✅ | `aws-oidc-token-provider.js`, `server.auth-matrix.test.js` |
 | Copilot | GCP OIDC | — | ✅ | `gcp-oidc-token-provider.js`, `server.auth-matrix.test.js` |
 | Copilot | GHES + BYOK | GHES | ✅ | `server.auth-matrix.test.js` |
-| Gemini | Static key | — | ✅ | `gemini.js`, `google-adapter.js` |
+| Gemini | Static key | — | ✅ | `google-adapter.js`, `google-provider-specs.js` |
 | Gemini | GCP WIF | — | ❌ not impl | Use the OpenAI adapter with GCP OIDC pointed at a Vertex endpoint instead (see [Google Gemini](#provider-google-gemini)) |
-| Vertex AI | Static key | — | ✅ | `vertex.js`, `google-adapter.js` |
-| Vertex AI | GCP WIF | — | ❌ not impl | No OIDC support in `vertex.js`; see [Provider: Google Vertex AI](#provider-google-vertex-ai) |
+| Vertex AI | Static key | — | ✅ | `google-adapter.js`, `google-provider-specs.js` |
+| Vertex AI | GCP WIF | — | ❌ not impl | No OIDC support in the shared Google adapter; see [Provider: Google Vertex AI](#provider-google-vertex-ai) |
 
 :::note
 "Implementation" column lists source files, not line numbers — line references go stale quickly as the code evolves. Use your editor's search to locate the relevant logic within each file.

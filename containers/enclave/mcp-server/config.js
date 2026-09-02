@@ -43,8 +43,7 @@ const AGENT_SUPPORTED_BACKENDS = new Set(['docker', 'gvisor']);
 const AGENT_SUPPORTED_ENGINES = new Set(['copilot']);
 const AGENT_SUPPORTED_PROFILES = new Set(['openai', 'anthropic']);
 const AGENT_CONTAINER_PREFIX = 'awf-enclave-agent';
-const GITHUB_CAPABILITY_FILE = '/run/awf-enclave-mcp/github-capability-key';
-const GITHUB_RUN_IDENTITY_FILE = '/run/awf-enclave-mcp/github-run-identity';
+const GITHUB_AGENT_ID_FILE = '/run/awf-enclave-mcp/github-agent-id';
 
 function requireEnv(name) {
   const value = process.env[name];
@@ -201,31 +200,26 @@ function loadAgentConfig(server, files = fs) {
   const cpuLimit = process.env.AWF_ENCLAVE_AGENT_CPU || '1';
   const githubEnabled = process.env.AWF_ENCLAVE_AGENT_GITHUB_ENABLED === 'true';
   const githubProfile = process.env.AWF_ENCLAVE_AGENT_GITHUB_PROFILE;
-  const githubProxyUrl = process.env.AWF_ENCLAVE_AGENT_GITHUB_PROXY_URL;
-  const githubCapabilityKeyPath = process.env.AWF_ENCLAVE_AGENT_GITHUB_CAPABILITY_KEY_PATH;
-  const githubRunIdentityPath = process.env.AWF_ENCLAVE_AGENT_GITHUB_RUN_IDENTITY_PATH;
-  let githubCapabilityKey;
-  let githubRunIdentity;
+  const githubMcpUrl = process.env.AWF_ENCLAVE_AGENT_GITHUB_MCP_URL;
+  const githubAgentIdPath = process.env.AWF_ENCLAVE_AGENT_GITHUB_AGENT_ID_PATH;
+  const githubGatewayContainer = process.env.AWF_ENCLAVE_AGENT_GITHUB_GATEWAY_CONTAINER;
+  let githubAgentId;
   if (githubEnabled) {
     if (githubProfile !== 'issues-read-v1') {
       throw new Error('AWF_ENCLAVE_AGENT_GITHUB_PROFILE must be issues-read-v1');
     }
-    if (!/^http:\/\/[0-9.]+:[0-9]+$/.test(githubProxyUrl || '')) {
-      throw new Error('AWF_ENCLAVE_AGENT_GITHUB_PROXY_URL must be a fixed IPv4 HTTP origin');
+    if (!/^http:\/\/[0-9.]+:[0-9]+\/mcp\/github$/.test(githubMcpUrl || '')) {
+      throw new Error('AWF_ENCLAVE_AGENT_GITHUB_MCP_URL must be a fixed IPv4 MCP endpoint');
     }
-    if (githubCapabilityKeyPath !== GITHUB_CAPABILITY_FILE) {
-      throw new Error('AWF_ENCLAVE_AGENT_GITHUB_CAPABILITY_KEY_PATH is not the fixed private path');
+    if (githubAgentIdPath !== GITHUB_AGENT_ID_FILE) {
+      throw new Error('AWF_ENCLAVE_AGENT_GITHUB_AGENT_ID_PATH is not the fixed private path');
     }
-    if (githubRunIdentityPath !== GITHUB_RUN_IDENTITY_FILE) {
-      throw new Error('AWF_ENCLAVE_AGENT_GITHUB_RUN_IDENTITY_PATH is not the fixed private path');
+    if (!/^[A-Za-z0-9][A-Za-z0-9_.-]{7,127}$/.test(githubGatewayContainer || '')) {
+      throw new Error('AWF_ENCLAVE_AGENT_GITHUB_GATEWAY_CONTAINER is invalid');
     }
-    githubCapabilityKey = files.readFileSync(githubCapabilityKeyPath, 'utf8').trim();
-    if (!/^[0-9a-f]{64}$/.test(githubCapabilityKey)) {
-      throw new Error('Enclave GitHub capability root is invalid');
-    }
-    githubRunIdentity = files.readFileSync(githubRunIdentityPath, 'utf8').trim();
-    if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(githubRunIdentity)) {
-      throw new Error('Enclave GitHub run identity is invalid');
+    githubAgentId = files.readFileSync(githubAgentIdPath, 'utf8').trim();
+    if (!/^[A-Za-z0-9_-]{32,128}$/.test(githubAgentId)) {
+      throw new Error('Enclave GitHub MCP agent identity is invalid');
     }
   }
   if (!/^(?:[0-9]{1,2})(?:\.[0-9]{1,3})?$/.test(cpuLimit) || Number(cpuLimit) <= 0) {
@@ -267,10 +261,10 @@ function loadAgentConfig(server, files = fs) {
     maxModelTokens: optionalPositiveInt('AWF_ENCLAVE_AGENT_MAX_MODEL_TOKENS'),
     githubEnabled,
     githubProfile: githubEnabled ? githubProfile : undefined,
-    githubProxyUrl: githubEnabled ? githubProxyUrl : undefined,
-    githubCapabilityKey,
-    githubRunIdentity,
-    enclaveGithubCapabilityPath: '/run/awf-enclave-github/capability',
+    githubMcpUrl: githubEnabled ? githubMcpUrl : undefined,
+    githubAgentId,
+    githubGatewayContainer: githubEnabled ? githubGatewayContainer : undefined,
+    enclaveGithubAgentIdPath: '/run/awf-enclave-github/agent-id',
     runLabelKey: ENCLAVE_RUN_LABEL,
     invocationLabelKey: ENCLAVE_INVOCATION_LABEL,
     containerPrefix: AGENT_CONTAINER_PREFIX,
@@ -298,8 +292,7 @@ module.exports = {
   SEEDS_DIR,
   CAPABILITY_DIR,
   WORK_DIR,
-  GITHUB_CAPABILITY_FILE,
-  GITHUB_RUN_IDENTITY_FILE,
+  GITHUB_AGENT_ID_FILE,
   isAgentExecutorEnabled,
   isScriptExecutorEnabled,
   loadAgentConfig,
