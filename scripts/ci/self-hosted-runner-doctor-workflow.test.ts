@@ -112,6 +112,13 @@ describe('self-hosted runner doctor workflow config', () => {
       expect(content).toContain('`CapBnd`');
       expect(content).toContain('github/gh-aw#56127, github/gh-aw-firewall#7788, github/gh-aw-firewall#7795');
       expect(content).toContain('| `invalid CapDrop: capability not supported by your kernel or not available in the current environment` | A22');
+      // A23 new failure mode (arc-dind /dev/null credential overlay EROFS with --docker-host-path-prefix)
+      expect(content).toContain('| A23 | On `runner.topology: arc-dind` with `--docker-host-path-prefix` set, `docker compose up` fails with `error mounting "/dev/null" to .../home/.npmrc: create mountpoint ...: read-only file system`');
+      expect(content).toContain('`filterAgentVolumesForSysroot()` (`src/services/optional-services.ts`) is meant to drop the bogus AWF-owned chroot-home mount');
+      expect(content).toContain('extracted `prefixHostPath()` in `src/services/host-path-prefix.ts`');
+      expect(content).toContain('`filterAgentVolumesForSysroot()` now prefixes `config.workDir`/`effectiveHome` before comparing against mount sources');
+      expect(content).toContain('github/gh-aw#57468, github/gh-aw-firewall#7994, github/gh-aw-firewall#7998');
+      expect(content).toContain('| `error mounting "/dev/null" to .../home/.npmrc: create mountpoint ...: read-only file system` (or `.docker/config.json`, `.composer/auth.json`) on `arc-dind` with `--docker-host-path-prefix` set | A23');
       // B23 update: PR #7245 fixes the AWF-side gap
       expect(content).toContain('**Fixed on the AWF side (PR github/gh-aw-firewall#7245, merged 2026-08-11):**');
       expect(content).toContain('`ensure_usr_local_bin_shims()`');
