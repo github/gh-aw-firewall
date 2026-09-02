@@ -179,6 +179,26 @@ Commands:
     --decision <decision>      Filter to "allowed" or "denied"
 ```
 
+## Working Directory
+
+`--container-workdir` sets the directory the agent command starts in, using the
+same absolute path as on the host (typically `$GITHUB_WORKSPACE`).
+
+AWF makes sure that directory is actually reachable inside the sandbox: if it is
+not already covered by the workspace mount, `/tmp`, a read-only system mount, a
+mounted `$HOME` tool directory, or an explicit `--mount`, AWF bind-mounts it as
+well. This keeps the in-container path identical to the host path, so agents
+that were told where the repository lives can `cd` into it directly instead of
+retrying and re-discovering their context.
+
+Two cases are not auto-mounted, and AWF logs a warning instead (the agent then
+starts in `/`):
+
+- the directory does not exist on the host, and
+- the directory is inside a path AWF deliberately hides from the sandbox
+  (credential directories such as `~/.ssh` or `~/.aws`, and host trees such as
+  `/etc` or `/root`). Use an explicit `--mount` if the agent really needs it.
+
 ## Basic Examples
 
 ### Simple HTTP Request

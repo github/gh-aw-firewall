@@ -5,6 +5,17 @@ import { buildWorkspaceMounts, buildCustomVolumeMounts } from './workspace-mount
 import { makeAgentVolumeConfig } from './agent-volumes.test-utils';
 import { WrapperConfig } from '../../types';
 import * as dockerHostStaging from './docker-host-staging';
+import { logger } from '../../logger';
+
+// `statSync` is wrapped so tests can simulate a host working directory that
+// lives outside every default mount without creating it on disk.
+jest.mock('fs', () => {
+  const actual = jest.requireActual<typeof import('fs')>('fs');
+  return {
+    ...actual,
+    statSync: jest.fn((...args: Parameters<typeof actual.statSync>) => actual.statSync(...args)),
+  };
+});
 
 jest.mock('../../logger', () => ({
   logger: {
@@ -193,5 +204,109 @@ describe('buildCustomVolumeMounts', () => {
   it('does not double-prefix targets that already start with /host', () => {
     const result = buildCustomVolumeMounts(['/data:/host/data:ro', '/root:/host']);
     expect(result).toEqual(['/data:/host/data:ro', '/root:/host']);
+  });
+});
+
+describe('container working directory visibility', () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-workdir-'));
+    jest.restoreAllMocks();
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+    const actual = jest.requireActual<typeof import('fs')>('fs');
+    (fs.statSync as unknown as jest.Mock).mockImplementation(
+      (...args: Parameters<typeof actual.statSync>) => actual.statSync(...args),
+    );
+  });
+
+  it('does not add a mount when the working directory is the workspace', () => {
+    const config = makeAgentVolumeConfig({ containerWorkDir: '/workspace/repo' });
+    const mounts = buildWorkspaceMounts(makeParams(config, tmpDir, '/workspace'));
+
+    expect(mounts.filter(m => m.includes('/workspace/repo'))).toEqual([]);
+  });
+
+  it('does not add a mount when the working directory is covered by /tmp or a system mount', () => {
+    const tmpConfig = makeAgentVolumeConfig({ containerWorkDir: '/tmp/build' });
+    expect(buildWorkspaceMounts(makeParams(tmpConfig, tmpDir)).some(m => m.startsWith('/tmp/build:'))).toBe(false);
+
+    const usrConfig = makeAgentVolumeConfig({ containerWorkDir: '/usr/local/src' });
+    expect(buildWorkspaceMounts(makeParams(usrConfig, tmpDir)).some(m => m.startsWith('/usr/local/src:'))).toBe(false);
+  });
+
+  it('does not add a mount for the chroot home itself', () => {
+    const config = makeAgentVolumeConfig({ containerWorkDir: '/home/runner' });
+    const mounts = buildWorkspaceMounts(makeParams(config, tmpDir));
+
+    expect(mounts.some(m => m.startsWith('/home/runner:'))).toBe(false);
+  });
+
+  // The working directory lives outside every default mount (/tmp, /usr, …),
+  // so its presence on the host is simulated rather than created on disk.
+  const externalWorkDir = '/srv/checkout';
+
+  function pretendWorkDirExists(existingPath: string = externalWorkDir): void {
+    const actual = jest.requireActual<typeof import('fs')>('fs');
+    (fs.statSync as unknown as jest.Mock).mockImplementation((target: unknown, ...rest: unknown[]) => {
+      if (String(target) === existingPath) {
+        return { isDirectory: () => true, isFile: () => false } as fs.Stats;
+      }
+      return (actual.statSync as (...args: unknown[]) => fs.Stats)(target, ...rest);
+    });
+  }
+
+  it('mounts a working directory that no other mount exposes', () => {
+    pretendWorkDirExists();
+
+    const config = makeAgentVolumeConfig({ containerWorkDir: externalWorkDir });
+    const mounts = buildWorkspaceMounts(makeParams(config, tmpDir, '/workspace'));
+
+    expect(mounts).toContain(`${externalWorkDir}:${externalWorkDir}:rw`);
+    expect(mounts).toContain(`${externalWorkDir}:/host${externalWorkDir}:rw`);
+  });
+
+  it('skips a working directory already exposed by a custom volume mount', () => {
+    pretendWorkDirExists();
+
+    const config = makeAgentVolumeConfig({
+      containerWorkDir: externalWorkDir,
+      volumeMounts: [`${externalWorkDir}:${externalWorkDir}:rw`],
+    });
+    const mounts = buildWorkspaceMounts(makeParams(config, tmpDir, '/workspace'));
+
+    expect(mounts.some(m => m.startsWith(`${externalWorkDir}:`))).toBe(false);
+  });
+
+  it('warns instead of mounting when the working directory does not exist on the host', () => {
+    const missing = '/srv/missing-checkout';
+    const config = makeAgentVolumeConfig({ containerWorkDir: missing });
+    const mounts = buildWorkspaceMounts(makeParams(config, tmpDir, '/workspace'));
+
+    expect(mounts.some(m => m.startsWith(`${missing}:`))).toBe(false);
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('does not exist on the host'));
+  });
+
+  it('refuses to mount a working directory inside a hidden credential path', () => {
+    pretendWorkDirExists('/home/runner/.ssh/work');
+
+    const config = makeAgentVolumeConfig({ containerWorkDir: '/home/runner/.ssh/work' });
+    const mounts = buildWorkspaceMounts(makeParams(config, tmpDir, '/workspace'));
+
+    expect(mounts.some(m => m.startsWith('/home/runner/.ssh'))).toBe(false);
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('deliberately hides'));
+  });
+
+  it('refuses to mount a working directory inside a hidden host system path', () => {
+    pretendWorkDirExists('/etc/agent-workspace');
+
+    const config = makeAgentVolumeConfig({ containerWorkDir: '/etc/agent-workspace' });
+    const mounts = buildWorkspaceMounts(makeParams(config, tmpDir, '/workspace'));
+
+    expect(mounts.some(m => m.startsWith('/etc/agent-workspace'))).toBe(false);
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('deliberately hides'));
   });
 });

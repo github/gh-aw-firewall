@@ -9,6 +9,9 @@
 
 /// <reference path="../jest-custom-matchers.d.ts" />
 
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import { describe, test, expect, beforeAll, afterAll } from '@jest/globals';
 import { createRunner, AwfRunner } from '../fixtures/awf-runner';
 import { cleanup } from '../fixtures/cleanup';
@@ -82,6 +85,31 @@ describe('Container Working Directory', () => {
     expect(result).toSucceed();
     // The output should contain the home directory
     expect(result.stdout.trim()).toContain(process.env.HOME || '/root');
+  }, 120000);
+
+  test('should start in a working directory that no default mount exposes', async () => {
+    // Mirrors how gh-aw engines (e.g. codex) are pointed at a checkout outside
+    // the AWF workspace mount: the directory must exist inside the sandbox at
+    // the same absolute path, otherwise the agent falls back to / and keeps
+    // retrying `cd`. See github/gh-aw-firewall#8015.
+    const externalWorkDir = fs.mkdtempSync(path.join(os.homedir(), 'awf-external-workdir-'));
+    fs.writeFileSync(path.join(externalWorkDir, 'marker.txt'), 'marker\n');
+
+    try {
+      const result = await runner.run('bash -c "pwd && cat marker.txt"', {
+        allowDomains: ['github.com'],
+        logLevel: 'debug',
+        timeout: 60000,
+        containerWorkDir: externalWorkDir,
+      });
+
+      expect(result).toSucceed();
+      const cleanOutput = extractCommandOutput(result.stdout);
+      expect(cleanOutput).toContain(externalWorkDir);
+      expect(cleanOutput).toContain('marker');
+    } finally {
+      fs.rmSync(externalWorkDir, { recursive: true, force: true });
+    }
   }, 120000);
 
   test('should allow relative path access from custom working directory', async () => {
