@@ -6,6 +6,7 @@ const {
   canonicalSuccessJson,
   parseAndValidateFiniteOutput,
   informationChargeForSchema,
+  schemaContainsFreeformString,
   validateEnclaveScriptRequest,
 } = require('../../bounded-execution/finite-disclosure');
 const { createEnclaveInformationBudgetLedger } = require('../../bounded-execution/sensitivity-ledger');
@@ -133,12 +134,19 @@ function createExecutorHandler(params) {
       await rejectBeforeExecution('repo-not-allowed', privateRepo);
       return;
     }
+    if (schemaContainsFreeformString(schema) && seed.sensitivity !== 'trusted') {
+      await rejectBeforeExecution(
+        'trusted-schema-required',
+        `repo=${privateRepo} sensitivity=${seed.sensitivity}`,
+      );
+      return;
+    }
 
     // Compute and debit the charge for THIS invocation's schema *before*
     // copying a seed or launching Python. Every invocation may declare a
     // different schema; there is no separate per-query cap — only whether
     // this charge fits the repository's remaining run balance.
-    const charge = informationChargeForSchema(schema);
+    const charge = seed.sensitivity === 'trusted' ? 0 : informationChargeForSchema(schema);
     if (!ledger.tryDebit(repoKey, charge, executorKind)) {
       await rejectBeforeExecution('bit-budget-exhausted', `repo=${privateRepo} charge=${charge}`);
       return;

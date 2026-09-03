@@ -20,12 +20,13 @@ function canonicalToolError() {
 
 const FINITE_SCHEMA_INPUT = Object.freeze({
   type: 'object',
-  description: 'An AWF finite-disclosure schema (const, boolean, enum, integer, object, tuple, array, or union).',
+  description:
+    'An AWF structured response schema (const, boolean, string for trusted repositories, enum, integer, object, tuple, array, or union).',
 });
 
 const TOOL = Object.freeze({
   name: TOOL_NAME,
-  description: 'Run a bounded script against one configured private repository and return one finite value.',
+  description: 'Run a bounded script against one configured repository and return one structured value.',
   inputSchema: Object.freeze({
     type: 'object',
     properties: Object.freeze({
@@ -62,7 +63,7 @@ const AGENT_TOOL = Object.freeze({
   name: AGENT_TOOL_NAME,
   description:
     'Run a bounded, single-use agent enclave against one configured private repository and return '
-    + 'one finite value.',
+    + 'one structured value.',
   inputSchema: Object.freeze({
     type: 'object',
     properties: Object.freeze({

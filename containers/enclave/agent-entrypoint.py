@@ -358,7 +358,7 @@ def build_prompt(task: str, schema_text: str) -> str:
     else:
         output_contract = (
             "Before finishing, use a shell command to replace /awf/out with exactly one JSON "
-            "value conforming to this finite schema. Do not write a Markdown fence, "
+            "value conforming to this structured response schema. Do not write a Markdown fence, "
             "explanation, surrounding text, or repeated schema to /awf/out. Your "
             f"conversational response is not the result channel:\n{schema_text}\n"
         )

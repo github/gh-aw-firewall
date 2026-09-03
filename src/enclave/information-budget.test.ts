@@ -32,4 +32,13 @@ describe('enclave information budget', () => {
     expect(ledger.remainingBits('OCTO/PRIVATE')).toBe(0);
     expect(ledger.tryDebit('octo/private', 1, 'script')).toBe(false);
   });
+
+  it('keeps trusted repositories unmetered', () => {
+    const ledger = createEnclaveInformationBudgetLedger(new Map([
+      ['octo/trusted', { sensitivity: 'trusted' as const }],
+    ]));
+
+    expect(ledger.tryDebit('octo/trusted', Number.MAX_SAFE_INTEGER, 'agent')).toBe(true);
+    expect(ledger.remainingBits('octo/trusted')).toBeNull();
+  });
 });

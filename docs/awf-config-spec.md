@@ -1914,6 +1914,25 @@ in force.
 
 Script and agent calls debit the same live per-repository balance and share one AWF-owned admission lane. Switching executor kinds never resets or forks the ledger.
 
+Repository sensitivity selects the response schema and per-run disclosure policy:
+
+| Sensitivity | Per-run budget | Response schema |
+|-------------|----------------|-----------------|
+| `trusted` | Unmetered | Structured schemas, including free-form `string` nodes |
+| `public` | Unmetered | Finite schemas only |
+| `internal` | 64 bits | Finite schemas only |
+| `confidential` | 8 bits | Finite schemas only |
+| `sealed` | 0 bits | No invocation can be admitted |
+
+The `trusted` class is intended only for repositories whose content may be
+returned to the primary agent without confidentiality accounting. It permits
+an exact `{ "type": "string" }` schema node at any otherwise valid schema
+position. Strings remain bounded by `maxOutputBytes` and the global 8192-byte
+result ceiling. The schema remains strict and structured: floats, optional
+fields, extra properties, `$ref`, recursion, regex schemas, and untagged unions
+are unsupported. Every other sensitivity rejects a schema containing a
+free-form `string` node before launching an enclave.
+
 `enclave_run_agent` necessarily sends repository-derived content to the configured model provider through the dedicated API proxy. The ledger bounds what the **calling agent** learns; it does not bound what the **provider** sees.
 
 ### 14.5 Validation coverage
