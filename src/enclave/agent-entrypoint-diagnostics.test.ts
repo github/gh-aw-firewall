@@ -37,6 +37,12 @@ module.SHARED_MEMORY_DIR = root / "shm"
 module.COPILOT_BIN = str(root / "copilot")
 module.GITHUB_AGENT_ID_PATH = root / "github-agent-id"
 module.GITHUB_MCP_CONFIG_PATH = module.AGENT_DIR / "github-mcp.json"
+original_which = module.shutil.which
+module.shutil.which = lambda executable: (
+    str(root / "gh") if executable == "gh" and scenario == "unexpected-gh"
+    else None if executable == "gh"
+    else original_which(executable)
+)
 
 if scenario == "github-config":
     module.AGENT_DIR.mkdir()
