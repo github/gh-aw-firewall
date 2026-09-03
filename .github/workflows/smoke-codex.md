@@ -39,9 +39,7 @@ jobs:
       - name: Token-usage sanity check
         run: node scripts/ci/check-token-usage.js --artifact-root /tmp/gh-aw-agent --engine codex
 imports:
-  - shared/gh.md
   - shared/reporting.md
-  - shared/github-queries-safe-input.md
 network:
   allowed:
     - defaults
@@ -123,12 +121,12 @@ post-steps:
 ## Test Requirements
 
 1. **GitHub MCP Testing**: Review the last 2 merged pull requests in `__GH_AW_GITHUB_REPOSITORY__`
-2. **Safe Inputs GH CLI Testing**: Use the `safeinputs-gh` tool to query 2 pull requests from `__GH_AW_GITHUB_REPOSITORY__` (use args: `pr list --repo __GH_AW_GITHUB_REPOSITORY__ --limit 2 --json number,title,author`)
+2. **GitHub PR Detail Testing**: Use the GitHub tools to retrieve the number, title, and author of 2 pull requests from `__GH_AW_GITHUB_REPOSITORY__`
 3. **Playwright Testing**: Use the playwright tools to navigate to https://github.com and verify the page title contains "GitHub" (do NOT try to install playwright - use the provided MCP tools)
 4. **File Writing Testing**: Create a test file `/tmp/gh-aw/agent/smoke-test-codex-${{ github.run_id }}.txt` with content "Smoke test passed for Codex at $(date)" (create the directory if it doesn't exist)
 5. **Bash Tool Testing**: Execute bash commands to verify file creation was successful (use `cat` to read the file back)
 6. **Discussion Interaction Testing**: 
-   - Use the `github-discussion-query` safe-input tool with params: `limit=1, jq=".[0]"` to get the latest discussion from `__GH_AW_GITHUB_REPOSITORY__`
+   - Use the GitHub tools to get the latest discussion from `__GH_AW_GITHUB_REPOSITORY__`
    - Extract the discussion number from the result (e.g., if the result is `{"number": 123, "title": "...", ...}`, extract 123) and validate it is a positive integer (>0)
    - Only if a valid discussion number exists, use the `add_comment` tool with `discussion_number: <extracted_number>` to add a mystical, oracle-themed comment stating that the smoke test agent was here
    - If no valid discussion number is available, skip the discussion comment and continue (do not call `add_comment` with empty or null targets)
