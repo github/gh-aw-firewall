@@ -6,7 +6,7 @@ import { CloudHypervisorManager } from './manager';
 
 import {
   exportsConfig, virtiofsdManagerMock, config, processMock, networkConfig, guestConfig, cleanupHandleMock, dependencies,
-} from './manager.test-helpers';
+} from './manager.test-utils';
 
   describe('virtiofsd lifecycle', () => {
   it('preserves failed virtiofsd confinement evidence before partial-start cleanup', async () => {

@@ -3,7 +3,7 @@ import { CloudHypervisorManager } from './manager';
 
 import {
   config, processMock, networkConfig, networkLifecycle, dependencies,
-} from './manager.test-helpers';
+} from './manager.test-utils';
 
   describe('diagnostics collection', () => {
   it('collects bounded diagnostics including VM counters', async () => {

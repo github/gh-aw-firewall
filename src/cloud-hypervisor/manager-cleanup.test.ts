@@ -10,7 +10,7 @@ import { CloudHypervisorManager } from './manager';
 
 import {
   virtiofsdManagerMock, config, processMock, networkConfig, guestConfig, cleanupHandleMock, vmmIdentityMock, dependencies,
-} from './manager.test-helpers';
+} from './manager.test-utils';
 
   describe('stop and cleanup', () => {
   it('cleans up the network and cgroup before removing the run directory', async () => {

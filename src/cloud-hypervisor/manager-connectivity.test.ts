@@ -3,7 +3,7 @@ import { CloudHypervisorManager } from './manager';
 
 import {
   rootfsPreparerMock, config, processMock, networkConfig, guestConfig, dependencies,
-} from './manager.test-helpers';
+} from './manager.test-utils';
 
   describe('guest connectivity', () => {
   it('retries the vsock connect on the guest-not-ready-yet boot race, with a fresh client each attempt', async () => {

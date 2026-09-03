@@ -9,7 +9,7 @@ import { buildSupervisorBootArgs } from './manager';
 
 import {
   hostTools, virtiofsdManagerMock, config, processMock, networkConfig, guestConfig, dependencies,
-} from './manager.test-helpers';
+} from './manager.test-utils';
 
   describe('launch and boot', () => {
   it('builds explicit supervisor boot cmdline with PCI-required root/interface naming', () => {

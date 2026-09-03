@@ -4,7 +4,7 @@ import { createCloudHypervisorRunPaths } from './manager';
 
 import {
   hostTools, cgroupMock,
-} from './manager.test-helpers';
+} from './manager.test-utils';
 
   describe('construction', () => {
   it('constructs the default host adapters and non-root identity', async () => {
