@@ -121,7 +121,7 @@ Copilot CLI 1.0.21 introduced a startup model validation step: when `COPILOT_MOD
 ```
 
 **Remediation options:**
-1. Replace the classic PAT with a **fine-grained PAT** or **OAuth token** (these are accepted by the `/models` endpoint).
+1. Replace the classic PAT with a **fine-grained PAT** or **OAuth token** (these are accepted by the `/models` endpoint). Since [PR #8038](https://github.com/github/gh-aw-firewall/pull/8038), fine-grained PATs (`github_pat_*`) always authenticate to every Copilot target (github.com, GHEC, GHES, Business) with the standard `Bearer` prefix, unlike classic PATs/OAuth tokens which require a `token` prefix on enterprise/GHEC/business targets — see [docs/auth-matrix.md](auth-matrix.md#auth-header-prefix-rules).
 2. Remove `COPILOT_MODEL` from the agent environment to skip model validation entirely.
 
 ## Anthropic WIF environment notes

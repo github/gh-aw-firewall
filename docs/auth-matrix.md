@@ -169,9 +169,11 @@ AWF follows Anthropic's SDK behavior: JWT-bearer `POST /v1/oauth/token` exchange
 
 :::note[Implementation vs. provider documentation]
 GitHub's [REST API authentication docs](https://docs.github.com/en/rest/authentication/authenticating-to-the-rest-api) state that both Bearer-prefixed and token-prefixed Authorization headers are generally accepted for PATs/OAuth tokens (only JWTs strictly require Bearer). The `token` prefix requirement documented here is **AWF-implementation-specific defensive behavior** for Copilot API requests, not a general GitHub REST API rule: the derived GHEC data-residency target (`copilot-api.<subdomain>.ghe.com`), the enterprise target (`api.enterprise.githubcopilot.com`), and the business target (`api.business.githubcopilot.com`) return `400 Bad Request: Authorization header is badly formatted` when sent the wrong prefix (see the regression fixed in [PR #6991](https://github.com/github/gh-aw-firewall/pull/6991) and covered by `copilot-adapter-enterprise.test.js`). AWF detects this via `copilotTargetRequiresGitHubTokenPrefix()` in `copilot-auth.js`, which matches on the specific target hostname (including an `isGhecCopilotApiTarget()` check for the `copilot-api.<subdomain>.ghe.com` shape) or GHES-detection heuristics (`AWF_PLATFORM_TYPE=ghes`, or a `GITHUB_SERVER_URL` that isn't `github.com`/`*.ghe.com`). BYOK keys always use the `Bearer` prefix regardless of target.
+
+**Fine-grained PAT override:** As of [PR #8038](https://github.com/github/gh-aw-firewall/pull/8038), `COPILOT_GITHUB_TOKEN` values that start with `github_pat_` (fine-grained PATs) always use the `Bearer` prefix, on every Copilot target including GHEC/GHES/Business — they never fall back to `token <value>`, even where classic PATs and OAuth tokens on those targets require it. This override lives in `getGitHubTokenAuthPrefix()` in `copilot-auth.js` and is covered by `copilot-adapter-enterprise.test.js` and `copilot-auth.test.js`.
 :::
 
-Copilot API host requests also include `Copilot-Integration-Id`. The default is `agentic-workflows`; set `COPILOT_INTEGRATION_ID` to override it.
+Copilot API host requests also include `Copilot-Integration-Id`. The default is `agentic-workflows`; set `COPILOT_INTEGRATION_ID` to override it, or set `GITHUB_COPILOT_INTEGRATION_ID` as a fallback (checked only when `COPILOT_INTEGRATION_ID` is unset) — added in [PR #8038](https://github.com/github/gh-aw-firewall/pull/8038).
 
 ### Prompt-cache and attribution headers (`*.githubcopilot.com` only)
 
@@ -180,7 +182,7 @@ When the resolved upstream host is a Copilot host (`githubcopilot.com` or a `*.g
 | Header | Value | Purpose |
 |--------|-------|---------|
 | `X-Interaction-Id` | `${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}`, else a UUID minted once per sidecar process | CAPI prompt-cache key — must be stable for a whole run and differ across runs |
-| `Copilot-Integration-Id` | `COPILOT_INTEGRATION_ID`, else `agentic-workflows` | Attribution, quota bucket, and model allowlist |
+| `Copilot-Integration-Id` | `COPILOT_INTEGRATION_ID`, else `GITHUB_COPILOT_INTEGRATION_ID`, else `agentic-workflows` | Attribution, quota bucket, and model allowlist |
 
 Non-empty inbound values are preserved; empty values and case-variant duplicates are replaced so exactly one instance of each header reaches CAPI. Harnesses that do not send a stable `X-Interaction-Id` themselves (aider, Pi, …) therefore still get prompt-cache hits, and a harness that owns its own session identity can override the value simply by sending the header. There is no AWF-specific override env var for `X-Interaction-Id`: outside GitHub Actions the sidecar mints one UUID per process. Neither header is injected on non-Copilot hosts, so BYOK targets (Azure OpenAI, OpenRouter, …) and the OpenAI/Anthropic/Gemini providers are unaffected.
 
@@ -401,13 +403,14 @@ GITHUB_SERVER_URL → deriveCopilotApiTarget():
 | Target | Credential Type | Auth Header Format |
 |--------|----------------|-------------------|
 | `api.githubcopilot.com` | GitHub token | `Bearer <token>` |
-| `copilot-api.*.ghe.com` | GitHub token | `token <value>` |
-| `api.enterprise.githubcopilot.com` | GitHub token | `token <value>` |
-| `api.business.githubcopilot.com` | GitHub token | `token <value>` |
+| `copilot-api.*.ghe.com` | GitHub token (classic PAT/OAuth) | `token <value>` |
+| `api.enterprise.githubcopilot.com` | GitHub token (classic PAT/OAuth) | `token <value>` |
+| `api.business.githubcopilot.com` | GitHub token (classic PAT/OAuth) | `token <value>` |
+| Any target | GitHub token (fine-grained PAT, `github_pat_*`) | `Bearer <value>` (always, since [PR #8038](https://github.com/github/gh-aw-firewall/pull/8038)) |
 | Any target | BYOK key | `Bearer <key>` (always) |
 | Any target | OIDC token | `Bearer <token>` (always) |
 
-The `token` prefix is used for GitHub OAuth tokens on the derived GHEC data-residency, enterprise, and business Copilot targets, or when GHES is otherwise detected (see `copilotTargetRequiresGitHubTokenPrefix()` in `copilot-auth.js`). BYOK and OIDC always use the standard prefix. As noted above, this is AWF-implementation-specific behavior driven by observed `400` errors from those targets — not a general GitHub REST API requirement.
+The `token` prefix is used for classic PAT/OAuth GitHub tokens on the derived GHEC data-residency, enterprise, and business Copilot targets, or when GHES is otherwise detected (see `copilotTargetRequiresGitHubTokenPrefix()` in `copilot-auth.js`). BYOK and OIDC always use the standard prefix. As noted above, this is AWF-implementation-specific behavior driven by observed `400` errors from those targets — not a general GitHub REST API requirement. Fine-grained PATs (`github_pat_*`) are detected via `getGitHubTokenAuthPrefix()` and always use `Bearer <value>`, overriding the target-based rule above.
 
 ---
 
