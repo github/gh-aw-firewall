@@ -62,7 +62,7 @@ const TOOL = Object.freeze({
 const AGENT_TOOL = Object.freeze({
   name: AGENT_TOOL_NAME,
   description:
-    'Run a bounded, single-use agent enclave against one configured private repository and return '
+    'Run a bounded, single-use agent enclave against one configured repository and return '
     + 'one structured value.',
   inputSchema: Object.freeze({
     type: 'object',
