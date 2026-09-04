@@ -211,9 +211,9 @@ test, etc.) cannot reach `services:` containers — only HTTP(S) egress through
 Squid is available from inside the agent.
 
 The existing host-iptables-based service-port routing (`hostServicePorts`) does
-not help here: on ARC/DinD, `network.isolation: docker-network` never programs
-host iptables NAT rules, since network isolation is enforced entirely at the
-Docker network level, not at the host firewall level.
+not help here: on ARC/DinD, `network.isolation: true` uses the Docker-network
+topology and never programs host iptables NAT rules, since network isolation is
+enforced entirely at the Docker network level, not at the host firewall level.
 
 ### Verified pattern: join the *service* to `awf-net`
 
@@ -232,25 +232,34 @@ services:
 steps:
   - name: Attach postgres service to awf-net
     run: |
-      # Wait for AWF to create its network before attempting to join it.
-      for i in $(seq 1 60); do
-        if docker network inspect awf-net >/dev/null 2>&1; then
-          break
-        fi
-        sleep 1
-      done
-      docker network inspect awf-net >/dev/null 2>&1 || { echo "awf-net not found"; exit 1; }
+      # Remove a stale AWF network so the waiter cannot attach to a network
+      # that AWF will reclaim. Do this only when no other AWF run is active.
+      if docker network inspect awf-net >/dev/null 2>&1; then
+        docker network rm awf-net >/dev/null 2>&1 || {
+          echo "cannot replace stale awf-net; another AWF run may be active" >&2
+          exit 1
+        }
+      fi
 
-      # Resolve the running service container's ID/name (varies by runner setup).
-      service_container=$(docker ps --filter "label=com.github.actions.local-repo" \
-        --filter "ancestor=postgres:16" --format '{{.ID}}' | head -n1)
-
-      # Join only the service container onto awf-net, with an alias the agent
-      # can resolve (e.g. `postgres:5432` from inside the sandbox).
-      docker network connect --alias postgres awf-net "$service_container"
+      # Keep the waiter running while the later generated AWF step creates the
+      # network. job.services exposes the exact container ID; no image lookup
+      # or label is required.
+      service_container='${{ job.services.postgres.id }}'
+      nohup bash -c '
+        for i in $(seq 1 120); do
+          if docker network inspect awf-net >/dev/null 2>&1; then
+            docker network connect --alias postgres awf-net "$1" && exit 0
+          fi
+          sleep 1
+        done
+        echo "awf-net was not created" >&2
+        exit 1
+      ' -- "$service_container" >/tmp/awf-net-waiter.log 2>&1 &
 ```
 
-Once joined, code running inside the AWF sandbox can connect directly to
+The `nohup` background process must remain alive until the later generated AWF
+step starts. Check `/tmp/awf-net-waiter.log` after that step if the service is
+not reachable. Once joined, code running inside the AWF sandbox can connect directly to
 `postgres:5432` (or whatever alias/port the service exposes) using the
 service's native protocol, bypassing the Squid HTTP(S)-only egress path
 entirely for that one container-to-container link.
@@ -266,10 +275,14 @@ point of AWF is to restrict what the agent (the untrusted/AI-driven process)
 can reach on the network. Joining the *agent* to the runner's own bridge
 network (or otherwise bypassing Squid) would defeat the egress firewall
 entirely, since traffic on that bridge is not subject to domain allowlisting.
-Joining a *service* container the other direction is safe: it only adds one
-more reachable peer to the agent's already-isolated network, it does not grant
-the agent any new egress path out of `awf-net`, and the service is presumably
-already trusted (it's declared in the workflow's own `services:` block).
+Joining a *service* container is safer than attaching the agent to the runner
+bridge, but it brings that service into the security boundary. A service that
+supports proxying, outbound callbacks, or command execution can become an
+application-layer pivot; for example, do not give the example database a
+privileged role unless it is required. Use least-privileged credentials and
+constrain the service's outbound access where possible. This attachment does
+not itself give the agent a direct route to the runner bridge, but it is not a
+guarantee that the service cannot provide an egress path.
 
 ### Future direction
 
