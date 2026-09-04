@@ -196,6 +196,24 @@ export function applyGeneralWorkflowPatches(
         log.push(`  Excluded gateway API key from the primary agent`);
       }
     }
+
+    if (workflowPath.endsWith('smoke-enclave-issues-read.lock.yml')) {
+      const stagingTokenEnv =
+        '          GH_TOKEN: ${{ secrets.GH_AW_GITHUB_MCP_SERVER_TOKEN || secrets.GH_AW_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}';
+      if (!content.slice(agentEnvStart, agentEnvEnd).includes(stagingTokenEnv)) {
+        content = content.replace(gatewayKeyEnv, `${gatewayKeyEnv}\n${stagingTokenEnv}`);
+        log.push(`  Added host-only enclave repository staging credential`);
+      }
+
+      const stagingTokenExclusion = '--exclude-env GH_TOKEN';
+      if (!content.includes(stagingTokenExclusion)) {
+        content = content.replace(
+          gatewayKeyExclusion,
+          `${stagingTokenExclusion} ${gatewayKeyExclusion}`
+        );
+        log.push(`  Excluded enclave staging credential from the primary agent`);
+      }
+    }
   }
 
   if (usesPublishedAwfRelease(workflowPath)) {

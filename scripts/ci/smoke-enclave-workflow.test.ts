@@ -129,6 +129,10 @@ describe('smoke enclave issues workflow', () => {
       lock.indexOf('      - name: Detect agent errors')
     );
     expect(executeStep).not.toContain('GITHUB_MCP_SERVER_TOKEN:');
+    expect(executeStep).toContain(
+      'GH_TOKEN: ${{ secrets.GH_AW_GITHUB_MCP_SERVER_TOKEN || secrets.GH_AW_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}'
+    );
+    expect(executeStep).toContain('--exclude-env GH_TOKEN');
     expect(executeStep).toContain('--exclude-env AWF_ENCLAVE_GITHUB_MCP_AGENT_ID');
   });
 

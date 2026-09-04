@@ -139,6 +139,10 @@ describe('applyGeneralWorkflowPatches shared enclave gateway policy', () => {
     expect(content).toContain(
       '"github": {\n              "required": false,\n              "type": "stdio"'
     );
+    expect(content).toContain(
+      'GH_TOKEN: ${{ secrets.GH_AW_GITHUB_MCP_SERVER_TOKEN || secrets.GH_AW_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}'
+    );
+    expect(content).toContain('--exclude-env GH_TOKEN');
     expect(content).toContain('"awf-enclave": {\n                "required": false,');
     expect(content).not.toContain('"servers":["github","safe-outputs"]');
     expect(log).toContain('  Normalized shared-gateway policy, server IDs, and toolsets');
