@@ -34,7 +34,7 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --no-audit --no-fund
 
       - name: Run npm audit (JSON output for SARIF)
         run: |
@@ -82,7 +82,7 @@ jobs:
           cache-dependency-path: docs-site/package-lock.json
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --no-audit --no-fund
         working-directory: docs-site
 
       - name: Run npm audit (JSON output for SARIF)
