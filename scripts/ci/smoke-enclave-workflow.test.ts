@@ -103,10 +103,30 @@ describe('smoke enclave issues workflow', () => {
       '"agentIds": ["${MCP_GATEWAY_AGENT_ID}","${AWF_ENCLAVE_GITHUB_MCP_AGENT_ID}"]'
     );
     expect(lock).toContain(
-      '"${MCP_GATEWAY_AGENT_ID}":{"servers":["awf-enclave","github","safeoutputs"]'
+      '"${MCP_GATEWAY_AGENT_ID}":{"servers":["awf-enclave","safeoutputs"]'
     );
     expect(lock).toContain('"awf-enclave": {\n                "required": false,');
-    expect(lock).toContain('"GITHUB_TOOLSETS": "context,issues"');
+    expect(lock).toContain('"GITHUB_TOOLSETS": "issues"');
+  });
+
+  it('denies the primary agent every direct GitHub data path', () => {
+    expect(source).toContain('network:\n  allowed: []');
+    expect(source).not.toContain('GH_TOKEN: ${{ github.token }}');
+    expect(source).toContain('tools:\n  github: false');
+    expect(lock).toContain(
+      '\\"network\\":{\\"isolation\\":true,\\"topologyAttach\\":[\\"awmg-mcpg\\"]}'
+    );
+    expect(lock).not.toContain('\\"allowDomains\\":');
+    expect(lock).not.toContain(
+      '"${MCP_GATEWAY_AGENT_ID}":{"servers":["awf-enclave","github","safeoutputs"]'
+    );
+
+    const executeStep = lock.slice(
+      lock.indexOf('      - name: Execute GitHub Copilot CLI'),
+      lock.indexOf('      - name: Detect agent errors')
+    );
+    expect(executeStep).not.toContain('GITHUB_MCP_SERVER_TOKEN:');
+    expect(executeStep).toContain('--exclude-env AWF_ENCLAVE_GITHUB_MCP_AGENT_ID');
   });
 
   it('restricts the enclave identity to the declared GitHub read surface', () => {
@@ -117,6 +137,8 @@ describe('smoke enclave issues workflow', () => {
     );
     expect(source).toContain('Use only the `github` MCP server');
     expect(source).toContain('GitHub CLI, GraphQL, search, writes, or any other GitHub tool');
+    expect(source).toContain('the discovered issue number');
+    expect(source).not.toContain('issue_number: 50920');
   });
 
   it('keeps the enclave identity out of the primary agent', () => {
@@ -139,5 +161,12 @@ describe('smoke enclave issues workflow', () => {
     expect(lock).not.toMatch(
       /download_docker_images\.sh[^\n]*ghcr\.io\/github\/gh-aw-firewall\/enclave-(?:agent|mcp-server)/
     );
+  });
+
+  it('bounds the single enclave disclosure', () => {
+    expect(source).toContain('max-invocations: 1');
+    expect(source).toContain('max-output-bytes: 1024');
+    expect(source).toContain('"issue_number": { "type": "integer"');
+    expect(source).toContain('ENCLAVE_ISSUES_READ_PASS');
   });
 });
