@@ -120,6 +120,11 @@ describe('self-hosted runner doctor workflow config', () => {
       expect(content).toContain('github/gh-aw#57468, github/gh-aw-firewall#7994, github/gh-aw-firewall#7998');
       expect(content).toContain('| `error mounting "/dev/null" to .../home/.npmrc: create mountpoint ...: read-only file system` (or `.docker/config.json`, `.composer/auth.json`) on `arc-dind` with `--docker-host-path-prefix` set | A23');
       expect(content).toContain('surviving prefixed `${workDir}-chroot-home:/host$HOME` mount');
+      // A24 new failure mode (real read-only ARC/DinD home with credential overlay)
+      expect(content).toContain('| A24 | On `runner.topology: arc-dind`, `docker compose up -d --pull never` fails with `error mounting "/dev/null" to rootfs at ".../gh-aw/home/.npmrc": create mountpoint for .../.npmrc mount: ... openat .npmrc: read-only file system`');
+      expect(content).toContain('`pruneUnmountableCredentialOverlays` (`src/services/agent-volumes/credential-hiding.ts`)');
+      expect(content).toContain('github/gh-aw#57468, github/gh-aw-firewall#8076, github/gh-aw-firewall#8086');
+      expect(content).toContain('| `error mounting "/dev/null" to .../.npmrc: create mountpoint ...: read-only file system` on `arc-dind` persisting even after upgrading past github/gh-aw-firewall#7998 (A23\'s fix), where the target home path already exists as a real read-only file | A24');
       // B23 update: PR #7245 fixes the AWF-side gap
       expect(content).toContain('**Fixed on the AWF side (PR github/gh-aw-firewall#7245, merged 2026-08-11):**');
       expect(content).toContain('`ensure_usr_local_bin_shims()`');
@@ -190,6 +195,7 @@ describe('self-hosted runner doctor workflow config', () => {
     expect(source).toContain('- `awf-agent` fails to start under `runner.topology: arc-dind` (runc cannot create the `/dev/null` credential-hiding overlay mountpoints under `/host$HOME`), or the entrypoint aborts with `mkdir -p /host$HOME/.m2` failing under `set -e` → A20 (sysroot filter dropped every mount targeting `/host$HOME`, including a caller-supplied writable home; fixed in github/gh-aw-firewall#7244)');
     expect(source).toContain('- `mkdirat ... : read-only file system` at agent container startup while a `filesystem.allowWrite` policy is active (not the `chroot.binariesSourcePath`-specific A12 case) → A21; `[entrypoint][WARN] Could not copy one-shot-token library to /tmp/awf-lib` followed by `Token protection will be disabled` → A21');
     expect(source).toContain('- `invalid CapDrop: capability not supported by your kernel or not available in the current environment` → A22');
+    expect(source).toContain('- `error mounting "/dev/null" to .../.npmrc: create mountpoint ...: read-only file system` on `arc-dind` persisting even after upgrading past github/gh-aw-firewall#7998 (A23\'s fix), where the target home path already exists as a real read-only file → A24');
     expect(source).toContain('- `a network with name awf-net exists but was not created for project` → B27');
     expect(source).toContain('- TLS/certificate verification failure from api-proxy against a custom `--openai-api-target`/`--anthropic-api-target` internal endpoint using a private/corporate CA → B28 (api-proxy sidecar had no custom CA trust extension point; fixed in github/gh-aw-firewall#7816 with `apiProxy.caCert`/`--api-proxy-ca-cert`)');
     expect(source).toContain('- `context-rebuild circuit breaker tripped` together with a failed `cd` into the expected workspace path → B29');
