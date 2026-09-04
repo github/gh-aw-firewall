@@ -703,7 +703,7 @@ jobs:
           echo "::add-mask::${AWF_ENCLAVE_GITHUB_MCP_AGENT_ID}"
           export AWF_ENCLAVE_GITHUB_MCP_AGENT_ID
           # The eager checker runs inside start_mcp_gateway.cjs in this step.
-          export GH_AW_MCP_DEFERRED_SERVERS="awf-enclave,github"
+          export GH_AW_MCP_DEFERRED_SERVERS="awf-enclave"
           {
             printf '%s=%s\n' MCP_GATEWAY_AGENT_ID "$MCP_GATEWAY_AGENT_ID"
             printf '%s=%s\n' AWF_ENCLAVE_MCP_CAPABILITY "$AWF_ENCLAVE_MCP_CAPABILITY"
@@ -736,6 +736,7 @@ jobs:
                 "toolTimeout": 4860
               },
               "github": {
+                "required": false,
                 "type": "stdio",
                 "container": "ghcr.io/github/github-mcp-server:v1.11.0",
                 "env": {

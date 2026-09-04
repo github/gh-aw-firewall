@@ -86,8 +86,12 @@ export function applyGeneralWorkflowPatches(
       '"GITHUB_TOOLSETS": "context,issues"'
     );
     content = content.replace(
-      'export GH_AW_MCP_DEFERRED_SERVERS="awf-enclave"',
-      'export GH_AW_MCP_DEFERRED_SERVERS="awf-enclave,github"'
+      /"github": \{\n(\s*)"type": "stdio"/,
+      '"github": {\n$1"required": false,\n$1"type": "stdio"'
+    );
+    content = content.replace(
+      'export GH_AW_MCP_DEFERRED_SERVERS="awf-enclave,github"',
+      'export GH_AW_MCP_DEFERRED_SERVERS="awf-enclave"'
     );
     // tools.github:false leaves the enclave-only GitHub server's guard variables empty.
     content = content.replace(
