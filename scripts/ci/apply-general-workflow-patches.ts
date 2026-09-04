@@ -137,18 +137,37 @@ export function applyGeneralWorkflowPatches(
   if (isEnclaveSmoke) {
     const gatewayKeyEnv =
       '          MCP_GATEWAY_API_KEY: ${{ steps.start-mcp-gateway.outputs.gateway-api-key }}';
-    const agentEnvAnchor = '        env:\n          AWF_REFLECT_ENABLED: 1';
-    if (content.includes(`${gatewayKeyEnv}\n          AWF_REFLECT_ENABLED: 1`)) {
+    const agentStepStart = content.indexOf('      - name: Execute GitHub Copilot CLI');
+    const agentEnvHeader = '        env:\n';
+    const agentEnvStart =
+      agentStepStart === -1 ? -1 : content.indexOf(agentEnvHeader, agentStepStart);
+    if (agentEnvStart === -1) {
+      throw new Error('Could not find the enclave smoke agent environment');
+    }
+    const nextStepStart = content.indexOf('\n      - name:', agentEnvStart + agentEnvHeader.length);
+    const agentEnvEnd = nextStepStart === -1 ? content.length : nextStepStart;
+    const agentEnvBlock = content.slice(agentEnvStart, agentEnvEnd);
+    const gatewayKeyCount = agentEnvBlock.split(gatewayKeyEnv).length - 1;
+    if (gatewayKeyCount === 1) {
       log.push(`  Gateway API key already available to AWF readiness checks`);
     } else {
-      if (!content.includes(agentEnvAnchor)) {
-        throw new Error('Could not find the enclave smoke agent environment');
-      }
-      content = content.replace(
-        agentEnvAnchor,
-        `        env:\n${gatewayKeyEnv}\n          AWF_REFLECT_ENABLED: 1`
+      let normalizedAgentEnv = agentEnvBlock
+        .split('\n')
+        .filter(line => line !== gatewayKeyEnv)
+        .join('\n');
+      normalizedAgentEnv = normalizedAgentEnv.replace(
+        agentEnvHeader,
+        `${agentEnvHeader}${gatewayKeyEnv}\n`
       );
-      log.push(`  Exposed gateway API key to AWF readiness checks`);
+      content =
+        content.slice(0, agentEnvStart) +
+        normalizedAgentEnv +
+        content.slice(agentEnvEnd);
+      if (gatewayKeyCount > 1) {
+        log.push(`  Removed duplicate gateway API key entries from enclave smoke agent environment`);
+      } else {
+        log.push(`  Exposed gateway API key to AWF readiness checks`);
+      }
     }
 
     const gatewayKeyExclusion = '--exclude-env MCP_GATEWAY_API_KEY';

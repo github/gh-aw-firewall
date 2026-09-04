@@ -117,6 +117,7 @@ describe('applyGeneralWorkflowPatches shared enclave gateway policy', () => {
       '              "awf-enclave": {\n' +
       '                "type": "http",\n' +
       '              "agentPolicies": {"primary":{"servers":["github","safe-outputs"]}},\n' +
+      '      - name: Execute GitHub Copilot CLI\n' +
       '        env:\n' +
       '          AWF_REFLECT_ENABLED: 1\n' +
       '        run: awf --exclude-env MCP_GATEWAY_AGENT_ID\n';
@@ -132,5 +133,31 @@ describe('applyGeneralWorkflowPatches shared enclave gateway policy', () => {
     expect(content).toContain('"awf-enclave": {\n                "required": false,');
     expect(content).not.toContain('"servers":["github","safe-outputs"]');
     expect(log).toContain('  Normalized shared-gateway policy server IDs and toolsets');
+  });
+
+  it('deduplicates compiler-provided gateway authentication', () => {
+    const gatewayKey =
+      '          MCP_GATEWAY_API_KEY: ${{ steps.start-mcp-gateway.outputs.gateway-api-key }}';
+    const compiled = [
+      '              "awf-enclave": {',
+      '                "type": "http",',
+      '      - name: Execute GitHub Copilot CLI',
+      '        env:',
+      gatewayKey,
+      '          AWF_REFLECT_ENABLED: 1',
+      gatewayKey,
+      '          RUNNER_TEMP: ${{ runner.temp }}',
+      '      - name: Detect agent errors',
+    ].join('\n');
+
+    const { content, log } = applyGeneralWorkflowPatches(
+      compiled,
+      '/tmp/workflows/smoke-enclave-issues-read.lock.yml'
+    );
+
+    expect(content.split(gatewayKey).length - 1).toBe(1);
+    expect(log).toContain(
+      '  Removed duplicate gateway API key entries from enclave smoke agent environment'
+    );
   });
 });
