@@ -50,8 +50,13 @@ jobs:
           sarif_file: npm-audit-main.sarif
           category: npm-audit-main
 
-      - name: Run npm audit (fail on high/critical)
-        run: npm audit --audit-level=high
+      - name: Enforce npm audit (fail on high/critical)
+        run: |
+          jq -e '
+            (.error | not) and
+            (.metadata.vulnerabilities.high == 0) and
+            (.metadata.vulnerabilities.critical == 0)
+          ' npm-audit-main.json
 
   audit-docs:
     name: Audit Docs Site Package
@@ -88,6 +93,11 @@ jobs:
           sarif_file: npm-audit-docs.sarif
           category: npm-audit-docs
 
-      - name: Run npm audit (fail on high/critical)
-        run: npm audit --audit-level=high
+      - name: Enforce npm audit (fail on high/critical)
+        run: |
+          jq -e '
+            (.error | not) and
+            (.metadata.vulnerabilities.high == 0) and
+            (.metadata.vulnerabilities.critical == 0)
+          ' npm-audit-docs.json
         working-directory: docs-site
