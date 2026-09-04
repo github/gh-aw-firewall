@@ -374,7 +374,7 @@ describe('Chroot Package Manager Support', () => {
     test('should install an npm package and verify require', async () => {
       const result = await runner.run(
         'NPMDIR=$(mktemp -d) && cd $NPMDIR && npm init -y 2>&1 && ' +
-        'npm install chalk@4 2>&1 && ' +
+        'npm install --cache "$NPMDIR/.npm-cache" --no-audit --no-fund --no-update-notifier chalk@4 2>&1 && ' +
         'NODE_PATH=$NPMDIR/node_modules node -e "require(\'chalk\')" && echo "npm_install_ok" && ' +
         'rm -rf $NPMDIR',
         {

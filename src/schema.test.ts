@@ -54,6 +54,16 @@ describe('awf-config.schema.json', () => {
     expect(validate.errors).toBeNull();
   });
 
+  it('accepts trusted enclave repository sensitivity', () => {
+    expect(validate({
+      enclaves: [{
+        script: {},
+        repos: [{ repo: 'github/gh-aw', sensitivity: 'trusted' }],
+      }],
+    })).toBe(true);
+    expect(validate.errors).toBeNull();
+  });
+
   it('accepts a full valid config', () => {
     const valid = {
       $schema: 'https://github.com/github/gh-aw-firewall/releases/latest/download/awf-config.schema.json',

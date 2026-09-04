@@ -6,9 +6,10 @@
  * accepted from an invocation request.
  */
 
-export type EnclaveSensitivity = 'public' | 'internal' | 'confidential' | 'sealed';
+export type EnclaveSensitivity = 'trusted' | 'public' | 'internal' | 'confidential' | 'sealed';
 
 export const ENCLAVE_SENSITIVITIES: readonly EnclaveSensitivity[] = [
+  'trusted',
   'public',
   'internal',
   'confidential',
@@ -17,6 +18,7 @@ export const ENCLAVE_SENSITIVITIES: readonly EnclaveSensitivity[] = [
 
 /** Shared per-repository budget for every executor in one AWF run. */
 export const ENCLAVE_SENSITIVITY_RUN_BITS: Readonly<Record<EnclaveSensitivity, number | null>> = {
+  trusted: null,
   public: null,
   internal: 64,
   confidential: 8,

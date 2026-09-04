@@ -161,6 +161,9 @@ export interface ConstSchemaNode {
 export interface BooleanSchemaNode {
   readonly type: 'boolean';
 }
+export interface StringSchemaNode {
+  readonly type: 'string';
+}
 export interface EnumSchemaNode {
   readonly type: 'enum';
   readonly values: readonly JsonLiteral[];
@@ -199,6 +202,7 @@ export interface UnionSchemaNode {
 export type FiniteSchemaNode =
   | ConstSchemaNode
   | BooleanSchemaNode
+  | StringSchemaNode
   | EnumSchemaNode
   | IntegerSchemaNode
   | ObjectSchemaNode
@@ -268,6 +272,12 @@ function buildSchemaNode(raw: unknown, ctx: SchemaParseContext, depth: number): 
         return failSchema(ctx, 'boolean schema must have only "type"');
       }
       return { type: 'boolean' };
+    }
+    case 'string': {
+      if (Object.keys(node).length !== 1) {
+        return failSchema(ctx, 'string schema must have only "type"');
+      }
+      return { type: 'string' };
     }
     case 'enum': {
       if (Object.keys(node).length !== 2 || !('values' in node)) {
@@ -402,7 +412,7 @@ function buildSchemaNode(raw: unknown, ctx: SchemaParseContext, depth: number): 
     default:
       return failSchema(
         ctx,
-        'schema node "type" must be one of: const, boolean, enum, integer, object, tuple, array, union',
+        'schema node "type" must be one of: const, boolean, string, enum, integer, object, tuple, array, union',
       );
   }
 }
@@ -410,11 +420,13 @@ function buildSchemaNode(raw: unknown, ctx: SchemaParseContext, depth: number): 
 /**
  * Validates and parses an agent-authored schema.
  *
- * Rejects anything outside the finite algebra above: unbounded strings,
- * floats, regex domains, recursion/`$ref` (there is no such construct to
- * begin with), optional properties, `additionalProperties`, and overlapping
- * untagged unions are all structurally impossible to express, so they are
- * rejected by construction rather than by a separate deny-list.
+ * Rejects anything outside the structured algebra above: floats, regex
+ * domains, recursion/`$ref` (there is no such construct to begin with),
+ * optional properties, `additionalProperties`, and overlapping untagged
+ * unions are all structurally impossible to express, so they are rejected by
+ * construction rather than by a separate deny-list. Free-form string nodes
+ * are parsed here and authorized against trusted repository metadata by the
+ * enclave broker before execution.
  */
 export function validateSchema(raw: unknown): FiniteSchemaValidation {
   let serialized: string;
@@ -458,6 +470,8 @@ export function schemaCardinality(schema: FiniteSchemaNode): bigint {
       return 1n;
     case 'boolean':
       return 2n;
+    case 'string':
+      throw new Error('free-form string schemas do not have finite cardinality');
     case 'enum':
       return BigInt(schema.values.length);
     case 'integer':
@@ -510,6 +524,8 @@ function cappedSchemaCardinality(schema: FiniteSchemaNode): bigint {
       return 1n;
     case 'boolean':
       return 2n;
+    case 'string':
+      throw new Error('free-form string schemas do not have finite cardinality');
     case 'enum':
       return BigInt(schema.values.length);
     case 'integer':
@@ -571,6 +587,8 @@ export function validateValueAgainstSchema(schema: FiniteSchemaNode, value: unkn
       return jsonLiteralEquals(value, schema.value);
     case 'boolean':
       return typeof value === 'boolean';
+    case 'string':
+      return typeof value === 'string';
     case 'enum':
       return schema.values.some((candidate) => jsonLiteralEquals(value, candidate));
     case 'integer':
@@ -627,6 +645,7 @@ export function canonicalizeSchemaValue(schema: FiniteSchemaNode, value: unknown
     case 'const':
       return JSON.stringify(schema.value);
     case 'boolean':
+    case 'string':
     case 'enum':
     case 'integer':
       return JSON.stringify(value);
@@ -652,6 +671,24 @@ export function canonicalizeSchemaValue(schema: FiniteSchemaNode, value: unknown
       if (!variant) return 'null';
       return `{"tag":${JSON.stringify(obj.tag)},"value":${canonicalizeSchemaValue(variant.schema, obj.value)}}`;
     }
+  }
+}
+
+/** Whether a schema contains a free-form string node reserved for trusted repositories. */
+export function schemaContainsFreeformString(schema: FiniteSchemaNode): boolean {
+  switch (schema.type) {
+    case 'string':
+      return true;
+    case 'object':
+      return schema.fields.some(field => schemaContainsFreeformString(field.schema));
+    case 'tuple':
+      return schema.items.some(schemaContainsFreeformString);
+    case 'array':
+      return schemaContainsFreeformString(schema.items);
+    case 'union':
+      return schema.variants.some(variant => schemaContainsFreeformString(variant.schema));
+    default:
+      return false;
   }
 }
 

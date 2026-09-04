@@ -21,7 +21,7 @@ jobs:
   audit-main:
     name: Audit Main Package
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
 
     steps:
       - name: Checkout repository
@@ -34,10 +34,17 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --no-audit --no-fund
 
       - name: Run npm audit (JSON output for SARIF)
-        run: npm audit --json > npm-audit-main.json || true
+        run: |
+          audit_args=(--package-lock-only --json --fetch-retries=0 --fetch-timeout=30000)
+          npm audit "${audit_args[@]}" > npm-audit-main.json || true
+          if jq -e '.error' npm-audit-main.json >/dev/null; then
+            echo "::warning::Configured npm audit endpoint failed; retrying against registry.npmjs.org"
+            npm audit "${audit_args[@]}" --registry=https://registry.npmjs.org \
+              > npm-audit-main.json || true
+          fi
 
       - name: Convert npm audit to SARIF
         if: always()
@@ -50,13 +57,24 @@ jobs:
           sarif_file: npm-audit-main.sarif
           category: npm-audit-main
 
-      - name: Run npm audit (fail on high/critical)
-        run: npm audit --audit-level=high
+      - name: Enforce npm audit (fail on high/critical)
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if jq -e '.error' npm-audit-main.json >/dev/null; then
+            echo "::warning::npm audit advisory service unavailable after retries"
+            test "$EVENT_NAME" = "pull_request"
+            exit
+          fi
+          jq -e '
+            (.metadata.vulnerabilities.high == 0) and
+            (.metadata.vulnerabilities.critical == 0)
+          ' npm-audit-main.json
 
   audit-docs:
     name: Audit Docs Site Package
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
 
     steps:
       - name: Checkout repository
@@ -70,11 +88,18 @@ jobs:
           cache-dependency-path: docs-site/package-lock.json
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --no-audit --no-fund
         working-directory: docs-site
 
       - name: Run npm audit (JSON output for SARIF)
-        run: npm audit --json > npm-audit-docs.json || true
+        run: |
+          audit_args=(--package-lock-only --json --fetch-retries=0 --fetch-timeout=30000)
+          npm audit "${audit_args[@]}" > npm-audit-docs.json || true
+          if jq -e '.error' npm-audit-docs.json >/dev/null; then
+            echo "::warning::Configured npm audit endpoint failed; retrying against registry.npmjs.org"
+            npm audit "${audit_args[@]}" --registry=https://registry.npmjs.org \
+              > npm-audit-docs.json || true
+          fi
         working-directory: docs-site
 
       - name: Convert npm audit to SARIF
@@ -88,6 +113,17 @@ jobs:
           sarif_file: npm-audit-docs.sarif
           category: npm-audit-docs
 
-      - name: Run npm audit (fail on high/critical)
-        run: npm audit --audit-level=high
+      - name: Enforce npm audit (fail on high/critical)
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if jq -e '.error' npm-audit-docs.json >/dev/null; then
+            echo "::warning::npm audit advisory service unavailable after retries"
+            test "$EVENT_NAME" = "pull_request"
+            exit
+          fi
+          jq -e '
+            (.metadata.vulnerabilities.high == 0) and
+            (.metadata.vulnerabilities.critical == 0)
+          ' npm-audit-docs.json
         working-directory: docs-site

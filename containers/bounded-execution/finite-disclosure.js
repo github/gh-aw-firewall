@@ -118,6 +118,12 @@ function buildSchemaNode(raw, ctx, depth) {
       }
       return { type: 'boolean' };
     }
+    case 'string': {
+      if (Object.keys(node).length !== 1) {
+        return failSchema(ctx, 'string schema must have only "type"');
+      }
+      return { type: 'string' };
+    }
     case 'enum': {
       if (Object.keys(node).length !== 2 || !('values' in node)) {
         return failSchema(ctx, 'enum schema must have exactly "type" and "values"');
@@ -250,7 +256,7 @@ function buildSchemaNode(raw, ctx, depth) {
     default:
       return failSchema(
         ctx,
-        'schema node "type" must be one of: const, boolean, enum, integer, object, tuple, array, union',
+        'schema node "type" must be one of: const, boolean, string, enum, integer, object, tuple, array, union',
       );
   }
 }
@@ -291,6 +297,8 @@ function schemaCardinality(schema) {
       return 1n;
     case 'boolean':
       return 2n;
+    case 'string':
+      throw new Error('free-form string schemas do not have finite cardinality');
     case 'enum':
       return BigInt(schema.values.length);
     case 'integer':
@@ -336,6 +344,8 @@ function cappedSchemaCardinality(schema) {
       return 1n;
     case 'boolean':
       return 2n;
+    case 'string':
+      throw new Error('free-form string schemas do not have finite cardinality');
     case 'enum':
       return BigInt(schema.values.length);
     case 'integer':
@@ -381,6 +391,8 @@ function validateValueAgainstSchema(schema, value) {
       return jsonLiteralEquals(value, schema.value);
     case 'boolean':
       return typeof value === 'boolean';
+    case 'string':
+      return typeof value === 'string';
     case 'enum':
       return schema.values.some((candidate) => jsonLiteralEquals(value, candidate));
     case 'integer':
@@ -429,6 +441,7 @@ function canonicalizeSchemaValue(schema, value) {
     case 'const':
       return JSON.stringify(schema.value);
     case 'boolean':
+    case 'string':
     case 'enum':
     case 'integer':
       return JSON.stringify(value);
@@ -449,6 +462,23 @@ function canonicalizeSchemaValue(schema, value) {
     }
     default:
       throw new Error(`unreachable schema type: ${schema.type}`);
+  }
+}
+
+function schemaContainsFreeformString(schema) {
+  switch (schema.type) {
+    case 'string':
+      return true;
+    case 'object':
+      return schema.fields.some((field) => schemaContainsFreeformString(field.schema));
+    case 'tuple':
+      return schema.items.some(schemaContainsFreeformString);
+    case 'array':
+      return schemaContainsFreeformString(schema.items);
+    case 'union':
+      return schema.variants.some((variant) => schemaContainsFreeformString(variant.schema));
+    default:
+      return false;
   }
 }
 
@@ -683,6 +713,7 @@ module.exports = {
   informationChargeForSchema,
   validateValueAgainstSchema,
   canonicalizeSchemaValue,
+  schemaContainsFreeformString,
   strictParseJson,
   validateEnclaveScriptRequest,
   canonicalSuccessJson,

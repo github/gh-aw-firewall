@@ -334,6 +334,52 @@ describe('unified enclave ledger and timing', () => {
     expect(now).toBe(100);
   });
 
+  it('allows free-form string fields only for trusted repositories', async () => {
+    const schema = {
+      type: 'object',
+      fields: {
+        disposition: { type: 'enum', values: ['dispatch', 'ignore'] },
+        rationale: { type: 'string' },
+      },
+    };
+    const request = { ...validArguments, schema };
+    const run = jest.fn(async () => ({ exitCode: 0, timedOut: false }));
+    const workspace = {
+      createInvocationWorkspace: () => ({ outPath: 'unused' }),
+      readQueryOutput: () => '{"disposition":"dispatch","rationale":"Free-form trusted rationale."}',
+      destroyInvocationWorkspace: () => undefined,
+    };
+    const createBroker = (sensitivity: 'trusted' | 'public') => createExecutorHandler({
+      config: {
+        maxInvocations: 1,
+        timeoutSeconds: 30,
+        primaryBackend: 'docker',
+        executorBackend: 'docker',
+        maxOutputBytes: 8192,
+      },
+      seedMap: new Map([['octo/private', { seedId: 'a'.repeat(16), sensitivity }]]),
+      runId: 'a'.repeat(16),
+      audit: { failure: jest.fn(), invocation: jest.fn() },
+      telemetry: { emit: jest.fn() },
+      executorKind: 'script',
+      clock: { nowMs: () => 0, sleep: async () => undefined },
+      runner: { runScriptContainer: run },
+      workspace,
+    });
+
+    let trustedResult = '';
+    await createBroker('trusted').handle(request, (value: string) => { trustedResult = value; });
+    expect(trustedResult).toBe(
+      '{"status":"ok","result":{"disposition":"dispatch","rationale":"Free-form trusted rationale."}}',
+    );
+    expect(run).toHaveBeenCalledTimes(1);
+
+    let publicResult = '';
+    await createBroker('public').handle(request, (value: string) => { publicResult = value; });
+    expect(publicResult).toBe(CANONICAL_ERROR_RESPONSE_JSON);
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+
   it('buckets repository and budget rejection classes to the same public boundary', async () => {
     async function rejected(seedMap: Map<string, unknown>, debit: boolean) {
       let now = 0;

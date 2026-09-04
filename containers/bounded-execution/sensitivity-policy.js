@@ -5,18 +5,20 @@
  * budgets — server-side mirror of `ENCLAVE_SENSITIVITY_RUN_BITS` in
  * `src/types/enclave-options.ts`.
  *
- * `null` means "unmetered": `public` still runs through the same finite
- * schema/result validation and operational limits (`maxInvocations`,
- * timeouts, sandboxing) as every other category, but its responses are not
- * debited against a confidentiality ledger. `sealed` is `0`, which —
+ * `null` means "unmetered": `public` still requires finite schemas, while
+ * `trusted` may additionally use free-form string schema nodes. Both retain
+ * schema/result validation and operational limits (`maxInvocations`, timeouts,
+ * sandboxing), but their responses are not debited against a confidentiality
+ * ledger. `sealed` is `0`, which —
  * because every accepted query's minimum charge is 5 bits (1 status bit +
  * 4 timing bits) — always exceeds the remaining balance, so a `sealed`
  * repository can never fund a single query and therefore never copies a
  * seed or launches Python.
  */
-const ENCLAVE_SENSITIVITIES = ['public', 'internal', 'confidential', 'sealed'];
+const ENCLAVE_SENSITIVITIES = ['trusted', 'public', 'internal', 'confidential', 'sealed'];
 
 const ENCLAVE_SENSITIVITY_RUN_BITS = {
+  trusted: null,
   public: null,
   internal: 64,
   confidential: 8,
