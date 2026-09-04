@@ -38,12 +38,8 @@ jobs:
 
       - name: Run npm audit (JSON output for SARIF)
         run: |
-          audit_args=(--json --fetch-retries=0 --fetch-timeout=30000)
+          audit_args=(--package-lock-only --json --fetch-retries=0 --fetch-timeout=30000)
           npm audit "${audit_args[@]}" > npm-audit-main.json || true
-          if jq -e '.error' npm-audit-main.json >/dev/null; then
-            echo "::warning::Configured npm audit endpoint failed; retrying"
-            npm audit "${audit_args[@]}" > npm-audit-main.json || true
-          fi
           if jq -e '.error' npm-audit-main.json >/dev/null; then
             echo "::warning::Configured npm audit endpoint failed; retrying against registry.npmjs.org"
             npm audit "${audit_args[@]}" --registry=https://registry.npmjs.org \
@@ -91,12 +87,8 @@ jobs:
 
       - name: Run npm audit (JSON output for SARIF)
         run: |
-          audit_args=(--json --fetch-retries=0 --fetch-timeout=30000)
+          audit_args=(--package-lock-only --json --fetch-retries=0 --fetch-timeout=30000)
           npm audit "${audit_args[@]}" > npm-audit-docs.json || true
-          if jq -e '.error' npm-audit-docs.json >/dev/null; then
-            echo "::warning::Configured npm audit endpoint failed; retrying"
-            npm audit "${audit_args[@]}" > npm-audit-docs.json || true
-          fi
           if jq -e '.error' npm-audit-docs.json >/dev/null; then
             echo "::warning::Configured npm audit endpoint failed; retrying against registry.npmjs.org"
             npm audit "${audit_args[@]}" --registry=https://registry.npmjs.org \
