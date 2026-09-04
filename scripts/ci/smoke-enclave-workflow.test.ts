@@ -107,6 +107,9 @@ describe('smoke enclave issues workflow', () => {
     );
     expect(lock).toContain('"awf-enclave": {\n                "required": false,');
     expect(lock).toContain('"GITHUB_TOOLSETS": "issues"');
+    expect(lock).toContain(
+      'export GH_AW_MCP_DEFERRED_SERVERS="awf-enclave,github"'
+    );
   });
 
   it('denies the primary agent every direct GitHub data path', () => {
