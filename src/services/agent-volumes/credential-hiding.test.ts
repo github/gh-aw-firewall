@@ -83,6 +83,69 @@ describe('pruneUnmountableCredentialOverlays', () => {
     expect(result).toContain(`${hostDir}:/host${HOME}:ro`);
   });
 
+  // Regression for github/gh-aw-firewall#8076: on ARC/DinD, the covering bind
+  // for `$HOME` is declared read-write (it's the AWF-managed home volume, not
+  // a `filesystem.allowWrite`-narrowed one), but the directory it resolves to
+  // can itself be read-only on the runner's real filesystem when staged under
+  // `--docker-host-path-prefix`. Docker does not remount that case read-only,
+  // so it touches the real path directly and hits the same EROFS runc would
+  // hit for a declared read-only bind.
+  it('drops overlays whose mountpoint is missing behind a read-write bind pointing at a real read-only directory', () => {
+    fs.mkdirSync(path.join(hostDir, 'home'), { recursive: true });
+    fs.chmodSync(path.join(hostDir, 'home'), 0o555);
+    const target = `/host${HOME}/.npmrc`;
+
+    try {
+      const result = pruneUnmountableCredentialOverlays([
+        `${path.join(hostDir, 'home')}:/host${HOME}:rw`,
+        overlay(target),
+      ]);
+
+      expect(result).not.toContain(overlay(target));
+      expect(result).toContain(`${path.join(hostDir, 'home')}:/host${HOME}:rw`);
+    } finally {
+      fs.chmodSync(path.join(hostDir, 'home'), 0o755);
+    }
+  });
+
+  it('keeps overlays whose mountpoint already exists behind a read-write bind pointing at a real read-only directory', () => {
+    fs.mkdirSync(path.join(hostDir, 'home'), { recursive: true });
+    fs.writeFileSync(path.join(hostDir, 'home/.npmrc'), 'DUMMY_SECRET_VALUE');
+    fs.chmodSync(path.join(hostDir, 'home'), 0o555);
+    const target = `/host${HOME}/.npmrc`;
+
+    try {
+      const result = pruneUnmountableCredentialOverlays([
+        `${path.join(hostDir, 'home')}:/host${HOME}:rw`,
+        overlay(target),
+      ]);
+
+      // The mountpoint already exists, so runc only has to bind over it --
+      // no directory write is required, so this stays mountable even though
+      // the real directory is read-only.
+      expect(result).toContain(overlay(target));
+    } finally {
+      fs.chmodSync(path.join(hostDir, 'home'), 0o755);
+    }
+  });
+
+  it('drops overlays whose mountpoint needs a missing intermediate directory under a real read-only ancestor', () => {
+    fs.mkdirSync(path.join(hostDir, 'home'), { recursive: true });
+    fs.chmodSync(path.join(hostDir, 'home'), 0o555);
+    const target = `/host${HOME}/.config/gh/hosts.yml`;
+
+    try {
+      const result = pruneUnmountableCredentialOverlays([
+        `${path.join(hostDir, 'home')}:/host${HOME}:rw`,
+        overlay(target),
+      ]);
+
+      expect(result).not.toContain(overlay(target));
+    } finally {
+      fs.chmodSync(path.join(hostDir, 'home'), 0o755);
+    }
+  });
+
   it('resolves the mountpoint against the innermost covering bind', () => {
     // An outer read-only bind that does have the file, and an inner read-only
     // bind that does not. The inner bind is what supplies the directory, so the
