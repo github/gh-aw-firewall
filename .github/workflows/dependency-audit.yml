@@ -37,7 +37,12 @@ jobs:
         run: npm ci
 
       - name: Run npm audit (JSON output for SARIF)
-        run: npm audit --json > npm-audit-main.json || true
+        run: |
+          npm audit --json > npm-audit-main.json || true
+          if jq -e '.error' npm-audit-main.json >/dev/null; then
+            echo "::warning::Configured npm audit endpoint failed; retrying against registry.npmjs.org"
+            npm audit --registry=https://registry.npmjs.org --json > npm-audit-main.json || true
+          fi
 
       - name: Convert npm audit to SARIF
         if: always()
@@ -79,7 +84,12 @@ jobs:
         working-directory: docs-site
 
       - name: Run npm audit (JSON output for SARIF)
-        run: npm audit --json > npm-audit-docs.json || true
+        run: |
+          npm audit --json > npm-audit-docs.json || true
+          if jq -e '.error' npm-audit-docs.json >/dev/null; then
+            echo "::warning::Configured npm audit endpoint failed; retrying against registry.npmjs.org"
+            npm audit --registry=https://registry.npmjs.org --json > npm-audit-docs.json || true
+          fi
         working-directory: docs-site
 
       - name: Convert npm audit to SARIF
