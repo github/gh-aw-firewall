@@ -171,6 +171,13 @@ describe('self-hosted runner doctor workflow config', () => {
       expect(content).toContain('`apiProxy.caCert` config field and `--api-proxy-ca-cert <path>` CLI flag');
       expect(content).toContain('github/gh-aw-firewall#7807, github/gh-aw-firewall#7816');
       expect(content).toContain('| TLS/certificate verification failure from api-proxy against a custom `--openai-api-target`/`--anthropic-api-target` internal endpoint using a private/corporate CA | B28');
+      expect(content).toContain('| B29 | `codex`-engine (and similar) workflows abort with `report_incomplete`');
+      expect(content).toContain('github/gh-aw-firewall#8015, github/gh-aw-firewall#8021');
+      expect(content).toContain('| B30 | AWF-sandbox workflows fail before Squid starts');
+      expect(content).toContain('github/gh-aw-firewall#8014, github/gh-aw-firewall#8023');
+      expect(content).toContain('| C9 | `400 bad request: Authorization header is badly formatted` specifically on the **derived GHEC data-residency Copilot target**');
+      expect(content).toContain('| C10 | Fine-grained GitHub PATs (`github_pat_...`) sent to Copilot Business, Enterprise, and canonical GHEC');
+      expect(content).toContain('github/gh-aw-firewall#8035, github/gh-aw-firewall#8038');
     }
 
     expect(source).toContain('- `unknown shorthand flag: \'d\' in -d` from `docker compose up -d` → A14 (DinD sidecar missing `docker-compose-plugin`)');
@@ -185,6 +192,9 @@ describe('self-hosted runner doctor workflow config', () => {
     expect(source).toContain('- `invalid CapDrop: capability not supported by your kernel or not available in the current environment` → A22');
     expect(source).toContain('- `a network with name awf-net exists but was not created for project` → B27');
     expect(source).toContain('- TLS/certificate verification failure from api-proxy against a custom `--openai-api-target`/`--anthropic-api-target` internal endpoint using a private/corporate CA → B28 (api-proxy sidecar had no custom CA trust extension point; fixed in github/gh-aw-firewall#7816 with `apiProxy.caCert`/`--api-proxy-ca-cert`)');
+    expect(source).toContain('- `context-rebuild circuit breaker tripped` together with a failed `cd` into the expected workspace path → B29');
+    expect(source).toContain('- `awf logs summary` reports "no log sources found" after a pre-egress startup failure with no Squid `access.log` → B30');
+    expect(source).toContain('- Copilot calls on Business/Enterprise/GHEC use the wrong Authorization scheme specifically for a fine-grained PAT (`github_pat_...`) → C10');
     expect(source).toContain('B12 / github/gh-aw-firewall#6326, github/gh-aw-firewall#6328 — On ARC/DinD, a topology-attached DIFC proxy addressed by Kubernetes Service name can remain unresolvable from DinD containers even after the ordering fix.');
     expect(source).toContain('D8 / github/gh-aw-firewall#6401, github/gh-aw-firewall#6326 — Under `--container-runtime gvisor` or raw `runsc`, MCP calls to the gateway at `172.30.0.1:8080` could be misrouted through Squid and fail with `403 ERR_ACCESS_DENIED`');
     expect(source).toContain('D9 / github/gh-aw-firewall#6336 — sbx microVMs previously mounted the entire host `$HOME`, exposing credentials such as `~/.aws/credentials`, `~/.ssh/id_rsa`, and `~/.docker/config.json`.');
@@ -208,6 +218,9 @@ describe('self-hosted runner doctor workflow config', () => {
     expect(portableAgent).toContain('- `mkdirat ... : read-only file system` at agent container startup while a `filesystem.allowWrite` policy is active (not the `chroot.binariesSourcePath`-specific A12 case) → A21; `[entrypoint][WARN] Could not copy one-shot-token library to /tmp/awf-lib` followed by `Token protection will be disabled` → A21');
     expect(portableAgent).toContain('- `invalid CapDrop: capability not supported by your kernel or not available in the current environment` → A22');
     expect(portableAgent).toContain('- `a network with name awf-net exists but was not created for project` → B27');
+    expect(portableAgent).toContain('- `context-rebuild circuit breaker tripped` together with a failed `cd` into the expected workspace path → B29');
+    expect(portableAgent).toContain('- `awf logs summary` reports "no log sources found" after a pre-egress startup failure with no Squid `access.log` → B30');
+    expect(portableAgent).toContain('- Copilot calls on Business/Enterprise/GHEC use the wrong Authorization scheme specifically for a fine-grained PAT (`github_pat_...`) → C10');
     expect(portableAgent).toContain('A21 / github/gh-aw-firewall#7678, github/gh-aw-firewall#7679, github/gh-aw-firewall#7681, github/gh-aw-firewall#7728 — When a `filesystem.allowWrite` policy narrows `/tmp` to read-only, `awf-agent` startup can fail with `runc create failed: ... mkdirat ... read-only file system`');
     expect(portableAgent).toContain('A22 / github/gh-aw#56127, github/gh-aw-firewall#7788, github/gh-aw-firewall#7795 — `arc-dind` topology fails to start when Docker rejects AWF\'s compose `cap_drop` list');
     expect(portableAgent).toContain('B27 / github/gh-aw#56463, github/gh-aw-firewall#7809, github/gh-aw-firewall#7817 — Docker Compose refuses to start AWF containers with repeated warnings');
@@ -226,6 +239,9 @@ describe('self-hosted runner doctor workflow config', () => {
       expect(playbook).toContain('B26 / github/gh-aw#54371, github/gh-aw-firewall#7615, github/gh-aw-firewall#7635 — In `--network-isolation` mode');
       expect(playbook).toContain('github/gh-aw-mcpg#10350');
       expect(playbook).toContain('B27 / github/gh-aw#56463, github/gh-aw-firewall#7809, github/gh-aw-firewall#7817 — Docker Compose refuses to start AWF containers with repeated warnings');
+      expect(playbook).toContain('B29 / github/gh-aw-firewall#8015, github/gh-aw-firewall#8021 — `codex`-engine workflows can abort');
+      expect(playbook).toContain('B30 / github/gh-aw-firewall#8014, github/gh-aw-firewall#8023 — A pre-egress AWF startup failure');
+      expect(playbook).toContain('C10 / github/gh-aw-firewall#8035, github/gh-aw-firewall#8038 — Fine-grained GitHub PATs');
     }
   });
 });
