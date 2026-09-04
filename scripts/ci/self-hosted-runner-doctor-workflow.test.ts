@@ -175,6 +175,7 @@ describe('self-hosted runner doctor workflow config', () => {
       expect(content).toContain('github/gh-aw-firewall#8015, github/gh-aw-firewall#8021');
       expect(content).toContain('| B30 | AWF-sandbox workflows fail before Squid starts');
       expect(content).toContain('github/gh-aw-firewall#8014, github/gh-aw-firewall#8023');
+      expect(content).toContain('| C9 | `400 bad request: Authorization header is badly formatted` specifically on the **derived GHEC data-residency Copilot target**');
       expect(content).toContain('| C10 | Fine-grained GitHub PATs (`github_pat_...`) sent to Copilot Business, Enterprise, and canonical GHEC');
       expect(content).toContain('github/gh-aw-firewall#8035, github/gh-aw-firewall#8038');
     }
