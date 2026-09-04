@@ -239,9 +239,9 @@ function isGhesInstance(resolvedTarget, env = process.env) {
  * directly and therefore require the `token <value>` Authorization prefix
  * (rather than `Bearer <value>`) for GitHub credentials.
  *
- * Enterprise, Business, and GHEC data-residency endpoints behave this way; the
- * standard `api.githubcopilot.com` endpoint instead expects a Copilot token
- * with the `Bearer` prefix.
+ * Enterprise and Business endpoints behave this way; the standard
+ * `api.githubcopilot.com` endpoint and GHEC data-residency targets instead
+ * expect a Copilot token with the `Bearer` prefix.
  */
 const GITHUB_TOKEN_PREFIX_COPILOT_TARGETS = new Set([
   'api.enterprise.githubcopilot.com',
@@ -267,9 +267,9 @@ function getGitHubTokenAuthPrefix(token, resolvedTarget, env = process.env) {
  *
  * This is true when either:
  *   1. The resolved target is a known GitHub-hosted Copilot endpoint that
- *      authenticates the GitHub token directly — i.e. the Enterprise, Business,
- *      or GHEC data-residency host. This check takes highest priority and is NOT
- *      overridable by AWF_PLATFORM_TYPE. Without this ordering, an explicit
+ *      authenticates the GitHub token directly — i.e. the Enterprise or Business
+ *      host. This check takes highest priority and is NOT overridable by
+ *      AWF_PLATFORM_TYPE. Without this ordering, an explicit
  *      AWF_PLATFORM_TYPE=ghec would suppress the required `token` prefix.
  *   2. The environment is a GHES instance (see {@link isGhesInstance}).
  *
@@ -291,7 +291,6 @@ function copilotTargetRequiresGitHubTokenPrefix(resolvedTarget, env = process.en
   const target = normalizeApiTarget(resolvedTarget);
   if (target && (
     GITHUB_TOKEN_PREFIX_COPILOT_TARGETS.has(target)
-    || isGhecCopilotApiTarget(target)
   )) return true;
 
   // An explicit non-GHES platform type overrides the GHES heuristics below

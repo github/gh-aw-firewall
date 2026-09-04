@@ -335,17 +335,17 @@ describe('copilotTargetRequiresGitHubTokenPrefix', () => {
     expect(copilotTargetRequiresGitHubTokenPrefix('api.githubcopilot.com', {})).toBe(false);
   });
 
-  it('returns true for a GHEC data-residency Copilot target', () => {
+  it('returns false for a GHEC data-residency Copilot target', () => {
     expect(copilotTargetRequiresGitHubTokenPrefix('copilot-api.myorg.ghe.com', {
       GITHUB_SERVER_URL: 'https://myorg.ghe.com',
-    })).toBe(true);
+    })).toBe(false);
   });
 
-  it('returns true for a GHEC data-residency Copilot target with AWF_PLATFORM_TYPE=ghec', () => {
+  it('returns false for a GHEC data-residency Copilot target with AWF_PLATFORM_TYPE=ghec', () => {
     expect(copilotTargetRequiresGitHubTokenPrefix('copilot-api.myorg.ghe.com', {
       AWF_PLATFORM_TYPE: 'ghec',
       GITHUB_SERVER_URL: 'https://myorg.ghe.com',
-    })).toBe(true);
+    })).toBe(false);
   });
 
   it('returns false for malformed or non-canonical GHEC data-residency target shapes', () => {
