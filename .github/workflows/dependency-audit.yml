@@ -58,9 +58,15 @@ jobs:
           category: npm-audit-main
 
       - name: Enforce npm audit (fail on high/critical)
+        env:
+          EVENT_NAME: ${{ github.event_name }}
         run: |
+          if jq -e '.error' npm-audit-main.json >/dev/null; then
+            echo "::warning::npm audit advisory service unavailable after retries"
+            test "$EVENT_NAME" = "pull_request"
+            exit
+          fi
           jq -e '
-            (.error | not) and
             (.metadata.vulnerabilities.high == 0) and
             (.metadata.vulnerabilities.critical == 0)
           ' npm-audit-main.json
@@ -108,9 +114,15 @@ jobs:
           category: npm-audit-docs
 
       - name: Enforce npm audit (fail on high/critical)
+        env:
+          EVENT_NAME: ${{ github.event_name }}
         run: |
+          if jq -e '.error' npm-audit-docs.json >/dev/null; then
+            echo "::warning::npm audit advisory service unavailable after retries"
+            test "$EVENT_NAME" = "pull_request"
+            exit
+          fi
           jq -e '
-            (.error | not) and
             (.metadata.vulnerabilities.high == 0) and
             (.metadata.vulnerabilities.critical == 0)
           ' npm-audit-docs.json
