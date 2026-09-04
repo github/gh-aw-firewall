@@ -147,9 +147,10 @@ Use only the `github` MCP server and call each tool exactly once:
    `method: "get_comments"`, the discovered issue number, and `perPage: 1`.
 
 Return exactly one object matching the schema. Set `issue_number` to the number
-discovered by `list_issues`. Set a boolean to `false` if its corresponding tool
-call fails, the list or comments response is not a JSON array, or the issue
-response does not contain the discovered issue number.
+from the first entry in the `list_issues` response's `issues` array. Set a
+boolean to `false` if its corresponding tool call fails, the `issues` field or
+comments response is not a JSON array, or the issue response does not contain
+the discovered issue number.
 
 Do not use GitHub CLI, GraphQL, search, writes, or any other GitHub tool.
 ```
