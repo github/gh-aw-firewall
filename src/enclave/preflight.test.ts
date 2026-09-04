@@ -165,6 +165,134 @@ describe('validateEnclavesConfig', () => {
     })).join('\n')).toMatch(/agent\.github\.cli must be "issues-read-v1"/);
   });
 
+  it('accepts the tools.github shape with a valid allowlist and matching repos', () => {
+    const enclaves = normalizeEnclavesConfig([
+      {
+        agent: {
+          model: 'gpt-test',
+          tools: {
+            github: {
+              allowed: ['list_issues', 'issue_read'],
+              allowedRepos: ['octo/private'],
+              minIntegrity: 'none',
+            },
+          },
+        },
+        repos: [{ repo: 'octo/private', sensitivity: 'internal' }],
+      },
+    ]);
+    expect(validateEnclavesConfig(config({
+      enclaves,
+      enableApiProxy: true,
+      copilotGithubToken: 'token',
+    }))).toEqual([]);
+  });
+
+  it('rejects tools.github when both legacy and new shapes are set', () => {
+    const enclaves = normalizeEnclavesConfig([
+      {
+        agent: {
+          model: 'gpt-test',
+          github: { cli: 'issues-read-v1' },
+          tools: {
+            github: {
+              allowed: ['list_issues'],
+              allowedRepos: ['octo/private'],
+            },
+          },
+        },
+        repos: [{ repo: 'octo/private', sensitivity: 'internal' }],
+      },
+    ]);
+    expect(validateEnclavesConfig(config({
+      enclaves,
+      enableApiProxy: true,
+      copilotGithubToken: 'token',
+    })).join('\n')).toMatch(/cannot both be set/);
+  });
+
+  it('rejects a tools.github allowlist that is empty or outside the closed tool set', () => {
+    const emptyAllowed = normalizeEnclavesConfig([
+      {
+        agent: {
+          model: 'gpt-test',
+          tools: { github: { allowed: [], allowedRepos: ['octo/private'] } as never },
+        },
+        repos: [{ repo: 'octo/private', sensitivity: 'internal' }],
+      },
+    ]);
+    expect(validateEnclavesConfig(config({
+      enclaves: emptyAllowed,
+      enableApiProxy: true,
+      copilotGithubToken: 'token',
+    })).join('\n')).toMatch(/allowed must be a non-empty, duplicate-free subset/);
+
+    const unknownTool = normalizeEnclavesConfig([
+      {
+        agent: {
+          model: 'gpt-test',
+          tools: {
+            github: {
+              allowed: ['list_issues', 'delete_issue'] as never,
+              allowedRepos: ['octo/private'],
+            },
+          },
+        },
+        repos: [{ repo: 'octo/private', sensitivity: 'internal' }],
+      },
+    ]);
+    expect(validateEnclavesConfig(config({
+      enclaves: unknownTool,
+      enableApiProxy: true,
+      copilotGithubToken: 'token',
+    })).join('\n')).toMatch(/allowed must be a non-empty, duplicate-free subset/);
+  });
+
+  it('rejects tools.github.allowedRepos entries not declared in enclaves\\[\\].repos', () => {
+    const enclaves = normalizeEnclavesConfig([
+      {
+        agent: {
+          model: 'gpt-test',
+          tools: {
+            github: {
+              allowed: ['list_issues'],
+              allowedRepos: ['octo/other'],
+            },
+          },
+        },
+        repos: [{ repo: 'octo/private', sensitivity: 'internal' }],
+      },
+    ]);
+    expect(validateEnclavesConfig(config({
+      enclaves,
+      enableApiProxy: true,
+      copilotGithubToken: 'token',
+    })).join('\n')).toMatch(/allowedRepos entry "octo\/other" is not declared in enclaves\[\]\.repos/);
+  });
+
+  it('rejects an invalid tools.github.minIntegrity value', () => {
+    const enclaves = normalizeEnclavesConfig([
+      {
+        agent: {
+          model: 'gpt-test',
+          tools: {
+            github: {
+              allowed: ['list_issues'],
+              allowedRepos: ['octo/private'],
+              minIntegrity: 'bogus' as never,
+            },
+          },
+        },
+        repos: [{ repo: 'octo/private', sensitivity: 'internal' }],
+      },
+    ]);
+    expect(validateEnclavesConfig(config({
+      enclaves,
+      enableApiProxy: true,
+      copilotGithubToken: 'token',
+    })).join('\n')).toMatch(/minIntegrity must be one of/);
+  });
+
   it('rejects an agent executor whose engine has no audited enclave image', () => {
     const enclaves = normalizeEnclavesConfig([
       {

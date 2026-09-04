@@ -9,7 +9,7 @@ Layer 5 establishes one `enclaves` subsystem, one AWF-owned MCP server, and mcpg
 AWF stages immutable repository seeds on the host, starts one AWF-owned `enclave-mcp-server`, and exposes enabled executors only through `gh-aw-mcpg`.
 
 - **Script executor** — `enclave_run_script` runs a bounded Python script in a no-network, read-only, single-use sandbox.
-- **Agent executor** — `enclave_run_agent` runs the pinned Copilot engine in a bounded single-use enclave. Its mandatory peer is the dedicated API proxy; `agent.github.cli: issues-read-v1` also permits a direct connection to compiler-owned shared mcpg.
+- **Agent executor** — `enclave_run_agent` runs the pinned Copilot engine in a bounded single-use enclave. Its mandatory peer is the dedicated API proxy; `agent.tools.github` (or the deprecated legacy `agent.github.cli: issues-read-v1` marker) also permits a direct connection to compiler-owned shared mcpg.
 - **Shared controls** — the `repos` lists of the `enclaves` entries form the only trusted repository catalog; script and agent calls debit the same per-run repository ledger and share one admission lane.
 
 The primary agent never receives a broker socket, wrapper binary, direct MCP server URL, capability, repository seed, ledger state, or alternate transport.
@@ -45,7 +45,7 @@ error immediately instead of entering an unbounded fixed-timing queue.
 - `enclave-mcp-server` joins only the private `awf-enclave-mcp-control` network.
 - The compiler launches `gh-aw-mcpg`, labels it for the run, and gives AWF the gateway identity plus the private `/mcp/awf-enclave` endpoint.
 - The server is reachable **only** through that gateway. AWF never publishes the server on a host port and never hands the primary agent a direct route.
-- When the agent executor is enabled, each invocation joins only the private `awf-enclave-agent` network. Its steady-state peers are the dedicated API proxy and, only for `issues-read-v1`, compiler-owned shared mcpg.
+- When the agent executor is enabled, each invocation joins only the private `awf-enclave-agent` network. Its steady-state peers are the dedicated API proxy and, only when GitHub access is configured, compiler-owned shared mcpg.
 - AWF attaches the existing mcpg container directly to that network at `172.31.0.40` with alias `awf-enclave-github-mcp`. No AWF bridge, GitHub CLI, Squid, primary agent, general API proxy, safe-output service, or other peer joins the network.
 
 The base MCP handoff and late backend rediscovery are present in mcpg v0.4.15,
@@ -55,8 +55,8 @@ and a post-v0.4.8 mcpg release.
 The optional GitHub path additionally requires compiler support for mcpg
 multi-agent identities and policies (tracked by `github/gh-aw#57787`). The
 compiler MUST pin or minimum-version-gate the first supporting AWF release.
-Older AWF versions reject the closed `github` field; there is no permissive
-fallback.
+Older AWF versions reject the closed `github`/`tools.github` fields; there is
+no permissive fallback.
 
 The compiler-generated upstream uses `connectTimeout: 120` and
 `toolTimeout: 4860`, covering the maximum 4800-second disclosure bucket, up to
@@ -96,9 +96,42 @@ lane, reconciles labelled enclaves, and exits before AWF preserves audit
 artifacts and disconnects mcpg from the private control network. AWF never stops
 or removes the externally owned mcpg container.
 
-## Optional `issues-read-v1` GitHub access
+## GitHub access: `agent.tools.github`
 
-The profile is disabled by default and configured only on an agent entry:
+Credential-isolated GitHub access is disabled by default and configured only on
+an agent entry, via the closed `tools.github` contract:
+
+```yaml
+agent:
+  model: gpt-5
+  tools:
+    github:
+      allowed:
+        - list_issues
+        - issue_read
+      allowedRepos:
+        - octo-org/repo-b
+      minIntegrity: none
+```
+
+- `allowed` is a non-empty subset of the two supported tools, `list_issues` and
+  `issue_read`.
+- `allowedRepos` is a non-empty array of exact `owner/repository` slugs; every
+  entry must also appear in the enclosing enclave entry's `repos` list. AWF
+  rejects any entry that is not.
+- `minIntegrity`, when supplied, is one of `none`, `unapproved`, `approved`, or
+  `merged`.
+
+AWF validates this shape and wires the enclave-only shared MCP gateway
+connection, but it never broadens or replaces the repository and integrity
+policy: that policy is enforced entirely by the compiler-created,
+enclave-specific mcpg identity described below. AWF derives its own readiness
+check — the exact set of tools the gateway must (and must only) advertise —
+from the configured `allowed` list, rather than a fixed pair.
+
+### Legacy `agent.github.cli: issues-read-v1` marker
+
+The original closed profile remains supported during migration:
 
 ```yaml
 agent:
@@ -107,14 +140,20 @@ agent:
     cli: issues-read-v1
 ```
 
+This is equivalent to `tools.github.allowed: [list_issues, issue_read]` with no
+AWF-side repository or integrity restriction beyond what the compiler's mcpg
+identity already enforces. `agent.github` and `agent.tools.github` are mutually
+exclusive: AWF rejects a configuration that sets both.
+
+### Shared gateway wiring (both shapes)
+
 The compiler provides the shared gateway handoff
 `AWF_ENCLAVE_MCP_GATEWAY_CONTAINER`, `AWF_ENCLAVE_MCP_GATEWAY_ENDPOINT`, and
 `AWF_ENCLAVE_MCP_GATEWAY_IDENTITY`, plus a distinct
 `AWF_ENCLAVE_GITHUB_MCP_AGENT_ID`. It configures that enclave identity in
 mcpg's `gateway.agentIds` and `gateway.agentPolicies`, allowing only the
-`github` server, the `list_issues` and `issue_read` tools, and the repositories
-from the trusted enclave catalog. The primary agent never receives the enclave
-identity.
+`github` server, the configured tools, and the repositories from the trusted
+enclave catalog. The primary agent never receives the enclave identity.
 
 AWF validates and stages the enclave identity in a mode-0600 private file,
 removes it from the host environment, and copies it into each invocation's
@@ -122,7 +161,7 @@ private workspace. The single-use enclave mounts that copy read-only and sends
 it directly as the `Authorization` value to
 `http://172.31.0.40:8080/mcp/github`. AWF initializes a session through that
 endpoint before primary-agent work begins and requires the advertised tool set
-to be exactly `list_issues` and `issue_read`.
+to be exactly the configured `allowed` list — no more, no fewer.
 
 The mcpg identity is job-lifetime, not per-invocation. Consequently, mcpg
 enforces the union of repositories configured for the enclave agent rather than

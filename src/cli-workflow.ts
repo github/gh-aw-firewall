@@ -6,6 +6,7 @@ import { CLI_PROXY_IP, DOH_PROXY_IP, SQUID_IP, API_PROXY_IP } from './host-iptab
 import { buildInternalServiceHosts } from './services/internal-service-hosts';
 import { TOPOLOGY_NETWORK_NAME, getTopologyContainerIps, patchComposeWithTopologyHosts } from './topology';
 import { validateEnclavesConfig } from './enclave/preflight';
+import { isEnclaveAgentGithubToolsEnabled } from './types/enclave-options';
 
 /**
  * Dependencies injected into the main workflow.
@@ -211,7 +212,7 @@ export async function runMainWorkflow(
         }
         logger.info('Attaching the trusted MCP gateway to the private enclave control path...');
         await dependencies.connectEnclaveGateway(config);
-        if (config.enclaves?.executors.agent.github?.cli === 'issues-read-v1') {
+        if (isEnclaveAgentGithubToolsEnabled(config.enclaves?.executors.agent)) {
           if (
             !dependencies.connectEnclaveGithubGateway
             || !dependencies.assertEnclaveGithubGatewayReady

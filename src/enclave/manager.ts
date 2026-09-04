@@ -16,6 +16,7 @@ import type {
   EnclaveAgentExecutorConfig,
   EnclaveScriptExecutorConfig,
 } from '../types/enclave-options';
+import { isEnclaveAgentGithubToolsEnabled } from '../types/enclave-options';
 import { assertPrivateRootIsolated } from './mount-policy';
 import {
   assertAgentRuntimeAvailable,
@@ -49,7 +50,7 @@ export function isEnclavesEnabled(config: WrapperConfig): boolean {
 export function isEnclaveGithubEnabled(config: WrapperConfig): boolean {
   return (
     isEnclaveAgentEnabled(config)
-    && config.enclaves?.executors.agent.github?.cli === 'issues-read-v1'
+    && isEnclaveAgentGithubToolsEnabled(config.enclaves?.executors.agent)
   );
 }
 

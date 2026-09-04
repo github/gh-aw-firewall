@@ -36,8 +36,42 @@ export type EnclaveAgentEngine = 'copilot' | 'claude' | 'codex' | 'gemini';
 export type EnclaveAgentProfile = 'openai' | 'anthropic';
 export type EnclaveAgentGithubCliProfile = 'issues-read-v1';
 
+/** @deprecated legacy marker shape; use {@link EnclaveAgentGithubToolsConfig} instead. */
 export interface EnclaveAgentGithubConfig {
   cli: EnclaveAgentGithubCliProfile;
+}
+
+/** Closed set of GitHub MCP tools the enclave-only shared gateway may expose. */
+export type EnclaveAgentGithubTool = 'list_issues' | 'issue_read';
+
+export const ENCLAVE_AGENT_GITHUB_TOOLS: readonly EnclaveAgentGithubTool[] = [
+  'list_issues',
+  'issue_read',
+];
+
+export type EnclaveAgentGithubMinIntegrity = 'none' | 'unapproved' | 'approved' | 'merged';
+
+export const ENCLAVE_AGENT_GITHUB_MIN_INTEGRITIES: readonly EnclaveAgentGithubMinIntegrity[] = [
+  'none',
+  'unapproved',
+  'approved',
+  'merged',
+];
+
+/**
+ * AWF-facing camelCase shape emitted by the gh-aw compiler for
+ * `enclaves[].agent.tools.github`. Repository and integrity restrictions are
+ * enforced by the compiler-created, enclave-specific MCP gateway identity;
+ * AWF only validates this contract and wires the gateway connection.
+ */
+export interface EnclaveAgentGithubToolsConfig {
+  allowed: EnclaveAgentGithubTool[];
+  allowedRepos: string[];
+  minIntegrity?: EnclaveAgentGithubMinIntegrity;
+}
+
+export interface EnclaveAgentToolsConfig {
+  github?: EnclaveAgentGithubToolsConfig;
 }
 
 export interface EnclaveScriptExecutorConfig {
@@ -76,7 +110,9 @@ export interface EnclaveAgentExecutorConfig {
   maxInvocations: number;
   maxModelRequests?: number;
   maxModelTokens?: number;
+  /** @deprecated legacy marker shape; use `tools.github` instead. Mutually exclusive with it. */
   github?: EnclaveAgentGithubConfig;
+  tools?: EnclaveAgentToolsConfig;
 }
 
 export interface EnclavesConfig {
@@ -110,7 +146,7 @@ export type RawEnclaveScriptExecutorConfig = Pick<
 >;
 export type RawEnclaveAgentExecutorConfig = Pick<
   Partial<EnclaveAgentExecutorConfig>,
-  'engine' | 'profile' | 'maxTaskBytes' | 'maxModelRequests' | 'maxModelTokens' | 'github'
+  'engine' | 'profile' | 'maxTaskBytes' | 'maxModelRequests' | 'maxModelTokens' | 'github' | 'tools'
 > & { model: string };
 
 interface RawEnclaveEntryBase extends RawEnclaveCommonConfig {
@@ -178,3 +214,28 @@ export const ENCLAVES_DEFAULTS: Readonly<EnclavesConfig> = {
     agent: ENCLAVE_AGENT_EXECUTOR_DEFAULTS,
   },
 };
+
+/**
+ * Whether the enclave-only shared GitHub MCP gateway is requested, under
+ * either the legacy `agent.github.cli: issues-read-v1` marker or the current
+ * `agent.tools.github` shape. Callers must pair this with
+ * {@link EnclavesConfig.executors.agent.enabled} where relevant.
+ */
+export function isEnclaveAgentGithubToolsEnabled(
+  agent: Pick<EnclaveAgentExecutorConfig, 'github' | 'tools'> | undefined,
+): boolean {
+  return agent?.github?.cli === 'issues-read-v1' || agent?.tools?.github !== undefined;
+}
+
+/**
+ * Resolves the closed set of GitHub MCP tools configured for this enclave
+ * agent, normalizing the legacy marker to its fixed pair. Returns `undefined`
+ * when the GitHub gateway is not requested.
+ */
+export function resolveEnclaveAgentGithubAllowedTools(
+  agent: Pick<EnclaveAgentExecutorConfig, 'github' | 'tools'> | undefined,
+): EnclaveAgentGithubTool[] | undefined {
+  if (agent?.tools?.github) return [...agent.tools.github.allowed];
+  if (agent?.github?.cli === 'issues-read-v1') return [...ENCLAVE_AGENT_GITHUB_TOOLS];
+  return undefined;
+}

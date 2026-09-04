@@ -225,6 +225,51 @@ describe('unified enclave agent executor compose assembly', () => {
       process.env = originalEnv;
     }
   });
+
+  it('configures direct shared-mcpg access for the tools.github shape', () => {
+    const originalEnv = process.env;
+    process.env = {
+      ...originalEnv,
+      AWF_ENCLAVE_MCP_GATEWAY_CONTAINER: 'compiler-mcpg',
+      AWF_ENCLAVE_MCP_GATEWAY_ENDPOINT: 'http://127.0.0.1:8080',
+      AWF_ENCLAVE_MCP_GATEWAY_IDENTITY: 'primaryAgentId0123456789abcdef012345',
+      AWF_ENCLAVE_GITHUB_MCP_AGENT_ID: 'enclaveAgentId0123456789abcdef012345',
+    };
+    try {
+      const enclaves = normalizeEnclavesConfig([{
+        agent: {
+          model: 'trusted-model',
+          tools: {
+            github: {
+              allowed: ['list_issues', 'issue_read'],
+              allowedRepos: ['octo/private'],
+              minIntegrity: 'none',
+            },
+          },
+        },
+        repos: [{ repo: 'octo/private', sensitivity: 'internal' }],
+      }]);
+      const result = build({ enclaves });
+      const serverVolumes = result.service.volumes as string[];
+      expect(serverVolumes).toEqual(expect.arrayContaining([
+        expect.stringMatching(/github-agent-id:\/run\/awf-enclave-mcp\/github-agent-id:ro$/),
+      ]));
+      expect(result.service.environment).toMatchObject({
+        AWF_ENCLAVE_AGENT_GITHUB_ENABLED: 'true',
+        AWF_ENCLAVE_AGENT_GITHUB_PROFILE: 'issues-read-v1',
+        AWF_ENCLAVE_AGENT_GITHUB_MCP_URL: 'http://172.31.0.40:8080/mcp/github',
+        AWF_ENCLAVE_AGENT_GITHUB_AGENT_ID_PATH:
+          '/run/awf-enclave-mcp/github-agent-id',
+        AWF_ENCLAVE_AGENT_GITHUB_GATEWAY_CONTAINER: 'compiler-mcpg',
+      });
+      // The primary agent must never see the gateway route, identity, or repository/integrity policy.
+      expect(JSON.stringify(result.service.environment)).not.toContain('primaryAgentId');
+      expect(JSON.stringify(result.service.environment)).not.toContain('octo/private');
+      expect(JSON.stringify(result.service.environment)).not.toContain('minIntegrity');
+    } finally {
+      process.env = originalEnv;
+    }
+  });
 });
 
 describe('dedicated enclave agent API proxy', () => {

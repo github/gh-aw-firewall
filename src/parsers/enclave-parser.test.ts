@@ -81,6 +81,30 @@ describe('normalizeEnclavesConfig', () => {
     ])?.executors.agent.github).toEqual({ cli: 'issues-read-v1' });
   });
 
+  it('preserves the tools.github shape', () => {
+    expect(normalizeEnclavesConfig([
+      {
+        agent: {
+          model: 'gpt-5',
+          tools: {
+            github: {
+              allowed: ['list_issues', 'issue_read'],
+              allowedRepos: ['octo-org/repo-b'],
+              minIntegrity: 'none',
+            },
+          },
+        },
+        repos: [repository],
+      },
+    ])?.executors.agent.tools).toEqual({
+      github: {
+        allowed: ['list_issues', 'issue_read'],
+        allowedRepos: ['octo-org/repo-b'],
+        minIntegrity: 'none',
+      },
+    });
+  });
+
   it('keeps a repository shared by both entries as one budgeted catalog entry', () => {
     expect(normalizeEnclavesConfig([
       { script: {}, repos: [repository] },
@@ -126,6 +150,21 @@ describe('enclaves JSON Schema', () => {
     expect(validateAwfFileConfig({
       enclaves: [{
         agent: { model: 'gpt-5', github: { cli: 'issues-read-v1' } },
+        repos: [repository],
+      }],
+    })).toEqual([]);
+    expect(validateAwfFileConfig({
+      enclaves: [{
+        agent: {
+          model: 'gpt-5',
+          tools: {
+            github: {
+              allowed: ['list_issues', 'issue_read'],
+              allowedRepos: ['octo-org/repo-b'],
+              minIntegrity: 'none',
+            },
+          },
+        },
         repos: [repository],
       }],
     })).toEqual([]);
@@ -186,6 +225,27 @@ describe('enclaves JSON Schema', () => {
         agent: {
           model: 'gpt-5',
           github: { cli: 'issues-read-v1', endpoint: 'https://example.test' },
+        },
+        repos: [repository],
+      }],
+    }).length).toBeGreaterThan(0);
+    expect(validateAwfFileConfig({
+      enclaves: [{
+        agent: { model: 'gpt-5', tools: { github: { allowed: ['delete_issue'], allowedRepos: ['o/r'] } } },
+        repos: [repository],
+      }],
+    }).length).toBeGreaterThan(0);
+    expect(validateAwfFileConfig({
+      enclaves: [{
+        agent: { model: 'gpt-5', tools: { github: { allowed: ['list_issues'] } } },
+        repos: [repository],
+      }],
+    }).length).toBeGreaterThan(0);
+    expect(validateAwfFileConfig({
+      enclaves: [{
+        agent: {
+          model: 'gpt-5',
+          tools: { github: { allowed: ['list_issues'], allowedRepos: ['o/r'], minIntegrity: 'bogus' } },
         },
         repos: [repository],
       }],

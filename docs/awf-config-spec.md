@@ -360,7 +360,8 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 - `enclaves[].agent.maxTaskBytes` → *(config-only; no CLI equivalent, see §14)*
 - `enclaves[].agent.maxModelRequests` → *(config-only; no CLI equivalent, see §14)*
 - `enclaves[].agent.maxModelTokens` → *(config-only; no CLI equivalent, see §14)*
-- `enclaves[].agent.github.cli` → *(config-only; closed optional profile, see §14.3)*
+- `enclaves[].agent.github.cli` → *(config-only; deprecated closed legacy profile, see §14.3)*
+- `enclaves[].agent.tools.github` → *(config-only; closed GitHub MCP tool contract, see §14.3)*
 
 When `container.dockerHostPathPrefix` points at a daemon-visible shared `/tmp` path, the implementation stages the invoking CLI binary together with `/etc/passwd`, `/etc/group`, and the generated chroot `/etc/hosts` under that shared path so chroot mode can bootstrap on split-filesystem ARC/DinD hosts.
 
@@ -1800,8 +1801,14 @@ enclaves:
       model: gpt-5
       maxModelRequests: 3
       maxModelTokens: 10000
-      github:
-        cli: issues-read-v1
+      tools:
+        github:
+          allowed:
+            - list_issues
+            - issue_read
+          allowedRepos:
+            - octo-org/private-service
+          minIntegrity: none
     runtime: gvisor
     memoryLimit: 256m
     maxOutputBytes: 2048
@@ -1813,7 +1820,7 @@ enclaves:
 ```
 
 - **Script executor** — an entry keyed by `script`; launches a no-network, read-only, single-use Python sandbox. An empty `script: {}` object is valid and selects AWF's pinned defaults.
-- **Agent executor** — an entry keyed by `agent`; launches a bounded single-use Copilot enclave. `agent.model` is REQUIRED. Optional `agent.github.cli: issues-read-v1` adds compiler-owned shared mcpg as the only additional peer.
+- **Agent executor** — an entry keyed by `agent`; launches a bounded single-use Copilot enclave. `agent.model` is REQUIRED. Optional `agent.tools.github` (or the deprecated legacy `agent.github.cli: issues-read-v1` marker; the two are mutually exclusive) adds compiler-owned shared mcpg as the only additional peer.
 - **Entry-level controls** — `runtime`, `image`, `memoryLimit`, `cpuLimit`, `pidsLimit`, `tmpfsLimit`, `maxOutputBytes`, and `maxInvocations` apply to the entry's selected executor. `script.maxScriptBytes` and agent `maxTaskBytes`, `maxModelRequests`, and `maxModelTokens` remain executor-specific. Network and interpreter are AWF-owned invariants, not input fields.
 
 At most one entry MAY exist per executor kind, and each entry MUST declare exactly one executor key. Every entry's `repos` list is merged into one trusted repository catalog: a repository shared by both entries MUST declare the same `sensitivity`, because sensitivity fixes one shared per-run information budget that both executors debit.
@@ -1852,7 +1859,9 @@ The primary agent MUST NOT receive a broker socket, wrapper binary, direct serve
 
 When the agent executor is enabled, each invocation joins only the dedicated
 `internal` `awf-enclave-agent` network. Its mandatory peer is the dedicated
-enclave API proxy. With `issues-read-v1`, the only additional peer is compiler-owned shared mcpg.
+enclave API proxy. When GitHub access is configured (`agent.tools.github` or
+the deprecated legacy `agent.github.cli: issues-read-v1` marker), the only
+additional peer is compiler-owned shared mcpg.
 AWF attaches that existing container directly at `172.31.0.40` under the fixed
 alias `awf-enclave-github-mcp`; the enclave uses `/mcp/github` on port 8080.
 Squid, the primary agent, general proxies, safe outputs, and the enclave MCP
@@ -1863,10 +1872,10 @@ rediscovery from `github/gh-aw-mcpg#10784` are present in mcpg v0.4.15, which
 reports MCP Gateway spec 1.16.0. The base floor remains spec 1.15.0 and a
 post-v0.4.8 mcpg release.
 
-`issues-read-v1` additionally requires compiler support for mcpg multi-agent
+GitHub access additionally requires compiler support for mcpg multi-agent
 identities and policies, tracked by `github/gh-aw#57787`. The compiler MUST gate
 or pin the first supporting AWF release. Older AWF versions reject the closed
-`github` field; AWF has no compatibility fallback.
+`github`/`tools.github` fields; AWF has no compatibility fallback.
 
 While the backend is still starting, mcpg may return retryable HTTP `503 backend_unavailable`. AWF retries `initialize` with bounded backoff until `AWF_ENCLAVE_MCP_READINESS_TIMEOUT_MS` expires, then fails closed before the primary agent starts.
 
@@ -1883,24 +1892,34 @@ configuration or persist the resolved credential under `GITHUB_WORKSPACE` (or
 any other agent-readable path). The AWF upstream contract cannot enforce this
 requirement on the downstream output/converter path.
 
-For `issues-read-v1`, the compiler supplies the shared gateway contract
-(`AWF_ENCLAVE_MCP_GATEWAY_CONTAINER`, `AWF_ENCLAVE_MCP_GATEWAY_ENDPOINT`, and
+When GitHub access is configured, the compiler supplies the shared gateway
+contract (`AWF_ENCLAVE_MCP_GATEWAY_CONTAINER`, `AWF_ENCLAVE_MCP_GATEWAY_ENDPOINT`, and
 `AWF_ENCLAVE_MCP_GATEWAY_IDENTITY`) plus a distinct
 `AWF_ENCLAVE_GITHUB_MCP_AGENT_ID`. The compiler configures that identity in
 mcpg `gateway.agentIds` and restricts it with `gateway.agentPolicies` to the
-`github` server, these tools, and the trusted enclave repository catalog:
+`github` server, `agent.tools.github.allowed` (or the legacy marker's fixed
+`list_issues`/`issue_read` pair), and the trusted enclave repository catalog
+named in `agent.tools.github.allowedRepos`:
 
 - `list_issues`
 - `issue_read` with method `get`
 - `issue_read` with method `get_comments`
+
+AWF itself only validates the closed contract — that `allowed` is a non-empty
+subset of the two supported tools, that `allowedRepos` is a non-empty list of
+exact `owner/repository` slugs each present in the entry's `repos` list, and
+that `minIntegrity` (when set) is one of `none`, `unapproved`, `approved`, or
+`merged` — and wires the shared gateway connection. Repository and integrity
+enforcement live entirely in the compiler-created, enclave-specific mcpg
+identity; AWF never broadens or replaces that policy.
 
 AWF stores the enclave identity in a mode-0600 private file, removes it from
 the host environment, and gives each invocation a read-only private copy. The
 enclave sends the identity directly as `Authorization` to
 `http://172.31.0.40:8080/mcp/github`. It contains no `gh` executable and fails
 preflight if one is present. Before primary-agent work begins, AWF initializes
-the endpoint and fails closed unless `tools/list` advertises exactly the two
-tools above.
+the endpoint and fails closed unless `tools/list` advertises exactly the
+configured `allowed` tools — no more, no fewer.
 
 This mcpg identity lasts for the job rather than one invocation. Its repository
 policy therefore covers the union of trusted repositories configured for the

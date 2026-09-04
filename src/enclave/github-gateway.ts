@@ -4,6 +4,7 @@ import execa from 'execa';
 import { ENCLAVE_AGENT_API_PROXY_CONTAINER_NAME } from '../constants';
 import { getLocalDockerEnv } from '../docker-host';
 import type { WrapperConfig } from '../types';
+import { resolveEnclaveAgentGithubAllowedTools } from '../types/enclave-options';
 import {
   ENCLAVE_MCP_GATEWAY_CONTAINER_ENV,
   ENCLAVE_MCP_GATEWAY_ENDPOINT_ENV,
@@ -26,7 +27,6 @@ export const ENCLAVE_GITHUB_MCP_INTERNAL_URL =
   `http://${ENCLAVE_AGENT_GITHUB_MCP_IP}:${ENCLAVE_GITHUB_MCP_PORT}/mcp/${ENCLAVE_GITHUB_MCP_SERVER_NAME}`;
 
 const MCP_PROTOCOL_VERSION = '2025-06-18';
-const EXPECTED_TOOLS = ['issue_read', 'list_issues'];
 const DEFAULT_READINESS_TIMEOUT_MS = 120_000;
 const REQUEST_TIMEOUT_MS = 5_000;
 const RETRY_DELAY_MS = 500;
@@ -43,6 +43,8 @@ interface EnclaveGithubGatewayContract {
   containerName: string;
   endpoint: URL;
   identity: string;
+  /** Closed set of tool names readiness must find, and only find, on the gateway. */
+  allowedTools: string[];
 }
 
 interface JsonRpcResponse {
@@ -55,7 +57,7 @@ interface JsonRpcResponse {
 function isEnclaveGithubEnabled(config: WrapperConfig): boolean {
   return config.enclaves?.enabled === true
     && config.enclaves.executors.agent.enabled
-    && config.enclaves.executors.agent.github?.cli === 'issues-read-v1';
+    && resolveEnclaveAgentGithubAllowedTools(config.enclaves.executors.agent) !== undefined;
 }
 
 function requiredIdentity(name: string, value: string | undefined): string {
@@ -112,6 +114,10 @@ export function resolveEnclaveGithubGatewayContract(
   if (!isEnclaveGithubEnabled(config)) {
     throw new Error('Enclave GitHub gateway contract requested while issues-read-v1 is disabled');
   }
+  const allowedTools = resolveEnclaveAgentGithubAllowedTools(config.enclaves?.executors.agent);
+  if (!allowedTools || allowedTools.length === 0) {
+    throw new Error('Enclave GitHub gateway contract requires a non-empty configured tool allowlist');
+  }
   return {
     agentId: requiredIdentity(
       ENCLAVE_GITHUB_MCP_AGENT_ID_ENV,
@@ -126,6 +132,7 @@ export function resolveEnclaveGithubGatewayContract(
       ENCLAVE_MCP_GATEWAY_IDENTITY_ENV,
       env[ENCLAVE_MCP_GATEWAY_IDENTITY_ENV],
     ),
+    allowedTools: [...allowedTools].sort(),
   };
 }
 
@@ -411,8 +418,11 @@ async function proveGithubGatewayReadiness(
       .filter(Boolean)
       .sort()
     : [];
-  if (listed.body.error !== undefined || JSON.stringify(tools) !== JSON.stringify(EXPECTED_TOOLS)) {
-    throw new Error('Shared MCP gateway did not expose exactly the issues-read-v1 tools');
+  if (
+    listed.body.error !== undefined
+    || JSON.stringify(tools) !== JSON.stringify(contract.allowedTools)
+  ) {
+    throw new Error('Shared MCP gateway did not expose exactly the configured allowed tools');
   }
 }
 

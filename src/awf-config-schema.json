@@ -1124,7 +1124,7 @@
               "github": {
                 "type": "object",
                 "additionalProperties": false,
-                "description": "Optional credential-isolated GitHub access for the single-use agent enclave.",
+                "description": "Deprecated legacy credential-isolated GitHub access marker for the single-use agent enclave. Use \"tools.github\" instead; the two shapes are mutually exclusive.",
                 "required": [
                   "cli"
                 ],
@@ -1135,6 +1135,57 @@
                       "issues-read-v1"
                     ],
                     "description": "Closed REST-only issue-read CLI profile."
+                  }
+                }
+              },
+              "tools": {
+                "type": "object",
+                "additionalProperties": false,
+                "description": "Closed, fail-closed tool contracts for the single-use agent enclave. Mutually exclusive with the legacy \"github\" marker.",
+                "properties": {
+                  "github": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "description": "Credential-isolated GitHub MCP gateway access. Repository and integrity restrictions are enforced by the compiler-created, enclave-specific MCP gateway identity; AWF only validates and wires the connection.",
+                    "required": [
+                      "allowed",
+                      "allowedRepos"
+                    ],
+                    "properties": {
+                      "allowed": {
+                        "type": "array",
+                        "minItems": 1,
+                        "uniqueItems": true,
+                        "description": "Non-empty subset of the supported GitHub MCP tools.",
+                        "items": {
+                          "type": "string",
+                          "enum": [
+                            "list_issues",
+                            "issue_read"
+                          ]
+                        }
+                      },
+                      "allowedRepos": {
+                        "type": "array",
+                        "minItems": 1,
+                        "description": "Exact \"owner/repository\" slugs. Every entry must also be present in the enclosing enclave entry's \"repos\" list.",
+                        "items": {
+                          "type": "string",
+                          "maxLength": 140,
+                          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})/(?!\\.\\.?$)(?!.*\\.\\.)[A-Za-z0-9._-]{1,100}$"
+                        }
+                      },
+                      "minIntegrity": {
+                        "type": "string",
+                        "enum": [
+                          "none",
+                          "unapproved",
+                          "approved",
+                          "merged"
+                        ],
+                        "description": "Minimum required integrity level enforced by the compiler-created MCP gateway identity."
+                      }
+                    }
                   }
                 }
               }

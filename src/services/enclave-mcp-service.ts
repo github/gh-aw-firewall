@@ -6,6 +6,7 @@ import {
 import type { WrapperConfig } from '../types';
 import { API_PROXY_PORTS } from '../types/ports';
 import type { EnclaveAgentEngine, EnclaveAgentProfile } from '../types/enclave-options';
+import { isEnclaveAgentGithubToolsEnabled } from '../types/enclave-options';
 import {
   ENCLAVE_SERVER_AUDIT_DIR,
   ENCLAVE_SERVER_CAPABILITY_PATH,
@@ -295,7 +296,8 @@ export function buildEnclaveMcpService(params: EnclaveMcpServiceParams): Enclave
       throw new Error('buildEnclaveMcpService: the enclave agent executor requires network configuration');
     }
     const { imageRef, source } = resolveAgentImage(imageConfig, agent.image);
-    const githubGatewayContract = agent.github?.cli === 'issues-read-v1'
+    const githubEnabled = isEnclaveAgentGithubToolsEnabled(agent);
+    const githubGatewayContract = githubEnabled
       ? resolveEnclaveGithubGatewayContract(config)
       : undefined;
     result.agentImageService = {
@@ -334,9 +336,9 @@ export function buildEnclaveMcpService(params: EnclaveMcpServiceParams): Enclave
       AWF_ENCLAVE_AGENT_MAX_OUTPUT_BYTES: String(agent.maxOutputBytes),
       AWF_ENCLAVE_AGENT_MAX_PROMPT_BYTES: String(agent.maxTaskBytes),
       AWF_ENCLAVE_AGENT_MAX_INVOCATIONS: String(agent.maxInvocations),
-      AWF_ENCLAVE_AGENT_GITHUB_ENABLED: String(agent.github?.cli === 'issues-read-v1'),
-      ...(agent.github?.cli === 'issues-read-v1' && {
-        AWF_ENCLAVE_AGENT_GITHUB_PROFILE: agent.github.cli,
+      AWF_ENCLAVE_AGENT_GITHUB_ENABLED: String(githubEnabled),
+      ...(githubEnabled && {
+        AWF_ENCLAVE_AGENT_GITHUB_PROFILE: 'issues-read-v1',
         AWF_ENCLAVE_AGENT_GITHUB_MCP_URL: ENCLAVE_GITHUB_MCP_INTERNAL_URL,
         AWF_ENCLAVE_AGENT_GITHUB_AGENT_ID_PATH: ENCLAVE_SERVER_GITHUB_AGENT_ID_PATH,
         AWF_ENCLAVE_AGENT_GITHUB_GATEWAY_CONTAINER: githubGatewayContract?.containerName,
@@ -363,7 +365,7 @@ export function buildEnclaveMcpService(params: EnclaveMcpServiceParams): Enclave
     `${paths.seedMapPath}:${ENCLAVE_SERVER_SEED_MAP_PATH}:ro`,
     `${dockerSocketPath}:${ENCLAVE_SERVER_DOCKER_SOCKET_PATH}:rw`,
   ];
-  if (agent?.github?.cli === 'issues-read-v1') {
+  if (isEnclaveAgentGithubToolsEnabled(agent)) {
     serverVolumes.push(
       `${paths.githubAgentIdPath}:${ENCLAVE_SERVER_GITHUB_AGENT_ID_PATH}:ro`,
     );
