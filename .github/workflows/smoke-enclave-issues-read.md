@@ -137,7 +137,7 @@ Give the enclave agent this task:
 ```text
 Use only the `github` MCP server and call each tool exactly once:
 
-1. `list_issues` with `owner: "github"`, `repo: "gh-aw"`, `state: "open"`,
+1. `list_issues` with `owner: "github"`, `repo: "gh-aw"`, `state: "OPEN"`,
    and `perPage: 1`
 2. Read the first returned issue number. If no issue is returned, set
    `issue_number` to `0` and all booleans to `false`.
