@@ -117,6 +117,8 @@ describe('applyGeneralWorkflowPatches shared enclave gateway policy', () => {
       '              "awf-enclave": {\n' +
       '                "type": "http",\n' +
       '              "agentPolicies": {"primary":{"servers":["github","safe-outputs"]}},\n' +
+      '                  "min-integrity": "$GITHUB_MCP_GUARD_MIN_INTEGRITY",\n' +
+      '                  "repos": "$GITHUB_MCP_GUARD_REPOS"\n' +
       '      - name: Execute GitHub Copilot CLI\n' +
       '        env:\n' +
       '          AWF_REFLECT_ENABLED: 1\n' +
@@ -130,9 +132,11 @@ describe('applyGeneralWorkflowPatches shared enclave gateway policy', () => {
     expect(content).toContain('"safeoutputs": {"type": "stdio"}');
     expect(content).toContain('"servers":["github","safeoutputs"]');
     expect(content).toContain('"GITHUB_TOOLSETS": "context,issues"');
+    expect(content).toContain('"min-integrity": "approved"');
+    expect(content).toContain('"repos": ["github/gh-aw"]');
     expect(content).toContain('"awf-enclave": {\n                "required": false,');
     expect(content).not.toContain('"servers":["github","safe-outputs"]');
-    expect(log).toContain('  Normalized shared-gateway policy server IDs and toolsets');
+    expect(log).toContain('  Normalized shared-gateway policy, server IDs, and toolsets');
   });
 
   it('deduplicates compiler-provided gateway authentication', () => {

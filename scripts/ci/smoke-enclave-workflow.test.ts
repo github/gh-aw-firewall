@@ -135,6 +135,9 @@ describe('smoke enclave issues workflow', () => {
         '"tools":{"github":["list_issues","issue_read"]},' +
         '"allow-only":{"min-integrity":"approved","repos":["github/gh-aw"]}}'
     );
+    expect(lock).toContain(
+      '"min-integrity": "approved",\n                    "repos": ["github/gh-aw"]'
+    );
     expect(source).toContain('Use only the `github` MCP server');
     expect(source).toContain('GitHub CLI, GraphQL, search, writes, or any other GitHub tool');
     expect(source).toContain('the discovered issue number');

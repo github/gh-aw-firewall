@@ -85,8 +85,13 @@ export function applyGeneralWorkflowPatches(
       '"GITHUB_TOOLSETS": "context"',
       '"GITHUB_TOOLSETS": "context,issues"'
     );
+    // tools.github:false leaves the enclave-only GitHub server's guard variables empty.
+    content = content.replace(
+      /"min-integrity": "\$GITHUB_MCP_GUARD_MIN_INTEGRITY",\n(\s*)"repos": "\$GITHUB_MCP_GUARD_REPOS"/,
+      '"min-integrity": "approved",\n$1"repos": ["github/gh-aw"]'
+    );
     if (content !== original) {
-      log.push('  Normalized shared-gateway policy server IDs and toolsets');
+      log.push('  Normalized shared-gateway policy, server IDs, and toolsets');
     }
   }
 
