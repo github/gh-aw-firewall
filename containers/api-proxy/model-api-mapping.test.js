@@ -34,6 +34,14 @@ describe('model-api-mapping', () => {
       expect(result.endpoints).toContain('responses');
     });
 
+    it('finds GPT-6 Astra as supporting both endpoints', () => {
+      const result = lookupModelEndpoints('gpt-6-astra', 'openai');
+      expect(result).not.toBeNull();
+      expect(result.family).toBe('gpt-6-astra');
+      expect(result.endpoints).toContain('chat_completions');
+      expect(result.endpoints).toContain('responses');
+    });
+
     it('finds GPT-5.5 as supporting both endpoints', () => {
       const result = lookupModelEndpoints('gpt-5.5', 'openai');
       expect(result).not.toBeNull();
@@ -143,7 +151,7 @@ describe('model-api-mapping', () => {
       expect(reflect.available).toBe(true);
       expect(reflect.providers).toContain('openai');
       expect(reflect.providers).toContain('anthropic');
-      expect(reflect.last_updated).toBe('2026-09-02T07:03:56Z');
+      expect(reflect.last_updated).toBe('2026-09-04T07:01:27Z');
       expect(reflect.models.anthropic.models[0].family).toBe('claude-opus-5');
       expect(reflect.error).toBeNull();
     });

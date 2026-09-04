@@ -1,7 +1,7 @@
 {
   "title": "Model-to-API Endpoint Mapping",
   "description": "Maps AI model families to their supported API endpoints. Used to determine which endpoint (chat/completions vs responses vs messages) a model requires.",
-  "lastUpdated": "2026-09-02T07:03:56Z",
+  "lastUpdated": "2026-09-04T07:01:27Z",
   "sources": {
     "openai": "https://developers.openai.com/api/docs/models",
     "anthropic": "https://docs.anthropic.com/en/docs/about-claude/models"
@@ -19,6 +19,12 @@
         }
       },
       "models": [
+        {
+          "family": "gpt-6-astra",
+          "patterns": ["gpt-6-astra*"],
+          "endpoints": ["chat_completions", "responses"],
+          "notes": "Newest flagship model (Trusted Access Program rollout). Supports Chat Completions and Responses APIs."
+        },
         {
           "family": "gpt-daybreak",
           "patterns": ["gpt-daybreak-blue-latest", "gpt-daybreak-red-latest"],
@@ -201,13 +207,13 @@
           "family": "claude-fable-5",
           "patterns": ["claude-fable-5*"],
           "endpoints": ["messages"],
-          "notes": "Latest flagship. 1M token context."
+          "notes": "Latest flagship (includes claude-fable-5-1). 1M token context."
         },
         {
           "family": "claude-mythos-5",
           "patterns": ["claude-mythos-5*", "claude-mythos-preview*"],
           "endpoints": ["messages"],
-          "notes": "Invitation-only (Project Glasswing). Limited availability. 1M token context."
+          "notes": "Specialized models, invitation-only (includes claude-mythos-5-1, claude-mythos-5). 1M token context."
         },
         {
           "family": "claude-sonnet-5",

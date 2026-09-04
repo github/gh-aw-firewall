@@ -22,8 +22,8 @@
         {
           "family": "gpt-6-astra",
           "patterns": ["gpt-6-astra*"],
-          "endpoints": ["responses"],
-          "notes": "Newest flagship model (Trusted Access Program rollout). Official page states models are available via the Responses API and Client SDKs; no Chat Completions support documented."
+          "endpoints": ["chat_completions", "responses"],
+          "notes": "Newest flagship model (Trusted Access Program rollout). Supports Chat Completions and Responses APIs."
         },
         {
           "family": "gpt-daybreak",
