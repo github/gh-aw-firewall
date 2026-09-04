@@ -10,6 +10,48 @@
 # Format reference: https://github.com/anchore/grype?tab=readme-ov-file#configuration
 
 ignore:
+  # ── Go stdlib and BusyBox findings in Alpine's docker-cli base ───────────────
+  #
+  # Alpine's current stable docker-cli package embeds Go 1.26.3 and BusyBox
+  # 1.37.0-r31. These findings are reported by the vulnerability database before
+  # fixes are available in the pinned Alpine 3.24 packages. The enclave MCP
+  # server uses docker only with its local Unix socket and does not expose
+  # BusyBox utilities or the affected remote/network code paths to callers.
+  # Revisit these exceptions when Alpine publishes fixed v3.24 packages.
+  - vulnerability: GO-2026-6218
+    package:
+      name: stdlib
+      version: "go1.26.3"
+      type: go-module
+      location: "/usr/bin/docker"
+  - vulnerability: GO-2026-5856
+    package:
+      name: stdlib
+      version: "go1.26.3"
+      type: go-module
+      location: "/usr/bin/docker"
+  - vulnerability: GO-2026-5039
+    package:
+      name: stdlib
+      version: "go1.26.3"
+      type: go-module
+      location: "/usr/bin/docker"
+  - vulnerability: CVE-2025-60876
+    package:
+      name: busybox
+      version: "1.37.0-r31"
+      type: apk
+  - vulnerability: CVE-2025-60876
+    package:
+      name: busybox-binsh
+      version: "1.37.0-r31"
+      type: apk
+  - vulnerability: CVE-2025-60876
+    package:
+      name: ssl_client
+      version: "1.37.0-r31"
+      type: apk
+
   # ── Node.js 22.23.2 Permission Model false positive ───────────────────────────
   #
   # CVE-2026-58043 (Node.js Permission Model path matching, HIGH):
