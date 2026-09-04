@@ -200,8 +200,101 @@ It includes `docker-ce`, `libcap2-bin` (`capsh`), and Node.js preinstalled.
 
 Copilot CLI still requires `node` to be available inside the chrooted runtime PATH.
 
+## Joining `services:` containers to `awf-net` for direct protocol access
+
+On `runner.topology: arc-dind`, GitHub Actions `services:` containers are started
+by the runner on the runner's own bridge network (`github_network_<hash>`), while
+the AWF agent runs on AWF's isolated `awf-net`. These two bridges are not routed
+to each other, so workloads inside the sandbox that need to speak a service's
+native wire protocol (database drivers, migration tools, client libraries under
+test, etc.) cannot reach `services:` containers — only HTTP(S) egress through
+Squid is available from inside the agent.
+
+The existing host-iptables-based service-port routing (`hostServicePorts`) does
+not help here: on ARC/DinD, `network.isolation: true` uses the Docker-network
+topology and never programs host iptables NAT rules, since network isolation is
+enforced entirely at the Docker network level, not at the host firewall level.
+
+### Verified pattern: join the *service* to `awf-net`
+
+The supported workaround is to join the **service container** — never the
+agent — onto `awf-net` after AWF creates it, using a pre-step "waiter" that
+polls for the network's existence and then attaches the service container to it
+with an alias the agent can resolve by name:
+
+```yaml
+services:
+  postgres:
+    image: postgres:16
+    env:
+      POSTGRES_PASSWORD: postgres
+
+steps:
+  - name: Attach postgres service to awf-net
+    run: |
+      # Remove a stale AWF network so the waiter cannot attach to a network
+      # that AWF will reclaim. Do this only when no other AWF run is active.
+      if docker network inspect awf-net >/dev/null 2>&1; then
+        docker network rm awf-net >/dev/null 2>&1 || {
+          echo "cannot replace stale awf-net; another AWF run may be active" >&2
+          exit 1
+        }
+      fi
+
+      # Keep the waiter running while the later generated AWF step creates the
+      # network. job.services exposes the exact container ID; no image lookup
+      # or label is required.
+      service_container='${{ job.services.postgres.id }}'
+      nohup bash -c '
+        for i in $(seq 1 120); do
+          if docker network inspect awf-net >/dev/null 2>&1; then
+            docker network connect --alias postgres awf-net "$1" && exit 0
+          fi
+          sleep 1
+        done
+        echo "awf-net was not created" >&2
+        exit 1
+      ' -- "$service_container" >/tmp/awf-net-waiter.log 2>&1 &
+```
+
+The `nohup` background process must remain alive until the later generated AWF
+step starts. Check `/tmp/awf-net-waiter.log` after that step if the service is
+not reachable. Once joined, code running inside the AWF sandbox can connect directly to
+`postgres:5432` (or whatever alias/port the service exposes) using the
+service's native protocol, bypassing the Squid HTTP(S)-only egress path
+entirely for that one container-to-container link.
+
+This pattern has been end-to-end validated with 669/669 dotnet/Npgsql
+integration tests passing against a Postgres `services:` container joined to
+`awf-net` this way.
+
+### Security note
+
+**Only the service container may join `awf-net` — never the agent.** The whole
+point of AWF is to restrict what the agent (the untrusted/AI-driven process)
+can reach on the network. Joining the *agent* to the runner's own bridge
+network (or otherwise bypassing Squid) would defeat the egress firewall
+entirely, since traffic on that bridge is not subject to domain allowlisting.
+Joining a *service* container is safer than attaching the agent to the runner
+bridge, but it brings that service into the security boundary. A service that
+supports proxying, outbound callbacks, or command execution can become an
+application-layer pivot; for example, do not give the example database a
+privileged role unless it is required. Use least-privileged credentials and
+constrain the service's outbound access where possible. This attachment does
+not itself give the agent a direct route to the runner bridge, but it is not a
+guarantee that the service cannot provide an egress path.
+
+### Future direction
+
+A longer-term improvement under consideration is compiler sugar such as
+`services.<name>.attach: true`, which would emit the waiter/join steps shown
+above automatically instead of requiring hand-written shell in workflow
+frontmatter. No such field exists yet — the manual pattern above is the only
+currently supported mechanism.
+
 ## See also
 
 - [docs/awf-config-spec.md](awf-config-spec.md) — Normative field reference and CLI mapping for all ARC/DinD config fields (`container.dockerHostPathPrefix`, `container.enableDind`, `container.dockerHost`, `chroot.*`, `dind.*`, `runner.*`)
 - [docs/awf-config.schema.json](awf-config.schema.json) — Machine-readable JSON Schema for IDE validation
 - [docs/environment.md](environment.md) — `DOCKER_HOST` handling, `AWF_DIND`, and split-filesystem guidance
+- [docs/network-isolation-design.md](network-isolation-design.md) — `--network-isolation` design and ARC/DinD constraints
