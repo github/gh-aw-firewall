@@ -21,18 +21,21 @@ AWF supports two repository admission modes behind the same MCP backend:
   exactly one repository from that trusted catalog.
 - **Dynamic GitHub-MCP-backed mode**: the compiler supplies a policy envelope
   instead of a seed catalog. Each invocation supplies only a canonical
-  `owner/repo` selector, a bounded prompt or script, and a finite response
-  schema. AWF asks the compiler-owned GitHub MCP path to admit one matching
-  repository for that invocation.
+  `owner/repo` selector, a bounded agent prompt, and a finite response schema.
+  AWF asks the compiler-owned GitHub MCP path to admit one matching repository
+  for that invocation.
 
 The modes are compatible at the subsystem level but mutually exclusive for a
 single enclave entry: an entry either declares static `repos` or a dynamic
-repository policy, never both. Both modes use the same `enclave_run_script` and
-`enclave_run_agent` tool shapes, the same finite output schemas, the same
-ledger, and the same admission serialization lane. One enclave invocation
-exposes one repository. Cross-repository aggregation happens only when the
-primary agent makes multiple bounded enclave calls and combines their finite
-results.
+repository policy, never both. Static mode can use `enclave_run_script` and
+`enclave_run_agent`; dynamic mode is limited to `enclave_run_agent` because
+script enclaves are no-network and dynamic mode has no immutable seed to mount.
+One dynamic enclave invocation exposes one repository. Existing static
+GitHub-enabled agent enclaves retain their documented job-lifetime mcpg
+identity, which covers the union of configured repositories and therefore does
+not provide the same one-repository GitHub-MCP guarantee. Cross-repository
+aggregation happens only when the primary agent makes multiple bounded enclave
+calls and combines their finite results.
 
 ## Compiler-to-AWF policy envelope
 
@@ -52,13 +55,22 @@ The envelope includes at least:
 
 - allowed owners or exact owner/repository patterns;
 - sensitivity classification and disclosure bucket;
-- permitted executor types and GitHub MCP tools;
+- permitted executor type, which is `agent` only for dynamic mode;
+- a versioned GitHub tool policy, currently `github-repository-read-v1`;
 - maximum admitted repositories for the workflow run;
 - per-invocation CPU, memory, process, filesystem, network, timeout, prompt,
-  script, and response-schema limits;
+  and response-schema limits;
 - total invocation, byte, and time quotas;
 - an absolute expiry not later than the workflow job lifetime; and
 - audit labels that let AWF reconcile all dynamic state during shutdown.
+
+`github-repository-read-v1` is a closed allowlist of repository-scopable
+read-only GitHub tools. Its initial members are `list_issues` and `issue_read`,
+with arguments confined to the admitted repository and optional immutable ref or
+integrity filters. Write operations, mutation-capable tools, unscoped search,
+organization/global search, repository discovery, and tools whose arguments
+cannot be mechanically confined to the admitted repository fail closed until a
+new versioned policy proves repository confinement.
 
 AWF rejects any envelope field it does not understand and fails closed when the
 compiler, mcpg, runtime registry, or executor cannot enforce a requested bound.
@@ -66,17 +78,34 @@ Admission, identity delegation, live-read setup, executor startup, revocation,
 and cleanup failures do not fall back to static mode, a job-lifetime identity,
 or a broader policy.
 
-## Invocation identity and credential flow
+## Runtime identity delegation and credential flow
 
 The primary agent never receives GitHub credentials, repository seeds, dynamic
 policy contents beyond the public tool schema, mcpg identity material, or a
-direct transport to the enclave backend. The compiler creates invocation-scoped
-mcpg identity delegation for dynamic admissions. Each delegated identity is
-bound to:
+direct transport to the enclave backend. The compiler is not a runtime service:
+it bootstraps mcpg with a dynamic-delegation controller and gives AWF an
+AWF-only delegation-control capability during startup. The capability is owned
+by AWF for the workflow run, is not mounted into any primary or enclave agent,
+and authorizes only create/confirm/revoke operations for identities inside the
+compiler-supplied policy envelope.
+
+AWF calls that controller over the private mcpg control channel attached to the
+`awf-enclave-mcp-control` network. Requests are authenticated with the
+delegation-control capability and include the run id, enclave entry id,
+invocation id, canonical repository selector, requested
+`github-repository-read-v1` tool set, admitted default-branch SHA when known,
+finite schema hash, expiry, and idempotency key. mcpg atomically creates or
+confirms exactly one delegated identity for that key and returns only an opaque
+identity handle plus the executor-facing bearer value. Confirming an existing
+key must return the same repository binding, tool policy, expiry, and identity
+handle; any mismatch is terminal and revokes the partial identity if one was
+created.
+
+Each delegated identity is bound to:
 
 - one workflow run and one AWF enclave backend;
 - one canonical repository selector after policy admission;
-- the policy-approved GitHub MCP tools only;
+- the versioned repository-scopable read-only GitHub tool policy only;
 - the policy-approved sensitivity and finite response schema; and
 - a short expiry that is no longer than the invocation timeout.
 
@@ -85,7 +114,21 @@ read-only into the single-use executor, and removes it before admitting another
 repository. mcpg must reject replayed, expired, revoked, wrong-repository, and
 wrong-tool identities. AWF requests revocation at normal completion, timeout,
 executor failure, and shutdown; revocation is idempotent and failures are
-recorded in audit without exposing the identity.
+recorded in audit without exposing the identity. On mcpg restart, the
+controller reconstructs live delegations from its labelled state and refuses to
+confirm an idempotency key unless the reconstructed binding matches AWF's
+request. If reconstruction is incomplete, AWF treats outstanding identities as
+unknown, records the condition, revokes by label where possible, and fails
+closed for new dynamic admissions until reconciliation succeeds.
+
+Dynamic mode requires component version gates before the compiler may emit a
+dynamic repository policy: an AWF release that implements this contract, a
+`gh-aw-mcpg` release that exposes dynamic delegation API
+`github-repository-delegation-v1` on the private control channel, and compiler
+support that starts mcpg with the dynamic-delegation controller, closed
+`github-repository-read-v1` policy, AWF-only control capability, and gateway
+agent policies. Older components reject dynamic policy fields with no
+permissive fallback.
 
 ## Live-read semantics
 
@@ -97,11 +140,10 @@ audit record distinguishes this live-read SHA from an immutable seed and marks
 the result as point-in-time, not reproducible from workflow frontmatter alone.
 
 The executor must not silently switch repositories or broaden a GitHub search.
-Every GitHub MCP call is scoped to the single admitted repository and, where the
-tool supports it, the admitted default-branch SHA or an equivalent immutable
-reference. If an immutable read cannot be enforced for a tool, AWF still records
-the admitted SHA and treats later data as live data for audit and disclosure
-review.
+Every GitHub MCP call is scoped to the single admitted repository and to a tool
+from `github-repository-read-v1`. Where the tool supports immutable refs, AWF
+uses the admitted default-branch SHA; otherwise the audit record marks the data
+as a live read at that admitted SHA.
 
 ## Non-disclosing errors
 
@@ -156,8 +198,8 @@ reported as redacted audit failures rather than retried indefinitely.
   concurrent calls from exceeding quotas or binding one identity to another
   repository.
 - **Resource exhaustion**: compiler-owned quotas bound repositories,
-  invocations, bytes, processes, CPU, memory, runtime, schemas, prompt/script
-  sizes, and cleanup grace.
+  invocations, bytes, processes, CPU, memory, runtime, schemas, agent prompt
+  size, and cleanup grace.
 - **Existence disclosure**: all denial reasons collapse to one canonical error
   and timing bucket, with details only in redacted audit.
 - **Cleanup failures**: shutdown records unreconciled resources, revokes where

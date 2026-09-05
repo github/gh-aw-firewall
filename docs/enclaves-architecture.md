@@ -19,21 +19,27 @@ Repository admission has two modes, both served by this same MCP backend:
 - **Static seed-backed mode** — the existing `repos` lists in enclave entries
   form the trusted repository catalog. AWF stages immutable seeds for that
   catalog before primary-agent work begins. Each invocation selects one catalog
-  entry and exposes only that repository to the single-use executor.
+  entry and exposes only that repository seed to the single-use executor. Static
+  GitHub-enabled agent enclaves keep their current job-lifetime mcpg identity,
+  which covers the union of configured repositories; they do not claim the
+  dynamic mode's one-repository GitHub-MCP identity guarantee.
 - **Dynamic GitHub-MCP-backed mode** — the compiler provides a closed policy
   envelope instead of enumerating repository seeds in workflow frontmatter. Each
   invocation provides only a canonical `owner/repo` selector, bounded
-  prompt/script payload, and finite response schema. AWF admits at most one
-  repository for that invocation through the compiler-owned GitHub MCP path and
-  records the admitted default-branch SHA.
+  agent prompt, and finite response schema. AWF admits at most one repository
+  for that invocation through the compiler-owned GitHub MCP path and records the
+  admitted default-branch SHA.
 
 Static and dynamic modes are compatible in one workflow run but mutually
 exclusive within a single enclave entry: an entry declares either static `repos`
 or a dynamic repository policy. Caller-controlled repository names are never
 interpreted as policy. They cannot alter sensitivity, tools, credentials,
 runtime, model, image, network, filesystem, resource limits, timeouts, or
-quotas. Cross-repository aggregation occurs only in the primary agent by
-combining multiple bounded enclave results.
+quotas. The one-repository guarantee applies to dynamic admissions and to static
+seed exposure, not to existing static GitHub MCP identities unless static mode
+later adopts per-invocation repository-scoped identities. Cross-repository
+aggregation occurs only in the primary agent by combining multiple bounded
+enclave results.
 
 ## Tool contracts
 
@@ -54,6 +60,10 @@ enclave_run_agent({
 ```
 
 Both tool schemas are closed (`additionalProperties: false`). Callers cannot provide images, runtimes, models, profiles, prompts beyond the bounded payload field, repository catalogs, credentials, timeout overrides, or any other trusted control.
+
+A dynamic repository entry MUST advertise only `enclave_run_agent`.
+`enclave_run_script` remains available to static seed-backed entries only unless
+a future ADR defines a secure dynamic script repository-access topology.
 
 `tools/list` publishes exactly the enabled tools without revealing repositories,
 sensitivity, remaining budget, invocation counts, runtime, engine, profile, or
@@ -207,38 +217,80 @@ removes private state. AWF never stops or removes the shared gateway container.
 
 Dynamic repository enclaves extend GitHub access from a static seed catalog to
 runtime admission while preserving compiler ownership of security-sensitive
-bounds. The compiler-to-AWF envelope is closed and includes allowed owners or
-exact repository patterns, sensitivity, permitted executor types and GitHub MCP
-tools, maximum admitted repositories, per-invocation CPU/memory/process/
-filesystem/network/time/prompt/script/response limits, total quotas, audit
-labels, and an absolute expiry no later than the workflow job lifetime. AWF
-rejects unknown envelope fields and fails closed if any requested bound cannot
-be enforced by AWF, mcpg, the runtime registry, or the executor. Admission,
+bounds. Dynamic mode is agent-only: it enables `enclave_run_agent` and rejects
+`enclave_run_script` because script enclaves are no-network and dynamic mode has
+no immutable seed to mount. A future dynamic script mode would need a separate
+secure repository-access topology before it could be admitted.
+
+The compiler-to-AWF envelope is closed and includes allowed owners or exact
+repository patterns, sensitivity, the `agent` executor type, a versioned
+GitHub tool policy, maximum admitted repositories, per-invocation
+CPU/memory/process/filesystem/network/time/prompt/response limits, total
+quotas, audit labels, and an absolute expiry no later than the workflow job
+lifetime. AWF rejects unknown envelope fields and fails closed if any requested
+bound cannot be enforced by AWF, mcpg, the runtime registry, or the executor.
+Admission,
 identity delegation, live-read setup, executor startup, revocation, and cleanup
 failures do not fall back to static mode, the existing job-lifetime GitHub
 identity, or a broader policy.
 
+The only initial dynamic GitHub tool policy is `github-repository-read-v1`, a
+closed allowlist of repository-scopable read-only operations. It contains
+`list_issues` and `issue_read` with arguments confined to the admitted
+repository and optional immutable ref or integrity filters. Write operations,
+mutation-capable tools, unscoped search, organization/global search, repository
+discovery, and any tool whose arguments cannot be mechanically confined to the
+admitted repository fail closed until a new versioned policy defines and tests
+that confinement.
+
 Dynamic invocation flow:
 
-1. The primary agent calls `enclave_run_script` or `enclave_run_agent` with one
-   canonical repository selector, bounded payload, and finite schema.
+1. The primary agent calls `enclave_run_agent` with one canonical repository
+   selector, bounded prompt, and finite schema.
 2. AWF serializes admission through the shared enclave lane, validates the
    selector against the compiler envelope, and debits the shared repository
    ledger before execution.
-3. The compiler-owned GitHub MCP path creates or confirms an invocation-scoped
-   delegated identity bound to that run, enclave entry, admitted repository,
-   approved tools, schema, and expiry.
+3. AWF asks mcpg's dynamic-delegation controller over the private control
+   channel to atomically create or confirm an invocation-scoped delegated
+   identity bound to that run, enclave entry, admitted repository,
+   `github-repository-read-v1` tool set, schema, and expiry.
 4. AWF records the admitted repository hash and default-branch SHA, stores the
    delegated identity only in invocation-private state, and mounts it read-only
    into the single-use executor.
 5. The executor may access only the admitted repository through the delegated
-   GitHub MCP identity. If a GitHub MCP tool supports immutable refs, AWF uses
-   the admitted default-branch SHA; otherwise the audit record marks the data as
-   a live read at that admitted SHA.
+   GitHub MCP identity and only with `github-repository-read-v1` tools. If a
+   GitHub MCP tool supports immutable refs, AWF uses the admitted default-branch
+   SHA; otherwise the audit record marks the data as a live read at that
+   admitted SHA.
 6. On completion, timeout, failure, or shutdown, AWF requests identity
    revocation, records the revocation state, removes invocation-private state,
    and admits no other repository until cleanup for the serialized lane is
    complete.
+
+The compiler is not on the runtime path. At startup it configures mcpg with the
+dynamic-delegation controller, the closed `github-repository-read-v1` policy,
+gateway agent policies, and an AWF-only delegation-control capability. AWF owns
+that capability for the workflow run and uses it only over the private
+`awf-enclave-mcp-control` channel to create, confirm, or revoke dynamic
+identities inside the compiler envelope. The capability is never exposed to the
+primary agent or an enclave executor.
+
+Create/confirm/revoke requests are authenticated and idempotent by `(run,
+enclave entry, invocation id, canonical repository)`. A create-or-confirm call
+must atomically return the same repository binding, tool policy, expiry,
+default-branch SHA, and opaque identity handle for an existing key; a mismatch
+is terminal and revokes any partial identity. Revocation by identity handle and
+by run/enclave labels is idempotent. After mcpg restart, the controller must
+reconstruct labelled live delegations before accepting new dynamic admissions;
+if reconstruction is incomplete, AWF records the condition, revokes by label
+where possible, and fails closed until reconciliation succeeds.
+
+Dynamic mode is version-gated. The compiler may emit dynamic repository policy
+only when the selected AWF release implements this contract, `gh-aw-mcpg`
+advertises dynamic delegation API `github-repository-delegation-v1` on the
+private control channel, and the compiler can install the closed
+`github-repository-read-v1` tool policy plus the AWF-only control capability.
+Older AWF or mcpg components reject dynamic fields with no permissive fallback.
 
 Unlike static GitHub access, the delegated identity is not a reusable
 job-lifetime credential. mcpg must reject replayed, expired, revoked,
@@ -282,7 +334,7 @@ Trusted operators can inspect only redacted audit diagnostics.
   preventing concurrent quota bypass or repository/identity mixups.
 - **Resource exhaustion**: compiler-owned quotas bound repository count,
   invocation count, bytes, CPU, memory, process count, filesystem exposure,
-  prompt/script sizes, schema size, runtime, and cleanup grace.
+  prompt size, schema size, runtime, and cleanup grace.
 - **Existence disclosure**: denial reasons collapse to one canonical error and
   timing bucket; detailed reasons are redacted into audit only.
 - **Cleanup failures**: shutdown closes admissions first, drains or cancels the
