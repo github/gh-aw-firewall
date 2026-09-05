@@ -106,6 +106,7 @@ export const createMinimalNetworkOptions = (): NetworkOptionsResult => ({
   localhostResult: {
     allowedDomains: ['example.com'],
     localhostDetected: false,
+    hostGatewayDetected: false,
     shouldEnableHostAccess: false,
   },
   upstreamProxy: undefined,
