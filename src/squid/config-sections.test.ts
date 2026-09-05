@@ -186,7 +186,17 @@ describe('buildConfigSections', () => {
 
     it('uses custom DNS servers when provided', () => {
       const { dnsSection } = buildWithDefaults({ dnsServers: ['1.1.1.1', '1.0.0.1'] });
-expect(dnsSection).toBe('dns_nameservers 1.1.1.1 1.0.0.1');
+      expect(dnsSection).toMatch(/^dns_nameservers 1\.1\.1\.1 1\.0\.0\.1$/m);
+    });
+
+    it('shrinks negative_dns_ttl to avoid caching a single transient SERVFAIL', () => {
+      const { dnsSection } = buildWithDefaults();
+      expect(dnsSection).toMatch(/^negative_dns_ttl 1 seconds$/m);
+    });
+
+    it('lowers dns_timeout so a stalled query fails fast', () => {
+      const { dnsSection } = buildWithDefaults();
+      expect(dnsSection).toMatch(/^dns_timeout 5 seconds$/m);
     });
   });
 
