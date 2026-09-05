@@ -118,6 +118,21 @@ describe('ai-credits-guard', () => {
     expect(checkUnknownModelRejection('claude-sonnet-5')).toBeNull();
   });
 
+  it('resolves gpt-6-astra from curated pricing without unknown-model rejection', () => {
+    process.env.AWF_MAX_AI_CREDITS = '10';
+    resetAiCreditsGuardForTests();
+
+    const usage = applyAiCreditsUsage({
+      input_tokens: 2000,
+      cache_read_tokens: 1000,
+      output_tokens: 100,
+    }, 'gpt-6-astra');
+
+    // $0.01 per credit: fresh input 1.0 + cached input 0.1 + output 0.5.
+    expect(usage.aiCreditsThisResponse).toBeCloseTo(1.6, 10);
+    expect(checkUnknownModelRejection('gpt-6-astra')).toBeNull();
+  });
+
   it('does not double-count cached tokens when input_tokens is total-inclusive (OpenAI-style)', () => {
     // OpenAI (Chat Completions and Responses API) reports prompt_tokens/input_tokens
     // as the TOTAL input, with cached tokens being a subset. When no provider is

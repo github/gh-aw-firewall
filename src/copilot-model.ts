@@ -58,6 +58,7 @@ const SUPPORTED_COPILOT_MODELS = new Set([
   'gpt-5.6-luna',
   'gpt-5.6-sol',
   'gpt-5.6-terra',
+  'gpt-6-astra',
   'gpt-5-mini',
   'o3',
   'o3-mini',
