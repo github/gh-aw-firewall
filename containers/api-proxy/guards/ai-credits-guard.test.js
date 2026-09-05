@@ -689,6 +689,13 @@ describe('ai-credits-guard', () => {
       expect(sonnet5).toBeNull();
     });
 
+    it('resolves gpt-6-astra from curated pricing', () => {
+      process.env.AWF_MAX_AI_CREDITS = '10';
+      resetAiCreditsGuardForTests();
+
+      expect(checkUnknownModelRejection('gpt-6-astra', PROVIDER_COPILOT)).toBeNull();
+    });
+
     it('allows the Copilot auto selector and rejects unknown-provider auto selectors', () => {
       process.env.AWF_MAX_AI_CREDITS = '10';
       resetAiCreditsGuardForTests();
