@@ -128,7 +128,8 @@ describe('ai-credits-guard', () => {
       output_tokens: 100,
     }, 'gpt-6-astra');
 
-    expect(usage.aiCreditsThisResponse).toBeCloseTo(0.7, 10);
+    // $0.01 per credit: fresh input 1.0 + cached input 0.1 + output 0.5.
+    expect(usage.aiCreditsThisResponse).toBeCloseTo(1.6, 10);
     expect(checkUnknownModelRejection('gpt-6-astra')).toBeNull();
   });
 
