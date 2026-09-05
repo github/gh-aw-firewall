@@ -173,6 +173,7 @@ describe('runMainWorkflow', () => {
             maxOutputBytes: 8192,
             maxTaskBytes: 4096,
             maxInvocations: 8,
+            repos: [],
           },
         },
       },

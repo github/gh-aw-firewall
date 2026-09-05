@@ -123,7 +123,7 @@ describe('unified enclave workflow integration', () => {
     }, {
       logger: { info: jest.fn(), success: jest.fn(), warn: jest.fn() },
       performCleanup: jest.fn(),
-    })).rejects.toThrow(/issues-read-v1 requires/);
+    })).rejects.toThrow(/enclave GitHub gateway .* requires/);
     expect(runAgentCommand).not.toHaveBeenCalled();
   });
 });

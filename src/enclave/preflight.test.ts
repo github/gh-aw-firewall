@@ -267,7 +267,31 @@ describe('validateEnclavesConfig', () => {
       enclaves,
       enableApiProxy: true,
       copilotGithubToken: 'token',
-    })).join('\n')).toMatch(/allowedRepos entry "octo\/other" is not declared in enclaves\[\]\.repos/);
+    })).join('\n')).toMatch(/allowedRepos entry "octo\/other" is not declared in the agent entry's own enclaves\[\]\.repos/);
+  });
+
+  it('rejects an allowedRepos entry declared only for the script executor, not the agent entry', () => {
+    const enclaves = normalizeEnclavesConfig([
+      { script: {}, repos: [{ repo: 'octo/script-only', sensitivity: 'internal' }] },
+      {
+        agent: {
+          model: 'gpt-test',
+          tools: {
+            github: {
+              allowed: ['list_issues'],
+              allowedRepos: ['octo/script-only'],
+            },
+          },
+        },
+        repos: [{ repo: 'octo/agent-only', sensitivity: 'internal' }],
+      },
+    ]);
+    expect(validateEnclavesConfig(config({
+      enclaves,
+      enableApiProxy: true,
+      copilotGithubToken: 'token',
+    })).join('\n'))
+      .toMatch(/allowedRepos entry "octo\/script-only" is not declared in the agent entry's own enclaves\[\]\.repos/);
   });
 
   it('rejects an invalid tools.github.minIntegrity value', () => {

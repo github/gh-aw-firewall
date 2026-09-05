@@ -1905,13 +1905,18 @@ named in `agent.tools.github.allowedRepos`:
 - `issue_read` with method `get`
 - `issue_read` with method `get_comments`
 
-AWF itself only validates the closed contract — that `allowed` is a non-empty
-subset of the two supported tools, that `allowedRepos` is a non-empty list of
-exact `owner/repository` slugs each present in the entry's `repos` list, and
-that `minIntegrity` (when set) is one of `none`, `unapproved`, `approved`, or
-`merged` — and wires the shared gateway connection. Repository and integrity
-enforcement live entirely in the compiler-created, enclave-specific mcpg
-identity; AWF never broadens or replaces that policy.
+AWF itself only validates the closed `agent.tools.github` contract — that
+`allowed` is a non-empty subset of the two supported tools, that
+`allowedRepos` is a non-empty list of exact `owner/repository` slugs each
+present in this same agent entry's own `repos` list (not the run-wide merged
+catalog shared with the script executor), and that `minIntegrity` (when set)
+is one of `none`, `unapproved`, `approved`, or `merged` — and wires the shared
+gateway connection. The legacy `agent.github.cli: issues-read-v1` marker has
+no `allowedRepos` field of its own; its repository scope comes entirely from
+the compiler-defined trusted catalog baked into that fixed marker, not from
+anything AWF validates. Repository and integrity enforcement live entirely in
+the compiler-created, enclave-specific mcpg identity; AWF never broadens or
+replaces that policy.
 
 AWF stores the enclave identity in a mode-0600 private file, removes it from
 the host environment, and gives each invocation a read-only private copy. The

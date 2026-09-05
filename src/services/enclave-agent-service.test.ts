@@ -400,6 +400,47 @@ describe('unified enclave compose topology', () => {
     expect(JSON.stringify(agent.networks ?? {})).not.toContain(ENCLAVE_AGENT_NETWORK);
   });
 
+  it('never exposes the tools.github shape gateway route, identity, or policy to the primary agent', () => {
+    const originalEnv = process.env;
+    process.env = {
+      ...originalEnv,
+      AWF_ENCLAVE_MCP_GATEWAY_CONTAINER: 'compiler-mcpg',
+      AWF_ENCLAVE_MCP_GATEWAY_ENDPOINT: 'http://127.0.0.1:8080',
+      AWF_ENCLAVE_MCP_GATEWAY_IDENTITY: 'primaryAgentId0123456789abcdef012345',
+      AWF_ENCLAVE_GITHUB_MCP_AGENT_ID: 'enclaveAgentId0123456789abcdef012345',
+    };
+    try {
+      const enclaves = normalizeEnclavesConfig([{
+        agent: {
+          model: 'trusted-model',
+          tools: {
+            github: {
+              allowed: ['list_issues', 'issue_read'],
+              allowedRepos: ['octo/private'],
+              minIntegrity: 'none',
+            },
+          },
+        },
+        repos: [{ repo: 'octo/private', sensitivity: 'internal' }],
+      }]);
+      const compose = generateDockerCompose(composeConfig({ enclaves }), networkConfig);
+      const agent = compose.services.agent as unknown as Record<string, unknown>;
+      expect((agent.depends_on as Record<string, unknown>)['enclave-mcp-server']).toBeUndefined();
+      expect((agent.depends_on as Record<string, unknown>)['enclave-agent-api-proxy'])
+        .toBeUndefined();
+      expect(JSON.stringify(agent.volumes)).not.toContain('awf-enclave-control');
+      expect(JSON.stringify(agent.volumes)).not.toContain('awf-enclave-private');
+      expect(JSON.stringify(agent.volumes)).not.toContain('github-agent-id');
+      expect(JSON.stringify(agent.environment)).not.toContain('AWF_ENCLAVE');
+      expect(JSON.stringify(agent.environment)).not.toContain('primaryAgentId');
+      expect(JSON.stringify(agent.environment)).not.toContain('octo/private');
+      expect(JSON.stringify(agent.environment)).not.toContain('minIntegrity');
+      expect(JSON.stringify(agent.networks ?? {})).not.toContain(ENCLAVE_AGENT_NETWORK);
+    } finally {
+      process.env = originalEnv;
+    }
+  });
+
   it('creates no enclave network when only the script executor runs', () => {
     const enclaves = normalizeEnclavesConfig([
       { script: {}, repos: [{ repo: 'octo/private', sensitivity: 'internal' }] },

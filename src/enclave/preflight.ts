@@ -192,7 +192,7 @@ export function validateEnclavesConfig(config: WrapperConfig): string[] {
         errors.push('enclaves[].agent.github.cli must be "issues-read-v1"');
       }
     } else if (agent.tools?.github !== undefined) {
-      validateEnclaveAgentGithubTools(agent.tools.github, enclaves.privateRepos, errors);
+      validateEnclaveAgentGithubTools(agent.tools.github, agent.repos, errors);
     }
   }
 
@@ -211,7 +211,7 @@ function validatePositiveInteger(name: string, value: number, errors: string[]):
  */
 function validateEnclaveAgentGithubTools(
   githubTools: EnclaveAgentGithubToolsConfig,
-  privateRepos: EnclaveRepository[],
+  agentRepos: EnclaveRepository[],
   errors: string[],
 ): void {
   if (typeof githubTools !== 'object' || githubTools === null) {
@@ -234,7 +234,7 @@ function validateEnclaveAgentGithubTools(
       'enclaves[].agent.tools.github.allowedRepos must be a non-empty array of "owner/repository" slugs',
     );
   } else {
-    const known = new Set(privateRepos.map(repository => normalizePrivateRepositoryKey(repository.repo)));
+    const known = new Set(agentRepos.map(repository => normalizePrivateRepositoryKey(repository.repo)));
     for (const repo of githubTools.allowedRepos) {
       if (typeof repo !== 'string' || !PRIVATE_REPOSITORY_PATTERN.test(repo)) {
         errors.push(
@@ -244,7 +244,7 @@ function validateEnclaveAgentGithubTools(
       }
       if (!known.has(normalizePrivateRepositoryKey(repo))) {
         errors.push(
-          `enclaves[].agent.tools.github.allowedRepos entry "${repo}" is not declared in enclaves[].repos`,
+          `enclaves[].agent.tools.github.allowedRepos entry "${repo}" is not declared in the agent entry's own enclaves[].repos`,
         );
       }
     }

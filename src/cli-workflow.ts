@@ -218,7 +218,8 @@ export async function runMainWorkflow(
             || !dependencies.assertEnclaveGithubGatewayReady
           ) {
             throw new Error(
-              'issues-read-v1 requires an exclusive enclave GitHub gateway readiness implementation',
+              'The enclave GitHub gateway (agent.tools.github or the legacy agent.github.cli ' +
+              'marker) requires an exclusive enclave GitHub gateway readiness implementation',
             );
           }
           logger.info('Attaching the compiler-owned GitHub proxy to its private control path...');

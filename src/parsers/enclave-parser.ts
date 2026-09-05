@@ -104,6 +104,7 @@ export function normalizeEnclavesConfig(
         ...agent?.agent,
         enabled: agent !== undefined,
         timeout: agent?.timeout ?? ENCLAVE_AGENT_EXECUTOR_DEFAULTS.timeout,
+        repos: agent?.repos ?? [],
       },
     },
   };

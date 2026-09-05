@@ -113,6 +113,12 @@ export interface EnclaveAgentExecutorConfig {
   /** @deprecated legacy marker shape; use `tools.github` instead. Mutually exclusive with it. */
   github?: EnclaveAgentGithubConfig;
   tools?: EnclaveAgentToolsConfig;
+  /**
+   * This entry's own `repos` list, preserved unmerged. `tools.github.allowedRepos`
+   * MUST be validated against this list rather than the run-wide merged catalog,
+   * so a repository declared only for the script executor cannot be referenced here.
+   */
+  repos: EnclaveRepository[];
 }
 
 export interface EnclavesConfig {
@@ -204,6 +210,7 @@ export const ENCLAVE_AGENT_EXECUTOR_DEFAULTS: Readonly<
   maxOutputBytes: 8192,
   maxTaskBytes: 4096,
   maxInvocations: 8,
+  repos: [],
 };
 
 export const ENCLAVES_DEFAULTS: Readonly<EnclavesConfig> = {

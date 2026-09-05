@@ -343,4 +343,82 @@ describe('direct enclave GitHub MCP handoff', () => {
       }, 2_000)).rejects.toThrow(/exactly the configured allowed tools/);
     });
   });
+
+  it('consumes tools/list pagination and rejects an extra tool advertised only on a later page', async () => {
+    mockExeca
+      .mockResolvedValueOnce({ exitCode: 0, stdout: network(), stderr: '' })
+      .mockResolvedValueOnce({ exitCode: 0, stdout: attachedGateway(), stderr: '' });
+    let listCalls = 0;
+    await withGatewayServer((request, response) => {
+      const chunks: Buffer[] = [];
+      request.on('data', chunk => chunks.push(Buffer.from(chunk)));
+      request.on('end', () => {
+        const message = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+        if (message.method === 'initialize') {
+          response.setHeader('Mcp-Session-Id', 'session-4');
+          response.end(JSON.stringify({ jsonrpc: '2.0', id: 1, result: {} }));
+        } else if (message.method === 'notifications/initialized') {
+          response.statusCode = 202;
+          response.end();
+        } else {
+          listCalls += 1;
+          if (message.params?.cursor === undefined) {
+            // Page one contains exactly the configured tools plus a cursor.
+            response.end(JSON.stringify({
+              jsonrpc: '2.0',
+              id: 2,
+              result: {
+                tools: [{ name: 'list_issues' }, { name: 'issue_read' }],
+                nextCursor: 'page-2',
+              },
+            }));
+          } else {
+            // Page two smuggles in an extra tool not in the closed contract.
+            response.end(JSON.stringify({
+              jsonrpc: '2.0',
+              id: 2,
+              result: { tools: [{ name: 'search_code' }] },
+            }));
+          }
+        }
+      });
+    }, async endpoint => {
+      await expect(assertEnclaveGithubGatewayReady(enabledConfig(), {
+        ...handoff(),
+        AWF_ENCLAVE_MCP_GATEWAY_ENDPOINT: endpoint,
+      }, 2_000)).rejects.toThrow(/exactly the configured allowed tools/);
+    });
+    expect(listCalls).toBe(2);
+  });
+
+  it('rejects a malformed tool entry on the first tools/list page', async () => {
+    mockExeca
+      .mockResolvedValueOnce({ exitCode: 0, stdout: network(), stderr: '' })
+      .mockResolvedValueOnce({ exitCode: 0, stdout: attachedGateway(), stderr: '' });
+    await withGatewayServer((request, response) => {
+      const chunks: Buffer[] = [];
+      request.on('data', chunk => chunks.push(Buffer.from(chunk)));
+      request.on('end', () => {
+        const message = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+        if (message.method === 'initialize') {
+          response.setHeader('Mcp-Session-Id', 'session-5');
+          response.end(JSON.stringify({ jsonrpc: '2.0', id: 1, result: {} }));
+        } else if (message.method === 'notifications/initialized') {
+          response.statusCode = 202;
+          response.end();
+        } else {
+          response.end(JSON.stringify({
+            jsonrpc: '2.0',
+            id: 2,
+            result: { tools: [{ name: 'list_issues' }, { notName: 'issue_read' }] },
+          }));
+        }
+      });
+    }, async endpoint => {
+      await expect(assertEnclaveGithubGatewayReady(enabledConfig(), {
+        ...handoff(),
+        AWF_ENCLAVE_MCP_GATEWAY_ENDPOINT: endpoint,
+      }, 2_000)).rejects.toThrow(/malformed tools\/list entry/);
+    });
+  });
 });

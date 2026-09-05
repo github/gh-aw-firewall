@@ -397,33 +397,70 @@ async function proveGithubGatewayReadiness(
     jsonrpc: '2.0',
     method: 'notifications/initialized',
   }, initialized.sessionId, requestBudget());
-  const listed = await postJsonRpc(contract.endpoint, contract.agentId, {
-    jsonrpc: '2.0',
-    id: 2,
-    method: 'tools/list',
-    params: {},
-  }, initialized.sessionId, requestBudget());
-  const tools = (
-    listed.body.result
-    && typeof listed.body.result === 'object'
-    && 'tools' in listed.body.result
-    && Array.isArray(listed.body.result.tools)
-  )
-    ? listed.body.result.tools
-      .map((tool) => (
-        tool && typeof tool === 'object' && 'name' in tool && typeof tool.name === 'string'
-          ? tool.name
-          : ''
-      ))
-      .filter(Boolean)
-      .sort()
-    : [];
-  if (
-    listed.body.error !== undefined
-    || JSON.stringify(tools) !== JSON.stringify(contract.allowedTools)
-  ) {
+  const tools = await listAllGithubGatewayTools(contract, initialized.sessionId, requestBudget);
+  if (JSON.stringify(tools) !== JSON.stringify(contract.allowedTools)) {
     throw new Error('Shared MCP gateway did not expose exactly the configured allowed tools');
   }
+}
+
+/** Bounds `tools/list` pagination so a misbehaving gateway cannot stall readiness. */
+const MAX_TOOLS_LIST_PAGES = 20;
+
+/**
+ * Consumes every `tools/list` page (MCP 2025-06-18 permits `nextCursor`) and
+ * rejects the whole response if any page errors, is malformed, or contains a
+ * malformed tool entry, so a partially valid first page can never mask extra
+ * or invalid tools advertised elsewhere in the pagination.
+ */
+async function listAllGithubGatewayTools(
+  contract: EnclaveGithubGatewayContract,
+  sessionId: string,
+  requestBudget: () => number,
+): Promise<string[]> {
+  const tools: string[] = [];
+  let cursor: string | undefined;
+  for (let page = 0; ; page += 1) {
+    if (page >= MAX_TOOLS_LIST_PAGES) {
+      throw new Error('Shared MCP gateway returned too many tools/list pages');
+    }
+    const listed = await postJsonRpc(contract.endpoint, contract.agentId, {
+      jsonrpc: '2.0',
+      id: 2,
+      method: 'tools/list',
+      params: cursor === undefined ? {} : { cursor },
+    }, sessionId, requestBudget());
+    if (listed.body.error !== undefined) {
+      throw new Error('Shared MCP gateway rejected the tools/list request');
+    }
+    const result = listed.body.result;
+    if (
+      !result
+      || typeof result !== 'object'
+      || !('tools' in result)
+      || !Array.isArray(result.tools)
+    ) {
+      throw new Error('Shared MCP gateway returned a malformed tools/list response');
+    }
+    for (const tool of result.tools) {
+      if (
+        !tool
+        || typeof tool !== 'object'
+        || !('name' in tool)
+        || typeof tool.name !== 'string'
+        || tool.name === ''
+      ) {
+        throw new Error('Shared MCP gateway returned a malformed tools/list entry');
+      }
+      tools.push(tool.name);
+    }
+    const nextCursor = 'nextCursor' in result ? result.nextCursor : undefined;
+    if (nextCursor === undefined) break;
+    if (typeof nextCursor !== 'string' || nextCursor === '') {
+      throw new Error('Shared MCP gateway returned a malformed tools/list nextCursor');
+    }
+    cursor = nextCursor;
+  }
+  return tools.sort();
 }
 
 export async function assertEnclaveGithubGatewayReady(
