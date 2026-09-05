@@ -24,6 +24,7 @@ describe('validateCopilotModel', () => {
   it.each([
     'gpt-4.5',
     'gpt-5.1',
+    'gpt-6-astra',
     'claude-fable-5',
     'claude-mythos-5',
     'claude-sonnet-5',
