@@ -14,6 +14,27 @@ AWF stages immutable repository seeds on the host, starts one AWF-owned `enclave
 
 The primary agent never receives a broker socket, wrapper binary, direct MCP server URL, capability, repository seed, ledger state, or alternate transport.
 
+Repository admission has two modes, both served by this same MCP backend:
+
+- **Static seed-backed mode** — the existing `repos` lists in enclave entries
+  form the trusted repository catalog. AWF stages immutable seeds for that
+  catalog before primary-agent work begins. Each invocation selects one catalog
+  entry and exposes only that repository to the single-use executor.
+- **Dynamic GitHub-MCP-backed mode** — the compiler provides a closed policy
+  envelope instead of enumerating repository seeds in workflow frontmatter. Each
+  invocation provides only a canonical `owner/repo` selector, bounded
+  prompt/script payload, and finite response schema. AWF admits at most one
+  repository for that invocation through the compiler-owned GitHub MCP path and
+  records the admitted default-branch SHA.
+
+Static and dynamic modes are compatible in one workflow run but mutually
+exclusive within a single enclave entry: an entry declares either static `repos`
+or a dynamic repository policy. Caller-controlled repository names are never
+interpreted as policy. They cannot alter sensitivity, tools, credentials,
+runtime, model, image, network, filesystem, resource limits, timeouts, or
+quotas. Cross-repository aggregation occurs only in the primary agent by
+combining multiple bounded enclave results.
+
 ## Tool contracts
 
 The AWF-owned MCP server publishes only the enabled enclave tools:
@@ -181,6 +202,101 @@ Only the existing finite-schema result, shared ledger debit, and timing bucket
 can return to the primary agent. Shutdown drains admissions, removes labelled
 enclaves, disconnects compiler-owned mcpg from the enclave network, and then
 removes private state. AWF never stops or removes the shared gateway container.
+
+## Dynamic repository enclaves
+
+Dynamic repository enclaves extend GitHub access from a static seed catalog to
+runtime admission while preserving compiler ownership of security-sensitive
+bounds. The compiler-to-AWF envelope is closed and includes allowed owners or
+exact repository patterns, sensitivity, permitted executor types and GitHub MCP
+tools, maximum admitted repositories, per-invocation CPU/memory/process/
+filesystem/network/time/prompt/script/response limits, total quotas, audit
+labels, and an absolute expiry no later than the workflow job lifetime. AWF
+rejects unknown envelope fields and fails closed if any requested bound cannot
+be enforced by AWF, mcpg, the runtime registry, or the executor. Admission,
+identity delegation, live-read setup, executor startup, revocation, and cleanup
+failures do not fall back to static mode, the existing job-lifetime GitHub
+identity, or a broader policy.
+
+Dynamic invocation flow:
+
+1. The primary agent calls `enclave_run_script` or `enclave_run_agent` with one
+   canonical repository selector, bounded payload, and finite schema.
+2. AWF serializes admission through the shared enclave lane, validates the
+   selector against the compiler envelope, and debits the shared repository
+   ledger before execution.
+3. The compiler-owned GitHub MCP path creates or confirms an invocation-scoped
+   delegated identity bound to that run, enclave entry, admitted repository,
+   approved tools, schema, and expiry.
+4. AWF records the admitted repository hash and default-branch SHA, stores the
+   delegated identity only in invocation-private state, and mounts it read-only
+   into the single-use executor.
+5. The executor may access only the admitted repository through the delegated
+   GitHub MCP identity. If a GitHub MCP tool supports immutable refs, AWF uses
+   the admitted default-branch SHA; otherwise the audit record marks the data as
+   a live read at that admitted SHA.
+6. On completion, timeout, failure, or shutdown, AWF requests identity
+   revocation, records the revocation state, removes invocation-private state,
+   and admits no other repository until cleanup for the serialized lane is
+   complete.
+
+Unlike static GitHub access, the delegated identity is not a reusable
+job-lifetime credential. mcpg must reject replayed, expired, revoked,
+wrong-tool, and wrong-repository uses. The primary agent never receives the
+identity, the policy envelope, raw repository names from denied selectors,
+GitHub credentials, or a direct enclave transport.
+
+Dynamic admission is idempotent by `(run, enclave entry, invocation id,
+canonical repository)`: retries receive the same recorded admission and
+default-branch SHA or the same canonical denial after expiry or quota
+exhaustion. Audit records include mode, enclave entry, invocation id, selector
+hash, admitted repository hash, admitted default-branch SHA when available,
+policy envelope id and expiry, delegated identity id hash, tool set, quota
+debits, timing bucket, executor result, revocation state, and cleanup state.
+Private repository names and credentials are not disclosed in primary-agent
+outputs.
+
+All inaccessible, nonexistent, out-of-policy, expired, malformed, and over-quota
+selectors return the same canonical admission-denied error. That error omits the
+requested owner/repository, policy reason, upstream HTTP status, credential
+state, and timing detail so dynamic mode does not become an existence oracle.
+Trusted operators can inspect only redacted audit diagnostics.
+
+### Dynamic threat model
+
+- **Repository-scope escape**: one invocation exposes one admitted repository;
+  every GitHub MCP call is constrained by the delegated identity and approved
+  tool set.
+- **Search query scope escape**: organization-wide or global search is rejected
+  unless represented as repository-scoped reads over separately admitted
+  invocations.
+- **Confused deputy behavior**: AWF never turns a caller-provided name into a
+  broader credential; the compiler-created identity is bound after policy
+  admission.
+- **SSRF**: repository selectors are canonical data, not URLs, hostnames, proxy
+  configuration, or egress allowlist entries.
+- **Identity replay and stale identities**: identities expire no later than the
+  invocation timeout, are revoked on every terminal path, and are rejected after
+  shutdown.
+- **Races**: one admission serialization lane covers static and dynamic calls,
+  preventing concurrent quota bypass or repository/identity mixups.
+- **Resource exhaustion**: compiler-owned quotas bound repository count,
+  invocation count, bytes, CPU, memory, process count, filesystem exposure,
+  prompt/script sizes, schema size, runtime, and cleanup grace.
+- **Existence disclosure**: denial reasons collapse to one canonical error and
+  timing bucket; detailed reasons are redacted into audit only.
+- **Cleanup failures**: shutdown closes admissions first, drains or cancels the
+  execution lane within the configured grace period, revokes outstanding
+  identities, reconciles labelled resources, records failures, and fails closed
+  for later admissions until reconciliation succeeds.
+- **Admission and setup failures**: policy lookup, identity delegation,
+  default-branch resolution, runtime-registry lookup, and executor-start errors
+  fail closed without retrying under broader credentials or another repository
+  mode.
+
+See [ADR 0001: Agent enclave repository admission](adr/0001-agent-enclaves.md)
+for the stable compiler, mcpg, runtime-registry, executor, and integration
+contract.
 
 ## Coverage after legacy smoke removal
 
