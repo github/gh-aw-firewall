@@ -22,7 +22,7 @@ module.exports = Object.freeze({
   'gpt-5.6-luna':      { input: 1.00,  cachedInput: 0.10,  cacheWrite: null, output: 6.00 },
   'gpt-5.6-sol':       { input: 5.00,  cachedInput: 0.50,  cacheWrite: null, output: 30.00 },
   'gpt-5.6-terra':     { input: 2.50,  cachedInput: 0.25,  cacheWrite: null, output: 15.00 },
-  'gpt-6-astra':       { input: 5.00, cachedInput: 0.50, cacheWrite: null, output: 30.00 },
+  'gpt-6-astra':       { input: 10.00, cachedInput: 1.00,  cacheWrite: null, output: 50.00 },
   'claude-haiku-4-5':  { input: 1.00,  cachedInput: 0.10,  cacheWrite: 1.25, output: 5.00 },
   'claude-sonnet-4':   { input: 3.00,  cachedInput: 0.30,  cacheWrite: 3.75, output: 15.00 },
   'claude-sonnet-4-5': { input: 3.00,  cachedInput: 0.30,  cacheWrite: 3.75, output: 15.00 },
