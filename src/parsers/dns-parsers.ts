@@ -5,6 +5,7 @@ const DEFAULT_DOH_RESOLVER = 'https://dns.google/dns-query';
 interface LocalhostProcessingResult {
   allowedDomains: string[];
   localhostDetected: boolean;
+  hostGatewayDetected: boolean;
   shouldEnableHostAccess: boolean;
   defaultPorts?: string;
 }
@@ -48,7 +49,7 @@ export function parseDnsOverHttps(
 }
 
 /**
- * Processes the localhost keyword in the allowed domains list.
+ * Processes host-gateway keywords in the allowed domains list.
  */
 export function processLocalhostKeyword(
   allowedDomains: string[],
@@ -56,24 +57,37 @@ export function processLocalhostKeyword(
   allowHostPorts: string | undefined
 ): LocalhostProcessingResult {
   const localhostIndex = allowedDomains.findIndex(d =>
-    d === 'localhost' || d === 'http://localhost' || d === 'https://localhost'
+    d === 'localhost' ||
+    d === 'http://localhost' ||
+    d === 'https://localhost'
   );
+  const hostGatewayIndex = localhostIndex === -1 ? allowedDomains.findIndex(d =>
+    d === 'host.docker.internal' ||
+    d === 'http://host.docker.internal' ||
+    d === 'https://host.docker.internal'
+  ) : localhostIndex;
 
-  if (localhostIndex === -1) {
+  if (hostGatewayIndex === -1) {
     return {
       allowedDomains,
       localhostDetected: false,
+      hostGatewayDetected: false,
       shouldEnableHostAccess: false,
     };
   }
 
-  // Remove localhost and replace with host.docker.internal
-  const localhostValue = allowedDomains[localhostIndex];
+  const localhostDetected = localhostIndex !== -1;
+
+  // Normalize localhost to host.docker.internal. An explicit
+  // host.docker.internal entry is already normalized.
+  const localhostValue = allowedDomains[hostGatewayIndex];
   const updatedDomains = [...allowedDomains];
-  updatedDomains.splice(localhostIndex, 1);
+  updatedDomains.splice(hostGatewayIndex, 1);
 
   // Preserve protocol if specified
-  if (localhostValue.startsWith('http://')) {
+  if (localhostValue === 'host.docker.internal') {
+    updatedDomains.push(localhostValue);
+  } else if (localhostValue.startsWith('http://')) {
     updatedDomains.push('http://host.docker.internal');
   } else if (localhostValue.startsWith('https://')) {
     updatedDomains.push('https://host.docker.internal');
@@ -83,8 +97,9 @@ export function processLocalhostKeyword(
 
   return {
     allowedDomains: updatedDomains,
-    localhostDetected: true,
+    localhostDetected,
+    hostGatewayDetected: true,
     shouldEnableHostAccess: !enableHostAccess,
-    defaultPorts: allowHostPorts ? undefined : '3000,3001,4000,4200,5000,5173,8000,8080,8081,8888,9000,9090',
+    defaultPorts: localhostDetected && !allowHostPorts ? '3000,3001,4000,4200,5000,5173,8000,8080,8081,8888,9000,9090' : undefined,
   };
 }

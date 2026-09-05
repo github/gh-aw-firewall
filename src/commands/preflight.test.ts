@@ -135,6 +135,7 @@ describe('resolveAllowedDomains', () => {
     mockedOptionParsers.processLocalhostKeyword.mockReturnValue({
       allowedDomains: [],
       localhostDetected: false,
+      hostGatewayDetected: false,
       shouldEnableHostAccess: false,
     });
     mockedCopilotResolver.resolveCopilotApiRouting.mockReturnValue({
@@ -160,6 +161,7 @@ describe('resolveAllowedDomains', () => {
     mockedOptionParsers.processLocalhostKeyword.mockReturnValue({
       allowedDomains: ['example.com'],
       localhostDetected: false,
+      hostGatewayDetected: false,
       shouldEnableHostAccess: false,
     });
 
@@ -173,6 +175,7 @@ describe('resolveAllowedDomains', () => {
     mockedOptionParsers.processLocalhostKeyword.mockReturnValue({
       allowedDomains: ['file-domain.com'],
       localhostDetected: false,
+      hostGatewayDetected: false,
       shouldEnableHostAccess: false,
     });
 
@@ -195,6 +198,7 @@ describe('resolveAllowedDomains', () => {
     mockedOptionParsers.processLocalhostKeyword.mockReturnValue({
       allowedDomains: ['ruleset-domain.com'],
       localhostDetected: false,
+      hostGatewayDetected: false,
       shouldEnableHostAccess: false,
     });
 
@@ -221,6 +225,7 @@ describe('resolveAllowedDomains', () => {
     mockedOptionParsers.processLocalhostKeyword.mockReturnValue({
       allowedDomains: ['bad domain!'],
       localhostDetected: false,
+      hostGatewayDetected: false,
       shouldEnableHostAccess: false,
     });
     mockedApiProxyConfig.resolveApiTargetsToAllowedDomains.mockReturnValue(['bad domain!']);
@@ -238,6 +243,7 @@ describe('resolveAllowedDomains', () => {
     mockedOptionParsers.processLocalhostKeyword.mockReturnValue({
       allowedDomains: ['host.docker.internal'],
       localhostDetected: true,
+      hostGatewayDetected: true,
       shouldEnableHostAccess: true,
       defaultPorts: '3000,8080',
     });
@@ -250,6 +256,26 @@ describe('resolveAllowedDomains', () => {
     expect(options.enableHostAccess).toBe(true);
     expect(options.allowHostPorts).toBe('3000,8080');
     expect(mockedLogger.warn).toHaveBeenCalledWith(expect.stringContaining('localhost keyword enables host access'));
+  });
+
+  it('enables host access for explicit host gateway domains without treating them as localhost', () => {
+    mockedOptionParsers.processLocalhostKeyword.mockReturnValue({
+      allowedDomains: ['host.docker.internal'],
+      localhostDetected: false,
+      hostGatewayDetected: true,
+      shouldEnableHostAccess: true,
+      defaultPorts: undefined,
+    });
+    mockedDomainUtils.parseDomains.mockReturnValue(['host.docker.internal']);
+
+    const options: Record<string, unknown> = { allowDomains: 'host.docker.internal', allowHostPorts: '11434' };
+    const result = resolveAllowedDomains(options);
+
+    expect(result.localhostResult.localhostDetected).toBe(false);
+    expect(result.localhostResult.hostGatewayDetected).toBe(true);
+    expect(options.enableHostAccess).toBe(true);
+    expect(options.allowHostPorts).toBe('11434');
+    expect(mockedLogger.warn).not.toHaveBeenCalledWith(expect.stringContaining('localhost keyword enables host access'));
   });
 
   it('returns resolved Copilot API target from resolver', () => {
@@ -267,6 +293,7 @@ describe('resolveAllowedDomains', () => {
     mockedOptionParsers.processLocalhostKeyword.mockReturnValue({
       allowedDomains: ['localhost'],
       localhostDetected: true,
+      hostGatewayDetected: true,
       shouldEnableHostAccess: false,
     });
     mockedDomainUtils.parseDomains.mockReturnValue(['localhost']);
@@ -286,6 +313,7 @@ describe('resolveAllowedDomains', () => {
     mockedOptionParsers.processLocalhostKeyword.mockReturnValue({
       allowedDomains: ['localhost'],
       localhostDetected: true,
+      hostGatewayDetected: true,
       shouldEnableHostAccess: false,
       defaultPorts: undefined,
     });
@@ -332,6 +360,7 @@ describe('resolveAllowedDomains', () => {
     mockedOptionParsers.processLocalhostKeyword.mockReturnValue({
       allowedDomains: ['awmg-mcpg'],
       localhostDetected: false,
+      hostGatewayDetected: false,
       shouldEnableHostAccess: false,
     });
 

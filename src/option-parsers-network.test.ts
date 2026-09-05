@@ -85,6 +85,7 @@ describe('processLocalhostKeyword', () => {
       );
 
       expect(result.localhostDetected).toBe(false);
+      expect(result.hostGatewayDetected).toBe(false);
       expect(result.allowedDomains).toEqual(['github.com', 'example.com']);
       expect(result.shouldEnableHostAccess).toBe(false);
       expect(result.defaultPorts).toBeUndefined();
@@ -100,6 +101,7 @@ describe('processLocalhostKeyword', () => {
       );
 
       expect(result.localhostDetected).toBe(true);
+      expect(result.hostGatewayDetected).toBe(true);
       expect(result.allowedDomains).toEqual(['github.com', 'host.docker.internal']);
       expect(result.shouldEnableHostAccess).toBe(true);
       expect(result.defaultPorts).toBe('3000,3001,4000,4200,5000,5173,8000,8080,8081,8888,9000,9090');
@@ -113,6 +115,7 @@ describe('processLocalhostKeyword', () => {
       );
 
       expect(result.localhostDetected).toBe(true);
+      expect(result.hostGatewayDetected).toBe(true);
       expect(result.allowedDomains).toEqual(['host.docker.internal']);
       expect(result.shouldEnableHostAccess).toBe(true);
     });
@@ -127,6 +130,7 @@ describe('processLocalhostKeyword', () => {
       );
 
       expect(result.localhostDetected).toBe(true);
+      expect(result.hostGatewayDetected).toBe(true);
       expect(result.allowedDomains).toEqual(['github.com', 'http://host.docker.internal']);
       expect(result.shouldEnableHostAccess).toBe(true);
       expect(result.defaultPorts).toBe('3000,3001,4000,4200,5000,5173,8000,8080,8081,8888,9000,9090');
@@ -142,6 +146,7 @@ describe('processLocalhostKeyword', () => {
       );
 
       expect(result.localhostDetected).toBe(true);
+      expect(result.hostGatewayDetected).toBe(true);
       expect(result.allowedDomains).toEqual(['github.com', 'https://host.docker.internal']);
       expect(result.shouldEnableHostAccess).toBe(true);
       expect(result.defaultPorts).toBe('3000,3001,4000,4200,5000,5173,8000,8080,8081,8888,9000,9090');
@@ -222,6 +227,7 @@ describe('processLocalhostKeyword', () => {
       );
 
       expect(result.localhostDetected).toBe(false);
+      expect(result.hostGatewayDetected).toBe(false);
       expect(result.allowedDomains).toEqual([]);
     });
   });

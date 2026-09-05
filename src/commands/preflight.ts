@@ -158,14 +158,16 @@ export function resolveAllowedDomains(options: Record<string, unknown>): Allowed
     options.allowHostPorts as string | undefined
   );
 
-  if (localhostResult.localhostDetected) {
+  if (localhostResult.hostGatewayDetected) {
     allowedDomains = localhostResult.allowedDomains;
 
     // Auto-enable host access
     if (localhostResult.shouldEnableHostAccess) {
       options.enableHostAccess = true;
-      logger.warn('⚠️  Security warning: localhost keyword enables host access - agent can reach services on your machine');
-      logger.info('ℹ️  localhost keyword detected - automatically enabling host access');
+      if (localhostResult.localhostDetected) {
+        logger.warn('⚠️  Security warning: localhost keyword enables host access - agent can reach services on your machine');
+        logger.info('ℹ️  localhost keyword detected - automatically enabling host access');
+      }
     }
 
     // Auto-configure common dev ports if not already specified

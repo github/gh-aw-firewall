@@ -148,6 +148,7 @@ describe('validateOptions', () => {
       sensitiveAllowedDomains: [],
       localhostResult: {
         localhostDetected: false,
+        hostGatewayDetected: false,
         allowedDomains: ['github.com'],
         shouldEnableHostAccess: false,
       },
@@ -579,6 +580,7 @@ describe('validateOptions', () => {
         sensitiveAllowedDomains: [],
         localhostResult: {
           localhostDetected: false,
+          hostGatewayDetected: true,
           allowedDomains: ['host.docker.internal'],
           shouldEnableHostAccess: false,
         },
