@@ -4,6 +4,13 @@
 
 Layer 5 establishes one `enclaves` subsystem, one AWF-owned MCP server, and mcpg-only access through the compiler handoff contract.
 
+Dynamic repository admission described below is a proposed, version-gated
+extension; it is not supported by the current AWF configuration or runtime.
+Current entries must declare a non-empty static `repos` list and use immutable
+seeds. Operators MUST NOT configure or rely on dynamic-policy fields until an
+AWF release implements them and the required compiler and mcpg version gates
+are available.
+
 ## Architecture
 
 AWF stages immutable repository seeds on the host, starts one AWF-owned `enclave-mcp-server`, and exposes enabled executors only through `gh-aw-mcpg`.
@@ -23,7 +30,7 @@ Repository admission has two modes, both served by this same MCP backend:
   GitHub-enabled agent enclaves keep their current job-lifetime mcpg identity,
   which covers the union of configured repositories; they do not claim the
   dynamic mode's one-repository GitHub-MCP identity guarantee.
-- **Dynamic GitHub-MCP-backed mode** — the compiler provides a closed policy
+- **Dynamic GitHub-MCP-backed mode (planned)** — the compiler will provide a closed policy
   envelope instead of enumerating repository seeds in workflow frontmatter. Each
   invocation provides only a canonical `owner/repo` selector, bounded
   agent prompt, and finite response schema. AWF admits at most one repository
@@ -215,12 +222,22 @@ removes private state. AWF never stops or removes the shared gateway container.
 
 ## Dynamic repository enclaves
 
-Dynamic repository enclaves extend GitHub access from a static seed catalog to
-runtime admission while preserving compiler ownership of security-sensitive
-bounds. Dynamic mode is agent-only: it enables `enclave_run_agent` and rejects
+Dynamic repository enclaves are an unimplemented, version-gated design for
+extending GitHub access from a static seed catalog to runtime admission while
+preserving compiler ownership of security-sensitive bounds. Dynamic mode will
+be agent-only: it will enable `enclave_run_agent` and reject
 `enclave_run_script` because script enclaves are no-network and dynamic mode has
 no immutable seed to mount. A future dynamic script mode would need a separate
 secure repository-access topology before it could be admitted.
+
+A dynamic selector is accepted only when it is already the ASCII byte sequence
+matching
+`^[a-z0-9](?:[a-z0-9-]{0,38})/(?!\.\.?$)(?!.*\.\.)[a-z0-9._-]{1,100}$`.
+There is no trimming, case folding, Unicode normalization, URL decoding, or
+alternate syntax. The compiler, AWF, mcpg, policy lookup, audit hashing, and
+idempotency use those exact canonical UTF-8 bytes; an input variant is denied
+before admission. This is distinct from the legacy static catalog's
+normalization at trusted-config ingestion.
 
 The compiler-to-AWF envelope is closed and includes allowed owners or exact
 repository patterns, sensitivity, the `agent` executor type, a versioned
@@ -243,7 +260,7 @@ discovery, and any tool whose arguments cannot be mechanically confined to the
 admitted repository fail closed until a new versioned policy defines and tests
 that confinement.
 
-Dynamic invocation flow:
+When implemented, the dynamic invocation flow is:
 
 1. The primary agent calls `enclave_run_agent` with one canonical repository
    selector, bounded prompt, and finite schema.

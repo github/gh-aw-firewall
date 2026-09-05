@@ -2,7 +2,8 @@
 
 ## Status
 
-Accepted for implementation planning.
+Proposed for implementation planning. Dynamic repository admission is not
+implemented by this AWF release.
 
 ## Context
 
@@ -14,7 +15,7 @@ repository names must not change any security-sensitive bound.
 
 ## Decision
 
-AWF supports two repository admission modes behind the same MCP backend:
+This ADR defines two repository admission modes behind the same MCP backend:
 
 - **Static seed-backed mode**: the compiler enumerates `repos` in workflow
   frontmatter. AWF stages immutable repository seeds and each invocation selects
@@ -24,6 +25,13 @@ AWF supports two repository admission modes behind the same MCP backend:
   `owner/repo` selector, a bounded agent prompt, and a finite response schema.
   AWF asks the compiler-owned GitHub MCP path to admit one matching repository
   for that invocation.
+
+Only static seed-backed mode exists today. The current configuration schema and
+preflight require every enclave entry to declare a non-empty `repos` list; they
+do not accept a dynamic policy. All dynamic-mode requirements below are
+implementation requirements, not an operator interface or a compatibility
+promise. A compiler MUST NOT emit dynamic policy until every version gate in
+this ADR is met.
 
 The modes are compatible at the subsystem level but mutually exclusive for a
 single enclave entry: an entry either declares static `repos` or a dynamic
@@ -129,6 +137,22 @@ support that starts mcpg with the dynamic-delegation controller, closed
 `github-repository-read-v1` policy, AWF-only control capability, and gateway
 agent policies. Older components reject dynamic policy fields with no
 permissive fallback.
+
+### Canonical dynamic selector
+
+Every dynamic component uses the selector's canonical UTF-8 byte sequence, not
+a display-normalized value. A caller MUST supply exactly one ASCII
+`owner/repository` value matching:
+
+```text
+^[a-z0-9](?:[a-z0-9-]{0,38})/(?!\.\.?$)(?!.*\.\.)[a-z0-9._-]{1,100}$
+```
+
+There is no trimming, case folding, Unicode normalization, URL decoding, or
+alternate syntax. AWF rejects a selector that is not already canonical before
+policy matching or calling mcpg. The compiler, AWF, mcpg, audit hashing, and
+idempotency all use these exact ASCII bytes. This deliberately differs from
+legacy static configuration, whose trusted catalog is normalized at ingestion.
 
 ## Live-read semantics
 

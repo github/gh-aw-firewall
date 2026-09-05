@@ -1786,7 +1786,12 @@ Each record follows the `blocked-request-diag/v<version>` schema:
 
 ## 14. Unified Enclaves
 
-The optional top-level `enclaves` array defines AWF's sole supported private-repository execution surface. It is structurally identical to the gh-aw compiler's enclave frontmatter: every entry declares exactly one `script` or `agent` executor, its own `repos` list, and entry-level shared controls including `timeout`, `runtime`, `image`, resource limits, and disclosure limits. AWF stages immutable repository seeds on the host, starts one AWF-owned `enclave-mcp-server`, maintains one shared per-repository ledger for the run, and exposes configured executors only through compiler-launched `gh-aw-mcpg`.
+The optional top-level `enclaves` array defines AWF's sole supported private-repository execution surface. It is structurally identical to the gh-aw compiler's enclave frontmatter: every entry declares exactly one `script` or `agent` executor, its own non-empty `repos` list, and entry-level shared controls including `timeout`, `runtime`, `image`, resource limits, and disclosure limits. AWF stages immutable repository seeds on the host, starts one AWF-owned `enclave-mcp-server`, maintains one shared per-repository ledger for the run, and exposes configured executors only through compiler-launched `gh-aw-mcpg`.
+
+Dynamic repository-policy entries are not supported by this configuration
+schema or runtime. `docs/adr/0001-agent-enclaves.md` describes a proposed,
+version-gated dynamic admission contract; it does not add configuration fields
+to this release.
 
 ### 14.1 Executors and shared configuration
 
