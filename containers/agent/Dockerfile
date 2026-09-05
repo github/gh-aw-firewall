@@ -30,7 +30,18 @@ RUN wget -q "https://github.com/cli/cli/archive/refs/tags/v${GH_VERSION}.tar.gz"
 FROM ${BASE_IMAGE} AS one-shot-token-build
 
 COPY one-shot-token/one-shot-token.c /tmp/one-shot-token.c
-RUN apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update && \
+RUN if getent hosts azure.archive.ubuntu.com >/dev/null 2>&1; then \
+      if [ -f /etc/apt/sources.list ]; then \
+        sed -i 's|http://archive.ubuntu.com|http://azure.archive.ubuntu.com|g' /etc/apt/sources.list; \
+        sed -i 's|http://security.ubuntu.com|http://azure.archive.ubuntu.com|g' /etc/apt/sources.list; \
+      fi; \
+      if [ -d /etc/apt/sources.list.d ]; then \
+        find /etc/apt/sources.list.d -name '*.sources' -exec \
+          sed -i -e 's|http://archive.ubuntu.com|http://azure.archive.ubuntu.com|g' \
+                 -e 's|http://security.ubuntu.com|http://azure.archive.ubuntu.com|g' {} +; \
+      fi; \
+    fi && \
+    apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update && \
     apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 \
       install -y --no-install-recommends gcc libc6-dev binutils && \
     gcc -shared -fPIC -fvisibility=hidden -O2 -Wall -s \
