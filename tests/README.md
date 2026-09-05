@@ -23,6 +23,7 @@ This directory contains comprehensive integration tests that verify firewall beh
 - **DNS Servers** (`dns-servers.test.ts`) - DNS server configuration and resolution
 - **Environment Variables** (`environment-variables.test.ts`) - Environment variable passing
 - **Volume Mounts** (`volume-mounts.test.ts`) - Volume mount configuration
+- **Sudo secure_path** (`sudo-secure-path.test.ts`) - $GITHUB_PATH recovery across the `sudo -E awf` boundary
 
 ### Protocol & Network
 - **Protocol Support** (`protocol-support.test.ts`) - HTTP/HTTPS, HTTP/2, IPv4/IPv6
@@ -291,6 +292,7 @@ The project uses TypeScript-based integration tests that run in CI via `.github/
 | Config | `dns-servers.test.ts` | DNS configuration |
 | Config | `environment-variables.test.ts` | Environment variables |
 | Config | `volume-mounts.test.ts` | Volume mounts |
+| Config | `sudo-secure-path.test.ts` | $GITHUB_PATH recovery under sudo `secure_path` |
 | Protocol | `protocol-support.test.ts` | HTTP/HTTPS, HTTP/2 |
 | Protocol | `git-operations.test.ts` | Git over HTTPS |
 | Errors | `error-handling.test.ts` | Error scenarios |
