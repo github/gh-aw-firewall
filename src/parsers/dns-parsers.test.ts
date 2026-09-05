@@ -94,6 +94,14 @@ describe('processLocalhostKeyword', () => {
     expect(result.allowedDomains).toContain('github.com');
   });
 
+  it('enables host access when host.docker.internal is explicitly allowed', () => {
+    const result = processLocalhostKeyword(['host.docker.internal'], false, '11434');
+    expect(result.localhostDetected).toBe(true);
+    expect(result.shouldEnableHostAccess).toBe(true);
+    expect(result.allowedDomains).toEqual(['host.docker.internal']);
+    expect(result.defaultPorts).toBeUndefined();
+  });
+
   it('preserves http:// protocol when replacing localhost', () => {
     const result = processLocalhostKeyword(['http://localhost'], false, undefined);
     expect(result.allowedDomains).toContain('http://host.docker.internal');

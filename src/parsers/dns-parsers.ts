@@ -48,7 +48,7 @@ export function parseDnsOverHttps(
 }
 
 /**
- * Processes the localhost keyword in the allowed domains list.
+ * Processes host-gateway keywords in the allowed domains list.
  */
 export function processLocalhostKeyword(
   allowedDomains: string[],
@@ -56,7 +56,12 @@ export function processLocalhostKeyword(
   allowHostPorts: string | undefined
 ): LocalhostProcessingResult {
   const localhostIndex = allowedDomains.findIndex(d =>
-    d === 'localhost' || d === 'http://localhost' || d === 'https://localhost'
+    d === 'localhost' ||
+    d === 'http://localhost' ||
+    d === 'https://localhost' ||
+    d === 'host.docker.internal' ||
+    d === 'http://host.docker.internal' ||
+    d === 'https://host.docker.internal'
   );
 
   if (localhostIndex === -1) {
@@ -67,13 +72,16 @@ export function processLocalhostKeyword(
     };
   }
 
-  // Remove localhost and replace with host.docker.internal
+  // Normalize localhost to host.docker.internal. An explicit
+  // host.docker.internal entry is already normalized.
   const localhostValue = allowedDomains[localhostIndex];
   const updatedDomains = [...allowedDomains];
   updatedDomains.splice(localhostIndex, 1);
 
   // Preserve protocol if specified
-  if (localhostValue.startsWith('http://')) {
+  if (localhostValue === 'host.docker.internal') {
+    updatedDomains.push(localhostValue);
+  } else if (localhostValue.startsWith('http://')) {
     updatedDomains.push('http://host.docker.internal');
   } else if (localhostValue.startsWith('https://')) {
     updatedDomains.push('https://host.docker.internal');
