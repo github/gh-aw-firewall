@@ -81,6 +81,7 @@ describe('processLocalhostKeyword', () => {
   it('returns domains unchanged when localhost is not present', () => {
     const result = processLocalhostKeyword(['github.com', 'api.github.com'], false, undefined);
     expect(result.localhostDetected).toBe(false);
+    expect(result.hostGatewayDetected).toBe(false);
     expect(result.shouldEnableHostAccess).toBe(false);
     expect(result.allowedDomains).toEqual(['github.com', 'api.github.com']);
     expect(result.defaultPorts).toBeUndefined();
@@ -89,6 +90,7 @@ describe('processLocalhostKeyword', () => {
   it('replaces bare localhost with host.docker.internal', () => {
     const result = processLocalhostKeyword(['localhost', 'github.com'], false, undefined);
     expect(result.localhostDetected).toBe(true);
+    expect(result.hostGatewayDetected).toBe(true);
     expect(result.allowedDomains).toContain('host.docker.internal');
     expect(result.allowedDomains).not.toContain('localhost');
     expect(result.allowedDomains).toContain('github.com');
@@ -96,9 +98,22 @@ describe('processLocalhostKeyword', () => {
 
   it('enables host access when host.docker.internal is explicitly allowed', () => {
     const result = processLocalhostKeyword(['host.docker.internal'], false, '11434');
-    expect(result.localhostDetected).toBe(true);
+    expect(result.localhostDetected).toBe(false);
+    expect(result.hostGatewayDetected).toBe(true);
     expect(result.shouldEnableHostAccess).toBe(true);
     expect(result.allowedDomains).toEqual(['host.docker.internal']);
+    expect(result.defaultPorts).toBeUndefined();
+  });
+
+  it.each([
+    ['http://host.docker.internal'],
+    ['https://host.docker.internal'],
+  ])('preserves explicit %s entries without detecting localhost', (domain) => {
+    const result = processLocalhostKeyword([domain], false, '11434');
+    expect(result.localhostDetected).toBe(false);
+    expect(result.hostGatewayDetected).toBe(true);
+    expect(result.shouldEnableHostAccess).toBe(true);
+    expect(result.allowedDomains).toEqual([domain]);
     expect(result.defaultPorts).toBeUndefined();
   });
 
