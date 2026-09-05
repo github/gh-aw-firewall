@@ -211,10 +211,12 @@ function generateDnsSection(dnsServers?: string[]): string {
 # very next lookup attempt re-queries the resolver instead of replaying the
 # cached failure.
 negative_dns_ttl 1 seconds
-# Fail a stalled DNS query quickly (default dns_timeout is 30 seconds) so a
-# slow/unresponsive nameserver doesn't stall requests for that long before
-# Squid tries the next configured nameserver.
-dns_timeout 5 seconds`;
+# Retry another configured nameserver quickly while keeping the total timeout
+# above the retry interval. If dns_timeout is equal to Squid's default
+# dns_retransmit_interval (5 seconds), Squid can hit the total timeout before
+# sending the retry to the fallback nameserver.
+dns_retransmit_interval 1 seconds
+dns_timeout 10 seconds`;
 }
 
 function generateConfigSections(options: {

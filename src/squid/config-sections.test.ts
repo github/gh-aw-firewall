@@ -13,6 +13,34 @@ function buildWithDefaults(overrides: Partial<Parameters<typeof buildConfigSecti
   });
 }
 
+function parseSecondsDirective(section: string, directive: string): number {
+  const directiveLine = section.split('\n').find(line => line.startsWith(`${directive} `));
+  const value = directiveLine?.split(/\s+/)[1];
+  if (!value) {
+    throw new Error(`Missing ${directive} directive`);
+  }
+  return Number(value);
+}
+
+function canReachFallbackResolver(options: {
+  dnsRetransmitIntervalSeconds: number;
+  dnsTimeoutSeconds: number;
+  resolverOutcomes: ('stall' | 'success')[];
+}): boolean {
+  const { dnsRetransmitIntervalSeconds, dnsTimeoutSeconds, resolverOutcomes } = options;
+  let elapsedSeconds = 0;
+  for (const resolverOutcome of resolverOutcomes) {
+    if (elapsedSeconds >= dnsTimeoutSeconds) {
+      return false;
+    }
+    if (resolverOutcome === 'success') {
+      return true;
+    }
+    elapsedSeconds += dnsRetransmitIntervalSeconds;
+  }
+  return false;
+}
+
 describe('buildConfigSections', () => {
   describe('portConfig', () => {
     it('emits http_port with the configured port', () => {
@@ -194,9 +222,23 @@ describe('buildConfigSections', () => {
       expect(dnsSection).toMatch(/^negative_dns_ttl 1 seconds$/m);
     });
 
-    it('lowers dns_timeout so a stalled query fails fast', () => {
+    it('uses a short retransmit interval with enough total timeout for resolver fallback', () => {
       const { dnsSection } = buildWithDefaults();
-      expect(dnsSection).toMatch(/^dns_timeout 5 seconds$/m);
+      expect(dnsSection).toMatch(/^dns_retransmit_interval 1 seconds$/m);
+      expect(dnsSection).toMatch(/^dns_timeout 10 seconds$/m);
+    });
+
+    it('keeps DNS timeout above retransmit interval so fallback nameservers are queried', () => {
+      const { dnsSection } = buildWithDefaults();
+      const dnsRetransmitIntervalSeconds = parseSecondsDirective(dnsSection, 'dns_retransmit_interval');
+      const dnsTimeoutSeconds = parseSecondsDirective(dnsSection, 'dns_timeout');
+
+      expect(dnsRetransmitIntervalSeconds).toBeLessThan(dnsTimeoutSeconds);
+      expect(canReachFallbackResolver({
+        dnsRetransmitIntervalSeconds,
+        dnsTimeoutSeconds,
+        resolverOutcomes: ['stall', 'success'],
+      })).toBe(true);
     });
   });
 
