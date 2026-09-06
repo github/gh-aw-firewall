@@ -15,7 +15,7 @@ const {
   parseApiTargetAndBasePath,
 } = require('../proxy-utils');
 const { validateAuthHeaderEnv } = require('../oidc-adapter-utils');
-const { bearerAuthHeaders, providerKeyHeaders } = require('./auth-headers');
+const { buildAuthHeaderFn } = require('./auth-headers');
 
 const { createProviderAuthScaffold, createOidcAwareProviderAdapter } = require('../adapter-factory');
 const { OPENAI_ENV, COPILOT_ENV } = require('../provider-env-constants');
@@ -63,12 +63,10 @@ function createOpenAIAdapter(env, deps = {}) {
   const basePath = explicitBasePath || (rawTarget === 'api.openai.com' ? '/v1' : '');
 
   // OIDC auth strategy (Azure OpenAI, AWS Bedrock, GCP Vertex AI)
-  function buildTokenAuthHeaders(key) {
-    if (customAuthHeader) {
-      return providerKeyHeaders(customAuthHeader, key);
-    }
-    return bearerAuthHeaders(key);
-  }
+  // Azure OpenAI BYOK uses the `api-key` header instead of `Authorization: Bearer`
+  // (but OIDC auth still requires `Authorization: Bearer` unless explicitly overridden);
+  // buildAuthHeaderFn centralises that "custom header vs. Bearer" branching.
+  const buildTokenAuthHeaders = buildAuthHeaderFn({ headerName: customAuthHeader || undefined });
   const buildStaticAuthHeaders = () => buildTokenAuthHeaders(apiKey);
   return createOidcAwareProviderAdapter({
     env,

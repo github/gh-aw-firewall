@@ -51,6 +51,27 @@ function providerKeyHeaders(headerName, token, extraHeaders) {
 }
 
 /**
+ * Build a reusable auth-header builder function that encapsulates the
+ * "custom header name vs. Authorization prefix" branching shared by the
+ * OpenAI and Copilot adapters.
+ *
+ * When `headerName` is set (e.g. Azure OpenAI BYOK's `api-key`, or a caller
+ * override such as `AWF_OPENAI_AUTH_HEADER`), the returned function builds a
+ * `providerKeyHeaders`-style header. Otherwise it falls back to
+ * `tokenAuthHeaders` using `prefix` (defaulting to `Bearer`), so callers with
+ * a per-request prefix (e.g. Copilot's `token`/`Bearer` split) can still
+ * share this helper.
+ *
+ * @param {{ headerName?: string, prefix?: string }} [options]
+ * @returns {(token: string, extraHeaders?: Record<string, string>) => Record<string, string>}
+ */
+function buildAuthHeaderFn({ headerName, prefix = 'Bearer' } = {}) {
+  return (token, extraHeaders) => (headerName
+    ? providerKeyHeaders(headerName, token, extraHeaders)
+    : tokenAuthHeaders(prefix, token, extraHeaders));
+}
+
+/**
  * Add a `Copilot-Integration-Id` entry to an existing header object.
  *
  * @param {Record<string, string>} headers - Base headers to extend
@@ -61,4 +82,4 @@ function withCopilotIntegration(headers, integrationId) {
   return { ...headers, 'Copilot-Integration-Id': integrationId };
 }
 
-module.exports = { tokenAuthHeaders, bearerAuthHeaders, providerKeyHeaders, withCopilotIntegration };
+module.exports = { tokenAuthHeaders, bearerAuthHeaders, providerKeyHeaders, withCopilotIntegration, buildAuthHeaderFn };
