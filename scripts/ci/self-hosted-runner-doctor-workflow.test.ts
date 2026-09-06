@@ -30,6 +30,7 @@ describe('self-hosted runner doctor workflow config', () => {
     expect(lock).toContain('pull-requests: read');
     expect(lock).toContain('🩺 Runner Doctor');
     expect(lock).toContain('shared/self-hosted-failure-modes.md');
+    expect(lock).toContain('{{#runtime-import .github/workflows/shared/self-hosted-failure-modes.md}}');
     expect(lock).toMatch(/github\/gh-aw(?:-actions\/|\/actions\/)setup@(?:[a-f0-9]{40}|v\d+\.\d+\.\d+)/);
   });
 
@@ -180,6 +181,11 @@ describe('self-hosted runner doctor workflow config', () => {
       expect(content).toContain('github/gh-aw-firewall#8015, github/gh-aw-firewall#8021');
       expect(content).toContain('| B30 | AWF-sandbox workflows fail before Squid starts');
       expect(content).toContain('github/gh-aw-firewall#8014, github/gh-aw-firewall#8023');
+      expect(content).toContain('| B31 | Under `sandbox.agent.runtime: docker-sudo-iptables`');
+      expect(content).toContain('**Fixed in gh-aw (PR github/gh-aw#58625, merged 2026-09-05):** privileged AWF startup preserves the caller `PATH`.');
+      expect(content).toContain('merged PR github/gh-aw-firewall#8173 adds regression coverage');
+      expect(content).toContain('no AWF production-code change was needed.');
+      expect(content).toContain('github/gh-aw#58458, github/gh-aw#58625, github/gh-aw-firewall#8141, github/gh-aw-firewall#8173');
       expect(content).toContain('| C9 | `400 bad request: Authorization header is badly formatted` specifically on the **derived GHEC data-residency Copilot target**');
       expect(content).toContain('receives `token` instead of required `Bearer` prefix');
       expect(content).toContain('| C10 | Fine-grained GitHub PATs (`github_pat_...`) sent to Copilot Business, Enterprise, and canonical GHEC');
@@ -201,6 +207,7 @@ describe('self-hosted runner doctor workflow config', () => {
     expect(source).toContain('- TLS/certificate verification failure from api-proxy against a custom `--openai-api-target`/`--anthropic-api-target` internal endpoint using a private/corporate CA → B28 (api-proxy sidecar had no custom CA trust extension point; fixed in github/gh-aw-firewall#7816 with `apiProxy.caCert`/`--api-proxy-ca-cert`)');
     expect(source).toContain('- `context-rebuild circuit breaker tripped` together with a failed `cd` into the expected workspace path → B29');
     expect(source).toContain('- `awf logs summary` reports "no log sources found" after a pre-egress startup failure with no Squid `access.log` → B30');
+    expect(source).toContain('- A setup-action-selected toolchain version is shadowed by the system-default version inside the AWF agent under `sandbox.agent.runtime: docker-sudo-iptables` → B31');
     expect(source).toContain('- Copilot calls on Business/Enterprise/GHEC use the wrong Authorization scheme specifically for a fine-grained PAT (`github_pat_...`) → C10');
     expect(source).toContain('- `400 bad request: Authorization header is badly formatted` on derived `copilot-api.*.ghe.com` target specifically (not `api.business.githubcopilot.com`) → C9 (derived GHEC Copilot API target incorrectly using the GitHub `token` prefix instead of `Bearer`; fixed in github/gh-aw-firewall#8113)');
     expect(source).toContain('B12 / github/gh-aw-firewall#6326, github/gh-aw-firewall#6328 — On ARC/DinD, a topology-attached DIFC proxy addressed by Kubernetes Service name can remain unresolvable from DinD containers even after the ordering fix.');
@@ -212,6 +219,7 @@ describe('self-hosted runner doctor workflow config', () => {
     expect(source).toContain('A21 / github/gh-aw-firewall#7678, github/gh-aw-firewall#7679, github/gh-aw-firewall#7681, github/gh-aw-firewall#7728 — When a `filesystem.allowWrite` policy narrows `/tmp` to read-only, `awf-agent` startup can fail with `runc create failed: ... mkdirat ... read-only file system`');
     expect(source).toContain('A22 / github/gh-aw#56127, github/gh-aw-firewall#7788, github/gh-aw-firewall#7795 — `arc-dind` topology fails to start when Docker rejects AWF\'s compose `cap_drop` list');
     expect(source).toContain('B27 / github/gh-aw#56463, github/gh-aw-firewall#7809, github/gh-aw-firewall#7817 — Docker Compose refuses to start AWF containers with repeated warnings');
+    expect(portableAgent).toContain('B31 / github/gh-aw#58458, github/gh-aw#58625, github/gh-aw-firewall#8141, github/gh-aw-firewall#8173 — Under `sandbox.agent.runtime: docker-sudo-iptables`');
     expect(portableAgent).toContain('- `unknown shorthand flag: \'d\' in -d` from `docker compose up -d` → A14 (DinD sidecar missing `docker-compose-plugin`)');
     expect(portableAgent).toContain('- `Rootless artifact permission repair failed` on ARC/DinD squid logs → A15 (`dockerHostPathPrefix` not applied to repair bind mount)');
     expect(portableAgent).toContain('- `EAI_AGAIN` / `ENOTFOUND` resolving a topology-attached DIFC proxy (for example `awmg-cli-proxy`) in network-isolation + topology-attach: if DinD `nslookup` fails, match B12; otherwise B5');
@@ -228,6 +236,7 @@ describe('self-hosted runner doctor workflow config', () => {
     expect(portableAgent).toContain('- `a network with name awf-net exists but was not created for project` → B27');
     expect(portableAgent).toContain('- `context-rebuild circuit breaker tripped` together with a failed `cd` into the expected workspace path → B29');
     expect(portableAgent).toContain('- `awf logs summary` reports "no log sources found" after a pre-egress startup failure with no Squid `access.log` → B30');
+    expect(portableAgent).toContain('- A setup-action-selected toolchain version is shadowed by the system-default version inside the AWF agent under `sandbox.agent.runtime: docker-sudo-iptables` → B31');
     expect(portableAgent).toContain('- Copilot calls on Business/Enterprise/GHEC use the wrong Authorization scheme specifically for a fine-grained PAT (`github_pat_...`) → C10');
     expect(portableAgent).toContain('- `400 bad request: Authorization header is badly formatted` on derived `copilot-api.*.ghe.com` target specifically (not `api.business.githubcopilot.com`) → C9 (derived GHEC Copilot API target incorrectly using the GitHub `token` prefix instead of `Bearer`; fixed in github/gh-aw-firewall#8113)');
     expect(portableAgent).toContain('A21 / github/gh-aw-firewall#7678, github/gh-aw-firewall#7679, github/gh-aw-firewall#7681, github/gh-aw-firewall#7728 — When a `filesystem.allowWrite` policy narrows `/tmp` to read-only, `awf-agent` startup can fail with `runc create failed: ... mkdirat ... read-only file system`');
