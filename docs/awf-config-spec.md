@@ -1862,19 +1862,21 @@ enclaves:
           - issue_read
       maxRepositories: 4
       limits:
+        timeoutSeconds: 180
         memoryLimit: 256m
         cpuLimit: "1"
         pidsLimit: 128
         tmpfsLimit: 256m
-        timeout: 180
         maxOutputBytes: 2048
         maxTaskBytes: 4096
+        maxModelRequests: 3
+        maxModelTokens: 10000
       quotas:
-        totalInvocations: 100
-        totalBytes: 10000000
-        totalSeconds: 3600
+        maxInvocations: 100
+        maxOutputBytes: 10000000
+        maxExecutionSeconds: 3600
       auditLabels:
-        run: example-run
+        - "run:example-run"
       expiresAt: "2030-01-01T00:00:00Z"
 ```
 
@@ -1885,9 +1887,9 @@ An agent entry MUST declare exactly one of `repos` or `dynamic`, never both, and
 - `executor` — fixed to `agent`; any other value is rejected.
 - `githubPolicy` — fixed to `{ version: "github-repository-read-v1", tools: ["list_issues", "issue_read"] }`. Any other version, tool set, tool ordering, or additional tool is rejected; this is the sole supported dynamic GitHub policy.
 - `maxRepositories` — a positive integer bound (AWF also enforces its own hard ceiling) on distinct repositories admitted per run.
-- `limits` — the same shape and bounds as the entry-level executor limits (§14.1), scoped to the dynamic policy.
-- `quotas` — `totalInvocations`, `totalBytes`, `totalSeconds`: non-negative total budgets shared across every admission under this policy for the run.
-- `auditLabels` — a bounded map of string labels attached to every audit record produced by this policy; never repository names or credentials.
+- `limits` — the same shape and bounds as the entry-level executor limits (§14.1), scoped to the dynamic policy, using `timeoutSeconds` (not `timeout`) plus required `maxModelRequests`/`maxModelTokens` bounds.
+- `quotas` — `maxInvocations`, `maxOutputBytes`, `maxExecutionSeconds`: non-negative total budgets shared across every admission under this policy for the run. AWF reserves each invocation's worst-case `limits.maxOutputBytes`/`limits.timeoutSeconds` cost against these totals atomically at admission time (before any default-branch lookup), so the total budget can never be exceeded regardless of actual post-execution usage.
+- `auditLabels` — a non-empty array of canonical `label` or `key:value` strings attached to every audit record produced by this policy; never repository names or credentials.
 - `expiresAt` — an absolute ISO-8601 UTC timestamp; admission after this time is denied.
 
 Dynamic-only mode (an agent entry with `dynamic` and no `repos` on any entry) requires no `GH_TOKEN`/`GITHUB_TOKEN` staging credential, clones no repository, and mounts no seed. AWF reads the compiler-minted `AWF_ENCLAVE_GITHUB_DELEGATION_CONTROL_CAPABILITY` once from the host environment, validates it is a run-scoped 256-bit lowercase-hex value, stages it to a private mode-0600 file, and removes it from the inherited environment; it is never mounted into the primary or enclave agent, and control traffic uses a listener distinct from the executor-facing GitHub MCP traffic.

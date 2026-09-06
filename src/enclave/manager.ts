@@ -149,6 +149,19 @@ export async function prepareEnclaves(
     errors.push('enclaves require a staging credential in GH_TOKEN or GITHUB_TOKEN on the AWF host');
   }
   const hasDynamicPolicy = enclaves.executors.agent.dynamic !== undefined;
+  if (hasDynamicPolicy) {
+    // The runtime registry (`DynamicRepositoryRegistry`) is not yet wired
+    // into any MCP request-handling path: `enclave-mcp-server` resolves every
+    // `privateRepo` exclusively via the static seed map. Starting an enclave
+    // with a `dynamic` policy today would silently accept the config and
+    // then reject every dynamic admission at request time. Fail closed here
+    // instead until that wiring lands (tracked alongside ADR 0001 follow-up
+    // work to connect this registry to the MCP request path).
+    errors.push(
+      'enclaves[].dynamic is not yet supported at runtime: the dynamic repository registry is ' +
+      'not wired into the enclave MCP request path, so no dynamic admission can ever succeed',
+    );
+  }
   const delegationCapability = hasDynamicPolicy
     ? takeEnclaveDynamicDelegationCapability(env)
     : undefined;

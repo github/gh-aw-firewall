@@ -138,6 +138,9 @@ export const CANONICAL_DYNAMIC_REPOSITORY_PATTERN =
 /** Canonical dynamic owner scope: the owner half of the selector above. */
 export const CANONICAL_DYNAMIC_OWNER_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,38})$/;
 
+/** Compiler-emitted dynamic audit label form, matching gh-aw#58880 exactly. */
+export const CANONICAL_DYNAMIC_AUDIT_LABEL_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/;
+
 /** Closed GitHub tool policy version accepted for dynamic admission. */
 export type EnclaveDynamicGithubPolicyVersion = 'github-repository-read-v1';
 
@@ -153,32 +156,37 @@ export interface EnclaveDynamicGithubPolicy {
 /**
  * Per-invocation trusted bounds for a dynamically admitted repository.
  * Mirrors the static agent executor's resource/response controls; the
- * invocation selector can never widen any of these.
+ * invocation selector can never widen any of these. Field names and shape
+ * match `buildAWFDynamicEnclavePolicy` in gh-aw#58880 exactly.
  */
 export interface EnclaveDynamicLimits {
+  timeoutSeconds: number;
   memoryLimit: string;
   cpuLimit: string;
   pidsLimit: number;
   tmpfsLimit: string;
-  timeout: number;
   maxOutputBytes: number;
   maxTaskBytes: number;
-  maxModelRequests?: number;
-  maxModelTokens?: number;
+  maxModelRequests: number;
+  maxModelTokens: number;
 }
 
-/** Total, run-wide quotas debited across every dynamic admission. */
+/**
+ * Total, run-wide quotas debited across every dynamic admission. Field names
+ * match `DynamicEnclaveQuotas` in gh-aw#58880 exactly (`quotas.max-invocations`,
+ * `quotas.max-output-bytes`, `quotas.max-execution-seconds`).
+ */
 export interface EnclaveDynamicQuotas {
-  totalInvocations: number;
-  totalBytes: number;
-  totalSeconds: number;
+  maxInvocations: number;
+  maxOutputBytes: number;
+  maxExecutionSeconds: number;
 }
 
 /**
  * Closed compiler-to-AWF dynamic policy envelope for `enclaves[].dynamic`.
- * Structurally identical to the concrete shape emitted by gh-aw#58880: the
- * invocation selector may only choose within this envelope and can never
- * alter any of its fields.
+ * Structurally identical to the concrete shape emitted by
+ * `buildAWFDynamicEnclavePolicy` in gh-aw#58880: the invocation selector may
+ * only choose within this envelope and can never alter any of its fields.
  */
 export interface EnclaveDynamicPolicy {
   allowedOwners: string[];
@@ -189,10 +197,12 @@ export interface EnclaveDynamicPolicy {
   maxRepositories: number;
   limits: EnclaveDynamicLimits;
   quotas: EnclaveDynamicQuotas;
-  auditLabels: Record<string, string>;
-  /** Absolute ISO-8601 expiry, never later than the workflow job lifetime. */
+  /** Non-empty list of compiler-issued audit labels, e.g. `["run:1234"]`. */
+  auditLabels: string[];
+  /** Absolute RFC3339 expiry, never later than the enclave job lifetime. */
   expiresAt: string;
 }
+
 
 export interface EnclavesConfig {
   enabled: boolean;

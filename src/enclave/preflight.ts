@@ -8,6 +8,7 @@ import type {
   EnclavesConfig,
 } from '../types/enclave-options';
 import {
+  CANONICAL_DYNAMIC_AUDIT_LABEL_PATTERN,
   CANONICAL_DYNAMIC_OWNER_PATTERN,
   CANONICAL_DYNAMIC_REPOSITORY_PATTERN,
   ENCLAVE_AGENT_GITHUB_MIN_INTEGRITIES,
@@ -303,8 +304,12 @@ function validateEnclaveDynamicPolicy(dynamic: EnclaveDynamicPolicy, errors: str
     errors.push('enclaves[].dynamic.limits must be an object');
   } else {
     validateResourceLimits('enclaves[].dynamic.limits', limits, errors);
-    if (!Number.isInteger(limits.timeout) || limits.timeout < 1 || limits.timeout > MAX_ENCLAVE_TIMEOUT_SECONDS) {
-      errors.push(`enclaves[].dynamic.limits.timeout must be between 1 and ${MAX_ENCLAVE_TIMEOUT_SECONDS}`);
+    if (
+      !Number.isInteger(limits.timeoutSeconds)
+      || limits.timeoutSeconds < 1
+      || limits.timeoutSeconds > MAX_ENCLAVE_TIMEOUT_SECONDS
+    ) {
+      errors.push(`enclaves[].dynamic.limits.timeoutSeconds must be between 1 and ${MAX_ENCLAVE_TIMEOUT_SECONDS}`);
     }
     validatePositiveInteger('enclaves[].dynamic.limits.maxTaskBytes', limits.maxTaskBytes, errors);
     if (limits.maxTaskBytes > ENCLAVE_AGENT_MAX_TASK_BYTES) {
@@ -313,44 +318,42 @@ function validateEnclaveDynamicPolicy(dynamic: EnclaveDynamicPolicy, errors: str
     if (limits.maxOutputBytes > MAX_RESULT_BYTES) {
       errors.push(`enclaves[].dynamic.limits.maxOutputBytes must be at most ${MAX_RESULT_BYTES}`);
     }
-    if (limits.maxModelRequests !== undefined) {
-      validatePositiveInteger('enclaves[].dynamic.limits.maxModelRequests', limits.maxModelRequests, errors);
-    }
-    if (limits.maxModelTokens !== undefined) {
-      validatePositiveInteger('enclaves[].dynamic.limits.maxModelTokens', limits.maxModelTokens, errors);
-    }
+    validatePositiveInteger('enclaves[].dynamic.limits.maxModelRequests', limits.maxModelRequests, errors);
+    validatePositiveInteger('enclaves[].dynamic.limits.maxModelTokens', limits.maxModelTokens, errors);
   }
   const quotas = dynamic.quotas;
   if (typeof quotas !== 'object' || quotas === null) {
     errors.push('enclaves[].dynamic.quotas must be an object');
   } else {
-    validatePositiveInteger('enclaves[].dynamic.quotas.totalInvocations', quotas.totalInvocations, errors);
-    validatePositiveInteger('enclaves[].dynamic.quotas.totalBytes', quotas.totalBytes, errors);
-    validatePositiveInteger('enclaves[].dynamic.quotas.totalSeconds', quotas.totalSeconds, errors);
+    validatePositiveInteger('enclaves[].dynamic.quotas.maxInvocations', quotas.maxInvocations, errors);
+    validatePositiveInteger('enclaves[].dynamic.quotas.maxOutputBytes', quotas.maxOutputBytes, errors);
+    validatePositiveInteger('enclaves[].dynamic.quotas.maxExecutionSeconds', quotas.maxExecutionSeconds, errors);
   }
   const auditLabels = dynamic.auditLabels;
-  if (typeof auditLabels !== 'object' || auditLabels === null || Array.isArray(auditLabels)) {
-    errors.push('enclaves[].dynamic.auditLabels must be an object');
+  if (!Array.isArray(auditLabels)) {
+    errors.push('enclaves[].dynamic.auditLabels must be an array of strings');
   } else {
-    const entries = Object.entries(auditLabels);
-    if (entries.length > MAX_DYNAMIC_AUDIT_LABELS) {
+    if (auditLabels.length === 0) {
+      errors.push('enclaves[].dynamic.auditLabels must contain at least one label');
+    }
+    if (auditLabels.length > MAX_DYNAMIC_AUDIT_LABELS) {
       errors.push(`enclaves[].dynamic.auditLabels must have at most ${MAX_DYNAMIC_AUDIT_LABELS} entries`);
     }
-    for (const [key, value] of entries) {
+    for (const label of auditLabels) {
       if (
-        typeof value !== 'string'
-        || key.length > MAX_DYNAMIC_AUDIT_LABEL_LENGTH
-        || value.length > MAX_DYNAMIC_AUDIT_LABEL_LENGTH
+        typeof label !== 'string'
+        || label.length > MAX_DYNAMIC_AUDIT_LABEL_LENGTH
+        || !CANONICAL_DYNAMIC_AUDIT_LABEL_PATTERN.test(label)
       ) {
         errors.push(
-          `enclaves[].dynamic.auditLabels entry "${key}" must be a string of at most `
-          + `${MAX_DYNAMIC_AUDIT_LABEL_LENGTH} characters`,
+          `enclaves[].dynamic.auditLabels entry "${String(label)}" must match `
+          + `${CANONICAL_DYNAMIC_AUDIT_LABEL_PATTERN} with at most ${MAX_DYNAMIC_AUDIT_LABEL_LENGTH} characters`,
         );
       }
     }
   }
   if (typeof dynamic.expiresAt !== 'string' || Number.isNaN(Date.parse(dynamic.expiresAt))) {
-    errors.push('enclaves[].dynamic.expiresAt must be a valid ISO-8601 timestamp');
+    errors.push('enclaves[].dynamic.expiresAt must be a valid RFC3339 timestamp');
   } else if (Date.parse(dynamic.expiresAt) <= Date.now()) {
     errors.push('enclaves[].dynamic.expiresAt must be in the future');
   }

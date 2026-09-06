@@ -318,16 +318,18 @@ describe('prepareEnclaves fail-closed preflight', () => {
       githubPolicy: { version: 'github-repository-read-v1', tools: ['list_issues', 'issue_read'] },
       maxRepositories: 4,
       limits: {
+        timeoutSeconds: 120,
         memoryLimit: '1g',
         cpuLimit: '1',
         pidsLimit: 128,
         tmpfsLimit: '256m',
-        timeout: 120,
         maxOutputBytes: 8192,
         maxTaskBytes: 4096,
+        maxModelRequests: 3,
+        maxModelTokens: 10000,
       },
-      quotas: { totalInvocations: 10, totalBytes: 1_000_000, totalSeconds: 3600 },
-      auditLabels: { run: 'test-run' },
+      quotas: { maxInvocations: 10, maxOutputBytes: 1_000_000, maxExecutionSeconds: 3600 },
+      auditLabels: ['run:test-run'],
       expiresAt: '2999-01-01T00:00:00Z',
       ...overrides,
     };
@@ -340,8 +342,8 @@ describe('prepareEnclaves fail-closed preflight', () => {
     }]);
   }
 
-  it('starts dynamic-only mode without a staging credential, clone, or seed mount', async () => {
-    await prepareEnclaves(dynamicOnlyConfig(workDir), {
+  it('fails closed for a dynamic agent entry: no runtime path can admit a dynamic repository yet', async () => {
+    await expect(prepareEnclaves(dynamicOnlyConfig(workDir), {
       env: enclaveEnv({
         GH_TOKEN: undefined,
         GITHUB_TOKEN: undefined,
@@ -349,12 +351,7 @@ describe('prepareEnclaves fail-closed preflight', () => {
       }),
       assertPrimaryAvailable: jest.fn().mockResolvedValue(undefined),
       assertAgentRuntimeAvailable: jest.fn().mockResolvedValue(undefined),
-    });
-    const paths = resolveEnclavePaths(workDir);
-    const seedMap = JSON.parse(fs.readFileSync(paths.seedMapPath, 'utf8'));
-    expect(seedMap.seeds).toEqual([]);
-    expect(fs.readFileSync(paths.delegationCapabilityPath, 'utf8').trim()).toBe('b'.repeat(64));
-    expect(fs.statSync(paths.delegationCapabilityPath).mode & 0o777).toBe(0o600);
+    })).rejects.toThrow(/dynamic repository registry is not wired into the enclave MCP request path/);
   });
 
   it('requires the delegation-control capability for a dynamic agent entry', async () => {
@@ -369,17 +366,17 @@ describe('prepareEnclaves fail-closed preflight', () => {
     })).rejects.toThrow(/AWF_ENCLAVE_GITHUB_DELEGATION_CONTROL_CAPABILITY must contain/);
   });
 
-  it('strips the delegation-control capability from the inherited environment', async () => {
+  it('strips the delegation-control capability from the inherited environment even though dynamic mode fails closed', async () => {
     const env = enclaveEnv({
       GH_TOKEN: undefined,
       GITHUB_TOKEN: undefined,
       AWF_ENCLAVE_GITHUB_DELEGATION_CONTROL_CAPABILITY: 'c'.repeat(64),
     });
-    await prepareEnclaves(dynamicOnlyConfig(workDir), {
+    await expect(prepareEnclaves(dynamicOnlyConfig(workDir), {
       env,
       assertPrimaryAvailable: jest.fn().mockResolvedValue(undefined),
       assertAgentRuntimeAvailable: jest.fn().mockResolvedValue(undefined),
-    });
+    })).rejects.toThrow(/dynamic repository registry is not wired into the enclave MCP request path/);
     expect(env.AWF_ENCLAVE_GITHUB_DELEGATION_CONTROL_CAPABILITY).toBeUndefined();
   });
 

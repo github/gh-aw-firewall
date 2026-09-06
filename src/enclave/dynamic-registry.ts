@@ -73,6 +73,12 @@ interface LedgerRecord {
   terminal: boolean;
 }
 
+/** Injectable clock/timer seams so tests can avoid real wall-clock delay. */
+export interface DynamicRepositoryRegistryOptions {
+  now?: () => number;
+  sleep?: (ms: number) => Promise<void>;
+}
+
 /**
  * Whether a selector is the exact canonical UTF-8 byte sequence ADR 0001
  * requires: no trimming, case folding, Unicode normalization, URL decoding,
@@ -113,22 +119,39 @@ export function resolveDenialTimingBucketMs(elapsedMs: number): number {
  * AWF-owned per-run registry for one dynamic `enclaves[].dynamic` policy
  * envelope. One instance is scoped to one enclave entry for one workflow run;
  * static and dynamic admissions still share the run-wide sensitivity ledger
- * through {@link EnclavesRunLedger} (see `src/enclave/preflight.ts` and
+ * through {@link EnclaveSensitivityLedger} (see `src/enclave/preflight.ts` and
  * `docs/awf-config-spec.md` §14 for the shared-ledger invariant).
  */
 export class DynamicRepositoryRegistry {
   private readonly admissions = new Map<string, LedgerRecord>();
+  /**
+   * Concurrent/retried calls sharing the same idempotency key coalesce onto
+   * this single in-flight promise, so they can never both pass the
+   * synchronous reservation, both invoke the resolver, or settle conflicting
+   * outcomes for the same key.
+   */
+  private readonly inFlight = new Map<string, Promise<DynamicAdmissionOutcome>>();
   private readonly admittedRepos = new Set<string>();
   private readonly reservedRepos = new Set<string>();
   private readonly inFlightInvocations = new Map<string, string>();
   private debitedInvocations = 0;
   private reservedInvocations = 0;
+  private debitedOutputBytes = 0;
+  private reservedOutputBytes = 0;
+  private debitedExecutionSeconds = 0;
+  private reservedExecutionSeconds = 0;
   private reconciled = true;
+  private readonly now: () => number;
+  private readonly sleep: (ms: number) => Promise<void>;
 
   constructor(
     private readonly policy: EnclaveDynamicPolicy,
     private readonly resolveDefaultBranchSha: DefaultBranchResolver,
-  ) {}
+    options: DynamicRepositoryRegistryOptions = {},
+  ) {
+    this.now = options.now ?? Date.now;
+    this.sleep = options.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
+  }
 
   /** Number of distinct repositories admitted so far under this envelope. */
   get admittedRepositoryCount(): number {
@@ -157,39 +180,77 @@ export class DynamicRepositoryRegistry {
    * invocation id with a different selector is always denied rather than
    * rebinding the invocation to another repository.
    *
-   * `maxRepositories` and the total invocation quota are reserved
-   * synchronously before any asynchronous default-branch lookup, so two
-   * concurrent admissions can never both observe capacity and both commit,
-   * regardless of how long the lookup takes.
+   * `maxRepositories` and every total quota (`maxInvocations`,
+   * `maxOutputBytes`, `maxExecutionSeconds`, reserved at this invocation's
+   * worst-case per-invocation limits) are reserved synchronously before any
+   * asynchronous default-branch lookup, so two concurrent admissions can
+   * never both observe capacity and both commit, regardless of how long the
+   * lookup takes. Concurrent or retried calls sharing the same idempotency
+   * key are coalesced onto one in-flight promise rather than independently
+   * re-evaluated, so they can never double-debit a quota or settle
+   * conflicting outcomes.
+   *
+   * Every outcome — admitted or denied — is normalized to the fixed,
+   * jittered timing bucket in {@link resolveDenialTimingBucketMs} before
+   * returning, so elapsed wall-clock time never distinguishes a
+   * synchronously rejected (malformed/out-of-policy/expired/over-quota)
+   * selector from one that failed only after the asynchronous
+   * default-branch lookup.
    */
   async admit(request: DynamicAdmissionRequest): Promise<DynamicAdmissionOutcome> {
     const key = admissionKey(request);
     const existing = this.admissions.get(key);
     if (existing) return existing.outcome;
+    const pending = this.inFlight.get(key);
+    if (pending) return pending;
 
-    const reservation = this.reserve(request);
-    if (!reservation.ok) {
-      return this.settle(key, this.deny());
-    }
-
+    const promise = this.performAdmission(request, key);
+    this.inFlight.set(key, promise);
     try {
-      const defaultBranchSha = await this.resolveDefaultBranchSha(request.selector);
-      if (typeof defaultBranchSha !== 'string' || defaultBranchSha.length === 0) {
-        this.rollback(reservation);
-        return this.settle(key, this.deny());
-      }
-      this.commit(reservation);
-      return this.settle(key, { admitted: true, repo: request.selector, defaultBranchSha });
-    } catch {
-      this.rollback(reservation);
-      return this.settle(key, this.deny());
+      return await promise;
+    } finally {
+      this.inFlight.delete(key);
     }
   }
 
+  private async performAdmission(request: DynamicAdmissionRequest, key: string): Promise<DynamicAdmissionOutcome> {
+    const startedAtMs = this.now();
+    const reservation = this.reserve(request);
+    let outcome: DynamicAdmissionOutcome;
+    if (!reservation.ok) {
+      outcome = this.deny();
+    } else {
+      try {
+        const defaultBranchSha = await this.resolveDefaultBranchSha(request.selector);
+        if (typeof defaultBranchSha !== 'string' || defaultBranchSha.length === 0) {
+          this.rollback(reservation);
+          outcome = this.deny();
+        } else {
+          this.commit(reservation);
+          outcome = { admitted: true, repo: request.selector, defaultBranchSha };
+        }
+      } catch {
+        this.rollback(reservation);
+        outcome = this.deny();
+      }
+    }
+    await this.normalizeTiming(startedAtMs);
+    return this.settle(key, outcome);
+  }
+
+  /** Delays until the elapsed time since `startedAtMs` reaches a fixed, jittered bucket. */
+  private async normalizeTiming(startedAtMs: number): Promise<void> {
+    const elapsedMs = this.now() - startedAtMs;
+    const bucketMs = resolveDenialTimingBucketMs(elapsedMs);
+    const remainingMs = bucketMs - elapsedMs;
+    if (remainingMs > 0) await this.sleep(remainingMs);
+  }
+
   /**
-   * Synchronously validates policy and reserves capacity. Runs entirely
-   * without an `await`, so no other admission can interleave between the
-   * capacity check and the reservation.
+   * Synchronously validates policy and reserves capacity across
+   * `maxRepositories` and every total quota. Runs entirely without an
+   * `await`, so no other admission can interleave between the capacity
+   * check and the reservation.
    */
   private reserve(request: DynamicAdmissionRequest): Reservation {
     if (!this.reconciled) return { ok: false };
@@ -198,8 +259,19 @@ export class DynamicRepositoryRegistry {
     if (boundSelector !== undefined && boundSelector !== request.selector) return { ok: false };
     if (!isCanonicalDynamicSelector(request.selector)) return { ok: false };
     if (!selectorAllowedByPolicy(this.policy, request.selector)) return { ok: false };
-    if (Date.parse(this.policy.expiresAt) <= Date.now()) return { ok: false };
-    if (this.debitedInvocations + this.reservedInvocations >= this.policy.quotas.totalInvocations) {
+    if (Date.parse(this.policy.expiresAt) <= this.now()) return { ok: false };
+    if (this.debitedInvocations + this.reservedInvocations >= this.policy.quotas.maxInvocations) {
+      return { ok: false };
+    }
+    const outputBytesNeeded = this.policy.limits.maxOutputBytes;
+    if (this.debitedOutputBytes + this.reservedOutputBytes + outputBytesNeeded > this.policy.quotas.maxOutputBytes) {
+      return { ok: false };
+    }
+    const executionSecondsNeeded = this.policy.limits.timeoutSeconds;
+    if (
+      this.debitedExecutionSeconds + this.reservedExecutionSeconds + executionSecondsNeeded
+      > this.policy.quotas.maxExecutionSeconds
+    ) {
       return { ok: false };
     }
     const isNewRepo = !this.admittedRepos.has(request.selector) && !this.reservedRepos.has(request.selector);
@@ -210,12 +282,25 @@ export class DynamicRepositoryRegistry {
     this.inFlightInvocations.set(invocationKey, request.selector);
     if (isNewRepo) this.reservedRepos.add(request.selector);
     this.reservedInvocations += 1;
-    return { ok: true, invocationKey, selector: request.selector, isNewRepo };
+    this.reservedOutputBytes += outputBytesNeeded;
+    this.reservedExecutionSeconds += executionSecondsNeeded;
+    return {
+      ok: true,
+      invocationKey,
+      selector: request.selector,
+      isNewRepo,
+      outputBytesNeeded,
+      executionSecondsNeeded,
+    };
   }
 
   private commit(reservation: Reservation & { ok: true }): void {
     this.reservedInvocations -= 1;
     this.debitedInvocations += 1;
+    this.reservedOutputBytes -= reservation.outputBytesNeeded;
+    this.debitedOutputBytes += reservation.outputBytesNeeded;
+    this.reservedExecutionSeconds -= reservation.executionSecondsNeeded;
+    this.debitedExecutionSeconds += reservation.executionSecondsNeeded;
     if (reservation.isNewRepo) {
       this.reservedRepos.delete(reservation.selector);
       this.admittedRepos.add(reservation.selector);
@@ -225,6 +310,8 @@ export class DynamicRepositoryRegistry {
   private rollback(reservation: Reservation & { ok: true }): void {
     this.inFlightInvocations.delete(reservation.invocationKey);
     this.reservedInvocations -= 1;
+    this.reservedOutputBytes -= reservation.outputBytesNeeded;
+    this.reservedExecutionSeconds -= reservation.executionSecondsNeeded;
     if (reservation.isNewRepo) this.reservedRepos.delete(reservation.selector);
   }
 
@@ -240,7 +327,14 @@ export class DynamicRepositoryRegistry {
 
 type Reservation =
   | { ok: false }
-  | { ok: true; invocationKey: string; selector: string; isNewRepo: boolean };
+  | {
+    ok: true;
+    invocationKey: string;
+    selector: string;
+    isNewRepo: boolean;
+    outputBytesNeeded: number;
+    executionSecondsNeeded: number;
+  };
 
 /**
  * Shared per-run information budget debited by both static and dynamic

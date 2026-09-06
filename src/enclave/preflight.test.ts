@@ -458,16 +458,18 @@ function dynamicPolicy(overrides: Record<string, unknown> = {}) {
     githubPolicy: { version: 'github-repository-read-v1', tools: ['list_issues', 'issue_read'] },
     maxRepositories: 4,
     limits: {
+      timeoutSeconds: 120,
       memoryLimit: '1g',
       cpuLimit: '1',
       pidsLimit: 128,
       tmpfsLimit: '256m',
-      timeout: 120,
       maxOutputBytes: 8192,
       maxTaskBytes: 4096,
+      maxModelRequests: 3,
+      maxModelTokens: 10000,
     },
-    quotas: { totalInvocations: 10, totalBytes: 1_000_000, totalSeconds: 3600 },
-    auditLabels: { run: 'test-run' },
+    quotas: { maxInvocations: 10, maxOutputBytes: 1_000_000, maxExecutionSeconds: 3600 },
+    auditLabels: ['run:test-run'],
     expiresAt: '2999-01-01T00:00:00Z',
     ...overrides,
   };
@@ -532,11 +534,14 @@ describe('validateEnclavesConfig dynamic policy', () => {
 
   it('rejects malformed limits and quotas', () => {
     const errors = validateEnclavesConfig(dynamicConfig({
-      limits: { memoryLimit: 'bogus', cpuLimit: '1', pidsLimit: 1, tmpfsLimit: '1m', timeout: 1, maxOutputBytes: 1, maxTaskBytes: 1 },
-      quotas: { totalInvocations: 0, totalBytes: 1, totalSeconds: 1 },
+      limits: {
+        memoryLimit: 'bogus', cpuLimit: '1', pidsLimit: 1, tmpfsLimit: '1m', timeoutSeconds: 1,
+        maxOutputBytes: 1, maxTaskBytes: 1, maxModelRequests: 1, maxModelTokens: 1,
+      },
+      quotas: { maxInvocations: 0, maxOutputBytes: 1, maxExecutionSeconds: 1 },
     })).join('\n');
     expect(errors).toMatch(/limits.memoryLimit is not a Docker size/);
-    expect(errors).toMatch(/quotas.totalInvocations must be a positive integer/);
+    expect(errors).toMatch(/quotas.maxInvocations must be a positive integer/);
   });
 
   it('rejects an already-expired envelope', () => {
