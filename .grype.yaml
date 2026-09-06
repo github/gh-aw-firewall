@@ -170,7 +170,7 @@ ignore:
   #     `docker cp` or any other Docker archive extraction command, and callers
   #     cannot supply arbitrary Docker CLI arguments.
   #
-  #   No fixed Alpine 3.24 package is available today: docker-cli 29.5.3-r0 is
+  #   No fixed Alpine 3.24 package is available today: docker-cli 29.5.3-r1 is
   #   current in v3.24/community. Alpine edge has 29.7.2-r0, but mixing an
   #   unpinned rolling repository into the stable runtime would weaken build
   #   reproducibility. Revisit when Alpine backports docker-cli >= 29.7.2 to
@@ -179,7 +179,7 @@ ignore:
   - vulnerability: CVE-2026-17106
     package:
       name: docker-cli
-      version: "29.5.3-r0"
+      version: "29.5.3-r1"
       type: apk
 
   # ── stdlib@go1.24.6 embedded in gosu binary ──────────────────────────────────
