@@ -1,6 +1,13 @@
 import { normalizeEnclavesConfig } from '../parsers/enclave-parser';
 import type { WrapperConfig } from '../types';
-import { validateEnclavesConfig } from './preflight';
+import {
+  DYNAMIC_ENCLAVE_EXECUTION_UNSUPPORTED_REASON,
+  validateEnclavesConfig,
+} from './preflight';
+import {
+  GH_AW_DYNAMIC_ENCLAVE_POLICY_FIXTURE,
+  dynamicEnclavePolicyFixture,
+} from './dynamic-policy.test-utils';
 
 function config(overrides: Partial<WrapperConfig> = {}): WrapperConfig {
   return {
@@ -449,104 +456,145 @@ describe('validateEnclavesConfig', () => {
   });
 });
 
-function dynamicPolicy(overrides: Record<string, unknown> = {}) {
-  return {
-    allowedOwners: ['octo-org'],
-    allowedRepositories: [],
-    sensitivity: 'confidential' as const,
-    executor: 'agent' as const,
-    githubPolicy: { version: 'github-repository-read-v1', tools: ['list_issues', 'issue_read'] },
-    maxRepositories: 4,
-    limits: {
-      timeoutSeconds: 120,
-      memoryLimit: '1g',
-      cpuLimit: '1',
-      pidsLimit: 128,
-      tmpfsLimit: '256m',
-      maxOutputBytes: 8192,
-      maxTaskBytes: 4096,
-      maxModelRequests: 3,
-      maxModelTokens: 10000,
-    },
-    quotas: { maxInvocations: 10, maxOutputBytes: 1_000_000, maxExecutionSeconds: 3600 },
-    auditLabels: ['run:test-run'],
-    expiresAt: '2999-01-01T00:00:00Z',
-    ...overrides,
-  };
-}
-
 describe('validateEnclavesConfig dynamic policy', () => {
   function dynamicConfig(overrides: Record<string, unknown> = {}): WrapperConfig {
     const enclaves = normalizeEnclavesConfig([
-      { agent: { model: 'gpt-5' }, dynamic: dynamicPolicy(overrides) as never },
+      { agent: { model: 'gpt-5' }, dynamic: dynamicEnclavePolicyFixture(overrides) as never },
     ]);
     return config({ enclaves, enableApiProxy: true, copilotGithubToken: 'token' });
   }
 
-  it('accepts a well-formed dynamic policy without requiring static repos', () => {
-    expect(validateEnclavesConfig(dynamicConfig())).toEqual([]);
+  /** Structural errors only: every dynamic entry also carries the boundary refusal. */
+  function structuralErrors(overrides: Record<string, unknown> = {}): string {
+    return validateEnclavesConfig(dynamicConfig(overrides))
+      .filter((error) => error !== DYNAMIC_ENCLAVE_EXECUTION_UNSUPPORTED_REASON)
+      .join('\n');
+  }
+
+  it('accepts the exact gh-aw compiler envelope without any structural error', () => {
+    expect(structuralErrors()).toBe('');
+  });
+
+  it('refuses to execute a dynamic entry, naming the missing delegation handoff', () => {
+    const errors = validateEnclavesConfig(dynamicConfig());
+    expect(errors).toContain(DYNAMIC_ENCLAVE_EXECUTION_UNSUPPORTED_REASON);
+    expect(DYNAMIC_ENCLAVE_EXECUTION_UNSUPPORTED_REASON)
+      .toMatch(/github-repository-delegation-v1/);
+    expect(DYNAMIC_ENCLAVE_EXECUTION_UNSUPPORTED_REASON)
+      .toMatch(/never falls back to a static seed catalog/);
   });
 
   it('rejects an unsupported sensitivity', () => {
-    const errors = validateEnclavesConfig(dynamicConfig({ sensitivity: 'bogus' })).join('\n');
-    expect(errors).toMatch(/dynamic.sensitivity "bogus" is not supported/);
+    expect(structuralErrors({ sensitivity: 'bogus' }))
+      .toMatch(/dynamic.sensitivity "bogus" is not supported/);
   });
 
   it('rejects a non-agent executor', () => {
-    const errors = validateEnclavesConfig(dynamicConfig({ executor: 'script' })).join('\n');
-    expect(errors).toMatch(/dynamic.executor must be "agent"/);
+    expect(structuralErrors({ executor: 'script' })).toMatch(/dynamic.executor must be "agent"/);
   });
 
   it('rejects an envelope with no allowed owners or repositories', () => {
-    const errors = validateEnclavesConfig(
-      dynamicConfig({ allowedOwners: [], allowedRepositories: [] }),
-    ).join('\n');
-    expect(errors).toMatch(/must declare at least one allowed owner or repository/);
+    expect(structuralErrors({ allowedOwners: [], allowedRepositories: [] }))
+      .toMatch(/must declare at least one allowed owner or repository/);
   });
 
   it('rejects noncanonical owner and repository selectors', () => {
-    const errors = validateEnclavesConfig(dynamicConfig({ allowedOwners: ['Octo-Org'] })).join('\n');
-    expect(errors).toMatch(/allowedOwners entry "Octo-Org" is not a canonical lowercase owner/);
-    const repoErrors = validateEnclavesConfig(
-      dynamicConfig({ allowedOwners: [], allowedRepositories: ['Octo-Org/Repo'] }),
-    ).join('\n');
-    expect(repoErrors).toMatch(/allowedRepositories entry "Octo-Org\/Repo" is not a canonical/);
+    expect(structuralErrors({ allowedOwners: ['Octo-Org'] }))
+      .toMatch(/allowedOwners entry "Octo-Org" is not a canonical lowercase owner/);
+    expect(structuralErrors({ allowedOwners: [], allowedRepositories: ['Octo-Org/Repo'] }))
+      .toMatch(/allowedRepositories entry "Octo-Org\/Repo" is not a canonical/);
   });
 
   it('rejects an unsupported GitHub policy version', () => {
-    const errors = validateEnclavesConfig(dynamicConfig({
+    expect(structuralErrors({
       githubPolicy: { version: 'github-repository-read-v2', tools: ['list_issues', 'issue_read'] },
-    })).join('\n');
-    expect(errors).toMatch(/githubPolicy.version "github-repository-read-v2" is not supported/);
+    })).toMatch(/githubPolicy.version "github-repository-read-v2" is not supported/);
   });
 
   it('rejects a GitHub tool set narrower or wider than the closed pair', () => {
-    const errors = validateEnclavesConfig(dynamicConfig({
+    expect(structuralErrors({
       githubPolicy: { version: 'github-repository-read-v1', tools: ['list_issues'] },
-    })).join('\n');
-    expect(errors).toMatch(/githubPolicy.tools must be exactly/);
+    })).toMatch(/githubPolicy.tools must be exactly/);
   });
 
-  it('rejects maxRepositories above the AWF-enforceable bound', () => {
-    const errors = validateEnclavesConfig(dynamicConfig({ maxRepositories: 65 })).join('\n');
-    expect(errors).toMatch(/maxRepositories must be at most 64/);
+  it('rejects maxRepositories above the compiler-aligned bound', () => {
+    expect(structuralErrors({ maxRepositories: 1001 }))
+      .toMatch(/maxRepositories must be at most 1000/);
+    expect(structuralErrors({ maxRepositories: 1000 })).toBe('');
   });
 
-  it('rejects malformed limits and quotas', () => {
-    const errors = validateEnclavesConfig(dynamicConfig({
+  it('requires every compiler-owned limit', () => {
+    const errors = structuralErrors({
       limits: {
-        memoryLimit: 'bogus', cpuLimit: '1', pidsLimit: 1, tmpfsLimit: '1m', timeoutSeconds: 1,
-        maxOutputBytes: 1, maxTaskBytes: 1, maxModelRequests: 1, maxModelTokens: 1,
+        timeoutSeconds: 120,
+        memoryLimit: '1g',
+        cpuLimit: '1',
+        pidsLimit: 128,
+        tmpfsLimit: '256m',
+        maxOutputBytes: 8192,
+        maxTaskBytes: 4096,
       },
-      quotas: { maxInvocations: 0, maxOutputBytes: 1, maxExecutionSeconds: 1 },
-    })).join('\n');
+    });
+    expect(errors).toMatch(/limits.maxModelRequests must be a positive integer/);
+    expect(errors).toMatch(/limits.maxModelTokens must be a positive integer/);
+  });
+
+  it('rejects malformed limits and out-of-range model bounds', () => {
+    const errors = structuralErrors({
+      limits: {
+        timeoutSeconds: 120,
+        memoryLimit: 'bogus',
+        cpuLimit: '1',
+        pidsLimit: 1,
+        tmpfsLimit: '1m',
+        maxOutputBytes: 1,
+        maxTaskBytes: 1,
+        maxModelRequests: 65,
+        maxModelTokens: 32769,
+      },
+    });
     expect(errors).toMatch(/limits.memoryLimit is not a Docker size/);
-    expect(errors).toMatch(/quotas.maxInvocations must be a positive integer/);
+    expect(errors).toMatch(/limits.maxModelRequests must be at most 64/);
+    expect(errors).toMatch(/limits.maxModelTokens must be at most 32768/);
+  });
+
+  it('rejects a timeoutSeconds outside the enclave bound', () => {
+    expect(structuralErrors({
+      limits: { ...GH_AW_DYNAMIC_ENCLAVE_POLICY_FIXTURE.limits, timeoutSeconds: 4741 },
+    })).toMatch(/limits.timeoutSeconds must be between 1 and 4740/);
+  });
+
+  it('rejects malformed or out-of-range quotas', () => {
+    expect(structuralErrors({
+      quotas: { maxInvocations: 0, maxOutputBytes: 1, maxExecutionSeconds: 1 },
+    })).toMatch(/quotas.maxInvocations must be a positive integer/);
+    expect(structuralErrors({
+      quotas: { maxInvocations: 10001, maxOutputBytes: 1048577, maxExecutionSeconds: 86401 },
+    })).toMatch(/quotas.maxInvocations must be at most 10000/);
+    expect(structuralErrors({
+      quotas: { maxInvocations: 1, maxOutputBytes: 1048577, maxExecutionSeconds: 1 },
+    })).toMatch(/quotas.maxOutputBytes must be at most 1048576/);
+    expect(structuralErrors({
+      quotas: { maxInvocations: 1, maxOutputBytes: 1, maxExecutionSeconds: 86401 },
+    })).toMatch(/quotas.maxExecutionSeconds must be at most 86400/);
+  });
+
+  it('rejects audit labels that are not a non-empty unique canonical array', () => {
+    expect(structuralErrors({ auditLabels: [] }))
+      .toMatch(/auditLabels must be a non-empty array/);
+    expect(structuralErrors({ auditLabels: { run: 'test-run' } }))
+      .toMatch(/auditLabels must be a non-empty array/);
+    expect(structuralErrors({ auditLabels: ['dup', 'dup'] }))
+      .toMatch(/auditLabels must not contain duplicate labels/);
+    expect(structuralErrors({ auditLabels: ['not a label'] }))
+      .toMatch(/auditLabels entry "not a label" must match/);
+    expect(structuralErrors({ auditLabels: ['-leading-dash'] }))
+      .toMatch(/auditLabels entry "-leading-dash" must match/);
   });
 
   it('rejects an already-expired envelope', () => {
-    const errors = validateEnclavesConfig(dynamicConfig({ expiresAt: '2000-01-01T00:00:00Z' })).join('\n');
-    expect(errors).toMatch(/expiresAt must be in the future/);
+    expect(structuralErrors({ expiresAt: '2000-01-01T00:00:00Z' }))
+      .toMatch(/expiresAt must be in the future/);
   });
 
   it('requires either repos or a dynamic policy for an enabled agent entry', () => {

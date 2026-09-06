@@ -32,6 +32,21 @@ function createLedger(seeds, policy = ENCLAVE_INFORMATION_BUDGET_POLICY) {
 
   return {
     /**
+     * Idempotently opens a balance for a repository admitted after the ledger
+     * was built (dynamic admission, ADR 0001). Re-registering a known
+     * repository is a no-op, so a repository can never be re-admitted to
+     * refill a budget it has already spent.
+     */
+    registerRepository(repoKey, sensitivity) {
+      const normalizedRepoKey = String(repoKey).toLowerCase();
+      if (remaining.has(normalizedRepoKey)) return;
+      if (!Object.prototype.hasOwnProperty.call(policy.runBits, sensitivity)) {
+        throw new Error(`Unknown enclave sensitivity: ${String(sensitivity)}`);
+      }
+      remaining.set(normalizedRepoKey, policy.runBits[sensitivity]);
+    },
+
+    /**
      * Atomically checks and debits `bits` from `repoKey`'s remaining
      * balance. Returns `true` (and debits) iff the charge is affordable;
      * returns `false` (and leaves the balance untouched) otherwise. Safe

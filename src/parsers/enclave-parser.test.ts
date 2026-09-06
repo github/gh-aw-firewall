@@ -5,33 +5,16 @@ import {
   ENCLAVES_DEFAULTS,
 } from '../types/enclave-options';
 import { normalizeEnclavesConfig } from './enclave-parser';
+import {
+  GH_AW_DYNAMIC_ENCLAVE_POLICY_FIXTURE,
+  dynamicEnclavePolicyFixture,
+  typedDynamicEnclavePolicyFixture,
+} from '../enclave/dynamic-policy.test-utils';
+
+/** The exact envelope the gh-aw compiler emits (see the fixture's provenance). */
+const dynamicPolicy = typedDynamicEnclavePolicyFixture;
 
 const repository = { repo: 'octo-org/private-service', sensitivity: 'confidential' as const };
-
-function dynamicPolicy() {
-  return {
-    allowedOwners: ['octo-org'],
-    allowedRepositories: [],
-    sensitivity: 'confidential' as const,
-    executor: 'agent' as const,
-    githubPolicy: { version: 'github-repository-read-v1' as const, tools: ['list_issues', 'issue_read'] as ('list_issues' | 'issue_read')[] },
-    maxRepositories: 4,
-    limits: {
-      timeoutSeconds: 120,
-      memoryLimit: '1g',
-      cpuLimit: '1',
-      pidsLimit: 128,
-      tmpfsLimit: '256m',
-      maxOutputBytes: 8192,
-      maxTaskBytes: 4096,
-      maxModelRequests: 3,
-      maxModelTokens: 10000,
-    },
-    quotas: { maxInvocations: 10, maxOutputBytes: 1_000_000, maxExecutionSeconds: 3600 },
-    auditLabels: ['run:test-run'],
-    expiresAt: '2999-01-01T00:00:00Z',
-  };
-}
 
 describe('normalizeEnclavesConfig', () => {
   it('is absent unless the section is configured', () => {
@@ -321,6 +304,49 @@ describe('enclaves JSON Schema', () => {
     }).length).toBeGreaterThan(0);
   });
 
+  it('accepts the exact gh-aw compiler dynamic envelope verbatim', () => {
+    expect(validateAwfFileConfig({
+      enclaves: [{
+        agent: { model: 'gpt-5' },
+        dynamic: GH_AW_DYNAMIC_ENCLAVE_POLICY_FIXTURE,
+      }],
+    })).toEqual([]);
+  });
+
+  it('rejects the superseded pre-gh-aw#58880 field names', () => {
+    const legacyLimits = validateAwfFileConfig({
+      enclaves: [{
+        agent: { model: 'gpt-5' },
+        dynamic: dynamicEnclavePolicyFixture({
+          limits: {
+            timeout: 120,
+            memoryLimit: '1g',
+            cpuLimit: '1',
+            pidsLimit: 128,
+            tmpfsLimit: '256m',
+            maxOutputBytes: 8192,
+            maxTaskBytes: 4096,
+          },
+        }),
+      }],
+    });
+    expect(legacyLimits.length).toBeGreaterThan(0);
+    expect(validateAwfFileConfig({
+      enclaves: [{
+        agent: { model: 'gpt-5' },
+        dynamic: dynamicEnclavePolicyFixture({
+          quotas: { totalInvocations: 10, totalBytes: 1_000_000, totalSeconds: 3600 },
+        }),
+      }],
+    }).length).toBeGreaterThan(0);
+    expect(validateAwfFileConfig({
+      enclaves: [{
+        agent: { model: 'gpt-5' },
+        dynamic: dynamicEnclavePolicyFixture({ auditLabels: { run: 'test-run' } }),
+      }],
+    }).length).toBeGreaterThan(0);
+  });
+
   it('accepts a dynamic-only agent entry and rejects malformed dynamic envelopes', () => {
     expect(validateAwfFileConfig({
       enclaves: [{ agent: { model: 'gpt-5' }, dynamic: dynamicPolicy() }],
@@ -369,6 +395,25 @@ describe('enclaves JSON Schema', () => {
       enclaves: [{
         agent: { model: 'gpt-5' },
         dynamic: { ...dynamicPolicy(), allowedOwners: [], allowedRepositories: ['Octo-Org/Repo'] },
+      }],
+    }).length).toBeGreaterThan(0);
+    // an empty or duplicated audit-label array fails closed
+    expect(validateAwfFileConfig({
+      enclaves: [{ agent: { model: 'gpt-5' }, dynamic: dynamicEnclavePolicyFixture({ auditLabels: [] }) }],
+    }).length).toBeGreaterThan(0);
+    expect(validateAwfFileConfig({
+      enclaves: [{
+        agent: { model: 'gpt-5' },
+        dynamic: dynamicEnclavePolicyFixture({ auditLabels: ['dup', 'dup'] }),
+      }],
+    }).length).toBeGreaterThan(0);
+    // quotas beyond the compiler's own bounds fail closed
+    expect(validateAwfFileConfig({
+      enclaves: [{
+        agent: { model: 'gpt-5' },
+        dynamic: dynamicEnclavePolicyFixture({
+          quotas: { maxInvocations: 10_001, maxOutputBytes: 1, maxExecutionSeconds: 1 },
+        }),
       }],
     }).length).toBeGreaterThan(0);
   });

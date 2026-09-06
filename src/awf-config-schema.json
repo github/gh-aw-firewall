@@ -1249,7 +1249,7 @@
           "dynamic": {
             "type": "object",
             "additionalProperties": false,
-            "description": "Agent-only dynamic GitHub-MCP-backed repository policy (ADR 0001, docs/adr/0001-agent-enclaves.md). The compiler owns every bound; the invocation selector may only choose within this closed envelope. Mutually exclusive with \"repos\".",
+            "description": "Agent-only dynamic GitHub-MCP-backed repository policy (ADR 0001, docs/adr/0001-agent-enclaves.md). Structurally identical to the compiler-emitted envelope: the compiler owns every bound and the invocation selector may only choose within this closed envelope. Mutually exclusive with \"repos\". AWF validates this envelope and custodies the compiler-minted delegation-control capability, but does not execute dynamic admissions in this release; see docs/awf-config-spec.md §14.1a.",
             "required": [
               "allowedOwners",
               "allowedRepositories",
@@ -1334,13 +1334,13 @@
               "maxRepositories": {
                 "type": "integer",
                 "minimum": 1,
-                "maximum": 64,
+                "maximum": 1000,
                 "description": "Maximum distinct repositories this envelope may admit for the workflow run."
               },
               "limits": {
                 "type": "object",
                 "additionalProperties": false,
-                "description": "Per-invocation trusted bounds; identical shape to the static agent executor's resource and response controls.",
+                "description": "Per-invocation trusted bounds; the same resource and response controls the static agent executor declares at entry level. Every field is required because a dynamic agent entry cannot compile without them.",
                 "required": [
                   "timeoutSeconds",
                   "memoryLimit",
@@ -1388,12 +1388,12 @@
                   "maxModelRequests": {
                     "type": "integer",
                     "minimum": 1,
-                    "maximum": 10000
+                    "maximum": 64
                   },
                   "maxModelTokens": {
                     "type": "integer",
                     "minimum": 1,
-                    "maximum": 10000000
+                    "maximum": 32768
                   }
                 }
               },
@@ -1409,15 +1409,18 @@
                 "properties": {
                   "maxInvocations": {
                     "type": "integer",
-                    "minimum": 1
+                    "minimum": 1,
+                    "maximum": 10000
                   },
                   "maxOutputBytes": {
                     "type": "integer",
-                    "minimum": 1
+                    "minimum": 1,
+                    "maximum": 1048576
                   },
                   "maxExecutionSeconds": {
                     "type": "integer",
-                    "minimum": 1
+                    "minimum": 1,
+                    "maximum": 86400
                   }
                 }
               },
@@ -1425,7 +1428,8 @@
                 "type": "array",
                 "minItems": 1,
                 "maxItems": 32,
-                "description": "Compiler-issued audit labels attached to every audit record produced under this policy.",
+                "uniqueItems": true,
+                "description": "Opaque audit labels AWF and mcpg reconcile all dynamic state against during shutdown. Never repository names or credentials.",
                 "items": {
                   "type": "string",
                   "maxLength": 128,
@@ -1435,7 +1439,7 @@
               "expiresAt": {
                 "type": "string",
                 "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]+)?(?:Z|[+-][0-9]{2}:[0-9]{2})$",
-                "description": "Absolute RFC3339 expiry, never later than the workflow job lifetime."
+                "description": "Absolute ISO-8601 expiry, never later than the workflow job lifetime."
               }
             }
           },

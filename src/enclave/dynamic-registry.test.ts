@@ -1,12 +1,14 @@
 import {
   CANONICAL_DENIAL_REASON,
   DynamicRepositoryRegistry,
-  EnclaveSensitivityLedger,
+  DynamicUsageAccountingError,
   isCanonicalDynamicSelector,
   resolveDenialTimingBucketMs,
-  type DefaultBranchResolver,
+  type DynamicAdmissionClock,
   type DynamicRepositoryRegistryOptions,
 } from './dynamic-registry';
+import { createEnclaveInformationBudgetLedger } from './information-budget';
+import { TIMING_BUCKETS_MS } from '../bounded-execution';
 import type { EnclaveDynamicPolicy } from '../types/enclave-options';
 
 function policy(overrides: Partial<EnclaveDynamicPolicy> = {}): EnclaveDynamicPolicy {
@@ -25,25 +27,46 @@ function policy(overrides: Partial<EnclaveDynamicPolicy> = {}): EnclaveDynamicPo
       tmpfsLimit: '256m',
       maxOutputBytes: 8192,
       maxTaskBytes: 4096,
-      maxModelRequests: 3,
-      maxModelTokens: 10000,
+      maxModelRequests: 8,
+      maxModelTokens: 4096,
     },
     quotas: { maxInvocations: 3, maxOutputBytes: 1_000_000, maxExecutionSeconds: 3600 },
-    auditLabels: ['run:test-run'],
+    auditLabels: ['awf-enclave-dynamic'],
     expiresAt: '2999-01-01T00:00:00Z',
     ...overrides,
   };
 }
 
-/** Skips the real wall-clock timing-normalization delay so tests run fast. */
-const NO_DELAY: DynamicRepositoryRegistryOptions = { sleep: async () => {} };
+/**
+ * Deterministic clock: `sleep` advances virtual time instantly, so timing
+ * normalization is asserted exactly instead of raced against real timers.
+ */
+function fakeClock(): DynamicAdmissionClock & { elapsed: number; sleeps: number[] } {
+  const clock = {
+    elapsed: 0,
+    sleeps: [] as number[],
+    nowMs(): number {
+      return clock.elapsed;
+    },
+    async sleep(ms: number): Promise<void> {
+      clock.sleeps.push(ms);
+      clock.elapsed += ms;
+    },
+  };
+  return clock;
+}
 
-function createRegistry(
-  policyOverrides: Partial<EnclaveDynamicPolicy>,
-  resolver: DefaultBranchResolver,
-  options: DynamicRepositoryRegistryOptions = NO_DELAY,
+function registry(
+  overrides: Partial<DynamicRepositoryRegistryOptions> = {},
 ): DynamicRepositoryRegistry {
-  return new DynamicRepositoryRegistry(policy(policyOverrides), resolver, options);
+  return new DynamicRepositoryRegistry({
+    policy: policy(),
+    resolveDefaultBranchSha: () => 'sha',
+    ledger: createEnclaveInformationBudgetLedger(new Map()),
+    clock: fakeClock(),
+    jitter: () => 0,
+    ...overrides,
+  });
 }
 
 describe('isCanonicalDynamicSelector', () => {
@@ -63,37 +86,36 @@ describe('isCanonicalDynamicSelector', () => {
 
 describe('DynamicRepositoryRegistry', () => {
   it('admits a selector within an allowed owner and resolves the default-branch SHA', async () => {
-    const registry = createRegistry({}, () => 'abc123');
-    const outcome = await registry.admit({
+    const outcome = await registry({ resolveDefaultBranchSha: () => 'abc123' }).admit({
       runId: 'run-1',
       entryId: 'agent',
       invocationId: 'inv-1',
       selector: 'octo-org/private-service',
     });
-    expect(outcome).toEqual({ admitted: true, repo: 'octo-org/private-service', defaultBranchSha: 'abc123' });
+    expect(outcome).toEqual({
+      admitted: true,
+      repo: 'octo-org/private-service',
+      defaultBranchSha: 'abc123',
+      usageHandle: expect.any(String),
+    });
   });
 
   it('admits an exact allowed repository even outside the allowed owners', async () => {
-    const registry = createRegistry({}, () => 'sha-1');
-    const outcome = await registry.admit({
-      runId: 'run-1',
-      entryId: 'agent',
-      invocationId: 'inv-1',
-      selector: 'other-org/exact-repo',
+    const outcome = await registry().admit({
+      runId: 'run-1', entryId: 'agent', invocationId: 'inv-1', selector: 'other-org/exact-repo',
     });
     expect(outcome.admitted).toBe(true);
   });
 
   it('returns the same canonical denial for malformed, out-of-policy, and expired selectors', async () => {
-    const registry = createRegistry({}, () => 'sha');
-    const malformed = await registry.admit({
+    const live = registry();
+    const malformed = await live.admit({
       runId: 'run-1', entryId: 'agent', invocationId: 'inv-a', selector: 'Not-Canonical/Repo',
     });
-    const outOfPolicy = await registry.admit({
+    const outOfPolicy = await live.admit({
       runId: 'run-1', entryId: 'agent', invocationId: 'inv-b', selector: 'unrelated-org/repo',
     });
-    const expiredRegistry = createRegistry({ expiresAt: '2000-01-01T00:00:00Z' }, () => 'sha');
-    const expired = await expiredRegistry.admit({
+    const expired = await registry({ policy: policy({ expiresAt: '2000-01-01T00:00:00Z' }) }).admit({
       runId: 'run-1', entryId: 'agent', invocationId: 'inv-c', selector: 'octo-org/private-service',
     });
     expect(malformed).toEqual({ admitted: false, reason: CANONICAL_DENIAL_REASON });
@@ -102,204 +124,408 @@ describe('DynamicRepositoryRegistry', () => {
   });
 
   it('denies a selector once the resolver rejects it, without disclosing why', async () => {
-    const registry = createRegistry({}, () => {
-      throw new Error('repository is private and inaccessible to this token');
-    });
-    const outcome = await registry.admit({
+    const outcome = await registry({
+      resolveDefaultBranchSha: () => {
+        throw new Error('repository is private and inaccessible to this token');
+      },
+    }).admit({
       runId: 'run-1', entryId: 'agent', invocationId: 'inv-1', selector: 'octo-org/private-service',
     });
     expect(outcome).toEqual({ admitted: false, reason: CANONICAL_DENIAL_REASON });
   });
 
-  it('is idempotent by (run, entry, invocation, repository): a retry returns the same terminal outcome', async () => {
+  it('is idempotent by (run, entry, invocation, repository): a retry returns the same outcome', async () => {
     let calls = 0;
-    const registry = createRegistry({}, () => {
-      calls += 1;
-      return `sha-${calls}`;
+    const live = registry({
+      resolveDefaultBranchSha: () => {
+        calls += 1;
+        return `sha-${calls}`;
+      },
     });
-    const request = { runId: 'run-1', entryId: 'agent', invocationId: 'inv-1', selector: 'octo-org/private-service' };
-    const first = await registry.admit(request);
-    const retry = await registry.admit(request);
+    const request = {
+      runId: 'run-1', entryId: 'agent', invocationId: 'inv-1', selector: 'octo-org/private-service',
+    };
+    const first = await live.admit(request);
+    const retry = await live.admit(request);
     expect(retry).toEqual(first);
+    expect(calls).toBe(1);
+    expect(live.quotaUsage.invocations.debited).toBe(1);
+  });
+
+  it('replays a terminal denial for a retried request without re-evaluating policy', async () => {
+    let calls = 0;
+    const live = registry({
+      resolveDefaultBranchSha: () => {
+        calls += 1;
+        throw new Error('inaccessible');
+      },
+    });
+    const request = {
+      runId: 'run-1', entryId: 'agent', invocationId: 'inv-1', selector: 'octo-org/private-service',
+    };
+    expect(await live.admit(request)).toEqual({ admitted: false, reason: CANONICAL_DENIAL_REASON });
+    expect(await live.admit(request)).toEqual({ admitted: false, reason: CANONICAL_DENIAL_REASON });
     expect(calls).toBe(1);
   });
 
-  it('coalesces concurrent retries of the same idempotency key onto one resolution', async () => {
+  it('coalesces concurrent identical retries into one reservation and one lookup', async () => {
     let calls = 0;
-    let resolveFirst!: (sha: string) => void;
-    const registry = createRegistry(
-      { quotas: { maxInvocations: 1, maxOutputBytes: 1_000_000, maxExecutionSeconds: 3600 } },
-      () => {
+    let release!: (sha: string) => void;
+    const live = registry({
+      resolveDefaultBranchSha: () => {
         calls += 1;
-        return new Promise<string>((resolve) => { resolveFirst = resolve; });
+        return new Promise<string>((resolve) => { release = resolve; });
       },
-    );
-    const request = { runId: 'run-1', entryId: 'agent', invocationId: 'inv-1', selector: 'octo-org/private-service' };
-    const first = registry.admit(request);
-    const second = registry.admit(request);
-    await Promise.resolve(); // let both admit() calls reach the resolver before it settles
-    resolveFirst('sha-concurrent');
-    const [firstOutcome, secondOutcome] = await Promise.all([first, second]);
-    expect(firstOutcome).toEqual(secondOutcome);
-    expect(firstOutcome).toEqual({ admitted: true, repo: 'octo-org/private-service', defaultBranchSha: 'sha-concurrent' });
+    });
+    const request = {
+      runId: 'run-1', entryId: 'agent', invocationId: 'inv-1', selector: 'octo-org/private-service',
+    };
+    const pending = [live.admit(request), live.admit(request), live.admit(request)];
+    release('sha-1');
+    const [a, b, c] = await Promise.all(pending);
     expect(calls).toBe(1);
+    expect(a).toEqual(b);
+    expect(b).toEqual(c);
+    expect(a.admitted).toBe(true);
+    // One reservation, one debit: identical retries never double-charge quota.
+    expect(live.quotaUsage.invocations.debited).toBe(1);
+    expect(live.quotaUsage.invocations.reserved).toBe(0);
+    expect(live.admittedRepositoryCount).toBe(1);
+  });
+
+  it('coalesces a retry that arrives after the first admission already completed', async () => {
+    let calls = 0;
+    const live = registry({
+      resolveDefaultBranchSha: () => {
+        calls += 1;
+        return 'sha';
+      },
+    });
+    const request = {
+      runId: 'run-1', entryId: 'agent', invocationId: 'inv-1', selector: 'octo-org/private-service',
+    };
+    await live.admit(request);
+    const results = await Promise.all([live.admit(request), live.admit(request)]);
+    expect(calls).toBe(1);
+    expect(results[0]).toEqual(results[1]);
+    expect(live.quotaUsage.invocations.debited).toBe(1);
   });
 
   it('denies rebinding one invocation id to a different repository', async () => {
-    const registry = createRegistry({}, () => 'sha');
-    await registry.admit({
+    const live = registry();
+    await live.admit({
       runId: 'run-1', entryId: 'agent', invocationId: 'inv-1', selector: 'octo-org/private-service',
     });
-    const outcome = await registry.admit({
+    const outcome = await live.admit({
       runId: 'run-1', entryId: 'agent', invocationId: 'inv-1', selector: 'other-org/exact-repo',
     });
     expect(outcome).toEqual({ admitted: false, reason: CANONICAL_DENIAL_REASON });
   });
 
   it('enforces maxRepositories across distinct invocations', async () => {
-    const registry = createRegistry({ maxRepositories: 1 }, () => 'sha');
-    const first = await registry.admit({
+    const live = registry({ policy: policy({ maxRepositories: 1 }) });
+    const first = await live.admit({
       runId: 'run-1', entryId: 'agent', invocationId: 'inv-1', selector: 'octo-org/private-service',
     });
-    const second = await registry.admit({
+    const second = await live.admit({
       runId: 'run-1', entryId: 'agent', invocationId: 'inv-2', selector: 'other-org/exact-repo',
     });
     expect(first.admitted).toBe(true);
     expect(second).toEqual({ admitted: false, reason: CANONICAL_DENIAL_REASON });
-    expect(registry.admittedRepositoryCount).toBe(1);
+    expect(live.admittedRepositoryCount).toBe(1);
   });
 
   it('re-admits an already-admitted repository from a different invocation without exceeding maxRepositories', async () => {
-    const registry = createRegistry({ maxRepositories: 1 }, () => 'sha');
-    await registry.admit({
+    const live = registry({ policy: policy({ maxRepositories: 1 }) });
+    await live.admit({
       runId: 'run-1', entryId: 'agent', invocationId: 'inv-1', selector: 'octo-org/private-service',
     });
-    const outcome = await registry.admit({
+    const outcome = await live.admit({
       runId: 'run-1', entryId: 'agent', invocationId: 'inv-2', selector: 'octo-org/private-service',
     });
     expect(outcome.admitted).toBe(true);
-  });
-
-  it('enforces the total invocation quota', async () => {
-    const registry = createRegistry(
-      { quotas: { maxInvocations: 1, maxOutputBytes: 1_000_000, maxExecutionSeconds: 3600 } },
-      () => 'sha',
-    );
-    const first = await registry.admit({
-      runId: 'run-1', entryId: 'agent', invocationId: 'inv-1', selector: 'octo-org/private-service',
-    });
-    const second = await registry.admit({
-      runId: 'run-1', entryId: 'agent', invocationId: 'inv-2', selector: 'octo-org/private-service',
-    });
-    expect(first.admitted).toBe(true);
-    expect(second).toEqual({ admitted: false, reason: CANONICAL_DENIAL_REASON });
-  });
-
-  it('enforces the total output-bytes quota across invocations', async () => {
-    const registry = createRegistry(
-      {
-        quotas: { maxInvocations: 10, maxOutputBytes: 10_000, maxExecutionSeconds: 3600 },
-        limits: {
-          timeoutSeconds: 120,
-          memoryLimit: '1g',
-          cpuLimit: '1',
-          pidsLimit: 128,
-          tmpfsLimit: '256m',
-          maxOutputBytes: 8192,
-          maxTaskBytes: 4096,
-          maxModelRequests: 3,
-          maxModelTokens: 10000,
-        },
-      },
-      () => 'sha',
-    );
-    const first = await registry.admit({
-      runId: 'run-1', entryId: 'agent', invocationId: 'inv-1', selector: 'octo-org/private-service',
-    });
-    const second = await registry.admit({
-      runId: 'run-1', entryId: 'agent', invocationId: 'inv-2', selector: 'octo-org/private-service',
-    });
-    expect(first.admitted).toBe(true);
-    expect(second).toEqual({ admitted: false, reason: CANONICAL_DENIAL_REASON });
-  });
-
-  it('enforces the total execution-seconds quota across invocations', async () => {
-    const registry = createRegistry(
-      {
-        quotas: { maxInvocations: 10, maxOutputBytes: 1_000_000, maxExecutionSeconds: 150 },
-        limits: {
-          timeoutSeconds: 120,
-          memoryLimit: '1g',
-          cpuLimit: '1',
-          pidsLimit: 128,
-          tmpfsLimit: '256m',
-          maxOutputBytes: 8192,
-          maxTaskBytes: 4096,
-          maxModelRequests: 3,
-          maxModelTokens: 10000,
-        },
-      },
-      () => 'sha',
-    );
-    const first = await registry.admit({
-      runId: 'run-1', entryId: 'agent', invocationId: 'inv-1', selector: 'octo-org/private-service',
-    });
-    const second = await registry.admit({
-      runId: 'run-1', entryId: 'agent', invocationId: 'inv-2', selector: 'octo-org/private-service',
-    });
-    expect(first.admitted).toBe(true);
-    expect(second).toEqual({ admitted: false, reason: CANONICAL_DENIAL_REASON });
+    expect(live.admittedRepositoryCount).toBe(1);
   });
 
   it('cannot race two concurrent admissions past maxRepositories', async () => {
-    const registry = createRegistry({ maxRepositories: 1 }, () => 'sha');
-    const [first, second] = await Promise.all([
-      registry.admit({ runId: 'run-1', entryId: 'agent', invocationId: 'inv-1', selector: 'octo-org/private-service' }),
-      registry.admit({ runId: 'run-1', entryId: 'agent', invocationId: 'inv-2', selector: 'other-org/exact-repo' }),
+    const live = registry({ policy: policy({ maxRepositories: 1 }) });
+    const outcomes = await Promise.all([
+      live.admit({ runId: 'run-1', entryId: 'agent', invocationId: 'inv-1', selector: 'octo-org/private-service' }),
+      live.admit({ runId: 'run-1', entryId: 'agent', invocationId: 'inv-2', selector: 'other-org/exact-repo' }),
     ]);
-    const admittedCount = [first, second].filter(o => o.admitted).length;
-    expect(admittedCount).toBe(1);
+    expect(outcomes.filter((outcome) => outcome.admitted)).toHaveLength(1);
+    expect(live.admittedRepositoryCount).toBe(1);
   });
 
-  it('normalizes timing so a synchronous denial and an async denial request comparable buckets', async () => {
-    const sleeps: number[] = [];
-    let clock = 0;
-    const options: DynamicRepositoryRegistryOptions = {
-      now: () => clock,
-      sleep: async (ms) => { sleeps.push(ms); clock += ms; },
-    };
-
-    const syncDenyRegistry = createRegistry({ maxRepositories: 0 }, () => 'sha', options);
-    await syncDenyRegistry.admit({
+  it('keeps a successful concurrent admission counted when a sibling for the same repository rolls back', async () => {
+    // Two different invocations select the same repository concurrently. The
+    // first fails its lookup and rolls back; the second succeeds. The rollback
+    // must not release a repository slot the sibling now owns.
+    const pendingResolvers: Array<(sha: string) => void> = [];
+    const rejecters: Array<(error: Error) => void> = [];
+    const live = registry({
+      policy: policy({ maxRepositories: 1 }),
+      resolveDefaultBranchSha: () => new Promise<string>((resolve, reject) => {
+        pendingResolvers.push(resolve);
+        rejecters.push(reject);
+      }),
+    });
+    const failing = live.admit({
       runId: 'run-1', entryId: 'agent', invocationId: 'inv-1', selector: 'octo-org/private-service',
     });
-    expect(sleeps).toHaveLength(1);
-    expect(sleeps[0]).toBeGreaterThanOrEqual(0);
+    const succeeding = live.admit({
+      runId: 'run-1', entryId: 'agent', invocationId: 'inv-2', selector: 'octo-org/private-service',
+    });
+    pendingResolvers[1]('sha-ok');
+    await succeeding;
+    rejecters[0](new Error('inaccessible'));
+    expect(await failing).toEqual({ admitted: false, reason: CANONICAL_DENIAL_REASON });
+    expect((await succeeding).admitted).toBe(true);
+    expect(live.admittedRepositoryCount).toBe(1);
+    expect(live.quotaUsage.invocations.debited).toBe(1);
+    expect(live.quotaUsage.invocations.reserved).toBe(0);
+    // The repository slot is still owned by the committed admission.
+    const third = await live.admit({
+      runId: 'run-1', entryId: 'agent', invocationId: 'inv-3', selector: 'other-org/exact-repo',
+    });
+    expect(third).toEqual({ admitted: false, reason: CANONICAL_DENIAL_REASON });
+  });
 
-    clock = 0;
-    sleeps.length = 0;
-    const asyncDenyRegistry = createRegistry({}, () => {
-      clock += 50; // simulate a slow resolver lookup before it fails
-      throw new Error('inaccessible');
-    }, options);
-    await asyncDenyRegistry.admit({
+  it('releases every reserved quota when an admission rolls back', async () => {
+    const live = registry({
+      resolveDefaultBranchSha: () => {
+        throw new Error('inaccessible');
+      },
+    });
+    await live.admit({
       runId: 'run-1', entryId: 'agent', invocationId: 'inv-1', selector: 'octo-org/private-service',
     });
-    // Both the fast synchronous denial and the slow resolver-based denial
-    // are padded up to the same fixed bucket, so a single sleep call is made
-    // in both cases and elapsed time alone cannot distinguish them.
-    expect(sleeps).toHaveLength(1);
+    expect(live.quotaUsage).toEqual({
+      invocations: { debited: 0, reserved: 0, limit: 3 },
+      outputBytes: { debited: 0, reserved: 0, limit: 1_000_000 },
+      executionSeconds: { debited: 0, reserved: 0, limit: 3600 },
+    });
+    expect(live.admittedRepositoryCount).toBe(0);
+  });
+});
+
+describe('DynamicRepositoryRegistry quota accounting', () => {
+  it('enforces the run-wide invocation quota', async () => {
+    const live = registry({
+      policy: policy({ quotas: { maxInvocations: 1, maxOutputBytes: 1_000_000, maxExecutionSeconds: 3600 } }),
+    });
+    const first = await live.admit({
+      runId: 'run-1', entryId: 'agent', invocationId: 'inv-1', selector: 'octo-org/private-service',
+    });
+    const second = await live.admit({
+      runId: 'run-1', entryId: 'agent', invocationId: 'inv-2', selector: 'octo-org/private-service',
+    });
+    expect(first.admitted).toBe(true);
+    expect(second).toEqual({ admitted: false, reason: CANONICAL_DENIAL_REASON });
+  });
+
+  it('reserves the per-invocation output-byte worst case against the run-wide byte quota', async () => {
+    // limits.maxOutputBytes is 8192 and the run-wide quota is 10000, so only
+    // one invocation can hold a worst-case byte reservation at a time.
+    const live = registry({
+      policy: policy({ quotas: { maxInvocations: 10, maxOutputBytes: 10_000, maxExecutionSeconds: 3600 } }),
+    });
+    const first = await live.admit({
+      runId: 'run-1', entryId: 'agent', invocationId: 'inv-1', selector: 'octo-org/private-service',
+    });
+    expect(first.admitted).toBe(true);
+    expect(live.quotaUsage.outputBytes).toEqual({ debited: 0, reserved: 8192, limit: 10_000 });
+    const blocked = await live.admit({
+      runId: 'run-1', entryId: 'agent', invocationId: 'inv-2', selector: 'octo-org/private-service',
+    });
+    expect(blocked).toEqual({ admitted: false, reason: CANONICAL_DENIAL_REASON });
+
+    if (!first.admitted) throw new Error('unreachable');
+    live.commitUsage(first.usageHandle, { outputBytes: 100, executionSeconds: 5 });
+    expect(live.quotaUsage.outputBytes).toEqual({ debited: 100, reserved: 0, limit: 10_000 });
+    expect(live.quotaUsage.executionSeconds).toEqual({ debited: 5, reserved: 0, limit: 3600 });
+    const afterSettle = await live.admit({
+      runId: 'run-1', entryId: 'agent', invocationId: 'inv-3', selector: 'octo-org/private-service',
+    });
+    expect(afterSettle.admitted).toBe(true);
+  });
+
+  it('reserves the per-invocation timeout against the run-wide execution-second quota', async () => {
+    const live = registry({
+      policy: policy({ quotas: { maxInvocations: 10, maxOutputBytes: 1_000_000, maxExecutionSeconds: 200 } }),
+    });
+    const first = await live.admit({
+      runId: 'run-1', entryId: 'agent', invocationId: 'inv-1', selector: 'octo-org/private-service',
+    });
+    expect(first.admitted).toBe(true);
+    expect(live.quotaUsage.executionSeconds).toEqual({ debited: 0, reserved: 120, limit: 200 });
+    const blocked = await live.admit({
+      runId: 'run-1', entryId: 'agent', invocationId: 'inv-2', selector: 'octo-org/private-service',
+    });
+    expect(blocked).toEqual({ admitted: false, reason: CANONICAL_DENIAL_REASON });
+  });
+
+  it('keeps charges committed after admission even when the invocation later fails', async () => {
+    const live = registry();
+    const outcome = await live.admit({
+      runId: 'run-1', entryId: 'agent', invocationId: 'inv-1', selector: 'octo-org/private-service',
+    });
+    if (!outcome.admitted) throw new Error('expected admission');
+    live.commitUsage(outcome.usageHandle, { outputBytes: 2048, executionSeconds: 90 });
+    expect(live.quotaUsage.invocations.debited).toBe(1);
+    expect(live.quotaUsage.outputBytes.debited).toBe(2048);
+    expect(live.quotaUsage.executionSeconds.debited).toBe(90);
+    // A settlement retry never double-charges.
+    live.commitUsage(outcome.usageHandle, { outputBytes: 2048, executionSeconds: 90 });
+    expect(live.quotaUsage.outputBytes.debited).toBe(2048);
+    expect(live.quotaUsage.executionSeconds.debited).toBe(90);
+  });
+
+  it('rejects usage that exceeds the reserved per-invocation limits or an unknown handle', async () => {
+    const live = registry();
+    const outcome = await live.admit({
+      runId: 'run-1', entryId: 'agent', invocationId: 'inv-1', selector: 'octo-org/private-service',
+    });
+    if (!outcome.admitted) throw new Error('expected admission');
+    expect(() => live.commitUsage(outcome.usageHandle, { outputBytes: 8193, executionSeconds: 1 }))
+      .toThrow(DynamicUsageAccountingError);
+    expect(() => live.commitUsage(outcome.usageHandle, { outputBytes: 1, executionSeconds: 121 }))
+      .toThrow(DynamicUsageAccountingError);
+    expect(() => live.commitUsage(outcome.usageHandle, { outputBytes: -1, executionSeconds: 1 }))
+      .toThrow(DynamicUsageAccountingError);
+    expect(() => live.commitUsage('no-such-handle', { outputBytes: 1, executionSeconds: 1 }))
+      .toThrow(DynamicUsageAccountingError);
+  });
+});
+
+describe('DynamicRepositoryRegistry shared information ledger', () => {
+  it('registers an admitted repository into the same ledger static executors debit', async () => {
+    const ledger = createEnclaveInformationBudgetLedger(new Map());
+    const live = registry({ ledger });
+    expect(ledger.remainingBits('octo-org/private-service')).toBeUndefined();
+    await live.admit({
+      runId: 'run-1', entryId: 'agent', invocationId: 'inv-1', selector: 'octo-org/private-service',
+    });
+    // 'confidential' is bounded at 8 run bits by ENCLAVE_SENSITIVITY_RUN_BITS.
+    expect(ledger.remainingBits('octo-org/private-service')).toBe(8);
+    expect(ledger.tryDebit('octo-org/private-service', 8, 'agent')).toBe(true);
+    expect(ledger.tryDebit('octo-org/private-service', 1, 'agent')).toBe(false);
+  });
+
+  it('never refills a spent budget when the same repository is admitted again', async () => {
+    const ledger = createEnclaveInformationBudgetLedger(new Map());
+    const live = registry({ ledger });
+    await live.admit({
+      runId: 'run-1', entryId: 'agent', invocationId: 'inv-1', selector: 'octo-org/private-service',
+    });
+    expect(ledger.tryDebit('octo-org/private-service', 8, 'agent')).toBe(true);
+    await live.admit({
+      runId: 'run-1', entryId: 'agent', invocationId: 'inv-2', selector: 'octo-org/private-service',
+    });
+    expect(ledger.remainingBits('octo-org/private-service')).toBe(0);
+    expect(ledger.tryDebit('octo-org/private-service', 1, 'agent')).toBe(false);
+  });
+
+  it('does not register a repository whose admission was denied', async () => {
+    const ledger = createEnclaveInformationBudgetLedger(new Map());
+    const live = registry({
+      ledger,
+      resolveDefaultBranchSha: () => {
+        throw new Error('inaccessible');
+      },
+    });
+    await live.admit({
+      runId: 'run-1', entryId: 'agent', invocationId: 'inv-1', selector: 'octo-org/private-service',
+    });
+    expect(ledger.remainingBits('octo-org/private-service')).toBeUndefined();
+  });
+});
+
+describe('DynamicRepositoryRegistry admission timing normalization', () => {
+  /** Elapsed lookup cost, in ms, injected by a resolver that advances the clock. */
+  function timedRegistry(lookupMs: number, options: Partial<DynamicRepositoryRegistryOptions> = {}) {
+    const clock = fakeClock();
+    const live = new DynamicRepositoryRegistry({
+      policy: policy(),
+      resolveDefaultBranchSha: () => {
+        clock.elapsed += lookupMs;
+        return 'sha';
+      },
+      ledger: createEnclaveInformationBudgetLedger(new Map()),
+      clock,
+      jitter: () => 7,
+      ...options,
+    });
+    return { live, clock };
+  }
+
+  it('delays a successful admission to the fixed bucket plus jitter', async () => {
+    const { live, clock } = timedRegistry(30);
+    await live.admit({
+      runId: 'run-1', entryId: 'agent', invocationId: 'inv-1', selector: 'octo-org/private-service',
+    });
+    expect(clock.sleeps).toEqual([100 - 30 + 7]);
+    expect(clock.elapsed).toBe(107);
+  });
+
+  it('delays a slow admission to the next bucket rather than returning early', async () => {
+    const { live, clock } = timedRegistry(450);
+    await live.admit({
+      runId: 'run-1', entryId: 'agent', invocationId: 'inv-1', selector: 'octo-org/private-service',
+    });
+    expect(clock.elapsed).toBe(1_000 + 7);
+  });
+
+  it('delays a malformed selector, a policy denial, and a resolution denial identically', async () => {
+    const malformed = timedRegistry(0);
+    await malformed.live.admit({
+      runId: 'run-1', entryId: 'agent', invocationId: 'inv-1', selector: 'Not-Canonical/Repo',
+    });
+
+    const outOfPolicy = timedRegistry(0);
+    await outOfPolicy.live.admit({
+      runId: 'run-1', entryId: 'agent', invocationId: 'inv-1', selector: 'unrelated-org/repo',
+    });
+
+    const resolutionFailure = timedRegistry(0, {
+      resolveDefaultBranchSha: () => {
+        throw new Error('inaccessible');
+      },
+    });
+    await resolutionFailure.live.admit({
+      runId: 'run-1', entryId: 'agent', invocationId: 'inv-1', selector: 'octo-org/private-service',
+    });
+
+    const success = timedRegistry(0);
+    await success.live.admit({
+      runId: 'run-1', entryId: 'agent', invocationId: 'inv-1', selector: 'octo-org/private-service',
+    });
+
+    expect(malformed.clock.elapsed).toBe(107);
+    expect(outOfPolicy.clock.elapsed).toBe(107);
+    expect(resolutionFailure.clock.elapsed).toBe(107);
+    expect(success.clock.elapsed).toBe(107);
+  });
+
+  it('caps normalization at the largest fixed bucket', async () => {
+    const largest = TIMING_BUCKETS_MS[TIMING_BUCKETS_MS.length - 1];
+    const { live, clock } = timedRegistry(largest + 5_000);
+    await live.admit({
+      runId: 'run-1', entryId: 'agent', invocationId: 'inv-1', selector: 'octo-org/private-service',
+    });
+    // Already past the largest bucket: never sleeps a negative duration.
+    expect(clock.sleeps).toEqual([0]);
   });
 
   it('fails closed for new admissions while reconciliation is incomplete', async () => {
-    const registry = createRegistry({}, () => 'sha');
-    registry.markReconciliationIncomplete();
-    const outcome = await registry.admit({
+    const live = registry();
+    live.markReconciliationIncomplete();
+    const outcome = await live.admit({
       runId: 'run-1', entryId: 'agent', invocationId: 'inv-1', selector: 'octo-org/private-service',
     });
     expect(outcome).toEqual({ admitted: false, reason: CANONICAL_DENIAL_REASON });
-    registry.markReconciled();
-    const afterReconcile = await registry.admit({
+    live.markReconciled();
+    const afterReconcile = await live.admit({
       runId: 'run-1', entryId: 'agent', invocationId: 'inv-2', selector: 'octo-org/private-service',
     });
     expect(afterReconcile.admitted).toBe(true);
@@ -308,28 +534,20 @@ describe('DynamicRepositoryRegistry', () => {
 
 describe('resolveDenialTimingBucketMs', () => {
   it('always resolves to a fixed bucket boundary plus bounded jitter, never raw elapsed time', () => {
-    const buckets = [100, 1_000, 10_000, 60_000, 120_000, 180_000, 240_000, 300_000, 600_000, 1_200_000, 2_400_000, 4_800_000];
     for (const elapsed of [0, 50, 500, 5_000, 50_000, 5_000_000]) {
       const bucketed = resolveDenialTimingBucketMs(elapsed);
-      const jitter = bucketed - Math.max(...buckets.filter(b => b <= bucketed));
-      expect(buckets.some(bucket => bucketed >= bucket && bucketed < bucket + 1001)).toBe(true);
+      const bucket = Math.max(...TIMING_BUCKETS_MS.filter((candidate) => candidate <= bucketed));
+      const jitter = bucketed - bucket;
+      expect(TIMING_BUCKETS_MS).toContain(bucket);
       expect(jitter).toBeGreaterThanOrEqual(0);
       expect(jitter).toBeLessThan(1001);
     }
   });
-});
 
-describe('EnclaveSensitivityLedger', () => {
-  it('never bounds an unlimited sensitivity class', () => {
-    const ledger = new EnclaveSensitivityLedger();
-    expect(ledger.debit('trusted', 1_000_000)).toBe(true);
-    expect(ledger.debit('public', 1_000_000)).toBe(true);
-  });
-
-  it('rejects a debit once the shared run-wide bound is exhausted', () => {
-    const ledger = new EnclaveSensitivityLedger();
-    expect(ledger.debit('sealed', 1)).toBe(false);
-    expect(ledger.debit('confidential', 8)).toBe(true);
-    expect(ledger.debit('confidential', 1)).toBe(false);
+  it('uses the injected secret-independent jitter source', () => {
+    expect(resolveDenialTimingBucketMs(0, () => 42)).toBe(100 + 42);
+    expect(resolveDenialTimingBucketMs(999, () => 0)).toBe(1_000);
+    const largest = TIMING_BUCKETS_MS[TIMING_BUCKETS_MS.length - 1];
+    expect(resolveDenialTimingBucketMs(largest + 1, () => 0)).toBe(largest);
   });
 });

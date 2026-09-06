@@ -15,6 +15,13 @@ export const ENCLAVE_INFORMATION_BUDGET_POLICY: EnclaveInformationBudgetPolicy =
 };
 
 export interface EnclaveInformationBudgetLedger {
+  /**
+   * Idempotently opens a balance for a repository admitted after the ledger
+   * was created (dynamic admission, ADR 0001). Re-registering an existing
+   * repository never resets or forks its remaining balance, so a repository
+   * cannot be re-admitted to refill a budget it has already spent.
+   */
+  registerRepository(repoKey: string, sensitivity: EnclaveSensitivity): void;
   tryDebit(repoKey: string, bits: number, executor: EnclaveExecutorKind): boolean;
   remainingBits(repoKey: string): number | null | undefined;
 }
@@ -35,6 +42,14 @@ export function createEnclaveInformationBudgetLedger(
   }
 
   return {
+    registerRepository(repoKey, sensitivity) {
+      const normalizedRepoKey = normalizePrivateRepositoryKey(repoKey);
+      if (remaining.has(normalizedRepoKey)) return;
+      if (!(sensitivity in policy.runBits)) {
+        throw new Error(`Unknown enclave sensitivity: ${String(sensitivity)}`);
+      }
+      remaining.set(normalizedRepoKey, policy.runBits[sensitivity]);
+    },
     tryDebit(repoKey, bits, _executor) {
       const normalizedRepoKey = normalizePrivateRepositoryKey(repoKey);
       if (!Number.isSafeInteger(bits) || bits < 0 || !remaining.has(normalizedRepoKey)) return false;

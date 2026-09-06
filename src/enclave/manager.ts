@@ -34,8 +34,6 @@ import {
   resolveEnclaveGithubGatewayContract,
 } from './github-gateway';
 import {
-  ENCLAVE_GITHUB_DELEGATION_CONTROL_CAPABILITY_ENV,
-  isValidEnclaveDynamicDelegationCapability,
   takeEnclaveDynamicDelegationCapability,
 } from './dynamic-registry';
 
@@ -144,33 +142,17 @@ export async function prepareEnclaves(
       'enclave execution requires a Unix-socket Docker host because the enclave MCP server has no network',
     );
   }
-  const token = enclaves.privateRepos.length > 0 ? resolveStagingToken(env) : undefined;
-  if (enclaves.privateRepos.length > 0 && !token) {
+  const token = resolveStagingToken(env);
+  if (!token) {
     errors.push('enclaves require a staging credential in GH_TOKEN or GITHUB_TOKEN on the AWF host');
   }
-  const hasDynamicPolicy = enclaves.executors.agent.dynamic !== undefined;
-  if (hasDynamicPolicy) {
-    // The runtime registry (`DynamicRepositoryRegistry`) is not yet wired
-    // into any MCP request-handling path: `enclave-mcp-server` resolves every
-    // `privateRepo` exclusively via the static seed map. Starting an enclave
-    // with a `dynamic` policy today would silently accept the config and
-    // then reject every dynamic admission at request time. Fail closed here
-    // instead until that wiring lands (tracked alongside ADR 0001 follow-up
-    // work to connect this registry to the MCP request path).
-    errors.push(
-      'enclaves[].dynamic is not yet supported at runtime: the dynamic repository registry is ' +
-      'not wired into the enclave MCP request path, so no dynamic admission can ever succeed',
-    );
-  }
-  const delegationCapability = hasDynamicPolicy
-    ? takeEnclaveDynamicDelegationCapability(env)
-    : undefined;
-  if (hasDynamicPolicy && !isValidEnclaveDynamicDelegationCapability(delegationCapability)) {
-    errors.push(
-      `${ENCLAVE_GITHUB_DELEGATION_CONTROL_CAPABILITY_ENV} must contain a run-scoped 256-bit ` +
-      'lowercase hex capability when an agent entry declares a dynamic repository policy',
-    );
-  }
+  // The compiler mints an AWF-only mcpg delegation-control capability whenever
+  // an entry declares a dynamic repository policy. AWF takes custody of it here,
+  // before anything else can inherit this environment, so the value can never
+  // reach the primary agent, an enclave, or a child process — even though
+  // `validateEnclavesConfig` refuses to execute dynamic admissions in this
+  // release (see DYNAMIC_ENCLAVE_EXECUTION_UNSUPPORTED_REASON).
+  takeEnclaveDynamicDelegationCapability(env);
   const githubAgentId = env[ENCLAVE_GITHUB_MCP_AGENT_ID_ENV] ?? '';
   if (isEnclaveGithubEnabled(config)) {
     if (!/^[A-Za-z0-9_-]{32,128}$/.test(githubAgentId)) {
@@ -189,11 +171,8 @@ export async function prepareEnclaves(
   if (errors.length > 0) {
     throw new Error(`Enclave configuration is invalid:\n  - ${errors.join('\n  - ')}`);
   }
-  if (enclaves.privateRepos.length > 0 && !token) {
+  if (!token) {
     throw new Error('Enclave staging credential disappeared during preflight');
-  }
-  if (hasDynamicPolicy && !isValidEnclaveDynamicDelegationCapability(delegationCapability)) {
-    throw new Error('Enclave delegation-control capability disappeared during preflight');
   }
 
   await (deps.assertPrimaryAvailable ?? assertPrimaryRuntimeAvailable)(config.containerRuntime);
@@ -221,24 +200,14 @@ export async function prepareEnclaves(
   prepareDirectories(paths);
 
   const runId = generateEnclaveRunId();
-  // Dynamic-only mode has no immutable seed catalog to stage: it never
-  // requires a staging credential, seed-map entry, repository clone, or seed
-  // mount. Only static repos (from this or a paired static entry) are staged.
-  let staging: { runId: string; seeds: Awaited<ReturnType<typeof stageEnclaveSeeds>>['seeds'] };
-  if (enclaves.privateRepos.length > 0) {
-    staging = await stageEnclaveSeeds({
-      repos: enclaves.privateRepos,
-      paths,
-      runId,
-      token: token!,
-      gitRunner: deps.gitRunner,
-      label: 'Enclaves',
-    });
-  } else {
-    fs.mkdirSync(paths.seedsDir, { recursive: true, mode: 0o700 });
-    staging = { runId, seeds: [] };
-    logger.info('Enclaves: dynamic-only mode; no static seeds to stage.');
-  }
+  const staging = await stageEnclaveSeeds({
+    repos: enclaves.privateRepos,
+    paths,
+    runId,
+    token,
+    gitRunner: deps.gitRunner,
+    label: 'Enclaves',
+  });
   const seedMap: PrivateRepositorySeedMap = {
     version: PRIVATE_REPOSITORY_SEED_MAP_VERSION,
     runId: staging.runId,
@@ -250,9 +219,6 @@ export async function prepareEnclaves(
   };
   writeExclusive(paths.seedMapPath, serializePrivateRepositorySeedMap(seedMap), 0o600);
   writeExclusive(paths.capabilityPath, `${env[ENCLAVE_MCP_CAPABILITY_ENV]}\n`, 0o600);
-  if (hasDynamicPolicy) {
-    writeExclusive(paths.delegationCapabilityPath, `${delegationCapability}\n`, 0o600);
-  }
   if (isEnclaveGithubEnabled(config)) {
     writeExclusive(paths.githubAgentIdPath, `${githubAgentId}\n`, 0o600);
     if (env === process.env) delete process.env[ENCLAVE_GITHUB_MCP_AGENT_ID_ENV];

@@ -31,11 +31,37 @@ const GITHUB_CLI_PROFILES = new Set(['issues-read-v1']);
 const DYNAMIC_GITHUB_POLICY_VERSIONS = new Set(['github-repository-read-v1']);
 
 /** AWF-enforceable upper bound on the number of repositories one dynamic envelope may admit. */
-const MAX_DYNAMIC_REPOSITORIES = 64;
+const MAX_DYNAMIC_REPOSITORIES = 1000;
 /** AWF-enforceable upper bound on the number of owner/repository selectors listed in one envelope. */
 const MAX_DYNAMIC_SELECTOR_LIST_LENGTH = 256;
 const MAX_DYNAMIC_AUDIT_LABELS = 32;
-const MAX_DYNAMIC_AUDIT_LABEL_LENGTH = 200;
+const MAX_DYNAMIC_MODEL_REQUESTS = 64;
+const MAX_DYNAMIC_MODEL_TOKENS = 32768;
+const MAX_DYNAMIC_QUOTA_INVOCATIONS = 10_000;
+const MAX_DYNAMIC_QUOTA_OUTPUT_BYTES = 1024 * 1024;
+const MAX_DYNAMIC_QUOTA_EXECUTION_SECONDS = 86_400;
+
+/**
+ * Why a validated dynamic envelope still cannot run in this AWF release.
+ *
+ * ADR 0001 binds every dynamic invocation to a single-repository mcpg
+ * identity minted through the `github-repository-delegation-v1` controller on
+ * the private `awf-enclave-mcp-control` channel. The compiler mints and hands
+ * AWF the control capability, but no released compiler starts that controller
+ * or hands AWF a control endpoint, and a dynamic invocation has no immutable
+ * seed to fall back to. Rather than start a run whose every enclave call would
+ * fail with the canonical denial, AWF refuses the run and says exactly which
+ * handoff is missing. AWF never falls back to a static seed catalog, a
+ * job-lifetime identity, or a broader policy.
+ */
+export const DYNAMIC_ENCLAVE_EXECUTION_UNSUPPORTED_REASON =
+  'enclaves[].dynamic repository admission is not executable in this AWF release: ADR 0001 binds '
+  + 'every dynamic invocation to a single-repository mcpg identity created through the '
+  + '"github-repository-delegation-v1" control channel, and no released compiler starts that '
+  + 'controller or hands AWF its control endpoint. AWF validates the envelope and custodies the '
+  + 'delegation-control capability, but never falls back to a static seed catalog, a job-lifetime '
+  + 'identity, or a broader policy. Remove enclaves[].dynamic, or pin an AWF release that '
+  + 'implements the full delegation contract.';
 
 /** Engines with a published, audited enclave image and a fixed AWF model loop. */
 const IMPLEMENTED_AGENT_ENGINES = new Set(['copilot']);
@@ -170,6 +196,7 @@ export function validateEnclavesConfig(config: WrapperConfig): string[] {
       errors.push('enclaves[].agent requires either a non-empty "repos" list or a "dynamic" policy');
     } else if (agent.dynamic !== undefined) {
       validateEnclaveDynamicPolicy(agent.dynamic, errors);
+      errors.push(DYNAMIC_ENCLAVE_EXECUTION_UNSUPPORTED_REASON);
     }
     if (!config.enableApiProxy) {
       errors.push('enclaves agent executor requires the AWF API proxy');
@@ -309,7 +336,9 @@ function validateEnclaveDynamicPolicy(dynamic: EnclaveDynamicPolicy, errors: str
       || limits.timeoutSeconds < 1
       || limits.timeoutSeconds > MAX_ENCLAVE_TIMEOUT_SECONDS
     ) {
-      errors.push(`enclaves[].dynamic.limits.timeoutSeconds must be between 1 and ${MAX_ENCLAVE_TIMEOUT_SECONDS}`);
+      errors.push(
+        `enclaves[].dynamic.limits.timeoutSeconds must be between 1 and ${MAX_ENCLAVE_TIMEOUT_SECONDS}`,
+      );
     }
     validatePositiveInteger('enclaves[].dynamic.limits.maxTaskBytes', limits.maxTaskBytes, errors);
     if (limits.maxTaskBytes > ENCLAVE_AGENT_MAX_TASK_BYTES) {
@@ -318,44 +347,73 @@ function validateEnclaveDynamicPolicy(dynamic: EnclaveDynamicPolicy, errors: str
     if (limits.maxOutputBytes > MAX_RESULT_BYTES) {
       errors.push(`enclaves[].dynamic.limits.maxOutputBytes must be at most ${MAX_RESULT_BYTES}`);
     }
-    validatePositiveInteger('enclaves[].dynamic.limits.maxModelRequests', limits.maxModelRequests, errors);
-    validatePositiveInteger('enclaves[].dynamic.limits.maxModelTokens', limits.maxModelTokens, errors);
+    validateBoundedQuota(
+      'enclaves[].dynamic.limits.maxModelRequests',
+      limits.maxModelRequests,
+      MAX_DYNAMIC_MODEL_REQUESTS,
+      errors,
+    );
+    validateBoundedQuota(
+      'enclaves[].dynamic.limits.maxModelTokens',
+      limits.maxModelTokens,
+      MAX_DYNAMIC_MODEL_TOKENS,
+      errors,
+    );
   }
   const quotas = dynamic.quotas;
   if (typeof quotas !== 'object' || quotas === null) {
     errors.push('enclaves[].dynamic.quotas must be an object');
   } else {
-    validatePositiveInteger('enclaves[].dynamic.quotas.maxInvocations', quotas.maxInvocations, errors);
-    validatePositiveInteger('enclaves[].dynamic.quotas.maxOutputBytes', quotas.maxOutputBytes, errors);
-    validatePositiveInteger('enclaves[].dynamic.quotas.maxExecutionSeconds', quotas.maxExecutionSeconds, errors);
+    validateBoundedQuota(
+      'enclaves[].dynamic.quotas.maxInvocations',
+      quotas.maxInvocations,
+      MAX_DYNAMIC_QUOTA_INVOCATIONS,
+      errors,
+    );
+    validateBoundedQuota(
+      'enclaves[].dynamic.quotas.maxOutputBytes',
+      quotas.maxOutputBytes,
+      MAX_DYNAMIC_QUOTA_OUTPUT_BYTES,
+      errors,
+    );
+    validateBoundedQuota(
+      'enclaves[].dynamic.quotas.maxExecutionSeconds',
+      quotas.maxExecutionSeconds,
+      MAX_DYNAMIC_QUOTA_EXECUTION_SECONDS,
+      errors,
+    );
   }
   const auditLabels = dynamic.auditLabels;
-  if (!Array.isArray(auditLabels)) {
-    errors.push('enclaves[].dynamic.auditLabels must be an array of strings');
+  if (!Array.isArray(auditLabels) || auditLabels.length === 0) {
+    errors.push('enclaves[].dynamic.auditLabels must be a non-empty array of canonical audit labels');
   } else {
-    if (auditLabels.length === 0) {
-      errors.push('enclaves[].dynamic.auditLabels must contain at least one label');
-    }
     if (auditLabels.length > MAX_DYNAMIC_AUDIT_LABELS) {
       errors.push(`enclaves[].dynamic.auditLabels must have at most ${MAX_DYNAMIC_AUDIT_LABELS} entries`);
     }
+    if (new Set(auditLabels).size !== auditLabels.length) {
+      errors.push('enclaves[].dynamic.auditLabels must not contain duplicate labels');
+    }
     for (const label of auditLabels) {
-      if (
-        typeof label !== 'string'
-        || label.length > MAX_DYNAMIC_AUDIT_LABEL_LENGTH
-        || !CANONICAL_DYNAMIC_AUDIT_LABEL_PATTERN.test(label)
-      ) {
+      if (typeof label !== 'string' || !CANONICAL_DYNAMIC_AUDIT_LABEL_PATTERN.test(label)) {
         errors.push(
-          `enclaves[].dynamic.auditLabels entry "${String(label)}" must match `
-          + `${CANONICAL_DYNAMIC_AUDIT_LABEL_PATTERN} with at most ${MAX_DYNAMIC_AUDIT_LABEL_LENGTH} characters`,
+          `enclaves[].dynamic.auditLabels entry "${label}" must match `
+          + CANONICAL_DYNAMIC_AUDIT_LABEL_PATTERN.source,
         );
       }
     }
   }
   if (typeof dynamic.expiresAt !== 'string' || Number.isNaN(Date.parse(dynamic.expiresAt))) {
-    errors.push('enclaves[].dynamic.expiresAt must be a valid RFC3339 timestamp');
+    errors.push('enclaves[].dynamic.expiresAt must be a valid ISO-8601 timestamp');
   } else if (Date.parse(dynamic.expiresAt) <= Date.now()) {
     errors.push('enclaves[].dynamic.expiresAt must be in the future');
+  }
+}
+
+/** Validates one compiler-owned bound: a positive integer within AWF's own ceiling. */
+function validateBoundedQuota(name: string, value: number, maximum: number, errors: string[]): void {
+  validatePositiveInteger(name, value, errors);
+  if (Number.isSafeInteger(value) && value > maximum) {
+    errors.push(`${name} must be at most ${maximum}`);
   }
 }
 

@@ -138,9 +138,6 @@ export const CANONICAL_DYNAMIC_REPOSITORY_PATTERN =
 /** Canonical dynamic owner scope: the owner half of the selector above. */
 export const CANONICAL_DYNAMIC_OWNER_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,38})$/;
 
-/** Compiler-emitted dynamic audit label form, matching gh-aw#58880 exactly. */
-export const CANONICAL_DYNAMIC_AUDIT_LABEL_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/;
-
 /** Closed GitHub tool policy version accepted for dynamic admission. */
 export type EnclaveDynamicGithubPolicyVersion = 'github-repository-read-v1';
 
@@ -156,10 +153,16 @@ export interface EnclaveDynamicGithubPolicy {
 /**
  * Per-invocation trusted bounds for a dynamically admitted repository.
  * Mirrors the static agent executor's resource/response controls; the
- * invocation selector can never widen any of these. Field names and shape
- * match `buildAWFDynamicEnclavePolicy` in gh-aw#58880 exactly.
+ * invocation selector can never widen any of these.
+ *
+ * Every field is required: the compiler always emits the complete set (see
+ * `buildAWFDynamicEnclavePolicy` in gh-aw#58880), because a dynamic agent
+ * entry must declare finite `timeout`, `memory-limit`, `cpu-limit`,
+ * `pids-limit`, `tmpfs-limit`, `max-output-bytes`, `max-task-bytes`,
+ * `max-model-requests`, and `max-model-tokens` before it compiles.
  */
 export interface EnclaveDynamicLimits {
+  /** Per-invocation wall-clock budget in seconds. Named for the compiler's `timeoutSeconds`. */
   timeoutSeconds: number;
   memoryLimit: string;
   cpuLimit: string;
@@ -171,11 +174,7 @@ export interface EnclaveDynamicLimits {
   maxModelTokens: number;
 }
 
-/**
- * Total, run-wide quotas debited across every dynamic admission. Field names
- * match `DynamicEnclaveQuotas` in gh-aw#58880 exactly (`quotas.max-invocations`,
- * `quotas.max-output-bytes`, `quotas.max-execution-seconds`).
- */
+/** Total, run-wide quotas debited across every dynamic admission. */
 export interface EnclaveDynamicQuotas {
   maxInvocations: number;
   maxOutputBytes: number;
@@ -183,10 +182,17 @@ export interface EnclaveDynamicQuotas {
 }
 
 /**
+ * Canonical audit label emitted by the compiler. Labels are opaque tokens
+ * (never repository names or credentials) that let AWF and mcpg reconcile
+ * every dynamic resource created for this envelope during shutdown.
+ */
+export const CANONICAL_DYNAMIC_AUDIT_LABEL_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/;
+
+/**
  * Closed compiler-to-AWF dynamic policy envelope for `enclaves[].dynamic`.
- * Structurally identical to the concrete shape emitted by
- * `buildAWFDynamicEnclavePolicy` in gh-aw#58880: the invocation selector may
- * only choose within this envelope and can never alter any of its fields.
+ * Structurally identical to the concrete object emitted by gh-aw#58880's
+ * `buildAWFDynamicEnclavePolicy`: the invocation selector may only choose
+ * within this envelope and can never alter any of its fields.
  */
 export interface EnclaveDynamicPolicy {
   allowedOwners: string[];
@@ -197,12 +203,10 @@ export interface EnclaveDynamicPolicy {
   maxRepositories: number;
   limits: EnclaveDynamicLimits;
   quotas: EnclaveDynamicQuotas;
-  /** Non-empty list of compiler-issued audit labels, e.g. `["run:1234"]`. */
   auditLabels: string[];
-  /** Absolute RFC3339 expiry, never later than the enclave job lifetime. */
+  /** Absolute ISO-8601 expiry, never later than the workflow job lifetime. */
   expiresAt: string;
 }
-
 
 export interface EnclavesConfig {
   enabled: boolean;
