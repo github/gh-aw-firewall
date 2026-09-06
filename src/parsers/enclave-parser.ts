@@ -79,9 +79,15 @@ export function normalizeEnclavesConfig(
       throw new Error('each enclaves entry must declare exactly one "script" or "agent" key');
     }
     if (scriptEntry) {
+      if (entry.dynamic !== undefined) {
+        throw new Error('enclaves[].dynamic is agent-only and cannot be declared on a "script" entry');
+      }
       if (script) throw new Error('enclaves may declare at most one "script" entry');
       script = entry;
     } else if (agentEntry) {
+      if (entry.dynamic !== undefined && (entry.repos ?? []).length > 0) {
+        throw new Error('enclaves[].dynamic and enclaves[].repos are mutually exclusive on the same entry');
+      }
       if (agent) throw new Error('enclaves may declare at most one "agent" entry');
       agent = entry;
     }
@@ -105,6 +111,7 @@ export function normalizeEnclavesConfig(
         enabled: agent !== undefined,
         timeout: agent?.timeout ?? ENCLAVE_AGENT_EXECUTOR_DEFAULTS.timeout,
         repos: agent?.repos ?? [],
+        ...(agent?.dynamic !== undefined && { dynamic: agent.dynamic }),
       },
     },
   };

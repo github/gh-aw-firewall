@@ -33,6 +33,11 @@ import {
   ENCLAVE_GITHUB_MCP_AGENT_ID_ENV,
   resolveEnclaveGithubGatewayContract,
 } from './github-gateway';
+import {
+  ENCLAVE_GITHUB_DELEGATION_CONTROL_CAPABILITY_ENV,
+  isValidEnclaveDynamicDelegationCapability,
+  takeEnclaveDynamicDelegationCapability,
+} from './dynamic-registry';
 
 export const ENCLAVE_RUN_LABEL = 'awf.enclave.run';
 export function isEnclaveScriptEnabled(config: WrapperConfig): boolean {
@@ -139,9 +144,19 @@ export async function prepareEnclaves(
       'enclave execution requires a Unix-socket Docker host because the enclave MCP server has no network',
     );
   }
-  const token = resolveStagingToken(env);
-  if (!token) {
+  const token = enclaves.privateRepos.length > 0 ? resolveStagingToken(env) : undefined;
+  if (enclaves.privateRepos.length > 0 && !token) {
     errors.push('enclaves require a staging credential in GH_TOKEN or GITHUB_TOKEN on the AWF host');
+  }
+  const hasDynamicPolicy = enclaves.executors.agent.dynamic !== undefined;
+  const delegationCapability = hasDynamicPolicy
+    ? takeEnclaveDynamicDelegationCapability(env)
+    : undefined;
+  if (hasDynamicPolicy && !isValidEnclaveDynamicDelegationCapability(delegationCapability)) {
+    errors.push(
+      `${ENCLAVE_GITHUB_DELEGATION_CONTROL_CAPABILITY_ENV} must contain a run-scoped 256-bit ` +
+      'lowercase hex capability when an agent entry declares a dynamic repository policy',
+    );
   }
   const githubAgentId = env[ENCLAVE_GITHUB_MCP_AGENT_ID_ENV] ?? '';
   if (isEnclaveGithubEnabled(config)) {
@@ -161,8 +176,11 @@ export async function prepareEnclaves(
   if (errors.length > 0) {
     throw new Error(`Enclave configuration is invalid:\n  - ${errors.join('\n  - ')}`);
   }
-  if (!token) {
+  if (enclaves.privateRepos.length > 0 && !token) {
     throw new Error('Enclave staging credential disappeared during preflight');
+  }
+  if (hasDynamicPolicy && !isValidEnclaveDynamicDelegationCapability(delegationCapability)) {
+    throw new Error('Enclave delegation-control capability disappeared during preflight');
   }
 
   await (deps.assertPrimaryAvailable ?? assertPrimaryRuntimeAvailable)(config.containerRuntime);
@@ -190,14 +208,24 @@ export async function prepareEnclaves(
   prepareDirectories(paths);
 
   const runId = generateEnclaveRunId();
-  const staging = await stageEnclaveSeeds({
-    repos: enclaves.privateRepos,
-    paths,
-    runId,
-    token,
-    gitRunner: deps.gitRunner,
-    label: 'Enclaves',
-  });
+  // Dynamic-only mode has no immutable seed catalog to stage: it never
+  // requires a staging credential, seed-map entry, repository clone, or seed
+  // mount. Only static repos (from this or a paired static entry) are staged.
+  let staging: { runId: string; seeds: Awaited<ReturnType<typeof stageEnclaveSeeds>>['seeds'] };
+  if (enclaves.privateRepos.length > 0) {
+    staging = await stageEnclaveSeeds({
+      repos: enclaves.privateRepos,
+      paths,
+      runId,
+      token: token!,
+      gitRunner: deps.gitRunner,
+      label: 'Enclaves',
+    });
+  } else {
+    fs.mkdirSync(paths.seedsDir, { recursive: true, mode: 0o700 });
+    staging = { runId, seeds: [] };
+    logger.info('Enclaves: dynamic-only mode; no static seeds to stage.');
+  }
   const seedMap: PrivateRepositorySeedMap = {
     version: PRIVATE_REPOSITORY_SEED_MAP_VERSION,
     runId: staging.runId,
@@ -209,6 +237,9 @@ export async function prepareEnclaves(
   };
   writeExclusive(paths.seedMapPath, serializePrivateRepositorySeedMap(seedMap), 0o600);
   writeExclusive(paths.capabilityPath, `${env[ENCLAVE_MCP_CAPABILITY_ENV]}\n`, 0o600);
+  if (hasDynamicPolicy) {
+    writeExclusive(paths.delegationCapabilityPath, `${delegationCapability}\n`, 0o600);
+  }
   if (isEnclaveGithubEnabled(config)) {
     writeExclusive(paths.githubAgentIdPath, `${githubAgentId}\n`, 0o600);
     if (env === process.env) delete process.env[ENCLAVE_GITHUB_MCP_AGENT_ID_ENV];

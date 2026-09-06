@@ -14,11 +14,14 @@ export interface EnclavePaths {
   runDir: string;
   capabilityPath: string;
   githubAgentIdPath: string;
+  /** AWF-only mcpg delegation-control capability for dynamic admission. Never agent-visible. */
+  delegationCapabilityPath: string;
 }
 
 export const ENCLAVE_PRIVATE_BASE_DIR = '/var/tmp';
 export const ENCLAVE_CAPABILITY_FILENAME = 'auth-token';
 export const ENCLAVE_GITHUB_AGENT_ID_FILENAME = 'github-agent-id';
+export const ENCLAVE_DELEGATION_CAPABILITY_FILENAME = 'delegation-control-token';
 
 export const ENCLAVE_SERVER_SEEDS_DIR = '/srv/awf/seeds';
 export const ENCLAVE_SERVER_WORK_DIR = '/srv/awf/work';
@@ -57,6 +60,7 @@ export function resolveEnclavePaths(
     runDir,
     capabilityPath: path.join(runDir, ENCLAVE_CAPABILITY_FILENAME),
     githubAgentIdPath: path.join(runDir, ENCLAVE_GITHUB_AGENT_ID_FILENAME),
+    delegationCapabilityPath: path.join(runDir, ENCLAVE_DELEGATION_CAPABILITY_FILENAME),
   };
 }
 

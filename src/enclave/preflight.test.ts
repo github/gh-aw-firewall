@@ -448,3 +448,109 @@ describe('validateEnclavesConfig', () => {
     expect(errors).toMatch(/maxOutputBytes must be at most 8192/);
   });
 });
+
+function dynamicPolicy(overrides: Record<string, unknown> = {}) {
+  return {
+    allowedOwners: ['octo-org'],
+    allowedRepositories: [],
+    sensitivity: 'confidential' as const,
+    executor: 'agent' as const,
+    githubPolicy: { version: 'github-repository-read-v1', tools: ['list_issues', 'issue_read'] },
+    maxRepositories: 4,
+    limits: {
+      memoryLimit: '1g',
+      cpuLimit: '1',
+      pidsLimit: 128,
+      tmpfsLimit: '256m',
+      timeout: 120,
+      maxOutputBytes: 8192,
+      maxTaskBytes: 4096,
+    },
+    quotas: { totalInvocations: 10, totalBytes: 1_000_000, totalSeconds: 3600 },
+    auditLabels: { run: 'test-run' },
+    expiresAt: '2999-01-01T00:00:00Z',
+    ...overrides,
+  };
+}
+
+describe('validateEnclavesConfig dynamic policy', () => {
+  function dynamicConfig(overrides: Record<string, unknown> = {}): WrapperConfig {
+    const enclaves = normalizeEnclavesConfig([
+      { agent: { model: 'gpt-5' }, dynamic: dynamicPolicy(overrides) as never },
+    ]);
+    return config({ enclaves, enableApiProxy: true, copilotGithubToken: 'token' });
+  }
+
+  it('accepts a well-formed dynamic policy without requiring static repos', () => {
+    expect(validateEnclavesConfig(dynamicConfig())).toEqual([]);
+  });
+
+  it('rejects an unsupported sensitivity', () => {
+    const errors = validateEnclavesConfig(dynamicConfig({ sensitivity: 'bogus' })).join('\n');
+    expect(errors).toMatch(/dynamic.sensitivity "bogus" is not supported/);
+  });
+
+  it('rejects a non-agent executor', () => {
+    const errors = validateEnclavesConfig(dynamicConfig({ executor: 'script' })).join('\n');
+    expect(errors).toMatch(/dynamic.executor must be "agent"/);
+  });
+
+  it('rejects an envelope with no allowed owners or repositories', () => {
+    const errors = validateEnclavesConfig(
+      dynamicConfig({ allowedOwners: [], allowedRepositories: [] }),
+    ).join('\n');
+    expect(errors).toMatch(/must declare at least one allowed owner or repository/);
+  });
+
+  it('rejects noncanonical owner and repository selectors', () => {
+    const errors = validateEnclavesConfig(dynamicConfig({ allowedOwners: ['Octo-Org'] })).join('\n');
+    expect(errors).toMatch(/allowedOwners entry "Octo-Org" is not a canonical lowercase owner/);
+    const repoErrors = validateEnclavesConfig(
+      dynamicConfig({ allowedOwners: [], allowedRepositories: ['Octo-Org/Repo'] }),
+    ).join('\n');
+    expect(repoErrors).toMatch(/allowedRepositories entry "Octo-Org\/Repo" is not a canonical/);
+  });
+
+  it('rejects an unsupported GitHub policy version', () => {
+    const errors = validateEnclavesConfig(dynamicConfig({
+      githubPolicy: { version: 'github-repository-read-v2', tools: ['list_issues', 'issue_read'] },
+    })).join('\n');
+    expect(errors).toMatch(/githubPolicy.version "github-repository-read-v2" is not supported/);
+  });
+
+  it('rejects a GitHub tool set narrower or wider than the closed pair', () => {
+    const errors = validateEnclavesConfig(dynamicConfig({
+      githubPolicy: { version: 'github-repository-read-v1', tools: ['list_issues'] },
+    })).join('\n');
+    expect(errors).toMatch(/githubPolicy.tools must be exactly/);
+  });
+
+  it('rejects maxRepositories above the AWF-enforceable bound', () => {
+    const errors = validateEnclavesConfig(dynamicConfig({ maxRepositories: 65 })).join('\n');
+    expect(errors).toMatch(/maxRepositories must be at most 64/);
+  });
+
+  it('rejects malformed limits and quotas', () => {
+    const errors = validateEnclavesConfig(dynamicConfig({
+      limits: { memoryLimit: 'bogus', cpuLimit: '1', pidsLimit: 1, tmpfsLimit: '1m', timeout: 1, maxOutputBytes: 1, maxTaskBytes: 1 },
+      quotas: { totalInvocations: 0, totalBytes: 1, totalSeconds: 1 },
+    })).join('\n');
+    expect(errors).toMatch(/limits.memoryLimit is not a Docker size/);
+    expect(errors).toMatch(/quotas.totalInvocations must be a positive integer/);
+  });
+
+  it('rejects an already-expired envelope', () => {
+    const errors = validateEnclavesConfig(dynamicConfig({ expiresAt: '2000-01-01T00:00:00Z' })).join('\n');
+    expect(errors).toMatch(/expiresAt must be in the future/);
+  });
+
+  it('requires either repos or a dynamic policy for an enabled agent entry', () => {
+    const enclaves = normalizeEnclavesConfig([{ agent: { model: 'gpt-5' } }]);
+    const errors = validateEnclavesConfig(config({
+      enclaves,
+      enableApiProxy: true,
+      copilotGithubToken: 'token',
+    })).join('\n');
+    expect(errors).toMatch(/requires either a non-empty "repos" list or a "dynamic" policy/);
+  });
+});

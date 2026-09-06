@@ -1788,10 +1788,17 @@ Each record follows the `blocked-request-diag/v<version>` schema:
 
 The optional top-level `enclaves` array defines AWF's sole supported private-repository execution surface. It is structurally identical to the gh-aw compiler's enclave frontmatter: every entry declares exactly one `script` or `agent` executor, its own non-empty `repos` list, and entry-level shared controls including `timeout`, `runtime`, `image`, resource limits, and disclosure limits. AWF stages immutable repository seeds on the host, starts one AWF-owned `enclave-mcp-server`, maintains one shared per-repository ledger for the run, and exposes configured executors only through compiler-launched `gh-aw-mcpg`.
 
-Dynamic repository-policy entries are not supported by this configuration
-schema or runtime. `docs/adr/0001-agent-enclaves.md` describes a proposed,
-version-gated dynamic admission contract; it does not add configuration fields
-to this release.
+Dynamic repository-policy entries are supported for the `agent` executor only,
+per `docs/adr/0001-agent-enclaves.md` §"Dynamic admission". An entry declares
+`dynamic` in place of `repos` (the two are mutually exclusive within one
+entry); AWF validates the exact compiler-emitted envelope, enforces
+`maxRepositories`, expiry, and quotas, and admits repositories into an
+AWF-owned in-memory registry keyed by `(run, enclave entry, invocation id,
+canonical repository)`. AWF does not itself perform the mcpg
+`github-repository-delegation-v1` control-channel calls (create-or-confirm/
+revoke) described by the ADR: the compiler does not yet emit an explicit AWF
+control-endpoint variable, so that wiring is deferred to a follow-up once the
+endpoint contract lands upstream. See §14.1a.
 
 ### 14.1 Executors and shared configuration
 
@@ -1835,6 +1842,57 @@ At most one entry MAY exist per executor kind, and each entry MUST declare exact
 `gvisor` requires an exactly registered `runsc` runtime and never falls back. `sbx` remains fail-closed for both executors until the audited capability proof lands.
 
 The agent executor additionally requires `enableApiProxy`, a configured provider route for its fixed engine/profile, a configured `model`, and the absence of `enableDind`. AWF validates those requirements before repository staging.
+
+### 14.1a Dynamic repository admission (agent-only)
+
+```yaml
+enclaves:
+  - agent:
+      model: gpt-5
+    dynamic:
+      allowedOwners:
+        - octo-org
+      allowedRepositories: []
+      sensitivity: confidential
+      executor: agent
+      githubPolicy:
+        version: github-repository-read-v1
+        tools:
+          - list_issues
+          - issue_read
+      maxRepositories: 4
+      limits:
+        memoryLimit: 256m
+        cpuLimit: "1"
+        pidsLimit: 128
+        tmpfsLimit: 256m
+        timeout: 180
+        maxOutputBytes: 2048
+        maxTaskBytes: 4096
+      quotas:
+        totalInvocations: 100
+        totalBytes: 10000000
+        totalSeconds: 3600
+      auditLabels:
+        run: example-run
+      expiresAt: "2030-01-01T00:00:00Z"
+```
+
+An agent entry MUST declare exactly one of `repos` or `dynamic`, never both, and a `script` entry MUST NOT declare `dynamic`. The `dynamic` object is closed (unknown fields are rejected) and every field is REQUIRED:
+
+- `allowedOwners` / `allowedRepositories` — non-empty, exact canonical lowercase ASCII owner scopes (`owner`) and/or `owner/repo` selectors. At least one of the two lists MUST be non-empty. AWF performs no trimming, case folding, Unicode normalization, or URL decoding before matching; a selector that is not already in this exact canonical form is rejected.
+- `sensitivity` — one of `public`, `trusted`, `internal`, `confidential`, `sealed`; fixes the shared per-repository information budget an admitted repository debits (§14.4).
+- `executor` — fixed to `agent`; any other value is rejected.
+- `githubPolicy` — fixed to `{ version: "github-repository-read-v1", tools: ["list_issues", "issue_read"] }`. Any other version, tool set, tool ordering, or additional tool is rejected; this is the sole supported dynamic GitHub policy.
+- `maxRepositories` — a positive integer bound (AWF also enforces its own hard ceiling) on distinct repositories admitted per run.
+- `limits` — the same shape and bounds as the entry-level executor limits (§14.1), scoped to the dynamic policy.
+- `quotas` — `totalInvocations`, `totalBytes`, `totalSeconds`: non-negative total budgets shared across every admission under this policy for the run.
+- `auditLabels` — a bounded map of string labels attached to every audit record produced by this policy; never repository names or credentials.
+- `expiresAt` — an absolute ISO-8601 UTC timestamp; admission after this time is denied.
+
+Dynamic-only mode (an agent entry with `dynamic` and no `repos` on any entry) requires no `GH_TOKEN`/`GITHUB_TOKEN` staging credential, clones no repository, and mounts no seed. AWF reads the compiler-minted `AWF_ENCLAVE_GITHUB_DELEGATION_CONTROL_CAPABILITY` once from the host environment, validates it is a run-scoped 256-bit lowercase-hex value, stages it to a private mode-0600 file, and removes it from the inherited environment; it is never mounted into the primary or enclave agent, and control traffic uses a listener distinct from the executor-facing GitHub MCP traffic.
+
+Every admission attempt — malformed, inaccessible, nonexistent, expired, over-quota, or out-of-policy — returns the same non-disclosing canonical denial with a fixed timing bucket (§14.3's bucket list), so a caller cannot distinguish failure causes. Admission is idempotent by `(run, enclave entry, invocation id, canonical repository)`: a retried request with the same key returns the previously recorded outcome, and a different repository under an already-committed invocation id is rejected rather than rebinding.
 
 ### 14.2 MCP-only tool surface
 

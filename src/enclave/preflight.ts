@@ -2,13 +2,17 @@ import type { WrapperConfig } from '../types';
 import type {
   EnclaveAgentExecutorConfig,
   EnclaveAgentGithubToolsConfig,
+  EnclaveDynamicPolicy,
   EnclaveRepository,
   EnclaveSensitivity,
   EnclavesConfig,
 } from '../types/enclave-options';
 import {
+  CANONICAL_DYNAMIC_OWNER_PATTERN,
+  CANONICAL_DYNAMIC_REPOSITORY_PATTERN,
   ENCLAVE_AGENT_GITHUB_MIN_INTEGRITIES,
   ENCLAVE_AGENT_GITHUB_TOOLS,
+  ENCLAVE_SENSITIVITIES,
 } from '../types/enclave-options';
 import {
   MAX_RESULT_BYTES,
@@ -23,6 +27,14 @@ import { findDockerSocketExposingMount } from './mount-policy';
 const RUNTIMES = new Set(['docker', 'gvisor', 'sbx']);
 const ENGINES = new Set(['copilot', 'claude', 'codex', 'gemini']);
 const GITHUB_CLI_PROFILES = new Set(['issues-read-v1']);
+const DYNAMIC_GITHUB_POLICY_VERSIONS = new Set(['github-repository-read-v1']);
+
+/** AWF-enforceable upper bound on the number of repositories one dynamic envelope may admit. */
+const MAX_DYNAMIC_REPOSITORIES = 64;
+/** AWF-enforceable upper bound on the number of owner/repository selectors listed in one envelope. */
+const MAX_DYNAMIC_SELECTOR_LIST_LENGTH = 256;
+const MAX_DYNAMIC_AUDIT_LABELS = 32;
+const MAX_DYNAMIC_AUDIT_LABEL_LENGTH = 200;
 
 /** Engines with a published, audited enclave image and a fixed AWF model loop. */
 const IMPLEMENTED_AGENT_ENGINES = new Set(['copilot']);
@@ -62,7 +74,8 @@ export function resolveEnclaveAgentApiRoute(
 }
 
 function validateRepositoryList(enclaves: EnclavesConfig, errors: string[]): void {
-  if (enclaves.privateRepos.length === 0) {
+  const hasDynamic = enclaves.executors.agent.dynamic !== undefined;
+  if (enclaves.privateRepos.length === 0 && !hasDynamic) {
     errors.push('enclaves entries declare no repos');
   }
   const seen = new Map<string, EnclaveSensitivity>();
@@ -147,6 +160,16 @@ export function validateEnclavesConfig(config: WrapperConfig): string[] {
       errors.push('enclaves[].agent.network must be "api-proxy-only"');
     }
     if (!agent.model) errors.push('enclaves[].agent.model is required when the agent executor is enabled');
+    if (agent.dynamic !== undefined && agent.repos.length > 0) {
+      errors.push(
+        'enclaves[].dynamic and enclaves[].repos are mutually exclusive: an entry declares a static '
+        + 'seed catalog or a dynamic policy, never both',
+      );
+    } else if (agent.dynamic === undefined && agent.repos.length === 0) {
+      errors.push('enclaves[].agent requires either a non-empty "repos" list or a "dynamic" policy');
+    } else if (agent.dynamic !== undefined) {
+      validateEnclaveDynamicPolicy(agent.dynamic, errors);
+    }
     if (!config.enableApiProxy) {
       errors.push('enclaves agent executor requires the AWF API proxy');
     } else {
@@ -201,6 +224,136 @@ export function validateEnclavesConfig(config: WrapperConfig): string[] {
 
 function validatePositiveInteger(name: string, value: number, errors: string[]): void {
   if (!Number.isSafeInteger(value) || value < 1) errors.push(`${name} must be a positive integer`);
+}
+
+/**
+ * Validates the closed `enclaves[].dynamic` policy envelope per ADR 0001.
+ * AWF rejects any field it does not understand, any policy version other
+ * than the closed v1 GitHub tool set, and any bound it cannot enforce. The
+ * invocation-time selector is validated separately by the dynamic registry
+ * against this already-validated envelope.
+ */
+function validateEnclaveDynamicPolicy(dynamic: EnclaveDynamicPolicy, errors: string[]): void {
+  if (typeof dynamic !== 'object' || dynamic === null) {
+    errors.push('enclaves[].dynamic must be an object');
+    return;
+  }
+  if (dynamic.executor !== 'agent') {
+    errors.push('enclaves[].dynamic.executor must be "agent"');
+  }
+  const owners = dynamic.allowedOwners;
+  const repositories = dynamic.allowedRepositories;
+  if (!Array.isArray(owners) || !Array.isArray(repositories)) {
+    errors.push('enclaves[].dynamic.allowedOwners and allowedRepositories must be arrays');
+  } else {
+    if (owners.length === 0 && repositories.length === 0) {
+      errors.push('enclaves[].dynamic must declare at least one allowed owner or repository');
+    }
+    if (owners.length > MAX_DYNAMIC_SELECTOR_LIST_LENGTH || repositories.length > MAX_DYNAMIC_SELECTOR_LIST_LENGTH) {
+      errors.push(
+        `enclaves[].dynamic.allowedOwners and allowedRepositories must each have at most ` +
+        `${MAX_DYNAMIC_SELECTOR_LIST_LENGTH} entries`,
+      );
+    }
+    for (const owner of owners) {
+      if (typeof owner !== 'string' || !CANONICAL_DYNAMIC_OWNER_PATTERN.test(owner)) {
+        errors.push(`enclaves[].dynamic.allowedOwners entry "${owner}" is not a canonical lowercase owner`);
+      }
+    }
+    for (const repo of repositories) {
+      if (typeof repo !== 'string' || !CANONICAL_DYNAMIC_REPOSITORY_PATTERN.test(repo)) {
+        errors.push(
+          `enclaves[].dynamic.allowedRepositories entry "${repo}" is not a canonical lowercase "owner/repository"`,
+        );
+      }
+    }
+  }
+  if (!ENCLAVE_SENSITIVITIES.includes(dynamic.sensitivity)) {
+    errors.push(`enclaves[].dynamic.sensitivity "${dynamic.sensitivity}" is not supported`);
+  }
+  validatePositiveInteger('enclaves[].dynamic.maxRepositories', dynamic.maxRepositories, errors);
+  if (dynamic.maxRepositories > MAX_DYNAMIC_REPOSITORIES) {
+    errors.push(`enclaves[].dynamic.maxRepositories must be at most ${MAX_DYNAMIC_REPOSITORIES}`);
+  }
+  const githubPolicy = dynamic.githubPolicy;
+  if (typeof githubPolicy !== 'object' || githubPolicy === null) {
+    errors.push('enclaves[].dynamic.githubPolicy must be an object');
+  } else {
+    if (!DYNAMIC_GITHUB_POLICY_VERSIONS.has(githubPolicy.version)) {
+      errors.push(
+        `enclaves[].dynamic.githubPolicy.version "${githubPolicy.version}" is not supported; ` +
+        `only ${JSON.stringify([...DYNAMIC_GITHUB_POLICY_VERSIONS])} is accepted`,
+      );
+    }
+    const tools = githubPolicy.tools;
+    if (
+      !Array.isArray(tools)
+      || tools.length !== ENCLAVE_AGENT_GITHUB_TOOLS.length
+      || new Set(tools).size !== ENCLAVE_AGENT_GITHUB_TOOLS.length
+      || !ENCLAVE_AGENT_GITHUB_TOOLS.every(tool => tools.includes(tool))
+    ) {
+      errors.push(
+        'enclaves[].dynamic.githubPolicy.tools must be exactly '
+        + JSON.stringify(ENCLAVE_AGENT_GITHUB_TOOLS),
+      );
+    }
+  }
+  const limits = dynamic.limits;
+  if (typeof limits !== 'object' || limits === null) {
+    errors.push('enclaves[].dynamic.limits must be an object');
+  } else {
+    validateResourceLimits('enclaves[].dynamic.limits', limits, errors);
+    if (!Number.isInteger(limits.timeout) || limits.timeout < 1 || limits.timeout > MAX_ENCLAVE_TIMEOUT_SECONDS) {
+      errors.push(`enclaves[].dynamic.limits.timeout must be between 1 and ${MAX_ENCLAVE_TIMEOUT_SECONDS}`);
+    }
+    validatePositiveInteger('enclaves[].dynamic.limits.maxTaskBytes', limits.maxTaskBytes, errors);
+    if (limits.maxTaskBytes > ENCLAVE_AGENT_MAX_TASK_BYTES) {
+      errors.push(`enclaves[].dynamic.limits.maxTaskBytes must be at most ${ENCLAVE_AGENT_MAX_TASK_BYTES}`);
+    }
+    if (limits.maxOutputBytes > MAX_RESULT_BYTES) {
+      errors.push(`enclaves[].dynamic.limits.maxOutputBytes must be at most ${MAX_RESULT_BYTES}`);
+    }
+    if (limits.maxModelRequests !== undefined) {
+      validatePositiveInteger('enclaves[].dynamic.limits.maxModelRequests', limits.maxModelRequests, errors);
+    }
+    if (limits.maxModelTokens !== undefined) {
+      validatePositiveInteger('enclaves[].dynamic.limits.maxModelTokens', limits.maxModelTokens, errors);
+    }
+  }
+  const quotas = dynamic.quotas;
+  if (typeof quotas !== 'object' || quotas === null) {
+    errors.push('enclaves[].dynamic.quotas must be an object');
+  } else {
+    validatePositiveInteger('enclaves[].dynamic.quotas.totalInvocations', quotas.totalInvocations, errors);
+    validatePositiveInteger('enclaves[].dynamic.quotas.totalBytes', quotas.totalBytes, errors);
+    validatePositiveInteger('enclaves[].dynamic.quotas.totalSeconds', quotas.totalSeconds, errors);
+  }
+  const auditLabels = dynamic.auditLabels;
+  if (typeof auditLabels !== 'object' || auditLabels === null || Array.isArray(auditLabels)) {
+    errors.push('enclaves[].dynamic.auditLabels must be an object');
+  } else {
+    const entries = Object.entries(auditLabels);
+    if (entries.length > MAX_DYNAMIC_AUDIT_LABELS) {
+      errors.push(`enclaves[].dynamic.auditLabels must have at most ${MAX_DYNAMIC_AUDIT_LABELS} entries`);
+    }
+    for (const [key, value] of entries) {
+      if (
+        typeof value !== 'string'
+        || key.length > MAX_DYNAMIC_AUDIT_LABEL_LENGTH
+        || value.length > MAX_DYNAMIC_AUDIT_LABEL_LENGTH
+      ) {
+        errors.push(
+          `enclaves[].dynamic.auditLabels entry "${key}" must be a string of at most `
+          + `${MAX_DYNAMIC_AUDIT_LABEL_LENGTH} characters`,
+        );
+      }
+    }
+  }
+  if (typeof dynamic.expiresAt !== 'string' || Number.isNaN(Date.parse(dynamic.expiresAt))) {
+    errors.push('enclaves[].dynamic.expiresAt must be a valid ISO-8601 timestamp');
+  } else if (Date.parse(dynamic.expiresAt) <= Date.now()) {
+    errors.push('enclaves[].dynamic.expiresAt must be in the future');
+  }
 }
 
 /**
