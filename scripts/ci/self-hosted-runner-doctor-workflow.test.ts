@@ -217,6 +217,8 @@ describe('self-hosted runner doctor workflow config', () => {
     expect(source).toContain('- A setup-action-selected toolchain version is shadowed by the system-default version inside the AWF agent under `sandbox.agent.runtime: docker-sudo-iptables` → B31');
     expect(source).toContain('- Recurring intermittent `403`/DNS `SERVFAIL` blocking an allowlisted domain');
     expect(source).toContain('→ B32 (Squid\'s default 60-second `negative_dns_ttl`');
+    expect(source).toContain('`dns_retransmit_interval 1 seconds`');
+    expect(source).toContain('`dns_timeout 10 seconds`');
     expect(source).toContain('- `[DEBUG] Could not check Squid logs: EACCES ... access.log` mid-run');
     expect(source).toContain('→ B33 (the previous shutdown-time repair only changed mode bits');
     expect(source).toContain('- Copilot calls on Business/Enterprise/GHEC use the wrong Authorization scheme specifically for a fine-grained PAT (`github_pat_...`) → C10');
@@ -273,6 +275,8 @@ describe('self-hosted runner doctor workflow config', () => {
       expect(playbook).toContain('C10 / github/gh-aw-firewall#8035, github/gh-aw-firewall#8038 — Fine-grained GitHub PATs');
       expect(playbook).toContain('- Recurring intermittent `403`/DNS `SERVFAIL` blocking an allowlisted domain');
       expect(playbook).toContain('→ B32 (Squid\'s default 60-second `negative_dns_ttl`');
+      expect(playbook).toContain('`dns_retransmit_interval 1 seconds`');
+      expect(playbook).toContain('`dns_timeout 10 seconds`');
       expect(playbook).toContain('- `[DEBUG] Could not check Squid logs: EACCES ... access.log` mid-run');
       expect(playbook).toContain('→ B33 (the previous shutdown-time repair only changed mode bits');
     }
