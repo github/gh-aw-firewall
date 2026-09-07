@@ -2033,7 +2033,9 @@ server itself remain excluded.
 The base compiler handoff from `github/gh-aw#50920` and late backend
 rediscovery from `github/gh-aw-mcpg#10784` are present in mcpg v0.4.15, which
 reports MCP Gateway spec 1.16.0. The base floor remains spec 1.15.0 and a
-post-v0.4.8 mcpg release.
+post-v0.4.8 mcpg release. That floor covers static entries only; dynamic
+repository admission requires mcpg v0.4.18 or newer for the whole-second
+delegation duration encoding (see §14 and `docs/enclaves-architecture.md`).
 
 GitHub access additionally requires compiler support for mcpg multi-agent
 identities and policies, tracked by `github/gh-aw#57787`. The compiler MUST gate

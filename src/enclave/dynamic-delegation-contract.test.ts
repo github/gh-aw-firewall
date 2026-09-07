@@ -9,10 +9,12 @@
  *   `pkg/workflow/enclaves.go` (PR #59046): the exported control endpoint,
  *   the fixed control API base path, the controller name, the envelope's
  *   `run_id` and `enclave_backend`.
- * - `github/gh-aw-mcpg` v0.4.17 `internal/proxy/delegation.go` and
+ * - `github/gh-aw-mcpg` v0.4.18 `internal/proxy/delegation.go`,
+ *   `internal/delegation/wire.go`, and
  *   `internal/delegation/{identity,store,selector}.go` (PR #12605): the
  *   operation paths, the `CreateOrConfirmRequest`/`IdentityResult` JSON key
- *   sets, the status/reconcile/revoke shapes, and the closed tool set.
+ *   sets, the whole-second duration encoding, the status/reconcile/revoke
+ *   shapes, and the closed tool set.
  */
 
 import * as http from 'http';
@@ -98,7 +100,7 @@ describe('gh-aw handoff contract', () => {
   });
 });
 
-describe('mcpg v0.4.17 wire contract', () => {
+describe('mcpg v0.4.18 wire contract', () => {
   const captured: Record<string, unknown>[] = [];
   let server: http.Server;
   let client: DelegationControlClient;

@@ -1,7 +1,12 @@
 /**
- * Strict client for mcpg v0.4.17's `github-repository-delegation-v1` control
+ * Strict client for mcpg v0.4.18's `github-repository-delegation-v1` control
  * channel (`github/gh-aw-mcpg` `internal/proxy/delegation.go`,
- * `internal/delegation/{identity,store,envelope}.go`).
+ * `internal/delegation/{identity,store,envelope,wire}.go`).
+ *
+ * v0.4.18 is the minimum: it introduced `internal/delegation/wire.go`, which
+ * decodes `requested_ttl` and `max_identity_ttl` as `int64` whole seconds.
+ * v0.4.17 typed them as Go `time.Duration` and so read the same JSON as
+ * nanoseconds.
  *
  * Wire contract, reproduced exactly because mcpg decodes with
  * `DisallowUnknownFields` and rejects anything outside it:

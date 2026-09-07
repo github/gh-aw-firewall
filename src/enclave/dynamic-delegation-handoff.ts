@@ -44,7 +44,7 @@ export const ENCLAVE_GITHUB_DELEGATION_CONTROL_CAPABILITY_ENV =
   'AWF_ENCLAVE_GITHUB_DELEGATION_CONTROL_CAPABILITY';
 
 /**
- * Fixed control API base path served by mcpg v0.4.17
+ * Fixed control API base path served by mcpg v0.4.18
  * (`internal/proxy/delegation.go`: `delegationControlPath`). Operations are
  * siblings of the controller name, not children of it.
  */

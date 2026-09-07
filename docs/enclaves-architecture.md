@@ -6,10 +6,18 @@ Layer 5 establishes one `enclaves` subsystem, one AWF-owned MCP server, and mcpg
 
 Dynamic repository admission described below is implemented and version-gated.
 It runs only when the gh-aw compiler starts mcpg's
-`github-repository-delegation-v1` controller (mcpg v0.4.17 or newer) and hands
+`github-repository-delegation-v1` controller (mcpg v0.4.18 or newer) and hands
 AWF its loopback-only control endpoint and AWF-only control capability; every
 other combination fails closed before execution. Static entries continue to
 declare a non-empty `repos` list and use immutable seeds.
+
+v0.4.18 is the floor, not v0.4.17, because the delegation duration fields are
+whole seconds on the wire. v0.4.17 declared `max_identity_ttl` and
+`requested_ttl` as Go `time.Duration` and so decoded them as **nanoseconds**;
+v0.4.18 added `internal/delegation/wire.go`, which decodes both as `int64`
+seconds. Pairing current AWF with v0.4.17 would silently reinterpret a
+120-second TTL as 120 nanoseconds. gh-aw pins the matching default in
+`pkg/constants/version_constants.go` (`DefaultMCPGatewayVersion`).
 
 ## Architecture
 
@@ -101,7 +109,9 @@ error immediately instead of entering an unbounded fixed-timing queue.
 
 The base MCP handoff and late backend rediscovery are present in mcpg v0.4.15,
 which reports MCP Gateway spec 1.16.0. The earlier minimum remains spec 1.15.0
-and a post-v0.4.8 mcpg release.
+and a post-v0.4.8 mcpg release. That minimum applies to static entries only;
+dynamic repository admission requires v0.4.18 or newer, as described under
+Status above.
 
 The optional GitHub path additionally requires compiler support for mcpg
 multi-agent identities and policies (tracked by `github/gh-aw#57787`). The
@@ -407,6 +417,14 @@ publication scope — determines container-to-container reachability. The contro
 plane is therefore protected by **authentication**: every request must carry the
 AWF-only capability, which is never placed in any container's environment or
 mount, and mcpg rejects anything else with `403 delegation_access_denied`.
+
+Relying on authentication alone here is a deliberate, reviewed choice rather
+than an oversight: `github/gh-aw#59268` proposed adding a topological control
+and was closed as not planned, with the reasoning recorded on the issue. mcpg
+verifies the capability in constant time against a stored SHA-256 digest,
+before any control routing, on a handler separate from the executor-facing data
+plane — so holding a valid executor bearer does not reach control operations
+even from a co-attached network.
 
 The broker asks the host for admission over an AWF-private request/response
 directory inside the `0700` enclave private root that is bind-mounted only into
