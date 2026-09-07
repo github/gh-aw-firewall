@@ -274,7 +274,7 @@ describe('self-hosted runner doctor workflow config', () => {
       expect(playbook).toContain('- Recurring intermittent `403`/DNS `SERVFAIL` blocking an allowlisted domain');
       expect(playbook).toContain('→ B32 (Squid\'s default 60-second `negative_dns_ttl`');
       expect(playbook).toContain('- `[DEBUG] Could not check Squid logs: EACCES ... access.log` mid-run');
-      expect(playbook).toContain('→ B33 (Squid log ownership repair only ran at shutdown');
+      expect(playbook).toContain('→ B33 (the previous shutdown-time repair only changed mode bits');
     }
   });
 });
