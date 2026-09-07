@@ -38,7 +38,7 @@ const {
   getGitHubTokenAuthPrefix,
   isGithubCopilotCatalogTarget,
 } = require('./copilot-auth');
-const { bearerAuthHeaders, tokenAuthHeaders, withCopilotIntegration } = require('./auth-headers');
+const { bearerAuthHeaders, tokenAuthHeaders, buildAuthHeaderFn, withCopilotIntegration } = require('./auth-headers');
 const { URL } = require('url');
 const { COPILOT_ENV } = require('../provider-env-constants');
 
@@ -175,7 +175,7 @@ function createCopilotAdapter(env, deps = {}) {
     oidcAuthOptions: { staticAuthToken: authToken, skipWhen: !!staticAuthToken },
     buildOidcHeaders: (token) => withCopilotIntegration(bearerAuthHeaders(token), integrationId),
     buildStaticHeaders: () => withCopilotIntegration(
-      tokenAuthHeaders(authPrefix, authToken, apiKey ? byokExtraHeaders : undefined),
+      buildAuthHeaderFn({ prefix: authPrefix })(authToken, apiKey ? byokExtraHeaders : undefined),
       integrationId
     ),
     createAdapterMethodsOptions: ({ oidcConfigured, authProvider }) => ({

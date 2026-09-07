@@ -1,6 +1,12 @@
 'use strict';
 
-const { tokenAuthHeaders, bearerAuthHeaders, providerKeyHeaders, withCopilotIntegration } = require('./auth-headers');
+const {
+  tokenAuthHeaders,
+  bearerAuthHeaders,
+  providerKeyHeaders,
+  withCopilotIntegration,
+  buildAuthHeaderFn,
+} = require('./auth-headers');
 
 describe('bearerAuthHeaders', () => {
   it('builds an Authorization: Bearer ... header', () => {
@@ -90,5 +96,36 @@ describe('tokenAuthHeaders', () => {
 
   it('is the basis for bearerAuthHeaders', () => {
     expect(bearerAuthHeaders('tok')).toEqual(tokenAuthHeaders('Bearer', 'tok'));
+  });
+});
+
+describe('buildAuthHeaderFn', () => {
+  it('defaults to an Authorization/Bearer-style header when no options are given', () => {
+    const build = buildAuthHeaderFn();
+    expect(build('tok')).toEqual(tokenAuthHeaders('Bearer', 'tok'));
+  });
+
+  it('uses the given prefix when headerName is not set', () => {
+    const build = buildAuthHeaderFn({ prefix: 'token' });
+    expect(build('gh-tok')).toEqual(tokenAuthHeaders('token', 'gh-tok'));
+  });
+
+  it('builds a provider key header when headerName is set, ignoring prefix', () => {
+    const build = buildAuthHeaderFn({ headerName: 'api-key', prefix: 'token' });
+    expect(build('az-key')).toEqual(providerKeyHeaders('api-key', 'az-key'));
+  });
+
+  it('merges extra headers alongside the built Authorization header', () => {
+    const build = buildAuthHeaderFn({ prefix: 'token' });
+    expect(build('gh-tok', { 'X-GitHub-Api-Version': '2026-07-01' })).toEqual(
+      tokenAuthHeaders('token', 'gh-tok', { 'X-GitHub-Api-Version': '2026-07-01' })
+    );
+  });
+
+  it('merges extra headers alongside the built provider key header', () => {
+    const build = buildAuthHeaderFn({ headerName: 'x-goog-api-key' });
+    expect(build('goog-key', { 'x-extra': 'v' })).toEqual(
+      providerKeyHeaders('x-goog-api-key', 'goog-key', { 'x-extra': 'v' })
+    );
   });
 });

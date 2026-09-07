@@ -126,7 +126,9 @@ function validateRepositoryList(enclaves: EnclavesConfig, errors: string[]): voi
 }
 
 /** Static, fail-closed checks for the unified enclave foundation. */
-export function validateEnclavesConfig(config: WrapperConfig): string[] {
+export function validateEnclavesConfig(
+  config: WrapperConfig,
+): string[] {
   const enclaves = config.enclaves;
   if (!enclaves?.enabled) return [];
 

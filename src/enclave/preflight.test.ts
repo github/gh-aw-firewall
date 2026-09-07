@@ -484,6 +484,11 @@ describe('validateEnclavesConfig dynamic policy', () => {
       .toMatch(/never falls back to a static seed catalog/);
   });
 
+  it('refuses a dynamic entry even when a compiler handoff is supplied', () => {
+    const errors = validateEnclavesConfig(dynamicConfig());
+    expect(errors).toContain(DYNAMIC_ENCLAVE_EXECUTION_UNSUPPORTED_REASON);
+  });
+
   it('rejects an unsupported sensitivity', () => {
     expect(structuralErrors({ sensitivity: 'bogus' }))
       .toMatch(/dynamic.sensitivity "bogus" is not supported/);
