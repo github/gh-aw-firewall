@@ -1,22 +1,7 @@
 import type { MicrovmNetworkPlan } from '../microvm/network';
-import type { CloudHypervisorOptions } from '../types/runtime-options';
 import { createCloudHypervisorRunPaths } from './manager-types';
 import { buildCloudHypervisorVmConfig } from './vm-config-builder';
-
-function config(overrides: Partial<CloudHypervisorOptions> = {}): CloudHypervisorOptions {
-  return {
-    previewEnabled: true,
-    mountPolicy: 'workspace-only',
-    cloudHypervisorBinary: '/opt/cloud-hypervisor',
-    kernelPath: '/opt/vmlinux',
-    rootfsPath: '/opt/rootfs.ext4',
-    supervisorPath: '/opt/awf-supervisor',
-    vcpuCount: 2,
-    memoryMib: 512,
-    apiTimeoutMs: 1,
-    ...overrides,
-  };
-}
+import { createCloudHypervisorOptions as config } from './test-fixtures.test-utils';
 
 function networkPlan(): MicrovmNetworkPlan {
   return {

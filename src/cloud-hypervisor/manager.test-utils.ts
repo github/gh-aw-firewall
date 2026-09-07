@@ -5,7 +5,6 @@ import type {
 } from '../microvm/network';
 import { createMicrovmNetworkPlan } from '../microvm/network';
 import type { MicrovmRootfsPreparer } from '../microvm/rootfs';
-import type { CloudHypervisorOptions } from '../types/runtime-options';
 import type { CloudHypervisorApiClient } from './api-client';
 import type { CloudHypervisorCgroup } from './launcher';
 import type { VirtiofsdManager } from './virtiofsd';
@@ -14,33 +13,15 @@ import {
   type CloudHypervisorManagerDependencies,
   type CloudHypervisorManagerNetworkConfig,
 } from './manager';
-import type { CloudHypervisorHostToolPaths } from './preflight';
 import type {
   CloudHypervisorCleanupHandle,
   CloudHypervisorCleanupRegistry,
 } from './cleanup-registry';
 import type { CloudHypervisorVmmIdentityManager } from './vmm-identity';
-
-const hostTools: CloudHypervisorHostToolPaths = {
-  getfacl: '/usr/bin/getfacl',
-  getent: '/usr/bin/getent',
-  groupdel: '/usr/sbin/groupdel',
-  id: '/usr/bin/id',
-  ip: '/usr/bin/ip',
-  nft: '/usr/sbin/nft',
-  sysctl: '/usr/sbin/sysctl',
-  flock: '/usr/bin/flock',
-  mke2fs: '/usr/sbin/mke2fs',
-  debugfs: '/usr/sbin/debugfs',
-  e2fsck: '/usr/sbin/e2fsck',
-  rsync: '/usr/bin/rsync',
-  mount: '/usr/bin/mount',
-  umount: '/usr/bin/umount',
-  setpriv: '/usr/bin/setpriv',
-  setfacl: '/usr/bin/setfacl',
-  useradd: '/usr/sbin/useradd',
-  userdel: '/usr/sbin/userdel',
-};
+import {
+  cloudHypervisorHostTools as hostTools,
+  createCloudHypervisorOptions as config,
+} from './test-fixtures.test-utils';
 
 const exportsConfig = [
   { tag: 'workspace', source: '/workspace', target: '/workspace', mode: 'rw' as const },
@@ -67,21 +48,6 @@ function virtiofsdManagerMock(): VirtiofsdManager {
     stop: jest.fn().mockResolvedValue(undefined),
     getDiagnosticDevices: jest.fn(() => devices),
   } as unknown as VirtiofsdManager;
-}
-
-function config(overrides: Partial<CloudHypervisorOptions> = {}): CloudHypervisorOptions {
-  return {
-    previewEnabled: true,
-    mountPolicy: 'workspace-only',
-    cloudHypervisorBinary: '/opt/cloud-hypervisor',
-    kernelPath: '/opt/vmlinux',
-    rootfsPath: '/opt/rootfs.ext4',
-    supervisorPath: '/opt/awf-supervisor',
-    vcpuCount: 2,
-    memoryMib: 512,
-    apiTimeoutMs: 1,
-    ...overrides,
-  };
 }
 
 function processMock(): ExecaChildProcess<string> {

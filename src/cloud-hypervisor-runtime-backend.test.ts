@@ -9,47 +9,10 @@ import {
   createCloudHypervisorRuntimeBackend,
   type CloudHypervisorRuntimeBackendDependencies,
 } from './cloud-hypervisor-runtime-backend';
-import type { MicrovmInfrastructureSnapshot } from './microvm/infrastructure';
-import { CLOUD_HYPERVISOR_ARTIFACT_RELEASE_TAG } from './cloud-hypervisor/artifact-manifest';
-
-function config(overrides: Partial<WrapperConfig> = {}): WrapperConfig {
-  return {
-    containerRuntime: 'cloud-hypervisor',
-    cloudHypervisor: {
-      previewEnabled: true,
-      mountPolicy: 'workspace-only',
-      cloudHypervisorBinary: '/opt/cloud-hypervisor',
-      kernelPath: '/opt/kernel',
-      rootfsPath: '/opt/rootfs',
-      supervisorPath: '/opt/supervisor',
-      artifactManifestPath: '/opt/manifest.json',
-      artifactManifestBundlePath: '/opt/manifest.sigstore.jsonl',
-      artifactReleaseTag: CLOUD_HYPERVISOR_ARTIFACT_RELEASE_TAG,
-      vcpuCount: 2,
-      memoryMib: 512,
-      apiTimeoutMs: 5000,
-    },
-    agentCommand: 'printf hello',
-    allowedDomains: ['github.com'],
-    workDir: '/tmp/awf',
-    keepContainers: false,
-    networkIsolation: true,
-    legacySecurity: false,
-    enableApiProxy: true,
-    enableDind: false,
-    enableHostAccess: false,
-    tty: false,
-    logLevel: 'info',
-    buildLocal: false,
-    skipPull: true,
-    imageRegistry: 'registry',
-    imageTag: 'tag',
-    envAll: false,
-    sslBump: false,
-    enableDlp: false,
-    ...overrides,
-  } as WrapperConfig;
-}
+import {
+  createCloudHypervisorInfrastructureSnapshot as infrastructure,
+  createCloudHypervisorTestConfig as config,
+} from './cloud-hypervisor/test-fixtures.test-utils';
 
 type TestCloudHypervisorRuntimeBackend = ReturnType<typeof createCloudHypervisorRuntimeBackend> & {
   preserve(): Promise<void>;
@@ -63,19 +26,6 @@ function createBackend(
     backendConfig,
     deps,
   ) as TestCloudHypervisorRuntimeBackend;
-}
-
-function infrastructure(): MicrovmInfrastructureSnapshot {
-  return {
-    networkId: 'a'.repeat(64),
-    bridgeName: 'br-aaaaaaaaaaaa',
-    subnet: '172.30.0.0/24',
-    gateway: '172.30.0.1',
-    squidIp: '172.30.0.10',
-    apiProxyIp: '172.30.0.30',
-    topologyPeerIps: {},
-    revalidate: jest.fn().mockResolvedValue(undefined),
-  };
 }
 
 const preflightResult = {
