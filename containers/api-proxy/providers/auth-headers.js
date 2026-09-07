@@ -58,9 +58,9 @@ function providerKeyHeaders(headerName, token, extraHeaders) {
  * When `headerName` is set (e.g. Azure OpenAI BYOK's `api-key`, or a caller
  * override such as `AWF_OPENAI_AUTH_HEADER`), the returned function builds a
  * `providerKeyHeaders`-style header. Otherwise it falls back to
- * `tokenAuthHeaders` using `prefix` (defaulting to `Bearer`), so callers with
- * a per-request prefix (e.g. Copilot's `token`/`Bearer` split) can still
- * share this helper.
+ * `tokenAuthHeaders` using `prefix` (defaulting to `Bearer`), so callers such
+ * as Copilot can select the `token` or `Bearer` scheme when creating the
+ * reusable builder.
  *
  * @param {{ headerName?: string, prefix?: string }} [options]
  * @returns {(token: string, extraHeaders?: Record<string, string>) => Record<string, string>}
