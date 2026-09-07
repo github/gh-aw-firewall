@@ -488,10 +488,13 @@ describe('validateEnclavesConfig dynamic policy', () => {
   it('refuses a dynamic entry when the handoff is present but malformed', () => {
     const errors = validateEnclavesConfig(
       dynamicConfig(),
-      resolveEnclaveDynamicDelegationHandoff({
-        endpoint: 'http://localhost:8090/internal/awf-enclave-mcp-control/github-repository-delegation-v1',
-        capability: 'a'.repeat(64),
-      }),
+      {
+        delegationHandoff: resolveEnclaveDynamicDelegationHandoff({
+          endpoint:
+            'http://localhost:8090/internal/awf-enclave-mcp-control/github-repository-delegation-v1',
+          capability: 'a'.repeat(64),
+        }),
+      },
     );
     expect(errors.join('\n')).toMatch(/must be the loopback-only mcpg control endpoint/);
     expect(errors).not.toContain(DYNAMIC_ENCLAVE_EXECUTION_UNSUPPORTED_REASON);
@@ -500,10 +503,13 @@ describe('validateEnclavesConfig dynamic policy', () => {
   it('accepts a dynamic entry once the compiler handoff is valid', () => {
     const errors = validateEnclavesConfig(
       dynamicConfig(),
-      resolveEnclaveDynamicDelegationHandoff({
-        endpoint: 'http://127.0.0.1:8090/internal/awf-enclave-mcp-control/github-repository-delegation-v1',
-        capability: 'a'.repeat(64),
-      }),
+      {
+        delegationHandoff: resolveEnclaveDynamicDelegationHandoff({
+          endpoint:
+            'http://127.0.0.1:8090/internal/awf-enclave-mcp-control/github-repository-delegation-v1',
+          capability: 'a'.repeat(64),
+        }),
+      },
     );
     expect(errors).toEqual([]);
   });

@@ -139,7 +139,10 @@ export async function prepareEnclaves(
     takeEnclaveDynamicDelegationHandoff(env),
   );
   const dynamicDeclared = isEnclaveDynamicPolicyDeclared(config);
-  const errors = validateEnclavesConfig(config, dynamicDeclared ? delegationHandoff : undefined);
+  const errors = validateEnclavesConfig(config, {
+    delegationHandoff,
+    requireDelegationHandoff: dynamicDeclared,
+  });
   try {
     const gateway = resolveEnclaveGatewayContract(config, env);
     if (!config.networkIsolation) {

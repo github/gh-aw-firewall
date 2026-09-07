@@ -99,19 +99,15 @@ function createAgentRunner(config, deps = {}) {
     assertAvailable: () => runner.assertAvailable(),
     reconcileRun: (runId) => runner.reconcileRun(runId),
     runScriptContainer: ({ runId, invocationId, seedId, timeoutMs, dynamic }) => runner.runEnclaveContainer({
-      // Per-invocation delegation binding comes from AWF's canonical
-      // admission, never from the caller's request.
-      config: dynamic
-        ? {
-          ...config,
-          dynamicRepository: dynamic.repository,
-          dynamicReadMode: dynamic.readMode,
-        }
-        : config,
+      config,
       runId,
       invocationId,
       seedId,
       timeoutMs,
+      // Per-invocation delegation binding from AWF's canonical admission. The
+      // runner merges only the admitted repository and read mode, after
+      // revalidating both; a caller's request can express neither.
+      dynamic,
     }),
   };
 }

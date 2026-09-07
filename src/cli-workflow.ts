@@ -88,7 +88,11 @@ export async function runMainWorkflow(
 ): Promise<number> {
   const { logger, performCleanup, onHostIptablesSetup, onContainersStarted } = options;
 
-  const enclaveErrors = validateEnclavesConfig(config);
+  // Structural validation only: the dynamic delegation handoff can be read
+  // exactly once (taking custody deletes it from the environment), so that
+  // check belongs to `prepareEnclaves` below, which still runs before any
+  // container is created.
+  const enclaveErrors = validateEnclavesConfig(config, { requireDelegationHandoff: false });
   if (enclaveErrors.length > 0) {
     throw new Error(`Invalid enclave configuration:\n- ${enclaveErrors.join('\n- ')}`);
   }

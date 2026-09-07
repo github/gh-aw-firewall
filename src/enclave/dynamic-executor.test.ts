@@ -41,6 +41,7 @@ const DYNAMIC_ENV = {
   AWF_ENCLAVE_AGENT_DYNAMIC_CHANNEL_DIR: '/run/awf-enclave-delegation',
   AWF_ENCLAVE_AGENT_DYNAMIC_SENSITIVITY: 'confidential',
   AWF_ENCLAVE_AGENT_DYNAMIC_GITHUB_MCP_URL: 'http://172.31.0.40:8080/mcp/github',
+  AWF_ENCLAVE_AGENT_GITHUB_GATEWAY_CONTAINER: 'awmg-mcpg',
   AWF_ENCLAVE_SEED_MAP_ENABLED: 'false',
   AWF_ENCLAVE_RUN_ID: 'f'.repeat(32),
 };
@@ -75,6 +76,9 @@ describe('dynamic broker configuration', () => {
         dynamicGithubMcpUrl: 'http://172.31.0.40:8080/mcp/github',
         enclaveGithubBearerPath: ENCLAVE_GITHUB_BEARER_PATH,
         githubEnabled: false,
+        // Needed by the per-launch network-isolation proof: a dynamic entry
+        // reaches the same shared gateway as the static profile.
+        githubGatewayContainer: 'awmg-mcpg',
       });
       expect(config.hostSeedsDir).toBeUndefined();
     });
@@ -99,6 +103,7 @@ describe('dynamic broker configuration', () => {
     ['an unsupported sensitivity', { AWF_ENCLAVE_AGENT_DYNAMIC_SENSITIVITY: 'bogus' }],
     ['a non-fixed MCP endpoint', { AWF_ENCLAVE_AGENT_DYNAMIC_GITHUB_MCP_URL: 'http://evil.example/mcp/github' }],
     ['a static GitHub profile alongside the dynamic policy', { AWF_ENCLAVE_AGENT_GITHUB_ENABLED: 'true' }],
+    ['a missing shared gateway container', { AWF_ENCLAVE_AGENT_GITHUB_GATEWAY_CONTAINER: undefined }],
   ])('fails closed for %s', (_label, overrides) => {
     withEnv({ ...DYNAMIC_ENV, ...overrides }, () => {
       expect(() => loadAgentConfig(serverStub)).toThrow();
@@ -470,6 +475,134 @@ describe('dynamic tool advertisement', () => {
       { handlers: { [AGENT_TOOL_NAME]: { handle: () => undefined } }, maxPromptBytes: 4096 },
     );
     expect(called.error).toBeDefined();
+  });
+});
+
+describe('dynamic enclave runner binding', () => {
+  /* eslint-disable @typescript-eslint/no-require-imports */
+  const {
+    createAgentRunner,
+  } = require(path.join(containersRoot, 'enclave', 'mcp-server', 'agent-executor.js'));
+  /* eslint-enable @typescript-eslint/no-require-imports */
+
+  const runnerConfig = {
+    backend: 'docker',
+    dynamicEnabled: true,
+    dynamicGithubMcpUrl: 'http://172.31.0.40:8080/mcp/github',
+    githubGatewayContainer: 'awmg-mcpg',
+    enclaveGithubBearerPath: ENCLAVE_GITHUB_BEARER_PATH,
+    hostWorkDir: '/var/tmp/work',
+    enclaveSeccompPath: '/opt/awf/enclave-seccomp.json',
+    enclaveMountDir: '/agent',
+    enclaveSeedPath: '/awf/seed',
+    enclaveTaskPath: '/awf/task.txt',
+    enclaveSchemaPath: '/awf/schema.json',
+    enclaveUid: 65534,
+    enclaveGid: 65534,
+    enclaveImage: 'ghcr.io/example/enclave-agent:test',
+    engine: 'copilot',
+    profile: 'openai',
+    model: 'gpt-test',
+    apiEndpoint: 'http://172.31.0.30:10000',
+    network: 'awf-enclave-agent',
+    timeoutSeconds: 120,
+    memoryLimit: '1g',
+    cpuLimit: '1',
+    pidsLimit: 128,
+    tmpfsLimit: '256m',
+    maxOutputBytes: 8192,
+  };
+
+  const DYNAMIC_TOPOLOGY =
+    'true|bridge|172.31.0.0/24,|awf-enclave-agent-api-proxy@172.31.0.30/24,awmg-mcpg@172.31.0.40/24,';
+
+  function stubDocker(topology = DYNAMIC_TOPOLOGY) {
+    const calls: string[][] = [];
+    return {
+      calls,
+      async runDocker(args: string[]) {
+        calls.push(args);
+        if (args[0] === 'network') return { exitCode: 0, stdout: topology, timedOut: false };
+        if (args[0] === 'ps') return { exitCode: 0, stdout: '', timedOut: false };
+        return { exitCode: 0, stdout: '', timedOut: false };
+      },
+    };
+  }
+
+  it('threads the admitted repository and read mode into the launch vector', async () => {
+    const docker = stubDocker();
+    const runner = createAgentRunner(runnerConfig, { docker });
+    await runner.runScriptContainer({
+      runId: 'a'.repeat(32),
+      invocationId: 'b'.repeat(24),
+      timeoutMs: 1000,
+      dynamic: { repository: 'octo-org/service', readMode: 'live' },
+    });
+    const launch = docker.calls.find((args) => args[0] === 'run')!;
+    expect(launch).toContain('AWF_ENCLAVE_AGENT_DYNAMIC_REPO=octo-org/service');
+    expect(launch).toContain('AWF_ENCLAVE_AGENT_DYNAMIC_READ_MODE=live');
+    expect(launch.join(' ')).not.toContain('undefined');
+  });
+
+  it('carries a pinned read mode through unchanged', async () => {
+    const docker = stubDocker();
+    const runner = createAgentRunner(runnerConfig, { docker });
+    await runner.runScriptContainer({
+      runId: 'a'.repeat(32),
+      invocationId: 'c'.repeat(24),
+      timeoutMs: 1000,
+      dynamic: { repository: 'octo-org/service', readMode: 'pinned' },
+    });
+    const launch = docker.calls.find((args) => args[0] === 'run')!;
+    expect(launch).toContain('AWF_ENCLAVE_AGENT_DYNAMIC_READ_MODE=pinned');
+  });
+
+  it('accepts the steady-state topology a dynamic run actually creates', async () => {
+    const docker = stubDocker();
+    const runner = createAgentRunner(runnerConfig, { docker });
+    await expect(runner.runScriptContainer({
+      runId: 'a'.repeat(32),
+      invocationId: 'd'.repeat(24),
+      timeoutMs: 1000,
+      dynamic: { repository: 'octo-org/service', readMode: 'live' },
+    })).resolves.toMatchObject({ exitCode: 0 });
+  });
+
+  it('still refuses a network with an unexpected member', async () => {
+    const docker = stubDocker(
+      'true|bridge|172.31.0.0/24,|awf-enclave-agent-api-proxy@172.31.0.30/24,'
+      + 'awmg-mcpg@172.31.0.40/24,intruder@172.31.0.99/24,',
+    );
+    const runner = createAgentRunner(runnerConfig, { docker });
+    await expect(runner.runScriptContainer({
+      runId: 'a'.repeat(32),
+      invocationId: 'e'.repeat(24),
+      timeoutMs: 1000,
+      dynamic: { repository: 'octo-org/service', readMode: 'live' },
+    })).rejects.toThrow(/not isolated/);
+  });
+
+  it.each([
+    ['a missing binding', undefined],
+    ['a non-canonical repository', { repository: 'Octo-Org/Service', readMode: 'live' }],
+    ['an unknown read mode', { repository: 'octo-org/service', readMode: 'cached' }],
+  ])('refuses to launch a dynamic enclave with %s', async (_label, dynamic) => {
+    const docker = stubDocker();
+    const runner = createAgentRunner(runnerConfig, { docker });
+    await expect(runner.runScriptContainer({
+      runId: 'a'.repeat(32),
+      invocationId: 'f'.repeat(24),
+      timeoutMs: 1000,
+      dynamic,
+    })).rejects.toThrow();
+    expect(docker.calls.some((args) => args[0] === 'run')).toBe(false);
+  });
+
+  it('reconciles a dynamic run without an invocation binding', async () => {
+    const docker = stubDocker();
+    const runner = createAgentRunner(runnerConfig, { docker });
+    await expect(runner.reconcileRun('a'.repeat(32))).resolves.toBeUndefined();
+    expect(docker.calls.some((args) => args[0] === 'ps')).toBe(true);
   });
 });
 

@@ -272,6 +272,11 @@ function loadAgentConfig(server, files = fs) {
   const githubMcpUrl = process.env.AWF_ENCLAVE_AGENT_GITHUB_MCP_URL;
   const githubAgentIdPath = process.env.AWF_ENCLAVE_AGENT_GITHUB_AGENT_ID_PATH;
   const githubGatewayContainer = process.env.AWF_ENCLAVE_AGENT_GITHUB_GATEWAY_CONTAINER;
+  if (dynamicEnabled && !/^[A-Za-z0-9][A-Za-z0-9_.-]{7,127}$/.test(githubGatewayContainer || '')) {
+    // A dynamic entry reaches the same shared gateway as the static profile,
+    // so the per-launch network-isolation proof needs its real container name.
+    throw new Error('AWF_ENCLAVE_AGENT_GITHUB_GATEWAY_CONTAINER is invalid');
+  }
   let githubAgentId;
   if (githubEnabled) {
     if (githubProfile !== 'issues-read-v1') {
@@ -332,7 +337,7 @@ function loadAgentConfig(server, files = fs) {
     githubProfile: githubEnabled ? githubProfile : undefined,
     githubMcpUrl: githubEnabled ? githubMcpUrl : undefined,
     githubAgentId,
-    githubGatewayContainer: githubEnabled ? githubGatewayContainer : undefined,
+    githubGatewayContainer: githubEnabled || dynamicEnabled ? githubGatewayContainer : undefined,
     enclaveGithubAgentIdPath: '/run/awf-enclave-github/agent-id',
     dynamicEnabled,
     dynamicChannelDir,

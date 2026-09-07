@@ -7,6 +7,7 @@ const {
   buildRemoveArgs,
   deriveEnclaveContainerSpec,
   normalizeTimeoutMs,
+  withDynamicBinding,
 } = require('./enclave-runner-spec');
 
 /**
@@ -26,7 +27,12 @@ class DockerEnclaveRunner {
   async assertNetworkIsolated(requireGithubGateway = true) {
     const proxyMember = 'awf-enclave-agent-api-proxy@172.31.0.30/24,';
     const expectedMemberSets = [[proxyMember]];
-    if (this.config.githubEnabled) {
+    // Both the static issues-read-v1 profile and a dynamic entry attach the
+    // compiler-owned shared gateway to this network: static invocations
+    // authenticate with the job-lifetime agent identity, dynamic ones with a
+    // per-invocation delegated bearer. Either way the steady state has exactly
+    // these two members.
+    if (this.config.githubEnabled || this.config.dynamicEnabled) {
       const steadyStateMembers = [
         proxyMember,
         `${this.config.githubGatewayContainer}@172.31.0.40/24,`,
@@ -64,13 +70,14 @@ class DockerEnclaveRunner {
     await this.assertNetworkIsolated(false);
   }
 
-  spec(runId, invocationId, seedId) {
+  spec(runId, invocationId, seedId, dynamic, launch = true) {
     return deriveEnclaveContainerSpec({
-      config: this.config,
+      config: withDynamicBinding(this.config, dynamic),
       runId,
       invocationId,
       seedId,
       runtimeName: this.runtimeName,
+      launch,
     });
   }
 
@@ -106,12 +113,12 @@ class DockerEnclaveRunner {
 
   /** Deterministic orphan cleanup for every container labelled with this run. */
   async reconcileRun(runId) {
-    const spec = this.spec(runId, 'reconcile', '0'.repeat(32));
+    const spec = this.spec(runId, 'reconcile', '0'.repeat(32), undefined, false);
     await this.serializeCleanup(() => this.removeListed(spec.runListArgs));
   }
 
   async cleanupInvocation(runId, invocationId) {
-    const spec = this.spec(runId, invocationId, '0'.repeat(32));
+    const spec = this.spec(runId, invocationId, '0'.repeat(32), undefined, false);
     await this.serializeCleanup(() => this.removeListed(spec.invocationListArgs));
   }
 
@@ -122,7 +129,7 @@ class DockerEnclaveRunner {
    * sandbox may still hold a mount of private repository content.
    */
   async runEnclaveContainer(params) {
-    const spec = this.spec(params.runId, params.invocationId, params.seedId);
+    const spec = this.spec(params.runId, params.invocationId, params.seedId, params.dynamic);
     const timeoutMs = normalizeTimeoutMs(
       (params.timeoutMs ?? this.config.timeoutSeconds * 1000) + CLI_GRACE_MS,
     );

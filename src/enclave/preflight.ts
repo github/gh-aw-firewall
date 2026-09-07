@@ -126,13 +126,25 @@ function validateRepositoryList(enclaves: EnclavesConfig, errors: string[]): voi
 /**
  * Static, fail-closed checks for the unified enclave foundation.
  *
- * `delegationHandoff` carries the already-validated mcpg delegation-control
- * handoff when one was present in the compiler-supplied environment. It is
- * required for, and only for, an entry that declares `enclaves[].dynamic`.
+ * `options.delegationHandoff` carries the already-validated mcpg
+ * delegation-control handoff, which is required for — and only for — an entry
+ * that declares `enclaves[].dynamic`.
+ *
+ * `options.requireDelegationHandoff` exists because taking custody of that
+ * handoff *consumes* it: `takeEnclaveDynamicDelegationHandoff` deletes both
+ * environment variables so nothing can inherit them, so exactly one caller
+ * (`prepareEnclaves`) may read them. Early structural validation therefore
+ * passes `false` and defers the handoff check to that single custodian, which
+ * runs before any container exists.
  */
+export interface ValidateEnclavesOptions {
+  delegationHandoff?: EnclaveDynamicDelegationHandoffResolution;
+  requireDelegationHandoff?: boolean;
+}
+
 export function validateEnclavesConfig(
   config: WrapperConfig,
-  delegationHandoff?: EnclaveDynamicDelegationHandoffResolution,
+  options: ValidateEnclavesOptions = {},
 ): string[] {
   const enclaves = config.enclaves;
   if (!enclaves?.enabled) return [];
@@ -203,10 +215,13 @@ export function validateEnclavesConfig(
       errors.push('enclaves[].agent requires either a non-empty "repos" list or a "dynamic" policy');
     } else if (agent.dynamic !== undefined) {
       validateEnclaveDynamicPolicy(agent.dynamic, errors);
-      if (!delegationHandoff) {
-        errors.push(DYNAMIC_ENCLAVE_EXECUTION_UNSUPPORTED_REASON);
-      } else if (!delegationHandoff.handoff) {
-        errors.push(...delegationHandoff.errors);
+      const { delegationHandoff, requireDelegationHandoff = true } = options;
+      if (requireDelegationHandoff) {
+        if (!delegationHandoff) {
+          errors.push(DYNAMIC_ENCLAVE_EXECUTION_UNSUPPORTED_REASON);
+        } else if (!delegationHandoff.handoff) {
+          errors.push(...delegationHandoff.errors);
+        }
       }
     }
     if (!config.enableApiProxy) {
