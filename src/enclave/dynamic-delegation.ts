@@ -127,8 +127,11 @@ export async function stopEnclaveDynamicDelegation(config: WrapperConfig): Promi
 
 /** @internal Test-only accessor for the running delegation runtime. */
 export const enclaveDynamicDelegationTestHelpers = {
-  reset(): void {
+  /** Stops any leftover channel loop and forgets the runtime. */
+  async reset(): Promise<void> {
+    const active = running;
     running = undefined;
+    if (active) await active.channel.stop();
   },
   get running(): RunningDelegation | undefined {
     return running;

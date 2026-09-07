@@ -91,13 +91,13 @@ async function startControlServer(
 describe('dynamic delegation runtime', () => {
   let workDir: string;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-dynamic-runtime-'));
-    enclaveDynamicDelegationTestHelpers.reset();
+    await enclaveDynamicDelegationTestHelpers.reset();
   });
 
   afterEach(async () => {
-    enclaveDynamicDelegationTestHelpers.reset();
+    await enclaveDynamicDelegationTestHelpers.reset();
     fs.rmSync(resolveEnclavePaths(workDir).root, { recursive: true, force: true });
     fs.rmSync(workDir, { recursive: true, force: true });
   });

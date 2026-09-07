@@ -88,6 +88,8 @@ function createExecutorHandler(params) {
   let accepting = true;
   /** Invocations already settled, so a retry can never double-settle. */
   const settledInvocations = new Set();
+  /** Invocations that reached dynamic admission and therefore own an identity. */
+  const admittedInvocations = new Set();
 
   function emitInvocationTelemetry(category) {
     telemetry.emit({
@@ -138,6 +140,20 @@ function createExecutorHandler(params) {
    */
   async function execute(request, respond) {
     const invocationId = crypto.randomBytes(12).toString('hex');
+    try {
+      await executeInvocation(request, respond, invocationId);
+    } finally {
+      // A dynamic invocation that reached admission must always settle its
+      // reservation and revoke its identity, even if an unexpected error
+      // escaped the pipeline. `settleDynamic` is a no-op once an invocation
+      // has already settled, so this can never double-charge or double-revoke.
+      if (admission && admittedInvocations.has(invocationId)) {
+        await settleDynamic(invocationId, 'broker-error', 0, 0);
+      }
+    }
+  }
+
+  async function executeInvocation(request, respond, invocationId) {
     const admissionStartMs = uniformTiming ? clock.nowMs() : undefined;
     let responded = false;
     const safeRespond = (json) => {
@@ -180,6 +196,7 @@ function createExecutorHandler(params) {
         await rejectBeforeExecution('dynamic-admission-denied', undefined);
         return;
       }
+      admittedInvocations.add(invocationId);
       // Register into the *same* live per-repository ledger the static
       // executors debit. Registration is idempotent, so re-admitting a
       // repository can never refill a budget it has already spent.

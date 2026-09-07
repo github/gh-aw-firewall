@@ -370,6 +370,74 @@ describe('dynamic executor handler routing', () => {
     const result = await invoke(handler as never);
     expect(JSON.parse(result)).toEqual({ status: 'error' });
   });
+
+  it('settles and revokes even when the pipeline throws after admission', async () => {
+    const settlements: unknown[] = [];
+    const handler = createExecutorHandler({
+      config: {
+        workDir: '/srv/awf/work',
+        primaryBackend: 'docker',
+        executorBackend: 'docker',
+        timeoutSeconds: 5,
+        maxInvocations: 8,
+        maxOutputBytes: 8192,
+        dynamicEnabled: true,
+      },
+      seedMap: new Map(),
+      runId: 'a'.repeat(32),
+      audit: { failure: () => undefined, invocation: () => undefined, lifecycle: () => undefined },
+      // An unexpected internal error after admission must not strand a live
+      // delegated identity.
+      ledger: {
+        registerRepository: () => undefined,
+        tryDebit: () => {
+          throw new Error('ledger exploded');
+        },
+        remainingBits: () => 0,
+      },
+      clock: { nowMs: () => 0, sleep: async () => undefined },
+      responseJitterSource: () => 0,
+      validateRequest: (request: Record<string, unknown>) => ({
+        valid: true,
+        request: { privateRepo: request.privateRepo, schema: request.schema, prompt: 'go' },
+      }),
+      payloadKey: 'prompt',
+      executorKind: 'agent',
+      uniformTiming: true,
+      workspace: {
+        createInvocationWorkspace: () => ({ outPath: '/srv/awf/work/out' }),
+        readQueryOutput: () => 'true',
+        destroyInvocationWorkspace: () => undefined,
+      },
+      runner: {
+        runScriptContainer: async () => ({ exitCode: 0, timedOut: false }),
+      },
+      admission: {
+        async admit(params: Record<string, unknown>) {
+          return {
+            admitted: true,
+            repo: params.selector,
+            executorBearer: 'dlgbearer_1',
+            readMode: 'live',
+            sensitivity: 'confidential',
+          };
+        },
+        async settle(params: Record<string, unknown>) {
+          settlements.push(params);
+          return { settled: true, revoked: true };
+        },
+      },
+    });
+    const result = await new Promise<string>((resolve) => {
+      void (handler as { handle: (request: unknown, respond: (json: string) => void) => Promise<void> })
+        .handle(
+          { privateRepo: 'octo-org/service', schema: { type: 'boolean' }, prompt: 'go' },
+          resolve,
+        );
+    });
+    expect(JSON.parse(result)).toEqual({ status: 'error' });
+    expect(settlements).toEqual([expect.objectContaining({ outcome: 'broker-error' })]);
+  });
 });
 
 describe('dynamic tool advertisement', () => {
