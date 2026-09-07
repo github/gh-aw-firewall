@@ -218,7 +218,7 @@ describe('self-hosted runner doctor workflow config', () => {
     expect(source).toContain('- Recurring intermittent `403`/DNS `SERVFAIL` blocking an allowlisted domain');
     expect(source).toContain('→ B32 (Squid\'s default 60-second `negative_dns_ttl`');
     expect(source).toContain('- `[DEBUG] Could not check Squid logs: EACCES ... access.log` mid-run');
-    expect(source).toContain('→ B33 (Squid log ownership repair only ran at shutdown');
+    expect(source).toContain('→ B33 (the previous shutdown-time repair only changed mode bits');
     expect(source).toContain('- Copilot calls on Business/Enterprise/GHEC use the wrong Authorization scheme specifically for a fine-grained PAT (`github_pat_...`) → C10');
     expect(source).toContain('- `400 bad request: Authorization header is badly formatted` on derived `copilot-api.*.ghe.com` target specifically (not `api.business.githubcopilot.com`) → C9 (derived GHEC Copilot API target incorrectly using the GitHub `token` prefix instead of `Bearer`; fixed in github/gh-aw-firewall#8113)');
     expect(source).toContain('B12 / github/gh-aw-firewall#6326, github/gh-aw-firewall#6328 — On ARC/DinD, a topology-attached DIFC proxy addressed by Kubernetes Service name can remain unresolvable from DinD containers even after the ordering fix.');
