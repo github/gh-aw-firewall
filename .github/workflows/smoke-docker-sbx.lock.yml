@@ -654,7 +654,8 @@ jobs:
           sbx daemon stop || true
           sbx policy reset --force || true
           sbx policy init allow-all
-          nohup sbx daemon start > /tmp/sbx-daemon.log 2>&1 &
+          DOCKER_SANDBOXES_PROXY=http://host.docker.internal:3128 \
+            nohup sbx daemon start > /tmp/sbx-daemon.log 2>&1 &
           disown
           for i in $(seq 1 10); do
             if sbx daemon status 2>/dev/null | grep -q "running"; then break; fi

@@ -148,7 +148,8 @@ const SBX_INSTALL_AND_AUTH_STEPS =
   '          sbx daemon stop || true\n' +
   '          sbx policy reset --force || true\n' +
   '          sbx policy init allow-all\n' +
-  '          nohup sbx daemon start > /tmp/sbx-daemon.log 2>&1 &\n' +
+  '          DOCKER_SANDBOXES_PROXY=http://host.docker.internal:3128 \\\n' +
+  '            nohup sbx daemon start > /tmp/sbx-daemon.log 2>&1 &\n' +
   '          disown\n' +
   '          for i in $(seq 1 10); do\n' +
   '            if sbx daemon status 2>/dev/null | grep -q "running"; then break; fi\n' +
@@ -208,6 +209,14 @@ for (const sbxLockPath of sbxLockPaths) {
         console.log(`  Injected sbx CLI install and daemon auth steps`);
       } else {
         console.log(`  WARNING: Could not find lockdown anchor; sbx install/auth steps not injected`);
+      }
+    } else if (!sbxContent.includes('DOCKER_SANDBOXES_PROXY=http://host.docker.internal:3128')) {
+      const sbxInstallAuthRegex = / {6}- name: Install Docker sbx CLI\n[\s\S]*?(?= {6}- name: Determine automatic lockdown mode)/;
+      if (sbxInstallAuthRegex.test(sbxContent)) {
+        sbxContent = sbxContent.replace(sbxInstallAuthRegex, SBX_INSTALL_AND_AUTH_STEPS);
+        console.log(`  Updated sbx CLI install and daemon auth steps with proxy enforcement`);
+      } else {
+        console.log(`  WARNING: Could not update sbx auth steps`);
       }
     } else {
       console.log(`  sbx CLI install and auth steps already present`);
