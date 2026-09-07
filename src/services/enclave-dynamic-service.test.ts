@@ -126,6 +126,21 @@ describe('dynamic enclave compose topology', () => {
     expect(environment.AWF_ENCLAVE_SEED_MAP_ENABLED).toBe('true');
     expect(environment.AWF_ENCLAVE_AGENT_DYNAMIC_ENABLED).toBeUndefined();
   });
+
+  it('translates the admission channel for a split ARC/DinD filesystem', () => {
+    // The channel is a bind mount like the seeds, so the daemon must see it at
+    // the same prefixed path the runner wrote it to. If this ever diverged,
+    // the broker would poll an empty directory and every dynamic admission
+    // would time out into the canonical denial.
+    const volumes = build(dynamicConfig({ dockerHostPathPrefix: '/host' })).service
+      .volumes as string[];
+    expect(volumes).toContain(
+      `/host${paths.delegationChannelDir}:${ENCLAVE_SERVER_DELEGATION_CHANNEL_DIR}:rw`,
+    );
+    // The work and audit mounts are translated the same way, so the channel
+    // carries no special-case risk relative to the paths that already work.
+    expect(volumes).toContain(`/host${paths.workDir}:/srv/awf/work:rw`);
+  });
 });
 
 describe('primary agent environment exclusion', () => {
