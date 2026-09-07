@@ -22,6 +22,7 @@ const {
   createEnclaveInformationBudgetLedger,
 } = require(path.join(root, 'bounded-execution', 'sensitivity-ledger.js'));
 /* eslint-enable @typescript-eslint/no-require-imports */
+import { createRpcTestHarness } from './mcp-server.test-utils';
 
 const capability = '0123456789abcdef0123456789abcdef';
 const validArguments = {
@@ -30,23 +31,11 @@ const validArguments = {
   script: 'import json\nopen("out", "w").write(json.dumps(True))',
 };
 
-function rpc(method: string, params?: unknown, id = 1) {
-  return { jsonrpc: '2.0', id, method, ...(params === undefined ? {} : { params }) };
-}
-
-function fakeBroker(response: string, requests: unknown[] = []) {
-  return {
-    handle(request: unknown, respond: (value: string) => void) {
-      requests.push(request);
-      respond(response);
-      return Promise.resolve();
-    },
-  };
-}
+const { rpc, fakeBroker, canonicalErrorBroker } = createRpcTestHarness(CANONICAL_ERROR_RESPONSE_JSON);
 
 describe('AWF enclave MCP protocol', () => {
   it('implements initialization and the initialized notification', async () => {
-    const deps = { handlers: { [TOOL_NAME]: fakeBroker(CANONICAL_ERROR_RESPONSE_JSON) }, maxScriptBytes: 65536 };
+    const deps = { handlers: { [TOOL_NAME]: canonicalErrorBroker() }, maxScriptBytes: 65536 };
     const initialized = await dispatchJsonRpc(rpc('initialize', {}), deps);
     expect(initialized).toMatchObject({
       jsonrpc: '2.0',
@@ -64,7 +53,7 @@ describe('AWF enclave MCP protocol', () => {
 
   it('publishes one static tool without trusted configuration or repository data', async () => {
     const response = await dispatchJsonRpc(rpc('tools/list', {}), {
-      handlers: { [TOOL_NAME]: fakeBroker(CANONICAL_ERROR_RESPONSE_JSON) },
+      handlers: { [TOOL_NAME]: canonicalErrorBroker() },
       maxScriptBytes: 65536,
       repositories: ['should-never-appear'],
       runtime: 'gvisor',
@@ -84,7 +73,7 @@ describe('AWF enclave MCP protocol', () => {
 
   it('accepts the null tools/list params emitted by the mcpg Go SDK', async () => {
     const response = await dispatchJsonRpc(rpc('tools/list', null), {
-      handlers: { [TOOL_NAME]: fakeBroker(CANONICAL_ERROR_RESPONSE_JSON) },
+      handlers: { [TOOL_NAME]: canonicalErrorBroker() },
       maxScriptBytes: 65536,
     });
     expect(response.result.tools).toHaveLength(1);
@@ -93,7 +82,7 @@ describe('AWF enclave MCP protocol', () => {
 
   it('rejects non-empty tools/list params', async () => {
     const response = await dispatchJsonRpc(rpc('tools/list', { unexpected: true }), {
-      handlers: { [TOOL_NAME]: fakeBroker(CANONICAL_ERROR_RESPONSE_JSON) },
+      handlers: { [TOOL_NAME]: canonicalErrorBroker() },
       maxScriptBytes: 65536,
     });
     expect(response).toMatchObject({ error: { code: -32602 } });
@@ -155,7 +144,7 @@ describe('AWF enclave MCP protocol', () => {
   });
 
   it('uses JSON-RPC errors only for malformed protocol requests', async () => {
-    const deps = { handlers: { [TOOL_NAME]: fakeBroker(CANONICAL_ERROR_RESPONSE_JSON) }, maxScriptBytes: 65536 };
+    const deps = { handlers: { [TOOL_NAME]: canonicalErrorBroker() }, maxScriptBytes: 65536 };
     await expect(dispatchJsonRpc(rpc('unknown'), deps)).resolves.toMatchObject({
       error: { code: -32601 },
     });
@@ -218,7 +207,7 @@ describe('AWF enclave MCP HTTP framing', () => {
 
   beforeEach(async () => {
     server = createMcpServer({
-      handlers: { [TOOL_NAME]: fakeBroker(CANONICAL_ERROR_RESPONSE_JSON) },
+      handlers: { [TOOL_NAME]: canonicalErrorBroker() },
       capability,
       maxScriptBytes: 65536,
     });

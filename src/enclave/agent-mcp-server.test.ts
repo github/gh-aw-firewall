@@ -20,6 +20,7 @@ const {
   createEnclaveInformationBudgetLedger,
 } = require(path.join(root, 'bounded-execution', 'sensitivity-ledger.js'));
 /* eslint-enable @typescript-eslint/no-require-imports */
+import { createRpcTestHarness } from './mcp-server.test-utils';
 
 const validAgentArguments = {
   privateRepo: 'octo/private',
@@ -33,25 +34,13 @@ const validScriptArguments = {
   script: 'import json\nopen("out", "w").write(json.dumps(True))',
 };
 
-function rpc(method: string, params?: unknown, id = 1) {
-  return { jsonrpc: '2.0', id, method, ...(params === undefined ? {} : { params }) };
-}
-
-function fakeBroker(response: string, requests: unknown[] = []) {
-  return {
-    handle(request: unknown, respond: (value: string) => void) {
-      requests.push(request);
-      respond(response);
-      return Promise.resolve();
-    },
-  };
-}
+const { rpc, fakeBroker, canonicalErrorBroker } = createRpcTestHarness(CANONICAL_ERROR_RESPONSE_JSON);
 
 describe('enclave_run_agent tool contract', () => {
   const deps = {
     handlers: {
-      [TOOL_NAME]: fakeBroker(CANONICAL_ERROR_RESPONSE_JSON),
-      [AGENT_TOOL_NAME]: fakeBroker(CANONICAL_ERROR_RESPONSE_JSON),
+      [TOOL_NAME]: canonicalErrorBroker(),
+      [AGENT_TOOL_NAME]: canonicalErrorBroker(),
     },
     maxScriptBytes: 65536,
     maxPromptBytes: 4096,
@@ -76,7 +65,7 @@ describe('enclave_run_agent tool contract', () => {
 
   it('publishes only the agent tool when the script executor is disabled', async () => {
     const response = await dispatchJsonRpc(rpc('tools/list'), {
-      handlers: { [AGENT_TOOL_NAME]: fakeBroker(CANONICAL_ERROR_RESPONSE_JSON) },
+      handlers: { [AGENT_TOOL_NAME]: canonicalErrorBroker() },
       maxPromptBytes: 4096,
     });
     expect(response.result.tools).toHaveLength(1);
@@ -93,7 +82,7 @@ describe('enclave_run_agent tool contract', () => {
     const response = await dispatchJsonRpc(rpc('tools/call', {
       name: AGENT_TOOL_NAME,
       arguments: validAgentArguments,
-    }), { handlers: { [TOOL_NAME]: fakeBroker(CANONICAL_ERROR_RESPONSE_JSON) }, maxScriptBytes: 65536 });
+    }), { handlers: { [TOOL_NAME]: canonicalErrorBroker() }, maxScriptBytes: 65536 });
     expect(response).toMatchObject({ error: { code: -32602 } });
   });
 
