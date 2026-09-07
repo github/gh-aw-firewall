@@ -41,6 +41,28 @@ export const CANONICAL_DENIAL_REASON = 'enclave dynamic repository admission den
  */
 export const ENCLAVE_GITHUB_DELEGATION_CONTROL_CAPABILITY_ENV =
   'AWF_ENCLAVE_GITHUB_DELEGATION_CONTROL_CAPABILITY';
+export const ENCLAVE_GITHUB_DELEGATION_CONTROL_ENDPOINT_ENV =
+  'AWF_ENCLAVE_GITHUB_DELEGATION_CONTROL_ENDPOINT';
+
+/** Validates the compiler-to-AWF private control listener handoff. */
+export function isValidEnclaveDynamicDelegationControlEndpoint(
+  value: string | undefined,
+): value is string {
+  if (typeof value !== 'string' || value.length === 0) return false;
+  let endpoint: URL;
+  try {
+    endpoint = new URL(value);
+  } catch {
+    return false;
+  }
+  return endpoint.protocol === 'http:'
+    && ['localhost', '127.0.0.1', '[::1]'].includes(endpoint.hostname)
+    && !endpoint.username
+    && !endpoint.password
+    && !endpoint.search
+    && !endpoint.hash
+    && endpoint.port !== '';
+}
 
 /**
  * Reads and deletes the delegation-control capability from `env` so it can

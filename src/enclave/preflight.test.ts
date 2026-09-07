@@ -484,6 +484,14 @@ describe('validateEnclavesConfig dynamic policy', () => {
       .toMatch(/never falls back to a static seed catalog/);
   });
 
+  it('accepts a dynamic entry when the compiler handoff is complete', () => {
+    const errors = validateEnclavesConfig(dynamicConfig(), {
+      AWF_ENCLAVE_GITHUB_DELEGATION_CONTROL_ENDPOINT: 'http://127.0.0.1:19001',
+      AWF_ENCLAVE_GITHUB_DELEGATION_CONTROL_CAPABILITY: 'a'.repeat(64),
+    });
+    expect(errors).not.toContain(DYNAMIC_ENCLAVE_EXECUTION_UNSUPPORTED_REASON);
+  });
+
   it('rejects an unsupported sensitivity', () => {
     expect(structuralErrors({ sensitivity: 'bogus' }))
       .toMatch(/dynamic.sensitivity "bogus" is not supported/);

@@ -14,6 +14,8 @@ export interface EnclavePaths {
   runDir: string;
   capabilityPath: string;
   githubAgentIdPath: string;
+  dynamicDelegationEndpointPath: string;
+  dynamicDelegationCapabilityPath: string;
 }
 
 export const ENCLAVE_PRIVATE_BASE_DIR = '/var/tmp';
@@ -28,6 +30,10 @@ export const ENCLAVE_SERVER_CAPABILITY_PATH = `${ENCLAVE_SERVER_CAPABILITY_DIR}/
 export const ENCLAVE_SERVER_GITHUB_AGENT_ID_PATH =
   `${ENCLAVE_SERVER_CAPABILITY_DIR}/${ENCLAVE_GITHUB_AGENT_ID_FILENAME}`;
 export const ENCLAVE_SERVER_CONTROL_DIR = '/run/awf-enclave-mcp-control';
+export const ENCLAVE_SERVER_DYNAMIC_DELEGATION_ENDPOINT_PATH =
+  `${ENCLAVE_SERVER_CONTROL_DIR}/delegation-endpoint`;
+export const ENCLAVE_SERVER_DYNAMIC_DELEGATION_CAPABILITY_PATH =
+  `${ENCLAVE_SERVER_CONTROL_DIR}/delegation-capability`;
 export const ENCLAVE_SERVER_AUDIT_DIR = '/var/log/awf-enclave';
 export const ENCLAVE_SERVER_DOCKER_SOCKET_PATH = '/var/run/docker.sock';
 
@@ -57,6 +63,8 @@ export function resolveEnclavePaths(
     runDir,
     capabilityPath: path.join(runDir, ENCLAVE_CAPABILITY_FILENAME),
     githubAgentIdPath: path.join(runDir, ENCLAVE_GITHUB_AGENT_ID_FILENAME),
+    dynamicDelegationEndpointPath: path.join(ingressRoot, 'control', 'delegation-endpoint'),
+    dynamicDelegationCapabilityPath: path.join(ingressRoot, 'control', 'delegation-capability'),
   };
 }
 
