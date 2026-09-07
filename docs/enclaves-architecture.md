@@ -343,6 +343,42 @@ its address in the agent's `/etc/hosts` so the route survives environments
 where Docker's embedded DNS is unreachable. The single-use executor meets the
 same gateway on the separate `awf-enclave-agent` network at `172.31.0.40`.
 
+Network homing matters here, because one component is deliberately confined to a
+single network and another necessarily straddles several:
+
+```mermaid
+graph LR
+  subgraph host["Runner host — no Docker network"]
+    AWF["AWF host process<br/>owns control client + registry"]
+    PRIV[("/var/tmp/awf-enclave-private-*<br/>0700 · channel + 0600 custody")]
+  end
+  subgraph net["awf-net · internal 172.30.0.0/24"]
+    AGENT["agent (primary)<br/>172.30.0.20"]
+  end
+  subgraph ctrl["awf-enclave-mcp-control · internal"]
+    BROKER["enclave-mcp-server (broker)<br/>ONE network only"]
+  end
+  subgraph enc["awf-enclave-agent · internal 172.31.0.0/24"]
+    EXEC["enclave executor<br/>single-use"]
+    EPROXY["enclave-agent-api-proxy<br/>172.31.0.30"]
+  end
+  MCPG["awmg-mcpg<br/>image ghcr.io/github/gh-aw-mcpg<br/>homed on awf-net + awf-enclave-mcp-control<br/>+ awf-enclave-agent 172.31.0.40 + host loopback"]
+
+  AGENT -->|"/mcp/awf-enclave"| MCPG
+  MCPG -->|"capability"| BROKER
+  EXEC -->|"/mcp/github · delegated bearer"| MCPG
+  EXEC -->|"model only"| EPROXY
+  BROKER -.->|"docker run"| EXEC
+  AWF ==>|"control plane · 127.0.0.1 · Bearer capability"| MCPG
+  BROKER <-.->|"admission + settlement"| PRIV
+  AWF -.-> PRIV
+```
+
+The broker is homed on exactly one network, and AWF asserts that network's
+membership is precisely `{broker, mcpg}`; a third member aborts the run. mcpg,
+by contrast, is one container serving both the executor-facing data plane and
+the AWF-only control plane, so it is co-attached with every peer it serves.
+
 gh-aw publishes mcpg's delegation control listener with
 `docker run -p 127.0.0.1:<port>:<port>`, so **the published port** is reachable
 only from the runner's own loopback interface. That is why the control client
