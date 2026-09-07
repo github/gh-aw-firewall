@@ -46,3 +46,6 @@ max_concurrency = 10
 
 # Don't check mail addresses
 include_mail = false
+
+# Resolve site-root links against the deployed GitHub Pages site
+base_url = "https://github.github.io"
