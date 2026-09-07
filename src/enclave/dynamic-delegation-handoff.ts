@@ -13,11 +13,26 @@
  *   for that control plane (`openssl rand -hex 32`).
  *
  * Because the control listener is published on host loopback, the *AWF host
- * process* is the only component that can reach it: neither the primary agent,
- * the enclave MCP broker container, the single-use executor, nor the model
- * sidecar has a route to it. AWF therefore takes custody of both values before
- * any inherited environment is assembled, keeps them in AWF-private state with
- * exclusive `0600` files, and never mounts either one into a container.
+ * process* is the only component that can reach it **through the published
+ * port**, which is why the control client lives here rather than in the broker
+ * container.
+ *
+ * That is a statement about the host publication, not a general routing
+ * guarantee, and it is worth being precise about the difference. Under network
+ * isolation gh-aw binds the in-container listener to `0.0.0.0`, because Docker
+ * NATs a published port to the container's bridge IP and so a container-local
+ * `127.0.0.1` bind would be unreachable. A peer that shares a Docker network
+ * with mcpg addresses the container IP directly and never traverses the
+ * published port at all, so co-attached peers — notably the single-use
+ * executor, which meets mcpg at `172.31.0.40` on the enclave agent network —
+ * are not kept off the control plane by publication scope.
+ *
+ * What actually protects the control plane is authentication, not
+ * unreachability: every control request must carry the AWF-only capability,
+ * mcpg rejects anything else with `403 delegation_access_denied`, and AWF takes
+ * custody of both values before any inherited environment is assembled, keeps
+ * them in AWF-private state with exclusive `0600` files, and never mounts
+ * either one into a container.
  */
 
 import * as fs from 'fs';

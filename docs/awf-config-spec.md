@@ -1909,8 +1909,17 @@ values:
 A missing, partial, or malformed handoff is a hard failure. AWF never falls
 back to a static seed catalog, a job-lifetime identity, or a broader policy.
 
-Because the control listener is published on host loopback, **only the AWF host
-process** can reach it. AWF takes custody of both values before any inherited
+Because the control listener is published on host loopback, only the AWF host
+process can reach it **through the published port**, which is why the control
+client runs there rather than in a container. That is a property of the
+publication rather than a general routing guarantee: under network isolation the
+in-container listener binds `0.0.0.0`, and a peer co-attached to a Docker
+network with mcpg addresses the container IP directly without traversing the
+published port. The control plane is therefore protected by authentication —
+every request must carry the AWF-only capability, and mcpg rejects anything else
+with `403 delegation_access_denied`.
+
+AWF takes custody of both values before any inherited
 environment is assembled, stages them into the `0700` enclave private root with
 exclusive `0600` files, and never mounts either one into the enclave MCP broker,
 the single-use executor, the model sidecar, the general MCP route, or the

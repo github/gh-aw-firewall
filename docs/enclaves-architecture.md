@@ -336,13 +336,33 @@ Trusted operators can inspect only redacted audit diagnostics.
 
 ### Dynamic runtime topology
 
+The primary agent reaches mcpg over `awf-net`, the same internal topology
+network it runs on. AWF refuses to start unless `topologyAttach` names the
+gateway container, attaches it with `docker network connect`, and pre-registers
+its address in the agent's `/etc/hosts` so the route survives environments
+where Docker's embedded DNS is unreachable. The single-use executor meets the
+same gateway on the separate `awf-enclave-agent` network at `172.31.0.40`.
+
 gh-aw publishes mcpg's delegation control listener with
-`docker run -p 127.0.0.1:<port>:<port>`, so it is reachable **only from the
-runner's own loopback interface**. Neither the enclave MCP broker, the
-single-use executor, the model sidecar, nor the primary agent can route to it.
-The control client therefore lives in the AWF host process, and the broker asks
-the host for admission over an AWF-private request/response directory inside the
-`0700` enclave private root that is bind-mounted only into the broker:
+`docker run -p 127.0.0.1:<port>:<port>`, so **the published port** is reachable
+only from the runner's own loopback interface. That is why the control client
+lives in the AWF host process: no container can reach a `127.0.0.1`-published
+port through the host.
+
+It is worth being precise that this is a property of the publication, not a
+general routing guarantee. Under network isolation gh-aw binds the
+*in-container* listener to `0.0.0.0`, because Docker NATs a published port to
+the container's bridge IP and a container-local `127.0.0.1` bind would be
+unreachable. A peer sharing a Docker network with mcpg addresses the container
+IP directly and never traverses the published port, so co-attachment — not
+publication scope — determines container-to-container reachability. The control
+plane is therefore protected by **authentication**: every request must carry the
+AWF-only capability, which is never placed in any container's environment or
+mount, and mcpg rejects anything else with `403 delegation_access_denied`.
+
+The broker asks the host for admission over an AWF-private request/response
+directory inside the `0700` enclave private root that is bind-mounted only into
+the broker:
 
 ```text
 primary agent ──mcpg /mcp/awf-enclave──▶ enclave MCP broker (container)
