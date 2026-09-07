@@ -95,7 +95,9 @@ function requestJson(
 ): Promise<unknown> {
   return new Promise((resolve, reject) => {
     const payload = Buffer.from(JSON.stringify(body), 'utf8');
-    const request = http.request(new URL(path, endpoint), {
+    const target = new URL(endpoint.toString());
+    target.pathname = `${target.pathname.replace(/\/$/, '')}${path}`;
+    const request = http.request(target, {
       method: 'POST',
       headers: {
         accept: 'application/json',
