@@ -1884,7 +1884,7 @@ The `dynamic` object is byte-for-byte the envelope the gh-aw compiler emits. An 
 - `executor` — fixed to `agent`; any other value is rejected.
 - `githubPolicy` — fixed to `{ version: "github-repository-read-v1", tools: ["list_issues", "issue_read"] }`. Any other version, tool set, or additional tool is rejected; this is the sole supported dynamic GitHub policy.
 - `maxRepositories` — integer `1..1000`: distinct repositories this envelope may admit for the run.
-- `limits` — per-invocation trusted bounds, all REQUIRED: `timeoutSeconds` (`1..4740`), `memoryLimit`, `cpuLimit`, `pidsLimit` (`1..4096`), `tmpfsLimit`, `maxOutputBytes` (`1..8192`), `maxTaskBytes` (`1..65536`), `maxModelRequests` (`1..64`), `maxModelTokens` (`1..32768`). These are the same resource and response controls a static agent entry declares at entry level.
+- `limits` — per-invocation trusted bounds, all REQUIRED: `timeoutSeconds` (`1..4740`, whole seconds), `memoryLimit`, `cpuLimit`, `pidsLimit` (`1..4096`), `tmpfsLimit`, `maxOutputBytes` (`1..8192`), `maxTaskBytes` (`1..65536`), `maxModelRequests` (`1..64`), `maxModelTokens` (`1..32768`). These are the same resource and response controls a static agent entry declares at entry level.
 - `quotas` — run-wide totals debited across every admission under this envelope, all REQUIRED: `maxInvocations` (`1..10000`), `maxOutputBytes` (`1..1048576`), `maxExecutionSeconds` (`1..86400`).
 - `auditLabels` — a non-empty, unique array of at most 32 opaque labels matching `^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$`. Labels are what AWF and mcpg reconcile dynamic state against at shutdown; they are never repository names or credentials.
 - `expiresAt` — an absolute ISO-8601 timestamp, never later than the workflow job lifetime; admission at or after this time is denied.
@@ -1964,8 +1964,9 @@ explicit timeouts, and strict JSON validation:
 | revoke by labels | `/internal/awf-enclave-mcp-control/revoke-by-labels` |
 
 Operation paths are siblings of the controller name in the exported endpoint,
-not children of it. `requested_ttl` is a Go `time.Duration`, i.e. an integer
-number of **nanoseconds**; timestamps are RFC 3339.
+not children of it. `requested_ttl` is a positive whole number of seconds,
+matching the user-configured `limits.timeoutSeconds` and mcpg's
+`max_identity_ttl` unit; timestamps are RFC 3339.
 
 Every create-or-confirm response is verified before it is trusted: non-empty
 handle and executor bearer, an exact repository match against the admitted

@@ -11,9 +11,8 @@
  *   compiler exports, not a child of it;
  * - the AWF-only capability travels in `Authorization`;
  * - request bodies are bounded (mcpg caps them at 64 KiB);
- * - `requested_ttl` is a Go `time.Duration`, i.e. an **integer number of
- *   nanoseconds**, and `invocation_expires_at` / `expires_at` are RFC 3339
- *   timestamps;
+ * - `requested_ttl` is a positive whole number of seconds, and
+ *   `invocation_expires_at` / `expires_at` are RFC 3339 timestamps;
  * - `admitted_default_branch_sha` is optional on both the request and the
  *   response.
  *
@@ -39,7 +38,6 @@ export const DELEGATION_TOOLS: readonly string[] = Object.freeze(['issue_read', 
  */
 export const DELEGATION_ENCLAVE_BACKEND = 'github';
 
-const NANOSECONDS_PER_SECOND = 1_000_000_000;
 const MAX_CONTROL_RESPONSE_BYTES = 128 * 1024;
 const DEFAULT_CONTROL_TIMEOUT_MS = 10_000;
 
@@ -78,7 +76,7 @@ export interface DelegationCreateOrConfirmRequest {
   invocationId: string;
   repository: string;
   schemaHash: string;
-  /** Requested identity lifetime in whole seconds; converted to nanoseconds. */
+  /** Requested identity lifetime in whole seconds; sent unchanged on the wire. */
   requestedTtlSeconds: number;
   /** Absolute invocation deadline; an identity can never outlive it. */
   invocationExpiresAt: Date;
@@ -118,8 +116,8 @@ interface ControlResponse {
   body: string;
 }
 
-/** Converts whole seconds to the integer nanoseconds Go's `time.Duration` decodes. */
-export function secondsToGoDurationNanos(seconds: number): number {
+/** Validates the whole-second TTL used by the control wire contract. */
+export function validateRequestedTtlSeconds(seconds: number): number {
   if (!Number.isSafeInteger(seconds) || seconds < 1) {
     throw new DelegationControlError(
       'malformed-request',
@@ -127,15 +125,14 @@ export function secondsToGoDurationNanos(seconds: number): number {
       'requested TTL must be a positive whole number of seconds',
     );
   }
-  const nanos = seconds * NANOSECONDS_PER_SECOND;
-  if (!Number.isSafeInteger(nanos)) {
+  if (!Number.isSafeInteger(seconds * 1000)) {
     throw new DelegationControlError(
       'malformed-request',
       'create-or-confirm',
-      'requested TTL overflows a safe integer number of nanoseconds',
+      'requested TTL overflows a safe integer number of milliseconds',
     );
   }
-  return nanos;
+  return seconds;
 }
 
 export class DelegationControlClient {
@@ -157,7 +154,7 @@ export class DelegationControlClient {
    * request before it is handed to a caller.
    */
   async createOrConfirm(request: DelegationCreateOrConfirmRequest): Promise<DelegationIdentity> {
-    const requestedTtlNanos = secondsToGoDurationNanos(request.requestedTtlSeconds);
+    const requestedTtlSeconds = validateRequestedTtlSeconds(request.requestedTtlSeconds);
     const body: Record<string, unknown> = {
       run_id: request.runId,
       enclave_backend: DELEGATION_ENCLAVE_BACKEND,
@@ -166,7 +163,7 @@ export class DelegationControlClient {
       repository: request.repository,
       tool_policy: DELEGATION_TOOL_POLICY,
       schema_hash: request.schemaHash,
-      requested_ttl: requestedTtlNanos,
+      requested_ttl: requestedTtlSeconds,
       invocation_expires_at: request.invocationExpiresAt.toISOString(),
       idempotency_key: request.idempotencyKey,
     };
@@ -174,7 +171,7 @@ export class DelegationControlClient {
       body.admitted_default_branch_sha = request.admittedDefaultBranchSha;
     }
     const decoded = await this.post('create-or-confirm', body);
-    return this.verifyIdentity(decoded, request, requestedTtlNanos);
+    return this.verifyIdentity(decoded, request, requestedTtlSeconds);
   }
 
   /** Reads the controller's recovery state and this label pair's live handles. */
@@ -255,7 +252,7 @@ export class DelegationControlClient {
   private verifyIdentity(
     decoded: Record<string, unknown>,
     request: DelegationCreateOrConfirmRequest,
-    requestedTtlNanos: number,
+    requestedTtlSeconds: number,
   ): DelegationIdentity {
     const fail = (detail: string): never => {
       throw new DelegationControlError('contract-violation', 'create-or-confirm', detail);
@@ -299,7 +296,7 @@ export class DelegationControlClient {
     // mcpg computes ExpiresAt as now + RequestedTTL, capped by the envelope and
     // the invocation deadline, so a longer-lived identity means the controller
     // ignored the requested bound.
-    const ttlCeilingMs = Date.now() + requestedTtlNanos / 1_000_000;
+    const ttlCeilingMs = Date.now() + requestedTtlSeconds * 1000;
     if (expiresAt.getTime() > ttlCeilingMs) {
       fail('identity outlives the requested TTL');
     }

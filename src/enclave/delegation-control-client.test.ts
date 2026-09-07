@@ -5,7 +5,7 @@ import {
   DELEGATION_TOOL_POLICY,
   DelegationControlClient,
   DelegationControlError,
-  secondsToGoDurationNanos,
+  validateRequestedTtlSeconds,
 } from './delegation-control-client';
 import { parseEnclaveDynamicDelegationControlEndpoint } from './dynamic-delegation-handoff';
 
@@ -100,13 +100,13 @@ describe('mcpg delegation control wire contract', () => {
     );
   });
 
-  it('encodes requested_ttl as an integer number of Go nanoseconds', async () => {
+  it('encodes requested_ttl as an exact integer number of seconds', async () => {
     await withControlServer(
       () => ({ status: 200, body: identityBody() }),
       async (client, captured) => {
         await client.createOrConfirm(baseRequest);
         const body = captured[0].body as Record<string, unknown>;
-        expect(body.requested_ttl).toBe(120 * 1_000_000_000);
+        expect(body.requested_ttl).toBe(120);
         expect(Number.isInteger(body.requested_ttl)).toBe(true);
       },
     );
@@ -374,9 +374,9 @@ describe('mcpg delegation control response validation', () => {
   });
 
   it.each([0, -1, 1.5, Number.MAX_SAFE_INTEGER])(
-    'refuses to encode %s seconds as a Go duration',
+    'refuses invalid requested TTL value %s',
     (seconds) => {
-      expect(() => secondsToGoDurationNanos(seconds)).toThrow(DelegationControlError);
+      expect(() => validateRequestedTtlSeconds(seconds)).toThrow(DelegationControlError);
     },
   );
 });

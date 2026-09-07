@@ -21,7 +21,7 @@ import {
   DELEGATION_TOOLS,
   DELEGATION_TOOL_POLICY,
   DelegationControlClient,
-  secondsToGoDurationNanos,
+  validateRequestedTtlSeconds,
 } from './delegation-control-client';
 import {
   DELEGATION_CONTROLLER_NAME,
@@ -168,8 +168,8 @@ describe('mcpg v0.4.17 wire contract', () => {
     }
   });
 
-  it('encodes Go time.Duration as integer nanoseconds and time.Time as RFC 3339', async () => {
-    expect(secondsToGoDurationNanos(1)).toBe(1_000_000_000);
+  it('encodes requested TTL as exact integer seconds and time.Time as RFC 3339', async () => {
+    expect(validateRequestedTtlSeconds(1)).toBe(1);
     await client.createOrConfirm({
       runId: '18234567890-2',
       enclaveEntryId: 'agent',
@@ -182,7 +182,7 @@ describe('mcpg v0.4.17 wire contract', () => {
       admittedDefaultBranchSha: 'a'.repeat(40),
     });
     const body = captured[captured.length - 1].body as Record<string, unknown>;
-    expect(body.requested_ttl).toBe(120 * 1_000_000_000);
+    expect(body.requested_ttl).toBe(120);
     expect(Number.isInteger(body.requested_ttl)).toBe(true);
     expect(body.invocation_expires_at).toBe('2999-01-01T00:00:00.000Z');
   });

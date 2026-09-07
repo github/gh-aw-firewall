@@ -162,7 +162,7 @@ export interface EnclaveDynamicGithubPolicy {
  * `max-model-requests`, and `max-model-tokens` before it compiles.
  */
 export interface EnclaveDynamicLimits {
-  /** Per-invocation wall-clock budget in seconds. Named for the compiler's `timeoutSeconds`. */
+  /** Whole-second wall-clock budget, forwarded unchanged as delegation `requested_ttl`. */
   timeoutSeconds: number;
   memoryLimit: string;
   cpuLimit: string;

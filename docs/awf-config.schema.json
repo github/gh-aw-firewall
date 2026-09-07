@@ -1356,7 +1356,8 @@
                   "timeoutSeconds": {
                     "type": "integer",
                     "minimum": 1,
-                    "maximum": 4740
+                    "maximum": 4740,
+                    "description": "Per-invocation wall-clock budget in whole seconds. AWF forwards this value unchanged as the delegation requested_ttl."
                   },
                   "memoryLimit": {
                     "type": "string",
