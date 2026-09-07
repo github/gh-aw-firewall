@@ -188,6 +188,8 @@ describe('self-hosted runner doctor workflow config', () => {
       expect(content).toContain('github/gh-aw#58458, github/gh-aw#58625, github/gh-aw-firewall#8141, github/gh-aw-firewall#8173');
       expect(content).toContain('| B32 | A repeated/persistent-runner workflow intermittently blocks allowlisted');
       expect(content).toContain('negative_dns_ttl 1 seconds');
+      expect(content).toContain('dns_retransmit_interval 1 seconds');
+      expect(content).toContain('dns_timeout 10 seconds');
       expect(content).toContain('github/gh-aw-firewall#8168, github/gh-aw-firewall#8171');
       expect(content).toContain('| B33 | `[DEBUG] Could not check Squid logs: EACCES');
       expect(content).toContain('github/gh-aw-firewall#8249, github/gh-aw-firewall#8251');
