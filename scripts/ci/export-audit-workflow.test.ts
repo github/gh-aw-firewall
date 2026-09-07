@@ -16,6 +16,7 @@ describe('export audit workflow optimization config', () => {
 
     // Rec 2: max-turns reduced
     expect(source).toContain('max-turns: 6');
+    expect(source).toContain('model: claude-sonnet-5');
     expect(source).toContain('HARD LIMIT: You have at most 6 turns total.');
     expect(source).not.toContain('max-turns: 12');
 
