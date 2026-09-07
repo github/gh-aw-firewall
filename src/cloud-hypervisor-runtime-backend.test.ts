@@ -10,6 +10,7 @@ import {
   type CloudHypervisorRuntimeBackendDependencies,
 } from './cloud-hypervisor-runtime-backend';
 import {
+  cloudHypervisorHostTools,
   createCloudHypervisorInfrastructureSnapshot as infrastructure,
   createCloudHypervisorTestConfig as config,
 } from './cloud-hypervisor/test-fixtures.test-utils';
@@ -45,26 +46,7 @@ const preflightResult = {
   },
   cgroupVersion: 2 as const,
   kvmGid: 978,
-  tools: {
-    getfacl: '/usr/bin/getfacl',
-    getent: '/usr/bin/getent',
-    groupdel: '/usr/sbin/groupdel',
-    id: '/usr/bin/id',
-    ip: '/usr/bin/ip',
-    nft: '/usr/sbin/nft',
-    sysctl: '/usr/sbin/sysctl',
-    flock: '/usr/bin/flock',
-    mke2fs: '/usr/sbin/mke2fs',
-    debugfs: '/usr/sbin/debugfs',
-    e2fsck: '/usr/sbin/e2fsck',
-    rsync: '/usr/bin/rsync',
-    mount: '/usr/bin/mount',
-    umount: '/usr/bin/umount',
-    setpriv: '/usr/bin/setpriv',
-    setfacl: '/usr/bin/setfacl',
-    useradd: '/usr/sbin/useradd',
-    userdel: '/usr/sbin/userdel',
-  },
+  tools: cloudHypervisorHostTools,
 };
 
 function harness(overrides: Partial<CloudHypervisorRuntimeBackendDependencies> = {}) {
