@@ -1,6 +1,7 @@
 import { buildConfig } from '../commands/build-config';
 import { mapAwfFileConfigToCliOptions } from '../config-mapper';
 import { validateAwfFileConfig } from '../config-file';
+import { buildMinimalBuildConfigInput } from '../test-helpers/build-config.test-utils';
 import {
   CLOUD_HYPERVISOR_DEFAULT_API_TIMEOUT_MS,
   CLOUD_HYPERVISOR_DEFAULT_BINARY,
@@ -9,47 +10,17 @@ import {
 } from '../types/runtime-options';
 
 function buildCloudHypervisorConfig(options: Record<string, unknown>) {
-  return buildConfig({
+  const input = buildMinimalBuildConfigInput({
     options: {
-      keepContainers: false,
-      buildLocal: false,
-      skipPull: false,
+      ...buildMinimalBuildConfigInput().options,
       imageRegistry: 'registry',
-      imageTag: 'latest',
-      envAll: false,
-      sslBump: false,
-      enableDind: false,
-      enableDlp: false,
       ...options,
     },
     agentCommand: 'echo test',
-    logLevel: 'info',
     allowedDomains: [],
-    blockedDomains: [],
-    localhostDetected: false,
-    additionalEnv: {},
-    volumeMounts: undefined,
-    upstreamProxy: undefined,
     dnsServers: [],
-    dnsOverHttps: undefined,
-    allowedUrls: undefined,
-    memoryLimit: undefined,
-    pidsLimit: undefined,
-    agentImage: undefined,
-    modelAliases: undefined,
-    allowedModels: undefined,
-    disallowedModels: undefined,
-    maxEffectiveTokens: undefined,
-    maxAiCredits: undefined,
-    effectiveTokenModelMultipliers: undefined,
-    effectiveTokenDefaultModelMultiplier: undefined,
-    maxRuns: undefined,
-    maxPermissionDenied: undefined,
-    maxCacheMisses: undefined,
-    resolvedCopilotApiTarget: undefined,
-    resolvedCopilotApiBasePath: undefined,
-    dockerHostPathPrefix: undefined,
-  }).cloudHypervisor;
+  });
+  return buildConfig(input).cloudHypervisor;
 }
 
 describe('Cloud Hypervisor configuration (foundation only)', () => {
