@@ -23,6 +23,7 @@ TEMP_DIR = Path("/tmp")
 SHARED_MEMORY_DIR = Path("/dev/shm")
 COPILOT_BIN = "/usr/local/bin/copilot"
 GITHUB_AGENT_ID_PATH = Path("/run/awf-enclave-github/agent-id")
+GITHUB_BEARER_PATH = Path("/run/awf-enclave-github/bearer")
 GITHUB_MCP_CONFIG_PATH = AGENT_DIR / "github-mcp.json"
 
 MAX_INPUT_BYTES = 64 * 1024
@@ -84,6 +85,12 @@ def redact_diagnostics(value: str) -> str:
         agent_id = GITHUB_AGENT_ID_PATH.read_text(encoding="ascii").strip()
         if agent_id:
             redacted = redacted.replace(agent_id, "[REDACTED]")
+    except (OSError, UnicodeDecodeError):
+        pass
+    try:
+        bearer = GITHUB_BEARER_PATH.read_text(encoding="ascii").strip()
+        if bearer:
+            redacted = redacted.replace(bearer, "[REDACTED]")
     except (OSError, UnicodeDecodeError):
         pass
     return redacted
@@ -278,9 +285,9 @@ def preflight_path(
 
 
 def run_preflight(copilot_logs: Path) -> bool:
+    dynamic = is_dynamic_enabled()
     checks = [
         ("copilot-executable", Path(COPILOT_BIN), "file", True, False),
-        ("seed-directory", SEED_DIR, "directory", True, False),
         ("task-input", TASK_PATH, "file", False, False),
         ("schema-input", SCHEMA_PATH, "file", False, False),
         ("output-file", OUT_PATH, "file", False, True),
@@ -288,7 +295,18 @@ def run_preflight(copilot_logs: Path) -> bool:
         ("agent-directory", AGENT_DIR, "directory", True, True),
         ("copilot-log-directory", copilot_logs, "directory", True, True),
     ]
+    if not dynamic:
+        checks.insert(1, ("seed-directory", SEED_DIR, "directory", True, False))
     valid = True
+    if dynamic and SEED_DIR.exists() and any(SEED_DIR.iterdir()):
+        # A dynamic invocation must never be handed a repository checkout.
+        append_event({
+            "event": "preflight",
+            "path": "seed-directory",
+            "exists": True,
+            "type": "forbidden-seed-mount",
+        })
+        valid = False
     if shutil.which("gh") is not None:
         append_event({
             "event": "preflight",
@@ -316,6 +334,11 @@ def run_preflight(copilot_logs: Path) -> bool:
         )
         if error is not None:
             safe_os_error(error, "preflight-github-agent-id")
+            valid = False
+    if dynamic:
+        error = preflight_path("github-bearer", GITHUB_BEARER_PATH, "file")
+        if error is not None:
+            safe_os_error(error, "preflight-github-bearer")
             valid = False
     append_progress("preflight-completed", valid=valid)
     return valid
@@ -370,6 +393,33 @@ def build_prompt(task: str, schema_text: str) -> str:
             "available. Use those MCP tools for GitHub reads. GitHub CLI, GraphQL, search, "
             "writes, and all other GitHub tools are unavailable."
         )
+    if is_dynamic_enabled():
+        repository = os.environ.get("AWF_ENCLAVE_AGENT_DYNAMIC_REPO", "")
+        read_mode = os.environ.get("AWF_ENCLAVE_AGENT_DYNAMIC_READ_MODE", "live")
+        freshness = (
+            "Reads are live: they reflect the repository's current state at call time, not a "
+            "reproducible snapshot."
+            if read_mode != "pinned"
+            else "Reads are pinned to the admitted default-branch commit."
+        )
+        return (
+            "You are the native GitHub Copilot CLI running in an AWF enclave-agent enclave.\n"
+            "There is no repository checkout: no source tree is cloned, staged, or mounted. "
+            f"Your only source of repository data is the credential-isolated GitHub MCP server, "
+            f"which is scoped to exactly one repository: {repository}. It exposes only "
+            "`list_issues` and `issue_read`; for `issue_read`, only methods `get` and "
+            f"`get_comments` are available. {freshness}\n"
+            "You must not clone or fetch any repository, open arbitrary URLs, use the GitHub CLI "
+            "or GraphQL, perform any write or mutation, run unscoped or organization-wide search, "
+            "enumerate or discover repositories, or read any repository other than "
+            f"{repository}. Those paths are blocked and every attempt fails closed.\n"
+            "/agent is an invocation-private writable runtime directory and /tmp is bounded "
+            "tmpfs. You have no GitHub credentials, no host filesystem, and no network route "
+            "except AWF's model proxy and the repository-scoped GitHub MCP server.\n\n"
+            "Complete this task:\n"
+            f"{task}\n\n"
+            f"{output_contract}"
+        )
     return (
         "You are the native GitHub Copilot CLI running in an AWF enclave-agent enclave.\n"
         "The repository root is your current directory and is mounted read-only at /awf/seed. "
@@ -384,7 +434,15 @@ def build_prompt(task: str, schema_text: str) -> str:
     )
 
 
+def is_dynamic_enabled() -> bool:
+    """Whether this invocation reads live GitHub through a delegated identity."""
+    return os.environ.get("AWF_ENCLAVE_AGENT_DYNAMIC_ENABLED") == "true"
+
+
 def configure_github_mcp() -> None:
+    if is_dynamic_enabled():
+        configure_dynamic_github_mcp()
+        return
     if os.environ.get("AWF_ENCLAVE_AGENT_GITHUB_ENABLED") != "true":
         return
     if os.environ.get("AWF_ENCLAVE_AGENT_GITHUB_PROFILE") != "issues-read-v1":
@@ -401,6 +459,40 @@ def configure_github_mcp() -> None:
                 "type": "http",
                 "url": endpoint,
                 "headers": {"Authorization": agent_id},
+            }
+        }
+    }
+    GITHUB_MCP_CONFIG_PATH.write_text(
+        json.dumps(config, separators=(",", ":")),
+        encoding="utf-8",
+    )
+    GITHUB_MCP_CONFIG_PATH.chmod(0o600)
+
+
+def configure_dynamic_github_mcp() -> None:
+    """Writes the invocation-private, bearer-only GitHub MCP configuration.
+
+    The executor holds exactly one short-lived, repository-scoped bearer minted
+    for this invocation. It never receives the job token, the delegation-control
+    capability, the identity handle, the compiler envelope, mcpg's state path,
+    its policy generation, or a route to the control listener.
+    """
+    endpoint = os.environ.get("AWF_ENCLAVE_AGENT_GITHUB_MCP_URL", "")
+    if not re.fullmatch(r"http://[0-9.]+:[0-9]+/mcp/github", endpoint):
+        raise ValueError("invalid GitHub MCP endpoint")
+    repository = os.environ.get("AWF_ENCLAVE_AGENT_DYNAMIC_REPO", "")
+    if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,38}/[a-z0-9._-]{1,100}", repository):
+        raise ValueError("invalid admitted repository selector")
+    bearer = GITHUB_BEARER_PATH.read_text(encoding="ascii").strip()
+    if not re.fullmatch(r"[\x21-\x7e]{16,512}", bearer):
+        raise ValueError("invalid delegated executor bearer")
+    config = {
+        "mcpServers": {
+            "github": {
+                "type": "http",
+                "url": endpoint,
+                "headers": {"Authorization": bearer},
+                "tools": ["list_issues", "issue_read"],
             }
         }
     }
@@ -509,7 +601,7 @@ def main() -> int:
         "--log-level", "all",
         "--log-dir", str(copilot_logs),
     ]
-    if os.environ.get("AWF_ENCLAVE_AGENT_GITHUB_ENABLED") == "true":
+    if os.environ.get("AWF_ENCLAVE_AGENT_GITHUB_ENABLED") == "true" or is_dynamic_enabled():
         command.extend(["--additional-mcp-config", f"@{GITHUB_MCP_CONFIG_PATH}"])
     if max_model_requests is not None:
         command.extend(["--max-model-requests", max_model_requests])
@@ -528,7 +620,7 @@ def main() -> int:
         try:
             process = subprocess.Popen(
                 command,
-                cwd=SEED_DIR,
+                cwd=AGENT_DIR if is_dynamic_enabled() else SEED_DIR,
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,

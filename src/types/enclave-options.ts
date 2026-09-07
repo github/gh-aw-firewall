@@ -328,6 +328,20 @@ export function isEnclaveAgentGithubToolsEnabled(
 }
 
 /**
+ * Whether the enclave agent reaches GitHub through the shared MCP gateway at
+ * all — under the static `issues-read-v1`/`agent.tools.github` profile, or
+ * through the per-invocation delegated identities of a dynamic entry.
+ *
+ * Both shapes need the gateway attached to the enclave agent network; only the
+ * static shape has a compiler-issued agent identity.
+ */
+export function isEnclaveAgentGithubRouteEnabled(
+  agent: Pick<EnclaveAgentExecutorConfig, 'github' | 'tools' | 'dynamic'> | undefined,
+): boolean {
+  return isEnclaveAgentGithubToolsEnabled(agent) || agent?.dynamic !== undefined;
+}
+
+/**
  * Resolves the closed set of GitHub MCP tools configured for this enclave
  * agent, normalizing the legacy marker to its fixed pair. Returns `undefined`
  * when the GitHub gateway is not requested.

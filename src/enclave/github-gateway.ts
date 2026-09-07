@@ -39,7 +39,17 @@ class GithubGatewayReadinessError extends Error {
 }
 
 interface EnclaveGithubGatewayContract {
-  agentId: string;
+  /**
+   * Compiler-issued static identity for the `issues-read-v1` profile.
+   *
+   * Dynamic entries have no static identity: gh-aw mints
+   * `AWF_ENCLAVE_GITHUB_MCP_AGENT_ID` only for the static profile, and a
+   * dynamic executor authenticates with a per-invocation delegated bearer
+   * instead. It is therefore absent in `dynamic` mode.
+   */
+  agentId?: string;
+  /** Which enclave GitHub route this run needs from the shared gateway. */
+  mode: 'static' | 'dynamic';
   containerName: string;
   endpoint: URL;
   identity: string;
@@ -54,10 +64,28 @@ interface JsonRpcResponse {
   error?: unknown;
 }
 
+/**
+ * Whether this run needs the shared gateway's enclave GitHub route.
+ *
+ * Two independent shapes need it: the static `issues-read-v1` profile, and a
+ * dynamic entry whose per-invocation delegated identities reach the same
+ * `github` backend (gh-aw keeps that backend registered for exactly this
+ * reason, while withholding it from the primary agent).
+ */
 function isEnclaveGithubEnabled(config: WrapperConfig): boolean {
+  return isEnclaveStaticGithubEnabled(config) || isEnclaveDynamicGithubEnabled(config);
+}
+
+function isEnclaveStaticGithubEnabled(config: WrapperConfig): boolean {
   return config.enclaves?.enabled === true
     && config.enclaves.executors.agent.enabled
     && resolveEnclaveAgentGithubAllowedTools(config.enclaves.executors.agent) !== undefined;
+}
+
+function isEnclaveDynamicGithubEnabled(config: WrapperConfig): boolean {
+  return config.enclaves?.enabled === true
+    && config.enclaves.executors.agent.enabled
+    && config.enclaves.executors.agent.dynamic !== undefined;
 }
 
 function requiredIdentity(name: string, value: string | undefined): string {
@@ -114,15 +142,26 @@ export function resolveEnclaveGithubGatewayContract(
   if (!isEnclaveGithubEnabled(config)) {
     throw new Error('Enclave GitHub gateway contract requested while issues-read-v1 is disabled');
   }
-  const allowedTools = resolveEnclaveAgentGithubAllowedTools(config.enclaves?.executors.agent);
+  const dynamic = config.enclaves?.executors.agent.dynamic;
+  const staticTools = resolveEnclaveAgentGithubAllowedTools(config.enclaves?.executors.agent);
+  const allowedTools = staticTools ?? dynamic?.githubPolicy.tools;
   if (!allowedTools || allowedTools.length === 0) {
     throw new Error('Enclave GitHub gateway contract requires a non-empty configured tool allowlist');
   }
+  const mode: 'static' | 'dynamic' = staticTools ? 'static' : 'dynamic';
   return {
-    agentId: requiredIdentity(
-      ENCLAVE_GITHUB_MCP_AGENT_ID_ENV,
-      resolveGithubAgentId(config, env),
-    ),
+    // A dynamic-only entry has no compiler-issued static identity; the
+    // executor authenticates per invocation with a delegated bearer that AWF
+    // mints through the private control channel.
+    ...(mode === 'static'
+      ? {
+        agentId: requiredIdentity(
+          ENCLAVE_GITHUB_MCP_AGENT_ID_ENV,
+          resolveGithubAgentId(config, env),
+        ),
+      }
+      : {}),
+    mode,
     containerName: requiredIdentity(
       ENCLAVE_MCP_GATEWAY_CONTAINER_ENV,
       env[ENCLAVE_MCP_GATEWAY_CONTAINER_ENV],
@@ -376,7 +415,16 @@ async function proveGithubGatewayReadiness(
   };
   await assertAgentNetworkMembership(contract);
   await assertSharedGatewayAttachment(contract);
-  const initialized = await postJsonRpc(contract.endpoint, contract.agentId, {
+  if (contract.mode === 'dynamic' || contract.agentId === undefined) {
+    // A dynamic entry has no static identity to authenticate a readiness
+    // session with: every identity is minted per invocation through the
+    // private control channel, after the primary agent has already started.
+    // Topology and attachment are still proven exactly as for the static
+    // profile; tool exposure is enforced by the delegated identity itself.
+    return;
+  }
+  const agentId = contract.agentId;
+  const initialized = await postJsonRpc(contract.endpoint, agentId, {
     jsonrpc: '2.0',
     id: 1,
     method: 'initialize',
@@ -393,11 +441,16 @@ async function proveGithubGatewayReadiness(
   ) {
     throw new Error('Shared MCP gateway rejected the enclave identity');
   }
-  await postJsonRpc(contract.endpoint, contract.agentId, {
+  await postJsonRpc(contract.endpoint, agentId, {
     jsonrpc: '2.0',
     method: 'notifications/initialized',
   }, initialized.sessionId, requestBudget());
-  const tools = await listAllGithubGatewayTools(contract, initialized.sessionId, requestBudget);
+  const tools = await listAllGithubGatewayTools(
+    contract,
+    agentId,
+    initialized.sessionId,
+    requestBudget,
+  );
   if (JSON.stringify(tools) !== JSON.stringify(contract.allowedTools)) {
     throw new Error('Shared MCP gateway did not expose exactly the configured allowed tools');
   }
@@ -414,6 +467,7 @@ const MAX_TOOLS_LIST_PAGES = 20;
  */
 async function listAllGithubGatewayTools(
   contract: EnclaveGithubGatewayContract,
+  agentId: string,
   sessionId: string,
   requestBudget: () => number,
 ): Promise<string[]> {
@@ -423,7 +477,7 @@ async function listAllGithubGatewayTools(
     if (page >= MAX_TOOLS_LIST_PAGES) {
       throw new Error('Shared MCP gateway returned too many tools/list pages');
     }
-    const listed = await postJsonRpc(contract.endpoint, contract.agentId, {
+    const listed = await postJsonRpc(contract.endpoint, agentId, {
       jsonrpc: '2.0',
       id: 2,
       method: 'tools/list',

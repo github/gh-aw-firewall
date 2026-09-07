@@ -6,7 +6,7 @@ import { CLI_PROXY_IP, DOH_PROXY_IP, SQUID_IP, API_PROXY_IP } from './host-iptab
 import { buildInternalServiceHosts } from './services/internal-service-hosts';
 import { TOPOLOGY_NETWORK_NAME, getTopologyContainerIps, patchComposeWithTopologyHosts } from './topology';
 import { validateEnclavesConfig } from './enclave/preflight';
-import { isEnclaveAgentGithubToolsEnabled } from './types/enclave-options';
+import { isEnclaveAgentGithubRouteEnabled } from './types/enclave-options';
 
 /**
  * Dependencies injected into the main workflow.
@@ -54,6 +54,11 @@ export interface WorkflowDependencies {
   connectEnclaveGithubGateway?: (config: WrapperConfig) => Promise<void>;
   /** Proves the fixed TLS route through the PAT-free enclave CLI proxy. */
   assertEnclaveGithubGatewayReady?: (config: WrapperConfig) => Promise<void>;
+  /**
+   * Starts the AWF-private dynamic repository admission authority: mcpg
+   * recovery, reconciliation, and the broker admission channel.
+   */
+  startEnclaveDynamicDelegation?: (config: WrapperConfig) => Promise<void>;
 }
 
 interface WorkflowCallbacks {
@@ -212,7 +217,7 @@ export async function runMainWorkflow(
         }
         logger.info('Attaching the trusted MCP gateway to the private enclave control path...');
         await dependencies.connectEnclaveGateway(config);
-        if (isEnclaveAgentGithubToolsEnabled(config.enclaves?.executors.agent)) {
+        if (isEnclaveAgentGithubRouteEnabled(config.enclaves?.executors.agent)) {
           if (
             !dependencies.connectEnclaveGithubGateway
             || !dependencies.assertEnclaveGithubGatewayReady
@@ -228,6 +233,16 @@ export async function runMainWorkflow(
         }
         logger.info('Proving enclave tools end to end through the MCP gateway...');
         await dependencies.assertEnclaveGatewayReady(config);
+        if (config.enclaves?.executors.agent.dynamic !== undefined) {
+          if (!dependencies.startEnclaveDynamicDelegation) {
+            throw new Error(
+              'enclaves[].dynamic requires the AWF-private delegation admission authority; '
+              + 'AWF never runs a dynamic entry without it',
+            );
+          }
+          logger.info('Reconciling mcpg delegation state and opening dynamic admission...');
+          await dependencies.startEnclaveDynamicDelegation(config);
+        }
       }
     : undefined;
 

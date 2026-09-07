@@ -6,10 +6,11 @@ import {
 import type { WrapperConfig } from '../types';
 import { API_PROXY_PORTS } from '../types/ports';
 import type { EnclaveAgentEngine, EnclaveAgentProfile } from '../types/enclave-options';
-import { isEnclaveAgentGithubToolsEnabled } from '../types/enclave-options';
+import { isEnclaveAgentGithubRouteEnabled, isEnclaveAgentGithubToolsEnabled } from '../types/enclave-options';
 import {
   ENCLAVE_SERVER_AUDIT_DIR,
   ENCLAVE_SERVER_CAPABILITY_PATH,
+  ENCLAVE_SERVER_DELEGATION_CHANNEL_DIR,
   ENCLAVE_SERVER_GITHUB_AGENT_ID_PATH,
   ENCLAVE_SERVER_CONTROL_DIR,
   ENCLAVE_SERVER_DOCKER_SOCKET_PATH,
@@ -17,6 +18,7 @@ import {
   ENCLAVE_SERVER_SEEDS_DIR,
   ENCLAVE_SERVER_CAPABILITY_DIR,
   ENCLAVE_SERVER_WORK_DIR,
+  readEnclaveRunId,
   resolveEnclavePaths,
 } from '../enclave/paths';
 import {
@@ -255,6 +257,11 @@ export function buildEnclaveMcpService(params: EnclaveMcpServiceParams): Enclave
   const dockerSocketPath = resolveDockerSocketPath(config);
   const primaryBackend = resolvePrimaryRuntimeBackend(config.containerRuntime);
   const imageServiceHardening = { memLimit: '32m', pidsLimit: 16, cpuShares: 64 };
+  // A dynamic-only entry stages no repository seed at all: no clone, no seed
+  // catalog, no `/awf/seed` mount, and no staging credential anywhere in the
+  // topology.
+  const staticSeedsPresent = enclaves.privateRepos.length > 0;
+  const dynamic = agent?.enabled ? agent.dynamic : undefined;
 
   const environment: Record<string, string> = {
     AWF_ENCLAVE_PRIMARY_BACKEND: primaryBackend,
@@ -263,6 +270,8 @@ export function buildEnclaveMcpService(params: EnclaveMcpServiceParams): Enclave
     AWF_ENCLAVE_LISTEN_HOST: '0.0.0.0',
     AWF_ENCLAVE_SCRIPT_ENABLED: String(script?.enabled === true),
     AWF_ENCLAVE_AGENT_ENABLED: String(agent?.enabled === true),
+    AWF_ENCLAVE_SEED_MAP_ENABLED: String(staticSeedsPresent),
+    AWF_ENCLAVE_RUN_ID: readEnclaveRunId(paths) ?? '',
   };
   const dependsOn: Record<string, Record<string, string>> = {};
   const result: EnclaveMcpBuildResult = { service: {} };
@@ -297,7 +306,7 @@ export function buildEnclaveMcpService(params: EnclaveMcpServiceParams): Enclave
     }
     const { imageRef, source } = resolveAgentImage(imageConfig, agent.image);
     const githubEnabled = isEnclaveAgentGithubToolsEnabled(agent);
-    const githubGatewayContract = githubEnabled
+    const githubGatewayContract = isEnclaveAgentGithubRouteEnabled(agent)
       ? resolveEnclaveGithubGatewayContract(config)
       : undefined;
     result.agentImageService = {
@@ -343,6 +352,18 @@ export function buildEnclaveMcpService(params: EnclaveMcpServiceParams): Enclave
         AWF_ENCLAVE_AGENT_GITHUB_AGENT_ID_PATH: ENCLAVE_SERVER_GITHUB_AGENT_ID_PATH,
         AWF_ENCLAVE_AGENT_GITHUB_GATEWAY_CONTAINER: githubGatewayContract?.containerName,
       }),
+      ...(dynamic !== undefined && {
+        // The broker advertises and dispatches only enclave_run_agent for a
+        // dynamic entry, and reaches AWF's host-side admission authority
+        // through the private channel below. It never receives the control
+        // endpoint, the control capability, an identity handle, the compiler
+        // envelope, mcpg's state path, or its policy generation.
+        AWF_ENCLAVE_AGENT_DYNAMIC_ENABLED: 'true',
+        AWF_ENCLAVE_AGENT_DYNAMIC_CHANNEL_DIR: ENCLAVE_SERVER_DELEGATION_CHANNEL_DIR,
+        AWF_ENCLAVE_AGENT_DYNAMIC_SENSITIVITY: dynamic.sensitivity,
+        AWF_ENCLAVE_AGENT_DYNAMIC_GITHUB_MCP_URL: ENCLAVE_GITHUB_MCP_INTERNAL_URL,
+        AWF_ENCLAVE_AGENT_GITHUB_GATEWAY_CONTAINER: githubGatewayContract?.containerName,
+      }),
       ...(agent.maxModelRequests !== undefined && {
         AWF_ENCLAVE_AGENT_MAX_MODEL_REQUESTS: String(agent.maxModelRequests),
       }),
@@ -352,19 +373,33 @@ export function buildEnclaveMcpService(params: EnclaveMcpServiceParams): Enclave
       // Enclave bind-mount sources are handed to the daemon, not opened by the
       // server, so they must be daemon-visible paths.
       AWF_ENCLAVE_AGENT_HOST_WORK_DIR: toDaemonVisiblePath(paths.workDir, config.dockerHostPathPrefix),
-      AWF_ENCLAVE_AGENT_HOST_SEEDS_DIR: toDaemonVisiblePath(paths.seedsDir, config.dockerHostPathPrefix),
+      ...(staticSeedsPresent && {
+        AWF_ENCLAVE_AGENT_HOST_SEEDS_DIR: toDaemonVisiblePath(
+          paths.seedsDir,
+          config.dockerHostPathPrefix,
+        ),
+      }),
     });
   }
 
   const serverVolumes = [
-    `${paths.seedsDir}:${ENCLAVE_SERVER_SEEDS_DIR}:ro`,
     `${paths.workDir}:${ENCLAVE_SERVER_WORK_DIR}:rw`,
     `${paths.runDir}:${ENCLAVE_SERVER_CAPABILITY_DIR}:ro`,
     `${paths.controlDir}:${ENCLAVE_SERVER_CONTROL_DIR}:rw`,
     `${paths.auditDir}:${ENCLAVE_SERVER_AUDIT_DIR}:rw`,
-    `${paths.seedMapPath}:${ENCLAVE_SERVER_SEED_MAP_PATH}:ro`,
     `${dockerSocketPath}:${ENCLAVE_SERVER_DOCKER_SOCKET_PATH}:rw`,
   ];
+  if (staticSeedsPresent) {
+    serverVolumes.push(
+      `${paths.seedsDir}:${ENCLAVE_SERVER_SEEDS_DIR}:ro`,
+      `${paths.seedMapPath}:${ENCLAVE_SERVER_SEED_MAP_PATH}:ro`,
+    );
+  }
+  if (dynamic !== undefined) {
+    serverVolumes.push(
+      `${paths.delegationChannelDir}:${ENCLAVE_SERVER_DELEGATION_CHANNEL_DIR}:rw`,
+    );
+  }
   if (isEnclaveAgentGithubToolsEnabled(agent)) {
     serverVolumes.push(
       `${paths.githubAgentIdPath}:${ENCLAVE_SERVER_GITHUB_AGENT_ID_PATH}:ro`,

@@ -22,6 +22,7 @@ import {
   PRIVATE_REPOSITORY_PATTERN,
 } from '../bounded-execution';
 import { ENCLAVE_AGENT_MAX_TASK_BYTES } from './protocol';
+import type { EnclaveDynamicDelegationHandoffResolution } from './dynamic-delegation-handoff';
 import { normalizePrivateRepositoryKey } from '../bounded-execution/repository-staging';
 import { findDockerSocketExposingMount } from './mount-policy';
 
@@ -42,26 +43,23 @@ const MAX_DYNAMIC_QUOTA_OUTPUT_BYTES = 1024 * 1024;
 const MAX_DYNAMIC_QUOTA_EXECUTION_SECONDS = 86_400;
 
 /**
- * Why a validated dynamic envelope still cannot run in this AWF release.
+ * Why a validated dynamic envelope may still be refused.
  *
- * ADR 0001 binds every dynamic invocation to a single-repository mcpg
- * identity minted through the `github-repository-delegation-v1` controller on
- * the private `awf-enclave-mcp-control` channel. The compiler mints and hands
- * AWF the control capability, but no released compiler starts that controller
- * or hands AWF a control endpoint, and a dynamic invocation has no immutable
- * seed to fall back to. Rather than start a run whose every enclave call would
- * fail with the canonical denial, AWF refuses the run and says exactly which
- * handoff is missing. AWF never falls back to a static seed catalog, a
- * job-lifetime identity, or a broader policy.
+ * ADR 0001 binds every dynamic invocation to a single-repository mcpg identity
+ * minted through the `github-repository-delegation-v1` controller. AWF only
+ * runs a dynamic entry when the compiler has actually started that controller
+ * and handed AWF both private values — a loopback-only control endpoint and
+ * the AWF-only control capability. Without them a dynamic invocation has no
+ * identity to mint and no immutable seed to fall back to, so AWF refuses the
+ * run and says exactly which handoff is missing. AWF never falls back to a
+ * static seed catalog, a job-lifetime identity, or a broader policy.
  */
 export const DYNAMIC_ENCLAVE_EXECUTION_UNSUPPORTED_REASON =
-  'enclaves[].dynamic repository admission is not executable in this AWF release: ADR 0001 binds '
-  + 'every dynamic invocation to a single-repository mcpg identity created through the '
-  + '"github-repository-delegation-v1" control channel, and no released compiler starts that '
-  + 'controller or hands AWF its control endpoint. AWF validates the envelope and custodies the '
-  + 'delegation-control capability, but never falls back to a static seed catalog, a job-lifetime '
-  + 'identity, or a broader policy. Remove enclaves[].dynamic, or pin an AWF release that '
-  + 'implements the full delegation contract.';
+  'enclaves[].dynamic repository admission requires the compiler-issued mcpg delegation-control '
+  + 'handoff: ADR 0001 binds every dynamic invocation to a single-repository identity created '
+  + 'through the "github-repository-delegation-v1" control channel. AWF never falls back to a '
+  + 'static seed catalog, a job-lifetime identity, or a broader policy. Upgrade to a gh-aw '
+  + 'release that starts the delegation controller, or remove enclaves[].dynamic.';
 
 /** Engines with a published, audited enclave image and a fixed AWF model loop. */
 const IMPLEMENTED_AGENT_ENGINES = new Set(['copilot']);
@@ -125,9 +123,16 @@ function validateRepositoryList(enclaves: EnclavesConfig, errors: string[]): voi
   }
 }
 
-/** Static, fail-closed checks for the unified enclave foundation. */
+/**
+ * Static, fail-closed checks for the unified enclave foundation.
+ *
+ * `delegationHandoff` carries the already-validated mcpg delegation-control
+ * handoff when one was present in the compiler-supplied environment. It is
+ * required for, and only for, an entry that declares `enclaves[].dynamic`.
+ */
 export function validateEnclavesConfig(
   config: WrapperConfig,
+  delegationHandoff?: EnclaveDynamicDelegationHandoffResolution,
 ): string[] {
   const enclaves = config.enclaves;
   if (!enclaves?.enabled) return [];
@@ -198,7 +203,11 @@ export function validateEnclavesConfig(
       errors.push('enclaves[].agent requires either a non-empty "repos" list or a "dynamic" policy');
     } else if (agent.dynamic !== undefined) {
       validateEnclaveDynamicPolicy(agent.dynamic, errors);
-      errors.push(DYNAMIC_ENCLAVE_EXECUTION_UNSUPPORTED_REASON);
+      if (!delegationHandoff) {
+        errors.push(DYNAMIC_ENCLAVE_EXECUTION_UNSUPPORTED_REASON);
+      } else if (!delegationHandoff.handoff) {
+        errors.push(...delegationHandoff.errors);
+      }
     }
     if (!config.enableApiProxy) {
       errors.push('enclaves agent executor requires the AWF API proxy');

@@ -107,6 +107,25 @@ describe('DynamicRepositoryRegistry', () => {
     expect(outcome.admitted).toBe(true);
   });
 
+  it('admits without a SHA when no confined resolver is available, for a live read', async () => {
+    const outcome = await registry({ resolveDefaultBranchSha: () => undefined }).admit({
+      runId: 'run-1', entryId: 'agent', invocationId: 'inv-1', selector: 'octo-org/service',
+    });
+    expect(outcome).toEqual({
+      admitted: true,
+      repo: 'octo-org/service',
+      usageHandle: expect.any(String),
+    });
+    expect(outcome).not.toHaveProperty('defaultBranchSha');
+  });
+
+  it('denies when a resolver returns an empty SHA rather than admitting a live read', async () => {
+    const outcome = await registry({ resolveDefaultBranchSha: () => '' }).admit({
+      runId: 'run-1', entryId: 'agent', invocationId: 'inv-1', selector: 'octo-org/service',
+    });
+    expect(outcome).toEqual({ admitted: false, reason: CANONICAL_DENIAL_REASON });
+  });
+
   it('returns the same canonical denial for malformed, out-of-policy, and expired selectors', async () => {
     const live = registry();
     const malformed = await live.admit({

@@ -23,6 +23,7 @@ const {
   createAgentRunner,
 } = require('./agent-executor');
 const { AGENT_TOOL_NAME, TOOL_NAME, dispatchJsonRpc, parseJsonRpcBody } = require('./mcp-protocol');
+const { createDynamicDelegationClient } = require('./delegation-channel');
 
 const MAX_HTTP_BODY_BYTES = 420 * 1024;
 const RESPONSE_HEADERS = {
@@ -155,7 +156,14 @@ async function main() {
   fs.rmSync(serverConfig.readyPath, { force: true });
   const audit = createProtectedAuditLog(serverConfig.auditDir, 'enclave.jsonl');
   const telemetry = createRuntimeTelemetry(serverConfig.auditDir);
-  const { runId, seeds } = loadSeedMap(serverConfig.seedMapPath);
+  // A dynamic-only run stages no seed catalog at all: no clone, no seed map,
+  // no /awf/seed mount, and no job token anywhere in the topology.
+  const { runId, seeds } = serverConfig.seedMapEnabled
+    ? loadSeedMap(serverConfig.seedMapPath)
+    : { runId: serverConfig.runId, seeds: new Map() };
+  if (!runId) {
+    throw new Error('The enclave broker could not resolve this run identity');
+  }
 
   const scriptEnabled = isScriptExecutorEnabled();
   const agentEnabled = isAgentExecutorEnabled();
@@ -220,6 +228,13 @@ async function main() {
       exitCategories: ENCLAVE_EXIT_CATEGORIES,
       executorKind: 'agent',
       uniformTiming: true,
+      // Dynamic entries route every selector through AWF's canonical
+      // admission before any repository content is exposed. `enclave_run_script`
+      // is never registered for a dynamic entry, so it is neither advertised
+      // nor dispatchable.
+      ...(config.dynamicEnabled
+        ? { admission: createDynamicDelegationClient(config) }
+        : {}),
     });
     executors.push('agent');
   }

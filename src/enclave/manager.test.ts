@@ -13,7 +13,7 @@ import {
 } from './manager';
 import { releaseSeedPermissions, type GitRunner } from './staging';
 import { resolveEnclavePaths } from './paths';
-import { DYNAMIC_ENCLAVE_EXECUTION_UNSUPPORTED_REASON } from './preflight';
+
 import { typedDynamicEnclavePolicyFixture } from './dynamic-policy.test-utils';
 import * as runtimePreflight from './runtime-preflight';
 
@@ -325,7 +325,7 @@ describe('prepareEnclaves fail-closed preflight', () => {
       }),
       assertPrimaryAvailable: jest.fn(),
       assertAgentRuntimeAvailable: jest.fn(),
-    })).rejects.toThrow(DYNAMIC_ENCLAVE_EXECUTION_UNSUPPORTED_REASON);
+    })).rejects.toThrow(/AWF_ENCLAVE_GITHUB_DELEGATION_CONTROL_ENDPOINT/);
     // Refused before any staging: nothing is written and no runtime is probed.
     expect(fs.existsSync(resolveEnclavePaths(workDir).seedMapPath)).toBe(false);
   });
@@ -342,6 +342,62 @@ describe('prepareEnclaves fail-closed preflight', () => {
     })).rejects.toThrow(/Enclave configuration is invalid/);
     expect(env.AWF_ENCLAVE_GITHUB_DELEGATION_CONTROL_CAPABILITY).toBeUndefined();
     expect(env.AWF_ENCLAVE_GITHUB_DELEGATION_CONTROL_ENDPOINT).toBeUndefined();
+  });
+
+  const DELEGATION_ENDPOINT =
+    'http://127.0.0.1:8090/internal/awf-enclave-mcp-control/github-repository-delegation-v1';
+
+  it('stages a dynamic-only run with no token, clone, seed catalog, or seed mount', async () => {
+    const env = enclaveEnv({
+      GH_TOKEN: undefined,
+      GITHUB_TOKEN: undefined,
+      AWF_ENCLAVE_GITHUB_DELEGATION_CONTROL_CAPABILITY: 'e'.repeat(64),
+      AWF_ENCLAVE_GITHUB_DELEGATION_CONTROL_ENDPOINT: DELEGATION_ENDPOINT,
+    });
+    const clone = jest.fn(gitRunner);
+    await prepareEnclaves(dynamicOnlyConfig(workDir), {
+      env,
+      gitRunner: clone,
+      assertPrimaryAvailable: jest.fn().mockResolvedValue(undefined),
+      assertAgentRuntimeAvailable: jest.fn().mockResolvedValue(undefined),
+    });
+    const paths = resolveEnclavePaths(workDir);
+    expect(clone).not.toHaveBeenCalled();
+    expect(fs.existsSync(paths.seedMapPath)).toBe(false);
+    expect(fs.readdirSync(paths.seedsDir)).toEqual([]);
+    expect(fs.readFileSync(paths.runIdPath, 'utf8').trim()).toMatch(/^[0-9a-f]{32}$/);
+    expect(env.AWF_ENCLAVE_GITHUB_DELEGATION_CONTROL_CAPABILITY).toBeUndefined();
+    expect(env.AWF_ENCLAVE_GITHUB_DELEGATION_CONTROL_ENDPOINT).toBeUndefined();
+  });
+
+  it('takes private custody of the delegation handoff with exclusive 0600 files', async () => {
+    await prepareEnclaves(dynamicOnlyConfig(workDir), {
+      env: enclaveEnv({
+        GH_TOKEN: undefined,
+        AWF_ENCLAVE_GITHUB_DELEGATION_CONTROL_CAPABILITY: 'e'.repeat(64),
+        AWF_ENCLAVE_GITHUB_DELEGATION_CONTROL_ENDPOINT: DELEGATION_ENDPOINT,
+      }),
+      assertPrimaryAvailable: jest.fn().mockResolvedValue(undefined),
+      assertAgentRuntimeAvailable: jest.fn().mockResolvedValue(undefined),
+    });
+    const paths = resolveEnclavePaths(workDir);
+    expect(fs.readFileSync(paths.delegationCapabilityPath, 'utf8').trim()).toBe('e'.repeat(64));
+    expect(fs.readFileSync(paths.delegationEndpointPath, 'utf8').trim()).toBe(DELEGATION_ENDPOINT);
+    for (const target of [paths.delegationCapabilityPath, paths.delegationEndpointPath]) {
+      expect(fs.statSync(target).mode & 0o777).toBe(0o600);
+    }
+    expect(fs.statSync(paths.delegationChannelDir).mode & 0o777).toBe(0o700);
+  });
+
+  it('still requires a staging credential when a static catalog is declared', async () => {
+    await expect(prepareEnclaves(agentConfig(workDir, [{
+      agent: { model: 'gpt-test' },
+      repos: [repository],
+    }]), {
+      env: enclaveEnv({ GH_TOKEN: undefined }),
+      assertPrimaryAvailable: jest.fn(),
+      assertAgentRuntimeAvailable: jest.fn(),
+    })).rejects.toThrow(/staging credential in GH_TOKEN or GITHUB_TOKEN/);
   });
 
   it('strips the delegation-control capability even on a static-only run', async () => {

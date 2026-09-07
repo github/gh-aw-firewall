@@ -31,6 +31,10 @@ import { adaptExternalRuntimeBackend } from '../external-runtime-backend';
 import type { ExternalAgentRuntimeBackend } from '../external-runtime-backend';
 import { resolveExternalRuntimeBackend } from '../external-runtime-backend-resolver';
 import { prepareEnclaves, teardownEnclaves } from '../enclave/manager';
+import {
+  startEnclaveDynamicDelegation,
+  stopEnclaveDynamicDelegation,
+} from '../enclave/dynamic-delegation';
 import { getStartupDiagnosticPath } from '../logs/startup-diagnostics';
 import {
   assertEnclaveGatewayReady,
@@ -171,6 +175,17 @@ function buildCleanupFn(
     // until the subsequent compose down removes them.
     if (getContainersStarted()) {
       let enclaveAuditComplete = true;
+      try {
+        // Revoke every outstanding dynamic identity before the broker and the
+        // gateway go away, so no delegated bearer can outlive the run.
+        await stopEnclaveDynamicDelegation(config);
+      } catch (error) {
+        enclaveAuditComplete = false;
+        logger.warn(
+          'Dynamic enclave delegation shutdown did not complete; mcpg state may be unreconciled.',
+          error,
+        );
+      }
       try {
         await shutdownEnclaveGateway(config);
       } catch (error) {
@@ -448,6 +463,7 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
         connectEnclaveGithubGateway,
         assertEnclaveGithubGatewayReady,
         prepareEnclaves,
+        startEnclaveDynamicDelegation,
       },
       {
         logger,

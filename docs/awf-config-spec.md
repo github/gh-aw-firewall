@@ -1789,11 +1789,13 @@ Each record follows the `blocked-request-diag/v<version>` schema:
 The optional top-level `enclaves` array defines AWF's sole supported private-repository execution surface. It is structurally identical to the gh-aw compiler's enclave frontmatter: every entry declares exactly one `script` or `agent` executor, its own non-empty `repos` list, and entry-level shared controls including `timeout`, `runtime`, `image`, resource limits, and disclosure limits. AWF stages immutable repository seeds on the host, starts one AWF-owned `enclave-mcp-server`, maintains one shared per-repository ledger for the run, and exposes configured executors only through compiler-launched `gh-aw-mcpg`.
 
 Dynamic repository-policy entries (`dynamic` in place of `repos` on an `agent`
-entry, per `docs/adr/0001-agent-enclaves.md`) are accepted by this
-configuration schema so AWF validates the exact compiler-emitted envelope, but
-they are **not executable in this release**: AWF rejects any run that declares
-`enclaves[].dynamic`. See §14.1a for the envelope and for exactly which
-upstream handoff is missing.
+entry, per `docs/adr/0001-agent-enclaves.md`) select one canonical repository at
+runtime, receive one short-lived `github-repository-read-v1` identity, and read
+that repository through GitHub MCP without cloning or mounting a seed. They run
+only when the gh-aw compiler has started mcpg's
+`github-repository-delegation-v1` controller and handed AWF its private control
+endpoint and capability; otherwise AWF rejects the run. See §14.1a for the
+envelope, the handoff, and the identity lifecycle.
 
 ### 14.1 Executors and shared configuration
 
@@ -1887,19 +1889,100 @@ The `dynamic` object is byte-for-byte the envelope the gh-aw compiler emits. An 
 - `auditLabels` — a non-empty, unique array of at most 32 opaque labels matching `^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$`. Labels are what AWF and mcpg reconcile dynamic state against at shutdown; they are never repository names or credentials.
 - `expiresAt` — an absolute ISO-8601 timestamp, never later than the workflow job lifetime; admission at or after this time is denied.
 
-#### Supported boundary in this release
+#### Runtime prerequisites
 
-AWF **rejects** any configuration that declares `enclaves[].dynamic`, with an error naming the missing handoff. ADR 0001 binds every dynamic invocation to a single-repository mcpg identity created through the private `github-repository-delegation-v1` control channel. The compiler mints and hands AWF the control capability (`AWF_ENCLAVE_GITHUB_DELEGATION_CONTROL_CAPABILITY`), but no released compiler starts that controller or hands AWF a control endpoint, and a dynamic invocation has no immutable seed to fall back to. Rather than start a run in which every enclave call would fail with the canonical denial, AWF refuses the run.
+A dynamic entry runs only when the gh-aw compiler has started mcpg's
+`github-repository-delegation-v1` controller and handed AWF **both** private
+values:
 
-AWF never falls back to a static seed catalog, a job-lifetime identity, or a broader policy when the delegation contract is unavailable. Whenever `AWF_ENCLAVE_GITHUB_DELEGATION_CONTROL_CAPABILITY` is present, AWF takes custody of it during enclave preparation — reading it once and deleting it from the inherited environment — and it is additionally in the primary agent's environment exclusion set, so it is never visible to the primary agent, an enclave, or any child process.
+- `AWF_ENCLAVE_GITHUB_DELEGATION_CONTROL_ENDPOINT` — the loopback-only control
+  endpoint, published by Docker on the runner's own `127.0.0.1`
+  (`http://127.0.0.1:<port>/internal/awf-enclave-mcp-control/github-repository-delegation-v1`).
+  AWF accepts only the literal loopback hosts `127.0.0.1` and `[::1]`; a
+  resolver-dependent name such as `localhost`, a routable or wildcard address,
+  embedded credentials, a query string, a fragment, or any other path is
+  rejected. An omitted or explicit `:80` is accepted as port 80 (the WHATWG URL
+  parser normalizes both to the same value).
+- `AWF_ENCLAVE_GITHUB_DELEGATION_CONTROL_CAPABILITY` — the AWF-only 256-bit
+  hex control capability.
+
+A missing, partial, or malformed handoff is a hard failure. AWF never falls
+back to a static seed catalog, a job-lifetime identity, or a broader policy.
+
+Because the control listener is published on host loopback, **only the AWF host
+process** can reach it. AWF takes custody of both values before any inherited
+environment is assembled, stages them into the `0700` enclave private root with
+exclusive `0600` files, and never mounts either one into the enclave MCP broker,
+the single-use executor, the model sidecar, the general MCP route, or the
+delegated data plane. Both variables are also in the primary agent's environment
+exclusion set.
+
+The broker routes each `enclave_run_agent` through AWF's host-side admission
+authority over a `0700` request/response directory that is bind-mounted only
+into the broker. That channel carries the caller's selector, the exact finite
+output-schema hash, and the invocation's settlement; it never carries the
+control endpoint, the control capability, the identity handle, the compiler
+envelope, mcpg's state path, or its policy generation.
+
+#### Dynamic-only runs stage nothing
+
+A dynamic-only entry needs no `GH_TOKEN`/`GITHUB_TOKEN`, clones no repository,
+writes no seed catalog (not even an empty one), and mounts neither `/awf/seed`
+nor a seed map. A run that also declares a separate static entry keeps the full
+static staging path unchanged.
 
 #### Admission semantics (enforced by the AWF registry)
 
-The admission half of the contract is implemented and tested in `src/enclave/dynamic-registry.ts`, so the control-plane client is the only remaining work once the endpoint handoff lands upstream:
+Admission runs in `src/enclave/dynamic-registry.ts` before any repository
+content is exposed and before any control call is made:
 
 - Admission is idempotent by `(run, enclave entry, invocation id, canonical repository)`. A retried request with the same key returns the previously recorded outcome, and joins an in-flight admission rather than reserving capacity a second time. A different repository under an already-bound invocation id is rejected rather than rebinding.
 - `maxRepositories` and all three quotas are reserved synchronously before any asynchronous lookup, so concurrent admissions can never both observe capacity and both commit. `maxOutputBytes` and `maxExecutionSeconds` are reserved at their per-invocation worst case (`limits.maxOutputBytes`, `limits.timeoutSeconds`) and replaced by the actual reported usage once the invocation settles. Charges committed after admission stay committed even if the invocation later fails.
 - Every outcome — malformed selector, policy denial, resolution failure, or success — is delayed to the same fixed timing bucket (§14.3's bucket list) plus secret-independent jitter, so elapsed wall-clock time cannot distinguish failure causes. Every failure returns one non-disclosing canonical denial.
+
+#### Identity lifecycle
+
+For each admitted invocation AWF calls mcpg's control API, authenticated with
+the capability in `Authorization`, using bounded request/response bodies,
+explicit timeouts, and strict JSON validation:
+
+| Operation | Path |
+| --- | --- |
+| create or confirm | `/internal/awf-enclave-mcp-control/create-or-confirm` |
+| status | `/internal/awf-enclave-mcp-control/status` |
+| reconcile | `/internal/awf-enclave-mcp-control/reconcile` |
+| revoke | `/internal/awf-enclave-mcp-control/revoke` |
+| revoke by labels | `/internal/awf-enclave-mcp-control/revoke-by-labels` |
+
+Operation paths are siblings of the controller name in the exported endpoint,
+not children of it. `requested_ttl` is a Go `time.Duration`, i.e. an integer
+number of **nanoseconds**; timestamps are RFC 3339.
+
+Every create-or-confirm response is verified before it is trusted: non-empty
+handle and executor bearer, an exact repository match against the admitted
+selector, `tool_policy` equal to `github-repository-read-v1`, tools exactly
+`list_issues` and `issue_read`, an admitted SHA that matches when one was
+requested, and an expiry no later than the requested TTL or the invocation
+deadline. Only the executor bearer leaves the AWF host process; the handle stays
+in AWF-private state.
+
+At startup AWF calls `status`, revokes any stale labelled identity, and only
+then calls the transactional `reconcile`. New admissions stay blocked until that
+sequence succeeds. Every terminal path — success, agent failure, schema failure,
+timeout, cancellation, broker error — settles the reserved quota and revokes the
+identity, and `revoke-by-labels` sweeps the run at teardown. An unresolved
+revocation re-blocks admissions and downgrades the invocation to the canonical
+error rather than returning a success-shaped result.
+
+#### Live versus pinned reads
+
+`admitted_default_branch_sha` is optional in both the ADR and mcpg's contract.
+AWF has no already-authorized, repository-confined path to resolve a
+default-branch SHA before the delegated identity exists, and
+`github-repository-read-v1` grants only `list_issues` and `issue_read`
+afterwards. AWF therefore omits the field, never widens a token or tool to
+obtain one, and audits every repository read as a **live** read. A read is
+marked `pinned` only when the control binding actually carries a resolved SHA.
 
 ### 14.2 MCP-only tool surface
 

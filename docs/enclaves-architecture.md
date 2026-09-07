@@ -4,12 +4,12 @@
 
 Layer 5 establishes one `enclaves` subsystem, one AWF-owned MCP server, and mcpg-only access through the compiler handoff contract.
 
-Dynamic repository admission described below is a proposed, version-gated
-extension; it is not supported by the current AWF configuration or runtime.
-Current entries must declare a non-empty static `repos` list and use immutable
-seeds. Operators MUST NOT configure or rely on dynamic-policy fields until an
-AWF release implements them and the required compiler and mcpg version gates
-are available.
+Dynamic repository admission described below is implemented and version-gated.
+It runs only when the gh-aw compiler starts mcpg's
+`github-repository-delegation-v1` controller (mcpg v0.4.17 or newer) and hands
+AWF its loopback-only control endpoint and AWF-only control capability; every
+other combination fails closed before execution. Static entries continue to
+declare a non-empty `repos` list and use immutable seeds.
 
 ## Architecture
 
@@ -30,12 +30,13 @@ Repository admission has two modes, both served by this same MCP backend:
   GitHub-enabled agent enclaves keep their current job-lifetime mcpg identity,
   which covers the union of configured repositories; they do not claim the
   dynamic mode's one-repository GitHub-MCP identity guarantee.
-- **Dynamic GitHub-MCP-backed mode (planned)** — the compiler will provide a closed policy
+- **Dynamic GitHub-MCP-backed mode** — the compiler provides a closed policy
   envelope instead of enumerating repository seeds in workflow frontmatter. Each
   invocation provides only a canonical `owner/repo` selector, bounded
   agent prompt, and finite response schema. AWF admits at most one repository
-  for that invocation through the compiler-owned GitHub MCP path and records the
-  admitted default-branch SHA.
+  for that invocation, mints exactly one short-lived
+  `github-repository-read-v1` identity for it through mcpg's private control
+  channel, and hands the single-use executor only that identity's bearer.
 
 Static and dynamic modes are compatible in one workflow run but mutually
 exclusive within a single enclave entry: an entry declares either static `repos`
@@ -260,7 +261,7 @@ discovery, and any tool whose arguments cannot be mechanically confined to the
 admitted repository fail closed until a new versioned policy defines and tests
 that confinement.
 
-When implemented, the dynamic invocation flow is:
+The dynamic invocation flow is:
 
 1. The primary agent calls `enclave_run_agent` with one canonical repository
    selector, bounded prompt, and finite schema.
@@ -271,14 +272,16 @@ When implemented, the dynamic invocation flow is:
    channel to atomically create or confirm an invocation-scoped delegated
    identity bound to that run, enclave entry, admitted repository,
    `github-repository-read-v1` tool set, schema, and expiry.
-4. AWF records the admitted repository hash and default-branch SHA, stores the
-   delegated identity only in invocation-private state, and mounts it read-only
-   into the single-use executor.
+4. AWF records the admitted repository hash, stores the delegated identity's
+   handle only in AWF-private host state, and mounts *only* the executor bearer
+   read-only into the single-use executor. The admitted default-branch SHA is
+   optional: AWF has no already-authorized, repository-confined path to resolve
+   one before the identity exists, so it omits the field and audits every read
+   as live rather than widening a token or tool to obtain a snapshot.
 5. The executor may access only the admitted repository through the delegated
-   GitHub MCP identity and only with `github-repository-read-v1` tools. If a
-   GitHub MCP tool supports immutable refs, AWF uses the admitted default-branch
-   SHA; otherwise the audit record marks the data as a live read at that
-   admitted SHA.
+   GitHub MCP identity and only with `github-repository-read-v1` tools. A read
+   is marked `pinned` only when the control binding actually carries a resolved
+   SHA; otherwise the audit record marks the data as a live read.
 6. On completion, timeout, failure, or shutdown, AWF requests identity
    revocation, records the revocation state, removes invocation-private state,
    and admits no other repository until cleanup for the serialized lane is
@@ -330,6 +333,45 @@ selectors return the same canonical admission-denied error. That error omits the
 requested owner/repository, policy reason, upstream HTTP status, credential
 state, and timing detail so dynamic mode does not become an existence oracle.
 Trusted operators can inspect only redacted audit diagnostics.
+
+### Dynamic runtime topology
+
+gh-aw publishes mcpg's delegation control listener with
+`docker run -p 127.0.0.1:<port>:<port>`, so it is reachable **only from the
+runner's own loopback interface**. Neither the enclave MCP broker, the
+single-use executor, the model sidecar, nor the primary agent can route to it.
+The control client therefore lives in the AWF host process, and the broker asks
+the host for admission over an AWF-private request/response directory inside the
+`0700` enclave private root that is bind-mounted only into the broker:
+
+```text
+primary agent ──mcpg /mcp/awf-enclave──▶ enclave MCP broker (container)
+                                              │
+                          admission request   │ 0700 bind mount, no network
+                          settlement report   ▼
+                                        AWF host process
+                                              │ Authorization: <control capability>
+                                              ▼
+                    http://127.0.0.1:<port>/internal/awf-enclave-mcp-control/*
+                                              │
+                                              ▼
+                                   mcpg delegation controller
+                                              │ executor bearer
+                                              ▼
+executor (awf-enclave-agent network) ──▶ mcpg /mcp/github ──▶ admitted repository
+```
+
+The channel carries the caller's selector, the exact finite output-schema hash,
+one repository, one executor bearer, and one settlement. It never carries the
+control endpoint, the control capability, the identity handle, the compiler
+envelope, mcpg's state path, or its policy generation.
+
+A dynamic-only entry stages nothing: no `GH_TOKEN`/`GITHUB_TOKEN`, no clone, no
+seed catalog (not even an empty one), and no `/awf/seed` mount. The executor's
+GitHub MCP configuration is invocation-private and bearer-only, confined to
+`list_issues` and `issue_read` for the one admitted repository, and its system
+instructions prohibit cloning, arbitrary URLs, the GitHub CLI, writes, unscoped
+search, organization/global discovery, and sibling-repository access.
 
 ### Dynamic threat model
 

@@ -11,14 +11,11 @@
  * repository)`, and a single non-disclosing canonical denial whose wall-clock
  * cost is normalized to a fixed bucket.
  *
- * It deliberately does **not** perform the mcpg control-channel delegation
- * calls ADR 0001 describes. No released compiler starts mcpg's
- * `github-repository-delegation-v1` controller or hands AWF its control
- * endpoint, so `validateEnclavesConfig` refuses any run that declares
- * `enclaves[].dynamic` (see `DYNAMIC_ENCLAVE_EXECUTION_UNSUPPORTED_REASON` in
- * `./preflight`). This registry is the admission half of that contract, kept
- * complete and tested so the control-plane client is the only remaining work
- * once the endpoint handoff lands upstream.
+ * It is the admission half of the contract only. Minting, confirming, and
+ * revoking the delegated mcpg identity for an admitted repository lives in
+ * `./delegation-control-client`, and `./dynamic-delegation-service` composes
+ * the two: admission first, identity second, so no repository content is ever
+ * exposed before the envelope has admitted the selector.
  */
 
 import * as crypto from 'crypto';
@@ -32,59 +29,21 @@ import type { EnclaveInformationBudgetLedger } from './information-budget';
 /** Single non-disclosing outcome returned for every admission failure. */
 export const CANONICAL_DENIAL_REASON = 'enclave dynamic repository admission denied';
 
-/**
- * AWF-only mcpg delegation-control capability, minted by the compiler during
- * startup for create/confirm/revoke calls on the private mcpg control
- * channel. This value must never be mounted into the primary or enclave
- * agent; {@link takeEnclaveDynamicDelegationCapability} removes it from the
- * given environment once read.
- */
-export const ENCLAVE_GITHUB_DELEGATION_CONTROL_CAPABILITY_ENV =
-  'AWF_ENCLAVE_GITHUB_DELEGATION_CONTROL_CAPABILITY';
-export const ENCLAVE_GITHUB_DELEGATION_CONTROL_ENDPOINT_ENV =
-  'AWF_ENCLAVE_GITHUB_DELEGATION_CONTROL_ENDPOINT';
-
-/** Validates the compiler-to-AWF private control listener handoff. */
-export function isValidEnclaveDynamicDelegationControlEndpoint(
-  value: string | undefined,
-): value is string {
-  if (typeof value !== 'string' || value.length === 0) return false;
-  let endpoint: URL;
-  try {
-    endpoint = new URL(value);
-  } catch {
-    return false;
-  }
-  return endpoint.protocol === 'http:'
-    && ['localhost', '127.0.0.1', '[::1]'].includes(endpoint.hostname)
-    && !endpoint.username
-    && !endpoint.password
-    && !endpoint.search
-    && !endpoint.hash
-    && endpoint.port !== '';
-}
-
-/**
- * Reads and deletes the delegation-control capability from `env` so it can
- * never leak into an inherited environment after this call. Returns
- * `undefined` if absent.
- */
-export function takeEnclaveDynamicDelegationCapability(env: NodeJS.ProcessEnv): string | undefined {
-  const value = env[ENCLAVE_GITHUB_DELEGATION_CONTROL_CAPABILITY_ENV];
-  delete env[ENCLAVE_GITHUB_DELEGATION_CONTROL_CAPABILITY_ENV];
-  return value;
-}
-
-/** Whether a value is a well-formed run-scoped 256-bit lowercase hex capability. */
-export function isValidEnclaveDynamicDelegationCapability(value: string | undefined): value is string {
-  return typeof value === 'string' && /^[0-9a-f]{64}$/.test(value);
-}
-
 export type DynamicAdmissionOutcome =
   | {
     admitted: true;
     repo: string;
-    defaultBranchSha: string;
+    /**
+     * Admitted default-branch SHA, when AWF resolved one through an
+     * already-authorized, repository-confined path *before* content exposure.
+     *
+     * ADR 0001 makes this optional and matches mcpg's optional
+     * `admitted_default_branch_sha`. When it is absent every repository read
+     * for the invocation is audited as a live read rather than a
+     * snapshot-consistent one; AWF never fabricates a SHA and never widens a
+     * token or tool in order to obtain one.
+     */
+    defaultBranchSha?: string;
     /**
      * Opaque handle for {@link DynamicRepositoryRegistry.commitUsage}. Equal
      * to the idempotency key, so a retried admission settles the same charge.
@@ -116,8 +75,16 @@ export interface DynamicQuotaUsage {
   executionSeconds: { debited: number; reserved: number; limit: number };
 }
 
-/** Resolves the admitted repository's default-branch SHA. Injectable for tests. */
-export type DefaultBranchResolver = (repo: string) => Promise<string> | string;
+/**
+ * Resolves the admitted repository's default-branch SHA. Injectable for tests.
+ *
+ * Returning `undefined` means "AWF has no already-authorized, repository-
+ * confined way to resolve it", which is admitted as a live read rather than
+ * denied. Returning an empty string, a non-string, or throwing is a resolution
+ * *failure* and denies the admission.
+ */
+export type DefaultBranchResolver = (repo: string) =>
+  Promise<string | undefined> | string | undefined;
 
 /**
  * Injectable elapsed-time source used only for admission timing normalization,
@@ -479,7 +446,8 @@ export class DynamicRepositoryRegistry {
     if (!reservation) return this.normalizeTiming(startedMs, this.deny());
     try {
       const defaultBranchSha = await this.resolveDefaultBranchSha(request.selector);
-      if (typeof defaultBranchSha !== 'string' || defaultBranchSha.length === 0) {
+      if (defaultBranchSha !== undefined
+          && (typeof defaultBranchSha !== 'string' || defaultBranchSha.length === 0)) {
         this.rollback(reservation);
         return this.normalizeTiming(startedMs, this.deny());
       }
@@ -487,7 +455,7 @@ export class DynamicRepositoryRegistry {
       return this.normalizeTiming(startedMs, {
         admitted: true,
         repo: request.selector,
-        defaultBranchSha,
+        ...(defaultBranchSha === undefined ? {} : { defaultBranchSha }),
         usageHandle: reservation.key,
       });
     } catch {

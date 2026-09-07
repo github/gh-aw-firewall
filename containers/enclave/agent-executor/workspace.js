@@ -30,6 +30,7 @@ function invocationLayout(workDir, invocationId) {
     outPath: path.join(root, 'out'),
     sessionLogPath: path.join(root, 'session.jsonl'),
     githubAgentIdPath: path.join(root, 'github-agent-id'),
+    githubBearerPath: path.join(root, 'github-bearer'),
     agentPath: path.join(root, 'agent'),
   };
 }
@@ -42,7 +43,7 @@ function invocationLayout(workDir, invocationId) {
  * it through its `rw` bind mount.
  */
 function createInvocationWorkspace(params) {
-  const { config, invocationId, task, schema, githubAgentId } = params;
+  const { config, invocationId, task, schema, githubAgentId, executorBearer } = params;
   const layout = invocationLayout(config.workDir, invocationId);
 
   fs.mkdirSync(layout.root, { recursive: true, mode: 0o700 });
@@ -67,6 +68,19 @@ function createInvocationWorkspace(params) {
     fs.writeFileSync(layout.githubAgentIdPath, `${githubAgentId}\n`, { mode: 0o600 });
     fs.chownSync(layout.githubAgentIdPath, config.enclaveUid, config.enclaveGid);
     fs.chmodSync(layout.githubAgentIdPath, 0o400);
+  }
+  if (config.dynamicEnabled) {
+    // The single-use executor receives exactly one short-lived, repository
+    // scoped bearer — never the job token, the delegation-control capability,
+    // the identity handle, the compiler envelope, mcpg's state path, or its
+    // policy generation. The file is invocation-private and destroyed with the
+    // workspace.
+    if (typeof executorBearer !== 'string' || !/^[\x21-\x7e]{16,512}$/.test(executorBearer)) {
+      throw new Error('invalid delegated executor bearer');
+    }
+    fs.writeFileSync(layout.githubBearerPath, `${executorBearer}\n`, { mode: 0o600 });
+    fs.chownSync(layout.githubBearerPath, config.enclaveUid, config.enclaveGid);
+    fs.chmodSync(layout.githubBearerPath, 0o400);
   }
 
   return layout;

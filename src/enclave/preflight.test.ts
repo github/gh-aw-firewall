@@ -8,6 +8,7 @@ import {
   GH_AW_DYNAMIC_ENCLAVE_POLICY_FIXTURE,
   dynamicEnclavePolicyFixture,
 } from './dynamic-policy.test-utils';
+import { resolveEnclaveDynamicDelegationHandoff } from './dynamic-delegation-handoff';
 
 function config(overrides: Partial<WrapperConfig> = {}): WrapperConfig {
   return {
@@ -484,9 +485,27 @@ describe('validateEnclavesConfig dynamic policy', () => {
       .toMatch(/never falls back to a static seed catalog/);
   });
 
-  it('refuses a dynamic entry even when a compiler handoff is supplied', () => {
-    const errors = validateEnclavesConfig(dynamicConfig());
-    expect(errors).toContain(DYNAMIC_ENCLAVE_EXECUTION_UNSUPPORTED_REASON);
+  it('refuses a dynamic entry when the handoff is present but malformed', () => {
+    const errors = validateEnclavesConfig(
+      dynamicConfig(),
+      resolveEnclaveDynamicDelegationHandoff({
+        endpoint: 'http://localhost:8090/internal/awf-enclave-mcp-control/github-repository-delegation-v1',
+        capability: 'a'.repeat(64),
+      }),
+    );
+    expect(errors.join('\n')).toMatch(/must be the loopback-only mcpg control endpoint/);
+    expect(errors).not.toContain(DYNAMIC_ENCLAVE_EXECUTION_UNSUPPORTED_REASON);
+  });
+
+  it('accepts a dynamic entry once the compiler handoff is valid', () => {
+    const errors = validateEnclavesConfig(
+      dynamicConfig(),
+      resolveEnclaveDynamicDelegationHandoff({
+        endpoint: 'http://127.0.0.1:8090/internal/awf-enclave-mcp-control/github-repository-delegation-v1',
+        capability: 'a'.repeat(64),
+      }),
+    );
+    expect(errors).toEqual([]);
   });
 
   it('rejects an unsupported sensitivity', () => {

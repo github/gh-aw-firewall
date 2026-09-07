@@ -34,9 +34,10 @@ import {
   resolveEnclaveGithubGatewayContract,
 } from './github-gateway';
 import {
-  ENCLAVE_GITHUB_DELEGATION_CONTROL_ENDPOINT_ENV,
-  takeEnclaveDynamicDelegationCapability,
-} from './dynamic-registry';
+  resolveEnclaveDynamicDelegationHandoff,
+  stageEnclaveDynamicDelegationHandoff,
+  takeEnclaveDynamicDelegationHandoff,
+} from './dynamic-delegation-handoff';
 
 export const ENCLAVE_RUN_LABEL = 'awf.enclave.run';
 export function isEnclaveScriptEnabled(config: WrapperConfig): boolean {
@@ -49,6 +50,23 @@ export function isEnclaveAgentEnabled(config: WrapperConfig): boolean {
 
 export function isEnclavesEnabled(config: WrapperConfig): boolean {
   return config.enclaves?.enabled === true;
+}
+
+/** Whether this run's agent entry declares a dynamic repository policy. */
+export function isEnclaveDynamicPolicyDeclared(config: WrapperConfig): boolean {
+  return isEnclaveAgentEnabled(config) && config.enclaves?.executors.agent.dynamic !== undefined;
+}
+
+/**
+ * Whether this run stages immutable seeds at all.
+ *
+ * A dynamic-only entry reads live GitHub through a per-invocation delegated
+ * identity, so it needs no staging credential, no clone, no seed catalog, and
+ * no `/awf/seed` mount. Mixed runs (a static entry beside a separate dynamic
+ * entry) still stage the static catalog.
+ */
+export function isEnclaveSeedStagingRequired(config: WrapperConfig): boolean {
+  return isEnclavesEnabled(config) && (config.enclaves?.privateRepos.length ?? 0) > 0;
 }
 
 export function isEnclaveGithubEnabled(config: WrapperConfig): boolean {
@@ -114,7 +132,14 @@ export async function prepareEnclaves(
   if (!isEnclavesEnabled(config)) return;
   const enclaves = config.enclaves!;
   const env = deps.env ?? process.env;
-  const errors = validateEnclavesConfig(config);
+  // Take custody of the compiler's AWF-only delegation handoff before anything
+  // else can inherit this environment, on every run — including static-only
+  // runs, where the values must simply be discarded.
+  const delegationHandoff = resolveEnclaveDynamicDelegationHandoff(
+    takeEnclaveDynamicDelegationHandoff(env),
+  );
+  const dynamicDeclared = isEnclaveDynamicPolicyDeclared(config);
+  const errors = validateEnclavesConfig(config, dynamicDeclared ? delegationHandoff : undefined);
   try {
     const gateway = resolveEnclaveGatewayContract(config, env);
     if (!config.networkIsolation) {
@@ -144,13 +169,10 @@ export async function prepareEnclaves(
     );
   }
   const token = resolveStagingToken(env);
-  if (!token) {
+  const seedStagingRequired = isEnclaveSeedStagingRequired(config);
+  if (seedStagingRequired && !token) {
     errors.push('enclaves require a staging credential in GH_TOKEN or GITHUB_TOKEN on the AWF host');
   }
-  // Dynamic delegation is unsupported, but discard a compiler handoff before
-  // any child environment can be assembled.
-  takeEnclaveDynamicDelegationCapability(env);
-  delete env[ENCLAVE_GITHUB_DELEGATION_CONTROL_ENDPOINT_ENV];
   const githubAgentId = env[ENCLAVE_GITHUB_MCP_AGENT_ID_ENV] ?? '';
   if (isEnclaveGithubEnabled(config)) {
     if (!/^[A-Za-z0-9_-]{32,128}$/.test(githubAgentId)) {
@@ -158,6 +180,8 @@ export async function prepareEnclaves(
         `${ENCLAVE_GITHUB_MCP_AGENT_ID_ENV} must contain the compiler-issued enclave gateway identity`,
       );
     }
+  }
+  if (isEnclaveGithubEnabled(config) || dynamicDeclared) {
     try {
       resolveEnclaveGithubGatewayContract(config, env);
     } catch (error) {
@@ -169,7 +193,7 @@ export async function prepareEnclaves(
   if (errors.length > 0) {
     throw new Error(`Enclave configuration is invalid:\n  - ${errors.join('\n  - ')}`);
   }
-  if (!token) {
+  if (seedStagingRequired && !token) {
     throw new Error('Enclave staging credential disappeared during preflight');
   }
 
@@ -198,33 +222,58 @@ export async function prepareEnclaves(
   prepareDirectories(paths);
 
   const runId = generateEnclaveRunId();
-  const staging = await stageEnclaveSeeds({
-    repos: enclaves.privateRepos,
-    paths,
-    runId,
-    token,
-    gitRunner: deps.gitRunner,
-    label: 'Enclaves',
-  });
-  const seedMap: PrivateRepositorySeedMap = {
-    version: PRIVATE_REPOSITORY_SEED_MAP_VERSION,
-    runId: staging.runId,
-    seeds: staging.seeds.map((seed) => ({
-      repo: seed.repoKey,
-      seedId: seed.seedId,
-      sensitivity: seed.sensitivity,
-    })),
-  };
-  writeExclusive(paths.seedMapPath, serializePrivateRepositorySeedMap(seedMap), 0o600);
+  writeExclusive(paths.runIdPath, `${runId}\n`, 0o600);
+  if (seedStagingRequired) {
+    const staging = await stageEnclaveSeeds({
+      repos: enclaves.privateRepos,
+      paths,
+      runId,
+      token: token!,
+      gitRunner: deps.gitRunner,
+      label: 'Enclaves',
+    });
+    const seedMap: PrivateRepositorySeedMap = {
+      version: PRIVATE_REPOSITORY_SEED_MAP_VERSION,
+      runId: staging.runId,
+      seeds: staging.seeds.map((seed) => ({
+        repo: seed.repoKey,
+        seedId: seed.seedId,
+        sensitivity: seed.sensitivity,
+      })),
+    };
+    writeExclusive(paths.seedMapPath, serializePrivateRepositorySeedMap(seedMap), 0o600);
+    logger.info(`Enclaves: staged ${staging.seeds.length} immutable seed(s); staging credential discarded.`);
+  } else {
+    // Dynamic-only: no clone, no seed catalog, not even an empty one. The
+    // broker mounts neither /awf/seed nor a seed map, and never sees a job
+    // token.
+    logger.info('Enclaves: dynamic-only entry; no repository seed is cloned, staged, or mounted.');
+  }
   writeExclusive(paths.capabilityPath, `${env[ENCLAVE_MCP_CAPABILITY_ENV]}\n`, 0o600);
   if (isEnclaveGithubEnabled(config)) {
     writeExclusive(paths.githubAgentIdPath, `${githubAgentId}\n`, 0o600);
     if (env === process.env) delete process.env[ENCLAVE_GITHUB_MCP_AGENT_ID_ENV];
   }
-  logger.info(`Enclaves: staged ${staging.seeds.length} immutable seed(s); staging credential discarded.`);
+  if (dynamicDeclared && delegationHandoff.handoff) {
+    // AWF-private custody: exclusive 0600 files inside the 0700 private root,
+    // never bind-mounted into the broker, the executor, the model sidecar, the
+    // general MCP route, or the delegated data plane.
+    stageEnclaveDynamicDelegationHandoff(paths, delegationHandoff.handoff);
+    ensureDirectory(paths.delegationChannelDir, 0o700);
+    logger.info(
+      'Enclaves: took private custody of the mcpg delegation-control handoff for dynamic '
+      + 'repository admission.',
+    );
+  }
 }
 
 function readRunId(paths: EnclavePaths): string | undefined {
+  try {
+    const raw = fs.readFileSync(paths.runIdPath, 'ascii').trim();
+    if (/^[0-9a-f]{16,64}$/.test(raw)) return raw;
+  } catch {
+    // Fall through to the seed map, which older runs wrote instead.
+  }
   try {
     const parsed = JSON.parse(fs.readFileSync(paths.seedMapPath, 'utf8')) as PrivateRepositorySeedMap;
     return typeof parsed.runId === 'string' && parsed.runId.length > 0 ? parsed.runId : undefined;

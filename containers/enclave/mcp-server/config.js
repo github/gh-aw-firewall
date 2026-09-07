@@ -7,7 +7,7 @@ const {
   MAX_RESULT_BYTES,
   MAX_SCRIPT_BYTES,
 } = require('../../bounded-execution/finite-disclosure');
-const { ENCLAVE_SENSITIVITY_RUN_BITS } = require('../../bounded-execution/sensitivity-policy');
+const { ENCLAVE_SENSITIVITIES, ENCLAVE_SENSITIVITY_RUN_BITS } = require('../../bounded-execution/sensitivity-policy');
 const { parsePrivateRepositorySeedMap } = require('../../bounded-execution/repository-staging');
 const {
   ENCLAVE_INVOCATION_LABEL,
@@ -44,6 +44,11 @@ const AGENT_SUPPORTED_ENGINES = new Set(['copilot']);
 const AGENT_SUPPORTED_PROFILES = new Set(['openai', 'anthropic']);
 const AGENT_CONTAINER_PREFIX = 'awf-enclave-agent';
 const GITHUB_AGENT_ID_FILE = '/run/awf-enclave-mcp/github-agent-id';
+/** Broker-side mount of AWF's private dynamic-admission channel. */
+const DELEGATION_CHANNEL_DIR = '/run/awf-enclave-delegation';
+/** Invocation-private path the executor reads its delegated bearer from. */
+const ENCLAVE_GITHUB_BEARER_PATH = '/run/awf-enclave-github/bearer';
+const DYNAMIC_SENSITIVITIES = new Set(ENCLAVE_SENSITIVITIES);
 
 function requireEnv(name) {
   const value = process.env[name];
@@ -142,6 +147,27 @@ function isAgentExecutorEnabled() {
 }
 
 /**
+ * True when the agent entry admits repositories dynamically (ADR 0001).
+ *
+ * A dynamic entry has no static seed catalog: it never mounts `/awf/seed`,
+ * never reads a seed map, and never holds a job token.
+ */
+function isDynamicAdmissionEnabled() {
+  return process.env.AWF_ENCLAVE_AGENT_DYNAMIC_ENABLED === 'true';
+}
+
+/**
+ * True when AWF staged an immutable seed catalog for this run.
+ *
+ * Absent, the value defaults to `true` so a pinned older AWF release — which
+ * never sets it — keeps its existing static behaviour. A dynamic-only run sets
+ * it explicitly to `false`.
+ */
+function isSeedMapEnabled() {
+  return process.env.AWF_ENCLAVE_SEED_MAP_ENABLED !== 'false';
+}
+
+/**
  * Loads the shared, executor-independent server settings.
  *
  * Used on every start, including agent-only runs where no script-executor
@@ -158,6 +184,8 @@ function loadServerConfig(files = fs) {
   }
   return {
     seedMapPath: SEED_MAP_PATH,
+    seedMapEnabled: isSeedMapEnabled(),
+    runId: resolveRunId(),
     listenHost: process.env.AWF_ENCLAVE_LISTEN_HOST || '0.0.0.0',
     listenPort: MCP_PORT,
     controlDir: CONTROL_DIR,
@@ -166,6 +194,26 @@ function loadServerConfig(files = fs) {
     primaryBackend,
     capability,
   };
+}
+
+/**
+ * Resolves the AWF-generated run id.
+ *
+ * Static runs can also recover it from the seed map, but a dynamic-only run
+ * stages no seed catalog at all, so AWF passes it explicitly.
+ */
+function resolveRunId() {
+  const runId = process.env.AWF_ENCLAVE_RUN_ID;
+  if (runId !== undefined && runId !== '') {
+    if (!/^[0-9a-f]{16,64}$/.test(runId)) {
+      throw new Error('AWF_ENCLAVE_RUN_ID is not an AWF-generated run identifier');
+    }
+    return runId;
+  }
+  if (!isSeedMapEnabled()) {
+    throw new Error('AWF_ENCLAVE_RUN_ID is required when no seed catalog is staged');
+  }
+  return undefined;
 }
 
 /**
@@ -199,6 +247,27 @@ function loadAgentConfig(server, files = fs) {
   }
   const cpuLimit = process.env.AWF_ENCLAVE_AGENT_CPU || '1';
   const githubEnabled = process.env.AWF_ENCLAVE_AGENT_GITHUB_ENABLED === 'true';
+  const dynamicEnabled = isDynamicAdmissionEnabled();
+  if (githubEnabled && dynamicEnabled) {
+    throw new Error('An enclave entry declares a static GitHub profile and a dynamic policy');
+  }
+  let dynamicChannelDir;
+  let dynamicSensitivity;
+  let dynamicGithubMcpUrl;
+  if (dynamicEnabled) {
+    dynamicChannelDir = process.env.AWF_ENCLAVE_AGENT_DYNAMIC_CHANNEL_DIR;
+    if (dynamicChannelDir !== DELEGATION_CHANNEL_DIR) {
+      throw new Error('AWF_ENCLAVE_AGENT_DYNAMIC_CHANNEL_DIR is not the fixed private path');
+    }
+    dynamicSensitivity = process.env.AWF_ENCLAVE_AGENT_DYNAMIC_SENSITIVITY;
+    if (!DYNAMIC_SENSITIVITIES.has(dynamicSensitivity)) {
+      throw new Error('AWF_ENCLAVE_AGENT_DYNAMIC_SENSITIVITY is not a supported sensitivity');
+    }
+    dynamicGithubMcpUrl = process.env.AWF_ENCLAVE_AGENT_DYNAMIC_GITHUB_MCP_URL;
+    if (!/^http:\/\/[0-9.]+:[0-9]+\/mcp\/github$/.test(dynamicGithubMcpUrl || '')) {
+      throw new Error('AWF_ENCLAVE_AGENT_DYNAMIC_GITHUB_MCP_URL must be a fixed IPv4 MCP endpoint');
+    }
+  }
   const githubProfile = process.env.AWF_ENCLAVE_AGENT_GITHUB_PROFILE;
   const githubMcpUrl = process.env.AWF_ENCLAVE_AGENT_GITHUB_MCP_URL;
   const githubAgentIdPath = process.env.AWF_ENCLAVE_AGENT_GITHUB_AGENT_ID_PATH;
@@ -231,7 +300,7 @@ function loadAgentConfig(server, files = fs) {
     workDir: WORK_DIR,
     auditDir: server.auditDir,
     hostWorkDir: requireEnv('AWF_ENCLAVE_AGENT_HOST_WORK_DIR'),
-    hostSeedsDir: requireEnv('AWF_ENCLAVE_AGENT_HOST_SEEDS_DIR'),
+    hostSeedsDir: dynamicEnabled ? undefined : requireEnv('AWF_ENCLAVE_AGENT_HOST_SEEDS_DIR'),
     enclaveSeccompPath: AGENT_SECCOMP_PATH,
     enclaveMountDir: AGENT_MOUNT_DIR,
     enclaveSeedPath: AGENT_SEED_PATH,
@@ -265,6 +334,11 @@ function loadAgentConfig(server, files = fs) {
     githubAgentId,
     githubGatewayContainer: githubEnabled ? githubGatewayContainer : undefined,
     enclaveGithubAgentIdPath: '/run/awf-enclave-github/agent-id',
+    dynamicEnabled,
+    dynamicChannelDir,
+    dynamicSensitivity,
+    dynamicGithubMcpUrl,
+    enclaveGithubBearerPath: ENCLAVE_GITHUB_BEARER_PATH,
     runLabelKey: ENCLAVE_RUN_LABEL,
     invocationLabelKey: ENCLAVE_INVOCATION_LABEL,
     containerPrefix: AGENT_CONTAINER_PREFIX,
@@ -287,6 +361,8 @@ module.exports = {
   AUDIT_DIR,
   CAPABILITY_PATH,
   CONTROL_DIR,
+  DELEGATION_CHANNEL_DIR,
+  ENCLAVE_GITHUB_BEARER_PATH,
   READY_PATH,
   SEED_MAP_PATH,
   SEEDS_DIR,
@@ -294,7 +370,9 @@ module.exports = {
   WORK_DIR,
   GITHUB_AGENT_ID_FILE,
   isAgentExecutorEnabled,
+  isDynamicAdmissionEnabled,
   isScriptExecutorEnabled,
+  isSeedMapEnabled,
   loadAgentConfig,
   loadConfig,
   loadSeedMap,

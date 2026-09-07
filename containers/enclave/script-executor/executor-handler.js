@@ -72,6 +72,13 @@ function createExecutorHandler(params) {
   // never reach the caller; every failure is still the canonical error.
   const exitCategories = params.exitCategories || {};
 
+  // Optional dynamic repository admission client (ADR 0001). When present the
+  // executor has no static seed catalog: each invocation's selector is routed
+  // through AWF's canonical admission first, and only an admitted repository
+  // yields a short-lived delegated bearer. Absent, the executor uses the
+  // immutable static seed map exactly as before.
+  const admission = params.admission;
+
   // Optional shared serialization lane. When several executors are exposed by
   // one server they share a lane so at most one sandbox — script or agent —
   // holds private repository content at a time.
@@ -79,6 +86,8 @@ function createExecutorHandler(params) {
 
   let invocationsUsed = 0;
   let accepting = true;
+  /** Invocations already settled, so a retry can never double-settle. */
+  const settledInvocations = new Set();
 
   function emitInvocationTelemetry(category) {
     telemetry.emit({
@@ -88,6 +97,36 @@ function createExecutorHandler(params) {
       capabilityState: 'supported',
       category,
     });
+  }
+
+  /** Maps this invocation's internal result to one terminal settlement outcome. */
+  function resolveTerminalOutcome(canonicalResult, failureReason) {
+    if (canonicalResult !== undefined) return 'success';
+    const category = failureReason ? failureReason[0] : 'broker-error';
+    if (category === 'timeout') return 'timeout';
+    if (category === 'nonconformant-output' || category === 'unreadable-output') {
+      return 'schema-failure';
+    }
+    if (typeof category === 'string' && category.startsWith('enclave-')) return 'agent-failure';
+    if (category === 'non-zero-exit') return 'agent-failure';
+    return 'broker-error';
+  }
+
+  /**
+   * Settles one dynamic invocation exactly once. Reports whether AWF confirmed
+   * revocation; an unconfirmed revocation is never treated as success.
+   */
+  async function settleDynamic(invocationId, outcome, outputBytes, executionSeconds) {
+    if (!admission || settledInvocations.has(invocationId)) {
+      return { settled: true, revoked: true };
+    }
+    settledInvocations.add(invocationId);
+    try {
+      return await admission.settle({ invocationId, outcome, outputBytes, executionSeconds });
+    } catch (error) {
+      audit.failure(invocationId, 'dynamic-settlement-failed', error.message);
+      return { settled: false, revoked: false };
+    }
   }
 
   /**
@@ -129,12 +168,38 @@ function createExecutorHandler(params) {
     const payload = validation.request[payloadKey];
     const repoKey = privateRepo.toLowerCase();
 
-    const seed = seedMap.get(repoKey);
-    if (!seed) {
-      await rejectBeforeExecution('repo-not-allowed', privateRepo);
-      return;
+    let seed;
+    let admitted;
+    if (admission) {
+      // Canonical admission runs *before* any repository content is exposed:
+      // no workspace, no container, and no delegated bearer exists until AWF
+      // has matched the selector against the compiler envelope, reserved
+      // every run-wide quota, and minted exactly one identity.
+      admitted = await admission.admit({ invocationId, selector: privateRepo, schema });
+      if (!admitted || !admitted.admitted) {
+        await rejectBeforeExecution('dynamic-admission-denied', undefined);
+        return;
+      }
+      // Register into the *same* live per-repository ledger the static
+      // executors debit. Registration is idempotent, so re-admitting a
+      // repository can never refill a budget it has already spent.
+      try {
+        ledger.registerRepository(admitted.repo, admitted.sensitivity);
+      } catch (error) {
+        await settleDynamic(invocationId, 'broker-error', 0, 0);
+        await rejectBeforeExecution('dynamic-sensitivity-invalid', error.message);
+        return;
+      }
+      seed = { seedId: undefined, sensitivity: admitted.sensitivity };
+    } else {
+      seed = seedMap.get(repoKey);
+      if (!seed) {
+        await rejectBeforeExecution('repo-not-allowed', privateRepo);
+        return;
+      }
     }
     if (schemaContainsFreeformString(schema) && seed.sensitivity !== 'trusted') {
+      if (admitted) await settleDynamic(invocationId, 'schema-failure', 0, 0);
       await rejectBeforeExecution(
         'trusted-schema-required',
         `repo=${privateRepo} sensitivity=${seed.sensitivity}`,
@@ -147,7 +212,8 @@ function createExecutorHandler(params) {
     // different schema; there is no separate per-query cap — only whether
     // this charge fits the repository's remaining run balance.
     const charge = seed.sensitivity === 'trusted' ? 0 : informationChargeForSchema(schema);
-    if (!ledger.tryDebit(repoKey, charge, executorKind)) {
+    if (!ledger.tryDebit(admitted ? admitted.repo : repoKey, charge, executorKind)) {
+      if (admitted) await settleDynamic(invocationId, 'broker-error', 0, 0);
       await rejectBeforeExecution('bit-budget-exhausted', `repo=${privateRepo} charge=${charge}`);
       return;
     }
@@ -168,9 +234,12 @@ function createExecutorHandler(params) {
         runId,
         invocationId,
         seedId: seed.seedId,
-        privateRepo: repoKey,
+        privateRepo: admitted ? admitted.repo : repoKey,
         schema,
         [payloadKey]: payload,
+        ...(admitted
+          ? { executorBearer: admitted.executorBearer, readMode: admitted.readMode }
+          : {}),
       });
     } catch (error) {
       failureReason = ['workspace-create-failed', error.message];
@@ -188,6 +257,9 @@ function createExecutorHandler(params) {
             invocationId,
             seedId: seed.seedId,
             timeoutMs: remainingMs,
+            ...(admitted
+              ? { dynamic: { repository: admitted.repo, readMode: admitted.readMode } }
+              : {}),
           });
           if (run.timedOut) {
             failureReason = ['timeout'];
@@ -240,6 +312,23 @@ function createExecutorHandler(params) {
       canonicalResult = undefined;
     }
 
+    // Settle the dynamic reservation and revoke the delegated identity on
+    // *every* terminal path. An unresolved revocation downgrades an otherwise
+    // successful invocation to the canonical error: a bearer that may still be
+    // live has already touched repository content.
+    if (admitted) {
+      const settled = await settleDynamic(
+        invocationId,
+        resolveTerminalOutcome(canonicalResult, failureReason),
+        canonicalResult === undefined ? 0 : Buffer.byteLength(canonicalResult, 'utf8'),
+        Math.ceil((clock.nowMs() - startMs) / 1000),
+      );
+      if (!settled.revoked) {
+        failureReason = ['dynamic-revocation-unresolved'];
+        canonicalResult = undefined;
+      }
+    }
+
     const elapsedMs = clock.nowMs() - startMs;
     const { bucketMs, overflowed } = await waitForBucket(
       startMs,
@@ -259,10 +348,11 @@ function createExecutorHandler(params) {
     } else if (canonicalResult !== undefined) {
       audit.invocation({
         invocationId,
-        repo: privateRepo,
+        repo: admitted ? admitted.repo : privateRepo,
         sensitivity: seed.sensitivity,
         bits: charge,
         bucketMs,
+        ...(admitted ? { admission: 'dynamic', readMode: admitted.readMode } : {}),
       });
       emitInvocationTelemetry('success');
       safeRespond(canonicalSuccessJson(canonicalResult));

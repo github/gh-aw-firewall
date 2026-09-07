@@ -62,7 +62,10 @@ function freezeArray(values) {
 function deriveEnclaveContainerSpec({ config, runId, invocationId, seedId, runtimeName }) {
   assertTrustedId('runId', runId);
   assertTrustedId('invocationId', invocationId);
-  assertTrustedSeedId(seedId);
+  // A dynamic entry stages no immutable seed at all: the enclave reads live
+  // GitHub through one repository-scoped delegated identity, so there is no
+  // seed id, no seed directory, and no `/awf/seed` mount.
+  if (!config.dynamicEnabled) assertTrustedSeedId(seedId);
   if (runtimeName !== undefined && runtimeName !== 'runsc') {
     throw new Error(`Unsupported OCI runtime in enclave runner: ${runtimeName}`);
   }
@@ -73,7 +76,6 @@ function deriveEnclaveContainerSpec({ config, runId, invocationId, seedId, runti
   const containerPrefix = config.containerPrefix || 'awf-enclave-agent';
   const containerName = `${containerPrefix}-${runId.slice(0, 12)}-${invocationId}`;
   const hostInvocationDir = `${config.hostWorkDir}/${invocationId}`;
-  const hostSeedDir = `${config.hostSeedsDir}/${seedId}`;
   const runLabel = `${runLabelKey}=${runId}`;
   const invocationLabel = `${invocationLabelKey}=${invocationId}`;
   const launchArgs = [
@@ -97,7 +99,7 @@ function deriveEnclaveContainerSpec({ config, runId, invocationId, seedId, runti
     '--shm-size', config.tmpfsLimit,
     '--tmpfs', `/tmp:rw,noexec,nosuid,nodev,size=${config.tmpfsLimit}`,
     '--hostname', config.enclaveHostname || 'enclave-agent',
-    '--workdir', config.enclaveSeedPath,
+    '--workdir', config.dynamicEnabled ? config.enclaveMountDir : config.enclaveSeedPath,
     '--env', `AWF_ENCLAVE_AGENT_ENGINE=${config.engine}`,
     '--env', `HOME=${config.enclaveMountDir}/home`,
     '--env', `COPILOT_HOME=${config.enclaveMountDir}/copilot`,
@@ -114,13 +116,15 @@ function deriveEnclaveContainerSpec({ config, runId, invocationId, seedId, runti
     '--env', `AWF_ENCLAVE_AGENT_MODEL=${config.model}`,
     '--env', `AWF_ENCLAVE_AGENT_MAX_OUTPUT_BYTES=${config.maxOutputBytes}`,
     '--env', `AWF_ENCLAVE_AGENT_DEADLINE_SECONDS=${config.timeoutSeconds}`,
-    '-v', `${hostSeedDir}:${config.enclaveSeedPath}:ro`,
     '-v', `${hostInvocationDir}/task.txt:${config.enclaveTaskPath}:ro`,
     '-v', `${hostInvocationDir}/schema.json:${config.enclaveSchemaPath}:ro`,
     '-v', `${hostInvocationDir}/out:/awf/out:rw`,
     '-v', `${hostInvocationDir}/session.jsonl:/awf/session.jsonl:rw`,
     '-v', `${hostInvocationDir}/agent:${config.enclaveMountDir}:rw`,
   ];
+  if (!config.dynamicEnabled) {
+    launchArgs.push('-v', `${config.hostSeedsDir}/${seedId}:${config.enclaveSeedPath}:ro`);
+  }
   if (config.githubEnabled) {
     launchArgs.push(
       '--env', 'AWF_ENCLAVE_AGENT_GITHUB_ENABLED=true',
@@ -128,6 +132,16 @@ function deriveEnclaveContainerSpec({ config, runId, invocationId, seedId, runti
       '--env', `AWF_ENCLAVE_AGENT_GITHUB_MCP_URL=${config.githubMcpUrl}`,
       '-v',
       `${hostInvocationDir}/github-agent-id:${config.enclaveGithubAgentIdPath}:ro`,
+    );
+  }
+  if (config.dynamicEnabled) {
+    launchArgs.push(
+      '--env', 'AWF_ENCLAVE_AGENT_DYNAMIC_ENABLED=true',
+      '--env', `AWF_ENCLAVE_AGENT_GITHUB_MCP_URL=${config.dynamicGithubMcpUrl}`,
+      '--env', `AWF_ENCLAVE_AGENT_DYNAMIC_REPO=${config.dynamicRepository}`,
+      '--env', `AWF_ENCLAVE_AGENT_DYNAMIC_READ_MODE=${config.dynamicReadMode}`,
+      '-v',
+      `${hostInvocationDir}/github-bearer:${config.enclaveGithubBearerPath}:ro`,
     );
   }
 
