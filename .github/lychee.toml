@@ -9,6 +9,10 @@ exclude = [
   "^https?://example\\.com",
   "^https?://your-",
   "^https?://grafana\\.internal",
+  # Site-root links target the generated GitHub Pages deployment, not repository files
+  "^file:///gh-aw-firewall/",
+  # Example site routes in the technical-writer agent instructions
+  "^file:///(getting-started|guides|reference)/",
   # Template variables in workflow .md files and release templates
   "%7B",
   "\\{\\{",
@@ -47,5 +51,5 @@ max_concurrency = 10
 # Don't check mail addresses
 include_mail = false
 
-# Resolve site-root links against the deployed GitHub Pages site
-base_url = "https://github.github.io"
+# Resolve root-relative URLs before excluding deployed GitHub Pages routes
+root_dir = "/"
