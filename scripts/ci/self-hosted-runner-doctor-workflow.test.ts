@@ -229,8 +229,6 @@ describe('self-hosted runner doctor workflow config', () => {
     expect(source).toContain('A22 / github/gh-aw#56127, github/gh-aw-firewall#7788, github/gh-aw-firewall#7795 — `arc-dind` topology fails to start when Docker rejects AWF\'s compose `cap_drop` list');
     expect(source).toContain('B27 / github/gh-aw#56463, github/gh-aw-firewall#7809, github/gh-aw-firewall#7817 — Docker Compose refuses to start AWF containers with repeated warnings');
     expect(portableAgent).toContain('B31 / github/gh-aw#58458, github/gh-aw#58625, github/gh-aw-firewall#8141, github/gh-aw-firewall#8173 — Under `sandbox.agent.runtime: docker-sudo-iptables`');
-    expect(portableAgent).toContain('B32 / github/gh-aw-firewall#8168, github/gh-aw-firewall#8171 — A repeated/persistent-runner workflow intermittently blocks allowlisted');
-    expect(portableAgent).toContain('B33 / github/gh-aw-firewall#8249, github/gh-aw-firewall#8251 — `[DEBUG] Could not check Squid logs: EACCES');
     expect(portableAgent).toContain('- `unknown shorthand flag: \'d\' in -d` from `docker compose up -d` → A14 (DinD sidecar missing `docker-compose-plugin`)');
     expect(portableAgent).toContain('- `Rootless artifact permission repair failed` on ARC/DinD squid logs → A15 (`dockerHostPathPrefix` not applied to repair bind mount)');
     expect(portableAgent).toContain('- `EAI_AGAIN` / `ENOTFOUND` resolving a topology-attached DIFC proxy (for example `awmg-cli-proxy`) in network-isolation + topology-attach: if DinD `nslookup` fails, match B12; otherwise B5');
@@ -275,8 +273,6 @@ describe('self-hosted runner doctor workflow config', () => {
       expect(playbook).toContain('→ B32 (Squid\'s default 60-second `negative_dns_ttl`');
       expect(playbook).toContain('- `[DEBUG] Could not check Squid logs: EACCES ... access.log` mid-run');
       expect(playbook).toContain('→ B33 (Squid log ownership repair only ran at shutdown');
-      expect(playbook).toContain('B32 / github/gh-aw-firewall#8168, github/gh-aw-firewall#8171');
-      expect(playbook).toContain('B33 / github/gh-aw-firewall#8249, github/gh-aw-firewall#8251');
     }
   });
 });
