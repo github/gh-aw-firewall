@@ -30,7 +30,7 @@ describe('smoke docker-sbx workflow output targeting', () => {
     const workflow = fs.readFileSync(lockPath, 'utf8');
 
     expect(workflow).toContain(
-      'DOCKER_SANDBOXES_PROXY=http://host.docker.internal:3128 \\\n            nohup sbx daemon start > /tmp/sbx-daemon.log 2>&1 &',
+      'sbx policy init allow-all\n          DOCKER_SANDBOXES_PROXY=http://host.docker.internal:3128 \\\n            nohup sbx daemon start > /tmp/sbx-daemon.log 2>&1 &',
     );
   });
 
@@ -38,7 +38,7 @@ describe('smoke docker-sbx workflow output targeting', () => {
     const workflow = fs.readFileSync(playwrightLockPath, 'utf8');
 
     expect(workflow).toContain(
-      'DOCKER_SANDBOXES_PROXY=http://host.docker.internal:3128 \\\n            nohup sbx daemon start > /tmp/sbx-daemon.log 2>&1 &',
+      'sbx policy init allow-all\n          DOCKER_SANDBOXES_PROXY=http://host.docker.internal:3128 \\\n            nohup sbx daemon start > /tmp/sbx-daemon.log 2>&1 &',
     );
   });
 });
