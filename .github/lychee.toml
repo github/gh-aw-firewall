@@ -45,4 +45,4 @@ max_retries = 3
 max_concurrency = 10
 
 # Don't check mail addresses
-exclude_mail = true
+include_mail = false
