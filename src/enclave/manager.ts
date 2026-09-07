@@ -35,18 +35,12 @@ import {
 } from './github-gateway';
 import {
   ENCLAVE_GITHUB_DELEGATION_CONTROL_ENDPOINT_ENV,
-  isValidEnclaveDynamicDelegationControlEndpoint,
   takeEnclaveDynamicDelegationCapability,
 } from './dynamic-registry';
 
 export const ENCLAVE_RUN_LABEL = 'awf.enclave.run';
 export function isEnclaveScriptEnabled(config: WrapperConfig): boolean {
   return config.enclaves?.enabled === true && config.enclaves.executors.script.enabled === true;
-}
-
-function isDynamicAgentOnly(config: WrapperConfig): boolean {
-  const agent = config.enclaves?.executors.agent;
-  return Boolean(config.enclaves?.enabled && agent?.enabled && agent.dynamic && config.enclaves.privateRepos.length === 0);
 }
 
 export function isEnclaveAgentEnabled(config: WrapperConfig): boolean {
@@ -120,7 +114,7 @@ export async function prepareEnclaves(
   if (!isEnclavesEnabled(config)) return;
   const enclaves = config.enclaves!;
   const env = deps.env ?? process.env;
-  const errors = validateEnclavesConfig(config, env);
+  const errors = validateEnclavesConfig(config);
   try {
     const gateway = resolveEnclaveGatewayContract(config, env);
     if (!config.networkIsolation) {
@@ -150,24 +144,13 @@ export async function prepareEnclaves(
     );
   }
   const token = resolveStagingToken(env);
-  if (!token && !isDynamicAgentOnly(config)) {
+  if (!token) {
     errors.push('enclaves require a staging credential in GH_TOKEN or GITHUB_TOKEN on the AWF host');
   }
-  // The compiler mints an AWF-only mcpg delegation-control capability whenever
-  // an entry declares a dynamic repository policy. AWF takes custody of it here,
-  // before anything else can inherit this environment, so the value can never
-  // reach the primary agent, an enclave, or a child process — even though
-  // `validateEnclavesConfig` only accepts dynamic execution when both handoff
-  // values are present and valid. Remove both values before any child
-  // environment can be assembled.
-  const delegationCapability = takeEnclaveDynamicDelegationCapability(env);
-  const delegationEndpoint = env[ENCLAVE_GITHUB_DELEGATION_CONTROL_ENDPOINT_ENV];
+  // Dynamic delegation is unsupported, but discard a compiler handoff before
+  // any child environment can be assembled.
+  takeEnclaveDynamicDelegationCapability(env);
   delete env[ENCLAVE_GITHUB_DELEGATION_CONTROL_ENDPOINT_ENV];
-  if (config.enclaves?.executors.agent.dynamic) {
-    if (!delegationCapability || !isValidEnclaveDynamicDelegationControlEndpoint(delegationEndpoint)) {
-      errors.push('dynamic enclave delegation control handoff is missing or invalid');
-    }
-  }
   const githubAgentId = env[ENCLAVE_GITHUB_MCP_AGENT_ID_ENV] ?? '';
   if (isEnclaveGithubEnabled(config)) {
     if (!/^[A-Za-z0-9_-]{32,128}$/.test(githubAgentId)) {
@@ -186,7 +169,7 @@ export async function prepareEnclaves(
   if (errors.length > 0) {
     throw new Error(`Enclave configuration is invalid:\n  - ${errors.join('\n  - ')}`);
   }
-  if (!token && !isDynamicAgentOnly(config)) {
+  if (!token) {
     throw new Error('Enclave staging credential disappeared during preflight');
   }
 
@@ -215,16 +198,14 @@ export async function prepareEnclaves(
   prepareDirectories(paths);
 
   const runId = generateEnclaveRunId();
-  const staging = enclaves.privateRepos.length === 0
-    ? { runId, seeds: [] }
-    : await stageEnclaveSeeds({
-      repos: enclaves.privateRepos,
-      paths,
-      runId,
-      token: token!,
-      gitRunner: deps.gitRunner,
-      label: 'Enclaves',
-    });
+  const staging = await stageEnclaveSeeds({
+    repos: enclaves.privateRepos,
+    paths,
+    runId,
+    token,
+    gitRunner: deps.gitRunner,
+    label: 'Enclaves',
+  });
   const seedMap: PrivateRepositorySeedMap = {
     version: PRIVATE_REPOSITORY_SEED_MAP_VERSION,
     runId: staging.runId,
@@ -236,10 +217,6 @@ export async function prepareEnclaves(
   };
   writeExclusive(paths.seedMapPath, serializePrivateRepositorySeedMap(seedMap), 0o600);
   writeExclusive(paths.capabilityPath, `${env[ENCLAVE_MCP_CAPABILITY_ENV]}\n`, 0o600);
-  if (enclaves.executors.agent.dynamic) {
-    writeExclusive(paths.dynamicDelegationEndpointPath, `${delegationEndpoint}\n`, 0o600);
-    writeExclusive(paths.dynamicDelegationCapabilityPath, `${delegationCapability}\n`, 0o600);
-  }
   if (isEnclaveGithubEnabled(config)) {
     writeExclusive(paths.githubAgentIdPath, `${githubAgentId}\n`, 0o600);
     if (env === process.env) delete process.env[ENCLAVE_GITHUB_MCP_AGENT_ID_ENV];

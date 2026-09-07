@@ -16,12 +16,6 @@ import {
   ENCLAVE_SENSITIVITIES,
 } from '../types/enclave-options';
 import {
-  ENCLAVE_GITHUB_DELEGATION_CONTROL_CAPABILITY_ENV,
-  ENCLAVE_GITHUB_DELEGATION_CONTROL_ENDPOINT_ENV,
-  isValidEnclaveDynamicDelegationControlEndpoint,
-  isValidEnclaveDynamicDelegationCapability,
-} from './dynamic-registry';
-import {
   MAX_RESULT_BYTES,
   MAX_SCRIPT_BYTES,
   MAX_ENCLAVE_TIMEOUT_SECONDS,
@@ -134,7 +128,6 @@ function validateRepositoryList(enclaves: EnclavesConfig, errors: string[]): voi
 /** Static, fail-closed checks for the unified enclave foundation. */
 export function validateEnclavesConfig(
   config: WrapperConfig,
-  env: NodeJS.ProcessEnv = process.env,
 ): string[] {
   const enclaves = config.enclaves;
   if (!enclaves?.enabled) return [];
@@ -205,14 +198,7 @@ export function validateEnclavesConfig(
       errors.push('enclaves[].agent requires either a non-empty "repos" list or a "dynamic" policy');
     } else if (agent.dynamic !== undefined) {
       validateEnclaveDynamicPolicy(agent.dynamic, errors);
-      const endpoint = env[ENCLAVE_GITHUB_DELEGATION_CONTROL_ENDPOINT_ENV];
-      const capability = env[ENCLAVE_GITHUB_DELEGATION_CONTROL_CAPABILITY_ENV];
-      if (
-        !isValidEnclaveDynamicDelegationControlEndpoint(endpoint)
-        || !isValidEnclaveDynamicDelegationCapability(capability)
-      ) {
-        errors.push(DYNAMIC_ENCLAVE_EXECUTION_UNSUPPORTED_REASON);
-      }
+      errors.push(DYNAMIC_ENCLAVE_EXECUTION_UNSUPPORTED_REASON);
     }
     if (!config.enableApiProxy) {
       errors.push('enclaves agent executor requires the AWF API proxy');

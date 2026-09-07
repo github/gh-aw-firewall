@@ -29,6 +29,7 @@ export function buildExclusionSet(config: WrapperConfig): Set<string> {
     'AWF_ENCLAVE_MCP_READINESS_TIMEOUT_MS',
     'AWF_ENCLAVE_GITHUB_MCP_AGENT_ID',
     'AWF_ENCLAVE_GITHUB_DELEGATION_CONTROL_CAPABILITY',
+    'AWF_ENCLAVE_GITHUB_DELEGATION_CONTROL_ENDPOINT',
   ]);
 
   if (config.enableApiProxy) {

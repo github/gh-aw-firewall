@@ -333,6 +333,7 @@ describe('prepareEnclaves fail-closed preflight', () => {
   it('takes custody of the delegation-control capability before anything can inherit it', async () => {
     const env = enclaveEnv({
       AWF_ENCLAVE_GITHUB_DELEGATION_CONTROL_CAPABILITY: 'c'.repeat(64),
+      AWF_ENCLAVE_GITHUB_DELEGATION_CONTROL_ENDPOINT: 'http://127.0.0.1:19001',
     });
     await expect(prepareEnclaves(dynamicOnlyConfig(workDir), {
       env,
@@ -340,6 +341,7 @@ describe('prepareEnclaves fail-closed preflight', () => {
       assertAgentRuntimeAvailable: jest.fn(),
     })).rejects.toThrow(/Enclave configuration is invalid/);
     expect(env.AWF_ENCLAVE_GITHUB_DELEGATION_CONTROL_CAPABILITY).toBeUndefined();
+    expect(env.AWF_ENCLAVE_GITHUB_DELEGATION_CONTROL_ENDPOINT).toBeUndefined();
   });
 
   it('strips the delegation-control capability even on a static-only run', async () => {

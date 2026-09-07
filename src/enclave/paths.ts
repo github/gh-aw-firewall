@@ -14,8 +14,6 @@ export interface EnclavePaths {
   runDir: string;
   capabilityPath: string;
   githubAgentIdPath: string;
-  dynamicDelegationEndpointPath: string;
-  dynamicDelegationCapabilityPath: string;
 }
 
 export const ENCLAVE_PRIVATE_BASE_DIR = '/var/tmp';
@@ -63,8 +61,6 @@ export function resolveEnclavePaths(
     runDir,
     capabilityPath: path.join(runDir, ENCLAVE_CAPABILITY_FILENAME),
     githubAgentIdPath: path.join(runDir, ENCLAVE_GITHUB_AGENT_ID_FILENAME),
-    dynamicDelegationEndpointPath: path.join(ingressRoot, 'control', 'delegation-endpoint'),
-    dynamicDelegationCapabilityPath: path.join(ingressRoot, 'control', 'delegation-capability'),
   };
 }
 
