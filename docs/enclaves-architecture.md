@@ -19,6 +19,18 @@ AWF stages immutable repository seeds on the host, starts one AWF-owned `enclave
 - **Agent executor** — `enclave_run_agent` runs the pinned Copilot engine in a bounded single-use enclave. Its mandatory peer is the dedicated API proxy; `agent.tools.github` (or the deprecated legacy `agent.github.cli: issues-read-v1` marker) also permits a direct connection to compiler-owned shared mcpg.
 - **Shared controls** — the `repos` lists of the `enclaves` entries form the only trusted repository catalog; script and agent calls debit the same per-run repository ledger and share one admission lane.
 
+> **Terminology.** *Executor* and *enclave* are distinct, and this document uses
+> both. An **executor** is broker-side machinery and a configuration kind:
+> `enclaves.executors.{script,agent}`, `executorKind`, and the code under
+> `containers/enclave/{script,agent}-executor/`, which ships into the
+> `enclave-mcp-server` image and holds the Docker socket. An **enclave** is the
+> ephemeral container an executor launches per invocation — its own image
+> (`enclave-script` / `enclave-agent`), its own name
+> (`awf-enclave-agent-<run>-<invocation>`), and its own entrypoint. One executor
+> launches many enclaves; the executor is trusted, the enclave is not. Where
+> prose says "single-use executor" it means the enclave that executor launched.
+> `executor_bearer` is mcpg's wire field name and is never renamed.
+
 The primary agent never receives a broker socket, wrapper binary, direct MCP server URL, capability, repository seed, ledger state, or alternate transport.
 
 Repository admission has two modes, both served by this same MCP backend:
@@ -359,7 +371,7 @@ graph LR
     BROKER["enclave-mcp-server (broker)<br/>ONE network only"]
   end
   subgraph enc["awf-enclave-agent · internal 172.31.0.0/24"]
-    EXEC["enclave executor<br/>single-use"]
+    EXEC["enclave (single-use container)<br/>launched by the agent executor"]
     EPROXY["enclave-agent-api-proxy<br/>172.31.0.30"]
   end
   MCPG["awmg-mcpg<br/>image ghcr.io/github/gh-aw-mcpg<br/>homed on awf-net + awf-enclave-mcp-control<br/>+ awf-enclave-agent 172.31.0.40 + host loopback"]
