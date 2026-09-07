@@ -210,7 +210,13 @@ for (const sbxLockPath of sbxLockPaths) {
       } else {
         console.log(`  WARNING: Could not find lockdown anchor; sbx install/auth steps not injected`);
       }
-    } else if (!sbxContent.includes('DOCKER_SANDBOXES_PROXY=http://host.docker.internal:3128')) {
+    } else if (
+      !sbxContent.includes(
+        'sbx policy init allow-all\n' +
+          '          DOCKER_SANDBOXES_PROXY=http://host.docker.internal:3128 \\\n' +
+          '            nohup sbx daemon start > /tmp/sbx-daemon.log 2>&1 &',
+      )
+    ) {
       const sbxInstallAuthRegex = / {6}- name: Install Docker sbx CLI\n[\s\S]*?(?= {6}- name: Determine automatic lockdown mode)/;
       if (sbxInstallAuthRegex.test(sbxContent)) {
         sbxContent = sbxContent.replace(sbxInstallAuthRegex, SBX_INSTALL_AND_AUTH_STEPS);
