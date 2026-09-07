@@ -425,6 +425,6 @@ AWF uses a triple-layer defense to ensure correct permissions:
 
 1. **Host-side prep** (`workdir-setup.ts`): best-effort `chown` to service UID during workdir setup (runs even if the directory already exists)
 2. **Container preflight** (`squid-service.ts`): `chown`/`chmod` inside the container before the service starts
-3. **Pre-shutdown repair** (`container-stop.ts`): `chmod -R a+rX` while container is still running
+3. **In-container repair** (`container-stop.ts`, `fixSquidLogPermissions()`): `chown` to the runner UID/GID plus `chmod -R a+rX` while the container is still running. Runs both before reading `access.log` for post-run diagnostics and before `docker compose down`
 
 Each layer compensates for the others' failure modes across different topologies.

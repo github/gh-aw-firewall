@@ -1,7 +1,7 @@
 /**
  * Additional branch coverage for container-stop.ts.
  *
- * Covers the fixSquidLogPermissionsBeforeShutdown exit-code branches not
+ * Covers the fixSquidLogPermissions exit-code branches not
  * exercised by container-stop.test.ts:
  *   - exitCode !== 0 with non-empty stderr  (BRDA:46,2,0 true / BRDA:48,3,1 true)
  *   - exitCode !== 0 with empty stderr  →  '(no stderr)' fallback  (BRDA:48,3,0)
@@ -23,7 +23,7 @@ beforeEach(() => {
   jest.clearAllMocks();
 });
 
-describe('fixSquidLogPermissionsBeforeShutdown – non-zero exit code branches', () => {
+describe('fixSquidLogPermissions – non-zero exit code branches', () => {
   const { getDir } = useTempDir();
 
   it('logs exit code and stderr when chmod returns non-zero with stderr output', async () => {
@@ -41,7 +41,7 @@ describe('fixSquidLogPermissionsBeforeShutdown – non-zero exit code branches',
     await stopContainers(getDir(), false);
 
     expect(mockedLogger.debug).toHaveBeenCalledWith(
-      'Pre-shutdown squid log chmod exited with code 1: Operation not permitted',
+      'Squid log permission repair exited with code 1: Operation not permitted',
     );
   });
 
@@ -60,7 +60,7 @@ describe('fixSquidLogPermissionsBeforeShutdown – non-zero exit code branches',
     await stopContainers(getDir(), false);
 
     expect(mockedLogger.debug).toHaveBeenCalledWith(
-      'Pre-shutdown squid log chmod exited with code 126: (no stderr)',
+      'Squid log permission repair exited with code 126: (no stderr)',
     );
   });
 });

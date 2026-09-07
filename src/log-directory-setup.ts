@@ -69,9 +69,12 @@ export function prepareLogDirectories(logPaths: LogPaths): void {
   // Layer 2 (squid-service.ts entrypoint): chown preflight inside the container.
   //   Repairs ownership when Docker daemon auto-creates the bind-mount source
   //   as root:root on split filesystems. Required for ARC/DinD.
-  // Layer 3 (container-stop.ts): chmod -R a+rX before compose down.
-  //   Ensures the runner user can read log files (owned by UID 13) after
-  //   the container is removed, for `awf logs summary` and artifact uploads.
+  // Layer 3 (container-stop.ts): chown to the runner UID + chmod -R a+rX inside
+  //   the still-running container, before reading access.log for post-run
+  //   diagnostics and before compose down.
+  //   Ensures the runner user can read log files (written by UID 13) both while
+  //   the container runs and after it is removed, for blocked-domain
+  //   diagnostics, `awf logs summary` and artifact uploads.
   //
   // Each layer compensates for the others' failure modes. Do not remove any
   // layer without understanding all deployment topologies (shared FS, DinD,

@@ -126,6 +126,39 @@ describe('artifact-preservation – error paths', () => {
       }
     });
 
+    it('still reports squid logs as preserved when the post-rename chmod is denied', () => {
+      const workDir = makeTempDir();
+      const timestamp = path.basename(workDir).replace('awf-', '');
+      const destination = path.join(os.tmpdir(), `squid-logs-${timestamp}`);
+      const infoSpy = jest.spyOn(logger, 'info').mockImplementation(() => {});
+      const warnSpy = jest.spyOn(logger, 'warn').mockImplementation(() => {});
+      try {
+        const squidLogsDir = path.join(workDir, 'squid-logs');
+        realFs.mkdirSync(squidLogsDir);
+        realFs.writeFileSync(path.join(squidLogsDir, 'access.log'), 'log line');
+
+        mockExecaSync.mockImplementationOnce(() => {
+          throw Object.assign(new Error('Command failed with exit code 1: chmod -R a+rX'), {
+            stderr: `chmod: changing permissions of '${destination}': Operation not permitted`,
+            exitCode: 1,
+          });
+        });
+
+        expect(() => preserveCleanupArtifacts(workDir)).not.toThrow();
+
+        expect(realFs.existsSync(path.join(destination, 'access.log'))).toBe(true);
+        expect(infoSpy).toHaveBeenCalledWith(
+          expect.stringContaining(`Squid logs preserved at: ${destination}`),
+        );
+        expect(warnSpy).not.toHaveBeenCalled();
+      } finally {
+        infoSpy.mockRestore();
+        warnSpy.mockRestore();
+        realFs.rmSync(workDir, { recursive: true, force: true });
+        realFs.rmSync(destination, { recursive: true, force: true });
+      }
+    });
+
     it('keeps the primary failure as the last visible diagnostic when runtimeDir chmod is denied', () => {
       // proxyLogsDir squid-logs uses runtimeDirMustExist:false → chmod always called.
       // With no api-proxy-logs or cli-proxy-logs subdirs, squid-logs chmod is first.

@@ -1,6 +1,7 @@
 import { runAgentCommand, fastKillAgentContainer } from './container-lifecycle';
 import { containerLifecycleTestHelpers } from './container-lifecycle.test-utils';
 import { logger } from './logger';
+import { SQUID_CONTAINER_NAME } from './constants';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -373,5 +374,36 @@ describe('runAgentCommand', () => {
       warnSpy.mockRestore();
       errorSpy.mockRestore();
     }
+  });
+  it('repairs squid log permissions in-container before reading access.log', async () => {
+    mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any); // docker logs -f
+    mockExecaFn.mockResolvedValueOnce({ stdout: '0', stderr: '', exitCode: 0 } as any); // docker wait
+    mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any); // docker exec chown/chmod
+
+    await runAgentCommand(getDir(), ['github.com']);
+
+    expect(mockExecaFn).toHaveBeenCalledWith(
+      'docker',
+      expect.arrayContaining([
+        'exec',
+        '--user',
+        'root',
+        SQUID_CONTAINER_NAME,
+        'sh',
+        '-c',
+        'chown -R "$TUID:$TGID" /var/log/squid 2>/dev/null; chmod -R a+rX /var/log/squid',
+      ]),
+      expect.objectContaining({ reject: false }),
+    );
+  });
+
+  it('keeps the agent exit code when the squid log permission repair fails', async () => {
+    mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any); // docker logs -f
+    mockExecaFn.mockResolvedValueOnce({ stdout: '7', stderr: '', exitCode: 0 } as any); // docker wait
+    mockExecaFn.mockRejectedValueOnce(new Error('container not running')); // docker exec
+
+    const result = await runAgentCommand(getDir(), ['github.com']);
+
+    expect(result.exitCode).toBe(7);
   });
 });

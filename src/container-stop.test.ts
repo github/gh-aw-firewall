@@ -20,8 +20,8 @@ describe('stopContainers', () => {
     expect(mockExecaFn).not.toHaveBeenCalled();
   });
 
-  it('should run pre-shutdown chmod and docker compose down when keepContainers is false', async () => {
-    // 1. docker exec --user root awf-squid chmod (pre-shutdown)
+  it('should run pre-shutdown permission repair and docker compose down when keepContainers is false', async () => {
+    // 1. docker exec --user root awf-squid chown/chmod (pre-shutdown)
     mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
     // 2. docker compose down
     mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
@@ -31,7 +31,19 @@ describe('stopContainers', () => {
     expect(mockExecaFn).toHaveBeenNthCalledWith(
       1,
       'docker',
-      ['exec', '--user', 'root', SQUID_CONTAINER_NAME, 'chmod', '-R', 'a+rX', '/var/log/squid'],
+      [
+        'exec',
+        '--user',
+        'root',
+        '-e',
+        expect.stringMatching(/^TUID=\d+$/),
+        '-e',
+        expect.stringMatching(/^TGID=\d+$/),
+        SQUID_CONTAINER_NAME,
+        'sh',
+        '-c',
+        'chown -R "$TUID:$TGID" /var/log/squid 2>/dev/null; chmod -R a+rX /var/log/squid',
+      ],
       expect.objectContaining({ reject: false }),
     );
     expect(mockExecaFn).toHaveBeenNthCalledWith(
@@ -42,7 +54,7 @@ describe('stopContainers', () => {
     );
   });
 
-  it('should still run docker compose down when pre-shutdown chmod fails', async () => {
+  it('should still run docker compose down when the permission repair fails', async () => {
     // chmod fails (e.g. container not running)
     mockExecaFn.mockRejectedValueOnce(new Error('container not found'));
     // compose down succeeds

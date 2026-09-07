@@ -1,6 +1,6 @@
 import execa from 'execa';
 import { logger } from './logger';
-import { runComposeDown } from './container-stop';
+import { runComposeDown, fixSquidLogPermissions } from './container-stop';
 import {
   AGENT_CONTAINER_NAME,
   SQUID_CONTAINER_NAME,
@@ -495,6 +495,11 @@ export async function runAgentCommand(workDir: string, allowedDomains: string[],
 
     // Small delay to ensure Squid logs are flushed to disk
     await new Promise(resolve => setTimeout(resolve, 200));
+
+    // Squid writes its logs as UID 13, so the runner user cannot read them
+    // without a repair from inside the still-running container. Do this before
+    // reading access.log, otherwise the diagnostics below fail with EACCES.
+    await fixSquidLogPermissions();
 
     // Check Squid logs to see if any domains were blocked (do this BEFORE cleanup)
     const { hasDenials, blockedTargets } = await checkSquidLogs(workDir, proxyLogsDir);

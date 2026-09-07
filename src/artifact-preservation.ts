@@ -139,12 +139,29 @@ function preserveDirectory({
   if (fs.existsSync(sourceDir) && fs.readdirSync(sourceDir).length > 0) {
     try {
       fs.renameSync(sourceDir, destinationDir);
-      if (chmodPreservedDir) {
-        execa.sync('chmod', ['-R', 'a+rX', destinationDir]);
-      }
       logger.info(`${preservedLabel} preserved at: ${destinationDir}`);
     } catch (error) {
       logger.debug(preserveErrorMessage, error);
+      return;
+    }
+    if (chmodPreservedDir) {
+      // Best-effort: files written by a container user (e.g. squid UID 13) are
+      // not owned by the runner, so a host-side chmod is denied. The directory
+      // is already preserved at this point, and the in-container repair in
+      // container-stop.ts is the authoritative fix, so never mask the
+      // successful preservation with a chmod failure.
+      try {
+        execa.sync('chmod', ['-R', 'a+rX', destinationDir]);
+      } catch (error) {
+        if (isBenignArtifactPermissionError(error)) {
+          logger.debug(
+            `${permissionErrorMessage} Permission repair was denied for ${destinationDir}; ` +
+              'this is expected on restricted runners and does not affect the run.',
+          );
+        } else {
+          logger.debug(permissionErrorMessage, error);
+        }
+      }
     }
   }
 }
