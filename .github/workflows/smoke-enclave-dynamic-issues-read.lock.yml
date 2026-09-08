@@ -807,7 +807,7 @@ jobs:
                     "accept": [
                       "*"
                     ],
-                    "sink-visibility": "${GH_AW_SINK_VISIBILITY}"
+                    "sink-visibility": "internal"
                   }
                 }
               }
