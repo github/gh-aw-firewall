@@ -197,8 +197,8 @@ describe('smoke enclave dynamic issues workflow', () => {
     expect(lock).not.toContain('\\"repos\\":[{\\"repo\\":\\"github/gh-aw\\"');
   });
 
-  it('uses mcpg v0.4.18 with the delegation controller', () => {
-    expect(lock).toContain('ghcr.io/github/gh-aw-mcpg:v0.4.18');
+  it('uses mcpg v0.4.19 with the delegation controller', () => {
+    expect(lock).toContain('ghcr.io/github/gh-aw-mcpg:v0.4.19');
     expect(lock).toContain('AWF_ENCLAVE_GITHUB_DELEGATION_CONTROL_CAPABILITY=$(openssl rand -hex 32');
     expect(lock).toContain('AWF_ENCLAVE_GITHUB_DELEGATION_CONTROL_ENDPOINT="http://127.0.0.1:8090/internal/awf-enclave-mcp-control/github-repository-delegation-v1"');
     expect(lock).toContain(
