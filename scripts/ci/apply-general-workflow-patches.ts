@@ -129,7 +129,8 @@ export function applyGeneralWorkflowPatches(
   // mcpg can rediscover it once AWF attaches and launches the backend.
   const isEnclaveSmoke =
     workflowPath.endsWith('smoke-enclave-build-test.lock.yml') ||
-    workflowPath.endsWith('smoke-enclave-issues-read.lock.yml');
+    workflowPath.endsWith('smoke-enclave-issues-read.lock.yml') ||
+    workflowPath.endsWith('smoke-enclave-dynamic-issues-read.lock.yml');
   if (isEnclaveSmoke) {
     const optionalEnclaveServer = '"awf-enclave": {\n                "required": false,';
     if (content.includes(optionalEnclaveServer)) {

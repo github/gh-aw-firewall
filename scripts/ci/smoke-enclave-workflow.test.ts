@@ -7,6 +7,8 @@ const sourcePath = path.join(workflowsDir, 'smoke-enclave-build-test.md');
 const lockPath = path.join(workflowsDir, 'smoke-enclave-build-test.lock.yml');
 const issuesSourcePath = path.join(workflowsDir, 'smoke-enclave-issues-read.md');
 const issuesLockPath = path.join(workflowsDir, 'smoke-enclave-issues-read.lock.yml');
+const dynamicSourcePath = path.join(workflowsDir, 'smoke-enclave-dynamic-issues-read.md');
+const dynamicLockPath = path.join(workflowsDir, 'smoke-enclave-dynamic-issues-read.lock.yml');
 
 function countOccurrences(content: string, value: string): number {
   return content.split(value).length - 1;
@@ -178,5 +180,53 @@ describe('smoke enclave issues workflow', () => {
     expect(source).toContain('max-output-bytes: 1024');
     expect(source).toContain('"issue_number": { "type": "integer"');
     expect(source).toContain('ENCLAVE_ISSUES_READ_PASS');
+  });
+});
+
+describe('smoke enclave dynamic issues workflow', () => {
+  const source = fs.readFileSync(dynamicSourcePath, 'utf8');
+  const lock = fs.readFileSync(dynamicLockPath, 'utf8');
+
+  it('declares dynamic repository delegation without static repos', () => {
+    expect(source).toContain('dynamic:\n      policy: github-repository-read-v1');
+    expect(source).toContain('sensitivity: internal');
+    expect(source).not.toContain('repos:\n      - repo:');
+    expect(lock).toContain('\\"dynamic\\":{\\"allowedOwners\\":[\\"github\\"]');
+    expect(lock).toContain('\\"version\\":\\"github-repository-read-v1\\"');
+    expect(lock).not.toContain('\\"repos\\":[{\\"repo\\":\\"github/gh-aw\\"');
+  });
+
+  it('uses mcpg v0.4.18 with the delegation controller', () => {
+    expect(lock).toContain('ghcr.io/github/gh-aw-mcpg:v0.4.18');
+    expect(lock).toContain('AWF_ENCLAVE_GITHUB_DELEGATION_CONTROL_CAPABILITY=$(openssl rand -hex 32');
+    expect(lock).toContain('AWF_ENCLAVE_GITHUB_DELEGATION_CONTROL_ENDPOINT="http://127.0.0.1:8090/internal/awf-enclave-mcp-control/github-repository-delegation-v1"');
+    expect(lock).toContain('-p 127.0.0.1:8090:8090');
+    expect(lock).toContain('Install awf binary (local)');
+    expect(lock).toContain('--build-local');
+  });
+
+  it('excludes control capability and gateway keys from primary agent', () => {
+    const executeStep = lock.slice(
+      lock.indexOf('      - name: Execute GitHub Copilot CLI'),
+      lock.indexOf('      - name: Detect agent errors')
+    );
+    expect(executeStep).toContain('--exclude-env AWF_ENCLAVE_GITHUB_DELEGATION_CONTROL_CAPABILITY');
+    expect(executeStep).toContain('--exclude-env AWF_ENCLAVE_MCP_CAPABILITY');
+    expect(executeStep).toContain('--exclude-env GH_TOKEN');
+    expect(executeStep).toContain('--exclude-env MCP_GATEWAY_API_KEY');
+  });
+
+  it('post-processes the dynamic enclave backend idempotently', () => {
+    const first = applyGeneralWorkflowPatches(lock, dynamicLockPath).content;
+    const second = applyGeneralWorkflowPatches(first, dynamicLockPath).content;
+    expect(first).toContain('"awf-enclave": {\n                "required": false,');
+    expect(second).toBe(first);
+  });
+
+  it('validates dynamic read-only enclave audit and execution pass', () => {
+    expect(source).toContain('ENCLAVE_DYNAMIC_ISSUES_READ_PASS');
+    expect(source).toContain('"list_read": { "type": "boolean" }');
+    expect(source).toContain('"issue_read": { "type": "boolean" }');
+    expect(lock).toContain('ENCLAVE_DYNAMIC_ISSUES_READ_PASS');
   });
 });
