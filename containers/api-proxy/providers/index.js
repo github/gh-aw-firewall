@@ -14,6 +14,14 @@ const { createAnthropicAdapter } = require('./anthropic');
 const { createCopilotAdapter } = require('./copilot');
 const { GOOGLE_PROVIDER_ADAPTER_FACTORIES } = require('./google-adapter');
 
+const PROVIDER_ADAPTER_FACTORIES = [
+  [createOpenAIAdapter, 'openaiBodyTransform'],
+  [createAnthropicAdapter, 'anthropicBodyTransform'],
+  [createCopilotAdapter, 'copilotBodyTransform'],
+  [GOOGLE_PROVIDER_ADAPTER_FACTORIES.gemini, 'geminiBodyTransform'],
+  [GOOGLE_PROVIDER_ADAPTER_FACTORIES.vertex, 'vertexBodyTransform'],
+];
+
 /**
  * @typedef {Object} ProbeConfig
  * @property {string} url - URL to probe
@@ -100,13 +108,8 @@ const { GOOGLE_PROVIDER_ADAPTER_FACTORIES } = require('./google-adapter');
  * @returns {ProviderAdapter[]}
  */
 function createAllAdapters(env, deps = {}) {
-  const openai    = createOpenAIAdapter(env,    { bodyTransform: deps.openaiBodyTransform    || null });
-  const anthropic = createAnthropicAdapter(env, { bodyTransform: deps.anthropicBodyTransform || null });
-  const copilot   = createCopilotAdapter(env,   { bodyTransform: deps.copilotBodyTransform   || null });
-  const gemini    = GOOGLE_PROVIDER_ADAPTER_FACTORIES.gemini(env, { bodyTransform: deps.geminiBodyTransform || null });
-  const vertex    = GOOGLE_PROVIDER_ADAPTER_FACTORIES.vertex(env, { bodyTransform: deps.vertexBodyTransform || null });
-
-  return [openai, anthropic, copilot, gemini, vertex];
+  return PROVIDER_ADAPTER_FACTORIES.map(([createAdapter, bodyTransformKey]) =>
+    createAdapter(env, { bodyTransform: deps[bodyTransformKey] || null }));
 }
 
 module.exports = {
