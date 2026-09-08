@@ -13,6 +13,7 @@ import { DynamicDelegationService } from './dynamic-delegation-service';
 import { startDynamicDelegationChannel } from './dynamic-delegation-channel';
 
 /* eslint-disable @typescript-eslint/no-require-imports */
+const nativeFs = require('fs');
 const containersRoot = path.join(__dirname, '..', '..', 'containers');
 const {
   createDynamicDelegationClient,
@@ -202,6 +203,35 @@ describe('dynamic delegation channel end to end', () => {
       await expect(pending).resolves.toMatchObject({ admitted: true });
     } finally {
       await channel.stop();
+    }
+  });
+
+  it('publishes broker messages for the host channel owner', async () => {
+    const service = buildService();
+    await service.recover();
+    const broker = brokerClient();
+    const owner = fs.statSync(directory);
+    const chown = jest.spyOn(nativeFs, 'chownSync').mockImplementation(() => undefined);
+    const pending = broker.admit({
+      invocationId: 'fed456fed456fed4',
+      selector: 'octo-org/service',
+      schema: { type: 'boolean' },
+    });
+    const requestPath = path.join(directory, 'fed456fed456fed4.admit.json');
+    try {
+      for (let attempt = 0; attempt < 200 && !fs.existsSync(requestPath); attempt += 1) {
+        await new Promise((resolve) => { setTimeout(resolve, 1); });
+      }
+      expect(chown).toHaveBeenCalledWith(`${requestPath}.tmp`, owner.uid, owner.gid);
+
+      const channel = startDynamicDelegationChannel({ directory, service, pollIntervalMs: 1 });
+      try {
+        await expect(pending).resolves.toMatchObject({ admitted: true });
+      } finally {
+        await channel.stop();
+      }
+    } finally {
+      chown.mockRestore();
     }
   });
 

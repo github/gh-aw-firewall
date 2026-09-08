@@ -47,7 +47,12 @@ const TERMINAL_OUTCOMES = new Set([
 
 function writeAtomic(target, value) {
   const temporary = `${target}.tmp`;
+  const directoryOwner = fs.statSync(path.dirname(target));
   fs.writeFileSync(temporary, JSON.stringify(value), { mode: 0o600 });
+  // The broker runs as root, while the host-side AWF process owns the private
+  // channel directory. Transfer custody before publishing the file so AWF can
+  // read a 0600 request without making channel documents group/world-readable.
+  fs.chownSync(temporary, directoryOwner.uid, directoryOwner.gid);
   fs.chmodSync(temporary, 0o600);
   fs.renameSync(temporary, target);
 }
