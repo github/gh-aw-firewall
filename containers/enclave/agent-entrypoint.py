@@ -79,7 +79,12 @@ def redact_diagnostics(value: str) -> str:
         redacted,
     )
     for name, secret in os.environ.items():
-        if secret and secret != "******" and re.search(r"(?:TOKEN|KEY|SECRET|CREDENTIAL)", name):
+        if (
+            secret
+            and secret != "******"
+            and secret.lower() not in {"true", "false", "0", "1"}
+            and re.search(r"(?:TOKEN|KEY|SECRET|CREDENTIAL)", name)
+        ):
             redacted = redacted.replace(secret, "[REDACTED]")
     try:
         agent_id = GITHUB_AGENT_ID_PATH.read_text(encoding="ascii").strip()
