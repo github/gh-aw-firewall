@@ -608,10 +608,6 @@ def main() -> int:
     ]
     if os.environ.get("AWF_ENCLAVE_AGENT_GITHUB_ENABLED") == "true" or is_dynamic_enabled():
         command.extend(["--additional-mcp-config", f"@{GITHUB_MCP_CONFIG_PATH}"])
-    if max_model_requests is not None:
-        command.extend(["--max-model-requests", max_model_requests])
-    if max_model_tokens is not None:
-        command.extend(["--max-model-tokens", max_model_tokens])
     deadline = time.monotonic() + timeout
     completed = None
     stdout = ""

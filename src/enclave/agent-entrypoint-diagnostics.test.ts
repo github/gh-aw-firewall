@@ -117,6 +117,7 @@ if scenario != "missing-copilot":
     else:
         copilot.write_text(
             "#!/bin/sh\n"
+            "printf '%s\\n' \"$@\" > '" + str(root / "copilot-args") + "'\n"
             "printf '%s\\n' 'protected conversational output'\n"
             "printf '%s' true > '" + str(module.OUT_PATH) + "'\n"
             "printf '%s\\n' 'Authorization: Bearer " + os.environ["TEST_API_TOKEN"] + "' >&2\n",
@@ -154,6 +155,8 @@ print(json.dumps({
     "transcript": transcript,
     "transcriptBytes": len(transcript.encode("utf-8")),
     "output": module.OUT_PATH.read_text(encoding="utf-8"),
+    "arguments": (root / "copilot-args").read_text(encoding="utf-8")
+        if (root / "copilot-args").exists() else "",
 }))
 `;
 
@@ -162,6 +165,7 @@ interface HarnessResult {
   transcript: string;
   transcriptBytes: number;
   output: string;
+  arguments: string;
 }
 
 function runHarness(scenario: string): HarnessResult {
@@ -184,6 +188,10 @@ function runHarness(scenario: string): HarnessResult {
         AWF_ENCLAVE_AGENT_MAX_OUTPUT_BYTES: '1024',
         AWF_ENCLAVE_AGENT_DEADLINE_SECONDS: scenario === 'timeout' ? '1' : '5',
         AWF_ENCLAVE_AGENT_MODEL: 'test-model',
+        ...(scenario === 'model-limits' ? {
+          AWF_ENCLAVE_AGENT_MAX_MODEL_REQUESTS: '3',
+          AWF_ENCLAVE_AGENT_MAX_MODEL_TOKENS: '10000',
+        } : {}),
         ...(scenario === 'github-config' ? {
           AWF_ENCLAVE_AGENT_GITHUB_ENABLED: 'true',
           AWF_ENCLAVE_AGENT_GITHUB_PROFILE: 'issues-read-v1',
@@ -205,6 +213,14 @@ function events(result: HarnessResult): Array<Record<string, unknown>> {
 }
 
 describe('enclave agent protected entrypoint diagnostics', () => {
+  it('does not pass unsupported model-limit flags to Copilot CLI', () => {
+    const result = runHarness('model-limits');
+
+    expect(result.exitCode).toBe(0);
+    expect(result.arguments).not.toContain('--max-model-requests');
+    expect(result.arguments).not.toContain('--max-model-tokens');
+  });
+
   it.each<[string, string, boolean]>([
     ['missing-copilot', 'not-found', false],
     ['non-executable-copilot', 'not-executable', true],
