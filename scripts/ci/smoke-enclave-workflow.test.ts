@@ -208,6 +208,13 @@ describe('smoke enclave dynamic issues workflow', () => {
     expect(lock).toContain('--build-local');
   });
 
+  it('keeps the delegation envelope live for the job while bounding identity TTL', () => {
+    expect(lock).toContain(
+      'GH_AW_ENCLAVE_DYNAMIC_JOB_EXPIRES_EPOCH=$(( $(date -u +%s) + (${GH_AW_TIMEOUT_MINUTES:-20} * 60) ))'
+    );
+    expect(lock).toContain('\\"max_identity_ttl\\":180');
+  });
+
   it('excludes control capability and gateway keys from primary agent', () => {
     const executeStep = lock.slice(
       lock.indexOf('      - name: Execute GitHub Copilot CLI'),
