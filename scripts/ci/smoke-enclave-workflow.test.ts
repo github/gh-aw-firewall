@@ -188,7 +188,8 @@ describe('smoke enclave dynamic issues workflow', () => {
   const lock = fs.readFileSync(dynamicLockPath, 'utf8');
 
   it('declares dynamic repository delegation without static repos', () => {
-    expect(source).toContain('dynamic:\n      policy: github-repository-read-v1');
+    expect(source).toContain('dynamic:\n      allowed-owners: [github]');
+    expect(source).toContain('github-policy: github-repository-read-v1');
     expect(source).toContain('sensitivity: internal');
     expect(source).not.toContain('repos:\n      - repo:');
     expect(lock).toContain('\\"dynamic\\":{\\"allowedOwners\\":[\\"github\\"]');
@@ -200,7 +201,9 @@ describe('smoke enclave dynamic issues workflow', () => {
     expect(lock).toContain('ghcr.io/github/gh-aw-mcpg:v0.4.18');
     expect(lock).toContain('AWF_ENCLAVE_GITHUB_DELEGATION_CONTROL_CAPABILITY=$(openssl rand -hex 32');
     expect(lock).toContain('AWF_ENCLAVE_GITHUB_DELEGATION_CONTROL_ENDPOINT="http://127.0.0.1:8090/internal/awf-enclave-mcp-control/github-repository-delegation-v1"');
-    expect(lock).toContain('-p 127.0.0.1:8090:8090');
+    expect(lock).toContain(
+      `-p 127.0.0.1:'"\${MCP_GATEWAY_DELEGATION_CONTROL_LISTEN#*:}"':'"\${MCP_GATEWAY_DELEGATION_CONTROL_LISTEN#*:}"'`
+    );
     expect(lock).toContain('Install awf binary (local)');
     expect(lock).toContain('--build-local');
   });
@@ -212,7 +215,7 @@ describe('smoke enclave dynamic issues workflow', () => {
     );
     expect(executeStep).toContain('--exclude-env AWF_ENCLAVE_GITHUB_DELEGATION_CONTROL_CAPABILITY');
     expect(executeStep).toContain('--exclude-env AWF_ENCLAVE_MCP_CAPABILITY');
-    expect(executeStep).toContain('--exclude-env GH_TOKEN');
+    expect(executeStep).not.toContain('GH_TOKEN');
     expect(executeStep).toContain('--exclude-env MCP_GATEWAY_API_KEY');
   });
 

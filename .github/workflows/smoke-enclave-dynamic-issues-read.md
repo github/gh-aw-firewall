@@ -17,10 +17,24 @@ tools:
 enclaves:
   - agent:
       model: claude-sonnet-5
+      max-task-bytes: 8192
+      max-model-requests: 10
+      max-model-tokens: 32768
     dynamic:
-      policy: github-repository-read-v1
+      allowed-owners: [github]
       sensitivity: internal
+      github-policy: github-repository-read-v1
+      max-repositories: 1
+      quotas:
+        max-invocations: 1
+        max-output-bytes: 1024
+        max-execution-seconds: 180
+      audit-labels: [smoke-enclave-dynamic-issues-read]
       expires-at: "2027-01-01T00:00:00Z"
+    memory-limit: 2g
+    cpu-limit: "2"
+    pids-limit: 100
+    tmpfs-limit: 1g
     max-invocations: 1
     max-output-bytes: 1024
     timeout: 180

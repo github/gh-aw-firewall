@@ -61,7 +61,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: github/gh-aw
-          ref: 1cf55bdc4f19e5f371b1e7fe888df649695ee48a
+          ref: b52dd75307b4233bd710ce0a0afd96766c2a48e3
           path: .tmp/gh-aw-compiler
           persist-credentials: false
 
@@ -76,7 +76,7 @@ jobs:
           mkdir -p "$HOME/.local/share/gh/extensions/gh-aw"
           go build \
             -C .tmp/gh-aw-compiler \
-            -ldflags="-X main.version=v0.87.5-108-g1cf55bdc4f -X main.isRelease=true" \
+            -ldflags="-X main.version=v0.88.6 -X main.isRelease=true" \
             -o "$HOME/.local/share/gh/extensions/gh-aw/gh-aw" \
             ./cmd/gh-aw
           rm -rf .tmp/gh-aw-compiler
