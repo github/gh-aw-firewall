@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { recoverHostPaths } from './host-path-recovery';
+import { recoverHostPaths } from '../agent-path-policy';
 
 // Mock the logger to keep test output clean and allow assertions if needed.
 jest.mock('../../logger', () => ({

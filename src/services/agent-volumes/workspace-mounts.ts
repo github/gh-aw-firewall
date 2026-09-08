@@ -3,8 +3,8 @@ import * as path from 'path';
 import { logger } from '../../logger';
 import { WrapperConfig } from '../../types';
 import { INIT_SIGNAL_DIR, LEGACY_INIT_SIGNAL_DIR } from '../../constants';
-import { CREDENTIAL_ENTRIES, HOME_FORBIDDEN_SUBDIRS, HOME_TOOL_PATHS, systemDirectories } from '../../config/mount-policy';
 import { applyHostPathPrefixToVolumes } from '../host-path-prefix';
+import { hiddenHostRoots, mountedChrootRoots } from '../agent-path-policy';
 import {
   extractCommandBinaryName,
   shouldUseDockerHostStaging,
@@ -81,46 +81,6 @@ function isAtOrBelow(candidate: string, root: string): boolean {
 }
 
 /**
- * Host paths that are deliberately kept out of the sandbox. A caller-supplied
- * working directory inside one of them is never auto-mounted, otherwise a
- * stray `--container-workdir ~/.ssh` would defeat credential hiding.
- */
-function hiddenHostRoots(effectiveHome: string): string[] {
-  return [
-    // Host system trees AWF never exposes wholesale: `/etc` is exposed as a
-    // small file allowlist, and the rest hold host state or kernel interfaces.
-    '/etc',
-    '/root',
-    '/proc',
-    '/run',
-    '/boot',
-    '/var/run',
-    ...HOME_FORBIDDEN_SUBDIRS.map((subdir) => path.posix.join(effectiveHome, subdir)),
-    ...CREDENTIAL_ENTRIES.map((entry) => path.posix.join(effectiveHome, entry.path)),
-  ];
-}
-
-/** Container paths that already exist inside the chroot via another mount. */
-function mountedChrootRoots(params: ContainerWorkDirMountsParams): string[] {
-  const { config, workspaceDir, effectiveHome } = params;
-  const useSysroot = config.runnerTopology === 'arc-dind';
-  const customTargets = (config.volumeMounts || [])
-    .map((spec) => spec.split(':')[1] || '')
-    .filter((target) => target.startsWith('/'))
-    .map((target) => (target === '/host' ? '/' : target.replace(/^\/host(?=\/)/, '')));
-
-  return [
-    workspaceDir,
-    '/tmp',
-    ...systemDirectories(useSysroot),
-    ...HOME_TOOL_PATHS
-      .filter((toolPath) => toolPath !== '.gemini' || Boolean(config.geminiApiKey || config.googleApiKey))
-      .map((toolPath) => path.posix.join(effectiveHome, toolPath)),
-    ...customTargets,
-  ];
-}
-
-/**
  * Mounts the configured `--container-workdir` when no other mount already
  * exposes it inside the chroot.
  *
@@ -156,7 +116,7 @@ export function buildContainerWorkDirMounts(params: ContainerWorkDirMountsParams
     return [];
   }
 
-  if (mountedChrootRoots(params).some((root) => isAtOrBelow(workDir, root))) {
+  if (mountedChrootRoots(config, params.workspaceDir, effectiveHome).some((root) => isAtOrBelow(workDir, root))) {
     return [];
   }
 
