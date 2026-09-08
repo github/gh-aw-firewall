@@ -236,7 +236,7 @@ function createTestWrapperConfig(workDir: string, overrides: Record<string, unkn
   } as WrapperConfig;
 }
 
-describe('dynamic repository enclaves e2e security and integration suite', () => {
+describe('dynamic repository enclave delegation service integration suite', () => {
   let tmpDirs: string[] = [];
 
   function makeWorkDir(): string {
@@ -256,8 +256,8 @@ describe('dynamic repository enclaves e2e security and integration suite', () =>
     tmpDirs = [];
   });
 
-  describe('Live success path and wire contract', () => {
-    it('exercises complete handoff, admission, single-use bearer issuance, and clean lifecycle settlement', async () => {
+  describe('control-service wire contract', () => {
+    it('exercises the complete handoff, admission, single-use bearer issuance, and clean lifecycle settlement against a protocol stub', async () => {
       const server = await startMockMcpgServer();
       const workDir = makeWorkDir();
       const runId = '12345-1';

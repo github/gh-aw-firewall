@@ -20,6 +20,7 @@ enclaves:
     dynamic:
       policy: github-repository-read-v1
       sensitivity: internal
+      expires-at: "2027-01-01T00:00:00Z"
     max-invocations: 1
     max-output-bytes: 1024
     timeout: 180

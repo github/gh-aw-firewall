@@ -59,6 +59,22 @@ if scenario == "github-config":
     }))
     raise SystemExit(0)
 
+if scenario == "boolean-secrets":
+    os.environ["BOOLEAN_TOKEN"] = "true"
+    os.environ["BOOLEAN_KEY"] = "false"
+    os.environ["BOOLEAN_SECRET"] = "0"
+    os.environ["BOOLEAN_CREDENTIAL"] = "1"
+    os.environ["ORDINARY_TOKEN"] = "ordinary-secret"
+    print(json.dumps({
+        "exitCode": 0,
+        "transcript": module.redact_diagnostics(
+            "true false 0 1 ordinary-secret"
+        ),
+        "transcriptBytes": 0,
+        "output": "",
+    }))
+    raise SystemExit(0)
+
 if scenario == "bounds":
     module.SESSION_LOG_PATH.write_text("", encoding="utf-8")
     completed = module.subprocess.CompletedProcess(
@@ -240,6 +256,13 @@ describe('enclave agent protected entrypoint diagnostics', () => {
       },
     });
     expect(result.transcript).toBe('[REDACTED]');
+  });
+
+  it('preserves boolean-like environment values while redacting ordinary secrets', () => {
+    const result = runHarness('boolean-secrets');
+
+    expect(result.transcript).toBe('true false 0 1 [REDACTED]');
+    expect(result.transcript).not.toContain('ordinary-secret');
   });
 
   it('identifies a missing working directory without logging its path', () => {
