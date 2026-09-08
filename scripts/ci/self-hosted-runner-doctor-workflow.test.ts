@@ -126,6 +126,8 @@ describe('self-hosted runner doctor workflow config', () => {
       expect(content).toContain('`pruneUnmountableCredentialOverlays` (`src/services/agent-volumes/credential-hiding.ts`)');
       expect(content).toContain('github/gh-aw#57468, github/gh-aw-firewall#8076, github/gh-aw-firewall#8086');
       expect(content).toContain('| `error mounting "/dev/null" to .../.npmrc: create mountpoint ...: read-only file system` on `arc-dind` persisting even after upgrading past github/gh-aw-firewall#7998 (A23\'s fix), where the credential mountpoint is missing under a declared-`rw` home bind backed by a genuinely read-only directory | A24');
+      expect(content).toContain('| A25 | On `runner.topology: arc-dind`, workloads inside the AWF sandbox need a GitHub Actions `services:` container');
+      expect(content).toContain('github/gh-aw-firewall#8075, github/gh-aw-firewall#8085');
       // B23 update: PR #7245 fixes the AWF-side gap
       expect(content).toContain('**Fixed on the AWF side (PR github/gh-aw-firewall#7245, merged 2026-08-11):**');
       expect(content).toContain('`ensure_usr_local_bin_shims()`');
@@ -193,6 +195,8 @@ describe('self-hosted runner doctor workflow config', () => {
       expect(content).toContain('github/gh-aw-firewall#8168, github/gh-aw-firewall#8171');
       expect(content).toContain('| B33 | `[DEBUG] Could not check Squid logs: EACCES');
       expect(content).toContain('github/gh-aw-firewall#8249, github/gh-aw-firewall#8251');
+      expect(content).toContain('| B34 | `host.docker.internal` or `(host.docker.internal/redacted)` appears in `network.allowDomains`');
+      expect(content).toContain('github/gh-aw-firewall#8172');
       expect(content).toContain('| C9 | `400 bad request: Authorization header is badly formatted` specifically on the **derived GHEC data-residency Copilot target**');
       expect(content).toContain('receives `token` instead of required `Bearer` prefix');
       expect(content).toContain('| C10 | Fine-grained GitHub PATs (`github_pat_...`) sent to Copilot Business, Enterprise, and canonical GHEC');
@@ -211,6 +215,8 @@ describe('self-hosted runner doctor workflow config', () => {
     expect(source).toContain('- `invalid CapDrop: capability not supported by your kernel or not available in the current environment` → A22');
     expect(source).toContain('- `error mounting "/dev/null" to .../.npmrc: create mountpoint ...: read-only file system` on `arc-dind` persisting even after upgrading past github/gh-aw-firewall#7998 (A23\'s fix), where the credential mountpoint is missing under a declared-`rw` home bind backed by a genuinely read-only directory → A24');
     expect(source).toContain('- `a network with name awf-net exists but was not created for project` → B27');
+    expect(source).toContain('- `docker network connect --alias <name> awf-net <service_container>` is needed for raw-protocol GitHub Actions `services:` containers under `runner.topology: arc-dind` → A25');
+    expect(source).toContain('- `host.docker.internal` or `(host.docker.internal/redacted)` appears in `network.allowDomains` but the host service still cannot be reached from inside AWF → B34');
     expect(source).toContain('- TLS/certificate verification failure from api-proxy against a custom `--openai-api-target`/`--anthropic-api-target` internal endpoint using a private/corporate CA → B28 (api-proxy sidecar had no custom CA trust extension point; fixed in github/gh-aw-firewall#7816 with `apiProxy.caCert`/`--api-proxy-ca-cert`)');
     expect(source).toContain('- `context-rebuild circuit breaker tripped` together with a failed `cd` into the expected workspace path → B29');
     expect(source).toContain('- `awf logs summary` reports "no log sources found" after a pre-egress startup failure with no Squid `access.log` → B30');
@@ -247,6 +253,8 @@ describe('self-hosted runner doctor workflow config', () => {
     expect(portableAgent).toContain('- `mkdirat ... : read-only file system` at agent container startup while a `filesystem.allowWrite` policy is active (not the `chroot.binariesSourcePath`-specific A12 case) → A21; `[entrypoint][WARN] Could not copy one-shot-token library to /tmp/awf-lib` followed by `Token protection will be disabled` → A21');
     expect(portableAgent).toContain('- `invalid CapDrop: capability not supported by your kernel or not available in the current environment` → A22');
     expect(portableAgent).toContain('- `a network with name awf-net exists but was not created for project` → B27');
+    expect(portableAgent).toContain('- `docker network connect --alias <name> awf-net <service_container>` is needed for raw-protocol GitHub Actions `services:` containers under `runner.topology: arc-dind` → A25');
+    expect(portableAgent).toContain('- `host.docker.internal` or `(host.docker.internal/redacted)` appears in `network.allowDomains` but the host service still cannot be reached from inside AWF → B34');
     expect(portableAgent).toContain('- `context-rebuild circuit breaker tripped` together with a failed `cd` into the expected workspace path → B29');
     expect(portableAgent).toContain('- `awf logs summary` reports "no log sources found" after a pre-egress startup failure with no Squid `access.log` → B30');
     expect(portableAgent).toContain('- A setup-action-selected toolchain version is shadowed by the system-default version inside the AWF agent under `sandbox.agent.runtime: docker-sudo-iptables` → B31');
