@@ -1,5 +1,5 @@
 ---
-description: Smoke test dynamic repository enclave delegation with mcpg v0.4.18+ controller and runtime admission
+description: Smoke test dynamic repository enclave delegation with mcpg v0.4.19+ controller and runtime admission
 on:
   schedule: every 12h
   workflow_dispatch:
@@ -52,7 +52,7 @@ sandbox:
     id: awf
     version: v0.28.14
   mcp:
-    version: v0.4.18
+    version: v0.4.19
 strict: false
 concurrency:
   group: smoke-enclave-dynamic-issues-read
