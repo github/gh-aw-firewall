@@ -3,6 +3,11 @@
 const { createLogRequestCompletion, createLogUpstreamAuthError, buildCopilotAuthErrorMessage } = require('./upstream-log');
 const { handle400WithRetry } = require('./upstream-retry');
 const { setupTokenTracking } = require('./upstream-token');
+const {
+  getCodexCompatibilityForRequestBody,
+  transformCodexCompatibleResponseBody,
+  createCodexCompatibleSseTransform,
+} = require('./codex-compat');
 
 /** Maximum number of times to retry a Copilot 400 "model not supported" response. */
 const MAX_MODEL_NOT_SUPPORTED_RETRIES = 2;
@@ -42,6 +47,13 @@ function parseModelNotSupportedFromBody(body) {
  */
 function parseModelEndpointBlockedFromBody(body) {
   return MODEL_ENDPOINT_BLOCKED_PATTERN.test(body.toString('utf8'));
+}
+
+function withoutContentLength(headers) {
+  const next = { ...headers };
+  delete next['content-length'];
+  delete next['Content-Length'];
+  return next;
 }
 
 function createUpstreamResponseHandlers({
@@ -135,17 +147,53 @@ function createUpstreamResponseHandlers({
       return;
     }
 
-    proxyRes.on('data', (chunk) => { responseBytes += chunk.length; });
-    proxyRes.on('end', () => {
-      logRequestCompletion(proxyRes.statusCode, responseBytes, initiatorSent, billingInfo, completionCtx);
-    });
+    const isStreaming = (proxyRes.headers['content-type'] || '').includes('text/event-stream');
+    const isJson = (proxyRes.headers['content-type'] || '').includes('application/json');
+    const codexCompatibility = getCodexCompatibilityForRequestBody(body);
+    const canTransformCodexResponse =
+      provider === 'copilot' &&
+      !!codexCompatibility &&
+      proxyRes.statusCode >= 200 &&
+      proxyRes.statusCode < 300 &&
+      !proxyRes.headers['content-encoding'];
 
     const resHeaders = { ...proxyRes.headers, 'x-request-id': requestId };
     logUpstreamAuthError(proxyRes.statusCode, authErrCtx);
-    res.writeHead(proxyRes.statusCode, resHeaders);
-    proxyRes.pipe(res);
 
-    const isStreaming = (proxyRes.headers['content-type'] || '').includes('text/event-stream');
+    let codexSseTransform = null;
+    if (canTransformCodexResponse && isStreaming) {
+      codexSseTransform = createCodexCompatibleSseTransform(body, provider);
+    }
+
+    if (canTransformCodexResponse && isJson) {
+      const bufferedChunks = [];
+      proxyRes.on('data', (chunk) => {
+        responseBytes += chunk.length;
+        bufferedChunks.push(chunk);
+      });
+      proxyRes.on('end', () => {
+        logRequestCompletion(proxyRes.statusCode, responseBytes, initiatorSent, billingInfo, completionCtx);
+        const responseBody = Buffer.concat(bufferedChunks);
+        const transformed = transformCodexCompatibleResponseBody(responseBody, body, provider);
+        const outgoingBody = transformed || responseBody;
+        res.writeHead(proxyRes.statusCode, transformed ? withoutContentLength(resHeaders) : resHeaders);
+        res.end(outgoingBody);
+      });
+    } else {
+      proxyRes.on('data', (chunk) => { responseBytes += chunk.length; });
+      proxyRes.on('end', () => {
+        logRequestCompletion(proxyRes.statusCode, responseBytes, initiatorSent, billingInfo, completionCtx);
+      });
+
+      if (codexSseTransform) {
+        res.writeHead(proxyRes.statusCode, withoutContentLength(resHeaders));
+        proxyRes.pipe(codexSseTransform).pipe(res);
+      } else {
+        res.writeHead(proxyRes.statusCode, resHeaders);
+        proxyRes.pipe(res);
+      }
+    }
+
     setupTokenTracking(proxyRes, body, {
       requestId, provider, req, res, startTime, billingInfo,
       initiatorSent, span, isStreaming,

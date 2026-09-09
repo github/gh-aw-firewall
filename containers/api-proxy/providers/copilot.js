@@ -25,6 +25,7 @@ const {
 } = require('../proxy-utils');
 const { createOidcAwareProviderAdapter } = require('../adapter-factory');
 const { sanitizeNullToolCallTypes } = require('../body-transform');
+const { translateCodexCustomToolsForCopilot } = require('../codex-compat');
 const {
   parseByokExtraHeaders,
   parseByokExtraBodyFields,
@@ -129,7 +130,10 @@ function createCopilotAdapter(env, deps = {}) {
   const byokBodyFieldTransform = (apiKey && Object.keys(byokExtraBodyFields).length > 0)
     ? (body) => injectByokExtraBodyFields(body, byokExtraBodyFields)
     : null;
-  const bodyTransform = composeBodyTransforms(sanitizedBodyTransform, byokBodyFieldTransform);
+  const bodyTransform = composeBodyTransforms(
+    composeBodyTransforms(sanitizedBodyTransform, byokBodyFieldTransform),
+    translateCodexCustomToolsForCopilot
+  );
   // Fine-grained PATs require ****** every Copilot target. OAuth and classic
   // PATs retain the target-dependent token prefix required by Enterprise hosts.
   const githubTokenAuthPrefix = getGitHubTokenAuthPrefix(githubToken, rawTarget, env);
