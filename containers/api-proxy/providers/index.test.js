@@ -34,5 +34,10 @@ describe('createAllAdapters', () => {
       transforms.geminiBodyTransform,
       transforms.vertexBodyTransform,
     ]);
+
+    const copilotBody = Buffer.from('{}');
+    transforms.copilotBodyTransform.mockReturnValue(null);
+    adapters[2].getBodyTransform()(copilotBody);
+    expect(transforms.copilotBodyTransform).toHaveBeenCalledWith(copilotBody);
   });
 });
