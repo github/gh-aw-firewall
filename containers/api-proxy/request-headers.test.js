@@ -65,6 +65,33 @@ describe('request-headers', () => {
     expect(headers['content-length']).toBe(String(body.length));
     expect(headers['transfer-encoding']).toBeUndefined();
   });
+
+  test('buildRequestHeaders forces identity accept-encoding for Codex-compatibility-translated requests', () => {
+    const req = { headers: { 'accept-encoding': 'gzip, br' } };
+    const headers = buildRequestHeaders(Buffer.from('{}'), 2, req, {
+      injectHeaders: {},
+      provider: 'copilot',
+      targetHost: 'api.githubcopilot.com',
+      requestId: 'req-3',
+      codexCompatibility: { customTools: new Set(['apply_patch']) },
+    });
+
+    // The compatibility adapter rewrites the plaintext response body; a
+    // compressed response would otherwise leave the rewrite unapplied.
+    expect(headers['accept-encoding']).toBe('identity');
+  });
+
+  test('buildRequestHeaders leaves accept-encoding sanitization untouched when not Codex-translated', () => {
+    const req = { headers: { 'accept-encoding': 'gzip, br, zstd' } };
+    const headers = buildRequestHeaders(Buffer.from('{}'), 2, req, {
+      injectHeaders: {},
+      provider: 'copilot',
+      targetHost: 'api.githubcopilot.com',
+      requestId: 'req-4',
+    });
+
+    expect(headers['accept-encoding']).toBe('gzip, br');
+  });
 });
 
 describe('copilot interaction/integration headers', () => {

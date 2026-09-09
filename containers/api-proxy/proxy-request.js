@@ -268,8 +268,9 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
     // Step 2: apply transform pipeline
     const inboundBytes = rawBody.length;
     let body;
+    let codexCompatibility = null;
     try {
-      body = await transformRequestBody(rawBody, provider, req, requestId, bodyTransform);
+      ({ body, codexCompatibility } = await transformRequestBody(rawBody, provider, req, requestId, bodyTransform));
     } catch (err) {
       const statusCode = Number.isInteger(err && err.statusCode) ? err.statusCode : 400;
       const duration = Date.now() - startTime;
@@ -300,13 +301,15 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
     const requestBytes = body.length;
     metrics.increment('request_bytes_total', { provider }, requestBytes);
 
-    const headers = buildRequestHeaders(body, inboundBytes, req, { injectHeaders, provider, targetHost, requestId });
+    const headers = buildRequestHeaders(body, inboundBytes, req, {
+      injectHeaders, provider, targetHost, requestId, codexCompatibility,
+    });
 
     if (enforceGuards({ body, provider, req, res, requestId, startTime, span, inboundBytes })) return;
 
     sendUpstreamRequest(headers, {
       body, targetHost, upstreamPath, req, res, provider, requestId, startTime, span, requestBytes, requestSigner,
-      targetScheme,
+      targetScheme, codexCompatibility,
     });
   });
 }

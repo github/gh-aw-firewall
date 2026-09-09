@@ -270,4 +270,40 @@ describe('upstream-http', () => {
       headers: expect.objectContaining({ 'content-length': String(retryBody.length) }),
     }));
   });
+
+  test('carries Codex compatibility metadata forward across the endpoint-blocked retry', () => {
+    const proxyReq = { on: jest.fn(), write: jest.fn(), end: jest.fn() };
+    const responseCallbacks = [];
+    const httpsRequest = jest.fn((_options, cb) => {
+      responseCallbacks.push(cb);
+      return proxyReq;
+    });
+    const handleUpstreamResponse = jest.fn();
+    const sendUpstreamRequest = createSendUpstreamRequest({
+      https: { request: httpsRequest },
+      proxyAgent: {},
+      handleUpstreamResponse,
+      sleep: jest.fn(),
+      otel: { endSpanError: jest.fn() },
+      handleRequestError: jest.fn(),
+      metrics: { increment: jest.fn(), observe: jest.fn() },
+    });
+    const originalBody = Buffer.from('{"model":"a","messages":[]}');
+    const req = { method: 'POST', awfModelCandidates: ['a', 'much-longer-model-name'] };
+    const codexCompatibility = { customTools: new Set(['apply_patch']) };
+
+    sendUpstreamRequest({ 'content-length': String(originalBody.length) }, createContext({
+      body: originalBody,
+      requestBytes: originalBody.length,
+      req,
+      codexCompatibility,
+    }));
+    responseCallbacks[0]({ statusCode: 400, headers: {} });
+    handleUpstreamResponse.mock.calls[0][2].onModelEndpointBlockedRetry();
+    responseCallbacks[1]({ statusCode: 200, headers: {} });
+
+    // The retry rebuilds the body as a brand-new Buffer object; compatibility
+    // metadata must not depend on the (now-stale) original buffer identity.
+    expect(handleUpstreamResponse.mock.calls[1][2].codexCompatibility).toBe(codexCompatibility);
+  });
 });

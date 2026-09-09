@@ -1,6 +1,7 @@
 'use strict';
 
 const { Transform } = require('stream');
+const { StringDecoder } = require('string_decoder');
 const { parseBodyAsObject } = require('./body-utils');
 
 const APPLY_PATCH_TOOL = 'apply_patch';
@@ -21,8 +22,6 @@ const APPLY_PATCH_FUNCTION_TOOL = Object.freeze({
     additionalProperties: false,
   },
 });
-
-const translatedRequestBodies = new WeakMap();
 
 class CodexCompatibilityError extends Error {
   constructor(message) {
@@ -100,6 +99,19 @@ function translateInputItems(input) {
   return { input: nextInput, changed };
 }
 
+/**
+ * Translate Codex's OpenAI Responses `custom`/freeform tool dialect into the
+ * function-tool dialect Copilot accepts.
+ *
+ * Unlike the request body itself (which may be rebuilt by later retry logic,
+ * e.g. the model-endpoint-blocked fallback), the returned `compatibility`
+ * object must be threaded explicitly through the request/retry context by
+ * the caller — it is not recoverable from the body alone.
+ *
+ * @param {Buffer} body
+ * @returns {{ body: Buffer, compatibility: { customTools: Set<string> } } | null}
+ *   `null` when the body contains no Codex custom-tool constructs.
+ */
 function translateCodexCustomToolsForCopilot(body) {
   const parsed = parseBodyAsObject(body);
   if (!parsed) return null;
@@ -131,13 +143,24 @@ function translateCodexCustomToolsForCopilot(body) {
 
   if (!changed) return null;
 
-  const nextBody = Buffer.from(JSON.stringify(parsed));
-  translatedRequestBodies.set(nextBody, { customTools });
-  return nextBody;
+  return {
+    body: Buffer.from(JSON.stringify(parsed)),
+    compatibility: { customTools },
+  };
 }
 
-function getCodexCompatibilityForRequestBody(body) {
-  return translatedRequestBodies.get(body) || null;
+/**
+ * Re-derive compatibility metadata for a request body that was rebuilt from
+ * one that already carried Codex compatibility metadata (e.g. the
+ * model-endpoint-blocked retry, which only rewrites the `model` field).
+ * Since the set of translated custom tools does not depend on the model,
+ * the original compatibility object can simply be reused.
+ *
+ * @param {{ customTools: Set<string> } | null} compatibility
+ * @returns {{ customTools: Set<string> } | null}
+ */
+function carryForwardCodexCompatibility(compatibility) {
+  return compatibility || null;
 }
 
 function toCustomToolCall(item, compatibility) {
@@ -197,10 +220,16 @@ function translateResponseObject(value, compatibility) {
   return { value: changed ? next : value, changed };
 }
 
-function transformCodexCompatibleResponseBody(body, requestBody, provider) {
-  if (provider !== 'copilot') return null;
-  const compatibility = getCodexCompatibilityForRequestBody(requestBody);
-  if (!compatibility) return null;
+/**
+ * @param {Buffer} body - Upstream JSON response body.
+ * @param {{ customTools: Set<string> } | null} compatibility - Compatibility
+ *   metadata produced by `translateCodexCustomToolsForCopilot` for the
+ *   corresponding request (or carried forward across a retry).
+ * @param {string} provider
+ * @returns {Buffer | null}
+ */
+function transformCodexCompatibleResponseBody(body, compatibility, provider) {
+  if (provider !== 'copilot' || !compatibility) return null;
 
   const parsed = parseBodyAsObject(body);
   if (!parsed) return null;
@@ -257,6 +286,27 @@ function itemKey(data) {
   return String(data.item_id || data.output_index || data.call_id || 'default');
 }
 
+/**
+ * Extract every identifier a later `function_call_arguments` event might use
+ * to reference the output item announced by a `response.output_item.added`
+ * event, so mixed-tool streams can be tracked per-item rather than globally.
+ *
+ * @param {object} data - Parsed `response.output_item.added` event payload.
+ * @returns {string[]}
+ */
+function extractItemKeys(data) {
+  const keys = [];
+  const item = data && data.item;
+  if (item && typeof item === 'object') {
+    if (item.id) keys.push(String(item.id));
+    if (item.call_id) keys.push(String(item.call_id));
+  }
+  if (data && data.output_index !== undefined && data.output_index !== null) {
+    keys.push(String(data.output_index));
+  }
+  return keys;
+}
+
 function translateFunctionArgumentsEvent(data, state, done) {
   const key = itemKey(data);
   const delta = typeof data.delta === 'string' ? appendPatchDelta(state, key, data.delta) : null;
@@ -306,7 +356,24 @@ function translateSseBlock(block, state, compatibility) {
   }
 
   const eventType = parsed.eventName || data.type;
+
+  if (eventType === 'response.output_item.added') {
+    const item = data.item;
+    if (
+      item && typeof item === 'object' &&
+      item.type === 'function_call' && item.name === APPLY_PATCH_TOOL &&
+      compatibility && compatibility.customTools && compatibility.customTools.has(APPLY_PATCH_TOOL)
+    ) {
+      for (const key of extractItemKeys(data)) state.applyPatchItemKeys.add(key);
+    }
+  }
+
+  // Argument-delta/done events only carry an item/output-index reference, so
+  // a mixed-tool response must be tracked per-item: only rewrite events for
+  // output items previously identified (via `response.output_item.added`) as
+  // a translated `apply_patch` call. All other function calls pass through.
   if (eventType === 'response.function_call_arguments.delta') {
+    if (!state.applyPatchItemKeys.has(itemKey(data))) return `${block}\n\n`;
     const events = translateFunctionArgumentsEvent(data, state, false);
     return events.map(event =>
       formatSseEvent('response.custom_tool_call_input.delta', event, parsed.passthrough)
@@ -314,6 +381,7 @@ function translateSseBlock(block, state, compatibility) {
   }
 
   if (eventType === 'response.function_call_arguments.done') {
+    if (!state.applyPatchItemKeys.has(itemKey(data))) return `${block}\n\n`;
     const events = translateFunctionArgumentsEvent(data, state, true);
     return events.map(event =>
       formatSseEvent(event.type, event, parsed.passthrough)
@@ -328,20 +396,31 @@ function translateSseBlock(block, state, compatibility) {
   return formatSseEvent(nextEventName, translated.value, parsed.passthrough);
 }
 
-function createCodexCompatibleSseTransform(requestBody, provider) {
-  if (provider !== 'copilot') return null;
-  const compatibility = getCodexCompatibilityForRequestBody(requestBody);
-  if (!compatibility) return null;
+/**
+ * @param {{ customTools: Set<string> } | null} compatibility - Compatibility
+ *   metadata produced by `translateCodexCustomToolsForCopilot` for the
+ *   corresponding request (or carried forward across a retry).
+ * @param {string} provider
+ * @returns {Transform | null}
+ */
+function createCodexCompatibleSseTransform(compatibility, provider) {
+  if (provider !== 'copilot' || !compatibility) return null;
 
   const state = {
     pending: '',
     argumentsByItem: new Map(),
     patchByItem: new Map(),
+    applyPatchItemKeys: new Set(),
+    // A streaming decoder correctly buffers partial multi-byte UTF-8
+    // sequences that fall across network chunk boundaries; decoding each
+    // chunk independently with Buffer#toString would otherwise corrupt
+    // multibyte patch characters split mid-sequence.
+    decoder: new StringDecoder('utf8'),
   };
 
   return new Transform({
     transform(chunk, _encoding, callback) {
-      state.pending += chunk.toString('utf8');
+      state.pending += state.decoder.write(chunk);
       const blocks = state.pending.split(/\r?\n\r?\n/);
       state.pending = blocks.pop() || '';
       try {
@@ -356,6 +435,7 @@ function createCodexCompatibleSseTransform(requestBody, provider) {
     },
     flush(callback) {
       try {
+        state.pending += state.decoder.end();
         if (state.pending) {
           this.push(translateSseBlock(state.pending, state, compatibility));
         }
@@ -371,7 +451,7 @@ module.exports = {
   APPLY_PATCH_FUNCTION_TOOL,
   CodexCompatibilityError,
   translateCodexCustomToolsForCopilot,
-  getCodexCompatibilityForRequestBody,
+  carryForwardCodexCompatibility,
   transformCodexCompatibleResponseBody,
   createCodexCompatibleSseTransform,
   _testing: {

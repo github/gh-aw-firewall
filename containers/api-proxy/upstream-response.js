@@ -4,7 +4,6 @@ const { createLogRequestCompletion, createLogUpstreamAuthError, buildCopilotAuth
 const { handle400WithRetry } = require('./upstream-retry');
 const { setupTokenTracking } = require('./upstream-token');
 const {
-  getCodexCompatibilityForRequestBody,
   transformCodexCompatibleResponseBody,
   createCodexCompatibleSseTransform,
 } = require('./codex-compat');
@@ -88,6 +87,7 @@ function createUpstreamResponseHandlers({
     hasRetried, onRetry,
     modelNotSupportedRetryCount = 0, onModelNotSupportedRetry,
     onModelEndpointBlockedRetry,
+    codexCompatibility = null,
   }) {
     let responseBytes = 0;
     const billingInfo = extractBillingHeaders(proxyRes.headers);
@@ -149,7 +149,6 @@ function createUpstreamResponseHandlers({
 
     const isStreaming = (proxyRes.headers['content-type'] || '').includes('text/event-stream');
     const isJson = (proxyRes.headers['content-type'] || '').includes('application/json');
-    const codexCompatibility = getCodexCompatibilityForRequestBody(body);
     const canTransformCodexResponse =
       provider === 'copilot' &&
       !!codexCompatibility &&
@@ -162,7 +161,7 @@ function createUpstreamResponseHandlers({
 
     let codexSseTransform = null;
     if (canTransformCodexResponse && isStreaming) {
-      codexSseTransform = createCodexCompatibleSseTransform(body, provider);
+      codexSseTransform = createCodexCompatibleSseTransform(codexCompatibility, provider);
     }
 
     if (canTransformCodexResponse && isJson) {
@@ -174,7 +173,7 @@ function createUpstreamResponseHandlers({
       proxyRes.on('end', () => {
         logRequestCompletion(proxyRes.statusCode, responseBytes, initiatorSent, billingInfo, completionCtx);
         const responseBody = Buffer.concat(bufferedChunks);
-        const transformed = transformCodexCompatibleResponseBody(responseBody, body, provider);
+        const transformed = transformCodexCompatibleResponseBody(responseBody, codexCompatibility, provider);
         const outgoingBody = transformed || responseBody;
         res.writeHead(proxyRes.statusCode, transformed ? withoutContentLength(resHeaders) : resHeaders);
         res.end(outgoingBody);

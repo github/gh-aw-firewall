@@ -1,6 +1,7 @@
 'use strict';
 
 const { parseBodyAsObject } = require('./body-utils');
+const { carryForwardCodexCompatibility } = require('./codex-compat');
 
 /**
  * Backoff delays (ms) between successive model-not-supported retries.
@@ -44,6 +45,7 @@ function createSendUpstreamRequest({
     hasRetried = false,
     modelNotSupportedRetryCount = 0,
     targetScheme = 'https',
+    codexCompatibility = null,
   }) {
     let outboundHeaders = requestHeaders;
     if (requestSigner) {
@@ -86,11 +88,13 @@ function createSendUpstreamRequest({
         body, res, provider, requestId, req, targetHost, startTime, span, requestBytes,
         hasRetried,
         modelNotSupportedRetryCount,
+        codexCompatibility,
         onRetry: (retryHeaders) => sendUpstreamRequest(retryHeaders, {
           body, targetHost, upstreamPath, req, res, provider, requestId, startTime, span, requestBytes, requestSigner,
           hasRetried: true,
           modelNotSupportedRetryCount,
           targetScheme,
+          codexCompatibility,
         }),
         onModelNotSupportedRetry: () => {
           const delayMs = MODEL_NOT_SUPPORTED_RETRY_DELAYS_MS[modelNotSupportedRetryCount] ?? 2000;
@@ -100,6 +104,7 @@ function createSendUpstreamRequest({
               hasRetried,
               modelNotSupportedRetryCount: modelNotSupportedRetryCount + 1,
               targetScheme,
+              codexCompatibility,
             });
           });
         },
@@ -120,7 +125,10 @@ function createSendUpstreamRequest({
 
           const nextModel = candidates[currentIdx + 1];
 
-          // Rewrite the body with the next candidate.
+          // Rewrite the body with the next candidate. This produces a new
+          // Buffer object, so Codex compatibility metadata (keyed on the
+          // request/retry context, not on buffer identity) must be carried
+          // forward explicitly — it does not depend on which model is used.
           const newParsed = parseBodyAsObject(body);
           if (!newParsed) return false;
           newParsed.model = nextModel;
@@ -135,6 +143,7 @@ function createSendUpstreamRequest({
             hasRetried,
             modelNotSupportedRetryCount,
             targetScheme,
+            codexCompatibility: carryForwardCodexCompatibility(codexCompatibility),
           });
           return true;
         },

@@ -131,10 +131,10 @@ function applyCopilotHostHeaders(headers, targetHost) {
  * @param {Buffer} body - Final (possibly transformed) request body
  * @param {number} inboundBytes - Original body size before transforms
  * @param {import('http').IncomingMessage} req
- * @param {{ injectHeaders: object, provider: string, targetHost: string, requestId: string }} opts
+ * @param {{ injectHeaders: object, provider: string, targetHost: string, requestId: string, codexCompatibility?: object|null }} opts
  * @returns {object} Headers object for the upstream request
  */
-function buildRequestHeaders(body, inboundBytes, req, { injectHeaders, provider, targetHost, requestId }) {
+function buildRequestHeaders(body, inboundBytes, req, { injectHeaders, provider, targetHost, requestId, codexCompatibility = null }) {
   const headers = {};
   for (const [name, value] of Object.entries(req.headers)) {
     if (!shouldStripHeader(name)) headers[name] = value;
@@ -158,6 +158,15 @@ function buildRequestHeaders(body, inboundBytes, req, { injectHeaders, provider,
   // zstd) that the tracker cannot parse, causing silent token-usage data loss.
   if (headers['accept-encoding']) {
     headers['accept-encoding'] = sanitizeAcceptEncoding(headers['accept-encoding']);
+  }
+
+  // The Codex compatibility adapter rewrites the raw JSON/SSE response body
+  // (translating Copilot `function_call` events back into Codex
+  // `custom_tool_call` events). It operates on plain text, so a compressed
+  // response would leave the translated payload silently unrewritten. Force
+  // identity encoding whenever the request was translated for compatibility.
+  if (codexCompatibility) {
+    headers['accept-encoding'] = 'identity';
   }
 
   const injectedKey = Object.entries(injectHeaders).find(([k]) =>

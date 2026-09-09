@@ -25,6 +25,7 @@ const { sanitizeForLog, logRequest } = require('./logging');
 const metrics = require('./metrics');
 const { getAndClearPendingSteeringMessage } = require('./guards/effective-token-guard');
 const { getAndClearPendingTimeoutSteeringMessage } = require('./guards/timeout-steering');
+const { translateCodexCustomToolsForCopilot } = require('./codex-compat');
 
 /** Maximum request body size: 10 MB to prevent DoS via large payloads. */
 const MAX_BODY_SIZE = 10 * 1024 * 1024;
@@ -152,12 +153,27 @@ function createBodyHandler({ handleRequestError, otel }) {
    * @param {import('http').IncomingMessage} req
    * @param {string} requestId
    * @param {((body: Buffer) => (Buffer | null | Promise<Buffer | null>)) | null} bodyTransform
-   * @returns {Promise<Buffer>}
+   * @returns {Promise<{ body: Buffer, codexCompatibility: { customTools: Set<string> } | null }>}
    */
   async function transformRequestBody(body, provider, req, requestId, bodyTransform) {
+    let codexCompatibility = null;
+
     if (bodyTransform && (req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH')) {
       const transformed = await bodyTransform(body, req);
       if (transformed) body = transformed;
+    }
+
+    // Adapt Codex's Responses `custom`/freeform tool dialect (e.g.
+    // `apply_patch`) into the function-tool dialect Copilot accepts. The
+    // resulting compatibility metadata must be threaded explicitly through
+    // the request/retry context by the caller (see proxy-request.js and
+    // upstream-http.js) rather than recovered from the body later.
+    if (provider === 'copilot' && (req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH')) {
+      const translated = translateCodexCustomToolsForCopilot(body);
+      if (translated) {
+        body = translated.body;
+        codexCompatibility = translated.compatibility;
+      }
     }
 
     if (req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH') {
@@ -200,7 +216,7 @@ function createBodyHandler({ handleRequestError, otel }) {
       }
     }
 
-    return body;
+    return { body, codexCompatibility };
   }
 
   return { collectRequestBody, transformRequestBody };
