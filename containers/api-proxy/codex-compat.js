@@ -130,7 +130,7 @@ function translateCodexCustomToolsForCopilot(body) {
       }
       changed = true;
       customTools.add(APPLY_PATCH_TOOL);
-      return cloneApplyPatchFunctionTool(tool);
+      return cloneApplyPatchFunctionTool();
     });
   }
 
