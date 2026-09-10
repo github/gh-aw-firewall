@@ -245,7 +245,7 @@ describe('otel fan-out initialization', () => {
         endpoint: endpoints[0].url,
       }),
     });
-    const processor = otel._provider.activeSpanProcessor._spanProcessors[0];
+    const processor = otel._provider._activeSpanProcessor._spanProcessors[0];
     const exporters = processor._exporter._exporters;
 
     expect(exporters[0]._headerProvider).toBe(mockWorkloadIdentity);

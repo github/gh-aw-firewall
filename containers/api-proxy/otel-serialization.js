@@ -80,7 +80,7 @@ function serializeSpan(span) {
     droppedEventsCount: span._droppedEventsCount || 0,
     droppedLinksCount: span._droppedLinksCount || 0,
   };
-  if (span.parentSpanId) out.parentSpanId = span.parentSpanId;
+  if (span.parentSpanContext?.spanId) out.parentSpanId = span.parentSpanContext.spanId;
   return out;
 }
 
