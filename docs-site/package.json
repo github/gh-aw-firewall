@@ -25,6 +25,7 @@
   "overrides": {
     "diff": "8.0.3",
     "esbuild": "^0.28.1",
+    "smol-toml": "1.8.0",
     "ajv": "8.16.0",
     "nanoid": "5.1.16",
     "postcss": "8.5.23",
