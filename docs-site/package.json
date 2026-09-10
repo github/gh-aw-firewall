@@ -23,9 +23,10 @@
     "typescript": "^6.0.3"
   },
   "overrides": {
+    "ajv": "8.20.0",
     "diff": "8.0.3",
+    "dompurify": "^3.4.15",
     "esbuild": "^0.28.1",
-    "ajv": "8.16.0",
     "nanoid": "5.1.16",
     "postcss": "8.5.23",
     "smol-toml": "^1.7.1",
