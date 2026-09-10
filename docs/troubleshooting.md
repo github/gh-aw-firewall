@@ -515,6 +515,33 @@ sudo dmesg | grep FW_BLOCKED
      'cat /etc/resolv.conf'
    ```
 
+### awf-net Subnet Collides With the Host or Cluster Network
+
+**Problem:** Every request fails with `503` and the Squid access log shows
+`TCP_MISS/503 ... HIER_NONE`, or AWF aborts at startup with
+"The awf-net subnet 172.30.0.0/24 contains the DNS resolver(s) ...".
+
+**Cause:** The default `awf-net` subnet (`172.30.0.0/24`) overlaps the host or
+cluster network. On OpenShift/ARO it is inside the default service CIDR
+(`172.30.0.0/16`) and the CoreDNS ClusterIP is exactly `172.30.0.10` — the
+address AWF assigns to Squid, so Squid sends its DNS queries to itself.
+
+**Solution:** Relocate the network to a free RFC1918 block:
+
+```bash
+sudo awf --network-subnet 10.88.0.0/24 --allow-domains github.com -- curl https://github.com
+```
+
+Or in an AWF config file:
+
+```json
+{ "network": { "subnet": "10.88.0.0/24" } }
+```
+
+The fixed host offsets are preserved inside the new block (`.1` gateway, `.10`
+Squid, `.20` agent, `.30` api-proxy, `.40` DoH proxy, `.50` CLI proxy).
+Accepted prefix lengths are `/16` through `/26`.
+
 ### Connection Timeouts
 
 **Problem:** Requests timeout instead of being blocked

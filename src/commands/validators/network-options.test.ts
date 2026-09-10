@@ -287,4 +287,59 @@ describe('validateNetworkOptions', () => {
       expect(warnCalls.some((m: string) => m.includes('RUNNER_TOOL_CACHE is under /opt'))).toBe(false);
     });
   });
+  describe('--network-subnet', () => {
+    let exitSpy: jest.SpyInstance;
+
+    beforeEach(() => {
+      exitSpy = jest.spyOn(process, 'exit').mockImplementation((() => {
+        throw new Error('process.exit called');
+      }) as never);
+    });
+
+    afterEach(() => {
+      exitSpy.mockRestore();
+    });
+
+    it('returns undefined when no override is provided', () => {
+      expect(validateNetworkOptions({}).networkSubnet).toBeUndefined();
+    });
+
+    it('canonicalizes a valid override', () => {
+      expect(validateNetworkOptions({ networkSubnet: '10.88.0.5/24' }).networkSubnet).toBe(
+        '10.88.0.0/24',
+      );
+    });
+
+    it('exits on an invalid override', () => {
+      expect(() => validateNetworkOptions({ networkSubnet: '10.88.0.0' })).toThrow(
+        'process.exit called',
+      );
+      const errors = (logger.error as jest.Mock).mock.calls.map((c: string[]) => c[0]);
+      expect(errors.some((m: string) => m.includes('Invalid --network-subnet'))).toBe(true);
+    });
+
+    it('exits when the effective subnet contains a detected DNS resolver', () => {
+      mockResolveNetworkConfig.mockReturnValue({
+        upstreamProxy: undefined,
+        dnsServers: ['172.30.0.10'],
+        dnsOverHttps: undefined,
+      });
+
+      expect(() => validateNetworkOptions({})).toThrow('process.exit called');
+      const errors = (logger.error as jest.Mock).mock.calls.map((c: string[]) => c[0]);
+      expect(errors.some((m: string) => m.includes('--network-subnet'))).toBe(true);
+    });
+
+    it('accepts a relocated subnet that avoids the colliding resolver', () => {
+      mockResolveNetworkConfig.mockReturnValue({
+        upstreamProxy: undefined,
+        dnsServers: ['172.30.0.10'],
+        dnsOverHttps: undefined,
+      });
+
+      expect(validateNetworkOptions({ networkSubnet: '10.88.0.0/24' }).networkSubnet).toBe(
+        '10.88.0.0/24',
+      );
+    });
+  });
 });

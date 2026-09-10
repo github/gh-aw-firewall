@@ -36,6 +36,11 @@
           },
           "description": "DNS servers to use inside the container. Defaults to Google DNS (8.8.8.8, 8.8.4.4). Accepts IPv4 and IPv6 addresses."
         },
+        "subnet": {
+          "type": "string",
+          "description": "IPv4 CIDR for the awf-net Docker network (default 172.30.0.0/24). Use this when the default collides with the host or cluster network, e.g. the OpenShift service CIDR 172.30.0.0/16 whose CoreDNS ClusterIP 172.30.0.10 is the address AWF assigns to Squid. Accepted prefix lengths are /16 to /26. Maps to --network-subnet.",
+          "pattern": "^(\\d{1,3}\\.){3}\\d{1,3}/(1[6-9]|2[0-6])$"
+        },
         "upstreamProxy": {
           "type": "string",
           "description": "Upstream HTTP proxy URL (e.g. \"http://proxy.corp.example.com:8080\"). When set, the AWF Squid proxy forwards traffic through this proxy."

@@ -10,6 +10,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import execa from 'execa';
 import { writeConfigs } from './config-writer';
+import { generateDockerCompose } from './compose-generator';
 import { isOpenSslAvailable } from './ssl-bump';
 import { getRealUserHome, isNativeRootWithoutSudo } from './host-identity';
 import {
@@ -71,6 +72,30 @@ describe('writeConfigs', () => {
       await writeConfigs(buildWriteConfig(tempDir));
 
       expect(isOpenSslAvailable).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('network subnet override', () => {
+    it('relocates the awf-net subnet and sidecar IPs passed to compose generation', async () => {
+      await writeConfigs(buildWriteConfig(tempDir, { networkSubnet: '10.88.0.0/24' }));
+
+      expect((generateDockerCompose as jest.Mock).mock.calls[0][1]).toEqual({
+        subnet: '10.88.0.0/24',
+        squidIp: '10.88.0.10',
+        agentIp: '10.88.0.20',
+        proxyIp: '10.88.0.30',
+        dohProxyIp: '10.88.0.40',
+        cliProxyIp: '10.88.0.50',
+      });
+    });
+
+    it('keeps the policy default when no override is given', async () => {
+      await writeConfigs(buildWriteConfig(tempDir));
+
+      expect((generateDockerCompose as jest.Mock).mock.calls[0][1]).toMatchObject({
+        subnet: '172.30.0.0/24',
+        squidIp: '172.30.0.10',
+      });
     });
   });
 

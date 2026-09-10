@@ -64,6 +64,7 @@ interface BuildConfigInputs {
   dnsServers: string[];
   dnsServersExplicit?: boolean;
   dnsOverHttps: string | undefined;
+  networkSubnet?: string;
   allowedUrls: string[] | undefined;
   memoryLimit: string | undefined;
   pidsLimit: number | undefined;
@@ -104,6 +105,7 @@ export function buildConfig(inputs: BuildConfigInputs): WrapperConfig {
     dnsServers,
     dnsServersExplicit,
     dnsOverHttps,
+    networkSubnet,
     allowedUrls,
     memoryLimit,
     pidsLimit,
@@ -169,6 +171,7 @@ export function buildConfig(inputs: BuildConfigInputs): WrapperConfig {
     runnerToolCachePath: options.runnerToolCachePath as string | undefined,
     enableHostAccess: options.enableHostAccess as boolean,
     networkIsolation: options.networkIsolation as boolean | undefined,
+    networkSubnet,
     verifySbxEgress: options.verifySbxEgress as boolean | undefined,
     topologyAttach: options.topologyAttach as string[] | undefined,
     localhostDetected,

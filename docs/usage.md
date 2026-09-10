@@ -61,6 +61,12 @@ Options:
   --dns-servers <servers>      Comma-separated list of trusted DNS servers. DNS traffic is ONLY
                                allowed to these servers (default: auto-detected from host resolvers,
                                falls back to 8.8.8.8,8.8.4.4)
+  --network-subnet <cidr>      IPv4 CIDR for the awf-net Docker network (default: 172.30.0.0/24).
+                               Use when the default collides with the host or cluster network — for
+                               example the OpenShift service CIDR 172.30.0.0/16, whose CoreDNS
+                               ClusterIP 172.30.0.10 is the address AWF assigns to Squid. Accepted
+                               prefix lengths are /16 to /26; the fixed host offsets (.1 gateway,
+                               .10 squid, .20 agent, .30 api-proxy) are preserved in the new block.
   --upstream-proxy <url>       Upstream (corporate) proxy URL for Squid to chain through.
                                Auto-detected from host https_proxy/http_proxy if not set.
   --proxy-logs-dir <path>      Directory to save Squid proxy logs to (writes access.log directly to

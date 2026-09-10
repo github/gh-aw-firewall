@@ -16,6 +16,7 @@ export interface AwfFileConfig {
     allowDomains?: string[];
     blockDomains?: string[];
     dnsServers?: string[];
+    subnet?: string;
     upstreamProxy?: string;
     isolation?: boolean;
     verifySbxEgress?: boolean;

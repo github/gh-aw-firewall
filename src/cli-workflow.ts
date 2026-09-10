@@ -2,7 +2,7 @@ import { WrapperConfig } from './types';
 import { HostAccessConfig, CliProxyHostConfig } from './host-iptables';
 import { DEFAULT_DNS_SERVERS } from './dns-resolver';
 import { parseDifcProxyHost } from './docker-manager';
-import { CLI_PROXY_IP, DOH_PROXY_IP, SQUID_IP, API_PROXY_IP } from './host-iptables-shared';
+import { resolveNetworkAddressing } from './network-subnet';
 import { buildInternalServiceHosts } from './services/internal-service-hosts';
 import { TOPOLOGY_NETWORK_NAME, getTopologyContainerIps, patchComposeWithTopologyHosts } from './topology';
 import { validateEnclavesConfig } from './enclave/preflight';
@@ -16,7 +16,7 @@ import { isEnclaveAgentGithubRouteEnabled } from './types/enclave-options';
  * `runAgentCommand` while continuing to use compose for infrastructure.
  */
 export interface WorkflowDependencies {
-  ensureFirewallNetwork: () => Promise<{ squidIp: string; agentIp: string; proxyIp: string; subnet: string }>;
+  ensureFirewallNetwork: (subnetOverride?: string) => Promise<{ squidIp: string; agentIp: string; proxyIp: string; subnet: string }>;
   setupHostIptables: (squidIp: string, port: number, dnsServers: string[], apiProxyIp?: string, dohProxyIp?: string, hostAccess?: HostAccessConfig, cliProxyConfig?: CliProxyHostConfig) => Promise<void>;
   writeConfigs: (config: WrapperConfig) => Promise<void>;
   startContainers: (
@@ -88,6 +88,9 @@ export async function runMainWorkflow(
 ): Promise<number> {
   const { logger, performCleanup, onHostIptablesSetup, onContainersStarted } = options;
 
+  // Fixed sidecar addresses on awf-net, relocated when --network-subnet is set.
+  const addressing = resolveNetworkAddressing(config.networkSubnet);
+
   // Structural validation only: the dynamic delegation handoff can be read
   // exactly once (taking custody deletes it from the environment), so that
   // check belongs to `prepareEnclaves` below, which still runs before any
@@ -129,13 +132,13 @@ export async function runMainWorkflow(
     logger.info('Network-isolation mode: enforcing egress via Docker network topology (no host iptables, no sudo).');
   } else {
     logger.info('Setting up host-level firewall network and iptables rules...');
-    const networkConfig = await dependencies.ensureFirewallNetwork();
+    const networkConfig = await dependencies.ensureFirewallNetwork(config.networkSubnet);
     // When API proxy is enabled, allow agent→sidecar traffic at the host level.
     // The sidecar itself routes through Squid, so domain whitelisting is still enforced.
     const dnsServers = config.dnsServers || DEFAULT_DNS_SERVERS;
     const apiProxyIp = config.enableApiProxy ? networkConfig.proxyIp : undefined;
     // When DoH is enabled, the DoH proxy needs direct HTTPS access to the resolver
-    const dohProxyIp = config.dnsOverHttps ? DOH_PROXY_IP : undefined;
+    const dohProxyIp = config.dnsOverHttps ? addressing.dohProxyIp : undefined;
     const hostAccess: HostAccessConfig | undefined = config.enableHostAccess
       ? { enabled: true, allowHostPorts: config.allowHostPorts, allowHostServicePorts: config.allowHostServicePorts }
       : undefined;
@@ -144,7 +147,7 @@ export async function runMainWorkflow(
     let cliProxyConfig: CliProxyHostConfig | undefined;
     if (config.difcProxyHost) {
       const { port } = parseDifcProxyHost(config.difcProxyHost);
-      cliProxyConfig = { ip: CLI_PROXY_IP, difcProxyPort: parseInt(port, 10) };
+      cliProxyConfig = { ip: addressing.cliProxyIp, difcProxyPort: parseInt(port, 10) };
     }
     await dependencies.setupHostIptables(networkConfig.squidIp, 3128, dnsServers, apiProxyIp, dohProxyIp, hostAccess, cliProxyConfig);
     onHostIptablesSetup?.();
@@ -200,9 +203,9 @@ export async function runMainWorkflow(
             // (buildInternalServiceHosts); the topology path sources the fixed
             // sidecar IPs from constants since it has no host networkConfig.
             for (const [name, ip] of Object.entries(buildInternalServiceHosts({
-              squidIp: SQUID_IP,
-              apiProxyIp: config.enableApiProxy ? API_PROXY_IP : undefined,
-              cliProxyIp: config.difcProxyHost ? CLI_PROXY_IP : undefined,
+              squidIp: addressing.squidIp,
+              apiProxyIp: config.enableApiProxy ? addressing.proxyIp : undefined,
+              cliProxyIp: config.difcProxyHost ? addressing.cliProxyIp : undefined,
             }))) {
               peerIps.set(name, ip);
             }

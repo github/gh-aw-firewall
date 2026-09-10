@@ -6,6 +6,7 @@ import {
 } from '../../option-parsers';
 import { resolveAllowedDomains, resolveBlockedDomains } from '../preflight';
 import { resolveNetworkConfig } from '../network-setup';
+import { assertNetworkSubnetUsable, parseNetworkSubnet, resolveNetworkAddressing } from '../../network-subnet';
 
 /**
  * The result produced by {@link validateNetworkOptions}.
@@ -24,6 +25,45 @@ export interface NetworkOptionsResult {
   /** True when DNS servers were supplied explicitly; false when auto-detected. */
   dnsServersExplicit: boolean;
   dnsOverHttps: string | undefined;
+  /** Canonical `awf-net` CIDR when overridden with --network-subnet. */
+  networkSubnet: string | undefined;
+}
+
+/**
+ * Validates `--network-subnet` and fails loudly when the effective `awf-net`
+ * subnet (override or default) collides with the host/pod network.
+ *
+ * A collision with a DNS resolver or an existing host route silently breaks
+ * Squid's name resolution (every CONNECT ends in `503 HIER_NONE`), so it is
+ * reported as a startup error with the `--network-subnet` remedy rather than
+ * being discovered at request time.
+ */
+function resolveNetworkSubnet(
+  options: Record<string, unknown>,
+  dnsServers: string[],
+): string | undefined {
+  const requested = options.networkSubnet as string | undefined;
+  let networkSubnet: string | undefined;
+  if (requested) {
+    try {
+      networkSubnet = parseNetworkSubnet(requested);
+    } catch (error) {
+      logger.error(`Invalid --network-subnet: ${error instanceof Error ? error.message : error}`);
+      process.exit(1);
+    }
+  }
+
+  const addressing = resolveNetworkAddressing(networkSubnet);
+  try {
+    assertNetworkSubnetUsable(addressing.subnet, { dnsServers });
+  } catch (error) {
+    logger.error(error instanceof Error ? error.message : String(error));
+    process.exit(1);
+  }
+  if (networkSubnet) {
+    logger.info(`Using awf-net subnet ${addressing.subnet} (squid: ${addressing.squidIp}, agent: ${addressing.agentIp})`);
+  }
+  return networkSubnet;
 }
 
 /**
@@ -111,6 +151,8 @@ export function validateNetworkOptions(options: Record<string, unknown>): Networ
   // Resolve network configuration (upstream proxy, DNS servers, DNS-over-HTTPS)
   const { upstreamProxy, dnsServers, dnsServersExplicit, dnsOverHttps } = resolveNetworkConfig(options);
 
+  const networkSubnet = resolveNetworkSubnet(options, dnsServers);
+
   return {
     dockerHostCheck,
     dockerHostPathPrefixResolution,
@@ -124,5 +166,6 @@ export function validateNetworkOptions(options: Record<string, unknown>): Networ
     dnsServers,
     dnsServersExplicit,
     dnsOverHttps,
+    networkSubnet,
   };
 }

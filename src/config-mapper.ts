@@ -23,6 +23,7 @@ export function mapAwfFileConfigToCliOptions(config: AwfFileConfig): Record<stri
     allowDomains: joinComma(config.network?.allowDomains),
     blockDomains: joinComma(config.network?.blockDomains),
     dnsServers: joinComma(config.network?.dnsServers),
+    networkSubnet: config.network?.subnet,
     upstreamProxy: config.network?.upstreamProxy,
     networkIsolation: config.network?.isolation,
     verifySbxEgress: config.network?.verifySbxEgress,

@@ -204,6 +204,7 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 - `network.allowDomains[]` → `--allow-domains <csv>`
 - `network.blockDomains[]` → `--block-domains <csv>`
 - `network.dnsServers[]` → `--dns-servers <csv>`
+- `network.subnet` → `--network-subnet <cidr>` *(relocates the `awf-net` Docker network; use when the default `172.30.0.0/24` collides with the host or cluster network, e.g. the OpenShift service CIDR `172.30.0.0/16`)*
 - `network.upstreamProxy` → `--upstream-proxy`
 - `network.isolation` → `--network-isolation` *(experimental; enforces egress via Docker network topology instead of host iptables)*
 - `network.verifySbxEgress` → `--verify-sbx-egress` *(fail-closed verification that Docker sbx direct traffic cannot bypass Squid; requires the sbx runtime)*

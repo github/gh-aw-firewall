@@ -299,6 +299,13 @@ program
     'Disable network-isolation mode (requires --legacy-security).'
   )
   .option(
+    '--network-subnet <cidr>',
+    'IPv4 CIDR for the awf-net Docker network (default: 172.30.0.0/24).\n' +
+    '                                       Use this when the default collides with the host or cluster\n' +
+    '                                       network (e.g. the OpenShift service CIDR 172.30.0.0/16).\n' +
+    '                                       Example: 10.88.0.0/24'
+  )
+  .option(
     '--verify-sbx-egress',
     'Fail before agent startup unless Docker sbx blocks direct non-proxy egress.',
     false

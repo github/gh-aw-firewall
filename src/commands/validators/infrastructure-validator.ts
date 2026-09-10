@@ -46,6 +46,18 @@ export function validateInfrastructureOptions(config: WrapperConfig): void {
     logger.error('   Example (stdin config): {"chroot":{"binariesSourcePath":"/tmp/gh-aw/runner-bin"}}');
     process.exit(1);
   }
+  // The microVM backends (sbx, cloud-hypervisor) derive their guest network
+  // plans from the fixed policy subnet, so a relocated awf-net would silently
+  // disagree with the guest addressing. Reject the combination loudly.
+  if (
+    config.networkSubnet &&
+    (config.containerRuntime === 'sbx' || config.containerRuntime === 'cloud-hypervisor')
+  ) {
+    logger.error(
+      `❌ --network-subnet is not supported with --container-runtime ${config.containerRuntime}`,
+    );
+    process.exit(1);
+  }
 }
 
 /**

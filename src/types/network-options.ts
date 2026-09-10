@@ -132,6 +132,24 @@ export interface NetworkOptions {
   networkIsolation?: boolean;
 
   /**
+   * IPv4 CIDR of the `awf-net` Docker network.
+   *
+   * The default (`172.30.0.0/24`) is not free everywhere: on OpenShift/ARO it
+   * lies inside the default service CIDR (`172.30.0.0/16`) and the CoreDNS
+   * ClusterIP is exactly the address AWF assigns to Squid (`172.30.0.10`),
+   * which makes Squid resolve names against itself. Override the subnet to move
+   * the network out of the way; the fixed sidecar host offsets (`.1` gateway,
+   * `.10` Squid, `.20` agent, `.30` api-proxy, …) are preserved inside the new
+   * block.
+   *
+   * Accepted prefix lengths are /16 through /26.
+   *
+   * @default undefined (use 172.30.0.0/24 from the network policy)
+   * @example '10.88.0.0/24'
+   */
+  networkSubnet?: string;
+
+  /**
    * Verify that Docker sbx prevents direct egress when proxy environment
    * variables are removed.
    *

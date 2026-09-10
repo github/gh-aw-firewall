@@ -15,14 +15,7 @@ import { deriveSensitiveEndpointForms, redactSensitiveValues } from './redact-se
 import { resolveLogPaths } from './log-paths';
 import { DEFAULT_DNS_SERVERS, filterForNetworkIsolation } from './dns-resolver';
 import { getSafeHostGid, getSafeHostUid, isNativeRootWithoutSudo } from './host-identity';
-import {
-  AGENT_IP,
-  API_PROXY_IP,
-  CLI_PROXY_IP,
-  DOH_PROXY_IP,
-  NETWORK_SUBNET,
-  SQUID_IP,
-} from './host-iptables-shared';
+import { resolveNetworkAddressing } from './network-subnet';
 import { prepareWorkDirectories } from './workdir-setup';
 
 // When bundled with esbuild, this global is replaced at build time with the
@@ -515,14 +508,17 @@ export async function writeConfigs(config: WrapperConfig): Promise<void> {
   repairRunnerTempGhAwOwnership();
   repairContainerWorkDirOwnership(config);
 
-  // Use fixed network configuration (network is created by host-iptables.ts)
+  // Network addressing: policy defaults unless relocated with --network-subnet
+  // (the network itself is created by compose, or by host-iptables.ts in the
+  // legacy path).
+  const addressing = resolveNetworkAddressing(config.networkSubnet);
   const networkConfig: NetworkConfig = {
-    subnet: NETWORK_SUBNET,
-    squidIp: SQUID_IP,
-    agentIp: AGENT_IP,
-    proxyIp: API_PROXY_IP,  // Envoy API proxy sidecar
-    dohProxyIp: DOH_PROXY_IP,  // DoH proxy sidecar
-    cliProxyIp: CLI_PROXY_IP,  // CLI proxy sidecar
+    subnet: addressing.subnet,
+    squidIp: addressing.squidIp,
+    agentIp: addressing.agentIp,
+    proxyIp: addressing.proxyIp,  // Envoy API proxy sidecar
+    dohProxyIp: addressing.dohProxyIp,  // DoH proxy sidecar
+    cliProxyIp: addressing.cliProxyIp,  // CLI proxy sidecar
   };
   logger.debug(`Using network config: ${networkConfig.subnet} (squid: ${networkConfig.squidIp}, agent: ${networkConfig.agentIp}, api-proxy: ${networkConfig.proxyIp})`);
 

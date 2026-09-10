@@ -113,6 +113,7 @@ export const createMinimalNetworkOptions = (): NetworkOptionsResult => ({
   dnsServers: ['8.8.8.8'],
   dnsServersExplicit: false,
   dnsOverHttps: undefined,
+  networkSubnet: undefined,
   resolvedCopilotApiTarget: undefined,
   resolvedCopilotApiBasePath: undefined,
   dockerHostPathPrefixResolution: { dockerHostPathPrefix: undefined, autoApplied: false, dindHint: false },
