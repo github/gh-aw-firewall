@@ -448,6 +448,10 @@ function writeAuditArtifacts(
     // allowed connections to topology-attached containers (e.g. awmg-mcpg:8080)
     // rather than misidentifying them as "unknown" or blocked.
     topologyPeers: resolveTopologyPeerHosts(config),
+    // Effective awf-net subnet (relocated by --network-subnet when set), so
+    // log analysis classifies denied in-subnet IPs as AWF-internal rather
+    // than external blocked domains.
+    networkSubnet: networkConfig.subnet,
   });
   writeAuditArtifact(
     auditDir,

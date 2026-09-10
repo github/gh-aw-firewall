@@ -63,4 +63,12 @@ export interface PolicyManifest {
    * inter-container traffic that was denied because it bypassed NO_PROXY.
    */
   topologyPeers?: string[];
+  /**
+   * Effective `awf-net` subnet in effect for this run (`network.subnet` /
+   * `--network-subnet`, or the fixed policy default when not overridden).
+   * Used by log analysis to classify denied `x.x.x.x` targets as AWF-internal
+   * (Squid, sidecars, topology peers) rather than external blocked domains —
+   * see `logs/internal-domain-filter.ts`.
+   */
+  networkSubnet?: string;
 }

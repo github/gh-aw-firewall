@@ -17,7 +17,7 @@ import { isEnclaveAgentGithubRouteEnabled } from './types/enclave-options';
  */
 export interface WorkflowDependencies {
   ensureFirewallNetwork: (subnetOverride?: string) => Promise<{ squidIp: string; agentIp: string; proxyIp: string; subnet: string }>;
-  setupHostIptables: (squidIp: string, port: number, dnsServers: string[], apiProxyIp?: string, dohProxyIp?: string, hostAccess?: HostAccessConfig, cliProxyConfig?: CliProxyHostConfig) => Promise<void>;
+  setupHostIptables: (squidIp: string, port: number, dnsServers: string[], apiProxyIp?: string, dohProxyIp?: string, hostAccess?: HostAccessConfig, cliProxyConfig?: CliProxyHostConfig, gatewayIp?: string) => Promise<void>;
   writeConfigs: (config: WrapperConfig) => Promise<void>;
   startContainers: (
     workDir: string,
@@ -149,7 +149,7 @@ export async function runMainWorkflow(
       const { port } = parseDifcProxyHost(config.difcProxyHost);
       cliProxyConfig = { ip: addressing.cliProxyIp, difcProxyPort: parseInt(port, 10) };
     }
-    await dependencies.setupHostIptables(networkConfig.squidIp, 3128, dnsServers, apiProxyIp, dohProxyIp, hostAccess, cliProxyConfig);
+    await dependencies.setupHostIptables(networkConfig.squidIp, 3128, dnsServers, apiProxyIp, dohProxyIp, hostAccess, cliProxyConfig, addressing.gatewayIp);
     onHostIptablesSetup?.();
   }
 

@@ -83,7 +83,8 @@ function parseLines(
  */
 function aggregateLogs(
   entries: ParsedLogEntry[],
-  knownTopologyPeers?: ReadonlySet<string>
+  knownTopologyPeers?: ReadonlySet<string>,
+  networkSubnet?: string
 ): AggregatedStats {
   const byDomain = new Map<string, DomainStats>();
   let allowedRequests = 0;
@@ -113,7 +114,7 @@ function aggregateLogs(
     // entry — they are never missing external dependencies and surfacing them
     // as blocked external domains in reports is spurious noise.
     const domain = entry.domain || '-';
-    if (!entry.isAllowed && isInternalAwfDomain(domain, knownTopologyPeers)) {
+    if (!entry.isAllowed && isInternalAwfDomain(domain, knownTopologyPeers, networkSubnet)) {
       continue;
     }
 
@@ -228,14 +229,18 @@ export async function loadAllLogs(source: LogSource): Promise<ParsedLogEntry[]> 
  * @param knownTopologyPeers - Optional set of topology-peer hostnames from the
  *   policy manifest. When provided, denied entries for these hosts are suppressed
  *   even if their names contain dots (e.g. mcp.gateway-01).
+ * @param networkSubnet - Optional effective `awf-net` subnet (CIDR) from the
+ *   policy manifest's `networkSubnet` field, for classifying denied in-subnet
+ *   IPs as AWF-internal when `--network-subnet` relocated the network.
  * @returns Aggregated statistics
  */
 export async function loadAndAggregate(
   source: LogSource,
-  knownTopologyPeers?: ReadonlySet<string>
+  knownTopologyPeers?: ReadonlySet<string>,
+  networkSubnet?: string
 ): Promise<AggregatedStats> {
   const entries = await loadAllLogs(source);
-  const stats = aggregateLogs(entries, knownTopologyPeers);
+  const stats = aggregateLogs(entries, knownTopologyPeers, networkSubnet);
   const startupDiagnostics = readStartupDiagnostics(source);
   if (startupDiagnostics.length > 0) {
     stats.startupDiagnostics = startupDiagnostics;

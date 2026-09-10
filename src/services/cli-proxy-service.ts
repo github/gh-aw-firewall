@@ -91,11 +91,16 @@ export function normalizeLoopbackDifcHost(host: string): string {
  * search-domain-resolved DNS label would be misclassified and remain
  * unreachable — that host must be given a dotted name (or a literal IP
  * outside `awf-net`'s subnet) to be recognized as external.
+ *
+ * `subnet` defaults to the fixed policy `NETWORK_SUBNET`, but callers must
+ * pass the effective (possibly `--network-subnet`-relocated) subnet so an IP
+ * literal inside a relocated `awf-net` is still recognized as an attached
+ * sibling rather than misclassified as external.
  */
-export function isExternalDifcProxyHost(host: string): boolean {
+export function isExternalDifcProxyHost(host: string, subnet: string = NETWORK_SUBNET): boolean {
   const normalized = host.trim().toLowerCase();
   if (!normalized) return false;
-  if (isValidIPv4(normalized)) return !isIPv4InCidr(normalized, NETWORK_SUBNET);
+  if (isValidIPv4(normalized)) return !isIPv4InCidr(normalized, subnet);
   if (isValidIPv6(normalized)) return true;
   // Dotted names (host.docker.internal, difc.example.com) resolve outside the
   // Compose project; bare labels are Docker service/container names.
@@ -122,7 +127,8 @@ export function buildCliProxyService(params: CliProxyServiceParams): CliProxyBui
   // network attachment classification).
   const { host: parsedDifcProxyHost, port: difcProxyPort } = parseDifcProxyHost(config.difcProxyHost);
   const difcProxyHost = normalizeLoopbackDifcHost(parsedDifcProxyHost);
-  const needsEgressRelay = !!config.networkIsolation && isExternalDifcProxyHost(difcProxyHost);
+  const needsEgressRelay =
+    !!config.networkIsolation && isExternalDifcProxyHost(difcProxyHost, networkConfig.subnet);
   const cliProxyUpstreamHost = needsEgressRelay ? CLI_PROXY_EGRESS_SERVICE_NAME : difcProxyHost;
 
   // --- CLI proxy HTTP server (Node.js + gh CLI) ---

@@ -56,7 +56,7 @@ export const DANGEROUS_PORTS = [
  * enricher skips them and attributes those denials to "unknown".
  */
 export function generatePolicyManifest(config: SquidConfig): PolicyManifest {
-  const { domains, blockedDomains, sslBump, enableHostAccess, allowHostPorts, enableDlp, dnsServers, apiProxyIp, topologyPeers } = config;
+  const { domains, blockedDomains, sslBump, enableHostAccess, allowHostPorts, enableDlp, dnsServers, apiProxyIp, topologyPeers, networkSubnet } = config;
 
   // Parse, deduplicate, and group domains by protocol (shared logic with generateSquidConfig)
   const { domainsByProto, patternsByProto } = parseDomainConfig(domains);
@@ -89,5 +89,6 @@ export function generatePolicyManifest(config: SquidConfig): PolicyManifest {
     hostAccessEnabled: enableHostAccess ?? false,
     allowHostPorts: allowHostPorts ?? null,
     ...(topologyPeers && topologyPeers.length > 0 ? { topologyPeers } : {}),
+    ...(networkSubnet ? { networkSubnet } : {}),
   };
 }

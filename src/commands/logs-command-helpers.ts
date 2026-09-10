@@ -138,7 +138,7 @@ async function loadLogsWithErrorHandling(
       ? new Set(manifest.topologyPeers.map(p => p.toLowerCase()))
       : undefined;
 
-    const stats = await loadAndAggregate(source, knownTopologyPeers);
+    const stats = await loadAndAggregate(source, knownTopologyPeers, manifest?.networkSubnet);
 
     // Enrich with policy rule stats when a manifest is available
     if (manifest) {

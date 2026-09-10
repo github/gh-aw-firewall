@@ -27,13 +27,29 @@ jest.mock('../network-setup', () => ({
   resolveNetworkConfig: jest.fn(),
 }));
 
+// Mock only the host-I/O collision check in network-subnet; keep the pure
+// parsing/rebasing logic real so canonicalization assertions still exercise
+// actual code. Without this, assertNetworkSubnetUsable() reads the test
+// runner's real /etc/resolv.conf and /proc/net/route, making the suite
+// host-dependent (e.g. it fails outright on hosts where 172.30.0.0/24
+// genuinely collides).
+jest.mock('../../network-subnet', () => {
+  const actual = jest.requireActual('../../network-subnet');
+  return {
+    ...actual,
+    assertNetworkSubnetUsable: jest.fn(),
+  };
+});
+
 import { logger } from '../../logger';
 import { checkDockerHost, resolveDockerHostPathPrefix } from '../../option-parsers';
 import { resolveAllowedDomains, resolveBlockedDomains } from '../preflight';
 import { resolveNetworkConfig } from '../network-setup';
+import { assertNetworkSubnetUsable } from '../../network-subnet';
 
 const mockCheckDockerHost = checkDockerHost as jest.Mock;
 const mockResolveDockerHostPathPrefix = resolveDockerHostPathPrefix as jest.Mock;
+const mockAssertNetworkSubnetUsable = assertNetworkSubnetUsable as jest.Mock;
 const mockResolveAllowedDomains = resolveAllowedDomains as jest.Mock;
 const mockResolveBlockedDomains = resolveBlockedDomains as jest.Mock;
 const mockResolveNetworkConfig = resolveNetworkConfig as jest.Mock;
@@ -324,6 +340,12 @@ describe('validateNetworkOptions', () => {
         dnsServers: ['172.30.0.10'],
         dnsOverHttps: undefined,
       });
+      mockAssertNetworkSubnetUsable.mockImplementation(() => {
+        throw new Error(
+          'The awf-net subnet 172.30.0.0/24 contains the DNS resolver(s) 172.30.0.10. ' +
+          'Relocate the network with --network-subnet.',
+        );
+      });
 
       expect(() => validateNetworkOptions({})).toThrow('process.exit called');
       const errors = (logger.error as jest.Mock).mock.calls.map((c: string[]) => c[0]);
@@ -336,6 +358,9 @@ describe('validateNetworkOptions', () => {
         dnsServers: ['172.30.0.10'],
         dnsOverHttps: undefined,
       });
+      // The relocated subnet no longer contains the colliding resolver, so the
+      // (real) collision check would not throw here either; the mock mirrors that.
+      mockAssertNetworkSubnetUsable.mockImplementation(() => undefined);
 
       expect(validateNetworkOptions({ networkSubnet: '10.88.0.0/24' }).networkSubnet).toBe(
         '10.88.0.0/24',

@@ -467,7 +467,7 @@ describe('runMainWorkflow', () => {
 
     const expectedHostAccess: HostAccessConfig = { enabled: true, allowHostPorts: '3000,8080' };
     expect(dependencies.setupHostIptables).toHaveBeenCalledWith(
-      '172.30.0.10', 3128, ['8.8.8.8', '8.8.4.4'], undefined, undefined, expectedHostAccess, undefined
+      '172.30.0.10', 3128, ['8.8.8.8', '8.8.4.4'], undefined, undefined, expectedHostAccess, undefined, '172.30.0.1'
     );
   });
 
@@ -488,7 +488,7 @@ describe('runMainWorkflow', () => {
       allowHostServicePorts: '5432,6379',
     };
     expect(dependencies.setupHostIptables).toHaveBeenCalledWith(
-      '172.30.0.10', 3128, ['8.8.8.8', '8.8.4.4'], undefined, undefined, expectedHostAccess, undefined
+      '172.30.0.10', 3128, ['8.8.8.8', '8.8.4.4'], undefined, undefined, expectedHostAccess, undefined, '172.30.0.1'
     );
   });
 
@@ -498,7 +498,7 @@ describe('runMainWorkflow', () => {
     });
 
     expect(dependencies.setupHostIptables).toHaveBeenCalledWith(
-      '172.30.0.10', 3128, ['8.8.8.8', '8.8.4.4'], undefined, undefined, undefined, undefined
+      '172.30.0.10', 3128, ['8.8.8.8', '8.8.4.4'], undefined, undefined, undefined, undefined, '172.30.0.1'
     );
   });
 
@@ -708,7 +708,7 @@ describe('runMainWorkflow', () => {
     });
 
     expect(dependencies.setupHostIptables).toHaveBeenCalledWith(
-      '172.30.0.10', 3128, expect.any(Array), '172.30.0.30', undefined, undefined, undefined
+      '172.30.0.10', 3128, expect.any(Array), '172.30.0.30', undefined, undefined, undefined, '172.30.0.1'
     );
   });
 
@@ -718,7 +718,7 @@ describe('runMainWorkflow', () => {
     });
 
     expect(dependencies.setupHostIptables).toHaveBeenCalledWith(
-      '172.30.0.10', 3128, expect.any(Array), undefined, undefined, undefined, undefined
+      '172.30.0.10', 3128, expect.any(Array), undefined, undefined, undefined, undefined, '172.30.0.1'
     );
   });
 
@@ -732,7 +732,7 @@ describe('runMainWorkflow', () => {
     });
 
     expect(dependencies.setupHostIptables).toHaveBeenCalledWith(
-      '172.30.0.10', 3128, expect.any(Array), undefined, '172.30.0.40', undefined, undefined
+      '172.30.0.10', 3128, expect.any(Array), undefined, '172.30.0.40', undefined, undefined, '172.30.0.1'
     );
   });
 
@@ -740,7 +740,7 @@ describe('runMainWorkflow', () => {
     const { dependencies } = await runWorkflowWithDefaults();
 
     expect(dependencies.setupHostIptables).toHaveBeenCalledWith(
-      '172.30.0.10', 3128, expect.any(Array), undefined, undefined, undefined, undefined
+      '172.30.0.10', 3128, expect.any(Array), undefined, undefined, undefined, undefined, '172.30.0.1'
     );
   });
 
@@ -755,7 +755,7 @@ describe('runMainWorkflow', () => {
 
     expect(dependencies.setupHostIptables).toHaveBeenCalledWith(
       '172.30.0.10', 3128, expect.any(Array), undefined, undefined, undefined,
-      { ip: '172.30.0.50', difcProxyPort: 18443 }
+      { ip: '172.30.0.50', difcProxyPort: 18443 }, '172.30.0.1'
     );
   });
 
@@ -763,7 +763,7 @@ describe('runMainWorkflow', () => {
     const { dependencies } = await runWorkflowWithDefaults();
 
     expect(dependencies.setupHostIptables).toHaveBeenCalledWith(
-      '172.30.0.10', 3128, expect.any(Array), undefined, undefined, undefined, undefined
+      '172.30.0.10', 3128, expect.any(Array), undefined, undefined, undefined, undefined, '172.30.0.1'
     );
   });
 

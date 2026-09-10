@@ -179,4 +179,12 @@ export interface SquidConfig {
    * external `dns_nameservers` cannot resolve them.
    */
   topologyPeers?: string[];
+
+  /**
+   * Effective `awf-net` subnet in effect for this run (rebased when
+   * `--network-subnet` / `network.subnet` relocates the network away from the
+   * fixed policy default). Recorded in the policy manifest so log analysis can
+   * classify denied in-subnet IPs as AWF-internal rather than external.
+   */
+  networkSubnet?: string;
 }

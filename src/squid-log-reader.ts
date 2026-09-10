@@ -6,22 +6,24 @@ import { parseLogLine } from './logs/log-parser';
 import { isInternalAwfDomain } from './logs/internal-domain-filter';
 
 /**
- * Reads topology peer hostnames from the policy manifest in workDir, if present.
- * Returns an empty Set when the manifest is absent or unreadable.
+ * Reads the policy manifest from workDir, if present, returning the topology
+ * peer hostnames and the effective `awf-net` subnet recorded for the run.
+ * Returns empty defaults when the manifest is absent or unreadable.
  */
-function loadTopologyPeers(workDir: string): ReadonlySet<string> {
+function loadManifestContext(workDir: string): { topologyPeers: ReadonlySet<string>; networkSubnet?: string } {
   const manifestPath = path.join(workDir, 'audit', 'policy-manifest.json');
   try {
     if (fs.existsSync(manifestPath)) {
       const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8')) as PolicyManifest;
-      if (Array.isArray(manifest.topologyPeers) && manifest.topologyPeers.length > 0) {
-        return new Set(manifest.topologyPeers.map(p => p.toLowerCase()));
-      }
+      const topologyPeers = Array.isArray(manifest.topologyPeers) && manifest.topologyPeers.length > 0
+        ? new Set(manifest.topologyPeers.map(p => p.toLowerCase()))
+        : new Set<string>();
+      return { topologyPeers, networkSubnet: manifest.networkSubnet };
     }
   } catch {
-    logger.debug(`Could not read topology peers from policy manifest: ${manifestPath}`);
+    logger.debug(`Could not read policy manifest: ${manifestPath}`);
   }
-  return new Set();
+  return { topologyPeers: new Set() };
 }
 
 /**
@@ -44,9 +46,10 @@ export async function checkSquidLogs(workDir: string, proxyLogsDir?: string): Pr
       return { hasDenials: false, blockedTargets: [] };
     }
 
-    // Load topology peers from the policy manifest so that dotted peer names
-    // (e.g. mcp.gateway-01) are suppressed in addition to single-label names.
-    const knownTopologyPeers = loadTopologyPeers(workDir);
+    // Load topology peers and the effective subnet from the policy manifest so
+    // that dotted peer names (e.g. mcp.gateway-01) and relocated (--network-subnet)
+    // in-subnet IPs are suppressed in addition to single-label names.
+    const { topologyPeers: knownTopologyPeers, networkSubnet } = loadManifestContext(workDir);
 
     const blockedTargets: BlockedTarget[] = [];
     const seenTargets = new Set<string>();
@@ -66,7 +69,7 @@ export async function checkSquidLogs(workDir: string, proxyLogsDir?: string): Pr
         // Skip AWF-internal addresses (Docker network IPs and container hostnames).
         // These are container-to-container connections, not missing external
         // dependencies — surfacing them as blocked external domains is noise.
-        if (isInternalAwfDomain(parsed.domain, knownTopologyPeers)) {
+        if (isInternalAwfDomain(parsed.domain, knownTopologyPeers, networkSubnet)) {
           continue;
         }
 

@@ -31,7 +31,7 @@ function ipv4ToNum(ip: string): number {
   return ((parts[0] << 24) | (parts[1] << 16) | (parts[2] << 8) | parts[3]) >>> 0;
 }
 
-const AWF_NETWORK = parseCidr(NETWORK_SUBNET);
+const DEFAULT_AWF_NETWORK = parseCidr(NETWORK_SUBNET);
 
 /**
  * Returns `true` if `domain` is an AWF-internal destination that should be
@@ -39,10 +39,12 @@ const AWF_NETWORK = parseCidr(NETWORK_SUBNET);
  *
  * Three categories are filtered:
  *
- * 1. **IPv4 addresses on the AWF Docker network** (`172.30.0.0/24`): IPs in
- *    this subnet belong to AWF sidecars (Squid, api-proxy, cli-proxy, etc.) or
- *    to externally-attached peers (e.g. the MCP Gateway). A Squid denial for a
- *    `172.30.0.x` IP is never a missing external dependency.
+ * 1. **IPv4 addresses on the AWF Docker network** (`172.30.0.0/24` by default,
+ *    or the effective `--network-subnet` override recorded in the policy
+ *    manifest for the run being analyzed): IPs in this subnet belong to AWF
+ *    sidecars (Squid, api-proxy, cli-proxy, etc.) or to externally-attached
+ *    peers (e.g. the MCP Gateway). A Squid denial for an in-subnet IP is
+ *    never a missing external dependency.
  *
  * 2. **Configured topology peers** (`knownTopologyPeers`): when the caller has
  *    access to the policy manifest, it passes the resolved `topologyPeers` list.
@@ -58,17 +60,23 @@ const AWF_NETWORK = parseCidr(NETWORK_SUBNET);
  * @param knownTopologyPeers - Optional set of topology-peer hostnames from the
  *   policy manifest (populated when the manifest is available). Allows filtering
  *   multi-label peer names such as `mcp.gateway-01`.
+ * @param networkSubnet - Optional effective `awf-net` subnet (CIDR) for the run
+ *   being analyzed, from the policy manifest's `networkSubnet` field. Falls back
+ *   to the fixed policy default (`172.30.0.0/24`) when the manifest predates this
+ *   field or is unavailable.
  */
 export function isInternalAwfDomain(
   domain: string,
-  knownTopologyPeers?: ReadonlySet<string>
+  knownTopologyPeers?: ReadonlySet<string>,
+  networkSubnet?: string
 ): boolean {
   // Category 1: IPv4 address on the AWF Docker network
   if (IPV4_RE.test(domain)) {
     const parts = domain.split('.').map(Number);
     if (parts.every(p => p >= 0 && p <= 255)) {
       const ip = ipv4ToNum(domain);
-      if ((ip & AWF_NETWORK.mask) === AWF_NETWORK.net) {
+      const awfNetwork = networkSubnet ? parseCidr(networkSubnet) : DEFAULT_AWF_NETWORK;
+      if ((ip & awfNetwork.mask) === awfNetwork.net) {
         return true;
       }
     }

@@ -132,6 +132,8 @@ interface ProxyDestinationRuleOptions {
   dohProxyIp?: string;
   hostAccess?: HostAccessConfig;
   cliProxyConfig?: CliProxyHostConfig;
+  /** Effective `awf-net` gateway IP, rebased when `--network-subnet` relocates the network. */
+  gatewayIp?: string;
 }
 
 /**
@@ -140,9 +142,9 @@ interface ProxyDestinationRuleOptions {
  */
 async function addSidecarDestinationRules(
   chain: string,
-  options: Pick<ProxyDestinationRuleOptions, 'apiProxyIp' | 'dohProxyIp' | 'cliProxyConfig' | 'hostAccess'>,
+  options: Pick<ProxyDestinationRuleOptions, 'apiProxyIp' | 'dohProxyIp' | 'cliProxyConfig' | 'hostAccess' | 'gatewayIp'>,
 ): Promise<string[]> {
-  const { apiProxyIp, dohProxyIp, cliProxyConfig, hostAccess } = options;
+  const { apiProxyIp, dohProxyIp, cliProxyConfig, hostAccess, gatewayIp } = options;
 
   // 5a. Allow DNS traffic to DoH proxy sidecar (when enabled)
   if (dohProxyIp) {
@@ -167,7 +169,7 @@ async function addSidecarDestinationRules(
   // Resolve gateway IPs (needed for CLI proxy and host access rules)
   const needsGatewayIps = !!cliProxyConfig || !!hostAccess?.enabled;
   const dockerBridgeGateway = needsGatewayIps ? await getDockerBridgeGateway() : null;
-  const gatewayIps = [AWF_NETWORK_GATEWAY];
+  const gatewayIps = [gatewayIp ?? AWF_NETWORK_GATEWAY];
   if (dockerBridgeGateway) {
     gatewayIps.push(dockerBridgeGateway);
   }
@@ -226,6 +228,7 @@ async function addProxyDestinationAcceptRules(
     dohProxyIp,
     hostAccess,
     cliProxyConfig,
+    gatewayIp,
   }: ProxyDestinationRuleOptions,
 ): Promise<void> {
   // 5. Allow traffic to Squid proxy
@@ -235,7 +238,7 @@ async function addProxyDestinationAcceptRules(
     '-j', 'ACCEPT',
   ]);
 
-  const gatewayIps = await addSidecarDestinationRules(chain, { apiProxyIp, dohProxyIp, cliProxyConfig, hostAccess });
+  const gatewayIps = await addSidecarDestinationRules(chain, { apiProxyIp, dohProxyIp, cliProxyConfig, hostAccess, gatewayIp });
 
   // 5c. Allow traffic to host gateway when host access is enabled
   if (hostAccess && hostAccess.enabled) {
@@ -304,8 +307,10 @@ async function addBlockRules(chain: string, _ipv6ChainName: string | null): Prom
  * @param dnsServers - Upstream DNS servers that Docker embedded DNS forwards to
  * @param hostAccess - Optional host access configuration for localhost/Playwright support
  * @param cliProxyConfig - Optional CLI proxy config for DIFC proxy host access
+ * @param gatewayIp - Optional effective `awf-net` gateway IP; defaults to the fixed
+ *   policy gateway (`AWF_NETWORK_GATEWAY`) when `--network-subnet` is not used.
  */
-export async function setupHostIptables(squidIp: string, squidPort: number, dnsServers: string[], apiProxyIp?: string, dohProxyIp?: string, hostAccess?: HostAccessConfig, cliProxyConfig?: CliProxyHostConfig): Promise<void> {
+export async function setupHostIptables(squidIp: string, squidPort: number, dnsServers: string[], apiProxyIp?: string, dohProxyIp?: string, hostAccess?: HostAccessConfig, cliProxyConfig?: CliProxyHostConfig, gatewayIp?: string): Promise<void> {
   logger.info('Setting up host-level iptables rules...');
 
   // Get the bridge interface name
@@ -331,6 +336,7 @@ export async function setupHostIptables(squidIp: string, squidPort: number, dnsS
     dohProxyIp,
     hostAccess,
     cliProxyConfig,
+    gatewayIp,
   });
   await addBlockRules(CHAIN_NAME, ipv6ChainName);
   await insertDockerUserJumpRule(CHAIN_NAME, bridgeName);
