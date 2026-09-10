@@ -362,6 +362,7 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 - `enclaves[].agent.maxModelTokens` → *(config-only; no CLI equivalent, see §14)*
 - `enclaves[].agent.github.cli` → *(config-only; deprecated closed legacy profile, see §14.3)*
 - `enclaves[].agent.tools.github` → *(config-only; closed GitHub MCP tool contract, see §14.3)*
+- `enclaves[].dynamic` → *(config-only; no CLI equivalent; accepted but not executable in this release, see §14.1a)*
 
 When `container.dockerHostPathPrefix` points at a daemon-visible shared `/tmp` path, the implementation stages the invoking CLI binary together with `/etc/passwd`, `/etc/group`, and the generated chroot `/etc/hosts` under that shared path so chroot mode can bootstrap on split-filesystem ARC/DinD hosts.
 
