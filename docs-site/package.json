@@ -13,7 +13,7 @@
     "@astrojs/check": "^0.9.10",
     "@astrojs/mdx": "^7.0.8",
     "@astrojs/starlight": "^0.41.10",
-    "astro": "^7.2.9",
+    "astro": "7.3.2",
     "astro-mermaid": "^2.1.0",
     "esbuild": "^0.28.1",
     "mermaid": "^11.17.2",
@@ -25,6 +25,7 @@
   "overrides": {
     "diff": "8.0.3",
     "esbuild": "^0.28.1",
+    "smol-toml": "1.8.0",
     "ajv": "8.16.0",
     "nanoid": "5.1.16",
     "postcss": "8.5.23",

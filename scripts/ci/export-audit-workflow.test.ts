@@ -84,6 +84,6 @@ describe('export audit workflow optimization config', () => {
     expect(lock).not.toContain('TypeScript build output:\n```');
 
     // github-mcp-server image reference present
-    expect(lock).toContain('ghcr.io/github/github-mcp-server:v1.11.0');
+    expect(lock).toContain('ghcr.io/github/github-mcp-server:v1.12.1');
   });
 });

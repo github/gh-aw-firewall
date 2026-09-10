@@ -29,7 +29,7 @@
  */
 
 const { NodeTracerProvider, BatchSpanProcessor } = require('@opentelemetry/sdk-trace-node');
-const { Resource } = require('@opentelemetry/resources');
+const { resourceFromAttributes } = require('@opentelemetry/resources');
 const {
   ATTR_SERVICE_NAME,
   ATTR_HTTP_REQUEST_METHOD,
@@ -106,7 +106,7 @@ function _parseEndpoints() {
 }
 
 function _init() {
-  const resource = new Resource({ [ATTR_SERVICE_NAME]: SERVICE_NAME });
+  const resource = resourceFromAttributes({ [ATTR_SERVICE_NAME]: SERVICE_NAME });
   _workloadIdentity = createOtlpWorkloadIdentity(OTLP_WORKLOAD_IDENTITY);
 
   let exporter;
@@ -153,11 +153,13 @@ function _init() {
     exporter = new FileSpanExporter(OTEL_LOG_FILE);
   }
 
-  _provider = new NodeTracerProvider({ resource });
-  _provider.addSpanProcessor(new BatchSpanProcessor(exporter));
+  _provider = new NodeTracerProvider({
+    resource,
+    spanProcessors: [new BatchSpanProcessor(exporter)],
+  });
   _provider.register();
   // Use _provider.getTracer() directly (not the global trace API) so that
-  // spans are always routed through _provider.activeSpanProcessor.  This
+  // spans are always routed through the provider's active span processor. This
   // avoids a subtle issue where a second call to _provider.register() is
   // silently rejected (duplicate global registration) and the global
   // trace.getTracer() would return a tracer bound to a stale provider.
