@@ -276,7 +276,8 @@ export function assertNetworkSubnetUsable(
   const nameservers = [
     ...(sources.dnsServers ?? []),
     ...readNameserversFromResolvConf(readFile),
-  ].filter((ip) => CIDR_RE.test(`${ip}/32`));
+    // parseCidr validates the octet range, so IPv6 and malformed entries drop out.
+  ].filter((ip) => parseCidr(`${ip}/32`) !== undefined);
 
   const collidingNameservers = [...new Set(nameservers.filter((ip) => isIpInCidr(ip, parsed)))];
   if (collidingNameservers.length > 0) {

@@ -17,13 +17,17 @@ describe('host-iptables (network)', () => {
     };
 
     const expectNetworkInspectCalled = (): void => {
-      expect(mockedExeca).toHaveBeenCalledWith('docker', ['network', 'inspect', NETWORK_NAME], { env: expect.any(Object) });
+      expect(mockedExeca).toHaveBeenCalledWith(
+        'docker',
+        ['network', 'inspect', NETWORK_NAME, '--format', '{{range .IPAM.Config}}{{.Subnet}} {{end}}'],
+        { env: expect.any(Object) },
+      );
     };
 
     it('should return network config when network already exists', async () => {
-      // Mock successful network inspect (network exists)
+      // Mock successful network inspect (network exists with the default subnet)
       mockedExeca.mockResolvedValue(execaResult({
-        stdout: '',
+        stdout: `${NETWORK_SUBNET} `,
         stderr: '',
         exitCode: 0,
       }));
@@ -62,6 +66,42 @@ describe('host-iptables (network)', () => {
         '--opt',
         'com.docker.network.bridge.name=fw-bridge',
       ], { env: expect.any(Object) });
+    });
+
+    it('creates the network with an overridden subnet and derived IPs', async () => {
+      mockedExeca
+        .mockRejectedValueOnce(new Error('network not found'))
+        .mockResolvedValueOnce(execaResult({ stdout: '', stderr: '', exitCode: 0 }));
+
+      const result = await ensureFirewallNetwork('10.88.0.0/24');
+
+      expect(result).toEqual({
+        subnet: '10.88.0.0/24',
+        squidIp: '10.88.0.10',
+        agentIp: '10.88.0.20',
+        proxyIp: '10.88.0.30',
+      });
+      expect(mockedExeca).toHaveBeenCalledWith('docker', [
+        'network',
+        'create',
+        NETWORK_NAME,
+        '--subnet',
+        '10.88.0.0/24',
+        '--opt',
+        'com.docker.network.bridge.name=fw-bridge',
+      ], { env: expect.any(Object) });
+    });
+
+    it('fails when a pre-existing network uses a different subnet', async () => {
+      mockedExeca.mockResolvedValue(execaResult({
+        stdout: `${NETWORK_SUBNET} `,
+        stderr: '',
+        exitCode: 0,
+      }));
+
+      await expect(ensureFirewallNetwork('10.88.0.0/24')).rejects.toThrow(
+        /already exists with subnet 172\.30\.0\.0\/24/,
+      );
     });
   });
 });

@@ -21,12 +21,35 @@ export async function ensureFirewallNetwork(subnetOverride?: string): Promise<{
 
   // Check if network already exists
   let networkExists = false;
+  let existingSubnet: string | undefined;
   try {
-    await execa('docker', ['network', 'inspect', NETWORK_NAME], { env: getLocalDockerEnv() });
+    const { stdout } = await execa(
+      'docker',
+      [
+        'network',
+        'inspect',
+        NETWORK_NAME,
+        '--format',
+        '{{range .IPAM.Config}}{{.Subnet}} {{end}}',
+      ],
+      { env: getLocalDockerEnv() },
+    );
     networkExists = true;
-    logger.debug(`Network '${NETWORK_NAME}' already exists`);
+    existingSubnet = stdout.trim().split(/\s+/).filter(Boolean)[0];
+    logger.debug(`Network '${NETWORK_NAME}' already exists (subnet: ${existingSubnet ?? 'unknown'})`);
   } catch {
     // Network doesn't exist
+  }
+
+  // A pre-existing network with a different subnet cannot host the addresses we
+  // are about to program into iptables and Compose, so fail loudly instead of
+  // silently using IPs that do not exist on it.
+  if (networkExists && existingSubnet && existingSubnet !== addressing.subnet) {
+    throw new Error(
+      `Docker network '${NETWORK_NAME}' already exists with subnet ${existingSubnet}, ` +
+      `but ${addressing.subnet} was requested. Remove the stale network ` +
+      `(docker network rm ${NETWORK_NAME}) or drop the --network-subnet override.`,
+    );
   }
 
   if (!networkExists) {
