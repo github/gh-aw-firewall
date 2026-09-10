@@ -151,7 +151,7 @@ class FileSpanExporter {
             event: 'otel_span',
             traceId: ctx.traceId,
             spanId: ctx.spanId,
-            parentSpanId: span.parentSpanId || null,
+            parentSpanId: span.parentSpanContext?.spanId || null,
             name: span.name,
             kind: span.kind,
             startTimeMs: span.startTime[0] * 1000 + Math.round(span.startTime[1] / 1e6),

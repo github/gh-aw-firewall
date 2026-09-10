@@ -30,7 +30,7 @@ describe('smoke enclave build workflow', () => {
   });
 
   it('uses the compatible gateway and local AWF build', () => {
-    expect(lock).toContain('ghcr.io/github/gh-aw-mcpg:v0.4.18');
+    expect(lock).toContain('ghcr.io/github/gh-aw-mcpg:v0.4.20');
     expect(lock).toContain('"awf-enclave": {\n                "required": false,');
     expect(lock).toContain('Install awf binary (local)');
     expect(lock).toContain('--build-local');
@@ -145,7 +145,7 @@ describe('smoke enclave issues workflow', () => {
         '"allow-only":{"min-integrity":"approved","repos":["github/gh-aw"]}}'
     );
     expect(lock).toContain(
-      '"min-integrity": "approved",\n                    "repos": ["github/gh-aw"]'
+      '"min-integrity": "approved",\n                    "repos": [\n                      "github/gh-aw"\n                    ]'
     );
     expect(source).toContain('Use only the `github` MCP server');
     expect(source).toContain('GitHub CLI, GraphQL, search, writes, or any other GitHub tool');
