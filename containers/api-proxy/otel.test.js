@@ -23,8 +23,8 @@ const { loadOtelModule } = require('./test-helpers/otel-test-utils');
  * Load a fresh instance of otel.js with the given env overrides.
  * Clears the module cache so each call starts from a clean state.
  */
-function loadOtel(envOverrides = {}) {
-  return loadOtelModule(envOverrides);
+function loadOtel(envOverrides = {}, options = {}) {
+  return loadOtelModule(envOverrides, options);
 }
 
 /**
@@ -32,17 +32,9 @@ function loadOtel(envOverrides = {}) {
  * InMemorySpanExporter so we can inspect finished spans.
  */
 function loadOtelWithMemoryExporter(envOverrides = {}) {
-  const otel = loadOtel(envOverrides);
-
-  // Swap exporter via the provider's MultiSpanProcessor
   const memExporter = new InMemorySpanExporter();
-  const provider = otel._provider || null;
-  if (provider && provider.activeSpanProcessor) {
-    // Replace all span processors with a simple synchronous one
-    provider.activeSpanProcessor._spanProcessors = [
-      new SimpleSpanProcessor(memExporter),
-    ];
-  }
+  const spanProcessor = new SimpleSpanProcessor(memExporter);
+  const otel = loadOtel(envOverrides, { spanProcessor });
   return { otel, memExporter };
 }
 
@@ -175,7 +167,7 @@ describe('otel — startRequestSpan', () => {
     await otel._provider.forceFlush();
     const spans = memExporter.getFinishedSpans();
     expect(spans[0].spanContext().traceId).toBe(traceId);
-    expect(spans[0].parentSpanId).toBe(spanId);
+    expect(spans[0].parentSpanContext?.spanId).toBe(spanId);
   });
 
   test('ignores invalid parent trace IDs', async () => {
@@ -191,7 +183,7 @@ describe('otel — startRequestSpan', () => {
 
     await otel._provider.forceFlush();
     const spans = memExporter.getFinishedSpans();
-    expect(spans[0].parentSpanId).toBeUndefined();
+    expect(spans[0].parentSpanContext).toBeUndefined();
   });
 });
 
@@ -431,8 +423,8 @@ describe('otel — _buildResourceSpans serialization', () => {
     const spans = memExporter.getFinishedSpans();
 
     // Build the OTLP envelope to test serialization
-    const { Resource } = require('@opentelemetry/resources');
-    const resource = new Resource({ 'service.name': 'test' });
+    const { resourceFromAttributes } = require('@opentelemetry/resources');
+    const resource = resourceFromAttributes({ 'service.name': 'test' });
     const envelope = otel._buildResourceSpans(spans, resource);
 
     expect(envelope).toHaveLength(1);
@@ -458,47 +450,47 @@ describe('otel — _buildResourceSpans serialization', () => {
 describe('otel — ProxyAwareOtlpExporter', () => {
   test('constructs without error when httpsProxy is null', () => {
     const { _ProxyAwareOtlpExporter } = loadOtel();
-    const { Resource } = require('@opentelemetry/resources');
+    const { resourceFromAttributes } = require('@opentelemetry/resources');
     expect(() => new _ProxyAwareOtlpExporter({
       url:        'https://otel.example.com:4318',
       headers:    {},
       httpsProxy: null,
-      resource:   new Resource({}),
+      resource:   resourceFromAttributes({}),
     })).not.toThrow();
   });
 
   test('appends /v1/traces to bare endpoint URL', () => {
     const { _ProxyAwareOtlpExporter } = loadOtel();
-    const { Resource } = require('@opentelemetry/resources');
+    const { resourceFromAttributes } = require('@opentelemetry/resources');
     const exp = new _ProxyAwareOtlpExporter({
       url:        'https://otel.example.com:4318',
       headers:    {},
       httpsProxy: null,
-      resource:   new Resource({}),
+      resource:   resourceFromAttributes({}),
     });
     expect(exp._parsedUrl.pathname).toBe('/v1/traces');
   });
 
   test('preserves /v1/traces when already present', () => {
     const { _ProxyAwareOtlpExporter } = loadOtel();
-    const { Resource } = require('@opentelemetry/resources');
+    const { resourceFromAttributes } = require('@opentelemetry/resources');
     const exp = new _ProxyAwareOtlpExporter({
       url:        'https://otel.example.com:4318/v1/traces',
       headers:    {},
       httpsProxy: null,
-      resource:   new Resource({}),
+      resource:   resourceFromAttributes({}),
     });
     expect(exp._parsedUrl.pathname).toBe('/v1/traces');
   });
 
   test('preserves query string when normalizing endpoint', () => {
     const { _ProxyAwareOtlpExporter } = loadOtel();
-    const { Resource } = require('@opentelemetry/resources');
+    const { resourceFromAttributes } = require('@opentelemetry/resources');
     const exp = new _ProxyAwareOtlpExporter({
       url:        'https://otel.example.com:4318?api-version=1',
       headers:    {},
       httpsProxy: null,
-      resource:   new Resource({}),
+      resource:   resourceFromAttributes({}),
     });
     expect(exp._parsedUrl.pathname).toBe('/v1/traces');
     expect(exp._parsedUrl.search).toBe('?api-version=1');
@@ -506,7 +498,7 @@ describe('otel — ProxyAwareOtlpExporter', () => {
 
   test('includes query string in export request path', (done) => {
     const { _ProxyAwareOtlpExporter } = loadOtel();
-    const { Resource } = require('@opentelemetry/resources');
+    const { resourceFromAttributes } = require('@opentelemetry/resources');
     const reqSpy = jest.spyOn(require('https'), 'request').mockImplementation((options, cb) => {
       try {
         expect(options.path).toBe('/v1/traces?api-version=1');
@@ -530,7 +522,7 @@ describe('otel — ProxyAwareOtlpExporter', () => {
       url:        'https://otel.example.com:4318?api-version=1',
       headers:    {},
       httpsProxy: null,
-      resource:   new Resource({}),
+      resource:   resourceFromAttributes({}),
     });
     const span = {
       spanContext: () => ({ traceId: 'a'.repeat(32), spanId: 'b'.repeat(16) }),
@@ -551,7 +543,7 @@ describe('otel — ProxyAwareOtlpExporter', () => {
 
   test('returns failure when request creation throws synchronously', (done) => {
     const { _ProxyAwareOtlpExporter } = loadOtel();
-    const { Resource } = require('@opentelemetry/resources');
+    const { resourceFromAttributes } = require('@opentelemetry/resources');
     const reqSpy = jest.spyOn(require('https'), 'request').mockImplementation(() => {
       throw new Error('bad request options');
     });
@@ -559,7 +551,7 @@ describe('otel — ProxyAwareOtlpExporter', () => {
       url:        'https://otel.example.com:4318',
       headers:    {},
       httpsProxy: null,
-      resource:   new Resource({}),
+      resource:   resourceFromAttributes({}),
     });
     const span = {
       spanContext: () => ({ traceId: 'a'.repeat(32), spanId: 'b'.repeat(16) }),
@@ -581,9 +573,9 @@ describe('otel — ProxyAwareOtlpExporter', () => {
 
   test('calls resultCallback with code 0 for empty spans', (done) => {
     const { _ProxyAwareOtlpExporter } = loadOtel();
-    const { Resource } = require('@opentelemetry/resources');
+    const { resourceFromAttributes } = require('@opentelemetry/resources');
     const exp = new _ProxyAwareOtlpExporter({
-      url: 'https://otel.example.com:4318', headers: {}, httpsProxy: null, resource: new Resource({}),
+      url: 'https://otel.example.com:4318', headers: {}, httpsProxy: null, resource: resourceFromAttributes({}),
     });
     exp.export([], (result) => {
       expect(result.code).toBe(0);
@@ -605,7 +597,7 @@ describe('otel — FileSpanExporter', () => {
     const exp = new _FileSpanExporter('/tmp/otel.jsonl');
     const span = {
       spanContext: () => ({ traceId: 'a'.repeat(32), spanId: 'b'.repeat(16) }),
-      parentSpanId: null,
+      parentSpanContext: undefined,
       name: 'test_span',
       kind: 2,
       startTime: [1700000000, 0],
