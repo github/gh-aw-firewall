@@ -23,8 +23,8 @@ const { loadOtelModule } = require('./test-helpers/otel-test-utils');
  * Load a fresh instance of otel.js with the given env overrides.
  * Clears the module cache so each call starts from a clean state.
  */
-function loadOtel(envOverrides = {}) {
-  return loadOtelModule(envOverrides);
+function loadOtel(envOverrides = {}, options = {}) {
+  return loadOtelModule(envOverrides, options);
 }
 
 /**
@@ -32,17 +32,9 @@ function loadOtel(envOverrides = {}) {
  * InMemorySpanExporter so we can inspect finished spans.
  */
 function loadOtelWithMemoryExporter(envOverrides = {}) {
-  const otel = loadOtel(envOverrides);
-
-  // Swap exporter via the provider's MultiSpanProcessor
   const memExporter = new InMemorySpanExporter();
-  const provider = otel._provider || null;
-  if (provider && provider._activeSpanProcessor) {
-    // Replace all span processors with a simple synchronous one
-    provider._activeSpanProcessor._spanProcessors = [
-      new SimpleSpanProcessor(memExporter),
-    ];
-  }
+  const spanProcessor = new SimpleSpanProcessor(memExporter);
+  const otel = loadOtel(envOverrides, { spanProcessor });
   return { otel, memExporter };
 }
 

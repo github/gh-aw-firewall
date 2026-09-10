@@ -233,20 +233,22 @@ describe('otel fan-out initialization', () => {
   });
 
   test('attaches workload identity only to its configured fan-out endpoint', () => {
+    let exporter;
     const endpoints = [
       { url: 'https://google.example.com:4318' },
       { url: 'https://other.example.com:4318', headers: { Authorization: 'Other secret' } },
     ];
-    const otel = loadOtelFresh({
+    loadOtelModule({
       GH_AW_OTLP_ENDPOINTS: JSON.stringify(endpoints),
       GH_AW_OTLP_WORKLOAD_IDENTITY: JSON.stringify({
         provider: 'gcp',
         audience: 'projects/123/providers/github',
         endpoint: endpoints[0].url,
       }),
+    }, {
+      onExporter(value) { exporter = value; },
     });
-    const processor = otel._provider._activeSpanProcessor._spanProcessors[0];
-    const exporters = processor._exporter._exporters;
+    const exporters = exporter._exporters;
 
     expect(exporters[0]._headerProvider).toBe(mockWorkloadIdentity);
     expect(exporters[1]._headerProvider).toBeNull();
