@@ -15,6 +15,11 @@ const OTEL_ENV_KEYS = [
   'AWF_VERSION',
 ];
 
+/**
+ * Load otel.js with optional public-SDK test hooks.
+ * @param {Record<string, unknown>} envOverrides
+ * @param {{spanProcessor?: object, onExporter?: (exporter: object) => void}} options
+ */
 function loadOtelModule(envOverrides = {}, { spanProcessor, onExporter } = {}) {
   const saved = {};
   for (const k of OTEL_ENV_KEYS) {

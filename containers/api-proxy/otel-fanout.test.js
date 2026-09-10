@@ -248,6 +248,7 @@ describe('otel fan-out initialization', () => {
     }, {
       onExporter(value) { exporter = value; },
     });
+    expect(exporter).toBeDefined();
     const exporters = exporter._exporters;
 
     expect(exporters[0]._headerProvider).toBe(mockWorkloadIdentity);
