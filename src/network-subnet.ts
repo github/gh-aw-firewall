@@ -270,7 +270,11 @@ export function assertNetworkSubnetUsable(
   sources: SubnetCollisionSources = {},
 ): void {
   const parsed = parseCidr(subnet);
-  if (!parsed) return;
+  if (!parsed) {
+    throw new Error(
+      `Invalid network subnet "${subnet}": expected an IPv4 CIDR such as 10.88.0.0/24`,
+    );
+  }
   const readFile = sources.readFile ?? ((filePath: string) => fs.readFileSync(filePath, 'utf-8'));
 
   const nameservers = [

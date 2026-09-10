@@ -135,6 +135,12 @@ describe('assertNetworkSubnetUsable', () => {
     ).not.toThrow();
   });
 
+  it('throws for a malformed subnet instead of silently passing', () => {
+    expect(() => assertNetworkSubnetUsable('not-a-cidr', { readFile: noFiles })).toThrow(
+      /Invalid network subnet/,
+    );
+  });
+
   it('ignores the default route', () => {
     expect(() =>
       assertNetworkSubnetUsable('172.30.0.0/24', {
