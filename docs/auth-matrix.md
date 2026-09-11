@@ -195,7 +195,7 @@ For GitHub Copilot catalog targets, the sidecar auto-selects appropriate `x-gith
 | `/auto` | POST | `2026-08-01` | Copilot Auto inference endpoint |
 | `/models/session` | POST | `2025-07-16` | Model session initialization |
 | `/models/session/intent` | POST | `2025-07-16` | Model session intent parsing |
-| `/models` | GET | `2026-07-01` | Model catalog listing (see below); unconditional, not gated by the request-method check used for the POST endpoints above |
+| `/models` | GET | `2026-07-01` | Model catalog listing (see below); applied for GitHub Copilot catalog targets when `COPILOT_GITHUB_TOKEN` is available, via a path separate from the POST method check |
 
 **Key behaviors:**
 - Auto-injection applies only to GitHub Copilot targets (`*.githubcopilot.com`); BYOK and non-Copilot targets are unaffected.
