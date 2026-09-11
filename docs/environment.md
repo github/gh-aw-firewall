@@ -372,6 +372,39 @@ container:
 
 > **See also:** [docs/arc-dind.md](arc-dind.md) for a complete ARC/DinD configuration guide, including sysroot staging, tool-cache guidance, and end-to-end examples.
 
+### `--mount` and read-only vs. writable output paths
+
+A `--mount <host_path>:<container_path>[:ro|rw]` entry only grants the access
+level given for **that specific mount**. Mounting a directory `:ro` so a tool
+can read staged inputs from it does **not** make a subdirectory of that same
+path writable — Docker/runc treats each `--mount` as an independent bind
+mount, so a tool that tries to write its `--output` (or any other file) inside
+a `:ro`-mounted tree will fail even though the path "looks" present.
+
+If a tool needs to both read from and write under a shared parent directory
+(a common pattern for ARC/DinD staging under `${RUNNER_TEMP}/gh-aw`), mount
+the writable subpath explicitly as `:rw` in addition to the `:ro` parent:
+
+```bash
+awf --mount /tmp/gh-aw:/tmp/gh-aw:ro \
+    --mount /tmp/gh-aw/my-tool:/tmp/gh-aw/my-tool:rw \
+    --allow-domains github.com \
+    -- my-tool --output /tmp/gh-aw/my-tool/result.json
+```
+
+The more specific `rw` mount for the subdirectory takes precedence over the
+broader `ro` mount of its ancestor.
+
+Also double-check that the path a tool **writes** to and the path a later
+step (or artifact-upload action) **reads** from are the same path once
+`--docker-host-path-prefix` translation is applied — a producer/consumer path
+mismatch (e.g. writing under `${RUNNER_TEMP}/gh-aw/...` but reading from
+`/tmp/gh-aw/...`) fails silently: no error is raised, but the expected output
+file never appears where the consumer looks for it. See
+[docs/arc-dind.md](arc-dind.md#staging-additional-cli-tools-not-just-the-invoking-engine-binary)
+for the full staging + rw-mount pattern, using a threat-detection tool as a
+worked example.
+
 ### Security: procfs and credential isolation
 
 AWF mounts a container-scoped procfs at `/host/proc` with `hidepid=2` to prevent the agent from reading other processes' environment variables. This is critical because:

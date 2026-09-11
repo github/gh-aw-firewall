@@ -83,6 +83,82 @@ Language SDKs (Go, Node, Java, .NET) are NOT baked into the sysroot image. They 
 - run: echo "RUNNER_TOOL_CACHE=/tmp/gh-aw/tool-cache" >> "$GITHUB_ENV"
 ```
 
+## Staging additional CLI tools (not just the invoking engine binary)
+
+AWF only auto-stages the **invoking CLI binary** (`copilot`, `claude`, `codex`,
+etc. — see `dind.stageEngineBinary` and "What AWF handles automatically"
+below) into the daemon-visible filesystem. It does **not** discover or stage
+any *other* tool a workflow step invokes inside the sandbox (for example a
+threat-detection binary, a linter, or any other helper CLI installed by a
+separate workflow step).
+
+On `runner.topology: arc-dind`, a tool that is only installed onto the
+**runner's** filesystem (e.g. via `actions/setup-*`, a manual `curl`
+install, or a GitHub Action that drops a binary under
+`$RUNNER_TOOL_CACHE`/`/opt`/`/usr/local/bin`) is invisible to the sysroot the
+agent chroots into, because that sysroot is built from the `build-tools`
+image plus whatever the DinD daemon's own filesystem can resolve — not from
+the runner pod's filesystem. If the workflow calls that tool via `awf ... --
+<tool>` without staging it first, the tool binary is absent inside the
+chroot and the invocation fails with exit code 127 ("command not found"),
+exactly as with the invoking engine binary before staging was added.
+
+**Fix:** copy any additional tool binary your workflow invokes inside AWF to
+a path under the same daemon-visible shared directory used for other ARC/DinD
+staging (e.g. `${RUNNER_TEMP}/gh-aw` when `--docker-host-path-prefix` points
+there), *before* the AWF-wrapped step runs, and pass that staged path (not the
+runner-only install path) as the command to run:
+
+```yaml
+- name: Copy my-tool to daemon-visible path
+  run: |
+    mkdir -p "${RUNNER_TEMP}/gh-aw/bin"
+    cp "$(command -v my-tool)" "${RUNNER_TEMP}/gh-aw/bin/my-tool"
+    chmod +x "${RUNNER_TEMP}/gh-aw/bin/my-tool"
+
+- name: Run my-tool under AWF
+  run: |
+    sudo awf --docker-host-path-prefix /host \
+      --allow-domains api.example.com \
+      -- "${RUNNER_TEMP}/gh-aw/bin/my-tool" --output /tmp/gh-aw/my-tool/result.json
+```
+
+This mirrors the Copilot CLI staging AWF performs automatically via
+`dind.stageEngineBinary` (see [Field behavior](#field-behavior) below) — any
+tool the sandboxed command execs directly needs the same treatment when its
+install path only exists on the runner side of an ARC/DinD split filesystem.
+
+### Output paths must be writable — and consistent
+
+Staging the binary only fixes exit code 127. A tool that writes output also
+needs its `--output`/destination path to resolve to a mount that is:
+
+1. **writable** — a read-only staged mount (for example a `:ro` mount used
+   to make an input directory visible under `/host`) does not become
+   writable just because the tool's output path happens to live under it.
+   Mount the specific output subdirectory read-write in addition to (or
+   instead of) the read-only parent, e.g.:
+
+   ```bash
+   --mount /tmp/gh-aw:/tmp/gh-aw:ro \
+   --mount /tmp/gh-aw/my-tool:/tmp/gh-aw/my-tool:rw
+   ```
+
+   Docker/runc mount ordering means the more specific `rw` bind mount for the
+   subdirectory takes precedence over the broader `ro` mount of its parent.
+
+2. **the same path on both sides of a producer/consumer pair** — if one step
+   writes to `${RUNNER_TEMP}/gh-aw/my-tool/result.json` and a later step (or
+   an artifact-upload action) reads from `/tmp/gh-aw/my-tool/result.json`,
+   confirm those two paths actually refer to the same file. Under
+   `--docker-host-path-prefix`, `${RUNNER_TEMP}` on the runner and the
+   in-container path the agent sees can diverge unless the workflow
+   explicitly standardizes on one canonical path (e.g. always `/tmp/gh-aw/...`
+   inside the sandbox, mounted from `${RUNNER_TEMP}/gh-aw/...` on the host)
+   for both the write and the read. A silent path mismatch produces no error —
+   the tool "succeeds" but the expected output file never shows up where the
+   consumer looks for it.
+
 ## Writable home under sysroot staging
 
 Sysroot staging drops agent bind mounts whose sources the DinD daemon cannot

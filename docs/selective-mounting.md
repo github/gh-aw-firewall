@@ -318,6 +318,13 @@ awf --mount /etc/custom:/etc/custom:ro --allow-domains github.com -- cat /etc/cu
    ```bash
    awf --mount /data:/data:ro --allow-domains github.com -- process-data
    ```
+   If a tool needs to write output under a directory you otherwise mount
+   `:ro` (for example a shared staging directory on ARC/DinD runners), add a
+   separate, more specific `:rw` mount for just that output subpath — a
+   `:ro` mount of a parent directory never grants write access to paths
+   underneath it. See [ARC + DinD Configuration](arc-dind.md#staging-additional-cli-tools-not-just-the-invoking-engine-binary)
+   and [`--mount` guidance](environment.md#--mount-and-read-only-vs-writable-output-paths)
+   for the full pattern.
 
 3. **Minimize mounted directories** - Only mount what's needed:
    ```bash
