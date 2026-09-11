@@ -49,7 +49,7 @@ You diagnose AWF failures that happen on non-GitHub-hosted environments: self-ho
 
 This workflow is for self-hosted and enterprise runner diagnostics only.
 
-If the issue is clearly about a GitHub-hosted runner and does not mention ARC, DinD, self-hosted, GHES, GHEC, `ghe.com`, custom `DOCKER_HOST`, corporate proxies, IPv6-disabled Docker, or custom runner homes, call `noop` with a short explanation.
+If the issue is clearly about a GitHub-hosted runner and does not mention ARC, DinD, OpenShift, ARO, `HIER_NONE`, self-hosted, GHES, GHEC, `ghe.com`, custom `DOCKER_HOST`, corporate proxies, IPv6-disabled Docker, or custom runner homes, call `noop` with a short explanation.
 
 If the workflow is manually invoked from a thread that lacks self-hosted signals, call `noop` instead of forcing a diagnosis.
 
