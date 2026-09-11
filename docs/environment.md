@@ -386,21 +386,27 @@ If a tool needs to both read from and write under a shared parent directory
 the writable subpath explicitly as `:rw` in addition to the `:ro` parent:
 
 ```bash
-awf --mount /tmp/gh-aw:/tmp/gh-aw:ro \
+# Every --mount host path must exist first: AWF aborts with
+# "Host path does not exist" before the command runs otherwise.
+mkdir -p /tmp/gh-aw/inputs /tmp/gh-aw/my-tool
+
+awf --mount /tmp/gh-aw/inputs:/tmp/gh-aw/inputs:ro \
     --mount /tmp/gh-aw/my-tool:/tmp/gh-aw/my-tool:rw \
     --allow-domains github.com \
     -- my-tool --output /tmp/gh-aw/my-tool/result.json
 ```
 
-The more specific `rw` mount for the subdirectory takes precedence over the
-broader `ro` mount of its ancestor.
+When one mount is nested inside another, Docker applies bind mounts in
+destination order, so the more specific `rw` mount for the subdirectory takes
+precedence over a broader `ro` mount of its ancestor.
 
 Also double-check that the path a tool **writes** to and the path a later
 step (or artifact-upload action) **reads** from are the same path once
 `--docker-host-path-prefix` translation is applied — a producer/consumer path
 mismatch (e.g. writing under `${RUNNER_TEMP}/gh-aw/...` but reading from
-`/tmp/gh-aw/...`) fails silently: no error is raised, but the expected output
-file never appears where the consumer looks for it. See
+`/tmp/gh-aw/...`, which `--docker-host-path-prefix` does not alias) fails
+silently: no error is raised, but the expected output file never appears where
+the consumer looks for it. See
 [docs/arc-dind.md](arc-dind.md#staging-additional-cli-tools-not-just-the-invoking-engine-binary)
 for the full staging + rw-mount pattern, using a threat-detection tool as a
 worked example.

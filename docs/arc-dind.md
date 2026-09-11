@@ -85,79 +85,98 @@ Language SDKs (Go, Node, Java, .NET) are NOT baked into the sysroot image. They 
 
 ## Staging additional CLI tools (not just the invoking engine binary)
 
-AWF only auto-stages the **invoking CLI binary** (`copilot`, `claude`, `codex`,
-etc. — see `dind.stageEngineBinary` and "What AWF handles automatically"
-below) into the daemon-visible filesystem. It does **not** discover or stage
-any *other* tool a workflow step invokes inside the sandbox (for example a
-threat-detection binary, a linter, or any other helper CLI installed by a
-separate workflow step).
+AWF never discovers or stages arbitrary tools that a sandboxed command invokes
+(for example a threat-detection binary, a linter, or any helper CLI installed
+by a separate workflow step). The only automatic staging is narrow:
 
-On `runner.topology: arc-dind`, a tool that is only installed onto the
-**runner's** filesystem (e.g. via `actions/setup-*`, a manual `curl`
-install, or a GitHub Action that drops a binary under
-`$RUNNER_TOOL_CACHE`/`/opt`/`/usr/local/bin`) is invisible to the sysroot the
-agent chroots into, because that sysroot is built from the `build-tools`
-image plus whatever the DinD daemon's own filesystem can resolve — not from
-the runner pod's filesystem. If the workflow calls that tool via `awf ... --
-<tool>` without staging it first, the tool binary is absent inside the
-chroot and the invocation fails with exit code 127 ("command not found"),
-exactly as with the invoking engine binary before staging was added.
+- **First-command staging** copies the *first token* of the AWF command (the
+  invoking engine binary — `copilot`, `claude`, `codex`, …) into a
+  daemon-visible staging root and mounts it at `/tmp/awf-runner-bin/<name>`.
+  It runs **only when `--docker-host-path-prefix` is a `/tmp`-rooted path**
+  shared by the runner and the DinD daemon (for example `/tmp/gh-aw`). A
+  `/host`-style prefix does **not** trigger it, so with that prefix even the
+  engine binary must be staged explicitly.
+- **`dind.stageEngineBinary`** is an explicitly configured fallback (you give
+  it `path`/`targetPath`), not automatic discovery.
 
-**Fix:** copy any additional tool binary your workflow invokes inside AWF to
-a path under the same daemon-visible shared directory used for other ARC/DinD
-staging (e.g. `${RUNNER_TEMP}/gh-aw` when `--docker-host-path-prefix` points
-there), *before* the AWF-wrapped step runs, and pass that staged path (not the
-runner-only install path) as the command to run:
+On `runner.topology: arc-dind`, a tool installed only onto the **runner's**
+filesystem (via `actions/setup-*`, a manual `curl` install, or an action that
+drops a binary under `$RUNNER_TOOL_CACHE`/`/opt`/`/usr/local/bin`) is invisible
+to the sysroot the agent chroots into: that sysroot comes from the
+`build-tools` image plus daemon-visible bind mounts, not from the runner pod's
+filesystem. Calling such a tool inside AWF without staging it fails with exit
+code 127 ("command not found").
+
+### Staging recipe
+
+Copy the tool into a shared, daemon-visible `/tmp`-rooted directory **and
+mount that directory**, because staging alone does not expose a path —
+`--docker-host-path-prefix` only rewrites bind-mount *sources*, it does not
+publish arbitrary runner paths into the sandbox.
 
 ```yaml
-- name: Copy my-tool to daemon-visible path
+- name: Stage my-tool and its output directory
   run: |
-    mkdir -p "${RUNNER_TEMP}/gh-aw/bin"
-    cp "$(command -v my-tool)" "${RUNNER_TEMP}/gh-aw/bin/my-tool"
-    chmod +x "${RUNNER_TEMP}/gh-aw/bin/my-tool"
+    mkdir -p /tmp/gh-aw/bin /tmp/gh-aw/my-tool
+    cp "$(command -v my-tool)" /tmp/gh-aw/bin/my-tool
+    chmod +x /tmp/gh-aw/bin/my-tool
 
 - name: Run my-tool under AWF
   run: |
-    sudo awf --docker-host-path-prefix /host \
+    sudo awf --docker-host-path-prefix /tmp/gh-aw \
+      --mount /tmp/gh-aw/bin:/tmp/gh-aw/bin:ro \
+      --mount /tmp/gh-aw/my-tool:/tmp/gh-aw/my-tool:rw \
       --allow-domains api.example.com \
-      -- "${RUNNER_TEMP}/gh-aw/bin/my-tool" --output /tmp/gh-aw/my-tool/result.json
+      -- /tmp/gh-aw/bin/my-tool --output /tmp/gh-aw/my-tool/result.json
 ```
 
-This mirrors the Copilot CLI staging AWF performs automatically via
-`dind.stageEngineBinary` (see [Field behavior](#field-behavior) below) — any
-tool the sandboxed command execs directly needs the same treatment when its
-install path only exists on the runner side of an ARC/DinD split filesystem.
+Notes on this recipe:
+
+- **Every `--mount` host path must already exist** — AWF validates it before
+  launch and aborts with `Host path does not exist` otherwise. Create both the
+  staged bin directory and the output directory in the preceding step.
+- **Copying the file returned by `command -v` is only sufficient for a
+  self-contained executable** (a static binary, or one whose interpreter,
+  shared libraries, Node/Python modules and data files already exist in the
+  sysroot). Wrapper scripts, `setup-*`-installed SDK tools, and
+  package-managed linters are typically shims over a runtime and support tree,
+  so copying the entry point alone still fails — with a missing-interpreter,
+  missing-`.so`, or missing-module error rather than exit 127. For those,
+  stage/mount the whole install tree (and its runtime, e.g. the tool cache at
+  `/tmp/gh-aw/tool-cache`) instead of a single file.
+- **`chroot.binariesSourcePath`** is the alternative when you want staged
+  tools on `PATH`: AWF mounts that runner-side directory at
+  `/tmp/awf-runner-bin` inside the chroot and prepends it to `PATH`, so the
+  command can be invoked by bare name.
 
 ### Output paths must be writable — and consistent
 
 Staging the binary only fixes exit code 127. A tool that writes output also
 needs its `--output`/destination path to resolve to a mount that is:
 
-1. **writable** — a read-only staged mount (for example a `:ro` mount used
-   to make an input directory visible under `/host`) does not become
-   writable just because the tool's output path happens to live under it.
-   Mount the specific output subdirectory read-write in addition to (or
-   instead of) the read-only parent, e.g.:
+1. **writable** — a `:ro` mount used to expose staged inputs does not become
+   writable just because the tool's output path lives underneath it. Add a
+   more specific `:rw` mount for the output subdirectory, as in the recipe
+   above:
 
    ```bash
-   --mount /tmp/gh-aw:/tmp/gh-aw:ro \
+   --mount /tmp/gh-aw/bin:/tmp/gh-aw/bin:ro \
    --mount /tmp/gh-aw/my-tool:/tmp/gh-aw/my-tool:rw
    ```
 
-   Docker/runc mount ordering means the more specific `rw` bind mount for the
-   subdirectory takes precedence over the broader `ro` mount of its parent.
+   Docker orders bind mounts by destination depth, so the more specific `rw`
+   mount of the subdirectory is applied after (and therefore takes precedence
+   over) a broader `ro` mount of its parent.
 
-2. **the same path on both sides of a producer/consumer pair** — if one step
-   writes to `${RUNNER_TEMP}/gh-aw/my-tool/result.json` and a later step (or
-   an artifact-upload action) reads from `/tmp/gh-aw/my-tool/result.json`,
-   confirm those two paths actually refer to the same file. Under
-   `--docker-host-path-prefix`, `${RUNNER_TEMP}` on the runner and the
-   in-container path the agent sees can diverge unless the workflow
-   explicitly standardizes on one canonical path (e.g. always `/tmp/gh-aw/...`
-   inside the sandbox, mounted from `${RUNNER_TEMP}/gh-aw/...` on the host)
-   for both the write and the read. A silent path mismatch produces no error —
-   the tool "succeeds" but the expected output file never shows up where the
-   consumer looks for it.
+2. **the same path for the producer and the consumer** — pick one canonical
+   sandbox path (e.g. always `/tmp/gh-aw/my-tool/result.json`) and use it for
+   both the AWF-side write and the later step or artifact-upload read. AWF
+   mounts custom targets under the chroot, so the in-sandbox path matches the
+   `--mount` container path; the runner-side source is what
+   `--docker-host-path-prefix` rewrites. A mismatch (writing under
+   `${RUNNER_TEMP}/…` but reading `/tmp/gh-aw/…`, which
+   `--docker-host-path-prefix` does **not** alias) produces no error — the
+   tool "succeeds" but the output never appears where the consumer looks.
 
 ## Writable home under sysroot staging
 
