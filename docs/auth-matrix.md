@@ -195,16 +195,17 @@ For GitHub Copilot catalog targets, the sidecar auto-selects appropriate `x-gith
 | `/auto` | POST | `2026-08-01` | Copilot Auto inference endpoint |
 | `/models/session` | POST | `2025-07-16` | Model session initialization |
 | `/models/session/intent` | POST | `2025-07-16` | Model session intent parsing |
+| `/models` | GET | `2026-07-01` | Model catalog listing (see below); unconditional, not gated by the request-method check used for the POST endpoints above |
 
 **Key behaviors:**
 - Auto-injection applies only to GitHub Copilot targets (`*.githubcopilot.com`); BYOK and non-Copilot targets are unaffected.
-- If the request already includes an `x-github-api-version` header (case-insensitive), it is preserved and auto-injection is skipped.
+- If the request already includes an `x-github-api-version` header (case-insensitive), it is preserved and auto-injection is skipped — this applies to the POST endpoints above (`getDefaultAutoApiVersion()` in `copilot.js`).
 - POST requests to other endpoints do not receive auto-injected versions; callers must specify versions for other endpoints if needed.
-- Non-POST requests never receive auto-injected versions.
+- `/models` GET is handled by a separate, unconditional code path (`buildCopilotModelsRequest()` and the request-header hook in `copilot.js`), not by the POST-gated `getDefaultAutoApiVersion()` logic above — it always attaches `X-GitHub-Api-Version: 2026-07-01` for GitHub Copilot catalog targets.
 
 ### `/models` Endpoint (Special Case)
 
-The `/models` endpoint prefers `COPILOT_GITHUB_TOKEN` (GitHub OAuth) over BYOK keys when both are configured, because model listing is a GitHub platform feature. However, when no GitHub token is available (typical for direct-BYOK/custom targets), `/models` will use the BYOK credential.
+The `/models` endpoint prefers `COPILOT_GITHUB_TOKEN` (GitHub OAuth) over BYOK keys when both are configured, because model listing is a GitHub platform feature. However, when no GitHub token is available (typical for direct-BYOK/custom targets), `/models` will use the BYOK credential. For GitHub Copilot catalog targets, `/models` GET requests always receive `X-GitHub-Api-Version: 2026-07-01` (`COPILOT_MODELS_API_VERSION` in `copilot.js`), verified by `copilot-adapter-enterprise.test.js` and `copilot-byok.test.js`.
 
 ### BYOK (Bring Your Own Key)
 
