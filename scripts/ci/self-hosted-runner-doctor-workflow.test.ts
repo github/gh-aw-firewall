@@ -128,6 +128,15 @@ describe('self-hosted runner doctor workflow config', () => {
       expect(content).toContain('| `error mounting "/dev/null" to .../.npmrc: create mountpoint ...: read-only file system` on `arc-dind` persisting even after upgrading past github/gh-aw-firewall#7998 (A23\'s fix), where the credential mountpoint is missing under a declared-`rw` home bind backed by a genuinely read-only directory | A24');
       expect(content).toContain('| A25 | On `runner.topology: arc-dind`, workloads inside the AWF sandbox need a GitHub Actions `services:` container');
       expect(content).toContain('github/gh-aw-firewall#8075, github/gh-aw-firewall#8085');
+      // A26 new failure mode (OpenShift/ARO service-CIDR collision)
+      expect(content).toContain('| A26 | On `runner.topology: arc-dind` deployed on OpenShift/ARO clusters');
+      expect(content).toContain('`--network-subnet <cidr>` CLI flag / `network.subnet` config key');
+      expect(content).toContain('`assertNetworkSubnetUsable()`');
+      expect(content).toContain('github/gh-aw#59880, github/gh-aw-firewall#8390, github/gh-aw-firewall#8398');
+      expect(content).toContain('| `503 HIER_NONE` on every Squid `CONNECT` on `runner.topology: arc-dind` deployed on OpenShift/ARO | A26');
+      expect(content).toContain('| `threat-detect` (or another non-engine CLI tool invoked inside the AWF sandbox) exits 127, or its `--output` path is unwritable/unreadable, on `runner.topology: arc-dind` |');
+      expect(content).toContain('`--mount /tmp/gh-aw/<tool>:/tmp/gh-aw/<tool>:rw`');
+      expect(content).toContain('github/gh-aw-firewall#8457, tracks github/gh-aw#59935');
       // B23 update: PR #7245 fixes the AWF-side gap
       expect(content).toContain('**Fixed on the AWF side (PR github/gh-aw-firewall#7245, merged 2026-08-11):**');
       expect(content).toContain('`ensure_usr_local_bin_shims()`');
@@ -221,6 +230,12 @@ describe('self-hosted runner doctor workflow config', () => {
     expect(source).toContain('- `error mounting "/dev/null" to .../.npmrc: create mountpoint ...: read-only file system` on `arc-dind` persisting even after upgrading past github/gh-aw-firewall#7998 (A23\'s fix), where the credential mountpoint is missing under a declared-`rw` home bind backed by a genuinely read-only directory → A24');
     expect(source).toContain('- `a network with name awf-net exists but was not created for project` → B27');
     expect(source).toContain('- `docker network connect --alias <name> awf-net <service_container>` is needed for raw-protocol GitHub Actions `services:` containers under `runner.topology: arc-dind` → A25');
+    expect(source).toContain('does not mention ARC, DinD, OpenShift, ARO, `HIER_NONE`, self-hosted');
+    for (const playbook of [source, portableAgent]) {
+      expect(playbook).toContain('OpenShift');
+      expect(playbook).toContain('ARO');
+      expect(playbook).toContain('HIER_NONE');
+    }
     expect(source).toContain('- `host.docker.internal` or `(host.docker.internal/redacted)` appears in `network.allowDomains` but the host service still cannot be reached from inside AWF → B34');
     expect(source).toContain('- TLS/certificate verification failure from api-proxy against a custom `--openai-api-target`/`--anthropic-api-target` internal endpoint using a private/corporate CA → B28 (api-proxy sidecar had no custom CA trust extension point; fixed in github/gh-aw-firewall#7816 with `apiProxy.caCert`/`--api-proxy-ca-cert`)');
     expect(source).toContain('- `context-rebuild circuit breaker tripped` together with a failed `cd` into the expected workspace path → B29');
