@@ -164,7 +164,12 @@ function createBodyHandler({ handleRequestError, otel }) {
     // harnesses such as Pi and Codex) unconditionally — independent of whether
     // AWF_MODEL_ALIASES is configured — so the literal prefixed model string
     // never reaches the upstream API, which would otherwise reject it as
-    // unrecognized.
+    // unrecognized. NOTE: when AWF_MODEL_ALIASES *is* configured, the
+    // `bodyTransform` step below (backed by model-resolver.js's `resolveModel`)
+    // independently strips the same redundant prefix as part of its own
+    // resolution logic (see `stripRedundantProviderPrefix` usage in
+    // model-resolver.js). Both call sites share the `stripRedundantProviderPrefix`
+    // helper in model-utils.js; keep them in sync if that normalization changes.
     if (isWritableMethod) {
       const prefixStripped = stripRedundantModelPrefixInBody(body, provider);
       if (prefixStripped) body = prefixStripped;
