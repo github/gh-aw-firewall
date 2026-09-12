@@ -365,7 +365,9 @@ function resolveModel(
   // runs, so that the same normalization is applied even when
   // AWF_MODEL_ALIASES is not configured. Both call sites share this logic via
   // `stripRedundantProviderPrefix` in model-utils.js — keep them in sync.
-  const baseModel = stripRedundantProviderPrefix(rawBaseModel, currentProvider);
+  const baseModel = currentProvider === 'copilot'
+    ? stripRedundantProviderPrefix(rawBaseModel, currentProvider)
+    : rawBaseModel;
   if (baseModel !== rawBaseModel) {
     log.push(`[model-resolver] stripped redundant provider prefix: "${rawBaseModel}" → "${baseModel}"`);
   }
