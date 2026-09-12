@@ -1,7 +1,7 @@
 {
   "title": "Model-to-API Endpoint Mapping",
   "description": "Maps AI model families to their supported API endpoints. Used to determine which endpoint (chat/completions vs responses vs messages) a model requires.",
-  "lastUpdated": "2026-09-04T07:01:27Z",
+  "lastUpdated": "2026-09-12T06:59:00Z",
   "sources": {
     "openai": "https://developers.openai.com/api/docs/models",
     "anthropic": "https://docs.anthropic.com/en/docs/about-claude/models"
@@ -30,6 +30,12 @@
           "patterns": ["gpt-daybreak-blue-latest", "gpt-daybreak-red-latest"],
           "endpoints": ["responses"],
           "notes": "Responses API only (ResponsesModel-only Literal). Experimental/preview aliases not present in ChatModel."
+        },
+        {
+          "family": "gpt-rosalind-research",
+          "patterns": ["gpt-rosalind-research*"],
+          "endpoints": ["responses"],
+          "notes": "Life sciences reasoning model, Trusted Access Program (approved organizations only). Responses API only, consistent with other restricted-access specialized models (gpt-daybreak-*, gpt-5.6-cyber). Billing begins October 5, 2026."
         },
         {
           "family": "gpt-5.6-cyber",
