@@ -170,7 +170,7 @@ function createBodyHandler({ handleRequestError, otel }) {
     // resolution logic (see `stripRedundantProviderPrefix` usage in
     // model-resolver.js). Both call sites share the `stripRedundantProviderPrefix`
     // helper in model-utils.js; keep them in sync if that normalization changes.
-    if (isWritableMethod) {
+    if (provider === 'copilot' && isWritableMethod) {
       const prefixStripped = stripRedundantModelPrefixInBody(body, provider);
       if (prefixStripped) body = prefixStripped;
     }
