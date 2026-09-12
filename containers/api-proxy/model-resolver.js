@@ -355,6 +355,7 @@ function resolveModel(
   preferDirectRequest = true
 ) {
   const log = [];
+  const originalRequestedModel = requestedModel;
   const { baseModel: rawBaseModel, parameterSuffix } = splitModelParameters(requestedModel);
   // Strip a redundant "<provider>/" prefix (e.g. "copilot/auto", as used by
   // harnesses such as Pi and Codex) so it resolves identically to the bare
@@ -367,14 +368,16 @@ function resolveModel(
   const fallbackConfig = normalizeFallbackConfig(modelFallbackConfig);
   // From here on, operate on the (possibly prefix-stripped) requested model so
   // downstream log messages, loop detection, and direct/alias matching all see
-  // the normalized value rather than the raw "<provider>/model" string.
-  requestedModel = appendModelParameters(baseModel, parameterSuffix);
+  // the normalized value rather than the raw "<provider>/model" string. Note
+  // this intentionally shadows the raw value passed in by the caller (kept
+  // above in `originalRequestedModel` for anything that needs the true input).
+  const normalizedRequestedModel = appendModelParameters(baseModel, parameterSuffix);
 
   if (currentProvider === 'copilot' && key === 'auto') {
     log.push('[model-resolver] special pass-through: "auto"');
     return {
-      resolvedModel: requestedModel,
-      candidates: [requestedModel],
+      resolvedModel: normalizedRequestedModel,
+      candidates: [normalizedRequestedModel],
       log,
       fallback: fallbackConfig.enabled
         ? { activated: false, selection_method: 'middle_power_median', reason: 'direct_match' }
@@ -384,7 +387,7 @@ function resolveModel(
 
   // Loop detection
   if (chain.includes(key)) {
-    log.push(`[model-resolver] loop detected: "${requestedModel}" already in chain [${chain.join(' → ')}]`);
+    log.push(`[model-resolver] loop detected: "${originalRequestedModel}" already in chain [${chain.join(' → ')}]`);
     return null;
   }
   const newChain = [...chain, key];
@@ -400,7 +403,7 @@ function resolveModel(
         log.push(`[model-resolver] model policy blocked direct match: "${direct}"`);
         return null;
       }
-      log.push(`[model-resolver] direct match: "${requestedModel}" → "${direct}"`);
+      log.push(`[model-resolver] direct match: "${originalRequestedModel}" → "${direct}"`);
       return {
         resolvedModel: appendModelParameters(direct, parameterSuffix),
         candidates: [appendModelParameters(direct, parameterSuffix)],
@@ -423,18 +426,18 @@ function resolveModel(
     if (familyAlias) {
       aliasEntry = Object.entries(aliases).find(([k]) => k.toLowerCase() === familyAlias);
       if (aliasEntry) {
-        log.push(`[model-resolver] fallback alias: "${requestedModel}" → "${aliasEntry[0]}"`);
+        log.push(`[model-resolver] fallback alias: "${originalRequestedModel}" → "${aliasEntry[0]}"`);
       }
     }
   }
 
   if (!aliasEntry) {
-    return _resolveDirectMatch(key, requestedModel, currentProvider, availableModels, fallbackConfig, log, modelPolicyConfig);
+    return _resolveDirectMatch(key, normalizedRequestedModel, currentProvider, availableModels, fallbackConfig, log, modelPolicyConfig);
   }
 
   const [aliasKey, aliasRaw] = aliasEntry;
   const aliasDefinition = resolveAliasDefinition(aliasRaw);
-  return _resolveAliasPatterns(aliasKey, aliasDefinition, requestedModel, aliases, availableModels, currentProvider, newChain, fallbackConfig, log, modelPolicyConfig);
+  return _resolveAliasPatterns(aliasKey, aliasDefinition, normalizedRequestedModel, aliases, availableModels, currentProvider, newChain, fallbackConfig, log, modelPolicyConfig);
 }
 
 /**
