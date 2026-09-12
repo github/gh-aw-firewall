@@ -76,6 +76,7 @@ const SUPPORTED_WITHOUT_CURATED_PRICING = new Set([
 
 const MAPPING_FAMILIES_NOT_EXPOSED_BY_COPILOT_CLI = new Set([
   'gpt-daybreak', // responses-only preview aliases; not in the Copilot CLI model picker
+  'gpt-rosalind-research', // restricted-access, responses-only life-sciences model; not in the Copilot CLI model picker
   'gpt-5-6-cyber', // responses-only gpt-5.6 variant; not in the Copilot CLI model picker
   'gpt-5-5-pro', // responses-only gpt-5.5 variant; not in the Copilot CLI model picker
   'gpt-5-1-codex-max',
