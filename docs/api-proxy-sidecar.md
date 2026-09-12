@@ -106,6 +106,12 @@ remote model/plugin metadata resolution; API-key based proxy routing cannot use
 that catalog even when `chatgpt.com` is allowed, so `auto` can fail with
 `The requested model is not supported`.
 
+This OpenAI-native `auto` limitation does not apply to Copilot's own `auto`
+model selector. Harnesses that route through the Copilot provider (port
+`10002`) — including Codex and Pi — can request `auto` (or the LiteLLM-style
+`copilot/auto`) and the api-proxy sidecar passes it straight through to
+Copilot, which resolves it dynamically at request time.
+
 ### Claude Code example
 
 ```bash

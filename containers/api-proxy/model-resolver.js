@@ -19,7 +19,7 @@
  * case-insensitive, and sorted by semver semantics (highest version first).
  */
 
-const { globMatch, extractVersionNumbers, compareByVersion } = require('./model-utils');
+const { globMatch, extractVersionNumbers, compareByVersion, stripRedundantProviderPrefix } = require('./model-utils');
 const {
   DEFAULT_MODEL_FALLBACK,
   normalizeFallbackConfig,
@@ -355,9 +355,20 @@ function resolveModel(
   preferDirectRequest = true
 ) {
   const log = [];
-  const { baseModel, parameterSuffix } = splitModelParameters(requestedModel);
+  const { baseModel: rawBaseModel, parameterSuffix } = splitModelParameters(requestedModel);
+  // Strip a redundant "<provider>/" prefix (e.g. "copilot/auto", as used by
+  // harnesses such as Pi and Codex) so it resolves identically to the bare
+  // model name on this provider.
+  const baseModel = stripRedundantProviderPrefix(rawBaseModel, currentProvider);
+  if (baseModel !== rawBaseModel) {
+    log.push(`[model-resolver] stripped redundant provider prefix: "${rawBaseModel}" → "${baseModel}"`);
+  }
   const key = baseModel.toLowerCase();
   const fallbackConfig = normalizeFallbackConfig(modelFallbackConfig);
+  // From here on, operate on the (possibly prefix-stripped) requested model so
+  // downstream log messages, loop detection, and direct/alias matching all see
+  // the normalized value rather than the raw "<provider>/model" string.
+  requestedModel = appendModelParameters(baseModel, parameterSuffix);
 
   if (currentProvider === 'copilot' && key === 'auto') {
     log.push('[model-resolver] special pass-through: "auto"');

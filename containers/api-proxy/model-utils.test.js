@@ -2,7 +2,7 @@
  * Tests for model-utils.js — pure version comparison and glob utilities.
  */
 
-const { globMatch, extractVersionNumbers, compareByVersion } = require('./model-utils');
+const { globMatch, extractVersionNumbers, compareByVersion, stripRedundantProviderPrefix } = require('./model-utils');
 
 // ── globMatch ──────────────────────────────────────────────────────────────
 
@@ -104,5 +104,37 @@ describe('compareByVersion', () => {
   it('should handle models without version numbers gracefully', () => {
     const models = ['gpt-4o', 'o1'];
     expect(() => models.sort(compareByVersion)).not.toThrow();
+  });
+});
+
+// ── stripRedundantProviderPrefix ──────────────────────────────────────────
+
+describe('stripRedundantProviderPrefix', () => {
+  it('strips a "<provider>/" prefix matching the current provider', () => {
+    expect(stripRedundantProviderPrefix('copilot/auto', 'copilot')).toBe('auto');
+    expect(stripRedundantProviderPrefix('copilot/gpt-5.3-codex', 'copilot')).toBe('gpt-5.3-codex');
+  });
+
+  it('is case-insensitive when comparing the prefix to the provider', () => {
+    expect(stripRedundantProviderPrefix('Copilot/auto', 'copilot')).toBe('auto');
+    expect(stripRedundantProviderPrefix('COPILOT/AUTO', 'copilot')).toBe('AUTO');
+  });
+
+  it('leaves a model unchanged when the prefix does not match the provider', () => {
+    expect(stripRedundantProviderPrefix('openai/gpt-4o', 'copilot')).toBe('openai/gpt-4o');
+  });
+
+  it('leaves a model unchanged when there is no prefix', () => {
+    expect(stripRedundantProviderPrefix('auto', 'copilot')).toBe('auto');
+  });
+
+  it('leaves the model unchanged when stripping would produce an empty string', () => {
+    expect(stripRedundantProviderPrefix('copilot/', 'copilot')).toBe('copilot/');
+  });
+
+  it('handles non-string/empty inputs gracefully', () => {
+    expect(stripRedundantProviderPrefix('', 'copilot')).toBe('');
+    expect(stripRedundantProviderPrefix(undefined, 'copilot')).toBeUndefined();
+    expect(stripRedundantProviderPrefix('copilot/auto', '')).toBe('copilot/auto');
   });
 });

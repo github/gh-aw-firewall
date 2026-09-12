@@ -147,6 +147,35 @@ describe('resolveModel', () => {
     expect(result.fallback.activated).toBe(false);
   });
 
+  it('should strip a redundant "copilot/" prefix before treating auto as a pass-through', () => {
+    // Harnesses such as Pi and Codex use LiteLLM-style "provider/model" naming
+    // (e.g. "copilot/auto"), even when already talking to the Copilot provider.
+    const result = resolveModel('copilot/auto', aliases, availableModels, 'copilot');
+    expect(result).not.toBeNull();
+    expect(result.resolvedModel).toBe('auto');
+    expect(result.fallback.activated).toBe(false);
+  });
+
+  it('should be case-insensitive when stripping a redundant provider prefix', () => {
+    const result = resolveModel('Copilot/AUTO', aliases, availableModels, 'copilot');
+    expect(result).not.toBeNull();
+    expect(result.resolvedModel).toBe('AUTO');
+  });
+
+  it('should strip a redundant provider prefix from a direct model match', () => {
+    const result = resolveModel('copilot/gpt-4o', aliases, availableModels, 'copilot');
+    expect(result).not.toBeNull();
+    expect(result.resolvedModel).toBe('gpt-4o');
+  });
+
+  it('should leave a different provider prefix untouched (not a redundant self-reference)', () => {
+    const result = resolveModel('openai/gpt-4o', aliases, availableModels, 'copilot');
+    expect(result).not.toBeNull();
+    // "openai/gpt-4o" is not a Copilot model, and not an alias, so it falls
+    // back rather than being treated as a direct match.
+    expect(result.resolvedModel).not.toBe('gpt-4o');
+  });
+
   it('should be case-insensitive for alias lookup', () => {
     const result = resolveModel('SONNET', aliases, availableModels, 'copilot');
     expect(result).not.toBeNull();

@@ -63,8 +63,40 @@ function compareByVersion(a, b) {
   return a.localeCompare(b); // Lexicographic fallback
 }
 
+/**
+ * Strip a redundant "<provider>/" prefix from a model string.
+ *
+ * Several harnesses (e.g. Pi, Codex) use LiteLLM-style "provider/model" model
+ * naming — such as `copilot/auto` or `copilot/gpt-5.3-codex` — even when they
+ * are already configured to talk to that specific provider's endpoint. Left
+ * untouched, the literal prefixed string would reach the upstream API, which
+ * does not recognise its own name as part of the model identifier and rejects
+ * the request as an unknown model.
+ *
+ * Only strips when the prefix exactly matches the current provider name
+ * (case-insensitive); a different prefix (e.g. "openai/gpt-4" while the
+ * current provider is "copilot") is left untouched, since that may be a
+ * legitimate alias-pattern reference to another provider rather than a
+ * redundant self-reference.
+ *
+ * @param {string} model
+ * @param {string} provider
+ * @returns {string} The model with the redundant prefix removed, or the
+ *   original string unchanged when no redundant prefix is present.
+ */
+function stripRedundantProviderPrefix(model, provider) {
+  if (typeof model !== 'string' || !model || !provider) return model;
+  const slashIdx = model.indexOf('/');
+  if (slashIdx === -1) return model;
+  const prefix = model.slice(0, slashIdx);
+  if (prefix.toLowerCase() !== provider.toLowerCase()) return model;
+  const rest = model.slice(slashIdx + 1);
+  return rest || model;
+}
+
 module.exports = {
   globMatch,
   extractVersionNumbers,
   compareByVersion,
+  stripRedundantProviderPrefix,
 };

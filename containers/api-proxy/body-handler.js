@@ -26,6 +26,7 @@ const metrics = require('./metrics');
 const { getAndClearPendingSteeringMessage } = require('./guards/effective-token-guard');
 const { getAndClearPendingTimeoutSteeringMessage } = require('./guards/timeout-steering');
 const { translateCodexCustomToolsForCopilot } = require('./codex-compat');
+const { stripRedundantModelPrefixInBody } = require('./model-body-rewriter');
 
 /** Maximum request body size: 10 MB to prevent DoS via large payloads. */
 const MAX_BODY_SIZE = 10 * 1024 * 1024;
@@ -157,6 +158,16 @@ function createBodyHandler({ handleRequestError, otel }) {
    */
   async function transformRequestBody(body, provider, req, requestId, bodyTransform) {
     let codexCompatibility = null;
+
+    // Normalize a redundant "<provider>/" prefix (e.g. "copilot/auto", used by
+    // harnesses such as Pi and Codex) unconditionally — independent of whether
+    // AWF_MODEL_ALIASES is configured — so the literal prefixed model string
+    // never reaches the upstream API, which would otherwise reject it as
+    // unrecognized.
+    if (req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH') {
+      const prefixStripped = stripRedundantModelPrefixInBody(body, provider);
+      if (prefixStripped) body = prefixStripped;
+    }
 
     if (bodyTransform && (req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH')) {
       const transformed = await bodyTransform(body, req);
