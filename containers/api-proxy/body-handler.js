@@ -158,18 +158,19 @@ function createBodyHandler({ handleRequestError, otel }) {
    */
   async function transformRequestBody(body, provider, req, requestId, bodyTransform) {
     let codexCompatibility = null;
+    const isWritableMethod = req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH';
 
     // Normalize a redundant "<provider>/" prefix (e.g. "copilot/auto", used by
     // harnesses such as Pi and Codex) unconditionally — independent of whether
     // AWF_MODEL_ALIASES is configured — so the literal prefixed model string
     // never reaches the upstream API, which would otherwise reject it as
     // unrecognized.
-    if (req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH') {
+    if (isWritableMethod) {
       const prefixStripped = stripRedundantModelPrefixInBody(body, provider);
       if (prefixStripped) body = prefixStripped;
     }
 
-    if (bodyTransform && (req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH')) {
+    if (bodyTransform && isWritableMethod) {
       const transformed = await bodyTransform(body, req);
       if (transformed) body = transformed;
     }
@@ -179,7 +180,7 @@ function createBodyHandler({ handleRequestError, otel }) {
     // resulting compatibility metadata must be threaded explicitly through
     // the request/retry context by the caller (see proxy-request.js and
     // upstream-http.js) rather than recovered from the body later.
-    if (provider === 'copilot' && (req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH')) {
+    if (provider === 'copilot' && isWritableMethod) {
       const translated = translateCodexCustomToolsForCopilot(body);
       if (translated) {
         body = translated.body;
@@ -187,7 +188,7 @@ function createBodyHandler({ handleRequestError, otel }) {
       }
     }
 
-    if (req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH') {
+    if (isWritableMethod) {
       const sanitized = sanitizeNullToolCallTypes(body);
       if (sanitized) {
         body = sanitized.body;

@@ -366,11 +366,11 @@ function resolveModel(
   }
   const key = baseModel.toLowerCase();
   const fallbackConfig = normalizeFallbackConfig(modelFallbackConfig);
-  // From here on, operate on the (possibly prefix-stripped) requested model so
-  // downstream log messages, loop detection, and direct/alias matching all see
-  // the normalized value rather than the raw "<provider>/model" string. Note
-  // this intentionally shadows the raw value passed in by the caller (kept
-  // above in `originalRequestedModel` for anything that needs the true input).
+  // From here on, operate on a new normalized value (the possibly
+  // prefix-stripped requested model) so downstream log messages, loop
+  // detection, and direct/alias matching all see the normalized value rather
+  // than the raw "<provider>/model" string. The raw input remains available
+  // above as `originalRequestedModel` for anything that needs the true input.
   const normalizedRequestedModel = appendModelParameters(baseModel, parameterSuffix);
 
   if (currentProvider === 'copilot' && key === 'auto') {
