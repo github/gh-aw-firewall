@@ -490,6 +490,13 @@ resolution, which API-key based proxy routing cannot use even when
 `chatgpt.com` is allowed, so `auto` can fail with `The requested model is not
 supported` (see [docs/api-proxy-sidecar.md](api-proxy-sidecar.md#codex-openai-example)).
 
+This OpenAI-native `auto` limitation is separate from Copilot's own `auto`
+model selector: harnesses that route through the Copilot provider (port
+`10002`) — including Codex and Pi — can request `auto` or the LiteLLM-style
+`copilot/auto`, and the api-proxy sidecar strips the redundant `copilot/`
+prefix before forwarding, so Copilot resolves `auto` dynamically at request
+time (see [docs/api-proxy-sidecar.md](api-proxy-sidecar.md#codex-openai-example)).
+
 **Example 3: Using both providers**
 
 ```bash
