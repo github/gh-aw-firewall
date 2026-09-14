@@ -37,6 +37,15 @@ export async function runComposeDown(
  * ownership and permissions on the bind-mounted log volume, ensuring that log
  * inspection, `awf logs summary`, and artifact uploads can read the files.
  *
+ * The repair is intentionally NOT recursive: when `--proxy-logs-dir` is set,
+ * `/var/log/squid` is the same host directory that also holds the nested
+ * `api-proxy-logs/` (and `cli-proxy-logs/`) subdirectories (see
+ * `src/log-paths.ts`). A recursive chmod would widen permissions on
+ * payload-bearing API-proxy diagnostics (e.g. `token-tracker-audit.jsonl`,
+ * created at mode 0600) before `preserveCleanupArtifacts()` gets a chance to
+ * apply its own directory-scoped repair. Only the directory itself and its
+ * direct log files are touched here.
+ *
  * Tolerant: silently continues if the container is not running. Never throws,
  * so the caller's exit code is unaffected by diagnostic log handling.
  */
@@ -57,7 +66,8 @@ export async function fixSquidLogPermissions(): Promise<void> {
         SQUID_CONTAINER_NAME,
         'sh',
         '-c',
-        'chown -R "$TUID:$TGID" /var/log/squid 2>/dev/null; chmod -R a+rX /var/log/squid',
+        'chown "$TUID:$TGID" /var/log/squid 2>/dev/null; chmod a+rX /var/log/squid 2>/dev/null; ' +
+          'find /var/log/squid -maxdepth 1 -type f -exec chown "$TUID:$TGID" {} \\; -exec chmod a+rX {} \\; 2>/dev/null',
       ],
       { env: getLocalDockerEnv(), reject: false },
     );
