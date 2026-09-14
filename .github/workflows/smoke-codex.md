@@ -60,6 +60,8 @@ safe-outputs:
     add-comment:
       hide-older-comments: true
       max: 2
+      target: "*"
+      discussions: true
     create-issue:
       expires: 2h
       close-older-issues: true
