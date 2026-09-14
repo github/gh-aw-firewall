@@ -99,6 +99,7 @@ type PreserveDirectoryOptions = {
   permissionErrorMessage: string;
   preserveErrorMessage: string;
   chmodPreservedDir?: boolean;
+  chmodRuntimeDir?: boolean;
 };
 
 function preserveDirectory({
@@ -113,12 +114,13 @@ function preserveDirectory({
   permissionErrorMessage,
   preserveErrorMessage,
   chmodPreservedDir = false,
+  chmodRuntimeDir = true,
 }: PreserveDirectoryOptions): void {
   if (runtimeDir) {
     const targetDir = runtimeSubdir ? path.join(runtimeDir, runtimeSubdir) : runtimeDir;
     if (fs.existsSync(targetDir)) {
       try {
-        execa.sync('chmod', ['-R', 'a+rX', targetDir]);
+        if (chmodRuntimeDir) execa.sync('chmod', ['-R', 'a+rX', targetDir]);
         logger.info(`${availableLabel} available at: ${targetDir}`);
       } catch (error) {
         if (isBenignArtifactPermissionError(error)) {
@@ -216,6 +218,7 @@ export function preserveCleanupArtifacts(
     preservedLabel: 'API proxy logs',
     permissionErrorMessage: 'Could not fix api-proxy log permissions:',
     preserveErrorMessage: 'Could not preserve api-proxy logs:',
+    chmodRuntimeDir: false,
   });
 
   preserveDirectory({
@@ -304,7 +307,7 @@ export function preserveCleanupArtifacts(
   }
 
   fixArtifactPermissionsForRootless(
-    [proxyLogsDir, auditDir, sessionStateDir],
+    [auditDir, sessionStateDir],
     dockerHostPathPrefix,
     imageRegistry,
     imageTag,

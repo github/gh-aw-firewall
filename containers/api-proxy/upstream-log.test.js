@@ -1,3 +1,4 @@
+const zlib = require('zlib');
 const {
   createLogRequestCompletion,
   createLogUpstreamErrorResponse,
@@ -182,6 +183,7 @@ describe('upstream-log', () => {
         'x-request-id': 'upstream-123',
         authorization: '******',
         cookie: 'session=secret',
+        'api-key': 'azure-secret',
       },
       responseBody: Buffer.from('{"error":"bad request","authorization":"******"}'),
       responseBodyBytes: 67,
@@ -203,6 +205,7 @@ describe('upstream-log', () => {
     const [, , fields] = logRequest.mock.calls[0];
     expect(fields.response_headers.authorization).toBeUndefined();
     expect(fields.response_headers.cookie).toBeUndefined();
+    expect(fields.response_headers['api-key']).toBeUndefined();
     expect(fields.response_body).toContain('[REDACTED]');
     expect(auditTrack).toHaveBeenCalledWith('UPSTREAM_ERROR_RESPONSE', expect.any(Object));
   });
@@ -223,5 +226,43 @@ describe('upstream-log', () => {
       if (prev === undefined) delete process.env.AWF_MAX_ERROR_RESPONSE_CAPTURE_BYTES;
       else process.env.AWF_MAX_ERROR_RESPONSE_CAPTURE_BYTES = prev;
     }
+  });
+
+  test('redacts canonical credential fields in error bodies', () => {
+    const text = JSON.stringify({
+      access_token: 'access-secret',
+      refresh_token: 'refresh-secret',
+      client_secret: 'client-secret',
+    });
+
+    const redacted = _testing.redactSecretsInText(text);
+
+    expect(redacted).not.toContain('access-secret');
+    expect(redacted).not.toContain('refresh-secret');
+    expect(redacted).not.toContain('client-secret');
+    expect(redacted.match(/\[REDACTED\]/g)).toHaveLength(3);
+  });
+
+  test('redacts safely decompressed compressed error bodies', () => {
+    const fields = _testing.buildResponseBodyLogFields({
+      responseBody: zlib.gzipSync(Buffer.from('{"access_token":"compressed-secret"}')),
+      contentEncoding: 'gzip',
+      sanitizeForLog: (value) => value,
+    });
+
+    expect(fields.response_body_content_encoding).toBe('utf8');
+    expect(fields.response_body).toContain('[REDACTED]');
+    expect(fields.response_body).not.toContain('compressed-secret');
+  });
+
+  test('omits compressed bodies with unsupported encodings', () => {
+    const fields = _testing.buildResponseBodyLogFields({
+      responseBody: Buffer.from('uninspectable'),
+      contentEncoding: 'zstd',
+      sanitizeForLog: (value) => value,
+    });
+
+    expect(fields.response_body_content_encoding).toBe('omitted');
+    expect(fields.response_body).toContain('[OMITTED');
   });
 });

@@ -1,5 +1,6 @@
 'use strict';
 
+const zlib = require('zlib');
 const { COPILOT_PLACEHOLDER_TOKEN } = require('./providers/copilot-byok');
 const { stripBearerPrefix } = require('./providers/copilot-auth');
 
@@ -10,9 +11,11 @@ const OMITTED_RESPONSE_HEADERS = new Set([
   'proxy-authorization',
   'cookie',
   'set-cookie',
+  'api-key',
   'x-api-key',
   'x-goog-api-key',
 ]);
+const SENSITIVE_FIELD_NAME = '(?:api[_-]?key|authorization|proxy-authorization|cookie|set-cookie|(?:access|refresh|id|identity|session)[_-]?token|token|(?:client[_-]?)?secret|password|credential|private[_-]?key)';
 const REQUEST_ID_HEADER_PATTERNS = [
   /request-id$/i,
   /requestid$/i,
@@ -129,8 +132,8 @@ function redactSecretsInText(value) {
   if (typeof value !== 'string' || value.length === 0) return value || '';
   return value
     .replace(/\b(Bearer\s+)[^\s",]+/gi, `$1${REDACTED}`)
-    .replace(/("(?:api[_-]?key|authorization|proxy-authorization|cookie|set-cookie|token|secret|password)"\s*:\s*")[^"]*"/gi, `$1${REDACTED}"`)
-    .replace(/((?:api[_-]?key|authorization|proxy-authorization|cookie|set-cookie|token|secret|password)\s*[=:]\s*)[^\s,;]+/gi, `$1${REDACTED}`);
+    .replace(new RegExp(`("${SENSITIVE_FIELD_NAME}"\\s*:\\s*")[^"]*"`, 'gi'), `$1${REDACTED}"`)
+    .replace(new RegExp(`(${SENSITIVE_FIELD_NAME}\\s*[=:]\\s*)[^\\s,;]+`, 'gi'), `$1${REDACTED}`);
 }
 
 function resolveMaxErrorBodyBytes() {
@@ -154,13 +157,25 @@ function buildResponseBodyLogFields({
   const truncated = responseBodyTruncated || sourceBody.length > maxBodyBytes || rawBytes > maxBodyBytes;
   const contentEncodingValue = String(contentEncoding || '').toLowerCase();
   const compressed = !!contentEncodingValue && contentEncodingValue !== 'identity';
-  const bodyValue = compressed
-    ? capturedBody.toString('base64')
-    : capturedBody.toString('utf8');
+  let bodyValue = capturedBody.toString('utf8');
+  let bodyOmitted = false;
+  if (compressed) {
+    try {
+      const options = { maxOutputLength: maxBodyBytes };
+      if (contentEncodingValue === 'gzip') bodyValue = zlib.gunzipSync(capturedBody, options).toString('utf8');
+      else if (contentEncodingValue === 'deflate') bodyValue = zlib.inflateSync(capturedBody, options).toString('utf8');
+      else if (contentEncodingValue === 'br') bodyValue = zlib.brotliDecompressSync(capturedBody, options).toString('utf8');
+      else bodyOmitted = true;
+    } catch {
+      bodyOmitted = true;
+    }
+  }
   const redactedBody = redactSecretsInText(sanitizeForLog(bodyValue, maxBodyBytes * 4));
   return {
-    response_body_content_encoding: compressed ? 'base64' : 'utf8',
-    response_body: truncated
+    response_body_content_encoding: bodyOmitted ? 'omitted' : 'utf8',
+    response_body: bodyOmitted
+      ? '[OMITTED: compressed response could not be safely inspected]'
+      : truncated
       ? `${redactedBody}\n[TRUNCATED ${Math.max(rawBytes - captureBytes, 0)} BYTES]`
       : redactedBody,
     response_body_bytes: rawBytes,

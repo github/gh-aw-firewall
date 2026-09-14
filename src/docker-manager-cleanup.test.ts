@@ -142,7 +142,7 @@ describe('docker-manager cleanup', () => {
       expect(mockExecaSync).not.toHaveBeenCalledWith('chmod', ['-R', 'a+rX', proxyLogsDir]);
     });
 
-    it('should chmod api-proxy-logs subdirectory when proxyLogsDir is specified', async () => {
+    it('does not make api-proxy logs world-readable when proxyLogsDir is specified', async () => {
       // proxyLogsDir must be OUTSIDE workDir since cleanup deletes workDir
       const externalDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-proxy-logs-test-'));
       const proxyLogsDir = path.join(externalDir, 'proxy-logs');
@@ -155,9 +155,10 @@ describe('docker-manager cleanup', () => {
       try {
         await cleanup(getDir(), false, proxyLogsDir);
 
-        // Verify chmod was called on both proxyLogsDir and api-proxy-logs subdirectory
+        // The proxy log root remains readable for Squid logs, but payload-bearing
+        // API proxy diagnostics retain their owner-only file permissions.
         expect(mockExecaSync).toHaveBeenCalledWith('chmod', ['-R', 'a+rX', proxyLogsDir]);
-        expect(mockExecaSync).toHaveBeenCalledWith('chmod', ['-R', 'a+rX', apiProxyLogsDir]);
+        expect(mockExecaSync).not.toHaveBeenCalledWith('chmod', ['-R', 'a+rX', apiProxyLogsDir]);
       } finally {
         fs.rmSync(externalDir, { recursive: true, force: true });
       }

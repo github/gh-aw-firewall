@@ -97,7 +97,10 @@ function auditTrack(event, data) {
   try {
     if (!auditStream) {
       fs.mkdirSync(TOKEN_LOG_DIR, { recursive: true });
-      auditStream = fs.createWriteStream(AUDIT_LOG_FILE, { flags: 'a', mode: 0o644 });
+      const fd = fs.openSync(AUDIT_LOG_FILE, 'a', 0o600);
+      fs.fchmodSync(fd, 0o600);
+      fs.closeSync(fd);
+      auditStream = fs.createWriteStream(AUDIT_LOG_FILE, { flags: 'a', mode: 0o600 });
       auditStream.on('error', () => { auditStream = null; });
     }
     const line = { ts: Date.now(), event, ...data };
@@ -310,6 +313,7 @@ function closeLogStream() {
 
 module.exports = {
   TOKEN_LOG_FILE,
+  AUDIT_LOG_FILE,
   TOKEN_USAGE_SCHEMA,
   TOKEN_DIAG_SCHEMA,
   diag,
