@@ -2,6 +2,9 @@ import { promises as fs } from 'fs';
 import type { FileIdentity, InterfaceIdentity, MountIdentity, ProcessIdentity, RecordedProcess } from './cleanup-identity';
 import { parseMountInfoLine, parseStatusIdentity, sameFileIdentity } from './cleanup-identity';
 
+const PROCESS_STOP_WAIT_MS = 2_000;
+const PROCESS_STOP_INTERVAL_MS = 50;
+
 export interface CleanupProcessDependencies {
   readonly readFile: typeof fs.readFile;
   readonly readlink: typeof fs.readlink;
@@ -94,6 +97,41 @@ export async function processMatches(
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
     throw error;
   }
+}
+
+export interface CleanupProcessStopDependencies extends CleanupProcessDependencies {
+  readonly kill: typeof process.kill;
+  readonly sleep: (milliseconds: number) => Promise<void>;
+}
+
+export async function stopProcess(
+  dependencies: CleanupProcessStopDependencies,
+  identity: ProcessIdentity,
+  recorded: RecordedProcess,
+): Promise<void> {
+  if (!tryKill(dependencies.kill, identity.pid, 'SIGTERM')) {
+    if (await processMatches(dependencies, identity, recorded)) {
+      throw new Error(`process ${identity.pid} still matches after kill reported ESRCH`);
+    }
+    return;
+  }
+  const deadline = Date.now() + PROCESS_STOP_WAIT_MS;
+  while (Date.now() < deadline) {
+    if (!(await processMatches(dependencies, identity, recorded))) return;
+    await dependencies.sleep(PROCESS_STOP_INTERVAL_MS);
+  }
+  if (!(await processMatches(dependencies, identity, recorded))) return;
+  if (!tryKill(dependencies.kill, identity.pid, 'SIGKILL')) {
+    if (await processMatches(dependencies, identity, recorded)) {
+      throw new Error(`process ${identity.pid} still matches after kill reported ESRCH`);
+    }
+    return;
+  }
+  for (let attempt = 0; attempt < PROCESS_STOP_WAIT_MS / PROCESS_STOP_INTERVAL_MS; attempt += 1) {
+    if (!(await processMatches(dependencies, identity, recorded))) return;
+    await dependencies.sleep(PROCESS_STOP_INTERVAL_MS);
+  }
+  throw new Error(`identity-validated process ${identity.pid} did not exit`);
 }
 
 export async function captureFileIdentity(
