@@ -11,6 +11,7 @@ import {
   CLOUD_HYPERVISOR_API_PROXY_PROBE_TIMEOUT_SECONDS,
   CLOUD_HYPERVISOR_CONNECTIVITY_PROBE_ATTEMPTS,
   CLOUD_HYPERVISOR_GUEST_WORKSPACE,
+  CLOUD_HYPERVISOR_PROBE_TIMEOUT_MS,
   CLOUD_HYPERVISOR_TCP_PROBE_TIMEOUT_SECONDS,
   MCP_GATEWAY_PORT,
   connectivityProbeTimeoutMs,
@@ -19,20 +20,6 @@ import {
   shellSingleQuote,
 } from './backend-utils';
 
-/**
- * Generous, not a tight few-second timeout. Live-KVM validation on
- * GitHub-hosted runners showed the guest's own vCPU getting scheduled so
- * rarely under nested virtualization (see the CLOUD_HYPERVISOR_GUEST_READY_
- * MAX_WAIT_MS comment in cloud-hypervisor/manager.ts for the same
- * phenomenon during boot) that even a fully-correct network path (tap,
- * nftables, vnet_hdr all confirmed working via live diagnostics — response
- * packets reaching the host-side veth) could still leave a short-lived
- * guest command like `nc -z -w 5` unable to get enough real CPU time to
- * finish its own connect() before that 5-second budget elapsed. A short
- * probe timeout would abort a guest that is merely slow to be scheduled,
- * not one with a broken network path.
- */
-export const CLOUD_HYPERVISOR_PROBE_TIMEOUT_MS = 90_000;
 const CLOUD_HYPERVISOR_GUEST_NETWORK_READY_TIMEOUT_MS = CLOUD_HYPERVISOR_PROBE_TIMEOUT_MS;
 const CLOUD_HYPERVISOR_CONNECTIVITY_PROBE_INITIAL_DELAY_SECONDS = 2;
 

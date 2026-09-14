@@ -36,6 +36,7 @@ import {
 import { runCloudHypervisorBootLoop } from './runtime-boot-loop';
 import {
   cleanupArtifactSnapshot,
+  getDiagnosticsRoot,
   stopManager,
 } from './runtime-cleanup';
 export { buildCloudHypervisorGuestEnvironment };
@@ -194,7 +195,6 @@ class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBackend {
   private stopping: Promise<void> | undefined;
   private identity: { uid: number; gid: number } | undefined;
   private preflightResult: CloudHypervisorPreflightResult | undefined;
-  private infrastructure: MicrovmInfrastructureSnapshot | undefined;
   private diagnosticsCollected = false;
   private agentExecutionStarted = false;
   private readonly failedBootDiagnostics: string[] = [];
@@ -255,7 +255,6 @@ class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBackend {
     this.manager = boot.manager;
     this.environment = boot.environment;
     this.identity = boot.identity;
-    this.infrastructure = boot.infrastructure;
     if (boot.diagnosticsCollected) this.diagnosticsCollected = true;
   };
 
@@ -350,9 +349,7 @@ class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBackend {
     // up" once cleanup() has already cleared it) -- discovered via
     // live-KVM validation.
     if (this.diagnosticsCollected || !this.manager) return;
-    const directory = this.config.auditDir
-      ? `${this.config.auditDir}/cloud-hypervisor`
-      : `${this.config.workDir}/diagnostics/cloud-hypervisor`;
+    const directory = getDiagnosticsRoot(this.config);
     await this.manager.collectDiagnostics(directory);
     this.diagnosticsCollected = true;
   }

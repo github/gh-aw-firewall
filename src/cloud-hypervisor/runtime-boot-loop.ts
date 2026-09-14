@@ -48,7 +48,6 @@ export interface CloudHypervisorBootLoopResult {
   manager: CloudHypervisorManagerAdapter;
   environment: Record<string, string>;
   identity: { uid: number; gid: number };
-  infrastructure: MicrovmInfrastructureSnapshot;
   diagnosticsCollected: boolean;
 }
 
@@ -208,7 +207,6 @@ export async function runCloudHypervisorBootLoop({
           manager,
           environment,
           identity,
-          infrastructure,
           diagnosticsCollected,
         };
       } catch (error) {

@@ -3,10 +3,10 @@ import type { WrapperConfig } from '../types';
 import type { CloudHypervisorPreflightResult } from './preflight';
 import {
   CLOUD_HYPERVISOR_GUEST_WORKSPACE,
+  CLOUD_HYPERVISOR_PROBE_TIMEOUT_MS,
   createBoundedOutputCollector,
   formatError,
 } from './backend-utils';
-import { CLOUD_HYPERVISOR_PROBE_TIMEOUT_MS } from './runtime-readiness';
 
 const CLOUD_HYPERVISOR_CANCEL_GRACE_MS = 3_000;
 
@@ -196,8 +196,11 @@ export function getBootDiagnosticsDirectory(
   config: Pick<WrapperConfig, 'auditDir' | 'workDir'>,
   bootAttempt: number,
 ): string {
-  const root = config.auditDir
+  return `${getDiagnosticsRoot(config)}/boot-attempt-${bootAttempt}`;
+}
+
+export function getDiagnosticsRoot(config: Pick<WrapperConfig, 'auditDir' | 'workDir'>): string {
+  return config.auditDir
     ? `${config.auditDir}/cloud-hypervisor`
     : `${config.workDir}/diagnostics/cloud-hypervisor`;
-  return `${root}/boot-attempt-${bootAttempt}`;
 }
