@@ -199,7 +199,7 @@ class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBackend {
   private agentExecutionStarted = false;
   private readonly failedBootDiagnostics: string[] = [];
   private readonly cleanedManagers = new Set<CloudHypervisorManagerAdapter>();
-  private readonly stoppedManagers = new Set<CloudHypervisorManagerAdapter>();
+  private readonly stoppedManagers = new WeakSet<CloudHypervisorManagerAdapter>();
 
   constructor(
     private readonly config: WrapperConfig,
