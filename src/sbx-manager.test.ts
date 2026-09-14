@@ -187,14 +187,46 @@ describe('sbx-manager', () => {
       expect(command).not.toContain('https://example.com/');
     });
 
-    it('rejects startup when a direct request reaches the internet', async () => {
-      mockExecaFn.mockResolvedValueOnce({ exitCode: 86, stdout: '', stderr: '' });
+    it('rejects startup when a direct request reaches the internet on every retry', async () => {
+      jest.useFakeTimers();
+      try {
+        mockExecaFn.mockResolvedValue({ exitCode: 86, stdout: '', stderr: '' });
 
-      await expect(assertSbxEgressEnforced(
-        'awf-agent-test',
-        {},
-        ['github.com'],
-      )).rejects.toThrow('direct egress bypassed Squid');
+        const assertion = expect(assertSbxEgressEnforced(
+          'awf-agent-test',
+          {},
+          ['github.com'],
+        )).rejects.toThrow('direct egress bypassed Squid');
+
+        await jest.advanceTimersByTimeAsync(2_000);
+        await jest.advanceTimersByTimeAsync(2_000);
+        await assertion;
+        // One initial probe plus retries for the transient-Squid-startup grace window.
+        expect(mockExecaFn).toHaveBeenCalledTimes(3);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('tolerates a transient bypass that clears on retry', async () => {
+      jest.useFakeTimers();
+      try {
+        mockExecaFn
+          .mockResolvedValueOnce({ exitCode: 86, stdout: '', stderr: '' })
+          .mockResolvedValueOnce({ exitCode: 0, stdout: '', stderr: '' });
+
+        const assertion = expect(assertSbxEgressEnforced(
+          'awf-agent-test',
+          {},
+          ['github.com'],
+        )).resolves.toBeUndefined();
+
+        await jest.advanceTimersByTimeAsync(2_000);
+        await assertion;
+        expect(mockExecaFn).toHaveBeenCalledTimes(2);
+      } finally {
+        jest.useRealTimers();
+      }
     });
 
     it('fails closed when the probe cannot execute', async () => {

@@ -557,6 +557,18 @@ export async function assertSbxApiProxyReflect(
 }
 
 /**
+ * Number of times {@link assertSbxEgressEnforced} re-probes before treating a
+ * detected bypass as final. The sbx daemon's `DOCKER_SANDBOXES_PROXY` chaining
+ * is typically configured before AWF's Squid container exists (an orchestrator
+ * concern outside AWF's control), so the very first probe can race a Squid
+ * that is still warming up and fail open to direct egress. A handful of
+ * retries with a short delay absorbs that startup race without weakening the
+ * fail-closed guarantee for a genuine, persistent bypass.
+ */
+const EGRESS_PROBE_MAX_ATTEMPTS = 3;
+const EGRESS_PROBE_RETRY_DELAY_MS = 2_000;
+
+/**
  * Fails closed when an sbx guest can reach a domain that Squid policy denies
  * after every conventional proxy environment variable has been removed.
  *
@@ -592,20 +604,39 @@ export async function assertSbxEgressEnforced(
     ...probeCommands,
   ].join(' && ');
 
-  const result = await execInSandbox(name, command, {
-    timeoutMinutes: 1,
-    workDir,
-    environment,
-  });
-  if (result.exitCode === 86) {
+  let lastExitCode = 0;
+  for (let attempt = 1; attempt <= EGRESS_PROBE_MAX_ATTEMPTS; attempt++) {
+    const result = await execInSandbox(name, command, {
+      timeoutMinutes: 1,
+      workDir,
+      environment,
+    });
+    lastExitCode = result.exitCode;
+
+    if (result.exitCode === 0) {
+      return;
+    }
+    if (result.exitCode !== 86) {
+      // Not a bypass (e.g. curl missing) — retrying can't help, fail closed now.
+      throw new Error(
+        `Could not verify Docker sbx egress enforcement (probe exit ${result.exitCode})`,
+      );
+    }
+    // exitCode === 86: a probe reached the internet directly. This can be a
+    // transient Squid warm-up race, so retry before declaring a real bypass.
+    if (attempt < EGRESS_PROBE_MAX_ATTEMPTS) {
+      logger.warn(
+        `[sbx] Egress probe reached the internet directly on attempt ${attempt}/` +
+        `${EGRESS_PROBE_MAX_ATTEMPTS}; retrying in case Squid is still starting up`,
+      );
+      await new Promise(resolve => setTimeout(resolve, EGRESS_PROBE_RETRY_DELAY_MS));
+    }
+  }
+
+  if (lastExitCode === 86) {
     throw new Error(
       'Docker sbx direct egress bypassed Squid; ensure the sbx daemon was started with ' +
       'DOCKER_SANDBOXES_PROXY pointing to AWF Squid',
-    );
-  }
-  if (result.exitCode !== 0) {
-    throw new Error(
-      `Could not verify Docker sbx egress enforcement (probe exit ${result.exitCode})`,
     );
   }
 }
