@@ -91,9 +91,19 @@ function buildAgentTask(prompt, { githubEnabled, privateRepo }) {
  * endpoints, network, credentials, resources, runtime, profile, model,
  * provider, tools, system prompt, messages, and the alternate payload
  * spelling) is rejected by exactly one implementation.
+ *
+ * The `GITHUB_SCOPE_RESERVED_BYTES` reservation only applies when this
+ * agent's configuration actually appends the GitHub scope block (static
+ * `githubEnabled` or `dynamicEnabled`, mirroring `buildAgentTask`'s own
+ * condition). Configurations without GitHub MCP access get the full
+ * protocol-advertised `MAX_TASK_BYTES` bound, matching the entrypoint's
+ * unmodified 64 KiB `read_bounded` limit for those prompts.
  */
-function createAgentRequestValidator(maxPromptBytes) {
-  const maxTaskBytes = Math.min(maxPromptBytes, MAX_TASK_BYTES - GITHUB_SCOPE_RESERVED_BYTES);
+function createAgentRequestValidator(maxPromptBytes, { githubEnabled, dynamicEnabled } = {}) {
+  const appendsGitHubScope = Boolean(githubEnabled || dynamicEnabled);
+  const maxTaskBytes = appendsGitHubScope
+    ? Math.min(maxPromptBytes, MAX_TASK_BYTES - GITHUB_SCOPE_RESERVED_BYTES)
+    : Math.min(maxPromptBytes, MAX_TASK_BYTES);
   return (request) => validateEnclaveAgentRequest(request, { maxTaskBytes });
 }
 

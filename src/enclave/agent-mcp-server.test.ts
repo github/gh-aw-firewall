@@ -551,7 +551,7 @@ describe('broker-generated GitHub repository scope', () => {
   });
 
   it('reserves room for the appended scope inside the enclave task bound', () => {
-    const validate = createAgentRequestValidator(65536);
+    const validate = createAgentRequestValidator(65536, { githubEnabled: true });
     const oversized = validate({
       ...validAgentArguments,
       prompt: 'x'.repeat(65536 - GITHUB_SCOPE_RESERVED_BYTES + 1),
@@ -567,5 +567,14 @@ describe('broker-generated GitHub repository scope', () => {
       privateRepo: 'o'.repeat(39) + '/' + 'r'.repeat(100),
     });
     expect(Buffer.byteLength(task, 'utf8')).toBeLessThanOrEqual(64 * 1024);
+  });
+
+  it('does not shrink the task bound when the enclave has no GitHub MCP access', () => {
+    const validate = createAgentRequestValidator(65536);
+    const accepted = validate({
+      ...validAgentArguments,
+      prompt: 'x'.repeat(65536),
+    });
+    expect(accepted.valid).toBe(true);
   });
 });
