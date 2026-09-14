@@ -99,8 +99,24 @@ type PreserveDirectoryOptions = {
   permissionErrorMessage: string;
   preserveErrorMessage: string;
   chmodPreservedDir?: boolean;
-  chmodRuntimeDir?: boolean;
+  chmodRuntimeDir?: 'recursive' | 'direct-files' | false;
 };
+
+function chmodRuntimeArtifacts(targetDir: string, mode: 'recursive' | 'direct-files'): void {
+  if (mode === 'recursive') {
+    execa.sync('chmod', ['-R', 'a+rX', targetDir]);
+    return;
+  }
+
+  execa.sync('chmod', ['a+rX', targetDir]);
+  const directFiles = fs
+    .readdirSync(targetDir, { withFileTypes: true })
+    .filter((entry) => entry.isFile())
+    .map((entry) => path.join(targetDir, entry.name));
+  if (directFiles.length > 0) {
+    execa.sync('chmod', ['a+rX', ...directFiles]);
+  }
+}
 
 function preserveDirectory({
   runtimeDir,
@@ -114,13 +130,13 @@ function preserveDirectory({
   permissionErrorMessage,
   preserveErrorMessage,
   chmodPreservedDir = false,
-  chmodRuntimeDir = true,
+  chmodRuntimeDir = 'recursive',
 }: PreserveDirectoryOptions): void {
   if (runtimeDir) {
     const targetDir = runtimeSubdir ? path.join(runtimeDir, runtimeSubdir) : runtimeDir;
     if (fs.existsSync(targetDir)) {
       try {
-        if (chmodRuntimeDir) execa.sync('chmod', ['-R', 'a+rX', targetDir]);
+        if (chmodRuntimeDir) chmodRuntimeArtifacts(targetDir, chmodRuntimeDir);
         logger.info(`${availableLabel} available at: ${targetDir}`);
       } catch (error) {
         if (isBenignArtifactPermissionError(error)) {
@@ -245,6 +261,7 @@ export function preserveCleanupArtifacts(
     permissionErrorMessage: 'Could not fix squid log permissions:',
     preserveErrorMessage: 'Could not preserve squid logs:',
     chmodPreservedDir: true,
+    chmodRuntimeDir: 'direct-files',
   });
 
   if (auditDir) {

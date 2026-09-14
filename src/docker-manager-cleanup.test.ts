@@ -113,8 +113,11 @@ describe('docker-manager cleanup', () => {
 
       await cleanup(getDir(), false, proxyLogsDir);
 
-      // Verify chmod was called on proxyLogsDir
-      expect(mockExecaSync).toHaveBeenCalledWith('chmod', ['-R', 'a+rX', proxyLogsDir]);
+      expect(mockExecaSync).toHaveBeenCalledWith('chmod', ['a+rX', proxyLogsDir]);
+      expect(mockExecaSync).toHaveBeenCalledWith('chmod', [
+        'a+rX',
+        path.join(proxyLogsDir, 'access.log'),
+      ]);
     });
 
     it('should not move squid logs to /tmp when proxyLogsDir is specified', async () => {
@@ -155,10 +158,18 @@ describe('docker-manager cleanup', () => {
       try {
         await cleanup(getDir(), false, proxyLogsDir);
 
-        // The proxy log root remains readable for Squid logs, but payload-bearing
+        // Only the root and direct Squid log files become readable; payload-bearing
         // API proxy diagnostics retain their owner-only file permissions.
-        expect(mockExecaSync).toHaveBeenCalledWith('chmod', ['-R', 'a+rX', proxyLogsDir]);
-        expect(mockExecaSync).not.toHaveBeenCalledWith('chmod', ['-R', 'a+rX', apiProxyLogsDir]);
+        expect(mockExecaSync).toHaveBeenCalledWith('chmod', ['a+rX', proxyLogsDir]);
+        expect(mockExecaSync).toHaveBeenCalledWith('chmod', [
+          'a+rX',
+          path.join(proxyLogsDir, 'access.log'),
+        ]);
+        expect(mockExecaSync).not.toHaveBeenCalledWith('chmod', ['-R', 'a+rX', proxyLogsDir]);
+        expect(mockExecaSync).not.toHaveBeenCalledWith(
+          'chmod',
+          expect.arrayContaining([apiProxyLogsDir]),
+        );
       } finally {
         fs.rmSync(externalDir, { recursive: true, force: true });
       }
