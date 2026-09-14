@@ -38,6 +38,15 @@ export interface CloudHypervisorBootLoopOptions {
   getPreflightResult(): CloudHypervisorPreflightResult | undefined;
   cleanupArtifactSnapshot(): Promise<void>;
   agentExecutionStarted(): boolean;
+  /**
+   * Publishes the in-flight manager to the facade as soon as it exists so a
+   * concurrent `stop()` (e.g. from the signal handler, which runs while
+   * `start()` is still awaiting boot and readiness probes) can terminate the
+   * VMM/virtiofsd processes instead of leaving them orphaned.
+   */
+  publishManager(manager: CloudHypervisorManagerAdapter | undefined): void;
+  /** True once a concurrent stop()/preserve() has begun tearing the run down. */
+  isStopped(): boolean;
   markStopped(): void;
   markDiagnosticsCollected(): void;
   failedBootDiagnostics: string[];
@@ -64,6 +73,8 @@ export async function runCloudHypervisorBootLoop({
   getPreflightResult,
   cleanupArtifactSnapshot,
   agentExecutionStarted,
+  publishManager,
+  isStopped,
   markStopped,
   markDiagnosticsCollected,
   failedBootDiagnostics,
@@ -144,6 +155,9 @@ export async function runCloudHypervisorBootLoop({
         );
         await dependencies.sleep(delay);
       }
+      if (isStopped()) {
+        throw new Error('Cloud Hypervisor microVM boot aborted by shutdown');
+      }
       manager = dependencies.createManager(
         verifiedCloudHypervisor,
         workDir,
@@ -153,6 +167,7 @@ export async function runCloudHypervisorBootLoop({
         mountEnforcement,
         preflightResult,
       );
+      publishManager(manager);
       try {
         stage = 'vmm-configuration';
         await manager.start();
@@ -228,6 +243,7 @@ export async function runCloudHypervisorBootLoop({
         if (cleanupResult.managerCleared) {
           cleanedManagers.add(manager);
           manager = undefined;
+          publishManager(undefined);
         }
         if (cleanupResult.environmentCleared) environment = undefined;
         if (cleanupResult.diagnosticsCollected) {

@@ -199,6 +199,7 @@ class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBackend {
   private agentExecutionStarted = false;
   private readonly failedBootDiagnostics: string[] = [];
   private readonly cleanedManagers = new Set<CloudHypervisorManagerAdapter>();
+  private readonly stoppedManagers = new Set<CloudHypervisorManagerAdapter>();
 
   constructor(
     private readonly config: WrapperConfig,
@@ -243,6 +244,10 @@ class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBackend {
       getPreflightResult: () => this.preflightResult,
       cleanupArtifactSnapshot: () => this.cleanupArtifactSnapshot(),
       agentExecutionStarted: () => this.agentExecutionStarted,
+      publishManager: (manager) => {
+        this.manager = manager;
+      },
+      isStopped: () => this.stopped || this.stopping !== undefined,
       markStopped: () => {
         this.stopped = true;
       },
@@ -256,6 +261,21 @@ class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBackend {
     this.environment = boot.environment;
     this.identity = boot.identity;
     if (boot.diagnosticsCollected) this.diagnosticsCollected = true;
+    // A stop()/preserve() can race with the tail of boot (the signal handler
+    // calls stop() while start() is still awaiting readiness probes). If that
+    // happened, the microVM this attempt just booted is not covered by the
+    // in-flight teardown, so tear it down here rather than returning a
+    // "ready" runtime backed by orphaned VMM/virtiofsd processes.
+    if (this.stopped || this.stopping) {
+      await this.stopping?.catch(() => undefined);
+      if (!this.stoppedManagers.has(boot.manager)) {
+        await this.stopManager(false);
+      }
+      this.stopped = true;
+      this.manager = undefined;
+      this.environment = undefined;
+      throw new Error('Cloud Hypervisor microVM startup aborted by shutdown');
+    }
   };
 
   readonly exec: WorkflowDependencies['runAgentCommand'] = async (
@@ -399,6 +419,7 @@ class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBackend {
   }
 
   private async stopManager(preserve: boolean): Promise<void> {
+    if (this.manager) this.stoppedManagers.add(this.manager);
     await stopManager({
       activeExecution: this.activeExecution,
       manager: this.manager,

@@ -957,6 +957,27 @@ describe('Cloud Hypervisor runtime backend', () => {
       );
     });
 
+    it('stops the in-flight microVM when cleanup races an unfinished boot', async () => {
+      const { manager, deps } = harness();
+      let releaseBoot!: () => void;
+      manager.startInstance.mockImplementationOnce(
+        () => new Promise<void>((resolve) => { releaseBoot = () => resolve(); }),
+      );
+      const backend = createBackend(config(), deps);
+      const startup = backend.start('/tmp/awf', ['github.com']);
+      while (manager.startInstance.mock.calls.length === 0) {
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      }
+
+      await backend.stop();
+      expect(manager.stop).toHaveBeenCalledWith({ preserve: false });
+      expect(deps.removeArtifactSnapshot).toHaveBeenCalledWith('/snapshot');
+
+      releaseBoot();
+      await expect(startup).rejects.toThrow(/aborted by shutdown/);
+      expect(manager.stop).toHaveBeenCalledTimes(1);
+    });
+
     it('cancels an active guest command before stopping', async () => {
       const { manager, deps } = harness();
       const resolveExecution = mockNetworkReadyProbeSequence(manager);
