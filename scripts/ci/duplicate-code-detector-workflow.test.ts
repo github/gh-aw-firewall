@@ -21,7 +21,8 @@ describe('duplicate code detector workflow optimization config', () => {
     expect(source).toContain('## Scope Constraint');
     expect(source).toContain('Do NOT re-run discovery commands.');
     expect(source).toContain('Complete your analysis in ≤4 turns. File at most 3 issues per run.');
-    expect(source).toContain('Do NOT call any GitHub MCP tools for this phase.');
+    expect(source).toContain('github: false');
+    expect(source).toContain('No GitHub MCP tools are exposed to this workflow; use the pre-computed issue data only.');
     expect(source).toContain('existing-issues.json');
     expect(source).toContain('max: 3');
     expect(source).toContain('allowed:\n    - github');
@@ -40,6 +41,10 @@ describe('duplicate code detector workflow optimization config', () => {
     expect(lock).toContain('npm install -g jscpd 2>&1 | tail -3');
     expect(lock).toContain('Tools: create_issue(max:3), missing_tool, missing_data, noop');
     expect(lock).toContain('\\"create_issue\\":{\\"expires\\":720,\\"labels\\":[\\"code-quality\\",\\"refactoring\\"],\\"max\\":3');
+    expect(lock).toContain('"mcp_servers":[{"name":"safeoutputs","tools":["create_issue","missing_data","missing_tool","noop"]}]');
+    expect(lock).not.toContain('github_mcp_tools_with_safeoutputs_prompt.md');
+    expect(lock).not.toContain('GITHUB_TOOLSETS');
+    expect(lock).not.toContain('ghcr.io/github/github-mcp-server');
     expect(lock).not.toContain(`GH_AW_INFO_ALLOWED_DOMAINS: '["node","github"]'`);
   });
 });

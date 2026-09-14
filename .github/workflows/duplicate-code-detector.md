@@ -22,8 +22,7 @@ network:
     - github
 
 tools:
-  github:
-    toolsets: [issues]
+  github: false
   bash: true
 
 model: gpt-5.4-mini
@@ -129,7 +128,7 @@ Complete your analysis in ≤4 turns. File at most 3 issues per run.
 
 Pre-computed issue data is in `/tmp/gh-aw/existing-issues.json`.
 Read it with `cat /tmp/gh-aw/existing-issues.json`.
-Do NOT call any GitHub MCP tools for this phase.
+No GitHub MCP tools are exposed to this workflow; use the pre-computed issue data only.
 
 - Skip any finding whose title already appears in this list with state=OPEN.
 - For closed issues: skip only if stateReason is "not_planned". If stateReason is "completed"
