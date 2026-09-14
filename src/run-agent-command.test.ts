@@ -408,7 +408,7 @@ describe('runAgentCommand', () => {
           SQUID_CONTAINER_NAME,
           'sh',
           '-c',
-          'chown -R "$TUID:$TGID" /var/log/squid 2>/dev/null; chmod -R a+rX /var/log/squid',
+          'chown "$TUID:$TGID" /var/log/squid 2>/dev/null; chmod a+rX /var/log/squid 2>/dev/null; find /var/log/squid -maxdepth 1 -type f -exec chown "$TUID:$TGID" {} \\; -exec chmod a+rX {} \\; 2>/dev/null',
         ]),
         expect.objectContaining({ reject: false }),
       );

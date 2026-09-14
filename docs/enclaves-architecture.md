@@ -89,6 +89,15 @@ enclave_run_agent({
 
 Both tool schemas are closed (`additionalProperties: false`). Callers cannot provide images, runtimes, models, profiles, prompts beyond the bounded payload field, repository catalogs, credentials, timeout overrides, or any other trusted control.
 
+When an `enclave_run_agent` invocation has GitHub MCP access (static or
+dynamic), the broker appends its own repository-scope instructions after the
+caller's prompt: every GitHub MCP request must set `owner` and `repo` to the
+repository the broker selected for that invocation, and wildcard selectors and
+repository-discovery tools are forbidden. The text is generated from the
+broker's validated selector, never from caller text, so it cannot broaden
+access. It is a prompt-level mitigation only — mcpg's `allow-only` enforcement
+remains the security boundary.
+
 A dynamic repository entry MUST advertise only `enclave_run_agent`.
 `enclave_run_script` remains available to static seed-backed entries only unless
 a future ADR defines a secure dynamic script repository-access topology.

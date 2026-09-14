@@ -520,6 +520,26 @@ describe('token-usage file sentinel', () => {
       await isolated.closeLogStream();
     }
   });
+
+  test('creates audit records with owner-only permissions', async () => {
+    const originalDir = process.env.AWF_TOKEN_LOG_DIR;
+    const auditDir = fs.mkdtempSync('/tmp/awf-audit-permissions-');
+    process.env.AWF_TOKEN_LOG_DIR = auditDir;
+    let isolated;
+    jest.isolateModules(() => {
+      isolated = require('./token-persistence');
+    });
+
+    try {
+      isolated.auditTrack('UPSTREAM_ERROR_RESPONSE', { response_body: 'redacted' });
+      await isolated.closeLogStream();
+      expect(fs.statSync(isolated.AUDIT_LOG_FILE).mode & 0o777).toBe(0o600);
+    } finally {
+      if (originalDir === undefined) delete process.env.AWF_TOKEN_LOG_DIR;
+      else process.env.AWF_TOKEN_LOG_DIR = originalDir;
+      fs.rmSync(auditDir, { recursive: true, force: true });
+    }
+  });
 });
 
 // ── AWF_VERSION env var propagated as exact _schema value ─────────────

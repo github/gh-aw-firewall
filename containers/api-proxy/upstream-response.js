@@ -1,8 +1,14 @@
 'use strict';
 
-const { createLogRequestCompletion, createLogUpstreamAuthError, buildCopilotAuthErrorMessage } = require('./upstream-log');
+const {
+  createLogRequestCompletion,
+  createLogUpstreamAuthError,
+  createLogUpstreamErrorResponse,
+  buildCopilotAuthErrorMessage,
+} = require('./upstream-log');
 const { handle400WithRetry } = require('./upstream-retry');
 const { setupTokenTracking } = require('./upstream-token');
+const { auditTrack } = require('./token-persistence');
 const {
   transformCodexCompatibleResponseBody,
   createCodexCompatibleSseTransform,
@@ -55,6 +61,19 @@ function withoutContentLength(headers) {
   return next;
 }
 
+function extractRequestModel(body) {
+  if (!body || body.length === 0) return null;
+  try {
+    const parsed = JSON.parse(body.toString('utf8'));
+    if (parsed && typeof parsed.model === 'string') return parsed.model;
+  } catch { /* non-JSON body */ }
+  return null;
+}
+
+function shouldCaptureErrorBodyChunk(currentBytes, chunkLength, maxCaptureBytes) {
+  return currentBytes < maxCaptureBytes && chunkLength > 0;
+}
+
 function createUpstreamResponseHandlers({
   metrics,
   logRequest,
@@ -81,6 +100,11 @@ function createUpstreamResponseHandlers({
     applyPermissionDenied,
     parseModelNotSupportedFromBody,
   });
+  const logUpstreamErrorResponse = createLogUpstreamErrorResponse({
+    logRequest,
+    sanitizeForLog,
+    auditTrack,
+  });
 
   function handleUpstreamResponse(proxyRes, requestHeaders, {
     body, res, provider, requestId, req, targetHost, startTime, span, requestBytes,
@@ -90,8 +114,15 @@ function createUpstreamResponseHandlers({
     codexCompatibility = null,
   }) {
     let responseBytes = 0;
+    let capturedErrorBytes = 0;
+    let errorBodyTruncated = false;
+    const capturedErrorChunks = [];
+    const maxErrorCaptureBytes = Number.parseInt(process.env.AWF_MAX_ERROR_RESPONSE_CAPTURE_BYTES, 10) > 0
+      ? Number.parseInt(process.env.AWF_MAX_ERROR_RESPONSE_CAPTURE_BYTES, 10)
+      : 64 * 1024;
     const billingInfo = extractBillingHeaders(proxyRes.headers);
     const initiatorSent = requestHeaders['x-initiator'] || null;
+    const requestModel = extractRequestModel(body);
 
     // Buffer the 400 response body when we may need to inspect it for either:
     //   (a) a deprecated Anthropic/Copilot beta-header value (first attempt only),
@@ -104,6 +135,7 @@ function createUpstreamResponseHandlers({
         (provider === 'copilot' && modelNotSupportedRetryCount < MAX_MODEL_NOT_SUPPORTED_RETRIES) ||
         (provider === 'copilot' && !!onModelEndpointBlockedRetry)
       );
+    const shouldCaptureUpstreamError = proxyRes.statusCode < 200 || proxyRes.statusCode >= 300;
 
     const completionCtx = { startTime, provider, req, requestBytes, targetHost, requestId };
     const authErrCtx = { requestId, provider, targetHost, req };
@@ -140,7 +172,9 @@ function createUpstreamResponseHandlers({
           sanitizeForLog,
           logRequestCompletion,
           logUpstreamAuthError,
+          logUpstreamErrorResponse,
           otel,
+          requestModel,
         });
         if (didRetry) return;
       });
@@ -179,9 +213,32 @@ function createUpstreamResponseHandlers({
         res.end(outgoingBody);
       });
     } else {
-      proxyRes.on('data', (chunk) => { responseBytes += chunk.length; });
+      proxyRes.on('data', (chunk) => {
+        responseBytes += chunk.length;
+        if (!shouldCaptureUpstreamError) return;
+        if (!shouldCaptureErrorBodyChunk(capturedErrorBytes, chunk.length, maxErrorCaptureBytes)) {
+          errorBodyTruncated = true;
+          return;
+        }
+        const remaining = maxErrorCaptureBytes - capturedErrorBytes;
+        const toCapture = chunk.length > remaining ? chunk.subarray(0, remaining) : chunk;
+        capturedErrorChunks.push(toCapture);
+        capturedErrorBytes += toCapture.length;
+        if (chunk.length > remaining) errorBodyTruncated = true;
+      });
       proxyRes.on('end', () => {
         logRequestCompletion(proxyRes.statusCode, responseBytes, initiatorSent, billingInfo, completionCtx);
+        if (shouldCaptureUpstreamError) {
+          logUpstreamErrorResponse(proxyRes.statusCode, {
+            ...authErrCtx,
+            requestModel,
+            transformed: !!codexSseTransform,
+            responseHeaders: proxyRes.headers,
+            responseBody: Buffer.concat(capturedErrorChunks, capturedErrorBytes),
+            responseBodyBytes: responseBytes,
+            responseBodyTruncated: errorBodyTruncated,
+          });
+        }
       });
 
       if (codexSseTransform) {
@@ -219,5 +276,7 @@ module.exports = {
   // Exported for unit-test access only; not part of the public API.
   _testing: {
     buildCopilotAuthErrorMessage,
+    extractRequestModel,
+    shouldCaptureErrorBodyChunk,
   },
 };

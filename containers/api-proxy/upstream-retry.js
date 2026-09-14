@@ -7,7 +7,8 @@ function handle400WithRetry(proxyRes, requestHeaders, responseBody, {
   completionCtx, authErrCtx, initiatorSent, billingInfo, res, span,
   parseDeprecatedHeaderFromBody, learnAndStripDeprecatedHeaderValue,
   parseModelNotSupportedFromBody, parseModelEndpointBlockedFromBody, logRequest, sanitizeForLog,
-  logRequestCompletion, logUpstreamAuthError, otel,
+  logRequestCompletion, logUpstreamAuthError, logUpstreamErrorResponse, otel,
+  requestModel = null,
 }) {
   // ── (a) Deprecated beta-header retry (first attempt for anthropic/copilot) ──
   if (!hasRetried && (provider === 'anthropic' || provider === 'copilot')) {
@@ -80,6 +81,17 @@ function handle400WithRetry(proxyRes, requestHeaders, responseBody, {
 
   logRequestCompletion(proxyRes.statusCode, responseBody.length, initiatorSent, billingInfo, completionCtx);
   logUpstreamAuthError(proxyRes.statusCode, { ...authErrCtx, responseBody });
+  if (typeof logUpstreamErrorResponse === 'function') {
+    logUpstreamErrorResponse(proxyRes.statusCode, {
+      ...authErrCtx,
+      requestModel,
+      transformed: false,
+      responseHeaders: proxyRes.headers,
+      responseBody,
+      responseBodyBytes: responseBody.length,
+      responseBodyTruncated: false,
+    });
+  }
 
   const resHeaders = {
     ...proxyRes.headers,
