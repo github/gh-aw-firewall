@@ -1,7 +1,9 @@
 const {
   createLogRequestCompletion,
+  createLogUpstreamErrorResponse,
   createLogUpstreamAuthError,
   isInferenceRequest,
+  _testing,
 } = require('./upstream-log');
 
 describe('upstream-log', () => {
@@ -157,5 +159,69 @@ describe('upstream-log', () => {
 
     expect(logRequest).not.toHaveBeenCalled();
     expect(applyPermissionDenied).not.toHaveBeenCalled();
+  });
+
+  test('logUpstreamErrorResponse logs redacted body and sanitized headers', () => {
+    const logRequest = jest.fn();
+    const auditTrack = jest.fn();
+    const logUpstreamErrorResponse = createLogUpstreamErrorResponse({
+      logRequest,
+      sanitizeForLog: (value, maxLen = 200) => String(value || '').slice(0, maxLen),
+      auditTrack,
+    });
+
+    logUpstreamErrorResponse(400, {
+      requestId: 'req-1',
+      provider: 'copilot',
+      targetHost: 'api.githubcopilot.com',
+      req: { method: 'POST', url: '/v1/responses' },
+      requestModel: 'gpt-5.4',
+      transformed: false,
+      responseHeaders: {
+        'content-type': 'application/json',
+        'x-request-id': 'upstream-123',
+        authorization: '******',
+        cookie: 'session=secret',
+      },
+      responseBody: Buffer.from('{"error":"bad request","authorization":"******"}'),
+      responseBodyBytes: 67,
+      responseBodyTruncated: false,
+    });
+
+    expect(logRequest).toHaveBeenCalledWith('warn', 'upstream_error_response', expect.objectContaining({
+      request_id: 'req-1',
+      provider: 'copilot',
+      model: 'gpt-5.4',
+      status: 400,
+      response_content_type: 'application/json',
+      response_headers: expect.objectContaining({
+        'content-type': 'application/json',
+        'x-request-id': 'upstream-123',
+      }),
+      upstream_request_ids: { 'x-request-id': 'upstream-123' },
+    }));
+    const [, , fields] = logRequest.mock.calls[0];
+    expect(fields.response_headers.authorization).toBeUndefined();
+    expect(fields.response_headers.cookie).toBeUndefined();
+    expect(fields.response_body).toContain('[REDACTED]');
+    expect(auditTrack).toHaveBeenCalledWith('UPSTREAM_ERROR_RESPONSE', expect.any(Object));
+  });
+
+  test('buildResponseBodyLogFields marks truncation explicitly', () => {
+    const prev = process.env.AWF_MAX_ERROR_RESPONSE_CAPTURE_BYTES;
+    process.env.AWF_MAX_ERROR_RESPONSE_CAPTURE_BYTES = '8';
+    try {
+      const fields = _testing.buildResponseBodyLogFields({
+        responseBody: Buffer.from('0123456789'),
+        responseBodyBytes: 10,
+        sanitizeForLog: (value) => value,
+      });
+      expect(fields.response_body_truncated).toBe(true);
+      expect(fields.response_body).toContain('[TRUNCATED 2 BYTES]');
+      expect(fields.response_body_captured_bytes).toBe(8);
+    } finally {
+      if (prev === undefined) delete process.env.AWF_MAX_ERROR_RESPONSE_CAPTURE_BYTES;
+      else process.env.AWF_MAX_ERROR_RESPONSE_CAPTURE_BYTES = prev;
+    }
   });
 });

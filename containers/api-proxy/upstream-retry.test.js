@@ -25,6 +25,7 @@ describe('upstream-retry', () => {
       sanitizeForLog: (value) => value,
       logRequestCompletion: jest.fn(),
       logUpstreamAuthError: jest.fn(),
+      logUpstreamErrorResponse: jest.fn(),
       otel: { endSpan: jest.fn() },
     };
   }
@@ -65,6 +66,10 @@ describe('upstream-retry', () => {
     }));
     expect(opts.logRequestCompletion).toHaveBeenCalledWith(400, responseBody.length, null, null, {});
     expect(opts.logUpstreamAuthError).toHaveBeenCalledWith(400, expect.objectContaining({ responseBody }));
+    expect(opts.logUpstreamErrorResponse).toHaveBeenCalledWith(400, expect.objectContaining({
+      responseHeaders: proxyRes.headers,
+      responseBody,
+    }));
     expect(opts.res.writeHead).toHaveBeenCalledWith(400, expect.objectContaining({
       'x-request-id': 'req-1',
       'content-length': String(responseBody.length),
