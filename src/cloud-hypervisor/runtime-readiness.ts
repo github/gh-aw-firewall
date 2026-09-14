@@ -10,14 +10,15 @@ import { CloudHypervisorRetryableReadinessError } from './preflight';
 import {
   CLOUD_HYPERVISOR_API_PROXY_PROBE_TIMEOUT_SECONDS,
   CLOUD_HYPERVISOR_CONNECTIVITY_PROBE_ATTEMPTS,
+  CLOUD_HYPERVISOR_GUEST_WORKSPACE,
   CLOUD_HYPERVISOR_TCP_PROBE_TIMEOUT_SECONDS,
+  MCP_GATEWAY_PORT,
   connectivityProbeTimeoutMs,
   createBoundedOutputCollector,
   formatError,
   shellSingleQuote,
 } from './backend-utils';
 
-const CLOUD_HYPERVISOR_GUEST_WORKSPACE = '/workspace';
 /**
  * Generous, not a tight few-second timeout. Live-KVM validation on
  * GitHub-hosted runners showed the guest's own vCPU getting scheduled so
@@ -34,7 +35,6 @@ const CLOUD_HYPERVISOR_GUEST_WORKSPACE = '/workspace';
 export const CLOUD_HYPERVISOR_PROBE_TIMEOUT_MS = 90_000;
 const CLOUD_HYPERVISOR_GUEST_NETWORK_READY_TIMEOUT_MS = CLOUD_HYPERVISOR_PROBE_TIMEOUT_MS;
 const CLOUD_HYPERVISOR_CONNECTIVITY_PROBE_INITIAL_DELAY_SECONDS = 2;
-export const MCP_GATEWAY_PORT = 8080;
 
 interface RuntimeReadinessManager {
   readonly guestIp?: string;

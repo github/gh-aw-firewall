@@ -29,6 +29,8 @@ import {
 import type { VirtiofsdMountEnforcement } from './virtiofsd';
 import { buildCloudHypervisorGuestEnvironment } from './guest-environment-builder';
 import {
+  CLOUD_HYPERVISOR_GUEST_WORKSPACE,
+  MCP_GATEWAY_PORT,
   formatError,
 } from './backend-utils';
 import { runCloudHypervisorBootLoop } from './runtime-boot-loop';
@@ -36,7 +38,6 @@ import {
   cleanupArtifactSnapshot,
   stopManager,
 } from './runtime-cleanup';
-import { MCP_GATEWAY_PORT } from './runtime-readiness';
 export { buildCloudHypervisorGuestEnvironment };
 export { CloudHypervisorRetryableReadinessError } from './preflight';
 export {
@@ -44,7 +45,6 @@ export {
   assertCloudHypervisorRuntimeCompatibility,
 } from './runtime-validation';
 
-const CLOUD_HYPERVISOR_GUEST_WORKSPACE = '/workspace';
 const CLOUD_HYPERVISOR_MAX_TIMEOUT_MS = 86_400_000;
 
 export interface CloudHypervisorBackendLogger {
@@ -245,6 +245,9 @@ class CloudHypervisorRuntimeBackend implements ExternalAgentRuntimeBackend {
       agentExecutionStarted: () => this.agentExecutionStarted,
       markStopped: () => {
         this.stopped = true;
+      },
+      markDiagnosticsCollected: () => {
+        this.diagnosticsCollected = true;
       },
       failedBootDiagnostics: this.failedBootDiagnostics,
       cleanedManagers: this.cleanedManagers,

@@ -2,12 +2,12 @@ import type { GuestExecutionRequest, GuestExecutionResult } from '../microvm/vso
 import type { WrapperConfig } from '../types';
 import type { CloudHypervisorPreflightResult } from './preflight';
 import {
+  CLOUD_HYPERVISOR_GUEST_WORKSPACE,
   createBoundedOutputCollector,
   formatError,
 } from './backend-utils';
 import { CLOUD_HYPERVISOR_PROBE_TIMEOUT_MS } from './runtime-readiness';
 
-const CLOUD_HYPERVISOR_GUEST_WORKSPACE = '/workspace';
 const CLOUD_HYPERVISOR_CANCEL_GRACE_MS = 3_000;
 
 interface RuntimeCleanupManager {

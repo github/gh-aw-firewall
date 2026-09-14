@@ -1,5 +1,7 @@
 import { Writable } from 'stream';
 
+export const CLOUD_HYPERVISOR_GUEST_WORKSPACE = '/workspace';
+export const MCP_GATEWAY_PORT = 8080;
 export const CLOUD_HYPERVISOR_CONNECTIVITY_PROBE_ATTEMPTS = 3;
 export const CLOUD_HYPERVISOR_TCP_PROBE_TIMEOUT_SECONDS = 60;
 export const CLOUD_HYPERVISOR_API_PROXY_PROBE_TIMEOUT_SECONDS = 20;

@@ -39,6 +39,7 @@ export interface CloudHypervisorBootLoopOptions {
   cleanupArtifactSnapshot(): Promise<void>;
   agentExecutionStarted(): boolean;
   markStopped(): void;
+  markDiagnosticsCollected(): void;
   failedBootDiagnostics: string[];
   cleanedManagers: Set<CloudHypervisorManagerAdapter>;
 }
@@ -65,6 +66,7 @@ export async function runCloudHypervisorBootLoop({
   cleanupArtifactSnapshot,
   agentExecutionStarted,
   markStopped,
+  markDiagnosticsCollected,
   failedBootDiagnostics,
   cleanedManagers,
 }: CloudHypervisorBootLoopOptions): Promise<CloudHypervisorBootLoopResult> {
@@ -230,7 +232,10 @@ export async function runCloudHypervisorBootLoop({
           manager = undefined;
         }
         if (cleanupResult.environmentCleared) environment = undefined;
-        if (cleanupResult.diagnosticsCollected) diagnosticsCollected = true;
+        if (cleanupResult.diagnosticsCollected) {
+          diagnosticsCollected = true;
+          markDiagnosticsCollected();
+        }
         if (
           error instanceof CloudHypervisorRetryableReadinessError &&
           !agentExecutionStarted() &&
