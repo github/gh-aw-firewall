@@ -223,7 +223,10 @@ async function main() {
       telemetry,
       lane,
       workspace: agentWorkspaceAdapter,
-      validateRequest: createAgentRequestValidator(config.maxPromptBytes),
+      validateRequest: createAgentRequestValidator(config.maxPromptBytes, {
+        githubEnabled: config.githubEnabled,
+        dynamicEnabled: config.dynamicEnabled,
+      }),
       payloadKey: 'prompt',
       exitCategories: ENCLAVE_EXIT_CATEGORIES,
       executorKind: 'agent',

@@ -160,7 +160,7 @@ describe('artifact-preservation – error paths', () => {
     });
 
     it('keeps the primary failure as the last visible diagnostic when runtimeDir chmod is denied', () => {
-      // proxyLogsDir squid-logs uses runtimeDirMustExist:false → chmod always called.
+      // proxyLogsDir squid-logs repairs the shared root before inspecting direct files.
       // With no api-proxy-logs or cli-proxy-logs subdirs, squid-logs chmod is first.
       const externalDir = makeTempDir();
       const workDir = makeTempDir();

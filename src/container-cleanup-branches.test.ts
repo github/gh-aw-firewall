@@ -214,7 +214,7 @@ describe('cleanup - api-proxy logs via proxyLogsDir', () => {
     mockExecaSync.mockReturnValue(undefined);
   });
 
-  it('chmods api-proxy-logs inside proxyLogsDir when it exists and is non-empty', async () => {
+  it('does not chmod api-proxy-logs inside proxyLogsDir', async () => {
     const proxyLogsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-proxy-'));
     try {
       const apiProxyLogsDir = path.join(proxyLogsDir, 'api-proxy-logs');
@@ -223,7 +223,11 @@ describe('cleanup - api-proxy logs via proxyLogsDir', () => {
 
       await cleanup(getDir(), false, proxyLogsDir);
 
-      expect(mockExecaSync).toHaveBeenCalledWith('chmod', ['-R', 'a+rX', apiProxyLogsDir]);
+      expect(mockExecaSync).not.toHaveBeenCalledWith('chmod', ['-R', 'a+rX', proxyLogsDir]);
+      expect(mockExecaSync).not.toHaveBeenCalledWith(
+        'chmod',
+        expect.arrayContaining([apiProxyLogsDir]),
+      );
     } finally {
       if (fs.existsSync(proxyLogsDir)) {
         fs.rmSync(proxyLogsDir, { recursive: true, force: true });
