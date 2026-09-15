@@ -606,6 +606,7 @@ def main() -> int:
     append_event({
         "event": "session",
         "engine": "copilot",
+        "sensitivity": "raw-debug" if ALLOW_RAW_SESSION_LOGS else "redacted",
         "taskBytes": len(task.encode("utf-8")),
         "schemaBytes": len(schema_text.encode("utf-8")),
     })

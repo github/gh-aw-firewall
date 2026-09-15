@@ -99,8 +99,11 @@ this by construction:
   `AWF_ENCLAVE_AGENT_DEBUG_RAW_SESSION_LOGS=true` environment variable on the
   enclave container. AWF does not set this variable anywhere by default, so
   raw enclave engine output never leaves the enclave unless an operator
-  deliberately wires up that opt-in for local debugging, and any such logs
-  must not be uploaded to a public workflow's artifacts by default.
+  deliberately wires up that opt-in for local debugging. The broker marks
+  these transcripts and segregates them under its private
+  `raw-debug-sessions/` directory instead of `sessions/`; the CLI's audit
+  collector copies only `sessions/`, so raw-debug transcripts are never
+  included in the normal workflow artifact path.
 - This redaction applies uniformly on every exit path: normal completion,
   timeouts, cancellations, engine failures, malformed output, and
   configuration errors all route through `append_engine_result`,
@@ -114,8 +117,9 @@ written to `/awf/out`, which is checked against the caller's declared JSON
 schema and disclosure budget before it is returned to the caller — never
 through the audit transcript.
 
-See `src/enclave/agent-entrypoint-diagnostics.test.ts` for coverage of the
-default-redacted and privileged-opt-in behaviors.
+See `src/enclave/agent-entrypoint-diagnostics.test.ts` and
+`src/enclave/agent-session-artifact.test.ts` for coverage of the
+default-redacted, privileged-opt-in, and artifact segregation behaviors.
 
 The AWF-owned MCP server publishes only the enabled enclave tools:
 

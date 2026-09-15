@@ -95,11 +95,22 @@ function preserveInvocationSession(sessionLogPath, auditDir, invocationId) {
     );
     const stat = fs.fstatSync(sourceFd);
     if (!stat.isFile() || stat.size > 1024 * 1024) return false;
-    const sessionsDir = path.join(auditDir, 'sessions');
-    fs.mkdirSync(sessionsDir, { recursive: true, mode: 0o700 });
-    const destination = path.join(sessionsDir, `${invocationId}.jsonl`);
     const data = Buffer.alloc(stat.size);
     const bytesRead = fs.readSync(sourceFd, data, 0, stat.size, 0);
+    if (bytesRead !== stat.size) return false;
+    const transcript = data.toString('utf8');
+    const rawDebug = transcript.split('\n').some((line) => {
+      if (!line) return false;
+      try {
+        const event = JSON.parse(line);
+        return event.event === 'session' && event.sensitivity === 'raw-debug';
+      } catch {
+        return false;
+      }
+    });
+    const sessionsDir = path.join(auditDir, rawDebug ? 'raw-debug-sessions' : 'sessions');
+    fs.mkdirSync(sessionsDir, { recursive: true, mode: 0o700 });
+    const destination = path.join(sessionsDir, `${invocationId}.jsonl`);
     fs.writeFileSync(destination, data.subarray(0, bytesRead), { mode: 0o600 });
     fs.chmodSync(destination, 0o600);
     return true;
