@@ -26,6 +26,13 @@ describe('smoke codex discussion comment configuration', () => {
     expect(addCommentBlock![0]).toContain('target: "*"');
   });
 
+  it('uses item_number when commenting on a discussion', () => {
+    const source = fs.readFileSync(smokeCodexSourcePath, 'utf-8');
+
+    expect(source).toContain('`item_number: <extracted_number>`');
+    expect(source).not.toContain('discussion_number');
+  });
+
   it('grants discussions write permission in the compiled lock file', () => {
     const lock = fs.readFileSync(smokeCodexLockPath, 'utf-8');
 
