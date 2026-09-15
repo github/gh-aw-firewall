@@ -72,7 +72,9 @@ the starting point. Filter to commits that modify any of the source files listed
 in the mapping table above.
 
 If no relevant commits are found, write the current HEAD SHA to
-`/tmp/gh-aw/cache-memory/schema-sync-state.json` and use the `noop` safe output.
+`/tmp/gh-aw/cache-memory/schema-sync-state.json` and directly invoke the
+`safeoutputs.noop` MCP tool with a concise summary. Do not simulate this safe
+output with `bash`, `printf`, or a final text response.
 
 ### 3. Analyze changes
 
@@ -100,7 +102,8 @@ If any files were updated, use the `create-pull-request` safe output with:
 - Branch: `docs/schema-sync-<date>` where date is `YYYY-MM-DD`
 
 If no schema/spec updates are needed (source changes didn't affect the contract),
-use the `noop` safe output.
+directly invoke the `safeoutputs.noop` MCP tool with a concise summary. Do not
+simulate this safe output with `bash`, `printf`, or a final text response.
 
 ### 6. Save state
 
