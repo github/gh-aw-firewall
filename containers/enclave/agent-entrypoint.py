@@ -2,6 +2,7 @@
 """Run the pinned native Copilot CLI inside a enclave-agent enclave."""
 
 import errno
+import hashlib
 import json
 import os
 import re
@@ -39,6 +40,17 @@ EXIT_INPUT_INVALID = 11
 EXIT_DEADLINE_EXCEEDED = 20
 EXIT_ENGINE_FAILED = 24
 EXIT_RESULT_WRITE_FAILED = 30
+
+# Raw engine stdout/stderr and copilot diagnostics can contain private
+# repository content, tool results, or full model transcripts. That free-form
+# text is never part of the enclave's approved disclosure contract (the
+# schema-validated bounded result written to /awf/out), so it must not cross
+# the enclave boundary into the broker-audited session transcript by default.
+# Only an explicit, broker-controlled privileged opt-in restores raw text,
+# and even then it stays subject to redact_diagnostics().
+ALLOW_RAW_SESSION_LOGS = (
+    os.environ.get("AWF_ENCLAVE_AGENT_DEBUG_RAW_SESSION_LOGS") == "true"
+)
 
 
 def truncate_utf8(value: str, max_bytes: int) -> str:
@@ -99,6 +111,27 @@ def redact_diagnostics(value: str) -> str:
     except (OSError, UnicodeDecodeError):
         pass
     return redacted
+
+
+def summarize_enclave_stream(value: str) -> dict:
+    """Bounds a raw enclave-derived text stream to non-disclosing metadata.
+
+    By default only a byte count and a content hash cross the enclave
+    boundary into the broker-audited session transcript, so an invocation can
+    still be diagnosed and correlated without exposing private repository
+    content, tool results, or model transcripts. `sensitivity` records
+    whether the raw text was withheld ("redacted") or included under an
+    explicit privileged debugging opt-in ("raw-debug").
+    """
+    encoded = value.encode("utf-8")
+    summary = {
+        "bytes": len(encoded),
+        "sha256": hashlib.sha256(encoded).hexdigest(),
+        "sensitivity": "raw-debug" if ALLOW_RAW_SESSION_LOGS else "redacted",
+    }
+    if ALLOW_RAW_SESSION_LOGS:
+        summary["raw"] = truncate_utf8(redact_diagnostics(value), MAX_ENGINE_STREAM_BYTES)
+    return summary
 
 
 def append_progress(stage: str, **metadata) -> None:
@@ -514,8 +547,8 @@ def append_engine_result(completed: subprocess.CompletedProcess) -> tuple[str, s
     append_event({
         "event": "engine-result",
         "exitCode": completed.returncode,
-        "stdout": truncate_utf8(redact_diagnostics(stdout), MAX_ENGINE_STREAM_BYTES),
-        "stderr": truncate_utf8(redact_diagnostics(stderr), MAX_ENGINE_STREAM_BYTES),
+        "stdout": summarize_enclave_stream(stdout),
+        "stderr": summarize_enclave_stream(stderr),
     })
     return stdout, stderr
 
@@ -579,7 +612,7 @@ def main() -> int:
     if not run_preflight(copilot_logs):
         diagnostics = read_copilot_diagnostics(copilot_logs)
         if diagnostics:
-            append_event({"event": "engine-diagnostics", "log": diagnostics})
+            append_event({"event": "engine-diagnostics", "log": summarize_enclave_stream(diagnostics)})
         append_event({"event": "failure", "category": "engine-failed"})
         return EXIT_ENGINE_FAILED
     try:
@@ -639,18 +672,16 @@ def main() -> int:
                 append_event({
                     "event": "engine-result",
                     "exitCode": None,
-                    "stdout": truncate_utf8(
-                        redact_diagnostics(process_stdout.decode("utf-8", errors="replace").strip()),
-                        MAX_ENGINE_STREAM_BYTES,
+                    "stdout": summarize_enclave_stream(
+                        process_stdout.decode("utf-8", errors="replace").strip()
                     ),
-                    "stderr": truncate_utf8(
-                        redact_diagnostics(process_stderr.decode("utf-8", errors="replace")),
-                        MAX_ENGINE_STREAM_BYTES,
+                    "stderr": summarize_enclave_stream(
+                        process_stderr.decode("utf-8", errors="replace")
                     ),
                 })
                 diagnostics = read_copilot_diagnostics(copilot_logs)
                 if diagnostics:
-                    append_event({"event": "engine-diagnostics", "log": diagnostics})
+                    append_event({"event": "engine-diagnostics", "log": summarize_enclave_stream(diagnostics)})
                 append_resource_snapshot("after-engine")
                 append_event({"event": "failure", "category": "deadline-exceeded"})
                 return EXIT_DEADLINE_EXCEEDED
@@ -664,7 +695,7 @@ def main() -> int:
             safe_os_error(error, "engine-launch")
             diagnostics = read_copilot_diagnostics(copilot_logs)
             if diagnostics:
-                append_event({"event": "engine-diagnostics", "log": diagnostics})
+                append_event({"event": "engine-diagnostics", "log": summarize_enclave_stream(diagnostics)})
             append_resource_snapshot("after-engine")
             append_event({"event": "failure", "category": "engine-failed"})
             return EXIT_ENGINE_FAILED
@@ -698,7 +729,7 @@ def main() -> int:
     if completed.returncode != 0:
         diagnostics = read_copilot_diagnostics(copilot_logs)
         if diagnostics:
-            append_event({"event": "engine-diagnostics", "log": diagnostics})
+            append_event({"event": "engine-diagnostics", "log": summarize_enclave_stream(diagnostics)})
         append_event({"event": "failure", "category": "engine-failed"})
         return EXIT_ENGINE_FAILED
     append_progress("output-normalization-started")

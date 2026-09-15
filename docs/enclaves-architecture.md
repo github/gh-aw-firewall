@@ -71,6 +71,52 @@ enclave results.
 
 ## Tool contracts
 
+### Session audit log redaction
+
+Every enclave invocation writes a bounded, per-invocation transcript
+(`session.jsonl`) inside the enclave, which the broker copies verbatim into
+`<auditDir>/enclave-agent-sessions/<invocationId>.jsonl` and the CLI exposes
+under `sandbox/firewall/audit/enclave-agent-sessions/` when audit artifacts
+are preserved or uploaded. Because the enclave can read confidential
+repository content under the invocation's disclosure budget, this transcript
+crosses the enclave boundary and must never carry that content past it.
+
+The enclave entrypoint (`containers/enclave/agent-entrypoint.py`) enforces
+this by construction:
+
+- Lifecycle events (`progress`, `session`, `preflight`, `resource-snapshot`,
+  `operation-error`, `failure`, `success`) only ever contain fixed
+  identifiers, exit codes, byte counts, durations, and sanitized OS error
+  categories — none of these fields carry free-form enclave output.
+- Events that would otherwise carry free-form text — `engine-result`'s
+  `stdout`/`stderr` and `engine-diagnostics`'s `log` (raw Copilot CLI output,
+  which can include tool results, file contents, or model transcripts) — are
+  replaced by default with `{ bytes, sha256, sensitivity: "redacted" }`. The
+  byte count and hash are enough to correlate identical failures across
+  invocations without disclosing their contents.
+- Raw (but still secret-redacted via `redact_diagnostics`) text is restored
+  only when the broker sets the privileged, non-caller-controlled
+  `AWF_ENCLAVE_AGENT_DEBUG_RAW_SESSION_LOGS=true` environment variable on the
+  enclave container. AWF does not set this variable anywhere by default, so
+  raw enclave engine output never leaves the enclave unless an operator
+  deliberately wires up that opt-in for local debugging, and any such logs
+  must not be uploaded to a public workflow's artifacts by default.
+- This redaction applies uniformly on every exit path: normal completion,
+  timeouts, cancellations, engine failures, malformed output, and
+  configuration errors all route through `append_engine_result`,
+  `read_copilot_diagnostics`, or the fixed `failure`/`operation-error`
+  shapes above, so there is no code path that appends raw enclave text to
+  the transcript.
+
+The only free-form, repository-derived value that is allowed to leave the
+enclave through a different channel is the broker-validated bounded result
+written to `/awf/out`, which is checked against the caller's declared JSON
+schema and disclosure budget before it is returned to the caller — never
+through the audit transcript.
+
+See `src/enclave/agent-entrypoint-diagnostics.test.ts` for coverage of the
+default-redacted and privileged-opt-in behaviors.
+
 The AWF-owned MCP server publishes only the enabled enclave tools:
 
 ```text

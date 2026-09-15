@@ -168,7 +168,7 @@ interface HarnessResult {
   arguments: string;
 }
 
-function runHarness(scenario: string): HarnessResult {
+function runHarness(scenario: string, extraEnv: Record<string, string> = {}): HarnessResult {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-enclave-entrypoint-'));
   try {
     const result = spawnSync('python3', ['-c', harness], {
@@ -197,6 +197,7 @@ function runHarness(scenario: string): HarnessResult {
           AWF_ENCLAVE_AGENT_GITHUB_PROFILE: 'issues-read-v1',
           AWF_ENCLAVE_AGENT_GITHUB_MCP_URL: 'http://172.31.0.40:8080/mcp/github',
         } : {}),
+        ...extraEnv,
       },
     });
     if (result.status !== 0) {
@@ -316,10 +317,15 @@ describe('enclave agent protected entrypoint diagnostics', () => {
     }));
     expect(transcript).toContainEqual(expect.objectContaining({
       event: 'engine-diagnostics',
-      log: expect.stringContaining('[REDACTED]'),
+      log: expect.objectContaining({
+        bytes: expect.any(Number),
+        sha256: expect.any(String),
+        sensitivity: 'redacted',
+      }),
     }));
     expect(result.transcript).not.toContain('test-secret-token-value');
     expect(result.transcript).not.toContain('/private/repository/secret-path');
+    expect(result.transcript).not.toContain('[REDACTED]');
   });
 
   it('records the successful milestone sequence without duplicating private input', () => {
@@ -392,13 +398,66 @@ describe('enclave agent protected entrypoint diagnostics', () => {
     expect(transcript).toContainEqual(expect.objectContaining({
       event: 'engine-result',
       exitCode: 0,
-      stdout: 'true',
-      stderr: '',
+      stdout: expect.objectContaining({
+        bytes: 4,
+        sha256: expect.any(String),
+        sensitivity: 'redacted',
+      }),
+      stderr: expect.objectContaining({
+        bytes: 0,
+        sha256: expect.any(String),
+        sensitivity: 'redacted',
+      }),
     }));
     expect(transcript[transcript.length - 1]).toEqual({
       event: 'failure',
       category: 'result-write-failed',
     });
+  });
+
+  it('withholds raw engine stdout/stderr from the transcript by default', () => {
+    const result = runHarness('success');
+    const transcript = events(result);
+
+    const engineResult = transcript.find((event) => event.event === 'engine-result');
+    expect(engineResult).toBeDefined();
+    expect(engineResult).toMatchObject({
+      stdout: {
+        bytes: expect.any(Number),
+        sha256: expect.any(String),
+        sensitivity: 'redacted',
+      },
+      stderr: {
+        bytes: expect.any(Number),
+        sha256: expect.any(String),
+        sensitivity: 'redacted',
+      },
+    });
+    expect((engineResult!.stdout as Record<string, unknown>).raw).toBeUndefined();
+    expect((engineResult!.stderr as Record<string, unknown>).raw).toBeUndefined();
+    expect(result.transcript).not.toContain('protected conversational output');
+    expect(result.transcript).not.toContain('test-secret-token-value');
+  });
+
+  it('only restores raw redacted engine output under an explicit privileged debugging opt-in', () => {
+    const result = runHarness('success', {
+      AWF_ENCLAVE_AGENT_DEBUG_RAW_SESSION_LOGS: 'true',
+    });
+    const transcript = events(result);
+
+    const engineResult = transcript.find((event) => event.event === 'engine-result');
+    expect(engineResult).toBeDefined();
+    expect(engineResult).toMatchObject({
+      stdout: {
+        sensitivity: 'raw-debug',
+        raw: expect.stringContaining('protected conversational output'),
+      },
+      stderr: {
+        sensitivity: 'raw-debug',
+        raw: expect.stringContaining('[REDACTED]'),
+      },
+    });
+    expect(result.transcript).not.toContain('test-secret-token-value');
   });
 
   it('kills the launched process group and records a bounded deadline failure', () => {
