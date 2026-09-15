@@ -557,8 +557,8 @@ export async function assertSbxApiProxyReflect(
 }
 
 /**
- * Number of times {@link assertSbxEgressEnforced} re-probes before treating a
- * detected bypass as final. The sbx daemon's `DOCKER_SANDBOXES_PROXY` chaining
+ * Maximum number of attempts for {@link assertSbxEgressEnforced} before treating
+ * a detected bypass as final.
  * is typically configured before AWF's Squid container exists (an orchestrator
  * concern outside AWF's control), so the very first probe can race a Squid
  * that is still warming up and fail open to direct egress. A handful of
