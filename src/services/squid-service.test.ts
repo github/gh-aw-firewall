@@ -1,4 +1,5 @@
 import { generateDockerCompose, WrapperConfig, baseConfig, mockNetworkConfig, useTempWorkDir } from './service-test-setup.test-utils';
+import { SQUID_LOG_FILES } from './squid-service';
 
 // Create mock functions (must remain per-file — jest.mock() is hoisted before imports)
 
@@ -79,8 +80,8 @@ describe('squid service', () => {
       // does not traverse a potentially large user-supplied proxyLogsDir.
       expect(inlineScript).toMatch(/(^|[^R])chown proxy:proxy \/var\/log\/squid/);
       expect(inlineScript).not.toContain('chown -R');
-      expect(inlineScript).toContain('for f in /var/log/squid/access.log /var/log/squid/audit.jsonl /var/log/squid/cache.log');
-      expect(inlineScript).toContain('[ ! -e "$$f" ] || chown proxy:proxy "$$f" 2>/dev/null || chmod 0666 "$$f"');
+      expect(inlineScript).toContain(`for f in ${SQUID_LOG_FILES.join(' ')}`);
+      expect(inlineScript).toContain('[ ! -e "$$f" ] || chown proxy:proxy "$$f" 2>/dev/null || chmod 0666 "$$f" 2>/dev/null || true');
       // The SSL DB chown is conditional on the dir existing so it is a no-op
       // when SSL Bump is disabled but engages automatically when it is enabled.
       // Falls back to chmod 0777 if chown is denied (tolerant, like config-writer.ts).
@@ -108,7 +109,7 @@ describe('squid service', () => {
       const inlineScript: string = squid.entrypoint[2];
       expect(inlineScript).toContain('chown proxy:proxy /var/log/squid');
       expect(inlineScript).not.toContain('chown -R');
-      expect(inlineScript).toContain('for f in /var/log/squid/access.log /var/log/squid/audit.jsonl /var/log/squid/cache.log');
+      expect(inlineScript).toContain(`for f in ${SQUID_LOG_FILES.join(' ')}`);
       expect(inlineScript).toContain('exec su -s /bin/bash proxy -c');
       // Without injected config, the entrypoint should still hand off to the
       // image's original entrypoint script (which handles IPv6 stripping etc.).

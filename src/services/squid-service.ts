@@ -34,6 +34,12 @@ interface SquidServiceParams {
   imageConfig: ImageBuildConfig;
 }
 
+export const SQUID_LOG_FILES = [
+  '/var/log/squid/access.log',
+  '/var/log/squid/audit.jsonl',
+  '/var/log/squid/cache.log',
+] as const;
+
 /**
  * Builds the Squid proxy service configuration for Docker Compose.
  */
@@ -133,9 +139,10 @@ export function buildSquidService(params: SquidServiceParams): any {
   // Docker Compose interprets $VAR as variable substitution in YAML values;
   // $$ produces a literal $ that the shell inside the container will expand.
   const SQUID_PROXY_USER = 'proxy';
+  const squidLogFiles = SQUID_LOG_FILES.join(' ');
   const logFilePreflight =
-    `; for f in /var/log/squid/access.log /var/log/squid/audit.jsonl /var/log/squid/cache.log; do ` +
-    `[ ! -e "$$f" ] || chown ${SQUID_PROXY_USER}:${SQUID_PROXY_USER} "$$f" 2>/dev/null || chmod 0666 "$$f"; ` +
+    `; for f in ${squidLogFiles}; do ` +
+    `[ ! -e "$$f" ] || chown ${SQUID_PROXY_USER}:${SQUID_PROXY_USER} "$$f" 2>/dev/null || chmod 0666 "$$f" 2>/dev/null || true; ` +
     `done`;
   const chownPreflight =
     `chown ${SQUID_PROXY_USER}:${SQUID_PROXY_USER} /var/log/squid 2>/dev/null || chmod 0777 /var/log/squid` +
