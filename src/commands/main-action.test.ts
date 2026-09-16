@@ -45,6 +45,7 @@ import * as enclaveGithubGateway from '../enclave/github-gateway';
 import * as externalRuntimeResolver from '../external-runtime-backend-resolver';
 import { MAIN_ACTION_STUB_CONFIG, setupMainActionTestHarness } from './main-action.test-utils';
 import type { WrapperConfig } from '../types';
+import { CloudHypervisorUnsupportedHostError } from '../cloud-hypervisor/errors';
 
 const {
   mkdirSync: mockMkdirSync,
@@ -526,7 +527,9 @@ describe('createMainAction', () => {
         const backend = {
           runtime: 'cloud-hypervisor',
           preflight: jest.fn().mockRejectedValue(
-            new Error('Cloud Hypervisor requires readable and writable /dev/kvm: ENOENT'),
+            new CloudHypervisorUnsupportedHostError(
+              'Cloud Hypervisor requires readable and writable /dev/kvm: ENOENT',
+            ),
           ),
           start: jest.fn(),
           exec: jest.fn(),

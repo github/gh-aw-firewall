@@ -47,6 +47,7 @@ import {
   disconnectEnclaveGithubGateway,
 } from '../enclave/github-gateway';
 import type { WrapperConfig } from '../types';
+import { isCloudHypervisorUnsupportedHostError } from '../cloud-hypervisor/errors';
 
 const SENSITIVE_CONFIG_KEYS = new Set([
   'openaiApiKey',
@@ -64,18 +65,6 @@ const REFLECT_COMMAND = 'curl --fail --silent --show-error --noproxy "*" http://
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-function isCloudHypervisorUnsupportedHostError(error: unknown): boolean {
-  const message = errorMessage(error);
-  return (
-    message.includes('Cloud Hypervisor requires readable and writable /dev/kvm') ||
-    message.includes('Cloud Hypervisor requires the cgroup v2 unified hierarchy') ||
-    message.includes('host kernel policy does not expose required network namespace and seccomp controls') ||
-    message.includes('Cloud Hypervisor network setup requires root') ||
-    message.includes('Cloud Hypervisor requires Linux with KVM') ||
-    message.includes('Cloud Hypervisor is supported only on x86_64 GitHub-hosted runners')
-  );
 }
 
 function redactConfigForLogging(config: WrapperConfig): Record<string, unknown> {

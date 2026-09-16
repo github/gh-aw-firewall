@@ -14,6 +14,7 @@ import {
   assertArtifactBasenames,
   parseCloudHypervisorArtifactManifest,
 } from './artifact-manifest';
+import { CloudHypervisorUnsupportedHostError } from './errors';
 
 /**
  * Fail-closed host and artifact validation for the Cloud Hypervisor v53.0
@@ -39,7 +40,7 @@ export interface CloudHypervisorPreflightDependencies {
     isFile(): boolean;
     isSymbolicLink(): boolean;
     mode: number;
-    size?: number;
+    size: number;
     uid: number;
   }>;
   runVersion(binaryPath: string): Promise<string>;
@@ -197,7 +198,7 @@ const defaultDependencies: CloudHypervisorPreflightDependencies = {
   },
   assertHostPolicy: async () => {
     if (process.getuid?.() !== 0) {
-      throw new Error(
+      throw new CloudHypervisorUnsupportedHostError(
         'Cloud Hypervisor network setup requires root; invoke awf through sudo from a non-root account',
       );
     }
@@ -206,9 +207,10 @@ const defaultDependencies: CloudHypervisorPreflightDependencies = {
       await fs.access('/proc/sys/net/ipv6/conf/all/disable_ipv6', constants.R_OK);
       await fs.access('/proc/sys/kernel/seccomp/actions_avail', constants.R_OK);
     } catch (error) {
-      throw new Error(
+      throw new CloudHypervisorUnsupportedHostError(
         'host kernel policy does not expose required network namespace and seccomp controls: ' +
         `${error instanceof Error ? error.message : String(error)}`,
+        error,
       );
     }
     try {
@@ -224,10 +226,11 @@ const defaultDependencies: CloudHypervisorPreflightDependencies = {
       // manage, so it is rejected explicitly rather than silently
       // constructing a broken cgroup. GitHub-hosted Ubuntu runners (the
       // only supported host) always run cgroup v2.
-      throw new Error(
+      throw new CloudHypervisorUnsupportedHostError(
         'Cloud Hypervisor requires the cgroup v2 unified hierarchy ' +
         '(/sys/fs/cgroup/cgroup.controllers); cgroup v1-only hosts are not supported: ' +
         `${error instanceof Error ? error.message : String(error)}`,
+        error,
       );
     }
   },
@@ -530,7 +533,7 @@ async function assertDigest(
   }
 
   const stat = await dependencies.lstat(filePath);
-  if (typeof stat.size === 'number' && stat.size <= 0) {
+  if (stat.size <= 0) {
     throw new Error(
       `${label} trusted artifact is empty or incomplete before execution: ${filePath}`,
     );
@@ -572,10 +575,12 @@ export async function runCloudHypervisorPreflight(
     uid: overrides.uid ?? resolveTrustedOperatorUid(),
   };
   if (dependencies.platform !== 'linux') {
-    throw new Error(`Cloud Hypervisor requires Linux with KVM; found ${dependencies.platform}`);
+    throw new CloudHypervisorUnsupportedHostError(
+      `Cloud Hypervisor requires Linux with KVM; found ${dependencies.platform}`,
+    );
   }
   if (dependencies.arch !== 'x64') {
-    throw new Error(
+    throw new CloudHypervisorUnsupportedHostError(
       `Cloud Hypervisor is supported only on x86_64 GitHub-hosted runners; found Node architecture ${dependencies.arch}`,
     );
   }
@@ -608,13 +613,24 @@ export async function runCloudHypervisorPreflight(
   try {
     await dependencies.access('/dev/kvm', constants.R_OK | constants.W_OK);
   } catch (error) {
-    throw new Error(
+    throw new CloudHypervisorUnsupportedHostError(
       'Cloud Hypervisor requires readable and writable /dev/kvm: ' +
       `${error instanceof Error ? error.message : String(error)}`,
+      error,
     );
   }
   const kvmGid = await dependencies.resolveKvmGid();
-  const cgroupVersion = await dependencies.assertHostPolicy();
+  let cgroupVersion: 2;
+  try {
+    cgroupVersion = await dependencies.assertHostPolicy();
+  } catch (error) {
+    throw error instanceof CloudHypervisorUnsupportedHostError
+      ? error
+      : new CloudHypervisorUnsupportedHostError(
+        `Cloud Hypervisor host policy is unsupported: ${error instanceof Error ? error.message : String(error)}`,
+        error,
+      );
+  }
   let dockerBinaryPath: string;
   try {
     dockerBinaryPath = await dependencies.assertToolAvailable('docker');

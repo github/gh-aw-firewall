@@ -15,20 +15,10 @@ import {
   assertCloudHypervisorSelection,
 } from '../../cloud-hypervisor/runtime-validation';
 import { assertFilesystemWritePolicyCompatibility } from '../../filesystem-policy';
+import { isCloudHypervisorUnsupportedHostError } from '../../cloud-hypervisor/errors';
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-function isCloudHypervisorUnsupportedRunnerError(error: unknown): boolean {
-  const message = errorMessage(error);
-  return (
-    message.includes('Cloud Hypervisor requires Linux; found') ||
-    message.includes('Cloud Hypervisor supports only GitHub-hosted x86_64 runners') ||
-    message.includes('Cloud Hypervisor is supported only inside GitHub Actions runs') ||
-    message.includes('Cloud Hypervisor is supported only on GitHub-hosted runners') ||
-    message.includes('Cloud Hypervisor requires a GitHub-hosted Ubuntu runner image')
-  );
 }
 
 function fallBackCloudHypervisorToDocker(config: WrapperConfig, error: unknown): void {
@@ -126,7 +116,7 @@ export function assembleAndValidateConfig(
     try {
       assertCloudHypervisorRuntimeCompatibility(config);
     } catch (error) {
-      if (isCloudHypervisorUnsupportedRunnerError(error)) {
+      if (isCloudHypervisorUnsupportedHostError(error)) {
         fallBackCloudHypervisorToDocker(config, error);
       } else {
         logger.error(`❌ ${error instanceof Error ? error.message : String(error)}`);

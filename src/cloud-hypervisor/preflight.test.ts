@@ -70,6 +70,7 @@ function dependencies(
       isFile: () => true,
       isSymbolicLink: () => false,
       mode: 0o100755,
+      size: 1,
       uid: 0,
     }),
     runVersion: jest.fn(async (binaryPath: string) => (
@@ -440,6 +441,7 @@ describe('Cloud Hypervisor preflight (foundation only)', () => {
           isFile: () => true,
           isSymbolicLink: () => false,
           mode: 0o100777,
+          size: 1,
           uid: 1000,
         }),
       }),
@@ -516,6 +518,7 @@ describe('Cloud Hypervisor preflight (foundation only)', () => {
             isFile: () => true,
             isSymbolicLink: () => false,
             mode: 0o100755,
+            size: 1,
             uid: 0,
           };
         }),
@@ -607,12 +610,14 @@ describe('Cloud Hypervisor preflight (foundation only)', () => {
                 isFile: () => false,
                 isSymbolicLink: () => true,
                 mode: 0o120777,
+                size: 1,
                 uid: 0,
               }
             : {
                 isFile: () => false,
                 isSymbolicLink: () => false,
                 mode: 0o040755,
+                size: 1,
                 uid: 0,
               }
         )),
@@ -625,6 +630,7 @@ describe('Cloud Hypervisor preflight (foundation only)', () => {
           isFile: () => true,
           isSymbolicLink: () => false,
           mode: 0o100755,
+          size: 1,
           uid: 4000,
         }),
       }),
@@ -645,6 +651,7 @@ describe('Cloud Hypervisor preflight (foundation only)', () => {
       isFile: () => true,
       isSymbolicLink: () => false,
       mode: 0o100755,
+      size: 1,
       uid: 2001,
     });
     await expect(runCloudHypervisorPreflight(
@@ -660,6 +667,7 @@ describe('Cloud Hypervisor preflight (foundation only)', () => {
           isFile: () => false,
           isSymbolicLink: () => false,
           mode: 0o040777,
+          size: 1,
           uid: 0,
         };
       }
@@ -667,6 +675,7 @@ describe('Cloud Hypervisor preflight (foundation only)', () => {
         isFile: () => true,
         isSymbolicLink: () => false,
         mode: 0o100755,
+        size: 1,
         uid: 0,
       };
     });
@@ -681,6 +690,7 @@ describe('Cloud Hypervisor preflight (foundation only)', () => {
           isFile: () => false,
           isSymbolicLink: () => true,
           mode: 0o040755,
+          size: 1,
           uid: 0,
         };
       }
@@ -688,6 +698,7 @@ describe('Cloud Hypervisor preflight (foundation only)', () => {
         isFile: () => true,
         isSymbolicLink: () => false,
         mode: 0o100755,
+        size: 1,
         uid: 0,
       };
     });

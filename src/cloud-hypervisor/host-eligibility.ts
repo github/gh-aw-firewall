@@ -11,6 +11,8 @@
  * this only decides "is this the kind of host we support at all".
  */
 
+import { CloudHypervisorUnsupportedHostError } from './errors';
+
 export interface GithubHostedRunnerEnv {
   platform: NodeJS.Platform;
   arch: string;
@@ -89,6 +91,6 @@ export function assertGithubHostedRunnerEligibility(
 ): void {
   const result = evaluateGithubHostedRunnerEligibility(env);
   if (!result.eligible) {
-    throw new Error(result.reason);
+    throw new CloudHypervisorUnsupportedHostError(result.reason!);
   }
 }
