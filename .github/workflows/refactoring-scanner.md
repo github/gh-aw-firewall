@@ -251,6 +251,6 @@ Low / Medium / High
 
 ## Edge Cases
 
-- **No significant issues found**: Log a summary and exit without creating issues
-- **All findings already tracked**: Skip creation and log that existing issues cover the findings
+- **No significant issues found**: Directly invoke the `safeoutputs.noop` MCP tool with a concise summary. Do not simulate this safe output with `bash`, `printf`, or a final text response.
+- **All findings already tracked**: Skip creation and directly invoke the `safeoutputs.noop` MCP tool with a concise summary that existing issues cover the findings. Do not simulate this safe output with `bash`, `printf`, or a final text response.
 - **Cannot access file**: Log the error and continue with remaining files
