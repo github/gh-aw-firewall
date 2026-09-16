@@ -177,7 +177,7 @@ describe('Cloud Hypervisor preflight (foundation only)', () => {
       /terminated by signal SIGKILL \(exitCode=null, signalCode=SIGKILL\): killed by host/,
     );
     await expect(defaults.runVersion('/snapshot/cloud-hypervisor')).rejects.toThrow(
-      /Unable to execute "\/snapshot\/cloud-hypervisor --version".*exists, is executable, and is complete: code=EACCES: Command failed with EACCES: spawn EACCES/,
+      /Unable to execute "\/snapshot\/cloud-hypervisor --version".*exists, is executable, and is complete: code=EACCES; Command failed with EACCES: spawn EACCES/,
     );
   });
 

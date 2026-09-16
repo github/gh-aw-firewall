@@ -145,7 +145,7 @@ const defaultDependencies: CloudHypervisorPreflightDependencies = {
       const shortMessage = typeof executionError.shortMessage === 'string'
         ? executionError.shortMessage
         : '';
-      const details = [code, shortMessage, result.stderr.trim()].filter(Boolean).join(': ');
+      const details = [code, shortMessage, result.stderr.trim()].filter(Boolean).join('; ');
       throw new Error(
         `Unable to execute "${binaryPath} --version"; verify the trusted Cloud Hypervisor artifact ` +
         `exists, is executable, and is complete${details ? `: ${details}` : ''}`,

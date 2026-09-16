@@ -81,6 +81,12 @@ describe('Cloud Hypervisor runtime validation', () => {
         artifactManifestPath: undefined,
       },
     }))).toThrow(/requires an artifact manifest/);
+    expect(() => assertCloudHypervisorRuntimeCompatibility(config({
+      cloudHypervisor: {
+        ...config().cloudHypervisor!,
+        sha256: { cloudHypervisor: digest },
+      },
+    }))).toThrow(/Caller-supplied Cloud Hypervisor SHA-256 values/);
     expect(eligibilitySpy).not.toHaveBeenCalled();
   });
 
