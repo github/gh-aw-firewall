@@ -138,6 +138,12 @@ describe('createMainAction', () => {
         expect.anything(),
         expect.anything(),
       );
+      const persistedConfig = mockWriteFileSync.mock.calls
+        .map((call) => String(call[1]))
+        .find((contents) => contents.includes('"allowedDomains"'));
+      expect(persistedConfig).toBeDefined();
+      expect(persistedConfig).not.toContain('"containerRuntime": "cloud-hypervisor"');
+      expect(persistedConfig).not.toContain('"cloudHypervisor"');
     });
   });
 
@@ -538,6 +544,13 @@ describe('createMainAction', () => {
         };
         mockedValidateOptions.validateOptions.mockReturnValueOnce(fallbackConfig);
         mockedExternalRuntimeResolver.resolveExternalRuntimeBackend.mockReturnValueOnce(backend);
+        mockedCliWorkflow.runMainWorkflow.mockImplementationOnce(
+          async (_config, _dependencies, lifecycle) => {
+            lifecycle.onContainersStarted?.();
+            await lifecycle.performCleanup();
+            return 0;
+          },
+        );
 
         const action = createMainAction(getOptionValueSource);
         await action(['echo hi'], {});

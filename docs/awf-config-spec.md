@@ -129,11 +129,13 @@ PCI-capable guest kernel, rootfs, and shared AWF guest supervisor to one
 release-pinned GitHub-attested manifest. It requires explicit
 `--cloud-hypervisor-preview` opt-in plus
 `container.containerRuntime:
-"cloud-hypervisor"` to execute a workload. Supported host target is
-GitHub-hosted Ubuntu `x86_64` runners with KVM only — self-hosted and
-non-Ubuntu/non-x86_64 hosts are rejected explicitly by
-[`src/cloud-hypervisor/host-eligibility.ts`](../src/cloud-hypervisor/host-eligibility.ts),
-with no fallback to another runtime. See
+"cloud-hypervisor"` to execute a workload. The supported host target is
+GitHub-hosted Ubuntu `x86_64` runners with KVM. Runner eligibility, missing KVM
+access, and unsupported host-policy failures warn and fall back to the standard
+Docker backend; invalid configuration and artifact trust, integrity, digest, or
+version failures remain fatal. Host eligibility is enforced by
+[`src/cloud-hypervisor/host-eligibility.ts`](../src/cloud-hypervisor/host-eligibility.ts).
+See
 [`src/cloud-hypervisor/preflight.ts`](../src/cloud-hypervisor/preflight.ts)
 for the artifact/host trust-check module,
 [`src/cloud-hypervisor/launcher.ts`](../src/cloud-hypervisor/launcher.ts)

@@ -362,7 +362,6 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
   // to prevent sensitive data from flowing to logger (CodeQL sensitive data logging)
   const redactedConfig = redactConfigForLogging(config);
   logger.debug('Configuration:', JSON.stringify(redactedConfig, null, 2));
-  persistConfigAuditArtifact(config, redactedConfig);
 
   logger.info(`Allowed domains: ${config.allowedDomains.join(', ')}`);
   if (config.blockedDomains && config.blockedDomains.length > 0) {
@@ -435,6 +434,10 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
         }
       }
     }
+
+    // Persist only after preflight so the audit artifact records the effective
+    // runtime when an unsupported Cloud Hypervisor host falls back to Docker.
+    persistConfigAuditArtifact(config, redactConfigForLogging(config));
 
     const externalWorkflowDependencies = externalRuntimeBackend
       ? adaptExternalRuntimeBackend(externalRuntimeBackend)

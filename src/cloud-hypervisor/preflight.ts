@@ -589,16 +589,6 @@ export async function runCloudHypervisorPreflight(
     ...overrides,
     uid: overrides.uid ?? resolveTrustedOperatorUid(),
   };
-  if (dependencies.platform !== 'linux') {
-    throw new CloudHypervisorUnsupportedHostError(
-      `Cloud Hypervisor requires Linux with KVM; found ${dependencies.platform}`,
-    );
-  }
-  if (dependencies.arch !== 'x64') {
-    throw new CloudHypervisorUnsupportedHostError(
-      `Cloud Hypervisor is supported only on x86_64 GitHub-hosted runners; found Node architecture ${dependencies.arch}`,
-    );
-  }
   if (!config.kernelPath || !config.rootfsPath || !config.supervisorPath) {
     throw new Error(
       'Cloud Hypervisor requires guest kernel, rootfs, and supervisor artifact paths',
@@ -625,37 +615,6 @@ export async function runCloudHypervisorPreflight(
     );
   }
 
-  try {
-    await dependencies.access('/dev/kvm', constants.R_OK | constants.W_OK);
-  } catch (error) {
-    throw new CloudHypervisorUnsupportedHostError(
-      'Cloud Hypervisor requires readable and writable /dev/kvm: ' +
-      `${error instanceof Error ? error.message : String(error)}`,
-      error,
-    );
-  }
-  const kvmGid = await dependencies.resolveKvmGid();
-  let cgroupVersion: 2;
-  try {
-    cgroupVersion = await dependencies.assertHostPolicy();
-  } catch (error) {
-    throw error instanceof CloudHypervisorUnsupportedHostError
-      ? error
-      : new CloudHypervisorUnsupportedHostError(
-        `Cloud Hypervisor host policy is unsupported: ${error instanceof Error ? error.message : String(error)}`,
-        error,
-      );
-  }
-  let dockerBinaryPath: string;
-  try {
-    dockerBinaryPath = await dependencies.assertToolAvailable('docker');
-  } catch (error) {
-    throw new Error(
-      'Cloud Hypervisor requires host tool "docker": ' +
-      `${error instanceof Error ? error.message : String(error)}`,
-    );
-  }
-  await dependencies.assertDockerInfrastructure(dockerBinaryPath);
   await assertTrustedRegularFile(
     'Cloud Hypervisor binary',
     config.cloudHypervisorBinary,
@@ -808,6 +767,50 @@ export async function runCloudHypervisorPreflight(
       artifactDigests.supervisor,
       dependencies,
     );
+
+    // Artifact trust must be established before any host-capability error can
+    // trigger the supported fallback to Docker.
+    if (dependencies.platform !== 'linux') {
+      throw new CloudHypervisorUnsupportedHostError(
+        `Cloud Hypervisor requires Linux with KVM; found ${dependencies.platform}`,
+      );
+    }
+    if (dependencies.arch !== 'x64') {
+      throw new CloudHypervisorUnsupportedHostError(
+        `Cloud Hypervisor is supported only on x86_64 GitHub-hosted runners; found Node architecture ${dependencies.arch}`,
+      );
+    }
+    try {
+      await dependencies.access('/dev/kvm', constants.R_OK | constants.W_OK);
+    } catch (error) {
+      throw new CloudHypervisorUnsupportedHostError(
+        'Cloud Hypervisor requires readable and writable /dev/kvm: ' +
+        `${error instanceof Error ? error.message : String(error)}`,
+        error,
+      );
+    }
+    const kvmGid = await dependencies.resolveKvmGid();
+    let cgroupVersion: 2;
+    try {
+      cgroupVersion = await dependencies.assertHostPolicy();
+    } catch (error) {
+      throw error instanceof CloudHypervisorUnsupportedHostError
+        ? error
+        : new CloudHypervisorUnsupportedHostError(
+          `Cloud Hypervisor host policy is unsupported: ${error instanceof Error ? error.message : String(error)}`,
+          error,
+        );
+    }
+    let dockerBinaryPath: string;
+    try {
+      dockerBinaryPath = await dependencies.assertToolAvailable('docker');
+    } catch (error) {
+      throw new Error(
+        'Cloud Hypervisor requires host tool "docker": ' +
+        `${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    await dependencies.assertDockerInfrastructure(dockerBinaryPath);
 
     return {
       version,

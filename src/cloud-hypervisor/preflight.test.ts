@@ -5,6 +5,7 @@ import execa from 'execa';
 import * as os from 'os';
 import * as path from 'path';
 import type { CloudHypervisorOptions } from '../types/runtime-options';
+import { CloudHypervisorUnsupportedHostError } from './errors';
 import {
   calculateSha256,
   cloudHypervisorPreflightTestHelpers,
@@ -425,14 +426,24 @@ describe('Cloud Hypervisor preflight (foundation only)', () => {
     });
   });
 
-  it('rejects inaccessible KVM without checking artifacts', async () => {
-    const access = jest.fn().mockRejectedValue(new Error('EACCES'));
-    const lstat = jest.fn();
+  it('validates artifacts before rejecting inaccessible KVM', async () => {
+    const access = jest.fn(async (filePath: string) => {
+      if (filePath === '/dev/kvm') throw new Error('EACCES');
+    });
+    const lstat = jest.fn().mockResolvedValue({
+      isFile: () => true,
+      isSymbolicLink: () => false,
+      mode: 0o100755,
+      size: 1,
+      uid: 0,
+    });
+    const sha256 = jest.fn().mockResolvedValue(digest);
     await expect(runCloudHypervisorPreflight(
       config(),
-      dependencies({ access, lstat }),
+      dependencies({ access, lstat, sha256 }),
     )).rejects.toThrow(/readable and writable \/dev\/kvm.*EACCES/);
-    expect(lstat).not.toHaveBeenCalled();
+    expect(lstat).toHaveBeenCalled();
+    expect(sha256).toHaveBeenCalledWith('/snapshot/cloud-hypervisor');
   });
 
   it('rejects mismatched versions, unsafe permissions, and digest mismatches', async () => {
@@ -601,6 +612,45 @@ describe('Cloud Hypervisor preflight (foundation only)', () => {
         }),
       }),
     )).rejects.toThrow(/requires host tool "ip": missing/);
+  });
+
+  it('validates artifact trust before classifying an unsupported host for fallback', async () => {
+    const removeArtifactSnapshot = jest.fn().mockResolvedValue(undefined);
+    const sha256 = jest.fn(async (filePath: string) => (
+      filePath === '/snapshot/cloud-hypervisor' ? 'b'.repeat(64) : digest
+    ));
+    await expect(runCloudHypervisorPreflight(
+      config(),
+      dependencies({ platform: 'darwin', sha256, removeArtifactSnapshot }),
+    )).rejects.toThrow(/Cloud Hypervisor binary SHA-256 mismatch/);
+    expect(sha256).toHaveBeenCalledWith('/snapshot/cloud-hypervisor');
+    expect(removeArtifactSnapshot).toHaveBeenCalledWith(
+      '/run/awf-cloud-hypervisor/trusted-artifacts/run-test',
+    );
+  });
+
+  it('classifies only host policy failures as unsupported-host errors', async () => {
+    await expect(runCloudHypervisorPreflight(
+      config(),
+      dependencies({ assertHostPolicy: jest.fn().mockRejectedValue(new Error('missing seccomp')) }),
+    )).rejects.toThrow(/host policy is unsupported: missing seccomp/);
+
+    const unsupported = new CloudHypervisorUnsupportedHostError('cgroup policy unsupported');
+    await expect(runCloudHypervisorPreflight(
+      config(),
+      dependencies({ assertHostPolicy: jest.fn().mockRejectedValue(unsupported) }),
+    )).rejects.toBe(unsupported);
+  });
+
+  it('keeps missing Docker infrastructure fatal after artifact validation', async () => {
+    const assertToolAvailable = jest.fn(async (tool: string) => {
+      if (tool === 'docker') throw new Error('not installed');
+      return `/usr/bin/${tool}`;
+    });
+    await expect(runCloudHypervisorPreflight(
+      config(),
+      dependencies({ assertToolAvailable }),
+    )).rejects.toThrow(/requires host tool "docker": not installed/);
   });
 
   it('rejects untrusted artifact files and inaccessible paths', async () => {
