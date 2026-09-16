@@ -147,7 +147,7 @@ export function buildSquidService(params: SquidServiceParams): any {
   const squidLogFiles = SQUID_LOG_FILES.join(' ');
   const logFilePreflight =
     `; for f in ${squidLogFiles}; do ` +
-    `[ ! -e "$$f" ] || chown -h ${SQUID_PROXY_USER}:${SQUID_PROXY_USER} "$$f" 2>/dev/null || true; ` +
+    `([ -e "$$f" ] || [ -L "$$f" ]) && chown -h ${SQUID_PROXY_USER}:${SQUID_PROXY_USER} "$$f" 2>/dev/null || true; ` +
     `done`;
   const chownPreflight =
     `chown ${SQUID_PROXY_USER}:${SQUID_PROXY_USER} /var/log/squid 2>/dev/null || chmod 0777 /var/log/squid` +
