@@ -38,7 +38,7 @@ describe('generateAclSections', () => {
       const { aclLines } = generateAclSections(domainsByProto, patternsByProto);
 
       expect(aclLines).toContain('# ACL definitions for allowed domains (HTTP and HTTPS)');
-      expect(aclLines.some(l => l.startsWith('acl allowed_domains dstdomain') && l.includes('github.com'))).toBe(true);
+      expect(aclLines).toContain('acl allowed_domains dstdomain .github.com');
     });
 
     it('generates one ACL entry per domain', () => {
@@ -87,13 +87,7 @@ describe('generateAclSections', () => {
       const { aclLines } = generateAclSections(domainsByProto, patternsByProto);
 
       expect(aclLines).toContain('# ACL definitions for HTTP-only domains');
-      expect(
-        aclLines.some(l => {
-          if (!l.startsWith('acl allowed_http_only dstdomain')) return false;
-          const tokens = l.trim().split(/\s+/);
-          return tokens.includes('.metrics.example.com');
-        })
-      ).toBe(true);
+      expect(aclLines).toContain('acl allowed_http_only dstdomain .metrics.example.com');
     });
 
     it('inserts blank separator before the HTTP-only section', () => {
@@ -126,9 +120,7 @@ describe('generateAclSections', () => {
       const { aclLines } = generateAclSections(domainsByProto, patternsByProto);
 
       expect(aclLines).toContain('# ACL definitions for HTTPS-only domains');
-      expect(
-        aclLines.some(l => l.startsWith('acl allowed_https_only dstdomain') && l.includes('secure.example.com'))
-      ).toBe(true);
+      expect(aclLines).toContain('acl allowed_https_only dstdomain .secure.example.com');
     });
 
     it('inserts blank separator before the HTTPS-only section', () => {
@@ -161,13 +153,7 @@ describe('generateAclSections', () => {
       const { blockedDomainConfig } = generateAclSections(domainsByProto, patternsByProto, ['evil.com']);
 
       expect(blockedDomainConfig.aclLines).toContain('# ACL definitions for blocked domains');
-      expect(
-        blockedDomainConfig.aclLines.some(l => {
-          if (!l.startsWith('acl blocked_domains dstdomain')) return false;
-          const tokens = l.trim().split(/\s+/);
-          return tokens.includes('.evil.com');
-        })
-      ).toBe(true);
+      expect(blockedDomainConfig.aclLines).toContain('acl blocked_domains dstdomain .evil.com');
       expect(blockedDomainConfig.accessRules).toContain('http_access deny blocked_domains');
     });
 
@@ -175,27 +161,21 @@ describe('generateAclSections', () => {
       const { domainsByProto, patternsByProto } = parseDomainConfig(['github.com']);
       const { blockedDomainConfig } = generateAclSections(domainsByProto, patternsByProto, ['https://evil.com']);
 
-      const aclLine = blockedDomainConfig.aclLines.find(l => l.trim().split(/\s+/).includes('.evil.com'));
-      expect(aclLine).toBeDefined();
-      expect(aclLine).not.toContain('https://');
+      expect(blockedDomainConfig.aclLines).toContain('acl blocked_domains dstdomain .evil.com');
     });
 
     it('strips http:// prefix from blocked domains', () => {
       const { domainsByProto, patternsByProto } = parseDomainConfig(['github.com']);
       const { blockedDomainConfig } = generateAclSections(domainsByProto, patternsByProto, ['http://evil.com']);
 
-      const aclLine = blockedDomainConfig.aclLines.find(l => l.trim().split(/\s+/).includes('.evil.com'));
-      expect(aclLine).toBeDefined();
-      expect(aclLine).not.toContain('http://');
+      expect(blockedDomainConfig.aclLines).toContain('acl blocked_domains dstdomain .evil.com');
     });
 
     it('strips trailing slash from blocked domains', () => {
       const { domainsByProto, patternsByProto } = parseDomainConfig(['github.com']);
       const { blockedDomainConfig } = generateAclSections(domainsByProto, patternsByProto, ['evil.com/']);
 
-      const aclLine = blockedDomainConfig.aclLines.find(l => l.trim().split(/\s+/).includes('.evil.com'));
-      expect(aclLine).toBeDefined();
-      expect(aclLine).not.toContain('/');
+      expect(blockedDomainConfig.aclLines).toContain('acl blocked_domains dstdomain .evil.com');
     });
 
     it('works on a stand-alone allowlist (no allowed domains)', () => {

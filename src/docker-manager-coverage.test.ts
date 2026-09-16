@@ -92,19 +92,19 @@ describe('docker-manager barrel – invocation coverage', () => {
         agentCommand: 'echo test',
         logLevel: 'info',
         keepContainers: false,
-        workDir: '/tmp/test-awf',
+        workDir: '/synthetic/test-awf',
       })
     ).resolves.not.toThrow();
   });
 
   it('startContainers is invocable via barrel', async () => {
     await expect(
-      dockerManager.startContainers('/tmp/test-awf', ['github.com'])
+      dockerManager.startContainers('/synthetic/test-awf', ['github.com'])
     ).resolves.not.toThrow();
   });
 
   it('runAgentCommand returns an exit-code-like value via barrel', async () => {
-    const result = await dockerManager.runAgentCommand('/tmp/test-awf', ['github.com']);
+    const result = await dockerManager.runAgentCommand('/synthetic/test-awf', ['github.com']);
     expect(result).toBeDefined();
   });
 
@@ -113,20 +113,20 @@ describe('docker-manager barrel – invocation coverage', () => {
   });
 
   it('collectDiagnosticLogs is invocable via barrel', async () => {
-    await expect(dockerManager.collectDiagnosticLogs('/tmp/test-awf')).resolves.not.toThrow();
+    await expect(dockerManager.collectDiagnosticLogs('/synthetic/test-awf')).resolves.not.toThrow();
   });
 
   it('stopContainers is invocable via barrel', async () => {
-    await expect(dockerManager.stopContainers('/tmp/test-awf', false)).resolves.not.toThrow();
+    await expect(dockerManager.stopContainers('/synthetic/test-awf', false)).resolves.not.toThrow();
   });
 
 it('preserveIptablesAudit is invocable via barrel', () => {
-  expect(() => dockerManager.preserveIptablesAudit('/tmp/test-awf')).not.toThrow();
+  expect(() => dockerManager.preserveIptablesAudit('/synthetic/test-awf')).not.toThrow();
 });
 
   it('cleanup is invocable via barrel', async () => {
     await expect(
-      dockerManager.cleanup('/tmp/nonexistent-awf-barrel', false)
+      dockerManager.cleanup('/synthetic/nonexistent-awf-barrel', false)
     ).resolves.not.toThrow();
   });
 });
@@ -165,19 +165,29 @@ describe('container-cleanup cleanup() – keepFiles=true branch', () => {
 
 describe('container-cleanup cleanup() – non-existent workDir branch', () => {
   it('returns without error when workDir does not exist', async () => {
-    const nonExistent = path.join(os.tmpdir(), `awf-never-created-${Date.now()}`);
+    const parentDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-missing-parent-'));
+    const nonExistent = path.join(parentDir, 'workdir');
 
-    await expect(cleanup(nonExistent, false)).resolves.not.toThrow();
+    try {
+      await expect(cleanup(nonExistent, false)).resolves.not.toThrow();
+    } finally {
+      fs.rmSync(parentDir, { recursive: true, force: true });
+    }
   });
 
   it('does not call removeWorkDirectories when workDir does not exist', async () => {
     const { removeWorkDirectories } =
       jest.requireMock('./artifact-preservation') as { removeWorkDirectories: jest.Mock };
-    const nonExistent = path.join(os.tmpdir(), `awf-never-created-${Date.now()}`);
+    const parentDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-missing-parent-'));
+    const nonExistent = path.join(parentDir, 'workdir');
 
-    await cleanup(nonExistent, false);
+    try {
+      await cleanup(nonExistent, false);
 
-    expect(removeWorkDirectories).not.toHaveBeenCalled();
+      expect(removeWorkDirectories).not.toHaveBeenCalled();
+    } finally {
+      fs.rmSync(parentDir, { recursive: true, force: true });
+    }
   });
 });
 

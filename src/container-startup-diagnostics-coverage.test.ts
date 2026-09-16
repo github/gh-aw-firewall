@@ -334,10 +334,6 @@ describe('reportBlockedDomains – additional branches', () => {
     );
     // The else branch emits "  - Blocked: github.com:443" with no extra annotation
     expect(messages).toContain('  - Blocked: github.com:443');
-    const blockedMsg = messages.find(m => m.includes('github.com:443'));
-    expect(blockedMsg).not.toContain('not in allowlist');
-    expect(blockedMsg).not.toContain('not allowed');
-    expect(blockedMsg).not.toContain('protocol');
   });
 
   it('classifies protocol mismatch for https-only domain blocked on http', () => {

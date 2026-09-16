@@ -1,5 +1,6 @@
 export const mainActionFsMocks = {
   mkdirSync: jest.fn(),
+  mkdtempSync: jest.fn().mockReturnValue('/synthetic/awf-default'),
   writeFileSync: jest.fn(),
   chmodSync: jest.fn(),
   openSync: jest.fn().mockReturnValue(42),
@@ -16,6 +17,7 @@ export function mainActionFsMockFactory() {
   return {
     ...actual,
     mkdirSync: (...args: unknown[]) => mainActionFsMocks.mkdirSync(...args),
+    mkdtempSync: (...args: unknown[]) => mainActionFsMocks.mkdtempSync(...args),
     writeFileSync: (...args: unknown[]) => mainActionFsMocks.writeFileSync(...args),
     chmodSync: (...args: unknown[]) => mainActionFsMocks.chmodSync(...args),
     openSync: (...args: unknown[]) => mainActionFsMocks.openSync(...args),

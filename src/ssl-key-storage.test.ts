@@ -57,21 +57,21 @@ describe('ssl-key-storage', () => {
     it('returns true when the mount command succeeds', async () => {
       mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '' });
 
-      const result = await mountSslTmpfs('/tmp/awf-ssl-test');
+      const result = await mountSslTmpfs('/synthetic/awf-ssl-test');
 
       expect(result).toBe(true);
       expect(mockExecaFn).toHaveBeenCalledWith('mount', [
         '-t', 'tmpfs',
         '-o', 'size=4m,mode=0700,noexec,nosuid,nodev',
         'tmpfs',
-        '/tmp/awf-ssl-test',
+        '/synthetic/awf-ssl-test',
       ]);
     });
 
     it('returns false when the mount command fails', async () => {
       mockExecaFn.mockRejectedValueOnce(new Error('Operation not permitted'));
 
-      const result = await mountSslTmpfs('/tmp/awf-ssl-test');
+      const result = await mountSslTmpfs('/synthetic/awf-ssl-test');
 
       expect(result).toBe(false);
     });
@@ -90,11 +90,11 @@ describe('ssl-key-storage', () => {
     it('skips the overwrite loop for a zero-size file but still deletes it', () => {
       mockFstatSync.mockReturnValueOnce({ isFile: () => true, size: 0 });
 
-      secureWipeFile('/tmp/empty-key.pem');
+      secureWipeFile('/synthetic/empty-key.pem');
 
       expect(mockWriteSync).not.toHaveBeenCalled();
       expect(mockFsyncSync).not.toHaveBeenCalled();
-      expect(mockUnlinkSync).toHaveBeenCalledWith('/tmp/empty-key.pem');
+      expect(mockUnlinkSync).toHaveBeenCalledWith('/synthetic/empty-key.pem');
     });
 
     it('does not wipe and gracefully continues when path is not a regular file', () => {
@@ -109,7 +109,7 @@ describe('ssl-key-storage', () => {
       const enoentErr = Object.assign(new Error('ENOENT: no such file'), { code: 'ENOENT' });
       mockOpenSync.mockImplementationOnce(() => { throw enoentErr; });
 
-      secureWipeFile('/tmp/gone.pem');
+      secureWipeFile('/synthetic/gone.pem');
 
       expect(mockFstatSync).not.toHaveBeenCalled();
       expect(mockUnlinkSync).not.toHaveBeenCalled();
@@ -119,9 +119,9 @@ describe('ssl-key-storage', () => {
       mockFstatSync.mockReturnValueOnce({ isFile: () => true, size: 0 });
       mockCloseSync.mockImplementationOnce(() => { throw new Error('close failed'); });
 
-      expect(() => secureWipeFile('/tmp/key.pem')).not.toThrow();
+      expect(() => secureWipeFile('/synthetic/key.pem')).not.toThrow();
       // unlinkSync should still be attempted after the finally block
-      expect(mockUnlinkSync).toHaveBeenCalledWith('/tmp/key.pem');
+      expect(mockUnlinkSync).toHaveBeenCalledWith('/synthetic/key.pem');
     });
 
     it('returns early without retry when post-wipe unlinkSync throws ENOENT', () => {
@@ -132,7 +132,7 @@ describe('ssl-key-storage', () => {
       const enoentErr = Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
       mockUnlinkSync.mockImplementationOnce(() => { throw enoentErr; });
 
-      expect(() => secureWipeFile('/tmp/wiped-key.pem')).not.toThrow();
+      expect(() => secureWipeFile('/synthetic/wiped-key.pem')).not.toThrow();
       // Only one unlink attempt (no retry for ENOENT).
       expect(mockUnlinkSync).toHaveBeenCalledTimes(1);
     });
@@ -148,7 +148,7 @@ describe('ssl-key-storage', () => {
         .mockImplementationOnce(() => { throw epermErr; })
         .mockImplementationOnce(() => undefined);
 
-      expect(() => secureWipeFile('/tmp/readonly-key.pem')).not.toThrow();
+      expect(() => secureWipeFile('/synthetic/readonly-key.pem')).not.toThrow();
       expect(mockUnlinkSync).toHaveBeenCalledTimes(2);
     });
 
@@ -158,10 +158,10 @@ describe('ssl-key-storage', () => {
       mockWriteSync.mockReturnValueOnce(size);
       mockFsyncSync.mockImplementation(() => undefined);
 
-      expect(() => secureWipeFile('/tmp/ca-key.pem')).not.toThrow();
+      expect(() => secureWipeFile('/synthetic/ca-key.pem')).not.toThrow();
       expect(mockWriteSync).toHaveBeenCalledTimes(1);
       expect(mockFsyncSync).toHaveBeenCalledTimes(1);
-      expect(mockUnlinkSync).toHaveBeenCalledWith('/tmp/ca-key.pem');
+      expect(mockUnlinkSync).toHaveBeenCalledWith('/synthetic/ca-key.pem');
     });
   });
 

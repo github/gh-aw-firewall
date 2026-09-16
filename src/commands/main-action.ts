@@ -1,4 +1,5 @@
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import { logger } from '../logger';
 import {
@@ -20,7 +21,7 @@ import {
 import { runMainWorkflow } from '../cli-workflow';
 import { deriveSensitiveEndpointForms, redactSecrets, redactSensitiveValues } from '../redact-secrets';
 import { joinShellArgs } from '../option-parsers';
-import { assertRealDirectory } from '../fs-utils';
+import { assertRealDirectory, writeFileNoFollow } from '../fs-utils';
 import { applyConfigFilePrecedence } from './preflight';
 import { registerSignalHandlers } from './signal-handler';
 import { validateOptions } from './validate-options';
@@ -143,6 +144,16 @@ function writeStartupFailureDiagnostic(config: WrapperConfig, error: unknown, ph
   }
 }
 
+function writeIncompleteEnclaveAuditMarker(targetAuditDir: string): void {
+  fs.mkdirSync(targetAuditDir, { recursive: true, mode: 0o755 });
+  assertRealDirectory(targetAuditDir);
+  writeFileNoFollow(
+    path.join(targetAuditDir, 'enclave-audit-incomplete.txt'),
+    'Enclave shutdown or protected audit preservation was not confirmed; enclave audit artifacts may be incomplete.\n',
+    0o644,
+  );
+}
+
 function buildCleanupFn(
   config: WrapperConfig,
   getContainersStarted: () => boolean,
@@ -218,13 +229,7 @@ function buildCleanupFn(
       if (!enclaveAuditComplete && config.enclaves?.enabled) {
         const targetAuditDir = config.auditDir || path.join(config.workDir, 'audit');
         try {
-          fs.mkdirSync(targetAuditDir, { recursive: true, mode: 0o755 });
-          const markerPath = path.join(targetAuditDir, 'enclave-audit-incomplete.txt');
-          fs.writeFileSync(
-            markerPath,
-            'Enclave shutdown or protected audit preservation was not confirmed; enclave audit artifacts may be incomplete.\n',
-            { mode: 0o644 },
-          );
+          writeIncompleteEnclaveAuditMarker(targetAuditDir);
         } catch (error) {
           logger.warn('Failed to write the incomplete enclave audit marker.', error);
         }
@@ -326,6 +331,9 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
     : args.length === 1 ? args[0] : joinShellArgs(args);
 
   applyConfigFilePrecedence(options as Record<string, unknown>, getOptionValueSource);
+  if (options.workDir === undefined) {
+    options.workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-'));
+  }
 
   // Validate all options and assemble the config.
   // Calls process.exit(1) on any validation failure.
@@ -527,5 +535,6 @@ export const testHelpers = {
   redactConfigForLogging,
   persistConfigAuditArtifact,
   writeStartupFailureDiagnostic,
+  writeIncompleteEnclaveAuditMarker,
   buildCleanupFn,
 };

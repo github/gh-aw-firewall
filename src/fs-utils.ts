@@ -85,6 +85,35 @@ export function assertRealDirectory(dirPath: string): void {
   }
 }
 
+export function writeFileNoFollow(
+  filePath: string,
+  contents: string,
+  finalMode: number,
+): void {
+  const flags =
+    fs.constants.O_WRONLY |
+    fs.constants.O_CREAT |
+    fs.constants.O_TRUNC |
+    (fs.constants.O_NOFOLLOW ?? 0);
+  let fd: number | undefined;
+
+  try {
+    fd = fs.openSync(filePath, flags, 0o600);
+    const stat = fs.fstatSync(fd);
+    if (!stat.isFile()) {
+      throw new Error(`Refusing to write non-regular file: ${filePath}`);
+    }
+    fs.fchmodSync(fd, 0o600);
+    fs.writeFileSync(fd, contents, { encoding: 'utf8' });
+    fs.fsyncSync(fd);
+    fs.fchmodSync(fd, finalMode);
+  } finally {
+    if (fd !== undefined) {
+      fs.closeSync(fd);
+    }
+  }
+}
+
 export function createMissingOwnedDirectorySegments(dirPath: string, uid: number, gid: number): void {
   let currentPath = path.isAbsolute(dirPath)
     ? path.parse(dirPath).root

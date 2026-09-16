@@ -1,6 +1,4 @@
 import { Command, Option } from 'commander';
-import * as path from 'path';
-import * as os from 'os';
 import { version } from '../package.json';
 import { collectRulesetFile, collectStringArray, formatItem } from './option-parsers';
 import {
@@ -517,8 +515,7 @@ program
   )
   .option(
     '--work-dir <dir>',
-    'Working directory for temporary files',
-    path.join(os.tmpdir(), `awf-${Date.now()}`)
+    'Working directory for temporary files'
   )
   .option(
     '--proxy-logs-dir <path>',

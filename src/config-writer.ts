@@ -17,6 +17,7 @@ import { DEFAULT_DNS_SERVERS, filterForNetworkIsolation } from './dns-resolver';
 import { getSafeHostGid, getSafeHostUid, isNativeRootWithoutSudo } from './host-identity';
 import { resolveNetworkAddressing } from './network-subnet';
 import { prepareWorkDirectories } from './workdir-setup';
+import { writeFileNoFollow } from './fs-utils';
 
 // When bundled with esbuild, this global is replaced at build time with the
 // JSON content of containers/agent/seccomp-profile.json.  In normal (tsc)
@@ -260,8 +261,8 @@ interface NetworkConfig {
 /**
  * Phase 1 — Validates and hardens the work directory.
  *
- * Creates the directory with restrictive `0o700` permissions, guards against
- * symlink injection, and re-applies the permission mask on pre-existing dirs.
+ * Creates the directory with restrictive `0o700` permissions and rejects
+ * symlinks, unsafe ownership, or group/world-writable reused directories.
  * Security-critical: docker-compose.yml (which contains plaintext secrets) is
  * written here, so non-root host processes must not be able to read it.
  */
@@ -281,7 +282,35 @@ function validateAndPrepareWorkDir(config: WrapperConfig): void {
     if (!workDirStat.isDirectory()) {
       throw new Error(`Expected directory but found non-directory path: ${config.workDir}`);
     }
-    if (!workDirCreated) {
+    const effectiveUid = process.getuid?.();
+    const sudoUid = process.env.SUDO_UID !== undefined
+      ? Number.parseInt(process.env.SUDO_UID, 10)
+      : undefined;
+    const trustedOwners = new Set<number>();
+    if (effectiveUid !== undefined) {
+      trustedOwners.add(effectiveUid);
+    }
+    if (
+      effectiveUid === 0 &&
+      sudoUid !== undefined &&
+      Number.isSafeInteger(sudoUid) &&
+      sudoUid >= 0
+    ) {
+      trustedOwners.add(sudoUid);
+    }
+    if (!trustedOwners.has(workDirStat.uid)) {
+      throw new Error(
+        `Refusing to use work directory not owned by the invoking user: ${config.workDir} ` +
+        `(owner uid=${workDirStat.uid}, trusted uid(s)=${[...trustedOwners].join(',')})`
+      );
+    }
+    if ((workDirStat.mode & 0o022) !== 0) {
+      throw new Error(
+        `Refusing to use group- or world-writable work directory: ${config.workDir} ` +
+        `(mode=${(workDirStat.mode & 0o777).toString(8)})`
+      );
+    }
+    if (workDirCreated) {
       fs.chmodSync(config.workDir, 0o700);
     }
   } catch (error: unknown) {
@@ -464,26 +493,7 @@ function writeAuditArtifacts(
 
 function writeAuditArtifact(auditDir: string, filename: string, contents: string): void {
   const artifactPath = path.join(auditDir, filename);
-  const flags =
-    fs.constants.O_WRONLY |
-    fs.constants.O_CREAT |
-    fs.constants.O_TRUNC |
-    (fs.constants.O_NOFOLLOW ?? 0);
-  let fd: number | undefined;
-
-  try {
-    // Create privately and refuse a symlink target. Existing artifacts are
-    // tightened before truncation so readers cannot observe partial content.
-    fd = fs.openSync(artifactPath, flags, 0o600);
-    fs.fchmodSync(fd, 0o600);
-    fs.writeFileSync(fd, contents, { encoding: 'utf8' });
-    fs.fsyncSync(fd);
-    fs.fchmodSync(fd, 0o644);
-  } finally {
-    if (fd !== undefined) {
-      fs.closeSync(fd);
-    }
-  }
+  writeFileNoFollow(artifactPath, contents, 0o644);
 }
 
 /**

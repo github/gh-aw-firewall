@@ -210,7 +210,7 @@ describe('writeConfigs', () => {
       const actualStatSync = jest.requireActual<typeof import('fs')>('fs').statSync;
       (fs.statSync as jest.Mock).mockImplementation((targetPath: fs.PathLike) => {
         const stat = actualStatSync(targetPath);
-        return String(targetPath) === canonicalWorkspaceDir
+        return String(targetPath) === canonicalWorkspaceDir || String(targetPath) === tempDir
           ? Object.assign(stat, { uid: 0, gid: 0 })
           : stat;
       });

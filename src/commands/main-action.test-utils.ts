@@ -16,7 +16,7 @@ export const MAIN_ACTION_STUB_CONFIG = {
   agentCommand: 'echo hi',
   logLevel: 'info',
   keepContainers: false,
-  workDir: '/tmp/awf-test',
+  workDir: '/synthetic/awf-test',
   imageRegistry: 'ghcr.io/github/gh-aw-firewall',
   imageTag: 'latest',
   buildLocal: false,

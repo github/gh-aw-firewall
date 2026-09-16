@@ -93,7 +93,17 @@ export function setupConfigWriterTempDir(prefix = 'config-writer-test-'): string
     (...args: Parameters<typeof actualFs.accessSync>) => actualFs.accessSync(...args),
   );
   (fs.statSync as jest.Mock).mockImplementation(
-    (...args: Parameters<typeof actualFs.statSync>) => actualFs.statSync(...args),
+    (...args: Parameters<typeof actualFs.statSync>) => {
+      const stat = actualFs.statSync(args[0]);
+      if (String(args[0]) === tempDir && process.getuid?.() === 0) {
+        return new Proxy(stat, {
+          get(target, property, receiver) {
+            return property === 'uid' ? 0 : Reflect.get(target, property, receiver);
+          },
+        });
+      }
+      return stat;
+    },
   );
   (getRealUserHome as jest.Mock).mockReturnValue(tempDir);
   return tempDir;

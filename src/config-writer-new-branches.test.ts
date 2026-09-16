@@ -20,6 +20,7 @@ jest.mock('fs', () => {
     lstatSync: jest.fn(),
     statSync: jest.fn(),
     openSync: jest.fn(),
+    fstatSync: jest.fn(),
     fchmodSync: jest.fn(),
     fsyncSync: jest.fn(),
     closeSync: jest.fn(),
@@ -76,6 +77,7 @@ const { validateAndPrepareWorkDir, copySeccompProfile, writeAuditArtifacts } =
   configWriterTestHelpers;
 
 const fsMock = fs as jest.Mocked<typeof fs>;
+const currentUid = process.getuid?.() ?? 0;
 
 function makeConfig(workDir = '/tmp/test-workdir', overrides = {}) {
   return {
@@ -98,8 +100,13 @@ beforeEach(() => {
   fsMock.mkdirSync.mockReturnValue(undefined);
   // Default: not a symlink, is a directory
   fsMock.lstatSync.mockReturnValue({ isSymbolicLink: () => false } as fs.Stats);
-  fsMock.statSync.mockReturnValue({ isDirectory: () => true } as fs.Stats);
+  fsMock.statSync.mockReturnValue({
+    isDirectory: () => true,
+    uid: currentUid,
+    mode: 0o40700,
+  } as fs.Stats);
   fsMock.openSync.mockReturnValue(42);
+  fsMock.fstatSync.mockReturnValue({ isFile: () => true } as fs.Stats);
 });
 
 // ─── validateAndPrepareWorkDir — non-directory guard ─────────────────────────
@@ -117,10 +124,75 @@ describe('config-writer: validateAndPrepareWorkDir — non-directory workDir (li
 
   it('does not throw when workDir is a valid directory', () => {
     fsMock.lstatSync.mockReturnValueOnce({ isSymbolicLink: () => false } as fs.Stats);
-    fsMock.statSync.mockReturnValueOnce({ isDirectory: () => true } as fs.Stats);
+    fsMock.statSync.mockReturnValueOnce({
+      isDirectory: () => true,
+      uid: currentUid,
+      mode: 0o40700,
+    } as fs.Stats);
 
     expect(() => validateAndPrepareWorkDir(makeConfig())).not.toThrow();
-    expect(fsMock.chmodSync).toHaveBeenCalled();
+    expect(fsMock.chmodSync).not.toHaveBeenCalled();
+  });
+
+  it('rejects a reused directory owned by another user', () => {
+    fsMock.statSync.mockReturnValueOnce({
+      isDirectory: () => true,
+      uid: currentUid + 1,
+      mode: 0o40700,
+    } as fs.Stats);
+
+    expect(() => validateAndPrepareWorkDir(makeConfig())).toThrow(
+      /not owned by the invoking user/
+    );
+  });
+
+  it('rejects a reused group-writable directory', () => {
+    fsMock.statSync.mockReturnValueOnce({
+      isDirectory: () => true,
+      uid: currentUid,
+      mode: 0o40720,
+    } as fs.Stats);
+
+    expect(() => validateAndPrepareWorkDir(makeConfig())).toThrow(
+      /group- or world-writable/
+    );
+  });
+
+  it('accepts a secure directory owned by a non-root caller', () => {
+    const getuidSpy = jest.spyOn(process, 'getuid').mockReturnValue(1001);
+    fsMock.statSync.mockReturnValueOnce({
+      isDirectory: () => true,
+      uid: 1001,
+      mode: 0o40700,
+    } as fs.Stats);
+
+    try {
+      expect(() => validateAndPrepareWorkDir(makeConfig())).not.toThrow();
+    } finally {
+      getuidSpy.mockRestore();
+    }
+  });
+
+  it('accepts a secure directory owned by SUDO_UID when running as root', () => {
+    const getuidSpy = jest.spyOn(process, 'getuid').mockReturnValue(0);
+    const originalSudoUid = process.env.SUDO_UID;
+    process.env.SUDO_UID = '1001';
+    fsMock.statSync.mockReturnValueOnce({
+      isDirectory: () => true,
+      uid: 1001,
+      mode: 0o40700,
+    } as fs.Stats);
+
+    try {
+      expect(() => validateAndPrepareWorkDir(makeConfig())).not.toThrow();
+    } finally {
+      getuidSpy.mockRestore();
+      if (originalSudoUid === undefined) {
+        delete process.env.SUDO_UID;
+      } else {
+        process.env.SUDO_UID = originalSudoUid;
+      }
+    }
   });
 });
 
