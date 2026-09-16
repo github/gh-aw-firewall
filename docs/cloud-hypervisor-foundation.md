@@ -6,6 +6,11 @@ description: Architecture, security boundaries, artifacts, networking, lifecycle
 Cloud Hypervisor runs the primary agent in a hardware-isolated microVM while
 AWF keeps Squid and the API proxy in Docker Compose on the host.
 
+This document covers that one-VM-per-run primary-agent runtime. The distinct
+planned one-VM-per-enclave-invocation design keeps the enclave MCP broker
+host/container-side; see
+[ADR 0002: Cloud Hypervisor enclave executor](adr/0002-cloud-hypervisor-enclave-executor.md).
+
 :::caution[Preview support]
 This runtime requires both `--container-runtime cloud-hypervisor` and
 `--cloud-hypervisor-preview`. It supports only GitHub-hosted Ubuntu x86_64

@@ -554,6 +554,16 @@ See [ADR 0001: Agent enclave repository admission](adr/0001-agent-enclaves.md)
 for the stable compiler, mcpg, runtime-registry, executor, and integration
 contract.
 
+## Cloud Hypervisor enclave executor
+
+Cloud Hypervisor currently runs only the primary-agent preview and rejects
+enclave configurations. The planned per-invocation microVM executor is a
+separate host-owned component: `enclave-mcp-server` remains container-side and
+submits bounded, authenticated requests to it over a private Unix socket.
+Its threat model, network and filesystem matrices, protocol, lifecycle, and
+rollout gates are defined in
+[ADR 0002: Cloud Hypervisor enclave executor](adr/0002-cloud-hypervisor-enclave-executor.md).
+
 ## Coverage after legacy smoke removal
 
 No unified gh-aw enclave smoke workflow exists yet, so AWF keeps coverage local and unit-focused instead of inventing unsupported workflow syntax. Current owned-scope guidance points to:
