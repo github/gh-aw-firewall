@@ -81,7 +81,7 @@ describe('squid service', () => {
       expect(inlineScript).toMatch(/(^|[^R])chown proxy:proxy \/var\/log\/squid/);
       expect(inlineScript).not.toContain('chown -R');
       expect(inlineScript).toContain(`for f in ${SQUID_LOG_FILES.join(' ')}`);
-      expect(inlineScript).toContain('([ -e "$$f" ] || [ -L "$$f" ]) && chown -h proxy:proxy "$$f" 2>/dev/null || true');
+      expect(inlineScript).toContain('if [ -L "$$f" ] || [ -e "$$f" ]; then chown -h proxy:proxy "$$f" 2>/dev/null || true; fi');
       expect(inlineScript).not.toContain('chmod 0666 "$$f"');
       // The SSL DB chown is conditional on the dir existing so it is a no-op
       // when SSL Bump is disabled but engages automatically when it is enabled.
