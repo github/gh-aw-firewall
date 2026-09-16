@@ -34,6 +34,11 @@ interface SquidServiceParams {
   imageConfig: ImageBuildConfig;
 }
 
+/**
+ * AWF-owned top-level Squid log files repaired during container preflight.
+ * Keep this explicit instead of globbing or recursive chowning so startup does
+ * not traverse user-provided proxy log directories.
+ */
 export const SQUID_LOG_FILES = [
   '/var/log/squid/access.log',
   '/var/log/squid/audit.jsonl',
