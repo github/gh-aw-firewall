@@ -134,15 +134,30 @@ const defaultDependencies: CloudHypervisorPreflightDependencies = {
         `exists, is executable, and is complete: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
+    if (result.exitCode == null && !result.signal) {
+      const executionError = result as typeof result & {
+        code?: unknown;
+        shortMessage?: unknown;
+      };
+      const code = typeof executionError.code === 'string'
+        ? `code=${executionError.code}`
+        : '';
+      const shortMessage = typeof executionError.shortMessage === 'string'
+        ? executionError.shortMessage
+        : '';
+      const details = [code, shortMessage, result.stderr.trim()].filter(Boolean).join(': ');
+      throw new Error(
+        `Unable to execute "${binaryPath} --version"; verify the trusted Cloud Hypervisor artifact ` +
+        `exists, is executable, and is complete${details ? `: ${details}` : ''}`,
+      );
+    }
     if (result.exitCode !== 0) {
       const stderr = result.stderr.trim();
       const signalCode = result.signal ?? null;
       const exitCode = result.exitCode ?? null;
       const termination = signalCode
         ? `terminated by signal ${signalCode}`
-        : exitCode === null
-          ? 'ended without an exit code'
-          : `exited with code ${exitCode}`;
+        : `exited with code ${exitCode}`;
       throw new Error(
         `"${binaryPath} --version" ${termination} ` +
         `(exitCode=${exitCode}, signalCode=${signalCode})${stderr ? `: ${stderr}` : ''}`,

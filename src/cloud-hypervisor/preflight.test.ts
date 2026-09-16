@@ -164,13 +164,20 @@ describe('Cloud Hypervisor preflight (foundation only)', () => {
         stdout: '',
         stderr: 'killed by host',
       } as never)
-      .mockRejectedValueOnce(Object.assign(new Error('spawn EACCES'), { code: 'EACCES' }));
+      .mockResolvedValueOnce({
+        exitCode: undefined,
+        signal: undefined,
+        code: 'EACCES',
+        shortMessage: 'Command failed with EACCES: spawn EACCES',
+        stdout: '',
+        stderr: '',
+      } as never);
 
     await expect(defaults.runVersion('/snapshot/cloud-hypervisor')).rejects.toThrow(
       /terminated by signal SIGKILL \(exitCode=null, signalCode=SIGKILL\): killed by host/,
     );
     await expect(defaults.runVersion('/snapshot/cloud-hypervisor')).rejects.toThrow(
-      /Unable to execute "\/snapshot\/cloud-hypervisor --version".*exists, is executable, and is complete.*spawn EACCES/,
+      /Unable to execute "\/snapshot\/cloud-hypervisor --version".*exists, is executable, and is complete: code=EACCES: Command failed with EACCES: spawn EACCES/,
     );
   });
 

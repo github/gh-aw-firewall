@@ -43,7 +43,6 @@ export function assertCloudHypervisorRuntimeCompatibility(
     throw new Error('Cloud Hypervisor preview requires API proxy credential isolation');
   }
   assertCloudHypervisorPreSecurityCompatibility(config);
-  assertGithubHostedRunnerEligibility();
   if (!cloudHypervisor.kernelPath || !cloudHypervisor.rootfsPath || !cloudHypervisor.supervisorPath) {
     throw new Error(
       'Cloud Hypervisor preview requires explicit kernel, rootfs, and guest supervisor artifacts',
@@ -83,6 +82,7 @@ export function assertCloudHypervisorRuntimeCompatibility(
       'Caller-supplied Cloud Hypervisor SHA-256 values are accepted only by the explicit development artifact bypass',
     );
   }
+  assertGithubHostedRunnerEligibility();
 }
 
 export function assertCloudHypervisorPreSecurityCompatibility(config: WrapperConfig): void {

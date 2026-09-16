@@ -633,7 +633,11 @@ including:
 - unsupported host mounts; and
 - enclave combinations not supported by the external runtime contract.
 
-Selecting Cloud Hypervisor never falls back to Docker, gVisor, or sbx.
+If runner eligibility or runtime preflight detects an unsupported host capability,
+such as an ineligible runner, missing KVM access, or unsupported host policy, AWF
+warns and falls back to the standard Docker backend. It does not fall back to
+gVisor or sbx. Invalid Cloud Hypervisor configuration and artifact trust,
+integrity, digest, or version failures remain fatal.
 
 ## Part 14 — CI workflow
 
