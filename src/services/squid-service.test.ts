@@ -81,7 +81,8 @@ describe('squid service', () => {
       expect(inlineScript).toMatch(/(^|[^R])chown proxy:proxy \/var\/log\/squid/);
       expect(inlineScript).not.toContain('chown -R');
       expect(inlineScript).toContain(`for f in ${SQUID_LOG_FILES.join(' ')}`);
-      expect(inlineScript).toContain('[ ! -e "$$f" ] || chown proxy:proxy "$$f" 2>/dev/null || chmod 0666 "$$f" 2>/dev/null || true');
+      expect(inlineScript).toContain('[ ! -e "$$f" ] || chown -h proxy:proxy "$$f" 2>/dev/null || true');
+      expect(inlineScript).not.toContain('chmod 0666 "$$f"');
       // The SSL DB chown is conditional on the dir existing so it is a no-op
       // when SSL Bump is disabled but engages automatically when it is enabled.
       // Falls back to chmod 0777 if chown is denied (tolerant, like config-writer.ts).
@@ -110,6 +111,7 @@ describe('squid service', () => {
       expect(inlineScript).toContain('chown proxy:proxy /var/log/squid');
       expect(inlineScript).not.toContain('chown -R');
       expect(inlineScript).toContain(`for f in ${SQUID_LOG_FILES.join(' ')}`);
+      expect(inlineScript).toContain('chown -h proxy:proxy "$$f"');
       expect(inlineScript).toContain('exec su -s /bin/bash proxy -c');
       // Without injected config, the entrypoint should still hand off to the
       // image's original entrypoint script (which handles IPv6 stripping etc.).
