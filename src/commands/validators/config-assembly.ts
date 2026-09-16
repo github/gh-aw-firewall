@@ -15,17 +15,13 @@ import {
   assertCloudHypervisorSelection,
 } from '../../cloud-hypervisor/runtime-validation';
 import { assertFilesystemWritePolicyCompatibility } from '../../filesystem-policy';
-import { isCloudHypervisorUnsupportedHostError } from '../../cloud-hypervisor/errors';
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
+import {
+  formatCloudHypervisorDockerFallbackWarning,
+  isCloudHypervisorUnsupportedHostError,
+} from '../../cloud-hypervisor/errors';
 
 function fallBackCloudHypervisorToDocker(config: WrapperConfig, error: unknown): void {
-  logger.warn(
-    '[cloud-hypervisor] unsupported runner detected; falling back to the standard Docker backend. ' +
-    errorMessage(error),
-  );
+  logger.warn(formatCloudHypervisorDockerFallbackWarning(error));
   config.containerRuntime = undefined;
   config.cloudHypervisor = undefined;
 }

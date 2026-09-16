@@ -47,7 +47,10 @@ import {
   disconnectEnclaveGithubGateway,
 } from '../enclave/github-gateway';
 import type { WrapperConfig } from '../types';
-import { isCloudHypervisorUnsupportedHostError } from '../cloud-hypervisor/errors';
+import {
+  formatCloudHypervisorDockerFallbackWarning,
+  isCloudHypervisorUnsupportedHostError,
+} from '../cloud-hypervisor/errors';
 
 const SENSITIVE_CONFIG_KEYS = new Set([
   'openaiApiKey',
@@ -62,10 +65,6 @@ const SENSITIVE_CONFIG_KEYS = new Set([
 ]);
 
 const REFLECT_COMMAND = 'curl --fail --silent --show-error --noproxy "*" http://api-proxy:10000/reflect';
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
 
 function redactConfigForLogging(config: WrapperConfig): Record<string, unknown> {
   const redactedConfig: Record<string, unknown> = {};
@@ -422,10 +421,7 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
           externalRuntimeBackend.runtime === 'cloud-hypervisor' &&
           isCloudHypervisorUnsupportedHostError(error)
         ) {
-          logger.warn(
-            '[cloud-hypervisor] unsupported host detected; falling back to the standard Docker backend. ' +
-            errorMessage(error),
-          );
+          logger.warn(formatCloudHypervisorDockerFallbackWarning(error));
           config.containerRuntime = undefined;
           config.cloudHypervisor = undefined;
           externalRuntimeBackend = undefined;

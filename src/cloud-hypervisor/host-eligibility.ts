@@ -91,6 +91,8 @@ export function assertGithubHostedRunnerEligibility(
 ): void {
   const result = evaluateGithubHostedRunnerEligibility(env);
   if (!result.eligible) {
-    throw new CloudHypervisorUnsupportedHostError(result.reason!);
+    throw new CloudHypervisorUnsupportedHostError(
+      result.reason ?? 'Cloud Hypervisor is unsupported on this runner',
+    );
   }
 }

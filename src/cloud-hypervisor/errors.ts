@@ -10,6 +10,15 @@ export class CloudHypervisorUnsupportedHostError extends Error {
   }
 }
 
+export function formatCloudHypervisorErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+export function formatCloudHypervisorDockerFallbackWarning(error: unknown): string {
+  return '[cloud-hypervisor] unsupported host detected; falling back to the standard Docker backend. ' +
+    formatCloudHypervisorErrorMessage(error);
+}
+
 export function isCloudHypervisorUnsupportedHostError(
   error: unknown,
 ): error is CloudHypervisorUnsupportedHostError {
