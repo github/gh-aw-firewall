@@ -10,10 +10,9 @@ describe('schema sync workflow prompt', () => {
     const source = fs.readFileSync(sourcePath, 'utf-8');
     const lock = fs.readFileSync(lockPath, 'utf-8');
 
-    expect(source).not.toMatch(/runtime:\s*cloud-hypervisor/);
+    expect(source).not.toMatch(/runtime:\s*['"]?cloud-hypervisor/);
     expect(lock).toContain('GH_AW_INFO_AGENT_RUNTIME: ""');
-    expect(lock).not.toContain('cloud_hypervisor_host_preflight.sh');
-    expect(lock).not.toContain('--container-runtime cloud-hypervisor');
+    expect(lock).not.toMatch(/cloud[-_]?hypervisor/i);
   });
 
   it('requires a direct noop MCP call when no schema updates are needed', () => {
