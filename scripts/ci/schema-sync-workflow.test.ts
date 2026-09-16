@@ -11,6 +11,8 @@ describe('schema sync workflow prompt', () => {
     const lock = fs.readFileSync(lockPath, 'utf-8');
 
     expect(source).not.toMatch(/runtime:\s*cloud-hypervisor/);
+    expect(lock).toContain('GH_AW_INFO_AGENT_RUNTIME: ""');
+    expect(lock).not.toContain('cloud_hypervisor_host_preflight.sh');
     expect(lock).not.toContain('--container-runtime cloud-hypervisor');
   });
 
