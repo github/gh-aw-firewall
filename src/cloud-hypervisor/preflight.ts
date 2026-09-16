@@ -39,6 +39,7 @@ export interface CloudHypervisorPreflightDependencies {
     isFile(): boolean;
     isSymbolicLink(): boolean;
     mode: number;
+    size?: number;
     uid: number;
   }>;
   runVersion(binaryPath: string): Promise<string>;
@@ -119,14 +120,31 @@ const defaultDependencies: CloudHypervisorPreflightDependencies = {
   access: fs.access,
   lstat: fs.lstat,
   runVersion: async (binaryPath) => {
-    const result = await execa(binaryPath, ['--version'], {
-      reject: false,
-      timeout: 5_000,
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-    if (result.exitCode !== 0) {
+    let result;
+    try {
+      result = await execa(binaryPath, ['--version'], {
+        reject: false,
+        timeout: 5_000,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+    } catch (error) {
       throw new Error(
-        `"${binaryPath} --version" exited with code ${result.exitCode}: ${result.stderr.trim()}`,
+        `Unable to execute "${binaryPath} --version"; verify the trusted Cloud Hypervisor artifact ` +
+        `exists, is executable, and is complete: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    if (result.exitCode !== 0) {
+      const stderr = result.stderr.trim();
+      const signalCode = result.signal ?? null;
+      const exitCode = result.exitCode ?? null;
+      const termination = signalCode
+        ? `terminated by signal ${signalCode}`
+        : exitCode === null
+          ? 'ended without an exit code'
+          : `exited with code ${exitCode}`;
+      throw new Error(
+        `"${binaryPath} --version" ${termination} ` +
+        `(exitCode=${exitCode}, signalCode=${signalCode})${stderr ? `: ${stderr}` : ''}`,
       );
     }
     return `${result.stdout}\n${result.stderr}`.trim();
@@ -511,6 +529,12 @@ async function assertDigest(
     throw new Error(`${label} SHA-256 must contain exactly 64 hexadecimal characters`);
   }
 
+  const stat = await dependencies.lstat(filePath);
+  if (typeof stat.size === 'number' && stat.size <= 0) {
+    throw new Error(
+      `${label} trusted artifact is empty or incomplete before execution: ${filePath}`,
+    );
+  }
   const actual = await dependencies.sha256(filePath);
   if (actual.toLowerCase() !== expected.toLowerCase()) {
     throw new Error(

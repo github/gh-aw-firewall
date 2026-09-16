@@ -154,6 +154,25 @@ describe('Cloud Hypervisor preflight (foundation only)', () => {
     }
   });
 
+  it('reports actionable version probe failures for signals and spawn errors', async () => {
+    const defaults = cloudHypervisorPreflightTestHelpers.defaultDependencies;
+    mockedExeca
+      .mockResolvedValueOnce({
+        exitCode: null,
+        signal: 'SIGKILL',
+        stdout: '',
+        stderr: 'killed by host',
+      } as never)
+      .mockRejectedValueOnce(Object.assign(new Error('spawn EACCES'), { code: 'EACCES' }));
+
+    await expect(defaults.runVersion('/snapshot/cloud-hypervisor')).rejects.toThrow(
+      /terminated by signal SIGKILL \(exitCode=null, signalCode=SIGKILL\): killed by host/,
+    );
+    await expect(defaults.runVersion('/snapshot/cloud-hypervisor')).rejects.toThrow(
+      /Unable to execute "\/snapshot\/cloud-hypervisor --version".*exists, is executable, and is complete.*spawn EACCES/,
+    );
+  });
+
   it('runs host policy and Docker probes through the default helper', async () => {
     const defaults = cloudHypervisorPreflightTestHelpers.defaultDependencies;
     jest.spyOn(process, 'getuid').mockReturnValue(0);
@@ -525,6 +544,29 @@ describe('Cloud Hypervisor preflight (foundation only)', () => {
       }),
     )).rejects.toThrow(/Cloud Hypervisor binary SHA-256 mismatch/);
     expect(runVersion).not.toHaveBeenCalled();
+  });
+
+  it('rejects empty staged artifacts before invoking the binary', async () => {
+    const runVersion = jest.fn().mockResolvedValue('cloud-hypervisor v53.0');
+    const sha256 = jest.fn().mockResolvedValue(digest);
+    await expect(runCloudHypervisorPreflight(
+      config(),
+      dependencies({
+        runVersion,
+        sha256,
+        lstat: jest.fn(async (filePath: string) => ({
+          isFile: () => true,
+          isSymbolicLink: () => false,
+          mode: 0o100755,
+          size: filePath === '/snapshot/cloud-hypervisor' ? 0 : 1,
+          uid: 0,
+        })),
+      }),
+    )).rejects.toThrow(
+      /Cloud Hypervisor binary trusted artifact is empty or incomplete before execution/,
+    );
+    expect(runVersion).not.toHaveBeenCalled();
+    expect(sha256).not.toHaveBeenCalledWith('/snapshot/cloud-hypervisor');
   });
 
   it('rejects missing artifacts, unsupported hosts, and unavailable tools', async () => {
