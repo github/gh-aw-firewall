@@ -9,10 +9,10 @@ describe('refactoring scanner workflow prompt', () => {
     const source = fs.readFileSync(sourcePath, 'utf-8');
 
     expect(source).toMatch(
-      /- \*\*No significant issues found\*\*:[^\n]*`safeoutputs\.noop`/,
+      /- \*\*No significant issues found\*\*: Directly invoke the `safeoutputs\.noop` MCP tool[^\n]*Do not simulate this safe output with `bash`, `printf`, or a final text response\./,
     );
     expect(source).toMatch(
-      /- \*\*All findings already tracked\*\*:[^\n]*`safeoutputs\.noop`/,
+      /- \*\*All findings already tracked\*\*:[^\n]*directly invoke the `safeoutputs\.noop` MCP tool[^\n]*Do not simulate this safe output with `bash`, `printf`, or a final text response\./,
     );
   });
 });
