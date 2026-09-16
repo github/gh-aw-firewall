@@ -25,7 +25,7 @@ tools:
   github: false
   bash: true
 
-model: gpt-5.4-mini
+model: gpt-5-mini
 engine:
   id: copilot
 safe-outputs:
