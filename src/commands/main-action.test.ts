@@ -171,6 +171,15 @@ describe('createMainAction', () => {
 
     describe('work directory selection', () => {
       it('atomically creates a unique default work directory', async () => {
+        mockedValidateOptions.validateOptions
+          .mockReturnValueOnce({
+            ...MAIN_ACTION_STUB_CONFIG,
+            workDir: undefined,
+          } as unknown as WrapperConfig)
+          .mockReturnValueOnce({
+            ...MAIN_ACTION_STUB_CONFIG,
+            workDir: undefined,
+          } as unknown as WrapperConfig);
         mainActionFsMocks.mkdtempSync
           .mockReturnValueOnce('/synthetic/awf-first')
           .mockReturnValueOnce('/synthetic/awf-second');
@@ -187,19 +196,25 @@ describe('createMainAction', () => {
           2,
           expect.stringMatching(/awf-$/),
         );
-        expect(mockedValidateOptions.validateOptions).toHaveBeenNthCalledWith(
+        expect(mockedCliWorkflow.runMainWorkflow).toHaveBeenNthCalledWith(
           1,
           expect.objectContaining({ workDir: '/synthetic/awf-first' }),
-          'echo first',
+          expect.anything(),
+          expect.anything(),
         );
-        expect(mockedValidateOptions.validateOptions).toHaveBeenNthCalledWith(
+        expect(mockedCliWorkflow.runMainWorkflow).toHaveBeenNthCalledWith(
           2,
           expect.objectContaining({ workDir: '/synthetic/awf-second' }),
-          'echo second',
+          expect.anything(),
+          expect.anything(),
         );
       });
 
       it('preserves an explicit work directory', async () => {
+        mockedValidateOptions.validateOptions.mockReturnValue({
+          ...MAIN_ACTION_STUB_CONFIG,
+          workDir: '/synthetic/explicit-workdir',
+        } as unknown as WrapperConfig);
         const action = createMainAction(getOptionValueSource);
         await action(['echo explicit'], { workDir: '/synthetic/explicit-workdir' });
 
@@ -209,6 +224,31 @@ describe('createMainAction', () => {
           'echo explicit',
         );
       });
+
+      it.each(['probe', 'bootstrap'] as const)(
+        'cleans an auto-created work directory when %s setup fails',
+        async failurePoint => {
+          mockedValidateOptions.validateOptions.mockReturnValue({
+            ...MAIN_ACTION_STUB_CONFIG,
+            workDir: undefined,
+          } as unknown as WrapperConfig);
+          mainActionFsMocks.mkdtempSync.mockReturnValue('/synthetic/awf-setup-failure');
+          if (failurePoint === 'probe') {
+            mockedDindProbe.probeSplitFilesystem.mockRejectedValue(new Error('probe failed'));
+          } else {
+            mockedDindBootstrap.runDindBootstrap.mockRejectedValue(new Error('bootstrap failed'));
+          }
+
+          const action = createMainAction(getOptionValueSource);
+          await expect(action(['echo setup'], {})).rejects.toThrow('process.exit: 1');
+
+          const cleanupCalls = mockedDockerManager.cleanup.mock.calls;
+          expect(cleanupCalls[cleanupCalls.length - 1]?.slice(0, 2)).toEqual([
+            '/synthetic/awf-setup-failure',
+            false,
+          ]);
+        },
+      );
     });
   });
 

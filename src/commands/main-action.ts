@@ -331,13 +331,13 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
     : args.length === 1 ? args[0] : joinShellArgs(args);
 
   applyConfigFilePrecedence(options as Record<string, unknown>, getOptionValueSource);
-  if (options.workDir === undefined) {
-    options.workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-'));
-  }
 
   // Validate all options and assemble the config.
   // Calls process.exit(1) on any validation failure.
   const config = validateOptions(options as Record<string, unknown>, agentCommand);
+  if (config.workDir === undefined) {
+    config.workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-'));
+  }
   if (reflect) {
     config.additionalEnv = {
       ...config.additionalEnv,
@@ -345,81 +345,70 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
     };
   }
 
-  // Apply --docker-host override for AWF's own container operations.
-  // This must be called before startContainers/stopContainers/runAgentCommand.
-  setAwfDockerHost(config.awfDockerHost);
-
-  // Auto-detect split filesystem in DinD environments when no explicit prefix is set.
-  // This probe runs a lightweight container to check if the daemon can see runner paths.
-  if (!config.dockerHostPathPrefix) {
-    const probeResult = await probeSplitFilesystem(config.workDir);
-    if (probeResult.prefix) {
-      config.dockerHostPathPrefix = probeResult.prefix;
-      logger.info(`Auto-applied --docker-host-path-prefix ${probeResult.prefix} (DinD split filesystem detected)`);
-    } else if (probeResult.splitDetected) {
-      logger.warn(
-        '⚠️  Split runner/daemon filesystem detected but no known prefix worked. ' +
-        'Set --docker-host-path-prefix manually if bind mounts fail.',
-      );
-    }
-
-    await runDindBootstrap(config);
-  }
-
-  // Log config with redacted secrets - remove API keys entirely
-  // to prevent sensitive data from flowing to logger (CodeQL sensitive data logging)
-  const redactedConfig = redactConfigForLogging(config);
-  logger.debug('Configuration:', JSON.stringify(redactedConfig, null, 2));
-
-  logger.info(`Allowed domains: ${config.allowedDomains.join(', ')}`);
-  if (config.blockedDomains && config.blockedDomains.length > 0) {
-    logger.info(`Blocked domains: ${config.blockedDomains.join(', ')}`);
-  }
-  logger.debug(`DNS servers: ${(config.dnsServers ?? []).join(', ')}`);
-
-
   let exitCode = 0;
   let containersStarted = false;
   let agentCommandStarted = false;
   let hostIptablesSetup = false;
   let externalRuntimeBackend: ExternalAgentRuntimeBackend | undefined;
-  try {
-    externalRuntimeBackend = resolveExternalRuntimeBackend(config, startContainers);
-  } catch (error) {
-    logger.error('Fatal error:', error);
-    if (!agentCommandStarted) {
-      writeStartupFailureDiagnostic(config, error);
-    }
-    await buildCleanupFn(
-      config,
-      () => containersStarted,
-      () => hostIptablesSetup,
-    )();
-    console.error('Process exiting with code: 1');
-    process.exit(1);
-    return;
-  }
-
   let performCleanup = buildCleanupFn(
     config,
     () => containersStarted,
     () => hostIptablesSetup,
-    externalRuntimeBackend,
   );
 
-  // Register signal handlers for graceful shutdown
-  registerSignalHandlers({
-    getContainersStarted: () => containersStarted,
-    keepContainers: config.keepContainers,
-    fastKillAgentContainer: () => (
-      externalRuntimeBackend
-        ? externalRuntimeBackend.stop()
-        : fastKillAgentContainer()
-    ),
-    performCleanup: (signal) => performCleanup(signal),
-  });
-
   try {
+    // Apply --docker-host override for AWF's own container operations.
+    // This must be called before startContainers/stopContainers/runAgentCommand.
+    setAwfDockerHost(config.awfDockerHost);
+
+    // Auto-detect split filesystem in DinD environments when no explicit prefix is set.
+    // This probe runs a lightweight container to check if the daemon can see runner paths.
+    if (!config.dockerHostPathPrefix) {
+      const probeResult = await probeSplitFilesystem(config.workDir);
+      if (probeResult.prefix) {
+        config.dockerHostPathPrefix = probeResult.prefix;
+        logger.info(`Auto-applied --docker-host-path-prefix ${probeResult.prefix} (DinD split filesystem detected)`);
+      } else if (probeResult.splitDetected) {
+        logger.warn(
+          '⚠️  Split runner/daemon filesystem detected but no known prefix worked. ' +
+          'Set --docker-host-path-prefix manually if bind mounts fail.',
+        );
+      }
+
+      await runDindBootstrap(config);
+    }
+
+    // Log config with redacted secrets - remove API keys entirely
+    // to prevent sensitive data from flowing to logger (CodeQL sensitive data logging)
+    const redactedConfig = redactConfigForLogging(config);
+    logger.debug('Configuration:', JSON.stringify(redactedConfig, null, 2));
+
+    logger.info(`Allowed domains: ${config.allowedDomains.join(', ')}`);
+    if (config.blockedDomains && config.blockedDomains.length > 0) {
+      logger.info(`Blocked domains: ${config.blockedDomains.join(', ')}`);
+    }
+    logger.debug(`DNS servers: ${(config.dnsServers ?? []).join(', ')}`);
+
+    externalRuntimeBackend = resolveExternalRuntimeBackend(config, startContainers);
+    performCleanup = buildCleanupFn(
+      config,
+      () => containersStarted,
+      () => hostIptablesSetup,
+      externalRuntimeBackend,
+    );
+
+    // Register signal handlers for graceful shutdown
+    registerSignalHandlers({
+      getContainersStarted: () => containersStarted,
+      keepContainers: config.keepContainers,
+      fastKillAgentContainer: () => (
+        externalRuntimeBackend
+          ? externalRuntimeBackend.stop()
+          : fastKillAgentContainer()
+      ),
+      performCleanup: (signal) => performCleanup(signal),
+    });
+
     if (externalRuntimeBackend) {
       try {
         await externalRuntimeBackend.preflight();

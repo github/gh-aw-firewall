@@ -146,15 +146,15 @@ describe('config-writer: validateAndPrepareWorkDir — non-directory workDir (li
     );
   });
 
-  it('rejects a reused group-writable directory', () => {
+  it('rejects a reused directory accessible by group or other users', () => {
     fsMock.statSync.mockReturnValueOnce({
       isDirectory: () => true,
       uid: currentUid,
-      mode: 0o40720,
+      mode: 0o40740,
     } as fs.Stats);
 
     expect(() => validateAndPrepareWorkDir(makeConfig())).toThrow(
-      /group- or world-writable/
+      /accessible by group or other users/
     );
   });
 

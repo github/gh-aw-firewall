@@ -304,9 +304,9 @@ function validateAndPrepareWorkDir(config: WrapperConfig): void {
         `(owner uid=${workDirStat.uid}, trusted uid(s)=${[...trustedOwners].join(',')})`
       );
     }
-    if ((workDirStat.mode & 0o022) !== 0) {
+    if ((workDirStat.mode & 0o077) !== 0) {
       throw new Error(
-        `Refusing to use group- or world-writable work directory: ${config.workDir} ` +
+        `Refusing to use work directory accessible by group or other users: ${config.workDir} ` +
         `(mode=${(workDirStat.mode & 0o777).toString(8)})`
       );
     }
