@@ -17,7 +17,6 @@ timeout-minutes: 20
 sandbox:
   agent:
     id: awf
-    runtime: cloud-hypervisor
 network:
   allowed:
     - defaults
