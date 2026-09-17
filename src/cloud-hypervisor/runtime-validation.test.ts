@@ -107,9 +107,11 @@ describe('Cloud Hypervisor runtime validation', () => {
       }]),
     });
 
+    expect(isPrimaryCloudHypervisorRuntime(chAgentWithDockerScript)).toBe(false);
     expect(usesCloudHypervisorEnclaveRuntime(chAgentWithDockerScript)).toBe(true);
     expect(requiresCloudHypervisorInfrastructure(chAgentWithDockerScript)).toBe(true);
     expect(() => assertCloudHypervisorSelection(chAgentWithDockerScript)).not.toThrow();
+    expect(() => assertCloudHypervisorPreSecurityCompatibility(chAgentWithDockerScript)).not.toThrow();
     expect(() => assertCloudHypervisorRuntimeCompatibility(chAgentWithDockerScript))
       .toThrow(/API proxy credential isolation/);
     expect(() => assertCloudHypervisorRuntimeCompatibility({
