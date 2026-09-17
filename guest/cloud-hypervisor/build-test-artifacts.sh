@@ -46,7 +46,7 @@ if [ "$(uname -s)" != Linux ] || [ "$(uname -m)" != x86_64 ]; then
   exit 1
 fi
 
-for tool in curl sha256sum tar make gcc ld mke2fs e2fsck go node docker sudo getcap setcap; do
+for tool in curl sha256sum tar make gcc ld mke2fs e2fsck go node docker sudo getcap setcap jq; do
   command -v "$tool" >/dev/null || {
     echo "required build tool not found: $tool" >&2
     exit 1

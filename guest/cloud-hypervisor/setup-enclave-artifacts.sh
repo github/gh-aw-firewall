@@ -51,6 +51,24 @@ assert_trusted_file() {
   }
 }
 
+assert_closed_keys() {
+  local file=$1
+  local selector=$2
+  local allowed=$3
+  local label=$4
+  local extra
+  extra=$(jq -r --arg allowed "$allowed" \
+    "(${selector:-.} // {}) | keys - (\$allowed | split(\",\"))  | join(\",\")" \
+    "$file") || {
+    echo "$label has an invalid schema" >&2
+    return 1
+  }
+  [ -z "$extra" ] || {
+    echo "$label has unexpected keys: $extra" >&2
+    return 1
+  }
+}
+
 verify_attestation() {
   local subject=$1
   local bundle=$2
@@ -66,9 +84,22 @@ verify_cache() {
   local manifest="$directory/$manifest_name"
   local manifest_bundle="$directory/$manifest_bundle_name"
 
-  assert_trusted_file "$manifest" "enclave artifact manifest"
-  assert_trusted_file "$manifest_bundle" "enclave artifact manifest bundle"
-  verify_attestation "$manifest" "$manifest_bundle"
+  assert_trusted_file "$manifest" "enclave artifact manifest" || return 1
+  assert_trusted_file "$manifest_bundle" "enclave artifact manifest bundle" || return 1
+  verify_attestation "$manifest" "$manifest_bundle" || return 1
+
+  assert_closed_keys "$manifest" '' \
+    'schemaVersion,artifactType,architecture,release,compatibility,rootfs' \
+    "enclave artifact manifest" || return 1
+  assert_closed_keys "$manifest" '.release' \
+    'repository,workflow,tag' \
+    "enclave artifact manifest release" || return 1
+  assert_closed_keys "$manifest" '.compatibility' \
+    'cloudHypervisorVersion,kernelVersion,supervisorVersion' \
+    "enclave artifact manifest compatibility" || return 1
+  assert_closed_keys "$manifest" '.rootfs' \
+    'script,agent' \
+    "enclave artifact manifest rootfs" || return 1
 
   [ "$(jq -r '.schemaVersion' "$manifest")" = 1 ] \
     || { echo "unsupported enclave artifact manifest schema" >&2; return 1; }
@@ -99,10 +130,16 @@ verify_cache() {
     local sbom="$directory/$sbom_name"
     local selector=".rootfs.${role}"
 
-    assert_trusted_file "$rootfs" "$role enclave rootfs"
-    assert_trusted_file "$provenance" "$role enclave rootfs provenance"
-    assert_trusted_file "$sbom" "$role enclave rootfs SBOM"
-    verify_attestation "$rootfs" "$provenance"
+    assert_trusted_file "$rootfs" "$role enclave rootfs" || return 1
+    assert_trusted_file "$provenance" "$role enclave rootfs provenance" || return 1
+    assert_trusted_file "$sbom" "$role enclave rootfs SBOM" || return 1
+    verify_attestation "$rootfs" "$provenance" || return 1
+    assert_closed_keys "$manifest" "$selector" \
+      'role,file,version,uid,gid,entrypoint,sourceImage,sourceImageDigest,sha256,sizeBytes,sbom' \
+      "$role enclave rootfs manifest entry" || return 1
+    assert_closed_keys "$manifest" "${selector}.sbom" \
+      'file,sha256' \
+      "$role enclave rootfs SBOM manifest entry" || return 1
     [ "$(jq -r "${selector}.role" "$manifest")" = "$role" ] \
       || { echo "$role enclave rootfs role mismatch" >&2; return 1; }
     [ "$(jq -r "${selector}.file" "$manifest")" = "$rootfs_name" ] \
