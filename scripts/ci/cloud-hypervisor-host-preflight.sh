@@ -21,6 +21,13 @@ fail() {
   exit 1
 }
 
+require_regular_file() {
+  local file=$1
+  local label=$2
+  [ -f "$file" ] && [ ! -L "$file" ] \
+    || fail "$label is missing or is not a regular file: $file"
+}
+
 [ "$(uname -s)" = Linux ] || fail "Linux is required; macOS and Windows are unsupported."
 [ "$(uname -m)" = x86_64 ] || fail "This CI artifact set requires an x86_64 host."
 
@@ -48,7 +55,7 @@ done
 [ -r /sys/fs/cgroup/cgroup.controllers ] || [ -w /sys/fs/cgroup ] \
   || fail "A usable cgroup v1 or v2 hierarchy is required to bound the Cloud Hypervisor process."
 
-for tool in nft ip sysctl mke2fs debugfs e2fsck rsync mount umount setpriv docker sha256sum timeout curl; do
+for tool in nft ip sysctl mke2fs debugfs e2fsck rsync mount umount setpriv docker sha256sum stat jq timeout curl; do
   command -v "$tool" >/dev/null || fail "Required host tool is missing: $tool"
 done
 command -v sudo >/dev/null || fail "Passwordless sudo is required for the netns-join/privilege-drop launcher."
@@ -83,5 +90,41 @@ virtiofsd_uid=$(stat -c '%u' "$ARTIFACT_DIR/virtiofsd")
   cd "$ARTIFACT_DIR"
   sha256sum --check --strict SHA256SUMS
 ) || fail "Artifact digest verification failed."
+
+require_regular_file "$ARTIFACT_DIR/enclave-manifest.json" \
+  "Cloud Hypervisor enclave artifact manifest"
+require_regular_file "$ARTIFACT_DIR/enclave-rootfs.SHA256SUMS" \
+  "Cloud Hypervisor enclave checksum set"
+(
+  cd "$ARTIFACT_DIR"
+  sha256sum --check --strict enclave-rootfs.SHA256SUMS
+) || fail "Enclave rootfs digest verification failed."
+
+test "$(jq -r '.artifactType' "$ARTIFACT_DIR/enclave-manifest.json")" = \
+  awf-cloud-hypervisor-enclave-rootfs-set \
+  || fail "Cloud Hypervisor enclave artifact manifest type is invalid."
+test "$(jq -r '.architecture' "$ARTIFACT_DIR/enclave-manifest.json")" = x86_64 \
+  || fail "Cloud Hypervisor enclave artifact architecture is invalid."
+test "$(jq -r '.compatibility.cloudHypervisorVersion' "$ARTIFACT_DIR/enclave-manifest.json")" = 53.0 \
+  || fail "Cloud Hypervisor enclave rootfs compatibility version is invalid."
+
+for role in script agent; do
+  rootfs_name="enclave-${role}-rootfs.ext4"
+  rootfs="$ARTIFACT_DIR/$rootfs_name"
+  require_regular_file "$rootfs" "Cloud Hypervisor $role enclave rootfs"
+  test "$(jq -r ".rootfs.${role}.role" "$ARTIFACT_DIR/enclave-manifest.json")" = "$role" \
+    || fail "Cloud Hypervisor $role enclave rootfs role metadata is invalid."
+  test "$(jq -r ".rootfs.${role}.file" "$ARTIFACT_DIR/enclave-manifest.json")" = "$rootfs_name" \
+    || fail "Cloud Hypervisor $role enclave rootfs filename metadata is invalid."
+  test "$(jq -r ".rootfs.${role}.sha256" "$ARTIFACT_DIR/enclave-manifest.json")" = \
+    "$(sha256sum "$rootfs" | awk '{print $1}')" \
+    || fail "Cloud Hypervisor $role enclave rootfs manifest digest mismatch."
+  test "$(jq -r ".rootfs.${role}.sizeBytes" "$ARTIFACT_DIR/enclave-manifest.json")" = \
+    "$(stat -c '%s' "$rootfs")" \
+    || fail "Cloud Hypervisor $role enclave rootfs manifest size mismatch."
+  test "$(jq -r ".rootfs.${role}.uid" "$ARTIFACT_DIR/enclave-manifest.json")" = 65534 \
+    && test "$(jq -r ".rootfs.${role}.gid" "$ARTIFACT_DIR/enclave-manifest.json")" = 65534 \
+    || fail "Cloud Hypervisor $role enclave rootfs uid/gid metadata is invalid."
+done
 
 echo "Cloud Hypervisor host preflight passed on GitHub-hosted Ubuntu x86_64 with accessible KVM."

@@ -32,6 +32,8 @@ LINUX_SHA256=bc3c45faf6f5f0450666c75fa9dad9bc7c0cf7c7cba0dbd94e5cfdc58229c116
 KERNEL_CONFIG_SHA256=adbc70ab5e89213ba00594b12d25e09bdf8bb1ed3c252d7449326bb14c22963b
 SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH:-1767225600}
 BUILD_TOOLS_IMAGE=${BUILD_TOOLS_IMAGE:-ghcr.io/github/gh-aw-firewall/build-tools:latest}
+ENCLAVE_SCRIPT_IMAGE=${ENCLAVE_SCRIPT_IMAGE:-awf-cloud-hypervisor-enclave-script:build}
+ENCLAVE_AGENT_IMAGE=${ENCLAVE_AGENT_IMAGE:-awf-cloud-hypervisor-enclave-agent:build}
 RELEASE_TAG=${VERSION:-v0.0.0-development}
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
@@ -44,7 +46,7 @@ if [ "$(uname -s)" != Linux ] || [ "$(uname -m)" != x86_64 ]; then
   exit 1
 fi
 
-for tool in curl sha256sum tar make gcc ld mke2fs e2fsck go docker sudo; do
+for tool in curl sha256sum tar make gcc ld mke2fs e2fsck go node docker sudo getcap setcap; do
   command -v "$tool" >/dev/null || {
     echo "required build tool not found: $tool" >&2
     exit 1
@@ -146,6 +148,228 @@ VERSION="${VERSION:-v${CLOUD_HYPERVISOR_VERSION}}" \
   OUTPUT="$supervisor" \
   "$ROOT/guest/microvm-supervisor/build.sh"
 
+resolve_enclave_image() {
+  local requested_image=$1
+  local target=$2
+  local resolved_image=$requested_image
+  if [[ "$requested_image" == *@sha256:* ]]; then
+    local manifest
+    local child_digest
+    manifest=$(docker manifest inspect --verbose "$requested_image")
+    child_digest=$(jq -r '
+      if type == "array" then
+        [.[] | select(
+          .Descriptor.platform.os == "linux"
+          and .Descriptor.platform.architecture == "amd64"
+        ) | .Descriptor.digest] | if length == 1 then .[0] else empty end
+      elif .Descriptor.platform.os == "linux"
+        and .Descriptor.platform.architecture == "amd64" then
+        .Descriptor.digest
+      else
+        empty
+      end
+    ' <<<"$manifest")
+    [[ "$child_digest" =~ ^sha256:[a-f0-9]{64}$ ]] || {
+      echo "could not resolve one linux/amd64 child manifest for $requested_image" >&2
+      return 1
+    }
+    resolved_image="${requested_image%@sha256:*}@${child_digest}"
+    if ! docker image inspect "$resolved_image" >/dev/null 2>&1; then
+      docker pull "$resolved_image" >&2
+    fi
+  else
+    if ! docker image inspect "$resolved_image" >/dev/null 2>&1; then
+      docker build \
+        --platform linux/amd64 \
+        --file "$ROOT/containers/enclave/Dockerfile" \
+        --target "$target" \
+        --tag "$resolved_image" \
+        "$ROOT/containers" >&2
+    fi
+  fi
+  printf '%s\n' "$resolved_image"
+}
+
+enclave_script_runtime_image=$(
+  resolve_enclave_image "$ENCLAVE_SCRIPT_IMAGE" enclave-script
+)
+enclave_agent_runtime_image=$(
+  resolve_enclave_image "$ENCLAVE_AGENT_IMAGE" enclave-agent
+)
+
+build_enclave_rootfs() {
+  local role=$1
+  local image=$2
+  local entrypoint=$3
+  local uuid=$4
+  local tree="$BUILD/enclave-${role}-rootfs"
+  local rootfs="$OUTPUT/enclave-${role}-rootfs.ext4"
+  local container
+
+  container=$(docker create --platform linux/amd64 "$image")
+  sudo mkdir -p "$tree"
+  if ! docker export "$container" \
+    | sudo tar \
+        --extract \
+        --directory "$tree" \
+        --numeric-owner \
+        --preserve-permissions \
+        --same-owner; then
+    docker rm -f "$container" >/dev/null 2>&1 || true
+    return 1
+  fi
+  docker rm -f "$container" >/dev/null
+
+  sudo rm -f "$tree/.dockerenv"
+  sudo find "$tree/dev" "$tree/proc" "$tree/sys" \
+    -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+  sudo mkdir -p \
+    "$tree/dev" \
+    "$tree/proc" \
+    "$tree/sys" \
+    "$tree/run" \
+    "$tree/tmp" \
+    "$tree/awf/seed" \
+    "$tree/awf/out" \
+    "$tree/etc/awf"
+  test -z "$(sudo find "$tree/dev" "$tree/proc" "$tree/sys" -mindepth 1 -print -quit)"
+  sudo install -m 0755 "$supervisor" "$tree/usr/sbin/awf-supervisor"
+
+  # Package-management and image-build tooling is never part of an enclave
+  # invocation. The role runtime is fixed and cannot install more software.
+  sudo rm -f \
+    "$tree/sbin/apk" \
+    "$tree/usr/bin/apt" \
+    "$tree/usr/bin/apt-cache" \
+    "$tree/usr/bin/apt-get" \
+    "$tree/usr/bin/dpkg" \
+    "$tree/usr/bin/dpkg-deb" \
+    "$tree/usr/bin/dpkg-query" \
+    "$tree/usr/local/bin/pip" \
+    "$tree/usr/local/bin/pip3" \
+    "$tree/etc/shadow" \
+    "$tree/etc/gshadow"
+  sudo find "$tree/usr/bin" -maxdepth 1 \
+    \( -name 'apt*' -o -name 'dpkg*' \) -delete
+  sudo find "$tree/usr/local/bin" -maxdepth 1 \
+    \( -name 'pip*' -o -name 'idle*' -o -name 'pydoc*' \) -delete
+  sudo rm -rf \
+    "$tree/root/.cache" \
+    "$tree/root/.config" \
+    "$tree/root/.npm" \
+    "$tree/tmp/"*
+
+  if [ "$role" = script ]; then
+    # The Python script entrypoint uses no shell or external command. Removing
+    # BusyBox and its applet links prevents the script role from gaining an
+    # ambient shell/toolbox that the audited container contract never needs.
+    sudo rm -rf "$tree/bin"
+    sudo mkdir -p "$tree/bin" "$tree/query"
+  else
+    sudo mkdir -p "$tree/agent" "$tree/run/awf-enclave-github"
+  fi
+
+  test -x "$tree$entrypoint"
+  test -x "$tree/usr/sbin/awf-supervisor"
+  test -z "$(sudo find "$tree/awf/seed" -mindepth 1 -print -quit)"
+
+  # Rootfs contents are immutable at runtime. Invocation-private tmpfs and
+  # virtio-fs mounts provide the only writable locations.
+  sudo find "$tree" -xdev \( -type f -o -type d \) -print0 \
+    | sudo xargs -0 chmod go-w
+  sudo chmod 01777 "$tree/tmp"
+  sudo chown -R 0:0 "$tree"
+  sudo mkdir -p "$tree/home/awf-enclave"
+  sudo chown 65534:65534 "$tree/home/awf-enclave"
+  sudo chmod 0700 "$tree/home/awf-enclave"
+
+  while IFS= read -r capability_file; do
+    sudo setcap -r "$capability_file"
+  done < <(sudo getcap -r "$tree" 2>/dev/null | sed 's/ [^ ]*=.*$//')
+  sudo find "$tree" -xdev -type f -perm /6000 -exec chmod a-s -- {} +
+  test -z "$(sudo find "$tree" -xdev -type f -perm /6000 -print -quit)"
+  test -z "$(sudo getcap -r "$tree" 2>/dev/null)"
+  test -z "$(sudo find "$tree" -xdev \
+    \( -name '.git-credentials' -o -name '.netrc' -o -name 'credentials' \
+       -o -name 'id_rsa' -o -name 'id_ed25519' \) -print -quit)"
+
+  sudo tee "$tree/etc/awf/enclave-role.json" >/dev/null <<EOF
+{"schemaVersion":1,"role":"${role}","uid":65534,"gid":65534,"entrypoint":"${entrypoint}","network":"$([ "$role" = script ] && printf none || printf api-proxy-only)"}
+EOF
+  sudo chmod 0444 "$tree/etc/awf/enclave-role.json"
+  sudo tee "$tree/etc/resolv.conf" >/dev/null <<'EOF'
+# Direct DNS is intentionally unavailable in Cloud Hypervisor enclave guests.
+EOF
+
+  sudo find "$tree" -print0 \
+    | sudo xargs -0 touch --no-dereference --date="@${SOURCE_DATE_EPOCH}"
+  local usage_bytes
+  local rootfs_bytes
+  local rootfs_blocks
+  usage_bytes=$(sudo du --summarize --block-size=1 "$tree" | awk '{print $1}')
+  rootfs_bytes=$((usage_bytes + usage_bytes / 4 + 64 * 1024 * 1024))
+  rootfs_blocks=$(((rootfs_bytes + 4095) / 4096))
+  sudo env E2FSPROGS_FAKE_TIME="$SOURCE_DATE_EPOCH" mke2fs \
+    -t ext4 \
+    -F \
+    -q \
+    -b 4096 \
+    -d "$tree" \
+    -U "$uuid" \
+    -E lazy_itable_init=0,lazy_journal_init=0 \
+    "$rootfs" \
+    "$rootfs_blocks"
+  sudo env E2FSPROGS_FAKE_TIME="$SOURCE_DATE_EPOCH" e2fsck -f -y "$rootfs" >/dev/null
+  sudo chown "$(id -u):$(id -g)" "$rootfs"
+  chmod 0600 "$rootfs"
+}
+
+build_enclave_rootfs \
+  script \
+  "$enclave_script_runtime_image" \
+  /usr/local/bin/run-enclave-script \
+  1862c171-7198-4f19-a07d-8eeb61d1ed01
+build_enclave_rootfs \
+  agent \
+  "$enclave_agent_runtime_image" \
+  /usr/local/bin/run-enclave-agent \
+  83eed7d8-899f-44e3-a77c-281dcc8d3e02
+
+if [[ "$enclave_script_runtime_image" == *@sha256:* ]]; then
+  script_image_digest=${enclave_script_runtime_image##*@sha256:}
+else
+  script_image_digest=$(docker image inspect --format '{{.Id}}' "$enclave_script_runtime_image")
+  script_image_digest=${script_image_digest#sha256:}
+fi
+if [[ "$enclave_agent_runtime_image" == *@sha256:* ]]; then
+  agent_image_digest=${enclave_agent_runtime_image##*@sha256:}
+else
+  agent_image_digest=$(docker image inspect --format '{{.Id}}' "$enclave_agent_runtime_image")
+  agent_image_digest=${agent_image_digest#sha256:}
+fi
+
+node "$ROOT/guest/cloud-hypervisor/generate-enclave-rootfs-sbom.mjs" \
+  --role script \
+  --rootfs-tree "$BUILD/enclave-script-rootfs" \
+  --rootfs "$OUTPUT/enclave-script-rootfs.ext4" \
+  --output "$OUTPUT/enclave-script-rootfs.sbom.spdx.json" \
+  --release-tag "$RELEASE_TAG" \
+  --source-image "$ENCLAVE_SCRIPT_IMAGE" \
+  --source-image-digest "$script_image_digest" \
+  --source-date-epoch "$SOURCE_DATE_EPOCH"
+node "$ROOT/guest/cloud-hypervisor/generate-enclave-rootfs-sbom.mjs" \
+  --role agent \
+  --rootfs-tree "$BUILD/enclave-agent-rootfs" \
+  --rootfs "$OUTPUT/enclave-agent-rootfs.ext4" \
+  --output "$OUTPUT/enclave-agent-rootfs.sbom.spdx.json" \
+  --release-tag "$RELEASE_TAG" \
+  --source-image "$ENCLAVE_AGENT_IMAGE" \
+  --source-image-digest "$agent_image_digest" \
+  --source-date-epoch "$SOURCE_DATE_EPOCH"
+install -m 0755 \
+  "$ROOT/guest/cloud-hypervisor/setup-enclave-artifacts.sh" \
+  "$OUTPUT/setup-cloud-hypervisor-enclave-artifacts.sh"
+
 rootfs_tree="$BUILD/rootfs"
 if ! docker image inspect "$BUILD_TOOLS_IMAGE" >/dev/null 2>&1; then
   docker pull --platform linux/amd64 "$BUILD_TOOLS_IMAGE"
@@ -223,6 +447,12 @@ chmod 0600 "$rootfs"
     rootfs.ext4 \
     awf-supervisor \
     > SHA256SUMS
+  sha256sum \
+    enclave-script-rootfs.ext4 \
+    enclave-agent-rootfs.ext4 \
+    enclave-script-rootfs.sbom.spdx.json \
+    enclave-agent-rootfs.sbom.spdx.json \
+    > enclave-rootfs.SHA256SUMS
 )
 
 cat >"$OUTPUT/manifest.json" <<EOF
@@ -290,6 +520,59 @@ cat >"$OUTPUT/manifest.json" <<EOF
     "imageId": "${build_tools_image_id}",
     "dockerfileSha256": "${build_tools_dockerfile_sha256}",
     "distribution": "ubuntu:22.04"
+  }
+}
+EOF
+
+cat >"$OUTPUT/enclave-manifest.json" <<EOF
+{
+  "schemaVersion": 1,
+  "artifactType": "awf-cloud-hypervisor-enclave-rootfs-set",
+  "architecture": "x86_64",
+  "release": {
+    "repository": "github/gh-aw-firewall",
+    "workflow": "github/gh-aw-firewall/.github/workflows/release.yml",
+    "tag": "${RELEASE_TAG}",
+    "sourceCommit": "$(git -C "$ROOT" rev-parse HEAD)"
+  },
+  "compatibility": {
+    "cloudHypervisorVersion": "${CLOUD_HYPERVISOR_VERSION}",
+    "kernelVersion": "${LINUX_VERSION}",
+    "supervisorVersion": "${RELEASE_TAG}"
+  },
+  "rootfs": {
+    "script": {
+      "file": "enclave-script-rootfs.ext4",
+      "role": "script",
+      "version": "${RELEASE_TAG}",
+      "sha256": "$(sha256sum "$OUTPUT/enclave-script-rootfs.ext4" | awk '{print $1}')",
+      "sizeBytes": $(stat -c '%s' "$OUTPUT/enclave-script-rootfs.ext4"),
+      "uid": 65534,
+      "gid": 65534,
+      "entrypoint": "/usr/local/bin/run-enclave-script",
+      "sourceImage": "${ENCLAVE_SCRIPT_IMAGE}",
+      "sourceImageDigest": "${script_image_digest}",
+      "sbom": {
+        "file": "enclave-script-rootfs.sbom.spdx.json",
+        "sha256": "$(sha256sum "$OUTPUT/enclave-script-rootfs.sbom.spdx.json" | awk '{print $1}')"
+      }
+    },
+    "agent": {
+      "file": "enclave-agent-rootfs.ext4",
+      "role": "agent",
+      "version": "${RELEASE_TAG}",
+      "sha256": "$(sha256sum "$OUTPUT/enclave-agent-rootfs.ext4" | awk '{print $1}')",
+      "sizeBytes": $(stat -c '%s' "$OUTPUT/enclave-agent-rootfs.ext4"),
+      "uid": 65534,
+      "gid": 65534,
+      "entrypoint": "/usr/local/bin/run-enclave-agent",
+      "sourceImage": "${ENCLAVE_AGENT_IMAGE}",
+      "sourceImageDigest": "${agent_image_digest}",
+      "sbom": {
+        "file": "enclave-agent-rootfs.sbom.spdx.json",
+        "sha256": "$(sha256sum "$OUTPUT/enclave-agent-rootfs.sbom.spdx.json" | awk '{print $1}')"
+      }
+    }
   }
 }
 EOF
@@ -375,3 +658,20 @@ tar \
   SHA256SUMS \
   manifest.json \
   sbom.spdx.json
+
+tar \
+  --sort=name \
+  --mtime="@${SOURCE_DATE_EPOCH}" \
+  --owner=0 \
+  --group=0 \
+  --numeric-owner \
+  --create \
+  --gzip \
+  --file "$OUTPUT/awf-cloud-hypervisor-enclave-rootfs-x86_64.tar.gz" \
+  --directory "$OUTPUT" \
+  enclave-script-rootfs.ext4 \
+  enclave-agent-rootfs.ext4 \
+  enclave-script-rootfs.sbom.spdx.json \
+  enclave-agent-rootfs.sbom.spdx.json \
+  enclave-rootfs.SHA256SUMS \
+  enclave-manifest.json

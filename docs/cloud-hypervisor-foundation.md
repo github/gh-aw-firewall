@@ -163,6 +163,27 @@ refresh Sigstore trust-root material unless that material is already cached or
 provisioned on the runner. Missing, mutable, incorrectly owned, renamed, or
 digest-mismatched artifacts fail closed.
 
+The separately gated enclave executor uses a distinct, release-attested artifact
+set. `enclave-script-rootfs.ext4` and `enclave-agent-rootfs.ext4` are derived
+from the audited `enclave-script` and `enclave-agent` container stages,
+respectively, and do not replace `rootfs.ext4` for the primary agent. Their
+closed enclave manifest binds each role, canonical filename, logical size,
+digest, fixed uid/gid, entrypoint, source-image digest, SBOM, architecture, and
+Cloud Hypervisor/kernel/supervisor compatibility. Each rootfs and the manifest
+have separate offline provenance bundles.
+
+`setup-cloud-hypervisor-enclave-artifacts.sh` downloads that set for an exact
+release tag, verifies the release-workflow identity with
+`gh attestation verify --deny-self-hosted-runners`, verifies manifest metadata,
+size, digest, and SBOM bindings, and then atomically installs the cache entry.
+An existing cache entry is fully reverified before reuse; an invalid entry is a
+terminal error and is never silently replaced. The script exports the
+role-specific `AWF_CLOUD_HYPERVISOR_ENCLAVE_SCRIPT_ROOTFS` and
+`AWF_CLOUD_HYPERVISOR_ENCLAVE_AGENT_ROOTFS` paths through `GITHUB_ENV`.
+Cloud Hypervisor enclave execution remains fail-closed until the other ADR 0002
+host-executor gates are implemented, and custom enclave image overrides remain
+unsupported.
+
 :::danger[Fail-closed verification]
 Do not bypass artifact verification. A substituted VMM, kernel, rootfs,
 supervisor, or filesystem daemon runs inside a trusted part of the boundary.
@@ -651,10 +672,12 @@ live-KVM jobs.
 
 The build job:
 
-1. builds the pinned Cloud Hypervisor binary, Linux kernel, BusyBox rootfs,
-   shared guest supervisor, and `virtiofsd`;
+1. builds the pinned Cloud Hypervisor binary, Linux kernel, primary-agent
+   rootfs, shared guest supervisor, `virtiofsd`, and distinct hardened script
+   and agent enclave rootfs images;
 2. verifies source and output digests;
-3. attests provenance; and
+3. generates role-specific enclave SBOMs and attests the primary archive, each
+   enclave rootfs, and both manifests; and
 4. uploads the `cloud-hypervisor-test-x86_64` workflow artifact.
 
 The live job runs only when explicitly enabled by workflow dispatch or the

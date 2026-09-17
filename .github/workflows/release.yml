@@ -830,6 +830,27 @@ jobs:
             release/cloud-hypervisor-test-x86_64.manifest.sigstore.jsonl
           cp cloud-hypervisor-release-assets/sbom.spdx.json \
             release/cloud-hypervisor-test-x86_64.sbom.spdx.json
+          cp cloud-hypervisor-release-assets/awf-cloud-hypervisor-enclave-rootfs-x86_64.tar.gz \
+            release/cloud-hypervisor-enclave-rootfs-x86_64.tar.gz
+          cp cloud-hypervisor-release-assets/enclave-script-rootfs.ext4 \
+            release/enclave-script-rootfs.ext4
+          cp cloud-hypervisor-release-assets/enclave-agent-rootfs.ext4 \
+            release/enclave-agent-rootfs.ext4
+          cp cloud-hypervisor-release-assets/enclave-script-rootfs.sbom.spdx.json \
+            release/enclave-script-rootfs.sbom.spdx.json
+          cp cloud-hypervisor-release-assets/enclave-agent-rootfs.sbom.spdx.json \
+            release/enclave-agent-rootfs.sbom.spdx.json
+          cp cloud-hypervisor-release-assets/enclave-script-rootfs.provenance.sigstore.jsonl \
+            release/enclave-script-rootfs.provenance.sigstore.jsonl
+          cp cloud-hypervisor-release-assets/enclave-agent-rootfs.provenance.sigstore.jsonl \
+            release/enclave-agent-rootfs.provenance.sigstore.jsonl
+          cp cloud-hypervisor-release-assets/enclave-manifest.json \
+            release/cloud-hypervisor-enclave-rootfs-x86_64.manifest.json
+          cp cloud-hypervisor-release-assets/enclave-manifest.sigstore.jsonl \
+            release/cloud-hypervisor-enclave-rootfs-x86_64.manifest.sigstore.jsonl
+          cp cloud-hypervisor-release-assets/setup-cloud-hypervisor-enclave-artifacts.sh \
+            release/setup-cloud-hypervisor-enclave-artifacts.sh
+          chmod 0755 release/setup-cloud-hypervisor-enclave-artifacts.sh
 
       - name: Generate containers list
         run: |
@@ -991,6 +1012,16 @@ jobs:
             release/cloud-hypervisor-test-x86_64.manifest.json
             release/cloud-hypervisor-test-x86_64.manifest.sigstore.jsonl
             release/cloud-hypervisor-test-x86_64.sbom.spdx.json
+            release/cloud-hypervisor-enclave-rootfs-x86_64.tar.gz
+            release/cloud-hypervisor-enclave-rootfs-x86_64.manifest.json
+            release/cloud-hypervisor-enclave-rootfs-x86_64.manifest.sigstore.jsonl
+            release/enclave-script-rootfs.ext4
+            release/enclave-agent-rootfs.ext4
+            release/enclave-script-rootfs.sbom.spdx.json
+            release/enclave-agent-rootfs.sbom.spdx.json
+            release/enclave-script-rootfs.provenance.sigstore.jsonl
+            release/enclave-agent-rootfs.provenance.sigstore.jsonl
+            release/setup-cloud-hypervisor-enclave-artifacts.sh
             release/containers.txt
             release/awf-config.schema.json
             release/awf-config.v1.schema.json
@@ -1011,8 +1042,8 @@ jobs:
   build-cloud-hypervisor-test-artifacts:
     name: Build Cloud Hypervisor Preview Test Artifacts
     runs-on: ubuntu-24.04
-    needs: [bump-version, build-build-tools]
-    timeout-minutes: 45
+    needs: [bump-version, build-build-tools, build-enclaves]
+    timeout-minutes: 60
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
@@ -1030,11 +1061,20 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends \
             bc binutils bison build-essential ca-certificates cpio e2fsprogs \
-            file flex libelf-dev libssl-dev rsync virtiofsd xz-utils
+            file flex libcap2-bin libelf-dev libssl-dev rsync virtiofsd xz-utils
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and verify pinned test artifacts
         run: |
           BUILD_TOOLS_IMAGE="ghcr.io/${{ github.repository }}/build-tools@${{ needs.build-build-tools.outputs.digest }}" \
+            ENCLAVE_SCRIPT_IMAGE="ghcr.io/${{ github.repository }}/enclave-script@${{ needs.build-enclaves.outputs.enclave_script_digest }}" \
+            ENCLAVE_AGENT_IMAGE="ghcr.io/${{ github.repository }}/enclave-agent@${{ needs.build-enclaves.outputs.enclave_agent_digest }}" \
             VERSION="${{ needs.bump-version.outputs.version }}" \
             ./guest/cloud-hypervisor/build-test-artifacts.sh
           ./guest/cloud-hypervisor/verify-test-artifacts.sh \
@@ -1044,6 +1084,23 @@ jobs:
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: release/cloud-hypervisor-test-x86_64/awf-cloud-hypervisor-test-x86_64.tar.gz
+
+      - name: Attest enclave rootfs bundle provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: release/cloud-hypervisor-test-x86_64/awf-cloud-hypervisor-enclave-rootfs-x86_64.tar.gz
+
+      - name: Attest script enclave rootfs provenance
+        id: attest_cloud_hypervisor_enclave_script_rootfs
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: release/cloud-hypervisor-test-x86_64/enclave-script-rootfs.ext4
+
+      - name: Attest agent enclave rootfs provenance
+        id: attest_cloud_hypervisor_enclave_agent_rootfs
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: release/cloud-hypervisor-test-x86_64/enclave-agent-rootfs.ext4
 
       - name: Attest release-pinned guest artifact manifest
         id: attest_cloud_hypervisor_manifest
@@ -1057,6 +1114,25 @@ jobs:
         run: |
           cp "$BUNDLE_PATH" \
             release/cloud-hypervisor-test-x86_64/manifest.sigstore.jsonl
+
+      - name: Attest release-pinned enclave artifact manifest
+        id: attest_cloud_hypervisor_enclave_manifest
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: release/cloud-hypervisor-test-x86_64/enclave-manifest.json
+
+      - name: Bundle enclave provenance for offline verification
+        env:
+          SCRIPT_ROOTFS_BUNDLE: ${{ steps.attest_cloud_hypervisor_enclave_script_rootfs.outputs.bundle-path }}
+          AGENT_ROOTFS_BUNDLE: ${{ steps.attest_cloud_hypervisor_enclave_agent_rootfs.outputs.bundle-path }}
+          MANIFEST_BUNDLE: ${{ steps.attest_cloud_hypervisor_enclave_manifest.outputs.bundle-path }}
+        run: |
+          cp "$SCRIPT_ROOTFS_BUNDLE" \
+            release/cloud-hypervisor-test-x86_64/enclave-script-rootfs.provenance.sigstore.jsonl
+          cp "$AGENT_ROOTFS_BUNDLE" \
+            release/cloud-hypervisor-test-x86_64/enclave-agent-rootfs.provenance.sigstore.jsonl
+          cp "$MANIFEST_BUNDLE" \
+            release/cloud-hypervisor-test-x86_64/enclave-manifest.sigstore.jsonl
 
       - name: Upload Cloud Hypervisor test artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

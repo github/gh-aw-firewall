@@ -177,6 +177,14 @@ assets, but are not production defaults and are never auto-downloaded. See
 [docs/cloud-hypervisor-foundation.md](./cloud-hypervisor-foundation.md#part-14--ci-workflow)
 for the complete CI workflow specification and troubleshooting reference.
 
+Releases also publish distinct `enclave-script-rootfs.ext4` and
+`enclave-agent-rootfs.ext4` artifacts with a separately attested enclave
+manifest, per-role provenance bundles, and per-role SBOMs. The release setup
+script verifies those bindings before exporting unambiguous cached role paths.
+These artifacts do not enable Cloud Hypervisor enclave execution by themselves:
+the runtime remains terminal until every ADR 0002 host-executor gate is present,
+and `enclaves[].image` remains invalid for `runtime: cloud-hypervisor`.
+
 Normal execution requires `artifactManifestPath`,
 `artifactManifestBundlePath`, and `artifactReleaseTag`. AWF verifies the
 Sigstore bundle offline with `gh attestation verify`, constraining the signer
