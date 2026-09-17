@@ -167,13 +167,18 @@ function createRunnerLifecycle(adapter, deps = {}) {
     },
 
     async runInvocation(request) {
-      const handle = await lifecycle.launchInvocation(request);
       const signal = request.signal;
+      if (signal && signal.aborted) {
+        return boundedResult(undefined, true);
+      }
+      const handle = await lifecycle.launchInvocation(request);
       let cancellation;
+      let cancelled = false;
       let result;
       let operationError;
       let cancellationError;
       const onAbort = () => {
+        cancelled = true;
         cancellation = lifecycle.cancelInvocation(handle);
       };
       if (signal) {
@@ -199,7 +204,7 @@ function createRunnerLifecycle(adapter, deps = {}) {
       }
       if (cancellationError) throw cancellationError;
       if (operationError) throw operationError;
-      return boundedResult(result, signal?.aborted === true);
+      return boundedResult(result, cancelled);
     },
   };
 

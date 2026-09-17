@@ -170,4 +170,37 @@ describe('runtime-neutral enclave runner lifecycle', () => {
     await expect(runner.launchInvocation(request)).rejects.toThrow(/deadline elapsed/);
     expect(runtime.launchInvocation).not.toHaveBeenCalled();
   });
+
+  it('never launches an enclave when the signal is already aborted', async () => {
+    const runtime = adapter();
+    const runner = createRunnerLifecycle(runtime, { nowMs: () => 1_000 });
+    const controller = new AbortController();
+    controller.abort();
+    await expect(runner.runInvocation({ ...request, signal: controller.signal })).resolves.toEqual({
+      status: 'cancelled',
+      exitCode: 124,
+      timedOut: false,
+    });
+    expect(runtime.launchInvocation).not.toHaveBeenCalled();
+    expect(runtime.cleanupInvocation).not.toHaveBeenCalled();
+  });
+
+  it('reports completed status when the signal aborts only after cleanup finishes', async () => {
+    const controller = new AbortController();
+    const runtime = adapter({
+      cleanupInvocation: jest.fn(async () => {
+        // Simulate a bounded Docker cleanup call that takes a moment, during
+        // which the caller's signal is aborted after the invocation already
+        // completed successfully.
+        controller.abort();
+      }),
+    });
+    const runner = createRunnerLifecycle(runtime, { nowMs: () => 1_000 });
+    await expect(runner.runInvocation({ ...request, signal: controller.signal })).resolves.toEqual({
+      status: 'completed',
+      exitCode: 0,
+      timedOut: false,
+    });
+    expect(runtime.cancelInvocation).not.toHaveBeenCalled();
+  });
 });

@@ -112,7 +112,6 @@ class DockerScriptRunner {
 
   cancelInvocation(handle) {
     handle.cancellation.abort();
-    return this.cleanupInvocation(handle);
   }
 }
 
