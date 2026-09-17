@@ -21,7 +21,7 @@ describe('auth doctor updater workflow config', () => {
     expect(source).toContain('allowed-files:');
     expect(source).toContain('docs/auth-matrix.md');
     expect(source).toContain('never run `git commit`, `git push`, or `gh pr create`');
-    expect(source).toContain('id: awf');
+    expect(source).toContain('sandbox:\n  agent:\n    id: awf\nnetwork:');
     expect(source).not.toContain('runtime: cloud-hypervisor');
     expect(source).not.toContain('create-issue:');
   });
