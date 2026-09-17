@@ -114,9 +114,12 @@ describe('Cloud Hypervisor enclave rootfs artifacts', () => {
     expect(verify).toContain('forbidden enclave rootfs path present');
     expect(verify).toContain('embedded repository seed found');
     expect(verify).toContain('NF < 7 || ($6 != "." && $6 != "..")');
+    expect(verify).toContain(
+      'printf \'%s\\n\' "$seed_listing" | debugfs_listing_has_non_dot_entries',
+    );
   });
 
-  it('accepts only dot entries in an empty debugfs device directory listing', () => {
+  it('accepts only dot entries in hardened debugfs directory listings', () => {
     const validator = 'NF > 0 && (NF < 7 || ($6 != "." && $6 != "..")) '
       + '{ print; found=1 } END { exit found ? 0 : 1 }';
     const emptyDirectory = [

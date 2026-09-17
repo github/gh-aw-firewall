@@ -96,6 +96,13 @@ test "$(jq -r '.release.workflow' "$ARTIFACT_DIR/enclave-manifest.json")" = \
 test "$(jq -r '.compatibility.cloudHypervisorVersion' "$ARTIFACT_DIR/enclave-manifest.json")" = 53.0
 test "$(jq -r '.compatibility.kernelVersion' "$ARTIFACT_DIR/enclave-manifest.json")" = 6.1.141
 
+debugfs_listing_has_non_dot_entries() {
+  # `ls -p` emits `/inode/mode/uid/gid/name/size/`. Malformed non-empty
+  # records also fail closed because their name field cannot be trusted.
+  awk -F/ \
+    'NF > 0 && (NF < 7 || ($6 != "." && $6 != "..")) { print; found=1 } END { exit found ? 0 : 1 }'
+}
+
 verify_enclave_rootfs() {
   local role=$1
   local entrypoint=$2
@@ -128,12 +135,7 @@ verify_enclave_rootfs() {
   debugfs -R "stat $entrypoint" "$image" 2>&1 | grep -F 'Type: regular'
   debugfs -R 'stat /usr/sbin/awf-supervisor' "$image" 2>&1 | grep -F 'Type: regular'
   device_listing=$(debugfs -R 'ls -p /dev' "$image" 2>/dev/null)
-  # debugfs `ls -p` emits `/inode/mode/uid/gid/name/size/`. Permit only the
-  # directory's mandatory `.` and `..` entries; any other name, regardless of
-  # inode type, means the immutable image embeds a device-directory entry.
-  if printf '%s\n' "$device_listing" \
-    | awk -F/ 'NF > 0 && (NF < 7 || ($6 != "." && $6 != "..")) { print; found=1 } END { exit found ? 0 : 1 }'
-  then
+  if printf '%s\n' "$device_listing" | debugfs_listing_has_non_dot_entries; then
     echo "unexpected embedded device found in $role enclave rootfs" >&2
     return 1
   fi
@@ -162,7 +164,7 @@ verify_enclave_rootfs() {
   done
 
   seed_listing=$(debugfs -R 'ls -p /awf/seed' "$image" 2>/dev/null)
-  if printf '%s\n' "$seed_listing" | grep -Ev '^$|^\s*/[0-9]+/[0-9]+/0/0/\.$|^\s*/[0-9]+/[0-9]+/0/0/\.\.$' | grep -q .; then
+  if printf '%s\n' "$seed_listing" | debugfs_listing_has_non_dot_entries; then
     echo "embedded repository seed found in $role enclave rootfs" >&2
     return 1
   fi
