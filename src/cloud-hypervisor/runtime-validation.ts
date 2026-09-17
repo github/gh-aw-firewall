@@ -14,10 +14,44 @@ import { assertGithubHostedRunnerEligibility } from './host-eligibility';
  * supported.
  */
 
+export function isPrimaryCloudHypervisorRuntime(
+  config: Pick<WrapperConfig, 'containerRuntime'>,
+): boolean {
+  return config.containerRuntime === 'cloud-hypervisor';
+}
+
+export function usesCloudHypervisorEnclaveRuntime(
+  config: Pick<WrapperConfig, 'enclaves'>,
+): boolean {
+  const executors = config.enclaves?.executors;
+  return Boolean(
+    (executors?.script.enabled && executors.script.runtime === 'cloud-hypervisor')
+    || (executors?.agent.enabled && executors.agent.runtime === 'cloud-hypervisor'),
+  );
+}
+
+export function requiresCloudHypervisorInfrastructure(
+  config: Pick<WrapperConfig, 'containerRuntime' | 'enclaves'>,
+): boolean {
+  return isPrimaryCloudHypervisorRuntime(config) || usesCloudHypervisorEnclaveRuntime(config);
+}
+
+function usesCloudHypervisorAgentRuntime(config: Pick<WrapperConfig, 'enclaves'>): boolean {
+  const agent = config.enclaves?.executors.agent;
+  return Boolean(agent?.enabled && agent.runtime === 'cloud-hypervisor');
+}
+
 export function assertCloudHypervisorSelection(config: WrapperConfig): void {
-  if (config.cloudHypervisor && config.containerRuntime !== 'cloud-hypervisor') {
+  const required = requiresCloudHypervisorInfrastructure(config);
+  if (config.cloudHypervisor && !required) {
     throw new Error(
-      'Cloud Hypervisor options require --container-runtime cloud-hypervisor',
+      'Cloud Hypervisor options require either --container-runtime cloud-hypervisor '
+      + 'or an enclaves[].runtime of "cloud-hypervisor"',
+    );
+  }
+  if (required && !config.cloudHypervisor) {
+    throw new Error(
+      'Cloud Hypervisor workload selection requires top-level cloudHypervisor runtime configuration',
     );
   }
 }
@@ -39,7 +73,10 @@ export function assertCloudHypervisorRuntimeCompatibility(
   if (!config.networkIsolation || config.legacySecurity) {
     throw new Error('Cloud Hypervisor preview requires strict --network-isolation security');
   }
-  if (!config.enableApiProxy) {
+  if (
+    (isPrimaryCloudHypervisorRuntime(config) || usesCloudHypervisorAgentRuntime(config))
+    && !config.enableApiProxy
+  ) {
     throw new Error('Cloud Hypervisor preview requires API proxy credential isolation');
   }
   assertCloudHypervisorPreSecurityCompatibility(config);
@@ -99,18 +136,23 @@ export function assertCloudHypervisorPreSecurityCompatibility(config: WrapperCon
   if (config.enableHostAccess || config.allowHostPorts || config.allowHostServicePorts) {
     throw new Error('Cloud Hypervisor preview does not support host access');
   }
-  if (config.volumeMounts?.length) {
+  const primaryCloudHypervisor = isPrimaryCloudHypervisorRuntime(config);
+  if (primaryCloudHypervisor && config.volumeMounts?.length) {
     throw new Error('Cloud Hypervisor preview does not support additional host volume mounts');
   }
-  if (config.difcProxyHost || config.enclaves?.enabled) {
+  if (config.difcProxyHost) {
+    throw new Error('Cloud Hypervisor preview does not yet support DIFC proxies');
+  }
+  if (primaryCloudHypervisor && config.enclaves?.enabled) {
     throw new Error(
-      'Cloud Hypervisor preview does not yet support DIFC proxies or enclaves',
+      'Cloud Hypervisor primary-agent execution with enclaves is reserved until the '
+      + 'runtime-neutral enclave lifecycle integration lands; no runtime fallback is permitted',
     );
   }
-  if (config.dnsOverHttps) {
+  if (primaryCloudHypervisor && config.dnsOverHttps) {
     throw new Error('Cloud Hypervisor preview does not support DNS-over-HTTPS');
   }
-  if (config.tty) {
+  if (primaryCloudHypervisor && config.tty) {
     throw new Error('Cloud Hypervisor preview guest supervisor does not support --tty');
   }
   const dockerHost = config.awfDockerHost ?? getLocalDockerEnv().DOCKER_HOST;
@@ -122,7 +164,7 @@ export function assertCloudHypervisorPreSecurityCompatibility(config: WrapperCon
 }
 
 export function requireCloudHypervisorConfig(config: WrapperConfig): CloudHypervisorOptions {
-  if (config.containerRuntime !== 'cloud-hypervisor' || !config.cloudHypervisor) {
+  if (!requiresCloudHypervisorInfrastructure(config) || !config.cloudHypervisor) {
     throw new Error('Cloud Hypervisor backend resolved without Cloud Hypervisor runtime configuration');
   }
   return config.cloudHypervisor;

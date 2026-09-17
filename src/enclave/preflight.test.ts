@@ -25,6 +25,42 @@ describe('validateEnclavesConfig', () => {
     expect(validateEnclavesConfig(config())).toEqual([]);
   });
 
+  it('accepts static cloud-hypervisor entries at the configuration layer', () => {
+    const enclaves = normalizeEnclavesConfig([
+      {
+        script: {},
+        runtime: 'cloud-hypervisor',
+        repos: [{ repo: 'octo/private', sensitivity: 'internal' }],
+      },
+    ]);
+    expect(validateEnclavesConfig(config({ enclaves }))).toEqual([]);
+  });
+
+  it('rejects cloud-hypervisor image overrides and dynamic agents without fallback', () => {
+    const enclaves = normalizeEnclavesConfig([
+      {
+        script: {},
+        runtime: 'cloud-hypervisor',
+        image: 'registry.example/script:latest',
+        repos: [{ repo: 'octo/private', sensitivity: 'internal' }],
+      },
+      {
+        agent: { model: 'gpt-5' },
+        runtime: 'cloud-hypervisor',
+        image: 'registry.example/agent:latest',
+        dynamic: dynamicEnclavePolicyFixture() as never,
+      },
+    ]);
+
+    const errors = validateEnclavesConfig(config({
+      enclaves,
+      enableApiProxy: true,
+      copilotGithubToken: 'token',
+    }), { requireDelegationHandoff: false }).join('\n');
+    expect(errors).toMatch(/image is not supported with runtime "cloud-hypervisor".*never falls back/);
+    expect(errors).toMatch(/dynamic is not supported with runtime "cloud-hypervisor".*no runtime fallback/);
+  });
+
   it('rejects repositories shared with conflicting sensitivities', () => {
     const enclaves = normalizeEnclavesConfig([
       { script: {}, repos: [{ repo: 'octo/private', sensitivity: 'internal' }] },

@@ -13,6 +13,9 @@ import {
   assertCloudHypervisorPreSecurityCompatibility,
   assertCloudHypervisorRuntimeCompatibility,
   assertCloudHypervisorSelection,
+  isPrimaryCloudHypervisorRuntime,
+  requiresCloudHypervisorInfrastructure,
+  usesCloudHypervisorEnclaveRuntime,
 } from '../../cloud-hypervisor/runtime-validation';
 import { assertFilesystemWritePolicyCompatibility } from '../../filesystem-policy';
 import {
@@ -93,7 +96,7 @@ export function assembleAndValidateConfig(
     logger.error(`❌ ${error instanceof Error ? error.message : String(error)}`);
     process.exit(1);
   }
-  if (config.containerRuntime === 'cloud-hypervisor') {
+  if (requiresCloudHypervisorInfrastructure(config)) {
     try {
       assertCloudHypervisorPreSecurityCompatibility(config);
     } catch (error) {
@@ -108,11 +111,15 @@ export function assembleAndValidateConfig(
     logger.error(`❌ ${error instanceof Error ? error.message : String(error)}`);
     process.exit(1);
   }
-  if (config.containerRuntime === 'cloud-hypervisor') {
+  if (requiresCloudHypervisorInfrastructure(config)) {
     try {
       assertCloudHypervisorRuntimeCompatibility(config);
     } catch (error) {
-      if (isCloudHypervisorUnsupportedHostError(error)) {
+      if (
+        isCloudHypervisorUnsupportedHostError(error)
+        && isPrimaryCloudHypervisorRuntime(config)
+        && !usesCloudHypervisorEnclaveRuntime(config)
+      ) {
         fallBackCloudHypervisorToDocker(config, error);
       } else {
         logger.error(`❌ ${error instanceof Error ? error.message : String(error)}`);

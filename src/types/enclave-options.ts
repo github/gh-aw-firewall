@@ -30,7 +30,7 @@ export interface EnclaveRepository {
   sensitivity: EnclaveSensitivity;
 }
 
-export type EnclaveRuntime = 'docker' | 'gvisor' | 'sbx';
+export type EnclaveRuntime = 'docker' | 'gvisor' | 'sbx' | 'cloud-hypervisor';
 export type EnclaveScriptInterpreter = 'python3';
 export type EnclaveAgentEngine = 'copilot' | 'claude' | 'codex' | 'gemini';
 export type EnclaveAgentProfile = 'openai' | 'anthropic';

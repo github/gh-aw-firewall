@@ -19,6 +19,13 @@ seconds. Pairing current AWF with v0.4.17 would silently reinterpret a
 120-second TTL as 120 nanoseconds. gh-aw pins the matching default in
 `pkg/constants/version_constants.go` (`DefaultMCPGatewayVersion`).
 
+Cloud Hypervisor is recognized as a reserved executor runtime under
+[ADR 0002](adr/0002-cloud-hypervisor-enclave-executor.md). Configuration,
+host eligibility, and attested artifact requirements fail closed today before
+any enclave is launched. Static script and static agent microVM execution will
+be enabled only after every ADR rollout gate is implemented; dynamic agents and
+custom image overrides remain outside that initial scope.
+
 ## Architecture
 
 AWF stages immutable repository seeds on the host, starts one AWF-owned `enclave-mcp-server`, and exposes enabled executors only through `gh-aw-mcpg`.

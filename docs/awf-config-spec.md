@@ -299,7 +299,7 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 - `container.mounts[]` → `-v, --mount` *(repeatable; each array entry maps to one Docker volume mount in `/host_path:/container_path[:ro|rw]` format (both paths must be absolute; host path must exist); in chroot mode, container paths are automatically prefixed with `/host`)*
 - `container.containerRuntime` → `--container-runtime` *(user-facing runtime name: `"gvisor"` for an OCI runtime in Compose, `"sbx"` for a Docker sbx microVM, or `"cloud-hypervisor"` for the explicit Cloud Hypervisor v53.0 workload preview (GitHub-hosted Ubuntu x86_64 KVM runners only; see §4.2). gVisor translates to `"runsc"` and injects `extra_hosts` for its DNS workaround. For sbx and Cloud Hypervisor, infrastructure stays in Compose while the primary agent runs in a microVM.)*
 - `filesystem.allowWrite[]` → *(config-only; no CLI equivalent; narrows existing writable host binds to the listed guest-visible absolute paths, see §4.1)*
-- `cloudHypervisor.previewEnabled` → `--cloud-hypervisor-preview` *(requires `container.containerRuntime: "cloud-hypervisor"` and a GitHub-hosted Ubuntu x86_64 KVM runner to execute a workload)*
+- `cloudHypervisor.previewEnabled` → `--cloud-hypervisor-preview` *(requires `container.containerRuntime: "cloud-hypervisor"` or at least one `enclaves[].runtime: "cloud-hypervisor"` entry, plus a GitHub-hosted Ubuntu x86_64 KVM runner to execute a workload)*
 - `cloudHypervisor.mountPolicy` → `--cloud-hypervisor-mount-policy` *(`workspace-only` by default; use `workspace-and-tool-cache` only when the workload needs the runner tool cache)*
 - `cloudHypervisor.cloudHypervisorBinary` → `--cloud-hypervisor-binary`
 - `cloudHypervisor.kernelPath` → `--cloud-hypervisor-kernel`
@@ -1841,6 +1841,20 @@ At most one entry MAY exist per executor kind, and each entry MUST declare exact
 `timeout` is a per-invocation wall-clock bound in seconds. It defaults to `30` for `script` entries and `120` for `agent` entries, and values above `4740` are rejected. Responses use fixed timing buckets at 100 ms, 1 second, 10 seconds, 60 seconds, 120 seconds, 180 seconds, 240 seconds, 300 seconds, 600 seconds, 1200 seconds, 2400 seconds, and 4800 seconds, followed by a cryptographically random, secret-independent delay from 0 through 1000 ms. The canonical enclave MCP tools use a fixed `toolTimeout` of `4860` seconds, covering the maximum bucket, response jitter, and a bounded transport allowance.
 
 `gvisor` requires an exactly registered `runsc` runtime and never falls back. `sbx` remains fail-closed for both executors until the audited capability proof lands.
+
+`cloud-hypervisor` is a reserved enclave runtime value governed by
+[ADR 0002](adr/0002-cloud-hypervisor-enclave-executor.md). AWF preserves the
+selection through parsing and validates the shared top-level `cloudHypervisor`
+preview, host, and attested-artifact configuration, but currently fails closed
+before launching an enclave. Execution remains disabled until the host executor,
+dedicated script and agent rootfs artifacts, workload-specific networking,
+resource parity, and durable recovery gates land. The initial scope is static
+script and static agent entries only; dynamic entries and custom `image`
+overrides are rejected, and no configuration falls back to another runtime.
+
+An enclave-only `cloud-hypervisor` selection requires top-level
+`cloudHypervisor` configuration but does not select Cloud Hypervisor for the
+primary agent or alter its mounts, TTY, or container runtime.
 
 The agent executor additionally requires `enableApiProxy`, a configured provider route for its fixed engine/profile, a configured `model`, and the absence of `enableDind`. AWF validates those requirements before repository staging.
 

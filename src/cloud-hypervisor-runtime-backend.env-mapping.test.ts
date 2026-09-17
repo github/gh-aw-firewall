@@ -128,9 +128,9 @@ describe('Cloud Hypervisor runtime backend environment and path mapping', () => 
     )).toThrow(/host access/);
     expect(() => assertCloudHypervisorPreSecurityCompatibility(
       config({ enclaves: { enabled: true } } as Partial<WrapperConfig>),
-    )).toThrow(/DIFC proxies or enclaves/);
+    )).toThrow(/runtime-neutral enclave lifecycle integration/);
     expect(() => assertCloudHypervisorSelection(
       config({ containerRuntime: 'gvisor' }),
-    )).toThrow(/require --container-runtime cloud-hypervisor/);
+    )).toThrow(/require either --container-runtime cloud-hypervisor/);
   });
 });

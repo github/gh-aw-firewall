@@ -26,7 +26,7 @@ import type { EnclaveDynamicDelegationHandoffResolution } from './dynamic-delega
 import { normalizePrivateRepositoryKey } from '../bounded-execution/repository-staging';
 import { findDockerSocketExposingMount } from './mount-policy';
 
-const RUNTIMES = new Set(['docker', 'gvisor', 'sbx']);
+const RUNTIMES = new Set(['docker', 'gvisor', 'sbx', 'cloud-hypervisor']);
 const ENGINES = new Set(['copilot', 'claude', 'codex', 'gemini']);
 const GITHUB_CLI_PROFILES = new Set(['issues-read-v1']);
 const DYNAMIC_GITHUB_POLICY_VERSIONS = new Set(['github-repository-read-v1']);
@@ -173,6 +173,12 @@ export function validateEnclavesConfig(
 
   if (script.enabled) {
     if (!RUNTIMES.has(script.runtime)) errors.push(`enclaves[].runtime "${script.runtime}" is not supported`);
+    if (script.runtime === 'cloud-hypervisor' && script.image !== undefined) {
+      errors.push(
+        'enclaves[].image is not supported with runtime "cloud-hypervisor": the preview requires '
+        + 'AWF release-attested script rootfs artifacts and never falls back to a custom image',
+      );
+    }
     if (script.network !== 'none') errors.push('enclaves[].script.network must be "none"');
     if (script.interpreter !== 'python3') errors.push('enclaves[].script.interpreter must be "python3"');
     if (!Number.isInteger(script.timeout) || script.timeout < 1 || script.timeout > MAX_ENCLAVE_TIMEOUT_SECONDS) {
@@ -193,6 +199,18 @@ export function validateEnclavesConfig(
 
   if (agent.enabled) {
     if (!RUNTIMES.has(agent.runtime)) errors.push(`enclaves[].runtime "${agent.runtime}" is not supported`);
+    if (agent.runtime === 'cloud-hypervisor' && agent.image !== undefined) {
+      errors.push(
+        'enclaves[].image is not supported with runtime "cloud-hypervisor": the preview requires '
+        + 'AWF release-attested agent rootfs artifacts and never falls back to a custom image',
+      );
+    }
+    if (agent.runtime === 'cloud-hypervisor' && agent.dynamic !== undefined) {
+      errors.push(
+        'enclaves[].dynamic is not supported with runtime "cloud-hypervisor" in the initial preview; '
+        + 'only static script and static agent microVM enclaves are in scope, with no runtime fallback',
+      );
+    }
     if (!ENGINES.has(agent.engine)) {
       errors.push(`enclaves[].agent.engine "${agent.engine}" is not supported`);
     } else if (!IMPLEMENTED_AGENT_ENGINES.has(agent.engine)) {

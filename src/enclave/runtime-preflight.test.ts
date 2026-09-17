@@ -74,4 +74,19 @@ describe('enclave runtime preflight', () => {
     expect(runtimeAvailable).not.toHaveBeenCalled();
     expect(dockerAvailable).not.toHaveBeenCalled();
   });
+
+  it('rejects the reserved cloud-hypervisor executor without probing or fallback', async () => {
+    await expect(assertScriptRuntimeAvailable(
+      { ...ENCLAVE_SCRIPT_EXECUTOR_DEFAULTS, enabled: true, runtime: 'cloud-hypervisor' },
+      runtimeAvailable,
+      dockerAvailable,
+    )).rejects.toThrow(/ADR 0002 host executor.*never fall back/);
+    await expect(assertAgentRuntimeAvailable(
+      { ...ENCLAVE_AGENT_EXECUTOR_DEFAULTS, enabled: true, runtime: 'cloud-hypervisor' },
+      runtimeAvailable,
+      dockerAvailable,
+    )).rejects.toThrow(/ADR 0002 host executor.*never fall back/);
+    expect(runtimeAvailable).not.toHaveBeenCalled();
+    expect(dockerAvailable).not.toHaveBeenCalled();
+  });
 });

@@ -7,9 +7,9 @@ import type { LogLevel } from './log-level';
 // ─── Cloud Hypervisor (v53.0 preview lifecycle backend) ────────────────────
 //
 // This configuration surface pins trusted artifacts and configures the
-// Cloud Hypervisor microVM runtime. It is selectable via
-// `--container-runtime cloud-hypervisor` (gated behind explicit
-// `--cloud-hypervisor-preview` opt-in): see
+// Cloud Hypervisor microVM runtime. It is selected by the primary-agent
+// `--container-runtime cloud-hypervisor` option or a trusted enclave runtime
+// entry (both gated behind explicit `--cloud-hypervisor-preview` opt-in): see
 // `src/cloud-hypervisor/preflight.ts` for artifact/host validation and
 // `guest/cloud-hypervisor/` for the guest artifact pipeline. GitHub-hosted
 // Ubuntu x86_64 KVM runners are the only supported host target.
@@ -38,8 +38,8 @@ export interface CloudHypervisorArtifactDigests {
 /**
  * Cloud Hypervisor v53.0 preview microVM runtime settings.
  *
- * Selectable via `--container-runtime cloud-hypervisor`, gated behind
- * explicit `--cloud-hypervisor-preview` opt-in. Supported only on
+ * Required when the primary agent or an enclave selects Cloud Hypervisor,
+ * gated behind explicit `--cloud-hypervisor-preview` opt-in. Supported only on
  * GitHub-hosted Ubuntu x86_64 KVM runners.
  */
 export interface CloudHypervisorOptions {

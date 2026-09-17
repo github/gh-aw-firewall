@@ -77,6 +77,16 @@ describe('normalizeEnclavesConfig', () => {
     });
   });
 
+  it('preserves cloud-hypervisor independently for script and agent entries', () => {
+    const config = normalizeEnclavesConfig([
+      { script: {}, runtime: 'cloud-hypervisor', repos: [repository] },
+      { agent: { model: 'gpt-5' }, runtime: 'cloud-hypervisor', repos: [repository] },
+    ]);
+
+    expect(config?.executors.script.runtime).toBe('cloud-hypervisor');
+    expect(config?.executors.agent.runtime).toBe('cloud-hypervisor');
+  });
+
   it('preserves the closed enclave GitHub CLI profile', () => {
     expect(normalizeEnclavesConfig([
       {
@@ -194,6 +204,20 @@ describe('enclaves JSON Schema', () => {
             },
           },
         },
+        repos: [repository],
+      }],
+    })).toEqual([]);
+    expect(validateAwfFileConfig({
+      enclaves: [{
+        script: {},
+        runtime: 'cloud-hypervisor',
+        repos: [repository],
+      }],
+    })).toEqual([]);
+    expect(validateAwfFileConfig({
+      enclaves: [{
+        agent: { model: 'gpt-5' },
+        runtime: 'cloud-hypervisor',
         repos: [repository],
       }],
     })).toEqual([]);
