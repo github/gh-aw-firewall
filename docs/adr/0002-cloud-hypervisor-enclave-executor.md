@@ -186,7 +186,7 @@ Host VFS policy, not a guest read/write flag, enforces exports.
 | CPU | cgroup v2 CPU quota/weight derived from `cpuLimit` |
 | PIDs | cgroup v2 `pids.max` |
 | `/tmp`, shared memory, writable storage | Size-limited guest tmpfs/overlay and bounded output export |
-| File size and open files | Supervisor sets `RLIMIT_FSIZE=256 MiB` and `RLIMIT_NOFILE=1024` before workload |
+| File size and open files | Supervisor sets role-equivalent limits before workload: script `RLIMIT_FSIZE=512 MiB`, agent `RLIMIT_FSIZE=256 MiB`, and `RLIMIT_NOFILE=1024` for both |
 | Non-root UID/GID | Supervisor executes the fixed policy UID/GID; no caller override |
 | Read-only root, dropped capabilities, no-new-privileges, seccomp | Immutable rootfs plus guest policy; VMM and `virtiofsd` retain verified Landlock/seccomp/no-new-privileges confinement |
 | Timeout and output | Host-enforced wall timeout and `maxOutputBytes`; only schema-valid result crosses boundary |
