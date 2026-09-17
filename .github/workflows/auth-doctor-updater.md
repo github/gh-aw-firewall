@@ -58,7 +58,7 @@ steps:
       # Look back two days so a missed daily run does not create a coverage gap.
       # Overlap is de-duplicated against existing documentation and proposals.
       SINCE=$(date -u -d '2 days ago' +%Y-%m-%d)
-      mkdir -p /tmp/gh-aw/agent
+      mkdir -p /tmp/gh-aw/agent /tmp/gh-aw/cache-memory /tmp/gh-aw/sandbox/agent/logs
       echo "$SINCE" > /tmp/gh-aw/agent/scan-since.txt
       echo "Scanning for authentication guidance updated since $SINCE"
 ---

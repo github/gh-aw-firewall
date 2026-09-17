@@ -13,6 +13,7 @@ describe('auth doctor updater workflow config', () => {
     expect(source).toContain('schedule: daily');
     expect(source).toContain('workflow_dispatch:');
     expect(source).toContain('Compute scan window');
+    expect(source).toContain('mkdir -p /tmp/gh-aw/agent /tmp/gh-aw/cache-memory /tmp/gh-aw/sandbox/agent/logs');
     expect(source).toContain('query: \'is:pr is:open in:title "[docs] auth:"\'');
     expect(source).toContain('title-prefix: "[docs] auth: "');
     expect(source).toContain('labels: [documentation, ai-generated]');
