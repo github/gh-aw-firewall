@@ -84,14 +84,6 @@ export type {
   CloudHypervisorWorkloadProfile,
 } from './workload-profile';
 export {
-  createAgentEnclaveCloudHypervisorProfile,
-  createPrimaryAgentCloudHypervisorProfile,
-  createScriptEnclaveCloudHypervisorProfile,
-  sealCloudHypervisorWorkloadProfile,
-  snapshotCloudHypervisorWorkloadProfile,
-  validateCloudHypervisorWorkloadProfile,
-} from './workload-profile';
-export {
   buildSupervisorBootArgs,
   encodeVirtiofsBootArg,
 } from './vm-config-builder';
