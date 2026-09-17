@@ -131,7 +131,7 @@ describe('Cloud Hypervisor workload profiles', () => {
     { tag: 'workspace', source: '/seed', target: '/seed', mode: 'ro' as const },
     { tag: 'seed', source: '/workspace', target: '/workspace', mode: 'ro' as const },
     { tag: 'seed', source: '/workspace', target: '/workspace/private', mode: 'ro' as const },
-  ])('rejects workspace exports from enclave profiles', (workspaceExport) => {
+  ])('rejects workspace export (tag=$tag, target=$target)', (workspaceExport) => {
     const profile = {
       ...createScriptEnclaveCloudHypervisorProfile({
         enclaveId: 'script-entry',
