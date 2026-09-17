@@ -46,6 +46,11 @@ steps:
       NVX_ARCHIVE: nvx-0.1.0-linux-kvm.tar.gz
       NVX_ARCHIVE_SHA256: 3cdc7eb6bcba218b9c20e1833653e11985291f059a22dbdcd595d3967465e2f9
     run: |
+      # GitHub Actions invokes run steps with `bash -e`. These probes are
+      # intentionally evidence-producing: a failed scenario must be recorded
+      # for the agent to analyze rather than aborting the step before the
+      # summary is written.
+      set +e
       set -u
 
       DATA_DIR=/tmp/gh-aw/agent/nvx-phase-0
@@ -224,6 +229,7 @@ steps:
         record scenario-suite BLOCKED "Pinned source or packaged OpenVMM artifacts were unavailable"
       fi
 
+      set -e
       jq -s \
         --arg release "$NVX_RELEASE" \
         --arg commit "$NVX_COMMIT" \
@@ -256,6 +262,16 @@ steps:
       } > "$DATA_DIR/summary.md"
 
       cat "$DATA_DIR/summary.md"
+
+post-steps:
+  - name: Upload NVX Phase 0 evidence
+    if: always()
+    uses: actions/upload-artifact@v7.0.1
+    with:
+      name: nvx-phase-0-evidence-${{ github.run_id }}
+      path: /tmp/gh-aw/agent/nvx-phase-0/
+      if-no-files-found: warn
+      retention-days: 14
 ---
 
 # NVX Phase 0 Feasibility
