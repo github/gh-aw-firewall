@@ -53,6 +53,8 @@ assert_trusted_file() {
 
 assert_closed_keys() {
   local file=$1
+  # An empty selector means "select the whole document" (relies on bash's
+  # ${selector:-.} treating an empty string as unset, defaulting to ".").
   local selector=$2
   local allowed=$3
   local label=$4
