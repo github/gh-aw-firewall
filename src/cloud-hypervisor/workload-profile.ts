@@ -260,7 +260,12 @@ function validateGuest(profile: CloudHypervisorWorkloadProfile): void {
   if (profile.kind === 'primary-agent' && workspaceMount !== '/workspace') {
     throw new Error('Cloud Hypervisor primary-agent workspace mount must be /workspace');
   }
-  if (profile.kind !== 'primary-agent' && workspaceMount !== null) {
+  if (
+    profile.kind !== 'primary-agent' &&
+    (workspaceMount !== null || profile.guest.exports.some((entry) => (
+      entry.tag === 'workspace' || entry.target === '/workspace' || entry.target.startsWith('/workspace/')
+    )))
+  ) {
     throw new Error(`Cloud Hypervisor ${profile.kind} must not declare a primary workspace mount`);
   }
   if (
