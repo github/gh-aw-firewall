@@ -114,9 +114,13 @@ the peer credential and the capability, is bound to the run, and the capability
 is destroyed during shutdown. This is defense in depth, not authorization by
 filesystem topology alone.
 
-Each packet is one UTF-8 JSON object, at most 64 KiB, with no duplicate keys and
+Each request packet is one UTF-8 JSON object, at most 512 KiB, with no duplicate
+keys and
 `additionalProperties: false`. It has `version: 1`, `type`, `requestId`,
 `invocationId`, `capability`, and the following closed payload:
+
+The 512 KiB bound admits a 64 KiB script or task even when JSON escaping expands
+each payload byte to six bytes, while retaining space for required metadata.
 
 | Type | Allowed policy-derived fields |
 | --- | --- |
