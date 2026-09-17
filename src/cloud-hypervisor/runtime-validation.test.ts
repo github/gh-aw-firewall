@@ -68,7 +68,7 @@ describe('Cloud Hypervisor runtime validation', () => {
   });
 
   it('supports a Cloud Hypervisor script executor alongside a Docker agent executor', () => {
-    const mixedRuntimes = config({
+    const chScriptWithDockerAgent = config({
       containerRuntime: 'docker',
       enableApiProxy: false,
       tty: true,
@@ -83,17 +83,18 @@ describe('Cloud Hypervisor runtime validation', () => {
       }]),
     });
 
-    expect(isPrimaryCloudHypervisorRuntime(mixedRuntimes)).toBe(false);
-    expect(usesCloudHypervisorEnclaveRuntime(mixedRuntimes)).toBe(true);
-    expect(requiresCloudHypervisorInfrastructure(mixedRuntimes)).toBe(true);
-    expect(() => assertCloudHypervisorSelection(mixedRuntimes)).not.toThrow();
-    expect(() => assertCloudHypervisorPreSecurityCompatibility(mixedRuntimes)).not.toThrow();
-    expect(() => assertCloudHypervisorRuntimeCompatibility(mixedRuntimes)).not.toThrow();
-    expect(requireCloudHypervisorConfig(mixedRuntimes)).toBe(mixedRuntimes.cloudHypervisor);
+    expect(isPrimaryCloudHypervisorRuntime(chScriptWithDockerAgent)).toBe(false);
+    expect(usesCloudHypervisorEnclaveRuntime(chScriptWithDockerAgent)).toBe(true);
+    expect(requiresCloudHypervisorInfrastructure(chScriptWithDockerAgent)).toBe(true);
+    expect(() => assertCloudHypervisorSelection(chScriptWithDockerAgent)).not.toThrow();
+    expect(() => assertCloudHypervisorPreSecurityCompatibility(chScriptWithDockerAgent)).not.toThrow();
+    expect(() => assertCloudHypervisorRuntimeCompatibility(chScriptWithDockerAgent)).not.toThrow();
+    expect(requireCloudHypervisorConfig(chScriptWithDockerAgent))
+      .toBe(chScriptWithDockerAgent.cloudHypervisor);
   });
 
   it('requires API-proxy isolation for a Cloud Hypervisor agent executor alongside Docker scripts', () => {
-    const mixedRuntimes = config({
+    const chAgentWithDockerScript = config({
       containerRuntime: 'docker',
       enableApiProxy: false,
       enclaves: normalizeEnclavesConfig([{
@@ -106,13 +107,13 @@ describe('Cloud Hypervisor runtime validation', () => {
       }]),
     });
 
-    expect(usesCloudHypervisorEnclaveRuntime(mixedRuntimes)).toBe(true);
-    expect(requiresCloudHypervisorInfrastructure(mixedRuntimes)).toBe(true);
-    expect(() => assertCloudHypervisorSelection(mixedRuntimes)).not.toThrow();
-    expect(() => assertCloudHypervisorRuntimeCompatibility(mixedRuntimes))
+    expect(usesCloudHypervisorEnclaveRuntime(chAgentWithDockerScript)).toBe(true);
+    expect(requiresCloudHypervisorInfrastructure(chAgentWithDockerScript)).toBe(true);
+    expect(() => assertCloudHypervisorSelection(chAgentWithDockerScript)).not.toThrow();
+    expect(() => assertCloudHypervisorRuntimeCompatibility(chAgentWithDockerScript))
       .toThrow(/API proxy credential isolation/);
     expect(() => assertCloudHypervisorRuntimeCompatibility({
-      ...mixedRuntimes,
+      ...chAgentWithDockerScript,
       enableApiProxy: true,
     })).not.toThrow();
   });
