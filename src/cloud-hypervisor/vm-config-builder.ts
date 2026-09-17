@@ -22,7 +22,7 @@ const CLOUD_HYPERVISOR_GUEST_SUPERVISOR = '/usr/sbin/awf-supervisor';
 export interface CloudHypervisorVmConfigInput {
   config: CloudHypervisorOptions;
   paths: CloudHypervisorRunPaths;
-  networkPlan: MicrovmNetworkPlan;
+  networkPlan?: MicrovmNetworkPlan;
   guestConfig?: CloudHypervisorManagerGuestConfig;
   fsDevices?: readonly VirtiofsdDevice[];
 }
@@ -44,7 +44,7 @@ export function buildCloudHypervisorVmConfig({
     runDirectory: paths.runDirectory,
     apiSocketPath: paths.apiSocketPath,
     vsockSocketPath: paths.vsockSocketPath,
-    tapName: networkPlan.tapName,
+    ...(networkPlan ? { tapName: networkPlan.tapName } : {}),
   });
   return {
     cpus: {
@@ -77,25 +77,19 @@ export function buildCloudHypervisorVmConfig({
           })),
         }
       : {}),
-    net: [{
-      id: 'net0',
-      tap: networkPlan.networkInterface.host_dev_name,
-      mac: networkPlan.networkInterface.guest_mac ?? '',
-      // Cloud Hypervisor defaults all three offloads to enabled. This
-      // entire network path is a fully-software bridge/veth/tap chain
-      // with no real NIC downstream to finish partially-offloaded
-      // (unchecksummed / not-yet-segmented) frames; live-KVM validation
-      // showed guest-to-Squid traffic being forwarded (visible in nft
-      // counters) but the return path never matching the
-      // established/related accept rule, with zero visibility into
-      // whether nftables' conntrack was marking replies as invalid.
-      // Disable all three explicitly rather than rely on Cloud
-      // Hypervisor's own defaults, removing offload-related packet
-      // malformation as a possible cause.
-      offload_tso: false,
-      offload_ufo: false,
-      offload_csum: false,
-    }],
+    ...(networkPlan
+      ? {
+          net: [{
+            id: 'net0',
+            tap: networkPlan.networkInterface.host_dev_name,
+            mac: networkPlan.networkInterface.guest_mac ?? '',
+            // This fully-software path cannot complete partial offloads.
+            offload_tso: false,
+            offload_ufo: false,
+            offload_csum: false,
+          }],
+        }
+      : {}),
     rng: { src: '/dev/urandom' },
     serial: { mode: 'File' as const, file: paths.serialLogPath },
     console: { mode: 'Off' as const },
@@ -109,13 +103,16 @@ export function buildCloudHypervisorVmConfig({
 }
 
 export function buildSupervisorBootArgs(
-  networkPlan: MicrovmNetworkPlan,
+  networkPlan: MicrovmNetworkPlan | undefined,
   guestConfig: CloudHypervisorManagerGuestConfig,
 ): string {
   const port = guestConfig.vsockPort ?? CLOUD_HYPERVISOR_GUEST_VSOCK_PORT;
   if (!Number.isInteger(port) || port < 1 || port > 65_535) {
     throw new Error(`Cloud Hypervisor guest vsock port must be in 1-65535: ${port}`);
   }
+  const workspaceMount = guestConfig.workspaceMount === undefined
+    ? '/workspace'
+    : guestConfig.workspaceMount;
   return [
     'console=ttyS0',
     'reboot=k',
@@ -124,20 +121,22 @@ export function buildSupervisorBootArgs(
     'rootfstype=ext4',
     'rootflags=data=ordered',
     'rw',
-    // Cloud Hypervisor requires PCI; pin legacy `ethN` interface naming so the guest's
-    // single virtio-pci NIC has a deterministic name across boots.
-    'net.ifnames=0',
-    'biosdevname=0',
+    ...(networkPlan ? ['net.ifnames=0', 'biosdevname=0'] : []),
     `init=${CLOUD_HYPERVISOR_GUEST_SUPERVISOR}`,
-    'awf.workspace-mount=/workspace',
+    ...(workspaceMount ? [`awf.workspace-mount=${workspaceMount}`] : []),
     `awf.virtiofs=${encodeVirtiofsBootArg(guestConfig.exports, {
       allowReadOnlyWorkspace: hasReadOnlyWorkspaceMountPlan(guestConfig.mountEnforcement),
+      requireWorkspace: workspaceMount !== null,
     })}`,
     `awf.vsock-port=${port}`,
-    `awf.guest-ip=${networkPlan.guestIp}`,
-    `awf.guest-prefix=${networkPlan.guestPrefixLength}`,
-    `awf.guest-gateway=${networkPlan.guestGatewayIp}`,
-    'awf.guest-interface=eth0',
+    ...(networkPlan
+      ? [
+          `awf.guest-ip=${networkPlan.guestIp}`,
+          `awf.guest-prefix=${networkPlan.guestPrefixLength}`,
+          `awf.guest-gateway=${networkPlan.guestGatewayIp}`,
+          'awf.guest-interface=eth0',
+        ]
+      : []),
   ].join(' ');
 }
 

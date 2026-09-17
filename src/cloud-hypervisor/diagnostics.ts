@@ -184,6 +184,7 @@ export interface CloudHypervisorDiagnosticsContext {
   stderrCapture: BoundedOutputCapture;
   guestStdoutCapture: BoundedOutputCapture;
   guestStderrCapture: BoundedOutputCapture;
+  captureGuestRawOutput?: boolean;
   network: MicrovmNetworkLifecycle | undefined;
   networkPlan: MicrovmNetworkPlan | undefined;
   client: CloudHypervisorApiClient | undefined;
@@ -251,12 +252,14 @@ export async function collectCloudHypervisorDiagnostics(
   };
   await writeBounded('launcher-stdout.log', context.stdoutCapture.contents());
   await writeBounded('launcher-stderr.log', context.stderrCapture.contents());
-  await writeGuestOutputAudit(
-    directory,
-    dependencies,
-    context.guestStdoutCapture,
-    context.guestStderrCapture,
-  );
+  if (context.captureGuestRawOutput !== false) {
+    await writeGuestOutputAudit(
+      directory,
+      dependencies,
+      context.guestStdoutCapture,
+      context.guestStderrCapture,
+    );
+  }
   await copyBoundedDiagnostic(
     dependencies,
     paths.logPath,

@@ -1,5 +1,6 @@
 import * as path from 'path';
 import type { MicrovmNetworkPlan } from '../microvm/network';
+import type { CloudHypervisorWorkloadIdentity } from './manager-types';
 
 export const CLEANUP_RECORD_VERSION = 1;
 
@@ -44,6 +45,7 @@ export interface RecordedProcess {
 export interface CleanupRecord {
   readonly version: 1;
   readonly runId: string;
+  readonly workload?: CloudHypervisorWorkloadIdentity;
   readonly owner: ProcessIdentity;
   readonly cloudHypervisorBinary: string;
   readonly paths: {
@@ -94,6 +96,7 @@ export function validateRecord(
     !/^[A-Za-z0-9_.-]+$/.test(record.runId) ||
     path.join(registryRoot, `${record.runId}.json`) !== recordPath
   ) throw new Error('invalid cleanup record identity');
+  if (record.workload !== undefined) validateWorkloadIdentity(record.workload);
   if (
     !record.paths?.runDirectory.endsWith(`/${record.runId}`) ||
     !record.paths?.cgroupPath.endsWith(`/${record.runId}`) ||
@@ -129,6 +132,7 @@ export function validateRecord(
     ) throw new Error(`cleanup process record is malformed: ${key}`);
     if (processRecord.identity) validateProcessIdentity(processRecord.identity, `process "${key}"`);
   }
+
   if (record.vmmIdentity) {
     const identity = record.vmmIdentity;
     if (
@@ -163,6 +167,19 @@ export function validateRecord(
       !mount.source
     ) throw new Error('cleanup mount identity is malformed');
   }
+}
+
+function validateWorkloadIdentity(identity: CloudHypervisorWorkloadIdentity): void {
+  if (
+    !['primary-agent', 'script-enclave', 'agent-enclave'].includes(identity?.kind) ||
+    !/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(identity.ownerId) ||
+    (
+      identity.invocationId !== undefined &&
+      !/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(identity.invocationId)
+    ) ||
+    (identity.kind === 'primary-agent' && identity.invocationId !== undefined) ||
+    (identity.kind !== 'primary-agent' && identity.invocationId === undefined)
+  ) throw new Error('cleanup workload identity is malformed');
 }
 
 interface CleanupScopedPaths {

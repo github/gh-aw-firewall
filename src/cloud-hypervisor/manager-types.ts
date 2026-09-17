@@ -37,6 +37,15 @@ export const CLOUD_HYPERVISOR_LOG_NAME = 'cloud-hypervisor.log';
 export const CLOUD_HYPERVISOR_SERIAL_LOG_NAME = 'serial.log';
 export const CLOUD_HYPERVISOR_CAPTURE_LIMIT_BYTES = 1024 * 1024;
 export const CLOUD_HYPERVISOR_GUEST_VSOCK_PORT = 52;
+
+export type CloudHypervisorWorkloadKind =
+  'primary-agent' | 'script-enclave' | 'agent-enclave';
+
+export interface CloudHypervisorWorkloadIdentity {
+  readonly kind: CloudHypervisorWorkloadKind;
+  readonly ownerId: string;
+  readonly invocationId?: string;
+}
 /**
  * Private run-directory root, deliberately **outside** `workDir`.
  *
@@ -58,6 +67,7 @@ const CGROUP_ROOT = '/sys/fs/cgroup';
 
 export interface CloudHypervisorRunPaths {
   runId: string;
+  workloadIdentity?: CloudHypervisorWorkloadIdentity;
   runBaseDir: string;
   runDirectory: string;
   apiSocketPath: string;
@@ -151,6 +161,11 @@ export interface CloudHypervisorManagerGuestConfig {
   readonly supervisorSha256: string;
   readonly vsockPort?: number;
   readonly identity?: { uid: number; gid: number };
+  /**
+   * Guest mount used as the primary agent's workspace. Enclave profiles set
+   * this to null because their selected seed/output exports are not a workspace.
+   */
+  readonly workspaceMount?: '/workspace' | null;
 }
 
 export interface CloudHypervisorIdentity {
@@ -161,6 +176,10 @@ export interface CloudHypervisorIdentity {
 export function createCloudHypervisorRunPaths(
   cloudHypervisorBinary: string,
   runId = `awf-${process.pid}-${randomBytes(6).toString('hex')}`,
+  workloadIdentity: CloudHypervisorWorkloadIdentity = {
+    kind: 'primary-agent',
+    ownerId: 'primary-agent',
+  },
 ): CloudHypervisorRunPaths {
   assertSafeMicrovmRunId(runId);
   const runBaseDir = CLOUD_HYPERVISOR_RUN_ROOT;
@@ -171,6 +190,7 @@ export function createCloudHypervisorRunPaths(
   );
   return {
     runId,
+    workloadIdentity,
     runBaseDir,
     runDirectory,
     apiSocketPath: path.join(runDirectory, API_SOCKET_NAME),

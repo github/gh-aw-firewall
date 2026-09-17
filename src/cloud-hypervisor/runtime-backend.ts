@@ -39,6 +39,7 @@ import {
   getDiagnosticsRoot,
   stopManager,
 } from './runtime-cleanup';
+import { createPrimaryAgentCloudHypervisorProfile } from './workload-profile';
 export { buildCloudHypervisorGuestEnvironment };
 export { CloudHypervisorRetryableReadinessError } from './preflight';
 export {
@@ -124,23 +125,27 @@ function defaultDependencies(
         workDir,
         undefined,
         undefined,
-        {
-          infrastructureBridge: infrastructure.bridgeName,
-          enableApiProxy: Boolean(infrastructure.apiProxyIp),
-          apiProxyIp: infrastructure.apiProxyIp,
-          controlPeers: Object.values(infrastructure.topologyPeerIps).map((ip) => ({
-            ip,
-            ports: [MCP_GATEWAY_PORT],
-          })),
-          hostAliases: infrastructure.topologyPeerIps,
-        },
-        {
-          exports,
-          ...(mountEnforcement ? { mountEnforcement } : {}),
-          supervisorBinaryPath: config.supervisorPath!,
-          supervisorSha256: config.sha256!.supervisor!,
-          identity,
-        },
+        createPrimaryAgentCloudHypervisorProfile({
+          network: {
+            infrastructureBridge: infrastructure.bridgeName,
+            enableApiProxy: Boolean(infrastructure.apiProxyIp),
+            ...(infrastructure.apiProxyIp ? { apiProxyIp: infrastructure.apiProxyIp } : {}),
+            controlPeers: Object.values(infrastructure.topologyPeerIps).map((ip) => ({
+              ip,
+              ports: [MCP_GATEWAY_PORT],
+            })),
+            hostAliases: infrastructure.topologyPeerIps,
+          },
+          guest: {
+            exports,
+            ...(mountEnforcement ? { mountEnforcement } : {}),
+            supervisorBinaryPath: config.supervisorPath!,
+            supervisorSha256: config.sha256!.supervisor!,
+            identity,
+            workspaceMount: '/workspace',
+          },
+        }),
+        undefined,
         verifiedArtifacts,
       ),
     resolveExports: (mountPolicy) => resolveCloudHypervisorExports(

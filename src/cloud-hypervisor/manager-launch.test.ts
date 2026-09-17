@@ -6,6 +6,7 @@ import type { CloudHypervisorCleanupHandle } from './cleanup-registry';
 import type { CloudHypervisorVmmIdentityManager } from './vmm-identity';
 import { CloudHypervisorManager } from './manager';
 import { buildSupervisorBootArgs } from './manager';
+import { createScriptEnclaveCloudHypervisorProfile } from './workload-profile';
 
 import {
   hostTools, virtiofsdManagerMock, config, processMock, networkConfig, guestConfig, dependencies,
@@ -290,6 +291,32 @@ import {
     expect(deps.launch).not.toHaveBeenCalled();
   });
 
+  it('rejects an enclave profile before preflight or resource allocation', async () => {
+    const deps = dependencies();
+    const manager = new CloudHypervisorManager(
+      config(),
+      '/tmp/awf',
+      deps,
+      'script-enclave',
+      createScriptEnclaveCloudHypervisorProfile({
+        enclaveId: 'script-entry',
+        invocationId: 'invocation-1',
+        guest: {
+          exports: [{ tag: 'seed', source: '/seed', target: '/seed', mode: 'ro' }],
+          supervisorBinaryPath: '/opt/awf-supervisor',
+          supervisorSha256: 'a'.repeat(64),
+          workspaceMount: null,
+        },
+      }),
+    );
+
+    await expect(manager.start()).rejects.toThrow(/not implemented; refusing to fall back/);
+    expect(deps.preflight).not.toHaveBeenCalled();
+    expect(deps.cleanupRegistry.createPending).not.toHaveBeenCalled();
+    expect(deps.reserveNetwork).not.toHaveBeenCalled();
+    expect(deps.launch).not.toHaveBeenCalled();
+  });
+
   it('configures one rootfs disk and virtio-fs devices, then stops daemons after the VMM', async () => {
     const order: string[] = [];
     const child = processMock();
@@ -444,4 +471,3 @@ import {
     expect(order).toEqual(['virtiofsd']);
   });
   });
-

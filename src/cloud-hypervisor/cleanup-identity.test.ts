@@ -55,6 +55,12 @@ describe('cleanup identity primitives', () => {
         ['bad-version', (record) => { record.version = 2; }, /invalid cleanup record identity/],
         ['bad-run-path', (record) => { record.paths.runDirectory = '/workspace/other'; }, /not run-scoped/],
         ['bad-owner', (record) => { record.owner.pid = 1; }, /owner identity is malformed/],
+        ['bad-workload', (record) => {
+          record.workload = {
+            kind: 'script-enclave',
+            ownerId: 'script-entry',
+          };
+        }, /workload identity is malformed/],
         ['bad-processes', (record) => { record.processes = []; }, /resource identities are malformed/],
         ['bad-process', (record) => {
           record.processes.worker = { state: 'pending', executable: 'relative', socketPath: '/sock' };

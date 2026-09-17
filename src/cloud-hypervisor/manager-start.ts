@@ -21,7 +21,6 @@ import {
 import {
   formatError,
   type CloudHypervisorManagerDependencies,
-  type CloudHypervisorManagerGuestConfig,
   type CloudHypervisorManagerNetworkConfig,
   type CloudHypervisorRunPaths,
 } from './manager-types';
@@ -34,14 +33,17 @@ import type { CloudHypervisorCleanupHandle } from './cleanup-registry';
 import type { CloudHypervisorConfinementEvidence } from './confinement-verifier';
 import type { CloudHypervisorVmmIdentityManager } from './vmm-identity';
 import type { CloudHypervisorPreflightResult } from './preflight';
+import {
+  assertCloudHypervisorWorkloadLaunchable,
+  type CloudHypervisorWorkloadProfile,
+} from './workload-profile';
 
 export interface CloudHypervisorStartContext {
   config: CloudHypervisorOptions;
   workDir: string;
   dependencies: CloudHypervisorManagerDependencies;
   paths: CloudHypervisorRunPaths;
-  networkConfig?: CloudHypervisorManagerNetworkConfig;
-  guestConfig?: CloudHypervisorManagerGuestConfig;
+  workloadProfile: CloudHypervisorWorkloadProfile;
   verifiedArtifacts?: CloudHypervisorPreflightResult;
   stdoutCapture: BoundedOutputCapture;
   stderrCapture: BoundedOutputCapture;
@@ -64,13 +66,26 @@ export async function startCloudHypervisor(
   context: CloudHypervisorStartContext,
 ): Promise<CloudHypervisorApiClient> {
   const {
-    config, workDir, dependencies, paths, networkConfig, guestConfig, verifiedArtifacts,
+    config, workDir, dependencies, paths, workloadProfile, verifiedArtifacts,
   } = context;
-  if (!networkConfig) {
-    throw new Error(
-      'Cloud Hypervisor network configuration is required; refusing to launch an unfiltered microVM',
-    );
-  }
+  assertCloudHypervisorWorkloadLaunchable(workloadProfile);
+  const networkConfig: CloudHypervisorManagerNetworkConfig = {
+    infrastructureBridge: workloadProfile.network.infrastructureBridge,
+    enableApiProxy: workloadProfile.network.enableApiProxy,
+    ...(workloadProfile.network.apiProxyIp
+      ? { apiProxyIp: workloadProfile.network.apiProxyIp }
+      : {}),
+    ...(workloadProfile.network.controlPeer
+      ? { controlPeer: workloadProfile.network.controlPeer }
+      : {}),
+    ...(workloadProfile.network.controlPeers
+      ? { controlPeers: workloadProfile.network.controlPeers }
+      : {}),
+    ...(workloadProfile.network.hostAliases
+      ? { hostAliases: workloadProfile.network.hostAliases }
+      : {}),
+  };
+  const guestConfig = workloadProfile.guest;
 
   let startupError: unknown;
   try {

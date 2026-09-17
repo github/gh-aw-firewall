@@ -49,6 +49,8 @@ export interface CloudHypervisorExportValidationOptions {
    * presence of a workspace host mount plan, never enable it unconditionally.
    */
   readonly allowReadOnlyWorkspace?: boolean;
+  /** Set false for workload profiles that do not expose a primary workspace. */
+  readonly requireWorkspace?: boolean;
 }
 
 export async function resolveCloudHypervisorExports(
@@ -191,7 +193,7 @@ export function validateCloudHypervisorExports(
     }
     return { ...entry };
   });
-  if (!workspace) {
+  if (!workspace && options.requireWorkspace !== false) {
     throw new Error(
       options.allowReadOnlyWorkspace === true
         ? 'Cloud Hypervisor requires tag "workspace" at /workspace'

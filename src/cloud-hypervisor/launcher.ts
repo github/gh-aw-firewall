@@ -57,7 +57,7 @@ export interface CloudHypervisorLaunchPaths {
   /** Host TAP interface name (e.g. `vmt<token>`), for the
    * `/sys/class/net/<tapName>/tun_flags` Landlock rule — see
    * {@link computeCloudHypervisorLandlockRules}. */
-  readonly tapName: string;
+  readonly tapName?: string;
 }
 
 export interface CloudHypervisorLaunchIdentity {
@@ -204,9 +204,13 @@ export function computeCloudHypervisorLandlockRules(
     { path: paths.rootfsPath, access: 'rw' },
     { path: paths.runDirectory, access: 'rw' },
     { path: '/dev/kvm', access: 'rw' },
-    { path: '/dev/net/tun', access: 'rw' },
-    { path: `/sys/class/net/${paths.tapName}/tun_flags`, access: 'r' },
   ];
+  if (paths.tapName) {
+    rules.push(
+      { path: '/dev/net/tun', access: 'rw' },
+      { path: `/sys/class/net/${paths.tapName}/tun_flags`, access: 'r' },
+    );
+  }
   return rules;
 }
 

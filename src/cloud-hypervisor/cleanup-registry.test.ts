@@ -28,6 +28,7 @@ describe('DurableCloudHypervisorCleanupRegistry orchestration', () => {
       const recordPath = path.join(harness.temporaryRoot, 'pending-cleanup', 'recorded-run.json');
       const record = JSON.parse(await fs.readFile(recordPath, 'utf8')) as {
         owner: { pid: number; startTime: string; executable: string };
+        workload: { kind: string; ownerId: string };
         paths: { runDirectory: string; cgroupPath: string };
         network: { namespaceName: string; hostVethName: string; tapName: string };
         identities: Record<string, unknown>;
@@ -37,6 +38,7 @@ describe('DurableCloudHypervisorCleanupRegistry orchestration', () => {
         startTime: '1000',
         executable: await fs.realpath(process.execPath),
       });
+      expect(record.workload).toEqual({ kind: 'primary-agent', ownerId: 'primary-agent' });
       expect(record.paths).toEqual({
         runDirectory: paths.runDirectory,
         cgroupPath: paths.cgroupPath,

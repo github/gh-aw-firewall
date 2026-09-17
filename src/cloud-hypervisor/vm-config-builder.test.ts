@@ -47,6 +47,31 @@ describe('buildCloudHypervisorVmConfig', () => {
     expect(vmConfig.landlock_enable).toBe(true);
   });
 
+  it('plans a NIC-less, workspace-less script guest without primary network assumptions', () => {
+    const vmConfig = buildCloudHypervisorVmConfig({
+      config: config(),
+      paths,
+      guestConfig: {
+        exports: [{
+          tag: 'seed',
+          source: '/seed',
+          target: '/seed',
+          mode: 'ro',
+        }],
+        supervisorBinaryPath: '/opt/awf-supervisor',
+        supervisorSha256: 'a'.repeat(64),
+        workspaceMount: null,
+      },
+    });
+
+    expect(vmConfig).not.toHaveProperty('net');
+    expect(vmConfig.payload.cmdline).not.toContain('awf.workspace-mount=');
+    expect(vmConfig.payload.cmdline).not.toContain('awf.guest-ip=');
+    expect(vmConfig.landlock_rules).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: '/dev/net/tun' }),
+    ]));
+  });
+
   it('adds virtio-fs, vsock and supervisor cmdline with a guest config', () => {
     const vmConfig = buildCloudHypervisorVmConfig({
       config: config(),
@@ -131,7 +156,7 @@ describe('buildCloudHypervisorVmConfig', () => {
 
     expect(vmConfig.cpus).toEqual({ boot_vcpus: 4, max_vcpus: 4 });
     expect(vmConfig.memory.size).toBe(1024 * 1024 * 1024);
-    expect(vmConfig.net[0]).toMatchObject({
+    expect(vmConfig.net?.[0]).toMatchObject({
       offload_tso: false,
       offload_ufo: false,
       offload_csum: false,

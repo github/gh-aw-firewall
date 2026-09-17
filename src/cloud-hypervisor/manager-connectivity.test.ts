@@ -1,5 +1,8 @@
+import { Writable } from 'stream';
 import type { MicrovmVsockClient } from '../microvm/vsock-client';
 import { CloudHypervisorManager } from './manager';
+import { CloudHypervisorGuestChannel } from './guest-execution';
+import { createScriptEnclaveCloudHypervisorProfile } from './workload-profile';
 
 import {
   rootfsPreparerMock, config, processMock, networkConfig, guestConfig, dependencies,
@@ -156,5 +159,49 @@ import {
     expect(guestClient.resize).toHaveBeenCalledWith(80, 24, 'request');
     await manager.stop();
   });
-  });
 
+  it('strips caller-provided raw output sinks for discard profiles', async () => {
+    const execute = jest.fn().mockResolvedValue({
+      requestId: 'request',
+      exitCode: 0,
+      signal: null,
+      timedOut: false,
+    });
+    const manager = new CloudHypervisorManager(
+      config(),
+      '/tmp/awf',
+      dependencies(),
+      'discard-output',
+      createScriptEnclaveCloudHypervisorProfile({
+        enclaveId: 'script-entry',
+        invocationId: 'invocation-1',
+        guest: {
+          exports: [{ tag: 'seed', source: '/seed', target: '/seed', mode: 'ro' }],
+          supervisorBinaryPath: '/opt/awf-supervisor',
+          supervisorSha256: 'a'.repeat(64),
+          workspaceMount: null,
+        },
+      }),
+    );
+    const guest = new CloudHypervisorGuestChannel({
+      execute,
+    } as unknown as MicrovmVsockClient);
+    Object.assign(manager, { guest });
+
+    await manager.execute({
+      requestId: 'request',
+      argv: ['/bin/true'],
+      env: {},
+      cwd: '/seed',
+      uid: 1000,
+      gid: 1000,
+      rawStdout: new Writable({ write: (_chunk, _encoding, done) => done() }),
+      rawStderr: new Writable({ write: (_chunk, _encoding, done) => done() }),
+    });
+
+    expect(execute).toHaveBeenCalledWith(expect.not.objectContaining({
+      rawStdout: expect.anything(),
+      rawStderr: expect.anything(),
+    }));
+  });
+  });

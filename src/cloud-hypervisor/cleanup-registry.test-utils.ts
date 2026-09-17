@@ -112,6 +112,7 @@ export async function createCleanupRegistryTestHarness(): Promise<CleanupRegistr
     const runDirectory = path.join(runBaseDir, 'cloud-hypervisor', runId);
     return {
       runId,
+      workloadIdentity: { kind: 'primary-agent', ownerId: 'primary-agent' },
       runBaseDir,
       runDirectory,
       apiSocketPath: path.join(runDirectory, 'api.socket'),

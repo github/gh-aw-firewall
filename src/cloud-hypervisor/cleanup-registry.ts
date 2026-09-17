@@ -156,6 +156,10 @@ export class DurableCloudHypervisorCleanupRegistry implements CloudHypervisorCle
     const record: CleanupRecord = {
       version: CLEANUP_RECORD_VERSION,
       runId: paths.runId,
+      workload: paths.workloadIdentity ?? {
+        kind: 'primary-agent',
+        ownerId: 'primary-agent',
+      },
       owner,
       cloudHypervisorBinary: binary,
       paths: {

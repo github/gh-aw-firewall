@@ -62,6 +62,11 @@ import {
   type CloudHypervisorCleanupHandle,
 } from './cleanup-registry';
 import { CloudHypervisorVmmIdentityManager } from './vmm-identity';
+import {
+  sealCloudHypervisorWorkloadProfile,
+  snapshotCloudHypervisorWorkloadProfile,
+  type CloudHypervisorWorkloadProfile,
+} from './workload-profile';
 
 export {
   CLOUD_HYPERVISOR_GUEST_VSOCK_PORT,
@@ -73,6 +78,19 @@ export type {
   CloudHypervisorManagerNetworkConfig,
   CloudHypervisorRunPaths,
 } from './manager-types';
+export type {
+  CloudHypervisorWorkloadIdentity,
+  CloudHypervisorWorkloadKind,
+  CloudHypervisorWorkloadProfile,
+} from './workload-profile';
+export {
+  createAgentEnclaveCloudHypervisorProfile,
+  createPrimaryAgentCloudHypervisorProfile,
+  createScriptEnclaveCloudHypervisorProfile,
+  sealCloudHypervisorWorkloadProfile,
+  snapshotCloudHypervisorWorkloadProfile,
+  validateCloudHypervisorWorkloadProfile,
+} from './workload-profile';
 export {
   buildSupervisorBootArgs,
   encodeVirtiofsBootArg,
@@ -205,6 +223,7 @@ export class CloudHypervisorManager {
   private readonly guestStderrCapture = new BoundedOutputCapture(CLOUD_HYPERVISOR_CAPTURE_LIMIT_BYTES);
   private readonly guestStdoutAudit = this.guestStdoutCapture.writable();
   private readonly guestStderrAudit = this.guestStderrCapture.writable();
+  private readonly workloadProfile: CloudHypervisorWorkloadProfile;
 
   get guestIp(): string | undefined {
     return this.networkPlan?.guestIp;
@@ -231,11 +250,36 @@ export class CloudHypervisorManager {
     private readonly workDir: string,
     private readonly dependencies: CloudHypervisorManagerDependencies = defaultDependencies,
     runId?: string,
-    private readonly networkConfig?: CloudHypervisorManagerNetworkConfig,
-    private readonly guestConfig?: CloudHypervisorManagerGuestConfig,
+    profileOrNetworkConfig?: CloudHypervisorWorkloadProfile | CloudHypervisorManagerNetworkConfig,
+    legacyGuestConfig?: CloudHypervisorManagerGuestConfig,
     private readonly verifiedArtifacts?: CloudHypervisorPreflightResult,
   ) {
-    this.paths = createCloudHypervisorRunPaths(config.cloudHypervisorBinary, runId);
+    const profile: CloudHypervisorWorkloadProfile = isWorkloadProfile(profileOrNetworkConfig)
+      ? sealCloudHypervisorWorkloadProfile(profileOrNetworkConfig)
+      : {
+          kind: 'primary-agent',
+          identity: { kind: 'primary-agent', ownerId: 'primary-agent' },
+          rootfsRole: 'primary-agent',
+          network: {
+            mode: 'primary',
+            ...(profileOrNetworkConfig ?? {
+              infrastructureBridge: '',
+              enableApiProxy: false,
+            }),
+          },
+          ...(legacyGuestConfig
+            ? { guest: { ...legacyGuestConfig, workspaceMount: '/workspace' } }
+            : {}),
+          rawOutput: 'capture',
+        };
+    this.workloadProfile = isWorkloadProfile(profileOrNetworkConfig)
+      ? profile
+      : snapshotCloudHypervisorWorkloadProfile(profile);
+    this.paths = createCloudHypervisorRunPaths(
+      config.cloudHypervisorBinary,
+      runId,
+      this.workloadProfile.identity,
+    );
   }
 
   async start(): Promise<CloudHypervisorApiClient> {
@@ -244,8 +288,7 @@ export class CloudHypervisorManager {
       workDir: this.workDir,
       dependencies: this.dependencies,
       paths: this.paths,
-      networkConfig: this.networkConfig,
-      guestConfig: this.guestConfig,
+      workloadProfile: this.workloadProfile,
       verifiedArtifacts: this.verifiedArtifacts,
       stdoutCapture: this.stdoutCapture,
       stderrCapture: this.stderrCapture,
@@ -269,7 +312,7 @@ export class CloudHypervisorManager {
     if (!this.client) throw new Error('Cloud Hypervisor API is not configured');
     await this.client.vmBoot();
     this.instanceStarted = true;
-    if (this.guestConfig) {
+    if (this.workloadProfile.guest) {
       if (!this.vmmIdentity) {
         throw new Error('Cloud Hypervisor VMM identity is not configured');
       }
@@ -277,7 +320,7 @@ export class CloudHypervisorManager {
       this.guest = await CloudHypervisorGuestChannel.connect(
         this.dependencies,
         this.paths.vsockSocketPath,
-        this.guestConfig.vsockPort ?? CLOUD_HYPERVISOR_GUEST_VSOCK_PORT,
+        this.workloadProfile.guest.vsockPort ?? CLOUD_HYPERVISOR_GUEST_VSOCK_PORT,
         this.config.apiTimeoutMs,
       );
     }
@@ -289,10 +332,17 @@ export class CloudHypervisorManager {
     if (!this.guest) {
       throw new Error('Cloud Hypervisor guest supervisor is not ready');
     }
+    const forwardedRequest = { ...request };
+    delete forwardedRequest.rawStdout;
+    delete forwardedRequest.rawStderr;
     return this.guest.execute({
-      ...request,
-      rawStdout: this.guestStdoutAudit,
-      rawStderr: this.guestStderrAudit,
+      ...forwardedRequest,
+      ...(this.workloadProfile.rawOutput === 'capture'
+        ? {
+            rawStdout: this.guestStdoutAudit,
+            rawStderr: this.guestStderrAudit,
+          }
+        : {}),
     });
   }
 
@@ -380,6 +430,7 @@ export class CloudHypervisorManager {
       stderrCapture: this.stderrCapture,
       guestStdoutCapture: this.guestStdoutCapture,
       guestStderrCapture: this.guestStderrCapture,
+      captureGuestRawOutput: this.workloadProfile.rawOutput === 'capture',
       network: this.network,
       networkPlan: this.networkPlan,
       client: this.client,
@@ -392,6 +443,11 @@ export class CloudHypervisorManager {
   }
 
   async collectGuestOutputAudit(directory: string): Promise<void> {
+    if (this.workloadProfile.rawOutput !== 'capture') {
+      throw new Error(
+        `Raw guest output is unavailable for Cloud Hypervisor ${this.workloadProfile.kind}`,
+      );
+    }
     await writeGuestOutputAudit(
       directory,
       this.dependencies,
@@ -399,4 +455,10 @@ export class CloudHypervisorManager {
       this.guestStderrCapture,
     );
   }
+}
+
+function isWorkloadProfile(
+  value: CloudHypervisorWorkloadProfile | CloudHypervisorManagerNetworkConfig | undefined,
+): value is CloudHypervisorWorkloadProfile {
+  return value !== undefined && 'kind' in value;
 }
