@@ -88,12 +88,13 @@ sequenceDiagram
   participant B as enclave-mcp-server
   participant H as host enclave executor
   participant C as mcpg delegation control
+  participant G as mcpg GitHub data plane
   participant V as single-use agent microVM
   B->>H: authenticated invoke (selector, bounded task, schema hash)
   H->>C: admit/mint identity using host-only capability
   C-->>H: one-repository bearer and expiry
   H->>V: bounded task and read-only bearer
-  V->>C: GitHub data plane only
+  V->>G: GitHub data plane only
   V-->>H: bounded result
   H->>C: revoke identity
   H-->>B: settled result
