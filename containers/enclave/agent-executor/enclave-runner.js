@@ -3,6 +3,7 @@
 const { DockerEnclaveRunner } = require('./docker-enclave-runner');
 const { GvisorEnclaveRunner } = require('./gvisor-enclave-runner');
 const { SbxEnclaveRunner } = require('./sbx-enclave-runner');
+const { createRunnerLifecycle } = require('../script-executor/runner-lifecycle');
 const {
   ENCLAVE_INVOCATION_LABEL,
   ENCLAVE_MAX_FILE_BYTES,
@@ -21,8 +22,11 @@ const {
  *   runId: string,
  *   invocationId: string,
  *   seedId: string,
- *   timeoutMs?: number
- * }) => Promise<{exitCode: number, timedOut: boolean}>} runEnclaveContainer
+ *   deadlineMs: number,
+ *   signal?: AbortSignal
+ * }) => Promise<{status: string, exitCode: number, timedOut: boolean}>} runInvocation
+ * @property {(handle: object) => Promise<void>} cancelInvocation
+ * @property {(handle: object) => Promise<void>} cleanupInvocation
  */
 
 /**
@@ -39,16 +43,19 @@ const {
  * @returns {EnclaveRunner}
  */
 function createEnclaveRunner(config, deps = {}) {
+  let adapter;
   if (config.backend === 'docker') {
-    return new DockerEnclaveRunner(config, deps);
-  }
-  if (config.backend === 'gvisor') {
-    return new GvisorEnclaveRunner(config, deps);
-  }
-  if (config.backend === 'sbx') {
+    adapter = new DockerEnclaveRunner(config, deps);
+  } else if (config.backend === 'gvisor') {
+    adapter = new GvisorEnclaveRunner(config, deps);
+  } else if (config.backend === 'sbx') {
+    // The audited sbx capability probe remains fail-closed and independent of
+    // the Docker/gVisor lifecycle integration in this change.
     return new SbxEnclaveRunner(config, deps);
+  } else {
+    throw new Error(`Unsupported enclave-agent backend: ${config.backend}`);
   }
-  throw new Error(`Unsupported enclave-agent backend: ${config.backend}`);
+  return createRunnerLifecycle(adapter, deps);
 }
 
 module.exports = {

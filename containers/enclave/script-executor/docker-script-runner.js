@@ -19,6 +19,7 @@ class DockerScriptRunner {
     this.config = config;
     this.runtimeName = runtimeName;
     this.docker = deps.docker || defaultDockerClient;
+    this.nowMs = deps.nowMs || Date.now;
     this.cleanupTail = Promise.resolve();
   }
 
@@ -73,38 +74,45 @@ class DockerScriptRunner {
     await this.serializeCleanup(() => this.removeListed(spec.runListArgs));
   }
 
-  async cleanupInvocation(runId, invocationId) {
-    const spec = this.spec(runId, invocationId);
-    await this.serializeCleanup(() => this.removeListed(spec.invocationListArgs));
-  }
-
-  async runScriptContainer(params) {
-    const spec = this.spec(params.runId, params.invocationId);
-    const timeoutMs = normalizeTimeoutMs(
-      (params.timeoutMs ?? this.config.timeoutSeconds * 1000) + CLI_GRACE_MS,
-    );
-
-    let result;
-    let runError;
+  async cleanupInvocation(handle) {
+    const spec = this.spec(handle.runId, handle.invocationId);
     try {
-      result = await this.docker.runDocker(spec.launchArgs, timeoutMs);
+      await this.serializeCleanup(() => this.removeListed(spec.invocationListArgs));
     } catch (error) {
-      runError = error;
-    }
-
-    try {
-      await this.cleanupInvocation(params.runId, params.invocationId);
-    } catch (cleanupError) {
-      // A successful `docker run` means the container has already stopped, so
-      // preserve its result as before this refactor. Timeout/error paths may
-      // still have a live sandbox and therefore fail closed when cleanup fails.
-      if (!result || result.timedOut || result.exitCode !== 0) {
-        throw cleanupError;
+      // Preserve the existing Docker script behavior: after a successful
+      // `docker run`, the container is already stopped and its bounded result
+      // remains valid even if removing the stopped record fails. Timeout,
+      // cancellation, non-zero exit, and partial-launch paths still fail closed.
+      if (!handle.resultValue || handle.resultValue.timedOut || handle.resultValue.exitCode !== 0) {
+        throw error;
       }
     }
+  }
 
-    if (runError) throw runError;
-    return result;
+  async launchInvocation(params) {
+    const spec = this.spec(params.runId, params.invocationId);
+    const remainingMs = params.deadlineMs - this.nowMs();
+    if (remainingMs <= 0) throw new Error('Enclave script deadline elapsed before launch');
+    const timeoutMs = normalizeTimeoutMs(
+      remainingMs + CLI_GRACE_MS,
+    );
+    const cancellation = new AbortController();
+    return {
+      runId: params.runId,
+      invocationId: params.invocationId,
+      cancellation,
+      result: this.docker.runDocker(spec.launchArgs, timeoutMs, cancellation.signal),
+    };
+  }
+
+  async collectResult(handle) {
+    handle.resultValue = await handle.result;
+    return handle.resultValue;
+  }
+
+  cancelInvocation(handle) {
+    handle.cancellation.abort();
+    return this.cleanupInvocation(handle);
   }
 }
 

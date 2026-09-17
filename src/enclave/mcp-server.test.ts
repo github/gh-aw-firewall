@@ -302,7 +302,7 @@ describe('unified enclave ledger and timing', () => {
       responseJitterSource: () => 0,
       clock,
       runner: {
-        runScriptContainer: async () => {
+        runInvocation: async () => {
           now += 5;
           return { exitCode: 0, timedOut: false };
         },
@@ -352,7 +352,7 @@ describe('unified enclave ledger and timing', () => {
       telemetry: { emit: jest.fn() },
       executorKind: 'script',
       clock: { nowMs: () => 0, sleep: async () => undefined },
-      runner: { runScriptContainer: run },
+      runner: { runInvocation: run },
       workspace,
     });
 
@@ -463,7 +463,7 @@ describe('unified enclave ledger and timing', () => {
         },
       },
       runner: {
-        runScriptContainer: async () => {
+        runInvocation: async () => {
           now += 50;
           return { exitCode: 0, timedOut: false };
         },

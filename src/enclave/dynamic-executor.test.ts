@@ -306,7 +306,7 @@ describe('dynamic executor handler routing', () => {
         destroyInvocationWorkspace: () => undefined,
       },
       runner: {
-        runScriptContainer: async () => ({ exitCode: 0, timedOut: false }),
+        runInvocation: async () => ({ exitCode: 0, timedOut: false }),
       },
       admission: {
         async admit(params: Record<string, unknown>) {
@@ -415,7 +415,7 @@ describe('dynamic executor handler routing', () => {
         destroyInvocationWorkspace: () => undefined,
       },
       runner: {
-        runScriptContainer: async () => ({ exitCode: 0, timedOut: false }),
+        runInvocation: async () => ({ exitCode: 0, timedOut: false }),
       },
       admission: {
         async admit(params: Record<string, unknown>) {
@@ -532,11 +532,11 @@ describe('dynamic enclave runner binding', () => {
   it('threads the admitted repository and read mode into the launch vector', async () => {
     const docker = stubDocker();
     const runner = createAgentRunner(runnerConfig, { docker });
-    await runner.runScriptContainer({
+    await runner.runInvocation({
       runId: 'a'.repeat(32),
       invocationId: 'b'.repeat(24),
-      timeoutMs: 1000,
-      dynamic: { repository: 'octo-org/service', readMode: 'live' },
+      deadlineMs: Date.now() + 1000,
+      binding: { repository: 'octo-org/service', readMode: 'live' },
     });
     const launch = docker.calls.find((args) => args[0] === 'run')!;
     expect(launch).toContain('AWF_ENCLAVE_AGENT_DYNAMIC_REPO=octo-org/service');
@@ -547,11 +547,11 @@ describe('dynamic enclave runner binding', () => {
   it('carries a pinned read mode through unchanged', async () => {
     const docker = stubDocker();
     const runner = createAgentRunner(runnerConfig, { docker });
-    await runner.runScriptContainer({
+    await runner.runInvocation({
       runId: 'a'.repeat(32),
       invocationId: 'c'.repeat(24),
-      timeoutMs: 1000,
-      dynamic: { repository: 'octo-org/service', readMode: 'pinned' },
+      deadlineMs: Date.now() + 1000,
+      binding: { repository: 'octo-org/service', readMode: 'pinned' },
     });
     const launch = docker.calls.find((args) => args[0] === 'run')!;
     expect(launch).toContain('AWF_ENCLAVE_AGENT_DYNAMIC_READ_MODE=pinned');
@@ -560,11 +560,11 @@ describe('dynamic enclave runner binding', () => {
   it('accepts the steady-state topology a dynamic run actually creates', async () => {
     const docker = stubDocker();
     const runner = createAgentRunner(runnerConfig, { docker });
-    await expect(runner.runScriptContainer({
+    await expect(runner.runInvocation({
       runId: 'a'.repeat(32),
       invocationId: 'd'.repeat(24),
-      timeoutMs: 1000,
-      dynamic: { repository: 'octo-org/service', readMode: 'live' },
+      deadlineMs: Date.now() + 1000,
+      binding: { repository: 'octo-org/service', readMode: 'live' },
     })).resolves.toMatchObject({ exitCode: 0 });
   });
 
@@ -574,11 +574,11 @@ describe('dynamic enclave runner binding', () => {
       + 'awmg-mcpg@172.31.0.40/24,intruder@172.31.0.99/24,',
     );
     const runner = createAgentRunner(runnerConfig, { docker });
-    await expect(runner.runScriptContainer({
+    await expect(runner.runInvocation({
       runId: 'a'.repeat(32),
       invocationId: 'e'.repeat(24),
-      timeoutMs: 1000,
-      dynamic: { repository: 'octo-org/service', readMode: 'live' },
+      deadlineMs: Date.now() + 1000,
+      binding: { repository: 'octo-org/service', readMode: 'live' },
     })).rejects.toThrow(/not isolated/);
   });
 
@@ -589,11 +589,11 @@ describe('dynamic enclave runner binding', () => {
   ])('refuses to launch a dynamic enclave with %s', async (_label, dynamic) => {
     const docker = stubDocker();
     const runner = createAgentRunner(runnerConfig, { docker });
-    await expect(runner.runScriptContainer({
+    await expect(runner.runInvocation({
       runId: 'a'.repeat(32),
       invocationId: 'f'.repeat(24),
-      timeoutMs: 1000,
-      dynamic,
+      deadlineMs: Date.now() + 1000,
+      binding: dynamic,
     })).rejects.toThrow();
     expect(docker.calls.some((args) => args[0] === 'run')).toBe(false);
   });

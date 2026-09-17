@@ -5,7 +5,7 @@ const { execFile } = require('child_process');
 /**
  * Executes the Docker CLI with bounded output and no inherited credentials.
  */
-function runDocker(args, timeoutMs) {
+function runDocker(args, timeoutMs, signal) {
   return new Promise((resolve) => {
     execFile(
       'docker',
@@ -13,6 +13,7 @@ function runDocker(args, timeoutMs) {
       {
         timeout: timeoutMs,
         killSignal: 'SIGKILL',
+        signal,
         maxBuffer: 64 * 1024,
         env: { PATH: process.env.PATH || '/usr/local/bin:/usr/bin:/bin' },
       },

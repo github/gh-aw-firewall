@@ -90,6 +90,7 @@ function createExecutorHandler(params) {
   const settledInvocations = new Set();
   /** Invocations that reached dynamic admission and therefore own an identity. */
   const admittedInvocations = new Set();
+  const activeCancellations = new Set();
 
   function emitInvocationTelemetry(category) {
     telemetry.emit({
@@ -140,9 +141,12 @@ function createExecutorHandler(params) {
    */
   async function execute(request, respond) {
     const invocationId = crypto.randomBytes(12).toString('hex');
+    const cancellation = new AbortController();
+    activeCancellations.add(cancellation);
     try {
-      await executeInvocation(request, respond, invocationId);
+      await executeInvocation(request, respond, invocationId, cancellation.signal);
     } finally {
+      activeCancellations.delete(cancellation);
       // A dynamic invocation that reached admission must always settle its
       // reservation and revoke its identity, even if an unexpected error
       // escaped the pipeline. `settleDynamic` is a no-op once an invocation
@@ -153,7 +157,7 @@ function createExecutorHandler(params) {
     }
   }
 
-  async function executeInvocation(request, respond, invocationId) {
+  async function executeInvocation(request, respond, invocationId, signal) {
     const admissionStartMs = uniformTiming ? clock.nowMs() : undefined;
     let responded = false;
     const safeRespond = (json) => {
@@ -268,17 +272,19 @@ function createExecutorHandler(params) {
         failureReason = ['timeout', 'workspace-creation-overran-deadline'];
       } else {
         try {
-          const run = await runner.runScriptContainer({
-            config,
+          const run = await runner.runInvocation({
             runId,
             invocationId,
             seedId: seed.seedId,
-            timeoutMs: remainingMs,
+            deadlineMs: clock.nowMs() + remainingMs,
+            signal,
             ...(admitted
-              ? { dynamic: { repository: admitted.repo, readMode: admitted.readMode } }
+              ? { binding: { repository: admitted.repo, readMode: admitted.readMode } }
               : {}),
           });
-          if (run.timedOut) {
+          if (run.status === 'cancelled') {
+            failureReason = ['cancelled'];
+          } else if (run.timedOut) {
             failureReason = ['timeout'];
           } else if (run.exitCode !== 0) {
             failureReason = [
@@ -393,9 +399,10 @@ function createExecutorHandler(params) {
   }
 
   return {
-    /** Stops admitting new invocations while letting admitted work drain. */
+    /** Stops admissions and cancels any active runtime invocation. */
     close() {
       accepting = false;
+      for (const cancellation of activeCancellations) cancellation.abort();
     },
 
     /**

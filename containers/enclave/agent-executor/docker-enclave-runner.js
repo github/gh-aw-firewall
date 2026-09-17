@@ -21,6 +21,7 @@ class DockerEnclaveRunner {
     this.config = config;
     this.runtimeName = runtimeName;
     this.docker = deps.docker || defaultDockerClient;
+    this.nowMs = deps.nowMs || Date.now;
     this.cleanupTail = Promise.resolve();
   }
 
@@ -117,8 +118,8 @@ class DockerEnclaveRunner {
     await this.serializeCleanup(() => this.removeListed(spec.runListArgs));
   }
 
-  async cleanupInvocation(runId, invocationId) {
-    const spec = this.spec(runId, invocationId, '0'.repeat(32), undefined, false);
+  async cleanupInvocation(handle) {
+    const spec = this.spec(handle.runId, handle.invocationId, '0'.repeat(32), undefined, false);
     await this.serializeCleanup(() => this.removeListed(spec.invocationListArgs));
   }
 
@@ -128,32 +129,29 @@ class DockerEnclaveRunner {
    * Cleanup failures fail closed on the timeout/error paths, where a live
    * sandbox may still hold a mount of private repository content.
    */
-  async runEnclaveContainer(params) {
-    const spec = this.spec(params.runId, params.invocationId, params.seedId, params.dynamic);
-    const timeoutMs = normalizeTimeoutMs(
-      (params.timeoutMs ?? this.config.timeoutSeconds * 1000) + CLI_GRACE_MS,
-    );
+  async launchInvocation(params) {
+    const spec = this.spec(params.runId, params.invocationId, params.seedId, params.binding);
+    await this.assertNetworkIsolated();
+    const remainingMs = params.deadlineMs - this.nowMs();
+    if (remainingMs <= 0) throw new Error('Enclave agent deadline elapsed during network preflight');
+    const timeoutMs = normalizeTimeoutMs(remainingMs + CLI_GRACE_MS);
+    const cancellation = new AbortController();
+    return {
+      runId: params.runId,
+      invocationId: params.invocationId,
+      cancellation,
+      result: this.docker.runDocker(spec.launchArgs, timeoutMs, cancellation.signal),
+    };
+  }
 
-    let result;
-    let runError;
-    try {
-      await this.assertNetworkIsolated();
-      result = await this.docker.runDocker(spec.launchArgs, timeoutMs);
-    } catch (error) {
-      runError = error;
-    }
-
-    try {
-      await this.cleanupInvocation(params.runId, params.invocationId);
-    } catch (cleanupError) {
-      throw cleanupError;
-    }
-
-    if (runError) throw runError;
-    // stdout/stderr are intentionally dropped here: the broker never reads,
-    // logs, or forwards enclave output. Only the exit status and the dedicated
-    // bounded result file are consulted.
+  async collectResult(handle) {
+    const result = await handle.result;
     return { exitCode: result.exitCode, timedOut: result.timedOut };
+  }
+
+  cancelInvocation(handle) {
+    handle.cancellation.abort();
+    return this.cleanupInvocation(handle);
   }
 }
 

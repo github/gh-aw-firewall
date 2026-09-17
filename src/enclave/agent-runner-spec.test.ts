@@ -269,12 +269,11 @@ describe('unified enclave agent runner specification', () => {
         },
       },
     );
-    await expect(runner.runEnclaveContainer({
-      config: trustedConfig,
+    await expect(runner.runInvocation({
       runId: 'abcdef1234567890',
       invocationId: '0123456789abcdef',
       seedId: 'b'.repeat(32),
-      timeoutMs: 1000,
+      deadlineMs: Date.now() + 1000,
     })).rejects.toThrow(/unavailable or not isolated/);
   });
 
@@ -298,11 +297,46 @@ describe('unified enclave agent runner specification', () => {
         },
       },
     );
-    await expect(runner.runEnclaveContainer({
+    await expect(runner.runInvocation({
       runId: 'abcdef1234567890',
       invocationId: '0123456789abcdef',
       seedId: 'b'.repeat(32),
+      deadlineMs: Date.now() + 1000,
     })).rejects.toThrow(/unavailable or not isolated/);
+    expect(calls.some((args) => args[0] === 'run')).toBe(false);
+  });
+
+  it('does not launch when network preflight consumes the remaining deadline', async () => {
+    let now = 1_000;
+    const calls: string[][] = [];
+    const runner = createEnclaveRunner(
+      { ...trustedConfig, backend: 'docker' },
+      {
+        nowMs: () => now,
+        docker: {
+          runDocker: async (args: string[]) => {
+            calls.push(args);
+            if (args[0] === 'network') {
+              now = 2_001;
+              return {
+                exitCode: 0,
+                timedOut: false,
+                stdout: 'true|bridge|172.31.0.0/24,|' +
+                  'awf-enclave-agent-api-proxy@172.31.0.30/24,',
+                stderr: '',
+              };
+            }
+            return { exitCode: 0, timedOut: false, stdout: '', stderr: '' };
+          },
+        },
+      },
+    );
+    await expect(runner.runInvocation({
+      runId: 'abcdef1234567890',
+      invocationId: '0123456789abcdef',
+      seedId: 'b'.repeat(32),
+      deadlineMs: 2_000,
+    })).rejects.toThrow(/deadline elapsed during network preflight/);
     expect(calls.some((args) => args[0] === 'run')).toBe(false);
   });
 

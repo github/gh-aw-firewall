@@ -158,22 +158,7 @@ const agentWorkspaceAdapter = {
  * runtime.
  */
 function createAgentRunner(config, deps = {}) {
-  const runner = createEnclaveRunner(config, deps);
-  return {
-    assertAvailable: () => runner.assertAvailable(),
-    reconcileRun: (runId) => runner.reconcileRun(runId),
-    runScriptContainer: ({ runId, invocationId, seedId, timeoutMs, dynamic }) => runner.runEnclaveContainer({
-      config,
-      runId,
-      invocationId,
-      seedId,
-      timeoutMs,
-      // Per-invocation delegation binding from AWF's canonical admission. The
-      // runner merges only the admitted repository and read mode, after
-      // revalidating both; a caller's request can express neither.
-      dynamic,
-    }),
-  };
+  return createEnclaveRunner(config, deps);
 }
 
 module.exports = {

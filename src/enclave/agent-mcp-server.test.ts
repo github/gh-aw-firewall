@@ -260,7 +260,7 @@ describe('unified enclave executor accounting', () => {
     const broker = agentBroker({
       ledger,
       clock: { nowMs: () => now, sleep: async (ms: number) => { now += ms; } },
-      runner: { runScriptContainer: async () => ({ exitCode: 0, timedOut: false }) },
+      runner: { runInvocation: async () => ({ exitCode: 0, timedOut: false }) },
       workspace: {
         createInvocationWorkspace: () => ({ outPath: 'out', sessionLogPath: 'session' }),
         readQueryOutput: () => 'true',
@@ -315,7 +315,7 @@ describe('unified enclave executor accounting', () => {
       ...shared,
       executorKind: 'script',
       runner: {
-        runScriptContainer: async () => {
+        runInvocation: async () => {
           order.push('script-start');
           await gate;
           order.push('script-end');
@@ -329,7 +329,7 @@ describe('unified enclave executor accounting', () => {
       payloadKey: 'prompt',
       validateRequest: createAgentRequestValidator(4096),
       runner: {
-        runScriptContainer: async () => {
+        runInvocation: async () => {
           order.push('agent-start');
           return { exitCode: 0, timedOut: false };
         },
@@ -353,7 +353,7 @@ describe('unified enclave executor accounting', () => {
         sleep: async (ms: number) => { sleeps.push(ms); now += ms; },
       },
       runner: {
-        runScriptContainer: async () => {
+        runInvocation: async () => {
           now += 5;
           return { exitCode: 0, timedOut: false };
         },
@@ -385,7 +385,7 @@ describe('unified enclave executor accounting', () => {
         },
       },
       runner: {
-        runScriptContainer: async () => ({ exitCode: 0, timedOut: false }),
+        runInvocation: async () => ({ exitCode: 0, timedOut: false }),
       },
       workspace: {
         createInvocationWorkspace: () => ({ outPath: 'out', sessionLogPath: 'session' }),
@@ -429,7 +429,7 @@ describe('unified enclave executor accounting', () => {
       return { audit, now, result };
     }
     const engineFailure = await run(
-      { runScriptContainer: async () => ({ exitCode: 24, timedOut: false }) },
+      { runInvocation: async () => ({ exitCode: 24, timedOut: false }) },
       new Map([['octo/private', { seedId: 'a'.repeat(16), sensitivity: 'internal' }]]),
     );
     const unknownRepo = await run({}, new Map());
@@ -449,7 +449,7 @@ describe('unified enclave executor accounting', () => {
     const broker = agentBroker({
       ledger: { tryDebit: () => true },
       clock: { nowMs: () => 0, sleep: async () => undefined },
-      runner: { runScriptContainer: async () => ({ exitCode: 0, timedOut: false }) },
+      runner: { runInvocation: async () => ({ exitCode: 0, timedOut: false }) },
       workspace: {
         createInvocationWorkspace: ({ invocationId }: { invocationId: string }) => ({
           outPath: `out-${invocationId}`,

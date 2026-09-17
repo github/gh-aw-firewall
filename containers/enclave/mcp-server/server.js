@@ -8,6 +8,7 @@ const { createEnclaveInformationBudgetLedger } = require('../../bounded-executio
 const { createExecutorHandler } = require('../script-executor/executor-handler');
 const { createScriptRunner } = require('../script-executor/script-runner');
 const { createRuntimeTelemetry } = require('../script-executor/runtime-telemetry');
+const { createRealClock } = require('../../bounded-execution/fixed-timing');
 const {
   isAgentExecutorEnabled,
   isScriptExecutorEnabled,
@@ -156,6 +157,7 @@ async function main() {
   fs.rmSync(serverConfig.readyPath, { force: true });
   const audit = createProtectedAuditLog(serverConfig.auditDir, 'enclave.jsonl');
   const telemetry = createRuntimeTelemetry(serverConfig.auditDir);
+  const clock = createRealClock();
   // A dynamic-only run stages no seed catalog at all: no clone, no seed map,
   // no /awf/seed mount, and no job token anywhere in the topology.
   const { runId, seeds } = serverConfig.seedMapEnabled
@@ -186,7 +188,7 @@ async function main() {
 
   if (scriptEnabled) {
     const config = loadConfig();
-    const runner = createScriptRunner(config);
+    const runner = createScriptRunner(config, { nowMs: clock.nowMs });
     await runner.assertAvailable();
     await runner.reconcileRun(runId);
     runners.push({ runner, config });
@@ -202,13 +204,14 @@ async function main() {
       lane,
       executorKind: 'script',
       uniformTiming: true,
+      clock,
     });
     executors.push('script');
   }
 
   if (agentEnabled) {
     const config = loadAgentConfig(serverConfig);
-    const runner = createAgentRunner(config);
+    const runner = createAgentRunner(config, { nowMs: clock.nowMs });
     await runner.assertAvailable();
     await runner.reconcileRun(runId);
     runners.push({ runner, config });
@@ -231,6 +234,7 @@ async function main() {
       exitCategories: ENCLAVE_EXIT_CATEGORIES,
       executorKind: 'agent',
       uniformTiming: true,
+      clock,
       // Dynamic entries route every selector through AWF's canonical
       // admission before any repository content is exposed. `enclave_run_script`
       // is never registered for a dynamic entry, so it is neither advertised

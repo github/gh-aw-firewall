@@ -10,7 +10,7 @@ const { execFile } = require('child_process');
  * them. `maxBuffer` bounds the capture so a chatty enclave cannot exhaust
  * broker memory.
  */
-function runDocker(args, timeoutMs) {
+function runDocker(args, timeoutMs, signal) {
   return new Promise((resolve) => {
     execFile(
       'docker',
@@ -18,6 +18,7 @@ function runDocker(args, timeoutMs) {
       {
         timeout: timeoutMs,
         killSignal: 'SIGKILL',
+        signal,
         maxBuffer: 64 * 1024,
         env: { PATH: process.env.PATH || '/usr/local/bin:/usr/bin:/bin' },
       },
