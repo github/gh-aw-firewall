@@ -177,7 +177,21 @@ function createBodyHandler({ handleRequestError, otel }) {
 
     if (bodyTransform && isWritableMethod) {
       const transformed = await bodyTransform(body, req);
-      if (transformed) body = transformed;
+      // Body transforms must honour the `Buffer | null` contract. A non-Buffer
+      // result would otherwise flow through as the request body, yielding an
+      // invalid `Content-Length` and an empty upstream request (rejected with
+      // an opaque upstream 400), so ignore it and keep the untransformed body.
+      if (transformed) {
+        if (Buffer.isBuffer(transformed)) {
+          body = transformed;
+        } else {
+          logRequest('warn', 'request_transform_ignored', {
+            request_id: requestId,
+            provider,
+            reason: 'body_transform_returned_non_buffer',
+          });
+        }
+      }
     }
 
     // Adapt Codex's Responses `custom`/freeform tool dialect (e.g.
