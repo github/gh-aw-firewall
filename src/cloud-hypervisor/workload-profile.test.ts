@@ -132,14 +132,16 @@ describe('Cloud Hypervisor workload profiles', () => {
     { tag: 'seed', source: '/workspace', target: '/workspace', mode: 'ro' as const },
     { tag: 'seed', source: '/workspace', target: '/workspace/private', mode: 'ro' as const },
   ])('rejects workspace exports from enclave profiles', (workspaceExport) => {
-    const profile = structuredClone(createScriptEnclaveCloudHypervisorProfile({
-      enclaveId: 'script-entry',
-      invocationId: 'invocation',
-      guest: supervisor,
-    })) as unknown as Record<string, any>;
-    profile.guest.exports = [workspaceExport];
+    const profile = {
+      ...createScriptEnclaveCloudHypervisorProfile({
+        enclaveId: 'script-entry',
+        invocationId: 'invocation',
+        guest: supervisor,
+      }),
+      guest: { ...supervisor, exports: [workspaceExport] },
+    };
 
-    expect(() => validateCloudHypervisorWorkloadProfile(profile as never))
+    expect(() => validateCloudHypervisorWorkloadProfile(profile))
       .toThrow(/must not declare a primary workspace mount/);
   });
 
