@@ -67,8 +67,8 @@ describe('Cloud Hypervisor runtime validation', () => {
     }))).toThrow(/resolved without Cloud Hypervisor runtime configuration/);
   });
 
-  it('distinguishes enclave-only infrastructure from the primary runtime', () => {
-    const enclaveOnly = config({
+  it('supports a Cloud Hypervisor script executor alongside a Docker agent executor', () => {
+    const mixedRuntimes = config({
       containerRuntime: 'docker',
       enableApiProxy: false,
       tty: true,
@@ -77,16 +77,44 @@ describe('Cloud Hypervisor runtime validation', () => {
         script: {},
         runtime: 'cloud-hypervisor',
         repos: [{ repo: 'octo/private', sensitivity: 'internal' }],
+      }, {
+        agent: { model: 'gpt-5.3-codex' },
+        runtime: 'docker',
       }]),
     });
 
-    expect(isPrimaryCloudHypervisorRuntime(enclaveOnly)).toBe(false);
-    expect(usesCloudHypervisorEnclaveRuntime(enclaveOnly)).toBe(true);
-    expect(requiresCloudHypervisorInfrastructure(enclaveOnly)).toBe(true);
-    expect(() => assertCloudHypervisorSelection(enclaveOnly)).not.toThrow();
-    expect(() => assertCloudHypervisorPreSecurityCompatibility(enclaveOnly)).not.toThrow();
-    expect(() => assertCloudHypervisorRuntimeCompatibility(enclaveOnly)).not.toThrow();
-    expect(requireCloudHypervisorConfig(enclaveOnly)).toBe(enclaveOnly.cloudHypervisor);
+    expect(isPrimaryCloudHypervisorRuntime(mixedRuntimes)).toBe(false);
+    expect(usesCloudHypervisorEnclaveRuntime(mixedRuntimes)).toBe(true);
+    expect(requiresCloudHypervisorInfrastructure(mixedRuntimes)).toBe(true);
+    expect(() => assertCloudHypervisorSelection(mixedRuntimes)).not.toThrow();
+    expect(() => assertCloudHypervisorPreSecurityCompatibility(mixedRuntimes)).not.toThrow();
+    expect(() => assertCloudHypervisorRuntimeCompatibility(mixedRuntimes)).not.toThrow();
+    expect(requireCloudHypervisorConfig(mixedRuntimes)).toBe(mixedRuntimes.cloudHypervisor);
+  });
+
+  it('requires API-proxy isolation for a Cloud Hypervisor agent executor alongside Docker scripts', () => {
+    const mixedRuntimes = config({
+      containerRuntime: 'docker',
+      enableApiProxy: false,
+      enclaves: normalizeEnclavesConfig([{
+        script: {},
+        runtime: 'docker',
+        repos: [{ repo: 'octo/private', sensitivity: 'internal' }],
+      }, {
+        agent: { model: 'gpt-5.3-codex' },
+        runtime: 'cloud-hypervisor',
+      }]),
+    });
+
+    expect(usesCloudHypervisorEnclaveRuntime(mixedRuntimes)).toBe(true);
+    expect(requiresCloudHypervisorInfrastructure(mixedRuntimes)).toBe(true);
+    expect(() => assertCloudHypervisorSelection(mixedRuntimes)).not.toThrow();
+    expect(() => assertCloudHypervisorRuntimeCompatibility(mixedRuntimes))
+      .toThrow(/API proxy credential isolation/);
+    expect(() => assertCloudHypervisorRuntimeCompatibility({
+      ...mixedRuntimes,
+      enableApiProxy: true,
+    })).not.toThrow();
   });
 
   it('requires top-level configuration for an enclave-only selection', () => {
