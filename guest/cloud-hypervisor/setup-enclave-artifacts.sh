@@ -94,7 +94,7 @@ verify_cache() {
     'schemaVersion,artifactType,architecture,release,compatibility,rootfs' \
     "enclave artifact manifest" || return 1
   assert_closed_keys "$manifest" '.release' \
-    'repository,workflow,tag' \
+    'repository,workflow,tag,sourceCommit' \
     "enclave artifact manifest release" || return 1
   assert_closed_keys "$manifest" '.compatibility' \
     'cloudHypervisorVersion,kernelVersion,supervisorVersion' \

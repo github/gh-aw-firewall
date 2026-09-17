@@ -128,7 +128,12 @@ verify_enclave_rootfs() {
   debugfs -R "stat $entrypoint" "$image" 2>&1 | grep -F 'Type: regular'
   debugfs -R 'stat /usr/sbin/awf-supervisor' "$image" 2>&1 | grep -F 'Type: regular'
   device_listing=$(debugfs -R 'ls -p /dev' "$image" 2>/dev/null)
-  if printf '%s\n' "$device_listing" | grep -Ev '/\.$|/\.\.$|^$' | grep -q .; then
+  # debugfs `ls -p` emits `/inode/mode/uid/gid/name/size/`. Permit only the
+  # directory's mandatory `.` and `..` entries; any other name, regardless of
+  # inode type, means the immutable image embeds a device-directory entry.
+  if printf '%s\n' "$device_listing" \
+    | awk -F/ 'NF > 0 && (NF < 7 || ($6 != "." && $6 != "..")) { print; found=1 } END { exit found ? 0 : 1 }'
+  then
     echo "unexpected embedded device found in $role enclave rootfs" >&2
     return 1
   fi

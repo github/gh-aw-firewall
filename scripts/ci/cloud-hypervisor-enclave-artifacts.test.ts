@@ -113,6 +113,30 @@ describe('Cloud Hypervisor enclave rootfs artifacts', () => {
     }
     expect(verify).toContain('forbidden enclave rootfs path present');
     expect(verify).toContain('embedded repository seed found');
+    expect(verify).toContain('NF < 7 || ($6 != "." && $6 != "..")');
+  });
+
+  it('accepts only dot entries in an empty debugfs device directory listing', () => {
+    const validator = 'NF > 0 && (NF < 7 || ($6 != "." && $6 != "..")) '
+      + '{ print; found=1 } END { exit found ? 0 : 1 }';
+    const emptyDirectory = [
+      '/678/040555/0/0/./0/',
+      '/2518/040755/0/0/../0/',
+    ].join('\n');
+    expect(() => execFileSync('awk', ['-F/', validator], {
+      input: `${emptyDirectory}\n`,
+    })).toThrow();
+
+    const embeddedDevice = `${emptyDirectory}\n/3000/020666/0/0/null/0/\n`;
+    expect(execFileSync('awk', ['-F/', validator], {
+      input: embeddedDevice,
+      encoding: 'utf8',
+    })).toContain('/null/');
+
+    expect(execFileSync('awk', ['-F/', validator], {
+      input: 'malformed debugfs output\n',
+      encoding: 'utf8',
+    })).toContain('malformed debugfs output');
   });
 
   it('downloads once and re-verifies attestation, metadata, digest, and size on cache reuse', () => {
@@ -126,6 +150,7 @@ describe('Cloud Hypervisor enclave rootfs artifacts', () => {
     expect(setup).toContain('--deny-self-hosted-runners');
     expect(setup).toContain('.compatibility.supervisorVersion');
     expect(setup).toContain('.sourceImageDigest | test');
+    expect(setup).toContain("'repository,workflow,tag,sourceCommit'");
     expect(setup).toContain('enclave-script-rootfs.provenance.sigstore.jsonl');
     expect(setup).toContain('enclave-agent-rootfs.provenance.sigstore.jsonl');
     expect(setup).toContain('AWF_CLOUD_HYPERVISOR_ENCLAVE_SCRIPT_ROOTFS');
