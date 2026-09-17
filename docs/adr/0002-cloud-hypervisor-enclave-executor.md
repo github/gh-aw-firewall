@@ -234,10 +234,11 @@ Hypervisor enclave rollout is additionally gated on:
 4. for dynamic agents, the ADR 0001 compiler handoff and mcpg v0.4.18-or-newer
    delegation controller (v0.4.17 decoded wire TTL seconds as nanoseconds).
 
-Unsupported hosts, artifacts, protocol versions, executor kinds, image
-overrides, and mixed configurations fail closed. Non-goals are arbitrary guest
-egress, custom guest images, moving mcpg or the enclave MCP backend into a VM,
-and changing Docker/gVisor/sbx semantics.
+Unsupported hosts, artifacts, protocol versions, executor kinds, and image
+overrides fail closed. Mixed configurations fail closed unless every selected
+runtime independently passes preflight. Non-goals are arbitrary guest egress,
+custom guest images, moving mcpg or the enclave MCP backend into a VM, and
+changing Docker/gVisor/sbx semantics.
 
 ## Blocking follow-ups
 
