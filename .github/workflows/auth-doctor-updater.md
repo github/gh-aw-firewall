@@ -22,7 +22,6 @@ tools:
 sandbox:
   agent:
     id: awf
-    runtime: cloud-hypervisor
 network:
   allowed:
     - github

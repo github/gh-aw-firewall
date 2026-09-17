@@ -20,6 +20,8 @@ describe('auth doctor updater workflow config', () => {
     expect(source).toContain('allowed-files:');
     expect(source).toContain('docs/auth-matrix.md');
     expect(source).toContain('never run `git commit`, `git push`, or `gh pr create`');
+    expect(source).toContain('id: awf');
+    expect(source).not.toContain('runtime: cloud-hypervisor');
     expect(source).not.toContain('create-issue:');
   });
 
@@ -61,6 +63,8 @@ describe('auth doctor updater workflow config', () => {
     expect(lock).toContain('Compute scan window');
     expect(lock).toContain('create_pull_request');
     expect(lock).toContain('docs/auth-matrix.md');
+    expect(lock).toContain('GH_AW_INFO_AGENT_RUNTIME: ""');
+    expect(lock).not.toContain('--container-runtime cloud-hypervisor');
     expect(lock).toMatch(/memory-none-nopolicy-\$\{\{ env\.GH_AW_WORKFLOW_ID_SANITIZED \}\}-/);
     expect(lock).toMatch(/github\/gh-aw(?:-actions\/|\/actions\/)setup@[a-f0-9]{40}/);
   });
