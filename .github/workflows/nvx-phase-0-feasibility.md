@@ -69,6 +69,17 @@ steps:
           '{check:$check,status:$status,detail:$detail}' >> "$RESULTS_FILE"
       }
 
+      run_with_kvm_group() {
+        kvm_gid=$(stat -c %g /dev/kvm)
+        runner_uid=$(id -u)
+        runner_gid=$(id -g)
+        sudo setpriv \
+          --reuid "$runner_uid" \
+          --regid "$runner_gid" \
+          --groups "$kvm_gid" \
+          -- "$@"
+      }
+
       ensure_kvm_access() {
         {
           echo "=== $(date -Is) ==="
@@ -76,16 +87,8 @@ steps:
           getfacl -cp /dev/kvm
         } >> "$DATA_DIR/logs/kvm-access.log" 2>&1
 
-        kvm_gid=$(stat -c %g /dev/kvm)
-        runner_user=$(id -un)
-        sudo -u "$runner_user" -g "#$kvm_gid" -- /usr/bin/test -r /dev/kvm &&
-          sudo -u "$runner_user" -g "#$kvm_gid" -- /usr/bin/test -w /dev/kvm
-      }
-
-      run_with_kvm_group() {
-        kvm_gid=$(stat -c %g /dev/kvm)
-        runner_user=$(id -un)
-        sudo -u "$runner_user" -g "#$kvm_gid" -- "$@"
+        run_with_kvm_group /usr/bin/test -r /dev/kvm &&
+          run_with_kvm_group /usr/bin/test -w /dev/kvm
       }
 
       platform=$(uname -s)
