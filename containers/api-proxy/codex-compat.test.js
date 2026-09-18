@@ -7,6 +7,7 @@ const {
   transformCodexCompatibleResponseBody,
   createCodexCompatibleSseTransform,
 } = require('./codex-compat');
+const { createAllAdapters } = require('./providers');
 
 function json(buffer) {
   return JSON.parse(buffer.toString('utf8'));
@@ -235,5 +236,27 @@ describe('Codex apply_patch compatibility transform', () => {
 
     expect(output).toContain('caf\u00e9');
     expect(output).not.toContain('\uFFFD');
+  });
+});
+
+describe('Copilot adapter body transform contract', () => {
+  test('never returns a non-Buffer body for Codex custom-tool requests', () => {
+    // Regression: the Codex translation returns `{ body, compatibility }`,
+    // which does not satisfy the `Buffer | null` body-transform contract.
+    // Composing it into the adapter's bodyTransform made the request pipeline
+    // treat that object as the body, producing `Content-Length: undefined`
+    // with no body written — rejected upstream with an HTML 400.
+    const adapters = createAllAdapters({ COPILOT_GITHUB_TOKEN: 'copilot-token' }, {});
+    const copilot = adapters.find((adapter) => adapter.name === 'copilot');
+    const body = Buffer.from(JSON.stringify({
+      model: 'gpt-5-mini',
+      tools: [{ type: 'custom', name: 'apply_patch', format: { type: 'text' } }],
+      input: 'edit a file',
+    }));
+
+    const transform = copilot.getBodyTransform();
+    const result = transform ? transform(body) : null;
+
+    expect(result === null || Buffer.isBuffer(result)).toBe(true);
   });
 });
