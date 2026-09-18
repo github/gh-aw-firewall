@@ -82,6 +82,7 @@ describe('applyGeneralWorkflowPatches published AWF maintenance workflows', () =
     'auth-doctor-updater.lock.yml',
     'doc-maintainer.lock.yml',
     'model-api-mapping-updater.lock.yml',
+    'nvx-phase-0-feasibility.lock.yml',
     'sbx-gvisor-doc-updater.lock.yml',
     'schema-sync.lock.yml',
     'self-hosted-runner-doctor-updater.lock.yml',
