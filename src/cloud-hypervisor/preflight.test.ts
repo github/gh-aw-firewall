@@ -175,6 +175,11 @@ describe('Cloud Hypervisor preflight (foundation only)', () => {
       const header = await defaults.readElfHeader(elfPath);
       expect(header.subarray(0, 4)).toEqual(Buffer.from([0x7f, 0x45, 0x4c, 0x46]));
       expect(header).toHaveLength(20);
+
+      const truncatedPath = path.join(directory, 'truncated-artifact');
+      await fs.writeFile(truncatedPath, Buffer.from([0x7f, 0x45, 0x4c, 0x46]));
+      const truncatedHeader = await defaults.readElfHeader(truncatedPath);
+      expect(truncatedHeader).toHaveLength(4);
     } finally {
       await fs.rm(directory, { recursive: true, force: true });
     }
@@ -639,6 +644,20 @@ describe('Cloud Hypervisor preflight (foundation only)', () => {
       dependencies({
         runVersion,
         readElfHeader: jest.fn().mockResolvedValue(Buffer.from('not an elf binary')),
+      }),
+    )).rejects.toThrow(
+      /Cloud Hypervisor binary at "\/snapshot\/cloud-hypervisor" is not a valid ELF binary/,
+    );
+    expect(runVersion).not.toHaveBeenCalled();
+  });
+
+  it('rejects a truncated staged binary with a valid magic but short header', async () => {
+    const runVersion = jest.fn().mockResolvedValue('cloud-hypervisor v53.0');
+    await expect(runCloudHypervisorPreflight(
+      config(),
+      dependencies({
+        runVersion,
+        readElfHeader: jest.fn().mockResolvedValue(Buffer.from([0x7f, 0x45, 0x4c, 0x46])),
       }),
     )).rejects.toThrow(
       /Cloud Hypervisor binary at "\/snapshot\/cloud-hypervisor" is not a valid ELF binary/,

@@ -185,8 +185,8 @@ const defaultDependencies: CloudHypervisorPreflightDependencies = {
     const handle = await fs.open(filePath, 'r');
     try {
       const buffer = Buffer.alloc(ELF_HEADER_LENGTH);
-      await handle.read(buffer, 0, ELF_HEADER_LENGTH, 0);
-      return buffer;
+      const { bytesRead } = await handle.read(buffer, 0, ELF_HEADER_LENGTH, 0);
+      return buffer.subarray(0, bytesRead);
     } finally {
       await handle.close();
     }
