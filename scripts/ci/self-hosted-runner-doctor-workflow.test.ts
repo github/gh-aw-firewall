@@ -285,6 +285,12 @@ describe('self-hosted runner doctor workflow config', () => {
     expect(portableAgent).toContain('D13 / github/gh-aw-firewall#8250, github/gh-aw-firewall#8252, github/gh-aw-firewall#8568, github/gh-aw-firewall#8575 — With `--container-runtime sbx`');
     expect(portableAgent).toContain('B33 / github/gh-aw-firewall#8249, github/gh-aw-firewall#8251, github/gh-aw-firewall#8615, github/gh-aw-firewall#8624');
     expect(portableAgent).toContain('D14 / github/gh-aw-firewall#8620, github/gh-aw-firewall#8622');
+    expect(portableAgent).toMatch(/^\| D13 \|.*github\/gh-aw-firewall#8575 \|$/m);
+    expect(portableAgent).toMatch(/^\| B33 \|.*github\/gh-aw-firewall#8624 \|$/m);
+    expect(portableAgent).toMatch(/^\| D14 \|.*github\/gh-aw-firewall#8622 \|$/m);
+    expect(portableAgent).toContain('| `Direct sbx egress reached 1.1.1.1 without proxy environment variables` that clears after a brief retry while Squid starts | D13 update');
+    expect(portableAgent).toContain('| `docker compose up -d` fails after AWF topology recreates Squid mid-run (new `extra_hosts`), with stale/unwritable Squid log files | B33 update');
+    expect(portableAgent).toContain('| `"cloud-hypervisor --version" exited with code undefined` under `--container-runtime cloud-hypervisor` | D14');
     expect(portableAgent).toContain('D11 / github/gh-aw-firewall#6558 — gVisor + Node.js v22 V8 ESM startup crash root cause remains unresolved (`SIGABRT` `StringBytes::Encode` assertion and occasional exit 139).');
     expect(portableAgent).toContain('D12 / github/gh-aw-firewall#6810, github/gh-aw-firewall#6811 — Copilot runs using `model: auto` under isolated runtimes (`--container-runtime gvisor` or `sbx`) could fail before agent start with `awf-reflect: request failed: fetch failed` plus `Model "auto" has no AI credits pricing and no default pricing is configured` when `apiProxy.maxAiCredits` was enabled.');
     expect(portableAgent).toContain('- `awf-agent` fails to start under `runner.topology: arc-dind` (runc cannot create the `/dev/null` credential-hiding overlay mountpoints under `/host$HOME`), or the entrypoint aborts with `mkdir -p /host$HOME/.m2` failing under `set -e` → A20 (sysroot filter dropped every mount targeting `/host$HOME`, including a caller-supplied writable home; fixed in github/gh-aw-firewall#7244)');
