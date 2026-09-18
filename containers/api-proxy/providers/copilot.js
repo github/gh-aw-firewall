@@ -25,7 +25,6 @@ const {
 } = require('../proxy-utils');
 const { createOidcAwareProviderAdapter } = require('../adapter-factory');
 const { sanitizeNullToolCallTypes } = require('../body-transform');
-const { translateCodexCustomToolsForCopilot } = require('../codex-compat');
 const {
   parseByokExtraHeaders,
   parseByokExtraBodyFields,
@@ -130,10 +129,14 @@ function createCopilotAdapter(env, deps = {}) {
   const byokBodyFieldTransform = (apiKey && Object.keys(byokExtraBodyFields).length > 0)
     ? (body) => injectByokExtraBodyFields(body, byokExtraBodyFields)
     : null;
-  const bodyTransform = composeBodyTransforms(
-    composeBodyTransforms(sanitizedBodyTransform, byokBodyFieldTransform),
-    translateCodexCustomToolsForCopilot
-  );
+  // NOTE: Codex custom-tool translation (`translateCodexCustomToolsForCopilot`)
+  // is deliberately NOT part of this chain. It does not follow the
+  // `Buffer | null` body-transform contract — it returns
+  // `{ body, compatibility }` — so composing it here would hand a plain object
+  // to the request pipeline (yielding `Content-Length: undefined` and an empty
+  // upstream body). It is applied separately, with its compatibility metadata
+  // threaded through the request/retry context, in body-handler.js.
+  const bodyTransform = composeBodyTransforms(sanitizedBodyTransform, byokBodyFieldTransform);
   // Fine-grained PATs require ****** every Copilot target. OAuth and classic
   // PATs retain the target-dependent token prefix required by Enterprise hosts.
   const githubTokenAuthPrefix = getGitHubTokenAuthPrefix(githubToken, rawTarget, env);
