@@ -946,7 +946,7 @@ steps:
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       AWF_RELEASE: v0.28.20
-      AWF_LINUX_X64_SHA256: 5865351848a2009ae2188bb7f550ebb2b3bd86c87dd3bbedf0789df23b50f629
+      AWF_BUNDLE_SHA256: 54ecfd4072e66b06de3eac91c8ab9e7962fbc4bfe9643ffe7467a10c2278e6ee
       AWF_CLOUD_HYPERVISOR_ARCHIVE_SHA256: 663ac3d73abfd1e729af503d9192c8a5f6f285943925b624f771aaca6373a183
       AWF_IMAGE_TAG: 0.28.20,squid=sha256:cba5f56857e4869c4a00c1cce29c3056516cf1a746e18ce380753ecfbe40f112,agent=sha256:1bacef0f405d77999d01d8c00cb731222531b3f43ef9dc8312c513d6d9038bb1,api-proxy=sha256:30ab6d3261dd95364281fa0b52ab78450e1c01aa074eccc3a8d4f04b12a6560b,cli-proxy=sha256:1f2d7e0791d0e522152f7479ed700476720effe3b7498b837259112049595d64
     run: |
@@ -969,7 +969,7 @@ steps:
 
       gh release download "$AWF_RELEASE" \
         --repo github/gh-aw-firewall \
-        --pattern awf-linux-x64 \
+        --pattern awf-bundle.js \
         --pattern cloud-hypervisor-test-x86_64.tar.gz \
         --dir "$AWF_RELEASE_DIR" \
         --clobber \
@@ -979,8 +979,8 @@ steps:
       cloud_hypervisor_ready=true
       if [ "$awf_release_download_exit" -ne 0 ] ||
         ! printf '%s  %s\n' \
-          "$AWF_LINUX_X64_SHA256" \
-          "$AWF_RELEASE_DIR/awf-linux-x64" |
+          "$AWF_BUNDLE_SHA256" \
+          "$AWF_RELEASE_DIR/awf-bundle.js" |
           sha256sum --check --status ||
         ! printf '%s  %s\n' \
           "$AWF_CLOUD_HYPERVISOR_ARCHIVE_SHA256" \
@@ -1006,7 +1006,6 @@ steps:
           "$AWF_RELEASE_DIR/cloud-hypervisor-test-x86_64.tar.gz" \
           -C "$CLOUD_HYPERVISOR_DIR"
         chmod 0755 \
-          "$AWF_RELEASE_DIR/awf-linux-x64" \
           "$CLOUD_HYPERVISOR_DIR/cloud-hypervisor" \
           "$CLOUD_HYPERVISOR_DIR/virtiofsd" \
           "$CLOUD_HYPERVISOR_DIR/awf-supervisor"
@@ -1039,10 +1038,11 @@ steps:
         CLOUD_HYPERVISOR_WORK_DIR="$RUNNER_TEMP/cloud-hypervisor-comparison"
         mkdir -p "$CLOUD_HYPERVISOR_WORK_DIR"
         chmod 0700 "$CLOUD_HYPERVISOR_WORK_DIR"
+        NODE_BINARY=$(command -v node)
         cloud_hypervisor_started_ns=$(date +%s%N)
         # shellcheck disable=SC2024
         AWF_CLOUD_HYPERVISOR_DEVELOPMENT_ALLOW_UNATTESTED_ARTIFACTS=1 \
-          sudo -E "$AWF_RELEASE_DIR/awf-linux-x64" \
+          sudo -E "$NODE_BINARY" "$AWF_RELEASE_DIR/awf-bundle.js" \
             --container-runtime cloud-hypervisor \
             --cloud-hypervisor-preview \
             --cloud-hypervisor-development-allow-unattested-artifacts \
