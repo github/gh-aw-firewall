@@ -219,7 +219,7 @@ describe('self-hosted runner doctor workflow config', () => {
     expect(shared).toContain('| D14 | On `--container-runtime cloud-hypervisor`, the agent run aborts before the engine starts');
     expect(shared).toContain('github/gh-aw-firewall#8620, github/gh-aw-firewall#8622, github/gh-aw-firewall#8727, github/gh-aw-firewall#8728, github/gh-aw-firewall#8747, github/gh-aw-firewall#8748');
     expect(shared).toContain('**Further diagnostics in AWF (PR github/gh-aw-firewall#8747, merged 2026-09-18):**');
-    expect(shared).toContain('`Possible causes: ...` hint checking the staged binary's executable bit and `/dev/kvm` read/write accessibility');
+    expect(shared).toContain('`Possible causes: ...` hint checking the staged binary\'s executable bit and `/dev/kvm` read/write accessibility');
     expect(shared).toContain('**Further fixed in AWF (PR github/gh-aw-firewall#8748, merged 2026-09-18):**');
     expect(shared).toContain('ELF magic and `e_machine` are validated against the host architecture immediately before each `runVersion()` call');
     expect(shared).toContain('on AWF including github/gh-aw-firewall#8748, a truncated or wrong-architecture staged binary is rejected before `--version` is invoked');
