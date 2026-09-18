@@ -181,7 +181,7 @@ function createBodyHandler({ handleRequestError, otel }) {
       // result would otherwise flow through as the request body, yielding an
       // invalid `Content-Length` and an empty upstream request (rejected with
       // an opaque upstream 400), so ignore it and keep the untransformed body.
-      if (transformed) {
+      if (transformed !== null) {
         if (Buffer.isBuffer(transformed)) {
           body = transformed;
         } else {
