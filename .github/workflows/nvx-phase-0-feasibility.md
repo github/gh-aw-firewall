@@ -20,6 +20,7 @@ network:
   allowed:
     - defaults
     - github
+    - node
 
 tools:
   bash: true
@@ -308,6 +309,7 @@ steps:
 
   - name: Probe NVX connectivity to the AWF proxy topology
     env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       AWF_SQUID_IMAGE: ghcr.io/github/gh-aw-firewall/squid@sha256:cba5f56857e4869c4a00c1cce29c3056516cf1a746e18ce380753ecfbe40f112
       AWF_API_PROXY_IMAGE: ghcr.io/github/gh-aw-firewall/api-proxy@sha256:30ab6d3261dd95364281fa0b52ab78450e1c01aa074eccc3a8d4f04b12a6560b
     run: |
@@ -400,6 +402,7 @@ steps:
           --ip 172.30.0.30 \
           --env HTTP_PROXY=http://172.30.0.10:3128 \
           --env HTTPS_PROXY=http://172.30.0.10:3128 \
+          --env COPILOT_GITHUB_TOKEN="$GH_TOKEN" \
           "$AWF_API_PROXY_IMAGE" \
           >> "$DATA_DIR/logs/awf-topology.log" 2>&1 ||
           topology_ready=false
@@ -507,19 +510,17 @@ steps:
         fi
       fi
 
-      # shellcheck disable=SC2024
-      sudo docker rm -f nvx-phase0-squid nvx-phase0-api-proxy \
-        >> "$DATA_DIR/logs/awf-topology.log" 2>&1 || true
-      # shellcheck disable=SC2024
-      sudo docker network rm awf-net \
-        >> "$DATA_DIR/logs/awf-topology.log" 2>&1 || true
-
   - name: Probe NVX EROFS agent workload and host confinement
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       CODEX_RELEASE: rust-v0.155.0
       CODEX_ARCHIVE: codex-x86_64-unknown-linux-musl.tar.gz
       CODEX_ARCHIVE_SHA256: e415cc3adb94ade16e8d44b4dd58a9201cc34b2ee51a5d6eddf2a3a00aecb6c0
+      COPILOT_PACKAGE: "@github/copilot-linuxmusl-x64"
+      COPILOT_VERSION: 1.0.86
+      COPILOT_ARCHIVE: github-copilot-linuxmusl-x64-1.0.86.tgz
+      COPILOT_ARCHIVE_SHA256: 34cf74e32c5227efd1957ff69f9ad957205968621c1ce4a84384ece6c19a2f6c
+      ALPINE_IMAGE: alpine@sha256:eafc1edb577d2e9b458664a15f23ea1c370214193226069eb22921169fc7e43f
     run: |
       set +e
       set -u
@@ -560,6 +561,8 @@ steps:
           "Pinned source or packaged OpenVMM artifacts were unavailable"
         record representative-agent-workload BLOCKED \
           "Pinned source or packaged OpenVMM artifacts were unavailable"
+        record copilot-cli-proof BLOCKED \
+          "Pinned source or packaged OpenVMM artifacts were unavailable"
         exit 0
       fi
 
@@ -576,6 +579,29 @@ steps:
         AGENT_SCRATCH="$SANDBOX_DIR/scratch.ext4"
         AGENT_STATE="$SANDBOX_DIR/state"
         AGENT_UUID=6f6d4f51-a7dc-4dc4-bc39-3b20e7462463
+        rm -rf "$AGENT_ROOT"
+        mkdir -p "$AGENT_ROOT"
+        alpine_root_ready=true
+        # shellcheck disable=SC2024
+        sudo docker pull "$ALPINE_IMAGE" \
+          > "$DATA_DIR/logs/copilot-alpine-image.log" 2>&1
+        alpine_pull_exit=$?
+        if [ "$alpine_pull_exit" -eq 0 ]; then
+          alpine_container=$(sudo docker create "$ALPINE_IMAGE")
+          if [ -n "$alpine_container" ]; then
+            sudo docker export "$alpine_container" |
+              tar -xf - -C "$AGENT_ROOT"
+            alpine_export_exit=$?
+            sudo docker rm "$alpine_container" > /dev/null 2>&1 || true
+            if [ "$alpine_export_exit" -ne 0 ]; then
+              alpine_root_ready=false
+            fi
+          else
+            alpine_root_ready=false
+          fi
+        else
+          alpine_root_ready=false
+        fi
         mkdir -p \
           "$AGENT_ROOT/etc" \
           "$AGENT_ROOT/home/nobody" \
@@ -612,7 +638,53 @@ steps:
           codex_artifact_ready=false
         fi
 
+        copilot_artifact_ready=false
+        rm -f "$SANDBOX_DIR/$COPILOT_ARCHIVE"
+        if npm pack "${COPILOT_PACKAGE}@${COPILOT_VERSION}" \
+          --pack-destination "$SANDBOX_DIR" \
+          --silent \
+          > "$DATA_DIR/logs/copilot-download.log" 2>&1 &&
+          printf '%s  %s\n' \
+            "$COPILOT_ARCHIVE_SHA256" \
+            "$SANDBOX_DIR/$COPILOT_ARCHIVE" |
+            sha256sum --check --status; then
+          COPILOT_PACKAGE_DIR="$SANDBOX_DIR/copilot-package"
+          rm -rf "$COPILOT_PACKAGE_DIR"
+          mkdir -p "$COPILOT_PACKAGE_DIR"
+          tar -xzf "$SANDBOX_DIR/$COPILOT_ARCHIVE" \
+            --strip-components=1 \
+            -C "$COPILOT_PACKAGE_DIR"
+          install -m 0755 \
+            "$COPILOT_PACKAGE_DIR/copilot" \
+            "$AGENT_ROOT/usr/local/bin/copilot"
+          cat > "$AGENT_ROOT/usr/local/bin/run-copilot-proof" <<'EOF'
+      #!/bin/sh
+      set -eu
+      test -z "${GH_TOKEN:-}"
+      test -z "${GITHUB_TOKEN:-}"
+      test -z "${COPILOT_GITHUB_TOKEN:-}"
+      export HOME=/home/nobody
+      export COPILOT_API_URL=http://172.30.0.30:10002
+      export COPILOT_PROVIDER_BASE_URL=http://172.30.0.30:10002
+      exec /usr/local/bin/copilot \
+        --prompt "Respond with exactly NVX-COPILOT-PROOF and nothing else." \
+        --silent \
+        --no-color \
+        --stream off \
+        --allow-all-tools \
+        --disable-builtin-mcps \
+        --no-custom-instructions \
+        --no-auto-update \
+        --no-ask-user \
+        --model auto \
+        --max-ai-credits 2
+      EOF
+          chmod 0755 "$AGENT_ROOT/usr/local/bin/run-copilot-proof"
+          copilot_artifact_ready=true
+        fi
+
         if [ "$erofs_prerequisites_exit" -eq 0 ] &&
+          [ "$alpine_root_ready" = true ] &&
           [ "$codex_artifact_ready" = true ]; then
           mkfs.erofs \
             -U "$AGENT_UUID" \
@@ -776,12 +848,72 @@ steps:
             record representative-agent-workload FAIL \
               "Pinned Codex EROFS workload failed in managed ($codex_managed_exit) and one-shot ($codex_oneshot_exit) modes"
           fi
+
+          copilot_proxy_ready=false
+          if sudo docker inspect \
+            --format '{{.State.Running}}' \
+            nvx-phase0-squid 2> /dev/null | grep -qx true &&
+            sudo docker inspect \
+              --format '{{.State.Running}}' \
+              nvx-phase0-api-proxy 2> /dev/null | grep -qx true; then
+            copilot_proxy_ready=true
+          fi
+
+          if [ "$copilot_artifact_ready" = true ] &&
+            [ "$copilot_proxy_ready" = true ]; then
+            COPILOT_SCRATCH="$SANDBOX_DIR/copilot-scratch.ext4"
+            truncate -s 1G "$COPILOT_SCRATCH"
+            mkfs.ext4 -F "$COPILOT_SCRATCH" \
+              > "$DATA_DIR/logs/copilot-scratch.log" 2>&1
+            rm -f "$DATA_DIR/copilot-outcome.json"
+            (
+              cd "$SOURCE_DIR" &&
+              run_with_kvm_group timeout 300s python3 scripts/nvx.py \
+                sandbox run \
+                --layer "distro,$AGENT_LAYER,$AGENT_UUID" \
+                --scratch "$COPILOT_SCRATCH" \
+                --entrypoint /usr/local/bin/run-copilot-proof \
+                --workload-user 65534:65534 \
+                --memory-max 805306368 \
+                --pids-max 256 \
+                --memory-mib 768 \
+                --net 192.0.2.2/24 \
+                --network-profile directional \
+                --network-egress deny \
+                --network-ingress deny \
+                --network-egress-allow 172.30.0.10:tcp:3128 \
+                --network-egress-allow 172.30.0.30:tcp:10002 \
+                --outcome-report "$DATA_DIR/copilot-outcome.json"
+            ) > "$DATA_DIR/logs/copilot-workload.log" 2>&1
+            copilot_workload_exit=$?
+            if [ "$copilot_workload_exit" -eq 0 ] &&
+              grep -qx 'NVX-COPILOT-PROOF' \
+                "$DATA_DIR/logs/copilot-workload.log"; then
+              record copilot-cli-proof PASS \
+                "Pinned Copilot CLI ${COPILOT_VERSION} completed authenticated inference through the AWF API proxy without guest credentials"
+            else
+              record copilot-cli-proof FAIL \
+                "Pinned Copilot CLI proof exited $copilot_workload_exit; see copilot-workload.log and copilot-outcome.json"
+            fi
+          else
+            record copilot-cli-proof BLOCKED \
+              "Pinned Copilot CLI artifact or credential-holding AWF API proxy was unavailable"
+          fi
         else
           record openvmm-host-confinement BLOCKED \
             "Managed NVX EROFS sandbox did not start"
           record representative-agent-workload BLOCKED \
             "Pinned Codex artifact or managed NVX EROFS sandbox was unavailable"
+          record copilot-cli-proof BLOCKED \
+            "Pinned Copilot CLI artifact or managed NVX EROFS sandbox was unavailable"
         fi
+
+      # shellcheck disable=SC2024
+      sudo docker rm -f nvx-phase0-squid nvx-phase0-api-proxy \
+        >> "$DATA_DIR/logs/awf-topology.log" 2>&1 || true
+      # shellcheck disable=SC2024
+      sudo docker network rm awf-net \
+        >> "$DATA_DIR/logs/awf-topology.log" 2>&1 || true
 
   - name: Benchmark the released AWF Cloud Hypervisor backend
     env:
@@ -971,7 +1103,11 @@ steps:
             ["release-provenance", "Attested NVX release provenance"],
             [
               "representative-agent-workload",
-              "Representative Copilot, Claude, or Codex agent command in an NVX EROFS runtime image"
+              "Representative Codex agent command in an NVX EROFS runtime image"
+            ],
+            [
+              "copilot-cli-proof",
+              "Authenticated Copilot CLI inference in an NVX EROFS runtime through the credential-isolating AWF API proxy"
             ]
           ] | map(
             select(
@@ -1054,6 +1190,10 @@ The API-proxy port range `10000-10004` contains five provider ports.
 An exit status of 125 in `codex-outcome.json` or `codex-oneshot-outcome.json`
 is NVX's reserved managed/container launch failure status, not a Docker exit-code
 interpretation.
+For `copilot-cli-proof`, distinguish binary/runtime failure, authentication
+failure, and successful inference. A pass requires the exact model response
+`NVX-COPILOT-PROOF`, routing through `172.30.0.30:10002`, and confirmation that
+no GitHub or Copilot credential was present in the guest environment.
 
 ## Report
 
@@ -1061,7 +1201,7 @@ Use `create_issue` once. Begin sections at `###` and include:
 
 1. **Summary** — classification, pinned release, and pass/fail/blocked counts.
 2. **Critical findings** — failures and security-relevant evidence.
-3. **Capability matrix** — boot, managed execution, network default-deny, L3/L4 policy, host-loopback proxy exception, filesystem denial, workload identity, sandbox blocks, structured outcome, and benchmark.
+3. **Capability matrix** — boot, managed execution, network default-deny, L3/L4 policy, host-loopback proxy exception, filesystem denial, workload identity, sandbox blocks, structured outcome, Copilot CLI inference, and benchmark.
 4. **Unproven AWF requirements** — preserve every unproven item from `summary.json`.
 5. **Phase 0 exit decision** — whether the exit criterion was met and why.
 6. **Next experiments** — only bounded Phase 0 work, ordered by dependency.
