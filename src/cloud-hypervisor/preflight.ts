@@ -45,10 +45,12 @@ export interface CloudHypervisorPreflightDependencies {
   }>;
   runVersion(binaryPath: string): Promise<string>;
   /**
-   * Reads the first 20 bytes of a staged binary artifact so its ELF
-   * architecture can be verified against the host before the binary is
-   * executed. Keeps a truncated/corrupted or wrong-architecture download
-   * from surfacing as an opaque `--version` exec failure.
+   * Reads up to the first `ELF_HEADER_LENGTH` (20) bytes of a staged binary
+   * artifact so its ELF architecture can be verified against the host
+   * before the binary is executed. The returned buffer may be shorter than
+   * 20 bytes when the underlying file is truncated. Keeps a
+   * truncated/corrupted or wrong-architecture download from surfacing as
+   * an opaque `--version` exec failure.
    */
   readElfHeader(filePath: string): Promise<Buffer>;
   sha256(filePath: string): Promise<string>;
@@ -124,6 +126,8 @@ const CLOUD_HYPERVISOR_HOST_TOOLS: (keyof CloudHypervisorHostToolPaths)[] = [
 /** `e_ident` (16 bytes) + `e_type` (2 bytes) + `e_machine` (2 bytes). */
 const ELF_HEADER_LENGTH = 20;
 const ELF_MAGIC = Buffer.from([0x7f, 0x45, 0x4c, 0x46]); // "\x7fELF"
+/** Byte offset of the ELF `e_machine` field within the header. */
+const ELF_E_MACHINE_OFFSET = 18;
 /** ELF `e_machine` values for the Node.js architectures AWF may run on. */
 const ELF_MACHINE_BY_NODE_ARCH: Partial<Record<string, number>> = {
   x64: 0x3e, // EM_X86_64
@@ -622,7 +626,7 @@ async function assertArtifactArchitectureMatches(
       'truncated or corrupted',
     );
   }
-  const machine = header.readUInt16LE(18);
+  const machine = header.readUInt16LE(ELF_E_MACHINE_OFFSET);
   if (machine !== expectedMachine) {
     throw new Error(
       `${label} at "${binaryPath}" architecture mismatch: expected ELF machine ` +
