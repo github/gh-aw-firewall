@@ -461,7 +461,7 @@ steps:
           "172.30.0.30:tcp:10004",
       ):
           command.extend(("--network-egress-allow", endpoint))
-      script = b"""#!/bin/sh
+      script = """#!/bin/sh
       set -eu
       nc -z -w 5 172.30.0.10 3128
       for port in 10000 10001 10002 10003 10004; do
