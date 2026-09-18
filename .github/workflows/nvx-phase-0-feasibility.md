@@ -57,8 +57,15 @@ steps:
       DATA_DIR=/tmp/gh-aw/agent/nvx-phase-0
       SOURCE_DIR="$RUNNER_TEMP/nvx-source"
       RELEASE_DIR="$RUNNER_TEMP/nvx-release"
+      AWF_RELEASE_DIR="$RUNNER_TEMP/awf-release"
+      SANDBOX_DIR="$RUNNER_TEMP/nvx-agent-sandbox"
       RESULTS_FILE="$DATA_DIR/scenarios.jsonl"
-      mkdir -p "$DATA_DIR/logs" "$DATA_DIR/scenarios" "$RELEASE_DIR"
+      mkdir -p \
+        "$DATA_DIR/logs" \
+        "$DATA_DIR/scenarios" \
+        "$RELEASE_DIR" \
+        "$AWF_RELEASE_DIR" \
+        "$SANDBOX_DIR"
       : > "$RESULTS_FILE"
 
       record() {
@@ -172,6 +179,25 @@ steps:
       fi
 
       if [ "$download_exit" -eq 0 ]; then
+        gh attestation verify "$RELEASE_DIR/$NVX_ARCHIVE" \
+          --repo microsoft/nvx \
+          --format json \
+          > "$DATA_DIR/nvx-release-provenance.json" \
+          2> "$DATA_DIR/logs/release-provenance.log"
+        provenance_exit=$?
+        if [ "$provenance_exit" -eq 0 ]; then
+          record release-provenance PASS \
+            "GitHub verified an upstream microsoft/nvx build-provenance attestation"
+        else
+          record release-provenance BLOCKED \
+            "The pinned archive has no GitHub-verifiable microsoft/nvx build-provenance attestation"
+        fi
+      else
+        record release-provenance BLOCKED \
+          "The pinned archive was unavailable for provenance verification"
+      fi
+
+      if [ "$download_exit" -eq 0 ]; then
         tar -xzf "$RELEASE_DIR/$NVX_ARCHIVE" -C "$RELEASE_DIR" \
           > "$DATA_DIR/logs/release-extract.log" 2>&1
         extract_exit=$?
@@ -280,28 +306,620 @@ steps:
         record scenario-suite BLOCKED "Pinned source or packaged OpenVMM artifacts were unavailable"
       fi
 
+  - name: Probe NVX connectivity to the AWF proxy topology
+    env:
+      AWF_SQUID_IMAGE: ghcr.io/github/gh-aw-firewall/squid@sha256:cba5f56857e4869c4a00c1cce29c3056516cf1a746e18ce380753ecfbe40f112
+      AWF_API_PROXY_IMAGE: ghcr.io/github/gh-aw-firewall/api-proxy@sha256:30ab6d3261dd95364281fa0b52ab78450e1c01aa074eccc3a8d4f04b12a6560b
+    run: |
+      # shellcheck disable=SC2024
+      set +e
+      set -u
+
+      DATA_DIR=/tmp/gh-aw/agent/nvx-phase-0
+      SOURCE_DIR="$RUNNER_TEMP/nvx-source"
+      SANDBOX_DIR="$RUNNER_TEMP/nvx-agent-sandbox"
+      RESULTS_FILE="$DATA_DIR/scenarios.jsonl"
+
+      record() {
+        jq -cn \
+          --arg check "$1" \
+          --arg status "$2" \
+          --arg detail "$3" \
+          '{check:$check,status:$status,detail:$detail}' >> "$RESULTS_FILE"
+      }
+
+      run_with_kvm_group() {
+        kvm_gid=$(stat -c %g /dev/kvm)
+        runner_uid=$(id -u)
+        runner_gid=$(id -g)
+        sudo setpriv \
+          --reuid "$runner_uid" \
+          --regid "$runner_gid" \
+          --groups "$kvm_gid" \
+          -- "$@"
+      }
+
+      ensure_kvm_access() {
+        run_with_kvm_group /usr/bin/test -r /dev/kvm &&
+          run_with_kvm_group /usr/bin/test -w /dev/kvm
+      }
+
+      if [ ! -x "$SOURCE_DIR/openvmm/target/release/openvmm" ] ||
+        [ ! -f "$SOURCE_DIR/build/vmlinux" ] ||
+        [ ! -f "$SOURCE_DIR/build/initramfs.cpio.gz" ]; then
+        record awf-proxy-topology BLOCKED \
+          "Pinned source or packaged OpenVMM artifacts were unavailable"
+        exit 0
+      fi
+
+      topology_ready=true
+      sudo docker rm -f nvx-phase0-squid nvx-phase0-api-proxy \
+        > /dev/null 2>&1 || true
+      sudo docker network rm awf-net > /dev/null 2>&1 || true
+      # shellcheck disable=SC2024
+      sudo docker network create \
+        --driver bridge \
+        --subnet 172.30.0.0/24 \
+        awf-net \
+        > "$DATA_DIR/logs/awf-topology.log" 2>&1 || topology_ready=false
+
+      cat > "$SANDBOX_DIR/squid.conf" <<'EOF'
+      http_port 0.0.0.0:3128
+      acl all src all
+      http_access allow all
+      cache deny all
+      access_log stdio:/dev/stdout
+      cache_log /dev/stderr
+      pid_filename none
+      EOF
+
+      if [ "$topology_ready" = true ]; then
+        # shellcheck disable=SC2024
+        sudo docker create \
+          --name nvx-phase0-squid \
+          --network awf-net \
+          --ip 172.30.0.10 \
+          "$AWF_SQUID_IMAGE" \
+          >> "$DATA_DIR/logs/awf-topology.log" 2>&1 || topology_ready=false
+      fi
+      if [ "$topology_ready" = true ]; then
+        {
+          sudo docker cp \
+            "$SANDBOX_DIR/squid.conf" \
+            nvx-phase0-squid:/etc/squid/squid.conf &&
+          sudo docker start nvx-phase0-squid \
+            > /dev/null
+        } >> "$DATA_DIR/logs/awf-topology.log" 2>&1 ||
+          topology_ready=false
+      fi
+      if [ "$topology_ready" = true ]; then
+        # shellcheck disable=SC2024
+        sudo docker run --detach \
+          --name nvx-phase0-api-proxy \
+          --network awf-net \
+          --ip 172.30.0.30 \
+          --env HTTP_PROXY=http://172.30.0.10:3128 \
+          --env HTTPS_PROXY=http://172.30.0.10:3128 \
+          "$AWF_API_PROXY_IMAGE" \
+          >> "$DATA_DIR/logs/awf-topology.log" 2>&1 ||
+          topology_ready=false
+      fi
+
+      if [ "$topology_ready" = true ]; then
+        for endpoint in \
+          172.30.0.10:3128 \
+          172.30.0.30:10000 \
+          172.30.0.30:10001 \
+          172.30.0.30:10002 \
+          172.30.0.30:10003 \
+          172.30.0.30:10004; do
+          endpoint_host=${endpoint%:*}
+          endpoint_port=${endpoint#*:}
+          ready=false
+          for _ in $(seq 1 60); do
+            if nc -z -w 1 "$endpoint_host" "$endpoint_port"; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+          if [ "$ready" != true ]; then
+            echo "endpoint did not become ready: $endpoint" \
+              >> "$DATA_DIR/logs/awf-topology.log"
+            topology_ready=false
+            break
+          fi
+        done
+      fi
+
+      cat > "$SANDBOX_DIR/awf_topology_probe.py" <<'PY'
+      from pathlib import Path
+
+      from nvx_tools.microvm_tests import (
+          DIRECTIONAL_NETWORK_CIDR,
+          run_guest_script,
+          workload_boot_command,
+      )
+
+      marker = b"NVX-AWF-TOPOLOGY-OK"
+      command = workload_boot_command(
+          Path("openvmm/target/release/openvmm"),
+          "kvm",
+          Path("build/vmlinux"),
+          Path("build/initramfs.cpio.gz"),
+          256,
+          "quiet loglevel=0",
+          network=DIRECTIONAL_NETWORK_CIDR,
+      )
+      command.extend(("--network-egress", "deny", "--network-ingress", "deny"))
+      for endpoint in (
+          "172.30.0.10:tcp:3128",
+          "172.30.0.30:tcp:10000",
+          "172.30.0.30:tcp:10001",
+          "172.30.0.30:tcp:10002",
+          "172.30.0.30:tcp:10003",
+          "172.30.0.30:tcp:10004",
+      ):
+          command.extend(("--network-egress-allow", endpoint))
+      script = b"""#!/bin/sh
+      set -eu
+      nc -z -w 5 172.30.0.10 3128
+      for port in 10000 10001 10002 10003 10004; do
+        nc -z -w 5 172.30.0.30 "$port"
+      done
+      if nc -z -w 3 1.1.1.1 443; then
+        echo "unexpected direct egress" >&2
+        exit 1
+      fi
+      echo NVX-AWF-TOPOLOGY-OK
+      """
+      run_guest_script(
+          command,
+          script,
+          marker,
+          timeout=90,
+          log_path=Path("/tmp/gh-aw/agent/nvx-phase-0/logs/awf-topology-guest.log"),
+      )
+      PY
+
+      if [ "$topology_ready" != true ]; then
+        record awf-proxy-topology BLOCKED \
+          "Released AWF Squid/API-proxy containers did not become ready on the fixed topology"
+      elif ! ensure_kvm_access; then
+        record awf-proxy-topology BLOCKED \
+          "Unable to refresh scoped access to /dev/kvm"
+      else
+        (
+          cd "$SOURCE_DIR" &&
+          run_with_kvm_group timeout 180s python3 \
+            "$SANDBOX_DIR/awf_topology_probe.py"
+        ) >> "$DATA_DIR/logs/awf-topology.log" 2>&1
+        topology_exit=$?
+        if [ "$topology_exit" -eq 0 ]; then
+          record awf-proxy-topology PASS \
+            "NVX reached AWF Squid plus API-proxy ports 10000-10004 while unmatched direct egress stayed denied"
+        else
+          record awf-proxy-topology FAIL \
+            "NVX fixed-topology connectivity probe exited $topology_exit"
+        fi
+      fi
+
+      # shellcheck disable=SC2024
+      sudo docker rm -f nvx-phase0-squid nvx-phase0-api-proxy \
+        >> "$DATA_DIR/logs/awf-topology.log" 2>&1 || true
+      # shellcheck disable=SC2024
+      sudo docker network rm awf-net \
+        >> "$DATA_DIR/logs/awf-topology.log" 2>&1 || true
+
+  - name: Probe NVX EROFS agent workload and host confinement
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      CODEX_RELEASE: rust-v0.155.0
+      CODEX_ARCHIVE: codex-x86_64-unknown-linux-musl.tar.gz
+      CODEX_ARCHIVE_SHA256: e415cc3adb94ade16e8d44b4dd58a9201cc34b2ee51a5d6eddf2a3a00aecb6c0
+    run: |
+      set +e
+      set -u
+
+      DATA_DIR=/tmp/gh-aw/agent/nvx-phase-0
+      SOURCE_DIR="$RUNNER_TEMP/nvx-source"
+      SANDBOX_DIR="$RUNNER_TEMP/nvx-agent-sandbox"
+      RESULTS_FILE="$DATA_DIR/scenarios.jsonl"
+
+      record() {
+        jq -cn \
+          --arg check "$1" \
+          --arg status "$2" \
+          --arg detail "$3" \
+          '{check:$check,status:$status,detail:$detail}' >> "$RESULTS_FILE"
+      }
+
+      run_with_kvm_group() {
+        kvm_gid=$(stat -c %g /dev/kvm)
+        runner_uid=$(id -u)
+        runner_gid=$(id -g)
+        sudo setpriv \
+          --reuid "$runner_uid" \
+          --regid "$runner_gid" \
+          --groups "$kvm_gid" \
+          -- "$@"
+      }
+
+      ensure_kvm_access() {
+        run_with_kvm_group /usr/bin/test -r /dev/kvm &&
+          run_with_kvm_group /usr/bin/test -w /dev/kvm
+      }
+
+      if [ ! -x "$SOURCE_DIR/openvmm/target/release/openvmm" ] ||
+        [ ! -f "$SOURCE_DIR/build/vmlinux" ] ||
+        [ ! -f "$SOURCE_DIR/build/initramfs.cpio.gz" ]; then
+        record openvmm-host-confinement BLOCKED \
+          "Pinned source or packaged OpenVMM artifacts were unavailable"
+        record representative-agent-workload BLOCKED \
+          "Pinned source or packaged OpenVMM artifacts were unavailable"
+        exit 0
+      fi
+
+      if ! command -v mkfs.erofs > /dev/null 2>&1; then
+        {
+          sudo apt-get update &&
+            sudo apt-get install --yes --no-install-recommends erofs-utils
+        } > "$DATA_DIR/logs/erofs-prerequisites.log" 2>&1
+      fi
+      erofs_prerequisites_exit=$?
+
+        AGENT_ROOT="$SANDBOX_DIR/root"
+        AGENT_LAYER="$SANDBOX_DIR/codex.erofs"
+        AGENT_SCRATCH="$SANDBOX_DIR/scratch.ext4"
+        AGENT_STATE="$SANDBOX_DIR/state"
+        AGENT_UUID=6f6d4f51-a7dc-4dc4-bc39-3b20e7462463
+        mkdir -p \
+          "$AGENT_ROOT/etc" \
+          "$AGENT_ROOT/home/nobody" \
+          "$AGENT_ROOT/usr/local/bin"
+
+        gh release download "$CODEX_RELEASE" \
+          --repo openai/codex \
+          --pattern "$CODEX_ARCHIVE" \
+          --dir "$SANDBOX_DIR" \
+          --clobber \
+          > "$DATA_DIR/logs/codex-download.log" 2>&1
+        codex_download_exit=$?
+        if [ "$codex_download_exit" -eq 0 ] &&
+          printf '%s  %s\n' \
+            "$CODEX_ARCHIVE_SHA256" \
+            "$SANDBOX_DIR/$CODEX_ARCHIVE" |
+            sha256sum --check --status; then
+          tar -xzf "$SANDBOX_DIR/$CODEX_ARCHIVE" -C "$SANDBOX_DIR"
+          install -m 0755 \
+            "$SANDBOX_DIR/codex-x86_64-unknown-linux-musl" \
+            "$AGENT_ROOT/usr/local/bin/codex"
+          printf 'nobody:x:65534:65534:nobody:/home/nobody:/sbin/nologin\n' \
+            > "$AGENT_ROOT/etc/passwd"
+          printf 'nogroup:x:65534:\n' > "$AGENT_ROOT/etc/group"
+          sudo chown -R 65534:65534 "$AGENT_ROOT/home/nobody"
+          codex_artifact_ready=true
+        else
+          codex_artifact_ready=false
+        fi
+
+        if [ "$erofs_prerequisites_exit" -eq 0 ] &&
+          [ "$codex_artifact_ready" = true ]; then
+          mkfs.erofs \
+            -U "$AGENT_UUID" \
+            "$AGENT_LAYER" \
+            "$AGENT_ROOT" \
+            > "$DATA_DIR/logs/erofs-build.log" 2>&1 &&
+            truncate -s 128M "$AGENT_SCRATCH" &&
+            mkfs.ext4 -F "$AGENT_SCRATCH" \
+              >> "$DATA_DIR/logs/erofs-build.log" 2>&1
+          agent_image_exit=$?
+        else
+          agent_image_exit=1
+        fi
+
+        sandbox_started=false
+        if [ "$agent_image_exit" -eq 0 ] && ensure_kvm_access; then
+          (
+            cd "$SOURCE_DIR" &&
+            python3 scripts/nvx.py sandbox provision \
+              --state-dir "$AGENT_STATE" \
+              --layer "distro,$AGENT_LAYER,$AGENT_UUID" \
+              --scratch "$AGENT_SCRATCH" \
+              --workload-user 65534:65534 \
+              --memory-max 268435456 \
+              --pids-max 64 \
+              --memory-mib 256 &&
+            run_with_kvm_group timeout 180s python3 scripts/nvx.py \
+              sandbox start \
+              --state-dir "$AGENT_STATE" \
+              --timeout 90
+          ) > "$DATA_DIR/logs/agent-sandbox-start.log" 2>&1
+          sandbox_start_exit=$?
+          [ "$sandbox_start_exit" -eq 0 ] && sandbox_started=true
+        else
+          sandbox_start_exit=1
+        fi
+
+        if [ "$sandbox_started" = true ]; then
+          openvmm_pid=$(jq -r '.pid' "$AGENT_STATE/runtime.json")
+          cp "/proc/$openvmm_pid/status" "$DATA_DIR/openvmm-status.txt"
+          cp "/proc/$openvmm_pid/cgroup" "$DATA_DIR/openvmm-cgroup.txt"
+          readlink "/proc/$openvmm_pid/ns/net" \
+            > "$DATA_DIR/openvmm-netns.txt"
+          readlink /proc/1/ns/net > "$DATA_DIR/host-init-netns.txt"
+
+          openvmm_uid=$(awk '/^Uid:/ {print $2}' "$DATA_DIR/openvmm-status.txt")
+          openvmm_caps=$(awk '
+            /^Cap(Inh|Prm|Eff|Bnd|Amb):/ && $2 != "0000000000000000" { print }
+          ' "$DATA_DIR/openvmm-status.txt")
+          openvmm_nnp=$(awk '/^NoNewPrivs:/ {print $2}' \
+            "$DATA_DIR/openvmm-status.txt")
+          openvmm_seccomp=$(awk '/^Seccomp:/ {print $2}' \
+            "$DATA_DIR/openvmm-status.txt")
+          openvmm_membership=$(cut -d: -f3 "$DATA_DIR/openvmm-cgroup.txt")
+          openvmm_netns=$(cat "$DATA_DIR/openvmm-netns.txt")
+          host_netns=$(cat "$DATA_DIR/host-init-netns.txt")
+
+          jq -n \
+            --argjson pid "$openvmm_pid" \
+            --arg uid "$openvmm_uid" \
+            --arg capabilities "$openvmm_caps" \
+            --arg no_new_privs "$openvmm_nnp" \
+            --arg seccomp "$openvmm_seccomp" \
+            --arg cgroup "$openvmm_membership" \
+            --arg network_namespace "$openvmm_netns" \
+            --arg host_network_namespace "$host_netns" \
+            '{
+              pid:$pid,
+              uid:$uid,
+              capabilities_empty:($capabilities == ""),
+              no_new_privs:($no_new_privs == "1"),
+              seccomp_filter:($seccomp == "2"),
+              cgroup:$cgroup,
+              cgroup_scoped:false,
+              network_namespace:$network_namespace,
+              network_namespace_isolated:($network_namespace != $host_network_namespace),
+              landlock_verified:false
+            }' > "$DATA_DIR/openvmm-confinement.json"
+
+          if [ "$openvmm_uid" = "$(id -u)" ] &&
+            [ -z "$openvmm_caps" ] &&
+            [ "$openvmm_nnp" = 1 ] &&
+            [ "$openvmm_seccomp" = 2 ] &&
+            [ "$openvmm_netns" != "$host_netns" ]; then
+            record openvmm-host-confinement BLOCKED \
+              "Process controls passed, but NVX exposes no verifiable host Landlock launch contract"
+          else
+            record openvmm-host-confinement BLOCKED \
+              "Post-launch inspection found missing AWF parity; see openvmm-confinement.json"
+          fi
+
+          (
+            cd "$SOURCE_DIR" &&
+            run_with_kvm_group timeout 120s python3 scripts/nvx.py sandbox exec \
+              --state-dir "$AGENT_STATE" \
+              --entrypoint /usr/local/bin/codex \
+              --arg=--version \
+              --exec-timeout-ms 30000 \
+              --timeout 60 \
+              --outcome-report "$DATA_DIR/codex-outcome.json"
+          ) > "$DATA_DIR/logs/codex-eroFS-workload.log" 2>&1
+          codex_workload_exit=$?
+          if [ "$codex_workload_exit" -eq 0 ] &&
+            grep -q '0\.155\.0' "$DATA_DIR/logs/codex-eroFS-workload.log"; then
+            record representative-agent-workload PASS \
+              "Pinned Codex 0.155.0 executed as UID 65534 from a read-only NVX EROFS layer"
+          else
+            record representative-agent-workload FAIL \
+              "Pinned Codex EROFS workload exited $codex_workload_exit"
+          fi
+
+          (
+            cd "$SOURCE_DIR" &&
+            python3 scripts/nvx.py sandbox stop \
+              --state-dir "$AGENT_STATE" \
+              --timeout 60 &&
+            python3 scripts/nvx.py sandbox deprovision \
+              --state-dir "$AGENT_STATE"
+          ) >> "$DATA_DIR/logs/agent-sandbox-start.log" 2>&1
+          sandbox_cleanup_exit=$?
+          if [ "$sandbox_cleanup_exit" -ne 0 ]; then
+            record representative-agent-cleanup FAIL \
+              "Managed Codex sandbox cleanup exited $sandbox_cleanup_exit"
+          fi
+        else
+          record openvmm-host-confinement BLOCKED \
+            "Managed NVX EROFS sandbox did not start"
+          record representative-agent-workload BLOCKED \
+            "Pinned Codex artifact or managed NVX EROFS sandbox was unavailable"
+        fi
+
+  - name: Benchmark the released AWF Cloud Hypervisor backend
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      AWF_RELEASE: v0.28.20
+      AWF_LINUX_X64_SHA256: 5865351848a2009ae2188bb7f550ebb2b3bd86c87dd3bbedf0789df23b50f629
+      AWF_CLOUD_HYPERVISOR_ARCHIVE_SHA256: 663ac3d73abfd1e729af503d9192c8a5f6f285943925b624f771aaca6373a183
+      AWF_IMAGE_TAG: 0.28.20,squid=sha256:cba5f56857e4869c4a00c1cce29c3056516cf1a746e18ce380753ecfbe40f112,agent=sha256:1bacef0f405d77999d01d8c00cb731222531b3f43ef9dc8312c513d6d9038bb1,api-proxy=sha256:30ab6d3261dd95364281fa0b52ab78450e1c01aa074eccc3a8d4f04b12a6560b,cli-proxy=sha256:1f2d7e0791d0e522152f7479ed700476720effe3b7498b837259112049595d64
+    run: |
+      # shellcheck disable=SC2024
+      set +e
+      set -u
+
+      DATA_DIR=/tmp/gh-aw/agent/nvx-phase-0
+      AWF_RELEASE_DIR="$RUNNER_TEMP/awf-release"
+      RESULTS_FILE="$DATA_DIR/scenarios.jsonl"
+      mkdir -p "$AWF_RELEASE_DIR"
+
+      record() {
+        jq -cn \
+          --arg check "$1" \
+          --arg status "$2" \
+          --arg detail "$3" \
+          '{check:$check,status:$status,detail:$detail}' >> "$RESULTS_FILE"
+      }
+
+      gh release download "$AWF_RELEASE" \
+        --repo github/gh-aw-firewall \
+        --pattern awf-linux-x64 \
+        --pattern cloud-hypervisor-test-x86_64.tar.gz \
+        --dir "$AWF_RELEASE_DIR" \
+        --clobber \
+        > "$DATA_DIR/logs/cloud-hypervisor-download.log" 2>&1
+      awf_release_download_exit=$?
+
+      cloud_hypervisor_ready=true
+      if [ "$awf_release_download_exit" -ne 0 ] ||
+        ! printf '%s  %s\n' \
+          "$AWF_LINUX_X64_SHA256" \
+          "$AWF_RELEASE_DIR/awf-linux-x64" |
+          sha256sum --check --status ||
+        ! printf '%s  %s\n' \
+          "$AWF_CLOUD_HYPERVISOR_ARCHIVE_SHA256" \
+          "$AWF_RELEASE_DIR/cloud-hypervisor-test-x86_64.tar.gz" |
+          sha256sum --check --status; then
+        cloud_hypervisor_ready=false
+      fi
+
+      if [ "$cloud_hypervisor_ready" = true ]; then
+        gh attestation verify \
+          "$AWF_RELEASE_DIR/cloud-hypervisor-test-x86_64.tar.gz" \
+          --repo github/gh-aw-firewall \
+          --format json \
+          > "$DATA_DIR/cloud-hypervisor-provenance.json" \
+          2> "$DATA_DIR/logs/cloud-hypervisor-provenance.log" ||
+          cloud_hypervisor_ready=false
+      fi
+
+      CLOUD_HYPERVISOR_DIR="$AWF_RELEASE_DIR/cloud-hypervisor-test-x86_64"
+      if [ "$cloud_hypervisor_ready" = true ]; then
+        mkdir -p "$CLOUD_HYPERVISOR_DIR"
+        tar -xzf \
+          "$AWF_RELEASE_DIR/cloud-hypervisor-test-x86_64.tar.gz" \
+          -C "$CLOUD_HYPERVISOR_DIR"
+        chmod 0755 \
+          "$AWF_RELEASE_DIR/awf-linux-x64" \
+          "$CLOUD_HYPERVISOR_DIR/cloud-hypervisor" \
+          "$CLOUD_HYPERVISOR_DIR/virtiofsd" \
+          "$CLOUD_HYPERVISOR_DIR/awf-supervisor"
+        "$GITHUB_WORKSPACE/scripts/ci/cloud-hypervisor-host-preflight.sh" \
+          "$CLOUD_HYPERVISOR_DIR" \
+          > "$DATA_DIR/logs/cloud-hypervisor-preflight.log" 2>&1 ||
+          cloud_hypervisor_ready=false
+      fi
+
+      ch_digest() {
+        awk -v file="$1" '$2 == file { print $1; exit }' \
+          "$CLOUD_HYPERVISOR_DIR/SHA256SUMS"
+      }
+
+      if [ "$cloud_hypervisor_ready" = true ]; then
+        cloud_hypervisor_started_ns=$(date +%s%N)
+        # shellcheck disable=SC2024
+        AWF_CLOUD_HYPERVISOR_DEVELOPMENT_ALLOW_UNATTESTED_ARTIFACTS=1 \
+          sudo -E "$AWF_RELEASE_DIR/awf-linux-x64" \
+            --container-runtime cloud-hypervisor \
+            --cloud-hypervisor-preview \
+            --cloud-hypervisor-development-allow-unattested-artifacts \
+            --network-isolation \
+            --cloud-hypervisor-binary \
+              "$CLOUD_HYPERVISOR_DIR/cloud-hypervisor" \
+            --cloud-hypervisor-kernel \
+              "$CLOUD_HYPERVISOR_DIR/vmlinux.bin" \
+            --cloud-hypervisor-rootfs \
+              "$CLOUD_HYPERVISOR_DIR/rootfs.ext4" \
+            --cloud-hypervisor-supervisor \
+              "$CLOUD_HYPERVISOR_DIR/awf-supervisor" \
+            --cloud-hypervisor-binary-sha256 \
+              "$(ch_digest cloud-hypervisor)" \
+            --cloud-hypervisor-virtiofsd-sha256 \
+              "$(ch_digest virtiofsd)" \
+            --cloud-hypervisor-kernel-sha256 \
+              "$(ch_digest vmlinux.bin)" \
+            --cloud-hypervisor-rootfs-sha256 \
+              "$(ch_digest rootfs.ext4)" \
+            --cloud-hypervisor-supervisor-sha256 \
+              "$(ch_digest awf-supervisor)" \
+            --cloud-hypervisor-vcpus 1 \
+            --image-tag "$AWF_IMAGE_TAG" \
+            --allow-domains example.com \
+            --work-dir "$RUNNER_TEMP/cloud-hypervisor-comparison" \
+            --diagnostic-logs \
+            -- 'printf "AWF-CLOUD-HYPERVISOR-READY\n"' \
+          > "$DATA_DIR/logs/cloud-hypervisor-comparison.log" 2>&1
+        cloud_hypervisor_exit=$?
+        cloud_hypervisor_finished_ns=$(date +%s%N)
+        cloud_hypervisor_ms=$(( \
+          (cloud_hypervisor_finished_ns - cloud_hypervisor_started_ns) / 1000000 \
+        ))
+        jq -n \
+          --arg release "$AWF_RELEASE" \
+          --argjson end_to_end_ms "$cloud_hypervisor_ms" \
+          '{release:$release,end_to_end_ms:$end_to_end_ms}' \
+          > "$DATA_DIR/cloud-hypervisor-benchmark.json"
+        if [ "$cloud_hypervisor_exit" -eq 0 ] &&
+          grep -q 'AWF-CLOUD-HYPERVISOR-READY' \
+            "$DATA_DIR/logs/cloud-hypervisor-comparison.log"; then
+          record cloud-hypervisor-comparison PASS \
+            "Released AWF Cloud Hypervisor completed boot, readiness, command, and cleanup in ${cloud_hypervisor_ms}ms"
+        else
+          record cloud-hypervisor-comparison FAIL \
+            "Released AWF Cloud Hypervisor comparison exited $cloud_hypervisor_exit"
+        fi
+      else
+        record cloud-hypervisor-comparison BLOCKED \
+          "Pinned AWF release artifacts, provenance, or host preflight were unavailable"
+      fi
+
+  - name: Summarize NVX Phase 0 evidence
+    env:
+      NVX_COMMIT: 441f45568e65f66eced419ff9d289e2627a58f0f
+      NVX_OPENVMM_COMMIT: b525b74896f385ec8c2fd13b5270f41754fa2f16
+      NVX_RELEASE: v0.1.0-dev.441f45568e65
+    run: |
+      DATA_DIR=/tmp/gh-aw/agent/nvx-phase-0
+      RESULTS_FILE="$DATA_DIR/scenarios.jsonl"
+
       set -e
       jq -s \
         --arg release "$NVX_RELEASE" \
         --arg commit "$NVX_COMMIT" \
         --arg openvmm_commit "$NVX_OPENVMM_COMMIT" \
-        '{
+        '. as $checks | {
           release:$release,
           commit:$commit,
           openvmm_commit:$openvmm_commit,
-          checks: .,
+          checks:$checks,
           counts:{
-            pass:([.[] | select(.status=="PASS")] | length),
-            fail:([.[] | select(.status=="FAIL")] | length),
-            blocked:([.[] | select(.status=="BLOCKED")] | length)
+            pass:([$checks[] | select(.status=="PASS")] | length),
+            fail:([$checks[] | select(.status=="FAIL")] | length),
+            blocked:([$checks[] | select(.status=="BLOCKED")] | length)
           },
-          unproven:[
-            "Connectivity from NVX to AWF Squid and all API-proxy ports",
-            "Cloud Hypervisor side-by-side benchmark under the same job",
-            "AWF-equivalent host OpenVMM confinement and post-launch verification",
-            "Attested NVX release provenance",
-            "Representative Copilot, Claude, or Codex agent command in an NVX EROFS runtime image"
-          ]
+          unproven:([
+            [
+              "awf-proxy-topology",
+              "Connectivity from NVX to AWF Squid and all API-proxy ports"
+            ],
+            [
+              "cloud-hypervisor-comparison",
+              "Cloud Hypervisor side-by-side benchmark under the same job"
+            ],
+            [
+              "openvmm-host-confinement",
+              "AWF-equivalent host OpenVMM confinement and post-launch verification"
+            ],
+            ["release-provenance", "Attested NVX release provenance"],
+            [
+              "representative-agent-workload",
+              "Representative Copilot, Claude, or Codex agent command in an NVX EROFS runtime image"
+            ]
+          ] | map(
+            select(
+              .[0] as $check |
+              any($checks[]; .check == $check and .status == "PASS") | not
+            ) | .[1]
+          ))
         }' "$RESULTS_FILE" > "$DATA_DIR/summary.json"
 
       {
