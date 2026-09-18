@@ -42,6 +42,7 @@ steps:
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       NVX_COMMIT: 441f45568e65f66eced419ff9d289e2627a58f0f
+      NVX_OPENVMM_COMMIT: b525b74896f385ec8c2fd13b5270f41754fa2f16
       NVX_RELEASE: v0.1.0-dev.441f45568e65
       NVX_ARCHIVE: nvx-0.1.0-linux-kvm.tar.gz
       NVX_ARCHIVE_SHA256: 3cdc7eb6bcba218b9c20e1833653e11985291f059a22dbdcd595d3967465e2f9
@@ -68,20 +69,60 @@ steps:
           '{check:$check,status:$status,detail:$detail}' >> "$RESULTS_FILE"
       }
 
+      ensure_kvm_access() {
+        {
+          echo "=== $(date -Is) ==="
+          stat -c 'mode=%A uid=%u gid=%g device=%n' /dev/kvm
+          getfacl -cp /dev/kvm
+        } >> "$DATA_DIR/logs/kvm-acl.log" 2>&1
+
+        if [ -r /dev/kvm ] && [ -w /dev/kvm ]; then
+          return 0
+        fi
+
+        sudo setfacl -m "u:$(id -u):rw" /dev/kvm 2>&1 \
+          | tee -a "$DATA_DIR/logs/kvm-acl.log" >/dev/null
+        setfacl_exit=${PIPESTATUS[0]}
+
+        {
+          echo "setfacl_exit=$setfacl_exit"
+          stat -c 'mode=%A uid=%u gid=%g device=%n' /dev/kvm
+          getfacl -cp /dev/kvm
+        } >> "$DATA_DIR/logs/kvm-acl.log" 2>&1
+
+        [ "$setfacl_exit" -eq 0 ] && [ -r /dev/kvm ] && [ -w /dev/kvm ]
+      }
+
       platform=$(uname -s)
       architecture=$(uname -m)
       kvm_present=false
-      kvm_readable=false
-      kvm_writable=false
+      kvm_initial_readable=false
+      kvm_initial_writable=false
       [ -e /dev/kvm ] && kvm_present=true
-      [ -r /dev/kvm ] && kvm_readable=true
-      [ -w /dev/kvm ] && kvm_writable=true
+      [ -r /dev/kvm ] && kvm_initial_readable=true
+      [ -w /dev/kvm ] && kvm_initial_writable=true
+
+      kvm_readable="$kvm_initial_readable"
+      kvm_writable="$kvm_initial_writable"
+      if [ "$platform" = Linux ] && [ "$architecture" = x86_64 ] &&
+        [ "$kvm_present" = true ]; then
+        if ensure_kvm_access; then
+          kvm_readable=true
+          kvm_writable=true
+        else
+          [ -r /dev/kvm ] && kvm_readable=true
+          [ -w /dev/kvm ] && kvm_writable=true
+        fi
+      fi
+
       jq -n \
         --arg platform "$platform" \
         --arg architecture "$architecture" \
         --arg image_os "${ImageOS:-}" \
         --arg runner_environment "${RUNNER_ENVIRONMENT:-}" \
         --argjson kvm_present "$kvm_present" \
+        --argjson kvm_initial_readable "$kvm_initial_readable" \
+        --argjson kvm_initial_writable "$kvm_initial_writable" \
         --argjson kvm_readable "$kvm_readable" \
         --argjson kvm_writable "$kvm_writable" \
         '{
@@ -92,25 +133,20 @@ steps:
           kvm:{
             present:$kvm_present,
             readable:$kvm_readable,
-            writable:$kvm_writable
+            writable:$kvm_writable,
+            initial:{
+              readable:$kvm_initial_readable,
+              writable:$kvm_initial_writable
+            }
           }
         }' > "$DATA_DIR/host.json"
 
       if [ "$platform" != Linux ] || [ "$architecture" != x86_64 ] || [ "$kvm_present" != true ]; then
         record host-preflight BLOCKED "NVX Phase 0 requires Linux x86_64 with /dev/kvm"
+      elif [ "$kvm_readable" != true ] || [ "$kvm_writable" != true ]; then
+        record host-preflight BLOCKED "Unable to grant the runner user scoped access to /dev/kvm"
       else
-        if [ "$kvm_readable" != true ] || [ "$kvm_writable" != true ]; then
-          sudo setfacl -m "u:$(id -u):rw" /dev/kvm 2>&1 \
-            | tee "$DATA_DIR/logs/kvm-acl.log" >/dev/null
-          acl_exit=${PIPESTATUS[0]}
-          if [ "$acl_exit" -ne 0 ]; then
-            record host-preflight BLOCKED "Unable to grant the runner user scoped access to /dev/kvm"
-          else
-            record host-preflight PASS "Linux x86_64 KVM host is available"
-          fi
-        else
-          record host-preflight PASS "Linux x86_64 KVM host is available"
-        fi
+        record host-preflight PASS "Linux x86_64 KVM host is available"
       fi
 
       gh api "repos/microsoft/nvx/releases/tags/$NVX_RELEASE" \
@@ -158,13 +194,19 @@ steps:
         git -C "$SOURCE_DIR" fetch --depth 1 origin "$NVX_COMMIT" \
           >> "$DATA_DIR/logs/source-clone.log" 2>&1 &&
         git -C "$SOURCE_DIR" checkout --detach "$NVX_COMMIT" \
+          >> "$DATA_DIR/logs/source-clone.log" 2>&1 &&
+        git -C "$SOURCE_DIR" submodule update --init --depth 1 openvmm \
+          >> "$DATA_DIR/logs/source-clone.log" 2>&1 &&
+        test "$(git -C "$SOURCE_DIR/openvmm" rev-parse HEAD)" = "$NVX_OPENVMM_COMMIT" \
           >> "$DATA_DIR/logs/source-clone.log" 2>&1; then
-        record source-checkout PASS "Pinned NVX source commit checked out"
+        record source-checkout PASS "Pinned NVX and OpenVMM source commits checked out"
       else
-        record source-checkout FAIL "Pinned NVX source checkout failed"
+        record source-checkout FAIL "Pinned NVX or OpenVMM source checkout failed"
       fi
 
-      if [ -x "$PACKAGE_DIR/bin/openvmm" ] && [ -d "$SOURCE_DIR/scripts" ]; then
+      if [ -x "$PACKAGE_DIR/bin/openvmm" ] &&
+        [ -d "$SOURCE_DIR/scripts" ] &&
+        [ -f "$SOURCE_DIR/openvmm/Cargo.toml" ]; then
         mkdir -p "$SOURCE_DIR/build" "$SOURCE_DIR/openvmm/target/release"
         cp "$PACKAGE_DIR/bin/openvmm" "$SOURCE_DIR/openvmm/target/release/openvmm"
         cp "$PACKAGE_DIR/guest/vmlinux" "$SOURCE_DIR/build/vmlinux"
@@ -184,6 +226,11 @@ steps:
           structured-outcome
         )
         for scenario in "${scenarios[@]}"; do
+          if ! ensure_kvm_access; then
+            record "$scenario" BLOCKED "Unable to refresh scoped access to /dev/kvm"
+            continue
+          fi
+
           started=$(date +%s)
           (
             cd "$SOURCE_DIR" &&
@@ -206,24 +253,29 @@ steps:
           fi
         done
 
-        (
-          cd "$SOURCE_DIR" &&
-          timeout 300s python3 scripts/nvx.py benchmark \
-            --suite e2e \
-            --backend kvm \
-            --processors 1 \
-            --memory-mib 128 \
-            --warmups 1 \
-            --runs 3 \
-            --skip-build \
-            --output "$DATA_DIR/nvx-benchmark.json" \
-            --output-dir "$DATA_DIR/benchmark-logs"
-        ) > "$DATA_DIR/logs/benchmark.log" 2>&1
-        benchmark_exit=$?
-        if [ "$benchmark_exit" -eq 0 ]; then
-          record nvx-cold-start-benchmark PASS "NVX e2e benchmark completed"
+        if ! ensure_kvm_access; then
+          record nvx-cold-start-benchmark BLOCKED \
+            "Unable to refresh scoped access to /dev/kvm"
         else
-          record nvx-cold-start-benchmark FAIL "NVX e2e benchmark exited $benchmark_exit"
+          (
+            cd "$SOURCE_DIR" &&
+            timeout 300s python3 scripts/nvx.py benchmark \
+              --suite e2e \
+              --backend kvm \
+              --processors 1 \
+              --memory-mib 128 \
+              --warmups 1 \
+              --runs 3 \
+              --skip-build \
+              --output "$DATA_DIR/nvx-benchmark.json" \
+              --output-dir "$DATA_DIR/benchmark-logs"
+          ) > "$DATA_DIR/logs/benchmark.log" 2>&1
+          benchmark_exit=$?
+          if [ "$benchmark_exit" -eq 0 ]; then
+            record nvx-cold-start-benchmark PASS "NVX e2e benchmark completed"
+          else
+            record nvx-cold-start-benchmark FAIL "NVX e2e benchmark exited $benchmark_exit"
+          fi
         fi
       else
         record scenario-suite BLOCKED "Pinned source or packaged OpenVMM artifacts were unavailable"
@@ -233,9 +285,11 @@ steps:
       jq -s \
         --arg release "$NVX_RELEASE" \
         --arg commit "$NVX_COMMIT" \
+        --arg openvmm_commit "$NVX_OPENVMM_COMMIT" \
         '{
           release:$release,
           commit:$commit,
+          openvmm_commit:$openvmm_commit,
           checks: .,
           counts:{
             pass:([.[] | select(.status=="PASS")] | length),
