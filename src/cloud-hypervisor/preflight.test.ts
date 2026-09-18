@@ -203,6 +203,43 @@ describe('Cloud Hypervisor preflight (foundation only)', () => {
     }
   });
 
+  it('appends the diagnostic hint when execa itself throws (spawn failure)', async () => {
+    const lstatSpy = jest.spyOn(fs, 'lstat').mockResolvedValue({ mode: 0o100644 } as never);
+    const accessSpy = jest.spyOn(fs, 'access').mockRejectedValue(new Error('ENOENT: no such device'));
+    mockedExeca.mockRejectedValueOnce(new Error('spawn ENOMEM'));
+    try {
+      await expect(
+        cloudHypervisorPreflightTestHelpers.defaultDependencies.runVersion('/snapshot/cloud-hypervisor'),
+      ).rejects.toThrow(
+        /exists, is executable, and is complete: spawn ENOMEM Possible causes: the trusted artifact is missing the executable bit; \/dev\/kvm is not accessible/,
+      );
+    } finally {
+      lstatSpy.mockRestore();
+      accessSpy.mockRestore();
+    }
+  });
+
+  it('appends the diagnostic hint for an ambiguous exit code with no signal', async () => {
+    const lstatSpy = jest.spyOn(fs, 'lstat').mockResolvedValue({ mode: 0o100644 } as never);
+    const accessSpy = jest.spyOn(fs, 'access').mockRejectedValue(new Error('ENOENT: no such device'));
+    mockedExeca.mockResolvedValueOnce({
+      exitCode: undefined,
+      signal: undefined,
+      stdout: '',
+      stderr: '',
+    } as never);
+    try {
+      await expect(
+        cloudHypervisorPreflightTestHelpers.defaultDependencies.runVersion('/snapshot/cloud-hypervisor'),
+      ).rejects.toThrow(
+        /exists, is executable, and is complete Possible causes: the trusted artifact is missing the executable bit; \/dev\/kvm is not accessible/,
+      );
+    } finally {
+      lstatSpy.mockRestore();
+      accessSpy.mockRestore();
+    }
+  });
+
   it('omits diagnostic hints on the successful path and appends them only for signal-killed probes', async () => {
     const defaults = cloudHypervisorPreflightTestHelpers.defaultDependencies;
     mockedExeca.mockResolvedValueOnce({
