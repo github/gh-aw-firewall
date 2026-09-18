@@ -44,6 +44,13 @@ export interface CloudHypervisorPreflightDependencies {
     uid: number;
   }>;
   runVersion(binaryPath: string): Promise<string>;
+  /**
+   * Reads the first 20 bytes of a staged binary artifact so its ELF
+   * architecture can be verified against the host before the binary is
+   * executed. Keeps a truncated/corrupted or wrong-architecture download
+   * from surfacing as an opaque `--version` exec failure.
+   */
+  readElfHeader(filePath: string): Promise<Buffer>;
   sha256(filePath: string): Promise<string>;
   readFile(filePath: string): Promise<string>;
   createArtifactSnapshot(
@@ -114,6 +121,15 @@ const CLOUD_HYPERVISOR_HOST_TOOLS: (keyof CloudHypervisorHostToolPaths)[] = [
   'rsync', 'mount', 'umount', 'setfacl', 'setpriv', 'useradd', 'userdel',
 ];
 
+/** `e_ident` (16 bytes) + `e_type` (2 bytes) + `e_machine` (2 bytes). */
+const ELF_HEADER_LENGTH = 20;
+const ELF_MAGIC = Buffer.from([0x7f, 0x45, 0x4c, 0x46]); // "\x7fELF"
+/** ELF `e_machine` values for the Node.js architectures AWF may run on. */
+const ELF_MACHINE_BY_NODE_ARCH: Partial<Record<string, number>> = {
+  x64: 0x3e, // EM_X86_64
+  arm64: 0xb7, // EM_AARCH64
+};
+
 const defaultDependencies: CloudHypervisorPreflightDependencies = {
   platform: process.platform,
   arch: process.arch,
@@ -164,6 +180,16 @@ const defaultDependencies: CloudHypervisorPreflightDependencies = {
       );
     }
     return `${result.stdout}\n${result.stderr}`.trim();
+  },
+  readElfHeader: async (filePath) => {
+    const handle = await fs.open(filePath, 'r');
+    try {
+      const buffer = Buffer.alloc(ELF_HEADER_LENGTH);
+      await handle.read(buffer, 0, ELF_HEADER_LENGTH, 0);
+      return buffer;
+    } finally {
+      await handle.close();
+    }
   },
   sha256: calculateSha256,
   readFile: async (filePath) => fs.readFile(filePath, 'utf8'),
@@ -561,6 +587,51 @@ async function assertDigest(
   }
 }
 
+/**
+ * Verifies a staged binary's ELF `e_machine` matches the host architecture
+ * before it is executed, so a truncated/corrupted download or an
+ * architecture mismatch fails with a clear diagnostic instead of an opaque
+ * `--version` exec failure (undefined exit code, no signal).
+ */
+async function assertArtifactArchitectureMatches(
+  label: string,
+  binaryPath: string,
+  arch: string,
+  dependencies: CloudHypervisorPreflightDependencies,
+): Promise<void> {
+  const expectedMachine = ELF_MACHINE_BY_NODE_ARCH[arch];
+  if (expectedMachine === undefined) {
+    // The unsupported-architecture host check further down produces a
+    // clearer, fail-closed message for architectures AWF does not pin an
+    // expected ELF machine type for.
+    return;
+  }
+  let header: Buffer;
+  try {
+    header = await dependencies.readElfHeader(binaryPath);
+  } catch (error) {
+    throw new Error(
+      `Unable to read ${label} at "${binaryPath}" to verify its architecture; verify the ` +
+      `trusted Cloud Hypervisor artifact exists and is readable: ` +
+      `${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  if (header.length < ELF_HEADER_LENGTH || !header.subarray(0, 4).equals(ELF_MAGIC)) {
+    throw new Error(
+      `${label} at "${binaryPath}" is not a valid ELF binary; the trusted artifact may be ` +
+      'truncated or corrupted',
+    );
+  }
+  const machine = header.readUInt16LE(18);
+  if (machine !== expectedMachine) {
+    throw new Error(
+      `${label} at "${binaryPath}" architecture mismatch: expected ELF machine ` +
+      `0x${expectedMachine.toString(16)} for host architecture "${arch}" but found ` +
+      `0x${machine.toString(16)}`,
+    );
+  }
+}
+
 function hasCompleteArtifactDigests(
   digests: CloudHypervisorArtifactDigests | undefined,
 ): digests is Required<CloudHypervisorArtifactDigests> {
@@ -732,6 +803,12 @@ export async function runCloudHypervisorPreflight(
       dependencies,
     );
 
+    await assertArtifactArchitectureMatches(
+      'Cloud Hypervisor binary',
+      snapshot.cloudHypervisorBinary,
+      dependencies.arch,
+      dependencies,
+    );
     const version = parseCloudHypervisorVersion(
       await dependencies.runVersion(snapshot.cloudHypervisorBinary),
     );
@@ -740,6 +817,12 @@ export async function runCloudHypervisorPreflight(
       `Cloud Hypervisor is pinned to v${CLOUD_HYPERVISOR_RELEASE_VERSION}; found v${version}`,
       );
     }
+    await assertArtifactArchitectureMatches(
+      'virtiofsd binary',
+      snapshot.virtiofsdBinary,
+      dependencies.arch,
+      dependencies,
+    );
     const virtiofsdVersion = parseVirtiofsdVersion(
       await dependencies.runVersion(snapshot.virtiofsdBinary),
     );

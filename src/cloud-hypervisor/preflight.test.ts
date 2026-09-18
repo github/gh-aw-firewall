@@ -59,9 +59,23 @@ function config(overrides: Partial<CloudHypervisorOptions> = {}): CloudHyperviso
   };
 }
 
+function elfHeader(machine: number): Buffer {
+  const header = Buffer.alloc(20);
+  header[0] = 0x7f;
+  header[1] = 0x45; // 'E'
+  header[2] = 0x4c; // 'L'
+  header[3] = 0x46; // 'F'
+  header.writeUInt16LE(machine, 18);
+  return header;
+}
+
+const ELF_MACHINE_X86_64 = 0x3e;
+
 function dependencies(
   overrides: Partial<CloudHypervisorPreflightDependencies> = {},
 ): Partial<CloudHypervisorPreflightDependencies> {
+  const arch = overrides.arch ?? 'x64';
+  const machineByArch: Record<string, number> = { x64: ELF_MACHINE_X86_64, arm64: 0xb7 };
   return {
     platform: 'linux',
     arch: 'x64',
@@ -77,6 +91,7 @@ function dependencies(
     runVersion: jest.fn(async (binaryPath: string) => (
       binaryPath.endsWith('/virtiofsd') ? 'virtiofsd backend 1.10.0' : 'cloud-hypervisor v53.0'
     )),
+    readElfHeader: jest.fn().mockResolvedValue(elfHeader(machineByArch[arch] ?? ELF_MACHINE_X86_64)),
     sha256: jest.fn().mockResolvedValue(digest),
     readFile: jest.fn().mockResolvedValue(manifest()),
     createArtifactSnapshot: jest.fn(async (sources) => ({
@@ -151,6 +166,15 @@ describe('Cloud Hypervisor preflight (foundation only)', () => {
       await expect(calculateSha256(target)).resolves.toBe(
         createHash('sha256').update('verified artifact').digest('hex'),
       );
+
+      const elfPath = path.join(directory, 'elf-artifact');
+      await fs.writeFile(elfPath, Buffer.concat([
+        Buffer.from([0x7f, 0x45, 0x4c, 0x46]),
+        Buffer.alloc(16),
+      ]));
+      const header = await defaults.readElfHeader(elfPath);
+      expect(header.subarray(0, 4)).toEqual(Buffer.from([0x7f, 0x45, 0x4c, 0x46]));
+      expect(header).toHaveLength(20);
     } finally {
       await fs.rm(directory, { recursive: true, force: true });
     }
@@ -588,6 +612,62 @@ describe('Cloud Hypervisor preflight (foundation only)', () => {
     );
     expect(runVersion).not.toHaveBeenCalled();
     expect(sha256).not.toHaveBeenCalledWith('/snapshot/cloud-hypervisor');
+  });
+
+  it('rejects a staged binary with the wrong ELF architecture before invoking it', async () => {
+    const runVersion = jest.fn().mockResolvedValue('cloud-hypervisor v53.0');
+    await expect(runCloudHypervisorPreflight(
+      config(),
+      dependencies({
+        runVersion,
+        readElfHeader: jest.fn(async (filePath: string) => (
+          filePath === '/snapshot/cloud-hypervisor'
+            ? elfHeader(0xb7) // EM_AARCH64, host is x64
+            : elfHeader(ELF_MACHINE_X86_64)
+        )),
+      }),
+    )).rejects.toThrow(
+      /Cloud Hypervisor binary at "\/snapshot\/cloud-hypervisor" architecture mismatch: expected ELF machine 0x3e for host architecture "x64" but found 0xb7/,
+    );
+    expect(runVersion).not.toHaveBeenCalled();
+  });
+
+  it('rejects a staged binary that is not a valid ELF file before invoking it', async () => {
+    const runVersion = jest.fn().mockResolvedValue('cloud-hypervisor v53.0');
+    await expect(runCloudHypervisorPreflight(
+      config(),
+      dependencies({
+        runVersion,
+        readElfHeader: jest.fn().mockResolvedValue(Buffer.from('not an elf binary')),
+      }),
+    )).rejects.toThrow(
+      /Cloud Hypervisor binary at "\/snapshot\/cloud-hypervisor" is not a valid ELF binary/,
+    );
+    expect(runVersion).not.toHaveBeenCalled();
+  });
+
+  it('wraps errors reading the ELF header with an actionable message', async () => {
+    await expect(runCloudHypervisorPreflight(
+      config(),
+      dependencies({
+        readElfHeader: jest.fn().mockRejectedValue(new Error('ENOENT: no such file')),
+      }),
+    )).rejects.toThrow(
+      /Unable to read Cloud Hypervisor binary at "\/snapshot\/cloud-hypervisor" to verify its architecture.*ENOENT: no such file/,
+    );
+  });
+
+  it('skips the ELF architecture check for architectures without a pinned ELF machine type', async () => {
+    const runVersion = jest.fn(async (binaryPath: string) => (
+      binaryPath.endsWith('/virtiofsd') ? 'virtiofsd backend 1.10.0' : 'cloud-hypervisor v53.0'
+    ));
+    const readElfHeader = jest.fn();
+    await expect(runCloudHypervisorPreflight(
+      config(),
+      dependencies({ arch: 'ia32', runVersion, readElfHeader }),
+    )).rejects.toThrow(/supported only on x86_64 GitHub-hosted runners/);
+    expect(readElfHeader).not.toHaveBeenCalled();
+    expect(runVersion).toHaveBeenCalled();
   });
 
   it('rejects missing artifacts, unsupported hosts, and unavailable tools', async () => {
