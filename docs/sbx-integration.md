@@ -501,4 +501,5 @@ a way to force egress through AWF's Squid.
   `src/commands/main-action.ts`, `src/commands/validators/security-mode.ts`,
   `src/cloud-hypervisor-runtime-backend.ts` (KVM backend built on this seam)
 - Related: [Cloud Hypervisor architecture](./cloud-hypervisor-foundation.md),
+  [NVX one-shot security design](./nvx-security-design.md),
   [Sandbox design](./sandbox-design.md), [Architecture](./architecture.md)
