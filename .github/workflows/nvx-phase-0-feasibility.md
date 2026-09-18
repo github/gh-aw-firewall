@@ -785,21 +785,68 @@ steps:
               "Post-launch inspection found missing AWF parity; see openvmm-confinement.json"
           fi
 
-          (
-            cd "$SOURCE_DIR" &&
-            run_with_kvm_group timeout 120s python3 scripts/nvx.py sandbox exec \
-              --state-dir "$AGENT_STATE" \
-              --entrypoint /usr/local/bin/codex \
-              --arg=--version \
-              --exec-timeout-ms 30000 \
-              --timeout 60 \
-              --outcome-report "$DATA_DIR/codex-outcome.json"
-          ) > "$DATA_DIR/logs/codex-eroFS-workload.log" 2>&1
+          run_managed_probe() {
+            managed_probe_name=$1
+            managed_probe_entrypoint=$2
+            managed_probe_outcome=$3
+            shift 3
+            rm -f "$managed_probe_outcome"
+            (
+              cd "$SOURCE_DIR" &&
+              run_with_kvm_group timeout 120s python3 scripts/nvx.py sandbox exec \
+                --state-dir "$AGENT_STATE" \
+                --entrypoint "$managed_probe_entrypoint" \
+                "$@" \
+                --exec-timeout-ms 30000 \
+                --timeout 60 \
+                --outcome-report "$managed_probe_outcome"
+            ) > "$DATA_DIR/logs/$managed_probe_name.log" 2>&1
+          }
+
+          run_managed_probe \
+            managed-layered-true \
+            /bin/true \
+            "$DATA_DIR/managed-layered-true-outcome.json"
+          managed_true_exit=$?
+
+          run_managed_probe \
+            managed-layered-shell \
+            /bin/sh \
+            "$DATA_DIR/managed-layered-shell-outcome.json" \
+            --arg=-c \
+            --arg='printf NVX-MANAGED-LAYERED-SHELL'
+          managed_shell_exit=$?
+
+          if [ "$managed_true_exit" -eq 0 ] &&
+            jq -e '.outcome.status_code == 0' \
+              "$DATA_DIR/managed-layered-true-outcome.json" > /dev/null &&
+            [ "$managed_shell_exit" -eq 0 ] &&
+            jq -e '.outcome.status_code == 0' \
+              "$DATA_DIR/managed-layered-shell-outcome.json" > /dev/null &&
+            grep -q 'NVX-MANAGED-LAYERED-SHELL' \
+              "$DATA_DIR/logs/managed-layered-shell.log"; then
+            record managed-layered-control PASS \
+              "Persistent layered EROFS sandbox executed true and shell controls"
+          else
+            record managed-layered-control FAIL \
+              "Layered controls exited true=$managed_true_exit shell=$managed_shell_exit; inspect managed-layered-*-outcome.json"
+          fi
+
+          run_managed_probe \
+            codex-eroFS-workload \
+            /usr/local/bin/codex \
+            "$DATA_DIR/codex-outcome.json" \
+            --arg=--version
           codex_managed_exit=$?
           codex_workload_pass=false
           if [ "$codex_managed_exit" -eq 0 ] &&
             grep -q '0\.155\.0' "$DATA_DIR/logs/codex-eroFS-workload.log"; then
             codex_workload_pass=true
+            record managed-codex-workload PASS \
+              "Pinned Codex 0.155.0 executed through persistent managed exec"
+          else
+            record managed-codex-workload FAIL \
+              "Pinned Codex managed exec exited $codex_managed_exit; inspect codex-outcome.json"
           fi
           if [ -f "$AGENT_STATE/openvmm.log" ]; then
             cp "$AGENT_STATE/openvmm.log" \
@@ -1147,6 +1194,14 @@ steps:
               "guest-unix-sockets",
               "Guest-local Unix-domain socket support required by agent runtimes"
             ],
+            [
+              "managed-layered-control",
+              "Persistent managed exec from a layered EROFS sandbox"
+            ],
+            [
+              "managed-codex-workload",
+              "Codex execution through the persistent managed control protocol"
+            ],
             ["release-provenance", "Attested NVX release provenance"],
             [
               "representative-agent-workload",
@@ -1243,6 +1298,12 @@ failure, and successful inference. A pass requires the exact model response
 no GitHub or Copilot credential was present in the guest environment.
 Confirm whether the packaged guest kernel has `CONFIG_UNIX=y`, and correlate
 that direct evidence with the Codex and Copilot workload outcomes.
+For managed execution, compare the passing upstream direct managed-lifecycle
+scenario with `managed-layered-control` and `managed-codex-workload`. Use
+`managed-layered-true-outcome.json`, `managed-layered-shell-outcome.json`, and
+`codex-outcome.json` to determine whether status 125 is specific to Codex or to
+the layered container-launch path. Do not treat the one-shot Codex fallback as
+proof that persistent managed execution works.
 
 ## Report
 
@@ -1250,7 +1311,7 @@ Use `create_issue` once. Begin sections at `###` and include:
 
 1. **Summary** — classification, pinned release, and pass/fail/blocked counts.
 2. **Critical findings** — failures and security-relevant evidence.
-3. **Capability matrix** — boot, managed execution, network default-deny, L3/L4 policy, host-loopback proxy exception, filesystem denial, workload identity, guest Unix sockets, sandbox blocks, structured outcome, Copilot CLI inference, and benchmark.
+3. **Capability matrix** — boot, direct and layered managed execution, managed Codex execution, network default-deny, L3/L4 policy, host-loopback proxy exception, filesystem denial, workload identity, guest Unix sockets, sandbox blocks, structured outcome, Copilot CLI inference, and benchmark.
 4. **Unproven AWF requirements** — preserve every unproven item from `summary.json`.
 5. **Phase 0 exit decision** — whether the exit criterion was met and why.
 6. **Next experiments** — only bounded Phase 0 work, ordered by dependency.
