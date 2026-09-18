@@ -677,8 +677,9 @@ steps:
       export COPILOT_PROVIDER_BASE_URL=http://172.30.0.30:10002
       exec /usr/local/bin/copilot \
         --prompt "Respond with exactly NVX-COPILOT-PROOF and nothing else." \
+        --silent \
         --no-color \
-        --stream off \
+        --stream on \
         --allow-all-tools \
         --disable-builtin-mcps \
         --no-custom-instructions \
