@@ -13,7 +13,7 @@ permissions:
 
 strict: true
 timeout-minutes: 60
-max-turns: 8
+max-turns: 12
 max-ai-credits: 1000
 
 network:
@@ -491,8 +491,9 @@ steps:
       else
         (
           cd "$SOURCE_DIR" &&
-          export PYTHONPATH="$SOURCE_DIR/scripts" &&
-          run_with_kvm_group timeout 180s python3 \
+          run_with_kvm_group env \
+            PYTHONPATH="$SOURCE_DIR/scripts" \
+            timeout 180s python3 \
             "$SANDBOX_DIR/awf_topology_probe.py"
         ) >> "$DATA_DIR/logs/awf-topology.log" 2>&1
         topology_exit=$?
@@ -579,13 +580,19 @@ steps:
           "$AGENT_ROOT/home/nobody" \
           "$AGENT_ROOT/usr/local/bin"
 
-        gh release download "$CODEX_RELEASE" \
-          --repo openai/codex \
-          --pattern "$CODEX_ARCHIVE" \
-          --dir "$SANDBOX_DIR" \
-          --clobber \
-          > "$DATA_DIR/logs/codex-download.log" 2>&1
-        codex_download_exit=$?
+        codex_download_exit=1
+        for attempt in 1 2 3; do
+          if gh release download "$CODEX_RELEASE" \
+            --repo openai/codex \
+            --pattern "$CODEX_ARCHIVE" \
+            --dir "$SANDBOX_DIR" \
+            --clobber \
+            >> "$DATA_DIR/logs/codex-download.log" 2>&1; then
+            codex_download_exit=0
+            break
+          fi
+          sleep $((attempt * 5))
+        done
         if [ "$codex_download_exit" -eq 0 ] &&
           printf '%s  %s\n' \
             "$CODEX_ARCHIVE_SHA256" \
@@ -848,8 +855,8 @@ steps:
             cd "$CLOUD_HYPERVISOR_DIR" &&
               sha256sum --check SHA256SUMS
           ) &&
-            test -r /dev/kvm &&
-            test -w /dev/kvm &&
+            sudo test -r /dev/kvm &&
+            sudo test -w /dev/kvm &&
             "$CLOUD_HYPERVISOR_DIR/cloud-hypervisor" --version |
               grep -F '53.0' &&
             "$CLOUD_HYPERVISOR_DIR/virtiofsd" --version 2>&1 |
@@ -999,6 +1006,10 @@ post-steps:
 # NVX Phase 0 Feasibility
 
 Analyze the deterministic NVX evidence produced by this run and publish one durable feasibility report for AWF maintainers.
+Complete the report within ten tool calls. Read `summary.json` first, then only
+the benchmark, confinement, provenance, and workload files needed to
+substantiate the report; do not inventory or repeatedly inspect the evidence
+directory.
 
 ## Delivery plan
 
