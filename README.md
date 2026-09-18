@@ -14,7 +14,7 @@ A network firewall for agentic workflows that restricts outbound HTTP/HTTPS to a
 
 - **Squid proxy** — filters outbound traffic by domain allowlist
 - **Agent** — runs your command; all HTTP/HTTPS is routed through Squid
-- **API proxy sidecar** *(optional)* — holds LLM API keys so they never reach the agent process
+- **API proxy sidecar** *(always enabled)* — holds LLM API keys so they never reach the agent process
 
 ## Requirements
 
