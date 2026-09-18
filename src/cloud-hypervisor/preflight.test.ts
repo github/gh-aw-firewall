@@ -182,6 +182,41 @@ describe('Cloud Hypervisor preflight (foundation only)', () => {
     );
   });
 
+  it('surfaces missing-exec-bit and unavailable-KVM diagnostic hints for signal kills', async () => {
+    const lstatSpy = jest.spyOn(fs, 'lstat').mockResolvedValue({
+      mode: 0o100644,
+    } as never);
+    const accessSpy = jest.spyOn(fs, 'access').mockRejectedValue(new Error('ENOENT: no such device'));
+    try {
+      await expect(
+        cloudHypervisorPreflightTestHelpers.describeVersionProbeFailure('/snapshot/cloud-hypervisor'),
+      ).resolves.toBe(
+        ' Possible causes: the trusted artifact is missing the executable bit; ' +
+        '/dev/kvm is not accessible (ENOENT: no such device), which can indicate missing KVM support ' +
+        'or unsupported CPU virtualization features.',
+      );
+      expect(lstatSpy).toHaveBeenCalledWith('/snapshot/cloud-hypervisor');
+      expect(accessSpy).toHaveBeenCalledWith('/dev/kvm', constants.R_OK | constants.W_OK);
+    } finally {
+      lstatSpy.mockRestore();
+      accessSpy.mockRestore();
+    }
+  });
+
+  it('omits diagnostic hints on the successful path and appends them only for signal-killed probes', async () => {
+    const defaults = cloudHypervisorPreflightTestHelpers.defaultDependencies;
+    mockedExeca.mockResolvedValueOnce({
+      exitCode: 1,
+      signal: null,
+      stdout: '',
+      stderr: 'unexpected flag',
+    } as never);
+
+    await expect(defaults.runVersion('/snapshot/cloud-hypervisor')).rejects.toThrow(
+      /^"\/snapshot\/cloud-hypervisor --version" exited with code 1 \(exitCode=1, signalCode=null\): unexpected flag$/,
+    );
+  });
+
   it('runs host policy and Docker probes through the default helper', async () => {
     const defaults = cloudHypervisorPreflightTestHelpers.defaultDependencies;
     jest.spyOn(process, 'getuid').mockReturnValue(0);

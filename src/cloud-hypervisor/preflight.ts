@@ -114,6 +114,42 @@ const CLOUD_HYPERVISOR_HOST_TOOLS: (keyof CloudHypervisorHostToolPaths)[] = [
   'rsync', 'mount', 'umount', 'setfacl', 'setpriv', 'useradd', 'userdel',
 ];
 
+/**
+ * Gathers best-effort diagnostic hints for a failed version probe (killed by
+ * signal, or an ambiguous/undefined exit code from a spawn failure). This
+ * runs only on the failure path — never before a successful probe — so it
+ * cannot mask or reorder any of the fail-closed trust checks above; it just
+ * surfaces likely causes (missing executable bit, unreadable/unavailable
+ * `/dev/kvm`, i.e. missing KVM support or unsupported CPU virtualization
+ * features) that would otherwise be hidden behind an opaque
+ * "exited with code undefined" message.
+ */
+async function describeVersionProbeFailure(binaryPath: string): Promise<string> {
+  const hints: string[] = [];
+  try {
+    const stat = await fs.lstat(binaryPath);
+    if ((stat.mode & 0o111) === 0) {
+      hints.push('the trusted artifact is missing the executable bit');
+    }
+  } catch (error) {
+    hints.push(
+      `the trusted artifact could not be inspected (${error instanceof Error ? error.message : String(error)})`,
+    );
+  }
+  if (process.platform === 'linux') {
+    try {
+      await fs.access('/dev/kvm', constants.R_OK | constants.W_OK);
+    } catch (error) {
+      hints.push(
+        '/dev/kvm is not accessible ' +
+        `(${error instanceof Error ? error.message : String(error)}), which can indicate missing ` +
+        'KVM support or unsupported CPU virtualization features',
+      );
+    }
+  }
+  return hints.length > 0 ? ` Possible causes: ${hints.join('; ')}.` : '';
+}
+
 const defaultDependencies: CloudHypervisorPreflightDependencies = {
   platform: process.platform,
   arch: process.arch,
@@ -131,7 +167,8 @@ const defaultDependencies: CloudHypervisorPreflightDependencies = {
     } catch (error) {
       throw new Error(
         `Unable to execute "${binaryPath} --version"; verify the trusted Cloud Hypervisor artifact ` +
-        `exists, is executable, and is complete: ${error instanceof Error ? error.message : String(error)}`,
+        `exists, is executable, and is complete: ${error instanceof Error ? error.message : String(error)}` +
+        await describeVersionProbeFailure(binaryPath),
       );
     }
     if (result.exitCode == null && !result.signal) {
@@ -148,7 +185,8 @@ const defaultDependencies: CloudHypervisorPreflightDependencies = {
       const details = [code, shortMessage, result.stderr.trim()].filter(Boolean).join('; ');
       throw new Error(
         `Unable to execute "${binaryPath} --version"; verify the trusted Cloud Hypervisor artifact ` +
-        `exists, is executable, and is complete${details ? `: ${details}` : ''}`,
+        `exists, is executable, and is complete${details ? `: ${details}` : ''}` +
+        await describeVersionProbeFailure(binaryPath),
       );
     }
     if (result.exitCode !== 0) {
@@ -160,7 +198,8 @@ const defaultDependencies: CloudHypervisorPreflightDependencies = {
         : `exited with code ${exitCode}`;
       throw new Error(
         `"${binaryPath} --version" ${termination} ` +
-        `(exitCode=${exitCode}, signalCode=${signalCode})${stderr ? `: ${stderr}` : ''}`,
+        `(exitCode=${exitCode}, signalCode=${signalCode})${stderr ? `: ${stderr}` : ''}` +
+        (signalCode ? await describeVersionProbeFailure(binaryPath) : ''),
       );
     }
     return `${result.stdout}\n${result.stderr}`.trim();
@@ -273,6 +312,7 @@ const defaultDependencies: CloudHypervisorPreflightDependencies = {
 export const cloudHypervisorPreflightTestHelpers = {
   defaultDependencies,
   createArtifactSnapshot,
+  describeVersionProbeFailure,
 };
 
 export interface CloudHypervisorPreflightResult {
