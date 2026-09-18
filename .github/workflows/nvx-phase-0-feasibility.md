@@ -1036,6 +1036,9 @@ steps:
         cloud_hypervisor_ready=false
 
       if [ "$cloud_hypervisor_ready" = true ]; then
+        CLOUD_HYPERVISOR_WORK_DIR="$RUNNER_TEMP/cloud-hypervisor-comparison"
+        mkdir -p "$CLOUD_HYPERVISOR_WORK_DIR"
+        chmod 0700 "$CLOUD_HYPERVISOR_WORK_DIR"
         cloud_hypervisor_started_ns=$(date +%s%N)
         # shellcheck disable=SC2024
         AWF_CLOUD_HYPERVISOR_DEVELOPMENT_ALLOW_UNATTESTED_ARTIFACTS=1 \
@@ -1065,7 +1068,7 @@ steps:
             --cloud-hypervisor-vcpus 1 \
             --image-tag "$AWF_IMAGE_TAG" \
             --allow-domains example.com \
-            --work-dir "$RUNNER_TEMP/cloud-hypervisor-comparison" \
+            --work-dir "$CLOUD_HYPERVISOR_WORK_DIR" \
             --diagnostic-logs \
             -- 'printf "AWF-CLOUD-HYPERVISOR-READY\n"' \
           > "$DATA_DIR/logs/cloud-hypervisor-comparison.log" 2>&1
