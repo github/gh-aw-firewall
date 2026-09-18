@@ -13,7 +13,7 @@ permissions:
 
 strict: true
 timeout-minutes: 60
-max-turns: 12
+max-turns: 30
 max-ai-credits: 1000
 
 network:
@@ -924,6 +924,24 @@ steps:
       sudo docker network rm awf-net \
         >> "$DATA_DIR/logs/awf-topology.log" 2>&1 || true
 
+  - name: Prepare executable Cloud Hypervisor artifact staging
+    run: |
+      set +e
+      DATA_DIR=/tmp/gh-aw/agent/nvx-phase-0
+      SNAPSHOT_ROOT=/run/awf-cloud-hypervisor/trusted-artifacts
+      SNAPSHOT_BACKING="/var/lib/awf-cloud-hypervisor-artifacts-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+      sudo install -d -m 0711 "$SNAPSHOT_ROOT" "$SNAPSHOT_BACKING"
+      sudo mount --bind "$SNAPSHOT_BACKING" "$SNAPSHOT_ROOT" &&
+        sudo mount -o remount,bind,exec "$SNAPSHOT_ROOT"
+      snapshot_mount_exit=$?
+      if [ "$snapshot_mount_exit" -eq 0 ]; then
+        findmnt -no TARGET,VFS-OPTIONS,FS-OPTIONS "$SNAPSHOT_ROOT" \
+          > "$DATA_DIR/logs/cloud-hypervisor-snapshot-mount.log" 2>&1
+      else
+        printf 'snapshot mount setup exited %s\n' "$snapshot_mount_exit" \
+          > "$DATA_DIR/logs/cloud-hypervisor-snapshot-mount.log"
+      fi
+
   - name: Benchmark the released AWF Cloud Hypervisor backend
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -1014,6 +1032,9 @@ steps:
           "$CLOUD_HYPERVISOR_DIR/SHA256SUMS"
       }
 
+      mountpoint -q /run/awf-cloud-hypervisor/trusted-artifacts ||
+        cloud_hypervisor_ready=false
+
       if [ "$cloud_hypervisor_ready" = true ]; then
         cloud_hypervisor_started_ns=$(date +%s%N)
         # shellcheck disable=SC2024
@@ -1071,6 +1092,16 @@ steps:
         record cloud-hypervisor-comparison BLOCKED \
           "Pinned AWF release artifacts, provenance, or host preflight were unavailable"
       fi
+
+  - name: Clean up Cloud Hypervisor artifact staging
+    if: always()
+    run: |
+      SNAPSHOT_ROOT=/run/awf-cloud-hypervisor/trusted-artifacts
+      SNAPSHOT_BACKING="/var/lib/awf-cloud-hypervisor-artifacts-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+      if mountpoint -q "$SNAPSHOT_ROOT"; then
+        sudo umount "$SNAPSHOT_ROOT"
+      fi
+      sudo rmdir "$SNAPSHOT_BACKING" 2> /dev/null || true
 
   - name: Summarize NVX Phase 0 evidence
     env:
