@@ -114,6 +114,9 @@ const CLOUD_HYPERVISOR_HOST_TOOLS: (keyof CloudHypervisorHostToolPaths)[] = [
   'rsync', 'mount', 'umount', 'setfacl', 'setpriv', 'useradd', 'userdel',
 ];
 
+/** Owner/group/other execute bits (`--x--x--x`), used to detect a staged artifact copy that lost its executable permission. */
+const EXECUTE_BITS_MASK = 0o111;
+
 /**
  * Gathers best-effort diagnostic hints for a failed version probe (killed by
  * signal, or an ambiguous/undefined exit code from a spawn failure). This
@@ -128,7 +131,7 @@ async function describeVersionProbeFailure(binaryPath: string): Promise<string> 
   const hints: string[] = [];
   try {
     const stat = await fs.lstat(binaryPath);
-    if ((stat.mode & 0o111) === 0) {
+    if ((stat.mode & EXECUTE_BITS_MASK) === 0) {
       hints.push('the trusted artifact is missing the executable bit');
     }
   } catch (error) {
@@ -138,6 +141,8 @@ async function describeVersionProbeFailure(binaryPath: string): Promise<string> 
   }
   if (process.platform === 'linux') {
     try {
+      // Cloud Hypervisor itself requires read-write access to /dev/kvm to launch a
+      // guest, so probe with the same access mode the real launch path needs.
       await fs.access('/dev/kvm', constants.R_OK | constants.W_OK);
     } catch (error) {
       hints.push(
