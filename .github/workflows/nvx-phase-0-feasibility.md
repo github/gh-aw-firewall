@@ -685,7 +685,7 @@ steps:
         --no-custom-instructions \
         --no-auto-update \
         --no-ask-user \
-        --model auto \
+        --model claude-sonnet-5 \
         --max-ai-credits 30
       EOF
           chmod 0755 "$AGENT_ROOT/usr/local/bin/run-copilot-proof"
