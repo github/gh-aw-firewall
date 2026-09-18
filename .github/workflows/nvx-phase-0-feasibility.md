@@ -896,8 +896,8 @@ steps:
             ) > "$DATA_DIR/logs/copilot-workload.log" 2>&1
             copilot_workload_exit=$?
             if [ "$copilot_workload_exit" -eq 0 ] &&
-              grep -qx 'NVX-COPILOT-PROOF' \
-                "$DATA_DIR/logs/copilot-workload.log"; then
+              tr -d '\r' < "$DATA_DIR/logs/copilot-workload.log" |
+                grep -qx 'NVX-COPILOT-PROOF'; then
               record copilot-cli-proof PASS \
                 "Pinned Copilot CLI ${COPILOT_VERSION} completed authenticated inference through the AWF API proxy without guest credentials"
             else
