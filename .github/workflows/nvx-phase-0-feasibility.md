@@ -878,7 +878,7 @@ steps:
                 --pids-max 256 \
                 --memory-mib 768 \
                 --net 192.0.2.2/24 \
-                --network-profile directional \
+                --network-profile portable \
                 --network-egress deny \
                 --network-ingress deny \
                 --network-egress-allow 172.30.0.10:tcp:3128 \
