@@ -686,7 +686,7 @@ steps:
         --no-auto-update \
         --no-ask-user \
         --model auto \
-        --max-ai-credits 2
+        --max-ai-credits 30
       EOF
           chmod 0755 "$AGENT_ROOT/usr/local/bin/run-copilot-proof"
           copilot_artifact_ready=true
