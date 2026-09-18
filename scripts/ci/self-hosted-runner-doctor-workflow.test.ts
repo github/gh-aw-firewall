@@ -217,12 +217,9 @@ describe('self-hosted runner doctor workflow config', () => {
     expect(shared).toContain('github/gh-aw-firewall#8249, github/gh-aw-firewall#8251, github/gh-aw-firewall#8615, github/gh-aw-firewall#8624');
     expect(shared).toContain('| `Direct sbx egress reached 1.1.1.1 without proxy environment variables` (or a similar denied-destination reach) despite Squid healthchecks passing | D13');
     expect(shared).toContain('| D14 | On `--container-runtime cloud-hypervisor`, the agent run aborts before the engine starts');
-    expect(shared).toContain('github/gh-aw-firewall#8620, github/gh-aw-firewall#8622, github/gh-aw-firewall#8727, github/gh-aw-firewall#8728, github/gh-aw-firewall#8747, github/gh-aw-firewall#8748');
-    expect(shared).toContain('**Further diagnostics in AWF (PR github/gh-aw-firewall#8747, merged 2026-09-18):**');
-    expect(shared).toContain('`Possible causes: ...` hint checking the staged binary\'s executable bit and `/dev/kvm` read/write accessibility');
-    expect(shared).toContain('**Further fixed in AWF (PR github/gh-aw-firewall#8748, merged 2026-09-18):**');
-    expect(shared).toContain('ELF magic and `e_machine` are validated against the host architecture immediately before each `runVersion()` call');
-    expect(shared).toContain('on AWF including github/gh-aw-firewall#8748, a truncated or wrong-architecture staged binary is rejected before `--version` is invoked');
+    expect(shared).toContain('github/gh-aw-firewall#8620, github/gh-aw-firewall#8622, github/gh-aw-firewall#8727, github/gh-aw-firewall#8728');
+    expect(shared).not.toContain('github/gh-aw-firewall#8747');
+    expect(shared).not.toContain('github/gh-aw-firewall#8748');
     expect(shared).toContain('| `"cloud-hypervisor --version" exited with code undefined` under `--container-runtime cloud-hypervisor` | D14');
 
     expect(source).toContain('- `unknown shorthand flag: \'d\' in -d` from `docker compose up -d` → A14 (DinD sidecar missing `docker-compose-plugin`)');
@@ -268,9 +265,9 @@ describe('self-hosted runner doctor workflow config', () => {
     expect(source).toContain('D12 / github/gh-aw-firewall#6810, github/gh-aw-firewall#6811 — Copilot runs using `model: auto` under isolated runtimes (`--container-runtime gvisor` or `sbx`) could fail before agent start with `awf-reflect: request failed: fetch failed` plus `Model "auto" has no AI credits pricing and no default pricing is configured` when `apiProxy.maxAiCredits` was enabled.');
     expect(source).toContain('D13 / github/gh-aw-firewall#8250, github/gh-aw-firewall#8252, github/gh-aw-firewall#8568, github/gh-aw-firewall#8575 — With `--container-runtime sbx`');
     expect(source).toContain('B33 / github/gh-aw-firewall#8249, github/gh-aw-firewall#8251, github/gh-aw-firewall#8615, github/gh-aw-firewall#8624');
-    expect(source).toContain('D14 / github/gh-aw-firewall#8620, github/gh-aw-firewall#8622, github/gh-aw-firewall#8727, github/gh-aw-firewall#8728, github/gh-aw-firewall#8747, github/gh-aw-firewall#8748');
-    expect(source).toContain('**Further diagnostics in AWF (PR github/gh-aw-firewall#8747, merged 2026-09-18):**');
-    expect(source).toContain('**Further fixed in AWF (PR github/gh-aw-firewall#8748, merged 2026-09-18):**');
+    expect(source).toContain('D14 / github/gh-aw-firewall#8620, github/gh-aw-firewall#8622, github/gh-aw-firewall#8727, github/gh-aw-firewall#8728');
+    expect(source).not.toContain('github/gh-aw-firewall#8747');
+    expect(source).not.toContain('github/gh-aw-firewall#8748');
     expect(source).toContain('A20 / github/gh-aw-firewall#7239, github/gh-aw-firewall#7244 — Under `runner.topology: arc-dind`, `filterAgentVolumesForSysroot()` (`src/services/optional-services.ts`) dropped every mount targeting `/host$HOME`');
     expect(source).toContain('A21 / github/gh-aw-firewall#7678, github/gh-aw-firewall#7679, github/gh-aw-firewall#7681, github/gh-aw-firewall#7728 — When a `filesystem.allowWrite` policy narrows `/tmp` to read-only, `awf-agent` startup can fail with `runc create failed: ... mkdirat ... read-only file system`');
     expect(source).toContain('A22 / github/gh-aw#56127, github/gh-aw-firewall#7788, github/gh-aw-firewall#7795 — `arc-dind` topology fails to start when Docker rejects AWF\'s compose `cap_drop` list');
