@@ -472,6 +472,7 @@ steps:
         exit 1
       fi
       echo NVX-AWF-TOPOLOGY-OK
+      nvx-exit 0
       """
       run_guest_script(
           command,
@@ -1049,6 +1050,7 @@ Classify the result as:
 - **BLOCKED** when host eligibility, artifact integrity, KVM execution, deny-by-default networking, filesystem denial, managed lifecycle, workload identity, or cleanup failed.
 
 Passing upstream tests is necessary but not proof that AWF's topology is secure. In particular, do not claim that Squid/API-proxy routing, artifact provenance, host VMM confinement, or a representative agent workload passed unless direct evidence exists in the files.
+The API-proxy port range `10000-10004` contains five provider ports.
 An exit status of 125 in `codex-outcome.json` or `codex-oneshot-outcome.json`
 is NVX's reserved managed/container launch failure status, not a Docker exit-code
 interpretation.
