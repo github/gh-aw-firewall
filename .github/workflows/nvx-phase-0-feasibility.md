@@ -74,23 +74,18 @@ steps:
           echo "=== $(date -Is) ==="
           stat -c 'mode=%A uid=%u gid=%g device=%n' /dev/kvm
           getfacl -cp /dev/kvm
-        } >> "$DATA_DIR/logs/kvm-acl.log" 2>&1
+        } >> "$DATA_DIR/logs/kvm-access.log" 2>&1
 
-        if [ -r /dev/kvm ] && [ -w /dev/kvm ]; then
-          return 0
-        fi
+        kvm_gid=$(stat -c %g /dev/kvm)
+        runner_user=$(id -un)
+        sudo -u "$runner_user" -g "#$kvm_gid" -- /usr/bin/test -r /dev/kvm &&
+          sudo -u "$runner_user" -g "#$kvm_gid" -- /usr/bin/test -w /dev/kvm
+      }
 
-        sudo setfacl -m "u:$(id -u):rw" /dev/kvm 2>&1 \
-          | tee -a "$DATA_DIR/logs/kvm-acl.log" >/dev/null
-        setfacl_exit=${PIPESTATUS[0]}
-
-        {
-          echo "setfacl_exit=$setfacl_exit"
-          stat -c 'mode=%A uid=%u gid=%g device=%n' /dev/kvm
-          getfacl -cp /dev/kvm
-        } >> "$DATA_DIR/logs/kvm-acl.log" 2>&1
-
-        [ "$setfacl_exit" -eq 0 ] && [ -r /dev/kvm ] && [ -w /dev/kvm ]
+      run_with_kvm_group() {
+        kvm_gid=$(stat -c %g /dev/kvm)
+        runner_user=$(id -un)
+        sudo -u "$runner_user" -g "#$kvm_gid" -- "$@"
       }
 
       platform=$(uname -s)
@@ -234,7 +229,7 @@ steps:
           started=$(date +%s)
           (
             cd "$SOURCE_DIR" &&
-            timeout 180s python3 scripts/nvx.py test-microvm \
+            run_with_kvm_group timeout 180s python3 scripts/nvx.py test-microvm \
               --backend kvm \
               --scenario "$scenario" \
               --processors 1 \
@@ -259,10 +254,11 @@ steps:
         else
           (
             cd "$SOURCE_DIR" &&
-            timeout 300s python3 scripts/nvx.py benchmark \
+            run_with_kvm_group timeout 300s python3 scripts/nvx.py benchmark \
               --suite e2e \
               --backend kvm \
               --processors 1 \
+              --host-cpu-reserve 1 \
               --memory-mib 128 \
               --warmups 1 \
               --runs 3 \
