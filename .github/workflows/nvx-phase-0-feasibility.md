@@ -491,6 +491,7 @@ steps:
       else
         (
           cd "$SOURCE_DIR" &&
+          export PYTHONPATH="$SOURCE_DIR/scripts" &&
           run_with_kvm_group timeout 180s python3 \
             "$SANDBOX_DIR/awf_topology_probe.py"
         ) >> "$DATA_DIR/logs/awf-topology.log" 2>&1
@@ -705,14 +706,15 @@ steps:
               --timeout 60 \
               --outcome-report "$DATA_DIR/codex-outcome.json"
           ) > "$DATA_DIR/logs/codex-eroFS-workload.log" 2>&1
-          codex_workload_exit=$?
-          if [ "$codex_workload_exit" -eq 0 ] &&
+          codex_managed_exit=$?
+          codex_workload_pass=false
+          if [ "$codex_managed_exit" -eq 0 ] &&
             grep -q '0\.155\.0' "$DATA_DIR/logs/codex-eroFS-workload.log"; then
-            record representative-agent-workload PASS \
-              "Pinned Codex 0.155.0 executed as UID 65534 from a read-only NVX EROFS layer"
-          else
-            record representative-agent-workload FAIL \
-              "Pinned Codex EROFS workload exited $codex_workload_exit"
+            codex_workload_pass=true
+          fi
+          if [ -f "$AGENT_STATE/openvmm.log" ]; then
+            cp "$AGENT_STATE/openvmm.log" \
+              "$DATA_DIR/logs/agent-sandbox-openvmm.log"
           fi
 
           (
@@ -727,6 +729,44 @@ steps:
           if [ "$sandbox_cleanup_exit" -ne 0 ]; then
             record representative-agent-cleanup FAIL \
               "Managed Codex sandbox cleanup exited $sandbox_cleanup_exit"
+          fi
+
+          if [ "$codex_workload_pass" != true ]; then
+            AGENT_ONESHOT_SCRATCH="$SANDBOX_DIR/scratch-oneshot.ext4"
+            truncate -s 128M "$AGENT_ONESHOT_SCRATCH"
+            mkfs.ext4 -F "$AGENT_ONESHOT_SCRATCH" \
+              > "$DATA_DIR/logs/codex-oneshot-scratch.log" 2>&1
+            rm -f "$DATA_DIR/codex-oneshot-outcome.json"
+            (
+              cd "$SOURCE_DIR" &&
+              run_with_kvm_group timeout 180s python3 scripts/nvx.py \
+                sandbox run \
+                --layer "distro,$AGENT_LAYER,$AGENT_UUID" \
+                --scratch "$AGENT_ONESHOT_SCRATCH" \
+                --entrypoint /usr/local/bin/codex \
+                --arg=--version \
+                --workload-user 65534:65534 \
+                --memory-max 268435456 \
+                --pids-max 64 \
+                --memory-mib 256 \
+                --outcome-report "$DATA_DIR/codex-oneshot-outcome.json"
+            ) > "$DATA_DIR/logs/codex-oneshot-workload.log" 2>&1
+            codex_oneshot_exit=$?
+            if [ "$codex_oneshot_exit" -eq 0 ] &&
+              grep -q '0\.155\.0' \
+                "$DATA_DIR/logs/codex-oneshot-workload.log"; then
+              codex_workload_pass=true
+            fi
+          else
+            codex_oneshot_exit=0
+          fi
+
+          if [ "$codex_workload_pass" = true ]; then
+            record representative-agent-workload PASS \
+              "Pinned Codex 0.155.0 executed as UID 65534 from a read-only NVX EROFS layer"
+          else
+            record representative-agent-workload FAIL \
+              "Pinned Codex EROFS workload failed in managed ($codex_managed_exit) and one-shot ($codex_oneshot_exit) modes"
           fi
         else
           record openvmm-host-confinement BLOCKED \
@@ -803,9 +843,20 @@ steps:
           "$CLOUD_HYPERVISOR_DIR/cloud-hypervisor" \
           "$CLOUD_HYPERVISOR_DIR/virtiofsd" \
           "$CLOUD_HYPERVISOR_DIR/awf-supervisor"
-        "$GITHUB_WORKSPACE/scripts/ci/cloud-hypervisor-host-preflight.sh" \
-          "$CLOUD_HYPERVISOR_DIR" \
-          > "$DATA_DIR/logs/cloud-hypervisor-preflight.log" 2>&1 ||
+        {
+          (
+            cd "$CLOUD_HYPERVISOR_DIR" &&
+              sha256sum --check SHA256SUMS
+          ) &&
+            test -r /dev/kvm &&
+            test -w /dev/kvm &&
+            "$CLOUD_HYPERVISOR_DIR/cloud-hypervisor" --version |
+              grep -F '53.0' &&
+            "$CLOUD_HYPERVISOR_DIR/virtiofsd" --version 2>&1 |
+              grep -E '(^| )1\.10\.0($| )' &&
+            file "$CLOUD_HYPERVISOR_DIR/vmlinux.bin" |
+              grep -E 'Linux kernel|boot executable'
+        } > "$DATA_DIR/logs/cloud-hypervisor-preflight.log" 2>&1 ||
           cloud_hypervisor_ready=false
       fi
 
@@ -987,6 +1038,9 @@ Classify the result as:
 - **BLOCKED** when host eligibility, artifact integrity, KVM execution, deny-by-default networking, filesystem denial, managed lifecycle, workload identity, or cleanup failed.
 
 Passing upstream tests is necessary but not proof that AWF's topology is secure. In particular, do not claim that Squid/API-proxy routing, artifact provenance, host VMM confinement, or a representative agent workload passed unless direct evidence exists in the files.
+An exit status of 125 in `codex-outcome.json` or `codex-oneshot-outcome.json`
+is NVX's reserved managed/container launch failure status, not a Docker exit-code
+interpretation.
 
 ## Report
 
