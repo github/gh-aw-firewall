@@ -1,4 +1,4 @@
-import { createReadStream, promises as fs } from 'fs';
+import { constants, createReadStream, promises as fs } from 'fs';
 import { createHash } from 'crypto';
 import * as path from 'path';
 import { spawn } from 'child_process';
@@ -427,25 +427,41 @@ function orderedLayers(layers: readonly NvxLayerArtifact[]): readonly NvxLayerAr
 }
 
 async function readOutcome(outcomePath: string): Promise<NvxOneShotOutcome> {
-  let stat;
+  let handle;
   try {
-    stat = await fs.lstat(outcomePath);
+    handle = await fs.open(
+      outcomePath,
+      constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0),
+    );
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
       throw new Error('NVX one-shot execution did not produce a structured outcome report');
     }
+    if ((error as NodeJS.ErrnoException).code === 'ELOOP') {
+      throw new Error(`NVX outcome report must be a regular file: ${outcomePath}`);
+    }
     throw error;
   }
-  if (!stat.isFile() || stat.isSymbolicLink()) {
-    throw new Error(`NVX outcome report must be a regular file: ${outcomePath}`);
+
+  try {
+    const stat = await handle.stat();
+    if (!stat.isFile()) {
+      throw new Error(`NVX outcome report must be a regular file: ${outcomePath}`);
+    }
+    if (stat.size < 1 || stat.size > NVX_MAX_OUTCOME_BYTES) {
+      throw new Error(`NVX outcome report size must be 1-${NVX_MAX_OUTCOME_BYTES} bytes`);
+    }
+    if ((stat.mode & 0o077) !== 0) {
+      throw new Error('NVX outcome report must not be accessible to group or other users');
+    }
+    const contents = await handle.readFile();
+    if (contents.length < 1 || contents.length > NVX_MAX_OUTCOME_BYTES) {
+      throw new Error(`NVX outcome report size must be 1-${NVX_MAX_OUTCOME_BYTES} bytes`);
+    }
+    return parseNvxOneShotOutcome(contents.toString('utf8'));
+  } finally {
+    await handle.close();
   }
-  if (stat.size < 1 || stat.size > NVX_MAX_OUTCOME_BYTES) {
-    throw new Error(`NVX outcome report size must be 1-${NVX_MAX_OUTCOME_BYTES} bytes`);
-  }
-  if ((stat.mode & 0o077) !== 0) {
-    throw new Error('NVX outcome report must not be accessible to group or other users');
-  }
-  return parseNvxOneShotOutcome(await fs.readFile(outcomePath, 'utf8'));
 }
 
 async function assertNewOutcomePath(outcomePath: string, runDirectory: string): Promise<void> {

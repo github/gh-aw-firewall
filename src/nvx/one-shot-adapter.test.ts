@@ -332,6 +332,33 @@ describe('NVX one-shot execution adapter', () => {
     }
   });
 
+  it('rejects a symbolic-link outcome report', async () => {
+    const { root, request } = await fixture();
+    const externalOutcome = path.join(root, 'external-outcome.json');
+    await fs.writeFile(
+      externalOutcome,
+      `${JSON.stringify(outcome('success', 0))}\n`,
+      { mode: 0o600 },
+    );
+    const dependencies: NvxOneShotAdapterDependencies = {
+      pythonBinary: '/usr/bin/python3',
+      runProcess: jest.fn(async (processRequest) => {
+        const outcomePath = processRequest.args[processRequest.args.length - 1];
+        await fs.symlink(externalOutcome, outcomePath);
+        return { exitCode: 0, signal: null, timedOut: false, cancelled: false };
+      }),
+    };
+    try {
+      await expect(new NvxOneShotAdapter(dependencies).execute(request))
+        .rejects.toMatchObject({
+          category: 'invalid-outcome',
+          message: expect.stringMatching(/must be a regular file/),
+        });
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
   it('returns a distinct cancellation result', async () => {
     const { root, request } = await fixture();
     const dependencies: NvxOneShotAdapterDependencies = {
