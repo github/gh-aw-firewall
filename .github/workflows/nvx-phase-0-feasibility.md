@@ -738,7 +738,15 @@ steps:
           if jq -e '
             .outcome.operation == "run" and
             (.teardown | type == "object") and
-            ([.teardown[]] | length > 0) and
+            (.teardown | keys | sort) == ([
+              "control_channels_closed",
+              "guest_workload_stopped",
+              "network_released",
+              "openvmm_process_terminated",
+              "temporary_storage_removed",
+              "virtiofs_released",
+              "vm_stopped"
+            ] | sort) and
             ([.teardown[]] | all(. == true))
           ' "$outcome_path" > /dev/null 2>&1; then
             teardown_complete=true
@@ -788,14 +796,10 @@ steps:
           else
             outcome_category=$(jq -r '.outcome.category' "$outcome_path")
             outcome_status=$(jq -r '.outcome.status_code' "$outcome_path")
-            if [ "$outcome_status" = 125 ]; then
-              printf 'NVX one-shot container launch failure (status 125)'
-            else
-              printf 'category=%s status=%s wrapper_exit=%s' \
-                "$outcome_category" \
-                "$outcome_status" \
-                "$wrapper_exit"
-            fi
+            printf 'category=%s status=%s wrapper_exit=%s' \
+              "$outcome_category" \
+              "$outcome_status" \
+              "$wrapper_exit"
           fi
         }
 
