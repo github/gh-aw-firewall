@@ -312,3 +312,31 @@ Phase 1 is complete when maintainers have reviewed and accepted:
 
 Phase 2 may then implement the deterministic filesystem builder and one-shot
 execution adapter. Managed execution is not an exit criterion.
+
+## Phase 2 implementation boundary
+
+Phase 2 adds reusable foundations without making `nvx` a selectable AWF
+runtime:
+
+- `src/nvx/filesystem-builder.ts` creates ordered deterministic EROFS layers
+  from explicitly selected source roots, excludes known credential paths at
+  any depth, rejects escaping links and special files, records source and image
+  identities, and creates one fresh bounded ext4 scratch image per invocation;
+- `src/nvx/one-shot-adapter.ts` constructs only `nvx.py sandbox run`, launches
+  without a shell or inherited credential environment, applies a host
+  wall-clock timeout or cancellation to the full process group, filters
+  workflow-command syntax as a byte stream, and retains bounded raw output
+  tails; and
+- `src/nvx/outcome.ts` requires the exact one-shot outcome and teardown schema,
+  preserves guest status codes including `125`, and verifies that NVX reports
+  the requested fail-closed network policy.
+
+The adapter intentionally requires a prebuilt absolute entrypoint and
+whitespace-free NVX arguments. Complex agent commands must be placed in an
+immutable layer as an entrypoint script because the pinned NVX kernel-command
+line ABI rejects whitespace-bearing `--arg` values.
+
+Phase 2 does not add `nvx` to the runtime registry or CLI. Selection remains
+blocked until Phase 3 supplies the dedicated VMM identity, ACL-only device
+access, filesystem jail, cgroup, host-enforced network namespace, live
+confinement verification, artifact attestation, and durable stale cleanup.
