@@ -1,8 +1,16 @@
 import { createHash, randomUUID } from 'crypto';
-import { createReadStream, promises as fs, type Stats } from 'fs';
+import {
+  constants,
+  createReadStream,
+  createWriteStream,
+  promises as fs,
+  type Stats,
+} from 'fs';
+import type { FileHandle } from 'fs/promises';
 import * as path from 'path';
 import execa from 'execa';
-import { CREDENTIAL_ENTRIES } from '../config/mount-policy';
+import { pipeline } from 'stream/promises';
+import { CREDENTIAL_ENTRIES, HOME_FORBIDDEN_SUBDIRS } from '../config/mount-policy';
 
 const MIB = 1024 * 1024;
 const NVX_BLOCK_BYTES = 4096;
@@ -40,6 +48,8 @@ export interface NvxScratchArtifact {
   readonly path: string;
   readonly uuid: string;
   readonly sizeBytes: number;
+  readonly uid: number;
+  readonly gid: number;
 }
 
 export interface NvxFilesystemBundle {
@@ -92,9 +102,10 @@ interface StagedLayer {
   readonly excludedPaths: readonly string[];
 }
 
-const DEFAULT_EXCLUDED_PATHS = CREDENTIAL_ENTRIES.map(({ path: entryPath }) =>
-  normalizeRelative(entryPath)
-);
+const DEFAULT_EXCLUDED_PATHS = [
+  ...CREDENTIAL_ENTRIES.map(({ path: entryPath }) => normalizeRelative(entryPath)),
+  ...HOME_FORBIDDEN_SUBDIRS.map(normalizeRelative),
+];
 
 /**
  * Builds immutable deterministic EROFS layers and a fresh private ext4 scratch
@@ -167,6 +178,8 @@ export class NvxFilesystemBuilder {
           file: path.basename(scratch.path),
           uuid: scratch.uuid,
           sizeBytes: scratch.sizeBytes,
+          uid: scratch.uid,
+          gid: scratch.gid,
         },
       };
       await writeExclusiveJson(this.manifestPath, manifest, 0o400);
@@ -289,6 +302,8 @@ export class NvxFilesystemBuilder {
       path: scratchPath,
       uuid,
       sizeBytes,
+      uid,
+      gid,
     };
   }
 }
@@ -346,77 +361,131 @@ async function copyDeterministicTree(
   manifest: NvxLayerSourceManifestEntry[],
   sourceDateEpoch: number,
 ): Promise<void> {
-  const walk = async (current: string): Promise<void> => {
-    const stat = await fs.lstat(current);
-    const relativePath = normalizeRelative(path.relative(sourceRoot, current));
-    if (relativePath && isExcluded(relativePath, excludedPaths)) return;
-    if (stat.isSymbolicLink()) {
-      const target = await fs.readlink(current);
-      if (path.isAbsolute(target)) {
-        throw new Error(`Absolute symlink is not safe for NVX layer: ${current}`);
-      }
-      assertContained(
-        sourceRoot,
-        path.resolve(path.dirname(current), target),
-        `NVX layer symlink target for ${current}`,
-      );
-      const destination = path.join(destinationRoot, relativePath);
-      assertContained(destinationRoot, destination, 'NVX layer staging destination');
-      await fs.mkdir(path.dirname(destination), { recursive: true, mode: 0o700 });
-      await fs.symlink(target, destination);
-      await fs.lutimes(destination, sourceDateEpoch, sourceDateEpoch);
-      manifest.push({
-        path: relativePath,
-        type: 'symlink',
-        mode: stat.mode & 0o777,
-        size: stat.size,
-        target,
-      });
-      return;
-    }
-    if (!stat.isFile() && !stat.isDirectory()) {
-      throw new Error(`Special filesystem entry is not safe for NVX layer: ${current}`);
-    }
+  const root = await openDirectoryNoFollow(sourceRoot);
+  try {
+    await copyDirectory(root, '');
+  } finally {
+    await root.close();
+  }
+
+  async function copyDirectory(directory: FileHandle, relativePath: string): Promise<void> {
+    const current = descriptorPath(directory);
     if (relativePath) {
-      const destination = path.join(destinationRoot, relativePath);
-      assertContained(destinationRoot, destination, 'NVX layer staging destination');
+      const destination = stagingPath(destinationRoot, relativePath);
+      const stat = await directory.stat();
       const mode = normalizedMode(stat);
-      if (stat.isDirectory()) {
-        await fs.mkdir(destination, { recursive: true, mode });
-        await fs.chmod(destination, mode);
-        manifest.push({
-          path: relativePath,
-          type: 'directory',
-          mode,
-          size: 0,
-        });
-      } else {
-        await fs.mkdir(path.dirname(destination), { recursive: true, mode: 0o700 });
-        await fs.copyFile(current, destination);
-        await fs.chmod(destination, mode);
-        await fs.utimes(destination, sourceDateEpoch, sourceDateEpoch);
-        manifest.push({
-          path: relativePath,
-          type: 'file',
-          mode,
-          size: stat.size,
-          sha256: await sha256File(destination),
-        });
-      }
+      await fs.mkdir(destination, { recursive: true, mode });
+      await fs.chmod(destination, mode);
+      manifest.push({ path: relativePath, type: 'directory', mode, size: 0 });
     }
-    if (!stat.isDirectory()) return;
     const children = await fs.readdir(current);
     children.sort();
-    for (const child of children) await walk(path.join(current, child));
-    if (relativePath) {
-      await fs.utimes(
-        path.join(destinationRoot, relativePath),
-        sourceDateEpoch,
-        sourceDateEpoch,
-      );
+    for (const child of children) {
+      const childPath = path.join(current, child);
+      const childRelativePath = relativePath ? `${relativePath}/${child}` : child;
+      if (isExcluded(childRelativePath, excludedPaths)) continue;
+      const stat = await fs.lstat(childPath);
+      const destination = stagingPath(destinationRoot, childRelativePath);
+      if (stat.isSymbolicLink()) {
+        const target = await fs.readlink(childPath);
+        if (path.isAbsolute(target)) {
+          throw new Error(`Absolute symlink is not safe for NVX layer: ${childRelativePath}`);
+        }
+        assertContained(
+          sourceRoot,
+          path.resolve(sourceRoot, path.dirname(childRelativePath), target),
+          `NVX layer symlink target for ${childRelativePath}`,
+        );
+        await fs.mkdir(path.dirname(destination), { recursive: true, mode: 0o700 });
+        await fs.symlink(target, destination);
+        await fs.lutimes(destination, sourceDateEpoch, sourceDateEpoch);
+        manifest.push({
+          path: childRelativePath,
+          type: 'symlink',
+          mode: stat.mode & 0o777,
+          size: stat.size,
+          target,
+        });
+      } else if (stat.isDirectory()) {
+        const childDirectory = await openDirectoryNoFollow(childPath);
+        try {
+          await copyDirectory(childDirectory, childRelativePath);
+        } finally {
+          await childDirectory.close();
+        }
+      } else if (stat.isFile()) {
+        await copyRegularFile(childPath, destination, stat, childRelativePath);
+      } else {
+        throw new Error(`Special filesystem entry is not safe for NVX layer: ${childRelativePath}`);
+      }
     }
-  };
-  await walk(sourceRoot);
+    if (relativePath) {
+      await fs.utimes(stagingPath(destinationRoot, relativePath), sourceDateEpoch, sourceDateEpoch);
+    }
+  }
+
+  async function copyRegularFile(
+    source: string,
+    destination: string,
+    lstat: Stats,
+    relativePath: string,
+  ): Promise<void> {
+    const handle = await fs.open(source, constants.O_RDONLY | requiredNoFollowFlag());
+    try {
+      const stat = await handle.stat();
+      if (!stat.isFile() || stat.dev !== lstat.dev || stat.ino !== lstat.ino) {
+        throw new Error(`NVX layer source changed while opening file: ${relativePath}`);
+      }
+      const mode = normalizedMode(stat);
+      await fs.mkdir(path.dirname(destination), { recursive: true, mode: 0o700 });
+      await pipeline(
+        createReadStream(descriptorPath(handle)),
+        createWriteStream(destination, { flags: 'wx', mode }),
+      );
+      await fs.chmod(destination, mode);
+      await fs.utimes(destination, sourceDateEpoch, sourceDateEpoch);
+      const copied = await fs.stat(destination);
+      manifest.push({
+        path: relativePath,
+        type: 'file',
+        mode,
+        size: copied.size,
+        sha256: await sha256File(destination),
+      });
+    } finally {
+      await handle.close();
+    }
+  }
+}
+
+async function openDirectoryNoFollow(directoryPath: string): Promise<FileHandle> {
+  const handle = await fs.open(
+    directoryPath,
+    constants.O_RDONLY | constants.O_DIRECTORY | requiredNoFollowFlag(),
+  );
+  const stat = await handle.stat();
+  if (!stat.isDirectory()) {
+    await handle.close();
+    throw new Error(`NVX layer source must be a real directory: ${directoryPath}`);
+  }
+  return handle;
+}
+
+function descriptorPath(handle: FileHandle): string {
+  return `/proc/self/fd/${handle.fd}`;
+}
+
+function requiredNoFollowFlag(): number {
+  if (constants.O_NOFOLLOW === undefined) {
+    throw new Error('NVX filesystem staging requires O_NOFOLLOW support');
+  }
+  return constants.O_NOFOLLOW;
+}
+
+function stagingPath(root: string, relativePath: string): string {
+  const destination = path.join(root, relativePath);
+  assertContained(root, destination, 'NVX layer staging destination');
+  return destination;
 }
 
 function normalizedMode(stat: Stats): number {

@@ -7,6 +7,7 @@ import type { NvxFilesystemBundle } from './filesystem-builder';
 import {
   buildNvxOneShotArguments,
   NvxOneShotAdapter,
+  testHelpers,
   type NvxOneShotAdapterDependencies,
   type NvxOneShotExecutionRequest,
 } from './one-shot-adapter';
@@ -51,6 +52,8 @@ async function fixture(): Promise<{
       path: scratchPath,
       uuid: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
       sizeBytes: (await fs.stat(scratchPath)).size,
+      uid: 65534,
+      gid: 65534,
     },
   };
   await fs.writeFile(bundle.manifestPath, `${JSON.stringify({
@@ -69,6 +72,8 @@ async function fixture(): Promise<{
       file: path.basename(bundle.scratch.path),
       uuid: bundle.scratch.uuid,
       sizeBytes: bundle.scratch.sizeBytes,
+      uid: bundle.scratch.uid,
+      gid: bundle.scratch.gid,
     },
   })}\n`, { mode: 0o400 });
   await fs.chmod(bundle.manifestPath, 0o400);
@@ -233,6 +238,24 @@ describe('NVX one-shot execution adapter', () => {
     }
   });
 
+  it('requires the workload identity to own the scratch filesystem', async () => {
+    const { root, request } = await fixture();
+    const runProcess = jest.fn();
+    try {
+      await expect(new NvxOneShotAdapter({
+        pythonBinary: '/usr/bin/python3',
+        runProcess,
+      }).execute({
+        ...request,
+        workloadUid: 1000,
+        workloadGid: 1000,
+      })).rejects.toThrow(/scratch owner 65534:65534 must match workload identity 1000:1000/);
+      expect(runProcess).not.toHaveBeenCalled();
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
   it('rejects missing outcomes, wrapper mismatches, and modified images', async () => {
     const missing = await fixture();
     const noOutcomeDependencies: NvxOneShotAdapterDependencies = {
@@ -382,4 +405,65 @@ describe('NVX one-shot execution adapter', () => {
       await fs.rm(root, { recursive: true, force: true });
     }
   });
+
+  it('escalates process-group termination after the launcher exits', async () => {
+    const childPidPath = path.join(
+      await fs.mkdtemp(path.join(os.tmpdir(), 'awf-nvx-process-')),
+      'child.pid',
+    );
+    const childScript = [
+      "const fs = require('fs');",
+      "process.on('SIGTERM', () => {});",
+      `fs.writeFileSync(${JSON.stringify(childPidPath)}, String(process.pid));`,
+      'setInterval(() => {}, 1_000);',
+    ].join('');
+    const launcherScript = [
+      "const { spawn } = require('child_process');",
+      `spawn(process.execPath, ['-e', ${JSON.stringify(childScript)}], { stdio: 'ignore' });`,
+      'setInterval(() => {}, 1_000);',
+    ].join('');
+    try {
+      const started = Date.now();
+      const controller = new AbortController();
+      const run = testHelpers.runNvxProcess({
+        command: process.execPath,
+        args: ['-e', launcherScript],
+        cwd: process.cwd(),
+        env: process.env,
+        abortSignal: controller.signal,
+        onStdout: async () => {},
+        onStderr: async () => {},
+      });
+      const childPid = Number(await waitForFile(childPidPath));
+      controller.abort();
+      const result = await run;
+      expect(result.cancelled).toBe(true);
+      expect(Date.now() - started).toBeGreaterThanOrEqual(2_000);
+      expect(await processHasExited(childPid)).toBe(true);
+    } finally {
+      await fs.rm(path.dirname(childPidPath), { recursive: true, force: true });
+    }
+  }, 10_000);
 });
+
+async function waitForFile(filePath: string): Promise<string> {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    try {
+      return await fs.readFile(filePath, 'utf8');
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+  }
+  throw new Error(`Timed out waiting for ${filePath}`);
+}
+
+async function processHasExited(pid: number): Promise<boolean> {
+  try {
+    const stat = await fs.readFile(`/proc/${pid}/stat`, 'utf8');
+    return stat.split(' ')[2] === 'Z';
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return true;
+    throw error;
+  }
+}

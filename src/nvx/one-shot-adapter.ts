@@ -366,6 +366,8 @@ async function verifyFilesystemBundle(bundle: NvxFilesystemBundle): Promise<void
       file: path.basename(bundle.scratch.path),
       uuid: bundle.scratch.uuid,
       sizeBytes: bundle.scratch.sizeBytes,
+      uid: bundle.scratch.uid,
+      gid: bundle.scratch.gid,
     },
   };
   if (canonicalJson(manifest) !== canonicalJson(expectedManifest)) {
@@ -397,6 +399,17 @@ function validateRequest(request: NvxOneShotExecutionRequest): void {
   }
   assertPositiveInteger(request.workloadUid ?? 65534, 'NVX workload UID');
   assertPositiveInteger(request.workloadGid ?? 65534, 'NVX workload GID');
+  const workloadUid = request.workloadUid ?? 65534;
+  const workloadGid = request.workloadGid ?? 65534;
+  if (
+    request.filesystem.scratch.uid !== workloadUid ||
+    request.filesystem.scratch.gid !== workloadGid
+  ) {
+    throw new Error(
+      `NVX scratch owner ${request.filesystem.scratch.uid}:${request.filesystem.scratch.gid} ` +
+      `must match workload identity ${workloadUid}:${workloadGid}`,
+    );
+  }
   assertOptionalPositiveInteger(request.memoryMaxBytes, 'NVX memory limit');
   assertOptionalPositiveInteger(request.pidsMax, 'NVX process limit');
   assertOptionalPositiveInteger(request.memoryMib, 'NVX guest memory');
@@ -513,14 +526,19 @@ async function runNvxProcess(request: NvxProcessRequest): Promise<NvxProcessResu
   let timedOut = false;
   let cancelled = false;
   let forceKillTimer: NodeJS.Timeout | undefined;
+  let pendingExit: { exitCode: number | null; signal: NodeJS.Signals | null } | undefined;
+  let resolveCompletion!: (result: NvxProcessResult) => void;
   let rejectCompletion!: (error: Error) => void;
   const completion = new Promise<NvxProcessResult>((resolve, reject) => {
+    resolveCompletion = resolve;
     rejectCompletion = reject;
     child.once('error', reject);
     child.once('exit', (exitCode, signal) => {
       clearTimeout(timeout);
-      clearTimeout(forceKillTimer);
-      resolve({ exitCode, signal, timedOut, cancelled });
+      pendingExit = { exitCode, signal };
+      if (forceKillTimer === undefined) {
+        resolveCompletion({ exitCode, signal, timedOut, cancelled });
+      }
     });
   });
   const terminate = (reason: 'timeout' | 'cancelled'): void => {
@@ -537,12 +555,22 @@ async function runNvxProcess(request: NvxProcessRequest): Promise<NvxProcessResu
       return;
     }
     forceKillTimer = setTimeout(() => {
+      forceKillTimer = undefined;
       const forceKillError = killProcessTree(
         child.pid,
         'SIGKILL',
         () => child.kill('SIGKILL'),
       );
-      if (forceKillError) rejectCompletion(forceKillError);
+      if (forceKillError) {
+        rejectCompletion(forceKillError);
+      } else if (pendingExit) {
+        resolveCompletion({
+          exitCode: pendingExit.exitCode,
+          signal: pendingExit.signal,
+          timedOut,
+          cancelled,
+        });
+      }
     }, NVX_TERMINATION_GRACE_MS);
   };
   const timeout = request.timeoutMs === undefined
@@ -561,6 +589,10 @@ async function runNvxProcess(request: NvxProcessRequest): Promise<NvxProcessResu
     request.abortSignal?.removeEventListener('abort', onAbort);
   }
 }
+
+/** @internal Test-only access to process-group lifecycle behavior. */
+// ts-prune-ignore-next
+export const testHelpers = { runNvxProcess };
 
 async function pump(
   source: Readable | null,

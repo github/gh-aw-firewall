@@ -20,6 +20,8 @@ describe('NVX deterministic filesystem builder', () => {
     await fs.symlink('bin/tool', path.join(distro, 'tool'));
     await fs.mkdir(path.join(custom, '.config', 'gh'), { recursive: true });
     await fs.writeFile(path.join(custom, '.config', 'gh', 'hosts.yml'), 'secret');
+    await fs.mkdir(path.join(custom, '.ssh'), { recursive: true });
+    await fs.writeFile(path.join(custom, '.ssh', 'deploy_key'), 'secret');
     await fs.writeFile(path.join(custom, 'README'), 'safe');
 
     const commands: Array<{ command: string; args: readonly string[] }> = [];
@@ -86,6 +88,9 @@ describe('NVX deterministic filesystem builder', () => {
       await expect(fs.access(
         path.join(builder.stagingDirectory, 'custom', '.config', 'gh', 'hosts.yml'),
       )).rejects.toThrow();
+      await expect(fs.access(
+        path.join(builder.stagingDirectory, 'custom', '.ssh', 'deploy_key'),
+      )).rejects.toThrow();
       expect(await fs.readFile(
         path.join(builder.stagingDirectory, 'custom', 'README'),
         'utf8',
@@ -102,6 +107,8 @@ describe('NVX deterministic filesystem builder', () => {
         scratch: {
           file: 'scratch.ext4',
           uuid: '11111111-2222-4333-8444-555555555555',
+          uid: 65534,
+          gid: 65534,
         },
       });
     } finally {
