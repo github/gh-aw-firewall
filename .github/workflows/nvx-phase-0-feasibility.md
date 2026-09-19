@@ -829,7 +829,7 @@ steps:
             jq -e '
               .outcome == {
                 operation:"run",
-                category:"guest-exit",
+                category:"success",
                 status_code:0
               }
             ' "$DATA_DIR/codex-oneshot-outcome.json" > /dev/null &&
@@ -903,7 +903,7 @@ steps:
               jq -e '
                 .outcome == {
                   operation:"run",
-                  category:"guest-exit",
+                  category:"success",
                   status_code:0
                 }
               ' "$DATA_DIR/copilot-outcome.json" > /dev/null &&
