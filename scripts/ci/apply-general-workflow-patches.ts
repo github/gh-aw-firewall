@@ -51,6 +51,9 @@ const publishedAwfWorkflowLockFiles = new Set([
   'auth-doctor-updater.lock.yml',
   'doc-maintainer.lock.yml',
   'model-api-mapping-updater.lock.yml',
+  // Checks out the pull request under test, so a local `npm ci`/`npm run build`
+  // would run PR-controlled scripts on the host runner with workflow secrets.
+  'nvx-phase-0-feasibility.lock.yml',
   'sbx-gvisor-doc-updater.lock.yml',
   'schema-sync.lock.yml',
   'self-hosted-runner-doctor-updater.lock.yml',
