@@ -321,7 +321,9 @@ runtime:
 - `src/nvx/filesystem-builder.ts` creates ordered deterministic EROFS layers
   from explicitly selected source roots, excludes known credential paths at
   any depth, rejects escaping links and special files, records source and image
-  identities, and creates one fresh bounded ext4 scratch image per invocation;
+  identities, and creates one fresh bounded ext4 scratch image per invocation.
+  Staging requires Linux `/proc/self/fd` and no-follow directory descriptors to
+  prevent source-tree path races;
 - `src/nvx/one-shot-adapter.ts` constructs only `nvx.py sandbox run`, launches
   without a shell or inherited credential environment, applies a host
   wall-clock timeout or cancellation to the full process group, filters

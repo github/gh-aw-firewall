@@ -459,6 +459,15 @@ async function waitForFile(filePath: string): Promise<string> {
 }
 
 async function processHasExited(pid: number): Promise<boolean> {
+  if (process.platform !== 'linux') {
+    try {
+      process.kill(pid, 0);
+      return false;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ESRCH') return true;
+      throw error;
+    }
+  }
   try {
     const stat = await fs.readFile(`/proc/${pid}/stat`, 'utf8');
     return stat.split(' ')[2] === 'Z';

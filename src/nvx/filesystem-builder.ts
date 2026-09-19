@@ -361,6 +361,7 @@ async function copyDeterministicTree(
   manifest: NvxLayerSourceManifestEntry[],
   sourceDateEpoch: number,
 ): Promise<void> {
+  await assertDescriptorTraversalSupport();
   const root = await openDirectoryNoFollow(sourceRoot);
   try {
     await copyDirectory(root, '');
@@ -476,10 +477,22 @@ function descriptorPath(handle: FileHandle): string {
 }
 
 function requiredNoFollowFlag(): number {
-  if (constants.O_NOFOLLOW === undefined) {
-    throw new Error('NVX filesystem staging requires O_NOFOLLOW support');
+  if (constants.O_NOFOLLOW === undefined || constants.O_DIRECTORY === undefined) {
+    throw new Error('NVX filesystem staging requires O_NOFOLLOW and O_DIRECTORY support');
   }
   return constants.O_NOFOLLOW;
+}
+
+async function assertDescriptorTraversalSupport(): Promise<void> {
+  if (process.platform !== 'linux') {
+    throw new Error('NVX filesystem staging requires Linux descriptor traversal support');
+  }
+  requiredNoFollowFlag();
+  try {
+    await fs.access('/proc/self/fd');
+  } catch {
+    throw new Error('NVX filesystem staging requires mounted /proc/self/fd');
+  }
 }
 
 function stagingPath(root: string, relativePath: string): string {

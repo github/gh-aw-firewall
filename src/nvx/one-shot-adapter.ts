@@ -16,6 +16,7 @@ import {
 const NVX_MAX_OUTCOME_BYTES = 64 * 1024;
 const NVX_DEFAULT_RAW_TAIL_BYTES = 64 * 1024;
 const NVX_TERMINATION_GRACE_MS = 2_000;
+const NVX_DEFAULT_WORKLOAD_ID = 65534;
 
 export interface NvxOneShotNetworkPlan {
   readonly guestAddress: string;
@@ -234,8 +235,8 @@ export function buildNvxOneShotArguments(
   request: NvxOneShotExecutionRequest,
   outcomePath: string,
 ): readonly string[] {
-  const uid = request.workloadUid ?? 65534;
-  const gid = request.workloadGid ?? 65534;
+  const uid = request.workloadUid ?? NVX_DEFAULT_WORKLOAD_ID;
+  const gid = request.workloadGid ?? NVX_DEFAULT_WORKLOAD_ID;
   const args = [
     path.join('scripts', 'nvx.py'),
     'sandbox',
@@ -397,10 +398,10 @@ function validateRequest(request: NvxOneShotExecutionRequest): void {
   ) {
     throw new Error(`Invalid NVX hostname: ${hostname}`);
   }
-  assertPositiveInteger(request.workloadUid ?? 65534, 'NVX workload UID');
-  assertPositiveInteger(request.workloadGid ?? 65534, 'NVX workload GID');
-  const workloadUid = request.workloadUid ?? 65534;
-  const workloadGid = request.workloadGid ?? 65534;
+  const workloadUid = request.workloadUid ?? NVX_DEFAULT_WORKLOAD_ID;
+  const workloadGid = request.workloadGid ?? NVX_DEFAULT_WORKLOAD_ID;
+  assertPositiveInteger(workloadUid, 'NVX workload UID');
+  assertPositiveInteger(workloadGid, 'NVX workload GID');
   if (
     request.filesystem.scratch.uid !== workloadUid ||
     request.filesystem.scratch.gid !== workloadGid
@@ -556,22 +557,24 @@ async function runNvxProcess(request: NvxProcessRequest): Promise<NvxProcessResu
     }
     forceKillTimer = setTimeout(() => {
       forceKillTimer = undefined;
-      const forceKillError = killProcessTree(
-        child.pid,
-        'SIGKILL',
-        () => child.kill('SIGKILL'),
-      );
-      if (forceKillError) {
-        rejectCompletion(forceKillError);
-      } else if (pendingExit) {
-        resolveCompletion({
-          exitCode: pendingExit.exitCode,
-          signal: pendingExit.signal,
-          timedOut,
-          cancelled,
-        });
-      }
+      void forceKill();
     }, NVX_TERMINATION_GRACE_MS);
+  };
+  const forceKill = async (): Promise<void> => {
+    const forceKillError = pendingExit
+      ? await killExitedProcessGroup(child.pid, 'SIGKILL')
+      : killProcessTree(child.pid, 'SIGKILL', () => child.kill('SIGKILL'));
+    if (forceKillError) {
+      rejectCompletion(forceKillError);
+    } else if (pendingExit) {
+      // Keep escalation active after the launcher exits so descendants cannot survive.
+      resolveCompletion({
+        exitCode: pendingExit.exitCode,
+        signal: pendingExit.signal,
+        timedOut,
+        cancelled,
+      });
+    }
   };
   const timeout = request.timeoutMs === undefined
     ? undefined
@@ -616,6 +619,7 @@ function killProcessTree(
     } else {
       process.kill(-pid, signal);
     }
+
     return undefined;
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
@@ -629,6 +633,30 @@ function killProcessTree(
     }
     return new Error(
       `Failed to signal NVX process group with ${signal}: ${formatError(error)}`,
+    );
+  }
+}
+
+async function killExitedProcessGroup(
+  pgid: number | undefined,
+  signal: NodeJS.Signals,
+): Promise<Error | undefined> {
+  if (pgid === undefined) return new Error('NVX process has no PID');
+  try {
+    for (const entry of await fs.readdir('/proc')) {
+      if (!/^\d+$/.test(entry)) continue;
+      try {
+        const stat = await fs.readFile(`/proc/${entry}/stat`, 'utf8');
+        const fields = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
+        if (fields[2] === String(pgid)) process.kill(Number(entry), signal);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      }
+    }
+    return undefined;
+  } catch (error) {
+    return new Error(
+      `Failed to signal exited NVX process group with ${signal}: ${formatError(error)}`,
     );
   }
 }
