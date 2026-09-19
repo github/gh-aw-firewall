@@ -17,7 +17,7 @@ ARG NPM_CONFIG_REGISTRY=https://registry.npmjs.org/
 RUN npm_config_ignore_scripts=false npm install -g "@github/copilot@${COPILOT_CLI_VERSION}" \
     && npm_config_ignore_scripts=true npm install \
          --prefix /usr/local/lib/node_modules/@github/copilot \
-         --omit=dev adm-zip@0.6.0 \
+         --omit=dev adm-zip@0.6.1 \
     && find /usr/local/lib/node_modules/@github/copilot \
          -path '*/foundry-local-sdk/node_modules/adm-zip' -prune -type d \
          -exec sh -c 'rm -rf "$1" && cp -a /usr/local/lib/node_modules/@github/copilot/node_modules/adm-zip "$1"' sh {} \; \
