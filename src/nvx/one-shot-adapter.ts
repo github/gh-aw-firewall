@@ -488,7 +488,8 @@ async function assertNewOutcomePath(outcomePath: string, runDirectory: string): 
     await fs.lstat(outcomePath);
     throw new Error(`NVX outcome report already exists: ${outcomePath}`);
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code !== 'ENOENT') throw error;
   }
 }
 
@@ -650,7 +651,8 @@ async function killExitedProcessGroup(
         const fields = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
         if (fields[2] === String(pgid)) process.kill(Number(entry), signal);
       } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code !== 'ENOENT' && code !== 'ESRCH') throw error;
       }
     }
     return undefined;

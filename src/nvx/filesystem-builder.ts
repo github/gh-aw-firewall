@@ -431,7 +431,7 @@ async function copyDeterministicTree(
     lstat: Stats,
     relativePath: string,
   ): Promise<void> {
-    const handle = await fs.open(source, constants.O_RDONLY | requiredNoFollowFlag());
+    const handle = await fs.open(source, constants.O_RDONLY | noFollowFlag());
     try {
       const stat = await handle.stat();
       if (!stat.isFile() || stat.dev !== lstat.dev || stat.ino !== lstat.ino) {
@@ -462,7 +462,7 @@ async function copyDeterministicTree(
 async function openDirectoryNoFollow(directoryPath: string): Promise<FileHandle> {
   const handle = await fs.open(
     directoryPath,
-    constants.O_RDONLY | constants.O_DIRECTORY | requiredNoFollowFlag(),
+    constants.O_RDONLY | directoryFlag() | noFollowFlag(),
   );
   const stat = await handle.stat();
   if (!stat.isDirectory()) {
@@ -476,18 +476,22 @@ function descriptorPath(handle: FileHandle): string {
   return `/proc/self/fd/${handle.fd}`;
 }
 
-function requiredNoFollowFlag(): number {
-  if (constants.O_NOFOLLOW === undefined || constants.O_DIRECTORY === undefined) {
-    throw new Error('NVX filesystem staging requires O_NOFOLLOW and O_DIRECTORY support');
-  }
-  return constants.O_NOFOLLOW;
+function noFollowFlag(): number {
+  return constants.O_NOFOLLOW as number;
+}
+
+function directoryFlag(): number {
+  return constants.O_DIRECTORY as number;
 }
 
 async function assertDescriptorTraversalSupport(): Promise<void> {
-  if (process.platform !== 'linux') {
+  if (
+    process.platform !== 'linux' ||
+    constants.O_NOFOLLOW === undefined ||
+    constants.O_DIRECTORY === undefined
+  ) {
     throw new Error('NVX filesystem staging requires Linux descriptor traversal support');
   }
-  requiredNoFollowFlag();
   try {
     await fs.access('/proc/self/fd');
   } catch {

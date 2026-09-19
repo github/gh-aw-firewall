@@ -470,7 +470,7 @@ async function processHasExited(pid: number): Promise<boolean> {
   }
   try {
     const stat = await fs.readFile(`/proc/${pid}/stat`, 'utf8');
-    return stat.split(' ')[2] === 'Z';
+    return stat.slice(stat.lastIndexOf(')') + 2).split(' ')[0] === 'Z';
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return true;
     throw error;
