@@ -249,7 +249,6 @@ steps:
 
         scenarios=(
           lifecycle
-          managed-lifecycle
           directional-network-policy
           l3-l4-egress-policy
           host-loopback-policy
@@ -570,8 +569,12 @@ steps:
           "Pinned source or packaged OpenVMM artifacts were unavailable"
         record representative-agent-workload BLOCKED \
           "Pinned source or packaged OpenVMM artifacts were unavailable"
+        record representative-agent-cleanup BLOCKED \
+          "One-shot execution was unavailable for cleanup verification"
         record copilot-cli-proof BLOCKED \
           "Pinned source or packaged OpenVMM artifacts were unavailable"
+        record copilot-cli-cleanup BLOCKED \
+          "Networked one-shot execution was unavailable for cleanup verification"
         exit 0
       fi
 
@@ -585,8 +588,6 @@ steps:
 
         AGENT_ROOT="$SANDBOX_DIR/root"
         AGENT_LAYER="$SANDBOX_DIR/codex.erofs"
-        AGENT_SCRATCH="$SANDBOX_DIR/scratch.ext4"
-        AGENT_STATE="$SANDBOX_DIR/state"
         AGENT_UUID=6f6d4f51-a7dc-4dc4-bc39-3b20e7462463
         rm -rf "$AGENT_ROOT"
         mkdir -p "$AGENT_ROOT"
@@ -699,163 +700,166 @@ steps:
             -U "$AGENT_UUID" \
             "$AGENT_LAYER" \
             "$AGENT_ROOT" \
-            > "$DATA_DIR/logs/erofs-build.log" 2>&1 &&
-            truncate -s 128M "$AGENT_SCRATCH" &&
-            mkfs.ext4 -F "$AGENT_SCRATCH" \
-              >> "$DATA_DIR/logs/erofs-build.log" 2>&1
+            > "$DATA_DIR/logs/erofs-build.log" 2>&1
           agent_image_exit=$?
         else
           agent_image_exit=1
         fi
 
-        sandbox_started=false
+        record openvmm-host-confinement BLOCKED \
+          "One-shot NVX launch still needs an AWF-owned per-run identity, cgroup, filesystem jail, and post-launch host verification"
+
+        snapshot_one_shot_host_state() {
+          snapshot_name=$1
+          openvmm_binary="$SOURCE_DIR/openvmm/target/release/openvmm"
+          for process_executable in /proc/[0-9]*/exe; do
+            if [ "$(readlink "$process_executable" 2> /dev/null)" = \
+              "$openvmm_binary" ]; then
+              basename "$(dirname "$process_executable")"
+            fi
+          done | sort > "$DATA_DIR/$snapshot_name-openvmm-processes.txt"
+          ip -o link show |
+            sed -E 's/^[0-9]+: ([^:]+):.*/\1/' |
+            sort > "$DATA_DIR/$snapshot_name-links.txt"
+        }
+
+        verify_one_shot_cleanup() {
+          cleanup_name=$1
+          outcome_path=$2
+          before_prefix=$3
+          after_prefix=$4
+          scratch_path=$5
+
+          teardown_complete=false
+          no_openvmm_processes=false
+          links_restored=false
+          awf_scratch_removed=false
+
+          if jq -e '
+            .outcome.operation == "run" and
+            (.teardown | type == "object") and
+            (.teardown | keys | sort) == ([
+              "control_channels_closed",
+              "guest_workload_stopped",
+              "network_released",
+              "openvmm_process_terminated",
+              "temporary_storage_removed",
+              "virtiofs_released",
+              "vm_stopped"
+            ] | sort) and
+            ([.teardown[]] | all(. == true))
+          ' "$outcome_path" > /dev/null 2>&1; then
+            teardown_complete=true
+          fi
+          if cmp -s \
+            "$DATA_DIR/$before_prefix-openvmm-processes.txt" \
+            "$DATA_DIR/$after_prefix-openvmm-processes.txt"; then
+            no_openvmm_processes=true
+          fi
+          if cmp -s \
+            "$DATA_DIR/$before_prefix-links.txt" \
+            "$DATA_DIR/$after_prefix-links.txt"; then
+            links_restored=true
+          fi
+          if [ ! -e "$scratch_path" ]; then
+            awf_scratch_removed=true
+          fi
+
+          jq -n \
+            --argjson teardown_complete "$teardown_complete" \
+            --argjson no_openvmm_processes "$no_openvmm_processes" \
+            --argjson links_restored "$links_restored" \
+            --argjson awf_scratch_removed "$awf_scratch_removed" \
+            '{
+              teardown_complete:$teardown_complete,
+              no_openvmm_processes:$no_openvmm_processes,
+              links_restored:$links_restored,
+              awf_scratch_removed:$awf_scratch_removed
+            }' > "$DATA_DIR/$cleanup_name-cleanup.json"
+
+          [ "$teardown_complete" = true ] &&
+            [ "$no_openvmm_processes" = true ] &&
+            [ "$links_restored" = true ] &&
+            [ "$awf_scratch_removed" = true ]
+        }
+
+        describe_one_shot_failure() {
+          wrapper_exit=$1
+          outcome_path=$2
+          if [ "$wrapper_exit" -eq 124 ]; then
+            printf 'host wall-clock timeout'
+          elif [ ! -s "$outcome_path" ] ||
+            ! jq -e '.outcome.operation == "run"' \
+              "$outcome_path" > /dev/null 2>&1; then
+            printf 'missing or invalid structured outcome (wrapper exit %s)' \
+              "$wrapper_exit"
+          else
+            outcome_category=$(jq -r '.outcome.category' "$outcome_path")
+            outcome_status=$(jq -r '.outcome.status_code' "$outcome_path")
+            printf 'category=%s status=%s wrapper_exit=%s' \
+              "$outcome_category" \
+              "$outcome_status" \
+              "$wrapper_exit"
+          fi
+        }
+
         if [ "$agent_image_exit" -eq 0 ] && ensure_kvm_access; then
+          AGENT_ONESHOT_SCRATCH="$SANDBOX_DIR/scratch-oneshot.ext4"
+          truncate -s 128M "$AGENT_ONESHOT_SCRATCH"
+          mkfs.ext4 -F "$AGENT_ONESHOT_SCRATCH" \
+            > "$DATA_DIR/logs/codex-oneshot-scratch.log" 2>&1
+          rm -f "$DATA_DIR/codex-oneshot-outcome.json"
+          snapshot_one_shot_host_state codex-before
           (
             cd "$SOURCE_DIR" &&
-            python3 scripts/nvx.py sandbox provision \
-              --state-dir "$AGENT_STATE" \
+            run_with_kvm_group timeout 180s python3 scripts/nvx.py \
+              sandbox run \
               --layer "distro,$AGENT_LAYER,$AGENT_UUID" \
-              --scratch "$AGENT_SCRATCH" \
+              --scratch "$AGENT_ONESHOT_SCRATCH" \
+              --entrypoint /usr/local/bin/codex \
+              --arg=--version \
               --workload-user 65534:65534 \
               --memory-max 268435456 \
               --pids-max 64 \
-              --memory-mib 256 &&
-            run_with_kvm_group timeout 180s python3 scripts/nvx.py \
-              sandbox start \
-              --state-dir "$AGENT_STATE" \
-              --timeout 90
-          ) > "$DATA_DIR/logs/agent-sandbox-start.log" 2>&1
-          sandbox_start_exit=$?
-          [ "$sandbox_start_exit" -eq 0 ] && sandbox_started=true
-        else
-          sandbox_start_exit=1
-        fi
+              --memory-mib 256 \
+              --outcome-report "$DATA_DIR/codex-oneshot-outcome.json"
+          ) > "$DATA_DIR/logs/codex-oneshot-workload.log" 2>&1
+          codex_oneshot_exit=$?
+          sleep 1
+          snapshot_one_shot_host_state codex-after
+          rm -f "$AGENT_ONESHOT_SCRATCH"
 
-        if [ "$sandbox_started" = true ]; then
-          openvmm_pid=$(jq -r '.pid' "$AGENT_STATE/runtime.json")
-          cp "/proc/$openvmm_pid/status" "$DATA_DIR/openvmm-status.txt"
-          cp "/proc/$openvmm_pid/cgroup" "$DATA_DIR/openvmm-cgroup.txt"
-          readlink "/proc/$openvmm_pid/ns/net" \
-            > "$DATA_DIR/openvmm-netns.txt"
-          readlink /proc/1/ns/net > "$DATA_DIR/host-init-netns.txt"
-
-          openvmm_uid=$(awk '/^Uid:/ {print $2}' "$DATA_DIR/openvmm-status.txt")
-          openvmm_caps=$(awk '
-            /^Cap(Inh|Prm|Eff|Bnd|Amb):/ && $2 != "0000000000000000" { print }
-          ' "$DATA_DIR/openvmm-status.txt")
-          openvmm_nnp=$(awk '/^NoNewPrivs:/ {print $2}' \
-            "$DATA_DIR/openvmm-status.txt")
-          openvmm_seccomp=$(awk '/^Seccomp:/ {print $2}' \
-            "$DATA_DIR/openvmm-status.txt")
-          openvmm_membership=$(cut -d: -f3 "$DATA_DIR/openvmm-cgroup.txt")
-          openvmm_netns=$(cat "$DATA_DIR/openvmm-netns.txt")
-          host_netns=$(cat "$DATA_DIR/host-init-netns.txt")
-
-          jq -n \
-            --argjson pid "$openvmm_pid" \
-            --arg uid "$openvmm_uid" \
-            --arg capabilities "$openvmm_caps" \
-            --arg no_new_privs "$openvmm_nnp" \
-            --arg seccomp "$openvmm_seccomp" \
-            --arg cgroup "$openvmm_membership" \
-            --arg network_namespace "$openvmm_netns" \
-            --arg host_network_namespace "$host_netns" \
-            '{
-              pid:$pid,
-              uid:$uid,
-              capabilities_empty:($capabilities == ""),
-              no_new_privs:($no_new_privs == "1"),
-              seccomp_filter:($seccomp == "2"),
-              cgroup:$cgroup,
-              cgroup_scoped:false,
-              network_namespace:$network_namespace,
-              network_namespace_isolated:($network_namespace != $host_network_namespace),
-              landlock_verified:false
-            }' > "$DATA_DIR/openvmm-confinement.json"
-
-          if [ "$openvmm_uid" = "$(id -u)" ] &&
-            [ -z "$openvmm_caps" ] &&
-            [ "$openvmm_nnp" = 1 ] &&
-            [ "$openvmm_seccomp" = 2 ] &&
-            [ "$openvmm_netns" != "$host_netns" ]; then
-            record openvmm-host-confinement BLOCKED \
-              "Process controls passed, but NVX exposes no verifiable host Landlock launch contract"
-          else
-            record openvmm-host-confinement BLOCKED \
-              "Post-launch inspection found missing AWF parity; see openvmm-confinement.json"
-          fi
-
-          (
-            cd "$SOURCE_DIR" &&
-            run_with_kvm_group timeout 120s python3 scripts/nvx.py sandbox exec \
-              --state-dir "$AGENT_STATE" \
-              --entrypoint /usr/local/bin/codex \
-              --arg=--version \
-              --exec-timeout-ms 30000 \
-              --timeout 60 \
-              --outcome-report "$DATA_DIR/codex-outcome.json"
-          ) > "$DATA_DIR/logs/codex-eroFS-workload.log" 2>&1
-          codex_managed_exit=$?
-          codex_workload_pass=false
-          if [ "$codex_managed_exit" -eq 0 ] &&
-            grep -q '0\.155\.0' "$DATA_DIR/logs/codex-eroFS-workload.log"; then
-            codex_workload_pass=true
-          fi
-          if [ -f "$AGENT_STATE/openvmm.log" ]; then
-            cp "$AGENT_STATE/openvmm.log" \
-              "$DATA_DIR/logs/agent-sandbox-openvmm.log"
-          fi
-
-          (
-            cd "$SOURCE_DIR" &&
-            python3 scripts/nvx.py sandbox stop \
-              --state-dir "$AGENT_STATE" \
-              --timeout 60 &&
-            python3 scripts/nvx.py sandbox deprovision \
-              --state-dir "$AGENT_STATE"
-          ) >> "$DATA_DIR/logs/agent-sandbox-start.log" 2>&1
-          sandbox_cleanup_exit=$?
-          if [ "$sandbox_cleanup_exit" -ne 0 ]; then
-            record representative-agent-cleanup FAIL \
-              "Managed Codex sandbox cleanup exited $sandbox_cleanup_exit"
-          fi
-
-          if [ "$codex_workload_pass" != true ]; then
-            AGENT_ONESHOT_SCRATCH="$SANDBOX_DIR/scratch-oneshot.ext4"
-            truncate -s 128M "$AGENT_ONESHOT_SCRATCH"
-            mkfs.ext4 -F "$AGENT_ONESHOT_SCRATCH" \
-              > "$DATA_DIR/logs/codex-oneshot-scratch.log" 2>&1
-            rm -f "$DATA_DIR/codex-oneshot-outcome.json"
-            (
-              cd "$SOURCE_DIR" &&
-              run_with_kvm_group timeout 180s python3 scripts/nvx.py \
-                sandbox run \
-                --layer "distro,$AGENT_LAYER,$AGENT_UUID" \
-                --scratch "$AGENT_ONESHOT_SCRATCH" \
-                --entrypoint /usr/local/bin/codex \
-                --arg=--version \
-                --workload-user 65534:65534 \
-                --memory-max 268435456 \
-                --pids-max 64 \
-                --memory-mib 256 \
-                --outcome-report "$DATA_DIR/codex-oneshot-outcome.json"
-            ) > "$DATA_DIR/logs/codex-oneshot-workload.log" 2>&1
-            codex_oneshot_exit=$?
-            if [ "$codex_oneshot_exit" -eq 0 ] &&
-              grep -q '0\.155\.0' \
-                "$DATA_DIR/logs/codex-oneshot-workload.log"; then
-              codex_workload_pass=true
-            fi
-          else
-            codex_oneshot_exit=0
-          fi
-
-          if [ "$codex_workload_pass" = true ]; then
+          if [ "$codex_oneshot_exit" -eq 0 ] &&
+            jq -e '
+              .outcome == {
+                operation:"run",
+                category:"success",
+                status_code:0
+              }
+            ' "$DATA_DIR/codex-oneshot-outcome.json" > /dev/null &&
+            grep -q '0\.155\.0' \
+              "$DATA_DIR/logs/codex-oneshot-workload.log"; then
             record representative-agent-workload PASS \
-              "Pinned Codex 0.155.0 executed as UID 65534 from a read-only NVX EROFS layer"
+              "Pinned Codex 0.155.0 completed one-shot execution as UID 65534 from a read-only NVX EROFS layer"
           else
+            codex_failure=$(describe_one_shot_failure \
+              "$codex_oneshot_exit" \
+              "$DATA_DIR/codex-oneshot-outcome.json")
             record representative-agent-workload FAIL \
-              "Pinned Codex EROFS workload failed in managed ($codex_managed_exit) and one-shot ($codex_oneshot_exit) modes"
+              "Pinned Codex one-shot EROFS workload failed: $codex_failure"
+          fi
+
+          if verify_one_shot_cleanup \
+            codex-one-shot \
+            "$DATA_DIR/codex-oneshot-outcome.json" \
+            codex-before \
+            codex-after \
+            "$AGENT_ONESHOT_SCRATCH"; then
+            record representative-agent-cleanup PASS \
+              "Codex one-shot outcome reports complete NVX teardown, no OpenVMM process or host link remained, and AWF removed the scratch image"
+          else
+            record representative-agent-cleanup FAIL \
+              "Codex one-shot cleanup was incomplete; inspect codex-one-shot-cleanup.json and host-state snapshots"
           fi
 
           copilot_proxy_ready=false
@@ -875,6 +879,7 @@ steps:
             mkfs.ext4 -F "$COPILOT_SCRATCH" \
               > "$DATA_DIR/logs/copilot-scratch.log" 2>&1
             rm -f "$DATA_DIR/copilot-outcome.json"
+            snapshot_one_shot_host_state copilot-before
             (
               cd "$SOURCE_DIR" &&
               run_with_kvm_group timeout 300s python3 scripts/nvx.py \
@@ -895,26 +900,55 @@ steps:
                 --outcome-report "$DATA_DIR/copilot-outcome.json"
             ) > "$DATA_DIR/logs/copilot-workload.log" 2>&1
             copilot_workload_exit=$?
+            sleep 1
+            snapshot_one_shot_host_state copilot-after
+            rm -f "$COPILOT_SCRATCH"
             if [ "$copilot_workload_exit" -eq 0 ] &&
+              jq -e '
+                .outcome == {
+                  operation:"run",
+                  category:"success",
+                  status_code:0
+                }
+              ' "$DATA_DIR/copilot-outcome.json" > /dev/null &&
               tr -d '\r' < "$DATA_DIR/logs/copilot-workload.log" |
                 grep -qx 'NVX-COPILOT-PROOF'; then
               record copilot-cli-proof PASS \
                 "Pinned Copilot CLI ${COPILOT_VERSION} completed authenticated inference through the AWF API proxy without guest credentials"
             else
+              copilot_failure=$(describe_one_shot_failure \
+                "$copilot_workload_exit" \
+                "$DATA_DIR/copilot-outcome.json")
               record copilot-cli-proof FAIL \
-                "Pinned Copilot CLI proof exited $copilot_workload_exit; see copilot-workload.log and copilot-outcome.json"
+                "Pinned Copilot CLI one-shot proof failed: $copilot_failure"
+            fi
+            if verify_one_shot_cleanup \
+              copilot-one-shot \
+              "$DATA_DIR/copilot-outcome.json" \
+              copilot-before \
+              copilot-after \
+              "$COPILOT_SCRATCH"; then
+              record copilot-cli-cleanup PASS \
+                "Networked Copilot one-shot outcome reports complete NVX teardown, no OpenVMM process or host link remained, and AWF removed the scratch image"
+            else
+              record copilot-cli-cleanup FAIL \
+                "Networked Copilot one-shot cleanup was incomplete; inspect copilot-one-shot-cleanup.json and host-state snapshots"
             fi
           else
             record copilot-cli-proof BLOCKED \
               "Pinned Copilot CLI artifact or credential-holding AWF API proxy was unavailable"
+            record copilot-cli-cleanup BLOCKED \
+              "Networked Copilot one-shot execution was unavailable for cleanup verification"
           fi
         else
-          record openvmm-host-confinement BLOCKED \
-            "Managed NVX EROFS sandbox did not start"
           record representative-agent-workload BLOCKED \
-            "Pinned Codex artifact or managed NVX EROFS sandbox was unavailable"
+            "Pinned Codex artifact, EROFS image, or KVM access was unavailable"
+          record representative-agent-cleanup BLOCKED \
+            "Codex one-shot execution was unavailable for cleanup verification"
           record copilot-cli-proof BLOCKED \
-            "Pinned Copilot CLI artifact or managed NVX EROFS sandbox was unavailable"
+            "Pinned Copilot CLI artifact, EROFS image, or KVM access was unavailable"
+          record copilot-cli-cleanup BLOCKED \
+            "Networked Copilot one-shot execution was unavailable for cleanup verification"
         fi
 
       # shellcheck disable=SC2024
@@ -1144,6 +1178,14 @@ steps:
               "AWF-equivalent host OpenVMM confinement and post-launch verification"
             ],
             [
+              "representative-agent-cleanup",
+              "Complete one-shot teardown with no residual OpenVMM process or host link and removal of AWF scratch staging"
+            ],
+            [
+              "copilot-cli-cleanup",
+              "Complete networked one-shot teardown after authenticated Copilot inference"
+            ],
+            [
               "guest-unix-sockets",
               "Guest-local Unix-domain socket support required by agent runtimes"
             ],
@@ -1191,7 +1233,7 @@ post-steps:
 
 Analyze the deterministic NVX evidence produced by this run and publish one durable feasibility report for AWF maintainers.
 Complete the report within ten tool calls. Read `summary.json` first, then only
-the benchmark, confinement, provenance, and workload files needed to
+the benchmark, cleanup, provenance, and workload files needed to
 substantiate the report; do not inventory or repeatedly inspect the evidence
 directory.
 
@@ -1200,8 +1242,8 @@ directory.
 The broader delivery plan is:
 
 1. **Phase 0 — feasibility:** pin one NVX Linux/KVM release; validate boot, lifecycle, filesystem sharing, deny-by-default networking, host-loopback/proxy behavior, workload identity, structured outcomes, and cold-start performance; identify what remains unproven for AWF.
-2. **Phase 1 — security design:** specify artifact provenance, immutable snapshots, a dedicated per-run VMM identity, scoped KVM access, cgroup limits, non-shell launch, post-launch confinement verification, diagnostics, and durable cleanup.
-3. **Phase 2 — filesystem and execution:** build deterministic EROFS/ext4 artifacts, stage approved paths beneath one virtio-fs root, enforce credential-deny paths, adapt NVX's managed protocol, and reject unsupported TTY behavior.
+2. **Phase 1 — security design:** specify the one-shot lifecycle, artifact provenance, immutable snapshots, a dedicated per-run VMM identity, scoped KVM access, cgroup limits, non-shell launch, post-launch confinement verification, diagnostics, and durable cleanup.
+3. **Phase 2 — filesystem and execution:** build deterministic EROFS/ext4 artifacts, enforce credential-deny paths, implement one-shot agent execution with structured outcomes, and reject unsupported TTY behavior.
 4. **Phase 3 — opt-in backend:** add `--container-runtime nvx` behind mandatory `--nvx-preview`, implement the external runtime backend, and add unit plus live-KVM coverage without changing existing runtimes.
 5. **Phase 4 — promotion:** retain preview status until stable upstream releases, verified provenance, egress and credential-isolation parity, crash-safe cleanup, resource parity, and a measured advantage over Cloud Hypervisor are demonstrated.
 
@@ -1230,13 +1272,14 @@ Classify the result as:
 
 - **PROCEED TO SECURITY DESIGN** only when every deterministic scenario passed and the remaining unproven items have concrete, bounded follow-up experiments.
 - **CONTINUE PHASE 0** when NVX works but one or more required AWF topology or representative-workload experiments remain unproven.
-- **BLOCKED** when host eligibility, artifact integrity, KVM execution, deny-by-default networking, filesystem denial, managed lifecycle, workload identity, or cleanup failed.
+- **BLOCKED** when host eligibility, artifact integrity, KVM execution, deny-by-default networking, filesystem denial, one-shot agent execution, workload identity, or cleanup failed.
 
 Passing upstream tests is necessary but not proof that AWF's topology is secure. In particular, do not claim that Squid/API-proxy routing, artifact provenance, host VMM confinement, or a representative agent workload passed unless direct evidence exists in the files.
 The API-proxy port range `10000-10004` contains five provider ports.
-An exit status of 125 in `codex-outcome.json` or `codex-oneshot-outcome.json`
-is NVX's reserved managed/container launch failure status, not a Docker exit-code
-interpretation.
+Managed sessions and repeated `sandbox exec` requests are not AWF requirements.
+Treat any managed-execution evidence as diagnostic only. A representative agent
+workload passes when the pinned one-shot execution succeeds with the required
+identity, filesystem, credential, network, outcome, and cleanup properties.
 For `copilot-cli-proof`, distinguish binary/runtime failure, authentication
 failure, and successful inference. A pass requires the exact model response
 `NVX-COPILOT-PROOF`, routing through `172.30.0.30:10002`, and confirmation that
@@ -1250,7 +1293,7 @@ Use `create_issue` once. Begin sections at `###` and include:
 
 1. **Summary** — classification, pinned release, and pass/fail/blocked counts.
 2. **Critical findings** — failures and security-relevant evidence.
-3. **Capability matrix** — boot, managed execution, network default-deny, L3/L4 policy, host-loopback proxy exception, filesystem denial, workload identity, guest Unix sockets, sandbox blocks, structured outcome, Copilot CLI inference, and benchmark.
+3. **Capability matrix** — boot, one-shot agent execution and cleanup, network default-deny, L3/L4 policy, host-loopback proxy exception, filesystem denial, workload identity, guest Unix sockets, sandbox blocks, structured outcome, Copilot CLI inference and cleanup, and benchmark.
 4. **Unproven AWF requirements** — preserve every unproven item from `summary.json`.
 5. **Phase 0 exit decision** — whether the exit criterion was met and why.
 6. **Next experiments** — only bounded Phase 0 work, ordered by dependency.
