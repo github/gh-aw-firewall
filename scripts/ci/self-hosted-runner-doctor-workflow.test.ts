@@ -289,7 +289,7 @@ describe('self-hosted runner doctor workflow config', () => {
     expect(portableAgent).toMatch(/^\| B33 \|.*github\/gh-aw-firewall#8624 \|$/m);
     expect(portableAgent).toMatch(/^\| D14 \|.*github\/gh-aw-firewall#8622 \|$/m);
     expect(portableAgent).toContain('| `Direct sbx egress reached 1.1.1.1 without proxy environment variables` that clears after a brief retry while Squid starts | D13 update');
-    expect(portableAgent).toContain('| `docker compose up -d` fails after AWF topology recreates Squid mid-run (new `extra_hosts`), with stale/unwritable Squid log files | B33 update');
+    expect(portableAgent).toContain('- `docker compose up -d` fails after AWF topology recreates Squid mid-run (new `extra_hosts`), with stale/unwritable Squid log files → B33 update (topology-restart-triggered Squid log repair fixed in github/gh-aw-firewall#8624)');
     expect(portableAgent).toContain('| `"cloud-hypervisor --version" exited with code undefined` under `--container-runtime cloud-hypervisor` | D14');
     expect(portableAgent).toContain('D11 / github/gh-aw-firewall#6558 — gVisor + Node.js v22 V8 ESM startup crash root cause remains unresolved (`SIGABRT` `StringBytes::Encode` assertion and occasional exit 139).');
     expect(portableAgent).toContain('D12 / github/gh-aw-firewall#6810, github/gh-aw-firewall#6811 — Copilot runs using `model: auto` under isolated runtimes (`--container-runtime gvisor` or `sbx`) could fail before agent start with `awf-reflect: request failed: fetch failed` plus `Model "auto" has no AI credits pricing and no default pricing is configured` when `apiProxy.maxAiCredits` was enabled.');
