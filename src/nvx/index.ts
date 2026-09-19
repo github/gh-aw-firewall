@@ -36,3 +36,50 @@ export type {
   NvxOneShotOutcome,
   NvxOutcomeCategory,
 } from './outcome';
+export {
+  NVX_ARTIFACT_RELEASE_TAG,
+  NVX_ARTIFACT_REPOSITORY,
+  NVX_ARTIFACT_SIGNER_WORKFLOW,
+  NVX_COMMIT,
+  NVX_OPENVMM_COMMIT,
+  NVX_RELEASE_TAG,
+  assertNvxArtifactBasenames,
+  parseNvxArtifactManifest,
+} from './artifact-manifest';
+export type {
+  NvxArtifactManifest,
+  NvxTrustedArtifactName,
+} from './artifact-manifest';
+export {
+  NVX_CLEANUP_ROOT,
+  NVX_CLEANUP_SCHEMA_VERSION,
+  assertNvxCleanupStageConsistency,
+  parseNvxCleanupRecord,
+} from './cleanup-record';
+export type {
+  NvxCleanupFileIdentity,
+  NvxCleanupProcessIdentity,
+  NvxCleanupRecord,
+} from './cleanup-record';
+export {
+  buildNvxConstrainedLaunchCommand,
+  computeNvxCgroupLimits,
+  verifyNvxConfinement,
+} from './confinement';
+export type {
+  NvxCgroupLimits,
+  NvxConfinementEvidence,
+  NvxConfinementVerifierDependencies,
+  NvxLaunchCommand,
+  NvxLaunchConfinementPolicy,
+} from './confinement';
+export { runNvxPreflight } from './preflight';
+export type {
+  NvxArtifactPaths,
+  NvxArtifactSnapshot,
+  NvxHostToolName,
+  NvxHostToolPaths,
+  NvxPreflightDependencies,
+  NvxPreflightOptions,
+  NvxPreflightResult,
+} from './preflight';

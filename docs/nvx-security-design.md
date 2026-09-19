@@ -342,3 +342,37 @@ Phase 2 does not add `nvx` to the runtime registry or CLI. Selection remains
 blocked until Phase 3 supplies the dedicated VMM identity, ACL-only device
 access, filesystem jail, cgroup, host-enforced network namespace, live
 confinement verification, artifact attestation, and durable stale cleanup.
+
+## Phase 3a implementation boundary
+
+Phase 3a adds fail-closed artifact-trust and host-confinement foundations while
+continuing to keep `nvx` absent from the runtime registry and CLI:
+
+- `src/nvx/artifact-manifest.ts` defines an exact AWF-owned manifest contract
+  binding an AWF release to the pinned NVX and OpenVMM source revisions,
+  artifact roles, basenames, architecture, and SHA-256 digests;
+- `src/nvx/preflight.ts` requires Linux x86_64, root, usable KVM and TUN
+  devices, cgroup v2 CPU/memory/PID controllers, seccomp support, trusted host
+  tools, a GitHub-verified AWF release attestation, and matching artifact
+  digests before copying the artifacts into a private per-run immutable
+  snapshot and re-verifying the copied bytes;
+- `src/nvx/confinement.ts` constructs a shell-free
+  `ip netns exec` → Bubblewrap → `setpriv` → NVX launch chain with a private
+  mount namespace, minimal device exposure, a fixed read-only system allowlist,
+  a dedicated uid/gid, empty supplementary groups, no capabilities, and
+  `no_new_privs`. It also verifies the live OpenVMM process and every thread
+  against the expected executable, identity, namespace, cgroup membership,
+  limits, capabilities, seccomp mode, and stable process identity; and
+- `src/nvx/cleanup-record.ts` defines the exact durable ownership record used
+  by future normal and stale cleanup. It binds each cleanup stage to
+  independently verifiable process, filesystem, namespace, account, cgroup,
+  and device-ACL identities rather than accepting names or PIDs alone.
+
+These modules are internal foundations, not a usable backend. Phase 3b must
+still implement and live-test the dedicated account lifecycle, serialized
+ACL-only `/dev/kvm` and `/dev/net/tun` grants, cgroup creation and assignment,
+host network policy, cleanup execution and stale recovery, and integration of
+the constrained launcher with the Phase 2 one-shot adapter. A GitHub-hosted
+x86_64 KVM workflow must demonstrate the complete launch, enforcement,
+adversarial probes, teardown, and recovery evidence before `nvx` can be
+registered as an opt-in runtime.
