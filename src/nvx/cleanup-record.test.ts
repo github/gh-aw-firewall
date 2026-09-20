@@ -34,7 +34,7 @@ function record() {
         inode: '11',
       },
       networkNamespace: {
-        name: `awfnvx-${RUN_ID.slice(0, 20)}`,
+        name: `awfnvx-${RUN_ID}`,
         inode: '4026533000',
       },
       mountNamespaceInode: '4026533001',

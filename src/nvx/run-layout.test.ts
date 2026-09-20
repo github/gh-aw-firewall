@@ -17,7 +17,7 @@ describe('NVX run layout', () => {
       runDirectory: `/run/awf-nvx/runs/${RUN_ID}`,
       cleanupRecordPath: `/run/awf-nvx/cleanup/${RUN_ID}.json`,
       cgroupPath: `/sys/fs/cgroup/awf-nvx/${RUN_ID}`,
-      networkNamespace: `awfnvx-${RUN_ID.slice(0, 20)}`,
+      networkNamespace: `awfnvx-${RUN_ID}`,
     });
   });
 

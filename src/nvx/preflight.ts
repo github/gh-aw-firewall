@@ -195,7 +195,7 @@ export async function runNvxPreflight(
   try {
     assertSnapshotLayout(snapshot, layout);
   } catch (error) {
-    await dependencies.removeSnapshot(snapshot.directory);
+    await dependencies.removeSnapshot(layout.artifactSnapshotDirectory);
     throw error;
   }
   try {

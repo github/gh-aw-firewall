@@ -201,7 +201,7 @@ describe('NVX preflight', () => {
     await expect(runNvxPreflight(options, deps)).rejects.toThrow(
       /snapshot directory must be/,
     );
-    expect(deps.removeSnapshot).toHaveBeenCalledWith(unexpected.directory);
+    expect(deps.removeSnapshot).toHaveBeenCalledWith(snapshot().directory);
   });
 
   it('rejects artifact paths outside the canonical snapshot directory', async () => {

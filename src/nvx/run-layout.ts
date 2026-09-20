@@ -26,7 +26,7 @@ export function createNvxRunLayout(runId: string): NvxRunLayout {
     runDirectory: path.join(NVX_RUN_DIRECTORY_ROOT, runId),
     cleanupRecordPath: path.join(NVX_CLEANUP_ROOT, `${runId}.json`),
     cgroupPath: path.join(NVX_CGROUP_ROOT, runId),
-    networkNamespace: `awfnvx-${runId.slice(0, 20)}`,
+    networkNamespace: `awfnvx-${runId}`,
   };
 }
 
