@@ -4,6 +4,7 @@ import * as path from 'path';
 import { spawn } from 'child_process';
 import type { Readable, Writable } from 'stream';
 import { WorkflowCommandFilter } from '../microvm/workflow-command-filter';
+import { writeWithBackpressure } from '../stream-utils';
 import type {
   NvxFilesystemBundle,
   NvxLayerArtifact,
@@ -661,30 +662,6 @@ async function killExitedProcessGroup(
       `Failed to signal exited NVX process group with ${signal}: ${formatError(error)}`,
     );
   }
-}
-
-async function writeWithBackpressure(destination: Writable, data: Buffer): Promise<void> {
-  if (data.length === 0) return;
-  await new Promise<void>((resolve, reject) => {
-    const cleanup = (): void => {
-      destination.off('drain', onDrain);
-      destination.off('error', onError);
-    };
-    const onDrain = (): void => {
-      cleanup();
-      resolve();
-    };
-    const onError = (error: Error): void => {
-      cleanup();
-      reject(error);
-    };
-    destination.once('drain', onDrain);
-    destination.once('error', onError);
-    if (destination.write(data)) {
-      cleanup();
-      resolve();
-    }
-  });
 }
 
 class BoundedByteTail {

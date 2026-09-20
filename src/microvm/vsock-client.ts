@@ -15,6 +15,7 @@ import {
   type GuestResultFrame,
 } from './guest-protocol';
 import { WorkflowCommandFilter } from './workflow-command-filter';
+import { writeWithBackpressure } from '../stream-utils';
 
 const GUEST_VSOCK_HANDSHAKE_LIMIT = 128;
 
@@ -487,29 +488,6 @@ export class MicrovmVsockClient {
       this.readyWaiter = undefined;
     }
   }
-}
-
-async function writeWithBackpressure(destination: Writable, data: Buffer): Promise<void> {
-  await new Promise<void>((resolve, reject) => {
-    const cleanup = (): void => {
-      destination.off('drain', onDrain);
-      destination.off('error', onError);
-    };
-    const onDrain = (): void => {
-      cleanup();
-      resolve();
-    };
-    const onError = (error: Error): void => {
-      cleanup();
-      reject(error);
-    };
-    destination.once('drain', onDrain);
-    destination.once('error', onError);
-    if (destination.write(data)) {
-      cleanup();
-      resolve();
-    }
-  });
 }
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
