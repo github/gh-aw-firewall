@@ -24,12 +24,12 @@ function record() {
     },
     resources: {
       artifactSnapshot: {
-        path: '/run/awf-nvx/artifacts/run-1',
+        path: `/run/awf-nvx/trusted-artifacts/run-${RUN_ID}`,
         device: '8',
         inode: '10',
       },
       runDirectory: {
-        path: '/run/awf-nvx/runs/run-1',
+        path: `/run/awf-nvx/runs/${RUN_ID}`,
         device: '8',
         inode: '11',
       },
@@ -39,7 +39,7 @@ function record() {
       },
       mountNamespaceInode: '4026533001',
       cgroup: {
-        path: '/sys/fs/cgroup/awf-nvx/run-1',
+        path: `/sys/fs/cgroup/awf-nvx/${RUN_ID}`,
         device: '0',
         inode: '12',
       },
@@ -52,7 +52,7 @@ function record() {
       openvmm: {
         pid: 201,
         startTimeTicks: '2235',
-        executable: '/run/awf-nvx/artifacts/run-1/openvmm',
+        executable: `/run/awf-nvx/trusted-artifacts/run-${RUN_ID}/openvmm`,
       },
     },
     stages: {
@@ -117,5 +117,21 @@ describe('NVX cleanup record', () => {
       JSON.stringify(unsafe),
       RECORD_PATH,
     )).toThrow(/vmmIdentity\.name/);
+  });
+
+  it('rejects cleanup paths outside the AWF-owned per-run roots', () => {
+    const unsafe = record();
+    unsafe.resources.artifactSnapshot.path = '/';
+    expect(() => parseNvxCleanupRecord(
+      JSON.stringify(unsafe),
+      RECORD_PATH,
+    )).toThrow(/artifactSnapshot\.path/);
+
+    const unrelated = record();
+    unrelated.resources.cgroup.path = `/sys/fs/cgroup/awf-nvx/${'c'.repeat(32)}`;
+    expect(() => parseNvxCleanupRecord(
+      JSON.stringify(unrelated),
+      RECORD_PATH,
+    )).toThrow(/cgroup\.path/);
   });
 });

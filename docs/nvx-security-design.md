@@ -350,12 +350,12 @@ continuing to keep `nvx` absent from the runtime registry and CLI:
 
 - `src/nvx/artifact-manifest.ts` defines an exact AWF-owned manifest contract
   binding an AWF release to the pinned NVX and OpenVMM source revisions,
-  artifact roles, basenames, architecture, and SHA-256 digests;
+  artifact roles, basenames, architecture, sizes, and SHA-256 digests;
 - `src/nvx/preflight.ts` requires Linux x86_64, root, usable KVM and TUN
   devices, cgroup v2 CPU/memory/PID controllers, seccomp support, trusted host
-  tools, a GitHub-verified AWF release attestation, and matching artifact
-  digests before copying the artifacts into a private per-run immutable
-  snapshot and re-verifying the copied bytes;
+  tools, source metadata matching the manifest before copying, and a private
+  per-run immutable snapshot whose manifest has a GitHub-verified AWF release
+  attestation and whose artifact sizes and digests match the manifest;
 - `src/nvx/confinement.ts` constructs a shell-free
   `ip netns exec` → Bubblewrap → `setpriv` → NVX launch chain with a private
   mount namespace, minimal device exposure, a fixed read-only system allowlist,

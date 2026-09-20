@@ -1,7 +1,11 @@
 import { promises as fs } from 'fs';
 import * as path from 'path';
+import {
+  NVX_RUN_DIRECTORY_ROOT,
+  NVX_TRUSTED_ARTIFACT_ROOT,
+} from './paths';
 
-const CGROUP_ROOT = '/sys/fs/cgroup';
+const SYSTEM_CGROUP_ROOT = '/sys/fs/cgroup';
 const NETWORK_NAMESPACE_ROOT = '/run/netns';
 const MAX_VERIFIED_THREADS = 256;
 const ZERO_CAPABILITIES = '0000000000000000';
@@ -106,8 +110,19 @@ export function buildNvxConstrainedLaunchCommand(options: {
   for (const [name, value] of Object.entries(options.tools)) {
     assertAbsolutePath(value, `NVX ${name} tool`);
   }
-  assertAbsolutePath(options.nvxRoot, 'NVX trusted artifact root');
-  assertAbsolutePath(options.runDirectory, 'NVX run directory');
+  const nvxRoot = assertRunScopedPath(
+    options.nvxRoot,
+    NVX_TRUSTED_ARTIFACT_ROOT,
+    /^run-[A-Za-z0-9_-]+$/,
+    'NVX trusted artifact root',
+  );
+  const runDirectory = assertRunScopedPath(
+    options.runDirectory,
+    NVX_RUN_DIRECTORY_ROOT,
+    /^[a-f0-9]{32}$/,
+    'NVX run directory',
+  );
+  assertNonOverlappingPaths(nvxRoot, runDirectory);
   if (options.systemReadOnlyPaths.length < 1) {
     throw new Error('NVX filesystem jail requires explicit read-only system roots');
   }
@@ -138,8 +153,8 @@ export function buildNvxConstrainedLaunchCommand(options: {
     jailArguments.push('--ro-bind', systemPath, systemPath);
   }
   jailArguments.push(
-    '--ro-bind', options.nvxRoot, '/opt/awf-nvx',
-    '--bind', options.runDirectory, '/run/awf-nvx',
+    '--ro-bind', nvxRoot, '/opt/awf-nvx',
+    '--bind', runDirectory, '/run/awf-nvx',
     '--chdir', '/opt/awf-nvx',
     options.tools.setpriv,
     `--reuid=${options.identity.uid}`,
@@ -250,7 +265,7 @@ Promise<NvxConfinementEvidence> {
   const membership = parseUnifiedCgroup(
     await dependencies.readFile(path.join(procDirectory, 'cgroup'), 'utf8'),
   );
-  const expectedMembership = path.relative(CGROUP_ROOT, options.cgroupPath);
+  const expectedMembership = path.relative(SYSTEM_CGROUP_ROOT, options.cgroupPath);
   if (membership !== `/${expectedMembership}`) {
     throw new Error(
       `NVX confinement found cgroup ${membership}, expected /${expectedMembership}`,
@@ -473,5 +488,25 @@ function assertPositiveInteger(value: number, label: string): void {
 function assertAbsolutePath(value: string, label: string): void {
   if (!path.isAbsolute(value) || value.includes('\0')) {
     throw new Error(`${label} path must be absolute`);
+  }
+}
+
+function assertRunScopedPath(
+  value: string,
+  root: string,
+  basenamePattern: RegExp,
+  label: string,
+): string {
+  assertAbsolutePath(value, label);
+  const resolved = path.resolve(value);
+  if (path.dirname(resolved) !== root || !basenamePattern.test(path.basename(resolved))) {
+    throw new Error(`${label} must be an AWF-owned per-run path under ${root}`);
+  }
+  return resolved;
+}
+
+function assertNonOverlappingPaths(left: string, right: string): void {
+  if (left === right || left.startsWith(`${right}${path.sep}`) || right.startsWith(`${left}${path.sep}`)) {
+    throw new Error('NVX trusted artifact root and run directory must not overlap');
   }
 }

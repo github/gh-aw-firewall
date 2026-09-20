@@ -10,8 +10,8 @@ import {
   assertNvxArtifactBasenames,
   parseNvxArtifactManifest,
 } from './artifact-manifest';
+import { NVX_TRUSTED_ARTIFACT_ROOT } from './paths';
 
-const SNAPSHOT_ROOT = '/run/awf-nvx/trusted-artifacts';
 const REQUIRED_CGROUP_CONTROLLERS = ['cpu', 'memory', 'pids'] as const;
 const REQUIRED_TOOLS = [
   'bwrap',
@@ -27,10 +27,12 @@ const REQUIRED_TOOLS = [
   'useradd',
   'userdel',
 ] as const;
+const TRUSTED_TOOL_DIRECTORIES = ['/usr/sbin', '/usr/bin', '/sbin', '/bin'] as const;
 
 export type NvxHostToolName = typeof REQUIRED_TOOLS[number];
 export type NvxHostToolPaths = Readonly<Record<NvxHostToolName, string>>;
 export type NvxArtifactPaths = Readonly<Record<NvxTrustedArtifactName, string>>;
+type NvxTrustedFileStat = Awaited<ReturnType<NvxPreflightDependencies['lstat']>>;
 
 export interface NvxArtifactSnapshot extends NvxArtifactPaths {
   readonly directory: string;
@@ -156,15 +158,27 @@ export async function runNvxPreflight(
     false,
     dependencies,
   );
+  const sourceManifest = parseNvxArtifactManifest(
+    await dependencies.readFile(options.manifestPath),
+    options.expectedReleaseTag,
+  );
+  assertNvxArtifactBasenames(sourceManifest, options.artifacts);
+  const sourceStats = {} as Record<NvxTrustedArtifactName, NvxTrustedFileStat>;
   for (const [name, artifactPath] of Object.entries(options.artifacts) as [
     NvxTrustedArtifactName,
     string,
   ][]) {
-    await assertTrustedFile(
+    sourceStats[name] = await assertTrustedFile(
       artifactPath,
       `NVX ${name} artifact`,
       name === 'launcher' || name === 'openvmm',
       dependencies,
+    );
+    assertManifestSize(
+      name,
+      sourceStats[name].size,
+      sourceManifest.artifacts[name].sizeBytes,
+      'source',
     );
   }
 
@@ -192,6 +206,14 @@ export async function runNvxPreflight(
       options.expectedReleaseTag,
     );
     assertNvxArtifactBasenames(manifest, snapshot);
+    for (const name of Object.keys(options.artifacts) as NvxTrustedArtifactName[]) {
+      if (
+        manifest.artifacts[name].sizeBytes !== sourceManifest.artifacts[name].sizeBytes ||
+        manifest.artifacts[name].sha256 !== sourceManifest.artifacts[name].sha256
+      ) {
+        throw new Error(`Snapshotted NVX ${name} artifact manifest changed`);
+      }
+    }
     for (const [name, artifactPath] of Object.entries(snapshot) as [string, string][]) {
       if (
         name === 'directory' ||
@@ -199,11 +221,17 @@ export async function runNvxPreflight(
         name === 'bundlePath'
       ) continue;
       const artifactName = name as NvxTrustedArtifactName;
-      await assertTrustedFile(
+      const snapshotStat = await assertTrustedFile(
         artifactPath,
         `snapshotted NVX ${artifactName} artifact`,
         artifactName === 'launcher' || artifactName === 'openvmm',
         dependencies,
+      );
+      assertManifestSize(
+        artifactName,
+        snapshotStat.size,
+        manifest.artifacts[artifactName].sizeBytes,
+        'snapshotted',
       );
       if (await dependencies.sha256(artifactPath) !== manifest.artifacts[artifactName].sha256) {
         throw new Error(`Snapshotted NVX ${artifactName} artifact digest changed`);
@@ -221,7 +249,7 @@ async function assertTrustedFile(
   label: string,
   executable: boolean,
   dependencies: NvxPreflightDependencies,
-): Promise<void> {
+): Promise<NvxTrustedFileStat> {
   if (!path.isAbsolute(filePath)) throw new Error(`${label} path must be absolute`);
   const stat = await dependencies.lstat(filePath);
   if (!stat.isFile() || stat.isSymbolicLink() || stat.uid !== 0 || stat.size < 1) {
@@ -233,20 +261,21 @@ async function assertTrustedFile(
   if (executable && (stat.mode & 0o111) === 0) {
     throw new Error(`${label} must be executable`);
   }
+  return stat;
 }
 
 async function createArtifactSnapshot(
   options: NvxPreflightOptions,
 ): Promise<NvxArtifactSnapshot> {
-  await fs.mkdir(SNAPSHOT_ROOT, { recursive: true, mode: 0o711 });
-  const directory = await fs.mkdtemp(path.join(SNAPSHOT_ROOT, 'run-'));
-  await fs.chmod(directory, 0o700);
+  await fs.mkdir(NVX_TRUSTED_ARTIFACT_ROOT, { recursive: true, mode: 0o711 });
+  const directory = await fs.mkdtemp(path.join(NVX_TRUSTED_ARTIFACT_ROOT, 'run-'));
+  await fs.chmod(directory, 0o555);
   try {
     const copied = {} as Record<NvxTrustedArtifactName, string>;
     for (const name of Object.keys(options.artifacts) as NvxTrustedArtifactName[]) {
       const destination = path.join(directory, path.basename(options.artifacts[name]));
       await fs.copyFile(options.artifacts[name], destination, constants.COPYFILE_EXCL);
-      await fs.chmod(destination, name === 'launcher' || name === 'openvmm' ? 0o500 : 0o400);
+      await fs.chmod(destination, name === 'launcher' || name === 'openvmm' ? 0o555 : 0o444);
       copied[name] = destination;
     }
     const manifestPath = path.join(directory, 'manifest.json');
@@ -257,8 +286,8 @@ async function createArtifactSnapshot(
       bundlePath,
       constants.COPYFILE_EXCL,
     );
-    await fs.chmod(manifestPath, 0o400);
-    await fs.chmod(bundlePath, 0o400);
+    await fs.chmod(manifestPath, 0o444);
+    await fs.chmod(bundlePath, 0o444);
     return {
       directory,
       launcher: copied.launcher,
@@ -275,8 +304,7 @@ async function createArtifactSnapshot(
 }
 
 async function resolveTrustedTool(name: NvxHostToolName): Promise<string> {
-  for (const directory of (process.env.PATH ?? '').split(path.delimiter)) {
-    if (!directory) continue;
+  for (const directory of TRUSTED_TOOL_DIRECTORIES) {
     const candidate = path.join(directory, name);
     try {
       const stat = await fs.lstat(candidate);
@@ -292,6 +320,19 @@ async function resolveTrustedTool(name: NvxHostToolName): Promise<string> {
     }
   }
   throw new Error(`required trusted NVX host tool "${name}" was not found on PATH`);
+}
+
+function assertManifestSize(
+  name: NvxTrustedArtifactName,
+  actualSize: number,
+  expectedSize: number,
+  label: 'source' | 'snapshotted',
+): void {
+  if (actualSize !== expectedSize) {
+    throw new Error(
+      `${label} NVX ${name} artifact size changed: expected ${expectedSize}, got ${actualSize}`,
+    );
+  }
 }
 
 async function calculateSha256(filePath: string): Promise<string> {
