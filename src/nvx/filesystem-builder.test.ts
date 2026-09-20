@@ -132,7 +132,29 @@ describe('NVX deterministic filesystem builder', () => {
     )).toThrow(/exceeding cap/);
   });
 
-  linuxIt('rejects escaping symlinks, duplicate roles, and unsafe run identifiers', async () => {
+  it('rejects duplicate roles and unsafe run identifiers', () => {
+    const source = path.join(os.tmpdir(), 'awf-nvx-images-unused-source');
+    const dependencies: NvxFilesystemBuilderDependencies = {
+      runTool: jest.fn(),
+      randomUuid: () => '11111111-2222-4333-8444-555555555555',
+      sha256: jest.fn(),
+    };
+    expect(() => new NvxFilesystemBuilder({
+      runId: '../unsafe',
+      workDir: os.tmpdir(),
+      layers: [{ role: 'distro', sourcePath: source }],
+    }, dependencies)).toThrow(/Unsafe NVX run id/);
+    expect(() => new NvxFilesystemBuilder({
+      runId: 'duplicate',
+      workDir: os.tmpdir(),
+      layers: [
+        { role: 'distro', sourcePath: source },
+        { role: 'distro', sourcePath: source },
+      ],
+    }, dependencies)).toThrow(/Duplicate NVX layer role/);
+  });
+
+  linuxIt('rejects escaping symlinks in prepare()', async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'awf-nvx-images-'));
     const source = path.join(root, 'source');
     await fs.mkdir(source);
@@ -148,19 +170,6 @@ describe('NVX deterministic filesystem builder', () => {
         workDir: root,
         layers: [{ role: 'distro', sourcePath: source }],
       }, dependencies).prepare()).rejects.toThrow(/symlink target.*escapes/);
-      expect(() => new NvxFilesystemBuilder({
-        runId: '../unsafe',
-        workDir: root,
-        layers: [{ role: 'distro', sourcePath: source }],
-      }, dependencies)).toThrow(/Unsafe NVX run id/);
-      expect(() => new NvxFilesystemBuilder({
-        runId: 'duplicate',
-        workDir: root,
-        layers: [
-          { role: 'distro', sourcePath: source },
-          { role: 'distro', sourcePath: source },
-        ],
-      }, dependencies)).toThrow(/Duplicate NVX layer role/);
     } finally {
       await fs.rm(root, { recursive: true, force: true });
     }
