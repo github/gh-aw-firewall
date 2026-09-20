@@ -1,4 +1,9 @@
 import * as path from 'path';
+import {
+  NVX_CGROUP_ROOT,
+  NVX_RUN_DIRECTORY_ROOT,
+  NVX_TRUSTED_ARTIFACT_ROOT,
+} from './paths';
 
 export const NVX_CLEANUP_SCHEMA_VERSION = 1;
 export const NVX_CLEANUP_ROOT = '/run/awf-nvx/cleanup';
@@ -167,10 +172,18 @@ export function parseNvxCleanupRecord(
     },
     resources: {
       ...(resources.artifactSnapshot === undefined ? {} : {
-        artifactSnapshot: fileIdentity(resources.artifactSnapshot, 'artifactSnapshot'),
+        artifactSnapshot: fileIdentity(
+          resources.artifactSnapshot,
+          'artifactSnapshot',
+          path.join(NVX_TRUSTED_ARTIFACT_ROOT, `run-${runId}`),
+        ),
       }),
       ...(resources.runDirectory === undefined ? {} : {
-        runDirectory: fileIdentity(resources.runDirectory, 'runDirectory'),
+        runDirectory: fileIdentity(
+          resources.runDirectory,
+          'runDirectory',
+          path.join(NVX_RUN_DIRECTORY_ROOT, runId),
+        ),
       }),
       ...(networkNamespace ? {
         networkNamespace: {
@@ -180,7 +193,11 @@ export function parseNvxCleanupRecord(
       } : {}),
       ...(mountNamespaceInode ? { mountNamespaceInode } : {}),
       ...(resources.cgroup === undefined ? {} : {
-        cgroup: fileIdentity(resources.cgroup, 'cgroup'),
+        cgroup: fileIdentity(
+          resources.cgroup,
+          'cgroup',
+          path.join(NVX_CGROUP_ROOT, runId),
+        ),
       }),
       deviceAcls: deviceAcls as NvxCleanupRecord['resources']['deviceAcls'],
       ...(resources.launcher === undefined ? {} : {
@@ -240,12 +257,17 @@ function processIdentity(value: unknown, label: string): NvxCleanupProcessIdenti
   };
 }
 
-function fileIdentity(value: unknown, label: string): NvxCleanupFileIdentity {
+function fileIdentity(
+  value: unknown,
+  label: string,
+  expectedPath: string,
+): NvxCleanupFileIdentity {
   const object = exactObject(value, label, ['path', 'device', 'inode']);
   if (
     typeof object.path !== 'string' ||
     !path.isAbsolute(object.path) ||
-    object.path.includes('\0')
+    object.path.includes('\0') ||
+    path.resolve(object.path) !== expectedPath
   ) {
     throw new Error(`NVX cleanup ${label}.path is invalid`);
   }

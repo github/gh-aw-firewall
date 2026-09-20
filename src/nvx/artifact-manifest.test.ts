@@ -25,10 +25,10 @@ function manifest() {
     },
     architecture: 'x86_64',
     artifacts: {
-      launcher: { file: 'nvx.py', sha256: '1'.repeat(64) },
-      openvmm: { file: 'openvmm', sha256: '2'.repeat(64) },
-      kernel: { file: 'vmlinux', sha256: '3'.repeat(64) },
-      initramfs: { file: 'initramfs.cpio.gz', sha256: '4'.repeat(64) },
+      launcher: { file: 'nvx.py', sizeBytes: 100, sha256: '1'.repeat(64) },
+      openvmm: { file: 'openvmm', sizeBytes: 100, sha256: '2'.repeat(64) },
+      kernel: { file: 'vmlinux', sizeBytes: 100, sha256: '3'.repeat(64) },
+      initramfs: { file: 'initramfs.cpio.gz', sizeBytes: 100, sha256: '4'.repeat(64) },
     },
   };
 }
@@ -62,6 +62,11 @@ describe('NVX artifact manifest', () => {
       value.artifacts.kernel.file = 'openvmm';
       return value;
     }, /kernel\.file/],
+    ['artifact size', () => {
+      const value = manifest();
+      value.artifacts.launcher.sizeBytes = 2 * 1024 * 1024;
+      return value;
+    }, /launcher\.sizeBytes/],
     ['unexpected field', () => ({
       ...manifest(),
       fallbackUrl: 'https://example.invalid',

@@ -35,10 +35,10 @@ function manifest() {
     },
     architecture: 'x86_64',
     artifacts: {
-      launcher: { file: 'nvx.py', sha256: DIGESTS.launcher },
-      openvmm: { file: 'openvmm', sha256: DIGESTS.openvmm },
-      kernel: { file: 'vmlinux', sha256: DIGESTS.kernel },
-      initramfs: { file: 'initramfs.cpio.gz', sha256: DIGESTS.initramfs },
+      launcher: { file: 'nvx.py', sizeBytes: 100, sha256: DIGESTS.launcher },
+      openvmm: { file: 'openvmm', sizeBytes: 100, sha256: DIGESTS.openvmm },
+      kernel: { file: 'vmlinux', sizeBytes: 100, sha256: DIGESTS.kernel },
+      initramfs: { file: 'initramfs.cpio.gz', sizeBytes: 100, sha256: DIGESTS.initramfs },
     },
   });
 }
@@ -79,6 +79,7 @@ NvxPreflightDependencies {
       if (filePath === '/proc/sys/kernel/seccomp/actions_avail') {
         return 'kill_process kill_thread errno';
       }
+      if (filePath === options.manifestPath) return manifest();
       if (filePath === snapshot().manifestPath) return manifest();
       throw new Error(`unexpected read: ${filePath}`);
     }),
@@ -122,6 +123,23 @@ describe('NVX preflight', () => {
     expect(deps.sha256).toHaveBeenCalledTimes(4);
   });
 
+  it('rejects source artifacts whose sizes do not match the manifest before copying', async () => {
+    const deps = dependencies({
+      lstat: jest.fn(async (filePath) => ({
+        isFile: () => true,
+        isSymbolicLink: () => false,
+        uid: 0,
+        mode: filePath.endsWith('nvx.py') || filePath.endsWith('openvmm')
+          ? 0o100500
+          : 0o100400,
+        size: filePath === options.artifacts.kernel ? 101 : 100,
+      })),
+    });
+
+    await expect(runNvxPreflight(options, deps)).rejects.toThrow(/source NVX kernel/);
+    expect(deps.createSnapshot).not.toHaveBeenCalled();
+  });
+
   it.each([
     ['non-Linux host', { platform: 'darwin' as NodeJS.Platform }, /Linux x86_64/],
     ['non-root execution', { effectiveUid: 501 }, /effective uid 0/],
@@ -131,6 +149,8 @@ describe('NVX preflight', () => {
           ? 'cpu memory'
           : filePath === '/proc/sys/kernel/seccomp/actions_avail'
             ? 'kill_process'
+            : filePath === options.manifestPath
+              ? manifest()
             : filePath === snapshot().manifestPath
               ? manifest()
               : Promise.reject(new Error(`unexpected read: ${filePath}`))),

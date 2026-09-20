@@ -14,6 +14,14 @@ const ARTIFACT_FILES = {
   kernel: 'vmlinux',
   initramfs: 'initramfs.cpio.gz',
 } as const;
+// Conservative per-role ceilings bound pre-copy disk exposure while leaving
+// headroom for expected script, OpenVMM, kernel, and initramfs artifact growth.
+const ARTIFACT_SIZE_LIMITS_BYTES = {
+  launcher: 1 * 1024 * 1024,
+  openvmm: 256 * 1024 * 1024,
+  kernel: 512 * 1024 * 1024,
+  initramfs: 1024 * 1024 * 1024,
+} as const;
 
 export type NvxTrustedArtifactName = keyof typeof ARTIFACT_FILES;
 
@@ -33,6 +41,7 @@ export interface NvxArtifactManifest {
   readonly architecture: 'x86_64';
   readonly artifacts: Record<NvxTrustedArtifactName, {
     readonly file: string;
+    readonly sizeBytes: number;
     readonly sha256: string;
   }>;
 }
@@ -123,13 +132,18 @@ export function parseNvxArtifactManifest(
     const artifact = requireExactObject(
       artifacts[name],
       `manifest.artifacts.${name}`,
-      ['file', 'sha256'],
+      ['file', 'sizeBytes', 'sha256'],
     );
     if (artifact.file !== expectedFile) {
       throw new Error(`manifest.artifacts.${name}.file must be ${expectedFile}`);
     }
     normalized[name] = {
       file: expectedFile,
+      sizeBytes: requireArtifactSize(
+        artifact.sizeBytes,
+        `manifest.artifacts.${name}.sizeBytes`,
+        ARTIFACT_SIZE_LIMITS_BYTES[name],
+      ),
       sha256: requireSha256OrGitSha(
         artifact.sha256,
         `manifest.artifacts.${name}.sha256`,
@@ -195,4 +209,15 @@ function requireSha256OrGitSha(
     throw new Error(`${label} must be a lowercase ${length}-character digest`);
   }
   return value;
+}
+
+function requireArtifactSize(value: unknown, label: string, maxBytes: number): number {
+  if (
+    !Number.isSafeInteger(value) ||
+    (value as number) < 1 ||
+    (value as number) > maxBytes
+  ) {
+    throw new Error(`${label} must be a positive integer no larger than ${maxBytes}`);
+  }
+  return value as number;
 }
