@@ -44,6 +44,7 @@ function manifest() {
 }
 
 const options = {
+  runId: 'a'.repeat(32),
   expectedReleaseTag: NVX_ARTIFACT_RELEASE_TAG,
   manifestPath: '/trusted/manifest.json',
   artifactManifestBundlePath: '/trusted/manifest.sigstore.json',
@@ -57,13 +58,14 @@ const options = {
 
 function snapshot(): NvxArtifactSnapshot {
   return {
-    directory: '/run/awf-nvx/trusted-artifacts/run-test',
-    launcher: '/run/awf-nvx/trusted-artifacts/run-test/nvx.py',
-    openvmm: '/run/awf-nvx/trusted-artifacts/run-test/openvmm',
-    kernel: '/run/awf-nvx/trusted-artifacts/run-test/vmlinux',
-    initramfs: '/run/awf-nvx/trusted-artifacts/run-test/initramfs.cpio.gz',
-    manifestPath: '/run/awf-nvx/trusted-artifacts/run-test/manifest.json',
-    bundlePath: '/run/awf-nvx/trusted-artifacts/run-test/manifest.sigstore.json',
+    directory: `/run/awf-nvx/trusted-artifacts/run-${options.runId}`,
+    launcher: `/run/awf-nvx/trusted-artifacts/run-${options.runId}/nvx.py`,
+    openvmm: `/run/awf-nvx/trusted-artifacts/run-${options.runId}/openvmm`,
+    kernel: `/run/awf-nvx/trusted-artifacts/run-${options.runId}/vmlinux`,
+    initramfs: `/run/awf-nvx/trusted-artifacts/run-${options.runId}/initramfs.cpio.gz`,
+    manifestPath: `/run/awf-nvx/trusted-artifacts/run-${options.runId}/manifest.json`,
+    bundlePath:
+      `/run/awf-nvx/trusted-artifacts/run-${options.runId}/manifest.sigstore.json`,
   };
 }
 
@@ -119,6 +121,13 @@ describe('NVX preflight', () => {
       '/usr/bin/gh',
       snapshot().manifestPath,
       snapshot().bundlePath,
+    );
+    expect(deps.createSnapshot).toHaveBeenCalledWith(
+      options,
+      expect.objectContaining({
+        runId: options.runId,
+        artifactSnapshotDirectory: snapshot().directory,
+      }),
     );
     expect(deps.sha256).toHaveBeenCalledTimes(4);
   });
@@ -178,5 +187,35 @@ describe('NVX preflight', () => {
 
     await expect(runNvxPreflight(options, deps)).rejects.toThrow(/digest changed/);
     expect(deps.removeSnapshot).toHaveBeenCalledWith(snapshot().directory);
+  });
+
+  it('rejects a snapshot outside the canonical per-run directory', async () => {
+    const unexpected = {
+      ...snapshot(),
+      directory: '/run/awf-nvx/trusted-artifacts/run-other',
+    };
+    const deps = dependencies({
+      createSnapshot: jest.fn().mockResolvedValue(unexpected),
+    });
+
+    await expect(runNvxPreflight(options, deps)).rejects.toThrow(
+      /snapshot directory must be/,
+    );
+    expect(deps.removeSnapshot).toHaveBeenCalledWith(unexpected.directory);
+  });
+
+  it('rejects artifact paths outside the canonical snapshot directory', async () => {
+    const unexpected = {
+      ...snapshot(),
+      launcher: '/tmp/nvx.py',
+    };
+    const deps = dependencies({
+      createSnapshot: jest.fn().mockResolvedValue(unexpected),
+    });
+
+    await expect(runNvxPreflight(options, deps)).rejects.toThrow(
+      /snapshot launcher must be/,
+    );
+    expect(deps.verifyAttestation).not.toHaveBeenCalled();
   });
 });

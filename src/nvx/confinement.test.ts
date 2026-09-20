@@ -189,6 +189,11 @@ describe('NVX host confinement', () => {
       nvxRoot: `/run/awf-nvx/trusted-artifacts/run-${RUN_ID}`,
       runDirectory: '/tmp/awf-nvx',
     })).toThrow(/per-run path/);
+    expect(() => buildNvxConstrainedLaunchCommand({
+      ...baseOptions,
+      nvxRoot: `/run/awf-nvx/trusted-artifacts/run-${'b'.repeat(32)}`,
+      runDirectory: `/run/awf-nvx/runs/${RUN_ID}`,
+    })).toThrow(/share one run ID/);
   });
 
   it('computes explicit memory, CPU, and PID limits', () => {

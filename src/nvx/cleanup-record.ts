@@ -1,12 +1,9 @@
 import * as path from 'path';
-import {
-  NVX_CGROUP_ROOT,
-  NVX_RUN_DIRECTORY_ROOT,
-  NVX_TRUSTED_ARTIFACT_ROOT,
-} from './paths';
+import { NVX_CLEANUP_ROOT } from './paths';
+import { createNvxRunLayout } from './run-layout';
 
 export const NVX_CLEANUP_SCHEMA_VERSION = 1;
-export const NVX_CLEANUP_ROOT = '/run/awf-nvx/cleanup';
+export { NVX_CLEANUP_ROOT };
 
 export interface NvxCleanupFileIdentity {
   readonly path: string;
@@ -79,7 +76,8 @@ export function parseNvxCleanupRecord(
     throw new Error(`NVX cleanup record schemaVersion must be ${NVX_CLEANUP_SCHEMA_VERSION}`);
   }
   const runId = requireRunId(record.runId);
-  const expectedPath = path.join(NVX_CLEANUP_ROOT, `${runId}.json`);
+  const layout = createNvxRunLayout(runId);
+  const expectedPath = layout.cleanupRecordPath;
   if (path.resolve(recordPath) !== expectedPath) {
     throw new Error(`NVX cleanup record path must be ${expectedPath}`);
   }
@@ -125,7 +123,7 @@ export function parseNvxCleanupRecord(
     networkNamespace &&
     (
       typeof networkNamespace.name !== 'string' ||
-      !/^awfnvx-[A-Za-z0-9_.-]+$/.test(networkNamespace.name) ||
+      networkNamespace.name !== layout.networkNamespace ||
       typeof networkNamespace.inode !== 'string' ||
       !/^\d+$/.test(networkNamespace.inode)
     )
@@ -175,14 +173,14 @@ export function parseNvxCleanupRecord(
         artifactSnapshot: fileIdentity(
           resources.artifactSnapshot,
           'artifactSnapshot',
-          path.join(NVX_TRUSTED_ARTIFACT_ROOT, `run-${runId}`),
+          layout.artifactSnapshotDirectory,
         ),
       }),
       ...(resources.runDirectory === undefined ? {} : {
         runDirectory: fileIdentity(
           resources.runDirectory,
           'runDirectory',
-          path.join(NVX_RUN_DIRECTORY_ROOT, runId),
+          layout.runDirectory,
         ),
       }),
       ...(networkNamespace ? {
@@ -196,7 +194,7 @@ export function parseNvxCleanupRecord(
         cgroup: fileIdentity(
           resources.cgroup,
           'cgroup',
-          path.join(NVX_CGROUP_ROOT, runId),
+          layout.cgroupPath,
         ),
       }),
       deviceAcls: deviceAcls as NvxCleanupRecord['resources']['deviceAcls'],

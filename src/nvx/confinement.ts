@@ -122,6 +122,9 @@ export function buildNvxConstrainedLaunchCommand(options: {
     /^[a-f0-9]{32}$/,
     'NVX run directory',
   );
+  if (path.basename(nvxRoot) !== `run-${path.basename(runDirectory)}`) {
+    throw new Error('NVX trusted artifacts and run directory must share one run ID');
+  }
   assertNonOverlappingPaths(nvxRoot, runDirectory);
   if (options.systemReadOnlyPaths.length < 1) {
     throw new Error('NVX filesystem jail requires explicit read-only system roots');

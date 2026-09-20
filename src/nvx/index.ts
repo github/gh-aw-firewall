@@ -73,6 +73,16 @@ export type {
   NvxLaunchCommand,
   NvxLaunchConfinementPolicy,
 } from './confinement';
+export {
+  NVX_GUEST_ARTIFACT_ROOT,
+  NVX_GUEST_RUN_ROOT,
+  assertNvxRunId,
+  assertNvxRunLayout,
+  createNvxRunLayout,
+  toNvxGuestArtifactPath,
+  toNvxGuestRunPath,
+} from './run-layout';
+export type { NvxRunLayout } from './run-layout';
 export { runNvxPreflight } from './preflight';
 export type {
   NvxArtifactPaths,

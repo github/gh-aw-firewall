@@ -11,6 +11,11 @@ import {
   parseNvxArtifactManifest,
 } from './artifact-manifest';
 import { NVX_TRUSTED_ARTIFACT_ROOT } from './paths';
+import {
+  assertNvxRunLayout,
+  createNvxRunLayout,
+  type NvxRunLayout,
+} from './run-layout';
 
 const REQUIRED_CGROUP_CONTROLLERS = ['cpu', 'memory', 'pids'] as const;
 const REQUIRED_TOOLS = [
@@ -41,6 +46,7 @@ export interface NvxArtifactSnapshot extends NvxArtifactPaths {
 }
 
 export interface NvxPreflightOptions {
+  readonly runId: string;
   readonly expectedReleaseTag: string;
   readonly manifestPath: string;
   readonly artifactManifestBundlePath: string;
@@ -75,6 +81,7 @@ export interface NvxPreflightDependencies {
   ): Promise<void>;
   createSnapshot(
     options: NvxPreflightOptions,
+    layout: NvxRunLayout,
   ): Promise<NvxArtifactSnapshot>;
   removeSnapshot(directory: string): Promise<void>;
 }
@@ -121,6 +128,8 @@ export async function runNvxPreflight(
   options: NvxPreflightOptions,
   dependencies: NvxPreflightDependencies = defaultDependencies,
 ): Promise<NvxPreflightResult> {
+  const layout = createNvxRunLayout(options.runId);
+  assertNvxRunLayout(layout);
   if (dependencies.platform !== 'linux' || dependencies.arch !== 'x64') {
     throw new Error('NVX preview requires a Linux x86_64 host');
   }
@@ -182,7 +191,13 @@ export async function runNvxPreflight(
     );
   }
 
-  const snapshot = await dependencies.createSnapshot(options);
+  const snapshot = await dependencies.createSnapshot(options, layout);
+  try {
+    assertSnapshotLayout(snapshot, layout);
+  } catch (error) {
+    await dependencies.removeSnapshot(snapshot.directory);
+    throw error;
+  }
   try {
     await assertTrustedFile(
       snapshot.manifestPath,
@@ -244,6 +259,26 @@ export async function runNvxPreflight(
   }
 }
 
+function assertSnapshotLayout(
+  snapshot: NvxArtifactSnapshot,
+  layout: NvxRunLayout,
+): void {
+  const expected: NvxArtifactSnapshot = {
+    directory: layout.artifactSnapshotDirectory,
+    launcher: path.join(layout.artifactSnapshotDirectory, 'nvx.py'),
+    openvmm: path.join(layout.artifactSnapshotDirectory, 'openvmm'),
+    kernel: path.join(layout.artifactSnapshotDirectory, 'vmlinux'),
+    initramfs: path.join(layout.artifactSnapshotDirectory, 'initramfs.cpio.gz'),
+    manifestPath: path.join(layout.artifactSnapshotDirectory, 'manifest.json'),
+    bundlePath: path.join(layout.artifactSnapshotDirectory, 'manifest.sigstore.json'),
+  };
+  for (const key of Object.keys(expected) as (keyof NvxArtifactSnapshot)[]) {
+    if (snapshot[key] !== expected[key]) {
+      throw new Error(`NVX artifact snapshot ${key} must be ${expected[key]}`);
+    }
+  }
+}
+
 async function assertTrustedFile(
   filePath: string,
   label: string,
@@ -266,10 +301,11 @@ async function assertTrustedFile(
 
 async function createArtifactSnapshot(
   options: NvxPreflightOptions,
+  layout: NvxRunLayout,
 ): Promise<NvxArtifactSnapshot> {
   await fs.mkdir(NVX_TRUSTED_ARTIFACT_ROOT, { recursive: true, mode: 0o711 });
-  const directory = await fs.mkdtemp(path.join(NVX_TRUSTED_ARTIFACT_ROOT, 'run-'));
-  await fs.chmod(directory, 0o555);
+  const directory = layout.artifactSnapshotDirectory;
+  await fs.mkdir(directory, { mode: 0o700 });
   try {
     const copied = {} as Record<NvxTrustedArtifactName, string>;
     for (const name of Object.keys(options.artifacts) as NvxTrustedArtifactName[]) {
@@ -288,6 +324,7 @@ async function createArtifactSnapshot(
     );
     await fs.chmod(manifestPath, 0o444);
     await fs.chmod(bundlePath, 0o444);
+    await fs.chmod(directory, 0o555);
     return {
       directory,
       launcher: copied.launcher,

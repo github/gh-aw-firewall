@@ -368,7 +368,12 @@ continuing to keep `nvx` absent from the runtime registry and CLI:
 - `src/nvx/cleanup-record.ts` defines the exact durable ownership record used
   by future normal and stale cleanup. It binds each cleanup stage to
   independently verifiable process, filesystem, namespace, account, cgroup,
-  and device-ACL identities rather than accepting names or PIDs alone.
+  and device-ACL identities rather than accepting names or PIDs alone; and
+- `src/nvx/run-layout.ts` derives the artifact snapshot, writable run
+  directory, cleanup record, cgroup, and network namespace from one 32-character
+  run identity, and provides checked host-to-jail path translation. Preflight
+  now stages artifacts at that exact identity-bound path, while confinement
+  rejects artifact and writable directories from different runs.
 
 These modules are internal foundations, not a usable backend. Phase 3b must
 still implement and live-test the dedicated account lifecycle, serialized
