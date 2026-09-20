@@ -19,21 +19,24 @@ describe('writeWithBackpressure', () => {
     expect(write).not.toHaveBeenCalled();
   });
 
-  it('resolves immediately when the destination accepts the write', async () => {
+  it('resolves when the destination completes an accepted write', async () => {
     const destination = createDestination();
     const data = Buffer.from('data');
     const write = jest.spyOn(destination, 'write');
 
     await writeWithBackpressure(destination, data);
 
-    expect(write).toHaveBeenCalledWith(data);
-    expect(destination.listenerCount('drain')).toBe(0);
+    expect(write).toHaveBeenCalledWith(data, expect.any(Function));
     expect(destination.listenerCount('error')).toBe(0);
   });
 
-  it('waits for drain when the destination applies backpressure', async () => {
-    const destination = createDestination();
-    jest.spyOn(destination, 'write').mockReturnValue(false);
+  it('waits for a backpressured write to complete', async () => {
+    const destination = new Writable({
+      highWaterMark: 1,
+      write(_chunk, _encoding, callback) {
+        setImmediate(callback);
+      },
+    });
 
     const result = writeWithBackpressure(destination, Buffer.from('data'));
     let settled = false;
@@ -43,20 +46,21 @@ describe('writeWithBackpressure', () => {
     await Promise.resolve();
 
     expect(settled).toBe(false);
-    destination.emit('drain');
     await expect(result).resolves.toBeUndefined();
     expect(destination.listenerCount('error')).toBe(0);
   });
 
-  it('rejects write errors while waiting for drain', async () => {
-    const destination = createDestination();
-    jest.spyOn(destination, 'write').mockReturnValue(false);
+  it('rejects asynchronous errors from an accepted write', async () => {
     const error = new Error('write failed');
+    const destination = new Writable({
+      write(_chunk, _encoding, callback) {
+        setImmediate(() => callback(error));
+      },
+    });
 
     const result = writeWithBackpressure(destination, Buffer.from('data'));
-    destination.emit('error', error);
 
     await expect(result).rejects.toBe(error);
-    expect(destination.listenerCount('drain')).toBe(0);
+    expect(destination.listenerCount('error')).toBe(0);
   });
 });

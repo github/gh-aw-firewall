@@ -7,22 +7,21 @@ export async function writeWithBackpressure(
   if (data.length === 0) return;
   await new Promise<void>((resolve, reject) => {
     const cleanup = (): void => {
-      destination.off('drain', onDrain);
       destination.off('error', onError);
     };
-    const onDrain = (): void => {
-      cleanup();
-      resolve();
+    const onWrite = (error: Error | null | undefined): void => {
+      if (error) {
+        reject(error);
+      } else {
+        cleanup();
+        resolve();
+      }
     };
     const onError = (error: Error): void => {
       cleanup();
       reject(error);
     };
-    destination.once('drain', onDrain);
     destination.once('error', onError);
-    if (destination.write(data)) {
-      cleanup();
-      resolve();
-    }
+    destination.write(data, onWrite);
   });
 }
