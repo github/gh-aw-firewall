@@ -446,6 +446,29 @@ describe('Cloud Hypervisor preflight (foundation only)', () => {
     expect(sha256).toHaveBeenCalledWith('/snapshot/cloud-hypervisor');
   });
 
+  it('retries a transient version-probe failure after digests already verified', async () => {
+    const runVersion = jest.fn()
+      .mockRejectedValueOnce(new Error('"cloud-hypervisor --version" exited with code undefined'))
+      .mockResolvedValueOnce('cloud-hypervisor v53.0')
+      .mockResolvedValueOnce('virtiofsd backend 1.10.0');
+    await expect(runCloudHypervisorPreflight(
+      config(),
+      dependencies({ runVersion }),
+    )).resolves.toBeDefined();
+    expect(runVersion).toHaveBeenCalledTimes(3);
+  });
+
+  it('fails closed after exhausting version-probe retries', async () => {
+    const runVersion = jest.fn().mockRejectedValue(
+      new Error('"cloud-hypervisor --version" exited with code undefined'),
+    );
+    await expect(runCloudHypervisorPreflight(
+      config(),
+      dependencies({ runVersion }),
+    )).rejects.toThrow(/exited with code undefined/);
+    expect(runVersion).toHaveBeenCalledTimes(3);
+  });
+
   it('rejects mismatched versions, unsafe permissions, and digest mismatches', async () => {
     await expect(runCloudHypervisorPreflight(
       config(),

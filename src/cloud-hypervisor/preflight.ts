@@ -292,6 +292,48 @@ export interface CloudHypervisorPreflightResult {
 
 export const CLOUD_HYPERVISOR_MAX_BOOT_ATTEMPTS = 3;
 
+/**
+ * Number of attempts for the post-digest-verification `--version` probe.
+ * The staged artifact's content is already digest-verified before this runs,
+ * so a probe failure here reflects a transient host/exec hiccup (e.g. a
+ * momentary I/O error copying/executing the just-staged binary) rather than
+ * a corrupt or wrong artifact. Retrying a couple of times avoids failing an
+ * entire run over a fleeting condition. See gh-aw-firewall#8767.
+ */
+const CLOUD_HYPERVISOR_VERSION_PROBE_ATTEMPTS = 3;
+const CLOUD_HYPERVISOR_VERSION_PROBE_RETRY_DELAY_MS = 250;
+
+async function sleep(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Runs `dependencies.runVersion` with a small bounded retry for transient
+ * execution failures. The binary's digest has already been verified to
+ * match the trusted manifest by the time this is called, so any rejection
+ * here is an execution-environment problem, not an artifact integrity
+ * problem, and is safe to retry.
+ */
+async function runVersionWithRetry(
+  dependencies: Pick<CloudHypervisorPreflightDependencies, 'runVersion'>,
+  binaryPath: string,
+  attempts: number = CLOUD_HYPERVISOR_VERSION_PROBE_ATTEMPTS,
+  retryDelayMs: number = CLOUD_HYPERVISOR_VERSION_PROBE_RETRY_DELAY_MS,
+): Promise<string> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await dependencies.runVersion(binaryPath);
+    } catch (error) {
+      lastError = error;
+      if (attempt < attempts) {
+        await sleep(retryDelayMs);
+      }
+    }
+  }
+  throw lastError;
+}
+
 async function createArtifactSnapshot(
   sources: CloudHypervisorArtifactSnapshotSources,
   copySparseFile: (source: string, destination: string) => Promise<void>,
@@ -733,7 +775,7 @@ export async function runCloudHypervisorPreflight(
     );
 
     const version = parseCloudHypervisorVersion(
-      await dependencies.runVersion(snapshot.cloudHypervisorBinary),
+      await runVersionWithRetry(dependencies, snapshot.cloudHypervisorBinary),
     );
     if (version !== CLOUD_HYPERVISOR_RELEASE_VERSION) {
       throw new Error(
@@ -741,7 +783,7 @@ export async function runCloudHypervisorPreflight(
       );
     }
     const virtiofsdVersion = parseVirtiofsdVersion(
-      await dependencies.runVersion(snapshot.virtiofsdBinary),
+      await runVersionWithRetry(dependencies, snapshot.virtiofsdBinary),
     );
     if (virtiofsdVersion !== VIRTIOFSD_RELEASE_VERSION) {
       throw new Error(
