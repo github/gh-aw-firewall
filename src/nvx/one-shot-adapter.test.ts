@@ -13,6 +13,8 @@ import {
 } from './one-shot-adapter';
 import { NVX_TEARDOWN_STAGES } from './outcome';
 
+const linuxIt = process.platform === 'linux' ? it : it.skip;
+
 async function sha256(filePath: string): Promise<string> {
   return createHash('sha256').update(await fs.readFile(filePath)).digest('hex');
 }
@@ -406,7 +408,7 @@ describe('NVX one-shot execution adapter', () => {
     }
   });
 
-  it('escalates process-group termination after the launcher exits', async () => {
+  linuxIt('escalates process-group termination after the launcher exits', async () => {
     const childPidPath = path.join(
       await fs.mkdtemp(path.join(os.tmpdir(), 'awf-nvx-process-')),
       'child.pid',
