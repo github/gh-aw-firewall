@@ -603,6 +603,36 @@ describe('writeModelsJson', () => {
     expect(data).toHaveProperty('model_aliases');
   });
 
+  it('should persist the same filtered aliases as the in-memory snapshot', () => {
+    const previousAliases = process.env.AWF_MODEL_ALIASES;
+    const previousOpenAiKey = process.env.OPENAI_API_KEY;
+    process.env.AWF_MODEL_ALIASES = JSON.stringify({
+      models: {
+        available: ['openai/gpt-4o'],
+        unavailable: ['openai/gpt-5'],
+      },
+    });
+    process.env.OPENAI_API_KEY = 'test-key';
+
+    try {
+      let isolatedServer;
+      jest.isolateModules(() => { isolatedServer = require('./server'); });
+      isolatedServer.cachedModels.openai = ['gpt-4o'];
+
+      const snapshot = isolatedServer.buildModelsJson();
+      isolatedServer.writeModelsJson(tmpDir);
+      const persisted = JSON.parse(fs.readFileSync(path.join(tmpDir, 'models.json'), 'utf8'));
+
+      expect(persisted.model_aliases).toEqual(snapshot.model_aliases);
+      expect(persisted.model_aliases).toEqual({ available: ['openai/gpt-4o'] });
+    } finally {
+      if (previousAliases === undefined) delete process.env.AWF_MODEL_ALIASES;
+      else process.env.AWF_MODEL_ALIASES = previousAliases;
+      if (previousOpenAiKey === undefined) delete process.env.OPENAI_API_KEY;
+      else process.env.OPENAI_API_KEY = previousOpenAiKey;
+    }
+  });
+
   it('should create the directory if it does not exist', () => {
     const nestedDir = path.join(tmpDir, 'sub', 'dir');
     writeModelsJson(nestedDir);

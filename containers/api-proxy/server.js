@@ -136,6 +136,31 @@ configureKeyValidation({
   getModelAliases: () => MODEL_ALIASES,
 });
 
+function getFilteredModelAliases() {
+  if (!MODEL_ALIASES) return null;
+  const configuredProviders = getConfiguredModelCacheKeys();
+  return {
+    models: filterResolvableAliases(
+      MODEL_ALIASES.models,
+      filterAvailableModelsToConfiguredProviders(cachedModels, configuredProviders),
+      configuredProviders,
+    ),
+  };
+}
+
+function buildModelsSnapshot() {
+  const filteredAliases = getFilteredModelAliases();
+  return {
+    filteredAliases,
+    modelsJson: _buildModelsJson(
+      registeredAdapters,
+      cachedModels,
+      filteredAliases,
+      getRuntimeCatalogSnapshot(),
+    ),
+  };
+}
+
 const { healthResponse, reflectEndpoints, handleManagementEndpoint } = createManagementHandlers({
   getAdapters: () => registeredAdapters,
   getCachedModels: () => cachedModels,
@@ -144,17 +169,7 @@ const { healthResponse, reflectEndpoints, handleManagementEndpoint } = createMan
   getKeyValidationState: () => ({ complete: isKeyValidationComplete(), results: keyValidationResults }),
   getLimiter: () => limiter,
   httpsProxy: HTTPS_PROXY,
-  getModelAliases: () => {
-    if (!MODEL_ALIASES) return null;
-    const configuredProviders = getConfiguredModelCacheKeys();
-    return {
-      models: filterResolvableAliases(
-        MODEL_ALIASES.models,
-        filterAvailableModelsToConfiguredProviders(cachedModels, configuredProviders),
-        configuredProviders,
-      ),
-    };
-  },
+  getModelAliases: getFilteredModelAliases,
   getModelFallback: () => MODEL_FALLBACK,
   getEffectiveModelFallback: () => getEffectiveModelFallbackForReflect(registeredAdapters),
   getEffectiveTokenUsage: () => getEffectiveTokenReflectState(),
@@ -165,32 +180,11 @@ const { healthResponse, reflectEndpoints, handleManagementEndpoint } = createMan
 });
 
 function buildModelsJson() {
-  const configuredProviders = getConfiguredModelCacheKeys();
-  const filteredAliases = MODEL_ALIASES ? {
-    models: filterResolvableAliases(
-      MODEL_ALIASES.models,
-      filterAvailableModelsToConfiguredProviders(cachedModels, configuredProviders),
-      configuredProviders,
-    ),
-  } : null;
-  return _buildModelsJson(registeredAdapters, cachedModels, filteredAliases, getRuntimeCatalogSnapshot());
+  return buildModelsSnapshot().modelsJson;
 }
 
 function writeModelsJson(logDir) {
-  const configuredProviders = getConfiguredModelCacheKeys();
-  const filteredAliases = MODEL_ALIASES ? {
-    models: filterResolvableAliases(
-      MODEL_ALIASES.models,
-      filterAvailableModelsToConfiguredProviders(cachedModels, configuredProviders),
-      configuredProviders,
-    ),
-  } : null;
-  const modelsJson = _buildModelsJson(
-    registeredAdapters,
-    cachedModels,
-    filteredAliases,
-    getRuntimeCatalogSnapshot(),
-  );
+  const { filteredAliases, modelsJson } = buildModelsSnapshot();
   return _writeModelsJson(registeredAdapters, cachedModels, filteredAliases, logDir, modelsJson);
 }
 
