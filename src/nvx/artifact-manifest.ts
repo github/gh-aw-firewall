@@ -14,6 +14,8 @@ const ARTIFACT_FILES = {
   kernel: 'vmlinux',
   initramfs: 'initramfs.cpio.gz',
 } as const;
+// Conservative per-role ceilings bound pre-copy disk exposure while leaving
+// headroom for expected script, OpenVMM, kernel, and initramfs artifact growth.
 const ARTIFACT_SIZE_LIMITS_BYTES = {
   launcher: 1 * 1024 * 1024,
   openvmm: 256 * 1024 * 1024,
