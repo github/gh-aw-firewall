@@ -469,6 +469,20 @@ describe('Cloud Hypervisor preflight (foundation only)', () => {
     expect(runVersion).toHaveBeenCalledTimes(3);
   });
 
+  it('does not retry deterministic version-probe failures like EACCES/ENOENT', async () => {
+    const runVersion = jest.fn().mockRejectedValue(
+      new Error(
+        'Unable to execute "/snapshot/cloud-hypervisor --version"; verify the trusted Cloud ' +
+        'Hypervisor artifact exists, is executable, and is complete: code=EACCES; spawn EACCES',
+      ),
+    );
+    await expect(runCloudHypervisorPreflight(
+      config(),
+      dependencies({ runVersion }),
+    )).rejects.toThrow(/code=EACCES/);
+    expect(runVersion).toHaveBeenCalledTimes(1);
+  });
+
   it('rejects mismatched versions, unsafe permissions, and digest mismatches', async () => {
     await expect(runCloudHypervisorPreflight(
       config(),

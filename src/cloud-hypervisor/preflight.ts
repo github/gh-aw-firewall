@@ -303,6 +303,20 @@ export const CLOUD_HYPERVISOR_MAX_BOOT_ATTEMPTS = 3;
 const CLOUD_HYPERVISOR_VERSION_PROBE_ATTEMPTS = 3;
 const CLOUD_HYPERVISOR_VERSION_PROBE_RETRY_DELAY_MS = 250;
 
+/**
+ * Error codes surfaced by the default `runVersion` (see its `code=` detail
+ * fragment) that indicate a deterministic, non-transient failure: the
+ * binary is missing, not a regular file, or not executable. These will not
+ * resolve on retry, so they are allowed to fail closed immediately instead
+ * of paying the retry delay.
+ */
+const CLOUD_HYPERVISOR_VERSION_PROBE_PERMANENT_ERROR_CODES = /\bcode=(ENOENT|EACCES|EISDIR|ENOTDIR|ENOEXEC)\b/;
+
+function isPermanentVersionProbeError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return CLOUD_HYPERVISOR_VERSION_PROBE_PERMANENT_ERROR_CODES.test(message);
+}
+
 async function sleep(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -312,7 +326,9 @@ async function sleep(ms: number): Promise<void> {
  * execution failures. The binary's digest has already been verified to
  * match the trusted manifest by the time this is called, so any rejection
  * here is an execution-environment problem, not an artifact integrity
- * problem, and is safe to retry.
+ * problem, and is generally safe to retry. Deterministic failures (missing
+ * file, permission denied, etc.) are not retried since they would not
+ * resolve on their own.
  */
 async function runVersionWithRetry(
   dependencies: Pick<CloudHypervisorPreflightDependencies, 'runVersion'>,
@@ -326,9 +342,11 @@ async function runVersionWithRetry(
       return await dependencies.runVersion(binaryPath);
     } catch (error) {
       lastError = error;
-      if (attempt < attempts) {
+      if (attempt < attempts && !isPermanentVersionProbeError(error)) {
         await sleep(retryDelayMs);
+        continue;
       }
+      break;
     }
   }
   throw lastError;
