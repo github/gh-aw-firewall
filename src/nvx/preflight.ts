@@ -330,7 +330,8 @@ function assertManifestSize(
 ): void {
   if (actualSize !== expectedSize) {
     throw new Error(
-      `${label} NVX ${name} artifact size changed: expected ${expectedSize}, got ${actualSize}`,
+      `${label} NVX ${name} artifact size does not match manifest: ` +
+      `expected ${expectedSize}, got ${actualSize}`,
     );
   }
 }
