@@ -11,6 +11,7 @@ export async function writeWithBackpressure(
     };
     const onWrite = (error: Error | null | undefined): void => {
       if (error) {
+        // Writable emits its error after invoking this callback.
         queueMicrotask(cleanup);
         reject(error);
       } else {
