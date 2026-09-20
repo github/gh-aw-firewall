@@ -180,6 +180,17 @@ describe('Cloud Hypervisor preflight (foundation only)', () => {
     await expect(defaults.runVersion('/snapshot/cloud-hypervisor')).rejects.toThrow(
       /Unable to execute "\/snapshot\/cloud-hypervisor --version".*exists, is executable, and is complete: code=EACCES; Command failed with EACCES: spawn EACCES/,
     );
+    mockedExeca.mockResolvedValueOnce({
+      exitCode: undefined,
+      signal: undefined,
+      code: 'EACCES',
+      shortMessage: 'Command failed with EACCES: spawn EACCES',
+      stdout: '',
+      stderr: '',
+    } as never);
+    await expect(defaults.runVersion('/snapshot/cloud-hypervisor')).rejects.toMatchObject({
+      code: 'EACCES',
+    });
   });
 
   it('runs host policy and Docker probes through the default helper', async () => {
@@ -480,6 +491,17 @@ describe('Cloud Hypervisor preflight (foundation only)', () => {
       config(),
       dependencies({ runVersion }),
     )).rejects.toThrow(/code=EACCES/);
+    expect(runVersion).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not retry a structured error.code marking a deterministic failure', async () => {
+    const runVersion = jest.fn().mockRejectedValue(
+      Object.assign(new Error('spawn ENOENT'), { code: 'ENOENT' }),
+    );
+    await expect(runCloudHypervisorPreflight(
+      config(),
+      dependencies({ runVersion }),
+    )).rejects.toThrow(/spawn ENOENT/);
     expect(runVersion).toHaveBeenCalledTimes(1);
   });
 
