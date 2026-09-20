@@ -149,6 +149,26 @@ function mockNetworkReadyProbeSequence(
   return resolveExecution;
 }
 
+async function startNestedKvmProbeCase() {
+  const { manager, deps } = harness();
+  manager.execute.mockReset().mockResolvedValueOnce({
+    requestId: 'network-ready', exitCode: 0, signal: null, timedOut: false,
+  }).mockResolvedValueOnce({
+    requestId: 'probe', exitCode: 0, signal: null, timedOut: false,
+  }).mockResolvedValueOnce({
+    requestId: 'agent', exitCode: 0, signal: null, timedOut: false,
+  });
+  const backend = createBackend(
+    config({ enableApiProxy: true } as Partial<WrapperConfig>),
+    deps,
+  );
+
+  await backend.start('/tmp/awf', ['github.com']);
+
+  const probeCall = manager.execute.mock.calls[1][0];
+  return { probeCall, script: probeCall.argv[2] as string };
+}
+
 describe('Cloud Hypervisor runtime backend', () => {
   let eligibilitySpy: jest.SpyInstance;
 
@@ -691,25 +711,9 @@ describe('Cloud Hypervisor runtime backend', () => {
       // Keep this regression coverage independent of curl-specific HTTP
       // behavior. The original BusyBox guest exposed the issue after every
       // boot reached vsock readiness but the connectivity probe exited 127.
-      const { manager, deps } = harness();
-      manager.execute.mockReset().mockResolvedValueOnce({
-        requestId: 'network-ready', exitCode: 0, signal: null, timedOut: false,
-      }).mockResolvedValueOnce({
-        requestId: 'probe', exitCode: 0, signal: null, timedOut: false,
-      }).mockResolvedValueOnce({
-        requestId: 'agent', exitCode: 0, signal: null, timedOut: false,
-      });
-      const backend = createBackend(
-        config({ enableApiProxy: true } as Partial<WrapperConfig>),
-        deps,
-      );
-
-      await backend.start('/tmp/awf', ['github.com']);
-
-      const probeCall = manager.execute.mock.calls[1][0];
+      const { probeCall, script } = await startNestedKvmProbeCase();
       expect(probeCall.argv[0]).toBe('/bin/sh');
       expect(probeCall.argv[1]).toBe('-c');
-      const script = probeCall.argv[2] as string;
       expect(script).not.toContain('curl');
       expect(script).toContain('nc -v -z');
       expect(script).toContain('wget');
@@ -738,23 +742,7 @@ describe('Cloud Hypervisor runtime backend', () => {
       // Raised both the per-command timeouts and the overall exec budget
       // to match the same generous, nested-KVM-tolerant convention used for
       // guest boot readiness (see CLOUD_HYPERVISOR_GUEST_READY_MAX_WAIT_MS).
-      const { manager, deps } = harness();
-      manager.execute.mockReset().mockResolvedValueOnce({
-        requestId: 'network-ready', exitCode: 0, signal: null, timedOut: false,
-      }).mockResolvedValueOnce({
-        requestId: 'probe', exitCode: 0, signal: null, timedOut: false,
-      }).mockResolvedValueOnce({
-        requestId: 'agent', exitCode: 0, signal: null, timedOut: false,
-      });
-      const backend = createBackend(
-        config({ enableApiProxy: true } as Partial<WrapperConfig>),
-        deps,
-      );
-
-      await backend.start('/tmp/awf', ['github.com']);
-
-      const probeCall = manager.execute.mock.calls[1][0];
-      const script = probeCall.argv[2] as string;
+      const { probeCall, script } = await startNestedKvmProbeCase();
       expect(script).toContain('nc -v -z -w 60');
       expect(script).toContain('wget -q -T 20');
       expect(script).toContain('attempt=1');
