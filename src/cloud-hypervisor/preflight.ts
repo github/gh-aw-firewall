@@ -113,6 +113,10 @@ const CLOUD_HYPERVISOR_HOST_TOOLS: (keyof CloudHypervisorHostToolPaths)[] = [
   'getent', 'getfacl', 'groupdel', 'id', 'ip', 'nft', 'sysctl', 'flock', 'mke2fs', 'debugfs', 'e2fsck',
   'rsync', 'mount', 'umount', 'setfacl', 'setpriv', 'useradd', 'userdel',
 ];
+const CLOUD_HYPERVISOR_ARTIFACT_SNAPSHOT_PARENT = path.dirname(
+  CLOUD_HYPERVISOR_ARTIFACT_SNAPSHOT_ROOT,
+);
+const GETFACL_DIAGNOSTIC_PATHS = ['/usr/bin/getfacl', '/bin/getfacl'] as const;
 
 const defaultDependencies: CloudHypervisorPreflightDependencies = {
   platform: process.platform,
@@ -326,9 +330,8 @@ async function describeMountForPath(filePath: string): Promise<string> {
 }
 
 async function describeAcl(filePath: string): Promise<string> {
-  const getfaclPath = '/usr/bin/getfacl';
   try {
-    await fs.access(getfaclPath, constants.X_OK);
+    const getfaclPath = await resolveDiagnosticGetfaclPath();
     const result = await execa(getfaclPath, ['-cp', '--absolute-names', '--', filePath], {
       reject: false,
       timeout: 1_000,
@@ -342,6 +345,18 @@ async function describeAcl(filePath: string): Promise<string> {
   } catch (error) {
     return `acl=unavailable(${error instanceof Error ? error.message : String(error)})`;
   }
+}
+
+async function resolveDiagnosticGetfaclPath(): Promise<string> {
+  for (const candidate of GETFACL_DIAGNOSTIC_PATHS) {
+    try {
+      await fs.access(candidate, constants.X_OK);
+      return candidate;
+    } catch {
+      // Try the next known system location without consulting PATH.
+    }
+  }
+  throw new Error(`getfacl not found at ${GETFACL_DIAGNOSTIC_PATHS.join(' or ')}`);
 }
 
 function pathComponents(filePath: string): string[] {
@@ -498,11 +513,11 @@ async function createArtifactSnapshot(
   sources: CloudHypervisorArtifactSnapshotSources,
   copySparseFile: (source: string, destination: string) => Promise<void>,
 ): Promise<CloudHypervisorArtifactSnapshot> {
-  await fs.mkdir(path.dirname(CLOUD_HYPERVISOR_ARTIFACT_SNAPSHOT_ROOT), {
+  await fs.mkdir(CLOUD_HYPERVISOR_ARTIFACT_SNAPSHOT_PARENT, {
     recursive: true,
     mode: 0o711,
   });
-  await fs.chmod(path.dirname(CLOUD_HYPERVISOR_ARTIFACT_SNAPSHOT_ROOT), 0o711);
+  await fs.chmod(CLOUD_HYPERVISOR_ARTIFACT_SNAPSHOT_PARENT, 0o711);
   await fs.mkdir(CLOUD_HYPERVISOR_ARTIFACT_SNAPSHOT_ROOT, {
     recursive: true,
     mode: 0o711,

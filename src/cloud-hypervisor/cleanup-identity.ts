@@ -172,6 +172,11 @@ export function validateRecord(
   }
 }
 
+/**
+ * Accepts the current exec-capable trusted snapshot root plus the former
+ * `/run`-sibling root so pending cleanup records written by older AWF
+ * processes can still be reaped safely after an upgrade.
+ */
 export function isTrustedArtifactSnapshotDirectory(
   directory: string,
   runDirectory: string,
