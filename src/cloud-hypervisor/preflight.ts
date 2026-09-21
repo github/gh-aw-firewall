@@ -127,7 +127,7 @@ async function versionProbeExecutionError(
   if (code === 'ENOENT') {
     message =
       `Required external binary "${binaryPath}" is unavailable: the binary or its interpreter ` +
-      `was not found${details ? `: ${details}` : ''}`;
+      `was not found${details ? ` (${details})` : ''}`;
   } else if (code === 'EACCES') {
     message =
       `Permission denied executing "${binaryPath} --version"; verify path traversal permissions ` +
@@ -135,8 +135,9 @@ async function versionProbeExecutionError(
     message += await buildExecutionFailureDiagnostics(binaryPath);
   } else {
     message =
-      `Unable to execute required external binary "${binaryPath} --version"` +
-      `${details ? `: ${details}` : ''}`;
+      `Unable to execute required external binary "${binaryPath} --version"; verify the trusted ` +
+      `artifact exists, is executable, and is complete${details ? `: ${details}` : ''}`;
+    message += await buildExecutionFailureDiagnostics(binaryPath);
   }
   return Object.assign(new Error(message), code ? { code } : {});
 }
