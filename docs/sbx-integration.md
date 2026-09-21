@@ -353,9 +353,8 @@ ACL.
 ### Configuration surface
 
 - CLI: `--container-runtime sbx`.
-- gh-aw workflow frontmatter: `sandbox.agent.runtime: docker-sbx`. The
-  Docker SBX CI smoke workflows have been retired in favor of their Cloud
-  Hypervisor equivalents.
+- gh-aw workflow frontmatter: `sandbox.agent.runtime: docker-sbx` (see
+  `.github/workflows/smoke-docker-sbx.md`).
 - Strict-security note (`src/commands/validators/security-mode.ts`): sbx
   enforces isolation at the hypervisor layer via `DOCKER_SANDBOXES_PROXY`, so
   AWF's Docker **network-isolation topology is not forced on** for it

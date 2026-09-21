@@ -4,7 +4,7 @@ on:
   roles: all
   workflow_dispatch:
   label_command:
-    name: ready-for-aw
+    name: test-cloud-hypervisor
     events: [pull_request]
     remove_label: false
   reaction: "eyes"
