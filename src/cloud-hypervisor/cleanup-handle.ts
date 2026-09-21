@@ -6,6 +6,7 @@ import type { CloudHypervisorCleanupHandle, CloudHypervisorNetworkResource } fro
 import {
   assertSafeProcessKey,
   assertSafeRecordPaths,
+  isTrustedArtifactSnapshotDirectory,
   type CleanupRecord,
   type FileIdentity,
   type InterfaceIdentity,
@@ -53,13 +54,9 @@ export function createCleanupHandle(options: CleanupHandleFactoryOptions): Cloud
       await update();
     },
     captureArtifactSnapshot: async (directory: string) => {
-      const snapshotRoot = path.join(
-        path.dirname(path.dirname(record.paths.runDirectory)),
-        'trusted-artifacts',
-      );
       if (
         !path.isAbsolute(directory) ||
-        path.dirname(directory) !== snapshotRoot ||
+        !isTrustedArtifactSnapshotDirectory(directory, record.paths.runDirectory) ||
         !/^run-[A-Za-z0-9_-]+$/.test(path.basename(directory))
       ) throw new Error(`Unsafe artifact snapshot cleanup path: ${directory}`);
       record.paths.artifactSnapshotDirectory = directory;

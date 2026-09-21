@@ -16,6 +16,7 @@ import {
 } from './artifact-manifest';
 import { CloudHypervisorUnsupportedHostError } from './errors';
 import { logger } from '../logger';
+import { CLOUD_HYPERVISOR_ARTIFACT_SNAPSHOT_ROOT } from './manager-types';
 
 /**
  * Fail-closed host and artifact validation for the Cloud Hypervisor v53.0
@@ -108,8 +109,6 @@ export interface CloudHypervisorArtifactSnapshot extends CloudHypervisorArtifact
   directory: string;
 }
 
-const CLOUD_HYPERVISOR_ARTIFACT_SNAPSHOT_ROOT =
-  '/run/awf-cloud-hypervisor/trusted-artifacts';
 const CLOUD_HYPERVISOR_HOST_TOOLS: (keyof CloudHypervisorHostToolPaths)[] = [
   'getent', 'getfacl', 'groupdel', 'id', 'ip', 'nft', 'sysctl', 'flock', 'mke2fs', 'debugfs', 'e2fsck',
   'rsync', 'mount', 'umount', 'setfacl', 'setpriv', 'useradd', 'userdel',
@@ -130,9 +129,11 @@ const defaultDependencies: CloudHypervisorPreflightDependencies = {
         stdio: ['ignore', 'pipe', 'pipe'],
       });
     } catch (error) {
+      const diagnostics = await buildExecutionFailureDiagnostics(binaryPath);
       throw new Error(
         `Unable to execute "${binaryPath} --version"; verify the trusted Cloud Hypervisor artifact ` +
-        `exists, is executable, and is complete: ${error instanceof Error ? error.message : String(error)}`,
+        `exists, is executable, and is complete: ${error instanceof Error ? error.message : String(error)}` +
+        diagnostics,
       );
     }
     if (result.exitCode == null && !result.signal) {
@@ -146,10 +147,12 @@ const defaultDependencies: CloudHypervisorPreflightDependencies = {
         ? executionError.shortMessage
         : '';
       const details = [code, shortMessage, result.stderr.trim()].filter(Boolean).join('; ');
+      const diagnostics = await buildExecutionFailureDiagnostics(binaryPath);
       throw Object.assign(
         new Error(
           `Unable to execute "${binaryPath} --version"; verify the trusted Cloud Hypervisor artifact ` +
-          `exists, is executable, and is complete${details ? `: ${details}` : ''}`,
+          `exists, is executable, and is complete${details ? `: ${details}` : ''}` +
+          diagnostics,
         ),
         codeValue ? { code: codeValue } : {},
       );
@@ -272,6 +275,127 @@ const defaultDependencies: CloudHypervisorPreflightDependencies = {
   },
 };
 
+function formatMode(mode: number): string {
+  return `0${(mode & 0o7777).toString(8).padStart(4, '0')}`;
+}
+
+function mountInfoUnescape(value: string): string {
+  return value.replace(/\\([0-7]{3})/g, (_, octal: string) =>
+    String.fromCharCode(Number.parseInt(octal, 8)));
+}
+
+function pathIsUnderMount(target: string, mountPoint: string): boolean {
+  const normalizedMountPoint = mountPoint.endsWith('/') ? mountPoint : `${mountPoint}/`;
+  return target === mountPoint || target.startsWith(normalizedMountPoint);
+}
+
+async function describeMountForPath(filePath: string): Promise<string> {
+  try {
+    const mountInfo = await fs.readFile('/proc/self/mountinfo', 'utf8');
+    let best:
+      | {
+        mountPoint: string;
+        filesystemType: string;
+        source: string;
+        options: string;
+      }
+      | undefined;
+    for (const line of mountInfo.split('\n')) {
+      if (!line.trim()) continue;
+      const separator = line.indexOf(' - ');
+      if (separator < 0) continue;
+      const left = line.slice(0, separator).split(' ');
+      const right = line.slice(separator + 3).split(' ');
+      if (left.length < 6 || right.length < 3) continue;
+      const mountPoint = mountInfoUnescape(left[4]);
+      if (!pathIsUnderMount(filePath, mountPoint)) continue;
+      if (!best || mountPoint.length > best.mountPoint.length) {
+        best = {
+          mountPoint,
+          filesystemType: right[0],
+          source: mountInfoUnescape(right[1]),
+          options: left[5],
+        };
+      }
+    }
+    if (!best) return 'mount: unavailable (no /proc/self/mountinfo match)';
+    return `mount: ${best.mountPoint} type=${best.filesystemType} source=${best.source} options=${best.options}`;
+  } catch (error) {
+    return `mount: unavailable (${error instanceof Error ? error.message : String(error)})`;
+  }
+}
+
+async function describeAcl(filePath: string): Promise<string> {
+  const getfaclPath = '/usr/bin/getfacl';
+  try {
+    await fs.access(getfaclPath, constants.X_OK);
+    const result = await execa(getfaclPath, ['-cp', '--absolute-names', '--', filePath], {
+      reject: false,
+      timeout: 1_000,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    const output = `${result.stdout}\n${result.stderr}`.trim();
+    if (result.exitCode !== 0) {
+      return `acl=unavailable(getfacl exit ${result.exitCode}${output ? `: ${output}` : ''})`;
+    }
+    return `acl=${output.replace(/\s+/g, ' ')}`;
+  } catch (error) {
+    return `acl=unavailable(${error instanceof Error ? error.message : String(error)})`;
+  }
+}
+
+function pathComponents(filePath: string): string[] {
+  const { root } = path.parse(filePath);
+  const components = [root];
+  let current = root;
+  for (const segment of filePath.slice(root.length).split('/').filter(Boolean)) {
+    current = path.join(current, segment);
+    components.push(current);
+  }
+  return components;
+}
+
+async function describePathComponent(filePath: string): Promise<string> {
+  let statDescription: string;
+  try {
+    const stat = await fs.lstat(filePath);
+    const type = stat.isSymbolicLink()
+      ? 'symlink'
+      : stat.isDirectory()
+        ? 'dir'
+        : stat.isFile()
+          ? 'file'
+          : 'other';
+    statDescription =
+      `stat=${type},mode=${formatMode(stat.mode)},uid=${stat.uid},gid=${stat.gid},size=${stat.size}`;
+  } catch (error) {
+    statDescription = `stat=unavailable(${error instanceof Error ? error.message : String(error)})`;
+  }
+  return `${filePath}: ${statDescription}; ${await describeAcl(filePath)}`;
+}
+
+async function buildExecutionFailureDiagnostics(binaryPath: string): Promise<string> {
+  const uid = process.getuid?.();
+  const euid = process.geteuid?.();
+  const gid = process.getgid?.();
+  const egid = process.getegid?.();
+  const groups = process.getgroups?.();
+  const identity =
+    `uid=${uid ?? 'unknown'},euid=${euid ?? 'unknown'},` +
+    `gid=${gid ?? 'unknown'},egid=${egid ?? 'unknown'},` +
+    `groups=${groups ? groups.join(',') : 'unknown'}`;
+  const lines = [
+    'Cloud Hypervisor execution diagnostics:',
+    `identity: ${identity}`,
+    await describeMountForPath(binaryPath),
+    'path components:',
+  ];
+  for (const component of pathComponents(binaryPath)) {
+    lines.push(`  - ${await describePathComponent(component)}`);
+  }
+  return `\n${lines.join('\n')}`;
+}
+
 /** @internal Exposed only for focused host-probe tests. */
 export const cloudHypervisorPreflightTestHelpers = {
   defaultDependencies,
@@ -374,6 +498,11 @@ async function createArtifactSnapshot(
   sources: CloudHypervisorArtifactSnapshotSources,
   copySparseFile: (source: string, destination: string) => Promise<void>,
 ): Promise<CloudHypervisorArtifactSnapshot> {
+  await fs.mkdir(path.dirname(CLOUD_HYPERVISOR_ARTIFACT_SNAPSHOT_ROOT), {
+    recursive: true,
+    mode: 0o711,
+  });
+  await fs.chmod(path.dirname(CLOUD_HYPERVISOR_ARTIFACT_SNAPSHOT_ROOT), 0o711);
   await fs.mkdir(CLOUD_HYPERVISOR_ARTIFACT_SNAPSHOT_ROOT, {
     recursive: true,
     mode: 0o711,

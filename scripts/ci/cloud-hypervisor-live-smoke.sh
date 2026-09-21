@@ -120,13 +120,13 @@ assert_no_residue() {
     echo "Cloud Hypervisor cgroup residue detected" >&2
     return 1
   fi
-  if sudo pgrep -f '/run/awf-cloud-hypervisor/trusted-artifacts/run-[^/]*/[c]loud-hypervisor --api-socket' >/dev/null 2>&1; then
-    sudo pgrep -af '/run/awf-cloud-hypervisor/trusted-artifacts/run-[^/]*/[c]loud-hypervisor --api-socket' >&2
+  if sudo pgrep -f '/var/lib/awf-cloud-hypervisor/trusted-artifacts/run-[^/]*/[c]loud-hypervisor --api-socket' >/dev/null 2>&1; then
+    sudo pgrep -af '/var/lib/awf-cloud-hypervisor/trusted-artifacts/run-[^/]*/[c]loud-hypervisor --api-socket' >&2
     echo "Cloud Hypervisor process residue detected" >&2
     return 1
   fi
-  if sudo pgrep -f '/run/awf-cloud-hypervisor/trusted-artifacts/run-[^/]*/[v]irtiofsd.*--shared-dir=' >/dev/null 2>&1; then
-    sudo pgrep -af '/run/awf-cloud-hypervisor/trusted-artifacts/run-[^/]*/[v]irtiofsd.*--shared-dir=' >&2
+  if sudo pgrep -f '/var/lib/awf-cloud-hypervisor/trusted-artifacts/run-[^/]*/[v]irtiofsd.*--shared-dir=' >/dev/null 2>&1; then
+    sudo pgrep -af '/var/lib/awf-cloud-hypervisor/trusted-artifacts/run-[^/]*/[v]irtiofsd.*--shared-dir=' >&2
     echo "Cloud Hypervisor virtiofsd process residue detected" >&2
     return 1
   fi
@@ -134,6 +134,12 @@ assert_no_residue() {
     | grep -q .; then
     sudo find /run/awf-cloud-hypervisor -mindepth 2 >&2
     echo "Cloud Hypervisor run-directory residue detected" >&2
+    return 1
+  fi
+  if sudo find /var/lib/awf-cloud-hypervisor/trusted-artifacts -mindepth 1 -maxdepth 1 -type d -name 'run-*' -print -quit \
+    2>/dev/null | grep -q .; then
+    sudo find /var/lib/awf-cloud-hypervisor/trusted-artifacts -mindepth 1 -maxdepth 1 -type d -name 'run-*' >&2
+    echo "Cloud Hypervisor trusted-artifact snapshot residue detected" >&2
     return 1
   fi
   if sudo find /run/awf-microvm-network/reservations -name '*.json' -print -quit \

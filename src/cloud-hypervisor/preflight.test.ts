@@ -6,6 +6,7 @@ import * as os from 'os';
 import * as path from 'path';
 import type { CloudHypervisorOptions } from '../types/runtime-options';
 import { CloudHypervisorUnsupportedHostError } from './errors';
+import { CLOUD_HYPERVISOR_ARTIFACT_SNAPSHOT_ROOT } from './manager-types';
 import {
   calculateSha256,
   cloudHypervisorPreflightTestHelpers,
@@ -80,7 +81,7 @@ function dependencies(
     sha256: jest.fn().mockResolvedValue(digest),
     readFile: jest.fn().mockResolvedValue(manifest()),
     createArtifactSnapshot: jest.fn(async (sources) => ({
-      directory: '/run/awf-cloud-hypervisor/trusted-artifacts/run-test',
+      directory: `${CLOUD_HYPERVISOR_ARTIFACT_SNAPSHOT_ROOT}/run-test`,
       cloudHypervisorBinary: '/snapshot/cloud-hypervisor',
       virtiofsdBinary: '/snapshot/virtiofsd',
       kernelPath: '/snapshot/vmlinux.bin',
@@ -191,6 +192,54 @@ describe('Cloud Hypervisor preflight (foundation only)', () => {
     await expect(defaults.runVersion('/snapshot/cloud-hypervisor')).rejects.toMatchObject({
       code: 'EACCES',
     });
+  });
+
+  it('includes identity, mount, stat, and ACL diagnostics for EACCES version probes', async () => {
+    const defaults = cloudHypervisorPreflightTestHelpers.defaultDependencies;
+    (mockedExeca as unknown as jest.Mock).mockImplementation(async (
+      command: string,
+      args?: string[],
+    ) => {
+      if (command === '/snapshot/cloud-hypervisor') {
+        return {
+          exitCode: undefined,
+          signal: undefined,
+          code: 'EACCES',
+          shortMessage: 'Command failed with EACCES: spawn EACCES',
+          stdout: '',
+          stderr: '',
+        } as never;
+      }
+      if (command === '/usr/bin/getfacl') {
+        return {
+          exitCode: 0,
+          stdout: `user::rwx\nuser:${args?.[3] ?? 'unknown'}:r-x`,
+          stderr: '',
+        } as never;
+      }
+      throw new Error(`unexpected command: ${String(command)}`);
+    });
+    jest.spyOn(fs, 'access').mockResolvedValue(undefined);
+    jest.spyOn(fs, 'readFile').mockImplementation(async (filePath) => {
+      if (filePath === '/proc/self/mountinfo') {
+        return '25 1 0:24 / / rw,relatime - ext4 /dev/root rw\n' +
+          '26 25 0:25 / /snapshot rw,nosuid,nodev,noexec - tmpfs tmpfs rw\n';
+      }
+      return manifest();
+    });
+    jest.spyOn(fs, 'lstat').mockResolvedValue({
+      isSymbolicLink: () => false,
+      isDirectory: () => false,
+      isFile: () => true,
+      mode: 0o100555,
+      uid: 0,
+      gid: 0,
+      size: 1,
+    } as never);
+
+    await expect(defaults.runVersion('/snapshot/cloud-hypervisor')).rejects.toThrow(
+      /Cloud Hypervisor execution diagnostics:[\s\S]*identity: uid=[\s\S]*mount: \/snapshot type=tmpfs source=tmpfs options=rw,nosuid,nodev,noexec[\s\S]*\/snapshot\/cloud-hypervisor: stat=file,mode=00555,uid=0,gid=0,size=1; acl=/,
+    );
   });
 
   it('runs host policy and Docker probes through the default helper', async () => {
@@ -334,7 +383,7 @@ describe('Cloud Hypervisor preflight (foundation only)', () => {
   });
 
   it('uses sparse copying only for the trusted rootfs snapshot', async () => {
-    const snapshotDirectory = '/run/awf-cloud-hypervisor/trusted-artifacts/snapshot-test';
+    const snapshotDirectory = `${CLOUD_HYPERVISOR_ARTIFACT_SNAPSHOT_ROOT}/snapshot-test`;
     jest.spyOn(fs, 'mkdir').mockResolvedValue(undefined);
     jest.spyOn(fs, 'mkdtemp').mockResolvedValue(snapshotDirectory);
     const copyFile = jest.spyOn(fs, 'copyFile').mockResolvedValue(undefined);
@@ -378,6 +427,13 @@ describe('Cloud Hypervisor preflight (foundation only)', () => {
       sources.rootfsPath,
       expect.any(String),
       expect.any(Number),
+    );
+    expect(fs.mkdir).toHaveBeenCalledWith(CLOUD_HYPERVISOR_ARTIFACT_SNAPSHOT_ROOT, {
+      recursive: true,
+      mode: 0o711,
+    });
+    expect(fs.mkdtemp).toHaveBeenCalledWith(
+      path.join(CLOUD_HYPERVISOR_ARTIFACT_SNAPSHOT_ROOT, 'run-'),
     );
   });
 
@@ -558,7 +614,7 @@ describe('Cloud Hypervisor preflight (foundation only)', () => {
     )).rejects.toThrow(/bad signature/);
     expect(readFile).not.toHaveBeenCalled();
     expect(removeArtifactSnapshot).toHaveBeenCalledWith(
-      '/run/awf-cloud-hypervisor/trusted-artifacts/run-test',
+      `${CLOUD_HYPERVISOR_ARTIFACT_SNAPSHOT_ROOT}/run-test`,
     );
   });
 
@@ -684,7 +740,7 @@ describe('Cloud Hypervisor preflight (foundation only)', () => {
     )).rejects.toThrow(/Cloud Hypervisor binary SHA-256 mismatch/);
     expect(sha256).toHaveBeenCalledWith('/snapshot/cloud-hypervisor');
     expect(removeArtifactSnapshot).toHaveBeenCalledWith(
-      '/run/awf-cloud-hypervisor/trusted-artifacts/run-test',
+      `${CLOUD_HYPERVISOR_ARTIFACT_SNAPSHOT_ROOT}/run-test`,
     );
   });
 

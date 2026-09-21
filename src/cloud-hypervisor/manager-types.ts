@@ -62,7 +62,9 @@ export interface CloudHypervisorWorkloadIdentity {
  * per-run leaf directory is chowned to the non-root target identity with
  * `0700` (so only that identity, or root, can actually read its contents).
  */
-const CLOUD_HYPERVISOR_RUN_ROOT = '/run/awf-cloud-hypervisor';
+export const CLOUD_HYPERVISOR_RUN_ROOT = '/run/awf-cloud-hypervisor';
+export const CLOUD_HYPERVISOR_ARTIFACT_SNAPSHOT_ROOT =
+  '/var/lib/awf-cloud-hypervisor/trusted-artifacts';
 const CGROUP_ROOT = '/sys/fs/cgroup';
 
 export interface CloudHypervisorRunPaths {

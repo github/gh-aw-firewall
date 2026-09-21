@@ -1,6 +1,9 @@
 import * as path from 'path';
 import type { MicrovmNetworkPlan } from '../microvm/network';
-import type { CloudHypervisorWorkloadIdentity } from './manager-types';
+import {
+  CLOUD_HYPERVISOR_ARTIFACT_SNAPSHOT_ROOT,
+  type CloudHypervisorWorkloadIdentity,
+} from './manager-types';
 
 export const CLEANUP_RECORD_VERSION = 1;
 
@@ -102,9 +105,9 @@ export function validateRecord(
     !record.paths?.cgroupPath.endsWith(`/${record.runId}`) ||
     !record.paths?.virtiofsdShareDirectory.endsWith(`/${record.runId}`) ||
     (record.paths.artifactSnapshotDirectory !== undefined && (
-      path.dirname(record.paths.artifactSnapshotDirectory) !== path.join(
-        path.dirname(path.dirname(record.paths.runDirectory)),
-        'trusted-artifacts',
+      !isTrustedArtifactSnapshotDirectory(
+        record.paths.artifactSnapshotDirectory,
+        record.paths.runDirectory,
       ) ||
       !/^run-[A-Za-z0-9_-]+$/.test(path.basename(record.paths.artifactSnapshotDirectory))
     )) ||
@@ -167,6 +170,18 @@ export function validateRecord(
       !mount.source
     ) throw new Error('cleanup mount identity is malformed');
   }
+}
+
+export function isTrustedArtifactSnapshotDirectory(
+  directory: string,
+  runDirectory: string,
+): boolean {
+  const legacyRunRootSnapshotRoot = path.join(
+    path.dirname(path.dirname(runDirectory)),
+    'trusted-artifacts',
+  );
+  return path.dirname(directory) === CLOUD_HYPERVISOR_ARTIFACT_SNAPSHOT_ROOT ||
+    path.dirname(directory) === legacyRunRootSnapshotRoot;
 }
 
 function validateWorkloadIdentity(identity: CloudHypervisorWorkloadIdentity): void {

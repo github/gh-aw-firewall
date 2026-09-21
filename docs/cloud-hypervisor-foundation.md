@@ -153,7 +153,7 @@ manifest, require its release tag to match both the operator's expected tag and
 the running AWF version, and verify every local artifact. Before verification,
 AWF copies the manifest, bundle, VMM, `virtiofsd`, kernel, rootfs, and
 supervisor into a root-owned, non-writable snapshot under
-`/run/awf-cloud-hypervisor/trusted-artifacts/`. Verification and execution use
+`/var/lib/awf-cloud-hypervisor/trusted-artifacts/`. Verification and execution use
 only that snapshot, preventing caller-controlled path replacement between
 checking and use. Rootfs snapshot, writable preparation, and run staging
 preserve sparse ext4 holes so the trusted copies do not multiply the image's
