@@ -1,0 +1,220 @@
+name: NVX Phase 3b Live KVM Validation
+
+on:
+  workflow_dispatch:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
+    paths:
+      - '.github/workflows/nvx-phase-3b-live-kvm.yml'
+      - 'src/nvx/**'
+      - 'src/container-runtime.ts'
+      - 'src/container-runtime.test.ts'
+      - 'src/microvm/**'
+      - 'docs/nvx-security-design.md'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nvx-phase-3b-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  live-kvm-evidence:
+    name: Live Linux x86_64 KVM evidence
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' &&
+       contains(github.event.pull_request.labels.*.name, 'nvx-live-kvm'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install host validation tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends acl jq nftables uidmap
+
+      - name: Capture host preflight and privileged-resource evidence
+        env:
+          EVIDENCE_DIR: ${{ runner.temp }}/nvx-phase-3b-evidence
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$EVIDENCE_DIR"
+          evidence="$EVIDENCE_DIR/evidence.jsonl"
+          : > "$evidence"
+          chmod 0600 "$evidence"
+
+          record() {
+            jq -cn \
+              --arg check "$1" \
+              --arg status "$2" \
+              --argjson evidence "$3" \
+              '{check:$check,status:$status,evidence:$evidence}' >> "$evidence"
+          }
+
+          cleanup_errors=()
+          account_name="awfnvx-ci-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          cgroup_path="/sys/fs/cgroup/awf-nvx-ci-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          netns_name="awfnvx-ci-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          nft_table="awf_nvx_ci_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
+
+          cleanup() {
+            set +e
+            sudo ip netns exec "$netns_name" nft delete table inet "$nft_table" >/dev/null 2>&1 || true
+            sudo ip netns delete "$netns_name" >/dev/null 2>&1 || true
+            if [ -d "$cgroup_path" ]; then
+              sudo rmdir "$cgroup_path" >/dev/null 2>&1 || cleanup_errors+=("cgroup")
+            fi
+            sudo rmdir /sys/fs/cgroup/awf-nvx-ci-parent >/dev/null 2>&1 || true
+            for device in /dev/kvm /dev/net/tun; do
+              sudo setfacl -x "u:$account_name" "$device" >/dev/null 2>&1 || true
+            done
+            if id -u "$account_name" >/dev/null 2>&1; then
+              sudo userdel "$account_name" >/dev/null 2>&1 || cleanup_errors+=("userdel")
+            fi
+            if getent group "$account_name" >/dev/null 2>&1; then
+              sudo groupdel "$account_name" >/dev/null 2>&1 || cleanup_errors+=("groupdel")
+            fi
+            if [ "${#cleanup_errors[@]}" -eq 0 ]; then
+              record cleanup PASS '{"residue":[]}'
+            else
+              cleanup_json=$(printf '%s\n' "${cleanup_errors[@]}" | jq -R . | jq -cs '{residue:.}')
+              record cleanup FAIL "$cleanup_json"
+            fi
+          }
+          trap cleanup EXIT
+
+          if [ "$(uname -s)" != Linux ] || [ "$(uname -m)" != x86_64 ]; then
+            record host-preflight FAIL '{"reason":"NVX requires Linux x86_64"}'
+            exit 1
+          fi
+          for device in /dev/kvm /dev/net/tun; do
+            if [ ! -e "$device" ]; then
+              record host-preflight FAIL "$(jq -cn --arg device "$device" '{missing:$device}')"
+              exit 1
+            fi
+          done
+          controllers=$(cat /sys/fs/cgroup/cgroup.controllers)
+          for controller in cpu memory pids; do
+            if ! grep -qw "$controller" <<<"$controllers"; then
+              record host-preflight FAIL "$(jq -cn --arg controller "$controller" '{missingController:$controller}')"
+              exit 1
+            fi
+          done
+          record host-preflight PASS "$(jq -cn \
+            --arg platform "$(uname -s)" \
+            --arg arch "$(uname -m)" \
+            --arg controllers "$controllers" \
+            '{platform:$platform,architecture:$arch,cgroupControllers:$controllers}')"
+
+          sudo useradd \
+            --system \
+            --user-group \
+            --no-create-home \
+            --home-dir /nonexistent \
+            --shell /usr/sbin/nologin \
+            --comment "AWF NVX CI ${GITHUB_RUN_ID}" \
+            "$account_name"
+          uid=$(id -u "$account_name")
+          gid=$(id -g "$account_name")
+          groups=$(id -G "$account_name")
+          passwd_entry=$(getent passwd "$account_name")
+          if [ "$groups" != "$gid" ]; then
+            record account-isolation FAIL "$(jq -cn --arg groups "$groups" '{groups:$groups}')"
+            exit 1
+          fi
+          record account-isolation PASS "$(jq -cn \
+            --arg name "$account_name" \
+            --arg uid "$uid" \
+            --arg gid "$gid" \
+            --arg passwd "$passwd_entry" \
+            '{name:$name,uid:($uid|tonumber),gid:($gid|tonumber),passwd:$passwd,supplementaryGroups:[]}' )"
+
+          for device in /dev/kvm /dev/net/tun; do
+            before=$(stat -Lc '{"device":"%d","inode":"%i","mode":"%a"}' "$device")
+            sudo setfacl -m "u:$uid:rw" "$device"
+            acl_line=$(getfacl --absolute-names --numeric "$device" | grep "^user:$uid:rw-" || true)
+            after=$(stat -Lc '{"device":"%d","inode":"%i","mode":"%a"}' "$device")
+            if [ -z "$acl_line" ] || [ "$before" != "$after" ]; then
+              record device-acl FAIL "$(jq -cn \
+                --arg device "$device" \
+                --arg acl "$acl_line" \
+                --argjson before "$before" \
+                --argjson after "$after" \
+                '{device:$device,acl:$acl,before:$before,after:$after}')"
+              exit 1
+            fi
+            record device-acl PASS "$(jq -cn \
+              --arg device "$device" \
+              --arg uid "$uid" \
+              --arg acl "$acl_line" \
+              --argjson identity "$after" \
+              '{device:$device,uid:($uid|tonumber),acl:$acl,identity:$identity}')"
+          done
+
+          sudo mkdir -p /sys/fs/cgroup/awf-nvx-ci-parent
+          sudo sh -c 'printf "+cpu +memory +pids" > /sys/fs/cgroup/cgroup.subtree_control' || true
+          sudo sh -c 'printf "+cpu +memory +pids" > /sys/fs/cgroup/awf-nvx-ci-parent/cgroup.subtree_control' || true
+          cgroup_path="/sys/fs/cgroup/awf-nvx-ci-parent/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          sudo mkdir "$cgroup_path"
+          sudo sh -c "printf 536870912 > '$cgroup_path/memory.max'"
+          sudo sh -c "printf '200000 100000' > '$cgroup_path/cpu.max'"
+          sudo sh -c "printf 128 > '$cgroup_path/pids.max'"
+          record cgroup-limits PASS "$(jq -cn \
+            --arg path "$cgroup_path" \
+            --arg memory "$(cat "$cgroup_path/memory.max")" \
+            --arg cpu "$(cat "$cgroup_path/cpu.max")" \
+            --arg pids "$(cat "$cgroup_path/pids.max")" \
+            '{path:$path,memoryMax:$memory,cpuMax:$cpu,pidsMax:$pids}')"
+
+          sudo ip netns add "$netns_name"
+          sudo ip netns exec "$netns_name" nft add table inet "$nft_table"
+          sudo ip netns exec "$netns_name" nft \
+            "add chain inet $nft_table input { type filter hook input priority filter ; policy drop ; }"
+          sudo ip netns exec "$netns_name" nft \
+            "add chain inet $nft_table output { type filter hook output priority filter ; policy drop ; }"
+          sudo ip netns exec "$netns_name" nft \
+            "add rule inet $nft_table output ip daddr 172.30.0.10 tcp dport 3128 counter accept"
+          sudo ip netns exec "$netns_name" nft \
+            "add rule inet $nft_table output udp dport 53 counter drop"
+          ruleset=$(sudo ip netns exec "$netns_name" nft list table inet "$nft_table")
+          record network-policy PASS "$(jq -cn \
+            --arg namespace "$netns_name" \
+            --arg ruleset "$ruleset" \
+            '{namespace:$namespace,denyByDefault:($ruleset|contains("policy drop")),squidAllowed:($ruleset|contains("172.30.0.10")),dnsDenied:($ruleset|contains("udp dport 53")),ruleset:$ruleset}')"
+
+      - name: Run focused NVX Phase 3b tests
+        run: |
+          npm test -- --runTestsByPath \
+            src/nvx/cleanup-record.test.ts \
+            src/nvx/runtime-lifecycle.test.ts \
+            src/nvx/confinement.test.ts \
+            src/container-runtime.test.ts
+
+      - name: Build and type-check
+        run: |
+          npm run build
+          npm run type-check
+
+      - name: Upload bounded diagnostics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: nvx-phase-3b-evidence
+          path: ${{ runner.temp }}/nvx-phase-3b-evidence/
+          if-no-files-found: warn
+          retention-days: 7

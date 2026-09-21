@@ -115,6 +115,54 @@ Development-only artifacts may use a conspicuous dual opt-in plus complete
 digests. They must never be accepted by default or silently replace failed
 provenance verification.
 
+## Phase 3b implementation status
+
+Phase 3b currently provides internal, injectable runtime lifecycle foundations;
+it still does not register `nvx` as a selectable AWF runtime. The runtime name
+`nvx` is reserved and rejected by the CLI/runtime resolution path so it cannot
+silently fall through as a raw Docker runtime while live evidence is under
+review.
+
+Implemented foundations:
+
+- a per-run NVX layout that derives trusted artifact snapshots, writable run
+  state, cleanup records, cgroups, and network namespace names from the same
+  canonical 32-character run ID;
+- dedicated per-run VMM account allocation with `useradd --system
+  --user-group --no-create-home --home-dir /nonexistent --shell
+  /usr/sbin/nologin`, validation through `id`/`getent`, and deletion only after
+  re-validating the account identity;
+- serialized ACL-only device access for `/dev/kvm` and `/dev/net/tun`, including
+  recorded device/inode identity, uid-specific `rw-` ACL evidence, validation
+  before launch, and exact revocation validation during cleanup;
+- cgroup v2 setup for the run subtree with explicit `memory.max`, `cpu.max`,
+  and `pids.max` writes followed by read-back verification and exact
+  `cgroup.procs` membership checks;
+- an NVX network plan that reuses AWF's microVM deny-by-default nftables policy,
+  permitting Squid, enabled API-proxy ports, and explicitly configured control
+  peers while denying arbitrary DNS, metadata/link-local, host gateway,
+  infrastructure IP, unsolicited ingress, and lateral traffic; and
+- constrained launch-plan construction that feeds the Phase 2 one-shot
+  `sandbox run` argv through the Phase 3 `ip netns exec` → Bubblewrap →
+  `setpriv --clear-groups --no-new-privs --*-caps=-all` wrapper.
+
+The Phase 3b live KVM validation workflow,
+`.github/workflows/nvx-phase-3b-live-kvm.yml`, is deliberately opt-in for pull
+requests via the `nvx-live-kvm` label (and always available through
+`workflow_dispatch`). It captures mode-`0600` JSONL evidence for host KVM/TUN
+preflight, dedicated account isolation, uid-only device ACL grants, cgroup
+limits, namespace-local deny-by-default nftables policy, focused TypeScript
+coverage, build, type checking, and cleanup residue. The workflow does not make
+NVX generally available; it is the evidence collection lane for deciding whether
+the internal foundations can be promoted later.
+
+Configurations that cannot provide Linux x86_64 KVM, `/dev/net/tun`, cgroup v2
+`cpu`/`memory`/`pids` controllers, trusted host tools, or exact cleanup evidence
+fail closed. Promotion to a selectable runtime requires reviewed live evidence
+for complete guest launch, Copilot API-proxy inference, adversarial network and
+filesystem probes, timeout/cancellation process-tree termination, stale
+recovery, and concurrent-run isolation.
+
 ## Host OpenVMM confinement
 
 Phase 0 observed `NoNewPrivs: 1`, seccomp filter mode, empty capability sets,
