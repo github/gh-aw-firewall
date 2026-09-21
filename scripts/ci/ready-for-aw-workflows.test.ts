@@ -9,7 +9,7 @@ const readyForCiLockFiles = [
   'smoke-claude.lock.yml',
   'smoke-chroot.lock.yml',
   'smoke-codex.lock.yml',
-  'smoke-docker-sbx.lock.yml',
+  'smoke-cloud-hypervisor.lock.yml',
   'smoke-copilot-byok-aoai-apikey.lock.yml',
   'smoke-copilot-byok-aoai-entra.lock.yml',
   'smoke-copilot-byok.lock.yml',
