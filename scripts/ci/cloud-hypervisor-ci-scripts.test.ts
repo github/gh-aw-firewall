@@ -194,10 +194,10 @@ describe('cloud-hypervisor-live-smoke.sh', () => {
     expect(source).toContain('(vmh|vmn|vmt)');
     expect(source).toContain('CGROUP_ROOT');
     expect(source).toContain(
-      "pgrep -f '/run/awf-cloud-hypervisor/trusted-artifacts/run-[^/]*/[c]loud-hypervisor --api-socket'",
+      "pgrep -f '/var/lib/awf-cloud-hypervisor/trusted-artifacts/run-[^/]*/[c]loud-hypervisor --api-socket'",
     );
     expect(source).toContain(
-      "pgrep -f '/run/awf-cloud-hypervisor/trusted-artifacts/run-[^/]*/[v]irtiofsd.*--shared-dir='",
+      "pgrep -f '/var/lib/awf-cloud-hypervisor/trusted-artifacts/run-[^/]*/[v]irtiofsd.*--shared-dir='",
     );
     expect(source).not.toContain(
       'pgrep -f "$ARTIFACT_DIR/[c]loud-hypervisor --api-socket"',
@@ -211,15 +211,15 @@ describe('cloud-hypervisor-live-smoke.sh', () => {
     const probes = [
       {
         pattern:
-          '/run/awf-cloud-hypervisor/trusted-artifacts/run-[^/]*/[c]loud-hypervisor --api-socket',
+          '/var/lib/awf-cloud-hypervisor/trusted-artifacts/run-[^/]*/[c]loud-hypervisor --api-socket',
         target:
-          '/run/awf-cloud-hypervisor/trusted-artifacts/run-abc123/cloud-hypervisor --api-socket /run/awf.sock',
+          '/var/lib/awf-cloud-hypervisor/trusted-artifacts/run-abc123/cloud-hypervisor --api-socket /run/awf.sock',
       },
       {
         pattern:
-          '/run/awf-cloud-hypervisor/trusted-artifacts/run-[^/]*/[v]irtiofsd.*--shared-dir=',
+          '/var/lib/awf-cloud-hypervisor/trusted-artifacts/run-[^/]*/[v]irtiofsd.*--shared-dir=',
         target:
-          '/run/awf-cloud-hypervisor/trusted-artifacts/run-abc123/virtiofsd --socket-path=/run/vhost.sock --shared-dir=/workspace',
+          '/var/lib/awf-cloud-hypervisor/trusted-artifacts/run-abc123/virtiofsd --socket-path=/run/vhost.sock --shared-dir=/workspace',
       },
     ];
 

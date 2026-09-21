@@ -118,6 +118,29 @@ const CLOUD_HYPERVISOR_ARTIFACT_SNAPSHOT_PARENT = path.dirname(
 );
 const GETFACL_DIAGNOSTIC_PATHS = ['/usr/bin/getfacl', '/bin/getfacl'] as const;
 
+async function versionProbeExecutionError(
+  binaryPath: string,
+  details: string,
+  code?: string,
+): Promise<Error> {
+  let message: string;
+  if (code === 'ENOENT') {
+    message =
+      `Required external binary "${binaryPath}" is unavailable: the binary or its interpreter ` +
+      `was not found${details ? `: ${details}` : ''}`;
+  } else if (code === 'EACCES') {
+    message =
+      `Permission denied executing "${binaryPath} --version"; verify path traversal permissions ` +
+      `and that the artifact is on an exec-capable mount${details ? `: ${details}` : ''}`;
+    message += await buildExecutionFailureDiagnostics(binaryPath);
+  } else {
+    message =
+      `Unable to execute required external binary "${binaryPath} --version"` +
+      `${details ? `: ${details}` : ''}`;
+  }
+  return Object.assign(new Error(message), code ? { code } : {});
+}
+
 const defaultDependencies: CloudHypervisorPreflightDependencies = {
   platform: process.platform,
   arch: process.arch,
@@ -133,11 +156,18 @@ const defaultDependencies: CloudHypervisorPreflightDependencies = {
         stdio: ['ignore', 'pipe', 'pipe'],
       });
     } catch (error) {
-      const diagnostics = await buildExecutionFailureDiagnostics(binaryPath);
-      throw new Error(
-        `Unable to execute "${binaryPath} --version"; verify the trusted Cloud Hypervisor artifact ` +
-        `exists, is executable, and is complete: ${error instanceof Error ? error.message : String(error)}` +
-        diagnostics,
+      const code = error && typeof error === 'object' &&
+        typeof (error as { code?: unknown }).code === 'string'
+        ? (error as { code: string }).code
+        : undefined;
+      const details = [
+        code ? `code=${code}` : '',
+        error instanceof Error ? error.message : String(error),
+      ].filter(Boolean).join('; ');
+      throw await versionProbeExecutionError(
+        binaryPath,
+        details,
+        code,
       );
     }
     if (result.exitCode == null && !result.signal) {
@@ -151,15 +181,7 @@ const defaultDependencies: CloudHypervisorPreflightDependencies = {
         ? executionError.shortMessage
         : '';
       const details = [code, shortMessage, result.stderr.trim()].filter(Boolean).join('; ');
-      const diagnostics = await buildExecutionFailureDiagnostics(binaryPath);
-      throw Object.assign(
-        new Error(
-          `Unable to execute "${binaryPath} --version"; verify the trusted Cloud Hypervisor artifact ` +
-          `exists, is executable, and is complete${details ? `: ${details}` : ''}` +
-          diagnostics,
-        ),
-        codeValue ? { code: codeValue } : {},
-      );
+      throw await versionProbeExecutionError(binaryPath, details, codeValue);
     }
     if (result.exitCode !== 0) {
       const stderr = result.stderr.trim();

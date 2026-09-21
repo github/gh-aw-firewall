@@ -575,7 +575,7 @@ for _ in $(seq 1 90); do
      sudo ip netns list | grep -q '^awfvm-' &&
      sudo find /run/awf-cloud-hypervisor/pending-cleanup -maxdepth 1 -name '*.json' | grep -q . &&
      sudo find "$CGROUP_ROOT" -mindepth 1 -maxdepth 1 -type d | grep -q . &&
-     sudo pgrep -f '/run/awf-cloud-hypervisor/trusted-artifacts/run-[^/]*/[c]loud-hypervisor --api-socket' >/dev/null; then
+     sudo pgrep -f '/var/lib/awf-cloud-hypervisor/trusted-artifacts/run-[^/]*/[c]loud-hypervisor --api-socket' >/dev/null; then
     break
   fi
   sleep 1
@@ -597,7 +597,7 @@ sudo ip netns list | grep -q '^awfvm-' || {
   echo "process-death: abrupt exit did not leave the expected recovery fixture" >&2
   exit 1
 }
-sudo pgrep -f '/run/awf-cloud-hypervisor/trusted-artifacts/run-[^/]*/[c]loud-hypervisor --api-socket' >/dev/null || {
+sudo pgrep -f '/var/lib/awf-cloud-hypervisor/trusted-artifacts/run-[^/]*/[c]loud-hypervisor --api-socket' >/dev/null || {
   echo "process-death: VMM did not survive abrupt owner death" >&2
   exit 1
 }

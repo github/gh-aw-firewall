@@ -179,7 +179,7 @@ describe('Cloud Hypervisor preflight (foundation only)', () => {
       /terminated by signal SIGKILL \(exitCode=null, signalCode=SIGKILL\): killed by host/,
     );
     await expect(defaults.runVersion('/snapshot/cloud-hypervisor')).rejects.toThrow(
-      /Unable to execute "\/snapshot\/cloud-hypervisor --version".*exists, is executable, and is complete: code=EACCES; Command failed with EACCES: spawn EACCES/,
+      /Permission denied executing "\/snapshot\/cloud-hypervisor --version".*exec-capable mount: code=EACCES; Command failed with EACCES: spawn EACCES/,
     );
     mockedExeca.mockResolvedValueOnce({
       exitCode: undefined,
@@ -240,6 +240,20 @@ describe('Cloud Hypervisor preflight (foundation only)', () => {
     await expect(defaults.runVersion('/snapshot/cloud-hypervisor')).rejects.toThrow(
       /Cloud Hypervisor execution diagnostics:[\s\S]*identity: uid=[\s\S]*mount: \/snapshot type=tmpfs source=tmpfs options=rw,nosuid,nodev,noexec[\s\S]*\/snapshot\/cloud-hypervisor: stat=file,mode=0555,uid=0,gid=0,size=1; acl=/,
     );
+  });
+
+  it('reports a missing external binary without describing it as a permission failure', async () => {
+    const defaults = cloudHypervisorPreflightTestHelpers.defaultDependencies;
+    mockedExeca.mockRejectedValueOnce(
+      Object.assign(new Error('spawn ENOENT'), { code: 'ENOENT' }),
+    );
+
+    const error = await defaults.runVersion('/snapshot/cloud-hypervisor').catch((caught) => caught);
+    expect(error).toMatchObject({ code: 'ENOENT' });
+    expect((error as Error).message).toMatch(
+      /Required external binary "\/snapshot\/cloud-hypervisor" is unavailable.*code=ENOENT/,
+    );
+    expect((error as Error).message).not.toMatch(/permission|executable|exec-capable/i);
   });
 
   it('runs host policy and Docker probes through the default helper', async () => {
@@ -383,6 +397,9 @@ describe('Cloud Hypervisor preflight (foundation only)', () => {
   });
 
   it('uses sparse copying only for the trusted rootfs snapshot', async () => {
+    expect(CLOUD_HYPERVISOR_ARTIFACT_SNAPSHOT_ROOT).toBe(
+      '/var/lib/awf-cloud-hypervisor/trusted-artifacts',
+    );
     const snapshotDirectory = `${CLOUD_HYPERVISOR_ARTIFACT_SNAPSHOT_ROOT}/snapshot-test`;
     jest.spyOn(fs, 'mkdir').mockResolvedValue(undefined);
     jest.spyOn(fs, 'mkdtemp').mockResolvedValue(snapshotDirectory);
