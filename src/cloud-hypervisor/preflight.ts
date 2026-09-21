@@ -280,7 +280,7 @@ const defaultDependencies: CloudHypervisorPreflightDependencies = {
 };
 
 function formatMode(mode: number): string {
-  return `0${(mode & 0o7777).toString(8).padStart(4, '0')}`;
+  return `0${(mode & 0o7777).toString(8).padStart(3, '0')}`;
 }
 
 function mountInfoUnescape(value: string): string {

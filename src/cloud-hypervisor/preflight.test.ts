@@ -238,7 +238,7 @@ describe('Cloud Hypervisor preflight (foundation only)', () => {
     } as never);
 
     await expect(defaults.runVersion('/snapshot/cloud-hypervisor')).rejects.toThrow(
-      /Cloud Hypervisor execution diagnostics:[\s\S]*identity: uid=[\s\S]*mount: \/snapshot type=tmpfs source=tmpfs options=rw,nosuid,nodev,noexec[\s\S]*\/snapshot\/cloud-hypervisor: stat=file,mode=00555,uid=0,gid=0,size=1; acl=/,
+      /Cloud Hypervisor execution diagnostics:[\s\S]*identity: uid=[\s\S]*mount: \/snapshot type=tmpfs source=tmpfs options=rw,nosuid,nodev,noexec[\s\S]*\/snapshot\/cloud-hypervisor: stat=file,mode=0555,uid=0,gid=0,size=1; acl=/,
     );
   });
 
