@@ -104,6 +104,18 @@ describe('buildConfig', () => {
       expect(config.apiProxyCaCert).toBe('/tmp/upstream-ca.crt');
     });
 
+    it('should pass through task-level model routing', () => {
+      const modelRouting = {
+        objective: { goal: 'cost' as const, mode: 'auto' as const },
+        task: { conversationFile: '/tmp/gh-aw/conversation.json' },
+      };
+      const config = buildConfig(makeInputs({
+        options: { ...makeInputs().options, modelRouting },
+      }));
+
+      expect(config.modelRouting).toEqual(modelRouting);
+    });
+
     it('should set logLevel from inputs', () => {
       const config = buildConfig(makeInputs({ logLevel: 'debug' }));
       expect(config.logLevel).toBe('debug');

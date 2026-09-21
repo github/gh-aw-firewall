@@ -2,7 +2,28 @@
  * API proxy upstream routing and target customization options.
  */
 
+export type ModelRoutingGoal = 'cost' | 'cost-speed';
+export type ModelRoutingMode = 'economy' | 'balanced' | 'robust' | 'auto';
+
+export interface ModelRoutingConfig {
+  objective: {
+    goal: ModelRoutingGoal;
+    mode: ModelRoutingMode;
+  };
+  task: {
+    conversationFile: string;
+  };
+}
+
 export interface ApiProxyRoutingOptions {
+  /**
+   * Optional task-level model routing configuration.
+   *
+   * The API proxy does not enable routing unless this value is present.
+   * Set via config file path `apiProxy.routing`.
+   */
+  modelRouting?: ModelRoutingConfig;
+
   /**
    * Host path to an additional CA certificate for api-proxy upstream TLS.
    *

@@ -176,6 +176,19 @@ describe('mapAwfFileConfigToCliOptions', () => {
     expect(result.anthropicCacheTailTtl).toBe('1h');
   });
 
+  it('maps task-level model routing fields', () => {
+    const routing = {
+      objective: { goal: 'cost-speed' as const, mode: 'robust' as const },
+      task: { conversationFile: '/tmp/gh-aw/conversation.json' },
+    };
+
+    const result = mapAwfFileConfigToCliOptions({
+      apiProxy: { routing },
+    });
+
+    expect(result.modelRouting).toEqual(routing);
+  });
+
   it('maps effective-token guard fields', () => {
     const result = mapAwfFileConfigToCliOptions({
       apiProxy: {

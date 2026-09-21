@@ -237,6 +237,7 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 - `apiProxy.maxPermissionDenied` → `--max-permission-denied <number>`
 - `apiProxy.requestedModel` → *(config-only; maps to `AWF_REQUESTED_MODEL` for pre-startup validation)*
 - `apiProxy.modelFallback` → *(config-only; model fallback strategy)*
+- `apiProxy.routing` → *(config-only; trusted task-level routing objective and conversation input)*
 - `apiProxy.modelRouter.providerType` → *(config-only; maps to `COPILOT_PROVIDER_TYPE`)*
 - `apiProxy.modelRouter.baseUrl` → *(config-only; maps to `COPILOT_PROVIDER_BASE_URL`)*
 - `apiProxy.allowedModels` → *(config-only; maps to `AWF_ALLOWED_MODELS` — JSON array of glob patterns; only matching models are permitted)*
@@ -294,7 +295,7 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 - `container.enableDind` → `--enable-dind`
 - `container.workDir` → `--work-dir`
 - `container.containerWorkDir` → `--container-workdir`
-- `container.images` → *(config-only; a closed compiler-authorized manifest of literal, registry-qualified `tag@sha256:<digest>` OCI references. Supported keys are `squid`, `agent`, `apiProxy`, `cliProxy`, `buildTools`, `dohProxy`, `enclaveScript`, `enclaveAgent`, `enclaveMcpServer`, and `dindStaging`. Every image AWF runs — including consumers outside Docker Compose such as DinD staging, `awf predownload --config`, and rootless artifact repair — resolves through this manifest, and the effective per-role references are recorded in `image-manifest.json`. AWF rejects missing enabled roles and never falls back to the official registry. It cannot be combined with controls that would select a different image: `container.imageRegistry`, `container.imageTag`, `container.agentImage`, `container.buildLocal`, `security.sslBump` (requires a locally built Squid image), `runner.sysrootImage`, `dind.stagingImage`, or per-enclave image overrides. Registry credentials are intentionally not configured by AWF; use a pre-authenticated Docker daemon.)*
+- `container.images` → *(config-only; a closed compiler-authorized manifest of literal, registry-qualified `tag@sha256:<digest>` OCI references. Supported keys are `squid`, `agent`, `apiProxy`, `router`, `cliProxy`, `buildTools`, `dohProxy`, `enclaveScript`, `enclaveAgent`, `enclaveMcpServer`, and `dindStaging`. Every image AWF runs — including consumers outside Docker Compose such as DinD staging, `awf predownload --config`, and rootless artifact repair — resolves through this manifest, and the effective per-role references are recorded in `image-manifest.json`. AWF rejects missing enabled roles and never falls back to the official registry. It cannot be combined with controls that would select a different image: `container.imageRegistry`, `container.imageTag`, `container.agentImage`, `container.buildLocal`, `security.sslBump` (requires a locally built Squid image), `runner.sysrootImage`, `dind.stagingImage`, or per-enclave image overrides. Registry credentials are intentionally not configured by AWF; use a pre-authenticated Docker daemon.)*
 - `container.imageRegistry` → `--image-registry`
 - `container.imageTag` → `--image-tag`
 - `container.skipPull` → `--skip-pull`
@@ -1586,6 +1587,35 @@ A `provider_not_configured` response is a terminal run-level misconfiguration:
 it is returned with HTTP `403` and `"retryable": false` so clients fail fast.
 Only transient OIDC readiness states, such as a token that has not been minted
 yet, use HTTP `503` and `"retryable": true`.
+
+## 13a. Task-Level Model Routing
+
+`apiProxy.routing` is an opt-in, compiler-authored request for AWF to select one
+model and reasoning effort for the entire run. This release validates and
+preserves the configuration only; later routing integration consumes it.
+
+```yaml
+apiProxy:
+  routing:
+    objective:
+      goal: cost
+      mode: balanced
+    task:
+      conversationFile: /tmp/gh-aw/routing-conversation.json
+```
+
+| Field | Allowed values | Description |
+|-------|----------------|-------------|
+| `objective.goal` | `cost`, `cost-speed` | Optimization goal used by the router |
+| `objective.mode` | `economy`, `balanced`, `robust`, `auto` | Fixed routing profile, or `auto` classification |
+| `task.conversationFile` | non-empty string | Host path to the trusted conversation input |
+
+The routing object is closed: all fields shown above are required and unknown
+properties are rejected. A supported routed run also requires a complete
+`container.images` manifest containing digest-pinned references for `router`
+and every other enabled image role. The legacy `latest` router default is kept
+only for resolver compatibility and is not a supported tag-only routed
+configuration.
 
 ## 13. Model Alias Logging
 

@@ -173,6 +173,26 @@ describe('validateAwfFileConfig', () => {
       .toContain('config.apiProxy.modelRouter.baseUrl must be a string');
   });
 
+  it('validates closed apiProxy.routing fields', () => {
+    const valid = {
+      objective: { goal: 'cost', mode: 'auto' },
+      task: { conversationFile: '/tmp/gh-aw/conversation.json' },
+    };
+
+    expect(validateAwfFileConfig({ apiProxy: { routing: valid } })).toEqual([]);
+    expect(validateAwfFileConfig({
+      apiProxy: { routing: { ...valid, objective: { ...valid.objective, goal: 'quality' } } },
+    })).toContain('config.apiProxy.routing.objective.goal must be one of: cost, cost-speed');
+    expect(validateAwfFileConfig({
+      apiProxy: { routing: { ...valid, objective: { ...valid.objective, mode: 'fast' } } },
+    })).toContain(
+      'config.apiProxy.routing.objective.mode must be one of: economy, balanced, robust, auto',
+    );
+    expect(validateAwfFileConfig({
+      apiProxy: { routing: { ...valid, unexpected: true } },
+    })).toContain('config.apiProxy.routing.unexpected is not supported');
+  });
+
   it('rejects non-object apiProxy.targets', () => {
     const errors = validateAwfFileConfig({ apiProxy: { targets: 'invalid' } });
     expect(errors).toContain('config.apiProxy.targets must be an object');

@@ -63,6 +63,27 @@ describe('predownload', () => {
       );
     });
 
+    it('should pull pinned images without a registry fallback', async () => {
+      const digest = 'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+      const router = `registry.example.com/approved/router:v1@${digest}`;
+      const squid = `registry.example.com/approved/squid:v1@${digest}`;
+
+      await predownloadCommand({
+        ...defaults,
+        imageRegistry: 'registry.example.com/untrusted',
+        images: { squid, router },
+      });
+
+      expect(execa).toHaveBeenCalledTimes(2);
+      expect(execa).toHaveBeenNthCalledWith(1, 'docker', ['pull', squid], { stdio: 'inherit' });
+      expect(execa).toHaveBeenNthCalledWith(2, 'docker', ['pull', router], { stdio: 'inherit' });
+      expect(execa).not.toHaveBeenCalledWith(
+        'docker',
+        expect.arrayContaining([expect.stringContaining('untrusted')]),
+        expect.anything(),
+      );
+    });
+
     it('should throw with exitCode 1 when a pull fails', async () => {
       execa
         .mockResolvedValueOnce({ stdout: '', stderr: '' })

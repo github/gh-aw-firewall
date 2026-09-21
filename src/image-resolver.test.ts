@@ -119,6 +119,21 @@ describe('custom runtime image manifest', () => {
     expect(resolveDohProxyImage(config())).toBe('cloudflare/cloudflared:latest');
   });
 
+  it('defaults the router to the published upstream image', () => {
+    expect(resolveRuntimeImage(
+      config(),
+      'router',
+      'ghcr.io/github/gh-aw-firewall',
+      parseImageTag('latest'),
+    )).toBe('ghcr.io/githubnext/gh-aw-router:latest');
+    expect(resolveRuntimeImage(
+      config({ router: image('router') }),
+      'router',
+      'ghcr.io/github/gh-aw-firewall',
+      parseImageTag('latest'),
+    )).toBe(image('router'));
+  });
+
   it('records non-Compose consumers in the audit manifest', () => {
     const manifest = {
       ...config({ squid: image('squid'), dindStaging: image('agent') }),

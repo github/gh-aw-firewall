@@ -7,6 +7,7 @@ import type {
   CloudHypervisorArtifactDigests,
   CloudHypervisorMountPolicy,
 } from './types/runtime-options';
+import type { ModelRoutingConfig } from './types/api-proxy-routing-options';
 
 /** @internal Used only by config-file helpers — not part of public API */
 // ts-prune-ignore-next
@@ -53,6 +54,7 @@ export interface AwfFileConfig {
       providerType?: string;
       baseUrl?: string;
     };
+    routing?: ModelRoutingConfig;
     targets?: {
       openai?: { host?: string; basePath?: string; authHeader?: string; baseUrlEnv?: string };
       anthropic?: { host?: string; basePath?: string; authHeader?: string };
@@ -115,7 +117,7 @@ export interface AwfFileConfig {
   };
   container?: {
     images?: Partial<Record<
-      'squid' | 'agent' | 'apiProxy' | 'cliProxy' | 'buildTools' | 'dohProxy' |
+      'squid' | 'agent' | 'apiProxy' | 'router' | 'cliProxy' | 'buildTools' | 'dohProxy' |
       'enclaveScript' | 'enclaveAgent' | 'enclaveMcpServer' | 'dindStaging',
       string
     >>;

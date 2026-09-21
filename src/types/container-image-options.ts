@@ -8,7 +8,7 @@ export interface ContainerImageOptions {
    * trusted workflow compiler. Values are complete OCI references.
    */
   images?: Partial<Record<
-    'squid' | 'agent' | 'apiProxy' | 'cliProxy' | 'buildTools' | 'dohProxy' |
+    'squid' | 'agent' | 'apiProxy' | 'router' | 'cliProxy' | 'buildTools' | 'dohProxy' |
     'enclaveScript' | 'enclaveAgent' | 'enclaveMcpServer' | 'dindStaging',
     string
   >>;

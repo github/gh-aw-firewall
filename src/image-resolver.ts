@@ -2,7 +2,7 @@ import type { WrapperConfig } from './types';
 import { buildRuntimeImageRef, parseImageTag, type ParsedImageTag } from './image-tag';
 
 export type RuntimeImageName =
-  | 'squid' | 'agent' | 'agent-act' | 'api-proxy' | 'cli-proxy' | 'build-tools'
+  | 'squid' | 'agent' | 'agent-act' | 'api-proxy' | 'router' | 'cli-proxy' | 'build-tools'
   | 'enclave-script' | 'enclave-agent' | 'enclave-mcp-server' | 'dind-staging' | 'doh-proxy';
 
 type ManifestKey = keyof NonNullable<WrapperConfig['images']>;
@@ -24,6 +24,7 @@ const MANIFEST_KEY: Record<RuntimeImageName, ManifestKey> = {
   agent: 'agent',
   'agent-act': 'agent',
   'api-proxy': 'apiProxy',
+  router: 'router',
   'cli-proxy': 'cliProxy',
   'build-tools': 'buildTools',
   'enclave-script': 'enclaveScript',
@@ -36,6 +37,7 @@ const MANIFEST_KEY: Record<RuntimeImageName, ManifestKey> = {
 const DEFAULT_IMAGE_REGISTRY = 'ghcr.io/github/gh-aw-firewall';
 const DEFAULT_DIND_STAGING_IMAGE = 'ghcr.io/github/gh-aw-firewall/agent:latest';
 const DEFAULT_DOH_PROXY_IMAGE = 'cloudflare/cloudflared:latest';
+const DEFAULT_ROUTER_IMAGE = 'ghcr.io/githubnext/gh-aw-router:latest';
 
 /**
  * Roles whose default (non-manifest) image is not published under the AWF
@@ -44,6 +46,7 @@ const DEFAULT_DOH_PROXY_IMAGE = 'cloudflare/cloudflared:latest';
 const EXTERNAL_DEFAULT_IMAGE: Partial<Record<RuntimeImageName, string>> = {
   'doh-proxy': DEFAULT_DOH_PROXY_IMAGE,
   'dind-staging': DEFAULT_DIND_STAGING_IMAGE,
+  router: DEFAULT_ROUTER_IMAGE,
 };
 
 // OCI reference grammar (distribution/reference) narrowed to literal
