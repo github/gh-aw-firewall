@@ -291,7 +291,7 @@ describe('self-hosted runner doctor workflow config', () => {
     expect(portableAgent).toContain('D14 / github/gh-aw-firewall#8620, github/gh-aw-firewall#8622');
     expect(portableAgent).toMatch(/^\| D13 \|.*github\/gh-aw-firewall#8575 \|$/m);
     expect(portableAgent).toMatch(/^\| B33 \|.*github\/gh-aw-firewall#8624 \|$/m);
-    expect(portableAgent).toMatch(/^\| D14 \|.*github\/gh-aw-firewall#8622 \|$/m);
+    expect(portableAgent).toMatch(/^\| D14 \|.*github\/gh-aw-firewall#8801 \|$/m);
     expect(portableAgent).toContain('| `Direct sbx egress reached 1.1.1.1 without proxy environment variables` that clears after a brief retry while Squid starts | D13 update');
     expect(portableAgent).toContain('- `docker compose up -d` fails after AWF topology recreates Squid mid-run (new `extra_hosts`), with stale/unwritable Squid log files → B33 update (topology-restart-triggered Squid log repair fixed in github/gh-aw-firewall#8624)');
     expect(portableAgent).toContain('| `"cloud-hypervisor --version" exited with code undefined` under `--container-runtime cloud-hypervisor` | D14');
