@@ -68,7 +68,8 @@ jobs:
 
           cleanup_errors=()
           account_name="awfnvx-ci-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          cgroup_path="/sys/fs/cgroup/awf-nvx-ci-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          cgroup_parent="/sys/fs/cgroup/awf-nvx-ci-parent"
+          cgroup_path="$cgroup_parent/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           netns_name="awfnvx-ci-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           nft_table="awf_nvx_ci_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
 
@@ -91,12 +92,14 @@ jobs:
             fi
             if [ "${#cleanup_errors[@]}" -eq 0 ]; then
               record cleanup PASS '{"residue":[]}'
+              return 0
             else
               cleanup_json=$(printf '%s\n' "${cleanup_errors[@]}" | jq -R . | jq -cs '{residue:.}')
               record cleanup FAIL "$cleanup_json"
+              return 1
             fi
           }
-          trap cleanup EXIT
+          trap 'status=$?; cleanup || status=1; exit "$status"' EXIT
 
           if [ "$(uname -s)" != Linux ] || [ "$(uname -m)" != x86_64 ]; then
             record host-preflight FAIL '{"reason":"NVX requires Linux x86_64"}'
@@ -166,10 +169,9 @@ jobs:
               '{device:$device,uid:($uid|tonumber),acl:$acl,identity:$identity}')"
           done
 
-          sudo mkdir -p /sys/fs/cgroup/awf-nvx-ci-parent
+          sudo mkdir -p "$cgroup_parent"
           sudo sh -c 'printf "+cpu +memory +pids" > /sys/fs/cgroup/cgroup.subtree_control' || true
-          sudo sh -c 'printf "+cpu +memory +pids" > /sys/fs/cgroup/awf-nvx-ci-parent/cgroup.subtree_control' || true
-          cgroup_path="/sys/fs/cgroup/awf-nvx-ci-parent/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          sudo sh -c "printf '+cpu +memory +pids' > '$cgroup_parent/cgroup.subtree_control'" || true
           sudo mkdir "$cgroup_path"
           sudo sh -c "printf 536870912 > '$cgroup_path/memory.max'"
           sudo sh -c "printf '200000 100000' > '$cgroup_path/cpu.max'"

@@ -309,8 +309,8 @@ describe('NVX Phase 3b runtime lifecycle', () => {
       tapOwnerUid: 23001,
       tapOwnerGid: 23002,
     });
-    const ruleset = plan.nftTableName;
+    const nftTableName = plan.nftTableName;
     expect(plan.namespaceName).toBe(`awfnvx-${RUN_ID}`);
-    expect(ruleset).toMatch(/^awf_nvx_[a-f0-9]{12}$/);
+    expect(nftTableName).toMatch(/^awf_nvx_[a-f0-9]{12}$/);
   });
 });

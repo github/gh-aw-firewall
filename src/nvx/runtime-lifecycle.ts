@@ -488,6 +488,9 @@ export class NvxCgroupManager {
   async setup(): Promise<void> {
     const parentDir = path.dirname(this.cgroupPath);
     const rootDir = path.dirname(parentDir);
+    if (rootDir !== '/sys/fs/cgroup') {
+      throw new Error(`NVX cgroup path must be /sys/fs/cgroup/<parent>/<run>: ${this.cgroupPath}`);
+    }
     await this.dependencies.writeFile(path.join(rootDir, 'cgroup.subtree_control'), CGROUP_V2_CONTROLLERS);
     await this.dependencies.mkdir(parentDir, { recursive: true, mode: 0o700 });
     await this.dependencies.writeFile(path.join(parentDir, 'cgroup.subtree_control'), CGROUP_V2_CONTROLLERS);
@@ -579,6 +582,8 @@ export function buildNvxPhase3bLaunchPlan(options: {
     vcpuCount: 1,
     pidsMax: options.execution.pidsMax ?? 256,
   });
+  const squidEndpoint = networkPlan.allowedEndpoints.find((endpoint) => endpoint.name === 'squid');
+  if (!squidEndpoint) throw new Error('NVX network plan is missing the Squid proxy endpoint');
   const outcomePath = path.join(layout.runDirectory, 'outcome.json');
   const oneShotArgs = buildNvxOneShotArguments({
     ...options.execution,
@@ -586,11 +591,13 @@ export function buildNvxPhase3bLaunchPlan(options: {
     filesystem: options.filesystem,
     network: {
       guestAddress: `${networkPlan.guestIp}/${networkPlan.guestPrefixLength}`,
-      proxyAddress: `${networkPlan.allowedEndpoints[0].ip}:${networkPlan.allowedEndpoints[0].port}`,
+      proxyAddress: `${squidEndpoint.ip}:${squidEndpoint.port}`,
       egressAllow: networkPlan.allowedEndpoints.map((endpoint) => `${endpoint.ip}:${endpoint.port}`),
       egressDeny: ['0.0.0.0/0'],
     },
   }, outcomePath);
+  // buildNvxConstrainedLaunchCommand supplies the interpreter path, so drop
+  // buildNvxOneShotArguments' leading "scripts/nvx.py" argv element.
   const [, ...nvxArguments] = oneShotArgs;
   return {
     layout,
