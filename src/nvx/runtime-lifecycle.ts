@@ -273,10 +273,7 @@ export class NvxVmmIdentityManager {
     const errors: unknown[] = [];
     for (const [devicePath, grant] of [...this.aclIdentities.entries()].reverse()) {
       try {
-        const current = await this.captureDeviceIdentity(
-          grant.identity.path,
-          grant.identity.uid,
-        );
+        const current = await this.captureDeviceIdentity(grant.identity.path, identity.uid);
         if (
           current.device !== grant.identity.device ||
           current.inode !== grant.identity.inode
@@ -285,10 +282,12 @@ export class NvxVmmIdentityManager {
         }
         // An absent ACL means the grant never landed (or was already removed);
         // only a changed device identity blocks revocation.
-        if (await this.deviceAclPresent(devicePath, identity.uid)) {
-          await this.dependencies.run(this.tools.setfacl, ['--remove', `user:${identity.uid}`, devicePath]);
-          if (await this.deviceAclPresent(devicePath, identity.uid)) {
-            throw new Error(`NVX VMM ACL removal validation failed for ${devicePath}`);
+        if (await this.deviceAclPresent(grant.identity.path, identity.uid)) {
+          await this.dependencies.run(this.tools.setfacl, [
+            '--remove', `user:${identity.uid}`, grant.identity.path,
+          ]);
+          if (await this.deviceAclPresent(grant.identity.path, identity.uid)) {
+            throw new Error(`NVX VMM ACL removal validation failed for ${grant.identity.path}`);
           }
         }
         await this.observer?.releaseDeviceAcl(grant.identity);

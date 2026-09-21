@@ -110,7 +110,7 @@ jobs:
             for device in /dev/kvm /dev/net/tun; do
               if [ -n "${uid:-}" ]; then
                 sudo setfacl -x "u:$uid" "$device" >/dev/null 2>&1
-                if getfacl --absolute-names --numeric "$device" 2>/dev/null \
+                if sudo getfacl --absolute-names --numeric "$device" 2>/dev/null \
                   | grep -q "^user:$uid:"; then
                   cleanup_errors+=("device-acl:$device")
                 fi
