@@ -43,7 +43,10 @@ function record() {
         device: '0',
         inode: '12',
       },
-      deviceAcls: ['/dev/kvm', '/dev/net/tun'],
+      deviceAcls: [
+        { path: '/dev/kvm', device: '5', inode: '1', uid: 1000, permissions: 'rw-' },
+        { path: '/dev/net/tun', device: '5', inode: '2', uid: 1000, permissions: 'rw-' },
+      ],
       launcher: {
         pid: 200,
         startTimeTicks: '2234',
@@ -83,11 +86,31 @@ describe('NVX cleanup record', () => {
 
   it('rejects unsupported ACLs and unexpected keys', () => {
     const unsafe = record();
-    unsafe.resources.deviceAcls = ['/dev/kvm', '/dev/sda'];
+    unsafe.resources.deviceAcls = [
+      { path: '/dev/kvm', device: '5', inode: '1', uid: 1000, permissions: 'rw-' },
+      { path: '/dev/sda', device: '5', inode: '2', uid: 1000, permissions: 'rw-' },
+    ] as typeof unsafe.resources.deviceAcls;
     expect(() => parseNvxCleanupRecord(
       JSON.stringify(unsafe),
       RECORD_PATH,
-    )).toThrow(/unsupported or duplicate/);
+    )).toThrow(/unsupported path/);
+
+    const duplicate = record();
+    duplicate.resources.deviceAcls = [
+      { path: '/dev/kvm', device: '5', inode: '1', uid: 1000, permissions: 'rw-' },
+      { path: '/dev/kvm', device: '5', inode: '1', uid: 1000, permissions: 'rw-' },
+    ];
+    expect(() => parseNvxCleanupRecord(
+      JSON.stringify(duplicate),
+      RECORD_PATH,
+    )).toThrow(/duplicate path/);
+
+    const wrongPermissions = record();
+    wrongPermissions.resources.deviceAcls[0].permissions = 'r--' as 'rw-';
+    expect(() => parseNvxCleanupRecord(
+      JSON.stringify(wrongPermissions),
+      RECORD_PATH,
+    )).toThrow(/permissions/);
 
     const extra = {
       ...record(),

@@ -22,6 +22,10 @@ describe('container-runtime', () => {
       expect(resolveDockerRuntime('custom-runtime')).toBe('custom-runtime');
     });
 
+    it('rejects the reserved nvx runtime name until it is explicitly registered', () => {
+      expect(() => resolveDockerRuntime('nvx')).toThrow(/reserved.*not available/);
+    });
+
     it('resolves the runsc alias to gVisor (docker runtime runsc)', () => {
       expect(resolveDockerRuntime('runsc')).toBe('runsc');
     });
@@ -100,6 +104,10 @@ describe('container-runtime', () => {
     it('returns true for unknown runtimes (assumed compose)', () => {
       expect(runtimeUsesComposeAgent('kata')).toBe(true);
       expect(runtimeUsesComposeAgent('runsc')).toBe(true);
+    });
+
+    it('does not pass the reserved nvx runtime through to compose mode', () => {
+      expect(() => runtimeUsesComposeAgent('nvx')).toThrow(/reserved.*not available/);
     });
   });
 

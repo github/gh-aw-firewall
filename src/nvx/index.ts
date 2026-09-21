@@ -74,6 +74,20 @@ export type {
   NvxLaunchConfinementPolicy,
 } from './confinement';
 export {
+  NvxCgroupManager,
+  NvxVmmIdentityManager,
+  buildNvxPhase3bLaunchPlan,
+  createNvxAccountName,
+  createNvxNetworkPlan,
+} from './runtime-lifecycle';
+export type {
+  NvxPhase3bLaunchPlan,
+  NvxRuntimeLifecycleDependencies,
+  NvxRuntimeLifecycleObserver,
+  NvxRuntimeToolPaths,
+  NvxVmmIdentity,
+} from './runtime-lifecycle';
+export {
   NVX_GUEST_ARTIFACT_ROOT,
   NVX_GUEST_RUN_ROOT,
   assertNvxRunId,

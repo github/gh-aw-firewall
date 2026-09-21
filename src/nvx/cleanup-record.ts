@@ -17,6 +17,12 @@ export interface NvxCleanupProcessIdentity {
   readonly executable: string;
 }
 
+export interface NvxCleanupDeviceAclIdentity extends NvxCleanupFileIdentity {
+  readonly path: '/dev/kvm' | '/dev/net/tun';
+  readonly uid: number;
+  readonly permissions: 'rw-';
+}
+
 export interface NvxCleanupRecord {
   readonly schemaVersion: typeof NVX_CLEANUP_SCHEMA_VERSION;
   readonly runId: string;
@@ -35,7 +41,7 @@ export interface NvxCleanupRecord {
     };
     readonly mountNamespaceInode?: string;
     readonly cgroup?: NvxCleanupFileIdentity;
-    readonly deviceAcls: readonly ('/dev/kvm' | '/dev/net/tun')[];
+    readonly deviceAcls: readonly NvxCleanupDeviceAclIdentity[];
     readonly launcher?: NvxCleanupProcessIdentity;
     readonly openvmm?: NvxCleanupProcessIdentity;
   };
@@ -107,13 +113,7 @@ export function parseNvxCleanupRecord(
     'launcher',
     'openvmm',
   ]);
-  const deviceAcls = requireArray(resources.deviceAcls, 'resources.deviceAcls');
-  if (
-    deviceAcls.some((entry) => entry !== '/dev/kvm' && entry !== '/dev/net/tun') ||
-    new Set(deviceAcls).size !== deviceAcls.length
-  ) {
-    throw new Error('NVX cleanup deviceAcls contains an unsupported or duplicate path');
-  }
+  const deviceAcls = parseDeviceAcls(resources.deviceAcls);
   const networkNamespace = optionalObject(
     resources.networkNamespace,
     'resources.networkNamespace',
@@ -197,7 +197,7 @@ export function parseNvxCleanupRecord(
           layout.cgroupPath,
         ),
       }),
-      deviceAcls: deviceAcls as NvxCleanupRecord['resources']['deviceAcls'],
+      deviceAcls,
       ...(resources.launcher === undefined ? {} : {
         launcher: processIdentity(resources.launcher, 'launcher'),
       }),
@@ -269,11 +269,38 @@ function fileIdentity(
   ) {
     throw new Error(`NVX cleanup ${label}.path is invalid`);
   }
+
   return {
     path: object.path,
     device: numericString(object.device, `${label}.device`),
     inode: numericString(object.inode, `${label}.inode`),
   };
+}
+
+function parseDeviceAcls(value: unknown): NvxCleanupDeviceAclIdentity[] {
+  const entries = requireArray(value, 'resources.deviceAcls');
+  const seen = new Set<string>();
+  return entries.map((entry, index) => {
+    const label = `resources.deviceAcls[${index}]`;
+    const object = exactObject(entry, label, ['path', 'device', 'inode', 'uid', 'permissions']);
+    if (object.path !== '/dev/kvm' && object.path !== '/dev/net/tun') {
+      throw new Error('NVX cleanup deviceAcls contains an unsupported path');
+    }
+    if (seen.has(object.path)) {
+      throw new Error('NVX cleanup deviceAcls contains a duplicate path');
+    }
+    seen.add(object.path);
+    if (object.permissions !== 'rw-') {
+      throw new Error(`NVX cleanup ${label}.permissions must be rw-`);
+    }
+    return {
+      path: object.path,
+      device: numericString(object.device, `${label}.device`),
+      inode: numericString(object.inode, `${label}.inode`),
+      uid: positiveInteger(object.uid, `${label}.uid`),
+      permissions: 'rw-',
+    };
+  });
 }
 
 function exactObject(
