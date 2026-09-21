@@ -26,4 +26,16 @@ describe('routing failures', () => {
     expect(malformed.code).toMatch(/^[A-Za-z0-9_.-]+$/);
     expect(malformed.code).toHaveLength(100);
   });
+
+  it('does not expose plain Error details', () => {
+    const error = new Error('secret prompt text should not be echoed');
+    error.code = 'secret-bearing-provider-code';
+
+    expect(toRoutingFailure(error)).toEqual({
+      schema: 'awf-routing-failure/v1',
+      code: 'routing_configuration_error',
+      detail: 'Model routing failed',
+      retryable: false,
+    });
+  });
 });

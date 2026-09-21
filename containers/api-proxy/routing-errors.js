@@ -36,11 +36,10 @@ function createRoutingError(code, detail) {
 }
 
 function toRoutingFailure(error) {
-  const rawCode = error && typeof error.code === 'string'
-    ? error.code
-    : 'routing_configuration_error';
+  const isPublicRoutingError = error instanceof RoutingError;
+  const rawCode = isPublicRoutingError ? error.code : 'routing_configuration_error';
   const code = sanitizeFailureCode(rawCode);
-  const detail = error && typeof error.message === 'string'
+  const detail = isPublicRoutingError && typeof error.message === 'string'
     ? error.message
     : 'Model routing failed';
   return Object.freeze({

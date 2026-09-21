@@ -126,6 +126,19 @@ describe('routing contracts', () => {
     }, offeredChoices)).toThrow('The router route response returned a choice that was not offered');
   });
 
+  it('rejects top-level extra fields in classifier plans and route responses', () => {
+    expect(() => validateClassifyResponse({
+      system_prompt: 'Classify',
+      prompt: 'Prompt',
+      ranked_choices: [offeredChoices[0]],
+      extra: true,
+    }, offeredChoices)).toThrow('The router classifier plan is invalid');
+    expect(() => validateRouteResponse({
+      ranked_choices: [offeredChoices[0]],
+      extra: true,
+    }, offeredChoices)).toThrow('The router route response is invalid');
+  });
+
   it('adds trusted context metadata only to route candidates', () => {
     const pool = {
       choices: offeredChoices,
