@@ -154,6 +154,29 @@ describe('NVX deterministic filesystem builder', () => {
     }, dependencies)).toThrow(/Duplicate NVX layer role/);
   });
 
+  it('stages the bundle in the canonical run directory when requested', () => {
+    const source = path.join(os.tmpdir(), 'awf-nvx-images-unused-source');
+    const dependencies: NvxFilesystemBuilderDependencies = {
+      runTool: jest.fn(),
+      randomUuid: () => '11111111-2222-4333-8444-555555555555',
+      sha256: jest.fn(),
+    };
+    const runId = 'a1b2c3d4e5f60718293a4b5c6d7e8f90';
+    const builder = new NvxFilesystemBuilder({
+      runId,
+      workDir: os.tmpdir(),
+      useCanonicalRunDirectory: true,
+      layers: [{ role: 'distro', sourcePath: source }],
+    }, dependencies);
+    expect(builder.runDirectory).toBe(`/run/awf-nvx/runs/${runId}`);
+    expect(() => new NvxFilesystemBuilder({
+      runId: 'not-canonical',
+      workDir: os.tmpdir(),
+      useCanonicalRunDirectory: true,
+      layers: [{ role: 'distro', sourcePath: source }],
+    }, dependencies)).toThrow(/32 lowercase hexadecimal/);
+  });
+
   linuxIt('rejects escaping symlinks in prepare()', async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'awf-nvx-images-'));
     const source = path.join(root, 'source');

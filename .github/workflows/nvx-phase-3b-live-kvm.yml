@@ -75,20 +75,50 @@ jobs:
 
           cleanup() {
             set +e
-            sudo ip netns exec "$netns_name" nft delete table inet "$nft_table" >/dev/null 2>&1 || true
-            sudo ip netns delete "$netns_name" >/dev/null 2>&1 || true
-            if [ -d "$cgroup_path" ]; then
-              sudo rmdir "$cgroup_path" >/dev/null 2>&1 || cleanup_errors+=("cgroup")
+            # Every privileged resource is removed and then verified absent;
+            # a residue entry is recorded for each resource that survives.
+            if sudo ip netns list | grep -qw "$netns_name"; then
+              sudo ip netns exec "$netns_name" nft delete table inet "$nft_table" >/dev/null 2>&1
+              if sudo ip netns exec "$netns_name" nft list table inet "$nft_table" >/dev/null 2>&1; then
+                cleanup_errors+=("nft-table:$nft_table")
+              fi
+              sudo ip netns delete "$netns_name" >/dev/null 2>&1
             fi
-            sudo rmdir /sys/fs/cgroup/awf-nvx-ci-parent >/dev/null 2>&1 || true
+            if sudo ip netns list | grep -qw "$netns_name"; then
+              cleanup_errors+=("netns:$netns_name")
+            fi
+            if [ -d "$cgroup_path" ]; then
+              sudo rmdir "$cgroup_path" >/dev/null 2>&1
+            fi
+            if [ -d "$cgroup_path" ]; then
+              cleanup_errors+=("cgroup:$cgroup_path")
+            fi
+            if [ -d "$cgroup_parent" ]; then
+              sudo rmdir "$cgroup_parent" >/dev/null 2>&1
+            fi
+            if [ -d "$cgroup_parent" ]; then
+              cleanup_errors+=("cgroup-parent:$cgroup_parent")
+            fi
             for device in /dev/kvm /dev/net/tun; do
-              sudo setfacl -x "u:$account_name" "$device" >/dev/null 2>&1 || true
+              if [ -n "${uid:-}" ]; then
+                sudo setfacl -x "u:$uid" "$device" >/dev/null 2>&1
+                if getfacl --absolute-names --numeric "$device" 2>/dev/null \
+                  | grep -q "^user:$uid:"; then
+                  cleanup_errors+=("device-acl:$device")
+                fi
+              fi
             done
             if id -u "$account_name" >/dev/null 2>&1; then
-              sudo userdel "$account_name" >/dev/null 2>&1 || cleanup_errors+=("userdel")
+              sudo userdel "$account_name" >/dev/null 2>&1
+            fi
+            if id -u "$account_name" >/dev/null 2>&1; then
+              cleanup_errors+=("account:$account_name")
             fi
             if getent group "$account_name" >/dev/null 2>&1; then
-              sudo groupdel "$account_name" >/dev/null 2>&1 || cleanup_errors+=("groupdel")
+              sudo groupdel "$account_name" >/dev/null 2>&1
+            fi
+            if getent group "$account_name" >/dev/null 2>&1; then
+              cleanup_errors+=("group:$account_name")
             fi
             if [ "${#cleanup_errors[@]}" -eq 0 ]; then
               record cleanup PASS '{"residue":[]}'
@@ -176,6 +206,16 @@ jobs:
           sudo sh -c "printf 536870912 > '$cgroup_path/memory.max'"
           sudo sh -c "printf '200000 100000' > '$cgroup_path/cpu.max'"
           sudo sh -c "printf 128 > '$cgroup_path/pids.max'"
+          if [ "$(cat "$cgroup_path/memory.max")" != 536870912 ] ||
+             [ "$(cat "$cgroup_path/cpu.max")" != "200000 100000" ] ||
+             [ "$(cat "$cgroup_path/pids.max")" != 128 ]; then
+            record cgroup-limits FAIL "$(jq -cn \
+              --arg memory "$(cat "$cgroup_path/memory.max")" \
+              --arg cpu "$(cat "$cgroup_path/cpu.max")" \
+              --arg pids "$(cat "$cgroup_path/pids.max")" \
+              '{memoryMax:$memory,cpuMax:$cpu,pidsMax:$pids}')"
+            exit 1
+          fi
           record cgroup-limits PASS "$(jq -cn \
             --arg path "$cgroup_path" \
             --arg memory "$(cat "$cgroup_path/memory.max")" \
@@ -194,6 +234,12 @@ jobs:
           sudo ip netns exec "$netns_name" nft \
             "add rule inet $nft_table output udp dport 53 counter drop"
           ruleset=$(sudo ip netns exec "$netns_name" nft list table inet "$nft_table")
+          if ! grep -q 'policy drop' <<<"$ruleset" ||
+             ! grep -q '172.30.0.10' <<<"$ruleset" ||
+             ! grep -q 'udp dport 53' <<<"$ruleset"; then
+            record network-policy FAIL "$(jq -cn --arg ruleset "$ruleset" '{ruleset:$ruleset}')"
+            exit 1
+          fi
           record network-policy PASS "$(jq -cn \
             --arg namespace "$netns_name" \
             --arg ruleset "$ruleset" \

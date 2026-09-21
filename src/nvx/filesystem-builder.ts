@@ -11,6 +11,7 @@ import * as path from 'path';
 import execa from 'execa';
 import { pipeline } from 'stream/promises';
 import { CREDENTIAL_ENTRIES, HOME_FORBIDDEN_SUBDIRS } from '../config/mount-policy';
+import { createNvxRunLayout } from './run-layout';
 
 const MIB = 1024 * 1024;
 const NVX_BLOCK_BYTES = 4096;
@@ -63,6 +64,12 @@ export interface NvxFilesystemBundle {
 export interface NvxFilesystemBuilderConfig {
   readonly runId: string;
   readonly workDir: string;
+  /**
+   * Stages the bundle directly in the canonical per-run directory
+   * (`/run/awf-nvx/runs/<runId>`) that the Phase 3b launch plan binds into the
+   * Bubblewrap jail. Defaults to `<workDir>/nvx-images/<runId>`.
+   */
+  readonly useCanonicalRunDirectory?: boolean;
   readonly layers: readonly NvxLayerSource[];
   readonly scratchBytes?: number;
   readonly maxScratchBytes?: number;
@@ -128,7 +135,9 @@ export class NvxFilesystemBuilder {
   ) {
     assertSafeRunId(config.runId);
     assertLayerSources(config.layers);
-    this.runDirectory = path.join(config.workDir, 'nvx-images', config.runId);
+    this.runDirectory = config.useCanonicalRunDirectory
+      ? createNvxRunLayout(config.runId).runDirectory
+      : path.join(config.workDir, 'nvx-images', config.runId);
     this.stagingDirectory = path.join(this.runDirectory, 'staging');
     this.manifestPath = path.join(this.runDirectory, 'manifest.json');
   }

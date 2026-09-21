@@ -22,8 +22,10 @@ import {
   type NvxOneShotExecutionRequest,
 } from './one-shot-adapter';
 import {
+  NVX_GUEST_ARTIFACT_ROOT,
   assertNvxRunLayout,
   createNvxRunLayout,
+  toNvxGuestRunPath,
   type NvxRunLayout,
 } from './run-layout';
 
@@ -64,6 +66,7 @@ export interface NvxRuntimeLifecycleDependencies {
   writeFile(filePath: string, contents: string, options?: { flag?: string; mode?: number }): Promise<void>;
   readFile(filePath: string, encoding: 'utf8'): Promise<string>;
   rm(filePath: string, options: { recursive: true; force: true }): Promise<void>;
+  rename(from: string, to: string): Promise<void>;
   rmdir(directory: string): Promise<void>;
   lstat(filePath: string): Promise<{ uid: number; gid: number; dev?: number | bigint; ino?: number | bigint; mtimeMs?: number }>;
   run(command: string, args: readonly string[]): Promise<{ stdout: string; stderr: string }>;
@@ -93,6 +96,7 @@ export interface NvxPhase3bLaunchPlan {
   readonly networkPlan: MicrovmNetworkPlan;
   readonly networkRuleset: string;
   readonly launchCommand: NvxLaunchCommand;
+  readonly outcomePath: string;
 }
 
 const defaultDependencies: NvxRuntimeLifecycleDependencies = {
@@ -100,6 +104,7 @@ const defaultDependencies: NvxRuntimeLifecycleDependencies = {
   writeFile: fs.writeFile,
   readFile: fs.readFile,
   rm: fs.rm,
+  rename: fs.rename,
   rmdir: fs.rmdir,
   lstat: fs.lstat,
   run: async (command, args) => {
@@ -122,10 +127,15 @@ const defaultDependencies: NvxRuntimeLifecycleDependencies = {
   processStartTime: readProcessStartTime,
 };
 
+interface NvxDeviceAclGrant {
+  readonly identity: NvxCleanupDeviceAclIdentity;
+  readonly state: 'pending' | 'granted';
+}
+
 export class NvxVmmIdentityManager {
   private identity: NvxVmmIdentity | undefined;
   private provisionalAccountName: string | undefined;
-  private readonly aclIdentities = new Map<string, NvxCleanupDeviceAclIdentity>();
+  private readonly aclIdentities = new Map<string, NvxDeviceAclGrant>();
 
   constructor(
     private readonly runId: string,
@@ -245,12 +255,15 @@ export class NvxVmmIdentityManager {
     const granted: NvxCleanupDeviceAclIdentity[] = [];
     for (const devicePath of devicePaths) {
       const deviceIdentity = await this.captureDeviceIdentity(devicePath, identity.uid);
+      // Record the pending grant before `setfacl` runs so that a failure in
+      // `setfacl`, `getfacl`, `lstat`, or validation still revokes the device.
+      this.aclIdentities.set(devicePath, { identity: deviceIdentity, state: 'pending' });
       await this.observer?.prepareDeviceAcl(deviceIdentity);
       await this.dependencies.run(this.tools.setfacl, [
         '--modify', `user:${identity.uid}:rw`, devicePath,
       ]);
       const verified = await this.verifyDeviceAcl(deviceIdentity);
-      this.aclIdentities.set(devicePath, verified);
+      this.aclIdentities.set(devicePath, { identity: verified, state: 'granted' });
       granted.push(verified);
     }
     return granted;
@@ -258,17 +271,27 @@ export class NvxVmmIdentityManager {
 
   private async revokeDeviceAccessLocked(identity: NvxVmmIdentity): Promise<void> {
     const errors: unknown[] = [];
-    for (const [devicePath, expected] of [...this.aclIdentities.entries()].reverse()) {
+    for (const [devicePath, grant] of [...this.aclIdentities.entries()].reverse()) {
       try {
-        await this.verifyDeviceAcl(expected);
-        await this.dependencies.run(this.tools.setfacl, ['--remove', `user:${identity.uid}`, devicePath]);
-        const { stdout } = await this.dependencies.run(this.tools.getfacl, [
-          '--absolute-names', '--numeric', devicePath,
-        ]);
-        if (stdout.split(/\r?\n/).some((line) => line.startsWith(`user:${identity.uid}:`))) {
-          throw new Error(`NVX VMM ACL removal validation failed for ${devicePath}`);
+        const current = await this.captureDeviceIdentity(
+          grant.identity.path,
+          grant.identity.uid,
+        );
+        if (
+          current.device !== grant.identity.device ||
+          current.inode !== grant.identity.inode
+        ) {
+          throw new Error(`NVX device identity changed for ${devicePath}`);
         }
-        await this.observer?.releaseDeviceAcl(expected);
+        // An absent ACL means the grant never landed (or was already removed);
+        // only a changed device identity blocks revocation.
+        if (await this.deviceAclPresent(devicePath, identity.uid)) {
+          await this.dependencies.run(this.tools.setfacl, ['--remove', `user:${identity.uid}`, devicePath]);
+          if (await this.deviceAclPresent(devicePath, identity.uid)) {
+            throw new Error(`NVX VMM ACL removal validation failed for ${devicePath}`);
+          }
+        }
+        await this.observer?.releaseDeviceAcl(grant.identity);
         this.aclIdentities.delete(devicePath);
       } catch (error) {
         errors.push(error);
@@ -277,6 +300,13 @@ export class NvxVmmIdentityManager {
     if (errors.length > 0 || this.aclIdentities.size > 0) {
       throw new Error(`NVX VMM ACL cleanup failed: ${errors.map(formatError).join('; ')}`);
     }
+  }
+
+  private async deviceAclPresent(devicePath: string, uid: number): Promise<boolean> {
+    const { stdout } = await this.dependencies.run(this.tools.getfacl, [
+      '--absolute-names', '--numeric', devicePath,
+    ]);
+    return stdout.split(/\r?\n/).some((line) => line.startsWith(`user:${uid}:`));
   }
 
   private async verifyDeviceAcl(
@@ -432,7 +462,35 @@ export class NvxVmmIdentityManager {
       (initialStats.mtimeMs === undefined ||
         Date.now() - initialStats.mtimeMs < INCOMPLETE_LOCK_STALE_MS)
     ) return;
-    await this.dependencies.rm(lockDirectory, { recursive: true, force: true });
+    // Claim the exact directory that was inspected by moving it aside
+    // atomically; only the winner of the rename may delete it.
+    const quarantinePath = `${lockDirectory}.stale-${randomBytes(16).toString('hex')}`;
+    try {
+      await this.dependencies.rename(lockDirectory, quarantinePath);
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === 'ENOENT' || code === 'ENOTEMPTY' || code === 'EEXIST' || code === 'ENOTDIR') return;
+      throw error;
+    }
+    const quarantined = await this.dependencies.lstat(quarantinePath);
+    const quarantinedOwner = await this.readLockOwner(quarantinePath);
+    const sameInode =
+      String(quarantined.dev ?? '') === String(initialStats.dev ?? '') &&
+      String(quarantined.ino ?? '') === String(initialStats.ino ?? '');
+    const sameOwner =
+      quarantinedOwner?.pid === owner?.pid &&
+      quarantinedOwner?.startTime === owner?.startTime;
+    const ownerIsLive = quarantinedOwner !== undefined &&
+      await this.dependencies.processStartTime(quarantinedOwner.pid) === quarantinedOwner.startTime;
+    if (!sameInode || !sameOwner || ownerIsLive) {
+      try {
+        await this.dependencies.rename(quarantinePath, lockDirectory);
+      } catch {
+        // The lock path was recreated by another holder; leave it untouched.
+      }
+      throw new Error('NVX lifecycle lock reclamation raced with another lock owner');
+    }
+    await this.dependencies.rm(quarantinePath, { recursive: true, force: true });
   }
 
   private async readLockOwner(lockDirectory: string): Promise<{ pid: number; startTime: string } | undefined> {
@@ -567,7 +625,10 @@ export function buildNvxPhase3bLaunchPlan(options: {
   const layout = createNvxRunLayout(options.runId);
   assertNvxRunLayout(layout);
   if (path.resolve(options.filesystem.runDirectory) !== layout.runDirectory) {
-    throw new Error('NVX filesystem bundle must belong to the canonical run directory');
+    throw new Error(
+      'NVX filesystem bundle must be staged in the canonical run directory ' +
+      `${layout.runDirectory} (build it with useCanonicalRunDirectory)`,
+    );
   }
   const networkPlan = createNvxNetworkPlan(options.runId, {
     infrastructureBridge: options.network.infrastructureBridge,
@@ -585,17 +646,20 @@ export function buildNvxPhase3bLaunchPlan(options: {
   const squidEndpoint = networkPlan.allowedEndpoints.find((endpoint) => endpoint.name === 'squid');
   if (!squidEndpoint) throw new Error('NVX network plan is missing the Squid proxy endpoint');
   const outcomePath = path.join(layout.runDirectory, 'outcome.json');
+  // Bubblewrap mounts the run directory at /run/awf-nvx and the trusted
+  // artifact snapshot at /opt/awf-nvx, so every argv path must be the in-jail
+  // path rather than the host path.
   const oneShotArgs = buildNvxOneShotArguments({
     ...options.execution,
-    nvxRoot: layout.artifactSnapshotDirectory,
-    filesystem: options.filesystem,
+    nvxRoot: NVX_GUEST_ARTIFACT_ROOT,
+    filesystem: toNvxGuestFilesystemBundle(layout, options.filesystem),
     network: {
       guestAddress: `${networkPlan.guestIp}/${networkPlan.guestPrefixLength}`,
       proxyAddress: `${squidEndpoint.ip}:${squidEndpoint.port}`,
       egressAllow: networkPlan.allowedEndpoints.map((endpoint) => `${endpoint.ip}:${endpoint.port}`),
       egressDeny: ['0.0.0.0/0'],
     },
-  }, outcomePath);
+  }, toNvxGuestRunPath(layout, outcomePath));
   // buildNvxConstrainedLaunchCommand supplies the interpreter path, so drop
   // buildNvxOneShotArguments' leading "scripts/nvx.py" argv element.
   const [, ...nvxArguments] = oneShotArgs;
@@ -619,6 +683,26 @@ export function buildNvxPhase3bLaunchPlan(options: {
       systemReadOnlyPaths: ['/usr', '/bin', '/sbin', '/lib', '/lib64', '/etc/ssl'],
       nvxArguments,
     }),
+    outcomePath,
+  };
+}
+
+function toNvxGuestFilesystemBundle(
+  layout: NvxRunLayout,
+  bundle: NvxFilesystemBundle,
+): NvxFilesystemBundle {
+  return {
+    ...bundle,
+    runDirectory: toNvxGuestRunPath(layout, bundle.runDirectory),
+    manifestPath: toNvxGuestRunPath(layout, bundle.manifestPath),
+    layers: bundle.layers.map((layer) => ({
+      ...layer,
+      path: toNvxGuestRunPath(layout, layer.path),
+    })),
+    scratch: {
+      ...bundle.scratch,
+      path: toNvxGuestRunPath(layout, bundle.scratch.path),
+    },
   };
 }
 

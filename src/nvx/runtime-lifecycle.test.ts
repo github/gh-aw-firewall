@@ -109,6 +109,16 @@ function identityDependencies(
         if (filePath.startsWith(`${directory}/`)) ownerContents.delete(filePath);
       }
     }),
+    rename: jest.fn(async (from: string, to: string) => {
+      if (from.endsWith('.account-lock')) accountLockExists = false;
+      if (from.endsWith('.device-acl-lock')) deviceLockExists = false;
+      for (const filePath of [...ownerContents.keys()]) {
+        if (filePath.startsWith(`${from}/`)) {
+          ownerContents.set(filePath.replace(from, to), ownerContents.get(filePath) as string);
+          ownerContents.delete(filePath);
+        }
+      }
+    }),
     rmdir: jest.fn().mockResolvedValue(undefined),
     lstat: jest.fn(async (filePath) => ({
       uid: 0,
@@ -217,6 +227,99 @@ describe('NVX Phase 3b runtime lifecycle', () => {
     );
   });
 
+  it('revokes a partially granted device ACL when grant validation fails', async () => {
+    const { deps, run } = identityDependencies();
+    const originalRun = deps.run;
+    deps.run = jest.fn(async (command, args) => {
+      const result = await originalRun(command, args);
+      // The ACL lands with unexpected permissions, so grant validation fails
+      // after `setfacl` already changed the device.
+      if (command === tools.getfacl && args[2] === '/dev/kvm') {
+        return { stdout: result.stdout.replace('rw-', 'r--'), stderr: '' };
+      }
+      return result;
+    });
+    const manager = new NvxVmmIdentityManager(RUN_ID, tools, deps);
+    await manager.allocate();
+
+    await expect(manager.withDeviceAccess(jest.fn()))
+      .rejects.toThrow(/ACL validation failed/);
+    expect(deps.run).toHaveBeenCalledWith(
+      tools.setfacl,
+      ['--modify', 'user:23001:rw', '/dev/kvm'],
+    );
+    expect(deps.run).toHaveBeenCalledWith(
+      tools.setfacl,
+      ['--remove', 'user:23001', '/dev/kvm'],
+    );
+    expect(run).not.toHaveBeenCalledWith(
+      tools.setfacl,
+      ['--modify', 'user:23001:rw', '/dev/net/tun'],
+    );
+    await expect(manager.cleanup()).resolves.toBeUndefined();
+  });
+
+  it('reclaims a stale lifecycle lock through an atomic quarantine rename', async () => {
+    const { deps } = identityDependencies();
+    let lockExists = true;
+    const removed: string[] = [];
+    deps.mkdir = jest.fn(async (directory: string) => {
+      if (directory.endsWith('.account-lock')) {
+        if (lockExists) throw Object.assign(new Error('exists'), { code: 'EEXIST' });
+        lockExists = true;
+      }
+    }) as NvxRuntimeLifecycleDependencies['mkdir'];
+    deps.rename = jest.fn(async (from: string) => {
+      if (!lockExists) throw Object.assign(new Error('missing'), { code: 'ENOENT' });
+      lockExists = false;
+      expect(from).toContain('.account-lock');
+    });
+    deps.rm = jest.fn(async (target: string) => {
+      removed.push(target);
+      if (target.endsWith('.account-lock')) lockExists = false;
+    });
+    // The recorded owner PID is not running, so the lock is stale.
+    deps.processStartTime = jest.fn(async (pid: number) => (pid === 123 ? '99' : undefined));
+    deps.readFile = jest.fn(async () => JSON.stringify({ pid: 999, startTime: '7' }));
+
+    await expect(new NvxVmmIdentityManager(RUN_ID, tools, deps).allocate())
+      .rejects.toThrow(/lock ownership changed unexpectedly/);
+    expect(deps.rename).toHaveBeenCalledWith(
+      expect.stringContaining('.account-lock'),
+      expect.stringMatching(/\.account-lock\.stale-[a-f0-9]{32}$/),
+    );
+    expect(removed.some((target) => /\.stale-[a-f0-9]{32}$/.test(target))).toBe(true);
+  });
+
+  it('restores a quarantined lock whose owner is still live', async () => {
+    const { deps } = identityDependencies();
+    deps.mkdir = jest.fn(async (directory: string) => {
+      if (directory.endsWith('.account-lock')) {
+        throw Object.assign(new Error('exists'), { code: 'EEXIST' });
+      }
+    }) as NvxRuntimeLifecycleDependencies['mkdir'];
+    deps.rename = jest.fn().mockResolvedValue(undefined);
+    deps.rm = jest.fn().mockResolvedValue(undefined);
+    let reads = 0;
+    deps.readFile = jest.fn(async () => {
+      // The quarantined directory turns out to hold a different, live owner.
+      reads += 1;
+      return JSON.stringify(reads === 1
+        ? { pid: 999, startTime: '7' }
+        : { pid: 321, startTime: '42' });
+    });
+    deps.processStartTime = jest.fn(async (pid: number) => {
+      if (pid === 123) return '99';
+      if (pid === 321) return '42';
+      return undefined;
+    });
+
+    await expect(new NvxVmmIdentityManager(RUN_ID, tools, deps).allocate())
+      .rejects.toThrow(/raced with another lock owner/);
+    expect(deps.rename).toHaveBeenCalledTimes(2);
+    expect(deps.rm).not.toHaveBeenCalled();
+  });
+
   it('applies and verifies cgroup v2 CPU, memory, PID limits and exact membership', async () => {
     const files = new Map<string, string>();
     const members = new Set<number>();
@@ -295,6 +398,32 @@ describe('NVX Phase 3b runtime lifecycle', () => {
     ]));
     expect(plan.launchCommand.args).not.toContain('scripts/nvx.py');
     expect(plan.launchCommand.args).not.toContain('/bin/sh');
+    // Bubblewrap binds the run directory at /run/awf-nvx, so argv must carry
+    // in-jail paths while the host keeps the real outcome path.
+    const nvxArguments = plan.launchCommand.args.slice(
+      plan.launchCommand.args.indexOf('/opt/awf-nvx/nvx.py') + 1,
+    );
+    expect(nvxArguments).toEqual(expect.arrayContaining([
+      '--layer', 'distro,/run/awf-nvx/distro.erofs,11111111-1111-4111-8111-111111111111',
+      '--scratch', '/run/awf-nvx/scratch.ext4',
+      '--outcome-report', '/run/awf-nvx/outcome.json',
+    ]));
+    expect(nvxArguments.join(' ')).not.toContain(`/run/awf-nvx/runs/${RUN_ID}`);
+    expect(plan.outcomePath).toBe(`/run/awf-nvx/runs/${RUN_ID}/outcome.json`);
+  });
+
+  it('rejects a filesystem bundle staged outside the canonical run directory', () => {
+    expect(() => buildNvxPhase3bLaunchPlan({
+      runId: RUN_ID,
+      tools,
+      identity: { name: `awfnvx-${RUN_ID.slice(0, 20)}`, uid: 23001, gid: 23002 },
+      filesystem: {
+        ...filesystemBundle(),
+        runDirectory: `/tmp/awf/nvx-images/${RUN_ID}`,
+      },
+      execution: { entrypoint: '/bin/true' },
+      network: { infrastructureBridge: 'br-awf', enableApiProxy: false },
+    })).toThrow(/canonical run directory/);
   });
 
   it('keeps nvx absent from the external runtime registry until evidence is accepted', () => {
