@@ -481,7 +481,7 @@ export class NvxVmmIdentityManager {
       quarantinedOwner?.pid === owner?.pid &&
       quarantinedOwner?.startTime === owner?.startTime;
     const ownerIsLive = quarantinedOwner !== undefined &&
-      await this.dependencies.processStartTime(quarantinedOwner.pid) === quarantinedOwner.startTime;
+      (await this.dependencies.processStartTime(quarantinedOwner.pid)) === quarantinedOwner.startTime;
     if (!sameInode || !sameOwner || ownerIsLive) {
       try {
         await this.dependencies.rename(quarantinePath, lockDirectory);

@@ -68,6 +68,9 @@ jobs:
 
           cleanup_errors=()
           account_name="awfnvx-ci-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          cgroup_memory_max=536870912
+          cgroup_cpu_max='200000 100000'
+          cgroup_pids_max=128
           cgroup_parent="/sys/fs/cgroup/awf-nvx-ci-parent"
           cgroup_path="$cgroup_parent/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           netns_name="awfnvx-ci-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
@@ -75,6 +78,11 @@ jobs:
 
           cleanup() {
             set +e
+            # Resolve the uid before the account is deleted so device ACLs are
+            # always removed by their exact numeric identity.
+            if [ -z "${uid:-}" ]; then
+              uid=$(id -u "$account_name" 2>/dev/null)
+            fi
             # Every privileged resource is removed and then verified absent;
             # a residue entry is recorded for each resource that survives.
             if sudo ip netns list | grep -qw "$netns_name"; then
@@ -203,12 +211,12 @@ jobs:
           sudo sh -c 'printf "+cpu +memory +pids" > /sys/fs/cgroup/cgroup.subtree_control' || true
           sudo sh -c "printf '+cpu +memory +pids' > '$cgroup_parent/cgroup.subtree_control'" || true
           sudo mkdir "$cgroup_path"
-          sudo sh -c "printf 536870912 > '$cgroup_path/memory.max'"
-          sudo sh -c "printf '200000 100000' > '$cgroup_path/cpu.max'"
-          sudo sh -c "printf 128 > '$cgroup_path/pids.max'"
-          if [ "$(cat "$cgroup_path/memory.max")" != 536870912 ] ||
-             [ "$(cat "$cgroup_path/cpu.max")" != "200000 100000" ] ||
-             [ "$(cat "$cgroup_path/pids.max")" != 128 ]; then
+          sudo sh -c "printf '%s' '$cgroup_memory_max' > '$cgroup_path/memory.max'"
+          sudo sh -c "printf '%s' '$cgroup_cpu_max' > '$cgroup_path/cpu.max'"
+          sudo sh -c "printf '%s' '$cgroup_pids_max' > '$cgroup_path/pids.max'"
+          if [ "$(cat "$cgroup_path/memory.max")" != "$cgroup_memory_max" ] ||
+             [ "$(cat "$cgroup_path/cpu.max")" != "$cgroup_cpu_max" ] ||
+             [ "$(cat "$cgroup_path/pids.max")" != "$cgroup_pids_max" ]; then
             record cgroup-limits FAIL "$(jq -cn \
               --arg memory "$(cat "$cgroup_path/memory.max")" \
               --arg cpu "$(cat "$cgroup_path/cpu.max")" \
