@@ -44,6 +44,19 @@ function isLoopback(host: string): boolean {
   return false;
 }
 
+// URL normalizes away default ports like http://proxy:80, so keep the raw
+// authority port when the user explicitly supplied one.
+function getExplicitProxyPort(normalizedUrl: string): string | undefined {
+  const authority = normalizedUrl.replace(/^[^:]+:\/\//, '').split(/[/?#]/, 1)[0];
+  const hostPort = authority.slice(authority.lastIndexOf('@') + 1);
+
+  if (hostPort.startsWith('[')) {
+    return hostPort.match(/^\[[^\]]+\]:(.*)$/)?.[1];
+  }
+
+  return hostPort.match(/:([^:]*)$/)?.[1];
+}
+
 /**
  * Parses a proxy URL into host and port. Rejects unsupported features.
  *
@@ -105,9 +118,11 @@ export function parseProxyUrl(url: string): { host: string; port: number } {
     );
   }
 
-  const port = parsed.port ? parseInt(parsed.port, 10) : 3128;
-  if (isNaN(port) || port < 1 || port > 65535) {
-    throw new Error(`Invalid upstream proxy port: ${parsed.port}`);
+  const explicitPort = getExplicitProxyPort(normalized);
+  const portText = parsed.port || (explicitPort !== undefined ? explicitPort : '3128');
+  const port = Number(portText);
+  if (!/^\d+$/.test(portText) || !Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error(`Invalid upstream proxy port: ${portText || '(empty)'}`);
   }
 
   return { host, port };

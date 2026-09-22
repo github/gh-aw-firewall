@@ -25,6 +25,13 @@ describe('parseProxyUrl', () => {
     });
   });
 
+  it('preserves an explicitly specified default HTTP port', () => {
+    expect(parseProxyUrl('http://proxy.corp.com:80')).toEqual({
+      host: 'proxy.corp.com',
+      port: 80,
+    });
+  });
+
   it('defaults port to 3128 when omitted', () => {
     expect(parseProxyUrl('http://proxy.corp.com')).toEqual({
       host: 'proxy.corp.com',
@@ -61,6 +68,7 @@ describe('parseProxyUrl', () => {
   it('rejects URLs with credentials', () => {
     expect(() => parseProxyUrl('http://user:pass@proxy.corp.com:3128')).toThrow('credentials');
     expect(() => parseProxyUrl('http://user@proxy.corp.com:3128')).toThrow('credentials');
+    expect(() => parseProxyUrl('http://user@proxy.corp.com:80')).toThrow('credentials');
   });
 
   it('rejects HTTPS scheme', () => {
@@ -73,6 +81,7 @@ describe('parseProxyUrl', () => {
     expect(() => parseProxyUrl('http://127.0.1.1:3128')).toThrow('loopback');
     expect(() => parseProxyUrl('http://127.255.255.255:3128')).toThrow('loopback');
     expect(() => parseProxyUrl('http://0.0.0.0:3128')).toThrow('loopback');
+    expect(() => parseProxyUrl('http://[::1]:80')).toThrow('loopback');
   });
 
   it('rejects hostnames with squid.conf injection characters', () => {
@@ -82,6 +91,10 @@ describe('parseProxyUrl', () => {
 
   it('rejects port 0 as out-of-range', () => {
     expect(() => parseProxyUrl('http://proxy.corp.com:0')).toThrow('Invalid upstream proxy port');
+  });
+
+  it('rejects an explicitly empty port', () => {
+    expect(() => parseProxyUrl('http://proxy.corp.com:')).toThrow('Invalid upstream proxy port: (empty)');
   });
 
   it('accepts valid IP addresses', () => {
@@ -184,6 +197,16 @@ describe('detectUpstreamProxy', () => {
     expect(result).toEqual({
       host: 'proxy.corp.com',
       port: 8080,
+    });
+  });
+
+  it('preserves port 80 detected from https_proxy', () => {
+    const result = detectUpstreamProxy({
+      https_proxy: 'http://proxy.corp.com:80',
+    });
+    expect(result).toEqual({
+      host: 'proxy.corp.com',
+      port: 80,
     });
   });
 
