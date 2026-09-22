@@ -266,7 +266,7 @@ function buildModelPolicyEnv(config: WrapperConfig): Record<string, string> {
       AWF_MODEL_FALLBACK: JSON.stringify(config.modelFallback),
     }),
     ...(config.modelRouting && {
-      AWF_MODEL_ROUTING: JSON.stringify(config.modelRouting),
+AWF_ROUTING_CONFIG: JSON.stringify(config.modelRouting),
     }),
     // Model policy (allowed/disallowed)
     ...(config.allowedModels && config.allowedModels.length > 0 && {
