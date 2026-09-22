@@ -32,6 +32,7 @@ import {
   issueDuplicationConclusionConcurrencyRegex,
   issueDuplicationConclusionConcurrencySentinel,
   ripgrepInstallStepRegex,
+  patchLocalBuildCloudHypervisorArtifacts,
 } from './workflow-patch-patterns';
 import {
   buildLocalInstallSteps,
@@ -324,6 +325,20 @@ export function applyGeneralWorkflowPatches(
     if (skipPullMatches) {
       content = content.replace(standaloneSkipPullRegex, '--build-local');
       log.push(`  Replaced ${skipPullMatches.length} standalone --skip-pull with --build-local`);
+    }
+
+    const isCloudHypervisorSmoke =
+      /(?:^|[/\\])smoke-[^/\\]*cloud-hypervisor[^/\\]*\.lock\.yml$/.test(workflowPath);
+    if (
+      isCloudHypervisorSmoke &&
+      content.includes('--cloud-hypervisor-preview') &&
+      content.includes('--build-local')
+    ) {
+      const patched = patchLocalBuildCloudHypervisorArtifacts(content);
+      if (patched !== content) {
+        content = patched;
+        log.push('  Enabled hashed development artifacts for Cloud Hypervisor local build');
+      }
     }
 
     // The compiler's eager image-download step runs before the local AWF build.

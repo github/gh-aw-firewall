@@ -107,6 +107,28 @@ describe('applyGeneralWorkflowPatches published AWF maintenance workflows', () =
     expect(content).toContain('--build-local');
     expect(content).not.toContain('--image-tag 0.28.2 --skip-pull');
   });
+
+  it('allows verified release artifacts with Cloud Hypervisor local builds', () => {
+    const cloudHypervisorOutput =
+      compilerOutput.replace(
+        'awf --image-tag 0.28.2 --skip-pull -- command',
+        'awf --cloud-hypervisor-supervisor "${GH_AW_CLOUD_HYPERVISOR_SUPERVISOR}" ' +
+          '--cloud-hypervisor-preview --image-tag 0.28.2 --skip-pull -- command'
+      ) +
+      '        env:\n' +
+      '          AWF_REFLECT_ENABLED: 1\n';
+
+    const { content, log } = applyGeneralWorkflowPatches(
+      cloudHypervisorOutput,
+      '/tmp/workflows/smoke-cloud-hypervisor.lock.yml'
+    );
+
+    expect(content).toContain('--build-local');
+    expect(content).toContain('--cloud-hypervisor-development-allow-unattested-artifacts');
+    expect(content).toContain('AWF_CLOUD_HYPERVISOR_DEVELOPMENT_ALLOW_UNATTESTED_ARTIFACTS: "1"');
+    expect(content).toContain('--cloud-hypervisor-supervisor-sha256');
+    expect(log).toContain('  Enabled hashed development artifacts for Cloud Hypervisor local build');
+  });
 });
 
 describe('applyGeneralWorkflowPatches shared enclave gateway policy', () => {

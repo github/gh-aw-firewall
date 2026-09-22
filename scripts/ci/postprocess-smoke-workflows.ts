@@ -5,7 +5,6 @@ import * as path from 'path';
 
 import { applyGeneralWorkflowPatches } from './apply-general-workflow-patches';
 import { applyCodexWorkflowPatches } from './apply-codex-workflow-patches';
-import { patchLocalBuildCloudHypervisorArtifacts } from './workflow-patch-patterns';
 
 
 const repoRoot = path.resolve(__dirname, '../..');
@@ -94,28 +93,6 @@ for (const gvisorLockPath of gvisorLockPaths) {
   } catch {
     console.log(`Skipping ${gvisorLockPath}: file not found.`);
   }
-}
-
-// The local package version can differ from the released Cloud Hypervisor
-// artifact bundle version. Use AWF's explicit development bypass with the
-// expected hashes from the downloaded manifest for all five artifacts.
-const playwrightCloudLockPath = path.join(
-  workflowsDir,
-  'smoke-playwright-cloud-hypervisor.lock.yml',
-);
-try {
-  const cloudOriginal = fs.readFileSync(playwrightCloudLockPath, 'utf-8');
-  const cloudContent = patchLocalBuildCloudHypervisorArtifacts(cloudOriginal);
-
-  if (cloudContent !== cloudOriginal) {
-    fs.writeFileSync(playwrightCloudLockPath, cloudContent);
-    console.log('  Enabled hashed development artifacts for Cloud Hypervisor smoke');
-    console.log(`Updated ${playwrightCloudLockPath}`);
-  } else {
-    console.log(`Skipping ${playwrightCloudLockPath}: Cloud Hypervisor smoke already patched.`);
-  }
-} catch {
-  console.log(`Skipping ${playwrightCloudLockPath}: file not found.`);
 }
 
 const playwrightRuntimeLockPaths = new Map([
