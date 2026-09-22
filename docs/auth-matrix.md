@@ -268,7 +268,7 @@ The proxy also strips `?key=`, `?apiKey=`, and `?api_key=` query parameters from
 | Setting | Value |
 |---------|-------|
 | Env vars | `AWF_AUTH_TYPE=github-oidc`, `AWF_AUTH_PROVIDER=gcp`, `AWF_AUTH_GCP_WORKLOAD_IDENTITY_PROVIDER` |
-| Header sent upstream | `Authorization: ****** |
+| Header sent upstream | Bearer auth header |
 | Optional service account | `AWF_AUTH_GCP_SERVICE_ACCOUNT` |
 | Optional scope | `AWF_AUTH_GCP_SCOPE` (default: `https://www.googleapis.com/auth/cloud-platform`) |
 
@@ -301,7 +301,7 @@ Google says the Gemini API will reject standard API keys beginning in September 
 | Setting | Value |
 |---------|-------|
 | Env vars | `AWF_AUTH_TYPE=github-oidc`, `AWF_AUTH_PROVIDER=gcp`, `AWF_AUTH_GCP_WORKLOAD_IDENTITY_PROVIDER` |
-| Header sent upstream | `Authorization: ****** |
+| Header sent upstream | Bearer auth header |
 | Optional service account | `AWF_AUTH_GCP_SERVICE_ACCOUNT` |
 | Optional scope | `AWF_AUTH_GCP_SCOPE` (default: `https://www.googleapis.com/auth/cloud-platform`) |
 

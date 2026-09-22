@@ -4,7 +4,7 @@
  * Shared factory for Google provider adapters (Gemini, Vertex).
  *
  * Both providers support static API keys via `x-goog-api-key` and GCP
- * Workload Identity Federation via `Authorization: ******
+ * Workload Identity Federation via a bearer Authorization header.
  */
 
 const { createProviderAuthScaffold, createOidcAwareProviderAdapter } = require('../adapter-factory');

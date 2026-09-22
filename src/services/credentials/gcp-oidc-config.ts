@@ -6,7 +6,11 @@ function resolveConfigOrEnvValue(config: WrapperConfig, configKey: keyof Wrapper
   if (typeof configValue === 'string' && configValue.trim()) {
     return configValue.trim();
   }
-  return getConfigEnvValue(config, envVar) ?? (process.env[envVar]?.trim() || undefined);
+  const configEnvValue = getConfigEnvValue(config, envVar)?.trim();
+  if (configEnvValue) {
+    return configEnvValue;
+  }
+  return process.env[envVar]?.trim() || undefined;
 }
 
 /**

@@ -95,7 +95,7 @@ describe('createGoogleProviderAdapter', () => {
     provider._expiresAt = Math.floor(Date.now() / 1000) + 600;
     expect(adapter.isEnabled()).toBe(true);
     const headers = adapter.getAuthHeaders();
-    expect(headers.Authorization).toBe(`${'Bear'}er gcp-access-token`);
+    expect(headers.Authorization).toBe('Bearer gcp-access-token');
     expect(headers['x-goog-api-key']).toBeUndefined();
     expect(adapter.getReflectionInfo()).toMatchObject({
       configured: true,
