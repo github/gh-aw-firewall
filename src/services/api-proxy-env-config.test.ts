@@ -422,6 +422,20 @@ describe('buildModelPolicyEnv', () => {
     expect(env.AWF_MODEL_FALLBACK).toBe('{"enabled":false,"strategy":"middle_power"}');
   });
 
+  it('sets AWF_MODEL_ROUTING when modelRouting is configured', () => {
+    const env = buildModelPolicyEnv({
+      ...baseConfig,
+      workDir: '/tmp/awf-test',
+      modelRouting: {
+        objective: { goal: 'cost', mode: 'balanced' },
+        task: { conversationFile: '/tmp/gh-aw/routing-conversation.json' },
+      },
+    });
+    expect(env.AWF_MODEL_ROUTING).toBe(
+      '{"objective":{"goal":"cost","mode":"balanced"},"task":{"conversationFile":"/tmp/gh-aw/routing-conversation.json"}}'
+    );
+  });
+
   it('sets AWF_ALLOWED_MODELS when allowedModels is non-empty', () => {
     const env = buildModelPolicyEnv({ ...baseConfig, workDir: '/tmp/awf-test', allowedModels: ['gpt-4o', 'claude-3-5-sonnet'] });
     expect(env.AWF_ALLOWED_MODELS).toBe('["gpt-4o","claude-3-5-sonnet"]');
