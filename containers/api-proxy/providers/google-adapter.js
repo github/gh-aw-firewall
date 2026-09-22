@@ -83,36 +83,45 @@ function createGoogleAuthAdapter(env, deps = {}, opts) {
         auth_type: oidcConfigured ? `github-oidc/${authProvider}` : 'static-key',
       }),
     }),
-    buildAdapterOptions: ({ authProvider, oidcConfigured, oidcProvider }) => ({
-      name,
-      port,
-      isManagementPort: false,
-      bodyTransform,
-      missingCredentialResponse: {
-        kind: 'plain_error',
-        statusCode: 503,
-        message: unconfiguredErrorMessage,
-      },
-      unconfiguredResponseWhen: () => (oidcConfigured
-        ? {
-            kind: 'provider_not_configured',
-            message: `${label} OIDC token (${authProvider}) unavailable; retry shortly`,
-            retryable: true,
-          }
-        : null),
-      healthServiceName,
-      missingCredentialMessage: healthErrorMessage,
-      unavailableWhen: () => (oidcConfigured
-        ? {
-            message: `${label} OIDC token (${authProvider}) not yet available in api-proxy sidecar`,
-            status: 'unavailable',
-          }
-        : null),
-      ...(transformRequestUrl !== undefined ? { transformRequestUrl } : {}),
-      extra: {
-        _oidcProvider: oidcProvider,
-      },
-    }),
+    buildAdapterOptions: ({ authProvider, oidcConfigured, oidcProvider }) => {
+      // When GCP WIF was requested but could not be initialised (missing
+      // ACTIONS_ID_TOKEN_REQUEST_* or workload identity provider), report the
+      // incomplete configuration instead of falling through to the
+      // static-key-only message.
+      const oidcUnavailableError = oidcConfigured
+        ? `${label} OIDC token (${authProvider}) unavailable; retry shortly`
+        : `${label} GCP OIDC requires ACTIONS_ID_TOKEN_REQUEST_URL and ACTIONS_ID_TOKEN_REQUEST_TOKEN (permissions: id-token: write) plus AWF_AUTH_GCP_WORKLOAD_IDENTITY_PROVIDER.`;
+      return {
+        name,
+        port,
+        isManagementPort: false,
+        bodyTransform,
+        missingCredentialResponse: {
+          kind: 'plain_error',
+          statusCode: 503,
+          message: unconfiguredErrorMessage,
+        },
+        unconfiguredResponseWhen: () => (gcpOidcRequested
+          ? {
+              kind: 'provider_not_configured',
+              message: oidcUnavailableError,
+              retryable: oidcConfigured,
+            }
+          : null),
+        healthServiceName,
+        missingCredentialMessage: healthErrorMessage,
+        unavailableWhen: () => (gcpOidcRequested
+          ? {
+              message: oidcUnavailableError,
+              status: 'unavailable',
+            }
+          : null),
+        ...(transformRequestUrl !== undefined ? { transformRequestUrl } : {}),
+        extra: {
+          _oidcProvider: oidcProvider,
+        },
+      };
+    },
   });
 }
 

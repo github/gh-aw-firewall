@@ -129,8 +129,27 @@ describe('createGoogleProviderAdapter', () => {
     });
     expect(adapter.getUnconfiguredHealthResponse().body).toMatchObject({
       status: 'unavailable',
-      error: 'Vertex AI OIDC token (gcp) not yet available in api-proxy sidecar',
+      error: 'Vertex AI OIDC token (gcp) unavailable; retry shortly',
     });
     adapter.getOidcProvider().shutdown();
+  });
+
+  it('reports incomplete GCP WIF configuration as non-retryable', () => {
+    const adapter = createGoogleProviderAdapter('gemini', {
+      AWF_AUTH_TYPE: 'github-oidc',
+      AWF_AUTH_PROVIDER: 'gcp',
+      AWF_AUTH_GCP_WORKLOAD_IDENTITY_PROVIDER: 'projects/123/locations/global/workloadIdentityPools/pool/providers/github',
+    });
+    const expectedMessage = 'Gemini GCP OIDC requires ACTIONS_ID_TOKEN_REQUEST_URL and ACTIONS_ID_TOKEN_REQUEST_TOKEN (permissions: id-token: write) plus AWF_AUTH_GCP_WORKLOAD_IDENTITY_PROVIDER.';
+    expect(adapter.getOidcProvider()).toBeNull();
+    expect(adapter.isEnabled()).toBe(false);
+    expect(adapter.getUnconfiguredResponse().body.error).toMatchObject({
+      message: expectedMessage,
+      retryable: false,
+    });
+    expect(adapter.getUnconfiguredHealthResponse().body).toMatchObject({
+      status: 'unavailable',
+      error: expectedMessage,
+    });
   });
 });

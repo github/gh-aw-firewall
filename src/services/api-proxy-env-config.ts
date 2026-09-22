@@ -321,6 +321,14 @@ function buildOidcEnv(config: WrapperConfig): Record<string, string> {
       'AWF_ANTHROPIC_DROP_TOOLS',
       'AWF_ANTHROPIC_STRIP_ANSI',
     ),
+    // OIDC auth values supplied via --env/--env-file (or --env-all) must reach the
+    // sidecar too: agent-side routing helpers (e.g. isGcpOidcConfigured) resolve
+    // these same values, so forwarding keeps routing and credentials consistent.
+    ...Object.fromEntries(
+      [...OIDC_AUTH_ENV_VARS, 'AWF_AUTH_ANTHROPIC_TOKEN_URL']
+        .map((envVar) => [envVar, getConfigEnvValue(config, envVar)])
+        .filter(([, value]) => !!value)
+    ),
     // Custom auth header names for internal AI gateways
     ...(config.openaiApiAuthHeader && { [OPENAI_ENV.AUTH_HEADER]: config.openaiApiAuthHeader }),
     ...(config.anthropicApiAuthHeader && { [ANTHROPIC_ENV.AUTH_HEADER]: config.anthropicApiAuthHeader }),

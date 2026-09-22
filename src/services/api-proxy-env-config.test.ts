@@ -540,6 +540,33 @@ describe('buildOidcEnv', () => {
     expect(env.AWF_ANTHROPIC_AUTH_HEADER).toBe('X-Custom-Anthropic-Auth');
   });
 
+  it('forwards GCP WIF auth values supplied via additionalEnv to the sidecar', () => {
+    const env = buildOidcEnv({
+      ...baseConfig,
+      workDir: '/tmp/awf-test',
+      additionalEnv: {
+        AWF_AUTH_TYPE: 'github-oidc',
+        AWF_AUTH_PROVIDER: 'gcp',
+        AWF_AUTH_GCP_WORKLOAD_IDENTITY_PROVIDER: 'projects/123/locations/global/workloadIdentityPools/pool/providers/github',
+        AWF_AUTH_GCP_SERVICE_ACCOUNT: 'vertex-sa@example.iam.gserviceaccount.com',
+      },
+    });
+    expect(env.AWF_AUTH_TYPE).toBe('github-oidc');
+    expect(env.AWF_AUTH_PROVIDER).toBe('gcp');
+    expect(env.AWF_AUTH_GCP_WORKLOAD_IDENTITY_PROVIDER).toBe('projects/123/locations/global/workloadIdentityPools/pool/providers/github');
+    expect(env.AWF_AUTH_GCP_SERVICE_ACCOUNT).toBe('vertex-sa@example.iam.gserviceaccount.com');
+  });
+
+  it('prefers explicit auth config fields over additionalEnv values', () => {
+    const env = buildOidcEnv({
+      ...baseConfig,
+      workDir: '/tmp/awf-test',
+      authProvider: 'gcp',
+      additionalEnv: { AWF_AUTH_PROVIDER: 'azure' },
+    });
+    expect(env.AWF_AUTH_PROVIDER).toBe('gcp');
+  });
+
   it('sets AWF_AUTH_ANTHROPIC_TOKEN_URL when anthropicTokenUrl is configured', () => {
     const env = buildOidcEnv({ ...baseConfig, workDir: '/tmp/awf-test', anthropicTokenUrl: 'https://auth.anthropic.com/token' });
     expect(env.AWF_AUTH_ANTHROPIC_TOKEN_URL).toBe('https://auth.anthropic.com/token');

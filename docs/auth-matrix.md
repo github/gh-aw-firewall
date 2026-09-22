@@ -270,7 +270,7 @@ The proxy also strips `?key=`, `?apiKey=`, and `?api_key=` query parameters from
 | Env vars | `AWF_AUTH_TYPE=github-oidc`, `AWF_AUTH_PROVIDER=gcp`, `AWF_AUTH_GCP_WORKLOAD_IDENTITY_PROVIDER` |
 | Header sent upstream | Bearer auth header |
 | Optional service account | `AWF_AUTH_GCP_SERVICE_ACCOUNT` |
-| Optional scope | `AWF_AUTH_GCP_SCOPE` (default: `https://www.googleapis.com/auth/cloud-platform`) |
+| Optional scope | `AWF_AUTH_GCP_SCOPE` (default: `https://www.googleapis.com/auth/cloud-platform`) — applies only to service-account impersonation; the STS exchange always requests `cloud-platform` |
 
 This path keeps the GitHub OIDC exchange and short-lived GCP access token inside the api-proxy sidecar. It is intended for Gemini API endpoints that accept Google OAuth bearer tokens; billing follows the Google Cloud project/service account authorized by the workload identity pool.
 
@@ -303,7 +303,7 @@ Google says the Gemini API will reject standard API keys beginning in September 
 | Env vars | `AWF_AUTH_TYPE=github-oidc`, `AWF_AUTH_PROVIDER=gcp`, `AWF_AUTH_GCP_WORKLOAD_IDENTITY_PROVIDER` |
 | Header sent upstream | Bearer auth header |
 | Optional service account | `AWF_AUTH_GCP_SERVICE_ACCOUNT` |
-| Optional scope | `AWF_AUTH_GCP_SCOPE` (default: `https://www.googleapis.com/auth/cloud-platform`) |
+| Optional scope | `AWF_AUTH_GCP_SCOPE` (default: `https://www.googleapis.com/auth/cloud-platform`) — applies only to service-account impersonation; the STS exchange always requests `cloud-platform` |
 
 This is the native Vertex/Gemini CLI path for `GOOGLE_GENAI_USE_VERTEXAI=true`: AWF sets `GOOGLE_VERTEX_BASE_URL` to port 10004, exchanges the GitHub Actions OIDC token for a short-lived GCP token in the sidecar, and forwards Vertex requests to `aiplatform.googleapis.com` (or `VERTEX_API_TARGET`). Billing and quota are charged to the Google Cloud project associated with the impersonated service account, or to the directly granted workload identity principal when no service account is configured.
 
@@ -367,7 +367,7 @@ The request layer signs the HTTP method, canonical path and sorted query, final 
 |--------|---------|----------|
 | WIF Provider | `AWF_AUTH_GCP_WORKLOAD_IDENTITY_PROVIDER` | ✅ |
 | Service Account | `AWF_AUTH_GCP_SERVICE_ACCOUNT` | ❌ (direct federation if omitted) |
-| Scope | `AWF_AUTH_GCP_SCOPE` | ❌ (default: `https://www.googleapis.com/auth/cloud-platform`) |
+| Scope | `AWF_AUTH_GCP_SCOPE` | ❌ (default: `https://www.googleapis.com/auth/cloud-platform`; used in step 2 only) |
 | Audience | `AWF_AUTH_OIDC_AUDIENCE` | ❌ (default: derived from WIF provider) |
 
 **Token exchange (2-step):**
