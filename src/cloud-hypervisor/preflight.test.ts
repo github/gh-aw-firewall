@@ -42,6 +42,25 @@ function manifest(): string {
   });
 }
 
+function mountInfo(options: string, superblockOptions = 'rw,discard'): string {
+  return [
+    '27 2 259:1 / / rw,relatime shared:1 - ext4 /dev/root rw,discard',
+    `31 27 259:1 /trusted ${CLOUD_HYPERVISOR_ARTIFACT_SNAPSHOT_ROOT} ` +
+    `${options} shared:2 - ext4 /dev/root ${superblockOptions}`,
+    '',
+  ].join('\n');
+}
+
+function snapshotSources() {
+  return {
+    cloudHypervisorBinary: '/source/cloud-hypervisor',
+    virtiofsdBinary: '/source/virtiofsd',
+    kernelPath: '/source/vmlinux.bin',
+    rootfsPath: '/source/rootfs.ext4',
+    supervisorPath: '/source/awf-supervisor',
+  };
+}
+
 function config(overrides: Partial<CloudHypervisorOptions> = {}): CloudHypervisorOptions {
   return {
     previewEnabled: true,
@@ -401,6 +420,7 @@ describe('Cloud Hypervisor preflight (foundation only)', () => {
       '/var/lib/awf-cloud-hypervisor/trusted-artifacts',
     );
     const snapshotDirectory = `${CLOUD_HYPERVISOR_ARTIFACT_SNAPSHOT_ROOT}/snapshot-test`;
+    jest.spyOn(fs, 'readFile').mockResolvedValue(mountInfo('rw,relatime'));
     jest.spyOn(fs, 'mkdir').mockResolvedValue(undefined);
     jest.spyOn(fs, 'mkdtemp').mockResolvedValue(snapshotDirectory);
     const copyFile = jest.spyOn(fs, 'copyFile').mockResolvedValue(undefined);
@@ -452,6 +472,50 @@ describe('Cloud Hypervisor preflight (foundation only)', () => {
     expect(fs.mkdtemp).toHaveBeenCalledWith(
       path.join(CLOUD_HYPERVISOR_ARTIFACT_SNAPSHOT_ROOT, 'run-'),
     );
+  });
+
+  it('fails closed before staging when the trusted artifact root rejects execution', async () => {
+    jest.spyOn(fs, 'readFile').mockResolvedValue(mountInfo('rw,nosuid,nodev,noexec,relatime'));
+    const mkdtemp = jest.spyOn(fs, 'mkdtemp');
+    jest.spyOn(fs, 'mkdir').mockResolvedValue(undefined);
+    jest.spyOn(fs, 'chmod').mockResolvedValue(undefined);
+
+    await expect(cloudHypervisorPreflightTestHelpers.createArtifactSnapshot(
+      snapshotSources(),
+      jest.fn(),
+    )).rejects.toThrow(
+      /trusted artifact root ".*" is on a mount that rejects execution.*options=rw,nosuid,nodev,noexec,relatime.*remount it without "noexec"/s,
+    );
+    expect(mkdtemp).not.toHaveBeenCalled();
+  });
+
+  it('rejects a trusted artifact root whose superblock options carry noexec', async () => {
+    jest.spyOn(fs, 'readFile').mockResolvedValue(
+      mountInfo('rw,relatime', 'rw,noexec,discard'),
+    );
+    jest.spyOn(fs, 'mkdir').mockResolvedValue(undefined);
+    jest.spyOn(fs, 'chmod').mockResolvedValue(undefined);
+
+    await expect(cloudHypervisorPreflightTestHelpers.createArtifactSnapshot(
+      snapshotSources(),
+      jest.fn(),
+    )).rejects.toThrow(/rejects execution/);
+  });
+
+  it('stages artifacts when /proc/self/mountinfo is unreadable', async () => {
+    jest.spyOn(fs, 'readFile').mockRejectedValue(new Error('EACCES'));
+    const snapshotDirectory = `${CLOUD_HYPERVISOR_ARTIFACT_SNAPSHOT_ROOT}/run-unreadable`;
+    jest.spyOn(fs, 'mkdir').mockResolvedValue(undefined);
+    jest.spyOn(fs, 'mkdtemp').mockResolvedValue(snapshotDirectory);
+    jest.spyOn(fs, 'copyFile').mockResolvedValue(undefined);
+    jest.spyOn(fs, 'chmod').mockResolvedValue(undefined);
+
+    const snapshot = await cloudHypervisorPreflightTestHelpers.createArtifactSnapshot(
+      snapshotSources(),
+      jest.fn().mockResolvedValue(undefined),
+    );
+
+    expect(snapshot.directory).toBe(snapshotDirectory);
   });
 
   it('verifies the attested manifest before its five artifact digests', async () => {
