@@ -120,8 +120,8 @@ export function parseProxyUrl(url: string): { host: string; port: number } {
 
   const explicitPort = getExplicitProxyPort(normalized);
   const portText = parsed.port || (explicitPort !== undefined ? explicitPort : '3128');
-  const port = parseInt(portText, 10);
-  if (isNaN(port) || port < 1 || port > 65535) {
+  const port = Number(portText);
+  if (!/^\d+$/.test(portText) || !Number.isInteger(port) || port < 1 || port > 65535) {
     throw new Error(`Invalid upstream proxy port: ${portText || '(empty)'}`);
   }
 
