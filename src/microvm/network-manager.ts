@@ -67,24 +67,26 @@ export class MicrovmNetworkManager implements MicrovmNetworkLifecycle {
       );
       this.dockerUserRuleInserted = true;
 
-      await this.commands.ipInNamespace(this.plan.namespaceName, [
-        'tuntap', 'add',
-        'dev', this.plan.tapName,
-        'mode', 'tap',
-        'user', String(this.plan.tapOwnerUid),
-        'group', String(this.plan.tapOwnerGid),
-        ...(this.plan.tapVnetHdr ? ['vnet_hdr'] : []),
-      ]);
-      await this.observer?.resourceCreated('tap');
-      await this.commands.ipInNamespace(this.plan.namespaceName, [
-        'addr', 'add',
-        `${this.plan.guestGatewayIp}/${this.plan.guestPrefixLength}`,
-        'dev', this.plan.tapName,
-      ]);
-      await this.commands.ipInNamespace(
-        this.plan.namespaceName,
-        ['link', 'set', this.plan.tapName, 'up'],
-      );
+      if (this.plan.tapEnabled !== false) {
+        await this.commands.ipInNamespace(this.plan.namespaceName, [
+          'tuntap', 'add',
+          'dev', this.plan.tapName,
+          'mode', 'tap',
+          'user', String(this.plan.tapOwnerUid),
+          'group', String(this.plan.tapOwnerGid),
+          ...(this.plan.tapVnetHdr ? ['vnet_hdr'] : []),
+        ]);
+        await this.observer?.resourceCreated('tap');
+        await this.commands.ipInNamespace(this.plan.namespaceName, [
+          'addr', 'add',
+          `${this.plan.guestGatewayIp}/${this.plan.guestPrefixLength}`,
+          'dev', this.plan.tapName,
+        ]);
+        await this.commands.ipInNamespace(
+          this.plan.namespaceName,
+          ['link', 'set', this.plan.tapName, 'up'],
+        );
+      }
       await this.commands.ipInNamespace(this.plan.namespaceName, [
         'addr', 'add',
         `${this.plan.infrastructureIp}/${infrastructurePrefixLength}`,
@@ -98,10 +100,12 @@ export class MicrovmNetworkManager implements MicrovmNetworkLifecycle {
         this.plan.namespaceName,
         ['link', 'set', 'lo', 'up'],
       );
-      await this.commands.sysctlInNamespace(
-        this.plan.namespaceName,
-        'net.ipv4.ip_forward=1',
-      );
+      if (this.plan.tapEnabled !== false) {
+        await this.commands.sysctlInNamespace(
+          this.plan.namespaceName,
+          'net.ipv4.ip_forward=1',
+        );
+      }
       await this.commands.sysctlInNamespace(
         this.plan.namespaceName,
         'net.ipv6.conf.all.disable_ipv6=1',

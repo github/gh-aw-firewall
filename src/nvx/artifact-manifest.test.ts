@@ -11,7 +11,7 @@ import {
 
 function manifest() {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     release: {
       repository: NVX_ARTIFACT_REPOSITORY,
       workflow: NVX_ARTIFACT_SIGNER_WORKFLOW,
@@ -25,7 +25,6 @@ function manifest() {
     },
     architecture: 'x86_64',
     artifacts: {
-      launcher: { file: 'nvx.py', sizeBytes: 100, sha256: '1'.repeat(64) },
       openvmm: { file: 'openvmm', sizeBytes: 100, sha256: '2'.repeat(64) },
       kernel: { file: 'vmlinux', sizeBytes: 100, sha256: '3'.repeat(64) },
       initramfs: { file: 'initramfs.cpio.gz', sizeBytes: 100, sha256: '4'.repeat(64) },
@@ -64,9 +63,9 @@ describe('NVX artifact manifest', () => {
     }, /kernel\.file/],
     ['artifact size', () => {
       const value = manifest();
-      value.artifacts.launcher.sizeBytes = 2 * 1024 * 1024;
+      value.artifacts.openvmm.sizeBytes = 257 * 1024 * 1024;
       return value;
-    }, /launcher\.sizeBytes/],
+    }, /openvmm\.sizeBytes/],
     ['unexpected field', () => ({
       ...manifest(),
       fallbackUrl: 'https://example.invalid',
@@ -91,7 +90,6 @@ describe('NVX artifact manifest', () => {
       NVX_ARTIFACT_RELEASE_TAG,
     );
     expect(() => assertNvxArtifactBasenames(parsed, {
-      launcher: '/trusted/nvx.py',
       openvmm: '/trusted/openvmm',
       kernel: '/trusted/vmlinux',
       initramfs: '/trusted/not-initramfs',

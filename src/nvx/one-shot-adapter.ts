@@ -21,7 +21,7 @@ const NVX_DEFAULT_WORKLOAD_ID = 65534;
 
 export interface NvxOneShotNetworkPlan {
   readonly guestAddress: string;
-  readonly proxyAddress: string;
+  readonly proxyAddress?: string;
   readonly egressAllow?: readonly string[];
   readonly egressDeny?: readonly string[];
   readonly hostLoopbackForwards?: readonly string[];
@@ -71,7 +71,7 @@ interface NvxProcessRequest {
   onStderr(chunk: Buffer): Promise<void>;
 }
 
-interface NvxProcessResult {
+export interface NvxProcessResult {
   readonly exitCode: number | null;
   readonly signal: NodeJS.Signals | null;
   readonly timedOut: boolean;
@@ -99,17 +99,141 @@ export class NvxOneShotExecutionError extends Error {
   }
 }
 
+export class NvxPreparedExecution {
+    private readonly stdoutTail: BoundedByteTail;
+    private readonly stderrTail: BoundedByteTail;
+    private readonly stdoutFilter = new WorkflowCommandFilter();
+    private readonly stderrFilter = new WorkflowCommandFilter();
+
+    private constructor(
+      readonly request: NvxOneShotExecutionRequest,
+      readonly outcomePath: string,
+      rawTailBytes: number,
+    ) {
+      this.stdoutTail = new BoundedByteTail(rawTailBytes);
+      this.stderrTail = new BoundedByteTail(rawTailBytes);
+    }
+
+    static async create(
+      request: NvxOneShotExecutionRequest,
+      outcomePath = path.join(request.filesystem.runDirectory, 'outcome.json'),
+    ): Promise<NvxPreparedExecution> {
+      validateRequest(request);
+      await verifyFilesystemBundle(request.filesystem);
+      await assertNewOutcomePath(outcomePath, request.filesystem.runDirectory);
+      const rawTailBytes = request.rawTailBytes ?? NVX_DEFAULT_RAW_TAIL_BYTES;
+      if (!Number.isSafeInteger(rawTailBytes) || rawTailBytes < 0) {
+        throw new Error(`NVX raw output tail limit must be a non-negative integer: ${rawTailBytes}`);
+      }
+      return new NvxPreparedExecution(request, outcomePath, rawTailBytes);
+    }
+
+    async onStdout(chunk: Buffer): Promise<void> {
+      this.stdoutTail.push(chunk);
+      if (this.request.stdout) {
+        await writeWithBackpressure(this.request.stdout, this.stdoutFilter.push(chunk));
+      }
+    }
+
+    async onStderr(chunk: Buffer): Promise<void> {
+      this.stderrTail.push(chunk);
+      if (this.request.stderr) {
+        await writeWithBackpressure(this.request.stderr, this.stderrFilter.push(chunk));
+      }
+    }
+
+    async finish(processResult: NvxProcessResult): Promise<NvxOneShotExecutionResult> {
+      if (this.request.stdout) {
+        await writeWithBackpressure(this.request.stdout, this.stdoutFilter.finish());
+      }
+      if (this.request.stderr) {
+        await writeWithBackpressure(this.request.stderr, this.stderrFilter.finish());
+      }
+
+      if (processResult.timedOut) {
+        return {
+          exitCode: 124,
+          category: 'timeout',
+          signal: processResult.signal,
+          timedOut: true,
+          rawStdoutTail: this.stdoutTail.value(),
+          rawStderrTail: this.stderrTail.value(),
+        };
+      }
+      if (processResult.cancelled) {
+        return {
+          exitCode: 130,
+          category: 'cancelled',
+          signal: processResult.signal,
+          timedOut: false,
+          rawStdoutTail: this.stdoutTail.value(),
+          rawStderrTail: this.stderrTail.value(),
+        };
+      }
+      if (processResult.exitCode === null) {
+        return {
+          exitCode: signalExitCode(processResult.signal),
+          category: 'signal',
+          signal: processResult.signal,
+          timedOut: false,
+          rawStdoutTail: this.stdoutTail.value(),
+          rawStderrTail: this.stderrTail.value(),
+        };
+      }
+
+      let outcome: NvxOneShotOutcome;
+      try {
+        outcome = await readOutcome(this.outcomePath);
+      } catch (error) {
+        const category = error instanceof Error &&
+          error.message.includes('did not produce')
+          ? 'missing-outcome'
+          : 'invalid-outcome';
+        throw new NvxOneShotExecutionError(
+          formatError(error),
+          category,
+          this.stdoutTail.value(),
+          this.stderrTail.value(),
+          error,
+        );
+      }
+      try {
+        assertMatchingExitCode(processResult.exitCode, outcome);
+        if (outcome.outcome.category !== 'vmm-failure') {
+          assertNetworkPolicy(this.request.network, outcome);
+        }
+      } catch (error) {
+        throw new NvxOneShotExecutionError(
+          formatError(error),
+          'outcome-mismatch',
+          this.stdoutTail.value(),
+          this.stderrTail.value(),
+          error,
+        );
+      }
+      return {
+        exitCode: outcome.outcome.statusCode,
+        category: outcome.outcome.category,
+        signal: processResult.signal,
+        timedOut: false,
+        outcome,
+        rawStdoutTail: this.stdoutTail.value(),
+        rawStderrTail: this.stderrTail.value(),
+      };
+    }
+}
+
 const defaultDependencies: NvxOneShotAdapterDependencies = {
   runProcess: runNvxProcess,
   pythonBinary: '/usr/bin/python3',
 };
 
 /**
- * Runs one complete workload through `nvx.py sandbox run`.
+ * Legacy `nvx.py sandbox run` transport retained for contract tests.
  *
- * The adapter deliberately exposes no provision/start/exec/stop lifecycle.
- * It is not registered as an AWF runtime until host confinement and network
- * verification are implemented in Phase 3.
+ * Direct OpenVMM launches reuse NvxPreparedExecution so validation, filtered
+ * output, timeout/cancellation results, and structured outcome checks stay
+ * identical without depending on the broken flat launcher artifact.
  */
 export class NvxOneShotAdapter {
   constructor(
@@ -117,21 +241,10 @@ export class NvxOneShotAdapter {
   ) {}
 
   async execute(request: NvxOneShotExecutionRequest): Promise<NvxOneShotExecutionResult> {
-    validateRequest(request);
-    await verifyFilesystemBundle(request.filesystem);
     const nvxScript = path.join(request.nvxRoot, 'scripts', 'nvx.py');
     await assertRegularFile(nvxScript, 'NVX launcher');
     const outcomePath = path.join(request.filesystem.runDirectory, 'outcome.json');
-    await assertNewOutcomePath(outcomePath, request.filesystem.runDirectory);
-
-    const rawTailBytes = request.rawTailBytes ?? NVX_DEFAULT_RAW_TAIL_BYTES;
-    if (!Number.isSafeInteger(rawTailBytes) || rawTailBytes < 0) {
-      throw new Error(`NVX raw output tail limit must be a non-negative integer: ${rawTailBytes}`);
-    }
-    const stdoutTail = new BoundedByteTail(rawTailBytes);
-    const stderrTail = new BoundedByteTail(rawTailBytes);
-    const stdoutFilter = new WorkflowCommandFilter();
-    const stderrFilter = new WorkflowCommandFilter();
+    const execution = await NvxPreparedExecution.create(request, outcomePath);
     const processResult = await this.dependencies.runProcess({
       command: this.dependencies.pythonBinary,
       args: buildNvxOneShotArguments(request, outcomePath),
@@ -139,96 +252,10 @@ export class NvxOneShotAdapter {
       env: buildNvxHostEnvironment(request.filesystem.runDirectory),
       timeoutMs: request.timeoutMs,
       abortSignal: request.abortSignal,
-      onStdout: async (chunk) => {
-        stdoutTail.push(chunk);
-        if (request.stdout) {
-          await writeWithBackpressure(request.stdout, stdoutFilter.push(chunk));
-        }
-      },
-      onStderr: async (chunk) => {
-        stderrTail.push(chunk);
-        if (request.stderr) {
-          await writeWithBackpressure(request.stderr, stderrFilter.push(chunk));
-        }
-      },
+      onStdout: (chunk) => execution.onStdout(chunk),
+      onStderr: (chunk) => execution.onStderr(chunk),
     });
-    if (request.stdout) {
-      await writeWithBackpressure(request.stdout, stdoutFilter.finish());
-    }
-    if (request.stderr) {
-      await writeWithBackpressure(request.stderr, stderrFilter.finish());
-    }
-
-    if (processResult.timedOut) {
-      return {
-        exitCode: 124,
-        category: 'timeout',
-        signal: processResult.signal,
-        timedOut: true,
-        rawStdoutTail: stdoutTail.value(),
-        rawStderrTail: stderrTail.value(),
-      };
-    }
-    if (processResult.cancelled) {
-      return {
-        exitCode: 130,
-        category: 'cancelled',
-        signal: processResult.signal,
-        timedOut: false,
-        rawStdoutTail: stdoutTail.value(),
-        rawStderrTail: stderrTail.value(),
-      };
-    }
-    if (processResult.exitCode === null) {
-      return {
-        exitCode: signalExitCode(processResult.signal),
-        category: 'signal',
-        signal: processResult.signal,
-        timedOut: false,
-        rawStdoutTail: stdoutTail.value(),
-        rawStderrTail: stderrTail.value(),
-      };
-    }
-
-    let outcome: NvxOneShotOutcome;
-    try {
-      outcome = await readOutcome(outcomePath);
-    } catch (error) {
-      const category = error instanceof Error &&
-        error.message.includes('did not produce')
-        ? 'missing-outcome'
-        : 'invalid-outcome';
-      throw new NvxOneShotExecutionError(
-        formatError(error),
-        category,
-        stdoutTail.value(),
-        stderrTail.value(),
-        error,
-      );
-    }
-    try {
-      assertMatchingExitCode(processResult.exitCode, outcome);
-      if (outcome.outcome.category !== 'vmm-failure') {
-        assertNetworkPolicy(request.network, outcome);
-      }
-    } catch (error) {
-      throw new NvxOneShotExecutionError(
-        formatError(error),
-        'outcome-mismatch',
-        stdoutTail.value(),
-        stderrTail.value(),
-        error,
-      );
-    }
-    return {
-      exitCode: outcome.outcome.statusCode,
-      category: outcome.outcome.category,
-      signal: processResult.signal,
-      timedOut: false,
-      outcome,
-      rawStdoutTail: stdoutTail.value(),
-      rawStderrTail: stderrTail.value(),
-    };
+    return execution.finish(processResult);
   }
 }
 
@@ -275,7 +302,9 @@ export function buildNvxOneShotArguments(
   }
   const forwards = request.network.hostLoopbackForwards ?? [];
   args.push('--host-loopback', forwards.length > 0 ? 'allow' : 'deny');
-  args.push('--network-proxy', request.network.proxyAddress);
+  if (request.network.proxyAddress !== undefined) {
+    args.push('--network-proxy', request.network.proxyAddress);
+  }
   for (const forward of forwards) args.push('--host-loopback-forward', forward);
   args.push('--outcome-report', outcomePath);
   return args;
@@ -417,7 +446,9 @@ function validateRequest(request: NvxOneShotExecutionRequest): void {
   assertOptionalPositiveInteger(request.memoryMib, 'NVX guest memory');
   assertOptionalPositiveInteger(request.timeoutMs, 'NVX timeout');
   assertIpv4Cidr(request.network.guestAddress, 'NVX guest network address');
-  assertIpv4Endpoint(request.network.proxyAddress, 'NVX network proxy address');
+  if (request.network.proxyAddress !== undefined) {
+    assertIpv4Endpoint(request.network.proxyAddress, 'NVX network proxy address');
+  }
   for (const value of [
     ...(request.network.egressAllow ?? []),
     ...(request.network.egressDeny ?? []),

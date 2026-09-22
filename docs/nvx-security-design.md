@@ -60,7 +60,6 @@ is also outside the runtime boundary, which is why provenance is mandatory.
 The initial trusted computing base contains:
 
 - the AWF CLI and its privileged host launcher;
-- the pinned NVX host tooling;
 - the pinned OpenVMM binary;
 - the NVX guest kernel and initramfs;
 - AWF-produced EROFS layers and their source inputs;
@@ -115,15 +114,15 @@ Development-only artifacts may use a conspicuous dual opt-in plus complete
 digests. They must never be accepted by default or silently replace failed
 provenance verification.
 
-## Phase 3b implementation status
+## Phase 3d implementation status
 
-Phase 3b currently provides internal, injectable runtime lifecycle foundations;
-it still does not register `nvx` as a selectable AWF runtime. The runtime name
+Phase 3d provides an internal direct-OpenVMM launch executor; it still does not
+register `nvx` as a selectable AWF runtime. The runtime name
 `nvx` is reserved and rejected by the CLI/runtime resolution path so it cannot
 silently fall through as a raw Docker runtime while live evidence is under
 review.
 
-Implemented foundations:
+Implemented boundary:
 
 - a per-run NVX layout that derives trusted artifact snapshots, writable run
   state, cleanup records, cgroups, and network namespace names from the same
@@ -132,40 +131,60 @@ Implemented foundations:
   --user-group --no-create-home --home-dir /nonexistent --shell
   /usr/sbin/nologin`, validation through `id`/`getent`, and deletion only after
   re-validating the account identity;
-- serialized ACL-only device access for `/dev/kvm` and `/dev/net/tun`, including
+- serialized ACL-only device access for `/dev/kvm`, including
   recorded device/inode identity, uid-specific `rw-` ACL evidence, validation
   before launch, and exact revocation validation during cleanup;
 - cgroup v2 setup for the run subtree with explicit `memory.max`, `cpu.max`,
   and `pids.max` writes followed by read-back verification and exact
   `cgroup.procs` membership checks;
-- an NVX network plan that reuses AWF's microVM deny-by-default nftables policy,
-  permitting Squid, enabled API-proxy ports, and explicitly configured control
+- a no-TAP NVX network plan that runs OpenVMM in an AWF-owned namespace and
+  enforces deny-by-default nftables output policy around portable Consomme host
+  sockets, permitting Squid, enabled API-proxy ports, and explicitly configured control
   peers while denying arbitrary DNS, metadata/link-local, host gateway,
-  infrastructure IP, unsolicited ingress, and lateral traffic; and
-- constrained launch-plan construction that feeds the Phase 2 one-shot
-  `sandbox run` argv through the Phase 3 `ip netns exec` → Bubblewrap →
-  `setpriv --clear-groups --no-new-privs --*-caps=-all` wrapper.
+  infrastructure IP, unsolicited ingress, and lateral traffic. The matching
+  OpenVMM policy uses default-deny plus exact `/32` endpoint allows; it does not
+  add a catch-all deny rule that would override those allows or misuse
+  `--network-proxy`, whose pinned ABI is only for guest-gateway-to-host-loopback
+  translation;
+- exact direct OpenVMM argv equivalent to the pinned `nvx.py sandbox run`
+  implementation, including ordered sandbox blocks, workload identity,
+  one-shot lifecycle, KVM, memory, kernel/initramfs, NVX-owned kernel command
+  line, portable network policy, outcome report, and an initial paused state;
+- a Bubblewrap `--block-fd` / `--json-status-fd` readiness gate. AWF records
+  and cgroups the launcher and sandbox child before releasing Bubblewrap,
+  discovers the exact OpenVMM executable from cgroup and procfs state, captures
+  its mount namespace, and completes live confinement verification. Because
+  the pinned OpenVMM initially routes stdin to the guest console, AWF clears
+  the inherited environment, sets `TERM=dumb`, writes Ctrl-Q, waits for the
+  exact flushed `openvmm> ` prompt, and only then writes `resume` to the REPL;
+  and
+- an explicit x86_64 cBPF seccomp denylist passed to Bubblewrap on inherited
+  FD 5 before `setpriv` and OpenVMM execute. The filter rejects host-management,
+  kernel-module, namespace-changing, cross-process-memory, keyring, BPF,
+  performance, and privileged mount syscalls while leaving the KVM and
+  Consomme syscall surface available; confinement verification requires every
+  OpenVMM thread to report seccomp filter mode 2.
+- shared one-shot validation, bounded workflow-command-filtered output,
+  structured outcome parsing, timeout, cancellation, and signal semantics.
 
-The Phase 3b live KVM validation workflow,
+The live KVM validation workflow,
 `.github/workflows/nvx-phase-3b-live-kvm.yml`, is deliberately opt-in for pull
 requests via the `nvx-live-kvm` label (and always available through
-`workflow_dispatch`). It captures mode-`0600` JSONL evidence for host KVM/TUN
-preflight, dedicated account isolation, uid-only device ACL grants, cgroup
-limits, namespace-local deny-by-default nftables policy, focused TypeScript
-coverage, build, type checking, and cleanup residue. The workflow does not make
-NVX generally available; it is the evidence collection lane for deciding whether
-the internal foundations can be promoted later.
+`workflow_dispatch`). Phase 3d updates it to probe the direct constrained argv,
+the Bubblewrap readiness FD contract, KVM-only device access, and no-TAP
+namespace policy. It remains fail-closed and does not claim a guest boot;
+end-to-end manager launch remains explicit promotion evidence.
 
-Configurations that cannot provide Linux x86_64 KVM, `/dev/net/tun`, cgroup v2
+Configurations that cannot provide Linux x86_64 KVM, cgroup v2
 `cpu`/`memory`/`pids` controllers, trusted host tools, or exact cleanup evidence
 fail closed. Promotion to a selectable runtime requires reviewed live evidence
 for complete guest launch, Copilot API-proxy inference, adversarial network and
 filesystem probes, timeout/cancellation process-tree termination, stale
 recovery, and concurrent-run isolation.
 
-## Phase 3c internal manager boundary
+## Phase 3d internal manager boundary
 
-Phase 3c adds an internal `NvxManager` orchestration boundary without adding an
+The `NvxManager` orchestration boundary remains internal without adding an
 `nvx` CLI option or runtime registration. The manager owns stale-record
 reaping, creation of a pending cleanup record, artifact snapshot journaling,
 dedicated-account and device-ACL observers, host network and cgroup setup,
@@ -174,25 +193,16 @@ confinement verification, and reverse-order cleanup. Cleanup records are
 removed only after every cleanup stage succeeds; ambiguous identities and
 cleanup failures retain the record for recovery.
 
-The launch executor is deliberately injected. The default executor fails
-closed and reports that the pinned launch ABI is unavailable. This prevents the
-internal manager from silently falling back to the unconstrained Phase 2
-`python3 scripts/nvx.py` path.
+The default dependency now uses the production direct executor. The broken flat
+`nvx.py` launcher is no longer attested, copied, mounted, or invoked; the
+artifact set is OpenVMM, kernel, and initramfs only. Injection remains available
+for deterministic tests.
 
-Promotion beyond this boundary is blocked on two upstream contracts:
-
-1. The pinned `nvx.py` imports the `scripts/nvx_tools` package and expects
-   `openvmm/target/release/openvmm`, `build/vmlinux`, and
-   `build/initramfs.cpio.gz`. The current flat four-file artifact snapshot does
-   not satisfy that layout.
-2. The one-shot interface has no reviewed pre-workload readiness hook that
-   identifies the final OpenVMM PID and confirms how an AWF-created TAP is
-   selected. A production executor must prove cgroup placement and confinement
-   before guest code runs and must bind OpenVMM to the interface covered by the
-   AWF nftables policy.
-
-Until those contracts are resolved and exercised by live KVM evidence,
-`NvxManager` is test/integration infrastructure only.
+Promotion beyond this boundary still requires reviewed live KVM evidence for a
+complete guest boot and exit, Copilot inference through the credential-holding
+API proxy, adversarial network and filesystem probes, timeout/cancellation
+cleanup, stale recovery, and concurrent-run isolation. Until that evidence is
+accepted, `NvxManager` remains internal infrastructure only.
 
 ## Host OpenVMM confinement
 
@@ -454,11 +464,9 @@ continuing to keep `nvx` absent from the runtime registry and CLI:
   now stages artifacts at that exact identity-bound path, while confinement
   rejects artifact and writable directories from different runs.
 
-These modules are internal foundations, not a usable backend. Phase 3b must
-still implement and live-test the dedicated account lifecycle, serialized
-ACL-only `/dev/kvm` and `/dev/net/tun` grants, cgroup creation and assignment,
-host network policy, cleanup execution and stale recovery, and integration of
-the constrained launcher with the Phase 2 one-shot adapter. A GitHub-hosted
-x86_64 KVM workflow must demonstrate the complete launch, enforcement,
-adversarial probes, teardown, and recovery evidence before `nvx` can be
-registered as an opt-in runtime.
+These modules remain internal foundations, not a selectable backend. Phase 3d
+supersedes the earlier TAP design with KVM-only device access, direct OpenVMM
+launch, portable Consomme networking, and a pre-resume verification gate. A
+GitHub-hosted x86_64 KVM workflow must still demonstrate complete guest launch,
+enforcement, adversarial probes, teardown, and recovery evidence before `nvx`
+can be registered as an opt-in runtime.

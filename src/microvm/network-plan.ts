@@ -98,6 +98,7 @@ export function createMicrovmNetworkPlan(
     tapOwnerUid: options.tapOwnerUid,
     tapOwnerGid: options.tapOwnerGid,
     tapVnetHdr: options.tapVnetHdr ?? false,
+    tapEnabled: options.createTap ?? true,
     allowedEndpoints,
     networkInterface: {
       iface_id: 'eth0',
@@ -111,6 +112,37 @@ export function createMicrovmNetworkPlan(
 
 export function generateMicrovmNftRuleset(plan: MicrovmNetworkPlan): string {
   validatePlan(plan);
+  if (plan.tapEnabled === false) {
+    const outputAllowRules = plan.allowedEndpoints.map((endpoint) =>
+      `    oifname "${plan.namespaceVethName}" ip daddr ${endpoint.ip} ` +
+      `tcp dport ${endpoint.port} ct state new,established counter accept`,
+    );
+    return [
+      `table inet ${plan.nftTableName} {`,
+      '  chain input {',
+      '    type filter hook input priority filter; policy drop;',
+      '    iifname "lo" accept',
+      '    ct state established,related accept',
+      '  }',
+      '  chain output {',
+      '    type filter hook output priority filter; policy drop;',
+      '    oifname "lo" accept',
+      '    ct state established,related accept',
+      `    oifname "${plan.namespaceVethName}" ip daddr ${BLOCKED_LINK_LOCAL_CIDR} counter drop`,
+      `    oifname "${plan.namespaceVethName}" ip daddr ${BLOCKED_MULTICAST_CIDR} counter drop`,
+      `    oifname "${plan.namespaceVethName}" ip daddr ${plan.hostGatewayIp} counter drop`,
+      `    oifname "${plan.namespaceVethName}" ip daddr ${plan.infrastructureIp} counter drop`,
+      `    oifname "${plan.namespaceVethName}" udp dport 53 counter drop`,
+      `    oifname "${plan.namespaceVethName}" tcp dport 53 counter drop`,
+      ...outputAllowRules,
+      '  }',
+      '  chain forward {',
+      '    type filter hook forward priority filter; policy drop;',
+      '  }',
+      '}',
+      '',
+    ].join('\n');
+  }
   const allowRules = plan.allowedEndpoints.flatMap((endpoint) => [
     `    iifname "${plan.tapName}" oifname "${plan.namespaceVethName}" ` +
       `ether saddr ${plan.guestMac} ip saddr ${plan.guestIp} ` +
