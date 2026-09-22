@@ -10,6 +10,7 @@ on:
       - 'src/container-runtime.ts'
       - 'src/container-runtime.test.ts'
       - 'src/microvm/**'
+      - 'scripts/ci/nvx-manager-live-evidence.ts'
       - 'docs/nvx-security-design.md'
 
 permissions:
