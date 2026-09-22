@@ -134,10 +134,17 @@ function harness(options: {
     kill,
     sleep: jest.fn(async () => undefined),
     prepareExecution: jest.fn(async () => ({
-      onStdout: jest.fn(async () => undefined),
+      receiver: 'prepared',
+      onStdout: jest.fn(async function(
+        this: { receiver: string },
+      ) {
+        if (this.receiver !== 'prepared') {
+          throw new Error('stdout callback lost its prepared execution receiver');
+        }
+      }),
       onStderr: jest.fn(async () => undefined),
       finish,
-    })),
+    } as never)),
   };
   const hooks = {
     launcherStarted: jest.fn(async (pid: number) => { order.push(`launcher:${pid}`); }),

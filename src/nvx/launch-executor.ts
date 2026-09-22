@@ -157,7 +157,10 @@ export class DirectOpenvmmLaunchExecutor implements NvxLaunchExecutor {
     const exit = waitForExit(child);
     await endStream(child.stdio[5], buildOpenvmmSeccompFilter());
 
-    const stdoutGate = createOpenvmmStdoutGate(child.stdout, prepared.onStdout);
+    const stdoutGate = createOpenvmmStdoutGate(
+      child.stdout,
+      (chunk) => prepared.onStdout(chunk),
+    );
     const stderrPump = pump(child.stderr, (chunk) => prepared.onStderr(chunk));
     let timedOut = false;
     let cancelled = false;
