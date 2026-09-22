@@ -157,8 +157,10 @@ Implemented boundary:
   discovers the exact OpenVMM executable from cgroup and procfs state, captures
   its mount namespace, and completes live confinement verification. Because
   the pinned OpenVMM initially routes stdin to the guest console, AWF clears
-  the inherited environment, sets `TERM=dumb`, writes Ctrl-Q, waits for the
-  exact flushed `openvmm> ` prompt, and only then writes `resume` to the REPL;
+  the inherited environment, sets `TERM=dumb`, places OpenVMM's REPL state
+  under the per-run writable directory with `XDG_STATE_HOME`, writes Ctrl-Q,
+  waits for the exact flushed `openvmm> ` prompt, and only then writes `resume`
+  to the REPL;
   and
 - an explicit x86_64 cBPF seccomp denylist passed to Bubblewrap on inherited
   FD 5 before `setpriv` and OpenVMM execute. The filter rejects host-management,

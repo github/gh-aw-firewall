@@ -158,6 +158,7 @@ describe('NVX host confinement', () => {
       '--clearenv',
       '--setenv', 'TERM', 'dumb',
       '--setenv', 'HOME', '/nonexistent',
+      '--setenv', 'XDG_STATE_HOME', '/run/awf-nvx/state',
       '--dir', '/etc',
       '--dir', '/opt',
       '--dir', '/run',

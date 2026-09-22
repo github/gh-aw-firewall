@@ -167,6 +167,7 @@ export function buildNvxConstrainedLaunchCommand(options: {
     '--clearenv',
     '--setenv', 'TERM', 'dumb',
     '--setenv', 'HOME', '/nonexistent',
+    '--setenv', 'XDG_STATE_HOME', '/run/awf-nvx/state',
     '--setenv', 'PATH', '/usr/sbin:/usr/bin:/sbin:/bin',
     '--setenv', 'LANG', 'C.UTF-8',
     '--setenv', 'LC_ALL', 'C.UTF-8',
