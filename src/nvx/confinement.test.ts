@@ -104,6 +104,7 @@ function verificationOptions() {
       '/lib64',
       '/etc/resolv.conf',
       '/etc/ssl',
+      '/run/systemd/resolve',
     ],
     openvmmArguments: ['--paused', '--machine', 'microvm'],
   });
@@ -143,6 +144,7 @@ describe('NVX host confinement', () => {
         '/lib64',
         '/etc/resolv.conf',
         '/etc/ssl',
+        '/run/systemd/resolve',
       ],
       openvmmArguments: ['--paused', '--machine', 'microvm'],
     });
@@ -164,6 +166,7 @@ describe('NVX host confinement', () => {
       '--dir', '/run',
       '--dev-bind', '/dev/kvm',
       '--ro-bind', '/etc/resolv.conf', '/etc/resolv.conf',
+      '--ro-bind', '/run/systemd/resolve', '/run/systemd/resolve',
       '--ro-bind', `/var/lib/awf-nvx/trusted-artifacts/run-${RUN_ID}`,
       '--bind', `/run/awf-nvx/runs/${RUN_ID}`,
       '--clear-groups',

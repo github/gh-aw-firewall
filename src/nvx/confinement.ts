@@ -17,6 +17,7 @@ const ALLOWED_SYSTEM_ROOTS = new Set([
   '/lib',
   '/lib64',
   '/opt',
+  '/run/systemd/resolve',
   '/sbin',
   '/usr',
 ]);

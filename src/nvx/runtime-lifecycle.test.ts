@@ -422,6 +422,9 @@ describe('NVX Phase 3d runtime lifecycle', () => {
       '--ro-bind',
       '/etc/resolv.conf',
       '/etc/resolv.conf',
+      '--ro-bind',
+      '/run/systemd/resolve',
+      '/run/systemd/resolve',
     ]));
     // Bubblewrap binds the run directory at /run/awf-nvx, so argv must carry
     // in-jail paths while the host keeps the real outcome path.

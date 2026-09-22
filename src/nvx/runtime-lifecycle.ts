@@ -698,6 +698,7 @@ export function buildNvxPhase3dLaunchPlan(options: {
         '/lib64',
         '/etc/resolv.conf',
         '/etc/ssl',
+        '/run/systemd/resolve',
       ],
       openvmmArguments,
     }),
