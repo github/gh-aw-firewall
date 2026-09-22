@@ -20,6 +20,7 @@ export function makeManifest(rules: PolicyRule[]): PolicyManifest {
     dangerousPorts: [22, 3306],
     dnsServers: ['8.8.8.8'],
     sslBumpEnabled: false,
+    tlsSniGuardEnabled: true,
     dlpEnabled: false,
     hostAccessEnabled: false,
     allowHostPorts: null,

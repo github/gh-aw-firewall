@@ -1,5 +1,121 @@
 import { assertSafeForSquidConfig } from './domain-acl';
 
+export const SNI_GUARD_CERT_PATH = '/var/run/squid/awf-sni-guard-cert.pem';
+export const SNI_GUARD_KEY_PATH = '/var/run/squid/awf-sni-guard-key.pem';
+
+interface TlsSniGuardOptions {
+  port: number;
+  plainDomains: string[];
+  domainPatterns: string[];
+  blockedDomains?: string[];
+  blockedDomainPatterns?: string[];
+  allowedIps?: string[];
+  apiProxyIp?: string;
+  cliProxyIp?: string;
+}
+
+/**
+ * Generates a guard-only SSL Bump configuration that inspects the TLS
+ * ClientHello SNI and then splices allowed connections without decrypting
+ * application traffic.
+ */
+export function generateTlsSniGuardSection(options: TlsSniGuardOptions): string {
+  const {
+    port,
+    plainDomains,
+    domainPatterns,
+    blockedDomains = [],
+    blockedDomainPatterns = [],
+    allowedIps = [],
+    apiProxyIp,
+    cliProxyIp,
+  } = options;
+
+  const allowedSniAcls = [
+    ...plainDomains.map(
+      domain =>
+        `acl tls_sni_guard_allowed ssl::server_name --client-requested .${assertSafeForSquidConfig(domain).replace(/^\./, '')}`
+    ),
+    ...domainPatterns.map(
+      pattern =>
+        `acl tls_sni_guard_allowed_regex ssl::server_name_regex --client-requested -i ${assertSafeForSquidConfig(pattern)}`
+    ),
+  ];
+  const allowedSniRules = [
+    ...(plainDomains.length > 0
+      ? ['ssl_bump splice tls_sni_guard_step2 tls_sni_guard_allowed']
+      : []),
+    ...(domainPatterns.length > 0
+      ? ['ssl_bump splice tls_sni_guard_step2 tls_sni_guard_allowed_regex']
+      : []),
+  ];
+  const blockedSniAcls = [
+    ...blockedDomains.map(
+      domain =>
+        `acl tls_sni_guard_blocked ssl::server_name --client-requested .${assertSafeForSquidConfig(domain).replace(/^\./, '')}`
+    ),
+    ...blockedDomainPatterns.map(
+      pattern =>
+        `acl tls_sni_guard_blocked_regex ssl::server_name_regex --client-requested -i ${assertSafeForSquidConfig(pattern)}`
+    ),
+  ];
+  const blockedSniRules = [
+    ...(blockedDomains.length > 0
+      ? ['ssl_bump terminate tls_sni_guard_step2 tls_sni_guard_blocked']
+      : []),
+    ...(blockedDomainPatterns.length > 0
+      ? ['ssl_bump terminate tls_sni_guard_step2 tls_sni_guard_blocked_regex']
+      : []),
+  ];
+  const allowedIpAcls = allowedIps.map(
+    ip => `acl tls_sni_guard_allowed_ip dst ${assertSafeForSquidConfig(ip)}`
+  );
+  const trustedSourceAcls = [
+    ...(apiProxyIp
+      ? [`acl tls_sni_guard_api_proxy src ${assertSafeForSquidConfig(apiProxyIp)}/32`]
+      : []),
+    ...(cliProxyIp
+      ? [`acl tls_sni_guard_cli_proxy src ${assertSafeForSquidConfig(cliProxyIp)}/32`]
+      : []),
+  ];
+  const trustedSourceRules = [
+    ...(apiProxyIp ? ['ssl_bump splice tls_sni_guard_api_proxy'] : []),
+    ...(cliProxyIp ? ['ssl_bump splice tls_sni_guard_cli_proxy'] : []),
+  ];
+
+  return `# TLS SNI allowlist enforcement
+# Squid peeks only at the TLS ClientHello, then splices allowed connections
+# without decrypting application traffic. The listener certificate is an
+# ephemeral, untrusted bootstrap certificate and is never presented when these
+# splice/terminate rules operate as configured.
+http_port ${port} ssl-bump cert=${SNI_GUARD_CERT_PATH} key=${SNI_GUARD_KEY_PATH} generate-host-certificates=off options=NO_SSLv3,NO_TLSv1,NO_TLSv1_1
+http_port [::]:${port} ssl-bump cert=${SNI_GUARD_CERT_PATH} key=${SNI_GUARD_KEY_PATH} generate-host-certificates=off options=NO_SSLv3,NO_TLSv1,NO_TLSv1_1
+
+acl tls_sni_guard_step1 at_step SslBump1
+acl tls_sni_guard_step2 at_step SslBump2
+acl tls_sni_guard_port port 443
+${allowedSniAcls.join('\n')}
+${blockedSniAcls.join('\n')}
+${allowedIpAcls.join('\n')}
+${trustedSourceAcls.join('\n')}
+
+# Trusted AWF-owned sidecars retain their existing scoped egress behavior.
+${trustedSourceRules.join('\n')}
+# CONNECT is also used for non-TLS traffic to explicitly allowed sidecar ports.
+ssl_bump splice !tls_sni_guard_port
+# Preserve explicit IP allowlisting for TLS clients, which normally omit SNI.
+${allowedIps.length > 0 ? 'ssl_bump splice tls_sni_guard_step1 tls_sni_guard_allowed_ip' : ''}
+
+# For agent HTTPS traffic, inspect the ClientHello and require its actual SNI
+# to be allowlisted. --client-requested prevents fallback to the CONNECT host
+# when the client omits SNI.
+ssl_bump peek tls_sni_guard_step1
+${blockedSniRules.join('\n')}
+${allowedSniRules.join('\n')}
+ssl_bump terminate tls_sni_guard_step2
+ssl_bump terminate all`;
+}
+
 /**
  * Generates SSL Bump configuration section for HTTPS content inspection
  *

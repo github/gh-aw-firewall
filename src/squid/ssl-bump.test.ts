@@ -1,4 +1,9 @@
-import { generateSslBumpSection } from './ssl-bump';
+import {
+  generateSslBumpSection,
+  generateTlsSniGuardSection,
+  SNI_GUARD_CERT_PATH,
+  SNI_GUARD_KEY_PATH,
+} from './ssl-bump';
 
 describe('generateSslBumpSection', () => {
   const caFiles = { certPath: '/tmp/test/cert.pem', keyPath: '/tmp/test/key.pem' };
@@ -7,6 +12,84 @@ describe('generateSslBumpSection', () => {
   it('includes both ACL directives when hasPlainDomains and hasPatterns are true', () => {
     const result = generateSslBumpSection(caFiles, sslDbPath, true, true);
     expect(result).toContain('ssl_bump bump allowed_domains\nssl_bump bump allowed_domains_regex');
+  });
+
+  describe('generateTlsSniGuardSection', () => {
+    it('peeks at client-requested SNI and splices only allowlisted domains', () => {
+      const result = generateTlsSniGuardSection({
+        port: 3128,
+        plainDomains: ['github.com'],
+        domainPatterns: ['^api-[a-z]+\\.example\\.com$'],
+      });
+
+      expect(result).toContain(`cert=${SNI_GUARD_CERT_PATH}`);
+      expect(result).toContain(`key=${SNI_GUARD_KEY_PATH}`);
+      expect(result).toContain('generate-host-certificates=off');
+      expect(result).toContain(
+        'acl tls_sni_guard_allowed ssl::server_name --client-requested .github.com'
+      );
+      expect(result).toContain(
+        'acl tls_sni_guard_allowed_regex ssl::server_name_regex --client-requested -i ^api-[a-z]+\\.example\\.com$'
+      );
+      expect(result).toContain('ssl_bump peek tls_sni_guard_step1');
+      expect(result).toContain('ssl_bump splice tls_sni_guard_step2 tls_sni_guard_allowed');
+      expect(result).toContain('ssl_bump terminate tls_sni_guard_step2');
+    });
+
+    it('fails closed when no TLS domains are allowlisted', () => {
+      const result = generateTlsSniGuardSection({
+        port: 3128,
+        plainDomains: [],
+        domainPatterns: [],
+      });
+
+      expect(result).not.toContain('tls_sni_guard_allowed ssl::server_name');
+      expect(result).toContain('ssl_bump terminate tls_sni_guard_step2');
+    });
+
+    it('terminates blocked SNI before splicing allowed parent domains', () => {
+      const result = generateTlsSniGuardSection({
+        port: 3128,
+        plainDomains: ['example.com'],
+        domainPatterns: [],
+        blockedDomains: ['blocked.example.com'],
+      });
+
+      const blockedRule = result.indexOf(
+        'ssl_bump terminate tls_sni_guard_step2 tls_sni_guard_blocked'
+      );
+      const allowedRule = result.indexOf(
+        'ssl_bump splice tls_sni_guard_step2 tls_sni_guard_allowed'
+      );
+      expect(blockedRule).toBeGreaterThan(-1);
+      expect(blockedRule).toBeLessThan(allowedRule);
+    });
+
+    it('splices explicitly allowlisted IP destinations before requiring SNI', () => {
+      const result = generateTlsSniGuardSection({
+        port: 3128,
+        plainDomains: [],
+        domainPatterns: [],
+        allowedIps: ['192.0.2.10'],
+      });
+
+      expect(result).toContain('acl tls_sni_guard_allowed_ip dst 192.0.2.10');
+      expect(result).toContain(
+        'ssl_bump splice tls_sni_guard_step1 tls_sni_guard_allowed_ip'
+      );
+    });
+
+    it('keeps the IPv6 listener on one line for entrypoint removal', () => {
+      const result = generateTlsSniGuardSection({
+        port: 3128,
+        plainDomains: ['example.com'],
+        domainPatterns: [],
+      });
+      const ipv6Listener = result.split('\n').find(line => line.startsWith('http_port [::]:'));
+
+      expect(ipv6Listener).toContain(`cert=${SNI_GUARD_CERT_PATH}`);
+      expect(ipv6Listener).not.toContain('\\');
+    });
   });
 
   it('includes only plain domain directive when hasPlainDomains=true, hasPatterns=false', () => {

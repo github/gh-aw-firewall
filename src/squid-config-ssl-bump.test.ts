@@ -142,26 +142,28 @@ describe('generateSquidConfig', () => {
       expect(result).toContain('allowed_https_only_regex');
     });
 
-    it('should not include SSL Bump section when disabled', () => {
+    it('should use guard-only SSL Bump when content inspection is disabled', () => {
       const config: SquidConfig = {
         domains: ['github.com'],
         port: defaultPort,
         sslBump: false,
       };
       const result = generateSquidConfig(config);
-      expect(result).not.toContain('SSL Bump configuration');
-      expect(result).not.toContain('https_port');
-      expect(result).not.toContain('ssl-bump');
+      expect(result).not.toContain('SSL Bump configuration for HTTPS content inspection');
+      expect(result).toContain('TLS SNI allowlist enforcement');
+      expect(result).toContain('ssl_bump splice tls_sni_guard_step2 tls_sni_guard_allowed');
     });
 
-    it('should use http_port only when SSL Bump is disabled', () => {
+    it('should enforce the actual client-requested SNI when SSL Bump is disabled', () => {
       const config: SquidConfig = {
         domains: ['github.com'],
         port: defaultPort,
       };
       const result = generateSquidConfig(config);
-      expect(result).toContain('http_port 3128');
-      expect(result).not.toContain('https_port');
+      expect(result).toContain(
+        'acl tls_sni_guard_allowed ssl::server_name --client-requested .github.com'
+      );
+      expect(result).toContain('ssl_bump terminate tls_sni_guard_step2');
     });
   });
 });

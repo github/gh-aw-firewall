@@ -85,6 +85,7 @@ export function generatePolicyManifest(config: SquidConfig): PolicyManifest {
     dangerousPorts: DANGEROUS_PORTS,
     dnsServers: dnsServers || DEFAULT_DNS_SERVERS,
     sslBumpEnabled: sslBump ?? false,
+    tlsSniGuardEnabled: true,
     dlpEnabled: enableDlp ?? false,
     hostAccessEnabled: enableHostAccess ?? false,
     allowHostPorts: allowHostPorts ?? null,
