@@ -422,7 +422,7 @@ describe('buildModelPolicyEnv', () => {
     expect(env.AWF_MODEL_FALLBACK).toBe('{"enabled":false,"strategy":"middle_power"}');
   });
 
-  it('sets AWF_MODEL_ROUTING when modelRouting is configured', () => {
+it('sets AWF_ROUTING_CONFIG when modelRouting is configured', () => {
     const env = buildModelPolicyEnv({
       ...baseConfig,
       workDir: '/tmp/awf-test',
@@ -431,7 +431,7 @@ describe('buildModelPolicyEnv', () => {
         task: { conversationFile: '/tmp/gh-aw/routing-conversation.json' },
       },
     });
-    expect(env.AWF_MODEL_ROUTING).toBe(
+    expect(env.AWF_ROUTING_CONFIG).toBe(
       '{"objective":{"goal":"cost","mode":"balanced"},"task":{"conversationFile":"/tmp/gh-aw/routing-conversation.json"}}'
     );
   });
