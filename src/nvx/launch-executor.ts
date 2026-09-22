@@ -154,11 +154,11 @@ export class DirectOpenvmmLaunchExecutor implements NvxLaunchExecutor {
       await this.terminate();
       throw new Error('NVX direct executor did not receive required process file descriptors');
     }
+    const exit = waitForExit(child);
     await endStream(child.stdio[5], buildOpenvmmSeccompFilter());
 
     const stdoutGate = createOpenvmmStdoutGate(child.stdout, prepared.onStdout);
     const stderrPump = pump(child.stderr, (chunk) => prepared.onStderr(chunk));
-    const exit = waitForExit(child);
     let timedOut = false;
     let cancelled = false;
     let timeout: NodeJS.Timeout | undefined;
