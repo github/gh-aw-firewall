@@ -99,6 +99,7 @@ function harness(options: {
   const kill = jest.fn((pid: number, signal: NodeJS.Signals) => {
     order.push(`kill:${pid}:${signal}`);
     if (signal === 'SIGKILL') {
+      child.stdio[4].end();
       child.stdout.end();
       child.stderr.end();
       child.emit('exit', null, 'SIGKILL');
@@ -148,7 +149,10 @@ function harness(options: {
   };
   const hooks = {
     launcherStarted: jest.fn(async (pid: number) => { order.push(`launcher:${pid}`); }),
-    sandboxStarted: jest.fn(async (pid: number) => { order.push(`sandbox:${pid}`); }),
+    sandboxStarted: jest.fn(async (pid: number) => {
+      order.push(`sandbox:${pid}`);
+      order.push(`status-open:${!child.stdio[4].destroyed}`);
+    }),
     openvmmReady: jest.fn(async (pid: number) => {
       order.push(`ready:${pid}`);
       if (options.readyError) throw options.readyError;
@@ -163,6 +167,7 @@ function harness(options: {
     }
     order.push(`stdin:${chunk.toString()}`);
     if (chunk.toString() === 'resume\n') {
+      child.stdio[4].end('{"exit-code":0}\n');
       child.stdout.end();
       child.stderr.end();
       child.emit('exit', 0, null);
@@ -170,7 +175,11 @@ function harness(options: {
   });
   process.nextTick(() => {
     if (options.status !== undefined) {
-      child.stdio[4].end(options.status);
+      if (options.status === '{"child-pid":4200}\n') {
+        child.stdio[4].write(options.status);
+      } else {
+        child.stdio[4].end(options.status);
+      }
     }
   });
   return {
@@ -198,12 +207,14 @@ describe('direct OpenVMM launch executor', () => {
     expect(value.order).toEqual([
       'launcher:4100',
       'sandbox:4200',
+      'status-open:true',
       'gate-closed:true',
       'ready:4200',
       'stdin:ctrl-q',
       'stdin:resume\n',
     ]);
     expect(value.hooks.openvmmReady).toHaveBeenCalledWith(4200, '4026533001');
+    expect(value.child.stdio[4].destroyed).toBe(true);
     expect(value.child.stdio[5].writableEnded).toBe(true);
     expect(value.child.stdio[5].readableLength).toBeGreaterThan(0);
     expect(value.dependencies.stat).toHaveBeenCalledWith('/proc/4100/exe');

@@ -43,7 +43,7 @@ function harness(overrides: Partial<NvxManagerDependencies> = {}) {
     }),
   } satisfies NvxCleanupRegistry;
   const tools = Object.fromEntries([
-    'bwrap', 'env', 'flock', 'getfacl', 'getent', 'gh', 'groupdel', 'id', 'ip',
+    'bwrap', 'flock', 'getfacl', 'getent', 'gh', 'groupdel', 'id', 'ip',
     'iptables', 'mkfs.erofs', 'mke2fs', 'nft', 'setfacl',
     'setpriv', 'sysctl', 'useradd', 'userdel',
   ].map((name) => [name, `/usr/bin/${name}`])) as NvxPreflightResult['tools'];

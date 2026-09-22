@@ -386,7 +386,6 @@ function createExecutionRequest(
 function toRuntimeTools(tools: NvxPreflightResult['tools']): NvxRuntimeToolPaths {
   return {
     bwrap: tools.bwrap,
-    env: tools.env,
     flock: tools.flock,
     getfacl: tools.getfacl,
     getent: tools.getent,

@@ -162,6 +162,7 @@ export class DirectOpenvmmLaunchExecutor implements NvxLaunchExecutor {
       (chunk) => prepared.onStdout(chunk),
     );
     const stderrPump = pump(child.stderr, (chunk) => prepared.onStderr(chunk));
+    const sandboxStatus = readSandboxStatus(child.stdio[4]);
     let timedOut = false;
     let cancelled = false;
     let timeout: NodeJS.Timeout | undefined;
@@ -181,7 +182,7 @@ export class DirectOpenvmmLaunchExecutor implements NvxLaunchExecutor {
     try {
       await options.hooks.launcherStarted(child.pid);
       const sandboxPid = await Promise.race([
-        readSandboxPid(child.stdio[4]),
+        sandboxStatus.pid,
         rejectOnExit(exit, 'before Bubblewrap reported its sandbox PID'),
       ]);
       await options.hooks.sandboxStarted(sandboxPid);
@@ -207,7 +208,7 @@ export class DirectOpenvmmLaunchExecutor implements NvxLaunchExecutor {
 
       const processExit = await exit;
       if (timedOut || cancelled) await this.terminate();
-      await Promise.all([stdoutGate.completed, stderrPump]);
+      await Promise.all([stdoutGate.completed, stderrPump, sandboxStatus.completed]);
       const processResult: NvxProcessResult = {
         exitCode: processExit.exitCode,
         signal: processExit.signal,
@@ -219,7 +220,11 @@ export class DirectOpenvmmLaunchExecutor implements NvxLaunchExecutor {
       await this.terminate();
       if (timedOut || cancelled) {
         const processExit = await exit;
-        await Promise.all([stdoutGate.completed, stderrPump]);
+        await Promise.all([
+          stdoutGate.completed,
+          stderrPump,
+          sandboxStatus.completed.catch(() => undefined),
+        ]);
         return prepared.finish({
           exitCode: processExit.exitCode,
           signal: processExit.signal,
@@ -283,19 +288,53 @@ export class DirectOpenvmmLaunchExecutor implements NvxLaunchExecutor {
   }
 }
 
-async function readSandboxPid(stream: Readable): Promise<number> {
-  let contents = Buffer.alloc(0);
-  for await (const chunk of stream) {
-    contents = Buffer.concat([
-      contents,
-      Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk),
-    ]);
-    if (contents.length > STATUS_MAX_BYTES) {
-      throw new Error('Bubblewrap JSON status exceeded the bounded size limit');
+function readSandboxStatus(stream: Readable): {
+  readonly pid: Promise<number>;
+  readonly completed: Promise<void>;
+} {
+  let resolvePid: ((pid: number) => void) | undefined;
+  let rejectPid: ((error: Error) => void) | undefined;
+  const pid = new Promise<number>((resolve, reject) => {
+    resolvePid = resolve;
+    rejectPid = reject;
+  });
+  void pid.catch(() => undefined);
+  const completed = (async () => {
+    let contents = Buffer.alloc(0);
+    let totalBytes = 0;
+    let foundPid = false;
+    try {
+      for await (const chunk of stream) {
+        const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+        totalBytes += buffer.length;
+        if (totalBytes > STATUS_MAX_BYTES) {
+          throw new Error('Bubblewrap JSON status exceeded the bounded size limit');
+        }
+        if (foundPid) continue;
+        contents = Buffer.concat([contents, buffer]);
+        const newline = contents.indexOf(0x0a);
+        if (newline < 0) continue;
+        const status = parseSandboxStatus(contents.subarray(0, newline));
+        foundPid = true;
+        resolvePid?.(status);
+      }
+      if (!foundPid) {
+        if (contents.length === 0) {
+          throw new Error('Bubblewrap did not report JSON status');
+        }
+        resolvePid?.(parseSandboxStatus(contents));
+      }
+    } catch (error) {
+      const parsed = error instanceof Error ? error : new Error(String(error));
+      rejectPid?.(parsed);
+      throw parsed;
     }
-    if (contents.includes(0x0a)) break;
-  }
-  if (contents.length === 0) throw new Error('Bubblewrap did not report JSON status');
+  })();
+  void completed.catch(() => undefined);
+  return { pid, completed };
+}
+
+function parseSandboxStatus(contents: Buffer): number {
   let status: unknown;
   try {
     status = JSON.parse(contents.toString('utf8').trim());

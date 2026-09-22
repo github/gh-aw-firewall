@@ -91,7 +91,6 @@ function verificationOptions() {
     tools: {
       ip: '/usr/sbin/ip',
       bwrap: '/usr/bin/bwrap',
-      env: '/usr/bin/env',
       setpriv: '/usr/bin/setpriv',
     },
     namespaceName: 'awfnvx-test',
@@ -130,7 +129,6 @@ describe('NVX host confinement', () => {
       tools: {
         ip: '/usr/sbin/ip',
         bwrap: '/usr/bin/bwrap',
-        env: '/usr/bin/env',
         setpriv: '/usr/bin/setpriv',
       },
       namespaceName: 'awfnvx-abc123',
@@ -171,9 +169,6 @@ describe('NVX host confinement', () => {
       '--clear-groups',
       '--no-new-privs',
       '--bounding-set=-all',
-      '/usr/bin/env',
-      '--ignore-signal=PIPE',
-      '--',
       '/opt/awf-nvx/openvmm',
       '--paused',
       '--machine',
@@ -191,7 +186,6 @@ describe('NVX host confinement', () => {
       tools: {
         ip: '/usr/sbin/ip',
         bwrap: '/usr/bin/bwrap',
-        env: '/usr/bin/env',
         setpriv: '/usr/bin/setpriv',
       },
       namespaceName: 'awfnvx-test',
@@ -208,7 +202,6 @@ describe('NVX host confinement', () => {
       tools: {
         ip: '/usr/sbin/ip',
         bwrap: '/usr/bin/bwrap',
-        env: '/usr/bin/env',
         setpriv: '/usr/bin/setpriv',
       },
       namespaceName: 'awfnvx-test',
