@@ -30,7 +30,8 @@ async function main(): Promise<void> {
   });
   if (success.result.exitCode !== 0 || success.result.category !== 'success') {
     throw new Error(
-      `NVX guest boot returned ${success.result.category}/${success.result.exitCode}`,
+      `NVX guest boot returned ${success.result.category}/${success.result.exitCode} ` +
+      `signal=${success.result.signal ?? 'none'}`,
     );
   }
 
@@ -42,7 +43,8 @@ async function main(): Promise<void> {
   });
   if (timeout.result.exitCode !== 124 || timeout.result.category !== 'timeout') {
     throw new Error(
-      `NVX timeout returned ${timeout.result.category}/${timeout.result.exitCode}`,
+      `NVX timeout returned ${timeout.result.category}/${timeout.result.exitCode} ` +
+      `signal=${timeout.result.signal ?? 'none'}`,
     );
   }
 

@@ -1,5 +1,6 @@
 import { constants, createReadStream, promises as fs } from 'fs';
 import { createHash } from 'crypto';
+import { constants as osConstants } from 'os';
 import * as path from 'path';
 import { spawn } from 'child_process';
 import type { Readable, Writable } from 'stream';
@@ -761,14 +762,8 @@ function assertSha256(value: string, label: string): void {
 }
 
 function signalExitCode(signal: NodeJS.Signals | null): number {
-  switch (signal) {
-    case 'SIGHUP': return 129;
-    case 'SIGINT': return 130;
-    case 'SIGQUIT': return 131;
-    case 'SIGKILL': return 137;
-    case 'SIGTERM': return 143;
-    default: return 128;
-  }
+  if (signal === null) return 128;
+  return 128 + (osConstants.signals[signal] ?? 0);
 }
 
 async function sha256File(filePath: string): Promise<string> {

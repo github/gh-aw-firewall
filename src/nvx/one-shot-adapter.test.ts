@@ -240,6 +240,30 @@ describe('NVX one-shot execution adapter', () => {
     }
   });
 
+  it('reports an unexpected process signal without trusting a partial outcome', async () => {
+    const { root, request } = await fixture();
+    const dependencies: NvxOneShotAdapterDependencies = {
+      pythonBinary: '/usr/bin/python3',
+      runProcess: jest.fn(async () => ({
+        exitCode: null,
+        signal: 'SIGABRT' as NodeJS.Signals,
+        timedOut: false,
+        cancelled: false,
+      })),
+    };
+    try {
+      await expect(new NvxOneShotAdapter(dependencies).execute(request))
+        .resolves.toMatchObject({
+          exitCode: 134,
+          category: 'signal',
+          signal: 'SIGABRT',
+          timedOut: false,
+        });
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
   it('requires the workload identity to own the scratch filesystem', async () => {
     const { root, request } = await fixture();
     const runProcess = jest.fn();
