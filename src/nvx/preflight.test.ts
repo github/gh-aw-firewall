@@ -5,6 +5,7 @@ import {
   NVX_COMMIT,
   NVX_OPENVMM_COMMIT,
   NVX_RELEASE_TAG,
+  NVX_VALIDATION_SIGNER_WORKFLOW,
 } from './artifact-manifest';
 import {
   runNvxPreflight,
@@ -116,6 +117,7 @@ describe('NVX preflight', () => {
       '/usr/bin/gh',
       snapshot().manifestPath,
       snapshot().bundlePath,
+      NVX_ARTIFACT_SIGNER_WORKFLOW,
     );
     expect(deps.createSnapshot).toHaveBeenCalledWith(
       options,
@@ -125,6 +127,39 @@ describe('NVX preflight', () => {
       }),
     );
     expect(deps.sha256).toHaveBeenCalledTimes(3);
+  });
+
+  it('accepts an explicitly pinned validation workflow without weakening the default', async () => {
+    const signer = NVX_VALIDATION_SIGNER_WORKFLOW;
+    const signedManifest = manifest().replace(NVX_ARTIFACT_SIGNER_WORKFLOW, signer);
+    const deps = dependencies({
+      readFile: jest.fn(async (filePath) => {
+        if (filePath === '/sys/fs/cgroup/cgroup.controllers') return 'cpu memory pids';
+        if (filePath === '/proc/sys/kernel/seccomp/actions_avail') {
+          return 'kill_process kill_thread errno';
+        }
+        if (filePath === options.manifestPath || filePath === snapshot().manifestPath) {
+          return signedManifest;
+        }
+        throw new Error(`unexpected read: ${filePath}`);
+      }),
+    });
+
+    await runNvxPreflight({ ...options, expectedSignerWorkflow: signer }, deps);
+
+    expect(deps.verifyAttestation).toHaveBeenCalledWith(
+      '/usr/bin/gh',
+      snapshot().manifestPath,
+      snapshot().bundlePath,
+      signer,
+    );
+  });
+
+  it('rejects signer overrides outside the two pinned AWF workflows', async () => {
+    await expect(runNvxPreflight({
+      ...options,
+      expectedSignerWorkflow: 'github/gh-aw-firewall/.github/workflows/untrusted.yml',
+    }, dependencies())).rejects.toThrow(/Untrusted NVX artifact signer workflow/);
   });
 
   it('rejects source artifacts whose sizes do not match the manifest before copying', async () => {

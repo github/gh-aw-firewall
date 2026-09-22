@@ -170,10 +170,10 @@ Implemented boundary:
 The live KVM validation workflow,
 `.github/workflows/nvx-phase-3b-live-kvm.yml`, is deliberately opt-in for pull
 requests via the `nvx-live-kvm` label (and always available through
-`workflow_dispatch`). Phase 3d updates it to probe the direct constrained argv,
+`workflow_dispatch`). Phase 3d added probes for the direct constrained argv,
 the Bubblewrap readiness FD contract, KVM-only device access, and no-TAP
-namespace policy. It remains fail-closed and does not claim a guest boot;
-end-to-end manager launch remains explicit promotion evidence.
+namespace policy. Phase 3e adds workflow-attested artifacts and end-to-end
+manager guest-boot and timeout-cleanup evidence.
 
 Configurations that cannot provide Linux x86_64 KVM, cgroup v2
 `cpu`/`memory`/`pids` controllers, trusted host tools, or exact cleanup evidence
@@ -203,6 +203,31 @@ complete guest boot and exit, Copilot inference through the credential-holding
 API proxy, adversarial network and filesystem probes, timeout/cancellation
 cleanup, stale recovery, and concurrent-run isolation. Until that evidence is
 accepted, `NvxManager` remains internal infrastructure only.
+
+## Phase 3e live manager evidence
+
+Phase 3e adds the first end-to-end live evidence lane for the production
+`NvxManager` path without registering an external runtime:
+
+- the release workflow downloads the pinned upstream NVX package, verifies its
+  archive and internal checksums, stages only OpenVMM, the kernel, and the
+  initramfs, generates the schema-v2 AWF manifest, and attests that manifest
+  from the protected AWF release workflow;
+- the opt-in live-KVM workflow creates an equivalent workflow-attested bundle
+  for pull-request validation. Preflight accepts this only when the caller
+  explicitly pins that exact validation workflow; the production default
+  remains the release workflow and there is no unsigned fallback;
+- the live runner builds a deterministic EROFS layer from a digest-pinned
+  Alpine root, invokes the real `NvxManager`, and requires a successful guest
+  boot, `/bin/true` execution, structured outcome, live confinement evidence,
+  and residue-free cleanup; and
+- a second manager invocation runs `/bin/sleep` with a bounded wall-clock
+  timeout and requires exit `124` plus the same residue-free cleanup checks.
+
+This evidence removes the attested-bundle and basic manager-boot blockers. It
+does not by itself authorize runtime registration. Promotion still requires
+reviewed Copilot API-proxy inference, adversarial network and filesystem
+denials, cancellation, stale-recovery, and concurrent-run isolation evidence.
 
 ## Host OpenVMM confinement
 

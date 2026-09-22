@@ -721,7 +721,7 @@ jobs:
   release:
     name: Create Release
     runs-on: ubuntu-latest
-    needs: [bump-version, build-squid, build-agent, build-api-proxy, build-cli-proxy, build-agent-act, build-build-tools, build-enclaves, build-gh-aw-node, build-cloud-hypervisor-test-artifacts]
+    needs: [bump-version, build-squid, build-agent, build-api-proxy, build-cli-proxy, build-agent-act, build-build-tools, build-enclaves, build-gh-aw-node, build-cloud-hypervisor-test-artifacts, build-nvx-test-artifacts]
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
@@ -851,6 +851,21 @@ jobs:
           cp cloud-hypervisor-release-assets/setup-cloud-hypervisor-enclave-artifacts.sh \
             release/setup-cloud-hypervisor-enclave-artifacts.sh
           chmod 0755 release/setup-cloud-hypervisor-enclave-artifacts.sh
+
+      - name: Download NVX preview test artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-nvx-test-x86_64
+          path: nvx-release-assets
+
+      - name: Stage NVX preview test assets
+        run: |
+          cp nvx-release-assets/nvx-test-x86_64.tar.gz \
+            release/nvx-test-x86_64.tar.gz
+          cp nvx-release-assets/manifest.json \
+            release/nvx-test-x86_64.manifest.json
+          cp nvx-release-assets/manifest.sigstore.jsonl \
+            release/nvx-test-x86_64.manifest.sigstore.jsonl
 
       - name: Generate containers list
         run: |
@@ -1015,6 +1030,9 @@ jobs:
             release/cloud-hypervisor-enclave-rootfs-x86_64.tar.gz
             release/cloud-hypervisor-enclave-rootfs-x86_64.manifest.json
             release/cloud-hypervisor-enclave-rootfs-x86_64.manifest.sigstore.jsonl
+            release/nvx-test-x86_64.tar.gz
+            release/nvx-test-x86_64.manifest.json
+            release/nvx-test-x86_64.manifest.sigstore.jsonl
             release/enclave-script-rootfs.ext4
             release/enclave-agent-rootfs.ext4
             release/enclave-script-rootfs.sbom.spdx.json
@@ -1139,5 +1157,107 @@ jobs:
         with:
           name: release-cloud-hypervisor-test-x86_64
           path: release/cloud-hypervisor-test-x86_64/
+          if-no-files-found: error
+          retention-days: 7
+
+  build-nvx-test-artifacts:
+    name: Build NVX Preview Test Artifacts
+    runs-on: ubuntu-24.04
+    needs: bump-version
+    timeout-minutes: 20
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+        with:
+          ref: ${{ needs.bump-version.outputs.version }}
+
+      - name: Fetch and verify pinned NVX release artifacts
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NVX_RELEASE: v0.1.0-dev.d561c4300ebe
+          NVX_ARCHIVE: nvx-0.1.0-linux-kvm.tar.gz
+          NVX_ARCHIVE_SHA256: 705c863cf7183e89606542b12961644eefd24fed8b2520156dd5cb63a3982699
+        run: |
+          set -euo pipefail
+          package_dir="$RUNNER_TEMP/nvx-package"
+          artifact_dir="release/nvx-test-x86_64"
+          mkdir -p "$package_dir" "$artifact_dir"
+          gh release download "$NVX_RELEASE" \
+            --repo microsoft/nvx \
+            --pattern "$NVX_ARCHIVE" \
+            --dir "$package_dir"
+          printf '%s  %s\n' \
+            "$NVX_ARCHIVE_SHA256" \
+            "$package_dir/$NVX_ARCHIVE" |
+            sha256sum --check --status
+          tar -xzf "$package_dir/$NVX_ARCHIVE" -C "$package_dir"
+          extracted="$package_dir/nvx-0.1.0-linux-kvm"
+          (
+            cd "$extracted"
+            sha256sum --check SHA256SUMS
+          )
+          install -m 0555 "$extracted/bin/openvmm" "$artifact_dir/openvmm"
+          install -m 0444 "$extracted/guest/vmlinux" "$artifact_dir/vmlinux"
+          install -m 0444 \
+            "$extracted/guest/initramfs.cpio.gz" \
+            "$artifact_dir/initramfs.cpio.gz"
+          jq -n \
+            --arg release_tag "${{ needs.bump-version.outputs.version }}" \
+            --arg source_commit "$(git rev-parse HEAD)" \
+            --arg openvmm_sha "$(sha256sum "$artifact_dir/openvmm" | cut -d' ' -f1)" \
+            --arg kernel_sha "$(sha256sum "$artifact_dir/vmlinux" | cut -d' ' -f1)" \
+            --arg initramfs_sha "$(sha256sum "$artifact_dir/initramfs.cpio.gz" | cut -d' ' -f1)" \
+            --argjson openvmm_size "$(stat -c %s "$artifact_dir/openvmm")" \
+            --argjson kernel_size "$(stat -c %s "$artifact_dir/vmlinux")" \
+            --argjson initramfs_size "$(stat -c %s "$artifact_dir/initramfs.cpio.gz")" \
+            '{
+              schemaVersion:2,
+              release:{
+                repository:"github/gh-aw-firewall",
+                workflow:"github/gh-aw-firewall/.github/workflows/release.yml",
+                tag:$release_tag,
+                sourceCommit:$source_commit
+              },
+              upstream:{
+                releaseTag:"v0.1.0-dev.d561c4300ebe",
+                nvxCommit:"d561c4300ebe854baba5d154056ead6f9d462047",
+                openvmmCommit:"0bc357bbcf3a654b63dfb51f1103c5751bf3d31f"
+              },
+              architecture:"x86_64",
+              artifacts:{
+                openvmm:{file:"openvmm",sizeBytes:$openvmm_size,sha256:$openvmm_sha},
+                kernel:{file:"vmlinux",sizeBytes:$kernel_size,sha256:$kernel_sha},
+                initramfs:{
+                  file:"initramfs.cpio.gz",
+                  sizeBytes:$initramfs_size,
+                  sha256:$initramfs_sha
+                }
+              }
+            }' > "$artifact_dir/manifest.json"
+
+      - name: Attest release-pinned NVX artifact manifest
+        id: attest_nvx_manifest
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: release/nvx-test-x86_64/manifest.json
+
+      - name: Bundle NVX manifest attestation
+        env:
+          BUNDLE_PATH: ${{ steps.attest_nvx_manifest.outputs.bundle-path }}
+        run: |
+          cp "$BUNDLE_PATH" \
+            release/nvx-test-x86_64/manifest.sigstore.jsonl
+          tar -czf release/nvx-test-x86_64.tar.gz \
+            -C release/nvx-test-x86_64 \
+            openvmm vmlinux initramfs.cpio.gz
+
+      - name: Upload NVX test artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-nvx-test-x86_64
+          path: |
+            release/nvx-test-x86_64.tar.gz
+            release/nvx-test-x86_64/manifest.json
+            release/nvx-test-x86_64/manifest.sigstore.jsonl
           if-no-files-found: error
           retention-days: 7

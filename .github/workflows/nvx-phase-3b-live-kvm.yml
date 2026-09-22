@@ -1,4 +1,4 @@
-name: NVX Phase 3d Direct Launch Validation
+name: NVX Phase 3e Live Manager Validation
 
 on:
   workflow_dispatch:
@@ -14,14 +14,117 @@ on:
 
 permissions:
   contents: read
+  id-token: write
+  attestations: write
 
 concurrency:
-  group: nvx-phase-3d-${{ github.ref }}
+  group: nvx-phase-3e-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
+  build-attested-artifacts:
+    name: Build workflow-attested NVX artifacts
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' &&
+       contains(github.event.pull_request.labels.*.name, 'nvx-live-kvm'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+
+      - name: Fetch and verify pinned NVX release artifacts
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NVX_RELEASE: v0.1.0-dev.d561c4300ebe
+          NVX_ARCHIVE: nvx-0.1.0-linux-kvm.tar.gz
+          NVX_ARCHIVE_SHA256: 705c863cf7183e89606542b12961644eefd24fed8b2520156dd5cb63a3982699
+          SIGNER_WORKFLOW: github/gh-aw-firewall/.github/workflows/nvx-phase-3b-live-kvm.yml
+        run: |
+          set -euo pipefail
+          package_dir="$RUNNER_TEMP/nvx-package"
+          artifact_dir="$RUNNER_TEMP/nvx-attested-artifacts"
+          mkdir -p "$package_dir" "$artifact_dir"
+          gh release download "$NVX_RELEASE" \
+            --repo microsoft/nvx \
+            --pattern "$NVX_ARCHIVE" \
+            --dir "$package_dir"
+          printf '%s  %s\n' \
+            "$NVX_ARCHIVE_SHA256" \
+            "$package_dir/$NVX_ARCHIVE" |
+            sha256sum --check --status
+          tar -xzf "$package_dir/$NVX_ARCHIVE" -C "$package_dir"
+          extracted="$package_dir/nvx-0.1.0-linux-kvm"
+          (
+            cd "$extracted"
+            sha256sum --check SHA256SUMS
+          )
+          install -m 0555 "$extracted/bin/openvmm" "$artifact_dir/openvmm"
+          install -m 0444 "$extracted/guest/vmlinux" "$artifact_dir/vmlinux"
+          install -m 0444 \
+            "$extracted/guest/initramfs.cpio.gz" \
+            "$artifact_dir/initramfs.cpio.gz"
+          release_tag="v$(node -p "require('./package.json').version")"
+          jq -n \
+            --arg release_tag "$release_tag" \
+            --arg source_commit "$GITHUB_SHA" \
+            --arg signer_workflow "$SIGNER_WORKFLOW" \
+            --arg openvmm_sha "$(sha256sum "$artifact_dir/openvmm" | cut -d' ' -f1)" \
+            --arg kernel_sha "$(sha256sum "$artifact_dir/vmlinux" | cut -d' ' -f1)" \
+            --arg initramfs_sha "$(sha256sum "$artifact_dir/initramfs.cpio.gz" | cut -d' ' -f1)" \
+            --argjson openvmm_size "$(stat -c %s "$artifact_dir/openvmm")" \
+            --argjson kernel_size "$(stat -c %s "$artifact_dir/vmlinux")" \
+            --argjson initramfs_size "$(stat -c %s "$artifact_dir/initramfs.cpio.gz")" \
+            '{
+              schemaVersion:2,
+              release:{
+                repository:"github/gh-aw-firewall",
+                workflow:$signer_workflow,
+                tag:$release_tag,
+                sourceCommit:$source_commit
+              },
+              upstream:{
+                releaseTag:"v0.1.0-dev.d561c4300ebe",
+                nvxCommit:"d561c4300ebe854baba5d154056ead6f9d462047",
+                openvmmCommit:"0bc357bbcf3a654b63dfb51f1103c5751bf3d31f"
+              },
+              architecture:"x86_64",
+              artifacts:{
+                openvmm:{file:"openvmm",sizeBytes:$openvmm_size,sha256:$openvmm_sha},
+                kernel:{file:"vmlinux",sizeBytes:$kernel_size,sha256:$kernel_sha},
+                initramfs:{
+                  file:"initramfs.cpio.gz",
+                  sizeBytes:$initramfs_size,
+                  sha256:$initramfs_sha
+                }
+              }
+            }' > "$artifact_dir/manifest.json"
+
+      - name: Attest pinned NVX artifact manifest
+        id: attest_nvx_manifest
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: ${{ runner.temp }}/nvx-attested-artifacts/manifest.json
+
+      - name: Bundle manifest attestation
+        env:
+          BUNDLE_PATH: ${{ steps.attest_nvx_manifest.outputs.bundle-path }}
+        run: |
+          cp "$BUNDLE_PATH" \
+            "$RUNNER_TEMP/nvx-attested-artifacts/manifest.sigstore.jsonl"
+
+      - name: Upload attested NVX artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: nvx-attested-artifacts
+          path: ${{ runner.temp }}/nvx-attested-artifacts/
+          if-no-files-found: error
+          retention-days: 7
+
   live-kvm-evidence:
     name: Live Linux x86_64 KVM evidence
+    needs: build-attested-artifacts
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'pull_request' &&
@@ -45,41 +148,22 @@ jobs:
       - name: Install host validation tools
         run: |
           sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends acl bubblewrap jq nftables uidmap
+          sudo apt-get install --yes --no-install-recommends \
+            acl bubblewrap e2fsprogs erofs-utils jq nftables uidmap
 
-      - name: Cache pinned NVX release
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - name: Download attested NVX artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          path: ${{ runner.temp }}/nvx-release
-          key: nvx-linux-kvm-d561c4300ebe-705c863cf7183e89
+          name: nvx-attested-artifacts
+          path: ${{ runner.temp }}/nvx-attested-artifacts
 
-      - name: Fetch pinned NVX source and release assets
+      - name: Fetch pinned NVX source
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NVX_COMMIT: d561c4300ebe854baba5d154056ead6f9d462047
           NVX_OPENVMM_COMMIT: 0bc357bbcf3a654b63dfb51f1103c5751bf3d31f
-          NVX_RELEASE: v0.1.0-dev.d561c4300ebe
-          NVX_ARCHIVE: nvx-0.1.0-linux-kvm.tar.gz
-          NVX_ARCHIVE_SHA256: 705c863cf7183e89606542b12961644eefd24fed8b2520156dd5cb63a3982699
         run: |
           set -euo pipefail
           source_dir="$RUNNER_TEMP/nvx-source"
-          release_dir="$RUNNER_TEMP/nvx-release"
-          mkdir -p "$release_dir"
-          if [ ! -f "$release_dir/$NVX_ARCHIVE" ]; then
-            gh release download "$NVX_RELEASE" \
-              --repo microsoft/nvx \
-              --pattern "$NVX_ARCHIVE" \
-              --dir "$release_dir"
-          fi
-          printf '%s  %s\n' "$NVX_ARCHIVE_SHA256" "$release_dir/$NVX_ARCHIVE" \
-            | sha256sum --check --status
-          rm -rf "$release_dir/nvx-0.1.0-linux-kvm"
-          tar -xzf "$release_dir/$NVX_ARCHIVE" -C "$release_dir"
-          (
-            cd "$release_dir/nvx-0.1.0-linux-kvm"
-            sha256sum --check SHA256SUMS
-          )
           git clone --filter=blob:none --no-checkout \
             https://github.com/microsoft/nvx.git "$source_dir"
           git -C "$source_dir" fetch --depth 1 origin "$NVX_COMMIT"
@@ -91,11 +175,11 @@ jobs:
         run: |
           set -euo pipefail
           source_dir="$RUNNER_TEMP/nvx-source"
-          package_dir="$RUNNER_TEMP/nvx-release/nvx-0.1.0-linux-kvm"
-          test -x "$package_dir/bin/openvmm"
-          test -s "$package_dir/guest/vmlinux"
-          test -s "$package_dir/guest/initramfs.cpio.gz"
-          help=$("$package_dir/bin/openvmm" --help)
+          package_dir="$RUNNER_TEMP/nvx-attested-artifacts"
+          test -x "$package_dir/openvmm"
+          test -s "$package_dir/vmlinux"
+          test -s "$package_dir/initramfs.cpio.gz"
+          help=$("$package_dir/openvmm" --help)
           for flag in \
             --machine --microvm-sandbox-block --microvm-workload-identity \
             --microvm-lifecycle --single-process --hypervisor --memory \
@@ -122,7 +206,7 @@ jobs:
 
       - name: Capture host preflight and privileged-resource evidence
         env:
-          EVIDENCE_DIR: ${{ runner.temp }}/nvx-phase-3d-evidence
+          EVIDENCE_DIR: ${{ runner.temp }}/nvx-phase-3e-evidence
         run: |
           set -euo pipefail
           umask 077
@@ -327,8 +411,44 @@ jobs:
             '{namespace:$namespace,denyByDefault:($ruleset|contains("policy drop")),squidAllowed:($ruleset|contains("172.30.0.10")),dnsDenied:($ruleset|contains("udp dport 53")),ruleset:$ruleset}')"
           record direct-launch-contract PASS \
             '{"openvmm":"pinned flags verified","bubblewrap":"block/status fd flags verified","tapRequired":false}'
-          record direct-live-boot BLOCKED \
-            '{"reason":"This lane does not yet have an AWF-attested three-artifact bundle and does not claim an end-to-end NvxManager guest boot."}'
+
+      - name: Run attested end-to-end NvxManager evidence
+        env:
+          ALPINE_IMAGE: alpine@sha256:eafc1edb577d2e9b458664a15f23ea1c370214193226069eb22921169fc7e43f
+          SIGNER_WORKFLOW: github/gh-aw-firewall/.github/workflows/nvx-phase-3b-live-kvm.yml
+          EVIDENCE_DIR: ${{ runner.temp }}/nvx-phase-3e-evidence
+        run: |
+          set -euo pipefail
+          artifact_dir="$RUNNER_TEMP/nvx-attested-artifacts"
+          layer_root="$RUNNER_TEMP/nvx-alpine-root"
+          bridge=awfnvxbr0
+          cleanup() {
+            sudo ip link delete "$bridge" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          sudo chown -R root:root "$artifact_dir"
+          sudo chmod 0555 "$artifact_dir/openvmm"
+          sudo chmod 0444 \
+            "$artifact_dir/vmlinux" \
+            "$artifact_dir/initramfs.cpio.gz" \
+            "$artifact_dir/manifest.json" \
+            "$artifact_dir/manifest.sigstore.jsonl"
+          mkdir -p "$layer_root"
+          sudo docker pull "$ALPINE_IMAGE"
+          container=$(sudo docker create "$ALPINE_IMAGE")
+          trap 'sudo docker rm -f "$container" >/dev/null 2>&1 || true; cleanup' EXIT
+          sudo docker export "$container" | tar -xf - -C "$layer_root"
+          sudo docker rm "$container"
+          container=
+          sudo ip link add "$bridge" type bridge
+          sudo ip address add 172.30.0.1/24 dev "$bridge"
+          sudo ip link set "$bridge" up
+          sudo npx tsx scripts/ci/nvx-manager-live-evidence.ts \
+            --artifacts "$artifact_dir" \
+            --layer "$layer_root" \
+            --bridge "$bridge" \
+            --signerWorkflow "$SIGNER_WORKFLOW" \
+            --evidence "$EVIDENCE_DIR"
 
       - name: Run focused NVX Phase 3d tests
         run: |
@@ -353,7 +473,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: nvx-phase-3d-evidence
-          path: ${{ runner.temp }}/nvx-phase-3d-evidence/
+          name: nvx-phase-3e-evidence
+          path: ${{ runner.temp }}/nvx-phase-3e-evidence/
           if-no-files-found: warn
           retention-days: 7

@@ -53,6 +53,7 @@ export interface NvxArtifactSnapshot extends NvxArtifactPaths {
 export interface NvxPreflightOptions {
   readonly runId: string;
   readonly expectedReleaseTag: string;
+  readonly expectedSignerWorkflow?: string;
   readonly manifestPath: string;
   readonly artifactManifestBundlePath: string;
   readonly artifacts: NvxArtifactPaths;
@@ -88,6 +89,7 @@ export interface NvxPreflightDependencies {
     ghPath: string,
     manifestPath: string,
     bundlePath: string,
+    signerWorkflow: string,
   ): Promise<void>;
   createSnapshot(
     options: NvxPreflightOptions,
@@ -105,14 +107,14 @@ const defaultDependencies: NvxPreflightDependencies = {
   lstat: fs.lstat,
   sha256: calculateSha256,
   resolveTool: resolveTrustedTool,
-  verifyAttestation: async (ghPath, manifestPath, bundlePath) => {
+  verifyAttestation: async (ghPath, manifestPath, bundlePath, signerWorkflow) => {
     const result = await execa(ghPath, [
       'attestation',
       'verify',
       manifestPath,
       '--repo', NVX_ARTIFACT_REPOSITORY,
       '--bundle', bundlePath,
-      '--signer-workflow', NVX_ARTIFACT_SIGNER_WORKFLOW,
+      '--signer-workflow', signerWorkflow,
       '--deny-self-hosted-runners',
     ], {
       reject: false,
@@ -140,6 +142,8 @@ export async function runNvxPreflight(
   hooks?: NvxPreflightHooks,
 ): Promise<NvxPreflightResult> {
   const layout = createNvxRunLayout(options.runId);
+  const expectedSignerWorkflow =
+    options.expectedSignerWorkflow ?? NVX_ARTIFACT_SIGNER_WORKFLOW;
   assertNvxRunLayout(layout);
   if (dependencies.platform !== 'linux' || dependencies.arch !== 'x64') {
     throw new Error('NVX preview requires a Linux x86_64 host');
@@ -180,6 +184,7 @@ export async function runNvxPreflight(
   const sourceManifest = parseNvxArtifactManifest(
     await dependencies.readFile(options.manifestPath),
     options.expectedReleaseTag,
+    expectedSignerWorkflow,
   );
   assertNvxArtifactBasenames(sourceManifest, options.artifacts);
   const sourceStats = {} as Record<NvxTrustedArtifactName, NvxTrustedFileStat>;
@@ -227,10 +232,12 @@ export async function runNvxPreflight(
       tools.gh,
       snapshot.manifestPath,
       snapshot.bundlePath,
+      expectedSignerWorkflow,
     );
     const manifest = parseNvxArtifactManifest(
       await dependencies.readFile(snapshot.manifestPath),
       options.expectedReleaseTag,
+      expectedSignerWorkflow,
     );
     assertNvxArtifactBasenames(manifest, snapshot);
     for (const name of Object.keys(options.artifacts) as NvxTrustedArtifactName[]) {
