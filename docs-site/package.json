@@ -16,11 +16,11 @@
     "astro": "7.3.2",
     "astro-mermaid": "^2.1.0",
     "esbuild": "^0.28.1",
-    "mermaid": "^12.0.0",
+    "mermaid": "^11.17.2",
     "sharp": "^0.35.3"
   },
   "devDependencies": {
-    "typescript": "^7.0.2"
+    "typescript": "^6.0.3"
   },
   "overrides": {
     "diff": "8.0.3",
