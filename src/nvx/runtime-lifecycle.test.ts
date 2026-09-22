@@ -418,6 +418,11 @@ describe('NVX Phase 3d runtime lifecycle', () => {
     expect(plan.launchCommand.args).not.toContain('/dev/net/tun');
     expect(plan.launchCommand.args).not.toContain('nvx.py');
     expect(plan.launchCommand.args).not.toContain('/bin/sh');
+    expect(plan.launchCommand.args).toEqual(expect.arrayContaining([
+      '--ro-bind',
+      '/etc/resolv.conf',
+      '/etc/resolv.conf',
+    ]));
     // Bubblewrap binds the run directory at /run/awf-nvx, so argv must carry
     // in-jail paths while the host keeps the real outcome path.
     const openvmmArguments = plan.launchCommand.args.slice(

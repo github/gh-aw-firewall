@@ -12,6 +12,7 @@ const ZERO_CAPABILITIES = '0000000000000000';
 const ALLOWED_SYSTEM_ROOTS = new Set([
   '/bin',
   '/etc/alternatives',
+  '/etc/resolv.conf',
   '/etc/ssl',
   '/lib',
   '/lib64',

@@ -97,7 +97,14 @@ function verificationOptions() {
     identity: { uid: 1000, gid: 1001 },
     nvxRoot: `/var/lib/awf-nvx/trusted-artifacts/run-${RUN_ID}`,
     runDirectory: `/run/awf-nvx/runs/${RUN_ID}`,
-    systemReadOnlyPaths: ['/usr', '/bin', '/lib', '/lib64', '/etc/ssl'],
+    systemReadOnlyPaths: [
+      '/usr',
+      '/bin',
+      '/lib',
+      '/lib64',
+      '/etc/resolv.conf',
+      '/etc/ssl',
+    ],
     openvmmArguments: ['--paused', '--machine', 'microvm'],
   });
   return {
@@ -129,7 +136,14 @@ describe('NVX host confinement', () => {
       identity: { uid: 1000, gid: 1001 },
       nvxRoot: `/var/lib/awf-nvx/trusted-artifacts/run-${RUN_ID}`,
       runDirectory: `/run/awf-nvx/runs/${RUN_ID}`,
-      systemReadOnlyPaths: ['/usr', '/bin', '/lib', '/lib64', '/etc/ssl'],
+      systemReadOnlyPaths: [
+        '/usr',
+        '/bin',
+        '/lib',
+        '/lib64',
+        '/etc/resolv.conf',
+        '/etc/ssl',
+      ],
       openvmmArguments: ['--paused', '--machine', 'microvm'],
     });
 
@@ -149,6 +163,7 @@ describe('NVX host confinement', () => {
       '--dir', '/opt',
       '--dir', '/run',
       '--dev-bind', '/dev/kvm',
+      '--ro-bind', '/etc/resolv.conf', '/etc/resolv.conf',
       '--ro-bind', `/var/lib/awf-nvx/trusted-artifacts/run-${RUN_ID}`,
       '--bind', `/run/awf-nvx/runs/${RUN_ID}`,
       '--clear-groups',
