@@ -12,12 +12,10 @@ const ZERO_CAPABILITIES = '0000000000000000';
 const ALLOWED_SYSTEM_ROOTS = new Set([
   '/bin',
   '/etc/alternatives',
-  '/etc/resolv.conf',
   '/etc/ssl',
   '/lib',
   '/lib64',
   '/opt',
-  '/run/systemd/resolve',
   '/sbin',
   '/usr',
 ]);
@@ -150,9 +148,9 @@ export function buildNvxConstrainedLaunchCommand(options: {
     '--unshare-pid',
     '--unshare-uts',
     '--hostname', 'awf-nvx',
+    '--dir', '/etc',
     '--dir', '/opt',
     '--dir', '/run',
-    '--dir', '/run/systemd',
     '--proc', '/proc',
     '--dev', '/dev',
     '--dev-bind', '/dev/kvm', '/dev/kvm',
@@ -162,6 +160,7 @@ export function buildNvxConstrainedLaunchCommand(options: {
     jailArguments.push('--ro-bind', systemPath, systemPath);
   }
   jailArguments.push(
+    '--ro-bind', path.join(runDirectory, 'resolv.conf'), '/etc/resolv.conf',
     '--ro-bind', nvxRoot, '/opt/awf-nvx',
     '--bind', runDirectory, '/run/awf-nvx',
     '--chdir', '/opt/awf-nvx',

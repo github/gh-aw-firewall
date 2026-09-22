@@ -289,10 +289,11 @@ allows only:
 
 The policy must deny direct external TCP, UDP, ICMP, DNS, instance metadata,
 host loopback, unsolicited ingress, and lateral access to other runner
-services. The guest must not be able to weaken this policy. OpenVMM receives a
-read-only `/etc/resolv.conf` and its exact `/run/systemd/resolve` symlink
-target because the `consomme` backend requires resolver initialization, but
-host policy continues to deny guest DNS traffic.
+services. The guest must not be able to weaken this policy. `NvxManager`
+snapshots the host resolver configuration into the identity-owned run
+directory and binds that regular file read-only at `/etc/resolv.conf` because
+the `consomme` backend requires resolver initialization. Host policy continues
+to deny guest DNS traffic.
 
 NVX's `portable` profile, deny rules, and explicit allow rules may be part of
 the implementation, but AWF must verify the effective host-side state and run

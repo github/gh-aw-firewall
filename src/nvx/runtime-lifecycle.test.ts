@@ -420,11 +420,8 @@ describe('NVX Phase 3d runtime lifecycle', () => {
     expect(plan.launchCommand.args).not.toContain('/bin/sh');
     expect(plan.launchCommand.args).toEqual(expect.arrayContaining([
       '--ro-bind',
+      `/run/awf-nvx/runs/${RUN_ID}/resolv.conf`,
       '/etc/resolv.conf',
-      '/etc/resolv.conf',
-      '--ro-bind',
-      '/run/systemd/resolve',
-      '/run/systemd/resolve',
     ]));
     // Bubblewrap binds the run directory at /run/awf-nvx, so argv must carry
     // in-jail paths while the host keeps the real outcome path.

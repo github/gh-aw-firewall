@@ -1,4 +1,5 @@
-import { promises as fs } from 'fs';
+import { constants, promises as fs } from 'fs';
+import * as path from 'path';
 import {
   LinuxNetworkCommands,
   MicrovmNetworkManager,
@@ -101,6 +102,8 @@ export interface NvxManagerDependencies {
   createCgroup(path: string, limits: NvxPhase3dLaunchPlan['cgroupLimits']): NvxCgroupManager;
   launchExecutor: NvxLaunchExecutor;
   verifyConfinement: typeof verifyNvxConfinement;
+  copyFile: typeof fs.copyFile;
+  chmod: typeof fs.chmod;
   chown: typeof fs.chown;
   rm: typeof fs.rm;
 }
@@ -128,6 +131,8 @@ export function createDefaultNvxManagerDependencies(): NvxManagerDependencies {
     createCgroup: (cgroupPath, limits) => new NvxCgroupManager(cgroupPath, limits),
     launchExecutor: new DirectOpenvmmLaunchExecutor(),
     verifyConfinement: verifyNvxConfinement,
+    copyFile: fs.copyFile,
+    chmod: fs.chmod,
     chown: fs.chown,
     rm: fs.rm,
   };
@@ -213,7 +218,15 @@ export class NvxManager {
         useCanonicalRunDirectory: true,
       });
       const filesystem = await this.filesystemBuilder.prepare();
+      const resolverConfigPath = path.join(filesystem.runDirectory, 'resolv.conf');
+      await this.dependencies.copyFile(
+        '/etc/resolv.conf',
+        resolverConfigPath,
+        constants.COPYFILE_EXCL,
+      );
+      await this.dependencies.chmod(resolverConfigPath, 0o444);
       await this.dependencies.chown(filesystem.runDirectory, identity.uid, identity.gid);
+      await this.dependencies.chown(resolverConfigPath, identity.uid, identity.gid);
       await this.dependencies.chown(filesystem.manifestPath, identity.uid, identity.gid);
       for (const layer of filesystem.layers) {
         await this.dependencies.chown(layer.path, identity.uid, identity.gid);
