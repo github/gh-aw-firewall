@@ -5,11 +5,12 @@ import {
 import type { NvxCleanupHandle, NvxCleanupRegistry } from './cleanup-registry';
 import { bindNvxNetworkPlan } from './runtime-lifecycle';
 import {
-  NVX_LAUNCH_ABI_BLOCKED_ERROR,
+  createDefaultNvxManagerDependencies,
   NvxManager,
   type NvxLaunchExecutor,
   type NvxManagerDependencies,
 } from './manager';
+import { DirectOpenvmmLaunchExecutor } from './launch-executor';
 import type { NvxPreflightResult } from './preflight';
 
 const RUN_ID = 'a'.repeat(32);
@@ -43,7 +44,7 @@ function harness(overrides: Partial<NvxManagerDependencies> = {}) {
   } satisfies NvxCleanupRegistry;
   const tools = Object.fromEntries([
     'bwrap', 'flock', 'getfacl', 'getent', 'gh', 'groupdel', 'id', 'ip',
-    'iptables', 'mkfs.erofs', 'mke2fs', 'nft', 'python3', 'setfacl',
+    'iptables', 'mkfs.erofs', 'mke2fs', 'nft', 'setfacl',
     'setpriv', 'sysctl', 'useradd', 'userdel',
   ].map((name) => [name, `/usr/bin/${name}`])) as NvxPreflightResult['tools'];
   const snapshotDirectory = `/run/awf-nvx/trusted-artifacts/run-${RUN_ID}`;
@@ -51,7 +52,6 @@ function harness(overrides: Partial<NvxManagerDependencies> = {}) {
     manifest: {} as never,
     snapshot: {
       directory: snapshotDirectory,
-      launcher: `${snapshotDirectory}/nvx.py`,
       openvmm: `${snapshotDirectory}/openvmm`,
       kernel: `${snapshotDirectory}/vmlinux`,
       initramfs: `${snapshotDirectory}/initramfs.cpio.gz`,
@@ -136,6 +136,7 @@ function harness(overrides: Partial<NvxManagerDependencies> = {}) {
     execute: jest.fn(async ({ hooks }) => {
       order.push('launch');
       await hooks.launcherStarted(4100);
+      await hooks.sandboxStarted(4200);
       await hooks.openvmmReady(4200, '4026533001');
       return {
         exitCode: 0,
@@ -178,7 +179,6 @@ function harness(overrides: Partial<NvxManagerDependencies> = {}) {
       manifestPath: '/artifacts/manifest.json',
       artifactManifestBundlePath: '/artifacts/manifest.sigstore.json',
       artifacts: {
-        launcher: '/artifacts/nvx.py',
         openvmm: '/artifacts/openvmm',
         kernel: '/artifacts/vmlinux',
         initramfs: '/artifacts/initramfs.cpio.gz',
@@ -195,12 +195,18 @@ function harness(overrides: Partial<NvxManagerDependencies> = {}) {
 }
 
 describe('NvxManager', () => {
+  it('wires the production direct OpenVMM executor by default', () => {
+    expect(createDefaultNvxManagerDependencies().launchExecutor)
+      .toBeInstanceOf(DirectOpenvmmLaunchExecutor);
+  });
+
   it('orders durable setup, launch hooks, verification, and reverse cleanup', async () => {
     const value = harness();
     await expect(value.manager.execute()).resolves.toMatchObject({ exitCode: 0 });
     expect(value.order.indexOf('reap')).toBeLessThan(value.order.indexOf('record-create'));
     expect(value.order.indexOf('record-create')).toBeLessThan(value.order.indexOf('record-snapshot'));
-    expect(value.order.indexOf('cgroup-assign')).toBeLessThan(value.order.indexOf('record-launcher'));
+    expect(value.order.indexOf('record-launcher')).toBeLessThan(value.order.indexOf('cgroup-assign'));
+    expect(value.cgroup.assignProcessTree).toHaveBeenNthCalledWith(1, [4100, 4200]);
     expect(value.order.indexOf('record-openvmm')).toBeLessThan(value.order.indexOf('verify'));
     expect(value.order.slice(-7)).toEqual([
       'terminate',
@@ -229,13 +235,13 @@ describe('NvxManager', () => {
     expect(value.cleanupHandle.complete).not.toHaveBeenCalled();
   });
 
-  it('fails closed when launch is unavailable and cleans the prepared run', async () => {
+  it('fails closed when launch fails and cleans the prepared run', async () => {
     const value = harness({
       launchExecutor: {
-        execute: jest.fn(async () => { throw new Error(NVX_LAUNCH_ABI_BLOCKED_ERROR); }),
+        execute: jest.fn(async () => { throw new Error('direct launch failed'); }),
       },
     });
-    await expect(value.manager.execute()).rejects.toThrow(NVX_LAUNCH_ABI_BLOCKED_ERROR);
+    await expect(value.manager.execute()).rejects.toThrow('direct launch failed');
     expect(value.cleanupHandle.complete).toHaveBeenCalledTimes(1);
   });
 

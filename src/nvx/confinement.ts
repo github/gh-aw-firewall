@@ -79,7 +79,7 @@ export interface NvxConfinementVerifierDependencies {
   readlink(filePath: string): Promise<string>;
   readdir(directory: string): Promise<string[]>;
   realpath(filePath: string): Promise<string>;
-  stat(filePath: string): Promise<{ ino: bigint }>;
+  stat(filePath: string): Promise<{ dev: bigint; ino: bigint }>;
 }
 
 const defaultVerifierDependencies: NvxConfinementVerifierDependencies = {
@@ -95,14 +95,13 @@ export function buildNvxConstrainedLaunchCommand(options: {
     readonly ip: string;
     readonly bwrap: string;
     readonly setpriv: string;
-    readonly python: string;
   };
   readonly namespaceName: string;
   readonly identity: { readonly uid: number; readonly gid: number };
   readonly nvxRoot: string;
   readonly runDirectory: string;
   readonly systemReadOnlyPaths: readonly string[];
-  readonly nvxArguments: readonly string[];
+  readonly openvmmArguments: readonly string[];
 }): NvxLaunchCommand {
   assertSafeName(options.namespaceName, 'NVX network namespace');
   assertPositiveInteger(options.identity.uid, 'NVX VMM uid');
@@ -135,13 +134,16 @@ export function buildNvxConstrainedLaunchCommand(options: {
       throw new Error(`NVX filesystem jail rejects system root: ${systemPath}`);
     }
   }
-  for (const argument of options.nvxArguments) {
+  for (const argument of options.openvmmArguments) {
     if (argument.includes('\0')) throw new Error('NVX launch arguments must not contain NUL bytes');
   }
 
   const jailArguments: string[] = [
     '--die-with-parent',
     '--new-session',
+    '--block-fd', '3',
+    '--json-status-fd', '4',
+    '--seccomp', '5',
     '--unshare-ipc',
     '--unshare-pid',
     '--unshare-uts',
@@ -149,7 +151,6 @@ export function buildNvxConstrainedLaunchCommand(options: {
     '--proc', '/proc',
     '--dev', '/dev',
     '--dev-bind', '/dev/kvm', '/dev/kvm',
-    '--dev-bind', '/dev/net/tun', '/dev/net/tun',
     '--tmpfs', '/tmp',
   ];
   for (const systemPath of readOnlyPaths) {
@@ -159,6 +160,13 @@ export function buildNvxConstrainedLaunchCommand(options: {
     '--ro-bind', nvxRoot, '/opt/awf-nvx',
     '--bind', runDirectory, '/run/awf-nvx',
     '--chdir', '/opt/awf-nvx',
+    '--clearenv',
+    '--setenv', 'TERM', 'dumb',
+    '--setenv', 'HOME', '/nonexistent',
+    '--setenv', 'PATH', '/usr/sbin:/usr/bin:/sbin:/bin',
+    '--setenv', 'LANG', 'C.UTF-8',
+    '--setenv', 'LC_ALL', 'C.UTF-8',
+    '--setenv', 'OPENVMM_LOG', 'off',
     options.tools.setpriv,
     `--reuid=${options.identity.uid}`,
     `--regid=${options.identity.gid}`,
@@ -168,9 +176,8 @@ export function buildNvxConstrainedLaunchCommand(options: {
     '--bounding-set=-all',
     '--ambient-caps=-all',
     '--',
-    options.tools.python,
-    '/opt/awf-nvx/nvx.py',
-    ...options.nvxArguments,
+    '/opt/awf-nvx/openvmm',
+    ...options.openvmmArguments,
   );
 
   return {
@@ -198,17 +205,17 @@ export function buildNvxConstrainedLaunchCommand(options: {
 export function computeNvxCgroupLimits(options: {
   readonly guestMemoryMib: number;
   readonly vcpuCount: number;
-  readonly pidsMax: number;
+  readonly hostPidsMax: number;
 }): NvxCgroupLimits {
   assertPositiveInteger(options.guestMemoryMib, 'NVX guest memory');
   assertPositiveInteger(options.vcpuCount, 'NVX vCPU count');
-  assertPositiveInteger(options.pidsMax, 'NVX process limit');
+  assertPositiveInteger(options.hostPidsMax, 'NVX host process limit');
   const memoryHeadroomMib = 256;
   const period = 100_000;
   return {
     memoryMax: String((options.guestMemoryMib + memoryHeadroomMib) * 1024 * 1024),
     cpuMax: `${(options.vcpuCount + 1) * period} ${period}`,
-    pidsMax: String(options.pidsMax),
+    pidsMax: String(options.hostPidsMax),
   };
 }
 
@@ -231,14 +238,21 @@ Promise<NvxConfinementEvidence> {
   }
   const procDirectory = `/proc/${options.openvmmPid}`;
   const expectedExecutable = await dependencies.realpath(options.expectedOpenvmmExecutable);
+  const expectedExecutableIdentity = await dependencies.stat(expectedExecutable);
   const initialStartTime = parseProcessStartTime(
     await dependencies.readFile(path.join(procDirectory, 'stat'), 'utf8'),
   );
   const executable = await dependencies.readlink(path.join(procDirectory, 'exe'));
-  if (executable !== expectedExecutable) {
+  const executableIdentity = await dependencies.stat(path.join(procDirectory, 'exe'));
+  if (
+    executableIdentity.dev !== expectedExecutableIdentity.dev ||
+    executableIdentity.ino !== expectedExecutableIdentity.ino
+  ) {
     throw new Error(
-      `NVX confinement found OpenVMM executable ${JSON.stringify(executable)}, ` +
-      `expected ${JSON.stringify(expectedExecutable)}`,
+      `NVX confinement found OpenVMM executable ${JSON.stringify(executable)} ` +
+      `with device/inode ${executableIdentity.dev}:${executableIdentity.ino}, expected ` +
+      `${JSON.stringify(expectedExecutable)} with device/inode ` +
+      `${expectedExecutableIdentity.dev}:${expectedExecutableIdentity.ino}`,
     );
   }
 

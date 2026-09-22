@@ -316,35 +316,94 @@ function pathIsUnderMount(target: string, mountPoint: string): boolean {
   return target === mountPoint || target.startsWith(normalizedMountPoint);
 }
 
+interface CloudHypervisorMountDescription {
+  mountPoint: string;
+  filesystemType: string;
+  source: string;
+  /** Per-mount options, e.g. `rw,nosuid,nodev,noexec,relatime`. */
+  options: string;
+  /** Superblock options, which can independently carry `noexec`. */
+  superblockOptions: string;
+}
+
+/**
+ * Resolves the most specific `/proc/self/mountinfo` entry containing
+ * `filePath`, so execution failures can be attributed to the mount the
+ * trusted artifacts were staged on.
+ */
+function findMountForPath(
+  mountInfo: string,
+  filePath: string,
+): CloudHypervisorMountDescription | undefined {
+  let best: CloudHypervisorMountDescription | undefined;
+  for (const line of mountInfo.split('\n')) {
+    if (!line.trim()) continue;
+    const separator = line.indexOf(' - ');
+    if (separator < 0) continue;
+    const left = line.slice(0, separator).split(' ');
+    const right = line.slice(separator + 3).split(' ');
+    if (left.length < 6 || right.length < 3) continue;
+    const mountPoint = mountInfoUnescape(left[4]);
+    if (!pathIsUnderMount(filePath, mountPoint)) continue;
+    if (!best || mountPoint.length > best.mountPoint.length) {
+      best = {
+        mountPoint,
+        filesystemType: right[0],
+        source: mountInfoUnescape(right[1]),
+        options: left[5],
+        superblockOptions: right[2],
+      };
+    }
+  }
+  return best;
+}
+
+function mountRejectsExecution(mount: CloudHypervisorMountDescription): boolean {
+  return [mount.options, mount.superblockOptions].some((options) =>
+    options.split(',').includes('noexec'));
+}
+
+/**
+ * Fails closed before any artifact is staged when the trusted-artifact root
+ * sits on a `noexec` mount. Without this the copy succeeds and the failure
+ * only surfaces later as an opaque `EACCES` from the `--version` probe,
+ * which aborts the whole engine run. See gh-aw-firewall#8827.
+ *
+ * Best effort: when `/proc/self/mountinfo` is unreadable or has no matching
+ * entry the staging continues, and the digest-verified `--version` probe
+ * remains the authoritative execution check.
+ */
+async function assertExecCapableArtifactRoot(directory: string): Promise<void> {
+  let resolvedDirectory = directory;
+  try {
+    resolvedDirectory = await fs.realpath(directory);
+  } catch {
+    // Fall back to the lexical path so mountinfo can still detect noexec.
+  }
+  let mount: CloudHypervisorMountDescription | undefined;
+  try {
+    mount = findMountForPath(
+      await fs.readFile('/proc/self/mountinfo', 'utf8'),
+      resolvedDirectory,
+    );
+  } catch {
+    return;
+  }
+  if (!mount || !mountRejectsExecution(mount)) return;
+  throw new Error(
+    `Cloud Hypervisor trusted artifact root "${directory}" is on a mount that rejects ` +
+    `execution (mount: ${mount.mountPoint} type=${mount.filesystemType} ` +
+    `source=${mount.source} options=${mount.options} superblock=${mount.superblockOptions}); ` +
+    'remount it without "noexec" so the staged cloud-hypervisor binary can be executed',
+  );
+}
+
 async function describeMountForPath(filePath: string): Promise<string> {
   try {
-    const mountInfo = await fs.readFile('/proc/self/mountinfo', 'utf8');
-    let best:
-      | {
-        mountPoint: string;
-        filesystemType: string;
-        source: string;
-        options: string;
-      }
-      | undefined;
-    for (const line of mountInfo.split('\n')) {
-      if (!line.trim()) continue;
-      const separator = line.indexOf(' - ');
-      if (separator < 0) continue;
-      const left = line.slice(0, separator).split(' ');
-      const right = line.slice(separator + 3).split(' ');
-      if (left.length < 6 || right.length < 3) continue;
-      const mountPoint = mountInfoUnescape(left[4]);
-      if (!pathIsUnderMount(filePath, mountPoint)) continue;
-      if (!best || mountPoint.length > best.mountPoint.length) {
-        best = {
-          mountPoint,
-          filesystemType: right[0],
-          source: mountInfoUnescape(right[1]),
-          options: left[5],
-        };
-      }
-    }
+    const best = findMountForPath(
+      await fs.readFile('/proc/self/mountinfo', 'utf8'),
+      filePath,
+    );
     if (!best) return 'mount: unavailable (no /proc/self/mountinfo match)';
     return `mount: ${best.mountPoint} type=${best.filesystemType} source=${best.source} options=${best.options}`;
   } catch (error) {
@@ -546,6 +605,7 @@ async function createArtifactSnapshot(
     mode: 0o711,
   });
   await fs.chmod(CLOUD_HYPERVISOR_ARTIFACT_SNAPSHOT_ROOT, 0o711);
+  await assertExecCapableArtifactRoot(CLOUD_HYPERVISOR_ARTIFACT_SNAPSHOT_ROOT);
   const directory = await fs.mkdtemp(
     path.join(CLOUD_HYPERVISOR_ARTIFACT_SNAPSHOT_ROOT, 'run-'),
   );

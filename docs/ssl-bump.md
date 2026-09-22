@@ -13,7 +13,14 @@ SSL Bump enables deep inspection of HTTPS traffic, allowing URL path filtering i
 
 ## Overview
 
-By default, awf filters HTTPS traffic based on domain names using SNI (Server Name Indication). This means you can allow or block `github.com`, but you cannot restrict access to specific paths like `https://github.com/myorg/*`.
+By default, awf validates both the CONNECT target and the TLS ClientHello SNI
+against the domain allowlist. Squid then splices the connection without
+decrypting application traffic. This blocks domain-fronting attempts where a
+client opens a tunnel to an allowed shared CDN host but requests a different,
+non-allowlisted TLS server name.
+
+Default SNI enforcement lets you allow or block `github.com`, but it cannot
+restrict access to specific paths like `https://github.com/myorg/*`.
 
 With SSL Bump enabled (`--ssl-bump`), the firewall generates a per-session CA certificate and intercepts HTTPS connections. This allows:
 

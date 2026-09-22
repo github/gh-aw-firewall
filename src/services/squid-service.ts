@@ -5,6 +5,7 @@ import type { RuntimeImageName } from '../image-resolver';
 import { logger } from '../logger';
 import { WrapperConfig } from '../types';
 import { applyHostPathPrefixToVolumes } from './host-path-prefix';
+import { SNI_GUARD_CERT_PATH, SNI_GUARD_KEY_PATH } from '../squid/ssl-bump';
 
 /** Network configuration passed to service builders */
 export interface NetworkConfig {
@@ -154,6 +155,12 @@ export function buildSquidService(params: SquidServiceParams): any {
     logFilePreflight +
     `; if [ -d /var/spool/squid_ssl_db ]; then chown ${SQUID_PROXY_USER}:${SQUID_PROXY_USER} /var/spool/squid_ssl_db 2>/dev/null || chmod 0777 /var/spool/squid_ssl_db; fi`;
   const dropToProxy = `exec su -s /bin/bash ${SQUID_PROXY_USER} -c`;
+  const initializeSniGuard =
+    `if grep -Fq "cert=${SNI_GUARD_CERT_PATH}" /etc/squid/squid.conf; then ` +
+    `echo "[squid-entrypoint] Generating ephemeral TLS SNI guard certificate"; ` +
+    `umask 077; openssl req -x509 -newkey rsa:2048 -sha256 -nodes -days 1 ` +
+    `-subj "/CN=awf-sni-guard.invalid" -keyout ${SNI_GUARD_KEY_PATH} ` +
+    `-out ${SNI_GUARD_CERT_PATH} >/dev/null 2>&1; fi`;
 
   squidService.user = '0:0';
   if (squidConfigContent) {
@@ -167,7 +174,7 @@ export function buildSquidService(params: SquidServiceParams): any {
     // entrypoint's later sed -i succeeds), then exec the image entrypoint.
     squidService.entrypoint = [
       '/bin/bash', '-c',
-      `${chownPreflight} && ${dropToProxy} 'echo "$$AWF_SQUID_CONFIG_B64" | base64 -d > /etc/squid/squid.conf && exec /usr/local/bin/entrypoint.sh'`,
+      `${chownPreflight} && ${dropToProxy} 'echo "$$AWF_SQUID_CONFIG_B64" | base64 -d > /etc/squid/squid.conf && ${initializeSniGuard} && exec /usr/local/bin/entrypoint.sh'`,
     ];
   } else {
     // No config injection — just chown + drop + run the image entrypoint.

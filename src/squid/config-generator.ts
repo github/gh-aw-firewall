@@ -80,6 +80,7 @@ export function generateSquidConfig(config: SquidConfig): string {
     sslDbPath,
     urlPatterns,
     domains,
+    blockedDomains,
     domainsByProto,
     patternsByProto,
     enableHostAccess,

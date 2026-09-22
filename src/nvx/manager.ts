@@ -36,24 +36,22 @@ import {
   NvxCgroupManager,
   NvxVmmIdentityManager,
   bindNvxNetworkPlan,
-  buildNvxPhase3bLaunchPlan,
-  type NvxPhase3bLaunchPlan,
+  buildNvxPhase3dLaunchPlan,
+  type NvxPhase3dLaunchPlan,
   type NvxRuntimeToolPaths,
   type NvxVmmIdentity,
 } from './runtime-lifecycle';
-
-export const NVX_LAUNCH_ABI_BLOCKED_ERROR =
-  'NVX launch is disabled: the pinned nvx.py artifact layout and pre-workload ' +
-  'readiness ABI are not yet verified; refusing unconstrained execution';
+import { DirectOpenvmmLaunchExecutor } from './launch-executor';
 
 export interface NvxLaunchHooks {
   launcherStarted(pid: number): Promise<void>;
+  sandboxStarted(pid: number): Promise<void>;
   openvmmReady(pid: number, mountNamespaceInode: string): Promise<void>;
 }
 
 export interface NvxLaunchExecutor {
   execute(options: {
-    readonly plan: NvxPhase3bLaunchPlan;
+    readonly plan: NvxPhase3dLaunchPlan;
     readonly request: NvxOneShotExecutionRequest;
     readonly hooks: NvxLaunchHooks;
   }): Promise<NvxOneShotExecutionResult>;
@@ -95,49 +93,45 @@ export interface NvxManagerDependencies {
     tools: NvxRuntimeToolPaths,
   ): Promise<MicrovmNetworkReservation>;
   createNetwork(
-    plan: NvxPhase3bLaunchPlan['networkPlan'],
+    plan: NvxPhase3dLaunchPlan['networkPlan'],
     tools: NvxRuntimeToolPaths,
     reservation: MicrovmNetworkReservation,
     observer: { resourceCreated(resource: 'netns' | 'hostVeth' | 'namespaceVeth' | 'tap'): Promise<void> },
   ): MicrovmNetworkLifecycle;
-  createCgroup(path: string, limits: NvxPhase3bLaunchPlan['cgroupLimits']): NvxCgroupManager;
+  createCgroup(path: string, limits: NvxPhase3dLaunchPlan['cgroupLimits']): NvxCgroupManager;
   launchExecutor: NvxLaunchExecutor;
   verifyConfinement: typeof verifyNvxConfinement;
   chown: typeof fs.chown;
   rm: typeof fs.rm;
 }
 
-const blockedExecutor: NvxLaunchExecutor = {
-  execute: async () => {
-    throw new Error(NVX_LAUNCH_ABI_BLOCKED_ERROR);
-  },
-};
-
-const defaultDependencies: NvxManagerDependencies = {
-  preflight: (options, hooks) => runNvxPreflight(options, undefined, hooks),
-  cleanupRegistry: new DurableNvxCleanupRegistry(),
-  createIdentity: (runId, tools, observer) =>
-    new NvxVmmIdentityManager(runId, tools, undefined, observer),
-  createFilesystem: (config) => new NvxFilesystemBuilder(config),
-  reserveNetwork: (runId, options, tools) => reserveMicrovmNetworkPlan(
-    runId,
-    options,
-    tools,
-    (plan) => bindNvxNetworkPlan(runId, plan),
-  ),
-  createNetwork: (plan, tools, reservation, observer) => new MicrovmNetworkManager(
-    plan,
-    new LinuxNetworkCommands(undefined, tools),
-    undefined,
-    reservation,
-    observer,
-  ),
-  createCgroup: (cgroupPath, limits) => new NvxCgroupManager(cgroupPath, limits),
-  launchExecutor: blockedExecutor,
-  verifyConfinement: verifyNvxConfinement,
-  chown: fs.chown,
-  rm: fs.rm,
-};
+export function createDefaultNvxManagerDependencies(): NvxManagerDependencies {
+  return {
+    preflight: (options, hooks) => runNvxPreflight(options, undefined, hooks),
+    cleanupRegistry: new DurableNvxCleanupRegistry(),
+    createIdentity: (runId, tools, observer) =>
+      new NvxVmmIdentityManager(runId, tools, undefined, observer),
+    createFilesystem: (config) => new NvxFilesystemBuilder(config),
+    reserveNetwork: (runId, options, tools) => reserveMicrovmNetworkPlan(
+      runId,
+      options,
+      tools,
+      (plan) => bindNvxNetworkPlan(runId, plan),
+    ),
+    createNetwork: (plan, tools, reservation, observer) => new MicrovmNetworkManager(
+      plan,
+      new LinuxNetworkCommands(undefined, tools),
+      undefined,
+      reservation,
+      observer,
+    ),
+    createCgroup: (cgroupPath, limits) => new NvxCgroupManager(cgroupPath, limits),
+    launchExecutor: new DirectOpenvmmLaunchExecutor(),
+    verifyConfinement: verifyNvxConfinement,
+    chown: fs.chown,
+    rm: fs.rm,
+  };
+}
 
 export class NvxManager {
   private cleanupHandle: NvxCleanupHandle | undefined;
@@ -147,14 +141,16 @@ export class NvxManager {
   private networkReservation: MicrovmNetworkReservation | undefined;
   private network: MicrovmNetworkLifecycle | undefined;
   private cgroup: NvxCgroupManager | undefined;
-  private launchPlan: NvxPhase3bLaunchPlan | undefined;
+  private launchPlan: NvxPhase3dLaunchPlan | undefined;
   private launcherPid: number | undefined;
+  private sandboxPid: number | undefined;
   private openvmmPid: number | undefined;
   private confinementEvidence: NvxConfinementEvidence | undefined;
 
   constructor(
     private readonly config: NvxManagerConfig,
-    private readonly dependencies: NvxManagerDependencies = defaultDependencies,
+    private readonly dependencies: NvxManagerDependencies =
+      createDefaultNvxManagerDependencies(),
   ) {}
 
   async execute(): Promise<NvxOneShotExecutionResult> {
@@ -197,7 +193,7 @@ export class NvxManager {
         enableApiProxy: this.config.network.enableApiProxy,
         tapOwnerUid: identity.uid,
         tapOwnerGid: identity.gid,
-        tapVnetHdr: true,
+        createTap: false,
         controlPeers: this.config.network.controlPeers,
       }, tools);
       const networkPlan = this.networkReservation.plan;
@@ -224,7 +220,7 @@ export class NvxManager {
       }
       await this.dependencies.chown(filesystem.scratch.path, identity.uid, identity.gid);
       await cleanupHandle.captureRunDirectory();
-      this.launchPlan = buildNvxPhase3bLaunchPlan({
+      this.launchPlan = buildNvxPhase3dLaunchPlan({
         runId: this.config.runId,
         tools,
         identity,
@@ -252,21 +248,27 @@ export class NvxManager {
           hooks: {
             launcherStarted: async (pid) => {
               this.launcherPid = pid;
-              await this.cgroup!.assignProcessTree([pid]);
               await cleanupHandle.captureProcess('launcher', pid);
             },
-            openvmmReady: async (pid, mountNamespaceInode) => {
+            sandboxStarted: async (pid) => {
               if (this.launcherPid === undefined) {
-                throw new Error('NVX OpenVMM became ready before its launcher was recorded');
+                throw new Error('NVX sandbox started before its launcher was recorded');
+              }
+              this.sandboxPid = pid;
+              await this.cgroup!.assignProcessTree([this.launcherPid, pid]);
+            },
+            openvmmReady: async (pid, mountNamespaceInode) => {
+              if (this.launcherPid === undefined || this.sandboxPid === undefined) {
+                throw new Error('NVX OpenVMM became ready before its launch processes were recorded');
               }
               this.openvmmPid = pid;
-              await this.cgroup!.assignProcessTree([this.launcherPid, pid]);
+              await this.cgroup!.assignProcessTree([this.launcherPid, this.sandboxPid, pid]);
               await cleanupHandle.captureProcess('openvmm', pid);
               await cleanupHandle.captureMountNamespace(mountNamespaceInode);
               this.confinementEvidence = await this.dependencies.verifyConfinement({
                 openvmmPid: pid,
                 expectedOpenvmmExecutable: this.preflightResult!.snapshot.openvmm,
-                expectedCgroupPids: [this.launcherPid, pid],
+                expectedCgroupPids: [this.launcherPid, this.sandboxPid, pid],
                 identity,
                 launchPolicy: this.launchPlan!.launchCommand.confinementPolicy,
                 networkNamespace: this.launchPlan!.networkPlan.namespaceName,
@@ -353,21 +355,17 @@ function createExecutionRequest(
   execution: NvxManagerConfig['execution'],
   preflight: NvxPreflightResult,
   filesystem: NvxFilesystemBundle,
-  plan: NvxPhase3bLaunchPlan,
+  plan: NvxPhase3dLaunchPlan,
 ): NvxOneShotExecutionRequest {
-  const squid = plan.networkPlan.allowedEndpoints.find(({ name }) => name === 'squid');
-  if (!squid) throw new Error('NVX network plan has no Squid endpoint');
   return {
     ...execution,
     nvxRoot: preflight.snapshot.directory,
     filesystem,
     network: {
       guestAddress: `${plan.networkPlan.guestIp}/${plan.networkPlan.guestPrefixLength}`,
-      proxyAddress: `${squid.ip}:${squid.port}`,
       egressAllow: plan.networkPlan.allowedEndpoints.map(
-        ({ ip, port }) => `${ip}:tcp:${port}`,
+        ({ ip, port }) => `${ip}/32:tcp:${port}`,
       ),
-      egressDeny: ['0.0.0.0/0'],
     },
   };
 }
@@ -383,7 +381,6 @@ function toRuntimeTools(tools: NvxPreflightResult['tools']): NvxRuntimeToolPaths
     ip: tools.ip,
     iptables: tools.iptables,
     nft: tools.nft,
-    python3: tools.python3,
     setfacl: tools.setfacl,
     setpriv: tools.setpriv,
     sysctl: tools.sysctl,

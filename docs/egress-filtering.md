@@ -2,7 +2,8 @@
 
 ## TL;DR
 
-**Domain allowlist is the primary security control. Port restrictions are defense-in-depth.**
+**The domain allowlist, enforced against both CONNECT targets and TLS SNI, is
+the primary security control. Port restrictions are defense-in-depth.**
 
 ## Why Squid Restricts CONNECT to Ports 80/443
 
@@ -37,24 +38,37 @@ Even [Nmap's reference-guide source](https://github.com/nmap/nmap/blob/d5645bf76
 
 **3. Defense-in-depth principle**: Forces attackers to use sophisticated techniques rather than obvious ports.
 
-## The Real Security: Domain Allowlist
+## The Real Security: Domain and SNI Allowlisting
 
-Port restrictions fail when attackers control infrastructure on port 443. Domain allowlists don't:
+Port restrictions fail when attackers control infrastructure on port 443.
+AWF validates both the plaintext CONNECT target and the TLS ClientHello SNI:
 
 ```
 CONNECT attacker.com:443
   → Port 443? ✓
   → Domain in allowlist? ✗ DENIED
+
+CONNECT allowed-cdn.example:443
+  → CONNECT domain in allowlist? ✓
+  → TLS SNI attacker.example? ✗ TERMINATED
 ```
 
-**Even this has limits.** [DNS tunneling](https://www.paloaltonetworks.com/cyberpedia/what-is-dns-tunneling) can exfiltrate data through allowed DNS servers by encoding data in queries. Mitigation requires DNS traffic analysis, not just filtering.
+For normal HTTPS traffic, Squid peeks only at the ClientHello and then splices
+the connection without decrypting application data. Missing or non-allowlisted
+SNI fails closed. Trusted AWF-owned sidecars retain their separately scoped
+egress policies.
+
+**Even this has limits.** An attacker can still misuse a compromised or
+intentionally allowlisted origin. DNS tunneling can exfiltrate data through
+allowed DNS servers by encoding data in queries. These risks require additional
+controls beyond domain and SNI filtering.
 
 ## Security Layers Compared
 
 | Layer | What It Blocks | Bypass Method |
 |-------|----------------|---------------|
 | Port restriction | SSH:22, SMTP:25, DB:3306 | Run service on 443 |
-| Domain allowlist | Non-whitelisted domains | Compromise allowed domain, DNS tunneling |
+| CONNECT + SNI allowlist | Non-whitelisted TLS destinations and CDN fronting | Compromise or misuse an allowed origin |
 | SSL Bump/DPI | Malicious content on allowed domains | Performance cost, cert complexity |
 
 ## Conclusion
@@ -64,4 +78,6 @@ Port restrictions are **not security theater, but not primary security either**.
 - Increase attacker effort and sophistication required
 - Align with [NIST SP 800-41](https://nvlpubs.nist.gov/nistpubs/legacy/sp/nistspecialpublication800-41r1.pdf) egress filtering guidance
 
-**AWF's security relies on the domain allowlist.** Keep it minimal. Port restrictions are a useful secondary layer but won't stop a determined attacker with infrastructure on port 443.
+**AWF's security relies on the domain and SNI allowlist.** Keep it minimal.
+Port restrictions are a useful secondary layer but will not stop misuse of an
+origin that is intentionally allowlisted.

@@ -35,6 +35,7 @@ function status(taskId: number, overrides: Partial<Record<string, string>> = {})
 
 function dependencies(overrides: {
   executable?: string;
+  executableIdentityMismatch?: boolean;
   status?: string;
   finalStartTime?: string;
   cgroupPids?: string;
@@ -73,7 +74,15 @@ function dependencies(overrides: {
     }),
     readdir: jest.fn().mockResolvedValue([String(PID)]),
     realpath: jest.fn().mockResolvedValue('/trusted/openvmm'),
-    stat: jest.fn().mockResolvedValue({ ino: 4026533000n }),
+    stat: jest.fn(async (filePath) => {
+      if (filePath === '/trusted/openvmm') return { dev: 10n, ino: 20n };
+      if (filePath === `/proc/${PID}/exe`) {
+        return overrides.executableIdentityMismatch
+          ? { dev: 10n, ino: 21n }
+          : { dev: 10n, ino: 20n };
+      }
+      return { dev: 0n, ino: 4026533000n };
+    }),
   };
 }
 
@@ -83,14 +92,13 @@ function verificationOptions() {
       ip: '/usr/sbin/ip',
       bwrap: '/usr/bin/bwrap',
       setpriv: '/usr/bin/setpriv',
-      python: '/usr/bin/python3',
     },
     namespaceName: 'awfnvx-test',
     identity: { uid: 1000, gid: 1001 },
     nvxRoot: `/run/awf-nvx/trusted-artifacts/run-${RUN_ID}`,
     runDirectory: `/run/awf-nvx/runs/${RUN_ID}`,
     systemReadOnlyPaths: ['/usr', '/bin', '/lib', '/lib64', '/etc/ssl'],
-    nvxArguments: ['sandbox', 'run', '--outcome-report=/run/awf-nvx/outcome.json'],
+    openvmmArguments: ['--paused', '--machine', 'microvm'],
   });
   return {
     openvmmPid: PID,
@@ -116,14 +124,13 @@ describe('NVX host confinement', () => {
         ip: '/usr/sbin/ip',
         bwrap: '/usr/bin/bwrap',
         setpriv: '/usr/bin/setpriv',
-        python: '/usr/bin/python3',
       },
       namespaceName: 'awfnvx-abc123',
       identity: { uid: 1000, gid: 1001 },
       nvxRoot: `/run/awf-nvx/trusted-artifacts/run-${RUN_ID}`,
       runDirectory: `/run/awf-nvx/runs/${RUN_ID}`,
       systemReadOnlyPaths: ['/usr', '/bin', '/lib', '/lib64', '/etc/ssl'],
-      nvxArguments: ['sandbox', 'run'],
+      openvmmArguments: ['--paused', '--machine', 'microvm'],
     });
 
     expect(result.command).toBe('/usr/sbin/ip');
@@ -133,16 +140,24 @@ describe('NVX host confinement', () => {
     expect(result.args).toEqual(expect.arrayContaining([
       '--unshare-pid',
       '--unshare-ipc',
+      '--block-fd', '3',
+      '--json-status-fd', '4',
+      '--seccomp', '5',
+      '--clearenv',
+      '--setenv', 'TERM', 'dumb',
+      '--setenv', 'HOME', '/nonexistent',
       '--dev-bind', '/dev/kvm',
       '--ro-bind', `/run/awf-nvx/trusted-artifacts/run-${RUN_ID}`,
       '--bind', `/run/awf-nvx/runs/${RUN_ID}`,
       '--clear-groups',
       '--no-new-privs',
       '--bounding-set=-all',
-      '/opt/awf-nvx/nvx.py',
-      'sandbox',
-      'run',
+      '/opt/awf-nvx/openvmm',
+      '--paused',
+      '--machine',
+      'microvm',
     ]));
+    expect(result.args).not.toContain('/dev/net/tun');
     expect(result.args).not.toContain('/bin/sh');
     expect(result.confinementPolicy.supplementaryGroups).toEqual([]);
     expect(result.confinementPolicy.capabilities.effective)
@@ -155,14 +170,13 @@ describe('NVX host confinement', () => {
         ip: '/usr/sbin/ip',
         bwrap: '/usr/bin/bwrap',
         setpriv: '/usr/bin/setpriv',
-        python: '/usr/bin/python3',
       },
       namespaceName: 'awfnvx-test',
       identity: { uid: 1000, gid: 1001 },
       nvxRoot: `/run/awf-nvx/trusted-artifacts/run-${RUN_ID}`,
       runDirectory: `/run/awf-nvx/runs/${RUN_ID}`,
       systemReadOnlyPaths: ['/usr', '/home/runner'],
-      nvxArguments: [],
+      openvmmArguments: [],
     })).toThrow(/rejects system root/);
   });
 
@@ -172,12 +186,11 @@ describe('NVX host confinement', () => {
         ip: '/usr/sbin/ip',
         bwrap: '/usr/bin/bwrap',
         setpriv: '/usr/bin/setpriv',
-        python: '/usr/bin/python3',
       },
       namespaceName: 'awfnvx-test',
       identity: { uid: 1000, gid: 1001 },
       systemReadOnlyPaths: ['/usr', '/bin', '/lib', '/lib64', '/etc/ssl'],
-      nvxArguments: [],
+      openvmmArguments: [],
     };
     expect(() => buildNvxConstrainedLaunchCommand({
       ...baseOptions,
@@ -200,7 +213,7 @@ describe('NVX host confinement', () => {
     expect(computeNvxCgroupLimits({
       guestMemoryMib: 512,
       vcpuCount: 2,
-      pidsMax: 256,
+      hostPidsMax: 256,
     })).toEqual({
       memoryMax: String(768 * 1024 * 1024),
       cpuMax: '300000 100000',
@@ -230,7 +243,10 @@ describe('NVX host confinement', () => {
   });
 
   it.each([
-    ['executable substitution', { executable: '/usr/bin/python3' }, /executable/],
+    ['executable substitution', {
+      executable: '/usr/bin/python3',
+      executableIdentityMismatch: true,
+    }, /executable/],
     ['supplementary group retention', {
       status: status(PID, { Groups: '27' }),
     }, /supplementary groups/],

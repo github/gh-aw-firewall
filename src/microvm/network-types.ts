@@ -48,6 +48,8 @@ export interface MicrovmNetworkPlanOptions {
    * This defaults to `false`; Cloud Hypervisor opts in explicitly.
    */
   readonly tapVnetHdr?: boolean;
+  /** Skip TAP creation for VMM network backends that use host sockets. */
+  readonly createTap?: boolean;
 }
 
 export interface MicrovmNetworkPlanAllocation {
@@ -80,6 +82,7 @@ export interface MicrovmNetworkPlan {
   readonly tapOwnerUid: number;
   readonly tapOwnerGid: number;
   readonly tapVnetHdr: boolean;
+  readonly tapEnabled?: boolean;
   readonly allowedEndpoints: readonly MicrovmAllowedEndpoint[];
   readonly networkInterface: MicrovmTapInterface;
 }

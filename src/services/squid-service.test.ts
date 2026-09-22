@@ -56,6 +56,9 @@ describe('squid service', () => {
       // Should override entrypoint to decode config before starting squid
       expect(squid.entrypoint).toBeDefined();
       expect(squid.entrypoint[2]).toContain('base64 -d > /etc/squid/squid.conf');
+      expect(squid.entrypoint[2]).toContain('Generating ephemeral TLS SNI guard certificate');
+      expect(squid.entrypoint[2]).toContain('/var/run/squid/awf-sni-guard-cert.pem');
+      expect(squid.entrypoint[2]).toContain('openssl req -x509');
       expect(squid.entrypoint[2]).toContain('entrypoint.sh');
     });
 

@@ -1,4 +1,4 @@
-name: NVX Phase 3b Live KVM Validation
+name: NVX Phase 3d Direct Launch Validation
 
 on:
   workflow_dispatch:
@@ -16,7 +16,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: nvx-phase-3b-${{ github.ref }}
+  group: nvx-phase-3d-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -45,11 +45,84 @@ jobs:
       - name: Install host validation tools
         run: |
           sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends acl jq nftables uidmap
+          sudo apt-get install --yes --no-install-recommends acl bubblewrap jq nftables uidmap
+
+      - name: Cache pinned NVX release
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/nvx-release
+          key: nvx-linux-kvm-d561c4300ebe-705c863cf7183e89
+
+      - name: Fetch pinned NVX source and release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NVX_COMMIT: d561c4300ebe854baba5d154056ead6f9d462047
+          NVX_OPENVMM_COMMIT: 0bc357bbcf3a654b63dfb51f1103c5751bf3d31f
+          NVX_RELEASE: v0.1.0-dev.d561c4300ebe
+          NVX_ARCHIVE: nvx-0.1.0-linux-kvm.tar.gz
+          NVX_ARCHIVE_SHA256: 705c863cf7183e89606542b12961644eefd24fed8b2520156dd5cb63a3982699
+        run: |
+          set -euo pipefail
+          source_dir="$RUNNER_TEMP/nvx-source"
+          release_dir="$RUNNER_TEMP/nvx-release"
+          mkdir -p "$release_dir"
+          if [ ! -f "$release_dir/$NVX_ARCHIVE" ]; then
+            gh release download "$NVX_RELEASE" \
+              --repo microsoft/nvx \
+              --pattern "$NVX_ARCHIVE" \
+              --dir "$release_dir"
+          fi
+          printf '%s  %s\n' "$NVX_ARCHIVE_SHA256" "$release_dir/$NVX_ARCHIVE" \
+            | sha256sum --check --status
+          rm -rf "$release_dir/nvx-0.1.0-linux-kvm"
+          tar -xzf "$release_dir/$NVX_ARCHIVE" -C "$release_dir"
+          (
+            cd "$release_dir/nvx-0.1.0-linux-kvm"
+            sha256sum --check SHA256SUMS
+          )
+          git clone --filter=blob:none --no-checkout \
+            https://github.com/microsoft/nvx.git "$source_dir"
+          git -C "$source_dir" fetch --depth 1 origin "$NVX_COMMIT"
+          git -C "$source_dir" checkout --detach "$NVX_COMMIT"
+          git -C "$source_dir" submodule update --init --depth 1 openvmm
+          test "$(git -C "$source_dir/openvmm" rev-parse HEAD)" = "$NVX_OPENVMM_COMMIT"
+
+      - name: Probe pinned direct-launch contract
+        run: |
+          set -euo pipefail
+          source_dir="$RUNNER_TEMP/nvx-source"
+          package_dir="$RUNNER_TEMP/nvx-release/nvx-0.1.0-linux-kvm"
+          test -x "$package_dir/bin/openvmm"
+          test -s "$package_dir/guest/vmlinux"
+          test -s "$package_dir/guest/initramfs.cpio.gz"
+          help=$("$package_dir/bin/openvmm" --help)
+          for flag in \
+            --machine --microvm-sandbox-block --microvm-workload-identity \
+            --microvm-lifecycle --single-process --hypervisor --memory \
+            --kernel --initrd --cmdline --net --network-profile \
+            --network-egress --network-ingress --network-egress-allow \
+            --network-egress-deny --host-loopback --network-proxy \
+            --host-loopback-forward --microvm-report --paused; do
+            grep -q -- "$flag" <<<"$help"
+          done
+          bwrap_help=$(bwrap --help)
+          grep -q -- '--block-fd' <<<"$bwrap_help"
+          grep -q -- '--json-status-fd' <<<"$bwrap_help"
+          grep -q -- '--seccomp' <<<"$bwrap_help"
+          grep -Fq 'nvx_pids_max={self.pids_max + 1}' \
+            "$source_dir/scripts/nvx_tools/sandbox.py"
+          grep -Fq 'proxy.address != self.gateway_ipv4' \
+            "$source_dir/openvmm/vm/devices/net/net_backend_resources/src/egress.rs"
+          grep -Fq 'if deny.iter().any' \
+            "$source_dir/openvmm/vm/devices/net/net_backend_resources/src/egress.rs"
+          grep -Fq 'readline("openvmm> ")' \
+            "$source_dir/openvmm/openvmm/openvmm_entry/src/repl.rs"
+          grep -Fq 'position(|x| *x == 0x11)' \
+            "$source_dir/openvmm/openvmm/openvmm_entry/src/repl.rs"
 
       - name: Capture host preflight and privileged-resource evidence
         env:
-          EVIDENCE_DIR: ${{ runner.temp }}/nvx-phase-3b-evidence
+          EVIDENCE_DIR: ${{ runner.temp }}/nvx-phase-3d-evidence
         run: |
           set -euo pipefail
           umask 077
@@ -107,7 +180,7 @@ jobs:
             if [ -d "$cgroup_parent" ]; then
               cleanup_errors+=("cgroup-parent:$cgroup_parent")
             fi
-            for device in /dev/kvm /dev/net/tun; do
+            for device in /dev/kvm; do
               if [ -n "${uid:-}" ]; then
                 sudo setfacl -x "u:$uid" "$device" >/dev/null 2>&1
                 if sudo getfacl --absolute-names --numeric "$device" 2>/dev/null \
@@ -143,7 +216,7 @@ jobs:
             record host-preflight FAIL '{"reason":"NVX requires Linux x86_64"}'
             exit 1
           fi
-          for device in /dev/kvm /dev/net/tun; do
+          for device in /dev/kvm; do
             if [ ! -e "$device" ]; then
               record host-preflight FAIL "$(jq -cn --arg device "$device" '{missing:$device}')"
               exit 1
@@ -185,7 +258,7 @@ jobs:
             --arg passwd "$passwd_entry" \
             '{name:$name,uid:($uid|tonumber),gid:($gid|tonumber),passwd:$passwd,supplementaryGroups:[]}' )"
 
-          for device in /dev/kvm /dev/net/tun; do
+          for device in /dev/kvm; do
             before=$(stat -Lc '{"device":"%d","inode":"%i","mode":"%a"}' "$device")
             sudo setfacl -m "u:$uid:rw" "$device"
             acl_line=$(getfacl --absolute-names --numeric "$device" | grep "^user:$uid:rw-" || true)
@@ -252,13 +325,23 @@ jobs:
             --arg namespace "$netns_name" \
             --arg ruleset "$ruleset" \
             '{namespace:$namespace,denyByDefault:($ruleset|contains("policy drop")),squidAllowed:($ruleset|contains("172.30.0.10")),dnsDenied:($ruleset|contains("udp dport 53")),ruleset:$ruleset}')"
+          record direct-launch-contract PASS \
+            '{"openvmm":"pinned flags verified","bubblewrap":"block/status fd flags verified","tapRequired":false}'
+          record direct-live-boot BLOCKED \
+            '{"reason":"This lane does not yet have an AWF-attested three-artifact bundle and does not claim an end-to-end NvxManager guest boot."}'
 
-      - name: Run focused NVX Phase 3b tests
+      - name: Run focused NVX Phase 3d tests
         run: |
           npm test -- --runTestsByPath \
             src/nvx/cleanup-record.test.ts \
+            src/nvx/artifact-manifest.test.ts \
+            src/nvx/preflight.test.ts \
             src/nvx/runtime-lifecycle.test.ts \
             src/nvx/confinement.test.ts \
+            src/nvx/launch-executor.test.ts \
+            src/nvx/manager.test.ts \
+            src/nvx/one-shot-adapter.test.ts \
+            src/microvm/network.test.ts \
             src/container-runtime.test.ts
 
       - name: Build and type-check
@@ -270,7 +353,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: nvx-phase-3b-evidence
-          path: ${{ runner.temp }}/nvx-phase-3b-evidence/
+          name: nvx-phase-3d-evidence
+          path: ${{ runner.temp }}/nvx-phase-3d-evidence/
           if-no-files-found: warn
           retention-days: 7

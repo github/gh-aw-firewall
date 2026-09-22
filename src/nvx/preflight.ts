@@ -31,7 +31,6 @@ const REQUIRED_TOOLS = [
   'mkfs.erofs',
   'mke2fs',
   'nft',
-  'python3',
   'setfacl',
   'setpriv',
   'sysctl',
@@ -149,7 +148,6 @@ export async function runNvxPreflight(
     throw new Error('NVX preview requires effective uid 0');
   }
   await dependencies.access('/dev/kvm', constants.R_OK | constants.W_OK);
-  await dependencies.access('/dev/net/tun', constants.R_OK | constants.W_OK);
   const controllers = new Set(
     (await dependencies.readFile('/sys/fs/cgroup/cgroup.controllers'))
       .trim()
@@ -192,7 +190,7 @@ export async function runNvxPreflight(
     sourceStats[name] = await assertTrustedFile(
       artifactPath,
       `NVX ${name} artifact`,
-      name === 'launcher' || name === 'openvmm',
+      name === 'openvmm',
       dependencies,
     );
     assertManifestSize(
@@ -253,7 +251,7 @@ export async function runNvxPreflight(
       const snapshotStat = await assertTrustedFile(
         artifactPath,
         `snapshotted NVX ${artifactName} artifact`,
-        artifactName === 'launcher' || artifactName === 'openvmm',
+        artifactName === 'openvmm',
         dependencies,
       );
       assertManifestSize(
@@ -279,7 +277,6 @@ function assertSnapshotLayout(
 ): void {
   const expected: NvxArtifactSnapshot = {
     directory: layout.artifactSnapshotDirectory,
-    launcher: path.join(layout.artifactSnapshotDirectory, 'nvx.py'),
     openvmm: path.join(layout.artifactSnapshotDirectory, 'openvmm'),
     kernel: path.join(layout.artifactSnapshotDirectory, 'vmlinux'),
     initramfs: path.join(layout.artifactSnapshotDirectory, 'initramfs.cpio.gz'),
@@ -325,7 +322,7 @@ async function createArtifactSnapshot(
     for (const name of Object.keys(options.artifacts) as NvxTrustedArtifactName[]) {
       const destination = path.join(directory, path.basename(options.artifacts[name]));
       await fs.copyFile(options.artifacts[name], destination, constants.COPYFILE_EXCL);
-      await fs.chmod(destination, name === 'launcher' || name === 'openvmm' ? 0o555 : 0o444);
+      await fs.chmod(destination, name === 'openvmm' ? 0o555 : 0o444);
       copied[name] = destination;
     }
     const manifestPath = path.join(directory, 'manifest.json');
@@ -341,7 +338,6 @@ async function createArtifactSnapshot(
     await fs.chmod(directory, 0o555);
     return {
       directory,
-      launcher: copied.launcher,
       openvmm: copied.openvmm,
       kernel: copied.kernel,
       initramfs: copied.initramfs,

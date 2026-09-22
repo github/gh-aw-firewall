@@ -243,6 +243,25 @@ describe('microVM nftables policy', () => {
 });
 
 describe('microVM network lifecycle', () => {
+  it('supports a deny-by-default host-socket namespace without TAP setup', async () => {
+    const plan = createPlan('host-socket', { createTap: false });
+    const { calls, commands } = commandHarness();
+    const manager = new MicrovmNetworkManager(plan, commands);
+
+    await manager.setup();
+
+    const commandText = calls.map(({ args }) => args.join(' ')).join('\n');
+    expect(plan.tapEnabled).toBe(false);
+    expect(commandText).not.toContain('tuntap add');
+    expect(commandText).not.toContain('/dev/net/tun');
+    expect(commandText).not.toContain('net.ipv4.ip_forward=1');
+    const nftInput = generateMicrovmNftRuleset(plan);
+    expect(nftInput).toContain('chain output');
+    expect(nftInput).toContain('policy drop');
+    expect(nftInput).toContain('ip daddr 172.30.0.10 tcp dport 3128');
+    expect(nftInput).not.toContain(`iifname "${plan.tapName}"`);
+  });
+
   it('creates the namespace, veth, TAP, forwarding, and atomic policy in order', async () => {
     const plan = createPlan();
     const { calls, commands } = commandHarness();

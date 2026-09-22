@@ -1,12 +1,14 @@
 import type { SquidConfig } from '../types';
 import { generateDlpSquidConfig } from '../dlp';
 import { DEFAULT_DNS_SERVERS } from '../dns-resolver';
-import { generateSslBumpSection } from './ssl-bump';
+import { generateSslBumpSection, generateTlsSniGuardSection } from './ssl-bump';
 import { validateAndSanitizeHostAccessPort, validateApiProxyPort } from './validation';
 import { formatDomainForSquid } from './domain-acl';
+import { parseDomainList } from '../domain-matchers';
 
 type DomainsByProto = ReturnType<typeof import('./domain-acl').parseDomainConfig>['domainsByProto'];
 type PatternsByProto = ReturnType<typeof import('./domain-acl').parseDomainConfig>['patternsByProto'];
+const IPV4_REGEX = /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/;
 
 function generateDlpSections(enableDlp?: boolean): {
   aclSection: string;
@@ -31,6 +33,8 @@ function generateSslSections(options: {
   urlPatterns?: string[];
   domainsByProto: DomainsByProto;
   patternsByProto: PatternsByProto;
+  blockedDomains?: string[];
+  apiProxyIp?: string;
   cliProxyIp?: string;
 }): {
   portConfig: string;
@@ -74,6 +78,32 @@ ${urlAccessLines}
 ${denyNonMatching}
 `;
     }
+    portConfig = '';
+  } else {
+    const tlsDomains = [...domainsByProto.both, ...domainsByProto.https];
+    const tlsPlainDomains = tlsDomains.filter(domain => !IPV4_REGEX.test(domain));
+    const allowedIps = tlsDomains.filter(domain => IPV4_REGEX.test(domain));
+    const tlsDomainPatterns = [
+      ...patternsByProto.both.map(pattern => pattern.regex),
+      ...patternsByProto.https.map(pattern => pattern.regex),
+    ];
+    const normalizedBlockedDomains = (options.blockedDomains ?? []).map(
+      domain => domain.replace(/^https?:\/\//, '').replace(/\/$/, '')
+    );
+    const {
+      plainDomains: blockedPlainDomains,
+      patterns: blockedPatterns,
+    } = parseDomainList(normalizedBlockedDomains);
+    sslBumpSection = generateTlsSniGuardSection({
+      port,
+      plainDomains: tlsPlainDomains,
+      domainPatterns: tlsDomainPatterns,
+      blockedDomains: blockedPlainDomains.map(entry => entry.domain),
+      blockedDomainPatterns: blockedPatterns.map(pattern => pattern.regex),
+      allowedIps,
+      apiProxyIp: options.apiProxyIp,
+      cliProxyIp,
+    });
     portConfig = '';
   }
 
@@ -141,8 +171,6 @@ acl from_api_proxy src ${apiProxyIp}/32
 http_access allow from_api_proxy
 ` : '';
 }
-
-const IPV4_REGEX = /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/;
 
 /**
  * Generate allow rules for trusted topology-peer hostnames in network-isolation
@@ -227,6 +255,7 @@ function generateConfigSections(options: {
   sslDbPath?: string;
   urlPatterns?: string[];
   domains?: string[];
+  blockedDomains?: string[];
   domainsByProto: DomainsByProto;
   patternsByProto: PatternsByProto;
   enableHostAccess?: boolean;
@@ -256,6 +285,7 @@ function generateConfigSections(options: {
     sslDbPath,
     urlPatterns,
     domains,
+    blockedDomains,
     domainsByProto,
     patternsByProto,
     enableHostAccess,
@@ -276,6 +306,8 @@ function generateConfigSections(options: {
     urlPatterns,
     domainsByProto,
     patternsByProto,
+    blockedDomains,
+    apiProxyIp,
     cliProxyIp,
   });
   const portAclsAndRules = generatePortAclsAndRules(enableHostAccess, allowHostPorts, apiProxyPorts);

@@ -88,6 +88,49 @@ describe('Network Security', () => {
   });
 
   describe('Firewall Bypass Prevention', () => {
+    test('should block CONNECT domain fronting with a different TLS SNI', async () => {
+      const result = await runner.runWithSudo(
+        `python3 - <<'PY'
+import os
+import socket
+import ssl
+
+proxy_host = os.environ['SQUID_PROXY_HOST']
+proxy_port = int(os.environ['SQUID_PROXY_PORT'])
+sock = socket.create_connection((proxy_host, proxy_port), timeout=10)
+sock.sendall(
+    b'CONNECT nodejs.org:443 HTTP/1.1\\r\\n'
+    b'Host: nodejs.org:443\\r\\n'
+    b'Connection: close\\r\\n\\r\\n'
+)
+
+response = b''
+while b'\\r\\n\\r\\n' not in response:
+    chunk = sock.recv(4096)
+    if not chunk:
+        raise SystemExit('proxy closed before responding to CONNECT')
+    response += chunk
+
+if b' 200 ' not in response.split(b'\\r\\n', 1)[0]:
+    raise SystemExit('allowed CONNECT target was rejected')
+
+try:
+    ssl._create_unverified_context().wrap_socket(sock, server_hostname='example.com')
+except (ssl.SSLError, ConnectionError, OSError):
+    raise SystemExit(0)
+
+raise SystemExit('TLS handshake with non-allowlisted SNI unexpectedly succeeded')
+PY`,
+        {
+          allowDomains: ['nodejs.org'],
+          logLevel: 'debug',
+          timeout: 60000,
+        }
+      );
+
+      expect(result).toSucceed();
+    }, 120000);
+
     test('should block curl --connect-to bypass', async () => {
       const result = await runner.runWithSudo(
         'curl -f --connect-to ::github.com: https://example.com --max-time 5',

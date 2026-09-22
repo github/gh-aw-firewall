@@ -19,6 +19,7 @@ export type {
 export {
   NvxOneShotAdapter,
   NvxOneShotExecutionError,
+  NvxPreparedExecution,
   buildNvxOneShotArguments,
 } from './one-shot-adapter';
 export type {
@@ -26,6 +27,7 @@ export type {
   NvxOneShotExecutionRequest,
   NvxOneShotExecutionResult,
   NvxOneShotNetworkPlan,
+  NvxProcessResult,
 } from './one-shot-adapter';
 export {
   NVX_OUTCOME_SCHEMA_VERSION,
@@ -78,12 +80,13 @@ export type {
 export {
   NvxCgroupManager,
   NvxVmmIdentityManager,
-  buildNvxPhase3bLaunchPlan,
+  buildDirectOpenvmmArguments,
+  buildNvxPhase3dLaunchPlan,
   createNvxAccountName,
   createNvxNetworkPlan,
 } from './runtime-lifecycle';
 export type {
-  NvxPhase3bLaunchPlan,
+  NvxPhase3dLaunchPlan,
   NvxRuntimeLifecycleDependencies,
   NvxRuntimeLifecycleObserver,
   NvxRuntimeToolPaths,
@@ -125,7 +128,7 @@ export type {
   NvxCleanupStoreDependencies,
 } from './cleanup-store';
 export {
-  NVX_LAUNCH_ABI_BLOCKED_ERROR,
+  createDefaultNvxManagerDependencies,
   NvxManager,
 } from './manager';
 export type {
@@ -134,3 +137,9 @@ export type {
   NvxManagerConfig,
   NvxManagerDependencies,
 } from './manager';
+export {
+  DirectOpenvmmLaunchExecutor,
+} from './launch-executor';
+export type {
+  NvxLaunchExecutorDependencies,
+} from './launch-executor';

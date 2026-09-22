@@ -13,7 +13,6 @@ import {
 } from './preflight';
 
 const DIGESTS = {
-  launcher: '1'.repeat(64),
   openvmm: '2'.repeat(64),
   kernel: '3'.repeat(64),
   initramfs: '4'.repeat(64),
@@ -21,7 +20,7 @@ const DIGESTS = {
 
 function manifest() {
   return JSON.stringify({
-    schemaVersion: 1,
+    schemaVersion: 2,
     release: {
       repository: NVX_ARTIFACT_REPOSITORY,
       workflow: NVX_ARTIFACT_SIGNER_WORKFLOW,
@@ -35,7 +34,6 @@ function manifest() {
     },
     architecture: 'x86_64',
     artifacts: {
-      launcher: { file: 'nvx.py', sizeBytes: 100, sha256: DIGESTS.launcher },
       openvmm: { file: 'openvmm', sizeBytes: 100, sha256: DIGESTS.openvmm },
       kernel: { file: 'vmlinux', sizeBytes: 100, sha256: DIGESTS.kernel },
       initramfs: { file: 'initramfs.cpio.gz', sizeBytes: 100, sha256: DIGESTS.initramfs },
@@ -49,7 +47,6 @@ const options = {
   manifestPath: '/trusted/manifest.json',
   artifactManifestBundlePath: '/trusted/manifest.sigstore.json',
   artifacts: {
-    launcher: '/trusted/nvx.py',
     openvmm: '/trusted/openvmm',
     kernel: '/trusted/vmlinux',
     initramfs: '/trusted/initramfs.cpio.gz',
@@ -59,7 +56,6 @@ const options = {
 function snapshot(): NvxArtifactSnapshot {
   return {
     directory: `/run/awf-nvx/trusted-artifacts/run-${options.runId}`,
-    launcher: `/run/awf-nvx/trusted-artifacts/run-${options.runId}/nvx.py`,
     openvmm: `/run/awf-nvx/trusted-artifacts/run-${options.runId}/openvmm`,
     kernel: `/run/awf-nvx/trusted-artifacts/run-${options.runId}/vmlinux`,
     initramfs: `/run/awf-nvx/trusted-artifacts/run-${options.runId}/initramfs.cpio.gz`,
@@ -89,13 +85,12 @@ NvxPreflightDependencies {
       isFile: () => true,
       isSymbolicLink: () => false,
       uid: 0,
-      mode: filePath.endsWith('nvx.py') || filePath.endsWith('openvmm')
+      mode: filePath.endsWith('openvmm')
         ? 0o100500
         : 0o100400,
       size: 100,
     })),
     sha256: jest.fn(async (filePath) => {
-      if (filePath.endsWith('nvx.py')) return DIGESTS.launcher;
       if (filePath.endsWith('openvmm')) return DIGESTS.openvmm;
       if (filePath.endsWith('vmlinux')) return DIGESTS.kernel;
       if (filePath.endsWith('initramfs.cpio.gz')) return DIGESTS.initramfs;
@@ -116,7 +111,7 @@ describe('NVX preflight', () => {
 
     expect(result.snapshot).toEqual(snapshot());
     expect(deps.access).toHaveBeenCalledWith('/dev/kvm', expect.any(Number));
-    expect(deps.access).toHaveBeenCalledWith('/dev/net/tun', expect.any(Number));
+    expect(deps.access).not.toHaveBeenCalledWith('/dev/net/tun', expect.any(Number));
     expect(deps.verifyAttestation).toHaveBeenCalledWith(
       '/usr/bin/gh',
       snapshot().manifestPath,
@@ -129,7 +124,7 @@ describe('NVX preflight', () => {
         artifactSnapshotDirectory: snapshot().directory,
       }),
     );
-    expect(deps.sha256).toHaveBeenCalledTimes(4);
+    expect(deps.sha256).toHaveBeenCalledTimes(3);
   });
 
   it('rejects source artifacts whose sizes do not match the manifest before copying', async () => {
@@ -138,7 +133,7 @@ describe('NVX preflight', () => {
         isFile: () => true,
         isSymbolicLink: () => false,
         uid: 0,
-        mode: filePath.endsWith('nvx.py') || filePath.endsWith('openvmm')
+        mode: filePath.endsWith('openvmm')
           ? 0o100500
           : 0o100400,
         size: filePath === options.artifacts.kernel ? 101 : 100,
@@ -176,9 +171,7 @@ describe('NVX preflight', () => {
       sha256: jest.fn(async (filePath) =>
         filePath.startsWith('/run/awf-nvx/') && filePath.endsWith('openvmm')
           ? 'f'.repeat(64)
-          : filePath.endsWith('nvx.py')
-            ? DIGESTS.launcher
-            : filePath.endsWith('openvmm')
+          : filePath.endsWith('openvmm')
               ? DIGESTS.openvmm
               : filePath.endsWith('vmlinux')
                 ? DIGESTS.kernel
@@ -207,14 +200,14 @@ describe('NVX preflight', () => {
   it('rejects artifact paths outside the canonical snapshot directory', async () => {
     const unexpected = {
       ...snapshot(),
-      launcher: '/tmp/nvx.py',
+      openvmm: '/opt/openvmm',
     };
     const deps = dependencies({
       createSnapshot: jest.fn().mockResolvedValue(unexpected),
     });
 
     await expect(runNvxPreflight(options, deps)).rejects.toThrow(
-      /snapshot launcher must be/,
+      /snapshot openvmm must be/,
     );
     expect(deps.verifyAttestation).not.toHaveBeenCalled();
   });

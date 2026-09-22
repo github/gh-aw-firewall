@@ -50,6 +50,11 @@ export interface PolicyManifest {
   dnsServers: string[];
   /** Whether SSL Bump (HTTPS inspection) is enabled */
   sslBumpEnabled: boolean;
+  /**
+   * Whether TLS ClientHello SNI is enforced against the HTTPS allowlist.
+   * Absent in policy manifests produced before SNI enforcement was introduced.
+   */
+  tlsSniGuardEnabled?: boolean;
   /** Whether DLP scanning is enabled */
   dlpEnabled: boolean;
   /** Whether host access is enabled */

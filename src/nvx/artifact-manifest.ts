@@ -9,15 +9,13 @@ export const NVX_ARTIFACT_SIGNER_WORKFLOW =
   'github/gh-aw-firewall/.github/workflows/release.yml';
 
 const ARTIFACT_FILES = {
-  launcher: 'nvx.py',
   openvmm: 'openvmm',
   kernel: 'vmlinux',
   initramfs: 'initramfs.cpio.gz',
 } as const;
 // Conservative per-role ceilings bound pre-copy disk exposure while leaving
-// headroom for expected script, OpenVMM, kernel, and initramfs artifact growth.
+// headroom for expected OpenVMM, kernel, and initramfs artifact growth.
 const ARTIFACT_SIZE_LIMITS_BYTES = {
-  launcher: 1 * 1024 * 1024,
   openvmm: 256 * 1024 * 1024,
   kernel: 512 * 1024 * 1024,
   initramfs: 1024 * 1024 * 1024,
@@ -26,7 +24,7 @@ const ARTIFACT_SIZE_LIMITS_BYTES = {
 export type NvxTrustedArtifactName = keyof typeof ARTIFACT_FILES;
 
 export interface NvxArtifactManifest {
-  readonly schemaVersion: 1;
+  readonly schemaVersion: 2;
   readonly release: {
     readonly repository: typeof NVX_ARTIFACT_REPOSITORY;
     readonly workflow: typeof NVX_ARTIFACT_SIGNER_WORKFLOW;
@@ -73,8 +71,8 @@ export function parseNvxArtifactManifest(
     'architecture',
     'artifacts',
   ]);
-  if (manifest.schemaVersion !== 1) {
-    throw new Error('NVX artifact manifest schemaVersion must be 1');
+  if (manifest.schemaVersion !== 2) {
+    throw new Error('NVX artifact manifest schemaVersion must be 2');
   }
   if (manifest.architecture !== 'x86_64') {
     throw new Error('NVX artifact manifest architecture must be x86_64');
@@ -153,7 +151,7 @@ export function parseNvxArtifactManifest(
   }
 
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     release: {
       repository: NVX_ARTIFACT_REPOSITORY,
       workflow: NVX_ARTIFACT_SIGNER_WORKFLOW,

@@ -17,10 +17,7 @@ import {
 } from './confinement';
 import type { NvxCleanupDeviceAclIdentity } from './cleanup-record';
 import type { NvxFilesystemBundle } from './filesystem-builder';
-import {
-  buildNvxOneShotArguments,
-  type NvxOneShotExecutionRequest,
-} from './one-shot-adapter';
+import type { NvxOneShotExecutionRequest } from './one-shot-adapter';
 import {
   NVX_GUEST_ARTIFACT_ROOT,
   assertNvxRunLayout,
@@ -36,7 +33,9 @@ const LOCK_RETRY_MS = 25;
 const ACCOUNT_LOCK_TIMEOUT_MS = 10_000;
 const DEVICE_ACL_LOCK_TIMEOUT_MS = 60_000;
 const INCOMPLETE_LOCK_STALE_MS = 1_000;
-const NVX_DEVICE_PATHS = ['/dev/kvm', '/dev/net/tun'] as const;
+type NvxDevicePath = NvxCleanupDeviceAclIdentity['path'];
+const NVX_DEVICE_PATHS: readonly NvxDevicePath[] = ['/dev/kvm'];
+const NVX_HOST_PIDS_MAX = 256;
 const CGROUP_V2_CONTROLLERS = '+cpu +memory +pids';
 
 export interface NvxVmmIdentity {
@@ -55,7 +54,6 @@ export interface NvxRuntimeToolPaths {
   readonly ip: string;
   readonly iptables: string;
   readonly nft: string;
-  readonly python3: string;
   readonly setfacl: string;
   readonly setpriv: string;
   readonly sysctl: string;
@@ -91,7 +89,7 @@ export interface NvxCgroupDependencies {
   rmdir(directory: string): Promise<void>;
 }
 
-export interface NvxPhase3bLaunchPlan {
+export interface NvxPhase3dLaunchPlan {
   readonly layout: NvxRunLayout;
   readonly identity: NvxVmmIdentity;
   readonly cgroupLimits: NvxCgroupLimits;
@@ -194,7 +192,7 @@ export class NvxVmmIdentityManager {
 
   async withDeviceAccess<T>(
     operation: (deviceAcls: readonly NvxCleanupDeviceAclIdentity[]) => Promise<T>,
-    devicePaths: readonly typeof NVX_DEVICE_PATHS[number][] = NVX_DEVICE_PATHS,
+    devicePaths: readonly NvxDevicePath[] = NVX_DEVICE_PATHS,
   ): Promise<T> {
     const identity = this.requireIdentity();
     const requested = dedupeDevices(devicePaths);
@@ -252,7 +250,7 @@ export class NvxVmmIdentityManager {
 
   private async grantDeviceAccessLocked(
     identity: NvxVmmIdentity,
-    devicePaths: readonly typeof NVX_DEVICE_PATHS[number][],
+    devicePaths: readonly NvxDevicePath[],
   ): Promise<readonly NvxCleanupDeviceAclIdentity[]> {
     const granted: NvxCleanupDeviceAclIdentity[] = [];
     for (const devicePath of devicePaths) {
@@ -330,7 +328,7 @@ export class NvxVmmIdentityManager {
   }
 
   private async captureDeviceIdentity(
-    devicePath: typeof NVX_DEVICE_PATHS[number],
+    devicePath: NvxDevicePath,
     uid: number,
   ): Promise<NvxCleanupDeviceAclIdentity> {
     const stats = await this.dependencies.lstat(devicePath);
@@ -620,7 +618,7 @@ export function bindNvxNetworkPlan(
   };
 }
 
-export function buildNvxPhase3bLaunchPlan(options: {
+export function buildNvxPhase3dLaunchPlan(options: {
   readonly runId: string;
   readonly tools: NvxRuntimeToolPaths;
   readonly identity: NvxVmmIdentity;
@@ -632,7 +630,7 @@ export function buildNvxPhase3bLaunchPlan(options: {
     readonly controlPeers?: readonly MicrovmControlPeer[];
   };
   readonly networkPlan?: MicrovmNetworkPlan;
-}): NvxPhase3bLaunchPlan {
+}): NvxPhase3dLaunchPlan {
   const layout = createNvxRunLayout(options.runId);
   assertNvxRunLayout(layout);
   if (path.resolve(options.filesystem.runDirectory) !== layout.runDirectory) {
@@ -647,7 +645,7 @@ export function buildNvxPhase3bLaunchPlan(options: {
       tapOwnerUid: options.identity.uid,
       tapOwnerGid: options.identity.gid,
       controlPeers: options.network.controlPeers,
-      tapVnetHdr: true,
+      createTap: false,
     });
   if (
     networkPlan.runId !== options.runId ||
@@ -660,30 +658,22 @@ export function buildNvxPhase3bLaunchPlan(options: {
   const cgroupLimits = computeNvxCgroupLimits({
     guestMemoryMib: options.execution.memoryMib ?? 512,
     vcpuCount: 1,
-    pidsMax: options.execution.pidsMax ?? 256,
+    hostPidsMax: NVX_HOST_PIDS_MAX,
   });
-  const squidEndpoint = networkPlan.allowedEndpoints.find((endpoint) => endpoint.name === 'squid');
-  if (!squidEndpoint) throw new Error('NVX network plan is missing the Squid proxy endpoint');
   const outcomePath = path.join(layout.runDirectory, 'outcome.json');
-  // Bubblewrap mounts the run directory at /run/awf-nvx and the trusted
-  // artifact snapshot at /opt/awf-nvx, so every argv path must be the in-jail
-  // path rather than the host path.
-  const oneShotArgs = buildNvxOneShotArguments({
+  const guestFilesystem = toNvxGuestFilesystemBundle(layout, options.filesystem);
+  const guestOutcomePath = toNvxGuestRunPath(layout, outcomePath);
+  const openvmmArguments = buildDirectOpenvmmArguments({
     ...options.execution,
     nvxRoot: NVX_GUEST_ARTIFACT_ROOT,
-    filesystem: toNvxGuestFilesystemBundle(layout, options.filesystem),
+    filesystem: guestFilesystem,
     network: {
       guestAddress: `${networkPlan.guestIp}/${networkPlan.guestPrefixLength}`,
-      proxyAddress: `${squidEndpoint.ip}:${squidEndpoint.port}`,
       egressAllow: networkPlan.allowedEndpoints.map(
-        (endpoint) => `${endpoint.ip}:tcp:${endpoint.port}`,
+        (endpoint) => `${endpoint.ip}/32:tcp:${endpoint.port}`,
       ),
-      egressDeny: ['0.0.0.0/0'],
     },
-  }, toNvxGuestRunPath(layout, outcomePath));
-  // buildNvxConstrainedLaunchCommand supplies the interpreter path, so drop
-  // buildNvxOneShotArguments' leading "scripts/nvx.py" argv element.
-  const [, ...nvxArguments] = oneShotArgs;
+  }, guestOutcomePath);
   return {
     layout,
     identity: options.identity,
@@ -695,17 +685,115 @@ export function buildNvxPhase3bLaunchPlan(options: {
         ip: options.tools.ip,
         bwrap: options.tools.bwrap,
         setpriv: options.tools.setpriv,
-        python: options.tools.python3,
       },
       namespaceName: layout.networkNamespace,
       identity: options.identity,
       nvxRoot: layout.artifactSnapshotDirectory,
       runDirectory: layout.runDirectory,
       systemReadOnlyPaths: ['/usr', '/bin', '/sbin', '/lib', '/lib64', '/etc/ssl'],
-      nvxArguments,
+      openvmmArguments,
     }),
     outcomePath,
   };
+}
+
+export function buildDirectOpenvmmArguments(
+  request: NvxOneShotExecutionRequest,
+  outcomePath: string,
+): readonly string[] {
+  const uid = request.workloadUid ?? 65534;
+  const gid = request.workloadGid ?? 65534;
+  const layerAddresses = {
+    distro: '0xd0003000',
+    runtime: '0xd0004000',
+    custom: '0xd0005000',
+  } as const;
+  const ordered = [...request.filesystem.layers].sort(
+    (left, right) =>
+      ['distro', 'runtime', 'custom'].indexOf(left.role) -
+      ['distro', 'runtime', 'custom'].indexOf(right.role),
+  );
+  const args: string[] = ['--machine', 'microvm', '--paused'];
+  for (const layer of ordered) {
+    args.push(
+      '--microvm-sandbox-block',
+      `${layer.role}:file:${layer.path},ro`,
+    );
+  }
+  args.push(
+    '--microvm-sandbox-block',
+    `scratch:file:${request.filesystem.scratch.path}`,
+    '--microvm-workload-identity',
+    `${uid}:${gid}`,
+    '--microvm-lifecycle',
+    'one-shot',
+    '--single-process',
+    '--hypervisor',
+    'kvm',
+    '--memory',
+    `${request.memoryMib ?? 512}M`,
+    '--kernel',
+    path.join(request.nvxRoot, 'vmlinux'),
+    '--initrd',
+    path.join(request.nvxRoot, 'initramfs.cpio.gz'),
+    '--cmdline',
+    buildDirectKernelCommandLine(request, ordered, layerAddresses),
+    '--net',
+    request.network.guestAddress,
+    '--network-profile',
+    'portable',
+    '--network-egress',
+    'deny',
+    '--network-ingress',
+    'deny',
+  );
+  for (const rule of request.network.egressAllow ?? []) {
+    args.push('--network-egress-allow', rule);
+  }
+  for (const rule of request.network.egressDeny ?? []) {
+    args.push('--network-egress-deny', rule);
+  }
+  const forwards = request.network.hostLoopbackForwards ?? [];
+  args.push(
+    '--host-loopback', forwards.length > 0 ? 'allow' : 'deny',
+  );
+  if (request.network.proxyAddress !== undefined) {
+    args.push('--network-proxy', request.network.proxyAddress);
+  }
+  for (const forward of forwards) args.push('--host-loopback-forward', forward);
+  args.push('--microvm-report', outcomePath);
+  return args;
+}
+
+function buildDirectKernelCommandLine(
+  request: NvxOneShotExecutionRequest,
+  layers: readonly NvxFilesystemBundle['layers'][number][],
+  addresses: Readonly<Record<'distro' | 'runtime' | 'custom', string>>,
+): string {
+  const tokens = ['nvx_sandbox=1'];
+  for (const layer of layers) {
+    tokens.push(`nvx_layer=${layer.role},${addresses[layer.role]},${layer.uuid}`);
+  }
+  tokens.push(
+    'nvx_scratch=0xd0006000,ext4',
+    `nvx_entrypoint=${request.entrypoint}`,
+    `nvx_hostname=${request.hostname ?? 'awf-nvx'}`,
+  );
+  for (const argument of request.args ?? []) tokens.push(`nvx_arg=${argument}`);
+  if (request.memoryMaxBytes !== undefined) {
+    tokens.push(`nvx_memory_max=${request.memoryMaxBytes}`);
+  }
+  if (request.pidsMax !== undefined) {
+    if (request.pidsMax >= Number.MAX_SAFE_INTEGER) {
+      throw new Error('NVX process limit is too large for the sandbox PID 1 allowance');
+    }
+    tokens.push(`nvx_pids_max=${request.pidsMax + 1}`);
+  }
+  const commandLine = tokens.join(' ');
+  if (Buffer.byteLength(commandLine) + 1 > 1024) {
+    throw new Error('NVX sandbox kernel command line exceeds its 1024-byte x86 budget');
+  }
+  return commandLine;
 }
 
 function toNvxGuestFilesystemBundle(
@@ -733,8 +821,8 @@ export function createNvxAccountName(runId: string): string {
 }
 
 function dedupeDevices(
-  devicePaths: readonly typeof NVX_DEVICE_PATHS[number][],
-): readonly typeof NVX_DEVICE_PATHS[number][] {
+  devicePaths: readonly NvxDevicePath[],
+): readonly NvxDevicePath[] {
   const seen = new Set<string>();
   return devicePaths.filter((devicePath) => {
     if (!NVX_DEVICE_PATHS.includes(devicePath)) throw new Error(`Unsupported NVX device ACL path: ${devicePath}`);

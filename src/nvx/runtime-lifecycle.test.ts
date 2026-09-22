@@ -2,7 +2,7 @@ import * as path from 'path';
 import {
   NvxCgroupManager,
   NvxVmmIdentityManager,
-  buildNvxPhase3bLaunchPlan,
+  buildNvxPhase3dLaunchPlan,
   createNvxAccountName,
   createNvxNetworkPlan,
   type NvxRuntimeLifecycleDependencies,
@@ -22,7 +22,6 @@ const tools: NvxRuntimeToolPaths = {
   ip: '/usr/sbin/ip',
   iptables: '/usr/sbin/iptables',
   nft: '/usr/sbin/nft',
-  python3: '/usr/bin/python3',
   setfacl: '/usr/bin/setfacl',
   setpriv: '/usr/bin/setpriv',
   sysctl: '/usr/sbin/sysctl',
@@ -163,8 +162,8 @@ function filesystemBundle(): NvxFilesystemBundle {
   };
 }
 
-describe('NVX Phase 3b runtime lifecycle', () => {
-  it('creates a run-bound no-login account and grants serialized exact device ACLs', async () => {
+describe('NVX Phase 3d runtime lifecycle', () => {
+  it('creates a run-bound no-login account and grants only the KVM device ACL', async () => {
     const { deps, run } = identityDependencies();
     const observer = {
       prepareAccount: jest.fn().mockResolvedValue(undefined),
@@ -195,18 +194,19 @@ describe('NVX Phase 3b runtime lifecycle', () => {
     await expect(manager.withDeviceAccess(protectedOperation)).resolves.toBe('launched');
     expect(protectedOperation).toHaveBeenCalledWith([
       { path: '/dev/kvm', device: '5', inode: '10', uid: 23001, permissions: 'rw-' },
-      { path: '/dev/net/tun', device: '5', inode: '11', uid: 23001, permissions: 'rw-' },
     ]);
-    for (const devicePath of ['/dev/kvm', '/dev/net/tun']) {
-      expect(run).toHaveBeenCalledWith(
-        tools.setfacl,
-        ['--modify', 'user:23001:rw', devicePath],
-      );
-      expect(run).toHaveBeenCalledWith(
-        tools.setfacl,
-        ['--remove', 'user:23001', devicePath],
-      );
-    }
+    expect(run).toHaveBeenCalledWith(
+      tools.setfacl,
+      ['--modify', 'user:23001:rw', '/dev/kvm'],
+    );
+    expect(run).toHaveBeenCalledWith(
+      tools.setfacl,
+      ['--remove', 'user:23001', '/dev/kvm'],
+    );
+    expect(run).not.toHaveBeenCalledWith(
+      tools.setfacl,
+      expect.arrayContaining(['/dev/net/tun']),
+    );
 
     await manager.cleanup();
     expect(run).toHaveBeenCalledWith(tools.userdel, [identity.name]);
@@ -358,7 +358,7 @@ describe('NVX Phase 3b runtime lifecycle', () => {
   });
 
   it('builds a constrained one-shot launch plan under one canonical run ID', () => {
-    const plan = buildNvxPhase3bLaunchPlan({
+    const plan = buildNvxPhase3dLaunchPlan({
       runId: RUN_ID,
       tools,
       identity: { name: `awfnvx-${RUN_ID.slice(0, 20)}`, uid: 23001, gid: 23002 },
@@ -389,33 +389,89 @@ describe('NVX Phase 3b runtime lifecycle', () => {
     expect(plan.launchCommand.args.slice(0, 4)).toEqual([
       'netns', 'exec', `awfnvx-${RUN_ID}`, tools.bwrap,
     ]);
+    expect(plan.networkPlan.tapEnabled).toBe(false);
     expect(plan.launchCommand.args).toEqual(expect.arrayContaining([
+      '--block-fd',
+      '3',
+      '--json-status-fd',
+      '4',
+      '--seccomp',
+      '5',
+      '--clearenv',
+      '--setenv',
+      'TERM',
+      'dumb',
       '--clear-groups',
       '--no-new-privs',
-      '/opt/awf-nvx/nvx.py',
-      'sandbox',
-      'run',
+      '/opt/awf-nvx/openvmm',
+      '--machine',
+      'microvm',
+      '--paused',
+      '--microvm-lifecycle',
+      'one-shot',
+      '--single-process',
+      '--hypervisor',
+      'kvm',
       '--network-egress',
       'deny',
     ]));
-    expect(plan.launchCommand.args).not.toContain('scripts/nvx.py');
+    expect(plan.launchCommand.args).not.toContain('/dev/net/tun');
+    expect(plan.launchCommand.args).not.toContain('nvx.py');
     expect(plan.launchCommand.args).not.toContain('/bin/sh');
     // Bubblewrap binds the run directory at /run/awf-nvx, so argv must carry
     // in-jail paths while the host keeps the real outcome path.
-    const nvxArguments = plan.launchCommand.args.slice(
-      plan.launchCommand.args.indexOf('/opt/awf-nvx/nvx.py') + 1,
+    const openvmmArguments = plan.launchCommand.args.slice(
+      plan.launchCommand.args.indexOf('/opt/awf-nvx/openvmm') + 1,
     );
-    expect(nvxArguments).toEqual(expect.arrayContaining([
-      '--layer', 'distro,/run/awf-nvx/distro.erofs,11111111-1111-4111-8111-111111111111',
-      '--scratch', '/run/awf-nvx/scratch.ext4',
-      '--outcome-report', '/run/awf-nvx/outcome.json',
-    ]));
-    expect(nvxArguments.join(' ')).not.toContain(`/run/awf-nvx/runs/${RUN_ID}`);
+    expect(openvmmArguments).toEqual([
+      '--machine',
+      'microvm',
+      '--paused',
+      '--microvm-sandbox-block',
+      'distro:file:/run/awf-nvx/distro.erofs,ro',
+      '--microvm-sandbox-block',
+      'scratch:file:/run/awf-nvx/scratch.ext4',
+      '--microvm-workload-identity',
+      '65534:65534',
+      '--microvm-lifecycle',
+      'one-shot',
+      '--single-process',
+      '--hypervisor',
+      'kvm',
+      '--memory',
+      '512M',
+      '--kernel',
+      '/opt/awf-nvx/vmlinux',
+      '--initrd',
+      '/opt/awf-nvx/initramfs.cpio.gz',
+      '--cmdline',
+      'nvx_sandbox=1 ' +
+      'nvx_layer=distro,0xd0003000,11111111-1111-4111-8111-111111111111 ' +
+      'nvx_scratch=0xd0006000,ext4 nvx_entrypoint=/bin/true ' +
+      'nvx_hostname=awf-nvx nvx_arg=--version nvx_pids_max=257',
+      '--net',
+      `${plan.networkPlan.guestIp}/${plan.networkPlan.guestPrefixLength}`,
+      '--network-profile',
+      'portable',
+      '--network-egress',
+      'deny',
+      '--network-ingress',
+      'deny',
+      ...plan.networkPlan.allowedEndpoints.flatMap(({ ip, port }) => [
+        '--network-egress-allow',
+        `${ip}/32:tcp:${port}`,
+      ]),
+      '--host-loopback',
+      'deny',
+      '--microvm-report',
+      '/run/awf-nvx/outcome.json',
+    ]);
+    expect(openvmmArguments.join(' ')).not.toContain(`/run/awf-nvx/runs/${RUN_ID}`);
     expect(plan.outcomePath).toBe(`/run/awf-nvx/runs/${RUN_ID}/outcome.json`);
   });
 
   it('rejects a filesystem bundle staged outside the canonical run directory', () => {
-    expect(() => buildNvxPhase3bLaunchPlan({
+    expect(() => buildNvxPhase3dLaunchPlan({
       runId: RUN_ID,
       tools,
       identity: { name: `awfnvx-${RUN_ID.slice(0, 20)}`, uid: 23001, gid: 23002 },
