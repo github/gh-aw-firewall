@@ -479,6 +479,15 @@ jobs:
           npm run build
           npm run type-check
 
+      - name: Prepare bounded diagnostics
+        if: always()
+        env:
+          EVIDENCE_DIR: ${{ runner.temp }}/nvx-phase-3e-evidence
+        run: |
+          if sudo test -d "$EVIDENCE_DIR"; then
+            sudo chown -R "$(id -u):$(id -g)" "$EVIDENCE_DIR"
+          fi
+
       - name: Upload bounded diagnostics
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
