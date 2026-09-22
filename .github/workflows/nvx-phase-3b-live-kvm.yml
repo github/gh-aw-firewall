@@ -176,6 +176,7 @@ jobs:
           set -euo pipefail
           source_dir="$RUNNER_TEMP/nvx-source"
           package_dir="$RUNNER_TEMP/nvx-attested-artifacts"
+          chmod 0555 "$package_dir/openvmm"
           test -x "$package_dir/openvmm"
           test -s "$package_dir/vmlinux"
           test -s "$package_dir/initramfs.cpio.gz"
