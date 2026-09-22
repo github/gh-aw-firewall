@@ -93,6 +93,10 @@ describe('parseProxyUrl', () => {
     expect(() => parseProxyUrl('http://proxy.corp.com:0')).toThrow('Invalid upstream proxy port');
   });
 
+  it('rejects an explicitly empty port', () => {
+    expect(() => parseProxyUrl('http://proxy.corp.com:')).toThrow('Invalid upstream proxy port: (empty)');
+  });
+
   it('accepts valid IP addresses', () => {
     expect(parseProxyUrl('http://10.0.0.1:3128')).toEqual({
       host: '10.0.0.1',

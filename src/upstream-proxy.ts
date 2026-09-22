@@ -51,10 +51,10 @@ function getExplicitProxyPort(normalizedUrl: string): string | undefined {
   const hostPort = authority.slice(authority.lastIndexOf('@') + 1);
 
   if (hostPort.startsWith('[')) {
-    return hostPort.match(/^\[[^\]]+\]:(\d+)$/)?.[1];
+    return hostPort.match(/^\[[^\]]+\]:(.*)$/)?.[1];
   }
 
-  return hostPort.match(/:(\d+)$/)?.[1];
+  return hostPort.match(/:([^:]*)$/)?.[1];
 }
 
 /**
@@ -119,10 +119,10 @@ export function parseProxyUrl(url: string): { host: string; port: number } {
   }
 
   const explicitPort = getExplicitProxyPort(normalized);
-  const portText = parsed.port || explicitPort || '3128';
+  const portText = parsed.port || (explicitPort !== undefined ? explicitPort : '3128');
   const port = parseInt(portText, 10);
   if (isNaN(port) || port < 1 || port > 65535) {
-    throw new Error(`Invalid upstream proxy port: ${portText}`);
+    throw new Error(`Invalid upstream proxy port: ${portText || '(empty)'}`);
   }
 
   return { host, port };
