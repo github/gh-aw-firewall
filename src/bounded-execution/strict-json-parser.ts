@@ -1,4 +1,4 @@
-/** Strict, depth-limited JSON parser that rejects duplicate object keys. */
+/** Strict, depth-limited JSON parser plus UTF-8 byte sizing. */
 
 export function utf8ByteLength(value: string): number {
   return Buffer.byteLength(value, 'utf8');
