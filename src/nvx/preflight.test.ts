@@ -8,6 +8,7 @@ import {
   NVX_VALIDATION_SIGNER_WORKFLOW,
 } from './artifact-manifest';
 import {
+  resolveTrustedNvxHostTool,
   runNvxPreflight,
   type NvxArtifactSnapshot,
   type NvxPreflightDependencies,
@@ -127,6 +128,40 @@ describe('NVX preflight', () => {
       }),
     );
     expect(deps.sha256).toHaveBeenCalledTimes(3);
+  });
+
+  describe('trusted NVX host tool resolution', () => {
+    it('accepts a root-owned alternatives symlink whose canonical target stays trusted', async () => {
+      const lstat = jest.fn(async (filePath: string) => ({
+        isFile: () => filePath === '/usr/sbin/xtables-nft-multi',
+        isSymbolicLink: () => false,
+        uid: 0,
+        mode: 0o100755,
+      }));
+      const realpath = jest.fn(async (filePath: string) => {
+        if (filePath === '/usr/sbin/iptables') return '/usr/sbin/xtables-nft-multi';
+        throw Object.assign(new Error('missing'), { code: 'ENOENT' });
+      });
+
+      await expect(resolveTrustedNvxHostTool(
+        'iptables',
+        { lstat, realpath },
+      )).resolves.toBe('/usr/sbin/xtables-nft-multi');
+    });
+
+    it('rejects a canonical tool target outside the trusted system directories', async () => {
+      const lstat = jest.fn();
+      const realpath = jest.fn(async (filePath: string) => {
+        if (filePath === '/usr/sbin/iptables') return '/opt/untrusted/iptables';
+        throw Object.assign(new Error('missing'), { code: 'ENOENT' });
+      });
+
+      await expect(resolveTrustedNvxHostTool(
+        'iptables',
+        { lstat, realpath },
+      )).rejects.toThrow(/required trusted NVX host tool/);
+      expect(lstat).not.toHaveBeenCalled();
+    });
   });
 
   it('accepts an explicitly pinned validation workflow without weakening the default', async () => {

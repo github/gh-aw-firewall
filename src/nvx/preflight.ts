@@ -44,6 +44,16 @@ export type NvxHostToolPaths = Readonly<Record<NvxHostToolName, string>>;
 export type NvxArtifactPaths = Readonly<Record<NvxTrustedArtifactName, string>>;
 type NvxTrustedFileStat = Awaited<ReturnType<NvxPreflightDependencies['lstat']>>;
 
+export interface NvxTrustedToolResolutionDependencies {
+  realpath(filePath: string): Promise<string>;
+  lstat(filePath: string): Promise<{
+    isFile(): boolean;
+    isSymbolicLink(): boolean;
+    uid: number;
+    mode: number;
+  }>;
+}
+
 export interface NvxArtifactSnapshot extends NvxArtifactPaths {
   readonly directory: string;
   readonly manifestPath: string;
@@ -106,7 +116,7 @@ const defaultDependencies: NvxPreflightDependencies = {
   readFile: async (filePath) => fs.readFile(filePath, 'utf8'),
   lstat: fs.lstat,
   sha256: calculateSha256,
-  resolveTool: resolveTrustedTool,
+  resolveTool: resolveTrustedNvxHostTool,
   verifyAttestation: async (ghPath, manifestPath, bundlePath, signerWorkflow) => {
     const result = await execa(ghPath, [
       'attestation',
@@ -357,18 +367,27 @@ async function createArtifactSnapshot(
   }
 }
 
-async function resolveTrustedTool(name: NvxHostToolName): Promise<string> {
+export async function resolveTrustedNvxHostTool(
+  name: NvxHostToolName,
+  dependencies: NvxTrustedToolResolutionDependencies = fs,
+): Promise<string> {
   for (const directory of TRUSTED_TOOL_DIRECTORIES) {
     const candidate = path.join(directory, name);
     try {
-      const stat = await fs.lstat(candidate);
+      const resolved = await dependencies.realpath(candidate);
+      if (!TRUSTED_TOOL_DIRECTORIES.includes(
+        path.dirname(resolved) as typeof TRUSTED_TOOL_DIRECTORIES[number],
+      )) {
+        continue;
+      }
+      const stat = await dependencies.lstat(resolved);
       if (
         stat.isFile() &&
         !stat.isSymbolicLink() &&
         stat.uid === 0 &&
         (stat.mode & 0o022) === 0 &&
         (stat.mode & 0o111) !== 0
-      ) return candidate;
+      ) return resolved;
     } catch {
       // Continue through the bounded PATH.
     }
