@@ -1617,6 +1617,26 @@ and every other enabled image role. The legacy `latest` router default is kept
 only for resolver compatibility and is not a supported tag-only routed
 configuration.
 
+The candidate-pool foundation is present but is not called by the running proxy.
+It uses only the native, GitHub-token-backed Copilot catalogue, not a custom
+gateway or BYOK provider occupying the Copilot slot. It preserves advertised
+reasoning efforts, supported endpoints, and positive context limits. Models
+with missing effort or endpoint metadata are excluded; an explicitly empty
+effort list (or explicit lack of reasoning-effort support) instead allows one
+effortless choice. Effortless choices require chat completions; choices with
+an effort, including `none`, require responses. Unsupported effort values are
+discarded, and a model with no remaining advertised effort is excluded rather
+than converted into an effortless choice.
+
+Request guards, alias resolution, and candidate filtering share
+provider-aware `allowedModels` / `disallowedModels` matching. Native patterns
+such as `gpt-*` match the native model name; qualified patterns such as
+`github-copilot/gpt-*` match that provider only. Copilot recognizes the existing
+`copilot`, `github-copilot`, and `github` provider aliases. Matching remains
+case-insensitive with `*` wildcards, and deny rules take precedence. A
+provider-prefixed `auto` remains subject to dynamic-model verification: under
+a denylist it must also match an explicit allow rule.
+
 ## 13. Model Alias Logging
 
 The API proxy emits structured logging events during model alias resolution.

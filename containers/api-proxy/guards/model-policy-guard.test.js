@@ -97,6 +97,74 @@ describe('isModelPermittedByPolicy', () => {
 });
 
 describe('getModelPolicyBlockState', () => {
+  it.each(['auto', 'copilot/auto', 'github-copilot/auto', 'GITHUB/AUTO'])(
+    'keeps %s fail-closed under a denylist',
+    model => {
+      process.env.AWF_DISALLOWED_MODELS = JSON.stringify(['github-copilot/*opus*']);
+      let guard = loadGuard();
+      expect(guard.getModelPolicyBlockState(model, 'copilot')).toEqual({
+        model, reason: 'dynamic_model_unverifiable',
+      });
+      expect(guard.isModelPermittedByPolicy(model, null, ['github/*opus*'], 'copilot')).toBe(false);
+
+      process.env.AWF_ALLOWED_MODELS = JSON.stringify(['github/auto']);
+      jest.resetModules();
+      guard = loadGuard();
+      expect(guard.getModelPolicyBlockState(model, 'copilot')).toBeNull();
+      expect(guard.isModelPermittedByPolicy(model, ['github/auto'], ['github/*opus*'], 'copilot')).toBe(true);
+
+      process.env.AWF_DISALLOWED_MODELS = JSON.stringify(['copilot/auto']);
+      jest.resetModules();
+      expect(loadGuard().getModelPolicyBlockState(model, 'copilot')).toEqual({
+        model, reason: 'disallowed',
+      });
+    },
+  );
+
+  it.each(['copilot', 'github-copilot', 'github'])('shares %s-qualified allow and deny matching', prefix => {
+    process.env.AWF_ALLOWED_MODELS = JSON.stringify([`${prefix}/*sonnet*`]);
+    process.env.AWF_DISALLOWED_MODELS = JSON.stringify([`${prefix}/*4.5`]);
+    const guard = loadGuard();
+    for (const model of ['claude-sonnet-4.6', 'COPILOT/claude-sonnet-4.6', 'github/claude-sonnet-4.6']) {
+      expect(guard.getModelPolicyBlockState(model, 'COPILOT')).toBeNull();
+      expect(guard.isModelPermittedByPolicy(model, undefined, undefined, 'copilot')).toBe(true);
+    }
+    expect(guard.getModelPolicyBlockState('claude-sonnet-4.5', 'copilot').reason).toBe('disallowed');
+    expect(guard.getModelPolicyBlockState('claude-sonnet-4.6', 'openai').reason).toBe('not_allowed');
+  });
+
+  it('preserves matching without a provider and strips only a recognized prefix', () => {
+    const { isModelPermittedByPolicy: permitted } = loadGuard();
+    expect(permitted('gpt-5', ['copilot/*'], null)).toBe(false);
+    expect(permitted('copilot/gpt-5', ['copilot/*'], null)).toBe(true);
+    expect(permitted('auto', null, ['*opus*'])).toBe(true);
+    expect(permitted('openai/gpt-5', ['gpt-*'], null, 'copilot')).toBe(false);
+    expect(permitted('copilot/copilot/gpt-5', ['copilot/gpt-*'], null, 'copilot')).toBe(false);
+    expect(permitted('google/gemini-3', ['gemini/gemini-*'], null, 'gemini')).toBe(true);
+  });
+
+  it('threads the provider through common request guards without changing rejection status', () => {
+    process.env.AWF_DISALLOWED_MODELS = JSON.stringify(['github/*opus*']);
+    const guard = loadGuard();
+    const { buildCommonGuardChecks } = require('./common-guard-checks');
+    const deps = {
+      ...guard,
+      getEffectiveTokenBlockState: () => null,
+      getMaxRunsBlockState: () => null,
+      getMaxCacheMissesBlockState: () => null,
+      getPermissionDeniedBlockState: () => null,
+      getAiCreditsBlockState: () => null,
+      getModelMultiplierCapBlockState: () => null,
+      getRetiredModelBlockState: () => null,
+      checkUnknownModelRejection: () => null,
+    };
+    const check = buildCommonGuardChecks(deps, 'claude-opus-4.5', 'copilot')
+      .find(entry => entry.eventName === 'model_policy_violation');
+    expect(check.block).toEqual({ model: 'claude-opus-4.5', reason: 'disallowed' });
+    expect(check.isBlocked(check.block)).toBe(true);
+    expect(check.statusCode).toBe(403);
+  });
+
   describe('no policy configured', () => {
     it('should return null for any model', () => {
       const guard = loadGuard();

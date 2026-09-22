@@ -89,6 +89,7 @@ function resetProviderPricingOverlaysForTests() {
 }
 
 module.exports = {
+  getProviderAliases,
   resolveProviderPricingOverlay,
   resetProviderPricingOverlaysForTests,
 };

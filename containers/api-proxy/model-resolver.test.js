@@ -635,6 +635,48 @@ describe('resolveModel with modelPolicyConfig', () => {
     copilot: ['claude-sonnet-4.6', 'claude-opus-4.5', 'claude-haiku-3-5'],
   };
 
+  it.each(['copilot', 'github-copilot', 'github'])('applies %s-qualified allows to aliases and direct models', provider => {
+    const policy = { allowedModels: [`${provider}/*sonnet*`] };
+    for (const model of ['sonnet', 'claude-sonnet-4.6']) {
+      for (const preferDirect of [true, false]) {
+        const result = resolveModel(model, aliases, availableModels, 'copilot', [], {}, policy, preferDirect);
+        expect(result.resolvedModel).toBe('claude-sonnet-4.6');
+      }
+    }
+    expect(resolveModel('opus', aliases, availableModels, 'copilot', [], {}, policy)).toBeNull();
+    expect(resolveModel('claude-opus-4.5', aliases, availableModels, 'copilot', [], {}, policy)).toBeNull();
+  });
+
+  it.each(['copilot', 'github-copilot', 'github'])('filters %s-qualified denies before choosing an alias candidate', provider => {
+    const policy = { allowedModels: ['*sonnet*'], disallowedModels: [`${provider}/*4.7`] };
+    const models = { copilot: ['claude-sonnet-4.7', 'claude-sonnet-4.6'] };
+    expect(resolveModel('sonnet', aliases, models, 'copilot', [], {}, policy).resolvedModel)
+      .toBe('claude-sonnet-4.6');
+    expect(resolveModel('claude-sonnet-4.7', aliases, models, 'copilot', [], {}, policy)).toBeNull();
+  });
+
+  it('applies qualified policy to family-version fallback', () => {
+    const models = { copilot: ['gpt-5.3', 'gpt-5.4'] };
+    const policy = { allowedModels: ['github-copilot/gpt-*'], disallowedModels: ['github/gpt-5.4'] };
+    expect(resolveModel('gpt-5.9', {}, models, 'copilot', [], { enabled: false }, policy).resolvedModel)
+      .toBe('gpt-5.3');
+  });
+
+  it('does not match a different provider in an alias policy', () => {
+    const policy = { allowedModels: ['anthropic/*sonnet*'] };
+    expect(resolveModel('sonnet', aliases, availableModels, 'copilot', [], {}, policy)).toBeNull();
+  });
+
+  it.each(['auto', 'copilot/auto'])('does not bypass policy through the %s sentinel', model => {
+    const policy = { disallowedModels: ['github-copilot/*opus*'] };
+    expect(resolveModel(model, {}, availableModels, 'copilot', [], {}, policy)).toBeNull();
+    const allowed = { ...policy, allowedModels: ['github/auto'] };
+    expect(resolveModel(model, {}, availableModels, 'copilot', [], {}, allowed).resolvedModel).toBe('auto');
+    expect(resolveModel(model, {}, availableModels, 'copilot', [], {}, {
+      ...allowed, disallowedModels: ['copilot/auto'],
+    })).toBeNull();
+  });
+
   it('should resolve normally when no policy is set', () => {
     const result = resolveModel('sonnet', aliases, availableModels, 'copilot', [], {}, null);
     expect(result).not.toBeNull();

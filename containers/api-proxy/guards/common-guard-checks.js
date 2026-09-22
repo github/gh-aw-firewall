@@ -154,7 +154,7 @@ function buildCommonGuardChecks(deps, model, provider = null) {
         }),
       },
       {
-        block: getModelPolicyBlockState(model),
+        block: getModelPolicyBlockState(model, provider),
         isBlocked: block => !!block,
         statusCode: 403,
         eventName: 'model_policy_violation',
