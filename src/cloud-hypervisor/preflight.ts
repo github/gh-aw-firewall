@@ -36,6 +36,7 @@ import {
   assertTrustedHostTool,
   assertTrustedRegularFile,
   calculateSha256,
+  type CloudHypervisorArtifactTrustDependencies,
   hasCompleteArtifactDigests,
   parsePositiveUid,
   resolveTrustedOperatorUid,
@@ -56,20 +57,10 @@ import {
  * stages artifacts into a private, non-world-readable run directory.
  */
 
-export interface CloudHypervisorPreflightDependencies {
+export interface CloudHypervisorPreflightDependencies extends CloudHypervisorArtifactTrustDependencies {
   platform: NodeJS.Platform;
   arch: string;
-  uid: number;
-  access(filePath: string, mode: number): Promise<void>;
-  lstat(filePath: string): Promise<{
-    isFile(): boolean;
-    isSymbolicLink(): boolean;
-    mode: number;
-    size: number;
-    uid: number;
-  }>;
   runVersion(binaryPath: string): Promise<string>;
-  sha256(filePath: string): Promise<string>;
   readFile(filePath: string): Promise<string>;
   createArtifactSnapshot(
     sources: CloudHypervisorArtifactSnapshotSources,

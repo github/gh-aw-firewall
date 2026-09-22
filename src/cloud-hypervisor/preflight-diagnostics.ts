@@ -60,11 +60,17 @@ export function findMountForPath(
   return best;
 }
 
+/**
+ * Returns true when either mount option set explicitly carries `noexec`.
+ */
 export function mountRejectsExecution(mount: CloudHypervisorMountDescription): boolean {
   return [mount.options, mount.superblockOptions].some((options) =>
     options.split(',').includes('noexec'));
 }
 
+/**
+ * Returns a best-effort mount description for `filePath`; never throws.
+ */
 export async function describeMountForPath(filePath: string): Promise<string> {
   try {
     const best = findMountForPath(
@@ -78,6 +84,9 @@ export async function describeMountForPath(filePath: string): Promise<string> {
   }
 }
 
+/**
+ * Returns compact ACL details for `filePath`, or an unavailable marker; never throws.
+ */
 export async function describeAcl(filePath: string): Promise<string> {
   try {
     const getfaclPath = await resolveDiagnosticGetfaclPath();
@@ -119,6 +128,9 @@ export function pathComponents(filePath: string): string[] {
   return components;
 }
 
+/**
+ * Returns best-effort stat and ACL details for a path component; never throws.
+ */
 export async function describePathComponent(filePath: string): Promise<string> {
   let statDescription: string;
   try {
@@ -138,6 +150,9 @@ export async function describePathComponent(filePath: string): Promise<string> {
   return `${filePath}: ${statDescription}; ${await describeAcl(filePath)}`;
 }
 
+/**
+ * Builds a multi-line, best-effort execution-failure diagnostic block.
+ */
 export async function buildExecutionFailureDiagnostics(binaryPath: string): Promise<string> {
   const uid = process.getuid?.();
   const euid = process.geteuid?.();

@@ -4,6 +4,7 @@ import * as os from 'os';
 import * as path from 'path';
 import {
   assertDigest,
+  assertTrustedHostTool,
   assertTrustedRegularFile,
   calculateSha256,
   hasCompleteArtifactDigests,
@@ -88,6 +89,38 @@ describe('Cloud Hypervisor artifact trust', () => {
         sha256: jest.fn().mockResolvedValue('b'.repeat(64)),
       },
     )).rejects.toThrow(/SHA-256 mismatch/);
+  });
+
+  it('rejects untrusted host tool paths', async () => {
+    await expect(assertTrustedHostTool('ip', 'relative/ip'))
+      .rejects.toThrow(/host tool "ip" path must be absolute/);
+
+    jest.spyOn(fs, 'lstat').mockResolvedValueOnce({
+      isFile: () => false,
+      isSymbolicLink: () => false,
+      mode: 0o040777,
+      uid: 0,
+    } as never);
+    await expect(assertTrustedHostTool('ip', '/trusted/ip'))
+      .rejects.toThrow(/host tool "ip" has an untrusted parent directory/);
+
+    jest.restoreAllMocks();
+    jest.spyOn(fs, 'lstat')
+      .mockResolvedValueOnce({
+        isFile: () => false,
+        isSymbolicLink: () => false,
+        mode: 0o040755,
+        uid: 0,
+      } as never)
+      .mockResolvedValueOnce({
+        isFile: () => true,
+        isSymbolicLink: () => false,
+        mode: 0o100755,
+        uid: 1000,
+      } as never);
+    jest.spyOn(fs, 'access').mockResolvedValue(undefined);
+    await expect(assertTrustedHostTool('ip', '/trusted/ip'))
+      .rejects.toThrow(/must be a root-owned non-writable regular file/);
   });
 
   it('recognizes complete artifact digest sets and sudo operator uids', () => {
