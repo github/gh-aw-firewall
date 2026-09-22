@@ -94,6 +94,7 @@ export function buildNvxConstrainedLaunchCommand(options: {
   readonly tools: {
     readonly ip: string;
     readonly bwrap: string;
+    readonly env: string;
     readonly setpriv: string;
   };
   readonly namespaceName: string;
@@ -180,6 +181,9 @@ export function buildNvxConstrainedLaunchCommand(options: {
     '--inh-caps=-all',
     '--bounding-set=-all',
     '--ambient-caps=-all',
+    '--',
+    options.tools.env,
+    '--ignore-signal=PIPE',
     '--',
     '/opt/awf-nvx/openvmm',
     ...options.openvmmArguments,

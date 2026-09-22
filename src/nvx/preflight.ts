@@ -20,6 +20,7 @@ import {
 const REQUIRED_CGROUP_CONTROLLERS = ['cpu', 'memory', 'pids'] as const;
 const REQUIRED_TOOLS = [
   'bwrap',
+  'env',
   'flock',
   'getfacl',
   'getent',

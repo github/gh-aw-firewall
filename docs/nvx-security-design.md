@@ -158,9 +158,10 @@ Implemented boundary:
   its mount namespace, and completes live confinement verification. Because
   the pinned OpenVMM initially routes stdin to the guest console, AWF clears
   the inherited environment, sets `TERM=dumb`, places OpenVMM's REPL state
-  under the per-run writable directory with `XDG_STATE_HOME`, writes Ctrl-Q,
-  waits for the exact flushed `openvmm> ` prompt, and only then writes `resume`
-  to the REPL;
+  under the per-run writable directory with `XDG_STATE_HOME`, restores the
+  upstream launcher's ignored `SIGPIPE` disposition with trusted GNU `env`,
+  writes Ctrl-Q, waits for the exact flushed `openvmm> ` prompt, and only then
+  writes `resume` to the REPL;
   and
 - an explicit x86_64 cBPF seccomp denylist passed to Bubblewrap on inherited
   FD 5 before `setpriv` and OpenVMM execute. The filter rejects host-management,
@@ -489,7 +490,7 @@ continuing to keep `nvx` absent from the runtime registry and CLI:
   manifest has a GitHub-verified AWF release attestation and whose artifact
   sizes and digests match the manifest;
 - `src/nvx/confinement.ts` constructs a shell-free
-  `ip netns exec` → Bubblewrap → `setpriv` → NVX launch chain with a private
+  `ip netns exec` → Bubblewrap → `setpriv` → `env` → NVX launch chain with a private
   mount namespace, minimal device exposure, a fixed read-only system allowlist,
   a dedicated uid/gid, empty supplementary groups, no capabilities, and
   `no_new_privs`. It also verifies the live OpenVMM process and every thread

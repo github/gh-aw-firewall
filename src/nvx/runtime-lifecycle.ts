@@ -46,6 +46,7 @@ export interface NvxVmmIdentity {
 
 export interface NvxRuntimeToolPaths {
   readonly bwrap: string;
+  readonly env: string;
   readonly flock: string;
   readonly getfacl: string;
   readonly getent: string;
@@ -684,6 +685,7 @@ export function buildNvxPhase3dLaunchPlan(options: {
       tools: {
         ip: options.tools.ip,
         bwrap: options.tools.bwrap,
+        env: options.tools.env,
         setpriv: options.tools.setpriv,
       },
       namespaceName: layout.networkNamespace,
