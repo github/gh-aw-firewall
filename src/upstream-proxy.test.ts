@@ -68,6 +68,7 @@ describe('parseProxyUrl', () => {
   it('rejects URLs with credentials', () => {
     expect(() => parseProxyUrl('http://user:pass@proxy.corp.com:3128')).toThrow('credentials');
     expect(() => parseProxyUrl('http://user@proxy.corp.com:3128')).toThrow('credentials');
+    expect(() => parseProxyUrl('http://user@proxy.corp.com:80')).toThrow('credentials');
   });
 
   it('rejects HTTPS scheme', () => {
@@ -80,6 +81,7 @@ describe('parseProxyUrl', () => {
     expect(() => parseProxyUrl('http://127.0.1.1:3128')).toThrow('loopback');
     expect(() => parseProxyUrl('http://127.255.255.255:3128')).toThrow('loopback');
     expect(() => parseProxyUrl('http://0.0.0.0:3128')).toThrow('loopback');
+    expect(() => parseProxyUrl('http://[::1]:80')).toThrow('loopback');
   });
 
   it('rejects hostnames with squid.conf injection characters', () => {
