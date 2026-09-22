@@ -148,6 +148,8 @@ export function buildNvxConstrainedLaunchCommand(options: {
     '--unshare-pid',
     '--unshare-uts',
     '--hostname', 'awf-nvx',
+    '--dir', '/opt',
+    '--dir', '/run',
     '--proc', '/proc',
     '--dev', '/dev',
     '--dev-bind', '/dev/kvm', '/dev/kvm',

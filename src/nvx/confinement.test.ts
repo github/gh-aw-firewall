@@ -146,6 +146,8 @@ describe('NVX host confinement', () => {
       '--clearenv',
       '--setenv', 'TERM', 'dumb',
       '--setenv', 'HOME', '/nonexistent',
+      '--dir', '/opt',
+      '--dir', '/run',
       '--dev-bind', '/dev/kvm',
       '--ro-bind', `/var/lib/awf-nvx/trusted-artifacts/run-${RUN_ID}`,
       '--bind', `/run/awf-nvx/runs/${RUN_ID}`,
