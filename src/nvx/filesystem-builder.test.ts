@@ -69,8 +69,6 @@ describe('NVX deterministic filesystem builder', () => {
       expect(commands[0]).toEqual({
         command: 'mkfs.erofs',
         args: expect.arrayContaining([
-          '--workers=1',
-          '--sort=path',
           '--all-root',
           '-T',
           '1700000000',

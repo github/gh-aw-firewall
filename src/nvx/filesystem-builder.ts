@@ -257,8 +257,6 @@ export class NvxFilesystemBuilder {
     const imagePath = path.join(this.runDirectory, `${staged.role}.erofs`);
     await this.dependencies.runTool('mkfs.erofs', [
       '--quiet',
-      '--workers=1',
-      '--sort=path',
       '--all-root',
       '-E', 'force-inode-compact',
       '-T', String(sourceDateEpoch),

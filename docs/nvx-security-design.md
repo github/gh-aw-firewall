@@ -296,6 +296,8 @@ startup failure.
 Phase 2 will implement the image builder, but Phase 1 fixes its contract:
 
 - build deterministic EROFS lower layers from allowlisted inputs;
+- use the reproducible fixed-timestamp and fixed-UUID options available in the
+  Ubuntu 24.04 `erofs-utils` 1.7.1 production baseline;
 - do not pass arbitrary host paths directly to OpenVMM;
 - exclude credentials, sockets, devices, and host control files regardless of
   workspace contents;
