@@ -20,15 +20,21 @@ import {
 const REQUIRED_CGROUP_CONTROLLERS = ['cpu', 'memory', 'pids'] as const;
 const REQUIRED_TOOLS = [
   'bwrap',
+  'flock',
   'getfacl',
+  'getent',
   'gh',
+  'groupdel',
+  'id',
   'ip',
+  'iptables',
   'mkfs.erofs',
   'mke2fs',
   'nft',
   'python3',
   'setfacl',
   'setpriv',
+  'sysctl',
   'useradd',
   'userdel',
 ] as const;
@@ -57,6 +63,11 @@ export interface NvxPreflightResult {
   readonly manifest: NvxArtifactManifest;
   readonly snapshot: NvxArtifactSnapshot;
   readonly tools: NvxHostToolPaths;
+}
+
+export interface NvxPreflightHooks {
+  beforeSnapshot(tools: NvxHostToolPaths): Promise<void>;
+  snapshotCreated(snapshot: NvxArtifactSnapshot): Promise<void>;
 }
 
 export interface NvxPreflightDependencies {
@@ -127,6 +138,7 @@ const defaultDependencies: NvxPreflightDependencies = {
 export async function runNvxPreflight(
   options: NvxPreflightOptions,
   dependencies: NvxPreflightDependencies = defaultDependencies,
+  hooks?: NvxPreflightHooks,
 ): Promise<NvxPreflightResult> {
   const layout = createNvxRunLayout(options.runId);
   assertNvxRunLayout(layout);
@@ -191,9 +203,11 @@ export async function runNvxPreflight(
     );
   }
 
+  await hooks?.beforeSnapshot(tools);
   const snapshot = await dependencies.createSnapshot(options, layout);
   try {
     assertSnapshotLayout(snapshot, layout);
+    await hooks?.snapshotCreated(snapshot);
   } catch (error) {
     await dependencies.removeSnapshot(layout.artifactSnapshotDirectory);
     throw error;

@@ -14,6 +14,7 @@ import {
 import { createMicrovmNetworkPlan } from './network-plan';
 import type {
   MicrovmNetworkHostTools,
+  MicrovmNetworkPlan,
   MicrovmNetworkPlanOptions,
   MicrovmNetworkReservation,
 } from './network-types';
@@ -76,6 +77,7 @@ export class MicrovmNetworkReservationRegistry {
   async reserve(
     runId: string,
     options: MicrovmNetworkPlanOptions,
+    transformPlan: (plan: MicrovmNetworkPlan) => MicrovmNetworkPlan = (plan) => plan,
   ): Promise<MicrovmNetworkReservation> {
     return this.dependencies.withLock(async () => {
       await this.assertPrivateRoot();
@@ -104,12 +106,14 @@ export class MicrovmNetworkReservationRegistry {
           this.reservationsDirectory,
           `${resourceToken}.json`,
         );
-        const plan = createMicrovmNetworkPlan(runId, options, {
+        const allocatedPlan = createMicrovmNetworkPlan(runId, options, {
           resourceToken,
           subnetIndex,
           infrastructureIp,
           reservationPath,
         });
+        const plan = transformPlan(allocatedPlan);
+        assertReservationPlanPreserved(allocatedPlan, plan);
         if (
           reservedSubnets.has(plan.guestSubnet)
           || live.routes.some((route) => cidrsOverlap(route, plan.guestSubnet))
@@ -259,8 +263,34 @@ export function reserveMicrovmNetworkPlan(
   runId: string,
   options: MicrovmNetworkPlanOptions,
   tools: MicrovmNetworkHostTools,
+  transformPlan: (plan: MicrovmNetworkPlan) => MicrovmNetworkPlan = (plan) => plan,
 ): Promise<MicrovmNetworkReservation> {
-  return new MicrovmNetworkReservationRegistry(tools).reserve(runId, options);
+  return new MicrovmNetworkReservationRegistry(tools).reserve(runId, options, transformPlan);
+}
+
+function assertReservationPlanPreserved(
+  allocated: MicrovmNetworkPlan,
+  transformed: MicrovmNetworkPlan,
+): void {
+  const omitNames = ({
+    namespaceName: _namespaceName,
+    netnsPath: _netnsPath,
+    nftTableName: _nftTableName,
+    ...plan
+  }: MicrovmNetworkPlan) => plan;
+  if (
+    JSON.stringify(omitNames(allocated)) !==
+    JSON.stringify(omitNames(transformed))
+  ) {
+    throw new Error('microVM network plan transform changed reserved allocation data');
+  }
+  if (
+    !/^[A-Za-z0-9_.-]+$/.test(transformed.namespaceName) ||
+    transformed.netnsPath !== `/var/run/netns/${transformed.namespaceName}` ||
+    !/^[A-Za-z0-9_]+$/.test(transformed.nftTableName)
+  ) {
+    throw new Error('microVM network plan transform produced unsafe resource names');
+  }
 }
 
 function createDefaultDependencies(

@@ -163,6 +163,37 @@ for complete guest launch, Copilot API-proxy inference, adversarial network and
 filesystem probes, timeout/cancellation process-tree termination, stale
 recovery, and concurrent-run isolation.
 
+## Phase 3c internal manager boundary
+
+Phase 3c adds an internal `NvxManager` orchestration boundary without adding an
+`nvx` CLI option or runtime registration. The manager owns stale-record
+reaping, creation of a pending cleanup record, artifact snapshot journaling,
+dedicated-account and device-ACL observers, host network and cgroup setup,
+construction of the constrained launch plan, launch-process hooks, live
+confinement verification, and reverse-order cleanup. Cleanup records are
+removed only after every cleanup stage succeeds; ambiguous identities and
+cleanup failures retain the record for recovery.
+
+The launch executor is deliberately injected. The default executor fails
+closed and reports that the pinned launch ABI is unavailable. This prevents the
+internal manager from silently falling back to the unconstrained Phase 2
+`python3 scripts/nvx.py` path.
+
+Promotion beyond this boundary is blocked on two upstream contracts:
+
+1. The pinned `nvx.py` imports the `scripts/nvx_tools` package and expects
+   `openvmm/target/release/openvmm`, `build/vmlinux`, and
+   `build/initramfs.cpio.gz`. The current flat four-file artifact snapshot does
+   not satisfy that layout.
+2. The one-shot interface has no reviewed pre-workload readiness hook that
+   identifies the final OpenVMM PID and confirms how an AWF-created TAP is
+   selected. A production executor must prove cgroup placement and confinement
+   before guest code runs and must bind OpenVMM to the interface covered by the
+   AWF nftables policy.
+
+Until those contracts are resolved and exercised by live KVM evidence,
+`NvxManager` is test/integration infrastructure only.
+
 ## Host OpenVMM confinement
 
 Phase 0 observed `NoNewPrivs: 1`, seccomp filter mode, empty capability sets,

@@ -10,17 +10,33 @@ const RECORD_PATH = path.join(NVX_CLEANUP_ROOT, `${RUN_ID}.json`);
 
 function record() {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     runId: RUN_ID,
     owner: {
       pid: 100,
       startTimeTicks: '1234',
       executable: '/usr/local/bin/awf',
+      executableDevice: '8',
+      executableInode: '9',
+      uid: 0,
+      gid: 0,
+      networkNamespace: 'net:[4026531840]',
     },
     vmmIdentity: {
+      state: 'live',
       name: `awfnvx-${'b'.repeat(20)}`,
       uid: 1000,
       gid: 1001,
+    },
+    network: {
+      resourceToken: '123456789abc',
+      namespaceName: `awfnvx-${RUN_ID}`,
+      netnsPath: `/var/run/netns/awfnvx-${RUN_ID}`,
+      hostVethName: 'vmh123456789abc',
+      namespaceVethName: 'vmn123456789abc',
+      tapName: 'vmt123456789abc',
+      infrastructureBridge: 'awfbr0',
+      hostForwardRuleComment: 'awf-microvm-123456789abc',
     },
     resources: {
       artifactSnapshot: {
@@ -34,8 +50,14 @@ function record() {
         inode: '11',
       },
       networkNamespace: {
-        name: `awfnvx-${RUN_ID}`,
+        path: `/var/run/netns/awfnvx-${RUN_ID}`,
+        device: '8',
         inode: '4026533000',
+      },
+      networkReservation: {
+        path: '/run/awf-microvm-network/reservations/123456789abc.json',
+        device: '8',
+        inode: '13',
       },
       mountNamespaceInode: '4026533001',
       cgroup: {
@@ -51,11 +73,21 @@ function record() {
         pid: 200,
         startTimeTicks: '2234',
         executable: '/usr/bin/python3',
+        executableDevice: '8',
+        executableInode: '20',
+        uid: 1000,
+        gid: 1001,
+        networkNamespace: 'net:[4026533000]',
       },
       openvmm: {
         pid: 201,
         startTimeTicks: '2235',
         executable: `/run/awf-nvx/trusted-artifacts/run-${RUN_ID}/openvmm`,
+        executableDevice: '8',
+        executableInode: '21',
+        uid: 1000,
+        gid: 1001,
+        networkNamespace: 'net:[4026533000]',
       },
     },
     stages: {
@@ -67,6 +99,7 @@ function record() {
       processStarted: true,
       runDirectoryCreated: true,
     },
+    updatedAt: '2026-09-21T00:00:00.000Z',
   };
 }
 

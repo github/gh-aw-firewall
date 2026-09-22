@@ -58,6 +58,8 @@ export {
 } from './cleanup-record';
 export type {
   NvxCleanupFileIdentity,
+  NvxCleanupInterfaceIdentity,
+  NvxCleanupNetwork,
   NvxCleanupProcessIdentity,
   NvxCleanupRecord,
 } from './cleanup-record';
@@ -107,3 +109,28 @@ export type {
   NvxPreflightOptions,
   NvxPreflightResult,
 } from './preflight';
+export {
+  DurableNvxCleanupRegistry,
+} from './cleanup-registry';
+export type {
+  NvxCleanupHandle,
+  NvxCleanupRegistry,
+  NvxCleanupRegistryDependencies,
+  NvxCleanupToolPaths,
+} from './cleanup-registry';
+export {
+  NvxCleanupStore,
+} from './cleanup-store';
+export type {
+  NvxCleanupStoreDependencies,
+} from './cleanup-store';
+export {
+  NVX_LAUNCH_ABI_BLOCKED_ERROR,
+  NvxManager,
+} from './manager';
+export type {
+  NvxLaunchExecutor,
+  NvxLaunchHooks,
+  NvxManagerConfig,
+  NvxManagerDependencies,
+} from './manager';

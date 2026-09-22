@@ -2,7 +2,7 @@ import * as path from 'path';
 import { NVX_CLEANUP_ROOT } from './paths';
 import { createNvxRunLayout } from './run-layout';
 
-export const NVX_CLEANUP_SCHEMA_VERSION = 1;
+export const NVX_CLEANUP_SCHEMA_VERSION = 2;
 export { NVX_CLEANUP_ROOT };
 
 export interface NvxCleanupFileIdentity {
@@ -15,6 +15,11 @@ export interface NvxCleanupProcessIdentity {
   readonly pid: number;
   readonly startTimeTicks: string;
   readonly executable: string;
+  readonly executableDevice: string;
+  readonly executableInode: string;
+  readonly uid: number;
+  readonly gid: number;
+  readonly networkNamespace: string;
 }
 
 export interface NvxCleanupDeviceAclIdentity extends NvxCleanupFileIdentity {
@@ -23,334 +28,368 @@ export interface NvxCleanupDeviceAclIdentity extends NvxCleanupFileIdentity {
   readonly permissions: 'rw-';
 }
 
+export interface NvxCleanupInterfaceIdentity {
+  readonly name: string;
+  readonly namespace?: string;
+  readonly ifindex: number;
+}
+
+export interface NvxCleanupNetwork {
+  readonly resourceToken: string;
+  readonly namespaceName: string;
+  readonly netnsPath: string;
+  readonly hostVethName: string;
+  readonly namespaceVethName: string;
+  readonly tapName: string;
+  readonly infrastructureBridge: string;
+  readonly hostForwardRuleComment: string;
+}
+
 export interface NvxCleanupRecord {
   readonly schemaVersion: typeof NVX_CLEANUP_SCHEMA_VERSION;
   readonly runId: string;
   readonly owner: NvxCleanupProcessIdentity;
-  readonly vmmIdentity: {
-    readonly name: string;
-    readonly uid: number;
-    readonly gid: number;
+  vmmIdentity?: {
+    state: 'pending' | 'live';
+    name: string;
+    uid?: number;
+    gid?: number;
   };
+  network?: NvxCleanupNetwork;
   readonly resources: {
-    readonly artifactSnapshot?: NvxCleanupFileIdentity;
-    readonly runDirectory?: NvxCleanupFileIdentity;
-    readonly networkNamespace?: {
-      readonly name: string;
-      readonly inode: string;
-    };
-    readonly mountNamespaceInode?: string;
-    readonly cgroup?: NvxCleanupFileIdentity;
-    readonly deviceAcls: readonly NvxCleanupDeviceAclIdentity[];
-    readonly launcher?: NvxCleanupProcessIdentity;
-    readonly openvmm?: NvxCleanupProcessIdentity;
+    artifactSnapshot?: NvxCleanupFileIdentity;
+    runDirectory?: NvxCleanupFileIdentity;
+    networkNamespace?: NvxCleanupFileIdentity;
+    networkReservation?: NvxCleanupFileIdentity;
+    hostVeth?: NvxCleanupInterfaceIdentity;
+    namespaceVeth?: NvxCleanupInterfaceIdentity;
+    tap?: NvxCleanupInterfaceIdentity;
+    mountNamespaceInode?: string;
+    cgroup?: NvxCleanupFileIdentity;
+    deviceAcls: NvxCleanupDeviceAclIdentity[];
+    launcher?: NvxCleanupProcessIdentity;
+    openvmm?: NvxCleanupProcessIdentity;
   };
   readonly stages: {
-    readonly accountCreated: boolean;
-    readonly artifactSnapshotCreated: boolean;
-    readonly cgroupCreated: boolean;
-    readonly deviceAclsGranted: boolean;
-    readonly networkCreated: boolean;
-    readonly processStarted: boolean;
-    readonly runDirectoryCreated: boolean;
+    accountCreated: boolean;
+    artifactSnapshotCreated: boolean;
+    cgroupCreated: boolean;
+    deviceAclsGranted: boolean;
+    networkCreated: boolean;
+    processStarted: boolean;
+    runDirectoryCreated: boolean;
   };
+  updatedAt: string;
 }
 
 export function parseNvxCleanupRecord(
   contents: string,
   recordPath: string,
+  cleanupRoot = NVX_CLEANUP_ROOT,
 ): NvxCleanupRecord {
   let value: unknown;
   try {
     value = JSON.parse(contents);
   } catch (error) {
-    throw new Error(
-      `NVX cleanup record is not valid JSON: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
-    );
+    throw new Error(`NVX cleanup record is not valid JSON: ${formatError(error)}`);
   }
-  const record = exactObject(value, 'NVX cleanup record', [
-    'schemaVersion',
-    'runId',
-    'owner',
-    'vmmIdentity',
-    'resources',
-    'stages',
-  ]);
+  const record = object(value, 'record');
+  assertAllowedKeys(record, [
+    'schemaVersion', 'runId', 'owner', 'vmmIdentity', 'network',
+    'resources', 'stages', 'updatedAt',
+  ], 'record');
   if (record.schemaVersion !== NVX_CLEANUP_SCHEMA_VERSION) {
     throw new Error(`NVX cleanup record schemaVersion must be ${NVX_CLEANUP_SCHEMA_VERSION}`);
   }
-  const runId = requireRunId(record.runId);
+  const runId = stringMatching(record.runId, /^[a-f0-9]{32}$/, 'runId');
   const layout = createNvxRunLayout(runId);
-  const expectedPath = layout.cleanupRecordPath;
-  if (path.resolve(recordPath) !== expectedPath) {
-    throw new Error(`NVX cleanup record path must be ${expectedPath}`);
+  const expectedRecordPath = path.join(cleanupRoot, `${runId}.json`);
+  if (path.resolve(recordPath) !== path.resolve(expectedRecordPath)) {
+    throw new Error(`NVX cleanup record path must be ${expectedRecordPath}`);
   }
-
-  const owner = processIdentity(record.owner, 'owner');
-  const vmmIdentity = exactObject(record.vmmIdentity, 'vmmIdentity', [
-    'name',
-    'uid',
-    'gid',
-  ]);
-  if (
-    typeof vmmIdentity.name !== 'string' ||
-    !/^awfnvx-[a-f0-9]{20}$/.test(vmmIdentity.name)
-  ) {
-    throw new Error('NVX cleanup vmmIdentity.name is invalid');
-  }
-  const uid = positiveInteger(vmmIdentity.uid, 'vmmIdentity.uid');
-  const gid = positiveInteger(vmmIdentity.gid, 'vmmIdentity.gid');
-
-  const resources = allowedObject(record.resources, 'resources', [
-    'artifactSnapshot',
-    'runDirectory',
-    'networkNamespace',
-    'mountNamespaceInode',
-    'cgroup',
-    'deviceAcls',
-    'launcher',
-    'openvmm',
-  ]);
-  const deviceAcls = parseDeviceAcls(resources.deviceAcls);
-  const networkNamespace = optionalObject(
-    resources.networkNamespace,
-    'resources.networkNamespace',
-    ['name', 'inode'],
-  );
-  if (
-    networkNamespace &&
-    (
-      typeof networkNamespace.name !== 'string' ||
-      networkNamespace.name !== layout.networkNamespace ||
-      typeof networkNamespace.inode !== 'string' ||
-      !/^\d+$/.test(networkNamespace.inode)
-    )
-  ) {
-    throw new Error('NVX cleanup network namespace identity is invalid');
-  }
-  const mountNamespaceInode = optionalNumericString(
-    resources.mountNamespaceInode,
-    'resources.mountNamespaceInode',
-  );
-
-  const stages = exactObject(record.stages, 'stages', [
-    'accountCreated',
-    'artifactSnapshotCreated',
-    'cgroupCreated',
-    'deviceAclsGranted',
-    'networkCreated',
-    'processStarted',
-    'runDirectoryCreated',
-  ]);
-  for (const key of Object.keys(stages) as (keyof NvxCleanupRecord['stages'])[]) {
-    if (typeof stages[key] !== 'boolean') {
-      throw new Error(`NVX cleanup stages.${key} must be boolean`);
-    }
-  }
-  const normalizedStages: NvxCleanupRecord['stages'] = {
-    accountCreated: stages.accountCreated as boolean,
-    artifactSnapshotCreated: stages.artifactSnapshotCreated as boolean,
-    cgroupCreated: stages.cgroupCreated as boolean,
-    deviceAclsGranted: stages.deviceAclsGranted as boolean,
-    networkCreated: stages.networkCreated as boolean,
-    processStarted: stages.processStarted as boolean,
-    runDirectoryCreated: stages.runDirectoryCreated as boolean,
-  };
-
-  return {
+  const owner = parseProcess(record.owner, 'owner');
+  const resources = object(record.resources, 'resources');
+  assertAllowedKeys(resources, [
+    'artifactSnapshot', 'runDirectory', 'networkNamespace', 'networkReservation',
+    'hostVeth', 'namespaceVeth', 'tap', 'mountNamespaceInode', 'cgroup',
+    'deviceAcls', 'launcher', 'openvmm',
+  ], 'resources');
+  const stages = object(record.stages, 'stages');
+  assertAllowedKeys(stages, [
+    'accountCreated', 'artifactSnapshotCreated', 'cgroupCreated',
+    'deviceAclsGranted', 'networkCreated', 'processStarted', 'runDirectoryCreated',
+  ], 'stages');
+  const parsed: NvxCleanupRecord = {
     schemaVersion: NVX_CLEANUP_SCHEMA_VERSION,
     runId,
     owner,
-    vmmIdentity: {
-      name: vmmIdentity.name,
-      uid,
-      gid,
-    },
+    ...(record.vmmIdentity === undefined ? {} : {
+      vmmIdentity: parseVmmIdentity(record.vmmIdentity),
+    }),
+    ...(record.network === undefined ? {} : {
+      network: parseNetwork(record.network, layout.networkNamespace),
+    }),
     resources: {
       ...(resources.artifactSnapshot === undefined ? {} : {
-        artifactSnapshot: fileIdentity(
-          resources.artifactSnapshot,
-          'artifactSnapshot',
-          layout.artifactSnapshotDirectory,
+        artifactSnapshot: parseFile(
+          resources.artifactSnapshot, 'artifactSnapshot', layout.artifactSnapshotDirectory,
         ),
       }),
       ...(resources.runDirectory === undefined ? {} : {
-        runDirectory: fileIdentity(
-          resources.runDirectory,
-          'runDirectory',
-          layout.runDirectory,
+        runDirectory: parseFile(resources.runDirectory, 'runDirectory', layout.runDirectory),
+      }),
+      ...(resources.networkNamespace === undefined ? {} : {
+        networkNamespace: parseFile(
+          resources.networkNamespace, 'networkNamespace', `/var/run/netns/${layout.networkNamespace}`,
         ),
       }),
-      ...(networkNamespace ? {
-        networkNamespace: {
-          name: networkNamespace.name as string,
-          inode: networkNamespace.inode as string,
-        },
-      } : {}),
-      ...(mountNamespaceInode ? { mountNamespaceInode } : {}),
+      ...(resources.networkReservation === undefined ? {} : {
+        networkReservation: parseReservation(resources.networkReservation),
+      }),
+      ...(resources.hostVeth === undefined ? {} : {
+        hostVeth: parseInterface(resources.hostVeth, 'hostVeth'),
+      }),
+      ...(resources.namespaceVeth === undefined ? {} : {
+        namespaceVeth: parseInterface(resources.namespaceVeth, 'namespaceVeth'),
+      }),
+      ...(resources.tap === undefined ? {} : {
+        tap: parseInterface(resources.tap, 'tap'),
+      }),
+      ...(resources.mountNamespaceInode === undefined ? {} : {
+        mountNamespaceInode: numericString(resources.mountNamespaceInode, 'mountNamespaceInode'),
+      }),
       ...(resources.cgroup === undefined ? {} : {
-        cgroup: fileIdentity(
-          resources.cgroup,
-          'cgroup',
-          layout.cgroupPath,
-        ),
+        cgroup: parseFile(resources.cgroup, 'cgroup', layout.cgroupPath),
       }),
-      deviceAcls,
+      deviceAcls: parseDeviceAcls(resources.deviceAcls),
       ...(resources.launcher === undefined ? {} : {
-        launcher: processIdentity(resources.launcher, 'launcher'),
+        launcher: parseProcess(resources.launcher, 'launcher'),
       }),
       ...(resources.openvmm === undefined ? {} : {
-        openvmm: processIdentity(resources.openvmm, 'openvmm'),
+        openvmm: parseProcess(resources.openvmm, 'openvmm'),
       }),
     },
-    stages: normalizedStages,
+    stages: {
+      accountCreated: boolean(stages.accountCreated, 'accountCreated'),
+      artifactSnapshotCreated: boolean(stages.artifactSnapshotCreated, 'artifactSnapshotCreated'),
+      cgroupCreated: boolean(stages.cgroupCreated, 'cgroupCreated'),
+      deviceAclsGranted: boolean(stages.deviceAclsGranted, 'deviceAclsGranted'),
+      networkCreated: boolean(stages.networkCreated, 'networkCreated'),
+      processStarted: boolean(stages.processStarted, 'processStarted'),
+      runDirectoryCreated: boolean(stages.runDirectoryCreated, 'runDirectoryCreated'),
+    },
+    updatedAt: stringMatching(record.updatedAt, /^\d{4}-\d\d-\d\dT/, 'updatedAt'),
   };
+  return parsed;
 }
 
 export function assertNvxCleanupStageConsistency(record: NvxCleanupRecord): void {
-  const { resources, stages } = record;
-  const requirements: readonly [
-    boolean,
-    unknown,
-    string,
-  ][] = [
-    [stages.artifactSnapshotCreated, resources.artifactSnapshot, 'artifact snapshot'],
-    [stages.runDirectoryCreated, resources.runDirectory, 'run directory'],
-    [stages.networkCreated, resources.networkNamespace, 'network namespace'],
-    [stages.cgroupCreated, resources.cgroup, 'cgroup'],
-    [stages.processStarted, resources.launcher, 'launcher process'],
+  const checks: readonly [boolean, unknown, string][] = [
+    [record.stages.accountCreated, record.vmmIdentity?.state === 'live', 'account'],
+    [record.stages.artifactSnapshotCreated, record.resources.artifactSnapshot, 'artifact snapshot'],
+    [record.stages.runDirectoryCreated, record.resources.runDirectory, 'run directory'],
+    [record.stages.networkCreated, record.resources.networkNamespace, 'network namespace'],
+    [record.stages.cgroupCreated, record.resources.cgroup, 'cgroup'],
+    [record.stages.processStarted, record.resources.launcher, 'launcher process'],
   ];
-  for (const [created, identity, label] of requirements) {
-    if (created !== (identity !== undefined)) {
+  for (const [created, identity, label] of checks) {
+    if (created !== Boolean(identity)) {
       throw new Error(`NVX cleanup ${label} stage and identity are inconsistent`);
     }
   }
-  if (stages.deviceAclsGranted !== (resources.deviceAcls.length > 0)) {
+  if (record.stages.deviceAclsGranted !== (record.resources.deviceAcls.length > 0)) {
     throw new Error('NVX cleanup device ACL stage and identities are inconsistent');
   }
-  if (resources.openvmm && !resources.launcher) {
+  if (record.resources.openvmm && !record.resources.launcher) {
     throw new Error('NVX cleanup OpenVMM identity requires a launcher identity');
+  }
+  if (record.network && record.network.namespaceName !== createNvxRunLayout(record.runId).networkNamespace) {
+    throw new Error('NVX cleanup network plan is not bound to the run');
+  }
+  const hasNetworkResource =
+    record.resources.networkNamespace !== undefined ||
+    record.resources.hostVeth !== undefined ||
+    record.resources.namespaceVeth !== undefined ||
+    record.resources.tap !== undefined;
+  if ((record.stages.networkCreated || hasNetworkResource) && !record.network) {
+    throw new Error('NVX cleanup network resources require a committed network plan');
+  }
+  if (record.network && !record.resources.networkReservation) {
+    throw new Error('NVX cleanup network plan requires a committed reservation');
+  }
+  if (
+    record.network &&
+    record.resources.networkReservation &&
+    path.basename(record.resources.networkReservation.path) !==
+      `${record.network.resourceToken}.json`
+  ) {
+    throw new Error('NVX cleanup network reservation is not bound to the resource token');
   }
 }
 
-function processIdentity(value: unknown, label: string): NvxCleanupProcessIdentity {
-  const object = exactObject(value, label, ['pid', 'startTimeTicks', 'executable']);
-  const pid = positiveInteger(object.pid, `${label}.pid`);
-  if (typeof object.startTimeTicks !== 'string' || !/^\d+$/.test(object.startTimeTicks)) {
-    throw new Error(`NVX cleanup ${label}.startTimeTicks is invalid`);
-  }
-  if (
-    typeof object.executable !== 'string' ||
-    !path.isAbsolute(object.executable) ||
-    object.executable.includes('\0')
-  ) {
-    throw new Error(`NVX cleanup ${label}.executable is invalid`);
-  }
+function parseVmmIdentity(value: unknown): NonNullable<NvxCleanupRecord['vmmIdentity']> {
+  const item = object(value, 'vmmIdentity');
+  assertAllowedKeys(item, ['state', 'name', 'uid', 'gid'], 'vmmIdentity');
+  const name = stringMatching(item.name, /^awfnvx-[a-f0-9]{20}$/, 'vmmIdentity.name');
+  if (item.state === 'pending') return { state: 'pending', name };
+  if (item.state !== 'live') throw new Error('NVX cleanup vmmIdentity.state is invalid');
   return {
-    pid,
-    startTimeTicks: object.startTimeTicks,
-    executable: object.executable,
+    state: 'live',
+    name,
+    uid: positiveInteger(item.uid, 'vmmIdentity.uid'),
+    gid: positiveInteger(item.gid, 'vmmIdentity.gid'),
   };
 }
 
-function fileIdentity(
-  value: unknown,
-  label: string,
-  expectedPath: string,
-): NvxCleanupFileIdentity {
-  const object = exactObject(value, label, ['path', 'device', 'inode']);
-  if (
-    typeof object.path !== 'string' ||
-    !path.isAbsolute(object.path) ||
-    object.path.includes('\0') ||
-    path.resolve(object.path) !== expectedPath
-  ) {
-    throw new Error(`NVX cleanup ${label}.path is invalid`);
-  }
-
+function parseNetwork(value: unknown, expectedName: string): NvxCleanupNetwork {
+  const item = object(value, 'network');
+  assertAllowedKeys(item, [
+    'resourceToken', 'namespaceName', 'netnsPath', 'hostVethName', 'namespaceVethName',
+    'tapName', 'infrastructureBridge', 'hostForwardRuleComment',
+  ], 'network');
+  const resourceToken = stringMatching(
+    item.resourceToken, /^[a-f0-9]{12}$/, 'network.resourceToken',
+  );
+  const namespaceName = stringMatching(item.namespaceName, /^[A-Za-z0-9_.-]+$/, 'network.namespaceName');
+  if (namespaceName !== expectedName) throw new Error('NVX cleanup network namespace is invalid');
+  const netnsPath = absolute(item.netnsPath, 'network.netnsPath');
+  if (netnsPath !== `/var/run/netns/${namespaceName}`) throw new Error('NVX cleanup netns path is invalid');
   return {
-    path: object.path,
-    device: numericString(object.device, `${label}.device`),
-    inode: numericString(object.inode, `${label}.inode`),
+    resourceToken,
+    namespaceName,
+    netnsPath,
+    hostVethName: interfaceName(item.hostVethName, 'network.hostVethName'),
+    namespaceVethName: interfaceName(item.namespaceVethName, 'network.namespaceVethName'),
+    tapName: interfaceName(item.tapName, 'network.tapName'),
+    infrastructureBridge: interfaceName(item.infrastructureBridge, 'network.infrastructureBridge'),
+    hostForwardRuleComment: stringMatching(
+      item.hostForwardRuleComment, /^awf-microvm-[a-f0-9]{12}$/, 'network.hostForwardRuleComment',
+    ),
+  };
+}
+
+function parseProcess(value: unknown, label: string): NvxCleanupProcessIdentity {
+  const item = object(value, label);
+  assertAllowedKeys(item, [
+    'pid', 'startTimeTicks', 'executable', 'executableDevice',
+    'executableInode', 'uid', 'gid', 'networkNamespace',
+  ], label);
+  return {
+    pid: positiveInteger(item.pid, `${label}.pid`),
+    startTimeTicks: numericString(item.startTimeTicks, `${label}.startTimeTicks`),
+    executable: absolute(item.executable, `${label}.executable`),
+    executableDevice: numericString(item.executableDevice, `${label}.executableDevice`),
+    executableInode: numericString(item.executableInode, `${label}.executableInode`),
+    uid: nonNegativeInteger(item.uid, `${label}.uid`),
+    gid: nonNegativeInteger(item.gid, `${label}.gid`),
+    networkNamespace: stringMatching(
+      item.networkNamespace, /^net:\[\d+\]$/, `${label}.networkNamespace`,
+    ),
+  };
+}
+
+function parseFile(value: unknown, label: string, expectedPath: string): NvxCleanupFileIdentity {
+  const item = object(value, label);
+  assertAllowedKeys(item, ['path', 'device', 'inode'], label);
+  const filePath = absolute(item.path, `${label}.path`);
+  if (path.resolve(filePath) !== expectedPath) throw new Error(`NVX cleanup ${label}.path is invalid`);
+  return {
+    path: filePath,
+    device: numericString(item.device, `${label}.device`),
+    inode: numericString(item.inode, `${label}.inode`),
+  };
+}
+
+function parseReservation(value: unknown): NvxCleanupFileIdentity {
+  const item = object(value, 'networkReservation');
+  assertAllowedKeys(item, ['path', 'device', 'inode'], 'networkReservation');
+  const filePath = absolute(item.path, 'networkReservation.path');
+  if (
+    path.dirname(filePath) !== '/run/awf-microvm-network/reservations' ||
+    !/^[a-f0-9]{12}\.json$/.test(path.basename(filePath))
+  ) throw new Error('NVX cleanup networkReservation.path is invalid');
+  return {
+    path: filePath,
+    device: numericString(item.device, 'networkReservation.device'),
+    inode: numericString(item.inode, 'networkReservation.inode'),
+  };
+}
+
+function parseInterface(value: unknown, label: string): NvxCleanupInterfaceIdentity {
+  const item = object(value, label);
+  assertAllowedKeys(item, ['name', 'namespace', 'ifindex'], label);
+  return {
+    name: interfaceName(item.name, `${label}.name`),
+    ...(item.namespace === undefined ? {} : {
+      namespace: stringMatching(item.namespace, /^[A-Za-z0-9_.-]+$/, `${label}.namespace`),
+    }),
+    ifindex: positiveInteger(item.ifindex, `${label}.ifindex`),
   };
 }
 
 function parseDeviceAcls(value: unknown): NvxCleanupDeviceAclIdentity[] {
-  const entries = requireArray(value, 'resources.deviceAcls');
+  if (!Array.isArray(value)) throw new Error('NVX cleanup resources.deviceAcls must be an array');
   const seen = new Set<string>();
-  return entries.map((entry, index) => {
-    const label = `resources.deviceAcls[${index}]`;
-    const object = exactObject(entry, label, ['path', 'device', 'inode', 'uid', 'permissions']);
-    if (object.path !== '/dev/kvm' && object.path !== '/dev/net/tun') {
+  return value.map((entry, index) => {
+    const item = object(entry, `deviceAcls[${index}]`);
+    assertAllowedKeys(
+      item,
+      ['path', 'device', 'inode', 'uid', 'permissions'],
+      `deviceAcls[${index}]`,
+    );
+    if (item.path !== '/dev/kvm' && item.path !== '/dev/net/tun') {
       throw new Error('NVX cleanup deviceAcls contains an unsupported path');
     }
-    if (seen.has(object.path)) {
-      throw new Error('NVX cleanup deviceAcls contains a duplicate path');
-    }
-    seen.add(object.path);
-    if (object.permissions !== 'rw-') {
-      throw new Error(`NVX cleanup ${label}.permissions must be rw-`);
-    }
+    if (seen.has(item.path)) throw new Error('NVX cleanup deviceAcls contains a duplicate path');
+    seen.add(item.path);
+    if (item.permissions !== 'rw-') throw new Error('NVX cleanup device ACL permissions must be rw-');
     return {
-      path: object.path,
-      device: numericString(object.device, `${label}.device`),
-      inode: numericString(object.inode, `${label}.inode`),
-      uid: positiveInteger(object.uid, `${label}.uid`),
+      path: item.path,
+      device: numericString(item.device, 'deviceAcl.device'),
+      inode: numericString(item.inode, 'deviceAcl.inode'),
+      uid: positiveInteger(item.uid, 'deviceAcl.uid'),
       permissions: 'rw-',
     };
   });
 }
 
-function exactObject(
-  value: unknown,
-  label: string,
-  keys: readonly string[],
-): Record<string, unknown> {
+function object(value: unknown, label: string): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error(`NVX cleanup ${label} must be an object`);
   }
-  const object = value as Record<string, unknown>;
-  if (Object.keys(object).sort().join(',') !== [...keys].sort().join(',')) {
+  return value as Record<string, unknown>;
+}
+
+function assertAllowedKeys(
+  value: Record<string, unknown>,
+  allowed: readonly string[],
+  label: string,
+): void {
+  if (Object.keys(value).some((key) => !allowed.includes(key))) {
     throw new Error(`NVX cleanup ${label} has an unexpected key set`);
   }
-  return object;
 }
 
-function allowedObject(
-  value: unknown,
-  label: string,
-  keys: readonly string[],
-): Record<string, unknown> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new Error(`NVX cleanup ${label} must be an object`);
+function absolute(value: unknown, label: string): string {
+  if (typeof value !== 'string' || !path.isAbsolute(value) || value.includes('\0')) {
+    throw new Error(`NVX cleanup ${label} is invalid`);
   }
-  const object = value as Record<string, unknown>;
-  if (Object.keys(object).some((key) => !keys.includes(key))) {
-    throw new Error(`NVX cleanup ${label} has an unexpected key set`);
-  }
-  return object;
-}
-
-function optionalObject(
-  value: unknown,
-  label: string,
-  keys: readonly string[],
-): Record<string, unknown> | undefined {
-  return value === undefined ? undefined : exactObject(value, label, keys);
-}
-
-function requireArray(value: unknown, label: string): unknown[] {
-  if (!Array.isArray(value)) throw new Error(`NVX cleanup ${label} must be an array`);
   return value;
 }
 
-function requireRunId(value: unknown): string {
-  if (typeof value !== 'string' || !/^[a-f0-9]{32}$/.test(value)) {
-    throw new Error('NVX cleanup runId must be 32 lowercase hexadecimal characters');
+function stringMatching(value: unknown, expression: RegExp, label: string): string {
+  if (typeof value !== 'string' || !expression.test(value)) {
+    throw new Error(`NVX cleanup ${label} is invalid`);
   }
   return value;
+}
+
+function interfaceName(value: unknown, label: string): string {
+  return stringMatching(value, /^[A-Za-z0-9_.-]{1,15}$/, label);
+}
+
+function numericString(value: unknown, label: string): string {
+  return stringMatching(value, /^\d+$/, label);
 }
 
 function positiveInteger(value: unknown, label: string): number {
@@ -360,13 +399,18 @@ function positiveInteger(value: unknown, label: string): number {
   return value as number;
 }
 
-function numericString(value: unknown, label: string): string {
-  if (typeof value !== 'string' || !/^\d+$/.test(value)) {
-    throw new Error(`NVX cleanup ${label} must be numeric`);
+function nonNegativeInteger(value: unknown, label: string): number {
+  if (!Number.isSafeInteger(value) || (value as number) < 0) {
+    throw new Error(`NVX cleanup ${label} must be a non-negative integer`);
   }
+  return value as number;
+}
+
+function boolean(value: unknown, label: string): boolean {
+  if (typeof value !== 'boolean') throw new Error(`NVX cleanup ${label} must be boolean`);
   return value;
 }
 
-function optionalNumericString(value: unknown, label: string): string | undefined {
-  return value === undefined ? undefined : numericString(value, label);
+function formatError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

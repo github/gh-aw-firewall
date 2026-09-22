@@ -47,11 +47,13 @@ export interface NvxVmmIdentity {
 
 export interface NvxRuntimeToolPaths {
   readonly bwrap: string;
+  readonly flock: string;
   readonly getfacl: string;
   readonly getent: string;
   readonly groupdel: string;
   readonly id: string;
   readonly ip: string;
+  readonly iptables: string;
   readonly nft: string;
   readonly python3: string;
   readonly setfacl: string;
@@ -598,14 +600,23 @@ export function createNvxNetworkPlan(
   runId: string,
   options: MicrovmNetworkPlanOptions,
 ): MicrovmNetworkPlan {
-  const layout = createNvxRunLayout(runId);
   const plan = createMicrovmNetworkPlan(runId, options);
+  return bindNvxNetworkPlan(runId, plan);
+}
+
+export function bindNvxNetworkPlan(
+  runId: string,
+  plan: MicrovmNetworkPlan,
+): MicrovmNetworkPlan {
+  const layout = createNvxRunLayout(runId);
+  if (plan.runId !== runId) {
+    throw new Error('NVX network allocation is not bound to the run identity');
+  }
   return {
     ...plan,
     namespaceName: layout.networkNamespace,
     netnsPath: `/var/run/netns/${layout.networkNamespace}`,
     nftTableName: `awf_nvx_${plan.resourceToken}`,
-    hostForwardRuleComment: `awf-nvx-${plan.resourceToken}`,
   };
 }
 
@@ -620,6 +631,7 @@ export function buildNvxPhase3bLaunchPlan(options: {
     readonly enableApiProxy: boolean;
     readonly controlPeers?: readonly MicrovmControlPeer[];
   };
+  readonly networkPlan?: MicrovmNetworkPlan;
 }): NvxPhase3bLaunchPlan {
   const layout = createNvxRunLayout(options.runId);
   assertNvxRunLayout(layout);
@@ -629,14 +641,22 @@ export function buildNvxPhase3bLaunchPlan(options: {
       `${layout.runDirectory} (build it with useCanonicalRunDirectory)`,
     );
   }
-  const networkPlan = createNvxNetworkPlan(options.runId, {
-    infrastructureBridge: options.network.infrastructureBridge,
-    enableApiProxy: options.network.enableApiProxy,
-    tapOwnerUid: options.identity.uid,
-    tapOwnerGid: options.identity.gid,
-    controlPeers: options.network.controlPeers,
-    tapVnetHdr: true,
-  });
+  const networkPlan = options.networkPlan ?? createNvxNetworkPlan(options.runId, {
+      infrastructureBridge: options.network.infrastructureBridge,
+      enableApiProxy: options.network.enableApiProxy,
+      tapOwnerUid: options.identity.uid,
+      tapOwnerGid: options.identity.gid,
+      controlPeers: options.network.controlPeers,
+      tapVnetHdr: true,
+    });
+  if (
+    networkPlan.runId !== options.runId ||
+    networkPlan.namespaceName !== layout.networkNamespace ||
+    networkPlan.tapOwnerUid !== options.identity.uid ||
+    networkPlan.tapOwnerGid !== options.identity.gid
+  ) {
+    throw new Error('NVX launch plan network allocation is not bound to the run identity');
+  }
   const cgroupLimits = computeNvxCgroupLimits({
     guestMemoryMib: options.execution.memoryMib ?? 512,
     vcpuCount: 1,
@@ -655,7 +675,9 @@ export function buildNvxPhase3bLaunchPlan(options: {
     network: {
       guestAddress: `${networkPlan.guestIp}/${networkPlan.guestPrefixLength}`,
       proxyAddress: `${squidEndpoint.ip}:${squidEndpoint.port}`,
-      egressAllow: networkPlan.allowedEndpoints.map((endpoint) => `${endpoint.ip}:${endpoint.port}`),
+      egressAllow: networkPlan.allowedEndpoints.map(
+        (endpoint) => `${endpoint.ip}:tcp:${endpoint.port}`,
+      ),
       egressDeny: ['0.0.0.0/0'],
     },
   }, toNvxGuestRunPath(layout, outcomePath));

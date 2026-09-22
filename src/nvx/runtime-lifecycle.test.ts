@@ -14,11 +14,13 @@ import { runtimeUsesComposeAgent } from '../container-runtime';
 const RUN_ID = 'a1b2c3d4e5f60718293a4b5c6d7e8f90';
 const tools: NvxRuntimeToolPaths = {
   bwrap: '/usr/bin/bwrap',
+  flock: '/usr/bin/flock',
   getfacl: '/usr/bin/getfacl',
   getent: '/usr/bin/getent',
   groupdel: '/usr/sbin/groupdel',
   id: '/usr/bin/id',
   ip: '/usr/sbin/ip',
+  iptables: '/usr/sbin/iptables',
   nft: '/usr/sbin/nft',
   python3: '/usr/bin/python3',
   setfacl: '/usr/bin/setfacl',
