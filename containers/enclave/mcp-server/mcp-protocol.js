@@ -6,7 +6,37 @@ const {
   strictParseJson,
 } = require('../../bounded-execution/finite-disclosure');
 
-const MCP_PROTOCOL_VERSION = '2025-06-18';
+const MCP_PROTOCOL_VERSION = '2025-11-25';
+
+/**
+ * Protocol revisions this server can speak, newest first.  The server speaks a
+ * fixed, tiny subset of MCP (initialize, tools/list, tools/call), which is
+ * unchanged across these revisions, so a client that negotiates any of them is
+ * answered with its own requested revision.  A client that requests an unknown
+ * revision is answered with the newest supported one and decides for itself
+ * whether to continue.
+ */
+const SUPPORTED_MCP_PROTOCOL_VERSIONS = Object.freeze([
+  '2025-11-25',
+  '2025-06-18',
+  '2025-03-26',
+]);
+
+/**
+ * Resolve the protocol version echoed back in the initialize result.
+ *
+ * @param {unknown} params initialize params as received from the client
+ * @returns {string}
+ */
+function negotiateProtocolVersion(params) {
+  const requested = params && typeof params === 'object' && !Array.isArray(params)
+    ? params.protocolVersion
+    : undefined;
+  if (typeof requested === 'string' && SUPPORTED_MCP_PROTOCOL_VERSIONS.includes(requested)) {
+    return requested;
+  }
+  return MCP_PROTOCOL_VERSION;
+}
 const TOOL_NAME = 'enclave_run_script';
 const AGENT_TOOL_NAME = 'enclave_run_agent';
 const JSONRPC_ERROR = Object.freeze({ status: 'error' });
@@ -179,7 +209,7 @@ async function dispatchJsonRpc(message, deps) {
 
   if (message.method === 'initialize') {
     return rpcResult(message.id, {
-      protocolVersion: MCP_PROTOCOL_VERSION,
+      protocolVersion: negotiateProtocolVersion(message.params),
       capabilities: { tools: { listChanged: false } },
       serverInfo: { name: 'awf-enclave', version: '1.0.0' },
     });
@@ -249,6 +279,8 @@ module.exports = {
   AGENT_TOOL,
   AGENT_TOOL_NAME,
   MCP_PROTOCOL_VERSION,
+  SUPPORTED_MCP_PROTOCOL_VERSIONS,
+  negotiateProtocolVersion,
   TOOL,
   TOOLS_BY_NAME,
   TOOL_NAME,

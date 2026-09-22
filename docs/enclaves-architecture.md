@@ -146,6 +146,15 @@ enclave_run_agent({
 
 Both tool schemas are closed (`additionalProperties: false`). Callers cannot provide images, runtimes, models, profiles, prompts beyond the bounded payload field, repository catalogs, credentials, timeout overrides, or any other trusted control.
 
+The server speaks a fixed, tiny subset of MCP (`initialize`, `tools/list`,
+`tools/call`) that is unchanged across the `2025-03-26`, `2025-06-18`, and
+`2025-11-25` revisions, so `initialize` echoes back whichever of those the
+client requested and otherwise answers with the newest supported revision
+(`2025-11-25`). Newer clients — for example Copilot CLI 1.0.83, which
+negotiates `2025-11-25` — therefore complete initialization instead of failing
+version negotiation and building their tool surface from a failed
+`tools/list`.
+
 When an `enclave_run_agent` invocation has GitHub MCP access (static or
 dynamic), the broker appends its own repository-scope instructions after the
 caller's prompt: every GitHub MCP request must set `owner` and `repo` to the

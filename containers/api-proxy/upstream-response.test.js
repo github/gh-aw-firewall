@@ -85,6 +85,52 @@ describe('upstream-response', () => {
     expect(logFields.response_body).toContain('[REDACTED]');
   });
 
+  test('summarises the request tool surface on an error response', () => {
+    const deps = createDependencies();
+    const { handleUpstreamResponse } = createUpstreamResponseHandlers(deps);
+    const proxyRes = createProxyRes({ statusCode: 400, headers: { 'content-type': 'application/json' } });
+    const res = { writeHead: jest.fn(), end: jest.fn() };
+    const body = Buffer.from(JSON.stringify({
+      model: 'gpt-5.6-sol',
+      tools: [
+        { type: 'function', function: { name: 'github-list_issues' } },
+        { type: 'function', name: 'safeoutputs-create_issue' },
+        { type: 'function' },
+      ],
+    }));
+
+    handleUpstreamResponse(proxyRes, {}, {
+      body,
+      res,
+      provider: 'openai',
+      requestId: 'local-req-3',
+      req: { method: 'POST', url: '/v1/chat/completions' },
+      targetHost: 'api.openai.com',
+      startTime: Date.now() - 10,
+      span: {},
+      requestBytes: body.length,
+      hasRetried: false,
+      onRetry: jest.fn(),
+    });
+
+    proxyRes.emit('data', Buffer.from('{"error":"bad request"}'));
+    proxyRes.emit('end');
+
+    expect(deps.logRequest).toHaveBeenCalledWith('warn', 'upstream_error_response', expect.objectContaining({
+      model: 'gpt-5.6-sol',
+      request_tool_count: 3,
+      request_tool_names: ['github-list_issues', 'safeoutputs-create_issue'],
+      request_unnamed_tool_count: 1,
+    }));
+  });
+
+  test('omits tool fields when the request carries no tool surface', () => {
+    const { _testing } = require('./upstream-response');
+    expect(_testing.summarizeRequestTools(Buffer.from('{"model":"gpt-5.6-sol"}'))).toBeNull();
+    expect(_testing.summarizeRequestTools(Buffer.from('not json'))).toBeNull();
+    expect(_testing.summarizeRequestTools(Buffer.alloc(0))).toBeNull();
+  });
+
   test('captures streaming error payload diagnostics while forwarding payload unchanged', () => {
     const deps = createDependencies();
     const { handleUpstreamResponse } = createUpstreamResponseHandlers(deps);

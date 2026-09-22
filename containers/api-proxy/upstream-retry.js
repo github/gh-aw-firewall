@@ -8,7 +8,7 @@ function handle400WithRetry(proxyRes, requestHeaders, responseBody, {
   parseDeprecatedHeaderFromBody, learnAndStripDeprecatedHeaderValue,
   parseModelNotSupportedFromBody, parseModelEndpointBlockedFromBody, logRequest, sanitizeForLog,
   logRequestCompletion, logUpstreamAuthError, logUpstreamErrorResponse, otel,
-  requestModel = null,
+  requestModel = null, requestTools = null,
 }) {
   // ── (a) Deprecated beta-header retry (first attempt for anthropic/copilot) ──
   if (!hasRetried && (provider === 'anthropic' || provider === 'copilot')) {
@@ -85,6 +85,7 @@ function handle400WithRetry(proxyRes, requestHeaders, responseBody, {
     logUpstreamErrorResponse(proxyRes.statusCode, {
       ...authErrCtx,
       requestModel,
+      requestTools,
       transformed: false,
       responseHeaders: proxyRes.headers,
       responseBody,

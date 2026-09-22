@@ -6,6 +6,7 @@ const root = path.join(__dirname, '..', '..', 'containers');
 const {
   dispatchJsonRpc,
   parseJsonRpcBody,
+  MCP_PROTOCOL_VERSION,
   TOOL_NAME,
 } = require(path.join(root, 'enclave', 'mcp-server', 'mcp-protocol.js'));
 const {
@@ -49,6 +50,24 @@ describe('AWF enclave MCP protocol', () => {
       jsonrpc: '2.0',
       method: 'notifications/initialized',
     }, deps)).toBeUndefined();
+  });
+
+  it('echoes a supported protocol version requested by the client', async () => {
+    const deps = { handlers: { [TOOL_NAME]: canonicalErrorBroker() }, maxScriptBytes: 65536 };
+    for (const requested of ['2025-11-25', '2025-06-18', '2025-03-26']) {
+      const response = await dispatchJsonRpc(
+        rpc('initialize', { protocolVersion: requested, clientInfo: { name: 'copilot', version: '1.0.83' } }),
+        deps,
+      );
+      expect(response.result.protocolVersion).toBe(requested);
+    }
+  });
+
+  it('falls back to the newest supported protocol version for an unknown request', async () => {
+    const deps = { handlers: { [TOOL_NAME]: canonicalErrorBroker() }, maxScriptBytes: 65536 };
+    const response = await dispatchJsonRpc(rpc('initialize', { protocolVersion: '1999-01-01' }), deps);
+    expect(response.result.protocolVersion).toBe(MCP_PROTOCOL_VERSION);
+    expect(MCP_PROTOCOL_VERSION).toBe('2025-11-25');
   });
 
   it('publishes one static tool without trusted configuration or repository data', async () => {

@@ -185,6 +185,20 @@ function buildResponseBodyLogFields({
   };
 }
 
+/**
+ * Flatten a request tool-surface summary into log fields.  Only names and
+ * counts are emitted, so no prompt or schema content can leak.
+ */
+function buildRequestToolLogFields(requestTools, sanitizeForLog) {
+  if (!requestTools || typeof requestTools !== 'object') return {};
+  const names = Array.isArray(requestTools.tool_names) ? requestTools.tool_names : [];
+  return {
+    request_tool_count: requestTools.tool_count,
+    request_tool_names: names.map((name) => sanitizeForLog(String(name), 200)),
+    request_unnamed_tool_count: requestTools.unnamed_tool_count,
+  };
+}
+
 function createLogUpstreamErrorResponse({
   logRequest,
   sanitizeForLog,
@@ -194,7 +208,7 @@ function createLogUpstreamErrorResponse({
     requestId, provider, targetHost, req,
     responseHeaders, responseBody, responseBodyBytes,
     responseBodyTruncated = false,
-    requestModel = null, transformed = false,
+    requestModel = null, requestTools = null, transformed = false,
   }) {
     if (statusCode >= 200 && statusCode < 300) return;
     const safeHeaders = sanitizeResponseHeaders(responseHeaders, sanitizeForLog);
@@ -221,6 +235,7 @@ function createLogUpstreamErrorResponse({
       response_headers: safeHeaders,
       response_streaming: isStreaming,
       response_transformed: !!transformed,
+      ...buildRequestToolLogFields(requestTools, sanitizeForLog),
       ...bodyFields,
     };
     logRequest('warn', 'upstream_error_response', fields);
@@ -272,5 +287,6 @@ module.exports = {
     extractUpstreamRequestIds,
     redactSecretsInText,
     buildResponseBodyLogFields,
+    buildRequestToolLogFields,
   },
 };
