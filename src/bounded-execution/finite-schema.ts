@@ -1,5 +1,7 @@
 /** Finite response-schema algebra, validation, and value canonicalization. */
 
+import { utf8ByteLength } from './strict-json-parser';
+
 /** Maximum size, in UTF-8 bytes, of a serialized agent-authored schema. */
 export const MAX_SCHEMA_BYTES = 4096;
 
@@ -29,10 +31,6 @@ export const MAX_UNION_VARIANTS = 16;
 
 /** Bounded ASCII identifier accepted for object field names and union tags. */
 const IDENTIFIER_PATTERN = /^[A-Za-z][A-Za-z0-9_]{0,63}$/;
-
-function utf8ByteLength(value: string): number {
-  return Buffer.byteLength(value, 'utf8');
-}
 
 function hasControlCharacters(value: string): boolean {
   for (let i = 0; i < value.length; i++) {

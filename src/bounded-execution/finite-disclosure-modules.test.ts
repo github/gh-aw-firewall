@@ -2,6 +2,7 @@ import {
   informationChargeForSchema,
   schemaCardinality,
 } from './finite-cardinality';
+import { informationChargeForSchema as facadeInformationChargeForSchema } from './finite-disclosure';
 import {
   canonicalizeSchemaValue,
   validateSchema,
@@ -23,7 +24,8 @@ describe('finite disclosure focused modules', () => {
     if (!validation.valid) return;
 
     expect(schemaCardinality(validation.schema)).toBe(6n);
-    expect(informationChargeForSchema(validation.schema)).toBe(8);
+    expect(informationChargeForSchema(validation.schema, 1, 4)).toBe(8);
+    expect(facadeInformationChargeForSchema(validation.schema)).toBe(8);
     expect(validateValueAgainstSchema(validation.schema, { approved: true, priority: 2 })).toBe(true);
     expect(canonicalizeSchemaValue(validation.schema, { approved: true, priority: 2 })).toBe(
       '{"approved":true,"priority":2}',

@@ -127,8 +127,8 @@ function cappedSchemaCardinality(schema: FiniteSchemaNode): bigint {
  */
 export function informationChargeForSchema(
   schema: FiniteSchemaNode,
-  resultStatusBitCost = 1,
-  timingBucketBits = 4,
+  resultStatusBitCost: number,
+  timingBucketBits: number,
 ): number {
   return resultStatusBitCost + ceilLog2BigInt(cappedSchemaCardinality(schema)) + timingBucketBits;
 }

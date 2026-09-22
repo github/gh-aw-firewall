@@ -5,7 +5,10 @@
  * focused modules and re-exported here to preserve the protocol's public API.
  */
 
-import { ceilLog2 } from './finite-cardinality';
+import {
+  ceilLog2,
+  informationChargeForSchema as calculateInformationChargeForSchema,
+} from './finite-cardinality';
 import {
   canonicalizeSchemaValue,
   type FiniteSchemaNode,
@@ -15,7 +18,7 @@ import {
 import { strictParseJson, utf8ByteLength } from './strict-json-parser';
 
 export * from './finite-schema';
-export { ceilLog2BigInt, informationChargeForSchema, schemaCardinality } from './finite-cardinality';
+export { ceilLog2BigInt, schemaCardinality } from './finite-cardinality';
 export { strictParseJson } from './strict-json-parser';
 
 /** Wire protocol version. Only this exact value is accepted. */
@@ -47,6 +50,11 @@ export const TIMING_BUCKET_BITS = ceilLog2(TIMING_BUCKETS_MS.length);
 
 /** Bits reserved for the canonical ok/error distinction. */
 export const RESULT_STATUS_BIT_COST = 1;
+
+/** Computes the maximum complete-transcript information charge for a schema. */
+export function informationChargeForSchema(schema: FiniteSchemaNode): number {
+  return calculateInformationChargeForSchema(schema, RESULT_STATUS_BIT_COST, TIMING_BUCKET_BITS);
+}
 
 /** Matches a bare `owner/repo` slug only. */
 export const PRIVATE_REPOSITORY_PATTERN =
