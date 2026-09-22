@@ -376,7 +376,11 @@ function mountRejectsExecution(mount: CloudHypervisorMountDescription): boolean 
 async function assertExecCapableArtifactRoot(directory: string): Promise<void> {
   let mount: CloudHypervisorMountDescription | undefined;
   try {
-    mount = findMountForPath(await fs.readFile('/proc/self/mountinfo', 'utf8'), directory);
+    const resolvedDirectory = await fs.realpath(directory);
+    mount = findMountForPath(
+      await fs.readFile('/proc/self/mountinfo', 'utf8'),
+      resolvedDirectory,
+    );
   } catch {
     return;
   }

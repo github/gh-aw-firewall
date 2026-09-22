@@ -224,6 +224,7 @@ describe('self-hosted runner doctor workflow config', () => {
     expect(shared).toContain('| D15 | On `--container-runtime cloud-hypervisor`, the run aborts before the engine starts with `Unable to execute');
     expect(shared).toContain('github/gh-aw-firewall#8827, github/gh-aw-firewall#8834, github/gh-aw-firewall#8835, github/gh-aw-firewall#8866');
     expect(shared).toContain('and is complete: code=EACCES` under `--container-runtime cloud-hypervisor` | D15');
+    expect(shared).toContain('trusted artifact root "<path>" is on a mount that rejects execution` under `--container-runtime cloud-hypervisor` | D15');
 
     expect(source).toContain('- `unknown shorthand flag: \'d\' in -d` from `docker compose up -d` → A14 (DinD sidecar missing `docker-compose-plugin`)');
     expect(source).toContain('- `Rootless artifact permission repair failed` on ARC/DinD squid logs → A15 (`dockerHostPathPrefix` not applied to repair bind mount)');
@@ -236,6 +237,7 @@ describe('self-hosted runner doctor workflow config', () => {
     expect(source).toContain('- `Direct sbx egress reached 1.1.1.1 without proxy environment variables` that clears after a brief retry while Squid starts → D13 update');
     expect(source).toContain('- `"cloud-hypervisor --version" exited with code undefined` under `--container-runtime cloud-hypervisor` → D14');
     expect(source).toContain('and is complete: code=EACCES` under `--container-runtime cloud-hypervisor` → D15');
+    expect(source).toContain('trusted artifact root "<path>" is on a mount that rejects execution` under `--container-runtime cloud-hypervisor` → D15');
     expect(source).toContain('- `awf-agent` fails to start under `runner.topology: arc-dind` (runc cannot create the `/dev/null` credential-hiding overlay mountpoints under `/host$HOME`), or the entrypoint aborts with `mkdir -p /host$HOME/.m2` failing under `set -e` → A20 (sysroot filter dropped every mount targeting `/host$HOME`, including a caller-supplied writable home; fixed in github/gh-aw-firewall#7244)');
     expect(source).toContain('- `mkdirat ... : read-only file system` at agent container startup while a `filesystem.allowWrite` policy is active (not the `chroot.binariesSourcePath`-specific A12 case) → A21; `[entrypoint][WARN] Could not copy one-shot-token library to /tmp/awf-lib` followed by `Token protection will be disabled` → A21');
     expect(source).toContain('- `invalid CapDrop: capability not supported by your kernel or not available in the current environment` → A22');
@@ -289,9 +291,11 @@ describe('self-hosted runner doctor workflow config', () => {
     expect(portableAgent).toContain('- `Direct sbx egress reached 1.1.1.1 without proxy environment variables` that clears after a brief retry while Squid starts → D13 update');
     expect(portableAgent).toContain('- `"cloud-hypervisor --version" exited with code undefined` under `--container-runtime cloud-hypervisor` → D14');
     expect(portableAgent).toContain('and is complete: code=EACCES` under `--container-runtime cloud-hypervisor` → D15');
+    expect(portableAgent).toContain('trusted artifact root "<path>" is on a mount that rejects execution` under `--container-runtime cloud-hypervisor` → D15');
     expect(portableAgent).toContain('| D13 | Under `--container-runtime sbx` with `network.verifySbxEgress`/`--verify-sbx-egress` enabled, AWF reports `Direct sbx egress reached 1.1.1.1 without proxy environment variables`');
     expect(portableAgent).toContain('| D14 | On `--container-runtime cloud-hypervisor`, the agent run aborts before the engine starts');
     expect(portableAgent).toContain('| D15 | On `--container-runtime cloud-hypervisor`, the run aborts before the engine starts with `Unable to execute');
+    expect(portableAgent).toContain('trusted artifact root "<path>" is on a mount that rejects execution` under `--container-runtime cloud-hypervisor` | D15');
     expect(portableAgent).toContain('| `Direct sbx egress reached 1.1.1.1 without proxy environment variables` (or a similar denied-destination reach) despite Squid healthchecks passing | D13');
     expect(portableAgent).toContain('D13 / github/gh-aw-firewall#8250, github/gh-aw-firewall#8252, github/gh-aw-firewall#8568, github/gh-aw-firewall#8575 — With `--container-runtime sbx`');
     expect(portableAgent).toContain('B33 / github/gh-aw-firewall#8249, github/gh-aw-firewall#8251, github/gh-aw-firewall#8615, github/gh-aw-firewall#8624');
