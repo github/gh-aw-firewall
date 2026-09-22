@@ -63,7 +63,7 @@ describe('NVX artifact manifest', () => {
     }, /kernel\.file/],
     ['artifact size', () => {
       const value = manifest();
-      value.artifacts.openvmm.sizeBytes = 257 * 1024 * 1024;
+      value.artifacts.openvmm.sizeBytes = (512 * 1024 * 1024) + 1;
       return value;
     }, /openvmm\.sizeBytes/],
     ['unexpected field', () => ({
@@ -75,6 +75,15 @@ describe('NVX artifact manifest', () => {
       JSON.stringify(build()),
       NVX_ARTIFACT_RELEASE_TAG,
     )).toThrow(error);
+  });
+
+  it('accepts an OpenVMM artifact at the bounded 512 MiB ceiling', () => {
+    const value = manifest();
+    value.artifacts.openvmm.sizeBytes = 512 * 1024 * 1024;
+    expect(parseNvxArtifactManifest(
+      JSON.stringify(value),
+      NVX_ARTIFACT_RELEASE_TAG,
+    ).artifacts.openvmm.sizeBytes).toBe(512 * 1024 * 1024);
   });
 
   it('rejects artifacts from another AWF release', () => {

@@ -108,7 +108,9 @@ Production or preview integration must use one of these fail-closed models:
 The manifest must bind NVX, OpenVMM, kernel, initramfs, base layer, agent layer,
 and any host helper. Validly attested artifacts from an unexpected release,
 commit, architecture, role, or filename are rejected to prevent rollback and
-role substitution.
+role substitution. Per-role size ceilings also bound pre-copy disk exposure.
+The pinned 481,508,816-byte OpenVMM binary is limited to 512 MiB, while the
+kernel and initramfs retain their separately bounded role limits.
 
 Development-only artifacts may use a conspicuous dual opt-in plus complete
 digests. They must never be accepted by default or silently replace failed

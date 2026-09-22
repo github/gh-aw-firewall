@@ -444,7 +444,15 @@ jobs:
           sudo ip link add "$bridge" type bridge
           sudo ip address add 172.30.0.1/24 dev "$bridge"
           sudo ip link set "$bridge" up
-          sudo npx tsx scripts/ci/nvx-manager-live-evidence.ts \
+          evidence_runner="$RUNNER_TEMP/nvx-manager-live-evidence.cjs"
+          ./node_modules/.bin/esbuild \
+            scripts/ci/nvx-manager-live-evidence.ts \
+            --bundle \
+            --platform=node \
+            --format=cjs \
+            --target=node22 \
+            --outfile="$evidence_runner"
+          sudo node "$evidence_runner" \
             --artifacts "$artifact_dir" \
             --layer "$layer_root" \
             --bridge "$bridge" \

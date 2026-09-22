@@ -16,9 +16,11 @@ const ARTIFACT_FILES = {
   initramfs: 'initramfs.cpio.gz',
 } as const;
 // Conservative per-role ceilings bound pre-copy disk exposure while leaving
-// headroom for expected OpenVMM, kernel, and initramfs artifact growth.
+// headroom for expected OpenVMM, kernel, and initramfs artifact growth. The
+// pinned OpenVMM binary is 481,508,816 bytes, so its ceiling is the next
+// binary-size boundary rather than an unbounded allowance.
 const ARTIFACT_SIZE_LIMITS_BYTES = {
-  openvmm: 256 * 1024 * 1024,
+  openvmm: 512 * 1024 * 1024,
   kernel: 512 * 1024 * 1024,
   initramfs: 1024 * 1024 * 1024,
 } as const;
