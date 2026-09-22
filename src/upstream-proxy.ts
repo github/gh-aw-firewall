@@ -44,6 +44,17 @@ function isLoopback(host: string): boolean {
   return false;
 }
 
+function getExplicitProxyPort(normalizedUrl: string): string | undefined {
+  const authority = normalizedUrl.replace(/^[^:]+:\/\//, '').split(/[/?#]/, 1)[0];
+  const hostPort = authority.slice(authority.lastIndexOf('@') + 1);
+
+  if (hostPort.startsWith('[')) {
+    return hostPort.match(/^\[[^\]]+\]:(\d+)$/)?.[1];
+  }
+
+  return hostPort.match(/:(\d+)$/)?.[1];
+}
+
 /**
  * Parses a proxy URL into host and port. Rejects unsupported features.
  *
@@ -105,9 +116,10 @@ export function parseProxyUrl(url: string): { host: string; port: number } {
     );
   }
 
-  const port = parsed.port ? parseInt(parsed.port, 10) : 3128;
+  const explicitPort = getExplicitProxyPort(normalized);
+  const port = parseInt(parsed.port || explicitPort || '3128', 10);
   if (isNaN(port) || port < 1 || port > 65535) {
-    throw new Error(`Invalid upstream proxy port: ${parsed.port}`);
+    throw new Error(`Invalid upstream proxy port: ${parsed.port || explicitPort || ''}`);
   }
 
   return { host, port };

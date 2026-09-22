@@ -25,6 +25,13 @@ describe('parseProxyUrl', () => {
     });
   });
 
+  it('preserves an explicitly specified default HTTP port', () => {
+    expect(parseProxyUrl('http://proxy.corp.com:80')).toEqual({
+      host: 'proxy.corp.com',
+      port: 80,
+    });
+  });
+
   it('defaults port to 3128 when omitted', () => {
     expect(parseProxyUrl('http://proxy.corp.com')).toEqual({
       host: 'proxy.corp.com',
@@ -184,6 +191,16 @@ describe('detectUpstreamProxy', () => {
     expect(result).toEqual({
       host: 'proxy.corp.com',
       port: 8080,
+    });
+  });
+
+  it('preserves port 80 detected from https_proxy', () => {
+    const result = detectUpstreamProxy({
+      https_proxy: 'http://proxy.corp.com:80',
+    });
+    expect(result).toEqual({
+      host: 'proxy.corp.com',
+      port: 80,
     });
   });
 
