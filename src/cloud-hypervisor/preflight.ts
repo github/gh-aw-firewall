@@ -1,5 +1,4 @@
-import { createHash } from 'crypto';
-import { createReadStream, constants, promises as fs } from 'fs';
+import { constants, promises as fs } from 'fs';
 import * as path from 'path';
 import execa from 'execa';
 import {
@@ -16,7 +15,21 @@ import {
 } from './artifact-manifest';
 import { CloudHypervisorUnsupportedHostError } from './errors';
 import { logger } from '../logger';
-import { CLOUD_HYPERVISOR_ARTIFACT_SNAPSHOT_ROOT } from './manager-types';
+import { buildExecutionFailureDiagnostics } from './preflight-diagnostics';
+import {
+  createArtifactSnapshot,
+  copySparseFileWithRsync,
+  type CloudHypervisorArtifactSnapshot,
+  type CloudHypervisorArtifactSnapshotSources,
+} from './artifact-snapshot';
+import {
+  assertDigest,
+  assertTrustedHostTool,
+  assertTrustedRegularFile,
+  calculateSha256,
+  hasCompleteArtifactDigests,
+  resolveTrustedOperatorUid,
+} from './artifact-trust';
 
 /**
  * Fail-closed host and artifact validation for the Cloud Hypervisor v53.0
@@ -95,28 +108,10 @@ export type CloudHypervisorHostToolPaths = Readonly<{
   userdel: string;
 }>;
 
-export interface CloudHypervisorArtifactSnapshotSources {
-  cloudHypervisorBinary: string;
-  virtiofsdBinary: string;
-  kernelPath: string;
-  rootfsPath: string;
-  supervisorPath: string;
-  manifestPath?: string;
-  bundlePath?: string;
-}
-
-export interface CloudHypervisorArtifactSnapshot extends CloudHypervisorArtifactSnapshotSources {
-  directory: string;
-}
-
 const CLOUD_HYPERVISOR_HOST_TOOLS: (keyof CloudHypervisorHostToolPaths)[] = [
   'getent', 'getfacl', 'groupdel', 'id', 'ip', 'nft', 'sysctl', 'flock', 'mke2fs', 'debugfs', 'e2fsck',
   'rsync', 'mount', 'umount', 'setfacl', 'setpriv', 'useradd', 'userdel',
 ];
-const CLOUD_HYPERVISOR_ARTIFACT_SNAPSHOT_PARENT = path.dirname(
-  CLOUD_HYPERVISOR_ARTIFACT_SNAPSHOT_ROOT,
-);
-const GETFACL_DIAGNOSTIC_PATHS = ['/usr/bin/getfacl', '/bin/getfacl'] as const;
 
 async function versionProbeExecutionError(
   binaryPath: string,
@@ -302,196 +297,31 @@ const defaultDependencies: CloudHypervisorPreflightDependencies = {
   },
 };
 
-function formatMode(mode: number): string {
-  return `0${(mode & 0o7777).toString(8).padStart(3, '0')}`;
-}
-
-function mountInfoUnescape(value: string): string {
-  return value.replace(/\\([0-7]{3})/g, (_, octal: string) =>
-    String.fromCharCode(Number.parseInt(octal, 8)));
-}
-
-function pathIsUnderMount(target: string, mountPoint: string): boolean {
-  const normalizedMountPoint = mountPoint.endsWith('/') ? mountPoint : `${mountPoint}/`;
-  return target === mountPoint || target.startsWith(normalizedMountPoint);
-}
-
-interface CloudHypervisorMountDescription {
-  mountPoint: string;
-  filesystemType: string;
-  source: string;
-  /** Per-mount options, e.g. `rw,nosuid,nodev,noexec,relatime`. */
-  options: string;
-  /** Superblock options, which can independently carry `noexec`. */
-  superblockOptions: string;
-}
-
-/**
- * Resolves the most specific `/proc/self/mountinfo` entry containing
- * `filePath`, so execution failures can be attributed to the mount the
- * trusted artifacts were staged on.
- */
-function findMountForPath(
-  mountInfo: string,
-  filePath: string,
-): CloudHypervisorMountDescription | undefined {
-  let best: CloudHypervisorMountDescription | undefined;
-  for (const line of mountInfo.split('\n')) {
-    if (!line.trim()) continue;
-    const separator = line.indexOf(' - ');
-    if (separator < 0) continue;
-    const left = line.slice(0, separator).split(' ');
-    const right = line.slice(separator + 3).split(' ');
-    if (left.length < 6 || right.length < 3) continue;
-    const mountPoint = mountInfoUnescape(left[4]);
-    if (!pathIsUnderMount(filePath, mountPoint)) continue;
-    if (!best || mountPoint.length > best.mountPoint.length) {
-      best = {
-        mountPoint,
-        filesystemType: right[0],
-        source: mountInfoUnescape(right[1]),
-        options: left[5],
-        superblockOptions: right[2],
-      };
-    }
-  }
-  return best;
-}
-
-function mountRejectsExecution(mount: CloudHypervisorMountDescription): boolean {
-  return [mount.options, mount.superblockOptions].some((options) =>
-    options.split(',').includes('noexec'));
-}
-
-/**
- * Fails closed before any artifact is staged when the trusted-artifact root
- * sits on a `noexec` mount. Without this the copy succeeds and the failure
- * only surfaces later as an opaque `EACCES` from the `--version` probe,
- * which aborts the whole engine run. See gh-aw-firewall#8827.
- *
- * Best effort: when `/proc/self/mountinfo` is unreadable or has no matching
- * entry the staging continues, and the digest-verified `--version` probe
- * remains the authoritative execution check.
- */
-async function assertExecCapableArtifactRoot(directory: string): Promise<void> {
-  let resolvedDirectory = directory;
-  try {
-    resolvedDirectory = await fs.realpath(directory);
-  } catch {
-    // Fall back to the lexical path so mountinfo can still detect noexec.
-  }
-  let mount: CloudHypervisorMountDescription | undefined;
-  try {
-    mount = findMountForPath(
-      await fs.readFile('/proc/self/mountinfo', 'utf8'),
-      resolvedDirectory,
-    );
-  } catch {
-    return;
-  }
-  if (!mount || !mountRejectsExecution(mount)) return;
-  throw new Error(
-    `Cloud Hypervisor trusted artifact root "${directory}" is on a mount that rejects ` +
-    `execution (mount: ${mount.mountPoint} type=${mount.filesystemType} ` +
-    `source=${mount.source} options=${mount.options} superblock=${mount.superblockOptions}); ` +
-    'remount it without "noexec" so the staged cloud-hypervisor binary can be executed',
-  );
-}
-
-async function describeMountForPath(filePath: string): Promise<string> {
-  try {
-    const best = findMountForPath(
-      await fs.readFile('/proc/self/mountinfo', 'utf8'),
-      filePath,
-    );
-    if (!best) return 'mount: unavailable (no /proc/self/mountinfo match)';
-    return `mount: ${best.mountPoint} type=${best.filesystemType} source=${best.source} options=${best.options}`;
-  } catch (error) {
-    return `mount: unavailable (${error instanceof Error ? error.message : String(error)})`;
-  }
-}
-
-async function describeAcl(filePath: string): Promise<string> {
-  try {
-    const getfaclPath = await resolveDiagnosticGetfaclPath();
-    const result = await execa(getfaclPath, ['-cp', '--absolute-names', '--', filePath], {
-      reject: false,
-      timeout: 1_000,
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-    const output = `${result.stdout}\n${result.stderr}`.trim();
-    if (result.exitCode !== 0) {
-      return `acl=unavailable(getfacl exit ${result.exitCode}${output ? `: ${output}` : ''})`;
-    }
-    return `acl=${output.replace(/\s+/g, ' ')}`;
-  } catch (error) {
-    return `acl=unavailable(${error instanceof Error ? error.message : String(error)})`;
-  }
-}
-
-async function resolveDiagnosticGetfaclPath(): Promise<string> {
-  for (const candidate of GETFACL_DIAGNOSTIC_PATHS) {
-    try {
-      await fs.access(candidate, constants.X_OK);
-      return candidate;
-    } catch {
-      // Try the next known system location without consulting PATH.
-    }
-  }
-  throw new Error(`getfacl not found at ${GETFACL_DIAGNOSTIC_PATHS.join(' or ')}`);
-}
-
-function pathComponents(filePath: string): string[] {
-  const { root } = path.parse(filePath);
-  const components = [root];
-  let current = root;
-  for (const segment of filePath.slice(root.length).split('/').filter(Boolean)) {
-    current = path.join(current, segment);
-    components.push(current);
-  }
-  return components;
-}
-
-async function describePathComponent(filePath: string): Promise<string> {
-  let statDescription: string;
-  try {
-    const stat = await fs.lstat(filePath);
-    const type = stat.isSymbolicLink()
-      ? 'symlink'
-      : stat.isDirectory()
-        ? 'dir'
-        : stat.isFile()
-          ? 'file'
-          : 'other';
-    statDescription =
-      `stat=${type},mode=${formatMode(stat.mode)},uid=${stat.uid},gid=${stat.gid},size=${stat.size}`;
-  } catch (error) {
-    statDescription = `stat=unavailable(${error instanceof Error ? error.message : String(error)})`;
-  }
-  return `${filePath}: ${statDescription}; ${await describeAcl(filePath)}`;
-}
-
-async function buildExecutionFailureDiagnostics(binaryPath: string): Promise<string> {
-  const uid = process.getuid?.();
-  const euid = process.geteuid?.();
-  const gid = process.getgid?.();
-  const egid = process.getegid?.();
-  const groups = process.getgroups?.();
-  const identity =
-    `uid=${uid ?? 'unknown'},euid=${euid ?? 'unknown'},` +
-    `gid=${gid ?? 'unknown'},egid=${egid ?? 'unknown'},` +
-    `groups=${groups ? groups.join(',') : 'unknown'}`;
-  const lines = [
-    'Cloud Hypervisor execution diagnostics:',
-    `identity: ${identity}`,
-    await describeMountForPath(binaryPath),
-    'path components:',
-  ];
-  for (const component of pathComponents(binaryPath)) {
-    lines.push(`  - ${await describePathComponent(component)}`);
-  }
-  return `\n${lines.join('\n')}`;
-}
+export {
+  buildExecutionFailureDiagnostics,
+  describeAcl,
+  describeMountForPath,
+  describePathComponent,
+  findMountForPath,
+  pathComponents,
+  resolveDiagnosticGetfaclPath,
+} from './preflight-diagnostics';
+export {
+  copySparseFileWithRsync,
+  createArtifactSnapshot,
+  type CloudHypervisorArtifactSnapshot,
+  type CloudHypervisorArtifactSnapshotSources,
+} from './artifact-snapshot';
+export {
+  assertDigest,
+  assertTrustedAncestorChain,
+  assertTrustedHostTool,
+  assertTrustedRegularFile,
+  calculateSha256,
+  hasCompleteArtifactDigests,
+  parsePositiveUid,
+  resolveTrustedOperatorUid,
+} from './artifact-trust';
 
 /** @internal Exposed only for focused host-probe tests. */
 export const cloudHypervisorPreflightTestHelpers = {
@@ -591,86 +421,6 @@ async function runVersionWithRetry(
   throw lastError;
 }
 
-async function createArtifactSnapshot(
-  sources: CloudHypervisorArtifactSnapshotSources,
-  copySparseFile: (source: string, destination: string) => Promise<void>,
-): Promise<CloudHypervisorArtifactSnapshot> {
-  await fs.mkdir(CLOUD_HYPERVISOR_ARTIFACT_SNAPSHOT_PARENT, {
-    recursive: true,
-    mode: 0o711,
-  });
-  await fs.chmod(CLOUD_HYPERVISOR_ARTIFACT_SNAPSHOT_PARENT, 0o711);
-  await fs.mkdir(CLOUD_HYPERVISOR_ARTIFACT_SNAPSHOT_ROOT, {
-    recursive: true,
-    mode: 0o711,
-  });
-  await fs.chmod(CLOUD_HYPERVISOR_ARTIFACT_SNAPSHOT_ROOT, 0o711);
-  await assertExecCapableArtifactRoot(CLOUD_HYPERVISOR_ARTIFACT_SNAPSHOT_ROOT);
-  const directory = await fs.mkdtemp(
-    path.join(CLOUD_HYPERVISOR_ARTIFACT_SNAPSHOT_ROOT, 'run-'),
-  );
-  const copy = async (
-    source: string,
-    name: string,
-    mode: number,
-  ): Promise<string> => {
-    const destination = path.join(directory, name);
-    if (name === 'rootfs.ext4') {
-      await copySparseFile(source, destination);
-    } else {
-      await fs.copyFile(source, destination, constants.COPYFILE_EXCL);
-    }
-    await fs.chmod(destination, mode);
-    return destination;
-  };
-  try {
-    const snapshot: CloudHypervisorArtifactSnapshot = {
-      directory,
-      cloudHypervisorBinary: await copy(
-        sources.cloudHypervisorBinary,
-        'cloud-hypervisor',
-        0o555,
-      ),
-      virtiofsdBinary: await copy(sources.virtiofsdBinary, 'virtiofsd', 0o555),
-      kernelPath: await copy(sources.kernelPath, 'vmlinux.bin', 0o444),
-      rootfsPath: await copy(sources.rootfsPath, 'rootfs.ext4', 0o444),
-      supervisorPath: await copy(sources.supervisorPath, 'awf-supervisor', 0o555),
-    };
-    if (sources.manifestPath) {
-      snapshot.manifestPath = await copy(sources.manifestPath, 'manifest.json', 0o444);
-    }
-
-    if (sources.bundlePath) {
-      snapshot.bundlePath = await copy(
-        sources.bundlePath,
-        'manifest.sigstore.jsonl',
-        0o444,
-      );
-    }
-    await fs.chmod(directory, 0o555);
-    return snapshot;
-  } catch (error) {
-    await fs.rm(directory, { recursive: true, force: true });
-    throw error;
-  }
-}
-
-export async function copySparseFileWithRsync(
-  rsyncBinaryPath: string,
-  source: string,
-  destination: string,
-): Promise<void> {
-  const result = await execa(rsyncBinaryPath, ['--sparse', '--', source, destination], {
-    reject: false,
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
-  if (result.exitCode !== 0) {
-    throw new Error(
-      `sparse artifact copy failed with code ${result.exitCode}: ${result.stderr.trim()}`,
-    );
-  }
-}
-
 type CloudHypervisorReadinessStage =
   | 'guest-network-readiness'
   | 'guest-connectivity';
@@ -706,32 +456,6 @@ export class CloudHypervisorRetryableReadinessError extends Error {
   }
 }
 
-async function assertTrustedHostTool(label: string, filePath: string): Promise<void> {
-  if (!path.isAbsolute(filePath)) {
-    throw new Error(`host tool "${label}" path must be absolute: ${filePath}`);
-  }
-  const { root } = path.parse(filePath);
-  const segments = filePath.slice(root.length).split('/').filter(Boolean);
-  let ancestor = root;
-  for (const segment of segments.slice(0, -1)) {
-    ancestor = path.join(ancestor, segment);
-    const stat = await fs.lstat(ancestor);
-    if (stat.isSymbolicLink() || (stat.mode & 0o022) !== 0 || stat.uid !== 0) {
-      throw new Error(`host tool "${label}" has an untrusted parent directory: ${ancestor}`);
-    }
-  }
-  const stat = await fs.lstat(filePath);
-  if (
-    stat.isSymbolicLink() ||
-    !stat.isFile() ||
-    (stat.mode & 0o022) !== 0 ||
-    stat.uid !== 0
-  ) {
-    throw new Error(`host tool "${label}" must be a root-owned non-writable regular file: ${filePath}`);
-  }
-  await fs.access(filePath, constants.X_OK);
-}
-
 /**
  * Parses a `cloud-hypervisor --version` output like `cloud-hypervisor v53.0`
  * (also accepts the plain `v53.0`/`53.0` forms some builds emit).
@@ -752,130 +476,6 @@ export function parseVirtiofsdVersion(output: string): string {
     throw new Error(`Could not parse virtiofsd version from: ${JSON.stringify(output)}`);
   }
   return match[1];
-}
-
-export async function calculateSha256(filePath: string): Promise<string> {
-  const hash = createHash('sha256');
-  const stream = createReadStream(filePath);
-  for await (const chunk of stream) {
-    hash.update(chunk as Buffer);
-  }
-  return hash.digest('hex');
-}
-
-async function assertTrustedRegularFile(
-  label: string,
-  filePath: string,
-  accessMode: number,
-  dependencies: CloudHypervisorPreflightDependencies,
-): Promise<void> {
-  if (!path.isAbsolute(filePath)) {
-    throw new Error(`${label} path must be absolute: ${filePath}`);
-  }
-  await assertTrustedAncestorChain(label, filePath, dependencies);
-  let stat;
-  try {
-    stat = await dependencies.lstat(filePath);
-  } catch (error) {
-    throw new Error(
-      `${label} is unavailable: ${filePath}: ${error instanceof Error ? error.message : String(error)}`,
-    );
-  }
-  if (stat.isSymbolicLink() || !stat.isFile()) {
-    throw new Error(`${label} must be a regular file and not a symbolic link: ${filePath}`);
-  }
-  if ((stat.mode & 0o022) !== 0) {
-    throw new Error(`${label} must not be group- or world-writable: ${filePath}`);
-  }
-  if (stat.uid !== 0 && stat.uid !== dependencies.uid) {
-    throw new Error(
-      `${label} must be owned by root or uid ${dependencies.uid}; found uid ${stat.uid}: ${filePath}`,
-    );
-  }
-  try {
-    await dependencies.access(filePath, accessMode);
-  } catch (error) {
-    throw new Error(
-      `${label} does not have the required host access: ${filePath}: ` +
-      `${error instanceof Error ? error.message : String(error)}`,
-    );
-  }
-}
-
-function parsePositiveUid(value: string | undefined): number | undefined {
-  if (!value || !/^[1-9]\d*$/.test(value)) return undefined;
-  return Number(value);
-}
-
-function resolveTrustedOperatorUid(): number {
-  return parsePositiveUid(process.env.SUDO_UID) ?? (process.getuid?.() ?? -1);
-}
-
-async function assertTrustedAncestorChain(
-  label: string,
-  filePath: string,
-  dependencies: CloudHypervisorPreflightDependencies,
-): Promise<void> {
-  const { root } = path.parse(filePath);
-  const segments = filePath.slice(root.length).split('/').filter((segment) => segment.length > 0);
-  let ancestor = root;
-  for (const segment of segments.slice(0, -1)) {
-    ancestor = path.join(ancestor, segment);
-    const stat = await dependencies.lstat(ancestor);
-    if (stat.isSymbolicLink()) {
-      throw new Error(
-        `${label} parent directory must not be a symbolic link: ${ancestor}`,
-      );
-    }
-    if ((stat.mode & 0o022) !== 0) {
-      throw new Error(
-        `${label} parent directory must not be group- or world-writable: ${ancestor}`,
-      );
-    }
-    if (stat.uid !== 0 && stat.uid !== dependencies.uid) {
-      throw new Error(
-        `${label} parent directory must be owned by root or uid ${dependencies.uid}; ` +
-        `found uid ${stat.uid}: ${ancestor}`,
-      );
-    }
-  }
-}
-
-async function assertDigest(
-  label: string,
-  filePath: string,
-  expected: string | undefined,
-  dependencies: CloudHypervisorPreflightDependencies,
-): Promise<void> {
-  if (!expected) return;
-  if (!/^[a-fA-F0-9]{64}$/.test(expected)) {
-    throw new Error(`${label} SHA-256 must contain exactly 64 hexadecimal characters`);
-  }
-
-  const stat = await dependencies.lstat(filePath);
-  if (stat.size <= 0) {
-    throw new Error(
-      `${label} trusted artifact is empty or incomplete before execution: ${filePath}`,
-    );
-  }
-  const actual = await dependencies.sha256(filePath);
-  if (actual.toLowerCase() !== expected.toLowerCase()) {
-    throw new Error(
-      `${label} SHA-256 mismatch: expected ${expected.toLowerCase()}, got ${actual.toLowerCase()}`,
-    );
-  }
-}
-
-function hasCompleteArtifactDigests(
-  digests: CloudHypervisorArtifactDigests | undefined,
-): digests is Required<CloudHypervisorArtifactDigests> {
-  return Boolean(
-    digests?.cloudHypervisor &&
-    digests.virtiofsd &&
-    digests.kernel &&
-    digests.rootfs &&
-    digests.supervisor,
-  );
 }
 
 /**
