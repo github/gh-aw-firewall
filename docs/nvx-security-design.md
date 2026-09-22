@@ -231,6 +231,11 @@ does not by itself authorize runtime registration. Promotion still requires
 reviewed Copilot API-proxy inference, adversarial network and filesystem
 denials, cancellation, stale-recovery, and concurrent-run isolation evidence.
 
+Executable immutable snapshots use the dedicated
+`/var/lib/awf-nvx/trusted-artifacts` root because the Ubuntu host's volatile
+`/run` mount is `noexec`. Writable per-run state and cleanup records remain
+under `/run/awf-nvx`.
+
 ## Host OpenVMM confinement
 
 Phase 0 observed `NoNewPrivs: 1`, seccomp filter mode, empty capability sets,

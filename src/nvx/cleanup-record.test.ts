@@ -40,7 +40,7 @@ function record() {
     },
     resources: {
       artifactSnapshot: {
-        path: `/run/awf-nvx/trusted-artifacts/run-${RUN_ID}`,
+        path: `/var/lib/awf-nvx/trusted-artifacts/run-${RUN_ID}`,
         device: '8',
         inode: '10',
       },
@@ -82,7 +82,7 @@ function record() {
       openvmm: {
         pid: 201,
         startTimeTicks: '2235',
-        executable: `/run/awf-nvx/trusted-artifacts/run-${RUN_ID}/openvmm`,
+        executable: `/var/lib/awf-nvx/trusted-artifacts/run-${RUN_ID}/openvmm`,
         executableDevice: '8',
         executableInode: '21',
         uid: 1000,

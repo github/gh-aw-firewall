@@ -13,7 +13,7 @@ describe('NVX run layout', () => {
   it('derives every privileged resource name from one run ID', () => {
     expect(createNvxRunLayout(RUN_ID)).toEqual({
       runId: RUN_ID,
-      artifactSnapshotDirectory: `/run/awf-nvx/trusted-artifacts/run-${RUN_ID}`,
+      artifactSnapshotDirectory: `/var/lib/awf-nvx/trusted-artifacts/run-${RUN_ID}`,
       runDirectory: `/run/awf-nvx/runs/${RUN_ID}`,
       cleanupRecordPath: `/run/awf-nvx/cleanup/${RUN_ID}.json`,
       cgroupPath: `/sys/fs/cgroup/awf-nvx/${RUN_ID}`,

@@ -57,13 +57,13 @@ const options = {
 
 function snapshot(): NvxArtifactSnapshot {
   return {
-    directory: `/run/awf-nvx/trusted-artifacts/run-${options.runId}`,
-    openvmm: `/run/awf-nvx/trusted-artifacts/run-${options.runId}/openvmm`,
-    kernel: `/run/awf-nvx/trusted-artifacts/run-${options.runId}/vmlinux`,
-    initramfs: `/run/awf-nvx/trusted-artifacts/run-${options.runId}/initramfs.cpio.gz`,
-    manifestPath: `/run/awf-nvx/trusted-artifacts/run-${options.runId}/manifest.json`,
+    directory: `/var/lib/awf-nvx/trusted-artifacts/run-${options.runId}`,
+    openvmm: `/var/lib/awf-nvx/trusted-artifacts/run-${options.runId}/openvmm`,
+    kernel: `/var/lib/awf-nvx/trusted-artifacts/run-${options.runId}/vmlinux`,
+    initramfs: `/var/lib/awf-nvx/trusted-artifacts/run-${options.runId}/initramfs.cpio.gz`,
+    manifestPath: `/var/lib/awf-nvx/trusted-artifacts/run-${options.runId}/manifest.json`,
     bundlePath:
-      `/run/awf-nvx/trusted-artifacts/run-${options.runId}/manifest.sigstore.json`,
+      `/var/lib/awf-nvx/trusted-artifacts/run-${options.runId}/manifest.sigstore.json`,
   };
 }
 
@@ -239,7 +239,7 @@ describe('NVX preflight', () => {
   it('removes a snapshot whose copied digest does not match', async () => {
     const deps = dependencies({
       sha256: jest.fn(async (filePath) =>
-        filePath.startsWith('/run/awf-nvx/') && filePath.endsWith('openvmm')
+        filePath.startsWith('/var/lib/awf-nvx/') && filePath.endsWith('openvmm')
           ? 'f'.repeat(64)
           : filePath.endsWith('openvmm')
               ? DIGESTS.openvmm
@@ -255,7 +255,7 @@ describe('NVX preflight', () => {
   it('rejects a snapshot outside the canonical per-run directory', async () => {
     const unexpected = {
       ...snapshot(),
-      directory: '/run/awf-nvx/trusted-artifacts/run-other',
+      directory: '/var/lib/awf-nvx/trusted-artifacts/run-other',
     };
     const deps = dependencies({
       createSnapshot: jest.fn().mockResolvedValue(unexpected),

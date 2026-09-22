@@ -47,7 +47,7 @@ function harness(overrides: Partial<NvxManagerDependencies> = {}) {
     'iptables', 'mkfs.erofs', 'mke2fs', 'nft', 'setfacl',
     'setpriv', 'sysctl', 'useradd', 'userdel',
   ].map((name) => [name, `/usr/bin/${name}`])) as NvxPreflightResult['tools'];
-  const snapshotDirectory = `/run/awf-nvx/trusted-artifacts/run-${RUN_ID}`;
+  const snapshotDirectory = `/var/lib/awf-nvx/trusted-artifacts/run-${RUN_ID}`;
   const preflightResult = {
     manifest: {} as never,
     snapshot: {

@@ -45,7 +45,7 @@ function plan(): NvxPhase3dLaunchPlan {
     layout: {
       runId: RUN_ID,
       runDirectory: `/run/awf-nvx/runs/${RUN_ID}`,
-      artifactSnapshotDirectory: `/run/awf-nvx/trusted-artifacts/run-${RUN_ID}`,
+      artifactSnapshotDirectory: `/var/lib/awf-nvx/trusted-artifacts/run-${RUN_ID}`,
       cleanupRecordPath: `/run/awf-nvx/cleanup/${RUN_ID}.json`,
       cgroupPath: CGROUP,
       networkNamespace: `awfnvx-${RUN_ID}`,
@@ -66,7 +66,7 @@ function plan(): NvxPhase3dLaunchPlan {
 function request(overrides: Partial<NvxOneShotExecutionRequest> = {}):
 NvxOneShotExecutionRequest {
   return {
-    nvxRoot: `/run/awf-nvx/trusted-artifacts/run-${RUN_ID}`,
+    nvxRoot: `/var/lib/awf-nvx/trusted-artifacts/run-${RUN_ID}`,
     filesystem: {} as never,
     entrypoint: '/bin/true',
     network: {
@@ -114,7 +114,7 @@ function harness(options: {
     readlink: jest.fn(async (filePath) => {
       if (filePath === '/proc/4200/exe') {
         order.push(`gate-closed:${child.stdio[3].writableEnded}`);
-        return `/run/awf-nvx/trusted-artifacts/run-${RUN_ID}/openvmm`;
+        return `/var/lib/awf-nvx/trusted-artifacts/run-${RUN_ID}/openvmm`;
       }
       if (filePath === '/proc/4200/ns/mnt') return 'mnt:[4026533001]';
       throw Object.assign(new Error(`missing: ${filePath}`), { code: 'ENOENT' });
@@ -125,7 +125,7 @@ function harness(options: {
         return { dev: 10n, ino: 20n };
       }
       if (
-        filePath === `/run/awf-nvx/trusted-artifacts/run-${RUN_ID}/openvmm`
+        filePath === `/var/lib/awf-nvx/trusted-artifacts/run-${RUN_ID}/openvmm`
       ) {
         return { dev: 10n, ino: 20n };
       }
