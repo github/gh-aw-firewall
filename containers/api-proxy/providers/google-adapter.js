@@ -17,7 +17,7 @@ function isGcpOidcRequested(env) {
 }
 
 /**
- * Create a Google API-key–based provider adapter.
+ * Create a Google provider adapter with static API-key and GCP WIF auth support.
  *
  * @param {Record<string, string|undefined>} env - Environment variables
  * @param {{ bodyTransform?: ((body: Buffer) => (Buffer | null | Promise<Buffer | null>))|null }} [deps={}] - Injected dependencies
@@ -35,7 +35,7 @@ function isGcpOidcRequested(env) {
  * @param {((url: string) => string)} [opts.transformRequestUrl] - Optional URL transformer
  * @returns {import('./index').ProviderAdapter}
  */
-function createGoogleApiKeyAdapter(env, deps = {}, opts) {
+function createGoogleAuthAdapter(env, deps = {}, opts) {
   const {
     name,
     label,
@@ -135,7 +135,7 @@ function createGoogleProviderAdapter(providerKey, env, deps = {}) {
 
   const keyEnvVar = spec.envConstants.KEY;
 
-  return createGoogleApiKeyAdapter(env, deps, {
+  return createGoogleAuthAdapter(env, deps, {
     name: spec.name,
     label: spec.label,
     port: spec.port,
@@ -168,7 +168,7 @@ const GOOGLE_PROVIDER_ADAPTER_FACTORIES = Object.fromEntries(
 );
 
 module.exports = {
-  createGoogleApiKeyAdapter,
+  createGoogleAuthAdapter,
   createGoogleProviderAdapter,
   makeGoogleProviderFactory,
   GOOGLE_PROVIDER_ADAPTER_FACTORIES,
