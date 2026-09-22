@@ -65,41 +65,6 @@ export function mountRejectsExecution(mount: CloudHypervisorMountDescription): b
     options.split(',').includes('noexec'));
 }
 
-/**
- * Fails closed before any artifact is staged when the trusted-artifact root
- * sits on a `noexec` mount. Without this the copy succeeds and the failure
- * only surfaces later as an opaque `EACCES` from the `--version` probe,
- * which aborts the whole engine run. See gh-aw-firewall#8827.
- *
- * Best effort: when `/proc/self/mountinfo` is unreadable or has no matching
- * entry the staging continues, and the digest-verified `--version` probe
- * remains the authoritative execution check.
- */
-export async function assertExecCapableArtifactRoot(directory: string): Promise<void> {
-  let resolvedDirectory = directory;
-  try {
-    resolvedDirectory = await fs.realpath(directory);
-  } catch {
-    // Fall back to the lexical path so mountinfo can still detect noexec.
-  }
-  let mount: CloudHypervisorMountDescription | undefined;
-  try {
-    mount = findMountForPath(
-      await fs.readFile('/proc/self/mountinfo', 'utf8'),
-      resolvedDirectory,
-    );
-  } catch {
-    return;
-  }
-  if (!mount || !mountRejectsExecution(mount)) return;
-  throw new Error(
-    `Cloud Hypervisor trusted artifact root "${directory}" is on a mount that rejects ` +
-    `execution (mount: ${mount.mountPoint} type=${mount.filesystemType} ` +
-    `source=${mount.source} options=${mount.options} superblock=${mount.superblockOptions}); ` +
-    'remount it without "noexec" so the staged cloud-hypervisor binary can be executed',
-  );
-}
-
 export async function describeMountForPath(filePath: string): Promise<string> {
   try {
     const best = findMountForPath(

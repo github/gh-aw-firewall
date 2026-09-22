@@ -15,7 +15,15 @@ import {
 } from './artifact-manifest';
 import { CloudHypervisorUnsupportedHostError } from './errors';
 import { logger } from '../logger';
-import { buildExecutionFailureDiagnostics } from './preflight-diagnostics';
+import {
+  buildExecutionFailureDiagnostics,
+  describeAcl,
+  describeMountForPath,
+  describePathComponent,
+  findMountForPath,
+  pathComponents,
+  resolveDiagnosticGetfaclPath,
+} from './preflight-diagnostics';
 import {
   createArtifactSnapshot,
   copySparseFileWithRsync,
@@ -24,10 +32,12 @@ import {
 } from './artifact-snapshot';
 import {
   assertDigest,
+  assertTrustedAncestorChain,
   assertTrustedHostTool,
   assertTrustedRegularFile,
   calculateSha256,
   hasCompleteArtifactDigests,
+  parsePositiveUid,
   resolveTrustedOperatorUid,
 } from './artifact-trust';
 
@@ -305,14 +315,8 @@ export {
   findMountForPath,
   pathComponents,
   resolveDiagnosticGetfaclPath,
-} from './preflight-diagnostics';
-export {
   copySparseFileWithRsync,
   createArtifactSnapshot,
-  type CloudHypervisorArtifactSnapshot,
-  type CloudHypervisorArtifactSnapshotSources,
-} from './artifact-snapshot';
-export {
   assertDigest,
   assertTrustedAncestorChain,
   assertTrustedHostTool,
@@ -321,7 +325,11 @@ export {
   hasCompleteArtifactDigests,
   parsePositiveUid,
   resolveTrustedOperatorUid,
-} from './artifact-trust';
+};
+export type {
+  CloudHypervisorArtifactSnapshot,
+  CloudHypervisorArtifactSnapshotSources,
+};
 
 /** @internal Exposed only for focused host-probe tests. */
 export const cloudHypervisorPreflightTestHelpers = {
