@@ -54,7 +54,7 @@ describe('AWF enclave MCP protocol', () => {
 
   it('echoes a supported protocol version requested by the client', async () => {
     const deps = { handlers: { [TOOL_NAME]: canonicalErrorBroker() }, maxScriptBytes: 65536 };
-    for (const requested of ['2025-11-25', '2025-06-18', '2025-03-26']) {
+    for (const requested of ['2025-11-25', '2025-06-18']) {
       const response = await dispatchJsonRpc(
         rpc('initialize', { protocolVersion: requested, clientInfo: { name: 'copilot', version: '1.0.83' } }),
         deps,
@@ -68,6 +68,12 @@ describe('AWF enclave MCP protocol', () => {
     const response = await dispatchJsonRpc(rpc('initialize', { protocolVersion: '1999-01-01' }), deps);
     expect(response.result.protocolVersion).toBe(MCP_PROTOCOL_VERSION);
     expect(MCP_PROTOCOL_VERSION).toBe('2025-11-25');
+  });
+
+  it('does not advertise revisions that require unsupported batch handling', async () => {
+    const deps = { handlers: { [TOOL_NAME]: canonicalErrorBroker() }, maxScriptBytes: 65536 };
+    const response = await dispatchJsonRpc(rpc('initialize', { protocolVersion: '2025-03-26' }), deps);
+    expect(response.result.protocolVersion).toBe(MCP_PROTOCOL_VERSION);
   });
 
   it('publishes one static tool without trusted configuration or repository data', async () => {

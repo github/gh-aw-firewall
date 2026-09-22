@@ -10,16 +10,15 @@ const MCP_PROTOCOL_VERSION = '2025-11-25';
 
 /**
  * Protocol revisions this server can speak, newest first.  The server speaks a
- * fixed, tiny subset of MCP (initialize, tools/list, tools/call), which is
- * unchanged across these revisions, so a client that negotiates any of them is
- * answered with its own requested revision.  A client that requests an unknown
- * revision is answered with the newest supported one and decides for itself
- * whether to continue.
+ * fixed, tiny subset of MCP (initialize, tools/list, tools/call).  These
+ * revisions do not require batch handling, so a client that negotiates either of
+ * them is answered with its own requested revision.  A client that requests an
+ * unknown revision is answered with the newest supported one and decides for
+ * itself whether to continue.
  */
 const SUPPORTED_MCP_PROTOCOL_VERSIONS = Object.freeze([
   '2025-11-25',
   '2025-06-18',
-  '2025-03-26',
 ]);
 
 /**

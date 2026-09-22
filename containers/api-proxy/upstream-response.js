@@ -77,10 +77,14 @@ function extractToolName(tool) {
   if (!tool || typeof tool !== 'object') return null;
   // OpenAI/Copilot chat-completions shape: { type: 'function', function: { name } }
   if (tool.function && typeof tool.function === 'object' && typeof tool.function.name === 'string') {
-    return tool.function.name;
+    const name = tool.function.name.trim();
+    return name.length > 0 ? name : null;
   }
   // Responses API and Anthropic shape: { type: 'function'|..., name }
-  if (typeof tool.name === 'string') return tool.name;
+  if (typeof tool.name === 'string') {
+    const name = tool.name.trim();
+    return name.length > 0 ? name : null;
+  }
   return null;
 }
 

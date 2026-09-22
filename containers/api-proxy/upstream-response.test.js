@@ -96,6 +96,8 @@ describe('upstream-response', () => {
         { type: 'function', function: { name: 'github-list_issues' } },
         { type: 'function', name: 'safeoutputs-create_issue' },
         { type: 'function' },
+        { type: 'function', function: { name: '   ' } },
+        { type: 'function', name: '' },
       ],
     }));
 
@@ -118,9 +120,9 @@ describe('upstream-response', () => {
 
     expect(deps.logRequest).toHaveBeenCalledWith('warn', 'upstream_error_response', expect.objectContaining({
       model: 'gpt-5.6-sol',
-      request_tool_count: 3,
+      request_tool_count: 5,
       request_tool_names: ['github-list_issues', 'safeoutputs-create_issue'],
-      request_unnamed_tool_count: 1,
+      request_unnamed_tool_count: 3,
     }));
   });
 
