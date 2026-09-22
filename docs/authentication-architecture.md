@@ -13,10 +13,10 @@ All LLM providers use the same credential-isolation architecture. API keys are h
 | 10000 | OpenAI             | `Authorization: Bearer` (static/Azure/GCP), or AWS SigV4 |
 | 10001 | Anthropic (Claude) | `x-api-key` (static) or `Authorization: Bearer` (OIDC/WIF) |
 | 10002 | GitHub Copilot     | `Authorization: Bearer` or `token`, or AWS SigV4 |
-| 10003 | Google Gemini      | `x-goog-api-key` (static key only) |
-| 10004 | Google Vertex AI   | `x-goog-api-key` (static key only) |
+| 10003 | Google Gemini      | `x-goog-api-key` (static) or `Authorization: Bearer` (GCP WIF) |
+| 10004 | Google Vertex AI   | `x-goog-api-key` (static) or `Authorization: Bearer` (GCP WIF) |
 
-Only the OpenAI, Anthropic, and Copilot adapters support `AWF_AUTH_TYPE=github-oidc`. Gemini and Vertex AI are static-API-key only in the current implementation. See [`docs/auth-matrix.md`](./auth-matrix.md) for the full per-provider auth matrix, including the enterprise/business Copilot `token`-prefix requirement and AWS OIDC SigV4 support for Bedrock Runtime.
+OpenAI, Anthropic, Copilot, Gemini, and Vertex AI support `AWF_AUTH_TYPE=github-oidc` for their documented cloud providers. See [`docs/auth-matrix.md`](./auth-matrix.md) for the full per-provider auth matrix, including the enterprise/business Copilot `token`-prefix requirement, AWS OIDC SigV4 support for Bedrock Runtime, and GCP WIF support for Gemini/Vertex.
 :::
 
 ## Architecture components
@@ -192,11 +192,11 @@ Handles requests from the agent using `COPILOT_API_URL`. Injects the resolved Co
 
 #### Port 10003: Google Gemini proxy
 
-Handles requests from the agent using `GOOGLE_GEMINI_BASE_URL` (read by the Gemini CLI) and `GEMINI_API_BASE_URL` (read by older SDK versions). Injects `x-goog-api-key` from `GEMINI_API_KEY`, forwarding to `generativelanguage.googleapis.com`. Returns `503` if `GEMINI_API_KEY` is not configured. Static-key only — no OIDC/WIF support.
+Handles requests from the agent using `GOOGLE_GEMINI_BASE_URL` (read by the Gemini CLI) and `GEMINI_API_BASE_URL` (read by older SDK versions). Injects `x-goog-api-key` from `GEMINI_API_KEY`, or `Authorization: Bearer` from a GCP WIF exchange when `AWF_AUTH_PROVIDER=gcp`, forwarding to `generativelanguage.googleapis.com`. Returns `503` if neither auth path is ready.
 
 #### Port 10004: Google Vertex AI proxy
 
-Handles requests from the agent using `GOOGLE_VERTEX_BASE_URL` (read by the Gemini CLI when `GOOGLE_GENAI_USE_VERTEXAI=true`). Injects `x-goog-api-key` from `GOOGLE_API_KEY`, forwarding to `aiplatform.googleapis.com`. Returns `503` if `GOOGLE_API_KEY` is not configured. Shares its adapter factory (`providers/google-adapter.js`) with the Gemini adapter, but is a distinct always-bound port with its own target and env vars. Static-key only — no OIDC/WIF support (see [`docs/auth-matrix.md`](./auth-matrix.md#provider-google-vertex-ai) for the implementation-vs-provider-docs caveat on API-key auth against Vertex AI).
+Handles requests from the agent using `GOOGLE_VERTEX_BASE_URL` (read by the Gemini CLI when `GOOGLE_GENAI_USE_VERTEXAI=true`). Injects `x-goog-api-key` from `GOOGLE_API_KEY`, or `Authorization: Bearer` from a GCP WIF exchange when `AWF_AUTH_PROVIDER=gcp`, forwarding to `aiplatform.googleapis.com`. Shares its adapter factory (`providers/google-adapter.js`) with the Gemini adapter, but is a distinct always-bound port with its own target and env vars. With WIF, billing/quota follow the impersonated service account's project or the directly granted workload identity principal.
 
 The `proxyRequest` function copies incoming headers, strips sensitive/proxy headers, injects the authentication headers, and forwards the request to the target API through Squid using `HttpsProxyAgent`.
 
@@ -777,7 +777,7 @@ The generated gateway configuration should contain only auth type/audience metad
 | Agent sees credential material | No real provider key | No Actions OIDC request token, minted JWT, or exchanged provider credential |
 | GitHub Actions requirement | API key in secrets | `permissions: id-token: write` |
 | Cloud provider setup | Generate API key | Configure trust policy/federation |
-| Supported providers | OpenAI, Anthropic, Copilot, Gemini, Vertex AI | Azure (OpenAI/Copilot), GCP (OpenAI/Copilot adapters only — not the native Vertex/Gemini adapters), Anthropic WIF, AWS Bedrock Runtime via OpenAI/Copilot adapters |
+| Supported providers | OpenAI, Anthropic, Copilot, Gemini, Vertex AI | Azure (OpenAI/Copilot), GCP (OpenAI/Copilot/Gemini/Vertex), Anthropic WIF, AWS Bedrock Runtime via OpenAI/Copilot adapters |
 
 ### Configuration reference
 
@@ -803,7 +803,7 @@ OIDC authentication is configured via `apiProxy.auth` in the AWF config file or 
 | `containers/api-proxy/providers/openai.js` | OpenAI adapter — selects OIDC provider based on `AWF_AUTH_PROVIDER` |
 | `containers/api-proxy/providers/anthropic.js` | Anthropic adapter — static `x-api-key` or WIF `Authorization: Bearer` |
 | `containers/api-proxy/providers/copilot.js`, `copilot-auth.js`, `copilot-byok.js` | Copilot adapter — GitHub token, BYOK, and OIDC handling, `token`/`Bearer` prefix logic |
-| `containers/api-proxy/providers/google-adapter.js`, `google-provider-specs.js` | Gemini and Vertex AI adapters (declarative specs) — static `x-goog-api-key` only, no OIDC |
+| `containers/api-proxy/providers/google-adapter.js`, `google-provider-specs.js` | Gemini and Vertex AI adapters (declarative specs) — static `x-goog-api-key` or GCP WIF bearer auth |
 | `containers/agent/setup-iptables.sh` | iptables rules for api-proxy routing |
 | `containers/agent/entrypoint.sh` | Entrypoint token cleanup, capability drop |
 | `containers/agent/api-proxy-health-check.sh` | Pre-flight credential isolation verification |

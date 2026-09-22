@@ -40,7 +40,7 @@ Auth evaluation in the api-proxy is determined by the combination of these indep
 | 8 | Extra Injection | `AWF_BYOK_EXTRA_HEADERS`, `AWF_BYOK_EXTRA_BODY_FIELDS` | JSON objects |
 
 :::note
-The OIDC Provider dimension (`AWF_AUTH_PROVIDER`) only applies to the OpenAI, Anthropic, and Copilot adapters. The Gemini and Vertex adapters are static-API-key only in the current implementation — see [Provider: Google Vertex AI](#provider-google-vertex-ai) for how GCP workload identity federation reaches Vertex-compatible endpoints today.
+The OIDC Provider dimension (`AWF_AUTH_PROVIDER`) applies to OpenAI, Anthropic, Copilot, Gemini, and Vertex AI when the listed provider supports that cloud's token format. The Gemini and Vertex AI adapters support `AWF_AUTH_PROVIDER=gcp` through Google Workload Identity Federation; other OIDC providers do not apply to those Google adapters.
 :::
 
 ---
@@ -263,11 +263,16 @@ Selecting `AWF_AUTH_PROVIDER=aws` signs Copilot-adapter HTTP requests at final d
 
 The proxy also strips `?key=`, `?apiKey=`, and `?api_key=` query parameters from requests to prevent duplicate-key errors.
 
-:::note
-The native Gemini API supports OAuth, but the AWF Gemini adapter does not — only a static `GEMINI_API_KEY` is supported. There are two distinct ways to reach Google infrastructure with GCP workload identity federation:
-1. **Native Vertex AI adapter** (port 10004, static key only) — see [Provider: Google Vertex AI](#provider-google-vertex-ai).
-2. **OpenAI adapter with GCP OIDC** — point `OPENAI_API_TARGET` at a Vertex AI OpenAI-compatible endpoint and set `AWF_AUTH_TYPE=github-oidc`, `AWF_AUTH_PROVIDER=gcp`. This is a separate code path (`openai.js`) from the native Vertex adapter and is the only way to use GCP OIDC/WIF with Vertex-hosted models today.
-:::
+### GCP Workload Identity Federation
+
+| Setting | Value |
+|---------|-------|
+| Env vars | `AWF_AUTH_TYPE=github-oidc`, `AWF_AUTH_PROVIDER=gcp`, `AWF_AUTH_GCP_WORKLOAD_IDENTITY_PROVIDER` |
+| Header sent upstream | `Authorization: ****** |
+| Optional service account | `AWF_AUTH_GCP_SERVICE_ACCOUNT` |
+| Optional scope | `AWF_AUTH_GCP_SCOPE` (default: `https://www.googleapis.com/auth/cloud-platform`) |
+
+This path keeps the GitHub OIDC exchange and short-lived GCP access token inside the api-proxy sidecar. It is intended for Gemini API endpoints that accept Google OAuth bearer tokens; billing follows the Google Cloud project/service account authorized by the workload identity pool.
 
 :::caution[Gemini API key migration]
 Google says the Gemini API will reject standard API keys beginning in September 2026. Migrate `GEMINI_API_KEY` to Google's service-account-bound authorization key format before that deadline; AWF forwards either key type through the same `x-goog-api-key` header.
@@ -291,12 +296,19 @@ Google says the Gemini API will reject standard API keys beginning in September 
 | Default target | `aiplatform.googleapis.com` |
 | Default base path | (none) |
 
-:::caution
-Unlike the OpenAI, Anthropic, and Copilot adapters, the Vertex adapter does **not** call `createOidcAwareProviderAdapter` — it is always bound to port 10004 (returning `503` if `GOOGLE_API_KEY` is unconfigured) and supports only the static-key flow described above. There is no OIDC/WIF variant of this adapter. For GCP workload identity federation with Vertex-hosted models, use the OpenAI adapter pathway described in the [Google Gemini](#provider-google-gemini) section above instead.
-:::
+### GCP Workload Identity Federation
+
+| Setting | Value |
+|---------|-------|
+| Env vars | `AWF_AUTH_TYPE=github-oidc`, `AWF_AUTH_PROVIDER=gcp`, `AWF_AUTH_GCP_WORKLOAD_IDENTITY_PROVIDER` |
+| Header sent upstream | `Authorization: ****** |
+| Optional service account | `AWF_AUTH_GCP_SERVICE_ACCOUNT` |
+| Optional scope | `AWF_AUTH_GCP_SCOPE` (default: `https://www.googleapis.com/auth/cloud-platform`) |
+
+This is the native Vertex/Gemini CLI path for `GOOGLE_GENAI_USE_VERTEXAI=true`: AWF sets `GOOGLE_VERTEX_BASE_URL` to port 10004, exchanges the GitHub Actions OIDC token for a short-lived GCP token in the sidecar, and forwards Vertex requests to `aiplatform.googleapis.com` (or `VERTEX_API_TARGET`). Billing and quota are charged to the Google Cloud project associated with the impersonated service account, or to the directly granted workload identity principal when no service account is configured.
 
 :::note[Implementation vs. provider documentation]
-This adapter exists to support the [Gemini CLI](https://geminicli.com/)'s `GOOGLE_GENAI_USE_VERTEXAI=true` mode: setting `GOOGLE_VERTEX_BASE_URL` to point at this sidecar lets AWF isolate whatever credential the CLI is configured to send. Google's general Vertex AI guidance recommends Application Default Credentials, a service account key, or workload identity federation for Vertex AI endpoints, and treats a bare API key as unsupported for most Vertex AI surfaces (API keys are the norm for the separate Gemini Developer API at `generativelanguage.googleapis.com`). AWF does not attempt to validate that `aiplatform.googleapis.com` accepts a given key for a given operation — it forwards `x-goog-api-key` unconditionally. Confirm your specific Vertex AI project/API supports API-key auth (for example, Vertex AI Express Mode) before relying on this adapter in production.
+This adapter exists to support the [Gemini CLI](https://geminicli.com/)'s `GOOGLE_GENAI_USE_VERTEXAI=true` mode: setting `GOOGLE_VERTEX_BASE_URL` to point at this sidecar routes Vertex AI traffic through AWF. Google's general Vertex AI guidance recommends Application Default Credentials, a service account key, or workload identity federation for Vertex AI endpoints, and treats a bare API key as unsupported for most Vertex AI surfaces (API keys are the norm for the separate Gemini Developer API at `generativelanguage.googleapis.com`). Prefer GCP WIF for Vertex AI. AWF still forwards `x-goog-api-key` when `GOOGLE_API_KEY` is configured for deployments that explicitly rely on API-key-compatible Vertex surfaces such as Vertex AI Express Mode.
 :::
 
 **Official docs:** https://geminicli.com/docs/get-started/authentication/
@@ -466,9 +478,9 @@ Adds `x-session-id` header automatically in BYOK mode unless already present.
 | Copilot | GCP OIDC | — | ✅ | `gcp-oidc-token-provider.js`, `server.auth-matrix.test.js` |
 | Copilot | GHES + BYOK | GHES | ✅ | `server.auth-matrix.test.js` |
 | Gemini | Static key | — | ✅ | `google-adapter.js`, `google-provider-specs.js` |
-| Gemini | GCP WIF | — | ❌ not impl | Use the OpenAI adapter with GCP OIDC pointed at a Vertex endpoint instead (see [Google Gemini](#provider-google-gemini)) |
+| Gemini | GCP WIF | — | ✅ | `google-adapter.js`, `gcp-oidc-token-provider.js`, `server.auth-matrix.test.js` |
 | Vertex AI | Static key | — | ✅ | `google-adapter.js`, `google-provider-specs.js` |
-| Vertex AI | GCP WIF | — | ❌ not impl | No OIDC support in the shared Google adapter; see [Provider: Google Vertex AI](#provider-google-vertex-ai) |
+| Vertex AI | GCP WIF | — | ✅ | `google-adapter.js`, `gcp-oidc-token-provider.js`, `server.auth-matrix.test.js` |
 
 :::note
 "Implementation" column lists source files, not line numbers — line references go stale quickly as the code evolves. Use your editor's search to locate the relevant logic within each file.

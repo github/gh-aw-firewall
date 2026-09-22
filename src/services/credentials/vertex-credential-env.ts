@@ -1,5 +1,6 @@
 import { WrapperConfig, API_PROXY_PORTS } from '../../types';
 import { buildProviderCredentialIsolationEnv } from './provider-credential-isolation';
+import { isGcpOidcConfigured } from './gcp-oidc-config';
 
 interface VertexCredentialEnvParams {
   config: WrapperConfig;
@@ -16,7 +17,7 @@ export function buildVertexCredentialEnv(params: VertexCredentialEnvParams): Rec
     providerName: 'Google Vertex AI',
     proxyIp,
     port: API_PROXY_PORTS.VERTEX,
-    enabled: !!config.googleApiKey,
+    enabled: !!config.googleApiKey || isGcpOidcConfigured(config),
     baseUrlVarNames: ['GOOGLE_VERTEX_BASE_URL'],
     target: config.vertexApiTarget,
     basePath: config.vertexApiBasePath,

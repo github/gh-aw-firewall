@@ -335,6 +335,30 @@ describe('API proxy sidecar: API targets and auth forwarding', () => {
         expect(env.AWF_GEMINI_ENABLED).toBe('1');
       });
 
+      it('should route Gemini/Vertex through api-proxy for GCP OIDC on arc-dind without static keys', () => {
+        const configWithProxy = {
+          ...mockConfig,
+          enableApiProxy: true,
+          runnerTopology: 'arc-dind' as const,
+          authType: 'github-oidc',
+          authProvider: 'gcp',
+          authGcpWorkloadIdentityProvider: 'projects/123/locations/global/workloadIdentityPools/pool/providers/github',
+          authGcpServiceAccount: 'vertex-sa@example.iam.gserviceaccount.com',
+        };
+        const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+        const agentEnv = result.services.agent.environment as Record<string, string>;
+        const proxyEnv = result.services['api-proxy'].environment as Record<string, string>;
+
+        expect(agentEnv.AWF_GEMINI_ENABLED).toBe('1');
+        expect(agentEnv.GOOGLE_GEMINI_BASE_URL).toBe('http://172.30.0.30:10003');
+        expect(agentEnv.GEMINI_API_BASE_URL).toBe('http://172.30.0.30:10003');
+        expect(agentEnv.GOOGLE_VERTEX_BASE_URL).toBe('http://172.30.0.30:10004');
+        expect(agentEnv.GEMINI_API_KEY).toBe('gemini-api-key-placeholder-for-credential-isolation');
+        expect(agentEnv.GOOGLE_API_KEY).toBe('google-api-key-placeholder-for-credential-isolation');
+        expect(agentEnv.AWF_AUTH_GCP_SERVICE_ACCOUNT).toBeUndefined();
+        expect(proxyEnv.AWF_AUTH_GCP_SERVICE_ACCOUNT).toBe('vertex-sa@example.iam.gserviceaccount.com');
+      });
+
       it('should not inherit AWF_GEMINI_ENABLED from host env via envAll when geminiApiKey is absent', () => {
         const origVal = process.env.AWF_GEMINI_ENABLED;
         process.env.AWF_GEMINI_ENABLED = '1';

@@ -79,4 +79,58 @@ describe('createGoogleProviderAdapter', () => {
     expect(GOOGLE_PROVIDER_ADAPTER_FACTORIES.gemini({ GEMINI_API_KEY: 'g' }).getAuthHeaders()).toEqual({ 'x-goog-api-key': 'g' });
     expect(GOOGLE_PROVIDER_ADAPTER_FACTORIES.vertex({ GOOGLE_API_KEY: 'v' }).getAuthHeaders()).toEqual({ 'x-goog-api-key': 'v' });
   });
+
+  it('enables Gemini with GCP WIF and injects a bearer token when ready', () => {
+    const adapter = createGoogleProviderAdapter('gemini', {
+      AWF_AUTH_TYPE: 'github-oidc',
+      AWF_AUTH_PROVIDER: 'gcp',
+      ACTIONS_ID_TOKEN_REQUEST_URL: 'http://localhost/token',
+      ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'runtime-token',
+      AWF_AUTH_GCP_WORKLOAD_IDENTITY_PROVIDER: 'projects/123/locations/global/workloadIdentityPools/pool/providers/github',
+    });
+    const provider = adapter.getOidcProvider();
+    expect(provider).toBeTruthy();
+    expect(adapter.getAuthHeaders()).toEqual({});
+    provider._cachedToken = 'gcp-access-token';
+    provider._expiresAt = Math.floor(Date.now() / 1000) + 600;
+    expect(adapter.isEnabled()).toBe(true);
+    const headers = adapter.getAuthHeaders();
+    expect(headers.Authorization).toBe(`${'Bear'}er gcp-access-token`);
+    expect(headers['x-goog-api-key']).toBeUndefined();
+    expect(adapter.getReflectionInfo()).toMatchObject({
+      configured: true,
+      auth_type: 'github-oidc/gcp',
+    });
+    provider.shutdown();
+  });
+
+  it('enables Vertex with GCP WIF and reports retryable not-configured while token is pending', () => {
+    const adapter = createGoogleProviderAdapter('vertex', {
+      AWF_AUTH_TYPE: 'github-oidc',
+      AWF_AUTH_PROVIDER: 'gcp',
+      ACTIONS_ID_TOKEN_REQUEST_URL: 'http://localhost/token',
+      ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'runtime-token',
+      AWF_AUTH_GCP_WORKLOAD_IDENTITY_PROVIDER: 'projects/123/locations/global/workloadIdentityPools/pool/providers/github',
+      AWF_AUTH_GCP_SERVICE_ACCOUNT: 'vertex-sa@example.iam.gserviceaccount.com',
+    });
+    expect(adapter.getOidcProvider()).toBeTruthy();
+    expect(adapter.isEnabled()).toBe(false);
+    expect(adapter.getUnconfiguredResponse()).toEqual({
+      statusCode: 503,
+      body: {
+        error: {
+          message: 'Vertex AI OIDC token (gcp) unavailable; retry shortly',
+          type: 'provider_not_configured',
+          provider: 'vertex',
+          port: 10004,
+          retryable: true,
+        },
+      },
+    });
+    expect(adapter.getUnconfiguredHealthResponse().body).toMatchObject({
+      status: 'unavailable',
+      error: 'Vertex AI OIDC token (gcp) not yet available in api-proxy sidecar',
+    });
+    adapter.getOidcProvider().shutdown();
+  });
 });

@@ -187,11 +187,11 @@ The agent container receives **redacted placeholders** and proxy URLs:
 | `COPILOT_OFFLINE` | `true` | `COPILOT_GITHUB_TOKEN` or `COPILOT_PROVIDER_API_KEY` provided to host | Enables offline+BYOK mode (skips GitHub OAuth handshake) |
 | `COPILOT_PROVIDER_BASE_URL` | `http://172.30.0.30:10002` | `COPILOT_GITHUB_TOKEN` or `COPILOT_PROVIDER_API_KEY` provided to host | Points Copilot CLI BYOK provider at sidecar (real upstream URL, if any, held in sidecar) |
 | `COPILOT_PROVIDER_API_KEY` | `ghu_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa` | `COPILOT_GITHUB_TOKEN` or `COPILOT_PROVIDER_API_KEY` provided to host | BYOK provider API key placeholder (real key in sidecar) |
-| `GOOGLE_GEMINI_BASE_URL` | `http://172.30.0.30:10003` | `GEMINI_API_KEY` provided to host | Redirects Gemini CLI to proxy (primary var read by Gemini CLI) |
-| `GEMINI_API_BASE_URL` | `http://172.30.0.30:10003` | `GEMINI_API_KEY` provided to host | Redirects Gemini SDK to proxy (kept for backward compatibility) |
-| `GEMINI_API_KEY` | `gemini-api-key-placeholder-for-credential-isolation` | `GEMINI_API_KEY` provided to host | Placeholder so Gemini CLI auth check passes (real key in sidecar) |
-| `GOOGLE_VERTEX_BASE_URL` | `http://172.30.0.30:10004` | `GOOGLE_API_KEY` provided to host | Redirects Vertex AI requests to proxy |
-| `GOOGLE_API_KEY` | `google-api-key-placeholder-for-credential-isolation` | `GOOGLE_API_KEY` provided to host | Placeholder so Vertex mode auth checks pass (real key in sidecar) |
+| `GOOGLE_GEMINI_BASE_URL` | `http://172.30.0.30:10003` | `GEMINI_API_KEY` or GCP OIDC configured | Redirects Gemini CLI to proxy (primary var read by Gemini CLI) |
+| `GEMINI_API_BASE_URL` | `http://172.30.0.30:10003` | `GEMINI_API_KEY` or GCP OIDC configured | Redirects Gemini SDK to proxy (kept for backward compatibility) |
+| `GEMINI_API_KEY` | `gemini-api-key-placeholder-for-credential-isolation` | `GEMINI_API_KEY` or GCP OIDC configured | Placeholder so Gemini CLI auth check passes (real key or WIF token in sidecar) |
+| `GOOGLE_VERTEX_BASE_URL` | `http://172.30.0.30:10004` | `GOOGLE_API_KEY` or GCP OIDC configured | Redirects Vertex AI requests to proxy |
+| `GOOGLE_API_KEY` | `google-api-key-placeholder-for-credential-isolation` | `GOOGLE_API_KEY` or GCP OIDC configured | Placeholder so Vertex mode auth checks pass (real key or WIF token in sidecar) |
 | `OPENAI_API_KEY` | `sk-placeholder-for-api-proxy` | `OPENAI_API_KEY` provided to host | Non-secret placeholder required by newer Codex clients; the real host value is excluded and held in the sidecar |
 | `CODEX_API_KEY` | `sk-placeholder-for-api-proxy` | `OPENAI_API_KEY` provided to host | Non-secret placeholder for Codex routing; the sidecar replaces its auth header |
 | `ANTHROPIC_API_KEY` | Not set | Always | Excluded from agent (held in api-proxy) |
@@ -202,7 +202,7 @@ The agent container receives **redacted placeholders** and proxy URLs:
 | `AWF_ONE_SHOT_TOKENS` | `COPILOT_GITHUB_TOKEN,GITHUB_TOKEN,...` | Always | Tokens protected by one-shot-token library |
 
 :::note[Gemini setup is conditional]
-`GOOGLE_GEMINI_BASE_URL`, `GEMINI_API_BASE_URL`, the `GEMINI_API_KEY` placeholder, the `GOOGLE_VERTEX_BASE_URL`/`GOOGLE_API_KEY` placeholders, the `~/.gemini` home directory mount, and the `AWF_GEMINI_ENABLED` signal are only configured when `GEMINI_API_KEY` or `GOOGLE_API_KEY` is provided to the host AWF process. This avoids spurious log entries and unnecessary directory setup in non-Gemini runs (e.g. Copilot-only workflows).
+`GOOGLE_GEMINI_BASE_URL`, `GEMINI_API_BASE_URL`, the `GEMINI_API_KEY` placeholder, the `GOOGLE_VERTEX_BASE_URL`/`GOOGLE_API_KEY` placeholders, the `~/.gemini` home directory mount, and the `AWF_GEMINI_ENABLED` signal are only configured when `GEMINI_API_KEY`, `GOOGLE_API_KEY`, or GCP OIDC (`AWF_AUTH_TYPE=github-oidc`, `AWF_AUTH_PROVIDER=gcp`, `AWF_AUTH_GCP_WORKLOAD_IDENTITY_PROVIDER`) is provided to the host AWF process. This avoids spurious log entries and unnecessary directory setup in non-Gemini runs (e.g. Copilot-only workflows).
 
 `GOOGLE_GEMINI_BASE_URL` is the primary variable read by the Gemini CLI (`google-gemini/gemini-cli`). `GEMINI_API_BASE_URL` is kept for backward compatibility with older SDK versions.
 
@@ -797,7 +797,7 @@ SigV4 support applies to buffered HTTP requests, including streaming HTTP respon
 
 ### GCP Vertex AI
 
-Exchanges the GitHub OIDC JWT for a GCP access token via the Security Token Service, optionally followed by service account impersonation. The resulting token is injected as a Bearer token.
+Exchanges the GitHub OIDC JWT for a GCP access token via the Security Token Service, optionally followed by service account impersonation. The resulting token is injected as a bearer token for OpenAI-compatible GCP targets and for the native Gemini/Vertex adapters.
 
 #### GCP-specific environment variables
 
@@ -817,14 +817,10 @@ Default OIDC audience: the `gcpWorkloadIdentityProvider` value
 When `gcpServiceAccount` is omitted, the federated token is used directly without service account impersonation. This requires that the federated principal has direct access grants on the target resource.
 :::
 
-:::note[Implementation vs. provider documentation]
-GCP OIDC with Vertex-hosted models is served through the **OpenAI adapter** (`OPENAI_API_TARGET`/`--openai-api-target` pointed at a Vertex AI OpenAI-compatible endpoint), not through the native Vertex AI adapter (port 10004). The native Vertex adapter is static-`GOOGLE_API_KEY`-only and has no OIDC/WIF support today — see the [auth matrix](./auth-matrix.md#provider-google-vertex-ai) for details.
+:::note[Supported Vertex paths]
+For the Gemini CLI Vertex mode (`GOOGLE_GENAI_USE_VERTEXAI=true`), use the native Vertex adapter on port 10004. AWF sets `GOOGLE_VERTEX_BASE_URL`, exchanges GCP WIF credentials in the sidecar, and forwards to `aiplatform.googleapis.com` (or `VERTEX_API_TARGET`). Billing and quota are charged to the Google Cloud project associated with the impersonated service account, or to the directly granted workload identity principal when no service account is configured.
 
-The OpenAI-compatible Vertex endpoint also requires a resource-specific base path such as `/v1/projects/PROJECT_ID/locations/LOCATION/endpoints/openapi`. Set it with `OPENAI_API_BASE_PATH` or `--openai-api-base-path`; replace the example project and location with your own values.
-:::
-
-:::caution[Agent routing is not automatically configured]
-GCP OIDC can initialize in the sidecar, but OIDC configuration alone does not set `OPENAI_BASE_URL` or OpenAI compatibility placeholders in the agent. `buildOpenAiCredentialEnv()` currently enables agent routing only when `OPENAI_API_KEY` is configured. Until OIDC-aware OpenAI routing is implemented, AWF does not provide a complete keyless Vertex OpenAI-compatible invocation path.
+OpenAI-compatible Vertex endpoints can still use the OpenAI adapter (`OPENAI_API_TARGET` plus a resource-specific `OPENAI_API_BASE_PATH` such as `/v1/projects/PROJECT_ID/locations/LOCATION/endpoints/openapi`).
 :::
 
 ### Anthropic API
@@ -1323,7 +1319,7 @@ into the api-proxy container, so no extra configuration is needed.
 - Keys must be set as environment variables (not file-based)
 - No request/response logging (by design, for security)
 - **AWS Bedrock OIDC signs HTTP requests only**: WebSocket upgrades are rejected, and the signing target is restricted to the exact regional Bedrock Runtime hostname. See [OIDC Authentication > AWS Bedrock](#aws-bedrock).
-- **Vertex AI adapter has no OIDC/WIF support**: the native Vertex adapter (port 10004) only accepts a static `GOOGLE_API_KEY`. To use GCP workload identity federation with Vertex-hosted models, point the OpenAI adapter (port 10000) at a Vertex OpenAI-compatible endpoint instead — see [OIDC Authentication > GCP Vertex AI](#gcp-vertex-ai).
+- **Vertex AI OpenAI-compatible endpoints still need explicit OpenAI routing**: native Gemini CLI Vertex mode uses port 10004 with GCP WIF, but OpenAI-compatible Vertex endpoints use port 10000 and require `OPENAI_API_TARGET`/`OPENAI_API_BASE_PATH` — see [OIDC Authentication > GCP Vertex AI](#gcp-vertex-ai).
 - **GitHub Copilot Business tier target is never auto-derived**: set `COPILOT_API_TARGET=api.business.githubcopilot.com` explicitly (or `--copilot-api-target`); it is not inferred from `GITHUB_SERVER_URL`.
 
 ## Related documentation

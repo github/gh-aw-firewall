@@ -1,5 +1,6 @@
 import { WrapperConfig, API_PROXY_PORTS } from '../../types';
 import { buildProviderCredentialIsolationEnv } from './provider-credential-isolation';
+import { isGcpOidcConfigured } from './gcp-oidc-config';
 
 interface GeminiCredentialEnvParams {
   config: WrapperConfig;
@@ -16,7 +17,7 @@ export function buildGeminiCredentialEnv(params: GeminiCredentialEnvParams): Rec
     providerName: 'Google Gemini',
     proxyIp,
     port: API_PROXY_PORTS.GEMINI,
-    enabled: !!config.geminiApiKey,
+    enabled: !!config.geminiApiKey || isGcpOidcConfigured(config),
     // GOOGLE_GEMINI_BASE_URL is the env var read by the Gemini CLI (google-gemini/gemini-cli)
     // when authType === USE_GEMINI. Setting it routes all Gemini CLI traffic through
     // the api-proxy sidecar instead of calling generativelanguage.googleapis.com directly.

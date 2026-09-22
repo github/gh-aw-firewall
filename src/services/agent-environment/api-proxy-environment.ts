@@ -1,6 +1,7 @@
 import { parseValidPortSpecs } from '../../host-iptables-validation';
 import { getRealUserHome, getSafeHostGid, getSafeHostUid, isNativeRootWithoutSudo } from '../../host-identity';
 import { logger } from '../../logger';
+import { isGcpOidcConfigured } from '../credentials/gcp-oidc-config';
 import { AgentEnvironmentParams } from './types';
 
 interface ApiProxyEnvironmentParams extends AgentEnvironmentParams {
@@ -53,7 +54,7 @@ export function buildApiProxyEnvironment(params: ApiProxyEnvironmentParams): voi
     );
   }
 
-  if (config.geminiApiKey || config.googleApiKey) {
+  if (config.geminiApiKey || config.googleApiKey || isGcpOidcConfigured(config)) {
     environment.AWF_GEMINI_ENABLED = '1';
   }
 }

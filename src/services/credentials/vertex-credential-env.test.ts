@@ -14,6 +14,18 @@ describe('buildVertexCredentialEnv', () => {
     expect(result).toEqual({});
   });
 
+  it('returns env additions when GCP OIDC is configured without googleApiKey', () => {
+    const config = {
+      ...baseConfig,
+      authType: 'github-oidc',
+      authProvider: 'gcp',
+      authGcpWorkloadIdentityProvider: 'projects/123/locations/global/workloadIdentityPools/pool/providers/github',
+    } as WrapperConfig;
+    const result = buildVertexCredentialEnv({ config, proxyIp });
+    expect(result.GOOGLE_VERTEX_BASE_URL).toBe(`http://${proxyIp}:10004`);
+    expect(result.GOOGLE_API_KEY).toBe('google-api-key-placeholder-for-credential-isolation');
+  });
+
   it('returns env additions when googleApiKey is set', () => {
     const config = { ...baseConfig, googleApiKey: 'AIza-test-key' } as WrapperConfig;
     const result = buildVertexCredentialEnv({ config, proxyIp });

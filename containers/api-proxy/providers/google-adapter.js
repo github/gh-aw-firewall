@@ -1,19 +1,20 @@
 'use strict';
 
 /**
- * Shared factory for Google API-key–based provider adapters (Gemini, Vertex).
+ * Shared factory for Google provider adapters (Gemini, Vertex).
  *
- * Both providers authenticate via the `x-goog-api-key` header and share the
- * same scaffold: createProviderAuthScaffold, createAdapterMethods, and
- * buildProviderAdapter.  This factory centralises that boilerplate so each
- * provider only supplies its name, port, env constants, target, paths, and
- * error messages.
+ * Both providers support static API keys via `x-goog-api-key` and GCP
+ * Workload Identity Federation via `Authorization: ******
  */
 
-const { makeUnconfiguredHealthResponse } = require('../proxy-utils');
-const { createProviderAuthScaffold, createAdapterMethods, buildProviderAdapter } = require('../adapter-factory');
-const { providerKeyHeaders } = require('./auth-headers');
+const { createProviderAuthScaffold, createOidcAwareProviderAdapter } = require('../adapter-factory');
+const { bearerAuthHeaders, providerKeyHeaders } = require('./auth-headers');
 const { GOOGLE_PROVIDER_SPECS } = require('./google-provider-specs');
+
+function isGcpOidcRequested(env) {
+  return (env.AWF_AUTH_TYPE || '').trim().toLowerCase() === 'github-oidc'
+    && (env.AWF_AUTH_PROVIDER || '').trim().toLowerCase() === 'gcp';
+}
 
 /**
  * Create a Google API-key–based provider adapter.
@@ -22,6 +23,7 @@ const { GOOGLE_PROVIDER_SPECS } = require('./google-provider-specs');
  * @param {{ bodyTransform?: ((body: Buffer) => (Buffer | null | Promise<Buffer | null>))|null }} [deps={}] - Injected dependencies
  * @param {object} opts
  * @param {string} opts.name                    - Provider slug (e.g. 'gemini')
+ * @param {string} opts.label                   - Human-readable provider label
  * @param {number} opts.port                    - Proxy port (e.g. 10003)
  * @param {{ KEY: string, TARGET: string, BASE_PATH: string }} opts.envConstants - Env var name constants
  * @param {string} opts.defaultTarget           - Default upstream hostname
@@ -36,6 +38,7 @@ const { GOOGLE_PROVIDER_SPECS } = require('./google-provider-specs');
 function createGoogleApiKeyAdapter(env, deps = {}, opts) {
   const {
     name,
+    label,
     port,
     envConstants,
     defaultTarget,
@@ -53,43 +56,63 @@ function createGoogleApiKeyAdapter(env, deps = {}, opts) {
     basePathEnvVar: envConstants.BASE_PATH,
     defaultTarget,
   });
-  const buildAuthHeaders = () => providerKeyHeaders('x-goog-api-key', apiKey);
+  const buildStaticHeaders = () => providerKeyHeaders('x-goog-api-key', apiKey);
+  const gcpOidcRequested = isGcpOidcRequested(env);
 
-  const adapterMethods = createAdapterMethods({
-    apiKey,
-    rawTarget,
-    basePath,
-    provider: name,
-    port,
-    defaultTarget,
-    validationPath,
-    validationHeaders: buildAuthHeaders,
-    modelsPath,
-    modelsFetchHeaders: modelsPath ? buildAuthHeaders : null,
-  });
-
-  return buildProviderAdapter({
-    name,
-    port,
-    isManagementPort: false,
-    adapterMethods,
-    getAuthHeaders() {
-      return buildAuthHeaders();
-    },
-    bodyTransform,
-    isEnabled() { return !!apiKey; },
-    ...(transformRequestUrl !== undefined ? { transformRequestUrl } : {}),
-    /** Response returned for all requests when no API key is configured. */
-    getUnconfiguredResponse() {
-      return {
+  return createOidcAwareProviderAdapter({
+    env,
+    oidcAuthOptions: { staticAuthToken: apiKey, skipWhen: !gcpOidcRequested },
+    buildOidcHeaders: bearerAuthHeaders,
+    buildStaticHeaders,
+    createAdapterMethodsOptions: ({ authProvider, oidcConfigured, validationSkip, skipModelsFetch }) => ({
+      apiKey,
+      rawTarget,
+      basePath,
+      provider: name,
+      port,
+      defaultTarget,
+      validationPath,
+      validationHeaders: buildStaticHeaders,
+      validationSkip,
+      skipModelsFetch,
+      modelsPath,
+      modelsFetchHeaders: modelsPath ? buildStaticHeaders : null,
+      credentialConfigured: !!apiKey || oidcConfigured,
+      reflectionConfigured: !!apiKey || oidcConfigured,
+      reflectionExtra: () => ({
+        auth_type: oidcConfigured ? `github-oidc/${authProvider}` : 'static-key',
+      }),
+    }),
+    buildAdapterOptions: ({ authProvider, oidcConfigured, oidcProvider }) => ({
+      name,
+      port,
+      isManagementPort: false,
+      bodyTransform,
+      missingCredentialResponse: {
+        kind: 'plain_error',
         statusCode: 503,
-        body: { error: unconfiguredErrorMessage },
-      };
-    },
-    /** /health response when not configured. */
-    getUnconfiguredHealthResponse() {
-      return makeUnconfiguredHealthResponse(healthServiceName, healthErrorMessage);
-    },
+        message: unconfiguredErrorMessage,
+      },
+      unconfiguredResponseWhen: () => (oidcConfigured
+        ? {
+            kind: 'provider_not_configured',
+            message: `${label} OIDC token (${authProvider}) unavailable; retry shortly`,
+            retryable: true,
+          }
+        : null),
+      healthServiceName,
+      missingCredentialMessage: healthErrorMessage,
+      unavailableWhen: () => (oidcConfigured
+        ? {
+            message: `${label} OIDC token (${authProvider}) not yet available in api-proxy sidecar`,
+            status: 'unavailable',
+          }
+        : null),
+      ...(transformRequestUrl !== undefined ? { transformRequestUrl } : {}),
+      extra: {
+        _oidcProvider: oidcProvider,
+      },
+    }),
   });
 }
 
@@ -114,6 +137,7 @@ function createGoogleProviderAdapter(providerKey, env, deps = {}) {
 
   return createGoogleApiKeyAdapter(env, deps, {
     name: spec.name,
+    label: spec.label,
     port: spec.port,
     envConstants: spec.envConstants,
     defaultTarget: spec.defaultTarget,

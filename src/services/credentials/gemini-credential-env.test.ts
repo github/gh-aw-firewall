@@ -14,6 +14,19 @@ describe('buildGeminiCredentialEnv', () => {
     expect(result).toEqual({});
   });
 
+  it('returns env additions when GCP OIDC is configured without geminiApiKey', () => {
+    const config = {
+      ...baseConfig,
+      authType: 'github-oidc',
+      authProvider: 'gcp',
+      authGcpWorkloadIdentityProvider: 'projects/123/locations/global/workloadIdentityPools/pool/providers/github',
+    } as WrapperConfig;
+    const result = buildGeminiCredentialEnv({ config, proxyIp });
+    expect(result.GOOGLE_GEMINI_BASE_URL).toBe(`http://${proxyIp}:10003`);
+    expect(result.GEMINI_API_BASE_URL).toBe(`http://${proxyIp}:10003`);
+    expect(result.GEMINI_API_KEY).toBe('gemini-api-key-placeholder-for-credential-isolation');
+  });
+
   it('returns env additions when geminiApiKey is set', () => {
     const config = { ...baseConfig, geminiApiKey: 'AIza-test-key' } as WrapperConfig;
     const result = buildGeminiCredentialEnv({ config, proxyIp });
