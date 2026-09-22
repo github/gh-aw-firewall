@@ -512,6 +512,20 @@ describe('Cloud Hypervisor preflight (foundation only)', () => {
     expect(mkdtemp).not.toHaveBeenCalled();
   });
 
+  it('checks the lexical mount when resolving the trusted artifact root fails', async () => {
+    jest.spyOn(fs, 'realpath').mockRejectedValue(new Error('EACCES'));
+    jest.spyOn(fs, 'readFile').mockResolvedValue(mountInfo('rw,noexec'));
+    const mkdtemp = jest.spyOn(fs, 'mkdtemp');
+    jest.spyOn(fs, 'mkdir').mockResolvedValue(undefined);
+    jest.spyOn(fs, 'chmod').mockResolvedValue(undefined);
+
+    await expect(cloudHypervisorPreflightTestHelpers.createArtifactSnapshot(
+      snapshotSources(),
+      jest.fn(),
+    )).rejects.toThrow(/mount that rejects execution/);
+    expect(mkdtemp).not.toHaveBeenCalled();
+  });
+
   it('rejects a trusted artifact root whose superblock options carry noexec', async () => {
     jest.spyOn(fs, 'readFile').mockResolvedValue(
       mountInfo('rw,relatime', 'rw,noexec,discard'),

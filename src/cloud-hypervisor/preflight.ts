@@ -374,9 +374,14 @@ function mountRejectsExecution(mount: CloudHypervisorMountDescription): boolean 
  * remains the authoritative execution check.
  */
 async function assertExecCapableArtifactRoot(directory: string): Promise<void> {
+  let resolvedDirectory = directory;
+  try {
+    resolvedDirectory = await fs.realpath(directory);
+  } catch {
+    // Fall back to the lexical path so mountinfo can still detect noexec.
+  }
   let mount: CloudHypervisorMountDescription | undefined;
   try {
-    const resolvedDirectory = await fs.realpath(directory);
     mount = findMountForPath(
       await fs.readFile('/proc/self/mountinfo', 'utf8'),
       resolvedDirectory,
