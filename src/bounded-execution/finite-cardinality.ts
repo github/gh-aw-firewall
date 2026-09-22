@@ -118,7 +118,7 @@ function cappedSchemaCardinality(schema: FiniteSchemaNode): bigint {
  * invocation using this schema:
  *
  * ```text
- * queryBits = 1 (ok/error) + ceil(log2(successCardinality)) + 3 (timing)
+ * queryBits = resultStatusBitCost + ceil(log2(successCardinality)) + timingBucketBits
  * ```
  *
  * This is the value the broker's per-repository ledger debits *before*
