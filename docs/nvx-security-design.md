@@ -303,7 +303,8 @@ Phase 2 will implement the image builder, but Phase 1 fixes its contract:
   manifest;
 - create a fresh sparse ext4 scratch image for every invocation;
 - mount lower layers read-only and scratch `rw,nosuid,nodev`;
-- reject symlinks or aliases that escape the staged build root;
+- rewrite absolute guest-root symlinks to equivalent relative targets and
+  reject relative symlinks or aliases that escape the staged build root;
 - cap scratch size and verify teardown; and
 - never reuse guest-writable state across workflow runs.
 

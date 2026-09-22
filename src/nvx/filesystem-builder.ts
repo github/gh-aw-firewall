@@ -397,10 +397,8 @@ async function copyDeterministicTree(
       const stat = await fs.lstat(childPath);
       const destination = stagingPath(destinationRoot, childRelativePath);
       if (stat.isSymbolicLink()) {
-        const target = await fs.readlink(childPath);
-        if (path.isAbsolute(target)) {
-          throw new Error(`Absolute symlink is not safe for NVX layer: ${childRelativePath}`);
-        }
+        const sourceTarget = await fs.readlink(childPath);
+        const target = normalizeNvxLayerSymlinkTarget(childRelativePath, sourceTarget);
         assertContained(
           sourceRoot,
           path.resolve(sourceRoot, path.dirname(childRelativePath), target),
@@ -413,7 +411,7 @@ async function copyDeterministicTree(
           path: childRelativePath,
           type: 'symlink',
           mode: stat.mode & 0o777,
-          size: stat.size,
+          size: Buffer.byteLength(target),
           target,
         });
       } else if (stat.isDirectory()) {
@@ -491,6 +489,16 @@ function noFollowFlag(): number {
 
 function directoryFlag(): number {
   return constants.O_DIRECTORY as number;
+}
+
+export function normalizeNvxLayerSymlinkTarget(
+  relativePath: string,
+  target: string,
+): string {
+  if (!path.posix.isAbsolute(target)) return target;
+  const guestTarget = path.posix.normalize(target);
+  const guestDirectory = path.posix.dirname(`/${relativePath}`);
+  return path.posix.relative(guestDirectory, guestTarget) || '.';
 }
 
 async function assertDescriptorTraversalSupport(): Promise<void> {

@@ -3,6 +3,7 @@ import * as os from 'os';
 import * as path from 'path';
 import {
   deriveNvxLayerUuid,
+  normalizeNvxLayerSymlinkTarget,
   normalizeScratchBytes,
   NvxFilesystemBuilder,
   NVX_MIN_SCRATCH_BYTES,
@@ -12,6 +13,15 @@ import {
 const linuxIt = process.platform === 'linux' ? it : it.skip;
 
 describe('NVX deterministic filesystem builder', () => {
+  it('rewrites absolute guest-root symlinks without changing relative targets', () => {
+    expect(normalizeNvxLayerSymlinkTarget('bin/arch', '/bin/busybox'))
+      .toBe('busybox');
+    expect(normalizeNvxLayerSymlinkTarget('usr/bin/tool', '/bin/busybox'))
+      .toBe('../../bin/busybox');
+    expect(normalizeNvxLayerSymlinkTarget('bin/tool', '../lib/tool'))
+      .toBe('../lib/tool');
+  });
+
   linuxIt('builds ordered deterministic EROFS layers and a private ext4 scratch image', async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'awf-nvx-images-'));
     const distro = path.join(root, 'distro-source');
@@ -19,6 +29,7 @@ describe('NVX deterministic filesystem builder', () => {
     await fs.mkdir(path.join(distro, 'bin'), { recursive: true });
     await fs.writeFile(path.join(distro, 'bin', 'tool'), 'binary');
     await fs.chmod(path.join(distro, 'bin', 'tool'), 0o4755);
+    await fs.symlink('/bin/tool', path.join(distro, 'bin', 'arch'));
     await fs.symlink('bin/tool', path.join(distro, 'tool'));
     await fs.mkdir(path.join(custom, '.config', 'gh'), { recursive: true });
     await fs.writeFile(path.join(custom, '.config', 'gh', 'hosts.yml'), 'secret');
@@ -87,6 +98,9 @@ describe('NVX deterministic filesystem builder', () => {
       expect((await fs.stat(
         path.join(builder.stagingDirectory, 'distro', 'bin', 'tool'),
       )).mode & 0o777).toBe(0o755);
+      expect(await fs.readlink(
+        path.join(builder.stagingDirectory, 'distro', 'bin', 'arch'),
+      )).toBe('tool');
       await expect(fs.access(
         path.join(builder.stagingDirectory, 'custom', '.config', 'gh', 'hosts.yml'),
       )).rejects.toThrow();
