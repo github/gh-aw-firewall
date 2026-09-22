@@ -152,6 +152,7 @@ export function buildNvxConstrainedLaunchCommand(options: {
     '--hostname', 'awf-nvx',
     '--dir', '/opt',
     '--dir', '/run',
+    '--dir', '/run/systemd',
     '--proc', '/proc',
     '--dev', '/dev',
     '--dev-bind', '/dev/kvm', '/dev/kvm',

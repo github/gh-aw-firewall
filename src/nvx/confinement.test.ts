@@ -164,6 +164,7 @@ describe('NVX host confinement', () => {
       '--setenv', 'HOME', '/nonexistent',
       '--dir', '/opt',
       '--dir', '/run',
+      '--dir', '/run/systemd',
       '--dev-bind', '/dev/kvm',
       '--ro-bind', '/etc/resolv.conf', '/etc/resolv.conf',
       '--ro-bind', '/run/systemd/resolve', '/run/systemd/resolve',
