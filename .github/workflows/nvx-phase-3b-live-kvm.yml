@@ -595,6 +595,7 @@ jobs:
           placeholder=ghu_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
           export COPILOT_TOKEN="$placeholder"
           export COPILOT_GITHUB_TOKEN="$placeholder"
+          export COPILOT_PROVIDER_API_KEY="$placeholder"
           export COPILOT_OFFLINE=true
           export COPILOT_API_URL=http://172.30.0.30:10002
           export COPILOT_PROVIDER_BASE_URL=http://172.30.0.30:10002
