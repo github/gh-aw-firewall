@@ -1,6 +1,8 @@
 import { randomBytes } from 'crypto';
+import { spawn } from 'child_process';
 import { constants, promises as fs } from 'fs';
 import * as path from 'path';
+import { PassThrough } from 'stream';
 import execa from 'execa';
 import {
   NVX_ARTIFACT_RELEASE_TAG,
@@ -14,7 +16,10 @@ interface Inputs {
   bridge: string;
   signerWorkflow: string;
   evidence: string;
+  childRunId?: string;
 }
+
+const MAX_CAPTURED_OUTPUT_BYTES = 64 * 1024;
 
 async function main(): Promise<void> {
   if (process.geteuid?.() !== 0) {
@@ -22,6 +27,16 @@ async function main(): Promise<void> {
   }
   const inputs = parseInputs(process.argv.slice(2));
   await fs.mkdir(inputs.evidence, { recursive: true, mode: 0o700 });
+  if (inputs.childRunId) {
+    await runCase(inputs, {
+      name: 'stale-owner-child',
+      runId: inputs.childRunId,
+      entrypoint: '/bin/sleep',
+      args: ['300'],
+      timeoutMs: 600_000,
+    });
+    return;
+  }
 
   const success = await runCase(inputs, {
     name: 'guest-boot',
@@ -34,6 +49,35 @@ async function main(): Promise<void> {
       `signal=${success.result.signal ?? 'none'}`,
     );
   }
+
+  const filesystem = await runCase(inputs, {
+    name: 'filesystem-denial',
+    entrypoint: '/usr/local/bin/nvx-filesystem-proof',
+    timeoutMs: 120_000,
+  });
+  assertSuccess(filesystem, 'NVX filesystem denial');
+  assertOutputContains(filesystem, 'NVX-FILESYSTEM-DENIAL-PROOF');
+
+  const network = await runCase(inputs, {
+    name: 'network-denial',
+    entrypoint: '/usr/local/bin/nvx-network-proof',
+    timeoutMs: 120_000,
+    enableApiProxy: true,
+  });
+  assertSuccess(network, 'NVX network denial');
+  assertOutputContains(network, 'NVX-NETWORK-DENIAL-PROOF');
+
+  const copilot = await runCase(inputs, {
+    name: 'copilot-api-proxy',
+    entrypoint: '/usr/local/bin/run-copilot-proof',
+    timeoutMs: 300_000,
+    enableApiProxy: true,
+    memoryMib: 768,
+    memoryMaxBytes: 805_306_368,
+    pidsMax: 256,
+  });
+  assertSuccess(copilot, 'NVX Copilot API-proxy inference');
+  assertOutputContains(copilot, 'NVX-COPILOT-PROOF');
 
   const timeout = await runCase(inputs, {
     name: 'timeout-cleanup',
@@ -48,30 +92,88 @@ async function main(): Promise<void> {
     );
   }
 
+  const cancellation = await runCase(inputs, {
+    name: 'cancellation-cleanup',
+    entrypoint: '/bin/sleep',
+    args: ['300'],
+    timeoutMs: 120_000,
+    abortAfterMs: 5_000,
+  });
+  if (
+    cancellation.result.exitCode !== 130 ||
+    cancellation.result.category !== 'cancelled'
+  ) {
+    throw new Error(
+      `NVX cancellation returned ${cancellation.result.category}/` +
+      `${cancellation.result.exitCode} signal=${cancellation.result.signal ?? 'none'}`,
+    );
+  }
+
+  const staleRecovery = await runStaleRecoveryCase(inputs);
+  const concurrent = await runConcurrentCase(inputs);
+
   await fs.writeFile(
     path.join(inputs.evidence, 'summary.json'),
     JSON.stringify({
       schemaVersion: 1,
       checks: [
         { name: 'attested-manager-guest-boot', status: 'PASS', ...success },
+        { name: 'filesystem-credential-denial', status: 'PASS', ...filesystem },
+        { name: 'network-default-denial', status: 'PASS', ...network },
+        { name: 'copilot-api-proxy-inference', status: 'PASS', ...copilot },
         { name: 'timeout-process-tree-cleanup', status: 'PASS', ...timeout },
+        {
+          name: 'cancellation-process-tree-cleanup',
+          status: 'PASS',
+          ...cancellation,
+        },
+        { name: 'durable-stale-recovery', status: 'PASS', ...staleRecovery },
+        { name: 'concurrent-run-isolation', status: 'PASS', ...concurrent },
       ],
     }, null, 2) + '\n',
     { mode: 0o600 },
   );
 }
 
+interface RunCaseOptions {
+  name: string;
+  runId?: string;
+  entrypoint: string;
+  args?: readonly string[];
+  timeoutMs: number;
+  abortAfterMs?: number;
+  enableApiProxy?: boolean;
+  memoryMib?: number;
+  memoryMaxBytes?: number;
+  pidsMax?: number;
+}
+
 async function runCase(
   inputs: Inputs,
-  options: {
-    name: string;
-    entrypoint: string;
-    args?: readonly string[];
-    timeoutMs: number;
-  },
+  options: RunCaseOptions,
 ) {
-  const runId = randomBytes(16).toString('hex');
+  const runId = options.runId ?? randomBytes(16).toString('hex');
   const layout = createNvxRunLayout(runId);
+  const stdout = new PassThrough();
+  const stderr = new PassThrough();
+  const stdoutChunks: Buffer[] = [];
+  const stderrChunks: Buffer[] = [];
+  let stdoutBytes = 0;
+  let stderrBytes = 0;
+  stdout.on('data', (chunk: Buffer) => {
+    stdoutBytes = appendBoundedOutput(stdoutChunks, stdoutBytes, chunk);
+    process.stdout.write(chunk);
+  });
+  stderr.on('data', (chunk: Buffer) => {
+    stderrBytes = appendBoundedOutput(stderrChunks, stderrBytes, chunk);
+    process.stderr.write(chunk);
+  });
+  const abortController = options.abortAfterMs === undefined
+    ? undefined
+    : new AbortController();
+  const abortTimer = options.abortAfterMs === undefined
+    ? undefined
+    : setTimeout(() => abortController!.abort(), options.abortAfterMs);
   const manager = new NvxManager({
     runId,
     preflight: {
@@ -100,20 +202,28 @@ async function runCase(
       args: options.args,
       workloadUid: 65534,
       workloadGid: 65534,
-      memoryMaxBytes: 128 * 1024 * 1024,
-      pidsMax: 64,
-      memoryMib: 256,
+      memoryMaxBytes: options.memoryMaxBytes ?? 128 * 1024 * 1024,
+      pidsMax: options.pidsMax ?? 64,
+      memoryMib: options.memoryMib ?? 256,
       timeoutMs: options.timeoutMs,
-      stdout: process.stdout,
-      stderr: process.stderr,
+      abortSignal: abortController?.signal,
+      stdout,
+      stderr,
     },
     network: {
       infrastructureBridge: inputs.bridge,
-      enableApiProxy: false,
+      enableApiProxy: options.enableApiProxy ?? false,
     },
   });
 
-  const result = await manager.execute();
+  let result;
+  try {
+    result = await manager.execute();
+  } finally {
+    if (abortTimer) clearTimeout(abortTimer);
+    stdout.end();
+    stderr.end();
+  }
   const confinement = manager.getConfinementEvidence();
   if (!confinement) throw new Error(`${options.name} produced no confinement evidence`);
   const residue = await inspectResidue(layout);
@@ -129,9 +239,181 @@ async function runCase(
       timedOut: result.timedOut,
       outcome: result.outcome,
     },
+    output: {
+      stdout: Buffer.concat(stdoutChunks).toString('utf8'),
+      stderr: Buffer.concat(stderrChunks).toString('utf8'),
+    },
     confinement,
     residue,
   };
+}
+
+async function runStaleRecoveryCase(inputs: Inputs) {
+  const staleRunId = randomBytes(16).toString('hex');
+  const staleLayout = createNvxRunLayout(staleRunId);
+  const child = spawn(process.execPath, [
+    __filename,
+    '--artifacts', inputs.artifacts,
+    '--layer', inputs.layer,
+    '--bridge', inputs.bridge,
+    '--signerWorkflow', inputs.signerWorkflow,
+    '--evidence', inputs.evidence,
+    '--childRunId', staleRunId,
+  ], {
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  const childExitPromise = waitForExit(child);
+  child.stdout.pipe(process.stdout, { end: false });
+  child.stderr.pipe(process.stderr, { end: false });
+  if (!child.pid) throw new Error('NVX stale recovery child did not start');
+
+  let staleRecord: { vmmIdentity?: { name?: string }; stages?: { processStarted?: boolean } };
+  try {
+    staleRecord = await waitForCleanupRecord(staleLayout.cleanupRecordPath);
+  } catch (error) {
+    child.kill('SIGKILL');
+    await childExitPromise;
+    throw error;
+  }
+  child.kill('SIGKILL');
+  const childExit = await childExitPromise;
+  if (childExit.signal !== 'SIGKILL') {
+    throw new Error(
+      `NVX stale recovery child exited unexpectedly: ` +
+      `${childExit.code ?? 'null'}/${childExit.signal ?? 'none'}`,
+    );
+  }
+
+  const recovery = await runCase(inputs, {
+    name: 'stale-recovery-trigger',
+    entrypoint: '/bin/true',
+    timeoutMs: 120_000,
+  });
+  assertSuccess(recovery, 'NVX stale recovery trigger');
+  const residue = await inspectResidue(staleLayout);
+  const accountName = staleRecord.vmmIdentity?.name;
+  if (accountName && await accountExists(accountName)) residue.push(`account:${accountName}`);
+  if (residue.length > 0) {
+    throw new Error(`NVX stale recovery left residue: ${residue.join(', ')}`);
+  }
+  return {
+    staleRunId,
+    ownerExit: childExit,
+    recoveryRunId: recovery.runId,
+    residue,
+  };
+}
+
+async function runConcurrentCase(inputs: Inputs) {
+  const runIds = [
+    randomBytes(16).toString('hex'),
+    randomBytes(16).toString('hex'),
+  ];
+  const layouts = runIds.map(createNvxRunLayout);
+  if (
+    new Set(layouts.map(({ networkNamespace }) => networkNamespace)).size !== 2 ||
+    new Set(layouts.map(({ runDirectory }) => runDirectory)).size !== 2 ||
+    new Set(layouts.map(({ cgroupPath }) => cgroupPath)).size !== 2
+  ) {
+    throw new Error('NVX concurrent runs did not receive distinct resource identities');
+  }
+  const results = await Promise.all(runIds.map((runId, index) =>
+    runCase(inputs, {
+      name: `concurrent-${index + 1}`,
+      runId,
+      entrypoint: '/bin/sleep',
+      args: ['2'],
+      timeoutMs: 120_000,
+    })));
+  for (const result of results) assertSuccess(result, `NVX concurrent run ${result.runId}`);
+  return {
+    runIds,
+    resourceIdentities: layouts.map((layout) => ({
+      networkNamespace: layout.networkNamespace,
+      runDirectory: layout.runDirectory,
+      cgroupPath: layout.cgroupPath,
+    })),
+    results,
+  };
+}
+
+async function waitForCleanupRecord(
+  recordPath: string,
+): Promise<{ vmmIdentity?: { name?: string }; stages?: { processStarted?: boolean } }> {
+  const deadline = Date.now() + 120_000;
+  let lastError: unknown;
+  while (Date.now() < deadline) {
+    try {
+      const record = JSON.parse(await fs.readFile(recordPath, 'utf8')) as {
+        vmmIdentity?: { name?: string };
+        stages?: { processStarted?: boolean };
+      };
+      if (record.stages?.processStarted) return record;
+    } catch (error) {
+      lastError = error;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  throw new Error(
+    `Timed out waiting for live NVX cleanup record ${recordPath}: ${String(lastError)}`,
+  );
+}
+
+function waitForExit(
+  child: ReturnType<typeof spawn>,
+): Promise<{ code: number | null; signal: NodeJS.Signals | null }> {
+  return new Promise((resolve, reject) => {
+    child.once('error', reject);
+    child.once('exit', (code, signal) => resolve({ code, signal }));
+  });
+}
+
+async function accountExists(name: string): Promise<boolean> {
+  const result = await execa('/usr/bin/getent', ['passwd', name], { reject: false });
+  return result.exitCode === 0;
+}
+
+function assertSuccess(
+  value: Awaited<ReturnType<typeof runCase>>,
+  label: string,
+): void {
+  if (value.result.exitCode !== 0 || value.result.category !== 'success') {
+    throw new Error(
+      `${label} returned ${value.result.category}/${value.result.exitCode} ` +
+      `signal=${value.result.signal ?? 'none'}`,
+    );
+  }
+}
+
+function assertOutputContains(
+  value: Awaited<ReturnType<typeof runCase>>,
+  marker: string,
+): void {
+  if (!value.output.stdout.split(/\r?\n/).some((line) => line.includes(marker))) {
+    throw new Error(`${value.runId} did not emit required marker ${marker}`);
+  }
+}
+
+function appendBoundedOutput(
+  chunks: Buffer[],
+  totalBytes: number,
+  chunk: Buffer,
+): number {
+  const value = Buffer.from(chunk);
+  chunks.push(value);
+  totalBytes += value.length;
+  while (totalBytes > MAX_CAPTURED_OUTPUT_BYTES && chunks.length > 0) {
+    const excess = totalBytes - MAX_CAPTURED_OUTPUT_BYTES;
+    const first = chunks[0];
+    if (first.length <= excess) {
+      chunks.shift();
+      totalBytes -= first.length;
+    } else {
+      chunks[0] = first.subarray(excess);
+      totalBytes -= excess;
+    }
+  }
+  return totalBytes;
 }
 
 async function inspectResidue(layout: ReturnType<typeof createNvxRunLayout>): Promise<string[]> {
@@ -181,6 +463,7 @@ function parseInputs(args: readonly string[]): Inputs {
     bridge: values.get('bridge') ?? 'awfnvxbr0',
     signerWorkflow,
     evidence: required('evidence'),
+    ...(values.get('childRunId') ? { childRunId: values.get('childRunId') } : {}),
   };
 }
 

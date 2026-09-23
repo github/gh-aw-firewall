@@ -1,4 +1,4 @@
-name: NVX Phase 3e Live Manager Validation
+name: NVX Phase 3f Promotion Evidence
 
 on:
   workflow_dispatch:
@@ -19,7 +19,7 @@ permissions:
   attestations: write
 
 concurrency:
-  group: nvx-phase-3e-${{ github.ref }}
+  group: nvx-phase-3f-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -131,7 +131,7 @@ jobs:
       (github.event_name == 'pull_request' &&
        contains(github.event.pull_request.labels.*.name, 'nvx-live-kvm'))
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 45
 
     steps:
       - name: Checkout repository
@@ -208,7 +208,7 @@ jobs:
 
       - name: Capture host preflight and privileged-resource evidence
         env:
-          EVIDENCE_DIR: ${{ runner.temp }}/nvx-phase-3e-evidence
+          EVIDENCE_DIR: ${{ runner.temp }}/nvx-phase-3f-evidence
         run: |
           set -euo pipefail
           umask 077
@@ -416,18 +416,29 @@ jobs:
 
       - name: Run attested end-to-end NvxManager evidence
         env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ALPINE_IMAGE: alpine@sha256:eafc1edb577d2e9b458664a15f23ea1c370214193226069eb22921169fc7e43f
+          AWF_SQUID_IMAGE: ghcr.io/github/gh-aw-firewall/squid@sha256:cba5f56857e4869c4a00c1cce29c3056516cf1a746e18ce380753ecfbe40f112
+          AWF_API_PROXY_IMAGE: ghcr.io/github/gh-aw-firewall/api-proxy@sha256:30ab6d3261dd95364281fa0b52ab78450e1c01aa074eccc3a8d4f04b12a6560b
+          COPILOT_PACKAGE: '@github/copilot-linuxmusl-x64'
+          COPILOT_VERSION: 1.0.86
+          COPILOT_ARCHIVE: github-copilot-linuxmusl-x64-1.0.86.tgz
+          COPILOT_ARCHIVE_SHA256: 34cf74e32c5227efd1957ff69f9ad957205968621c1ce4a84384ece6c19a2f6c
           SIGNER_WORKFLOW: github/gh-aw-firewall/.github/workflows/nvx-phase-3b-live-kvm.yml
-          EVIDENCE_DIR: ${{ runner.temp }}/nvx-phase-3e-evidence
+          EVIDENCE_DIR: ${{ runner.temp }}/nvx-phase-3f-evidence
         run: |
           set -euo pipefail
           artifact_dir="$RUNNER_TEMP/nvx-attested-artifacts"
           layer_root="$RUNNER_TEMP/nvx-alpine-root"
+          package_dir="$RUNNER_TEMP/nvx-copilot-package"
           bridge=awfnvxbr0
           cleanup() {
-            sudo ip link delete "$bridge" >/dev/null 2>&1 || true
+            sudo docker rm -f nvx-phase3f-squid nvx-phase3f-api-proxy \
+              >/dev/null 2>&1 || true
+            sudo docker network rm awf-net >/dev/null 2>&1 || true
           }
           trap cleanup EXIT
+          cleanup
           sudo chown -R root:root "$artifact_dir"
           sudo chmod 0555 "$artifact_dir/openvmm"
           sudo chmod 0444 \
@@ -442,9 +453,138 @@ jobs:
           sudo docker export "$container" | tar -xf - -C "$layer_root"
           sudo docker rm "$container"
           container=
-          sudo ip link add "$bridge" type bridge
-          sudo ip address add 172.30.0.1/24 dev "$bridge"
-          sudo ip link set "$bridge" up
+          mkdir -p \
+            "$layer_root/etc" \
+            "$layer_root/home/nobody/.ssh" \
+            "$layer_root/usr/local/bin" \
+            "$package_dir"
+          printf 'nobody:x:65534:65534:nobody:/home/nobody:/sbin/nologin\n' \
+            > "$layer_root/etc/passwd"
+          printf 'nogroup:x:65534:\n' > "$layer_root/etc/group"
+          printf 'present\n' > "$layer_root/etc/nvx-layer-marker"
+          printf 'must-not-enter-guest\n' \
+            > "$layer_root/home/nobody/.ssh/id_rsa"
+
+          npm pack "${COPILOT_PACKAGE}@${COPILOT_VERSION}" \
+            --pack-destination "$RUNNER_TEMP" \
+            --silent
+          printf '%s  %s\n' \
+            "$COPILOT_ARCHIVE_SHA256" \
+            "$RUNNER_TEMP/$COPILOT_ARCHIVE" |
+            sha256sum --check --status
+          tar -xzf "$RUNNER_TEMP/$COPILOT_ARCHIVE" \
+            --strip-components=1 \
+            -C "$package_dir"
+          install -m 0755 \
+            "$package_dir/copilot" \
+            "$layer_root/usr/local/bin/copilot"
+
+          cat > "$layer_root/usr/local/bin/nvx-filesystem-proof" <<'EOF'
+          #!/bin/sh
+          set -eu
+          test -r /etc/nvx-layer-marker
+          test ! -e /home/nobody/.ssh/id_rsa
+          test ! -e /root/.ssh/id_rsa
+          test ! -e /host
+          printf 'private-scratch\n' > /tmp/nvx-scratch-proof
+          test "$(cat /tmp/nvx-scratch-proof)" = private-scratch
+          echo NVX-FILESYSTEM-DENIAL-PROOF
+          EOF
+
+          cat > "$layer_root/usr/local/bin/nvx-network-proof" <<'EOF'
+          #!/bin/sh
+          set -eu
+          nc -z -w 5 172.30.0.10 3128
+          nc -z -w 5 172.30.0.30 10002
+          if nc -z -w 3 1.1.1.1 443; then
+            echo "unexpected direct internet egress" >&2
+            exit 1
+          fi
+          if nc -z -w 3 169.254.169.254 80; then
+            echo "unexpected metadata egress" >&2
+            exit 1
+          fi
+          echo NVX-NETWORK-DENIAL-PROOF
+          EOF
+
+          cat > "$layer_root/usr/local/bin/run-copilot-proof" <<'EOF'
+          #!/bin/sh
+          set -eu
+          test -z "${GH_TOKEN:-}"
+          test -z "${GITHUB_TOKEN:-}"
+          test -z "${COPILOT_GITHUB_TOKEN:-}"
+          export HOME=/home/nobody
+          export COPILOT_API_URL=http://172.30.0.30:10002
+          export COPILOT_PROVIDER_BASE_URL=http://172.30.0.30:10002
+          exec /usr/local/bin/copilot \
+            --prompt "Respond with exactly NVX-COPILOT-PROOF and nothing else." \
+            --silent \
+            --no-color \
+            --stream on \
+            --allow-all-tools \
+            --disable-builtin-mcps \
+            --no-custom-instructions \
+            --no-auto-update \
+            --no-ask-user \
+            --model claude-sonnet-5 \
+            --max-ai-credits 30
+          EOF
+          chmod 0755 \
+            "$layer_root/usr/local/bin/nvx-filesystem-proof" \
+            "$layer_root/usr/local/bin/nvx-network-proof" \
+            "$layer_root/usr/local/bin/run-copilot-proof"
+          sudo chown -R 65534:65534 "$layer_root/home/nobody"
+
+          cat > "$RUNNER_TEMP/nvx-squid.conf" <<'EOF'
+          http_port 0.0.0.0:3128
+          acl all src all
+          http_access allow all
+          cache deny all
+          access_log stdio:/dev/stdout
+          cache_log /dev/stderr
+          pid_filename none
+          EOF
+          sudo docker network create \
+            --driver bridge \
+            --subnet 172.30.0.0/24 \
+            --opt "com.docker.network.bridge.name=$bridge" \
+            awf-net
+          sudo docker create \
+            --name nvx-phase3f-squid \
+            --network awf-net \
+            --ip 172.30.0.10 \
+            "$AWF_SQUID_IMAGE"
+          sudo docker cp \
+            "$RUNNER_TEMP/nvx-squid.conf" \
+            nvx-phase3f-squid:/etc/squid/squid.conf
+          sudo docker start nvx-phase3f-squid
+          sudo docker run --detach \
+            --name nvx-phase3f-api-proxy \
+            --network awf-net \
+            --ip 172.30.0.30 \
+            --env HTTP_PROXY=http://172.30.0.10:3128 \
+            --env HTTPS_PROXY=http://172.30.0.10:3128 \
+            --env COPILOT_GITHUB_TOKEN="$GH_TOKEN" \
+            "$AWF_API_PROXY_IMAGE"
+          for endpoint in 172.30.0.10:3128 172.30.0.30:10002; do
+            host=${endpoint%:*}
+            port=${endpoint#*:}
+            ready=false
+            for _ in $(seq 1 60); do
+              if nc -z -w 1 "$host" "$port"; then
+                ready=true
+                break
+              fi
+              sleep 1
+            done
+            if [ "$ready" != true ]; then
+              sudo docker logs nvx-phase3f-squid || true
+              sudo docker logs nvx-phase3f-api-proxy || true
+              echo "NVX infrastructure endpoint did not become ready: $endpoint" >&2
+              exit 1
+            fi
+          done
+
           evidence_runner="$RUNNER_TEMP/nvx-manager-live-evidence.cjs"
           ./node_modules/.bin/esbuild \
             scripts/ci/nvx-manager-live-evidence.ts \
@@ -482,7 +622,7 @@ jobs:
       - name: Prepare bounded diagnostics
         if: always()
         env:
-          EVIDENCE_DIR: ${{ runner.temp }}/nvx-phase-3e-evidence
+          EVIDENCE_DIR: ${{ runner.temp }}/nvx-phase-3f-evidence
         run: |
           if sudo test -d "$EVIDENCE_DIR"; then
             sudo chown -R "$(id -u):$(id -g)" "$EVIDENCE_DIR"
@@ -492,7 +632,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: nvx-phase-3e-evidence
-          path: ${{ runner.temp }}/nvx-phase-3e-evidence/
+          name: nvx-phase-3f-evidence
+          path: ${{ runner.temp }}/nvx-phase-3f-evidence/
           if-no-files-found: warn
           retention-days: 7

@@ -179,7 +179,8 @@ requests via the `nvx-live-kvm` label (and always available through
 `workflow_dispatch`). Phase 3d added probes for the direct constrained argv,
 the Bubblewrap readiness FD contract, KVM-only device access, and no-TAP
 namespace policy. Phase 3e adds workflow-attested artifacts and end-to-end
-manager guest-boot and timeout-cleanup evidence.
+manager guest-boot and timeout-cleanup evidence. Phase 3f extends that same
+production path with the remaining promotion evidence.
 
 Configurations that cannot provide Linux x86_64 KVM, cgroup v2
 `cpu`/`memory`/`pids` controllers, trusted host tools, or exact cleanup evidence
@@ -239,6 +240,35 @@ Executable immutable snapshots use the dedicated
 `/var/lib/awf-nvx/trusted-artifacts` root because the Ubuntu host's volatile
 `/run` mount is `noexec`. Writable per-run state and cleanup records remain
 under `/run/awf-nvx`.
+
+## Phase 3f promotion evidence
+
+Phase 3f extends the opt-in live-KVM workflow without registering `nvx` as a
+runtime:
+
+- the workflow creates the fixed AWF infrastructure network and starts pinned
+  Squid and API-proxy images, with the GitHub credential present only in the
+  API-proxy container;
+- the guest layer includes a pinned Copilot CLI and credential-free entrypoint
+  that must complete authenticated inference through API-proxy port `10002`;
+- adversarial guest entrypoints verify that direct internet and metadata
+  connections remain denied, only the configured Squid/API-proxy endpoints are
+  reachable, nested credential paths are excluded from the EROFS layer, no
+  implicit host root is present, and writes land in the private scratch
+  overlay;
+- an abort signal must produce the distinct cancellation outcome and remove
+  the complete VMM process tree and all per-run resources;
+- a manager process is killed with `SIGKILL` only after its durable cleanup
+  record reports a live launcher. A subsequent manager invocation must reap
+  the identity-validated stale process, account, device ACL, cgroup, network,
+  filesystem, artifact snapshot, and cleanup record before executing; and
+- two managers are started concurrently with distinct run IDs and must receive
+  distinct run directories, cgroups, and network namespaces, complete
+  successfully, and leave no residue.
+
+Successful reviewed Phase 3f evidence satisfies the remaining Phase 3
+promotion gate. Runtime registration, the mandatory preview flag, configuration
+surface, and external-backend adapter remain a separate change.
 
 ## Host OpenVMM confinement
 
