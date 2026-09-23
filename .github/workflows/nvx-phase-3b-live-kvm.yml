@@ -592,6 +592,10 @@ jobs:
           export XDG_CACHE_HOME="$runtime_home/.cache"
           export XDG_CONFIG_HOME="$runtime_home/.config"
           export XDG_STATE_HOME="$runtime_home/.local/state"
+          placeholder=ghu_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+          export COPILOT_TOKEN="$placeholder"
+          export COPILOT_GITHUB_TOKEN="$placeholder"
+          export COPILOT_OFFLINE=true
           export COPILOT_API_URL=http://172.30.0.30:10002
           export COPILOT_PROVIDER_BASE_URL=http://172.30.0.30:10002
           exec /usr/local/bin/copilot \
