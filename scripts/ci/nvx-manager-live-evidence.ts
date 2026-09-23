@@ -75,6 +75,7 @@ async function main(): Promise<void> {
     memoryMib: 768,
     memoryMaxBytes: 805_306_368,
     pidsMax: 256,
+    scratchBytes: 1024 * 1024 * 1024,
   });
   assertSuccess(copilot, 'NVX Copilot API-proxy inference');
   assertOutputContains(copilot, 'NVX-COPILOT-PROOF');
@@ -146,6 +147,7 @@ interface RunCaseOptions {
   memoryMib?: number;
   memoryMaxBytes?: number;
   pidsMax?: number;
+  scratchBytes?: number;
 }
 
 async function runCase(
@@ -194,8 +196,8 @@ async function runCase(
     filesystem: {
       workDir: '/run/awf-nvx',
       layers: [{ role: 'distro', sourcePath: inputs.layer }],
-      scratchBytes: 128 * 1024 * 1024,
-      maxScratchBytes: 128 * 1024 * 1024,
+      scratchBytes: options.scratchBytes ?? 128 * 1024 * 1024,
+      maxScratchBytes: options.scratchBytes ?? 128 * 1024 * 1024,
     },
     execution: {
       entrypoint: options.entrypoint,

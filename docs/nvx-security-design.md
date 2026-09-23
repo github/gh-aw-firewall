@@ -254,8 +254,8 @@ runtime:
 - the guest layer includes a pinned Copilot CLI and credential-free entrypoint
   that rejects provider/GitHub credential variables and common credential
   paths, places its runtime home, cache, config, and state only in the private
-  scratch overlay, and then completes authenticated inference through
-  API-proxy port `10002`;
+  bounded 1 GiB scratch overlay, and then completes authenticated inference
+  through API-proxy port `10002`;
 - adversarial guest entrypoints verify that direct internet and metadata
   connections remain denied, only the configured Squid/API-proxy endpoints are
   reachable, nested credential paths are excluded from the EROFS layer, no
