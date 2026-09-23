@@ -69,6 +69,12 @@ describe('self-hosted runner doctor workflow config', () => {
       expect(content).toContain('`detectDnsResolutionFailure()`');
       expect(content).toContain('docker run --rm alpine nslookup awmg-cli-proxy');
       expect(content).toContain('github/gh-aw-firewall#6326, github/gh-aw-firewall#6328');
+      // B2 update — explicit upstream proxy port preserved
+      expect(content).toContain('**Additional fix (PR github/gh-aw-firewall#8887, merged 2026-09-22, fixes github/gh-aw-firewall#8877):**');
+      expect(content).toContain('`parseProxyUrl()` in `src/upstream-proxy.ts`');
+      expect(content).toContain('captures the raw authority port (`getExplicitProxyPort()`) before `URL` normalization');
+      expect(content).toContain('on patched AWF the `cache_peer` port matches the explicit `:80`');
+      expect(content).toMatch(/^\| B2 \|.*github\/gh-aw-firewall#8877, github\/gh-aw-firewall#8887 \|$/m);
       expect(content).toContain('**Further fixed in AWF (PR github/gh-aw-firewall#6460, merged 2026-07-21):** `/etc/pki/ca-trust` and `/etc/pki/tls` are now included in the chroot mount policy');
       expect(content).toContain('github/gh-aw-firewall#5733, github/gh-aw-firewall#5783, github/gh-aw-firewall#6460');
       expect(content).toContain('**Fixed in AWF (PR github/gh-aw-firewall#6473, merged 2026-07-21):** Topology peer hostnames and `difcProxyHost` are also auto-added to the Squid ACL allowlist');
