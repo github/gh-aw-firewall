@@ -30,9 +30,13 @@ describe('routing router client', () => {
   it('uses fixed router endpoints, exact request JSON, and contract status rules', async () => {
     const client = createRoutingRouterClient({ baseUrl });
     await expect(client.health({ timeoutMs: 1000 })).resolves.toBe(204);
+    await expect(client.capabilities({ timeoutMs: 1000 })).resolves.toEqual({ ok: true });
+    await expect(client.classify({ prompt: 'label' }, { timeoutMs: 1000 })).resolves.toEqual({ ok: true });
     await expect(client.route({ choices: ['a'] }, { timeoutMs: 1000 })).resolves.toEqual({ ok: true });
     expect(seen).toEqual([
       { path: '/healthz', method: 'GET', body: '' },
+      { path: '/capabilities', method: 'GET', body: '' },
+      { path: '/classify', method: 'POST', body: '{"prompt":"label"}' },
       { path: '/route', method: 'POST', body: '{"choices":["a"]}' },
     ]);
   });

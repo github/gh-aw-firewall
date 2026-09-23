@@ -10,7 +10,7 @@ function buildClassifierRequest(mapping, plan) {
   if (!mapping || typeof mapping.wireModel !== 'string' || !mapping.wireModel) {
     throw createRoutingError('routing_configuration_error', 'The classifier choice has no executable wire model');
   }
-  if (typeof plan.system_prompt !== 'string' || !plan.system_prompt) {
+  if (!plan || typeof plan.system_prompt !== 'string' || !plan.system_prompt) {
     throw createRoutingError('routing_contract_error', 'The classifier plan has no system prompt');
   }
   if (typeof plan.prompt !== 'string') throw createRoutingError('routing_contract_error', 'The classifier plan prompt is invalid');
@@ -50,6 +50,8 @@ function preflightClassifierRequest(mapping, plan) {
     throw createRoutingError('routing_configuration_error', 'The classifier choice has no authoritative context capacity');
   }
   const request = buildClassifierRequest(mapping, plan);
+  // Serialized UTF-8 bytes conservatively exceed these payloads' token count;
+  // the fixed allowance covers provider message framing.
   const promptTokensBound = Buffer.byteLength(JSON.stringify(request.body), 'utf8') + CLASSIFIER_MESSAGE_OVERHEAD_TOKENS;
   const requiredTokens = promptTokensBound + request.outputAllowance;
   return Object.freeze({ request, promptTokensBound, requiredTokens, eligible: requiredTokens <= mapping.contextWindow });

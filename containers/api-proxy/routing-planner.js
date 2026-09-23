@@ -71,6 +71,7 @@ function runBoundedOperation(operation, {
 async function callPlannerWithRetry(operation, options) {
   const clock = options.clock || createSystemClock();
   const random = options.random || Math.random;
+  let lastError;
   for (let attempt = 1; attempt <= PLANNER_MAX_ATTEMPTS; attempt++) {
     ensureActive(options.signal, options.deadline, clock);
     try {
@@ -86,6 +87,7 @@ async function callPlannerWithRetry(operation, options) {
         },
       });
     } catch (error) {
+      lastError = error;
       ensureActive(options.signal, options.deadline, clock);
       if (!isRetryablePlannerError(error)) throw error;
       if (attempt === PLANNER_MAX_ATTEMPTS) break;
@@ -97,7 +99,9 @@ async function callPlannerWithRetry(operation, options) {
       await clock.sleep(retryDelay, options.signal);
     }
   }
-  throw createRoutingError('router_unavailable', 'The router remained unavailable after bounded retries');
+  const unavailable = createRoutingError('router_unavailable', 'The router remained unavailable after bounded retries');
+  unavailable.cause = lastError;
+  throw unavailable;
 }
 
 module.exports = {

@@ -61,7 +61,7 @@ function createRoutingRouterClient({
     if (body && body.length > MAX_PLANNING_REQUEST_BYTES) {
       return Promise.reject(createRoutingError(
         'routing_input_too_large',
-        'The serialized routing request exceeds 1048576 bytes',
+        `The serialized routing request exceeds ${MAX_PLANNING_REQUEST_BYTES} bytes`,
       ));
     }
 
