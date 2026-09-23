@@ -586,7 +586,12 @@ jobs:
           test ! -e /home/nobody/.config/gh/hosts.yml
           test ! -e /home/nobody/.config/github-copilot
           test ! -e /home/nobody/.copilot
-          export HOME=/home/nobody
+          runtime_home=/tmp/copilot-home
+          mkdir -m 0700 "$runtime_home"
+          export HOME="$runtime_home"
+          export XDG_CACHE_HOME="$runtime_home/.cache"
+          export XDG_CONFIG_HOME="$runtime_home/.config"
+          export XDG_STATE_HOME="$runtime_home/.local/state"
           export COPILOT_API_URL=http://172.30.0.30:10002
           export COPILOT_PROVIDER_BASE_URL=http://172.30.0.30:10002
           exec /usr/local/bin/copilot \
