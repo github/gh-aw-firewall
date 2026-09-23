@@ -27,8 +27,8 @@ describe('validateCopilotModel', () => {
     'gpt-6-astra',
     'claude-fable-5',
     'claude-mythos-5',
-    'claude-sonnet-5',
     'claude-opus-5.5',
+    'claude-sonnet-5',
     'gpt-6-astra',
     'mai-code-1-flash',
   ])('accepts newly supported Copilot allowlist models (%s)', model => {
