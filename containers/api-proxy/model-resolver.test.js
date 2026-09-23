@@ -723,6 +723,24 @@ describe('resolveModel with modelPolicyConfig', () => {
     const result = resolveModel('opus', aliases, availableModels, 'copilot', [], {}, policy);
     expect(result).toBeNull();
   });
+
+  it('should not let the no-alias middle-power fallback select a disallowed model', () => {
+    // No alias entry for this key, so resolution goes through _resolveDirectMatch.
+    // Direct/family matching fails, leaving only the middle-power fallback, which
+    // must still respect the policy instead of picking from the full model list.
+    const policy = { allowedModels: null, disallowedModels: ['*opus*'] };
+    const models = { copilot: ['claude-opus-4.5'] };
+    const result = resolveModel('unavailable-model', {}, models, 'copilot', [], {}, policy);
+    expect(result).toBeNull();
+  });
+
+  it('should still allow the no-alias middle-power fallback to pick a permitted model', () => {
+    const policy = { allowedModels: null, disallowedModels: ['*opus*'] };
+    const models = { copilot: ['claude-opus-4.5', 'claude-sonnet-4.6'] };
+    const result = resolveModel('unavailable-model', {}, models, 'copilot', [], {}, policy);
+    expect(result).not.toBeNull();
+    expect(result.resolvedModel).toBe('claude-sonnet-4.6');
+  });
 });
 
 // ── Complex alias tree resolution ────────────────────────────────────────────
