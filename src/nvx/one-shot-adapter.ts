@@ -415,8 +415,15 @@ function validateRequest(request: NvxOneShotExecutionRequest): void {
     throw new Error('NVX entrypoint must not contain whitespace');
   }
   for (const argument of request.args ?? []) {
-    if (!argument || /\s/.test(argument) || argument.includes('\0')) {
-      throw new Error('NVX one-shot arguments must be nonempty and contain no whitespace');
+    // Argument elements are passed as literal, unshelled entries in the
+    // `execa`/`spawn` argv array (see `buildNvxOneShotArguments`'s
+    // `--arg=<argument>` construction) — there is no intermediate shell
+    // reinterpretation step, so embedded whitespace (e.g. the full shell
+    // script passed to `sh -c "<command>"`) is safe and must be preserved
+    // to support multi-word agent commands. Only reject NUL bytes, which
+    // cannot be represented in a process argv entry.
+    if (!argument || argument.includes('\0')) {
+      throw new Error('NVX one-shot arguments must be nonempty and contain no NUL bytes');
     }
   }
   const hostname = request.hostname ?? 'awf-nvx';

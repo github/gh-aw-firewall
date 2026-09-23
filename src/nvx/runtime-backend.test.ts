@@ -60,6 +60,7 @@ function harness(overrides: Partial<NvxRuntimeBackendDependencies> = {}) {
 
   const dependencies: NvxRuntimeBackendDependencies = {
     startInfrastructure: jest.fn().mockResolvedValue(undefined),
+    resolveTrustedIpTool: jest.fn().mockResolvedValue('/usr/sbin/ip'),
     resolveInfrastructure: jest.fn().mockResolvedValue(infrastructureSnapshot()),
     createManager,
     identity: jest.fn().mockReturnValue({ uid: 1000, gid: 1000 }),
@@ -76,7 +77,7 @@ function harness(overrides: Partial<NvxRuntimeBackendDependencies> = {}) {
 }
 
 describe('NvxRuntimeBackend', () => {
-  it('starts host infrastructure and resolves microVM infrastructure before executing', async () => {
+  it('starts host infrastructure and resolves microVM infrastructure using a trusted ip tool before executing', async () => {
     const { dependencies } = harness();
     const backend = nvxRuntimeTestHelpers.createBackendWithDependencies(nvxConfig(), dependencies);
 
@@ -99,8 +100,10 @@ describe('NvxRuntimeBackend', () => {
       onNetworkReady,
       onInfrastructureReady,
     );
-    expect(dependencies.resolveInfrastructure).toHaveBeenCalledWith(true);
+    expect(dependencies.resolveTrustedIpTool).toHaveBeenCalled();
+    expect(dependencies.resolveInfrastructure).toHaveBeenCalledWith(true, '/usr/sbin/ip', undefined);
   });
+
 
   it('rejects preflight when the preview flag is not set, without falling back', async () => {
     const { dependencies } = harness();
@@ -123,6 +126,11 @@ describe('NvxRuntimeBackend', () => {
 
   it('constructs the NvxManager with preserved command, identity, and limits, and returns the exit code unchanged', async () => {
     const { dependencies, createManager, executeMock } = harness();
+    const snapshot = infrastructureSnapshot();
+    (snapshot as { topologyPeerIps: Record<string, string> }).topologyPeerIps = {
+      gateway: '172.31.0.40',
+    };
+    (dependencies.resolveInfrastructure as jest.Mock).mockResolvedValue(snapshot);
     executeMock.mockResolvedValue({
       exitCode: 42,
       category: 'success',
@@ -137,6 +145,7 @@ describe('NvxRuntimeBackend', () => {
     const result = await backend.exec('/tmp/awf-work', ['example.com'], '/tmp/awf-work/logs', 10);
 
     expect(result).toEqual({ exitCode: 42 });
+    expect(snapshot.revalidate).toHaveBeenCalled();
     expect(createManager).toHaveBeenCalledTimes(1);
     const [managerConfig] = (createManager as unknown as jest.Mock).mock.calls[0];
     expect(managerConfig.execution.entrypoint).toBe('/bin/sh');
@@ -150,19 +159,26 @@ describe('NvxRuntimeBackend', () => {
     expect(managerConfig.filesystem.layers).toEqual([
       { role: 'distro', sourcePath: '/opt/nvx/distro.layer' },
     ]);
+    expect(managerConfig.filesystem.scratchUid).toBe(1000);
+    expect(managerConfig.filesystem.scratchGid).toBe(1000);
+    expect(managerConfig.filesystem.maxScratchBytes).toBeUndefined();
     expect(managerConfig.preflight.manifestPath).toBe('/opt/nvx/manifest.json');
     expect(managerConfig.network.infrastructureBridge).toBe('awf-nvx0');
+    expect(managerConfig.network.controlPeers).toEqual([
+      { ip: '172.31.0.40', ports: [8080] },
+    ]);
   });
 
-  it('rejects TTY execution', async () => {
+  it('rejects TTY execution before touching any resources', async () => {
     const { dependencies } = harness();
     const config = nvxConfig();
     config.tty = true;
     const backend = nvxRuntimeTestHelpers.createBackendWithDependencies(config, dependencies);
 
-    await backend.start('/tmp/awf-work', ['example.com'], '/tmp/awf-work/logs', false, jest.fn(), jest.fn());
-    await expect(backend.exec('/tmp/awf-work', ['example.com'], '/tmp/awf-work/logs', undefined))
-      .rejects.toThrow(/does not support TTY execution/);
+    await expect(
+      backend.start('/tmp/awf-work', ['example.com'], '/tmp/awf-work/logs', false, jest.fn(), jest.fn()),
+    ).rejects.toThrow(/does not support --tty/);
+    expect(dependencies.startInfrastructure).not.toHaveBeenCalled();
   });
 
   it('aborts an in-flight execution on stop() and does not throw', async () => {
@@ -197,5 +213,32 @@ describe('NvxRuntimeBackend', () => {
     const { dependencies } = harness();
     const backend = nvxRuntimeTestHelpers.createBackendWithDependencies(nvxConfig(), dependencies);
     await expect(backend.collectDiagnostics()).resolves.toBeUndefined();
+  });
+
+  it('refuses to launch a new microVM if stop() was already called', async () => {
+    const { dependencies, createManager } = harness();
+    const backend = nvxRuntimeTestHelpers.createBackendWithDependencies(nvxConfig(), dependencies);
+
+    await backend.start('/tmp/awf-work', ['example.com'], '/tmp/awf-work/logs', false, jest.fn(), jest.fn());
+    await backend.stop();
+
+    await expect(backend.exec('/tmp/awf-work', ['example.com'], '/tmp/awf-work/logs', undefined))
+      .rejects.toThrow(/aborted by shutdown/);
+    expect(createManager).not.toHaveBeenCalled();
+  });
+
+  it('threads configured topology peers into infrastructure discovery', async () => {
+    const { dependencies } = harness();
+    const config = nvxConfig();
+    config.topologyAttach = ['awf-enclave-github-mcp'];
+    const backend = nvxRuntimeTestHelpers.createBackendWithDependencies(config, dependencies);
+
+    await backend.start('/tmp/awf-work', ['example.com'], '/tmp/awf-work/logs', false, jest.fn(), jest.fn());
+
+    expect(dependencies.resolveInfrastructure).toHaveBeenCalledWith(
+      true,
+      '/usr/sbin/ip',
+      ['awf-enclave-github-mcp'],
+    );
   });
 });

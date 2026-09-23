@@ -290,12 +290,15 @@ does not weaken any Phase 3f invariant above.
   file). Selecting `nvx` without `--nvx-preview` fails closed with an
   actionable error before any host or guest resources are touched.
 - **Artifact configuration**: `--nvx-layer`, `--nvx-artifact-manifest`,
-  `--nvx-artifact-manifest-bundle`, `--nvx-signer-workflow`, `--nvx-openvmm`,
-  `--nvx-kernel`, and `--nvx-initramfs` (and their `nvx.*` config-file
-  equivalents) supply the guest distro layer and the attested OpenVMM/kernel/
-  initramfs artifacts validated by the existing artifact-verification path
-  (`src/nvx/artifact-manifest.ts`, `src/nvx/preflight.ts`). All are required;
-  any missing value fails validation before launch.
+  `--nvx-artifact-manifest-bundle`, `--nvx-openvmm`, `--nvx-kernel`, and
+  `--nvx-initramfs` (and their `nvx.*` config-file equivalents) supply the
+  guest distro layer and the attested OpenVMM/kernel/initramfs artifacts
+  validated by the existing artifact-verification path
+  (`src/nvx/artifact-manifest.ts`, `src/nvx/preflight.ts`). All of these are
+  required; any missing value fails validation before launch.
+  `--nvx-signer-workflow` (`nvx.signerWorkflow`) is optional and overrides the
+  default expected attestation signer workflow
+  (`NVX_ARTIFACT_SIGNER_WORKFLOW`); omitting it does not fail validation.
 - **Resource limits**: `--nvx-memory-mib`, `--nvx-memory-max-bytes`,
   `--nvx-pids-max`, and `--nvx-scratch-bytes` configure the same bounded guest
   resource limits validated by Phase 3f (defaults: 512 MiB memory, 128 PIDs).
@@ -313,9 +316,17 @@ does not weaken any Phase 3f invariant above.
   Docker-in-Docker/split-filesystem options (`--enable-dind`,
   `--docker-host-path-prefix`, `arc-dind` runner topology), host access
   (`--enable-host-access`/host port allowlisting), additional host volume
-  mounts, DIFC proxies, DNS-over-HTTPS, and primary-agent execution with
-  enclaves enabled. `--network-isolation` (strict mode) and `--enable-api-proxy`
-  are required.
+  mounts, `--network-subnet` (NVX's microVM infrastructure discovery requires
+  the fixed default `awf-net` subnet), `--container-workdir` (see workspace
+  limitation below), DIFC proxies, DNS-over-HTTPS, and primary-agent execution
+  with enclaves enabled. `--network-isolation` (strict mode) and
+  `--enable-api-proxy` are required.
+- **Known limitation — no host workspace export**: the one-shot adapter does
+  not export the host workspace/repository into the guest, and `--container-
+  workdir` is rejected rather than silently ignored. The only filesystem
+  content available to the guest is the distro layer supplied via
+  `--nvx-layer`; any inputs the agent command needs must be pre-baked into
+  that layer.
 - **Adapter**: `src/nvx/runtime-backend.ts` implements the same
   `ExternalAgentRuntimeBackend` interface used by the `sbx` and Cloud
   Hypervisor backends, mapping it onto the existing, unmodified `NvxManager`

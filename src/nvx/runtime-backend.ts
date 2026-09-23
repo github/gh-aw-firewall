@@ -7,9 +7,10 @@ import {
   resolveMicrovmInfrastructure,
   type MicrovmInfrastructureSnapshot,
 } from '../microvm/infrastructure';
-import { createMicrovmNetworkPlan } from '../microvm/network';
+import { createMicrovmNetworkPlan, type MicrovmControlPeer } from '../microvm/network';
 import { buildGuestEnvironment } from '../microvm/guest-environment';
 import { NETWORK_SUBNET } from '../config/network-policy';
+import { MCP_GATEWAY_PORT } from '../cloud-hypervisor/backend-utils';
 import type { WrapperConfig } from '../types';
 import {
   NvxManager,
@@ -17,7 +18,8 @@ import {
   NVX_ARTIFACT_SIGNER_WORKFLOW,
   type NvxOneShotExecutionResult,
 } from '../nvx';
-import { assertNvxHostEligibility, requireNvxConfig } from './runtime-validation';
+import { resolveTrustedNvxHostTool } from './preflight';
+import { assertNvxRuntimeCompatibility, requireNvxConfig } from './runtime-validation';
 
 const NVX_GUEST_WORKSPACE = '/workspace';
 const NVX_GUEST_HOME = `${NVX_GUEST_WORKSPACE}/.awf-home`;
@@ -27,9 +29,11 @@ const NVX_MAX_TIMEOUT_MS = 86_400_000;
 // ts-prune-ignore-next
 export interface NvxRuntimeBackendDependencies {
   startInfrastructure: WorkflowDependencies['startContainers'];
+  resolveTrustedIpTool(): Promise<string>;
   resolveInfrastructure(
     enableApiProxy: boolean,
     ipPath?: string,
+    topologyPeerNames?: readonly string[],
   ): Promise<MicrovmInfrastructureSnapshot>;
   createManager(config: ConstructorParameters<typeof NvxManager>[0]): NvxManager;
   identity(): { uid: number; gid: number };
@@ -46,8 +50,9 @@ function defaultDependencies(
 ): NvxRuntimeBackendDependencies {
   return {
     startInfrastructure,
-    resolveInfrastructure: (enableApiProxy, ipPath) =>
-      resolveMicrovmInfrastructure(enableApiProxy, undefined, ipPath),
+    resolveTrustedIpTool: () => resolveTrustedNvxHostTool('ip'),
+    resolveInfrastructure: (enableApiProxy, ipPath, topologyPeerNames) =>
+      resolveMicrovmInfrastructure(enableApiProxy, undefined, ipPath, topologyPeerNames),
     createManager: (config) => new NvxManager(config),
     identity: () => ({
       uid: Number(getSafeHostUid()),
@@ -120,10 +125,13 @@ export class NvxRuntimeBackend implements ExternalAgentRuntimeBackend {
         } minutes`,
       );
     }
-    if (!nvx.previewEnabled) {
-      throw new Error('NVX workload execution requires explicit --nvx-preview opt-in');
-    }
-    assertNvxHostEligibility();
+    // Re-runs the full compatibility guard (not just the preview flag and
+    // host eligibility) here, immediately before infrastructure startup,
+    // because main-action.ts's automatic split-filesystem probe can mutate
+    // `config.dockerHostPathPrefix` after the config was first assembled.
+    // Without this, an auto-detected ARC/DinD configuration that NVX
+    // explicitly rejects could slip through undetected.
+    assertNvxRuntimeCompatibility(this.config, nvx);
   }
 
   readonly start: WorkflowDependencies['startContainers'] = async (
@@ -143,8 +151,18 @@ export class NvxRuntimeBackend implements ExternalAgentRuntimeBackend {
       onNetworkReady,
       onInfrastructureReady,
     );
+    if (this.stopped) {
+      throw new Error('NVX microVM infrastructure startup aborted by shutdown');
+    }
+    // Resolve the `ip` binary through the same trusted-tool preflight NVX
+    // uses for everything else before it is invoked for root-side
+    // infrastructure discovery, rather than letting `execa` fall through to
+    // an ambient, untrusted PATH lookup.
+    const ipPath = await this.dependencies.resolveTrustedIpTool();
     this.infrastructure = await this.dependencies.resolveInfrastructure(
       Boolean(this.config.enableApiProxy),
+      ipPath,
+      this.config.topologyAttach,
     );
     this.identity = this.dependencies.identity();
   };
@@ -155,6 +173,9 @@ export class NvxRuntimeBackend implements ExternalAgentRuntimeBackend {
     _proxyLogsDir,
     agentTimeoutMinutes,
   ) => {
+    if (this.stopped) {
+      throw new Error('NVX microVM execution aborted by shutdown');
+    }
     const nvx = requireNvxConfig(this.config);
     const infrastructure = this.infrastructure;
     const identity = this.identity;
@@ -163,6 +184,15 @@ export class NvxRuntimeBackend implements ExternalAgentRuntimeBackend {
     }
     if (this.config.tty) {
       throw new Error('NVX preview guest does not support TTY execution');
+    }
+
+    // Prove the discovered bridge/service topology is still the one in
+    // effect immediately before handing control to the manager, so a
+    // Docker network or bridge changed between infrastructure discovery
+    // and launch cannot cause NVX to attach using stale identities.
+    await infrastructure.revalidate();
+    if (this.stopped) {
+      throw new Error('NVX microVM execution aborted by shutdown');
     }
 
     const runId = this.dependencies.randomRunId();
@@ -213,7 +243,8 @@ export class NvxRuntimeBackend implements ExternalAgentRuntimeBackend {
         workDir: this.config.workDir ?? '/run/awf-nvx',
         layers: [{ role: 'distro', sourcePath: nvx.layerPath! }],
         scratchBytes: nvx.scratchBytes,
-        maxScratchBytes: nvx.scratchBytes,
+        scratchUid: identity.uid,
+        scratchGid: identity.gid,
       },
       execution: {
         entrypoint: '/bin/sh',
@@ -231,6 +262,7 @@ export class NvxRuntimeBackend implements ExternalAgentRuntimeBackend {
       network: {
         infrastructureBridge: infrastructure.bridgeName,
         enableApiProxy: Boolean(infrastructure.apiProxyIp),
+        controlPeers: buildNvxControlPeers(infrastructure.topologyPeerIps),
       },
     });
 
@@ -264,6 +296,15 @@ export class NvxRuntimeBackend implements ExternalAgentRuntimeBackend {
       await this.activeExecution.catch(() => undefined);
     }
   }
+}
+
+function buildNvxControlPeers(
+  topologyPeerIps: Readonly<Record<string, string>>,
+): readonly MicrovmControlPeer[] {
+  return Object.values(topologyPeerIps).map((ip) => ({
+    ip,
+    ports: [MCP_GATEWAY_PORT],
+  }));
 }
 
 function logNvxGuestEnvironment(

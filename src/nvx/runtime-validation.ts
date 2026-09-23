@@ -49,6 +49,12 @@ export function assertNvxRuntimeCompatibility(
   if (!config.enableApiProxy) {
     throw new Error('NVX preview requires API proxy credential isolation');
   }
+  if (config.networkSubnet) {
+    throw new Error(
+      'NVX preview does not support --network-subnet; its microVM infrastructure '
+      + 'discovery requires the fixed default awf-net subnet',
+    );
+  }
   if (config.tty) {
     throw new Error('NVX preview does not support --tty');
   }
@@ -64,6 +70,12 @@ export function assertNvxRuntimeCompatibility(
   }
   if (config.volumeMounts?.length) {
     throw new Error('NVX preview does not support additional host volume mounts');
+  }
+  if (config.containerWorkDir) {
+    throw new Error(
+      'NVX preview does not support --container-workdir; the guest workspace path '
+      + 'is fixed and the host workspace is not exported into the microVM',
+    );
   }
   if (config.difcProxyHost) {
     throw new Error('NVX preview does not yet support DIFC proxies');

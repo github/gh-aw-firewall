@@ -125,6 +125,16 @@ describe('NVX runtime validation', () => {
         .toThrow(/does not support DNS-over-HTTPS/);
     });
 
+    it('rejects a relocated network subnet', () => {
+      expect(() => assertNvxRuntimeCompatibility(config({ networkSubnet: '10.99.0.0/24' })))
+        .toThrow(/does not support --network-subnet/);
+    });
+
+    it('rejects an explicit container working directory', () => {
+      expect(() => assertNvxRuntimeCompatibility(config({ containerWorkDir: '/repo' })))
+        .toThrow(/does not support --container-workdir/);
+    });
+
     it('rejects primary-agent execution with enclaves enabled, without any fallback', () => {
       expect(() => assertNvxRuntimeCompatibility(config({
         enclaves: { enabled: true } as WrapperConfig['enclaves'],
