@@ -15,6 +15,7 @@ on:
 
 permissions:
   contents: read
+  copilot-requests: write
   id-token: write
   attestations: write
 

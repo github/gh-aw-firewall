@@ -248,9 +248,10 @@ runtime:
 
 - the workflow creates the fixed AWF infrastructure network and starts pinned
   Squid and API-proxy images in a dedicated secret-bearing setup step. The
-  GitHub credential is present only in that host step and the API-proxy
-  container; the guest-layer assembly and manager execution step has no
-  credential environment;
+  job-scoped GitHub credential has only the explicit `copilot-requests: write`
+  permission needed for inference and is present only in that host step and the
+  API-proxy container; the guest-layer assembly and manager execution step has
+  no credential environment;
 - the guest layer includes a pinned Copilot CLI and credential-free entrypoint
   that rejects provider/GitHub credential variables and common credential
   paths, places its runtime home, cache, config, and state only in the private
