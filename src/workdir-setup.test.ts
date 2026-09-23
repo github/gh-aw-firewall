@@ -352,6 +352,22 @@ describe('prepareWorkDirectories', () => {
       expect(fs.existsSync(geminiDir)).toBe(true);
     });
 
+    it('writes Gemini system settings without following a pre-existing symlink', () => {
+      const emptyHomeDir = `${fixture.tempDir}-chroot-home`;
+      const settingsDir = path.join(emptyHomeDir, '.awf');
+      const target = path.join(fixture.tempDir, 'target');
+      const settingsPath = path.join(settingsDir, 'gemini-cli-system-settings.json');
+      fs.mkdirSync(settingsDir, { recursive: true });
+      fs.writeFileSync(target, 'unchanged');
+      fs.symlinkSync(target, settingsPath);
+
+      const config = buildConfig({ enableApiProxy: true, geminiApiKey: 'test-key' });
+      const logPaths = resolveLogPaths(config);
+
+      expect(() => prepareWorkDirectories(config, logPaths)).toThrow();
+      expect(fs.readFileSync(target, 'utf8')).toBe('unchanged');
+    });
+
     it('creates .gemini directory when googleApiKey is provided', () => {
       const geminiDir = path.join(fixture.tempDir, '.gemini');
       if (fs.existsSync(geminiDir)) {
@@ -533,10 +549,12 @@ describe('prepareChrootHomeMounts (sub-function)', () => {
     });
 
     it('does not pin the auth type for Vertex AI runs', () => {
-      process.env.GOOGLE_GENAI_USE_VERTEXAI = 'true';
-
       workdirSetupTestHelpers.prepareChrootHomeMounts(
-        buildConfig({ enableApiProxy: true, geminiApiKey: 'key' }),
+        buildConfig({
+          enableApiProxy: true,
+          geminiApiKey: 'key',
+          additionalEnv: { GOOGLE_GENAI_USE_VERTEXAI: 'true' },
+        }),
       );
 
       expect(fs.existsSync(settingsPath())).toBe(false);

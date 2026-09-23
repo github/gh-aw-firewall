@@ -3,7 +3,7 @@ import * as path from 'path';
 import { WrapperConfig } from './types';
 import { logger } from './logger';
 import { getSafeHostUid, getSafeHostGid, getRealUserHome } from './host-env';
-import { assertRealDirectory, createMissingOwnedDirectorySegments } from './fs-utils';
+import { assertRealDirectory, createMissingOwnedDirectorySegments, writeFileNoFollow } from './fs-utils';
 import { resolveRunnerToolCachePath } from './runner-tool-cache';
 import { HOME_TOOL_PATHS } from './config/mount-policy';
 import {
@@ -55,9 +55,7 @@ function writeGeminiSystemSettings(emptyHomeDir: string, uid: number, gid: numbe
   fs.chownSync(settingsDir, uid, gid);
   fs.chmodSync(settingsDir, 0o755);
 
-  fs.writeFileSync(settingsPath, buildGeminiSystemSettingsContent(), { mode: 0o644 });
-  fs.chownSync(settingsPath, uid, gid);
-  fs.chmodSync(settingsPath, 0o644);
+  writeFileNoFollow(settingsPath, buildGeminiSystemSettingsContent(), 0o644, { uid, gid });
   logger.debug(`Wrote Gemini CLI system settings: ${settingsPath} (${uid}:${gid})`);
 }
 
@@ -89,7 +87,7 @@ export function prepareChrootHomeMounts(config: WrapperConfig): void {
   fs.chownSync(emptyHomeDir, uid, gid);
   logger.debug(`Created chroot home directory: ${emptyHomeDir} (${uid}:${gid})`);
 
-  if (isGeminiProxyRoutingEnabled(config) && shouldPinGeminiAuthType()) {
+  if (isGeminiProxyRoutingEnabled(config) && shouldPinGeminiAuthType(config)) {
     writeGeminiSystemSettings(emptyHomeDir, uid, gid);
   }
 

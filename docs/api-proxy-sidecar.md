@@ -678,13 +678,13 @@ When `GEMINI_API_KEY` is provided to the AWF runner, `GOOGLE_GEMINI_BASE_URL`, `
           -- gemini ...
 ```
 
-> **Note:** Exit code 41 ("no auth method") should no longer occur since the placeholder key satisfies the CLI's pre-flight check. If you see exit 41, verify `GEMINI_API_KEY` is exported in the AWF runner environment.
+> **Note:** A missing runner key causes the proxy listener to return 503. For exit 41 with `Invalid auth method selected.`, see the next section.
 
 ### Gemini CLI exits 41 with "Invalid auth method selected."
 
 Gemini CLI **0.44.0 and newer** resolve *any* non-empty `GOOGLE_GEMINI_BASE_URL` to the internal `gateway` auth type in `getAuthTypeFromEnv()`, but their own `validateAuthMethod()` has no branch for that type and aborts with `Invalid auth method selected.` (exit code **41**) before a single request is issued. Because AWF must set `GOOGLE_GEMINI_BASE_URL` to route the CLI through the api-proxy sidecar, every proxied Gemini run hit this upstream regression (see [google-gemini/gemini-cli#27550](https://github.com/google-gemini/gemini-cli/issues/27550)). The placeholder `GEMINI_API_KEY` value is not involved — the CLI performs no key-format validation.
 
-**Resolution:** AWF writes an AWF-owned Gemini CLI *system* settings file into the agent's chroot home (`$HOME/.awf/gemini-cli-system-settings.json`) and points the CLI at it with `GEMINI_CLI_SYSTEM_SETTINGS_PATH`:
+**Resolution:** For Compose-backed agent runtimes, AWF writes an AWF-owned Gemini CLI *system* settings file into the agent's chroot home (`$HOME/.awf/gemini-cli-system-settings.json`) and points the CLI at it with `GEMINI_CLI_SYSTEM_SETTINGS_PATH`:
 
 ```json
 {

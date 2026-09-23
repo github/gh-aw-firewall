@@ -37,7 +37,7 @@ export function buildGeminiCredentialEnv(params: GeminiCredentialEnvParams): Rec
     // own validator rejects ("Invalid auth method selected.", exit 41). Point the CLI at
     // an AWF-owned system settings file that pins the API-key auth type instead.
     // See gemini-cli-settings.ts and google-gemini/gemini-cli#27550.
-    extraEnv: isGeminiProxyRoutingEnabled(config) && shouldPinGeminiAuthType()
+    extraEnv: isGeminiProxyRoutingEnabled(config) && shouldPinGeminiAuthType(config)
       ? { GEMINI_CLI_SYSTEM_SETTINGS_PATH: getGeminiSystemSettingsPath(getRealUserHome()) }
       : undefined,
   });

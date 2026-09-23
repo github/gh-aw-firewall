@@ -2,6 +2,9 @@ jest.mock('../../logger', () => ({
   logger: { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() },
 }));
 
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import { buildGeminiCredentialEnv } from './gemini-credential-env';
 import type { WrapperConfig } from '../../types';
 
@@ -80,17 +83,37 @@ describe('buildGeminiCredentialEnv — Gemini CLI auth-type pinning', () => {
     expect(result.GEMINI_CLI_SYSTEM_SETTINGS_PATH).toMatch(/\.awf\/gemini-cli-system-settings\.json$/);
   });
 
-  it('does not pin the auth type when Vertex AI auth is selected', () => {
-    process.env.GOOGLE_GENAI_USE_VERTEXAI = 'true';
-
-    const result = buildGeminiCredentialEnv({ config, proxyIp });
+  it('does not pin the auth type when Vertex AI auth is selected in the agent environment', () => {
+    const result = buildGeminiCredentialEnv({
+      config: { ...config, additionalEnv: { GOOGLE_GENAI_USE_VERTEXAI: 'true' } },
+      proxyIp,
+    });
     expect(result.GEMINI_CLI_SYSTEM_SETTINGS_PATH).toBeUndefined();
   });
 
-  it('does not pin the auth type when Google-account auth is selected', () => {
-    process.env.GOOGLE_GENAI_USE_GCA = 'true';
+  it('does not pin the auth type when Google-account auth is selected in an env file', () => {
+    const envFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'gemini-auth-env-')), '.env');
+    fs.writeFileSync(envFile, 'GOOGLE_GENAI_USE_GCA=true\n');
+    const result = buildGeminiCredentialEnv({
+      config: { ...config, envFile },
+      proxyIp,
+    });
+    expect(result.GEMINI_CLI_SYSTEM_SETTINGS_PATH).toBeUndefined();
+    fs.rmSync(path.dirname(envFile), { recursive: true, force: true });
+  });
+
+  it('does not use host-only auth flags unless --env-all passes them to the agent', () => {
+    process.env.GOOGLE_GENAI_USE_VERTEXAI = 'true';
 
     const result = buildGeminiCredentialEnv({ config, proxyIp });
+    expect(result.GEMINI_CLI_SYSTEM_SETTINGS_PATH).toBeDefined();
+  });
+
+  it.each(['sbx', 'cloud-hypervisor'])('does not set the settings path for the %s backend', (containerRuntime) => {
+    const result = buildGeminiCredentialEnv({
+      config: { ...config, containerRuntime },
+      proxyIp,
+    });
     expect(result.GEMINI_CLI_SYSTEM_SETTINGS_PATH).toBeUndefined();
   });
 

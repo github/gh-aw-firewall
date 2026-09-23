@@ -89,6 +89,7 @@ export function writeFileNoFollow(
   filePath: string,
   contents: string,
   finalMode: number,
+  owner?: { uid: number; gid: number },
 ): void {
   const flags =
     fs.constants.O_WRONLY |
@@ -104,6 +105,9 @@ export function writeFileNoFollow(
       throw new Error(`Refusing to write non-regular file: ${filePath}`);
     }
     fs.fchmodSync(fd, 0o600);
+    if (owner && (stat.uid !== owner.uid || stat.gid !== owner.gid)) {
+      fs.fchownSync(fd, owner.uid, owner.gid);
+    }
     fs.writeFileSync(fd, contents, { encoding: 'utf8' });
     fs.fsyncSync(fd);
     fs.fchmodSync(fd, finalMode);

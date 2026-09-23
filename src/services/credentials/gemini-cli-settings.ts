@@ -1,6 +1,8 @@
 import * as path from 'path';
 import { WrapperConfig } from '../../types';
 import { isGcpOidcConfigured } from './gcp-oidc-config';
+import { getConfigEnvValue } from '../../env-utils';
+import { runtimeUsesComposeAgent } from '../../container-runtime';
 
 /** Value of `AuthType.USE_GEMINI` in the Gemini CLI (`google-gemini/gemini-cli`). */
 const GEMINI_CLI_API_KEY_AUTH_TYPE = 'gemini-api-key';
@@ -45,12 +47,14 @@ export function buildGeminiSystemSettingsContent(): string {
 /**
  * Vertex AI (`GOOGLE_GENAI_USE_VERTEXAI`) and Google-account (`GOOGLE_GENAI_USE_GCA`)
  * auth are resolved *before* the GATEWAY branch in the Gemini CLI, so those runs
- * are unaffected by the regression. Pinning API-key auth there would break them,
- * so the settings file is not written and `GEMINI_CLI_SYSTEM_SETTINGS_PATH` is
- * not injected.
+ * are unaffected by the regression. Pinning API-key auth there would break them.
+ * The settings file is only mounted into Compose-backed agents, so the pin is
+ * likewise not injected for external runtime backends.
  */
-export function shouldPinGeminiAuthType(env: NodeJS.ProcessEnv = process.env): boolean {
-  return env.GOOGLE_GENAI_USE_VERTEXAI !== 'true' && env.GOOGLE_GENAI_USE_GCA !== 'true';
+export function shouldPinGeminiAuthType(config: WrapperConfig): boolean {
+  return runtimeUsesComposeAgent(config.containerRuntime)
+    && getConfigEnvValue(config, 'GOOGLE_GENAI_USE_VERTEXAI') !== 'true'
+    && getConfigEnvValue(config, 'GOOGLE_GENAI_USE_GCA') !== 'true';
 }
 
 /** True when AWF routes the Gemini CLI through the api-proxy sidecar. */
