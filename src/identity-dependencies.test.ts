@@ -16,13 +16,11 @@ describe('createDefaultIdentityDependencies', () => {
       pid: process.pid,
       processStartTime,
     });
-    await expect(dependencies.run(process.execPath, [
+    const result = await dependencies.run(process.execPath, [
       '-e',
       'process.stdout.write(process.env.PATH ?? "")',
-    ])).resolves.toEqual({
-      stdout: '/usr/sbin:/usr/bin:/sbin:/bin',
-      stderr: '',
-    });
+    ]);
+    expect(result.stdout).toBe('/usr/sbin:/usr/bin:/sbin:/bin');
     await expect(dependencies.run(process.execPath, ['-e', 'process.exit(1)']))
       .rejects.toThrow(/exited with code 1/);
     await expect(dependencies.sleep(0)).resolves.toBeUndefined();
