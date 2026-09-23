@@ -414,12 +414,75 @@ jobs:
           record direct-launch-contract PASS \
             '{"openvmm":"pinned flags verified","bubblewrap":"block/status fd flags verified","tapRequired":false}'
 
-      - name: Run attested end-to-end NvxManager evidence
+      - name: Start credential-holding AWF proxy topology
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ALPINE_IMAGE: alpine@sha256:eafc1edb577d2e9b458664a15f23ea1c370214193226069eb22921169fc7e43f
+          COPILOT_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           AWF_SQUID_IMAGE: ghcr.io/github/gh-aw-firewall/squid@sha256:cba5f56857e4869c4a00c1cce29c3056516cf1a746e18ce380753ecfbe40f112
           AWF_API_PROXY_IMAGE: ghcr.io/github/gh-aw-firewall/api-proxy@sha256:30ab6d3261dd95364281fa0b52ab78450e1c01aa074eccc3a8d4f04b12a6560b
+        run: |
+          set -euo pipefail
+          bridge=awfnvxbr0
+          cleanup() {
+            sudo docker rm -f nvx-phase3f-squid nvx-phase3f-api-proxy \
+              >/dev/null 2>&1 || true
+            sudo docker network rm awf-net >/dev/null 2>&1 || true
+          }
+          trap cleanup ERR
+          cleanup
+          cat > "$RUNNER_TEMP/nvx-squid.conf" <<'EOF'
+          http_port 0.0.0.0:3128
+          acl all src all
+          http_access allow all
+          cache deny all
+          access_log stdio:/dev/stdout
+          cache_log /dev/stderr
+          pid_filename none
+          EOF
+          sudo docker network create \
+            --driver bridge \
+            --subnet 172.30.0.0/24 \
+            --opt "com.docker.network.bridge.name=$bridge" \
+            awf-net
+          sudo docker create \
+            --name nvx-phase3f-squid \
+            --network awf-net \
+            --ip 172.30.0.10 \
+            "$AWF_SQUID_IMAGE"
+          sudo docker cp \
+            "$RUNNER_TEMP/nvx-squid.conf" \
+            nvx-phase3f-squid:/etc/squid/squid.conf
+          sudo docker start nvx-phase3f-squid
+          sudo --preserve-env=COPILOT_GITHUB_TOKEN docker run --detach \
+            --name nvx-phase3f-api-proxy \
+            --network awf-net \
+            --ip 172.30.0.30 \
+            --env HTTP_PROXY=http://172.30.0.10:3128 \
+            --env HTTPS_PROXY=http://172.30.0.10:3128 \
+            --env COPILOT_GITHUB_TOKEN \
+            "$AWF_API_PROXY_IMAGE"
+          for endpoint in 172.30.0.10:3128 172.30.0.30:10002; do
+            host=${endpoint%:*}
+            port=${endpoint#*:}
+            ready=false
+            for _ in $(seq 1 60); do
+              if nc -z -w 1 "$host" "$port"; then
+                ready=true
+                break
+              fi
+              sleep 1
+            done
+            if [ "$ready" != true ]; then
+              sudo docker logs nvx-phase3f-squid || true
+              sudo docker logs nvx-phase3f-api-proxy || true
+              echo "NVX infrastructure endpoint did not become ready: $endpoint" >&2
+              exit 1
+            fi
+          done
+          trap - ERR
+
+      - name: Run attested end-to-end NvxManager evidence
+        env:
+          ALPINE_IMAGE: alpine@sha256:eafc1edb577d2e9b458664a15f23ea1c370214193226069eb22921169fc7e43f
           COPILOT_PACKAGE: '@github/copilot-linuxmusl-x64'
           COPILOT_VERSION: 1.0.86
           COPILOT_ARCHIVE: github-copilot-linuxmusl-x64-1.0.86.tgz
@@ -438,7 +501,6 @@ jobs:
             sudo docker network rm awf-net >/dev/null 2>&1 || true
           }
           trap cleanup EXIT
-          cleanup
           sudo chown -R root:root "$artifact_dir"
           sudo chmod 0555 "$artifact_dir/openvmm"
           sudo chmod 0444 \
@@ -464,6 +526,7 @@ jobs:
           printf 'present\n' > "$layer_root/etc/nvx-layer-marker"
           printf 'must-not-enter-guest\n' \
             > "$layer_root/home/nobody/.ssh/id_rsa"
+          chmod 1777 "$layer_root/tmp"
 
           npm pack "${COPILOT_PACKAGE}@${COPILOT_VERSION}" \
             --pack-destination "$RUNNER_TEMP" \
@@ -485,6 +548,7 @@ jobs:
           test -r /etc/nvx-layer-marker
           test ! -e /home/nobody/.ssh/id_rsa
           test ! -e /root/.ssh/id_rsa
+          test ! -e /run/secrets
           test ! -e /host
           printf 'private-scratch\n' > /tmp/nvx-scratch-proof
           test "$(cat /tmp/nvx-scratch-proof)" = private-scratch
@@ -513,6 +577,15 @@ jobs:
           test -z "${GH_TOKEN:-}"
           test -z "${GITHUB_TOKEN:-}"
           test -z "${COPILOT_GITHUB_TOKEN:-}"
+          if env | grep -Eq \
+            '^(GH_TOKEN|GITHUB_TOKEN|COPILOT_GITHUB_TOKEN|OPENAI_API_KEY|ANTHROPIC_API_KEY)='; then
+            echo "credential variable reached the NVX guest" >&2
+            exit 1
+          fi
+          test ! -e /run/secrets
+          test ! -e /home/nobody/.config/gh/hosts.yml
+          test ! -e /home/nobody/.config/github-copilot
+          test ! -e /home/nobody/.copilot
           export HOME=/home/nobody
           export COPILOT_API_URL=http://172.30.0.30:10002
           export COPILOT_PROVIDER_BASE_URL=http://172.30.0.30:10002
@@ -534,56 +607,6 @@ jobs:
             "$layer_root/usr/local/bin/nvx-network-proof" \
             "$layer_root/usr/local/bin/run-copilot-proof"
           sudo chown -R 65534:65534 "$layer_root/home/nobody"
-
-          cat > "$RUNNER_TEMP/nvx-squid.conf" <<'EOF'
-          http_port 0.0.0.0:3128
-          acl all src all
-          http_access allow all
-          cache deny all
-          access_log stdio:/dev/stdout
-          cache_log /dev/stderr
-          pid_filename none
-          EOF
-          sudo docker network create \
-            --driver bridge \
-            --subnet 172.30.0.0/24 \
-            --opt "com.docker.network.bridge.name=$bridge" \
-            awf-net
-          sudo docker create \
-            --name nvx-phase3f-squid \
-            --network awf-net \
-            --ip 172.30.0.10 \
-            "$AWF_SQUID_IMAGE"
-          sudo docker cp \
-            "$RUNNER_TEMP/nvx-squid.conf" \
-            nvx-phase3f-squid:/etc/squid/squid.conf
-          sudo docker start nvx-phase3f-squid
-          sudo docker run --detach \
-            --name nvx-phase3f-api-proxy \
-            --network awf-net \
-            --ip 172.30.0.30 \
-            --env HTTP_PROXY=http://172.30.0.10:3128 \
-            --env HTTPS_PROXY=http://172.30.0.10:3128 \
-            --env COPILOT_GITHUB_TOKEN="$GH_TOKEN" \
-            "$AWF_API_PROXY_IMAGE"
-          for endpoint in 172.30.0.10:3128 172.30.0.30:10002; do
-            host=${endpoint%:*}
-            port=${endpoint#*:}
-            ready=false
-            for _ in $(seq 1 60); do
-              if nc -z -w 1 "$host" "$port"; then
-                ready=true
-                break
-              fi
-              sleep 1
-            done
-            if [ "$ready" != true ]; then
-              sudo docker logs nvx-phase3f-squid || true
-              sudo docker logs nvx-phase3f-api-proxy || true
-              echo "NVX infrastructure endpoint did not become ready: $endpoint" >&2
-              exit 1
-            fi
-          done
 
           evidence_runner="$RUNNER_TEMP/nvx-manager-live-evidence.cjs"
           ./node_modules/.bin/esbuild \

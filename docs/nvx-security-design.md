@@ -247,10 +247,14 @@ Phase 3f extends the opt-in live-KVM workflow without registering `nvx` as a
 runtime:
 
 - the workflow creates the fixed AWF infrastructure network and starts pinned
-  Squid and API-proxy images, with the GitHub credential present only in the
-  API-proxy container;
+  Squid and API-proxy images in a dedicated secret-bearing setup step. The
+  GitHub credential is present only in that host step and the API-proxy
+  container; the guest-layer assembly and manager execution step has no
+  credential environment;
 - the guest layer includes a pinned Copilot CLI and credential-free entrypoint
-  that must complete authenticated inference through API-proxy port `10002`;
+  that rejects provider/GitHub credential variables and common credential
+  paths before completing authenticated inference through API-proxy port
+  `10002`;
 - adversarial guest entrypoints verify that direct internet and metadata
   connections remain denied, only the configured Squid/API-proxy endpoints are
   reachable, nested credential paths are excluded from the EROFS layer, no

@@ -219,6 +219,19 @@ describe('direct OpenVMM launch executor', () => {
     expect(value.child.stdio[5].readableLength).toBeGreaterThan(0);
     expect(value.dependencies.stat).toHaveBeenCalledWith('/proc/4100/exe');
     expect(value.dependencies.stat).toHaveBeenCalledWith('/proc/4200/exe');
+    expect(value.dependencies.spawn).toHaveBeenCalledWith(
+      '/usr/sbin/ip',
+      expect.any(Array),
+      expect.objectContaining({
+        env: {
+          PATH: '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
+          LANG: 'C.UTF-8',
+          LC_ALL: 'C.UTF-8',
+          OPENVMM_LOG: 'off',
+          TERM: 'dumb',
+        },
+      }),
+    );
     expect(value.finish).toHaveBeenCalledWith({
       exitCode: 0,
       signal: null,
