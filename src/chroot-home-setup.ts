@@ -6,6 +6,12 @@ import { getSafeHostUid, getSafeHostGid, getRealUserHome } from './host-env';
 import { assertRealDirectory, createMissingOwnedDirectorySegments } from './fs-utils';
 import { resolveRunnerToolCachePath } from './runner-tool-cache';
 import { HOME_TOOL_PATHS } from './config/mount-policy';
+import {
+  GEMINI_CLI_SYSTEM_SETTINGS_RELATIVE_PATH,
+  buildGeminiSystemSettingsContent,
+  isGeminiProxyRoutingEnabled,
+  shouldPinGeminiAuthType,
+} from './services/credentials/gemini-cli-settings';
 
 // Prepare a nested bind-mount destination inside the empty chroot home before
 // Docker sees it. Without this, Docker may create intermediate parents such as
@@ -35,6 +41,27 @@ export function prepareChrootHomeMountpoint(emptyHomeDir: string, relativeMountP
 }
 
 /**
+ * Writes the AWF-owned Gemini CLI system settings file into the empty chroot home,
+ * pinning the CLI's auth type so that AWF's `GOOGLE_GEMINI_BASE_URL` (api-proxy
+ * routing) is not misread as unsupported "gateway" auth. The file is owned by the
+ * chroot user so the agent can read it; the host's real `~/.gemini` is untouched.
+ */
+function writeGeminiSystemSettings(emptyHomeDir: string, uid: number, gid: number): void {
+  const settingsPath = path.join(emptyHomeDir, GEMINI_CLI_SYSTEM_SETTINGS_RELATIVE_PATH);
+  const settingsDir = path.dirname(settingsPath);
+
+  fs.mkdirSync(settingsDir, { recursive: true });
+  assertRealDirectory(settingsDir);
+  fs.chownSync(settingsDir, uid, gid);
+  fs.chmodSync(settingsDir, 0o755);
+
+  fs.writeFileSync(settingsPath, buildGeminiSystemSettingsContent(), { mode: 0o644 });
+  fs.chownSync(settingsPath, uid, gid);
+  fs.chmodSync(settingsPath, 0o644);
+  logger.debug(`Wrote Gemini CLI system settings: ${settingsPath} (${uid}:${gid})`);
+}
+
+/**
  * Creates the empty chroot home directory placeholder, all whitelisted ~/.
  * subdirectories on the host, and any runner tool-cache mountpoints so Docker
  * does not create them as root-owned before bind mounts are established.
@@ -61,6 +88,10 @@ export function prepareChrootHomeMounts(config: WrapperConfig): void {
   }
   fs.chownSync(emptyHomeDir, uid, gid);
   logger.debug(`Created chroot home directory: ${emptyHomeDir} (${uid}:${gid})`);
+
+  if (isGeminiProxyRoutingEnabled(config) && shouldPinGeminiAuthType()) {
+    writeGeminiSystemSettings(emptyHomeDir, uid, gid);
+  }
 
   // Ensure source directories and nested chroot mountpoints exist before Docker
   // sees them, so it cannot create either side as root-owned.

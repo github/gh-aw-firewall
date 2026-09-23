@@ -143,6 +143,15 @@ In AWF API-proxy mode this is mitigated by placeholder values (`sk-ant-placehold
 agent container, but avoid setting a real `ANTHROPIC_API_KEY` alongside WIF variables in the
 same process.
 
+## Gemini CLI compatibility (API proxy)
+
+| Gemini CLI version | Status with `--enable-api-proxy` | Notes |
+|--------------------|----------------------------------|-------|
+| ≤ 0.43.x | Supported | `GOOGLE_GEMINI_BASE_URL` selects API-key auth directly. |
+| ≥ 0.44.0 (incl. 0.55.1) | Supported | The CLI maps `GOOGLE_GEMINI_BASE_URL` to its unsupported `gateway` auth type and exits 41 with `Invalid auth method selected.` ([gemini-cli#27550](https://github.com/google-gemini/gemini-cli/issues/27550)). AWF pins `security.auth.selectedType` to `gemini-api-key` via `GEMINI_CLI_SYSTEM_SETTINGS_PATH`, so no CLI downgrade is needed. |
+
+The pinned settings file lives at `$HOME/.awf/gemini-cli-system-settings.json` inside the agent's chroot home; the host's `~/.gemini` directory is never modified. It is not written for Vertex AI (`GOOGLE_GENAI_USE_VERTEXAI=true`) or Google-account (`GOOGLE_GENAI_USE_GCA=true`) runs, whose auth types the CLI resolves before the `gateway` branch. See [api-proxy-sidecar.md](api-proxy-sidecar.md#gemini-cli-exits-41-with-invalid-auth-method-selected).
+
 ## Internal Environment Variables
 
 The following environment variables are set internally by the firewall and used by container scripts:

@@ -1,6 +1,8 @@
 import { WrapperConfig, API_PROXY_PORTS } from '../../types';
 import { buildProviderCredentialIsolationEnv } from './provider-credential-isolation';
 import { isGcpOidcConfigured } from './gcp-oidc-config';
+import { getGeminiSystemSettingsPath, shouldPinGeminiAuthType } from './gemini-cli-settings';
+import { getRealUserHome } from '../../host-env';
 
 interface GeminiCredentialEnvParams {
   config: WrapperConfig;
@@ -31,5 +33,12 @@ export function buildGeminiCredentialEnv(params: GeminiCredentialEnvParams): Rec
     placeholders: {
       GEMINI_API_KEY: 'gemini-api-key-placeholder-for-credential-isolation',
     },
+    // Gemini CLI >= 0.44 treats any GOOGLE_GEMINI_BASE_URL as "gateway" auth, which its
+    // own validator rejects ("Invalid auth method selected.", exit 41). Point the CLI at
+    // an AWF-owned system settings file that pins the API-key auth type instead.
+    // See gemini-cli-settings.ts and google-gemini/gemini-cli#27550.
+    extraEnv: shouldPinGeminiAuthType()
+      ? { GEMINI_CLI_SYSTEM_SETTINGS_PATH: getGeminiSystemSettingsPath(getRealUserHome()) }
+      : undefined,
   });
 }
