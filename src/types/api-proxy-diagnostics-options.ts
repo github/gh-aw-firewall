@@ -2,6 +2,8 @@
  * API proxy diagnostics, logging, and cache options.
  */
 
+import type { ClaudeHostedWebConfig } from '../claude-hosted-web-policy';
+
 export interface ApiProxyDiagnosticsOptions {
   /**
    * Enable detailed token and model-alias diagnostic logging.
@@ -112,4 +114,28 @@ export interface ApiProxyDiagnosticsOptions {
    * @default "5m"
    */
   anthropicCacheTailTtl?: '5m' | '1h';
+
+  /**
+   * Claude (Anthropic) hosted web search/fetch domain policy enforced by the
+   * API proxy sidecar.
+   *
+   * Anthropic's hosted `web_search_*` / `web_fetch_*` server tools run on
+   * Anthropic infrastructure, so Squid only ever sees the Anthropic endpoint —
+   * never the searched or fetched destination. The sidecar therefore injects
+   * and enforces this AWF-owned policy on every matching tool definition before
+   * the request is dispatched upstream.
+   *
+   * The configured policy is an immutable upper bound: request-provided tool
+   * filters may narrow it, but can never broaden, replace, or remove it.
+   * Conflicting or unrepresentable combinations fail closed with a structured
+   * API-proxy error.
+   *
+   * Config-only; there is no CLI flag or environment alias.
+   *
+   * Set via:
+   * - Config file: `apiProxy.hostedWeb.claude`
+   *
+   * @default undefined (no enforcement — hosted web tools pass through)
+   */
+  claudeHostedWeb?: ClaudeHostedWebConfig;
 }

@@ -126,6 +126,106 @@
           ],
           "description": "TTL for Anthropic cache tail optimization. Only applies when anthropicAutoCache is enabled. Allowed values: \"5m\" or \"1h\"."
         },
+        "hostedWeb": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Policy for provider-hosted web tools that execute outside the AWF network boundary. Squid cannot observe these destinations because the provider performs the search/fetch on its own infrastructure and returns the content inside an already-allowed API response, so the policy is enforced by the trusted api-proxy sidecar before the request is dispatched upstream. Config-only (no CLI flag or environment alias). Omitting this object preserves the current pass-through behaviour: WARNING, omission does NOT constrain provider-hosted egress.",
+          "properties": {
+            "claude": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "enabled"
+              ],
+              "description": "Claude (Anthropic Messages API) hosted web search/fetch policy. Applies to every versioned web_search_YYYYMMDD and web_fetch_YYYYMMDD server tool in a request. The configured policy is an immutable upper bound: request-provided tool filters may narrow it but can never broaden, replace, or remove it. Precedence: (1) enabled:false rejects any matching tool; (2) allowlist mode injects allowedDomains when the request omits them, otherwise intersects, rejecting an empty intersection, and rejects a request that carries blocked_domains; (3) blocklist mode injects blockedDomains when the request omits them, otherwise unions, and rejects a request that carries allowed_domains; (4) a request carrying both allowed_domains and blocked_domains is rejected; (5) maxUses is an upper bound and the effective value is min(configured, requested). Conflicts fail closed with an api-proxy error rather than silently dropping either restriction. Requests without a matching hosted tool are forwarded unchanged. Identical behaviour for JSON/YAML config files and JSON/YAML supplied via `--config -` (stdin); validation errors are reported against the stdin source before any container starts. Sensitive, secret-derived allowlist entries (e.g. the host derived from apiProxy.targets.openai.baseUrlEnv, see §9.7) are never disclosed to or authorized for provider-hosted retrieval; the hosted-web list must be stated explicitly and is never copied from network.allowDomains.",
+              "properties": {
+                "enabled": {
+                  "type": "boolean",
+                  "description": "Required. When false, every matching Claude hosted web_search_*/web_fetch_* tool causes the request to be rejected before upstream dispatch. When true, exactly one of allowedDomains or blockedDomains must be present and non-empty — there is deliberately no implicit unrestricted mode, so a success-shaped config can never forward unrestricted hosted web access."
+                },
+                "allowedDomains": {
+                  "type": "array",
+                  "minItems": 1,
+                  "uniqueItems": true,
+                  "description": "Provider allowlist upper bound sent to Anthropic as allowed_domains. Mutually exclusive with blockedDomains (Anthropic rejects both on one tool definition). Values are lowercase DNS hostnames with at least two labels: no scheme, path, query, fragment, credentials, port, wildcard, CIDR, raw IP address, or localhost/Docker service alias. Duplicates are removed after normalization. A parent domain also covers its subdomains, matching Anthropic's semantics.",
+                  "items": {
+                    "type": "string",
+                    "pattern": "^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$"
+                  }
+                },
+                "blockedDomains": {
+                  "type": "array",
+                  "minItems": 1,
+                  "uniqueItems": true,
+                  "description": "Provider blocklist lower bound sent to Anthropic as blocked_domains. Mutually exclusive with allowedDomains (Anthropic rejects both on one tool definition). Same domain syntax as allowedDomains. A request may add further blocked domains (union) but can never remove a configured one.",
+                  "items": {
+                    "type": "string",
+                    "pattern": "^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$"
+                  }
+                },
+                "maxUses": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "description": "Maximum uses AWF permits per matching hosted tool (sent as max_uses). Injected when the request omits max_uses; otherwise the effective value is min(configured, requested), so a request can only reduce the limit. Malformed, zero, negative, or non-integer request values are rejected."
+                }
+              },
+              "not": {
+                "required": [
+                  "allowedDomains",
+                  "blockedDomains"
+                ]
+              },
+              "anyOf": [
+                {
+                  "properties": {
+                    "enabled": {
+                      "const": false
+                    }
+                  },
+                  "required": [
+                    "enabled"
+                  ],
+                  "not": {
+                    "anyOf": [
+                      {
+                        "required": [
+                          "allowedDomains"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "blockedDomains"
+                        ]
+                      }
+                    ]
+                  }
+                },
+                {
+                  "properties": {
+                    "enabled": {
+                      "const": true
+                    }
+                  },
+                  "required": [
+                    "enabled",
+                    "allowedDomains"
+                  ]
+                },
+                {
+                  "properties": {
+                    "enabled": {
+                      "const": true
+                    }
+                  },
+                  "required": [
+                    "enabled",
+                    "blockedDomains"
+                  ]
+                }
+              ]
+            }
+          }
+        },
         "maxEffectiveTokens": {
           "type": "integer",
           "minimum": 1,

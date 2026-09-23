@@ -190,6 +190,7 @@ export function buildConfig(inputs: BuildConfigInputs): WrapperConfig {
     requestedModel: options.requestedModel as string | undefined,
     anthropicAutoCache: options.anthropicAutoCache as boolean,
     anthropicCacheTailTtl: options.anthropicCacheTailTtl as '5m' | '1h' | undefined,
+    claudeHostedWeb: options.claudeHostedWeb as WrapperConfig['claudeHostedWeb'],
     modelAliases,
     allowedModels,
     disallowedModels,

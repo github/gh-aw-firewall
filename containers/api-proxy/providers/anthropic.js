@@ -10,6 +10,7 @@
  * Target: ANTHROPIC_API_TARGET  (default: api.anthropic.com)
  * Base path: ANTHROPIC_API_BASE_PATH
  * Body transforms: model alias rewriting + optional prompt-cache optimisations
+ *                 + AWF Claude hosted web search/fetch domain policy
  */
 
 const {
@@ -22,6 +23,10 @@ const { createProviderAuthScaffold, createOidcAwareProviderAdapter } = require('
 const { AnthropicOidcTokenProvider } = require('../anthropic-oidc-token-provider');
 const { ANTHROPIC_ENV } = require('../provider-env-constants');
 const { bearerAuthHeaders, providerKeyHeaders } = require('./auth-headers');
+const {
+  parseClaudeHostedWebPolicy,
+  makeClaudeHostedWebTransform,
+} = require('../claude-hosted-web');
 
 const OAUTH_API_BETA = 'oauth-2025-04-20';
 
@@ -99,9 +104,20 @@ function createAnthropicAdapter(env, deps = {}) {
     customTransform,
   });
 
+  // ── AWF Claude hosted web search/fetch policy ─────────────────────────────
+  // Parsed once here (adapter construction happens during sidecar startup), so
+  // an invalid internal policy fails startup instead of the first request.
+  const hostedWebPolicy = parseClaudeHostedWebPolicy(env.AWF_CLAUDE_HOSTED_WEB_POLICY);
+  const hostedWebTransform = makeClaudeHostedWebTransform(hostedWebPolicy);
+
   // Build the composed transform once at construction time to avoid
-  // re-allocating the wrapper function on every request.
-  const composedBodyTransform = composeBodyTransforms(depsBodyTransform, optimisationsTransform);
+  // re-allocating the wrapper function on every request. The hosted-web policy
+  // runs last so no earlier transform (prompt-cache, tool-drop, or a custom
+  // transform file) can re-expand or remove the enforced domain policy.
+  const composedBodyTransform = composeBodyTransforms(
+    composeBodyTransforms(depsBodyTransform, optimisationsTransform),
+    hostedWebTransform,
+  );
   return createOidcAwareProviderAdapter({
     env,
     oidcAuthOptions: {
@@ -192,6 +208,7 @@ function createAnthropicAdapter(env, deps = {}) {
           _stripAnsi: stripAnsi,
           _transformFile: transformFile,
           _customTransformLoaded: !!customTransform,
+          _hostedWebPolicy: hostedWebPolicy,
           _optimisationsTransform: optimisationsTransform,
         },
       };

@@ -37,6 +37,7 @@ export function mapAwfFileConfigToCliOptions(config: AwfFileConfig): Record<stri
     enableTokenSteering: config.apiProxy?.enableTokenSteering,
     anthropicAutoCache: config.apiProxy?.anthropicAutoCache,
     anthropicCacheTailTtl: config.apiProxy?.anthropicCacheTailTtl as '5m' | '1h' | undefined,
+    claudeHostedWeb: config.apiProxy?.hostedWeb?.claude,
     maxEffectiveTokens: config.apiProxy?.maxEffectiveTokens,
     maxAiCredits: config.apiProxy?.maxAiCredits,
     defaultAiCreditsPricing: config.apiProxy?.defaultAiCreditsPricing,

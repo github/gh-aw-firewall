@@ -8,6 +8,7 @@ import type {
   CloudHypervisorMountPolicy,
 } from './types/runtime-options';
 import type { ModelRoutingConfig } from './types/api-proxy-routing-options';
+import type { ClaudeHostedWebConfig } from './claude-hosted-web-policy';
 
 /** @internal Used only by config-file helpers — not part of public API */
 // ts-prune-ignore-next
@@ -32,6 +33,9 @@ export interface AwfFileConfig {
     enableTokenSteering?: boolean;
     anthropicAutoCache?: boolean;
     anthropicCacheTailTtl?: string;
+    hostedWeb?: {
+      claude?: ClaudeHostedWebConfig;
+    };
     maxEffectiveTokens?: number;
     maxAiCredits?: number;
     defaultAiCreditsPricing?: { input: number; output: number; cachedInput?: number; cacheWrite?: number | null };

@@ -6,6 +6,7 @@ import { OPENAI_ENV, ANTHROPIC_ENV, GEMINI_ENV, COPILOT_ENV, VERTEX_ENV, OIDC_AU
 import { NetworkConfig } from './squid-service';
 import { buildNoProxyEnv } from './no-proxy-utils';
 import { resolveOpenAiBaseUrlFromEnv } from '../openai-base-url-env';
+import { normalizeClaudeHostedWebPolicy } from '../claude-hosted-web-policy';
 
 const DEFAULT_API_PROXY_SHUTDOWN_TIMEOUT_MS = 8000;
 export const API_PROXY_UPSTREAM_CA_CERT_CONTAINER_PATH = '/usr/local/share/ca-certificates/awf-upstream-ca.crt';
@@ -257,6 +258,10 @@ function buildRateLimitEnv(config: WrapperConfig): Record<string, string> {
  * Anthropic prompt-cache optimizations, token steering, and diagnostic logging.
  */
 function buildModelPolicyEnv(config: WrapperConfig): Record<string, string> {
+  // Normalization throws on an invalid policy, which aborts the run before any
+  // container starts rather than surfacing on the first Anthropic request.
+  const claudeHostedWebPolicy = normalizeClaudeHostedWebPolicy(config.claudeHostedWeb);
+
   return {
     // Model alias configuration
     ...(config.modelAliases && {
@@ -274,6 +279,11 @@ AWF_ROUTING_CONFIG: JSON.stringify(config.modelRouting),
     }),
     ...(config.disallowedModels && config.disallowedModels.length > 0 && {
       AWF_DISALLOWED_MODELS: JSON.stringify(config.disallowedModels),
+    }),
+    // Claude hosted web search/fetch policy (validated on the host; the sidecar
+    // re-parses it at startup and fails closed if it is not a valid policy).
+    ...(claudeHostedWebPolicy && {
+      AWF_CLAUDE_HOSTED_WEB_POLICY: JSON.stringify(claudeHostedWebPolicy),
     }),
     // Anthropic prompt-cache optimizations
     ...(config.anthropicAutoCache && {
