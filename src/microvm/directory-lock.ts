@@ -35,6 +35,9 @@ export interface DirectoryLockOptions<T> {
 /**
  * Acquires an exclusive `mkdir`-based directory lock, runs `operation`, and always
  * releases the lock through the caller-provided `removeOwnedLock` hook.
+ *
+ * `reclaimStaleLock` runs before the deadline check, so a contended lock is always
+ * offered for stale-lock recovery at least once even when `timeoutMs` has elapsed.
  */
 export async function withDirectoryLock<T>(options: DirectoryLockOptions<T>): Promise<T> {
   const { lockDirectory, dependencies } = options;
