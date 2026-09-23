@@ -12,7 +12,6 @@ permissions:
 sandbox:
   agent:
     id: awf
-    runtime: cloud-hypervisor
 tools:
   github:
     toolsets: [repos]
