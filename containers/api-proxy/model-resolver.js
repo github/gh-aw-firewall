@@ -176,10 +176,7 @@ function _resolveDirectMatch(key, requestedModel, currentProvider, availableMode
   // ever select from the policy-permitted subset of the provider's models — otherwise
   // an unavailable request could resolve to a model the request guard would reject.
   const fallbackAvailableModels = modelPolicyConfig
-    ? {
-      ...availableModels,
-      [currentProvider]: providerModels.filter(m => _isModelPermittedByPolicy(m, modelPolicyConfig, currentProvider)),
-    }
+    ? { [currentProvider]: providerModels.filter(m => _isModelPermittedByPolicy(m, modelPolicyConfig, currentProvider)) }
     : availableModels;
   return applyModelParametersToResolution(tryMiddlePowerFallback(
     requestedModel, fallbackAvailableModels, currentProvider,
