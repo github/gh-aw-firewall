@@ -81,7 +81,7 @@ function initHttpState({ streaming, compressed, contentType, contentEncoding }) 
  * @param {string} context.provider
  * @returns {(text: string) => void}
  */
-function createChunkHandler(state, { requestId, provider }) {
+function createChunkHandler(state, { requestId, provider, onSseData }) {
   return function handleDecodedChunk(text) {
     if (state.streaming) {
       const combined = state.partialLine + text;
@@ -92,6 +92,7 @@ function createChunkHandler(state, { requestId, provider }) {
 
         const dataLines = parseSseDataLines(complete);
         for (const line of dataLines) {
+          if (typeof onSseData === 'function') onSseData(line);
           const { usage, model } = extractUsageFromSseLine(line);
           if (model && !state.streamingModel) state.streamingModel = model;
           if (usage) {
@@ -298,7 +299,7 @@ function extractUsageFromTrackedState(state) {
  * @param {string|null} params.initiatorSent
  * @param {object|undefined} params.budgetResult
  */
-function buildAndWriteTokenRecord(normalized, { requestId, provider, model, reqPath, status, streaming, duration, responseBytes, billingInfo, initiatorSent, budgetResult }) {
+function buildAndWriteTokenRecord(normalized, { requestId, provider, model, reqPath, status, streaming, duration, responseBytes, billingInfo, initiatorSent, budgetResult, purpose }) {
   const record = buildTokenUsageRecord(normalized, {
     requestId,
     provider,
@@ -308,6 +309,7 @@ function buildAndWriteTokenRecord(normalized, { requestId, provider, model, reqP
     streaming,
     duration,
     responseBytes,
+    purpose,
   });
 
   // Include billing/quota info when available (Copilot PRU tracking)
@@ -345,7 +347,7 @@ function buildAndWriteTokenRecord(normalized, { requestId, provider, model, reqP
  * @param {object} opts - Original options passed to trackTokenUsage
  */
 function finalizeHttpTracking(state, proxyRes, opts) {
-  const { requestId, provider, path: reqPath, startTime, metrics: metricsRef, billingInfo, initiatorSent, requestModel, onUsage, onSpanEnd } = opts;
+  const { requestId, provider, path: reqPath, startTime, metrics: metricsRef, billingInfo, initiatorSent, requestModel, onUsage, onSpanEnd, purpose } = opts;
   const { streaming, compressed, contentEncoding } = state;
 
   // Only process successful responses (2xx)
@@ -427,6 +429,7 @@ function finalizeHttpTracking(state, proxyRes, opts) {
     billingInfo,
     initiatorSent,
     budgetResult,
+    purpose,
   });
 
   if (typeof onSpanEnd === 'function') onSpanEnd(proxyRes.statusCode);
@@ -509,7 +512,7 @@ function trackTokenUsage(proxyRes, opts) {
     }
   }
 
-  const onChunk = createChunkHandler(state, { requestId, provider });
+  const onChunk = createChunkHandler(state, { requestId, provider, onSseData: opts.onSseData });
   const onFinalize = () => finalizeHttpTracking(state, proxyRes, opts);
   wireListeners(proxyRes, decompressor, state, onChunk, onFinalize, res);
 }

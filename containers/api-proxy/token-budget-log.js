@@ -17,10 +17,10 @@ const { applyMaxCacheMissesUsage } = require('./guards/max-cache-misses-guard');
  * @param {string|undefined} model
  * @returns {object|undefined} Budget fields for JSONL persistence, or undefined if neither guard is active.
  */
-function computeTokenBudgetUsage({ logRequest, requestId, provider }, normalizedUsage, model) {
+function computeTokenBudgetUsage({ logRequest, requestId, provider, purpose }, normalizedUsage, model) {
   const effectiveTokenUsage = applyEffectiveTokenUsage(normalizedUsage, model);
   const aiCreditsUsage = applyAiCreditsUsage(normalizedUsage, model, provider);
-  applyMaxCacheMissesUsage(normalizedUsage);
+  if (purpose !== 'routing_classification') applyMaxCacheMissesUsage(normalizedUsage);
   if (aiCreditsUsage) {
     logRequest('info', 'token_budget_usage', {
       request_id: requestId,
@@ -33,6 +33,7 @@ function computeTokenBudgetUsage({ logRequest, requestId, provider }, normalized
       accounting_policy: aiCreditsUsage.accountingPolicy,
       fallback_pricing_used: aiCreditsUsage.fallbackPricingUsed,
       dynamic_selector: aiCreditsUsage.dynamicSelector,
+      ...(purpose ? { purpose } : {}),
     });
   }
   const budgetFields = {};

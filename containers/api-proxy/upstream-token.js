@@ -7,6 +7,7 @@ function setupTokenTracking(proxyRes, body, {
   initiatorSent, span, isStreaming,
   trackTokenUsage, sanitizeForLog, metrics, otel, logRequest,
 }) {
+  const purpose = req.awfRequestContext?.purpose;
   // Extract model from request body as fallback for token tracking when the
   // upstream response omits the model field (e.g., Copilot SDK streaming).
   let requestModel = null;
@@ -17,10 +18,11 @@ function setupTokenTracking(proxyRes, body, {
     } catch { /* non-JSON body */ }
   }
   trackTokenUsage(proxyRes, {
-    requestId, provider, path: sanitizeForLog(req.url), res, startTime, metrics, billingInfo, initiatorSent, requestModel,
+    requestId, provider, path: sanitizeForLog(req.url), res, startTime, metrics, billingInfo, initiatorSent, requestModel, purpose,
+    ...(req.awfRouting ? { onSseData: req.awfRouting.onSseData } : {}),
     onUsage: (normalizedUsage, model) => {
       otel.setTokenAttributes(span, { provider, model, normalizedUsage, streaming: isStreaming });
-      const budgetResult = computeTokenBudgetUsage({ logRequest, requestId, provider }, normalizedUsage, model);
+      const budgetResult = computeTokenBudgetUsage({ logRequest, requestId, provider, purpose }, normalizedUsage, model);
       otel.setBudgetAttributes(span, budgetResult);
       return budgetResult;
     },

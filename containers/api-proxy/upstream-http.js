@@ -47,6 +47,9 @@ function createSendUpstreamRequest({
     targetScheme = 'https',
     codexCompatibility = null,
   }) {
+    const cancellationSignal = req.awfRequestContext?.purpose === 'routing_classification'
+      ? req.awfRequestContext.signal
+      : null;
     let outboundHeaders = requestHeaders;
     if (requestSigner) {
       try {
@@ -81,6 +84,7 @@ function createSendUpstreamRequest({
       hostname: targetHost, port: isHttp ? 80 : 443, path: upstreamPath,
       method: req.method, headers: outboundHeaders,
       agent: proxyAgent,
+      ...(cancellationSignal ? { signal: cancellationSignal } : {}),
     };
 
     const proxyReq = mod.request(options, (proxyRes) => {

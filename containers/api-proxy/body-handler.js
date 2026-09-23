@@ -220,7 +220,8 @@ function createBodyHandler({ handleRequestError, otel }) {
       }
     }
 
-    if (isSteeringEnabled() && (req.method === 'POST' || req.method === 'PUT')) {
+    const allowSteering = req.awfRequestContext?.purpose !== 'routing_classification' && !req.awfRouting;
+    if (allowSteering && isSteeringEnabled() && (req.method === 'POST' || req.method === 'PUT')) {
       const steeringMessages = [
         { type: 'timeout', message: getAndClearPendingTimeoutSteeringMessage() },
         { type: 'token', message: getAndClearPendingSteeringMessage() },

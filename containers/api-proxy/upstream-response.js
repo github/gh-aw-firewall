@@ -175,14 +175,18 @@ function createUpstreamResponseHandlers({
     //   (a) a deprecated Anthropic/Copilot beta-header value (first attempt only),
     //   (b) a transient Copilot "model not supported" catalogue error (up to MAX retries), or
     //   (c) a permanent Copilot "model not accessible via endpoint" error (fallback to next candidate).
+    const isRoutingClassifier = req.awfRequestContext?.purpose === 'routing_classification';
     const shouldBuffer400 =
+      !isRoutingClassifier &&
+      !req.awfRouting &&
       proxyRes.statusCode === 400 &&
       (
         ((provider === 'anthropic' || provider === 'copilot') && !hasRetried) ||
         (provider === 'copilot' && modelNotSupportedRetryCount < MAX_MODEL_NOT_SUPPORTED_RETRIES) ||
         (provider === 'copilot' && !!onModelEndpointBlockedRetry)
       );
-    const shouldCaptureUpstreamError = proxyRes.statusCode < 200 || proxyRes.statusCode >= 300;
+    const shouldCaptureUpstreamError = !isRoutingClassifier &&
+      (proxyRes.statusCode < 200 || proxyRes.statusCode >= 300);
 
     const completionCtx = { startTime, provider, req, requestBytes, targetHost, requestId };
     const authErrCtx = { requestId, provider, targetHost, req };

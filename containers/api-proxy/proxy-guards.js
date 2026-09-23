@@ -129,6 +129,8 @@ function sendGuardBlockedResponse(block, {
   res.writeHead(statusCode, { 'Content-Type': 'application/json', 'X-Request-ID': requestId });
   res.end(JSON.stringify(buildError(block)));
 
+  if (req.awfRequestContext?.purpose === 'routing_classification') return;
+
   writeBlockedRequestDiag({
     requestId,
     provider,
@@ -150,11 +152,8 @@ function sendGuardBlockedResponse(block, {
  *           inboundBytes: number }} ctx
  * @returns {boolean}
  */
-function enforceGuards({ body, provider, req, res, requestId, startTime, span, inboundBytes }) {
-  const checkModelMultiplier = req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH';
-  const model = checkModelMultiplier ? extractModelFromBody(body) : null;
-
-  const guardChecks = buildCommonGuardChecks({
+function getCurrentGuardChecks(model, provider) {
+  return buildCommonGuardChecks({
     getEffectiveTokenBlockState,
     buildEffectiveTokenLimitError,
     getMaxRunsBlockState,
@@ -173,6 +172,13 @@ function enforceGuards({ body, provider, req, res, requestId, startTime, span, i
     getModelPolicyBlockState,
     buildModelPolicyError,
   }, model, provider);
+}
+
+function enforceGuards({ body, provider, req, res, requestId, startTime, span, inboundBytes }) {
+  const checkModelMultiplier = req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH';
+  const model = checkModelMultiplier ? extractModelFromBody(body) : null;
+
+  const guardChecks = getCurrentGuardChecks(model, provider);
 
   for (const guard of guardChecks) {
     if (!guard.isBlocked(guard.block)) continue;
@@ -198,5 +204,6 @@ function enforceGuards({ body, provider, req, res, requestId, startTime, span, i
 
 module.exports = {
   sendGuardBlockedResponse,
+  getCurrentGuardChecks,
   enforceGuards,
 };

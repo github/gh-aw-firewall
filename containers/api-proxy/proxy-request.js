@@ -290,8 +290,9 @@ function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = 
       res.end(JSON.stringify({
         error: {
           message: err && err.message ? err.message : 'Request body transform failed',
-          type: 'invalid_request_error',
+          type: err && err.type ? err.type : 'invalid_request_error',
           code: err && err.code ? err.code : 'request_transform_failed',
+          ...(typeof err?.retryable === 'boolean' ? { retryable: err.retryable } : {}),
         },
       }));
       return;
