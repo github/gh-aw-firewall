@@ -272,6 +272,11 @@ function createCopilotAdapter(env, deps = {}) {
       missingCredentialMessage: 'COPILOT_GITHUB_TOKEN or COPILOT_PROVIDER_API_KEY not configured in api-proxy sidecar',
       unavailableWhen: () => oidcConfigured ? { message: `Copilot OIDC token (${authProvider}) not yet available in api-proxy sidecar` } : null,
       extra: {
+        getRoutingProviderIdentity: () => (
+          !oidcConfigured && githubToken && !apiKey && isGithubCopilotCatalogTarget(rawTarget)
+            ? 'github-copilot'
+            : null
+        ),
         // Exposed for introspection / testing
         _githubToken: githubToken,
         _apiKey: apiKey,

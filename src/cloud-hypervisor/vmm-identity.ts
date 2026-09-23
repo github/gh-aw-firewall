@@ -1,7 +1,7 @@
 import { randomBytes } from 'crypto';
 import { promises as fs } from 'fs';
 import * as path from 'path';
-import execa from 'execa';
+import { createDefaultIdentityDependencies } from '../identity-dependencies';
 import { withDirectoryLock, type DirectoryLockOwner } from '../microvm/directory-lock';
 
 const ACCOUNT_PREFIX = 'awfvmm-';
@@ -55,32 +55,8 @@ export interface CloudHypervisorVmmIdentityDependencies {
   processStartTime(pid: number): Promise<string | undefined>;
 }
 
-const defaultDependencies: CloudHypervisorVmmIdentityDependencies = {
-  mkdir: fs.mkdir,
-  writeFile: fs.writeFile,
-  readFile: fs.readFile,
-  rm: fs.rm,
-  rmdir: fs.rmdir,
-  lstat: fs.lstat,
-  run: async (command, args) => {
-    const result = await execa(command, [...args], {
-      reject: false,
-      stdio: ['ignore', 'pipe', 'pipe'],
-      env: { PATH: '/usr/sbin:/usr/bin:/sbin:/bin' },
-      extendEnv: false,
-    });
-    if (result.exitCode !== 0) {
-      throw new Error(
-        `${command} ${args.join(' ')} exited with code ${result.exitCode}: ` +
-        `${result.stderr.trim() || result.stdout.trim()}`,
-      );
-    }
-    return { stdout: result.stdout, stderr: result.stderr };
-  },
-  sleep: (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
-  pid: process.pid,
-  processStartTime: readProcessStartTime,
-};
+const defaultDependencies: CloudHypervisorVmmIdentityDependencies =
+  createDefaultIdentityDependencies(readProcessStartTime);
 
 type LockOwner = DirectoryLockOwner;
 

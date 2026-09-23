@@ -6,10 +6,43 @@ const {
   clearRuntimeModels,
   resolveRuntimePricing,
   getRuntimeCatalogSnapshot,
+  getRuntimeModels,
 } = require('./runtime-model-catalog');
 
 describe('runtime model catalog', () => {
   afterEach(() => clearRuntimeModels());
+
+  it('retains explicit Copilot routing capabilities only in the private catalogue', () => {
+    const entry = {
+      id: 'gpt-test',
+      supportedReasoningEfforts: ['low', 'high'],
+      supported_endpoints: ['/responses', '/chat/completions'],
+      capabilities: { limits: { max_context_window_tokens: 128_000 } },
+    };
+    const records = parseProviderModelMetadata('copilot', {
+      data: [entry, { id: 'missing' }, { id: 'empty', supportedReasoningEfforts: [] }],
+    });
+    replaceRuntimeModels('copilot', records);
+    const model = getRuntimeModels('copilot').find(record => record.id === entry.id);
+    expect(model).toMatchObject({
+      supportedReasoningEfforts: ['low', 'high'],
+      supportedEndpoints: ['/responses', '/chat/completions'],
+      capabilities: entry.capabilities,
+    });
+    expect(model.supportedReasoningEfforts).not.toBe(entry.supportedReasoningEfforts);
+    expect(model.supportedEndpoints).not.toBe(entry.supported_endpoints);
+    entry.supportedReasoningEfforts.push('max');
+    entry.supported_endpoints.length = 0;
+    expect(model.supportedReasoningEfforts).toEqual(['low', 'high']);
+    expect(model.supportedEndpoints).toEqual(['/responses', '/chat/completions']);
+    expect(records.find(record => record.id === 'missing')).not.toHaveProperty('supportedReasoningEfforts');
+    expect(records.find(record => record.id === 'empty').supportedReasoningEfforts).toEqual([]);
+    for (const record of getRuntimeCatalogSnapshot().copilot) {
+      expect(record).not.toHaveProperty('supportedReasoningEfforts');
+      expect(record).not.toHaveProperty('supportedEndpoints');
+      expect(record).not.toHaveProperty('capabilities');
+    }
+  });
 
   it('normalizes current Copilot tiered pricing into dollars per million tokens', () => {
     const records = parseProviderModelMetadata('copilot', {

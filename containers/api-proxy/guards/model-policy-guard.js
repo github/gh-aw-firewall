@@ -1,6 +1,7 @@
 'use strict';
 
-const { globMatch } = require('../model-utils');
+const { globMatch, stripRedundantProviderPrefix } = require('../model-utils');
+const { getProviderAliases } = require('../provider-pricing-overlays');
 
 /**
  * Model policy enforcement for AWF API proxy.
@@ -56,25 +57,45 @@ if (DISALLOWED_MODELS) {
   });
 }
 
+function modelPolicyPatternMatches(pattern, model, provider) {
+  if (!provider) return globMatch(pattern, model);
+  const aliases = getProviderAliases(provider.toLowerCase());
+  const prefix = aliases.find(alias => model.toLowerCase().startsWith(`${alias}/`));
+  const nativeModel = prefix ? stripRedundantProviderPrefix(model, prefix) : model;
+  return pattern.includes('/')
+    ? aliases.some(alias => globMatch(pattern, `${alias}/${nativeModel}`))
+    : globMatch(pattern, nativeModel);
+}
+
+function isDynamicModelUnverifiable(model, allowedModels, disallowedModels, provider) {
+  return modelPolicyPatternMatches('auto', model, provider) &&
+    !!disallowedModels &&
+    !(allowedModels && allowedModels.some(pattern => modelPolicyPatternMatches(pattern, model, provider)));
+}
+
 /**
  * Check whether a model name is permitted by the current policy.
  *
  * @param {string} model - The model name to check (case-insensitive)
  * @param {string[]|null} [allowedModels] - Override for allowed patterns (defaults to module-level config)
  * @param {string[]|null} [disallowedModels] - Override for disallowed patterns (defaults to module-level config)
+ * @param {string|null} [provider] - Provider slot for provider-qualified patterns.
  * @returns {boolean} true when the model is permitted.
  */
-function isModelPermittedByPolicy(model, allowedModels = ALLOWED_MODELS, disallowedModels = DISALLOWED_MODELS) {
+function isModelPermittedByPolicy(model, allowedModels = ALLOWED_MODELS, disallowedModels = DISALLOWED_MODELS, provider = null) {
   if (!allowedModels && !disallowedModels) return true;
   if (!model) return true;
 
+  // Provider-aware resolution must not offer a dynamic model the request guard rejects.
+  if (provider && isDynamicModelUnverifiable(model, allowedModels, disallowedModels, provider)) return false;
+
   // Disallowed check first (denylist takes priority over allowlist)
-  if (disallowedModels && disallowedModels.some(pattern => globMatch(pattern, model))) {
+  if (disallowedModels && disallowedModels.some(pattern => modelPolicyPatternMatches(pattern, model, provider))) {
     return false;
   }
 
   // Allowlist check
-  if (allowedModels && !allowedModels.some(pattern => globMatch(pattern, model))) {
+  if (allowedModels && !allowedModels.some(pattern => modelPolicyPatternMatches(pattern, model, provider))) {
     return false;
   }
 
@@ -86,25 +107,22 @@ function isModelPermittedByPolicy(model, allowedModels = ALLOWED_MODELS, disallo
  * or null when the model is permitted.
  *
  * @param {string|null} model - The model name extracted from the request body.
- * @returns {{ model: string, reason: 'disallowed'|'not_allowed' } | null}
+ * @param {string|null} [provider] - Provider slot for provider-qualified patterns.
+ * @returns {{ model: string, reason: 'disallowed'|'not_allowed'|'dynamic_model_unverifiable' } | null}
  */
-function getModelPolicyBlockState(model) {
+function getModelPolicyBlockState(model, provider = null) {
   if (!model) return null;
   if (!ALLOWED_MODELS && !DISALLOWED_MODELS) return null;
 
-  if (
-    model.toLowerCase() === 'auto' &&
-    DISALLOWED_MODELS &&
-    !(ALLOWED_MODELS && ALLOWED_MODELS.some(pattern => globMatch(pattern, model)))
-  ) {
+  if (isDynamicModelUnverifiable(model, ALLOWED_MODELS, DISALLOWED_MODELS, provider)) {
     return { model, reason: 'dynamic_model_unverifiable' };
   }
 
-  if (DISALLOWED_MODELS && DISALLOWED_MODELS.some(pattern => globMatch(pattern, model))) {
+  if (DISALLOWED_MODELS && DISALLOWED_MODELS.some(pattern => modelPolicyPatternMatches(pattern, model, provider))) {
     return { model, reason: 'disallowed' };
   }
 
-  if (ALLOWED_MODELS && !ALLOWED_MODELS.some(pattern => globMatch(pattern, model))) {
+  if (ALLOWED_MODELS && !ALLOWED_MODELS.some(pattern => modelPolicyPatternMatches(pattern, model, provider))) {
     return { model, reason: 'not_allowed' };
   }
 

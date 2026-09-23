@@ -20,6 +20,7 @@
  */
 
 const { globMatch, extractVersionNumbers, compareByVersion, stripRedundantProviderPrefix } = require('./model-utils');
+const { isModelPermittedByPolicy } = require('./guards/model-policy-guard');
 const {
   DEFAULT_MODEL_FALLBACK,
   normalizeFallbackConfig,
@@ -56,21 +57,20 @@ function applyModelParametersToResolution(resolution, parameterSuffix) {
 
 /**
  * Check whether a model name is permitted by the given policy config.
- * This is an inline copy of the logic from model-policy-guard.js to avoid a
- * circular-dependency between the pure resolver and the guard module.
  *
  * @param {string} model
  * @param {{ allowedModels?: string[]|null, disallowedModels?: string[]|null }} policyConfig
+ * @param {string} provider
  * @returns {boolean}
  */
-function _isModelPermittedByPolicy(model, policyConfig) {
+function _isModelPermittedByPolicy(model, policyConfig, provider) {
   if (!policyConfig) return true;
-  const { allowedModels, disallowedModels } = policyConfig;
-  if (!allowedModels && !disallowedModels) return true;
-  if (!model) return true;
-  if (disallowedModels && disallowedModels.some(p => globMatch(p, model))) return false;
-  if (allowedModels && !allowedModels.some(p => globMatch(p, model))) return false;
-  return true;
+  return isModelPermittedByPolicy(
+    model,
+    policyConfig.allowedModels ?? null,
+    policyConfig.disallowedModels ?? null,
+    provider,
+  );
 }
 
 /**
@@ -136,7 +136,7 @@ function _resolveDirectMatch(key, requestedModel, currentProvider, availableMode
   // 1. Direct match: model name already in the provider's available list
   const direct = providerModels.find(m => m.toLowerCase() === key);
   if (direct) {
-    if (!_isModelPermittedByPolicy(direct, modelPolicyConfig)) {
+    if (!_isModelPermittedByPolicy(direct, modelPolicyConfig, currentProvider)) {
       log.push(`[model-resolver] model policy blocked direct match: "${direct}"`);
       return null;
     }
@@ -156,7 +156,7 @@ function _resolveDirectMatch(key, requestedModel, currentProvider, availableMode
     const familyPrefix = `${family}.`;
     const familyCandidates = providerModels.filter(m => m.toLowerCase().startsWith(familyPrefix));
     const permittedCandidates = modelPolicyConfig
-      ? familyCandidates.filter(c => _isModelPermittedByPolicy(c, modelPolicyConfig))
+      ? familyCandidates.filter(c => _isModelPermittedByPolicy(c, modelPolicyConfig, currentProvider))
       : familyCandidates;
     if (permittedCandidates.length > 0) {
       const sorted = [...new Set(permittedCandidates)].sort(compareByVersion);
@@ -172,9 +172,14 @@ function _resolveDirectMatch(key, requestedModel, currentProvider, availableMode
     }
   }
 
-  // 3. Middle-power fallback
+  // 3. Middle-power fallback. When a model policy is active, the fallback must only
+  // ever select from the policy-permitted subset of the provider's models — otherwise
+  // an unavailable request could resolve to a model the request guard would reject.
+  const fallbackAvailableModels = modelPolicyConfig
+    ? { [currentProvider]: providerModels.filter(m => _isModelPermittedByPolicy(m, modelPolicyConfig, currentProvider)) }
+    : availableModels;
   return applyModelParametersToResolution(tryMiddlePowerFallback(
-    requestedModel, availableModels, currentProvider,
+    requestedModel, fallbackAvailableModels, currentProvider,
     'no_alias_match_and_not_in_available_models', fallbackConfig, log
   ), parameterSuffix);
 }
@@ -260,7 +265,7 @@ function _resolveAliasPatterns(aliasKey, aliasDefinition, requestedModel, aliase
 
   // Apply model policy filter: remove candidates that are not permitted.
   const filteredCandidates = modelPolicyConfig
-    ? effectiveCandidates.filter(c => _isModelPermittedByPolicy(c, modelPolicyConfig))
+    ? effectiveCandidates.filter(c => _isModelPermittedByPolicy(c, modelPolicyConfig, currentProvider))
     : effectiveCandidates;
 
   if (filteredCandidates.length < effectiveCandidates.length) {
@@ -381,6 +386,10 @@ function resolveModel(
   const normalizedRequestedModel = appendModelParameters(baseModel, parameterSuffix);
 
   if (currentProvider === 'copilot' && key === 'auto') {
+    if (!_isModelPermittedByPolicy(baseModel, modelPolicyConfig, currentProvider)) {
+      log.push(`[model-resolver] model policy blocked dynamic model: "${baseModel}"`);
+      return null;
+    }
     log.push('[model-resolver] special pass-through: "auto"');
     return {
       resolvedModel: normalizedRequestedModel,
@@ -406,7 +415,7 @@ function resolveModel(
     const providerModels = (availableModels[currentProvider] || []);
     const direct = providerModels.find(m => m.toLowerCase() === key);
     if (direct) {
-      if (!_isModelPermittedByPolicy(direct, modelPolicyConfig)) {
+      if (!_isModelPermittedByPolicy(direct, modelPolicyConfig, currentProvider)) {
         log.push(`[model-resolver] model policy blocked direct match: "${direct}"`);
         return null;
       }

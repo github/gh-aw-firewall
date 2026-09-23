@@ -114,6 +114,12 @@ function parseProviderModelMetadata(provider, json, options = {}) {
       ...(entry.capabilities && typeof entry.capabilities === 'object'
         ? { capabilities: entry.capabilities }
         : {}),
+      ...(Array.isArray(entry.supportedReasoningEfforts)
+        ? { supportedReasoningEfforts: [...entry.supportedReasoningEfforts] }
+        : {}),
+      ...(Array.isArray(entry.supported_endpoints)
+        ? { supportedEndpoints: [...entry.supported_endpoints] }
+        : {}),
       ...(pricing ? { pricing } : {}),
       ...(promotion ? { promotion } : {}),
     };
