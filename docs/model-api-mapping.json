@@ -1,7 +1,7 @@
 {
   "title": "Model-to-API Endpoint Mapping",
   "description": "Maps AI model families to their supported API endpoints. Used to determine which endpoint (chat/completions vs responses vs messages) a model requires.",
-  "lastUpdated": "2026-09-12T06:59:00Z",
+  "lastUpdated": "2026-09-23T13:53:00Z",
   "sources": {
     "openai": "https://developers.openai.com/api/docs/models",
     "anthropic": "https://docs.anthropic.com/en/docs/about-claude/models"
@@ -24,6 +24,18 @@
           "patterns": ["gpt-6-astra*"],
           "endpoints": ["chat_completions", "responses"],
           "notes": "Newest flagship model (Trusted Access Program rollout). Supports Chat Completions and Responses APIs."
+        },
+        {
+          "family": "gpt-6-sol",
+          "patterns": ["gpt-6-sol*"],
+          "endpoints": ["chat_completions", "responses"],
+          "notes": "GPT-6 tier balancing intelligence and cost. Supports both Chat Completions and Responses APIs per official model page."
+        },
+        {
+          "family": "gpt-6-luna",
+          "patterns": ["gpt-6-luna*"],
+          "endpoints": ["chat_completions", "responses"],
+          "notes": "GPT-6 tier for cost-sensitive, high-volume use. Supports both Chat Completions and Responses APIs per official model page."
         },
         {
           "family": "gpt-daybreak",
@@ -207,7 +219,7 @@
           "family": "claude-opus-5",
           "patterns": ["claude-opus-5*"],
           "endpoints": ["messages"],
-          "notes": "Flagship Opus generation 5. 1M token context."
+          "notes": "Flagship Opus generation 5, including claude-opus-5-5 (released 2026-09-22). 1M token context."
         },
         {
           "family": "claude-fable-5",
