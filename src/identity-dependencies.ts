@@ -17,6 +17,10 @@ export interface DefaultIdentityDependencies {
   readonly processStartTime: (pid: number) => Promise<string | undefined>;
 }
 
+/**
+ * Creates hardened filesystem and process helpers for privileged identity and lock management.
+ * Commands receive only a fixed system PATH, while callers provide their process start-time reader.
+ */
 export function createDefaultIdentityDependencies(
   processStartTime: DefaultIdentityDependencies['processStartTime'],
 ): DefaultIdentityDependencies {

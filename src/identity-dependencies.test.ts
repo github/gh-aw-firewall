@@ -16,8 +16,11 @@ describe('createDefaultIdentityDependencies', () => {
       pid: process.pid,
       processStartTime,
     });
-    await expect(dependencies.run(process.execPath, ['-e', 'process.exit(0)'])).resolves.toEqual({
-      stdout: '',
+    await expect(dependencies.run(process.execPath, [
+      '-e',
+      'process.stdout.write(process.env.PATH ?? "")',
+    ])).resolves.toEqual({
+      stdout: '/usr/sbin:/usr/bin:/sbin:/bin',
       stderr: '',
     });
     await expect(dependencies.run(process.execPath, ['-e', 'process.exit(1)']))
