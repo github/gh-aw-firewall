@@ -12,7 +12,14 @@ const GEMINI_CLI_API_KEY_AUTH_TYPE = 'gemini-api-key';
  */
 export const GEMINI_CLI_SYSTEM_SETTINGS_RELATIVE_PATH = path.join('.awf', 'gemini-cli-system-settings.json');
 
-/** Absolute path of the system settings file as seen by the agent. */
+/**
+ * Absolute path of the system settings file as seen by the agent.
+ *
+ * Callers pass the host's real user home (`getRealUserHome()`): the empty chroot home
+ * volume created by `prepareChrootHomeMounts()` is bind-mounted at exactly that path
+ * inside the agent (see `buildHomeMounts()` / `compose-generator.ts`), so the host-side
+ * write location and the agent-side lookup path always agree.
+ */
 export function getGeminiSystemSettingsPath(home: string): string {
   return path.join(home, GEMINI_CLI_SYSTEM_SETTINGS_RELATIVE_PATH);
 }
