@@ -2,6 +2,7 @@ import { randomBytes } from 'crypto';
 import { promises as fs } from 'fs';
 import * as path from 'path';
 import execa from 'execa';
+import { withDirectoryLock, type DirectoryLockOwner } from '../microvm/directory-lock';
 
 const ACCOUNT_PREFIX = 'awfvmm-';
 const ACCOUNT_LOCK_DIRECTORY = '/run/awf-cloud-hypervisor/.account-lock';
@@ -81,11 +82,7 @@ const defaultDependencies: CloudHypervisorVmmIdentityDependencies = {
   processStartTime: readProcessStartTime,
 };
 
-interface LockOwner {
-  readonly pid: number;
-  readonly startTime: string;
-  readonly nonce: string;
-}
+type LockOwner = DirectoryLockOwner;
 
 export class CloudHypervisorVmmIdentityManager {
   private identity: CloudHypervisorVmmIdentity | undefined;
@@ -365,42 +362,17 @@ export class CloudHypervisorVmmIdentityManager {
     timeoutMs: number,
     operation: () => Promise<T>,
   ): Promise<T> {
-    const parent = path.dirname(lockDirectory);
-    await this.dependencies.mkdir(parent, { recursive: true, mode: 0o711 });
-    const startTime = await this.dependencies.processStartTime(this.dependencies.pid);
-    if (!startTime) throw new Error('Cannot determine AWF process start time for VMM identity lock');
-    const owner: LockOwner = {
-      pid: this.dependencies.pid,
-      startTime,
-      nonce: randomBytes(16).toString('hex'),
-    };
-    const deadline = Date.now() + timeoutMs;
-    for (;;) {
-      let acquired = false;
-      try {
-        await this.dependencies.mkdir(lockDirectory, { mode: 0o700 });
-        acquired = true;
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
-      }
-      if (acquired) {
-        try {
-          await this.dependencies.writeFile(
-            path.join(lockDirectory, 'owner.json'),
-            `${JSON.stringify(owner)}\n`,
-            { flag: 'wx', mode: 0o600 },
-          );
-          return await operation();
-        } finally {
-          await this.removeOwnedLock(lockDirectory, owner);
-        }
-      }
-      await this.reclaimStaleLock(lockDirectory);
-      if (Date.now() >= deadline) {
-        throw new Error('Timed out waiting for the Cloud Hypervisor VMM identity lock');
-      }
-      await this.dependencies.sleep(ACCOUNT_LOCK_RETRY_MS);
-    }
+    return withDirectoryLock({
+      lockDirectory,
+      timeoutMs,
+      retryMs: ACCOUNT_LOCK_RETRY_MS,
+      dependencies: this.dependencies,
+      startTimeErrorMessage: 'Cannot determine AWF process start time for VMM identity lock',
+      timeoutErrorMessage: 'Timed out waiting for the Cloud Hypervisor VMM identity lock',
+      reclaimStaleLock: (directory) => this.reclaimStaleLock(directory),
+      removeOwnedLock: (directory, owner) => this.removeOwnedLock(directory, owner),
+      operation,
+    });
   }
 
   private async reclaimStaleLock(lockDirectory: string): Promise<void> {

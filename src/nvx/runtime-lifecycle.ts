@@ -2,6 +2,7 @@ import { randomBytes } from 'crypto';
 import { promises as fs } from 'fs';
 import * as path from 'path';
 import execa from 'execa';
+import { withDirectoryLock, type DirectoryLockOwner } from '../microvm/directory-lock';
 import {
   createMicrovmNetworkPlan,
   generateMicrovmNftRuleset,
@@ -408,39 +409,17 @@ export class NvxVmmIdentityManager {
     timeoutMs: number,
     operation: () => Promise<T>,
   ): Promise<T> {
-    await this.dependencies.mkdir(path.dirname(lockDirectory), { recursive: true, mode: 0o711 });
-    const startTime = await this.dependencies.processStartTime(this.dependencies.pid);
-    if (!startTime) throw new Error('Cannot determine AWF process start time for NVX lifecycle lock');
-    const owner = {
-      pid: this.dependencies.pid,
-      startTime,
-      nonce: randomBytes(16).toString('hex'),
-    };
-    const deadline = Date.now() + timeoutMs;
-    for (;;) {
-      let acquired = false;
-      try {
-        await this.dependencies.mkdir(lockDirectory, { mode: 0o700 });
-        acquired = true;
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
-      }
-      if (acquired) {
-        try {
-          await this.dependencies.writeFile(
-            path.join(lockDirectory, 'owner.json'),
-            `${JSON.stringify(owner)}\n`,
-            { flag: 'wx', mode: 0o600 },
-          );
-          return await operation();
-        } finally {
-          await this.removeOwnedLock(lockDirectory, owner);
-        }
-      }
-      await this.reclaimStaleLock(lockDirectory);
-      if (Date.now() >= deadline) throw new Error('Timed out waiting for the NVX lifecycle lock');
-      await this.dependencies.sleep(LOCK_RETRY_MS);
-    }
+    return withDirectoryLock({
+      lockDirectory,
+      timeoutMs,
+      retryMs: LOCK_RETRY_MS,
+      dependencies: this.dependencies,
+      startTimeErrorMessage: 'Cannot determine AWF process start time for NVX lifecycle lock',
+      timeoutErrorMessage: 'Timed out waiting for the NVX lifecycle lock',
+      reclaimStaleLock: (directory) => this.reclaimStaleLock(directory),
+      removeOwnedLock: (directory, owner) => this.removeOwnedLock(directory, owner),
+      operation,
+    });
   }
 
   private async reclaimStaleLock(lockDirectory: string): Promise<void> {
@@ -512,7 +491,7 @@ export class NvxVmmIdentityManager {
 
   private async removeOwnedLock(
     lockDirectory: string,
-    owner: { readonly pid: number; readonly startTime: string; readonly nonce: string },
+    owner: DirectoryLockOwner,
   ): Promise<void> {
     const current = JSON.parse(
       await this.dependencies.readFile(path.join(lockDirectory, 'owner.json'), 'utf8'),
