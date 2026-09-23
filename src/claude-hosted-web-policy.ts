@@ -5,7 +5,7 @@
  * Anthropic infrastructure, so Squid never observes the searched or fetched
  * destination. The trusted api-proxy sidecar therefore enforces an AWF-owned
  * domain policy on those tool definitions before dispatching the request
- * upstream (see docs/awf-config-spec.md §9.9).
+ * upstream (see docs/awf-config-spec.md §9.8).
  *
  * This module converts the validated `apiProxy.hostedWeb.claude` config object
  * into the single normalized representation that is serialized into the sidecar

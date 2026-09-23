@@ -224,6 +224,7 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 - `apiProxy.enableTokenSteering` → `--enable-token-steering` *(maps to `AWF_ENABLE_TOKEN_STEERING`; omit or set to `false` to opt out)*
 - `apiProxy.anthropicAutoCache` → `--anthropic-auto-cache`
 - `apiProxy.anthropicCacheTailTtl` → `--anthropic-cache-tail-ttl <5m|1h>`
+- `apiProxy.hostedWeb.claude` → *(config-only; maps to `AWF_CLAUDE_HOSTED_WEB_POLICY` — AWF-owned domain policy for Anthropic-hosted `web_search_*`/`web_fetch_*` server tools; see [§9.8 Claude Hosted Web Search and Fetch](#98-claude-hosted-web-search-and-fetch))*
 - `apiProxy.maxEffectiveTokens` → *(config-only; no CLI equivalent)*
 - `apiProxy.maxAiCredits` → *(config-only; maps to `AWF_MAX_AI_CREDITS`)*
 - `apiProxy.defaultAiCreditsPricing` → *(config-only; maps to `AWF_DEFAULT_AI_CREDITS_PRICING`)*
@@ -800,6 +801,182 @@ A conforming implementation:
 
 The same rules apply to agent and detection phases, which share this
 configuration path.
+
+### 9.8 Claude Hosted Web Search and Fetch
+
+*This section is normative.*
+
+Anthropic's hosted server tools — `web_search_YYYYMMDD` and
+`web_fetch_YYYYMMDD` — are executed by Anthropic infrastructure, not inside the
+agent container. Squid therefore only ever observes the Anthropic API endpoint;
+the searched or fetched destination is invisible to the domain ACL and to Squid
+access logs, and the retrieved content returns inside an already-allowed API
+response. Without additional enforcement this is a semantic egress gap: an
+indirect prompt-injection and blind-exfiltration channel driven by
+model-generated queries and URLs.
+
+Because the api-proxy sidecar is trusted and already inspects Anthropic Messages
+bodies, AWF closes the gap there. `apiProxy.hostedWeb.claude` is **config-only**:
+there is no CLI flag and no environment alias. AWF serializes the validated
+policy into the sidecar as `AWF_CLAUDE_HOSTED_WEB_POLICY`; that variable is an
+implementation detail, is generated only from validated configuration, and MUST
+NOT be accepted from an agent-controlled source.
+
+```yaml
+apiProxy:
+  hostedWeb:
+    claude:
+      enabled: true
+      allowedDomains:
+        - docs.github.com
+        - nodejs.org
+      maxUses: 5
+```
+
+Blocklist mode:
+
+```yaml
+apiProxy:
+  hostedWeb:
+    claude:
+      enabled: true
+      blockedDomains:
+        - untrusted.example
+        - ads.example
+```
+
+Prohibit Claude hosted web tools entirely:
+
+```yaml
+apiProxy:
+  hostedWeb:
+    claude:
+      enabled: false
+```
+
+#### 9.8.1 Configuration Contract
+
+`apiProxy.hostedWeb` and `apiProxy.hostedWeb.claude` are closed objects
+(`additionalProperties: false`).
+
+| Property | Type | Required | Semantics |
+|---|---|---|---|
+| `enabled` | boolean | yes | `false` rejects every matching Claude hosted search/fetch tool. `true` enables enforcement using exactly one configured domain mode. |
+| `allowedDomains` | non-empty array of unique domains | conditional | Provider allowlist upper bound. Mutually exclusive with `blockedDomains`. |
+| `blockedDomains` | non-empty array of unique domains | conditional | Provider blocklist lower bound. Mutually exclusive with `allowedDomains`. |
+| `maxUses` | positive integer | no | Maximum uses AWF permits per matching hosted tool. Request values may only reduce it. |
+
+There is deliberately **no implicit unrestricted `enabled: true` state**: when
+`enabled` is `true`, exactly one of `allowedDomains` or `blockedDomains` MUST be
+present and non-empty. This prevents a success-shaped configuration that appears
+protected while forwarding unrestricted hosted web access. Domains MUST NOT be
+combined with `enabled: false`.
+
+Domain values use one canonical syntax: lowercase DNS hostnames with at least
+two labels and no URL scheme, path, query, fragment, credentials or port, and no
+raw IP address, CIDR, wildcard, `localhost`-style single-label name, Docker
+service alias, or empty string. Duplicates are removed after normalization. A
+parent domain also covers its subdomains, matching Anthropic's semantics.
+
+Absence of `apiProxy.hostedWeb.claude` preserves the pre-existing pass-through
+behaviour. **Warning: omitting the object does not constrain Claude-hosted
+egress.** A compiler such as gh-aw can opt into enforcement by always emitting
+the object when workflow frontmatter declares a network policy.
+
+The hosted-web list is intentionally explicit rather than derived from
+`network.allowDomains`. The network list may contain provider API endpoints,
+internal services, or ecosystem expansions that are inappropriate to disclose to
+or authorize for provider-hosted retrieval. Sensitive, secret-derived allowlist
+entries (see [§9.7](#97-secret-backed-openai-target)) MUST NOT be disclosed to
+the provider.
+
+The behaviour is identical for a JSON file, a YAML file, JSON on stdin, and YAML
+on stdin. Validation errors from `--config -` identify `stdin` as the source and
+reject the run before any container starts. A compiler therefore only needs to
+emit a stable config document:
+
+```json
+{
+  "network": {
+    "allowDomains": ["api.github.com", "docs.github.com"]
+  },
+  "apiProxy": {
+    "hostedWeb": {
+      "claude": {
+        "enabled": true,
+        "allowedDomains": ["docs.github.com"]
+      }
+    }
+  }
+}
+```
+
+and pipe it to `awf --config - -- <command>`. Compilers do not need to understand
+Anthropic request JSON, tool-version names, or api-proxy environment variables;
+AWF owns the provider-specific translation and enforcement.
+
+#### 9.8.2 Configuration-Source Precedence
+
+The effective configured policy is selected before request processing:
+
+1. an explicit CLI option, if one is added in a later revision;
+2. the AWF configuration document, including JSON or YAML supplied via
+   `--config -`;
+3. AWF's internal default (no enforcement; current compatibility behaviour).
+
+#### 9.8.3 Request-Level Precedence
+
+The configured policy is an immutable security boundary. Request-provided tool
+settings MAY narrow it but MUST NEVER broaden, remove, replace, or disable it.
+
+| Configured policy | Request tool fields | Effective result |
+|---|---|---|
+| `enabled: false` | any | Reject (`claude_hosted_web_disabled`) |
+| allowlist | none | Inject configured `allowed_domains` |
+| allowlist | `allowed_domains` | Intersection of configured and requested |
+| allowlist | `allowed_domains` with empty intersection | Reject (`claude_hosted_web_empty_intersection`) |
+| allowlist | `blocked_domains` | Reject (`claude_hosted_web_policy_conflict`) |
+| blocklist | none | Inject configured `blocked_domains` |
+| blocklist | `blocked_domains` | Union of configured and requested |
+| blocklist | `allowed_domains` | Reject (`claude_hosted_web_policy_conflict`) |
+| any enabled mode | both `allowed_domains` and `blocked_domains` | Reject (`claude_hosted_web_policy_conflict`) |
+| `maxUses` configured | `max_uses` omitted | Inject configured value |
+| `maxUses` configured | `max_uses` present | `min(configured, requested)` |
+| any enabled mode | malformed `max_uses` (zero, negative, non-integer) | Reject (`claude_hosted_web_max_uses_invalid`) |
+
+Cross-mode request restrictions are rejected rather than silently dropped
+because Anthropic cannot represent `allowed_domains` and `blocked_domains` on the
+same tool definition; rejecting is safer and more diagnosable than pretending
+both policies were enforced. AWF-generated values replace the corresponding
+request fields only after the effective policy has been calculated: a hosted tool
+is never silently stripped, and an unprotected hosted tool is never silently
+forwarded.
+
+#### 9.8.4 API-Proxy Behaviour
+
+A conforming implementation:
+
+1. MUST parse and validate the serialized policy once at sidecar startup and MUST
+   fail startup — not the first request — on an invalid internal policy.
+2. MUST apply enforcement only to Anthropic Messages request bodies that contain
+   a matching hosted tool. A configured policy MUST NOT mutate an ordinary
+   Messages request, including requests to custom Anthropic-compatible endpoints
+   that implement no hosted server tools.
+3. MUST recognize versioned tool types with a validated `web_search_YYYYMMDD` /
+   `web_fetch_YYYYMMDD` matcher — including versions published after this
+   revision — rather than a fixed list of exact names.
+4. MUST fail closed on a value that claims to be a hosted web tool but does not
+   match the versioned form (`claude_hosted_web_tool_unrecognized`), so a future
+   or malformed shape can never be forwarded without policy.
+5. MUST apply enforcement after generic body parsing and after the other
+   Anthropic transforms (model rewriting, prompt-cache optimizations, tool drop,
+   custom transform file) so that no other transform can re-expand or remove the
+   enforced policy.
+6. MUST enforce every matching tool in a request, not only the first.
+7. MUST return structured API-proxy errors with the stable `error.code` values
+   listed above (HTTP 403 for policy rejections, HTTP 400 for malformed tool
+   definitions, domains, or `max_uses`), and MUST NOT include prompts, queries,
+   URLs, or request bodies in those errors.
 
 ## 10. Effective Token Budget Enforcement
 

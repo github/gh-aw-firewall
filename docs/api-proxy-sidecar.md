@@ -164,6 +164,7 @@ The API proxy sidecar receives **real credentials** and routing configuration:
 | `GITHUB_RUN_ID` | Forwarded GitHub Actions value | `GITHUB_RUN_ID` set on host (GitHub Actions runs) | Combined with `GITHUB_RUN_ATTEMPT` to derive a stable per-run `X-Interaction-Id` for Copilot API requests (CAPI prompt-cache key); see [Prompt-cache and attribution headers](./auth-matrix.md#prompt-cache-and-attribution-headers-githubcopilotcom-only) in the auth matrix. |
 | `GITHUB_RUN_ATTEMPT` | Forwarded GitHub Actions value | `GITHUB_RUN_ATTEMPT` set on host (GitHub Actions runs) | Paired with `GITHUB_RUN_ID` for the `X-Interaction-Id` derivation above; defaults to `1` if unset. |
 | `NODE_EXTRA_CA_CERTS` | `/usr/local/share/ca-certificates/awf-upstream-ca.crt` | `apiProxy.caCert` / `--api-proxy-ca-cert` set | Extends Node's trusted roots for private or corporate upstream gateways. |
+| `AWF_CLAUDE_HOSTED_WEB_POLICY` | Normalized policy JSON | `apiProxy.hostedWeb.claude` configured | AWF-owned domain policy for Anthropic-hosted `web_search_*`/`web_fetch_*` tools. Generated only from validated AWF config — never accepted from the agent. See [Claude hosted web search and fetch policy](#claude-hosted-web-search-and-fetch-policy). |
 | `HTTP_PROXY` | `http://172.30.0.10:3128` | Always | Routes through Squid; sidecar traffic is exempt from domain ACLs |
 | `HTTPS_PROXY` | `http://172.30.0.10:3128` | Always | Routes through Squid; sidecar traffic is exempt from domain ACLs |
 
@@ -425,6 +426,33 @@ apiProxy:
   anthropicAutoCache: true
   anthropicCacheTailTtl: "1h"
 ```
+
+### Claude hosted web search and fetch policy
+
+Anthropic's hosted server tools (`web_search_YYYYMMDD`, `web_fetch_YYYYMMDD`) run on Anthropic infrastructure, not inside the agent container. Squid only ever sees the request to `api.anthropic.com`; the domain that was actually searched or fetched is never presented to the domain ACL and never appears in Squid access logs, and the retrieved content comes back inside an already-allowed API response.
+
+This means Claude can reach a site the agent itself is not allowed to reach — a semantic egress gap, an indirect prompt-injection vector, and a blind exfiltration channel through model-generated queries and URLs.
+
+Because the sidecar is part of AWF's trusted computing base and already inspects Anthropic Messages bodies, it is the correct place to close the gap. Configure an AWF-owned policy and the sidecar injects and enforces it on every matching hosted tool definition before the request is dispatched upstream:
+
+```yaml
+apiProxy:
+  hostedWeb:
+    claude:
+      enabled: true
+      allowedDomains:
+        - docs.github.com
+        - nodejs.org
+      maxUses: 5
+```
+
+Blocklist mode (`blockedDomains`) and a hard prohibition (`enabled: false`) are also supported. `allowedDomains` and `blockedDomains` are mutually exclusive because Anthropic rejects both filters on one tool definition.
+
+The configured policy is an immutable upper bound. A request may narrow it — intersecting an allowlist, adding to a blocklist, or lowering `max_uses` — but can never broaden, replace, or remove it. Anything that cannot be represented safely (a cross-mode filter, an empty allowlist intersection, a malformed domain, an unrecognized hosted tool version) is rejected with a structured API-proxy error before the request reaches Anthropic; policy errors never include prompts, queries, URLs, or request bodies. Requests that contain no hosted web tool are forwarded unchanged.
+
+This setting is config-only — there is no CLI flag. AWF serializes the validated policy into the sidecar as `AWF_CLAUDE_HOSTED_WEB_POLICY`, which is generated solely from validated configuration and is never accepted from the agent; the sidecar fails startup if it is invalid. **Omitting `apiProxy.hostedWeb.claude` preserves the previous pass-through behaviour and does not constrain Claude-hosted egress.**
+
+See [§9.8 of the AWF config spec](./awf-config-spec.md#98-claude-hosted-web-search-and-fetch) for the complete precedence and error matrix.
 
 ### Container configuration
 

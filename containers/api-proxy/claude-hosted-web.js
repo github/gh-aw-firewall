@@ -18,7 +18,7 @@
  *
  *   { "enabled": true, "mode": "allow"|"block", "domains": [...], "maxUses": 5 }
  *
- * Enforcement rules (see docs/awf-config-spec.md §9.9):
+ * Enforcement rules (see docs/awf-config-spec.md §9.8):
  *   1. `enabled: false` rejects any request containing a matching hosted tool.
  *   2. Allowlist mode: inject when the request omits `allowed_domains`,
  *      otherwise intersect; an empty intersection is rejected; a request
