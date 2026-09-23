@@ -147,6 +147,31 @@ describe('shared token usage helpers', () => {
     expect(validateTokenUsageRecord(record)).toBe(true);
   });
 
+  test('buildTokenUsageRecord persists a trusted request purpose and omits it otherwise', () => {
+    const usage = { input_tokens: 1, output_tokens: 2, cache_read_tokens: 0, cache_write_tokens: 0 };
+    const opts = {
+      requestId: 'purpose-record-test',
+      provider: 'copilot',
+      model: 'gpt-5.4',
+      reqPath: '/chat/completions',
+      status: 200,
+      streaming: false,
+      duration: 12,
+      responseBytes: 34,
+    };
+
+    const routingRecord = buildTokenUsageRecord(usage, { ...opts, purpose: 'routing_classification' });
+    expect(routingRecord.purpose).toBe('routing_classification');
+    expect(validateTokenUsageRecord(routingRecord)).toBe(true);
+
+    const agentRecord = buildTokenUsageRecord(usage, opts);
+    expect(agentRecord).not.toHaveProperty('purpose');
+    expect(validateTokenUsageRecord(agentRecord)).toBe(true);
+
+    const schema = JSON.parse(fs.readFileSync(require('path').join(__dirname, '..', '..', 'schemas', 'token-usage.schema.json'), 'utf8'));
+    expect(schema.properties.purpose.enum).toContain('routing_classification');
+  });
+
   test('incrementTokenMetrics is a no-op when metrics sink is missing', () => {
     expect(() => {
       incrementTokenMetrics(null, 'anthropic', { input_tokens: 1, output_tokens: 2 });

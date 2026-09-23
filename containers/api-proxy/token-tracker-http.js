@@ -79,6 +79,11 @@ function initHttpState({ streaming, compressed, contentType, contentEncoding }) 
  * @param {object} context
  * @param {string} context.requestId
  * @param {string} context.provider
+ * @param {(line: string) => void} [context.onSseData] - Optional routing observer.
+ *   Contract: it must never throw. It runs inside the upstream response stream's
+ *   'data' event, so a thrown exception would escape the EventEmitter and tear down
+ *   the shared proxy. Observers record terminal routing failures through their own
+ *   fail-closed path instead of throwing here, so failures are never swallowed.
  * @returns {(text: string) => void}
  */
 function createChunkHandler(state, { requestId, provider, onSseData }) {

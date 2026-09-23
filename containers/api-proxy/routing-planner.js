@@ -5,7 +5,19 @@ const { createRoutingError } = require('./routing-errors');
 
 const PLANNER_ATTEMPT_TIMEOUT_MS = 5_000;
 const PLANNER_MAX_ATTEMPTS = 3;
-const RETRYABLE_ERROR_CODES = new Set(['ECONNREFUSED', 'ECONNRESET', 'EHOSTUNREACH', 'ENETUNREACH', 'ETIMEDOUT']);
+// Transport failures which can resolve on their own while the router is starting,
+// restarting, or briefly unreachable. `ENOTFOUND` is deliberately excluded: the router
+// is addressed through a fixed internal alias, so a missing name is configuration drift
+// rather than a transient outage and must fail immediately.
+const RETRYABLE_ERROR_CODES = new Set([
+  'EAI_AGAIN',
+  'ECONNREFUSED',
+  'ECONNRESET',
+  'EHOSTUNREACH',
+  'ENETUNREACH',
+  'EPIPE',
+  'ETIMEDOUT',
+]);
 
 function createSystemClock() {
   return {

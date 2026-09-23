@@ -101,6 +101,13 @@
       "minimum": 0,
       "description": "Total number of bytes in the response body (optional, omitted for WebSocket upgrades)."
     },
+    "purpose": {
+      "type": "string",
+      "enum": [
+        "routing_classification"
+      ],
+      "description": "Trusted in-process purpose of the request. Present only for AWF-internal requests such as router classification calls; absent for agent-originated requests."
+    },
     "x_initiator": {
       "type": "string",
       "enum": [
