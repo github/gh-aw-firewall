@@ -3,6 +3,7 @@ import { runtimeUsesComposeAgent } from './container-runtime';
 import type { ExternalAgentRuntimeBackend } from './external-runtime-backend';
 import { createSbxRuntimeBackend } from './sbx-runtime-backend';
 import { createCloudHypervisorRuntimeBackend } from './cloud-hypervisor-runtime-backend';
+import { createNvxRuntimeBackend } from './nvx/runtime-backend';
 import type { WrapperConfig } from './types';
 
 interface ExternalRuntimeBackendFactoryContext {
@@ -23,6 +24,8 @@ const EXTERNAL_RUNTIME_BACKENDS: ExternalRuntimeBackendRegistry = {
     createSbxRuntimeBackend(config, startInfrastructure),
   'cloud-hypervisor': ({ config, startInfrastructure }) =>
     createCloudHypervisorRuntimeBackend(config, startInfrastructure),
+  nvx: ({ config, startInfrastructure }) =>
+    createNvxRuntimeBackend(config, startInfrastructure),
 };
 
 /**
@@ -46,6 +49,11 @@ export function resolveExternalRuntimeBackend(
       'Cloud Hypervisor workload execution requires explicit --cloud-hypervisor-preview opt-in',
     );
   }
+  if (runtime === 'nvx' && !config.nvx?.previewEnabled) {
+    throw new Error(
+      'NVX workload execution requires explicit --nvx-preview opt-in',
+    );
+  }
   const factory = runtime ? registry[runtime] : undefined;
   if (!factory) {
     throw new Error(`No external agent runtime backend is registered for "${runtime}"`);
@@ -53,3 +61,4 @@ export function resolveExternalRuntimeBackend(
 
   return factory({ config, startInfrastructure });
 }
+

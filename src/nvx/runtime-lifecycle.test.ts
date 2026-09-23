@@ -489,8 +489,8 @@ describe('NVX Phase 3d runtime lifecycle', () => {
     })).toThrow(/canonical run directory/);
   });
 
-  it('keeps nvx absent from the external runtime registry until evidence is accepted', () => {
-    expect(() => runtimeUsesComposeAgent('nvx')).toThrow(/reserved.*not available/);
+  it('registers nvx as a microvm runtime now that Phase 3f evidence has been accepted', () => {
+    expect(runtimeUsesComposeAgent('nvx')).toBe(false);
   });
 
   it('derives NVX network policy from the canonical namespace and deny-by-default rules', () => {

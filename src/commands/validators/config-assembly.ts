@@ -17,6 +17,11 @@ import {
   requiresCloudHypervisorInfrastructure,
   usesCloudHypervisorEnclaveRuntime,
 } from '../../cloud-hypervisor/runtime-validation';
+import {
+  assertNvxRuntimeCompatibility,
+  assertNvxSelection,
+  isPrimaryNvxRuntime,
+} from '../../nvx/runtime-validation';
 import { assertFilesystemWritePolicyCompatibility } from '../../filesystem-policy';
 import {
   formatCloudHypervisorDockerFallbackWarning,
@@ -92,6 +97,7 @@ export function assembleAndValidateConfig(
   validateInfrastructureOptions(config);
   try {
     assertCloudHypervisorSelection(config);
+    assertNvxSelection(config);
   } catch (error) {
     logger.error(`❌ ${error instanceof Error ? error.message : String(error)}`);
     process.exit(1);
@@ -125,6 +131,16 @@ export function assembleAndValidateConfig(
         logger.error(`❌ ${error instanceof Error ? error.message : String(error)}`);
         process.exit(1);
       }
+    }
+  }
+  if (isPrimaryNvxRuntime(config)) {
+    // NVX never falls back to another runtime: any validation failure here
+    // (missing preview flag, unsupported host, invalid artifacts) is fatal.
+    try {
+      assertNvxRuntimeCompatibility(config);
+    } catch (error) {
+      logger.error(`❌ ${error instanceof Error ? error.message : String(error)}`);
+      process.exit(1);
     }
   }
   applyAgentTimeout(options.agentTimeout as string | undefined, config, logger);

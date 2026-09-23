@@ -306,7 +306,7 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 - `container.dockerHostPathPrefix` → `--docker-host-path-prefix`
 - `container.runnerToolCachePath` → *(config-only; checked first for optional read-only runner tool cache mount, before `RUNNER_TOOL_CACHE` and `/home/runner/work/_tool` auto-detection)*
 - `container.mounts[]` → `-v, --mount` *(repeatable; each array entry maps to one Docker volume mount in `/host_path:/container_path[:ro|rw]` format (both paths must be absolute; host path must exist); in chroot mode, container paths are automatically prefixed with `/host`)*
-- `container.containerRuntime` → `--container-runtime` *(user-facing runtime name: `"gvisor"` for an OCI runtime in Compose, `"sbx"` for a Docker sbx microVM, or `"cloud-hypervisor"` for the explicit Cloud Hypervisor v53.0 workload preview (GitHub-hosted Ubuntu x86_64 KVM runners only; see §4.2). gVisor translates to `"runsc"` and injects `extra_hosts` for its DNS workaround. For sbx and Cloud Hypervisor, infrastructure stays in Compose while the primary agent runs in a microVM.)*
+- `container.containerRuntime` → `--container-runtime` *(user-facing runtime name: `"gvisor"` for an OCI runtime in Compose, `"sbx"` for a Docker sbx microVM, `"cloud-hypervisor"` for the explicit Cloud Hypervisor v53.0 workload preview (GitHub-hosted Ubuntu x86_64 KVM runners only; see §4.2), or `"nvx"` for the explicit NVX/OpenVMM one-shot workload preview (Linux x86_64 KVM-only; see [docs/nvx-security-design.md](./nvx-security-design.md#runtime-registration-opt-in-preview)). gVisor translates to `"runsc"` and injects `extra_hosts` for its DNS workaround. For sbx, Cloud Hypervisor, and NVX, infrastructure stays in Compose while the primary agent runs in a microVM.)*
 - `filesystem.allowWrite[]` → *(config-only; no CLI equivalent; narrows existing writable host binds to the listed guest-visible absolute paths, see §4.1)*
 - `cloudHypervisor.previewEnabled` → `--cloud-hypervisor-preview` *(requires `container.containerRuntime: "cloud-hypervisor"` or at least one `enclaves[].runtime: "cloud-hypervisor"` entry, plus a GitHub-hosted Ubuntu x86_64 KVM runner to execute a workload)*
 - `cloudHypervisor.mountPolicy` → `--cloud-hypervisor-mount-policy` *(`workspace-only` by default; use `workspace-and-tool-cache` only when the workload needs the runner tool cache)*
@@ -326,6 +326,18 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 - `cloudHypervisor.sha256.kernel` → `--cloud-hypervisor-kernel-sha256`
 - `cloudHypervisor.sha256.rootfs` → `--cloud-hypervisor-rootfs-sha256`
 - `cloudHypervisor.sha256.supervisor` → `--cloud-hypervisor-supervisor-sha256`
+- `nvx.previewEnabled` → `--nvx-preview` *(requires `container.containerRuntime: "nvx"`; execution never falls back to Docker, Cloud Hypervisor, or another runtime on failure)*
+- `nvx.layerPath` → `--nvx-layer` *(guest distro layer; required)*
+- `nvx.artifactManifestPath` → `--nvx-artifact-manifest` *(required)*
+- `nvx.artifactManifestBundlePath` → `--nvx-artifact-manifest-bundle` *(required)*
+- `nvx.signerWorkflow` → `--nvx-signer-workflow`
+- `nvx.openvmmPath` → `--nvx-openvmm` *(required)*
+- `nvx.kernelPath` → `--nvx-kernel` *(required)*
+- `nvx.initramfsPath` → `--nvx-initramfs` *(required)*
+- `nvx.memoryMib` → `--nvx-memory-mib` *(default 512)*
+- `nvx.memoryMaxBytes` → `--nvx-memory-max-bytes` *(default 512 MiB)*
+- `nvx.pidsMax` → `--nvx-pids-max` *(default 128)*
+- `nvx.scratchBytes` → `--nvx-scratch-bytes`
 - `chroot.binariesSourcePath` → *(config-only; mounts a runner-side binaries directory at `/tmp/awf-runner-bin` inside chroot mode and prepends it to `PATH`)*
 - `chroot.identity.home` → *(config-only; forwarded as `AWF_CHROOT_IDENTITY_HOME` and applied after chroot pivot)*
 - `chroot.identity.user` → *(config-only; forwarded as `AWF_CHROOT_IDENTITY_USER` and applied to `USER`/`LOGNAME` after chroot pivot)*

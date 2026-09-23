@@ -77,6 +77,31 @@ describe('external runtime backend', () => {
 
     expect(backend?.runtime).toBe('cloud-hypervisor');
   });
+
+  it('requires explicit NVX preview opt-in during resolution', () => {
+    const config = {
+      containerRuntime: 'nvx',
+      nvx: { previewEnabled: false },
+    } as WrapperConfig;
+    expect(() => resolveExternalRuntimeBackend(config, startInfrastructure))
+      .toThrow(/explicit --nvx-preview/);
+    expect(startInfrastructure).not.toHaveBeenCalled();
+  });
+
+  it('rejects NVX selection with no nvx config at all', () => {
+    const config = { containerRuntime: 'nvx' } as WrapperConfig;
+    expect(() => resolveExternalRuntimeBackend(config, startInfrastructure))
+      .toThrow(/explicit --nvx-preview/);
+  });
+
+  it('uses the registered NVX factory after preview opt-in and never falls back', () => {
+    const backend = resolveExternalRuntimeBackend({
+      containerRuntime: 'nvx',
+      nvx: { previewEnabled: true },
+    } as WrapperConfig, startInfrastructure);
+
+    expect(backend?.runtime).toBe('nvx');
+  });
   it('adapts start and exec without changing arguments or exit codes', async () => {
     const backend = createBackend();
     const adapted = adaptExternalRuntimeBackend(backend);

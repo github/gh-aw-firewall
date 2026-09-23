@@ -275,7 +275,97 @@ runtime:
 
 Successful reviewed Phase 3f evidence satisfies the remaining Phase 3
 promotion gate. Runtime registration, the mandatory preview flag, configuration
-surface, and external-backend adapter remain a separate change.
+surface, and external-backend adapter are implemented below.
+
+## Runtime registration (opt-in preview)
+
+Following the accepted Phase 3f promotion evidence, `nvx` is registered as a
+selectable **preview** container runtime alongside `docker`, `gvisor`, `sbx`,
+and `cloud-hypervisor`. Registration does not change the default runtime and
+does not weaken any Phase 3f invariant above.
+
+- **Selection**: `--container-runtime nvx` (or `containerRuntime: "nvx"` in the
+  AWF config file) selects the runtime, but execution additionally requires the
+  explicit `--nvx-preview` flag (or `nvx.previewEnabled: true` in the config
+  file). Selecting `nvx` without `--nvx-preview` fails closed with an
+  actionable error before any host or guest resources are touched.
+- **Artifact configuration**: `--nvx-layer`, `--nvx-artifact-manifest`,
+  `--nvx-artifact-manifest-bundle`, `--nvx-signer-workflow`, `--nvx-openvmm`,
+  `--nvx-kernel`, and `--nvx-initramfs` (and their `nvx.*` config-file
+  equivalents) supply the guest distro layer and the attested OpenVMM/kernel/
+  initramfs artifacts validated by the existing artifact-verification path
+  (`src/nvx/artifact-manifest.ts`, `src/nvx/preflight.ts`). All are required;
+  any missing value fails validation before launch.
+- **Resource limits**: `--nvx-memory-mib`, `--nvx-memory-max-bytes`,
+  `--nvx-pids-max`, and `--nvx-scratch-bytes` configure the same bounded guest
+  resource limits validated by Phase 3f (defaults: 512 MiB memory, 128 PIDs).
+- **Host eligibility**: NVX is permitted only on Linux x86_64 hosts with
+  working `/dev/kvm` access, matching the platform/arch guard already enforced
+  by `runNvxPreflight`. Unsupported operating systems, architectures, or
+  missing KVM access fail with a clear, actionable error
+  (`src/nvx/runtime-validation.ts`).
+- **No fallback, ever**: unlike Cloud Hypervisor (which falls back to Docker
+  when the host is ineligible), an explicit `nvx` selection **never** falls
+  back to Docker, Cloud Hypervisor, or any other backend. Any preview-gate,
+  compatibility, host-eligibility, or artifact-validation failure aborts the
+  run (`src/commands/validators/config-assembly.ts`).
+- **Incompatible combinations**: `nvx` is rejected together with `--tty`,
+  Docker-in-Docker/split-filesystem options (`--enable-dind`,
+  `--docker-host-path-prefix`, `arc-dind` runner topology), host access
+  (`--enable-host-access`/host port allowlisting), additional host volume
+  mounts, DIFC proxies, DNS-over-HTTPS, and primary-agent execution with
+  enclaves enabled. `--network-isolation` (strict mode) and `--enable-api-proxy`
+  are required.
+- **Adapter**: `src/nvx/runtime-backend.ts` implements the same
+  `ExternalAgentRuntimeBackend` interface used by the `sbx` and Cloud
+  Hypervisor backends, mapping it onto the existing, unmodified `NvxManager`
+  one-shot contract (`src/nvx/manager.ts`). Because `NvxManager.execute()` is
+  atomic — preflight, launch, workload execution, and durable cleanup all
+  happen inside a single call — the adapter's `start()` only brings up host
+  infrastructure (Squid/API-proxy) and resolves the microVM network
+  infrastructure snapshot; the microVM itself is created and torn down inside
+  `exec()`. `stop()` aborts any in-flight execution and awaits its cleanup.
+- **Known limitation**: the underlying one-shot adapter
+  (`src/nvx/one-shot-adapter.ts`) does not accept arbitrary per-run guest
+  environment variables — only `entrypoint`, `args`, and network egress rules
+  are passed to the guest. `--env`/`--env-all`/`--env-file` values are
+  therefore **not** delivered to the NVX guest process; any environment the
+  agent command needs (including proxy settings) must be pre-baked into the
+  guest layer supplied via `--nvx-layer`. This is a deliberate boundary of the
+  validated Phase 3f contract, not an oversight, and is not worked around by
+  this change.
+
+### Troubleshooting
+
+**`nvx` requires an explicit preview acknowledgement**
+Selecting `--container-runtime nvx` without `--nvx-preview` fails before any
+host or guest resources are touched. Pass `--nvx-preview` explicitly, or set
+`nvx.previewEnabled: true` in the AWF config file.
+
+**NVX requires a Linux host; found darwin/win32 / NVX supports only x86_64
+hosts**
+NVX is Linux x86_64 KVM-only. There is no fallback to Docker, Cloud
+Hypervisor, or another backend — run the wrapped command on a Linux x86_64
+host with `/dev/kvm` access instead.
+
+**NVX preview requires an explicit guest distro layer / requires explicit
+OpenVMM, kernel, and initramfs artifact paths / requires an artifact manifest
+and attestation bundle**
+Supply `--nvx-layer`, `--nvx-openvmm`, `--nvx-kernel`, `--nvx-initramfs`,
+`--nvx-artifact-manifest`, and `--nvx-artifact-manifest-bundle`; all are
+required and validated against the workflow-attested manifest before launch.
+
+**NVX preview does not support `--tty` / Docker-in-Docker or split
+filesystems / host access / additional host volume mounts / DIFC proxies /
+DNS-over-HTTPS**
+These combinations are rejected outright rather than partially applied.
+Remove the incompatible flag, or use Docker/gVisor/Cloud Hypervisor instead of
+NVX for that run.
+
+**Agent command output is missing environment variables it expects**
+The NVX one-shot adapter does not forward `--env`/`--env-all`/`--env-file`
+values into the guest (see "Known limitation" above). Pre-bake any required
+environment into the guest layer supplied via `--nvx-layer`.
 
 ## Host OpenVMM confinement
 

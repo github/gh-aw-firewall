@@ -116,6 +116,12 @@ const RUNTIME_REGISTRY: Readonly<Record<string, RuntimeCapabilities>> = {
     needsStaticDns: false,
     usesIptables: false,
   },
+  nvx: {
+    executionModel: 'microvm',
+    dockerRuntime: undefined,
+    needsStaticDns: false,  // NVX manages its own guest DNS resolver
+    usesIptables: false,    // NVX manages its own network namespace/egress
+  },
 };
 
 /**
@@ -128,8 +134,6 @@ const RUNTIME_REGISTRY: Readonly<Record<string, RuntimeCapabilities>> = {
 const RUNTIME_ALIASES: Readonly<Record<string, string>> = {
   runsc: 'gvisor',
 };
-
-const RESERVED_RUNTIME_NAMES = new Set(['nvx']);
 
 /**
  * Canonicalizes a user-facing runtime name to its registry key, following the
@@ -144,7 +148,6 @@ function canonicalRuntime(runtime: string): string {
  * `undefined` for unknown names (raw Docker runtime identifiers / default runc).
  */
 function lookupCapabilities(runtime: string): RuntimeCapabilities | undefined {
-  assertNotReservedRuntime(runtime);
   return RUNTIME_REGISTRY[canonicalRuntime(runtime)];
 }
 
@@ -162,14 +165,6 @@ export function resolveDockerRuntime(runtime: string): string | undefined {
   if (entry) return entry.dockerRuntime;
   // Unknown name — pass through as a raw Docker runtime identifier
   return runtime;
-}
-
-function assertNotReservedRuntime(runtime: string): void {
-  if (RESERVED_RUNTIME_NAMES.has(canonicalRuntime(runtime))) {
-    throw new Error(
-      `Container runtime "${runtime}" is reserved and is not available through the CLI`,
-    );
-  }
 }
 
 /**

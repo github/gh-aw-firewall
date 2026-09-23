@@ -161,6 +161,25 @@ export interface AwfFileConfig {
     apiTimeoutMs?: number;
     sha256?: CloudHypervisorArtifactDigests;
   };
+  /**
+   * NVX preview one-shot microVM runtime.
+   * Selectable via `container.containerRuntime: "nvx"`, gated behind
+   * `previewEnabled`/`--nvx-preview`. Supported only on Linux x86_64 KVM hosts.
+   */
+  nvx?: {
+    previewEnabled?: boolean;
+    layerPath?: string;
+    artifactManifestPath?: string;
+    artifactManifestBundlePath?: string;
+    signerWorkflow?: string;
+    openvmmPath?: string;
+    kernelPath?: string;
+    initramfsPath?: string;
+    memoryMib?: number;
+    memoryMaxBytes?: number;
+    pidsMax?: number;
+    scratchBytes?: number;
+  };
   chroot?: {
     binariesSourcePath?: string;
     identity?: {

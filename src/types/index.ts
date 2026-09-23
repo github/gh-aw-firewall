@@ -23,6 +23,10 @@ export {
   CLOUD_HYPERVISOR_DEFAULT_API_TIMEOUT_MS,
   CLOUD_HYPERVISOR_DEFAULT_MOUNT_POLICY,
   CLOUD_HYPERVISOR_MOUNT_POLICIES,
+  type NvxOptions,
+  NVX_DEFAULT_MEMORY_MIB,
+  NVX_DEFAULT_MEMORY_MAX_BYTES,
+  NVX_DEFAULT_PIDS_MAX,
 } from './runtime-options';
 export { type RateLimitConfig } from './rate-limit';
 export { type FlagValidationResult } from './validation';

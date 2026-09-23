@@ -11,6 +11,9 @@ import {
   CLOUD_HYPERVISOR_DEFAULT_VCPU_COUNT,
   CLOUD_HYPERVISOR_MOUNT_POLICIES,
   type CloudHypervisorMountPolicy,
+  NVX_DEFAULT_MEMORY_MIB,
+  NVX_DEFAULT_MEMORY_MAX_BYTES,
+  NVX_DEFAULT_PIDS_MAX,
 } from '../types/runtime-options';
 
 /**
@@ -129,6 +132,7 @@ export function buildConfig(inputs: BuildConfigInputs): WrapperConfig {
   const chrootIdentity = buildChrootIdentity(options);
   const dind = buildDindConfig(options);
   const cloudHypervisor = buildCloudHypervisorConfig(options);
+  const nvx = buildNvxConfig(options);
   const apiCredentials = resolveApiCredentials(options, {
     resolvedCopilotApiTarget,
     resolvedCopilotApiBasePath,
@@ -237,6 +241,7 @@ export function buildConfig(inputs: BuildConfigInputs): WrapperConfig {
     chrootIdentity,
     dind,
     cloudHypervisor,
+    nvx,
     enclaves: normalizeEnclavesConfig(
       options.enclaves as AwfFileConfig['enclaves'] | undefined,
     ),
@@ -345,6 +350,70 @@ function parseCloudHypervisorMountPolicy(value: unknown): CloudHypervisorMountPo
     );
   }
   return policy as CloudHypervisorMountPolicy;
+}
+
+/**
+ * Builds the NVX preview one-shot microVM runtime config (artifacts plus
+ * memory/pids/scratch settings). `--container-runtime nvx` requires
+ * explicit `--nvx-preview` opt-in and full artifact configuration, enforced
+ * by `assertNvxRuntimeCompatibility` in `src/nvx/runtime-validation.ts`.
+ */
+function buildNvxConfig(
+  options: Record<string, unknown>,
+): WrapperConfig['nvx'] {
+  const selected = options.containerRuntime === 'nvx';
+  const configured = options.nvxPreview === true
+    || [
+      'nvxLayer',
+      'nvxArtifactManifest',
+      'nvxArtifactManifestBundle',
+      'nvxSignerWorkflow',
+      'nvxOpenvmm',
+      'nvxKernel',
+      'nvxInitramfs',
+      'nvxMemoryMib',
+      'nvxMemoryMaxBytes',
+      'nvxPidsMax',
+      'nvxScratchBytes',
+    ].some((key) => options[key] !== undefined);
+  if (!selected && !configured) return undefined;
+
+  return {
+    previewEnabled: options.nvxPreview === true,
+    layerPath: options.nvxLayer as string | undefined,
+    artifactManifestPath: options.nvxArtifactManifest as string | undefined,
+    artifactManifestBundlePath: options.nvxArtifactManifestBundle as string | undefined,
+    signerWorkflow: options.nvxSignerWorkflow as string | undefined,
+    openvmmPath: options.nvxOpenvmm as string | undefined,
+    kernelPath: options.nvxKernel as string | undefined,
+    initramfsPath: options.nvxInitramfs as string | undefined,
+    memoryMib: parsePositiveIntegerOption(
+      options.nvxMemoryMib,
+      '--nvx-memory-mib',
+      NVX_DEFAULT_MEMORY_MIB,
+    ),
+    memoryMaxBytes: parsePositiveIntegerOption(
+      options.nvxMemoryMaxBytes,
+      '--nvx-memory-max-bytes',
+      NVX_DEFAULT_MEMORY_MAX_BYTES,
+    ),
+    pidsMax: parsePositiveIntegerOption(
+      options.nvxPidsMax,
+      '--nvx-pids-max',
+      NVX_DEFAULT_PIDS_MAX,
+    ),
+    scratchBytes: options.nvxScratchBytes === undefined
+      ? undefined
+      : parseScratchBytesOption(options.nvxScratchBytes),
+  };
+}
+
+function parseScratchBytesOption(value: unknown): number {
+  const parsed = typeof value === 'number' ? value : Number(value);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw new Error('--nvx-scratch-bytes must be a positive integer');
+  }
+  return parsed;
 }
 
 function buildChrootIdentity(

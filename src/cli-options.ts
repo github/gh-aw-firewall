@@ -12,6 +12,7 @@ const optionGroupHeaders: Record<string, string> = {
   'allow-domains': 'Domain Filtering:',
   'build-local': 'Image Management:',
   'cloud-hypervisor-preview': 'Cloud Hypervisor Preview (GitHub-hosted Ubuntu x86_64 KVM only):',
+  'nvx-preview': 'NVX Preview (Linux x86_64 KVM only):',
   'env': 'Container Configuration:',
   'dns-servers': 'Network & Security:',
   'upstream-proxy': 'Network & Security:',
@@ -178,6 +179,7 @@ program
    '                                       "sbx" — Docker sbx microVM with hypervisor isolation.\n' +
    '                                       "cloud-hypervisor" — explicit GitHub-hosted Ubuntu x86_64 KVM\n' +
    '                                       Cloud Hypervisor v53.0 preview.\n' +
+   '                                       "nvx" — explicit Linux x86_64 KVM NVX one-shot microVM preview.\n' +
    '                                       Unknown values are passed through as raw Docker runtime names.'
   )
   // -- Cloud Hypervisor Preview --
@@ -216,6 +218,25 @@ program
   .option('--cloud-hypervisor-kernel-sha256 <digest>', 'Expected SHA-256 digest of the guest kernel.')
   .option('--cloud-hypervisor-rootfs-sha256 <digest>', 'Expected SHA-256 digest of the guest rootfs.')
   .option('--cloud-hypervisor-supervisor-sha256 <digest>', 'Expected SHA-256 digest of the AWF guest supervisor.')
+
+  // -- NVX Preview --
+  .option(
+   '--nvx-preview',
+   'Enable the NVX one-shot microVM workload-execution preview.\n' +
+   '                                       Linux x86_64 KVM hosts only. Requires pinned, attested guest artifacts.',
+   false
+  )
+  .option('--nvx-layer <path>', 'Path to the prebuilt guest distro layer directory used as the NVX filesystem base layer.')
+  .option('--nvx-artifact-manifest <path>', 'Path to the release-pinned NVX artifact manifest.')
+  .option('--nvx-artifact-manifest-bundle <path>', 'Path to the manifest GitHub artifact-attestation bundle for offline verification.')
+  .option('--nvx-signer-workflow <workflow>', 'Expected GitHub Actions workflow identity that signed the artifact manifest.')
+  .option('--nvx-openvmm <path>', 'Path to the trusted, attested OpenVMM binary.')
+  .option('--nvx-kernel <path>', 'Path to the trusted, attested guest Linux kernel image.')
+  .option('--nvx-initramfs <path>', 'Path to the trusted, attested guest initramfs image.')
+  .option('--nvx-memory-mib <mib>', 'Guest memory in MiB (default: 512).')
+  .option('--nvx-memory-max-bytes <bytes>', 'Guest cgroup memory ceiling in bytes (default: 536870912).')
+  .option('--nvx-pids-max <count>', 'Guest cgroup pids ceiling (default: 128).')
+  .option('--nvx-scratch-bytes <bytes>', 'Bounded per-run guest-writable scratch overlay size in bytes.')
 
   // -- Container Configuration --
   .option(

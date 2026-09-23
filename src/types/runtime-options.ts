@@ -227,4 +227,49 @@ export interface RuntimeOptions {
    * GitHub-hosted Ubuntu x86_64 KVM runners.
    */
   cloudHypervisor?: CloudHypervisorOptions;
+
+  /**
+   * NVX preview microVM runtime settings.
+   *
+   * Selectable via `--container-runtime nvx`, gated behind explicit
+   * `--nvx-preview` opt-in. Supported only on Linux x86_64 KVM hosts (see
+   * `src/nvx/preflight.ts`).
+   */
+  nvx?: NvxOptions;
+}
+
+// ─── NVX (opt-in preview microVM lifecycle backend) ────────────────────────
+//
+// This configuration surface pins trusted NVX artifacts and configures the
+// NVX one-shot microVM runtime. It is selected by the primary-agent
+// `--container-runtime nvx` option, gated behind explicit `--nvx-preview`
+// opt-in. See `src/nvx/preflight.ts` for artifact/host validation and
+// `src/nvx/manager.ts` for the launch/cleanup lifecycle. Linux x86_64 KVM
+// hosts are the only supported host target.
+
+export const NVX_DEFAULT_MEMORY_MIB = 512;
+export const NVX_DEFAULT_MEMORY_MAX_BYTES = 512 * 1024 * 1024;
+export const NVX_DEFAULT_PIDS_MAX = 128;
+
+/**
+ * NVX preview one-shot microVM runtime settings.
+ *
+ * Required when the primary agent selects `nvx`, gated behind explicit
+ * `--nvx-preview` opt-in. Supported only on Linux x86_64 KVM hosts.
+ */
+export interface NvxOptions {
+  previewEnabled: boolean;
+  /** Host path to the prebuilt guest distro layer (EROFS source directory). */
+  layerPath?: string;
+  artifactManifestPath?: string;
+  artifactManifestBundlePath?: string;
+  /** Expected GitHub Actions workflow that signed the artifact manifest. */
+  signerWorkflow?: string;
+  openvmmPath?: string;
+  kernelPath?: string;
+  initramfsPath?: string;
+  memoryMib: number;
+  memoryMaxBytes: number;
+  pidsMax: number;
+  scratchBytes?: number;
 }

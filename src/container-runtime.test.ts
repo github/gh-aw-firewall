@@ -22,8 +22,8 @@ describe('container-runtime', () => {
       expect(resolveDockerRuntime('custom-runtime')).toBe('custom-runtime');
     });
 
-    it('rejects the reserved nvx runtime name until it is explicitly registered', () => {
-      expect(() => resolveDockerRuntime('nvx')).toThrow(/reserved.*not available/);
+    it('returns undefined for NVX (no OCI runtime)', () => {
+      expect(resolveDockerRuntime('nvx')).toBeUndefined();
     });
 
     it('resolves the runsc alias to gVisor (docker runtime runsc)', () => {
@@ -42,6 +42,10 @@ describe('container-runtime', () => {
 
     it('returns false for Cloud Hypervisor', () => {
       expect(runtimeNeedsStaticDns('cloud-hypervisor')).toBe(false);
+    });
+
+    it('returns false for NVX', () => {
+      expect(runtimeNeedsStaticDns('nvx')).toBe(false);
     });
 
     it('returns false for unknown runtimes', () => {
@@ -69,6 +73,10 @@ describe('container-runtime', () => {
 
     it('returns false for Cloud Hypervisor (no host-agent iptables)', () => {
       expect(runtimeUsesIptables('cloud-hypervisor')).toBe(false);
+    });
+
+    it('returns false for NVX (microVM manages own network namespace)', () => {
+      expect(runtimeUsesIptables('nvx')).toBe(false);
     });
 
     it('returns true for unknown runtimes (share host netns)', () => {
@@ -106,8 +114,8 @@ describe('container-runtime', () => {
       expect(runtimeUsesComposeAgent('runsc')).toBe(true);
     });
 
-    it('does not pass the reserved nvx runtime through to compose mode', () => {
-      expect(() => runtimeUsesComposeAgent('nvx')).toThrow(/reserved.*not available/);
+    it('returns false for the NVX microVM model', () => {
+      expect(runtimeUsesComposeAgent('nvx')).toBe(false);
     });
   });
 

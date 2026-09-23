@@ -768,9 +768,10 @@
           "enum": [
             "gvisor",
             "sbx",
-            "cloud-hypervisor"
+            "cloud-hypervisor",
+            "nvx"
           ],
-          "description": "Runtime for the primary agent. \"gvisor\" uses runsc in Docker Compose. \"sbx\" uses a Docker sbx microVM. \"cloud-hypervisor\" selects the explicit Linux/KVM Cloud Hypervisor v53.0 workload preview (GitHub-hosted Ubuntu x86_64 KVM runners only). Infrastructure containers always use the default runc runtime."
+          "description": "Runtime for the primary agent. \"gvisor\" uses runsc in Docker Compose. \"sbx\" uses a Docker sbx microVM. \"cloud-hypervisor\" selects the explicit Linux/KVM Cloud Hypervisor v53.0 workload preview (GitHub-hosted Ubuntu x86_64 KVM runners only). \"nvx\" selects the explicit Linux x86_64 KVM NVX one-shot microVM preview. Infrastructure containers always use the default runc runtime."
         }
       },
       "allOf": [
@@ -901,6 +902,69 @@
               "$ref": "#/$defs/sha256Digest"
             }
           }
+        }
+      }
+    },
+    "nvx": {
+      "type": "object",
+      "description": "NVX preview one-shot microVM configuration. Requires container.containerRuntime: \"nvx\" plus previewEnabled to execute workloads; supported only on Linux x86_64 KVM hosts.",
+      "additionalProperties": false,
+      "properties": {
+        "previewEnabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable the NVX workload-execution preview. Requires container.containerRuntime: \"nvx\" plus a Linux x86_64 KVM host."
+        },
+        "layerPath": {
+          "type": "string",
+          "description": "Absolute path to the prebuilt guest distro layer directory used as the NVX filesystem base layer."
+        },
+        "artifactManifestPath": {
+          "type": "string",
+          "description": "Absolute path to the release-pinned NVX artifact manifest."
+        },
+        "artifactManifestBundlePath": {
+          "type": "string",
+          "description": "Absolute path to the manifest GitHub artifact-attestation Sigstore bundle used for offline verification."
+        },
+        "signerWorkflow": {
+          "type": "string",
+          "description": "Expected GitHub Actions workflow identity that signed the artifact manifest. Defaults to the AWF release workflow."
+        },
+        "openvmmPath": {
+          "type": "string",
+          "description": "Absolute path to the trusted, attested OpenVMM binary."
+        },
+        "kernelPath": {
+          "type": "string",
+          "description": "Absolute path to the trusted, attested guest Linux kernel image."
+        },
+        "initramfsPath": {
+          "type": "string",
+          "description": "Absolute path to the trusted, attested guest initramfs image."
+        },
+        "memoryMib": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 512,
+          "description": "Guest memory in MiB."
+        },
+        "memoryMaxBytes": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 536870912,
+          "description": "Guest cgroup memory ceiling in bytes."
+        },
+        "pidsMax": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 128,
+          "description": "Guest cgroup pids ceiling."
+        },
+        "scratchBytes": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Bounded per-run guest-writable scratch overlay size in bytes."
         }
       }
     },
