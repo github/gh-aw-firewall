@@ -155,10 +155,10 @@ function createRoutingRouterClient({
   }
 
   return Object.freeze({
-    health(options = {}) { return request('/healthz', { method: 'GET', ...options }); },
-    capabilities(options = {}) { return request('/capabilities', { method: 'GET', ...options }); },
-    classify(value, options = {}) { return request('/classify', { method: 'POST', value, ...options }); },
-    route(value, options = {}) { return request('/route', { method: 'POST', value, ...options }); },
+    health(options = {}) { return request('/healthz', { ...options, method: 'GET' }); },
+    capabilities(options = {}) { return request('/capabilities', { ...options, method: 'GET' }); },
+    classify(value, options = {}) { return request('/classify', { ...options, method: 'POST', value }); },
+    route(value, options = {}) { return request('/route', { ...options, method: 'POST', value }); },
   });
 }
 

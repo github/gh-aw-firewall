@@ -32,7 +32,8 @@ describe('routing router client', () => {
     await expect(client.health({ timeoutMs: 1000 })).resolves.toBe(204);
     await expect(client.capabilities({ timeoutMs: 1000 })).resolves.toEqual({ ok: true });
     await expect(client.classify({ prompt: 'label' }, { timeoutMs: 1000 })).resolves.toEqual({ ok: true });
-    await expect(client.route({ choices: ['a'] }, { timeoutMs: 1000 })).resolves.toEqual({ ok: true });
+    await expect(client.route({ choices: ['a'] }, { timeoutMs: 1000, method: 'GET', value: { choices: ['ignored'] } }))
+      .resolves.toEqual({ ok: true });
     expect(seen).toEqual([
       { path: '/healthz', method: 'GET', body: '' },
       { path: '/capabilities', method: 'GET', body: '' },
