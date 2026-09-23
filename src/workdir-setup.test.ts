@@ -543,7 +543,8 @@ describe('prepareChrootHomeMounts (sub-function)', () => {
     });
   });
 
-  it('refuses existing symlinked nested home tool paths', () => {    const sandboxState = path.join(fixture.tempDir, '.local', 'state', 'sandboxes');
+  it('refuses existing symlinked nested home tool paths', () => {
+    const sandboxState = path.join(fixture.tempDir, '.local', 'state', 'sandboxes');
     const localBin = path.join(fixture.tempDir, '.local', 'bin');
     fs.mkdirSync(sandboxState, { recursive: true });
     fs.symlinkSync(sandboxState, localBin);

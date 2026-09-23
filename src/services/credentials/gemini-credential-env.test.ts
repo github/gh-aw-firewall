@@ -61,7 +61,7 @@ describe('buildGeminiCredentialEnv', () => {
 // auth type, which its own validator rejects ("Invalid auth method selected.", exit 41).
 // AWF points the CLI at a system settings file that pins the API-key auth type.
 describe('buildGeminiCredentialEnv — Gemini CLI auth-type pinning', () => {
-  const config = { ...baseConfig, geminiApiKey: 'AIza-test' } as WrapperConfig;
+  const config = { ...baseConfig, enableApiProxy: true, geminiApiKey: 'AIza-test' } as WrapperConfig;
   const originalVertex = process.env.GOOGLE_GENAI_USE_VERTEXAI;
   const originalGca = process.env.GOOGLE_GENAI_USE_GCA;
 
@@ -91,6 +91,19 @@ describe('buildGeminiCredentialEnv — Gemini CLI auth-type pinning', () => {
     process.env.GOOGLE_GENAI_USE_GCA = 'true';
 
     const result = buildGeminiCredentialEnv({ config, proxyIp });
+    expect(result.GEMINI_CLI_SYSTEM_SETTINGS_PATH).toBeUndefined();
+  });
+
+  // The settings file is only written for api-proxy runs, so the env var must use the
+  // same gate — otherwise the CLI would be pointed at a path that does not exist.
+  it('does not set the settings path when the api-proxy is disabled', () => {
+    delete process.env.GOOGLE_GENAI_USE_VERTEXAI;
+    delete process.env.GOOGLE_GENAI_USE_GCA;
+
+    const result = buildGeminiCredentialEnv({
+      config: { ...baseConfig, geminiApiKey: 'AIza-test' } as WrapperConfig,
+      proxyIp,
+    });
     expect(result.GEMINI_CLI_SYSTEM_SETTINGS_PATH).toBeUndefined();
   });
 });
