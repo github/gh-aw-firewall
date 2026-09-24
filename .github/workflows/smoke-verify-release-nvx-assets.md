@@ -18,12 +18,15 @@ network:
     - github
 tools:
   bash:
-    - "*"
+    - gh release download
+    - tar
+    - sha256sum
+    - gh attestation verify
   github:
     mode: gh-proxy
 safe-outputs:
   threat-detection:
-    enabled: false
+    enabled: true
   create-issue:
     title-prefix: "[release-verify] "
     labels: [release-verification]
