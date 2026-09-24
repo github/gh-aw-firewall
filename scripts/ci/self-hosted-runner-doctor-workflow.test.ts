@@ -140,6 +140,11 @@ describe('self-hosted runner doctor workflow config', () => {
       expect(content).toContain('`assertNetworkSubnetUsable()`');
       expect(content).toContain('github/gh-aw#59880, github/gh-aw-firewall#8390, github/gh-aw-firewall#8398');
       expect(content).toContain('| `503 HIER_NONE` on every Squid `CONNECT` on `runner.topology: arc-dind` deployed on OpenShift/ARO | A26');
+      // A27 new failure mode (daemon-visible safe-output staging)
+      expect(content).toContain('| A27 | On `runner.topology: arc-dind`, safe-output payload files staged under `/tmp/gh-aw/agent`');
+      expect(content).toContain('`ensureAgentStagingDirectories()` in `src/dind-bootstrap.ts`');
+      expect(content).toContain('github/gh-aw#63045, github/gh-aw#62924, github/gh-aw-firewall#8932, github/gh-aw-firewall#8933, github/gh-aw-firewall#8938');
+      expect(content).toContain('| Safe-output field (e.g. PR body) comes back empty on `runner.topology: arc-dind`, with no write error, and the payload was staged under `/tmp/gh-aw/agent` | A27');
       expect(content).toContain('| `threat-detect` (or another non-engine CLI tool invoked inside the AWF sandbox) exits 127, or its `--output` path is unwritable/unreadable, on `runner.topology: arc-dind` |');
       expect(content).toContain('`--mount /tmp/gh-aw/<tool>:/tmp/gh-aw/<tool>:rw`');
       expect(content).toContain('github/gh-aw-firewall#8457, tracks github/gh-aw#59935');
