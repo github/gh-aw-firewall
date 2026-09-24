@@ -42,6 +42,31 @@ describe('model-api-mapping', () => {
       expect(result.endpoints).toContain('responses');
     });
 
+    it.each([
+      ['gpt-6-sol', 'gpt-6-sol'],
+      ['gpt-6-luna', 'gpt-6-luna'],
+      ['gpt-4.5-preview', 'gpt-4.5'],
+    ])('finds %s as supporting both endpoints', (model, family) => {
+      const result = lookupModelEndpoints(model, 'openai');
+      expect(result).not.toBeNull();
+      expect(result.family).toBe(family);
+      expect(result.endpoints).toContain('chat_completions');
+      expect(result.endpoints).toContain('responses');
+    });
+
+    it.each([
+      ['gpt-rosalind-research', 'gpt-rosalind-research'],
+      ['gpt-5.3-codex', 'gpt-5.3-codex'],
+      ['gpt-5.2-codex', 'gpt-5.2-codex'],
+      ['gpt-5.2-pro', 'gpt-5.2-pro'],
+      ['codex-mini-latest', 'codex-mini'],
+    ])('finds %s as responses-only', (model, family) => {
+      const result = lookupModelEndpoints(model, 'openai');
+      expect(result).not.toBeNull();
+      expect(result.family).toBe(family);
+      expect(result.endpoints).toEqual(['responses']);
+    });
+
     it('finds GPT-5.5 as supporting both endpoints', () => {
       const result = lookupModelEndpoints('gpt-5.5', 'openai');
       expect(result).not.toBeNull();
