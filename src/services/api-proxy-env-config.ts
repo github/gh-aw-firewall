@@ -11,6 +11,7 @@ import { normalizeCodexHostedWebPolicy } from '../codex-hosted-web-policy';
 
 const DEFAULT_API_PROXY_SHUTDOWN_TIMEOUT_MS = 8000;
 export const API_PROXY_UPSTREAM_CA_CERT_CONTAINER_PATH = '/usr/local/share/ca-certificates/awf-upstream-ca.crt';
+export const MODEL_ROUTING_NOT_STAGED_MESSAGE = 'Model routing was configured but the routing conversation was not staged';
 
 /**
  * Builds provider API target/basePath environment variables for the api-proxy container.
@@ -311,7 +312,7 @@ function buildModelPolicyEnv(config: WrapperConfig): Record<string, string> {
 function buildModelRoutingEnv(config: WrapperConfig): Record<string, string> {
   if (!config.modelRouting) return {};
   if (!config.modelRoutingBootstrap) {
-    throw new Error('Model routing was configured but the routing conversation was not staged');
+    throw new Error(MODEL_ROUTING_NOT_STAGED_MESSAGE);
   }
   return {
     AWF_ROUTING_CONFIG: JSON.stringify({

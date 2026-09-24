@@ -11,6 +11,7 @@ import { applyHostPathPrefixToVolumes } from './host-path-prefix';
 import { buildContainerSecurityHardening } from './service-security';
 import {
   API_PROXY_UPSTREAM_CA_CERT_CONTAINER_PATH,
+  MODEL_ROUTING_NOT_STAGED_MESSAGE,
   buildApiProxyBaseEnv,
   resolveApiProxyShutdownTimeoutMs,
 } from './api-proxy-env-config';
@@ -58,7 +59,7 @@ export function buildApiProxyServiceConfig(params: ApiProxyServiceConfigParams):
     ? undefined
     : resolveApiProxyCaCertPath(config.apiProxyCaCert);
   if (config.modelRouting && !config.modelRoutingBootstrap) {
-    throw new Error('Model routing was configured but the routing conversation was not staged');
+    throw new Error(MODEL_ROUTING_NOT_STAGED_MESSAGE);
   }
 
   const proxyService: any = {

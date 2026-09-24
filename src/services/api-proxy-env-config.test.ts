@@ -422,7 +422,7 @@ describe('buildModelPolicyEnv', () => {
     expect(env.AWF_MODEL_FALLBACK).toBe('{"enabled":false,"strategy":"middle_power"}');
   });
 
-it('does not set AWF_ROUTING_CONFIG when modelRouting is configured', () => {
+it('buildModelPolicyEnv no longer sets AWF_ROUTING_CONFIG when modelRouting is configured', () => {
     const env = buildModelPolicyEnv({
       ...baseConfig,
       workDir: '/tmp/awf-test',

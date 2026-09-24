@@ -332,8 +332,11 @@ export async function runMainWorkflow(
     if (!dependencies.verifyRoutingCompletion) {
       throw new Error('Model routing is enabled but no completion verification implementation was provided');
     }
-    await dependencies.verifyRoutingCompletion(routingState);
-    await dependencies.cleanupRouting?.(config);
+    try {
+      await dependencies.verifyRoutingCompletion(routingState);
+    } finally {
+      await dependencies.cleanupRouting?.(config);
+    }
   }
 
   if (result.exitCode === 0) {

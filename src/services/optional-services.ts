@@ -6,7 +6,7 @@ import { buildApiProxyService } from './api-proxy-service';
 import { buildDohProxyService } from './doh-proxy-service';
 import { buildCliProxyService } from './cli-proxy-service';
 import { buildEnclaveMcpService } from './enclave-mcp-service';
-import { buildRouterService } from './router-service';
+import { buildRouterService, ROUTER_SERVICE_NAME } from './router-service';
 import { buildSysrootStageService, isSysrootEnabled } from './sysroot-service';
 import { resolveDockerHostGateway } from './host-gateway';
 import { runtimeUsesIptables } from '../container-runtime';
@@ -319,7 +319,7 @@ function assembleApiProxyService(params: AssembleOptionalServicesParams): void {
 function assembleRouterService(params: AssembleOptionalServicesParams): void {
   const { services, config, imageConfig } = params;
   if (!config.modelRoutingBootstrap) return;
-  services['router'] = buildRouterService({ imageConfig });
+  services[ROUTER_SERVICE_NAME] = buildRouterService({ imageConfig });
 }
 
 function assembleDohProxyService(params: AssembleOptionalServicesParams): void {
