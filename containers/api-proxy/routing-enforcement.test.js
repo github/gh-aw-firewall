@@ -55,15 +55,18 @@ function request(overrides = {}) {
 
 function createHarness(selection = SELECTION, failure = null) {
   const failures = [];
+  const decisions = [];
   let currentFailure = failure;
   const enforcement = createRoutingEnforcement({
     getSelection: () => selection,
     getFailure: () => currentFailure,
     recordFailure: code => failures.push(code),
+    observer: { record: record => decisions.push(record) },
   });
   return {
     enforcement,
     failures,
+    decisions,
     setFailure(value) { currentFailure = value; },
   };
 }
@@ -200,5 +203,57 @@ describe('routing enforcement', () => {
     expect(written[0]).toContain('HTTP/1.1 403 Forbidden');
     expect(written[0]).toContain('model_routing_mismatch');
     expect(written[1]).toBe('<destroyed>');
+  });
+
+  it('records a structured decision for every admit and reject outcome', () => {
+    const harness = createHarness();
+    screen(harness, request({ method: 'GET', url: '/v1/models' }));
+    screen(harness, request());
+    screen(harness, request({ method: 'GET', url: '/responses' }));
+    screen(harness, request(), { name: 'anthropic' });
+    screen(harness, request({ headers: { 'x-model-override': 'other' } }));
+
+    expect(harness.decisions).toEqual([
+      { stage: 'decision', decision: 'admit', reason: 'model_discovery_exempt', method: 'GET', pathname: '/v1/models' },
+      {
+        stage: 'decision', decision: 'admit', reason: 'selected_model_pinned', method: 'POST', pathname: '/responses',
+        selected_model: SELECTION.choice.model, selected_effort: SELECTION.choice.effort,
+      },
+      { stage: 'decision', decision: 'reject', reason: 'method_not_allowed', method: 'GET', pathname: '/responses' },
+      { stage: 'decision', decision: 'reject', reason: 'foreign_adapter', method: 'POST', pathname: '/responses' },
+      { stage: 'decision', decision: 'reject', reason: 'header_override', method: 'POST', pathname: '/responses' },
+    ]);
+  });
+
+  it('records a distinct reject reason for draining, no selection, and a terminal failure', () => {
+    const draining = createHarness();
+    draining.enforcement.drain();
+    screen(draining, request());
+    expect(draining.decisions.at(-1)).toMatchObject({ decision: 'reject', reason: 'draining' });
+
+    const unrouted = createHarness(null);
+    screen(unrouted, request());
+    expect(unrouted.decisions.at(-1)).toMatchObject({ decision: 'reject', reason: 'no_selection' });
+
+    const failed = createHarness(SELECTION, 'provider_unavailable');
+    screen(failed, request());
+    expect(failed.decisions.at(-1)).toMatchObject({ decision: 'reject', reason: 'terminal_failure' });
+  });
+
+  it('records a reject decision for an opaque upgrade', () => {
+    const harness = createHarness();
+    harness.enforcement.rejectUpgrade({ write: () => {}, destroy: () => {} });
+    expect(harness.decisions).toContainEqual({ stage: 'decision', decision: 'reject', reason: 'upgrade_rejected' });
+  });
+
+  it('never throws when the observer itself throws', () => {
+    const enforcement = createRoutingEnforcement({
+      getSelection: () => SELECTION,
+      getFailure: () => null,
+      recordFailure: () => {},
+      observer: { record: () => { throw new Error('boom'); } },
+    });
+    const res = new FakeResponse();
+    expect(() => enforcement.screenRequest(request(), res, { name: 'copilot' })).not.toThrow();
   });
 });

@@ -65,7 +65,9 @@ async function loadRoutingConversation(filePath, { signal } = {}) {
 function createRoutingObserver(writeLog = logRequest) {
   return Object.freeze({
     record(record) {
-      writeLog(record.stage === 'failure' ? 'warn' : 'info', 'model_routing', record);
+      const level = record.stage === 'failure' || (record.stage === 'decision' && record.decision === 'reject')
+        ? 'warn' : 'info';
+      writeLog(level, 'model_routing', record);
     },
   });
 }
@@ -244,7 +246,7 @@ function createProductionRoutingSession({
 
   const getSelection = () => result?.ok ? result.selection : null;
   const getFailure = () => terminalFailure || (result && !result.ok ? result.failure : null);
-  const enforcement = createRoutingEnforcement({ getSelection, getFailure, recordFailure });
+  const enforcement = createRoutingEnforcement({ getSelection, getFailure, recordFailure, observer });
 
   async function execute() {
     try {

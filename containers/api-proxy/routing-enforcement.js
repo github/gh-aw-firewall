@@ -1,11 +1,26 @@
 'use strict';
 
 /**
+ * Record a per-request admit/reject decision. Never throws: observability
+ * must not change the routing decision or the live response.
+ *
+ * @param {{ record: (record: object) => void }} [observer]
+ * @param {object} record
+ */
+function safeRecordDecision(observer, record) {
+  try {
+    observer?.record?.(Object.freeze({ stage: 'decision', ...record }));
+  } catch {
+    // Observability must not change the routing decision.
+  }
+}
+
+/**
  * Enforce the controller's immutable selection at the primary HTTP boundary.
  * Observe terminal failures without changing native response bytes, and drain
  * admitted responses before the host reads final routing status.
  */
-function createRoutingEnforcement({ getSelection, getFailure, recordFailure }) {
+function createRoutingEnforcement({ getSelection, getFailure, recordFailure, observer }) {
   let draining = false;
   const active = new Set();
   const waiters = new Set();
@@ -107,23 +122,39 @@ function createRoutingEnforcement({ getSelection, getFailure, recordFailure }) {
       try {
         pathname = new URL(req.url, 'http://localhost').pathname;
       } catch {
+        safeRecordDecision(observer, { decision: 'reject', reason: 'invalid_url', method: req.method });
         return reject(res);
       }
       if (req.method === 'GET' && /^\/(?:v1\/)?models(?:\/[^/?]+)?$/.test(pathname)) {
+        safeRecordDecision(observer, { decision: 'admit', reason: 'model_discovery_exempt', method: req.method, pathname });
         return false;
       }
       const selection = getSelection();
       const responses = /^\/(?:v1\/)?responses$/.test(pathname);
       const chat = /^\/(?:v1\/)?chat\/completions$/.test(pathname);
       const hasEffort = selection && Object.hasOwn(selection.choice, 'effort');
-      if (
-        draining || !selection || getFailure() ||
-        adapter.name !== 'copilot' || req.method !== 'POST' ||
-        (!responses && !chat) || responses !== hasEffort ||
-        Object.keys(req.headers).some(name => /(?:^|[-_])(?:model|reasoning|effort)(?:$|[-_])/i.test(name))
-      ) {
+      const rejectReason =
+        draining ? 'draining' :
+        !selection ? 'no_selection' :
+        getFailure() ? 'terminal_failure' :
+        adapter.name !== 'copilot' ? 'foreign_adapter' :
+        req.method !== 'POST' ? 'method_not_allowed' :
+        (!responses && !chat) ? 'unsupported_endpoint' :
+        responses !== hasEffort ? 'effort_endpoint_mismatch' :
+        Object.keys(req.headers).some(name => /(?:^|[-_])(?:model|reasoning|effort)(?:$|[-_])/i.test(name)) ? 'header_override' :
+        null;
+      if (rejectReason) {
+        safeRecordDecision(observer, { decision: 'reject', reason: rejectReason, method: req.method, pathname });
         return reject(res);
       }
+      safeRecordDecision(observer, {
+        decision: 'admit',
+        reason: 'selected_model_pinned',
+        method: req.method,
+        pathname,
+        selected_model: selection.choice.model,
+        selected_effort: selection.choice.effort ?? null,
+      });
       trackResponse(res);
       observeFailure(res);
       const onSseData = line => {
@@ -173,6 +204,7 @@ function createRoutingEnforcement({ getSelection, getFailure, recordFailure }) {
       }
     },
     rejectUpgrade(socket) {
+      safeRecordDecision(observer, { decision: 'reject', reason: 'upgrade_rejected' });
       const body = rejectionBody();
       socket.write(`HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(body)}\r\n\r\n${body}`);
       socket.destroy();
