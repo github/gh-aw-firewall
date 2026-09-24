@@ -93,7 +93,7 @@ const dynamicExecutorConfig = {
 
 function buildDynamicExecutorConfig(overrides: Record<string, unknown> = {}) {
   return {
-    ...dynamicExecutorConfig,
+    ...structuredClone(dynamicExecutorConfig),
     ...overrides,
   };
 }
