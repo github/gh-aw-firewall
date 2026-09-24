@@ -91,13 +91,13 @@ const dynamicExecutorConfig = {
   maxOutputBytes: 8192,
 };
 
-function buildDynamicExecutorConfig<TOverrides extends object = object>(
-  overrides?: TOverrides,
-): typeof dynamicExecutorConfig & TOverrides {
+type DynamicExecutorConfigOverrides = Partial<typeof dynamicExecutorConfig> & Record<string, unknown>;
+
+function buildDynamicExecutorConfig(overrides: DynamicExecutorConfigOverrides = {}) {
   return {
     ...structuredClone(dynamicExecutorConfig),
     ...overrides,
-  } as typeof dynamicExecutorConfig & TOverrides;
+  };
 }
 
 describe('dynamic broker configuration', () => {
