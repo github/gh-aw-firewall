@@ -251,7 +251,15 @@ function enforceToolPolicy(tool, policy) {
     let effective = policy.domains;
     if (hasAllowed) {
       const requested = readRequestDomains(tool.allowed_domains, 'allowed_domains');
-      effective = policy.domains.filter((domain) => requested.includes(domain));
+      effective = [...new Set(
+        policy.domains.flatMap((configuredDomain) =>
+          requested.flatMap((requestedDomain) => {
+            if (requestedDomain === configuredDomain) return [configuredDomain];
+            if (requestedDomain.endsWith(`.${configuredDomain}`)) return [requestedDomain];
+            if (configuredDomain.endsWith(`.${requestedDomain}`)) return [configuredDomain];
+            return [];
+          })),
+      )];
       if (effective.length === 0) {
         throw new ClaudeHostedWebPolicyError(
           'claude_hosted_web_empty_intersection',
