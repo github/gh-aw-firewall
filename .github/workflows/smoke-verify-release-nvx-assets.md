@@ -18,10 +18,14 @@ network:
     - github
 tools:
   bash:
-    - gh release download
-    - tar
-    - sha256sum
-    - gh attestation verify
+    - "mkdir *"
+    - "gh release download *"
+    - "gh release view *"
+    - "gh attestation verify *"
+    - "tar -xzf *"
+    - "ls *"
+    - "cat *"
+    - "sha256sum *"
   github:
     mode: gh-proxy
 safe-outputs:
@@ -29,7 +33,7 @@ safe-outputs:
     enabled: true
   create-issue:
     title-prefix: "[release-verify] "
-    labels: [release-verification]
+    labels: [smoke-test, automation]
   messages:
     footer: "> 🚀🔍 *Release NVX asset verification by [{workflow_name}]({run_url})*"
     run-started: "🚀🔍 [{workflow_name}]({run_url}) is verifying the latest release's NVX preview test assets..."
@@ -40,6 +44,7 @@ timeout-minutes: 15
 concurrency:
   group: smoke-verify-release-nvx-assets
   cancel-in-progress: false
+  queue: max
 ---
 
 # Smoke Test: Verify Release NVX Assets
@@ -55,14 +60,23 @@ tool or MCP server.
 
 ## 1. Resolve the release to verify
 
-Run:
+This workflow can run two ways:
 
-```bash
-gh release view --repo github/gh-aw-firewall --json tagName,assets -q .tagName
-```
+- **On `release: published`**: the tag to verify is fixed by the triggering
+  event: `${{ github.event.release.tag_name }}`. Use that value exactly —
+  do not query for the latest release, since a newer release may have been
+  published by the time this run executes, and a prerelease's event tag is
+  not necessarily returned by "latest" queries.
+- **On `workflow_dispatch`** (manual run, no release event): resolve the
+  latest published release tag with:
 
-Use this tag for every command below. If this repository's release list is
-empty (should not happen in practice), call `noop` explaining that and stop.
+  ```bash
+  gh release view --repo github/gh-aw-firewall --json tagName -q .tagName
+  ```
+
+Use whichever tag applies for every command below. If this repository's
+release list is empty on a manual run (should not happen in practice), call
+`noop` explaining that and stop.
 
 ## 2. Download the NVX preview test assets
 
