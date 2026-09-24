@@ -307,26 +307,68 @@ does not weaken any Phase 3f invariant above.
   by `runNvxPreflight`. Unsupported operating systems, architectures, or
   missing KVM access fail with a clear, actionable error
   (`src/nvx/runtime-validation.ts`).
-- **No fallback, ever**: unlike Cloud Hypervisor (which falls back to Docker
-  when the host is ineligible), an explicit `nvx` selection **never** falls
-  back to Docker, Cloud Hypervisor, or any other backend. Any preview-gate,
+- **No fallback, ever (deliberate divergence from Cloud Hypervisor)**: Cloud
+  Hypervisor falls back to the standard Docker runtime when the host is
+  ineligible or a non-artifact preflight check fails, treating only
+  artifact-trust failures as fatal. An explicit `nvx` selection **never** falls
+  back to Docker, Cloud Hypervisor, or any other backend: any preview-gate,
   compatibility, host-eligibility, or artifact-validation failure aborts the
-  run (`src/commands/validators/config-assembly.ts`).
+  run (`src/commands/validators/config-assembly.ts`). See
+  [Fallback behaviour](#fallback-behaviour) for why this difference is
+  intentional and is preserved rather than reconciled.
 - **Incompatible combinations**: `nvx` is rejected together with `--tty`,
   Docker-in-Docker/split-filesystem options (`--enable-dind`,
   `--docker-host-path-prefix`, `arc-dind` runner topology), host access
   (`--enable-host-access`/host port allowlisting), additional host volume
-  mounts, `--network-subnet` (NVX's microVM infrastructure discovery requires
-  the fixed default `awf-net` subnet), `--container-workdir` (see workspace
-  limitation below), DIFC proxies, DNS-over-HTTPS, and primary-agent execution
-  with enclaves enabled. `--network-isolation` (strict mode) and
+  mounts, `--network-subnet` (see below), DIFC proxies, DNS-over-HTTPS, and
+  primary-agent execution with enclaves enabled. `--network-isolation` (strict mode) and
   `--enable-api-proxy` are required.
-- **Known limitation — no host workspace export**: the one-shot adapter does
-  not export the host workspace/repository into the guest, and `--container-
-  workdir` is rejected rather than silently ignored. The only filesystem
-  content available to the guest is the distro layer supplied via
-  `--nvx-layer`; any inputs the agent command needs must be pre-baked into
-  that layer.
+- **Live host workspace export**: `$GITHUB_WORKSPACE` (falling back to the
+  current working directory) is exported into the guest at the fixed guest path
+  `/workspace` as a live, read-write directory. The attested guest contract is
+  kernel-command-line only, so there is no virtio-fs share to attach; instead
+  AWF stages the workspace into the `custom` EROFS layer it owns
+  (`src/nvx/workspace-layer.ts`). The guest assembles its root filesystem as
+  `overlayfs(lowerdir=custom:runtime:distro, upperdir=<scratch>/upper)`, so the
+  staged tree is writable inside the guest and every guest write lands in the
+  writable scratch image. After the microVM has exited, AWF reads the overlay
+  upper layer out of the scratch image with `e2fsck`/`debugfs` and merges it
+  back into the host workspace, applying creations, modifications, symlinks,
+  and overlay whiteout deletions. Copy-back is refused for any entry a host
+  process changed while the microVM was running, so concurrent host edits are
+  reported instead of silently overwritten.
+- **Mount policy**: `--nvx-mount-policy` (`nvx.mountPolicy`) selects
+  `workspace-only` (the default: just `$GITHUB_WORKSPACE`, read-write) or
+  `workspace-and-tool-cache` (additionally exports `RUNNER_TOOL_CACHE` /
+  `AGENT_TOOLSDIRECTORY` read-only), mirroring the Cloud Hypervisor mount
+  policies. Credential paths and forbidden `$HOME` subdirectories are excluded
+  from every staged tree, and the guest `$HOME` is a separate AWF-owned
+  directory at `/home/awf` seeded only with allowed tool state — it is never
+  staged into, or copied back out of, the workspace.
+- **`filesystem.allowWrite`**: narrows the workspace export to specific
+  writable subpaths (`src/nvx/filesystem-write-policy.ts`). Narrowed subtrees
+  are staged owned by uid/gid 0 with their write bits cleared; because the
+  guest workload runs with an empty capability set (no `CAP_FOWNER` /
+  `CAP_DAC_OVERRIDE`), it can neither write those entries nor `chmod` them back
+  to writable, so the restriction is enforced inside the guest and not only at
+  copy-back time. Copy-back additionally drops any path outside the policy as
+  defence in depth and reports it.
+- **`--container-workdir`**: supported, and validated to resolve inside the
+  guest workspace export (`/workspace`). Paths outside it are rejected rather
+  than silently relocated.
+- **`--network-subnet` (explicitly deferred)**: still rejected. The shared
+  microVM infrastructure discovery used by both microVM backends asserts that
+  the discovered Docker network matches the compile-time default subnet
+  (`src/microvm/infrastructure.ts`), so honouring a relocated subnet is not an
+  NVX-local change — it would alter Cloud Hypervisor's behaviour too, which is
+  out of scope here. NVX therefore fails closed with an actionable error
+  instead of silently ignoring the flag.
+- **Known limitation — overlay opaque directories**: `debugfs rdump` does not
+  reproduce overlayfs `trusted.overlay.opaque` extended attributes. A guest
+  that deletes a directory and recreates one with the same name is merged as an
+  update rather than a replacement, so host entries the guest did not
+  explicitly white out survive. Whiteout deletions of individual entries are
+  applied normally.
 - **Adapter**: `src/nvx/runtime-backend.ts` implements the same
   `ExternalAgentRuntimeBackend` interface used by the `sbx` and Cloud
   Hypervisor backends, mapping it onto the existing, unmodified `NvxManager`
@@ -336,15 +378,20 @@ does not weaken any Phase 3f invariant above.
   infrastructure (Squid/API-proxy) and resolves the microVM network
   infrastructure snapshot; the microVM itself is created and torn down inside
   `exec()`. `stop()` aborts any in-flight execution and awaits its cleanup.
-- **Known limitation**: the underlying one-shot adapter
-  (`src/nvx/one-shot-adapter.ts`) does not accept arbitrary per-run guest
-  environment variables — only `entrypoint`, `args`, and network egress rules
-  are passed to the guest. `--env`/`--env-all`/`--env-file` values are
-  therefore **not** delivered to the NVX guest process; any environment the
-  agent command needs (including proxy settings) must be pre-baked into the
-  guest layer supplied via `--nvx-layer`. This is a deliberate boundary of the
-  validated Phase 3f contract, not an oversight, and is not worked around by
-  this change.
+- **Per-run environment passthrough**: `--env`/`--env-all`/`--env-file` values,
+  proxy settings, and the rest of the per-run guest environment are delivered
+  to the guest workload. The guest contract carries no environment mechanism —
+  `nvx_entrypoint=` takes a single absolute path and each `nvx_arg=` token must
+  be whitespace-free — so AWF generates a per-run `/bin/sh` script into the
+  AWF-owned `custom` layer (`src/nvx/guest-entrypoint.ts`,
+  `src/nvx/guest-environment-builder.ts`) and points `nvx_entrypoint=` at it.
+  The script exports the environment, changes to the configured working
+  directory, and execs the agent command. It is staged root-owned and mode
+  `0555` inside a root-owned `0555` directory, so the workload cannot rewrite
+  the script that established its own environment. Keeping the values in the
+  layer rather than on the kernel command line also keeps them out of the host
+  process table, and lets agent commands contain whitespace, which a
+  whitespace-free `nvx_arg=` token cannot express.
 
 ### Troubleshooting
 
@@ -373,10 +420,46 @@ These combinations are rejected outright rather than partially applied.
 Remove the incompatible flag, or use Docker/gVisor/Cloud Hypervisor instead of
 NVX for that run.
 
-**Agent command output is missing environment variables it expects**
-The NVX one-shot adapter does not forward `--env`/`--env-all`/`--env-file`
-values into the guest (see "Known limitation" above). Pre-bake any required
-environment into the guest layer supplied via `--nvx-layer`.
+**NVX preview requires `debugfs`/`e2fsck` on the host**
+Workspace copy-back reads the guest overlay upper layer out of the scratch ext4
+image. Install `e2fsprogs` on the host; preflight fails before launch when
+either tool is missing.
+
+**NVX preview `--container-workdir` must be inside the guest workspace export**
+The host workspace is exported at the fixed guest path `/workspace`. Pass a
+working directory inside it (for example `/workspace/packages/app`).
+
+**NVX workspace copy-back refused: the host changed &lt;path&gt; while the microVM
+was running**
+A host process modified an exported file while the guest was running, so
+merging the guest's version would silently discard the host change. Re-run
+without concurrent host writes to the workspace.
+
+**NVX preview does not support `--network-subnet`**
+Both microVM backends discover their infrastructure on the fixed default
+`awf-net` subnet. Remove the flag, or use the Docker runtime when a relocated
+subnet is required.
+
+## Fallback behaviour
+
+The design question of whether NVX should adopt Cloud Hypervisor's
+fallback-on-ineligible-host behaviour is resolved deliberately in favour of
+keeping NVX fail-closed:
+
+- **Cloud Hypervisor** falls back to the standard Docker runtime when the host
+  is ineligible or a non-artifact preflight check fails; only artifact trust,
+  integrity, digest, and version failures are fatal.
+- **NVX** never falls back. Every failure — preview gate, option compatibility,
+  host eligibility, artifact validation, or preflight — aborts the run.
+
+The reason is that NVX is an opt-in preview runtime selected explicitly with
+`--container-runtime nvx --nvx-preview`. Silently downgrading such a run to a
+different isolation boundary would produce a result whose security properties
+do not match what the operator asked for, and would make preview validation
+runs (whose entire purpose is to exercise the microVM path) pass without ever
+booting a microVM. Cloud Hypervisor's fallback exists because it can be enabled
+as a default-on hardening step on heterogeneous runner fleets; NVX has no such
+mode. This divergence is intentional and is not a parity gap.
 
 ## Host OpenVMM confinement
 

@@ -340,6 +340,7 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 - `nvx.memoryMaxBytes` → `--nvx-memory-max-bytes` *(default 512 MiB)*
 - `nvx.pidsMax` → `--nvx-pids-max` *(default 128)*
 - `nvx.scratchBytes` → `--nvx-scratch-bytes`
+- `nvx.mountPolicy` → `--nvx-mount-policy` *(`"workspace-only"` (default) exports `$GITHUB_WORKSPACE` into the guest at `/workspace` read-write; `"workspace-and-tool-cache"` additionally exports the runner tool cache read-only. `filesystem.allowWrite` narrows the workspace export, and `container.containerWorkDir` must resolve inside `/workspace`.)*
 - `chroot.binariesSourcePath` → *(config-only; mounts a runner-side binaries directory at `/tmp/awf-runner-bin` inside chroot mode and prepends it to `PATH`)*
 - `chroot.identity.home` → *(config-only; forwarded as `AWF_CHROOT_IDENTITY_HOME` and applied after chroot pivot)*
 - `chroot.identity.user` → *(config-only; forwarded as `AWF_CHROOT_IDENTITY_USER` and applied to `USER`/`LOGNAME` after chroot pivot)*
