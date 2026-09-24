@@ -20,6 +20,10 @@ import {
 const REQUIRED_CGROUP_CONTROLLERS = ['cpu', 'memory', 'pids'] as const;
 const REQUIRED_TOOLS = [
   'bwrap',
+  // Required by the host-side workspace copy-back, which reads the guest
+  // overlay's upper layer out of the scratch image after the microVM exits.
+  'debugfs',
+  'e2fsck',
   'flock',
   'getfacl',
   'getent',

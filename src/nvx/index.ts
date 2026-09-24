@@ -144,3 +144,37 @@ export {
 export type {
   NvxLaunchExecutorDependencies,
 } from './launch-executor';
+export {
+  NVX_DEFAULT_MOUNT_POLICY,
+  NVX_GUEST_HOME,
+  NVX_GUEST_RUN_SCRIPT,
+  NVX_GUEST_WORKSPACE,
+  NVX_MOUNT_POLICIES,
+  NVX_SCRATCH_UPPER_DIRECTORY,
+  NVX_WORKSPACE_EXPORT_TAG,
+  resolveNvxExports,
+  validateNvxExports,
+} from './workspace-export';
+export type {
+  NvxDirectoryExport,
+  NvxMountPolicy,
+} from './workspace-export';
+export {
+  isNvxWritableGuestPath,
+  planNvxFilesystemWrites,
+} from './filesystem-write-policy';
+export type {
+  NvxExportWritePlan,
+  NvxFilesystemWritePlan,
+} from './filesystem-write-policy';
+export { buildNvxGuestRunScript } from './guest-entrypoint';
+export type { NvxGuestRunScriptOptions } from './guest-entrypoint';
+export { buildNvxGuestEnvironment } from './guest-environment-builder';
+export { NvxWorkspaceLayer } from './workspace-layer';
+export type {
+  NvxWorkspaceCopyBackResult,
+  NvxWorkspaceLayerConfig,
+  NvxWorkspaceLayerDependencies,
+  NvxWorkspaceTool,
+} from './workspace-layer';
+export type { NvxWorkspaceLifecycle } from './manager';

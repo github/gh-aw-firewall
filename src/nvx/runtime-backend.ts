@@ -8,10 +8,9 @@ import {
   type MicrovmInfrastructureSnapshot,
 } from '../microvm/infrastructure';
 import { createMicrovmNetworkPlan, type MicrovmControlPeer } from '../microvm/network';
-import { buildGuestEnvironment } from '../microvm/guest-environment';
-import { NETWORK_SUBNET } from '../config/network-policy';
 import { MCP_GATEWAY_PORT } from '../cloud-hypervisor/backend-utils';
-import type { WrapperConfig } from '../types';
+import execa from 'execa';
+import type { NvxOptions, WrapperConfig } from '../types';
 import {
   NvxManager,
   NVX_ARTIFACT_RELEASE_TAG,
@@ -19,10 +18,21 @@ import {
   type NvxOneShotExecutionResult,
 } from '../nvx';
 import { resolveTrustedNvxHostTool } from './preflight';
-import { assertNvxRuntimeCompatibility, requireNvxConfig } from './runtime-validation';
+import {
+  assertNvxRuntimeCompatibility,
+  requireNvxConfig,
+  resolveNvxGuestWorkDir,
+} from './runtime-validation';
+import { buildNvxGuestEnvironment } from './guest-environment-builder';
+import { buildNvxGuestRunScript } from './guest-entrypoint';
+import { planNvxFilesystemWrites } from './filesystem-write-policy';
+import { NvxWorkspaceLayer } from './workspace-layer';
+import {
+  NVX_GUEST_RUN_SCRIPT,
+  resolveNvxExports,
+  type NvxDirectoryExport,
+} from './workspace-export';
 
-const NVX_GUEST_WORKSPACE = '/workspace';
-const NVX_GUEST_HOME = `${NVX_GUEST_WORKSPACE}/.awf-home`;
 const NVX_MAX_TIMEOUT_MS = 86_400_000;
 
 /** @internal Exposed only for unit tests — not part of the public API. */
@@ -36,6 +46,10 @@ export interface NvxRuntimeBackendDependencies {
     topologyPeerNames?: readonly string[],
   ): Promise<MicrovmInfrastructureSnapshot>;
   createManager(config: ConstructorParameters<typeof NvxManager>[0]): NvxManager;
+  resolveExports(mountPolicy: NvxOptions['mountPolicy']): Promise<NvxDirectoryExport[]>;
+  createWorkspaceLayer(
+    config: ConstructorParameters<typeof NvxWorkspaceLayer>[0],
+  ): NvxWorkspaceLayer;
   identity(): { uid: number; gid: number };
   randomRunId(): string;
   logger: {
@@ -54,6 +68,20 @@ function defaultDependencies(
     resolveInfrastructure: (enableApiProxy, ipPath, topologyPeerNames) =>
       resolveMicrovmInfrastructure(enableApiProxy, undefined, ipPath, topologyPeerNames),
     createManager: (config) => new NvxManager(config),
+    resolveExports: (mountPolicy) => resolveNvxExports(process.env, process.cwd(), mountPolicy),
+    createWorkspaceLayer: (config) => new NvxWorkspaceLayer(config, {
+      runTool: async (tool, args) => {
+        // Resolved through the same trusted-tool preflight NVX uses for every
+        // other host binary rather than an ambient PATH lookup.
+        const binary = await resolveTrustedNvxHostTool(tool);
+        const result = await execa(binary, [...args], {
+          reject: false,
+          stdio: ['ignore', 'pipe', 'pipe'],
+          timeout: 600_000,
+        });
+        return { exitCode: result.exitCode ?? 1, stderr: result.stderr ?? '' };
+      },
+    }),
     identity: () => ({
       uid: Number(getSafeHostUid()),
       gid: Number(getSafeHostGid()),
@@ -87,13 +115,13 @@ export const nvxRuntimeTestHelpers = {
  * defers the actual microVM lifecycle to `exec()`. There is no persistent
  * "ready" microVM to `stop()` between `start()` and `exec()`.
  *
- * Known limitation: unlike the Docker/Cloud Hypervisor backends, the
- * underlying NVX one-shot adapter (`src/nvx/one-shot-adapter.ts`) does not
- * accept arbitrary per-run guest environment variables — only an
- * `entrypoint`, `args`, and network egress rules. `--env`/`--env-all`/
- * `--env-file` values are therefore not delivered to the NVX guest process;
- * any environment the agent command requires (including proxy settings)
- * must be pre-configured in the guest layer supplied via `--nvx-layer`.
+ * The per-run guest environment (including `--env`/`--env-all`/`--env-file`
+ * values and proxy settings), the working directory selected by
+ * `--container-workdir`, and the agent command are delivered through an
+ * AWF-owned guest entrypoint script staged into the `custom` EROFS layer
+ * alongside the live host workspace export. The guest command line itself
+ * carries only the script path, so no environment value is exposed in the
+ * host process table.
  *
  * Production code must go through {@link createNvxRuntimeBackend} instead of
  * constructing this class directly.
@@ -104,6 +132,7 @@ export class NvxRuntimeBackend implements ExternalAgentRuntimeBackend {
 
   private infrastructure: MicrovmInfrastructureSnapshot | undefined;
   private identity: { uid: number; gid: number } | undefined;
+  private exports: readonly NvxDirectoryExport[] | undefined;
   private abortController: AbortController | undefined;
   private activeExecution: Promise<NvxOneShotExecutionResult> | undefined;
   private stopped = false;
@@ -165,6 +194,9 @@ export class NvxRuntimeBackend implements ExternalAgentRuntimeBackend {
       this.config.topologyAttach,
     );
     this.identity = this.dependencies.identity();
+    this.exports = await this.dependencies.resolveExports(
+      requireNvxConfig(this.config).mountPolicy,
+    );
   };
 
   readonly exec: WorkflowDependencies['runAgentCommand'] = async (
@@ -202,22 +234,32 @@ export class NvxRuntimeBackend implements ExternalAgentRuntimeBackend {
       tapOwnerUid: identity.uid,
       tapOwnerGid: identity.gid,
     });
-    logNvxGuestEnvironment(
-      buildGuestEnvironment({
-        config: this.config,
-        networkConfig: {
-          subnet: NETWORK_SUBNET,
-          squidIp: infrastructure.squidIp,
-          agentIp: networkPlan.guestIp,
-          proxyIp: infrastructure.apiProxyIp,
-        },
-        home: NVX_GUEST_HOME,
-        workspace: NVX_GUEST_WORKSPACE,
-        runtimeName: 'nvx',
-        runtimeDisplayName: 'NVX',
-      }),
-      this.dependencies.logger,
+    const exports = this.exports ?? await this.dependencies.resolveExports(nvx.mountPolicy);
+    const writePlan = await planNvxFilesystemWrites(
+      exports,
+      this.config.filesystemAllowWrite,
     );
+    const environment = buildNvxGuestEnvironment(
+      this.config,
+      infrastructure,
+      networkPlan.guestIp,
+      exports,
+    );
+    logNvxGuestEnvironment(environment, this.dependencies.logger);
+    const workspaceLayer = this.dependencies.createWorkspaceLayer({
+      runId,
+      stagingRoot: `${this.config.workDir ?? '/run/awf-nvx'}/nvx-guest-layer/${runId}`,
+      exports,
+      writePlan,
+      uid: identity.uid,
+      gid: identity.gid,
+      runScript: buildNvxGuestRunScript({
+        environment,
+        workingDirectory: resolveNvxGuestWorkDir(this.config.containerWorkDir),
+        command: this.config.agentCommand,
+      }),
+      homePath: process.env.HOME,
+    });
 
     const abortController = new AbortController();
     this.abortController = abortController;
@@ -247,8 +289,12 @@ export class NvxRuntimeBackend implements ExternalAgentRuntimeBackend {
         scratchGid: identity.gid,
       },
       execution: {
-        entrypoint: '/bin/sh',
-        args: ['-lc', this.config.agentCommand],
+        // The guest contract accepts a single absolute entrypoint plus
+        // whitespace-free `nvx_arg=` tokens only, so the per-run environment,
+        // working directory, and agent command are delivered through the
+        // AWF-owned guest script staged in the custom layer instead.
+        entrypoint: NVX_GUEST_RUN_SCRIPT,
+        args: [],
         workloadUid: identity.uid,
         workloadGid: identity.gid,
         memoryMib: nvx.memoryMib,
@@ -264,12 +310,26 @@ export class NvxRuntimeBackend implements ExternalAgentRuntimeBackend {
         enableApiProxy: Boolean(infrastructure.apiProxyIp),
         controlPeers: buildNvxControlPeers(infrastructure.topologyPeerIps),
       },
+      workspace: workspaceLayer,
     });
 
     const execution = manager.execute();
     this.activeExecution = execution;
     try {
       const result = await execution;
+      const copyBack = manager.getWorkspaceCopyBack();
+      if (copyBack) {
+        this.dependencies.logger.info(
+          `[nvx] Workspace copy-back applied ${copyBack.applied.length} path(s) and ` +
+          `removed ${copyBack.removed.length}`,
+        );
+        if (copyBack.rejected.length > 0) {
+          this.dependencies.logger.warn(
+            `[nvx] filesystem.allowWrite rejected ${copyBack.rejected.length} guest ` +
+            `write(s) outside the policy: ${copyBack.rejected.slice(0, 10).join(', ')}`,
+          );
+        }
+      }
       this.dependencies.logger.info(
         `[nvx] Agent command exited with code ${result.exitCode}` +
         (result.signal ? ` (${result.signal})` : ''),

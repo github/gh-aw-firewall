@@ -10,6 +10,7 @@ import {
 function baseNvx() {
   return {
     previewEnabled: true,
+    mountPolicy: 'workspace-only' as const,
     layerPath: '/opt/nvx/distro.layer',
     artifactManifestPath: '/opt/nvx/manifest.json',
     artifactManifestBundlePath: '/opt/nvx/manifest.sigstore.jsonl',
@@ -142,9 +143,26 @@ describe('NVX runtime validation', () => {
         .toThrow(/does not support --network-subnet/);
     });
 
-    it('rejects an explicit container working directory', () => {
+    it('accepts a container working directory inside the live workspace export', () => {
+      expect(() => assertNvxRuntimeCompatibility(
+        config({ containerWorkDir: '/workspace/packages/app' }),
+      )).not.toThrow();
+    });
+
+    it('rejects a container working directory outside the live workspace export', () => {
       expect(() => assertNvxRuntimeCompatibility(config({ containerWorkDir: '/repo' })))
-        .toThrow(/does not support --container-workdir/);
+        .toThrow(/must be inside the guest workspace export/);
+    });
+
+    it('rejects a relative container working directory', () => {
+      expect(() => assertNvxRuntimeCompatibility(config({ containerWorkDir: 'repo' })))
+        .toThrow(/requires an absolute --container-workdir/);
+    });
+
+    it('rejects an unsupported mount policy', () => {
+      expect(() => assertNvxRuntimeCompatibility(config({
+        nvx: { ...baseNvx(), mountPolicy: 'everything' as never },
+      }))).toThrow(/mount policy must be/);
     });
 
     it('rejects primary-agent execution with enclaves enabled, without any fallback', () => {

@@ -226,6 +226,12 @@ program
    '                                       Linux x86_64 KVM hosts only. Requires pinned, attested guest artifacts.',
    false
   )
+  .option(
+    '--nvx-mount-policy <policy>',
+    'Host directory exposure policy for the live guest workspace export: "workspace-only"\n' +
+    '                                       (secure default) or "workspace-and-tool-cache" (additionally exports\n' +
+    '                                       RUNNER_TOOL_CACHE/AGENT_TOOLSDIRECTORY read-only).',
+  )
   .option('--nvx-layer <path>', 'Path to the prebuilt guest distro layer directory used as the NVX filesystem base layer.')
   .option('--nvx-artifact-manifest <path>', 'Path to the release-pinned NVX artifact manifest.')
   .option('--nvx-artifact-manifest-bundle <path>', 'Path to the manifest GitHub artifact-attestation bundle for offline verification.')

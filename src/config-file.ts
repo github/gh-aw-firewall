@@ -174,6 +174,7 @@ export interface AwfFileConfig {
    */
   nvx?: {
     previewEnabled?: boolean;
+    mountPolicy?: 'workspace-only' | 'workspace-and-tool-cache';
     layerPath?: string;
     artifactManifestPath?: string;
     artifactManifestBundlePath?: string;

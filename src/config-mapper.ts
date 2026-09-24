@@ -143,6 +143,7 @@ export function mapAwfFileConfigToCliOptions(config: AwfFileConfig): Record<stri
     cloudHypervisorRootfsSha256: config.cloudHypervisor?.sha256?.rootfs,
     cloudHypervisorSupervisorSha256: config.cloudHypervisor?.sha256?.supervisor,
     nvxPreview: config.nvx?.previewEnabled,
+    nvxMountPolicy: config.nvx?.mountPolicy,
     nvxLayer: config.nvx?.layerPath,
     nvxArtifactManifest: config.nvx?.artifactManifestPath,
     nvxArtifactManifestBundle: config.nvx?.artifactManifestBundlePath,

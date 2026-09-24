@@ -22,6 +22,7 @@ function nvxConfig(): WrapperConfig {
     tty: false,
     nvx: {
       previewEnabled: true,
+      mountPolicy: 'workspace-only',
       layerPath: '/opt/nvx/distro.layer',
       artifactManifestPath: '/opt/nvx/manifest.json',
       artifactManifestBundlePath: '/opt/nvx/manifest.sigstore.jsonl',
@@ -57,7 +58,7 @@ function harness(overrides: Partial<NvxRuntimeBackendDependencies> = {}) {
     rawStdoutTail: Buffer.alloc(0),
     rawStderrTail: Buffer.alloc(0),
   } as NvxOneShotExecutionResult);
-  const manager = { execute: executeMock };
+  const manager = { execute: executeMock, getWorkspaceCopyBack: () => undefined };
   const createManager = jest.fn().mockReturnValue(manager) as unknown as
     NvxRuntimeBackendDependencies['createManager'];
 
@@ -67,6 +68,14 @@ function harness(overrides: Partial<NvxRuntimeBackendDependencies> = {}) {
     resolveInfrastructure: jest.fn().mockResolvedValue(infrastructureSnapshot()),
     createManager,
     identity: jest.fn().mockReturnValue({ uid: 1000, gid: 1000 }),
+    resolveExports: jest.fn().mockResolvedValue([
+      { tag: 'workspace', source: '/home/runner/work/repo', target: '/workspace', mode: 'rw' },
+    ]),
+    createWorkspaceLayer: jest.fn().mockReturnValue({
+      stage: jest.fn().mockResolvedValue('/tmp/awf-work/nvx-guest-layer/custom-layer'),
+      extractAfterStop: jest.fn().mockResolvedValue({ applied: [], removed: [], rejected: [] }),
+      cleanup: jest.fn().mockResolvedValue(undefined),
+    }) as unknown as NvxRuntimeBackendDependencies['createWorkspaceLayer'],
     randomRunId: jest.fn().mockReturnValue('a'.repeat(32)),
     logger: {
       debug: jest.fn(),
@@ -161,8 +170,8 @@ describe('NvxRuntimeBackend', () => {
     expect(snapshot.revalidate).toHaveBeenCalled();
     expect(createManager).toHaveBeenCalledTimes(1);
     const [managerConfig] = (createManager as unknown as jest.Mock).mock.calls[0];
-    expect(managerConfig.execution.entrypoint).toBe('/bin/sh');
-    expect(managerConfig.execution.args).toEqual(['-lc', 'echo hello']);
+    expect(managerConfig.execution.entrypoint).toBe('/etc/awf/nvx-run.sh');
+    expect(managerConfig.execution.args).toEqual([]);
     expect(managerConfig.execution.workloadUid).toBe(1000);
     expect(managerConfig.execution.workloadGid).toBe(1000);
     expect(managerConfig.execution.memoryMib).toBe(512);
@@ -208,7 +217,7 @@ describe('NvxRuntimeBackend', () => {
     }));
     const createManager = jest.fn((cfg: { execution: { abortSignal?: AbortSignal } }) => {
       capturedSignal = cfg.execution.abortSignal;
-      return { execute: executeMock };
+      return { execute: executeMock, getWorkspaceCopyBack: () => undefined };
     }) as unknown as NvxRuntimeBackendDependencies['createManager'];
     const backend = nvxRuntimeTestHelpers.createBackendWithDependencies(
       nvxConfig(),
@@ -217,7 +226,9 @@ describe('NvxRuntimeBackend', () => {
 
     await backend.start('/tmp/awf-work', ['example.com'], '/tmp/awf-work/logs', false, jest.fn(), jest.fn());
     const execPromise = backend.exec('/tmp/awf-work', ['example.com'], '/tmp/awf-work/logs', undefined);
-    await Promise.resolve();
+    // The adapter resolves exports and plans the workspace write policy before
+    // it constructs the manager, so yield until the abort signal is captured.
+    while (!capturedSignal) await new Promise((resolve) => setImmediate(resolve));
     await expect(backend.stop()).resolves.toBeUndefined();
     await expect(execPromise).rejects.toThrow('aborted');
   });

@@ -43,6 +43,21 @@ import {
   type NvxVmmIdentity,
 } from './runtime-lifecycle';
 import { DirectOpenvmmLaunchExecutor } from './launch-executor';
+import type { NvxWorkspaceCopyBackResult } from './workspace-layer';
+
+/**
+ * Host-side lifecycle of the AWF-owned `custom` guest layer that exports the
+ * host workspace into the microVM. Structurally satisfied by
+ * {@link import('./workspace-layer').NvxWorkspaceLayer}; kept as an interface
+ * so the manager stays unit-testable without touching the filesystem.
+ */
+export interface NvxWorkspaceLifecycle {
+  /** Stages the layer source tree and returns its host path. */
+  stage(): Promise<string>;
+  /** Merges the guest overlay upper layer back into the host workspace. */
+  extractAfterStop(scratchImagePath: string): Promise<NvxWorkspaceCopyBackResult>;
+  cleanup(): Promise<void>;
+}
 
 export interface NvxLaunchHooks {
   launcherStarted(pid: number): Promise<void>;
@@ -69,6 +84,13 @@ export interface NvxManagerConfig {
     readonly enableApiProxy: boolean;
     readonly controlPeers?: readonly MicrovmControlPeer[];
   };
+  /**
+   * Optional live host workspace export. When present it is staged as the
+   * guest's `custom` layer before the filesystem bundle is built, and the
+   * guest's writes are copied back after the microVM has exited but before the
+   * run directory (and with it the scratch image) is removed.
+   */
+  readonly workspace?: NvxWorkspaceLifecycle;
 }
 
 export interface NvxManagerDependencies {
@@ -147,10 +169,12 @@ export class NvxManager {
   private network: MicrovmNetworkLifecycle | undefined;
   private cgroup: NvxCgroupManager | undefined;
   private launchPlan: NvxPhase3dLaunchPlan | undefined;
+  private scratchImagePath: string | undefined;
   private launcherPid: number | undefined;
   private sandboxPid: number | undefined;
   private openvmmPid: number | undefined;
   private confinementEvidence: NvxConfinementEvidence | undefined;
+  private workspaceCopyBack: NvxWorkspaceCopyBackResult | undefined;
 
   constructor(
     private readonly config: NvxManagerConfig,
@@ -212,12 +236,24 @@ export class NvxManager {
         },
       );
       await this.network.setup();
+      const workspaceLayerSource = await this.config.workspace?.stage();
       this.filesystemBuilder = this.dependencies.createFilesystem({
         ...this.config.filesystem,
+        layers: [
+          ...this.config.filesystem.layers,
+          ...(workspaceLayerSource === undefined
+            ? []
+            : [{
+              role: 'custom' as const,
+              sourcePath: workspaceLayerSource,
+              preserveOwnership: true,
+            }]),
+        ],
         runId: this.config.runId,
         useCanonicalRunDirectory: true,
       });
       const filesystem = await this.filesystemBuilder.prepare();
+      this.scratchImagePath = filesystem.scratch.path;
       const resolverConfigPath = path.join(filesystem.runDirectory, 'resolv.conf');
       await this.dependencies.copyFile(
         '/etc/resolv.conf',
@@ -306,6 +342,17 @@ export class NvxManager {
     } catch (error) {
       executionError = error;
     }
+    if (this.config.workspace && this.scratchImagePath) {
+      try {
+        this.workspaceCopyBack = await this.config.workspace.extractAfterStop(
+          this.scratchImagePath,
+        );
+      } catch (error) {
+        // A copy-back failure must not be masked by a successful run: the host
+        // workspace is an output of the run, so losing it is a run failure.
+        if (!executionError) executionError = error;
+      }
+    }
     let cleanupError: unknown;
     try {
       await this.cleanup();
@@ -333,6 +380,9 @@ export class NvxManager {
       try { await operation(); } catch (error) { errors.push(error); }
     };
     await attempt(this.dependencies.launchExecutor.terminate?.bind(this.dependencies.launchExecutor));
+    await attempt(this.config.workspace
+      ? () => this.config.workspace!.cleanup()
+      : undefined);
     await attempt(this.cgroup ? () => this.cgroup!.cleanup() : undefined);
     await attempt(this.filesystemBuilder ? () => this.filesystemBuilder!.cleanup() : undefined);
     await attempt(this.network ? () => this.network!.cleanup() : undefined);
@@ -356,6 +406,10 @@ export class NvxManager {
 
   getConfinementEvidence(): NvxConfinementEvidence | undefined {
     return this.confinementEvidence;
+  }
+
+  getWorkspaceCopyBack(): NvxWorkspaceCopyBackResult | undefined {
+    return this.workspaceCopyBack;
   }
 
   private requireCleanupHandle(): NvxCleanupHandle {

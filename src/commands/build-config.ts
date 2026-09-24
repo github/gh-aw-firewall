@@ -13,7 +13,10 @@ import {
   type CloudHypervisorMountPolicy,
   NVX_DEFAULT_MEMORY_MIB,
   NVX_DEFAULT_MEMORY_MAX_BYTES,
+  NVX_DEFAULT_MOUNT_POLICY,
   NVX_DEFAULT_PIDS_MAX,
+  NVX_MOUNT_POLICIES,
+  type NvxMountPolicy,
 } from '../types/runtime-options';
 
 /**
@@ -341,6 +344,19 @@ function buildCloudHypervisorConfig(
   };
 }
 
+function parseNvxMountPolicy(value: unknown): NvxMountPolicy {
+  const policy = value ?? NVX_DEFAULT_MOUNT_POLICY;
+  if (
+    typeof policy !== 'string' ||
+    !NVX_MOUNT_POLICIES.includes(policy as NvxMountPolicy)
+  ) {
+    throw new Error(
+      '--nvx-mount-policy must be "workspace-only" or "workspace-and-tool-cache"',
+    );
+  }
+  return policy as NvxMountPolicy;
+}
+
 function parseCloudHypervisorMountPolicy(value: unknown): CloudHypervisorMountPolicy {
   const policy = value ?? CLOUD_HYPERVISOR_DEFAULT_MOUNT_POLICY;
   if (
@@ -366,6 +382,7 @@ function buildNvxConfig(
   const selected = options.containerRuntime === 'nvx';
   const configured = options.nvxPreview === true
     || [
+      'nvxMountPolicy',
       'nvxLayer',
       'nvxArtifactManifest',
       'nvxArtifactManifestBundle',
@@ -382,6 +399,7 @@ function buildNvxConfig(
 
   return {
     previewEnabled: options.nvxPreview === true,
+    mountPolicy: parseNvxMountPolicy(options.nvxMountPolicy),
     layerPath: options.nvxLayer as string | undefined,
     artifactManifestPath: options.nvxArtifactManifest as string | undefined,
     artifactManifestBundlePath: options.nvxArtifactManifestBundle as string | undefined,

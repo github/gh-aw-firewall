@@ -24,6 +24,18 @@ export interface NvxLayerSource {
   readonly role: NvxLayerRole;
   readonly sourcePath: string;
   readonly exclude?: readonly string[];
+  /**
+   * Stages the layer with the source tree's own uid/gid instead of flattening
+   * everything to root (`mkfs.erofs --all-root`).
+   *
+   * AWF-owned layers that export host directories into the guest need this:
+   * the guest overlays the layer read-only under a writable scratch upper
+   * layer, and overlayfs only lets the non-root workload copy an entry up when
+   * the entry is writable *for that identity*. Root-owned, write-cleared
+   * entries are how a `filesystem.allowWrite` narrowing is enforced inside the
+   * guest rather than only at copy-back time.
+   */
+  readonly preserveOwnership?: boolean;
 }
 
 export interface NvxLayerSourceManifestEntry {
@@ -33,6 +45,8 @@ export interface NvxLayerSourceManifestEntry {
   readonly size: number;
   readonly sha256?: string;
   readonly target?: string;
+  readonly uid?: number;
+  readonly gid?: number;
 }
 
 export interface NvxLayerArtifact {
@@ -107,6 +121,7 @@ interface StagedLayer {
   readonly sourceManifestSha256: string;
   readonly sourceEntries: number;
   readonly excludedPaths: readonly string[];
+  readonly preserveOwnership: boolean;
 }
 
 const DEFAULT_EXCLUDED_PATHS = [
@@ -234,6 +249,7 @@ export class NvxFilesystemBuilder {
       excludedPaths,
       entries,
       this.config.sourceDateEpoch ?? 0,
+      source.preserveOwnership ?? false,
     );
     const sourceManifestSha256 = sha256Text(JSON.stringify({
       role: source.role,
@@ -246,6 +262,7 @@ export class NvxFilesystemBuilder {
       sourceManifestSha256,
       sourceEntries: entries.length,
       excludedPaths,
+      preserveOwnership: source.preserveOwnership ?? false,
     };
   }
 
@@ -257,7 +274,7 @@ export class NvxFilesystemBuilder {
     const imagePath = path.join(this.runDirectory, `${staged.role}.erofs`);
     await this.dependencies.runTool('mkfs.erofs', [
       '--quiet',
-      '--all-root',
+      ...(staged.preserveOwnership ? [] : ['--all-root']),
       '-E', 'force-inode-compact',
       '-T', String(sourceDateEpoch),
       '-U', uuid,
@@ -367,6 +384,7 @@ async function copyDeterministicTree(
   excludedPaths: readonly string[],
   manifest: NvxLayerSourceManifestEntry[],
   sourceDateEpoch: number,
+  preserveOwnership = false,
 ): Promise<void> {
   await assertDescriptorTraversalSupport();
   const root = await openDirectoryNoFollow(sourceRoot);
@@ -384,7 +402,8 @@ async function copyDeterministicTree(
       const mode = normalizedMode(stat);
       await fs.mkdir(destination, { recursive: true, mode });
       await fs.chmod(destination, mode);
-      manifest.push({ path: relativePath, type: 'directory', mode, size: 0 });
+      const ownership = await applyOwnership(destination, stat, false);
+      manifest.push({ path: relativePath, type: 'directory', mode, size: 0, ...ownership });
     }
     const children = await fs.readdir(current);
     children.sort();
@@ -405,12 +424,14 @@ async function copyDeterministicTree(
         await fs.mkdir(path.dirname(destination), { recursive: true, mode: 0o700 });
         await fs.symlink(target, destination);
         await fs.lutimes(destination, sourceDateEpoch, sourceDateEpoch);
+        const ownership = await applyOwnership(destination, stat, true);
         manifest.push({
           path: childRelativePath,
           type: 'symlink',
           mode: stat.mode & 0o777,
           size: Buffer.byteLength(target),
           target,
+          ...ownership,
         });
       } else if (stat.isDirectory()) {
         const childDirectory = await openDirectoryNoFollow(childPath);
@@ -428,6 +449,17 @@ async function copyDeterministicTree(
     if (relativePath) {
       await fs.utimes(stagingPath(destinationRoot, relativePath), sourceDateEpoch, sourceDateEpoch);
     }
+  }
+
+  async function applyOwnership(
+    destination: string,
+    stat: Pick<Stats, 'uid' | 'gid'>,
+    symbolicLink: boolean,
+  ): Promise<{ uid?: number; gid?: number }> {
+    if (!preserveOwnership) return {};
+    if (symbolicLink) await fs.lchown(destination, stat.uid, stat.gid);
+    else await fs.chown(destination, stat.uid, stat.gid);
+    return { uid: stat.uid, gid: stat.gid };
   }
 
   async function copyRegularFile(
@@ -451,12 +483,14 @@ async function copyDeterministicTree(
       await fs.chmod(destination, mode);
       await fs.utimes(destination, sourceDateEpoch, sourceDateEpoch);
       const copied = await fs.stat(destination);
+      const ownership = await applyOwnership(destination, stat, false);
       manifest.push({
         path: relativePath,
         type: 'file',
         mode,
         size: copied.size,
         sha256: await sha256File(destination),
+        ...ownership,
       });
     } finally {
       await handle.close();

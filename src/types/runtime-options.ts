@@ -247,6 +247,13 @@ export interface RuntimeOptions {
 // `src/nvx/manager.ts` for the launch/cleanup lifecycle. Linux x86_64 KVM
 // hosts are the only supported host target.
 
+export const NVX_MOUNT_POLICIES = [
+  'workspace-only',
+  'workspace-and-tool-cache',
+] as const;
+export type NvxMountPolicy = typeof NVX_MOUNT_POLICIES[number];
+export const NVX_DEFAULT_MOUNT_POLICY: NvxMountPolicy = 'workspace-only';
+
 export const NVX_DEFAULT_MEMORY_MIB = 512;
 export const NVX_DEFAULT_MEMORY_MAX_BYTES = 512 * 1024 * 1024;
 export const NVX_DEFAULT_PIDS_MAX = 128;
@@ -259,6 +266,8 @@ export const NVX_DEFAULT_PIDS_MAX = 128;
  */
 export interface NvxOptions {
   previewEnabled: boolean;
+  /** Host directory exposure policy for the live guest workspace export. */
+  mountPolicy: NvxMountPolicy;
   /** Host path to the prebuilt guest distro layer (EROFS source directory). */
   layerPath?: string;
   artifactManifestPath?: string;

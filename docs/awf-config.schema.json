@@ -1021,6 +1021,15 @@
           "default": false,
           "description": "Enable the NVX workload-execution preview. Requires container.containerRuntime: \"nvx\" plus a Linux x86_64 KVM host."
         },
+        "mountPolicy": {
+          "type": "string",
+          "enum": [
+            "workspace-only",
+            "workspace-and-tool-cache"
+          ],
+          "default": "workspace-only",
+          "description": "Host directory exposure policy for the live guest workspace export. \"workspace-only\" is the secure default and exports only the workspace read-write. \"workspace-and-tool-cache\" additionally requires and exports RUNNER_TOOL_CACHE or AGENT_TOOLSDIRECTORY read-only."
+        },
         "layerPath": {
           "type": "string",
           "description": "Absolute path to the prebuilt guest distro layer directory used as the NVX filesystem base layer."
