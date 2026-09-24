@@ -69,6 +69,9 @@ function toFunctionCall(item) {
   }
 
   const { input, ...rest } = item;
+  if (typeof rest.id === 'string' && rest.id.startsWith('ctc_')) {
+    rest.id = `fc_${rest.id.slice('ctc_'.length)}`;
+  }
   return {
     ...rest,
     type: 'function_call',

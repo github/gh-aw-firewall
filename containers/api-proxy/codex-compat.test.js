@@ -49,6 +49,86 @@ describe('Codex apply_patch compatibility transform', () => {
     ]);
   });
 
+  test('normalizes replayed custom apply_patch ctc item IDs to function-call IDs', () => {
+    const body = Buffer.from(JSON.stringify({
+      model: 'gpt-6-astra',
+      tools: [{ type: 'custom', name: 'apply_patch' }],
+      input: [
+        {
+          type: 'custom_tool_call',
+          id: 'ctc_call_example',
+          call_id: 'call_example',
+          name: 'apply_patch',
+          input: '*** Begin Patch\n*** Add File: example.txt\n+hello\n*** End Patch\n',
+        },
+        {
+          type: 'custom_tool_call_output',
+          call_id: 'call_example',
+          output: 'ok',
+        },
+        {
+          role: 'user',
+          content: 'continue after creating the file',
+        },
+      ],
+    }));
+
+    const translated = translateCodexCustomToolsForCopilot(body);
+    const sent = json(translated.body);
+
+    expect(sent.input[0]).toMatchObject({
+      type: 'function_call',
+      id: 'fc_call_example',
+      call_id: 'call_example',
+      name: 'apply_patch',
+      arguments: JSON.stringify({ patch: '*** Begin Patch\n*** Add File: example.txt\n+hello\n*** End Patch\n' }),
+    });
+    expect(sent.input[1]).toEqual({
+      type: 'function_call_output',
+      call_id: 'call_example',
+      output: 'ok',
+    });
+    expect(sent.input[2]).toEqual({
+      role: 'user',
+      content: 'continue after creating the file',
+    });
+  });
+
+  test('preserves existing function IDs, absent IDs, and ordinary function calls', () => {
+    const ordinaryFunctionCall = {
+      type: 'function_call',
+      id: 'fc_search',
+      call_id: 'call_search',
+      name: 'search',
+      arguments: JSON.stringify({ query: 'hello' }),
+    };
+    const body = Buffer.from(JSON.stringify({
+      tools: [{ type: 'custom', name: 'apply_patch' }],
+      input: [
+        {
+          type: 'custom_tool_call',
+          id: 'fc_existing',
+          call_id: 'call_existing',
+          name: 'apply_patch',
+          input: '*** Begin Patch\n*** End Patch\n',
+        },
+        {
+          type: 'custom_tool_call',
+          call_id: 'call_absent',
+          name: 'apply_patch',
+          input: '*** Begin Patch\n*** End Patch\n',
+        },
+        ordinaryFunctionCall,
+      ],
+    }));
+
+    const sent = json(translateCodexCustomToolsForCopilot(body).body);
+
+    expect(sent.input[0].id).toBe('fc_existing');
+    expect(sent.input[1]).not.toHaveProperty('id');
+    expect(sent.input[2]).toEqual(ordinaryFunctionCall);
+  });
+
   test('fails explicitly for unsupported custom tools', () => {
     const body = Buffer.from(JSON.stringify({
       tools: [{ type: 'custom', name: 'freeform_shell' }],
