@@ -91,7 +91,15 @@ const dynamicExecutorConfig = {
   maxOutputBytes: 8192,
 };
 
-type DynamicExecutorConfigOverrides = Partial<typeof dynamicExecutorConfig> & Record<string, unknown>;
+// Extras are the per-call-site fields intentionally kept outside the shared base fixture.
+type DynamicExecutorConfigExtras = {
+  backend?: string;
+  dynamicReadMode?: string;
+  dynamicRepository?: string;
+  githubGatewayContainer?: string;
+};
+
+type DynamicExecutorConfigOverrides = Partial<typeof dynamicExecutorConfig> & DynamicExecutorConfigExtras;
 
 function buildDynamicExecutorConfig(overrides: DynamicExecutorConfigOverrides = {}) {
   return {
