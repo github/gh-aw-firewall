@@ -118,6 +118,8 @@ Check that:
 ```bash
 gh attestation verify /tmp/gh-aw/agent/nvx-verify/nvx-test-x86_64.manifest.json \
   --repo github/gh-aw-firewall \
+  --signer-workflow github/gh-aw-firewall/.github/workflows/release.yml \
+  --deny-self-hosted-runners \
   --bundle /tmp/gh-aw/agent/nvx-verify/nvx-test-x86_64.manifest.sigstore.jsonl
 ```
 
