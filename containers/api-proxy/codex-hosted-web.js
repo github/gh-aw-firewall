@@ -13,7 +13,7 @@ const SEARCH_PATHS = new Set(['/v1/alpha/search', '/alpha/search']);
 const SEARCH_COMMANDS = new Set(['search_query', 'image_query', 'open', 'click', 'find', 'screenshot']);
 const URL_COMMANDS = new Set(['open', 'find', 'screenshot']);
 const FILTER_FIELDS = new Set(['allowed_domains', 'blocked_domains']);
-const STANDALONE_FIELDS = new Set(['settings', 'commands']);
+const STANDALONE_FIELDS = new Set(['id', 'model', 'settings', 'commands']);
 const TOOL_FIELDS = new Set([
   'type', 'external_web_access', 'indexed_web_access', 'filters', 'user_location',
   'search_context_size', 'search_content_types', 'image_settings', 'max_uses',
