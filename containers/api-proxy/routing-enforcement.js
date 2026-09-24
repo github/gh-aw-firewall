@@ -147,14 +147,6 @@ function createRoutingEnforcement({ getSelection, getFailure, recordFailure, obs
         safeRecordDecision(observer, { decision: 'reject', reason: rejectReason, method: req.method, pathname });
         return reject(res);
       }
-      safeRecordDecision(observer, {
-        decision: 'admit',
-        reason: 'selected_model_pinned',
-        method: req.method,
-        pathname,
-        selected_model: selection.choice.model,
-        selected_effort: selection.choice.effort ?? null,
-      });
       trackResponse(res);
       observeFailure(res);
       const onSseData = line => {
@@ -169,29 +161,41 @@ function createRoutingEnforcement({ getSelection, getFailure, recordFailure, obs
           recordNativeFailure(error.code || error.type);
         }
       };
+      function rejectBody(reason) {
+        safeRecordDecision(observer, { decision: 'reject', reason, method: req.method, pathname });
+        throw mismatch();
+      }
       const bodyTransform = body => {
         let parsed;
         try {
           parsed = JSON.parse(body.toString('utf8'));
         } catch {
-          throw mismatch();
+          rejectBody('body_invalid_json');
         }
         if (
           !parsed || typeof parsed !== 'object' || Array.isArray(parsed) ||
           parsed.model !== selection.wire_model || getFailure()
         ) {
-          throw mismatch();
+          rejectBody('body_model_mismatch');
         }
         if (responses) {
           if (
             !parsed.reasoning || typeof parsed.reasoning !== 'object' || Array.isArray(parsed.reasoning) ||
             parsed.reasoning.effort !== selection.choice.effort || Object.hasOwn(parsed, 'reasoning_effort')
           ) {
-            throw mismatch();
+            rejectBody('body_effort_mismatch');
           }
         } else if (Object.hasOwn(parsed, 'reasoning_effort') || Object.hasOwn(parsed, 'reasoning')) {
-          throw mismatch();
+          rejectBody('body_effort_mismatch');
         }
+        safeRecordDecision(observer, {
+          decision: 'admit',
+          reason: 'selected_model_pinned',
+          method: req.method,
+          pathname,
+          selected_model: selection.choice.model,
+          selected_effort: selection.choice.effort ?? null,
+        });
         return body;
       };
       req.awfRouting = { bodyTransform, onSseData };

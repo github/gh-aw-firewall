@@ -180,6 +180,24 @@ describe('createProductionRoutingSession', () => {
     expect(published.detail).not.toMatch(/exploded/);
   });
 
+  test('terminates with exit code 78 when a bootstrap failure cannot be published', async () => {
+    const outputDir = makeOutputDir();
+    fs.rmSync(outputDir, { recursive: true, force: true });
+    const fatalExit = jest.fn();
+    const session = createProductionRoutingSession({
+      rawConfig: '{}',
+      outputDir,
+      fatalExit,
+      createController: () => {
+        throw new Error('adapter exploded');
+      },
+    });
+
+    await session.start();
+
+    expect(fatalExit).toHaveBeenCalledWith(78);
+  });
+
   test('refuses to plan when a stale result already exists', async () => {
     const outputDir = makeOutputDir();
     fs.writeFileSync(path.join(outputDir, 'selection.json'), JSON.stringify(SELECTION));

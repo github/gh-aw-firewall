@@ -240,6 +240,8 @@ function createProductionRoutingSession({
     try {
       publishRoutingResult(outputDir, 'runtime-failure.json', terminalFailure);
     } catch {
+      // Unpublishable: exit 78 (routing-failure) rather than leave the host
+      // waiting on a claim nobody verified.
       fatalExit(78);
     }
   }
@@ -263,9 +265,15 @@ function createProductionRoutingSession({
     } catch (error) {
       result = Object.freeze({ ok: false, failure: toRoutingFailure(error instanceof RoutingError ? error :
         createRoutingError('routing_configuration_error', 'Private routing bootstrap failed')) });
-      if (!privateFs.existsSync(path.join(outputDir, 'selection.json')) &&
-          !privateFs.existsSync(path.join(outputDir, 'failure.json'))) {
-        publishRoutingResult(outputDir, 'failure.json', result.failure);
+      try {
+        if (!privateFs.existsSync(path.join(outputDir, 'selection.json')) &&
+            !privateFs.existsSync(path.join(outputDir, 'failure.json'))) {
+          publishRoutingResult(outputDir, 'failure.json', result.failure);
+        }
+      } catch {
+        // Unpublishable: exit 78 (routing-failure) rather than leave the host
+        // waiting on a claim nobody verified.
+        fatalExit(78);
       }
     }
     return result;
