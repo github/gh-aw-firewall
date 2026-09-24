@@ -13,6 +13,7 @@ const DEFAULT_PRE_STAGE_DIRS = [
   '.config',
   '.local',
   '.local/state',
+  'agent',
   'home',
   'mcp-logs',
   'sandbox',
@@ -31,6 +32,16 @@ function isLikelyDindEnvironment(config: WrapperConfig): boolean {
 function assertAbsolutePath(value: string, fieldName: string): void {
   if (!path.posix.isAbsolute(value)) {
     throw new Error(`${fieldName} must be an absolute path, got: ${value}`);
+  }
+}
+
+function ensureAgentStagingDirectories(): void {
+  const stagingRoots = ['/tmp/gh-aw'];
+  if (process.env.RUNNER_TEMP) {
+    stagingRoots.push(path.join(process.env.RUNNER_TEMP, 'gh-aw'));
+  }
+  for (const stagingRoot of stagingRoots) {
+    fs.mkdirSync(path.join(stagingRoot, 'agent'), { recursive: true });
   }
 }
 
@@ -113,9 +124,20 @@ export async function runDindBootstrap(config: WrapperConfig): Promise<void> {
 
   const stagingImage = resolveDindStagingImage(config);
   if (dindConfig.preStageDirs) {
+    ensureAgentStagingDirectories();
+
     const workDir = dindConfig.workDir || DEFAULT_DIND_WORKDIR;
     logger.info(`Pre-staging DinD work directory tree at ${workDir}`);
     await preStageDindDirs(workDir, stagingImage);
+
+    const runnerTemp = process.env.RUNNER_TEMP;
+    if (runnerTemp) {
+      const runnerTempWorkDir = path.join(runnerTemp, 'gh-aw');
+      if (runnerTempWorkDir !== workDir) {
+        logger.info(`Pre-staging DinD work directory tree at ${runnerTempWorkDir}`);
+        await preStageDindDirs(runnerTempWorkDir, stagingImage);
+      }
+    }
   }
 
   const stageEngineBinaryConfig = dindConfig.stageEngineBinary;

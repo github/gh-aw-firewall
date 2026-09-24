@@ -24,10 +24,12 @@ function makeConfig(overrides: Partial<WrapperConfig> = {}): WrapperConfig {
 
 describe('runDindBootstrap', () => {
   const originalDockerHost = process.env.DOCKER_HOST;
+  const originalRunnerTemp = process.env.RUNNER_TEMP;
 
   beforeEach(() => {
     jest.clearAllMocks();
     process.env.DOCKER_HOST = 'tcp://localhost:2375';
+    delete process.env.RUNNER_TEMP;
     mockExecaFn.mockResolvedValue({ stdout: '', stderr: '', exitCode: 0 });
   });
 
@@ -36,6 +38,11 @@ describe('runDindBootstrap', () => {
       process.env.DOCKER_HOST = originalDockerHost;
     } else {
       delete process.env.DOCKER_HOST;
+    }
+    if (originalRunnerTemp !== undefined) {
+      process.env.RUNNER_TEMP = originalRunnerTemp;
+    } else {
+      delete process.env.RUNNER_TEMP;
     }
   });
 
@@ -125,6 +132,41 @@ describe('runDindBootstrap', () => {
       expect.arrayContaining(['-v', '/tmp/gh-aw:/awf-work:rw', 'ghcr.io/github/gh-aw-firewall/agent:latest']),
       expect.any(Object),
     );
+    expect(mockExecaFn).toHaveBeenCalledTimes(1);
+  });
+
+  it('creates and pre-stages the daemon-visible runner temp directory when RUNNER_TEMP is set', async () => {
+    const runnerTemp = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-runner-temp-'));
+    process.env.RUNNER_TEMP = runnerTemp;
+    const runnerStageDir = path.join(runnerTemp, 'gh-aw', 'agent');
+    const tmpStageDir = '/tmp/gh-aw/agent';
+    const tmpStageDirExisted = fs.existsSync(tmpStageDir);
+
+    try {
+      await runDindBootstrap(makeConfig({
+        dind: { preStageDirs: true },
+      }));
+
+      expect(fs.existsSync(tmpStageDir)).toBe(true);
+      expect(fs.existsSync(runnerStageDir)).toBe(true);
+      expect(mockExecaFn).toHaveBeenCalledWith(
+        'docker',
+        expect.arrayContaining(['-v', '/tmp/gh-aw:/awf-work:rw']),
+        expect.any(Object),
+      );
+      expect(mockExecaFn).toHaveBeenCalledWith(
+        'docker',
+        expect.arrayContaining([`-v`, `${path.join(runnerTemp, 'gh-aw')}:/awf-work:rw`]),
+        expect.any(Object),
+      );
+      expect(mockExecaFn.mock.calls[0]?.[1]?.[7]).toContain('/awf-work/agent');
+      expect(mockExecaFn.mock.calls[1]?.[1]?.[7]).toContain('/awf-work/agent');
+    } finally {
+      fs.rmSync(runnerTemp, { recursive: true, force: true });
+      if (!tmpStageDirExisted) {
+        fs.rmSync(tmpStageDir, { recursive: true, force: true });
+      }
+    }
   });
 
   it('uses source path as targetPath when stageEngineBinary.targetPath is omitted', async () => {
