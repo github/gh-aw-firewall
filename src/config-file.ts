@@ -9,6 +9,7 @@ import type {
 } from './types/runtime-options';
 import type { ModelRoutingConfig } from './types/api-proxy-routing-options';
 import type { ClaudeHostedWebConfig } from './claude-hosted-web-policy';
+import type { CodexHostedWebConfig } from './codex-hosted-web-policy';
 
 /** @internal Used only by config-file helpers — not part of public API */
 // ts-prune-ignore-next
@@ -35,6 +36,7 @@ export interface AwfFileConfig {
     anthropicCacheTailTtl?: string;
     hostedWeb?: {
       claude?: ClaudeHostedWebConfig;
+      codex?: CodexHostedWebConfig;
     };
     maxEffectiveTokens?: number;
     maxAiCredits?: number;

@@ -16,6 +16,11 @@ const {
 } = require('../proxy-utils');
 const { validateAuthHeaderEnv } = require('../oidc-adapter-utils');
 const { buildAuthHeaderFn } = require('./auth-headers');
+const { composeBodyTransforms } = require('../proxy-utils');
+const {
+  parseCodexHostedWebPolicy,
+  makeCodexHostedWebTransform,
+} = require('../codex-hosted-web');
 
 const { createProviderAuthScaffold, createOidcAwareProviderAdapter } = require('../adapter-factory');
 const { OPENAI_ENV, COPILOT_ENV } = require('../provider-env-constants');
@@ -56,6 +61,11 @@ function createOpenAIAdapter(env, deps = {}) {
   const explicitOpenAITarget = env[OPENAI_ENV.TARGET] ? openaiTarget : undefined;
   const rawTarget = explicitOpenAITarget || (copilotAzureByokEnabled ? copilotByokTarget : undefined) || 'api.openai.com';
   const explicitBasePath = openaiBasePath || (copilotAzureByokEnabled ? copilotByokBasePath : '');
+  const hostedWebPolicy = parseCodexHostedWebPolicy(env.AWF_CODEX_HOSTED_WEB_POLICY);
+  const composedBodyTransform = composeBodyTransforms(
+    bodyTransform,
+    makeCodexHostedWebTransform(hostedWebPolicy),
+  );
 
   // For the default OpenAI endpoint, unversioned clients (e.g. Codex CLI sending
   // /responses) need a /v1 prefix to reach the correct versioned API surface.
@@ -96,7 +106,7 @@ function createOpenAIAdapter(env, deps = {}) {
       name: 'openai',
       port: 10000,
       isManagementPort: true,
-      bodyTransform,
+      bodyTransform: composedBodyTransform,
       missingCredentialResponse: {
         kind: 'plain_error',
         statusCode: 404,
@@ -112,6 +122,7 @@ function createOpenAIAdapter(env, deps = {}) {
       extra: {
         /** Port 10000 always counts toward the startup validation latch. */
         participatesInValidation: true,
+        _hostedWebPolicy: hostedWebPolicy,
       },
     }),
   });

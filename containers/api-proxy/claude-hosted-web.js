@@ -1,5 +1,7 @@
 'use strict';
 
+const { isValidDomain, parseHostedWebPolicy } = require('./hosted-web-policy');
+
 /**
  * Claude hosted-web policy enforcement for the AWF API proxy.
  *
@@ -43,12 +45,6 @@ const HOSTED_WEB_TOOL_PATTERN = /^web_(search|fetch)_(\d{4})(\d{2})(\d{2})$/;
  */
 const HOSTED_WEB_TOOL_PREFIX = /^web_(search|fetch)(_|$)/;
 
-/** Lowercase DNS label characters (validated label-by-label; see isValidDomain). */
-const LABEL_CHARS = /^[a-z0-9-]+$/;
-const DIGITS_ONLY = /^\d+$/;
-const MAX_DOMAIN_LENGTH = 253;
-const MAX_LABEL_LENGTH = 63;
-
 /**
  * Error thrown when a request violates the configured hosted-web policy.
  * `statusCode` and `code` are surfaced verbatim by proxy-request.js.
@@ -89,29 +85,6 @@ function isHostedWebToolCandidate(type) {
 }
 
 /**
- * Same syntax as the AWF config schema: a lowercase DNS hostname with at least
- * two labels, no scheme/port/path/wildcard and no raw IPv4 address. Checked
- * label-by-label rather than with one nested-quantifier regex so untrusted,
- * request-supplied values cannot trigger catastrophic backtracking.
- *
- * @param {unknown} value
- * @returns {boolean}
- */
-function isValidDomain(value) {
-  if (typeof value !== 'string' || value.length === 0 || value.length > MAX_DOMAIN_LENGTH) return false;
-  const labels = value.split('.');
-  if (labels.length < 2) return false;
-  if (labels.every(label => DIGITS_ONLY.test(label))) return false; // raw IPv4
-  return labels.every(label => (
-    label.length > 0 &&
-    label.length <= MAX_LABEL_LENGTH &&
-    LABEL_CHARS.test(label) &&
-    !label.startsWith('-') &&
-    !label.endsWith('-')
-  ));
-}
-
-/**
  * Parse and validate the serialized policy from the sidecar environment.
  * Throws on any malformed policy so the sidecar fails at startup rather than
  * discovering an unusable policy on the first request.
@@ -120,49 +93,7 @@ function isValidDomain(value) {
  * @returns {{ enabled: boolean, mode: 'allow'|'block'|null, domains: string[], maxUses?: number }|null}
  */
 function parseClaudeHostedWebPolicy(raw) {
-  if (raw === undefined || raw === null || String(raw).trim() === '') return null;
-
-  let parsed;
-  try {
-    parsed = JSON.parse(String(raw));
-  } catch (err) {
-    throw new Error(`AWF_CLAUDE_HOSTED_WEB_POLICY is not valid JSON: ${err.message}`);
-  }
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    throw new Error('AWF_CLAUDE_HOSTED_WEB_POLICY must be a JSON object');
-  }
-  if (typeof parsed.enabled !== 'boolean') {
-    throw new Error('AWF_CLAUDE_HOSTED_WEB_POLICY.enabled must be a boolean');
-  }
-
-  if (!parsed.enabled) {
-    return { enabled: false, mode: null, domains: [] };
-  }
-
-  if (parsed.mode !== 'allow' && parsed.mode !== 'block') {
-    throw new Error('AWF_CLAUDE_HOSTED_WEB_POLICY.mode must be "allow" or "block" when enabled');
-  }
-  if (!Array.isArray(parsed.domains) || parsed.domains.length === 0) {
-    throw new Error('AWF_CLAUDE_HOSTED_WEB_POLICY.domains must be a non-empty array when enabled');
-  }
-  const domains = [];
-  for (const domain of parsed.domains) {
-    if (!isValidDomain(domain)) {
-      throw new Error(`AWF_CLAUDE_HOSTED_WEB_POLICY.domains contains an invalid domain: ${JSON.stringify(domain)}`);
-    }
-    if (!domains.includes(domain)) domains.push(domain);
-  }
-
-  const policy = { enabled: true, mode: parsed.mode, domains };
-
-  if (parsed.maxUses !== undefined) {
-    if (!Number.isInteger(parsed.maxUses) || parsed.maxUses < 1) {
-      throw new Error('AWF_CLAUDE_HOSTED_WEB_POLICY.maxUses must be a positive integer');
-    }
-    policy.maxUses = parsed.maxUses;
-  }
-
-  return policy;
+  return parseHostedWebPolicy(raw, 'AWF_CLAUDE_HOSTED_WEB_POLICY');
 }
 
 /**

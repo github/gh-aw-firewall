@@ -138,4 +138,12 @@ export interface ApiProxyDiagnosticsOptions {
    * @default undefined (no enforcement — hosted web tools pass through)
    */
   claudeHostedWeb?: ClaudeHostedWebConfig;
+
+  /**
+   * Codex/OpenAI hosted web policy for Responses web-search tools and the
+   * standalone `/v1/alpha/search` route. Config-only.
+   *
+   * @default undefined (no enforcement — Codex hosted web passes through)
+   */
+  codexHostedWeb?: import('../codex-hosted-web-policy').CodexHostedWebConfig;
 }

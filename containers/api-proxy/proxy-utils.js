@@ -244,11 +244,11 @@ function composeBodyTransforms(first, second) {
   if (!first) return second;
   if (!second) return first;
   const isPromise = (v) => v && typeof v.then === 'function';
-  return (body) => {
-    const a = first(body);
+  return (body, ...args) => {
+    const a = first(body, ...args);
     if (isPromise(a)) {
       return Promise.resolve(a).then((aResolved) => {
-        const b = second(aResolved !== null ? aResolved : body);
+        const b = second(aResolved !== null ? aResolved : body, ...args);
         if (isPromise(b)) {
           return Promise.resolve(b).then((bResolved) => {
             if (bResolved !== null) return bResolved;
@@ -262,7 +262,7 @@ function composeBodyTransforms(first, second) {
       });
     }
 
-    const b = second(a !== null ? a : body);
+    const b = second(a !== null ? a : body, ...args);
     if (isPromise(b)) {
       return Promise.resolve(b).then((bResolved) => {
         if (bResolved !== null) return bResolved;

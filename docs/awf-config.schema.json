@@ -150,8 +150,8 @@
                   "description": "Provider allowlist upper bound sent to Anthropic as allowed_domains. Mutually exclusive with blockedDomains (Anthropic rejects both on one tool definition). Values are lowercase DNS hostnames with at least two labels: no scheme, path, query, fragment, credentials, port, wildcard, CIDR, raw IP address, or localhost/Docker service alias. Duplicates are removed after normalization. A parent domain also covers its subdomains, matching Anthropic's semantics.",
                   "items": {
                     "type": "string",
-                  "maxLength": 253,
-                  "pattern": "^(?![0-9.]+$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$"
+                    "maxLength": 253,
+                    "pattern": "^(?![0-9.]+$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$"
                   }
                 },
                 "blockedDomains": {
@@ -224,6 +224,10 @@
                   ]
                 }
               ]
+            },
+            "codex": {
+              "$ref": "#/properties/apiProxy/properties/hostedWeb/properties/claude",
+              "description": "Codex/OpenAI hosted web policy. Uses the same closed config contract, normalization, source precedence, and immutable-upper-bound rule as claude. Applies to Responses API hosted web-search tools and the standalone /v1/alpha/search route, including request filters, every per-query domains scope, and literal URL operations. enabled:false rejects any hosted-search intent, including external_web_access. Request filters may only narrow policy: same-mode allowlists intersect and blocklists union; cross-mode filters are combined because OpenAI can represent both simultaneously. Every retrieval is governed by the most restrictive applicable request, query, and URL scope. maxUses is enforced as max_uses on Responses tools; /v1/alpha/search has no equivalent cap and is rejected when maxUses is configured rather than silently ignoring it. Unknown hosted-search shapes fail closed. Requests without a hosted-web surface are unchanged. Omission preserves pass-through behavior and does NOT constrain Codex-hosted egress. JSON/YAML files and JSON/YAML via --config - behave identically; stdin errors identify stdin before containers start. Hosted-web domains are explicit and are never copied from network.allowDomains or network.sensitiveAllowDomains."
             }
           }
         },
