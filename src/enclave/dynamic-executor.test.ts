@@ -65,6 +65,39 @@ function withEnv(values: Record<string, string | undefined>, run: () => void): v
 
 const serverStub = { primaryBackend: 'docker', auditDir: '/var/log/awf-enclave' };
 
+const dynamicExecutorConfig = {
+  dynamicEnabled: true,
+  dynamicGithubMcpUrl: 'http://172.31.0.40:8080/mcp/github',
+  enclaveGithubBearerPath: ENCLAVE_GITHUB_BEARER_PATH,
+  hostWorkDir: '/var/tmp/work',
+  enclaveSeccompPath: '/opt/awf/enclave-seccomp.json',
+  enclaveMountDir: '/agent',
+  enclaveSeedPath: '/awf/seed',
+  enclaveTaskPath: '/awf/task.txt',
+  enclaveSchemaPath: '/awf/schema.json',
+  enclaveUid: 65534,
+  enclaveGid: 65534,
+  enclaveImage: 'ghcr.io/example/enclave-agent:test',
+  engine: 'copilot',
+  profile: 'openai',
+  model: 'gpt-test',
+  apiEndpoint: 'http://172.31.0.30:10000',
+  network: 'awf-enclave-agent',
+  timeoutSeconds: 120,
+  memoryLimit: '1g',
+  cpuLimit: '1',
+  pidsLimit: 128,
+  tmpfsLimit: '256m',
+  maxOutputBytes: 8192,
+};
+
+function buildDynamicExecutorConfig(overrides: Record<string, unknown> = {}) {
+  return {
+    ...dynamicExecutorConfig,
+    ...overrides,
+  };
+}
+
 describe('dynamic broker configuration', () => {
   it('loads a dynamic agent entry without a seed catalog or seeds directory', () => {
     withEnv(DYNAMIC_ENV, () => {
@@ -120,33 +153,10 @@ describe('dynamic broker configuration', () => {
 });
 
 describe('dynamic enclave container specification', () => {
-  const config = {
-    dynamicEnabled: true,
-    dynamicGithubMcpUrl: 'http://172.31.0.40:8080/mcp/github',
+  const config = buildDynamicExecutorConfig({
     dynamicRepository: 'octo-org/service',
     dynamicReadMode: 'live',
-    enclaveGithubBearerPath: ENCLAVE_GITHUB_BEARER_PATH,
-    hostWorkDir: '/var/tmp/work',
-    enclaveSeccompPath: '/opt/awf/enclave-seccomp.json',
-    enclaveMountDir: '/agent',
-    enclaveSeedPath: '/awf/seed',
-    enclaveTaskPath: '/awf/task.txt',
-    enclaveSchemaPath: '/awf/schema.json',
-    enclaveUid: 65534,
-    enclaveGid: 65534,
-    enclaveImage: 'ghcr.io/example/enclave-agent:test',
-    engine: 'copilot',
-    profile: 'openai',
-    model: 'gpt-test',
-    apiEndpoint: 'http://172.31.0.30:10000',
-    network: 'awf-enclave-agent',
-    timeoutSeconds: 120,
-    memoryLimit: '1g',
-    cpuLimit: '1',
-    pidsLimit: 128,
-    tmpfsLimit: '256m',
-    maxOutputBytes: 8192,
-  };
+  });
   const spec = deriveEnclaveContainerSpec({
     config,
     runId: 'a'.repeat(32),
@@ -485,33 +495,10 @@ describe('dynamic enclave runner binding', () => {
   } = require(path.join(containersRoot, 'enclave', 'mcp-server', 'agent-executor.js'));
   /* eslint-enable @typescript-eslint/no-require-imports */
 
-  const runnerConfig = {
+  const runnerConfig = buildDynamicExecutorConfig({
     backend: 'docker',
-    dynamicEnabled: true,
-    dynamicGithubMcpUrl: 'http://172.31.0.40:8080/mcp/github',
     githubGatewayContainer: 'awmg-mcpg',
-    enclaveGithubBearerPath: ENCLAVE_GITHUB_BEARER_PATH,
-    hostWorkDir: '/var/tmp/work',
-    enclaveSeccompPath: '/opt/awf/enclave-seccomp.json',
-    enclaveMountDir: '/agent',
-    enclaveSeedPath: '/awf/seed',
-    enclaveTaskPath: '/awf/task.txt',
-    enclaveSchemaPath: '/awf/schema.json',
-    enclaveUid: 65534,
-    enclaveGid: 65534,
-    enclaveImage: 'ghcr.io/example/enclave-agent:test',
-    engine: 'copilot',
-    profile: 'openai',
-    model: 'gpt-test',
-    apiEndpoint: 'http://172.31.0.30:10000',
-    network: 'awf-enclave-agent',
-    timeoutSeconds: 120,
-    memoryLimit: '1g',
-    cpuLimit: '1',
-    pidsLimit: 128,
-    tmpfsLimit: '256m',
-    maxOutputBytes: 8192,
-  };
+  });
 
   const DYNAMIC_TOPOLOGY =
     'true|bridge|172.31.0.0/24,|awf-enclave-agent-api-proxy@172.31.0.30/24,awmg-mcpg@172.31.0.40/24,';
