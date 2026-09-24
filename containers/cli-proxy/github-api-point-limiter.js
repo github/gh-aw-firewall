@@ -10,13 +10,14 @@ function parseLimit(value) {
 
 function getApiInvocation(args) {
   let apiIndex = -1;
+  const globalValueFlags = new Set(['--repo', '-R', '--hostname']);
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
     if (!arg.startsWith('-')) {
       if (arg === 'api') apiIndex = index;
       break;
     }
-    if (!arg.includes('=') && index + 1 < args.length && !args[index + 1].startsWith('-')) {
+    if (globalValueFlags.has(arg) && index + 1 < args.length) {
       index += 1;
     }
   }

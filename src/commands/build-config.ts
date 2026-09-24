@@ -232,8 +232,12 @@ export function buildConfig(inputs: BuildConfigInputs): WrapperConfig {
     copilotByokSessionId: options.copilotByokSessionId as string | undefined,
     difcProxyHost: options.difcProxyHost as string | undefined,
     difcProxyCaCert: options.difcProxyCaCert as string | undefined,
-    maxGithubApiPointsRest: options.maxGithubApiPointsRest as number | undefined,
-    maxGithubApiPointsGraphql: options.maxGithubApiPointsGraphql as number | undefined,
+    maxGithubApiPointsRest: options.maxGithubApiPointsRest === undefined
+      ? undefined
+      : Number(options.maxGithubApiPointsRest),
+    maxGithubApiPointsGraphql: options.maxGithubApiPointsGraphql === undefined
+      ? undefined
+      : Number(options.maxGithubApiPointsGraphql),
     diagnosticLogs: (options.diagnosticLogs as boolean) || false,
     awfDockerHost: options.dockerHost as string | undefined,
     upstreamProxy,

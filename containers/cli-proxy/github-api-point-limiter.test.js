@@ -17,7 +17,14 @@ describe('GitHubApiPointLimiter', () => {
   it('does not charge non-api gh commands', () => {
     expect(getApiInvocation(['pr', 'list'])).toBeNull();
     expect(getApiInvocation(['pr', 'list', '--search', 'api'])).toBeNull();
+  });
+
+  it('finds the api subcommand after global flags and ignores malformed API calls', () => {
     expect(getApiInvocation(['--repo', 'octo/repo', 'api', 'graphql'])).toEqual({
+      kind: 'graphql',
+      points: 1,
+    });
+    expect(getApiInvocation(['--verbose', 'api', 'graphql'])).toEqual({
       kind: 'graphql',
       points: 1,
     });
