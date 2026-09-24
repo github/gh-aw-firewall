@@ -91,20 +91,23 @@ const dynamicExecutorConfig = {
   maxOutputBytes: 8192,
 };
 
-// Extras are the per-call-site fields intentionally kept outside the shared base fixture.
-type DynamicExecutorConfigExtras = {
-  backend?: string;
-  dynamicReadMode?: string;
-  dynamicRepository?: string;
-  githubGatewayContainer?: string;
-};
+function buildDynamicExecutorConfig() {
+  return structuredClone(dynamicExecutorConfig);
+}
 
-type DynamicExecutorConfigOverrides = Partial<typeof dynamicExecutorConfig> & DynamicExecutorConfigExtras;
-
-function buildDynamicExecutorConfig(overrides: DynamicExecutorConfigOverrides = {}) {
+function buildDynamicContainerSpecConfig() {
   return {
-    ...structuredClone(dynamicExecutorConfig),
-    ...overrides,
+    ...buildDynamicExecutorConfig(),
+    dynamicRepository: 'octo-org/service',
+    dynamicReadMode: 'live',
+  };
+}
+
+function buildDynamicRunnerConfig() {
+  return {
+    ...buildDynamicExecutorConfig(),
+    backend: 'docker',
+    githubGatewayContainer: 'awmg-mcpg',
   };
 }
 
@@ -163,10 +166,7 @@ describe('dynamic broker configuration', () => {
 });
 
 describe('dynamic enclave container specification', () => {
-  const config = buildDynamicExecutorConfig({
-    dynamicRepository: 'octo-org/service',
-    dynamicReadMode: 'live',
-  });
+  const config = buildDynamicContainerSpecConfig();
   const spec = deriveEnclaveContainerSpec({
     config,
     runId: 'a'.repeat(32),
@@ -505,10 +505,7 @@ describe('dynamic enclave runner binding', () => {
   } = require(path.join(containersRoot, 'enclave', 'mcp-server', 'agent-executor.js'));
   /* eslint-enable @typescript-eslint/no-require-imports */
 
-  const runnerConfig = buildDynamicExecutorConfig({
-    backend: 'docker',
-    githubGatewayContainer: 'awmg-mcpg',
-  });
+  const runnerConfig = buildDynamicRunnerConfig();
 
   const DYNAMIC_TOPOLOGY =
     'true|bridge|172.31.0.0/24,|awf-enclave-agent-api-proxy@172.31.0.30/24,awmg-mcpg@172.31.0.40/24,';
