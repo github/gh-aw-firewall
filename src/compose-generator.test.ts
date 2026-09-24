@@ -40,6 +40,81 @@ describe('generateDockerCompose', () => {
       expect(result.services.agent.build).toBeUndefined();
     });
 
+    it('adds routed proxy wiring without exposing routing state to the agent', () => {
+      const digest = 'a'.repeat(64);
+      const routingConfig: WrapperConfig = {
+        ...mockConfig,
+        enableApiProxy: true,
+        images: {
+          squid: `ghcr.io/example/squid:test@sha256:${digest}`,
+          agent: `ghcr.io/example/agent:test@sha256:${digest}`,
+          apiProxy: `ghcr.io/example/api-proxy:test@sha256:${digest}`,
+          router: `ghcr.io/example/router:test@sha256:${digest}`,
+        },
+        modelRouting: {
+          objective: { goal: 'cost', mode: 'balanced' },
+          task: { conversationFile: '/run/awf-routing/input/conversation.json' },
+        },
+        modelRoutingBootstrap: {
+          root: `${mockConfig.workDir}-routing`,
+          inputDir: `${mockConfig.workDir}-routing/input`,
+          outputDir: `${mockConfig.workDir}-routing/output`,
+          inputFile: `${mockConfig.workDir}-routing/input/conversation.json`,
+          containerInputFile: '/run/awf-routing/input/conversation.json',
+          containerOutputDir: '/run/awf-routing/output',
+        },
+      };
+      const result = generateDockerCompose(routingConfig, {
+        ...mockNetworkConfig,
+        proxyIp: '172.30.0.30',
+      });
+      const apiProxyService = result.services['api-proxy'] as any;
+      const agentEnvironment = result.services.agent.environment as Record<string, string>;
+
+      expect(result.services.router).toBeDefined();
+      expect(result.services.router.environment).toBeUndefined();
+      expect(result.services.router.ports).toBeUndefined();
+      expect(result.services.router.volumes).toBeUndefined();
+      expect(result.services.router.networks).toEqual({
+        'awf-routing': { aliases: ['gh-aw-router'] },
+      });
+      expect(apiProxyService.networks['awf-routing']).toEqual({});
+      expect(apiProxyService.depends_on.router).toEqual({
+        condition: 'service_healthy',
+      });
+      expect(apiProxyService.volumes).toEqual(
+        expect.arrayContaining([
+          `${mockConfig.workDir}-routing/input:/run/awf-routing/input:ro`,
+          `${mockConfig.workDir}-routing/output:/run/awf-routing/output:rw`,
+        ]),
+      );
+      expect(agentEnvironment.AWF_ROUTING_CONFIG).toBeUndefined();
+      expect(result.networks['awf-routing']).toMatchObject({ internal: true });
+    });
+
+    it('fails routed compose generation when host staging has not happened', () => {
+      const digest = 'a'.repeat(64);
+      const routingConfig: WrapperConfig = {
+        ...mockConfig,
+        enableApiProxy: true,
+        images: {
+          squid: `ghcr.io/example/squid:test@sha256:${digest}`,
+          agent: `ghcr.io/example/agent:test@sha256:${digest}`,
+          apiProxy: `ghcr.io/example/api-proxy:test@sha256:${digest}`,
+          router: `ghcr.io/example/router:test@sha256:${digest}`,
+        },
+        modelRouting: {
+          objective: { goal: 'cost', mode: 'balanced' },
+          task: { conversationFile: '/host/conversation.json' },
+        },
+      };
+
+      expect(() => generateDockerCompose(routingConfig, {
+        ...mockNetworkConfig,
+        proxyIp: '172.30.0.30',
+      })).toThrow('Model routing was configured but the routing conversation was not staged');
+    });
+
     it('should use local build when buildLocal is true', () => {
       const localConfig = { ...mockConfig, buildLocal: true };
       const result = generateDockerCompose(localConfig, mockNetworkConfig);

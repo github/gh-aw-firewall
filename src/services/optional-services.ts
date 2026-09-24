@@ -6,6 +6,7 @@ import { buildApiProxyService } from './api-proxy-service';
 import { buildDohProxyService } from './doh-proxy-service';
 import { buildCliProxyService } from './cli-proxy-service';
 import { buildEnclaveMcpService } from './enclave-mcp-service';
+import { buildRouterService } from './router-service';
 import { buildSysrootStageService, isSysrootEnabled } from './sysroot-service';
 import { resolveDockerHostGateway } from './host-gateway';
 import { runtimeUsesIptables } from '../container-runtime';
@@ -315,6 +316,12 @@ function assembleApiProxyService(params: AssembleOptionalServicesParams): void {
   };
 }
 
+function assembleRouterService(params: AssembleOptionalServicesParams): void {
+  const { services, config, imageConfig } = params;
+  if (!config.modelRoutingBootstrap) return;
+  services['router'] = buildRouterService({ imageConfig });
+}
+
 function assembleDohProxyService(params: AssembleOptionalServicesParams): void {
   const { services, agentService, config, networkConfig } = params;
 
@@ -407,6 +414,7 @@ export function assembleOptionalServices(
 
   presetSidecarIpEnvVars(environment, config, networkConfig);
   assembleEnclaveMcpService(params);
+  assembleRouterService(params);
   if (includeComposeAgent) {
     assembleSysrootService(params, imageConfig.registry, imageConfig.parsedTag, sysrootActive);
     assembleIptablesInitService(params, skipIptables);
@@ -426,4 +434,5 @@ export function assembleOptionalServices(
 export const testHelpers = {
   presetSidecarIpEnvVars,
   filterAgentVolumesForSysroot,
+  assembleRouterService,
 };

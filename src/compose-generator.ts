@@ -23,6 +23,7 @@ import {
 } from './enclave/network';
 import { buildInternalServiceHosts } from './services/internal-service-hosts';
 import { filterComposeCapDrop } from './capability-filter';
+import { ROUTING_NETWORK_NAME } from './services/router-service';
 
 /**
  * Generates Docker Compose configuration
@@ -219,6 +220,13 @@ export function generateDockerCompose(
   if (config.enclaves?.enabled) {
     compose.networks[ENCLAVE_MCP_CONTROL_NETWORK] = {
       name: ENCLAVE_MCP_CONTROL_NETWORK,
+      driver: 'bridge',
+      internal: true,
+    };
+  }
+  if (config.modelRoutingBootstrap) {
+    compose.networks[ROUTING_NETWORK_NAME] = {
+      name: ROUTING_NETWORK_NAME,
       driver: 'bridge',
       internal: true,
     };

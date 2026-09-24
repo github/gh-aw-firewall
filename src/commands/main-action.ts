@@ -52,6 +52,13 @@ import {
   formatCloudHypervisorDockerFallbackWarning,
   isCloudHypervisorUnsupportedHostError,
 } from '../cloud-hypervisor/errors';
+import {
+  cleanupRoutingState,
+  RoutingFailureExitError,
+  stageRoutingConversation,
+  verifyRoutingCompletion,
+  waitForRoutingSelection,
+} from '../routing/bootstrap';
 
 const SENSITIVE_CONFIG_KEYS = new Set([
   'openaiApiKey',
@@ -490,6 +497,10 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
         assertEnclaveGithubGatewayReady,
         prepareEnclaves,
         startEnclaveDynamicDelegation,
+        prepareRouting: async (routingConfig) => stageRoutingConversation(routingConfig),
+        waitForRoutingSelection,
+        verifyRoutingCompletion: async (routingState) => verifyRoutingCompletion(routingState),
+        cleanupRouting: async (routingConfig) => cleanupRoutingState(routingConfig),
       },
       {
         logger,
@@ -512,8 +523,10 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
       writeStartupFailureDiagnostic(config, error);
     }
     await performCleanup();
-    console.error(`Process exiting with code: 1`);
-    process.exit(1);
+    cleanupRoutingState(config);
+    const fatalExitCode = error instanceof RoutingFailureExitError ? error.exitCode : 1;
+    console.error(`Process exiting with code: ${fatalExitCode}`);
+    process.exit(fatalExitCode);
   }
   };
 }

@@ -230,6 +230,22 @@ describe('agent environment: options', () => {
     }
   });
 
+  it('should exclude host routing control vars from env-all passthrough', () => {
+    const original = process.env.AWF_ROUTING_CONFIG;
+    process.env.AWF_ROUTING_CONFIG = '{"task":{"conversationFile":"/host/forged.json"}}';
+
+    try {
+      const configWithEnvAll = { ...mockConfig, envAll: true };
+      const result = generateDockerCompose(configWithEnvAll, mockNetworkConfig);
+      const env = result.services.agent.environment as Record<string, string>;
+
+      expect(env.AWF_ROUTING_CONFIG).toBeUndefined();
+    } finally {
+      if (original !== undefined) process.env.AWF_ROUTING_CONFIG = original;
+      else delete process.env.AWF_ROUTING_CONFIG;
+    }
+  });
+
   it('should skip env vars exceeding MAX_ENV_VALUE_SIZE from env-all passthrough', () => {
     const largeVarName = 'AWF_TEST_OVERSIZED_VAR';
     const saved = process.env[largeVarName];

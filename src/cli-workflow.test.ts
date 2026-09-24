@@ -210,6 +210,71 @@ describe('runMainWorkflow', () => {
     expect(logger.warn).not.toHaveBeenCalled();
   });
 
+  it('stages routing before config generation and waits for selection before agent startup', async () => {
+    const callOrder: string[] = [];
+    const routingState = {
+      root: '/tmp/awf-test-routing',
+      inputDir: '/tmp/awf-test-routing/input',
+      outputDir: '/tmp/awf-test-routing/output',
+      inputFile: '/tmp/awf-test-routing/input/conversation.json',
+      containerInputFile: '/run/awf-routing/input/conversation.json',
+      containerOutputDir: '/run/awf-routing/output',
+    };
+    const config: WrapperConfig = {
+      ...baseConfig,
+      enableApiProxy: true,
+      modelRouting: {
+        objective: { goal: 'cost', mode: 'balanced' },
+        task: { conversationFile: '/host/conversation.json' },
+      },
+    };
+    const dependencies = createOrderedWorkflowDependencies(callOrder, 0, {
+      prepareRouting: jest.fn().mockImplementation(async () => {
+        callOrder.push('prepareRouting');
+        return routingState;
+      }),
+      startContainers: jest.fn().mockImplementation(async (
+        _workDir,
+        _allowedDomains,
+        _proxyLogsDir,
+        _skipPull,
+        _onNetworkReady,
+        onInfrastructureReady,
+      ) => {
+        callOrder.push('startContainers');
+        await onInfrastructureReady?.();
+      }),
+      waitForRoutingSelection: jest.fn().mockImplementation(async () => {
+        callOrder.push('waitForRoutingSelection');
+      }),
+      verifyRoutingCompletion: jest.fn().mockImplementation(async () => {
+        callOrder.push('verifyRoutingCompletion');
+      }),
+      cleanupRouting: jest.fn().mockImplementation(async () => {
+        callOrder.push('cleanupRouting');
+      }),
+    });
+    const { logger, performCleanup } = createOrderedWorkflowOptions(callOrder);
+
+    const exitCode = await runMainWorkflow(config, dependencies, { logger, performCleanup });
+
+    expect(exitCode).toBe(0);
+    expect(callOrder).toEqual([
+      'prepareRouting',
+      'ensureFirewallNetwork',
+      'setupHostIptables',
+      'writeConfigs',
+      'startContainers',
+      'waitForRoutingSelection',
+      'runAgentCommand',
+      'performCleanup',
+      'verifyRoutingCompletion',
+      'cleanupRouting',
+    ]);
+    expect(dependencies.waitForRoutingSelection).toHaveBeenCalledWith(routingState);
+    expect(dependencies.verifyRoutingCompletion).toHaveBeenCalledWith(routingState);
+  });
+
   it('skips host network setup and iptables in network-isolation mode', async () => {
     const callOrder: string[] = [];
     const dependencies = {

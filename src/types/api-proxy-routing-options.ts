@@ -15,6 +15,15 @@ export interface ModelRoutingConfig {
   };
 }
 
+export interface ModelRoutingBootstrapState {
+  root: string;
+  inputDir: string;
+  outputDir: string;
+  inputFile: string;
+  containerInputFile: string;
+  containerOutputDir: string;
+}
+
 export interface ApiProxyRoutingOptions {
   /**
    * Optional task-level model routing configuration.
@@ -23,6 +32,17 @@ export interface ApiProxyRoutingOptions {
    * Set via config file path `apiProxy.routing`.
    */
   modelRouting?: ModelRoutingConfig;
+
+  /**
+   * Host-side routing file-channel state created before Compose generation.
+   *
+   * This is intentionally not part of the user-facing config surface. It is set
+   * only by the trusted CLI bootstrap path after validating and staging the
+   * routing conversation.
+   *
+   * @internal
+   */
+  modelRoutingBootstrap?: ModelRoutingBootstrapState;
 
   /**
    * Host path to an additional CA certificate for api-proxy upstream TLS.

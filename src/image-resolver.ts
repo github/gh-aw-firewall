@@ -66,7 +66,7 @@ const DIGEST_PINNED_IMAGE_PATTERN =
 
 const DIGEST_PINNED_IMAGE = new RegExp(DIGEST_PINNED_IMAGE_PATTERN);
 
-function isDigestPinnedImageReference(reference: string): boolean {
+export function isDigestPinnedImageReference(reference: string): boolean {
   if (/\s|\$|\{\{/.test(reference)) return false;
   return DIGEST_PINNED_IMAGE.test(reference);
 }

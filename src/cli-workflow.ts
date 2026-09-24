@@ -7,6 +7,7 @@ import { buildInternalServiceHosts } from './services/internal-service-hosts';
 import { TOPOLOGY_NETWORK_NAME, getTopologyContainerIps, patchComposeWithTopologyHosts } from './topology';
 import { validateEnclavesConfig } from './enclave/preflight';
 import { isEnclaveAgentGithubRouteEnabled } from './types/enclave-options';
+import type { ModelRoutingBootstrapState } from './types';
 
 /**
  * Dependencies injected into the main workflow.
@@ -59,6 +60,14 @@ export interface WorkflowDependencies {
    * recovery, reconciliation, and the broker admission channel.
    */
   startEnclaveDynamicDelegation?: (config: WrapperConfig) => Promise<void>;
+  /** Stages the private routing conversation before any container exists. */
+  prepareRouting?: (config: WrapperConfig) => Promise<ModelRoutingBootstrapState | undefined>;
+  /** Waits for the proxy-owned routing selection before the primary agent starts. */
+  waitForRoutingSelection?: (state: ModelRoutingBootstrapState | undefined) => Promise<void>;
+  /** Verifies the proxy's end-of-run routing records after sidecar shutdown. */
+  verifyRoutingCompletion?: (state: ModelRoutingBootstrapState | undefined) => Promise<void>;
+  /** Removes private routing state after verification unless containers are kept. */
+  cleanupRouting?: (config: WrapperConfig) => Promise<void>;
 }
 
 interface WorkflowCallbacks {
@@ -114,6 +123,14 @@ export async function runMainWorkflow(
     }
     logger.info('Staging enclave repository seeds...');
     await dependencies.prepareEnclaves(config);
+  }
+  let routingState: ModelRoutingBootstrapState | undefined;
+  if (config.modelRouting) {
+    if (!dependencies.prepareRouting) {
+      throw new Error('Model routing is enabled but no staging implementation was provided to runMainWorkflow');
+    }
+    logger.info('Staging model routing conversation...');
+    routingState = await dependencies.prepareRouting(config);
   }
 
   // Step 0: Setup host-level network and iptables
@@ -217,7 +234,7 @@ export async function runMainWorkflow(
         }
       : undefined;
 
-  const onInfrastructureReady = config.enclaves?.enabled
+  const enclaveInfrastructureReady = config.enclaves?.enabled
     ? async () => {
         if (!dependencies.connectEnclaveGateway || !dependencies.assertEnclaveGatewayReady) {
           throw new Error('Enclaves require an exclusive MCP gateway readiness implementation');
@@ -250,6 +267,21 @@ export async function runMainWorkflow(
           logger.info('Reconciling mcpg delegation state and opening dynamic admission...');
           await dependencies.startEnclaveDynamicDelegation(config);
         }
+      }
+    : undefined;
+  const routingInfrastructureReady = config.modelRouting
+    ? async () => {
+        if (!dependencies.waitForRoutingSelection) {
+          throw new Error('Model routing is enabled but no selection wait implementation was provided');
+        }
+        logger.info('Waiting for model routing selection...');
+        await dependencies.waitForRoutingSelection(routingState);
+      }
+    : undefined;
+  const onInfrastructureReady = enclaveInfrastructureReady || routingInfrastructureReady
+    ? async () => {
+        if (enclaveInfrastructureReady) await enclaveInfrastructureReady();
+        if (routingInfrastructureReady) await routingInfrastructureReady();
       }
     : undefined;
 
@@ -296,6 +328,13 @@ export async function runMainWorkflow(
 
   // Step 4: Cleanup (logs will be preserved automatically if they exist)
   await performCleanup();
+  if (config.modelRouting) {
+    if (!dependencies.verifyRoutingCompletion) {
+      throw new Error('Model routing is enabled but no completion verification implementation was provided');
+    }
+    await dependencies.verifyRoutingCompletion(routingState);
+    await dependencies.cleanupRouting?.(config);
+  }
 
   if (result.exitCode === 0) {
     logger.success('Command completed successfully');

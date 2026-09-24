@@ -9,6 +9,7 @@ export {
 } from './ports';
 
 export type * from './wrapper-config';
+export type { ModelRoutingBootstrapState } from './api-proxy-routing-options';
 
 export { type UpstreamProxyConfig } from './upstream-proxy';
 export { type LogLevel } from './log-level';

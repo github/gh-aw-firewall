@@ -422,7 +422,7 @@ describe('buildModelPolicyEnv', () => {
     expect(env.AWF_MODEL_FALLBACK).toBe('{"enabled":false,"strategy":"middle_power"}');
   });
 
-it('sets AWF_ROUTING_CONFIG when modelRouting is configured', () => {
+it('does not set AWF_ROUTING_CONFIG when modelRouting is configured', () => {
     const env = buildModelPolicyEnv({
       ...baseConfig,
       workDir: '/tmp/awf-test',
@@ -431,14 +431,49 @@ it('sets AWF_ROUTING_CONFIG when modelRouting is configured', () => {
         task: { conversationFile: '/tmp/gh-aw/routing-conversation.json' },
       },
     });
-    expect(env.AWF_ROUTING_CONFIG).toBe(
-      '{"objective":{"goal":"cost","mode":"balanced"},"task":{"conversationFile":"/tmp/gh-aw/routing-conversation.json"}}'
-    );
+    expect(env.AWF_ROUTING_CONFIG).toBeUndefined();
   });
 
   it('sets AWF_ALLOWED_MODELS when allowedModels is non-empty', () => {
     const env = buildModelPolicyEnv({ ...baseConfig, workDir: '/tmp/awf-test', allowedModels: ['gpt-4o', 'claude-3-5-sonnet'] });
     expect(env.AWF_ALLOWED_MODELS).toBe('["gpt-4o","claude-3-5-sonnet"]');
+  });
+
+  describe('buildModelRoutingEnv', () => {
+    const { buildModelRoutingEnv } = testHelpers;
+
+    it('rewrites AWF_ROUTING_CONFIG to the staged container input path', () => {
+      const env = buildModelRoutingEnv({
+        ...baseConfig,
+        workDir: '/tmp/awf-test',
+        modelRouting: {
+          objective: { goal: 'cost', mode: 'balanced' },
+          task: { conversationFile: '/host/conversation.json' },
+        },
+        modelRoutingBootstrap: {
+          root: '/tmp/awf-test-routing',
+          inputDir: '/tmp/awf-test-routing/input',
+          outputDir: '/tmp/awf-test-routing/output',
+          inputFile: '/tmp/awf-test-routing/input/conversation.json',
+          containerInputFile: '/run/awf-routing/input/conversation.json',
+          containerOutputDir: '/run/awf-routing/output',
+        },
+      });
+      expect(env.AWF_ROUTING_CONFIG).toBe(
+        '{"objective":{"goal":"cost","mode":"balanced"},"task":{"conversationFile":"/run/awf-routing/input/conversation.json"}}'
+      );
+    });
+
+    it('requires host staging before routing env generation', () => {
+      expect(() => buildModelRoutingEnv({
+        ...baseConfig,
+        workDir: '/tmp/awf-test',
+        modelRouting: {
+          objective: { goal: 'cost', mode: 'balanced' },
+          task: { conversationFile: '/host/conversation.json' },
+        },
+      })).toThrow('Model routing was configured but the routing conversation was not staged');
+    });
   });
 
   it('omits AWF_ALLOWED_MODELS when allowedModels is empty', () => {
