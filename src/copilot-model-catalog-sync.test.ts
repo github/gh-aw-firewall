@@ -79,12 +79,15 @@ const MAPPING_FAMILIES_NOT_EXPOSED_BY_COPILOT_CLI = new Set([
   'gpt-rosalind-research', // restricted-access, responses-only life-sciences model; not in the Copilot CLI model picker
   'gpt-5-6-cyber', // responses-only gpt-5.6 variant; not in the Copilot CLI model picker
   'gpt-5-5-pro', // responses-only gpt-5.5 variant; not in the Copilot CLI model picker
+  'gpt-5-2-pro', // responses-only gpt-5.2 variant; not in the Copilot CLI model picker
+  'gpt-5-1-codex', // older responses-only Codex family; not in the Copilot CLI model picker
   'gpt-5-1-codex-max',
   'gpt-5-codex/pro',
   'o4-mini-deep-research',
   'o4',
   'o3-pro/deep-research',
   'o1-pro',
+  'o1-mini/preview',
   'o1',
   'computer-use-preview',
   'codex-mini',

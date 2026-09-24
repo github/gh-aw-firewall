@@ -57,12 +57,11 @@ describe('model-api-mapping', () => {
       expect(result.endpoints).toEqual(['responses']);
     });
 
-    it('finds GPT-5.1 as supporting both endpoints', () => {
+    it('finds GPT-5.1-codex as responses-only', () => {
       const result = lookupModelEndpoints('gpt-5.1-codex', 'openai');
       expect(result).not.toBeNull();
-      expect(result.family).toBe('gpt-5.1');
-      expect(result.endpoints).toContain('chat_completions');
-      expect(result.endpoints).toContain('responses');
+      expect(result.family).toBe('gpt-5.1-codex');
+      expect(result.endpoints).toEqual(['responses']);
     });
 
     it('finds GPT-5.1-codex-max as responses-only', () => {
@@ -151,7 +150,7 @@ describe('model-api-mapping', () => {
       expect(reflect.available).toBe(true);
       expect(reflect.providers).toContain('openai');
       expect(reflect.providers).toContain('anthropic');
-      expect(reflect.last_updated).toBe('2026-09-04T07:01:27Z');
+      expect(reflect.last_updated).toBe('2026-09-24T07:03:39Z');
       expect(reflect.models.anthropic.models[0].family).toBe('claude-opus-5');
       expect(reflect.error).toBeNull();
     });
