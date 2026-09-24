@@ -33,6 +33,10 @@ function getApiInvocation(args) {
       method = arg.slice('--method='.length).toUpperCase();
       continue;
     }
+    if (arg.startsWith('-X') && arg.length > 2) {
+      method = arg.slice(2).toUpperCase();
+      continue;
+    }
     if (arg.startsWith('--field=') || arg.startsWith('--raw-field=') || arg.startsWith('-f=') || arg.startsWith('-F=')) {
       hasField = true;
       continue;
