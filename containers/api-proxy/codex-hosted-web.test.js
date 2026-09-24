@@ -122,6 +122,16 @@ describe('Codex hosted-web policy', () => {
       .toThrow(expect.objectContaining({ code: 'codex_hosted_web_url_disallowed' }));
   });
 
+  it.each(['https:evil.example/private', 'https:/evil.example/private'])(
+    'checks normalized HTTP(S) URLs in command reference IDs: %s',
+    refId => {
+      expect(() => enforceStandalone({
+        commands: { open: [{ ref_id: refId }] },
+      }, { ...allow, maxUses: undefined }))
+        .toThrow(expect.objectContaining({ code: 'codex_hosted_web_url_disallowed' }));
+    },
+  );
+
   it('allows non-URL reference IDs and rejects unknown command shapes', () => {
     expect(enforceStandalone({
       commands: { open: [{ ref_id: 'turn0search0' }] },
@@ -132,6 +142,10 @@ describe('Codex hosted-web policy', () => {
       .toThrow(expect.objectContaining({ code: 'codex_hosted_web_command_unrecognized' }));
     expect(() => enforceStandalone({
       settings: { future_access: true },
+    }, { ...allow, maxUses: undefined }))
+      .toThrow(expect.objectContaining({ code: 'codex_hosted_web_shape_invalid' }));
+    expect(() => enforceStandalone({
+      future_retrieval: { url: 'https://evil.example' },
     }, { ...allow, maxUses: undefined }))
       .toThrow(expect.objectContaining({ code: 'codex_hosted_web_shape_invalid' }));
   });

@@ -26,6 +26,8 @@ describe('apiProxy.hostedWeb.codex schema', () => {
     ['disabled with domains', { enabled: false, allowedDomains: ['a.com'] }],
     ['empty list', { enabled: true, allowedDomains: [] }],
     ['invalid domain', { enabled: true, allowedDomains: ['https://a.com'] }],
+    ['raw IPv4 blocked domain', { enabled: true, blockedDomains: ['192.0.2.1'] }],
+    ['overlong-label blocked domain', { enabled: true, blockedDomains: [`${'a'.repeat(64)}.example`] }],
     ['invalid maxUses', { enabled: true, allowedDomains: ['a.com'], maxUses: 0 }],
     ['unknown property', { enabled: true, allowedDomains: ['a.com'], extra: true }],
   ])('rejects %s', (_name, codex) => {

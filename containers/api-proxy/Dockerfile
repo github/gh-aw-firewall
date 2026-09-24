@@ -41,7 +41,7 @@ RUN npm ci --omit=dev
 COPY server.js logging.js metrics.js rate-limiter.js rate-limiter-window.js \
      token-tracker.js token-persistence.js token-parsers.js \
      token-tracker-http.js token-tracker-ws.js token-tracker-shared.js \
-     model-resolver.js model-fallback.js model-utils.js model-body-rewriter.js proxy-utils.js oidc-adapter-utils.js adapter-factory.js anthropic-transforms.js claude-hosted-web.js \
+     model-resolver.js model-fallback.js model-utils.js model-body-rewriter.js proxy-utils.js oidc-adapter-utils.js adapter-factory.js anthropic-transforms.js claude-hosted-web.js codex-hosted-web.js hosted-web-policy.js \
      model-config.js key-validation.js server-factory.js startup.js \
      proxy-request.js request-headers.js upstream-http.js proxy-guards.js proxy-error-handler.js http-client.js body-handler.js model-discovery.js management.js oidc-token-provider.js \
      oidc-token-provider-base.js \

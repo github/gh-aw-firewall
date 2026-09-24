@@ -161,7 +161,8 @@
                   "description": "Provider blocklist lower bound sent to Anthropic as blocked_domains. Mutually exclusive with allowedDomains (Anthropic rejects both on one tool definition). Same domain syntax as allowedDomains. A request may add further blocked domains (union) but can never remove a configured one.",
                   "items": {
                     "type": "string",
-                    "pattern": "^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$"
+                    "maxLength": 253,
+                    "pattern": "^(?![0-9.]+$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$"
                   }
                 },
                 "maxUses": {

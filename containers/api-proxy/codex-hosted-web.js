@@ -13,6 +13,7 @@ const SEARCH_PATHS = new Set(['/v1/alpha/search', '/alpha/search']);
 const SEARCH_COMMANDS = new Set(['search_query', 'image_query', 'open', 'click', 'find', 'screenshot']);
 const URL_COMMANDS = new Set(['open', 'find', 'screenshot']);
 const FILTER_FIELDS = new Set(['allowed_domains', 'blocked_domains']);
+const STANDALONE_FIELDS = new Set(['settings', 'commands']);
 const TOOL_FIELDS = new Set([
   'type', 'external_web_access', 'indexed_web_access', 'filters', 'user_location',
   'search_context_size', 'search_content_types', 'image_settings', 'max_uses',
@@ -209,7 +210,16 @@ function narrowQueryDomains(query, filters) {
 }
 
 function checkLiteralUrl(value, filters) {
-  if (typeof value !== 'string' || !value.includes('://')) return;
+  if (typeof value !== 'string') return;
+  const scheme = /^([a-z][a-z0-9+.-]*):/i.exec(value);
+  if (!scheme) return;
+  if (scheme[1].toLowerCase() !== 'http' && scheme[1].toLowerCase() !== 'https') {
+    throw new CodexHostedWebPolicyError(
+      'codex_hosted_web_url_invalid',
+      'A Codex hosted web command contains an invalid HTTP(S) URL host.',
+      400,
+    );
+  }
   let parsed;
   try {
     parsed = new URL(value);
@@ -255,6 +265,12 @@ function enforceStandalone(body, policy) {
       400,
     );
   }
+  rejectUnknownFields(
+    body,
+    STANDALONE_FIELDS,
+    'codex_hosted_web_shape_invalid',
+    'Codex standalone hosted search body contains an unrecognized field.',
+  );
   const settings = body.settings === undefined ? {} : body.settings;
   if (!settings || typeof settings !== 'object' || Array.isArray(settings)) {
     throw new CodexHostedWebPolicyError(
