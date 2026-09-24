@@ -283,7 +283,7 @@ function createRoutingController(dependencies) {
       const failure = toRoutingFailure(normalized);
       safeRecord(observer, {
         stage: 'failure',
-        objective: config.objective,
+        objective: config?.objective ?? null,
         code: failure.code,
         // Routing failure details are authored literals, already sanitized by toRoutingFailure.
         detail: failure.detail,
