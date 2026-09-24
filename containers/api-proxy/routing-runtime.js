@@ -228,7 +228,9 @@ function createProductionRoutingSession({
     terminalFailure = toRoutingFailure(createRoutingError(code, 'Routed execution was rejected'));
     try {
       observer.record({ stage: 'failure', phase: result?.ok ? 'primary' : 'bootstrap', code: terminalFailure.code });
-    } catch {}
+    } catch {
+      // Observability must not change the routing decision or the live response.
+    }
     if (!result?.ok) {
       abortController.abort();
       return;
