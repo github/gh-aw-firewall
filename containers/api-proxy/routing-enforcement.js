@@ -103,12 +103,18 @@ function createRoutingEnforcement({ getSelection, getFailure, recordFailure }) {
   return Object.freeze({
     /** Returns true when the request was screened out and the 403 response has been written. */
     screenRequest(req, res, adapter) {
-      if (req.method === 'GET' && /^\/(?:v1\/)?models(?:\/[^/?]+)?$/.test(req.url)) {
+      let pathname;
+      try {
+        pathname = new URL(req.url, 'http://localhost').pathname;
+      } catch {
+        return reject(res);
+      }
+      if (req.method === 'GET' && /^\/(?:v1\/)?models(?:\/[^/?]+)?$/.test(pathname)) {
         return false;
       }
       const selection = getSelection();
-      const responses = /^\/(?:v1\/)?responses$/.test(req.url);
-      const chat = /^\/(?:v1\/)?chat\/completions$/.test(req.url);
+      const responses = /^\/(?:v1\/)?responses$/.test(pathname);
+      const chat = /^\/(?:v1\/)?chat\/completions$/.test(pathname);
       const hasEffort = selection && Object.hasOwn(selection.choice, 'effort');
       if (
         draining || !selection || getFailure() ||
