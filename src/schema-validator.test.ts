@@ -25,6 +25,11 @@ describe('schema-validator', () => {
       expect(errors).toContain('config.network.badField is not supported');
     });
 
+    it('fails closed for the unavailable native repository profile', () => {
+      const errors = validateWithSchema({ tools: { profile: 'go-repository-v1' } });
+      expect(errors).toContain('config.tools is not supported');
+    });
+
     it('formats type:object errors as "must be an object"', () => {
       const errors = validateWithSchema({ network: 'not-object' });
       expect(errors).toContain('config.network must be an object');
