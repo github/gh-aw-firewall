@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Run the pinned native Copilot CLI inside a enclave-agent enclave."""
 
+from __future__ import annotations
+
 import errno
 import hashlib
 import json

@@ -37,8 +37,20 @@ function config(overrides: Partial<WrapperConfig> = {}): WrapperConfig {
 }
 
 const linuxX64 = { platform: 'linux' as const, arch: 'x64' };
+const originalPlatform = process.platform;
+const originalArch = process.arch;
 
 describe('NVX runtime validation', () => {
+  beforeEach(() => {
+    Object.defineProperty(process, 'platform', { value: 'linux' });
+    Object.defineProperty(process, 'arch', { value: 'x64' });
+  });
+
+  afterEach(() => {
+    Object.defineProperty(process, 'platform', { value: originalPlatform });
+    Object.defineProperty(process, 'arch', { value: originalArch });
+  });
+
   it('isPrimaryNvxRuntime is true only when nvx is explicitly selected', () => {
     expect(isPrimaryNvxRuntime(config())).toBe(true);
     expect(isPrimaryNvxRuntime(config({ containerRuntime: 'docker' }))).toBe(false);
@@ -154,7 +166,6 @@ describe('NVX runtime validation', () => {
     });
 
     it('rejects on an ineligible host even when configuration is otherwise valid', () => {
-      const originalPlatform = process.platform;
       Object.defineProperty(process, 'platform', { value: 'darwin' });
       try {
         expect(() => assertNvxRuntimeCompatibility(config())).toThrow(/requires a Linux host/);

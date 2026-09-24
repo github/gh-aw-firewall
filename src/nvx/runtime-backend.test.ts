@@ -6,6 +6,9 @@ import {
   type NvxRuntimeBackendDependencies,
 } from './runtime-backend';
 
+const originalPlatform = process.platform;
+const originalArch = process.arch;
+
 function nvxConfig(): WrapperConfig {
   return {
     containerRuntime: 'nvx',
@@ -77,6 +80,16 @@ function harness(overrides: Partial<NvxRuntimeBackendDependencies> = {}) {
 }
 
 describe('NvxRuntimeBackend', () => {
+  beforeEach(() => {
+    Object.defineProperty(process, 'platform', { value: 'linux' });
+    Object.defineProperty(process, 'arch', { value: 'x64' });
+  });
+
+  afterEach(() => {
+    Object.defineProperty(process, 'platform', { value: originalPlatform });
+    Object.defineProperty(process, 'arch', { value: originalArch });
+  });
+
   it('starts host infrastructure and resolves microVM infrastructure using a trusted ip tool before executing', async () => {
     const { dependencies } = harness();
     const backend = nvxRuntimeTestHelpers.createBackendWithDependencies(nvxConfig(), dependencies);
