@@ -27,13 +27,17 @@ function createProxyHandler(adapter, checkRateLimit, proxyRequest) {
       req.url = adapter.transformRequestUrl(req.url);
     }
 
+    // A routed request carries its own transform, which pins the selected model.
+    // Using the adapter's transform here would reintroduce aliases and fallback.
+    const bodyTransform = req.awfRouting ? req.awfRouting.bodyTransform : adapter.getBodyTransform();
+
     proxyRequest(
       req, res,
       adapter.getTargetHost(req),
       adapter.getAuthHeaders(req),
       adapter.name,
       adapter.getBasePath(req),
-      adapter.getBodyTransform(),
+      bodyTransform,
       adapter.getRequestSigner ? adapter.getRequestSigner() : null,
       adapter.getTargetScheme ? adapter.getTargetScheme(req) : 'https'
     );
@@ -127,6 +131,7 @@ function createProviderServer(adapter, deps) {
     checkRateLimit,
     proxyRequest,
     proxyWebSocket,
+    routing,
   } = deps;
 
   const handleHealthCheck = createHealthCheckHandler(adapter);
@@ -147,6 +152,11 @@ function createProviderServer(adapter, deps) {
       return;
     }
 
+    // Runs before the enabled check so a rejected request never reveals provider configuration.
+    // Returns true once it has written a 403. Otherwise it may attach
+    // req.awfRouting, which pins the body to the selected model downstream.
+    if (routing?.screenRequest(req, res, adapter)) return;
+
     if (!adapter.isEnabled()) {
       const response = adapter.getUnconfiguredResponse
         ? adapter.getUnconfiguredResponse()
@@ -159,7 +169,14 @@ function createProviderServer(adapter, deps) {
     handleProxy(req, res);
   });
 
-  server.on('upgrade', handleUpgrade);
+  server.on('upgrade', (req, socket, head) => {
+    // A routed run pins one model, which an opaque tunnel would bypass.
+    if (routing) {
+      routing.rejectUpgrade(socket);
+      return;
+    }
+    handleUpgrade(req, socket, head);
+  });
   server.shutdownConnections = () => handleUpgrade.shutdownConnections();
 
   return server;

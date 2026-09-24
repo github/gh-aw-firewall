@@ -99,3 +99,120 @@ describe('bootPrimary shutdown', () => {
     expect(callOrder.indexOf('otelShutdown')).toBeLessThan(callOrder.indexOf('exit:0'));
   });
 });
+
+describe('bootPrimary routing lifecycle', () => {
+  let handlers;
+  let processOnSpy;
+  let processExitSpy;
+
+  beforeEach(() => {
+    handlers = {};
+    processOnSpy = jest.spyOn(process, 'on').mockImplementation((event, handler) => {
+      handlers[event] = handler;
+      return process;
+    });
+    processExitSpy = jest.spyOn(process, 'exit').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    processOnSpy.mockRestore();
+    processExitSpy.mockRestore();
+  });
+
+  function boot(routing, callOrder = []) {
+    const server = {
+      listen: jest.fn((port, host, cb) => cb()),
+      shutdownConnections: jest.fn().mockImplementation(async () => {
+        callOrder.push('shutdownConnections');
+      }),
+      close: jest.fn((cb) => {
+        callOrder.push('close');
+        cb();
+      }),
+    };
+    bootPrimary({
+      registeredAdapters: [{
+        name: 'copilot',
+        port: 10002,
+        alwaysBind: true,
+        participatesInValidation: true,
+        isEnabled: () => true,
+        getTargetHost: () => 'api.githubcopilot.com',
+      }],
+      createProviderServer: () => server,
+      validateApiKeys: jest.fn().mockImplementation(async () => {
+        callOrder.push('validateApiKeys');
+      }),
+      fetchStartupModels: jest.fn().mockImplementation(async () => {
+        callOrder.push('fetchStartupModels');
+      }),
+      writeModelsJson: jest.fn(),
+      validateRequestedModel: jest.fn(),
+      setKeyValidationComplete: jest.fn(),
+      setModelFetchComplete: jest.fn(),
+      closeLogStream: jest.fn().mockResolvedValue(undefined),
+      otelShutdown: jest.fn().mockImplementation(async () => {
+        callOrder.push('otelShutdown');
+      }),
+      logRequest: jest.fn(),
+      HTTPS_PROXY: 'http://proxy:3128',
+      routing,
+    });
+    return callOrder;
+  }
+
+  test('starts routing only after key validation and model discovery succeed', async () => {
+    const callOrder = [];
+    const routing = {
+      start: jest.fn().mockImplementation(async () => {
+        callOrder.push('routingStart');
+      }),
+      shutdown: jest.fn().mockResolvedValue(undefined),
+      completeShutdown: jest.fn(),
+    };
+
+    boot(routing, callOrder);
+    await new Promise((resolve) => setImmediate(resolve));
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(routing.start).toHaveBeenCalledTimes(1);
+    expect(callOrder.indexOf('validateApiKeys')).toBeLessThan(callOrder.indexOf('routingStart'));
+    expect(callOrder.indexOf('fetchStartupModels')).toBeLessThan(callOrder.indexOf('routingStart'));
+  });
+
+  test('drains routing before servers close and completes after telemetry shutdown', async () => {
+    const callOrder = [];
+    const routing = {
+      start: jest.fn().mockResolvedValue(undefined),
+      shutdown: jest.fn().mockImplementation(async () => {
+        callOrder.push('routingShutdown');
+      }),
+      completeShutdown: jest.fn().mockImplementation(() => {
+        callOrder.push('routingComplete');
+      }),
+    };
+
+    boot(routing, callOrder);
+    await handlers.SIGTERM();
+
+    expect(callOrder.indexOf('routingShutdown')).toBeLessThan(callOrder.indexOf('shutdownConnections'));
+    expect(callOrder.indexOf('otelShutdown')).toBeLessThan(callOrder.indexOf('routingComplete'));
+    expect(processExitSpy).toHaveBeenCalledWith(0);
+  });
+
+  test('exits 78 when the routing completion record cannot be published', async () => {
+    const routing = {
+      start: jest.fn().mockResolvedValue(undefined),
+      shutdown: jest.fn().mockResolvedValue(undefined),
+      completeShutdown: jest.fn().mockImplementation(() => {
+        throw new Error('publish failed');
+      }),
+    };
+
+    boot(routing);
+    await handlers.SIGTERM();
+
+    expect(processExitSpy).toHaveBeenCalledWith(78);
+    expect(processExitSpy).not.toHaveBeenCalledWith(0);
+  });
+});

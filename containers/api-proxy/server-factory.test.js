@@ -112,3 +112,98 @@ describe('createProviderServer', () => {
     expect(upstreamSocket.destroy).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('createProviderServer routing enforcement', () => {
+  function routedAdapter() {
+    return {
+      name: 'copilot',
+      isManagementPort: false,
+      isEnabled: () => true,
+      getTargetHost: () => 'api.githubcopilot.com',
+      getAuthHeaders: () => ({}),
+      getBasePath: () => '',
+      getBodyTransform: () => 'adapter-transform',
+    };
+  }
+
+  test('screens an inference request before revealing adapter configuration', () => {
+    const proxyRequest = jest.fn();
+    const routing = {
+      screenRequest: jest.fn(() => true),
+      rejectUpgrade: jest.fn(),
+    };
+    const adapter = routedAdapter();
+    adapter.isEnabled = () => false;
+    adapter.getUnconfiguredResponse = jest.fn();
+    const server = createProviderServer(adapter, {
+      handleManagementEndpoint: () => false,
+      reflectEndpoints: () => [],
+      checkRateLimit: () => false,
+      proxyRequest,
+      proxyWebSocket: jest.fn(),
+      routing,
+    });
+    const req = new EventEmitter();
+    req.url = '/v1/chat/completions';
+    req.method = 'POST';
+    req.headers = {};
+
+    server.emit('request', req, {});
+
+    expect(routing.screenRequest).toHaveBeenCalled();
+    expect(adapter.getUnconfiguredResponse).not.toHaveBeenCalled();
+    expect(proxyRequest).not.toHaveBeenCalled();
+  });
+
+  test('uses the enforcement body transform for an admitted routed request', () => {
+    const proxyRequest = jest.fn();
+    const bodyTransform = jest.fn();
+    const routing = {
+      screenRequest: jest.fn((req) => {
+        req.awfRouting = { bodyTransform };
+        return false;
+      }),
+      rejectUpgrade: jest.fn(),
+    };
+    const server = createProviderServer(routedAdapter(), {
+      handleManagementEndpoint: () => false,
+      reflectEndpoints: () => [],
+      checkRateLimit: () => false,
+      proxyRequest,
+      proxyWebSocket: jest.fn(),
+      routing,
+    });
+    const req = new EventEmitter();
+    req.url = '/v1/chat/completions';
+    req.method = 'POST';
+    req.headers = {};
+
+    server.emit('request', req, {});
+
+    expect(proxyRequest).toHaveBeenCalledWith(
+      req, {}, 'api.githubcopilot.com', {}, 'copilot', '', bodyTransform, null, 'https',
+    );
+  });
+
+  test('rejects an upgrade while routing is active', () => {
+    const proxyWebSocket = jest.fn();
+    const routing = {
+      screenRequest: jest.fn(() => false),
+      rejectUpgrade: jest.fn(),
+    };
+    const server = createProviderServer(routedAdapter(), {
+      handleManagementEndpoint: () => false,
+      reflectEndpoints: () => [],
+      checkRateLimit: () => false,
+      proxyRequest: jest.fn(),
+      proxyWebSocket,
+      routing,
+    });
+    const socket = makeTrackedSocket();
+
+    server.emit('upgrade', { url: '/v1/realtime', headers: {} }, socket, Buffer.alloc(0));
+
+    expect(routing.rejectUpgrade).toHaveBeenCalledWith(socket);
+    expect(proxyWebSocket).not.toHaveBeenCalled();
+  });
+});

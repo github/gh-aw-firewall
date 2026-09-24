@@ -41,6 +41,7 @@ const {
 } = require('./key-validation');
 const { createProviderServer: createProviderServerFactory } = require('./server-factory');
 const { bootPrimary } = require('./startup');
+const { createProductionRoutingSession } = require('./routing-runtime');
 
 const {
   proxyRequest,
@@ -130,6 +131,9 @@ const registeredAdapters = createAllAdapters(process.env, {
   copilotBodyTransform: makeModelBodyTransform('copilot'),
   geminiBodyTransform: makeModelBodyTransform('gemini'),
 });
+const routing = createProductionRoutingSession({
+  getCopilotAdapter: () => registeredAdapters.find(adapter => adapter.name === 'copilot'),
+});
 
 configureKeyValidation({
   getRegisteredAdapters: () => registeredAdapters,
@@ -195,6 +199,7 @@ function createProviderServer(adapter) {
     checkRateLimit,
     proxyRequest,
     proxyWebSocket,
+    routing,
   });
 }
 
@@ -212,6 +217,7 @@ if (require.main === module) {
     otelShutdown,
     logRequest,
     HTTPS_PROXY,
+    routing,
   });
 }
 
