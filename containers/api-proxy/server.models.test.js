@@ -701,4 +701,13 @@ describe('composeBodyTransforms', () => {
     const out = await composed(Buffer.from('hello'));
     expect(out.toString()).toBe('HELLO!');
   });
+
+  it('forwards request context to every composed transform', () => {
+    const req = { url: '/v1/alpha/search' };
+    const first = jest.fn(() => null);
+    const second = jest.fn(() => null);
+    composeBodyTransforms(first, second)(Buffer.from('hello'), req);
+    expect(first).toHaveBeenCalledWith(expect.any(Buffer), req);
+    expect(second).toHaveBeenCalledWith(expect.any(Buffer), req);
+  });
 });

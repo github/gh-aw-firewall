@@ -66,6 +66,15 @@ describe('Codex hosted-web policy', () => {
     });
   });
 
+  it('fails closed on unknown hosted tool and filter fields', () => {
+    expect(() => enforceResponses({
+      tools: [{ type: 'web_search', filters: { include_domains: ['evil.example'] } }],
+    }, allow)).toThrow(expect.objectContaining({ code: 'codex_hosted_web_filter_invalid' }));
+    expect(() => enforceResponses({
+      tools: [{ type: 'web_search', future_access: true }],
+    }, allow)).toThrow(expect.objectContaining({ code: 'codex_hosted_web_tool_unrecognized' }));
+  });
+
   it.each([
     [{ enabled: false, mode: null, domains: [] }, 'codex_hosted_web_disabled'],
     [allow, 'codex_hosted_web_empty_intersection'],
@@ -121,6 +130,10 @@ describe('Codex hosted-web policy', () => {
       commands: { future_fetch: [{}] },
     }, { ...allow, maxUses: undefined }))
       .toThrow(expect.objectContaining({ code: 'codex_hosted_web_command_unrecognized' }));
+    expect(() => enforceStandalone({
+      settings: { future_access: true },
+    }, { ...allow, maxUses: undefined }))
+      .toThrow(expect.objectContaining({ code: 'codex_hosted_web_shape_invalid' }));
   });
 
   it('rejects unsupported access modes and unsupported standalone maxUses', () => {
@@ -139,6 +152,13 @@ describe('Codex hosted-web policy', () => {
       { url: '/v1/alpha/search' },
     );
     expect(JSON.parse(transformed)).toEqual({
+      commands: {},
+      settings: { filters: { allowed_domains: ['docs.github.com'] } },
+    });
+    expect(JSON.parse(transform(
+      Buffer.from(JSON.stringify({ commands: {} })),
+      { url: '/v1/alpha/search/' },
+    ))).toEqual({
       commands: {},
       settings: { filters: { allowed_domains: ['docs.github.com'] } },
     });

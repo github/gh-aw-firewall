@@ -12,6 +12,23 @@ const WEB_SEARCH_CANDIDATE = /^web_search(?:_|$)/;
 const SEARCH_PATHS = new Set(['/v1/alpha/search', '/alpha/search']);
 const SEARCH_COMMANDS = new Set(['search_query', 'image_query', 'open', 'click', 'find', 'screenshot']);
 const URL_COMMANDS = new Set(['open', 'find', 'screenshot']);
+const FILTER_FIELDS = new Set(['allowed_domains', 'blocked_domains']);
+const TOOL_FIELDS = new Set([
+  'type', 'external_web_access', 'indexed_web_access', 'filters', 'user_location',
+  'search_context_size', 'search_content_types', 'image_settings', 'max_uses',
+]);
+const SETTINGS_FIELDS = new Set([
+  'user_location', 'search_context_size', 'filters', 'image_settings',
+  'allowed_callers', 'external_web_access',
+]);
+const COMMAND_FIELDS = {
+  search_query: new Set(['q', 'recency', 'domains']),
+  image_query: new Set(['q', 'recency', 'domains']),
+  open: new Set(['ref_id', 'lineno']),
+  click: new Set(['ref_id', 'id']),
+  find: new Set(['ref_id', 'pattern']),
+  screenshot: new Set(['ref_id', 'pageno']),
+};
 
 class CodexHostedWebPolicyError extends Error {
   constructor(code, message, statusCode = 403) {
@@ -28,6 +45,12 @@ function parseCodexHostedWebPolicy(raw) {
 
 function hasField(value, field) {
   return Object.prototype.hasOwnProperty.call(value, field) && value[field] !== undefined;
+}
+
+function rejectUnknownFields(value, allowed, code, description) {
+  if (Object.keys(value).some(field => !allowed.has(field))) {
+    throw new CodexHostedWebPolicyError(code, description, 400);
+  }
 }
 
 function readDomains(value, field) {
@@ -62,6 +85,12 @@ function resolveFilters(policy, filters) {
     );
   }
   const input = filters || {};
+  rejectUnknownFields(
+    input,
+    FILTER_FIELDS,
+    'codex_hosted_web_filter_invalid',
+    'Codex hosted web filters contain an unrecognized field.',
+  );
   const hasAllowed = hasField(input, 'allowed_domains');
   const hasBlocked = hasField(input, 'blocked_domains');
   const requestedAllowed = hasAllowed ? readDomains(input.allowed_domains, 'allowed_domains') : null;
@@ -136,6 +165,12 @@ function enforceResponses(body, policy) {
         400,
       );
     }
+    rejectUnknownFields(
+      tool,
+      TOOL_FIELDS,
+      'codex_hosted_web_tool_unrecognized',
+      'Codex hosted web tool contains an unrecognized field.',
+    );
     validateAccessMode(tool.external_web_access, 'external_web_access');
     validateAccessMode(tool.indexed_web_access, 'indexed_web_access');
     const result = { ...tool, filters: resolveFilters(policy, tool.filters) };
@@ -228,6 +263,12 @@ function enforceStandalone(body, policy) {
       400,
     );
   }
+  rejectUnknownFields(
+    settings,
+    SETTINGS_FIELDS,
+    'codex_hosted_web_shape_invalid',
+    'Codex standalone hosted search settings contain an unrecognized field.',
+  );
   validateAccessMode(settings.external_web_access, 'external_web_access', ['cached', 'indexed', 'live']);
   const filters = resolveFilters(policy, settings.filters);
   const commands = body.commands === undefined ? {} : body.commands;
@@ -255,6 +296,12 @@ function enforceStandalone(body, policy) {
           400,
         );
       }
+      rejectUnknownFields(
+        entry,
+        COMMAND_FIELDS[name],
+        'codex_hosted_web_command_unrecognized',
+        'Codex standalone hosted search contains an unrecognized command field.',
+      );
       if (name === 'search_query' || name === 'image_query') return narrowQueryDomains(entry, filters);
       if (URL_COMMANDS.has(name)) checkLiteralUrl(entry.ref_id, filters);
       return entry;
@@ -272,7 +319,7 @@ function makeCodexHostedWebTransform(policy) {
   return (bodyBuffer, req) => {
     let pathname = '';
     try {
-      pathname = new URL(req?.url || '/', 'http://localhost').pathname;
+      pathname = new URL(req?.url || '/', 'http://localhost').pathname.replace(/\/+$/, '') || '/';
     } catch {}
     const standalone = SEARCH_PATHS.has(pathname);
     let body;
