@@ -44,4 +44,10 @@ export interface CliProxyOptions {
    * @default undefined
    */
   githubToken?: string;
+
+  /** Maximum GitHub REST API secondary-rate-limit points allowed per AWF run. */
+  maxGithubApiPointsRest?: number;
+
+  /** Maximum GitHub GraphQL API secondary-rate-limit points allowed per AWF run. */
+  maxGithubApiPointsGraphql?: number;
 }

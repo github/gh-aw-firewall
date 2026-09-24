@@ -564,14 +564,19 @@ describe('mapAwfFileConfigToCliOptions', () => {
     expect(result.authAnthropicWorkspaceId).toBe('ws-uuid');
   });
 
-  it('maps rateLimiting fields including rph and bytesPm', () => {
+  it('maps rateLimiting fields including GitHub API point budgets', () => {
     const result = mapAwfFileConfigToCliOptions({
-      rateLimiting: { enabled: true, requestsPerHour: 3600, bytesPerMinute: 1048576 },
+      rateLimiting: {
+        enabled: true, requestsPerHour: 3600, bytesPerMinute: 1048576,
+        maxGithubApiPointsRest: 2000, maxGithubApiPointsGraphql: 1500,
+      },
     });
 
     expect(result.rateLimit).toBeUndefined(); // enabled: true → no negated flag
     expect(result.rateLimitRph).toBe('3600');
     expect(result.rateLimitBytesPm).toBe('1048576');
+    expect(result.maxGithubApiPointsRest).toBe(2000);
+    expect(result.maxGithubApiPointsGraphql).toBe(1500);
   });
 
   it('returns undefined for empty allowDomains array', () => {

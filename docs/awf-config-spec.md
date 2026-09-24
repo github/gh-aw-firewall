@@ -362,6 +362,18 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 - `rateLimiting.requestsPerMinute` → `--rate-limit-rpm`
 - `rateLimiting.requestsPerHour` → `--rate-limit-rph`
 - `rateLimiting.bytesPerMinute` → `--rate-limit-bytes-pm`
+- `rateLimiting.maxGithubApiPointsRest` → `--max-github-api-points-rest` *(requires `security.difcProxy.host`)*
+- `rateLimiting.maxGithubApiPointsGraphql` → `--max-github-api-points-graphql` *(requires `security.difcProxy.host`)*
+
+GitHub API point budgets apply to the entire AWF run and are enforced only by
+the protected `gh` CLI proxy enabled through `security.difcProxy.host`. REST
+read requests consume one point, REST mutations consume five points, and
+GraphQL requests consume one point, matching GitHub's secondary-rate-limit
+point accounting. A command that would exceed its REST or GraphQL budget is
+rejected before it is executed; the CLI proxy writes a
+`github_api_points_limited` structured audit record with the API kind, used
+points, configured limit, and remaining budget.
+
 - *(no config equivalent)* → `--reflect` *(CLI-only; starts AWF, queries the API proxy `/reflect` endpoint, and prints its JSON response instead of running a command; mutually exclusive with a command argument)*
 - `platform.type` → *(config-only; maps to `AWF_PLATFORM_TYPE`)*
 - `runner.topology` → *(config-only; sets runner deployment model — `standard` or `arc-dind`; when `arc-dind`, enables sysroot staging and emits RUNNER_TOOL_CACHE warnings)*

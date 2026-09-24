@@ -93,6 +93,19 @@ describe('CLI proxy sidecar (external DIFC proxy)', () => {
         expect(env.AWF_DIFC_PROXY_PORT).toBe('18443');
       });
 
+      it('should pass configured GitHub API point budgets only to cli-proxy', () => {
+        const configWithLimits = {
+          ...mockConfig,
+          difcProxyHost: 'host.docker.internal:18443',
+          maxGithubApiPointsRest: 2000,
+          maxGithubApiPointsGraphql: 1500,
+        };
+        const result = generateDockerCompose(configWithLimits, mockNetworkConfigWithCliProxy);
+        const env = result.services['cli-proxy'].environment as Record<string, string>;
+        expect(env.AWF_MAX_GITHUB_API_POINTS_REST).toBe('2000');
+        expect(env.AWF_MAX_GITHUB_API_POINTS_GRAPHQL).toBe('1500');
+      });
+
       it('should route cli-proxy through a credential-free relay for an external topology target', () => {
         const originalGhToken = process.env.GH_TOKEN;
         try {

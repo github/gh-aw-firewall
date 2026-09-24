@@ -19,6 +19,7 @@
 
 const http = require('http');
 const { accessLog } = require('./access-log');
+const { createFromEnv } = require('./github-api-point-limiter');
 const { COMMAND_TIMEOUT_MS, runGhCommand, terminateActiveCommands } = require('./gh-runner');
 const {
   validateArgs,
@@ -29,6 +30,8 @@ const {
   capabilityAuditContext,
   summarizeEnclaveArgs,
 } = require('./security');
+
+const pointLimiter = createFromEnv();
 
 const CLI_PROXY_PORT = parseInt(process.env.AWF_CLI_PROXY_PORT || '11000', 10);
 
@@ -164,6 +167,11 @@ async function handleExec(req, res) {
   const commandAudit = enclaveMode
     ? { ...capabilityAuditContext(capability), ...summarizeEnclaveArgs(args) }
     : { args };
+  const pointLimit = pointLimiter.check(args);
+  if (!pointLimit.allowed) {
+    accessLog({ event: 'github_api_points_limited', ...commandAudit, ...pointLimit });
+    return sendError(res, 429, `GitHub ${pointLimit.kind} API point limit exceeded`);
+  }
   accessLog({ event: 'exec_start', ...commandAudit, cwd: enclaveMode ? null : (cwd || null) });
 
   const childEnv = buildExecEnv(extraEnv, capability);

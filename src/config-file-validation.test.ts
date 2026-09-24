@@ -591,9 +591,20 @@ describe('validateAwfFileConfig', () => {
     expect(errors).toContain('config.rateLimiting.bytesPerMinute must be a positive integer');
   });
 
+  it('rejects non-positive GitHub API point budgets', () => {
+    const errors = validateAwfFileConfig({
+      rateLimiting: { maxGithubApiPointsRest: 0, maxGithubApiPointsGraphql: -1 },
+    });
+    expect(errors).toContain('config.rateLimiting.maxGithubApiPointsRest must be a positive integer');
+    expect(errors).toContain('config.rateLimiting.maxGithubApiPointsGraphql must be a positive integer');
+  });
+
   it('accepts valid rateLimiting values', () => {
     const errors = validateAwfFileConfig({
-      rateLimiting: { enabled: true, requestsPerMinute: 60, requestsPerHour: 3600, bytesPerMinute: 1048576 },
+      rateLimiting: {
+        enabled: true, requestsPerMinute: 60, requestsPerHour: 3600, bytesPerMinute: 1048576,
+        maxGithubApiPointsRest: 2000, maxGithubApiPointsGraphql: 2000,
+      },
     });
     expect(errors).toEqual([]);
   });

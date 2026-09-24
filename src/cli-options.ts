@@ -519,6 +519,16 @@ program
     'Path to TLS CA cert written by the external DIFC proxy.\n' +
     '                                       Recommended when --difc-proxy-host is set for TLS verification.',
   )
+  .option(
+    '--max-github-api-points-rest <points>',
+    'Maximum GitHub REST API secondary-rate-limit points allowed per AWF run.\n' +
+    '                                       Requires --difc-proxy-host. Must be a positive integer.',
+  )
+  .option(
+    '--max-github-api-points-graphql <points>',
+    'Maximum GitHub GraphQL API secondary-rate-limit points allowed per AWF run.\n' +
+    '                                       Requires --difc-proxy-host. Must be a positive integer.',
+  )
   // -- Logging & Debug --
   .option(
     '--log-level <level>',

@@ -171,6 +171,12 @@ export function buildCliProxyService(params: CliProxyServiceParams): CliProxyBui
       // host provides write-control via its guard policy.
       ...(process.env.GH_TOKEN && { GH_TOKEN: process.env.GH_TOKEN }),
       ...(process.env.GITHUB_TOKEN && !process.env.GH_TOKEN && { GH_TOKEN: process.env.GITHUB_TOKEN }),
+      ...(config.maxGithubApiPointsRest !== undefined && {
+        AWF_MAX_GITHUB_API_POINTS_REST: String(config.maxGithubApiPointsRest),
+      }),
+      ...(config.maxGithubApiPointsGraphql !== undefined && {
+        AWF_MAX_GITHUB_API_POINTS_GRAPHQL: String(config.maxGithubApiPointsGraphql),
+      }),
       // Prevent curl/node from routing localhost or host.docker.internal through Squid
       ...buildNoProxyEnv(['host.docker.internal']),
     },

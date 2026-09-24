@@ -74,7 +74,7 @@ COPY package*.json ./
 RUN npm ci --omit=dev
 
 # Copy application files
-COPY server.js security.js gh-runner.js access-log.js tcp-tunnel.js ./
+COPY server.js security.js gh-runner.js access-log.js tcp-tunnel.js github-api-point-limiter.js ./
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY healthcheck.sh /usr/local/bin/healthcheck.sh
 

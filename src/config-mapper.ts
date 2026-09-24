@@ -180,6 +180,8 @@ export function mapAwfFileConfigToCliOptions(config: AwfFileConfig): Record<stri
     rateLimitRpm: toStringIfDefined(config.rateLimiting?.requestsPerMinute),
     rateLimitRph: toStringIfDefined(config.rateLimiting?.requestsPerHour),
     rateLimitBytesPm: toStringIfDefined(config.rateLimiting?.bytesPerMinute),
+    maxGithubApiPointsRest: config.rateLimiting?.maxGithubApiPointsRest,
+    maxGithubApiPointsGraphql: config.rateLimiting?.maxGithubApiPointsGraphql,
 
     platformType: config.platform?.type,
 
