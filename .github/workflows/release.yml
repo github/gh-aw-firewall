@@ -862,9 +862,9 @@ jobs:
         run: |
           cp nvx-release-assets/nvx-test-x86_64.tar.gz \
             release/nvx-test-x86_64.tar.gz
-          cp nvx-release-assets/manifest.json \
+          cp nvx-release-assets/nvx-test-x86_64/manifest.json \
             release/nvx-test-x86_64.manifest.json
-          cp nvx-release-assets/manifest.sigstore.jsonl \
+          cp nvx-release-assets/nvx-test-x86_64/manifest.sigstore.jsonl \
             release/nvx-test-x86_64.manifest.sigstore.jsonl
 
       - name: Generate containers list
