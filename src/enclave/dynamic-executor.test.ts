@@ -91,7 +91,14 @@ const dynamicExecutorConfig = {
   maxOutputBytes: 8192,
 };
 
-function buildDynamicExecutorConfig(overrides: Record<string, unknown> = {}) {
+type DynamicExecutorConfigOverrides = Partial<typeof dynamicExecutorConfig> & {
+  backend?: string;
+  dynamicReadMode?: string;
+  dynamicRepository?: string;
+  githubGatewayContainer?: string;
+};
+
+function buildDynamicExecutorConfig(overrides: DynamicExecutorConfigOverrides = {}) {
   return {
     ...structuredClone(dynamicExecutorConfig),
     ...overrides,
