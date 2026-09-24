@@ -16,6 +16,12 @@ describe('GitHubApiPointLimiter', () => {
 
   it('does not charge non-api gh commands', () => {
     expect(getApiInvocation(['pr', 'list'])).toBeNull();
+    expect(getApiInvocation(['pr', 'list', '--search', 'api'])).toBeNull();
+    expect(getApiInvocation(['--repo', 'octo/repo', 'api', 'graphql'])).toEqual({
+      kind: 'graphql',
+      points: 1,
+    });
+    expect(getApiInvocation(['api', '--method'])).toBeNull();
   });
 
   it('enforces independent REST and GraphQL budgets', () => {

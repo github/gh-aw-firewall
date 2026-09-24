@@ -9,10 +9,21 @@ function parseLimit(value) {
 }
 
 function getApiInvocation(args) {
-  const apiIndex = args.indexOf('api');
+  let apiIndex = -1;
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (!arg.startsWith('-')) {
+      if (arg === 'api') apiIndex = index;
+      break;
+    }
+    if (!arg.includes('=') && index + 1 < args.length && !args[index + 1].startsWith('-')) {
+      index += 1;
+    }
+  }
   if (apiIndex === -1) return null;
   let endpoint = null;
   let method = null;
+  let invalidMethod = false;
   let hasField = false;
   const valueFlags = new Set(['--method', '-X', '--hostname', '-H', '--header', '-f', '-F', '--raw-field', '--field', '--input']);
   for (let index = apiIndex + 1; index < args.length; index += 1) {
@@ -26,14 +37,17 @@ function getApiInvocation(args) {
       continue;
     }
     if (valueFlags.has(arg)) {
-      if (arg === '--method' || arg === '-X') method = (args[index + 1] || '').toUpperCase();
+      if (arg === '--method' || arg === '-X') {
+        if (!args[index + 1] || args[index + 1].startsWith('-')) invalidMethod = true;
+        else method = args[index + 1].toUpperCase();
+      }
       if (arg === '--field' || arg === '--raw-field' || arg === '-f' || arg === '-F') hasField = true;
       index += 1;
       continue;
     }
     if (!arg.startsWith('-') && endpoint === null) endpoint = arg;
   }
-  if (!endpoint) return null;
+  if (!endpoint || invalidMethod) return null;
   if (endpoint === 'graphql') return { kind: 'graphql', points: READ_POINTS };
 
   method ||= hasField ? 'POST' : 'GET';
