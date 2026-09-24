@@ -11,7 +11,11 @@ import * as path from 'path';
  * guest-absolute path and becomes writable through the overlay upper layer.
  */
 export const NVX_GUEST_WORKSPACE = '/workspace';
-export const NVX_GUEST_HOME = `${NVX_GUEST_WORKSPACE}/.awf-home`;
+/**
+ * Guest `$HOME`. Deliberately outside the workspace export so AWF-owned home
+ * state is never staged into, or copied back out of, the user's repository.
+ */
+export const NVX_GUEST_HOME = '/home/awf';
 /** Guest path of the AWF-generated per-run entrypoint script. */
 export const NVX_GUEST_RUN_SCRIPT = '/etc/awf/nvx-run.sh';
 /**
@@ -103,13 +107,13 @@ export async function resolveNvxExports(
  * from {@link resolveNvxExports} so callers that assemble exports themselves
  * (tests, future workload profiles) are held to the same invariants.
  */
-export function validateNvxExports(exports: readonly NvxDirectoryExport[]): void {
-  if (exports.length === 0 || exports.length > MAX_EXPORTS) {
+export function validateNvxExports(entries: readonly NvxDirectoryExport[]): void {
+  if (entries.length === 0 || entries.length > MAX_EXPORTS) {
     throw new Error(
-      `NVX requires between 1 and ${MAX_EXPORTS} guest exports; received ${exports.length}`,
+      `NVX requires between 1 and ${MAX_EXPORTS} guest exports; received ${entries.length}`,
     );
   }
-  const workspace = exports.find((entry) => entry.tag === NVX_WORKSPACE_EXPORT_TAG);
+  const workspace = entries.find((entry) => entry.tag === NVX_WORKSPACE_EXPORT_TAG);
   if (!workspace) {
     throw new Error('NVX guest exports must include a "workspace" export');
   }
@@ -119,7 +123,7 @@ export function validateNvxExports(exports: readonly NvxDirectoryExport[]): void
     );
   }
   const tags = new Set<string>();
-  for (const entry of exports) {
+  for (const entry of entries) {
     if (!SAFE_TAG.test(entry.tag)) {
       throw new Error(`Unsafe NVX export tag: ${entry.tag}`);
     }
@@ -142,8 +146,8 @@ export function validateNvxExports(exports: readonly NvxDirectoryExport[]): void
       );
     }
   }
-  for (const outer of exports) {
-    for (const inner of exports) {
+  for (const outer of entries) {
+    for (const inner of entries) {
       if (outer === inner) continue;
       if (isWithin(inner.target, outer.target)) {
         throw new Error(
@@ -160,7 +164,7 @@ export function validateNvxExports(exports: readonly NvxDirectoryExport[]): void
 }
 
 function isReservedGuestTarget(target: string): boolean {
-  const reserved = [path.dirname(NVX_GUEST_RUN_SCRIPT), NVX_GUEST_RUN_SCRIPT];
+  const reserved = [path.dirname(NVX_GUEST_RUN_SCRIPT), NVX_GUEST_RUN_SCRIPT, NVX_GUEST_HOME];
   return reserved.some((entry) => entry === target || isWithin(entry, target));
 }
 

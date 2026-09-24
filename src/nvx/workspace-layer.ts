@@ -28,6 +28,13 @@ export interface NvxWorkspaceLayerDependencies {
     tool: NvxWorkspaceTool,
     args: readonly string[],
   ): Promise<{ readonly exitCode: number; readonly stderr: string }>;
+  /**
+   * Ownership hooks. AWF always runs the NVX backend as root, so the defaults
+   * are the real `chown`/`lchown`; they are injectable so the staging policy
+   * can be unit-tested as an unprivileged user.
+   */
+  readonly chown?: (target: string, uid: number, gid: number) => Promise<void>;
+  readonly lchown?: (target: string, uid: number, gid: number) => Promise<void>;
 }
 
 export interface NvxWorkspaceLayerConfig {
@@ -74,6 +81,8 @@ export class NvxWorkspaceLayer {
   private readonly extractionDirectory: string;
   private originalState: Map<string, string> | undefined;
   private staged = false;
+  private readonly chown: (target: string, uid: number, gid: number) => Promise<void>;
+  private readonly lchown: (target: string, uid: number, gid: number) => Promise<void>;
 
   constructor(
     private readonly config: NvxWorkspaceLayerConfig,
@@ -81,6 +90,8 @@ export class NvxWorkspaceLayer {
   ) {
     this.layerSourcePath = path.join(config.stagingRoot, 'custom-layer');
     this.extractionDirectory = path.join(config.stagingRoot, 'extracted');
+    this.chown = dependencies.chown ?? ((target, uid, gid) => fs.chown(target, uid, gid));
+    this.lchown = dependencies.lchown ?? ((target, uid, gid) => fs.lchown(target, uid, gid));
   }
 
   /** Builds the custom-layer source tree. Returns its host path. */
@@ -135,6 +146,9 @@ export class NvxWorkspaceLayer {
   }
 
   async cleanup(): Promise<void> {
+    // Read-only staged subtrees have their write bits cleared, so restore them
+    // before removing the staging root.
+    await restoreWritable(this.config.stagingRoot);
     await fs.rm(this.config.stagingRoot, { recursive: true, force: true });
   }
 
@@ -163,13 +177,15 @@ export class NvxWorkspaceLayer {
       gid: this.config.gid,
       ownership: exportPlan.stagedOwnership,
       writableRelativePaths,
+      chown: this.chown,
+      lchown: this.lchown,
     });
   }
 
   private async stageGuestHome(): Promise<void> {
     const guestHome = path.join(this.layerSourcePath, NVX_GUEST_HOME.slice(1));
     await fs.mkdir(guestHome, { recursive: true, mode: 0o700 });
-    await fs.chown(guestHome, this.config.uid, this.config.gid);
+    await this.chown(guestHome, this.config.uid, this.config.gid);
     if (!this.config.homePath) return;
     const excluded = CREDENTIAL_ENTRIES.map((entry) => normalizeRelative(entry.path));
     for (const toolPath of HOME_TOOL_PATHS) {
@@ -194,6 +210,8 @@ export class NvxWorkspaceLayer {
         gid: this.config.gid,
         ownership: 'workload',
         writableRelativePaths: new Set(),
+        chown: this.chown,
+        lchown: this.lchown,
       });
     }
     // Re-assert ownership of the intermediate directories created above.
@@ -203,6 +221,8 @@ export class NvxWorkspaceLayer {
       ownership: 'workload',
       writableRelativePaths: new Set(),
       directoriesOnly: true,
+      chown: this.chown,
+      lchown: this.lchown,
     });
   }
 
@@ -212,9 +232,9 @@ export class NvxWorkspaceLayer {
     await fs.writeFile(scriptPath, this.config.runScript, { mode: 0o555 });
     // Root-owned and non-writable so the workload cannot rewrite the script
     // that established its own environment.
-    await fs.chown(scriptPath, 0, 0);
+    await this.chown(scriptPath, 0, 0);
     await fs.chmod(scriptPath, 0o555);
-    await fs.chown(path.dirname(scriptPath), 0, 0);
+    await this.chown(path.dirname(scriptPath), 0, 0);
     await fs.chmod(path.dirname(scriptPath), 0o555);
   }
 
@@ -308,7 +328,16 @@ export class NvxWorkspaceLayer {
   }
 }
 
-/** Tag of the export whose contents back the guest working directory. */
+async function restoreWritable(root: string): Promise<void> {
+  try {
+    await walkSafeTree(root, root, async (absolute, _relative, stat) => {
+      if (stat.isSymbolicLink()) return;
+      await fs.chmod(absolute, (stat.mode & 0o7777) | 0o700).catch(() => undefined);
+    });
+  } catch {
+    // Best effort: a missing or unreadable staging root is removed below.
+  }
+}
 
 function isOverlayWhiteout(stat: Stats): boolean {
   return stat.isCharacterDevice() && stat.rdev === 0;
@@ -326,6 +355,8 @@ interface StagedOwnershipOptions {
   readonly ownership: 'workload' | 'root';
   readonly writableRelativePaths: ReadonlySet<string>;
   readonly directoriesOnly?: boolean;
+  readonly chown: (target: string, uid: number, gid: number) => Promise<void>;
+  readonly lchown: (target: string, uid: number, gid: number) => Promise<void>;
 }
 
 /**
@@ -349,10 +380,10 @@ async function applyStagedOwnership(
     );
     if (options.directoriesOnly && !stat.isDirectory()) return;
     if (stat.isSymbolicLink()) {
-      await fs.lchown(absolute, writable ? options.uid : 0, writable ? options.gid : 0);
+      await options.lchown(absolute, writable ? options.uid : 0, writable ? options.gid : 0);
       return;
     }
-    await fs.chown(absolute, writable ? options.uid : 0, writable ? options.gid : 0);
+    await options.chown(absolute, writable ? options.uid : 0, writable ? options.gid : 0);
     const mode = stat.mode & 0o7777;
     await fs.chmod(absolute, writable ? mode | 0o600 : mode & ~0o222);
   });

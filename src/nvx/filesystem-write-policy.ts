@@ -87,7 +87,7 @@ export interface NvxFilesystemWritePolicyOptions {
  * staging, launching, or other side effects.
  */
 export async function planNvxFilesystemWrites(
-  exports: readonly NvxDirectoryExport[],
+  entries: readonly NvxDirectoryExport[],
   allowWrite: readonly string[] | undefined,
   options: NvxFilesystemWritePolicyOptions = {},
 ): Promise<NvxFilesystemWritePlan> {
@@ -96,7 +96,7 @@ export async function planNvxFilesystemWrites(
     return {
       restricted: false,
       allowedPaths: [],
-      exports: exports.map((entry) => ({
+      exports: entries.map((entry) => ({
         export: entry,
         disposition: 'unrestricted',
         stagedOwnership: stagedOwnershipFor(entry.mode),
@@ -113,7 +113,7 @@ export async function planNvxFilesystemWrites(
   const unmatched: string[] = [];
 
   for (const allowed of allowedPaths) {
-    const owner = deepestWritableExport(exports, allowed);
+    const owner = deepestWritableExport(entries, allowed);
     if (!owner) {
       unmatched.push(allowed);
       continue;
@@ -166,7 +166,7 @@ export async function planNvxFilesystemWrites(
     );
   }
 
-  const exportPlans = exports.map((entry): NvxExportWritePlan => {
+  const exportPlans = entries.map((entry): NvxExportWritePlan => {
     if (entry.mode === 'ro') {
       return {
         export: entry,
@@ -249,11 +249,11 @@ function stagedOwnershipFor(mode: NvxExportMode): 'workload' | 'root' {
 }
 
 function deepestWritableExport(
-  exports: readonly NvxDirectoryExport[],
+  entries: readonly NvxDirectoryExport[],
   guestPath: string,
 ): NvxDirectoryExport | undefined {
   let match: NvxDirectoryExport | undefined;
-  for (const entry of exports) {
+  for (const entry of entries) {
     if (entry.mode !== 'rw') continue;
     if (!isWithin(guestPath, entry.target)) continue;
     if (!match || entry.target.length > match.target.length) match = entry;
@@ -269,10 +269,10 @@ function normalizeAllowedPaths(allowWrite: readonly string[]): string[] {
     if (!path.posix.isAbsolute(trimmed)) {
       throw new Error(`filesystem.allowWrite entries must be absolute: ${entry}`);
     }
-    const candidate = path.posix.normalize(trimmed).replace(/\/+$/, '') || '/';
-    if (candidate.includes('..')) {
+    if (trimmed.split('/').includes('..')) {
       throw new Error(`filesystem.allowWrite entries must not traverse upwards: ${entry}`);
     }
+    const candidate = path.posix.normalize(trimmed).replace(/\/+$/, '') || '/';
     if (!normalized.includes(candidate)) normalized.push(candidate);
   }
   return normalized

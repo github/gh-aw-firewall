@@ -24,7 +24,7 @@ export function buildNvxGuestEnvironment(
     'squidIp' | 'apiProxyIp' | 'topologyPeerIps'
   >,
   guestIp: string,
-  exports: readonly NvxDirectoryExport[] = [],
+  entries: readonly NvxDirectoryExport[] = [],
   environment: NodeJS.ProcessEnv = process.env,
 ): Record<string, string> {
   const guestEnvironment = buildGuestEnvironment({
@@ -52,7 +52,7 @@ export function buildNvxGuestEnvironment(
   for (const name of ['RUNNER_TOOL_CACHE', 'AGENT_TOOLSDIRECTORY', 'RUNNER_TEMP'] as const) {
     delete guestEnvironment[name];
   }
-  const toolCache = exports.find((entry) => entry.tag === 'runner-tool-cache');
+  const toolCache = entries.find((entry) => entry.tag === 'runner-tool-cache');
   if (toolCache) {
     if (environment.RUNNER_TOOL_CACHE) guestEnvironment.RUNNER_TOOL_CACHE = toolCache.target;
     else guestEnvironment.AGENT_TOOLSDIRECTORY = toolCache.target;
