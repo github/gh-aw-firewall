@@ -234,7 +234,9 @@ When `AWF_AUTH_TYPE=github-oidc` with Copilot:
 | AWS | SigV4 `Authorization` plus `x-amz-*` signing headers | Via `aws-oidc-token-provider.js` and `aws-sigv4.js` |
 
 :::caution[Agent routing is credential-triggered]
-Cloud OIDC configuration can initialize credentials in the sidecar, but the agent's OpenAI and Copilot base URLs/placeholders are currently configured only when the corresponding static OpenAI/Copilot credential is present. Anthropic WIF is the exception: its credential environment explicitly recognizes Anthropic OIDC. Treat Azure, GCP, and AWS OIDC support as sidecar authentication capability rather than a complete keyless agent-routing path until OIDC-aware agent routing is implemented.
+Cloud OIDC configuration can initialize credentials in the sidecar, but the agent's OpenAI and Copilot base URLs/placeholders are currently configured only when the corresponding static OpenAI/Copilot credential is present. Treat Azure and AWS OIDC support for OpenAI/Copilot as sidecar authentication capability rather than a complete keyless agent-routing path until OIDC-aware agent routing is implemented for those two providers.
+
+Three providers are exceptions with explicit OIDC-aware agent routing: Anthropic WIF (`shouldProxyAnthropic()` recognizes `AWF_AUTH_PROVIDER=anthropic`), and GCP WIF for the Gemini and Vertex AI adapters (`isGcpOidcConfigured()` in `gemini-credential-env.ts`/`vertex-credential-env.ts`, added in [PR #8888](https://github.com/github/gh-aw-firewall/pull/8888)) — all three set agent base-URL/placeholder env vars from OIDC config alone, without a static key. GCP OIDC routing for **Copilot** specifically remains credential-triggered only; `buildCopilotCredentialEnv()` does not check `isGcpOidcConfigured()`.
 :::
 
 :::note[AWS OIDC + Copilot]
