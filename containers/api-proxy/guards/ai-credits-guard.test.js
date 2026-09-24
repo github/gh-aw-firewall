@@ -133,6 +133,28 @@ describe('ai-credits-guard', () => {
     expect(checkUnknownModelRejection('gpt-6-astra')).toBeNull();
   });
 
+  it.each(['gpt-6-luna', 'gpt-6-sol'])(
+    'resolves %s from conservative curated pricing without unknown-model rejection',
+    model => {
+      process.env.AWF_MAX_AI_CREDITS = '10';
+      resetAiCreditsGuardForTests();
+
+      const usage = applyAiCreditsUsage({
+        input_tokens: 2000,
+        cache_read_tokens: 1000,
+        output_tokens: 100,
+      }, model);
+
+      expect(usage.aiCreditsThisResponse).toBeCloseTo(1.6, 10);
+      expect(getAiCreditsReflectState().by_model[model]).toMatchObject({
+        pricing_source: 'curated',
+        pricing_tier: 'default',
+        fallback_pricing_used: false,
+      });
+      expect(checkUnknownModelRejection(model, PROVIDER_COPILOT)).toBeNull();
+    },
+  );
+
   it('does not double-count cached tokens when input_tokens is total-inclusive (OpenAI-style)', () => {
     // OpenAI (Chat Completions and Responses API) reports prompt_tokens/input_tokens
     // as the TOTAL input, with cached tokens being a subset. When no provider is

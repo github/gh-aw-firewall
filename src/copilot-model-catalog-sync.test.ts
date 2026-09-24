@@ -69,10 +69,6 @@ const SUPPORTED_WITHOUT_CURATED_PRICING = new Set([
   'gpt-4o',
   'gpt-4o-mini',
   'gpt-5-1',
-  // GPT-6 families are routed by the static model API mapping while provider
-  // pricing has not yet been added to the local AI-credits catalog.
-  'gpt-6-luna',
-  'gpt-6-sol',
   'o3',
   'o3-mini',
   'gemini-3-1-pro-preview',
