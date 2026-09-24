@@ -9,36 +9,15 @@ import { buildSupervisorBootArgs } from './manager';
 import { createScriptEnclaveCloudHypervisorProfile } from './workload-profile';
 
 import {
-  hostTools, virtiofsdManagerMock, config, processMock, networkConfig, guestConfig, dependencies,
+  hostTools, virtiofsdManagerMock, config, processMock, networkConfig, guestConfig,
+  createTestNetworkPlan, dependencies,
 } from './manager.test-utils';
 
   describe('launch and boot', () => {
   it('builds explicit supervisor boot cmdline with PCI-required root/interface naming', () => {
-    const args = buildSupervisorBootArgs({
-      runId: 'run',
-      resourceToken: '000000000000',
-      namespaceName: 'ns',
-      netnsPath: '/var/run/netns/ns',
-      nftTableName: 'table',
-      hostForwardRuleComment: 'awf:awf_vm_0123456789ab',
-      infrastructureBridge: 'awfbr0',
-      hostVethName: 'host',
-      namespaceVethName: 'namespace',
-      tapName: 'tap',
-      infrastructureIp: '172.30.0.20',
-      infrastructureCidr: '172.30.0.0/24',
-      hostGatewayIp: '172.30.0.1',
-      guestSubnet: '100.64.0.0/30',
-      guestIp: '100.64.0.2',
-      guestGatewayIp: '100.64.0.1',
-      guestPrefixLength: 30,
-      guestMac: '02:00:00:00:00:01',
-      tapOwnerUid: 1000,
-      tapOwnerGid: 1000,
-      tapVnetHdr: true,
-      allowedEndpoints: [],
+    const args = buildSupervisorBootArgs(createTestNetworkPlan({
       networkInterface: { iface_id: 'eth0', host_dev_name: 'tap' },
-    }, guestConfig());
+    }), guestConfig());
     expect(args).toContain('root=/dev/vda');
     expect(args).toContain('panic=0');
     expect(args).not.toContain('panic=1');

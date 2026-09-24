@@ -2,33 +2,10 @@ import type { MicrovmNetworkPlan } from '../microvm/network';
 import { createCloudHypervisorRunPaths } from './manager-types';
 import { buildCloudHypervisorVmConfig } from './vm-config-builder';
 import { createCloudHypervisorOptions as config } from './test-fixtures.test-utils';
+import { createTestNetworkPlan } from './manager.test-utils';
 
 function networkPlan(): MicrovmNetworkPlan {
-  return {
-    runId: 'run',
-    resourceToken: '000000000000',
-    namespaceName: 'ns',
-    netnsPath: '/var/run/netns/ns',
-    nftTableName: 'table',
-    hostForwardRuleComment: 'awf:awf_vm_0123456789ab',
-    infrastructureBridge: 'awfbr0',
-    hostVethName: 'host',
-    namespaceVethName: 'namespace',
-    tapName: 'tap',
-    infrastructureIp: '172.30.0.20',
-    infrastructureCidr: '172.30.0.0/24',
-    hostGatewayIp: '172.30.0.1',
-    guestSubnet: '100.64.0.0/30',
-    guestIp: '100.64.0.2',
-    guestGatewayIp: '100.64.0.1',
-    guestPrefixLength: 30,
-    guestMac: '02:00:00:00:00:01',
-    tapOwnerUid: 1000,
-    tapOwnerGid: 1000,
-    tapVnetHdr: true,
-    allowedEndpoints: [],
-    networkInterface: { iface_id: 'eth0', host_dev_name: 'tap', guest_mac: '02:00:00:00:00:01' },
-  };
+  return createTestNetworkPlan();
 }
 
 describe('buildCloudHypervisorVmConfig', () => {

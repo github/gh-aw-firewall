@@ -84,6 +84,37 @@ function guestConfig() {
   };
 }
 
+function createTestNetworkPlan(
+  overrides: Partial<MicrovmNetworkPlan> = {},
+): MicrovmNetworkPlan {
+  return {
+    runId: 'run',
+    resourceToken: '000000000000',
+    namespaceName: 'ns',
+    netnsPath: '/var/run/netns/ns',
+    nftTableName: 'table',
+    hostForwardRuleComment: 'awf:awf_vm_0123456789ab',
+    infrastructureBridge: 'awfbr0',
+    hostVethName: 'host',
+    namespaceVethName: 'namespace',
+    tapName: 'tap',
+    infrastructureIp: '172.30.0.20',
+    infrastructureCidr: '172.30.0.0/24',
+    hostGatewayIp: '172.30.0.1',
+    guestSubnet: '100.64.0.0/30',
+    guestIp: '100.64.0.2',
+    guestGatewayIp: '100.64.0.1',
+    guestPrefixLength: 30,
+    guestMac: '02:00:00:00:00:01',
+    tapOwnerUid: 1000,
+    tapOwnerGid: 1000,
+    tapVnetHdr: true,
+    allowedEndpoints: [],
+    networkInterface: { iface_id: 'eth0', host_dev_name: 'tap', guest_mac: '02:00:00:00:00:01' },
+    ...overrides,
+  };
+}
+
 function networkLifecycle(plan: MicrovmNetworkPlan): MicrovmNetworkLifecycle {
   return {
     plan,
@@ -224,4 +255,4 @@ function dependencies(
 }
 
 
-export { hostTools, exportsConfig, rootfsPreparerMock, virtiofsdManagerMock, config, processMock, networkConfig, guestConfig, networkLifecycle, cgroupMock, cleanupHandleMock, cleanupRegistryMock, vmmIdentityMock, dependencies };
+export { hostTools, exportsConfig, rootfsPreparerMock, virtiofsdManagerMock, config, processMock, networkConfig, guestConfig, createTestNetworkPlan, networkLifecycle, cgroupMock, cleanupHandleMock, cleanupRegistryMock, vmmIdentityMock, dependencies };
