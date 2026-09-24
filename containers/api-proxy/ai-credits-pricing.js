@@ -22,6 +22,7 @@ module.exports = Object.freeze({
   'gpt-5.6-luna':      { input: 1.00,  cachedInput: 0.10,  cacheWrite: null, output: 6.00 },
   'gpt-5.6-sol':       { input: 5.00,  cachedInput: 0.50,  cacheWrite: null, output: 30.00 },
   'gpt-5.6-terra':     { input: 2.50,  cachedInput: 0.25,  cacheWrite: null, output: 15.00 },
+  // Conservative static fallback until provider pricing is published.
   'gpt-6-astra':       { input: 10.00, cachedInput: 1.00,  cacheWrite: null, output: 50.00 },
   'gpt-6-luna':        { input: 10.00, cachedInput: 1.00,  cacheWrite: null, output: 50.00 },
   'gpt-6-sol':         { input: 10.00, cachedInput: 1.00,  cacheWrite: null, output: 50.00 },
