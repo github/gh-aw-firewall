@@ -181,6 +181,7 @@ function readRequestDomains(value, field) {
     );
   }
   const domains = [];
+  const seenDomains = new Set();
   for (const entry of value) {
     const normalized = typeof entry === 'string' ? entry.trim().toLowerCase() : entry;
     if (!isValidDomain(normalized)) {
@@ -190,7 +191,10 @@ function readRequestDomains(value, field) {
         400,
       );
     }
-    if (!domains.includes(normalized)) domains.push(normalized);
+    if (!seenDomains.has(normalized)) {
+      seenDomains.add(normalized);
+      domains.push(normalized);
+    }
   }
   return domains;
 }
