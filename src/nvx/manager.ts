@@ -44,6 +44,7 @@ import {
 } from './runtime-lifecycle';
 import { DirectOpenvmmLaunchExecutor } from './launch-executor';
 import type { NvxWorkspaceCopyBackResult } from './workspace-layer';
+import { logger } from '../logger';
 
 /**
  * Host-side lifecycle of the AWF-owned `custom` guest layer that exports the
@@ -352,6 +353,13 @@ export class NvxManager {
         // workspace is an output of the run, so losing it is a run failure.
         if (!executionError) executionError = error;
       }
+    } else if (this.config.workspace) {
+      // The scratch image never materialized, so there is no overlay upper
+      // layer to merge. Surfacing this keeps a silently discarded workspace
+      // from looking like a run that simply produced no writes.
+      logger.warn(
+        'NVX workspace copy-back skipped: the scratch device was never created',
+      );
     }
     let cleanupError: unknown;
     try {

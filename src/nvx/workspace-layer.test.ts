@@ -9,6 +9,7 @@ import {
 } from './workspace-export';
 import {
   NvxWorkspaceLayer,
+  testHelpers,
   type NvxWorkspaceLayerDependencies,
 } from './workspace-layer';
 
@@ -122,7 +123,7 @@ describe('NvxWorkspaceLayer', () => {
     await expect(layer.stage()).rejects.toThrow(/already staged/);
   });
 
-  it('merges guest creations, modifications, and whiteout deletions back to the host', async () => {
+  it('merges guest creations and modifications back to the host', async () => {
     const { layer, calls } = await createLayer();
     await layer.stage();
 
@@ -191,5 +192,35 @@ describe('NvxWorkspaceLayer', () => {
     await layer.stage();
     await layer.cleanup();
     await expect(fs.access(stagingRoot)).rejects.toThrow();
+  });
+});
+
+describe('overlay whiteout classification', () => {
+  function fakeStat(overrides: Partial<{
+    characterDevice: boolean;
+    rdev: number;
+  }>): Parameters<typeof testHelpers.isOverlayWhiteout>[0] {
+    return {
+      isCharacterDevice: () => overrides.characterDevice === true,
+      rdev: overrides.rdev ?? 0,
+    } as Parameters<typeof testHelpers.isOverlayWhiteout>[0];
+  }
+
+  it('treats a 0/0 character device as a deletion', () => {
+    expect(testHelpers.isOverlayWhiteout(fakeStat({ characterDevice: true, rdev: 0 })))
+      .toBe(true);
+  });
+
+  it('does not treat a regular file or a real device node as a deletion', () => {
+    expect(testHelpers.isOverlayWhiteout(fakeStat({ characterDevice: false })))
+      .toBe(false);
+    expect(testHelpers.isOverlayWhiteout(fakeStat({ characterDevice: true, rdev: 259 })))
+      .toBe(false);
+  });
+});
+
+describe('e2fsck exit code tolerance', () => {
+  it('treats both repair exit codes as success', () => {
+    expect([...testHelpers.E2FSCK_REPAIR_EXIT_CODES].sort()).toEqual([1, 2]);
   });
 });

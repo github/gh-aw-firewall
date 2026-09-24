@@ -13,13 +13,25 @@ import {
   type NvxDirectoryExport,
 } from './workspace-export';
 
+/**
+ * Credential-bearing paths that are never staged into the guest. The list is
+ * `$HOME`-relative, and is applied relative to each export root because an
+ * export root can itself be a home directory (`resolveNvxExports` falls back to
+ * the process working directory when `GITHUB_WORKSPACE` is unset). The same
+ * filter is applied on copy-back so an entry that was never staged can never be
+ * written back either.
+ */
 const EXCLUDED_RELATIVE_PATHS = [
   ...CREDENTIAL_ENTRIES.map(({ path: entryPath }) => normalizeRelative(entryPath)),
   ...HOME_FORBIDDEN_SUBDIRS.map(normalizeRelative),
 ];
 
-/** `e2fsck` reports 1 when it repaired the image, which is not a failure. */
-const E2FSCK_REPAIR_EXIT_CODE = 1;
+/**
+ * `e2fsck` reports 1 ("errors corrected") and 2 ("errors corrected, reboot
+ * recommended") after a successful repair. Neither is a failure here: the
+ * image is a throwaway scratch device that is discarded right after the dump.
+ */
+const E2FSCK_REPAIR_EXIT_CODES = new Set([1, 2]);
 
 export type NvxWorkspaceTool = 'debugfs' | 'e2fsck';
 
@@ -155,7 +167,7 @@ export class NvxWorkspaceLayer {
   private async runTool(tool: NvxWorkspaceTool, args: readonly string[]): Promise<void> {
     const result = await this.dependencies.runTool(tool, args);
     if (result.exitCode === 0) return;
-    if (tool === 'e2fsck' && result.exitCode === E2FSCK_REPAIR_EXIT_CODE) return;
+    if (tool === 'e2fsck' && E2FSCK_REPAIR_EXIT_CODES.has(result.exitCode)) return;
     throw new Error(
       `NVX workspace copy-back tool ${tool} exited with code ${result.exitCode}: ` +
       result.stderr.trim(),
@@ -464,3 +476,10 @@ function assertDebugfsOperand(value: string, label: string): void {
     throw new Error(`Unsafe NVX ${label} path for debugfs: ${value}`);
   }
 }
+
+/** @internal Exposed for unit tests only. */
+// ts-prune-ignore-next
+export const testHelpers = {
+  isOverlayWhiteout,
+  E2FSCK_REPAIR_EXIT_CODES,
+};

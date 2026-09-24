@@ -5,6 +5,7 @@ import type { WrapperConfig } from '../types';
 import {
   NVX_GUEST_HOME,
   NVX_GUEST_WORKSPACE,
+  NVX_TOOL_CACHE_EXPORT_TAG,
   type NvxDirectoryExport,
 } from './workspace-export';
 
@@ -52,7 +53,7 @@ export function buildNvxGuestEnvironment(
   for (const name of ['RUNNER_TOOL_CACHE', 'AGENT_TOOLSDIRECTORY', 'RUNNER_TEMP'] as const) {
     delete guestEnvironment[name];
   }
-  const toolCache = entries.find((entry) => entry.tag === 'runner-tool-cache');
+  const toolCache = entries.find((entry) => entry.tag === NVX_TOOL_CACHE_EXPORT_TAG);
   if (toolCache) {
     if (environment.RUNNER_TOOL_CACHE) guestEnvironment.RUNNER_TOOL_CACHE = toolCache.target;
     else guestEnvironment.AGENT_TOOLSDIRECTORY = toolCache.target;

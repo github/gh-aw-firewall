@@ -48,7 +48,7 @@ export function buildNvxGuestRunScript({
       throw new Error(`Unsafe NVX guest environment variable name: ${name}`);
     }
     const value = environment[name];
-    assertSingleLine(name, value);
+    assertNoNulByte(name, value);
     lines.push(`export ${name}=${quoteForShell(value)}`);
   }
   lines.push(`cd ${quoteForShell(workingDirectory)}`);
@@ -56,7 +56,7 @@ export function buildNvxGuestRunScript({
   return `${lines.join('\n')}\n`;
 }
 
-function assertSingleLine(name: string, value: string): void {
+function assertNoNulByte(name: string, value: string): void {
   if (value.includes('\0')) {
     throw new Error(`NVX guest environment value for ${name} must not contain NUL`);
   }

@@ -1,3 +1,4 @@
+import * as path from 'path';
 import { randomBytes } from 'crypto';
 import type { WorkflowDependencies } from '../cli-workflow';
 import type { ExternalAgentRuntimeBackend } from '../external-runtime-backend';
@@ -248,7 +249,7 @@ export class NvxRuntimeBackend implements ExternalAgentRuntimeBackend {
     logNvxGuestEnvironment(environment, this.dependencies.logger);
     const workspaceLayer = this.dependencies.createWorkspaceLayer({
       runId,
-      stagingRoot: `${this.config.workDir ?? '/run/awf-nvx'}/nvx-guest-layer/${runId}`,
+      stagingRoot: path.join(this.config.workDir ?? '/run/awf-nvx', 'nvx-guest-layer', runId),
       exports,
       writePlan,
       uid: identity.uid,

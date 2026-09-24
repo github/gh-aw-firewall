@@ -1,5 +1,10 @@
 import { promises as fs } from 'fs';
 import * as path from 'path';
+import {
+  NVX_DEFAULT_MOUNT_POLICY,
+  NVX_MOUNT_POLICIES,
+  type NvxMountPolicy,
+} from '../types/runtime-options';
 
 /**
  * Guest-visible layout of an NVX one-shot microVM run.
@@ -26,12 +31,7 @@ export const NVX_GUEST_RUN_SCRIPT = '/etc/awf/nvx-run.sh';
  */
 export const NVX_SCRATCH_UPPER_DIRECTORY = 'upper';
 
-export const NVX_MOUNT_POLICIES = [
-  'workspace-only',
-  'workspace-and-tool-cache',
-] as const;
-export type NvxMountPolicy = typeof NVX_MOUNT_POLICIES[number];
-export const NVX_DEFAULT_MOUNT_POLICY: NvxMountPolicy = 'workspace-only';
+export { NVX_DEFAULT_MOUNT_POLICY, NVX_MOUNT_POLICIES, type NvxMountPolicy };
 
 export type NvxExportMode = 'ro' | 'rw';
 
@@ -55,6 +55,9 @@ const MAX_EXPORTS = 2;
 
 /** Tag of the mandatory, always-present workspace export. */
 export const NVX_WORKSPACE_EXPORT_TAG = 'workspace';
+
+/** Tag of the optional runner tool cache export. */
+export const NVX_TOOL_CACHE_EXPORT_TAG = 'runner-tool-cache';
 
 /**
  * Resolves the host directories exported into the NVX guest for one run.
@@ -88,7 +91,7 @@ export async function resolveNvxExports(
       );
     }
     candidates.push({
-      tag: 'runner-tool-cache',
+      tag: NVX_TOOL_CACHE_EXPORT_TAG,
       source: toolCache,
       target: toolCache,
       mode: 'ro',
