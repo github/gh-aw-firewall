@@ -117,7 +117,7 @@
         },
         {
           "family": "gpt-5.1-codex",
-          "patterns": ["gpt-5.1-codex", "gpt-5.1-codex-*", "gpt-5.1-codex-mini", "gpt-5.1-codex-mini-*"],
+          "patterns": ["gpt-5.1-codex", "gpt-5.1-codex-*"],
           "endpoints": ["responses"],
           "notes": "Responses API only per official model pages (developers.openai.com/api/docs/models/gpt-5.1-codex, /gpt-5.1-codex-mini). More specific than gpt-5.1* pattern below. gpt-5.1-codex-max is covered by a dedicated entry above."
         },
@@ -171,7 +171,7 @@
         },
         {
           "family": "o1-mini/preview",
-          "patterns": ["o1-mini", "o1-mini-*", "o1-preview", "o1-preview-*"],
+          "patterns": ["o1-mini*", "o1-preview*"],
           "endpoints": ["chat_completions"],
           "notes": "Chat Completions API only per official model pages (developers.openai.com/api/docs/models/o1-mini, /o1-preview). Not available via Responses API. More specific than o1* pattern below."
         },
