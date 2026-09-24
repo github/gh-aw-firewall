@@ -5,6 +5,14 @@ import { runDindBootstrap } from './dind-bootstrap';
 import type { WrapperConfig } from './types';
 import { mockExecaFn } from './test-helpers/mock-execa.test-utils';
 
+jest.mock('fs', () => {
+  const actual = jest.requireActual<typeof import('fs')>('fs');
+  return {
+    ...actual,
+    mkdirSync: jest.fn((...args: Parameters<typeof actual.mkdirSync>) => actual.mkdirSync(...args)),
+  };
+});
+
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 jest.mock('execa', () => require('./test-helpers/mock-execa.test-utils').execaMockFactory());
 
@@ -147,7 +155,8 @@ describe('runDindBootstrap', () => {
         dind: { preStageDirs: true },
       }));
 
-      expect(fs.existsSync(tmpStageDir)).toBe(true);
+      expect(fs.mkdirSync).toHaveBeenCalledWith(tmpStageDir, { recursive: true });
+      expect(fs.mkdirSync).toHaveBeenCalledWith(runnerStageDir, { recursive: true });
       expect(fs.existsSync(runnerStageDir)).toBe(true);
       expect(mockExecaFn).toHaveBeenCalledWith(
         'docker',
