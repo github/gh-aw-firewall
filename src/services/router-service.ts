@@ -42,11 +42,5 @@ export function buildRouterService({ imageConfig }: RouterServiceParams): any {
   });
   if (useGHCR && resolveImage) service.image = resolveImage('router');
 
-  // The router is deliberately credential-free. Keep the fields absent rather
-  // than empty so Compose cannot inherit or publish anything implicitly.
-  delete service.environment;
-  delete service.ports;
-  delete service.volumes;
-
   return service;
 }

@@ -11,7 +11,6 @@ import { applyHostPathPrefixToVolumes } from './host-path-prefix';
 import { buildContainerSecurityHardening } from './service-security';
 import {
   API_PROXY_UPSTREAM_CA_CERT_CONTAINER_PATH,
-  MODEL_ROUTING_NOT_STAGED_MESSAGE,
   buildApiProxyBaseEnv,
   resolveApiProxyShutdownTimeoutMs,
 } from './api-proxy-env-config';
@@ -58,9 +57,6 @@ export function buildApiProxyServiceConfig(params: ApiProxyServiceConfigParams):
   const apiProxyCaCertPath = config.apiProxyCaCert === undefined
     ? undefined
     : resolveApiProxyCaCertPath(config.apiProxyCaCert);
-  if (config.modelRouting && !config.modelRoutingBootstrap) {
-    throw new Error(MODEL_ROUTING_NOT_STAGED_MESSAGE);
-  }
 
   const proxyService: any = {
     container_name: API_PROXY_CONTAINER_NAME,

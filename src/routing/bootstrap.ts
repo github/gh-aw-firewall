@@ -37,6 +37,10 @@ interface RoutingFailureRecord {
   retryable: boolean;
 }
 
+type RoutingResultRead =
+  | { found: false }
+  | { found: true; value: unknown };
+
 function toRoutingFailureExit(message: string): RoutingFailureExitError {
   return new RoutingFailureExitError(message);
 }
@@ -146,7 +150,7 @@ function readPrivateConversation(source: string): unknown {
       throw new Error('The routing conversation must be a regular file');
     }
     if (stat.size > MAX_CONVERSATION_BYTES) {
-      throw new Error('The routing conversation exceeds 1048576 bytes');
+      throw new Error(`The routing conversation exceeds ${MAX_CONVERSATION_BYTES} bytes`);
     }
     const buffer = Buffer.alloc(stat.size);
     let offset = 0;
@@ -244,7 +248,7 @@ export function stageRoutingConversation(config: WrapperConfig): ModelRoutingBoo
   return state;
 }
 
-function readRoutingResultFile(filename: string): unknown | null {
+function readRoutingResultFile(filename: string): RoutingResultRead {
   let descriptor: number;
   try {
     descriptor = fs.openSync(
@@ -252,7 +256,7 @@ function readRoutingResultFile(filename: string): unknown | null {
       fs.constants.O_RDONLY | fs.constants.O_NONBLOCK | (fs.constants.O_NOFOLLOW ?? 0),
     );
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { found: false };
     throw toRoutingFailureExit('Model routing result could not be read');
   }
   try {
@@ -267,7 +271,7 @@ function readRoutingResultFile(filename: string): unknown | null {
       if (count === 0) break;
       offset += count;
     }
-    return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(buffer));
+    return { found: true, value: JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(buffer)) };
   } catch (error) {
     if (error instanceof RoutingFailureExitError) throw error;
     throw toRoutingFailureExit('Model routing result is invalid');
@@ -314,13 +318,13 @@ export async function waitForRoutingSelection(
   const deadline = Date.now() + timeoutMs;
   for (;;) {
     const failure = readRoutingResultFile(path.join(state.outputDir, 'failure.json'));
-    if (failure !== null) {
-      if (isFailureRecord(failure)) throw toRoutingFailureExit(routingFailureMessage(failure));
+    if (failure.found) {
+      if (isFailureRecord(failure.value)) throw toRoutingFailureExit(routingFailureMessage(failure.value));
       throw toRoutingFailureExit('Model routing failure result is invalid');
     }
     const selection = readRoutingResultFile(path.join(state.outputDir, 'selection.json'));
-    if (selection !== null) {
-      if (!isSelectionRecord(selection)) throw toRoutingFailureExit('Model routing selection result is invalid');
+    if (selection.found) {
+      if (!isSelectionRecord(selection.value)) throw toRoutingFailureExit('Model routing selection result is invalid');
       return;
     }
     if (Date.now() >= deadline) {
@@ -333,22 +337,22 @@ export async function waitForRoutingSelection(
 export function verifyRoutingCompletion(state: ModelRoutingBootstrapState | undefined): void {
   if (!state) return;
   const failure = readRoutingResultFile(path.join(state.outputDir, 'failure.json'));
-  if (failure !== null) {
-    if (isFailureRecord(failure)) throw toRoutingFailureExit(routingFailureMessage(failure));
+  if (failure.found) {
+    if (isFailureRecord(failure.value)) throw toRoutingFailureExit(routingFailureMessage(failure.value));
     throw toRoutingFailureExit('Model routing failure result is invalid');
   }
   const runtimeFailure = readRoutingResultFile(path.join(state.outputDir, 'runtime-failure.json'));
-  if (runtimeFailure !== null) {
-    if (isFailureRecord(runtimeFailure)) throw toRoutingFailureExit(routingFailureMessage(runtimeFailure));
+  if (runtimeFailure.found) {
+    if (isFailureRecord(runtimeFailure.value)) throw toRoutingFailureExit(routingFailureMessage(runtimeFailure.value));
     throw toRoutingFailureExit('Model routing runtime failure result is invalid');
   }
   const selection = readRoutingResultFile(path.join(state.outputDir, 'selection.json'));
-  if (!isSelectionRecord(selection)) {
+  if (!selection.found || !isSelectionRecord(selection.value)) {
     throw toRoutingFailureExit('Model routing selection result is invalid');
   }
   const complete = readRoutingResultFile(path.join(state.outputDir, 'complete.json'));
-  if (!complete || typeof complete !== 'object' || Array.isArray(complete) ||
-      (complete as Record<string, unknown>).schema !== 'awf-routing-complete/v1') {
+  if (!complete.found || !complete.value || typeof complete.value !== 'object' || Array.isArray(complete.value) ||
+      (complete.value as Record<string, unknown>).schema !== 'awf-routing-complete/v1') {
     throw toRoutingFailureExit('Model routing completion result is invalid');
   }
 }
