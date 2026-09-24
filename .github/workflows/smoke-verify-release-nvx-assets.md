@@ -18,16 +18,105 @@ network:
     - github
 tools:
   bash:
-    - "mkdir *"
-    - "gh release download *"
-    - "gh release view *"
-    - "gh attestation verify *"
-    - "tar -xzf *"
-    - "ls *"
     - "cat *"
-    - "sha256sum *"
-  github:
-    mode: gh-proxy
+    - "ls *"
+steps:
+  - name: Download and verify NVX release assets
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      RELEASE_TAG_INPUT: ${{ github.event.release.tag_name }}
+    run: |
+      # This step runs as a plain GitHub Actions step (full runner network,
+      # not routed through the AWF agent sandbox's CLI proxy) because
+      # `gh release download` needs to fetch binary asset content from
+      # GitHub's release CDN. The agent-sandboxed `gh-proxy` tool mode only
+      # relays structured JSON API calls and cannot transfer binary blobs —
+      # `gh release download` there silently exits 0 with zero bytes written.
+      set +e
+      set -u
+
+      DATA_DIR=/tmp/gh-aw/agent/nvx-verify
+      mkdir -p "$DATA_DIR"
+      RESULTS_FILE="$DATA_DIR/results.json"
+      DL_DIR="$RUNNER_TEMP/nvx-verify"
+      mkdir -p "$DL_DIR/extracted"
+
+      # Resolve the release to verify. On `release: published`, the tag is
+      # fixed by the triggering event — do not query for "latest", since a
+      # newer release may have been published by the time this run executes,
+      # and a prerelease's event tag is not necessarily returned by "latest"
+      # queries. On `workflow_dispatch` (no release event), fall back to
+      # querying the latest published release tag.
+      if [ -n "${RELEASE_TAG_INPUT:-}" ]; then
+        TAG="$RELEASE_TAG_INPUT"
+      else
+        TAG=$(gh release view --repo github/gh-aw-firewall --json tagName -q .tagName)
+      fi
+
+      record() {
+        jq -cn --arg tag "$TAG" --arg pass "$1" --arg reason "$2" \
+          '{tag:$tag, pass:($pass == "true"), reason:$reason}' > "$RESULTS_FILE"
+      }
+
+      if [ -z "$TAG" ]; then
+        record false "Could not resolve a release tag to verify (empty release list?)"
+        exit 0
+      fi
+
+      gh release download "$TAG" --repo github/gh-aw-firewall \
+        --pattern 'nvx-test-x86_64.tar.gz' \
+        --pattern 'nvx-test-x86_64.manifest.json' \
+        --pattern 'nvx-test-x86_64.manifest.sigstore.jsonl' \
+        --dir "$DL_DIR" --clobber
+      if [ $? -ne 0 ] || [ ! -s "$DL_DIR/nvx-test-x86_64.tar.gz" ] \
+        || [ ! -s "$DL_DIR/nvx-test-x86_64.manifest.json" ] \
+        || [ ! -s "$DL_DIR/nvx-test-x86_64.manifest.sigstore.jsonl" ]; then
+        record false "One or more NVX release assets are missing or failed to download for $TAG"
+        exit 0
+      fi
+
+      tar -xzf "$DL_DIR/nvx-test-x86_64.tar.gz" -C "$DL_DIR/extracted"
+      if [ $? -ne 0 ]; then
+        record false "Failed to extract nvx-test-x86_64.tar.gz for $TAG"
+        exit 0
+      fi
+
+      for f in openvmm vmlinux initramfs.cpio.gz; do
+        if [ ! -s "$DL_DIR/extracted/$f" ]; then
+          record false "Tarball for $TAG is missing expected non-empty file: $f"
+          exit 0
+        fi
+      done
+
+      if ! jq -e '.artifacts.openvmm.sha256 and .artifacts.kernel.sha256 and .artifacts.initramfs.sha256' \
+        "$DL_DIR/nvx-test-x86_64.manifest.json" > /dev/null 2>&1; then
+        record false "manifest.json for $TAG is not valid JSON or is missing required artifacts entries"
+        exit 0
+      fi
+
+      declare -A manifest_key=( [openvmm]=openvmm [vmlinux]=kernel [initramfs.cpio.gz]=initramfs )
+      for f in "${!manifest_key[@]}"; do
+        expected=$(jq -r ".artifacts.${manifest_key[$f]}.sha256" "$DL_DIR/nvx-test-x86_64.manifest.json")
+        actual=$(sha256sum "$DL_DIR/extracted/$f" | awk '{print $1}')
+        if [ "$expected" != "$actual" ]; then
+          record false "sha256 mismatch for $f in $TAG: manifest=$expected actual=$actual"
+          exit 0
+        fi
+      done
+
+      gh attestation verify "$DL_DIR/nvx-test-x86_64.manifest.json" \
+        --repo github/gh-aw-firewall \
+        --signer-workflow github/gh-aw-firewall/.github/workflows/release.yml \
+        --deny-self-hosted-runners \
+        --bundle "$DL_DIR/nvx-test-x86_64.manifest.sigstore.jsonl" \
+        > "$DATA_DIR/attestation.log" 2>&1
+      if [ $? -ne 0 ]; then
+        record false "Sigstore attestation verification failed for $TAG (see attestation.log)"
+        cp "$DATA_DIR/attestation.log" "$DATA_DIR/results.log" 2>/dev/null || true
+        exit 0
+      fi
+
+      record true "All checks passed: assets present, tarball contents and checksums verified, Sigstore attestation verified"
 safe-outputs:
   threat-detection:
     enabled: true
@@ -55,88 +144,33 @@ under the downloaded artifact root, when `actions/upload-artifact` actually
 preserves the `nvx-test-x86_64/` subdirectory those files were uploaded from.
 This workflow verifies the fix is holding by checking a real published release.
 
-Use only `gh` (via bash) for all steps below. Do not use any other network
-tool or MCP server.
+A prior workflow step already downloaded the release's NVX preview test
+assets and verified: asset presence, tarball contents, manifest checksums,
+and Sigstore provenance. It wrote the outcome to
+`/tmp/gh-aw/agent/nvx-verify/results.json` as a single JSON object:
+`{"tag": "<release tag>", "pass": true|false, "reason": "<explanation>"}`.
 
-## 1. Resolve the release to verify
+If verification failed and `/tmp/gh-aw/agent/nvx-verify/attestation.log`
+exists, its contents are relevant additional detail for the failure report.
 
-This workflow can run two ways:
-
-- **On `release: published`**: the tag to verify is fixed by the triggering
-  event: `${{ github.event.release.tag_name }}`. Use that value exactly —
-  do not query for the latest release, since a newer release may have been
-  published by the time this run executes, and a prerelease's event tag is
-  not necessarily returned by "latest" queries.
-- **On `workflow_dispatch`** (manual run, no release event): resolve the
-  latest published release tag with:
-
-  ```bash
-  gh release view --repo github/gh-aw-firewall --json tagName -q .tagName
-  ```
-
-Use whichever tag applies for every command below. If this repository's
-release list is empty on a manual run (should not happen in practice), call
-`noop` explaining that and stop.
-
-## 2. Download the NVX preview test assets
+## 1. Read the verification result
 
 ```bash
-mkdir -p /tmp/gh-aw/agent/nvx-verify
-gh release download <tag> --repo github/gh-aw-firewall \
-  --pattern 'nvx-test-x86_64.tar.gz' \
-  --pattern 'nvx-test-x86_64.manifest.json' \
-  --pattern 'nvx-test-x86_64.manifest.sigstore.jsonl' \
-  --dir /tmp/gh-aw/agent/nvx-verify --clobber
+cat /tmp/gh-aw/agent/nvx-verify/results.json
+ls /tmp/gh-aw/agent/nvx-verify/
 ```
 
-If any of the three assets is missing from the release, that is a failure —
-report it via `create-issue` (see step 5) and stop.
+## 2. Report the result
 
-## 3. Verify tarball contents and checksums
-
-```bash
-mkdir -p /tmp/gh-aw/agent/nvx-verify/extracted
-tar -xzf /tmp/gh-aw/agent/nvx-verify/nvx-test-x86_64.tar.gz -C /tmp/gh-aw/agent/nvx-verify/extracted
-ls -la /tmp/gh-aw/agent/nvx-verify/extracted
-cat /tmp/gh-aw/agent/nvx-verify/nvx-test-x86_64.manifest.json
-```
-
-Check that:
-
-- The tarball extracted exactly three non-empty files: `openvmm`, `vmlinux`,
-  and `initramfs.cpio.gz`.
-- `nvx-test-x86_64.manifest.json` is valid JSON with an `artifacts` object
-  containing `openvmm`, `kernel`, and `initramfs` entries, each with a
-  `sha256` field.
-- The `sha256sum` of each extracted file matches the corresponding manifest
-  entry's `sha256` (`openvmm` → `artifacts.openvmm.sha256`, `vmlinux` →
-  `artifacts.kernel.sha256`, `initramfs.cpio.gz` →
-  `artifacts.initramfs.sha256`).
-
-## 4. Verify Sigstore provenance
-
-```bash
-gh attestation verify /tmp/gh-aw/agent/nvx-verify/nvx-test-x86_64.manifest.json \
-  --repo github/gh-aw-firewall \
-  --signer-workflow github/gh-aw-firewall/.github/workflows/release.yml \
-  --deny-self-hosted-runners \
-  --bundle /tmp/gh-aw/agent/nvx-verify/nvx-test-x86_64.manifest.sigstore.jsonl
-```
-
-This must succeed (exit code 0) and confirm the manifest was attested by a
-build in `github/gh-aw-firewall`.
-
-## 5. Report the result
-
-If every check in steps 2–4 passed, call `noop` with exactly this prefix
-followed by the verified release tag:
+If `pass` is `true`, call `noop` with exactly this prefix followed by the
+verified release tag:
 
 ```text
 NVX_RELEASE_ASSET_VERIFICATION_PASS <tag>
 ```
 
-If any check failed, call `create-issue` with a title of
-`NVX release asset verification failed for <tag>` and a body listing exactly
-which check(s) failed (missing asset, tarball entry, checksum mismatch, or
-attestation failure) with the relevant command output. Never call `noop` when
-any check failed.
+If `pass` is `false`, call `create-issue` with a title of
+`NVX release asset verification failed for <tag>` and a body containing the
+`reason` field (and the contents of `attestation.log` if present). Never call
+`noop` when `pass` is `false`.
+
