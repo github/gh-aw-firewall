@@ -225,6 +225,7 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 - `apiProxy.anthropicAutoCache` → `--anthropic-auto-cache`
 - `apiProxy.anthropicCacheTailTtl` → `--anthropic-cache-tail-ttl <5m|1h>`
 - `apiProxy.hostedWeb.claude` → *(config-only; maps to `AWF_CLAUDE_HOSTED_WEB_POLICY` — AWF-owned domain policy for Anthropic-hosted `web_search_*`/`web_fetch_*` server tools; see [§9.8 Claude Hosted Web Search and Fetch](#98-claude-hosted-web-search-and-fetch))*
+- `apiProxy.hostedWeb.codex` → *(config-only; maps to `AWF_CODEX_HOSTED_WEB_POLICY` — AWF-owned domain policy for OpenAI Responses `web_search` and Codex `/v1/alpha/search`; see [§9.9 Codex/OpenAI Hosted Web Policy](#99-codexopenai-hosted-web-policy))*
 - `apiProxy.maxEffectiveTokens` → *(config-only; no CLI equivalent)*
 - `apiProxy.maxAiCredits` → *(config-only; maps to `AWF_MAX_AI_CREDITS`)*
 - `apiProxy.defaultAiCreditsPricing` → *(config-only; maps to `AWF_DEFAULT_AI_CREDITS_PRICING`)*
@@ -989,6 +990,129 @@ A conforming implementation:
    listed above (HTTP 403 for policy rejections, HTTP 400 for malformed tool
    definitions, domains, or `max_uses`), and MUST NOT include prompts, queries,
    URLs, or request bodies in those errors.
+
+### 9.9 Codex/OpenAI Hosted Web Policy
+
+*This section is normative.*
+
+OpenAI-hosted retrieval executes beyond the AWF network boundary. Squid sees
+the permitted OpenAI endpoint, not the searched or fetched destination. AWF
+therefore enforces `apiProxy.hostedWeb.codex` inside the trusted API proxy on:
+
+1. Responses requests containing a `web_search` or dated
+   `web_search_YYYY_MM_DD` tool; and
+2. every request to `/v1/alpha/search`.
+
+The config object is closed and references the same schema, normalization, and
+source-precedence contract as `apiProxy.hostedWeb.claude`: `enabled` is
+required; `enabled: true` requires exactly one non-empty `allowedDomains` or
+`blockedDomains`; `enabled: false` permits neither; and `maxUses`, when present,
+is a positive integer. Domains are normalized and validated identically for
+both providers. The two policies may coexist in one config.
+
+```yaml
+apiProxy:
+  hostedWeb:
+    claude:
+      enabled: true
+      blockedDomains:
+        - untrusted.example
+    codex:
+      enabled: true
+      allowedDomains:
+        - docs.github.com
+        - nodejs.org
+      maxUses: 5
+```
+
+Configuration-source precedence is:
+
+1. an explicit CLI option, if one is added in the future;
+2. the validated AWF document, including JSON/YAML via `--config -`; and
+3. compatibility behavior.
+
+The initial implementation is config-only. `AWF_CODEX_HOSTED_WEB_POLICY` is an
+internal transport generated from validated config and cannot independently
+override it. Omission preserves pass-through behavior and **does not constrain
+Codex-hosted egress**.
+
+#### 9.9.1 Request Precedence
+
+The configured policy is immutable. A request can only narrow it. OpenAI can
+represent allowed and blocked filters together, so the canonical cross-mode
+rule is to preserve the request's opposite-mode restriction while applying the
+configured mode; no restriction is silently removed.
+
+| Config mode | Request filters | Effective filters |
+|---|---|---|
+| disabled | Any Responses hosted tool or standalone request | Reject with `codex_hosted_web_disabled` |
+| allow | none | Inject configured `allowed_domains` |
+| allow | `allowed_domains` | Intersect with configured allowlist; reject an empty result |
+| allow | `blocked_domains` | Inject configured allowlist and preserve request blocklist |
+| block | none | Inject configured `blocked_domains` |
+| block | `blocked_domains` | Union with configured blocklist |
+| block | `allowed_domains` | Preserve request allowlist and inject configured blocklist |
+
+Both request filter arrays, when present, must be non-empty valid domain lists.
+On the standalone route, the effective `settings.filters` is applied again to
+each `commands.search_query[].domains` and `commands.image_query[].domains`
+list. An allowlist is intersected; blocked domains are removed; and an empty
+effective query scope rejects with `codex_hosted_web_empty_query_scope` rather
+than falling back to the request-level scope.
+
+Literal HTTP(S) URLs in `commands.open[].ref_id`,
+`commands.find[].ref_id`, and `commands.screenshot[].ref_id` are host-checked
+against both effective lists. Non-URL provider reference IDs remain valid.
+A malformed URL/host rejects; a disallowed host rejects with
+`codex_hosted_web_url_disallowed`.
+
+The **most restrictive** applicable configured, request, per-query, and URL
+scope governs each retrieval. No scope can relocate or widen authority granted
+by another. `network.allowDomains` and `network.sensitiveAllowDomains` are
+never copied into provider policy or request bodies.
+
+#### 9.9.2 Access Modes, Limits, and Unknown Shapes
+
+Responses `external_web_access` and `indexed_web_access` values must be
+booleans. Standalone `settings.external_web_access` accepts booleans or the
+current `cached`, `indexed`, and `live` modes. Unknown future values fail closed
+with `codex_hosted_web_access_invalid`; they are never interpreted as
+permissive.
+
+For Responses tools, configured `maxUses` is injected as `max_uses`, or
+resolved as `min(configured, requested)`. Malformed, zero, negative, or
+non-integer request values reject. `/v1/alpha/search` exposes no equivalent
+per-request cap, so a configured `maxUses` rejects that route with
+`codex_hosted_web_max_uses_unsupported` rather than being silently ignored.
+
+Recognized standalone command families are `search_query`, `image_query`,
+`open`, `click`, `find`, and `screenshot`. Unknown command shapes and malformed
+dated hosted-tool names fail closed. Enforcement runs after existing OpenAI
+body/model transforms and immediately before dispatch, so no later transform
+can remove or expand the effective policy.
+
+#### 9.9.3 Stable Errors and Compiler Contract
+
+Policy failures use `invalid_request_error` envelopes with stable
+`codex_hosted_web_*` codes:
+
+| Code | Meaning |
+|---|---|
+| `codex_hosted_web_disabled` | Hosted retrieval is prohibited |
+| `codex_hosted_web_filter_invalid` / `codex_hosted_web_domain_invalid` | Malformed filters or domains |
+| `codex_hosted_web_empty_intersection` / `codex_hosted_web_empty_query_scope` | Narrowing produced no permitted scope |
+| `codex_hosted_web_url_invalid` / `codex_hosted_web_url_disallowed` | Literal URL is malformed or outside policy |
+| `codex_hosted_web_access_invalid` | Unknown hosted-access mode |
+| `codex_hosted_web_max_uses_invalid` / `codex_hosted_web_max_uses_unsupported` | Invalid cap or route cannot enforce it |
+| `codex_hosted_web_tool_unrecognized` / `codex_hosted_web_command_unrecognized` / `codex_hosted_web_shape_invalid` | Unknown future or malformed hosted-search shape |
+
+Errors do not include prompts, queries, literal URLs, or request bodies.
+Serialized internal policy is validated during sidecar startup. Ordinary
+OpenAI-compatible requests without a hosted-web surface are unchanged.
+
+Compiler integrations only emit the stable config and pipe it to
+`awf --config - -- <command>`; they do not need to understand provider routes,
+body fields, tool versions, or internal environment variables.
 
 ## 10. Effective Token Budget Enforcement
 

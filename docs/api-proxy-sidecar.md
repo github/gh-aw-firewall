@@ -165,6 +165,7 @@ The API proxy sidecar receives **real credentials** and routing configuration:
 | `GITHUB_RUN_ATTEMPT` | Forwarded GitHub Actions value | `GITHUB_RUN_ATTEMPT` set on host (GitHub Actions runs) | Paired with `GITHUB_RUN_ID` for the `X-Interaction-Id` derivation above; defaults to `1` if unset. |
 | `NODE_EXTRA_CA_CERTS` | `/usr/local/share/ca-certificates/awf-upstream-ca.crt` | `apiProxy.caCert` / `--api-proxy-ca-cert` set | Extends Node's trusted roots for private or corporate upstream gateways. |
 | `AWF_CLAUDE_HOSTED_WEB_POLICY` | Normalized policy JSON | `apiProxy.hostedWeb.claude` configured | AWF-owned domain policy for Anthropic-hosted `web_search_*`/`web_fetch_*` tools. Generated only from validated AWF config — never accepted from the agent. See [Claude hosted web search and fetch policy](#claude-hosted-web-search-and-fetch-policy). |
+| `AWF_CODEX_HOSTED_WEB_POLICY` | Normalized policy JSON | `apiProxy.hostedWeb.codex` configured | AWF-owned domain policy for OpenAI Responses `web_search` tools and Codex `/v1/alpha/search`. Generated only from validated AWF config — never accepted from the agent. See [Codex hosted web policy](#codex-hosted-web-policy). |
 | `HTTP_PROXY` | `http://172.30.0.10:3128` | Always | Routes through Squid; sidecar traffic is exempt from domain ACLs |
 | `HTTPS_PROXY` | `http://172.30.0.10:3128` | Always | Routes through Squid; sidecar traffic is exempt from domain ACLs |
 
@@ -453,6 +454,49 @@ The configured policy is an immutable upper bound. A request may narrow it — i
 This setting is config-only — there is no CLI flag. AWF serializes the validated policy into the sidecar as `AWF_CLAUDE_HOSTED_WEB_POLICY`, which is generated solely from validated configuration and is never accepted from the agent; the sidecar fails startup if it is invalid. **Omitting `apiProxy.hostedWeb.claude` preserves the previous pass-through behaviour and does not constrain Claude-hosted egress.**
 
 See [§9.8 of the AWF config spec](./awf-config-spec.md#98-claude-hosted-web-search-and-fetch) for the complete precedence and error matrix.
+
+### Codex hosted web policy
+
+Codex can retrieve hosted web content through two OpenAI surfaces: a Responses
+`web_search` tool and the standalone `/v1/alpha/search` endpoint. The latter can
+also scope individual `commands.search_query[]` entries and can fetch literal
+URLs through `open`, `find`, and `screenshot` commands. In every case, OpenAI
+performs retrieval outside AWF's network boundary, so Squid sees only the
+OpenAI endpoint.
+
+Configure `apiProxy.hostedWeb.codex` to make the trusted sidecar enforce one
+AWF-owned upper bound across both routes:
+
+```yaml
+apiProxy:
+  hostedWeb:
+    codex:
+      enabled: true
+      allowedDomains:
+        - docs.github.com
+        - nodejs.org
+      maxUses: 5
+```
+
+Responses tool filters are injected or narrowed after model/body transforms.
+Standalone request filters are then applied to every query domain scope, and
+literal URL hosts are checked against the effective result. OpenAI can
+represent allowed and blocked filters together, so cross-mode request filters
+are preserved and combined with the configured restriction rather than
+rejected. The most restrictive applicable scope always governs.
+
+`maxUses` is emitted as `max_uses` on Responses tools. The standalone route has
+no equivalent cap; when `maxUses` is configured, AWF rejects standalone search
+instead of silently ignoring the limit. Disabled policies, empty intersections,
+malformed filters/domains/URLs, unsupported access modes, and unknown hosted
+search shapes fail closed with structured errors that exclude request content.
+Ordinary OpenAI requests without a hosted-web surface remain unchanged.
+
+This setting is config-only. `AWF_CODEX_HOSTED_WEB_POLICY` is an internal value
+generated from validated config, and invalid serialization fails sidecar
+startup. Omitting `apiProxy.hostedWeb.codex` preserves pass-through behavior
+and **does not constrain Codex-hosted egress**. See [§9.9 of the AWF config
+spec](./awf-config-spec.md#99-codexopenai-hosted-web-policy).
 
 ### Container configuration
 
