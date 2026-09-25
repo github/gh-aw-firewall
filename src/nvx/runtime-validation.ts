@@ -157,10 +157,21 @@ export async function assertNvxContainerWorkDirResolvesWithinWorkspace(
   if (!containerWorkDir) return;
   const normalized = resolveNvxGuestWorkDir(containerWorkDir);
   const relative = path.posix.relative(NVX_GUEST_WORKSPACE, normalized);
-  const [canonicalWorkspace, canonicalWorkDir] = await Promise.all([
-    fs.realpath(workspaceSource),
-    fs.realpath(path.join(workspaceSource, relative)),
-  ]);
+  const canonicalWorkspace = await fs.realpath(workspaceSource);
+  const workDirCandidate = path.join(workspaceSource, relative);
+  let canonicalWorkDir: string;
+  try {
+    canonicalWorkDir = await fs.realpath(workDirCandidate);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      throw new Error(
+        `NVX preview --container-workdir does not exist in the workspace export: ${
+          containerWorkDir
+        }`,
+      );
+    }
+    throw error;
+  }
   if (
     canonicalWorkDir !== canonicalWorkspace
     && !canonicalWorkDir.startsWith(`${canonicalWorkspace}${path.sep}`)

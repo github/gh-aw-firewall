@@ -130,6 +130,13 @@ describe('NVX runtime validation', () => {
           workspace,
         )).rejects.toThrow(/resolves outside the guest workspace export/);
       });
+
+      it('reports a missing workdir as an NVX container-workdir error', async () => {
+        await expect(assertNvxContainerWorkDirResolvesWithinWorkspace(
+          '/workspace/missing',
+          workspace,
+        )).rejects.toThrow(/--container-workdir does not exist in the workspace export/);
+      });
     });
 
     it('rejects when the preview flag is not enabled', () => {

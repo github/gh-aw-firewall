@@ -222,6 +222,16 @@ describe('NvxWorkspaceLayer', () => {
       .rejects.toThrow();
   });
 
+  it('keeps read-only owner read access available to the workload group', async () => {
+    await fs.chmod(path.join(workspace, 'README.md'), 0o600);
+    const { layer } = await createLayer(['/workspace/src']);
+
+    const layerSource = await layer.stage();
+    const staged = await fs.lstat(path.join(layerSource, 'workspace', 'README.md'));
+
+    expect(staged.mode & 0o777).toBe(0o440);
+  });
+
   it('refuses copy-back when the host changed the same entry during the run', async () => {
     const { layer } = await createLayer();
     await layer.stage();
@@ -251,7 +261,7 @@ describe('NvxWorkspaceLayer', () => {
     await expect(fs.access(stagingRoot)).rejects.toThrow();
   });
 
-  it('continues copy-back after e2fsck reports both successful repair flags', async () => {
+  it('continues copy-back after e2fsck reports combined successful repair flags', async () => {
     const calls: string[] = [];
     const { layer } = await createLayer(undefined, undefined, {
       runTool: async (tool) => {

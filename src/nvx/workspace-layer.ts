@@ -29,9 +29,10 @@ const EXCLUDED_RELATIVE_PATHS = [
 ];
 
 /**
- * `e2fsck` reports 1 ("errors corrected") and 2 ("errors corrected, reboot
- * recommended") after a successful repair. Neither is a failure here: the
- * image is a throwaway scratch device that is discarded right after the dump.
+ * `e2fsck` reports bit flags 1 ("errors corrected") and 2 ("errors corrected,
+ * reboot recommended") after a successful repair; 3 combines both flags.
+ * Neither is a failure here: the image is a throwaway scratch device that is
+ * discarded right after the dump.
  */
 const E2FSCK_REPAIR_EXIT_CODES = new Set([1, 2, 3]);
 
@@ -490,7 +491,7 @@ async function hashFile(absolutePath: string): Promise<string> {
 }
 
 function readonlyModeForWorkload(mode: number): number {
-  const ownerPermissions = (mode & 0o700) >> 3;
+  const ownerPermissions = (mode & 0o500) >> 3;
   return (mode & ~0o222) | ownerPermissions;
 }
 
