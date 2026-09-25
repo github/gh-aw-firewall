@@ -11,6 +11,7 @@ import {
   standaloneSkipPullRegex,
   localAwfImageDownloadRegex,
   sessionStateDirInjectionRegex,
+  sessionStateDirConfigInjectionRegex,
   SESSION_STATE_DIR,
   legacyApiProxyLogsDirRegex,
   copilotModelOverrideRegex,
@@ -355,7 +356,7 @@ export function applyGeneralWorkflowPatches(
 
   // Inject --session-state-dir into AWF invocations so Copilot CLI session-state
   // (events.jsonl) is written to a predictable host path accessible for artifact
-  // upload. The negative lookahead in the regex ensures idempotency.
+  // upload. The negative lookaheads in the regexes ensure idempotency.
   sessionStateDirInjectionRegex.lastIndex = 0;
   const sessionStateDirMatches = content.match(sessionStateDirInjectionRegex);
   if (sessionStateDirMatches) {
@@ -366,8 +367,31 @@ export function applyGeneralWorkflowPatches(
     log.push(
       `  Injected --session-state-dir in ${sessionStateDirMatches.length} awf invocation(s)`
     );
-  } else {
-    log.push(`  --session-state-dir already present (or no awf invocation found)`);
+  }
+
+  // Current gh-aw passes logging directories via awf-config.json rather than
+  // --audit-dir, so anchor on the --config flag instead.
+  sessionStateDirConfigInjectionRegex.lastIndex = 0;
+  const sessionStateDirConfigMatches = content.match(sessionStateDirConfigInjectionRegex);
+  if (sessionStateDirConfigMatches) {
+    content = content.replace(
+      sessionStateDirConfigInjectionRegex,
+      (match) => `${match} --session-state-dir ${SESSION_STATE_DIR}`
+    );
+    log.push(
+      `  Injected --session-state-dir in ${sessionStateDirConfigMatches.length} awf --config invocation(s)`
+    );
+  }
+
+  if (!sessionStateDirMatches && !sessionStateDirConfigMatches) {
+    if (content.includes(`--session-state-dir ${SESSION_STATE_DIR}`)) {
+      log.push(`  --session-state-dir already present`);
+    } else if (content.includes('awf --config') || content.includes('--audit-dir')) {
+      log.push(
+        `  WARNING: awf invocation found but --session-state-dir could not be injected; ` +
+          `the Copilot step summary will render an empty conversation`
+      );
+    }
   }
 
   // Normalize legacy api-proxy log directory paths to the current logs folder.

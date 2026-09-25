@@ -21,6 +21,7 @@ import {
   CODEX_PROXY_ENV_KEY_REGEX,
   SESSION_STATE_DIR,
   sessionStateDirInjectionRegex,
+  sessionStateDirConfigInjectionRegex,
   legacyApiProxyLogsDirRegex,
   copySessionStateStepRegex,
   copilotCliDaemonCopyStepRegex,
@@ -432,6 +433,48 @@ describe('sessionStateDirInjectionRegex', () => {
     );
     const count = (result.match(/--session-state-dir/g) || []).length;
     expect(count).toBe(2);
+  });
+});
+
+describe('sessionStateDirConfigInjectionRegex', () => {
+  const awfConfigInvocation =
+    '            awf --config "${RUNNER_TEMP}/gh-aw/awf-config.json" --container-workdir "${GITHUB_WORKSPACE}" --build-local';
+
+  beforeEach(() => {
+    sessionStateDirConfigInjectionRegex.lastIndex = 0;
+  });
+
+  it('should match the config-file based awf invocation', () => {
+    expect(sessionStateDirConfigInjectionRegex.test(awfConfigInvocation)).toBe(true);
+  });
+
+  it('should NOT match when --session-state-dir is already injected (idempotent)', () => {
+    const input = awfConfigInvocation.replace(
+      'awf-config.json"',
+      `awf-config.json" --session-state-dir ${SESSION_STATE_DIR}`
+    );
+    expect(sessionStateDirConfigInjectionRegex.test(input)).toBe(false);
+  });
+
+  it('should inject --session-state-dir without disturbing other flags', () => {
+    const result = awfConfigInvocation.replace(
+      sessionStateDirConfigInjectionRegex,
+      (match) => `${match} --session-state-dir ${SESSION_STATE_DIR}`
+    );
+    expect(result).toContain(
+      `awf --config "\${RUNNER_TEMP}/gh-aw/awf-config.json" --session-state-dir ${SESSION_STATE_DIR}`
+    );
+    expect(result).toContain('--container-workdir "${GITHUB_WORKSPACE}"');
+    expect(result).toContain('--build-local');
+  });
+
+  it('should inject in all occurrences (global flag)', () => {
+    const input = `${awfConfigInvocation}\n${awfConfigInvocation}\n`;
+    const result = input.replace(
+      sessionStateDirConfigInjectionRegex,
+      (match) => `${match} --session-state-dir ${SESSION_STATE_DIR}`
+    );
+    expect((result.match(/--session-state-dir/g) || []).length).toBe(2);
   });
 });
 

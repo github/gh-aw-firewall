@@ -86,8 +86,17 @@ export function patchLocalBuildCloudHypervisorArtifacts(content: string): string
 // Inject --session-state-dir into AWF invocations so Copilot CLI session-state
 // (events.jsonl) is written to a predictable host path that artifact upload can
 // read. A global regex is used because some lock files contain two agent jobs.
+//
+// Two invocation shapes are supported:
+//   1. Legacy: logging directories passed as CLI flags (`--audit-dir ...`).
+//   2. Current: logging directories passed via the generated awf-config.json
+//      (`awf --config "${RUNNER_TEMP}/gh-aw/awf-config.json" ...`). gh-aw moved
+//      auditDir into `logging.auditDir` there, which silently broke the legacy
+//      pattern and left the Copilot step summary without a conversation.
 export const sessionStateDirInjectionRegex =
   /--audit-dir \/tmp\/gh-aw\/sandbox\/firewall\/audit(?! --session-state-dir)/g;
+export const sessionStateDirConfigInjectionRegex =
+  /awf --config "\$\{RUNNER_TEMP\}\/gh-aw\/awf-config\.json"(?! --session-state-dir)/g;
 export const SESSION_STATE_DIR = '/tmp/gh-aw/sandbox/agent/session-state';
 export const legacyApiProxyLogsDirRegex =
   /\/tmp\/gh-aw\/sandbox\/firewall\/logs\/api-proxy(?!-logs)/g;
