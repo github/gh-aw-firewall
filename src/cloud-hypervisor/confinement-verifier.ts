@@ -189,7 +189,17 @@ export async function verifyCloudHypervisorConfinement(
   }
   for (const taskId of finalTaskIds) {
     const expectedStartTime = taskStartTimes.get(taskId);
-    if (expectedStartTime === undefined) continue;
+    if (expectedStartTime === undefined) {
+      verifyThreadStatus(
+        parseStatus(await dependencies.readFile(
+          path.join(taskDirectory, String(taskId), 'status'),
+          'utf8',
+        )),
+        taskId,
+        options,
+      );
+      continue;
+    }
     const finalTaskStartTime = parseProcessStartTime(
       await dependencies.readFile(path.join(taskDirectory, String(taskId), 'stat'), 'utf8'),
     );

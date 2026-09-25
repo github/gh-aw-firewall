@@ -53,6 +53,7 @@ function dependencies(overrides: {
   finalTaskIds?: number[];
   finalTaskStartTime?: string;
   workerStatus?: string;
+  newWorkerStatus?: string;
   cgroupProcs?: string;
   groups?: string;
 } = {}): CloudHypervisorConfinementVerifierDependencies {
@@ -64,7 +65,8 @@ function dependencies(overrides: {
     [`/proc/${PID}/task/${PID + 1}/status`]:
       overrides.workerStatus ?? status('vmm', 2, PID + 1, overrides.groups),
     [`/proc/${PID}/task/${PID + 2}/status`]: status('http-server', 2, PID + 2, overrides.groups),
-    [`/proc/${PID}/task/${PID + 3}/status`]: status('worker', 2, PID + 3, overrides.groups),
+    [`/proc/${PID}/task/${PID + 3}/status`]:
+      overrides.newWorkerStatus ?? status('worker', 2, PID + 3, overrides.groups),
     [`/proc/${PID}/cgroup`]: '0::/awf-cloud-hypervisor/run-1\n',
     [`${CGROUP}/cgroup.procs`]: overrides.cgroupProcs ?? `${PID}\n`,
     [`${CGROUP}/memory.max`]: '805306368\n',
@@ -105,7 +107,8 @@ function dependencies(overrides: {
     }),
     readdir: jest.fn()
       .mockResolvedValueOnce((overrides.initialTaskIds ?? [PID, PID + 1, PID + 2]).map(String))
-      .mockResolvedValueOnce((overrides.finalTaskIds ?? [PID, PID + 1, PID + 2]).map(String)),
+      .mockResolvedValueOnce((overrides.finalTaskIds ?? [PID, PID + 1, PID + 2]).map(String))
+      .mockRejectedValue(new Error('unexpected task readdir')),
     realpath: jest.fn().mockResolvedValue('/opt/cloud-hypervisor'),
     stat: jest.fn().mockResolvedValue({ ino: 4026533000n }),
   };
@@ -200,6 +203,16 @@ describe('verifyCloudHypervisorConfinement', () => {
       options(),
       dependencies({ finalTaskStartTime: '12345' }),
     )).rejects.toThrow(/thread 4242 start time.*12345.*103242/);
+  });
+
+  it('rejects a newly appeared thread without no_new_privs', async () => {
+    await expect(verifyCloudHypervisorConfinement(
+      options(),
+      dependencies({
+        finalTaskIds: [PID, PID + 1, PID + 2, PID + 3],
+        newWorkerStatus: status('worker', 2, PID + 3).replace('NoNewPrivs:\t1', 'NoNewPrivs:\t0'),
+      }),
+    )).rejects.toThrow(/thread 4245.*NoNewPrivs/);
   });
 
   it('identifies an executable change between snapshots', async () => {

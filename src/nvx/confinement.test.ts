@@ -42,6 +42,7 @@ function dependencies(overrides: {
   initialTaskIds?: number[];
   finalTaskIds?: number[];
   finalTaskStartTime?: string;
+  newTaskStatus?: string;
   cgroupPids?: string;
 } = {}): NvxConfinementVerifierDependencies {
   let processStatReads = 0;
@@ -49,7 +50,7 @@ function dependencies(overrides: {
   let taskStatReads = 0;
   const files: Record<string, string> = {
     [`/proc/${PID}/task/${PID}/status`]: overrides.status ?? status(PID),
-    [`/proc/${PID}/task/${PID + 1}/status`]: status(PID + 1),
+    [`/proc/${PID}/task/${PID + 1}/status`]: overrides.newTaskStatus ?? status(PID + 1),
     [`/proc/${PID}/task/${PID + 1}/stat`]: procStat(PID + 1, '44444'),
     [`/proc/${PID}/cgroup`]: `0::/awf-nvx/${RUN_ID}\n`,
     [`${CGROUP}/cgroup.procs`]:
@@ -88,7 +89,8 @@ function dependencies(overrides: {
     }),
     readdir: jest.fn()
       .mockResolvedValueOnce((overrides.initialTaskIds ?? [PID]).map(String))
-      .mockResolvedValueOnce((overrides.finalTaskIds ?? [PID]).map(String)),
+      .mockResolvedValueOnce((overrides.finalTaskIds ?? [PID]).map(String))
+      .mockRejectedValue(new Error('unexpected task readdir')),
     realpath: jest.fn().mockResolvedValue('/trusted/openvmm'),
     stat: jest.fn(async (filePath) => {
       if (filePath === '/trusted/openvmm') return { dev: 10n, ino: 20n };
@@ -313,6 +315,16 @@ describe('NVX host confinement', () => {
       verificationOptions(),
       dependencies({ finalTaskStartTime: '55555' }),
     )).rejects.toThrow(/thread 4242 start time.*55555.*22222/);
+  });
+
+  it('rejects an unconstrained newly appeared thread', async () => {
+    await expect(verifyNvxConfinement(
+      verificationOptions(),
+      dependencies({
+        finalTaskIds: [PID, PID + 1],
+        newTaskStatus: status(PID + 1, { Seccomp: '0' }),
+      }),
+    )).rejects.toThrow(/thread 4243.*seccomp filter mode 2/);
   });
 
   it('identifies an executable change between snapshots', async () => {
