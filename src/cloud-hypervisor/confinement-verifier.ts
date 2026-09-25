@@ -91,25 +91,43 @@ export async function verifyCloudHypervisorConfinement(
   }
 
   const taskDirectory = path.join(procDirectory, 'task');
-  const taskIds = parseTaskIds(await dependencies.readdir(taskDirectory));
-  const taskStartTimes = new Map<number, string>();
   const relevantThreadIds: number[] = [];
   const relevantThreadNames = new Set<string>();
-  for (const taskId of taskIds) {
-    taskStartTimes.set(
-      taskId,
-      parseProcessStartTime(
+  const readTaskStartTime = async (taskId: number): Promise<string | undefined> => {
+    try {
+      return parseProcessStartTime(
         await dependencies.readFile(path.join(taskDirectory, String(taskId), 'stat'), 'utf8'),
-      ),
-    );
-    const status = parseStatus(
-      await dependencies.readFile(path.join(taskDirectory, String(taskId), 'status'), 'utf8'),
-    );
+      );
+    } catch (error) {
+      // A worker thread may exit between readdir and the read; the main thread may not.
+      if (taskId !== options.pid && isVanishedTaskError(error)) return undefined;
+      throw error;
+    }
+  };
+  const verifyTask = async (taskId: number): Promise<string | undefined> => {
+    const startTime = await readTaskStartTime(taskId);
+    if (startTime === undefined) return undefined;
+    let status: Readonly<Record<string, string>>;
+    try {
+      status = parseStatus(
+        await dependencies.readFile(path.join(taskDirectory, String(taskId), 'status'), 'utf8'),
+      );
+    } catch (error) {
+      if (taskId !== options.pid && isVanishedTaskError(error)) return undefined;
+      throw error;
+    }
     const name = verifyThreadStatus(status, taskId, options);
-    if (name !== undefined) {
+    if (name !== undefined && !relevantThreadIds.includes(taskId)) {
       relevantThreadIds.push(taskId);
       relevantThreadNames.add(name);
     }
+    return startTime;
+  };
+  const taskIds = parseTaskIds(await dependencies.readdir(taskDirectory));
+  const taskStartTimes = new Map<number, string>();
+  for (const taskId of taskIds) {
+    const startTime = await verifyTask(taskId);
+    if (startTime !== undefined) taskStartTimes.set(taskId, startTime);
   }
   const missingRelevantThreads = SECCOMP_RELEVANT_THREAD_NAMES.filter(
     (name) => !relevantThreadNames.has(name),
@@ -171,27 +189,37 @@ export async function verifyCloudHypervisorConfinement(
     );
   }
 
+  // Cloud Hypervisor legitimately creates and retires worker threads while it runs.
+  // /proc/<pid>/task only lists members of this thread group, so exited threads are
+  // dropped and new or recycled TIDs are verified before being accepted.
   const finalTaskIds = parseTaskIds(await dependencies.readdir(taskDirectory));
-  const finalStat = await dependencies.readFile(path.join(procDirectory, 'stat'), 'utf8');
-  const finalStartTime = parseProcessStartTime(finalStat);
-  const finalExecutable = await dependencies.readlink(path.join(procDirectory, 'exe'));
-  const finalTaskStartTimes = new Map<number, string>();
+  let verifiedThreadCount = 0;
   for (const taskId of finalTaskIds) {
-    finalTaskStartTimes.set(
-      taskId,
-      parseProcessStartTime(
-        await dependencies.readFile(path.join(taskDirectory, String(taskId), 'stat'), 'utf8'),
-      ),
+    const priorStartTime = taskStartTimes.get(taskId);
+    if (priorStartTime !== undefined) {
+      const startTime = await readTaskStartTime(taskId);
+      if (startTime === undefined) continue;
+      if (startTime === priorStartTime) {
+        verifiedThreadCount += 1;
+        continue;
+      }
+    }
+    if (await verifyTask(taskId) !== undefined) verifiedThreadCount += 1;
+  }
+  const finalStartTime = parseProcessStartTime(
+    await dependencies.readFile(path.join(procDirectory, 'stat'), 'utf8'),
+  );
+  if (finalStartTime !== initialStartTime) {
+    throw new Error(
+      `Cloud Hypervisor confinement verification detected a process identity race: PID ` +
+      `${options.pid} start time changed from ${initialStartTime} to ${finalStartTime}`,
     );
   }
-  if (
-    finalStartTime !== initialStartTime ||
-    finalExecutable !== executable ||
-    finalTaskIds.join(',') !== taskIds.join(',') ||
-    finalTaskIds.some((taskId) => finalTaskStartTimes.get(taskId) !== taskStartTimes.get(taskId))
-  ) {
+  const finalExecutable = await dependencies.readlink(path.join(procDirectory, 'exe'));
+  if (finalExecutable !== executable) {
     throw new Error(
-      'Cloud Hypervisor confinement verification detected a process identity or thread-set race',
+      `Cloud Hypervisor confinement verification detected a process identity race: executable ` +
+      `changed from ${JSON.stringify(executable)} to ${JSON.stringify(finalExecutable)}`,
     );
   }
 
@@ -213,7 +241,7 @@ export async function verifyCloudHypervisorConfinement(
     seccomp: {
       mode: 2,
       relevantThreadIds,
-      observedThreadCount: taskIds.length,
+      observedThreadCount: verifiedThreadCount,
     },
     networkNamespace: {
       name: options.networkNamespace,
@@ -345,6 +373,11 @@ function parseNumericFields(value: string, label: string): number[] {
 
 function parseNumericLines(value: string, label: string): number[] {
   return parseNumericFields(value.replace(/\n/g, ' '), label);
+}
+
+function isVanishedTaskError(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException | undefined)?.code;
+  return code === 'ENOENT' || code === 'ESRCH';
 }
 
 function parseTaskIds(entries: readonly string[]): number[] {
