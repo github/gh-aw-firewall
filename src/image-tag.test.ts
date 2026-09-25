@@ -1,18 +1,5 @@
 import path from 'path';
-import { parseImageTag, buildRuntimeImageRef, assignImageSource } from './image-tag';
-
-const IMAGE_DIGEST_KEYS = [
-  'squid',
-  'agent',
-  'agent-act',
-  'api-proxy',
-  'router',
-  'cli-proxy',
-  'build-tools',
-  'enclave-script',
-  'enclave-agent',
-  'enclave-mcp-server',
-] as const;
+import { parseImageTag, buildRuntimeImageRef, assignImageSource, IMAGE_DIGEST_KEYS } from './image-tag';
 
 const VALID_DIGEST = 'sha256:' + 'a'.repeat(64);
 
