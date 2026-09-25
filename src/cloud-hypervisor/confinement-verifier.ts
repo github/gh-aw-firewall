@@ -193,6 +193,11 @@ export async function verifyCloudHypervisorConfinement(
   // /proc/<pid>/task only lists members of this thread group, so exited threads are
   // dropped and new or recycled TIDs are verified before being accepted.
   const finalTaskIds = parseTaskIds(await dependencies.readdir(taskDirectory));
+  if (!finalTaskIds.includes(options.pid)) {
+    throw new Error(
+      `Cloud Hypervisor confinement verification final task set is missing main thread ${options.pid}`,
+    );
+  }
   let verifiedThreadCount = 0;
   for (const taskId of finalTaskIds) {
     const priorStartTime = taskStartTimes.get(taskId);
