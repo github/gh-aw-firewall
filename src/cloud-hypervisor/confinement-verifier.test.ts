@@ -48,34 +48,28 @@ function procStat(startTime: string): string {
 function dependencies(overrides: {
   statReads?: string[];
   executable?: string;
-  finalExecutable?: string;
-  initialTaskIds?: number[];
-  finalTaskIds?: number[];
-  finalTaskStartTime?: string;
   workerStatus?: string;
-  newWorkerStatus?: string;
   cgroupProcs?: string;
   groups?: string;
-  enoentFinalTaskStatIds?: number[];
-  enoentFinalTaskStatusIds?: number[];
+  taskListings?: string[][];
+  extraFiles?: Record<string, string>;
+  taskStartTime?: (taskId: number, read: number) => string;
+  vanishedTasks?: readonly number[];
 } = {}): CloudHypervisorConfinementVerifierDependencies {
+  const taskListings = [...(overrides.taskListings ?? [])];
+  const taskStatReads = new Map<number, number>();
   const statReads = [...(overrides.statReads ?? [procStat('98765'), procStat('98765')])];
-  let executableReads = 0;
-  const taskStatReads = new Map<string, number>();
-  const enoentFinalTaskStatIds = new Set(overrides.enoentFinalTaskStatIds ?? []);
-  const enoentFinalTaskStatusIds = new Set(overrides.enoentFinalTaskStatusIds ?? []);
   const files: Record<string, string> = {
     [`/proc/${PID}/task/${PID}/status`]: status('cloud-hypervis', 0, PID, overrides.groups),
     [`/proc/${PID}/task/${PID + 1}/status`]:
       overrides.workerStatus ?? status('vmm', 2, PID + 1, overrides.groups),
     [`/proc/${PID}/task/${PID + 2}/status`]: status('http-server', 2, PID + 2, overrides.groups),
-    [`/proc/${PID}/task/${PID + 3}/status`]:
-      overrides.newWorkerStatus ?? status('worker', 2, PID + 3, overrides.groups),
     [`/proc/${PID}/cgroup`]: '0::/awf-cloud-hypervisor/run-1\n',
     [`${CGROUP}/cgroup.procs`]: overrides.cgroupProcs ?? `${PID}\n`,
     [`${CGROUP}/memory.max`]: '805306368\n',
     [`${CGROUP}/cpu.max`]: '300000 100000\n',
     [`${CGROUP}/pids.max`]: '256\n',
+    ...overrides.extraFiles,
   };
   return {
     readFile: jest.fn(async (filePath) => {
@@ -84,21 +78,16 @@ function dependencies(overrides: {
         if (!value) throw new Error('unexpected stat read');
         return value;
       }
-      const taskStatusMatch = filePath.match(new RegExp(`^/proc/${PID}/task/(\\d+)/status$`));
-      if (taskStatusMatch && enoentFinalTaskStatusIds.has(Number(taskStatusMatch[1]))) {
+      const taskMatch = filePath.match(new RegExp(`^/proc/${PID}/task/(\\d+)/`));
+      if (taskMatch && overrides.vanishedTasks?.includes(Number(taskMatch[1]))) {
         throw Object.assign(new Error(`ENOENT: ${filePath}`), { code: 'ENOENT' });
       }
       const taskStatMatch = filePath.match(new RegExp(`^/proc/${PID}/task/(\\d+)/stat$`));
       if (taskStatMatch) {
-        const reads = (taskStatReads.get(filePath) ?? 0) + 1;
-        taskStatReads.set(filePath, reads);
-        if (reads === 2 && enoentFinalTaskStatIds.has(Number(taskStatMatch[1]))) {
-          throw Object.assign(new Error(`ENOENT: ${filePath}`), { code: 'ENOENT' });
-        }
-        return procStat(
-          reads === 1 ? String(99000 + Number(taskStatMatch[1]))
-            : overrides.finalTaskStartTime ?? String(99000 + Number(taskStatMatch[1])),
-        );
+        const taskId = Number(taskStatMatch[1]);
+        const read = (taskStatReads.get(taskId) ?? 0) + 1;
+        taskStatReads.set(taskId, read);
+        return procStat(overrides.taskStartTime?.(taskId, read) ?? String(99000 + taskId));
       }
       const value = files[filePath];
       if (value === undefined) throw new Error(`unexpected read: ${filePath}`);
@@ -106,20 +95,16 @@ function dependencies(overrides: {
     }),
     readlink: jest.fn(async (filePath) => {
       if (filePath === `/proc/${PID}/exe`) {
-        executableReads += 1;
-        return executableReads === 1
-          ? overrides.executable ?? '/opt/cloud-hypervisor'
-          : overrides.finalExecutable ?? overrides.executable ?? '/opt/cloud-hypervisor';
+        return overrides.executable ?? '/opt/cloud-hypervisor';
       }
       if (filePath === `/proc/${PID}/ns/net`) {
         return 'net:[4026533000]';
       }
       throw new Error(`unexpected readlink: ${filePath}`);
     }),
-    readdir: jest.fn()
-      .mockResolvedValueOnce((overrides.initialTaskIds ?? [PID, PID + 1, PID + 2]).map(String))
-      .mockResolvedValueOnce((overrides.finalTaskIds ?? [PID, PID + 1, PID + 2]).map(String))
-      .mockRejectedValue(new Error('unexpected task readdir')),
+    readdir: jest.fn(async () => (
+      taskListings.shift() ?? [String(PID + 2), String(PID + 1), String(PID)]
+    )),
     realpath: jest.fn().mockResolvedValue('/opt/cloud-hypervisor'),
     stat: jest.fn().mockResolvedValue({ ino: 4026533000n }),
   };
@@ -194,60 +179,76 @@ describe('verifyCloudHypervisorConfinement', () => {
     await expect(verifyCloudHypervisorConfinement(
       options(),
       dependencies({ statReads: [procStat('98765'), procStat('98766')] }),
-    )).rejects.toThrow(/start time.*98766.*98765/);
+    )).rejects.toThrow(/process identity race: PID 4242 start time changed from 98765 to 98766/);
   });
 
-  it('accepts worker thread additions and departures between snapshots', async () => {
-    await expect(verifyCloudHypervisorConfinement(
-      options(),
-      dependencies({ finalTaskIds: [PID, PID + 1, PID + 2, PID + 3] }),
-    )).resolves.toHaveProperty('seccomp.observedThreadCount', 3);
-    await expect(verifyCloudHypervisorConfinement(
-      options(),
-      dependencies({ initialTaskIds: [PID, PID + 1, PID + 2, PID + 3],
-        finalTaskIds: [PID, PID + 1, PID + 2] }),
-    )).resolves.toHaveProperty('seccomp.observedThreadCount', 4);
+  it('fails closed when the executable changes while evidence is collected', async () => {
+    const deps = dependencies();
+    (deps.readlink as jest.Mock)
+      .mockResolvedValueOnce('/opt/cloud-hypervisor')
+      .mockResolvedValueOnce('net:[4026533000]')
+      .mockResolvedValueOnce('/usr/bin/python3');
+    await expect(verifyCloudHypervisorConfinement(options(), deps))
+      .rejects.toThrow(/process identity race: executable changed/);
   });
 
-  it('tolerates a surviving thread exiting before its final stat read', async () => {
-    await expect(verifyCloudHypervisorConfinement(
-      options(),
-      dependencies({ enoentFinalTaskStatIds: [PID + 2] }),
-    )).resolves.toHaveProperty('seccomp.observedThreadCount', 3);
-  });
+  describe('benign thread churn', () => {
+    const base = [String(PID), String(PID + 1), String(PID + 2)];
 
-  it('tolerates a newly observed thread exiting before its status read', async () => {
-    await expect(verifyCloudHypervisorConfinement(
-      options(),
-      dependencies({
-        finalTaskIds: [PID, PID + 1, PID + 2, PID + 3],
-        enoentFinalTaskStatusIds: [PID + 3],
-      }),
-    )).resolves.toHaveProperty('seccomp.observedThreadCount', 3);
-  });
+    it('accepts and verifies a worker thread created between samples', async () => {
+      const result = await verifyCloudHypervisorConfinement(options(), dependencies({
+        taskListings: [base, [...base, String(PID + 3)]],
+        extraFiles: {
+          [`/proc/${PID}/task/${PID + 3}/status`]: status('virtio-blk', 0, PID + 3),
+        },
+      }));
+      expect(result.seccomp.observedThreadCount).toBe(4);
+    });
 
-  it('rejects surviving TID recycling with observed and expected start times', async () => {
-    await expect(verifyCloudHypervisorConfinement(
-      options(),
-      dependencies({ finalTaskStartTime: '12345' }),
-    )).rejects.toThrow(/thread 4242 start time.*12345.*103242/);
-  });
+    it('rejects a new thread that does not satisfy the confinement policy', async () => {
+      await expect(verifyCloudHypervisorConfinement(options(), dependencies({
+        taskListings: [base, [...base, String(PID + 3)]],
+        extraFiles: {
+          [`/proc/${PID}/task/${PID + 3}/status`]:
+            status('virtio-blk', 0, PID + 3).replace('NoNewPrivs:\t1', 'NoNewPrivs:\t0'),
+        },
+      }))).rejects.toThrow(/thread 4245 does not have NoNewPrivs/);
+    });
 
-  it('rejects a newly appeared thread without no_new_privs', async () => {
-    await expect(verifyCloudHypervisorConfinement(
-      options(),
-      dependencies({
-        finalTaskIds: [PID, PID + 1, PID + 2, PID + 3],
-        newWorkerStatus: status('worker', 2, PID + 3).replace('NoNewPrivs:\t1', 'NoNewPrivs:\t0'),
-      }),
-    )).rejects.toThrow(/thread 4245.*NoNewPrivs/);
-  });
+    it('accepts a worker thread exiting between samples or between readdir and read', async () => {
+      const result = await verifyCloudHypervisorConfinement(options(), dependencies({
+        taskListings: [[...base, String(PID + 3)], base],
+        vanishedTasks: [PID + 3],
+      }));
+      expect(result.seccomp.observedThreadCount).toBe(3);
+    });
 
-  it('identifies an executable change between snapshots', async () => {
-    await expect(verifyCloudHypervisorConfinement(
-      options(),
-      dependencies({ finalExecutable: '/usr/bin/setpriv' }),
-    )).rejects.toThrow(/executable.*setpriv.*cloud-hypervisor/);
+    it('re-verifies a recycled thread ID instead of trusting the earlier sample', async () => {
+      const deps = dependencies({
+        taskStartTime: (taskId, read) => (taskId === PID + 2 && read > 1 ? '12345' : String(99000 + taskId)),
+      });
+      await expect(verifyCloudHypervisorConfinement(options(), deps)).resolves.toEqual(
+        expect.objectContaining({
+          seccomp: expect.objectContaining({ relevantThreadIds: [PID + 1, PID + 2] }),
+        }),
+      );
+      const statusReads = (deps.readFile as jest.Mock).mock.calls
+        .filter(([filePath]) => filePath === `/proc/${PID}/task/${PID + 2}/status`);
+      expect(statusReads).toHaveLength(2);
+    });
+
+    it('still fails when the main thread disappears', async () => {
+      await expect(verifyCloudHypervisorConfinement(options(), dependencies({
+        vanishedTasks: [PID],
+      }))).rejects.toThrow(/ENOENT/);
+    });
+
+    it('enforces the thread bound on the final sample', async () => {
+      const many = Array.from({ length: 257 }, (_, index) => String(PID + index));
+      await expect(verifyCloudHypervisorConfinement(options(), dependencies({
+        taskListings: [base, many],
+      }))).rejects.toThrow(/257 threads, exceeding the 256 thread evidence bound/);
+    });
   });
 
   it('rejects a different executable even when the PID exists', async () => {

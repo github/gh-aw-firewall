@@ -263,26 +263,39 @@ Promise<NvxConfinementEvidence> {
   }
 
   const taskDirectory = path.join(procDirectory, 'task');
-  const taskIds = parseNumericEntries(await dependencies.readdir(taskDirectory), 'task');
-  if (taskIds.length > MAX_VERIFIED_THREADS) {
-    throw new Error(`NVX OpenVMM exceeds the ${MAX_VERIFIED_THREADS}-thread verification limit`);
-  }
+  const verifyTask = async (taskId: number): Promise<string | undefined> => {
+    const taskPath = path.join(taskDirectory, String(taskId));
+    try {
+      const startTime = parseProcessStartTime(
+        await dependencies.readFile(path.join(taskPath, 'stat'), 'utf8'),
+      );
+      verifyStatus(
+        parseStatus(await dependencies.readFile(path.join(taskPath, 'status'), 'utf8')),
+        taskId,
+        options,
+      );
+      return startTime;
+    } catch (error) {
+      // A worker thread may exit between readdir and the read; the main thread may not.
+      if (taskId !== options.openvmmPid && isMissingProcEntryError(error)) return undefined;
+      throw error;
+    }
+  };
+  const readTaskStartTime = async (taskId: number): Promise<string | undefined> => {
+    try {
+      return parseProcessStartTime(
+        await dependencies.readFile(path.join(taskDirectory, String(taskId), 'stat'), 'utf8'),
+      );
+    } catch (error) {
+      if (taskId !== options.openvmmPid && isMissingProcEntryError(error)) return undefined;
+      throw error;
+    }
+  };
+  const taskIds = readTaskIds(await dependencies.readdir(taskDirectory));
   const taskStartTimes = new Map<number, string>();
   for (const taskId of taskIds) {
-    taskStartTimes.set(taskId, parseProcessStartTime(
-      await dependencies.readFile(
-        path.join(taskDirectory, String(taskId), 'stat'),
-        'utf8',
-      ),
-    ));
-    verifyStatus(
-      parseStatus(await dependencies.readFile(
-        path.join(taskDirectory, String(taskId), 'status'),
-        'utf8',
-      )),
-      taskId,
-      options,
-    );
+    const startTime = await verifyTask(taskId);
+    if (startTime !== undefined) taskStartTimes.set(taskId, startTime);
   }
 
   const membership = parseUnifiedCgroup(
@@ -341,58 +354,48 @@ Promise<NvxConfinementEvidence> {
     throw new Error('NVX OpenVMM is not in the expected filesystem jail namespace');
   }
 
-  const finalTaskIds = parseNumericEntries(await dependencies.readdir(taskDirectory), 'task');
-  if (finalTaskIds.length > MAX_VERIFIED_THREADS) {
-    throw new Error(`NVX OpenVMM exceeds the ${MAX_VERIFIED_THREADS}-thread verification limit`);
+  // OpenVMM legitimately creates and retires worker threads while it initialises.
+  // /proc/<pid>/task only lists members of this thread group, so exited threads are
+  // dropped and new or recycled TIDs are verified before being accepted.
+  const finalTaskIds = readTaskIds(await dependencies.readdir(taskDirectory));
+  if (!finalTaskIds.includes(options.openvmmPid)) {
+    throw new Error(`NVX confinement final task set is missing main thread ${options.openvmmPid}`);
+  }
+  let verifiedThreadCount = 0;
+  for (const taskId of finalTaskIds) {
+    const priorStartTime = taskStartTimes.get(taskId);
+    if (priorStartTime !== undefined) {
+      const startTime = await readTaskStartTime(taskId);
+      if (startTime === undefined) continue;
+      if (startTime === priorStartTime) {
+        verifiedThreadCount += 1;
+        continue;
+      }
+    }
+    if (await verifyTask(taskId) !== undefined) verifiedThreadCount += 1;
   }
   const finalStartTime = parseProcessStartTime(
     await dependencies.readFile(path.join(procDirectory, 'stat'), 'utf8'),
   );
-  const finalExecutable = await dependencies.readlink(path.join(procDirectory, 'exe'));
   if (finalStartTime !== initialStartTime) {
     throw new Error(
-      `NVX confinement found process start time ${finalStartTime}, expected ${initialStartTime}`,
+      `NVX confinement detected a process identity race: OpenVMM pid ${options.openvmmPid} ` +
+      `start time changed from ${initialStartTime} to ${finalStartTime}`,
     );
   }
-  if (finalExecutable !== executable) {
+  const finalExecutable = await dependencies.readlink(path.join(procDirectory, 'exe'));
+  const finalExecutableIdentity = await dependencies.stat(path.join(procDirectory, 'exe'));
+  if (
+    finalExecutable !== executable ||
+    finalExecutableIdentity.dev !== executableIdentity.dev ||
+    finalExecutableIdentity.ino !== executableIdentity.ino
+  ) {
     throw new Error(
-      `NVX confinement found executable ${JSON.stringify(finalExecutable)}, ` +
-      `expected ${JSON.stringify(executable)}`,
+      `NVX confinement detected a process identity race: OpenVMM executable changed from ` +
+      `${JSON.stringify(executable)} (${executableIdentity.dev}:${executableIdentity.ino}) to ` +
+      `${JSON.stringify(finalExecutable)} ` +
+      `(${finalExecutableIdentity.dev}:${finalExecutableIdentity.ino})`,
     );
-  }
-  for (const taskId of finalTaskIds) {
-    const expectedStartTime = taskStartTimes.get(taskId);
-    if (expectedStartTime === undefined) {
-      let statusContents: string;
-      try {
-        statusContents = await dependencies.readFile(
-          path.join(taskDirectory, String(taskId), 'status'),
-          'utf8',
-        );
-      } catch (error) {
-        if (isMissingProcEntryError(error)) continue;
-        throw error;
-      }
-      verifyStatus(parseStatus(statusContents), taskId, options);
-      continue;
-    }
-    let finalTaskStat: string;
-    try {
-      finalTaskStat = await dependencies.readFile(
-        path.join(taskDirectory, String(taskId), 'stat'),
-        'utf8',
-      );
-    } catch (error) {
-      if (isMissingProcEntryError(error)) continue;
-      throw error;
-    }
-    const finalTaskStartTime = parseProcessStartTime(finalTaskStat);
-    if (finalTaskStartTime !== expectedStartTime) {
-      throw new Error(
-        `NVX confinement found thread ${taskId} start time ${finalTaskStartTime}, ` +
-        `expected ${expectedStartTime}`,
-      );
-    }
   }
 
   return {
@@ -402,7 +405,7 @@ Promise<NvxConfinementEvidence> {
       pid: options.openvmmPid,
       startTimeTicks: initialStartTime,
       executable,
-      threadCount: taskIds.length,
+      threadCount: verifiedThreadCount,
     },
     identity: {
       uid: options.identity.uid,
@@ -423,6 +426,17 @@ Promise<NvxConfinementEvidence> {
       limits: observedLimits,
     },
   };
+}
+
+function readTaskIds(entries: readonly string[]): number[] {
+  const taskIds = parseNumericEntries(entries, 'task');
+  if (taskIds.length > MAX_VERIFIED_THREADS) {
+    throw new Error(
+      `NVX OpenVMM has ${taskIds.length} threads, exceeding the ` +
+      `${MAX_VERIFIED_THREADS}-thread verification limit`,
+    );
+  }
+  return taskIds;
 }
 
 function verifyStatus(

@@ -38,28 +38,27 @@ function dependencies(overrides: {
   executableIdentityMismatch?: boolean;
   status?: string;
   finalStartTime?: string;
-  finalExecutable?: string;
-  initialTaskIds?: number[];
-  finalTaskIds?: number[];
-  finalTaskStartTime?: string;
-  newTaskStatus?: string;
   cgroupPids?: string;
-  enoentFinalTaskStat?: boolean;
-  enoentNewTaskStatus?: boolean;
+  taskListings?: string[][];
+  extraFiles?: Record<string, string>;
+  taskStartTime?: (taskId: number, read: number) => string;
+  vanishedTasks?: readonly number[];
+  finalExecutableIdentityMismatch?: boolean;
 } = {}): NvxConfinementVerifierDependencies {
   let processStatReads = 0;
-  let executableReads = 0;
-  let taskStatReads = 0;
+  let executableStats = 0;
+  const taskListings = [...(overrides.taskListings ?? [])];
+  const taskStatReads = new Map<number, number>();
   const files: Record<string, string> = {
     [`/proc/${PID}/task/${PID}/status`]: overrides.status ?? status(PID),
-    [`/proc/${PID}/task/${PID + 1}/status`]: overrides.newTaskStatus ?? status(PID + 1),
-    [`/proc/${PID}/task/${PID + 1}/stat`]: procStat(PID + 1, '44444'),
+    [`/proc/${PID}/task/${PID}/stat`]: procStat(PID, '22222'),
     [`/proc/${PID}/cgroup`]: `0::/awf-nvx/${RUN_ID}\n`,
     [`${CGROUP}/cgroup.procs`]:
       overrides.cgroupPids ?? `${LAUNCHER_PID}\n${PID}\n`,
     [`${CGROUP}/memory.max`]: '805306368\n',
     [`${CGROUP}/cpu.max`]: '300000 100000\n',
     [`${CGROUP}/pids.max`]: '256\n',
+    ...overrides.extraFiles,
   };
   return {
     readFile: jest.fn(async (filePath) => {
@@ -70,15 +69,15 @@ function dependencies(overrides: {
           processStatReads === 1 ? '11111' : overrides.finalStartTime ?? '11111',
         );
       }
-      if (filePath === `/proc/${PID}/task/${PID + 1}/status` && overrides.enoentNewTaskStatus) {
+      const taskMatch = filePath.match(new RegExp(`^/proc/${PID}/task/(\\d+)/(stat|status)$`));
+      if (taskMatch && overrides.vanishedTasks?.includes(Number(taskMatch[1]))) {
         throw Object.assign(new Error(`ENOENT: ${filePath}`), { code: 'ENOENT' });
       }
-      if (filePath === `/proc/${PID}/task/${PID}/stat`) {
-        taskStatReads += 1;
-        if (taskStatReads === 2 && overrides.enoentFinalTaskStat) {
-          throw Object.assign(new Error(`ENOENT: ${filePath}`), { code: 'ENOENT' });
-        }
-        return procStat(PID, taskStatReads === 1 ? '22222' : overrides.finalTaskStartTime ?? '22222');
+      if (taskMatch?.[2] === 'stat' && overrides.taskStartTime) {
+        const taskId = Number(taskMatch[1]);
+        const read = (taskStatReads.get(taskId) ?? 0) + 1;
+        taskStatReads.set(taskId, read);
+        return procStat(taskId, overrides.taskStartTime(taskId, read));
       }
       const value = files[filePath];
       if (value === undefined) throw new Error(`unexpected read: ${filePath}`);
@@ -86,26 +85,22 @@ function dependencies(overrides: {
     }),
     readlink: jest.fn(async (filePath) => {
       if (filePath === `/proc/${PID}/exe`) {
-        executableReads += 1;
-        return executableReads === 1
-          ? overrides.executable ?? '/trusted/openvmm'
-          : overrides.finalExecutable ?? overrides.executable ?? '/trusted/openvmm';
+        return overrides.executable ?? '/trusted/openvmm';
       }
       if (filePath === `/proc/${PID}/ns/net`) return 'net:[4026533000]';
       if (filePath === `/proc/${PID}/ns/mnt`) return 'mnt:[4026533001]';
       throw new Error(`unexpected readlink: ${filePath}`);
     }),
-    readdir: jest.fn()
-      .mockResolvedValueOnce((overrides.initialTaskIds ?? [PID]).map(String))
-      .mockResolvedValueOnce((overrides.finalTaskIds ?? [PID]).map(String))
-      .mockRejectedValue(new Error('unexpected task readdir')),
+    readdir: jest.fn(async () => taskListings.shift() ?? [String(PID)]),
     realpath: jest.fn().mockResolvedValue('/trusted/openvmm'),
     stat: jest.fn(async (filePath) => {
       if (filePath === '/trusted/openvmm') return { dev: 10n, ino: 20n };
       if (filePath === `/proc/${PID}/exe`) {
-        return overrides.executableIdentityMismatch
-          ? { dev: 10n, ino: 21n }
-          : { dev: 10n, ino: 20n };
+        executableStats += 1;
+        const mismatch = executableStats === 1
+          ? overrides.executableIdentityMismatch
+          : overrides.finalExecutableIdentityMismatch;
+        return mismatch ? { dev: 10n, ino: 21n } : { dev: 10n, ino: 20n };
       }
       return { dev: 0n, ino: 4026533000n };
     }),
@@ -299,7 +294,21 @@ describe('NVX host confinement', () => {
     ['unexpected cgroup process', {
       cgroupPids: `${LAUNCHER_PID}\n${PID}\n9999\n`,
     }, /cgroup PIDs/],
-    ['PID reuse race', { finalStartTime: '33333' }, /start time.*33333.*11111/],
+    ['PID reuse race', { finalStartTime: '33333' },
+      /process identity race: OpenVMM pid 4242 start time changed from 11111 to 33333/],
+    ['executable replacement during verification', { finalExecutableIdentityMismatch: true },
+      /process identity race: OpenVMM executable changed/],
+    ['a new thread outside the confinement policy', {
+      taskListings: [[String(PID)], [String(PID), String(PID + 1)]],
+      extraFiles: {
+        [`/proc/${PID}/task/${PID + 1}/stat`]: procStat(PID + 1, '22223'),
+        [`/proc/${PID}/task/${PID + 1}/status`]: status(PID + 1, { Seccomp: '0' }),
+      },
+    }, /thread 4243 does not have seccomp filter mode 2/],
+    ['a vanished main thread', { vanishedTasks: [PID] }, /ENOENT/],
+    ['an oversized final thread set', {
+      taskListings: [[String(PID)], Array.from({ length: 257 }, (_, index) => String(PID + index))],
+    }, /257 threads, exceeding the 256-thread verification limit/],
   ])('fails closed on %s', async (_label, overrides, error) => {
     await expect(verifyNvxConfinement(
       verificationOptions(),
@@ -307,52 +316,53 @@ describe('NVX host confinement', () => {
     )).rejects.toThrow(error);
   });
 
-  it('accepts threads appearing and disappearing between snapshots', async () => {
-    await expect(verifyNvxConfinement(
-      verificationOptions(),
-      dependencies({ finalTaskIds: [PID, PID + 1] }),
-    )).resolves.toHaveProperty('process.threadCount', 1);
-    await expect(verifyNvxConfinement(
-      verificationOptions(),
-      dependencies({ initialTaskIds: [PID, PID + 1], finalTaskIds: [PID] }),
-    )).resolves.toHaveProperty('process.threadCount', 2);
-  });
+  describe('benign thread churn', () => {
+    const workerFiles = {
+      [`/proc/${PID}/task/${PID + 1}/stat`]: procStat(PID + 1, '22223'),
+      [`/proc/${PID}/task/${PID + 1}/status`]: status(PID + 1),
+    };
 
-  it('tolerates a surviving thread exiting before its final stat read', async () => {
-    await expect(verifyNvxConfinement(
-      verificationOptions(),
-      dependencies({ enoentFinalTaskStat: true }),
-    )).resolves.toHaveProperty('process.threadCount', 1);
-  });
+    it('accepts and verifies a worker thread created between samples', async () => {
+      const deps = dependencies({
+        taskListings: [[String(PID)], [String(PID), String(PID + 1)]],
+        extraFiles: workerFiles,
+      });
+      await expect(verifyNvxConfinement(verificationOptions(), deps)).resolves.toEqual(
+        expect.objectContaining({ process: expect.objectContaining({ threadCount: 2 }) }),
+      );
+      expect(deps.readFile).toHaveBeenCalledWith(`/proc/${PID}/task/${PID + 1}/status`, 'utf8');
+    });
 
-  it('tolerates a newly observed thread exiting before its status read', async () => {
-    await expect(verifyNvxConfinement(
-      verificationOptions(),
-      dependencies({ finalTaskIds: [PID, PID + 1], enoentNewTaskStatus: true }),
-    )).resolves.toHaveProperty('process.threadCount', 1);
-  });
+    it('accepts a worker thread exiting between samples', async () => {
+      await expect(verifyNvxConfinement(verificationOptions(), dependencies({
+        taskListings: [[String(PID), String(PID + 1)], [String(PID)]],
+        extraFiles: workerFiles,
+      }))).resolves.toEqual(
+        expect.objectContaining({ process: expect.objectContaining({ threadCount: 1 }) }),
+      );
+    });
 
-  it('rejects a recycled surviving TID with its observed and expected start times', async () => {
-    await expect(verifyNvxConfinement(
-      verificationOptions(),
-      dependencies({ finalTaskStartTime: '55555' }),
-    )).rejects.toThrow(/thread 4242 start time.*55555.*22222/);
-  });
+    it('accepts a worker thread exiting between readdir and read', async () => {
+      await expect(verifyNvxConfinement(verificationOptions(), dependencies({
+        taskListings: [[String(PID), String(PID + 1)], [String(PID), String(PID + 1)]],
+        vanishedTasks: [PID + 1],
+      }))).resolves.toEqual(
+        expect.objectContaining({ process: expect.objectContaining({ threadCount: 1 }) }),
+      );
+    });
 
-  it('rejects an unconstrained newly appeared thread', async () => {
-    await expect(verifyNvxConfinement(
-      verificationOptions(),
-      dependencies({
-        finalTaskIds: [PID, PID + 1],
-        newTaskStatus: status(PID + 1, { Seccomp: '0' }),
-      }),
-    )).rejects.toThrow(/thread 4243.*seccomp filter mode 2/);
-  });
-
-  it('identifies an executable change between snapshots', async () => {
-    await expect(verifyNvxConfinement(
-      verificationOptions(),
-      dependencies({ finalExecutable: '/usr/bin/python3' }),
-    )).rejects.toThrow(/executable.*python3.*openvmm/);
+    it('re-verifies a recycled thread ID instead of trusting the earlier sample', async () => {
+      const deps = dependencies({
+        taskListings: [[String(PID), String(PID + 1)], [String(PID), String(PID + 1)]],
+        extraFiles: workerFiles,
+        taskStartTime: (taskId, read) => (taskId === PID + 1 && read > 1 ? '33334' : '22222'),
+      });
+      await expect(verifyNvxConfinement(verificationOptions(), deps)).resolves.toEqual(
+        expect.objectContaining({ process: expect.objectContaining({ threadCount: 2 }) }),
+      );
+      const statusReads = (deps.readFile as jest.Mock).mock.calls
+        .filter(([filePath]) => filePath === `/proc/${PID}/task/${PID + 1}/status`);
+      expect(statusReads).toHaveLength(2);
+    });
   });
 });
