@@ -160,6 +160,12 @@ steps:
     run: |
       set -euo pipefail
       artifact_dir="$RUNNER_TEMP/nvx-attested-artifacts"
+      # actions/download-artifact restores files owned by the runner user, but
+      # NVX's preflight (assertTrustedFile in src/nvx/preflight.ts) requires
+      # every trusted artifact to be root-owned, so re-root them here.
+      sudo chown root:root "$artifact_dir"/openvmm "$artifact_dir"/vmlinux \
+        "$artifact_dir"/initramfs.cpio.gz "$artifact_dir"/manifest.json \
+        "$artifact_dir"/manifest.sigstore.jsonl
       chmod 0555 "$artifact_dir/openvmm"
       chmod 0444 "$artifact_dir/vmlinux" "$artifact_dir/initramfs.cpio.gz" \
         "$artifact_dir/manifest.json" "$artifact_dir/manifest.sigstore.jsonl"
