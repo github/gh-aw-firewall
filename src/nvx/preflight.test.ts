@@ -5,6 +5,7 @@ import {
   NVX_COMMIT,
   NVX_OPENVMM_COMMIT,
   NVX_RELEASE_TAG,
+  NVX_BUILD_TEST_SIGNER_WORKFLOW,
   NVX_SMOKE_SIGNER_WORKFLOW,
   NVX_VALIDATION_SIGNER_WORKFLOW,
 } from './artifact-manifest';
@@ -191,8 +192,10 @@ describe('NVX preflight', () => {
     );
   });
 
-  it('accepts an explicitly pinned smoke-test workflow without weakening the default', async () => {
-    const signer = NVX_SMOKE_SIGNER_WORKFLOW;
+  it.each([
+    ['Copilot smoke', NVX_SMOKE_SIGNER_WORKFLOW],
+    ['build-test smoke', NVX_BUILD_TEST_SIGNER_WORKFLOW],
+  ])('accepts the explicitly pinned %s workflow without weakening the default', async (_label, signer) => {
     const signedManifest = manifest().replace(NVX_ARTIFACT_SIGNER_WORKFLOW, signer);
     const deps = dependencies({
       readFile: jest.fn(async (filePath) => {
@@ -217,7 +220,7 @@ describe('NVX preflight', () => {
     );
   });
 
-  it('rejects signer overrides outside the three pinned AWF workflows', async () => {
+  it('rejects signer overrides outside the pinned AWF workflows', async () => {
     await expect(runNvxPreflight({
       ...options,
       expectedSignerWorkflow: 'github/gh-aw-firewall/.github/workflows/untrusted.yml',
