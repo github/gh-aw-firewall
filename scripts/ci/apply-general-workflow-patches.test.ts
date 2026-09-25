@@ -131,6 +131,52 @@ describe('applyGeneralWorkflowPatches published AWF maintenance workflows', () =
   });
 });
 
+describe('applyGeneralWorkflowPatches Cloud Hypervisor bundle retries', () => {
+  const compilerOutput =
+    'jobs:\n' +
+    '  agent:\n' +
+    '    steps:\n' +
+    '      - name: Download and verify cloud-hypervisor bundle\n' +
+    '        id: cloud-hypervisor-bundle\n' +
+    '        env:\n' +
+    '          GH_AW_AWF_VERSION: v0.28.11\n' +
+    '        run: bash "${RUNNER_TEMP}/gh-aw/actions/cloud_hypervisor_setup_bundle.sh"\n' +
+    '      - name: Setup Node.js\n' +
+    '        run: echo setup\n';
+
+  it('wraps generated bundle setup with bounded retries', () => {
+    const { content, log } = applyGeneralWorkflowPatches(
+      compilerOutput,
+      '/tmp/workflows/smoke-cloud-hypervisor.lock.yml'
+    );
+
+    expect(content).toContain('setup_status=0');
+    expect(content).toContain('for attempt in 1 2 3; do');
+    expect(content).toContain('sleep $((attempt * 10))');
+    expect(content).toContain('exit "$setup_status"');
+    expect(content).not.toContain(
+      'run: bash "${RUNNER_TEMP}/gh-aw/actions/cloud_hypervisor_setup_bundle.sh"'
+    );
+    expect(log).toContain(
+      '  Wrapped 1 Cloud Hypervisor bundle setup step(s) with retries'
+    );
+  });
+
+  it('is idempotent for an already wrapped bundle setup step', () => {
+    const first = applyGeneralWorkflowPatches(
+      compilerOutput,
+      '/tmp/workflows/smoke-cloud-hypervisor.lock.yml'
+    );
+    const second = applyGeneralWorkflowPatches(
+      first.content,
+      '/tmp/workflows/smoke-cloud-hypervisor.lock.yml'
+    );
+
+    expect(second.content).toBe(first.content);
+    expect(second.content.match(/setup_status=0/g)).toHaveLength(1);
+  });
+});
+
 describe('applyGeneralWorkflowPatches shared enclave gateway policy', () => {
   it('normalizes the generated shared gateway handoff', () => {
     const compiled =

@@ -19,6 +19,9 @@ export const installStepRegexGlobal = new RegExp(installStepRegex.source, 'gm');
 export const ripgrepInstallStepRegex =
   /^(\s+)- name: Install ripgrep\n(?:\1  timeout-minutes: 5\n)?\1  run: (?:timeout --foreground --kill-after=10s 4m )?bash "\$\{RUNNER_TEMP\}\/gh-aw\/actions\/install_ripgrep\.sh"\n/gm;
 
+export const cloudHypervisorBundleStepRegex =
+  /^(\s+)- name: Download and verify cloud-hypervisor bundle\n\1  id: cloud-hypervisor-bundle\n\1  env:\n\1    GH_AW_AWF_VERSION: ([^\n]+)\n\1  run: (?:bash "\$\{RUNNER_TEMP\}\/gh-aw\/actions\/cloud_hypervisor_setup_bundle\.sh"\n|\|\n(?:\1    .*\n)+?)(?=\1- name: )/gm;
+
 // Collapse duplicate "Setup Node.js" steps: buildLocalInstallSteps injects a
 // Setup Node.js step but some workflows already emit an identical one immediately
 // before the install step.  The backreference only matches byte-identical blocks.

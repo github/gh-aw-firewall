@@ -32,6 +32,7 @@ import {
   issueDuplicationConclusionConcurrencyRegex,
   issueDuplicationConclusionConcurrencySentinel,
   ripgrepInstallStepRegex,
+  cloudHypervisorBundleStepRegex,
   patchLocalBuildCloudHypervisorArtifacts,
 } from './workflow-patch-patterns';
 import {
@@ -122,6 +123,39 @@ export function applyGeneralWorkflowPatches(
           `${indent}  run: timeout --foreground --kill-after=10s 4m bash "\${RUNNER_TEMP}/gh-aw/actions/install_ripgrep.sh"\n`
       );
       log.push(`  Bounded ${ripgrepInstallMatches.length} ripgrep install step(s)`);
+    }
+  }
+
+  const shouldRetryCloudHypervisorBundle =
+    workflowPath.endsWith('smoke-cloud-hypervisor.lock.yml');
+  if (shouldRetryCloudHypervisorBundle) {
+    cloudHypervisorBundleStepRegex.lastIndex = 0;
+    const cloudHypervisorBundleMatches = content.match(cloudHypervisorBundleStepRegex);
+    if (cloudHypervisorBundleMatches) {
+      content = content.replace(
+        cloudHypervisorBundleStepRegex,
+        (_match, indent: string, awfVersion: string) =>
+          `${indent}- name: Download and verify cloud-hypervisor bundle\n` +
+          `${indent}  id: cloud-hypervisor-bundle\n` +
+          `${indent}  env:\n` +
+          `${indent}    GH_AW_AWF_VERSION: ${awfVersion}\n` +
+          `${indent}  run: |\n` +
+          `${indent}    setup_status=0\n` +
+          `${indent}    for attempt in 1 2 3; do\n` +
+          `${indent}      if bash "\${RUNNER_TEMP}/gh-aw/actions/cloud_hypervisor_setup_bundle.sh"; then\n` +
+          `${indent}        exit 0\n` +
+          `${indent}      fi\n` +
+          `${indent}      setup_status=$?\n` +
+          `${indent}      if [ "$attempt" -eq 3 ]; then\n` +
+          `${indent}        exit "$setup_status"\n` +
+          `${indent}      fi\n` +
+          `${indent}      sleep $((attempt * 10))\n` +
+          `${indent}    done\n` +
+          `${indent}    exit "$setup_status"\n`
+      );
+      log.push(
+        `  Wrapped ${cloudHypervisorBundleMatches.length} Cloud Hypervisor bundle setup step(s) with retries`
+      );
     }
   }
 
