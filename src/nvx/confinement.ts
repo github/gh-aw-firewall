@@ -341,26 +341,39 @@ Promise<NvxConfinementEvidence> {
   }
 
   const finalTaskIds = parseNumericEntries(await dependencies.readdir(taskDirectory), 'task');
+  if (finalTaskIds.length > MAX_VERIFIED_THREADS) {
+    throw new Error(`NVX OpenVMM exceeds the ${MAX_VERIFIED_THREADS}-thread verification limit`);
+  }
   const finalStartTime = parseProcessStartTime(
     await dependencies.readFile(path.join(procDirectory, 'stat'), 'utf8'),
   );
   const finalExecutable = await dependencies.readlink(path.join(procDirectory, 'exe'));
-  const finalTaskStartTimes = new Map<number, string>();
+  if (finalStartTime !== initialStartTime) {
+    throw new Error(
+      `NVX confinement found process start time ${finalStartTime}, expected ${initialStartTime}`,
+    );
+  }
+  if (finalExecutable !== executable) {
+    throw new Error(
+      `NVX confinement found executable ${JSON.stringify(finalExecutable)}, ` +
+      `expected ${JSON.stringify(executable)}`,
+    );
+  }
   for (const taskId of finalTaskIds) {
-    finalTaskStartTimes.set(taskId, parseProcessStartTime(
+    const expectedStartTime = taskStartTimes.get(taskId);
+    if (expectedStartTime === undefined) continue;
+    const finalTaskStartTime = parseProcessStartTime(
       await dependencies.readFile(
         path.join(taskDirectory, String(taskId), 'stat'),
         'utf8',
       ),
-    ));
-  }
-  if (
-    finalStartTime !== initialStartTime ||
-    finalExecutable !== executable ||
-    finalTaskIds.join(',') !== taskIds.join(',') ||
-    finalTaskIds.some((id) => finalTaskStartTimes.get(id) !== taskStartTimes.get(id))
-  ) {
-    throw new Error('NVX confinement detected a process identity or thread-set race');
+    );
+    if (finalTaskStartTime !== expectedStartTime) {
+      throw new Error(
+        `NVX confinement found thread ${taskId} start time ${finalTaskStartTime}, ` +
+        `expected ${expectedStartTime}`,
+      );
+    }
   }
 
   return {

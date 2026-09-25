@@ -175,24 +175,30 @@ export async function verifyCloudHypervisorConfinement(
   const finalStat = await dependencies.readFile(path.join(procDirectory, 'stat'), 'utf8');
   const finalStartTime = parseProcessStartTime(finalStat);
   const finalExecutable = await dependencies.readlink(path.join(procDirectory, 'exe'));
-  const finalTaskStartTimes = new Map<number, string>();
-  for (const taskId of finalTaskIds) {
-    finalTaskStartTimes.set(
-      taskId,
-      parseProcessStartTime(
-        await dependencies.readFile(path.join(taskDirectory, String(taskId), 'stat'), 'utf8'),
-      ),
+  if (finalStartTime !== initialStartTime) {
+    throw new Error(
+      `Cloud Hypervisor confinement verification found process start time ${finalStartTime}, ` +
+      `expected ${initialStartTime}`,
     );
   }
-  if (
-    finalStartTime !== initialStartTime ||
-    finalExecutable !== executable ||
-    finalTaskIds.join(',') !== taskIds.join(',') ||
-    finalTaskIds.some((taskId) => finalTaskStartTimes.get(taskId) !== taskStartTimes.get(taskId))
-  ) {
+  if (finalExecutable !== executable) {
     throw new Error(
-      'Cloud Hypervisor confinement verification detected a process identity or thread-set race',
+      `Cloud Hypervisor confinement verification found executable ${JSON.stringify(finalExecutable)}, ` +
+      `expected ${JSON.stringify(executable)}`,
     );
+  }
+  for (const taskId of finalTaskIds) {
+    const expectedStartTime = taskStartTimes.get(taskId);
+    if (expectedStartTime === undefined) continue;
+    const finalTaskStartTime = parseProcessStartTime(
+      await dependencies.readFile(path.join(taskDirectory, String(taskId), 'stat'), 'utf8'),
+    );
+    if (finalTaskStartTime !== expectedStartTime) {
+      throw new Error(
+        `Cloud Hypervisor confinement verification found thread ${taskId} start time ` +
+        `${finalTaskStartTime}, expected ${expectedStartTime}`,
+      );
+    }
   }
 
   return {

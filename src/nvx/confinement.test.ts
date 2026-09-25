@@ -38,12 +38,19 @@ function dependencies(overrides: {
   executableIdentityMismatch?: boolean;
   status?: string;
   finalStartTime?: string;
+  finalExecutable?: string;
+  initialTaskIds?: number[];
+  finalTaskIds?: number[];
+  finalTaskStartTime?: string;
   cgroupPids?: string;
 } = {}): NvxConfinementVerifierDependencies {
   let processStatReads = 0;
+  let executableReads = 0;
+  let taskStatReads = 0;
   const files: Record<string, string> = {
     [`/proc/${PID}/task/${PID}/status`]: overrides.status ?? status(PID),
-    [`/proc/${PID}/task/${PID}/stat`]: procStat(PID, '22222'),
+    [`/proc/${PID}/task/${PID + 1}/status`]: status(PID + 1),
+    [`/proc/${PID}/task/${PID + 1}/stat`]: procStat(PID + 1, '44444'),
     [`/proc/${PID}/cgroup`]: `0::/awf-nvx/${RUN_ID}\n`,
     [`${CGROUP}/cgroup.procs`]:
       overrides.cgroupPids ?? `${LAUNCHER_PID}\n${PID}\n`,
@@ -60,19 +67,28 @@ function dependencies(overrides: {
           processStatReads === 1 ? '11111' : overrides.finalStartTime ?? '11111',
         );
       }
+      if (filePath === `/proc/${PID}/task/${PID}/stat`) {
+        taskStatReads += 1;
+        return procStat(PID, taskStatReads === 1 ? '22222' : overrides.finalTaskStartTime ?? '22222');
+      }
       const value = files[filePath];
       if (value === undefined) throw new Error(`unexpected read: ${filePath}`);
       return value;
     }),
     readlink: jest.fn(async (filePath) => {
       if (filePath === `/proc/${PID}/exe`) {
-        return overrides.executable ?? '/trusted/openvmm';
+        executableReads += 1;
+        return executableReads === 1
+          ? overrides.executable ?? '/trusted/openvmm'
+          : overrides.finalExecutable ?? overrides.executable ?? '/trusted/openvmm';
       }
       if (filePath === `/proc/${PID}/ns/net`) return 'net:[4026533000]';
       if (filePath === `/proc/${PID}/ns/mnt`) return 'mnt:[4026533001]';
       throw new Error(`unexpected readlink: ${filePath}`);
     }),
-    readdir: jest.fn().mockResolvedValue([String(PID)]),
+    readdir: jest.fn()
+      .mockResolvedValueOnce((overrides.initialTaskIds ?? [PID]).map(String))
+      .mockResolvedValueOnce((overrides.finalTaskIds ?? [PID]).map(String)),
     realpath: jest.fn().mockResolvedValue('/trusted/openvmm'),
     stat: jest.fn(async (filePath) => {
       if (filePath === '/trusted/openvmm') return { dev: 10n, ino: 20n };
@@ -273,11 +289,36 @@ describe('NVX host confinement', () => {
     ['unexpected cgroup process', {
       cgroupPids: `${LAUNCHER_PID}\n${PID}\n9999\n`,
     }, /cgroup PIDs/],
-    ['PID reuse race', { finalStartTime: '33333' }, /identity or thread-set race/],
+    ['PID reuse race', { finalStartTime: '33333' }, /start time.*33333.*11111/],
   ])('fails closed on %s', async (_label, overrides, error) => {
     await expect(verifyNvxConfinement(
       verificationOptions(),
       dependencies(overrides),
     )).rejects.toThrow(error);
+  });
+
+  it('accepts threads appearing and disappearing between snapshots', async () => {
+    await expect(verifyNvxConfinement(
+      verificationOptions(),
+      dependencies({ finalTaskIds: [PID, PID + 1] }),
+    )).resolves.toHaveProperty('process.threadCount', 1);
+    await expect(verifyNvxConfinement(
+      verificationOptions(),
+      dependencies({ initialTaskIds: [PID, PID + 1], finalTaskIds: [PID] }),
+    )).resolves.toHaveProperty('process.threadCount', 2);
+  });
+
+  it('rejects a recycled surviving TID with its observed and expected start times', async () => {
+    await expect(verifyNvxConfinement(
+      verificationOptions(),
+      dependencies({ finalTaskStartTime: '55555' }),
+    )).rejects.toThrow(/thread 4242 start time.*55555.*22222/);
+  });
+
+  it('identifies an executable change between snapshots', async () => {
+    await expect(verifyNvxConfinement(
+      verificationOptions(),
+      dependencies({ finalExecutable: '/usr/bin/python3' }),
+    )).rejects.toThrow(/executable.*python3.*openvmm/);
   });
 });
