@@ -9,6 +9,8 @@ export const NVX_ARTIFACT_SIGNER_WORKFLOW =
   'github/gh-aw-firewall/.github/workflows/release.yml';
 export const NVX_VALIDATION_SIGNER_WORKFLOW =
   'github/gh-aw-firewall/.github/workflows/nvx-phase-3b-live-kvm.yml';
+export const NVX_SMOKE_SIGNER_WORKFLOW =
+  'github/gh-aw-firewall/.github/workflows/smoke-nvx-copilot.lock.yml';
 
 const ARTIFACT_FILES = {
   openvmm: 'openvmm',
@@ -178,7 +180,8 @@ export function parseNvxArtifactManifest(
 function assertTrustedSignerWorkflow(workflow: string): void {
   if (
     workflow !== NVX_ARTIFACT_SIGNER_WORKFLOW &&
-    workflow !== NVX_VALIDATION_SIGNER_WORKFLOW
+    workflow !== NVX_VALIDATION_SIGNER_WORKFLOW &&
+    workflow !== NVX_SMOKE_SIGNER_WORKFLOW
   ) {
     throw new Error(`Untrusted NVX artifact signer workflow: ${workflow}`);
   }
