@@ -19,6 +19,11 @@ export const installStepRegexGlobal = new RegExp(installStepRegex.source, 'gm');
 export const ripgrepInstallStepRegex =
   /^(\s+)- name: Install ripgrep\n(?:\1  timeout-minutes: 5\n)?\1  run: (?:timeout --foreground --kill-after=10s 4m )?bash "\$\{RUNNER_TEMP\}\/gh-aw\/actions\/install_ripgrep\.sh"\n/gm;
 
+// Matches the generated Cloud Hypervisor bundle setup step so selected smoke
+// workflows can retry transient release-asset download resets. The second
+// alternative intentionally matches the already-wrapped block so the patch is
+// idempotent across postprocess runs. The lookahead requires a subsequent step
+// because the multiline wrapped block is consumed up to the next sibling step.
 export const cloudHypervisorBundleStepRegex =
   /^(\s+)- name: Download and verify cloud-hypervisor bundle\n\1  id: cloud-hypervisor-bundle\n\1  env:\n\1    GH_AW_AWF_VERSION: ([^\n]+)\n\1  run: (?:bash "\$\{RUNNER_TEMP\}\/gh-aw\/actions\/cloud_hypervisor_setup_bundle\.sh"\n|\|\n(?:\1    .*\n)+?)(?=\1- name: )/gm;
 

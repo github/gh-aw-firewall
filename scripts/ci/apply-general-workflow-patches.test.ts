@@ -152,6 +152,7 @@ describe('applyGeneralWorkflowPatches Cloud Hypervisor bundle retries', () => {
 
     expect(content).toContain('setup_status=0');
     expect(content).toContain('for attempt in 1 2 3; do');
+    expect(content).toMatch(/\n\s+else\n\s+setup_status=\$\?/);
     expect(content).toContain('sleep $((attempt * 10))');
     expect(content).toContain('exit "$setup_status"');
     expect(content).not.toContain(

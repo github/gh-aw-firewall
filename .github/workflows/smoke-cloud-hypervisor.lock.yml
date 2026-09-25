@@ -567,8 +567,9 @@ jobs:
           for attempt in 1 2 3; do
             if bash "${RUNNER_TEMP}/gh-aw/actions/cloud_hypervisor_setup_bundle.sh"; then
               exit 0
+            else
+              setup_status=$?
             fi
-            setup_status=$?
             if [ "$attempt" -eq 3 ]; then
               exit "$setup_status"
             fi

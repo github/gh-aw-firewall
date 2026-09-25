@@ -59,6 +59,10 @@ const publishedAwfWorkflowLockFiles = new Set([
   'update-release-notes.lock.yml',
 ]);
 
+const cloudHypervisorBundleRetryWorkflowLockFiles = new Set([
+  'smoke-cloud-hypervisor.lock.yml',
+]);
+
 export function usesPublishedAwfRelease(workflowPath: string): boolean {
   const workflowFile = workflowPath.split(/[/\\]/).pop();
   return workflowFile !== undefined && publishedAwfWorkflowLockFiles.has(workflowFile);
@@ -126,8 +130,10 @@ export function applyGeneralWorkflowPatches(
     }
   }
 
+  const workflowFile = workflowPath.split(/[/\\]/).pop();
   const shouldRetryCloudHypervisorBundle =
-    workflowPath.endsWith('smoke-cloud-hypervisor.lock.yml');
+    workflowFile !== undefined &&
+    cloudHypervisorBundleRetryWorkflowLockFiles.has(workflowFile);
   if (shouldRetryCloudHypervisorBundle) {
     cloudHypervisorBundleStepRegex.lastIndex = 0;
     const cloudHypervisorBundleMatches = content.match(cloudHypervisorBundleStepRegex);
@@ -144,8 +150,9 @@ export function applyGeneralWorkflowPatches(
           `${indent}    for attempt in 1 2 3; do\n` +
           `${indent}      if bash "\${RUNNER_TEMP}/gh-aw/actions/cloud_hypervisor_setup_bundle.sh"; then\n` +
           `${indent}        exit 0\n` +
+          `${indent}      else\n` +
+          `${indent}        setup_status=$?\n` +
           `${indent}      fi\n` +
-          `${indent}      setup_status=$?\n` +
           `${indent}      if [ "$attempt" -eq 3 ]; then\n` +
           `${indent}        exit "$setup_status"\n` +
           `${indent}      fi\n` +
