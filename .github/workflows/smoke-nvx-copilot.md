@@ -211,8 +211,20 @@ steps:
       test -r /workspace/package.json
       test -n "${AWF_NVX_SMOKE_MARKER:-}"
       test -n "${HTTPS_PROXY:-}"
-      if env | grep -Eq '^(GH_TOKEN|GITHUB_TOKEN|COPILOT_GITHUB_TOKEN|OPENAI_API_KEY|ANTHROPIC_API_KEY)='; then
+      if env | grep -Eq '^(GH_TOKEN|GITHUB_TOKEN|OPENAI_API_KEY|ANTHROPIC_API_KEY)='; then
         echo "credential variable reached the NVX guest" >&2
+        exit 1
+      fi
+      # COPILOT_GITHUB_TOKEN is expected to be present here: --enable-api-proxy
+      # deliberately replaces the real GitHub token with a fixed, non-secret
+      # isolation placeholder before the guest ever sees it (see
+      # src/services/credentials/copilot-credential-env.ts and
+      # src/constants/placeholders.ts). Assert the value is exactly that
+      # placeholder rather than banning the variable name outright, so a real
+      # leaked credential still fails this check.
+      if [ -n "${COPILOT_GITHUB_TOKEN:-}" ] && \
+         [ "$COPILOT_GITHUB_TOKEN" != "ghu_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" ]; then
+        echo "real credential value reached the NVX guest via COPILOT_GITHUB_TOKEN" >&2
         exit 1
       fi
       printf '%s\n' "$AWF_NVX_SMOKE_MARKER" > /workspace/nvx-smoke-workspace-proof.txt
