@@ -162,12 +162,13 @@ steps:
       artifact_dir="$RUNNER_TEMP/nvx-attested-artifacts"
       # actions/download-artifact restores files owned by the runner user, but
       # NVX's preflight (assertTrustedFile in src/nvx/preflight.ts) requires
-      # every trusted artifact to be root-owned, so re-root them here.
+      # every trusted artifact to be root-owned, so re-root them here. Once
+      # chowned to root, only sudo can chmod them.
       sudo chown root:root "$artifact_dir"/openvmm "$artifact_dir"/vmlinux \
         "$artifact_dir"/initramfs.cpio.gz "$artifact_dir"/manifest.json \
         "$artifact_dir"/manifest.sigstore.jsonl
-      chmod 0555 "$artifact_dir/openvmm"
-      chmod 0444 "$artifact_dir/vmlinux" "$artifact_dir/initramfs.cpio.gz" \
+      sudo chmod 0555 "$artifact_dir/openvmm"
+      sudo chmod 0444 "$artifact_dir/vmlinux" "$artifact_dir/initramfs.cpio.gz" \
         "$artifact_dir/manifest.json" "$artifact_dir/manifest.sigstore.jsonl"
 
   - name: Build the guest distro layer with the pinned Copilot CLI
