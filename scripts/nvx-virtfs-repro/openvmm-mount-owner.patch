@@ -1,0 +1,479 @@
+diff --git a/openvmm/openvmm_entry/src/cli_args.rs b/openvmm/openvmm_entry/src/cli_args.rs
+index 4b763c1a..b3afe3c3 100644
+--- a/openvmm/openvmm_entry/src/cli_args.rs
++++ b/openvmm/openvmm_entry/src/cli_args.rs
+@@ -1133,6 +1133,19 @@ pub struct Options {
+     )]
+     pub microvm_mount_deny: Vec<PathBuf>,
+ 
++    /// Host owner of files the guest creates through `--mount`.
++    ///
++    /// `process` (default) keeps the OpenVMM process identity. `caller` creates
++    /// each object as the guest request's uid/gid, like virtiofsd, and requires
++    /// CAP_SETUID and CAP_SETGID; creations fail with EPERM otherwise.
++    #[clap(
++        long = "mount-owner",
++        value_name = "process|caller",
++        default_value = "process",
++        requires = "microvm_mount"
++    )]
++    pub microvm_mount_owner: MicrovmMountOwnerCli,
++
+     /// virtio PMEM device
+     ///
+     /// Prefix with `pcie_port=<port_name>:` to expose the device over
+@@ -2416,6 +2429,13 @@ pub struct MicrovmMountCli {
+     pub access: openvmm_defs::config::MicrovmFilesystemAccess,
+ }
+ 
++#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, clap::ValueEnum)]
++pub enum MicrovmMountOwnerCli {
++    #[default]
++    Process,
++    Caller,
++}
++
+ impl FromStr for MicrovmMountCli {
+     type Err = anyhow::Error;
+ 
+diff --git a/openvmm/openvmm_entry/src/lib.rs b/openvmm/openvmm_entry/src/lib.rs
+index 667a39a0..40657aff 100644
+--- a/openvmm/openvmm_entry/src/lib.rs
++++ b/openvmm/openvmm_entry/src/lib.rs
+@@ -4359,7 +4359,11 @@ async fn vm_config_from_command_line(
+             (
+                 virtio_resources::fs::VirtioFsBackend::HostFs {
+                     root_path: filesystem.root_path.clone(),
+-                    mount_options: String::new(),
++                    mount_options: match opt.microvm_mount_owner {
++                        cli_args::MicrovmMountOwnerCli::Process => String::new(),
++                        // Matches `virtiofs::MicroVmCreateOwner::CALLER_MOUNT_OPTION`.
++                        cli_args::MicrovmMountOwnerCli::Caller => "owner=caller".to_owned(),
++                    },
+                 },
+                 virtio_resources::fs::VirtioFsProfile::Microvm {
+                     stable_id: MICROVM_FILESYSTEM_STABLE_ID.to_owned(),
+diff --git a/vm/devices/support/fs/lxutil/src/lib.rs b/vm/devices/support/fs/lxutil/src/lib.rs
+index 0244a9f3..6632db34 100644
+--- a/vm/devices/support/fs/lxutil/src/lib.rs
++++ b/vm/devices/support/fs/lxutil/src/lib.rs
+@@ -705,6 +705,7 @@ pub struct LxVolumeOptions {
+     symlink_root: String,
+     override_xattrs: HashMap<String, Vec<u8>>,
+     readonly: bool,
++    create_as_caller: bool,
+ }
+ 
+ impl LxVolumeOptions {
+@@ -726,6 +727,7 @@ pub fn new() -> Self {
+             symlink_root: "".to_string(),
+             override_xattrs: HashMap::new(),
+             readonly: false,
++            create_as_caller: false,
+         }
+     }
+ 
+@@ -1045,6 +1047,30 @@ pub fn readonly(&mut self, readonly: bool) -> &mut Self {
+     pub fn is_readonly(&self) -> bool {
+         self.readonly
+     }
++
++    /// Create new files, directories, device nodes, and symlinks as the
++    /// caller's `LxCreateOptions` uid/gid.
++    ///
++    /// # Unix
++    ///
++    /// Each creation temporarily switches the calling thread's filesystem uid
++    /// and gid, so both the permission check and the resulting owner use the
++    /// caller's identity. The process needs `CAP_SETUID` and `CAP_SETGID`;
++    /// creation fails with `EPERM` instead of silently falling back to the
++    /// process identity when the switch is not permitted.
++    ///
++    /// # Windows
++    ///
++    /// This option has no effect; ownership is controlled by metadata.
++    pub fn create_as_caller(&mut self, enabled: bool) -> &mut Self {
++        self.create_as_caller = enabled;
++        self
++    }
++
++    /// Returns whether creations use the caller's uid/gid.
++    pub fn is_create_as_caller(&self) -> bool {
++        self.create_as_caller
++    }
+ }
+ 
+ impl Default for LxVolumeOptions {
+@@ -1055,14 +1081,13 @@ fn default() -> Self {
+ 
+ /// Specifies options to use when creating a file.
+ ///
+-/// The user ID and group ID are only used on Windows; on Unix platforms, set the thread's effective
+-/// user ID and group ID to change the owner of a newly created file.
++/// On Unix, the user ID and group ID are only used when the volume enables
++/// `LxVolumeOptions::create_as_caller`; otherwise new files are owned by the
++/// thread's filesystem user and group IDs.
+ #[derive(Default)]
+ pub struct LxCreateOptions {
+     mode: lx::mode_t,
+-    #[cfg_attr(not(windows), expect(dead_code))]
+     uid: lx::uid_t,
+-    #[cfg_attr(not(windows), expect(dead_code))]
+     gid: lx::gid_t,
+ }
+ 
+diff --git a/vm/devices/support/fs/lxutil/src/unix/mod.rs b/vm/devices/support/fs/lxutil/src/unix/mod.rs
+index d94f66a7..683427be 100644
+--- a/vm/devices/support/fs/lxutil/src/unix/mod.rs
++++ b/vm/devices/support/fs/lxutil/src/unix/mod.rs
+@@ -22,10 +22,11 @@
+ // See crate::LxVolume for more detailed comments.
+ pub struct LxVolume {
+     root: std::fs::File,
++    create_as_caller: bool,
+ }
+ 
+ impl LxVolume {
+-    pub fn new(root_path: &Path, _options: &super::LxVolumeOptions) -> lx::Result<Self> {
++    pub fn new(root_path: &Path, options: &super::LxVolumeOptions) -> lx::Result<Self> {
+         let path = util::path_to_cstr(root_path)?;
+ 
+         // SAFETY: Calling C API as documented, with no special requirements.
+@@ -38,6 +39,7 @@ pub fn new(root_path: &Path, _options: &super::LxVolumeOptions) -> lx::Result<Se
+ 
+             Ok(Self {
+                 root: std::fs::File::from_raw_fd(fd),
++                create_as_caller: options.is_create_as_caller(),
+             })
+         }
+     }
+@@ -46,6 +48,19 @@ pub fn supports_stable_file_id(&self) -> bool {
+         true
+     }
+ 
++    /// Runs a creation as the caller's uid/gid when the volume requests it.
++    fn as_creator<T>(
++        &self,
++        options: &super::LxCreateOptions,
++        operation: impl FnOnce() -> lx::Result<T>,
++    ) -> lx::Result<T> {
++        if !self.create_as_caller {
++            return operation();
++        }
++        let _credentials = util::FsCredentials::switch(options.uid, options.gid)?;
++        operation()
++    }
++
+     pub fn lstat(&self, path: &Path) -> lx::Result<StatEx> {
+         assert!(path.is_relative());
+         let path = util::path_to_cstr(path)?;
+@@ -83,7 +98,20 @@ pub fn open(
+     ) -> lx::Result<LxFile> {
+         assert!(path.is_relative());
+ 
+-        let fd = util::openat(&self.root, path, flags, options)?;
++        let fd = match options {
++            Some(options) if flags & libc::O_CREAT != 0 => {
++                let mode = options.mode;
++                self.as_creator(&options, || {
++                    util::openat(
++                        &self.root,
++                        path,
++                        flags,
++                        Some(super::LxCreateOptions::new(mode, 0, 0)),
++                    )
++                })?
++            }
++            options => util::openat(&self.root, path, flags, options)?,
++        };
+ 
+         Ok(LxFile {
+             fd,
+@@ -96,16 +124,17 @@ pub fn mkdir(&self, path: &Path, options: super::LxCreateOptions) -> lx::Result<
+ 
+         let path = util::path_to_cstr(path)?;
+ 
+-        // SAFETY: Calling C API as documented, with no special requirements.
+-        unsafe {
+-            util::check_lx_errno(libc::mkdirat(
+-                self.root.as_raw_fd(),
+-                path.as_ptr(),
+-                options.mode,
+-            ))?;
+-        }
+-
+-        Ok(())
++        self.as_creator(&options, || {
++            // SAFETY: Calling C API as documented, with no special requirements.
++            unsafe {
++                util::check_lx_errno(libc::mkdirat(
++                    self.root.as_raw_fd(),
++                    path.as_ptr(),
++                    options.mode,
++                ))?;
++            }
++            Ok(())
++        })
+     }
+ 
+     pub fn mkdir_stat(&self, path: &Path, options: super::LxCreateOptions) -> lx::Result<lx::Stat> {
+@@ -113,29 +142,30 @@ pub fn mkdir_stat(&self, path: &Path, options: super::LxCreateOptions) -> lx::Re
+         self.lstat(path).map(|x| x.into())
+     }
+ 
+-    // The options are entirely ignored on Unix, because uid/gid are never used, and mode isn't
+-    // used for symlinks.
++    // The mode is ignored because symlinks have no mode; uid/gid are used only when the volume
++    // creates as the caller.
+     pub fn symlink(
+         &self,
+         path: &Path,
+         target: &lx::LxStr,
+-        _: super::LxCreateOptions,
++        options: super::LxCreateOptions,
+     ) -> lx::Result<()> {
+         assert!(path.is_relative());
+ 
+         let path = util::path_to_cstr(path)?;
+         let target = util::create_cstr(target.as_bytes())?;
+ 
+-        // SAFETY: Calling C API as documented, with no special requirements.
+-        unsafe {
+-            util::check_lx_errno(libc::symlinkat(
+-                target.as_ptr(),
+-                self.root.as_raw_fd(),
+-                path.as_ptr(),
+-            ))?;
+-        }
+-
+-        Ok(())
++        self.as_creator(&options, || {
++            // SAFETY: Calling C API as documented, with no special requirements.
++            unsafe {
++                util::check_lx_errno(libc::symlinkat(
++                    target.as_ptr(),
++                    self.root.as_raw_fd(),
++                    path.as_ptr(),
++                ))?;
++            }
++            Ok(())
++        })
+     }
+ 
+     pub fn symlink_stat(
+@@ -191,17 +221,18 @@ pub fn mknod(
+ 
+         let path = util::path_to_cstr(path)?;
+ 
+-        // SAFETY: Calling C API as documented, with no special requirements.
+-        unsafe {
+-            util::check_lx_errno(libc::mknodat(
+-                self.root.as_raw_fd(),
+-                path.as_ptr(),
+-                options.mode,
+-                device_id as u64,
+-            ))?;
+-        }
+-
+-        Ok(())
++        self.as_creator(&options, || {
++            // SAFETY: Calling C API as documented, with no special requirements.
++            unsafe {
++                util::check_lx_errno(libc::mknodat(
++                    self.root.as_raw_fd(),
++                    path.as_ptr(),
++                    options.mode,
++                    device_id as u64,
++                ))?;
++            }
++            Ok(())
++        })
+     }
+ 
+     pub fn mknod_stat(
+diff --git a/vm/devices/support/fs/lxutil/src/unix/util.rs b/vm/devices/support/fs/lxutil/src/unix/util.rs
+index 54662334..0182b977 100644
+--- a/vm/devices/support/fs/lxutil/src/unix/util.rs
++++ b/vm/devices/support/fs/lxutil/src/unix/util.rs
+@@ -313,3 +313,48 @@ fn set_time_to_timespec(time: &SetTime) -> libc::timespec {
+         },
+     }
+ }
++
++/// Scoped switch of the calling thread's filesystem uid/gid.
++///
++/// Linux keeps fsuid/fsgid per thread, and the switch is undone on drop, so a
++/// creation performed while the guard is alive is permission-checked and owned
++/// as the requested identity without affecting other threads.
++pub struct FsCredentials {
++    previous_uid: libc::uid_t,
++    previous_gid: libc::gid_t,
++}
++
++impl FsCredentials {
++    pub fn switch(uid: lx::uid_t, gid: lx::gid_t) -> lx::Result<Self> {
++        // SAFETY: setfsuid/setfsgid only change the calling thread's
++        // filesystem credentials; passing u32::MAX (-1) queries without change.
++        unsafe {
++            let previous_gid = libc::setfsgid(gid) as libc::gid_t;
++            if libc::setfsgid(libc::gid_t::MAX) as libc::gid_t != gid {
++                libc::setfsgid(previous_gid);
++                return Err(lx::Error::EPERM);
++            }
++            let previous_uid = libc::setfsuid(uid) as libc::uid_t;
++            if libc::setfsuid(libc::uid_t::MAX) as libc::uid_t != uid {
++                libc::setfsuid(previous_uid);
++                libc::setfsgid(previous_gid);
++                return Err(lx::Error::EPERM);
++            }
++            Ok(Self {
++                previous_uid,
++                previous_gid,
++            })
++        }
++    }
++}
++
++impl Drop for FsCredentials {
++    fn drop(&mut self) {
++        // SAFETY: Restores the thread's filesystem credentials saved by
++        // `switch`, which were valid for this thread.
++        unsafe {
++            libc::setfsuid(self.previous_uid);
++            libc::setfsgid(self.previous_gid);
++        }
++    }
++}
+diff --git a/vm/devices/virtio/virtiofs/src/lib.rs b/vm/devices/virtio/virtiofs/src/lib.rs
+index dce54cca..f6097cf8 100644
+--- a/vm/devices/virtio/virtiofs/src/lib.rs
++++ b/vm/devices/virtio/virtiofs/src/lib.rs
+@@ -31,6 +31,34 @@
+ use inode::VirtioFsInode;
+ use inode::VirtioFsVolume;
+ pub use lxutil::LxVolumeOptions;
++
++/// Host owner of files, directories, and symlinks the guest creates through
++/// the microVM virtio-fs attachment.
++#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
++pub enum MicroVmCreateOwner {
++    /// The OpenVMM process's filesystem identity (historical behavior).
++    #[default]
++    Process,
++    /// The guest caller's uid/gid from the FUSE request, like virtiofsd.
++    Caller,
++}
++
++impl MicroVmCreateOwner {
++    /// The HostFs `mount_options` value that selects [`Self::Caller`].
++    pub const CALLER_MOUNT_OPTION: &'static str = "owner=caller";
++
++    /// Parses the microVM HostFs mount options; only the owner option is accepted.
++    pub fn from_mount_options(options: &str) -> anyhow::Result<Self> {
++        match options {
++            "" => Ok(Self::Process),
++            Self::CALLER_MOUNT_OPTION => Ok(Self::Caller),
++            _ => anyhow::bail!(
++                "microVM virtio-fs accepts only the '{}' HostFs mount option",
++                Self::CALLER_MOUNT_OPTION
++            ),
++        }
++    }
++}
+ use parking_lot::RwLock;
+ use profile::MICROVM_FUSE_MAJOR;
+ use profile::MICROVM_FUSE_MAX_WRITE;
+@@ -728,11 +756,23 @@ pub fn new(
+     pub fn new_microvm(
+         root_path: impl AsRef<Path>,
+         profile: MicroVmVirtioFsProfile,
++    ) -> anyhow::Result<Self> {
++        Self::new_microvm_with_owner(root_path, profile, MicroVmCreateOwner::Process)
++    }
++
++    /// Like [`Self::new_microvm`], selecting who owns guest-created objects.
++    pub fn new_microvm_with_owner(
++        root_path: impl AsRef<Path>,
++        profile: MicroVmVirtioFsProfile,
++        owner: MicroVmCreateOwner,
+     ) -> anyhow::Result<Self> {
+         let root_path = root_path.as_ref();
+         profile.validate_root_path(root_path)?;
+         let mut mount_options = LxVolumeOptions::new();
+-        mount_options.readonly(profile.is_readonly()).sandbox(true);
++        mount_options
++            .readonly(profile.is_readonly())
++            .sandbox(true)
++            .create_as_caller(owner == MicroVmCreateOwner::Caller);
+         let volume = mount_options.new_volume(root_path)?;
+         let denied_identities = profile
+             .denied_paths()
+diff --git a/vm/devices/virtio/virtiofs/src/resolver.rs b/vm/devices/virtio/virtiofs/src/resolver.rs
+index 7fe0afc6..e199d379 100644
+--- a/vm/devices/virtio/virtiofs/src/resolver.rs
++++ b/vm/devices/virtio/virtiofs/src/resolver.rs
+@@ -111,17 +111,15 @@ fn resolve(
+                 else {
+                     anyhow::bail!("microVM virtio-fs requires a HostFs backend");
+                 };
+-                anyhow::ensure!(
+-                    mount_options.is_empty(),
+-                    "microVM virtio-fs does not accept HostFs mount options"
+-                );
+-                VirtioFsDevice::new_microvm_hostfs(
++                let owner = crate::MicroVmCreateOwner::from_mount_options(&mount_options)?;
++                VirtioFsDevice::new_microvm_hostfs_with_owner(
+                     input.driver_source,
+                     stable_id,
+                     root_identity,
+                     read_only,
+                     denied_paths,
+                     root_path,
++                    owner,
+                     None,
+                 )?
+             }
+diff --git a/vm/devices/virtio/virtiofs/src/virtio.rs b/vm/devices/virtio/virtiofs/src/virtio.rs
+index c690563b..9fc2438a 100644
+--- a/vm/devices/virtio/virtiofs/src/virtio.rs
++++ b/vm/devices/virtio/virtiofs/src/virtio.rs
+@@ -288,6 +288,30 @@ pub fn new_microvm_hostfs(
+         denied_paths: Vec<String>,
+         root_path: impl AsRef<Path>,
+         notify_corruption: Option<Arc<dyn Fn() + Sync + Send>>,
++    ) -> anyhow::Result<Self> {
++        Self::new_microvm_hostfs_with_owner(
++            driver_source,
++            stable_id,
++            root_identity,
++            read_only,
++            denied_paths,
++            root_path,
++            crate::MicroVmCreateOwner::Process,
++            notify_corruption,
++        )
++    }
++
++    /// Like [`Self::new_microvm_hostfs`], selecting who owns guest-created objects.
++    #[expect(clippy::too_many_arguments)]
++    pub fn new_microvm_hostfs_with_owner(
++        driver_source: &VmTaskDriverSource,
++        stable_id: String,
++        root_identity: Vec<u8>,
++        read_only: bool,
++        denied_paths: Vec<String>,
++        root_path: impl AsRef<Path>,
++        owner: crate::MicroVmCreateOwner,
++        notify_corruption: Option<Arc<dyn Fn() + Sync + Send>>,
+     ) -> anyhow::Result<Self> {
+         let profile = MicroVmVirtioFsProfile::from_attachment(
+             stable_id,
+@@ -295,7 +319,7 @@ pub fn new_microvm_hostfs(
+             read_only,
+             denied_paths,
+         )?;
+-        let fs = VirtioFs::new_microvm(root_path, profile.clone())?;
++        let fs = VirtioFs::new_microvm_with_owner(root_path, profile.clone(), owner)?;
+         Self::new_microvm(driver_source, profile, fs, notify_corruption)
+     }
+ 

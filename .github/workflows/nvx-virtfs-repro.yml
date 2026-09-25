@@ -1,0 +1,58 @@
+name: NVX virtio-fs sandbox repro (throwaway)
+on:
+  push:
+    branches: [nvx-virtfs-repro]
+permissions:
+  contents: read
+jobs:
+  repro:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install tools
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq erofs-utils e2fsprogs acl protobuf-compiler binutils build-essential cmake libssl-dev pkg-config
+      - name: Check out OpenVMM (NVX pin)
+        run: |
+          git clone -q https://github.com/nanvix/openvmm.git "$RUNNER_TEMP/openvmm"
+          cd "$RUNNER_TEMP/openvmm"
+          git checkout -q 0bc357bbcf3a654b63dfb51f1103c5751bf3d31f
+          git apply --check "$GITHUB_WORKSPACE/scripts/nvx-virtfs-repro/openvmm-mount-owner.patch"
+          git apply "$GITHUB_WORKSPACE/scripts/nvx-virtfs-repro/openvmm-mount-owner.patch"
+          git diff --stat
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ${{ runner.temp }}/openvmm/target
+          key: openvmm-0bc357bb-${{ hashFiles('scripts/nvx-virtfs-repro/openvmm-mount-owner.patch') }}
+          restore-keys: openvmm-0bc357bb-
+      - name: Build patched OpenVMM
+        working-directory: ${{ runner.temp }}/openvmm
+        env:
+          PROTOC: /usr/bin/protoc
+        run: |
+          rustup show active-toolchain || rustup default stable
+          cargo xflowey restore-packages --no-compat-igvm
+          cargo build --release -p openvmm --bin openvmm
+          ls -la target/release/openvmm
+      - name: Unit-test lxutil and virtiofs
+        working-directory: ${{ runner.temp }}/openvmm
+        env:
+          PROTOC: /usr/bin/protoc
+        run: cargo test --release -p lxutil -p virtiofs 2>&1 | tail -40
+      - name: Check KVM
+        run: ls -la /dev/kvm
+      - name: Run repro
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PATCHED_OPENVMM: ${{ runner.temp }}/openvmm/target/release/openvmm
+        run: ./scripts/nvx-virtfs-repro/repro.sh
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nvx-virtfs-repro
+          path: /tmp/nvx-virtfs-repro.*/*.log
