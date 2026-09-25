@@ -322,25 +322,26 @@ steps:
           "no NVX-COPILOT-PROOF in nvx-smoke-copilot-proof.txt"
       fi
 
+      if [ -f "$proof_file" ]; then
+        cp "$proof_file" "$data_dir/workspace-proof.txt"
+      fi
+      if [ -f "$copilot_file" ]; then
+        cp "$copilot_file" "$data_dir/copilot-response.txt"
+      fi
       rm -f "$proof_file" "$copilot_file"
       sudo chown -R "$(id -u):$(id -g)" "$data_dir"
       cat "$results"
 
-      # $data_dir is not part of the compiler's uploaded agent-artifact paths,
-      # so the only durable record of this run is whatever this step prints to
-      # its own stdout (the raw Actions log). Print the inner api-proxy
-      # sidecar's request audit trail here for the same reason scenarios.jsonl
-      # is cat'd above -- otherwise the evidence exists on disk for the length
-      # of the job but is never actually inspectable afterward.
-      audit_log="$data_dir/logs/inner-proxy-logs/api-proxy-logs/token-tracker-audit.jsonl"
-      if [ -f "$audit_log" ]; then
-        echo "--- inner api-proxy token-tracker-audit.jsonl ---"
-        cat "$audit_log"
-      else
-        echo "--- inner api-proxy token-tracker-audit.jsonl not found at $audit_log ---"
-      fi
       exit 0
 post-steps:
+  - name: Upload NVX smoke evidence
+    if: always()
+    uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+    with:
+      name: nvx-smoke-evidence
+      path: /tmp/gh-aw/agent/smoke-nvx-copilot/
+      if-no-files-found: warn
+      retention-days: 7
   - name: Validate safe outputs were invoked
     run: |
       OUTPUTS_FILE="${GH_AW_SAFE_OUTPUTS:-${RUNNER_TEMP}/gh-aw/safeoutputs/outputs.jsonl}"
