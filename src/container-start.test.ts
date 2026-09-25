@@ -27,6 +27,7 @@ describe('startContainers', () => {
         'awf-agent',
         'awf-iptables-init',
         'awf-api-proxy',
+        'awf-router',
         'awf-cli-proxy',
         'awf-enclave-mcp-server',
         'awf-enclave-agent-api-proxy',
@@ -642,6 +643,26 @@ describe('startContainers', () => {
           (call: any[]) => Array.isArray(call[1]) && call[1].includes('agent'),
         );
         expect(fullAgentStart).toBe(false);
+      });
+
+      it('preserves the readiness failure as the cause', async () => {
+        const readinessFailure = new Error('routing selection timed out');
+        mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
+        mockExecaFn.mockResolvedValueOnce({
+          stdout: 'squid-proxy\napi-proxy\nrouter\nagent\n',
+          stderr: '',
+          exitCode: 0,
+        } as any);
+        mockExecaFn.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 } as any);
+
+        await expect(startContainers(
+          getDir(),
+          ['github.com'],
+          undefined,
+          undefined,
+          undefined,
+          jest.fn().mockRejectedValue(readinessFailure),
+        )).rejects.toMatchObject({ cause: readinessFailure });
       });
 
       it('runs the same readiness gate for an sbx infrastructure-only compose file', async () => {

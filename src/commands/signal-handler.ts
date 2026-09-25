@@ -10,6 +10,8 @@ interface SignalHandlerDependencies {
   fastKillAgentContainer: () => Promise<void>;
   /** Runs the full cleanup sequence (stop containers, remove host iptables rules, etc.). */
   performCleanup: (signal?: string) => Promise<void>;
+  /** Removes private state created for model routing. */
+  cleanupRouting: () => void;
 }
 
 /**
@@ -25,6 +27,7 @@ export function registerSignalHandlers({
   keepContainers,
   fastKillAgentContainer,
   performCleanup,
+  cleanupRouting,
 }: SignalHandlerDependencies): void {
   process.on('SIGINT', () => {
     (async () => {
@@ -34,6 +37,7 @@ export function registerSignalHandlers({
         }
         await performCleanup('SIGINT');
       } finally {
+        cleanupRouting();
         console.error(`Process exiting with code: 130`);
         process.exit(130); // Standard exit code for SIGINT
       }
@@ -48,6 +52,7 @@ export function registerSignalHandlers({
         }
         await performCleanup('SIGTERM');
       } finally {
+        cleanupRouting();
         console.error(`Process exiting with code: 143`);
         process.exit(143); // Standard exit code for SIGTERM
       }

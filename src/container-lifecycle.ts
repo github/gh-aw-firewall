@@ -30,7 +30,15 @@ const MAX_GVISOR_AGENT_RETRIES = 1;
 // Node/V8 initialisation (before any agent work began) and are safe to restart.
 const GVISOR_STARTUP_CRASH_WINDOW_MS = 30_000;
 
-class InfrastructureReadinessError extends Error {}
+class InfrastructureReadinessError extends Error {
+  readonly cause: unknown;
+
+  constructor(message: string, cause: unknown) {
+    super(message);
+    this.name = 'InfrastructureReadinessError';
+    this.cause = cause;
+  }
+}
 class PostReadinessAgentStartupError extends Error {}
 
 function getComposeUpArgs(skipPull?: boolean): string[] {
@@ -110,6 +118,7 @@ async function attemptContainerStartup(
       } catch (error) {
         throw new InfrastructureReadinessError(
           error instanceof Error ? error.message : String(error),
+          error,
         );
       }
       if (!services.includes('agent')) {

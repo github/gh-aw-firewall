@@ -111,6 +111,9 @@ function assertRoutingHostSupported(config: WrapperConfig): void {
   if (!config.enableApiProxy) {
     throw new Error('Model routing requires apiProxy.enabled');
   }
+  if (config.keepContainers) {
+    throw new Error('Model routing is not supported with --keep-containers');
+  }
   if (config.enableDind || config.dind?.preStageDirs || config.dind?.stageEngineBinary) {
     throw new Error('Model routing is not supported with Docker-in-Docker');
   }

@@ -28,6 +28,7 @@ describe('registerSignalHandlers — SIGTERM keepContainers=true (line 46 false 
       keepContainers: true,
       fastKillAgentContainer: fastKill,
       performCleanup,
+      cleanupRouting: jest.fn(),
     });
 
     harness.handlers['SIGTERM']();
@@ -47,6 +48,7 @@ describe('registerSignalHandlers — SIGTERM keepContainers=true (line 46 false 
       keepContainers: false,
       fastKillAgentContainer: fastKill,
       performCleanup,
+      cleanupRouting: jest.fn(),
     });
 
     harness.handlers['SIGTERM']();

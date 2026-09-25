@@ -16,24 +16,26 @@ describe('registerSignalHandlers', () => {
     containersStarted: boolean;
     keepContainers: boolean;
     fastKillRejects?: boolean;
-  }): Promise<{ fastKill: jest.Mock; performCleanup: jest.Mock }> {
+  }): Promise<{ fastKill: jest.Mock; performCleanup: jest.Mock; cleanupRouting: jest.Mock }> {
     const fastKill = fastKillRejects
       ? jest.fn().mockRejectedValue(new Error('kill failed'))
       : jest.fn().mockResolvedValue(undefined);
     const performCleanup = jest.fn().mockResolvedValue(undefined);
+    const cleanupRouting = jest.fn();
 
     const deps: SignalHandlerDependencies = {
       getContainersStarted: () => containersStarted,
       keepContainers,
       fastKillAgentContainer: fastKill,
       performCleanup,
+      cleanupRouting,
     };
 
     registerSignalHandlers(deps);
     harness.handlers[signal]();
     await flushPromises();
 
-    return { fastKill, performCleanup };
+    return { fastKill, performCleanup, cleanupRouting };
   }
 
   it('registers SIGINT and SIGTERM handlers', () => {
@@ -42,6 +44,7 @@ describe('registerSignalHandlers', () => {
       keepContainers: false,
       fastKillAgentContainer: jest.fn().mockResolvedValue(undefined),
       performCleanup: jest.fn().mockResolvedValue(undefined),
+      cleanupRouting: jest.fn(),
     };
 
     registerSignalHandlers(deps);
@@ -66,6 +69,19 @@ describe('registerSignalHandlers', () => {
       expect(performCleanup).toHaveBeenCalledWith(signal);
       expect(harness.processExitSpy).toHaveBeenCalledWith(exitCode);
     }
+  );
+
+  it.each(['SIGINT', 'SIGTERM'] as const)(
+    'cleans private routing state on %s',
+    async signal => {
+      const { cleanupRouting } = await runSignalScenario({
+        signal,
+        containersStarted: true,
+        keepContainers: false,
+      });
+
+      expect(cleanupRouting).toHaveBeenCalledTimes(1);
+    },
   );
 
   it('skips fast-kill on SIGINT when containers are not started', async () => {

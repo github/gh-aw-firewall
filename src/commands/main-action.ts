@@ -74,6 +74,17 @@ const SENSITIVE_CONFIG_KEYS = new Set([
 
 const REFLECT_COMMAND = 'curl --fail --silent --show-error --noproxy "*" http://api-proxy:10000/reflect';
 
+function findRoutingFailure(error: unknown): RoutingFailureExitError | undefined {
+  const seen = new Set<unknown>();
+  let current = error;
+  while (current instanceof Error && !seen.has(current)) {
+    if (current instanceof RoutingFailureExitError) return current;
+    seen.add(current);
+    current = (current as Error & { cause?: unknown }).cause;
+  }
+  return undefined;
+}
+
 function redactConfigForLogging(config: WrapperConfig): Record<string, unknown> {
   const redactedConfig: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(config)) {
@@ -414,6 +425,7 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
           : fastKillAgentContainer()
       ),
       performCleanup: (signal) => performCleanup(signal),
+      cleanupRouting: () => cleanupRoutingState(config),
     });
 
     if (externalRuntimeBackend) {
@@ -524,7 +536,7 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
     }
     await performCleanup();
     cleanupRoutingState(config);
-    const fatalExitCode = error instanceof RoutingFailureExitError ? error.exitCode : 1;
+    const fatalExitCode = findRoutingFailure(error)?.exitCode ?? 1;
     console.error(`Process exiting with code: ${fatalExitCode}`);
     process.exit(fatalExitCode);
   }

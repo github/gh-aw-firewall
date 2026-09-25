@@ -97,6 +97,17 @@ describe('routing bootstrap', () => {
     expect(config.modelRoutingBootstrap).toBeUndefined();
   });
 
+  it('refuses routing with preserved containers before staging', () => {
+    const conversationFile = path.join(tempDir, 'conversation.json');
+    writeConversation(conversationFile);
+    const config = { ...makeConfig(path.join(tempDir, 'work'), conversationFile), keepContainers: true };
+
+    expect(() => stageRoutingConversation(config)).toThrow(
+      'Model routing is not supported with --keep-containers',
+    );
+    expect(config.modelRoutingBootstrap).toBeUndefined();
+  });
+
   it('waits for a valid selection and reports routing failures with exit 78', async () => {
     const outputDir = path.join(tempDir, 'output');
     fs.mkdirSync(outputDir);

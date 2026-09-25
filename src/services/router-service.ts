@@ -22,7 +22,7 @@ export function buildRouterService({ imageConfig }: RouterServiceParams): any {
       },
     },
     healthcheck: {
-      test: ['CMD', 'curl', '-fsS', `http://localhost:${ROUTER_PORT}/healthz`],
+      test: ['CMD', 'python', '-c', `import urllib.request; urllib.request.urlopen('http://localhost:${ROUTER_PORT}/healthz', timeout=1).close()`],
       interval: '2s',
       timeout: '3s',
       retries: 15,

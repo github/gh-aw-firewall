@@ -46,6 +46,7 @@ import * as externalRuntimeResolver from '../external-runtime-backend-resolver';
 import { MAIN_ACTION_STUB_CONFIG, setupMainActionTestHarness } from './main-action.test-utils';
 import type { WrapperConfig } from '../types';
 import { CloudHypervisorUnsupportedHostError } from '../cloud-hypervisor/errors';
+import { RoutingFailureExitError } from '../routing/bootstrap';
 
 const {
   mkdirSync: mockMkdirSync,
@@ -863,6 +864,20 @@ describe('createMainAction', () => {
   });
 
   describe('fatal error cleanup after containers started', () => {
+    it('preserves the routing exit code through an infrastructure readiness error', async () => {
+      const routingFailure = new RoutingFailureExitError('Model routing selection timed out');
+      const readinessFailure = Object.assign(
+        new Error('Model routing selection timed out'),
+        { cause: routingFailure },
+      );
+      mockedCliWorkflow.runMainWorkflow.mockRejectedValueOnce(readinessFailure);
+
+      const action = createMainAction(getOptionValueSource);
+      await action(['echo hi'], {});
+
+      expect(processExitSpy).toHaveBeenCalledWith(78);
+    });
+
     it('stops containers during cleanup when workflow fails after startup callbacks', async () => {
       mockedCliWorkflow.runMainWorkflow.mockImplementation(
         async (_config, _deps, callbacks) => {
