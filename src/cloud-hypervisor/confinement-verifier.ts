@@ -1,5 +1,6 @@
 import { promises as fs } from 'fs';
 import * as path from 'path';
+import { isMissingProcEntryError } from '../proc-fs-errors';
 import type {
   CloudHypervisorCgroupLimits,
   CloudHypervisorLaunchConfinementPolicy,
@@ -197,7 +198,7 @@ export async function verifyCloudHypervisorConfinement(
           'utf8',
         );
       } catch (error) {
-        if (isMissingTaskError(error)) continue;
+        if (isMissingProcEntryError(error)) continue;
         throw error;
       }
       verifyThreadStatus(parseStatus(statusContents), taskId, options);
@@ -210,7 +211,7 @@ export async function verifyCloudHypervisorConfinement(
         'utf8',
       );
     } catch (error) {
-      if (isMissingTaskError(error)) continue;
+      if (isMissingProcEntryError(error)) continue;
       throw error;
     }
     const finalTaskStartTime = parseProcessStartTime(finalTaskStat);
@@ -389,15 +390,6 @@ function parseTaskIds(entries: readonly string[]): number[] {
     );
   }
   return taskIds;
-}
-
-function isMissingTaskError(error: unknown): boolean {
-  return (
-    typeof error === 'object' &&
-    error !== null &&
-    'code' in error &&
-    (error as NodeJS.ErrnoException).code === 'ENOENT'
-  );
 }
 
 function parseProcessStartTime(stat: string): string {

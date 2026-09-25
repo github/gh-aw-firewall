@@ -226,7 +226,6 @@ describe('verifyCloudHypervisorConfinement', () => {
     )).resolves.toHaveProperty('seccomp.observedThreadCount', 3);
   });
 
-
   it('rejects surviving TID recycling with observed and expected start times', async () => {
     await expect(verifyCloudHypervisorConfinement(
       options(),

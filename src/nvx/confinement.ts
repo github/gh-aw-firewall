@@ -1,5 +1,6 @@
 import { promises as fs } from 'fs';
 import * as path from 'path';
+import { isMissingProcEntryError } from '../proc-fs-errors';
 import {
   NVX_RUN_DIRECTORY_ROOT,
   NVX_TRUSTED_ARTIFACT_ROOT,
@@ -369,7 +370,7 @@ Promise<NvxConfinementEvidence> {
           'utf8',
         );
       } catch (error) {
-        if (isMissingTaskError(error)) continue;
+        if (isMissingProcEntryError(error)) continue;
         throw error;
       }
       verifyStatus(parseStatus(statusContents), taskId, options);
@@ -382,7 +383,7 @@ Promise<NvxConfinementEvidence> {
         'utf8',
       );
     } catch (error) {
-      if (isMissingTaskError(error)) continue;
+      if (isMissingProcEntryError(error)) continue;
       throw error;
     }
     const finalTaskStartTime = parseProcessStartTime(finalTaskStat);
@@ -471,15 +472,6 @@ function parseStatus(contents: string): Record<string, string> {
     result[line.slice(0, separator)] = line.slice(separator + 1).trim();
   }
   return result;
-}
-
-function isMissingTaskError(error: unknown): boolean {
-  return (
-    typeof error === 'object' &&
-    error !== null &&
-    'code' in error &&
-    (error as NodeJS.ErrnoException).code === 'ENOENT'
-  );
 }
 
 function parseProcessStartTime(contents: string): string {
