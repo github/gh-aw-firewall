@@ -229,6 +229,9 @@ steps:
       export npm_config_cache=/tmp/nvx-npm-cache
       export npm_config_audit=false npm_config_fund=false
       export npm_config_update_notifier=false
+      # .npmrc points at an Azure npm mirror that the guest allowlist does not
+      # permit; the lockfile's resolved URLs are rewritten below.
+      export npm_config_registry=https://registry.npmjs.org/
       export GOPATH=/tmp/nvx-go GOCACHE=/tmp/nvx-go-cache GOTOOLCHAIN=local
       mkdir -p "$HOME"
 
@@ -249,6 +252,10 @@ steps:
         --exclude=./.nvx-build-test \
         -cf - . | tar -C "$build" -xf -
       cd "$build"
+      # Only the scratch copy is rewritten. npm's replace-registry-host swaps
+      # just the host and keeps the mirror's path prefix, so it cannot be used.
+      sed -E -i 's#https://[a-z0-9-]+\.pkgs\.visualstudio\.com/[^"]*/npm/registry/#https://registry.npmjs.org/#g' \
+        package-lock.json
 
       timeout 15m npm ci > "$out/npm-ci.log" 2>&1
       npm_ci_exit=$?
