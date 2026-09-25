@@ -286,6 +286,7 @@ steps:
         --container-workdir /workspace \
         --network-isolation \
         --enable-api-proxy \
+        --proxy-logs-dir "$data_dir/logs/inner-proxy-logs" \
         --allow-domains github.com,api.github.com,api.githubcopilot.com \
         --env "AWF_NVX_SMOKE_MARKER=$marker" \
         --log-level info \
