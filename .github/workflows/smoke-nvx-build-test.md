@@ -206,11 +206,14 @@ steps:
       sudo docker start --attach "$container"
       sudo docker export "$container" | tar -xf - -C "$layer_root"
       sudo docker rm "$container"
-      mkdir -p "$layer_root/etc" "$layer_root/usr/local/bin"
-      printf 'runner:x:%s:%s:runner:/home/awf:/bin/sh\n' "$(id -u)" "$(id -g)" \
-        > "$layer_root/etc/passwd"
-      printf 'runner:x:%s:\n' "$(id -g)" > "$layer_root/etc/group"
-      chmod 1777 "$layer_root/tmp"
+      mkdir -p "$layer_root/etc" "$layer_root/usr/local/bin" "$layer_root/var/tmp"
+      {
+        echo 'root:x:0:0:root:/root:/bin/sh'
+        printf 'runner:x:%s:%s:runner:/home/awf:/bin/sh\n' "$(id -u)" "$(id -g)"
+      } > "$layer_root/etc/passwd"
+      printf 'root:x:0:\nrunner:x:%s:\n' "$(id -g)" > "$layer_root/etc/group"
+      # Jest suites write under both temp roots (enclave paths use /var/tmp).
+      chmod 1777 "$layer_root/tmp" "$layer_root/var/tmp"
 
       # Mirrors the smoke-cloud-hypervisor-build-test workload. It builds from a
       # scratch copy of the workspace so the host checkout (and its glibc
