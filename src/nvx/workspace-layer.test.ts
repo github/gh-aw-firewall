@@ -86,7 +86,11 @@ describe('NvxWorkspaceLayer', () => {
     return guestWorkspace;
   }
 
-  async function createLayer(allowWrite?: string[]) {
+  async function createLayer(
+    allowWrite?: string[],
+    homePath?: string,
+    dependenciesOverrides: Partial<NvxWorkspaceLayerDependencies> = {},
+  ) {
     const writePlan = await planNvxFilesystemWrites([workspaceExport], allowWrite);
     const { dependencies, calls } = stubTools(
       upperFixture,
@@ -100,7 +104,8 @@ describe('NvxWorkspaceLayer', () => {
       uid: process.getuid?.() ?? 1000,
       gid: process.getgid?.() ?? 1000,
       runScript: '#!/bin/sh\nexec /bin/sh -c true\n',
-    }, dependencies);
+      homePath,
+    }, { ...dependencies, ...dependenciesOverrides });
     return { layer, calls };
   }
 
@@ -131,10 +136,6 @@ describe('NvxWorkspaceLayer', () => {
     await fs.writeFile(path.join(guestWorkspace, 'generated.txt'), 'from guest\n');
     await fs.mkdir(path.join(guestWorkspace, 'src'), { recursive: true });
     await fs.writeFile(path.join(guestWorkspace, 'src', 'main.ts'), 'rewritten\n');
-    // Overlay records a deletion as a 0/0 character device in the upper layer;
-    // a plain file stands in for it here since mknod requires privileges.
-    await fs.writeFile(path.join(guestWorkspace, 'README.md'), '');
-
     const result = await layer.extractAfterStop(path.join(root, 'scratch.img'));
 
     expect(calls.map((call) => call.tool)).toEqual(['e2fsck', 'debugfs']);
@@ -147,6 +148,35 @@ describe('NvxWorkspaceLayer', () => {
       .resolves.toBe('from guest\n');
     await expect(fs.readFile(path.join(workspace, 'src', 'main.ts'), 'utf8'))
       .resolves.toBe('rewritten\n');
+  });
+
+  it('removes host entries represented by an overlay whiteout', async () => {
+    const { layer } = await createLayer();
+    await layer.stage();
+
+    const guestWorkspace = await guestUpper();
+    const whiteout = path.join(guestWorkspace, 'README.md');
+    await fs.writeFile(whiteout, '');
+    const realLstat = fs.lstat.bind(fs);
+    const lstat = jest.spyOn(fs, 'lstat');
+    lstat.mockImplementation(async (candidate) => {
+      if (candidate === path.join(stagingRoot, 'extracted', 'upper', 'workspace', 'README.md')) {
+        return {
+          isCharacterDevice: () => true,
+          isDirectory: () => false,
+          rdev: 0,
+        } as Awaited<ReturnType<typeof fs.lstat>>;
+      }
+      return realLstat(candidate);
+    });
+
+    try {
+      const result = await layer.extractAfterStop(path.join(root, 'scratch.img'));
+      expect(result.removed).toEqual(['/workspace/README.md']);
+      await expect(fs.access(path.join(workspace, 'README.md'))).rejects.toThrow();
+    } finally {
+      lstat.mockRestore();
+    }
   });
 
   it('rejects guest writes outside filesystem.allowWrite instead of applying them', async () => {
@@ -163,6 +193,33 @@ describe('NvxWorkspaceLayer', () => {
     expect(result.rejected).toEqual(['/workspace/escaped.txt']);
     expect(result.applied).toEqual(['/workspace/src/main.ts']);
     await expect(fs.access(path.join(workspace, 'escaped.txt'))).rejects.toThrow();
+  });
+
+  it('traverses policy-disallowed parent directories to persist nested allowed files', async () => {
+    const { layer } = await createLayer(['/workspace/src/main.ts']);
+    await layer.stage();
+
+    const guestWorkspace = await guestUpper();
+    await fs.mkdir(path.join(guestWorkspace, 'src'), { recursive: true });
+    await fs.writeFile(path.join(guestWorkspace, 'src', 'main.ts'), 'allowed\n');
+
+    const result = await layer.extractAfterStop(path.join(root, 'scratch.img'));
+
+    expect(result.applied).toEqual(['/workspace/src/main.ts']);
+    await expect(fs.readFile(path.join(workspace, 'src', 'main.ts'), 'utf8'))
+      .resolves.toBe('allowed\n');
+  });
+
+  it('excludes credentials below each exported guest home tool directory', async () => {
+    const home = path.join(root, 'home');
+    await fs.mkdir(path.join(home, '.config', 'gh'), { recursive: true });
+    await fs.writeFile(path.join(home, '.config', 'gh', 'hosts.yml'), 'token: secret');
+    const { layer } = await createLayer(undefined, home);
+
+    const layerSource = await layer.stage();
+
+    await expect(fs.access(path.join(layerSource, 'home/awf/.config/gh/hosts.yml')))
+      .rejects.toThrow();
   });
 
   it('refuses copy-back when the host changed the same entry during the run', async () => {
@@ -193,6 +250,23 @@ describe('NvxWorkspaceLayer', () => {
     await layer.cleanup();
     await expect(fs.access(stagingRoot)).rejects.toThrow();
   });
+
+  it('continues copy-back after e2fsck reports both successful repair flags', async () => {
+    const calls: string[] = [];
+    const { layer } = await createLayer(undefined, undefined, {
+      runTool: async (tool) => {
+        calls.push(tool);
+        if (tool === 'e2fsck') return { exitCode: 3, stderr: '' };
+        await fs.cp(upperFixture, path.join(stagingRoot, 'extracted', NVX_SCRATCH_UPPER_DIRECTORY), {
+          recursive: true,
+        });
+        return { exitCode: 0, stderr: '' };
+      },
+    });
+    await layer.stage();
+    await expect(layer.extractAfterStop(path.join(root, 'scratch.img'))).resolves.toBeDefined();
+    expect(calls).toEqual(['e2fsck', 'debugfs']);
+  });
 });
 
 describe('overlay whiteout classification', () => {
@@ -221,6 +295,6 @@ describe('overlay whiteout classification', () => {
 
 describe('e2fsck exit code tolerance', () => {
   it('treats both repair exit codes as success', () => {
-    expect([...testHelpers.E2FSCK_REPAIR_EXIT_CODES].sort()).toEqual([1, 2]);
+    expect([...testHelpers.E2FSCK_REPAIR_EXIT_CODES].sort()).toEqual([1, 2, 3]);
   });
 });

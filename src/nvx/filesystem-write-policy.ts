@@ -244,6 +244,21 @@ export function isNvxWritableGuestPath(
   return false;
 }
 
+/**
+ * Whether a directory must be traversed during copy-back because it contains a
+ * path permitted by a selective write policy.
+ */
+export function hasNvxWritableGuestDescendant(
+  plan: NvxFilesystemWritePlan,
+  guestPath: string,
+): boolean {
+  const normalized = path.posix.normalize(guestPath);
+  return plan.exports.some((exportPlan) => (
+    exportPlan.disposition === 'selective'
+    && exportPlan.overlays.some((overlay) => isWithin(overlay.guestPath, normalized))
+  ));
+}
+
 function stagedOwnershipFor(mode: NvxExportMode): 'workload' | 'root' {
   return mode === 'rw' ? 'workload' : 'root';
 }

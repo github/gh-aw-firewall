@@ -1,8 +1,10 @@
-import { promises as fs, type Stats } from 'fs';
+import { createHash } from 'crypto';
+import { createReadStream, promises as fs, type Stats } from 'fs';
 import * as path from 'path';
 import { CREDENTIAL_ENTRIES, HOME_FORBIDDEN_SUBDIRS, HOME_TOOL_PATHS } from '../config/mount-policy';
 import {
   isNvxWritableGuestPath,
+  hasNvxWritableGuestDescendant,
   type NvxExportWritePlan,
   type NvxFilesystemWritePlan,
 } from './filesystem-write-policy';
@@ -31,7 +33,7 @@ const EXCLUDED_RELATIVE_PATHS = [
  * recommended") after a successful repair. Neither is a failure here: the
  * image is a throwaway scratch device that is discarded right after the dump.
  */
-const E2FSCK_REPAIR_EXIT_CODES = new Set([1, 2]);
+const E2FSCK_REPAIR_EXIT_CODES = new Set([1, 2, 3]);
 
 export type NvxWorkspaceTool = 'debugfs' | 'e2fsck';
 
@@ -110,7 +112,7 @@ export class NvxWorkspaceLayer {
   async stage(): Promise<string> {
     if (this.staged) throw new Error('NVX guest layer is already staged');
     await fs.mkdir(this.config.stagingRoot, { recursive: true, mode: 0o700 });
-    await fs.mkdir(this.layerSourcePath, { recursive: true, mode: 0o700 });
+    await fs.mkdir(this.layerSourcePath, { recursive: true, mode: 0o755 });
 
     for (const exportPlan of this.config.writePlan.exports) {
       await this.stageExport(exportPlan);
@@ -179,7 +181,7 @@ export class NvxWorkspaceLayer {
       this.layerSourcePath,
       exportPlan.export.target.slice(1),
     );
-    await fs.mkdir(path.dirname(destination), { recursive: true, mode: 0o700 });
+    await fs.mkdir(path.dirname(destination), { recursive: true, mode: 0o755 });
     await copySafeTree(exportPlan.export.source, destination, exportPlan.export.source);
     const writableRelativePaths = new Set(
       exportPlan.overlays.map((overlay) => overlay.relativePath),
@@ -199,7 +201,6 @@ export class NvxWorkspaceLayer {
     await fs.mkdir(guestHome, { recursive: true, mode: 0o700 });
     await this.chown(guestHome, this.config.uid, this.config.gid);
     if (!this.config.homePath) return;
-    const excluded = CREDENTIAL_ENTRIES.map((entry) => normalizeRelative(entry.path));
     for (const toolPath of HOME_TOOL_PATHS) {
       const source = path.join(this.config.homePath, toolPath);
       let stat: Stats;
@@ -214,8 +215,8 @@ export class NvxWorkspaceLayer {
       }
       const destination = path.join(guestHome, toolPath);
       await fs.mkdir(destination, { recursive: true, mode: 0o700 });
-      await copySafeTree(source, destination, source, (relative) => excluded.some(
-        (credential) => relative === credential || relative.startsWith(`${credential}/`),
+      await copySafeTree(source, destination, source, (relative) => isExcludedRelativePath(
+        `${normalizeRelative(toolPath)}/${relative}`,
       ));
       await applyStagedOwnership(destination, destination, {
         uid: this.config.uid,
@@ -293,8 +294,15 @@ export class NvxWorkspaceLayer {
       const hostPath = path.join(exportEntry.source, relative);
       if (isExcludedRelativePath(relative.split(path.sep).join('/'))) continue;
       if (guestPath === NVX_GUEST_HOME || guestPath.startsWith(`${NVX_GUEST_HOME}/`)) continue;
-      if (!isNvxWritableGuestPath(this.config.writePlan, guestPath)) {
+      const writable = isNvxWritableGuestPath(this.config.writePlan, guestPath);
+      const traverse = stat.isDirectory()
+        && hasNvxWritableGuestDescendant(this.config.writePlan, guestPath);
+      if (!writable && !traverse) {
         outcome.rejected.push(guestPath);
+        continue;
+      }
+      if (traverse && !writable) {
+        await this.mergeTree(childUpperPath, exportEntry, outcome);
         continue;
       }
       await this.assertNoHostConflict(guestPath, hostPath);
@@ -305,6 +313,10 @@ export class NvxWorkspaceLayer {
       }
       if (stat.isDirectory()) {
         await fs.mkdir(hostPath, { recursive: true, mode: stat.mode & 0o7777 });
+        await fs.chmod(hostPath, stat.mode & 0o7777);
+        if (!this.originalState!.has(guestPath)) {
+          await this.chown(hostPath, this.config.uid, this.config.gid);
+        }
         await this.mergeTree(childUpperPath, exportEntry, outcome);
         continue;
       }
@@ -319,6 +331,7 @@ export class NvxWorkspaceLayer {
       await fs.rm(hostPath, { recursive: true, force: true });
       await fs.copyFile(childUpperPath, hostPath);
       await fs.chmod(hostPath, stat.mode & 0o7777);
+      await this.chown(hostPath, this.config.uid, this.config.gid);
       outcome.applied.push(guestPath);
     }
   }
@@ -391,13 +404,15 @@ async function applyStagedOwnership(
       options.writableRelativePaths,
     );
     if (options.directoriesOnly && !stat.isDirectory()) return;
+    const uid = writable ? options.uid : 0;
+    const gid = options.gid;
     if (stat.isSymbolicLink()) {
-      await options.lchown(absolute, writable ? options.uid : 0, writable ? options.gid : 0);
+      await options.lchown(absolute, uid, gid);
       return;
     }
-    await options.chown(absolute, writable ? options.uid : 0, writable ? options.gid : 0);
+    await options.chown(absolute, uid, gid);
     const mode = stat.mode & 0o7777;
-    await fs.chmod(absolute, writable ? mode | 0o600 : mode & ~0o222);
+    await fs.chmod(absolute, writable ? mode | 0o600 : readonlyModeForWorkload(mode));
   });
 }
 
@@ -418,7 +433,9 @@ async function copySafeTree(
   root: string,
   exclude?: (relativePath: string) => boolean,
 ): Promise<void> {
+  const sourceStat = await fs.lstat(source);
   await fs.mkdir(destination, { recursive: true, mode: 0o700 });
+  await fs.chmod(destination, sourceStat.mode & 0o7777);
   const entries = await fs.readdir(source, { withFileTypes: true });
   for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
     const sourcePath = path.join(source, entry.name);
@@ -457,10 +474,24 @@ async function walkSafeTree(
 }
 
 async function describeHostEntry(absolutePath: string, stat: Stats): Promise<string> {
-  if (stat.isSymbolicLink()) return `symlink:${await fs.readlink(absolutePath)}`;
-  if (stat.isDirectory()) return `directory:${stat.mode & 0o7777}`;
-  if (stat.isFile()) return `file:${stat.mode & 0o7777}:${stat.size}:${stat.mtimeMs}`;
-  return 'other';
+  const metadata = `${stat.uid}:${stat.gid}:${stat.mode & 0o7777}`;
+  if (stat.isSymbolicLink()) return `symlink:${metadata}:${await fs.readlink(absolutePath)}`;
+  if (stat.isDirectory()) return `directory:${metadata}`;
+  if (stat.isFile()) {
+    return `file:${metadata}:${await hashFile(absolutePath)}`;
+  }
+  return `other:${metadata}`;
+}
+
+async function hashFile(absolutePath: string): Promise<string> {
+  const hash = createHash('sha256');
+  for await (const chunk of createReadStream(absolutePath)) hash.update(chunk);
+  return hash.digest('hex');
+}
+
+function readonlyModeForWorkload(mode: number): number {
+  const ownerPermissions = (mode & 0o700) >> 3;
+  return (mode & ~0o222) | ownerPermissions;
 }
 
 function normalizeRelative(value: string): string {

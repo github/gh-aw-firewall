@@ -21,6 +21,7 @@ import {
 import { resolveTrustedNvxHostTool } from './preflight';
 import {
   assertNvxRuntimeCompatibility,
+  assertNvxContainerWorkDirResolvesWithinWorkspace,
   requireNvxConfig,
   resolveNvxGuestWorkDir,
 } from './runtime-validation';
@@ -197,6 +198,14 @@ export class NvxRuntimeBackend implements ExternalAgentRuntimeBackend {
     this.identity = this.dependencies.identity();
     this.exports = await this.dependencies.resolveExports(
       requireNvxConfig(this.config).mountPolicy,
+    );
+    const workspace = this.exports.find((entry) => entry.target === '/workspace');
+    if (!workspace) {
+      throw new Error('NVX workspace export is missing after resolution');
+    }
+    await assertNvxContainerWorkDirResolvesWithinWorkspace(
+      this.config.containerWorkDir,
+      workspace.source,
     );
   };
 

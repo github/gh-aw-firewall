@@ -1,3 +1,4 @@
+import { promises as fs } from 'fs';
 import * as path from 'path';
 import type { NvxOptions, WrapperConfig } from '../types';
 import { NVX_MOUNT_POLICIES, type NvxMountPolicy } from '../types/runtime-options';
@@ -139,6 +140,35 @@ export function assertNvxContainerWorkDir(containerWorkDir?: string): void {
     throw new Error(
       `NVX preview --container-workdir must be inside the guest workspace export `
       + `${NVX_GUEST_WORKSPACE}; found ${containerWorkDir}`,
+    );
+  }
+}
+
+/**
+ * Resolves a selected guest workdir through the exported host workspace before
+ * launch. This rejects workspace symlinks that would cause the guest `cd` to
+ * escape the live export.
+ */
+export async function assertNvxContainerWorkDirResolvesWithinWorkspace(
+  containerWorkDir: string | undefined,
+  workspaceSource: string,
+): Promise<void> {
+  assertNvxContainerWorkDir(containerWorkDir);
+  if (!containerWorkDir) return;
+  const normalized = resolveNvxGuestWorkDir(containerWorkDir);
+  const relative = path.posix.relative(NVX_GUEST_WORKSPACE, normalized);
+  const [canonicalWorkspace, canonicalWorkDir] = await Promise.all([
+    fs.realpath(workspaceSource),
+    fs.realpath(path.join(workspaceSource, relative)),
+  ]);
+  if (
+    canonicalWorkDir !== canonicalWorkspace
+    && !canonicalWorkDir.startsWith(`${canonicalWorkspace}${path.sep}`)
+  ) {
+    throw new Error(
+      `NVX preview --container-workdir resolves outside the guest workspace export: ${
+        containerWorkDir
+      }`,
     );
   }
 }

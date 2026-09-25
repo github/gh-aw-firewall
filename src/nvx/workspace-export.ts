@@ -168,7 +168,7 @@ export function validateNvxExports(entries: readonly NvxDirectoryExport[]): void
 
 function isReservedGuestTarget(target: string): boolean {
   const reserved = [path.dirname(NVX_GUEST_RUN_SCRIPT), NVX_GUEST_RUN_SCRIPT, NVX_GUEST_HOME];
-  return reserved.some((entry) => entry === target || isWithin(entry, target));
+  return reserved.some((entry) => isWithin(target, entry) || isWithin(entry, target));
 }
 
 function isWithin(candidate: string, root: string): boolean {

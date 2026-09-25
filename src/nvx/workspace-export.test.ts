@@ -139,6 +139,14 @@ describe('validateNvxExports', () => {
       workspaceExport(),
       workspaceExport({ tag: 'awf', source: '/cache', target: '/etc/awf' }),
     ])).toThrow(/collides with an AWF-owned guest path/);
+    expect(() => validateNvxExports([
+      workspaceExport(),
+      workspaceExport({ tag: 'home-config', source: '/cache', target: '/home/awf/.config' }),
+    ])).toThrow(/collides with an AWF-owned guest path/);
+    expect(() => validateNvxExports([
+      workspaceExport(),
+      workspaceExport({ tag: 'awf-child', source: '/cache', target: '/etc/awf/cache' }),
+    ])).toThrow(/collides with an AWF-owned guest path/);
   });
 
   it('rejects nested export targets and nested export sources', () => {

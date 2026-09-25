@@ -1,5 +1,9 @@
+import { promises as fs } from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import type { WrapperConfig } from '../types';
 import {
+  assertNvxContainerWorkDirResolvesWithinWorkspace,
   assertNvxHostEligibility,
   assertNvxRuntimeCompatibility,
   assertNvxSelection,
@@ -93,6 +97,39 @@ describe('NVX runtime validation', () => {
   describe('assertNvxRuntimeCompatibility', () => {
     it('accepts a fully configured, eligible selection', () => {
       expect(() => assertNvxRuntimeCompatibility(config(), baseNvx())).not.toThrow();
+    });
+
+    describe('assertNvxContainerWorkDirResolvesWithinWorkspace', () => {
+      let root: string;
+      let workspace: string;
+
+      beforeEach(async () => {
+        root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'nvx-workdir-')));
+        workspace = path.join(root, 'workspace');
+        await fs.mkdir(path.join(workspace, 'packages', 'app'), { recursive: true });
+      });
+
+      afterEach(async () => {
+        await fs.rm(root, { recursive: true, force: true });
+      });
+
+      it('accepts an existing directory inside the canonical workspace', async () => {
+        await expect(assertNvxContainerWorkDirResolvesWithinWorkspace(
+          '/workspace/packages/app',
+          workspace,
+        )).resolves.toBeUndefined();
+      });
+
+      it('rejects a workspace symlink that resolves outside the export', async () => {
+        const outside = path.join(root, 'outside');
+        await fs.mkdir(outside);
+        await fs.symlink(outside, path.join(workspace, 'escaped'));
+
+        await expect(assertNvxContainerWorkDirResolvesWithinWorkspace(
+          '/workspace/escaped',
+          workspace,
+        )).rejects.toThrow(/resolves outside the guest workspace export/);
+      });
     });
 
     it('rejects when the preview flag is not enabled', () => {
