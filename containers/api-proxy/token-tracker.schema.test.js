@@ -578,13 +578,18 @@ describe('token-usage file sentinel', () => {
     try {
       isolated.auditUpstreamErrorResponse({ request_id: 'req-1', response_body: 'redacted' });
       await isolated.closeLogStream();
-      expect(fs.statSync(isolated.UPSTREAM_ERROR_LOG_FILE).mode & 0o777).toBe(0o600);
-      const record = JSON.parse(fs.readFileSync(isolated.UPSTREAM_ERROR_LOG_FILE, 'utf8'));
-      expect(record).toMatchObject({
-        event: 'UPSTREAM_ERROR_RESPONSE',
-        request_id: 'req-1',
-        response_body: 'redacted',
-      });
+      const fd = fs.openSync(isolated.UPSTREAM_ERROR_LOG_FILE, 'r');
+      try {
+        expect(fs.fstatSync(fd).mode & 0o777).toBe(0o600);
+        const record = JSON.parse(fs.readFileSync(fd, 'utf8'));
+        expect(record).toMatchObject({
+          event: 'UPSTREAM_ERROR_RESPONSE',
+          request_id: 'req-1',
+          response_body: 'redacted',
+        });
+      } finally {
+        fs.closeSync(fd);
+      }
     } finally {
       if (originalDir === undefined) delete process.env.AWF_TOKEN_LOG_DIR;
       else process.env.AWF_TOKEN_LOG_DIR = originalDir;
