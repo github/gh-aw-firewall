@@ -17,6 +17,7 @@ const TOKEN_LOG_DIR = process.env.AWF_TOKEN_LOG_DIR || '/var/log/api-proxy';
 const TOKEN_LOG_FILE = path.join(TOKEN_LOG_DIR, 'token-usage.jsonl');
 const DIAG_LOG_FILE = path.join(TOKEN_LOG_DIR, 'token-diag.jsonl');
 const AUDIT_LOG_FILE = path.join(TOKEN_LOG_DIR, 'token-tracker-audit.jsonl');
+const UPSTREAM_ERROR_LOG_FILE = path.join(TOKEN_LOG_DIR, 'upstream-errors.jsonl');
 const DIAG_ENABLED = process.env.AWF_DEBUG_TOKENS === '1';
 
 // AWF version used to identify schema version in JSONL records.
@@ -35,6 +36,7 @@ const TOKEN_DIAG_SCHEMA = `token-diag/v${AWF_VERSION || '0.0.0-dev'}`;
 let logStream = null;
 let diagStream = null;
 let auditStream = null;
+let upstreamErrorStream = null;
 
 function ensureTokenUsageFileExists() {
   try {
@@ -105,6 +107,21 @@ function auditTrack(event, data) {
     }
     const line = { ts: Date.now(), event, ...data };
     auditStream.write(JSON.stringify(line) + '\n');
+  } catch { /* best-effort */ }
+}
+
+function auditUpstreamErrorResponse(fields) {
+  try {
+    if (!upstreamErrorStream) {
+      fs.mkdirSync(TOKEN_LOG_DIR, { recursive: true });
+      const fd = fs.openSync(UPSTREAM_ERROR_LOG_FILE, 'a', 0o600);
+      fs.fchmodSync(fd, 0o600);
+      fs.closeSync(fd);
+      upstreamErrorStream = fs.createWriteStream(UPSTREAM_ERROR_LOG_FILE, { flags: 'a', mode: 0o600 });
+      upstreamErrorStream.on('error', () => { upstreamErrorStream = null; });
+    }
+    const line = { ts: Date.now(), event: 'UPSTREAM_ERROR_RESPONSE', ...fields };
+    upstreamErrorStream.write(JSON.stringify(line) + '\n');
   } catch { /* best-effort */ }
 }
 
@@ -306,6 +323,10 @@ function closeLogStream() {
         pending++;
         auditStream.end(() => { auditStream = null; pending--; check(); });
       }
+      if (upstreamErrorStream) {
+        pending++;
+        upstreamErrorStream.end(() => { upstreamErrorStream = null; pending--; check(); });
+      }
       if (pending === 0) resolve();
     }),
     closeBlockedRequestDiagStream(),
@@ -315,10 +336,12 @@ function closeLogStream() {
 module.exports = {
   TOKEN_LOG_FILE,
   AUDIT_LOG_FILE,
+  UPSTREAM_ERROR_LOG_FILE,
   TOKEN_USAGE_SCHEMA,
   TOKEN_DIAG_SCHEMA,
   diag,
   auditTrack,
+  auditUpstreamErrorResponse,
   buildTokenDiagRecord,
   buildTokenUsageRecord,
   incrementTokenMetrics,

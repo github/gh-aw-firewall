@@ -168,6 +168,18 @@ describe('resolveModel', () => {
     expect(result.resolvedModel).toBe('gpt-4o');
   });
 
+  it('should strip a redundant provider prefix for OpenAI direct model matches', () => {
+    const result = resolveModel(
+      'openai/gpt-6-sol',
+      aliases,
+      { openai: ['gpt-6-sol', 'gpt-5.6-terra'] },
+      'openai'
+    );
+    expect(result).not.toBeNull();
+    expect(result.resolvedModel).toBe('gpt-6-sol');
+    expect(result.fallback.activated).toBe(false);
+  });
+
   it('should leave a different provider prefix untouched (not a redundant self-reference)', () => {
     const result = resolveModel('openai/gpt-4o', aliases, availableModels, 'copilot');
     expect(result).not.toBeNull();

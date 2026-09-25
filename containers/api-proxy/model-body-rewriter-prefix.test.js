@@ -22,6 +22,20 @@ describe('stripRedundantModelPrefixInBody', () => {
     expect(JSON.parse(result.toString('utf8')).model).toBe('gpt-5.3-codex');
   });
 
+  it('strips a redundant "openai/" prefix from OpenAI requests', () => {
+    const body = Buffer.from(JSON.stringify({
+      model: 'openai/gpt-6-sol',
+      input: [{ role: 'user', content: 'hello' }],
+      stream: true,
+    }));
+    const result = stripRedundantModelPrefixInBody(body, 'openai');
+    expect(result).not.toBeNull();
+    expect(JSON.parse(result.toString('utf8'))).toMatchObject({
+      model: 'gpt-6-sol',
+      stream: true,
+    });
+  });
+
   it('returns null when the model has no redundant prefix', () => {
     const body = Buffer.from(JSON.stringify({ model: 'auto' }));
     expect(stripRedundantModelPrefixInBody(body, 'copilot')).toBeNull();

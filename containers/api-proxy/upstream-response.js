@@ -8,7 +8,7 @@ const {
 } = require('./upstream-log');
 const { handle400WithRetry } = require('./upstream-retry');
 const { setupTokenTracking } = require('./upstream-token');
-const { auditTrack } = require('./token-persistence');
+const { auditTrack, auditUpstreamErrorResponse } = require('./token-persistence');
 const {
   transformCodexCompatibleResponseBody,
   createCodexCompatibleSseTransform,
@@ -149,7 +149,10 @@ function createUpstreamResponseHandlers({
   const logUpstreamErrorResponse = createLogUpstreamErrorResponse({
     logRequest,
     sanitizeForLog,
-    auditTrack,
+    auditTrack: (event, fields) => {
+      auditTrack(event, fields);
+      auditUpstreamErrorResponse(fields);
+    },
   });
 
   function handleUpstreamResponse(proxyRes, requestHeaders, {

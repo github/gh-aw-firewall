@@ -160,7 +160,7 @@ function createBodyHandler({ handleRequestError, otel }) {
     let codexCompatibility = null;
     const isWritableMethod = req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH';
 
-    // Normalize a redundant "<provider>/" prefix (e.g. "copilot/auto", used by
+    // Normalize a redundant "<provider>/" prefix (e.g. "openai/gpt-6-sol", used by
     // harnesses such as Pi and Codex) unconditionally — independent of whether
     // AWF_MODEL_ALIASES is configured — so the literal prefixed model string
     // never reaches the upstream API, which would otherwise reject it as
@@ -170,7 +170,7 @@ function createBodyHandler({ handleRequestError, otel }) {
     // resolution logic (see `stripRedundantProviderPrefix` usage in
     // model-resolver.js). Both call sites share the `stripRedundantProviderPrefix`
     // helper in model-utils.js; keep them in sync if that normalization changes.
-    if (provider === 'copilot' && isWritableMethod) {
+    if (isWritableMethod) {
       const prefixStripped = stripRedundantModelPrefixInBody(body, provider);
       if (prefixStripped) body = prefixStripped;
     }

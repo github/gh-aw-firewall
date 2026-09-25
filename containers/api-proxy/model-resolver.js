@@ -362,7 +362,7 @@ function resolveModel(
   const log = [];
   const originalRequestedModel = requestedModel;
   const { baseModel: rawBaseModel, parameterSuffix } = splitModelParameters(requestedModel);
-  // Strip a redundant "<provider>/" prefix (e.g. "copilot/auto", as used by
+  // Strip a redundant "<provider>/" prefix (e.g. "openai/gpt-6-sol", as used by
   // harnesses such as Pi and Codex) so it resolves identically to the bare
   // model name on this provider. NOTE: body-handler.js's
   // `transformRequestBody` independently calls `stripRedundantModelPrefixInBody`
@@ -370,9 +370,7 @@ function resolveModel(
   // runs, so that the same normalization is applied even when
   // AWF_MODEL_ALIASES is not configured. Both call sites share this logic via
   // `stripRedundantProviderPrefix` in model-utils.js — keep them in sync.
-  const baseModel = currentProvider === 'copilot'
-    ? stripRedundantProviderPrefix(rawBaseModel, currentProvider)
-    : rawBaseModel;
+  const baseModel = stripRedundantProviderPrefix(rawBaseModel, currentProvider);
   if (baseModel !== rawBaseModel) {
     log.push(`[model-resolver] stripped redundant provider prefix: "${rawBaseModel}" → "${baseModel}"`);
   }
