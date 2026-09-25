@@ -1916,8 +1916,23 @@ yet, use HTTP `503` and `"retryable": true`.
 ## 13a. Task-Level Model Routing
 
 `apiProxy.routing` is an opt-in, compiler-authored request for AWF to select one
-model and reasoning effort for the entire run. This release validates and
-preserves the configuration only; later routing integration consumes it.
+model and reasoning effort for the entire run.
+
+As of this release, the API proxy's routing controller and request enforcement
+are wired into the running server ([PR #8966](https://github.com/github/gh-aw-firewall/pull/8966)):
+when `AWF_ROUTING_CONFIG` is present, a routing session starts after key
+validation and model discovery, and every inference request is screened
+against the one selected model/effort — a mismatch is rejected with `403`
+before the adapter's enabled check runs, so a rejection never reveals provider
+configuration. Upgrades are rejected outright while a routing session exists.
+**The host workflow does not yet stage or validate `apiProxy.routing` input**
+(private per-run routing directory, host-mode rejection, `selection.json`
+wait-for-ready) — that wiring is tracked in
+[PR #8985](https://github.com/github/gh-aw-firewall/pull/8985) (open, not yet
+merged). Until it merges, `AWF_ROUTING_CONFIG` is derived directly from the
+config file's `apiProxy.routing.task.conversationFile` host path with no host
+staging, so configuring this block does not yet produce a working end-to-end
+routed run.
 
 ```yaml
 apiProxy:
@@ -1942,9 +1957,10 @@ and every other enabled image role. The legacy `latest` router default is kept
 only for resolver compatibility and is not a supported tag-only routed
 configuration.
 
-The candidate-pool foundation is present but is not called by the running proxy.
-It uses only the native, GitHub-token-backed Copilot catalogue, not a custom
-gateway or BYOK provider occupying the Copilot slot. It preserves advertised
+The candidate pool used by the routing controller is now called by the running
+proxy (see the wiring note above). It uses only the native, GitHub-token-backed
+Copilot catalogue, not a custom gateway or BYOK provider occupying the Copilot
+slot. It preserves advertised
 reasoning efforts, supported endpoints, and positive context limits. Models
 with missing effort or endpoint metadata are excluded; an explicitly empty
 effort list (or explicit lack of reasoning-effort support) instead allows one
