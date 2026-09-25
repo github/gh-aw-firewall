@@ -147,16 +147,16 @@ export function applyGeneralWorkflowPatches(
           `${indent}    GH_AW_AWF_VERSION: ${awfVersion}\n` +
           `${indent}  run: |\n` +
           `${indent}    setup_status=0\n` +
-          `${indent}    for attempt in 1 2 3; do\n` +
+          `${indent}    max_attempts=3\n` +
+          `${indent}    for attempt in $(seq 1 "$max_attempts"); do\n` +
           `${indent}      if bash "\${RUNNER_TEMP}/gh-aw/actions/cloud_hypervisor_setup_bundle.sh"; then\n` +
           `${indent}        exit 0\n` +
           `${indent}      else\n` +
           `${indent}        setup_status=$?\n` +
           `${indent}      fi\n` +
-          `${indent}      if [ "$attempt" -eq 3 ]; then\n` +
-          `${indent}        exit "$setup_status"\n` +
+          `${indent}      if [ "$attempt" -lt "$max_attempts" ]; then\n` +
+          `${indent}        sleep $((attempt * 10))\n` +
           `${indent}      fi\n` +
-          `${indent}      sleep $((attempt * 10))\n` +
           `${indent}    done\n` +
           `${indent}    exit "$setup_status"\n`
       );

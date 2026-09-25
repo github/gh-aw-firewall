@@ -151,7 +151,8 @@ describe('applyGeneralWorkflowPatches Cloud Hypervisor bundle retries', () => {
     );
 
     expect(content).toContain('setup_status=0');
-    expect(content).toContain('for attempt in 1 2 3; do');
+    expect(content).toContain('max_attempts=3');
+    expect(content).toContain('for attempt in $(seq 1 "$max_attempts"); do');
     expect(content).toMatch(/\n\s+else\n\s+setup_status=\$\?/);
     expect(content).toContain('sleep $((attempt * 10))');
     expect(content).toContain('exit "$setup_status"');
@@ -175,6 +176,18 @@ describe('applyGeneralWorkflowPatches Cloud Hypervisor bundle retries', () => {
 
     expect(second.content).toBe(first.content);
     expect(second.content.match(/setup_status=0/g)).toHaveLength(1);
+  });
+
+  it('leaves non-allowlisted workflow locks untouched', () => {
+    const { content, log } = applyGeneralWorkflowPatches(
+      compilerOutput,
+      '/tmp/workflows/smoke-other.lock.yml'
+    );
+
+    expect(content).toBe(compilerOutput);
+    expect(log).not.toContain(
+      '  Wrapped 1 Cloud Hypervisor bundle setup step(s) with retries'
+    );
   });
 });
 
