@@ -325,6 +325,20 @@ steps:
       rm -f "$proof_file" "$copilot_file"
       sudo chown -R "$(id -u):$(id -g)" "$data_dir"
       cat "$results"
+
+      # $data_dir is not part of the compiler's uploaded agent-artifact paths,
+      # so the only durable record of this run is whatever this step prints to
+      # its own stdout (the raw Actions log). Print the inner api-proxy
+      # sidecar's request audit trail here for the same reason scenarios.jsonl
+      # is cat'd above -- otherwise the evidence exists on disk for the length
+      # of the job but is never actually inspectable afterward.
+      audit_log="$data_dir/logs/inner-proxy-logs/api-proxy-logs/token-tracker-audit.jsonl"
+      if [ -f "$audit_log" ]; then
+        echo "--- inner api-proxy token-tracker-audit.jsonl ---"
+        cat "$audit_log"
+      else
+        echo "--- inner api-proxy token-tracker-audit.jsonl not found at $audit_log ---"
+      fi
       exit 0
 post-steps:
   - name: Validate safe outputs were invoked
