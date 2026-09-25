@@ -38,6 +38,16 @@ let diagStream = null;
 let auditStream = null;
 let upstreamErrorStream = null;
 
+function createOwnerOnlyAppendStream(filePath, onError) {
+  fs.mkdirSync(TOKEN_LOG_DIR, { recursive: true });
+  const fd = fs.openSync(filePath, 'a', 0o600);
+  fs.fchmodSync(fd, 0o600);
+  fs.closeSync(fd);
+  const stream = fs.createWriteStream(filePath, { flags: 'a', mode: 0o600 });
+  stream.on('error', onError);
+  return stream;
+}
+
 function ensureTokenUsageFileExists() {
   try {
     fs.mkdirSync(TOKEN_LOG_DIR, { recursive: true });
@@ -98,12 +108,7 @@ function diag(msg, data) {
 function auditTrack(event, data) {
   try {
     if (!auditStream) {
-      fs.mkdirSync(TOKEN_LOG_DIR, { recursive: true });
-      const fd = fs.openSync(AUDIT_LOG_FILE, 'a', 0o600);
-      fs.fchmodSync(fd, 0o600);
-      fs.closeSync(fd);
-      auditStream = fs.createWriteStream(AUDIT_LOG_FILE, { flags: 'a', mode: 0o600 });
-      auditStream.on('error', () => { auditStream = null; });
+      auditStream = createOwnerOnlyAppendStream(AUDIT_LOG_FILE, () => { auditStream = null; });
     }
     const line = { ts: Date.now(), event, ...data };
     auditStream.write(JSON.stringify(line) + '\n');
@@ -113,12 +118,7 @@ function auditTrack(event, data) {
 function auditUpstreamErrorResponse(fields) {
   try {
     if (!upstreamErrorStream) {
-      fs.mkdirSync(TOKEN_LOG_DIR, { recursive: true });
-      const fd = fs.openSync(UPSTREAM_ERROR_LOG_FILE, 'a', 0o600);
-      fs.fchmodSync(fd, 0o600);
-      fs.closeSync(fd);
-      upstreamErrorStream = fs.createWriteStream(UPSTREAM_ERROR_LOG_FILE, { flags: 'a', mode: 0o600 });
-      upstreamErrorStream.on('error', () => { upstreamErrorStream = null; });
+      upstreamErrorStream = createOwnerOnlyAppendStream(UPSTREAM_ERROR_LOG_FILE, () => { upstreamErrorStream = null; });
     }
     const line = { ts: Date.now(), event: 'UPSTREAM_ERROR_RESPONSE', ...fields };
     upstreamErrorStream.write(JSON.stringify(line) + '\n');

@@ -151,7 +151,7 @@ function createUpstreamResponseHandlers({
     sanitizeForLog,
     auditTrack: (event, fields) => {
       auditTrack(event, fields);
-      auditUpstreamErrorResponse(fields);
+      if (event === 'UPSTREAM_ERROR_RESPONSE') auditUpstreamErrorResponse(fields);
     },
   });
 
