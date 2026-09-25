@@ -1,5 +1,6 @@
 import type { WrapperConfig } from './types';
 import { buildRuntimeImageRef, parseImageTag, type ParsedImageTag } from './image-tag';
+import { isDigestPinnedImageReference } from './image-reference';
 
 export type RuntimeImageName =
   | 'squid' | 'agent' | 'agent-act' | 'api-proxy' | 'router' | 'cli-proxy' | 'build-tools'
@@ -48,28 +49,6 @@ const EXTERNAL_DEFAULT_IMAGE: Partial<Record<RuntimeImageName, string>> = {
   'dind-staging': DEFAULT_DIND_STAGING_IMAGE,
   router: DEFAULT_ROUTER_IMAGE,
 };
-
-// OCI reference grammar (distribution/reference) narrowed to literal
-// references that carry an explicit registry host, a tag, and a sha256 digest.
-const HOST_LABEL = '[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?';
-const REGISTRY = `(?:${HOST_LABEL}(?:\\.${HOST_LABEL})+(?::[0-9]{1,5})?|${HOST_LABEL}:[0-9]{1,5}|localhost)`;
-const PATH_COMPONENT = '[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*';
-const TAG = '[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}';
-const DIGEST = 'sha256:[a-f0-9]{64}';
-
-/**
- * Canonical pattern for a compiler-authorized image reference. Kept in sync
- * with `$defs/digestPinnedImage` in the AWF configuration JSON Schema.
- */
-const DIGEST_PINNED_IMAGE_PATTERN =
-  `^${REGISTRY}/${PATH_COMPONENT}(?:/${PATH_COMPONENT})*:${TAG}@${DIGEST}$`;
-
-const DIGEST_PINNED_IMAGE = new RegExp(DIGEST_PINNED_IMAGE_PATTERN);
-
-export function isDigestPinnedImageReference(reference: string): boolean {
-  if (/\s|\$|\{\{/.test(reference)) return false;
-  return DIGEST_PINNED_IMAGE.test(reference);
-}
 
 export interface ResolvedRuntimeImage {
   image: string;

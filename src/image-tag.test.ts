@@ -211,7 +211,7 @@ describe('buildRuntimeImageRef', () => {
       const parsed = parseImageTag('0.25.18');
       expect(() =>
         buildRuntimeImageRef('ghcr.io/github/gh-aw-firewall', 'bad', parsed)
-      ).toThrow(IMAGE_DIGEST_KEYS.join(', '));
+      ).toThrow('squid, agent, agent-act, api-proxy, router, cli-proxy, build-tools, enclave-script, enclave-agent, enclave-mcp-server');
     });
   });
 });

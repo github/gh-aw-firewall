@@ -15,6 +15,7 @@ import {
 jest.mock('execa', () => require('../test-helpers/mock-execa.test-utils').execaMockFactory());
 
 const digest = 'a'.repeat(64);
+const originalPlatform = process.platform;
 
 function makeConfig(workDir: string, conversationFile: string): WrapperConfig {
   return {
@@ -45,6 +46,14 @@ function writeConversation(filename: string): void {
 
 describe('routing bootstrap', () => {
   let tempDir: string;
+
+  beforeAll(() => {
+    Object.defineProperty(process, 'platform', { value: 'linux' });
+  });
+
+  afterAll(() => {
+    Object.defineProperty(process, 'platform', { value: originalPlatform });
+  });
 
   beforeEach(() => {
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-routing-test-'));

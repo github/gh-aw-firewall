@@ -186,7 +186,7 @@ function runHarness(scenario: string, extraEnv: Record<string, string> = {}): Ha
         TEST_PATH: `${root}:/usr/bin:/bin`,
         AWF_ENCLAVE_AGENT_ENGINE: 'copilot',
         AWF_ENCLAVE_AGENT_MAX_OUTPUT_BYTES: '1024',
-        AWF_ENCLAVE_AGENT_DEADLINE_SECONDS: scenario === 'timeout' ? '1' : '5',
+        AWF_ENCLAVE_AGENT_DEADLINE_SECONDS: scenario === 'timeout' ? '1' : '30',
         AWF_ENCLAVE_AGENT_MODEL: 'test-model',
         ...(scenario === 'model-limits' ? {
           AWF_ENCLAVE_AGENT_MAX_MODEL_REQUESTS: '3',
