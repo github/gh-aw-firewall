@@ -31,12 +31,10 @@ const MAX_GVISOR_AGENT_RETRIES = 1;
 const GVISOR_STARTUP_CRASH_WINDOW_MS = 30_000;
 
 class InfrastructureReadinessError extends Error {
-  readonly cause: unknown;
-
   constructor(message: string, cause: unknown) {
     super(message);
     this.name = 'InfrastructureReadinessError';
-    this.cause = cause;
+    Object.defineProperty(this, 'cause', { value: cause, configurable: true });
   }
 }
 class PostReadinessAgentStartupError extends Error {}

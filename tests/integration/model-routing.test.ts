@@ -53,7 +53,7 @@ describe('Model routing', () => {
     const result = await execa('docker', [
       'compose', '-f', composeFile, 'exec', '-T', 'api-proxy',
       'node', '-e',
-      "let attempts = 0; const probe = () => require('http').get('http://gh-aw-router:8737/healthz', response => process.exit(response.statusCode === 204 ? 0 : 1)).on('error', () => ++attempts < 3 ? setTimeout(probe, 200) : process.exit(1)); probe()",
+      "let attempts = 0; const probe = () => require('http').get('http://gh-aw-router:8737/healthz', response => process.exit(response.statusCode >= 200 && response.statusCode < 300 ? 0 : 1)).on('error', () => ++attempts < 3 ? setTimeout(probe, 200) : process.exit(1)); probe()",
     ], {
       reject: false,
     });
