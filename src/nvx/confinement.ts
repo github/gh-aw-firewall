@@ -357,6 +357,9 @@ Promise<NvxConfinementEvidence> {
   // /proc/<pid>/task only lists members of this thread group, so exited threads are
   // dropped and new or recycled TIDs are verified before being accepted.
   const finalTaskIds = readTaskIds(await dependencies.readdir(taskDirectory));
+  if (!finalTaskIds.includes(options.openvmmPid)) {
+    throw new Error(`NVX confinement final task set is missing main thread ${options.openvmmPid}`);
+  }
   let verifiedThreadCount = 0;
   for (const taskId of finalTaskIds) {
     const priorStartTime = taskStartTimes.get(taskId);
