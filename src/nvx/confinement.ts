@@ -362,22 +362,30 @@ Promise<NvxConfinementEvidence> {
   for (const taskId of finalTaskIds) {
     const expectedStartTime = taskStartTimes.get(taskId);
     if (expectedStartTime === undefined) {
-      verifyStatus(
-        parseStatus(await dependencies.readFile(
+      let statusContents: string;
+      try {
+        statusContents = await dependencies.readFile(
           path.join(taskDirectory, String(taskId), 'status'),
           'utf8',
-        )),
-        taskId,
-        options,
-      );
+        );
+      } catch (error) {
+        if (isMissingTaskError(error)) continue;
+        throw error;
+      }
+      verifyStatus(parseStatus(statusContents), taskId, options);
       continue;
     }
-    const finalTaskStartTime = parseProcessStartTime(
-      await dependencies.readFile(
+    let finalTaskStat: string;
+    try {
+      finalTaskStat = await dependencies.readFile(
         path.join(taskDirectory, String(taskId), 'stat'),
         'utf8',
-      ),
-    );
+      );
+    } catch (error) {
+      if (isMissingTaskError(error)) continue;
+      throw error;
+    }
+    const finalTaskStartTime = parseProcessStartTime(finalTaskStat);
     if (finalTaskStartTime !== expectedStartTime) {
       throw new Error(
         `NVX confinement found thread ${taskId} start time ${finalTaskStartTime}, ` +
@@ -463,6 +471,15 @@ function parseStatus(contents: string): Record<string, string> {
     result[line.slice(0, separator)] = line.slice(separator + 1).trim();
   }
   return result;
+}
+
+function isMissingTaskError(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    (error as NodeJS.ErrnoException).code === 'ENOENT'
+  );
 }
 
 function parseProcessStartTime(contents: string): string {

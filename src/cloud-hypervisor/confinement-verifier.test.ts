@@ -56,10 +56,14 @@ function dependencies(overrides: {
   newWorkerStatus?: string;
   cgroupProcs?: string;
   groups?: string;
+  enoentFinalTaskStatIds?: number[];
+  enoentFinalTaskStatusIds?: number[];
 } = {}): CloudHypervisorConfinementVerifierDependencies {
   const statReads = [...(overrides.statReads ?? [procStat('98765'), procStat('98765')])];
   let executableReads = 0;
   const taskStatReads = new Map<string, number>();
+  const enoentFinalTaskStatIds = new Set(overrides.enoentFinalTaskStatIds ?? []);
+  const enoentFinalTaskStatusIds = new Set(overrides.enoentFinalTaskStatusIds ?? []);
   const files: Record<string, string> = {
     [`/proc/${PID}/task/${PID}/status`]: status('cloud-hypervis', 0, PID, overrides.groups),
     [`/proc/${PID}/task/${PID + 1}/status`]:
@@ -80,10 +84,17 @@ function dependencies(overrides: {
         if (!value) throw new Error('unexpected stat read');
         return value;
       }
+      const taskStatusMatch = filePath.match(new RegExp(`^/proc/${PID}/task/(\\d+)/status$`));
+      if (taskStatusMatch && enoentFinalTaskStatusIds.has(Number(taskStatusMatch[1]))) {
+        throw Object.assign(new Error(`ENOENT: ${filePath}`), { code: 'ENOENT' });
+      }
       const taskStatMatch = filePath.match(new RegExp(`^/proc/${PID}/task/(\\d+)/stat$`));
       if (taskStatMatch) {
         const reads = (taskStatReads.get(filePath) ?? 0) + 1;
         taskStatReads.set(filePath, reads);
+        if (reads === 2 && enoentFinalTaskStatIds.has(Number(taskStatMatch[1]))) {
+          throw Object.assign(new Error(`ENOENT: ${filePath}`), { code: 'ENOENT' });
+        }
         return procStat(
           reads === 1 ? String(99000 + Number(taskStatMatch[1]))
             : overrides.finalTaskStartTime ?? String(99000 + Number(taskStatMatch[1])),
@@ -197,6 +208,24 @@ describe('verifyCloudHypervisorConfinement', () => {
         finalTaskIds: [PID, PID + 1, PID + 2] }),
     )).resolves.toHaveProperty('seccomp.observedThreadCount', 4);
   });
+
+  it('tolerates a surviving thread exiting before its final stat read', async () => {
+    await expect(verifyCloudHypervisorConfinement(
+      options(),
+      dependencies({ enoentFinalTaskStatIds: [PID + 2] }),
+    )).resolves.toHaveProperty('seccomp.observedThreadCount', 3);
+  });
+
+  it('tolerates a newly observed thread exiting before its status read', async () => {
+    await expect(verifyCloudHypervisorConfinement(
+      options(),
+      dependencies({
+        finalTaskIds: [PID, PID + 1, PID + 2, PID + 3],
+        enoentFinalTaskStatusIds: [PID + 3],
+      }),
+    )).resolves.toHaveProperty('seccomp.observedThreadCount', 3);
+  });
+
 
   it('rejects surviving TID recycling with observed and expected start times', async () => {
     await expect(verifyCloudHypervisorConfinement(

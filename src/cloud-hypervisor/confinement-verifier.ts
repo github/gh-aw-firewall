@@ -190,19 +190,30 @@ export async function verifyCloudHypervisorConfinement(
   for (const taskId of finalTaskIds) {
     const expectedStartTime = taskStartTimes.get(taskId);
     if (expectedStartTime === undefined) {
-      verifyThreadStatus(
-        parseStatus(await dependencies.readFile(
+      let statusContents: string;
+      try {
+        statusContents = await dependencies.readFile(
           path.join(taskDirectory, String(taskId), 'status'),
           'utf8',
-        )),
-        taskId,
-        options,
-      );
+        );
+      } catch (error) {
+        if (isMissingTaskError(error)) continue;
+        throw error;
+      }
+      verifyThreadStatus(parseStatus(statusContents), taskId, options);
       continue;
     }
-    const finalTaskStartTime = parseProcessStartTime(
-      await dependencies.readFile(path.join(taskDirectory, String(taskId), 'stat'), 'utf8'),
-    );
+    let finalTaskStat: string;
+    try {
+      finalTaskStat = await dependencies.readFile(
+        path.join(taskDirectory, String(taskId), 'stat'),
+        'utf8',
+      );
+    } catch (error) {
+      if (isMissingTaskError(error)) continue;
+      throw error;
+    }
+    const finalTaskStartTime = parseProcessStartTime(finalTaskStat);
     if (finalTaskStartTime !== expectedStartTime) {
       throw new Error(
         `Cloud Hypervisor confinement verification found thread ${taskId} start time ` +
@@ -378,6 +389,15 @@ function parseTaskIds(entries: readonly string[]): number[] {
     );
   }
   return taskIds;
+}
+
+function isMissingTaskError(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    (error as NodeJS.ErrnoException).code === 'ENOENT'
+  );
 }
 
 function parseProcessStartTime(stat: string): string {

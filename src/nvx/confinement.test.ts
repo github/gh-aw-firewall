@@ -44,6 +44,8 @@ function dependencies(overrides: {
   finalTaskStartTime?: string;
   newTaskStatus?: string;
   cgroupPids?: string;
+  enoentFinalTaskStat?: boolean;
+  enoentNewTaskStatus?: boolean;
 } = {}): NvxConfinementVerifierDependencies {
   let processStatReads = 0;
   let executableReads = 0;
@@ -68,8 +70,14 @@ function dependencies(overrides: {
           processStatReads === 1 ? '11111' : overrides.finalStartTime ?? '11111',
         );
       }
+      if (filePath === `/proc/${PID}/task/${PID + 1}/status` && overrides.enoentNewTaskStatus) {
+        throw Object.assign(new Error(`ENOENT: ${filePath}`), { code: 'ENOENT' });
+      }
       if (filePath === `/proc/${PID}/task/${PID}/stat`) {
         taskStatReads += 1;
+        if (taskStatReads === 2 && overrides.enoentFinalTaskStat) {
+          throw Object.assign(new Error(`ENOENT: ${filePath}`), { code: 'ENOENT' });
+        }
         return procStat(PID, taskStatReads === 1 ? '22222' : overrides.finalTaskStartTime ?? '22222');
       }
       const value = files[filePath];
@@ -308,6 +316,20 @@ describe('NVX host confinement', () => {
       verificationOptions(),
       dependencies({ initialTaskIds: [PID, PID + 1], finalTaskIds: [PID] }),
     )).resolves.toHaveProperty('process.threadCount', 2);
+  });
+
+  it('tolerates a surviving thread exiting before its final stat read', async () => {
+    await expect(verifyNvxConfinement(
+      verificationOptions(),
+      dependencies({ enoentFinalTaskStat: true }),
+    )).resolves.toHaveProperty('process.threadCount', 1);
+  });
+
+  it('tolerates a newly observed thread exiting before its status read', async () => {
+    await expect(verifyNvxConfinement(
+      verificationOptions(),
+      dependencies({ finalTaskIds: [PID, PID + 1], enoentNewTaskStatus: true }),
+    )).resolves.toHaveProperty('process.threadCount', 1);
   });
 
   it('rejects a recycled surviving TID with its observed and expected start times', async () => {
