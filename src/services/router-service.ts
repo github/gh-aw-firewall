@@ -7,6 +7,12 @@ export const ROUTING_NETWORK_NAME = 'awf-routing';
 export const ROUTER_SERVICE_NAME = 'router';
 export const ROUTER_DNS_NAME = 'gh-aw-router';
 const ROUTER_PORT = 8737;
+export const ROUTER_HEALTHCHECK_TEST = [
+  'CMD',
+  'python',
+  '-c',
+  `import urllib.request; urllib.request.urlopen('http://localhost:${ROUTER_PORT}/healthz', timeout=1).close()`,
+];
 
 interface RouterServiceParams {
   imageConfig: ImageBuildConfig;
@@ -22,7 +28,7 @@ export function buildRouterService({ imageConfig }: RouterServiceParams): any {
       },
     },
     healthcheck: {
-      test: ['CMD', 'python', '-c', `import urllib.request; urllib.request.urlopen('http://localhost:${ROUTER_PORT}/healthz', timeout=1).close()`],
+      test: ROUTER_HEALTHCHECK_TEST,
       interval: '2s',
       timeout: '3s',
       retries: 15,

@@ -84,6 +84,21 @@ describe('registerSignalHandlers', () => {
     },
   );
 
+  it('exits with the signal status when routing cleanup fails', async () => {
+    registerSignalHandlers({
+      getContainersStarted: () => false,
+      keepContainers: false,
+      fastKillAgentContainer: jest.fn().mockResolvedValue(undefined),
+      performCleanup: jest.fn().mockResolvedValue(undefined),
+      cleanupRouting: jest.fn(() => { throw new Error('cleanup failed'); }),
+    });
+
+    harness.handlers.SIGTERM();
+    await flushPromises();
+
+    expect(harness.processExitSpy).toHaveBeenCalledWith(143);
+  });
+
   it('skips fast-kill on SIGINT when containers are not started', async () => {
     const { fastKill, performCleanup } = await runSignalScenario({
       signal: 'SIGINT',

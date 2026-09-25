@@ -37,7 +37,11 @@ export function registerSignalHandlers({
         }
         await performCleanup('SIGINT');
       } finally {
-        cleanupRouting();
+        try {
+          cleanupRouting();
+        } catch {
+          // Cleanup failure must not change the signal exit status.
+        }
         console.error(`Process exiting with code: 130`);
         process.exit(130); // Standard exit code for SIGINT
       }
@@ -52,7 +56,11 @@ export function registerSignalHandlers({
         }
         await performCleanup('SIGTERM');
       } finally {
-        cleanupRouting();
+        try {
+          cleanupRouting();
+        } catch {
+          // Cleanup failure must not change the signal exit status.
+        }
         console.error(`Process exiting with code: 143`);
         process.exit(143); // Standard exit code for SIGTERM
       }

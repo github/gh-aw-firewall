@@ -3,6 +3,7 @@ import * as os from 'os';
 import * as path from 'path';
 import execa = require('execa');
 import { afterAll, beforeAll, describe, expect, test } from '@jest/globals';
+import { ROUTER_HEALTHCHECK_TEST } from '../../src/services/router-service';
 import { cleanup } from '../fixtures/cleanup';
 
 const ROUTER_IMAGE = 'ghcr.io/githubnext/gh-aw-router:latest@sha256:d1612d0eaec3fa8f14c38bbd0a6a0682732fc9f83b7fec94219d3e757a048270';
@@ -24,7 +25,7 @@ describe('Model routing', () => {
       '      routing:',
       '        aliases: [gh-aw-router]',
       '    healthcheck:',
-      `      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://localhost:8737/healthz', timeout=1).close()"]`,
+      `      test: ${JSON.stringify(ROUTER_HEALTHCHECK_TEST)}`,
       '      interval: 2s',
       '      timeout: 3s',
       '      retries: 15',
