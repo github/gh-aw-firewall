@@ -232,6 +232,10 @@ steps:
       # .npmrc points at an Azure npm mirror that the guest allowlist does not
       # permit; the lockfile's resolved URLs are rewritten below.
       export npm_config_registry=https://registry.npmjs.org/
+      # NVX strips credential-named files such as .npmrc from every layer,
+      # including the workspace, so the repo's legacy-peer-deps setting is
+      # restated here.
+      export npm_config_legacy_peer_deps=true
       export GOPATH=/tmp/nvx-go GOCACHE=/tmp/nvx-go-cache GOTOOLCHAIN=local
       mkdir -p "$HOME"
 
