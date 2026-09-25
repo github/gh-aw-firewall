@@ -307,6 +307,19 @@ steps:
       EOF
       chmod 0755 "$layer_root/usr/local/bin/awf-nvx-build-test"
 
+  - name: Size /run for the NVX run directory
+    run: |
+      set -euo pipefail
+      # NVX stages its EROFS layer images and the guest scratch image under
+      # /run/awf-nvx/runs (src/nvx/paths.ts). /run is a RAM-backed tmpfs that
+      # Ubuntu sizes at ~10% of RAM, which fits a single CLI invocation but not
+      # a Node.js + Go distro layer, the workspace layer, and a multi-GiB
+      # scratch overlay. tmpfs only allocates pages that are actually written,
+      # so raising the ceiling does not reserve memory up front.
+      df -h /run
+      sudo mount -o remount,size=8G /run
+      df -h /run
+
   - name: Run the build and test workloads inside an NVX microVM
     timeout-minutes: 55
     run: |
@@ -324,8 +337,8 @@ steps:
       sudo rm -rf "$guest_out"
 
       # A real build workload needs far more headroom than NVX's defaults
-      # (512 MiB, 128 pids), and npm/Go caches plus node_modules live on the
-      # bounded scratch overlay (ceiling 8 GiB).
+      # (512 MiB, 128 pids). The scratch overlay holds node_modules, dist, and
+      # the npm and Go caches (estimated ~1 GiB) with headroom to spare.
       sudo timeout 50m \
         node "$GITHUB_WORKSPACE/dist/cli.js" \
         --container-runtime nvx \
@@ -342,7 +355,7 @@ steps:
         --nvx-memory-mib 4096 \
         --nvx-memory-max-bytes 3758096384 \
         --nvx-pids-max 1024 \
-        --nvx-scratch-bytes 6442450944 \
+        --nvx-scratch-bytes 3221225472 \
         --container-workdir /workspace \
         --network-isolation \
         --proxy-logs-dir "$data_dir/logs/inner-proxy-logs" \
