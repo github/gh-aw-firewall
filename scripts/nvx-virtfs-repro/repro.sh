@@ -52,10 +52,17 @@ if [ "$mode" = rw ]; then
     check "guest write succeeds" "echo from-guest >$dir/guest.txt"
     check "guest mkdir succeeds" "mkdir $dir/guest-dir && echo nested >$dir/guest-dir/nested.txt"
     check "guest symlink succeeds" "ln -s guest.txt $dir/guest-link"
-    if echo appended >>$dir/host.txt 2>/dev/null; then
-        echo "PROBE-INFO: appending to existing host-owned file succeeded"
+    check "append to existing host-owned file" "echo appended >>$dir/host.txt"
+    check "truncate existing host-owned file" "truncate -s 0 $dir/host-trunc.txt"
+    check "rename existing host-owned file" "mv $dir/host-rename.txt $dir/host-renamed.txt"
+    check "unlink existing host-owned file" "rm $dir/host-unlink.txt"
+    check "write into host-owned subdirectory" "echo sub >$dir/host-sub/guest-in-sub.txt"
+    check "other user's file stays read-only" "! (echo x >>$dir/other.txt) 2>/dev/null"
+    check "chmod own file" "chmod 0600 $dir/guest.txt"
+    if chmod u+s $dir/guest-dir/nested.txt 2>/dev/null; then
+        echo "PROBE-INFO: chmod u+s on own file succeeded"
     else
-        echo "PROBE-INFO: appending to existing host-owned file failed"
+        echo "PROBE-INFO: chmod u+s on own file failed"
     fi
     # The host only writes host-edit.txt after it sees guest.txt, which proves
     # both directions are live while the VM is still running.
@@ -77,8 +84,13 @@ run_case() {
     local share=$work/share-$name scratch=$work/scratch-$name.ext4 log=$work/$name.log
     mkdir -p "$share/secrets"
     echo from-host >"$share/host.txt"
+    for f in host-trunc host-rename host-unlink; do echo "$f" >"$share/$f.txt"; done
+    mkdir -p "$share/host-sub"
     echo super-secret >"$share/secrets/token"
     sudo chown -R "$uid:$gid" "$share"
+    echo other >"$share/other.txt"
+    sudo chown 4242:4242 "$share/other.txt"
+    sudo chmod 0644 "$share/other.txt"
     truncate -s 256M "$scratch"
     mke2fs -t ext4 -F -q -m 0 -O ^has_journal \
         -E "root_owner=$uid:$gid" "$scratch"
@@ -138,7 +150,7 @@ run_case() {
     local status=0
     wait "$vm" || status=$?
     echo "openvmm exit: $status"
-    for f in guest.txt guest-dir guest-dir/nested.txt guest-link host.txt host-edit.txt; do
+    for f in guest.txt guest-dir guest-dir/nested.txt guest-link host.txt host-edit.txt host-trunc.txt host-renamed.txt host-sub/guest-in-sub.txt other.txt; do
         sudo test -e "$share/$f" -o -L "$share/$f" &&
             echo "HOST-OWNER: $f $(sudo stat -c '%u:%g %A' "$share/$f")"
     done

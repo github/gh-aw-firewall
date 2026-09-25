@@ -42,7 +42,7 @@ jobs:
         working-directory: ${{ runner.temp }}/openvmm
         env:
           PROTOC: /usr/bin/protoc
-        run: cargo test --release -p lxutil -p virtiofs 2>&1 | tail -40
+        run: set -o pipefail; cargo test --release -p lxutil -p virtiofs 2>&1 | tail -60
       - name: Check KVM
         run: ls -la /dev/kvm
       - name: Run repro
