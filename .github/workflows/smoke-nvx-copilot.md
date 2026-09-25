@@ -251,7 +251,6 @@ steps:
       rm -f "$proof_file" "$copilot_file"
 
       sudo --preserve-env=COPILOT_GITHUB_TOKEN \
-        AWF_NVX_SMOKE_MARKER="$marker" \
         node "$GITHUB_WORKSPACE/dist/cli.js" \
         --container-runtime nvx \
         --nvx-preview \
@@ -268,7 +267,7 @@ steps:
         --network-isolation \
         --enable-api-proxy \
         --allow-domains github.com,api.github.com,api.githubcopilot.com \
-        --env AWF_NVX_SMOKE_MARKER \
+        --env "AWF_NVX_SMOKE_MARKER=$marker" \
         --log-level info \
         -- /usr/local/bin/awf-nvx-smoke \
         > "$data_dir/logs/awf.log" 2>&1
