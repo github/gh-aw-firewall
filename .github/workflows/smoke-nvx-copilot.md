@@ -282,6 +282,7 @@ steps:
         --nvx-signer-workflow \
         'github/gh-aw-firewall/.github/workflows/smoke-nvx-copilot.lock.yml' \
         --nvx-mount-policy workspace-only \
+        --nvx-scratch-bytes 536870912 \
         --container-workdir /workspace \
         --network-isolation \
         --enable-api-proxy \
