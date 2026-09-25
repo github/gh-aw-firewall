@@ -115,6 +115,11 @@ function auditTrack(event, data) {
   } catch { /* best-effort */ }
 }
 
+/**
+ * Persist one sanitized upstream error-response diagnostic to upstream-errors.jsonl.
+ * Callers must pass fields that have already been header/body sanitized for logs.
+ * This is best-effort and never throws so diagnostics cannot disrupt proxy traffic.
+ */
 function auditUpstreamErrorResponse(fields) {
   try {
     if (!upstreamErrorStream) {
