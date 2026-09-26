@@ -527,6 +527,8 @@ unset_sensitive_tokens() {
 # because that invocation ends with `exec capsh`, which replaces the chroot
 # shell's process image entirely — any code placed after it in
 # run_chroot_command would never execute.
+GH_AW_HOST_HANDOFF_DIRS="memory-validation"
+
 relax_gh_aw_shared_permissions() {
   local gh_aw_dir=""
   if [ -e /host/tmp/gh-aw ]; then
@@ -538,7 +540,10 @@ relax_gh_aw_shared_permissions() {
   fi
 
   if relax_gh_aw_handoff_dir "${gh_aw_dir}"; then
-    relax_gh_aw_handoff_dir "${gh_aw_dir}/memory-validation"
+    local handoff_subdir
+    for handoff_subdir in ${GH_AW_HOST_HANDOFF_DIRS}; do
+      relax_gh_aw_handoff_dir "${gh_aw_dir}/${handoff_subdir}"
+    done
   fi
   return 0
 }
