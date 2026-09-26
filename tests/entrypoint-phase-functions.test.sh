@@ -14,6 +14,15 @@ FAIL=0
 pass() { echo "✓ $1"; PASS=$((PASS + 1)); }
 fail() { echo "❌ FAIL: $1"; FAIL=$((FAIL + 1)); }
 
+write_entrypoint_fixture() {
+  local fixture_entrypoint="$1"
+  awk '
+    $0 == "if [[ \"${BASH_SOURCE[0]}\" == \"$0\" ]]; then" { skip=1; next }
+    skip && $0 == "fi" { skip=0; next }
+    !skip { print }
+  ' "${ENTRYPOINT}" | sed 's#/host#${AWF_TEST_HOST_ROOT}#g' > "${fixture_entrypoint}"
+}
+
 required_functions=(
   print_banner
   setup_user_identity
@@ -184,11 +193,7 @@ run_copy_system_ca_bundle_fixture() {
   mkdir -p "${host_root}/etc/pki/tls/certs" "${host_root}/etc/ssl/certs"
   printf '%s\n' "fixture-ca-cert" > "${host_root}/etc/pki/tls/certs/ca-bundle.crt"
 
-  awk '
-    $0 == "if [[ \"${BASH_SOURCE[0]}\" == \"$0\" ]]; then" { skip=1; next }
-    skip && $0 == "fi" { skip=0; next }
-    !skip { print }
-  ' "${ENTRYPOINT}" | sed "s#/host#\${AWF_TEST_HOST_ROOT}#g" > "${fixture_entrypoint}"
+  write_entrypoint_fixture "${fixture_entrypoint}"
 
   local result
   (
@@ -251,7 +256,7 @@ run_copy_browser_libs_fixture() {
   printf 'real-libnspr4-bytes' > "${fake_lib}"
   printf '%s\n' "${fake_lib}" > "${manifest}"
 
-  sed "s#/host#\${AWF_TEST_HOST_ROOT}#g" "${ENTRYPOINT}" > "${fixture_entrypoint}"
+  write_entrypoint_fixture "${fixture_entrypoint}"
   sed -i "s#/usr/local/share/awf/browser-libs.manifest#\${AWF_TEST_MANIFEST}#g" "${fixture_entrypoint}"
 
   local result
@@ -422,8 +427,7 @@ run_relax_gh_aw_shared_permissions_fixture() {
   chmod 700 "${host_root}/tmp/gh-aw/token-audit"
   chmod 600 "${host_root}/tmp/gh-aw/token-audit/audit.json"
 
-  awk '$0 != "main \"$@\""' "${ENTRYPOINT}" > "${fixture_entrypoint}"
-  sed -i "s#/host#\${AWF_TEST_HOST_ROOT}#g" "${fixture_entrypoint}"
+  write_entrypoint_fixture "${fixture_entrypoint}"
 
   local result
   (
@@ -464,8 +468,7 @@ run_relax_gh_aw_shared_permissions_symlink_fixture() {
   chmod 700 "${host_root}/tmp/gh-aw" "${sensitive_dir}"
   ln -s "${sensitive_dir}" "${host_root}/tmp/gh-aw/memory-validation"
 
-  awk '$0 != "main \"$@\""' "${ENTRYPOINT}" > "${fixture_entrypoint}"
-  sed -i "s#/host#\${AWF_TEST_HOST_ROOT}#g" "${fixture_entrypoint}"
+  write_entrypoint_fixture "${fixture_entrypoint}"
 
   local result
   (
@@ -502,8 +505,7 @@ run_relax_gh_aw_shared_permissions_root_symlink_fixture() {
   chmod 700 "${sensitive_dir}" "${sensitive_dir}/memory-validation"
   ln -s "${sensitive_dir}" "${host_root}/tmp/gh-aw"
 
-  awk '$0 != "main \"$@\""' "${ENTRYPOINT}" > "${fixture_entrypoint}"
-  sed -i "s#/host#\${AWF_TEST_HOST_ROOT}#g" "${fixture_entrypoint}"
+  write_entrypoint_fixture "${fixture_entrypoint}"
 
   local result
   (
@@ -538,7 +540,7 @@ run_agent_with_token_protection_cleanup_fixture() {
   mkdir -p "${host_root}/tmp/gh-aw/memory-validation"
   chmod 700 "${host_root}/tmp/gh-aw" "${host_root}/tmp/gh-aw/memory-validation"
 
-  sed "s#/host#\${AWF_TEST_HOST_ROOT}#g" "${ENTRYPOINT}" > "${fixture_entrypoint}"
+  write_entrypoint_fixture "${fixture_entrypoint}"
 
   set +e
   AWF_TEST_HOST_ROOT="${host_root}" bash -c '

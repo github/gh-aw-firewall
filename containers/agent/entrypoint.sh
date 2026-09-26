@@ -537,7 +537,7 @@ relax_gh_aw_shared_permissions() {
   if [ -d /host/tmp/gh-aw ] && [ ! -L /host/tmp/gh-aw ]; then
     gh_aw_dir="/host/tmp/gh-aw"
   elif [ -e /host/tmp/gh-aw ] || [ -L /host/tmp/gh-aw ]; then
-    relax_gh_aw_handoff_dir "/host/tmp/gh-aw" || true
+    echo "[entrypoint][WARN] Skipping unsafe gh-aw handoff path /host/tmp/gh-aw"
     return 0
   fi
 
