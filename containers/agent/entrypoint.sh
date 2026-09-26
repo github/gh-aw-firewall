@@ -531,30 +531,24 @@ GH_AW_HOST_HANDOFF_DIRS="memory-validation"
 # because that invocation ends with `exec capsh`, which replaces the chroot
 # shell's process image entirely — any code placed after it in
 # run_chroot_command would never execute.
-
 relax_gh_aw_shared_permissions() {
   local gh_aw_dir=""
-  if [ -d /host/tmp/gh-aw ] && [ ! -L /host/tmp/gh-aw ]; then
+  if [ -e /host/tmp/gh-aw ] || [ -L /host/tmp/gh-aw ]; then
     gh_aw_dir="/host/tmp/gh-aw"
-  elif [ -e /host/tmp/gh-aw ] || [ -L /host/tmp/gh-aw ]; then
-    echo "[entrypoint][WARN] Skipping unsafe gh-aw handoff path /host/tmp/gh-aw"
-    return 0
-  fi
-
-  if [ -z "${gh_aw_dir}" ] && { [ -e /tmp/gh-aw ] || [ -L /tmp/gh-aw ]; }; then
+  elif [ -e /tmp/gh-aw ] || [ -L /tmp/gh-aw ]; then
     gh_aw_dir="/tmp/gh-aw"
-  fi
-
-  if [ -z "${gh_aw_dir}" ]; then
+  else
     return 0
   fi
 
-  if relax_gh_aw_handoff_dir "${gh_aw_dir}"; then
-    local handoff_subdir
-    for handoff_subdir in ${GH_AW_HOST_HANDOFF_DIRS}; do
-      relax_gh_aw_handoff_dir "${gh_aw_dir}/${handoff_subdir}"
-    done
+  if ! relax_gh_aw_handoff_dir "${gh_aw_dir}"; then
+    return 0
   fi
+
+  local handoff_subdir
+  for handoff_subdir in ${GH_AW_HOST_HANDOFF_DIRS}; do
+    relax_gh_aw_handoff_dir "${gh_aw_dir}/${handoff_subdir}"
+  done
   return 0
 }
 
