@@ -51,7 +51,12 @@ check "denied path hidden" "[ ! -e $dir/secrets ]"
 if [ "$mode" = rw ]; then
     check "guest write succeeds" "echo from-guest >$dir/guest.txt"
     check "guest mkdir succeeds" "mkdir $dir/guest-dir && echo nested >$dir/guest-dir/nested.txt"
-    check "guest symlink succeeds" "ln -s guest.txt $dir/guest-link"
+    # Symlink creation is still ENOTSUP under the microVM profile (out of scope).
+    if ln -s guest.txt $dir/guest-link 2>/dev/null; then
+        echo "PROBE-INFO: guest symlink succeeded"
+    else
+        echo "PROBE-INFO: guest symlink failed"
+    fi
     check "append to existing host-owned file" "echo appended >>$dir/host.txt"
     check "truncate existing host-owned file" "truncate -s 0 $dir/host-trunc.txt"
     check "rename existing host-owned file" "mv $dir/host-rename.txt $dir/host-renamed.txt"
@@ -79,8 +84,16 @@ chmod 0755 "$rootfs/usr/local/bin/virtfs-probe"
 distro_uuid=$(python3 -c 'import uuid; print(uuid.uuid4())')
 mkfs.erofs --quiet --all-root -U "$distro_uuid" "$work/distro.erofs" "$rootfs"
 
+mismatches=0
+mismatch() {
+    echo "EXPECT-MISMATCH: $*"
+    mismatches=$((mismatches + 1))
+}
+
+# Args: <name> <expect> <guest.txt owner|-> <initrd> <mode> [vmm] [owner] [runas]
+# <expect> is PASS, or FAIL:<probe label> naming a probe that must fail.
 run_case() {
-    local name=$1 initrd=$2 mode=$3 vmm=${4:-$openvmm} owner=${5:-} runas=${6:-root}
+    local name=$1 expect=$2 want_owner=$3 initrd=$4 mode=$5 vmm=${6:-$openvmm} owner=${7:-} runas=${8:-root}
     local share=$work/share-$name scratch=$work/scratch-$name.ext4 log=$work/$name.log
     mkdir -p "$share/secrets"
     echo from-host >"$share/host.txt"
@@ -155,17 +168,43 @@ run_case() {
             echo "HOST-OWNER: $f $(sudo stat -c '%u:%g %A' "$share/$f")"
     done
     grep -E "PROBE|NVX-SANDBOX|virtfs|virtiofs" "$log" || true
-    [ -f "$work/$name.report.json" ] && sudo cat "$work/$name.report.json" && echo
+    if [ -f "$work/$name.report.json" ]; then
+        sudo cat "$work/$name.report.json"
+        echo
+    fi
+
+    # openvmm exits with the workload's status in one-shot mode.
+    local result
+    result=$(sed -n 's/.*PROBE-RESULT: \([A-Z]*\).*/\1/p' "$log" | tail -1)
+    if [ "$expect" = PASS ]; then
+        [ "$result" = PASS ] || mismatch "$name: PROBE-RESULT '${result:-missing}', expected PASS"
+        [ "$status" = 0 ] || mismatch "$name: openvmm exit $status, expected 0"
+    else
+        [ "$result" = FAIL ] || mismatch "$name: PROBE-RESULT '${result:-missing}', expected FAIL"
+        [ "$status" != 0 ] || mismatch "$name: openvmm exit 0, expected nonzero"
+        grep -qF "PROBE-FAIL: ${expect#FAIL:}" "$log" ||
+            mismatch "$name: expected 'PROBE-FAIL: ${expect#FAIL:}'"
+    fi
+    if [ "$want_owner" != - ]; then
+        local got
+        got=$(sudo stat -c %u:%g "$share/guest.txt" 2>/dev/null || echo missing)
+        [ "$got" = "$want_owner" ] || mismatch "$name: guest.txt owner $got, expected $want_owner"
+    fi
 }
 
-run_case stock-rw "$stock_initrd" rw || true
-run_case patched-rw "$patched_initrd" rw || true
-run_case patched-ro "$patched_initrd" ro || true
+run_case stock-rw "FAIL:share is a virtiofs mount" - "$stock_initrd" rw
+run_case patched-rw "FAIL:chmod own file" 0:0 "$patched_initrd" rw
+run_case patched-ro PASS - "$patched_initrd" ro
 if [ -n "$patched_openvmm" ]; then
     id nvxvmm >/dev/null 2>&1 || sudo useradd --system --user-group --no-create-home nvxvmm
-    run_case owner-caller-root "$patched_initrd" rw "$patched_openvmm" caller root || true
-    run_case owner-default-root "$patched_initrd" rw "$patched_openvmm" "" root || true
-    run_case owner-caller-nonroot-setid "$patched_initrd" rw "$patched_openvmm" caller "nvxvmm:+setuid,+setgid" || true
-    run_case owner-caller-nonroot-nocaps "$patched_initrd" rw "$patched_openvmm" caller "nvxvmm:none" || true
+    run_case owner-caller-root PASS "$uid:$gid" "$patched_initrd" rw "$patched_openvmm" caller root
+    run_case owner-default-root "FAIL:chmod own file" 0:0 "$patched_initrd" rw "$patched_openvmm" "" root
+    run_case owner-caller-nonroot-setid PASS "$uid:$gid" "$patched_initrd" rw "$patched_openvmm" caller "nvxvmm:+setuid,+setgid"
+    run_case owner-caller-nonroot-nocaps "FAIL:guest write succeeds" - "$patched_initrd" rw "$patched_openvmm" caller "nvxvmm:none"
 fi
 echo "logs in $work"
+if [ "$mismatches" != 0 ]; then
+    echo "$mismatches expectation mismatch(es)"
+    exit 1
+fi
+echo "all cases matched expectations"

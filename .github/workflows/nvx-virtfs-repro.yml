@@ -42,7 +42,13 @@ jobs:
         working-directory: ${{ runner.temp }}/openvmm
         env:
           PROTOC: /usr/bin/protoc
-        run: set -o pipefail; cargo test --release -p lxutil -p virtiofs 2>&1 | tail -60
+        run: |
+          set -o pipefail
+          cargo test --release -p lxutil -p virtiofs 2>&1 | tail -60
+          # Root-only credential tests (supplementary-group clearing). A separate
+          # target dir keeps root-owned build output out of the cached one.
+          sudo -E env "PATH=$PATH" cargo test --release -p lxutil \
+            --target-dir "$RUNNER_TEMP/target-root" fs_credentials 2>&1 | tail -20
       - name: Check KVM
         run: ls -la /dev/kvm
       - name: Run repro
@@ -50,6 +56,20 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PATCHED_OPENVMM: ${{ runner.temp }}/openvmm/target/release/openvmm
         run: ./scripts/nvx-virtfs-repro/repro.sh
+      - name: Check formatting (rustfmt + house lints)
+        if: ${{ !cancelled() }}
+        working-directory: ${{ runner.temp }}/openvmm
+        run: |
+          rustup component add rustfmt
+          cargo xtask fmt --pass rustfmt --pass lints
+      - name: Clippy
+        if: ${{ !cancelled() }}
+        working-directory: ${{ runner.temp }}/openvmm
+        env:
+          PROTOC: /usr/bin/protoc
+        run: |
+          rustup component add clippy
+          cargo clippy --release -p lxutil -p virtiofs -p openvmm_entry --all-targets -- -D warnings
       - name: Upload logs
         if: always()
         uses: actions/upload-artifact@v4
