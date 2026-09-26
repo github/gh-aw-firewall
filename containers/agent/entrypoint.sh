@@ -558,14 +558,14 @@ relax_gh_aw_handoff_dir() {
     return 0
   fi
   if [ ! -d "${handoff_dir}" ] || [ -L "${handoff_dir}" ]; then
-    echo "[entrypoint][WARN] Skipping unsafe gh-aw handoff path ${handoff_dir}"
+    echo "[entrypoint][WARN] Skipping unsafe gh-aw handoff path ${handoff_dir}" >&2
     return 1
   fi
   if chmod g+rwx "${handoff_dir}" 2>/dev/null; then
-    echo "[entrypoint] Relaxed ${handoff_dir} group permissions for host-side post-processing"
+    echo "[entrypoint] Relaxed ${handoff_dir} group permissions for host-side post-processing" >&2
     return 0
   else
-    echo "[entrypoint][WARN] Failed to relax ${handoff_dir} group permissions"
+    echo "[entrypoint][WARN] Failed to relax ${handoff_dir} group permissions" >&2
     return 1
   fi
 }
