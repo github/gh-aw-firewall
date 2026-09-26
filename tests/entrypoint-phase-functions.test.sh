@@ -45,6 +45,7 @@ required_functions=(
   build_path_script
   run_chroot_command
   run_non_chroot_command
+  relax_gh_aw_shared_permissions
   main
 )
 
@@ -393,6 +394,53 @@ if run_warn_codex_auto_model_fixture; then
   pass "warn_codex_auto_model() warns only for codex model auto under api-proxy"
 else
   fail "warn_codex_auto_model() did not warn correctly for codex model auto under api-proxy"
+fi
+
+# relax_gh_aw_shared_permissions() must add the group-write bit to a
+# host-shared /tmp/gh-aw tree (found via /host/tmp/gh-aw in chroot mode, or
+# /tmp/gh-aw directly otherwise) so a later host-side step running under a
+# different-but-same-group identity (e.g. gh-aw's post-agent
+# validateMemoryStep) can still write into directories the agent created,
+# without making the tree world-writable.
+run_relax_gh_aw_shared_permissions_fixture() {
+  local tmp_dir
+  tmp_dir="$(mktemp -d)"
+  local host_root="${tmp_dir}/host-root"
+  local fixture_entrypoint="${tmp_dir}/entrypoint-fixture.sh"
+  mkdir -p "${host_root}/tmp/gh-aw/memory-validation"
+  chmod 700 "${host_root}/tmp/gh-aw" "${host_root}/tmp/gh-aw/memory-validation"
+
+  awk '$0 != "main \"$@\""' "${ENTRYPOINT}" > "${fixture_entrypoint}"
+  sed -i "s#/host#\${AWF_TEST_HOST_ROOT}#g" "${fixture_entrypoint}"
+
+  (
+    set -e
+    # shellcheck disable=SC1090
+    . "${fixture_entrypoint}"
+
+    AWF_TEST_HOST_ROOT="${host_root}"
+    relax_gh_aw_shared_permissions
+
+    mode="$(stat -c '%a' "${host_root}/tmp/gh-aw")"
+    [ "${mode}" = "770" ]
+    mode="$(stat -c '%a' "${host_root}/tmp/gh-aw/memory-validation")"
+    [ "${mode}" = "770" ]
+  )
+  local result=$?
+  rm -rf "${tmp_dir}"
+  return "${result}"
+}
+
+if run_relax_gh_aw_shared_permissions_fixture; then
+  pass "relax_gh_aw_shared_permissions() adds the group-write bit to /tmp/gh-aw without making it world-writable"
+else
+  fail "relax_gh_aw_shared_permissions() does not correctly relax /tmp/gh-aw group permissions"
+fi
+
+if grep -Fq 'relax_gh_aw_shared_permissions' "${ENTRYPOINT}"; then
+  pass "run_agent_with_token_protection() invokes relax_gh_aw_shared_permissions before exiting"
+else
+  fail "run_agent_with_token_protection() does not invoke relax_gh_aw_shared_permissions"
 fi
 
 echo ""

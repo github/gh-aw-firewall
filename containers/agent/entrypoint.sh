@@ -502,6 +502,46 @@ unset_sensitive_tokens() {
   done
 }
 
+# Relax permissions on host-shared gh-aw scratch directories (e.g. /tmp/gh-aw)
+# after the agent command has finished.
+#
+# AWF remaps the agent's UID/GID to match the host user (see
+# setup_user_identity), so new files the agent creates under /tmp/gh-aw
+# ordinarily belong to that same host user. However this function runs as a
+# defense-in-depth measure for cases where the effective UID/GID still ends
+# up mismatched from whatever identity a later host-side step runs as (for
+# example gh-aw's post-agent validateMemoryStep, which writes a validation
+# marker under /tmp/gh-aw/memory-validation after the container has exited).
+# Without this, that step can fail with EACCES even though the directory
+# tree looks otherwise fine.
+#
+# We only add the group-write bit (not world-writable) to avoid materially
+# widening access on multi-user self-hosted runners; combined with the
+# ownership transfer already performed before the command ran, this covers
+# the common case where the host step shares the same primary group as the
+# mapped agent user.
+#
+# This must run here (as root, still in the container's own filesystem view)
+# rather than after the `chroot ... capsh` invocation in run_chroot_command,
+# because that invocation ends with `exec capsh`, which replaces the chroot
+# shell's process image entirely — any code placed after it in
+# run_chroot_command would never execute.
+relax_gh_aw_shared_permissions() {
+  local gh_aw_dir=""
+  if [ -d /host/tmp/gh-aw ]; then
+    gh_aw_dir="/host/tmp/gh-aw"
+  elif [ -d /tmp/gh-aw ]; then
+    gh_aw_dir="/tmp/gh-aw"
+  fi
+  if [ -n "${gh_aw_dir}" ]; then
+    if chmod -R g+rwX "${gh_aw_dir}" 2>/dev/null; then
+      echo "[entrypoint] Relaxed ${gh_aw_dir} group permissions for host-side post-processing"
+    else
+      echo "[entrypoint][WARN] Failed to relax ${gh_aw_dir} group permissions"
+    fi
+  fi
+}
+
 # Run a command with signal handling, one-shot token protection, and clean exit.
 # Usage: run_agent_with_token_protection <command> [args...]
 # The command is launched in the background so that sensitive tokens can be unset
@@ -522,6 +562,7 @@ run_agent_with_token_protection() {
       wait "$AGENT_PID" 2>/dev/null || true
     fi
 
+    relax_gh_aw_shared_permissions
     exit "$EXIT_CODE"
   }
   trap 'cleanup_and_exit TERM' TERM
@@ -548,6 +589,7 @@ run_agent_with_token_protection() {
   wait $AGENT_PID
   EXIT_CODE=$?
   trap - TERM INT
+  relax_gh_aw_shared_permissions
   exit $EXIT_CODE
 }
 
@@ -1479,6 +1521,14 @@ AWFEOF
       echo "export GOROOT=\"${AWF_GOROOT}\"" >> "/host${SCRIPT_FILE}"
     fi
   fi
+  # Relax the default file-creation mask so new files/directories the agent
+  # creates under host-shared scratch paths (e.g. gh-aw's /tmp/gh-aw tree,
+  # used by features like cache-memory) stay group-writable. Without this,
+  # a host-side step that runs after the agent container exits (e.g. gh-aw's
+  # validateMemoryStep) can fail with EACCES when it tries to write into a
+  # directory the agent just created, even though ownership matches the host
+  # user, because the default umask (0022) strips the group-write bit.
+  echo 'umask 0002' >> "/host${SCRIPT_FILE}"
   # Configure npm global prefix to a writable directory (since /usr is read-only)
   # Preserve user-provided NPM_CONFIG_PREFIX if already set
   echo 'if [ -z "${NPM_CONFIG_PREFIX:-}" ]; then' >> "/host${SCRIPT_FILE}"

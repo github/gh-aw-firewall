@@ -428,6 +428,42 @@ AWF mounts a container-scoped procfs at `/host/proc` with `hidepid=2` to prevent
 - Without `hidepid=2`, an agent could race to read `/proc/1/environ` and extract credentials
 - The `/dev/fd` → `/proc/self/fd` symlink provides an indirect path to procfs that `hidepid=2` also blocks
 
+### UID/GID remapping and host-side steps that share `/tmp/gh-aw`
+
+AWF's agent container remaps its internal `awfuser` UID/GID to match the
+invoking host user (`setup_user_identity()` in
+[`entrypoint.sh`](../containers/agent/entrypoint.sh)) so that files the agent
+creates on bind-mounted host paths — including the shared scratch tree used by
+gh-aw features like `tools.cache-memory` (`/tmp/gh-aw`) — are normally owned by
+that same host user.
+
+However, a later **host-side** step that runs after the agent container has
+already exited (for example gh-aw's post-agent `validateMemoryStep`, which
+writes a validation marker under `/tmp/gh-aw/memory-validation/*.ok`) can still
+run under a slightly different effective identity than the one AWF remapped
+to inside the container (e.g. when AWF is invoked as native root without
+`sudo`, where the real host UID cannot be recovered from `SUDO_UID`/`SUDO_GID`
+and AWF falls back to a default unprivileged UID/GID). If that identity
+doesn't exactly match the UID that owns the newly created directories, the
+host-side step fails with `EACCES: permission denied`.
+
+To reduce this class of failure, AWF's entrypoint:
+
+- Sets `umask 0002` for the user command, so new files/directories the agent
+  creates default to being group-writable.
+- Runs `chmod -R g+w /tmp/gh-aw` (as root, from outside the chroot) right
+  after the agent command exits — whether it succeeded, failed, or was
+  signaled — so a host-side step that shares the same primary group as the
+  mapped agent user can still write into directories the agent created. This
+  intentionally does **not** make `/tmp/gh-aw` world-writable, to avoid
+  widening access on multi-user self-hosted runners.
+
+If a host-side step still cannot write into `/tmp/gh-aw` after the agent
+exits (for example because the host step's group also doesn't match), invoke
+`awf` with `sudo` rather than as native root so the real host UID/GID can be
+recovered from `SUDO_UID`/`SUDO_GID`, or adjust the failing step to run as the
+same user/group that invoked `awf`.
+
 ### Limitation
 
 The DinD TCP address (e.g., `tcp://localhost:2375`) typically refers to the runner host's localhost interface. From *inside* the agent container, `localhost` resolves to the container's own loopback interface, not the host's. To make docker commands inside the agent reach the DinD daemon you need one of:
