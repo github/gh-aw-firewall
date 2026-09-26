@@ -37,8 +37,8 @@ describe('self-hosted runner doctor workflow config', () => {
     expect(source).toContain('→ D16 (false positive from benign VMM thread churn during TOCTOU re-verification; fixed in github/gh-aw-firewall#9016/#9017)');
     expect(source).toContain('### Pending remediation status snapshot');
     expect(source).toContain('this is historical context, not its current status');
-    expect(source).toContain('**TODO (github/gh-aw-firewall#9028):**');
-    expect(source).toContain('re-validate or remove it if the PR closes without merging or the remediation changes');
+    expect(source).toContain('**TODO — follow-up tracked in github/gh-aw-firewall#9028:**');
+    expect(source).toContain('re-validate/remove it if closed without merging or the remediation changes');
     expect(source).toContain('D16 / github/gh-aw-firewall#9012, github/gh-aw-firewall#9016, github/gh-aw-firewall#9017');
   });
 

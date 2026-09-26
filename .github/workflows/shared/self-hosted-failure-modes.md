@@ -212,7 +212,7 @@ Establish these facts before matching a failure mode:
 
 ### B35 — proposed remediation status snapshot
 
-The source scan dated 2026-09-26 recorded PR github/gh-aw-firewall#9029 as open; this is historical context, not its current status. Verify the live PR before treating its proposal as available. The proposal is to set `umask 0002` for the user command and run root-owned `relax_gh_aw_shared_permissions()` after normal or signal-driven command exit to `chmod -R g+w` `/tmp/gh-aw` without making it world-writable. **TODO (github/gh-aw-firewall#9028):** update this entry if PR #9029 merges; re-validate or remove it if the PR closes without merging or the remediation changes.
+The source scan dated 2026-09-26 recorded PR github/gh-aw-firewall#9029 as open; this is historical context, not its current status. Verify the live PR before treating its proposal as available. The proposal is to set `umask 0002` for the user command and run root-owned `relax_gh_aw_shared_permissions()` after normal or signal-driven command exit to `chmod -R g+w` `/tmp/gh-aw` without making it world-writable. **TODO — follow-up tracked in github/gh-aw-firewall#9028:** revisit this entry when PR #9029 closes; update it if merged, or re-validate/remove it if closed without merging or the remediation changes.
 
 ## Known unresolved items
 
