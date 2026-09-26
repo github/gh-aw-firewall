@@ -184,7 +184,11 @@ run_copy_system_ca_bundle_fixture() {
   mkdir -p "${host_root}/etc/pki/tls/certs" "${host_root}/etc/ssl/certs"
   printf '%s\n' "fixture-ca-cert" > "${host_root}/etc/pki/tls/certs/ca-bundle.crt"
 
-  sed "s#/host#\${AWF_TEST_HOST_ROOT}#g" "${ENTRYPOINT}" > "${fixture_entrypoint}"
+  awk '
+    $0 == "if [[ \"${BASH_SOURCE[0]}\" == \"$0\" ]]; then" { skip=1; next }
+    skip && $0 == "fi" { skip=0; next }
+    !skip { print }
+  ' "${ENTRYPOINT}" | sed "s#/host#\${AWF_TEST_HOST_ROOT}#g" > "${fixture_entrypoint}"
 
   local result
   (
@@ -558,10 +562,20 @@ run_agent_with_token_protection_cleanup_fixture() {
     # shellcheck disable=SC1090
     . "$1"
     AWF_TEST_HOST_ROOT="$2"
-    run_agent_with_token_protection sleep 30
+    run_agent_with_token_protection bash -c "touch \"\$1/tmp/gh-aw/agent-ready\"; sleep 30" _ "$2"
   ' _ "${fixture_entrypoint}" "${host_root}" >/dev/null 2>&1 &
   local runner_pid=$!
-  sleep 0.2
+  for _i in 1 2 3 4 5 6 7 8 9 10; do
+    [ -e "${host_root}/tmp/gh-aw/agent-ready" ] && break
+    sleep 0.1
+  done
+  if [ ! -e "${host_root}/tmp/gh-aw/agent-ready" ]; then
+    kill -TERM "${runner_pid}" 2>/dev/null || true
+    wait "${runner_pid}" 2>/dev/null || true
+    set -e
+    rm -rf "${tmp_dir}"
+    return 1
+  fi
   kill -TERM "${runner_pid}" 2>/dev/null || true
   wait "${runner_pid}"
   local signaled_exit=$?

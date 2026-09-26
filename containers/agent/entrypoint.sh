@@ -502,6 +502,10 @@ unset_sensitive_tokens() {
   done
 }
 
+# Space-separated list of gh-aw handoff subdirectory names; names must not
+# contain spaces because relax_gh_aw_shared_permissions iterates by word.
+GH_AW_HOST_HANDOFF_DIRS="memory-validation"
+
 # Relax permissions on host-shared gh-aw scratch handoff directories after the
 # agent command has finished.
 #
@@ -527,17 +531,20 @@ unset_sensitive_tokens() {
 # because that invocation ends with `exec capsh`, which replaces the chroot
 # shell's process image entirely — any code placed after it in
 # run_chroot_command would never execute.
-# Space-separated list of gh-aw handoff subdirectory names; names must not
-# contain spaces because relax_gh_aw_shared_permissions iterates by word.
-GH_AW_HOST_HANDOFF_DIRS="memory-validation"
 
 relax_gh_aw_shared_permissions() {
   local gh_aw_dir=""
-  if [ -e /host/tmp/gh-aw ] || [ -L /host/tmp/gh-aw ]; then
+  if [ -d /host/tmp/gh-aw ] && [ ! -L /host/tmp/gh-aw ]; then
     gh_aw_dir="/host/tmp/gh-aw"
-  elif [ -e /tmp/gh-aw ] || [ -L /tmp/gh-aw ]; then
+  elif [ -e /host/tmp/gh-aw ] || [ -L /host/tmp/gh-aw ]; then
+    relax_gh_aw_handoff_dir "/host/tmp/gh-aw" || true
+  fi
+
+  if [ -z "${gh_aw_dir}" ] && { [ -e /tmp/gh-aw ] || [ -L /tmp/gh-aw ]; }; then
     gh_aw_dir="/tmp/gh-aw"
-  else
+  fi
+
+  if [ -z "${gh_aw_dir}" ]; then
     return 0
   fi
 
