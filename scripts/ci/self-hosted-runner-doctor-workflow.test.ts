@@ -27,7 +27,7 @@ describe('self-hosted runner doctor workflow config', () => {
     const shared = fs.readFileSync(sharedPath, 'utf-8');
 
     expect(shared).toContain('| B35 | After a workflow using `tools.cache-memory` completes inside AWF');
-    expect(shared).toContain('**Status must be verified:** PR github/gh-aw-firewall#9029 tracks a proposed change');
+    expect(shared).toContain('**UNVERIFIED — do not recommend the proposal unless current status is checked:** PR github/gh-aw-firewall#9029 tracks a proposed change');
     expect(shared).toContain('### B35 — proposed remediation status snapshot');
     expect(shared).toContain('this is historical context, not its current status');
     expect(shared).toContain('github/gh-aw#63472, github/gh-aw-firewall#9028, github/gh-aw-firewall#9029');
