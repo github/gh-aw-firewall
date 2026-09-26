@@ -538,6 +538,7 @@ relax_gh_aw_shared_permissions() {
     gh_aw_dir="/host/tmp/gh-aw"
   elif [ -e /host/tmp/gh-aw ] || [ -L /host/tmp/gh-aw ]; then
     relax_gh_aw_handoff_dir "/host/tmp/gh-aw" || true
+    return 0
   fi
 
   if [ -z "${gh_aw_dir}" ] && { [ -e /tmp/gh-aw ] || [ -L /tmp/gh-aw ]; }; then

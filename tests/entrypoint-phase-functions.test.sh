@@ -316,6 +316,7 @@ run_configure_jvm_proxy_readonly_home_fixture() {
 
   # Run in a separate bash process: `set -e` is ignored inside a subshell that
   # is part of an `if` condition, which would mask the abort this test guards.
+  local result
   env -u JAVA_TOOL_OPTIONS \
     HOME="${fake_home}" \
     AWF_CHROOT_ENABLED="false" \
@@ -334,7 +335,6 @@ run_configure_jvm_proxy_readonly_home_fixture() {
         *) exit 1 ;;
       esac
     ' _ "${ENTRYPOINT}" 2>/dev/null
-  local result
   result=$?
   chmod -R u+w "${fake_home}" 2>/dev/null || true
   rm -rf "${tmp_dir}"
