@@ -1919,21 +1919,23 @@ yet, use HTTP `503` and `"retryable": true`.
 `apiProxy.routing` is an opt-in, compiler-authored request for AWF to select one
 model and reasoning effort for the entire run.
 
-As of this release, the API proxy's routing controller and request enforcement
-are wired into the running server ([PR #8966](https://github.com/github/gh-aw-firewall/pull/8966)):
-when `AWF_ROUTING_CONFIG` is present, a routing session starts after key
+As of this release, both the proxy-side and host-side halves of task-level
+routing are wired and shipped on `main`. The API proxy's routing controller
+and request enforcement are wired into the running server
+([PR #8966](https://github.com/github/gh-aw-firewall/pull/8966)): when
+`AWF_ROUTING_CONFIG` is present, a routing session starts after key
 validation and model discovery, and every inference request is screened
 against the one selected model/effort — a mismatch is rejected with `403`
 before the adapter's enabled check runs, so a rejection never reveals provider
 configuration. Upgrades are rejected outright while a routing session exists.
-**The host workflow does not yet stage or validate `apiProxy.routing` input**
-(private per-run routing directory, host-mode rejection, `selection.json`
-wait-for-ready) — that wiring is tracked in
-[PR #8985](https://github.com/github/gh-aw-firewall/pull/8985) (open, not yet
-merged). Until it merges, `AWF_ROUTING_CONFIG` is derived directly from the
-config file's `apiProxy.routing.task.conversationFile` host path with no host
-staging, so configuring this block does not yet produce a working end-to-end
-routed run.
+The host workflow now stages and validates `apiProxy.routing` input before
+the proxy starts ([PR #8985](https://github.com/github/gh-aw-firewall/pull/8985)):
+it writes the trusted conversation into a private per-run routing directory,
+rejects unsupported host modes (non-Linux, non-runc, disabled API proxy,
+DinD/split filesystems, Docker-socket exposure, or an unpinned router image),
+and waits for `selection.json` before starting the agent. A routing failure
+recorded by either side surfaces as host exit code `78` instead of the run
+silently continuing unrouted.
 
 ```yaml
 apiProxy:
