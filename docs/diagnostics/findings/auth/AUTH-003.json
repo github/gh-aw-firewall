@@ -1,0 +1,39 @@
+{
+  "$schema": "../../schema.json",
+  "id": "AUTH-003",
+  "boundary": "auth",
+  "title": "gh-aw-launched HTTP MCP GitHub server fails the OIDC boundary check",
+  "symptoms": [
+    "mcpg / HTTP MCP GitHub server returns 401 for github-oidc authentication",
+    "Gateway configuration contains no OIDC auth metadata",
+    "MCP GitHub tool calls fail while provider inference still works"
+  ],
+  "conditions": [
+    "The GitHub MCP server is configured as an HTTP MCP server with github-oidc auth",
+    "The lock file was compiled before the runner-to-gateway OIDC propagation fix, or the job lacks permissions: id-token: write"
+  ],
+  "affects": {
+    "runner": "any",
+    "runtime": "any",
+    "provider": "github-mcp",
+    "authMode": "github-oidc"
+  },
+  "versions": { "introduced": "unknown", "fixed": "unknown" },
+  "status": "workaround",
+  "rootCause": "The Actions OIDC request variables must travel from the runner to the gh-aw-launched gateway, never through the AWF agent; stale lock files or a missing id-token permission break that path.",
+  "probe": {
+    "command": "grep -n 'id-token\\|github-oidc' .github/workflows/<workflow>.lock.yml",
+    "expect": "Shows whether the compiled lock declares id-token: write and github-oidc auth metadata. Inspect shape only - no JWTs, headers, or token exchanges.",
+    "readOnly": true,
+    "secretSafe": true
+  },
+  "action": "Recompile the workflow with a gh-aw version that enforces the runner-to-gateway OIDC path and declare permissions: id-token: write. Never edit lock files by hand and never forward the Actions OIDC variables into the agent container.",
+  "references": [
+    { "kind": "issue", "ref": "https://github.com/github/gh-aw/issues/50053", "title": "HTTP MCP github-oidc boundary" },
+    { "kind": "pull-request", "ref": "https://github.com/github/gh-aw/pull/50054", "title": "Enforce runner-to-gateway OIDC path" },
+    { "kind": "doc", "ref": "docs/authentication-architecture.md", "title": "OIDC-authenticated MCP servers" }
+  ],
+  "related": ["AUTH-002"],
+  "owner": "@github/gh-aw-firewall-maintainers",
+  "reviewBy": "2027-03-31"
+}

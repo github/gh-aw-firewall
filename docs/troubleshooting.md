@@ -1,5 +1,10 @@
 # Troubleshooting
 
+> **Diagnosing a specific failure?** Start at the canonical diagnosis registry in
+> [`docs/diagnostics/README.md`](diagnostics/README.md), or load the
+> [`diagnose-awf`](../.github/skills/diagnose-awf/SKILL.md) skill. This guide remains the broad
+> troubleshooting reference.
+
 ## Domain Access Issues
 
 ### Domain is Blocked

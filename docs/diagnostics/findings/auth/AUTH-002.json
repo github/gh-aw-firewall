@@ -1,0 +1,61 @@
+{
+  "$schema": "../../schema.json",
+  "id": "AUTH-002",
+  "boundary": "auth",
+  "title": "API-proxy OIDC mode is configured but the Actions token request variables are missing",
+  "symptoms": [
+    "api-proxy reports that no OIDC token could be minted",
+    "Provider requests fail with 401 while AWF_AUTH_TYPE=github-oidc is set",
+    "ACTIONS_ID_TOKEN_REQUEST_URL is not available to the sidecar"
+  ],
+  "conditions": [
+    "AWF_AUTH_TYPE=github-oidc with AWF_AUTH_PROVIDER set",
+    "The workflow job does not declare permissions: id-token: write, or the lock file predates runner-to-sidecar propagation of the Actions OIDC variables"
+  ],
+  "affects": {
+    "runner": "github-hosted",
+    "runtime": "any",
+    "provider": "any",
+    "authMode": "github-oidc"
+  },
+  "versions": {
+    "introduced": "unknown",
+    "fixed": "unknown"
+  },
+  "status": "workaround",
+  "rootCause": "The sidecar mints the GitHub OIDC JWT itself, so it needs the Actions token-request variables forwarded to it; without permissions.id-token: write those variables never exist, and the agent is intentionally excluded from receiving them.",
+  "probe": {
+    "command": "grep -n 'id-token' .github/workflows/<workflow>.lock.yml",
+    "expect": "Shows whether the job declares permissions: id-token: write. Check configuration shape only - never print the token or perform a token exchange.",
+    "readOnly": true,
+    "secretSafe": true
+  },
+  "action": "Declare permissions: id-token: write on the job and recompile the workflow so the Actions OIDC request variables reach the api-proxy sidecar. Never work around this by exposing those variables to the agent container or by widening the agent environment.",
+  "references": [
+    {
+      "kind": "doc",
+      "ref": "docs/authentication-architecture.md",
+      "title": "OIDC authentication (keyless credential exchange)"
+    },
+    {
+      "kind": "doc",
+      "ref": "docs/auth-matrix.md",
+      "title": "OIDC providers"
+    },
+    {
+      "kind": "code",
+      "ref": "containers/api-proxy/github-oidc.js",
+      "title": "Sidecar token provider"
+    },
+    {
+      "kind": "test",
+      "ref": "containers/api-proxy/providers/cloud-oidc-init.test.js"
+    }
+  ],
+  "related": [
+    "AUTH-003",
+    "SEC-001"
+  ],
+  "owner": "@github/gh-aw-firewall-maintainers",
+  "reviewBy": "2027-03-31"
+}

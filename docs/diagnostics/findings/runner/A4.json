@@ -1,0 +1,39 @@
+{
+  "$schema": "../../schema.json",
+  "id": "A4",
+  "boundary": "runner",
+  "title": "capsh, /bin/bash, or node missing inside the DinD chroot",
+  "symptoms": [
+    "capsh: not found",
+    "/bin/bash: no such file or directory during chroot startup",
+    "node: not found when the harness binary starts"
+  ],
+  "conditions": [
+    "The Docker daemon host image is Alpine/musl based",
+    "Chroot mode is active (default agent execution mode)"
+  ],
+  "affects": {
+    "runner": "arc-dind",
+    "runtime": "chroot",
+    "provider": "any",
+    "authMode": "any"
+  },
+  "versions": { "introduced": "unknown", "fixed": "unknown" },
+  "status": "workaround",
+  "rootCause": "The musl-based daemon host lacks the glibc tooling that chroot mode expects to bind into the agent container.",
+  "probe": {
+    "command": "docker -H \"$DOCKER_HOST\" run --rm alpine cat /etc/os-release",
+    "expect": "Shows an Alpine/musl daemon host, which chroot mode cannot satisfy.",
+    "readOnly": true,
+    "secretSafe": true
+  },
+  "action": "Use a glibc DinD image such as ghcr.io/github/gh-aw-firewall/dind-ubuntu:latest for the Docker-in-Docker sidecar.",
+  "references": [
+    { "kind": "doc", "ref": "docs/arc-dind.md", "title": "DinD image requirements" },
+    { "kind": "doc", "ref": ".github/workflows/shared/self-hosted-failure-modes.md", "title": "Runner failure-mode catalog (A4)" },
+    { "kind": "code", "ref": "containers/agent/entrypoint.sh", "title": "chroot setup" }
+  ],
+  "related": ["A1"],
+  "owner": "@github/gh-aw-firewall-maintainers",
+  "reviewBy": "2027-03-31"
+}

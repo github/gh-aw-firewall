@@ -1,0 +1,40 @@
+{
+  "$schema": "../../schema.json",
+  "id": "NET-002",
+  "boundary": "network",
+  "title": "DNS resolution fails because the resolver is not in the trusted DNS server list",
+  "symptoms": [
+    "Could not resolve host",
+    "Temporary failure in name resolution",
+    "getaddrinfo EAI_AGAIN inside the agent container"
+  ],
+  "conditions": [
+    "The configured resolver is not 127.0.0.11 and not listed in --dns-servers / AWF_DNS_SERVERS",
+    "HTTP/HTTPS to allowlisted domains also fails before any proxy log entry appears"
+  ],
+  "affects": {
+    "runner": "any",
+    "runtime": "any",
+    "provider": "any",
+    "authMode": "any"
+  },
+  "versions": { "introduced": "unknown", "fixed": "unknown" },
+  "status": "workaround",
+  "rootCause": "Host and container iptables rules only permit DNS to the trusted resolvers configured through --dns-servers, so traffic to any other resolver is dropped to prevent DNS-based exfiltration.",
+  "probe": {
+    "command": "docker exec awf-agent cat /etc/resolv.conf",
+    "expect": "Lists a resolver that is not among the configured trusted DNS servers.",
+    "readOnly": true,
+    "secretSafe": true
+  },
+  "action": "Pass the environment's resolver explicitly with --dns-servers (for example an internal corporate resolver) instead of disabling DNS filtering.",
+  "references": [
+    { "kind": "doc", "ref": "docs/troubleshooting.md", "title": "Network issues" },
+    { "kind": "code", "ref": "src/host-iptables.ts", "title": "DNS restriction rules" },
+    { "kind": "code", "ref": "containers/agent/setup-iptables.sh", "title": "AWF_DNS_SERVERS handling" },
+    { "kind": "test", "ref": "src/host-iptables-network.test.ts" }
+  ],
+  "related": ["NET-001"],
+  "owner": "@github/gh-aw-firewall-maintainers",
+  "reviewBy": "2027-03-31"
+}

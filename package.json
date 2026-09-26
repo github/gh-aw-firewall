@@ -27,7 +27,10 @@
     "benchmark": "npx tsx scripts/ci/benchmark-performance.ts",
     "benchmark:trend": "npx tsx scripts/ci/benchmark-trend.ts",
     "build:bundle": "npm run build && node scripts/build-bundle.mjs",
-    "generate:schema": "node scripts/generate-schema.mjs"
+    "generate:schema": "node scripts/generate-schema.mjs",
+    "diagnostics:validate": "npx tsx scripts/diagnostics/cli.ts validate",
+    "diagnostics:render": "npx tsx scripts/diagnostics/cli.ts render",
+    "diagnostics:check": "npx tsx scripts/diagnostics/cli.ts check-sync"
   },
   "keywords": [
     "agentic-workflows",

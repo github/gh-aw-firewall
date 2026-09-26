@@ -1,0 +1,61 @@
+{
+  "$schema": "../../schema.json",
+  "id": "NET-001",
+  "boundary": "network",
+  "title": "Squid denies a request because the domain is not in the allowlist",
+  "symptoms": [
+    "TCP_DENIED",
+    "403 Forbidden returned by the proxy for an outbound request",
+    "curl: (56) Received HTTP code 403 from proxy after CONNECT"
+  ],
+  "conditions": [
+    "The destination host resolves but Squid logs TCP_DENIED:HIER_NONE for it",
+    "The domain (or its parent domain) is absent from --allow-domains / network.allowDomains"
+  ],
+  "affects": {
+    "runner": "any",
+    "runtime": "any",
+    "provider": "any",
+    "authMode": "any"
+  },
+  "versions": {
+    "introduced": "unknown",
+    "fixed": "unknown"
+  },
+  "status": "workaround",
+  "rootCause": "Egress filtering is working as designed: the requested domain is not covered by the generated Squid domain ACL.",
+  "probe": {
+    "command": "docker exec awf-squid grep TCP_DENIED /var/log/squid/access.log | tail -20",
+    "expect": "Shows the denied domain and the requesting client IP; the domain is absent from the allowlist.",
+    "readOnly": true,
+    "secretSafe": true
+  },
+  "action": "Add the specific required domain (not a broad wildcard) to the allowlist after confirming it is expected traffic. Keep egress filtering on; if the denial looks like exfiltration, route to SEC-001.",
+  "references": [
+    {
+      "kind": "doc",
+      "ref": "docs/egress-filtering.md",
+      "title": "Domain allowlisting"
+    },
+    {
+      "kind": "doc",
+      "ref": "docs/logging_quickref.md",
+      "title": "Squid log queries"
+    },
+    {
+      "kind": "code",
+      "ref": "src/squid-config.ts",
+      "title": "generateSquidConfig() domain ACLs"
+    },
+    {
+      "kind": "test",
+      "ref": "src/squid-config-domains.test.ts"
+    }
+  ],
+  "related": [
+    "NET-002",
+    "SEC-001"
+  ],
+  "owner": "@github/gh-aw-firewall-maintainers",
+  "reviewBy": "2027-03-31"
+}
