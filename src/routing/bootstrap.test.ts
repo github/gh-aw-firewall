@@ -28,6 +28,7 @@ function makeConfig(workDir: string, conversationFile: string): WrapperConfig {
     imageRegistry: 'ghcr.io/github/gh-aw-firewall',
     imageTag: 'latest',
     enableApiProxy: true,
+    experimentalModelRouting: true,
     images: {
       router: `ghcr.io/example/router:test@sha256:${digest}`,
     },
@@ -61,6 +62,19 @@ describe('routing bootstrap', () => {
 
   afterEach(() => {
     fs.rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it('does not stage routing without both opt-in and a routing request', () => {
+    const config = makeConfig(path.join(tempDir, 'work'), path.join(tempDir, 'missing.json'));
+    for (const optIn of [undefined, false]) {
+      config.experimentalModelRouting = optIn;
+      expect(stageRoutingConversation(config)).toBeUndefined();
+      expect(config.modelRoutingBootstrap).toBeUndefined();
+    }
+    config.experimentalModelRouting = true;
+    delete config.modelRouting;
+    expect(stageRoutingConversation(config)).toBeUndefined();
+    expect(config.modelRoutingBootstrap).toBeUndefined();
   });
 
   it('validates and stages one private conversation copy with rewritten config', () => {

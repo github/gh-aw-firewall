@@ -224,7 +224,7 @@ export function generateDockerCompose(
       internal: true,
     };
   }
-  if (config.modelRoutingBootstrap) {
+  if (config.experimentalModelRouting === true && config.modelRouting && config.modelRoutingBootstrap) {
     compose.networks[ROUTING_NETWORK_NAME] = {
       name: ROUTING_NETWORK_NAME,
       driver: 'bridge',

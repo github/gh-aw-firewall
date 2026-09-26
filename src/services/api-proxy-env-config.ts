@@ -310,7 +310,7 @@ function buildModelPolicyEnv(config: WrapperConfig): Record<string, string> {
 }
 
 function buildModelRoutingEnv(config: WrapperConfig): Record<string, string> {
-  if (!config.modelRouting) return {};
+  if (config.experimentalModelRouting !== true || !config.modelRouting) return {};
   if (!config.modelRoutingBootstrap) {
     throw new Error(MODEL_ROUTING_NOT_STAGED_MESSAGE);
   }

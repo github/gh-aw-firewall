@@ -446,6 +446,7 @@ it('buildModelPolicyEnv no longer sets AWF_ROUTING_CONFIG when modelRouting is c
       const env = buildModelRoutingEnv({
         ...baseConfig,
         workDir: '/tmp/awf-test',
+        experimentalModelRouting: true,
         modelRouting: {
           objective: { goal: 'cost', mode: 'balanced' },
           task: { conversationFile: '/host/conversation.json' },
@@ -468,11 +469,26 @@ it('buildModelPolicyEnv no longer sets AWF_ROUTING_CONFIG when modelRouting is c
       expect(() => buildModelRoutingEnv({
         ...baseConfig,
         workDir: '/tmp/awf-test',
+        experimentalModelRouting: true,
         modelRouting: {
           objective: { goal: 'cost', mode: 'balanced' },
           task: { conversationFile: '/host/conversation.json' },
         },
       })).toThrow('Model routing was configured but the routing conversation was not staged');
+    });
+
+    it('omits routing environment without both the opt-in and a request', () => {
+      const config = {
+        ...baseConfig,
+        workDir: '/tmp/awf-test',
+        modelRouting: {
+          objective: { goal: 'cost' as const, mode: 'balanced' as const },
+          task: { conversationFile: '/host/conversation.json' },
+        },
+      };
+      expect(buildModelRoutingEnv(config)).toEqual({});
+      expect(buildModelRoutingEnv({ ...config, experimentalModelRouting: false })).toEqual({});
+      expect(buildModelRoutingEnv({ ...baseConfig, workDir: '/tmp/awf-test', experimentalModelRouting: true })).toEqual({});
     });
   });
 

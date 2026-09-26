@@ -45,6 +45,7 @@ describe('generateDockerCompose', () => {
       const routingConfig: WrapperConfig = {
         ...mockConfig,
         enableApiProxy: true,
+        experimentalModelRouting: true,
         images: {
           squid: `ghcr.io/example/squid:test@sha256:${digest}`,
           agent: `ghcr.io/example/agent:test@sha256:${digest}`,
@@ -103,6 +104,7 @@ describe('generateDockerCompose', () => {
       const routingConfig: WrapperConfig = {
         ...mockConfig,
         enableApiProxy: true,
+        experimentalModelRouting: true,
         images: {
           squid: `ghcr.io/example/squid:test@sha256:${digest}`,
           agent: `ghcr.io/example/agent:test@sha256:${digest}`,
@@ -119,6 +121,36 @@ describe('generateDockerCompose', () => {
         ...mockNetworkConfig,
         proxyIp: '172.30.0.30',
       })).toThrow('Model routing was configured but the routing conversation was not staged');
+    });
+
+    it('omits routing infrastructure when opt-in or routing request is absent', () => {
+      const routingConfig: WrapperConfig = {
+        ...mockConfig,
+        enableApiProxy: true,
+        modelRouting: {
+          objective: { goal: 'cost', mode: 'balanced' },
+          task: { conversationFile: '/host/conversation.json' },
+        },
+        modelRoutingBootstrap: {
+          root: '/tmp/awf-routing',
+          inputDir: '/tmp/awf-routing/input',
+          outputDir: '/tmp/awf-routing/output',
+          inputFile: '/tmp/awf-routing/input/conversation.json',
+          containerInputFile: '/run/awf-routing/input/conversation.json',
+          containerOutputDir: '/run/awf-routing/output',
+        },
+      };
+      for (const optIn of [undefined, false, true]) {
+        routingConfig.experimentalModelRouting = optIn;
+        if (optIn === true) delete routingConfig.modelRouting;
+        const compose = generateDockerCompose(routingConfig, { ...mockNetworkConfig, proxyIp: '172.30.0.30' });
+        const proxy = compose.services['api-proxy'];
+        expect(compose.services.router).toBeUndefined();
+        expect(compose.networks['awf-routing']).toBeUndefined();
+        expect(proxy.networks).not.toHaveProperty('awf-routing');
+        expect(proxy.volumes?.some(volume => volume.includes('/run/awf-routing/'))).toBe(false);
+        expect(proxy.environment?.AWF_ROUTING_CONFIG).toBeUndefined();
+      }
     });
 
     it('should use local build when buildLocal is true', () => {

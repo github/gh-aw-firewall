@@ -179,18 +179,32 @@ describe('validateAwfFileConfig', () => {
       task: { conversationFile: '/tmp/gh-aw/conversation.json' },
     };
 
-    expect(validateAwfFileConfig({ apiProxy: { routing: valid } })).toEqual([]);
+    expect(validateAwfFileConfig({ experimental: { modelRouting: true }, apiProxy: { routing: valid } })).toEqual([]);
     expect(validateAwfFileConfig({
+      experimental: { modelRouting: true },
       apiProxy: { routing: { ...valid, objective: { ...valid.objective, goal: 'quality' } } },
     })).toContain('config.apiProxy.routing.objective.goal must be one of: cost, cost-speed');
     expect(validateAwfFileConfig({
+      experimental: { modelRouting: true },
       apiProxy: { routing: { ...valid, objective: { ...valid.objective, mode: 'fast' } } },
     })).toContain(
       'config.apiProxy.routing.objective.mode must be one of: economy, balanced, robust, auto',
     );
     expect(validateAwfFileConfig({
+      experimental: { modelRouting: true },
       apiProxy: { routing: { ...valid, unexpected: true } },
     })).toContain('config.apiProxy.routing.unexpected is not supported');
+    for (const experimental of [undefined, { modelRouting: false }, {}]) {
+      expect(validateAwfFileConfig({ experimental, apiProxy: { routing: valid } }))
+        .toContain('config.apiProxy.routing requires experimental.modelRouting: true');
+    }
+    expect(validateAwfFileConfig({ experimental: { modelRouting: true } })).toEqual([]);
+    expect(validateAwfFileConfig({ experimental: { modelRouting: false } })).toEqual([]);
+    expect(validateAwfFileConfig({})).toEqual([]);
+    expect(validateAwfFileConfig({ experimental: { modelRouting: 'yes' } }))
+      .toContain('config.experimental.modelRouting must be a boolean');
+    expect(validateAwfFileConfig({ experimental: { unknown: true } }))
+      .toContain('config.experimental.unknown is not supported');
   });
 
   it('rejects non-object apiProxy.targets', () => {

@@ -212,7 +212,7 @@ function writeJsonNoFollow(filename: string, value: unknown): void {
 }
 
 export function stageRoutingConversation(config: WrapperConfig): ModelRoutingBootstrapState | undefined {
-  if (!config.modelRouting) return undefined;
+  if (config.experimentalModelRouting !== true || !config.modelRouting) return undefined;
 
   assertRoutingHostSupported(config);
   const root = routingRootForWorkDir(config.workDir);
