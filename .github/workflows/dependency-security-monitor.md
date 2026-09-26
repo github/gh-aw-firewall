@@ -31,7 +31,7 @@ network:
   allowed:
     - node
     # The repo's .npmrc and package-lock.json pin the Azure Artifacts npm mirror
-    - "*.pkgs.visualstudio.com"
+    - ms-feed-25.pkgs.visualstudio.com
 
 safe-outputs:
   threat-detection:
