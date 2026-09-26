@@ -27,14 +27,15 @@ describe('self-hosted runner doctor workflow config', () => {
     const shared = fs.readFileSync(sharedPath, 'utf-8');
 
     expect(shared).toContain('| B35 | After a workflow using `tools.cache-memory` completes inside AWF');
-    expect(shared).toContain('fixes github/gh-aw-firewall#9028');
+    expect(shared).toContain('proposed fix not yet shipped (PR github/gh-aw-firewall#9029, open as of 2026-09-26; tracks github/gh-aw-firewall#9028)');
     expect(shared).toContain('github/gh-aw#63472, github/gh-aw-firewall#9028, github/gh-aw-firewall#9029');
     expect(shared).toContain('| D16 | `--container-runtime nvx` or `cloud-hypervisor` intermittently aborts');
     expect(shared).toContain('github/gh-aw-firewall#9012, github/gh-aw-firewall#9016, github/gh-aw-firewall#9017');
-    expect(source).toContain('→ B35 (UID-remapped agent leaves shared `/tmp/gh-aw` paths unwritable by the host runner; fix in progress in github/gh-aw-firewall#9029)');
+    expect(source).toContain('→ B35 (UID-remapped agent leaves shared `/tmp/gh-aw` paths unwritable by the host runner; proposed fix in github/gh-aw-firewall#9029 is not yet shipped)');
     expect(source).toContain('→ D16 (false positive from benign VMM thread churn during TOCTOU re-verification; fixed in github/gh-aw-firewall#9016/#9017)');
-    expect(source).toContain('**Provisional fix in progress (PR github/gh-aw-firewall#9029, open as of 2026-09-26):**');
-    expect(source).toContain('if it closes without merging or the remediation changes, re-validate or remove this entry');
+    expect(source).toContain('**Provisional, proposed fix not yet shipped (PR github/gh-aw-firewall#9029, open as of 2026-09-26):**');
+    expect(source).toContain('**TODO (github/gh-aw-firewall#9028):**');
+    expect(source).toContain('re-validate or remove it if the PR closes without merging or the remediation changes');
     expect(source).toContain('D16 / github/gh-aw-firewall#9012, github/gh-aw-firewall#9016, github/gh-aw-firewall#9017');
   });
 
