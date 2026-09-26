@@ -502,8 +502,8 @@ unset_sensitive_tokens() {
   done
 }
 
-# Relax permissions on host-shared gh-aw scratch directories (e.g. /tmp/gh-aw)
-# after the agent command has finished.
+# Relax permissions on host-shared gh-aw scratch handoff directories after the
+# agent command has finished.
 #
 # AWF remaps the agent's UID/GID to match the host user (see
 # setup_user_identity), so new files the agent creates under /tmp/gh-aw
@@ -515,11 +515,12 @@ unset_sensitive_tokens() {
 # Without this, that step can fail with EACCES even though the directory
 # tree looks otherwise fine.
 #
-# We only add the group-write bit (not world-writable) to avoid materially
-# widening access on multi-user self-hosted runners; combined with the
-# ownership transfer already performed before the command ran, this covers
-# the common case where the host step shares the same primary group as the
-# mapped agent user.
+# We only add the group-write bit (not world-writable), and only to the shared
+# handoff root plus known host-side handoff subdirectories, to avoid materially
+# widening access on multi-user self-hosted runners or payload-bearing audit
+# files elsewhere in the gh-aw tree. Combined with the ownership transfer
+# already performed before the command ran, this covers the common case where
+# the host step shares the same primary group as the mapped agent user.
 #
 # This must run here (as root, still in the container's own filesystem view)
 # rather than after the `chroot ... capsh` invocation in run_chroot_command,
@@ -528,17 +529,34 @@ unset_sensitive_tokens() {
 # run_chroot_command would never execute.
 relax_gh_aw_shared_permissions() {
   local gh_aw_dir=""
-  if [ -d /host/tmp/gh-aw ]; then
+  if [ -e /host/tmp/gh-aw ]; then
     gh_aw_dir="/host/tmp/gh-aw"
-  elif [ -d /tmp/gh-aw ]; then
+  elif [ -e /tmp/gh-aw ]; then
     gh_aw_dir="/tmp/gh-aw"
+  else
+    return 0
   fi
-  if [ -n "${gh_aw_dir}" ]; then
-    if chmod -R g+rwX "${gh_aw_dir}" 2>/dev/null; then
-      echo "[entrypoint] Relaxed ${gh_aw_dir} group permissions for host-side post-processing"
-    else
-      echo "[entrypoint][WARN] Failed to relax ${gh_aw_dir} group permissions"
-    fi
+
+  if relax_gh_aw_handoff_dir "${gh_aw_dir}"; then
+    relax_gh_aw_handoff_dir "${gh_aw_dir}/memory-validation"
+  fi
+  return 0
+}
+
+relax_gh_aw_handoff_dir() {
+  local handoff_dir="$1"
+  if [ ! -e "${handoff_dir}" ]; then
+    return 0
+  fi
+  if [ ! -d "${handoff_dir}" ] || [ -L "${handoff_dir}" ]; then
+    echo "[entrypoint][WARN] Skipping unsafe gh-aw handoff path ${handoff_dir}"
+    return 1
+  fi
+  if chmod g+rwx "${handoff_dir}" 2>/dev/null; then
+    echo "[entrypoint] Relaxed ${handoff_dir} group permissions for host-side post-processing"
+  else
+    echo "[entrypoint][WARN] Failed to relax ${handoff_dir} group permissions"
+    return 1
   fi
 }
 
@@ -586,8 +604,11 @@ run_agent_with_token_protection() {
   unset_sensitive_tokens
 
   # Wait for agent command to complete and capture its exit code
-  wait $AGENT_PID
-  EXIT_CODE=$?
+  if wait "$AGENT_PID"; then
+    EXIT_CODE=0
+  else
+    EXIT_CODE=$?
+  fi
   trap - TERM INT
   relax_gh_aw_shared_permissions
   exit $EXIT_CODE

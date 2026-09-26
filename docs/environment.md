@@ -451,12 +451,14 @@ To reduce this class of failure, AWF's entrypoint:
 
 - Sets `umask 0002` for the user command, so new files/directories the agent
   creates default to being group-writable.
-- Runs `chmod -R g+w /tmp/gh-aw` (as root, from outside the chroot) right
-  after the agent command exits — whether it succeeded, failed, or was
-  signaled — so a host-side step that shares the same primary group as the
-  mapped agent user can still write into directories the agent created. This
-  intentionally does **not** make `/tmp/gh-aw` world-writable, to avoid
-  widening access on multi-user self-hosted runners.
+- Adds group write/execute permissions to the `/tmp/gh-aw` handoff root and
+  the known host-side `memory-validation` handoff directory (as root, from
+  outside the chroot) right after the agent command exits — whether it
+  succeeded, failed, or was signaled — so a host-side step that shares the same
+  primary group as the mapped agent user can still write into the required
+  handoff directories. This intentionally does **not** recurse through the
+  whole `/tmp/gh-aw` tree or make it world-writable, to avoid widening access
+  to unrelated payload-bearing files on multi-user self-hosted runners.
 
 If a host-side step still cannot write into `/tmp/gh-aw` after the agent
 exits (for example because the host step's group also doesn't match), invoke
