@@ -69,7 +69,7 @@ index 0244a9f3..e9d3a285 100644
  /// A platform-independent abstraction that allows you to treat an area of the file system as if
  /// it has Unix semantics.
 diff --git a/vm/devices/support/fs/lxutil/src/unix/mod.rs b/vm/devices/support/fs/lxutil/src/unix/mod.rs
-index d94f66a7..971953f2 100644
+index d94f66a7..05482d60 100644
 --- a/vm/devices/support/fs/lxutil/src/unix/mod.rs
 +++ b/vm/devices/support/fs/lxutil/src/unix/mod.rs
 @@ -478,3 +478,172 @@ impl LxFile {
@@ -166,7 +166,7 @@ index d94f66a7..971953f2 100644
 +    // SAFETY: `groups` is valid for `groups.len()` entries.
 +    let ret = unsafe { libc::syscall(libc::SYS_setgroups, groups.len(), groups.as_ptr()) };
 +    if ret != 0 {
-+        return Err(lx::Error::EPERM);
++        return Err(lx::Error::last_os_error());
 +    }
 +    Ok(())
 +}
