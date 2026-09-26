@@ -259,7 +259,7 @@ D11 / github/gh-aw-firewall#6558 — gVisor + Node.js v22 V8 ESM startup crash r
 
 ### Pending remediation status snapshot
 
-B35 / github/gh-aw#63472, github/gh-aw-firewall#9028, github/gh-aw-firewall#9029 — The source scan recorded PR github/gh-aw-firewall#9029 as open; this is historical context, not its current status. Verify the live PR before treating its proposal as available. The proposed change would set `umask 0002` for the user command and restore group write permission under `/tmp/gh-aw` after normal or signal-driven command exit. **TODO — follow-up tracked in github/gh-aw-firewall#9028:** revisit this entry when PR #9029 closes; update it if merged, or re-validate/remove it if closed without merging or the remediation changes.
+For B35's pending remediation proposal and source-scan status, use the canonical [Provisional remediation tracking](shared/self-hosted-failure-modes.md#provisional-remediation-tracking) entry. Verify PR github/gh-aw-firewall#9029's current state before recommending its proposal; follow-up is tracked in github/gh-aw-firewall#9028.
 
 ### 5. Avoid duplicate triage
 
