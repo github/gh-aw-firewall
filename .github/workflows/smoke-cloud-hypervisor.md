@@ -50,7 +50,7 @@ strict: false
 jobs:
   verify_token_usage:
     needs: agent
-    if: always() && needs.agent.result != 'skipped' && needs.agent.result != 'cancelled'
+    if: needs.agent.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: read
