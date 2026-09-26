@@ -171,5 +171,5 @@ rm -rf /tmp/awf-*
 
 If you are diagnosing a failure rather than exploring, enter through the
 [`diagnose-awf`](../diagnose-awf/SKILL.md) skill and the canonical diagnosis registry in
-[`docs/diagnostics/README.md`](../../../docs/diagnostics/README.md). This skill is a specialist
-reference it routes to.
+[`docs/diagnostics/README.md`](../../../docs/diagnostics/README.md). This skill is one of the
+specialist references it routes to.

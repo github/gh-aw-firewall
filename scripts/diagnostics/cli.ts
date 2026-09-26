@@ -17,19 +17,38 @@ import {
   SearchQuery,
 } from './registry';
 
+const SEARCH_DIMENSIONS = ['boundary', 'runner', 'runtime', 'provider', 'authMode'] as const;
+
+/** Parse search arguments, rejecting unknown flags and invalid limits. */
 function parseSearchArgs(args: string[]): SearchQuery {
   const query: SearchQuery = {};
   const text: string[] = [];
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
-    if (arg.startsWith('--')) {
-      const key = arg.slice(2);
-      const value = args[++i];
-      if (key === 'limit') query.limit = Number(value);
-      else (query as Record<string, unknown>)[key] = value;
+    if (!arg.startsWith('--')) {
+      text.push(arg);
       continue;
     }
-    text.push(arg);
+
+    const key = arg.slice(2);
+    const value = args[++i];
+    if (value === undefined) {
+      throw new Error(`Missing value for --${key}`);
+    }
+    if (key === 'limit') {
+      const limit = Number(value);
+      if (!Number.isInteger(limit) || limit < 1) {
+        throw new Error(`--limit must be a positive integer, received "${value}"`);
+      }
+      query.limit = limit;
+      continue;
+    }
+    if (!(SEARCH_DIMENSIONS as readonly string[]).includes(key)) {
+      throw new Error(
+        `Unknown option --${key}. Supported: --limit, ${SEARCH_DIMENSIONS.map((d) => `--${d}`).join(', ')}`
+      );
+    }
+    (query as Record<string, unknown>)[key] = value;
   }
   if (text.length > 0) query.text = text.join(' ');
   return query;
@@ -50,9 +69,14 @@ function main(): number {
       console.log(`Registry valid: ${loaded.length} finding(s).`);
       return 0;
     }
-    case 'search':
-    case 'index': {
-      const matches = searchFindings(loaded, parseSearchArgs(args));
+    case 'search': {
+      let matches;
+      try {
+        matches = searchFindings(loaded, parseSearchArgs(args));
+      } catch (error) {
+        console.error((error as Error).message);
+        return 2;
+      }
       if (matches.length === 0) {
         console.log('No matching finding. Collect the smallest missing evidence instead of guessing.');
         return 0;

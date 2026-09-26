@@ -17,19 +17,24 @@ import * as path from 'path';
 import Ajv2020 from 'ajv/dist/2020';
 
 export const REPO_ROOT = path.resolve(__dirname, '..', '..');
-export const REGISTRY_DIR = path.join(REPO_ROOT, 'docs', 'diagnostics');
-export const FINDINGS_DIR = path.join(REGISTRY_DIR, 'findings');
-export const SCHEMA_PATH = path.join(REGISTRY_DIR, 'schema.json');
-export const PLAYBOOK_PATH = path.join(REGISTRY_DIR, 'agent-playbook.md');
-export const README_PATH = path.join(REGISTRY_DIR, 'README.md');
-export const WORKFLOW_CATALOG_PATH = path.join(
-  REPO_ROOT,
-  '.github',
-  'workflows',
-  'shared',
-  'diagnosis-findings.md'
-);
-export const PORTABLE_AGENT_PATH = path.join(REPO_ROOT, '.github', 'agents', 'diagnose-awf.md');
+
+/** Repository-relative paths - the single source of truth for registry layout. */
+export const REGISTRY_RELATIVE_DIR = 'docs/diagnostics';
+export const FINDINGS_RELATIVE_DIR = `${REGISTRY_RELATIVE_DIR}/findings`;
+export const SCHEMA_RELATIVE_PATH = `${REGISTRY_RELATIVE_DIR}/schema.json`;
+export const PLAYBOOK_RELATIVE_PATH = `${REGISTRY_RELATIVE_DIR}/agent-playbook.md`;
+export const README_RELATIVE_PATH = `${REGISTRY_RELATIVE_DIR}/README.md`;
+export const WORKFLOW_CATALOG_RELATIVE_PATH = '.github/workflows/shared/diagnosis-findings.md';
+export const PORTABLE_AGENT_RELATIVE_PATH = '.github/agents/diagnose-awf.md';
+
+/** Absolute paths for the checked-out repository. */
+export const REGISTRY_DIR = path.join(REPO_ROOT, REGISTRY_RELATIVE_DIR);
+export const FINDINGS_DIR = path.join(REPO_ROOT, FINDINGS_RELATIVE_DIR);
+export const SCHEMA_PATH = path.join(REPO_ROOT, SCHEMA_RELATIVE_PATH);
+export const PLAYBOOK_PATH = path.join(REPO_ROOT, PLAYBOOK_RELATIVE_PATH);
+export const README_PATH = path.join(REPO_ROOT, README_RELATIVE_PATH);
+export const WORKFLOW_CATALOG_PATH = path.join(REPO_ROOT, WORKFLOW_CATALOG_RELATIVE_PATH);
+export const PORTABLE_AGENT_PATH = path.join(REPO_ROOT, PORTABLE_AGENT_RELATIVE_PATH);
 
 export const GENERATED_MARKER_BEGIN = '<!-- BEGIN GENERATED: docs/diagnostics/findings -->';
 export const GENERATED_MARKER_END = '<!-- END GENERATED: docs/diagnostics/findings -->';
@@ -387,13 +392,18 @@ export function renderCatalog(loaded: LoadedFinding[]): string {
   return lines.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd();
 }
 
+/** Escape a value for a Markdown table cell (backslashes first, then pipes). */
+function escapeTableCell(value: string): string {
+  return value.replace(/\\/g, '\\\\').replace(/\|/g, '\\|').replace(/[\r\n]+/g, ' ');
+}
+
 /** Deterministic symptom → finding lookup table. */
 export function renderLookupTable(loaded: LoadedFinding[]): string {
   const rows: string[] = ['| Observable symptom | Finding | Boundary | Status |', '|---|---|---|---|'];
   for (const { finding } of loaded) {
     for (const symptom of finding.symptoms) {
       rows.push(
-        `| ${symptom.replace(/\|/g, '\\|')} | ${finding.id} | ${finding.boundary} | ${finding.status} |`
+        `| ${escapeTableCell(symptom)} | ${finding.id} | ${finding.boundary} | ${finding.status} |`
       );
     }
   }
@@ -488,20 +498,20 @@ export function renderOutputs(
   options: { repoRoot?: string } = {}
 ): GeneratedOutput[] {
   const repoRoot = options.repoRoot ?? REPO_ROOT;
-  const playbook = fs.readFileSync(path.join(repoRoot, 'docs/diagnostics/agent-playbook.md'), 'utf8');
-  const readme = fs.readFileSync(path.join(repoRoot, 'docs/diagnostics/README.md'), 'utf8');
+  const playbook = fs.readFileSync(path.join(repoRoot, PLAYBOOK_RELATIVE_PATH), 'utf8');
+  const readme = fs.readFileSync(path.join(repoRoot, README_RELATIVE_PATH), 'utf8');
 
   return [
     {
-      path: '.github/workflows/shared/diagnosis-findings.md',
+      path: WORKFLOW_CATALOG_RELATIVE_PATH,
       content: renderWorkflowCatalog(loaded),
     },
     {
-      path: '.github/agents/diagnose-awf.md',
+      path: PORTABLE_AGENT_RELATIVE_PATH,
       content: renderPortableAgent(loaded, playbook),
     },
     {
-      path: 'docs/diagnostics/README.md',
+      path: README_RELATIVE_PATH,
       content: replaceGeneratedBlock(readme, renderIndexSection(loaded)),
     },
   ];
