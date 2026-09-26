@@ -33,8 +33,8 @@ describe('self-hosted runner doctor workflow config', () => {
     expect(shared).toContain('github/gh-aw-firewall#9012, github/gh-aw-firewall#9016, github/gh-aw-firewall#9017');
     expect(source).toContain('→ B35 (UID-remapped agent leaves shared `/tmp/gh-aw` paths unwritable by the host runner; fix in progress in github/gh-aw-firewall#9029)');
     expect(source).toContain('→ D16 (false positive from benign VMM thread churn during TOCTOU re-verification; fixed in github/gh-aw-firewall#9016/#9017)');
-    expect(source).toContain('**Fix in progress (PR github/gh-aw-firewall#9029, open as of 2026-09-26):**');
-    expect(source).toContain('refresh this entry when the PR closes');
+    expect(source).toContain('**Provisional fix in progress (PR github/gh-aw-firewall#9029, open as of 2026-09-26):**');
+    expect(source).toContain('if it closes without merging or the remediation changes, re-validate or remove this entry');
     expect(source).toContain('D16 / github/gh-aw-firewall#9012, github/gh-aw-firewall#9016, github/gh-aw-firewall#9017');
   });
 
