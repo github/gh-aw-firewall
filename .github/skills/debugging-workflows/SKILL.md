@@ -361,3 +361,10 @@ Tool 'xyz' not found
 - [GitHub Actions Integration](../../../docs/github_actions.md) - CI/CD setup
 - [Logging Documentation](../../../LOGGING.md) - Comprehensive logging guide
 - [Debug Firewall Skill](../debug-firewall/SKILL.md) - Firewall-specific debugging
+
+## Start here for diagnosis
+
+If you are diagnosing a failure rather than exploring, enter through the
+[`diagnose-awf`](../diagnose-awf/SKILL.md) skill and the canonical diagnosis registry in
+[`docs/diagnostics/README.md`](../../../docs/diagnostics/README.md). This skill is a specialist
+reference it routes to.

@@ -60,6 +60,23 @@ describe('shared diagnosis-maintenance contract', () => {
     );
   });
 
+  it('makes CI Doctor a read-only registry consumer', () => {
+    const ciDoctor = read('.github/workflows/ci-doctor.md');
+    expect(ciDoctor).toContain('docs/diagnostics/');
+    expect(ciDoctor).toMatch(/read-only consumer/i);
+    expect(ciDoctor).toMatch(/never edit registry records/i);
+  });
+
+  it('cross-links the specialist skills to the diagnose-awf entry point', () => {
+    for (const skill of [
+      '.github/skills/debug-firewall/SKILL.md',
+      '.github/skills/awf-debug-tools/SKILL.md',
+      '.github/skills/debugging-workflows/SKILL.md',
+    ]) {
+      expect(read(skill)).toContain('../diagnose-awf/SKILL.md');
+    }
+  });
+
   it('keeps the maintenance lock files compiled from their sources', () => {
     for (const workflow of [
       'self-hosted-runner-doctor',
