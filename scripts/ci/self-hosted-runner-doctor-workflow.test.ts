@@ -22,6 +22,21 @@ describe('self-hosted runner doctor workflow config', () => {
     expect(shared).toContain('| A10 | `Docker socket not found` plus `Invalid container ID format: arc-...` |');
   });
 
+  it('documents B35 and D16 in the shared catalog and diagnostic playbook', () => {
+    const source = fs.readFileSync(sourcePath, 'utf-8');
+    const shared = fs.readFileSync(sharedPath, 'utf-8');
+
+    expect(shared).toContain('| B35 | After a workflow using `tools.cache-memory` completes inside AWF');
+    expect(shared).toContain('fixes github/gh-aw-firewall#9028');
+    expect(shared).toContain('github/gh-aw#63472, github/gh-aw-firewall#9028, github/gh-aw-firewall#9029');
+    expect(shared).toContain('| D16 | `--container-runtime nvx` or `cloud-hypervisor` intermittently aborts');
+    expect(shared).toContain('github/gh-aw-firewall#9012, github/gh-aw-firewall#9016, github/gh-aw-firewall#9017');
+    expect(source).toContain('→ B35 (UID-remapped agent leaves shared `/tmp/gh-aw` paths unwritable by the host runner; fix in progress in github/gh-aw-firewall#9029)');
+    expect(source).toContain('→ D16 (false positive from benign VMM thread churn during TOCTOU re-verification; fixed in github/gh-aw-firewall#9016/#9017)');
+    expect(source).toContain('**Fix in progress (PR github/gh-aw-firewall#9029, open as of 2026-09-26):**');
+    expect(source).toContain('D16 / github/gh-aw-firewall#9012, github/gh-aw-firewall#9016, github/gh-aw-firewall#9017');
+  });
+
   it('compiles the trigger, safe outputs, and knowledge-base references into the lock workflow', () => {
     const lock = fs.readFileSync(lockPath, 'utf-8');
 
