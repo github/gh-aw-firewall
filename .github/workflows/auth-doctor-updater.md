@@ -12,6 +12,8 @@ permissions:
   contents: read
   issues: read
   pull-requests: read
+imports:
+  - shared/diagnosis-maintenance.md
 tools:
   github:
     toolsets: [default]
@@ -44,6 +46,8 @@ safe-outputs:
     allowed-files:
       - README.md
       - docs/api-proxy-sidecar.md
+      - docs/diagnostics/README.md
+      - docs/diagnostics/findings/auth/*.json
       - docs/auth-matrix.md
       - docs/authentication-architecture.md
       - docs/awf-config-spec.md
@@ -161,6 +165,23 @@ For every candidate, choose one:
 
 Do not infer support from an unmerged pull request, a feature request, or provider documentation alone. AWF support requires current default-branch implementation and tests.
 
+## Step 5b — Express Findings as Canonical Registry Records
+
+`docs/diagnostics/` is the canonical diagnosis state for AWF failures; `docs/auth-matrix.md` stays authoritative for supported auth combinations. Follow the shared diagnosis-maintenance contract imported below.
+
+A *failure* (symptom, cause, probe, fix) belongs in an `AUTH-*` record under `docs/diagnostics/findings/auth/`. A *support-matrix* correction belongs in `docs/auth-matrix.md`. Never duplicate the support matrix into a record; link to it.
+
+Before proposing a record:
+
+```bash
+npx tsx scripts/diagnostics/cli.ts search "<redacted error class>" --boundary auth
+npm run diagnostics:validate
+```
+
+Keep the three auth surfaces distinct: (a) the AWF api-proxy sidecar and provider token exchange, (b) GitHub/Copilot enterprise and BYOK routing, and (c) gh-aw-launched mcpg HTTP MCP GitHub OIDC. Record configuration presence and shape, route/health status, and redacted error classes only — never keys, JWTs, `Authorization` headers, environment dumps, inference probes, or token exchanges.
+
+Include the regenerated `docs/diagnostics/README.md` index in the same pull request; a reviewer verifies it with `npm run diagnostics:check`.
+
 ## Step 6 — Avoid Duplicate Pull Requests
 
 Search open pull requests with `[docs] auth:` in the title. If an existing updater pull request covers the same findings, call `noop` instead of opening another pull request.
@@ -192,6 +213,10 @@ Use this pull request body:
 ### Documentation Changes
 
 List each changed file and the factual correction made.
+
+### Canonical Registry Changes
+
+List each added or updated `AUTH-*` record with its status, version scope, probe, and provenance, and confirm the generated index was regenerated.
 
 ### Validation
 

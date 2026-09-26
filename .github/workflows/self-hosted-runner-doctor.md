@@ -13,6 +13,7 @@ permissions:
   pull-requests: read
 imports:
   - shared/self-hosted-failure-modes.md
+  - shared/diagnosis-findings.md
 tools:
   github:
     toolsets: [default]
