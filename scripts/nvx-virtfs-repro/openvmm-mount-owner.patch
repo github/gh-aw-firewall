@@ -88,6 +88,7 @@ index d94f66a7..3125bb5f 100644
 +pub struct FsCredentials {
 +    previous_uid: libc::uid_t,
 +    previous_gid: libc::gid_t,
++    previous_groups: Vec<libc::gid_t>,
 +}
 +
 +impl FsCredentials {
@@ -95,9 +96,27 @@ index d94f66a7..3125bb5f 100644
 +    pub fn switch(uid: lx::uid_t, gid: lx::gid_t) -> lx::Result<Self> {
 +        // SAFETY: setfsuid/setfsgid only change the calling thread's
 +        // filesystem credentials; `u32::MAX` (-1) queries without changing.
++        // Supplementary groups are updated for the request and restored on drop.
 +        unsafe {
++            let ngroups = libc::getgroups(0, std::ptr::null_mut());
++            if ngroups < 0 {
++                return Err(lx::Error::last_os_error());
++            }
++            let mut previous_groups = vec![0 as libc::gid_t; ngroups as usize];
++            if ngroups > 0
++                && libc::getgroups(ngroups, previous_groups.as_mut_ptr()) < 0
++            {
++                return Err(lx::Error::last_os_error());
++            }
++
++            let request_groups = [gid as libc::gid_t];
++            if libc::setgroups(1, request_groups.as_ptr()) != 0 {
++                return Err(lx::Error::EPERM);
++            }
++
 +            let previous_gid = libc::setfsgid(gid) as libc::gid_t;
 +            if libc::setfsgid(libc::gid_t::MAX) as libc::gid_t != gid {
++                libc::setgroups(previous_groups.len(), previous_groups.as_ptr());
 +                libc::setfsgid(previous_gid);
 +                return Err(lx::Error::EPERM);
 +            }
@@ -105,11 +124,13 @@ index d94f66a7..3125bb5f 100644
 +            if libc::setfsuid(libc::uid_t::MAX) as libc::uid_t != uid {
 +                libc::setfsuid(previous_uid);
 +                libc::setfsgid(previous_gid);
++                libc::setgroups(previous_groups.len(), previous_groups.as_ptr());
 +                return Err(lx::Error::EPERM);
 +            }
 +            Ok(Self {
 +                previous_uid,
 +                previous_gid,
++                previous_groups,
 +            })
 +        }
 +    }
@@ -117,9 +138,10 @@ index d94f66a7..3125bb5f 100644
 +
 +impl Drop for FsCredentials {
 +    fn drop(&mut self) {
-+        // SAFETY: Restores this thread's filesystem credentials saved by
-+        // `switch`.
++        // SAFETY: Restores this thread's filesystem credentials and
++        // supplementary groups saved by `switch`.
 +        unsafe {
++            libc::setgroups(self.previous_groups.len(), self.previous_groups.as_ptr());
 +            libc::setfsuid(self.previous_uid);
 +            libc::setfsgid(self.previous_gid);
 +        }
