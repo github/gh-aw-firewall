@@ -60,7 +60,20 @@ steps:
       } > /tmp/gh-aw/chroot-test/host-versions.env
       cat /tmp/gh-aw/chroot-test/host-versions.env
   - name: Install awf dependencies
-    run: npm ci
+    run: |
+      max_attempts=3
+      for attempt in $(seq 1 "$max_attempts"); do
+        if npm ci; then
+          break
+        fi
+        if [ "$attempt" -eq "$max_attempts" ]; then
+          echo "npm ci failed after $max_attempts attempts"
+          exit 1
+        fi
+        delay=$((attempt * 10))
+        echo "npm ci failed (attempt $attempt/$max_attempts); retrying in ${delay}s"
+        sleep "$delay"
+      done
   - name: Build awf
     run: npm run build
   - name: Install awf binary (local)
