@@ -14,7 +14,7 @@ const {
   normalizeBasePath,
   parseApiTargetAndBasePath,
 } = require('../proxy-utils');
-const { validateAuthHeaderEnv } = require('../oidc-adapter-utils');
+const { validateAuthHeaderEnv, buildOidcUnavailableScaffold } = require('../oidc-adapter-utils');
 const { buildAuthHeaderFn } = require('./auth-headers');
 const { composeBodyTransforms } = require('../proxy-utils');
 const {
@@ -112,13 +112,11 @@ function createOpenAIAdapter(env, deps = {}) {
         statusCode: 404,
         message: 'OpenAI proxy not configured (no OPENAI_API_KEY/COPILOT_PROVIDER_API_KEY or OIDC auth)',
       },
-      unconfiguredResponseWhen: () => (oidcConfigured
-        ? {
-            kind: 'provider_not_configured',
-            message: 'OpenAI OIDC token unavailable; retry shortly',
-            retryable: true,
-          }
-        : null),
+      unconfiguredResponseWhen: buildOidcUnavailableScaffold({
+        requested: oidcConfigured,
+        configured: oidcConfigured,
+        unavailableMessage: 'OpenAI OIDC token unavailable; retry shortly',
+      }).unconfiguredResponseWhen,
       extra: {
         /** Port 10000 always counts toward the startup validation latch. */
         participatesInValidation: true,
