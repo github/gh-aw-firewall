@@ -90,7 +90,7 @@ Provider documentation has already been fetched and converted to plain text in `
 
 2. **Anthropic**: `/tmp/gh-aw/model-docs/anthropic-models.txt` (model list). All Claude models use the `/v1/messages` endpoint.
 
-Only if a pre-fetched file is missing or clearly lacks the model list, fall back to `curl` against the original URL (`https://developers.openai.com/api/docs/models`, `https://developers.openai.com/api/reference/responses/overview`, `https://platform.openai.com/docs/models`, or `https://docs.anthropic.com/en/docs/about-claude/models`).
+Only if a pre-fetched file is missing or clearly lacks the model list, fall back to `curl` against the original URL (`https://developers.openai.com/api/docs/models`, `https://developers.openai.com/api/reference/responses/overview`, `https://platform.openai.com/docs/models`, `https://docs.anthropic.com/en/docs/about-claude/models`, or `https://platform.claude.com/docs/en/about-claude/models/overview`).
 
 ## Update Rules
 
