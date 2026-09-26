@@ -1931,8 +1931,9 @@ configuration. Upgrades are rejected outright while a routing session exists.
 The host workflow now stages and validates `apiProxy.routing` input before
 the proxy starts ([PR #8985](https://github.com/github/gh-aw-firewall/pull/8985)):
 it writes the trusted conversation into a private per-run routing directory,
-rejects unsupported host modes (non-Linux, non-runc, disabled API proxy,
-DinD/split filesystems, Docker-socket exposure, or an unpinned router image),
+rejects unsupported configurations (non-Linux, non-runc, disabled API proxy,
+`--keep-containers`, DinD/split filesystems, Docker-socket exposure, or an
+unpinned router image),
 and waits for `selection.json` before starting the agent. A routing failure
 recorded by either side surfaces as host exit code `78` instead of the run
 silently continuing unrouted.
