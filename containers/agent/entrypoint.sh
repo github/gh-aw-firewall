@@ -1549,14 +1549,6 @@ AWFEOF
       echo "export GOROOT=\"${AWF_GOROOT}\"" >> "/host${SCRIPT_FILE}"
     fi
   fi
-  # Relax the default file-creation mask so new files/directories the agent
-  # creates under host-shared scratch paths (e.g. gh-aw's /tmp/gh-aw tree,
-  # used by features like cache-memory) stay group-writable. Without this,
-  # a host-side step that runs after the agent container exits (e.g. gh-aw's
-  # validateMemoryStep) can fail with EACCES when it tries to write into a
-  # directory the agent just created, even though ownership matches the host
-  # user, because the default umask (0022) strips the group-write bit.
-  echo 'umask 0002' >> "/host${SCRIPT_FILE}"
   # Configure npm global prefix to a writable directory (since /usr is read-only)
   # Preserve user-provided NPM_CONFIG_PREFIX if already set
   echo 'if [ -z "${NPM_CONFIG_PREFIX:-}" ]; then' >> "/host${SCRIPT_FILE}"
