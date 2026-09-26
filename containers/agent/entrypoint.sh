@@ -527,13 +527,15 @@ unset_sensitive_tokens() {
 # because that invocation ends with `exec capsh`, which replaces the chroot
 # shell's process image entirely — any code placed after it in
 # run_chroot_command would never execute.
+# Space-separated list of gh-aw handoff subdirectory names; names must not
+# contain spaces because relax_gh_aw_shared_permissions iterates by word.
 GH_AW_HOST_HANDOFF_DIRS="memory-validation"
 
 relax_gh_aw_shared_permissions() {
   local gh_aw_dir=""
-  if [ -e /host/tmp/gh-aw ]; then
+  if [ -e /host/tmp/gh-aw ] || [ -L /host/tmp/gh-aw ]; then
     gh_aw_dir="/host/tmp/gh-aw"
-  elif [ -e /tmp/gh-aw ]; then
+  elif [ -e /tmp/gh-aw ] || [ -L /tmp/gh-aw ]; then
     gh_aw_dir="/tmp/gh-aw"
   else
     return 0
