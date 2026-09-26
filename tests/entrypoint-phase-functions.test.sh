@@ -528,11 +528,21 @@ RUN_AGENT_WITH_TOKEN_PROTECTION_BLOCK="$(awk '
   in_fn { print }
 ' "${ENTRYPOINT}")"
 
-if [ "$(printf '%s\n' "${RUN_AGENT_WITH_TOKEN_PROTECTION_BLOCK}" | grep -c -F 'relax_gh_aw_shared_permissions')" -eq 2 ] && \
-   printf '%s\n' "${RUN_AGENT_WITH_TOKEN_PROTECTION_BLOCK}" | grep -Fq 'if wait "$AGENT_PID"; then'; then
-  pass "run_agent_with_token_protection() invokes relax_gh_aw_shared_permissions before exiting"
+cleanup_relax_line="$(printf '%s\n' "${RUN_AGENT_WITH_TOKEN_PROTECTION_BLOCK}" | grep -n -E '^[[:space:]]*relax_gh_aw_shared_permissions[[:space:]]*$' | cut -d: -f1 | head -1)"
+cleanup_exit_line="$(printf '%s\n' "${RUN_AGENT_WITH_TOKEN_PROTECTION_BLOCK}" | grep -n -F 'exit "$EXIT_CODE"' | cut -d: -f1 | head -1)"
+normal_trap_line="$(printf '%s\n' "${RUN_AGENT_WITH_TOKEN_PROTECTION_BLOCK}" | grep -n -F 'trap - TERM INT' | cut -d: -f1 | tail -1)"
+normal_relax_line="$(printf '%s\n' "${RUN_AGENT_WITH_TOKEN_PROTECTION_BLOCK}" | grep -n -E '^[[:space:]]*relax_gh_aw_shared_permissions[[:space:]]*$' | cut -d: -f1 | tail -1)"
+
+if [ -n "${cleanup_relax_line}" ] && \
+   [ -n "${cleanup_exit_line}" ] && \
+   [ -n "${normal_trap_line}" ] && \
+   [ -n "${normal_relax_line}" ] && \
+   [ "${cleanup_relax_line}" -lt "${cleanup_exit_line}" ] && \
+   [ "${normal_relax_line}" -gt "${normal_trap_line}" ] && \
+   printf '%s\n' "${RUN_AGENT_WITH_TOKEN_PROTECTION_BLOCK}" | grep -Fq 'wait "$AGENT_PID" || EXIT_CODE=$?'; then
+  pass "run_agent_with_token_protection() invokes relax_gh_aw_shared_permissions on signal and normal exit paths"
 else
-  fail "run_agent_with_token_protection() does not invoke relax_gh_aw_shared_permissions"
+  fail "run_agent_with_token_protection() does not invoke relax_gh_aw_shared_permissions on both exit paths"
 fi
 
 echo ""

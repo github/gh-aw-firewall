@@ -554,6 +554,7 @@ relax_gh_aw_handoff_dir() {
   fi
   if chmod g+rwx "${handoff_dir}" 2>/dev/null; then
     echo "[entrypoint] Relaxed ${handoff_dir} group permissions for host-side post-processing"
+    return 0
   else
     echo "[entrypoint][WARN] Failed to relax ${handoff_dir} group permissions"
     return 1
@@ -604,11 +605,8 @@ run_agent_with_token_protection() {
   unset_sensitive_tokens
 
   # Wait for agent command to complete and capture its exit code
-  if wait "$AGENT_PID"; then
-    EXIT_CODE=0
-  else
-    EXIT_CODE=$?
-  fi
+  EXIT_CODE=0
+  wait "$AGENT_PID" || EXIT_CODE=$?
   trap - TERM INT
   relax_gh_aw_shared_permissions
   exit $EXIT_CODE
