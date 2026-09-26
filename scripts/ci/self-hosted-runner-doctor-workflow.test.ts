@@ -27,15 +27,16 @@ describe('self-hosted runner doctor workflow config', () => {
     const shared = fs.readFileSync(sharedPath, 'utf-8');
 
     expect(shared).toContain('| B35 | After a workflow using `tools.cache-memory` completes inside AWF');
-    expect(shared).toContain('**Pending, not shipped (github/gh-aw-firewall#9029):** see [Provisional remediation tracking]');
-    expect(shared).toContain('### B35 — pending fix for github/gh-aw-firewall#9028');
+    expect(shared).toContain('**Status must be verified:** PR github/gh-aw-firewall#9029 tracks a proposed change');
+    expect(shared).toContain('### B35 — proposed remediation status snapshot');
+    expect(shared).toContain('this is historical context, not its current status');
     expect(shared).toContain('github/gh-aw#63472, github/gh-aw-firewall#9028, github/gh-aw-firewall#9029');
     expect(shared).toContain('| D16 | `--container-runtime nvx` or `cloud-hypervisor` intermittently aborts');
     expect(shared).toContain('github/gh-aw-firewall#9012, github/gh-aw-firewall#9016, github/gh-aw-firewall#9017');
-    expect(source).toContain('→ B35 (UID-remapped agent leaves shared `/tmp/gh-aw` paths unwritable by the host runner; proposed fix in github/gh-aw-firewall#9029 is not yet shipped)');
+    expect(source).toContain('→ B35 (UID-remapped agent leaves shared `/tmp/gh-aw` paths unwritable by the host runner; proposed fix tracked in github/gh-aw-firewall#9029—verify current status)');
     expect(source).toContain('→ D16 (false positive from benign VMM thread churn during TOCTOU re-verification; fixed in github/gh-aw-firewall#9016/#9017)');
-    expect(source).toContain('### Pending remediation (not yet shipped)');
-    expect(source).toContain('The 2026-09-26 scan recorded PR github/gh-aw-firewall#9029 as open.');
+    expect(source).toContain('### Pending remediation status snapshot');
+    expect(source).toContain('this is historical context, not its current status');
     expect(source).toContain('**TODO (github/gh-aw-firewall#9028):**');
     expect(source).toContain('re-validate or remove it if the PR closes without merging or the remediation changes');
     expect(source).toContain('D16 / github/gh-aw-firewall#9012, github/gh-aw-firewall#9016, github/gh-aw-firewall#9017');

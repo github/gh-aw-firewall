@@ -105,7 +105,7 @@ Prefer the narrowest match. Examples:
 - `node: command not found` on ARC/DinD with `runner.topology: arc-dind` even when binary is correctly installed → A16 (sysroot filter was over-broad and dropped the workspace mount)
 - `EAI_AGAIN` / `ENOTFOUND` resolving a topology-attached DIFC proxy (for example `awmg-cli-proxy`) in network-isolation + topology-attach: if DinD `nslookup` fails, match B12; otherwise B5
 - `EACCES` in upload-artifact after sudo:false → B6
-- `EACCES: permission denied` writing `/tmp/gh-aw/memory-validation/cache-default.ok` (or another `/tmp/gh-aw` path) from a host-side gh-aw step after AWF exits → B35 (UID-remapped agent leaves shared `/tmp/gh-aw` paths unwritable by the host runner; proposed fix in github/gh-aw-firewall#9029 is not yet shipped)
+- `EACCES: permission denied` writing `/tmp/gh-aw/memory-validation/cache-default.ok` (or another `/tmp/gh-aw` path) from a host-side gh-aw step after AWF exits → B35 (UID-remapped agent leaves shared `/tmp/gh-aw` paths unwritable by the host runner; proposed fix tracked in github/gh-aw-firewall#9029—verify current status)
 - `403 ERR_ACCESS_DENIED` for MCP tool calls (`safeoutputs`, `github`) to `172.30.0.1/redacted` under `--container-runtime gvisor` or raw `runsc`; safe-output validation fails even though the agent completed → D8 (gVisor userspace netstack bypasses the usual iptables DNAT path; patched AWF adds `172.30.0.1` to `NO_PROXY`)
 - credential files such as `~/.aws/credentials`, `~/.ssh/id_rsa`, or `~/.docker/config.json` are visible inside an `--container-runtime sbx` microVM → D9 (older AWF mounted the entire host `$HOME` into sbx; fixed in github/gh-aw-firewall#6336)
 - Copilot CLI exits immediately (exit code 1, ~0.5 s, zero stdout/stderr) after AWF upgrade on Docker or gVisor but not sbx → B14 (`~/.copilot/config.json` incorrectly added to credential deny list; fixed in github/gh-aw-firewall#6374)
@@ -257,9 +257,9 @@ D7 / github/gh-aw-firewall#6260, github/gh-aw-firewall#6261, github/gh-aw-firewa
 
 D11 / github/gh-aw-firewall#6558 — gVisor + Node.js v22 V8 ESM startup crash root cause remains unresolved (`SIGABRT` `StringBytes::Encode` assertion and occasional exit 139). **Mitigated in AWF (PR github/gh-aw-firewall#6514, merged 2026-07-23):** `runAgentCommand()` does a one-shot retry (`MAX_GVISOR_AGENT_RETRIES = 1`) when gVisor exits 134/139 within `GVISOR_STARTUP_CRASH_WINDOW_MS = 30_000`, but this does not prevent the underlying crash.
 
-### Pending remediation (not yet shipped)
+### Pending remediation status snapshot
 
-B35 / github/gh-aw#63472, github/gh-aw-firewall#9028, github/gh-aw-firewall#9029 — The 2026-09-26 scan recorded PR github/gh-aw-firewall#9029 as open. The proposed change would set `umask 0002` for the user command and restore group write permission under `/tmp/gh-aw` after normal or signal-driven command exit; it is not shipped yet. Verify the current PR status before treating it as available. **TODO (github/gh-aw-firewall#9028):** update this entry if PR #9029 merges; re-validate or remove it if the PR closes without merging or the remediation changes.
+B35 / github/gh-aw#63472, github/gh-aw-firewall#9028, github/gh-aw-firewall#9029 — The source scan dated 2026-09-26 recorded PR github/gh-aw-firewall#9029 as open; this is historical context, not its current status. Verify the live PR before treating its proposal as available. The proposed change would set `umask 0002` for the user command and restore group write permission under `/tmp/gh-aw` after normal or signal-driven command exit. **TODO (github/gh-aw-firewall#9028):** update this entry if PR #9029 merges; re-validate or remove it if the PR closes without merging or the remediation changes.
 
 ### 5. Avoid duplicate triage
 
