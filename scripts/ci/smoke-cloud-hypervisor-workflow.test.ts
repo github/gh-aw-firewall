@@ -12,8 +12,8 @@ describe('Smoke Cloud Hypervisor token-usage verification', () => {
     for (const workflowFile of workflowFiles) {
       const workflow = fs.readFileSync(workflowFile, 'utf-8');
 
-      expect(workflow).toContain(
-        "verify_token_usage:\n    needs: agent\n    if: needs.agent.result == 'success'",
+      expect(workflow).toMatch(
+        /^[ \t]*verify_token_usage:[ \t]*\r?\n[ \t]*needs:[ \t]*agent[ \t]*\r?\n[ \t]*if:[ \t]*needs\.agent\.result[ \t]*==[ \t]*'success'[ \t]*$/m,
       );
     }
   });
