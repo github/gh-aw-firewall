@@ -1,0 +1,556 @@
+diff --git a/openvmm/openvmm_entry/src/cli_args.rs b/openvmm/openvmm_entry/src/cli_args.rs
+index 4b763c1a..b015d9d9 100644
+--- a/openvmm/openvmm_entry/src/cli_args.rs
++++ b/openvmm/openvmm_entry/src/cli_args.rs
+@@ -1133,6 +1133,21 @@ pub struct Options {
+     )]
+     pub microvm_mount_deny: Vec<PathBuf>,
+ 
++    /// Host identity for guest requests on `--mount`.
++    ///
++    /// `process` (default) uses the OpenVMM process identity. `caller` runs
++    /// each request as the guest caller's uid/gid, like virtiofsd, so files the
++    /// guest creates are owned by the guest user; guest uid/gid 0 is squashed to
++    /// the export root's owner. `caller` requires CAP_SETUID and CAP_SETGID, and
++    /// drops supplementary groups per request; requests fail with EPERM otherwise.
++    #[clap(
++        long = "mount-owner",
++        value_name = "process|caller",
++        default_value = "process",
++        requires = "microvm_mount"
++    )]
++    pub microvm_mount_owner: MicrovmMountOwnerCli,
++
+     /// virtio PMEM device
+     ///
+     /// Prefix with `pcie_port=<port_name>:` to expose the device over
+@@ -2416,6 +2431,13 @@ pub struct MicrovmMountCli {
+     pub access: openvmm_defs::config::MicrovmFilesystemAccess,
+ }
+ 
++#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, clap::ValueEnum)]
++pub enum MicrovmMountOwnerCli {
++    #[default]
++    Process,
++    Caller,
++}
++
+ impl FromStr for MicrovmMountCli {
+     type Err = anyhow::Error;
+ 
+diff --git a/openvmm/openvmm_entry/src/lib.rs b/openvmm/openvmm_entry/src/lib.rs
+index 667a39a0..40657aff 100644
+--- a/openvmm/openvmm_entry/src/lib.rs
++++ b/openvmm/openvmm_entry/src/lib.rs
+@@ -4359,7 +4359,11 @@ async fn vm_config_from_command_line(
+             (
+                 virtio_resources::fs::VirtioFsBackend::HostFs {
+                     root_path: filesystem.root_path.clone(),
+-                    mount_options: String::new(),
++                    mount_options: match opt.microvm_mount_owner {
++                        cli_args::MicrovmMountOwnerCli::Process => String::new(),
++                        // Matches `virtiofs::MicroVmCreateOwner::CALLER_MOUNT_OPTION`.
++                        cli_args::MicrovmMountOwnerCli::Caller => "owner=caller".to_owned(),
++                    },
+                 },
+                 virtio_resources::fs::VirtioFsProfile::Microvm {
+                     stable_id: MICROVM_FILESYSTEM_STABLE_ID.to_owned(),
+diff --git a/vm/devices/support/fs/lxutil/src/lib.rs b/vm/devices/support/fs/lxutil/src/lib.rs
+index 0244a9f3..e9d3a285 100644
+--- a/vm/devices/support/fs/lxutil/src/lib.rs
++++ b/vm/devices/support/fs/lxutil/src/lib.rs
+@@ -25,6 +25,8 @@
+ 
+ pub use path::PathBufExt;
+ pub use path::PathExt;
++#[cfg(unix)]
++pub use unix::FsCredentials;
+ 
+ /// A platform-independent abstraction that allows you to treat an area of the file system as if
+ /// it has Unix semantics.
+diff --git a/vm/devices/support/fs/lxutil/src/unix/mod.rs b/vm/devices/support/fs/lxutil/src/unix/mod.rs
+index d94f66a7..05482d60 100644
+--- a/vm/devices/support/fs/lxutil/src/unix/mod.rs
++++ b/vm/devices/support/fs/lxutil/src/unix/mod.rs
+@@ -478,3 +478,172 @@ impl LxFile {
+         Ok(())
+     }
+ }
++
++/// Scoped switch of the calling thread's filesystem identity.
++///
++/// Linux keeps fsuid/fsgid and supplementary groups per thread, so while the
++/// guard is alive every filesystem operation on this thread is
++/// permission-checked, and every new object is owned, as the requested
++/// identity. Supplementary groups are cleared so that the process's group
++/// memberships grant no extra access. Other threads are unaffected, and the
++/// previous identity is restored on drop. Switching to an identity other than
++/// the current one requires `CAP_SETUID`/`CAP_SETGID`; without them `switch`
++/// fails with `EPERM` instead of silently keeping the old identity.
++pub struct FsCredentials {
++    previous_uid: libc::uid_t,
++    previous_gid: libc::gid_t,
++    previous_groups: Vec<libc::gid_t>,
++}
++
++impl FsCredentials {
++    /// Switches the calling thread to `uid`/`gid` until the guard is dropped.
++    pub fn switch(uid: lx::uid_t, gid: lx::gid_t) -> lx::Result<Self> {
++        let previous_groups = thread_groups()?;
++        if !previous_groups.is_empty() {
++            set_thread_groups(&[])?;
++        }
++        // SAFETY: setfsuid/setfsgid only change the calling thread's
++        // filesystem credentials; `u32::MAX` (-1) queries without changing.
++        unsafe {
++            let previous_gid = libc::setfsgid(gid) as libc::gid_t;
++            if libc::setfsgid(libc::gid_t::MAX) as libc::gid_t != gid {
++                libc::setfsgid(previous_gid);
++                let _ = set_thread_groups(&previous_groups);
++                return Err(lx::Error::EPERM);
++            }
++            let previous_uid = libc::setfsuid(uid) as libc::uid_t;
++            if libc::setfsuid(libc::uid_t::MAX) as libc::uid_t != uid {
++                libc::setfsuid(previous_uid);
++                libc::setfsgid(previous_gid);
++                let _ = set_thread_groups(&previous_groups);
++                return Err(lx::Error::EPERM);
++            }
++            Ok(Self {
++                previous_uid,
++                previous_gid,
++                previous_groups,
++            })
++        }
++    }
++}
++
++impl Drop for FsCredentials {
++    fn drop(&mut self) {
++        // SAFETY: Restores this thread's filesystem credentials saved by
++        // `switch`.
++        unsafe {
++            libc::setfsuid(self.previous_uid);
++            libc::setfsgid(self.previous_gid);
++        }
++        if !self.previous_groups.is_empty() {
++            let _ = set_thread_groups(&self.previous_groups);
++        }
++    }
++}
++
++/// Returns the calling thread's supplementary groups.
++fn thread_groups() -> lx::Result<Vec<libc::gid_t>> {
++    // SAFETY: A zero-sized query writes nothing.
++    let count = unsafe { libc::getgroups(0, std::ptr::null_mut()) };
++    if count < 0 {
++        return Err(lx::Error::last_os_error());
++    }
++    let mut groups = vec![0; count as usize];
++    if count > 0 {
++        // SAFETY: `groups` has room for `count` entries.
++        let count = unsafe { libc::getgroups(count, groups.as_mut_ptr()) };
++        if count < 0 {
++            return Err(lx::Error::last_os_error());
++        }
++        groups.truncate(count as usize);
++    }
++    Ok(groups)
++}
++
++/// Sets the calling thread's supplementary groups.
++///
++/// Uses the raw syscall because glibc's `setgroups` applies the change to
++/// every thread in the process.
++fn set_thread_groups(groups: &[libc::gid_t]) -> lx::Result<()> {
++    // SAFETY: `groups` is valid for `groups.len()` entries.
++    let ret = unsafe { libc::syscall(libc::SYS_setgroups, groups.len(), groups.as_ptr()) };
++    if ret != 0 {
++        return Err(lx::Error::last_os_error());
++    }
++    Ok(())
++}
++
++#[cfg(test)]
++mod fs_credentials_tests {
++    use super::FsCredentials;
++    use super::set_thread_groups;
++    use super::thread_groups;
++
++    fn fs_ids() -> (libc::uid_t, libc::gid_t) {
++        // SAFETY: -1 queries the current values without changing them.
++        unsafe {
++            (
++                libc::setfsuid(libc::uid_t::MAX) as libc::uid_t,
++                libc::setfsgid(libc::gid_t::MAX) as libc::gid_t,
++            )
++        }
++    }
++
++    #[test]
++    fn switch_to_current_identity_and_restore() {
++        let (uid, gid) = fs_ids();
++        let groups = thread_groups().unwrap();
++        match FsCredentials::switch(uid, gid) {
++            Ok(guard) => {
++                assert!(thread_groups().unwrap().is_empty());
++                drop(guard);
++            }
++            // Clearing supplementary groups requires CAP_SETGID.
++            // SAFETY: geteuid has no side effects.
++            Err(_) => assert!(!groups.is_empty() && unsafe { libc::geteuid() } != 0),
++        }
++        assert_eq!(fs_ids(), (uid, gid));
++        assert_eq!(thread_groups().unwrap(), groups);
++    }
++
++    #[test]
++    fn switch_clears_groups_on_this_thread_only() {
++        // SAFETY: geteuid has no side effects.
++        if unsafe { libc::geteuid() } != 0 {
++            return;
++        }
++        let groups = thread_groups().unwrap();
++        set_thread_groups(&[4242]).unwrap();
++        let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
++        let other = std::thread::spawn({
++            let barrier = barrier.clone();
++            move || {
++                barrier.wait();
++                let groups = thread_groups().unwrap();
++                barrier.wait();
++                groups
++            }
++        });
++        let guard = FsCredentials::switch(1001, 1001).unwrap();
++        assert!(thread_groups().unwrap().is_empty());
++        barrier.wait();
++        barrier.wait();
++        assert_eq!(other.join().unwrap(), [4242]);
++        drop(guard);
++        assert_eq!(thread_groups().unwrap(), [4242]);
++        set_thread_groups(&groups).unwrap();
++    }
++
++    #[test]
++    fn switch_fails_closed_without_capability() {
++        // SAFETY: geteuid has no side effects.
++        if unsafe { libc::geteuid() } == 0 {
++            return;
++        }
++        let (uid, gid) = fs_ids();
++        let groups = thread_groups().unwrap();
++        assert!(FsCredentials::switch(u32::MAX - 7, u32::MAX - 7).is_err());
++        assert_eq!(fs_ids(), (uid, gid));
++        assert_eq!(thread_groups().unwrap(), groups);
++    }
++}
+diff --git a/vm/devices/virtio/virtiofs/src/lib.rs b/vm/devices/virtio/virtiofs/src/lib.rs
+index dce54cca..28051fab 100644
+--- a/vm/devices/virtio/virtiofs/src/lib.rs
++++ b/vm/devices/virtio/virtiofs/src/lib.rs
+@@ -31,6 +31,52 @@
+ use inode::VirtioFsInode;
+ use inode::VirtioFsVolume;
+ pub use lxutil::LxVolumeOptions;
++
++/// Host identity used for guest requests on the microVM virtio-fs attachment.
++#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
++pub enum MicroVmCreateOwner {
++    /// Every request runs as the OpenVMM process identity (historical behavior).
++    #[default]
++    Process,
++    /// Every request runs as the guest caller's uid/gid, like virtiofsd, so
++    /// guest-created objects are owned by the guest user on the host. Guest
++    /// uid 0 and gid 0 are squashed to the export root's owner.
++    Caller,
++}
++
++impl MicroVmCreateOwner {
++    /// The HostFs `mount_options` value that selects [`Self::Caller`].
++    pub const CALLER_MOUNT_OPTION: &'static str = "owner=caller";
++
++    /// Parses the microVM HostFs mount options; only the owner option is accepted.
++    pub fn from_mount_options(options: &str) -> anyhow::Result<Self> {
++        match options {
++            "" => Ok(Self::Process),
++            Self::CALLER_MOUNT_OPTION if cfg!(unix) => Ok(Self::Caller),
++            _ => anyhow::bail!(
++                "microVM virtio-fs accepts only the '{}' HostFs mount option on Unix",
++                Self::CALLER_MOUNT_OPTION
++            ),
++        }
++    }
++}
++
++/// Host identity mapping for [`MicroVmCreateOwner::Caller`].
++#[derive(Clone, Copy, Debug, Eq, PartialEq)]
++pub struct CallerIdentity {
++    squash_uid: lx::uid_t,
++    squash_gid: lx::gid_t,
++}
++
++impl CallerIdentity {
++    /// Returns the host uid/gid for a guest request.
++    pub fn map(&self, uid: lx::uid_t, gid: lx::gid_t) -> (lx::uid_t, lx::gid_t) {
++        (
++            if uid == 0 { self.squash_uid } else { uid },
++            if gid == 0 { self.squash_gid } else { gid },
++        )
++    }
++}
+ use parking_lot::RwLock;
+ use profile::MICROVM_FUSE_MAJOR;
+ use profile::MICROVM_FUSE_MAX_WRITE;
+@@ -136,6 +182,7 @@ struct VirtioFsInner {
+     policy: CacheAndIoPolicy,
+     microvm_profile: Option<MicroVmVirtioFsProfile>,
+     negotiation: RwLock<FuseNegotiation>,
++    caller_identity: Option<CallerIdentity>,
+ }
+ 
+ /// Distinguishes a single-share device from a multi-share aggregate.
+@@ -717,6 +764,7 @@ pub fn new(
+                 policy: CacheAndIoPolicy::normal(),
+                 microvm_profile: None,
+                 negotiation: RwLock::new(FuseNegotiation::default()),
++                caller_identity: None,
+             }),
+         })
+     }
+@@ -728,6 +776,15 @@ pub fn new(
+     pub fn new_microvm(
+         root_path: impl AsRef<Path>,
+         profile: MicroVmVirtioFsProfile,
++    ) -> anyhow::Result<Self> {
++        Self::new_microvm_with_owner(root_path, profile, MicroVmCreateOwner::Process)
++    }
++
++    /// Like [`Self::new_microvm`], selecting the host identity for guest requests.
++    pub fn new_microvm_with_owner(
++        root_path: impl AsRef<Path>,
++        profile: MicroVmVirtioFsProfile,
++        owner: MicroVmCreateOwner,
+     ) -> anyhow::Result<Self> {
+         let root_path = root_path.as_ref();
+         profile.validate_root_path(root_path)?;
+@@ -765,6 +822,10 @@ pub fn new_microvm(
+                 policy: CacheAndIoPolicy::microvm(&profile),
+                 microvm_profile: Some(profile),
+                 negotiation: RwLock::new(FuseNegotiation::default()),
++                caller_identity: (owner == MicroVmCreateOwner::Caller).then_some(CallerIdentity {
++                    squash_uid: root_stat.uid,
++                    squash_gid: root_stat.gid,
++                }),
+             }),
+         })
+     }
+@@ -785,6 +846,7 @@ pub fn new_aggregate() -> Self {
+                 policy: CacheAndIoPolicy::normal(),
+                 microvm_profile: None,
+                 negotiation: RwLock::new(FuseNegotiation::default()),
++                caller_identity: None,
+             }),
+         }
+     }
+@@ -805,6 +867,10 @@ pub(crate) fn microvm_profile(&self) -> Option<&MicroVmVirtioFsProfile> {
+         self.inner.microvm_profile.as_ref()
+     }
+ 
++    pub(crate) fn caller_identity(&self) -> Option<CallerIdentity> {
++        self.inner.caller_identity
++    }
++
+     fn is_microvm(&self) -> bool {
+         self.inner.microvm_profile.is_some()
+     }
+@@ -2498,3 +2564,36 @@ fn relative_path_validation_rejects_platform_escapes() {
+         assert!(validate_relative_path(Path::new("alternate:name"), true).is_err());
+     }
+ }
++
++#[cfg(test)]
++mod owner_tests {
++    use super::CallerIdentity;
++    use super::MicroVmCreateOwner;
++
++    #[test]
++    fn parses_owner_mount_options() {
++        assert_eq!(
++            MicroVmCreateOwner::from_mount_options("").unwrap(),
++            MicroVmCreateOwner::Process
++        );
++        #[cfg(unix)]
++        assert_eq!(
++            MicroVmCreateOwner::from_mount_options("owner=caller").unwrap(),
++            MicroVmCreateOwner::Caller
++        );
++        assert!(MicroVmCreateOwner::from_mount_options("owner=root").is_err());
++        assert!(MicroVmCreateOwner::from_mount_options("ro").is_err());
++    }
++
++    #[test]
++    fn squashes_guest_root_to_export_owner() {
++        let identity = CallerIdentity {
++            squash_uid: 1001,
++            squash_gid: 1002,
++        };
++        assert_eq!(identity.map(0, 0), (1001, 1002));
++        assert_eq!(identity.map(1234, 0), (1234, 1002));
++        assert_eq!(identity.map(0, 5678), (1001, 5678));
++        assert_eq!(identity.map(1234, 5678), (1234, 5678));
++    }
++}
+diff --git a/vm/devices/virtio/virtiofs/src/resolver.rs b/vm/devices/virtio/virtiofs/src/resolver.rs
+index 7fe0afc6..e199d379 100644
+--- a/vm/devices/virtio/virtiofs/src/resolver.rs
++++ b/vm/devices/virtio/virtiofs/src/resolver.rs
+@@ -111,17 +111,15 @@ fn resolve(
+                 else {
+                     anyhow::bail!("microVM virtio-fs requires a HostFs backend");
+                 };
+-                anyhow::ensure!(
+-                    mount_options.is_empty(),
+-                    "microVM virtio-fs does not accept HostFs mount options"
+-                );
+-                VirtioFsDevice::new_microvm_hostfs(
++                let owner = crate::MicroVmCreateOwner::from_mount_options(&mount_options)?;
++                VirtioFsDevice::new_microvm_hostfs_with_owner(
+                     input.driver_source,
+                     stable_id,
+                     root_identity,
+                     read_only,
+                     denied_paths,
+                     root_path,
++                    owner,
+                     None,
+                 )?
+             }
+diff --git a/vm/devices/virtio/virtiofs/src/virtio.rs b/vm/devices/virtio/virtiofs/src/virtio.rs
+index c690563b..2eda1159 100644
+--- a/vm/devices/virtio/virtiofs/src/virtio.rs
++++ b/vm/devices/virtio/virtiofs/src/virtio.rs
+@@ -98,6 +98,8 @@ pub struct VirtioFsDevice {
+     #[inspect(skip)]
+     microvm_profile: Option<MicroVmVirtioFsProfile>,
+     #[inspect(skip)]
++    caller_identity: Option<crate::CallerIdentity>,
++    #[inspect(skip)]
+     stateful_fs: Option<VirtioFs>,
+     #[inspect(skip)]
+     admission: Arc<RequestAdmission>,
+@@ -288,6 +290,30 @@ pub fn new_microvm_hostfs(
+         denied_paths: Vec<String>,
+         root_path: impl AsRef<Path>,
+         notify_corruption: Option<Arc<dyn Fn() + Sync + Send>>,
++    ) -> anyhow::Result<Self> {
++        Self::new_microvm_hostfs_with_owner(
++            driver_source,
++            stable_id,
++            root_identity,
++            read_only,
++            denied_paths,
++            root_path,
++            crate::MicroVmCreateOwner::Process,
++            notify_corruption,
++        )
++    }
++
++    /// Like [`Self::new_microvm_hostfs`], selecting the host identity for guest requests.
++    #[expect(clippy::too_many_arguments)]
++    pub fn new_microvm_hostfs_with_owner(
++        driver_source: &VmTaskDriverSource,
++        stable_id: String,
++        root_identity: Vec<u8>,
++        read_only: bool,
++        denied_paths: Vec<String>,
++        root_path: impl AsRef<Path>,
++        owner: crate::MicroVmCreateOwner,
++        notify_corruption: Option<Arc<dyn Fn() + Sync + Send>>,
+     ) -> anyhow::Result<Self> {
+         let profile = MicroVmVirtioFsProfile::from_attachment(
+             stable_id,
+@@ -295,7 +321,7 @@ pub fn new_microvm_hostfs(
+             read_only,
+             denied_paths,
+         )?;
+-        let fs = VirtioFs::new_microvm(root_path, profile.clone())?;
++        let fs = VirtioFs::new_microvm_with_owner(root_path, profile.clone(), owner)?;
+         Self::new_microvm(driver_source, profile, fs, notify_corruption)
+     }
+ 
+@@ -338,6 +364,7 @@ fn from_parts<Fs>(
+             shared_memory_region: None,
+             notify_corruption,
+             num_request_queues,
++            caller_identity: stateful_fs.as_ref().and_then(VirtioFs::caller_identity),
+             microvm_attachment_id,
+             microvm_profile,
+             stateful_fs,
+@@ -414,6 +441,7 @@ async fn start_queue(
+             shared_memory_size: self.shmem_size,
+             notify_corruption: self.notify_corruption.clone(),
+             admission: Arc::clone(&self.admission),
++            caller_identity: self.caller_identity,
+         });
+ 
+         let queue_event = PolledWait::new(&self.driver, resources.event)
+@@ -447,6 +475,7 @@ async fn start_queue(
+                     shared_memory_size: 0,
+                     notify_corruption: self.notify_corruption.clone(),
+                     admission: Arc::clone(&self.admission),
++                    caller_identity: self.caller_identity,
+                 })
+             });
+         }
+@@ -608,6 +637,7 @@ struct VirtioFsWorker {
+     shared_memory_size: u64,
+     notify_corruption: Arc<dyn Fn() + Sync + Send>,
+     admission: Arc<RequestAdmission>,
++    caller_identity: Option<crate::CallerIdentity>,
+ }
+ 
+ struct VirtioFsQueue {
+@@ -692,6 +722,42 @@ fn process_virtiofs_request(
+         mem,
+         bytes_written: 0,
+     };
++    // Dispatch is synchronous on this thread, so a per-thread fsuid/fsgid
++    // switch covers exactly this request. Fail closed if it is not permitted.
++    #[cfg(unix)]
++    let _credentials = match worker.caller_identity {
++        // Inode bookkeeping and session teardown touch no host files.
++        Some(_)
++            if matches!(
++                request.opcode(),
++                fuse::protocol::FUSE_FORGET
++                    | fuse::protocol::FUSE_BATCH_FORGET
++                    | fuse::protocol::FUSE_DESTROY
++            ) =>
++        {
++            None
++        }
++        Some(identity) => {
++            let (uid, gid) = identity.map(request.uid(), request.gid());
++            match lxutil::FsCredentials::switch(uid, gid) {
++                Ok(guard) => Some(guard),
++                Err(error) => {
++                    tracelimit::error_ratelimited!(
++                        uid,
++                        gid,
++                        "[virtiofs] cannot run request as the guest caller"
++                    );
++                    let _ = fuse::ReplySender::send_error(
++                        &mut sender,
++                        request.unique(),
++                        error.value(),
++                    );
++                    return sender.bytes_written;
++                }
++            }
++        }
++        None => None,
++    };
+     let mapper = worker
+         .shared_memory_region
+         .as_ref()
