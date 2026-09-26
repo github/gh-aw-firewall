@@ -187,8 +187,6 @@ A22 / github/gh-aw#56127, github/gh-aw-firewall#7788, github/gh-aw-firewall#7795
 
 B8 / github/gh-aw-firewall#5983 — Pre-flight EACCES on persistent runners from stale root-owned `/tmp/gh-aw/` dirs is **fixed** in AWF version including github/gh-aw-firewall#5983 (`preflight-reclaim.ts`). Workaround: `sudo rm -rf /tmp/gh-aw/sandbox`.
 
-B35 / github/gh-aw#63472, github/gh-aw-firewall#9028, github/gh-aw-firewall#9029 — A host-side gh-aw `validateMemoryStep` (gh-aw ≥ v0.89.21) can fail with `EACCES` writing `/tmp/gh-aw/memory-validation/cache-default.ok` after an AWF run because the UID-remapped agent created shared `/tmp/gh-aw` paths the host runner cannot write. **Provisional, proposed fix not yet shipped (PR github/gh-aw-firewall#9029, open as of 2026-09-26):** the pending PR would set `umask 0002` for the user command and restore group write permission under `/tmp/gh-aw` after normal or signal-driven command exit. **TODO (github/gh-aw-firewall#9028):** revisit this entry when PR #9029 closes; re-validate or remove it if the PR closes without merging or the remediation changes. Check `ls -la /tmp/gh-aw/memory-validation` for ownership and group-write mode.
-
 B9 / github/gh-aw-firewall#5783 — RHEL/Amazon Linux CA bundle not accessible in chroot is **fixed** in AWF version including github/gh-aw-firewall#5783. Workaround: copy `/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem` to a chroot-visible path and set `SSL_CERT_FILE`/`NODE_EXTRA_CA_CERTS`/`REQUESTS_CA_BUNDLE`/`CURL_CA_BUNDLE`/`GIT_SSL_CAINFO`.
 
 B10 / github/gh-aw-firewall#6025 — `fixArtifactPermissionsForRootless()` compound `tag@digest` ref timeout is **fixed** in AWF version including github/gh-aw-firewall#6025. `resolvePermFixerImageRef()` now returns tag-only refs, eliminating registry I/O during `--pull never` repair. **Additional fix (github/gh-aw-firewall#6342 / github/gh-aw-firewall#6356, merged 2026-07-18):** Even with a tag-only ref, `docker run` was missing `--entrypoint sh`, causing AWF's `entrypoint.sh` to run in place of the repair command and wait ~30 s for an iptables-init container that never starts in this context. The fix adds `--entrypoint sh`, passes the command via `-c`, and captures stdout alongside stderr.
@@ -258,6 +256,10 @@ C10 / github/gh-aw-firewall#8035, github/gh-aw-firewall#8038 — Fine-grained Gi
 D7 / github/gh-aw-firewall#6260, github/gh-aw-firewall#6261, github/gh-aw-firewall#6276 — Claude Code (Bun/JSC) crashes with `SIGSEGV`/`SIGABRT` under `--container-runtime gvisor` because JSC JIT is incompatible with gVisor's W^X memory restrictions. **AWF (PR github/gh-aw-firewall#6276) automatically sets `BUN_JSC_useJIT=0`** at runtime via `buildToolEnvironment()` when Claude runs under gVisor — no workflow change required. For older AWF builds without github/gh-aw-firewall#6276, pass `--env BUN_JSC_useJIT=0` as a manual fallback.
 
 D11 / github/gh-aw-firewall#6558 — gVisor + Node.js v22 V8 ESM startup crash root cause remains unresolved (`SIGABRT` `StringBytes::Encode` assertion and occasional exit 139). **Mitigated in AWF (PR github/gh-aw-firewall#6514, merged 2026-07-23):** `runAgentCommand()` does a one-shot retry (`MAX_GVISOR_AGENT_RETRIES = 1`) when gVisor exits 134/139 within `GVISOR_STARTUP_CRASH_WINDOW_MS = 30_000`, but this does not prevent the underlying crash.
+
+### Pending remediation (not yet shipped)
+
+B35 / github/gh-aw#63472, github/gh-aw-firewall#9028, github/gh-aw-firewall#9029 — The 2026-09-26 scan recorded PR github/gh-aw-firewall#9029 as open. The proposed change would set `umask 0002` for the user command and restore group write permission under `/tmp/gh-aw` after normal or signal-driven command exit; it is not shipped yet. Verify the current PR status before treating it as available. **TODO (github/gh-aw-firewall#9028):** update this entry if PR #9029 merges; re-validate or remove it if the PR closes without merging or the remediation changes.
 
 ### 5. Avoid duplicate triage
 
