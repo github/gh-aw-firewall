@@ -25,11 +25,14 @@ export interface ModelRoutingBootstrapState {
 }
 
 export interface ApiProxyRoutingOptions {
+  /** Explicit experimental opt-in required for task-level model routing. */
+  experimentalModelRouting?: boolean;
+
   /**
    * Optional task-level model routing configuration.
    *
-   * The API proxy does not enable routing unless this value is present.
-   * Set via config file path `apiProxy.routing`.
+   * Routing requires both this value and `experimentalModelRouting: true`.
+   * Set via config file paths `apiProxy.routing` and `experimental.modelRouting`.
    */
   modelRouting?: ModelRoutingConfig;
 

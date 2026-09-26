@@ -10,6 +10,17 @@
       "type": "string",
       "description": "JSON Schema URL for IDE validation and autocomplete."
     },
+    "experimental": {
+      "type": "object",
+      "description": "Explicit opt-ins for experimental AWF features.",
+      "additionalProperties": false,
+      "properties": {
+        "modelRouting": {
+          "type": "boolean",
+          "description": "Experimental opt-in for task-level model routing. Must be true when apiProxy.routing is configured; without apiProxy.routing, routing remains inactive."
+        }
+      }
+    },
     "network": {
       "type": "object",
       "description": "Network egress configuration.",
@@ -365,7 +376,7 @@
         },
         "routing": {
           "type": "object",
-          "description": "Opt-in task-level model routing configuration prepared by a trusted workflow compiler.",
+          "description": "Task-level model routing request prepared by a trusted workflow compiler. Requires experimental.modelRouting: true.",
           "additionalProperties": false,
           "required": [
             "objective",
@@ -1907,6 +1918,39 @@
               "required": [
                 "stagingImage"
               ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "apiProxy"
+        ],
+        "properties": {
+          "apiProxy": {
+            "type": "object",
+            "required": [
+              "routing"
+            ]
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "experimental"
+        ],
+        "properties": {
+          "experimental": {
+            "type": "object",
+            "required": [
+              "modelRouting"
+            ],
+            "properties": {
+              "modelRouting": {
+                "const": true
+              }
             }
           }
         }

@@ -5,6 +5,7 @@ const {
   createOidcRuntimeAdapterMethods,
   resolveOidcAuthHeaders,
   resolveAuthHeadersWithFallback,
+  buildOidcUnavailableScaffold,
 } = require('./oidc-adapter-utils');
 
 describe('isValidHeaderName', () => {
@@ -150,5 +151,70 @@ describe('resolveAuthHeadersWithFallback', () => {
     });
 
     expect(headers).toEqual({ 'x-api-key': 'static-token' });
+  });
+});
+
+describe('buildOidcUnavailableScaffold', () => {
+  it('returns null from both callbacks when OIDC was not requested', () => {
+    const scaffold = buildOidcUnavailableScaffold({
+      requested: false,
+      configured: false,
+      unavailableMessage: 'unavailable; retry shortly',
+    });
+
+    expect(scaffold.unconfiguredResponseWhen()).toBeNull();
+    expect(scaffold.unavailableWhen()).toBeNull();
+  });
+
+  it('reports a retryable provider_not_configured response and unavailable health state when configured but no token yet', () => {
+    const scaffold = buildOidcUnavailableScaffold({
+      requested: true,
+      configured: true,
+      unavailableMessage: 'OIDC token unavailable; retry shortly',
+      unconfiguredMessage: 'OIDC requires ACTIONS_ID_TOKEN_REQUEST_URL and ACTIONS_ID_TOKEN_REQUEST_TOKEN.',
+    });
+
+    expect(scaffold.unconfiguredResponseWhen()).toEqual({
+      kind: 'provider_not_configured',
+      message: 'OIDC token unavailable; retry shortly',
+      retryable: true,
+    });
+    expect(scaffold.unavailableWhen()).toEqual({
+      message: 'OIDC token unavailable; retry shortly',
+      status: 'unavailable',
+    });
+  });
+
+  it('reports a non-retryable response and the unconfigured message when OIDC was requested but never initialised', () => {
+    const scaffold = buildOidcUnavailableScaffold({
+      requested: true,
+      configured: false,
+      unavailableMessage: 'OIDC token unavailable; retry shortly',
+      unconfiguredMessage: 'OIDC requires ACTIONS_ID_TOKEN_REQUEST_URL and ACTIONS_ID_TOKEN_REQUEST_TOKEN.',
+    });
+
+    expect(scaffold.unconfiguredResponseWhen()).toEqual({
+      kind: 'provider_not_configured',
+      message: 'OIDC requires ACTIONS_ID_TOKEN_REQUEST_URL and ACTIONS_ID_TOKEN_REQUEST_TOKEN.',
+      retryable: false,
+    });
+    expect(scaffold.unavailableWhen()).toEqual({
+      message: 'OIDC requires ACTIONS_ID_TOKEN_REQUEST_URL and ACTIONS_ID_TOKEN_REQUEST_TOKEN.',
+      status: 'unavailable',
+    });
+  });
+
+  it('falls back to unavailableMessage when unconfiguredMessage is omitted', () => {
+    const scaffold = buildOidcUnavailableScaffold({
+      requested: true,
+      configured: false,
+      unavailableMessage: 'OIDC token unavailable; retry shortly',
+    });
+
+    expect(scaffold.unconfiguredResponseWhen()).toEqual({
+      kind: 'provider_not_configured',
+      message: 'OIDC token unavailable; retry shortly',
+      retryable: false,
+    });
   });
 });

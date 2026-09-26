@@ -18,6 +18,7 @@ const {
 } = require('../proxy-utils');
 const {
   validateAuthHeaderEnv,
+  buildOidcUnavailableScaffold,
 } = require('../oidc-adapter-utils');
 const { createProviderAuthScaffold, createOidcAwareProviderAdapter } = require('../adapter-factory');
 const { AnthropicOidcTokenProvider } = require('../anthropic-oidc-token-provider');
@@ -178,9 +179,12 @@ function createAnthropicAdapter(env, deps = {}) {
       }),
     }),
     buildAdapterOptions: ({ oidcConfigured }) => {
-      const oidcUnavailableError = oidcConfigured
-        ? 'Anthropic OIDC token unavailable; retry shortly'
-        : 'Anthropic OIDC requires ACTIONS_ID_TOKEN_REQUEST_URL and ACTIONS_ID_TOKEN_REQUEST_TOKEN (permissions: id-token: write).';
+      const oidcScaffold = buildOidcUnavailableScaffold({
+        requested: oidcRequested,
+        configured: oidcConfigured,
+        unavailableMessage: 'Anthropic OIDC token unavailable; retry shortly',
+        unconfiguredMessage: 'Anthropic OIDC requires ACTIONS_ID_TOKEN_REQUEST_URL and ACTIONS_ID_TOKEN_REQUEST_TOKEN (permissions: id-token: write).',
+      });
       return {
         name: 'anthropic',
         port: 10001,
@@ -190,16 +194,10 @@ function createAnthropicAdapter(env, deps = {}) {
           kind: 'provider_not_configured',
           message: 'Credentials for Anthropic (port 10001) are not configured. Set ANTHROPIC_API_KEY to enable this provider.',
         },
-        unconfiguredResponseWhen: () => (oidcRequested
-          ? {
-              kind: 'provider_not_configured',
-              message: oidcUnavailableError,
-              retryable: oidcConfigured,
-            }
-          : null),
+        unconfiguredResponseWhen: oidcScaffold.unconfiguredResponseWhen,
         healthServiceName: 'awf-api-proxy-anthropic',
         missingCredentialMessage: 'ANTHROPIC_API_KEY not configured in api-proxy sidecar',
-        unavailableWhen: () => oidcRequested ? { message: oidcUnavailableError, status: 'unavailable' } : null,
+        unavailableWhen: oidcScaffold.unavailableWhen,
         extra: {
           // Exposed for introspection (logging, tests)
           _autoCache: autoCache,

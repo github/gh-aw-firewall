@@ -239,7 +239,8 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 - `apiProxy.maxPermissionDenied` → `--max-permission-denied <number>`
 - `apiProxy.requestedModel` → *(config-only; maps to `AWF_REQUESTED_MODEL` for pre-startup validation)*
 - `apiProxy.modelFallback` → *(config-only; model fallback strategy)*
-- `apiProxy.routing` → *(config-only; maps to `AWF_ROUTING_CONFIG` — trusted task-level routing objective and conversation input)*
+- `experimental.modelRouting` → *(config-only; experimental opt-in required for `apiProxy.routing`; defaults to off)*
+- `apiProxy.routing` → *(config-only; requires `experimental.modelRouting: true`; trusted task-level routing objective and conversation input)*
 - `apiProxy.modelRouter.providerType` → *(config-only; maps to `COPILOT_PROVIDER_TYPE`)*
 - `apiProxy.modelRouter.baseUrl` → *(config-only; maps to `COPILOT_PROVIDER_BASE_URL`)*
 - `apiProxy.allowedModels` → *(config-only; maps to `AWF_ALLOWED_MODELS` — JSON array of glob patterns; only matching models are permitted)*
@@ -1916,8 +1917,14 @@ yet, use HTTP `503` and `"retryable": true`.
 
 ## 13a. Task-Level Model Routing
 
-`apiProxy.routing` is an opt-in, compiler-authored request for AWF to select one
-model and reasoning effort for the entire run.
+Task-level model routing is **experimental and opt-in**. To enable it, set
+root-level `experimental.modelRouting: true` alongside the compiler-authored
+`apiProxy.routing` request. An existing config containing `apiProxy.routing`
+without this gate must add the `experimental` block shown below; otherwise
+validation fails rather than silently ignoring the request. The gate alone,
+without `apiProxy.routing`, is valid but does not activate routing. Omitting
+the gate (or setting it to `false`) without a routing request preserves normal
+operation without routing infrastructure or environment.
 
 As of this release, both the proxy-side and host-side halves of task-level
 routing are wired and shipped on `main`. The API proxy's routing controller
@@ -1939,6 +1946,8 @@ recorded by either side surfaces as host exit code `78` instead of the run
 silently continuing unrouted.
 
 ```yaml
+experimental:
+  modelRouting: true
 apiProxy:
   routing:
     objective:

@@ -15,6 +15,9 @@ import type { CodexHostedWebConfig } from './codex-hosted-web-policy';
 // ts-prune-ignore-next
 export interface AwfFileConfig {
   $schema?: string;
+  experimental?: {
+    modelRouting?: boolean;
+  };
   network?: {
     allowDomains?: string[];
     blockDomains?: string[];

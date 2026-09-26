@@ -51,6 +51,7 @@ export function mapAwfFileConfigToCliOptions(config: AwfFileConfig): Record<stri
     maxCacheMisses: config.apiProxy?.maxCacheMisses,
     requestedModel: config.apiProxy?.requestedModel,
     modelFallback: config.apiProxy?.modelFallback,
+    experimentalModelRouting: config.experimental?.modelRouting,
     modelRouting: config.apiProxy?.routing,
     copilotProviderType: config.apiProxy?.modelRouter?.providerType,
     copilotProviderBaseUrl: config.apiProxy?.modelRouter?.baseUrl,

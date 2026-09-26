@@ -30,6 +30,8 @@ sandbox:
 network:
   allowed:
     - node
+    # The repo's .npmrc and package-lock.json pin the Azure Artifacts npm mirror
+    - ms-feed-25.pkgs.visualstudio.com
 
 safe-outputs:
   threat-detection:
@@ -69,14 +71,16 @@ Proactively monitor dependencies for security vulnerabilities, create actionable
 
 ### 1.1 Check for Known Vulnerabilities
 
-Run `npm audit` to identify known security vulnerabilities in dependencies:
+Run `npm audit` to identify known security vulnerabilities in dependencies. Always query the
+canonical npm advisory database with `--registry=https://registry.npmjs.org/` — the repository's
+`.npmrc` points at an Azure Artifacts mirror, which is only used for package installs:
 
 ```bash
 # Run npm audit and capture JSON output for analysis
-npm audit --json 2>/dev/null || true
+npm audit --registry=https://registry.npmjs.org/ --json 2>/dev/null || true
 
 # Get human-readable summary
-npm audit 2>/dev/null || true
+npm audit --registry=https://registry.npmjs.org/ 2>/dev/null || true
 ```
 
 Parse the audit results and categorize vulnerabilities by severity:
@@ -95,6 +99,11 @@ Use the GitHub API to check for Dependabot security alerts:
 1. Use `list_dependabot_alerts` to get all open alerts
 2. Use `get_dependabot_alert` for detailed information on each alert
 3. Correlate with npm audit findings to avoid duplicates
+
+Dependabot and code-scanning alerts are private-scoped data. Because this workflow publishes to a
+public repository, the MCP Gateway secrecy policy may filter these responses (e.g. "removed by secrecy
+policy"). This is expected isolation, not a missing tool: do **not** call `missing_tool` for it. Rely on
+the `npm audit` results instead and note in the summary that Dependabot data was unavailable.
 
 ### 1.3 Check for Existing Security Issues
 
@@ -169,10 +178,10 @@ Run the following to identify available updates:
 
 ```bash
 # Check for outdated packages
-npm outdated --json 2>/dev/null || true
+npm outdated --registry=https://registry.npmjs.org/ --json 2>/dev/null || true
 
 # List direct dependencies only
-npm outdated --depth=0 2>/dev/null || true
+npm outdated --registry=https://registry.npmjs.org/ --depth=0 2>/dev/null || true
 ```
 
 ### 3.2 Apply Safe Updates
@@ -180,7 +189,7 @@ npm outdated --depth=0 2>/dev/null || true
 For each identified safe update:
 
 1. Update the package version in `package.json`
-2. Run `npm install` to update `package-lock.json`
+2. Run `npm install` (using the repository's configured registry, so `package-lock.json` keeps its existing `resolved` URLs) to update `package-lock.json`
 3. Run the test suite to verify no regressions:
    ```bash
    npm test

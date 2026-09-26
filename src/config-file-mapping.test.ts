@@ -183,10 +183,14 @@ describe('mapAwfFileConfigToCliOptions', () => {
     };
 
     const result = mapAwfFileConfigToCliOptions({
+      experimental: { modelRouting: true },
       apiProxy: { routing },
     });
 
     expect(result.modelRouting).toEqual(routing);
+    expect(result.experimentalModelRouting).toBe(true);
+    expect(mapAwfFileConfigToCliOptions({ experimental: { modelRouting: false } }).experimentalModelRouting).toBe(false);
+    expect(mapAwfFileConfigToCliOptions({}).experimentalModelRouting).toBeUndefined();
   });
 
   it('maps effective-token guard fields', () => {

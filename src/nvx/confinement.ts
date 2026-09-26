@@ -1,5 +1,6 @@
 import { promises as fs } from 'fs';
 import * as path from 'path';
+import { isMissingProcEntryError } from '../proc-fs-errors';
 import {
   NVX_RUN_DIRECTORY_ROOT,
   NVX_TRUSTED_ARTIFACT_ROOT,
@@ -262,33 +263,32 @@ Promise<NvxConfinementEvidence> {
   }
 
   const taskDirectory = path.join(procDirectory, 'task');
-  const verifyTask = async (taskId: number): Promise<string | undefined> => {
-    const taskPath = path.join(taskDirectory, String(taskId));
-    try {
-      const startTime = parseProcessStartTime(
-        await dependencies.readFile(path.join(taskPath, 'stat'), 'utf8'),
-      );
-      verifyStatus(
-        parseStatus(await dependencies.readFile(path.join(taskPath, 'status'), 'utf8')),
-        taskId,
-        options,
-      );
-      return startTime;
-    } catch (error) {
-      // A worker thread may exit between readdir and the read; the main thread may not.
-      if (taskId !== options.openvmmPid && isVanishedTaskError(error)) return undefined;
-      throw error;
-    }
-  };
   const readTaskStartTime = async (taskId: number): Promise<string | undefined> => {
     try {
       return parseProcessStartTime(
         await dependencies.readFile(path.join(taskDirectory, String(taskId), 'stat'), 'utf8'),
       );
     } catch (error) {
-      if (taskId !== options.openvmmPid && isVanishedTaskError(error)) return undefined;
+      if (taskId !== options.openvmmPid && isMissingProcEntryError(error)) return undefined;
       throw error;
     }
+  };
+  const verifyTask = async (taskId: number): Promise<string | undefined> => {
+    const startTime = await readTaskStartTime(taskId);
+    if (startTime === undefined) return undefined;
+    try {
+      verifyStatus(
+        parseStatus(
+          await dependencies.readFile(path.join(taskDirectory, String(taskId), 'status'), 'utf8'),
+        ),
+        taskId,
+        options,
+      );
+    } catch (error) {
+      if (taskId !== options.openvmmPid && isMissingProcEntryError(error)) return undefined;
+      throw error;
+    }
+    return startTime;
   };
   const taskIds = readTaskIds(await dependencies.readdir(taskDirectory));
   const taskStartTimes = new Map<number, string>();
@@ -436,11 +436,6 @@ function readTaskIds(entries: readonly string[]): number[] {
     );
   }
   return taskIds;
-}
-
-function isVanishedTaskError(error: unknown): boolean {
-  const code = (error as NodeJS.ErrnoException | undefined)?.code;
-  return code === 'ENOENT' || code === 'ESRCH';
 }
 
 function verifyStatus(

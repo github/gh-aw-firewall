@@ -125,7 +125,7 @@ export async function runMainWorkflow(
     await dependencies.prepareEnclaves(config);
   }
   let routingState: ModelRoutingBootstrapState | undefined;
-  if (config.modelRouting) {
+  if (config.experimentalModelRouting === true && config.modelRouting) {
     if (!dependencies.prepareRouting) {
       throw new Error('Model routing is enabled but no staging implementation was provided to runMainWorkflow');
     }
@@ -269,7 +269,7 @@ export async function runMainWorkflow(
         }
       }
     : undefined;
-  const routingInfrastructureReady = config.modelRouting
+  const routingInfrastructureReady = config.experimentalModelRouting === true && config.modelRouting
     ? async () => {
         if (!dependencies.waitForRoutingSelection) {
           throw new Error('Model routing is enabled but no selection wait implementation was provided');
@@ -328,7 +328,7 @@ export async function runMainWorkflow(
 
   // Step 4: Cleanup (logs will be preserved automatically if they exist)
   await performCleanup();
-  if (config.modelRouting) {
+  if (config.experimentalModelRouting === true && config.modelRouting) {
     if (!dependencies.verifyRoutingCompletion) {
       throw new Error('Model routing is enabled but no completion verification implementation was provided');
     }

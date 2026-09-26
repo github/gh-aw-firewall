@@ -223,6 +223,7 @@ describe('runMainWorkflow', () => {
     const config: WrapperConfig = {
       ...baseConfig,
       enableApiProxy: true,
+      experimentalModelRouting: true,
       modelRouting: {
         objective: { goal: 'cost', mode: 'balanced' },
         task: { conversationFile: '/host/conversation.json' },
@@ -273,6 +274,31 @@ describe('runMainWorkflow', () => {
     ]);
     expect(dependencies.waitForRoutingSelection).toHaveBeenCalledWith(routingState);
     expect(dependencies.verifyRoutingCompletion).toHaveBeenCalledWith(routingState);
+  });
+
+  it('does not run routing hooks without both the gate and a routing request', async () => {
+    const config: WrapperConfig = {
+      ...baseConfig,
+      modelRouting: {
+        objective: { goal: 'cost', mode: 'balanced' },
+        task: { conversationFile: '/host/conversation.json' },
+      },
+    };
+    const dependencies = createWorkflowDependencies({
+      prepareRouting: jest.fn(),
+      waitForRoutingSelection: jest.fn(),
+      verifyRoutingCompletion: jest.fn(),
+      cleanupRouting: jest.fn(),
+    });
+    for (const optIn of [undefined, false, true]) {
+      config.experimentalModelRouting = optIn;
+      if (optIn === true) delete config.modelRouting;
+      expect(await runMainWorkflow(config, dependencies, createWorkflowOptions())).toBe(0);
+    }
+    expect(dependencies.prepareRouting).not.toHaveBeenCalled();
+    expect(dependencies.waitForRoutingSelection).not.toHaveBeenCalled();
+    expect(dependencies.verifyRoutingCompletion).not.toHaveBeenCalled();
+    expect(dependencies.cleanupRouting).not.toHaveBeenCalled();
   });
 
   it('skips host network setup and iptables in network-isolation mode', async () => {

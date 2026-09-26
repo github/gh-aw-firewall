@@ -318,7 +318,7 @@ function assembleApiProxyService(params: AssembleOptionalServicesParams): void {
 
 function assembleRouterService(params: AssembleOptionalServicesParams): void {
   const { services, config, imageConfig } = params;
-  if (!config.modelRoutingBootstrap) return;
+  if (config.experimentalModelRouting !== true || !config.modelRouting || !config.modelRoutingBootstrap) return;
   services[ROUTER_SERVICE_NAME] = buildRouterService({ imageConfig });
 }
 

@@ -14,7 +14,7 @@ sandbox:
   agent:
     id: awf
     runtime: cloud-hypervisor
-max-turns: 50
+max-turns: 80
 engine:
   id: copilot
 network:
@@ -73,6 +73,15 @@ You keep three runtime integration docs accurate and current:
 
 Each week you reconcile these docs against (a) the **latest upstream documentation** for sbx, gVisor, and Cloud Hypervisor and (b) the **current repository implementation**, then open a single pull request with any corrections. If all three docs are already accurate, you call `noop` — do not open an empty or cosmetic PR.
 
+## Budget and tool rules
+
+This run has a hard cap on model invocations; exceeding it fails the run. To stay within budget:
+
+- Fetch upstream pages **only** with the `web-fetch` tool. `curl`, `wget`, `gh`, `sudo`, and `awf` are not available in the shell — do not try them.
+- Do **not** spawn sub-agents (research/explore/task agents); they draw from the same invocation budget. Do all work yourself.
+- If a shell command is denied, do not retry it or probe the shell; switch to an allowed command (`git log`, `git show`, `git diff`, `cat`, `ls`, `grep`, `rg`, `sed`, `head`, `tail`, `find`) or a built-in tool.
+- Batch reads: read whole files and combine related `grep`/`sed` lookups instead of issuing many small calls.
+
 ## Step 1 — Read the current docs
 
 Read all three files in full before doing anything else:
@@ -127,10 +136,10 @@ The docs cite specific source files. Verify the doc claims still match the code 
 - `guest/microvm-supervisor/` — shared guest supervisor
 - `guest/cloud-hypervisor/` — Cloud Hypervisor artifact build and verification tooling
 
-Also review changes merged in the **last 7 days** that touch these areas, so the docs reflect recent work:
+Also review changes merged in the **last 7 days** that touch these areas, so the docs reflect recent work. Use the unquoted `--since=7.days` form exactly as shown — quoted date strings with spaces are rejected by the shell guard:
 
 ```bash
-git log --since="7 days ago" --oneline -- src/container-runtime.ts src/sbx-manager.ts src/commands/main-action.ts src/services/agent-service.ts src/topology.ts src/services/agent-environment/tool-specific-environment.ts src/commands/validators/security-mode.ts src/cloud-hypervisor-runtime-backend.ts src/cloud-hypervisor src/microvm guest/microvm-supervisor guest/cloud-hypervisor
+git log --since=7.days --oneline -- src/container-runtime.ts src/sbx-manager.ts src/commands/main-action.ts src/services/agent-service.ts src/topology.ts src/services/agent-environment/tool-specific-environment.ts src/commands/validators/security-mode.ts src/cloud-hypervisor-runtime-backend.ts src/cloud-hypervisor src/microvm guest/microvm-supervisor guest/cloud-hypervisor
 ```
 
 For any recently changed file a doc references, read the relevant section and confirm the doc still matches (flag names, IPs, function names, env var names, behavior).

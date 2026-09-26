@@ -1,5 +1,6 @@
 import { promises as fs } from 'fs';
 import * as path from 'path';
+import { isMissingProcEntryError } from '../proc-fs-errors';
 import type {
   CloudHypervisorCgroupLimits,
   CloudHypervisorLaunchConfinementPolicy,
@@ -100,7 +101,7 @@ export async function verifyCloudHypervisorConfinement(
       );
     } catch (error) {
       // A worker thread may exit between readdir and the read; the main thread may not.
-      if (taskId !== options.pid && isVanishedTaskError(error)) return undefined;
+      if (taskId !== options.pid && isMissingProcEntryError(error)) return undefined;
       throw error;
     }
   };
@@ -113,7 +114,7 @@ export async function verifyCloudHypervisorConfinement(
         await dependencies.readFile(path.join(taskDirectory, String(taskId), 'status'), 'utf8'),
       );
     } catch (error) {
-      if (taskId !== options.pid && isVanishedTaskError(error)) return undefined;
+      if (taskId !== options.pid && isMissingProcEntryError(error)) return undefined;
       throw error;
     }
     const name = verifyThreadStatus(status, taskId, options);
@@ -378,11 +379,6 @@ function parseNumericFields(value: string, label: string): number[] {
 
 function parseNumericLines(value: string, label: string): number[] {
   return parseNumericFields(value.replace(/\n/g, ' '), label);
-}
-
-function isVanishedTaskError(error: unknown): boolean {
-  const code = (error as NodeJS.ErrnoException | undefined)?.code;
-  return code === 'ENOENT' || code === 'ESRCH';
 }
 
 function parseTaskIds(entries: readonly string[]): number[] {
