@@ -49,8 +49,6 @@ safe-outputs:
       - docs/api-proxy-sidecar.md
       - docs/diagnostics/README.md
       - docs/diagnostics/findings/auth/*.json
-      - .github/workflows/shared/diagnosis-findings.md
-      - .github/agents/diagnose-awf.md
       - docs/auth-matrix.md
       - docs/authentication-architecture.md
       - docs/awf-config-spec.md
