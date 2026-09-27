@@ -142,13 +142,14 @@ export function buildScanInjectionStep(indent: string): string {
     `${ri}CACHE_DIR="\${GH_AW_CACHE_DIR:-/tmp/gh-aw/cache-memory}"\n` +
     `${ri}# Quarantine files containing instruction-shaped content to prevent\n` +
     `${ri}# cross-run agent-context instruction injection via cache-memory.\n` +
-    `${ri}# Require a colon after the keyword to reduce false positives on\n` +
-    `${ri}# legitimate files (e.g. '## System Requirements', 'Override: false').\n` +
+    `${ri}# Require a colon after textual keywords to reduce false positives on\n` +
+    `${ri}# legitimate files (e.g. '## System Requirements', 'Override: false');\n` +
+    `${ri}# also match the explicit '<system>' instruction tag.\n` +
     `${ri}INJECTION_PATTERN='^(New instruction:|SYSTEM:|Ignore (all |previous |prior )instructions?:|<system>)'\n` +
     `${ri}QUARANTINE_DIR="\${GH_AW_CACHE_DIR:-/tmp/gh-aw/cache-memory}/.quarantine"\n` +
     `${ri}mapfile -t SUSPICIOUS_FILES < <(\n` +
     `${ri}  find "$CACHE_DIR" -not -path '*/.git/*' -not -path '*/.quarantine/*' -type f \\\n` +
-    `${ri}    -exec grep -lEi "$INJECTION_PATTERN" {} \\; 2>/dev/null || true\n` +
+    `${ri}    -exec grep -lE "$INJECTION_PATTERN" {} + 2>/dev/null || true\n` +
     `${ri})\n` +
     `${ri}if [ \${#SUSPICIOUS_FILES[@]} -gt 0 ]; then\n` +
     `${ri}  mkdir -p "$QUARANTINE_DIR"\n` +

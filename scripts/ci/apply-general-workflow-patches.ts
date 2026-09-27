@@ -625,8 +625,8 @@ export function applyGeneralWorkflowPatches(
   // The scan step content has been updated to use quarantine-based handling
   // (moving files to .quarantine/ instead of deleting them) and a tighter
   // injection pattern (requires colons, e.g. 'SYSTEM:' not just 'SYSTEM').
-  // The 'QUARANTINE_DIR' string acts as a sentinel for the new version.
-  const scanStepNewVersion = 'QUARANTINE_DIR';
+  // The explicit instruction-tag comment acts as a sentinel for the latest version.
+  const scanStepNewVersion = "also match the explicit '<system>' instruction tag";
   if (!content.includes(scanInjectionStepSentinel)) {
     const commitMatch = content.match(cacheMemoryCommitStepRegex);
     if (commitMatch) {
