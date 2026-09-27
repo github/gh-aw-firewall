@@ -26,4 +26,20 @@ describe('smoke copilot workflow output requirements', () => {
       );
     });
   }
+
+  it('smoke-copilot-network-isolation: grants granular curl shell permission', () => {
+    const source = fs.readFileSync(
+      path.join(workflowsDir, 'smoke-copilot-network-isolation.md'),
+      'utf-8'
+    );
+    const lock = fs.readFileSync(
+      path.join(workflowsDir, 'smoke-copilot-network-isolation.lock.yml'),
+      'utf-8'
+    );
+
+    expect(source).toContain('    - curl');
+    expect(source).toContain('    - echo');
+    expect(lock).toContain("--allow-tool '\\''shell(curl:*)'\\''");
+    expect(lock).toContain("--allow-tool '\\''shell(echo)'\\''");
+  });
 });

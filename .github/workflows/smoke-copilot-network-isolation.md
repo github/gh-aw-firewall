@@ -28,7 +28,8 @@ network:
     - github
 tools:
   bash:
-    - "*"
+    - curl
+    - echo
   github:
     toolsets: [pull_requests]
 safe-outputs:
