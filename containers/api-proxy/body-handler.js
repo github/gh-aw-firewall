@@ -45,7 +45,7 @@ const isSteeringEnabled = () => process.env.AWF_ENABLE_TOKEN_STEERING === 'true'
 function isChatCompletionsRequest(url) {
   if (typeof url !== 'string') return false;
   const path = url.split('?')[0].split('#')[0].replace(/\/+$/, '');
-  return path === '/chat/completions' || path.endsWith('/chat/completions');
+  return path.endsWith('/chat/completions');
 }
 
 // ── Sleep abstraction (overridable in tests to avoid real setTimeout delays) ──
