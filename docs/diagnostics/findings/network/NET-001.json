@@ -25,8 +25,8 @@
   "status": "workaround",
   "rootCause": "Egress filtering is working as designed: the requested domain is not covered by the generated Squid domain ACL.",
   "probe": {
-    "command": "docker exec awf-squid grep TCP_DENIED /var/log/squid/access.log | tail -20",
-    "expect": "Shows the denied domain and the requesting client IP; the domain is absent from the allowlist.",
+    "command": "docker exec awf-squid awk '/TCP_DENIED/ { print $1, $2, $3, $7, $8 }' /var/log/squid/access.log | tail -20",
+    "expect": "Shows timestamp, client, host, status, and decision for denied traffic; the host is absent from the allowlist.",
     "readOnly": true,
     "secretSafe": true
   },

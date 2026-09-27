@@ -98,6 +98,10 @@ const UNSAFE_PATTERNS: { pattern: RegExp; reason: string }[] = [
 /** Probe commands must not dump environments, exchange tokens or bypass isolation. */
 const UNSAFE_PROBE_PATTERNS: { pattern: RegExp; reason: string }[] = [
   { pattern: /(^|[^-\w])(env|printenv)(\s|$)/, reason: 'dumps the environment' },
+  {
+    pattern: /\/proc\/(?:self|[0-9]+|\*|\$\$|\$\{?[A-Za-z_][A-Za-z0-9_]*\}?)\/environ\b/,
+    reason: 'reads process environment',
+  },
   { pattern: /--env-all/, reason: 'requests an isolation bypass' },
   { pattern: /authorization:/i, reason: 'prints an Authorization header' },
   { pattern: /\bcurl\b[^\n]*\b(token|oauth|oidc)\b/i, reason: 'performs a token exchange' },
@@ -115,6 +119,19 @@ const UNSAFE_ACTION_PATTERNS: { pattern: RegExp; reason: string }[] = [
 function boundaryRank(boundary: string): number {
   const index = (BOUNDARIES as readonly string[]).indexOf(boundary);
   return index === -1 ? BOUNDARIES.length : index;
+}
+
+function resolveRepositoryReference(repoRoot: string, reference: string): string | null {
+  const target = reference.split('#')[0];
+  if (!target || path.isAbsolute(target)) return null;
+
+  const resolved = path.resolve(repoRoot, target);
+  const relative = path.relative(repoRoot, resolved);
+  if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+    return null;
+  }
+
+  return resolved;
 }
 
 /** Deterministic ordering: boundary order, then ID. */
@@ -189,15 +206,15 @@ export function validateFindings(
       );
     }
 
-    if (finding.status === 'fixed' && finding.versions.fixed === 'unknown') {
-      // A 'fixed' status without a verified version scope must still cite the
-      // merged implementation; an open PR or provider doc is not enough.
+    if (finding.status === 'fixed') {
+      // A fixed version string alone does not prove current-main behaviour; a
+      // merged implementation or test citation is required.
       const hasShippedProvenance = finding.references.some(
         (reference) => reference.kind === 'code' || reference.kind === 'test'
       );
       if (!hasShippedProvenance) {
         errors.push(
-          `${prefix}: status 'fixed' requires versions.fixed or an implementation/test citation`
+          `${prefix}: status 'fixed' requires an implementation/test citation`
         );
       }
     }
@@ -229,9 +246,12 @@ export function validateFindings(
         continue;
       }
       if (reference.ref.startsWith('https://')) continue;
-      const target = reference.ref.split('#')[0];
-      if (!fs.existsSync(path.join(repoRoot, target))) {
-        errors.push(`${prefix}: reference path ${target} does not exist`);
+      const target = resolveRepositoryReference(repoRoot, reference.ref);
+      if (!target) {
+        errors.push(`${prefix}: reference path ${reference.ref} must stay within the repository`);
+      } else if (!fs.existsSync(target)) {
+        const display = reference.ref.split('#')[0];
+        errors.push(`${prefix}: reference path ${display} does not exist`);
       }
     }
 
@@ -287,13 +307,13 @@ function tokenize(value: string, minLength: number): string[] {
     .filter((word) => word.length > minLength);
 }
 
-function dimensionScore(findingValue: string, queryValue?: string): number {
+function dimensionScore(findingValue: string, queryValue?: string): number | null {
   if (!queryValue) return 0;
   const target = normalize(findingValue);
   if (target === 'any') return 0;
   const query = normalize(queryValue);
   if (target === 'unknown') return 0;
-  return target.split('|').some((option) => option === query || query.includes(option)) ? 2 : -3;
+  return target.split('|').some((option) => option === query || query.includes(option)) ? 2 : null;
 }
 
 /**
@@ -328,10 +348,14 @@ export function searchFindings(loaded: LoadedFinding[], query: SearchQuery): Sea
       }
     }
 
-    score += dimensionScore(finding.affects.runner, query.runner);
-    score += dimensionScore(finding.affects.runtime, query.runtime);
-    score += dimensionScore(finding.affects.provider, query.provider);
-    score += dimensionScore(finding.affects.authMode, query.authMode);
+    const dimensionScores = [
+      dimensionScore(finding.affects.runner, query.runner),
+      dimensionScore(finding.affects.runtime, query.runtime),
+      dimensionScore(finding.affects.provider, query.provider),
+      dimensionScore(finding.affects.authMode, query.authMode),
+    ];
+    if (dimensionScores.some((dimension) => dimension === null)) continue;
+    score += dimensionScores.reduce<number>((total, dimension) => total + (dimension ?? 0), 0);
 
     if (score > 0) {
       matches.push({ id: finding.id, boundary: finding.boundary, title: finding.title, score, source });

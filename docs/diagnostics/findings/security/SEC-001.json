@@ -25,8 +25,8 @@
   "status": "needs-evidence",
   "rootCause": "unknown - a suspected regression in the egress or credential-isolation boundary requires verification against current main before any cause is asserted.",
   "probe": {
-    "command": "docker exec awf-squid tail -50 /var/log/squid/access.log",
-    "expect": "Shows whether the traffic was proxied at all; absence of a log entry for successful egress indicates a bypass worth escalating.",
+    "command": "docker exec awf-squid awk '{ print $1, $2, $3, $7, $8 }' /var/log/squid/access.log | tail -50",
+    "expect": "Shows timestamp, client, host, status, and decision only; absence of a matching entry for successful egress indicates a bypass worth escalating.",
     "readOnly": true,
     "secretSafe": true
   },

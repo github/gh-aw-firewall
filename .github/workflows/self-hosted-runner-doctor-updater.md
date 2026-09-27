@@ -36,6 +36,8 @@ safe-outputs:
     expires: 30d
 timeout-minutes: 20
 steps:
+  - name: Install root dependencies for diagnostics tooling
+    run: npm ci
   - name: Compute scan window
     run: |
       # Look back two days so a missed daily run does not create a coverage gap.

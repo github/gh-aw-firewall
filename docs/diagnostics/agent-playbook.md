@@ -1,3 +1,8 @@
+---
+name: diagnose-awf
+description: Diagnose AWF failures from symptoms, workflow runs, or errors using the canonical diagnostics registry.
+---
+
 # AWF Diagnosis Agent Playbook
 
 Use this playbook to diagnose a GitHub Agentic Workflow Firewall (AWF) failure

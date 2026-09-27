@@ -49,6 +49,18 @@ describe('shared diagnosis-maintenance contract', () => {
     const auth = read('.github/workflows/auth-doctor-updater.md');
     expect(auth).toContain('- docs/diagnostics/findings/auth/*.json');
     expect(auth).toContain('- docs/diagnostics/README.md');
+    expect(auth).toContain('- .github/workflows/shared/diagnosis-findings.md');
+    expect(auth).toContain('- .github/agents/diagnose-awf.md');
+  });
+
+  it('installs diagnostics tooling before updater agents run', () => {
+    for (const workflow of [
+      '.github/workflows/self-hosted-runner-doctor-updater.md',
+      '.github/workflows/auth-doctor-updater.md',
+    ]) {
+      expect(read(workflow)).toContain('Install root dependencies for diagnostics tooling');
+      expect(read(workflow)).toContain('run: npm ci');
+    }
   });
 
   it('imports the generated findings catalog into the Runner Doctor workflow', () => {
@@ -62,6 +74,7 @@ describe('shared diagnosis-maintenance contract', () => {
 
   it('makes CI Doctor a read-only registry consumer', () => {
     const ciDoctor = read('.github/workflows/ci-doctor.md');
+    expect(ciDoctor).toContain('- shared/diagnosis-findings.md');
     expect(ciDoctor).toContain('docs/diagnostics/');
     expect(ciDoctor).toMatch(/read-only consumer/i);
     expect(ciDoctor).toMatch(/never edit registry records/i);

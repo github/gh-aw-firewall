@@ -78,6 +78,7 @@
     "jest": "^30.5.1",
     "markdownlint-cli2": "^0.23.2",
     "ts-jest": "^29.4.12",
+    "tsx": "4.23.15",
     "typescript": "^5.9.3",
     "typescript-eslint": "8.69.0"
   },

@@ -48,6 +48,8 @@ safe-outputs:
       - docs/api-proxy-sidecar.md
       - docs/diagnostics/README.md
       - docs/diagnostics/findings/auth/*.json
+      - .github/workflows/shared/diagnosis-findings.md
+      - .github/agents/diagnose-awf.md
       - docs/auth-matrix.md
       - docs/authentication-architecture.md
       - docs/awf-config-spec.md
@@ -57,6 +59,8 @@ safe-outputs:
       - docs/usage.md
 timeout-minutes: 20
 steps:
+  - name: Install root dependencies for diagnostics tooling
+    run: npm ci
   - name: Compute scan window
     run: |
       # Look back two days so a missed daily run does not create a coverage gap.
@@ -180,7 +184,7 @@ npm run diagnostics:validate
 
 Keep the three auth surfaces distinct: (a) the AWF api-proxy sidecar and provider token exchange, (b) GitHub/Copilot enterprise and BYOK routing, and (c) gh-aw-launched mcpg HTTP MCP GitHub OIDC. Record configuration presence and shape, route/health status, and redacted error classes only — never keys, JWTs, `Authorization` headers, environment dumps, inference probes, or token exchanges.
 
-Include the regenerated `docs/diagnostics/README.md` index in the same pull request; a reviewer verifies it with `npm run diagnostics:check`.
+Include the regenerated `docs/diagnostics/README.md` index, `.github/workflows/shared/diagnosis-findings.md`, and `.github/agents/diagnose-awf.md` in the same pull request; a reviewer verifies them with `npm run diagnostics:check`.
 
 ## Step 6 — Avoid Duplicate Pull Requests
 
@@ -188,7 +192,7 @@ Search open pull requests with `[docs] auth:` in the title. If an existing updat
 
 ## Step 7 — Apply and Validate Documentation Changes
 
-Edit only the files allowed by `safe-outputs.create-pull-request.allowed-files`. Do not modify source code, tests, schemas, workflow files, generated files, or dependencies.
+Edit only the files allowed by `safe-outputs.create-pull-request.allowed-files`. Do not modify source code, tests, schemas, non-generated workflow files, or dependencies.
 
 Before creating the pull request:
 

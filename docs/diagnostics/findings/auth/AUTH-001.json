@@ -21,8 +21,8 @@
   "status": "fixed",
   "rootCause": "The enterprise and business Copilot targets require the 'token' Authorization prefix for classic PAT/OAuth tokens; AWF selects the prefix in copilotTargetRequiresGitHubTokenPrefix(), so a target or platform-type misdetection produces the wrong prefix.",
   "probe": {
-    "command": "awf --version && echo \"GITHUB_SERVER_URL host: ${GITHUB_SERVER_URL%%/*}\" && echo \"AWF_PLATFORM_TYPE set: $([ -n \"$AWF_PLATFORM_TYPE\" ] && echo yes || echo no)\"",
-    "expect": "Shows the AWF version and whether the platform type / server URL let AWF detect an enterprise target. Never print token values or Authorization headers.",
+    "command": "awf --version && server_url=${GITHUB_SERVER_URL:-} && server_host=${server_url#*://} && server_host=${server_host%%/*} && echo \"GITHUB_SERVER_URL host: ${server_host:-unset}\" && echo \"AWF_PLATFORM_TYPE is ghes: $([ \"${AWF_PLATFORM_TYPE:-}\" = ghes ] && echo yes || echo no)\"",
+    "expect": "Shows the AWF version, parsed server host, and whether AWF_PLATFORM_TYPE explicitly selects GHES. Never print token values or Authorization headers.",
     "readOnly": true,
     "secretSafe": true
   },

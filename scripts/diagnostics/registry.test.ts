@@ -93,6 +93,15 @@ describe('diagnosis registry validation rules', () => {
     expect(errors.join('\n')).toMatch(/unsafe probe/);
   });
 
+  it('rejects a probe that reads process environment files', () => {
+    const errors = validateFindings(
+      mutate((finding) => {
+        finding.probe.command = 'cat /proc/self/environ';
+      })
+    );
+    expect(errors.join('\n')).toMatch(/unsafe probe/);
+  });
+
   it('rejects an action that recommends an isolation bypass', () => {
     const errors = validateFindings(
       mutate((finding) => {
@@ -120,6 +129,15 @@ describe('diagnosis registry validation rules', () => {
     expect(errors.join('\n')).toMatch(/does not exist/);
   });
 
+  it('rejects a reference path that escapes the repository', () => {
+    const errors = validateFindings(
+      mutate((finding) => {
+        finding.references = [{ kind: 'code', ref: '../../../../../etc/passwd' }];
+      })
+    );
+    expect(errors.join('\n')).toMatch(/must stay within the repository/);
+  });
+
   it('rejects a doc-only provenance set', () => {
     const errors = validateFindings(
       mutate((finding) => {
@@ -127,6 +145,19 @@ describe('diagnosis registry validation rules', () => {
       })
     );
     expect(errors.join('\n')).toMatch(/provenance reference/);
+  });
+
+  it('requires implementation or test evidence for fixed records', () => {
+    const errors = validateFindings(
+      mutate((finding) => {
+        finding.status = 'fixed';
+        finding.versions.fixed = '1.2.3';
+        finding.references = [
+          { kind: 'pull-request', ref: 'https://github.com/github/gh-aw-firewall/pull/1' },
+        ];
+      })
+    );
+    expect(errors.join('\n')).toMatch(/implementation\/test citation/);
   });
 
   it('rejects an unknown related finding ID', () => {
@@ -210,6 +241,15 @@ describe('diagnosis routing fixtures', () => {
 
   it('returns no match for ambiguous input so the agent asks for a probe', () => {
     expect(searchFindings(loaded, { text: 'something went wrong' })).toEqual([]);
+  });
+
+  it('disqualifies explicit topology mismatches', () => {
+    expect(
+      searchFindings(loaded, {
+        text: '400 Bad Request: Authorization header is badly formatted',
+        provider: 'anthropic',
+      }).map((match) => match.id)
+    ).not.toContain('AUTH-001');
   });
 });
 
