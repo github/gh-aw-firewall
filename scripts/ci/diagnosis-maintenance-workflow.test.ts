@@ -45,12 +45,13 @@ describe('shared diagnosis-maintenance contract', () => {
     );
   });
 
-  it('lets the auth updater write auth records and the regenerated index', () => {
+  it('lets the auth updater write auth records and the generated README index only', () => {
     const auth = read('.github/workflows/auth-doctor-updater.md');
     expect(auth).toContain('- docs/diagnostics/findings/auth/*.json');
     expect(auth).toContain('- docs/diagnostics/README.md');
-    expect(auth).toContain('- .github/workflows/shared/diagnosis-findings.md');
-    expect(auth).toContain('- .github/agents/diagnose-awf.md');
+    expect(auth).not.toContain('- .github/workflows/shared/diagnosis-findings.md');
+    expect(auth).not.toContain('- .github/agents/diagnose-awf.md');
+    expect(auth).toMatch(/Do not write generated prompt or agent surfaces/i);
   });
 
   it('installs diagnostics tooling before updater agents run', () => {

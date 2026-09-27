@@ -183,7 +183,7 @@ npm run diagnostics:validate
 
 Keep the three auth surfaces distinct: (a) the AWF api-proxy sidecar and provider token exchange, (b) GitHub/Copilot enterprise and BYOK routing, and (c) gh-aw-launched mcpg HTTP MCP GitHub OIDC. Record configuration presence and shape, route/health status, and redacted error classes only — never keys, JWTs, `Authorization` headers, environment dumps, inference probes, or token exchanges.
 
-Include the regenerated `docs/diagnostics/README.md` index, `.github/workflows/shared/diagnosis-findings.md`, and `.github/agents/diagnose-awf.md` in the same pull request; a reviewer verifies them with `npm run diagnostics:check`.
+Include the regenerated `docs/diagnostics/README.md` index when canonical auth records change. Do not write generated prompt or agent surfaces such as `.github/workflows/shared/diagnosis-findings.md` or `.github/agents/diagnose-awf.md`; a reviewer or trusted CI refreshes those with `npm run diagnostics:render` and verifies them with `npm run diagnostics:check`.
 
 ## Step 6 — Avoid Duplicate Pull Requests
 

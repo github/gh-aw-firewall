@@ -14,8 +14,9 @@ The canonical diagnosis state is the registry in `docs/diagnostics/`:
 
 Generated consumers (`.github/workflows/shared/diagnosis-findings.md`,
 `.github/agents/diagnose-awf.md`, and the registry index) are produced by
-`npm run diagnostics:render`. Never hand-edit them, and never hand-edit a
-`.lock.yml`.
+`npm run diagnostics:render`. Workflow updaters must not directly author
+generated prompt or agent surfaces; refresh those in trusted CI or reviewer
+context. Never hand-edit them, and never hand-edit a `.lock.yml`.
 
 ## Scan window
 
@@ -75,7 +76,8 @@ proposals from previous runs.
 Choose the single path that matches your confidence:
 
 - **Verified** change ⇒ a bounded pull request containing the exact canonical
-  record edits plus any regenerated consumers and support docs.
+  record edits plus any allowed support docs. Generated prompt and agent
+  consumers are refreshed separately by trusted CI or a reviewer.
 - **Uncertain** finding needing investigation ⇒ a structured issue naming the
   candidate, the missing evidence, and the smallest probe that would resolve
   it. Mark such records `needs-evidence` rather than asserting a cause.
@@ -85,7 +87,10 @@ scope, probe, action, and provenance links.
 
 ## Validation before proposing
 
-Any proposal that changes canonical records must be validated locally:
+Any proposal that changes canonical records must be validated locally. If
+rendering changes files outside the workflow's `allowed-files` set, leave those
+generated artifacts to trusted CI or a reviewer rather than including them in
+the updater-authored pull request:
 
 ```bash
 npm run diagnostics:validate   # schema, IDs, provenance, safe probes
