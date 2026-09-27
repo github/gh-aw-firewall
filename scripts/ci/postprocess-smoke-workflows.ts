@@ -77,6 +77,9 @@ const runtimeCmdPattern = /awf --config /g;
 
 const gvisorLockPaths = [
   path.join(workflowsDir, 'smoke-gvisor.lock.yml'),
+  path.join(workflowsDir, 'smoke-gvisor-build-test.lock.yml'),
+  path.join(workflowsDir, 'smoke-gvisor-claude.lock.yml'),
+  path.join(workflowsDir, 'smoke-gvisor-codex.lock.yml'),
   path.join(workflowsDir, 'smoke-playwright-gvisor.lock.yml'),
 ];
 for (const gvisorLockPath of gvisorLockPaths) {

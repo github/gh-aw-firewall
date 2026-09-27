@@ -19,6 +19,7 @@ tools:
   bash: true
   cache-memory: true
   edit:
+strict: false
 sandbox:
   agent:
     id: awf

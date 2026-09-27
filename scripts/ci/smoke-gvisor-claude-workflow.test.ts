@@ -18,8 +18,6 @@ describe('smoke gVisor Claude workflow', () => {
   it('uses gVisor container runtime', () => {
     const lock = fs.readFileSync(smokeGvisorClaudeLockPath, 'utf-8');
 
-    // The awf-config.json is embedded in the lock file as escaped JSON in a YAML string.
-    // containerRuntime is set inside the container config object.
-    expect(lock).toContain('containerRuntime\\":\\"gvisor\\"');
+    expect(lock).toContain('awf --container-runtime gvisor --config');
   });
 });

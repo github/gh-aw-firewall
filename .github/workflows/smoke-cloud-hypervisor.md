@@ -44,7 +44,7 @@ timeout-minutes: 15
 sandbox:
   agent:
     id: awf
-    version: v0.28.11
+    version: v0.28.25
     runtime: cloud-hypervisor
 strict: false
 jobs:
