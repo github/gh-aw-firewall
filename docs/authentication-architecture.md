@@ -497,8 +497,9 @@ model selector: harnesses that route through the Copilot provider (port
 prefix before forwarding, so Copilot resolves `auto` dynamically at request
 time (see [docs/api-proxy-sidecar.md](api-proxy-sidecar.md#codex-openai-example)).
 Since [PR #9005](https://github.com/github/gh-aw-firewall/pull/9005), this
-redundant-prefix stripping (`stripRedundantModelPrefixInBody` /
-`stripRedundantProviderPrefix` in `containers/api-proxy/model-utils.js`) is
+redundant-prefix stripping (`stripRedundantModelPrefixInBody` in
+`containers/api-proxy/model-body-rewriter.js`, which uses
+`stripRedundantProviderPrefix` from `containers/api-proxy/model-utils.js`) is
 unconditional for every provider, not just Copilot: a LiteLLM-style
 `openai/gpt-6-sol` sent to the OpenAI route (port `10000`) is normalized to
 `gpt-6-sol` before forwarding upstream, so requests from harnesses like Pi are

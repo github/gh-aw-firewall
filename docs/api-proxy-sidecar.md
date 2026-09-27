@@ -109,8 +109,9 @@ that catalog even when `chatgpt.com` is allowed, so `auto` can fail with
 This OpenAI-native `auto` limitation does not apply to Copilot's own `auto`
 model selector. Harnesses that route through the Copilot provider (port
 `10002`) — including Codex and Pi — can request `auto` (or the LiteLLM-style
-`copilot/auto`) and the api-proxy sidecar passes it straight through to
-Copilot, which resolves it dynamically at request time.
+`copilot/auto`) and the api-proxy sidecar forwards `auto` to Copilot after
+stripping the redundant provider prefix, so Copilot resolves it dynamically at
+request time.
 
 Since [PR #9005](https://github.com/github/gh-aw-firewall/pull/9005), the
 redundant `<provider>/` prefix strip applied above is unconditional for every
