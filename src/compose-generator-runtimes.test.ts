@@ -13,7 +13,7 @@ jest.mock('execa', () => require('./test-helpers/mock-execa.test-utils').execaMo
 
 let mockConfig: WrapperConfig;
 
-describe('generateDockerCompose', () => {
+describe('generateDockerCompose (runtime variants)', () => {
   beforeEach(() => {
     mockConfig = { ...baseConfig, workDir: fs.mkdtempSync(path.join(os.tmpdir(), 'awf-test-')) };
   });

@@ -21,7 +21,7 @@ jest.mock('./services/host-gateway', () => ({
 
 let mockConfig: WrapperConfig;
 
-describe('generateDockerCompose', () => {
+describe('generateDockerCompose (ARC-DinD)', () => {
   beforeEach(() => {
     mockConfig = { ...baseConfig, workDir: fs.mkdtempSync(path.join(os.tmpdir(), 'awf-test-')) };
   });
