@@ -1,6 +1,10 @@
 import { promises as fs } from 'fs';
 import * as path from 'path';
 import { isMissingProcEntryError } from '../proc-fs-errors';
+import {
+  assertStableProcessStartTime,
+  verifyStableThreadSet,
+} from '../confinement-thread-verification';
 import type {
   CloudHypervisorCgroupLimits,
   CloudHypervisorLaunchConfinementPolicy,
@@ -199,28 +203,19 @@ export async function verifyCloudHypervisorConfinement(
       `Cloud Hypervisor confinement verification final task set is missing main thread ${options.pid}`,
     );
   }
-  let verifiedThreadCount = 0;
-  for (const taskId of finalTaskIds) {
-    const priorStartTime = taskStartTimes.get(taskId);
-    if (priorStartTime !== undefined) {
-      const startTime = await readTaskStartTime(taskId);
-      if (startTime === undefined) continue;
-      if (startTime === priorStartTime) {
-        verifiedThreadCount += 1;
-        continue;
-      }
-    }
-    if (await verifyTask(taskId) !== undefined) verifiedThreadCount += 1;
-  }
+  const verifiedThreadCount = await verifyStableThreadSet({
+    finalTaskIds,
+    taskStartTimes,
+    readTaskStartTime,
+    verifyTask,
+  });
   const finalStartTime = parseProcessStartTime(
     await dependencies.readFile(path.join(procDirectory, 'stat'), 'utf8'),
   );
-  if (finalStartTime !== initialStartTime) {
-    throw new Error(
-      `Cloud Hypervisor confinement verification detected a process identity race: PID ` +
-      `${options.pid} start time changed from ${initialStartTime} to ${finalStartTime}`,
-    );
-  }
+  assertStableProcessStartTime(initialStartTime, finalStartTime, (raced) => new Error(
+    `Cloud Hypervisor confinement verification detected a process identity race: PID ` +
+    `${options.pid} start time changed from ${initialStartTime} to ${raced}`,
+  ));
   const finalExecutable = await dependencies.readlink(path.join(procDirectory, 'exe'));
   if (finalExecutable !== executable) {
     throw new Error(

@@ -2,6 +2,10 @@ import { promises as fs } from 'fs';
 import * as path from 'path';
 import { isMissingProcEntryError } from '../proc-fs-errors';
 import {
+  assertStableProcessStartTime,
+  verifyStableThreadSet,
+} from '../confinement-thread-verification';
+import {
   NVX_RUN_DIRECTORY_ROOT,
   NVX_TRUSTED_ARTIFACT_ROOT,
 } from './paths';
@@ -360,28 +364,19 @@ Promise<NvxConfinementEvidence> {
   if (!finalTaskIds.includes(options.openvmmPid)) {
     throw new Error(`NVX confinement final task set is missing main thread ${options.openvmmPid}`);
   }
-  let verifiedThreadCount = 0;
-  for (const taskId of finalTaskIds) {
-    const priorStartTime = taskStartTimes.get(taskId);
-    if (priorStartTime !== undefined) {
-      const startTime = await readTaskStartTime(taskId);
-      if (startTime === undefined) continue;
-      if (startTime === priorStartTime) {
-        verifiedThreadCount += 1;
-        continue;
-      }
-    }
-    if (await verifyTask(taskId) !== undefined) verifiedThreadCount += 1;
-  }
+  const verifiedThreadCount = await verifyStableThreadSet({
+    finalTaskIds,
+    taskStartTimes,
+    readTaskStartTime,
+    verifyTask,
+  });
   const finalStartTime = parseProcessStartTime(
     await dependencies.readFile(path.join(procDirectory, 'stat'), 'utf8'),
   );
-  if (finalStartTime !== initialStartTime) {
-    throw new Error(
-      `NVX confinement detected a process identity race: OpenVMM pid ${options.openvmmPid} ` +
-      `start time changed from ${initialStartTime} to ${finalStartTime}`,
-    );
-  }
+  assertStableProcessStartTime(initialStartTime, finalStartTime, (raced) => new Error(
+    `NVX confinement detected a process identity race: OpenVMM pid ${options.openvmmPid} ` +
+    `start time changed from ${initialStartTime} to ${raced}`,
+  ));
   const finalExecutable = await dependencies.readlink(path.join(procDirectory, 'exe'));
   const finalExecutableIdentity = await dependencies.stat(path.join(procDirectory, 'exe'));
   if (
