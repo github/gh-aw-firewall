@@ -19,14 +19,14 @@ afterEach(() => {
   fs.rmSync(mockConfig.workDir, { recursive: true, force: true });
 });
 
-  // Regression: `filesystem.allowWrite` is expressed in guest-visible paths,
-  // and each runtime realises those paths differently. Compose generation
-  // still builds an agent service object for microVM runtimes (so infra
-  // containers can wire depends_on edges) even though it is omitted from the
-  // emitted file, so an ungated policy was evaluated against compose bind
-  // mounts the agent never uses. A Cloud Hypervisor guest path such as
-  // `/workspace/allowed` is not backed by any host bind mount, so it threw
-  // during writeConfigs() -- long before the Cloud Hypervisor planner ran.
+// Regression: `filesystem.allowWrite` is expressed in guest-visible paths,
+// and each runtime realises those paths differently. Compose generation
+// still builds an agent service object for microVM runtimes (so infra
+// containers can wire depends_on edges) even though it is omitted from the
+// emitted file, so an ungated policy was evaluated against compose bind
+// mounts the agent never uses. A Cloud Hypervisor guest path such as
+// `/workspace/allowed` is not backed by any host bind mount, so it threw
+// during writeConfigs() -- long before the Cloud Hypervisor planner ran.
 describe('generateDockerCompose: filesystem.allowWrite runtime gating', () => {
   it('does not apply the compose write policy to Cloud Hypervisor guest paths', () => {
     const microVmConfig = {

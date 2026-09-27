@@ -11,7 +11,7 @@ jest.mock('execa', () => require('./test-helpers/mock-execa.test-utils').execaMo
 
 // Mock host-gateway resolution (runs execa.sync against Docker, which we don't want in unit tests)
 jest.mock('./services/host-gateway', () => ({
-  resolveDockerHostGateway: jest.fn(() => '172.30.0.1'),
+  resolveDockerHostGateway: jest.fn(),
 }));
 
 let mockConfig: WrapperConfig;
