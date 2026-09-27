@@ -34,6 +34,20 @@ const MAX_BODY_SIZE = 10 * 1024 * 1024;
 /** When false, token-budget warnings are never injected into request bodies. */
 const isSteeringEnabled = () => process.env.AWF_ENABLE_TOKEN_STEERING === 'true';
 
+/**
+ * True when the request targets an OpenAI Chat Completions route
+ * (e.g. /chat/completions, /v1/chat/completions), ignoring query strings,
+ * fragments, and trailing slashes.
+ *
+ * @param {unknown} url
+ * @returns {boolean}
+ */
+function isChatCompletionsRequest(url) {
+  if (typeof url !== 'string') return false;
+  const path = url.split('?')[0].split('#')[0].replace(/\/+$/, '');
+  return path === '/chat/completions' || path.endsWith('/chat/completions');
+}
+
 // ── Sleep abstraction (overridable in tests to avoid real setTimeout delays) ──
 
 /** Resolves after `ms` milliseconds (overridable in tests via module-level setter). */
@@ -198,8 +212,10 @@ function createBodyHandler({ handleRequestError, otel }) {
     // `apply_patch`) into the function-tool dialect Copilot accepts. The
     // resulting compatibility metadata must be threaded explicitly through
     // the request/retry context by the caller (see proxy-request.js and
-    // upstream-http.js) rather than recovered from the body later.
-    if (provider === 'copilot' && isWritableMethod) {
+    // upstream-http.js) rather than recovered from the body later. Chat
+    // Completions requests use a different custom-tool shape and must pass
+    // through unchanged.
+    if (provider === 'copilot' && isWritableMethod && !isChatCompletionsRequest(req.url)) {
       const translated = translateCodexCustomToolsForCopilot(body);
       if (translated) {
         body = translated.body;
