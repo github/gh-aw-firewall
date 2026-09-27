@@ -9,8 +9,8 @@ Use this playbook to diagnose a GitHub Agentic Workflow Firewall (AWF) failure
 from an error string, a workflow run URL, or a described symptom.
 
 This playbook is **authored**; the finding catalog below it is **generated**
-from the canonical registry in [`docs/diagnostics/findings/`](findings/).
-Never edit the generated section by hand.
+from the canonical registry in `docs/diagnostics/findings/`. Never edit the
+generated section by hand.
 
 ## Procedure
 
