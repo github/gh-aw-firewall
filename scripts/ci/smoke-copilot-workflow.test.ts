@@ -6,7 +6,7 @@ const workflowsDir = path.resolve(__dirname, '../../.github/workflows');
 
 interface WorkflowFrontmatter {
   tools?: {
-    bash?: unknown;
+    bash?: string[];
   };
 }
 
