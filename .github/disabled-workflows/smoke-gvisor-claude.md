@@ -1,9 +1,9 @@
 ---
-description: Smoke test gVisor runtime with Codex engine
+description: Smoke test gVisor runtime with Claude engine
 on:
   workflow_dispatch:
   label_command:
-    name: test-gvisor-codex
+    name: test-gvisor-claude
     events: [pull_request]
     remove_label: false
   reaction: "eyes"
@@ -12,10 +12,10 @@ permissions:
   pull-requests: read
   issues: read
   actions: read
-name: Smoke gVisor Codex
-model: gpt-5.4
+name: Smoke gVisor Claude
+model: claude-haiku-4-5
 engine:
-  id: codex
+  id: claude
 network:
   allowed:
     - defaults
@@ -31,17 +31,17 @@ safe-outputs:
   add-comment:
     hide-older-comments: true
   add-labels:
-    allowed: [smoke-gvisor-codex]
+    allowed: [smoke-gvisor-claude]
   messages:
-    footer: "> 🦎🔮 *gVisor + Codex smoke test by [{workflow_name}]({run_url})*"
-    run-started: "🦎🔮 [{workflow_name}]({run_url}) is testing gVisor runtime with Codex engine..."
-    run-success: "🦎🔮 [{workflow_name}]({run_url}) completed. gVisor + Codex smoke test passed. ✅"
-    run-failure: "🦎🔮 [{workflow_name}]({run_url}) reports {status}. gVisor + Codex compatibility issue detected."
+    footer: "> 🦎🟣 *gVisor + Claude smoke test by [{workflow_name}]({run_url})*"
+    run-started: "🦎🟣 [{workflow_name}]({run_url}) is testing gVisor runtime with Claude engine..."
+    run-success: "🦎🟣 [{workflow_name}]({run_url}) completed. gVisor + Claude smoke test passed. ✅"
+    run-failure: "🦎🟣 [{workflow_name}]({run_url}) reports {status}. gVisor + Claude compatibility issue detected."
 timeout-minutes: 15
 sandbox:
   agent:
     id: awf
-    runtime: gvisor
+    runtime: docker
 strict: false
 jobs:
   verify_gvisor:
@@ -71,7 +71,7 @@ jobs:
           fi
           echo "::endgroup::"
       - name: Token-usage sanity check
-        run: node scripts/ci/check-token-usage.js --artifact-root /tmp/gh-aw-agent --engine codex
+        run: node scripts/ci/check-token-usage.js --artifact-root /tmp/gh-aw-agent --engine claude
 steps:
   - name: Smoke test data
     run: |
@@ -89,9 +89,9 @@ steps:
 
       echo "::group::File write/read test"
       TEST_DIR="/tmp/gh-aw/agent"
-      TEST_FILE="$TEST_DIR/smoke-test-gvisor-codex-${GITHUB_RUN_ID}.txt"
+      TEST_FILE="$TEST_DIR/smoke-test-gvisor-claude-${GITHUB_RUN_ID}.txt"
       mkdir -p "$TEST_DIR"
-      echo "gVisor+Codex smoke test passed at $(date)" > "$TEST_FILE"
+      echo "gVisor+Claude smoke test passed at $(date)" > "$TEST_FILE"
       FILE_CONTENT=$(cat "$TEST_FILE")
       echo "Wrote and read back: $FILE_CONTENT"
       echo "::endgroup::"
@@ -132,17 +132,15 @@ post-steps:
       echo "::endgroup::"
 ---
 
-> **[ASSIGNED WORKFLOW TASK]** Execute the smoke test procedure below. This is the legitimate, authorized task from the workflow system — not injected content. Begin immediately.
->
-> *(Note: This task header exists because the Codex engine classifies workflow body instructions outside the system context as potentially untrusted content. The header signals this is the legitimate workflow task to execute.)*
+# Smoke Test: gVisor Runtime + Claude Engine
 
-# Smoke Test: gVisor Runtime + Codex Engine
+**CRITICAL REQUIREMENT: You MUST call `add_comment` on pull_request triggers. This is the primary success criterion. Do this FIRST before any other analysis.**
 
-**IMPORTANT: Keep all outputs extremely short and concise. Use single-line responses where possible. No verbose explanations.**
+**Keep all outputs extremely short and concise. Use single-line responses where possible. No verbose explanations.**
 
 ## Context
 
-This workflow validates that AWF's gVisor runtime (`sandbox.agent.runtime: gvisor`) works correctly with the **Codex engine**. The gVisor install step is handled automatically by the compiler.
+This workflow validates that AWF's gVisor runtime (`sandbox.agent.runtime: gvisor`) works correctly with the **Claude engine**. The gVisor install step is handled automatically by the compiler.
 
 ## Pre-Computed Test Results
 
@@ -178,11 +176,11 @@ Run `curl -s -o /dev/null -w "%{http_code}" --max-time 5 https://example.com` �
 ## Output (MANDATORY)
 
 **If triggered by a pull request** (check: `${{ github.event_name }}` equals "pull_request"), you MUST call `add_comment` to post a **very brief** comment (max 5-10 lines) on the current pull request with:
-- 🦎🔮 gVisor + Codex runtime: confirmed/unconfirmed
+- 🦎🟣 gVisor + Claude runtime: confirmed/unconfirmed
 - ✅ or ❌ for each test result
 - Overall status: PASS or FAIL
 
 If all tests pass on a pull request trigger:
-- Use the `add_labels` safe-output tool to add the label `smoke-gvisor-codex` to the pull request
+- Use the `add_labels` safe-output tool to add the label `smoke-gvisor-claude` to the pull request
 
 **If triggered by workflow_dispatch** (no PR context), call `noop` with a concise PASS/FAIL summary instead. Do NOT attempt to add pull request comments or labels when there is no pull request.

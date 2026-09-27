@@ -42,6 +42,7 @@ tools:
   edit:
   github:
     toolsets: [pull_requests]
+strict: false
 safe-outputs:
   threat-detection:
     enabled: false

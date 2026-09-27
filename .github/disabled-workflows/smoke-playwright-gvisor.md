@@ -41,7 +41,7 @@ timeout-minutes: 20
 sandbox:
   agent:
     id: awf
-    runtime: gvisor
+    runtime: docker
 strict: false
 post-steps:
   - name: Validate Playwright loopback result

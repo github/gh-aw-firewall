@@ -49,7 +49,7 @@ timeout-minutes: 30
 sandbox:
   agent:
     id: awf
-    runtime: gvisor
+    runtime: docker
 strict: false
 jobs:
   verify_gvisor:

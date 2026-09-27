@@ -1,9 +1,9 @@
 ---
-description: Smoke test gVisor runtime with Claude engine
+description: Smoke gVisor
 on:
   workflow_dispatch:
   label_command:
-    name: test-gvisor-claude
+    name: test-gvisor
     events: [pull_request]
     remove_label: false
   reaction: "eyes"
@@ -12,10 +12,11 @@ permissions:
   pull-requests: read
   issues: read
   actions: read
-name: Smoke gVisor Claude
-model: claude-haiku-4-5
+  copilot-requests: write
+name: Smoke gVisor
 engine:
-  id: claude
+  id: copilot
+  version: 1.0.34
 network:
   allowed:
     - defaults
@@ -31,17 +32,17 @@ safe-outputs:
   add-comment:
     hide-older-comments: true
   add-labels:
-    allowed: [smoke-gvisor-claude]
+    allowed: [smoke-gvisor]
   messages:
-    footer: "> 🦎🟣 *gVisor + Claude smoke test by [{workflow_name}]({run_url})*"
-    run-started: "🦎🟣 [{workflow_name}]({run_url}) is testing gVisor runtime with Claude engine..."
-    run-success: "🦎🟣 [{workflow_name}]({run_url}) completed. gVisor + Claude smoke test passed. ✅"
-    run-failure: "🦎🟣 [{workflow_name}]({run_url}) reports {status}. gVisor + Claude compatibility issue detected."
+    footer: "> 🦎 *gVisor smoke test by [{workflow_name}]({run_url})*"
+    run-started: "🦎 [{workflow_name}]({run_url}) is testing gVisor runtime compatibility..."
+    run-success: "🦎 [{workflow_name}]({run_url}) completed. gVisor smoke test passed. ✅"
+    run-failure: "🦎 [{workflow_name}]({run_url}) reports {status}. gVisor compatibility issue detected."
 timeout-minutes: 15
 sandbox:
   agent:
     id: awf
-    runtime: gvisor
+    runtime: docker
 strict: false
 jobs:
   verify_gvisor:
@@ -64,6 +65,7 @@ jobs:
         run: |
           echo "::group::Check artifacts for gVisor runtime confirmation"
           ARTIFACT_ROOT="/tmp/gh-aw-agent"
+          # Search all text artifacts for gVisor kernel signature or confirmation
           if grep -r -l -i 'gVisor' "$ARTIFACT_ROOT" --include '*.log' --include '*.json' --include '*.txt' --include '*.jsonl' 2>/dev/null | head -3; then
             echo "✅ gVisor runtime confirmed in agent artifacts"
           else
@@ -71,7 +73,7 @@ jobs:
           fi
           echo "::endgroup::"
       - name: Token-usage sanity check
-        run: node scripts/ci/check-token-usage.js --artifact-root /tmp/gh-aw-agent --engine claude
+        run: node scripts/ci/check-token-usage.js --artifact-root /tmp/gh-aw-agent --engine copilot
 steps:
   - name: Smoke test data
     run: |
@@ -89,9 +91,9 @@ steps:
 
       echo "::group::File write/read test"
       TEST_DIR="/tmp/gh-aw/agent"
-      TEST_FILE="$TEST_DIR/smoke-test-gvisor-claude-${GITHUB_RUN_ID}.txt"
+      TEST_FILE="$TEST_DIR/smoke-test-gvisor-${GITHUB_RUN_ID}.txt"
       mkdir -p "$TEST_DIR"
-      echo "gVisor+Claude smoke test passed at $(date)" > "$TEST_FILE"
+      echo "gVisor smoke test passed at $(date)" > "$TEST_FILE"
       FILE_CONTENT=$(cat "$TEST_FILE")
       echo "Wrote and read back: $FILE_CONTENT"
       echo "::endgroup::"
@@ -132,7 +134,7 @@ post-steps:
       echo "::endgroup::"
 ---
 
-# Smoke Test: gVisor Runtime + Claude Engine
+# Smoke Test: gVisor Runtime Compatibility
 
 **CRITICAL REQUIREMENT: You MUST call `add_comment` on pull_request triggers. This is the primary success criterion. Do this FIRST before any other analysis.**
 
@@ -140,19 +142,19 @@ post-steps:
 
 ## Context
 
-This workflow validates that AWF's gVisor runtime (`sandbox.agent.runtime: gvisor`) works correctly with the **Claude engine**. The gVisor install step is handled automatically by the compiler.
+This workflow validates that AWF's network-isolation mode works correctly when the agent container runs under gVisor (`runsc`) instead of the default `runc` runtime. The pre-agent step installed gVisor and registered it as a Docker runtime.
 
 ## Pre-Computed Test Results
 
 The following tests were already executed in a deterministic pre-agent step. Your job is to verify the results and produce the summary comment.
 
-### 1. gVisor Runtime Verification
-Check if the agent container is running under gVisor by inspecting the kernel:
+### 1. gVisor Runtime Verification (best-effort)
+For now, the agent container is expected to be running under the default runtime (`runc`). Run the commands below and report **confirmed** only if you see a gVisor-specific kernel string; otherwise report **unconfirmed** (do not fail the run on this check until runtime plumbing is added).
 
     cat /proc/version 2>/dev/null || echo "Cannot read /proc/version"
-    dmesg 2>/dev/null | head -5 || echo "dmesg not available (expected under gVisor)"
+    dmesg 2>/dev/null | head -5 || echo "dmesg not available (may occur under gVisor)"
 
-If `/proc/version` contains `gVisor`, mark runtime as **confirmed**; otherwise mark as **unconfirmed**.
+If `/proc/version` contains `gVisor`, mark runtime as confirmed; otherwise mark it as unconfirmed.
 
 ### 2. GitHub MCP Testing
 Verify MCP connectivity by calling `github-list_pull_requests` for ${{ github.repository }} (limit 1, state merged). Confirm the result matches the pre-fetched data below.
@@ -176,11 +178,12 @@ Run `curl -s -o /dev/null -w "%{http_code}" --max-time 5 https://example.com` �
 ## Output (MANDATORY)
 
 **If triggered by a pull request** (check: `${{ github.event_name }}` equals "pull_request"), you MUST call `add_comment` to post a **very brief** comment (max 5-10 lines) on the current pull request with:
-- 🦎🟣 gVisor + Claude runtime: confirmed/unconfirmed
+- 🦎 gVisor runtime: confirmed/unconfirmed
 - ✅ or ❌ for each test result
 - Overall status: PASS or FAIL
+- Mention the pull request author and any assignees
 
 If all tests pass on a pull request trigger:
-- Use the `add_labels` safe-output tool to add the label `smoke-gvisor-claude` to the pull request
+- Use the `add_labels` safe-output tool to add the label `smoke-gvisor` to the pull request
 
 **If triggered by workflow_dispatch** (no PR context), call `noop` with a concise PASS/FAIL summary instead. Do NOT attempt to add pull request comments or labels when there is no pull request.

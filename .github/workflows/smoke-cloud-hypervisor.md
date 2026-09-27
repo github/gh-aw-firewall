@@ -44,13 +44,13 @@ timeout-minutes: 15
 sandbox:
   agent:
     id: awf
-    version: v0.28.11
+    version: v0.28.25
     runtime: cloud-hypervisor
 strict: false
 jobs:
   verify_token_usage:
     needs: agent
-    if: always() && needs.agent.result != 'skipped' && needs.agent.result != 'cancelled'
+    if: needs.agent.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: read
