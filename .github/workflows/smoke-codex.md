@@ -124,7 +124,7 @@ post-steps:
 
 1. **GitHub MCP Testing**: Review the last 2 merged pull requests in `__GH_AW_GITHUB_REPOSITORY__`
 2. **GitHub PR Detail Testing**: Use the GitHub tools to retrieve the number, title, and author of 2 pull requests from `__GH_AW_GITHUB_REPOSITORY__`
-3. **Playwright Testing**: Use the playwright tools to navigate to https://github.com and verify the page title contains "GitHub" (do NOT try to install playwright - use the provided MCP tools)
+3. **Playwright Testing**: Use the `playwright-cli` command (invoked via the bash tool - Codex exposes Playwright as a CLI tool, not an MCP tool) to navigate to https://github.com and verify the page title contains "GitHub", e.g. `playwright-cli open https://github.com` followed by a command to read the page title (do NOT try to install playwright - use the pre-installed `playwright-cli`)
 4. **File Writing Testing**: Create a test file `/tmp/gh-aw/agent/smoke-test-codex-${{ github.run_id }}.txt` with content "Smoke test passed for Codex at $(date)" (create the directory if it doesn't exist)
 5. **Bash Tool Testing**: Execute bash commands to verify file creation was successful (use `cat` to read the file back)
 6. **Discussion Interaction Testing**: 
