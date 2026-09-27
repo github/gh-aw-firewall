@@ -83,8 +83,7 @@ function createOpenAIAdapter(env, deps = {}) {
       buildOidcHeaders: buildTokenAuthHeaders,
       buildStaticHeaders: () => buildTokenAuthHeaders(apiKey),
     }),
-    createAdapterMethodsOptions: ({ apiKey, authProvider, oidcConfigured, buildStaticHeaders }) => ({
-      credentialConfigured: !!apiKey,
+    createAdapterMethodsOptions: ({ authProvider, oidcConfigured, buildStaticHeaders }) => ({
       validationPath: '/v1/models',
       validationHeaders: buildStaticHeaders,
       modelsPath: '/v1/models',
