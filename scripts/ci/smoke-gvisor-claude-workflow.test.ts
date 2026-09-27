@@ -17,10 +17,11 @@ describe('disabled gVisor and Docker SBX workflows', () => {
     expect(fs.existsSync(path.join(workflowsDir, `${workflow}.md`))).toBe(false);
     expect(fs.existsSync(path.join(workflowsDir, `${workflow}.lock.yml`))).toBe(false);
     expect(fs.existsSync(path.resolve(workflowsDir, `../disabled-workflows/${workflow}.md`))).toBe(true);
+    expect(fs.existsSync(path.resolve(workflowsDir, `../disabled-workflows/${workflow}.lock.yml`))).toBe(true);
   });
 
   it.each(['test-gvisor-compat', 'test-gvisor-firewall-comparison'])(
-    'keeps %s out of active workflows',
+    'keeps %s manual workflow out of active workflows',
     workflow => {
       expect(fs.existsSync(path.join(workflowsDir, `${workflow}.yml`))).toBe(false);
       expect(fs.existsSync(path.resolve(workflowsDir, `../disabled-workflows/${workflow}.yml`))).toBe(true);
