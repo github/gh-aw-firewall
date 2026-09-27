@@ -5,9 +5,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
-// Create mock functions (must remain per-file — jest.mock() is hoisted before imports)
-
-// Mock execa module
+// This mock must remain per-file because jest.mock() is hoisted before imports.
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 jest.mock('execa', () => require('./test-helpers/mock-execa.test-utils').execaMockFactory());
 
