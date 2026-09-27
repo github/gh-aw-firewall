@@ -21,7 +21,6 @@ const repoRoot = path.resolve(__dirname, '../..');
 // using trigger terms.
 const codexWorkflowPaths = [
   path.join(repoRoot, '.github/workflows/smoke-codex.lock.yml'),
-  path.join(repoRoot, '.github/workflows/smoke-gvisor-codex.lock.yml'),
   path.join(repoRoot, '.github/workflows/smoke-cloud-hypervisor-codex.lock.yml'),
   path.join(repoRoot, '.github/workflows/secret-digger-codex.lock.yml'),
 ];
@@ -75,32 +74,8 @@ for (const workflowPath of codexWorkflowPaths) {
 // The compiler doesn't support sandbox.agent.containerRuntime yet, so we inject it here.
 const runtimeCmdPattern = /awf --config /g;
 
-const gvisorLockPaths = [
-  path.join(workflowsDir, 'smoke-gvisor.lock.yml'),
-  path.join(workflowsDir, 'smoke-gvisor-build-test.lock.yml'),
-  path.join(workflowsDir, 'smoke-gvisor-claude.lock.yml'),
-  path.join(workflowsDir, 'smoke-gvisor-codex.lock.yml'),
-  path.join(workflowsDir, 'smoke-playwright-gvisor.lock.yml'),
-];
-for (const gvisorLockPath of gvisorLockPaths) {
-  try {
-    const gvisorContent = fs.readFileSync(gvisorLockPath, 'utf-8');
-    const replacedContent = gvisorContent.replace(runtimeCmdPattern, 'awf --container-runtime gvisor --config ');
-    if (replacedContent !== gvisorContent) {
-      fs.writeFileSync(gvisorLockPath, replacedContent);
-      console.log(`  Injected --container-runtime gvisor into AWF command`);
-      console.log(`Updated ${gvisorLockPath}`);
-    } else {
-      console.log(`Skipping ${gvisorLockPath}: no AWF command found to patch.`);
-    }
-  } catch {
-    console.log(`Skipping ${gvisorLockPath}: file not found.`);
-  }
-}
-
 const playwrightRuntimeLockPaths = new Map([
   ['smoke-playwright-runc.lock.yml', 'docker-runc'],
-  ['smoke-playwright-gvisor.lock.yml', 'gvisor'],
   ['smoke-playwright-cloud-hypervisor.lock.yml', 'cloud-hypervisor'],
 ]);
 for (const [lockFile, runtime] of playwrightRuntimeLockPaths) {
