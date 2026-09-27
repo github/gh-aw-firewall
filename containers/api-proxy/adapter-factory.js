@@ -222,6 +222,81 @@ function createProviderAuthScaffold(env, deps = {}, { keyEnvVar, targetEnvVar, b
 }
 
 /**
+ * Bootstrap a standard API-key/OIDC provider adapter.
+ *
+ * Provider hooks receive the prepared credential scaffold together with the
+ * resolved OIDC context and header builders. They only need to supply behavior
+ * that differs from the shared credential, validation, and reflection wiring.
+ *
+ * @param {Record<string, string|undefined>} env
+ * @param {object} deps
+ * @param {object} opts
+ * @returns {import('./providers/index').ProviderAdapter}
+ */
+function createStandardProviderAdapter(env, deps = {}, {
+  envVars,
+  name,
+  port,
+  defaultTarget,
+  isManagementPort = false,
+  prepareConfig = (config) => config,
+  createOidcAuthOptions,
+  createHeaderBuilders,
+  createAdapterMethodsOptions = {},
+  buildAdapterOptions = {},
+  getAuthHeaders,
+}) {
+  const config = prepareConfig(createProviderAuthScaffold(env, deps, {
+    ...envVars,
+    defaultTarget,
+  }));
+  const headerBuilders = createHeaderBuilders(config);
+  const oidcAuthOptions = {
+    staticAuthToken: config.apiKey,
+    ...(createOidcAuthOptions ? createOidcAuthOptions(config) : {}),
+  };
+  const resolveOptions = (options, context) => (
+    typeof options === 'function' ? options(context) : options
+  );
+
+  return createOidcAwareProviderAdapter({
+    env,
+    oidcAuthOptions,
+    ...headerBuilders,
+    createAdapterMethodsOptions: (oidcContext) => {
+      const context = { ...config, ...headerBuilders, ...oidcContext };
+      const credentialConfigured = !!config.apiKey || oidcContext.oidcConfigured;
+      return {
+        apiKey: config.apiKey,
+        rawTarget: config.rawTarget,
+        basePath: config.basePath,
+        provider: name,
+        port,
+        defaultTarget,
+        credentialConfigured,
+        reflectionConfigured: credentialConfigured,
+        validationSkip: oidcContext.validationSkip,
+        skipModelsFetch: oidcContext.skipModelsFetch,
+        ...resolveOptions(createAdapterMethodsOptions, context),
+      };
+    },
+    buildAdapterOptions: (oidcContext) => {
+      const context = { ...config, ...headerBuilders, ...oidcContext };
+      return {
+        name,
+        port,
+        isManagementPort,
+        bodyTransform: config.bodyTransform,
+        ...resolveOptions(buildAdapterOptions, context),
+      };
+    },
+    getAuthHeaders: getAuthHeaders
+      ? (oidcContext) => getAuthHeaders({ ...config, ...headerBuilders, ...oidcContext })
+      : undefined,
+  });
+}
+
+/**
  * Create an OIDC-aware adapter using the shared auth/header/runtime scaffold.
  *
  * @param {object} opts
@@ -417,6 +492,7 @@ function buildProviderAdapter({
 module.exports = {
   createBaseAdapterConfig,
   createProviderAuthScaffold,
+  createStandardProviderAdapter,
   createOidcAwareProviderAdapter,
   createAdapterMethods,
   buildProviderAdapter,

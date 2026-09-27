@@ -507,6 +507,89 @@ describe('createProviderAuthScaffold', () => {
   });
 });
 
+describe('createStandardProviderAdapter', () => {
+  const { createStandardProviderAdapter } = require('./adapter-factory');
+
+  it('wires the shared credential, validation, reflection, and adapter fields', () => {
+    const bodyTransform = (body) => body;
+    const adapter = createStandardProviderAdapter({
+      MY_API_KEY: 'static-key',
+      MY_API_TARGET: 'custom.example.com',
+      MY_API_BASE_PATH: '/v2',
+    }, { bodyTransform }, {
+      envVars: {
+        keyEnvVar: 'MY_API_KEY',
+        targetEnvVar: 'MY_API_TARGET',
+        basePathEnvVar: 'MY_API_BASE_PATH',
+      },
+      name: 'test',
+      port: 10099,
+      defaultTarget: 'api.example.com',
+      createHeaderBuilders: ({ apiKey }) => ({
+        buildOidcHeaders: (token) => ({ Authorization: ['Bearer', token].join(' ') }),
+        buildStaticHeaders: () => ({ 'x-api-key': apiKey }),
+      }),
+      createAdapterMethodsOptions: ({ buildStaticHeaders }) => ({
+        validationPath: '/v1/models',
+        validationHeaders: buildStaticHeaders,
+        modelsPath: '/v1/models',
+      }),
+      buildAdapterOptions: {
+        missingCredentialResponse: {
+          kind: 'plain_error',
+          statusCode: 503,
+          message: 'not configured',
+        },
+      },
+    });
+
+    expect(adapter.name).toBe('test');
+    expect(adapter.port).toBe(10099);
+    expect(adapter.isManagementPort).toBe(false);
+    expect(adapter.getAuthHeaders()).toEqual({ 'x-api-key': 'static-key' });
+    expect(adapter.getBodyTransform()).toBe(bodyTransform);
+    expect(adapter.getTargetHost()).toBe('custom.example.com');
+    expect(adapter.getBasePath()).toBe('/v2');
+    expect(adapter.getReflectionInfo()).toMatchObject({
+      provider: 'test',
+      port: 10099,
+      configured: true,
+    });
+    expect(adapter.getValidationProbe()).toEqual({
+      skip: true,
+      reason: 'Custom target; validation skipped',
+    });
+  });
+
+  it('lets provider hooks refine the scaffold and OIDC configuration', () => {
+    const oidcProvider = { isReady: () => true, getToken: () => 'oidc-token' };
+    const adapter = createStandardProviderAdapter({}, {}, {
+      envVars: {
+        keyEnvVar: 'MY_API_KEY',
+        targetEnvVar: 'MY_API_TARGET',
+        basePathEnvVar: 'MY_API_BASE_PATH',
+      },
+      name: 'test',
+      port: 10099,
+      defaultTarget: 'api.example.com',
+      prepareConfig: (config) => ({ ...config, basePath: '/prepared' }),
+      createOidcAuthOptions: () => ({ oidcProviderFactory: () => oidcProvider }),
+      createHeaderBuilders: () => ({
+        buildOidcHeaders: (token) => ({ Authorization: ['Bearer', token].join(' ') }),
+        buildStaticHeaders: () => ({}),
+      }),
+      createAdapterMethodsOptions: { modelsPath: null },
+      buildAdapterOptions: { isManagementPort: true },
+    });
+
+    expect(adapter.isManagementPort).toBe(true);
+    expect(adapter.getBasePath()).toBe('/prepared');
+    expect(adapter.getAuthHeaders()).toEqual({ Authorization: ['Bearer', 'oidc-token'].join(' ') });
+    expect(adapter.getReflectionInfo().configured).toBe(true);
+    expect(adapter.getOidcProvider()).toBe(oidcProvider);
+  });
+});
+
 describe('createOidcAwareProviderAdapter', () => {
   const { createOidcAwareProviderAdapter } = require('./adapter-factory');
 

@@ -22,7 +22,7 @@ const {
   makeCodexHostedWebTransform,
 } = require('../codex-hosted-web');
 
-const { createProviderAuthScaffold, createOidcAwareProviderAdapter } = require('../adapter-factory');
+const { createStandardProviderAdapter } = require('../adapter-factory');
 const { OPENAI_ENV, COPILOT_ENV } = require('../provider-env-constants');
 
 /**
@@ -33,17 +33,6 @@ const { OPENAI_ENV, COPILOT_ENV } = require('../provider-env-constants');
  * @returns {import('./index').ProviderAdapter}
  */
 function createOpenAIAdapter(env, deps = {}) {
-  const {
-    apiKey: openaiApiKey,
-    rawTarget: openaiTarget,
-    basePath: openaiBasePath,
-    bodyTransform,
-  } = createProviderAuthScaffold(env, deps, {
-    keyEnvVar: OPENAI_ENV.KEY,
-    targetEnvVar: OPENAI_ENV.TARGET,
-    basePathEnvVar: OPENAI_ENV.BASE_PATH,
-    defaultTarget: 'api.openai.com',
-  });
   const providerType = (env[COPILOT_ENV.PROVIDER_TYPE] || '').trim().toLowerCase();
   const copilotAzureByokEnabled = providerType === 'azure';
   const customAuthHeader = (() => {
@@ -57,56 +46,55 @@ function createOpenAIAdapter(env, deps = {}) {
   const copilotByokApiKey = (env[COPILOT_ENV.PROVIDER_API_KEY] || '').trim() || undefined;
   const { target: copilotByokTarget, basePath: copilotByokBasePath } = parseApiTargetAndBasePath(env[COPILOT_ENV.PROVIDER_BASE_URL]);
 
-  const apiKey = openaiApiKey || (copilotAzureByokEnabled ? copilotByokApiKey : undefined);
-  const explicitOpenAITarget = env[OPENAI_ENV.TARGET] ? openaiTarget : undefined;
-  const rawTarget = explicitOpenAITarget || (copilotAzureByokEnabled ? copilotByokTarget : undefined) || 'api.openai.com';
-  const explicitBasePath = openaiBasePath || (copilotAzureByokEnabled ? copilotByokBasePath : '');
   const hostedWebPolicy = parseCodexHostedWebPolicy(env.AWF_CODEX_HOSTED_WEB_POLICY);
-  const composedBodyTransform = composeBodyTransforms(
-    bodyTransform,
-    makeCodexHostedWebTransform(hostedWebPolicy),
-  );
-
-  // For the default OpenAI endpoint, unversioned clients (e.g. Codex CLI sending
-  // /responses) need a /v1 prefix to reach the correct versioned API surface.
-  // Custom targets manage their own path layout and must not receive an implicit prefix.
-  const basePath = explicitBasePath || (rawTarget === 'api.openai.com' ? '/v1' : '');
 
   // OIDC auth strategy (Azure OpenAI, AWS Bedrock, GCP Vertex AI)
   // Azure OpenAI BYOK uses the `api-key` header instead of `Authorization: Bearer`
   // (but OIDC auth still requires `Authorization: Bearer` unless explicitly overridden);
   // buildAuthHeaderFn centralises that "custom header vs. Bearer" branching.
   const buildTokenAuthHeaders = buildAuthHeaderFn({ headerName: customAuthHeader || undefined });
-  const buildStaticAuthHeaders = () => buildTokenAuthHeaders(apiKey);
-  return createOidcAwareProviderAdapter({
-    env,
-    oidcAuthOptions: { staticAuthToken: apiKey },
-    buildOidcHeaders: buildTokenAuthHeaders,
-    buildStaticHeaders: buildStaticAuthHeaders,
-    createAdapterMethodsOptions: ({ authProvider, oidcConfigured, validationSkip, skipModelsFetch }) => ({
-      apiKey,
-      rawTarget,
-      basePath,
-      provider: 'openai',
-      port: 10000,
-      defaultTarget: 'api.openai.com',
+  return createStandardProviderAdapter(env, deps, {
+    envVars: {
+      keyEnvVar: OPENAI_ENV.KEY,
+      targetEnvVar: OPENAI_ENV.TARGET,
+      basePathEnvVar: OPENAI_ENV.BASE_PATH,
+    },
+    name: 'openai',
+    port: 10000,
+    defaultTarget: 'api.openai.com',
+    isManagementPort: true,
+    prepareConfig: ({ apiKey: openaiApiKey, rawTarget: openaiTarget, basePath: openaiBasePath, bodyTransform }) => {
+      const apiKey = openaiApiKey || (copilotAzureByokEnabled ? copilotByokApiKey : undefined);
+      const explicitOpenAITarget = env[OPENAI_ENV.TARGET] ? openaiTarget : undefined;
+      const rawTarget = explicitOpenAITarget || (copilotAzureByokEnabled ? copilotByokTarget : undefined) || 'api.openai.com';
+      const explicitBasePath = openaiBasePath || (copilotAzureByokEnabled ? copilotByokBasePath : '');
+      const basePath = explicitBasePath || (rawTarget === 'api.openai.com' ? '/v1' : '');
+      return {
+        apiKey,
+        rawTarget,
+        basePath,
+        bodyTransform: composeBodyTransforms(
+          bodyTransform,
+          makeCodexHostedWebTransform(hostedWebPolicy),
+        ),
+      };
+    },
+    createHeaderBuilders: ({ apiKey }) => ({
+      buildOidcHeaders: buildTokenAuthHeaders,
+      buildStaticHeaders: () => buildTokenAuthHeaders(apiKey),
+    }),
+    createAdapterMethodsOptions: ({ apiKey, authProvider, oidcConfigured, buildStaticHeaders }) => ({
+      credentialConfigured: !!apiKey,
       validationPath: '/v1/models',
-      validationHeaders: buildStaticAuthHeaders,
-      validationSkip,
-      skipModelsFetch,
+      validationHeaders: buildStaticHeaders,
       modelsPath: '/v1/models',
-      modelsFetchHeaders: buildStaticAuthHeaders,
-      reflectionConfigured: !!apiKey || oidcConfigured,
+      modelsFetchHeaders: buildStaticHeaders,
       reflectionModelsPath: '/v1/models',
       reflectionExtra: () => ({
         auth_type: oidcConfigured ? `github-oidc/${authProvider}` : 'static-key',
       }),
     }),
     buildAdapterOptions: ({ oidcConfigured }) => ({
-      name: 'openai',
-      port: 10000,
-      isManagementPort: true,
-      bodyTransform: composedBodyTransform,
       missingCredentialResponse: {
         kind: 'plain_error',
         statusCode: 404,
