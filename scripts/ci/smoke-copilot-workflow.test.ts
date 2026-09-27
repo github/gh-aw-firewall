@@ -1,7 +1,23 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import * as yaml from 'js-yaml';
 
 const workflowsDir = path.resolve(__dirname, '../../.github/workflows');
+
+interface WorkflowFrontmatter {
+  tools?: {
+    bash?: unknown;
+  };
+}
+
+function loadFrontmatter(file: string): WorkflowFrontmatter {
+  const source = fs.readFileSync(path.join(workflowsDir, file), 'utf-8');
+  const match = source.match(/^---\n([\s\S]*?)\n---/);
+  if (!match) {
+    throw new Error(`No frontmatter found in ${file}`);
+  }
+  return yaml.load(match[1]) as WorkflowFrontmatter;
+}
 
 const copilotSmokeWorkflows = [
   { name: 'smoke-copilot-byok-aoai-apikey', file: 'smoke-copilot-byok-aoai-apikey.md' },
@@ -28,17 +44,13 @@ describe('smoke copilot workflow output requirements', () => {
   }
 
   it('smoke-copilot-network-isolation: grants granular curl shell permission', () => {
-    const source = fs.readFileSync(
-      path.join(workflowsDir, 'smoke-copilot-network-isolation.md'),
-      'utf-8'
-    );
+    const frontmatter = loadFrontmatter('smoke-copilot-network-isolation.md');
     const lock = fs.readFileSync(
       path.join(workflowsDir, 'smoke-copilot-network-isolation.lock.yml'),
       'utf-8'
     );
 
-    expect(source).toContain('    - curl');
-    expect(source).toContain('    - echo');
+    expect(frontmatter.tools?.bash).toEqual(expect.arrayContaining(['curl', 'echo']));
     expect(lock).toContain("--allow-tool '\\''shell(curl:*)'\\''");
     expect(lock).toContain("--allow-tool '\\''shell(echo)'\\''");
   });
