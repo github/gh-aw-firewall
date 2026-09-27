@@ -112,6 +112,13 @@ model selector. Harnesses that route through the Copilot provider (port
 `copilot/auto`) and the api-proxy sidecar passes it straight through to
 Copilot, which resolves it dynamically at request time.
 
+Since [PR #9005](https://github.com/github/gh-aw-firewall/pull/9005), the
+redundant `<provider>/` prefix strip applied above is unconditional for every
+provider route, not Copilot-only: a LiteLLM-style `openai/gpt-6-sol` sent to
+the OpenAI route (port `10000`) is normalized to `gpt-6-sol` before the
+request reaches OpenAI, so harnesses like Pi that send provider-prefixed model
+IDs no longer receive an opaque upstream `400` for an unrecognized model name.
+
 ### Claude Code example
 
 ```bash
