@@ -6,7 +6,7 @@
  * detect a PID-reuse identity race between the initial and final `/proc/<pid>/stat` reads.
  */
 
-export interface StableThreadSetVerificationOptions {
+interface StableThreadSetVerificationOptions {
   /** The thread IDs observed in the final `/proc/<pid>/task` listing. */
   readonly finalTaskIds: readonly number[];
   /** Start times recorded for each thread the first time it was observed and verified. */
