@@ -52,6 +52,33 @@ export async function ensureFirewallNetwork(subnetOverride?: string): Promise<{
     );
   }
 
+  if (networkExists) {
+    const { stdout } = await execa('docker', [
+      'network', 'inspect', NETWORK_NAME, '--format', '{{json .Options}}',
+    ], { env: getLocalDockerEnv() });
+    const options = JSON.parse(stdout) as Record<string, string> | null;
+    if (!options?.['com.docker.network.bridge.name']) {
+      const { stdout: containerCount } = await execa('docker', [
+        'network', 'inspect', NETWORK_NAME, '--format', '{{len .Containers}}',
+      ], { env: getLocalDockerEnv() });
+      if (containerCount.trim() !== '0') {
+        throw new Error(
+          `Docker network '${NETWORK_NAME}' has no bridge name and cannot be reused. ` +
+          `Remove the stale network after detaching its containers (docker network rm ${NETWORK_NAME}).`,
+        );
+      }
+      try {
+        await execa('docker', ['network', 'rm', NETWORK_NAME], { env: getLocalDockerEnv() });
+      } catch {
+        throw new Error(
+          `Could not remove stale Docker network '${NETWORK_NAME}'. ` +
+          `Remove it manually (docker network rm ${NETWORK_NAME}).`,
+        );
+      }
+      networkExists = false;
+    }
+  }
+
   if (!networkExists) {
     // Network doesn't exist, create it with explicit bridge name
     logger.debug(`Creating network '${NETWORK_NAME}' with subnet ${addressing.subnet}...`);
