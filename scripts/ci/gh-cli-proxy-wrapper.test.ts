@@ -25,16 +25,18 @@ describe('gh CLI proxy wrapper', () => {
   let server: Server;
   let requests: ProxyRequest[];
   let proxyUrl: string;
+  let responseBody: { stdout: string; stderr: string; exitCode: number };
 
   beforeEach(async () => {
     requests = [];
+    responseBody = { stdout: 'line1\nline2\n', stderr: '', exitCode: 0 };
     server = createServer(async (request: IncomingMessage, response: ServerResponse) => {
       const chunks: Buffer[] = [];
       for await (const chunk of request) chunks.push(chunk);
       const body = JSON.parse(Buffer.concat(chunks).toString()) as ProxyRequest;
       requests.push(body);
       response.setHeader('Content-Type', 'application/json');
-      response.end(JSON.stringify({ stdout: 'line1\nline2\n', stderr: '', exitCode: 0 }));
+      response.end(JSON.stringify(responseBody));
     });
     server.listen(0, '127.0.0.1');
     await once(server, 'listening');
@@ -91,5 +93,18 @@ describe('gh CLI proxy wrapper', () => {
     expect(requests.map(({ args, stdin }) => ({ args, stdin }))).toEqual([
       { args: ['api', '--input', '-'], stdin: 'cGF5bG9hZAo=' },
     ]);
+  });
+
+  it('fails safely for an invalid proxy exit code', async () => {
+    responseBody.exitCode = 256;
+
+    const result = await run(
+      'sh',
+      [wrapper, 'api', 'x'],
+      '',
+      { ...process.env, AWF_CLI_PROXY_URL: proxyUrl },
+    );
+
+    expect(result.exitCode).toBe(1);
   });
 });

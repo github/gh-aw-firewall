@@ -69,7 +69,8 @@ fi
 # Extract and emit stdout/stderr from a successful 200 response
 EXIT_CODE=$(jq -r '.exitCode // 1' "$RESPONSE_FILE" 2>/dev/null)
 case "$EXIT_CODE" in
-  ''|*[!0-9]*) EXIT_CODE=1 ;;
+  0|[1-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5]) ;;
+  *) EXIT_CODE=1 ;;
 esac
 
 jq -j '.stdout // empty' "$RESPONSE_FILE"
