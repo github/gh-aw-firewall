@@ -139,6 +139,15 @@ export async function connectTopologyContainers(
 
 const IPV4_REGEX = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/;
 
+function mergePeerHosts(service: any, peerIps: Map<string, string>): void {
+  if (!service.extra_hosts) {
+    service.extra_hosts = {};
+  }
+  for (const [name, ip] of peerIps) {
+    service.extra_hosts[name] = ip;
+  }
+}
+
 /**
  * Inspects the IP addresses of topology-attached containers on the specified
  * Docker network. Used when the agent runs under an alternative container
@@ -205,12 +214,7 @@ export function patchComposeWithTopologyHosts(
     return;
   }
 
-  if (!agentService.extra_hosts) {
-    agentService.extra_hosts = {};
-  }
-  for (const [name, ip] of peerIps) {
-    agentService.extra_hosts[name] = ip;
-  }
+  mergePeerHosts(agentService, peerIps);
 
   // Also give the squid-proxy container the same name→IP mappings. Squid resolves
   // proxied destinations via its external `dns_nameservers`, which cannot resolve
@@ -222,12 +226,7 @@ export function patchComposeWithTopologyHosts(
   // recreates squid-proxy to pick up the new extra_hosts.
   const squidService = compose?.services?.['squid-proxy'];
   if (squidService) {
-    if (!squidService.extra_hosts) {
-      squidService.extra_hosts = {};
-    }
-    for (const [name, ip] of peerIps) {
-      squidService.extra_hosts[name] = ip;
-    }
+    mergePeerHosts(squidService, peerIps);
   } else {
     log.warn('Could not find squid-proxy service in docker-compose.yml; skipping Squid topology DNS patch');
   }
@@ -238,12 +237,7 @@ export function patchComposeWithTopologyHosts(
   // return EAI_AGAIN before Docker's bare service name can resolve.
   const cliProxyService = compose?.services?.['cli-proxy'];
   if (cliProxyService) {
-    if (!cliProxyService.extra_hosts) {
-      cliProxyService.extra_hosts = {};
-    }
-    for (const [name, ip] of peerIps) {
-      cliProxyService.extra_hosts[name] = ip;
-    }
+    mergePeerHosts(cliProxyService, peerIps);
   }
 
   fs.writeFileSync(composePath, yaml.dump(compose, { lineWidth: -1 }), { mode: 0o600 });

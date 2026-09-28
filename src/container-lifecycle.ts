@@ -151,10 +151,9 @@ function createCliProxyStartupError(dnsFailureHost?: string | null): Error {
       `On ARC/DinD runners, containers created by the Docker-in-Docker daemon run on the DinD ` +
       `Docker network, which may inherit Kubernetes search domains / ndots settings that break ` +
       `single-label peer lookups on internal Docker networks, or may not forward DNS to the ` +
-      `Kubernetes cluster resolver for Service names. To fix this, upgrade AWF to a version that ` +
-      `adds static topology host mappings for cli-proxy, set dockerd --dns-opt ndots:0, address ` +
-      `the DIFC proxy by IP, or configure dockerd DNS (e.g. --dns <kube-dns-ip>) so container ` +
-      `lookups reach Kubernetes DNS. See https://github.github.io/gh-aw/guides/arc-dind-copilot-agent/ for details.`;
+      `Kubernetes cluster resolver for Service names. To fix this, set dockerd --dns-opt ndots:0, ` +
+      `address the DIFC proxy by IP, or configure dockerd DNS (e.g. --dns <kube-dns-ip>) so ` +
+      `container lookups reach Kubernetes DNS. See https://github.github.io/gh-aw/guides/arc-dind-copilot-agent/ for details.`;
   }
 
   return new Error(message);
