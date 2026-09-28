@@ -5,7 +5,7 @@ import {
 } from './hosted-web-policy';
 
 export type CodexHostedWebConfig = HostedWebConfig;
-export type NormalizedCodexHostedWebPolicy = NormalizedHostedWebPolicy;
+type NormalizedCodexHostedWebPolicy = NormalizedHostedWebPolicy;
 
 export function normalizeCodexHostedWebPolicy(
   config: CodexHostedWebConfig | undefined,
