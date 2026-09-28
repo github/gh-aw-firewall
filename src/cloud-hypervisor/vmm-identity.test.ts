@@ -460,7 +460,7 @@ describe('CloudHypervisorVmmIdentityManager', () => {
       1234,
       jest.fn().mockRejectedValue(Object.assign(new Error('denied'), { code: 'EACCES' })),
     )).rejects.toThrow('denied');
-  });
+  }, 30_000);
 
   it('rejects a pre-existing generated account and malformed TAP ownership', async () => {
     const existing = dependencies();

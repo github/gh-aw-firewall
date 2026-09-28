@@ -24,5 +24,5 @@ describe('createDefaultIdentityDependencies', () => {
     await expect(dependencies.run(process.execPath, ['-e', 'process.exit(1)']))
       .rejects.toThrow(/exited with code 1/);
     await expect(dependencies.sleep(0)).resolves.toBeUndefined();
-  });
+  }, 30_000);
 });

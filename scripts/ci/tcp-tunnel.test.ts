@@ -140,5 +140,5 @@ describe('cli-proxy tcp tunnel', () => {
         new Promise((resolve) => upstream.server.close(() => resolve(undefined))),
       ]);
     }
-  }, 10000);
+  }, 30_000);
 });

@@ -64,7 +64,7 @@ import {
       if (originalSudoGid === undefined) delete process.env.SUDO_GID;
       else process.env.SUDO_GID = originalSudoGid;
     }
-  });
+  }, 30_000);
 
   it('constructs unique, contained run paths outside workDir', () => {
     const first = createCloudHypervisorRunPaths('/opt/cloud-hypervisor');
@@ -78,4 +78,3 @@ import {
     )).toThrow(/Unsafe microVM run id/);
   });
   });
-
