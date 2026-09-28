@@ -243,7 +243,7 @@ export function patchComposeWithTopologyHosts(
   if (cliProxyService) {
     mergePeerHosts(cliProxyService, peerIps);
   } else {
-    log.info('No cli-proxy service found in docker-compose.yml; skipping cli-proxy topology DNS patch');
+    log.info('cli-proxy not enabled; no topology DNS patch needed');
   }
 
   fs.writeFileSync(composePath, yaml.dump(compose, { lineWidth: -1 }), { mode: 0o600 });
