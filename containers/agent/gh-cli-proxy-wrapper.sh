@@ -21,14 +21,13 @@ STDIN_DATA=""
 PREVIOUS_ARG=""
 for ARG in "$@"; do
   case "$ARG" in
-    --input=-|--body-file=-|--notes-file=-|*=@-) STDIN_DATA=$(base64 | tr -d '\n'); break ;;
+    -|--input=-|--body-file=-|--notes-file=-|--field=*@-|-F*=@-) STDIN_DATA=$(base64 | tr -d '\n'); break ;;
   esac
   case "$PREVIOUS_ARG" in
-    --input|--body-file|--notes-file)
-      if [ "$ARG" = "-" ]; then
-        STDIN_DATA=$(base64 | tr -d '\n')
-        break
-      fi
+    -F|--field)
+      case "$ARG" in
+        *=@-) STDIN_DATA=$(base64 | tr -d '\n'); break ;;
+      esac
       ;;
   esac
   PREVIOUS_ARG="$ARG"
