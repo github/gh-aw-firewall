@@ -139,7 +139,11 @@ export async function connectTopologyContainers(
 
 const IPV4_REGEX = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/;
 
-function mergePeerHosts(service: any, peerIps: Map<string, string>): void {
+interface ComposeServiceWithHosts {
+  extra_hosts?: Record<string, string>;
+}
+
+function mergePeerHosts(service: ComposeServiceWithHosts, peerIps: Map<string, string>): void {
   if (!service.extra_hosts) {
     service.extra_hosts = {};
   }
@@ -238,6 +242,8 @@ export function patchComposeWithTopologyHosts(
   const cliProxyService = compose?.services?.['cli-proxy'];
   if (cliProxyService) {
     mergePeerHosts(cliProxyService, peerIps);
+  } else {
+    log.info('No cli-proxy service found in docker-compose.yml; skipping cli-proxy topology DNS patch');
   }
 
   fs.writeFileSync(composePath, yaml.dump(compose, { lineWidth: -1 }), { mode: 0o600 });
