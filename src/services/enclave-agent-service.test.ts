@@ -453,15 +453,7 @@ describe('unified enclave compose topology', () => {
   });
 
   it('does not add a dedicated GitHub bridge service for the opted-in profile', () => {
-    const originalEnv = process.env;
-    process.env = {
-      ...originalEnv,
-      AWF_ENCLAVE_MCP_GATEWAY_CONTAINER: 'compiler-mcpg',
-      AWF_ENCLAVE_MCP_GATEWAY_ENDPOINT: 'http://127.0.0.1:8080',
-      AWF_ENCLAVE_MCP_GATEWAY_IDENTITY: 'primaryAgentId0123456789abcdef012345',
-      AWF_ENCLAVE_GITHUB_MCP_AGENT_ID: 'enclaveAgentId0123456789abcdef012345',
-    };
-    try {
+    withGitHubGatewayEnv(() => {
       const enclaves = normalizeEnclavesConfig([{
         agent: {
           model: 'trusted-model',
@@ -479,8 +471,6 @@ describe('unified enclave compose topology', () => {
         .map(([name]) => name)
         .sort();
       expect(enclaveMembers).toEqual(['enclave-agent-api-proxy']);
-    } finally {
-      process.env = originalEnv;
-    }
+    });
   });
 });
