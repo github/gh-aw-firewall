@@ -91,7 +91,7 @@ describe('self-hosted runner doctor workflow config', () => {
       expect(content).toContain('`dns_search: []`');
       expect(content).toContain('github/gh-aw-firewall#9100');
       expect(content).toContain('Alpine/musl');
-      expect(content).toContain('nslookup awmg-cli-proxy.');
+      expect(content).toContain("nslookup awmg-cli-proxy.`: if the bare lookup fails");
       expect(content).toContain('`SERVFAIL`');
       expect(content).toContain('`detectDnsResolutionFailure()`');
       expect(content).toContain('docker run --rm alpine nslookup awmg-cli-proxy');
