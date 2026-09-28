@@ -9,20 +9,30 @@
 
 CLI_PROXY="${AWF_CLI_PROXY_URL:-http://172.30.0.50:11000}"
 
-# Build JSON array from all positional arguments
-ARGS_JSON='[]'
-if [ $# -gt 0 ]; then
-  ARGS_JSON=$(printf '%s\n' "$@" | jq -R . | jq -s .)
-fi
+# Build JSON array from all positional arguments without treating embedded
+# newlines as argument separators.
+ARGS_JSON=$(jq -n '$ARGS.positional' --args -- "$@")
 
 # Capture working directory
 CWD=$(pwd)
 
-# Read stdin if data is available (non-interactive)
+# Read stdin only when gh is explicitly told to consume it.
 STDIN_DATA=""
-if [ ! -t 0 ]; then
-  STDIN_DATA=$(cat | base64 | tr -d '\n')
-fi
+PREVIOUS_ARG=""
+for ARG in "$@"; do
+  case "$ARG" in
+    -|--input=-|--body-file=-|*=@-) STDIN_DATA=$(base64 | tr -d '\n'); break ;;
+  esac
+  case "$PREVIOUS_ARG" in
+    --input|--body-file|*-file)
+      if [ "$ARG" = "-" ]; then
+        STDIN_DATA=$(base64 | tr -d '\n')
+        break
+      fi
+      ;;
+  esac
+  PREVIOUS_ARG="$ARG"
+done
 
 # Use a temporary file to capture the response body without -f,
 # so we can read the body even on 4xx/5xx responses (e.g., 403 policy block).
@@ -38,17 +48,16 @@ HTTP_STATUS=$(curl -s \
     "$(printf '%s' "$CWD" | jq -Rs .)" \
     "$STDIN_DATA")")
 CURL_EXIT=$?
-RESPONSE=$(cat "$RESPONSE_FILE")
-rm -f "$RESPONSE_FILE"
-
 if [ "$CURL_EXIT" -ne 0 ]; then
+  rm -f "$RESPONSE_FILE"
   echo "gh: CLI proxy unavailable at ${CLI_PROXY} (curl exit ${CURL_EXIT})" >&2
   exit 1
 fi
 
 # Surface policy errors (403), request errors (400/413), and server errors (5xx)
 if [ "$HTTP_STATUS" != "200" ]; then
-  ERROR=$(printf '%s' "$RESPONSE" | jq -r '.error // empty' 2>/dev/null)
+  ERROR=$(jq -r '.error // empty' "$RESPONSE_FILE" 2>/dev/null)
+  rm -f "$RESPONSE_FILE"
   if [ -n "$ERROR" ]; then
     echo "gh: ${ERROR}" >&2
   else
@@ -58,10 +67,9 @@ if [ "$HTTP_STATUS" != "200" ]; then
 fi
 
 # Extract and emit stdout/stderr from a successful 200 response
-STDOUT=$(printf '%s' "$RESPONSE" | jq -r '.stdout // empty' 2>/dev/null)
-STDERR=$(printf '%s' "$RESPONSE" | jq -r '.stderr // empty' 2>/dev/null)
-EXIT_CODE=$(printf '%s' "$RESPONSE" | jq -r '.exitCode // 1' 2>/dev/null)
+EXIT_CODE=$(jq -r '.exitCode // 1' "$RESPONSE_FILE" 2>/dev/null)
 
-printf '%s' "$STDOUT"
-printf '%s' "$STDERR" >&2
+jq -j '.stdout // empty' "$RESPONSE_FILE"
+jq -j '.stderr // empty' "$RESPONSE_FILE" >&2
+rm -f "$RESPONSE_FILE"
 exit "${EXIT_CODE:-1}"
