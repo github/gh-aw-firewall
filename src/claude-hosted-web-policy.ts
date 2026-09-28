@@ -5,7 +5,7 @@ import {
 } from './hosted-web-policy';
 
 export type ClaudeHostedWebConfig = HostedWebConfig;
-export type NormalizedClaudeHostedWebPolicy = NormalizedHostedWebPolicy;
+type NormalizedClaudeHostedWebPolicy = NormalizedHostedWebPolicy;
 
 export function normalizeClaudeHostedWebPolicy(
   config: ClaudeHostedWebConfig | undefined,

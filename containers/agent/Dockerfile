@@ -7,7 +7,7 @@
 # NOTE: ARG declared before first FROM is global and available in all FROM statements
 ARG BASE_IMAGE=ubuntu:22.04
 
-FROM golang:1.27.1-alpine@sha256:cf6fca6641884b8433441b2b0652976f975e1d0fdd26d177eaaf8596087f3125 AS gh-build
+FROM golang:1.27.1-alpine@sha256:8a5910f31396cd4d89662f56c68b3ae31d374308270a1c3bd96672ee5ed43414 AS gh-build
 
 ARG GH_VERSION=2.98.0
 ARG GH_SOURCE_SHA256=abada9e8b550547ac93f99250f3ad4d90ad623fa245cb54cb058f78030a6a5f6

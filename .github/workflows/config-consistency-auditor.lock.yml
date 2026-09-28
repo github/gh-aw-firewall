@@ -544,7 +544,7 @@ jobs:
           GH_HOST: github.com
           GH_AW_COMPILED_VERSION: v0.89.22
       - name: Setup Node.js
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '24'
           package-manager-cache: false
@@ -1189,13 +1189,14 @@ jobs:
           CACHE_DIR="${GH_AW_CACHE_DIR:-/tmp/gh-aw/cache-memory}"
           # Quarantine files containing instruction-shaped content to prevent
           # cross-run agent-context instruction injection via cache-memory.
-          # Require a colon after the keyword to reduce false positives on
-          # legitimate files (e.g. '## System Requirements', 'Override: false').
+          # Require a colon after textual keywords to reduce false positives on
+          # legitimate files (e.g. '## System Requirements', 'Override: false');
+          # also match the explicit '<system>' instruction tag.
           INJECTION_PATTERN='^(New instruction:|SYSTEM:|Ignore (all |previous |prior )instructions?:|<system>)'
           QUARANTINE_DIR="${GH_AW_CACHE_DIR:-/tmp/gh-aw/cache-memory}/.quarantine"
           mapfile -t SUSPICIOUS_FILES < <(
             find "$CACHE_DIR" -not -path '*/.git/*' -not -path '*/.quarantine/*' -type f \
-              -exec grep -lEi "$INJECTION_PATTERN" {} \; 2>/dev/null || true
+              -exec grep -lE "$INJECTION_PATTERN" {} + 2>/dev/null || true
           )
           if [ ${#SUSPICIOUS_FILES[@]} -gt 0 ]; then
             mkdir -p "$QUARANTINE_DIR"
