@@ -42,9 +42,13 @@ This directory contains comprehensive integration tests that verify firewall beh
 
 The model-routing smoke exercises the router's live planning API through the
 API-proxy container and prints a `MODEL_ROUTING_SMOKE` record with the router
-version and selected fixture choice. It validates router/network integration;
-it does not make an authenticated Copilot inference request or replace the
-host-bootstrap and request-enforcement tests.
+version and selected fixture choice. The GitHub Actions workflow
+`.github/workflows/test-model-routing.yml` also runs AWF on Linux with routing
+enabled, restricts routing to one known Copilot model, and validates a live
+Copilot inference response. It runs on routing-related pushes to `main`,
+weekly, and via `workflow_dispatch` on `main` only. It deliberately
+does not run on pull requests because it uses `copilot-requests: write` and
+performs a real inference with the workflow token.
 
 ## Smoke Tests
 

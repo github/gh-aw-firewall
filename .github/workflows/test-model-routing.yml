@@ -1,0 +1,126 @@
+name: Model Routing Smoke Test
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/test-model-routing.yml'
+      - 'containers/api-proxy/routing-*'
+      - 'containers/api-proxy/fixtures/routing-contract/**'
+      - 'containers/api-proxy/server.js'
+      - 'containers/api-proxy/server-factory.js'
+      - 'containers/api-proxy/startup.js'
+      - 'containers/api-proxy/providers/copilot.js'
+      - 'src/routing/**'
+      - 'src/cli-workflow.ts'
+      - 'src/compose-generator.ts'
+      - 'src/commands/resolve-credentials.ts'
+      - 'src/config-file.ts'
+      - 'src/config-mapper.ts'
+      - 'src/schema-validator.ts'
+      - 'src/services/api-proxy-env-config.ts'
+      - 'src/services/api-proxy-service-config.ts'
+      - 'src/services/agent-environment/tool-specific-environment.ts'
+      - 'src/services/credentials/copilot-credential-env.ts'
+      - 'src/services/router-service.ts'
+      - 'tests/integration/model-routing.test.ts'
+  schedule:
+    - cron: '0 9 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  copilot-requests: write
+
+jobs:
+  model-routing:
+    name: Exercise live routing and Copilot inference
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build AWF
+        run: npm run build
+
+      - name: Show Docker versions
+        run: |
+          docker version
+          docker compose version
+
+      - name: Run router/API-proxy planning smoke
+        run: npm run test:integration -- --runInBand model-routing.test.ts
+
+      - name: Run a routed Copilot inference through AWF
+        env:
+          COPILOT_GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          ROUTING_DIR="${RUNNER_TEMP}/model-routing"
+          mkdir -m 700 -p "$ROUTING_DIR"
+          cat > "${ROUTING_DIR}/conversation.json" <<'JSON'
+          [{"role":"user","parts":[{"text":"Reply with exactly ROUTED_OK."}]}]
+          JSON
+          cat > "${ROUTING_DIR}/awf-config.yml" <<YAML
+          experimental:
+            modelRouting: true
+          network:
+            allowDomains:
+              - api.githubcopilot.com
+          apiProxy:
+            enabled: true
+            allowedModels:
+              - github-copilot/gpt-4o
+            routing:
+              objective:
+                goal: cost
+                mode: balanced
+              task:
+                conversationFile: ${ROUTING_DIR}/conversation.json
+          container:
+            images:
+              agent: ghcr.io/github/gh-aw-firewall/agent:0.28.25@sha256:25fbbefb92b690d4e6ef34de8df057c0349e6adf2b7486c0cc56954a8e9a3cd4
+              apiProxy: ghcr.io/github/gh-aw-firewall/api-proxy:0.28.25@sha256:c3c7082e73ba83052c580097e5a9c9c40a11e6f6b6fa0a4710e6859f83a62854
+              squid: ghcr.io/github/gh-aw-firewall/squid:0.28.25@sha256:94cac14372280dbf4a08d021d7b5810a9fd7d73c88802e04a9e05551b1cbcd09
+              router: ghcr.io/githubnext/gh-aw-router:latest@sha256:d1612d0eaec3fa8f14c38bbd0a6a0682732fc9f83b7fec94219d3e757a048270
+          YAML
+
+          ROUTED_COMMAND="$(cat <<'SCRIPT'
+          set -euo pipefail
+          test -n "${COPILOT_API_URL:-}" || { echo "COPILOT_API_URL is missing" >&2; exit 1; }
+          response="$(curl --fail --silent --show-error --max-time 120 \
+            -H "Content-Type: application/json" \
+            --data "{\"model\":\"gpt-4o\",\"messages\":[{\"role\":\"user\",\"content\":\"Reply with exactly ROUTED_OK.\"}],\"max_tokens\":16,\"stream\":false}" \
+            "${COPILOT_API_URL}/chat/completions")"
+          node -e '
+            const assert = require("node:assert/strict");
+            const result = JSON.parse(process.argv[1]);
+            const text = result.choices?.[0]?.message?.content;
+            assert.equal(typeof text, "string", "Copilot response contained no message text");
+            assert.match(text, /ROUTED_OK/, "Copilot did not return the expected smoke response");
+            console.log("ROUTED_COPILOT_INFERENCE=passed model=gpt-4o");
+          ' "$response"
+          SCRIPT
+          )"
+          sudo --preserve-env=COPILOT_GITHUB_TOKEN,GITHUB_WORKSPACE,HOME,PATH \
+            node dist/cli.js --config "${ROUTING_DIR}/awf-config.yml" -- bash -euc "$ROUTED_COMMAND"
+
+      - name: Show Docker state on failure
+        if: failure()
+        run: |
+          docker ps -a
+          docker network ls
