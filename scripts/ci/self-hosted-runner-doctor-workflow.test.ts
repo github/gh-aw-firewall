@@ -92,7 +92,7 @@ describe('self-hosted runner doctor workflow config', () => {
       expect(content).toContain('github/gh-aw-firewall#9100');
       expect(content).toContain('Alpine/musl');
       expect(content).toContain('`detectDnsResolutionFailure()`');
-      expect(content).toContain('`docker run --rm alpine nslookup awmg-cli-proxy`');
+      expect(content).toContain('docker run --rm alpine nslookup awmg-cli-proxy');
       expect(content).toContain('github/gh-aw-firewall#6326, github/gh-aw-firewall#6328');
       // B2 update — explicit upstream proxy port preserved
       expect(content).toContain('**Additional fix (PR github/gh-aw-firewall#8887, merged 2026-09-22, fixes github/gh-aw-firewall#8877):**');
