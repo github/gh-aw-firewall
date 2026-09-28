@@ -35,9 +35,16 @@ This directory contains comprehensive integration tests that verify firewall beh
 
 ### Integration Testing
 - **CLI Proxy** (`cli-proxy.test.ts`) - gh wrapper routing, token isolation, and opt-in approved-integrity live regression coverage
+- **Model Routing** (`model-routing.test.ts`) - Router health, capabilities, classifier, and route endpoints from the API-proxy network
 - **Claude Code** (`claude-code.test.ts`) - Claude Code CLI integration
 - **No Docker** (`no-docker.test.ts`) - Docker-in-Docker removal verification
 - **Docker Warning** (`docker-warning.test.ts`) - Docker command warning messages
+
+The model-routing smoke exercises the router's live planning API through the
+API-proxy container and prints a `MODEL_ROUTING_SMOKE` record with the router
+version and selected fixture choice. It validates router/network integration;
+it does not make an authenticated Copilot inference request or replace the
+host-bootstrap and request-enforcement tests.
 
 ## Smoke Tests
 
