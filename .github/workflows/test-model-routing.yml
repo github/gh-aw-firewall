@@ -1,16 +1,10 @@
-name: Model Routing Smoke Test
+name: Released Model Routing Compatibility Smoke
 
 on:
   push:
     branches: [main]
     paths:
       - '.github/workflows/test-model-routing.yml'
-      - 'containers/api-proxy/routing-*'
-      - 'containers/api-proxy/fixtures/routing-contract/**'
-      - 'containers/api-proxy/server.js'
-      - 'containers/api-proxy/server-factory.js'
-      - 'containers/api-proxy/startup.js'
-      - 'containers/api-proxy/providers/copilot.js'
       - 'src/routing/**'
       - 'src/cli-workflow.ts'
       - 'src/compose-generator.ts'
