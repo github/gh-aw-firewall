@@ -1,9 +1,7 @@
 import { createServer, IncomingMessage, Server, ServerResponse } from 'http';
 import { spawn } from 'child_process';
 import { once } from 'events';
-import { join } from 'path';
-
-const wrapper = join(process.cwd(), 'containers/agent/gh-cli-proxy-wrapper.sh');
+const wrapper = 'containers/agent/gh-cli-proxy-wrapper.sh';
 
 interface ProxyRequest {
   args: string[];

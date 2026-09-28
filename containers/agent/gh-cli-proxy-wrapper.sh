@@ -21,10 +21,10 @@ STDIN_DATA=""
 PREVIOUS_ARG=""
 for ARG in "$@"; do
   case "$ARG" in
-    -|--input=-|--body-file=-|*=@-) STDIN_DATA=$(base64 | tr -d '\n'); break ;;
+    --input=-|--body-file=-|--notes-file=-|*=@-) STDIN_DATA=$(base64 | tr -d '\n'); break ;;
   esac
   case "$PREVIOUS_ARG" in
-    --input|--body-file|*-file)
+    --input|--body-file|--notes-file)
       if [ "$ARG" = "-" ]; then
         STDIN_DATA=$(base64 | tr -d '\n')
         break
@@ -68,6 +68,9 @@ fi
 
 # Extract and emit stdout/stderr from a successful 200 response
 EXIT_CODE=$(jq -r '.exitCode // 1' "$RESPONSE_FILE" 2>/dev/null)
+case "$EXIT_CODE" in
+  ''|*[!0-9]*) EXIT_CODE=1 ;;
+esac
 
 jq -j '.stdout // empty' "$RESPONSE_FILE"
 jq -j '.stderr // empty' "$RESPONSE_FILE" >&2
