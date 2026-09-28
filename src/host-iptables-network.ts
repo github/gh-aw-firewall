@@ -56,14 +56,19 @@ export async function ensureFirewallNetwork(subnetOverride?: string): Promise<{
     const { stdout } = await execa('docker', [
       'network', 'inspect', NETWORK_NAME, '--format', '{{json .Options}}',
     ], { env: getLocalDockerEnv() });
-    const options = JSON.parse(stdout) as Record<string, string> | null;
+    let options: Record<string, string> | null;
+    try {
+      options = JSON.parse(stdout) as Record<string, string> | null;
+    } catch {
+      throw new Error(`Could not read bridge options for Docker network '${NETWORK_NAME}'; inspect the network before reusing it.`);
+    }
     if (!options?.['com.docker.network.bridge.name']) {
       const { stdout: containerCount } = await execa('docker', [
         'network', 'inspect', NETWORK_NAME, '--format', '{{len .Containers}}',
       ], { env: getLocalDockerEnv() });
       if (containerCount.trim() !== '0') {
         throw new Error(
-          `Docker network '${NETWORK_NAME}' has no bridge name and cannot be reused. ` +
+          `Docker network '${NETWORK_NAME}' has no bridge name and has ${containerCount.trim() || 'unknown'} attached container(s). ` +
           `Remove the stale network after detaching its containers (docker network rm ${NETWORK_NAME}).`,
         );
       }

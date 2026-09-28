@@ -125,7 +125,16 @@ describe('host-iptables (network)', () => {
         .mockResolvedValueOnce(execaResult({ stdout: '{}' }))
         .mockResolvedValueOnce(execaResult({ stdout: '1' }));
 
-      await expect(ensureFirewallNetwork()).rejects.toThrow(/awf-net.*docker network rm awf-net/);
+      await expect(ensureFirewallNetwork()).rejects.toThrow(/awf-net.*1 attached container\(s\).*docker network rm awf-net/);
+      expect(mockedExeca).not.toHaveBeenCalledWith('docker', ['network', 'rm', NETWORK_NAME], expect.anything());
+    });
+
+    it('fails safely when Docker returns malformed bridge options', async () => {
+      mockedExeca
+        .mockResolvedValueOnce(execaResult({ stdout: `${NETWORK_SUBNET} ` }))
+        .mockResolvedValueOnce(execaResult({ stdout: 'invalid options' }));
+
+      await expect(ensureFirewallNetwork()).rejects.toThrow(/Could not read bridge options for Docker network 'awf-net'/);
       expect(mockedExeca).not.toHaveBeenCalledWith('docker', ['network', 'rm', NETWORK_NAME], expect.anything());
     });
 
