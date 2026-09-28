@@ -91,6 +91,8 @@ describe('self-hosted runner doctor workflow config', () => {
       expect(content).toContain('`dns_search: []`');
       expect(content).toContain('github/gh-aw-firewall#9100');
       expect(content).toContain('Alpine/musl');
+      expect(content).toContain('nslookup awmg-cli-proxy.');
+      expect(content).toContain('`SERVFAIL`');
       expect(content).toContain('`detectDnsResolutionFailure()`');
       expect(content).toContain('docker run --rm alpine nslookup awmg-cli-proxy');
       expect(content).toContain('github/gh-aw-firewall#6326, github/gh-aw-firewall#6328');
@@ -264,7 +266,7 @@ describe('self-hosted runner doctor workflow config', () => {
 
     expect(source).toContain('- `unknown shorthand flag: \'d\' in -d` from `docker compose up -d` → A14 (DinD sidecar missing `docker-compose-plugin`)');
     expect(source).toContain('- `Rootless artifact permission repair failed` on ARC/DinD squid logs → A15 (`dockerHostPathPrefix` not applied to repair bind mount)');
-    expect(source).toContain('- `EAI_AGAIN` / `ENOTFOUND` resolving a topology-attached DIFC proxy (for example `awmg-cli-proxy`) in network-isolation + topology-attach: inherited Kubernetes `search` domains / `ndots:5`, or an unreachable resolver, match B12; if the peer resolves but the startup failure occurs before topology attachment, match B5');
+    expect(source).toContain('- `EAI_AGAIN` / `ENOTFOUND` resolving a topology-attached DIFC proxy (for example `awmg-cli-proxy`) in network-isolation + topology-attach: inherited Kubernetes `search` domains / `ndots:5`, or an unreachable resolver, match B12; if DNS works when checked after the peer is attached and no search/ndots issue is present, match B5');
     expect(source).toContain('- `403 ERR_ACCESS_DENIED` for MCP tool calls (`safeoutputs`, `github`) to `172.30.0.1/redacted` under `--container-runtime gvisor` or raw `runsc`; safe-output validation fails even though the agent completed → D8');
     expect(source).toContain('- credential files such as `~/.aws/credentials`, `~/.ssh/id_rsa`, or `~/.docker/config.json` are visible inside an `--container-runtime sbx` microVM → D9');
     expect(source).toContain('- `SIGABRT` / `signal=SIGABRT duration=0s stdout=0B` for Copilot CLI all retries under `--container-runtime gvisor`; or exit 139 / `Segmentation fault` on bash wrapper, often before any model or tool call → D11');
@@ -319,7 +321,7 @@ describe('self-hosted runner doctor workflow config', () => {
     expect(portableAgent).toContain('B31 / github/gh-aw#58458, github/gh-aw#58625, github/gh-aw-firewall#8141, github/gh-aw-firewall#8173 — Under `sandbox.agent.runtime: docker-sudo-iptables`');
     expect(portableAgent).toContain('- `unknown shorthand flag: \'d\' in -d` from `docker compose up -d` → A14 (DinD sidecar missing `docker-compose-plugin`)');
     expect(portableAgent).toContain('- `Rootless artifact permission repair failed` on ARC/DinD squid logs → A15 (`dockerHostPathPrefix` not applied to repair bind mount)');
-    expect(portableAgent).toContain('- `EAI_AGAIN` / `ENOTFOUND` resolving a topology-attached DIFC proxy (for example `awmg-cli-proxy`) in network-isolation + topology-attach: inherited Kubernetes `search` domains / `ndots:5`, or an unreachable resolver, match B12; if the peer resolves but the startup failure occurs before topology attachment, match B5');
+    expect(portableAgent).toContain('- `EAI_AGAIN` / `ENOTFOUND` resolving a topology-attached DIFC proxy (for example `awmg-cli-proxy`) in network-isolation + topology-attach: inherited Kubernetes `search` domains / `ndots:5`, or an unreachable resolver, match B12; if DNS works when checked after the peer is attached and no search/ndots issue is present, match B5');
     expect(portableAgent).toContain('- `403 ERR_ACCESS_DENIED` for MCP tool calls (`safeoutputs`, `github`) to `172.30.0.1/redacted` under `--container-runtime gvisor` or raw `runsc`; safe-output validation fails even though the agent completed → D8');
     expect(portableAgent).toContain('- credential files such as `~/.aws/credentials`, `~/.ssh/id_rsa`, or `~/.docker/config.json` are visible inside an `--container-runtime sbx` microVM → D9');
     expect(portableAgent).toContain('- `SIGABRT` / `signal=SIGABRT duration=0s stdout=0B` for Copilot CLI all retries under `--container-runtime gvisor`; or exit 139 / `Segmentation fault` on bash wrapper, often before any model or tool call → D11');
