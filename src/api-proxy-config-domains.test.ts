@@ -470,3 +470,73 @@ describe('resolveApiTargetsToAllowedDomains with GHES', () => {
     expect(domains).toContain('https://custom.copilot.com');
   });
 });
+
+describe('extractOtlpDomainsFromEnv (via resolveApiTargetsToAllowedDomains)', () => {
+  it('should return no OTLP domains when no OTEL env vars are set', () => {
+    const domains: string[] = [];
+    resolveApiTargetsToAllowedDomains({}, domains, {});
+    expect(domains).toHaveLength(0);
+  });
+
+  it('should auto-add the OTLP collector host from OTEL_EXPORTER_OTLP_ENDPOINT', () => {
+    const domains: string[] = ['github.com'];
+    const env = { OTEL_EXPORTER_OTLP_ENDPOINT: 'https://otel.example.com:4318' };
+    resolveApiTargetsToAllowedDomains({}, domains, env);
+    expect(domains).toContain('otel.example.com');
+  });
+
+  it('should auto-add per-signal OTLP endpoint hosts', () => {
+    const domains: string[] = [];
+    const env = {
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: 'https://traces.otel.example.com',
+      OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: 'https://metrics.otel.example.com',
+      OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: 'http://logs.otel.example.com',
+    };
+    resolveApiTargetsToAllowedDomains({}, domains, env);
+    expect(domains).toContain('traces.otel.example.com');
+    expect(domains).toContain('metrics.otel.example.com');
+    expect(domains).toContain('logs.otel.example.com');
+  });
+
+  it('should not duplicate the OTLP domain if already in allowlist', () => {
+    const domains: string[] = ['otel.example.com'];
+    const env = { OTEL_EXPORTER_OTLP_ENDPOINT: 'https://otel.example.com' };
+    resolveApiTargetsToAllowedDomains({}, domains, env);
+    expect(domains.filter(d => d === 'otel.example.com')).toHaveLength(1);
+  });
+
+  it('should not add a wildcard/subdomain entry, only the exact host', () => {
+    const domains: string[] = [];
+    const env = { OTEL_EXPORTER_OTLP_ENDPOINT: 'https://otel.example.com' };
+    resolveApiTargetsToAllowedDomains({}, domains, env);
+    expect(domains).toEqual(['otel.example.com']);
+    expect(domains).not.toContain('.otel.example.com');
+    expect(domains).not.toContain('example.com');
+  });
+
+  it('should ignore an invalid OTLP endpoint URL', () => {
+    const domains: string[] = [];
+    const env = { OTEL_EXPORTER_OTLP_ENDPOINT: 'not-a-valid-url' };
+    resolveApiTargetsToAllowedDomains({}, domains, env);
+    expect(domains).toHaveLength(0);
+  });
+
+  it('should ignore a non-http(s) OTLP endpoint scheme (e.g. bare gRPC host:port)', () => {
+    const domains: string[] = [];
+    const env = { OTEL_EXPORTER_OTLP_ENDPOINT: 'grpc://otel.example.com:4317' };
+    resolveApiTargetsToAllowedDomains({}, domains, env);
+    expect(domains).toHaveLength(0);
+  });
+
+  it('should combine OTLP domains with explicit API target domains', () => {
+    const domains: string[] = [];
+    const env = { OTEL_EXPORTER_OTLP_ENDPOINT: 'https://otel.example.com' };
+    resolveApiTargetsToAllowedDomains(
+      { copilotApiTarget: 'custom.copilot.com' },
+      domains,
+      env
+    );
+    expect(domains).toContain('otel.example.com');
+    expect(domains).toContain('https://custom.copilot.com');
+  });
+});

@@ -238,8 +238,14 @@ Any variable present in the host environment with the `OTEL_` prefix is passed t
 export OTEL_SERVICE_NAME=my-agent
 export OTEL_EXPORTER_OTLP_ENDPOINT=https://otel.example.com
 export OTEL_EXPORTER_OTLP_HEADERS="Authorization=Bearer $MY_OTEL_TOKEN"
-sudo -E awf --allow-domains otel.example.com -- agent-command
+sudo -E awf -- agent-command
 ```
+
+### Automatic OTLP endpoint allowlisting
+
+AWF automatically adds the OTLP collector hostname to the Squid allowlist when `OTEL_EXPORTER_OTLP_ENDPOINT` (or a per-signal `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` / `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` / `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT`) is set in the host environment — you no longer need to pass `--allow-domains` for the collector yourself. A debug log line (`--log-level debug`) records which host(s) were auto-added.
+
+Only the **exact hostname** parsed from the endpoint URL is allowed (no wildcard/subdomain expansion), and only `http://`/`https://` URLs are considered — a malformed URL, or a scheme AWF doesn't recognize (e.g. a bare gRPC `host:port` with no `http(s)://` prefix), is skipped and must still be added manually via `--allow-domains` if reachable over HTTP(S).
 
 ### Security: one-shot token protection for OTEL credentials
 
@@ -254,10 +260,11 @@ The following OTEL variables often carry bearer tokens or other credentials and 
 
 ### Network requirements
 
-- **OTLP/HTTP (`http/protobuf`, default):** Traffic goes through the Squid proxy on ports 80/443. Add the OTLP collector domain to `--allow-domains`:
+- **OTLP/HTTP (`http/protobuf`, default):** Traffic goes through the Squid proxy on ports 80/443. The collector domain is [auto-allowed](#automatic-otlp-endpoint-allowlisting) from `OTEL_EXPORTER_OTLP_ENDPOINT` / `_TRACES_ENDPOINT` / `_METRICS_ENDPOINT` / `_LOGS_ENDPOINT`, so no `--allow-domains` flag is normally required:
 
   ```bash
-  awf --allow-domains otel.example.com -- agent-command
+  export OTEL_EXPORTER_OTLP_ENDPOINT=https://otel.example.com
+  awf -- agent-command
   ```
 
 - **OTLP/gRPC (port 4317):** gRPC clients typically do not respect `HTTP_PROXY` env vars, and port 4317 is not covered by AWF's iptables DNAT rules (only 80/443). Traffic to port 4317 hits the default DROP rule and is blocked. Use `http/protobuf` protocol instead:

@@ -97,6 +97,68 @@ function extractGhesDomainsFromEngineApiTarget(
   return domains;
 }
 
+/** OTEL environment variables that carry an OTLP collector endpoint URL. */
+const OTLP_ENDPOINT_ENV_VARS = [
+  'OTEL_EXPORTER_OTLP_ENDPOINT',
+  'OTEL_EXPORTER_OTLP_TRACES_ENDPOINT',
+  'OTEL_EXPORTER_OTLP_METRICS_ENDPOINT',
+  'OTEL_EXPORTER_OTLP_LOGS_ENDPOINT',
+] as const;
+
+/**
+ * Extracts the OTLP collector hostname(s) from the OpenTelemetry exporter endpoint
+ * environment variables (`OTEL_EXPORTER_OTLP_ENDPOINT` and its per-signal
+ * `_TRACES_ENDPOINT` / `_METRICS_ENDPOINT` / `_LOGS_ENDPOINT` variants) so they can be
+ * auto-added to the Squid allowlist. Without this, OTLP exports are silently denied and
+ * show up as "blocked" entries in the firewall report unless the user manually adds the
+ * collector domain via `--allow-domains` (github/gh-aw-firewall#9182).
+ *
+ * Only `http:`/`https:` URLs are considered; only the exact hostname is added (no
+ * wildcard/subdomain expansion), matching the network-affecting scope documented in
+ * docs/environment.md.
+ *
+ * @param env - Environment variables (defaults to process.env)
+ * @returns De-duplicated array of OTLP collector hostnames, or an empty array if none set
+ */
+function extractOtlpDomainsFromEnv(
+  env: Record<string, string | undefined> = process.env
+): string[] {
+  const domains: string[] = [];
+  const rawValues = OTLP_ENDPOINT_ENV_VARS.map((varName): string | undefined => {
+    switch (varName) {
+      case 'OTEL_EXPORTER_OTLP_ENDPOINT': return env['OTEL_EXPORTER_OTLP_ENDPOINT'];
+      case 'OTEL_EXPORTER_OTLP_TRACES_ENDPOINT': return env['OTEL_EXPORTER_OTLP_TRACES_ENDPOINT'];
+      case 'OTEL_EXPORTER_OTLP_METRICS_ENDPOINT': return env['OTEL_EXPORTER_OTLP_METRICS_ENDPOINT'];
+      case 'OTEL_EXPORTER_OTLP_LOGS_ENDPOINT': return env['OTEL_EXPORTER_OTLP_LOGS_ENDPOINT'];
+    }
+  });
+
+  for (const value of rawValues) {
+    const rawValue = value?.trim();
+    if (!rawValue) continue;
+
+    let parsed: URL;
+    try {
+      parsed = new URL(rawValue);
+    } catch {
+      // Invalid URL — skip; downstream validation will surface a clear error if needed.
+      continue;
+    }
+
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      // Only http(s) OTLP/HTTP exporters route through Squid; gRPC (typically a bare
+      // host:port with no recognizable scheme) is not proxy-aware and is out of scope here.
+      continue;
+    }
+
+    if (!domains.includes(parsed.hostname)) {
+      domains.push(parsed.hostname);
+    }
+  }
+
+  return domains;
+}
+
 /**
  * Resolves API target values from CLI options and environment variables, and merges them
  * into the allowed domains list. Also ensures each target is present as an explicit URL entry
@@ -191,6 +253,19 @@ export function resolveApiTargetsToAllowedDomains(
       }
     }
     debug(`Auto-added GHES domains from engine.api-target: ${ghesDomains.join(', ')}`);
+  }
+
+  // Auto-populate the OTLP collector domain when OTEL_EXPORTER_OTLP_ENDPOINT (or a
+  // per-signal _TRACES_ENDPOINT / _METRICS_ENDPOINT / _LOGS_ENDPOINT variant) is set, so
+  // OpenTelemetry exports aren't denied/reported as blocked (gh-aw-firewall#9182).
+  const otlpDomains = extractOtlpDomainsFromEnv(env);
+  if (otlpDomains.length > 0) {
+    for (const domain of otlpDomains) {
+      if (!allowedDomains.includes(domain)) {
+        allowedDomains.push(domain);
+      }
+    }
+    debug(`Auto-added OTLP collector domain(s) from OTEL_EXPORTER_OTLP_*_ENDPOINT: ${otlpDomains.join(', ')}`);
   }
 
   // Merge API target values into the allowedDomains list so that later checks/logs about
