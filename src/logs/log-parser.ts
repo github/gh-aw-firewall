@@ -11,6 +11,10 @@
 
 import { ParsedLogEntry } from '../types';
 
+export function isNoneDecision(decision: string): boolean {
+  return decision.startsWith('NONE');
+}
+
 /**
  * Regex pattern for parsing Squid's firewall_detailed log format
  *
@@ -68,7 +72,7 @@ export function parseLogLine(line: string): ParsedLogEntry | null {
   // Treat anything not explicitly denied (TCP_DENIED) or noise (NONE) as allowed.
   // Covers TCP_TUNNEL, TCP_MISS, TCP_HIT, TCP_MEM_HIT, TCP_REFRESH_*, etc.
   const isDenied = decision.startsWith('TCP_DENIED');
-  const isNone = decision.startsWith('NONE');
+  const isNone = isNoneDecision(decision);
   const isAllowed = decision !== '' && !isDenied && !isNone;
   const isHttps = method === 'CONNECT';
 
@@ -166,7 +170,7 @@ export function parseAuditJsonlLine(line: string): ParsedLogEntry | null {
     // explicitly denied (TCP_DENIED) or operational noise (NONE) as allowed.
     const decision = typeof obj.decision === 'string' ? obj.decision : '';
     const isDenied = decision.startsWith('TCP_DENIED');
-    const isNone = decision.startsWith('NONE');
+    const isNone = isNoneDecision(decision);
     const isAllowed = decision !== '' && !isDenied && !isNone;
 
     // Parse dest into IP and port (handle IPv4, IPv6, and bracketed IPv6)

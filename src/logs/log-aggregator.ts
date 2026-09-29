@@ -6,7 +6,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import execa from 'execa';
 import { LogSource, ParsedLogEntry } from '../types';
-import { parseLogLine, parseAuditJsonlLine } from './log-parser';
+import { parseLogLine, parseAuditJsonlLine, isNoneDecision } from './log-parser';
 import { logger } from '../logger';
 import { isInternalAwfDomain } from './internal-domain-filter';
 import { readStartupDiagnostics } from './startup-diagnostics';
@@ -104,7 +104,7 @@ function aggregateLogs(
 
     // Skip entries without a Squid policy decision, including ssl_bump step1
     // peeks, healthchecks, and shutdown-time keep-alive connection closures.
-    if (entry.decision.startsWith('NONE')) {
+    if (isNoneDecision(entry.decision)) {
       continue;
     }
 

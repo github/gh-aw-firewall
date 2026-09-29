@@ -5,6 +5,7 @@
 import { enrichWithPolicyRules, computeRuleStats, EnrichedLogEntry } from './audit-enricher';
 import { PolicyRule } from '../types';
 import { makeEntry, makeManifest } from './audit-enricher.test-utils';
+import { logAggregatorTestHelpers } from './log-aggregator';
 
 const allowRule = (overrides: Partial<PolicyRule> = {}): PolicyRule => ({
   id: 'allow-both-plain',
@@ -229,6 +230,26 @@ describe('enrichWithPolicyRules – uncovered branches', () => {
 });
 
 describe('computeRuleStats – uncovered branches', () => {
+  it('excludes NONE decisions so manifest rule hits reconcile with aggregated totals', () => {
+    const manifest = makeManifest([allowRule(), denyAll()]);
+    const entries = [
+      makeEntry({ domain: 'github.com' }),
+      makeEntry({
+        domain: 'github.com',
+        decision: 'NONE_NONE:HIER_NONE',
+        isAllowed: false,
+      }),
+    ];
+
+    const aggregate = logAggregatorTestHelpers.aggregateLogs(entries);
+    const ruleStats = computeRuleStats(enrichWithPolicyRules(entries, manifest), manifest);
+
+    expect(aggregate.totalRequests).toBe(1);
+    expect(ruleStats.reduce((total, rule) => total + rule.hits, 0)).toBe(aggregate.totalRequests);
+    expect(ruleStats.find(rule => rule.ruleId === 'allow-both-plain')?.hits).toBe(1);
+    expect(ruleStats.find(rule => rule.ruleId === 'deny-default')?.hits).toBe(0);
+  });
+
   it('skips entries with url "error:transaction-end-before-headers"', () => {
     const manifest = makeManifest([allowRule(), denyAll()]);
     const entries: EnrichedLogEntry[] = [

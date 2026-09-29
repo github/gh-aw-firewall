@@ -32,6 +32,7 @@ import {
   runLogsCommand,
 } from './logs-command-helpers';
 import type { LogSource, PolicyManifest } from '../types';
+import { createLogEntry } from '../logs/log-test-fixtures.test-utils';
 
 const MINIMAL_MANIFEST: PolicyManifest = {
   version: 1,
@@ -179,5 +180,60 @@ describe('runLogsCommand - policy manifest enrichment', () => {
       MINIMAL_MANIFEST
     );
     expect(auditEnricher.computeRuleStats).toHaveBeenCalledWith(fakeEntries, MINIMAL_MANIFEST);
+  });
+
+  it('excludes NONE entries from manifest-enabled summary rule hits', async () => {
+    const manifest: PolicyManifest = {
+      ...MINIMAL_MANIFEST,
+      rules: [{
+        id: 'deny-default',
+        order: 1,
+        action: 'deny',
+        aclName: 'all',
+        protocol: 'both',
+        domains: [],
+        description: 'Deny all',
+      }],
+    };
+    fs.writeFileSync(path.join(tempDir, 'policy-manifest.json'), JSON.stringify(manifest));
+
+    const source: LogSource = { type: 'preserved', path: tempDir };
+    const entries = [
+      createLogEntry({ domain: 'blocked.example', url: 'blocked.example:443', isAllowed: false, decision: 'TCP_DENIED:HIER_NONE' }),
+      createLogEntry({ domain: 'github.com', url: 'github.com:443', isAllowed: false, decision: 'NONE_NONE:HIER_NONE' }),
+    ];
+    const realAuditEnricher = jest.requireActual<typeof import('../logs/audit-enricher')>(
+      '../logs/audit-enricher'
+    );
+
+    (logDiscovery.discoverLogSources as jest.Mock).mockResolvedValue([source]);
+    (logDiscovery.selectMostRecent as jest.Mock).mockReturnValue(source);
+    (logAggregator.loadAndAggregate as jest.Mock).mockResolvedValue({
+      totalRequests: 1,
+      allowedRequests: 0,
+      deniedRequests: 1,
+      uniqueDomains: 1,
+      byDomain: new Map(),
+      timeRange: null,
+    });
+    (logAggregator.loadAllLogs as jest.Mock).mockResolvedValue(entries);
+    (auditEnricher.enrichWithPolicyRules as jest.Mock).mockImplementation(
+      realAuditEnricher.enrichWithPolicyRules
+    );
+    (auditEnricher.computeRuleStats as jest.Mock).mockImplementation(
+      realAuditEnricher.computeRuleStats
+    );
+    (statsFormatter.formatStats as jest.Mock).mockReturnValue('formatted output');
+
+    await runLogsCommand({ format: 'json' }, () => false);
+
+    expect(statsFormatter.formatStats).toHaveBeenCalledWith(
+      expect.objectContaining({
+        totalRequests: 1,
+        byRule: [expect.objectContaining({ ruleId: 'deny-default', hits: 1 })],
+      }),
+      'json',
+      false
+    );
   });
 });
