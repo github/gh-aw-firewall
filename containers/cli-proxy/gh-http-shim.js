@@ -182,6 +182,9 @@ function createShimHandler(upstream, options = {}) {
       sendShimError(res, `cli-proxy could not reach DIFC proxy: ${err.message}`);
     });
     req.on('error', () => upstreamReq.destroy());
+    res.on('close', () => {
+      if (!res.writableEnded) upstreamReq.destroy();
+    });
     req.pipe(upstreamReq);
   };
 }
