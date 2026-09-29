@@ -1,31 +1,19 @@
 import { generateDockerCompose } from './compose-generator';
-import { WrapperConfig } from './types';
-import { baseConfig, mockNetworkConfig } from './test-helpers/docker-test-fixtures.test-utils';
-import * as fs from 'fs';
-import * as os from 'os';
-import * as path from 'path';
+import { mockNetworkConfig } from './test-helpers/docker-test-fixtures.test-utils';
+import { setupComposeTestFixture } from './test-helpers/compose-test-fixture.test-utils';
 
 // This mock must remain per-file because jest.mock() is hoisted before imports.
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 jest.mock('execa', () => require('./test-helpers/mock-execa.test-utils').execaMockFactory());
 
-let mockConfig: WrapperConfig;
-
-beforeEach(() => {
-  mockConfig = { ...baseConfig, workDir: fs.mkdtempSync(path.join(os.tmpdir(), 'awf-test-')) };
-});
-
-afterEach(() => {
-  fs.rmSync(mockConfig.workDir, { recursive: true, force: true });
-});
+const fixture = setupComposeTestFixture();
 
 describe('generateDockerCompose: gVisor runtime (non-iptables compose agent)', () => {
   it('omits iptables-init but keeps the compose agent when networkIsolation is false', () => {
-    const config = {
-      ...mockConfig,
+    const config = fixture.withConfig({
       containerRuntime: 'gvisor',
       networkIsolation: false,
-    };
+    });
     const result = generateDockerCompose(config, mockNetworkConfig);
 
     expect(result.services.agent).toBeDefined();
@@ -33,11 +21,10 @@ describe('generateDockerCompose: gVisor runtime (non-iptables compose agent)', (
   });
 
   it('sets AWF_SKIP_IPTABLES_INIT (not AWF_NETWORK_ISOLATION) in the agent environment', () => {
-    const config = {
-      ...mockConfig,
+    const config = fixture.withConfig({
       containerRuntime: 'gvisor',
       networkIsolation: false,
-    };
+    });
     const result = generateDockerCompose(config, mockNetworkConfig);
 
     expect(result.services.agent.environment?.AWF_SKIP_IPTABLES_INIT).toBe('1');
@@ -45,11 +32,10 @@ describe('generateDockerCompose: gVisor runtime (non-iptables compose agent)', (
   });
 
   it('treats the raw runsc runtime name the same as gvisor', () => {
-    const config = {
-      ...mockConfig,
+    const config = fixture.withConfig({
       containerRuntime: 'runsc',
       networkIsolation: false,
-    };
+    });
     const result = generateDockerCompose(config, mockNetworkConfig);
 
     expect(result.services.agent).toBeDefined();
@@ -60,12 +46,11 @@ describe('generateDockerCompose: gVisor runtime (non-iptables compose agent)', (
 
 describe('generateDockerCompose: microVM runtime (sbx)', () => {
   it('omits compose agent and agent-only helper services', () => {
-    const config = {
-      ...mockConfig,
+    const config = fixture.withConfig({
       containerRuntime: 'sbx',
       runnerTopology: 'arc-dind' as const,
       networkIsolation: false,
-    };
+    });
     const result = generateDockerCompose(config, mockNetworkConfig);
 
     expect(result.services.agent).toBeUndefined();
@@ -75,13 +60,12 @@ describe('generateDockerCompose: microVM runtime (sbx)', () => {
   });
 
   it('publishes api-proxy ports when api-proxy is enabled', () => {
-    const config = {
-      ...mockConfig,
+    const config = fixture.withConfig({
       containerRuntime: 'sbx',
       runnerTopology: 'arc-dind' as const,
       networkIsolation: false,
       enableApiProxy: true,
-    };
+    });
     const networkWithProxy = {
       ...mockNetworkConfig,
       proxyIp: '172.30.0.30',
@@ -98,13 +82,12 @@ describe('generateDockerCompose: microVM runtime (sbx)', () => {
   });
 
   it('attaches api-proxy to awf-ext in network-isolation mode for port publishing', () => {
-    const config = {
-      ...mockConfig,
+    const config = fixture.withConfig({
       containerRuntime: 'sbx',
       runnerTopology: 'arc-dind' as const,
       networkIsolation: true,
       enableApiProxy: true,
-    };
+    });
     const networkWithProxy = {
       ...mockNetworkConfig,
       proxyIp: '172.30.0.30',

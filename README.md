@@ -104,6 +104,8 @@ See [GitHub Actions](docs/github_actions.md) for advanced setup and `awf logs su
 - Run tests: `npm test`
 - Build: `npm run build`
 
+The [model-routing smoke workflow](.github/workflows/test-model-routing.yml) checks compatibility with digest-pinned released router and API-proxy images; API-proxy source changes are covered by the API-proxy unit-test job instead.
+
 ## Contributing
 
 Contributions welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.

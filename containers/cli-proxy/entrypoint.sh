@@ -11,6 +11,7 @@ echo "[cli-proxy] Starting CLI proxy sidecar..."
 
 NODE_PID=""
 TUNNEL_PID=""
+SHIM_PID=""
 
 # External DIFC proxy host and port, set by docker-manager.ts
 DIFC_HOST="${AWF_DIFC_PROXY_HOST:-host.docker.internal}"
@@ -66,6 +67,31 @@ export SSL_CERT_FILE="${COMBINED_CA}"
 export GIT_SSL_CAINFO="${COMBINED_CA}"
 
 echo "[cli-proxy] gh CLI configured to route through DIFC proxy at ${GH_HOST}"
+
+# gh treats GH_HOST=localhost:<port> as GitHub Enterprise Server, so search
+# feature detection reads installed_version from /api/v3/meta, which the
+# github.com-backed DIFC proxy does not return ("malformed version: ").
+# Route gh API requests through a local Unix-socket shim that forwards them to
+# GH_HOST unchanged and fills in installed_version on /meta responses.
+if [ "${AWF_CLI_PROXY_MODE:-primary}" != "enclave" ]; then
+  GH_HTTP_SHIM_DIR="/tmp/gh-http-shim"
+  GH_HTTP_SHIM_SOCKET="${GH_HTTP_SHIM_DIR}/gh.sock"
+  export GH_CONFIG_DIR="/tmp/gh-config"
+  mkdir -p -m 0700 "${GH_HTTP_SHIM_DIR}" "${GH_CONFIG_DIR}"
+  printf 'http_unix_socket: %s\n' "${GH_HTTP_SHIM_SOCKET}" > "${GH_CONFIG_DIR}/config.yml"
+  node /app/gh-http-shim.js "${GH_HTTP_SHIM_SOCKET}" &
+  SHIM_PID=$!
+  SHIM_WAIT=0
+  while [ ! -S "${GH_HTTP_SHIM_SOCKET}" ]; do
+    if [ "${SHIM_WAIT}" -ge 50 ] || ! kill -0 "${SHIM_PID}" 2>/dev/null; then
+      echo "[cli-proxy] ERROR: gh HTTP shim did not start at ${GH_HTTP_SHIM_SOCKET}"
+      exit 1
+    fi
+    sleep 0.1
+    SHIM_WAIT=$((SHIM_WAIT + 1))
+  done
+  echo "[cli-proxy] gh HTTP shim listening at ${GH_HTTP_SHIM_SOCKET}"
+fi
 
 # Probe external DIFC proxy liveness before serving agent traffic.
 # Retries with exponential backoff to handle transient startup delays.
@@ -175,6 +201,10 @@ cleanup() {
   if [ -n "$TUNNEL_PID" ]; then
     kill "$TUNNEL_PID" 2>/dev/null || true
     wait "$TUNNEL_PID" 2>/dev/null || true
+  fi
+  if [ -n "$SHIM_PID" ]; then
+    kill "$SHIM_PID" 2>/dev/null || true
+    wait "$SHIM_PID" 2>/dev/null || true
   fi
 }
 trap 'cleanup; exit 0' INT TERM

@@ -69,6 +69,20 @@ function snapshot(): NvxArtifactSnapshot {
   };
 }
 
+function signedManifestReader(signer: string): NvxPreflightDependencies['readFile'] {
+  const signedManifest = manifest().replace(NVX_ARTIFACT_SIGNER_WORKFLOW, signer);
+  return jest.fn(async (filePath: string) => {
+    if (filePath === '/sys/fs/cgroup/cgroup.controllers') return 'cpu memory pids';
+    if (filePath === '/proc/sys/kernel/seccomp/actions_avail') {
+      return 'kill_process kill_thread errno';
+    }
+    if (filePath === options.manifestPath || filePath === snapshot().manifestPath) {
+      return signedManifest;
+    }
+    throw new Error(`unexpected read: ${filePath}`);
+  });
+}
+
 function dependencies(overrides: Partial<NvxPreflightDependencies> = {}):
 NvxPreflightDependencies {
   return {
@@ -166,49 +180,12 @@ describe('NVX preflight', () => {
     });
   });
 
-  it('accepts an explicitly pinned validation workflow without weakening the default', async () => {
-    const signer = NVX_VALIDATION_SIGNER_WORKFLOW;
-    const signedManifest = manifest().replace(NVX_ARTIFACT_SIGNER_WORKFLOW, signer);
-    const deps = dependencies({
-      readFile: jest.fn(async (filePath) => {
-        if (filePath === '/sys/fs/cgroup/cgroup.controllers') return 'cpu memory pids';
-        if (filePath === '/proc/sys/kernel/seccomp/actions_avail') {
-          return 'kill_process kill_thread errno';
-        }
-        if (filePath === options.manifestPath || filePath === snapshot().manifestPath) {
-          return signedManifest;
-        }
-        throw new Error(`unexpected read: ${filePath}`);
-      }),
-    });
-
-    await runNvxPreflight({ ...options, expectedSignerWorkflow: signer }, deps);
-
-    expect(deps.verifyAttestation).toHaveBeenCalledWith(
-      '/usr/bin/gh',
-      snapshot().manifestPath,
-      snapshot().bundlePath,
-      signer,
-    );
-  });
-
   it.each([
+    ['validation', NVX_VALIDATION_SIGNER_WORKFLOW],
     ['Copilot smoke', NVX_SMOKE_SIGNER_WORKFLOW],
     ['build-test smoke', NVX_BUILD_TEST_SIGNER_WORKFLOW],
   ])('accepts the explicitly pinned %s workflow without weakening the default', async (_label, signer) => {
-    const signedManifest = manifest().replace(NVX_ARTIFACT_SIGNER_WORKFLOW, signer);
-    const deps = dependencies({
-      readFile: jest.fn(async (filePath) => {
-        if (filePath === '/sys/fs/cgroup/cgroup.controllers') return 'cpu memory pids';
-        if (filePath === '/proc/sys/kernel/seccomp/actions_avail') {
-          return 'kill_process kill_thread errno';
-        }
-        if (filePath === options.manifestPath || filePath === snapshot().manifestPath) {
-          return signedManifest;
-        }
-        throw new Error(`unexpected read: ${filePath}`);
-      }),
-    });
+    const deps = dependencies({ readFile: signedManifestReader(signer) });
 
     await runNvxPreflight({ ...options, expectedSignerWorkflow: signer }, deps);
 

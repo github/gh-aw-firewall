@@ -1,23 +1,12 @@
 import { generateDockerCompose } from './compose-generator';
-import { WrapperConfig } from './types';
-import { baseConfig, mockNetworkConfig } from './test-helpers/docker-test-fixtures.test-utils';
-import * as fs from 'fs';
-import * as os from 'os';
-import * as path from 'path';
+import { mockNetworkConfig } from './test-helpers/docker-test-fixtures.test-utils';
+import { setupComposeTestFixture } from './test-helpers/compose-test-fixture.test-utils';
 
 // This mock must remain per-file because jest.mock() is hoisted before imports.
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 jest.mock('execa', () => require('./test-helpers/mock-execa.test-utils').execaMockFactory());
 
-let mockConfig: WrapperConfig;
-
-beforeEach(() => {
-  mockConfig = { ...baseConfig, workDir: fs.mkdtempSync(path.join(os.tmpdir(), 'awf-test-')) };
-});
-
-afterEach(() => {
-  fs.rmSync(mockConfig.workDir, { recursive: true, force: true });
-});
+const fixture = setupComposeTestFixture();
 
 // Regression: `filesystem.allowWrite` is expressed in guest-visible paths,
 // and each runtime realises those paths differently. Compose generation
@@ -29,11 +18,10 @@ afterEach(() => {
 // during writeConfigs() -- long before the Cloud Hypervisor planner ran.
 describe('generateDockerCompose: filesystem.allowWrite runtime gating', () => {
   it('does not apply the compose write policy to Cloud Hypervisor guest paths', () => {
-    const microVmConfig = {
-      ...mockConfig,
+    const microVmConfig = fixture.withConfig({
       containerRuntime: 'cloud-hypervisor',
       filesystemAllowWrite: ['/workspace/allowed', '/tmp/gh-aw/agent'],
-    };
+    });
 
     expect(() => generateDockerCompose(microVmConfig, mockNetworkConfig)).not.toThrow();
 
@@ -50,7 +38,7 @@ describe('generateDockerCompose: filesystem.allowWrite runtime gating', () => {
           ((service.volumes ?? []) as string[]).map((volume) => `${name} ${volume}`))
         .sort();
     const unpoliced = generateDockerCompose(
-      { ...mockConfig, containerRuntime: 'cloud-hypervisor' },
+      fixture.withConfig({ containerRuntime: 'cloud-hypervisor' }),
       mockNetworkConfig,
     );
     expect(allVolumes(policed)).toEqual(allVolumes(unpoliced));
@@ -58,11 +46,10 @@ describe('generateDockerCompose: filesystem.allowWrite runtime gating', () => {
 
   it('still enforces the compose write policy for Docker and gVisor', () => {
     for (const containerRuntime of [undefined, 'docker', 'gvisor']) {
-      const composeConfig = {
-        ...mockConfig,
+      const composeConfig = fixture.withConfig({
         ...(containerRuntime ? { containerRuntime } : {}),
         filesystemAllowWrite: [],
-      };
+      });
       const volumes = generateDockerCompose(composeConfig, mockNetworkConfig)
         .services.agent.volumes as string[];
 
