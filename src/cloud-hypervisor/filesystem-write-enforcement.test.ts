@@ -167,4 +167,100 @@ describe('Cloud Hypervisor filesystem write enforcement translation', () => {
     expect(() => planCloudHypervisorFilesystemWriteEnforcement(exports, ['relative/path']))
       .toThrow("filesystem.allowWrite path must be absolute without '..'");
   });
+
+  describe('mcpg log directory masking', () => {
+    let mcpLogsSource: string;
+
+    beforeEach(async () => {
+      mcpLogsSource = path.join(tmpGhAwSource, 'mcp-logs');
+      await fs.mkdir(mcpLogsSource, { recursive: true });
+    });
+
+    it('adds a masks-only plan for /tmp/gh-aw/mcp-logs when no write policy is set', () => {
+      const result = planCloudHypervisorFilesystemWriteEnforcement(exports, undefined);
+
+      expect(result.mountEnforcement?.plans).toEqual([
+        { tag: 'runner-tool-cache', writableOverlays: [] },
+        {
+          tag: 'tmp-gh-aw',
+          writableOverlays: [],
+          maskedPaths: [{ destination: mcpLogsSource }],
+        },
+      ]);
+    });
+
+    it('merges the mask into the existing tmp-gh-aw plan under a restrictive allowlist', () => {
+      const result = planCloudHypervisorFilesystemWriteEnforcement(exports, ['/tmp/gh-aw/agent']);
+
+      expect(result.mountEnforcement?.plans).toEqual([
+        { tag: 'workspace', writableOverlays: [] },
+        { tag: 'runner-tool-cache', writableOverlays: [] },
+        {
+          tag: 'tmp-gh-aw',
+          writableOverlays: [{
+            source: path.join(tmpGhAwSource, 'agent'),
+            destination: path.join(tmpGhAwSource, 'agent'),
+            kind: 'directory',
+          }],
+          maskedPaths: [{ destination: mcpLogsSource }],
+        },
+      ]);
+    });
+
+    it('still masks mcp-logs when /tmp/gh-aw is wholly allowed and would otherwise have no plan', () => {
+      const result = planCloudHypervisorFilesystemWriteEnforcement(
+        exports,
+        ['/workspace', '/tmp/gh-aw'],
+      );
+
+      expect(result.mountEnforcement?.plans).toEqual([
+        { tag: 'runner-tool-cache', writableOverlays: [] },
+        {
+          tag: 'tmp-gh-aw',
+          writableOverlays: [],
+          maskedPaths: [{ destination: mcpLogsSource }],
+        },
+      ]);
+    });
+
+    it('skips masking when /tmp/gh-aw is not an export', () => {
+      const withoutTmpGhAw = exports.filter((entry) => entry.tag !== 'tmp-gh-aw');
+      const result = planCloudHypervisorFilesystemWriteEnforcement(withoutTmpGhAw, undefined);
+
+      expect(result.mountEnforcement).toEqual({
+        plans: [{ tag: 'runner-tool-cache', writableOverlays: [] }],
+      });
+    });
+
+    it('skips masking when mcp-logs does not exist', async () => {
+      await fs.rm(mcpLogsSource, { recursive: true, force: true });
+      const result = planCloudHypervisorFilesystemWriteEnforcement(exports, undefined);
+
+      expect(result.mountEnforcement).toEqual({
+        plans: [{ tag: 'runner-tool-cache', writableOverlays: [] }],
+      });
+    });
+
+    it('skips masking when mcp-logs is a symlink rather than a real directory', async () => {
+      await fs.rm(mcpLogsSource, { recursive: true, force: true });
+      const realTarget = path.join(directory, 'elsewhere-mcp-logs');
+      await fs.mkdir(realTarget, { recursive: true });
+      await fs.symlink(realTarget, mcpLogsSource);
+      const result = planCloudHypervisorFilesystemWriteEnforcement(exports, undefined);
+
+      expect(result.mountEnforcement).toEqual({
+        plans: [{ tag: 'runner-tool-cache', writableOverlays: [] }],
+      });
+    });
+
+    it('skips masking when mcp-logs exists but is a file', async () => {
+      await fs.rm(mcpLogsSource, { recursive: true, force: true });
+      await fs.writeFile(mcpLogsSource, 'not a directory');
+      const result = planCloudHypervisorFilesystemWriteEnforcement(exports, undefined);
+
+      expect(result.mountEnforcement).toEqual({
+        plans: [{ tag: 'runner-tool-cache', writableOverlays: [] }],
+      });
+    });
+  });
 });

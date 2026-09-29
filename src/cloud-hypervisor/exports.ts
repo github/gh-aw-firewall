@@ -36,6 +36,9 @@ const WORKSPACE_EXPORT_TAG = 'workspace';
 /** Tag of the mandatory workspace export. */
 export const CLOUD_HYPERVISOR_WORKSPACE_EXPORT_TAG = WORKSPACE_EXPORT_TAG;
 
+/** Tag of the optional `/tmp/gh-aw` export shared with the host firewall/MCP tooling. */
+export const CLOUD_HYPERVISOR_TMP_GH_AW_EXPORT_TAG = 'tmp-gh-aw';
+
 export interface CloudHypervisorExportValidationOptions {
   /**
    * Permits the workspace export to be *published* read-only.
@@ -91,6 +94,11 @@ export async function resolveCloudHypervisorExports(
     });
   }
   candidates.push({
+    // Local literal, not the CLOUD_HYPERVISOR_TMP_GH_AW_EXPORT_TAG constant:
+    // this function declares a local `exports` binding later, which shadows
+    // the CommonJS module object, so referencing an exported const here would
+    // compile to `exports.<name>` and throw a TDZ error (see the comment on
+    // WORKSPACE_EXPORT_TAG above for the same reason `'workspace'` is inlined).
     tag: 'tmp-gh-aw',
     source: '/tmp/gh-aw',
     target: '/tmp/gh-aw',

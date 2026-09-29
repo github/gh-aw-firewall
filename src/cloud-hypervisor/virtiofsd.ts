@@ -24,6 +24,7 @@ export type {
   MountTreeDependencies,
   MountTreeStats,
   VirtiofsdExportMountPlan,
+  VirtiofsdMaskOverlay,
   VirtiofsdMountEnforcement,
   VirtiofsdOverlayKind,
   VirtiofsdWritableOverlay,

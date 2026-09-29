@@ -1,4 +1,7 @@
+import * as fs from 'fs';
+import * as path from 'path';
 import {
+  CLOUD_HYPERVISOR_TMP_GH_AW_EXPORT_TAG,
   CLOUD_HYPERVISOR_WORKSPACE_EXPORT_TAG,
   type CloudHypervisorDirectoryExport,
 } from './exports';
@@ -11,6 +14,9 @@ import type {
   VirtiofsdExportMountPlan,
   VirtiofsdMountEnforcement,
 } from './mount-tree';
+
+/** Relative path, inside the `tmp-gh-aw` export, of mcpg's log directory. */
+const MCP_LOGS_RELATIVE_PATH = 'mcp-logs';
 
 /**
  * Translation layer between the pure `filesystem.allowWrite` planner
@@ -77,11 +83,10 @@ export function toCloudHypervisorFilesystemWriteEnforcement(
     const mandatoryPlans = exports
       .filter((entry) => entry.tag === 'runner-tool-cache' && entry.mode === 'ro')
       .map((entry) => ({ tag: entry.tag, writableOverlays: [] }));
+    const plans = withMcpLogsMask(exports, mandatoryPlans);
     return {
       exports,
-      ...(mandatoryPlans.length > 0
-        ? { mountEnforcement: { plans: mandatoryPlans } }
-        : {}),
+      ...(plans.length > 0 ? { mountEnforcement: { plans } } : {}),
       writeBoundary: [],
     };
   }
@@ -110,9 +115,67 @@ export function toCloudHypervisorFilesystemWriteEnforcement(
 
   return {
     exports: publishedExports,
-    mountEnforcement: { plans },
+    mountEnforcement: { plans: withMcpLogsMask(publishedExports, plans) },
     writeBoundary: summarizeCloudHypervisorFilesystemWriteBoundary(plan),
   };
+}
+
+/**
+ * Merges a mask for mcpg's log directory into the `tmp-gh-aw` export's mount
+ * plan, adding a masks-only plan when that export otherwise has none.
+ *
+ * MCP Gateway logs the full, pre-filter tool-call payload to
+ * `/tmp/gh-aw/mcp-logs` by default. That directory sits inside the `tmp-gh-aw`
+ * virtiofs export, which the guest can otherwise read regardless of
+ * `filesystem.allowWrite` -- narrowing write access does nothing to narrow
+ * read access. Masking the directory closes that read path independently of
+ * whether the export ends up read-only, read-write, or selectively writable.
+ *
+ * Applied unconditionally (not just when `filesystem.allowWrite` is set)
+ * because the exposure exists on every run, and only when the directory is
+ * confirmed to exist as a real, non-symlinked directory so a missing or
+ * unusual host layout degrades to no masking rather than a hard failure.
+ */
+function withMcpLogsMask(
+  exports: readonly CloudHypervisorDirectoryExport[],
+  plans: readonly VirtiofsdExportMountPlan[],
+): VirtiofsdExportMountPlan[] {
+  const maskDestination = resolveMcpLogsMaskDestination(exports);
+  if (!maskDestination) return [...plans];
+  const index = plans.findIndex((entry) => entry.tag === CLOUD_HYPERVISOR_TMP_GH_AW_EXPORT_TAG);
+  if (index === -1) {
+    return [
+      ...plans,
+      {
+        tag: CLOUD_HYPERVISOR_TMP_GH_AW_EXPORT_TAG,
+        writableOverlays: [],
+        maskedPaths: [{ destination: maskDestination }],
+      },
+    ];
+  }
+  const existing = plans[index];
+  const merged = [...plans];
+  merged[index] = {
+    ...existing,
+    maskedPaths: [...(existing.maskedPaths ?? []), { destination: maskDestination }],
+  };
+  return merged;
+}
+
+function resolveMcpLogsMaskDestination(
+  exports: readonly CloudHypervisorDirectoryExport[],
+): string | undefined {
+  const tmpGhAw = exports.find((entry) => entry.tag === CLOUD_HYPERVISOR_TMP_GH_AW_EXPORT_TAG);
+  if (!tmpGhAw) return undefined;
+  const candidate = path.join(tmpGhAw.source, MCP_LOGS_RELATIVE_PATH);
+  try {
+    const resolved = fs.realpathSync(candidate);
+    if (resolved !== candidate) return undefined;
+    if (!fs.statSync(resolved).isDirectory()) return undefined;
+    return resolved;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
