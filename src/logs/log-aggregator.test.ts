@@ -180,6 +180,32 @@ describe('log-aggregator', () => {
       expectOnlyValidTunnelStats(stats);
     });
 
+    it('should filter out ssl_bump step1 and other NONE decision entries', () => {
+      const [first, second] = validTunnelEntries();
+      const entries: ParsedLogEntry[] = [
+        first,
+        createLogEntry({
+          domain: 'github.com',
+          url: 'github.com:443',
+          decision: 'NONE_NONE:HIER_NONE',
+          statusCode: 0,
+          isAllowed: false,
+        }),
+        second,
+        createLogEntry({
+          domain: 'upstream-blocked.example',
+          url: 'error:transaction-end-before-headers',
+          decision: 'NONE_MISS:HIER_DIRECT',
+          statusCode: 0,
+          isAllowed: false,
+        }),
+      ];
+
+      const stats = aggregateLogs(entries);
+
+      expectOnlyValidTunnelStats(stats);
+    });
+
     it('should still count time range from all entries including filtered ones', () => {
       const entries: ParsedLogEntry[] = [
         createLogEntry({ 

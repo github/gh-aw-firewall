@@ -8,7 +8,8 @@
 
 import chalk from 'chalk';
 import type { LogStatsFormat, PolicyManifest } from '../types';
-import { loadAllLogs, isSkippableLogEntry } from '../logs/log-aggregator';
+import { loadAllLogs } from '../logs/log-aggregator';
+import { isNoneDecision } from '../logs/log-parser';
 import { enrichWithPolicyRules, computeRuleStats, EnrichedLogEntry } from '../logs/audit-enricher';
 import {
   discoverAndSelectSource,
@@ -66,7 +67,7 @@ function formatAuditMarkdown(entries: EnrichedLogEntry[], manifest: PolicyManife
   }
 
   // Denied requests detail
-  const denied = entries.filter(e => !e.isAllowed && !isSkippableLogEntry(e));
+  const denied = entries.filter(e => !e.isAllowed && e.url !== 'error:transaction-end-before-headers');
   if (denied.length > 0) {
     lines.push('\n### Denied Requests\n');
     lines.push('| Timestamp | Domain | Rule | Reason |');
@@ -106,7 +107,7 @@ function formatAuditPretty(entries: EnrichedLogEntry[], manifest: PolicyManifest
   }
 
   // Denied requests
-  const denied = entries.filter(e => !e.isAllowed && !isSkippableLogEntry(e));
+  const denied = entries.filter(e => !e.isAllowed && e.url !== 'error:transaction-end-before-headers');
   if (denied.length > 0) {
     lines.push('');
     lines.push(c.bold(`Denied Requests (${denied.length}):`));
@@ -132,8 +133,8 @@ export async function auditCommand(options: AuditCommandOptions): Promise<void> 
     shouldLog: (format) => format !== 'json',
   });
 
-  // Load raw log entries and drop benign operational noise before replaying ACLs.
-  const entries = (await loadAllLogs(source)).filter(entry => !isSkippableLogEntry(entry));
+  // Load raw log entries
+  const entries = await loadAllLogs(source);
 
   if (entries.length === 0) {
     logger.error('No log entries found.');
@@ -167,8 +168,10 @@ export async function auditCommand(options: AuditCommandOptions): Promise<void> 
     enriched = enriched.filter(e => e.isAllowed === wantAllowed);
   }
 
-  // Filter out benign operational entries and SSL-bump preflight peeks.
-  const meaningful = enriched.filter(e => !isSkippableLogEntry(e));
+  // Filter out benign operational entries and SSL-bump step-1 preflight peeks.
+  const meaningful = enriched.filter(
+    e => e.url !== 'error:transaction-end-before-headers' && !isNoneDecision(e.decision)
+  );
 
   // Format and output
   const colorize = !!(process.stdout.isTTY && options.format === 'pretty');

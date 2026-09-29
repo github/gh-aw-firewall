@@ -238,8 +238,14 @@ Any variable present in the host environment with the `OTEL_` prefix is passed t
 export OTEL_SERVICE_NAME=my-agent
 export OTEL_EXPORTER_OTLP_ENDPOINT=https://otel.example.com
 export OTEL_EXPORTER_OTLP_HEADERS="Authorization=Bearer $MY_OTEL_TOKEN"
-sudo -E awf --allow-domains otel.example.com -- agent-command
+sudo -E awf -- agent-command
 ```
+
+### Automatic OTLP endpoint allowlisting
+
+AWF automatically allows the OTLP collector endpoint when `OTEL_EXPORTER_OTLP_ENDPOINT` (or a per-signal `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` / `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` / `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT`) is set. Values are resolved from `--env` first, then `--env-file`, then the host environment, so you no longer need to pass `--allow-domains` for the collector. A debug log line (`--log-level debug`) records the allowed host and port.
+
+Only the **exact hostname and endpoint port** parsed from the endpoint URL are allowed (no wildcard/subdomain expansion). Only `http://`/`https://` URLs are considered — malformed URLs, dangerous ports, and schemes AWF doesn't recognize (e.g. a bare gRPC `host:port` with no `http(s)://` prefix) are skipped and must still be configured separately if reachable over HTTP(S).
 
 ### Security: one-shot token protection for OTEL credentials
 
@@ -254,10 +260,11 @@ The following OTEL variables often carry bearer tokens or other credentials and 
 
 ### Network requirements
 
-- **OTLP/HTTP (`http/protobuf`, default):** Traffic goes through the Squid proxy on ports 80/443. Add the OTLP collector domain to `--allow-domains`:
+- **OTLP/HTTP (`http/protobuf`, default):** Traffic goes through the Squid proxy on ports 80/443. The collector domain is [auto-allowed](#automatic-otlp-endpoint-allowlisting) from `OTEL_EXPORTER_OTLP_ENDPOINT` / `_TRACES_ENDPOINT` / `_METRICS_ENDPOINT` / `_LOGS_ENDPOINT`, so no `--allow-domains` flag is normally required:
 
   ```bash
-  awf --allow-domains otel.example.com -- agent-command
+  export OTEL_EXPORTER_OTLP_ENDPOINT=https://otel.example.com
+  awf -- agent-command
   ```
 
 - **OTLP/gRPC (port 4317):** gRPC clients typically do not respect `HTTP_PROXY` env vars, and port 4317 is not covered by AWF's iptables DNAT rules (only 80/443). Traffic to port 4317 hits the default DROP rule and is blocked. Use `http/protobuf` protocol instead:

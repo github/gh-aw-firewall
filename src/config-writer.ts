@@ -16,6 +16,8 @@ import { resolveLogPaths } from './log-paths';
 import { DEFAULT_DNS_SERVERS, filterForNetworkIsolation } from './dns-resolver';
 import { getSafeHostGid, getSafeHostUid, isNativeRootWithoutSudo } from './host-identity';
 import { resolveNetworkAddressing } from './network-subnet';
+import { readEnvFile } from './github-env';
+import { extractOtlpEndpointsFromEnv, resolveOtlpEndpointEnv } from './api-proxy-config-domains';
 import { prepareWorkDirectories } from './workdir-setup';
 import { writeFileNoFollow } from './fs-utils';
 
@@ -560,6 +562,13 @@ export async function writeConfigs(config: WrapperConfig): Promise<void> {
     ? await filterForNetworkIsolation(resolvedDnsServers, logger)
     : resolvedDnsServers;
 
+  const envFileValues = config.envFile ? readEnvFile(config.envFile) : {};
+  const otlpEnv = resolveOtlpEndpointEnv(config.additionalEnv, envFileValues);
+  const otlpEndpoints = extractOtlpEndpointsFromEnv(otlpEnv);
+  if (otlpEndpoints.length > 0) {
+    logger.debug(`Auto-allowing OTLP collector endpoint(s): ${otlpEndpoints.map(({ hostname, port }) => `${hostname}:${port}`).join(', ')}`);
+  }
+
   // Note: Use container path for SSL database since it's mounted at /var/spool/squid_ssl_db
   const squidConfig = generateSquidConfig({
     // Combine non-sensitive and sensitive (secret-derived) domains so Squid allows
@@ -593,6 +602,7 @@ export async function writeConfigs(config: WrapperConfig): Promise<void> {
     // these Docker-only names is provided via the squid-proxy extra_hosts patch
     // (see patchComposeWithTopologyHosts in topology.ts).
     topologyPeers: resolveTopologyPeerHosts(config),
+    otlpEndpoints,
   });
   const squidConfigPath = path.join(config.workDir, 'squid.conf');
   fs.writeFileSync(squidConfigPath, squidConfig, { mode: 0o644 });

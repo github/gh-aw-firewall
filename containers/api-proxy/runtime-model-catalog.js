@@ -194,6 +194,18 @@ function getRuntimeModels(provider) {
   return runtimeCatalog[provider] || null;
 }
 
+function getWireApi(record) {
+  if (!Array.isArray(record.supportedEndpoints) || record.supportedEndpoints.length !== 1) return undefined;
+  if (record.supportedEndpoints[0] === '/responses') return 'responses';
+  if (record.supportedEndpoints[0] === '/chat/completions') return 'completions';
+  return undefined;
+}
+
+function getWireApiReflectFields(record) {
+  const wireApi = getWireApi(record);
+  return wireApi ? { wire_api: wireApi } : {};
+}
+
 function findRuntimeModel(provider, model) {
   const records = getRuntimeModels(provider);
   if (!records || !model) return null;
@@ -230,6 +242,7 @@ function getRuntimeCatalogSnapshot() {
       source: record.source,
       observed_at: record.observedAt,
       ...(record.apiVersion ? { api_version: record.apiVersion } : {}),
+      ...getWireApiReflectFields(record),
       ...(record.pricing ? {
         pricing: {
           default: record.pricing.default,

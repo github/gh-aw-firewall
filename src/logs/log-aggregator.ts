@@ -6,7 +6,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import execa from 'execa';
 import { LogSource, ParsedLogEntry } from '../types';
-import { parseLogLine, parseAuditJsonlLine } from './log-parser';
+import { parseLogLine, parseAuditJsonlLine, isNoneDecision } from './log-parser';
 import { logger } from '../logger';
 import { isInternalAwfDomain } from './internal-domain-filter';
 import { readStartupDiagnostics } from './startup-diagnostics';
@@ -114,7 +114,7 @@ function aggregateLogs(
 
     // Skip benign operational entries (connection closures without HTTP headers
     // and Squid step-1 SSL preflight peeks that never reached an HTTP request).
-    if (isSkippableLogEntry(entry)) {
+    if (isNoneDecision(entry.decision) || entry.url === 'error:transaction-end-before-headers') {
       continue;
     }
 

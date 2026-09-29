@@ -1,5 +1,5 @@
 import type { SquidConfig } from '../types';
-import { parseDomainConfig } from './domain-acl';
+import { assertSafeForSquidConfig, parseDomainConfig } from './domain-acl';
 import { generateUpstreamProxySection } from './upstream-proxy';
 import { generateAclSections } from './acl-generator';
 import { generateAccessRules } from './access-rules';
@@ -32,7 +32,7 @@ const { version: AWF_VERSION } = require('../../package.json') as { version: str
  * // Blocked: internal.example.com -> acl blocked_domains dstdomain .internal.example.com
  */
 export function generateSquidConfig(config: SquidConfig): string {
-  const { domains, sensitiveDomains, blockedDomains, port, sslBump, caFiles, sslDbPath, urlPatterns, enableHostAccess, allowHostPorts, enableDlp, dnsServers, upstreamProxy, apiProxyIp, apiProxyPorts, topologyPeers, cliProxyIp } = config;
+  const { domains, sensitiveDomains, blockedDomains, port, sslBump, caFiles, sslDbPath, urlPatterns, enableHostAccess, allowHostPorts, enableDlp, dnsServers, upstreamProxy, apiProxyIp, apiProxyPorts, topologyPeers, otlpEndpoints, cliProxyIp } = config;
 
   validateApiProxyIp(apiProxyIp);
   validateCliProxyIp(cliProxyIp);
@@ -51,6 +51,13 @@ export function generateSquidConfig(config: SquidConfig): string {
     allAclLines.push('');
   }
   allAclLines.push(...aclLines);
+  const otlpAclLines = (otlpEndpoints ?? []).flatMap((endpoint, index) => [
+    `acl otlp_endpoint_${index}_host dstdomain ${assertSafeForSquidConfig(endpoint.hostname)}`,
+    `acl otlp_endpoint_${index}_port port ${endpoint.port}`,
+  ]);
+  if (otlpAclLines.length > 0) {
+    allAclLines.push('', '# Exact host and port ACLs for configured OTLP collectors', ...otlpAclLines);
+  }
 
   const aclSection = allAclLines.length > 0 ? allAclLines.join('\n') : '# No domains configured';
   const sensitiveLogAcl = [
@@ -89,8 +96,13 @@ export function generateSquidConfig(config: SquidConfig): string {
     apiProxyIp,
     dnsServers,
     topologyPeers,
+    otlpEndpoints,
     cliProxyIp,
   });
+  const otlpAccessRules = (otlpEndpoints ?? []).map((endpoint, index) =>
+    `http_access allow ${endpoint.protocol === 'http' ? '!CONNECT ' : 'CONNECT '}otlp_endpoint_${index}_host otlp_endpoint_${index}_port`
+  ).join('\n');
+  const effectiveAccessRules = [accessRulesSection.trimEnd(), otlpAccessRules].filter(Boolean).join('\n') + '\n';
   const cliProxyAclSection = cliProxyIp
     ? `acl from_cli_proxy src ${cliProxyIp}/32
 acl cli_proxy_artifact_storage dstdomain .blob.core.windows.net`
@@ -155,7 +167,7 @@ http_access deny dst_ipv4
 http_access deny dst_ipv6
 ${dlpAccessSection}
 ${sslBumpUrlAccessSection}
-${accessRulesSection}${cliProxyAccessSection}# Deny requests to unknown domains (not in allow-list)
+${effectiveAccessRules}${cliProxyAccessSection}# Deny requests to unknown domains (not in allow-list)
 # This applies to all sources including localnet
 ${denyRule}
 
