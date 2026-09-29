@@ -9,6 +9,7 @@
 import chalk from 'chalk';
 import type { LogStatsFormat, PolicyManifest } from '../types';
 import { loadAllLogs } from '../logs/log-aggregator';
+import { isNoneDecision } from '../logs/log-parser';
 import { enrichWithPolicyRules, computeRuleStats, EnrichedLogEntry } from '../logs/audit-enricher';
 import {
   discoverAndSelectSource,
@@ -167,8 +168,10 @@ export async function auditCommand(options: AuditCommandOptions): Promise<void> 
     enriched = enriched.filter(e => e.isAllowed === wantAllowed);
   }
 
-  // Filter out benign operational entries
-  const meaningful = enriched.filter(e => e.url !== 'error:transaction-end-before-headers');
+  // Filter out benign operational entries and SSL-bump step-1 preflight peeks.
+  const meaningful = enriched.filter(
+    e => e.url !== 'error:transaction-end-before-headers' && !isNoneDecision(e.decision)
+  );
 
   // Format and output
   const colorize = !!(process.stdout.isTTY && options.format === 'pretty');

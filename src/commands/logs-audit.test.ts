@@ -281,6 +281,12 @@ describe('logs-audit command', () => {
       const entries: EnrichedLogEntry[] = [
         makeEnrichedEntry({ domain: 'github.com', isAllowed: true }),
         makeEnrichedEntry({ url: 'error:transaction-end-before-headers', domain: '-', isAllowed: false }),
+        makeEnrichedEntry({
+          domain: 'github.com',
+          decision: 'NONE_NONE:HIER_NONE',
+          statusCode: 0,
+          isAllowed: false,
+        }),
       ];
 
       mockedHelpers.discoverAndSelectSource.mockResolvedValue(source);
