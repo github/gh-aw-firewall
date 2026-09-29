@@ -473,6 +473,15 @@ describe('writeConfigs', () => {
       expect(fs.existsSync(path.join(auditDir, 'squid.conf'))).toBe(true);
       expect(fs.existsSync(path.join(auditDir, 'docker-compose.redacted.yml'))).toBe(true);
       expect(fs.existsSync(path.join(auditDir, 'policy-manifest.json'))).toBe(true);
+      const sensitivePathAudit = JSON.parse(
+        fs.readFileSync(path.join(auditDir, 'sensitive-paths.json'), 'utf8'),
+      );
+      expect(sensitivePathAudit.runtime).toBe('docker');
+      expect(sensitivePathAudit.maskedPaths.map((entry: { id: string }) => entry.id))
+        .toEqual(['mcp-logs', 'work-directory', 'firewall-logs', 'firewall-audit']);
+      expect(sensitivePathAudit.maskedPaths[0].targets)
+        .toEqual(['/tmp/gh-aw/mcp-logs', '/host/tmp/gh-aw/mcp-logs']);
+      expect(sensitivePathAudit.exemptions[0].path).toBe('/tmp/gh-aw/mcp-payloads');
     });
   });
 

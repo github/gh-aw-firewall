@@ -1,4 +1,5 @@
 import { generateDockerCompose, mockNetworkConfig, useAgentVolumesTestConfig } from './service-test-setup.test-utils';
+import { dockerSensitiveTmpfs } from '../sensitive-paths';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -95,18 +96,13 @@ describe('agent service', () => {
       }
     });
 
-    it('should include exactly 5 tmpfs mounts (mcp-logs + workDir both normal and /host, plus /host/dev/shm)', () => {
+    it('should include registry overlays and the writable /host/dev/shm mount', () => {
       const result = generateDockerCompose(getConfig(), mockNetworkConfig);
       const agent = result.services.agent;
       const tmpfs = agent.tmpfs as string[];
 
-      expect(tmpfs).toHaveLength(5);
-      // Normal paths
-      expect(tmpfs.some((t: string) => t.includes('/tmp/gh-aw/mcp-logs:'))).toBe(true);
-      expect(tmpfs.some((t: string) => t.startsWith(`${getConfig().workDir}:`))).toBe(true);
-      // /host-prefixed paths (chroot always on)
-      expect(tmpfs.some((t: string) => t.includes('/host/tmp/gh-aw/mcp-logs:'))).toBe(true);
-      expect(tmpfs.some((t: string) => t.startsWith(`/host${getConfig().workDir}:`))).toBe(true);
+      expect(tmpfs).toHaveLength(dockerSensitiveTmpfs(getConfig().workDir).length + 1);
+      expect(tmpfs).toEqual(expect.arrayContaining(dockerSensitiveTmpfs(getConfig().workDir)));
       // Writable /dev/shm for POSIX semaphores (chroot makes /host/dev read-only)
       expect(tmpfs.some((t: string) => t.startsWith('/host/dev/shm:'))).toBe(true);
     });

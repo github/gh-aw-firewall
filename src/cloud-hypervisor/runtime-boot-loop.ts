@@ -1,5 +1,8 @@
 import type { MicrovmInfrastructureSnapshot } from '../microvm/infrastructure';
+import * as path from 'path';
 import type { WrapperConfig } from '../types';
+import { createSensitivePathAudit } from '../sensitive-paths';
+import { writeSensitivePathAudit } from '../sensitive-path-audit';
 import type {
   CloudHypervisorManagerAdapter,
   CloudHypervisorRuntimeBackendDependencies,
@@ -127,10 +130,34 @@ export async function runCloudHypervisorBootLoop({
     // `filesystem.allowWrite` entry fails closed before virtiofsd, the VMM,
     // or the guest is launched, and so every boot attempt reuses one
     // decision instead of re-resolving host paths per attempt.
-    const { exports, mountEnforcement, writeBoundary } = planCloudHypervisorFilesystemWriteEnforcement(
+    const {
+      exports,
+      mountEnforcement,
+      writeBoundary,
+      sensitiveMasks,
+      unclassifiedPaths,
+    } = planCloudHypervisorFilesystemWriteEnforcement(
       await dependencies.resolveExports(cloudHypervisor.mountPolicy),
       config.filesystemAllowWrite,
     );
+    writeSensitivePathAudit(
+      config.auditDir || path.join(workDir, 'audit'),
+      createSensitivePathAudit(
+        'cloud-hypervisor',
+        sensitiveMasks.map(({ id, path: maskPath, reason }) => ({
+          id,
+          path: maskPath,
+          reason,
+        })),
+        unclassifiedPaths,
+      ),
+    );
+    if (unclassifiedPaths.length > 0) {
+      dependencies.logger.warn(
+        `[cloud-hypervisor] stage=sensitive-path-policy unclassified /tmp/gh-aw children: ` +
+        `${unclassifiedPaths.join(', ')} (warning-only; classify each path before enabling enforcement)`,
+      );
+    }
     if (writeBoundary.length > 0) {
       // Without this line a guest path missing from `filesystem.allowWrite`
       // only ever surfaces as an unexplained EROFS inside the workload.

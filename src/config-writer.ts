@@ -20,6 +20,12 @@ import { readEnvFile } from './github-env';
 import { extractOtlpEndpointsFromEnv, resolveOtlpEndpointEnv } from './api-proxy-config-domains';
 import { prepareWorkDirectories } from './workdir-setup';
 import { writeFileNoFollow } from './fs-utils';
+import {
+  createSensitivePathAudit,
+  dockerSensitivePathTargets,
+  resolveSensitivePaths,
+} from './sensitive-paths';
+import { writeSensitivePathAudit } from './sensitive-path-audit';
 
 // When bundled with esbuild, this global is replaced at build time with the
 // JSON content of containers/agent/seccomp-profile.json.  In normal (tsc)
@@ -489,6 +495,16 @@ function writeAuditArtifacts(
     'policy-manifest.json',
     JSON.stringify(policyManifest, null, 2)
   );
+
+  if (!config.cloudHypervisor && !config.nvx) {
+    const maskedPaths = resolveSensitivePaths('docker', { workDir: config.workDir }).map((entry) => ({
+      id: entry.id,
+      path: entry.path,
+      reason: entry.reason,
+      targets: dockerSensitivePathTargets(entry.path),
+    }));
+    writeSensitivePathAudit(auditDir, createSensitivePathAudit('docker', maskedPaths));
+  }
 
   logger.debug(`Audit artifacts written to: ${auditDir}`);
 }

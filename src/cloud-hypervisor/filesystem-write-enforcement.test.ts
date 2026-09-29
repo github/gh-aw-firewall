@@ -241,26 +241,56 @@ describe('Cloud Hypervisor filesystem write enforcement translation', () => {
       });
     });
 
-    it('skips masking when mcp-logs is a symlink rather than a real directory', async () => {
+    it('fails closed when mcp-logs is a symlink rather than a real directory', async () => {
       await fs.rm(mcpLogsSource, { recursive: true, force: true });
       const realTarget = path.join(directory, 'elsewhere-mcp-logs');
       await fs.mkdir(realTarget, { recursive: true });
       await fs.symlink(realTarget, mcpLogsSource);
-      const result = planCloudHypervisorFilesystemWriteEnforcement(exports, undefined);
-
-      expect(result.mountEnforcement).toEqual({
-        plans: [{ tag: 'runner-tool-cache', writableOverlays: [] }],
-      });
+      expect(() => planCloudHypervisorFilesystemWriteEnforcement(exports, undefined))
+        .toThrow(`Sensitive path must not be a symlink: ${mcpLogsSource}`);
     });
 
-    it('skips masking when mcp-logs exists but is a file', async () => {
+    it('fails closed when mcp-logs exists but is a file', async () => {
       await fs.rm(mcpLogsSource, { recursive: true, force: true });
       await fs.writeFile(mcpLogsSource, 'not a directory');
+      expect(() => planCloudHypervisorFilesystemWriteEnforcement(exports, undefined))
+        .toThrow(`Sensitive path must be a directory: ${mcpLogsSource}`);
+    });
+
+    it('masks every registered firewall directory that exists in the export', async () => {
+      const firewallLogs = path.join(tmpGhAwSource, 'sandbox', 'firewall', 'logs');
+      const firewallAudit = path.join(tmpGhAwSource, 'sandbox', 'firewall', 'audit');
+      await fs.mkdir(firewallLogs, { recursive: true });
+      await fs.mkdir(firewallAudit, { recursive: true });
+
+      const result = planCloudHypervisorFilesystemWriteEnforcement(exports, undefined);
+      const tmpGhAwPlan = result.mountEnforcement?.plans.find((entry) => entry.tag === 'tmp-gh-aw');
+
+      expect(tmpGhAwPlan?.maskedPaths).toEqual([
+        { destination: mcpLogsSource },
+        { destination: firewallLogs },
+        { destination: firewallAudit },
+      ]);
+      expect(result.sensitiveMasks.map(({ id }) => id))
+        .toEqual(['mcp-logs', 'firewall-logs', 'firewall-audit']);
+    });
+
+    it('keeps the explicitly exempt mcp-payloads path readable and classified', async () => {
+      await fs.mkdir(path.join(tmpGhAwSource, 'mcp-payloads'));
+
       const result = planCloudHypervisorFilesystemWriteEnforcement(exports, undefined);
 
-      expect(result.mountEnforcement).toEqual({
-        plans: [{ tag: 'runner-tool-cache', writableOverlays: [] }],
-      });
+      expect(result.sensitiveMasks.map(({ id }) => id)).toEqual(['mcp-logs']);
+      expect(result.unclassifiedPaths).toEqual([]);
+    });
+
+    it('reports unknown immediate children for warning-only runtime auditing', async () => {
+      const unknown = path.join(tmpGhAwSource, 'new-output');
+      await fs.mkdir(unknown);
+
+      const result = planCloudHypervisorFilesystemWriteEnforcement(exports, undefined);
+
+      expect(result.unclassifiedPaths).toEqual([unknown]);
     });
   });
 });
