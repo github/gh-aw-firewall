@@ -23,6 +23,7 @@ const {
   getTargetScheme,
   stripTargetScheme,
 } = require('../proxy-utils');
+const { parseBodyAsObject } = require('../body-utils');
 const { createOidcAwareProviderAdapter } = require('../adapter-factory');
 const { sanitizeNullToolCallTypes } = require('../body-transform');
 const {
@@ -64,6 +65,24 @@ function getDefaultAutoApiVersion(req, pathname, rawTarget) {
     return COPILOT_LEGACY_AUTO_API_VERSION;
   }
   return undefined;
+}
+
+function omitUnsupportedAutoModel(body, req, rawTarget) {
+  if (!isGithubCopilotCatalogTarget(rawTarget)) return null;
+
+  let pathname;
+  try {
+    pathname = new URL(req.url, 'http://localhost').pathname;
+  } catch {
+    return null;
+  }
+  if (pathname !== '/chat/completions' && pathname !== '/v1/chat/completions') return null;
+
+  const parsed = parseBodyAsObject(body);
+  if (!parsed || parsed.model !== 'auto') return null;
+
+  delete parsed.model;
+  return Buffer.from(JSON.stringify(parsed), 'utf8');
 }
 
 /**
@@ -136,7 +155,10 @@ function createCopilotAdapter(env, deps = {}) {
   // to the request pipeline (yielding `Content-Length: undefined` and an empty
   // upstream body). It is applied separately, with its compatibility metadata
   // threaded through the request/retry context, in body-handler.js.
-  const bodyTransform = composeBodyTransforms(sanitizedBodyTransform, byokBodyFieldTransform);
+  const bodyTransform = composeBodyTransforms(
+    composeBodyTransforms(sanitizedBodyTransform, byokBodyFieldTransform),
+    (body, req) => omitUnsupportedAutoModel(body, req, rawTarget)
+  );
   // Fine-grained PATs require ****** every Copilot target. OAuth and classic
   // PATs retain the target-dependent token prefix required by Enterprise hosts.
   const githubTokenAuthPrefix = getGitHubTokenAuthPrefix(githubToken, rawTarget, env);
