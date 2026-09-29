@@ -66,6 +66,7 @@ describe('routing provider executor', () => {
       captured = { req, targetHost, authHeaders, provider };
       respond(res, 200, '{"ok":true}');
     });
+
     const executor = createExecutor({ proxyRequest });
 
     const result = await executor.execute(request, { signal: controller.signal });
@@ -82,6 +83,36 @@ describe('routing provider executor', () => {
     expect(captured.req.headers['content-type']).toBe('application/json');
     expect(captured.req.awfRequestContext).toEqual({ purpose: 'routing_classification', signal: controller.signal });
     expect(Object.isFrozen(captured.req.awfRequestContext)).toBe(true);
+  });
+
+  it('executes classifier requests only through the explicitly selected native provider', async () => {
+    let capturedProvider;
+    const adapter = {
+      name: 'anthropic',
+      isEnabled: () => true,
+      getTargetHost: () => 'api.anthropic.com',
+      getAuthHeaders: () => ({ 'x-api-key': '******', 'anthropic-version': '2023-06-01' }),
+      getBasePath: () => '/v1',
+      getTargetScheme: () => 'https',
+    };
+    const executor = createRoutingProviderExecutor({
+      getAdapter: provider => provider === 'anthropic' ? adapter : null,
+      proxyRequest: (req, res, _host, _headers, provider) => {
+        capturedProvider = provider;
+        expect(req.url).toBe('/messages');
+        respond(res, 200, '{"content":[{"type":"text","text":"ok"}]}');
+      },
+      checkRateLimit: () => false,
+    });
+
+    const result = await executor.execute({
+      ...request,
+      provider: 'anthropic',
+      path: '/messages',
+      body: { model: 'claude-opus-5-5', messages: [] },
+    });
+    expect(result.statusCode).toBe(200);
+    expect(capturedProvider).toBe('anthropic');
   });
 
   it('settles when the rate limiter answers the request without reaching the provider', async () => {

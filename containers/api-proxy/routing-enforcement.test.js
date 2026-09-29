@@ -17,6 +17,22 @@ const CHAT_SELECTION = Object.freeze({
   wire_model: 'chat-test',
 });
 
+const ANTHROPIC_SELECTION = Object.freeze({
+  schema: 'awf-routing-selection/v1',
+  engine: 'copilot',
+  provider: 'anthropic',
+  choice: Object.freeze({ id: 'choice-0003', model: 'anthropic/claude-opus-5-5', effort: 'medium' }),
+  wire_model: 'claude-opus-5-5',
+});
+
+const OPENAI_SELECTION = Object.freeze({
+  schema: 'awf-routing-selection/v1',
+  engine: 'copilot',
+  provider: 'openai',
+  choice: Object.freeze({ id: 'choice-0004', model: 'openai/gpt-5.4', effort: 'high' }),
+  wire_model: 'gpt-5.4',
+});
+
 class FakeResponse extends EventEmitter {
   constructor() {
     super();
@@ -97,6 +113,41 @@ describe('routing enforcement', () => {
     const withoutEffort = createHarness(CHAT_SELECTION);
     expect(screen(withoutEffort, request({ url: '/chat/completions' })).screened).toBe(false);
     expect(screen(withoutEffort, request({ url: '/responses' })).screened).toBe(true);
+  });
+
+  it('pins Anthropic requests to Messages and the selected output effort', () => {
+    const harness = createHarness(ANTHROPIC_SELECTION);
+    const { req } = screen(
+      harness,
+      request({ url: '/v1/messages' }),
+      { name: 'anthropic' },
+    );
+    const body = Buffer.from(JSON.stringify({
+      model: 'claude-opus-5-5',
+      output_config: { effort: 'medium' },
+    }));
+    expect(req.awfRouting.bodyTransform(body)).toBe(body);
+    for (const payload of [
+      { model: 'claude-opus-5-5', output_config: { effort: 'high' } },
+      { model: 'claude-opus-5-5' },
+      { model: 'other-model', output_config: { effort: 'medium' } },
+    ]) {
+      expect(() => req.awfRouting.bodyTransform(Buffer.from(JSON.stringify(payload))))
+        .toThrow('The request does not match the task model selection');
+    }
+    expect(screen(harness, request({ url: '/responses' }), { name: 'anthropic' }).screened).toBe(true);
+    expect(screen(harness, request({ url: '/v1/messages' }), { name: 'openai' }).screened).toBe(true);
+  });
+
+  it('pins OpenAI requests to the selected provider and Responses effort', () => {
+    const harness = createHarness(OPENAI_SELECTION);
+    const { req } = screen(harness, request(), { name: 'openai' });
+    const body = Buffer.from(JSON.stringify({
+      model: 'gpt-5.4',
+      reasoning: { effort: 'high' },
+    }));
+    expect(req.awfRouting.bodyTransform(body)).toBe(body);
+    expect(screen(harness, request(), { name: 'copilot' }).screened).toBe(true);
   });
 
   it('rejects a foreign adapter, an override header, a recorded failure, and a missing selection', () => {

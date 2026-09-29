@@ -8,12 +8,12 @@ function model(id, overrides = {}) {
   return { id, efforts: ['low', 'high'], protocols: ['responses', 'chat-completions'], ...overrides };
 }
 
-function catalogue(models) {
-  return { provider: 'copilot', configured: true, discovery: 'complete', models };
+function catalogue(models, provider = 'copilot') {
+  return { provider, configured: true, discovery: 'complete', models };
 }
 
-function build(models, policy) {
-  return buildRoutingCandidates({ catalogue: catalogue(models), policy });
+function build(models, policy, provider = 'copilot') {
+  return buildRoutingCandidates({ catalogue: catalogue(models, provider), policy });
 }
 
 describe('routing candidates', () => {
@@ -33,6 +33,7 @@ describe('routing candidates', () => {
       choice: pool.choices[1], provider: 'copilot', wireModel: 'gpt-test',
       effort: 'high', protocol: 'responses', contextWindow: 128_000,
     });
+
     expect(pool.byId['choice-0001']).toEqual({
       choice: pool.choices[0], provider: 'copilot', wireModel: 'claude-test', protocol: 'chat-completions',
     });
@@ -47,6 +48,21 @@ describe('routing candidates', () => {
     expect(build([...models].reverse())).toEqual(pool);
     expect(validateRouteResponse({ ranked_choices: pool.choices }, pool.choices).ranked_choices).toBe(pool.choices);
     expect(toRouteCandidates(pool)[1].context_window).toBe(128_000);
+  });
+
+  it.each([
+    ['openai', 'gpt-5.4', ['none', 'low', 'medium', 'high', 'xhigh'], ['responses']],
+    ['anthropic', 'claude-opus-5-5', ['low', 'medium', 'high', 'max'], ['messages']],
+  ])('preserves the provider identity and protocol for %s candidates', (provider, id, efforts, protocols) => {
+    const pool = build([model(id, {
+      efforts,
+      protocols: provider === 'openai' ? ['responses', 'chat-completions'] : protocols,
+      contextWindow: 1_000_000,
+    })], undefined, provider);
+    expect(pool.choices.every(choice => choice.model.startsWith(`${provider}/`))).toBe(true);
+    expect(Object.values(pool.byId).every(mapping => mapping.provider === provider)).toBe(true);
+    expect(Object.values(pool.byId).every(mapping => mapping.protocol === protocols[0])).toBe(true);
+    expect(Object.values(pool.byId).every(mapping => mapping.contextWindow === 1_000_000)).toBe(true);
   });
 
   it('includes every advertised effort without inventing a default', () => {
@@ -158,7 +174,7 @@ describe('routing candidates', () => {
 
   it.each([
     undefined,
-    { ...catalogue([model('gpt-test')]), provider: 'openai' },
+    { ...catalogue([model('gpt-test')]), provider: 'gemini' },
     { ...catalogue([model('gpt-test')]), configured: false },
     { ...catalogue([model('gpt-test')]), discovery: 'failed' },
     catalogue([]),

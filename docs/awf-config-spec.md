@@ -1950,6 +1950,7 @@ experimental:
   modelRouting: true
 apiProxy:
   routing:
+    provider: copilot
     objective:
       goal: cost
       mode: balanced
@@ -1959,26 +1960,42 @@ apiProxy:
 
 | Field | Allowed values | Description |
 |-------|----------------|-------------|
+| `provider` | `copilot` (default), `openai`, `anthropic` | Restricts routing to one configured native API-proxy provider; AWF does not switch credentials or translate across providers. |
 | `objective.goal` | `cost`, `cost-speed` | Optimization goal used by the router |
 | `objective.mode` | `economy`, `balanced`, `robust`, `auto` | Fixed routing profile, or `auto` classification |
 | `task.conversationFile` | non-empty string | Host path to the trusted conversation input |
 
-The routing object is closed: all fields shown above are required and unknown
-properties are rejected. A supported routed run also requires a complete
+The routing object is closed: `objective` and `task` are required, `provider`
+is optional, and unknown properties are rejected. Omitting `provider` preserves
+Copilot routing. OpenAI and Anthropic routing require the matching provider to
+be configured for the agent and currently require the native `api.openai.com`
+or `api.anthropic.com` target; AWF does not route custom gateways or translate
+or forward requests across provider boundaries. A supported routed run also
+requires a complete
 `container.images` manifest containing digest-pinned references for `router`
 and every other enabled image role. The legacy `latest` router default is kept
 only for resolver compatibility and is not a supported tag-only routed
 configuration.
 
-The candidate pool used by the routing controller is now called by the running
-proxy (see the wiring note above). It uses only the native, GitHub-token-backed
-Copilot catalogue, not a custom gateway or BYOK provider occupying the Copilot
-slot. It preserves advertised
-reasoning efforts, supported endpoints, and positive context limits. Models
-with missing effort or endpoint metadata are excluded; an explicitly empty
-effort list (or explicit lack of reasoning-effort support) instead allows one
-effortless choice. Effortless choices require chat completions; choices with
-an effort, including `none`, require responses. Unsupported effort values are
+The candidate pool uses models discovered for the selected native provider.
+The `/reflect` `model_api_mapping` includes maintained routing metadata for
+selected model families where provider `/models` endpoints do not publish
+context limits or reasoning-effort support. The initial maintained set covers
+OpenAI `gpt-5.4` and `gpt-5.4-2026-03-05`, plus Anthropic
+`claude-opus-5-5`, `claude-opus-5`, `claude-fable-5-1`, `claude-fable-5`,
+`claude-mythos-5-1`, `claude-mythos-5`, `claude-mythos-preview*`,
+`claude-sonnet-5-5`, `claude-sonnet-5`, `claude-opus-4-6`/`4-7`/`4-8`, and
+`claude-sonnet-4-6`. This is deliberately not exhaustive: discovered IDs are
+eligible only when endpoint and effort support are known from runtime metadata
+or an exact maintained mapping. For example, `o3`, `gpt-5-nano`, and
+`gpt-5.4-mini` do not inherit metadata from the GPT-5.4 base model and can yield
+`no_route`. Positive context limits are also maintained in `/reflect`; without
+one, a model is excluded from classifier preflight but may still remain
+available to the router.
+
+An explicitly empty effort list (or explicit lack of reasoning-effort support)
+allows one effortless choice. OpenAI uses its mapped Responses or Chat
+Completions protocol; Anthropic uses Messages. Unsupported effort values are
 discarded, and a model with no remaining advertised effort is excluded rather
 than converted into an effortless choice.
 

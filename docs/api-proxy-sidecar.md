@@ -671,7 +671,25 @@ curl http://172.30.0.30:10000/reflect
       "port": 10000,
       "base_url": "http://api-proxy:10000",
       "configured": true,
-      "models": ["gpt-4o", "gpt-4o-mini"],
+      "models": ["gpt-5.4", "o3"],
+      "routing_models": [
+        {
+          "model_id": "gpt-5.4",
+          "source": "maintained",
+          "supported_endpoints": ["chat_completions", "responses"],
+          "supported_reasoning_efforts": ["none", "low", "medium", "high", "xhigh"],
+          "context_window_tokens": 1050000,
+          "candidate_metadata_complete": true
+        },
+        {
+          "model_id": "o3",
+          "source": "incomplete",
+          "supported_endpoints": ["responses"],
+          "supported_reasoning_efforts": null,
+          "context_window_tokens": null,
+          "candidate_metadata_complete": false
+        }
+      ],
       "models_url": "http://api-proxy:10000/v1/models"
     },
     {
@@ -724,6 +742,8 @@ Fields:
 - `configured` — `true` if an API key for this provider was found at startup
 - `models` — list of model IDs fetched from the provider at startup; `null` if the provider is not configured or model fetch failed
 - `model_metadata` — sanitized provider metadata, including pricing and provenance when the provider supplies it; currently Copilot supplies runtime pricing
+- `routing_models` — per-discovered-model endpoint, reasoning-effort, and context metadata used by task routing. `source` identifies provider-supplied or maintained fields; `candidate_metadata_complete: false` explains why a discovered model cannot be offered as a route
+- `model_api_mapping` — maintained endpoint and routing metadata, with source references, for model families where provider `/models` APIs do not publish those limits
 - `models_fetch_complete` — `true` once the startup model-fetch pass has finished
 - `models_url` — URL to query for the live model list
 

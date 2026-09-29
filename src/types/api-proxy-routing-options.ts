@@ -4,8 +4,10 @@
 
 export type ModelRoutingGoal = 'cost' | 'cost-speed';
 export type ModelRoutingMode = 'economy' | 'balanced' | 'robust' | 'auto';
+export type ModelRoutingProvider = 'copilot' | 'openai' | 'anthropic';
 
 export interface ModelRoutingConfig {
+  provider?: ModelRoutingProvider;
   objective: {
     goal: ModelRoutingGoal;
     mode: ModelRoutingMode;

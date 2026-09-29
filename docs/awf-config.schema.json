@@ -383,6 +383,16 @@
             "task"
           ],
           "properties": {
+            "provider": {
+              "type": "string",
+              "enum": [
+                "copilot",
+                "openai",
+                "anthropic"
+              ],
+              "default": "copilot",
+              "description": "Provider slot whose native model catalogue is routed. Defaults to Copilot."
+            },
             "objective": {
               "type": "object",
               "additionalProperties": false,

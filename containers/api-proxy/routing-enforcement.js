@@ -132,15 +132,20 @@ function createRoutingEnforcement({ getSelection, getFailure, recordFailure, obs
       const selection = getSelection();
       const responses = /^\/(?:v1\/)?responses$/.test(pathname);
       const chat = /^\/(?:v1\/)?chat\/completions$/.test(pathname);
+      const messages = /^\/(?:v1\/)?messages$/.test(pathname);
+      const provider = selection?.provider || 'copilot';
       const hasEffort = selection && Object.hasOwn(selection.choice, 'effort');
+      const supportedEndpoint = provider === 'anthropic'
+        ? messages
+        : (responses || chat);
       const rejectReason =
         draining ? 'draining' :
         !selection ? 'no_selection' :
         getFailure() ? 'terminal_failure' :
-        adapter.name !== 'copilot' ? 'foreign_adapter' :
+        adapter.name !== provider ? 'foreign_adapter' :
         req.method !== 'POST' ? 'method_not_allowed' :
-        (!responses && !chat) ? 'unsupported_endpoint' :
-        responses !== hasEffort ? 'effort_endpoint_mismatch' :
+        !supportedEndpoint ? 'unsupported_endpoint' :
+        (provider !== 'anthropic' && responses !== hasEffort) ? 'effort_endpoint_mismatch' :
         Object.keys(req.headers).some(name => /(?:^|[-_])(?:model|reasoning|effort)(?:$|[-_])/i.test(name)) ? 'header_override' :
         null;
       if (rejectReason) {
@@ -178,7 +183,20 @@ function createRoutingEnforcement({ getSelection, getFailure, recordFailure, obs
         ) {
           rejectBody('body_model_mismatch');
         }
-        if (responses) {
+        if (provider === 'anthropic') {
+          const outputConfigValid = !Object.hasOwn(parsed, 'output_config') ||
+            (parsed.output_config && typeof parsed.output_config === 'object' && !Array.isArray(parsed.output_config));
+          if (
+            Object.hasOwn(parsed, 'reasoning') ||
+            Object.hasOwn(parsed, 'reasoning_effort') ||
+            !outputConfigValid ||
+            (hasEffort
+              ? parsed.output_config?.effort !== selection.choice.effort
+              : parsed.output_config && Object.hasOwn(parsed.output_config, 'effort'))
+          ) {
+            rejectBody('body_effort_mismatch');
+          }
+        } else if (responses) {
           if (
             !parsed.reasoning || typeof parsed.reasoning !== 'object' || Array.isArray(parsed.reasoning) ||
             parsed.reasoning.effort !== selection.choice.effort || Object.hasOwn(parsed, 'reasoning_effort')

@@ -132,7 +132,7 @@ const registeredAdapters = createAllAdapters(process.env, {
   geminiBodyTransform: makeModelBodyTransform('gemini'),
 });
 const routing = createProductionRoutingSession({
-  getCopilotAdapter: () => registeredAdapters.find(adapter => adapter.name === 'copilot'),
+  getAdapter: provider => registeredAdapters.find(adapter => adapter.name === provider),
 });
 
 configureKeyValidation({

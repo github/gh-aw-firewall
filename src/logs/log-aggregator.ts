@@ -12,6 +12,16 @@ import { isInternalAwfDomain } from './internal-domain-filter';
 import { readStartupDiagnostics } from './startup-diagnostics';
 
 /**
+ * Returns true for Squid log rows that should not count as meaningful traffic.
+ * These are benign operational events, including connection-close noise and
+ * SSL-bump step-1 preflight handshakes that never reached an HTTP transaction.
+ */
+export function isSkippableLogEntry(entry: Pick<ParsedLogEntry, 'url' | 'decision'>): boolean {
+  return entry.url === 'error:transaction-end-before-headers' ||
+    (typeof entry.decision === 'string' && entry.decision.startsWith('NONE'));
+}
+
+/**
  * Statistics for a single domain
  */
 export interface DomainStats {
@@ -102,9 +112,9 @@ function aggregateLogs(
       maxTimestamp = entry.timestamp;
     }
 
-    // Skip benign operational entries (connection closures without HTTP headers)
-    // These appear during healthchecks and shutdown-time keep-alive connection closures
-    if (entry.url === 'error:transaction-end-before-headers') {
+    // Skip benign operational entries (connection closures without HTTP headers
+    // and Squid step-1 SSL preflight peeks that never reached an HTTP request).
+    if (isSkippableLogEntry(entry)) {
       continue;
     }
 

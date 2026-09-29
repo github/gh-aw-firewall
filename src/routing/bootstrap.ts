@@ -299,7 +299,8 @@ function isSelectionRecord(value: unknown): boolean {
   const choice = record.choice as Record<string, unknown> | undefined;
   return record.schema === 'awf-routing-selection/v1' &&
     record.engine === 'copilot' &&
-    record.provider === 'copilot' &&
+    typeof record.provider === 'string' &&
+    ['copilot', 'openai', 'anthropic'].includes(record.provider) &&
     typeof record.wire_model === 'string' &&
     !!choice && typeof choice === 'object' &&
     typeof choice.id === 'string' &&

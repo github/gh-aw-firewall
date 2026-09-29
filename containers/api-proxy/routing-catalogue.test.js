@@ -40,6 +40,7 @@ describe('routing catalogue', () => {
         { id: 'no-reasoning', efforts: [], protocols: ['chat-completions'] },
       ],
     });
+
     expect(Object.isFrozen(catalogue)).toBe(true);
     expect(Object.isFrozen(snapshot)).toBe(true);
     expect(Object.isFrozen(snapshot.models)).toBe(true);
@@ -56,6 +57,50 @@ describe('routing catalogue', () => {
     expect(deps.getDiscoveredModels).toHaveBeenCalledWith('copilot');
     expect(deps.getRuntimeModels).toHaveBeenCalledTimes(1);
     expect(deps.getRuntimeModels).toHaveBeenCalledWith('copilot');
+  });
+
+  it.each([
+    ['openai', 'gpt-5.4', 'api.openai.com', ['none', 'low', 'medium', 'high', 'xhigh'], ['chat-completions', 'responses']],
+    ['anthropic', 'claude-opus-5-5', 'api.anthropic.com', ['low', 'medium', 'high', 'max'], ['messages']],
+  ])('uses maintained endpoint, effort, and context metadata for %s', async (provider, model, host, efforts, protocols) => {
+    const catalogue = createRoutingCatalogue({
+      getAdapter: name => ({
+        name,
+        isEnabled: () => true,
+        getTargetHost: () => host,
+      }),
+      getDiscoveredModels: name => name === provider ? [model] : null,
+      getRuntimeModels: () => [],
+    });
+
+    await expect(catalogue.getSnapshot({ provider })).resolves.toEqual({
+      provider,
+      configured: true,
+      discovery: 'complete',
+      models: [{
+        id: model,
+        efforts,
+        contextWindow: provider === 'openai' ? 1_050_000 : 1_000_000,
+        protocols,
+      }],
+    });
+  });
+
+  it('fails closed for custom OpenAI-compatible hosts', async () => {
+    const catalogue = createRoutingCatalogue({
+      getAdapter: name => ({
+        name,
+        isEnabled: () => true,
+        getTargetHost: () => 'router.example.com',
+      }),
+      getDiscoveredModels: () => ['gpt-5.4'],
+      getRuntimeModels: () => [],
+    });
+    await expect(catalogue.getSnapshot({ provider: 'openai' })).resolves.toMatchObject({
+      provider: 'openai',
+      configured: false,
+      discovery: 'failed',
+    });
   });
 
   it.each([null, createCopilotAdapter({})])('fails closed when Copilot is not configured: %s', adapter => {

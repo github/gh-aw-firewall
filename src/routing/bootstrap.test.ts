@@ -196,4 +196,24 @@ describe('routing bootstrap', () => {
     expect(routingBootstrapTestHelpers.isSelectionRecord({ schema: 'awf-routing-selection/v1' })).toBe(false);
     expect(routingBootstrapTestHelpers.isFailureRecord({ schema: 'awf-routing-failure/v1' })).toBe(false);
   });
+
+  it.each(['copilot', 'openai', 'anthropic'])('accepts a routing selection for %s', provider => {
+    expect(routingBootstrapTestHelpers.isSelectionRecord({
+      schema: 'awf-routing-selection/v1',
+      engine: 'copilot',
+      provider,
+      choice: { id: 'one', model: `${provider}/model` },
+      wire_model: 'model',
+    })).toBe(true);
+  });
+
+  it('rejects a selection for a provider outside the supported routing set', () => {
+    expect(routingBootstrapTestHelpers.isSelectionRecord({
+      schema: 'awf-routing-selection/v1',
+      engine: 'copilot',
+      provider: 'gemini',
+      choice: { id: 'one', model: 'gemini/model' },
+      wire_model: 'model',
+    })).toBe(false);
+  });
 });

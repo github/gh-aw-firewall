@@ -15,7 +15,52 @@
  */
 
 const metrics = require('./metrics');
-const { getModelApiMappingReflect } = require('./model-api-mapping');
+const {
+  getModelApiMappingReflect,
+  lookupModelEndpoints,
+  lookupModelRoutingMetadata,
+} = require('./model-api-mapping');
+
+function buildRoutingModelMetadata(provider, modelIds, runtimeRecords) {
+  if (!Array.isArray(modelIds)) return null;
+  const runtimeById = new Map(
+    (Array.isArray(runtimeRecords) ? runtimeRecords : [])
+      .filter(record => typeof record?.id === 'string')
+      .map(record => [record.id.toLowerCase(), record]),
+  );
+  return modelIds.map(id => {
+    const runtime = runtimeById.get(id.toLowerCase());
+    const maintained = lookupModelRoutingMetadata(id, provider);
+    const endpointMapping = lookupModelEndpoints(id, provider);
+    const efforts = Array.isArray(runtime?.supportedReasoningEfforts)
+      ? runtime.supportedReasoningEfforts
+      : (runtime?.capabilities?.supports?.reasoningEffort === false
+        ? []
+        : (maintained?.reasoningEfforts ?? null));
+    const endpoints = Array.isArray(runtime?.supportedEndpoints)
+      ? runtime.supportedEndpoints
+      : (endpointMapping?.endpoints || []);
+    const runtimeContextWindow = runtime?.capabilities?.limits?.max_context_window_tokens;
+    const contextWindow = Number.isInteger(runtimeContextWindow) && runtimeContextWindow > 0
+      ? runtimeContextWindow
+      : (maintained?.contextWindowTokens ?? null);
+    const runtimeHasMetadata = Array.isArray(runtime?.supportedReasoningEfforts) ||
+      runtime?.capabilities?.supports?.reasoningEffort === false ||
+      Array.isArray(runtime?.supportedEndpoints) ||
+      (Number.isInteger(runtimeContextWindow) && runtimeContextWindow > 0);
+    const hasMaintainedMetadata = maintained !== null;
+    return {
+      model_id: id,
+      source: runtimeHasMetadata && hasMaintainedMetadata
+        ? 'provider+maintained'
+        : (runtimeHasMetadata ? 'provider' : (hasMaintainedMetadata ? 'maintained' : 'incomplete')),
+      supported_endpoints: endpoints,
+      supported_reasoning_efforts: efforts,
+      context_window_tokens: contextWindow,
+      candidate_metadata_complete: Array.isArray(efforts) && endpoints.length > 0,
+    };
+  });
+}
 
 /**
  * @typedef {object} ManagementDeps
@@ -103,6 +148,11 @@ function createManagementHandlers(deps) {
           configured: info.configured,
           models:     info.models_cache_key !== null ? (cachedModels[info.models_cache_key] || null) : null,
           model_metadata: runtimeModelMetadata[adapter.name] || null,
+          routing_models: buildRoutingModelMetadata(
+            adapter.name,
+            info.models_cache_key !== null ? (cachedModels[info.models_cache_key] || null) : null,
+            runtimeModelMetadata[adapter.name],
+          ),
           models_url: info.models_url,
           ...(info.credential_kind !== undefined && { credential_kind: info.credential_kind }),
           ...(info.selected_scheme !== undefined && { selected_scheme: info.selected_scheme }),
@@ -153,4 +203,4 @@ function createManagementHandlers(deps) {
   return { healthResponse, reflectEndpoints, handleManagementEndpoint };
 }
 
-module.exports = { createManagementHandlers };
+module.exports = { buildRoutingModelMetadata, createManagementHandlers };

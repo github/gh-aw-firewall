@@ -1,10 +1,13 @@
 {
   "title": "Model-to-API Endpoint Mapping",
-  "description": "Maps AI model families to their supported API endpoints. Used to determine which endpoint (chat/completions vs responses vs messages) a model requires.",
-  "lastUpdated": "2026-09-24T07:03:39Z",
+  "description": "Maps AI model families to supported API endpoints and includes maintained task-routing effort/context metadata for selected model IDs.",
+  "lastUpdated": "2026-09-28T23:34:26Z",
   "sources": {
     "openai": "https://developers.openai.com/api/docs/models",
-    "anthropic": "https://docs.anthropic.com/en/docs/about-claude/models"
+    "openai_routing": "https://developers.openai.com/api/docs/models/gpt-5.4",
+    "anthropic": "https://platform.claude.com/docs/en/models/overview",
+    "anthropic_effort": "https://platform.claude.com/docs/en/build-with-claude/effort",
+    "anthropic_context": "https://platform.claude.com/docs/en/build-with-claude/context-windows"
   },
   "providers": {
     "openai": {
@@ -76,8 +79,13 @@
         {
           "family": "gpt-5.4",
           "patterns": ["gpt-5.4*"],
+          "routingPatterns": ["gpt-5.4", "gpt-5.4-2026-03-05"],
           "endpoints": ["chat_completions", "responses"],
-          "notes": "Supports both endpoints on OpenAI. Includes gpt-5.4-mini, gpt-5.4-nano. NOTE: gpt-5.4-mini is not accessible via /chat/completions on the Copilot API (responses-only via Copilot); the api-proxy handles this by falling back to the next alias candidate."
+          "routing": {
+            "reasoningEfforts": ["none", "low", "medium", "high", "xhigh"],
+            "contextWindowTokens": 1050000
+          },
+          "notes": "Supports both endpoints on OpenAI. GPT-5.4 routing metadata is exact-model only; mini/nano variants need separately verified data. The model page lists none, low, medium, high, and xhigh reasoning effort and a 1,050,000-token context window."
         },
         {
           "family": "gpt-5.3-codex",
@@ -248,38 +256,68 @@
         {
           "family": "claude-opus-5",
           "patterns": ["claude-opus-5*"],
+          "routingPatterns": ["claude-opus-5-5", "claude-opus-5"],
           "endpoints": ["messages"],
-          "notes": "Flagship Opus generation 5, including claude-opus-5-5 (released 2026-09-22). 1M token context."
+          "routing": {
+            "reasoningEfforts": ["low", "medium", "high", "max"],
+            "contextWindowTokens": 1000000
+          },
+          "notes": "Flagship Opus generation 5 models with verified 1M-token context windows and the Anthropic effort parameter."
         },
         {
           "family": "claude-fable-5",
           "patterns": ["claude-fable-5*"],
+          "routingPatterns": ["claude-fable-5-1", "claude-fable-5"],
           "endpoints": ["messages"],
-          "notes": "Latest flagship (includes claude-fable-5-1). 1M token context."
+          "routing": {
+            "reasoningEfforts": ["low", "medium", "high", "max"],
+            "contextWindowTokens": 1000000
+          },
+          "notes": "Latest flagship family with verified 1M-token context windows and the Anthropic effort parameter."
         },
         {
           "family": "claude-mythos-5",
           "patterns": ["claude-mythos-5*", "claude-mythos-preview*"],
+          "routingPatterns": ["claude-mythos-5-1", "claude-mythos-5", "claude-mythos-preview*"],
           "endpoints": ["messages"],
-          "notes": "Specialized models, invitation-only (includes claude-mythos-5-1, claude-mythos-5). 1M token context."
+          "routing": {
+            "reasoningEfforts": ["low", "medium", "high", "max"],
+            "contextWindowTokens": 1000000
+          },
+          "notes": "Specialized models, invitation-only, with verified 1M-token context windows and the Anthropic effort parameter."
         },
         {
           "family": "claude-sonnet-5",
           "patterns": ["claude-sonnet-5*"],
+          "routingPatterns": ["claude-sonnet-5-5", "claude-sonnet-5"],
           "endpoints": ["messages"],
-          "notes": "Best combination of speed and intelligence. 1M token context."
+          "routing": {
+            "reasoningEfforts": ["low", "medium", "high", "max"],
+            "contextWindowTokens": 1000000
+          },
+          "notes": "Best combination of speed and intelligence with verified 1M-token context windows and the Anthropic effort parameter."
         },
         {
           "family": "claude-opus-4",
           "patterns": ["claude-opus-4*"],
+          "routingPatterns": ["claude-opus-4-8", "claude-opus-4-7", "claude-opus-4-6"],
           "endpoints": ["messages"],
-          "notes": "Includes claude-opus-4-8, claude-opus-4-7, claude-opus-4-6, claude-opus-4-5, claude-opus-4-1. 1M token context."
+          "routing": {
+            "reasoningEfforts": ["low", "medium", "high", "max"],
+            "contextWindowTokens": 1000000
+          },
+          "notes": "Opus 4.6 and newer models have verified 1M-token context windows and support the Anthropic effort parameter."
         },
         {
           "family": "claude-sonnet-4",
           "patterns": ["claude-sonnet-4*"],
+          "routingPatterns": ["claude-sonnet-4-6"],
           "endpoints": ["messages"],
-          "notes": "Includes claude-sonnet-4-6, claude-sonnet-4-5. Production workhorse. 1M token context."
+          "routing": {
+            "reasoningEfforts": ["low", "medium", "high", "max"],
+            "contextWindowTokens": 1000000
+          },
+          "notes": "Sonnet 4.6 has a verified 1M-token context window and supports the Anthropic effort parameter."
         },
         {
           "family": "claude-haiku-4",

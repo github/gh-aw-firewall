@@ -147,6 +147,25 @@ describe('log-aggregator', () => {
       expectOnlyValidTunnelStats(stats);
     });
 
+    it('should filter out NONE_* Squid preflight entries', () => {
+      const [first, second] = validTunnelEntries();
+      const entries: ParsedLogEntry[] = [
+        first,
+        createLogEntry({
+          domain: 'allowed.example.com',
+          url: 'allowed.example.com:443',
+          decision: 'NONE_NONE:HIER_NONE',
+          statusCode: 0,
+          isAllowed: false,
+        }),
+        second,
+      ];
+
+      const stats = aggregateLogs(entries);
+
+      expectOnlyValidTunnelStats(stats);
+    });
+
     it('should handle multiple transaction-end-before-headers entries', () => {
       const [first, second] = validTunnelEntries();
       const entries: ParsedLogEntry[] = [

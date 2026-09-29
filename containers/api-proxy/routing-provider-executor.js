@@ -4,6 +4,7 @@ const { Readable, Writable } = require('stream');
 const { getCurrentGuardChecks } = require('./proxy-guards');
 const { parseModelEndpointBlockedFromBody, parseModelNotSupportedFromBody } = require('./upstream-response');
 const { createRoutingError } = require('./routing-errors');
+const { isNativeAdapter } = require('./routing-catalogue');
 
 const MAX_CLASSIFIER_RESPONSE_BYTES = 1_048_576;
 
@@ -66,13 +67,23 @@ function normalizeResult(result) {
   return { ...result, terminal: { code, detail: `Classifier execution was rejected with ${code}` } };
 }
 
-function createRoutingProviderExecutor({ getCopilotAdapter, proxyRequest, checkRateLimit, getGuardChecks = getCurrentGuardChecks }) {
-  if (typeof getCopilotAdapter !== 'function' || typeof proxyRequest !== 'function' || typeof checkRateLimit !== 'function') {
+function createRoutingProviderExecutor({
+  getAdapter,
+  getCopilotAdapter,
+  proxyRequest,
+  checkRateLimit,
+  getGuardChecks = getCurrentGuardChecks,
+}) {
+  if (typeof getAdapter !== 'function' && typeof getCopilotAdapter !== 'function') {
+    throw createRoutingError('routing_configuration_error', 'The Copilot provider executor is incomplete');
+  }
+  const resolveAdapter = getAdapter || (provider => provider === 'copilot' ? getCopilotAdapter?.() : null);
+  if (typeof resolveAdapter !== 'function' || typeof proxyRequest !== 'function' || typeof checkRateLimit !== 'function') {
     throw createRoutingError('routing_configuration_error', 'The Copilot provider executor is incomplete');
   }
   return Object.freeze({
     checkBeforePrimary({ selection }) {
-      for (const guard of getGuardChecks(selection.wire_model, 'copilot')) {
+      for (const guard of getGuardChecks(selection.wire_model, selection.provider || 'copilot')) {
         if (!guard.isBlocked(guard.block)) continue;
         const envelope = guard.buildError(guard.block);
         const error = envelope?.error || envelope;
@@ -85,10 +96,10 @@ function createRoutingProviderExecutor({ getCopilotAdapter, proxyRequest, checkR
       if (request?.purpose !== 'routing_classification') {
         return Promise.reject(createRoutingError('routing_configuration_error', 'The provider executor requires a trusted routing purpose'));
       }
-      const adapter = getCopilotAdapter();
-      if (!adapter || adapter.name !== 'copilot' || !adapter.isEnabled() ||
-        adapter.getRoutingProviderIdentity?.() !== 'github-copilot') {
-        return Promise.reject(createRoutingError('provider_unavailable', 'The Copilot provider is not configured'));
+      const provider = request.provider || 'copilot';
+      const adapter = resolveAdapter(provider);
+      if (!isNativeAdapter(adapter, provider)) {
+        return Promise.reject(createRoutingError('provider_unavailable', 'The selected native provider is not configured'));
       }
       const body = Buffer.from(JSON.stringify(request.body), 'utf8');
       const req = Readable.from([body]);
@@ -120,9 +131,9 @@ function createRoutingProviderExecutor({ getCopilotAdapter, proxyRequest, checkR
         res.once('error', error => settle(reject, error));
         res.once('finish', () => settle(resolve, normalizeResult(res.result())));
         try {
-          if (checkRateLimit(req, res, 'copilot', body.length)) return;
+          if (checkRateLimit(req, res, provider, body.length)) return;
           proxyRequest(
-            req, res, adapter.getTargetHost(req), adapter.getAuthHeaders(req), 'copilot',
+            req, res, adapter.getTargetHost(req), adapter.getAuthHeaders(req), provider,
             adapter.getBasePath(req), null, adapter.getRequestSigner ? adapter.getRequestSigner() : null,
             adapter.getTargetScheme ? adapter.getTargetScheme(req) : 'https',
           );

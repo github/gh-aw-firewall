@@ -23,8 +23,8 @@ function capabilities(models = []) {
   };
 }
 
-function snapshot(models) {
-  return { provider: 'copilot', configured: true, discovery: 'complete', models };
+function snapshot(models, provider = 'copilot') {
+  return { provider, configured: true, discovery: 'complete', models };
 }
 
 function classifierBody(text) {
@@ -80,9 +80,13 @@ function createHarness(overrides = {}) {
     ...overrides.executor,
   };
   const controller = createRoutingController({
-    config: { objective: { goal: 'cost', mode: 'balanced' }, task: { conversationFile: '/tmp/conversation.json' } },
+    config: {
+      provider: overrides.provider || 'copilot',
+      objective: { goal: 'cost', mode: 'balanced' },
+      task: { conversationFile: '/tmp/conversation.json' },
+    },
     planner,
-    catalogue: { getSnapshot: jest.fn(async () => snapshot(models)) },
+    catalogue: { getSnapshot: jest.fn(async () => snapshot(models, overrides.provider || 'copilot')) },
     loadConversation: overrides.loadConversation || jest.fn(async () => JSON.parse(JSON.stringify(CONVERSATION))),
     executor,
     observer: { record: record => records.push(record) },
@@ -104,6 +108,7 @@ describe('routing controller', () => {
     const { controller, calls, records } = createHarness({
       catalogueModels: [{ model: 'github-copilot/gpt-test', efforts: ['low'] }],
     });
+
     const result = await controller.run();
 
     expect(result.ok).toBe(true);
@@ -144,6 +149,26 @@ describe('routing controller', () => {
       catalogue_overlap: 1,
     });
     expect(typeof selectionRecord.latency_ms).toBe('number');
+  });
+
+  it('routes Anthropic candidates through Messages without changing the selected provider', async () => {
+    const { controller, calls } = createHarness({
+      provider: 'anthropic',
+      models: [{
+        id: 'claude-opus-5-5',
+        efforts: ['medium'],
+        protocols: ['messages'],
+        contextWindow: 1_000_000,
+      }],
+    });
+    const result = await controller.run();
+    expect(result.selection.provider).toBe('anthropic');
+    expect(result.selection.choice.model).toBe('anthropic/claude-opus-5-5');
+    expect(calls.execute[0]).toMatchObject({
+      path: '/messages',
+      provider: 'anthropic',
+      body: { output_config: { effort: 'medium' } },
+    });
   });
 
   it('runs the decision at most once', async () => {

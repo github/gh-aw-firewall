@@ -99,6 +99,7 @@ function parsePolicyList(raw, name) {
  */
 function createProductionRoutingController({
   rawConfig = process.env.AWF_ROUTING_CONFIG,
+  getAdapter,
   getCopilotAdapter,
   routerTransport,
   observer = createRoutingObserver(),
@@ -111,17 +112,18 @@ function createProductionRoutingController({
     allowedModels: parsePolicyList(process.env.AWF_ALLOWED_MODELS, 'AWF_ALLOWED_MODELS'),
     disallowedModels: parsePolicyList(process.env.AWF_DISALLOWED_MODELS, 'AWF_DISALLOWED_MODELS'),
   };
-  if (typeof getCopilotAdapter !== 'function') {
-    throw createRoutingError('routing_configuration_error', 'The Copilot provider adapter owner is unavailable');
+  if (typeof getAdapter !== 'function' && typeof getCopilotAdapter !== 'function') {
+    throw createRoutingError('routing_configuration_error', 'The provider adapter owner is unavailable');
   }
+  const resolveAdapter = getAdapter || (provider => provider === 'copilot' ? getCopilotAdapter?.() : null);
 
   const catalogue = createRoutingCatalogue({
-    getCopilotAdapter,
+    getAdapter: resolveAdapter,
     getDiscoveredModels: provider => cachedModels[provider],
     getRuntimeModels,
   });
   const executor = createRoutingProviderExecutor({
-    getCopilotAdapter,
+    getAdapter: resolveAdapter,
     proxyRequest,
     checkRateLimit,
   });
@@ -209,6 +211,7 @@ function publishRoutingResult(outputDir, name, record) {
  */
 function createProductionRoutingSession({
   rawConfig = process.env.AWF_ROUTING_CONFIG,
+  getAdapter,
   getCopilotAdapter,
   outputDir = '/run/awf-routing/output',
   createController = createProductionRoutingController,
@@ -257,7 +260,7 @@ function createProductionRoutingSession({
           throw createRoutingError('routing_contract_error', 'Stale routing results cannot be reused');
         }
       }
-      const controller = createController({ rawConfig, getCopilotAdapter, observer });
+      const controller = createController({ rawConfig, getAdapter, getCopilotAdapter, observer });
       result = await controller.run({ signal: abortController.signal, jobDeadlineMs: deadline });
       if (terminalFailure) result = Object.freeze({ ok: false, failure: terminalFailure });
       publishRoutingResult(outputDir, result.ok ? 'selection.json' : 'failure.json',

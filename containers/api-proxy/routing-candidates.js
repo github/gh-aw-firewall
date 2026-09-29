@@ -4,8 +4,11 @@ const { isModelPermittedByPolicy } = require('./guards/model-policy-guard');
 const { stripRedundantProviderPrefix } = require('./model-utils');
 const { createRoutingError } = require('./routing-errors');
 
-const CANONICAL_PROVIDER = 'github-copilot';
-const PROVIDER = 'copilot';
+const PROVIDERS = Object.freeze({
+  copilot: Object.freeze({ canonical: 'github-copilot', alias: 'copilot' }),
+  openai: Object.freeze({ canonical: 'openai', alias: 'openai' }),
+  anthropic: Object.freeze({ canonical: 'anthropic', alias: 'anthropic' }),
+});
 const EFFORTS = new Set(['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
 
 function normalizePolicyList(value, name) {
@@ -35,7 +38,8 @@ function normalizeEfforts(value) {
 }
 
 // Selection enforcement derives the endpoint from effort presence.
-function protocolForEffort(effort) {
+function protocolForEffort(provider, effort) {
+  if (provider === 'anthropic') return 'messages';
   return effort === undefined ? 'chat-completions' : 'responses';
 }
 
@@ -63,21 +67,23 @@ function makePairKey(model, effort) {
 }
 
 function buildRoutingCandidates({ catalogue, policy = {} }) {
-  if (!catalogue || catalogue.provider !== PROVIDER || catalogue.configured !== true) {
-    throw createRoutingError('provider_unavailable', 'The Copilot provider is not configured');
+  const provider = catalogue?.provider;
+  const providerInfo = Object.hasOwn(PROVIDERS, provider) ? PROVIDERS[provider] : null;
+  if (!catalogue || !providerInfo || catalogue.configured !== true) {
+    throw createRoutingError('provider_unavailable', 'The selected provider is not configured');
   }
   if (catalogue.discovery !== 'complete' || !Array.isArray(catalogue.models) || catalogue.models.length === 0) {
-    throw createRoutingError('provider_unavailable', 'The Copilot model catalogue is unavailable');
+    throw createRoutingError('provider_unavailable', 'The selected provider model catalogue is unavailable');
   }
 
   const allowedModels = normalizePolicyList(policy.allowedModels, 'allowedModels');
   const disallowedModels = normalizePolicyList(policy.disallowedModels, 'disallowedModels');
   const providerModels = indexModels(catalogue.models, 'catalogue.models', model => model.id);
   const permittedModels = new Map(
-    [...providerModels].filter(([, model]) => isModelPermittedByPolicy(model.id, allowedModels, disallowedModels, PROVIDER)),
+    [...providerModels].filter(([, model]) => isModelPermittedByPolicy(model.id, allowedModels, disallowedModels, providerInfo.alias)),
   );
   if (permittedModels.size === 0) {
-    throw createRoutingError('model_policy_violation', 'The model policy excludes every available Copilot model');
+    throw createRoutingError('model_policy_violation', 'The model policy excludes every available model');
   }
 
   const pairs = [];
@@ -86,15 +92,16 @@ function buildRoutingCandidates({ catalogue, policy = {} }) {
     const efforts = normalizeEfforts(providerModel.efforts);
     if (providerModel.efforts.length > 0 && efforts.length === 0) continue;
 
-    const nativeName = stripRedundantProviderPrefix(providerModel.id, CANONICAL_PROVIDER);
+    const nativeName = stripRedundantProviderPrefix(providerModel.id, providerInfo.canonical);
     for (const effort of (efforts.length === 0 ? [undefined] : efforts)) {
-      const protocol = protocolForEffort(effort);
+      const protocol = protocolForEffort(provider, effort);
       if (!providerModel.protocols.includes(protocol)) continue;
       pairs.push({
-        model: `${CANONICAL_PROVIDER}/${nativeName}`,
+        model: `${providerInfo.canonical}/${nativeName}`,
         effort,
         providerModel,
         protocol,
+        provider,
       });
     }
   }
@@ -105,7 +112,7 @@ function buildRoutingCandidates({ catalogue, policy = {} }) {
     return leftKey < rightKey ? -1 : leftKey > rightKey ? 1 : 0;
   });
   if (pairs.length === 0) {
-    throw createRoutingError('no_route', 'No available Copilot model and effort is supported for routing');
+    throw createRoutingError('no_route', 'No available model and effort is supported for the selected provider');
   }
 
   const byId = Object.create(null);
@@ -121,7 +128,7 @@ function buildRoutingCandidates({ catalogue, policy = {} }) {
       : undefined;
     byId[id] = Object.freeze({
       choice,
-      provider: PROVIDER,
+      provider: pair.provider,
       wireModel: pair.providerModel.id,
       ...(pair.effort === undefined ? {} : { effort: pair.effort }),
       ...(contextWindow === undefined ? {} : { contextWindow }),

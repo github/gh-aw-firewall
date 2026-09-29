@@ -178,6 +178,7 @@ describe('mapAwfFileConfigToCliOptions', () => {
 
   it('maps task-level model routing fields', () => {
     const routing = {
+      provider: 'anthropic' as const,
       objective: { goal: 'cost-speed' as const, mode: 'robust' as const },
       task: { conversationFile: '/tmp/gh-aw/conversation.json' },
     };

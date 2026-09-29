@@ -450,6 +450,24 @@ describe('reflectEndpoints', () => {
     expect(providers).toEqual(['openai', 'anthropic', 'copilot', 'gemini', 'vertex']);
   });
 
+  it('should expose per-model routing eligibility metadata in /reflect', () => {
+    cachedModels.openai = ['gpt-5.4', 'o3'];
+    const openai = reflectEndpoints().endpoints.find(endpoint => endpoint.provider === 'openai');
+    expect(openai.routing_models).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        model_id: 'gpt-5.4',
+        source: 'maintained',
+        supported_reasoning_efforts: ['none', 'low', 'medium', 'high', 'xhigh'],
+        context_window_tokens: 1_050_000,
+        candidate_metadata_complete: true,
+      }),
+      expect.objectContaining({
+        model_id: 'o3',
+        candidate_metadata_complete: false,
+      }),
+    ]));
+  });
+
   it('should expose safe Copilot diagnostics in the reflect response', () => {
     const copilot = reflectEndpoints().endpoints.find((endpoint) => endpoint.provider === 'copilot');
     expect(copilot).toEqual(expect.objectContaining({

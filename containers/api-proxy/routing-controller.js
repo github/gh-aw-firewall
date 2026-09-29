@@ -64,7 +64,7 @@ function createSelection(choice, mapping) {
   return deepFreezeJson({
     schema: 'awf-routing-selection/v1',
     engine: 'copilot',
-    provider: 'copilot',
+    provider: mapping.provider,
     choice: {
       id: choice.id,
       model: choice.model,
@@ -146,7 +146,8 @@ function createRoutingController(dependencies) {
       // Checks router identity and objective support. The execution catalogue does not narrow the pool.
       validateCapabilities(rawCapabilities, config.objective, routerIdentity);
 
-      const snapshot = await runPhase(({ signal: phaseSignal }) => catalogue.getSnapshot({ signal: phaseSignal }));
+      const snapshot = await runPhase(({ signal: phaseSignal }) =>
+        catalogue.getSnapshot({ signal: phaseSignal, provider: config.provider || 'copilot' }));
       const pool = buildRoutingCandidates({ catalogue: snapshot, policy });
       catalogueOverlap = countCatalogueOverlap(rawCapabilities, pool.choices);
 
@@ -195,6 +196,7 @@ function createRoutingController(dependencies) {
               path: preflight.request.path,
               body: preflight.request.body,
               purpose: PURPOSE,
+              provider: mapping.provider,
             }, { signal: phaseSignal, timeoutMs }),
             {
               signal,

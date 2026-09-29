@@ -15,7 +15,7 @@ describe('routing configuration', () => {
 
     const result = parseRoutingConfig(JSON.stringify(input));
 
-    expect(result).toEqual(input);
+    expect(result).toEqual({ ...input, provider: 'copilot' });
     expect(Object.isFrozen(result)).toBe(true);
     expect(Object.isFrozen(result.objective)).toBe(true);
     expect(Object.isFrozen(result.task)).toBe(true);
@@ -50,5 +50,20 @@ describe('routing configuration', () => {
     for (const [raw, message] of failures) {
       expect(() => parseRoutingConfig(raw)).toThrow(message);
     }
+  });
+
+  it('defaults to Copilot and permits only provider-scoped routing slots', () => {
+    const base = {
+      objective: { goal: 'cost', mode: 'balanced' },
+      task: { conversationFile: '/tmp/conversation.json' },
+    };
+    expect(parseRoutingConfig(JSON.stringify(base)).provider).toBe('copilot');
+    for (const provider of ['copilot', 'openai', 'anthropic']) {
+      expect(parseRoutingConfig(JSON.stringify({ ...base, provider })).provider).toBe(provider);
+    }
+    expect(() => parseRoutingConfig(JSON.stringify({ ...base, provider: 'gemini' })))
+      .toThrow('routing.provider is not supported');
+    expect(() => parseRoutingConfig(JSON.stringify({ ...base, provider: null })))
+      .toThrow('routing.provider is not supported');
   });
 });

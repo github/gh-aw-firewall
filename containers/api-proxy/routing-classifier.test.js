@@ -24,9 +24,32 @@ describe('routing classifier', () => {
       },
       outputAllowance: CLASSIFIER_REASONING_OUTPUT_TOKENS,
     });
+
     expect(Object.isFrozen(responses.body)).toBe(true);
     expect(buildClassifierRequest({ wireModel: 'chat-test', protocol: 'chat-completions' }, plan))
       .toMatchObject({ path: '/chat/completions', body: { model: 'chat-test', tools: [], stream: false, max_tokens: CLASSIFIER_OUTPUT_TOKENS } });
+  });
+
+  it('builds and parses Anthropic Messages requests with the selected effort', () => {
+    const request = buildClassifierRequest({
+      wireModel: 'claude-opus-5-5',
+      protocol: 'messages',
+      effort: 'medium',
+    }, plan);
+    expect(request).toEqual({
+      path: '/messages',
+      body: {
+        model: 'claude-opus-5-5',
+        system: plan.system_prompt,
+        messages: [{ role: 'user', content: plan.prompt }],
+        max_tokens: CLASSIFIER_REASONING_OUTPUT_TOKENS,
+        output_config: { effort: 'medium' },
+      },
+      outputAllowance: CLASSIFIER_REASONING_OUTPUT_TOKENS,
+    });
+    expect(extractClassifierOutput('messages', {
+      content: [{ type: 'text', text: '{"mode":"balanced"}' }],
+    })).toBe('{"mode":"balanced"}');
   });
 
   it('fails closed without verified capacity and admits the exact capacity boundary', () => {
