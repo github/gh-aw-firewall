@@ -90,6 +90,12 @@ describe('self-hosted runner doctor workflow config', () => {
       expect(content).toContain('Kubernetes search domains inherited by DinD, often with `ndots:5`');
       expect(content).toContain('`dns_search: []`');
       expect(content).toContain('github/gh-aw-firewall#9100');
+      expect(content).toContain('| A28 | On `runner.topology: arc-dind`, an engine\'s streaming log');
+      expect(content).toContain('github/gh-aw-firewall#9183, github/gh-aw-firewall#9188');
+      expect(content).toContain('| B27 | Docker Compose refuses to start AWF containers');
+      expect(content).toContain('github/gh-aw-firewall#9121, github/gh-aw-firewall#9130');
+      expect(content).toContain('| C5 | `malformed version:` from `gh pr list --search`');
+      expect(content).toContain('github/gh-aw-firewall#9184, github/gh-aw-firewall#9189');
       expect(content).toContain('Alpine/musl');
       expect(content).toContain("nslookup awmg-cli-proxy.`: if the bare lookup fails");
       expect(content).toContain('`SERVFAIL`');
@@ -171,6 +177,8 @@ describe('self-hosted runner doctor workflow config', () => {
       expect(content).toContain('| A27 | On `runner.topology: arc-dind`, safe-output payload files staged under `/tmp/gh-aw/agent`');
       expect(content).toContain('`ensureAgentStagingDirectories()` in `src/dind-bootstrap.ts`');
       expect(content).toContain('github/gh-aw#63045, github/gh-aw#62924, github/gh-aw-firewall#8932, github/gh-aw-firewall#8933, github/gh-aw-firewall#8938');
+      expect(content).toContain('| A28 | On `runner.topology: arc-dind`, an engine\'s streaming log');
+      expect(content).toContain('A28 / github/gh-aw-firewall#9183 — gh-aw compiler must relocate Pi\'s streaming log to `sandbox/agent`');
       expect(content).toContain('| Safe-output field (e.g. PR body) comes back empty on `runner.topology: arc-dind`, with no write error, and the payload was staged under `/tmp/gh-aw/agent` | A27');
       expect(content).toContain('| `threat-detect` (or another non-engine CLI tool invoked inside the AWF sandbox) exits 127, or its `--output` path is unwritable/unreadable, on `runner.topology: arc-dind` |');
       expect(content).toContain('`--mount /tmp/gh-aw/<tool>:/tmp/gh-aw/<tool>:rw`');
@@ -218,9 +226,9 @@ describe('self-hosted runner doctor workflow config', () => {
       expect(content).toContain('| `error connecting to productionresultssa*.blob.core.windows.net` from `gh run download`/artifact ZIP fetch in `--network-isolation` mode | B26');
       // B27 new failure mode (stale awf-net collision on persistent self-hosted runners)
       expect(content).toContain('| B27 | Docker Compose refuses to start AWF containers with repeated warnings: `a network with name awf-net exists but was not created for project');
-      expect(content).toContain('`generateDockerCompose()` in `src/compose-generator.ts` names the Docker network `awf-net`');
-      expect(content).toContain('**Fixed in AWF (PR github/gh-aw-firewall#7817, merged 2026-08-28):**');
-      expect(content).toContain('github/gh-aw#56463, github/gh-aw-firewall#7809, github/gh-aw-firewall#7817');
+      expect(content).toContain('`com.docker.network.bridge.name` option');
+      expect(content).toContain('**Additional fix (PR github/gh-aw-firewall#9130, merged 2026-09-28, fixes github/gh-aw-firewall#9121):**');
+      expect(content).toContain('github/gh-aw#56463, github/gh-aw-firewall#7809, github/gh-aw-firewall#7817, github/gh-aw-firewall#9121, github/gh-aw-firewall#9130');
       expect(content).toContain('| `a network with name awf-net exists but was not created for project` | B27');
       expect(content).toContain('| B28 | Custom `apiProxy` targets pointing at an internal/corporate LLM router (`--openai-api-target`, `--anthropic-api-target`, etc.) fail TLS verification when the upstream endpoint\'s certificate chains to a private or corporate CA not present in the api-proxy sidecar\'s trust store |');
       expect(content).toContain('`apiProxy.caCert` config field and `--api-proxy-ca-cert <path>` CLI flag');
@@ -280,7 +288,7 @@ describe('self-hosted runner doctor workflow config', () => {
     expect(source).toContain('- `mkdirat ... : read-only file system` at agent container startup while a `filesystem.allowWrite` policy is active (not the `chroot.binariesSourcePath`-specific A12 case) → A21; `[entrypoint][WARN] Could not copy one-shot-token library to /tmp/awf-lib` followed by `Token protection will be disabled` → A21');
     expect(source).toContain('- `invalid CapDrop: capability not supported by your kernel or not available in the current environment` → A22');
     expect(source).toContain('- `error mounting "/dev/null" to .../.npmrc: create mountpoint ...: read-only file system` on `arc-dind` persisting even after upgrading past github/gh-aw-firewall#7998 (A23\'s fix), where the credential mountpoint is missing under a declared-`rw` home bind backed by a genuinely read-only directory → A24');
-    expect(source).toContain('- `a network with name awf-net exists but was not created for project` → B27');
+    expect(source).toContain('- `a network with name awf-net exists but was not created for project`, or a missing bridge in legacy iptables mode → B27');
     expect(source).toContain('- `docker network connect --alias <name> awf-net <service_container>` is needed for raw-protocol GitHub Actions `services:` containers under `runner.topology: arc-dind` → A25');
     expect(source).toContain('does not mention ARC, DinD, OpenShift, ARO, `HIER_NONE`, self-hosted');
     for (const playbook of [source, portableAgent]) {
@@ -317,7 +325,8 @@ describe('self-hosted runner doctor workflow config', () => {
     expect(source).toContain('A20 / github/gh-aw-firewall#7239, github/gh-aw-firewall#7244 — Under `runner.topology: arc-dind`, `filterAgentVolumesForSysroot()` (`src/services/optional-services.ts`) dropped every mount targeting `/host$HOME`');
     expect(source).toContain('A21 / github/gh-aw-firewall#7678, github/gh-aw-firewall#7679, github/gh-aw-firewall#7681, github/gh-aw-firewall#7728 — When a `filesystem.allowWrite` policy narrows `/tmp` to read-only, `awf-agent` startup can fail with `runc create failed: ... mkdirat ... read-only file system`');
     expect(source).toContain('A22 / github/gh-aw#56127, github/gh-aw-firewall#7788, github/gh-aw-firewall#7795 — `arc-dind` topology fails to start when Docker rejects AWF\'s compose `cap_drop` list');
-    expect(source).toContain('B27 / github/gh-aw#56463, github/gh-aw-firewall#7809, github/gh-aw-firewall#7817 — Docker Compose refuses to start AWF containers with repeated warnings');
+    expect(source).toContain('B27 / github/gh-aw#56463, github/gh-aw-firewall#7809, github/gh-aw-firewall#7817');
+    expect(source).toContain('A28 / github/gh-aw-firewall#9183 — gh-aw compiler must relocate Pi\'s streaming log to `sandbox/agent`');
     expect(portableAgent).toContain('B31 / github/gh-aw#58458, github/gh-aw#58625, github/gh-aw-firewall#8141, github/gh-aw-firewall#8173 — Under `sandbox.agent.runtime: docker-sudo-iptables`');
     expect(portableAgent).toContain('- `unknown shorthand flag: \'d\' in -d` from `docker compose up -d` → A14 (DinD sidecar missing `docker-compose-plugin`)');
     expect(portableAgent).toContain('- `Rootless artifact permission repair failed` on ARC/DinD squid logs → A15 (`dockerHostPathPrefix` not applied to repair bind mount)');
@@ -354,7 +363,7 @@ describe('self-hosted runner doctor workflow config', () => {
     expect(portableAgent).toContain('A20 / github/gh-aw-firewall#7239, github/gh-aw-firewall#7244 — Under `runner.topology: arc-dind`, `filterAgentVolumesForSysroot()` (`src/services/optional-services.ts`) dropped every mount targeting `/host$HOME`');
     expect(portableAgent).toContain('- `mkdirat ... : read-only file system` at agent container startup while a `filesystem.allowWrite` policy is active (not the `chroot.binariesSourcePath`-specific A12 case) → A21; `[entrypoint][WARN] Could not copy one-shot-token library to /tmp/awf-lib` followed by `Token protection will be disabled` → A21');
     expect(portableAgent).toContain('- `invalid CapDrop: capability not supported by your kernel or not available in the current environment` → A22');
-    expect(portableAgent).toContain('- `a network with name awf-net exists but was not created for project` → B27');
+    expect(portableAgent).toContain('- `a network with name awf-net exists but was not created for project`, or a missing bridge in legacy iptables mode → B27');
     expect(portableAgent).toContain('- `docker network connect --alias <name> awf-net <service_container>` is needed for raw-protocol GitHub Actions `services:` containers under `runner.topology: arc-dind` → A25');
     expect(portableAgent).toContain('- `host.docker.internal` or `(host.docker.internal/redacted)` appears in `network.allowDomains` but the host service still cannot be reached from inside AWF → B34');
     expect(portableAgent).toContain('- `context-rebuild circuit breaker tripped` together with a failed `cd` into the expected workspace path → B29');
@@ -364,7 +373,8 @@ describe('self-hosted runner doctor workflow config', () => {
     expect(portableAgent).toContain('- `400 bad request: Authorization header is badly formatted` on derived `copilot-api.*.ghe.com` target specifically (not `api.business.githubcopilot.com`) → C9 (derived GHEC Copilot API target incorrectly using the GitHub `token` prefix instead of `Bearer`; fixed in github/gh-aw-firewall#8113)');
     expect(portableAgent).toContain('A21 / github/gh-aw-firewall#7678, github/gh-aw-firewall#7679, github/gh-aw-firewall#7681, github/gh-aw-firewall#7728 — When a `filesystem.allowWrite` policy narrows `/tmp` to read-only, `awf-agent` startup can fail with `runc create failed: ... mkdirat ... read-only file system`');
     expect(portableAgent).toContain('A22 / github/gh-aw#56127, github/gh-aw-firewall#7788, github/gh-aw-firewall#7795 — `arc-dind` topology fails to start when Docker rejects AWF\'s compose `cap_drop` list');
-    expect(portableAgent).toContain('B27 / github/gh-aw#56463, github/gh-aw-firewall#7809, github/gh-aw-firewall#7817 — Docker Compose refuses to start AWF containers with repeated warnings');
+    expect(portableAgent).toContain('B27 / github/gh-aw#56463, github/gh-aw-firewall#7809, github/gh-aw-firewall#7817');
+    expect(portableAgent).toContain('A28 / github/gh-aw-firewall#9183 — gh-aw compiler must relocate Pi\'s streaming log to `sandbox/agent`');
     expect(source).toContain('B23 / github/gh-aw-firewall#7130 (still open), github/gh-aw-firewall#7147, github/gh-aw-firewall#7151, github/gh-aw-firewall#7245');
     expect(source).toContain('**Fixed on the AWF side (PR github/gh-aw-firewall#7245, merged 2026-08-11):**');
     expect(portableAgent).toContain('**Fixed on the AWF side (PR github/gh-aw-firewall#7245, merged 2026-08-11):**');
@@ -379,7 +389,8 @@ describe('self-hosted runner doctor workflow config', () => {
       expect(playbook).toContain('- `error connecting to productionresultssa*.blob.core.windows.net` from `gh run download`/artifact ZIP fetch in `--network-isolation` mode → B26');
       expect(playbook).toContain('B26 / github/gh-aw#54371, github/gh-aw-firewall#7615, github/gh-aw-firewall#7635 — In `--network-isolation` mode');
       expect(playbook).toContain('github/gh-aw-mcpg#10350');
-      expect(playbook).toContain('B27 / github/gh-aw#56463, github/gh-aw-firewall#7809, github/gh-aw-firewall#7817 — Docker Compose refuses to start AWF containers with repeated warnings');
+      expect(playbook).toContain('B27 / github/gh-aw#56463, github/gh-aw-firewall#7809, github/gh-aw-firewall#7817');
+      expect(playbook).toContain('A28 / github/gh-aw-firewall#9183 — gh-aw compiler must relocate Pi\'s streaming log to `sandbox/agent`');
       expect(playbook).toContain('B29 / github/gh-aw-firewall#8015, github/gh-aw-firewall#8021 — `codex`-engine workflows can abort');
       expect(playbook).toContain('B30 / github/gh-aw-firewall#8014, github/gh-aw-firewall#8023 — A pre-egress AWF startup failure');
       expect(playbook).toContain('C10 / github/gh-aw-firewall#8035, github/gh-aw-firewall#8038 — Fine-grained GitHub PATs');

@@ -87,7 +87,11 @@ mkdir -p /tmp/gh-aw/agent
 SENTINEL="/tmp/gh-aw/agent/awf-runner-doctor-$$"
 echo ok > "$SENTINEL"
 docker run --rm -v /tmp:/tmp alpine sh -lc "ls -l $SENTINEL" 2>/dev/null
+
+docker network inspect awf-net --format '{{json .Options}}' 2>/dev/null
 ```
+
+When Compose or legacy-iptables mode reports a missing bridge, an empty options map without `com.docker.network.bridge.name` confirms an orphaned `awf-net`; do not remove it if containers are attached.
 
 If the issue does **not** include enough evidence for a confident match, do not guess. Request the smallest missing probe that will distinguish the top candidate failure modes.
 
@@ -154,7 +158,9 @@ Prefer the narrowest match. Examples:
 - `error mounting "/dev/null" to .../home/.npmrc: create mountpoint ...: read-only file system` (or `.docker/config.json`, `.composer/auth.json`) on `arc-dind` with `--docker-host-path-prefix` set → A23 (a surviving prefixed `${workDir}-chroot-home:/host$HOME` mount is paired with `/dev/null:/host$HOME/<credential>:ro` overlays because prefixed sources were compared with unprefixed `workDir`/`effectiveHome`; fixed in github/gh-aw-firewall#7998)
 - `error mounting "/dev/null" to .../.npmrc: create mountpoint ...: read-only file system` on `arc-dind` persisting even after upgrading past github/gh-aw-firewall#7998 (A23's fix), where the credential mountpoint is missing under a declared-`rw` home bind backed by a genuinely read-only directory → A24 (`pruneUnmountableCredentialOverlays` only checked declared bind mode, never real filesystem writability for `rw`-declared covers; fixed in github/gh-aw-firewall#8086)
 - `docker network connect --alias <name> awf-net <service_container>` is needed for raw-protocol GitHub Actions `services:` containers under `runner.topology: arc-dind` → A25 (service container must join `awf-net` for direct protocol access while the agent stays isolated; documented in github/gh-aw-firewall#8085)
-- `a network with name awf-net exists but was not created for project` → B27 (orphaned fixed-name `awf-net` from a prior run on a persistent self-hosted runner; fixed in github/gh-aw-firewall#7817)
+- `a network with name awf-net exists but was not created for project`, or a missing bridge in legacy iptables mode → B27 (inspect `docker network inspect awf-net --format '{{json .Options}}'`; an empty options map without `com.docker.network.bridge.name` identifies an unoccupied orphan; fixed in github/gh-aw-firewall#9130)
+- `malformed version:` from `gh pr list --search`, `gh issue list --search`, or `gh search prs or issues` in cli-proxy gh-proxy mode → C5 (fixed in github/gh-aw-firewall#9189; the later-step `GH_HOST` leak remains a gh-aw issue)
+- Streaming log write failure / `read-only file system` under `${RUNNER_TEMP}/gh-aw` on arc-dind → A28 (use `${RUNNER_TEMP}/gh-aw/sandbox/agent/pi-streaming.jsonl`; fixed in github/gh-aw-firewall#9188, compiler relocation remains unresolved)
 - TLS/certificate verification failure from api-proxy against a custom `--openai-api-target`/`--anthropic-api-target` internal endpoint using a private/corporate CA → B28 (api-proxy sidecar had no custom CA trust extension point; fixed in github/gh-aw-firewall#7816 with `apiProxy.caCert`/`--api-proxy-ca-cert`)
 - `context-rebuild circuit breaker tripped` together with a failed `cd` into the expected workspace path → B29 (container-workdir not bind-mounted into the chroot; fixed in github/gh-aw-firewall#8021)
 - `awf logs summary` reports "no log sources found" after a pre-egress startup failure with no Squid `access.log` → B30 (check preserved logs dir for `awf-startup-error.json`; fixed in github/gh-aw-firewall#8023)
@@ -169,6 +175,8 @@ Prefer the narrowest match. Examples:
 ### 4. Check for known gaps and notable fixes
 
 If the best match is one of the known open gaps (Kata Containers runtime support, `--enable-dind` cleanup, enterprise header-injection extension points, or the remaining `GH_HOST` leak to user steps), say so explicitly instead of implying there is a shipped fix.
+
+A28 / github/gh-aw-firewall#9183 — gh-aw compiler must relocate Pi's streaming log to `sandbox/agent`.
 
 A13 / github/gh-aw-firewall#5693, github/gh-aw-firewall#5696 — ARC/DinD split-fs base-userland staging is **fixed in AWF v0.27.15**: set `runner.topology: "arc-dind"` in the AWF config JSON. The `sysroot-stage` init container copies the signed `build-tools` image filesystem into a `sysroot` volume mounted at `/host:ro` before the agent starts.
 
