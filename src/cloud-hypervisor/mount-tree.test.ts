@@ -34,7 +34,11 @@ interface MountRecord {
  * time, and synthesises the matching /proc/self/mountinfo so the manager's
  * fail-closed verification is exercised for real.
  */
-function mountTable(options: { ineffectiveRemount?: boolean; shared?: boolean } = {}) {
+function mountTable(options: {
+  ineffectiveRemount?: boolean;
+  nestedReadOnly?: boolean;
+  shared?: boolean;
+} = {}) {
   const table = new Map<string, MountRecord>();
   const commands: string[][] = [];
   const childrenOf = (target: string): string[] =>
@@ -58,7 +62,7 @@ function mountTable(options: { ineffectiveRemount?: boolean; shared?: boolean } 
       });
       // Submount carried in by the recursive bind.
       table.set(`${target}/nested`, {
-        options: ['rw', 'relatime'],
+        options: [options.nestedReadOnly ? 'ro' : 'rw', 'relatime'],
         optionalFields: options.shared === false ? [] : ['shared:22'],
       });
       return;
@@ -98,9 +102,23 @@ function mountTable(options: { ineffectiveRemount?: boolean; shared?: boolean } 
       if (!current) throw new Error(`not mounted: ${target}`);
       // Simulates a mount tool that reports success without changing anything.
       if (options.ineffectiveRemount) return;
+      const mode = requested.includes('ro')
+        ? 'ro'
+        : requested.includes('rw')
+          ? 'rw'
+          : current.options.includes('ro')
+            ? 'ro'
+            : 'rw';
       table.set(target, {
         ...current,
-        options: [requested.includes('ro') ? 'ro' : 'rw', 'nosuid', 'nodev', 'relatime'],
+        options: [
+          mode,
+          ...current.options.filter((option) =>
+            !['ro', 'rw', 'nosuid', 'nodev'].includes(option),
+          ),
+          'nosuid',
+          'nodev',
+        ],
       });
       return;
     }
@@ -746,8 +764,8 @@ describe('StagedHostMountTree', () => {
       expect(fake.commands).toEqual([
         [tools.mount, '--rbind', '/host/workspace', ROOT],
         [tools.mount, '--make-rprivate', ROOT],
-        [tools.mount, '-o', 'remount,bind,rw,nosuid,nodev', `${ROOT}/nested`],
-        [tools.mount, '-o', 'remount,bind,rw,nosuid,nodev', ROOT],
+        [tools.mount, '-o', 'remount,bind,nosuid,nodev', `${ROOT}/nested`],
+        [tools.mount, '-o', 'remount,bind,nosuid,nodev', ROOT],
         [
           tools.mount,
           '-t',
@@ -764,6 +782,23 @@ describe('StagedHostMountTree', () => {
       expect(fake.table.get(`${ROOT}/mcp-logs`)?.options).toEqual(
         expect.arrayContaining(['ro', 'nosuid', 'nodev']),
       );
+    });
+
+    it('preserves read-only nested mounts in a masks-only writable export', async () => {
+      const fake = mountTable({ nestedReadOnly: true });
+      const staged = tree(
+        fake,
+        plan([], 'workspace', [{ destination: '/host/workspace/mcp-logs' }]),
+      );
+      await staged.stage();
+      expect(fake.commands.slice(2, 4)).toEqual([
+        [tools.mount, '-o', 'remount,bind,nosuid,nodev', `${ROOT}/nested`],
+        [tools.mount, '-o', 'remount,bind,nosuid,nodev', ROOT],
+      ]);
+      expect(fake.table.get(ROOT)?.options).toContain('rw');
+      expect(fake.table.get(`${ROOT}/nested`)?.options).toContain('ro');
+      expect(fake.table.get(`${ROOT}/nested`)?.options).toContain('nosuid');
+      expect(fake.table.get(`${ROOT}/nested`)?.options).toContain('nodev');
     });
 
     it('unmounts a masks-only writable root deepest-first', async () => {

@@ -117,6 +117,7 @@ const MAX_WRITABLE_OVERLAYS = 64;
 const MAX_MASKED_PATHS = 16;
 const READONLY_REMOUNT_OPTIONS = 'remount,bind,ro,nosuid,nodev';
 const WRITABLE_REMOUNT_OPTIONS = 'remount,bind,rw,nosuid,nodev';
+const HARDENED_REMOUNT_OPTIONS = 'remount,bind,nosuid,nodev';
 const MASK_MOUNT_OPTIONS = 'ro,nosuid,nodev,size=0,mode=000';
 const MINIMUM_UTIL_LINUX = { major: 2, minor: 23 } as const;
 
@@ -269,10 +270,10 @@ export class StagedHostMountTree {
   /**
    * Used only for a masks-only plan on a read-write export: an rbind and
    * private-propagation pass identical to {@link stageReadonlyRoot}, but the
-   * follow-up remount keeps every mount read-write instead of read-only.
+   * follow-up remount hardens each mount without changing its read-only state.
    */
   private async stageWritableRoot(): Promise<void> {
-    await this.stageRootBind(WRITABLE_REMOUNT_OPTIONS);
+    await this.stageRootBind(HARDENED_REMOUNT_OPTIONS);
     await this.assertTreeIsHardenedAndPrivate();
   }
 
@@ -551,15 +552,14 @@ export class StagedHostMountTree {
    */
   private async assertTreeIsHardenedAndPrivate(): Promise<void> {
     const entries = await this.readTreeMountInfo();
-    if (!entries.some((entry) => entry.mountPoint === this.rootPath)) {
+    const root = entries.find((entry) => entry.mountPoint === this.rootPath);
+    if (!root) {
       throw new Error(`Staged mount tree is missing its root mount: ${this.rootPath}`);
     }
+    if (!root.options.includes('rw')) {
+      throw new Error(`Staged mount tree root is not writable: ${this.rootPath}`);
+    }
     for (const entry of entries) {
-      if (entry.options.includes('ro')) {
-        throw new Error(
-          `Staged mount tree is unexpectedly read-only: ${entry.mountPoint}`,
-        );
-      }
       assertHardenedOptions(entry);
       assertPrivatePropagation(entry);
     }
