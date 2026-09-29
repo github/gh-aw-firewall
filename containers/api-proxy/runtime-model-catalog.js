@@ -201,6 +201,11 @@ function getWireApi(record) {
   return undefined;
 }
 
+function getWireApiReflectFields(record) {
+  const wireApi = getWireApi(record);
+  return wireApi ? { wire_api: wireApi } : {};
+}
+
 function findRuntimeModel(provider, model) {
   const records = getRuntimeModels(provider);
   if (!records || !model) return null;
@@ -232,29 +237,26 @@ function resolveRuntimePricing(provider, model, inputTokens = 0) {
 function getRuntimeCatalogSnapshot() {
   const snapshot = {};
   for (const [provider, records] of Object.entries(runtimeCatalog)) {
-    snapshot[provider] = records.map(record => {
-      const wireApi = getWireApi(record);
-      return {
-        id: record.id,
-        source: record.source,
-        observed_at: record.observedAt,
-        ...(record.apiVersion ? { api_version: record.apiVersion } : {}),
-        ...(wireApi ? { wire_api: wireApi } : {}),
-        ...(record.pricing ? {
-          pricing: {
-            default: record.pricing.default,
-            ...(record.pricing.longContext ? { long_context: record.pricing.longContext } : {}),
-          },
-        } : {}),
-        ...(record.promotion ? {
-          promotion: {
-            discount_percent: record.promotion.discountPercent,
-            ...(record.promotion.id ? { id: record.promotion.id } : {}),
-            ...(record.promotion.endsAt ? { ends_at: record.promotion.endsAt } : {}),
-          },
-        } : {}),
-      };
-    });
+    snapshot[provider] = records.map(record => ({
+      id: record.id,
+      source: record.source,
+      observed_at: record.observedAt,
+      ...(record.apiVersion ? { api_version: record.apiVersion } : {}),
+      ...getWireApiReflectFields(record),
+      ...(record.pricing ? {
+        pricing: {
+          default: record.pricing.default,
+          ...(record.pricing.longContext ? { long_context: record.pricing.longContext } : {}),
+        },
+      } : {}),
+      ...(record.promotion ? {
+        promotion: {
+          discount_percent: record.promotion.discountPercent,
+          ...(record.promotion.id ? { id: record.promotion.id } : {}),
+          ...(record.promotion.endsAt ? { ends_at: record.promotion.endsAt } : {}),
+        },
+      } : {}),
+    }));
   }
   return snapshot;
 }
