@@ -37,7 +37,7 @@ describe('routing classifier', () => {
       effort: 'medium',
     }, plan);
     expect(request).toEqual({
-      path: '/messages',
+      path: '/v1/messages',
       body: {
         model: 'claude-opus-5-5',
         system: plan.system_prompt,

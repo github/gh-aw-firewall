@@ -99,7 +99,7 @@ describe('routing provider executor', () => {
       getAdapter: provider => provider === 'anthropic' ? adapter : null,
       proxyRequest: (req, res, _host, _headers, provider) => {
         capturedProvider = provider;
-        expect(req.url).toBe('/messages');
+        expect(req.url).toBe('/v1/messages');
         respond(res, 200, '{"content":[{"type":"text","text":"ok"}]}');
       },
       checkRateLimit: () => false,
@@ -108,7 +108,7 @@ describe('routing provider executor', () => {
     const result = await executor.execute({
       ...request,
       provider: 'anthropic',
-      path: '/messages',
+      path: '/v1/messages',
       body: { model: 'claude-opus-5-5', messages: [] },
     });
     expect(result.statusCode).toBe(200);

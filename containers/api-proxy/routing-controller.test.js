@@ -165,7 +165,7 @@ describe('routing controller', () => {
     expect(result.selection.provider).toBe('anthropic');
     expect(result.selection.choice.model).toBe('anthropic/claude-opus-5-5');
     expect(calls.execute[0]).toMatchObject({
-      path: '/messages',
+      path: '/v1/messages',
       provider: 'anthropic',
       body: { output_config: { effort: 'medium' } },
     });
@@ -210,6 +210,24 @@ describe('routing controller', () => {
 
     expect(result.ok).toBe(true);
     expect(calls.execute).toHaveLength(0);
+    expect(result.degradedReason).toBe('classifier_capacity_exhausted');
+    expect(records.find(record => record.stage === 'selection')).toMatchObject({
+      classifier_attempts: 0,
+      degraded_reason: 'classifier_capacity_exhausted',
+    });
+  });
+
+  it('skips classification when context capacity is missing but retains the model for final routing', async () => {
+    const { controller, calls, records } = createHarness({
+      models: [{ id: 'unknown-capacity', efforts: ['low'], protocols: ['responses'] }],
+    });
+    const result = await controller.run();
+
+    expect(result.ok).toBe(true);
+    expect(calls.execute).toHaveLength(0);
+    expect(calls.route[0].models).toEqual([
+      expect.objectContaining({ model: 'github-copilot/unknown-capacity' }),
+    ]);
     expect(result.degradedReason).toBe('classifier_capacity_exhausted');
     expect(records.find(record => record.stage === 'selection')).toMatchObject({
       classifier_attempts: 0,

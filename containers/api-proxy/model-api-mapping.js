@@ -6,9 +6,8 @@
  * Loads the model-api-mapping.json reference file and exposes it for
  * the /reflect management endpoint and the routing eligibility catalogue.
  *
- * The mapping is informational — it does not alter proxy routing behavior.
- * Consumers (e.g. SDK drivers, harness scripts) can query /reflect to
- * determine the correct endpoint for a given model.
+ * Maintained routing metadata informs model eligibility and candidate
+ * construction. Consumers can also query /reflect for model endpoint details.
  */
 
 const fs = require('fs');

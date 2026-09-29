@@ -45,7 +45,7 @@ function buildClassifierRequest(mapping, plan) {
   if (mapping.protocol === 'messages') {
     const maxOutputTokens = mapping.effort === undefined ? CLASSIFIER_OUTPUT_TOKENS : CLASSIFIER_REASONING_OUTPUT_TOKENS;
     return Object.freeze({
-      path: '/messages',
+      path: '/v1/messages',
       body: Object.freeze({
         model: mapping.wireModel,
         system: plan.system_prompt,

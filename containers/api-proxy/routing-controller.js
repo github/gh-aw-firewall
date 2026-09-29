@@ -175,6 +175,10 @@ function createRoutingController(dependencies) {
       for (const choice of classifierPlan.ranked_choices) {
         if (actualAttempts >= CLASSIFIER_MAX_ATTEMPTS) break;
         const mapping = pool.byId[choice.id];
+        if (!Number.isInteger(mapping.contextWindow) || mapping.contextWindow <= 0) {
+          capacityExclusions++;
+          continue;
+        }
         const preflight = preflightClassifierRequest(mapping, classifierPlan);
         if (!preflight.eligible) {
           capacityExclusions++;

@@ -75,11 +75,11 @@ function createRoutingProviderExecutor({
   getGuardChecks = getCurrentGuardChecks,
 }) {
   if (typeof getAdapter !== 'function' && typeof getCopilotAdapter !== 'function') {
-    throw createRoutingError('routing_configuration_error', 'The Copilot provider executor is incomplete');
+    throw createRoutingError('routing_configuration_error', 'The routing provider executor is incomplete');
   }
   const resolveAdapter = getAdapter || (provider => provider === 'copilot' ? getCopilotAdapter?.() : null);
   if (typeof resolveAdapter !== 'function' || typeof proxyRequest !== 'function' || typeof checkRateLimit !== 'function') {
-    throw createRoutingError('routing_configuration_error', 'The Copilot provider executor is incomplete');
+    throw createRoutingError('routing_configuration_error', 'The routing provider executor is incomplete');
   }
   return Object.freeze({
     checkBeforePrimary({ selection }) {
