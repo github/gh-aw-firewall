@@ -102,9 +102,9 @@ function aggregateLogs(
       maxTimestamp = entry.timestamp;
     }
 
-    // Skip benign operational entries (connection closures without HTTP headers)
-    // These appear during healthchecks and shutdown-time keep-alive connection closures
-    if (entry.url === 'error:transaction-end-before-headers') {
+    // Skip entries without a Squid policy decision, including ssl_bump step1
+    // peeks, healthchecks, and shutdown-time keep-alive connection closures.
+    if (entry.decision.startsWith('NONE')) {
       continue;
     }
 
