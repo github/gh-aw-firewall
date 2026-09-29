@@ -224,6 +224,7 @@ export class NvxWorkspaceLayer {
     readExposureMasks: readonly string[],
   ): Promise<void> {
     for (const relativePath of readExposureMasks) {
+      await assertCanonicalMaskPath(exportRoot, relativePath, relativePath);
       const destination = path.join(exportRoot, ...relativePath.split('/'));
       await fs.mkdir(destination, { recursive: true, mode: 0o700 });
       await this.chown(destination, 0, 0);
