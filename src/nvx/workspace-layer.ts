@@ -216,6 +216,19 @@ export class NvxWorkspaceLayer {
       chown: this.chown,
       lchown: this.lchown,
     });
+    await this.applyReadExposureMasks(destination, readExposureMasks);
+  }
+
+  private async applyReadExposureMasks(
+    exportRoot: string,
+    readExposureMasks: readonly string[],
+  ): Promise<void> {
+    for (const relativePath of readExposureMasks) {
+      const destination = path.join(exportRoot, ...relativePath.split('/'));
+      await fs.mkdir(destination, { recursive: true, mode: 0o700 });
+      await this.chown(destination, 0, 0);
+      await fs.chmod(destination, 0);
+    }
   }
 
   private async stageGuestHome(): Promise<void> {

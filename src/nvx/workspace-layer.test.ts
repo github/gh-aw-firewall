@@ -250,21 +250,36 @@ describe('NvxWorkspaceLayer', () => {
       target: '/tmp/gh-aw',
       mode: 'rw',
     };
+    const ownershipCalls: Array<{ target: string; uid: number; gid: number }> = [];
     const { layer } = await createLayer(
       ['/workspace'],
       undefined,
-      {},
+      {
+        chown: async (target, uid, gid) => {
+          ownershipCalls.push({ target, uid, gid });
+        },
+      },
       [tmpExport],
       ['tmp-gh-aw'],
     );
     const layerSource = await layer.stage();
 
-    await expect(fs.access(path.join(layerSource, 'tmp/gh-aw/mcp-logs/tool.json')))
-      .rejects.toThrow();
-    await expect(fs.access(path.join(layerSource, 'tmp/gh-aw/sandbox/firewall/logs/access.log')))
-      .rejects.toThrow();
-    await expect(fs.access(path.join(layerSource, 'tmp/gh-aw/sandbox/firewall/audit/audit.jsonl')))
-      .rejects.toThrow();
+    for (const maskedPath of [
+      'tmp/gh-aw/mcp-logs',
+      'tmp/gh-aw/sandbox/firewall/logs',
+      'tmp/gh-aw/sandbox/firewall/audit',
+    ]) {
+      const stat = await fs.lstat(path.join(layerSource, maskedPath));
+      expect(stat.isDirectory()).toBe(true);
+      expect(stat.mode & 0o777).toBe(0);
+      await expect(fs.readdir(path.join(layerSource, maskedPath)))
+        .rejects.toMatchObject({ code: 'EACCES' });
+    }
+    expect(ownershipCalls).toContainEqual({
+      target: path.join(layerSource, 'tmp/gh-aw/mcp-logs'),
+      uid: 0,
+      gid: 0,
+    });
     await expect(fs.readFile(
       path.join(layerSource, 'tmp/gh-aw/mcp-payloads/session-1/payload.json'),
       'utf8',
