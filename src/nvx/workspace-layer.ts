@@ -28,6 +28,16 @@ const EXCLUDED_RELATIVE_PATHS = [
   ...HOME_FORBIDDEN_SUBDIRS.map(normalizeRelative),
 ];
 
+const READ_EXPOSURE_MASK_GUEST_PATHS = [
+  '/tmp/gh-aw/mcp-logs',
+  '/tmp/gh-aw/sandbox/firewall/logs',
+  '/tmp/gh-aw/sandbox/firewall/audit',
+];
+
+// Do not add /tmp/gh-aw/mcp-payloads here: mcpg gives the agent these paths to
+// read spilled tool responses directly, and those payloads are session-scoped.
+const READ_EXPOSURE_MASK_EXEMPT_GUEST_PATHS = ['/tmp/gh-aw/mcp-payloads'];
+
 /**
  * `e2fsck` reports bit flags 1 ("errors corrected") and 2 ("errors corrected,
  * reboot recommended") after a successful repair; 3 combines both flags.
@@ -95,6 +105,7 @@ export class NvxWorkspaceLayer {
   readonly layerSourcePath: string;
   private readonly extractionDirectory: string;
   private originalState: Map<string, string> | undefined;
+  private readonly readExposureMasks = new Map<string, readonly string[]>();
   private staged = false;
   private readonly chown: (target: string, uid: number, gid: number) => Promise<void>;
   private readonly lchown: (target: string, uid: number, gid: number) => Promise<void>;
@@ -116,7 +127,9 @@ export class NvxWorkspaceLayer {
     await fs.mkdir(this.layerSourcePath, { recursive: true, mode: 0o755 });
 
     for (const exportPlan of this.config.writePlan.exports) {
-      await this.stageExport(exportPlan);
+      const masks = await resolveReadExposureMasks(exportPlan);
+      this.readExposureMasks.set(exportPlan.export.tag, masks);
+      await this.stageExport(exportPlan, masks);
     }
     await this.stageGuestHome();
     await this.stageRunScript();
@@ -177,13 +190,21 @@ export class NvxWorkspaceLayer {
     );
   }
 
-  private async stageExport(exportPlan: NvxExportWritePlan): Promise<void> {
+  private async stageExport(
+    exportPlan: NvxExportWritePlan,
+    readExposureMasks: readonly string[],
+  ): Promise<void> {
     const destination = path.join(
       this.layerSourcePath,
       exportPlan.export.target.slice(1),
     );
     await fs.mkdir(path.dirname(destination), { recursive: true, mode: 0o755 });
-    await copySafeTree(exportPlan.export.source, destination, exportPlan.export.source);
+    await copySafeTree(
+      exportPlan.export.source,
+      destination,
+      exportPlan.export.source,
+      (relative) => isReadExposureMasked(relative, readExposureMasks),
+    );
     const writableRelativePaths = new Set(
       exportPlan.overlays.map((overlay) => overlay.relativePath),
     );
@@ -262,7 +283,10 @@ export class NvxWorkspaceLayer {
     for (const exportEntry of this.config.exports) {
       if (exportEntry.mode !== 'rw') continue;
       await walkSafeTree(exportEntry.source, exportEntry.source, async (absolute, relative, stat) => {
-        if (relative === '') return;
+        if (
+          relative === '' ||
+          isReadExposureMasked(relative, this.readExposureMasks.get(exportEntry.tag) ?? [])
+        ) return;
         state.set(
           path.posix.join(exportEntry.target, relative),
           await describeHostEntry(absolute, stat),
@@ -294,6 +318,12 @@ export class NvxWorkspaceLayer {
       const guestPath = path.posix.join(exportEntry.target, ...relative.split(path.sep));
       const hostPath = path.join(exportEntry.source, relative);
       if (isExcludedRelativePath(relative.split(path.sep).join('/'))) continue;
+      if (
+        isReadExposureMasked(
+          relative.split(path.sep).join('/'),
+          this.readExposureMasks.get(exportEntry.tag) ?? [],
+        )
+      ) continue;
       if (guestPath === NVX_GUEST_HOME || guestPath.startsWith(`${NVX_GUEST_HOME}/`)) continue;
       const writable = isNvxWritableGuestPath(this.config.writePlan, guestPath);
       const traverse = stat.isDirectory()
@@ -373,6 +403,79 @@ function isExcludedRelativePath(relative: string): boolean {
   return EXCLUDED_RELATIVE_PATHS.some(
     (excluded) => relative === excluded || relative.startsWith(`${excluded}/`),
   );
+}
+
+async function resolveReadExposureMasks(
+  exportPlan: NvxExportWritePlan,
+): Promise<string[]> {
+  if (READ_EXPOSURE_MASK_GUEST_PATHS.some((mask) => (
+    READ_EXPOSURE_MASK_EXEMPT_GUEST_PATHS.some((exempt) => pathsOverlap(mask, exempt))
+  ))) {
+    throw new Error('NVX read-exposure masks must not overlap exempt MCP payload paths');
+  }
+
+  const masks: string[] = [];
+  for (const guestPath of READ_EXPOSURE_MASK_GUEST_PATHS) {
+    if (!isWithin(guestPath, exportPlan.export.target)) continue;
+    if (guestPath === exportPlan.export.target) {
+      throw new Error(`NVX read-exposure mask must not cover an entire export: ${guestPath}`);
+    }
+    const relativePath = path.posix.relative(exportPlan.export.target, guestPath);
+    const hostPath = path.resolve(exportPlan.export.source, ...relativePath.split('/'));
+    if (!isWithin(hostPath, exportPlan.export.source)) {
+      throw new Error(`NVX read-exposure mask escapes its export: ${guestPath}`);
+    }
+    for (const overlay of exportPlan.overlays) {
+      if (pathsOverlap(relativePath, overlay.relativePath)) {
+        throw new Error(
+          `NVX read-exposure mask overlaps writable overlay: ${guestPath} and ${overlay.guestPath}`,
+        );
+      }
+    }
+    await assertCanonicalMaskPath(exportPlan.export.source, relativePath, guestPath);
+    masks.push(relativePath);
+  }
+  return masks;
+}
+
+async function assertCanonicalMaskPath(
+  exportRoot: string,
+  relativePath: string,
+  guestPath: string,
+): Promise<void> {
+  let current = exportRoot;
+  const segments = relativePath.split('/');
+  for (const [index, segment] of segments.entries()) {
+    current = path.join(current, segment);
+    let stat: Stats;
+    try {
+      stat = await fs.lstat(current);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
+      throw error;
+    }
+    if (stat.isSymbolicLink()) {
+      throw new Error(`NVX read-exposure mask path must not contain symlinks: ${guestPath}`);
+    }
+    if (await fs.realpath(current) !== current) {
+      throw new Error(`NVX read-exposure mask path must be canonical: ${guestPath}`);
+    }
+    if (!stat.isDirectory() && index < segments.length - 1) return;
+  }
+}
+
+function isReadExposureMasked(relativePath: string, masks: readonly string[]): boolean {
+  return masks.some((mask) => (
+    relativePath === mask || relativePath.startsWith(`${mask}/`)
+  ));
+}
+
+function pathsOverlap(left: string, right: string): boolean {
+  return left === '' || right === '' || isWithin(left, right) || isWithin(right, left);
+}
+
+function isWithin(candidate: string, root: string): boolean {
+  return candidate === root || candidate.startsWith(`${root}${path.sep}`);
 }
 
 interface StagedOwnershipOptions {

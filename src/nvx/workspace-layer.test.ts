@@ -90,8 +90,11 @@ describe('NvxWorkspaceLayer', () => {
     allowWrite?: string[],
     homePath?: string,
     dependenciesOverrides: Partial<NvxWorkspaceLayerDependencies> = {},
+    additionalExports: NvxDirectoryExport[] = [],
+    internalTags: Iterable<string> = [],
   ) {
-    const writePlan = await planNvxFilesystemWrites([workspaceExport], allowWrite);
+    const exports = [workspaceExport, ...additionalExports];
+    const writePlan = await planNvxFilesystemWrites(exports, allowWrite, { internalTags });
     const { dependencies, calls } = stubTools(
       upperFixture,
       path.join(stagingRoot, 'extracted'),
@@ -99,7 +102,7 @@ describe('NvxWorkspaceLayer', () => {
     const layer = new NvxWorkspaceLayer({
       runId: 'a'.repeat(32),
       stagingRoot,
-      exports: [workspaceExport],
+      exports,
       writePlan,
       uid: process.getuid?.() ?? 1000,
       gid: process.getgid?.() ?? 1000,
@@ -220,6 +223,113 @@ describe('NvxWorkspaceLayer', () => {
 
     await expect(fs.access(path.join(layerSource, 'home/awf/.config/gh/hosts.yml')))
       .rejects.toThrow();
+  });
+
+  it('masks sensitive exported paths while preserving MCP payloads and excluding masks from copy-back', async () => {
+    const tmpGhAw = path.join(root, 'gh-aw');
+    await fs.mkdir(path.join(tmpGhAw, 'mcp-logs'), { recursive: true });
+    await fs.mkdir(path.join(tmpGhAw, 'mcp-payloads', 'session-1'), { recursive: true });
+    await fs.mkdir(path.join(tmpGhAw, 'sandbox', 'firewall', 'logs'), { recursive: true });
+    await fs.mkdir(path.join(tmpGhAw, 'sandbox', 'firewall', 'audit'), { recursive: true });
+    await fs.writeFile(path.join(tmpGhAw, 'mcp-logs', 'tool.json'), 'private log\n');
+    await fs.writeFile(
+      path.join(tmpGhAw, 'mcp-payloads', 'session-1', 'payload.json'),
+      'spilled response\n',
+    );
+    await fs.writeFile(
+      path.join(tmpGhAw, 'sandbox', 'firewall', 'logs', 'access.log'),
+      'egress policy\n',
+    );
+    await fs.writeFile(
+      path.join(tmpGhAw, 'sandbox', 'firewall', 'audit', 'audit.jsonl'),
+      'audit data\n',
+    );
+    const tmpExport: NvxDirectoryExport = {
+      tag: 'tmp-gh-aw',
+      source: tmpGhAw,
+      target: '/tmp/gh-aw',
+      mode: 'rw',
+    };
+    const { layer } = await createLayer(
+      ['/workspace'],
+      undefined,
+      {},
+      [tmpExport],
+      ['tmp-gh-aw'],
+    );
+    const layerSource = await layer.stage();
+
+    await expect(fs.access(path.join(layerSource, 'tmp/gh-aw/mcp-logs/tool.json')))
+      .rejects.toThrow();
+    await expect(fs.access(path.join(layerSource, 'tmp/gh-aw/sandbox/firewall/logs/access.log')))
+      .rejects.toThrow();
+    await expect(fs.access(path.join(layerSource, 'tmp/gh-aw/sandbox/firewall/audit/audit.jsonl')))
+      .rejects.toThrow();
+    await expect(fs.readFile(
+      path.join(layerSource, 'tmp/gh-aw/mcp-payloads/session-1/payload.json'),
+      'utf8',
+    )).resolves.toBe('spilled response\n');
+
+    await fs.writeFile(path.join(tmpGhAw, 'mcp-logs', 'tool.json'), 'host changed during run\n');
+    const guestTmpGhAw = path.join(upperFixture, 'tmp/gh-aw');
+    await fs.mkdir(path.join(guestTmpGhAw, 'mcp-logs'), { recursive: true });
+    await fs.writeFile(path.join(guestTmpGhAw, 'mcp-logs', 'tool.json'), 'guest copy-back\n');
+    const result = await layer.extractAfterStop(path.join(root, 'scratch.img'));
+
+    expect(result.applied).not.toContain('/tmp/gh-aw/mcp-logs/tool.json');
+    expect(result.rejected).not.toContain('/tmp/gh-aw/mcp-logs/tool.json');
+    await expect(fs.readFile(path.join(tmpGhAw, 'mcp-logs', 'tool.json'), 'utf8'))
+      .resolves.toBe('host changed during run\n');
+  });
+
+  it('fails closed when a read mask overlaps a writable overlay', async () => {
+    const tmpGhAw = path.join(root, 'gh-aw');
+    await fs.mkdir(path.join(tmpGhAw, 'mcp-logs'), { recursive: true });
+    await fs.writeFile(path.join(tmpGhAw, 'mcp-logs', 'tool.json'), 'private log\n');
+    const tmpExport: NvxDirectoryExport = {
+      tag: 'tmp-gh-aw',
+      source: tmpGhAw,
+      target: '/tmp/gh-aw',
+      mode: 'rw',
+    };
+    const { layer } = await createLayer(
+      ['/workspace', '/tmp/gh-aw/mcp-logs'],
+      undefined,
+      {},
+      [tmpExport],
+    );
+
+    await expect(layer.stage()).rejects.toThrow(/read-exposure mask overlaps writable overlay/);
+  });
+
+  it('rejects symlinks in paths selected for read masking', async () => {
+    const tmpGhAw = path.join(root, 'gh-aw');
+    const outside = path.join(root, 'outside');
+    await fs.mkdir(tmpGhAw);
+    await fs.mkdir(outside);
+    await fs.symlink(outside, path.join(tmpGhAw, 'mcp-logs'));
+    const tmpExport: NvxDirectoryExport = {
+      tag: 'tmp-gh-aw',
+      source: tmpGhAw,
+      target: '/tmp/gh-aw',
+      mode: 'rw',
+    };
+    const { layer } = await createLayer(['/workspace'], undefined, {}, [tmpExport], ['tmp-gh-aw']);
+
+    await expect(layer.stage()).rejects.toThrow(/read-exposure mask path must not contain symlinks/);
+  });
+
+  it('rejects a read mask that would cover an entire export', async () => {
+    const maskExport: NvxDirectoryExport = {
+      tag: 'mcp-logs',
+      source: path.join(root, 'mcp-logs'),
+      target: '/tmp/gh-aw/mcp-logs',
+      mode: 'rw',
+    };
+    await fs.mkdir(maskExport.source);
+    const { layer } = await createLayer(['/workspace'], undefined, {}, [maskExport], ['mcp-logs']);
+
+    await expect(layer.stage()).rejects.toThrow(/must not cover an entire export/);
   });
 
   it('keeps read-only owner read access available to the workload group', async () => {
