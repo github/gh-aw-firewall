@@ -73,10 +73,24 @@ function assertRankedChoices(response, offered, endpoint) {
   'router does not advertise cost/balanced routing');
 
   const conversation = [{ role: 'user', parts: [{ text: 'Proceed.' }] }];
-  const offered = [
-    { id: 'fast', model: 'github-copilot/router-fast' },
-    { id: 'reasoning-medium', model: 'github-copilot/router-reasoning', effort: 'medium' },
-  ];
+  const executionModels = capabilities.execution_catalogue?.models;
+  assert.ok(Array.isArray(executionModels) && executionModels.length > 0,
+    'router capabilities omitted the execution catalogue');
+  let nextChoice = 1;
+  const offered = executionModels.flatMap(entry => {
+    assert.ok(typeof entry.model === 'string' && entry.model.length > 0,
+      'router execution catalogue contains an invalid model');
+    assert.ok(Array.isArray(entry.efforts),
+      'router execution catalogue contains invalid efforts');
+    if (entry.efforts.length === 0) {
+      return [{ id: 'advertised-' + nextChoice++, model: entry.model }];
+    }
+    return entry.efforts.map(effort => ({
+      id: 'advertised-' + nextChoice++,
+      model: entry.model,
+      effort,
+    }));
+  });
   const classification = assertRankedChoices(await request('POST', '/classify', {
     conversation,
     models: offered,
@@ -155,7 +169,9 @@ describe('Model routing', () => {
       reject: false,
     });
 
-    expect(result.exitCode).toBe(0);
+    if (result.exitCode !== 0) {
+      throw new Error(`Router smoke exited ${result.exitCode}\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`);
+    }
     expect(result.stdout).toContain('MODEL_ROUTING_SMOKE=');
     expect(result.stdout).toContain('"checks":["health","capabilities","classifier","route"]');
   }, 360000);

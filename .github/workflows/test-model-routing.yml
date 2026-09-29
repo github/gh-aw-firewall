@@ -84,7 +84,7 @@ jobs:
           apiProxy:
             enabled: true
             allowedModels:
-              - github-copilot/gpt-4o
+              - github-copilot/claude-haiku-4.5
             routing:
               objective:
                 goal: cost
@@ -104,7 +104,7 @@ jobs:
           test -n "${COPILOT_API_URL:-}" || { echo "COPILOT_API_URL is missing" >&2; exit 1; }
           response="$(curl --fail --silent --show-error --max-time 120 \
             -H "Content-Type: application/json" \
-            --data "{\"model\":\"gpt-4o\",\"messages\":[{\"role\":\"user\",\"content\":\"Reply with exactly ROUTED_OK.\"}],\"max_tokens\":16,\"stream\":false}" \
+            --data "{\"model\":\"claude-haiku-4.5\",\"messages\":[{\"role\":\"user\",\"content\":\"Reply with exactly ROUTED_OK.\"}],\"max_tokens\":16,\"stream\":false}" \
             "${COPILOT_API_URL}/chat/completions")"
           node -e '
             const assert = require("node:assert/strict");
@@ -112,7 +112,7 @@ jobs:
             const text = result.choices?.[0]?.message?.content;
             assert.equal(typeof text, "string", "Copilot response contained no message text");
             assert.match(text, /ROUTED_OK/, "Copilot did not return the expected smoke response");
-            console.log("ROUTED_COPILOT_INFERENCE=passed model=gpt-4o");
+            console.log("ROUTED_COPILOT_INFERENCE=passed model=claude-haiku-4.5");
           ' "$response"
           SCRIPT
           )"
