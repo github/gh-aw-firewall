@@ -243,9 +243,9 @@ sudo -E awf -- agent-command
 
 ### Automatic OTLP endpoint allowlisting
 
-AWF automatically adds the OTLP collector hostname to the Squid allowlist when `OTEL_EXPORTER_OTLP_ENDPOINT` (or a per-signal `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` / `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` / `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT`) is set in the host environment — you no longer need to pass `--allow-domains` for the collector yourself. A debug log line (`--log-level debug`) records which host(s) were auto-added.
+AWF automatically allows the OTLP collector endpoint when `OTEL_EXPORTER_OTLP_ENDPOINT` (or a per-signal `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` / `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` / `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT`) is set. Values are resolved from `--env` first, then `--env-file`, then the host environment, so you no longer need to pass `--allow-domains` for the collector. A debug log line (`--log-level debug`) records the allowed host and port.
 
-Only the **exact hostname** parsed from the endpoint URL is allowed (no wildcard/subdomain expansion), and only `http://`/`https://` URLs are considered — a malformed URL, or a scheme AWF doesn't recognize (e.g. a bare gRPC `host:port` with no `http(s)://` prefix), is skipped and must still be added manually via `--allow-domains` if reachable over HTTP(S).
+Only the **exact hostname and endpoint port** parsed from the endpoint URL are allowed (no wildcard/subdomain expansion). Only `http://`/`https://` URLs are considered — malformed URLs, dangerous ports, and schemes AWF doesn't recognize (e.g. a bare gRPC `host:port` with no `http(s)://` prefix) are skipped and must still be configured separately if reachable over HTTP(S).
 
 ### Security: one-shot token protection for OTEL credentials
 

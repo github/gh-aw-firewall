@@ -1,3 +1,6 @@
+import { validateAndSanitizeHostAccessPort } from './squid/validation';
+import type { OtlpEndpoint } from './types/squid';
+
 /**
  * Extracts GHEC domains from GITHUB_SERVER_URL and GITHUB_API_URL environment variables.
  * When GITHUB_SERVER_URL points to a GHEC tenant (*.ghe.com), returns the tenant hostname,
@@ -98,32 +101,35 @@ function extractGhesDomainsFromEngineApiTarget(
 }
 
 /** OTEL environment variables that carry an OTLP collector endpoint URL. */
-const OTLP_ENDPOINT_ENV_VARS = [
+export const OTLP_ENDPOINT_ENV_VARS = [
   'OTEL_EXPORTER_OTLP_ENDPOINT',
   'OTEL_EXPORTER_OTLP_TRACES_ENDPOINT',
   'OTEL_EXPORTER_OTLP_METRICS_ENDPOINT',
   'OTEL_EXPORTER_OTLP_LOGS_ENDPOINT',
 ] as const;
 
+export function resolveOtlpEndpointEnv(
+  additionalEnv: Record<string, string | undefined> = {},
+  envFileEnv: Record<string, string | undefined> = {},
+  hostEnv: Record<string, string | undefined> = process.env
+): Record<string, string | undefined> {
+  return Object.fromEntries(OTLP_ENDPOINT_ENV_VARS.map(name => {
+    // eslint-disable-next-line security/detect-object-injection -- name comes only from the fixed OTLP_ENDPOINT_ENV_VARS literal list.
+    return [name, additionalEnv[name] ?? envFileEnv[name] ?? hostEnv[name]];
+  }));
+}
+
 /**
- * Extracts the OTLP collector hostname(s) from the OpenTelemetry exporter endpoint
- * environment variables (`OTEL_EXPORTER_OTLP_ENDPOINT` and its per-signal
- * `_TRACES_ENDPOINT` / `_METRICS_ENDPOINT` / `_LOGS_ENDPOINT` variants) so they can be
- * auto-added to the Squid allowlist. Without this, OTLP exports are silently denied and
- * show up as "blocked" entries in the firewall report unless the user manually adds the
- * collector domain via `--allow-domains` (github/gh-aw-firewall#9182).
- *
- * Only `http:`/`https:` URLs are considered; only the exact hostname is added (no
- * wildcard/subdomain expansion), matching the network-affecting scope documented in
- * docs/environment.md.
+ * Extracts exact OTLP collector host and port pairs from the OpenTelemetry exporter
+ * endpoint variables. Only HTTP(S) URLs are recognized.
  *
  * @param env - Environment variables (defaults to process.env)
- * @returns De-duplicated array of OTLP collector hostnames, or an empty array if none set
+ * @returns De-duplicated endpoint host, port, and protocol tuples
  */
-function extractOtlpDomainsFromEnv(
+export function extractOtlpEndpointsFromEnv(
   env: Record<string, string | undefined> = process.env
-): string[] {
-  const domains: string[] = [];
+): OtlpEndpoint[] {
+  const endpoints: OtlpEndpoint[] = [];
 
   for (const varName of OTLP_ENDPOINT_ENV_VARS) {
     // eslint-disable-next-line security/detect-object-injection -- varName is from the fixed OTLP_ENDPOINT_ENV_VARS literal list above, not user input.
@@ -144,12 +150,26 @@ function extractOtlpDomainsFromEnv(
       continue;
     }
 
-    if (!domains.includes(parsed.hostname)) {
-      domains.push(parsed.hostname);
+    const protocol = parsed.protocol.slice(0, -1) as OtlpEndpoint['protocol'];
+    const port = Number(parsed.port || (protocol === 'https' ? 443 : 80));
+    if (!Number.isInteger(port) || port < 1 || port > 65535) {
+      continue;
+    }
+    try {
+      validateAndSanitizeHostAccessPort(String(port));
+    } catch {
+      // Never let an environment-provided endpoint make a dangerous port safe.
+      continue;
+    }
+
+    if (!endpoints.some(endpoint =>
+      endpoint.hostname === parsed.hostname && endpoint.port === port && endpoint.protocol === protocol
+    )) {
+      endpoints.push({ hostname: parsed.hostname, port, protocol });
     }
   }
 
-  return domains;
+  return endpoints;
 }
 
 /**
@@ -246,19 +266,6 @@ export function resolveApiTargetsToAllowedDomains(
       }
     }
     debug(`Auto-added GHES domains from engine.api-target: ${ghesDomains.join(', ')}`);
-  }
-
-  // Auto-populate the OTLP collector domain when OTEL_EXPORTER_OTLP_ENDPOINT (or a
-  // per-signal _TRACES_ENDPOINT / _METRICS_ENDPOINT / _LOGS_ENDPOINT variant) is set, so
-  // OpenTelemetry exports aren't denied/reported as blocked (gh-aw-firewall#9182).
-  const otlpDomains = extractOtlpDomainsFromEnv(env);
-  if (otlpDomains.length > 0) {
-    for (const domain of otlpDomains) {
-      if (!allowedDomains.includes(domain)) {
-        allowedDomains.push(domain);
-      }
-    }
-    debug(`Auto-added OTLP collector domain(s) from OTEL_EXPORTER_OTLP_*_ENDPOINT: ${otlpDomains.join(', ')}`);
   }
 
   // Merge API target values into the allowedDomains list so that later checks/logs about

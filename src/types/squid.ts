@@ -4,6 +4,12 @@
 
 import type { UpstreamProxyConfig } from './upstream-proxy';
 
+export interface OtlpEndpoint {
+  hostname: string;
+  port: number;
+  protocol: 'http' | 'https';
+}
+
 /**
  * Configuration for the Squid proxy server
  * 
@@ -179,6 +185,12 @@ export interface SquidConfig {
    * external `dns_nameservers` cannot resolve them.
    */
   topologyPeers?: string[];
+
+  /**
+   * Exact OTLP collector host/port/protocol tuples. Unlike ordinary domains,
+   * these do not expand to subdomains.
+   */
+  otlpEndpoints?: OtlpEndpoint[];
 
   /**
    * Effective `awf-net` subnet in effect for this run (rebased when

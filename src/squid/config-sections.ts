@@ -117,7 +117,8 @@ ${denyNonMatching}
 function generatePortAclsAndRules(
   enableHostAccess?: boolean,
   allowHostPorts?: string,
-  apiProxyPorts?: number[]
+  apiProxyPorts?: number[],
+  otlpEndpoints?: SquidConfig['otlpEndpoints']
 ): string {
   let portAclsSection = `# Port ACLs
 acl SSL_ports port 443
@@ -138,6 +139,13 @@ acl Safe_ports port 443         # HTTPS`;
     for (const proxyPort of apiProxyPorts) {
       validateApiProxyPort(proxyPort);
       portAclsSection += `\nacl Safe_ports port ${proxyPort}     # AWF api-proxy sidecar`;
+    }
+  }
+
+  for (const port of [...new Set((otlpEndpoints ?? []).map(endpoint => endpoint.port))]) {
+    if (port !== 80 && port !== 443) {
+      const sanitizedPort = validateAndSanitizeHostAccessPort(String(port));
+      portAclsSection += `\nacl Safe_ports port ${sanitizedPort}     # OTLP collector endpoint`;
     }
   }
 
@@ -264,6 +272,7 @@ function generateConfigSections(options: {
   apiProxyIp?: string;
   dnsServers?: string[];
   topologyPeers?: string[];
+  otlpEndpoints?: SquidConfig['otlpEndpoints'];
   cliProxyIp?: string;
 }): {
   dlpAclSection: string;
@@ -294,6 +303,7 @@ function generateConfigSections(options: {
     apiProxyIp,
     dnsServers,
     topologyPeers,
+    otlpEndpoints,
     cliProxyIp,
   } = options;
 
@@ -310,7 +320,7 @@ function generateConfigSections(options: {
     apiProxyIp,
     cliProxyIp,
   });
-  const portAclsAndRules = generatePortAclsAndRules(enableHostAccess, allowHostPorts, apiProxyPorts);
+  const portAclsAndRules = generatePortAclsAndRules(enableHostAccess, allowHostPorts, apiProxyPorts, otlpEndpoints);
   const apiProxySection = generateApiProxySection(apiProxyIp);
   const allowedIpSection = generateAllowedIpSection(domains ?? []);
   const topologyPeersSection = generateTopologyPeersSection(topologyPeers);
