@@ -430,10 +430,10 @@ async function resolveReadExposureMasks(
 
   const masks: string[] = [];
   for (const guestPath of READ_EXPOSURE_MASK_GUEST_PATHS) {
-    if (!isWithin(guestPath, exportPlan.export.target)) continue;
-    if (guestPath === exportPlan.export.target) {
+    if (isWithin(exportPlan.export.target, guestPath)) {
       throw new Error(`NVX read-exposure mask must not cover an entire export: ${guestPath}`);
     }
+    if (!isWithin(guestPath, exportPlan.export.target)) continue;
     const relativePath = path.posix.relative(exportPlan.export.target, guestPath);
     const hostPath = path.resolve(exportPlan.export.source, ...relativePath.split('/'));
     if (!isWithin(hostPath, exportPlan.export.source)) {
