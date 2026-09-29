@@ -124,17 +124,10 @@ function extractOtlpDomainsFromEnv(
   env: Record<string, string | undefined> = process.env
 ): string[] {
   const domains: string[] = [];
-  const rawValues = OTLP_ENDPOINT_ENV_VARS.map((varName): string | undefined => {
-    switch (varName) {
-      case 'OTEL_EXPORTER_OTLP_ENDPOINT': return env['OTEL_EXPORTER_OTLP_ENDPOINT'];
-      case 'OTEL_EXPORTER_OTLP_TRACES_ENDPOINT': return env['OTEL_EXPORTER_OTLP_TRACES_ENDPOINT'];
-      case 'OTEL_EXPORTER_OTLP_METRICS_ENDPOINT': return env['OTEL_EXPORTER_OTLP_METRICS_ENDPOINT'];
-      case 'OTEL_EXPORTER_OTLP_LOGS_ENDPOINT': return env['OTEL_EXPORTER_OTLP_LOGS_ENDPOINT'];
-    }
-  });
 
-  for (const value of rawValues) {
-    const rawValue = value?.trim();
+  for (const varName of OTLP_ENDPOINT_ENV_VARS) {
+    // eslint-disable-next-line security/detect-object-injection -- varName is from the fixed OTLP_ENDPOINT_ENV_VARS literal list above, not user input.
+    const rawValue = env[varName]?.trim();
     if (!rawValue) continue;
 
     let parsed: URL;
