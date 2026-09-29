@@ -151,9 +151,12 @@ function createShimHandler(upstream, options = {}) {
 
       const chunks = [];
       let total = 0;
+      let failed = false;
       upstreamRes.on('data', (chunk) => {
+        if (failed) return;
         total += chunk.length;
         if (total > MAX_META_BODY_BYTES) {
+          failed = true;
           upstreamRes.destroy();
           sendShimError(res, 'Upstream /meta response too large');
           return;
@@ -161,13 +164,15 @@ function createShimHandler(upstream, options = {}) {
         chunks.push(chunk);
       });
       upstreamRes.on('end', () => {
-        if (res.headersSent) return;
+        if (failed || res.headersSent) return;
         const body = patchMetaBody(Buffer.concat(chunks), installedVersion);
         responseHeaders['content-length'] = body.length;
         res.writeHead(status, responseHeaders);
         res.end(body);
       });
       upstreamRes.on('error', (err) => {
+        if (failed) return;
+        failed = true;
         sendShimError(res, `Upstream response error: ${err.message}`);
       });
     });
