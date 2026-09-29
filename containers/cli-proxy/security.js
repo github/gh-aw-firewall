@@ -3,6 +3,7 @@
 // Environment keys that agents are not allowed to override via the /exec env field.
 // GH_HOST / GH_TOKEN / GITHUB_TOKEN — prevent auth/routing hijack.
 // NODE_EXTRA_CA_CERTS / SSL_CERT_FILE / GIT_SSL_CAINFO — prevent TLS trust-store bypass.
+// GH_CONFIG_DIR — keeps gh routed through the local HTTP shim (see gh-http-shim.js).
 const _PROTECTED_ENV_KEYS = new Set([
   'GH_HOST',
   'GH_TOKEN',
@@ -12,6 +13,7 @@ const _PROTECTED_ENV_KEYS = new Set([
   'NODE_EXTRA_CA_CERTS',
   'SSL_CERT_FILE',
   'GIT_SSL_CAINFO',
+  'GH_CONFIG_DIR',
 ]);
 const PROTECTED_ENV_KEYS = Object.freeze({
   has(key) { return _PROTECTED_ENV_KEYS.has(key); },

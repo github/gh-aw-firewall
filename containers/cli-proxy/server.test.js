@@ -42,6 +42,10 @@ describe('PROTECTED_ENV_KEYS', () => {
   it('should protect SSL_CERT_FILE from agent override (combined CA bundle for Go TLS)', () => {
     expect(PROTECTED_ENV_KEYS.has('SSL_CERT_FILE')).toBe(true);
   });
+
+  it('should protect GH_CONFIG_DIR from agent override (gh HTTP shim routing)', () => {
+    expect(PROTECTED_ENV_KEYS.has('GH_CONFIG_DIR')).toBe(true);
+  });
 });
 
 describe('validateArgs', () => {

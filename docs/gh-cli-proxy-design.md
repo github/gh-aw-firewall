@@ -77,6 +77,12 @@ localhost:18443 (inside cli-proxy) → TCP tunnel → host.docker.internal:18443
 
 The `gh` CLI uses `GH_HOST=localhost:18443`, which matches the cert's SAN.
 
+### GHES Version Shim
+
+Because `localhost:18443` is not `github.com`, `gh` treats it as GitHub Enterprise Server and reads `installed_version` from `GET /api/v3/meta` during feature detection (e.g. `gh pr list --search`, `gh search prs`). The github.com-backed DIFC proxy does not return that field, which made those commands fail with `malformed version: `.
+
+The entrypoint therefore configures `gh` (via `http_unix_socket` in a private `GH_CONFIG_DIR`) to send its API requests as plain HTTP over a Unix socket served by `gh-http-shim.js`. The shim forwards every request unchanged over TLS to `GH_HOST` and, only for `/api/v3/meta`, adds a synthetic `installed_version` when the upstream response lacks one. git traffic (`gh repo clone`) does not use the socket. `GH_CONFIG_DIR` is protected from `/exec` env overrides.
+
 ### CLI Flags
 
 | Flag | Description |
@@ -88,6 +94,7 @@ The `gh` CLI uses `GH_HOST=localhost:18443`, which matches the cert's SAN.
 
 - **No internal mcpg container**: The mcpg process runs on the host, started by the gh-aw compiler
 - **TCP tunnel for TLS**: `tcp-tunnel.js` forwards localhost traffic to the host DIFC proxy
+- **GHES version shim**: `gh-http-shim.js` supplies `installed_version` on `/meta` so search commands work
 - **Guard policy enforcement**: Handled by the external DIFC proxy, not by AWF
 - **Write control**: Delegated to the DIFC guard policy (no read-only mode in cli-proxy)
 - **Credential isolation**: Tokens held by the external DIFC proxy, excluded from agent env
