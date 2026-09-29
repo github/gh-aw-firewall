@@ -1,5 +1,6 @@
 import { WrapperConfig } from './service-test-setup.test-utils';
 import { testHelpers } from './agent-service.test-utils';
+import { dockerSensitiveTmpfs } from '../sensitive-paths';
 
 // Create mock functions (must remain per-file — jest.mock() is hoisted before imports)
 
@@ -55,12 +56,9 @@ describe('buildAgentSecurityConfig', () => {
     expect(result.security_opt).toContain(`seccomp=${workDir}/seccomp-profile.json`);
   });
 
-  it('includes tmpfs overlays for workDir and mcp-logs (both plain and /host-prefixed)', () => {
+  it('includes every registered sensitive path at both plain and /host-prefixed paths', () => {
     const result = buildAgentSecurityConfig(baseSecurityConfig);
-    expect(result.tmpfs).toContain('/tmp/gh-aw/mcp-logs:rw,noexec,nosuid,size=1m');
-    expect(result.tmpfs).toContain('/host/tmp/gh-aw/mcp-logs:rw,noexec,nosuid,size=1m');
-    expect(result.tmpfs).toContain(`${workDir}:rw,noexec,nosuid,size=1m`);
-    expect(result.tmpfs).toContain(`/host${workDir}:rw,noexec,nosuid,size=1m`);
+    expect(result.tmpfs).toEqual(expect.arrayContaining(dockerSensitiveTmpfs(workDir)));
     expect(result.tmpfs).toContain('/host/dev/shm:rw,noexec,nosuid,nodev,size=65536k');
   });
 

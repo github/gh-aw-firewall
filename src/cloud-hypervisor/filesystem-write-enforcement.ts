@@ -6,6 +6,12 @@ import {
   type CloudHypervisorDirectoryExport,
 } from './exports';
 import {
+  EXPLICITLY_SAFE_GH_AW_CHILDREN,
+  SENSITIVE_PATH_EXEMPTIONS,
+  resolveSensitivePaths,
+  type ResolvedSensitivePath,
+} from '../sensitive-paths';
+import {
   planCloudHypervisorFilesystemWrites,
   summarizeCloudHypervisorFilesystemWriteBoundary,
   type CloudHypervisorFilesystemWritePlan,
@@ -14,9 +20,6 @@ import type {
   VirtiofsdExportMountPlan,
   VirtiofsdMountEnforcement,
 } from './mount-tree';
-
-/** Relative path, inside the `tmp-gh-aw` export, of mcpg's log directory. */
-const MCP_LOGS_RELATIVE_PATH = 'mcp-logs';
 
 /**
  * Translation layer between the pure `filesystem.allowWrite` planner
@@ -46,6 +49,10 @@ export interface CloudHypervisorFilesystemWriteEnforcement {
    * nothing for an unrestricted run.
    */
   readonly writeBoundary: readonly string[];
+  /** Registry entries that resolve to existing directories inside published exports. */
+  readonly sensitiveMasks: readonly ResolvedSensitivePath[];
+  /** Immediate `/tmp/gh-aw` children without an explicit safety classification. */
+  readonly unclassifiedPaths: readonly string[];
 }
 
 /**
@@ -83,11 +90,14 @@ export function toCloudHypervisorFilesystemWriteEnforcement(
     const mandatoryPlans = exports
       .filter((entry) => entry.tag === 'runner-tool-cache' && entry.mode === 'ro')
       .map((entry) => ({ tag: entry.tag, writableOverlays: [] }));
-    const plans = withMcpLogsMask(exports, mandatoryPlans);
+    const { plans, sensitiveMasks, unclassifiedPaths } =
+      withSensitivePathMasks(exports, mandatoryPlans);
     return {
       exports,
       ...(plans.length > 0 ? { mountEnforcement: { plans } } : {}),
       writeBoundary: [],
+      sensitiveMasks,
+      unclassifiedPaths,
     };
   }
 
@@ -113,69 +123,146 @@ export function toCloudHypervisorFilesystemWriteEnforcement(
     return { ...entry.export, mode: entry.guestMountMode };
   });
 
+  const { plans: enforcedPlans, sensitiveMasks, unclassifiedPaths } =
+    withSensitivePathMasks(publishedExports, plans);
   return {
     exports: publishedExports,
-    mountEnforcement: { plans: withMcpLogsMask(publishedExports, plans) },
+    mountEnforcement: { plans: enforcedPlans },
     writeBoundary: summarizeCloudHypervisorFilesystemWriteBoundary(plan),
+    sensitiveMasks,
+    unclassifiedPaths,
   };
 }
 
 /**
- * Merges a mask for mcpg's log directory into the `tmp-gh-aw` export's mount
- * plan, adding a masks-only plan when that export otherwise has none.
- *
- * MCP Gateway logs the full, pre-filter tool-call payload to
- * `/tmp/gh-aw/mcp-logs` by default. That directory sits inside the `tmp-gh-aw`
- * virtiofs export, which the guest can otherwise read regardless of
- * `filesystem.allowWrite` -- narrowing write access does nothing to narrow
- * read access. Masking the directory closes that read path independently of
- * whether the export ends up read-only, read-write, or selectively writable.
- *
- * Applied unconditionally (not just when `filesystem.allowWrite` is set)
- * because the exposure exists on every run, and only when the directory is
- * confirmed to exist as a real, non-symlinked directory so a missing or
- * unusual host layout degrades to no masking rather than a hard failure.
+ * Applies every registered mask whose existing directory is inside a published
+ * export. A path that exists but is a symlink or non-directory fails closed.
  */
-function withMcpLogsMask(
+function withSensitivePathMasks(
   exports: readonly CloudHypervisorDirectoryExport[],
   plans: readonly VirtiofsdExportMountPlan[],
-): VirtiofsdExportMountPlan[] {
-  const maskDestination = resolveMcpLogsMaskDestination(exports);
-  if (!maskDestination) return [...plans];
-  const index = plans.findIndex((entry) => entry.tag === CLOUD_HYPERVISOR_TMP_GH_AW_EXPORT_TAG);
-  if (index === -1) {
-    return [
-      ...plans,
-      {
-        tag: CLOUD_HYPERVISOR_TMP_GH_AW_EXPORT_TAG,
-        writableOverlays: [],
-        maskedPaths: [{ destination: maskDestination }],
-      },
-    ];
+): {
+  plans: VirtiofsdExportMountPlan[];
+  sensitiveMasks: ResolvedSensitivePath[];
+  unclassifiedPaths: string[];
+} {
+  const sensitivePaths = resolveSensitivePaths('cloud-hypervisor');
+  const resolvedMasks = sensitivePaths
+    .map((entry) => resolvePathInExport(entry, exports))
+    .filter((entry): entry is { export: CloudHypervisorDirectoryExport; mask: ResolvedSensitivePath } =>
+      entry !== undefined)
+    .map((entry) => {
+      ensureRealDirectoryWithinRoot(entry.export.source, entry.mask.path);
+      return entry;
+    });
+  const sensitiveMasks = resolvedMasks.map(({ mask }) => mask);
+  const maskedByTag = new Map<string, ResolvedSensitivePath[]>();
+  for (const { export: exportEntry, mask } of resolvedMasks) {
+    const masks = maskedByTag.get(exportEntry.tag) ?? [];
+    masks.push(mask);
+    maskedByTag.set(exportEntry.tag, masks);
   }
-  const existing = plans[index];
-  const merged = [...plans];
-  merged[index] = {
-    ...existing,
-    maskedPaths: [...(existing.maskedPaths ?? []), { destination: maskDestination }],
+
+  const enforcedPlans = [...plans];
+  for (const [tag, masks] of maskedByTag) {
+    const index = enforcedPlans.findIndex((entry) => entry.tag === tag);
+    const maskedPaths = masks.map(({ path: destination }) => ({ destination }));
+    if (index === -1) {
+      enforcedPlans.push({ tag, writableOverlays: [], maskedPaths });
+    } else {
+      enforcedPlans[index] = {
+        ...enforcedPlans[index],
+        maskedPaths: [...(enforcedPlans[index].maskedPaths ?? []), ...maskedPaths],
+      };
+    }
+  }
+  return {
+    plans: enforcedPlans,
+    sensitiveMasks,
+    unclassifiedPaths: findUnclassifiedGhAwChildren(exports),
   };
-  return merged;
 }
 
-function resolveMcpLogsMaskDestination(
+function resolvePathInExport(
+  entry: ResolvedSensitivePath,
   exports: readonly CloudHypervisorDirectoryExport[],
-): string | undefined {
-  const tmpGhAw = exports.find((entry) => entry.tag === CLOUD_HYPERVISOR_TMP_GH_AW_EXPORT_TAG);
-  if (!tmpGhAw) return undefined;
-  const candidate = path.join(tmpGhAw.source, MCP_LOGS_RELATIVE_PATH);
-  try {
-    const resolved = fs.realpathSync(candidate);
-    if (resolved !== candidate) return undefined;
-    if (!fs.statSync(resolved).isDirectory()) return undefined;
-    return resolved;
-  } catch {
-    return undefined;
+): { export: CloudHypervisorDirectoryExport; mask: ResolvedSensitivePath } | undefined {
+  const exportEntry = exports.find((item) => containsOrEquals(item.target, entry.path));
+  if (!exportEntry) return undefined;
+  const relative = path.relative(exportEntry.target, entry.path);
+  return {
+    export: exportEntry,
+    mask: {
+      ...entry,
+      path: relative ? path.join(exportEntry.source, relative) : exportEntry.source,
+    },
+  };
+}
+
+function ensureRealDirectoryWithinRoot(root: string, candidate: string): void {
+  const relative = path.relative(root, candidate);
+  if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+    throw new Error(`Sensitive path escapes its Cloud Hypervisor export: ${candidate}`);
   }
+  assertRealDirectory(root);
+  let current = root;
+  for (const segment of relative ? relative.split(path.sep) : []) {
+    current = path.join(current, segment);
+    try {
+      assertRealDirectory(current);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      try {
+        fs.mkdirSync(current, { mode: 0o700 });
+      } catch (mkdirError) {
+        if ((mkdirError as NodeJS.ErrnoException).code !== 'EEXIST') throw mkdirError;
+      }
+      assertRealDirectory(current);
+    }
+  }
+}
+
+function assertRealDirectory(candidate: string): void {
+  const lstat: fs.Stats = fs.lstatSync(candidate);
+  if (lstat.isSymbolicLink()) {
+    throw new Error(`Sensitive path must not be a symlink: ${candidate}`);
+  }
+  if (!lstat.isDirectory()) {
+    throw new Error(`Sensitive path must be a directory: ${candidate}`);
+  }
+  const resolved = fs.realpathSync(candidate);
+  if (resolved !== candidate) {
+    throw new Error(`Sensitive path must be canonical: ${candidate} resolves to ${resolved}`);
+  }
+}
+
+function findUnclassifiedGhAwChildren(
+  exports: readonly CloudHypervisorDirectoryExport[],
+): string[] {
+  const tmpGhAw = exports.find((entry) => entry.tag === CLOUD_HYPERVISOR_TMP_GH_AW_EXPORT_TAG);
+  if (!tmpGhAw) return [];
+  const classifiedChildren = new Set<string>(EXPLICITLY_SAFE_GH_AW_CHILDREN);
+  for (const entry of resolveSensitivePaths('cloud-hypervisor')) {
+    const relative = path.relative(tmpGhAw.target, entry.path);
+    if (relative && relative !== '..' && !relative.startsWith(`..${path.sep}`)) {
+      classifiedChildren.add(relative.split(path.sep)[0]);
+    }
+  }
+  for (const entry of SENSITIVE_PATH_EXEMPTIONS) {
+    const relative = path.relative(tmpGhAw.target, entry.path);
+    if (relative && relative !== '..' && !relative.startsWith(`..${path.sep}`)) {
+      classifiedChildren.add(relative.split(path.sep)[0]);
+    }
+  }
+  return fs.readdirSync(tmpGhAw.source)
+    .filter((child) => !classifiedChildren.has(child))
+    .map((child) => path.join(tmpGhAw.source, child))
+    .sort();
+}
+
+function containsOrEquals(parent: string, child: string): boolean {
+  const relative = path.relative(parent, child);
+  return relative === '' || (relative !== '..' && !relative.startsWith(`..${path.sep}`));
 }
 
 /**

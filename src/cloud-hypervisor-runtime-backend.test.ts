@@ -225,14 +225,20 @@ describe('Cloud Hypervisor runtime backend', () => {
         const workspaceSource = path.join(directory, 'workspace');
         const ghAwSource = path.join(directory, 'gh-aw');
         await fsPromises.mkdir(path.join(ghAwSource, 'agent'), { recursive: true });
+        await fsPromises.mkdir(path.join(ghAwSource, 'mcp-logs'), { recursive: true });
+        await fsPromises.mkdir(path.join(ghAwSource, 'sandbox', 'firewall', 'logs'), { recursive: true });
+        await fsPromises.mkdir(path.join(ghAwSource, 'sandbox', 'firewall', 'audit'), { recursive: true });
+        const unclassifiedPath = path.join(ghAwSource, 'new-output');
+        await fsPromises.mkdir(unclassifiedPath);
         await fsPromises.mkdir(workspaceSource, { recursive: true });
+        const auditDir = path.join(directory, 'audit');
         const resolved = [
           { tag: 'workspace', source: workspaceSource, target: '/workspace', mode: 'rw' as const },
           { tag: 'tmp-gh-aw', source: ghAwSource, target: '/tmp/gh-aw', mode: 'rw' as const },
         ];
         const { deps } = harness({ resolveExports: jest.fn().mockResolvedValue(resolved) });
         const backend = createBackend(
-          config({ filesystemAllowWrite: ['/tmp/gh-aw/agent'] }),
+          config({ filesystemAllowWrite: ['/tmp/gh-aw/agent'], auditDir }),
           deps,
         );
 
@@ -264,6 +270,11 @@ describe('Cloud Hypervisor runtime backend', () => {
                   destination: path.join(ghAwSource, 'agent'),
                   kind: 'directory',
                 }],
+                maskedPaths: [
+                  { destination: path.join(ghAwSource, 'mcp-logs') },
+                  { destination: path.join(ghAwSource, 'sandbox', 'firewall', 'logs') },
+                  { destination: path.join(ghAwSource, 'sandbox', 'firewall', 'audit') },
+                ],
               },
             ],
           },
@@ -274,6 +285,17 @@ describe('Cloud Hypervisor runtime backend', () => {
           '/tmp/gh-aw=ro except /tmp/gh-aw/agent ' +
           '(writes outside these paths fail with EROFS; for paths under originally writable exports, ' +
           'widen filesystem.allowWrite to permit them)',
+        );
+        const audit = JSON.parse(
+          await fsPromises.readFile(path.join(auditDir, 'sensitive-paths.json'), 'utf8'),
+        );
+        expect(audit.runtime).toBe('cloud-hypervisor');
+        expect(audit.maskedPaths.map((entry: { id: string }) => entry.id))
+          .toEqual(['mcp-logs', 'firewall-logs', 'firewall-audit']);
+        expect(audit.unclassifiedPaths).toEqual([unclassifiedPath]);
+        expect(audit.exemptions[0].path).toBe('/tmp/gh-aw/mcp-payloads');
+        expect(deps.logger.warn).toHaveBeenCalledWith(
+          expect.stringContaining(`unclassified /tmp/gh-aw children: ${unclassifiedPath}`),
         );
       } finally {
         await fsPromises.rm(directory, { recursive: true, force: true });

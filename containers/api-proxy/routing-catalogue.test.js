@@ -1,6 +1,7 @@
 'use strict';
 
 const { createRoutingCatalogue } = require('./routing-catalogue');
+const { buildRoutingCandidates } = require('./routing-candidates');
 const { createCopilotAdapter } = require('./providers/copilot');
 
 function dependencies(overrides = {}) {
@@ -159,6 +160,43 @@ describe('routing catalogue', () => {
     await expect(createRoutingCatalogue(deps).getSnapshot({ signal: controller.signal }))
       .rejects.toMatchObject({ code: 'routing_cancelled', retryable: false });
     for (const dependency of Object.values(deps)) expect(dependency).not.toHaveBeenCalled();
+  });
+
+  it('reads efforts from the live Copilot /models capability shape', async () => {
+    const snapshot = await createRoutingCatalogue(dependencies({
+      getDiscoveredModels: () => ['gpt-5-mini', 'claude-haiku-4.5', 'gpt-4.1', 'malformed'],
+      getRuntimeModels: () => [
+        {
+          id: 'gpt-5-mini',
+          capabilities: {
+            limits: { max_context_window_tokens: 264_000 },
+            supports: { streaming: true, reasoning_effort: ['low', 'medium', 'high'] },
+          },
+          supportedEndpoints: ['/chat/completions', '/responses', 'ws:/responses'],
+        },
+        {
+          id: 'claude-haiku-4.5',
+          capabilities: {
+            limits: { max_context_window_tokens: 200_000 },
+            supports: { streaming: true, max_thinking_budget: 32_000 },
+          },
+          supportedEndpoints: ['/chat/completions', '/v1/messages'],
+        },
+        { id: 'gpt-4.1', capabilities: { supports: { streaming: true } } },
+        { id: 'malformed', capabilities: { supports: { reasoning_effort: 'high' } }, supportedEndpoints: ['/responses'] },
+      ],
+    })).getSnapshot();
+    expect(snapshot.models).toEqual([
+      { id: 'gpt-5-mini', efforts: ['low', 'medium', 'high'], protocols: ['chat-completions', 'responses'], contextWindow: 264_000 },
+      { id: 'claude-haiku-4.5', efforts: [], protocols: ['chat-completions'], contextWindow: 200_000 },
+      { id: 'gpt-4.1', efforts: [] },
+      { id: 'malformed', protocols: ['responses'] },
+    ]);
+    const { choices } = buildRoutingCandidates({
+      catalogue: snapshot,
+      policy: { allowedModels: ['github-copilot/claude-haiku-4.5'] },
+    });
+    expect(choices).toEqual([{ id: 'choice-0001', model: 'github-copilot/claude-haiku-4.5' }]);
   });
 
   it('requires every catalogue dependency', () => {

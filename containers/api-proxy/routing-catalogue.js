@@ -33,14 +33,23 @@ function freezeModel(model) {
   return Object.freeze(model);
 }
 
+// Copilot /models advertises efforts as capabilities.supports.reasoning_effort
+// and omits that key for models without effort control.
+function normalizeEfforts(metadata, mapped, provider) {
+  if (Array.isArray(metadata?.supportedReasoningEfforts)) return [...metadata.supportedReasoningEfforts];
+  const supports = metadata?.capabilities?.supports;
+  if (!supports || typeof supports !== 'object' || Array.isArray(supports)) return mapped?.reasoningEfforts;
+  if (Array.isArray(supports.reasoning_effort)) return [...supports.reasoning_effort];
+  if (supports.reasoningEffort === false) return [];
+  if (Object.hasOwn(supports, 'reasoning_effort') || Object.hasOwn(supports, 'reasoningEffort')) return undefined;
+  return provider === 'copilot' ? [] : mapped?.reasoningEfforts;
+}
+
 function normalizeModel(id, metadata, provider) {
   const mapped = lookupModelRoutingMetadata(id, provider);
   const endpointMapping = lookupModelEndpoints(id, provider);
   const limits = metadata?.capabilities?.limits;
-  const reasoningSupport = metadata?.capabilities?.supports?.reasoningEffort;
-  const efforts = Array.isArray(metadata?.supportedReasoningEfforts)
-    ? [...metadata.supportedReasoningEfforts]
-    : (reasoningSupport === false ? [] : (mapped?.reasoningEfforts ?? undefined));
+  const efforts = normalizeEfforts(metadata, mapped, provider);
   const runtimeContextWindow = limits?.max_context_window_tokens;
   const contextWindow = Number.isInteger(runtimeContextWindow) && runtimeContextWindow > 0
     ? runtimeContextWindow
