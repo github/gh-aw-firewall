@@ -150,7 +150,11 @@ function withSensitivePathMasks(
   const resolvedMasks = sensitivePaths
     .map((entry) => resolvePathInExport(entry, exports))
     .filter((entry): entry is { export: CloudHypervisorDirectoryExport; mask: ResolvedSensitivePath } =>
-      entry !== undefined && isExistingRealDirectory(entry.mask.path));
+      entry !== undefined)
+    .map((entry) => {
+      ensureRealDirectoryWithinRoot(entry.export.source, entry.mask.path);
+      return entry;
+    });
   const sensitiveMasks = resolvedMasks.map(({ mask }) => mask);
   const maskedByTag = new Map<string, ResolvedSensitivePath[]>();
   for (const { export: exportEntry, mask } of resolvedMasks) {
@@ -195,14 +199,31 @@ function resolvePathInExport(
   };
 }
 
-function isExistingRealDirectory(candidate: string): boolean {
-  let lstat: fs.Stats;
-  try {
-    lstat = fs.lstatSync(candidate);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
-    throw error;
+function ensureRealDirectoryWithinRoot(root: string, candidate: string): void {
+  const relative = path.relative(root, candidate);
+  if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+    throw new Error(`Sensitive path escapes its Cloud Hypervisor export: ${candidate}`);
   }
+  assertRealDirectory(root);
+  let current = root;
+  for (const segment of relative ? relative.split(path.sep) : []) {
+    current = path.join(current, segment);
+    try {
+      assertRealDirectory(current);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      try {
+        fs.mkdirSync(current, { mode: 0o700 });
+      } catch (mkdirError) {
+        if ((mkdirError as NodeJS.ErrnoException).code !== 'EEXIST') throw mkdirError;
+      }
+      assertRealDirectory(current);
+    }
+  }
+}
+
+function assertRealDirectory(candidate: string): void {
+  const lstat: fs.Stats = fs.lstatSync(candidate);
   if (lstat.isSymbolicLink()) {
     throw new Error(`Sensitive path must not be a symlink: ${candidate}`);
   }
@@ -213,7 +234,6 @@ function isExistingRealDirectory(candidate: string): boolean {
   if (resolved !== candidate) {
     throw new Error(`Sensitive path must be canonical: ${candidate} resolves to ${resolved}`);
   }
-  return true;
 }
 
 function findUnclassifiedGhAwChildren(

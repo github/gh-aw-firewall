@@ -496,7 +496,18 @@ function writeAuditArtifacts(
     JSON.stringify(policyManifest, null, 2)
   );
 
-  if (!config.cloudHypervisor && !config.nvx) {
+  if (config.nvx) {
+    const deferredPaths = resolveSensitivePaths('nvx').map(({ id, path: sensitivePath, reason }) => ({
+      id,
+      path: sensitivePath,
+      reason,
+    }));
+    writeSensitivePathAudit(auditDir, {
+      ...createSensitivePathAudit('nvx', []),
+      enforcement: 'deferred',
+      deferredPaths,
+    });
+  } else if (!config.cloudHypervisor) {
     const maskedPaths = resolveSensitivePaths('docker', { workDir: config.workDir }).map((entry) => ({
       id: entry.id,
       path: entry.path,

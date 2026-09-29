@@ -14,6 +14,14 @@ describe('Cloud Hypervisor filesystem write enforcement translation', () => {
   let tmpGhAwSource: string;
   let exports: CloudHypervisorDirectoryExport[];
 
+  function expectedGhAwMasks(): { destination: string }[] {
+    return [
+      path.join(tmpGhAwSource, 'mcp-logs'),
+      path.join(tmpGhAwSource, 'sandbox', 'firewall', 'logs'),
+      path.join(tmpGhAwSource, 'sandbox', 'firewall', 'audit'),
+    ].map((destination) => ({ destination }));
+  }
+
   beforeEach(async () => {
     directory = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'ch-write-enforce-')));
     workspaceSource = path.join(directory, 'workspace');
@@ -39,7 +47,10 @@ describe('Cloud Hypervisor filesystem write enforcement translation', () => {
     const result = planCloudHypervisorFilesystemWriteEnforcement(exports, undefined);
 
     expect(result.mountEnforcement).toEqual({
-      plans: [{ tag: 'runner-tool-cache', writableOverlays: [] }],
+      plans: [
+        { tag: 'runner-tool-cache', writableOverlays: [] },
+        { tag: 'tmp-gh-aw', writableOverlays: [], maskedPaths: expectedGhAwMasks() },
+      ],
     });
     expect(result.exports).toEqual(exports);
     result.exports.forEach((entry, index) => expect(entry).toBe(exports[index]));
@@ -47,12 +58,17 @@ describe('Cloud Hypervisor filesystem write enforcement translation', () => {
     expect(result.writeBoundary).toEqual([]);
   });
 
-  it('preserves legacy staging without a write policy or tool-cache export', () => {
+  it('masks sensitive paths without a write policy or tool-cache export', () => {
     const withoutToolCache = exports.filter((entry) => entry.tag !== 'runner-tool-cache');
     const result = planCloudHypervisorFilesystemWriteEnforcement(withoutToolCache, undefined);
 
-    expect(result.mountEnforcement).toBeUndefined();
-    expect('mountEnforcement' in result).toBe(false);
+    expect(result.mountEnforcement).toEqual({
+      plans: [{
+        tag: 'tmp-gh-aw',
+        writableOverlays: [],
+        maskedPaths: expectedGhAwMasks(),
+      }],
+    });
     expect(result.exports).toEqual(withoutToolCache);
   });
 
@@ -68,7 +84,7 @@ describe('Cloud Hypervisor filesystem write enforcement translation', () => {
       plans: [
         { tag: 'workspace', writableOverlays: [] },
         { tag: 'runner-tool-cache', writableOverlays: [] },
-        { tag: 'tmp-gh-aw', writableOverlays: [] },
+        { tag: 'tmp-gh-aw', writableOverlays: [], maskedPaths: expectedGhAwMasks() },
       ],
     });
     expect(hasReadOnlyWorkspaceMountPlan(result.mountEnforcement)).toBe(true);
@@ -94,6 +110,7 @@ describe('Cloud Hypervisor filesystem write enforcement translation', () => {
           destination: path.join(tmpGhAwSource, 'agent'),
           kind: 'directory',
         }],
+        maskedPaths: expectedGhAwMasks(),
       },
     ]);
     // The motivating gh-aw failure was a write to /tmp/gh-aw/repo-memory, which
@@ -118,7 +135,10 @@ describe('Cloud Hypervisor filesystem write enforcement translation', () => {
       { ...exports[2], mode: 'rw' },
     ]);
     expect(result.mountEnforcement).toEqual({
-      plans: [{ tag: 'runner-tool-cache', writableOverlays: [] }],
+      plans: [
+        { tag: 'runner-tool-cache', writableOverlays: [] },
+        { tag: 'tmp-gh-aw', writableOverlays: [], maskedPaths: expectedGhAwMasks() },
+      ],
     });
     expect(hasReadOnlyWorkspaceMountPlan(result.mountEnforcement)).toBe(false);
   });
@@ -140,6 +160,7 @@ describe('Cloud Hypervisor filesystem write enforcement translation', () => {
         }],
       },
       { tag: 'runner-tool-cache', writableOverlays: [] },
+      { tag: 'tmp-gh-aw', writableOverlays: [], maskedPaths: expectedGhAwMasks() },
     ]);
     // A selective workspace has a plan, so it is legitimately published `rw`
     // while its host root is staged read-only.
@@ -184,7 +205,7 @@ describe('Cloud Hypervisor filesystem write enforcement translation', () => {
         {
           tag: 'tmp-gh-aw',
           writableOverlays: [],
-          maskedPaths: [{ destination: mcpLogsSource }],
+          maskedPaths: expectedGhAwMasks(),
         },
       ]);
     });
@@ -202,7 +223,7 @@ describe('Cloud Hypervisor filesystem write enforcement translation', () => {
             destination: path.join(tmpGhAwSource, 'agent'),
             kind: 'directory',
           }],
-          maskedPaths: [{ destination: mcpLogsSource }],
+          maskedPaths: expectedGhAwMasks(),
         },
       ]);
     });
@@ -218,7 +239,7 @@ describe('Cloud Hypervisor filesystem write enforcement translation', () => {
         {
           tag: 'tmp-gh-aw',
           writableOverlays: [],
-          maskedPaths: [{ destination: mcpLogsSource }],
+          maskedPaths: expectedGhAwMasks(),
         },
       ]);
     });
@@ -232,13 +253,15 @@ describe('Cloud Hypervisor filesystem write enforcement translation', () => {
       });
     });
 
-    it('skips masking when mcp-logs does not exist', async () => {
+    it('creates and masks registered paths that do not yet exist', async () => {
       await fs.rm(mcpLogsSource, { recursive: true, force: true });
       const result = planCloudHypervisorFilesystemWriteEnforcement(exports, undefined);
 
-      expect(result.mountEnforcement).toEqual({
-        plans: [{ tag: 'runner-tool-cache', writableOverlays: [] }],
-      });
+      expect((await fs.stat(mcpLogsSource)).isDirectory()).toBe(true);
+      expect(result.mountEnforcement?.plans.find((entry) => entry.tag === 'tmp-gh-aw')?.maskedPaths)
+        .toEqual(expectedGhAwMasks());
+      expect(result.sensitiveMasks.map(({ id }) => id))
+        .toEqual(['mcp-logs', 'firewall-logs', 'firewall-audit']);
     });
 
     it('fails closed when mcp-logs is a symlink rather than a real directory', async () => {
@@ -255,6 +278,17 @@ describe('Cloud Hypervisor filesystem write enforcement translation', () => {
       await fs.writeFile(mcpLogsSource, 'not a directory');
       expect(() => planCloudHypervisorFilesystemWriteEnforcement(exports, undefined))
         .toThrow(`Sensitive path must be a directory: ${mcpLogsSource}`);
+    });
+
+    it('fails closed when a missing registered path has a symlinked parent', async () => {
+      const sandbox = path.join(tmpGhAwSource, 'sandbox');
+      const realTarget = path.join(directory, 'elsewhere-sandbox');
+      await fs.mkdir(realTarget);
+      await fs.symlink(realTarget, sandbox);
+
+      expect(() => planCloudHypervisorFilesystemWriteEnforcement(exports, undefined))
+        .toThrow(`Sensitive path must not be a symlink: ${sandbox}`);
+      await expect(fs.access(path.join(realTarget, 'firewall'))).rejects.toMatchObject({ code: 'ENOENT' });
     });
 
     it('masks every registered firewall directory that exists in the export', async () => {
@@ -280,7 +314,8 @@ describe('Cloud Hypervisor filesystem write enforcement translation', () => {
 
       const result = planCloudHypervisorFilesystemWriteEnforcement(exports, undefined);
 
-      expect(result.sensitiveMasks.map(({ id }) => id)).toEqual(['mcp-logs']);
+      expect(result.sensitiveMasks.map(({ id }) => id))
+        .toEqual(['mcp-logs', 'firewall-logs', 'firewall-audit']);
       expect(result.unclassifiedPaths).toEqual([]);
     });
 

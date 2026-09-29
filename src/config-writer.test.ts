@@ -483,6 +483,48 @@ describe('writeConfigs', () => {
         .toEqual(['/tmp/gh-aw/mcp-logs', '/host/tmp/gh-aw/mcp-logs']);
       expect(sensitivePathAudit.exemptions[0].path).toBe('/tmp/gh-aw/mcp-payloads');
     });
+
+    it('records NVX sensitive paths as deferred rather than applied', async () => {
+      const auditDir = path.join(tempDir, 'nvx-audit');
+
+      await writeConfigs(
+        buildWriteConfig(tempDir, {
+          auditDir,
+          containerRuntime: 'nvx',
+          nvx: {
+            previewEnabled: true,
+            mountPolicy: 'workspace-only',
+            memoryMib: 512,
+            memoryMaxBytes: 512 * 1024 * 1024,
+            pidsMax: 128,
+          },
+        }),
+      );
+
+      const sensitivePathAudit = JSON.parse(
+        fs.readFileSync(path.join(auditDir, 'sensitive-paths.json'), 'utf8'),
+      );
+      expect(sensitivePathAudit).toMatchObject({
+        runtime: 'nvx',
+        enforcement: 'deferred',
+        maskedPaths: [],
+        deferredPaths: [
+          {
+            id: 'mcp-logs',
+            path: '/tmp/gh-aw/mcp-logs',
+            reason: expect.stringContaining('pre-filter tool-call payloads'),
+          },
+          {
+            id: 'firewall-logs',
+            path: '/tmp/gh-aw/sandbox/firewall/logs',
+          },
+          {
+            id: 'firewall-audit',
+            path: '/tmp/gh-aw/sandbox/firewall/audit',
+          },
+        ],
+      });
+    });
   });
 
   describe('seccomp profile', () => {
