@@ -99,7 +99,7 @@ describe('createProductionRoutingController', () => {
       task: { conversationFile: '/run/awf-routing/input/conversation.json' },
     });
     expect(() => createProductionRoutingController({ rawConfig }))
-      .toThrow(/Copilot provider adapter owner is unavailable/);
+      .toThrow(/The provider adapter owner is unavailable/);
   });
 });
 
