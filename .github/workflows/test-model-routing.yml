@@ -1,4 +1,4 @@
-name: Model Routing Smoke Test
+name: Released Model Routing Compatibility Smoke
 
 on:
   push:

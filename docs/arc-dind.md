@@ -178,6 +178,16 @@ needs its `--output`/destination path to resolve to a mount that is:
    `--docker-host-path-prefix` does **not** alias) produces no error — the
    tool "succeeds" but the output never appears where the consumer looks.
 
+For gh-aw engine streaming logs (including Pi), do not write directly to
+`${RUNNER_TEMP}/gh-aw/pi-streaming.jsonl` when `${RUNNER_TEMP}/gh-aw` is mounted
+`:ro`. Mount an existing writable child such as
+`${RUNNER_TEMP}/gh-aw/sandbox/agent` with `:rw`, and write the log at
+`${RUNNER_TEMP}/gh-aw/sandbox/agent/pi-streaming.jsonl`. The engine command,
+log parser, and artifact upload must all use that same path. Mounting the
+child `:rw` does not make the rest of the read-only parent writable; the
+workflow/compiler that chooses the log location must also update its
+consumers.
+
 ## Writable home under sysroot staging
 
 Sysroot staging drops agent bind mounts whose sources the DinD daemon cannot

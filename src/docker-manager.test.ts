@@ -74,4 +74,12 @@ describe('docker-manager (barrel re-exports)', () => {
   it('isCapDropSkipped returns a boolean via the barrel re-export', () => {
     expect(typeof dockerManager.isCapDropSkipped()).toBe('boolean');
   });
+
+
+  describe('filterCapDrop via barrel', () => {
+    it('returns empty for undefined or empty lists', () => {
+      expect(dockerManager.filterCapDrop(undefined, null)).toEqual([]);
+      expect(dockerManager.filterCapDrop([], null)).toEqual([]);
+    });
+  });
 });
