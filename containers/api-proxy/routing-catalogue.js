@@ -8,12 +8,21 @@ function freezeModel(model) {
   return Object.freeze(model);
 }
 
+// Copilot /models advertises efforts as capabilities.supports.reasoning_effort
+// and omits that key for models without effort control.
+function normalizeEfforts(metadata) {
+  if (Array.isArray(metadata?.supportedReasoningEfforts)) return [...metadata.supportedReasoningEfforts];
+  const supports = metadata?.capabilities?.supports;
+  if (!supports || typeof supports !== 'object' || Array.isArray(supports)) return undefined;
+  if (Array.isArray(supports.reasoning_effort)) return [...supports.reasoning_effort];
+  if (supports.reasoningEffort === false) return [];
+  if (Object.hasOwn(supports, 'reasoning_effort') || Object.hasOwn(supports, 'reasoningEffort')) return undefined;
+  return [];
+}
+
 function normalizeModel(id, metadata) {
   const limits = metadata?.capabilities?.limits;
-  const reasoningSupport = metadata?.capabilities?.supports?.reasoningEffort;
-  const efforts = Array.isArray(metadata?.supportedReasoningEfforts)
-    ? [...metadata.supportedReasoningEfforts]
-    : (reasoningSupport === false ? [] : undefined);
+  const efforts = normalizeEfforts(metadata);
   const contextWindow = limits?.max_context_window_tokens;
   const protocols = Array.isArray(metadata?.supportedEndpoints)
     ? metadata.supportedEndpoints.flatMap(endpoint => {
