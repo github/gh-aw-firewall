@@ -81,6 +81,9 @@ Reuse these instead of duplicating their commands:
 | Bind-mounted workspace or config files are empty or missing inside the agent container | A1 | runner | workaround |
 | docker compose starts but the mounted path resolves to an empty directory | A1 | runner | workaround |
 | no such file or directory for a path that exists on the runner | A1 | runner | workaround |
+| Streaming log write fails with read-only file system | A28 | runner | workaround |
+| A successful engine run becomes a failure under arc-dind | A28 | runner | workaround |
+| Safe outputs are missing after a streaming engine run | A28 | runner | workaround |
 | capsh: not found | A4 | runner | workaround |
 | /bin/bash: no such file or directory during chroot startup | A4 | runner | workaround |
 | node: not found when the harness binary starts | A4 | runner | workaround |
@@ -123,6 +126,19 @@ Reuse these instead of duplicating their commands:
 - **Action:** Set --docker-host-path-prefix (for example /tmp/gh-aw) or container.dockerHostPathPrefix so bind-mount sources are rewritten to paths the daemon can resolve. Kernel virtual filesystems (/dev, /sys, /proc) are intentionally not prefixed.
 - **Related:** A4
 - **Provenance:** issue: ARC split-filesystem bind mounts (https://github.com/github/gh-aw-firewall/issues/5753) · doc: ARC / DinD split filesystem support (docs/arc-dind.md) · code: translateBindMountHostPath() (src/services/agent-volumes.ts) · test: src/services/agent-volumes-arc-dind-staging.test.ts
+- **Owner:** @github/gh-aw-firewall-maintainers · **Review by:** 2027-03-31
+
+### A28 — ARC/DinD streaming logs target a read-only parent mount
+
+- **Boundary:** runner · **Status:** workaround
+- **Affects:** runner=arc-dind, runtime=any, provider=any, auth=any
+- **Versions:** introduced=unknown, fixed=unknown
+- **Symptoms:** Streaming log write fails with read-only file system · A successful engine run becomes a failure under arc-dind · Safe outputs are missing after a streaming engine run
+- **Discriminating conditions:** runner.topology is arc-dind · The engine writes a streaming log directly beneath ${RUNNER_TEMP}/gh-aw · The parent ${RUNNER_TEMP}/gh-aw mount is read-only
+- **Root cause:** The streaming log path is beneath a read-only parent mount, so the engine cannot create or append its log even when the engine itself succeeds.
+- **Safe probe:** `findmnt -T "${RUNNER_TEMP}/gh-aw" -o TARGET,OPTIONS; findmnt -T "${RUNNER_TEMP}/gh-aw/sandbox/agent" -o TARGET,OPTIONS` → The parent mount is read-only and the sandbox/agent mount is writable; no files are created or modified.
+- **Action:** Use ${RUNNER_TEMP}/gh-aw/sandbox/agent/pi-streaming.jsonl consistently for the streaming-log writer, parser, and artifact upload. Upgrade AWF to the version containing github/gh-aw-firewall#9188; relocating Pi's log in the gh-aw compiler remains unresolved.
+- **Provenance:** issue: ARC/DinD streaming log write failure (https://github.com/github/gh-aw-firewall/issues/9183) · pull-request: Retain writable sandbox/agent mount (https://github.com/github/gh-aw-firewall/pull/9188) · doc: ARC / DinD documentation (docs/arc-dind.md) · test: src/services/agent-volumes-arc-dind-staging.test.ts
 - **Owner:** @github/gh-aw-firewall-maintainers · **Review by:** 2027-03-31
 
 ### A4 — capsh, /bin/bash, or node missing inside the DinD chroot

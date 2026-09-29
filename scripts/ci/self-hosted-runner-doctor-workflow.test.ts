@@ -364,6 +364,8 @@ describe('self-hosted runner doctor workflow config', () => {
     expect(portableAgent).toContain('- `mkdirat ... : read-only file system` at agent container startup while a `filesystem.allowWrite` policy is active (not the `chroot.binariesSourcePath`-specific A12 case) → A21; `[entrypoint][WARN] Could not copy one-shot-token library to /tmp/awf-lib` followed by `Token protection will be disabled` → A21');
     expect(portableAgent).toContain('- `invalid CapDrop: capability not supported by your kernel or not available in the current environment` → A22');
     expect(portableAgent).toContain('- `a network with name awf-net exists but was not created for project`, or a missing bridge in legacy iptables mode → B27');
+    expect(portableAgent).toContain('- `malformed version:` from `gh pr list --search`, `gh issue list --search`, or `gh search prs or issues` in cli-proxy gh-proxy mode → C5');
+    expect(portableAgent).toContain('- Streaming log write failure / `read-only file system` under `${RUNNER_TEMP}/gh-aw` on arc-dind → A28');
     expect(portableAgent).toContain('- `docker network connect --alias <name> awf-net <service_container>` is needed for raw-protocol GitHub Actions `services:` containers under `runner.topology: arc-dind` → A25');
     expect(portableAgent).toContain('- `host.docker.internal` or `(host.docker.internal/redacted)` appears in `network.allowDomains` but the host service still cannot be reached from inside AWF → B34');
     expect(portableAgent).toContain('- `context-rebuild circuit breaker tripped` together with a failed `cd` into the expected workspace path → B29');
@@ -391,6 +393,9 @@ describe('self-hosted runner doctor workflow config', () => {
       expect(playbook).toContain('github/gh-aw-mcpg#10350');
       expect(playbook).toContain('B27 / github/gh-aw#56463, github/gh-aw-firewall#7809, github/gh-aw-firewall#7817');
       expect(playbook).toContain('A28 / github/gh-aw-firewall#9183 — gh-aw compiler must relocate Pi\'s streaming log to `sandbox/agent`');
+      expect(playbook).toContain("docker network inspect awf-net --format '{{json .Options}} {{json .Containers}}'");
+      expect(playbook).toContain('empty containers map identify an unoccupied orphaned `awf-net`');
+      expect(playbook).toContain('empty containers map identify an unoccupied orphan; fixed in github/gh-aw-firewall#9130');
       expect(playbook).toContain('B29 / github/gh-aw-firewall#8015, github/gh-aw-firewall#8021 — `codex`-engine workflows can abort');
       expect(playbook).toContain('B30 / github/gh-aw-firewall#8014, github/gh-aw-firewall#8023 — A pre-egress AWF startup failure');
       expect(playbook).toContain('C10 / github/gh-aw-firewall#8035, github/gh-aw-firewall#8038 — Fine-grained GitHub PATs');

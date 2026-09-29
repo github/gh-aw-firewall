@@ -23,8 +23,8 @@
   "status": "workaround",
   "rootCause": "The streaming log path is beneath a read-only parent mount, so the engine cannot create or append its log even when the engine itself succeeds.",
   "probe": {
-    "command": "touch \"${RUNNER_TEMP}/gh-aw/sandbox/agent/awf-doctor-probe\"",
-    "expect": "The child path is writable; a direct file under ${RUNNER_TEMP}/gh-aw fails with EROFS.",
+    "command": "findmnt -T \"${RUNNER_TEMP}/gh-aw\" -o TARGET,OPTIONS; findmnt -T \"${RUNNER_TEMP}/gh-aw/sandbox/agent\" -o TARGET,OPTIONS",
+    "expect": "The parent mount is read-only and the sandbox/agent mount is writable; no files are created or modified.",
     "readOnly": true,
     "secretSafe": true
   },
