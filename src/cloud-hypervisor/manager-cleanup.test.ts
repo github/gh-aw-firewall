@@ -164,15 +164,7 @@ import {
     expect(cgroup.cleanup).toHaveBeenCalledTimes(1);
   });
 
-  it('invokes a beforeCleanup hook after process termination but before run-directory removal', async () => {
-    // Regression test: Cloud Hypervisor does not flush buffered guest
-    // serial console output until its process actually exits, so
-    // diagnostics collection must happen after process termination is
-    // confirmed but before stop() removes the run directory those
-    // diagnostic files live in. Discovered via live-KVM validation: a
-    // guest boot failure produced a completely empty serial console log
-    // when diagnostics were collected any earlier (e.g. before
-    // vmm.shutdown()/process termination).
+  async function createStartedManager() {
     const child = processMock();
     const deps = dependencies({
       launch: jest.fn().mockReturnValue(child),
@@ -186,6 +178,19 @@ import {
       guestConfig(),
     );
     await manager.start();
+    return { manager, deps, child };
+  }
+
+  it('invokes a beforeCleanup hook after process termination but before run-directory removal', async () => {
+    // Regression test: Cloud Hypervisor does not flush buffered guest
+    // serial console output until its process actually exits, so
+    // diagnostics collection must happen after process termination is
+    // confirmed but before stop() removes the run directory those
+    // diagnostic files live in. Discovered via live-KVM validation: a
+    // guest boot failure produced a completely empty serial console log
+    // when diagnostics were collected any earlier (e.g. before
+    // vmm.shutdown()/process termination).
+    const { manager, deps } = await createStartedManager();
 
     const beforeCleanup = jest.fn(async () => {});
 
@@ -207,19 +212,7 @@ import {
   });
 
   it('propagates a beforeCleanup hook failure alongside other stop() errors', async () => {
-    const child = processMock();
-    const deps = dependencies({
-      launch: jest.fn().mockReturnValue(child),
-    });
-    const manager = new CloudHypervisorManager(
-      config(),
-      '/tmp/awf',
-      deps,
-      'keep',
-      networkConfig(),
-      guestConfig(),
-    );
-    await manager.start();
+    const { manager, deps } = await createStartedManager();
 
     await expect(
       manager.stop({
