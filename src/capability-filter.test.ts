@@ -167,12 +167,7 @@ describe('capability-filter', () => {
         },
       } as unknown as DockerComposeConfig;
 
-      // Trim SYS_MODULE (bit 16)
-      const fullCapBnd = 0x000001ffffffffffn;
-      const sysModuleBit = 1n << 16n;
-      const trimmedCapBnd = fullCapBnd & ~sysModuleBit;
-
-      const filtered = filterComposeCapDrop(compose, trimmedCapBnd);
+      const filtered = filterComposeCapDrop(compose, makeTrimmedCapBnd());
       expect(filtered.services.agent.cap_drop).toBeUndefined();
     });
 
