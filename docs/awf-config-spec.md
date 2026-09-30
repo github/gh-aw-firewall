@@ -1970,8 +1970,8 @@ apiProxy:
 | `objective.mode` | `economy`, `balanced`, `robust`, `auto` | Fixed routing profile, or `auto` classification |
 | `task.conversationFile` | non-empty string | Host path to the task conversation whose description the router classifies |
 
-The task conversation is written by the workflow host before AWF starts (for
-gh-aw, from the rendered agent prompt). It is a JSON array in the router's
+The task conversation must be written by the workflow host before AWF starts.
+It is a JSON array in the router's
 conversation format, for example
 `[{"role":"user","parts":[{"text":"Fix the failing unit test."}]}]`, with at
 least one non-blank `user` message and at most 1 MiB. Its user messages form the
