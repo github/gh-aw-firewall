@@ -41,7 +41,6 @@ env:
 jobs:
   model-routing:
     name: Exercise live routing and Copilot inference
-    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -328,7 +327,7 @@ jobs:
   native-provider-routing:
     name: Exercise live ${{ matrix.provider }} routing
     # Paid provider keys: run on the weekly schedule and on demand, not on every push.
-    if: github.ref == 'refs/heads/main' && github.event_name != 'push'
+    if: github.event_name != 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
