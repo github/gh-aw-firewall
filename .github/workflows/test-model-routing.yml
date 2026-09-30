@@ -319,6 +319,85 @@ jobs:
           test "$status" -eq 78 || { echo "expected AWF exit 78 after a routing mismatch, got ${status}" >&2; exit 1; }
           echo "ROUTED_MISMATCH_EXIT=78"
 
+      - name: Install the Copilot CLI used by gh-aw
+        env:
+          # Keep in step with gh-aw's DefaultCopilotVersion.
+          COPILOT_CLI_VERSION: 1.0.89
+        run: |
+          set -euo pipefail
+          npm install --global --no-audit --no-fund "@github/copilot@${COPILOT_CLI_VERSION}"
+          copilot --version
+
+      - name: Run the Copilot CLI agent on the routed selection
+        env:
+          COPILOT_GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          ROUTING_DIR="${RUNNER_TEMP}/model-routing-cli"
+          mkdir -m 700 -p "$ROUTING_DIR"
+          cat > "${ROUTING_DIR}/conversation.json" <<'JSON'
+          [{"role":"user","parts":[{"text":"Reply with exactly ROUTED_OK."}]}]
+          JSON
+          cat > "${ROUTING_DIR}/awf-config.yml" <<YAML
+          experimental:
+            modelRouting: true
+          network:
+            allowDomains:
+              - api.githubcopilot.com
+          apiProxy:
+            enabled: true
+            allowedModels:
+              - github-copilot/claude-haiku-4.5
+              - github-copilot/gpt-5.4-mini
+            routing:
+              objective:
+                goal: cost
+                mode: balanced
+              task:
+                conversationFile: ${ROUTING_DIR}/conversation.json
+          container:
+            images:
+              agent: ${AGENT_IMAGE}
+              apiProxy: ${API_PROXY_IMAGE}
+              squid: ${SQUID_IMAGE}
+              router: ${ROUTER_IMAGE}
+          YAML
+
+          # The shape a gh-aw engine step would take: read the routed selection
+          # from /reflect and hand it to the Copilot CLI. Any request the CLI
+          # makes with another model or effort is rejected and AWF exits 78.
+          ROUTED_COMMAND="$(cat <<'SCRIPT'
+          set -euo pipefail
+          test -n "${COPILOT_API_URL:-}" || { echo "COPILOT_API_URL is missing" >&2; exit 1; }
+          reflect="$(curl --fail --silent --show-error --max-time 30 "${COPILOT_API_URL}/reflect")"
+          selection="$(node -e '
+            const assert = require("node:assert/strict");
+            const routing = JSON.parse(process.argv[1]).routing;
+            assert.equal(routing?.status, "selected", "/reflect did not report a routed selection: " + JSON.stringify(routing));
+            const s = routing.selection;
+            console.error("ROUTED_SELECTION=" + JSON.stringify(s));
+            const wireApi = s.endpoint === "/responses" ? "responses" : "completions";
+            console.log(s.wire_model + " " + wireApi + " " + (s.effort ?? ""));
+          ' "$reflect")"
+          read -r model wire_api effort <<<"$selection"
+          # AWF derives the wire API from COPILOT_MODEL at launch, before the
+          # router has chosen, so the routed endpoint must be applied here.
+          export COPILOT_PROVIDER_WIRE_API="$wire_api"
+          args=(--model "$model")
+          if [ -n "${effort:-}" ]; then args+=(--reasoning-effort "$effort"); fi
+          export HOME="$(mktemp -d)"
+          output="$(copilot "${args[@]}" \
+            --prompt "Reply with exactly ROUTED_OK and nothing else." \
+            --silent --no-color --allow-all-tools --disable-builtin-mcps \
+            --no-custom-instructions --no-auto-update --no-ask-user)"
+          printf '%s\n' "$output"
+          grep -q ROUTED_OK <<<"$output" || { echo "Copilot CLI did not return ROUTED_OK" >&2; exit 1; }
+          echo "ROUTED_COPILOT_CLI=passed model=${model} effort=${effort:-none}"
+          SCRIPT
+          )"
+          sudo --preserve-env=COPILOT_GITHUB_TOKEN,GITHUB_WORKSPACE,HOME,PATH \
+            node dist/cli.js --config "${ROUTING_DIR}/awf-config.yml" -- bash -euc "$ROUTED_COMMAND"
+
       - name: Show Docker state on failure
         if: failure()
         run: |

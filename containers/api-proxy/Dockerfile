@@ -7,9 +7,8 @@ RUN apk upgrade --no-cache \
     && apk add --no-cache "curl>=8.21.0-r0"
 
 # Replace the vulnerable npm 10.x bundled with Node 22.23.2 with npm 11.18.0.
-# npm 11.18.0 bundles: tar 7.5.19 (fixes GHSA-23hp-3jrh-7fpw/GHSA-8x88-c5mf-7j5w),
-# sigstore 4.1.1 (fixes GHSA-52v5-jr5w-gjxr), brace-expansion 5.0.7 and
-# picomatch 4.0.4 (via tinyglobby, fixes GHSA-3jxr-9vmj-r5cp / GHSA-c2c7-rcm5-vvqj).
+# npm 11.18.0 bundles vulnerable copies of undici, brace-expansion, and
+# ip-address; the pinned replacements below install fixed releases.
 # Install from the registry tarball (same method as the agent image) for a clean
 # replacement -- avoids leaving stale npm 10.x bundles in the image layers.
 RUN set -eux; \
@@ -27,6 +26,23 @@ RUN set -eux; \
     node --version | grep -qE '^v22\.23\.2' || (echo "ERROR: expected Node.js v22.23.2" && exit 1); \
     npm --version | grep -qE '^11\.18\.0' || (echo "ERROR: expected npm 11.18.0" && exit 1); \
     rm -f /tmp/npm-11.18.0.tgz
+
+# Replace vulnerable npm-bundled dependencies without changing the pinned npm release.
+RUN set -eux; \
+    npm_dir=/usr/local/lib/node_modules/npm/node_modules; \
+    curl -fsSL https://registry.npmjs.org/undici/-/undici-6.28.1.tgz -o /tmp/undici-6.28.1.tgz; \
+    echo "e18191aac9c0ff43dac7fe9b10b7041a22d07addb7b66a6e8ac14a52a5b69b74  /tmp/undici-6.28.1.tgz" | sha256sum -c -; \
+    curl -fsSL https://registry.npmjs.org/brace-expansion/-/brace-expansion-5.0.12.tgz -o /tmp/brace-expansion-5.0.12.tgz; \
+    echo "ef8448ec78f20b692f04fa6d01f39b5ab34c66404bea3429f5a39c6c9e0be8b4  /tmp/brace-expansion-5.0.12.tgz" | sha256sum -c -; \
+    curl -fsSL https://registry.npmjs.org/ip-address/-/ip-address-10.7.1.tgz -o /tmp/ip-address-10.7.1.tgz; \
+    echo "7f99ac7abda701afe1fd1e36de462236fb4d1eb8c595d7ae0267bba7d8ee55f8  /tmp/ip-address-10.7.1.tgz" | sha256sum -c -; \
+    rm -rf "$npm_dir/undici" "$npm_dir/brace-expansion" "$npm_dir/ip-address"; \
+    mkdir -p "$npm_dir/undici" "$npm_dir/brace-expansion" "$npm_dir/ip-address"; \
+    tar -xzf /tmp/undici-6.28.1.tgz -C "$npm_dir/undici" --strip-components=1; \
+    tar -xzf /tmp/brace-expansion-5.0.12.tgz -C "$npm_dir/brace-expansion" --strip-components=1; \
+    tar -xzf /tmp/ip-address-10.7.1.tgz -C "$npm_dir/ip-address" --strip-components=1; \
+    node -e 'const root="/usr/local/lib/node_modules/npm/node_modules"; const expected={undici:"6.28.1","brace-expansion":"5.0.12","ip-address":"10.7.1"}; for (const [name, version] of Object.entries(expected)) { const actual=require(`${root}/${name}/package.json`).version; if (actual !== version) throw new Error(`${name}: expected ${version}, got ${actual}`); }'; \
+    rm -f /tmp/undici-6.28.1.tgz /tmp/brace-expansion-5.0.12.tgz /tmp/ip-address-10.7.1.tgz
 
 # Create app directory
 WORKDIR /app

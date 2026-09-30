@@ -10,6 +10,7 @@ name: Smoke Enclave Dynamic Issues Read
 engine:
   id: copilot
   version: 1.0.80
+  args: ["--allow-tool", "awf-enclave(enclave_run_agent)"]
 network:
   allowed: []
 tools:
