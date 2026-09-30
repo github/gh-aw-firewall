@@ -178,116 +178,130 @@ function buildCleanupFn(
   getHostIptablesSetup: () => boolean,
   externalRuntimeBackend?: ExternalAgentRuntimeBackend,
 ) {
-  return async (signal?: string) => {
-    let externalRuntimeCleanupError: unknown;
-    if (signal) {
-      logger.info(`Received ${signal}, cleaning up...`);
-    }
-
-    if (externalRuntimeBackend) {
-      try {
-        if (config.diagnosticLogs) {
-          await externalRuntimeBackend.collectDiagnostics();
-        }
-        if (config.keepContainers && externalRuntimeBackend.preserve) {
-          await externalRuntimeBackend.preserve();
-        } else if (!config.keepContainers) {
-          await externalRuntimeBackend.stop();
-        }
-      } catch (error) {
-        externalRuntimeCleanupError = error;
-        logger.warn(
-          'External runtime cleanup failed; continuing with infrastructure teardown.',
-          error,
-        );
-      }
-    }
-
-    // Let the enclave server emit final cleanup telemetry before preserving
-    // container artifacts. Stopped containers remain available to docker cp
-    // until the subsequent compose down removes them.
-    if (getContainersStarted()) {
-      let enclaveAuditComplete = true;
-      try {
-        // Revoke every outstanding dynamic identity before the broker and the
-        // gateway go away, so no delegated bearer can outlive the run.
-        await stopEnclaveDynamicDelegation(config);
-      } catch (error) {
-        enclaveAuditComplete = false;
-        logger.warn(
-          'Dynamic enclave delegation shutdown did not complete; mcpg state may be unreconciled.',
-          error,
-        );
-      }
-      try {
-        await shutdownEnclaveGateway(config);
-      } catch (error) {
-        enclaveAuditComplete = false;
-        logger.warn(
-          'Enclave gateway did not complete graceful shutdown; preserved enclave audit is marked incomplete.',
-          error,
-        );
-      }
-      if (preserveIptablesAudit(
-        config.workDir,
-        config.auditDir,
-      ) === false) {
-        enclaveAuditComplete = false;
-        logger.warn('One or more protected enclave audit artifacts could not be preserved.');
-      }
-      try {
-        await disconnectEnclaveGithubGateway(config);
-      } catch (error) {
-        enclaveAuditComplete = false;
-        logger.warn(
-          'Compiler-owned shared MCP gateway could not be disconnected cleanly.',
-          error,
-        );
-      }
-      if (!enclaveAuditComplete && config.enclaves?.enabled) {
-        const targetAuditDir = config.auditDir || path.join(config.workDir, 'audit');
-        try {
-          writeIncompleteEnclaveAuditMarker(targetAuditDir);
-        } catch (error) {
-          logger.warn('Failed to write the incomplete enclave audit marker.', error);
-        }
-      }
-      await stopContainers(config.workDir, config.keepContainers);
-    }
-
-    if (getHostIptablesSetup() && !config.keepContainers) {
-      await cleanupHostIptables();
-    }
-
-    // Remove any probe container still labelled with this run and restore
-    // write permissions on the immutable seeds. Must run before the generic
-    // work-directory cleanup: `rm -rf` cannot unlink entries inside a
-    // directory whose write bit was stripped during staging.
-    await teardownEnclaves(config);
-
-    if (!config.keepContainers) {
-      await cleanup(
-        config.workDir,
-        false,
-        config.proxyLogsDir,
-        config.auditDir,
-        config.sessionStateDir,
-        config.dockerHostPathPrefix,
-        config.imageRegistry,
-        config.imageTag,
-        config.agentImage,
-        config.images,
-      );
-      // Note: We don't remove the firewall network here since it can be reused
-      // across multiple runs. Cleanup script will handle removal if needed.
-    } else {
-      logger.info(`Configuration files preserved at: ${config.workDir}`);
-      logger.info(`Agent logs available at: ${config.workDir}/agent-logs/`);
-      logger.info(`Squid logs available at: ${config.workDir}/squid-logs/`);
-      logger.info(`Host iptables rules preserved (--keep-containers enabled)`);
-    }
-    if (externalRuntimeCleanupError) throw externalRuntimeCleanupError;
+  // The workflow cleans up before verifying routing completion; the fatal
+  // path and signal handlers must not tear down a removed work directory again.
+  let cleanupRun: Promise<void> | undefined;
+  return (signal?: string): Promise<void> => {
+    cleanupRun ??= runCleanup(config, getContainersStarted, getHostIptablesSetup, externalRuntimeBackend, signal);
+    return cleanupRun;
   };
+}
+
+async function runCleanup(
+  config: WrapperConfig,
+  getContainersStarted: () => boolean,
+  getHostIptablesSetup: () => boolean,
+  externalRuntimeBackend: ExternalAgentRuntimeBackend | undefined,
+  signal: string | undefined,
+): Promise<void> {
+  let externalRuntimeCleanupError: unknown;
+  if (signal) {
+    logger.info(`Received ${signal}, cleaning up...`);
+  }
+
+  if (externalRuntimeBackend) {
+    try {
+      if (config.diagnosticLogs) {
+        await externalRuntimeBackend.collectDiagnostics();
+      }
+      if (config.keepContainers && externalRuntimeBackend.preserve) {
+        await externalRuntimeBackend.preserve();
+      } else if (!config.keepContainers) {
+        await externalRuntimeBackend.stop();
+      }
+    } catch (error) {
+      externalRuntimeCleanupError = error;
+      logger.warn(
+        'External runtime cleanup failed; continuing with infrastructure teardown.',
+        error,
+      );
+    }
+  }
+
+  // Let the enclave server emit final cleanup telemetry before preserving
+  // container artifacts. Stopped containers remain available to docker cp
+  // until the subsequent compose down removes them.
+  if (getContainersStarted()) {
+    let enclaveAuditComplete = true;
+    try {
+      // Revoke every outstanding dynamic identity before the broker and the
+      // gateway go away, so no delegated bearer can outlive the run.
+      await stopEnclaveDynamicDelegation(config);
+    } catch (error) {
+      enclaveAuditComplete = false;
+      logger.warn(
+        'Dynamic enclave delegation shutdown did not complete; mcpg state may be unreconciled.',
+        error,
+      );
+    }
+    try {
+      await shutdownEnclaveGateway(config);
+    } catch (error) {
+      enclaveAuditComplete = false;
+      logger.warn(
+        'Enclave gateway did not complete graceful shutdown; preserved enclave audit is marked incomplete.',
+        error,
+      );
+    }
+    if (preserveIptablesAudit(
+      config.workDir,
+      config.auditDir,
+    ) === false) {
+      enclaveAuditComplete = false;
+      logger.warn('One or more protected enclave audit artifacts could not be preserved.');
+    }
+    try {
+      await disconnectEnclaveGithubGateway(config);
+    } catch (error) {
+      enclaveAuditComplete = false;
+      logger.warn(
+        'Compiler-owned shared MCP gateway could not be disconnected cleanly.',
+        error,
+      );
+    }
+    if (!enclaveAuditComplete && config.enclaves?.enabled) {
+      const targetAuditDir = config.auditDir || path.join(config.workDir, 'audit');
+      try {
+        writeIncompleteEnclaveAuditMarker(targetAuditDir);
+      } catch (error) {
+        logger.warn('Failed to write the incomplete enclave audit marker.', error);
+      }
+    }
+    await stopContainers(config.workDir, config.keepContainers);
+  }
+
+  if (getHostIptablesSetup() && !config.keepContainers) {
+    await cleanupHostIptables();
+  }
+
+  // Remove any probe container still labelled with this run and restore
+  // write permissions on the immutable seeds. Must run before the generic
+  // work-directory cleanup: `rm -rf` cannot unlink entries inside a
+  // directory whose write bit was stripped during staging.
+  await teardownEnclaves(config);
+
+  if (!config.keepContainers) {
+    await cleanup(
+      config.workDir,
+      false,
+      config.proxyLogsDir,
+      config.auditDir,
+      config.sessionStateDir,
+      config.dockerHostPathPrefix,
+      config.imageRegistry,
+      config.imageTag,
+      config.agentImage,
+      config.images,
+    );
+    // Note: We don't remove the firewall network here since it can be reused
+    // across multiple runs. Cleanup script will handle removal if needed.
+  } else {
+    logger.info(`Configuration files preserved at: ${config.workDir}`);
+    logger.info(`Agent logs available at: ${config.workDir}/agent-logs/`);
+    logger.info(`Squid logs available at: ${config.workDir}/squid-logs/`);
+    logger.info(`Host iptables rules preserved (--keep-containers enabled)`);
+  }
+  if (externalRuntimeCleanupError) throw externalRuntimeCleanupError;
 }
 
 /**
@@ -534,7 +548,11 @@ export function createMainAction(getOptionValueSource: OptionSourceResolver) {
     if (!agentCommandStarted) {
       writeStartupFailureDiagnostic(config, error);
     }
-    await performCleanup();
+    try {
+      await performCleanup();
+    } catch (cleanupError) {
+      logger.warn('Cleanup after a fatal error failed.', cleanupError);
+    }
     cleanupRoutingState(config);
     const fatalExitCode = findRoutingFailure(error)?.exitCode ?? 1;
     console.error(`Process exiting with code: ${fatalExitCode}`);

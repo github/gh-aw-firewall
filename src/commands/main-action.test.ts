@@ -878,6 +878,40 @@ describe('createMainAction', () => {
       expect(processExitSpy).toHaveBeenCalledWith(78);
     });
 
+    it('does not repeat cleanup and keeps exit 78 when routing fails after the workflow cleaned up', async () => {
+      mockedCliWorkflow.runMainWorkflow.mockImplementation(
+        async (_config, _deps, callbacks) => {
+          callbacks.onContainersStarted?.();
+          await callbacks.performCleanup();
+          throw new RoutingFailureExitError('Model routing failed (model_routing_mismatch): Routed execution was rejected');
+        }
+      );
+      mockedDockerManager.stopContainers.mockResolvedValue(undefined);
+      mockedDockerManager.cleanup.mockResolvedValue(undefined);
+
+      const action = createMainAction(getOptionValueSource);
+      await action(['echo hi'], {});
+
+      expect(mockedDockerManager.stopContainers).toHaveBeenCalledTimes(1);
+      expect(processExitSpy).toHaveBeenCalledWith(78);
+    });
+
+    it('keeps exit 78 when cleanup after a routing failure throws', async () => {
+      mockedCliWorkflow.runMainWorkflow.mockImplementation(
+        async (_config, _deps, callbacks) => {
+          callbacks.onContainersStarted?.();
+          throw new RoutingFailureExitError('Model routing selection timed out');
+        }
+      );
+      mockedDockerManager.stopContainers.mockRejectedValueOnce(new Error('spawn docker ENOENT'));
+
+      const action = createMainAction(getOptionValueSource);
+      await action(['echo hi'], {});
+
+      expect(mockedLogger.warn).toHaveBeenCalledWith('Cleanup after a fatal error failed.', expect.any(Error));
+      expect(processExitSpy).toHaveBeenCalledWith(78);
+    });
+
     it('stops containers during cleanup when workflow fails after startup callbacks', async () => {
       mockedCliWorkflow.runMainWorkflow.mockImplementation(
         async (_config, _deps, callbacks) => {
@@ -1109,6 +1143,21 @@ describe('createMainAction', () => {
       );
       expect(mockedHostIptables.cleanupHostIptables).toHaveBeenCalled();
       expect(mockedDockerManager.cleanup).toHaveBeenCalled();
+    });
+
+    it('buildCleanupFn tears down only once across repeated calls', async () => {
+      const performCleanup = testHelpers.buildCleanupFn(
+        MAIN_ACTION_STUB_CONFIG,
+        () => true,
+        () => true,
+      );
+
+      await Promise.all([performCleanup(), performCleanup('SIGTERM')]);
+      await performCleanup();
+
+      expect(mockedDockerManager.stopContainers).toHaveBeenCalledTimes(1);
+      expect(mockedHostIptables.cleanupHostIptables).toHaveBeenCalledTimes(1);
+      expect(mockedDockerManager.cleanup).toHaveBeenCalledTimes(1);
     });
 
     it('preserves audits after an enclave drain failure', async () => {
