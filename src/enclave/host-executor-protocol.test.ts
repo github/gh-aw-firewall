@@ -34,6 +34,9 @@ const {
 /* eslint-enable @typescript-eslint/no-require-imports */
 
 const RUN_ID = 'a'.repeat(32);
+const ENTRY_ID = 'script';
+const ALT_ENTRY_ID = 'script-alt';
+const AGENT_ENTRY_ID = 'agent';
 const INVOCATION_ID = 'b'.repeat(24);
 const SEED_ID = 'c'.repeat(32);
 const ADMISSION_ID = 'd'.repeat(24);
@@ -53,6 +56,7 @@ function invokeRequest(overrides: Record<string, unknown> = {}): Record<string, 
     type: 'invoke',
     requestId: nextRequestId(),
     runId: RUN_ID,
+    entryId: ENTRY_ID,
     invocationId: INVOCATION_ID,
     capability: CAPABILITY_HEX,
     executorKind: 'script',
@@ -121,10 +125,15 @@ describe('host executor protocol decoding', () => {
     });
     expect(invoke.ok && 'capability' in invoke.request).toBe(false);
 
-    const dynamic = decode(encode(invokeRequest({ seedId: undefined, selector: 'octo/repo', executorKind: 'agent' })));
+    const dynamic = decode(encode(invokeRequest({
+      entryId: AGENT_ENTRY_ID, seedId: undefined, selector: 'octo/repo', executorKind: 'agent',
+    })));
     expect(dynamic.ok).toBe(true);
 
-    const base = { version: 1, requestId: nextRequestId(), runId: RUN_ID, invocationId: INVOCATION_ID, capability: CAPABILITY_HEX };
+    const base = {
+      version: 1, requestId: nextRequestId(), runId: RUN_ID, entryId: ENTRY_ID,
+      invocationId: INVOCATION_ID, capability: CAPABILITY_HEX,
+    };
     expect(decode(encode({ ...base, type: 'cancel', cancelGeneration: 1 })).ok).toBe(true);
     expect(decode(encode({ ...base, type: 'settle', resultDigest: SCHEMA_HASH })).ok).toBe(true);
     expect(decode(encode({ ...base, type: 'status' })).ok).toBe(true);
@@ -163,6 +172,9 @@ describe('host executor protocol decoding', () => {
     ['neither seed nor selector', { seedId: undefined }],
     ['selector for script', { seedId: undefined, selector: 'octo/repo' }],
     ['non-canonical selector', { seedId: undefined, selector: 'octo/*', executorKind: 'agent' }],
+    ['uppercase selector', { entryId: AGENT_ENTRY_ID, seedId: undefined, selector: 'Octo/repo', executorKind: 'agent' }],
+    ['selector with parent traversal', { entryId: AGENT_ENTRY_ID, seedId: undefined, selector: 'octo/..', executorKind: 'agent' }],
+    ['invalid entry ID', { entryId: '../agent' }],
     ['unknown executor kind', { executorKind: 'shell' }],
     ['empty payload', { payload: '' }],
     ['oversized payload', { payload: 'x'.repeat(HOST_EXECUTOR_MAX_PAYLOAD_BYTES + 1) }],
@@ -186,7 +198,10 @@ describe('host executor protocol decoding', () => {
 
   it('rejects fields borrowed from another request type', () => {
     expect(decode(encode(invokeRequest({ cancelGeneration: 1 })))).toEqual({ ok: false });
-    const base = { version: 1, requestId: nextRequestId(), runId: RUN_ID, invocationId: INVOCATION_ID, capability: CAPABILITY_HEX };
+    const base = {
+      version: 1, requestId: nextRequestId(), runId: RUN_ID, entryId: ENTRY_ID,
+      invocationId: INVOCATION_ID, capability: CAPABILITY_HEX,
+    };
     expect(decode(encode({ ...base, type: 'status', payload: 'x' }))).toEqual({ ok: false });
     expect(decode(encode({ ...base, type: 'cancel', cancelGeneration: 0 }))).toEqual({ ok: false });
     expect(decode(encode({ ...base, type: 'cancel', cancelGeneration: 1.5 }))).toEqual({ ok: false });
@@ -213,9 +228,11 @@ describe('host executor plan derivation', () => {
     runId: RUN_ID,
     seedsDir: '/var/lib/awf/seeds',
     invocationsDir: '/var/lib/awf/invocations',
-    enabledExecutorKinds: ['script', 'agent'],
-    staticSeedIds: [SEED_ID],
-    dynamicAgents: false,
+    entries: [
+      { entryId: ENTRY_ID, executorKind: 'script', staticSeedIds: [SEED_ID], dynamicAgents: false },
+      { entryId: ALT_ENTRY_ID, executorKind: 'script', staticSeedIds: [SEED_ID], dynamicAgents: false },
+      { entryId: AGENT_ENTRY_ID, executorKind: 'agent', staticSeedIds: [], dynamicAgents: false },
+    ],
   };
 
   function request(overrides: Record<string, unknown> = {}): HostExecutorInvokeRequest {
@@ -230,11 +247,11 @@ describe('host executor plan derivation', () => {
       runId: RUN_ID,
       invocationId: INVOCATION_ID,
       seedHostPath: `/var/lib/awf/seeds/${SEED_ID}`,
-      invocationHostDir: `/var/lib/awf/invocations/${INVOCATION_ID}`,
+      invocationHostDir: `/var/lib/awf/invocations/${ENTRY_ID}/${INVOCATION_ID}`,
     }));
     expect(Object.isFrozen(plan)).toBe(true);
     expect(Object.keys(plan).sort()).toEqual([
-      'admissionId', 'executorKind', 'invocationHostDir', 'invocationId', 'payload',
+      'admissionId', 'entryId', 'executorKind', 'invocationHostDir', 'invocationId', 'payload',
       'requestHash', 'runId', 'schemaHash', 'seedHostPath', 'seedId',
     ]);
   });
@@ -242,17 +259,30 @@ describe('host executor plan derivation', () => {
   it('denies seeds outside the trusted catalog, disabled kinds, and disabled dynamic admission', () => {
     expect(() => deriveHostExecutorInvocationPlan(runState, request({ seedId: 'f'.repeat(32) }))).toThrow('denied');
     expect(() => deriveHostExecutorInvocationPlan(
-      { ...runState, enabledExecutorKinds: ['agent'] }, request(),
+      { ...runState, entries: [{ ...runState.entries[2], entryId: ENTRY_ID }] }, request(),
     )).toThrow('denied');
     expect(() => deriveHostExecutorInvocationPlan(
-      runState, request({ seedId: undefined, selector: 'octo/repo', executorKind: 'agent' }),
+      runState, request({
+        entryId: AGENT_ENTRY_ID, seedId: undefined, selector: 'octo/repo', executorKind: 'agent',
+      }),
     )).toThrow('denied');
     const dynamic = deriveHostExecutorInvocationPlan(
-      { ...runState, dynamicAgents: true },
-      request({ seedId: undefined, selector: 'octo/repo', executorKind: 'agent' }),
+      {
+        ...runState,
+        entries: runState.entries.map((entry) => entry.entryId === AGENT_ENTRY_ID
+          ? { ...entry, dynamicAgents: true }
+          : entry),
+      },
+      request({ entryId: AGENT_ENTRY_ID, seedId: undefined, selector: 'octo/repo', executorKind: 'agent' }),
     );
     expect(dynamic.selector).toBe('octo/repo');
     expect(dynamic.seedHostPath).toBeUndefined();
+  });
+
+  it('denies entry IDs that are not in the trusted run catalog', () => {
+    expect(() => deriveHostExecutorInvocationPlan(
+      runState, request({ entryId: 'untrusted-entry' }),
+    )).toThrow('denied');
   });
 });
 
@@ -266,7 +296,7 @@ function rawExchange(socketPath: string, bytes: Buffer): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const socket = net.createConnection(socketPath);
     const chunks: Buffer[] = [];
-    socket.on('connect', () => socket.write(bytes));
+    socket.on('connect', () => socket.end(bytes));
     socket.on('data', (chunk: Buffer) => chunks.push(chunk));
     socket.on('error', reject);
     socket.on('close', () => {
@@ -301,9 +331,11 @@ describe('host executor server', () => {
         runId: RUN_ID,
         seedsDir: path.join(root, 'seeds'),
         invocationsDir: path.join(root, 'invocations'),
-        enabledExecutorKinds: ['script', 'agent'],
-        staticSeedIds: [SEED_ID],
-        dynamicAgents: false,
+        entries: [
+          { entryId: ENTRY_ID, executorKind: 'script', staticSeedIds: [SEED_ID], dynamicAgents: false },
+          { entryId: ALT_ENTRY_ID, executorKind: 'script', staticSeedIds: [SEED_ID], dynamicAgents: false },
+          { entryId: AGENT_ENTRY_ID, executorKind: 'agent', staticSeedIds: [], dynamicAgents: false },
+        ],
         ...overrides,
       },
     });
@@ -319,6 +351,7 @@ describe('host executor server', () => {
   }
 
   const invokeArgs = {
+    entryId: ENTRY_ID,
     invocationId: INVOCATION_ID,
     executorKind: 'script',
     seedId: SEED_ID,
@@ -366,11 +399,11 @@ describe('host executor server', () => {
     expect(accepted).toEqual(expect.objectContaining({ ok: true, state: 'running', invocationId: INVOCATION_ID }));
     expect(executions).toHaveLength(1);
     expect(executions[0].seedHostPath).toBe(path.join(root, 'seeds', SEED_ID));
-    expect(executions[0].invocationHostDir).toBe(path.join(root, 'invocations', INVOCATION_ID));
+    expect(executions[0].invocationHostDir).toBe(path.join(root, 'invocations', ENTRY_ID, INVOCATION_ID));
 
     pending[0].resolve({ outcome: 'success', result: '{"ok":true}' });
     await new Promise((r) => setImmediate(r));
-    const terminal = await broker.status({ invocationId: INVOCATION_ID });
+    const terminal = await broker.status({ entryId: ENTRY_ID, invocationId: INVOCATION_ID });
     expect(terminal).toEqual(expect.objectContaining({
       state: 'terminal',
       outcome: 'success',
@@ -378,9 +411,11 @@ describe('host executor server', () => {
       resultDigest: hostExecutorResultDigest('success', '{"ok":true}'),
     }));
 
-    const wrong = await broker.settle({ invocationId: INVOCATION_ID, resultDigest: 'f'.repeat(64) });
+    const wrong = await broker.settle({ entryId: ENTRY_ID, invocationId: INVOCATION_ID, resultDigest: 'f'.repeat(64) });
     expect(wrong).toEqual(expect.objectContaining({ ok: false, error: 'conflict' }));
-    const settled = await broker.settle({ invocationId: INVOCATION_ID, resultDigest: terminal.resultDigest });
+    const settled = await broker.settle({
+      entryId: ENTRY_ID, invocationId: INVOCATION_ID, resultDigest: terminal.resultDigest,
+    });
     expect(settled).toEqual(expect.objectContaining({ ok: true, state: 'settled', outcome: 'success' }));
     expect(settled.result).toBeUndefined();
   });
@@ -419,6 +454,28 @@ describe('host executor server', () => {
     expect(executions).toHaveLength(0);
   });
 
+  it('waits for EOF before executing an exactly sized frame', async () => {
+    const started = await start();
+    const capability = fs.readFileSync(started.capabilityPath, 'utf8');
+    const frame = frameHostExecutorMessage(encode(invokeRequest({ capability })));
+    const responsePromise = new Promise<Buffer>((resolve, reject) => {
+      const socket = net.createConnection(started.socketPath);
+      const chunks: Buffer[] = [];
+      socket.on('connect', () => {
+        socket.write(frame);
+        setTimeout(() => socket.end(Buffer.from('trailing')), 20);
+      });
+      socket.on('data', (chunk: Buffer) => chunks.push(chunk));
+      socket.on('error', reject);
+      socket.on('close', () => {
+        const response = Buffer.concat(chunks);
+        resolve(response.subarray(4, 4 + response.readUInt32BE(0)));
+      });
+    });
+    expect(await responsePromise).toEqual(canonicalDeniedResponse());
+    expect(executions).toHaveLength(0);
+  });
+
   it('rejects replayed request IDs without executing again', async () => {
     const started = await start();
     const capability = fs.readFileSync(started.capabilityPath, 'utf8');
@@ -429,7 +486,7 @@ describe('host executor server', () => {
     expect(executions).toHaveLength(1);
   });
 
-  it('makes invoke retries idempotent and rejects a differing request for the same invocation', async () => {
+  it('keys invoke retries by entry and invocation and rejects differing requests', async () => {
     await start();
     const broker = client();
     await broker.invoke(invokeArgs);
@@ -437,7 +494,10 @@ describe('host executor server', () => {
     expect(retry).toEqual(expect.objectContaining({ ok: true, state: 'running' }));
     const conflict = await broker.invoke({ ...invokeArgs, payload: 'print(2)' });
     expect(conflict).toEqual(expect.objectContaining({ ok: false, error: 'conflict' }));
-    expect(executions).toHaveLength(1);
+    const otherEntry = await broker.invoke({ ...invokeArgs, entryId: ALT_ENTRY_ID });
+    expect(otherEntry).toEqual(expect.objectContaining({ ok: true, state: 'running' }));
+    expect(executions).toHaveLength(2);
+    expect(executions[0].invocationHostDir).not.toBe(executions[1].invocationHostDir);
   });
 
   it('denies seeds outside the trusted catalog with no execution', async () => {
@@ -451,17 +511,17 @@ describe('host executor server', () => {
     await start();
     const broker = client();
     await broker.invoke(invokeArgs);
-    const cancelling = await broker.cancel({ invocationId: INVOCATION_ID, cancelGeneration: 1 });
+    const cancelling = await broker.cancel({ entryId: ENTRY_ID, invocationId: INVOCATION_ID, cancelGeneration: 1 });
     expect(cancelling).toEqual(expect.objectContaining({ ok: true, state: 'cancelling', cancelGeneration: 1 }));
     expect(signals[0].aborted).toBe(true);
-    const replay = await broker.cancel({ invocationId: INVOCATION_ID, cancelGeneration: 1 });
+    const replay = await broker.cancel({ entryId: ENTRY_ID, invocationId: INVOCATION_ID, cancelGeneration: 1 });
     expect(replay).toEqual(expect.objectContaining({ ok: false, error: 'replayed' }));
-    const early = await broker.settle({ invocationId: INVOCATION_ID, resultDigest: SCHEMA_HASH });
+    const early = await broker.settle({ entryId: ENTRY_ID, invocationId: INVOCATION_ID, resultDigest: SCHEMA_HASH });
     expect(early).toEqual(expect.objectContaining({ ok: false, error: 'invalid-state' }));
 
     pending[0].resolve({ outcome: 'success', result: 'late' });
     await new Promise((r) => setImmediate(r));
-    const status = await broker.status({ invocationId: INVOCATION_ID });
+    const status = await broker.status({ entryId: ENTRY_ID, invocationId: INVOCATION_ID });
     expect(status).toEqual(expect.objectContaining({ state: 'terminal', outcome: 'cancelled' }));
     expect(status.result).toBeUndefined();
   });
@@ -472,7 +532,7 @@ describe('host executor server', () => {
     await broker.invoke(invokeArgs);
     pending[0].resolve({ outcome: 'timeout', result: 'private stdout' } as HostExecutorBackendResult);
     await new Promise((r) => setImmediate(r));
-    const status = await broker.status({ invocationId: INVOCATION_ID });
+    const status = await broker.status({ entryId: ENTRY_ID, invocationId: INVOCATION_ID });
     expect(status).toEqual(expect.objectContaining({ outcome: 'executor-failure' }));
     expect(JSON.stringify(status)).not.toContain('private stdout');
   });
@@ -480,14 +540,15 @@ describe('host executor server', () => {
   it('reports unknown invocations and closes admissions without affecting status', async () => {
     const started = await start();
     const broker = client();
-    expect(await broker.status({ invocationId: INVOCATION_ID })).toEqual(
+    expect(await broker.status({ entryId: ENTRY_ID, invocationId: INVOCATION_ID })).toEqual(
       expect.objectContaining({ ok: false, error: 'unknown-invocation' }),
     );
     await broker.invoke(invokeArgs);
     started.closeAdmissions();
     const closed = await broker.invoke({ ...invokeArgs, invocationId: 'f'.repeat(24) });
     expect(closed).toEqual(expect.objectContaining({ ok: false, error: 'closed' }));
-    expect(await broker.status({ invocationId: INVOCATION_ID })).toEqual(expect.objectContaining({ ok: true }));
+    expect(await broker.status({ entryId: ENTRY_ID, invocationId: INVOCATION_ID }))
+      .toEqual(expect.objectContaining({ ok: true }));
     expect(executions).toHaveLength(1);
   });
 
@@ -495,9 +556,13 @@ describe('host executor server', () => {
     const started = await start();
     await client().invoke(invokeArgs);
     const closing = started.close();
+    const secondClose = started.close();
+    expect(secondClose).toBe(closing);
     expect(signals[0].aborted).toBe(true);
+    expect(fs.existsSync(started.capabilityPath)).toBe(true);
     pending[0].resolve({ outcome: 'executor-failure' });
-    await closing;
+    await Promise.all([closing, secondClose]);
+    expect(fs.existsSync(started.capabilityPath)).toBe(false);
     server = undefined;
   });
 
@@ -520,5 +585,28 @@ describe('host executor server', () => {
     );
     expect(parseHostExecutorResponse(Buffer.alloc(HOST_EXECUTOR_MAX_RESPONSE_BYTES + 1, 0x20), requestId))
       .toBeUndefined();
+  });
+
+  it('broker response parser enforces lifecycle-specific result fields and bounds', () => {
+    const requestId = '1'.repeat(32);
+    const base = {
+      version: 1, ok: true, requestId, invocationId: INVOCATION_ID, cancelGeneration: 0,
+    };
+    expect(parseHostExecutorResponse(encode({ ...base, state: 'running', outcome: 'success' }), requestId))
+      .toBeUndefined();
+    expect(parseHostExecutorResponse(encode({ ...base, state: 'terminal', resultDigest: SCHEMA_HASH }), requestId))
+      .toBeUndefined();
+    expect(parseHostExecutorResponse(encode({
+      ...base, state: 'terminal', outcome: 'success', resultDigest: SCHEMA_HASH, result: 'x'.repeat(8 * 1024 + 1),
+    }), requestId)).toBeUndefined();
+    expect(parseHostExecutorResponse(encode({
+      ...base, state: 'terminal', outcome: 'success', resultDigest: SCHEMA_HASH, result: '\ud800',
+    }), requestId)).toBeUndefined();
+    expect(parseHostExecutorResponse(encode({
+      ...base, state: 'settled', outcome: 'success', resultDigest: SCHEMA_HASH, result: 'settled result',
+    }), requestId)).toBeUndefined();
+    expect(parseHostExecutorResponse(encode({
+      ...base, state: 'terminal', outcome: 'executor-failure', resultDigest: SCHEMA_HASH,
+    }), requestId)).toBeDefined();
   });
 });

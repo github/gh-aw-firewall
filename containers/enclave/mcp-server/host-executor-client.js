@@ -28,10 +28,12 @@ const PROTOCOL_VERSION = 1;
 const MAX_REQUEST_BYTES = 512 * 1024;
 const MAX_RESPONSE_BYTES = 64 * 1024;
 const MAX_PAYLOAD_BYTES = 64 * 1024;
+const MAX_RESULT_BYTES = 8 * 1024;
 const FRAME_HEADER_BYTES = 4;
 const DEFAULT_TIMEOUT_MS = 10_000;
 
 const ID_PATTERN = /^[0-9a-f]{16,64}$/;
+const ENTRY_ID_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,62})$/;
 const REQUEST_ID_PATTERN = /^[0-9a-f]{32}$/;
 const SHA256_PATTERN = /^[0-9a-f]{64}$/;
 const CAPABILITY_PATTERN = /^[0-9a-f]{64}$/;
@@ -42,7 +44,7 @@ const OUTCOMES = new Set(['success', 'schema-failure', 'executor-failure', 'time
 const ERRORS = new Set(['denied', 'replayed', 'conflict', 'unknown-invocation', 'invalid-state', 'closed']);
 
 const INVOKE_ARGUMENT_KEYS = new Set([
-  'invocationId', 'executorKind', 'seedId', 'selector', 'payload', 'schemaHash', 'admissionId',
+  'entryId', 'invocationId', 'executorKind', 'seedId', 'selector', 'payload', 'schemaHash', 'admissionId',
 ]);
 const SUCCESS_RESPONSE_KEYS = new Set([
   'version', 'ok', 'requestId', 'invocationId', 'state', 'cancelGeneration', 'outcome', 'result', 'resultDigest',
@@ -52,6 +54,24 @@ const FAILURE_RESPONSE_KEYS = new Set(['version', 'ok', 'requestId', 'error']);
 function isPlainObject(value) {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
     && Object.getPrototypeOf(value) === Object.prototype;
+}
+
+function hasOwn(value, key) {
+  return Object.prototype.hasOwnProperty.call(value, key);
+}
+
+function isWellFormedString(value) {
+  for (let i = 0; i < value.length; i++) {
+    const code = value.charCodeAt(i);
+    if (code >= 0xd800 && code <= 0xdbff) {
+      const next = value.charCodeAt(i + 1);
+      if (!(next >= 0xdc00 && next <= 0xdfff)) return false;
+      i++;
+    } else if (code >= 0xdc00 && code <= 0xdfff) {
+      return false;
+    }
+  }
+  return true;
 }
 
 function assertPattern(name, value, pattern) {
@@ -102,10 +122,26 @@ function parseHostExecutorResponse(payload, requestId) {
   if (!STATES.has(raw.state)) return undefined;
   if (!Number.isSafeInteger(raw.cancelGeneration) || raw.cancelGeneration < 0) return undefined;
   if (raw.outcome !== undefined && !OUTCOMES.has(raw.outcome)) return undefined;
-  if (raw.result !== undefined && (raw.outcome !== 'success' || typeof raw.result !== 'string')) return undefined;
   if (raw.resultDigest !== undefined
       && (typeof raw.resultDigest !== 'string' || !SHA256_PATTERN.test(raw.resultDigest))) {
     return undefined;
+  }
+  const hasOutcome = hasOwn(raw, 'outcome');
+  const hasResult = hasOwn(raw, 'result');
+  const hasResultDigest = hasOwn(raw, 'resultDigest');
+  if (raw.state === 'running' || raw.state === 'cancelling') {
+    if (hasOutcome || hasResult || hasResultDigest) return undefined;
+  } else {
+    if (!hasOutcome || !hasResultDigest) return undefined;
+    if (raw.state === 'settled' && hasResult) return undefined;
+    if (raw.outcome === 'success') {
+      if (raw.state === 'terminal' && (!hasResult || typeof raw.result !== 'string'
+          || !isWellFormedString(raw.result) || Buffer.byteLength(raw.result, 'utf8') > MAX_RESULT_BYTES)) {
+        return undefined;
+      }
+    } else if (hasResult) {
+      return undefined;
+    }
   }
   return Object.freeze({ ...raw });
 }
@@ -152,7 +188,7 @@ function exchange(socketPath, payload, timeoutMs) {
       }
       done(undefined, buffer.subarray(FRAME_HEADER_BYTES));
     });
-    socket.on('connect', () => socket.write(frame(payload)));
+    socket.on('connect', () => socket.end(frame(payload)));
   });
 }
 
@@ -167,7 +203,10 @@ function createHostExecutorClient(options) {
   const capability = readCapability(capabilityPath);
   const timeoutMs = options.timeoutMs || DEFAULT_TIMEOUT_MS;
 
-  async function send(type, invocationId, fields) {
+  async function send(type, entryId, invocationId, fields) {
+    if (typeof entryId !== 'string' || !ENTRY_ID_PATTERN.test(entryId)) {
+      throw new Error('Host executor request entryId is invalid');
+    }
     assertPattern('invocationId', invocationId, ID_PATTERN);
     const requestId = crypto.randomBytes(16).toString('hex');
     const request = {
@@ -175,6 +214,7 @@ function createHostExecutorClient(options) {
       type,
       requestId,
       runId,
+      entryId,
       invocationId,
       capability,
       ...fields,
@@ -194,16 +234,21 @@ function createHostExecutorClient(options) {
       if (!isPlainObject(args) || !Object.keys(args).every((key) => INVOKE_ARGUMENT_KEYS.has(key))) {
         throw new Error('Host executor invoke contains an unsupported field');
       }
-      const { invocationId, executorKind, seedId, selector, payload, schemaHash, admissionId } = args;
+      const { entryId, invocationId, executorKind, seedId, selector, payload, schemaHash, admissionId } = args;
+      if (typeof entryId !== 'string' || !ENTRY_ID_PATTERN.test(entryId)) {
+        throw new Error('Host executor request entryId is invalid');
+      }
       if (!EXECUTOR_KINDS.has(executorKind)) throw new Error('Host executor request executorKind is invalid');
       if ((seedId === undefined) === (selector === undefined)) {
         throw new Error('Host executor invoke needs exactly one of seedId or selector');
       }
       if (seedId !== undefined) assertPattern('seedId', seedId, ID_PATTERN);
-      if (selector !== undefined && typeof selector !== 'string') {
+      if (selector !== undefined && (typeof selector !== 'string'
+          || !/^[a-z0-9](?:[a-z0-9-]{0,38})\/(?!\.\.?$)(?!.*\.\.)[a-z0-9._-]{1,100}$/.test(selector))) {
         throw new Error('Host executor request selector is invalid');
       }
       if (typeof payload !== 'string' || payload.length === 0
+          || !isWellFormedString(payload)
           || Buffer.byteLength(payload, 'utf8') > MAX_PAYLOAD_BYTES) {
         throw new Error('Host executor request payload is invalid');
       }
@@ -212,20 +257,20 @@ function createHostExecutorClient(options) {
       const fields = { executorKind, payload, schemaHash, admissionId };
       if (seedId !== undefined) fields.seedId = seedId;
       else fields.selector = selector;
-      return send('invoke', invocationId, fields);
+      return send('invoke', entryId, invocationId, fields);
     },
-    async cancel({ invocationId, cancelGeneration }) {
+    async cancel({ entryId, invocationId, cancelGeneration }) {
       if (!Number.isSafeInteger(cancelGeneration) || cancelGeneration < 1) {
         throw new Error('Host executor request cancelGeneration is invalid');
       }
-      return send('cancel', invocationId, { cancelGeneration });
+      return send('cancel', entryId, invocationId, { cancelGeneration });
     },
-    async settle({ invocationId, resultDigest }) {
+    async settle({ entryId, invocationId, resultDigest }) {
       assertPattern('resultDigest', resultDigest, SHA256_PATTERN);
-      return send('settle', invocationId, { resultDigest });
+      return send('settle', entryId, invocationId, { resultDigest });
     },
-    async status({ invocationId }) {
-      return send('status', invocationId, {});
+    async status({ entryId, invocationId }) {
+      return send('status', entryId, invocationId, {});
     },
   });
 }

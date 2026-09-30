@@ -45,6 +45,7 @@
 import * as crypto from 'crypto';
 import { TextDecoder } from 'util';
 import { strictParseJson } from '../bounded-execution/strict-json-parser';
+import { CANONICAL_DYNAMIC_REPOSITORY_PATTERN } from '../types/enclave-options';
 
 /** Exact-match protocol version. There is no downgrade or feature probing. */
 export const HOST_EXECUTOR_PROTOCOL_VERSION = 1;
@@ -76,16 +77,13 @@ export const HOST_EXECUTOR_REQUEST_ID_PATTERN = /^[0-9a-f]{32}$/;
 /** Broker-generated run, invocation, seed, and admission identifiers. */
 export const HOST_EXECUTOR_ID_PATTERN = /^[0-9a-f]{16,64}$/;
 
+/** Stable enclave-entry identifier from the trusted run catalog. */
+export const HOST_EXECUTOR_ENTRY_ID_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,62})$/;
+
 /** Lowercase hex SHA-256 (schema hash, result digest). */
 export const HOST_EXECUTOR_SHA256_PATTERN = /^[0-9a-f]{64}$/;
 
 const CAPABILITY_PATTERN = /^[0-9a-f]{64}$/;
-
-/**
- * Canonical dynamic selector shape: `owner/repo`, matching GitHub's own
- * naming rules. Anything else is rejected before admission.
- */
-const SELECTOR_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})\/[A-Za-z0-9._-]{1,100}$/;
 
 export const HOST_EXECUTOR_REQUEST_TYPES = Object.freeze(['invoke', 'cancel', 'settle', 'status'] as const);
 export type HostExecutorRequestType = typeof HOST_EXECUTOR_REQUEST_TYPES[number];
@@ -124,7 +122,7 @@ export const HOST_EXECUTOR_ERRORS = Object.freeze([
 ] as const);
 export type HostExecutorError = typeof HOST_EXECUTOR_ERRORS[number];
 
-const COMMON_FIELDS = ['version', 'type', 'requestId', 'runId', 'invocationId', 'capability'] as const;
+const COMMON_FIELDS = ['version', 'type', 'requestId', 'runId', 'entryId', 'invocationId', 'capability'] as const;
 
 /** Exact field set accepted for each request type. Nothing else is allowed. */
 export const REQUEST_FIELDS: Readonly<Record<HostExecutorRequestType, readonly string[]>> = Object.freeze({
@@ -149,6 +147,7 @@ interface HostExecutorRequestBase {
   version: typeof HOST_EXECUTOR_PROTOCOL_VERSION;
   requestId: string;
   runId: string;
+  entryId: string;
   invocationId: string;
 }
 
@@ -312,16 +311,18 @@ export function decodeHostExecutorRequest(
     if (!hasOwn(raw, key) && !(type === 'invoke' && OPTIONAL_INVOKE_FIELDS.has(key))) return denied;
   }
 
-  const { requestId, runId, invocationId } = raw;
+  const { requestId, runId, entryId, invocationId } = raw;
   if (typeof requestId !== 'string' || !HOST_EXECUTOR_REQUEST_ID_PATTERN.test(requestId)) return denied;
   if (typeof runId !== 'string' || !HOST_EXECUTOR_ID_PATTERN.test(runId)) return denied;
   if (runId !== context.runId) return denied;
+  if (typeof entryId !== 'string' || !HOST_EXECUTOR_ENTRY_ID_PATTERN.test(entryId)) return denied;
   if (typeof invocationId !== 'string' || !HOST_EXECUTOR_ID_PATTERN.test(invocationId)) return denied;
 
   const base: HostExecutorRequestBase = {
     version: HOST_EXECUTOR_PROTOCOL_VERSION,
     requestId,
     runId,
+    entryId,
     invocationId,
   };
 
@@ -340,7 +341,7 @@ export function decodeHostExecutorRequest(
         if (executorKind !== 'agent') return denied;
         if (typeof selector !== 'string'
           || selector.length > HOST_EXECUTOR_MAX_SELECTOR_LENGTH
-          || !SELECTOR_PATTERN.test(selector)) {
+          || !CANONICAL_DYNAMIC_REPOSITORY_PATTERN.test(selector)) {
           return denied;
         }
       }
@@ -388,6 +389,7 @@ export function hostExecutorInvokeHash(request: HostExecutorInvokeRequest): stri
   return sha256Hex(JSON.stringify([
     HOST_EXECUTOR_PROTOCOL_VERSION,
     request.runId,
+    request.entryId,
     request.executorKind,
     request.invocationId,
     request.seedId ?? null,

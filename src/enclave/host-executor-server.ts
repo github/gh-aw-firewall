@@ -19,6 +19,7 @@ import * as net from 'net';
 import * as path from 'path';
 import {
   HOST_EXECUTOR_FRAME_HEADER_BYTES,
+  HOST_EXECUTOR_ENTRY_ID_PATTERN,
   HOST_EXECUTOR_ID_PATTERN,
   HOST_EXECUTOR_KINDS,
   HOST_EXECUTOR_MAX_REQUEST_BYTES,
@@ -69,11 +70,16 @@ export interface HostExecutorRunState {
   seedsDir: string;
   /** Absolute host directory under which per-invocation directories are derived. */
   invocationsDir: string;
-  /** Executor kinds enabled by the trusted configuration. */
-  enabledExecutorKinds: readonly HostExecutorKind[];
-  /** Static seed IDs in the trusted repository catalog. */
+  /** Entry-specific executor policy from the validated enclave configuration. */
+  entries: readonly HostExecutorEntryPolicy[];
+}
+
+export interface HostExecutorEntryPolicy {
+  entryId: string;
+  executorKind: HostExecutorKind;
+  /** Static seed IDs admitted by this entry. */
   staticSeedIds: readonly string[];
-  /** Whether dynamic (selector-based) agent admission is enabled. Off initially. */
+  /** Whether selector-based agent admission is enabled for this entry. */
   dynamicAgents: boolean;
 }
 
@@ -83,6 +89,7 @@ export interface HostExecutorRunState {
  */
 export interface HostExecutorInvocationPlan {
   readonly runId: string;
+  readonly entryId: string;
   readonly invocationId: string;
   readonly executorKind: HostExecutorKind;
   readonly requestHash: string;
@@ -154,23 +161,33 @@ function validateRunState(runState: HostExecutorRunState): HostExecutorRunState 
   }
   const seedsDir = assertAbsoluteDirectory('seedsDir', runState.seedsDir);
   const invocationsDir = assertAbsoluteDirectory('invocationsDir', runState.invocationsDir);
-  for (const kind of runState.enabledExecutorKinds) {
-    if (!(HOST_EXECUTOR_KINDS as readonly string[]).includes(kind)) {
-      throw new Error('Host executor run state has an unsupported executor kind');
+  const entryIds = new Set<string>();
+  const entries = runState.entries.map((entry) => {
+    if (!HOST_EXECUTOR_ENTRY_ID_PATTERN.test(entry.entryId) || entryIds.has(entry.entryId)) {
+      throw new Error('Host executor run state has an invalid or duplicate entry ID');
     }
-  }
-  for (const seedId of runState.staticSeedIds) {
-    if (!HOST_EXECUTOR_ID_PATTERN.test(seedId)) {
-      throw new Error('Host executor run state has an invalid seed ID');
+    entryIds.add(entry.entryId);
+    if (!(HOST_EXECUTOR_KINDS as readonly string[]).includes(entry.executorKind)
+      || (entry.dynamicAgents && entry.executorKind !== 'agent')) {
+      throw new Error('Host executor run state has an unsupported entry policy');
     }
-  }
+    for (const seedId of entry.staticSeedIds) {
+      if (!HOST_EXECUTOR_ID_PATTERN.test(seedId)) {
+        throw new Error('Host executor run state has an invalid seed ID');
+      }
+    }
+    return Object.freeze({
+      entryId: entry.entryId,
+      executorKind: entry.executorKind,
+      staticSeedIds: Object.freeze([...entry.staticSeedIds]),
+      dynamicAgents: entry.dynamicAgents === true,
+    });
+  });
   return Object.freeze({
     runId: runState.runId,
     seedsDir,
     invocationsDir,
-    enabledExecutorKinds: Object.freeze([...runState.enabledExecutorKinds]),
-    staticSeedIds: Object.freeze([...runState.staticSeedIds]),
-    dynamicAgents: runState.dynamicAgents === true,
+    entries: Object.freeze(entries),
   });
 }
 
@@ -191,26 +208,31 @@ export function deriveHostExecutorInvocationPlan(
   request: HostExecutorInvokeRequest,
 ): HostExecutorInvocationPlan {
   if (request.runId !== runState.runId) throw new RequestRejection('denied');
-  if (!runState.enabledExecutorKinds.includes(request.executorKind)) throw new RequestRejection('denied');
+  const entry = runState.entries.find(({ entryId }) => entryId === request.entryId);
+  if (!entry || entry.executorKind !== request.executorKind) throw new RequestRejection('denied');
 
   const plan: {
     -readonly [K in keyof HostExecutorInvocationPlan]: HostExecutorInvocationPlan[K];
   } = {
     runId: runState.runId,
+    entryId: entry.entryId,
     invocationId: request.invocationId,
     executorKind: request.executorKind,
     requestHash: hostExecutorInvokeHash(request),
     admissionId: request.admissionId,
     schemaHash: request.schemaHash,
     payload: request.payload,
-    invocationHostDir: childPath(runState.invocationsDir, request.invocationId),
+    invocationHostDir: childPath(
+      childPath(runState.invocationsDir, entry.entryId),
+      request.invocationId,
+    ),
   };
   if (request.seedId !== undefined) {
-    if (!runState.staticSeedIds.includes(request.seedId)) throw new RequestRejection('denied');
+    if (!entry.staticSeedIds.includes(request.seedId)) throw new RequestRejection('denied');
     plan.seedId = request.seedId;
     plan.seedHostPath = childPath(runState.seedsDir, request.seedId);
   } else {
-    if (request.executorKind !== 'agent' || !runState.dynamicAgents || request.selector === undefined) {
+    if (request.executorKind !== 'agent' || !entry.dynamicAgents || request.selector === undefined) {
       throw new RequestRejection('denied');
     }
     plan.selector = request.selector;
@@ -266,6 +288,9 @@ export async function startHostExecutorServer(options: HostExecutorServerOptions
   const sockets = new Set<net.Socket>();
   let admissionsOpen = true;
   let closing = false;
+  let closePromise: Promise<void> | undefined;
+
+  const invocationKey = (entryId: string, invocationId: string): string => `${entryId}\u0000${invocationId}`;
 
   const view = (record: InvocationRecord): HostExecutorInvocationView => {
     const current: HostExecutorInvocationView = {
@@ -299,7 +324,7 @@ export async function startHostExecutorServer(options: HostExecutorServerOptions
     };
     // The immutable record exists before the backend is asked to create
     // anything, so a retry can never start a second execution.
-    invocations.set(plan.invocationId, record);
+    invocations.set(invocationKey(plan.entryId, plan.invocationId), record);
     record.completion = Promise.resolve()
       .then(() => backend.execute(plan, controller.signal))
       .then(
@@ -316,7 +341,7 @@ export async function startHostExecutorServer(options: HostExecutorServerOptions
   };
 
   const handleInvoke = (request: HostExecutorInvokeRequest): InvocationRecord => {
-    const existing = invocations.get(request.invocationId);
+    const existing = invocations.get(invocationKey(request.entryId, request.invocationId));
     if (existing) {
       if (existing.plan.requestHash !== hostExecutorInvokeHash(request)) throw new RequestRejection('conflict');
       return existing;
@@ -373,7 +398,7 @@ export async function startHostExecutorServer(options: HostExecutorServerOptions
       if (request.type === 'invoke') {
         record = handleInvoke(request);
       } else {
-        record = invocations.get(request.invocationId);
+        record = invocations.get(invocationKey(request.entryId, request.invocationId));
         if (!record) return fail('unknown-invocation');
         if (request.type === 'cancel') handleCancel(request, record);
         else if (request.type === 'settle') handleSettle(request, record);
@@ -412,7 +437,7 @@ export async function startHostExecutorServer(options: HostExecutorServerOptions
       if (answered) return;
       answered = true;
       socket.removeListener('data', onData);
-      socket.end(frameHostExecutorMessage(payload));
+      socket.end(frameHostExecutorMessage(payload), () => socket.destroy());
     };
 
     const onData = (chunk: Buffer): void => {
@@ -432,16 +457,23 @@ export async function startHostExecutorServer(options: HostExecutorServerOptions
         respond(canonicalDeniedResponse());
         return;
       }
-      if (received === total) {
-        const frame = Buffer.concat(chunks);
-        respond(processFrame(frame.subarray(HOST_EXECUTOR_FRAME_HEADER_BYTES)));
+    };
+
+    const onEnd = (): void => {
+      if (answered) return;
+      if (expected < 0 || received !== HOST_EXECUTOR_FRAME_HEADER_BYTES + expected) {
+        respond(canonicalDeniedResponse());
+        return;
       }
+      const frame = Buffer.concat(chunks);
+      respond(processFrame(frame.subarray(HOST_EXECUTOR_FRAME_HEADER_BYTES)));
     };
 
     socket.on('data', onData);
+    socket.on('end', onEnd);
   };
 
-  const server = net.createServer({ allowHalfOpen: false }, onConnection);
+  const server = net.createServer({ allowHalfOpen: true }, onConnection);
   server.maxConnections = options.maxConnections ?? DEFAULT_MAX_CONNECTIONS;
   try {
     await new Promise<void>((resolve, reject) => {
@@ -465,8 +497,8 @@ export async function startHostExecutorServer(options: HostExecutorServerOptions
     closeAdmissions(): void {
       admissionsOpen = false;
     },
-    async close(): Promise<void> {
-      if (closing) return;
+    close(): Promise<void> {
+      if (closePromise) return closePromise;
       closing = true;
       admissionsOpen = false;
       for (const record of invocations.values()) {
@@ -475,14 +507,17 @@ export async function startHostExecutorServer(options: HostExecutorServerOptions
           record.controller.abort();
         }
       }
-      await new Promise<void>((resolve) => {
-        server.close(() => resolve());
-        for (const socket of sockets) socket.destroy();
-      });
-      await Promise.all([...invocations.values()].map((record) => record.completion));
-      capability.fill(0);
-      fs.rmSync(capabilityPath, { force: true });
-      fs.rmSync(socketPath, { force: true });
+      closePromise = (async () => {
+        await new Promise<void>((resolve) => {
+          server.close(() => resolve());
+          for (const socket of sockets) socket.destroy();
+        });
+        await Promise.all([...invocations.values()].map((record) => record.completion));
+        capability.fill(0);
+        fs.rmSync(capabilityPath, { force: true });
+        fs.rmSync(socketPath, { force: true });
+      })();
+      return closePromise;
     },
   };
 }

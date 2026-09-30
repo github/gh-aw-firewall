@@ -106,18 +106,20 @@ broker-visible diagnostic.
 
 ## Broker-to-host protocol
 
-The executor listens on a per-run AF_UNIX `SOCK_SEQPACKET` socket below a
-root-owned `0700` AWF runtime directory. The socket is owned by the dedicated
-broker identity and mode `0600`; peer credentials must match that identity.
-Each run generates an unguessable, mode-`0600` capability. A request needs both
-the peer credential and the capability, is bound to the run, and the capability
-is destroyed during shutdown. This is defense in depth, not authorization by
-filesystem topology alone.
+Version 1 uses a per-run AF_UNIX stream socket below a `0700` AWF runtime
+directory owned by the AWF control process. Each connection carries one framed
+request and one framed response; the client half-closes after its frame, and the
+host processes the request only after EOF confirms that no trailing bytes were
+sent. Node.js does not expose `SOCK_SEQPACKET` or peer credentials, so v1
+authorization uses the per-run 256-bit capability alone. The capability is
+written mode `0600`, bound to the run, and destroyed during shutdown. A later
+host-executor integration may add peer-credential checks as defense in depth;
+they are not part of v1 authorization.
 
-Each request packet is one UTF-8 JSON object, at most 512 KiB, with no duplicate
+Each request frame contains one UTF-8 JSON object, at most 512 KiB, with no duplicate
 keys and
 `additionalProperties: false`. It has `version: 1`, `type`, `requestId`,
-`invocationId`, `capability`, and the following closed payload:
+`runId`, `entryId`, `invocationId`, `capability`, and the following closed payload:
 
 The 512 KiB bound admits a 64 KiB script or task even when JSON escaping expands
 each payload byte to six bytes, while retaining space for required metadata.
@@ -125,19 +127,19 @@ each payload byte to six bytes, while retaining space for required metadata.
 | Type | Allowed policy-derived fields |
 | --- | --- |
 | `invoke` | executor kind, static seed ID **or** canonical dynamic selector, bounded script/task bytes, finite result-schema hash, admission/ledger ID |
-| `cancel` | invocation ID and cancellation generation |
-| `settle` | invocation ID and broker acknowledgement of the terminal result |
-| `status` | request ID and invocation ID |
+| `cancel` | cancellation generation |
+| `settle` | broker acknowledgement of the terminal result |
+| `status` | no additional fields |
 
 The broker cannot submit a command, argv, path, mount, environment variable,
 network endpoint, credential, image, model, resource policy, UID/GID, timeout,
 or output limit. The executor resolves all of those from the already validated
-enclave entry and rejects unknown fields, invalid UTF-8, oversize packets,
-duplicate request IDs, wrong peers/capabilities, and requests after admission
+enclave entry selected by `entryId` and rejects unknown fields, invalid UTF-8, oversize frames,
+duplicate request IDs, invalid capabilities, and requests after admission
 closure.
 
 `requestId` is a 128-bit random value. `invoke` idempotency is
-`(run ID, enclave entry ID, invocation ID)` and records the accepted immutable
+`(run ID, entry ID, invocation ID)` and records the accepted immutable
 request hash before VM creation. The same tuple and hash returns the same
 in-progress or settled record; a differing hash is terminal. The executor
 persists enough state to reconcile a broker restart, while never replaying a
@@ -162,15 +164,16 @@ Hypervisor enclave configurations still fail closed.
 | Contract and rejection tests | `src/enclave/host-executor-protocol.test.ts` (drives the real client against the real server) |
 
 **Transport.** Node.js exposes only `SOCK_STREAM` Unix sockets and no peer
-credentials. Version 1 therefore emulates a packet: each connection carries
-exactly one request frame (4-byte big-endian length, then UTF-8 JSON), receives
-exactly one response frame, and is closed. A zero or over-512 KiB length is
-rejected from its header without reading the body; trailing bytes after the frame
-are rejected. Connections have an idle timeout and a concurrency cap. The
-listener's runtime directory is `0700` and owned by the AWF control process; the
-socket and capability file are `0600`. An existing socket or capability file
-means startup fails. Peer-credential checks remain a defense-in-depth item for
-the host-executor integration. They are not an authorization input.
+credentials. Each connection carries exactly one request frame (4-byte
+big-endian length, then UTF-8 JSON), receives exactly one response frame, and
+is closed. The client half-closes after writing; the host waits for EOF before
+processing a complete frame, so trailing bytes are rejected without execution.
+A zero or over-512 KiB length is rejected from its header without reading the
+body. Connections have an idle timeout and a concurrency cap. The listener's
+runtime directory is `0700` and owned by the AWF control process; the socket and
+capability file are `0600`. An existing socket or capability file means startup
+fails. Peer credentials are unavailable and are not an authorization input in
+v1; an integration may add them later as defense in depth.
 
 **Authentication.** The capability is 256 random bits generated per run, written
 once with `O_EXCL|O_NOFOLLOW`, and compared in constant time. It is independent
@@ -179,20 +182,23 @@ shutdown, running invocations are aborted, the in-memory capability is zeroed,
 and the socket and capability file are removed.
 
 **Requests.** Every request carries `version`, `type`, `requestId` (128-bit hex),
-`runId` (must equal the host's run), `invocationId`, and `capability`. The
+`runId` (must equal the host's run), `entryId` (must select a trusted entry),
+`invocationId`, and `capability`. The
 type-specific fields are:
 
 | Type | Fields |
 | --- | --- |
-| `invoke` | `executorKind` (`script`/`agent`), exactly one of `seedId` or `selector` (agent only, `owner/repo`), `payload` (≤ 64 KiB UTF-8), `schemaHash`, `admissionId` |
+| `invoke` | `executorKind` (`script`/`agent`), exactly one of `seedId` or `selector` (agent only, canonical lowercase `owner/repo`), `payload` (≤ 64 KiB UTF-8), `schemaHash`, `admissionId` |
 | `cancel` | `cancelGeneration` (integer ≥ 1, strictly increasing per invocation) |
 | `settle` | `resultDigest` (the digest the host reported for the terminal result) |
 | `status` | none |
 
-The host derives the plan handed to the backend from trusted run state. The
-seed must be in the trusted catalog. Seed and invocation host paths are joined
+The host derives the plan handed to the backend from the trusted entry selected
+by `entryId` and the trusted run state. The entry identifier must exist in that
+run's entry catalog, and its executor kind and policy must match. The seed must
+be in that entry's trusted catalog. Seed and invocation host paths are joined
 from trusted directories and pattern-checked identifiers. Selector admission
-requires dynamic agents to be enabled for the run, which is not the case
+requires dynamic agents to be enabled for that entry, which is not the case
 initially. Commands, executables, mounts, environment, networking, runtime
 profile, and limits are not expressible.
 
@@ -209,10 +215,11 @@ unknown or prohibited fields, and value checks. Trusted-policy denials also get
 `denied`. A rejected request has no execution side effect.
 
 **Replay and idempotency.** An authenticated `requestId` is accepted at most
-once per run and replays get `replayed`. Invocation replay is keyed by run and
-invocation ID. The immutable request hash is recorded before the backend is
-called. The same hash returns the existing record, and a different hash is a
-`conflict`. Settlement requires a terminal invocation and the matching digest.
+once per run and replays get `replayed`. Invocation replay is keyed by
+`(run ID, entry ID, invocation ID)`. The immutable request hash includes the
+entry ID and is recorded before the backend is called. The same hash returns
+the existing record, and a different hash is a `conflict`. Settlement requires
+a terminal invocation and the matching digest.
 It is idempotent once settled and drops the retained result. After
 `closeAdmissions()`, `invoke` returns `closed`, while `cancel`, `status`, and
 `settle` keep working so the broker can drain. Request-ID and invocation tables
