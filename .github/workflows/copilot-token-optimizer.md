@@ -52,6 +52,18 @@ steps:
         -o /tmp/gh-aw/token-audit/logs \
         > /tmp/gh-aw/token-audit/copilot-logs.json || LOGS_EXIT=$?
 
+      GRAPH_EXIT=0
+      gh aw logs \
+        --engine copilot \
+        --start-date -7d \
+        --tool-graph \
+        -c 50 \
+        -o /tmp/gh-aw/token-audit/tool-graphs \
+        > /tmp/gh-aw/token-audit/copilot-tool-graphs.mmd || GRAPH_EXIT=$?
+      if [ "$GRAPH_EXIT" -ne 0 ]; then
+        echo "⚠️ Unable to generate Copilot tool graphs (exit code $GRAPH_EXIT); continuing with transcripts"
+      fi
+
       if [ -s /tmp/gh-aw/token-audit/copilot-logs.json ]; then
         TOTAL=$(jq '.runs | length' /tmp/gh-aw/token-audit/copilot-logs.json)
         echo "\u2705 Downloaded $TOTAL Copilot workflow runs (last 7 days)"
@@ -186,6 +198,20 @@ From the run data, determine:
 - **Token usage summary** (per-model breakdown from `token_usage_summary` if available)
 
 Also check the `tool_usage` and `mcp_tool_usage` fields in the JSON to identify which tools are actually being used vs loaded.
+
+Trace data is available in `/tmp/gh-aw/token-audit/tool-graphs/` and the downloaded per-run files under `/tmp/gh-aw/token-audit/logs/`. Use the Mermaid graph at `/tmp/gh-aw/token-audit/copilot-tool-graphs.mmd` to orient the analysis, then inspect only the target workflow's successful runs and locate their transcript/tool-call files with `find`/`jq`. Count non-final tool calls from the transcript (exclude the final response and failed run setup), retaining each call's run ID, turn number, call index, tool name, normalized arguments, and result status.
+
+For each candidate, report a **hypothesis**, never a certainty, and cite run ID plus turn/call index:
+- repeated reads of the same resource with identical arguments and no intervening write;
+- retries with identical arguments after a failure or timeout;
+- broad exploratory calls later superseded by a more specific call for the same goal;
+- calls whose result is not reflected in later reasoning or the final response.
+
+Do not infer redundancy from aggregate counts alone. If transcripts are unavailable or ambiguous, say so and do not manufacture evidence.
+
+### Empirical tool-call cap
+
+Using only successful target-workflow runs with usable traces, calculate each run's non-final tool-call count and report the p50 and p95 (nearest-rank percentile; state the sample size). Recommend `--max-num-tool-calls` as p95 + 2, with the exact proposed integer. Do not recommend a cap when fewer than 3 usable successful runs exist, when p95 is more than twice p50, or when 20% or more of runs are within two calls of the observed maximum; instead flag the variance/ceiling risk and request more data. A cap recommendation must include the run IDs supporting the p50/p95 and explain that it bounds retries/runaways without changing the observed happy path.
 
 Clean up is not needed \u2014 data is pre-downloaded to /tmp.
 
