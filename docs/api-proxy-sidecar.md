@@ -776,7 +776,8 @@ logged as a `model_routing` event with `stage: "request"` and
 `routed: "as_selected"` or `"deviated"` (with the deviating `model`, `effort`,
 `endpoint`, or `provider`), recording requested and selected values side by
 side. Only genuine routing failures (no selection could be produced, or an
-upstream failure on the selected provider) end the run with exit `78`.
+upstream failure on a request that used the selected provider and model) end
+the run with exit `78`.
 
 Copilot discovery requests use API version `2026-07-01`. Runtime Copilot prices
 override bundled prices, including default and long-context tiers. Other

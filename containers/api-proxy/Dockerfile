@@ -74,7 +74,7 @@ COPY server.js logging.js metrics.js rate-limiter.js rate-limiter-window.js \
      provider-env-constants.js provider-env-constants.json provider-names.js \
      model-api-mapping.js model-api-mapping.json \
      routing-candidates.js routing-catalogue.js routing-classifier.js routing-config.js \
-     routing-contract.js routing-controller.js routing-enforcement.js routing-errors.js \
+     routing-contract.js routing-controller.js routing-errors.js routing-observation.js \
      routing-planner.js routing-provider-executor.js routing-router-client.js routing-runtime.js ./
 COPY guards/ ./guards/
 COPY providers/ ./providers/

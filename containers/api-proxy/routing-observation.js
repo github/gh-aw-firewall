@@ -51,20 +51,21 @@ function requestedEffortFor(parsed, endpoint) {
  * /reflect, but may send any model that model policy permits. Nothing here
  * rejects or rewrites a request. For each inference request this records
  * deviation telemetry (requested vs. routed model, effort, endpoint, and
- * provider), observes genuine upstream failures on the selected provider
- * without changing native response bytes, and drains those responses before
- * the host reads final routing status.
+ * provider), observes genuine upstream failures for requests that used the
+ * selected provider and model without changing native response bytes, and
+ * drains responses on the selected provider before the host reads final
+ * routing status.
  */
-function createRoutingEnforcement({ getSelection, recordFailure, observer }) {
+function createRoutingObservation({ getSelection, recordFailure, observer }) {
   let draining = false;
   const active = new Set();
   const waiters = new Set();
 
-  function trackResponse(res) {
+  function trackResponse(res, state) {
     active.add(res);
     function complete() {
       active.delete(res);
-      if (!res.writableFinished) {
+      if (!res.writableFinished && state.selectedModel) {
         recordFailure('provider_unavailable');
       }
       if (active.size === 0) {
@@ -82,7 +83,7 @@ function createRoutingEnforcement({ getSelection, recordFailure, observer }) {
     });
   }
 
-  function observeFailure(res) {
+  function observeFailure(res, state) {
     const originalWrite = res.write;
     const originalEnd = res.end;
     const chunks = [];
@@ -105,7 +106,7 @@ function createRoutingEnforcement({ getSelection, recordFailure, observer }) {
     };
     res.end = function(chunk, encoding, callback) {
       collect(chunk, encoding);
-      if (res.statusCode >= 400) {
+      if (res.statusCode >= 400 && state.selectedModel) {
         let code;
         try {
           const error = bytes <= 16_384 ? JSON.parse(Buffer.concat(chunks).toString('utf8')).error : null;
@@ -154,6 +155,7 @@ function createRoutingEnforcement({ getSelection, recordFailure, observer }) {
       selected_effort: selectedEffort,
       selected_endpoint: selectedEndpoint,
     });
+    return deviations;
   }
 
   return Object.freeze({
@@ -171,12 +173,17 @@ function createRoutingEnforcement({ getSelection, recordFailure, observer }) {
       }
       const selection = getSelection();
       if (draining || !selection || req.method !== 'POST' || !endpointFor(pathname)) return;
+      // Upstream failures count as routing failures only for a request that
+      // used the selected provider and model; a deviating request is the
+      // agent's own choice and never ends the routed run.
+      const state = { selectedModel: false };
       const tracked = adapter.name === (selection.provider || 'copilot');
       let onSseData;
       if (tracked) {
-        trackResponse(res);
-        observeFailure(res);
+        trackResponse(res, state);
+        observeFailure(res, state);
         onSseData = line => {
+          if (!state.selectedModel) return;
           let event;
           try {
             event = JSON.parse(line);
@@ -193,7 +200,8 @@ function createRoutingEnforcement({ getSelection, recordFailure, observer }) {
       // leaves the adapter's own transform in charge of the request.
       const bodyTransform = body => {
         try {
-          recordTelemetry(req, pathname, adapter, selection, body);
+          const deviations = recordTelemetry(req, pathname, adapter, selection, body);
+          state.selectedModel = !deviations.includes('provider') && !deviations.includes('model');
         } catch {
           // Telemetry must not change the live request.
         }
@@ -210,4 +218,4 @@ function createRoutingEnforcement({ getSelection, recordFailure, observer }) {
   });
 }
 
-module.exports = { createRoutingEnforcement };
+module.exports = { createRoutingObservation };

@@ -26,7 +26,7 @@ const { createRoutingCatalogue } = require('./routing-catalogue');
 const { parseRoutingConfig } = require('./routing-config');
 const { createRoutingController } = require('./routing-controller');
 const { createRoutingError, RoutingError, toRoutingFailure } = require('./routing-errors');
-const { createRoutingEnforcement } = require('./routing-enforcement');
+const { createRoutingObservation } = require('./routing-observation');
 const { createRoutingProviderExecutor } = require('./routing-provider-executor');
 const { createRoutingRouterClient } = require('./routing-router-client');
 const { cachedModels } = require('./key-validation');
@@ -271,7 +271,7 @@ function createProductionRoutingSession({
       },
     };
   }
-  const enforcement = createRoutingEnforcement({ getSelection, recordFailure, observer });
+  const observation = createRoutingObservation({ getSelection, recordFailure, observer });
 
   async function execute() {
     try {
@@ -310,7 +310,7 @@ function createProductionRoutingSession({
     async shutdown() {
       abortController.abort();
       await runPromise;
-      await enforcement.drain();
+      await observation.drain();
       drained = true;
     },
     completeShutdown() {
@@ -320,7 +320,7 @@ function createProductionRoutingSession({
     getSelection,
     getFailure,
     getReflectState,
-    ...enforcement,
+    ...observation,
   });
 }
 

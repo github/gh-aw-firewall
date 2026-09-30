@@ -273,10 +273,7 @@ describe('createProductionRoutingSession', () => {
     res.end = jest.fn();
     const req = { url: '/v1/chat/completions', method: 'POST', headers: {} };
     session.observeRequest(req, res, { name: 'copilot' });
-    // A deviating model is advisory only and never becomes a routing failure.
-    req.awfRouting.bodyTransform(Buffer.from(JSON.stringify({ model: 'other-model' })));
-    expect(fs.existsSync(path.join(outputDir, 'runtime-failure.json'))).toBe(false);
-
+    req.awfRouting.bodyTransform(Buffer.from(JSON.stringify({ model: SELECTION.wire_model })));
     res.statusCode = 503;
     res.end(JSON.stringify({ error: { code: 'provider_unavailable' } }));
 
@@ -303,7 +300,9 @@ describe('createProductionRoutingSession', () => {
     res.statusCode = 502;
     res.write = jest.fn();
     res.end = jest.fn();
-    session.observeRequest({ url: '/v1/chat/completions', method: 'POST', headers: {} }, res, { name: 'copilot' });
+    const req = { url: '/v1/chat/completions', method: 'POST', headers: {} };
+    session.observeRequest(req, res, { name: 'copilot' });
+    req.awfRouting.bodyTransform(Buffer.from(JSON.stringify({ model: SELECTION.wire_model })));
     res.end(JSON.stringify({ error: { code: 'bad_gateway' } }));
 
     expect(fatalExit).toHaveBeenCalledWith(78);

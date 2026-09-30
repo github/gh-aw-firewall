@@ -1956,10 +1956,11 @@ effort, and endpoint, `routed: "as_selected"` or `"deviated"`, and the list of
 
 A genuine routing failure still surfaces as host exit code `78` instead of the
 run silently continuing: no selection could be produced (`no_route`, router
-unreachable, contract or configuration errors), or an upstream failure on the
-selected provider (a native provider error code, an SSE error event, or a
-prematurely closed response). A request that deviates from the selection is
-not a routing failure.
+unreachable, contract or configuration errors), or an upstream failure on a
+request that used the selected provider and model (a native provider error
+code, an SSE error event, or a prematurely closed response). A request that
+uses another model is not a routing failure, and neither is its upstream
+error or a model-policy rejection of it.
 
 The agent learns the selected model, effort, and endpoint from the API proxy's
 `GET /reflect` `routing` field (see

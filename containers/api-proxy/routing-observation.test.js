@@ -1,7 +1,7 @@
 'use strict';
 
 const { EventEmitter } = require('events');
-const { createRoutingEnforcement } = require('./routing-enforcement');
+const { createRoutingObservation } = require('./routing-observation');
 
 const SELECTION = Object.freeze({
   schema: 'awf-routing-selection/v1',
@@ -72,17 +72,17 @@ function request(overrides = {}) {
 function createHarness(selection = SELECTION) {
   const failures = [];
   const records = [];
-  const enforcement = createRoutingEnforcement({
+  const observation = createRoutingObservation({
     getSelection: () => selection,
     recordFailure: code => failures.push(code),
     observer: { record: record => records.push(record) },
   });
-  return { enforcement, failures, records };
+  return { observation, failures, records };
 }
 
 function observe(harness, req, adapter = { name: 'copilot' }) {
   const res = new FakeResponse();
-  const result = harness.enforcement.observeRequest(req, res, adapter);
+  const result = harness.observation.observeRequest(req, res, adapter);
   return { result, res, req };
 }
 
@@ -108,7 +108,7 @@ describe('advisory routing observation', () => {
       expect(res.body()).toBe('');
     }
     expect(harness.failures).toEqual([]);
-    expect(createRoutingEnforcement({ getSelection: () => SELECTION, recordFailure: () => {} }).rejectUpgrade)
+    expect(createRoutingObservation({ getSelection: () => SELECTION, recordFailure: () => {} }).rejectUpgrade)
       .toBeUndefined();
   });
 
@@ -206,9 +206,10 @@ describe('advisory routing observation', () => {
     expect(observe(unrouted, request()).req.awfRouting).toBeUndefined();
   });
 
-  it('observes native failures on the selected provider without changing the bytes', () => {
+  it('observes native failures for the selected model without changing the bytes', () => {
     const harness = createHarness();
     const { req, res } = observe(harness, request());
+    send(req, { model: 'gpt-test', reasoning: { effort: 'low' } });
     const payload = JSON.stringify({ error: { code: 'model_not_supported' } });
     res.statusCode = 400;
     res.end(payload);
@@ -233,11 +234,26 @@ describe('advisory routing observation', () => {
     expect(harness.records.at(-1)).toMatchObject({ routed: 'deviated', provider: 'anthropic' });
   });
 
+  it('does not treat upstream failures of a deviating model as routing failures', () => {
+    const harness = createHarness();
+    const { req, res } = observe(harness, request());
+    send(req, { model: 'small-model', reasoning: { effort: 'low' } });
+    req.awfRouting.onSseData(JSON.stringify({ type: 'error', error: { code: 'rate_limited' } }));
+    res.statusCode = 403;
+    res.end(JSON.stringify({ error: { code: 'model_not_allowed' } }));
+    expect(harness.failures).toEqual([]);
+
+    const closed = observe(harness, request());
+    closed.res.emit('close');
+    expect(harness.failures).toEqual([]);
+  });
+
   it('records a prematurely closed response and drains observed responses', async () => {
     const harness = createHarness();
-    const { res } = observe(harness, request());
+    const { req, res } = observe(harness, request());
+    send(req, { model: 'gpt-test', reasoning: { effort: 'high' } });
     let drained = false;
-    const draining = harness.enforcement.drain().then(() => { drained = true; });
+    const draining = harness.observation.drain().then(() => { drained = true; });
     await Promise.resolve();
     expect(drained).toBe(false);
 
@@ -248,17 +264,17 @@ describe('advisory routing observation', () => {
 
     // A request that arrives while draining is proxied but no longer observed.
     expect(observe(harness, request()).req.awfRouting).toBeUndefined();
-    await expect(harness.enforcement.drain()).resolves.toBeUndefined();
+    await expect(harness.observation.drain()).resolves.toBeUndefined();
   });
 
   it('never throws when the observer itself throws', () => {
-    const enforcement = createRoutingEnforcement({
+    const observation = createRoutingObservation({
       getSelection: () => SELECTION,
       recordFailure: () => {},
       observer: { record: () => { throw new Error('boom'); } },
     });
     const req = request();
-    expect(() => enforcement.observeRequest(req, new FakeResponse(), { name: 'copilot' })).not.toThrow();
+    expect(() => observation.observeRequest(req, new FakeResponse(), { name: 'copilot' })).not.toThrow();
     expect(send(req, { model: 'other' })).toBeNull();
   });
 });
