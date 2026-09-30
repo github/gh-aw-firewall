@@ -439,6 +439,10 @@ describe('reflectEndpoints', () => {
     resetModelCacheState();
   });
 
+  it('should report routing as null when task routing is not configured', () => {
+    expect(reflectEndpoints().routing).toBeNull();
+  });
+
   it('should return an array of 5 endpoints', () => {
     const result = reflectEndpoints();
     expect(result.endpoints).toHaveLength(5);

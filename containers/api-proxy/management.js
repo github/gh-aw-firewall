@@ -104,6 +104,7 @@ function createManagementHandlers(deps) {
     getMaxRunsUsage,
     getMaxCacheMissesUsage,
     getPermissionDeniedUsage,
+    getRoutingState = () => null,
   } = deps;
 
   /**
@@ -170,6 +171,7 @@ function createManagementHandlers(deps) {
       cache_misses: getMaxCacheMissesUsage(),
       permission_denied: getPermissionDeniedUsage(),
       model_api_mapping: getModelApiMappingReflect(),
+      routing: getRoutingState(),
     };
   }
 

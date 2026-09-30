@@ -140,6 +140,49 @@ describe('createProductionRoutingSession', () => {
     expect(fs.readdirSync(outputDir).filter(name => name.endsWith('.tmp'))).toEqual([]);
   });
 
+  test('reflects the selection the agent must send, and failures without a selection', async () => {
+    const pending = createProductionRoutingSession({
+      rawConfig: '{}',
+      outputDir: makeOutputDir(),
+      createController: controllerReturning({ ok: true, selection: SELECTION }),
+    });
+    expect(pending.getReflectState()).toEqual({ status: 'pending', selection: null });
+    await pending.start();
+    expect(pending.getReflectState()).toEqual({
+      status: 'selected',
+      selection: {
+        provider: 'copilot', model: 'gpt-5', wire_model: 'gpt-5', effort: 'medium', endpoint: '/responses',
+      },
+    });
+
+    const cases = [
+      [{ provider: 'copilot', choice: { id: 'choice-0001', model: 'github-copilot/claude-haiku-4.5' } },
+        { effort: null, endpoint: '/chat/completions' }],
+      [{ provider: 'anthropic', choice: { id: 'choice-0001', model: 'anthropic/claude-opus-5', effort: 'high' } },
+        { effort: 'high', endpoint: '/v1/messages' }],
+    ];
+    for (const [overrides, expected] of cases) {
+      const session = createProductionRoutingSession({
+        rawConfig: '{}',
+        outputDir: makeOutputDir(),
+        createController: controllerReturning({ ok: true, selection: { ...SELECTION, ...overrides } }),
+      });
+      await session.start();
+      expect(session.getReflectState().selection).toMatchObject(expected);
+    }
+
+    const failed = createProductionRoutingSession({
+      rawConfig: '{}',
+      outputDir: makeOutputDir(),
+      createController: controllerReturning({
+        ok: false,
+        failure: { schema: 'awf-routing-failure/v1', code: 'no_route', detail: 'x', retryable: false },
+      }),
+    });
+    await failed.start();
+    expect(failed.getReflectState()).toEqual({ status: 'failed', failure_code: 'no_route', selection: null });
+  });
+
   test('publishes a failure record when the controller fails', async () => {
     const outputDir = makeOutputDir();
     const failure = {

@@ -1945,6 +1945,11 @@ and waits for `selection.json` before starting the agent. A routing failure
 recorded by either side surfaces as host exit code `78` instead of the run
 silently continuing unrouted.
 
+The agent learns the selected model, effort, and endpoint from the API proxy's
+`GET /reflect` `routing` field (see
+[api-proxy-sidecar.md](api-proxy-sidecar.md)); the private `selection.json`
+is not visible to the agent.
+
 ```yaml
 experimental:
   modelRouting: true

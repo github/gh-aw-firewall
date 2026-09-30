@@ -747,6 +747,30 @@ Fields:
 - `models_fetch_complete` — `true` once the startup model-fetch pass has finished
 - `models_url` — URL to query for the live model list
 
+The top-level `routing` field is `null` unless task-level model routing is
+active. When it is active, it tells the agent which request the proxy will
+admit:
+
+```json
+{
+  "status": "selected",
+  "selection": {
+    "provider": "copilot",
+    "model": "github-copilot/gpt-5.4-mini",
+    "wire_model": "gpt-5.4-mini",
+    "effort": "low",
+    "endpoint": "/responses"
+  }
+}
+```
+
+`status` is `pending` until the router selects, `selected` afterwards, or
+`failed` (with `failure_code`) after a terminal routing failure. The agent must
+send `wire_model` as the body `model` to `endpoint`. For `/responses`, send
+`reasoning.effort` equal to `effort`. For `/v1/messages`, send
+`output_config.effort` when `effort` is not `null`. Any other request is
+rejected with `403 model_routing_mismatch` and ends the routed run.
+
 Copilot discovery requests use API version `2026-07-01`. Runtime Copilot prices
 override bundled prices, including default and long-context tiers. Other
 providers continue to use bundled pricing because their model-list APIs do not

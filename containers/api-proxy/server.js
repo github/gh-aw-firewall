@@ -181,6 +181,7 @@ const { healthResponse, reflectEndpoints, handleManagementEndpoint } = createMan
   getMaxRunsUsage: () => getMaxRunsReflectState(),
   getMaxCacheMissesUsage: () => getMaxCacheMissesReflectState(),
   getPermissionDeniedUsage: () => getPermissionDeniedReflectState(),
+  getRoutingState: () => routing?.getReflectState() ?? null,
 });
 
 function buildModelsJson() {

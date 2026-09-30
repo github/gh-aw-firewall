@@ -251,6 +251,27 @@ function createProductionRoutingSession({
 
   const getSelection = () => result?.ok ? result.selection : null;
   const getFailure = () => terminalFailure || (result && !result.ok ? result.failure : null);
+
+  // Agent-visible view of the selection: the agent must send exactly this
+  // model, effort, and endpoint, and has no other way to learn it.
+  function getReflectState() {
+    const failure = getFailure();
+    if (failure) return { status: 'failed', failure_code: failure.code, selection: null };
+    const selection = getSelection();
+    if (!selection) return { status: 'pending', selection: null };
+    const provider = selection.provider || 'copilot';
+    const effort = Object.hasOwn(selection.choice, 'effort') ? selection.choice.effort : null;
+    return {
+      status: 'selected',
+      selection: {
+        provider,
+        model: selection.choice.model,
+        wire_model: selection.wire_model,
+        effort,
+        endpoint: provider === 'anthropic' ? '/v1/messages' : (effort === null ? '/chat/completions' : '/responses'),
+      },
+    };
+  }
   const enforcement = createRoutingEnforcement({ getSelection, getFailure, recordFailure, observer });
 
   async function execute() {
@@ -299,6 +320,7 @@ function createProductionRoutingSession({
     },
     getSelection,
     getFailure,
+    getReflectState,
     ...enforcement,
   });
 }
