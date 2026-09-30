@@ -38,7 +38,7 @@ describe('Smoke Cloud Hypervisor token-usage verification', () => {
     const frontmatter = loadFrontmatter(workflowFiles[0]);
     const lock = fs.readFileSync(workflowFiles[1], 'utf-8');
 
-    expect(frontmatter.tools?.bash).toEqual(expect.arrayContaining(['curl', 'printf', 'cat']));
+    expect(frontmatter.tools?.bash).toEqual(['curl', 'printf', 'cat']);
     expect(lock).toContain("--allow-tool '\\''shell(curl:*)'\\''");
     expect(lock).toContain("--allow-tool '\\''shell(printf)'\\''");
     expect(lock).toContain("--allow-tool '\\''shell(cat)'\\''");
