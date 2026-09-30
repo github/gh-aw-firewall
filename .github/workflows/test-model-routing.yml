@@ -37,7 +37,12 @@ jobs:
     name: Exercise live routing and Copilot inference
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
+    env:
+      AGENT_IMAGE: ghcr.io/github/gh-aw-firewall/agent:0.28.29@sha256:edcf17ae63dd74366bc911a74678b9e264d66ac51c48ec156c80e2619892ebbb
+      API_PROXY_IMAGE: ghcr.io/github/gh-aw-firewall/api-proxy:0.28.29@sha256:5cc683af8156b39c15bd2370615a85775a8b179bed9f49c490a3068d667dfa2b
+      SQUID_IMAGE: ghcr.io/github/gh-aw-firewall/squid:0.28.29@sha256:1d5e169c4df14e87fc826261b94cf4ddaf2f08aca2a5b88701100ec193968193
+      ROUTER_IMAGE: ghcr.io/githubnext/gh-aw-router:latest@sha256:d1612d0eaec3fa8f14c38bbd0a6a0682732fc9f83b7fec94219d3e757a048270
 
     steps:
       - name: Check out repository
@@ -93,10 +98,10 @@ jobs:
                 conversationFile: ${ROUTING_DIR}/conversation.json
           container:
             images:
-              agent: ghcr.io/github/gh-aw-firewall/agent:0.28.28@sha256:766e43aa77d3bb2ab35418bbcfa3e250ba20b0e19bd7c15b1129f583ab2f98dc
-              apiProxy: ghcr.io/github/gh-aw-firewall/api-proxy:0.28.28@sha256:73fffd23945963fa1d6a0357de4f296099364ca7bcd52993a59c934251409066
-              squid: ghcr.io/github/gh-aw-firewall/squid:0.28.28@sha256:5f9166c18c98b4dd21d466fdec1fccfb69e97f14bc435c40557efdad2a80cc38
-              router: ghcr.io/githubnext/gh-aw-router:latest@sha256:d1612d0eaec3fa8f14c38bbd0a6a0682732fc9f83b7fec94219d3e757a048270
+              agent: ${AGENT_IMAGE}
+              apiProxy: ${API_PROXY_IMAGE}
+              squid: ${SQUID_IMAGE}
+              router: ${ROUTER_IMAGE}
           YAML
 
           ROUTED_COMMAND="$(cat <<'SCRIPT'
@@ -113,6 +118,86 @@ jobs:
             assert.equal(typeof text, "string", "Copilot response contained no message text");
             assert.match(text, /ROUTED_OK/, "Copilot did not return the expected smoke response");
             console.log("ROUTED_COPILOT_INFERENCE=passed model=claude-haiku-4.5");
+          ' "$response"
+          SCRIPT
+          )"
+          sudo --preserve-env=COPILOT_GITHUB_TOKEN,GITHUB_WORKSPACE,HOME,PATH \
+            node dist/cli.js --config "${ROUTING_DIR}/awf-config.yml" -- bash -euc "$ROUTED_COMMAND"
+
+      - name: Run an effort-routed Copilot inference through AWF
+        env:
+          COPILOT_GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          ROUTING_DIR="${RUNNER_TEMP}/model-routing-effort"
+          mkdir -m 700 -p "$ROUTING_DIR"
+          cat > "${ROUTING_DIR}/conversation.json" <<'JSON'
+          [{"role":"user","parts":[{"text":"Reply with exactly ROUTED_OK."}]}]
+          JSON
+          cat > "${ROUTING_DIR}/awf-config.yml" <<YAML
+          experimental:
+            modelRouting: true
+          network:
+            allowDomains:
+              - api.githubcopilot.com
+          apiProxy:
+            enabled: true
+            allowedModels:
+              - github-copilot/gpt-5.4-mini
+            routing:
+              objective:
+                goal: cost
+                mode: balanced
+              task:
+                conversationFile: ${ROUTING_DIR}/conversation.json
+          container:
+            images:
+              agent: ${AGENT_IMAGE}
+              apiProxy: ${API_PROXY_IMAGE}
+              squid: ${SQUID_IMAGE}
+              router: ${ROUTER_IMAGE}
+          YAML
+
+          # The agent learns the routed model, effort, and endpoint from /reflect
+          # and must send exactly that request; anything else is rejected with 403.
+          ROUTED_COMMAND="$(cat <<'SCRIPT'
+          set -euo pipefail
+          test -n "${COPILOT_API_URL:-}" || { echo "COPILOT_API_URL is missing" >&2; exit 1; }
+          reflect="$(curl --fail --silent --show-error --max-time 30 "${COPILOT_API_URL}/reflect")"
+          request="$(node -e '
+            const assert = require("node:assert/strict");
+            const routing = JSON.parse(process.argv[1]).routing;
+            assert.equal(routing?.status, "selected", "/reflect did not report a routed selection: " + JSON.stringify(routing));
+            const s = routing.selection;
+            assert.equal(s.provider, "copilot");
+            assert.equal(s.model, "github-copilot/gpt-5.4-mini");
+            assert.equal(s.wire_model, "gpt-5.4-mini");
+            assert.equal(typeof s.effort, "string", "the selection carries no reasoning effort");
+            assert.equal(s.endpoint, "/responses");
+            console.error("ROUTED_SELECTION=" + JSON.stringify(s));
+            console.log(JSON.stringify({
+              model: s.wire_model,
+              input: "Reply with exactly ROUTED_OK.",
+              reasoning: { effort: s.effort },
+              max_output_tokens: 2048,
+              stream: false,
+            }));
+          ' "$reflect")"
+          response="$(curl --fail --silent --show-error --max-time 180 \
+            -H "Content-Type: application/json" \
+            --data "$request" \
+            "${COPILOT_API_URL}/responses")"
+          node -e '
+            const assert = require("node:assert/strict");
+            const result = JSON.parse(process.argv[1]);
+            const text = (result.output || [])
+              .filter(item => item.type === "message")
+              .flatMap(item => item.content || [])
+              .filter(part => part.type === "output_text")
+              .map(part => part.text)
+              .join("");
+            assert.match(text, /ROUTED_OK/, "Copilot did not return the expected smoke response: " + JSON.stringify(result).slice(0, 500));
+            console.log("ROUTED_COPILOT_EFFORT_INFERENCE=passed model=gpt-5.4-mini endpoint=/responses");
           ' "$response"
           SCRIPT
           )"
