@@ -25,7 +25,8 @@ network:
 tools:
   github:
     toolsets: [default, pull_requests]
-  cache-memory: true
+  cache-memory:
+    key: schema-sync-state
   bash: ["*"]
   edit:
 safe-outputs:
@@ -63,6 +64,8 @@ Read `/tmp/gh-aw/cache-memory/schema-sync-state.json`. It stores:
 
 - If the file exists, use `last_commit_sha` as the starting point.
 - If the file does NOT exist (first run), use commits from the **last 7 days**.
+  This is an expected cold-cache or expired-cache case; do not report it with
+  `missing_data`.
 
 ### 2. Fetch relevant commits
 
