@@ -18,7 +18,7 @@ describe('smoke codex workflow output requirements', () => {
   it('uses inline safe-output arguments in a login shell for comments', () => {
     const source = fs.readFileSync(smokeCodexSourcePath, 'utf-8');
 
-    expect(source).toContain('/bin/bash -lc "safeoutputs add_comment');
+    expect(source).toContain(`/bin/bash -lc 'safeoutputs add_comment "$1"' --`);
     expect(source).toContain('Do not build comment payloads with `jq`');
     expect(source).toContain('retry from a non-login shell');
   });
