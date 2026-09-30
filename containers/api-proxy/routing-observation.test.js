@@ -193,6 +193,41 @@ describe('advisory routing observation', () => {
     expect(harness.records[0].requested_effort).toBeNull();
   });
 
+  it('compares the full normalized model before truncating telemetry', () => {
+    const longModel = 'm'.repeat(201);
+    const longSelection = {
+      ...SELECTION,
+      choice: { ...SELECTION.choice, model: longModel },
+      wire_model: longModel,
+    };
+    const matching = createHarness(longSelection);
+    const matchingRequest = observe(matching, request());
+    send(matchingRequest.req, { model: longModel, reasoning: { effort: 'low' } });
+    expect(matching.records[0]).toMatchObject({ routed: 'as_selected', deviations: [] });
+    expect(matching.records[0].requested_model).toHaveLength(200);
+    matchingRequest.res.statusCode = 400;
+    matchingRequest.res.end(JSON.stringify({ error: { code: 'model_not_supported' } }));
+    expect(matching.failures).toContain('model_not_supported');
+
+    const boundaryModel = 'm'.repeat(200);
+    const boundarySelection = {
+      ...SELECTION,
+      choice: { ...SELECTION.choice, model: boundaryModel },
+      wire_model: boundaryModel,
+    };
+    const deviating = createHarness(boundarySelection);
+    const deviatingRequest = observe(deviating, request());
+    send(deviatingRequest.req, { model: `${boundaryModel}-other`, reasoning: { effort: 'low' } });
+    expect(deviating.records[0]).toMatchObject({
+      routed: 'deviated',
+      deviations: ['model'],
+      requested_model: boundaryModel,
+    });
+    deviatingRequest.res.statusCode = 403;
+    deviatingRequest.res.end(JSON.stringify({ error: { code: 'model_not_allowed' } }));
+    expect(deviating.failures).toEqual([]);
+  });
+
   it('observes only inference POSTs while a selection exists', () => {
     const harness = createHarness();
     for (const req of [
