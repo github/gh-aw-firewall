@@ -32,17 +32,18 @@ permissions:
   contents: read
   copilot-requests: write
 
+env:
+  AGENT_IMAGE: ghcr.io/github/gh-aw-firewall/agent:0.28.29@sha256:edcf17ae63dd74366bc911a74678b9e264d66ac51c48ec156c80e2619892ebbb
+  API_PROXY_IMAGE: ghcr.io/github/gh-aw-firewall/api-proxy:0.28.29@sha256:5cc683af8156b39c15bd2370615a85775a8b179bed9f49c490a3068d667dfa2b
+  SQUID_IMAGE: ghcr.io/github/gh-aw-firewall/squid:0.28.29@sha256:1d5e169c4df14e87fc826261b94cf4ddaf2f08aca2a5b88701100ec193968193
+  ROUTER_IMAGE: ghcr.io/githubnext/gh-aw-router:latest@sha256:d1612d0eaec3fa8f14c38bbd0a6a0682732fc9f83b7fec94219d3e757a048270
+
 jobs:
   model-routing:
     name: Exercise live routing and Copilot inference
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    env:
-      AGENT_IMAGE: ghcr.io/github/gh-aw-firewall/agent:0.28.29@sha256:edcf17ae63dd74366bc911a74678b9e264d66ac51c48ec156c80e2619892ebbb
-      API_PROXY_IMAGE: ghcr.io/github/gh-aw-firewall/api-proxy:0.28.29@sha256:5cc683af8156b39c15bd2370615a85775a8b179bed9f49c490a3068d667dfa2b
-      SQUID_IMAGE: ghcr.io/github/gh-aw-firewall/squid:0.28.29@sha256:1d5e169c4df14e87fc826261b94cf4ddaf2f08aca2a5b88701100ec193968193
-      ROUTER_IMAGE: ghcr.io/githubnext/gh-aw-router:latest@sha256:d1612d0eaec3fa8f14c38bbd0a6a0682732fc9f83b7fec94219d3e757a048270
 
     steps:
       - name: Check out repository
@@ -317,6 +318,155 @@ jobs:
           # A mismatched request is a terminal routing failure, reported as exit 78.
           test "$status" -eq 78 || { echo "expected AWF exit 78 after a routing mismatch, got ${status}" >&2; exit 1; }
           echo "ROUTED_MISMATCH_EXIT=78"
+
+      - name: Show Docker state on failure
+        if: failure()
+        run: |
+          docker ps -a
+          docker network ls
+
+  native-provider-routing:
+    name: Exercise live ${{ matrix.provider }} routing
+    # Paid provider keys: run on the weekly schedule and on demand, not on every push.
+    if: github.ref == 'refs/heads/main' && github.event_name != 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - provider: openai
+            domain: api.openai.com
+            model: openai/gpt-5.4
+            wire_model: gpt-5.4
+          - provider: anthropic
+            domain: api.anthropic.com
+            model: anthropic/claude-sonnet-5
+            wire_model: claude-sonnet-5
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build AWF
+        run: npm run build
+
+      - name: Run a routed ${{ matrix.provider }} inference through AWF
+        env:
+          OPENAI_API_KEY: ${{ matrix.provider == 'openai' && secrets.OPENAI_API_KEY || '' }}
+          ANTHROPIC_API_KEY: ${{ matrix.provider == 'anthropic' && secrets.ANTHROPIC_API_KEY || '' }}
+          ROUTING_PROVIDER: ${{ matrix.provider }}
+          ROUTING_DOMAIN: ${{ matrix.domain }}
+          ROUTING_MODEL: ${{ matrix.model }}
+          ROUTING_WIRE_MODEL: ${{ matrix.wire_model }}
+        run: |
+          set -euo pipefail
+          case "${ROUTING_PROVIDER}" in
+            openai) test -n "${OPENAI_API_KEY}" || { echo "OPENAI_API_KEY secret is not available" >&2; exit 1; } ;;
+            anthropic) test -n "${ANTHROPIC_API_KEY}" || { echo "ANTHROPIC_API_KEY secret is not available" >&2; exit 1; } ;;
+          esac
+          ROUTING_DIR="${RUNNER_TEMP}/model-routing-${ROUTING_PROVIDER}"
+          mkdir -m 700 -p "$ROUTING_DIR"
+          cat > "${ROUTING_DIR}/conversation.json" <<'JSON'
+          [{"role":"user","parts":[{"text":"Reply with exactly ROUTED_OK."}]}]
+          JSON
+          cat > "${ROUTING_DIR}/awf-config.yml" <<YAML
+          experimental:
+            modelRouting: true
+          network:
+            allowDomains:
+              - ${ROUTING_DOMAIN}
+          apiProxy:
+            enabled: true
+            allowedModels:
+              - ${ROUTING_MODEL}
+            routing:
+              provider: ${ROUTING_PROVIDER}
+              objective:
+                goal: cost
+                mode: balanced
+              task:
+                conversationFile: ${ROUTING_DIR}/conversation.json
+          container:
+            images:
+              agent: ${AGENT_IMAGE}
+              apiProxy: ${API_PROXY_IMAGE}
+              squid: ${SQUID_IMAGE}
+              router: ${ROUTER_IMAGE}
+          YAML
+
+          # The agent reads the routed selection from /reflect (management port
+          # 10000) and sends exactly that model, effort, and native endpoint.
+          ROUTED_COMMAND="$(cat <<'SCRIPT'
+          set -euo pipefail
+          reflect="$(curl --fail --silent --show-error --max-time 30 "http://172.30.0.30:10000/reflect")"
+          plan="$(node -e '
+            const assert = require("node:assert/strict");
+            const [reflectJson, provider, model, wireModel] = process.argv.slice(1);
+            const routing = JSON.parse(reflectJson).routing;
+            assert.equal(routing?.status, "selected", "/reflect did not report a routed selection: " + JSON.stringify(routing));
+            const s = routing.selection;
+            assert.equal(s.provider, provider);
+            assert.equal(s.model, model);
+            assert.equal(s.wire_model, wireModel);
+            console.error("ROUTED_SELECTION=" + JSON.stringify(s));
+            const prompt = "Reply with exactly ROUTED_OK.";
+            let base, body;
+            if (provider === "anthropic") {
+              assert.equal(s.endpoint, "/v1/messages");
+              base = process.env.ANTHROPIC_BASE_URL;
+              body = { model: s.wire_model, max_tokens: 4096, messages: [{ role: "user", content: prompt }] };
+              if (s.effort !== null) body.output_config = { effort: s.effort };
+            } else {
+              base = process.env.OPENAI_BASE_URL;
+              if (s.effort === null) {
+                assert.equal(s.endpoint, "/chat/completions");
+                body = { model: s.wire_model, messages: [{ role: "user", content: prompt }], stream: false };
+              } else {
+                assert.equal(s.endpoint, "/responses");
+                body = { model: s.wire_model, input: prompt, reasoning: { effort: s.effort }, max_output_tokens: 4096, stream: false };
+              }
+            }
+            assert.ok(base, "provider base URL is missing from the agent environment");
+            const url = new URL(base).origin + (s.endpoint.startsWith("/v1/") ? s.endpoint : "/v1" + s.endpoint);
+            console.log(JSON.stringify({ url, body }));
+          ' "$reflect" "$ROUTING_PROVIDER" "$ROUTING_MODEL" "$ROUTING_WIRE_MODEL")"
+          url="$(node -e 'process.stdout.write(JSON.parse(process.argv[1]).url)' "$plan")"
+          body="$(node -e 'process.stdout.write(JSON.stringify(JSON.parse(process.argv[1]).body))' "$plan")"
+          response="$(curl --fail-with-body --silent --show-error --max-time 180 \
+            -H "Content-Type: application/json" -H "anthropic-version: 2023-06-01" \
+            --data "$body" "$url")" || { echo "routed request failed: ${response:-}" >&2; exit 1; }
+          node -e '
+            const assert = require("node:assert/strict");
+            const result = JSON.parse(process.argv[1]);
+            const text = result.choices?.[0]?.message?.content ??
+              (Array.isArray(result.content) ? result.content.filter(p => p.type === "text").map(p => p.text).join("") : null) ??
+              (result.output || [])
+                .filter(item => item.type === "message")
+                .flatMap(item => item.content || [])
+                .filter(part => part.type === "output_text")
+                .map(part => part.text)
+                .join("");
+            assert.match(String(text), /ROUTED_OK/, "provider did not return the expected smoke response: " + JSON.stringify(result).slice(0, 500));
+            console.log("ROUTED_NATIVE_INFERENCE=passed provider=" + process.argv[2] + " model=" + process.argv[3]);
+          ' "$response" "$ROUTING_PROVIDER" "$ROUTING_MODEL"
+          SCRIPT
+          )"
+          sudo --preserve-env=OPENAI_API_KEY,ANTHROPIC_API_KEY,ROUTING_PROVIDER,ROUTING_MODEL,ROUTING_WIRE_MODEL,GITHUB_WORKSPACE,HOME,PATH \
+            node dist/cli.js --config "${ROUTING_DIR}/awf-config.yml" \
+            --env ROUTING_PROVIDER="${ROUTING_PROVIDER}" --env ROUTING_MODEL="${ROUTING_MODEL}" --env ROUTING_WIRE_MODEL="${ROUTING_WIRE_MODEL}" \
+            -- bash -euc "$ROUTED_COMMAND"
 
       - name: Show Docker state on failure
         if: failure()
