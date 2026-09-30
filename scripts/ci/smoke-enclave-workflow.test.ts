@@ -107,6 +107,17 @@ describe('smoke enclave issues workflow', () => {
   const source = fs.readFileSync(issuesSourcePath, 'utf8');
   const lock = fs.readFileSync(issuesLockPath, 'utf8');
 
+  it('allows Copilot to invoke only the required enclave tool', () => {
+    expect(source).toContain('args: ["--allow-tool", "awf-enclave(enclave_run_agent)"]');
+    const start = lock.indexOf('      - name: Execute GitHub Copilot CLI');
+    const end = lock.indexOf('      - name: Detect agent errors');
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(end).toBeGreaterThan(start);
+    const executeStep = lock.slice(start, end);
+    expect(executeStep).toContain("--allow-tool '\\''awf-enclave(enclave_run_agent)'\\''");
+    expect(executeStep).not.toContain('--allow-all-tools');
+  });
+
   it('uses one shared multi-agent MCP gateway', () => {
     expect(countOccurrences(lock, '- name: Start MCP Gateway')).toBe(1);
     expect(lock).not.toContain('Start Enclave GitHub Proxy');
@@ -197,6 +208,17 @@ describe('smoke enclave issues workflow', () => {
 describe('smoke enclave dynamic issues workflow', () => {
   const source = fs.readFileSync(dynamicSourcePath, 'utf8');
   const lock = fs.readFileSync(dynamicLockPath, 'utf8');
+
+  it('allows Copilot to invoke only the required enclave tool', () => {
+    expect(source).toContain('args: ["--allow-tool", "awf-enclave(enclave_run_agent)"]');
+    const start = lock.indexOf('      - name: Execute GitHub Copilot CLI');
+    const end = lock.indexOf('      - name: Detect agent errors');
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(end).toBeGreaterThan(start);
+    const executeStep = lock.slice(start, end);
+    expect(executeStep).toContain("--allow-tool '\\''awf-enclave(enclave_run_agent)'\\''");
+    expect(executeStep).not.toContain('--allow-all-tools');
+  });
 
   it('declares dynamic repository delegation without static repos', () => {
     expect(source).toContain('dynamic:\n      allowed-owners: [github]');
