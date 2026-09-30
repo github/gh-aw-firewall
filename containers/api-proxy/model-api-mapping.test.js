@@ -205,7 +205,7 @@ describe('model-api-mapping', () => {
       expect(reflect.available).toBe(true);
       expect(reflect.providers).toContain('openai');
       expect(reflect.providers).toContain('anthropic');
-      expect(reflect.last_updated).toBe('2026-09-28T23:34:26Z');
+      expect(reflect.last_updated).toBe('2026-09-30T07:10:00Z');
       expect(reflect.models.anthropic.models[0].family).toBe('claude-opus-5');
       expect(reflect.models.openai.models.find(model => model.family === 'gpt-5.4').routing)
         .toEqual({
