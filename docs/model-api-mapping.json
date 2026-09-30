@@ -1,7 +1,7 @@
 {
   "title": "Model-to-API Endpoint Mapping",
   "description": "Maps AI model families to supported API endpoints and includes maintained task-routing effort/context metadata for selected model IDs.",
-  "lastUpdated": "2026-09-28T23:34:26Z",
+  "lastUpdated": "2026-09-30T07:10:00Z",
   "sources": {
     "openai": "https://developers.openai.com/api/docs/models",
     "openai_routing": "https://developers.openai.com/api/docs/models/gpt-5.4",
@@ -33,6 +33,12 @@
           "patterns": ["gpt-6-sol*"],
           "endpoints": ["chat_completions", "responses"],
           "notes": "GPT-6 tier balancing intelligence and cost. Supports both Chat Completions and Responses APIs per official model page."
+        },
+        {
+          "family": "gpt-6.1-sol",
+          "patterns": ["gpt-6.1-sol*"],
+          "endpoints": ["chat_completions", "responses"],
+          "notes": "GPT-6.1 tier balancing intelligence and cost (successor to gpt-6-sol). Supports both Chat Completions and Responses APIs, consistent with other GPT-6 tiers."
         },
         {
           "family": "gpt-6-luna",
