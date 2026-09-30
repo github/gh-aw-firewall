@@ -179,7 +179,7 @@ An optional run-wide cap, `--max-num-tool-calls <n>` (config
 `rateLimiting.maxNumToolCalls`), bounds enclave tool calls for cost control.
 It is unlimited by default. When set, every attempted well-formed call to either
 tool counts; once exhausted, calls are denied in-band with a model-facing
-message, the broker logs a warning with the tool name, executor kind, and run
+message, the broker logs one warning with the tool name, executor kind, and run
 id, and the count is persisted per run in the broker's private control
 directory. The limit is advertised in the tool descriptions. See
 [awf-config-spec.md §14.2a](awf-config-spec.md).

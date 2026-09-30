@@ -118,6 +118,7 @@ describe('enclave tool-call cap', () => {
     expect(deps.toolCallBudget.used()).toBe(3);
 
     const denied = await callTool(AGENT_TOOL_NAME, agentArguments, deps, 4);
+    await callTool(TOOL_NAME, scriptArguments, deps, 5);
     expect(denied).toEqual({
       jsonrpc: '2.0',
       id: 4,
@@ -131,7 +132,7 @@ describe('enclave tool-call cap', () => {
       'Max tool call count reached, no more tool calls are allowed. '
       + 'Make a decision based on what you already have in context.',
     );
-    // The denied call never reached an executor.
+    // Denied calls never reach an executor, and the denial is warned once.
     expect(agentRequests).toHaveLength(1);
     expect(scriptRequests).toHaveLength(2);
     expect(warnings).toHaveLength(1);
@@ -219,5 +220,21 @@ describe('enclave tool-call cap', () => {
     expect(budget.tryConsume(TOOL_NAME, 'script')).toBe(true);
     expect(budget.tryConsume(TOOL_NAME, 'script')).toBe(false);
     expect(warnings[0]).toContain('Unable to persist enclave tool call count: read-only');
+  });
+
+  it('removes a partially written state file when the atomic rename fails', () => {
+    const failingFiles = {
+      ...fs,
+      renameSync: () => { throw new Error('rename failed'); },
+    };
+    const budget = createToolCallBudget({
+      maxToolCalls: 1,
+      runId: RUN_ID,
+      statePath,
+      files: failingFiles,
+      warn: () => {},
+    });
+    expect(budget.tryConsume(TOOL_NAME, 'script')).toBe(true);
+    expect(fs.readdirSync(path.dirname(statePath))).toEqual([]);
   });
 });

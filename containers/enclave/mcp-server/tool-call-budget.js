@@ -63,12 +63,21 @@ function readPersistedCount(statePath, runId, files) {
 function writePersistedCount(statePath, runId, used, files) {
   const tmpPath = `${statePath}.${process.pid}.tmp`;
   files.mkdirSync(path.dirname(statePath), { recursive: true, mode: 0o700 });
-  files.writeFileSync(
-    tmpPath,
-    JSON.stringify({ version: TOOL_CALL_BUDGET_STATE_VERSION, runId, used }),
-    { mode: 0o600 },
-  );
-  files.renameSync(tmpPath, statePath);
+  try {
+    files.writeFileSync(
+      tmpPath,
+      JSON.stringify({ version: TOOL_CALL_BUDGET_STATE_VERSION, runId, used }),
+      { mode: 0o600 },
+    );
+    files.renameSync(tmpPath, statePath);
+  } catch (error) {
+    try {
+      files.rmSync(tmpPath, { force: true });
+    } catch {
+      // The original write error is the useful diagnostic.
+    }
+    throw error;
+  }
 }
 
 /**
@@ -93,6 +102,7 @@ function createToolCallBudget(options = {}) {
   const warn = options.warn
     || ((message) => process.stderr.write(`[awf-enclave] WARN ${message}\n`));
   let used = readPersistedCount(statePath, runId, files);
+  let denialWarned = false;
 
   function persist() {
     if (!statePath) return;
@@ -120,6 +130,9 @@ function createToolCallBudget(options = {}) {
      */
     tryConsume(toolName, agentName) {
       if (used >= maxToolCalls) {
+        // Warn once so a model that keeps retrying cannot flood the logs.
+        if (denialWarned) return false;
+        denialWarned = true;
         warn(`Max tool call count reached. ${JSON.stringify({
           toolName,
           agentName,
