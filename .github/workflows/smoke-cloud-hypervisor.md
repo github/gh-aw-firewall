@@ -25,7 +25,9 @@ network:
     - github
 tools:
   bash:
-    - "*"
+    - curl
+    - printf
+    - cat
   github:
     toolsets: [pull_requests]
 safe-outputs:
@@ -86,7 +88,7 @@ Run these checks inside the Cloud Hypervisor sandbox:
 
 1. Call `github-list_pull_requests` for `${{ github.repository }}` with `limit: 1` and `state: merged`.
 2. Confirm `curl -s -o /dev/null -w "%{http_code}" --max-time 10 https://github.com` returns 200 or 301.
-3. Write a unique line to `/tmp/gh-aw/agent/smoke-cloud-hypervisor-${GITHUB_RUN_ID}.txt`, then read it back.
+3. Use `printf` to write a unique line to `/tmp/gh-aw/agent/smoke-cloud-hypervisor-${GITHUB_RUN_ID}.txt`, then use `cat` to read it back.
 4. Confirm `curl -s -o /dev/null -w "%{http_code}" --max-time 5 https://example.com` is blocked with 000 or 403.
 
 Keep the summary under 10 lines with a PASS or FAIL for each check.
