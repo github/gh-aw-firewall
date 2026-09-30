@@ -584,6 +584,12 @@ describe('mapAwfFileConfigToCliOptions', () => {
     expect(result.maxGithubApiPointsGraphql).toBe(1500);
   });
 
+  it('maps rateLimiting.maxNumToolCalls to the enclave tool-call cap', () => {
+    expect(mapAwfFileConfigToCliOptions({ rateLimiting: { maxNumToolCalls: 25 } }).maxNumToolCalls)
+      .toBe(25);
+    expect(mapAwfFileConfigToCliOptions({}).maxNumToolCalls).toBeUndefined();
+  });
+
   it('returns undefined for empty allowDomains array', () => {
     const result = mapAwfFileConfigToCliOptions({ network: { allowDomains: [] } });
     expect(result.allowDomains).toBeUndefined();

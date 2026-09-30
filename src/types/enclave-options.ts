@@ -220,6 +220,11 @@ export interface EnclavesConfig {
 export interface EnclaveOptions {
   /** Present only when the config file contains an `enclaves` section. */
   enclaves?: EnclavesConfig;
+  /**
+   * Optional run-wide cap on enclave tool calls (`--max-num-tool-calls`).
+   * Shared by every enclave tool; omission means unlimited.
+   */
+  maxNumToolCalls?: number;
 }
 
 /**

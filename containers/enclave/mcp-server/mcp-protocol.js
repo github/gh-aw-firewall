@@ -5,6 +5,7 @@ const {
   MAX_SCHEMA_BYTES,
   strictParseJson,
 } = require('../../bounded-execution/finite-disclosure');
+const { TOOL_CALL_CAP_MESSAGE } = require('./tool-call-budget');
 
 const MCP_PROTOCOL_VERSION = '2025-11-25';
 
@@ -44,6 +45,19 @@ function canonicalToolError() {
   return {
     content: [{ type: 'text', text: '{"status":"error"}' }],
     structuredContent: JSONRPC_ERROR,
+  };
+}
+
+/**
+ * In-band, model-facing denial for an exhausted run-wide tool-call cap. The
+ * decision depends only on the caller's own call count and trusted
+ * configuration, so it may be distinguished from the canonical error.
+ */
+function toolCallCapExhaustedResult() {
+  return {
+    content: [{ type: 'text', text: TOOL_CALL_CAP_MESSAGE }],
+    structuredContent: JSONRPC_ERROR,
+    isError: true,
   };
 }
 
@@ -126,6 +140,12 @@ const TOOL_PAYLOAD_KEYS = Object.freeze({
   [AGENT_TOOL_NAME]: 'prompt',
 });
 
+/** Executor kind behind each tool, used as the agent identity in cap warnings. */
+const TOOL_EXECUTOR_KINDS = Object.freeze({
+  [TOOL_NAME]: 'script',
+  [AGENT_TOOL_NAME]: 'agent',
+});
+
 const TOOLS_LIST_RESULT = Object.freeze({ tools: Object.freeze([TOOL]) });
 
 /**
@@ -144,9 +164,13 @@ function resolveHandlers(deps) {
  */
 function toolsListResult(deps) {
   const handlers = resolveHandlers(deps);
+  const advisory = deps.toolCallBudget && deps.toolCallBudget.advisory;
   const tools = Object.keys(TOOLS_BY_NAME)
     .filter((name) => handlers[name] !== undefined)
-    .map((name) => TOOLS_BY_NAME[name]);
+    .map((name) => TOOLS_BY_NAME[name])
+    // A configured run-wide tool-call cap is the only trusted value ever
+    // surfaced in the listing, as an advisory for the calling model.
+    .map((tool) => (advisory ? { ...tool, description: `${tool.description} ${advisory}` } : tool));
   return { tools };
 }
 
@@ -211,6 +235,7 @@ async function dispatchJsonRpc(message, deps) {
       protocolVersion: negotiateProtocolVersion(message.params),
       capabilities: { tools: { listChanged: false } },
       serverInfo: { name: 'awf-enclave', version: '1.0.0' },
+      ...(deps.toolCallBudget && { instructions: deps.toolCallBudget.advisory }),
     });
   }
 
@@ -237,6 +262,13 @@ async function dispatchJsonRpc(message, deps) {
     const args = message.params.arguments;
     if (!Object.prototype.hasOwnProperty.call(TOOL_PAYLOAD_KEYS, name)) {
       return rpcError(message.id, -32602, 'Invalid params');
+    }
+    // Every attempted enclave tool call counts against the optional run-wide
+    // cap before any other admission decision, so busy, oversized, invalid,
+    // and failed calls all consume budget.
+    if (deps.toolCallBudget
+        && !deps.toolCallBudget.tryConsume(name, TOOL_EXECUTOR_KINDS[name])) {
+      return rpcResult(message.id, toolCallCapExhaustedResult());
     }
     const payloadKey = TOOL_PAYLOAD_KEYS[name];
     const limit = payloadLimitFor(name, deps);

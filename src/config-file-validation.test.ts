@@ -621,6 +621,12 @@ describe('validateAwfFileConfig', () => {
     expect(errors).toContain('config.rateLimiting.maxGithubApiPointsGraphql must be a positive integer');
   });
 
+  it('rejects a non-positive enclave tool-call cap', () => {
+    const errors = validateAwfFileConfig({ rateLimiting: { maxNumToolCalls: 0 } });
+    expect(errors).toContain('config.rateLimiting.maxNumToolCalls must be a positive integer');
+    expect(validateAwfFileConfig({ rateLimiting: { maxNumToolCalls: 10 } })).toEqual([]);
+  });
+
   it('accepts valid rateLimiting values', () => {
     const errors = validateAwfFileConfig({
       rateLimiting: {

@@ -535,6 +535,12 @@ program
     'Maximum GitHub GraphQL API secondary-rate-limit points allowed per AWF run.\n' +
     '                                       Requires --difc-proxy-host. Must be a positive integer.',
   )
+  .option(
+    '--max-num-tool-calls <n>',
+    'Maximum number of enclave tool calls (enclave_run_script, enclave_run_agent) allowed per AWF run.\n' +
+    '                                       Every attempted call counts; further calls are denied in-band.\n' +
+    '                                       Requires enclaves. Must be a positive integer. Default: unlimited.',
+  )
   // -- Logging & Debug --
   .option(
     '--log-level <level>',

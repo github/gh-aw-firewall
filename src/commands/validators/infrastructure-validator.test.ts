@@ -54,4 +54,42 @@ describe('config-assembly', () => {
       expect(getMockExit()).not.toHaveBeenCalled();
     });
   });
+
+  describe('--max-num-tool-calls', () => {
+    const enclaves = { enabled: true } as never;
+
+    it('rejects a non-positive tool-call cap', () => {
+      mockBuildConfigOnce({ maxNumToolCalls: 0, enclaves });
+
+      expect(() => {
+        callAssembleWith();
+      }).toThrow('process.exit(1)');
+
+      expect(logger.error).toHaveBeenCalledWith(
+        expect.stringContaining('--max-num-tool-calls must be a positive integer'),
+      );
+    });
+
+    it('rejects a tool-call cap without any configured enclave', () => {
+      mockBuildConfigOnce({ maxNumToolCalls: 5 });
+
+      expect(() => {
+        callAssembleWith();
+      }).toThrow('process.exit(1)');
+
+      expect(logger.error).toHaveBeenCalledWith(
+        expect.stringContaining('--max-num-tool-calls requires at least one configured enclave'),
+      );
+    });
+
+    it('accepts a positive tool-call cap with enclaves configured', () => {
+      mockBuildConfigOnce({ maxNumToolCalls: 5, enclaves });
+
+      expect(() => {
+        callAssembleWith();
+      }).not.toThrow();
+
+      expect(getMockExit()).not.toHaveBeenCalled();
+    });
+  });
 });

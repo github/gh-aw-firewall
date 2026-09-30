@@ -272,6 +272,9 @@ export function buildEnclaveMcpService(params: EnclaveMcpServiceParams): Enclave
     AWF_ENCLAVE_AGENT_ENABLED: String(agent?.enabled === true),
     AWF_ENCLAVE_SEED_MAP_ENABLED: String(staticSeedsPresent),
     AWF_ENCLAVE_RUN_ID: readEnclaveRunId(paths) ?? '',
+    ...(config.maxNumToolCalls !== undefined && {
+      AWF_ENCLAVE_MAX_TOOL_CALLS: String(config.maxNumToolCalls),
+    }),
   };
   const dependsOn: Record<string, Record<string, string>> = {};
   const result: EnclaveMcpBuildResult = { service: {} };

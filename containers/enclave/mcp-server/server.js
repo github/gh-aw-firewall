@@ -25,6 +25,7 @@ const {
 } = require('./agent-executor');
 const { AGENT_TOOL_NAME, TOOL_NAME, dispatchJsonRpc, parseJsonRpcBody } = require('./mcp-protocol');
 const { createDynamicDelegationClient } = require('./delegation-channel');
+const { createToolCallBudget } = require('./tool-call-budget');
 
 const MAX_HTTP_BODY_BYTES = 420 * 1024;
 const RESPONSE_HEADERS = {
@@ -258,11 +259,21 @@ async function main() {
     category: 'ready',
   });
 
+  const toolCallBudget = createToolCallBudget({
+    maxToolCalls: serverConfig.maxToolCalls,
+    runId,
+    statePath: serverConfig.toolCallBudgetPath,
+  });
+  if (toolCallBudget) {
+    audit.lifecycle('tool-call-cap', `max=${toolCallBudget.limit} used=${toolCallBudget.used()}`);
+  }
+
   const server = createMcpServer({
     handlers,
     capability: serverConfig.capability,
     maxScriptBytes,
     maxPromptBytes,
+    toolCallBudget,
   });
   await listenOnPrivateNetwork(server, serverConfig);
   fs.mkdirSync(serverConfig.controlDir, { recursive: true, mode: 0o700 });

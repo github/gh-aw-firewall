@@ -15,6 +15,7 @@ export function validateInfrastructureOptions(config: WrapperConfig): void {
   for (const { key, flag } of [
     { key: 'maxGithubApiPointsRest', flag: 'max-github-api-points-rest' },
     { key: 'maxGithubApiPointsGraphql', flag: 'max-github-api-points-graphql' },
+    { key: 'maxNumToolCalls', flag: 'max-num-tool-calls' },
   ] as const) {
     const rawValue = config[key];
     if (rawValue === undefined) continue;
@@ -27,6 +28,10 @@ export function validateInfrastructureOptions(config: WrapperConfig): void {
   }
   if ((config.maxGithubApiPointsRest !== undefined || config.maxGithubApiPointsGraphql !== undefined) && !config.difcProxyHost) {
     logger.error('❌ GitHub API point limits require --difc-proxy-host.');
+    process.exit(1);
+  }
+  if (config.maxNumToolCalls !== undefined && !config.enclaves?.enabled) {
+    logger.error('❌ --max-num-tool-calls requires at least one configured enclave.');
     process.exit(1);
   }
   if (config.awfDockerHost &&

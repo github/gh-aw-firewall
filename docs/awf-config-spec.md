@@ -366,6 +366,7 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 - `rateLimiting.bytesPerMinute` → `--rate-limit-bytes-pm`
 - `rateLimiting.maxGithubApiPointsRest` → `--max-github-api-points-rest` *(requires `security.difcProxy.host`)*
 - `rateLimiting.maxGithubApiPointsGraphql` → `--max-github-api-points-graphql` *(requires `security.difcProxy.host`)*
+- `rateLimiting.maxNumToolCalls` → `--max-num-tool-calls` *(requires `enclaves`, see §14.2a)*
 
 GitHub API point budgets apply to the entire AWF run and are enforced only by
 the protected `gh` CLI proxy enabled through `security.difcProxy.host`. REST
@@ -2476,6 +2477,19 @@ enclave_run_agent({
 Both tool schemas are closed (`additionalProperties: false`). A call can never provide or override images, runtimes, models, engines, profiles, mounts, network settings, credentials, repository catalogs, budgets, timeouts, or any other trusted control.
 
 The primary agent MUST NOT receive a broker socket, wrapper binary, direct server URL, capability token, repository seed, ledger state, or alternate enclave transport.
+
+### 14.2a Optional tool-call cap (cost control)
+
+`rateLimiting.maxNumToolCalls` (CLI: `--max-num-tool-calls <n>`) caps the number of enclave tool calls the primary agent may make in one AWF run. It is OPTIONAL and defaults to **unlimited**: when omitted, `enclave-mcp-server` keeps no counter, persists no state, and publishes no advisory text. Setting it without any configured enclave is a startup error.
+
+When configured:
+
+- **Scope** — one run-wide budget shared by `enclave_run_script` and `enclave_run_agent`, independent of each entry's `maxInvocations` and of the per-repository disclosure ledger. Dynamic repository admission is performed by the broker inside an `enclave_run_agent` call and does not consume additional units; tool calls made *inside* an enclave agent are bounded by `maxModelRequests`/`maxModelTokens` instead.
+- **Counting** — every attempted, well-formed `tools/call` to a published enclave tool consumes one unit before any other admission decision, including calls later rejected as busy, oversized, invalid, or failed. Malformed JSON-RPC requests that never name a published tool do not count.
+- **Advisory** — each published tool description, and the `initialize` result's `instructions`, state: "You are allowed to make at most N enclave tool calls in this run. After that, the system will deny any further enclave tool calls."
+- **Denial** — once exhausted, calls never reach an executor and return an in-band `isError` result whose text is "Max tool call count reached, no more tool calls are allowed. Make a decision based on what you already have in context." The decision depends only on the caller's own call count and trusted configuration, so it discloses no repository information. The broker logs a warning `Max tool call count reached. {"toolName":…,"agentName":<executor kind>,"sessionID":<run id>,"maxToolCalls":N}`.
+- **Persistence** — the count is persisted (mode `0600`) in the broker's private control directory keyed by the AWF run id, so a restarted broker for the same run resumes the count rather than resetting it.
+- **Exemptions** — the enclave server publishes no final-answer or structured-result submission tool; the agent's own result/safe-output tools are served elsewhere and are never counted or denied by this cap.
 
 ### 14.3 Topology, gateway contract, and readiness
 

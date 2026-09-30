@@ -242,6 +242,9 @@ export function buildConfig(inputs: BuildConfigInputs): WrapperConfig {
     maxGithubApiPointsGraphql: options.maxGithubApiPointsGraphql === undefined
       ? undefined
       : Number(options.maxGithubApiPointsGraphql),
+    maxNumToolCalls: options.maxNumToolCalls === undefined
+      ? undefined
+      : Number(options.maxNumToolCalls),
     diagnosticLogs: (options.diagnosticLogs as boolean) || false,
     awfDockerHost: options.dockerHost as string | undefined,
     upstreamProxy,

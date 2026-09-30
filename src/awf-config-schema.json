@@ -1262,6 +1262,11 @@
           "type": "integer",
           "minimum": 1,
           "description": "Maximum GitHub GraphQL API secondary-rate-limit points allowed per AWF run. Requires security.difcProxy.host."
+        },
+        "maxNumToolCalls": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Maximum number of enclave tool calls (enclave_run_script, enclave_run_agent) allowed per AWF run. Every attempted call counts; further calls are denied in-band. Requires enclaves. Omit for unlimited."
         }
       }
     },

@@ -23,6 +23,7 @@ const CAPABILITY_PATH = path.join(CAPABILITY_DIR, 'auth-token');
 const CONTROL_DIR = '/run/awf-enclave-mcp-control';
 const AUDIT_DIR = '/var/log/awf-enclave';
 const READY_PATH = path.join(CONTROL_DIR, 'server.ready');
+const TOOL_CALL_BUDGET_PATH = path.join(CONTROL_DIR, 'tool-call-budget.json');
 const MCP_PORT = 8080;
 
 /**
@@ -193,6 +194,9 @@ function loadServerConfig(files = fs) {
     auditDir: AUDIT_DIR,
     primaryBackend,
     capability,
+    // Optional run-wide enclave tool-call cap; omission means unlimited.
+    maxToolCalls: optionalPositiveInt('AWF_ENCLAVE_MAX_TOOL_CALLS'),
+    toolCallBudgetPath: TOOL_CALL_BUDGET_PATH,
   };
 }
 

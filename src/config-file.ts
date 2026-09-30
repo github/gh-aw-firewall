@@ -227,6 +227,7 @@ export interface AwfFileConfig {
     bytesPerMinute?: number;
     maxGithubApiPointsRest?: number;
     maxGithubApiPointsGraphql?: number;
+    maxNumToolCalls?: number;
   };
   platform?: {
     type?: 'github.com' | 'ghes' | 'ghec' | 'ghec-self-hosted';
