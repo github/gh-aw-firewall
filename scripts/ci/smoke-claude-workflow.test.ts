@@ -67,4 +67,14 @@ describe('smoke claude workflow optimization config', () => {
     expect(lock).toContain('verify_token_usage');
     expect(lock).toContain('check-token-usage.js --artifact-root /tmp/gh-aw-agent --engine claude');
   });
+
+  it('runs token-usage verification only after the agent succeeds', () => {
+    for (const workflowFile of [smokeClaudeSourcePath, smokeClaudeLockPath]) {
+      const workflow = fs.readFileSync(workflowFile, 'utf-8');
+
+      expect(workflow).toMatch(
+        /^[ \t]*verify_token_usage:[ \t]*\r?\n[ \t]*needs:[ \t]*agent[ \t]*\r?\n[ \t]*if:[ \t]*needs\.agent\.result == 'success'[ \t]*$/m,
+      );
+    }
+  });
 });
