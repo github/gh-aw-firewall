@@ -216,7 +216,8 @@ called. The same hash returns the existing record, and a different hash is a
 It is idempotent once settled and drops the retained result. After
 `closeAdmissions()`, `invoke` returns `closed`, while `cancel`, `status`, and
 `settle` keep working so the broker can drain. Request-ID and invocation tables
-are bounded. Reaching either bound closes admissions.
+are bounded. Reaching either bound closes admissions. A bounded reserve of
+request IDs keeps `cancel`, `status`, and `settle` working for draining.
 
 ## Network contract
 

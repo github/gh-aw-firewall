@@ -49,6 +49,9 @@ export const HOST_EXECUTOR_CAPABILITY_NAME = 'capability';
 /** Upper bound on distinct request IDs remembered for replay protection. */
 export const HOST_EXECUTOR_MAX_REQUEST_IDS = 65_536;
 
+/** Extra request IDs reserved for cancel/status/settle once the bound above is hit. */
+export const HOST_EXECUTOR_DRAIN_REQUEST_IDS = 8_192;
+
 /** Upper bound on invocations admitted in one run. */
 export const HOST_EXECUTOR_MAX_INVOCATIONS = 1_024;
 
@@ -355,8 +358,13 @@ export async function startHostExecutorServer(options: HostExecutorServerOptions
     });
     if (seenRequestIds.has(request.requestId)) return fail('replayed');
     if (seenRequestIds.size >= HOST_EXECUTOR_MAX_REQUEST_IDS) {
+      // Close admissions but keep a bounded reserve so the broker can still
+      // cancel, poll, and settle already-admitted invocations.
       admissionsOpen = false;
-      return fail('closed');
+      if (request.type === 'invoke'
+        || seenRequestIds.size >= HOST_EXECUTOR_MAX_REQUEST_IDS + HOST_EXECUTOR_DRAIN_REQUEST_IDS) {
+        return fail('closed');
+      }
     }
     seenRequestIds.add(request.requestId);
 
