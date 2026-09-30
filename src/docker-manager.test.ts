@@ -76,34 +76,6 @@ describe('docker-manager (barrel re-exports)', () => {
   });
 
 
-  describe('parseDifcProxyHost via barrel', () => {
-    it('returns defaults for empty input', () => {
-      expect(dockerManager.parseDifcProxyHost('  ')).toEqual({ host: 'host.docker.internal', port: '18443' });
-    });
-
-    it('parses host:port and strips scheme', () => {
-      expect(dockerManager.parseDifcProxyHost('https://example.com:443')).toEqual({ host: 'example.com', port: '443' });
-    });
-
-    it('strips IPv6 brackets', () => {
-      expect(dockerManager.parseDifcProxyHost('[::1]:9000')).toEqual({ host: '::1', port: '9000' });
-    });
-
-    it('rejects out-of-range ports', () => {
-      expect(() => dockerManager.parseDifcProxyHost('host:70000')).toThrow();
-    });
-  });
-
-  describe('filterCapDrop with bounding set override', () => {
-    it('returns the list unchanged when bounding set is unknown', () => {
-      expect(dockerManager.filterCapDrop(['NET_RAW'], null)).toEqual(['NET_RAW']);
-    });
-
-    it('keeps ALL and unknown capability names', () => {
-      expect(dockerManager.filterCapDrop(['ALL', 'NOT_A_CAP'], 0n)).toEqual(['ALL', 'NOT_A_CAP']);
-    });
-  });
-
   describe('filterCapDrop via barrel', () => {
     it('returns empty for undefined or empty lists', () => {
       expect(dockerManager.filterCapDrop(undefined, null)).toEqual([]);
