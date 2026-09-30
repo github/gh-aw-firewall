@@ -236,7 +236,7 @@ function createBodyHandler({ handleRequestError, otel }) {
       }
     }
 
-    const allowSteering = req.awfRequestContext?.purpose !== 'routing_classification' && !req.awfRouting;
+    const allowSteering = req.awfRequestContext?.purpose !== 'routing_classification';
     if (allowSteering && isSteeringEnabled() && (req.method === 'POST' || req.method === 'PUT')) {
       const steeringMessages = [
         { type: 'timeout', message: getAndClearPendingTimeoutSteeringMessage() },

@@ -1,6 +1,7 @@
 'use strict';
 
 const http = require('http');
+const { composeBodyTransforms } = require('./proxy-utils');
 
 function createHealthCheckHandler(adapter) {
   return (_req, res) => {
@@ -27,9 +28,11 @@ function createProxyHandler(adapter, checkRateLimit, proxyRequest) {
       req.url = adapter.transformRequestUrl(req.url);
     }
 
-    // A routed request carries its own transform, which pins the selected model.
-    // Using the adapter's transform here would reintroduce aliases and fallback.
-    const bodyTransform = req.awfRouting ? req.awfRouting.bodyTransform : adapter.getBodyTransform();
+    // A routed request carries an observe-only transform that records deviation
+    // telemetry and returns null, so the adapter's own transform still applies.
+    const bodyTransform = req.awfRouting
+      ? composeBodyTransforms(req.awfRouting.bodyTransform, adapter.getBodyTransform())
+      : adapter.getBodyTransform();
 
     proxyRequest(
       req, res,
@@ -152,10 +155,9 @@ function createProviderServer(adapter, deps) {
       return;
     }
 
-    // Runs before the enabled check so a rejected request never reveals provider configuration.
-    // Returns true once it has written a 403. Otherwise it may attach
-    // req.awfRouting, which pins the body to the selected model downstream.
-    if (routing?.screenRequest(req, res, adapter)) return;
+    // The routing selection is advisory: this never rejects. It may attach
+    // req.awfRouting, which records deviation telemetry and observes upstream failures.
+    routing?.observeRequest(req, res, adapter);
 
     if (!adapter.isEnabled()) {
       const response = adapter.getUnconfiguredResponse
@@ -170,11 +172,6 @@ function createProviderServer(adapter, deps) {
   });
 
   server.on('upgrade', (req, socket, head) => {
-    // A routed run pins one model, which an opaque tunnel would bypass.
-    if (routing) {
-      routing.rejectUpgrade(socket);
-      return;
-    }
     handleUpgrade(req, socket, head);
   });
   server.shutdownConnections = () => handleUpgrade.shutdownConnections();

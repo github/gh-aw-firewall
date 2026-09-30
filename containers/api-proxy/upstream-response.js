@@ -184,7 +184,6 @@ function createUpstreamResponseHandlers({
     const isRoutingClassifier = req.awfRequestContext?.purpose === 'routing_classification';
     const shouldBuffer400 =
       !isRoutingClassifier &&
-      !req.awfRouting &&
       proxyRes.statusCode === 400 &&
       (
         ((provider === 'anthropic' || provider === 'copilot') && !hasRetried) ||

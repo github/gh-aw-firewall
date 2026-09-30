@@ -265,20 +265,24 @@ describe('createProductionRoutingSession', () => {
     });
     await session.start();
 
-    const res = {
-      writeHead: jest.fn(),
-      end: jest.fn(),
-    };
-    const rejected = session.screenRequest(
-      { url: '/v1/chat/completions', method: 'POST', headers: {} },
-      res,
-      { name: 'copilot' },
-    );
+    const { EventEmitter } = require('events');
+    const res = new EventEmitter();
+    res.statusCode = 200;
+    res.writableFinished = false;
+    res.write = jest.fn();
+    res.end = jest.fn();
+    const req = { url: '/v1/chat/completions', method: 'POST', headers: {} };
+    session.observeRequest(req, res, { name: 'copilot' });
+    // A deviating model is advisory only and never becomes a routing failure.
+    req.awfRouting.bodyTransform(Buffer.from(JSON.stringify({ model: 'other-model' })));
+    expect(fs.existsSync(path.join(outputDir, 'runtime-failure.json'))).toBe(false);
 
-    expect(rejected).toBe(true);
+    res.statusCode = 503;
+    res.end(JSON.stringify({ error: { code: 'provider_unavailable' } }));
+
     expect(readResult(outputDir, 'runtime-failure.json')).toMatchObject({
       schema: 'awf-routing-failure/v1',
-      code: 'model_routing_mismatch',
+      code: 'provider_unavailable',
     });
   });
 
@@ -294,11 +298,13 @@ describe('createProductionRoutingSession', () => {
     await session.start();
     fs.writeFileSync(path.join(outputDir, 'runtime-failure.json'), '{}');
 
-    session.screenRequest(
-      { url: '/v1/chat/completions', method: 'POST', headers: {} },
-      { writeHead: jest.fn(), end: jest.fn() },
-      { name: 'copilot' },
-    );
+    const { EventEmitter } = require('events');
+    const res = new EventEmitter();
+    res.statusCode = 502;
+    res.write = jest.fn();
+    res.end = jest.fn();
+    session.observeRequest({ url: '/v1/chat/completions', method: 'POST', headers: {} }, res, { name: 'copilot' });
+    res.end(JSON.stringify({ error: { code: 'bad_gateway' } }));
 
     expect(fatalExit).toHaveBeenCalledWith(78);
   });

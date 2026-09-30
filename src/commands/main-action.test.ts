@@ -883,7 +883,7 @@ describe('createMainAction', () => {
         async (_config, _deps, callbacks) => {
           callbacks.onContainersStarted?.();
           await callbacks.performCleanup();
-          throw new RoutingFailureExitError('Model routing failed (model_routing_mismatch): Routed execution was rejected');
+          throw new RoutingFailureExitError('Model routing failed (provider_unavailable): Routed execution failed');
         }
       );
       mockedDockerManager.stopContainers.mockResolvedValue(undefined);

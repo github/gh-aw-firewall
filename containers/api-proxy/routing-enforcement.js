@@ -1,26 +1,61 @@
 'use strict';
 
+const { stripRedundantProviderPrefix } = require('./model-utils');
+
+const MAX_TELEMETRY_VALUE_LENGTH = 200;
+
 /**
- * Record a per-request admit/reject decision. Never throws: observability
- * must not change the routing decision or the live response.
+ * Record a per-request routing observation. Never throws: observability must
+ * not change the live request or response.
  *
  * @param {{ record: (record: object) => void }} [observer]
  * @param {object} record
  */
-function safeRecordDecision(observer, record) {
+function safeRecord(observer, record) {
   try {
-    observer?.record?.(Object.freeze({ stage: 'decision', ...record }));
+    observer?.record?.(Object.freeze(record));
   } catch {
-    // Observability must not change the routing decision.
+    // Observability must not change the live request or response.
   }
 }
 
+function telemetryValue(value) {
+  return typeof value === 'string' && value ? value.slice(0, MAX_TELEMETRY_VALUE_LENGTH) : null;
+}
+
+/** Normalize an inference path to the endpoint name /reflect advertises. */
+function endpointFor(pathname) {
+  if (/^\/(?:v1\/)?responses$/.test(pathname)) return '/responses';
+  if (/^\/(?:v1\/)?chat\/completions$/.test(pathname)) return '/chat/completions';
+  if (/^\/(?:v1\/)?messages$/.test(pathname)) return '/v1/messages';
+  return null;
+}
+
+function selectedEndpointFor(provider, effort) {
+  if (provider === 'anthropic') return '/v1/messages';
+  return effort === null ? '/chat/completions' : '/responses';
+}
+
+/** Extract the effort a request body asks for, in the shape of its endpoint. */
+function requestedEffortFor(parsed, endpoint) {
+  const effort = endpoint === '/v1/messages'
+    ? parsed.output_config?.effort
+    : (endpoint === '/responses' ? parsed.reasoning?.effort : parsed.reasoning_effort);
+  return telemetryValue(effort);
+}
+
 /**
- * Enforce the controller's immutable selection at the primary HTTP boundary.
- * Observe terminal failures without changing native response bytes, and drain
- * admitted responses before the host reads final routing status.
+ * Observe routed execution at the primary HTTP boundary.
+ *
+ * The routing selection is advisory: the agent is seeded with it through
+ * /reflect, but may send any model that model policy permits. Nothing here
+ * rejects or rewrites a request. For each inference request this records
+ * deviation telemetry (requested vs. routed model, effort, endpoint, and
+ * provider), observes genuine upstream failures on the selected provider
+ * without changing native response bytes, and drains those responses before
+ * the host reads final routing status.
  */
-function createRoutingEnforcement({ getSelection, getFailure, recordFailure, observer }) {
+function createRoutingEnforcement({ getSelection, recordFailure, observer }) {
   let draining = false;
   const active = new Set();
   const waiters = new Set();
@@ -45,35 +80,6 @@ function createRoutingEnforcement({ getSelection, getFailure, recordFailure, obs
         complete();
       }
     });
-  }
-
-  function mismatch() {
-    recordFailure('model_routing_mismatch');
-    const error = new Error('The request does not match the task model selection');
-    error.code = 'model_routing_mismatch';
-    error.statusCode = 403;
-    error.type = 'model_routing_failed';
-    error.retryable = false;
-    return error;
-  }
-
-  function rejectionBody() {
-    const error = mismatch();
-    return JSON.stringify({
-      error: {
-        type: error.type,
-        code: error.code,
-        message: error.message,
-        retryable: error.retryable,
-      },
-    });
-  }
-
-  function reject(res) {
-    const body = rejectionBody();
-    res.writeHead(403, { 'Content-Type': 'application/json' });
-    res.end(body);
-    return true;
   }
 
   function observeFailure(res) {
@@ -115,121 +121,91 @@ function createRoutingEnforcement({ getSelection, getFailure, recordFailure, obs
     recordFailure(typeof code === 'string' && /^[A-Za-z0-9_.-]{1,100}$/.test(code) ? code : 'provider_unavailable');
   }
 
+  function recordTelemetry(req, pathname, adapter, selection, body) {
+    let parsed;
+    try {
+      parsed = JSON.parse(body.toString('utf8'));
+    } catch {
+      parsed = null;
+    }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) parsed = {};
+    const selectedProvider = selection.provider || 'copilot';
+    const selectedEffort = Object.hasOwn(selection.choice, 'effort') ? selection.choice.effort : null;
+    const selectedEndpoint = selectedEndpointFor(selectedProvider, selectedEffort);
+    const endpoint = endpointFor(pathname);
+    const requestedModel = telemetryValue(stripRedundantProviderPrefix(parsed.model, adapter.name));
+    const requestedEffort = requestedEffortFor(parsed, endpoint);
+    const deviations = [];
+    if (adapter.name !== selectedProvider) deviations.push('provider');
+    if (requestedModel !== selection.wire_model) deviations.push('model');
+    if (requestedEffort !== selectedEffort) deviations.push('effort');
+    if (endpoint !== selectedEndpoint) deviations.push('endpoint');
+    safeRecord(observer, {
+      stage: 'request',
+      routed: deviations.length === 0 ? 'as_selected' : 'deviated',
+      deviations,
+      method: req.method,
+      pathname,
+      provider: adapter.name,
+      requested_model: requestedModel,
+      requested_effort: requestedEffort,
+      selected_provider: selectedProvider,
+      selected_model: selection.wire_model,
+      selected_effort: selectedEffort,
+      selected_endpoint: selectedEndpoint,
+    });
+  }
+
   return Object.freeze({
-    /** Returns true when the request was screened out and the 403 response has been written. */
-    screenRequest(req, res, adapter) {
+    /**
+     * Attach advisory routing observation to an inference request. Never
+     * rejects: the request continues through the normal proxy pipeline, and
+     * model policy remains the only model enforcement surface.
+     */
+    observeRequest(req, res, adapter) {
       let pathname;
       try {
         pathname = new URL(req.url, 'http://localhost').pathname;
       } catch {
-        safeRecordDecision(observer, { decision: 'reject', reason: 'invalid_url', method: req.method });
-        return reject(res);
-      }
-      if (req.method === 'GET' && /^\/(?:v1\/)?models(?:\/[^/?]+)?$/.test(pathname)) {
-        safeRecordDecision(observer, { decision: 'admit', reason: 'model_discovery_exempt', method: req.method, pathname });
-        return false;
+        return;
       }
       const selection = getSelection();
-      const responses = /^\/(?:v1\/)?responses$/.test(pathname);
-      const chat = /^\/(?:v1\/)?chat\/completions$/.test(pathname);
-      const messages = /^\/(?:v1\/)?messages$/.test(pathname);
-      const provider = selection?.provider || 'copilot';
-      const hasEffort = selection && Object.hasOwn(selection.choice, 'effort');
-      const supportedEndpoint = provider === 'anthropic'
-        ? messages
-        : (responses || chat);
-      const rejectReason =
-        draining ? 'draining' :
-        !selection ? 'no_selection' :
-        getFailure() ? 'terminal_failure' :
-        adapter.name !== provider ? 'foreign_adapter' :
-        req.method !== 'POST' ? 'method_not_allowed' :
-        !supportedEndpoint ? 'unsupported_endpoint' :
-        (provider !== 'anthropic' && responses !== hasEffort) ? 'effort_endpoint_mismatch' :
-        Object.keys(req.headers).some(name => /(?:^|[-_])(?:model|reasoning|effort)(?:$|[-_])/i.test(name)) ? 'header_override' :
-        null;
-      if (rejectReason) {
-        safeRecordDecision(observer, { decision: 'reject', reason: rejectReason, method: req.method, pathname });
-        return reject(res);
+      if (draining || !selection || req.method !== 'POST' || !endpointFor(pathname)) return;
+      const tracked = adapter.name === (selection.provider || 'copilot');
+      let onSseData;
+      if (tracked) {
+        trackResponse(res);
+        observeFailure(res);
+        onSseData = line => {
+          let event;
+          try {
+            event = JSON.parse(line);
+          } catch {
+            return;
+          }
+          if (event?.error || event?.type === 'response.failed' || event?.type === 'error') {
+            const error = event.error || event.response?.error || event;
+            recordNativeFailure(error.code || error.type);
+          }
+        };
       }
-      trackResponse(res);
-      observeFailure(res);
-      const onSseData = line => {
-        let event;
-        try {
-          event = JSON.parse(line);
-        } catch {
-          return;
-        }
-        if (event?.error || event?.type === 'response.failed' || event?.type === 'error') {
-          const error = event.error || event.response?.error || event;
-          recordNativeFailure(error.code || error.type);
-        }
-      };
-      function rejectBody(reason) {
-        safeRecordDecision(observer, { decision: 'reject', reason, method: req.method, pathname });
-        throw mismatch();
-      }
+      // Observes the body the agent sent and never changes it: returning null
+      // leaves the adapter's own transform in charge of the request.
       const bodyTransform = body => {
-        let parsed;
         try {
-          parsed = JSON.parse(body.toString('utf8'));
+          recordTelemetry(req, pathname, adapter, selection, body);
         } catch {
-          rejectBody('body_invalid_json');
+          // Telemetry must not change the live request.
         }
-        if (
-          !parsed || typeof parsed !== 'object' || Array.isArray(parsed) ||
-          parsed.model !== selection.wire_model || getFailure()
-        ) {
-          rejectBody('body_model_mismatch');
-        }
-        if (provider === 'anthropic') {
-          const outputConfigValid = !Object.hasOwn(parsed, 'output_config') ||
-            (parsed.output_config && typeof parsed.output_config === 'object' && !Array.isArray(parsed.output_config));
-          if (
-            Object.hasOwn(parsed, 'reasoning') ||
-            Object.hasOwn(parsed, 'reasoning_effort') ||
-            !outputConfigValid ||
-            (hasEffort
-              ? parsed.output_config?.effort !== selection.choice.effort
-              : parsed.output_config && Object.hasOwn(parsed.output_config, 'effort'))
-          ) {
-            rejectBody('body_effort_mismatch');
-          }
-        } else if (responses) {
-          if (
-            !parsed.reasoning || typeof parsed.reasoning !== 'object' || Array.isArray(parsed.reasoning) ||
-            parsed.reasoning.effort !== selection.choice.effort || Object.hasOwn(parsed, 'reasoning_effort')
-          ) {
-            rejectBody('body_effort_mismatch');
-          }
-        } else if (Object.hasOwn(parsed, 'reasoning_effort') || Object.hasOwn(parsed, 'reasoning')) {
-          rejectBody('body_effort_mismatch');
-        }
-        safeRecordDecision(observer, {
-          decision: 'admit',
-          reason: 'selected_model_pinned',
-          method: req.method,
-          pathname,
-          selected_model: selection.choice.model,
-          selected_effort: selection.choice.effort ?? null,
-        });
-        return body;
+        return null;
       };
-      req.awfRouting = { bodyTransform, onSseData };
-      return false;
+      req.awfRouting = { bodyTransform, ...(onSseData ? { onSseData } : {}) };
     },
     async drain() {
       draining = true;
       if (active.size) {
         await new Promise(resolve => waiters.add(resolve));
       }
-    },
-    rejectUpgrade(socket) {
-      safeRecordDecision(observer, { decision: 'reject', reason: 'upgrade_rejected' });
-      const body = rejectionBody();
-      socket.write(`HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(body)}\r\n\r\n${body}`);
-      socket.destroy();
     },
   });
 }

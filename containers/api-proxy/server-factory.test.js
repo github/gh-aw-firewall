@@ -126,15 +126,41 @@ describe('createProviderServer routing enforcement', () => {
     };
   }
 
-  test('screens an inference request before revealing adapter configuration', () => {
+  test('observes a routed request without rejecting it', () => {
     const proxyRequest = jest.fn();
-    const routing = {
-      screenRequest: jest.fn(() => true),
-      rejectUpgrade: jest.fn(),
-    };
+    const routing = { observeRequest: jest.fn() };
+    const server = createProviderServer(routedAdapter(), {
+      handleManagementEndpoint: () => false,
+      reflectEndpoints: () => [],
+      checkRateLimit: () => false,
+      proxyRequest,
+      proxyWebSocket: jest.fn(),
+      routing,
+    });
+    const req = new EventEmitter();
+    req.url = '/v1/chat/completions';
+    req.method = 'POST';
+    req.headers = {};
+
+    server.emit('request', req, {});
+
+    expect(routing.observeRequest).toHaveBeenCalledWith(req, {}, expect.objectContaining({ name: 'copilot' }));
+    expect(proxyRequest).toHaveBeenCalledWith(
+      req, {}, 'api.githubcopilot.com', {}, 'copilot', '', 'adapter-transform', null, 'https',
+    );
+  });
+
+  test('composes the observe-only routing transform with the adapter transform', async () => {
+    const proxyRequest = jest.fn();
+    const observed = [];
+    const adapterBody = Buffer.from('adapter');
     const adapter = routedAdapter();
-    adapter.isEnabled = () => false;
-    adapter.getUnconfiguredResponse = jest.fn();
+    adapter.getBodyTransform = () => () => adapterBody;
+    const routing = {
+      observeRequest: jest.fn((req) => {
+        req.awfRouting = { bodyTransform: body => { observed.push(body.toString()); return null; } };
+      }),
+    };
     const server = createProviderServer(adapter, {
       handleManagementEndpoint: () => false,
       reflectEndpoints: () => [],
@@ -150,47 +176,14 @@ describe('createProviderServer routing enforcement', () => {
 
     server.emit('request', req, {});
 
-    expect(routing.screenRequest).toHaveBeenCalled();
-    expect(adapter.getUnconfiguredResponse).not.toHaveBeenCalled();
-    expect(proxyRequest).not.toHaveBeenCalled();
+    const bodyTransform = proxyRequest.mock.calls[0][6];
+    expect(await bodyTransform(Buffer.from('original'))).toBe(adapterBody);
+    expect(observed).toEqual(['original']);
   });
 
-  test('uses the enforcement body transform for an admitted routed request', () => {
-    const proxyRequest = jest.fn();
-    const bodyTransform = jest.fn();
-    const routing = {
-      screenRequest: jest.fn((req) => {
-        req.awfRouting = { bodyTransform };
-        return false;
-      }),
-      rejectUpgrade: jest.fn(),
-    };
-    const server = createProviderServer(routedAdapter(), {
-      handleManagementEndpoint: () => false,
-      reflectEndpoints: () => [],
-      checkRateLimit: () => false,
-      proxyRequest,
-      proxyWebSocket: jest.fn(),
-      routing,
-    });
-    const req = new EventEmitter();
-    req.url = '/v1/chat/completions';
-    req.method = 'POST';
-    req.headers = {};
-
-    server.emit('request', req, {});
-
-    expect(proxyRequest).toHaveBeenCalledWith(
-      req, {}, 'api.githubcopilot.com', {}, 'copilot', '', bodyTransform, null, 'https',
-    );
-  });
-
-  test('rejects an upgrade while routing is active', () => {
+  test('proxies an upgrade while routing is active', () => {
     const proxyWebSocket = jest.fn();
-    const routing = {
-      screenRequest: jest.fn(() => false),
-      rejectUpgrade: jest.fn(),
-    };
+    const routing = { observeRequest: jest.fn() };
     const server = createProviderServer(routedAdapter(), {
       handleManagementEndpoint: () => false,
       reflectEndpoints: () => [],
@@ -200,10 +193,12 @@ describe('createProviderServer routing enforcement', () => {
       routing,
     });
     const socket = makeTrackedSocket();
+    const req = { url: '/v1/realtime', headers: {} };
+    const head = Buffer.alloc(0);
 
-    server.emit('upgrade', { url: '/v1/realtime', headers: {} }, socket, Buffer.alloc(0));
+    server.emit('upgrade', req, socket, head);
 
-    expect(routing.rejectUpgrade).toHaveBeenCalledWith(socket);
-    expect(proxyWebSocket).not.toHaveBeenCalled();
+    expect(proxyWebSocket).toHaveBeenCalled();
+    expect(proxyWebSocket.mock.calls[0][0]).toBe(req);
   });
 });

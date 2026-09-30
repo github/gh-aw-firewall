@@ -69,151 +69,146 @@ function request(overrides = {}) {
   return { method: 'POST', url: '/responses', headers: {}, ...overrides };
 }
 
-function createHarness(selection = SELECTION, failure = null) {
+function createHarness(selection = SELECTION) {
   const failures = [];
-  const decisions = [];
-  let currentFailure = failure;
+  const records = [];
   const enforcement = createRoutingEnforcement({
     getSelection: () => selection,
-    getFailure: () => currentFailure,
     recordFailure: code => failures.push(code),
-    observer: { record: record => decisions.push(record) },
+    observer: { record: record => records.push(record) },
   });
-  return {
-    enforcement,
-    failures,
-    decisions,
-    setFailure(value) { currentFailure = value; },
-  };
+  return { enforcement, failures, records };
 }
 
-function screen(harness, req, adapter = { name: 'copilot' }) {
+function observe(harness, req, adapter = { name: 'copilot' }) {
   const res = new FakeResponse();
-  const screened = harness.enforcement.screenRequest(req, res, adapter);
-  return { screened, res, req };
+  const result = harness.enforcement.observeRequest(req, res, adapter);
+  return { result, res, req };
 }
 
-describe('routing enforcement', () => {
-  it('exempts only model discovery from screening', () => {
+function send(req, payload) {
+  const body = Buffer.from(typeof payload === 'string' ? payload : JSON.stringify(payload), 'utf8');
+  return req.awfRouting.bodyTransform(body);
+}
+
+describe('advisory routing observation', () => {
+  it('never rejects or writes a response, whatever the request', () => {
     const harness = createHarness();
-    for (const url of ['/models', '/v1/models', '/models/gpt-test']) {
-      expect(screen(harness, request({ method: 'GET', url })).screened).toBe(false);
-    }
-    expect(screen(harness, request({ method: 'POST', url: '/models' })).screened).toBe(true);
-    expect(screen(harness, request({ method: 'GET', url: '/responses' })).screened).toBe(true);
-    expect(harness.failures).toContain('model_routing_mismatch');
-  });
-
-  it('admits the endpoint that follows the selected reasoning effort', () => {
-    const withEffort = createHarness(SELECTION);
-    expect(screen(withEffort, request({ url: '/responses' })).screened).toBe(false);
-    expect(screen(withEffort, request({ url: '/v1/responses' })).screened).toBe(false);
-    expect(screen(withEffort, request({ url: '/chat/completions' })).screened).toBe(true);
-
-    const withoutEffort = createHarness(CHAT_SELECTION);
-    expect(screen(withoutEffort, request({ url: '/chat/completions' })).screened).toBe(false);
-    expect(screen(withoutEffort, request({ url: '/responses' })).screened).toBe(true);
-  });
-
-  it('pins Anthropic requests to Messages and the selected output effort', () => {
-    const harness = createHarness(ANTHROPIC_SELECTION);
-    const { req } = screen(
-      harness,
-      request({ url: '/v1/messages' }),
-      { name: 'anthropic' },
-    );
-    const body = Buffer.from(JSON.stringify({
-      model: 'claude-opus-5-5',
-      output_config: { effort: 'medium' },
-    }));
-    expect(req.awfRouting.bodyTransform(body)).toBe(body);
-    for (const payload of [
-      { model: 'claude-opus-5-5', output_config: { effort: 'high' } },
-      { model: 'claude-opus-5-5' },
-      { model: 'other-model', output_config: { effort: 'medium' } },
+    for (const [req, adapter] of [
+      [request(), { name: 'copilot' }],
+      [request({ url: '/chat/completions' }), { name: 'copilot' }],
+      [request({ method: 'GET', url: '/responses' }), { name: 'copilot' }],
+      [request(), { name: 'anthropic' }],
+      [request({ headers: { 'x-model-override': 'other', 'copilot-reasoning-effort': 'high' } }), { name: 'copilot' }],
+      [request({ url: 'http://[bad' }), { name: 'copilot' }],
     ]) {
-      expect(() => req.awfRouting.bodyTransform(Buffer.from(JSON.stringify(payload))))
-        .toThrow('The request does not match the task model selection');
+      const { result, res } = observe(harness, req, adapter);
+      expect(result).toBeUndefined();
+      expect(res.headers).toBeNull();
+      expect(res.body()).toBe('');
     }
-    expect(screen(harness, request({ url: '/responses' }), { name: 'anthropic' }).screened).toBe(true);
-    expect(screen(harness, request({ url: '/v1/messages' }), { name: 'openai' }).screened).toBe(true);
+    expect(harness.failures).toEqual([]);
+    expect(createRoutingEnforcement({ getSelection: () => SELECTION, recordFailure: () => {} }).rejectUpgrade)
+      .toBeUndefined();
   });
 
-  it('pins OpenAI requests to the selected provider and Responses effort', () => {
-    const harness = createHarness(OPENAI_SELECTION);
-    const { req } = screen(harness, request(), { name: 'openai' });
-    const body = Buffer.from(JSON.stringify({
-      model: 'gpt-5.4',
-      reasoning: { effort: 'high' },
-    }));
-    expect(req.awfRouting.bodyTransform(body)).toBe(body);
-    expect(screen(harness, request(), { name: 'copilot' }).screened).toBe(true);
-  });
-
-  it('rejects a foreign adapter, an override header, a recorded failure, and a missing selection', () => {
+  it('passes every body through unchanged, including a deviating model and effort', () => {
     const harness = createHarness();
-    expect(screen(harness, request(), { name: 'anthropic' }).screened).toBe(true);
-    expect(screen(harness, request({ headers: { 'x-model-override': 'other' } })).screened).toBe(true);
-    expect(screen(harness, request({ headers: { 'copilot-reasoning-effort': 'high' } })).screened).toBe(true);
-
-    const failed = createHarness(SELECTION, 'provider_unavailable');
-    expect(screen(failed, request()).screened).toBe(true);
-
-    const unrouted = createHarness(null);
-    expect(screen(unrouted, request()).screened).toBe(true);
-  });
-
-  it('writes a sanitized 403 rejection body', () => {
-    const harness = createHarness(null);
-    const { res } = screen(harness, request());
-    expect(res.statusCode).toBe(403);
-    expect(res.headers).toEqual({ 'Content-Type': 'application/json' });
-    expect(JSON.parse(res.body())).toEqual({
-      error: {
-        type: 'model_routing_failed',
-        code: 'model_routing_mismatch',
-        message: 'The request does not match the task model selection',
-        retryable: false,
-      },
-    });
-  });
-
-  it('passes a matching body through unchanged and rejects a mismatch instead of rewriting it', () => {
-    const harness = createHarness();
-    const { req } = screen(harness, request());
-    const body = Buffer.from(JSON.stringify({ model: 'gpt-test', reasoning: { effort: 'low' } }), 'utf8');
-    expect(req.awfRouting.bodyTransform(body)).toBe(body);
-
+    const { req } = observe(harness, request());
     for (const payload of [
-      { model: 'other-model', reasoning: { effort: 'low' } },
-      { model: 'gpt-test', reasoning: { effort: 'high' } },
+      { model: 'gpt-test', reasoning: { effort: 'low' } },
+      { model: 'other-model', reasoning: { effort: 'high' } },
       { model: 'gpt-test' },
-      { model: 'gpt-test', reasoning: { effort: 'low' }, reasoning_effort: 'low' },
       [],
+      'not json',
     ]) {
-      expect(() => req.awfRouting.bodyTransform(Buffer.from(JSON.stringify(payload), 'utf8')))
-        .toThrow('The request does not match the task model selection');
+      expect(send(req, payload)).toBeNull();
     }
-    expect(() => req.awfRouting.bodyTransform(Buffer.from('not json', 'utf8'))).toThrow();
-    expect(harness.failures.every(code => code === 'model_routing_mismatch')).toBe(true);
+    expect(harness.failures).toEqual([]);
   });
 
-  it('rejects reasoning fields on the chat-completions endpoint', () => {
-    const harness = createHarness(CHAT_SELECTION);
-    const { req } = screen(harness, request({ url: '/chat/completions' }));
-    const body = Buffer.from(JSON.stringify({ model: 'chat-test' }), 'utf8');
-    expect(req.awfRouting.bodyTransform(body)).toBe(body);
-    for (const payload of [
-      { model: 'chat-test', reasoning_effort: 'low' },
-      { model: 'chat-test', reasoning: { effort: 'low' } },
-    ]) {
-      expect(() => req.awfRouting.bodyTransform(Buffer.from(JSON.stringify(payload), 'utf8'))).toThrow();
-    }
-  });
-
-  it('observes native failures in buffered and streamed responses without changing the bytes', () => {
+  it('records a request routed as selected', () => {
     const harness = createHarness();
-    const { req, res } = screen(harness, request());
+    const { req } = observe(harness, request({ url: '/v1/responses' }));
+    send(req, { model: 'gpt-test', reasoning: { effort: 'low' } });
+    expect(harness.records).toEqual([{
+      stage: 'request',
+      routed: 'as_selected',
+      deviations: [],
+      method: 'POST',
+      pathname: '/v1/responses',
+      provider: 'copilot',
+      requested_model: 'gpt-test',
+      requested_effort: 'low',
+      selected_provider: 'copilot',
+      selected_model: 'gpt-test',
+      selected_effort: 'low',
+      selected_endpoint: '/responses',
+    }]);
+  });
+
+  it('records a deviating model, effort, and endpoint without rejecting', () => {
+    const harness = createHarness();
+    const { req } = observe(harness, request({ url: '/chat/completions' }));
+    send(req, { model: 'copilot/small-model', reasoning_effort: 'high' });
+    expect(harness.records).toEqual([expect.objectContaining({
+      stage: 'request',
+      routed: 'deviated',
+      deviations: ['model', 'effort', 'endpoint'],
+      requested_model: 'small-model',
+      requested_effort: 'high',
+      selected_model: 'gpt-test',
+      selected_effort: 'low',
+      selected_endpoint: '/responses',
+    })]);
+  });
+
+  it('matches effort and endpoint by the shape of the selected provider', () => {
+    const chat = createHarness(CHAT_SELECTION);
+    send(observe(chat, request({ url: '/chat/completions' })).req, { model: 'chat-test' });
+    expect(chat.records.at(-1)).toMatchObject({ routed: 'as_selected', selected_endpoint: '/chat/completions' });
+
+    const anthropic = createHarness(ANTHROPIC_SELECTION);
+    send(observe(anthropic, request({ url: '/v1/messages' }), { name: 'anthropic' }).req,
+      { model: 'claude-opus-5-5', output_config: { effort: 'medium' } });
+    expect(anthropic.records.at(-1)).toMatchObject({ routed: 'as_selected', selected_endpoint: '/v1/messages' });
+
+    const openai = createHarness(OPENAI_SELECTION);
+    send(observe(openai, request(), { name: 'copilot' }).req, { model: 'gpt-5.4', reasoning: { effort: 'high' } });
+    expect(openai.records.at(-1)).toMatchObject({ routed: 'deviated', deviations: ['provider'] });
+  });
+
+  it('records a non-JSON body as a deviation without a requested model', () => {
+    const harness = createHarness();
+    send(observe(harness, request()).req, 'not json');
+    expect(harness.records).toEqual([expect.objectContaining({
+      routed: 'deviated', requested_model: null, requested_effort: null, deviations: ['model', 'effort'],
+    })]);
+  });
+
+  it('bounds recorded model and effort values', () => {
+    const harness = createHarness();
+    send(observe(harness, request()).req, { model: 'm'.repeat(500), reasoning: { effort: 42 } });
+    expect(harness.records[0].requested_model).toHaveLength(200);
+    expect(harness.records[0].requested_effort).toBeNull();
+  });
+
+  it('observes only inference POSTs while a selection exists', () => {
+    const harness = createHarness();
+    for (const req of [
+      request({ method: 'GET', url: '/v1/models' }),
+      request({ method: 'GET', url: '/responses' }),
+      request({ url: '/models' }),
+    ]) {
+      expect(observe(harness, req).req.awfRouting).toBeUndefined();
+    }
+    const unrouted = createHarness(null);
+    expect(observe(unrouted, request()).req.awfRouting).toBeUndefined();
+  });
+
+  it('observes native failures on the selected provider without changing the bytes', () => {
+    const harness = createHarness();
+    const { req, res } = observe(harness, request());
     const payload = JSON.stringify({ error: { code: 'model_not_supported' } });
     res.statusCode = 400;
     res.end(payload);
@@ -227,9 +222,20 @@ describe('routing enforcement', () => {
     expect(harness.failures).toContain('provider_unavailable');
   });
 
-  it('records a prematurely closed response and drains admitted responses', async () => {
+  it('does not observe failures on a provider other than the selected one', () => {
     const harness = createHarness();
-    const { res } = screen(harness, request());
+    const { req, res } = observe(harness, request(), { name: 'anthropic' });
+    res.statusCode = 400;
+    res.end(JSON.stringify({ error: { code: 'invalid_request_error' } }));
+    expect(harness.failures).toEqual([]);
+    expect(req.awfRouting.onSseData).toBeUndefined();
+    send(req, { model: 'claude-x' });
+    expect(harness.records.at(-1)).toMatchObject({ routed: 'deviated', provider: 'anthropic' });
+  });
+
+  it('records a prematurely closed response and drains observed responses', async () => {
+    const harness = createHarness();
+    const { res } = observe(harness, request());
     let drained = false;
     const draining = harness.enforcement.drain().then(() => { drained = true; });
     await Promise.resolve();
@@ -240,90 +246,19 @@ describe('routing enforcement', () => {
     expect(drained).toBe(true);
     expect(harness.failures).toContain('provider_unavailable');
 
-    expect(screen(harness, request()).screened).toBe(true);
+    // A request that arrives while draining is proxied but no longer observed.
+    expect(observe(harness, request()).req.awfRouting).toBeUndefined();
     await expect(harness.enforcement.drain()).resolves.toBeUndefined();
-  });
-
-  it('rejects an opaque upgrade while routing is active', () => {
-    const harness = createHarness();
-    const written = [];
-    harness.enforcement.rejectUpgrade({
-      write: chunk => written.push(chunk),
-      destroy: () => written.push('<destroyed>'),
-    });
-    expect(written[0]).toContain('HTTP/1.1 403 Forbidden');
-    expect(written[0]).toContain('model_routing_mismatch');
-    expect(written[1]).toBe('<destroyed>');
-  });
-
-  it('records a structured decision for every admit and reject outcome', () => {
-    const harness = createHarness();
-    screen(harness, request({ method: 'GET', url: '/v1/models' }));
-    const { req } = screen(harness, request());
-    req.awfRouting.bodyTransform(Buffer.from(JSON.stringify({ model: 'gpt-test', reasoning: { effort: 'low' } }), 'utf8'));
-    screen(harness, request({ method: 'GET', url: '/responses' }));
-    screen(harness, request(), { name: 'anthropic' });
-    screen(harness, request({ headers: { 'x-model-override': 'other' } }));
-
-    expect(harness.decisions).toEqual([
-      { stage: 'decision', decision: 'admit', reason: 'model_discovery_exempt', method: 'GET', pathname: '/v1/models' },
-      {
-        stage: 'decision', decision: 'admit', reason: 'selected_model_pinned', method: 'POST', pathname: '/responses',
-        selected_model: SELECTION.choice.model, selected_effort: SELECTION.choice.effort,
-      },
-      { stage: 'decision', decision: 'reject', reason: 'method_not_allowed', method: 'GET', pathname: '/responses' },
-      { stage: 'decision', decision: 'reject', reason: 'foreign_adapter', method: 'POST', pathname: '/responses' },
-      { stage: 'decision', decision: 'reject', reason: 'header_override', method: 'POST', pathname: '/responses' },
-    ]);
-  });
-
-  it('records a body-mismatch rejection instead of an admit decision', () => {
-    const harness = createHarness();
-    const { req } = screen(harness, request());
-    expect(() => req.awfRouting.bodyTransform(Buffer.from(JSON.stringify({ model: 'wrong-model' }), 'utf8'))).toThrow();
-    expect(harness.decisions).toEqual([
-      { stage: 'decision', decision: 'reject', reason: 'body_model_mismatch', method: 'POST', pathname: '/responses' },
-    ]);
-  });
-
-  it('records an invalid-json rejection instead of an admit decision', () => {
-    const harness = createHarness();
-    const { req } = screen(harness, request());
-    expect(() => req.awfRouting.bodyTransform(Buffer.from('not json', 'utf8'))).toThrow();
-    expect(harness.decisions).toEqual([
-      { stage: 'decision', decision: 'reject', reason: 'body_invalid_json', method: 'POST', pathname: '/responses' },
-    ]);
-  });
-
-  it('records a distinct reject reason for draining, no selection, and a terminal failure', () => {
-    const draining = createHarness();
-    draining.enforcement.drain();
-    screen(draining, request());
-    expect(draining.decisions.at(-1)).toMatchObject({ decision: 'reject', reason: 'draining' });
-
-    const unrouted = createHarness(null);
-    screen(unrouted, request());
-    expect(unrouted.decisions.at(-1)).toMatchObject({ decision: 'reject', reason: 'no_selection' });
-
-    const failed = createHarness(SELECTION, 'provider_unavailable');
-    screen(failed, request());
-    expect(failed.decisions.at(-1)).toMatchObject({ decision: 'reject', reason: 'terminal_failure' });
-  });
-
-  it('records a reject decision for an opaque upgrade', () => {
-    const harness = createHarness();
-    harness.enforcement.rejectUpgrade({ write: () => {}, destroy: () => {} });
-    expect(harness.decisions).toContainEqual({ stage: 'decision', decision: 'reject', reason: 'upgrade_rejected' });
   });
 
   it('never throws when the observer itself throws', () => {
     const enforcement = createRoutingEnforcement({
       getSelection: () => SELECTION,
-      getFailure: () => null,
       recordFailure: () => {},
       observer: { record: () => { throw new Error('boom'); } },
     });
-    const res = new FakeResponse();
-    expect(() => enforcement.screenRequest(request(), res, { name: 'copilot' })).not.toThrow();
+    const req = request();
+    expect(() => enforcement.observeRequest(req, new FakeResponse(), { name: 'copilot' })).not.toThrow();
+    expect(send(req, { model: 'other' })).toBeNull();
   });
 });

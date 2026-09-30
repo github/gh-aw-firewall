@@ -7,7 +7,7 @@
  *
  * Session lifecycle:
  *   start()            → plan → write selection.json
- *   enforcement        → admit only the selected model for the agent's request
+ *   observation        → advisory: record requested vs. selected model per request
  *   shutdown()         → abort in-flight work, drain, then write complete.json
  *
  * The input and output directories belong to the proxy alone and are the only
@@ -65,8 +65,7 @@ async function loadRoutingConversation(filePath, { signal } = {}) {
 function createRoutingObserver(writeLog = logRequest) {
   return Object.freeze({
     record(record) {
-      const level = record.stage === 'failure' || (record.stage === 'decision' && record.decision === 'reject')
-        ? 'warn' : 'info';
+      const level = record.stage === 'failure' ? 'warn' : 'info';
       writeLog(level, 'model_routing', record);
     },
   });
@@ -204,8 +203,8 @@ function publishRoutingResult(outputDir, name, record) {
  * Build the routing session the proxy owns for the lifetime of the run.
  *
  * Returns null when routing is not configured. The returned object also spreads
- * the enforcement surface (screenRequest, rejectUpgrade, drain) so callers hold
- * a single routing handle.
+ * the observation surface (observeRequest, drain) so callers hold a single
+ * routing handle.
  *
  * @returns {object|null}
  */
@@ -230,7 +229,7 @@ function createProductionRoutingSession({
   // agent response path, so it must never throw back into that stream.
   function recordFailure(code) {
     if (terminalFailure || (result && !result.ok)) return;
-    terminalFailure = toRoutingFailure(createRoutingError(code, 'Routed execution was rejected'));
+    terminalFailure = toRoutingFailure(createRoutingError(code, 'Routed execution failed'));
     try {
       observer.record({ stage: 'failure', phase: result?.ok ? 'primary' : 'bootstrap', code: terminalFailure.code });
     } catch {
@@ -252,8 +251,8 @@ function createProductionRoutingSession({
   const getSelection = () => result?.ok ? result.selection : null;
   const getFailure = () => terminalFailure || (result && !result.ok ? result.failure : null);
 
-  // Agent-visible view of the selection: the agent must send exactly this
-  // model, effort, and endpoint, and has no other way to learn it.
+  // Agent-visible view of the selection. Advisory: the agent/harness seeds its
+  // model, effort, and endpoint from it, but may send any policy-permitted model.
   function getReflectState() {
     const failure = getFailure();
     if (failure) return { status: 'failed', failure_code: failure.code, selection: null };
@@ -272,7 +271,7 @@ function createProductionRoutingSession({
       },
     };
   }
-  const enforcement = createRoutingEnforcement({ getSelection, getFailure, recordFailure, observer });
+  const enforcement = createRoutingEnforcement({ getSelection, recordFailure, observer });
 
   async function execute() {
     try {

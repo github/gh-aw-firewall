@@ -748,8 +748,8 @@ Fields:
 - `models_url` — URL to query for the live model list
 
 The top-level `routing` field is `null` unless task-level model routing is
-active. When it is active, it tells the agent which request the proxy will
-admit:
+active. When it is active, it tells the agent which model, effort, and endpoint
+the router selected for the run:
 
 ```json
 {
@@ -765,11 +765,18 @@ admit:
 ```
 
 `status` is `pending` until the router selects, `selected` afterwards, or
-`failed` (with `failure_code`) after a terminal routing failure. The agent must
-send `wire_model` as the body `model` to `endpoint`. For `/responses`, send
-`reasoning.effort` equal to `effort`. For `/v1/messages`, send
-`output_config.effort` when `effort` is not `null`. Any other request is
-rejected with `403 model_routing_mismatch` and ends the routed run.
+`failed` (with `failure_code`) after a terminal routing failure. The selection
+is advisory: the agent/harness seeds its model from it by sending `wire_model`
+as the body `model` to `endpoint` (for `/responses`, `reasoning.effort` equal to
+`effort`; for `/v1/messages`, `output_config.effort` when `effort` is not
+`null`). The proxy does not reject other requests — an agent or sub-agent may
+use any model that `AWF_ALLOWED_MODELS` / `AWF_DISALLOWED_MODELS` permit, and
+that model policy, not routing, is what bounds cost. Each inference request is
+logged as a `model_routing` event with `stage: "request"` and
+`routed: "as_selected"` or `"deviated"` (with the deviating `model`, `effort`,
+`endpoint`, or `provider`), recording requested and selected values side by
+side. Only genuine routing failures (no selection could be produced, or an
+upstream failure on the selected provider) end the run with exit `78`.
 
 Copilot discovery requests use API version `2026-07-01`. Runtime Copilot prices
 override bundled prices, including default and long-context tiers. Other

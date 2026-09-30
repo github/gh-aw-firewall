@@ -160,7 +160,7 @@ jobs:
           YAML
 
           # The agent learns the routed model, effort, and endpoint from /reflect
-          # and must send exactly that request; anything else is rejected with 403.
+          # and seeds its request from it. The selection is advisory, not enforced.
           ROUTED_COMMAND="$(cat <<'SCRIPT'
           set -euo pipefail
           test -n "${COPILOT_API_URL:-}" || { echo "COPILOT_API_URL is missing" >&2; exit 1; }
@@ -205,7 +205,7 @@ jobs:
           sudo --preserve-env=COPILOT_GITHUB_TOKEN,GITHUB_WORKSPACE,HOME,PATH \
             node dist/cli.js --config "${ROUTING_DIR}/awf-config.yml" -- bash -euc "$ROUTED_COMMAND"
 
-      - name: Route between two Copilot candidates and enforce the choice
+      - name: Route between two Copilot candidates and allow a deviating choice
         env:
           COPILOT_GITHUB_TOKEN: ${{ github.token }}
         run: |
@@ -241,7 +241,8 @@ jobs:
           YAML
 
           # ROUTING_TARGET=selected sends the routed choice; ROUTING_TARGET=other
-          # sends the candidate the router did not pick, which must be rejected.
+          # sends the candidate the router did not pick. The selection is advisory,
+          # so both must succeed as long as model policy permits the model.
           ROUTED_COMMAND="$(cat <<'SCRIPT'
           set -euo pipefail
           test -n "${COPILOT_API_URL:-}" || { echo "COPILOT_API_URL is missing" >&2; exit 1; }
@@ -272,20 +273,6 @@ jobs:
           path="$(node -e 'process.stdout.write(JSON.parse(process.argv[1]).path)' "$plan")"
           body="$(node -e 'process.stdout.write(JSON.stringify(JSON.parse(process.argv[1]).body))' "$plan")"
           target="$(node -e 'process.stdout.write(JSON.parse(process.argv[1]).model)' "$plan")"
-          if [ "${ROUTING_TARGET}" = other ]; then
-            rejected="$(mktemp)"
-            status="$(curl --silent --show-error --max-time 60 -o "$rejected" -w '%{http_code}' \
-              -H "Content-Type: application/json" --data "$body" "${COPILOT_API_URL}${path}")"
-            node -e '
-              const assert = require("node:assert/strict");
-              assert.equal(process.argv[1], "403", "non-selected candidate was not rejected");
-              const error = JSON.parse(require("node:fs").readFileSync(process.argv[3], "utf8")).error;
-              assert.equal(error?.code, "model_routing_mismatch");
-              console.log("ROUTED_ENFORCEMENT=rejected model=" + process.argv[2]);
-            ' "$status" "$target" "$rejected"
-            rm -f "$rejected"
-            exit 0
-          fi
           response="$(curl --fail --silent --show-error --max-time 180 \
             -H "Content-Type: application/json" --data "$body" "${COPILOT_API_URL}${path}")"
           node -e '
@@ -298,8 +285,8 @@ jobs:
               .map(part => part.text)
               .join("");
             assert.match(String(text), /ROUTED_OK/, "Copilot did not return the expected smoke response: " + JSON.stringify(result).slice(0, 500));
-            console.log("ROUTED_MULTI_CANDIDATE_INFERENCE=passed model=" + process.argv[2]);
-          ' "$response" "$target"
+            console.log("ROUTED_MULTI_CANDIDATE_INFERENCE=passed target=" + process.argv[3] + " model=" + process.argv[2]);
+          ' "$response" "$target" "$ROUTING_TARGET"
           SCRIPT
           )"
 
@@ -308,16 +295,12 @@ jobs:
             node dist/cli.js --config "${ROUTING_DIR}/awf-config.yml" --env ROUTING_TARGET=selected -- bash -euc "$ROUTED_COMMAND"
           echo "::endgroup::"
 
-          echo "::group::Non-selected candidate is rejected"
-          set +e
+          echo "::group::Non-selected candidate is admitted (advisory routing)"
+          # A deviating request is not a routing failure: the run must exit 0.
           sudo --preserve-env=COPILOT_GITHUB_TOKEN,GITHUB_WORKSPACE,HOME,PATH \
             node dist/cli.js --config "${ROUTING_DIR}/awf-config.yml" --env ROUTING_TARGET=other -- bash -euc "$ROUTED_COMMAND"
-          status=$?
-          set -e
           echo "::endgroup::"
-          # A mismatched request is a terminal routing failure, reported as exit 78.
-          test "$status" -eq 78 || { echo "expected AWF exit 78 after a routing mismatch, got ${status}" >&2; exit 1; }
-          echo "ROUTED_MISMATCH_EXIT=78"
+          echo "ROUTED_DEVIATION_EXIT=0"
 
       - name: Install the Copilot CLI used by gh-aw
         env:
@@ -364,8 +347,8 @@ jobs:
           YAML
 
           # The shape a gh-aw engine step would take: read the routed selection
-          # from /reflect and hand it to the Copilot CLI. Any request the CLI
-          # makes with another model or effort is rejected and AWF exits 78.
+          # from /reflect and hand it to the Copilot CLI. The selection is advisory:
+          # the CLI (or a sub-agent) may use another policy-permitted model.
           ROUTED_COMMAND="$(cat <<'SCRIPT'
           set -euo pipefail
           test -n "${COPILOT_API_URL:-}" || { echo "COPILOT_API_URL is missing" >&2; exit 1; }

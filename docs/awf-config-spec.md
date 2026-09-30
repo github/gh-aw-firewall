@@ -1928,22 +1928,38 @@ operation without routing infrastructure or environment.
 
 As of this release, both the proxy-side and host-side halves of task-level
 routing are wired and shipped on `main`. The API proxy's routing controller
-and request enforcement are wired into the running server
+is wired into the running server
 ([PR #8966](https://github.com/github/gh-aw-firewall/pull/8966)): when
 `AWF_ROUTING_CONFIG` is present, a routing session starts after key
-validation and model discovery, and every inference request is screened
-against the one selected model/effort — a mismatch is rejected with `403`
-before the adapter's enabled check runs, so a rejection never reveals provider
-configuration. Upgrades are rejected outright while a routing session exists.
-The host workflow now stages and validates `apiProxy.routing` input before
+validation and model discovery and selects one model/effort for the run.
+The host workflow stages and validates `apiProxy.routing` input before
 the proxy starts ([PR #8985](https://github.com/github/gh-aw-firewall/pull/8985)):
 it writes the task conversation into a private per-run routing directory,
 rejects unsupported configurations (non-Linux, non-runc, disabled API proxy,
 `--keep-containers`, DinD/split filesystems, Docker-socket exposure, or an
 unpinned router image),
-and waits for `selection.json` before starting the agent. A routing failure
-recorded by either side surfaces as host exit code `78` instead of the run
-silently continuing unrouted.
+and waits for `selection.json` before starting the agent.
+
+The selection is **advisory**, not admitted-only. The agent is seeded with the
+selected model, effort, and endpoint, but the proxy does not pin requests to
+it: an agent (or a sub-agent that declares its own `model:`) MAY send any model
+that model policy permits, and such a request completes normally. Model choice
+is not a containment boundary — `allowedModels` / `disallowedModels`
+(`AWF_ALLOWED_MODELS` / `AWF_DISALLOWED_MODELS`) remain the enforcement
+surface that bounds cost and policy, independently of routing, and a request
+for an excluded model is still rejected by that policy guard. WebSocket
+upgrades are proxied normally while a routing session exists. For each
+inference request the proxy logs a `model_routing` event with
+`stage: "request"`, recording the requested and selected provider, model,
+effort, and endpoint, `routed: "as_selected"` or `"deviated"`, and the list of
+`deviations`, so routing quality stays measurable without enforcement.
+
+A genuine routing failure still surfaces as host exit code `78` instead of the
+run silently continuing: no selection could be produced (`no_route`, router
+unreachable, contract or configuration errors), or an upstream failure on the
+selected provider (a native provider error code, an SSE error event, or a
+prematurely closed response). A request that deviates from the selection is
+not a routing failure.
 
 The agent learns the selected model, effort, and endpoint from the API proxy's
 `GET /reflect` `routing` field (see
@@ -1977,7 +1993,8 @@ conversation format, for example
 least one non-blank `user` message and at most 1 MiB. Its user messages form the
 task **description**, which the router classifies once per run. The resulting
 **classification** (task type, scope, complexity, and, for `mode: auto`, the
-routing profile) selects the one model and effort used for the whole run.
+routing profile) selects the one model and effort the agent is seeded with for
+the whole run. The router is not invoked again per request or per sub-agent.
 
 The routing object is closed: `objective` and `task` are required, `provider`
 is optional, and unknown properties are rejected. Omitting `provider` preserves
