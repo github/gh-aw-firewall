@@ -143,7 +143,7 @@ post-steps:
 
 If step 7 produced a valid discussion number (>0), use the `add_comment` tool to add a **mystical oracle-themed comment** to that discussion - be creative and use mystical language like "🔮 The ancient spirits stir..."
 
-For safe-output calls, use the `safeoutputs` CLI from a login shell (`/bin/bash -lc`); non-login shells may not include it in `PATH`. Pass each `add_comment` call as one inline JSON argument, for example: `/bin/bash -lc "safeoutputs add_comment '{\"item_number\": 123, \"body\": \"Smoke Codex result: PASS\"}'"`. Do not build comment payloads with `jq`, pipe JSON through stdin, or retry from a non-login shell.
+For safe-output comment calls, use the `safeoutputs` CLI from a login shell (`/bin/bash -lc`); non-login shells may not include it in `PATH`. Pass each `add_comment` payload as one positional JSON argument outside the `-lc` command string, for example: `/bin/bash -lc 'safeoutputs add_comment "$1"' -- '{"item_number": 123, "body": "Smoke Codex result: PASS"}'`. Keep PR titles and other untrusted comment text out of the `-lc` command string; JSON-escape it and encode apostrophes as `\u0027` before placing it in the single-quoted payload. Do not build comment payloads with `jq`, pipe JSON through stdin, or retry from a non-login shell.
 
 If all tests pass on a pull request trigger:
 - Use the `add_labels` safe-output tool to add the label `smoke-codex` to the pull request
