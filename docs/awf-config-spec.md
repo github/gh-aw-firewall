@@ -240,7 +240,7 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 - `apiProxy.requestedModel` → *(config-only; maps to `AWF_REQUESTED_MODEL` for pre-startup validation)*
 - `apiProxy.modelFallback` → *(config-only; model fallback strategy)*
 - `experimental.modelRouting` → *(config-only; experimental opt-in required for `apiProxy.routing`; defaults to off)*
-- `apiProxy.routing` → *(config-only; requires `experimental.modelRouting: true`; trusted task-level routing objective and conversation input)*
+- `apiProxy.routing` → *(config-only; requires `experimental.modelRouting: true`; task-level routing objective and task conversation input)*
 - `apiProxy.modelRouter.providerType` → *(config-only; maps to `COPILOT_PROVIDER_TYPE`)*
 - `apiProxy.modelRouter.baseUrl` → *(config-only; maps to `COPILOT_PROVIDER_BASE_URL`)*
 - `apiProxy.allowedModels` → *(config-only; maps to `AWF_ALLOWED_MODELS` — JSON array of glob patterns; only matching models are permitted)*
@@ -1937,7 +1937,7 @@ before the adapter's enabled check runs, so a rejection never reveals provider
 configuration. Upgrades are rejected outright while a routing session exists.
 The host workflow now stages and validates `apiProxy.routing` input before
 the proxy starts ([PR #8985](https://github.com/github/gh-aw-firewall/pull/8985)):
-it writes the trusted conversation into a private per-run routing directory,
+it writes the task conversation into a private per-run routing directory,
 rejects unsupported configurations (non-Linux, non-runc, disabled API proxy,
 `--keep-containers`, DinD/split filesystems, Docker-socket exposure, or an
 unpinned router image),
@@ -1968,7 +1968,16 @@ apiProxy:
 | `provider` | `copilot` (default), `openai`, `anthropic` | Restricts routing to one configured native API-proxy provider; AWF does not switch credentials or translate across providers. |
 | `objective.goal` | `cost`, `cost-speed` | Optimization goal used by the router |
 | `objective.mode` | `economy`, `balanced`, `robust`, `auto` | Fixed routing profile, or `auto` classification |
-| `task.conversationFile` | non-empty string | Host path to the trusted conversation input |
+| `task.conversationFile` | non-empty string | Host path to the task conversation whose description the router classifies |
+
+The task conversation is written by the workflow host before AWF starts (for
+gh-aw, from the rendered agent prompt). It is a JSON array in the router's
+conversation format, for example
+`[{"role":"user","parts":[{"text":"Fix the failing unit test."}]}]`, with at
+least one non-blank `user` message and at most 1 MiB. Its user messages form the
+task **description**, which the router classifies once per run. The resulting
+**classification** (task type, scope, complexity, and, for `mode: auto`, the
+routing profile) selects the one model and effort used for the whole run.
 
 The routing object is closed: `objective` and `task` are required, `provider`
 is optional, and unknown properties are rejected. Omitting `provider` preserves
