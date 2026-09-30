@@ -149,6 +149,75 @@ unknown versions or types fail closed. A future incompatible change uses a new
 socket protocol version and explicit mutual support; the host-to-guest channel
 continues to use the independently versioned `GUEST_PROTOCOL_VERSION`.
 
+### Version 1 implementation
+
+The protocol is implemented, but not yet wired into any runtime. Cloud
+Hypervisor enclave configurations still fail closed.
+
+| Piece | Owner and location |
+| --- | --- |
+| Wire codec and validation | AWF host, `src/enclave/host-executor-protocol.ts` |
+| Listener, replay/idempotency state, trusted plan derivation | AWF host, `src/enclave/host-executor-server.ts` |
+| Broker client (mirror of the codec) | `enclave-mcp-server`, `containers/enclave/mcp-server/host-executor-client.js` |
+| Contract and rejection tests | `src/enclave/host-executor-protocol.test.ts` (drives the real client against the real server) |
+
+**Transport.** Node.js exposes only `SOCK_STREAM` Unix sockets and no peer
+credentials. Version 1 therefore emulates a packet: each connection carries
+exactly one request frame (4-byte big-endian length, then UTF-8 JSON), receives
+exactly one response frame, and is closed. A zero or over-512 KiB length is
+rejected from its header without reading the body; trailing bytes after the frame
+are rejected. Connections have an idle timeout and a concurrency cap. The
+listener's runtime directory is `0700` and owned by the AWF control process; the
+socket and capability file are `0600`. An existing socket or capability file
+means startup fails. Peer-credential checks remain a defense-in-depth item for
+the host-executor integration. They are not an authorization input.
+
+**Authentication.** The capability is 256 random bits generated per run, written
+once with `O_EXCL|O_NOFOLLOW`, and compared in constant time. It is independent
+of source address, container identity, socket location, and runtime. On
+shutdown, running invocations are aborted, the in-memory capability is zeroed,
+and the socket and capability file are removed.
+
+**Requests.** Every request carries `version`, `type`, `requestId` (128-bit hex),
+`runId` (must equal the host's run), `invocationId`, and `capability`. The
+type-specific fields are:
+
+| Type | Fields |
+| --- | --- |
+| `invoke` | `executorKind` (`script`/`agent`), exactly one of `seedId` or `selector` (agent only, `owner/repo`), `payload` (≤ 64 KiB UTF-8), `schemaHash`, `admissionId` |
+| `cancel` | `cancelGeneration` (integer ≥ 1, strictly increasing per invocation) |
+| `settle` | `resultDigest` (the digest the host reported for the terminal result) |
+| `status` | none |
+
+The host derives the plan handed to the backend from trusted run state. The
+seed must be in the trusted catalog. Seed and invocation host paths are joined
+from trusted directories and pattern-checked identifiers. Selector admission
+requires dynamic agents to be enabled for the run, which is not the case
+initially. Commands, executables, mounts, environment, networking, runtime
+profile, and limits are not expressible.
+
+**Responses and failures.** Success responses carry the invocation `state`
+(`running`, `cancelling`, `terminal`, `settled`), `cancelGeneration`, and, once
+terminal, `outcome`, `resultDigest`, and a result of at most 8 KiB (`success`
+only). A cancelled invocation always reports `cancelled`. An invalid or failing
+backend result reports `executor-failure` with no detail. Failure codes form a
+closed set: `denied`, `replayed`, `conflict`, `unknown-invocation`,
+`invalid-state`, and `closed`. Every failure before or during authentication and
+validation gets the byte-identical response `{"version":1,"ok":false,"error":"denied"}`.
+This covers framing, size, UTF-8, strict JSON, capability, run, version, type,
+unknown or prohibited fields, and value checks. Trusted-policy denials also get
+`denied`. A rejected request has no execution side effect.
+
+**Replay and idempotency.** An authenticated `requestId` is accepted at most
+once per run and replays get `replayed`. Invocation replay is keyed by run and
+invocation ID. The immutable request hash is recorded before the backend is
+called. The same hash returns the existing record, and a different hash is a
+`conflict`. Settlement requires a terminal invocation and the matching digest.
+It is idempotent once settled and drops the retained result. After
+`closeAdmissions()`, `invoke` returns `closed`, while `cancel`, `status`, and
+`settle` keep working so the broker can drain. Request-ID and invocation tables
+are bounded. Reaching either bound closes admissions.
+
 ## Network contract
 
 The netns/nftables policy is the enforcement boundary; guest proxy variables

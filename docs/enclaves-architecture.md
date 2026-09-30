@@ -581,6 +581,13 @@ Its threat model, network and filesystem matrices, protocol, lifecycle, and
 rollout gates are defined in
 [ADR 0002: Cloud Hypervisor enclave executor](adr/0002-cloud-hypervisor-enclave-executor.md).
 
+The version 1 broker-to-host protocol is implemented but not yet wired into any runtime:
+`src/enclave/host-executor-protocol.ts` and `src/enclave/host-executor-server.ts`
+(host side) and `containers/enclave/mcp-server/host-executor-client.js` (broker side).
+Requests are capability-authenticated, size-bounded, and restricted to a closed field
+set. The host derives every path and runtime setting from trusted run state. See
+[Version 1 implementation](adr/0002-cloud-hypervisor-enclave-executor.md#version-1-implementation).
+
 ## Coverage after legacy smoke removal
 
 No unified gh-aw enclave smoke workflow exists yet, so AWF keeps coverage local and unit-focused instead of inventing unsupported workflow syntax. Current owned-scope guidance points to:
