@@ -93,9 +93,9 @@ jobs:
                 conversationFile: ${ROUTING_DIR}/conversation.json
           container:
             images:
-              agent: ghcr.io/github/gh-aw-firewall/agent:0.28.27@sha256:8d14865f96d57d9b4f22b30b3e148d2d926384f0aa543a139f15593e450f0e90
-              apiProxy: ghcr.io/github/gh-aw-firewall/api-proxy:0.28.27@sha256:b767b95ad787fae126e0224e547e31daa22950aaa4f03c34e1224f3ce80f314e
-              squid: ghcr.io/github/gh-aw-firewall/squid:0.28.27@sha256:c89d35cbc15c1c8614cc01da321a26a0685a71b51858965ce6fdd78252df64a9
+              agent: ghcr.io/github/gh-aw-firewall/agent:0.28.28@sha256:766e43aa77d3bb2ab35418bbcfa3e250ba20b0e19bd7c15b1129f583ab2f98dc
+              apiProxy: ghcr.io/github/gh-aw-firewall/api-proxy:0.28.28@sha256:73fffd23945963fa1d6a0357de4f296099364ca7bcd52993a59c934251409066
+              squid: ghcr.io/github/gh-aw-firewall/squid:0.28.28@sha256:5f9166c18c98b4dd21d466fdec1fccfb69e97f14bc435c40557efdad2a80cc38
               router: ghcr.io/githubnext/gh-aw-router:latest@sha256:d1612d0eaec3fa8f14c38bbd0a6a0682732fc9f83b7fec94219d3e757a048270
           YAML
 
