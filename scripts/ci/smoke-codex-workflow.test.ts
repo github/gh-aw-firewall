@@ -14,6 +14,14 @@ describe('smoke codex workflow output requirements', () => {
     expect(source).toContain('**If triggered by workflow_dispatch or schedule** (no PR context), call `noop`');
     expect(source).toContain('Do NOT attempt to add pull request comments or labels when there is no pull request.');
   });
+
+  it('uses inline safe-output arguments in a login shell for comments', () => {
+    const source = fs.readFileSync(smokeCodexSourcePath, 'utf-8');
+
+    expect(source).toContain('/bin/bash -lc "safeoutputs add_comment');
+    expect(source).toContain('Do not build comment payloads with `jq`');
+    expect(source).toContain('retry from a non-login shell');
+  });
 });
 
 describe('smoke codex discussion comment configuration', () => {
