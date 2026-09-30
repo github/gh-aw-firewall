@@ -134,11 +134,12 @@ function createRoutingObservation({ getSelection, recordFailure, observer }) {
     const selectedEffort = Object.hasOwn(selection.choice, 'effort') ? selection.choice.effort : null;
     const selectedEndpoint = selectedEndpointFor(selectedProvider, selectedEffort);
     const endpoint = endpointFor(pathname);
-    const requestedModel = telemetryValue(stripRedundantProviderPrefix(parsed.model, adapter.name));
+    const normalizedRequestedModel = stripRedundantProviderPrefix(parsed.model, adapter.name);
+    const requestedModel = telemetryValue(normalizedRequestedModel);
     const requestedEffort = requestedEffortFor(parsed, endpoint);
     const deviations = [];
     if (adapter.name !== selectedProvider) deviations.push('provider');
-    if (requestedModel !== selection.wire_model) deviations.push('model');
+    if (normalizedRequestedModel !== selection.wire_model) deviations.push('model');
     if (requestedEffort !== selectedEffort) deviations.push('effort');
     if (endpoint !== selectedEndpoint) deviations.push('endpoint');
     safeRecord(observer, {
