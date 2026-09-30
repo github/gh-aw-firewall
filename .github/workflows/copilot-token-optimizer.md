@@ -47,6 +47,7 @@ steps:
       gh aw logs \
         --engine copilot \
         --start-date -7d \
+        --artifacts agent \
         --json \
         -c 50 \
         -o /tmp/gh-aw/token-audit/logs \
@@ -56,7 +57,9 @@ steps:
       gh aw logs \
         --engine copilot \
         --start-date -7d \
+        --artifacts agent \
         --tool-graph \
+        --format console \
         -c 50 \
         -o /tmp/gh-aw/token-audit/tool-graphs \
         > /tmp/gh-aw/token-audit/copilot-tool-graphs.mmd || GRAPH_EXIT=$?
@@ -318,5 +321,5 @@ Body structure:
 - **Include implementation steps** \u2014 Someone should be able to follow your recommendations without additional research
 - **Reference the report** \u2014 Link back to the source token usage report issue
 - **One workflow per issue** \u2014 Focus on the single most expensive workflow
-- **Use pre-downloaded data** \u2014 All run data is at `/tmp/gh-aw/token-audit/copilot-logs.json`. Do not download artifacts manually.
-- **Do not read individual run files** \u2014 Do not explore or read files under `.github/aw/logs/` or `/tmp/gh-aw/token-audit/logs/`. All needed data is already aggregated in the JSON file at `/tmp/gh-aw/token-audit/copilot-logs.json`.
+- **Use pre-downloaded data** \u2014 Run summaries are at `/tmp/gh-aw/token-audit/copilot-logs.json`, and per-run traces are under `/tmp/gh-aw/token-audit/logs/`. Do not download artifacts manually.
+- **Inspect only relevant traces** \u2014 Read successful target-workflow transcripts under `/tmp/gh-aw/token-audit/logs/` for trace-level analysis; do not explore unrelated run files or `.github/aw/logs/`.

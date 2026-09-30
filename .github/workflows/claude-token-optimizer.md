@@ -60,6 +60,7 @@ steps:
       gh aw logs \
         --engine claude \
         --start-date -7d \
+        --artifacts agent \
         --json \
         -c 50 \
         -o /tmp/gh-aw/token-audit/logs \
@@ -69,7 +70,9 @@ steps:
       gh aw logs \
         --engine claude \
         --start-date -7d \
+        --artifacts agent \
         --tool-graph \
+        --format console \
         -c 50 \
         -o /tmp/gh-aw/token-audit/tool-graphs \
         > /tmp/gh-aw/token-audit/claude-tool-graphs.mmd || GRAPH_EXIT=$?
