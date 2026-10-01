@@ -76,6 +76,40 @@ describe('docker-manager (barrel re-exports)', () => {
   });
 
 
+  describe('parseDifcProxyHost via barrel', () => {
+    it('defaults for empty input', () => {
+      expect(dockerManager.parseDifcProxyHost('  ')).toEqual({ host: 'host.docker.internal', port: '18443' });
+    });
+
+    it('parses host:port and strips scheme', () => {
+      expect(dockerManager.parseDifcProxyHost('https://example.com:9000')).toEqual({ host: 'example.com', port: '9000' });
+    });
+
+    it('strips IPv6 brackets and defaults the port', () => {
+      expect(dockerManager.parseDifcProxyHost('[::1]:8080')).toEqual({ host: '::1', port: '8080' });
+      expect(dockerManager.parseDifcProxyHost('example.com').port).toBe('18443');
+    });
+
+    it('throws on malformed host or out-of-range port', () => {
+      expect(() => dockerManager.parseDifcProxyHost('exa mple:80')).toThrow(/Invalid --difc-proxy-host/);
+      expect(() => dockerManager.parseDifcProxyHost('host:99999')).toThrow(/Invalid --difc-proxy-host/);
+    });
+  });
+
+  describe('filterCapDrop capability filtering', () => {
+    it('keeps all caps when bounding set is unknown', () => {
+      expect(dockerManager.filterCapDrop(['NET_ADMIN'], null)).toEqual(['NET_ADMIN']);
+    });
+
+    it('removes caps absent from the bounding set, keeps ALL and unknown names', () => {
+      expect(dockerManager.filterCapDrop(['ALL', 'cap_net_admin', 'NOT_A_CAP'], 0n)).toEqual(['ALL', 'NOT_A_CAP']);
+    });
+
+    it('keeps caps present in the bounding set', () => {
+      expect(dockerManager.filterCapDrop(['NET_ADMIN'], (1n << 64n) - 1n)).toEqual(['NET_ADMIN']);
+    });
+  });
+
   describe('filterCapDrop via barrel', () => {
     it('returns empty for undefined or empty lists', () => {
       expect(dockerManager.filterCapDrop(undefined, null)).toEqual([]);
