@@ -3,15 +3,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { recoverHostPaths } from '../agent-path-policy';
 
-// Mock the logger to keep test output clean and allow assertions if needed.
-jest.mock('../../logger', () => ({
-  logger: {
-    error: jest.fn(),
-    warn: jest.fn(),
-    info: jest.fn(),
-    debug: jest.fn(),
-  },
-}));
+jest.mock('../../logger', () => require('../../test-helpers/mock-logger.test-utils').loggerMockFactory());
 
 /**
  * Regression tests for the `sudo -E awf` boundary described in

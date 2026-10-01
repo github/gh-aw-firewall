@@ -9,14 +9,7 @@
 import { buildDockerSocketMount } from './docker-socket';
 import { makeAgentVolumeConfig } from './agent-volumes.test-utils';
 
-jest.mock('../../logger', () => ({
-  logger: {
-    error: jest.fn(),
-    warn: jest.fn(),
-    info: jest.fn(),
-    debug: jest.fn(),
-  },
-}));
+jest.mock('../../logger', () => require('../../test-helpers/mock-logger.test-utils').loggerMockFactory());
 
 describe('buildDockerSocketMount – non-Unix docker host branch', () => {
   it('returns default socket mounts when awfDockerHost uses tcp:// scheme (non-unix)', () => {
