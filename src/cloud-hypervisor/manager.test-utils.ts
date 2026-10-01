@@ -18,6 +18,7 @@ import type {
   CloudHypervisorCleanupRegistry,
 } from './cleanup-registry';
 import type { CloudHypervisorVmmIdentityManager } from './vmm-identity';
+import type { CloudHypervisorNetworkLifecycle } from './network-namespace';
 import {
   cloudHypervisorHostTools as hostTools,
   createCloudHypervisorOptions as config,
@@ -123,6 +124,14 @@ function networkLifecycle(plan: MicrovmNetworkPlan): MicrovmNetworkLifecycle {
   };
 }
 
+function emptyNetworkLifecycle(): CloudHypervisorNetworkLifecycle {
+  return {
+    setup: jest.fn().mockResolvedValue(undefined),
+    cleanup: jest.fn().mockResolvedValue(undefined),
+    captureDiagnostics: jest.fn().mockResolvedValue(''),
+  };
+}
+
 function cgroupMock(): CloudHypervisorCgroup {
   return {
     cgroupPath: '/sys/fs/cgroup/awf-cloud-hypervisor/run',
@@ -140,6 +149,7 @@ function cgroupMock(): CloudHypervisorCgroup {
 function cleanupHandleMock(): CloudHypervisorCleanupHandle {
   return {
     captureNetworkPlan: jest.fn().mockResolvedValue(undefined),
+    captureEmptyNetworkNamespace: jest.fn().mockResolvedValue(undefined),
     captureArtifactSnapshot: jest.fn().mockResolvedValue(undefined),
     prepareVmmAccount: jest.fn().mockResolvedValue(undefined),
     captureVmmIdentity: jest.fn().mockResolvedValue(undefined),
@@ -214,6 +224,7 @@ function dependencies(
       return { plan, release: jest.fn().mockResolvedValue(undefined) };
     }),
     createNetwork: jest.fn((plan) => networkLifecycle(plan)),
+    createEmptyNetworkNamespace: jest.fn(() => emptyNetworkLifecycle()),
     cleanupRegistry: cleanupRegistryMock(),
     createRootfsPreparer: jest.fn(() => rootfsPreparerMock()),
     createVirtiofsdManager: jest.fn(() => virtiofsdManagerMock()),
@@ -255,4 +266,4 @@ function dependencies(
 }
 
 
-export { hostTools, exportsConfig, rootfsPreparerMock, virtiofsdManagerMock, config, processMock, networkConfig, guestConfig, createTestNetworkPlan, networkLifecycle, cgroupMock, cleanupHandleMock, cleanupRegistryMock, vmmIdentityMock, dependencies };
+export { hostTools, exportsConfig, rootfsPreparerMock, virtiofsdManagerMock, config, processMock, networkConfig, guestConfig, createTestNetworkPlan, networkLifecycle, emptyNetworkLifecycle, cgroupMock, cleanupHandleMock, cleanupRegistryMock, vmmIdentityMock, dependencies };

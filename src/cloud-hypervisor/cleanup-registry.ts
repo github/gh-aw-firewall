@@ -2,6 +2,7 @@ import * as path from 'path';
 import type { MicrovmNetworkPlan } from '../microvm/network';
 import type { CloudHypervisorRunPaths } from './manager-types';
 import type { CloudHypervisorVmmIdentityToolPaths } from './vmm-identity';
+import type { CloudHypervisorEmptyNetworkNamespacePlan } from './network-namespace';
 import { createCleanupHandle } from './cleanup-handle';
 import {
   assertSafeRecordPaths,
@@ -43,6 +44,7 @@ export type CloudHypervisorNetworkResource =
 
 export interface CloudHypervisorCleanupHandle {
   captureNetworkPlan(plan: MicrovmNetworkPlan): Promise<void>;
+  captureEmptyNetworkNamespace(plan: CloudHypervisorEmptyNetworkNamespacePlan): Promise<void>;
   captureArtifactSnapshot(directory: string): Promise<void>;
   prepareVmmAccount(name: string): Promise<void>;
   captureVmmIdentity(identity: import('./vmm-identity').CloudHypervisorVmmIdentity): Promise<void>;
@@ -168,6 +170,7 @@ export class DurableCloudHypervisorCleanupRegistry implements CloudHypervisorCle
         virtiofsdShareDirectory: paths.virtiofsdShareDirectory,
       },
       ...(plan ? { network: {
+        mode: 'primary' as const,
         namespaceName: plan.namespaceName,
         netnsPath: plan.netnsPath,
         hostVethName: plan.hostVethName,

@@ -58,6 +58,7 @@ export interface CleanupRecord {
     artifactSnapshotDirectory?: string;
   };
   network?: {
+    readonly mode?: 'primary';
     readonly namespaceName: string;
     readonly netnsPath: string;
     readonly hostVethName: string;
@@ -65,6 +66,10 @@ export interface CleanupRecord {
     readonly tapName: string;
     readonly infrastructureBridge: string;
     readonly hostForwardRuleComment: string;
+  } | {
+    readonly mode: 'none';
+    readonly namespaceName: string;
+    readonly netnsPath: string;
   };
   readonly identities: {
     runDirectory?: FileIdentity;
@@ -113,8 +118,11 @@ export function validateRecord(
     )) ||
     (record.network !== undefined && (
       record.network.netnsPath !== `/var/run/netns/${record.network.namespaceName}` ||
-      !/^awf-microvm-[0-9a-f]{12}$/.test(record.network.hostForwardRuleComment) ||
-      !/^[A-Za-z0-9_.-]{1,15}$/.test(record.network.infrastructureBridge)
+      !/^awfvm-[0-9a-f]{12}$/.test(record.network.namespaceName) ||
+      (record.network.mode !== 'none' && (
+        !/^awf-microvm-[0-9a-f]{12}$/.test(record.network.hostForwardRuleComment) ||
+        !/^[A-Za-z0-9_.-]{1,15}$/.test(record.network.infrastructureBridge)
+      ))
     ))
   ) throw new Error('cleanup record paths are not run-scoped');
   validateProcessIdentity(record.owner, 'cleanup record owner');

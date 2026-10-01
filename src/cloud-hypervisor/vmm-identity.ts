@@ -123,7 +123,7 @@ export class CloudHypervisorVmmIdentityManager {
     });
   }
 
-  async withDeviceAccess<T>(operation: () => Promise<T>): Promise<T> {
+  async withDeviceAccess<T>(operation: () => Promise<T>, includeTun = true): Promise<T> {
     const identity = this.requireIdentity();
     return this.withDeviceAclLock(async () => {
       if (this.identity !== identity) {
@@ -132,7 +132,7 @@ export class CloudHypervisorVmmIdentityManager {
       let result: T | undefined;
       let operationError: unknown;
       try {
-        await this.grantDeviceAccessLocked(identity);
+        await this.grantDeviceAccessLocked(identity, includeTun);
         result = await operation();
       } catch (error) {
         operationError = error;
@@ -216,8 +216,11 @@ export class CloudHypervisorVmmIdentityManager {
     });
   }
 
-  private async grantDeviceAccessLocked(identity: CloudHypervisorVmmIdentity): Promise<void> {
-    for (const devicePath of VMM_DEVICE_PATHS) {
+  private async grantDeviceAccessLocked(
+    identity: CloudHypervisorVmmIdentity,
+    includeTun: boolean,
+  ): Promise<void> {
+    for (const devicePath of includeTun ? VMM_DEVICE_PATHS : VMM_DEVICE_PATHS.slice(0, 1)) {
       await this.observer?.prepareAcl(devicePath);
       await this.dependencies.run(this.tools.setfacl, [
         '--modify', `user:${identity.uid}:rw`, devicePath,

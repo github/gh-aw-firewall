@@ -63,6 +63,10 @@ import {
 } from './cleanup-registry';
 import { CloudHypervisorVmmIdentityManager } from './vmm-identity';
 import {
+  CloudHypervisorEmptyNetworkNamespace,
+  type CloudHypervisorNetworkLifecycle,
+} from './network-namespace';
+import {
   sealCloudHypervisorWorkloadProfile,
   snapshotCloudHypervisorWorkloadProfile,
   type CloudHypervisorWorkloadProfile,
@@ -111,6 +115,12 @@ const defaultDependencies: CloudHypervisorManagerDependencies = {
     reservation,
     observer,
   ),
+  createEmptyNetworkNamespace: (plan, tools, observer) =>
+    new CloudHypervisorEmptyNetworkNamespace(
+      plan,
+      new LinuxNetworkCommands(undefined, tools),
+      observer,
+    ),
   cleanupRegistry: new DurableCloudHypervisorCleanupRegistry(),
   createRootfsPreparer: (config, tools, copyRootfs) => new MicrovmRootfsPreparer(config, {
     runTool: async (command, args) => {
@@ -192,7 +202,7 @@ export class CloudHypervisorManager {
   paths: CloudHypervisorRunPaths;
   private process: ExecaChildProcess<string> | undefined;
   private client: CloudHypervisorApiClient | undefined;
-  private network: MicrovmNetworkLifecycle | undefined;
+  private network: MicrovmNetworkLifecycle | CloudHypervisorNetworkLifecycle | undefined;
   private rootfsPreparer: MicrovmRootfsPreparer | undefined;
   private virtiofsd: VirtiofsdManager | undefined;
   private fsDevices: VirtiofsdDevice[] = [];

@@ -305,19 +305,22 @@ describe('Cloud Hypervisor workload profiles', () => {
     );
   });
 
-  it.each([
-    createScriptEnclaveCloudHypervisorProfile({
+  it('allows the closed script-enclave profile to launch', () => {
+    const profile = createScriptEnclaveCloudHypervisorProfile({
       enclaveId: 'script-entry',
       invocationId: 'invocation-1',
       guest: supervisor,
-    }),
-    createAgentEnclaveCloudHypervisorProfile({
+    });
+    expect(() => assertCloudHypervisorWorkloadLaunchable(profile)).not.toThrow();
+  });
+
+  it('keeps agent-enclave execution fail-closed', () => {
+    const profile = createAgentEnclaveCloudHypervisorProfile({
       enclaveId: 'agent-entry',
       invocationId: 'invocation-2',
       guest: supervisor,
       apiProxy: { ip: '172.31.0.30', port: 10002 },
-    }),
-  ])('fails closed before an enclave profile can launch', (profile) => {
+    });
     expect(() => assertCloudHypervisorWorkloadLaunchable(profile)).toThrow(
       /not implemented; refusing to fall back/,
     );

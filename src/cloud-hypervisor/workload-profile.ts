@@ -87,6 +87,10 @@ export type CloudHypervisorWorkloadProfile =
   | CloudHypervisorScriptEnclaveProfile
   | CloudHypervisorAgentEnclaveProfile;
 
+export type CloudHypervisorLaunchableWorkloadProfile =
+  | CloudHypervisorPrimaryAgentProfile
+  | CloudHypervisorScriptEnclaveProfile;
+
 const SAFE_IDENTITY = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/;
 const SAFE_INTERFACE = /^[A-Za-z0-9_.-]{1,15}$/;
 
@@ -227,9 +231,9 @@ export function snapshotCloudHypervisorWorkloadProfile(
 
 export function assertCloudHypervisorWorkloadLaunchable(
   profile: CloudHypervisorWorkloadProfile,
-): asserts profile is CloudHypervisorPrimaryAgentProfile {
+): asserts profile is CloudHypervisorLaunchableWorkloadProfile {
   validateCloudHypervisorWorkloadProfile(profile);
-  if (profile.kind !== 'primary-agent') {
+  if (profile.kind === 'agent-enclave') {
     throw new Error(
       `Cloud Hypervisor ${profile.kind} execution is not implemented; refusing to fall back to the primary-agent runtime`,
     );

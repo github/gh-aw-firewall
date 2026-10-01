@@ -28,6 +28,10 @@ import type {
   CloudHypervisorVmmIdentityObserver,
   CloudHypervisorVmmIdentityToolPaths,
 } from './vmm-identity';
+import type {
+  CloudHypervisorEmptyNetworkNamespacePlan,
+  CloudHypervisorNetworkLifecycle,
+} from './network-namespace';
 
 const API_SOCKET_NAME = 'api.socket';
 const VSOCK_SOCKET_NAME = 'awf-vsock.socket';
@@ -116,6 +120,11 @@ export interface CloudHypervisorManagerDependencies {
     reservation: MicrovmNetworkReservation,
     observer?: MicrovmNetworkResourceObserver,
   ): MicrovmNetworkLifecycle;
+  createEmptyNetworkNamespace(
+    plan: CloudHypervisorEmptyNetworkNamespacePlan,
+    tools: CloudHypervisorHostToolPaths,
+    observer?: Pick<MicrovmNetworkResourceObserver, 'resourceCreated'>,
+  ): CloudHypervisorNetworkLifecycle;
   cleanupRegistry: CloudHypervisorCleanupRegistry;
   createRootfsPreparer(
     config: MicrovmRootfsConfig,

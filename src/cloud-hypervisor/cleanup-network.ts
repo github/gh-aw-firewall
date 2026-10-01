@@ -69,12 +69,12 @@ export async function validateRecordResources(
       'artifact snapshot directory',
     );
   }
-  if (network) {
+  if (network && network.mode !== 'none') {
     await validateInterfaceIfPresent(
       dependencies, ipPath, network.hostVethName, record.identities.hostVeth, undefined,
     );
   }
-  if (network && netnsExists) {
+  if (network && network.mode !== 'none' && netnsExists) {
     await validateInterfaceIfPresent(
       dependencies,
       ipPath,
@@ -94,7 +94,8 @@ export async function deleteNetwork(
   ipPath: string,
 ): Promise<void> {
   const network = requireNetwork(record);
-  if (await interfaceExists(dependencies.run, ipPath, network.hostVethName)) {
+  if (network.mode !== 'none' &&
+      await interfaceExists(dependencies.run, ipPath, network.hostVethName)) {
     await validateInterfaceIfPresent(
       dependencies,
       ipPath,
@@ -113,6 +114,7 @@ export async function deleteNetwork(
     );
     await runChecked(dependencies.run, ipPath, ['netns', 'delete', network.namespaceName]);
   }
+  if (network.mode === 'none') return;
   const rule = bridgeForwardRule(
     '-C',
     network.infrastructureBridge,

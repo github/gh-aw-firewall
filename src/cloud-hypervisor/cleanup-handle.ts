@@ -2,6 +2,7 @@ import { promises as fs } from 'fs';
 import * as path from 'path';
 import type { MicrovmNetworkPlan } from '../microvm/network';
 import type { CloudHypervisorVmmIdentity } from './vmm-identity';
+import type { CloudHypervisorEmptyNetworkNamespacePlan } from './network-namespace';
 import type { CloudHypervisorCleanupHandle, CloudHypervisorNetworkResource } from './cleanup-registry';
 import {
   assertSafeProcessKey,
@@ -51,6 +52,20 @@ export function createCleanupHandle(options: CleanupHandleFactoryOptions): Cloud
       }, plan);
       if (record.network) throw new Error('Cleanup network plan is already committed');
       record.network = serializeNetworkPlan(plan);
+      await update();
+    },
+    captureEmptyNetworkNamespace: async (plan: CloudHypervisorEmptyNetworkNamespacePlan) => {
+      assertSafeRecordPaths({
+        ...record.paths,
+        runId: record.runId,
+        runBaseDir: path.dirname(path.dirname(record.paths.runDirectory)),
+      }, undefined);
+      if (record.network) throw new Error('Cleanup network namespace is already committed');
+      record.network = {
+        mode: 'none',
+        namespaceName: plan.namespaceName,
+        netnsPath: plan.netnsPath,
+      };
       await update();
     },
     captureArtifactSnapshot: async (directory: string) => {
@@ -106,6 +121,14 @@ export function createCleanupHandle(options: CleanupHandleFactoryOptions): Cloud
     },
     captureNetworkResource: async (resource: CloudHypervisorNetworkResource) => {
       const network = requireNetwork(record);
+      if (network.mode === 'none') {
+        if (resource !== 'netns') {
+          throw new Error(`Closed network namespace cannot capture ${resource}`);
+        }
+        record.identities.netns = await options.captureFileIdentity(network.netnsPath);
+        await update();
+        return;
+      }
       switch (resource) {
         case 'netns':
           record.identities.netns = await options.captureFileIdentity(network.netnsPath);
@@ -206,6 +229,7 @@ export function createCleanupHandle(options: CleanupHandleFactoryOptions): Cloud
 
 function serializeNetworkPlan(plan: MicrovmNetworkPlan): CleanupRecord['network'] {
   return {
+    mode: 'primary',
     namespaceName: plan.namespaceName,
     netnsPath: plan.netnsPath,
     hostVethName: plan.hostVethName,
