@@ -1053,7 +1053,7 @@ steps:
             "$CLOUD_HYPERVISOR_DIR/cloud-hypervisor" --version |
               grep -F '53.0' &&
             "$CLOUD_HYPERVISOR_DIR/virtiofsd" --version 2>&1 |
-              grep -E '(^| )1\.13\.3($| )' &&
+              grep -E '(^| )1\.10\.0($| )' &&
             file "$CLOUD_HYPERVISOR_DIR/vmlinux.bin" |
               grep -E 'Linux kernel|boot executable'
         } > "$DATA_DIR/logs/cloud-hypervisor-preflight.log" 2>&1 ||

@@ -47,8 +47,8 @@ export interface VirtiofsdSandboxVerificationOptions {
  * Options that would let the guest set extended attributes on host files.
  * uid/gid translation does not cover xattrs (e.g. `security.capability`), and
  * upstream documents `--posix-acl` as incompatible with translation, so these
- * must never reach virtiofsd. `-o` is the legacy compat option syntax that can
- * also enable xattrs.
+ * must never reach virtiofsd. `-o` (including the attached `-oxattr` form) is the
+ * legacy compat option syntax that can also enable xattrs.
  */
 const FORBIDDEN_VIRTIOFSD_OPTIONS: ReadonlySet<string> = new Set([
   '--xattr',
@@ -63,6 +63,8 @@ export function findForbiddenVirtiofsdOption(args: readonly string[]): string | 
   for (const arg of args) {
     const name = arg.split('=', 1)[0];
     if (FORBIDDEN_VIRTIOFSD_OPTIONS.has(name)) return name;
+    // Short options may carry their value attached (e.g. `-oxattr`).
+    if (arg.startsWith('-o')) return '-o';
   }
   return undefined;
 }

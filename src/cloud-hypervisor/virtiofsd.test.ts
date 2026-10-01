@@ -223,6 +223,8 @@ describe('VirtiofsdManager', () => {
     for (const option of ['--xattr', '--xattrmap=:map::user.:', '--posix-acl', '--security-label', '-o']) {
       expect(findForbiddenVirtiofsdOption(['--seccomp=kill', option])).toBe(option.split('=', 1)[0]);
     }
+    expect(findForbiddenVirtiofsdOption(['-oxattr'])).toBe('-o');
+    expect(findForbiddenVirtiofsdOption(['-oxattr,posix_acl'])).toBe('-o');
   });
 
   it('refuses to launch when the workspace identity is root', async () => {
