@@ -158,7 +158,8 @@ idempotent, including partial startup before VM creation.
 
 The agent-enclave plan uses the dedicated, internal `awf-enclave-agent` bridge,
 never `awf-net`. Host-side Docker network inspection verifies the fixed
-subnet, local internal bridge and exact peer membership before resolving its
+subnet, local internal bridge and exact peer membership (including the
+compiler-handoff mcpg container identity when configured) before resolving its
 bridge interface. The plan selects only the configured engine's dedicated API
 proxy port at `172.31.0.30` and, when GitHub access is configured, the
 compiler-owned mcpg data-plane port 8080 at `172.31.0.40`. Neither mcpg's

@@ -3,6 +3,7 @@ import { createAgentEnclaveCloudHypervisorProfile } from './workload-profile';
 import { createMicrovmNetworkPlan, generateMicrovmNftRuleset } from '../microvm/network';
 import { MicrovmNetworkManager } from '../microvm/network';
 import { LinuxNetworkCommands } from '../microvm/network';
+import { ENCLAVE_MCP_GATEWAY_CONTAINER_ENV } from '../enclave/gateway';
 
 const guest = {
   exports: [{ tag: 'seed', source: '/seed', target: '/seed', mode: 'ro' as const }],
@@ -48,7 +49,9 @@ function inspection(github = false) {
 describe('Cloud Hypervisor agent-enclave host network boundary', () => {
   it.each([false, true])('admits only selected proxy and optional GitHub data plane (github=%s)', async (github) => {
     const { dependencies } = inspection(github);
-    const options = await resolveCloudHypervisorEnclaveNetwork(profile(github), dependencies);
+    const options = await resolveCloudHypervisorEnclaveNetwork(profile(github), dependencies, {
+      [ENCLAVE_MCP_GATEWAY_CONTAINER_ENV]: 'awmg-mcpg',
+    });
     const plan = createMicrovmNetworkPlan('enclave-run', {
       ...options, tapOwnerUid: 2001, tapOwnerGid: 2002, tapVnetHdr: true,
     });
@@ -123,6 +126,11 @@ describe('Cloud Hypervisor agent-enclave host network boundary', () => {
       .rejects.toThrow(/bridge is unavailable/);
     await expect(resolveCloudHypervisorEnclaveNetwork(profile(), inspection(true).dependencies))
       .rejects.toThrow(/membership/);
+    await expect(resolveCloudHypervisorEnclaveNetwork(profile(true), inspection(true).dependencies, {}))
+      .rejects.toThrow(/gateway identity/);
+    await expect(resolveCloudHypervisorEnclaveNetwork(profile(true), inspection(true).dependencies, {
+      [ENCLAVE_MCP_GATEWAY_CONTAINER_ENV]: 'untrusted-container',
+    })).rejects.toThrow(/membership/);
     expect(() => profile(false, 18443)).toThrow(/supported engine port/);
     expect(() => createAgentEnclaveCloudHypervisorProfile({
       enclaveId: 'agent-entry',

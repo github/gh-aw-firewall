@@ -1,6 +1,7 @@
 import execa from 'execa';
 import { ENCLAVE_AGENT_API_PROXY_CONTAINER_NAME } from '../constants';
 import { getLocalDockerEnv } from '../docker-host';
+import { ENCLAVE_MCP_GATEWAY_CONTAINER_ENV } from '../enclave/gateway';
 import {
   ENCLAVE_AGENT_API_PROXY_IP,
   ENCLAVE_AGENT_GITHUB_MCP_IP,
@@ -49,8 +50,18 @@ const defaultInspection: EnclaveNetworkInspectionDependencies = {
 export async function resolveCloudHypervisorEnclaveNetwork(
   profile: CloudHypervisorAgentEnclaveProfile,
   inspection: EnclaveNetworkInspectionDependencies = defaultInspection,
+  env: NodeJS.ProcessEnv = process.env,
 ): Promise<Pick<MicrovmNetworkPlanOptions, 'infrastructureBridge' | 'enableApiProxy' | 'enclaveAgent'>> {
   validateCloudHypervisorWorkloadProfile(profile);
+  const gatewayName = profile.network.githubDataPlane
+    ? env[ENCLAVE_MCP_GATEWAY_CONTAINER_ENV]
+    : undefined;
+  if (
+    profile.network.githubDataPlane &&
+    (!gatewayName || !/^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/.test(gatewayName))
+  ) {
+    throw new Error('Compiler-owned GitHub gateway identity is missing or invalid');
+  }
   const raw = await inspection.inspectNetwork();
   if (!Array.isArray(raw) || raw.length !== 1 || !raw[0] || typeof raw[0] !== 'object') {
     throw new Error('Expected one dedicated agent-enclave Docker network');
@@ -76,7 +87,7 @@ export async function resolveCloudHypervisorEnclaveNetwork(
   const members = Object.values(network.Containers ?? {});
   const expected = [
     [ENCLAVE_AGENT_API_PROXY_CONTAINER_NAME, ENCLAVE_AGENT_API_PROXY_IP],
-    ...(profile.network.githubDataPlane ? [['awmg-mcpg', ENCLAVE_AGENT_GITHUB_MCP_IP]] : []),
+    ...(gatewayName ? [[gatewayName, ENCLAVE_AGENT_GITHUB_MCP_IP]] : []),
   ];
   if (
     members.length !== expected.length ||
