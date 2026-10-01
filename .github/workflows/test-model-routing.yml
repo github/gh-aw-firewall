@@ -1,12 +1,17 @@
-name: Released Model Routing Compatibility Smoke
+name: Model Routing End-to-End Smoke
 
 on:
   push:
     branches: [main]
     paths:
       - '.github/workflows/test-model-routing.yml'
+      - 'containers/api-proxy/Dockerfile'
       - 'containers/api-proxy/routing-*'
       - 'containers/api-proxy/fixtures/routing-contract/**'
+      - 'containers/api-proxy/management.js'
+      - 'containers/api-proxy/guards/model-policy-guard.js'
+      - 'containers/api-proxy/proxy-guards.js'
+      - 'containers/api-proxy/proxy-request.js'
       - 'containers/api-proxy/server.js'
       - 'containers/api-proxy/server-factory.js'
       - 'containers/api-proxy/startup.js'
@@ -34,13 +39,14 @@ permissions:
 
 env:
   AGENT_IMAGE: ghcr.io/github/gh-aw-firewall/agent:0.28.29@sha256:edcf17ae63dd74366bc911a74678b9e264d66ac51c48ec156c80e2619892ebbb
-  API_PROXY_IMAGE: ghcr.io/github/gh-aw-firewall/api-proxy:0.28.29@sha256:5cc683af8156b39c15bd2370615a85775a8b179bed9f49c490a3068d667dfa2b
   SQUID_IMAGE: ghcr.io/github/gh-aw-firewall/squid:0.28.29@sha256:1d5e169c4df14e87fc826261b94cf4ddaf2f08aca2a5b88701100ec193968193
+  # Model-routing runs require digest-pinned images; the proxy is built from source and pinned in the job.
+  API_PROXY_LOCAL_TAG: localhost:5000/awf/api-proxy:routing-smoke
   ROUTER_IMAGE: ghcr.io/githubnext/gh-aw-router:latest@sha256:d1612d0eaec3fa8f14c38bbd0a6a0682732fc9f83b7fec94219d3e757a048270
 
 jobs:
   model-routing:
-    name: Exercise live routing and Copilot inference
+    name: Exercise live routing, policy, and Copilot inference
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -67,6 +73,31 @@ jobs:
         run: |
           docker version
           docker compose version
+
+      - name: Prepare smoke images
+        run: |
+          set -euo pipefail
+          docker pull "$AGENT_IMAGE"
+          docker pull "$SQUID_IMAGE"
+          docker pull "$ROUTER_IMAGE"
+          docker run --detach --name awf-routing-registry \
+            --publish 127.0.0.1:5000:5000 registry:2.8.3
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:5000/v2/ >/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          curl --fail --silent http://127.0.0.1:5000/v2/ >/dev/null
+          # Exercise the API-proxy source under test, not the last released image.
+          docker build --tag "$API_PROXY_LOCAL_TAG" containers/api-proxy
+          docker push "$API_PROXY_LOCAL_TAG"
+          api_proxy_digest="$(docker image inspect --format='{{index .RepoDigests 0}}' "$API_PROXY_LOCAL_TAG" | sed 's/.*@//')"
+          [[ "$api_proxy_digest" =~ ^sha256:[a-f0-9]{64}$ ]] || {
+            echo "Could not resolve a sha256 digest for the locally built API proxy image" >&2
+            exit 1
+          }
+          printf 'API_PROXY_IMAGE=localhost:5000/awf/api-proxy:routing-smoke@%s\n' "$api_proxy_digest" >> "$GITHUB_ENV"
 
       - name: Run router/API-proxy planning smoke
         run: npm run test:integration -- --runInBand model-routing.test.ts
@@ -200,6 +231,33 @@ jobs:
             assert.match(text, /ROUTED_OK/, "Copilot did not return the expected smoke response: " + JSON.stringify(result).slice(0, 500));
             console.log("ROUTED_COPILOT_EFFORT_INFERENCE=passed model=gpt-5.4-mini endpoint=/responses");
           ' "$response"
+          for effort in none max; do
+            request="$(node -e '
+              console.log(JSON.stringify({
+                model: "gpt-5.4-mini",
+                input: "Reply with exactly ROUTED_OK.",
+                reasoning: { effort: process.argv[1] },
+                max_output_tokens: 2048,
+                stream: false,
+              }));
+            ' "$effort")"
+            response="$(curl --fail --silent --show-error --max-time 180 \
+              -H "Content-Type: application/json" \
+              --data "$request" \
+              "${COPILOT_API_URL}/responses")"
+            node -e '
+              const assert = require("node:assert/strict");
+              const result = JSON.parse(process.argv[1]);
+              const text = (result.output || [])
+                .filter(item => item.type === "message")
+                .flatMap(item => item.content || [])
+                .filter(part => part.type === "output_text")
+                .map(part => part.text)
+                .join("");
+              assert.match(text, /ROUTED_OK/, "Copilot failed an explicit effort request: " + JSON.stringify(result).slice(0, 500));
+              console.log("COPILOT_EFFORT_INFERENCE=passed effort=" + process.argv[2]);
+            ' "$response" "$effort"
+          done
           SCRIPT
           )"
           sudo --preserve-env=COPILOT_GITHUB_TOKEN,GITHUB_WORKSPACE,HOME,PATH \
@@ -226,6 +284,9 @@ jobs:
             allowedModels:
               - github-copilot/claude-haiku-4.5
               - github-copilot/gpt-5.4-mini
+              - github-copilot/gpt-4o
+            disallowedModels:
+              - github-copilot/gpt-4o
             routing:
               objective:
                 goal: cost
@@ -249,8 +310,34 @@ jobs:
           reflect="$(curl --fail --silent --show-error --max-time 30 "${COPILOT_API_URL}/reflect")"
           plan="$(node -e '
             const assert = require("node:assert/strict");
-            const routing = JSON.parse(process.argv[1]).routing;
+            const reflect = JSON.parse(process.argv[1]);
+            const routing = reflect.routing;
             assert.equal(routing?.status, "selected", "/reflect did not report a routed selection: " + JSON.stringify(routing));
+            const copilot = reflect.endpoints.find(endpoint => endpoint.provider === "copilot");
+            assert.ok(copilot, "Copilot is missing from /reflect");
+            const expectedModels = ["claude-haiku-4.5", "gpt-5.4-mini"];
+            assert.ok(Array.isArray(copilot.models), "Copilot model catalogue is missing");
+            assert.deepEqual(
+              [...copilot.models].sort(),
+              [...expectedModels].sort(),
+              "Copilot /reflect models should contain only policy-permitted candidates",
+            );
+            assert.deepEqual(
+              copilot.routing_models.map(model => model.model_id).sort(),
+              [...expectedModels].sort(),
+              "Copilot routing catalogue should be filtered by model policy",
+            );
+            assert.ok(
+              copilot.model_metadata === null || Array.isArray(copilot.model_metadata),
+              "Copilot model metadata should be null or an array",
+            );
+            if (copilot.model_metadata) {
+              assert.deepEqual(
+                copilot.model_metadata.map(model => model.id).sort(),
+                [...expectedModels].sort(),
+                "Copilot model metadata should be filtered by model policy",
+              );
+            }
             const s = routing.selection;
             const candidates = {
               "github-copilot/claude-haiku-4.5": {
@@ -287,6 +374,22 @@ jobs:
             assert.match(String(text), /ROUTED_OK/, "Copilot did not return the expected smoke response: " + JSON.stringify(result).slice(0, 500));
             console.log("ROUTED_MULTI_CANDIDATE_INFERENCE=passed target=" + process.argv[3] + " model=" + process.argv[2]);
           ' "$response" "$target" "$ROUTING_TARGET"
+          if [ "${ROUTING_TARGET}" = other ]; then
+            policy_error="$(mktemp)"
+            status="$(curl --silent --show-error --max-time 60 -o "$policy_error" -w '%{http_code}' \
+              -H "Content-Type: application/json" \
+              --data '{"model":"gpt-4o","messages":[{"role":"user","content":"This request must be blocked by model policy."}],"max_tokens":16,"stream":false}' \
+              "${COPILOT_API_URL}/chat/completions")"
+            node -e '
+              const assert = require("node:assert/strict");
+              assert.equal(process.argv[1], "403", "model policy did not reject a disallowed model");
+              const error = JSON.parse(require("node:fs").readFileSync(process.argv[2], "utf8")).error;
+              assert.equal(error?.type, "model_policy_violation");
+              assert.equal(error?.reason, "disallowed");
+              console.log("MODEL_POLICY=blocked disallowed model without failing routed run");
+            ' "$status" "$policy_error"
+            rm -f "$policy_error"
+          fi
           SCRIPT
           )"
 
@@ -387,6 +490,13 @@ jobs:
           docker ps -a
           docker network ls
 
+      - name: Stop local image registry
+        if: always()
+        run: |
+          if docker container inspect awf-routing-registry >/dev/null 2>&1; then
+            docker rm --force awf-routing-registry
+          fi
+
   native-provider-routing:
     name: Exercise live ${{ matrix.provider }} routing
     # Paid provider keys: run on the weekly schedule and on demand, not on every push.
@@ -423,6 +533,31 @@ jobs:
 
       - name: Build AWF
         run: npm run build
+
+      - name: Prepare smoke images
+        run: |
+          set -euo pipefail
+          docker pull "$AGENT_IMAGE"
+          docker pull "$SQUID_IMAGE"
+          docker pull "$ROUTER_IMAGE"
+          docker run --detach --name awf-routing-registry \
+            --publish 127.0.0.1:5000:5000 registry:2.8.3
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:5000/v2/ >/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          curl --fail --silent http://127.0.0.1:5000/v2/ >/dev/null
+          # Exercise the API-proxy source under test, not the last released image.
+          docker build --tag "$API_PROXY_LOCAL_TAG" containers/api-proxy
+          docker push "$API_PROXY_LOCAL_TAG"
+          api_proxy_digest="$(docker image inspect --format='{{index .RepoDigests 0}}' "$API_PROXY_LOCAL_TAG" | sed 's/.*@//')"
+          [[ "$api_proxy_digest" =~ ^sha256:[a-f0-9]{64}$ ]] || {
+            echo "Could not resolve a sha256 digest for the locally built API proxy image" >&2
+            exit 1
+          }
+          printf 'API_PROXY_IMAGE=localhost:5000/awf/api-proxy:routing-smoke@%s\n' "$api_proxy_digest" >> "$GITHUB_ENV"
 
       - name: Run a routed ${{ matrix.provider }} inference through AWF
         env:
@@ -535,3 +670,10 @@ jobs:
         run: |
           docker ps -a
           docker network ls
+
+      - name: Stop local image registry
+        if: always()
+        run: |
+          if docker container inspect awf-routing-registry >/dev/null 2>&1; then
+            docker rm --force awf-routing-registry
+          fi
