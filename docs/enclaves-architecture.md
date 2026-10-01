@@ -582,10 +582,18 @@ contract.
 
 ## Cloud Hypervisor enclave executor
 
-Cloud Hypervisor currently runs only the primary-agent preview and rejects
-enclave configurations. The planned per-invocation microVM executor is a
-separate host-owned component: `enclave-mcp-server` remains container-side and
-submits bounded, authenticated requests to it over a private Unix socket.
+Cloud Hypervisor currently runs only the primary-agent preview and still
+rejects enclave runtime selection. Its workload foundation can construct a
+script-enclave VM with an explicit closed no-network profile: the host creates
+only an empty per-run network namespace, supplies no virtual NIC, and omits
+guest interface, address, route, and DNS configuration. No bridge, veth, TAP,
+Squid, API proxy, mcpg, or external-network dependency is created. Durable
+cleanup records the namespace-only state explicitly and does not invent
+primary-agent network resources.
+
+The planned per-invocation microVM executor is a separate host-owned component:
+`enclave-mcp-server` remains container-side and submits bounded, authenticated
+requests to it over a private Unix socket.
 Its threat model, network and filesystem matrices, protocol, lifecycle, and
 rollout gates are defined in
 [ADR 0002: Cloud Hypervisor enclave executor](adr/0002-cloud-hypervisor-enclave-executor.md).

@@ -58,6 +58,8 @@ The implementation is divided into focused modules:
   computes Landlock rules.
 - `src/cloud-hypervisor/vm-config-builder.ts` constructs the `vm.create`
   payload.
+- `src/cloud-hypervisor/network-namespace.ts` creates and removes the empty,
+  per-run network namespace used by no-network script-enclave workloads.
 - `src/microvm/` contains shared network, workspace, VSOCK, guest-protocol, and
   artifact primitives.
 - `guest/microvm-supervisor/` contains the shared guest supervisor.
@@ -66,7 +68,7 @@ The implementation is divided into focused modules:
 
 ## Runtime lifecycle
 
-AWF performs these steps for each run:
+For the primary-agent preview, AWF performs these steps for each run:
 
 1. Validate the runtime flags, security mode, topology, host eligibility, and
    required artifact paths and digests.
@@ -131,6 +133,23 @@ state, or an unsafe record mode stops cleanup, reports an error, and preserves
 the record and resources for diagnosis. The record is removed only after normal
 teardown succeeds. `--keep-containers` is an explicit diagnostic opt-out: its
 record is removed while the requested resources remain preserved.
+
+### No-network script-enclave profile
+
+The script-enclave workload profile selects `network.mode: none`. Trusted
+host-side planning derives one run-scoped empty network namespace and launches
+the VMM inside it, but creates no NIC, TAP, veth pair, bridge attachment,
+address, route, DNS configuration, nftables service rule, Squid dependency, or
+API-proxy/mcpg path. The VM payload omits `net`, the guest command line omits
+interface/address/gateway arguments, and the VMM receives temporary access to
+`/dev/kvm` but not `/dev/net/tun`.
+
+The cleanup record represents this as a namespace-only resource rather than
+fabricating primary-agent interface fields. Namespace teardown is bounded and
+idempotent, including partial startup before VM creation. Agent-enclave
+networking remains fail-closed, and the enclave host executor and broker wiring
+remain disabled roadmap work; this foundation does not make Cloud Hypervisor
+selectable as an enclave runtime.
 
 ## Security boundaries
 

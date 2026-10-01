@@ -246,6 +246,13 @@ are compatibility aids only.
 The agent VM does not gain broader connectivity if its proxy or mcpg peer fails;
 it fails closed.
 
+For the script VM, `no NIC` is enforced by the trusted host workload plan. The
+VMM runs in a newly created, run-scoped empty network namespace and its
+`vm.create` payload contains no `net` device. Planning accepts no caller-supplied
+namespace, interface, bridge, address, route, DNS server, endpoint, or port.
+Cleanup records only the namespace and remains idempotent when TAP, veth, bridge,
+and route resources were never created.
+
 ## Filesystem and credential contract
 
 Host VFS policy, not a guest read/write flag, enforces exports.
