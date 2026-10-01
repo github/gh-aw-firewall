@@ -54,6 +54,8 @@ export interface CloudHypervisorExportValidationOptions {
   readonly allowReadOnlyWorkspace?: boolean;
   /** Set false for workload profiles that do not expose a primary workspace. */
   readonly requireWorkspace?: boolean;
+  /** Internal role-specific export ceiling; primary-agent keeps the four-export limit. */
+  readonly maxExports?: number;
 }
 
 export async function resolveCloudHypervisorExports(
@@ -165,8 +167,9 @@ export function validateCloudHypervisorExports(
   exports: readonly CloudHypervisorDirectoryExport[],
   options: CloudHypervisorExportValidationOptions = {},
 ): CloudHypervisorDirectoryExport[] {
-  if (exports.length === 0 || exports.length > MAX_EXPORTS) {
-    throw new Error(`Cloud Hypervisor requires 1-${MAX_EXPORTS} directory exports`);
+  const maxExports = options.maxExports ?? MAX_EXPORTS;
+  if (!Number.isInteger(maxExports) || maxExports < 1 || exports.length === 0 || exports.length > maxExports) {
+    throw new Error(`Cloud Hypervisor requires 1-${maxExports} directory exports`);
   }
   const tags = new Set<string>();
   const targets = new Set<string>();

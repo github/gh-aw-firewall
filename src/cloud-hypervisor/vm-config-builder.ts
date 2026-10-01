@@ -128,6 +128,7 @@ export function buildSupervisorBootArgs(
     `awf.virtiofs=${encodeVirtiofsBootArg(guestConfig.exports, {
       allowReadOnlyWorkspace: hasReadOnlyWorkspaceMountPlan(guestConfig.mountEnforcement),
       requireWorkspace: workspaceMount !== null,
+      ...(workspaceMount === null ? { maxExports: 6 } : {}),
     })}`,
     `awf.vsock-port=${port}`,
     ...(networkPlan

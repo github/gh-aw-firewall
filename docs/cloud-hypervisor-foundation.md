@@ -180,6 +180,32 @@ The optional `AWF_TEST_ENCLAVE_NETWORK=1` Jest integration test exercises
 permitted and denied TCP packets across this host nftables boundary on a
 privileged Linux host with working network namespaces and veth forwarding.
 
+### Enclave virtio-fs layouts (not launchable)
+
+Script and agent enclave exports are derived from the authenticated host
+executor's trusted run state and invocation plan. The plan accepts no path, tag,
+guest target, or permission from the broker. It resolves the selected static
+seed under the run's seed directory and the invocation's fixed child
+directories; all sources must already exist as canonical real directories.
+Planning creates no directories or mounts, so path or policy validation fails
+before filesystem side effects.
+
+Both roles receive the selected seed at `/input-seed` and the immutable
+invocation request at `/input-request`, both host-enforced read-only. Each role
+gets only its own `/output` and `/runtime` directories as writable exports.
+Agent enclaves additionally receive only the distinct
+`/session-handoff` and `/session-state` directories as writable exports; the
+parent invocation directory, delegation-control files, and executor state are
+never exported. No enclave export uses or synthesizes `/workspace`. Guest
+mount-tree overrides are rejected for enclaves, so guest cooperation cannot
+widen an export's host-enforced mode. Export tags, targets, counts, and modes
+are closed per role, with duplicate and overlapping targets rejected.
+
+The primary-agent layout remains the existing `/workspace` layout. The enclave
+export plan is not yet wired to a host executor; both script- and agent-enclave
+VM launches remain fail-closed until the host-executor and broker integration
+gates are implemented.
+
 ## Security boundaries
 
 ### Host eligibility and artifact trust

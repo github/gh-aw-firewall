@@ -1,3 +1,4 @@
+import * as path from 'path';
 import type { ExecaChildProcess } from 'execa';
 import type {
   MicrovmNetworkLifecycle,
@@ -9,6 +10,7 @@ import type { CloudHypervisorApiClient } from './api-client';
 import type { CloudHypervisorCgroup } from './launcher';
 import type { VirtiofsdManager } from './virtiofsd';
 import type { CloudHypervisorDirectoryExport } from './exports';
+import type { CloudHypervisorEnclaveExportRole, CloudHypervisorEnclaveExportPlan } from './enclave-export-plan';
 import {
   type CloudHypervisorManagerDependencies,
   type CloudHypervisorManagerNetworkConfig,
@@ -82,6 +84,50 @@ function guestConfig() {
     exports: exportsConfig,
     supervisorBinaryPath: '/opt/awf-supervisor',
     supervisorSha256: 'a'.repeat(64),
+  };
+}
+
+function enclaveExportPlan(
+  role: CloudHypervisorEnclaveExportRole,
+  entryId = role === 'script' ? 'script-entry' : 'agent-entry',
+  invocationId = role === 'script' ? 'b'.repeat(32) : 'd'.repeat(32),
+): CloudHypervisorEnclaveExportPlan {
+  const seedsDir = '/trusted/seeds';
+  const invocationsDir = '/trusted/invocations';
+  const seedId = 'c'.repeat(32);
+  const invocationHostDir = path.join(invocationsDir, entryId, invocationId);
+  const exports: CloudHypervisorDirectoryExport[] = [
+    { tag: 'enclave-seed', source: path.join(seedsDir, seedId), target: '/input-seed', mode: 'ro' },
+    { tag: 'enclave-request', source: path.join(invocationHostDir, 'request'), target: '/input-request', mode: 'ro' },
+    { tag: 'enclave-output', source: path.join(invocationHostDir, 'output'), target: '/output', mode: 'rw' },
+    { tag: 'enclave-runtime', source: path.join(invocationHostDir, 'runtime'), target: '/runtime', mode: 'rw' },
+  ];
+  if (role === 'agent') {
+    exports.push(
+      {
+        tag: 'enclave-session-handoff',
+        source: path.join(invocationHostDir, 'session-handoff'),
+        target: '/session-handoff',
+        mode: 'rw',
+      },
+      {
+        tag: 'enclave-session-state',
+        source: path.join(invocationHostDir, 'session-state'),
+        target: '/session-state',
+        mode: 'rw',
+      },
+    );
+  }
+  return {
+    role,
+    runId: 'a'.repeat(32),
+    entryId,
+    invocationId,
+    seedId,
+    seedsDir,
+    invocationsDir,
+    invocationHostDir,
+    exports,
   };
 }
 
@@ -266,4 +312,4 @@ function dependencies(
 }
 
 
-export { hostTools, exportsConfig, rootfsPreparerMock, virtiofsdManagerMock, config, processMock, networkConfig, guestConfig, createTestNetworkPlan, networkLifecycle, emptyNetworkLifecycle, cgroupMock, cleanupHandleMock, cleanupRegistryMock, vmmIdentityMock, dependencies };
+export { hostTools, exportsConfig, rootfsPreparerMock, virtiofsdManagerMock, config, processMock, networkConfig, guestConfig, enclaveExportPlan, createTestNetworkPlan, networkLifecycle, emptyNetworkLifecycle, cgroupMock, cleanupHandleMock, cleanupRegistryMock, vmmIdentityMock, dependencies };

@@ -5,13 +5,50 @@ import {
   createScriptEnclaveCloudHypervisorProfile,
   validateCloudHypervisorWorkloadProfile,
 } from './workload-profile';
+import type {
+  CloudHypervisorEnclaveExportPlan,
+  CloudHypervisorEnclaveExportRole,
+} from './enclave-export-plan';
+import * as path from 'path';
 
 const supervisor = {
-  exports: [{ tag: 'seed', source: '/seed', target: '/seed', mode: 'ro' as const }],
   supervisorBinaryPath: '/opt/awf-supervisor',
   supervisorSha256: 'a'.repeat(64),
-  workspaceMount: null as null,
 };
+
+function exportPlan(
+  role: CloudHypervisorEnclaveExportRole,
+  entryId = role === 'script' ? 'script-entry' : 'agent-entry',
+  invocationId = role === 'script' ? 'b'.repeat(32) : 'd'.repeat(32),
+): CloudHypervisorEnclaveExportPlan {
+  const seedsDir = '/trusted/seeds';
+  const invocationsDir = '/trusted/invocations';
+  const seedId = 'c'.repeat(32);
+  const invocationHostDir = path.join(invocationsDir, entryId, invocationId);
+  const exports: CloudHypervisorEnclaveExportPlan['exports'][number][] = [
+    { tag: 'enclave-seed', source: path.join(seedsDir, seedId), target: '/input-seed', mode: 'ro' },
+    { tag: 'enclave-request', source: path.join(invocationHostDir, 'request'), target: '/input-request', mode: 'ro' },
+    { tag: 'enclave-output', source: path.join(invocationHostDir, 'output'), target: '/output', mode: 'rw' },
+    { tag: 'enclave-runtime', source: path.join(invocationHostDir, 'runtime'), target: '/runtime', mode: 'rw' },
+  ];
+  if (role === 'agent') {
+    exports.push(
+      { tag: 'enclave-session-handoff', source: path.join(invocationHostDir, 'session-handoff'), target: '/session-handoff', mode: 'rw' },
+      { tag: 'enclave-session-state', source: path.join(invocationHostDir, 'session-state'), target: '/session-state', mode: 'rw' },
+    );
+  }
+  return {
+    role,
+    runId: 'a'.repeat(32),
+    entryId,
+    invocationId,
+    seedId,
+    seedsDir,
+    invocationsDir,
+    invocationHostDir,
+    exports,
+  };
+}
 
 function primaryProfile(): Record<string, any> {
   return structuredClone(createPrimaryAgentCloudHypervisorProfile({
@@ -36,16 +73,18 @@ function primaryProfile(): Record<string, any> {
 function scriptProfile(): Record<string, any> {
   return structuredClone(createScriptEnclaveCloudHypervisorProfile({
     enclaveId: 'script-entry',
-    invocationId: 'invocation-1',
+    invocationId: 'b'.repeat(32),
     guest: supervisor,
+    exportPlan: exportPlan('script'),
   })) as unknown as Record<string, any>;
 }
 
 function agentProfile(): Record<string, any> {
   return structuredClone(createAgentEnclaveCloudHypervisorProfile({
     enclaveId: 'agent-entry',
-    invocationId: 'invocation-2',
+    invocationId: 'd'.repeat(32),
     guest: supervisor,
+    exportPlan: exportPlan('agent'),
     apiProxy: { ip: '172.31.0.30', engine: 'copilot', profile: 'anthropic' },
   })) as unknown as Record<string, any>;
 }
@@ -78,8 +117,9 @@ describe('Cloud Hypervisor workload profiles', () => {
       'script-enclave',
       () => createScriptEnclaveCloudHypervisorProfile({
         enclaveId: 'script-entry',
-        invocationId: 'invocation-1',
+        invocationId: 'b'.repeat(32),
         guest: supervisor,
+        exportPlan: exportPlan('script'),
       }),
       'discard',
       'none',
@@ -88,8 +128,9 @@ describe('Cloud Hypervisor workload profiles', () => {
       'agent-enclave',
       () => createAgentEnclaveCloudHypervisorProfile({
         enclaveId: 'agent-entry',
-        invocationId: 'invocation-2',
+        invocationId: 'd'.repeat(32),
         guest: supervisor,
+        exportPlan: exportPlan('agent'),
         apiProxy: { ip: '172.31.0.30', engine: 'copilot', profile: 'anthropic' },
         githubDataPlane: { ip: '172.31.0.40', port: 8080 },
       }),
@@ -150,20 +191,28 @@ describe('Cloud Hypervisor workload profiles', () => {
 
   it.each([
     { tag: 'workspace', source: '/seed', target: '/seed', mode: 'ro' as const },
-    { tag: 'seed', source: '/workspace', target: '/workspace', mode: 'ro' as const },
-    { tag: 'seed', source: '/workspace', target: '/workspace/private', mode: 'ro' as const },
-  ])('rejects workspace export (tag=$tag, target=$target)', (workspaceExport) => {
-    const profile = {
-      ...createScriptEnclaveCloudHypervisorProfile({
-        enclaveId: 'script-entry',
-        invocationId: 'invocation',
-        guest: supervisor,
-      }),
-      guest: { ...supervisor, exports: [workspaceExport] },
-    };
+    { tag: 'enclave-seed', source: '/seed', target: '/workspace', mode: 'ro' as const },
+    { tag: 'enclave-seed', source: '/seed', target: '/workspace/private', mode: 'ro' as const },
+  ])('rejects caller-selected workspace export (tag=$tag, target=$target)', (workspaceExport) => {
+    const plan = exportPlan('script');
+    expect(() => createScriptEnclaveCloudHypervisorProfile({
+      enclaveId: 'script-entry',
+      invocationId: 'invocation',
+      guest: supervisor,
+      exportPlan: { ...plan, exports: [workspaceExport] },
+    })).toThrow();
+  });
 
-    expect(() => validateCloudHypervisorWorkloadProfile(profile))
-      .toThrow(/must not declare a primary workspace mount/);
+  it.each([
+    ['script-enclave', scriptProfile, 'script'],
+    ['agent-enclave', agentProfile, 'agent'],
+  ] as const)('keeps the exact closed %s export set', (_kind, create, role) => {
+    const expected = exportPlan(role).exports.map(({ tag, target, mode }) => ({ tag, target, mode }));
+    expect(create().guest.exports.map(({ tag, target, mode }: {
+      tag: string;
+      target: string;
+      mode: string;
+    }) => ({ tag, target, mode }))).toEqual(expected);
   });
 
   it.each([
@@ -206,6 +255,16 @@ describe('Cloud Hypervisor workload profiles', () => {
       scriptProfile,
       (profile: Record<string, any>) => { profile.guest.workspaceMount = '/workspace'; },
       /must not declare a primary workspace/,
+    ],
+    [
+      'a caller-supplied writable seed overlay',
+      scriptProfile,
+      (profile: Record<string, any>) => {
+        profile.guest.mountEnforcement = {
+          plans: [{ tag: 'enclave-seed', writableOverlays: [] }],
+        };
+      },
+      /must use its closed export access modes/,
     ],
     [
       'an invalid vsock port',
@@ -305,20 +364,24 @@ describe('Cloud Hypervisor workload profiles', () => {
     );
   });
 
-  it('allows the closed script-enclave profile to launch', () => {
+  it('keeps script-enclave execution fail-closed until host-executor integration', () => {
     const profile = createScriptEnclaveCloudHypervisorProfile({
       enclaveId: 'script-entry',
-      invocationId: 'invocation-1',
+      invocationId: 'b'.repeat(32),
       guest: supervisor,
+      exportPlan: exportPlan('script'),
     });
-    expect(() => assertCloudHypervisorWorkloadLaunchable(profile)).not.toThrow();
+    expect(() => assertCloudHypervisorWorkloadLaunchable(profile)).toThrow(
+      /not implemented; refusing to fall back/,
+    );
   });
 
-  it('keeps agent-enclave execution fail-closed', () => {
+  it('keeps agent-enclave execution fail-closed until host-executor integration', () => {
     const profile = createAgentEnclaveCloudHypervisorProfile({
       enclaveId: 'agent-entry',
-      invocationId: 'invocation-2',
+      invocationId: 'd'.repeat(32),
       guest: supervisor,
+      exportPlan: exportPlan('agent'),
       apiProxy: { ip: '172.31.0.30', engine: 'copilot', profile: 'anthropic' },
     });
     expect(() => assertCloudHypervisorWorkloadLaunchable(profile)).toThrow(

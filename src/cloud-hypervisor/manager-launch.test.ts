@@ -10,7 +10,7 @@ import { createScriptEnclaveCloudHypervisorProfile } from './workload-profile';
 
 import {
   hostTools, virtiofsdManagerMock, config, processMock, networkConfig, guestConfig,
-  createTestNetworkPlan, dependencies,
+  enclaveExportPlan, createTestNetworkPlan, dependencies,
 } from './manager.test-utils';
 
   describe('launch and boot', () => {
@@ -270,7 +270,7 @@ import {
     expect(deps.launch).not.toHaveBeenCalled();
   });
 
-  it('launches a script enclave in an empty namespace without network resources', async () => {
+  it('keeps script-enclave execution fail-closed before filesystem or VM side effects', async () => {
     const deps = dependencies();
     const manager = new CloudHypervisorManager(
       config(),
@@ -279,51 +279,25 @@ import {
       'script-enclave',
       createScriptEnclaveCloudHypervisorProfile({
         enclaveId: 'script-entry',
-        invocationId: 'invocation-1',
+        invocationId: 'b'.repeat(32),
         guest: {
-          exports: [{ tag: 'seed', source: '/seed', target: '/seed', mode: 'ro' }],
           supervisorBinaryPath: '/opt/awf-supervisor',
           supervisorSha256: 'a'.repeat(64),
-          workspaceMount: null,
         },
+        exportPlan: enclaveExportPlan('script'),
       }),
     );
 
-    const client = await manager.start();
-    expect(deps.preflight).toHaveBeenCalledTimes(1);
+    await expect(manager.start()).rejects.toThrow(
+      /script-enclave execution is not implemented; refusing to fall back/,
+    );
+    expect(deps.preflight).not.toHaveBeenCalled();
     expect(deps.reserveNetwork).not.toHaveBeenCalled();
     expect(deps.createNetwork).not.toHaveBeenCalled();
-    expect(deps.createEmptyNetworkNamespace).toHaveBeenCalledWith(
-      expect.objectContaining({
-        mode: 'none',
-        namespaceName: expect.stringMatching(/^awfvm-[0-9a-f]{12}$/),
-      }),
-      hostTools,
-      expect.any(Object),
-    );
-    const cleanupRecord = await (deps.cleanupRegistry.createPending as jest.Mock)
-      .mock.results[0].value as CloudHypervisorCleanupHandle;
-    expect(cleanupRecord.captureEmptyNetworkNamespace).toHaveBeenCalledWith(
-      expect.objectContaining({ mode: 'none' }),
-    );
-    expect(deps.launch).toHaveBeenCalledWith(
-      '/usr/bin/ip',
-      expect.arrayContaining([
-        'netns', 'exec', expect.stringMatching(/^awfvm-[0-9a-f]{12}$/),
-        '/usr/bin/setpriv',
-      ]),
-      expect.any(Object),
-    );
-    expect(client.vmCreate).toHaveBeenCalledWith(
-      expect.not.objectContaining({ net: expect.anything() }),
-    );
-    const vmConfig = (client.vmCreate as jest.Mock).mock.calls[0][0];
-    expect(vmConfig.payload.cmdline).not.toContain('awf.guest-ip=');
-    expect(vmConfig.payload.cmdline).not.toContain('awf.guest-gateway=');
-    const vmmIdentity = (deps.createVmmIdentity as jest.Mock).mock.results[0]
-      .value as CloudHypervisorVmmIdentityManager;
-    expect(vmmIdentity.validateTapOwnership).not.toHaveBeenCalled();
-    expect(vmmIdentity.withDeviceAccess).toHaveBeenCalledWith(expect.any(Function), false);
+    expect(deps.createEmptyNetworkNamespace).not.toHaveBeenCalled();
+    expect(deps.cleanupRegistry.createPending).not.toHaveBeenCalled();
+    expect(deps.createVirtiofsdManager).not.toHaveBeenCalled();
+    expect(deps.launch).not.toHaveBeenCalled();
   });
 
   it('configures one rootfs disk and virtio-fs devices, then stops daemons after the VMM', async () => {

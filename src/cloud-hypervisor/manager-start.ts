@@ -193,6 +193,7 @@ export async function startCloudHypervisor(
       validateCloudHypervisorExports(guestConfig.exports, {
         allowReadOnlyWorkspace: hasReadOnlyWorkspaceMountPlan(guestConfig.mountEnforcement),
         requireWorkspace: guestConfig.workspaceMount !== null,
+        ...(guestConfig.workspaceMount === null ? { maxExports: 6 } : {}),
       });
       const rootfsPreparationDirectory = path.join(
         workDir, 'cloud-hypervisor-rootfs', paths.runId,

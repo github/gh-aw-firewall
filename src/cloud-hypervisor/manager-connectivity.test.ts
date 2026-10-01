@@ -5,7 +5,7 @@ import { CloudHypervisorGuestChannel } from './guest-execution';
 import { createScriptEnclaveCloudHypervisorProfile } from './workload-profile';
 
 import {
-  rootfsPreparerMock, config, processMock, networkConfig, guestConfig, dependencies,
+  rootfsPreparerMock, config, processMock, networkConfig, guestConfig, enclaveExportPlan, dependencies,
 } from './manager.test-utils';
 
   describe('guest connectivity', () => {
@@ -174,13 +174,12 @@ import {
       'discard-output',
       createScriptEnclaveCloudHypervisorProfile({
         enclaveId: 'script-entry',
-        invocationId: 'invocation-1',
+        invocationId: 'b'.repeat(32),
         guest: {
-          exports: [{ tag: 'seed', source: '/seed', target: '/seed', mode: 'ro' }],
           supervisorBinaryPath: '/opt/awf-supervisor',
           supervisorSha256: 'a'.repeat(64),
-          workspaceMount: null,
         },
+        exportPlan: enclaveExportPlan('script'),
       }),
     );
     const guest = new CloudHypervisorGuestChannel({

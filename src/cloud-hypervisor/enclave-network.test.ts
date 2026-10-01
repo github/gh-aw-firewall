@@ -8,12 +8,11 @@ import {
   ENCLAVE_MCP_GATEWAY_IDENTITY_ENV,
   ENCLAVE_MCP_GATEWAY_RUN_LABEL,
 } from '../enclave/gateway';
+import { enclaveExportPlan } from './manager.test-utils';
 
 const guest = {
-  exports: [{ tag: 'seed', source: '/seed', target: '/seed', mode: 'ro' as const }],
   supervisorBinaryPath: '/opt/awf-supervisor',
   supervisorSha256: 'a'.repeat(64),
-  workspaceMount: null as null,
 };
 
 function profile(
@@ -23,8 +22,9 @@ function profile(
 ) {
   return createAgentEnclaveCloudHypervisorProfile({
     enclaveId: 'agent-entry',
-    invocationId: 'invocation-1',
+    invocationId: 'b'.repeat(32),
     guest,
+    exportPlan: enclaveExportPlan('agent', 'agent-entry', 'b'.repeat(32)),
     apiProxy: { ip: '172.31.0.30', engine, profile: providerProfile },
     ...(github ? { githubDataPlane: { ip: '172.31.0.40', port: 8080 } } : {}),
   });
@@ -160,14 +160,16 @@ describe('Cloud Hypervisor agent-enclave host network boundary', () => {
     })).rejects.toThrow(/membership/);
     expect(() => createAgentEnclaveCloudHypervisorProfile({
       enclaveId: 'agent-entry',
-      invocationId: 'invocation-1',
+      invocationId: 'b'.repeat(32),
       guest,
+      exportPlan: enclaveExportPlan('agent', 'agent-entry', 'b'.repeat(32)),
       apiProxy: { ip: '172.30.0.30', engine: 'copilot', profile: 'anthropic' },
     })).toThrow(/dedicated API proxy/);
     expect(() => createAgentEnclaveCloudHypervisorProfile({
       enclaveId: 'agent-entry',
-      invocationId: 'invocation-1',
+      invocationId: 'b'.repeat(32),
       guest,
+      exportPlan: enclaveExportPlan('agent', 'agent-entry', 'b'.repeat(32)),
       apiProxy: { ip: '172.31.0.30', engine: 'copilot', profile: 'anthropic' },
       githubDataPlane: { ip: '172.31.0.40', port: 18443 },
     })).toThrow(/compiler-owned GitHub data plane/);
