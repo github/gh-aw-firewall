@@ -244,7 +244,7 @@ function createBodyHandler({ handleRequestError, otel }) {
       ];
       for (const { type, message } of steeringMessages) {
         if (!message) continue;
-        const steered = injectSteeringMessage(body, provider, message);
+        const steered = injectSteeringMessage(body, provider, message, req.url);
         if (steered) {
           body = steered;
           logRequest('info', `${type}_steering`, {

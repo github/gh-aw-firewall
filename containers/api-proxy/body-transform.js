@@ -60,11 +60,18 @@ function sanitizeNullToolCallTypes(body) {
   };
 }
 
+function isMessagesRequest(requestPath) {
+  if (typeof requestPath !== 'string') return false;
+  const path = requestPath.split('?')[0].split('#')[0].replace(/\/+$/, '');
+  return path.endsWith('/messages');
+}
+
 /**
  * Inject a token-budget warning message into a request body.
  *
  * Handles three JSON body formats:
- *   - Anthropic  (/v1/messages)          — appends a text block to `system`
+ *   - Messages   (/v1/messages)          — appends a text block to `system`
+ *                                           (Anthropic and Copilot)
  *   - Gemini     (/v1beta/…generateContent) — appends a part to `systemInstruction`
  *   - OpenAI     (/v1/chat/completions)  — inserts a system message after any
  *                                           existing system messages
@@ -75,13 +82,14 @@ function sanitizeNullToolCallTypes(body) {
  * @param {Buffer} body       - Raw request body
  * @param {string} provider   - Provider name ('anthropic' | 'gemini' | 'openai' | 'copilot')
  * @param {string} message    - Warning text to inject
+ * @param {string} [requestPath] - Incoming request path
  * @returns {Buffer|null}
  */
-function injectSteeringMessage(body, provider, message) {
+function injectSteeringMessage(body, provider, message, requestPath = '') {
   let parsed = parseBodyAsObject(body);
   if (!parsed) return null;
 
-  if (provider === 'anthropic') {
+  if (provider === 'anthropic' || isMessagesRequest(requestPath)) {
     if (typeof parsed.system === 'string') {
       parsed = { ...parsed, system: parsed.system + '\n\n' + message };
     } else if (Array.isArray(parsed.system)) {

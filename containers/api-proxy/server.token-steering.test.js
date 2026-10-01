@@ -134,6 +134,46 @@ describe('token steering — getAndClearPendingSteeringMessage and injectSteerin
     expect(writtenBody2.messages[0].content).toContain('80%');
   });
 
+  it('injects Copilot Messages steering into the top-level system field', async () => {
+    process.env.AWF_AGENT_TIMEOUT_MINUTES = '10';
+    const start = 1_700_000_000_000;
+    const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(start);
+    resetTimeoutSteeringForTests();
+
+    const upstreamReq1 = makeProxyReq();
+    const upstreamReq2 = makeProxyReq();
+    jest.spyOn(https, 'request')
+      .mockImplementationOnce(() => upstreamReq1)
+      .mockImplementationOnce(() => upstreamReq2);
+
+    const makeCopilotRequest = (content) => {
+      const body = Buffer.from(JSON.stringify({
+        model: 'claude-sonnet-4',
+        system: 'Be helpful.',
+        messages: [{ role: 'user', content }],
+      }));
+      const req = new EventEmitter();
+      req.url = '/v1/messages';
+      req.method = 'POST';
+      req.headers = { 'content-type': 'application/json', 'content-length': String(body.length) };
+      const res = { headersSent: false, setHeader: jest.fn(), writeHead: jest.fn(), end: jest.fn() };
+      proxyRequest(req, res, 'api.githubcopilot.com', { Authorization: '******' }, 'copilot');
+      req.emit('data', body);
+      req.emit('end');
+      return flushPromises();
+    };
+
+    await makeCopilotRequest('First request');
+    nowSpy.mockReturnValue(start + (8 * 60 * 1000));
+    await makeCopilotRequest('Second request');
+
+    expect(upstreamReq2.write).toHaveBeenCalledTimes(1);
+    const writtenBody = JSON.parse(upstreamReq2.write.mock.calls[0][0].toString());
+    expect(writtenBody.system).toContain('[AWF TIME WARNING]');
+    expect(writtenBody.system).toContain('80%');
+    expect(writtenBody.messages).toEqual([{ role: 'user', content: 'Second request' }]);
+  });
+
   it('injects 80% warning into an OpenAI request body and clears it on the next request', async () => {
     // Two upstream request objects — one per proxyRequest call.
     let responseHandler;
