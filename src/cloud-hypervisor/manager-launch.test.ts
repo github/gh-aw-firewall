@@ -335,10 +335,20 @@ import {
         controlPeers: [{ ip: '172.30.0.60', ports: [8080] }],
         hostAliases: { 'awmg-mcpg': '172.30.0.60' },
       }),
-      guestConfig(),
+      { ...guestConfig(), identity: { uid: 3001, gid: 3002 } },
     );
 
     const client = await manager.start();
+    expect(deps.createVirtiofsdManager).toHaveBeenCalledWith(
+      '/opt/virtiofsd',
+      '/run/awf-cloud-hypervisor/cloud-hypervisor/guest',
+      '/run/awf-cloud-hypervisor/virtiofsd/guest',
+      expect.objectContaining({ uid: 2001, gid: 2002 }),
+      { uid: 3001, gid: 3002 },
+      expect.anything(),
+      expect.objectContaining({ mount: hostTools.mount, umount: hostTools.umount }),
+      expect.anything(),
+    );
     expect(deps.createRootfsPreparer).toHaveBeenCalledWith(
       expect.objectContaining({
         hostAliases: {

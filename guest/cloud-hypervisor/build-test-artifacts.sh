@@ -658,8 +658,8 @@ cat >"$OUTPUT/sbom.spdx.json" <<EOF
       "versionInfo": "${VIRTIOFSD_VERSION}",
       "downloadLocation": "https://static.crates.io/crates/virtiofsd/virtiofsd-${VIRTIOFSD_VERSION}.crate",
       "filesAnalyzed": false,
-      "licenseConcluded": "Apache-2.0 OR BSD-3-Clause",
-      "licenseDeclared": "Apache-2.0 OR BSD-3-Clause",
+      "licenseConcluded": "Apache-2.0 AND BSD-3-Clause",
+      "licenseDeclared": "Apache-2.0 AND BSD-3-Clause",
       "copyrightText": "NOASSERTION"
     },
     {
