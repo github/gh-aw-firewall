@@ -1989,7 +1989,12 @@ apiProxy:
 | `task.conversationFile` | non-empty string | Host path to the task conversation whose description the router classifies |
 
 The task conversation must be written by the workflow host before AWF starts.
-It is a JSON array in the router's
+Callers are responsible for preparing task-relevant conversation content before
+AWF starts. AWF classifies the supplied conversation as-is; it does not parse
+workflow prompt markup or remove injected system instructions. If a rendered
+prompt contains a system block, the caller should provide the task conversation
+without that unrelated block.
+The conversation is a JSON array in the router's
 conversation format, for example
 `[{"role":"user","parts":[{"text":"Fix the failing unit test."}]}]`, with at
 least one non-blank `user` message and at most 1 MiB. Its user messages form the
