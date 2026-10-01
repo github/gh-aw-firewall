@@ -152,10 +152,32 @@ interface/address/gateway arguments, and the VMM receives temporary access to
 
 The cleanup record represents this as a namespace-only resource rather than
 fabricating primary-agent interface fields. Namespace teardown is bounded and
-idempotent, including partial startup before VM creation. Agent-enclave
-networking remains fail-closed, and the enclave host executor and broker wiring
-remain disabled roadmap work; this foundation does not make Cloud Hypervisor
-selectable as an enclave runtime.
+idempotent, including partial startup before VM creation.
+
+### Agent-enclave network profile (not launchable)
+
+The agent-enclave plan uses the dedicated, internal `awf-enclave-agent` bridge,
+never `awf-net`. Host-side Docker network inspection verifies the fixed
+subnet, local internal bridge and exact peer membership before resolving its
+bridge interface. The plan selects only the configured engine's dedicated API
+proxy port at `172.31.0.30` and, when GitHub access is configured, the
+compiler-owned mcpg data-plane port 8080 at `172.31.0.40`. Neither mcpg's
+delegation-control listener nor any other port is admitted. The caller cannot
+provide a bridge, peer address, route, DNS server, TAP name or firewall rule.
+
+The VMM would join a per-run host network namespace with a TAP and veth
+attached to that verified bridge. Its host-namespace nftables forward chain
+defaults to drop, checks guest MAC and source IP, rejects DNS and host/link-local
+destinations, and accepts only the selected destination/port pairs; matching
+SNAT rules permit replies. This boundary applies even when guest software
+ignores proxy variables. The existing reservation and durable cleanup record
+track the namespace, veth, TAP and scoped bridge rule for rollback and
+idempotent teardown. The Cloud Hypervisor launch gate still rejects
+agent-enclave workloads before any network or VM side effects; the host
+executor and broker integration remain separate roadmap work.
+The optional `AWF_TEST_ENCLAVE_NETWORK=1` Jest integration test exercises
+permitted and denied TCP packets across this host nftables boundary on a
+privileged Linux host with working network namespaces and veth forwarding.
 
 ## Security boundaries
 

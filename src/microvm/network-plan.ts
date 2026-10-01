@@ -12,8 +12,8 @@ import {
   ENCLAVE_AGENT_API_PROXY_IP,
   ENCLAVE_AGENT_GITHUB_MCP_IP,
   ENCLAVE_AGENT_SUBNET,
+  ENCLAVE_GITHUB_MCP_PORT,
 } from '../enclave/network';
-import { ENCLAVE_GITHUB_MCP_PORT } from '../enclave/github-gateway';
 import { API_PROXY_PORTS } from '../types/ports';
 import type {
   MicrovmAllowedEndpoint,

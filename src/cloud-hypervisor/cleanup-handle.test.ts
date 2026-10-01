@@ -2,6 +2,7 @@ import { promises as fs } from 'fs';
 import * as path from 'path';
 import { DurableCloudHypervisorCleanupRegistry } from './cleanup-registry';
 import { createCleanupRegistryTestHarness } from './cleanup-registry.test-utils';
+import { createMicrovmNetworkPlan } from '../microvm/network';
 
 describe('cleanup handle integration', () => {
   let harness: Awaited<ReturnType<typeof createCleanupRegistryTestHarness>>;
@@ -103,6 +104,31 @@ describe('cleanup handle integration', () => {
   });
 
   describe('network and mount capture', () => {
+    it('commits the agent-enclave network and only its own resources to durable cleanup', async () => {
+      const paths = harness.runPaths('enclave-cleanup');
+      const plan = createMicrovmNetworkPlan(paths.runId, {
+        infrastructureBridge: 'br-aaaaaaaaaaaa',
+        enableApiProxy: false,
+        enclaveAgent: { apiProxyPort: 10002, githubDataPlane: false },
+        tapOwnerUid: 2001,
+        tapOwnerGid: 2002,
+      });
+      const registry = new DurableCloudHypervisorCleanupRegistry(harness.dependencies());
+      const handle = await registry.createPending(paths, process.execPath, '/usr/bin/ip');
+      await handle.captureNetworkPlan(plan);
+      const record = JSON.parse(await fs.readFile(
+        path.join(harness.temporaryRoot, 'pending-cleanup', `${paths.runId}.json`),
+        'utf8',
+      )) as { network: { mode: string; infrastructureBridge: string; hostVethName: string } };
+      expect(record.network).toMatchObject({
+        mode: 'enclave-agent',
+        infrastructureBridge: plan.infrastructureBridge,
+        hostVethName: plan.hostVethName,
+      });
+      await expect(handle.complete()).resolves.toBeUndefined();
+      await expect(handle.complete()).resolves.toBeUndefined();
+    });
+
     it.each([
       ['non-array output', '{}', /Unexpected interface inspection/],
       ['wrong interface', '[{"ifname":"other","ifindex":12}]', /Invalid interface inspection/],
