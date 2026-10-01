@@ -127,6 +127,7 @@ export interface CloudHypervisorManagerDependencies {
     runDirectory: string,
     shareDirectory: string,
     identity: { uid: number; gid: number },
+    workspaceIdentity: { uid: number; gid: number },
     cgroup: CloudHypervisorCgroup,
     tools: Pick<CloudHypervisorHostToolPaths, 'mount' | 'umount'>,
     cleanupRecord?: CloudHypervisorCleanupHandle,

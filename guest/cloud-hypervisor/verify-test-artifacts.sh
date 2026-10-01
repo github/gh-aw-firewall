@@ -33,7 +33,7 @@ done
 )
 
 "$ARTIFACT_DIR/cloud-hypervisor" --version | grep -F '53.0'
-"$ARTIFACT_DIR/virtiofsd" --version 2>&1 | grep -E '(^| )1\.10\.0($| )'
+"$ARTIFACT_DIR/virtiofsd" --version 2>&1 | grep -E '(^| )1\.13\.3($| )'
 grep -Fx 'CONFIG_VIRTIO_FS=y' "$ARTIFACT_DIR/kernel.config"
 file "$ARTIFACT_DIR/vmlinux.bin" | grep -E 'Linux kernel|boot executable'
 e2fsck -f -n "$ARTIFACT_DIR/rootfs.ext4"

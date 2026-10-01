@@ -4,7 +4,7 @@ import {
 } from '../types/runtime-options';
 import { version as AWF_VERSION } from '../../package.json';
 
-const VIRTIOFSD_RELEASE_VERSION = '1.10.0';
+const VIRTIOFSD_RELEASE_VERSION = '1.13.3';
 export const CLOUD_HYPERVISOR_ARTIFACT_RELEASE_TAG = `v${AWF_VERSION}`;
 
 export const CLOUD_HYPERVISOR_ARTIFACT_REPOSITORY = 'github/gh-aw-firewall';

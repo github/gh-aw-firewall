@@ -34,6 +34,7 @@ import {
       '/run/awf',
       '/run/awf-shares',
       { uid: 1000, gid: 1000 },
+      { uid: 1001, gid: 1001 },
       cgroupMock(),
       { mount: hostTools.mount, umount: hostTools.umount },
     )).toBeDefined();

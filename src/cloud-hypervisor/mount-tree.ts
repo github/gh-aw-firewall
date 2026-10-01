@@ -4,7 +4,7 @@ import type { CloudHypervisorDirectoryExport } from './exports';
 /**
  * Host mount-tree enforcement for virtiofsd exports.
  *
- * Cloud Hypervisor v53 and virtiofsd v1.10 have no per-path read-only option, so
+ * Cloud Hypervisor v53 and virtiofsd v1.13 have no per-path read-only option, so
  * a mixed read-only/read-write export cannot be expressed inside the guest. The
  * only trustworthy boundary is the host VFS: stage a private mount tree that is
  * recursively read-only and then bind the few writable paths back in as nested

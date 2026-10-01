@@ -412,6 +412,39 @@ test "$(cat "$RUN_ROOT/workspace-live-share/workspace/.hidden")" = changed
 test -x "$RUN_ROOT/workspace-live-share/workspace/bin/run"
 test "$(readlink "$RUN_ROOT/workspace-live-share/workspace/run-link")" = bin/run
 
+# virtiofsd squashes every guest uid/gid to the workspace identity
+# (--translate-uid/--translate-gid squash-guest:0:<id>:4294967295), so guest
+# creates, renames, chmods, and symlinks in a writable export must land on the
+# host owned by that identity and stay deletable by the unprivileged runner
+# user. The guest supervisor refuses uid 0 commands, so guest-root create/chown
+# squashing is covered by the virtiofsd argument-builder unit tests; here the
+# guest's own chown attempts to root or a foreign id must still leave the host
+# owner unchanged.
+expected_owner_id() {
+  local id=$1
+  if [ "$id" -lt 1000 ]; then id=1000; fi
+  printf '%s' "$id"
+}
+expected_owner="$(expected_owner_id "$(id -u)"):$(expected_owner_id "$(id -g)")"
+run_case virtiofs-ownership 0 \
+  'printf owned > owned.txt && mkdir -p owned-dir/nested && printf nested > owned-dir/nested/x && ln -s owned.txt owned-link && mv owned.txt owned-renamed.txt && chmod 600 owned-renamed.txt && echo AWF-OWNERSHIP-CREATE-OK && ! ( chown 0:0 owned-renamed.txt ) && echo AWF-OWNERSHIP-CHOWN-ROOT-DENIED && ! ( chown 12345:12345 owned-renamed.txt ) && echo AWF-OWNERSHIP-CHOWN-FOREIGN-DENIED'
+assert_sentinels virtiofs-ownership \
+  AWF-OWNERSHIP-CREATE-OK \
+  AWF-OWNERSHIP-CHOWN-ROOT-DENIED \
+  AWF-OWNERSHIP-CHOWN-FOREIGN-DENIED
+ownership_workspace="$RUN_ROOT/virtiofs-ownership/workspace"
+for owned_path in owned-renamed.txt owned-dir owned-dir/nested owned-dir/nested/x owned-link; do
+  actual_owner=$(stat -c '%u:%g' "$ownership_workspace/$owned_path")
+  if [ "$actual_owner" != "$expected_owner" ]; then
+    echo "case virtiofs-ownership: $owned_path is owned by $actual_owner, expected $expected_owner" >&2
+    exit 1
+  fi
+done
+test "$(stat -c '%a' "$ownership_workspace/owned-renamed.txt")" = 600
+test "$(readlink "$ownership_workspace/owned-link")" = owned.txt
+rm -rf "$ownership_workspace/owned-dir"
+test ! -e "$ownership_workspace/owned-dir"
+
 mkdir -p "$RUNNER_TEMP/gh-aw"
 printf 'cache-readable\n' >"$RUNNER_TEMP/gh-aw/awf-virtiofs-ro-probe"
 run_case runtime-cache-readonly 0 \

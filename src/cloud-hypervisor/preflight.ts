@@ -50,7 +50,7 @@ import {
  * tools) so both VMM backends share the same fail-closed posture.
  *
  * Cloud Hypervisor has no jailer-equivalent process. AWF instead requires
- * the pinned v1.10.0 virtiofsd sibling used for directory exports, while
+ * the pinned v1.13.3 virtiofsd sibling used for directory exports, while
  * `src/cloud-hypervisor/launcher.ts` builds an equivalent
  * network-namespace-join + privilege-drop + Landlock/seccomp launch using
  * the `setpriv` tool resolved here, and `src/cloud-hypervisor/manager.ts`
@@ -467,7 +467,7 @@ export function parseCloudHypervisorVersion(output: string): string {
   return match[1];
 }
 
-export const VIRTIOFSD_RELEASE_VERSION = '1.10.0';
+export const VIRTIOFSD_RELEASE_VERSION = '1.13.3';
 
 export function parseVirtiofsdVersion(output: string): string {
   const match = output.match(/(?:^|\s)v?(\d+\.\d+\.\d+)(?:\s|$)/);

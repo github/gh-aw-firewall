@@ -254,7 +254,8 @@ export async function startCloudHypervisor(
       if (guestConfig) {
         const virtiofsd = dependencies.createVirtiofsdManager(
           artifacts.virtiofsdBinary, paths.runDirectory, paths.virtiofsdShareDirectory,
-          identity, cgroup, { mount: artifacts.tools.mount, umount: artifacts.tools.umount },
+          identity, guestIdentity, cgroup,
+          { mount: artifacts.tools.mount, umount: artifacts.tools.umount },
           cleanupRecord,
         );
         context.setVirtiofsd(virtiofsd);

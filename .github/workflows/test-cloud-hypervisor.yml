@@ -72,11 +72,16 @@ jobs:
             file \
             flex \
             libcap2-bin \
+            libcap-ng-dev \
             libelf-dev \
+            libseccomp-dev \
             libssl-dev \
+            pkg-config \
             rsync \
-            virtiofsd \
             xz-utils
+          # virtiofsd is built from pinned upstream source by
+          # build-test-artifacts.sh with the rustup toolchain it pins.
+          rustup --version
 
       - name: Build and verify pinned artifacts
         run: |

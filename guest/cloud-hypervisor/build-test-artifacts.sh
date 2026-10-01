@@ -25,7 +25,16 @@ umask 077
 # for external tooling to pin against, not just as an ephemeral CI artifact.
 
 CLOUD_HYPERVISOR_VERSION=53.0
-VIRTIOFSD_VERSION=1.10.0
+# virtiofsd is built from the pinned upstream release source published to
+# crates.io (gitlab.com/virtio-fs/virtiofsd tag v${VIRTIOFSD_VERSION}). v1.13+
+# is required for --translate-uid/--translate-gid, which AWF uses to squash
+# every guest uid/gid (including guest root) to the workspace user. The crate
+# digest is pinned, its embedded VCS commit is checked, and the build uses the
+# crate's own Cargo.lock with --locked.
+VIRTIOFSD_VERSION=1.13.3
+VIRTIOFSD_CRATE_SHA256=162e60c45fbfeaf1d3f8407d788d4b5a0a718f49f469ccd3c7140480716d7677
+VIRTIOFSD_SOURCE_COMMIT=bbf82173682a3e48083771a0a23331e5c23b4924
+VIRTIOFSD_RUST_TOOLCHAIN=1.98.1
 CLOUD_HYPERVISOR_BINARY_SHA256=448af3d4e59b22c2987f7df94c213ad40fb53a10d437e42b5ee6c4fce7c29ecc
 LINUX_VERSION=6.1.141
 LINUX_SHA256=bc3c45faf6f5f0450666c75fa9dad9bc7c0cf7c7cba0dbd94e5cfdc58229c116
@@ -46,7 +55,7 @@ if [ "$(uname -s)" != Linux ] || [ "$(uname -m)" != x86_64 ]; then
   exit 1
 fi
 
-for tool in curl sha256sum tar make gcc ld mke2fs e2fsck go node docker sudo getcap setcap jq; do
+for tool in curl sha256sum tar make gcc ld mke2fs e2fsck go node docker sudo getcap setcap jq rustup pkg-config; do
   command -v "$tool" >/dev/null || {
     echo "required build tool not found: $tool" >&2
     exit 1
@@ -98,15 +107,44 @@ download_verified \
   "$binary"
 chmod 0755 "$binary"
 
-virtiofsd_source=/usr/libexec/virtiofsd
-test -x "$virtiofsd_source" || {
-  echo "Ubuntu Noble virtiofsd is required at $virtiofsd_source" >&2
+for library in libcap-ng libseccomp; do
+  pkg-config --exists "$library" || {
+    echo "virtiofsd build requires the $library development package" >&2
+    exit 1
+  }
+done
+virtiofsd_crate="$BUILD/downloads/virtiofsd-${VIRTIOFSD_VERSION}.crate"
+download_verified \
+  "https://static.crates.io/crates/virtiofsd/virtiofsd-${VIRTIOFSD_VERSION}.crate" \
+  "$VIRTIOFSD_CRATE_SHA256" \
+  "$virtiofsd_crate"
+tar --extract --gzip --file "$virtiofsd_crate" --directory "$BUILD"
+virtiofsd_src="$BUILD/virtiofsd-${VIRTIOFSD_VERSION}"
+jq -er '.git.sha1' "$virtiofsd_src/.cargo_vcs_info.json" | grep -Fxq "$VIRTIOFSD_SOURCE_COMMIT" || {
+  echo "virtiofsd crate does not record upstream commit $VIRTIOFSD_SOURCE_COMMIT" >&2
   exit 1
 }
-"$virtiofsd_source" --version 2>&1 | grep -Eq "(^| )${VIRTIOFSD_VERSION}($| )"
-virtiofsd_package=$(dpkg-query --search "$virtiofsd_source" | head -1 | cut -d: -f1)
-virtiofsd_package_version=$(dpkg-query --show --showformat='${Version}' "$virtiofsd_package")
-install -m 0755 "$virtiofsd_source" "$OUTPUT/virtiofsd"
+test -f "$virtiofsd_src/Cargo.lock" || {
+  echo "virtiofsd crate is missing its Cargo.lock" >&2
+  exit 1
+}
+virtiofsd_cargo_lock_sha256=$(sha256sum "$virtiofsd_src/Cargo.lock" | awk '{print $1}')
+rustup toolchain install "$VIRTIOFSD_RUST_TOOLCHAIN" --profile minimal --no-self-update
+virtiofsd_rustc_version=$(rustup run "$VIRTIOFSD_RUST_TOOLCHAIN" rustc --version)
+env \
+  CARGO_HOME="$BUILD/cargo-home" \
+  CARGO_TARGET_DIR="$BUILD/virtiofsd-target" \
+  CARGO_INCREMENTAL=0 \
+  SOURCE_DATE_EPOCH="$SOURCE_DATE_EPOCH" \
+  RUSTFLAGS="--remap-path-prefix=$virtiofsd_src=/virtiofsd --remap-path-prefix=$BUILD/cargo-home=/cargo" \
+  rustup run "$VIRTIOFSD_RUST_TOOLCHAIN" cargo build \
+    --manifest-path "$virtiofsd_src/Cargo.toml" \
+    --release \
+    --locked
+virtiofsd_built="$BUILD/virtiofsd-target/release/virtiofsd"
+"$virtiofsd_built" --version 2>&1 | grep -Eq "(^| )${VIRTIOFSD_VERSION}($| )"
+"$virtiofsd_built" --help 2>&1 | grep -Fq -- '--translate-uid'
+install -m 0755 "$virtiofsd_built" "$OUTPUT/virtiofsd"
 
 linux_tar="$BUILD/downloads/linux-${LINUX_VERSION}.tar.xz"
 kernel_config="$ROOT/guest/cloud-hypervisor/kernel.config"
@@ -500,9 +538,14 @@ cat >"$OUTPUT/manifest.json" <<EOF
   },
   "virtiofsd": {
     "version": "${VIRTIOFSD_VERSION}",
-    "source": "Ubuntu Noble /usr/libexec/virtiofsd package artifact",
-    "package": "${virtiofsd_package}",
-    "packageVersion": "${virtiofsd_package_version}",
+    "source": "https://gitlab.com/virtio-fs/virtiofsd/-/tree/v${VIRTIOFSD_VERSION}",
+    "sourceTag": "v${VIRTIOFSD_VERSION}",
+    "sourceCommit": "${VIRTIOFSD_SOURCE_COMMIT}",
+    "crate": "https://static.crates.io/crates/virtiofsd/virtiofsd-${VIRTIOFSD_VERSION}.crate",
+    "crateSha256": "${VIRTIOFSD_CRATE_SHA256}",
+    "cargoLockSha256": "${virtiofsd_cargo_lock_sha256}",
+    "build": "cargo build --release --locked",
+    "rustToolchain": "${virtiofsd_rustc_version}",
     "binarySha256": "$(sha256sum "$OUTPUT/virtiofsd" | awk '{print $1}')"
   },
   "kernel": {
@@ -613,7 +656,7 @@ cat >"$OUTPUT/sbom.spdx.json" <<EOF
       "name": "virtiofsd",
       "SPDXID": "SPDXRef-Virtiofsd",
       "versionInfo": "${VIRTIOFSD_VERSION}",
-      "downloadLocation": "https://packages.ubuntu.com/noble/virtiofsd",
+      "downloadLocation": "https://static.crates.io/crates/virtiofsd/virtiofsd-${VIRTIOFSD_VERSION}.crate",
       "filesAnalyzed": false,
       "licenseConcluded": "Apache-2.0 OR BSD-3-Clause",
       "licenseDeclared": "Apache-2.0 OR BSD-3-Clause",

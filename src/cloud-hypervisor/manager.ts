@@ -126,9 +126,10 @@ const defaultDependencies: CloudHypervisorManagerDependencies = {
     copyRootfs,
   }),
   createVirtiofsdManager: (
-    binaryPath, runDirectory, shareDirectory, identity, cgroup, tools, cleanupRecord,
+    binaryPath, runDirectory, shareDirectory, identity, workspaceIdentity, cgroup, tools, cleanupRecord,
   ) => new VirtiofsdManager(
-    binaryPath, runDirectory, shareDirectory, identity, cgroup, tools, undefined, cleanupRecord,
+    binaryPath, runDirectory, shareDirectory, identity, workspaceIdentity, cgroup, tools, undefined,
+    cleanupRecord,
   ),
   createVsockClient: (socketPath, guestPort, timeoutMs) => new MicrovmVsockClient({
     socketPath,

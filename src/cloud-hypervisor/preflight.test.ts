@@ -13,6 +13,7 @@ import {
   parseCloudHypervisorVersion,
   parseVirtiofsdVersion,
   runCloudHypervisorPreflight,
+  VIRTIOFSD_RELEASE_VERSION,
   type CloudHypervisorPreflightDependencies,
 } from './preflight';
 
@@ -33,7 +34,7 @@ function manifest(): string {
     },
     artifacts: {
       cloudHypervisor: { file: 'cloud-hypervisor', version: '53.0', sha256: digest },
-      virtiofsd: { file: 'virtiofsd', version: '1.10.0', sha256: digest },
+      virtiofsd: { file: 'virtiofsd', version: '1.13.3', sha256: digest },
       kernel: { file: 'vmlinux.bin', version: '6.1.141', sha256: digest },
       rootfs: { file: 'rootfs.ext4', version: 'v0.23.1', sha256: digest },
       supervisor: { file: 'awf-supervisor', version: 'v0.23.1', sha256: digest },
@@ -75,7 +76,7 @@ function dependencies(
       uid: 0,
     }),
     runVersion: jest.fn(async (binaryPath: string) => (
-      binaryPath.endsWith('/virtiofsd') ? 'virtiofsd backend 1.10.0' : 'cloud-hypervisor v53.0'
+      binaryPath.endsWith('/virtiofsd') ? 'virtiofsd 1.13.3' : 'cloud-hypervisor v53.0'
     )),
     sha256: jest.fn().mockResolvedValue(digest),
     readFile: jest.fn().mockResolvedValue(manifest()),
@@ -346,7 +347,9 @@ describe('Cloud Hypervisor preflight (foundation only)', () => {
     expect(() => parseCloudHypervisorVersion('unknown')).toThrow(/Could not parse/);
   });
 
-  it('parses and pins virtiofsd v1.10.0 output', () => {
+  it('parses and pins virtiofsd v1.13.3 output', () => {
+    expect(VIRTIOFSD_RELEASE_VERSION).toBe('1.13.3');
+    expect(parseVirtiofsdVersion('virtiofsd 1.13.3')).toBe('1.13.3');
     expect(parseVirtiofsdVersion('virtiofsd backend 1.10.0')).toBe('1.10.0');
     expect(() => parseVirtiofsdVersion('virtiofsd unknown')).toThrow(/Could not parse/);
   });
@@ -431,7 +434,7 @@ describe('Cloud Hypervisor preflight (foundation only)', () => {
     const runVersion = jest.fn()
       .mockRejectedValueOnce(new Error('"cloud-hypervisor --version" exited with code undefined'))
       .mockResolvedValueOnce('cloud-hypervisor v53.0')
-      .mockResolvedValueOnce('virtiofsd backend 1.10.0');
+      .mockResolvedValueOnce('virtiofsd 1.13.3');
     await expect(runCloudHypervisorPreflight(
       config(),
       dependencies({ runVersion }),
@@ -576,10 +579,10 @@ describe('Cloud Hypervisor preflight (foundation only)', () => {
       config(),
       dependencies({
         runVersion: jest.fn(async (filePath: string) => (
-          filePath.endsWith('/virtiofsd') ? 'virtiofsd backend 1.9.0' : 'cloud-hypervisor v53.0'
+          filePath.endsWith('/virtiofsd') ? 'virtiofsd backend 1.10.0' : 'cloud-hypervisor v53.0'
         )),
       }),
-    )).rejects.toThrow(/virtiofsd is pinned to v1\.10\.0/);
+    )).rejects.toThrow(/virtiofsd is pinned to v1\.13\.3; found v1\.10\.0/);
   });
 
   it('verifies Cloud Hypervisor digest before invoking the binary', async () => {

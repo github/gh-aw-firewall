@@ -277,7 +277,9 @@ Before any virtio-fs socket is included in the Cloud Hypervisor VM
 configuration, AWF verifies the live parent and worker through `/proc`:
 
 - the parent PID still has its launch-time start value, trusted executable, and
-  exact socket, export, sandbox, and seccomp arguments;
+  exact socket, export, sandbox, seccomp, and uid/gid translation arguments,
+  with no `--xattr`, `--xattrmap`, `--posix-acl`, `--security-label`, or `-o`
+  option;
 - parent and worker UIDs/GIDs match the reviewed root namespace identity;
 - every parent capability set is empty, while the worker effective and
   permitted masks equal the pinned minimal virtiofsd set, its inheritable and
@@ -301,6 +303,51 @@ startup, AWF preserves the failure record under
 cleanup removes the private run directory. This verification follows the
 proven post-launch model from `agent-microvm` v0.9.0 rather than relying only on
 `--sandbox=namespace` and socket existence.
+
+### Guest uid/gid squashing in exports
+
+The guest supervisor runs as guest root, so a compromised agent that reaches
+guest root must not be able to choose host file ownership inside writable
+exports. Before v1.13, virtiofsd applied guest-requested owners verbatim and
+performed guest-root operations as its own host-root identity, so guest root
+could create host-root-owned files or `chown` files to any host uid/gid.
+
+AWF therefore pins virtiofsd v1.13.3, built from the pinned upstream source
+(crates.io `virtiofsd-1.13.3.crate`, digest-pinned, upstream commit
+`bbf82173682a3e48083771a0a23331e5c23b4924`, `cargo build --release --locked`
+with a pinned Rust toolchain; the manifest records the tag, commit, crate and
+`Cargo.lock` digests, toolchain, and binary digest). Every export is launched
+with:
+
+```text
+--translate-uid=squash-guest:0:<workspace uid>:4294967295
+--translate-gid=squash-guest:0:<workspace gid>:4294967295
+```
+
+The workspace uid/gid is the same non-root identity AWF passes to the guest
+agent. Every guest uid/gid used to create a file or assign an owner, including
+0, maps to that single host identity, so guest-root creates land as the
+workspace user and `chown` cannot forge host ownership; the runner user can
+always modify or delete what the guest left behind. The host-to-guest
+direction is not translated, so `stat` in the guest still shows real host ids.
+AWF fails closed before launch if the workspace uid or gid is unresolved, 0,
+or out of range, and the post-launch command-line verification rejects a
+daemon whose live arguments lack either translation.
+
+virtiofsd itself still runs as host root; translation is applied inside the
+daemon and does not need a user namespace, `newuidmap`, or subuid ranges. The
+reviewed sandbox assertions are unchanged against v1.13.3: with
+`--inode-file-handles=never` the worker still holds exactly `CHOWN`,
+`DAC_OVERRIDE`, `FOWNER`, `FSETID`, `SETGID`, `SETUID`, `MKNOD`, and `SETFCAP`
+(`00000000880000db`) with an empty bounding set, `NoNewPrivs: 1`, and seccomp
+filter mode `2`, while the parent holds no capabilities.
+
+Translation does not cover extended attributes, and upstream documents it as
+incompatible with `--posix-acl`. AWF never passes `--xattr`, `--xattrmap`,
+`--posix-acl`, `--security-label`, or legacy `-o` options, so the guest cannot
+set `security.*` or `trusted.*` xattrs such as file capabilities on host
+files. Both the argument builder and the post-launch command-line check
+enforce this invariant.
 
 ### Credential isolation
 
@@ -457,7 +504,7 @@ enforced — is described in
 
 ## Host mount-tree enforcement
 
-Cloud Hypervisor v53 and virtiofsd v1.10 expose no per-path read-only option, so
+Cloud Hypervisor v53 and virtiofsd v1.13 expose no per-path read-only option, so
 a mixed read-only/read-write export cannot be described to the guest, and a
 guest-side read-only mount is not a security boundary. The only trustworthy
 boundary is the host VFS.
