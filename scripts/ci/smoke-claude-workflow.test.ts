@@ -9,6 +9,7 @@ describe('smoke claude workflow optimization config', () => {
   it('uses pre-computed result step and max-turns 8 in source workflow', () => {
     const source = fs.readFileSync(smokeClaudeSourcePath, 'utf-8');
 
+    expect(source).toContain('version: 2.1.280');
     expect(source).toContain('max-turns: 8');
     expect(source).toContain('Check GitHub.com reachability');
     expect(source).toContain('/tmp/gh-aw/agent/smoke-context.txt');
@@ -45,6 +46,7 @@ describe('smoke claude workflow optimization config', () => {
   it('compiles the workflow without playwright tools and with max-turns 8', () => {
     const lock = fs.readFileSync(smokeClaudeLockPath, 'utf-8');
 
+    expect(lock).toContain('@anthropic-ai/claude-code@2.1.280');
     expect(lock).toContain('--max-turns 8');
     expect(lock).toContain('Check GitHub.com reachability');
     expect(lock).toContain('playwright_check=✅ PASS');
