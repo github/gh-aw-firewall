@@ -190,17 +190,20 @@ describe('Cloud Hypervisor workload profiles', () => {
   });
 
   it.each([
-    { tag: 'workspace', source: '/seed', target: '/seed', mode: 'ro' as const },
-    { tag: 'enclave-seed', source: '/seed', target: '/workspace', mode: 'ro' as const },
-    { tag: 'enclave-seed', source: '/seed', target: '/workspace/private', mode: 'ro' as const },
+    { tag: 'workspace', target: '/seed' },
+    { tag: 'enclave-seed', target: '/workspace' },
+    { tag: 'enclave-seed', target: '/workspace/private' },
   ])('rejects caller-selected workspace export (tag=$tag, target=$target)', (workspaceExport) => {
     const plan = exportPlan('script');
+    const exports = plan.exports.map((entry, index) => (
+      index === 0 ? { ...entry, ...workspaceExport } : entry
+    ));
     expect(() => createScriptEnclaveCloudHypervisorProfile({
       enclaveId: 'script-entry',
-      invocationId: 'invocation',
+      invocationId: plan.invocationId,
       guest: supervisor,
-      exportPlan: { ...plan, exports: [workspaceExport] },
-    })).toThrow();
+      exportPlan: { ...plan, exports },
+    })).toThrow(/invalid "enclave-seed" export/);
   });
 
   it.each([

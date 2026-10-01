@@ -50,7 +50,7 @@ func parseBootConfig(cmdline string) (bootConfig, error) {
 	}
 	required := []string{"awf.vsock-port"}
 	if !noNetwork {
-		required = append(required, "awf.workspace-mount",
+		required = append(required,
 			"awf.guest-ip", "awf.guest-prefix", "awf.guest-gateway", "awf.guest-interface")
 	} else {
 		for _, key := range []string{
@@ -89,7 +89,8 @@ func parseBootConfig(cmdline string) (bootConfig, error) {
 		return bootConfig{}, fmt.Errorf("invalid awf.workspace-device")
 	}
 	workspaceMount := values["awf.workspace-mount"]
-	if !noNetwork && (!filepath.IsAbs(workspaceMount) || filepath.Clean(workspaceMount) != workspaceMount || workspaceMount == "/") {
+	if !noNetwork && workspaceMount != "" &&
+		(!filepath.IsAbs(workspaceMount) || filepath.Clean(workspaceMount) != workspaceMount || workspaceMount == "/") {
 		return bootConfig{}, fmt.Errorf("invalid awf.workspace-mount")
 	}
 	iface := values["awf.guest-interface"]
@@ -104,6 +105,15 @@ func parseBootConfig(cmdline string) (bootConfig, error) {
 		for _, fsMount := range virtiofsMounts {
 			if fsMount.Tag == "workspace" {
 				return bootConfig{}, fmt.Errorf("workspace virtiofs mount is not allowed without a workspace")
+			}
+		}
+	} else if workspaceMount == "" {
+		if device != "" {
+			return bootConfig{}, fmt.Errorf("awf.workspace-device requires awf.workspace-mount")
+		}
+		for _, fsMount := range virtiofsMounts {
+			if fsMount.Tag == "workspace" {
+				return bootConfig{}, fmt.Errorf("workspace virtiofs mount requires awf.workspace-mount")
 			}
 		}
 	} else if device == "" {

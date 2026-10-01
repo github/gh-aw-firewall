@@ -1,11 +1,13 @@
 import { promises as fs } from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { execFileSync } from 'child_process';
 import {
   resolveCloudHypervisorEnclaveExportPlan,
   validateCloudHypervisorEnclaveExportPlan,
 } from './enclave-export-plan';
 import { buildSupervisorBootArgs, encodeVirtiofsBootArg } from './vm-config-builder';
+import { createTestNetworkPlan } from './manager.test-utils';
 import type {
   HostExecutorInvocationPlan,
   HostExecutorRunState,
@@ -119,7 +121,8 @@ describe('Cloud Hypervisor enclave export plans', () => {
       expect.objectContaining({ target: '/workspace' }),
     ]));
     expect(validateCloudHypervisorEnclaveExportPlan(plan, role)).toEqual(plan.exports);
-    const bootArgs = buildSupervisorBootArgs(undefined, {
+    const networkPlan = role === 'agent' ? createTestNetworkPlan() : undefined;
+    const bootArgs = buildSupervisorBootArgs(networkPlan, {
       exports: plan.exports,
       supervisorBinaryPath: '/opt/awf-supervisor',
       supervisorSha256: 'a'.repeat(64),
@@ -130,6 +133,16 @@ describe('Cloud Hypervisor enclave export plans', () => {
       maxExports: 6,
     })}`);
     expect(bootArgs).not.toContain('awf.workspace-mount=');
+    if (role === 'agent') {
+      execFileSync(
+        'go',
+        ['test', '-run', '^TestParseBootConfigAcceptsWorkspaceLessNetworkedVirtiofs$'],
+        {
+          cwd: path.resolve(__dirname, '../../guest/microvm-supervisor'),
+          env: { ...process.env, AWF_TEST_BOOT_CMDLINE: bootArgs },
+        },
+      );
+    }
   });
 
   it('rejects caller-selected host paths and role-inappropriate seed state before side effects', async () => {

@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"os"
+	"testing"
+)
 
 const validCmdline = "console=ttyS0 awf.workspace-device=/dev/vdb awf.workspace-mount=/workspace awf.vsock-port=1024 awf.guest-ip=192.0.2.2 awf.guest-prefix=24 awf.guest-gateway=192.0.2.1 awf.guest-interface=eth0"
 
@@ -41,6 +44,20 @@ func TestParseBootConfigAcceptsWorkspaceLessNoNetwork(t *testing.T) {
 	}
 	if !config.NoNetwork || config.WorkspaceMount != "" || config.GuestIP != nil || len(config.VirtiofsMounts) != 1 {
 		t.Fatalf("unexpected no-network config: %#v", config)
+	}
+}
+
+func TestParseBootConfigAcceptsWorkspaceLessNetworkedVirtiofs(t *testing.T) {
+	cmdline := os.Getenv("AWF_TEST_BOOT_CMDLINE")
+	if cmdline == "" {
+		cmdline = "awf.virtiofs=enclave-seed:L2lucHV0LXNlZWQ:ro;enclave-request:L2lucHV0LXJlcXVlc3Q:ro;enclave-output:L291dHB1dA:rw;enclave-runtime:L3J1bnRpbWU:rw;enclave-session-handoff:L3Nlc3Npb24taGFuZG9mZg:rw;enclave-session-state:L3Nlc3Npb24tc3RhdGU:rw awf.vsock-port=1024 awf.guest-ip=100.64.0.2 awf.guest-prefix=30 awf.guest-gateway=100.64.0.1 awf.guest-interface=eth0"
+	}
+	config, err := parseBootConfig(cmdline)
+	if err != nil {
+		t.Fatalf("parse workspace-less networked config: %v", err)
+	}
+	if config.NoNetwork || config.WorkspaceMount != "" || config.GuestIP.String() != "100.64.0.2" || len(config.VirtiofsMounts) != 6 {
+		t.Fatalf("unexpected workspace-less networked config: %#v", config)
 	}
 }
 
