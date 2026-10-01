@@ -55,13 +55,16 @@ describe('shared diagnosis-maintenance contract', () => {
   });
 
   it('installs diagnostics tooling before updater agents run', () => {
-    for (const workflow of [
-      '.github/workflows/self-hosted-runner-doctor-updater.md',
-      '.github/workflows/auth-doctor-updater.md',
-    ]) {
-      expect(read(workflow)).toContain('Install root dependencies for diagnostics tooling');
-      expect(read(workflow)).toContain('run: npm ci');
-    }
+    const runner = read('.github/workflows/self-hosted-runner-doctor-updater.md');
+    expect(runner).toContain('Install root dependencies for diagnostics tooling');
+    expect(runner).toContain('for attempt in 1 2 3; do');
+    expect(runner).toContain('if npm ci; then');
+    expect(runner).toContain('if [ "$attempt" -eq 3 ]; then');
+    expect(runner).toContain('sleep $((attempt * 5))');
+
+    const auth = read('.github/workflows/auth-doctor-updater.md');
+    expect(auth).toContain('Install root dependencies for diagnostics tooling');
+    expect(auth).toContain('run: npm ci');
   });
 
   it('imports the generated findings catalog into the Runner Doctor workflow', () => {
