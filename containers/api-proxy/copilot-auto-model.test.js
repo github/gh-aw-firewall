@@ -15,10 +15,28 @@ describe('Copilot auto model handling', () => {
     return parseBody(result.body);
   }
 
-  it.each(['auto', 'copilot/auto'])('omits %s on GitHub Copilot chat completions', async (model) => {
+  it.each(['auto', 'copilot/auto'])('omits %s on Pi-style chat completions', async (model) => {
     const adapter = createCopilotAdapter({ COPILOT_GITHUB_TOKEN: 'test-token' });
 
     expect(await transform(adapter, model)).toEqual({ messages: [] });
+  });
+
+  it('strips the redundant provider prefix but preserves auto on Codex Responses requests', async () => {
+    const adapter = createCopilotAdapter({ COPILOT_GITHUB_TOKEN: 'test-token' });
+    const body = Buffer.from(JSON.stringify({
+      model: 'copilot/auto',
+      input: 'Hello',
+    }));
+
+    const result = await transformRequestBody(
+      body,
+      'copilot',
+      { method: 'POST', url: '/responses' },
+      'req-codex-auto',
+      adapter.getBodyTransform(),
+    );
+
+    expect(parseBody(result.body)).toEqual({ model: 'auto', input: 'Hello' });
   });
 
   it('preserves concrete models', async () => {
