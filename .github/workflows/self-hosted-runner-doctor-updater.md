@@ -37,7 +37,16 @@ safe-outputs:
 timeout-minutes: 20
 steps:
   - name: Install root dependencies for diagnostics tooling
-    run: npm ci
+    run: |
+      for attempt in 1 2 3; do
+        if npm ci; then
+          break
+        fi
+        if [ "$attempt" -eq 3 ]; then
+          exit 1
+        fi
+        sleep $((attempt * 5))
+      done
   - name: Compute scan window
     run: |
       # Look back two days so a missed daily run does not create a coverage gap.
