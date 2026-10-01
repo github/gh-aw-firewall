@@ -20,6 +20,23 @@ const {
   lookupModelEndpoints,
   lookupModelRoutingMetadata,
 } = require('./model-api-mapping');
+const { isModelPermittedByPolicy } = require('./guards/model-policy-guard');
+
+function filterModelCatalogue(entries, provider, modelPolicy, getModel) {
+  if (!Array.isArray(entries) || !modelPolicy ||
+      (!modelPolicy.allowedModels?.length && !modelPolicy.disallowedModels?.length)) {
+    return entries;
+  }
+  return entries.filter(entry => {
+    const model = getModel(entry);
+    return typeof model !== 'string' || isModelPermittedByPolicy(
+      model,
+      modelPolicy.allowedModels ?? null,
+      modelPolicy.disallowedModels ?? null,
+      provider,
+    );
+  });
+}
 
 function buildRoutingModelMetadata(provider, modelIds, runtimeRecords) {
   if (!Array.isArray(modelIds)) return null;
@@ -78,6 +95,7 @@ function buildRoutingModelMetadata(provider, modelIds, runtimeRecords) {
  * @property {() => object}         getMaxRunsUsage        - Returns max-runs usage summary
  * @property {() => object}         getMaxCacheMissesUsage - Returns max-cache-misses usage summary
  * @property {() => object}         getPermissionDeniedUsage - Returns permission-denied usage summary
+ * @property {{ allowedModels?: string[]|null, disallowedModels?: string[]|null }|null} [modelPolicy]
  */
 
 /**
@@ -105,6 +123,7 @@ function createManagementHandlers(deps) {
     getMaxCacheMissesUsage,
     getPermissionDeniedUsage,
     getRoutingState = () => null,
+    modelPolicy = null,
   } = deps;
 
   /**
@@ -142,17 +161,27 @@ function createManagementHandlers(deps) {
     return {
       endpoints: getAdapters().map(adapter => {
         const info = adapter.getReflectionInfo();
+        const providerModels = info.models_cache_key !== null
+          ? (cachedModels[info.models_cache_key] || null)
+          : null;
+        const models = filterModelCatalogue(providerModels, adapter.name, modelPolicy, model => model);
+        const modelMetadata = filterModelCatalogue(
+          runtimeModelMetadata[adapter.name] || null,
+          adapter.name,
+          modelPolicy,
+          record => record?.id,
+        );
         return {
           provider:   info.provider,
           port:       info.port,
           base_url:   info.base_url,
           configured: info.configured,
-          models:     info.models_cache_key !== null ? (cachedModels[info.models_cache_key] || null) : null,
-          model_metadata: runtimeModelMetadata[adapter.name] || null,
+          models,
+          model_metadata: modelMetadata,
           routing_models: buildRoutingModelMetadata(
             adapter.name,
-            info.models_cache_key !== null ? (cachedModels[info.models_cache_key] || null) : null,
-            runtimeModelMetadata[adapter.name],
+            models,
+            modelMetadata,
           ),
           models_url: info.models_url,
           ...(info.credential_kind !== undefined && { credential_kind: info.credential_kind }),

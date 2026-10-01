@@ -1,6 +1,6 @@
 'use strict';
 
-const { buildRoutingModelMetadata } = require('./management');
+const { buildRoutingModelMetadata, createManagementHandlers } = require('./management');
 
 describe('routing metadata in /reflect', () => {
   it('combines discovered IDs with maintained provider metadata and marks incomplete models', () => {
@@ -23,7 +23,116 @@ describe('routing metadata in /reflect', () => {
       },
     ]);
   });
+});
 
+describe('model policy filtering in /reflect', () => {
+  function reflect(modelPolicy) {
+    const adapters = ['openai', 'copilot'].map((provider, index) => ({
+      name: provider,
+      getReflectionInfo: () => ({
+        provider,
+        port: 10000 + index,
+        base_url: `http://api-proxy:${10000 + index}`,
+        configured: true,
+        models_cache_key: provider,
+        models_url: `http://api-proxy:${10000 + index}/v1/models`,
+      }),
+    }));
+    return createManagementHandlers({
+      getAdapters: () => adapters,
+      getCachedModels: () => ({
+        openai: ['gpt-5.4', 'gpt-4o-mini'],
+        copilot: ['gpt-5.4', 'claude-sonnet-5'],
+      }),
+      getRuntimeModelMetadata: () => ({
+        openai: [{ id: 'gpt-5.4' }, { id: 'gpt-4o-mini' }],
+        copilot: [{ id: 'gpt-5.4' }, { id: 'claude-sonnet-5' }],
+      }),
+      isModelFetchComplete: () => true,
+      getKeyValidationState: () => ({ complete: true, results: {} }),
+      getLimiter: () => ({ getAllStatus: () => ({}) }),
+      getModelAliases: () => ({ models: { custom: ['openai/gpt-5.4'] } }),
+      getModelFallback: () => ({ enabled: true }),
+      getEffectiveModelFallback: () => ({}),
+      getAiCreditsUsage: () => ({}),
+      getMaxRunsUsage: () => ({}),
+      getMaxCacheMissesUsage: () => ({}),
+      getPermissionDeniedUsage: () => ({}),
+      modelPolicy,
+    }).reflectEndpoints();
+  }
+
+  function modelsByProvider(reflection, field) {
+    return Object.fromEntries(reflection.endpoints.map(endpoint => [
+      endpoint.provider,
+      endpoint[field],
+    ]));
+  }
+
+  it('applies an allowlist to model IDs and associated metadata', () => {
+    const result = reflect({ allowedModels: ['*5.4'] });
+
+    expect(modelsByProvider(result, 'models')).toEqual({
+      openai: ['gpt-5.4'],
+      copilot: ['gpt-5.4'],
+    });
+    expect(modelsByProvider(result, 'model_metadata')).toEqual({
+      openai: [{ id: 'gpt-5.4' }],
+      copilot: [{ id: 'gpt-5.4' }],
+    });
+    expect(modelsByProvider(result, 'routing_models').openai.map(model => model.model_id)).toEqual(['gpt-5.4']);
+    expect(modelsByProvider(result, 'routing_models').copilot.map(model => model.model_id)).toEqual(['gpt-5.4']);
+  });
+
+  it('applies a denylist to model IDs and associated metadata', () => {
+    const result = reflect({ disallowedModels: ['*mini*'] });
+
+    expect(modelsByProvider(result, 'models').openai).toEqual(['gpt-5.4']);
+    expect(modelsByProvider(result, 'model_metadata').openai).toEqual([{ id: 'gpt-5.4' }]);
+    expect(modelsByProvider(result, 'routing_models').openai.map(model => model.model_id)).toEqual(['gpt-5.4']);
+  });
+
+  it('gives the denylist precedence over the allowlist', () => {
+    const result = reflect({
+      allowedModels: ['*gpt*', '*sonnet*', '*4o*'],
+      disallowedModels: ['*4o*'],
+    });
+
+    expect(modelsByProvider(result, 'models')).toEqual({
+      openai: ['gpt-5.4'],
+      copilot: ['gpt-5.4', 'claude-sonnet-5'],
+    });
+  });
+
+  it('matches provider-qualified patterns against the endpoint provider', () => {
+    const result = reflect({
+      allowedModels: ['openai/gpt-*', 'github-copilot/gpt-*'],
+      disallowedModels: ['github-copilot/gpt-5.4'],
+    });
+
+    expect(modelsByProvider(result, 'models')).toEqual({
+      openai: ['gpt-5.4', 'gpt-4o-mini'],
+      copilot: [],
+    });
+  });
+
+  it('preserves model catalogue and unrelated reflection metadata without policy', () => {
+    const result = reflect(null);
+
+    expect(modelsByProvider(result, 'models')).toEqual({
+      openai: ['gpt-5.4', 'gpt-4o-mini'],
+      copilot: ['gpt-5.4', 'claude-sonnet-5'],
+    });
+    expect(modelsByProvider(result, 'model_metadata').openai).toEqual([
+      { id: 'gpt-5.4' },
+      { id: 'gpt-4o-mini' },
+    ]);
+    expect(result.model_aliases).toEqual({ custom: ['openai/gpt-5.4'] });
+    expect(result.model_fallback).toEqual({ enabled: true });
+  });
+});
+
+describe('routing metadata in /reflect', () => {
   it('prefers runtime metadata while retaining maintained values where runtime fields are absent', () => {
     expect(buildRoutingModelMetadata('anthropic', ['claude-opus-5-5'], [{
       id: 'claude-opus-5-5',

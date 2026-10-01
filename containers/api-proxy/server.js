@@ -16,6 +16,7 @@ const { logRequest } = require('./logging');
 const {
   MODEL_ALIASES,
   MODEL_FALLBACK,
+  MODEL_POLICY_CONFIG,
   parseModelFallbackConfig,
   makeModelBodyTransform: makeModelBodyTransformForProvider,
   filterResolvableAliases,
@@ -174,6 +175,7 @@ const { healthResponse, reflectEndpoints, handleManagementEndpoint } = createMan
   getLimiter: () => limiter,
   httpsProxy: HTTPS_PROXY,
   getModelAliases: getFilteredModelAliases,
+  modelPolicy: MODEL_POLICY_CONFIG,
   getModelFallback: () => MODEL_FALLBACK,
   getEffectiveModelFallback: () => getEffectiveModelFallbackForReflect(registeredAdapters),
   getEffectiveTokenUsage: () => getEffectiveTokenReflectState(),
