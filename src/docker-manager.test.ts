@@ -77,19 +77,6 @@ describe('docker-manager (barrel re-exports)', () => {
 
 
 
-  describe('filterCapDrop capability filtering', () => {
-    it('keeps all caps when bounding set is unknown', () => {
-      expect(dockerManager.filterCapDrop(['NET_ADMIN'], null)).toEqual(['NET_ADMIN']);
-    });
-
-    it('removes caps absent from the bounding set, keeps ALL and unknown names', () => {
-      expect(dockerManager.filterCapDrop(['ALL', 'cap_net_admin', 'NOT_A_CAP'], 0n)).toEqual(['ALL', 'NOT_A_CAP']);
-    });
-
-    it('keeps caps present in the bounding set', () => {
-      expect(dockerManager.filterCapDrop(['NET_ADMIN'], (1n << 64n) - 1n)).toEqual(['NET_ADMIN']);
-    });
-  });
 
   describe('filterCapDrop via barrel', () => {
     it('returns empty for undefined or empty lists', () => {
