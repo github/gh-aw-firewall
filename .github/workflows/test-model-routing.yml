@@ -81,7 +81,7 @@ jobs:
           docker pull "$SQUID_IMAGE"
           docker pull "$ROUTER_IMAGE"
           docker run --detach --name awf-routing-registry \
-            --publish 127.0.0.1:5000:5000 registry:2.8.3
+            --publish 127.0.0.1:5000:5000 registry:2.8.3@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373
           for attempt in $(seq 1 30); do
             if curl --fail --silent http://127.0.0.1:5000/v2/ >/dev/null; then
               break
@@ -541,7 +541,7 @@ jobs:
           docker pull "$SQUID_IMAGE"
           docker pull "$ROUTER_IMAGE"
           docker run --detach --name awf-routing-registry \
-            --publish 127.0.0.1:5000:5000 registry:2.8.3
+            --publish 127.0.0.1:5000:5000 registry:2.8.3@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373
           for attempt in $(seq 1 30); do
             if curl --fail --silent http://127.0.0.1:5000/v2/ >/dev/null; then
               break
