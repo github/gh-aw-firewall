@@ -3,7 +3,11 @@ import { createAgentEnclaveCloudHypervisorProfile } from './workload-profile';
 import { createMicrovmNetworkPlan, generateMicrovmNftRuleset } from '../microvm/network';
 import { MicrovmNetworkManager } from '../microvm/network';
 import { LinuxNetworkCommands } from '../microvm/network';
-import { ENCLAVE_MCP_GATEWAY_CONTAINER_ENV } from '../enclave/gateway';
+import {
+  ENCLAVE_MCP_GATEWAY_CONTAINER_ENV,
+  ENCLAVE_MCP_GATEWAY_IDENTITY_ENV,
+  ENCLAVE_MCP_GATEWAY_RUN_LABEL,
+} from '../enclave/gateway';
 
 const guest = {
   exports: [{ tag: 'seed', source: '/seed', target: '/seed', mode: 'ro' as const }],
@@ -12,12 +16,16 @@ const guest = {
   workspaceMount: null as null,
 };
 
-function profile(github = false, port = 10002) {
+function profile(
+  github = false,
+  engine: 'copilot' | 'claude' | 'codex' | 'gemini' = 'copilot',
+  providerProfile: 'openai' | 'anthropic' = 'anthropic',
+) {
   return createAgentEnclaveCloudHypervisorProfile({
     enclaveId: 'agent-entry',
     invocationId: 'invocation-1',
     guest,
-    apiProxy: { ip: '172.31.0.30', port },
+    apiProxy: { ip: '172.31.0.30', engine, profile: providerProfile },
     ...(github ? { githubDataPlane: { ip: '172.31.0.40', port: 8080 } } : {}),
   });
 }
@@ -39,6 +47,11 @@ function inspection(github = false) {
   };
   const dependencies = {
     inspectNetwork: jest.fn(async () => [network]),
+    inspectContainer: jest.fn(async () => ({
+      Name: '/awmg-mcpg',
+      State: { Running: true },
+      Config: { Labels: { [ENCLAVE_MCP_GATEWAY_RUN_LABEL]: 'run-identity-123' } },
+    })),
     inspectBridge: jest.fn(async () => [
       { ifname: 'br-aaaaaaaaaaaa', linkinfo: { info_kind: 'bridge' } },
     ]),
@@ -46,12 +59,18 @@ function inspection(github = false) {
   return { network, dependencies };
 }
 
+const tools = { docker: '/usr/bin/docker', ip: '/usr/sbin/ip' };
+
 describe('Cloud Hypervisor agent-enclave host network boundary', () => {
   it.each([false, true])('admits only selected proxy and optional GitHub data plane (github=%s)', async (github) => {
     const { dependencies } = inspection(github);
-    const options = await resolveCloudHypervisorEnclaveNetwork(profile(github), dependencies, {
+    const options = await resolveCloudHypervisorEnclaveNetwork(profile(github), tools, dependencies, {
       [ENCLAVE_MCP_GATEWAY_CONTAINER_ENV]: 'awmg-mcpg',
+      [ENCLAVE_MCP_GATEWAY_IDENTITY_ENV]: 'run-identity-123',
     });
+    expect(dependencies.inspectNetwork).toHaveBeenCalledWith(tools.docker);
+    expect(dependencies.inspectBridge).toHaveBeenCalledWith(tools.ip, 'br-aaaaaaaaaaaa');
+    expect(dependencies.inspectContainer).toHaveBeenCalledTimes(github ? 1 : 0);
     const plan = createMicrovmNetworkPlan('enclave-run', {
       ...options, tapOwnerUid: 2001, tapOwnerGid: 2002, tapVnetHdr: true,
     });
@@ -92,7 +111,14 @@ describe('Cloud Hypervisor agent-enclave host network boundary', () => {
   it.each([
     '10000', '10001', '10002',
   ])('permits the supported selected engine port %s without opening others', async (port) => {
-    const options = await resolveCloudHypervisorEnclaveNetwork(profile(false, Number(port)), inspection().dependencies);
+    const selected = {
+      '10000': ['codex', 'openai'],
+      '10001': ['claude', 'anthropic'],
+      '10002': ['copilot', 'anthropic'],
+    }[port] as ['copilot' | 'claude' | 'codex' | 'gemini', 'openai' | 'anthropic'];
+    const options = await resolveCloudHypervisorEnclaveNetwork(
+      profile(false, selected[0], selected[1]), tools, inspection().dependencies,
+    );
     const plan = createMicrovmNetworkPlan('engine-port', {
       ...options, tapOwnerUid: 2001, tapOwnerGid: 2002,
     });
@@ -112,7 +138,7 @@ describe('Cloud Hypervisor agent-enclave host network boundary', () => {
   ])('rejects %s before network side effects', async (_name, mutate) => {
     const { network, dependencies } = inspection();
     mutate(network);
-    await expect(resolveCloudHypervisorEnclaveNetwork(profile(), dependencies))
+    await expect(resolveCloudHypervisorEnclaveNetwork(profile(), tools, dependencies))
       .rejects.toThrow();
     expect(dependencies.inspectBridge).not.toHaveBeenCalled();
   });
@@ -122,27 +148,27 @@ describe('Cloud Hypervisor agent-enclave host network boundary', () => {
     wrongBridge.dependencies.inspectBridge.mockResolvedValueOnce([
       { ifname: 'br-aaaaaaaaaaaa', linkinfo: { info_kind: 'veth' } },
     ]);
-    await expect(resolveCloudHypervisorEnclaveNetwork(profile(), wrongBridge.dependencies))
+    await expect(resolveCloudHypervisorEnclaveNetwork(profile(), tools, wrongBridge.dependencies))
       .rejects.toThrow(/bridge is unavailable/);
-    await expect(resolveCloudHypervisorEnclaveNetwork(profile(), inspection(true).dependencies))
+    await expect(resolveCloudHypervisorEnclaveNetwork(profile(), tools, inspection(true).dependencies))
       .rejects.toThrow(/membership/);
-    await expect(resolveCloudHypervisorEnclaveNetwork(profile(true), inspection(true).dependencies, {}))
+    await expect(resolveCloudHypervisorEnclaveNetwork(profile(true), tools, inspection(true).dependencies, {}))
       .rejects.toThrow(/gateway identity/);
-    await expect(resolveCloudHypervisorEnclaveNetwork(profile(true), inspection(true).dependencies, {
+    await expect(resolveCloudHypervisorEnclaveNetwork(profile(true), tools, inspection(true).dependencies, {
       [ENCLAVE_MCP_GATEWAY_CONTAINER_ENV]: 'untrusted-container',
+      [ENCLAVE_MCP_GATEWAY_IDENTITY_ENV]: 'run-identity-123',
     })).rejects.toThrow(/membership/);
-    expect(() => profile(false, 18443)).toThrow(/supported engine port/);
     expect(() => createAgentEnclaveCloudHypervisorProfile({
       enclaveId: 'agent-entry',
       invocationId: 'invocation-1',
       guest,
-      apiProxy: { ip: '172.30.0.30', port: 10002 },
+      apiProxy: { ip: '172.30.0.30', engine: 'copilot', profile: 'anthropic' },
     })).toThrow(/dedicated API proxy/);
     expect(() => createAgentEnclaveCloudHypervisorProfile({
       enclaveId: 'agent-entry',
       invocationId: 'invocation-1',
       guest,
-      apiProxy: { ip: '172.31.0.30', port: 10002 },
+      apiProxy: { ip: '172.31.0.30', engine: 'copilot', profile: 'anthropic' },
       githubDataPlane: { ip: '172.31.0.40', port: 18443 },
     })).toThrow(/compiler-owned GitHub data plane/);
     expect(() => createMicrovmNetworkPlan('bad-options', {
@@ -151,8 +177,29 @@ describe('Cloud Hypervisor agent-enclave host network boundary', () => {
     })).toThrow(/closed microVM/);
   });
 
+  it.each([
+    ['stopped gateway', (details: any) => { details.State.Running = false; }],
+    ['gateway identity mismatch', (details: any) => {
+      details.Config.Labels[ENCLAVE_MCP_GATEWAY_RUN_LABEL] = 'different-run';
+    }],
+  ])('rejects a %s even when the fixed network membership matches', async (_name, mutate) => {
+    const { dependencies } = inspection(true);
+    const details = await dependencies.inspectContainer();
+    mutate(details);
+    dependencies.inspectContainer.mockResolvedValueOnce(details);
+    await expect(resolveCloudHypervisorEnclaveNetwork(
+      profile(true),
+      tools,
+      dependencies,
+      {
+        [ENCLAVE_MCP_GATEWAY_CONTAINER_ENV]: 'awmg-mcpg',
+        [ENCLAVE_MCP_GATEWAY_IDENTITY_ENV]: 'run-identity-123',
+      },
+    )).rejects.toThrow(/did not match the compiler handoff/);
+  });
+
   it('rolls back its own interfaces, namespace, and bridge rule after partial setup failure', async () => {
-    const options = await resolveCloudHypervisorEnclaveNetwork(profile(), inspection().dependencies);
+    const options = await resolveCloudHypervisorEnclaveNetwork(profile(), tools, inspection().dependencies);
     const plan = createMicrovmNetworkPlan('rollback-run', {
       ...options, tapOwnerUid: 2001, tapOwnerGid: 2002,
     });

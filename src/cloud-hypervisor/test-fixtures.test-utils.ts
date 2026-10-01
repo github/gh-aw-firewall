@@ -10,6 +10,7 @@ const cloudHypervisorHostTools: CloudHypervisorHostToolPaths = {
   groupdel: '/usr/sbin/groupdel',
   id: '/usr/bin/id',
   ip: '/usr/bin/ip',
+  docker: '/usr/bin/docker',
   nft: '/usr/sbin/nft',
   sysctl: '/usr/sbin/sysctl',
   flock: '/usr/bin/flock',

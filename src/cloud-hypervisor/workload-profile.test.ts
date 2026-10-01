@@ -46,7 +46,7 @@ function agentProfile(): Record<string, any> {
     enclaveId: 'agent-entry',
     invocationId: 'invocation-2',
     guest: supervisor,
-    apiProxy: { ip: '172.31.0.30', port: 10002 },
+    apiProxy: { ip: '172.31.0.30', engine: 'copilot', profile: 'anthropic' },
   })) as unknown as Record<string, any>;
 }
 
@@ -90,7 +90,7 @@ describe('Cloud Hypervisor workload profiles', () => {
         enclaveId: 'agent-entry',
         invocationId: 'invocation-2',
         guest: supervisor,
-        apiProxy: { ip: '172.31.0.30', port: 10002 },
+        apiProxy: { ip: '172.31.0.30', engine: 'copilot', profile: 'anthropic' },
         githubDataPlane: { ip: '172.31.0.40', port: 8080 },
       }),
       'discard',
@@ -268,10 +268,10 @@ describe('Cloud Hypervisor workload profiles', () => {
       /Unsafe Cloud Hypervisor host alias/,
     ],
     [
-      'an invalid dedicated API proxy port',
+      'an unsupported API proxy engine',
       agentProfile,
-      (profile: Record<string, any>) => { profile.network.apiProxy.port = 0; },
-      /dedicated API proxy port must be in 1-65535/,
+      (profile: Record<string, any>) => { profile.network.apiProxy.engine = 'untrusted'; },
+      /supported dedicated API proxy engine profile/,
     ],
     [
       'an unsafe owner identity',
@@ -319,7 +319,7 @@ describe('Cloud Hypervisor workload profiles', () => {
       enclaveId: 'agent-entry',
       invocationId: 'invocation-2',
       guest: supervisor,
-      apiProxy: { ip: '172.31.0.30', port: 10002 },
+      apiProxy: { ip: '172.31.0.30', engine: 'copilot', profile: 'anthropic' },
     });
     expect(() => assertCloudHypervisorWorkloadLaunchable(profile)).toThrow(
       /not implemented; refusing to fall back/,

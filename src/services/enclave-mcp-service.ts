@@ -4,9 +4,12 @@ import {
   LOCAL_ENCLAVE_MCP_SERVER_IMAGE,
 } from '../constants';
 import type { WrapperConfig } from '../types';
-import { API_PROXY_PORTS } from '../types/ports';
+import {
+  isEnclaveAgentGithubRouteEnabled,
+  isEnclaveAgentGithubToolsEnabled,
+  resolveEnclaveAgentApiPort,
+} from '../types/enclave-options';
 import type { EnclaveAgentEngine, EnclaveAgentProfile } from '../types/enclave-options';
-import { isEnclaveAgentGithubRouteEnabled, isEnclaveAgentGithubToolsEnabled } from '../types/enclave-options';
 import {
   ENCLAVE_SERVER_AUDIT_DIR,
   ENCLAVE_SERVER_CAPABILITY_PATH,
@@ -160,14 +163,7 @@ function toDaemonVisiblePath(hostPath: string, prefix: string | undefined): stri
   return translated.split(':')[0];
 }
 
-/** Resolves the API-proxy port the enclave's configured profile speaks to. */
-export function resolveEnclaveAgentApiPort(
-  engine: EnclaveAgentEngine,
-  profile: EnclaveAgentProfile,
-): number {
-  if (engine === 'copilot') return API_PROXY_PORTS.COPILOT;
-  return profile === 'anthropic' ? API_PROXY_PORTS.ANTHROPIC : API_PROXY_PORTS.OPENAI;
-}
+export { resolveEnclaveAgentApiPort } from '../types/enclave-options';
 
 /**
  * Builds the dedicated agent-enclave API proxy.

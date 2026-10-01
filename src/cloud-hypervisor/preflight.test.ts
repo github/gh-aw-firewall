@@ -394,6 +394,7 @@ describe('Cloud Hypervisor preflight (foundation only)', () => {
       groupdel: '/usr/bin/groupdel',
       id: '/usr/bin/id',
       ip: '/usr/bin/ip',
+      docker: '/usr/bin/docker',
       nft: '/usr/bin/nft',
       sysctl: '/usr/bin/sysctl',
       flock: '/usr/bin/flock',

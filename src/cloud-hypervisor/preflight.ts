@@ -87,6 +87,7 @@ export type CloudHypervisorHostToolPaths = Readonly<{
   groupdel: string;
   id: string;
   ip: string;
+  docker: string;
   nft: string;
   sysctl: string;
   /** util-linux `flock`, used to serialize durable microVM network reservations. */
@@ -714,6 +715,7 @@ export async function runCloudHypervisorPreflight(
         `${error instanceof Error ? error.message : String(error)}`,
       );
     }
+    tools.docker = dockerBinaryPath;
     await dependencies.assertDockerInfrastructure(dockerBinaryPath);
 
     return {

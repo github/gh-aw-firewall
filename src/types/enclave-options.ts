@@ -1,3 +1,5 @@
+import { API_PROXY_PORTS } from './ports';
+
 /**
  * Unified trusted configuration for private-repository enclaves.
  *
@@ -34,6 +36,14 @@ export type EnclaveRuntime = 'docker' | 'gvisor' | 'sbx' | 'cloud-hypervisor';
 export type EnclaveScriptInterpreter = 'python3';
 export type EnclaveAgentEngine = 'copilot' | 'claude' | 'codex' | 'gemini';
 export type EnclaveAgentProfile = 'openai' | 'anthropic';
+
+export function resolveEnclaveAgentApiPort(
+  engine: EnclaveAgentEngine,
+  profile: EnclaveAgentProfile,
+): number {
+  if (engine === 'copilot') return API_PROXY_PORTS.COPILOT;
+  return profile === 'anthropic' ? API_PROXY_PORTS.ANTHROPIC : API_PROXY_PORTS.OPENAI;
+}
 export type EnclaveAgentGithubCliProfile = 'issues-read-v1';
 
 /** @deprecated legacy marker shape; use {@link EnclaveAgentGithubToolsConfig} instead. */
