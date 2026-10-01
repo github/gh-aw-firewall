@@ -81,15 +81,37 @@ describe('routing candidates', () => {
     expect(pool.byId['choice-0002'].protocol).toBe('responses');
   });
 
-  it('derives the protocol from effort rather than preferring one endpoint', () => {
+  it('chooses a supported protocol based on effort and the model endpoints', () => {
     const pool = build([
       model('both', { efforts: ['none'] }),
       model('chat', { efforts: [], protocols: ['chat-completions'] }),
-      model('wrong-effort', { protocols: ['chat-completions'] }),
+      model('effort-chat', { efforts: ['low'], protocols: ['chat-completions'] }),
+      model('claude', {
+        efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+        protocols: ['messages', 'chat-completions'],
+      }),
       model('wrong-empty', { efforts: [], protocols: ['responses'] }),
     ]);
-    expect(pool.choices.map(choice => choice.model)).toEqual(['github-copilot/both', 'github-copilot/chat']);
-    expect(Object.values(pool.byId).map(mapping => mapping.protocol)).toEqual(['responses', 'chat-completions']);
+    expect(pool.choices.map(choice => choice.model)).toEqual([
+      'github-copilot/both',
+      'github-copilot/chat',
+      'github-copilot/claude',
+      'github-copilot/claude',
+      'github-copilot/claude',
+      'github-copilot/claude',
+      'github-copilot/claude',
+      'github-copilot/effort-chat',
+    ]);
+    expect(Object.values(pool.byId).map(mapping => mapping.protocol)).toEqual([
+      'responses',
+      'chat-completions',
+      'messages',
+      'messages',
+      'messages',
+      'messages',
+      'messages',
+      'chat-completions',
+    ]);
   });
 
   it.each(['*sonnet*', 'copilot/*sonnet*', 'github-copilot/*sonnet*', 'github/*sonnet*'])(

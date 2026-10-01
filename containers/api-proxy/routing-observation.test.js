@@ -33,6 +33,13 @@ const OPENAI_SELECTION = Object.freeze({
   wire_model: 'gpt-5.4',
 });
 
+const COPILOT_MESSAGES_SELECTION = Object.freeze({
+  ...SELECTION,
+  endpoint: '/v1/messages',
+  choice: Object.freeze({ id: 'choice-0005', model: 'github-copilot/claude-sonnet-5', effort: 'max' }),
+  wire_model: 'claude-sonnet-5',
+});
+
 class FakeResponse extends EventEmitter {
   constructor() {
     super();
@@ -176,6 +183,18 @@ describe('advisory routing observation', () => {
     const openai = createHarness(OPENAI_SELECTION);
     send(observe(openai, request(), { name: 'copilot' }).req, { model: 'gpt-5.4', reasoning: { effort: 'high' } });
     expect(openai.records.at(-1)).toMatchObject({ routed: 'deviated', deviations: ['provider'] });
+  });
+
+  it('records Copilot Messages with matching effort as selected', () => {
+    const harness = createHarness(COPILOT_MESSAGES_SELECTION);
+    const { req } = observe(harness, request({ url: '/v1/messages' }));
+    send(req, { model: 'claude-sonnet-5', output_config: { effort: 'max' } });
+    expect(harness.records.at(-1)).toMatchObject({
+      routed: 'as_selected',
+      deviations: [],
+      selected_endpoint: '/v1/messages',
+      requested_effort: 'max',
+    });
   });
 
   it('records a non-JSON body as a deviation without a requested model', () => {

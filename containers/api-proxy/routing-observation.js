@@ -31,7 +31,8 @@ function endpointFor(pathname) {
   return null;
 }
 
-function selectedEndpointFor(provider, effort) {
+function selectedEndpointFor(selection, provider, effort) {
+  if (typeof selection.endpoint === 'string') return selection.endpoint;
   if (provider === 'anthropic') return '/v1/messages';
   return effort === null ? '/chat/completions' : '/responses';
 }
@@ -132,7 +133,7 @@ function createRoutingObservation({ getSelection, recordFailure, observer }) {
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) parsed = {};
     const selectedProvider = selection.provider || 'copilot';
     const selectedEffort = Object.hasOwn(selection.choice, 'effort') ? selection.choice.effort : null;
-    const selectedEndpoint = selectedEndpointFor(selectedProvider, selectedEffort);
+    const selectedEndpoint = selectedEndpointFor(selection, selectedProvider, selectedEffort);
     const endpoint = endpointFor(pathname);
     const normalizedRequestedModel = stripRedundantProviderPrefix(parsed.model, adapter.name);
     const requestedModel = telemetryValue(normalizedRequestedModel);

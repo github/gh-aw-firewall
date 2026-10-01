@@ -158,6 +158,8 @@ describe('createProductionRoutingSession', () => {
     const cases = [
       [{ provider: 'copilot', choice: { id: 'choice-0001', model: 'github-copilot/claude-haiku-4.5' } },
         { effort: null, endpoint: '/chat/completions' }],
+      [{ provider: 'copilot', endpoint: '/v1/messages', choice: { id: 'choice-0001', model: 'github-copilot/claude-sonnet-5', effort: 'max' } },
+        { effort: 'max', endpoint: '/v1/messages' }],
       [{ provider: 'anthropic', choice: { id: 'choice-0001', model: 'anthropic/claude-opus-5', effort: 'high' } },
         { effort: 'high', endpoint: '/v1/messages' }],
     ];

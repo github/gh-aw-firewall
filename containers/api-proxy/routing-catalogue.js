@@ -68,7 +68,9 @@ function normalizeModel(id, metadata, provider) {
     : undefined;
   const providerProtocols = provider === 'anthropic'
     ? new Set(['messages'])
-    : new Set(['responses', 'chat-completions']);
+    : provider === 'copilot'
+      ? new Set(['responses', 'chat-completions', 'messages'])
+      : new Set(['responses', 'chat-completions']);
 
   return freezeModel({
     id,

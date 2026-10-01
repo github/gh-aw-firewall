@@ -71,6 +71,11 @@ function createSelection(choice, mapping) {
       ...(Object.hasOwn(choice, 'effort') ? { effort: choice.effort } : {}),
     },
     wire_model: mapping.wireModel,
+    endpoint: {
+      responses: '/responses',
+      'chat-completions': '/chat/completions',
+      messages: '/v1/messages',
+    }[mapping.protocol],
   });
 }
 

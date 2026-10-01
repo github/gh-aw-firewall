@@ -52,6 +52,24 @@ describe('routing classifier', () => {
     })).toBe('{"mode":"balanced"}');
   });
 
+  it('builds a Copilot Claude Messages classifier request with the selected effort', () => {
+    expect(buildClassifierRequest({
+      wireModel: 'claude-sonnet-5',
+      protocol: 'messages',
+      effort: 'max',
+    }, plan)).toEqual({
+      path: '/v1/messages',
+      body: {
+        model: 'claude-sonnet-5',
+        system: plan.system_prompt,
+        messages: [{ role: 'user', content: plan.prompt }],
+        max_tokens: CLASSIFIER_REASONING_OUTPUT_TOKENS,
+        output_config: { effort: 'max' },
+      },
+      outputAllowance: CLASSIFIER_REASONING_OUTPUT_TOKENS,
+    });
+  });
+
   it('fails closed without verified capacity and admits the exact capacity boundary', () => {
     expect(() => preflightClassifierRequest({ wireModel: 'x', protocol: 'responses' }, plan))
       .toThrow(expect.objectContaining({ code: 'routing_configuration_error' }));

@@ -267,7 +267,7 @@ function createProductionRoutingSession({
         model: selection.choice.model,
         wire_model: selection.wire_model,
         effort,
-        endpoint: provider === 'anthropic' ? '/v1/messages' : (effort === null ? '/chat/completions' : '/responses'),
+        endpoint: selection.endpoint || (provider === 'anthropic' ? '/v1/messages' : (effort === null ? '/chat/completions' : '/responses')),
       },
     };
   }

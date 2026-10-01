@@ -1,6 +1,6 @@
 'use strict';
 
-const { createRoutingCatalogue } = require('./routing-catalogue');
+const { createRoutingCatalogue, normalizeModel } = require('./routing-catalogue');
 const { buildRoutingCandidates } = require('./routing-candidates');
 const { createCopilotAdapter } = require('./providers/copilot');
 
@@ -35,7 +35,7 @@ describe('routing catalogue', () => {
     expect(snapshot).toEqual({
       provider: 'copilot', configured: true, discovery: 'complete',
       models: [
-        { id: 'gpt-test', efforts: ['high', 'low'], protocols: ['responses', 'chat-completions'], contextWindow: 128_000 },
+        { id: 'gpt-test', efforts: ['high', 'low'], protocols: ['responses', 'chat-completions', 'messages'], contextWindow: 128_000 },
         { id: 'missing' },
         { id: 'empty', efforts: [], protocols: [] },
         { id: 'no-reasoning', efforts: [], protocols: ['chat-completions'] },
@@ -54,7 +54,7 @@ describe('routing catalogue', () => {
     source[0].supportedReasoningEfforts.push('max');
     source[0].supportedEndpoints.length = 0;
     expect(snapshot.models[0].efforts).toEqual(['high', 'low']);
-    expect(snapshot.models[0].protocols).toEqual(['responses', 'chat-completions']);
+    expect(snapshot.models[0].protocols).toEqual(['responses', 'chat-completions', 'messages']);
     expect(deps.getDiscoveredModels).toHaveBeenCalledWith('copilot');
     expect(deps.getRuntimeModels).toHaveBeenCalledTimes(1);
     expect(deps.getRuntimeModels).toHaveBeenCalledWith('copilot');
@@ -188,7 +188,7 @@ describe('routing catalogue', () => {
     })).getSnapshot();
     expect(snapshot.models).toEqual([
       { id: 'gpt-5-mini', efforts: ['low', 'medium', 'high'], protocols: ['chat-completions', 'responses'], contextWindow: 264_000 },
-      { id: 'claude-haiku-4.5', efforts: [], protocols: ['chat-completions'], contextWindow: 200_000 },
+      { id: 'claude-haiku-4.5', efforts: [], protocols: ['chat-completions', 'messages'], contextWindow: 200_000 },
       { id: 'gpt-4.1', efforts: [] },
       { id: 'malformed', protocols: ['responses'] },
     ]);
@@ -197,6 +197,17 @@ describe('routing catalogue', () => {
       policy: { allowedModels: ['github-copilot/claude-haiku-4.5'] },
     });
     expect(choices).toEqual([{ id: 'choice-0001', model: 'github-copilot/claude-haiku-4.5' }]);
+  });
+
+  it('keeps Copilot Messages endpoints while excluding them for OpenAI', () => {
+    const metadata = {
+      supportedReasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+      supportedEndpoints: ['/v1/messages', '/chat/completions'],
+    };
+    expect(normalizeModel('claude-sonnet-5', metadata, 'copilot').protocols)
+      .toEqual(['messages', 'chat-completions']);
+    expect(normalizeModel('gpt-test', metadata, 'openai').protocols)
+      .toEqual(['chat-completions']);
   });
 
   it('requires every catalogue dependency', () => {

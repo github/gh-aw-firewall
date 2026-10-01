@@ -37,10 +37,13 @@ function normalizeEfforts(value) {
   return efforts;
 }
 
-// Selection enforcement derives the endpoint from effort presence.
-function protocolForEffort(provider, effort) {
+function protocolFor(provider, effort, protocols) {
   if (provider === 'anthropic') return 'messages';
-  return effort === undefined ? 'chat-completions' : 'responses';
+  if (effort === undefined) return protocols.includes('chat-completions') ? 'chat-completions' : null;
+  if (protocols.includes('responses')) return 'responses';
+  if (protocols.includes('messages')) return 'messages';
+  if (protocols.includes('chat-completions')) return 'chat-completions';
+  return null;
 }
 
 function indexModels(models, path, getIdentity) {
@@ -94,8 +97,8 @@ function buildRoutingCandidates({ catalogue, policy = {} }) {
 
     const nativeName = stripRedundantProviderPrefix(providerModel.id, providerInfo.canonical);
     for (const effort of (efforts.length === 0 ? [undefined] : efforts)) {
-      const protocol = protocolForEffort(provider, effort);
-      if (!providerModel.protocols.includes(protocol)) continue;
+      const protocol = protocolFor(provider, effort, providerModel.protocols);
+      if (!protocol || !providerModel.protocols.includes(protocol)) continue;
       pairs.push({
         model: `${providerInfo.canonical}/${nativeName}`,
         effort,

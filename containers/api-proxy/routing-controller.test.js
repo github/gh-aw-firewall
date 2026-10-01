@@ -108,7 +108,6 @@ describe('routing controller', () => {
     const { controller, calls, records } = createHarness({
       catalogueModels: [{ model: 'github-copilot/gpt-test', efforts: ['low'] }],
     });
-
     const result = await controller.run();
 
     expect(result.ok).toBe(true);
@@ -118,6 +117,7 @@ describe('routing controller', () => {
       provider: 'copilot',
       choice: { id: 'choice-0001', model: 'github-copilot/gpt-test', effort: 'low' },
       wire_model: 'gpt-test',
+      endpoint: '/responses',
     });
     expect(Object.isFrozen(result)).toBe(true);
     expect(Object.isFrozen(result.selection)).toBe(true);
@@ -161,6 +161,7 @@ describe('routing controller', () => {
         contextWindow: 1_000_000,
       }],
     });
+
     const result = await controller.run();
     expect(result.selection.provider).toBe('anthropic');
     expect(result.selection.choice.model).toBe('anthropic/claude-opus-5-5');
@@ -169,6 +170,40 @@ describe('routing controller', () => {
       provider: 'anthropic',
       body: { output_config: { effort: 'medium' } },
     });
+  });
+
+  it('routes Copilot Claude reasoning candidates through Messages', async () => {
+    const { controller, calls } = createHarness({
+      models: [{
+        id: 'claude-sonnet-5',
+        efforts: ['max'],
+        protocols: ['messages', 'chat-completions'],
+        contextWindow: 1_000_000,
+      }],
+    });
+    const result = await controller.run();
+    expect(result.selection).toMatchObject({
+      provider: 'copilot',
+      choice: { model: 'github-copilot/claude-sonnet-5', effort: 'max' },
+      endpoint: '/v1/messages',
+    });
+    expect(calls.execute[0]).toMatchObject({
+      path: '/v1/messages',
+      body: { output_config: { effort: 'max' } },
+    });
+  });
+
+  it('adds the Chat Completions endpoint to an effortless selection', async () => {
+    const { controller } = createHarness({
+      models: [{
+        id: 'claude-haiku-4.5',
+        efforts: [],
+        protocols: ['chat-completions'],
+        contextWindow: 200_000,
+      }],
+    });
+    const result = await controller.run();
+    expect(result.selection.endpoint).toBe('/chat/completions');
   });
 
   it('runs the decision at most once', async () => {
