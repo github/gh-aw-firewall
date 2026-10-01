@@ -51,6 +51,7 @@ tools:
   github:
     mode: gh-proxy
   playwright:
+    version: "0.1.21"
   edit:
   bash:
     - "*"

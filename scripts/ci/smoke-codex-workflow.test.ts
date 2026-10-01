@@ -6,6 +6,14 @@ const smokeCodexSourcePath = path.join(workflowsDir, 'smoke-codex.md');
 const smokeCodexLockPath = path.join(workflowsDir, 'smoke-codex.lock.yml');
 
 describe('smoke codex workflow output requirements', () => {
+  it('pins Playwright CLI to a version available outside the npm release cooldown', () => {
+    const source = fs.readFileSync(smokeCodexSourcePath, 'utf-8');
+    const lock = fs.readFileSync(smokeCodexLockPath, 'utf-8');
+
+    expect(source).toContain('playwright:\n    version: "0.1.21"');
+    expect(lock).toContain('npm install -g @playwright/cli@0.1.21');
+  });
+
   it('requires noop fallback when no pull request context exists', () => {
     const source = fs.readFileSync(smokeCodexSourcePath, 'utf-8');
 
