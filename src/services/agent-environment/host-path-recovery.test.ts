@@ -3,7 +3,9 @@ import * as os from 'os';
 import * as path from 'path';
 import { recoverHostPaths } from '../agent-path-policy';
 
-jest.mock('../../logger', () => require('../../test-helpers/mock-logger.test-utils').loggerMockFactory());
+jest.mock('../../logger', () =>
+  jest.requireActual('../../test-helpers/mock-logger.test-utils').loggerMockFactory(),
+);
 
 /**
  * Regression tests for the `sudo -E awf` boundary described in
