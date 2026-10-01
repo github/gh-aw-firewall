@@ -123,6 +123,7 @@ export function buildSupervisorBootArgs(
     'rw',
     ...(networkPlan ? ['net.ifnames=0', 'biosdevname=0'] : []),
     `init=${CLOUD_HYPERVISOR_GUEST_SUPERVISOR}`,
+    ...(!networkPlan ? ['awf.network-mode=none'] : []),
     ...(workspaceMount ? [`awf.workspace-mount=${workspaceMount}`] : []),
     `awf.virtiofs=${encodeVirtiofsBootArg(guestConfig.exports, {
       allowReadOnlyWorkspace: hasReadOnlyWorkspaceMountPlan(guestConfig.mountEnforcement),

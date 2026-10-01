@@ -77,7 +77,11 @@ func runSupervisor() error {
 	if err != nil {
 		return fmt.Errorf("read kernel command line: %w", err)
 	}
-	config, err := parseBootConfig(string(cmdline))
+	return runSupervisorWithCmdline(string(cmdline), listenVsock)
+}
+
+func runSupervisorWithCmdline(cmdline string, listen func(uint32) (*vsockListener, error)) error {
+	config, err := parseBootConfig(cmdline)
 	if err != nil {
 		return err
 	}
@@ -87,7 +91,7 @@ func runSupervisor() error {
 	if err := configureNetwork(config); err != nil {
 		return err
 	}
-	listener, err := listenVsock(config.VsockPort)
+	listener, err := listen(config.VsockPort)
 	if err != nil {
 		return fmt.Errorf("listen on vsock: %w", err)
 	}
@@ -247,6 +251,9 @@ func mountWorkspace(config bootConfig) error {
 }
 
 func configureNetwork(config bootConfig) error {
+	if config.NoNetwork {
+		return nil
+	}
 	ip, err := ipCommand()
 	if err != nil {
 		return err
@@ -397,7 +404,11 @@ func (s *session) start(frame Frame) error {
 	if frame.UID > int64(^uint32(0)) || frame.GID > int64(^uint32(0)) {
 		return fmt.Errorf("uid and gid must fit Linux credential limits")
 	}
-	cwd, err := resolveCWD(s.config.WorkspaceMount, frame.Cwd)
+	workspace := s.config.WorkspaceMount
+	if s.config.NoNetwork {
+		workspace = "/"
+	}
+	cwd, err := resolveCWD(workspace, frame.Cwd)
 	if err != nil {
 		return err
 	}

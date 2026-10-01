@@ -34,6 +34,40 @@ func TestParseBootConfigRejectsDuplicateArguments(t *testing.T) {
 	}
 }
 
+func TestParseBootConfigAcceptsWorkspaceLessNoNetwork(t *testing.T) {
+	config, err := parseBootConfig("awf.network-mode=none awf.vsock-port=1024 awf.virtiofs=seed:L3NlZWQ:ro")
+	if err != nil {
+		t.Fatalf("parse no-network config: %v", err)
+	}
+	if !config.NoNetwork || config.WorkspaceMount != "" || config.GuestIP != nil || len(config.VirtiofsMounts) != 1 {
+		t.Fatalf("unexpected no-network config: %#v", config)
+	}
+}
+
+func TestParseBootConfigRejectsMixedNetworkAndWorkspace(t *testing.T) {
+	base := "awf.network-mode=none awf.vsock-port=1024 "
+	for _, arg := range []string{
+		"awf.guest-ip=192.0.2.2", "awf.guest-prefix=24",
+		"awf.guest-gateway=192.0.2.1", "awf.guest-interface=eth0",
+		"awf.workspace-device=/dev/vdb", "awf.workspace-mount=/workspace",
+		"awf.virtiofs=workspace:L3dvcmtzcGFjZQ:rw",
+	} {
+		if _, err := parseBootConfig(base + arg); err == nil {
+			t.Errorf("mixed no-network config accepted: %s", arg)
+		}
+	}
+	for _, cmdline := range []string{
+		"awf.network-mode=invalid " + validCmdline,
+		"awf.network-mode= " + validCmdline,
+		"awf.vsock-port=1024",
+		"awf.network-mode=none awf.vsock-port=1024 awf.network-mode=none",
+	} {
+		if _, err := parseBootConfig(cmdline); err == nil {
+			t.Errorf("invalid network mode accepted: %s", cmdline)
+		}
+	}
+}
+
 func TestParseBootConfigAcceptsVirtiofsWorkspace(t *testing.T) {
 	cmdline := "awf.workspace-mount=/workspace awf.virtiofs=workspace:L3dvcmtzcGFjZQ:rw;tool-cache:L29wdC9jYWNoZQ:ro awf.vsock-port=1024 awf.guest-ip=192.0.2.2 awf.guest-prefix=24 awf.guest-gateway=192.0.2.1 awf.guest-interface=eth0"
 	config, err := parseBootConfig(cmdline)

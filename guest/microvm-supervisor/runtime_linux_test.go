@@ -3,6 +3,9 @@
 package main
 
 import (
+	"encoding/base64"
+	"errors"
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
@@ -10,6 +13,32 @@ import (
 	"syscall"
 	"testing"
 )
+
+func TestWorkspaceLessNoNetworkSupervisorBootReachesVsock(t *testing.T) {
+	target := filepath.Join(t.TempDir(), "seed")
+	originalMount := mountFilesystem
+	defer func() { mountFilesystem = originalMount }()
+	mounted := false
+	mountFilesystem = func(source, destination, fstype string, flags uintptr, data string) error {
+		if source != "seed" || destination != target || fstype != "virtiofs" || flags&syscall.MS_RDONLY == 0 {
+			t.Fatalf("unexpected guest mount: %q %q %q %#x", source, destination, fstype, flags)
+		}
+		mounted = true
+		return nil
+	}
+	cmdline := fmt.Sprintf("awf.network-mode=none awf.vsock-port=1024 awf.virtiofs=seed:%s:ro",
+		base64.RawURLEncoding.EncodeToString([]byte(target)))
+	reachedVsock := errors.New("vsock listener reached")
+	err := runSupervisorWithCmdline(cmdline, func(port uint32) (*vsockListener, error) {
+		if port != 1024 || !mounted {
+			t.Fatalf("listener started before guest mount or with wrong port: %d, mounted=%t", port, mounted)
+		}
+		return nil, reachedVsock
+	})
+	if !errors.Is(err, reachedVsock) {
+		t.Fatalf("supervisor did not reach vsock listener: %v", err)
+	}
+}
 
 func TestResolveCommandUsesRequestPath(t *testing.T) {
 	directory := t.TempDir()

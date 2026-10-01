@@ -66,6 +66,12 @@ The implementation is divided into focused modules:
 - `guest/cloud-hypervisor/` contains Cloud Hypervisor artifact build and
   verification tooling.
 
+For workspace-less script enclaves, the generated guest command line includes
+`awf.network-mode=none` instead of workspace and guest-interface arguments.
+The supervisor rejects mixed network/workspace arguments, mounts only the
+declared virtio-fs exports, and opens its VSOCK listener without configuring
+guest networking.
+
 ## Runtime lifecycle
 
 For the primary-agent preview, AWF performs these steps for each run:

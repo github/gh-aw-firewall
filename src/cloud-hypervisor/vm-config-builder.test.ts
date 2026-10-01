@@ -44,6 +44,7 @@ describe('buildCloudHypervisorVmConfig', () => {
     expect(vmConfig).not.toHaveProperty('net');
     expect(vmConfig.payload.cmdline).not.toContain('awf.workspace-mount=');
     expect(vmConfig.payload.cmdline).not.toContain('awf.guest-ip=');
+    expect(vmConfig.payload.cmdline).toContain('awf.network-mode=none');
     expect(vmConfig.landlock_rules).not.toEqual(expect.arrayContaining([
       expect.objectContaining({ path: '/dev/net/tun' }),
     ]));
@@ -88,6 +89,7 @@ describe('buildCloudHypervisorVmConfig', () => {
       'cmdline',
       expect.stringContaining('awf.virtiofs=workspace:L3dvcmtzcGFjZQ:rw'),
     );
+    expect(vmConfig.payload.cmdline).not.toContain('awf.network-mode=none');
   });
 
   it('encodes a policy-narrowed workspace mode only alongside its host mount plan', () => {
