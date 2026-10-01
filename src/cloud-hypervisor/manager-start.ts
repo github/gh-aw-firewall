@@ -5,6 +5,7 @@ import type { MicrovmRootfsPreparer } from '../microvm/rootfs';
 import type {
   MicrovmNetworkLifecycle,
   MicrovmNetworkPlan,
+  MicrovmNetworkPlanOptions,
 } from '../microvm/network';
 import type { CloudHypervisorApiClient } from './api-client';
 import {
@@ -28,6 +29,7 @@ import { validateCloudHypervisorExports } from './exports';
 import { hasReadOnlyWorkspaceMountPlan } from './filesystem-write-enforcement';
 import type { VirtiofsdManager, VirtiofsdDevice } from './virtiofsd';
 import { buildCloudHypervisorVmConfig } from './vm-config-builder';
+import { resolveCloudHypervisorEnclaveNetwork } from './enclave-network';
 import type { BoundedOutputCapture } from './diagnostics';
 import type { CloudHypervisorCleanupHandle } from './cleanup-registry';
 import type { CloudHypervisorConfinementEvidence } from './confinement-verifier';
@@ -73,7 +75,9 @@ export async function startCloudHypervisor(
     config, workDir, dependencies, paths, workloadProfile, verifiedArtifacts,
   } = context;
   assertCloudHypervisorWorkloadLaunchable(workloadProfile);
-  const networkConfig: CloudHypervisorManagerNetworkConfig | undefined =
+  const networkConfig: (CloudHypervisorManagerNetworkConfig & Pick<
+    MicrovmNetworkPlanOptions, 'enclaveAgent'
+  >) | undefined =
     workloadProfile.network.mode === 'primary'
       ? {
           infrastructureBridge: workloadProfile.network.infrastructureBridge,
@@ -91,7 +95,9 @@ export async function startCloudHypervisor(
             ? { hostAliases: workloadProfile.network.hostAliases }
             : {}),
         }
-      : undefined;
+      : workloadProfile.kind === 'agent-enclave'
+        ? await resolveCloudHypervisorEnclaveNetwork(workloadProfile)
+        : undefined;
   const guestConfig = workloadProfile.guest;
 
   let startupError: unknown;
@@ -131,6 +137,12 @@ export async function startCloudHypervisor(
     let networkPlan: MicrovmNetworkPlan | undefined;
     let networkNamespace: string;
     if (networkConfig) {
+      if (workloadProfile.kind === 'agent-enclave') {
+        const verified = await resolveCloudHypervisorEnclaveNetwork(workloadProfile);
+        if (verified.infrastructureBridge !== networkConfig.infrastructureBridge) {
+          throw new Error('Agent-enclave Docker bridge changed before network setup');
+        }
+      }
       const reservation = await dependencies.reserveNetwork(paths.runId, {
         ...networkConfig,
         tapOwnerUid: identity.uid,

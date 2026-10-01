@@ -170,7 +170,7 @@ export class DurableCloudHypervisorCleanupRegistry implements CloudHypervisorCle
         virtiofsdShareDirectory: paths.virtiofsdShareDirectory,
       },
       ...(plan ? { network: {
-        mode: 'primary' as const,
+        mode: plan.mode ?? 'primary',
         namespaceName: plan.namespaceName,
         netnsPath: plan.netnsPath,
         hostVethName: plan.hostVethName,

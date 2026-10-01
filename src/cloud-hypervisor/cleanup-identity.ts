@@ -58,7 +58,7 @@ export interface CleanupRecord {
     artifactSnapshotDirectory?: string;
   };
   network?: {
-    readonly mode?: 'primary';
+    readonly mode?: 'primary' | 'enclave-agent';
     readonly namespaceName: string;
     readonly netnsPath: string;
     readonly hostVethName: string;

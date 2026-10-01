@@ -29,6 +29,11 @@ export interface MicrovmControlPeer {
 export interface MicrovmNetworkPlanOptions {
   readonly infrastructureBridge: string;
   readonly enableApiProxy: boolean;
+  /** Dedicated, closed enclave topology; never combined with primary peers. */
+  readonly enclaveAgent?: {
+    readonly apiProxyPort: number;
+    readonly githubDataPlane: boolean;
+  };
   readonly tapOwnerUid: number;
   readonly tapOwnerGid: number;
   readonly controlPeer?: MicrovmControlPeer;
@@ -60,6 +65,7 @@ export interface MicrovmNetworkPlanAllocation {
 }
 
 export interface MicrovmNetworkPlan {
+  readonly mode?: 'enclave-agent';
   readonly runId: string;
   readonly resourceToken: string;
   readonly reservationPath?: string;

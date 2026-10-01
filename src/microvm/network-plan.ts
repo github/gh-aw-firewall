@@ -8,6 +8,13 @@ import {
   SQUID_PORT,
   apiProxyPorts,
 } from '../config/network-policy';
+import {
+  ENCLAVE_AGENT_API_PROXY_IP,
+  ENCLAVE_AGENT_GITHUB_MCP_IP,
+  ENCLAVE_AGENT_SUBNET,
+} from '../enclave/network';
+import { ENCLAVE_GITHUB_MCP_PORT } from '../enclave/github-gateway';
+import { API_PROXY_PORTS } from '../types/ports';
 import type {
   MicrovmAllowedEndpoint,
   MicrovmControlPeer,
@@ -32,6 +39,21 @@ export function createMicrovmNetworkPlan(
   assertInterfaceName(options.infrastructureBridge, 'infrastructure bridge');
   assertPositiveIdentity(options.tapOwnerUid, 'tap owner uid');
   assertPositiveIdentity(options.tapOwnerGid, 'tap owner gid');
+  if (options.enclaveAgent) {
+    if (
+      options.enableApiProxy ||
+      options.controlPeer ||
+      options.controlPeers?.length ||
+      ![
+        API_PROXY_PORTS.OPENAI,
+        API_PROXY_PORTS.ANTHROPIC,
+        API_PROXY_PORTS.COPILOT,
+      ].includes(options.enclaveAgent.apiProxyPort) ||
+      typeof options.enclaveAgent.githubDataPlane !== 'boolean'
+    ) {
+      throw new Error('Invalid closed microVM agent-enclave network options');
+    }
+  }
 
   const digest = createHash('sha256').update(runId).digest();
   const token = allocation?.resourceToken ?? digest.toString('hex').slice(0, 12);
@@ -68,14 +90,22 @@ export function createMicrovmNetworkPlan(
     assertInterfaceName(name, label);
   }
 
-  const allowedEndpoints = createAllowedEndpoints(
-    options.enableApiProxy,
-    [
-      ...(options.controlPeer ? [options.controlPeer] : []),
-      ...(options.controlPeers ?? []),
-    ],
-  );
+  const allowedEndpoints = options.enclaveAgent
+    ? [
+        { name: 'enclave-api-proxy', ip: ENCLAVE_AGENT_API_PROXY_IP, port: options.enclaveAgent.apiProxyPort },
+        ...(options.enclaveAgent.githubDataPlane
+          ? [{ name: 'github-data-plane', ip: ENCLAVE_AGENT_GITHUB_MCP_IP, port: ENCLAVE_GITHUB_MCP_PORT }]
+          : []),
+      ]
+    : createAllowedEndpoints(
+        options.enableApiProxy,
+        [
+          ...(options.controlPeer ? [options.controlPeer] : []),
+          ...(options.controlPeers ?? []),
+        ],
+      );
   const plan: MicrovmNetworkPlan = {
+    ...(options.enclaveAgent ? { mode: 'enclave-agent' as const } : {}),
     runId,
     resourceToken: token,
     ...(allocation?.reservationPath ? { reservationPath: allocation.reservationPath } : {}),
@@ -87,9 +117,9 @@ export function createMicrovmNetworkPlan(
     hostVethName,
     namespaceVethName,
     tapName,
-    infrastructureIp: allocation?.infrastructureIp ?? AGENT_IP,
-    infrastructureCidr: NETWORK_SUBNET,
-    hostGatewayIp: HOST_GATEWAY,
+    infrastructureIp: allocation?.infrastructureIp ?? (options.enclaveAgent ? '172.31.0.20' : AGENT_IP),
+    infrastructureCidr: options.enclaveAgent ? ENCLAVE_AGENT_SUBNET : NETWORK_SUBNET,
+    hostGatewayIp: options.enclaveAgent ? '172.31.0.1' : HOST_GATEWAY,
     guestSubnet: `${integerToIpv4(subnetBase)}/${GUEST_PREFIX_LENGTH}`,
     guestIp,
     guestGatewayIp,

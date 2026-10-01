@@ -1,5 +1,11 @@
 import { isIP } from 'net';
 import * as path from 'path';
+import {
+  ENCLAVE_AGENT_API_PROXY_IP,
+  ENCLAVE_AGENT_GITHUB_MCP_IP,
+} from '../enclave/network';
+import { ENCLAVE_GITHUB_MCP_PORT } from '../enclave/github-gateway';
+import { API_PROXY_PORTS } from '../types/ports';
 import type { MicrovmControlPeer } from '../microvm/network';
 import type {
   CloudHypervisorManagerGuestConfig,
@@ -204,8 +210,24 @@ export function validateCloudHypervisorWorkloadProfile(
         'agent-enclave network profile',
       );
       validateEndpoint(profile.network.apiProxy, 'dedicated API proxy');
+      if (
+        profile.network.apiProxy.ip !== ENCLAVE_AGENT_API_PROXY_IP ||
+        ![
+          API_PROXY_PORTS.OPENAI,
+          API_PROXY_PORTS.ANTHROPIC,
+          API_PROXY_PORTS.COPILOT,
+        ].includes(profile.network.apiProxy.port)
+      ) {
+        throw new Error('Cloud Hypervisor agent-enclave requires the dedicated API proxy and a supported engine port');
+      }
       if (profile.network.githubDataPlane) {
         validateEndpoint(profile.network.githubDataPlane, 'GitHub data plane');
+        if (
+          profile.network.githubDataPlane.ip !== ENCLAVE_AGENT_GITHUB_MCP_IP ||
+          profile.network.githubDataPlane.port !== ENCLAVE_GITHUB_MCP_PORT
+        ) {
+          throw new Error('Cloud Hypervisor agent-enclave requires the compiler-owned GitHub data plane');
+        }
       }
       break;
     default:
@@ -231,7 +253,7 @@ export function snapshotCloudHypervisorWorkloadProfile(
 
 export function assertCloudHypervisorWorkloadLaunchable(
   profile: CloudHypervisorWorkloadProfile,
-): asserts profile is CloudHypervisorLaunchableWorkloadProfile {
+): void {
   validateCloudHypervisorWorkloadProfile(profile);
   if (profile.kind === 'agent-enclave') {
     throw new Error(

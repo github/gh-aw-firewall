@@ -229,7 +229,7 @@ export function createCleanupHandle(options: CleanupHandleFactoryOptions): Cloud
 
 function serializeNetworkPlan(plan: MicrovmNetworkPlan): CleanupRecord['network'] {
   return {
-    mode: 'primary',
+    mode: plan.mode ?? 'primary',
     namespaceName: plan.namespaceName,
     netnsPath: plan.netnsPath,
     hostVethName: plan.hostVethName,
