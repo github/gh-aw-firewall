@@ -130,6 +130,14 @@ export function prepareLogDirectories(logPaths: LogPaths, dockerHostPathPrefix?:
     );
   }
 
+  const runnerVisibleCliProxyLogs = resolveRunnerVisibleHostPath(logPaths.cliProxyLogs, dockerHostPathPrefix);
+  if (runnerVisibleCliProxyLogs !== logPaths.cliProxyLogs) {
+    ensureDirectory(runnerVisibleCliProxyLogs, {
+      mode: 0o777,
+      onCreate: () => fs.chmodSync(runnerVisibleCliProxyLogs, 0o777),
+    });
+  }
+
   // Create CLI proxy logs directory for persistence
   // Note: CLI proxy runs as user 'cliproxy' (non-root)
   ensureDirectory(logPaths.cliProxyLogs, {

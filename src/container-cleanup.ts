@@ -23,6 +23,7 @@ export async function cleanup(
   imageTag?: string,
   agentImage?: string,
   images?: ImageManifestConfig['images'],
+  tokenLogDir?: string,
 ): Promise<void> {
   if (keepFiles) {
     logger.debug(`Keeping temporary files in: ${workDir}`);
@@ -37,6 +38,7 @@ export async function cleanup(
 
     preserveCleanupArtifacts(workDir, {
       proxyLogsDir,
+      tokenLogDir,
       auditDir,
       sessionStateDir,
       dockerHostPathPrefix,

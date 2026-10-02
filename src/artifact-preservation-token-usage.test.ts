@@ -66,6 +66,16 @@ describe('preserveCleanupArtifacts – token usage log path', () => {
     expect(readExports()).toBe(`${TOKEN_USAGE_LOG_ENV_VAR}=${tokenUsage}\n`);
   });
 
+  it('exports the token-usage path from a configured API-proxy log subdirectory', () => {
+    const proxyLogsDir = path.join(scratch, 'firewall', 'logs');
+    const tokenLogDir = '/var/log/api-proxy/custom';
+    const tokenUsage = writeTokenUsage(path.join(proxyLogsDir, 'api-proxy-logs', 'custom'));
+
+    preserveCleanupArtifacts(workDir, { proxyLogsDir, tokenLogDir });
+
+    expect(readExports()).toBe(`${TOKEN_USAGE_LOG_ENV_VAR}=${tokenUsage}\n`);
+  });
+
   it('keeps the RUNNER_TEMP path under arc-dind with a daemon-only /host prefix', () => {
     // gh-aw arc-dind passes --proxy-logs-dir ${RUNNER_TEMP}/gh-aw/sandbox/firewall/logs;
     // the daemon writes it via /host<path>, which is the runner path itself.
@@ -90,6 +100,18 @@ describe('preserveCleanupArtifacts – token usage log path', () => {
 
     expect(readExports()).toBe(`${TOKEN_USAGE_LOG_ENV_VAR}=${tokenUsage}\n`);
     expect(fs.existsSync(proxyLogsDir)).toBe(false);
+  });
+
+  it('preserves and repairs startup diagnostics at the original host path after translation', () => {
+    const proxyLogsDir = path.join('/var/tmp', `awf-startup-diagnostic-${path.basename(scratch)}`);
+    const diagnosticPath = path.join(proxyLogsDir, 'awf-startup-error.json');
+    extraCleanup.push(proxyLogsDir);
+    fs.mkdirSync(proxyLogsDir, { recursive: true });
+    fs.writeFileSync(diagnosticPath, '{"phase":"startup"}\n', { mode: 0o600 });
+
+    preserveCleanupArtifacts(workDir, { proxyLogsDir, dockerHostPathPrefix: '/tmp' });
+
+    expect(fs.statSync(diagnosticPath).mode & 0o777).toBe(0o644);
   });
 
   it('exports the preserved /tmp location when logs were written to the work dir', () => {

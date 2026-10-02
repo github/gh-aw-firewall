@@ -498,6 +498,7 @@ describe('prepareLogDirectories (sub-function)', () => {
       const logPaths = {
         ...resolveLogPaths(buildConfig()),
         apiProxyLogs: path.join(outsideTmp, 'api-proxy-logs'),
+        cliProxyLogs: path.join(outsideTmp, 'cli-proxy-logs'),
       };
       // The runner-side source dir itself is outside /tmp and may not be creatable here.
       (fs.mkdirSync as unknown as jest.Mock).mockImplementation(
@@ -517,6 +518,9 @@ describe('prepareLogDirectories (sub-function)', () => {
       const translated = path.join(translatedRoot, 'api-proxy-logs');
       expect(actualFs.statSync(translated).isDirectory()).toBe(true);
       expect(actualFs.statSync(translated).mode & 0o777).toBe(0o777);
+      const translatedCliProxy = path.join(translatedRoot, 'cli-proxy-logs');
+      expect(actualFs.statSync(translatedCliProxy).isDirectory()).toBe(true);
+      expect(actualFs.statSync(translatedCliProxy).mode & 0o777).toBe(0o777);
     } finally {
       (fs.lstatSync as unknown as jest.Mock).mockImplementation(actualFs.lstatSync);
       (fs.statSync as unknown as jest.Mock).mockImplementation(actualFs.statSync);
