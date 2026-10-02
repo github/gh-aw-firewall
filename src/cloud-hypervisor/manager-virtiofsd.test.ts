@@ -56,7 +56,7 @@ import {
 
     await manager.start();
 
-    expect(virtiofsd.start).toHaveBeenCalledWith(exportsConfig, undefined);
+    expect(virtiofsd.start).toHaveBeenCalledWith(exportsConfig, undefined, undefined);
   });
 
   it('forwards host mount enforcement and publishes a read-only workspace', async () => {
@@ -78,7 +78,7 @@ import {
 
     const client = await manager.start();
 
-    expect(virtiofsd.start).toHaveBeenCalledWith(narrowedExports, mountEnforcement);
+    expect(virtiofsd.start).toHaveBeenCalledWith(narrowedExports, mountEnforcement, undefined);
     expect((client.vmCreate as jest.Mock).mock.calls[0][0].payload.cmdline)
       .toContain(`awf.virtiofs=workspace:${Buffer.from('/workspace').toString('base64url')}:ro`);
   });
@@ -139,4 +139,3 @@ import {
     expect(handle.complete).not.toHaveBeenCalled();
   });
   });
-
