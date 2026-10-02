@@ -38,7 +38,7 @@ const MODEL_SPECIFIC_ERROR_PATTERNS = [
   /\b(?:unknown|invalid|unsupported) model\b/i,
   /\bmodel\b[^"\n]{0,120}?\b(?:does not exist|not found|is not supported|not supported|is not available|not available|has been deprecated|is deprecated|is retired)\b/i,
   /\bmodels\/[^\s"]+ is not found\b/i,
-  /"type"\s*:\s*"not_found_error"[^}]*"message"\s*:\s*"model:/i,
+  /"type"\s*:\s*"not_found_error"[^}]*"message"\s*:\s*"model:|"message"\s*:\s*"model:[^}]*"type"\s*:\s*"not_found_error"/i,
 ];
 
 /** Path segment carrying the model for Gemini-style endpoints. */

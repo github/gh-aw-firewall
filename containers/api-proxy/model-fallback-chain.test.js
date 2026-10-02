@@ -69,6 +69,7 @@ describe('model-fallback-chain', () => {
       ['copilot endpoint', '{"error":{"message":"model \\"gpt-5.4-mini\\" is not accessible via the /chat/completions endpoint"}}'],
       ['openai', '{"error":{"message":"The model `gpt-9` does not exist or you do not have access to it.","code":"model_not_found"}}'],
       ['anthropic', '{"type":"error","error":{"type":"not_found_error","message":"model: claude-9"}}'],
+      ['anthropic reversed properties', '{"error":{"message":"model: claude-9","type":"not_found_error"}}'],
       ['gemini', '{"error":{"code":404,"message":"models/gemini-9 is not found for API version v1beta","status":"NOT_FOUND"}}'],
       ['generic', '{"error":"Unsupported model"}'],
     ])('detects %s model errors', (_name, body) => {

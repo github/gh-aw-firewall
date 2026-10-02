@@ -16,6 +16,7 @@ const {
 
 /** Maximum number of times to retry a Copilot 400 "model not supported" response. */
 const MAX_MODEL_NOT_SUPPORTED_RETRIES = 2;
+const MAX_FALLBACK_INSPECTION_BYTES = 64 * 1024;
 
 /**
  * Pattern matching the Copilot error for a model that is not yet visible in
@@ -204,6 +205,37 @@ function createUpstreamResponseHandlers({
     const completionCtx = { startTime, provider, req, requestBytes, targetHost, requestId };
     const authErrCtx = { requestId, provider, targetHost, req };
 
+    function forwardOversizedBufferedResponse(bufferedChunks, currentChunk) {
+      const responseBody = Buffer.concat(bufferedChunks);
+      const resHeaders = { ...proxyRes.headers, 'x-request-id': requestId };
+      res.writeHead(proxyRes.statusCode, resHeaders);
+      const canWritePrefix = res.write(responseBody);
+      const canWriteChunk = res.write(currentChunk);
+      const canContinue = canWritePrefix && canWriteChunk;
+      if (canContinue) {
+        proxyRes.pipe(res);
+      } else {
+        proxyRes.pause();
+        res.once('drain', () => proxyRes.pipe(res));
+      }
+
+      proxyRes.once('end', () => {
+        logRequestCompletion(proxyRes.statusCode, responseBytes, initiatorSent, billingInfo, completionCtx);
+        logUpstreamAuthError(proxyRes.statusCode, { ...authErrCtx, responseBody });
+        logUpstreamErrorResponse(proxyRes.statusCode, {
+          ...authErrCtx,
+          requestModel,
+          requestTools,
+          transformed: false,
+          responseHeaders: proxyRes.headers,
+          responseBody,
+          responseBodyBytes: responseBytes,
+          responseBodyTruncated: true,
+        });
+        otel.endSpan(span, proxyRes.statusCode);
+      });
+    }
+
     proxyRes.on('error', (err) => {
       otel.endSpanError(span, err, 502);
       handleRequestError(err, {
@@ -217,11 +249,21 @@ function createUpstreamResponseHandlers({
 
     if (shouldBuffer400) {
       const bufferedChunks = [];
+      let bufferedBytes = 0;
+      let fallbackBufferExceeded = false;
       proxyRes.on('data', (chunk) => {
         responseBytes += chunk.length;
+        if (fallbackBufferExceeded) return;
+        if (bufferedBytes + chunk.length > MAX_FALLBACK_INSPECTION_BYTES) {
+          fallbackBufferExceeded = true;
+          forwardOversizedBufferedResponse(bufferedChunks, chunk);
+          return;
+        }
         bufferedChunks.push(chunk);
+        bufferedBytes += chunk.length;
       });
       proxyRes.on('end', () => {
+        if (fallbackBufferExceeded) return;
         const responseBody = Buffer.concat(bufferedChunks);
         const didRetry = handle400WithRetry(proxyRes, requestHeaders, responseBody, {
           provider, requestId, hasRetried, onRetry,
@@ -249,11 +291,21 @@ function createUpstreamResponseHandlers({
 
     if (shouldBufferForFallback) {
       const bufferedChunks = [];
+      let bufferedBytes = 0;
+      let fallbackBufferExceeded = false;
       proxyRes.on('data', (chunk) => {
         responseBytes += chunk.length;
+        if (fallbackBufferExceeded) return;
+        if (bufferedBytes + chunk.length > MAX_FALLBACK_INSPECTION_BYTES) {
+          fallbackBufferExceeded = true;
+          forwardOversizedBufferedResponse(bufferedChunks, chunk);
+          return;
+        }
         bufferedChunks.push(chunk);
+        bufferedBytes += chunk.length;
       });
       proxyRes.on('end', () => {
+        if (fallbackBufferExceeded) return;
         handleFallbackEligibleResponse(proxyRes, Buffer.concat(bufferedChunks), {
           onModelFallback,
           completionCtx, authErrCtx, initiatorSent, billingInfo, res, span, requestId,

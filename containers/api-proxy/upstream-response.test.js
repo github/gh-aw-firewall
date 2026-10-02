@@ -173,4 +173,51 @@ describe('upstream-response', () => {
       upstream_request_ids: { 'x-correlation-id': 'corr-123' },
     }));
   });
+
+  test.each([400, 503])('streams oversized %i fallback errors without inspecting the full response', (statusCode) => {
+    const deps = createDependencies();
+    const { handleUpstreamResponse } = createUpstreamResponseHandlers(deps);
+    const proxyRes = createProxyRes({
+      statusCode,
+      headers: { 'content-type': 'application/json', 'content-length': '65547' },
+    });
+    const res = { writeHead: jest.fn(), write: jest.fn(() => true), end: jest.fn(), once: jest.fn() };
+    const prefix = Buffer.alloc(64 * 1024, 'a');
+    const overflow = Buffer.from('overflow');
+    const tail = Buffer.from('tail');
+    const onModelFallback = jest.fn(() => true);
+
+    handleUpstreamResponse(proxyRes, {}, {
+      body: Buffer.from('{"model":"gpt-5.4"}'),
+      res,
+      provider: 'openai',
+      requestId: 'local-req-4',
+      req: { method: 'POST', url: '/v1/chat/completions' },
+      targetHost: 'api.openai.com',
+      startTime: Date.now() - 10,
+      span: {},
+      requestBytes: 20,
+      hasRetried: false,
+      onRetry: jest.fn(),
+      onModelFallback,
+    });
+
+    proxyRes.emit('data', prefix);
+    proxyRes.emit('data', overflow);
+    proxyRes.emit('data', tail);
+    proxyRes.emit('end');
+
+    expect(onModelFallback).not.toHaveBeenCalled();
+    expect(res.writeHead).toHaveBeenCalledWith(statusCode, expect.objectContaining({
+      'x-request-id': 'local-req-4',
+      'content-length': '65547',
+    }));
+    expect(res.write).toHaveBeenNthCalledWith(1, prefix);
+    expect(res.write).toHaveBeenNthCalledWith(2, overflow);
+    expect(proxyRes.pipe).toHaveBeenCalledWith(res);
+    expect(deps.logRequest).toHaveBeenCalledWith('warn', 'upstream_error_response', expect.objectContaining({
+      response_body_bytes: prefix.length + overflow.length + tail.length,
+      response_body_truncated: true,
+    }));
+  });
 });
