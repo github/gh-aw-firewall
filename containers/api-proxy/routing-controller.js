@@ -153,7 +153,7 @@ function createRoutingController(dependencies) {
 
       const snapshot = await runPhase(({ signal: phaseSignal }) =>
         catalogue.getSnapshot({ signal: phaseSignal, provider: config.provider || 'copilot' }));
-      const pool = buildRoutingCandidates({ catalogue: snapshot, policy });
+      const pool = buildRoutingCandidates({ catalogue: snapshot, policy, candidateModels: config.candidateModels });
       catalogueOverlap = countCatalogueOverlap(rawCapabilities, pool.choices);
 
       const loadedConversation = await runPhase(({ signal: phaseSignal }) =>

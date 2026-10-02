@@ -8,6 +8,7 @@ export type ModelRoutingProvider = 'copilot' | 'openai' | 'anthropic';
 
 export interface ModelRoutingConfig {
   provider?: ModelRoutingProvider;
+  candidateModels?: string[];
   objective: {
     goal: ModelRoutingGoal;
     mode: ModelRoutingMode;

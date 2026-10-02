@@ -12,8 +12,8 @@ function catalogue(models, provider = 'copilot') {
   return { provider, configured: true, discovery: 'complete', models };
 }
 
-function build(models, policy, provider = 'copilot') {
-  return buildRoutingCandidates({ catalogue: catalogue(models, provider), policy });
+function build(models, policy, provider = 'copilot', candidateModels) {
+  return buildRoutingCandidates({ catalogue: catalogue(models, provider), policy, candidateModels });
 }
 
 describe('routing candidates', () => {
@@ -125,6 +125,38 @@ describe('routing candidates', () => {
       ]);
     },
   );
+
+  it('limits route choices to candidateModels while retaining the wider model policy', () => {
+    const pool = build([
+      model('claude-haiku-4.5'),
+      model('gpt-5.6-luna'),
+      model('claude-opus-5'),
+    ], {
+      allowedModels: ['*'],
+      disallowedModels: ['*opus*'],
+    }, 'copilot', ['claude-haiku-*']);
+
+    expect(pool.choices.map(choice => choice.model)).toEqual([
+      'github-copilot/claude-haiku-4.5',
+      'github-copilot/claude-haiku-4.5',
+    ]);
+  });
+
+  it('intersects routing candidates with the policy allowlist and denylist', () => {
+    const pool = build([
+      model('gpt-allowed'),
+      model('gpt-blocked'),
+      model('claude-haiku-4.5'),
+    ], {
+      allowedModels: ['gpt-*'],
+      disallowedModels: ['gpt-blocked'],
+    }, 'copilot', ['*']);
+
+    expect(pool.choices.map(choice => choice.model)).toEqual([
+      'github-copilot/gpt-allowed',
+      'github-copilot/gpt-allowed',
+    ]);
+  });
 
   it('deduplicates overlapping policy patterns, model identities, and efforts', () => {
     const pool = build([

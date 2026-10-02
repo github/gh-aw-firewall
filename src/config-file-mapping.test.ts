@@ -96,6 +96,21 @@ describe('mapAwfFileConfigToCliOptions', () => {
     expect(result.openaiBaseUrlEnv).toBe('CODEX_LB_BASE_URL');
   });
 
+  it('preserves routing candidate models in the routed config', () => {
+    const candidateModels = ['gpt-5.6-luna'];
+    const result = mapAwfFileConfigToCliOptions({
+      apiProxy: {
+        routing: {
+          candidateModels,
+          objective: { goal: 'cost', mode: 'balanced' },
+          task: { conversationFile: '/tmp/conversation.json' },
+        },
+      },
+    });
+
+    expect(result.modelRouting).toMatchObject({ candidateModels });
+  });
+
   it('maps authHeader fields for openai and anthropic targets', () => {
     const result = mapAwfFileConfigToCliOptions({
       apiProxy: {

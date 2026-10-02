@@ -402,6 +402,16 @@
               "default": "copilot",
               "description": "Provider slot whose native model catalogue is routed. Defaults to Copilot."
             },
+            "candidateModels": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "description": "Optional model-pattern allowlist for router/classifier candidates. Candidates are still intersected with apiProxy.allowedModels and apiProxy.disallowedModels for policy enforcement. When omitted, apiProxy.allowedModels continues to supply the routing candidates."
+            },
             "objective": {
               "type": "object",
               "additionalProperties": false,

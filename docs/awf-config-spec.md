@@ -242,6 +242,7 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 - `apiProxy.fallbackModels` → *(config-only; maps to `AWF_FALLBACK_MODELS` — ordered model IDs retried on 5xx, timeout, or model-not-supported failures)*
 - `experimental.modelRouting` → *(config-only; experimental opt-in required for `apiProxy.routing`; defaults to off)*
 - `apiProxy.routing` → *(config-only; requires `experimental.modelRouting: true`; task-level routing objective and task conversation input)*
+- `apiProxy.routing.candidateModels` → *(optional glob patterns that limit router/classifier choices; intersected with the model policy; defaults to `apiProxy.allowedModels`)*
 - `apiProxy.modelRouter.providerType` → *(config-only; maps to `COPILOT_PROVIDER_TYPE`)*
 - `apiProxy.modelRouter.baseUrl` → *(config-only; maps to `COPILOT_PROVIDER_BASE_URL`)*
 - `apiProxy.allowedModels` → *(config-only; maps to `AWF_ALLOWED_MODELS` — JSON array of glob patterns; only matching models are permitted)*
@@ -2088,8 +2089,11 @@ Completions protocol; Anthropic uses Messages. Unsupported effort values are
 discarded, and a model with no remaining advertised effort is excluded rather
 than converted into an effortless choice.
 
-Request guards, alias resolution, and candidate filtering share
-provider-aware `allowedModels` / `disallowedModels` matching. Native patterns
+Request guards and alias resolution use the provider-aware
+`allowedModels` / `disallowedModels` policy. Candidate filtering additionally
+uses `apiProxy.routing.candidateModels` when supplied; those patterns only
+narrow the router/classifier pool and never widen the request policy. When
+omitted, candidates continue to be derived from `allowedModels`. Native patterns
 such as `gpt-*` match the native model name; qualified patterns such as
 `github-copilot/gpt-*` match that provider only. Copilot recognizes the existing
 `copilot`, `github-copilot`, and `github` provider aliases. Matching remains

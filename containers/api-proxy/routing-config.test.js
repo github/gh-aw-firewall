@@ -52,6 +52,23 @@ describe('routing configuration', () => {
     }
   });
 
+  it('preserves a distinct non-empty candidate list', () => {
+    const input = {
+      candidateModels: ['  github-copilot/gpt-5*  '],
+      objective: { goal: 'cost', mode: 'balanced' },
+      task: { conversationFile: '/tmp/gh-aw/conversation.json' },
+    };
+
+    const result = parseRoutingConfig(JSON.stringify(input));
+
+    expect(result.candidateModels).toEqual(['github-copilot/gpt-5*']);
+    expect(Object.isFrozen(result.candidateModels)).toBe(true);
+    expect(() => parseRoutingConfig(JSON.stringify({ ...input, candidateModels: [] })))
+      .toThrow('routing.candidateModels must be a non-empty array');
+    expect(() => parseRoutingConfig(JSON.stringify({ ...input, candidateModels: ['${{ inputs.model }}'] })))
+      .toThrow('routing.candidateModels[0] must be a literal model pattern');
+  });
+
   it('defaults to Copilot and permits only provider-scoped routing slots', () => {
     const base = {
       objective: { goal: 'cost', mode: 'balanced' },

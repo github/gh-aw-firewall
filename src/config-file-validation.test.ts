@@ -175,6 +175,7 @@ describe('validateAwfFileConfig', () => {
 
   it('validates closed apiProxy.routing fields', () => {
     const valid = {
+      candidateModels: ['gpt-5.6-luna'],
       objective: { goal: 'cost', mode: 'auto' },
       task: { conversationFile: '/tmp/gh-aw/conversation.json' },
     };
@@ -202,6 +203,10 @@ describe('validateAwfFileConfig', () => {
       experimental: { modelRouting: true },
       apiProxy: { routing: { ...valid, unexpected: true } },
     })).toContain('config.apiProxy.routing.unexpected is not supported');
+    expect(validateAwfFileConfig({
+      experimental: { modelRouting: true },
+      apiProxy: { routing: { ...valid, candidateModels: [] } },
+    })).toContain('config.apiProxy.routing.candidateModels must NOT have fewer than 1 items');
     for (const experimental of [undefined, { modelRouting: false }, {}]) {
       expect(validateAwfFileConfig({ experimental, apiProxy: { routing: valid } }))
         .toContain('config.apiProxy.routing requires experimental.modelRouting: true');
