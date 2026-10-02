@@ -80,12 +80,12 @@ describe('enclave runtime preflight', () => {
       { ...ENCLAVE_SCRIPT_EXECUTOR_DEFAULTS, enabled: true, runtime: 'cloud-hypervisor' },
       runtimeAvailable,
       dockerAvailable,
-    )).rejects.toThrow(/ADR 0002 host executor.*never fall back/);
+    )).rejects.toThrow(/ADR 0002 host executor.*supported-host real-KVM.*never fall back/);
     await expect(assertAgentRuntimeAvailable(
       { ...ENCLAVE_AGENT_EXECUTOR_DEFAULTS, enabled: true, runtime: 'cloud-hypervisor' },
       runtimeAvailable,
       dockerAvailable,
-    )).rejects.toThrow(/ADR 0002 host executor.*never fall back/);
+    )).rejects.toThrow(/ADR 0002 host executor.*supported-host real-KVM.*never fall back/);
     expect(runtimeAvailable).not.toHaveBeenCalled();
     expect(dockerAvailable).not.toHaveBeenCalled();
   });

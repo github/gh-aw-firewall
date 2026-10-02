@@ -26,6 +26,7 @@ const {
 const { AGENT_TOOL_NAME, TOOL_NAME, dispatchJsonRpc, parseJsonRpcBody } = require('./mcp-protocol');
 const { createDynamicDelegationClient } = require('./delegation-channel');
 const { createToolCallBudget } = require('./tool-call-budget');
+const { createHostExecutorRunner } = require('./host-executor-runner');
 
 const MAX_HTTP_BODY_BYTES = 420 * 1024;
 const RESPONSE_HEADERS = {
@@ -82,6 +83,7 @@ function createSingleToolAdmission() {
 }
 
 function createMcpServer(deps) {
+  const activeRequests = new Map();
   const dispatchDeps = {
     ...deps,
     tryAcquireToolCall: createSingleToolAdmission(),
@@ -121,9 +123,35 @@ function createMcpServer(deps) {
       return;
     }
 
+    if (message.jsonrpc === '2.0' && message.method === 'notifications/cancelled'
+        && !Object.prototype.hasOwnProperty.call(message, 'id')
+        && Object.keys(message).every((key) => ['jsonrpc', 'method', 'params'].includes(key))
+        && message.params && typeof message.params === 'object'
+        && !Array.isArray(message.params)
+        && Object.keys(message.params).every((key) => ['requestId', 'reason'].includes(key))
+        && ['string', 'number'].includes(typeof message.params.requestId)
+        && (message.params.reason === undefined || typeof message.params.reason === 'string')) {
+      activeRequests.get(message.params.requestId)?.abort();
+      res.writeHead(202, { 'cache-control': 'no-store', 'content-length': '0' });
+      res.end();
+      return;
+    }
+
     let response;
     try {
-      response = await dispatchJsonRpc(message, dispatchDeps);
+      const cancellation = new AbortController();
+      const disconnect = () => {
+        if (!res.writableEnded) cancellation.abort();
+      };
+      res.once('close', disconnect);
+      const track = message.method === 'tools/call' && !activeRequests.has(message.id);
+      if (track) activeRequests.set(message.id, cancellation);
+      try {
+        response = await dispatchJsonRpc(message, { ...dispatchDeps, signal: cancellation.signal });
+      } finally {
+        res.removeListener('close', disconnect);
+        if (track) activeRequests.delete(message.id);
+      }
     } catch {
       jsonResponse(res, 200, {
         jsonrpc: '2.0',
@@ -189,7 +217,9 @@ async function main() {
 
   if (scriptEnabled) {
     const config = loadConfig();
-    const runner = createScriptRunner(config, { nowMs: clock.nowMs });
+    const runner = config.executorBackend === 'cloud-hypervisor'
+      ? createHostExecutorRunner(config, { nowMs: clock.nowMs })
+      : createScriptRunner(config, { nowMs: clock.nowMs });
     await runner.assertAvailable();
     await runner.reconcileRun(runId);
     runners.push({ runner, config });
@@ -212,7 +242,9 @@ async function main() {
 
   if (agentEnabled) {
     const config = loadAgentConfig(serverConfig);
-    const runner = createAgentRunner(config, { nowMs: clock.nowMs });
+    const runner = config.executorBackend === 'cloud-hypervisor'
+      ? createHostExecutorRunner(config, { nowMs: clock.nowMs })
+      : createAgentRunner(config, { nowMs: clock.nowMs });
     await runner.assertAvailable();
     await runner.reconcileRun(runId);
     runners.push({ runner, config });

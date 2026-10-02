@@ -80,8 +80,8 @@ async function assertExecutorRuntimeAvailable(
   }
   if (runtime === 'cloud-hypervisor') {
     throw new Error(
-      `${label} runtime "cloud-hypervisor" is reserved until the ADR 0002 host executor, `
-      + 'rootfs, networking, resource-parity, and recovery gates are implemented; enclaves never fall back',
+      `${label} runtime "cloud-hypervisor" is reserved until the ADR 0002 host executor `
+      + 'integration passes supported-host real-KVM security and lifecycle validation; enclaves never fall back',
     );
   }
   throw new Error(`${label} runtime "sbx" is not implemented and never falls back`);

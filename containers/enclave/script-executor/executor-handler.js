@@ -139,14 +139,18 @@ function createExecutorHandler(params) {
    * validation actually reach the point where the response must be
    * time-bucketed; everything rejected before that responds immediately.
    */
-  async function execute(request, respond) {
+  async function execute(request, respond, externalSignal) {
     const invocationId = crypto.randomBytes(12).toString('hex');
     const cancellation = new AbortController();
+    const abort = () => cancellation.abort();
+    externalSignal?.addEventListener('abort', abort);
+    if (externalSignal?.aborted) abort();
     activeCancellations.add(cancellation);
     try {
       await executeInvocation(request, respond, invocationId, cancellation.signal);
     } finally {
       activeCancellations.delete(cancellation);
+      externalSignal?.removeEventListener('abort', abort);
       // A dynamic invocation that reached admission must always settle its
       // reservation and revoke its identity, even if an unexpected error
       // escaped the pipeline. `settleDynamic` is a no-op once an invocation
@@ -250,7 +254,7 @@ function createExecutorHandler(params) {
     let canonicalResult;
 
     try {
-      layout = workspace.createInvocationWorkspace({
+      layout = runner.hostOwned ? {} : workspace.createInvocationWorkspace({
         config,
         runId,
         invocationId,
@@ -278,6 +282,13 @@ function createExecutorHandler(params) {
             seedId: seed.seedId,
             deadlineMs: clock.nowMs() + remainingMs,
             signal,
+            ...(runner.hostOwned ? {
+              privateRepo: admitted ? admitted.repo : repoKey,
+              payload,
+              schema,
+              admissionId: invocationId,
+              executorKind,
+            } : {}),
             ...(admitted
               ? { binding: { repository: admitted.repo, readMode: admitted.readMode } }
               : {}),
@@ -292,8 +303,10 @@ function createExecutorHandler(params) {
               `exit=${run.exitCode}`,
             ];
           } else {
-            const raw = workspace.readQueryOutput(layout.outPath, config.maxOutputBytes);
-            if (raw === undefined) {
+            const raw = runner.hostOwned
+              ? run.rawResult : workspace.readQueryOutput(layout.outPath, config.maxOutputBytes);
+            if (raw === undefined || (runner.hostOwned
+                && (typeof raw !== 'string' || Buffer.byteLength(raw, 'utf8') > config.maxOutputBytes))) {
               // Covers a missing file, an oversized file, invalid UTF-8, and
               // any non-regular replacement (symlink/FIFO/device/socket).
               failureReason = ['unreadable-output'];
@@ -307,6 +320,10 @@ function createExecutorHandler(params) {
             }
           }
         } catch (error) {
+          if (runner.hostOwned) {
+            accepting = false;
+            lane.closed = true;
+          }
           failureReason = ['launch-failed', error.message];
         }
       }
@@ -318,7 +335,7 @@ function createExecutorHandler(params) {
     // even when creation threw after materializing only part of the workspace.
     // Executor-specific protected artifacts (never agent-visible) are captured
     // before teardown and inside the charged timing bucket.
-    if (layout && typeof workspace.preserveInvocationArtifacts === 'function') {
+    if (!runner.hostOwned && layout && typeof workspace.preserveInvocationArtifacts === 'function') {
       try {
         workspace.preserveInvocationArtifacts({ layout, config, invocationId });
       } catch (error) {
@@ -389,6 +406,7 @@ function createExecutorHandler(params) {
   }
 
   function safeDestroy(invocationId) {
+    if (runner.hostOwned) return true;
     try {
       workspace.destroyInvocationWorkspace(config.workDir, invocationId);
       return true;
@@ -416,7 +434,7 @@ function createExecutorHandler(params) {
      *
      * Requests are queued so at most one query runs at a time.
      */
-    handle(request, respond) {
+    handle(request, respond, options = {}) {
       let responded = false;
       const safeRespond = (json) => {
         if (responded) return;
@@ -424,7 +442,7 @@ function createExecutorHandler(params) {
         respond(json);
       };
 
-      if (!accepting) {
+      if (!accepting || lane.closed) {
         safeRespond(CANONICAL_ERROR_RESPONSE_JSON);
         return Promise.resolve();
       }
@@ -458,7 +476,17 @@ function createExecutorHandler(params) {
       }
       invocationsUsed += 1;
 
-      const queued = lane.tail.then(() => execute(request, safeRespond)).catch((error) => {
+      const queued = lane.tail.then(() => {
+        if (!accepting || lane.closed || options.signal?.aborted) {
+          safeRespond(CANONICAL_ERROR_RESPONSE_JSON);
+          return;
+        }
+        return execute(request, safeRespond, options.signal);
+      }).catch((error) => {
+        if (runner.hostOwned) {
+          accepting = false;
+          lane.closed = true;
+        }
         audit.failure('queue', 'unexpected-error', error && error.message);
         emitInvocationTelemetry('unexpected-error');
         safeRespond(CANONICAL_ERROR_RESPONSE_JSON);

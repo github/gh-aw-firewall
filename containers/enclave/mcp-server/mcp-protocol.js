@@ -196,7 +196,7 @@ function hasOnlyKeys(value, allowed) {
   );
 }
 
-function handlerCall(handler, request) {
+function handlerCall(handler, request, signal) {
   return new Promise((resolve) => {
     handler.handle(request, (canonicalJson) => {
       const parsed = strictParseJson(canonicalJson);
@@ -210,7 +210,7 @@ function handlerCall(handler, request) {
           status: 'ok',
           result: parsed.value.result,
         },
-      });
+      }, { signal });
     });
   });
 }
@@ -289,7 +289,7 @@ async function dispatchJsonRpc(message, deps) {
       }
     }
     try {
-      return rpcResult(message.id, await handlerCall(handlers[name], request));
+      return rpcResult(message.id, await handlerCall(handlers[name], request, deps.signal));
     } finally {
       if (release) release();
     }

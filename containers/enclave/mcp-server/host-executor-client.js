@@ -20,8 +20,8 @@ const { strictParseJson } = require('../../bounded-execution/finite-disclosure')
  * credential, image, model, runtime profile, resource limit, or timeout: the
  * host derives all of those from its own trusted run state.
  *
- * Not wired into the broker yet; Cloud Hypervisor enclave execution remains
- * fail-closed until the remaining ADR 0002 gates are implemented.
+ * The broker adapter uses this protocol internally. Public Cloud Hypervisor
+ * startup remains fail-closed until the supported-host real-KVM gate passes.
  */
 
 const PROTOCOL_VERSION = 2;
@@ -162,10 +162,12 @@ function exchange(socketPath, payload, timeoutMs) {
     const done = (error, value) => {
       if (settled) return;
       settled = true;
+      clearTimeout(deadline);
       socket.destroy();
       if (error) reject(error);
       else resolve(value);
     };
+    const deadline = setTimeout(() => done(new Error('Host executor request timed out')), timeoutMs);
     socket.setTimeout(timeoutMs, () => done(new Error('Host executor request timed out')));
     socket.on('error', () => done(new Error('Host executor is unavailable')));
     socket.on('data', (chunk) => {
@@ -202,7 +204,10 @@ function createHostExecutorClient(options) {
   const { socketPath, capabilityPath, runId } = options;
   assertPattern('runId', runId, ID_PATTERN);
   const capability = readCapability(capabilityPath);
-  const timeoutMs = options.timeoutMs || DEFAULT_TIMEOUT_MS;
+  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > DEFAULT_TIMEOUT_MS) {
+    throw new Error('Host executor request timeout is invalid');
+  }
 
   async function send(type, entryId, invocationId, fields) {
     if (typeof entryId !== 'string' || !ENTRY_ID_PATTERN.test(entryId)) {

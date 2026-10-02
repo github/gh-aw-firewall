@@ -7,7 +7,7 @@ Cloud Hypervisor runs the primary agent in a hardware-isolated microVM while
 AWF keeps Squid and the API proxy in Docker Compose on the host.
 
 This document covers that one-VM-per-run primary-agent runtime. The distinct
-planned one-VM-per-enclave-invocation design keeps the enclave MCP broker
+separately gated one-VM-per-enclave-invocation design keeps the enclave MCP broker
 host/container-side; see
 [ADR 0002: Cloud Hypervisor enclave executor](adr/0002-cloud-hypervisor-enclave-executor.md).
 
@@ -173,9 +173,9 @@ destinations, and accepts only the selected destination/port pairs; matching
 SNAT rules permit replies. This boundary applies even when guest software
 ignores proxy variables. The existing reservation and durable cleanup record
 track the namespace, veth, TAP and scoped bridge rule for rollback and
-idempotent teardown. The Cloud Hypervisor launch gate still rejects
-agent-enclave workloads before any network or VM side effects; the host
-executor and broker integration remain separate roadmap work.
+idempotent teardown. The user-facing Cloud Hypervisor enclave gate still rejects
+agent-enclave workloads before any network or VM side effects pending
+supported-host real-KVM validation of the integrated executor and broker.
 The optional `AWF_TEST_ENCLAVE_NETWORK=1` Jest integration test exercises
 permitted and denied TCP packets across this host nftables boundary on a
 privileged Linux host with working network namespaces and veth forwarding.
@@ -201,10 +201,10 @@ mount-tree overrides are rejected for enclaves, so guest cooperation cannot
 widen an export's host-enforced mode. Export tags, targets, counts, and modes
 are closed per role, with duplicate and overlapping targets rejected.
 
-The primary-agent layout remains the existing `/workspace` layout. The enclave
-export plan is not yet wired to a host executor; both script- and agent-enclave
-VM launches remain fail-closed until the host-executor and broker integration
-gates are implemented.
+The primary-agent layout remains the existing `/workspace` layout. The internal
+host executor derives these enclave exports; user-facing script- and
+agent-enclave VM launches remain fail-closed until the integrated boundary
+passes supported-host real-KVM security and lifecycle validation.
 
 ### Enclave resource profiles (not launchable)
 
@@ -282,9 +282,10 @@ process limits, `EROFS` on read-only storage, UID/GID 65534 with no groups, and
 empty capabilities with `no_new_privs` on every thread. Booting enclave rootfs
 images under KVM remains gated on runtime wiring. No runtime-required privilege exception is
 allowlisted. These profiles and guest controls do not enable Cloud Hypervisor
-enclave execution: the versioned host protocol and one-shot VM backend exist,
-but listener/broker integration and user-facing runtime selection remain
-separate gates, and current script/agent launch attempts still fail closed.
+enclave execution: the internal host service and broker adapter connect the
+versioned host protocol to the one-shot VM backend, but user-facing runtime
+selection and broker startup remain gated on supported-host real-KVM security
+and lifecycle validation. Current script/agent launch attempts still fail closed.
 
 ## Security boundaries
 
@@ -337,10 +338,11 @@ An existing cache entry is fully reverified before reuse; an invalid entry is a
 terminal error and is never silently replaced. The script exports the
 role-specific `AWF_CLOUD_HYPERVISOR_ENCLAVE_SCRIPT_ROOTFS` and
 `AWF_CLOUD_HYPERVISOR_ENCLAVE_AGENT_ROOTFS` paths through `GITHUB_ENV`.
-The host-side artifact preflight and one-shot VM backend are implemented, but
-Cloud Hypervisor enclave execution remains fail-closed until ADR 0002 listener,
-broker, and runtime-selection gates are implemented. Custom enclave image
-overrides remain unsupported.
+The host-side artifact preflight, one-shot VM backend, and internal authenticated
+broker dispatch are implemented, but Cloud Hypervisor enclave execution remains
+fail-closed until the integrated boundary passes the
+[ADR 0002 supported-host real-KVM security matrix](adr/0002-cloud-hypervisor-enclave-executor.md#supported-host-real-kvm-validation).
+Custom enclave image overrides remain unsupported.
 
 :::danger[Fail-closed verification]
 Do not bypass artifact verification. A substituted VMM, kernel, rootfs,

@@ -16,6 +16,12 @@ import type {
 } from '../enclave/host-executor-server';
 import { HOST_EXECUTOR_MAX_RESULT_BYTES } from '../enclave/host-executor-protocol';
 import {
+  HostExecutorResourceJournal,
+  hostExecutorJournalDirectory,
+  reapHostExecutorResources,
+} from '../enclave/host-executor-journal';
+import { DurableCloudHypervisorCleanupRegistry } from './cleanup-registry';
+import {
   ENCLAVE_AGENT_API_PROXY_IP,
   ENCLAVE_AGENT_GITHUB_MCP_IP,
   ENCLAVE_GITHUB_MCP_PORT,
@@ -133,7 +139,15 @@ export interface HostEnclaveExecutorDependencies {
   readonly createArtifactSnapshot: (
     sources: CloudHypervisorArtifactSnapshotSources,
     copySparseFile: (source: string, destination: string) => Promise<void>,
+    onDirectoryCreated?: (directory: string) => Promise<void>,
   ) => Promise<CloudHypervisorArtifactSnapshot>;
+  readonly createResourceJournal: (
+    run: HostExecutorRunState,
+    plan: HostExecutorInvocationPlan,
+    vmRunId: string,
+  ) => Promise<Pick<HostExecutorResourceJournal,
+    'captureDirectory' | 'captureMount' | 'prepareSnapshot' | 'captureSnapshot' | 'verifyMount' | 'verifyDirectory' |
+    'verifySnapshot' | 'complete'>>;
   readonly copySparseFile: (rsyncBinaryPath: string, source: string, destination: string) => Promise<void>;
   readonly removeArtifactSnapshot: (directory: string) => Promise<void>;
   readonly createManager: (
@@ -173,6 +187,7 @@ export interface CreateCloudHypervisorHostEnclaveExecutorOptions {
 
 const defaultDependencies: HostEnclaveExecutorDependencies = {
   createArtifactSnapshot,
+  createResourceJournal: (run, plan, vmRunId) => HostExecutorResourceJournal.create(run, plan, vmRunId),
   copySparseFile: copySparseFileWithRsync,
   removeArtifactSnapshot: async (directory) => fs.rm(directory, { recursive: true, force: true }),
   createManager: (config, workDir, profile, runId, artifacts, managerDependencies) => new CloudHypervisorManager(
@@ -424,6 +439,11 @@ export async function createCloudHypervisorHostEnclaveExecutor(
   const attestationToolPath = await resolveTrustedAttestationTool(environment);
   const preflight = await runCloudHypervisorPreflight(options.config);
   try {
+    await reapHostExecutorResources(
+      hostExecutorJournalDirectory(options.runState),
+      options.managerDependencies?.cleanupRegistry ?? new DurableCloudHypervisorCleanupRegistry(),
+      preflight.tools,
+    );
     const enclaveArtifacts = await preflightCloudHypervisorEnclaveArtifacts({
       releaseTag,
       manifestPath,
@@ -495,8 +515,9 @@ async function prepareInvocationFilesystem(
   role: CloudHypervisorEnclaveRole,
   dependencies: HostEnclaveExecutorDependencies,
   tools: CloudHypervisorHostToolPaths,
-  onDirectoryCreated: () => void,
-  onMounted: () => void,
+  beforeDirectoryCreated: () => Promise<void>,
+  onDirectoryCreated: () => Promise<void>,
+  onMounted: () => Promise<void>,
 ): Promise<void> {
   const invocationParent = path.dirname(plan.invocationHostDir);
   const invocationRoot = runState.invocationsDir;
@@ -529,8 +550,9 @@ async function prepareInvocationFilesystem(
     await dependencies.mkdir(invocationParent, { mode: 0o700 });
   }
   await assertTrustedDirectory(invocationParent, identity.uid, dependencies);
+  await beforeDirectoryCreated();
   await dependencies.mkdir(plan.invocationHostDir, { mode: 0o700 });
-  onDirectoryCreated();
+  await onDirectoryCreated();
   const invocationStat = await dependencies.lstat(plan.invocationHostDir);
   if (invocationStat.isSymbolicLink() || !invocationStat.isDirectory()) {
     throw new Error('Host executor invocation directory must be a new real directory');
@@ -542,7 +564,7 @@ async function prepareInvocationFilesystem(
     resourceProfile.gid,
     tools,
   );
-  onMounted();
+  await onMounted();
   for (const name of ['request', 'output', 'runtime']) {
     const directory = filePath(plan.invocationHostDir, name);
     await dependencies.mkdir(directory, { mode: 0o700 });
@@ -846,19 +868,22 @@ export class CloudHypervisorHostEnclaveExecutorBackend implements HostEnclaveExe
     let managerStopped = false;
     let outcome: HostExecutorBackendResult = { outcome: 'executor-failure' };
     let cleanupError: unknown;
-    let filesystemWorkPending = 0;
-    let filesystemCleanupRequested = false;
+    const pendingWork = new Set<Promise<unknown>>();
     let filesystemCleanupPromise: Promise<void> | undefined;
     const runId = randomBytes(16).toString('hex');
+    let resourceJournal: Awaited<ReturnType<HostEnclaveExecutorDependencies['createResourceJournal']>> | undefined;
     const cleanupInvocationFilesystem = (): Promise<void> => {
       if (filesystemCleanupPromise) return filesystemCleanupPromise;
       filesystemCleanupPromise = (async () => {
         if (filesystemState.mounted) {
+          await resourceJournal?.verifyMount();
           await this.dependencies.unmount(plan.invocationHostDir, this.options.preflight.tools);
           filesystemState.mounted = false;
+          await resourceJournal?.verifyDirectory();
           await this.dependencies.rm(plan.invocationHostDir, { recursive: true, force: true });
           filesystemState.invocationDirectoryCreated = false;
         } else if (filesystemState.invocationDirectoryCreated) {
+          await resourceJournal?.verifyDirectory();
           await this.dependencies.rm(plan.invocationHostDir, { recursive: true, force: true });
           filesystemState.invocationDirectoryCreated = false;
         }
@@ -869,13 +894,9 @@ export class CloudHypervisorHostEnclaveExecutorBackend implements HostEnclaveExe
       return filesystemCleanupPromise;
     };
     const trackFilesystemWork = <T>(operation: Promise<T>): Promise<T> => {
-      filesystemWorkPending += 1;
-      return operation.finally(() => {
-        filesystemWorkPending -= 1;
-        if (filesystemCleanupRequested && filesystemWorkPending === 0) {
-          void cleanupInvocationFilesystem().catch(() => undefined);
-        }
-      });
+      const tracked = operation.finally(() => pendingWork.delete(tracked));
+      pendingWork.add(tracked);
+      return tracked;
     };
     const stopManager = async (): Promise<void> => {
       if (!manager) return;
@@ -913,14 +934,29 @@ export class CloudHypervisorHostEnclaveExecutorBackend implements HostEnclaveExe
         role,
         this.dependencies,
         this.options.preflight.tools,
-        () => { filesystemState.invocationDirectoryCreated = true; },
-        () => { filesystemState.mounted = true; },
+        async () => {
+          resourceJournal = await this.dependencies.createResourceJournal(this.options.runState, plan, runId);
+        },
+        async () => {
+          filesystemState.invocationDirectoryCreated = true;
+          await resourceJournal?.captureDirectory();
+        },
+        async () => {
+          filesystemState.mounted = true;
+          await resourceJournal?.captureMount();
+        },
       )));
       if (filesystemState.aborted) throw new Error('Host executor invocation was cancelled');
       const exportPlan = await raceInterruption(
-        resolveCloudHypervisorEnclaveExportPlan(this.options.runState, plan),
+        resolveCloudHypervisorEnclaveExportPlan({
+          runId: this.options.runState.runId,
+          seedsDir: this.options.runState.seedsDir,
+          invocationsDir: this.options.runState.invocationsDir,
+          entries: this.options.runState.entries,
+        }, plan),
       );
-      const snapshotPromise = this.dependencies.createArtifactSnapshot({
+      await resourceJournal?.prepareSnapshot();
+      const snapshotPromise = trackFilesystemWork(this.dependencies.createArtifactSnapshot({
         cloudHypervisorBinary: this.options.preflight.cloudHypervisorBinary,
         virtiofsdBinary: this.options.preflight.virtiofsdBinary,
         kernelPath: this.options.preflight.kernelPath,
@@ -932,12 +968,11 @@ export class CloudHypervisorHostEnclaveExecutorBackend implements HostEnclaveExe
         this.options.preflight.tools.rsync,
         source,
         destination,
-      ));
-      void snapshotPromise.then((created) => {
-        if (filesystemState.aborted) {
-          void this.dependencies.removeArtifactSnapshot(created.directory).catch(() => undefined);
-        }
-      }, () => undefined);
+      ), async (directory) => resourceJournal?.captureSnapshot(directory)).then(async (created) => {
+        snapshot = created;
+        await resourceJournal?.captureSnapshot(created.directory);
+        return created;
+      }));
       snapshot = await raceInterruption(snapshotPromise);
       const snapshotRootfsStat = await raceInterruption(this.dependencies.lstat(snapshot.rootfsPath));
       if (
@@ -979,9 +1014,9 @@ export class CloudHypervisorHostEnclaveExecutorBackend implements HostEnclaveExe
         this.options.managerDependencies,
       );
       if (filesystemState.aborted) throw new Error('Host executor invocation was cancelled');
-      await raceInterruption(manager.start());
+      await raceInterruption(trackFilesystemWork(manager.start()));
       if (filesystemState.aborted) throw new Error('Host executor invocation was cancelled');
-      await raceInterruption(manager.startInstance());
+      await raceInterruption(trackFilesystemWork(manager.startInstance()));
       if (filesystemState.aborted) throw new Error('Host executor invocation was cancelled');
       const executionResult = await raceInterruption(manager.execute({
         argv: [role === 'script'
@@ -1029,6 +1064,13 @@ export class CloudHypervisorHostEnclaveExecutorBackend implements HostEnclaveExe
     } finally {
       signal.removeEventListener('abort', abortManager);
       clearTimeout(deadline);
+      // Interrupted staging/startup can still create resources. Drain every
+      // such operation before removing exports or reporting terminal.
+      await Promise.allSettled([...pendingWork]);
+      if (manager && stopPromise) {
+        await stopPromise.catch(() => undefined);
+        stopPromise = undefined;
+      }
       if (manager && !managerStopped) {
         try {
           await stopManager();
@@ -1048,6 +1090,7 @@ export class CloudHypervisorHostEnclaveExecutorBackend implements HostEnclaveExe
       }
       if (snapshot && (!manager || managerStopped)) {
         try {
+          await resourceJournal?.verifySnapshot();
           await this.dependencies.removeArtifactSnapshot(snapshot.directory);
         } catch (error) {
           cleanupError = cleanupError
@@ -1056,26 +1099,24 @@ export class CloudHypervisorHostEnclaveExecutorBackend implements HostEnclaveExe
         }
       }
       if (!manager || managerStopped) {
-        if (filesystemWorkPending > 0) {
-          filesystemCleanupRequested = true;
-        } else {
-          try {
-            await cleanupInvocationFilesystem();
-          } catch (error) {
-            cleanupError = cleanupError
-              ? new Error(`${String(cleanupError)}; ${String(error)}`)
-              : error;
-          }
+        try {
+          await cleanupInvocationFilesystem();
+          await resourceJournal?.complete();
+        } catch (error) {
+          cleanupError = cleanupError
+            ? new Error(`${String(cleanupError)}; ${String(error)}`)
+            : error;
         }
       } else if (filesystemState.invocationDirectoryCreated && !filesystemState.mounted) {
         try {
+          await resourceJournal?.verifyDirectory();
           await this.dependencies.rm(plan.invocationHostDir, { recursive: true, force: true });
         } catch (error) {
           cleanupError = error;
         }
       }
     }
-    if (cleanupError !== undefined) return { outcome: 'executor-failure' };
+    if (cleanupError !== undefined) return { outcome: 'executor-failure', cleanupComplete: false };
     return outcome;
   }
 }

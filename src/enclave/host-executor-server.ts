@@ -17,6 +17,7 @@
 import * as fs from 'fs';
 import * as net from 'net';
 import * as path from 'path';
+import { HostExecutorJournal } from './host-executor-journal';
 import {
   HOST_EXECUTOR_FRAME_HEADER_BYTES,
   HOST_EXECUTOR_ENTRY_ID_PATTERN,
@@ -58,6 +59,7 @@ export const HOST_EXECUTOR_MAX_INVOCATIONS = 1_024;
 
 const DEFAULT_CONNECTION_TIMEOUT_MS = 5_000;
 const DEFAULT_MAX_CONNECTIONS = 16;
+export const HOST_EXECUTOR_DEFAULT_STATUS_LEASE_MS = 15_000;
 
 /**
  * Trusted, host-derived state for one run. Built by the AWF control process
@@ -70,6 +72,8 @@ export interface HostExecutorRunState {
   seedsDir: string;
   /** Absolute host directory under which per-invocation directories are derived. */
   invocationsDir: string;
+  /** Durable private storage; must survive runtime-directory cleanup/restart. */
+  journalDir?: string;
   /** Entry-specific executor policy from the validated enclave configuration. */
   entries: readonly HostExecutorEntryPolicy[];
 }
@@ -108,6 +112,8 @@ export interface HostExecutorInvocationPlan {
 
 export interface HostExecutorBackendResult {
   outcome: HostExecutorOutcome;
+  /** False retains a nonterminal recovery tombstone; no result is released. */
+  cleanupComplete?: boolean;
   /** Bounded, schema-valid result. Only carried for `success`. */
   result?: string;
 }
@@ -125,6 +131,8 @@ export interface HostExecutorServerOptions {
   backend: HostEnclaveExecutorBackend;
   connectionTimeoutMs?: number;
   maxConnections?: number;
+  /** Trusted broker-liveness budget, renewed only by fresh authenticated status. */
+  statusLeaseMs?: number;
 }
 
 export interface HostExecutorServer {
@@ -145,6 +153,9 @@ interface InvocationRecord {
   outcome?: HostExecutorOutcome;
   result?: string;
   resultDigest?: string;
+  interruptedOutcome?: 'cancelled' | 'timeout';
+  deadline?: NodeJS.Timeout;
+  lease?: NodeJS.Timeout;
 }
 
 class RequestRejection extends Error {
@@ -196,6 +207,9 @@ function validateRunState(runState: HostExecutorRunState): HostExecutorRunState 
     runId: runState.runId,
     seedsDir,
     invocationsDir,
+    ...(runState.journalDir === undefined ? {} : {
+      journalDir: assertAbsoluteDirectory('journalDir', runState.journalDir),
+    }),
     entries: Object.freeze(entries),
   });
 }
@@ -289,6 +303,11 @@ export async function startHostExecutorServer(options: HostExecutorServerOptions
   if (fs.existsSync(socketPath) || fs.existsSync(capabilityPath)) {
     throw new Error('Host executor socket or capability already exists for this run');
   }
+  const statusLeaseMs = options.statusLeaseMs ?? HOST_EXECUTOR_DEFAULT_STATUS_LEASE_MS;
+  if (!Number.isSafeInteger(statusLeaseMs) || statusLeaseMs < 1 || statusLeaseMs > 60_000) {
+    throw new Error('Host executor status lease must be between 1 and 60000 milliseconds');
+  }
+  const journal = new HostExecutorJournal(runState);
 
   const capability = generateHostExecutorCapability();
   writeCapabilityFile(capabilityPath, capability);
@@ -296,6 +315,8 @@ export async function startHostExecutorServer(options: HostExecutorServerOptions
   const connectionTimeoutMs = options.connectionTimeoutMs ?? DEFAULT_CONNECTION_TIMEOUT_MS;
   const seenRequestIds = new Set<string>();
   const invocations = new Map<string, InvocationRecord>();
+  const admissionIds = new Set<string>();
+  const invocationIds = new Set<string>();
   const sockets = new Set<net.Socket>();
   let admissionsOpen = true;
   let closing = false;
@@ -315,13 +336,43 @@ export async function startHostExecutorServer(options: HostExecutorServerOptions
   };
 
   const finish = (record: InvocationRecord, outcome: HostExecutorOutcome, result?: string): void => {
-    const cancelled = record.state === 'cancelling';
-    const finalOutcome: HostExecutorOutcome = cancelled ? 'cancelled' : outcome;
+    clearTimeout(record.deadline);
+    clearTimeout(record.lease);
+    const finalOutcome: HostExecutorOutcome = record.interruptedOutcome ?? outcome;
     const finalResult = finalOutcome === 'success' ? result : undefined;
+    const digest = hostExecutorResultDigest(finalOutcome, finalResult);
+    // Never publish terminal until the backend has returned after cleanup and
+    // the durable lifecycle transition has committed.
+    journal.record({
+      entryId: record.plan.entryId, invocationId: record.plan.invocationId,
+      state: 'terminal', outcome: finalOutcome, resultDigest: digest,
+    });
     record.outcome = finalOutcome;
     record.result = finalResult;
-    record.resultDigest = hostExecutorResultDigest(finalOutcome, finalResult);
+    record.resultDigest = digest;
     record.state = 'terminal';
+  };
+
+  const interrupt = (record: InvocationRecord, outcome: 'cancelled' | 'timeout'): void => {
+    if (record.state !== 'running') return;
+    record.state = 'cancelling';
+    record.interruptedOutcome = outcome;
+    try {
+      journal.record({
+        entryId: record.plan.entryId, invocationId: record.plan.invocationId,
+        state: 'cancelling', outcome, cancelGeneration: record.cancelGeneration,
+      });
+    } catch {
+      admissionsOpen = false;
+    } finally {
+      record.controller.abort();
+    }
+  };
+  const renewLease = (record: InvocationRecord): void => {
+    if (record.state !== 'running') return;
+    clearTimeout(record.lease);
+    record.lease = setTimeout(() => interrupt(record, 'cancelled'), statusLeaseMs);
+    record.lease.unref();
   };
 
   const launch = (plan: HostExecutorInvocationPlan): InvocationRecord => {
@@ -335,19 +386,47 @@ export async function startHostExecutorServer(options: HostExecutorServerOptions
     };
     // The immutable record exists before the backend is asked to create
     // anything, so a retry can never start a second execution.
+    journal.record({
+      entryId: plan.entryId, invocationId: plan.invocationId,
+      admissionId: plan.admissionId, requestHash: plan.requestHash, state: 'running',
+    });
     invocations.set(invocationKey(plan.entryId, plan.invocationId), record);
+    admissionIds.add(plan.admissionId);
+    invocationIds.add(plan.invocationId);
+    record.deadline = setTimeout(() => interrupt(record, 'timeout'), plan.timeoutMs);
+    record.deadline.unref();
+    renewLease(record);
     record.completion = Promise.resolve()
       .then(() => backend.execute(plan, controller.signal))
       .then(
         (outcome) => {
-          if (outcome && isValidHostExecutorResult(outcome.outcome, outcome.result)) {
+          if (outcome?.cleanupComplete === false) {
+            clearTimeout(record.deadline);
+            clearTimeout(record.lease);
+            admissionsOpen = false;
+            record.state = 'cancelling';
+            record.controller.abort();
+            journal.record({
+              entryId: plan.entryId, invocationId: plan.invocationId, state: 'cleanup-pending',
+            });
+          } else if (outcome && isValidHostExecutorResult(outcome.outcome, outcome.result)) {
             finish(record, outcome.outcome, outcome.result);
           } else {
             finish(record, 'executor-failure');
           }
         },
         () => finish(record, 'executor-failure'),
-      );
+      ).catch(() => {
+        // Persistence failure leaves a nonterminal tombstone; no result may
+        // escape and this run may admit no more work.
+        admissionsOpen = false;
+        clearTimeout(record.deadline);
+        clearTimeout(record.lease);
+        record.state = 'cancelling';
+        record.result = undefined;
+        record.controller.abort();
+        for (const other of invocations.values()) interrupt(other, 'cancelled');
+      });
     return record;
   };
 
@@ -355,9 +434,13 @@ export async function startHostExecutorServer(options: HostExecutorServerOptions
     const existing = invocations.get(invocationKey(request.entryId, request.invocationId));
     if (existing) {
       if (existing.plan.requestHash !== hostExecutorInvokeHash(request)) throw new RequestRejection('conflict');
+      if (existing.state === 'terminal' || existing.state === 'settled') throw new RequestRejection('invalid-state');
       return existing;
     }
     if (!admissionsOpen) throw new RequestRejection('closed');
+    if (admissionIds.has(request.admissionId) || invocationIds.has(request.invocationId)) {
+      throw new RequestRejection('conflict');
+    }
     if (invocations.size >= HOST_EXECUTOR_MAX_INVOCATIONS) {
       admissionsOpen = false;
       throw new RequestRejection('closed');
@@ -368,16 +451,21 @@ export async function startHostExecutorServer(options: HostExecutorServerOptions
   const handleCancel = (request: HostExecutorCancelRequest, record: InvocationRecord): void => {
     if (request.cancelGeneration <= record.cancelGeneration) throw new RequestRejection('replayed');
     record.cancelGeneration = request.cancelGeneration;
-    if (record.state === 'running') {
-      record.state = 'cancelling';
-      record.controller.abort();
-    }
+    journal.record({
+      entryId: record.plan.entryId, invocationId: record.plan.invocationId,
+      state: record.state, cancelGeneration: record.cancelGeneration,
+    });
+    interrupt(record, 'cancelled');
   };
 
   const handleSettle = (request: HostExecutorSettleRequest, record: InvocationRecord): void => {
     if (record.state === 'running' || record.state === 'cancelling') throw new RequestRejection('invalid-state');
     if (request.resultDigest !== record.resultDigest) throw new RequestRejection('conflict');
     if (record.state === 'terminal') {
+      journal.record({
+        entryId: record.plan.entryId, invocationId: record.plan.invocationId,
+        state: 'settled', resultDigest: record.resultDigest,
+      });
       record.state = 'settled';
       // Settlement is the broker's acknowledgement; the host no longer
       // retains the result payload afterwards.
@@ -413,6 +501,7 @@ export async function startHostExecutorServer(options: HostExecutorServerOptions
         if (!record) return fail('unknown-invocation');
         if (request.type === 'cancel') handleCancel(request, record);
         else if (request.type === 'settle') handleSettle(request, record);
+        else renewLease(record);
       }
       return {
         version: HOST_EXECUTOR_PROTOCOL_VERSION,
@@ -422,6 +511,10 @@ export async function startHostExecutorServer(options: HostExecutorServerOptions
         ...view(record),
       };
     } catch (error) {
+      if (!(error instanceof RequestRejection)) {
+        admissionsOpen = false;
+        for (const record of invocations.values()) interrupt(record, 'cancelled');
+      }
       return fail(error instanceof RequestRejection ? error.code : 'denied');
     }
   };
@@ -513,10 +606,7 @@ export async function startHostExecutorServer(options: HostExecutorServerOptions
       closing = true;
       admissionsOpen = false;
       for (const record of invocations.values()) {
-        if (record.state === 'running') {
-          record.state = 'cancelling';
-          record.controller.abort();
-        }
+        interrupt(record, 'cancelled');
       }
       closePromise = (async () => {
         await new Promise<void>((resolve) => {
@@ -526,6 +616,7 @@ export async function startHostExecutorServer(options: HostExecutorServerOptions
         await Promise.all([...invocations.values()].map((record) => record.completion));
         try {
           await backend.close?.();
+          journal.record({ state: 'closed' });
         } finally {
           capability.fill(0);
           fs.rmSync(capabilityPath, { force: true });

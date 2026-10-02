@@ -64,6 +64,7 @@ async function assertExecCapableArtifactRoot(directory: string): Promise<void> {
 export async function createArtifactSnapshot(
   sources: CloudHypervisorArtifactSnapshotSources,
   copySparseFile: (source: string, destination: string) => Promise<void>,
+  onDirectoryCreated?: (directory: string) => Promise<void>,
 ): Promise<CloudHypervisorArtifactSnapshot> {
   await fs.mkdir(CLOUD_HYPERVISOR_ARTIFACT_SNAPSHOT_PARENT, {
     recursive: true,
@@ -94,6 +95,7 @@ export async function createArtifactSnapshot(
     return destination;
   };
   try {
+    await onDirectoryCreated?.(directory);
     const snapshot: CloudHypervisorArtifactSnapshot = {
       directory,
       cloudHypervisorBinary: await copy(

@@ -156,6 +156,49 @@ describe('Cloud Hypervisor artifact snapshots', () => {
     expect(mkdtemp).not.toHaveBeenCalled();
   });
 
+  it('commits the snapshot identity before copying any artifacts', async () => {
+    const directory = `${CLOUD_HYPERVISOR_ARTIFACT_SNAPSHOT_ROOT}/run-journaled`;
+    jest.spyOn(fs, 'readFile').mockResolvedValue(mountInfo('rw,relatime'));
+    jest.spyOn(fs, 'realpath').mockResolvedValue(CLOUD_HYPERVISOR_ARTIFACT_SNAPSHOT_ROOT);
+    jest.spyOn(fs, 'mkdir').mockResolvedValue(undefined);
+    jest.spyOn(fs, 'mkdtemp').mockResolvedValue(directory);
+    jest.spyOn(fs, 'chmod').mockResolvedValue(undefined);
+    let committed = false;
+    const copyFile = jest.spyOn(fs, 'copyFile').mockImplementation(async () => {
+      expect(committed).toBe(true);
+    });
+    const copySparseFile = jest.fn(async () => {
+      expect(committed).toBe(true);
+    });
+    const onDirectoryCreated = jest.fn(async (created: string) => {
+      expect(created).toBe(directory);
+      expect(copyFile).not.toHaveBeenCalled();
+      expect(copySparseFile).not.toHaveBeenCalled();
+      committed = true;
+    });
+    await expect(createArtifactSnapshot(snapshotSources(), copySparseFile, onDirectoryCreated))
+      .resolves.toHaveProperty('directory', directory);
+    expect(onDirectoryCreated).toHaveBeenCalledTimes(1);
+  });
+
+  it('removes the new snapshot and copies nothing if the identity commit fails', async () => {
+    const directory = `${CLOUD_HYPERVISOR_ARTIFACT_SNAPSHOT_ROOT}/run-uncommitted`;
+    jest.spyOn(fs, 'readFile').mockResolvedValue(mountInfo('rw,relatime'));
+    jest.spyOn(fs, 'realpath').mockResolvedValue(CLOUD_HYPERVISOR_ARTIFACT_SNAPSHOT_ROOT);
+    jest.spyOn(fs, 'mkdir').mockResolvedValue(undefined);
+    jest.spyOn(fs, 'mkdtemp').mockResolvedValue(directory);
+    jest.spyOn(fs, 'chmod').mockResolvedValue(undefined);
+    const copyFile = jest.spyOn(fs, 'copyFile').mockResolvedValue(undefined);
+    const remove = jest.spyOn(fs, 'rm').mockResolvedValue(undefined);
+    const copySparseFile = jest.fn();
+    await expect(createArtifactSnapshot(snapshotSources(), copySparseFile, async () => {
+      throw new Error('journal unavailable');
+    })).rejects.toThrow('journal unavailable');
+    expect(copyFile).not.toHaveBeenCalled();
+    expect(copySparseFile).not.toHaveBeenCalled();
+    expect(remove).toHaveBeenCalledWith(directory, { recursive: true, force: true });
+  });
+
   it('checks the resolved mount when the trusted artifact root is a symlink', async () => {
     const resolvedRoot = '/noexec-volume/trusted-artifacts';
     jest.spyOn(fs, 'realpath').mockResolvedValue(resolvedRoot);

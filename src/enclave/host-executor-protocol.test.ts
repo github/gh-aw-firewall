@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as net from 'net';
-import * as os from 'os';
 import * as path from 'path';
+import { HostExecutorJournal } from './host-executor-journal';
 import {
   HOST_EXECUTOR_PROTOCOL_VERSION,
   HOST_EXECUTOR_MAX_REQUEST_BYTES,
@@ -23,6 +23,7 @@ import {
   type HostExecutorInvocationPlan,
   type HostExecutorRunState,
   type HostExecutorServer,
+  type HostExecutorServerOptions,
   deriveHostExecutorInvocationPlan,
   startHostExecutorServer,
 } from './host-executor-server';
@@ -355,7 +356,10 @@ describe('host executor server', () => {
     },
   };
 
-  async function start(overrides: Partial<HostExecutorRunState> = {}) {
+  async function start(
+    overrides: Partial<HostExecutorRunState> = {},
+    options: Partial<HostExecutorServerOptions> = {},
+  ) {
     server = await startHostExecutorServer({
       runtimeDir: path.join(root, 'runtime'),
       backend,
@@ -363,6 +367,7 @@ describe('host executor server', () => {
         runId: RUN_ID,
         seedsDir: path.join(root, 'seeds'),
         invocationsDir: path.join(root, 'invocations'),
+        journalDir: path.join(root, 'host-executor-journal'),
         entries: [
           { entryId: ENTRY_ID, executorKind: 'script', timeoutMs: 60_000, staticSeedIds: [SEED_ID], dynamicAgents: false },
           { entryId: ALT_ENTRY_ID, executorKind: 'script', timeoutMs: 60_000, staticSeedIds: [SEED_ID], dynamicAgents: false },
@@ -370,6 +375,7 @@ describe('host executor server', () => {
         ],
         ...overrides,
       },
+      ...options,
     });
     return server;
   }
@@ -394,7 +400,7 @@ describe('host executor server', () => {
   };
 
   beforeEach(() => {
-    root = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-host-executor-'));
+    root = fs.mkdtempSync(path.join(process.cwd(), '.he-'));
     executions = [];
     pending = [];
     signals = [];
@@ -528,7 +534,12 @@ describe('host executor server', () => {
     const conflict = await broker.invoke({ ...invokeArgs, payload: 'print(2)' });
     expect(conflict).toEqual(expect.objectContaining({ ok: false, error: 'conflict' }));
     const otherEntry = await broker.invoke({ ...invokeArgs, entryId: ALT_ENTRY_ID });
-    expect(otherEntry).toEqual(expect.objectContaining({ ok: true, state: 'running' }));
+    expect(otherEntry).toEqual(expect.objectContaining({ ok: false, error: 'conflict' }));
+    const newIdentity = await broker.invoke({
+      ...invokeArgs, entryId: ALT_ENTRY_ID,
+      invocationId: '1'.repeat(32), admissionId: '2'.repeat(32),
+    });
+    expect(newIdentity).toEqual(expect.objectContaining({ ok: true, state: 'running' }));
     expect(executions).toHaveLength(2);
     expect(executions[0].invocationHostDir).not.toBe(executions[1].invocationHostDir);
   });
@@ -597,6 +608,107 @@ describe('host executor server', () => {
     await Promise.all([closing, secondClose]);
     expect(fs.existsSync(started.capabilityPath)).toBe(false);
     server = undefined;
+  });
+
+  it('rejects terminal/settled invokes and admission identity reuse', async () => {
+    await start();
+    const broker = client();
+    await broker.invoke(invokeArgs);
+    const reused = await broker.invoke({ ...invokeArgs, invocationId: 'e'.repeat(24) });
+    expect(reused).toEqual(expect.objectContaining({ ok: false, error: 'conflict' }));
+    pending[0].resolve({ outcome: 'timeout' });
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(await broker.invoke(invokeArgs)).toEqual(
+      expect.objectContaining({ ok: false, error: 'invalid-state' }),
+    );
+    const terminal = await broker.status({ entryId: ENTRY_ID, invocationId: INVOCATION_ID });
+    await broker.settle({ entryId: ENTRY_ID, invocationId: INVOCATION_ID, resultDigest: terminal.resultDigest });
+    expect(await broker.invoke(invokeArgs)).toEqual(
+      expect.objectContaining({ ok: false, error: 'invalid-state' }),
+    );
+    expect(executions).toHaveLength(1);
+  });
+
+  it('persists the invocation before launch and never reopens a closed run', async () => {
+    await start();
+    await client().invoke(invokeArgs);
+    const file = path.join(root, 'host-executor-journal', `${RUN_ID}.journal`);
+    const journal = fs.readFileSync(file, 'utf8');
+    expect(journal).toContain(ADMISSION_ID);
+    expect(journal).toContain(INVOCATION_ID);
+    expect(journal).not.toContain(invokeArgs.payload);
+    pending[0].resolve({ outcome: 'executor-failure' });
+    await server!.close();
+    server = undefined;
+    await expect(start()).rejects.toThrow('EEXIST');
+    expect(executions).toHaveLength(1);
+  });
+
+  it.each(['timeout', 'lease'] as const)('enforces host %s and waits for cleanup before terminal', async (reason) => {
+    await start({
+      entries: [{
+        entryId: ENTRY_ID, executorKind: 'script', timeoutMs: reason === 'timeout' ? 30 : 60_000,
+        staticSeedIds: [SEED_ID], dynamicAgents: false,
+      }],
+    }, { statusLeaseMs: reason === 'lease' ? 30 : 1000 });
+    const broker = client();
+    await broker.invoke(invokeArgs);
+    await new Promise((resolve) => setTimeout(resolve, 70));
+    expect(signals[0].aborted).toBe(true);
+    expect(await broker.status({ entryId: ENTRY_ID, invocationId: INVOCATION_ID })).toEqual(
+      expect.objectContaining({ state: 'cancelling' }),
+    );
+    pending[0].resolve({ outcome: 'success', result: 'true' });
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(await broker.status({ entryId: ENTRY_ID, invocationId: INVOCATION_ID })).toEqual(
+      expect.objectContaining({ state: 'terminal', outcome: reason === 'timeout' ? 'timeout' : 'cancelled' }),
+    );
+  });
+
+  it('renews liveness only with fresh authenticated status, not invoke retries', async () => {
+    await start({}, { statusLeaseMs: 100 });
+    const broker = client();
+    await broker.invoke(invokeArgs);
+    for (let count = 0; count < 3; count += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      await broker.status({ entryId: ENTRY_ID, invocationId: INVOCATION_ID });
+      expect(signals[0].aborted).toBe(false);
+    }
+    for (let count = 0; count < 3; count += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      await broker.invoke(invokeArgs);
+    }
+    expect(signals[0].aborted).toBe(true);
+  });
+
+  it('keeps incomplete cleanup nonterminal and closes further admissions', async () => {
+    await start();
+    const broker = client();
+    await broker.invoke(invokeArgs);
+    pending[0].resolve({ outcome: 'executor-failure', cleanupComplete: false });
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(await broker.status({ entryId: ENTRY_ID, invocationId: INVOCATION_ID })).toEqual(
+      expect.objectContaining({ state: 'cancelling' }),
+    );
+    expect(await broker.invoke({
+      ...invokeArgs, invocationId: '1'.repeat(24), admissionId: '2'.repeat(24),
+    })).toEqual(expect.objectContaining({ ok: false, error: 'closed' }));
+  });
+
+  it('does not launch when the durable admission write cannot be synced', async () => {
+    await start();
+    const sync = jest.spyOn(HostExecutorJournal.prototype, 'record').mockImplementationOnce(() => {
+      throw new Error('storage unavailable');
+    });
+    try {
+      expect(await client().invoke(invokeArgs)).toEqual(
+        expect.objectContaining({ ok: false, error: 'denied' }),
+      );
+      expect(executions).toHaveLength(0);
+      expect(await client().invoke(invokeArgs)).toEqual(
+        expect.objectContaining({ ok: false, error: 'closed' }),
+      );
+    } finally { sync.mockRestore(); }
   });
 
   it('keeps the broker client closed to prohibited fields', async () => {
