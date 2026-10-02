@@ -144,6 +144,7 @@ describe('routed reasoning efforts', () => {
         provider: 'copilot',
         choice: { id: expect.any(String), model: 'github-copilot/gpt-test', effort },
         wire_model: 'gpt-test',
+        endpoint: '/responses',
       };
       expect(result.selection).toEqual(selection);
       expect(readResult(outputDir, 'selection.json')).toEqual(selection);
