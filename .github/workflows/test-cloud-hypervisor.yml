@@ -69,6 +69,24 @@ jobs:
             "$RUNNER_TEMP/microvm-supervisor.test" \
             -test.run '^TestEnclaveGuestLimitsLive$' -test.count=1 -test.v
 
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Run privileged enclave host storage enforcement suite
+        # Mounts the real role-sized invocation tmpfs backing stores and
+        # host memory cgroups in a private mount namespace, then proves
+        # aggregate ENOSPC, isolation, cgroup accounting, and busy-unmount
+        # behavior. The suite is skipped without AWF_TEST_ENCLAVE_STORAGE.
+        run: |
+          npm ci
+          sudo unshare --mount --propagation private \
+            env "PATH=$PATH" AWF_TEST_ENCLAVE_STORAGE=1 \
+            npx jest --ci --runInBand \
+            src/cloud-hypervisor/enclave-storage.integration.test.ts
+
       - name: Install deterministic guest build prerequisites
         run: |
           sudo apt-get update

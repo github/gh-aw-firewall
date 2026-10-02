@@ -304,6 +304,8 @@ unmount failure. It also fills storage in the production host cgroup budget whil
 holding the guest-RAM equivalent resident, with swap disabled, to check that
 storage exhaustion is not preempted by a cgroup OOM. Run it as root in a private mount namespace with
 `AWF_TEST_ENCLAVE_STORAGE=1 npm test -- --runInBand enclave-storage.integration.test.ts`.
+The `build-test-artifacts` job in `.github/workflows/test-cloud-hypervisor.yml`
+runs this suite on every matching pull request via `sudo unshare --mount --propagation private`.
 Live guest transport conformance additionally requires the release-attested role
 artifacts and KVM runtime wiring.
 

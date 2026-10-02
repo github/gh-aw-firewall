@@ -119,6 +119,7 @@ describe('finite-disclosure broker → authenticated Unix host → concrete micr
       copySparseFile: noop,
       removeArtifactSnapshot: async (directory) => fs.rm(directory, { recursive: true, force: true }),
       mountTmpfs: noop,
+      verifyStorage: noop,
       unmount: async () => {
         cleaned();
         if (cleanupError) throw new Error('PRIVATE_RAW_CLEANUP_ERROR');
