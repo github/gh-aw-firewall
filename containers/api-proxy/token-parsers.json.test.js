@@ -280,6 +280,26 @@ describe('extractUsageFromJson', () => {
       input_tokens_include_cache: true,
     });
   });
+
+  test('extracts OpenRouter output_tokens_details.thinking_tokens as reasoning tokens', () => {
+    const body = Buffer.from(JSON.stringify({
+      model: 'deepseek/deepseek-v4.1-flash',
+      usage: {
+        input_tokens: 18,
+        output_tokens: 20,
+        output_tokens_details: { thinking_tokens: 16 },
+        cache_read_input_tokens: 2816,
+      },
+    }));
+
+    const result = extractUsageFromJson(body);
+    expect(result.usage).toEqual({
+      input_tokens: 18,
+      output_tokens: 20,
+      reasoning_tokens: 16,
+      cache_read_input_tokens: 2816,
+    });
+  });
 });
 
 // ── extractUsageFromJson + Copilot breakdown integration ──────────────

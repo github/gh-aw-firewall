@@ -69,6 +69,61 @@ describe('createChunkHandler', () => {
     expect(state.partialLine).toBe('');
   });
 
+  test('streaming: message_delta input/cache counts override message_start placeholders (OpenRouter)', () => {
+    const state = makeStreamingState();
+    const handle = createChunkHandler(state, { requestId: 'r-or', provider: 'anthropic' });
+
+    handle('event: message_start\ndata: ' + JSON.stringify({
+      type: 'message_start',
+      message: {
+        model: 'deepseek/deepseek-v4.1-flash',
+        usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: null, cache_read_input_tokens: null },
+      },
+    }) + '\n\n');
+    handle('event: message_delta\ndata: ' + JSON.stringify({
+      type: 'message_delta',
+      usage: {
+        input_tokens: 18,
+        output_tokens: 20,
+        output_tokens_details: { thinking_tokens: 16 },
+        cache_creation_input_tokens: null,
+        cache_read_input_tokens: 2816,
+      },
+    }) + '\n\n');
+
+    expect(state.streamingUsage).toEqual({
+      input_tokens: 18,
+      output_tokens: 20,
+      cache_read_input_tokens: 2816,
+      reasoning_tokens: 16,
+    });
+    expect(state.observedCacheReadTokens).toBe(2816);
+  });
+
+  test('streaming: zero message_delta input/cache counts do not erase message_start values', () => {
+    const state = makeStreamingState();
+    const handle = createChunkHandler(state, { requestId: 'r-anth', provider: 'anthropic' });
+
+    handle('data: ' + JSON.stringify({
+      type: 'message_start',
+      message: {
+        model: 'claude-sonnet-4',
+        usage: { input_tokens: 500, cache_creation_input_tokens: 100, cache_read_input_tokens: 400 },
+      },
+    }) + '\n\n');
+    handle('data: ' + JSON.stringify({
+      type: 'message_delta',
+      usage: { input_tokens: 0, output_tokens: 42, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+    }) + '\n\n');
+
+    expect(state.streamingUsage).toEqual({
+      input_tokens: 500,
+      cache_creation_input_tokens: 100,
+      cache_read_input_tokens: 400,
+      output_tokens: 42,
+    });
+  });
+
   test('streaming: preserves incomplete trailing line as partialLine', () => {
     const state = makeStreamingState();
     const handle = createChunkHandler(state, { requestId: 'r2', provider: 'anthropic' });
