@@ -12,6 +12,11 @@ interface WorkflowFrontmatter {
   tools?: {
     bash?: string[];
   };
+  sandbox?: {
+    agent?: {
+      version?: string;
+    };
+  };
 }
 
 function loadFrontmatter(workflowFile: string): WorkflowFrontmatter {
@@ -22,6 +27,32 @@ function loadFrontmatter(workflowFile: string): WorkflowFrontmatter {
   }
   return yaml.load(match[1]) as WorkflowFrontmatter;
 }
+
+describe('Cloud Hypervisor smoke artifact bundles', () => {
+  const workflowNames = [
+    'smoke-cloud-hypervisor',
+    'smoke-cloud-hypervisor-claude',
+    'smoke-cloud-hypervisor-codex',
+    'smoke-cloud-hypervisor-build-test',
+    'smoke-playwright-cloud-hypervisor',
+  ];
+
+  it.each(workflowNames)('%s pins a bundle with virtiofsd 1.13.3', (name) => {
+    const version = loadFrontmatter(path.join(workflowsDir, `${name}.md`))
+      .sandbox?.agent?.version;
+    if (!version) {
+      throw new Error(`Missing sandbox.agent.version in ${name}.md`);
+    }
+    expect(version).toMatch(/^v\d+\.\d+\.\d+$/);
+    const [major, minor, patch] = version.slice(1).split('.').map(Number);
+
+    // v0.28.31 is the first published bundle with the required virtiofsd.
+    expect(major > 0 || minor > 28 || (minor === 28 && patch >= 31)).toBe(true);
+
+    const lock = fs.readFileSync(path.join(workflowsDir, `${name}.lock.yml`), 'utf-8');
+    expect(lock).toContain(`GH_AW_AWF_VERSION: ${version}`);
+  });
+});
 
 describe('Smoke Cloud Hypervisor token-usage verification', () => {
   it('runs only after the agent job succeeds', () => {
