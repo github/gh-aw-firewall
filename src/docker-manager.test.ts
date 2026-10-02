@@ -78,6 +78,24 @@ describe('docker-manager (barrel re-exports)', () => {
 
 
 
+  describe('parseDifcProxyHost via barrel', () => {
+    it('returns defaults for empty input', () => {
+      expect(dockerManager.parseDifcProxyHost('  ')).toEqual({ host: 'host.docker.internal', port: '18443' });
+    });
+
+    it('parses host:port and strips scheme', () => {
+      expect(dockerManager.parseDifcProxyHost('https://example.com:443')).toEqual({ host: 'example.com', port: '443' });
+    });
+
+    it('strips IPv6 brackets', () => {
+      expect(dockerManager.parseDifcProxyHost('[::1]:9000')).toEqual({ host: '::1', port: '9000' });
+    });
+
+    it('rejects out-of-range ports', () => {
+      expect(() => dockerManager.parseDifcProxyHost('host:0')).toThrow(/Must be between 1 and 65535/);
+    });
+  });
+
   describe('filterCapDrop via barrel', () => {
     it('returns empty for undefined or empty lists', () => {
       expect(dockerManager.filterCapDrop(undefined, null)).toEqual([]);
