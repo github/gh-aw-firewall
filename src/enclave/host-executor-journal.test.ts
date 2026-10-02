@@ -221,13 +221,15 @@ describe('durable host executor journal', () => {
     expect(readRecord().state).toBe('pending');
   });
 
-  it('retains resources with a still-pending VM record', async () => {
+  it('retains same-process resources while a VM record remains in a custom registry root', async () => {
+    const runJournal = new HostExecutorJournal(run);
     await mountedJournal();
     fs.mkdirSync(path.join(root, 'vm-registry', 'pending-cleanup'), { recursive: true, mode: 0o700 });
     fs.writeFileSync(path.join(root, 'vm-registry', 'pending-cleanup', `${vmRunId()}.json`), '{}');
-    bootId = 'restarted-boot';
+    runJournal.record({ state: 'closed' });
     await expect(reap()).rejects.toThrow('VM cleanup must finish');
     expect(dependencies.run).not.toHaveBeenCalled();
+    expect(fs.existsSync(plan.invocationHostDir)).toBe(true);
     expect(registry.hasPendingRecord).toHaveBeenCalledWith(vmRunId());
   });
 
