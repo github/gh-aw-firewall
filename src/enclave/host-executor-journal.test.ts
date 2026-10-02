@@ -94,6 +94,18 @@ describe('durable host executor journal', () => {
     expect(hostExecutorJournalDirectory(run)).toBe(run.journalDir);
   });
 
+  it.each(['unknown.resources.json', `${'a'.repeat(16)}-${'b'.repeat(15)}.resources.json`])(
+    'fails closed on malformed resource filenames: %s',
+    async (name) => {
+      new HostExecutorJournal(run);
+      const file = path.join(run.journalDir!, name);
+      fs.writeFileSync(file, '{}', { mode: 0o600 });
+      await expect(reap()).rejects.toThrow('Invalid resource recovery filename');
+      expect(fs.existsSync(file)).toBe(true);
+      expect(dependencies.run).not.toHaveBeenCalled();
+    },
+  );
+
   it('refuses symlinked or writable journal roots without touching their target', () => {
     fs.mkdirSync(run.journalDir!, { mode: 0o700 });
     fs.symlinkSync(run.journalDir!, path.join(root, 'linked'));
@@ -198,6 +210,32 @@ describe('durable host executor journal', () => {
     await expect(reap()).rejects.toThrow('mount identity');
     expect(dependencies.run).not.toHaveBeenCalled();
     expect(fs.existsSync(plan.invocationHostDir)).toBe(true);
+  });
+
+  it.each([
+    { mountId: 0 }, { mountId: 901.5 }, { device: 'invalid' },
+    { device: '9007199254740992:1' }, { root: '/unrelated' }, { mountPoint: '/unrelated' },
+  ])('rejects malformed mount metadata %j even after the mount disappears', async (malformed) => {
+    await mountedJournal();
+    const record = readRecord();
+    Object.assign(record.mount, malformed);
+    fs.writeFileSync(recordFile(), JSON.stringify(record), { mode: 0o600 });
+    mountInfo = '';
+    bootId = 'restarted-boot';
+    await expect(reap()).rejects.toThrow('Invalid invocation mount record');
+    expect(fs.existsSync(plan.invocationHostDir)).toBe(true);
+    expect(dependencies.run).not.toHaveBeenCalled();
+  });
+
+  it('rejects missing trusted ancestor identities before touching resources', async () => {
+    await mountedJournal();
+    const record = readRecord();
+    delete record.ancestors[0].identity;
+    fs.writeFileSync(recordFile(), JSON.stringify(record), { mode: 0o600 });
+    bootId = 'restarted-boot';
+    await expect(reap()).rejects.toThrow('Invalid recovery file identity');
+    expect(fs.existsSync(plan.invocationHostDir)).toBe(true);
+    expect(dependencies.run).not.toHaveBeenCalled();
   });
 
   it('does not guess ownership in the crash gap between mkdir and identity commit', async () => {

@@ -307,7 +307,9 @@ export async function reapHostExecutorResources(
   for (const name of await dependencies.readdir(directory)) {
     if (!name.endsWith('.resources.json')) continue;
     const identifiers = name.slice(0, -'.resources.json'.length).split('-');
-    if (identifiers.length !== 2 || !identifiers.every((id) => HOST_EXECUTOR_ID_PATTERN.test(id))) continue;
+    if (identifiers.length !== 2 || !identifiers.every((id) => HOST_EXECUTOR_ID_PATTERN.test(id))) {
+      throw new Error('Invalid resource recovery filename');
+    }
     const file = path.join(directory, name);
     const stat = await dependencies.lstat(file);
     if (!stat.isFile() || stat.isSymbolicLink() || stat.uid !== dependencies.effectiveUid ||
@@ -405,11 +407,18 @@ function validateResourceRecord(record: ResourceRecord, file: string): void {
     throw new Error('Invalid resource recovery record');
   }
   validateProcessIdentity(record.owner, 'host executor owner');
+  if (record.snapshot !== undefined && (!record.snapshot || typeof record.snapshot.path !== 'string')) {
+    throw new Error('Invalid snapshot path');
+  }
   for (const identity of [
-    ...record.ancestors.map((ancestor) => ancestor.identity), record.directoryIdentity,
-    record.snapshot?.identity, record.snapshot?.parentIdentity,
+    ...record.ancestors.map((ancestor) => ancestor.identity),
+    ...(record.directoryIdentity === undefined ? [] : [record.directoryIdentity]),
+    ...(record.snapshot === undefined ? [] : [record.snapshot.identity, record.snapshot.parentIdentity]),
   ]) {
-    if (identity !== undefined && (!/^\d+$/.test(identity.device) || !/^\d+$/.test(identity.inode))) {
+    if (!identity || typeof identity.device !== 'string' || typeof identity.inode !== 'string' ||
+      !/^(?:0|[1-9][0-9]{0,19})$/.test(identity.device) ||
+      !/^[1-9][0-9]{0,19}$/.test(identity.inode) ||
+      BigInt(identity.device) > 0xffffffffffffffffn || BigInt(identity.inode) > 0xffffffffffffffffn) {
       throw new Error('Invalid recovery file identity');
     }
   }
@@ -420,7 +429,11 @@ function validateResourceRecord(record: ResourceRecord, file: string): void {
     ) || !/^run-[A-Za-z0-9_-]+$/.test(path.basename(record.snapshot.path)))) {
     throw new Error('Invalid snapshot path');
   }
-  if (record.mount && (record.mount.mountPoint !== record.directory ||
+  if (record.mount !== undefined && (!record.mount ||
+    !Number.isSafeInteger(record.mount.mountId) || record.mount.mountId <= 0 ||
+    typeof record.mount.device !== 'string' || !/^\d+:\d+$/.test(record.mount.device) ||
+    !record.mount.device.split(':').every((value) => Number.isSafeInteger(Number(value))) ||
+    record.mount.root !== '/' || record.mount.mountPoint !== record.directory ||
     record.mount.filesystemType !== 'tmpfs' || record.mount.source !== 'awf-enclave-invocation')) {
     throw new Error('Invalid invocation mount record');
   }
