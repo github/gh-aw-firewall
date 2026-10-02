@@ -26,6 +26,7 @@ const {
 const {
   keyValidationResults,
   cachedModels,
+  getRuntimeModels,
   getRuntimeCatalogSnapshot,
   configureKeyValidation,
   resetKeyValidationState,
@@ -170,6 +171,9 @@ const { healthResponse, reflectEndpoints, handleManagementEndpoint } = createMan
   getAdapters: () => registeredAdapters,
   getCachedModels: () => cachedModels,
   getRuntimeModelMetadata: () => getRuntimeCatalogSnapshot(),
+  getRoutingModelMetadata: () => Object.fromEntries(
+    registeredAdapters.map(adapter => [adapter.name, getRuntimeModels(adapter.name) || []]),
+  ),
   isModelFetchComplete: () => isModelFetchComplete(),
   getKeyValidationState: () => ({ complete: isKeyValidationComplete(), results: keyValidationResults }),
   getLimiter: () => limiter,

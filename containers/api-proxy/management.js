@@ -86,6 +86,7 @@ function buildRoutingModelMetadata(provider, modelIds, runtimeRecords) {
  * @property {() => Array<object>}  getAdapters           - Returns registered adapters array
  * @property {() => Record<string, string[]|null>} getCachedModels - Returns model cache object
  * @property {() => Record<string, object[]>} getRuntimeModelMetadata - Returns sanitized runtime metadata
+ * @property {() => Record<string, object[]>} [getRoutingModelMetadata] - Returns private runtime metadata for routing normalization
  * @property {() => boolean}        isModelFetchComplete  - Whether startup model fetch has run
  * @property {() => { complete: boolean, results: Record<string, object> }} getKeyValidationState
  * @property {() => import('./rate-limiter').RateLimiter} getLimiter
@@ -113,6 +114,7 @@ function createManagementHandlers(deps) {
     getAdapters,
     getCachedModels,
     getRuntimeModelMetadata = () => ({}),
+    getRoutingModelMetadata,
     isModelFetchComplete,
     getKeyValidationState,
     getLimiter,
@@ -127,6 +129,7 @@ function createManagementHandlers(deps) {
     getRoutingState = () => null,
     modelPolicy = null,
   } = deps;
+  const getPrivateRoutingModelMetadata = getRoutingModelMetadata || getRuntimeModelMetadata;
 
   /**
    * Build the health response payload.
@@ -159,6 +162,7 @@ function createManagementHandlers(deps) {
   function reflectEndpoints() {
     const cachedModels = getCachedModels();
     const runtimeModelMetadata = getRuntimeModelMetadata();
+    const routingModelMetadata = getPrivateRoutingModelMetadata();
     const modelAliases = getModelAliases();
     return {
       endpoints: getAdapters().map(adapter => {
@@ -173,6 +177,12 @@ function createManagementHandlers(deps) {
           modelPolicy,
           record => record?.id,
         );
+        const privateRoutingModelMetadata = filterModelCatalogue(
+          routingModelMetadata[adapter.name] || null,
+          adapter.name,
+          modelPolicy,
+          record => record?.id,
+        );
         return {
           provider:   info.provider,
           port:       info.port,
@@ -183,7 +193,7 @@ function createManagementHandlers(deps) {
           routing_models: buildRoutingModelMetadata(
             adapter.name,
             models,
-            modelMetadata,
+            privateRoutingModelMetadata,
           ),
           models_url: info.models_url,
           ...(info.credential_kind !== undefined && { credential_kind: info.credential_kind }),

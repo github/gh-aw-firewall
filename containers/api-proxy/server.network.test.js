@@ -350,6 +350,51 @@ describe('fetchStartupModels', () => {
     });
   });
 
+  it('should use private Copilot routing metadata in the server reflection path', async () => {
+    mockHttpsRequestWithBody(200, JSON.stringify({
+      data: [
+        {
+          id: 'effort-model',
+          capabilities: { supports: { reasoning_effort: ['low', 'high'] } },
+          supported_endpoints: ['/responses'],
+          model_picker_enabled: true,
+        },
+        {
+          id: 'picker-disabled-model',
+          capabilities: { supports: { reasoning_effort: ['low'] } },
+          supported_endpoints: ['/responses'],
+          model_picker_enabled: false,
+        },
+      ],
+    }));
+    await fetchStartupModels([createModelsAdapter('copilot', {
+      cacheKey: 'copilot',
+      url: 'https://api.githubcopilot.com/models',
+      opts: { method: 'GET', headers: { Authorization: '******' } },
+      modelMetadataFormat: 'copilot',
+    })]);
+
+    const copilot = reflectEndpoints().endpoints.find(endpoint => endpoint.provider === 'copilot');
+    expect(copilot.model_metadata).toEqual([
+      expect.objectContaining({ id: 'effort-model' }),
+      expect.objectContaining({ id: 'picker-disabled-model' }),
+    ]);
+    expect(copilot.model_metadata[0]).not.toHaveProperty('capabilities');
+    expect(copilot.model_metadata[0]).not.toHaveProperty('modelPickerEnabled');
+    expect(copilot.routing_models).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        model_id: 'effort-model',
+        supported_reasoning_efforts: ['low', 'high'],
+        candidate_metadata_complete: true,
+      }),
+      expect.objectContaining({
+        model_id: 'picker-disabled-model',
+        candidate_metadata_complete: false,
+        candidate_metadata_reason: 'Model is not enabled in the Copilot model picker',
+      }),
+    ]));
+  });
+
   it('should retain the last successful snapshot when a later fetch fails', async () => {
     const adapter = createModelsAdapter('copilot', {
       cacheKey: 'copilot',
