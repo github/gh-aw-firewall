@@ -52,6 +52,12 @@ func parseBootConfig(cmdline string) (bootConfig, error) {
 	if role, present := values["awf.enclave-role"]; present && role != "script" && role != "agent" {
 		return bootConfig{}, fmt.Errorf("invalid awf.enclave-role")
 	}
+	if values["awf.enclave-role"] == "script" && !noNetwork {
+		return bootConfig{}, fmt.Errorf("script enclave must not configure guest networking")
+	}
+	if values["awf.enclave-role"] == "agent" && noNetwork {
+		return bootConfig{}, fmt.Errorf("agent enclave requires its dedicated network")
+	}
 	required := []string{"awf.vsock-port"}
 	if !noNetwork {
 		required = append(required,
@@ -114,6 +120,16 @@ func parseBootConfig(cmdline string) (bootConfig, error) {
 	} else if workspaceMount == "" {
 		if device != "" {
 			return bootConfig{}, fmt.Errorf("awf.workspace-device requires awf.workspace-mount")
+		}
+		if values["awf.enclave-role"] != "" {
+			if device != "" || workspaceMount != "" {
+				return bootConfig{}, fmt.Errorf("enclave cannot declare a primary workspace")
+			}
+			for _, fsMount := range virtiofsMounts {
+				if fsMount.Tag == "workspace" {
+					return bootConfig{}, fmt.Errorf("enclave cannot declare a primary workspace export")
+				}
+			}
 		}
 		for _, fsMount := range virtiofsMounts {
 			if fsMount.Tag == "workspace" {

@@ -100,7 +100,7 @@ func TestEnclavePrivilegeStatusMustBeVerified(t *testing.T) {
 		"CapPrm:\t0000000000000000",
 		"CapInh:\t0000000000000000",
 		"CapAmb:\t0000000000000000",
-		"CapBnd:\t0000000000000000",
+		"CapBnd:\t00000000000000c0",
 		"NoNewPrivs:\t1",
 	}, "\n")
 	if err := validateEnclaveCapabilities(status); err != nil || !hasNoNewPrivileges(status) {
@@ -109,8 +109,19 @@ func TestEnclavePrivilegeStatusMustBeVerified(t *testing.T) {
 	if err := validateEnclaveCapabilities(strings.Replace(status, "CapEff:\t0000000000000000", "CapEff:\t0000000000000001", 1)); err == nil {
 		t.Fatal("nonzero capabilities accepted")
 	}
-	if err := validateEnclaveCapabilities(strings.Replace(status, "CapBnd:\t0000000000000000\n", "", 1)); err == nil {
+	if err := validateEnclaveCapabilities(strings.Replace(status, "CapBnd:\t00000000000000c0\n", "", 1)); err == nil {
 		t.Fatal("missing capability state accepted")
+	}
+	if err := validateEnclaveCapabilities(strings.Replace(status, "CapBnd:\t00000000000000c0", "CapBnd:\t00000000000000c1", 1)); err == nil {
+		t.Fatal("unexpected bounding capability accepted")
+	}
+	supervisorStatus := strings.Replace(status, "CapEff:\t0000000000000000", "CapEff:\t00000000000000c0", 1)
+	supervisorStatus = strings.Replace(supervisorStatus, "CapPrm:\t0000000000000000", "CapPrm:\t00000000000000c0", 1)
+	if err := validateEnclaveSupervisorCapabilities(supervisorStatus); err != nil {
+		t.Fatalf("minimum trusted launcher capabilities rejected: %v", err)
+	}
+	if err := validateEnclaveCapabilities(supervisorStatus); err == nil {
+		t.Fatal("trusted launcher capabilities accepted in workload")
 	}
 	if hasNoNewPrivileges(strings.Replace(status, "NoNewPrivs:\t1", "NoNewPrivs:\t0", 1)) {
 		t.Fatal("disabled no_new_privs accepted")

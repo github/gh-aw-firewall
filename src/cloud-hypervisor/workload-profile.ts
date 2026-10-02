@@ -237,17 +237,17 @@ export function validateCloudHypervisorWorkloadProfile(
   if (profile.kind !== profile.identity?.kind || profile.kind !== profile.rootfsRole) {
     throw new Error('Cloud Hypervisor workload profile identity and rootfs role must match its kind');
   }
-  assertClosedObject(profile, [
+  const allowedProfileKeys = [
     'kind',
     'identity',
     'rootfsRole',
     'network',
     'guest',
     'exportPlan',
-    'resources',
     'rawOutput',
-  ],
-    'workload profile');
+  ];
+  if (profile.kind !== 'primary-agent') allowedProfileKeys.push('resources');
+  assertClosedObject(profile, allowedProfileKeys, 'workload profile');
   assertClosedObject(profile.identity, ['kind', 'ownerId', 'invocationId'], 'workload identity');
   assertSafeIdentity(profile.identity.ownerId, 'owner');
 
@@ -258,7 +258,8 @@ export function validateCloudHypervisorWorkloadProfile(
         profile.identity.invocationId !== undefined ||
         profile.network.mode !== 'primary' ||
         profile.rawOutput !== 'capture' ||
-        profile.exportPlan !== undefined
+        profile.exportPlan !== undefined ||
+        (profile.guest?.enclaveResources !== undefined)
       ) {
         throw new Error('Contradictory Cloud Hypervisor primary-agent workload profile');
       }
@@ -371,6 +372,9 @@ function validateGuest(profile: CloudHypervisorWorkloadProfile): void {
     'workspaceMount',
     'enclaveResources',
   ], `${profile.kind} guest configuration`);
+  if (profile.kind === 'primary-agent' && profile.guest.enclaveResources !== undefined) {
+    throw new Error('Cloud Hypervisor primary-agent cannot declare enclave resource limits');
+  }
   if (
     !path.isAbsolute(profile.guest.supervisorBinaryPath) ||
     !/^[a-f0-9]{64}$/.test(profile.guest.supervisorSha256)

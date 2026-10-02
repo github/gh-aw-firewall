@@ -108,11 +108,7 @@ func runSupervisorWithCmdline(cmdline string, listen func(uint32) (*vsockListene
 		return err
 	}
 	if config.EnclaveRole != "" {
-		profile, err := enclaveResourceProfileForRole(config.EnclaveRole)
-		if err != nil {
-			return err
-		}
-		if err := dropEnclaveSupervisorPrivileges(profile); err != nil {
+		if err := dropEnclaveSupervisorPrivileges(); err != nil {
 			return err
 		}
 	}

@@ -115,8 +115,20 @@ describe('Cloud Hypervisor enclave rootfs artifacts', () => {
       expect(verify).toContain(field);
     }
     expect(verify).toContain('forbidden enclave rootfs path present');
-    expect(verify).toContain('/usr/bin/apt');
-    expect(verify).toContain('/usr/bin/dpkg');
+    for (const forbidden of [
+      '/usr/bin/apt',
+      '/usr/bin/apt-cache',
+      '/usr/bin/apt-get',
+      '/usr/bin/apt-mark',
+      '/usr/bin/dpkg',
+      '/usr/bin/dpkg-deb',
+      '/usr/bin/dpkg-query',
+      '/usr/bin/corepack',
+      '/usr/bin/yarn',
+      '/usr/bin/pnpm',
+    ]) {
+      expect(verify).toContain(forbidden);
+    }
     expect(verify).toContain('embedded repository seed found');
     expect(verify).toContain('NF < 7 || ($6 != "." && $6 != "..")');
     expect(verify).toContain(

@@ -13,6 +13,7 @@ import (
 
 const tmpfsMagic = 0x01021994
 const rlimitNproc = 6
+const enclaveCredentialCapabilities = uint64(1<<6 | 1<<7)
 
 type enclaveResourceProfile struct {
 	uid             uint32
@@ -58,6 +59,7 @@ func mountEnclaveTmpfs(profile enclaveResourceProfile) error {
 		{target: "/run", size: 16 * 1024 * 1024, mode: 0755, flags: syscall.MS_NOSUID | syscall.MS_NODEV},
 		{target: "/dev/shm", size: 32 * 1024 * 1024, mode: 01777, flags: syscall.MS_NOSUID | syscall.MS_NODEV},
 	}
+	mounts[0].flags |= syscall.MS_NOEXEC
 	if profile.primaryTmpfs != "/tmp" {
 		mounts = append(mounts, struct {
 			target string
@@ -68,7 +70,6 @@ func mountEnclaveTmpfs(profile enclaveResourceProfile) error {
 			flags  uintptr
 		}{target: "/tmp", size: 16 * 1024 * 1024, mode: 01777, flags: syscall.MS_NOSUID | syscall.MS_NODEV | syscall.MS_NOEXEC})
 	} else {
-		mounts[0].flags |= syscall.MS_NOEXEC
 		mounts[0].mode = 01777
 		mounts = append(mounts, struct {
 			target string
@@ -147,20 +148,33 @@ func applyEnclaveRlimits(profile enclaveResourceProfile) error {
 }
 
 func validateEnclaveCapabilities(status string) error {
-	required := map[string]bool{
-		"CapEff": false, "CapPrm": false, "CapInh": false, "CapAmb": false, "CapBnd": false,
+	return validateEnclaveCapabilitySets(status, "0000000000000000", "0000000000000000")
+}
+
+func validateEnclaveSupervisorCapabilities(status string) error {
+	return validateEnclaveCapabilitySets(status, "00000000000000c0", "00000000000000c0")
+}
+
+func validateEnclaveCapabilitySets(status, effective, permitted string) error {
+	expected := map[string]string{
+		"CapEff": effective,
+		"CapPrm": permitted,
+		"CapInh": "0000000000000000",
+		"CapAmb": "0000000000000000",
+		"CapBnd": "00000000000000c0",
 	}
+	capabilityFound := make(map[string]bool, len(expected))
 	for _, line := range strings.Split(status, "\n") {
-		name, value, found := strings.Cut(line, ":")
-		if _, known := required[name]; found && known {
-			if strings.TrimSpace(value) != "0000000000000000" {
-				return fmt.Errorf("enclave process has nonzero capability set")
+		name, value, hasValue := strings.Cut(line, ":")
+		if expectedValue, known := expected[name]; hasValue && known {
+			if strings.TrimSpace(value) != expectedValue {
+				return fmt.Errorf("enclave process has unexpected capability set")
 			}
-			required[name] = true
+			capabilityFound[name] = true
 		}
 	}
-	for name, present := range required {
-		if !present {
+	for name := range expected {
+		if !capabilityFound[name] {
 			return fmt.Errorf("enclave process capability state is missing %s", name)
 		}
 	}
@@ -197,7 +211,7 @@ func verifyEnclaveRlimits(profile enclaveResourceProfile) error {
 	return nil
 }
 
-func dropEnclaveSupervisorPrivileges(profile enclaveResourceProfile) error {
+func dropEnclaveSupervisorPrivileges() error {
 	if err := syscall.Setgroups([]int{}); err != nil {
 		return fmt.Errorf("clear enclave supplementary groups: %w", err)
 	}
@@ -214,12 +228,19 @@ func dropEnclaveSupervisorPrivileges(profile enclaveResourceProfile) error {
 		return fmt.Errorf("invalid kernel capability limit")
 	}
 	for capability := 0; capability <= lastCap; capability++ {
+		if enclaveCredentialCapabilities&(1<<uint(capability)) != 0 {
+			continue
+		}
 		if _, _, errno := syscall.RawSyscall(syscall.SYS_PRCTL, 24, uintptr(capability), 0); errno != 0 {
 			return fmt.Errorf("drop enclave capability %d from bounding set: %w", capability, errno)
 		}
 	}
 	header := capHeader{version: 0x20080522}
 	data := [2]capData{}
+	for word := range data {
+		data[word].effective = uint32(enclaveCredentialCapabilities >> (word * 32))
+		data[word].permitted = uint32(enclaveCredentialCapabilities >> (word * 32))
+	}
 	if _, _, errno := syscall.RawSyscall(
 		syscall.SYS_CAPSET,
 		uintptr(unsafe.Pointer(&header)),
@@ -235,7 +256,7 @@ func dropEnclaveSupervisorPrivileges(profile enclaveResourceProfile) error {
 	if err != nil {
 		return fmt.Errorf("verify enclave supervisor privileges: %w", err)
 	}
-	if err := validateEnclaveCapabilities(string(status)); err != nil {
+	if err := validateEnclaveSupervisorCapabilities(string(status)); err != nil {
 		return err
 	}
 	if !hasNoNewPrivileges(string(status)) {

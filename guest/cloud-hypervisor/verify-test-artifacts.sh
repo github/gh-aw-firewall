@@ -155,8 +155,12 @@ verify_enclave_rootfs() {
     /sbin/apk \
     /usr/bin/apk \
     /usr/bin/apt \
+    /usr/bin/apt-cache \
     /usr/bin/apt-get \
+    /usr/bin/apt-mark \
     /usr/bin/dpkg \
+    /usr/bin/dpkg-deb \
+    /usr/bin/dpkg-query \
     /usr/bin/rpm \
     /usr/bin/dnf \
     /usr/bin/yum \
@@ -165,6 +169,9 @@ verify_enclave_rootfs() {
     /usr/bin/emerge \
     /usr/bin/npm \
     /usr/bin/npx \
+    /usr/bin/corepack \
+    /usr/bin/yarn \
+    /usr/bin/pnpm \
     /usr/local/bin/npm \
     /usr/local/bin/pip \
     /usr/local/bin/pip3 \

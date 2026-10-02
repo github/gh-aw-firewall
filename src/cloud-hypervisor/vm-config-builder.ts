@@ -42,22 +42,29 @@ export function buildCloudHypervisorVmConfig({
   enclaveResources,
   fsDevices = [],
 }: CloudHypervisorVmConfigInput) {
-  if (enclaveResources) {
-    const expected = CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES[enclaveResources.role];
+  const profileResources = guestConfig?.enclaveResources;
+  if (profileResources || enclaveResources) {
+    const resources = profileResources;
+    const expected = resources
+      ? CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES[resources.role]
+      : undefined;
     if (
+      !resources ||
+      enclaveResources !== resources ||
       !expected ||
-      Object.keys(expected).length !== Object.keys(enclaveResources).length ||
+      Object.keys(expected).length !== Object.keys(resources).length ||
       Object.keys(expected).some((key) => (
         expected[key as keyof typeof expected] !==
-        enclaveResources[key as keyof CloudHypervisorEnclaveResourceProfile]
+        resources[key as keyof CloudHypervisorEnclaveResourceProfile]
       )) ||
-      guestConfig?.enclaveResources !== enclaveResources
+      !guestConfig
     ) {
       throw new Error('Cloud Hypervisor enclave VM limits must match its closed guest resource profile');
     }
   }
-  const vmMemoryMiB = enclaveResources?.memoryMiB ?? config.memoryMib;
-  const vmVcpuCount = enclaveResources?.vcpuCount ?? config.vcpuCount;
+  const effectiveResources = profileResources;
+  const vmMemoryMiB = effectiveResources?.memoryMiB ?? config.memoryMib;
+  const vmVcpuCount = effectiveResources?.vcpuCount ?? config.vcpuCount;
   const landlockRules = computeCloudHypervisorLandlockRules({
     kernelPath: paths.kernelPath,
     rootfsPath: paths.rootfsPath,
@@ -84,7 +91,7 @@ export function buildCloudHypervisorVmConfig({
     disks: [{
       id: 'rootfs',
       path: paths.rootfsPath,
-      readonly: Boolean(enclaveResources),
+      readonly: Boolean(effectiveResources),
       image_type: 'Raw' as const,
     }],
     ...(fsDevices.length > 0
