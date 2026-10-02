@@ -158,6 +158,11 @@ describe('routing candidates', () => {
     ]);
   });
 
+  it('returns no route when candidateModels excludes every policy-permitted model', () => {
+    expect(() => build([model('gpt-allowed')], { allowedModels: ['*'] }, 'copilot', ['claude-*']))
+      .toThrow(expect.objectContaining({ code: 'no_route', retryable: false }));
+  });
+
   it('deduplicates overlapping policy patterns, model identities, and efforts', () => {
     const pool = build([
       model('gpt-test', { efforts: ['low', 'low'] }), model('GPT-TEST'), model('gpt-test'),

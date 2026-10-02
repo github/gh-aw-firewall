@@ -83,13 +83,19 @@ function buildRoutingCandidates({ catalogue, policy = {}, candidateModels }) {
   const disallowedModels = normalizePolicyList(policy.disallowedModels, 'disallowedModels');
   const routingCandidates = normalizePolicyList(candidateModels, 'routing.candidateModels');
   const providerModels = indexModels(catalogue.models, 'catalogue.models', model => model.id);
-  const permittedModels = new Map(
+  const policyModels = new Map(
     [...providerModels].filter(([, model]) =>
-      isModelPermittedByPolicy(model.id, allowedModels, disallowedModels, providerInfo.alias) &&
-      (!routingCandidates || isModelPermittedByPolicy(model.id, routingCandidates, null, providerInfo.alias))),
+      isModelPermittedByPolicy(model.id, allowedModels, disallowedModels, providerInfo.alias)),
   );
-  if (permittedModels.size === 0) {
+  if (policyModels.size === 0) {
     throw createRoutingError('model_policy_violation', 'The model policy excludes every available model');
+  }
+  const permittedModels = routingCandidates
+    ? new Map([...policyModels].filter(([, model]) =>
+      isModelPermittedByPolicy(model.id, routingCandidates, null, providerInfo.alias)))
+    : policyModels;
+  if (permittedModels.size === 0) {
+    throw createRoutingError('no_route', 'No available model matches routing.candidateModels');
   }
 
   const pairs = [];
