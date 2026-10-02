@@ -19,7 +19,7 @@ import {
       ),
     });
     const manager = new CloudHypervisorManager(
-      config(),
+      config({ apiTimeoutMs: 1000 }),
       '/tmp/awf',
       deps,
       'diagnostics',

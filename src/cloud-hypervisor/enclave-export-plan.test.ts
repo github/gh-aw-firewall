@@ -46,7 +46,7 @@ describe('Cloud Hypervisor enclave export plans', () => {
   const seedId = 'c'.repeat(32);
 
   beforeEach(async () => {
-    root = await fs.mkdtemp(path.join(os.tmpdir(), 'ch-enclave-exports-'));
+    root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'ch-enclave-exports-')));
   });
 
   afterEach(async () => {
