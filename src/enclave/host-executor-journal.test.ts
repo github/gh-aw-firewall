@@ -17,7 +17,11 @@ describe('durable host executor journal', () => {
   let dependencies: CleanupRegistryDependencies;
   let registry: CloudHypervisorCleanupRegistry;
   const vmRunId = () => hostExecutorVmRunId(plan);
-  const tools = { ip: '/trusted/ip', umount: '/trusted/umount' };
+  const tools = {
+    ip: '/trusted/ip', umount: '/trusted/umount', getfacl: '/trusted/getfacl',
+    groupdel: '/trusted/groupdel', getent: '/trusted/getent', id: '/trusted/id',
+    setfacl: '/trusted/setfacl', useradd: '/trusted/useradd', userdel: '/trusted/userdel',
+  };
 
   beforeEach(() => {
     root = fs.mkdtempSync(path.join(process.cwd(), '.hj-'));
@@ -122,7 +126,7 @@ describe('durable host executor journal', () => {
     expect(fs.readFileSync(recordFile(), 'utf8')).not.toContain('private-input');
     bootId = 'restarted-boot';
     await reap();
-    expect(registry.reapPending).toHaveBeenCalledWith(tools.ip, tools.umount);
+    expect(registry.reapPending).toHaveBeenCalledWith(tools.ip, tools.umount, tools);
     expect(dependencies.run).toHaveBeenCalledWith(tools.umount, [plan.invocationHostDir]);
     expect(fs.existsSync(plan.invocationHostDir)).toBe(false);
     expect(readRecord().state).toBe('cleaned');
@@ -174,8 +178,10 @@ describe('durable host executor journal', () => {
       getent: '/trusted/getent', id: '/trusted/id', setfacl: '/trusted/setfacl',
       useradd: '/trusted/useradd', userdel: '/trusted/userdel',
     };
-    await reapHostExecutorResources(run.journalDir!, registry, { ...tools, ...vmmTools }, dependencies);
-    expect(registry.reapPending).toHaveBeenCalledWith(tools.ip, tools.umount, vmmTools);
+    const completeTools = { ...tools, ...vmmTools };
+    await reapHostExecutorResources(run.journalDir!, registry, completeTools, dependencies);
+    expect(registry.reapPending).toHaveBeenCalledWith(tools.ip, tools.umount, completeTools);
+    expect((registry.reapPending as jest.Mock).mock.calls[0][2]).toBe(completeTools);
   });
 
   it('retains resources when the VM cleanup registry cannot recover safely', async () => {

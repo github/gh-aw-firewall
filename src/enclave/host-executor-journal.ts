@@ -287,20 +287,11 @@ export class HostExecutorResourceJournal {
 export async function reapHostExecutorResources(
   directory: string,
   registry: CloudHypervisorCleanupRegistry,
-  tools: { ip: string; umount: string } & Partial<CloudHypervisorVmmIdentityToolPaths>,
+  tools: { umount: string } & CloudHypervisorVmmIdentityToolPaths,
   overrides: CleanupRegistryDependencies = {},
 ): Promise<void> {
   prepareDirectory(directory);
-  if (tools.getfacl && tools.groupdel && tools.getent && tools.id &&
-    tools.setfacl && tools.useradd && tools.userdel) {
-    await registry.reapPending(tools.ip, tools.umount, {
-      ip: tools.ip, getfacl: tools.getfacl, groupdel: tools.groupdel,
-      getent: tools.getent, id: tools.id, setfacl: tools.setfacl,
-      useradd: tools.useradd, userdel: tools.userdel,
-    });
-  } else {
-    await registry.reapPending(tools.ip, tools.umount);
-  }
+  await registry.reapPending(tools.ip, tools.umount, tools);
   const vmDependencies = resolveCleanupDependencies(overrides);
   const dependencies = { ...vmDependencies, rootDirectory: directory };
   const bootId = (await dependencies.readFile('/proc/sys/kernel/random/boot_id', 'utf8')).trim();
