@@ -226,6 +226,7 @@ export async function startCloudHypervisor(
             memoryMib: guestConfig.enclaveResources.memoryMiB,
             vcpuCount: guestConfig.enclaveResources.vcpuCount,
             cpuQuotaMilli: guestConfig.enclaveResources.cpuQuotaMilli,
+            writableStorageBytes: guestConfig.enclaveResources.writableStorageBytes,
           }
         : { memoryMib: config.memoryMib, vcpuCount: config.vcpuCount },
     );

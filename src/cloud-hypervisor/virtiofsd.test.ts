@@ -109,10 +109,7 @@ function dependencies(
       isFile: () => false,
       isSymbolicLink: () => false,
     }),
-    statWritableFilesystem: jest.fn().mockResolvedValue({
-      device: '8:1',
-      capacityBytes: 1024,
-    }),
+    assertWritableStorageBound: jest.fn().mockResolvedValue(undefined),
     realpath: jest.fn(async (filePath: string) => filePath),
     readFile,
     readlink: jest.fn(async (filePath: string) => {
@@ -171,26 +168,28 @@ const enforcement = {
 };
 
 describe('VirtiofsdManager', () => {
-  it('requires all writable enclave exports to use one filesystem within the storage budget', async () => {
+  it('verifies bounded enclave storage before launching any daemon', async () => {
     const deps = dependencies();
     const boundedManager = manager(deps);
 
     await expect(boundedManager.start([workspace], undefined, 2048)).resolves.toHaveLength(1);
+    expect(deps.assertWritableStorageBound).toHaveBeenCalledWith([workspace], 2048);
     await boundedManager.stop();
 
-    await expect(manager(dependencies({
-      statWritableFilesystem: jest.fn().mockResolvedValue({
-        device: '8:1',
-        capacityBytes: 4096,
-      }),
-    })).start([workspace], undefined, 2048)).rejects.toThrow(/exceeds its .*byte limit/);
+    const rejected = dependencies({
+      assertWritableStorageBound: jest.fn().mockRejectedValue(new Error('Unverifiable bounded storage')),
+    });
+    await expect(manager(rejected).start([workspace], undefined, 2048))
+      .rejects.toThrow('Unverifiable bounded storage');
+    expect(rejected.launch).not.toHaveBeenCalled();
+  });
 
-    await expect(manager(dependencies({
-      statWritableFilesystem: jest.fn()
-        .mockResolvedValueOnce({ device: '8:1', capacityBytes: 1024 })
-        .mockResolvedValueOnce({ device: '8:2', capacityBytes: 1024 }),
-    })).start([workspace, { ...workspace, tag: 'another', source: '/host/other' }], undefined, 2048))
-      .rejects.toThrow(/share one bounded host filesystem/);
+  it('does not provision or verify bounded storage for primary-agent exports', async () => {
+    const deps = dependencies();
+    const primary = manager(deps);
+    await primary.start([workspace]);
+    expect(deps.assertWritableStorageBound).not.toHaveBeenCalled();
+    await primary.stop();
   });
 
   it('uses explicit sandbox, seccomp, cache, and inode policy', () => {

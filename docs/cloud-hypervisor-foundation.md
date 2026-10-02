@@ -257,13 +257,55 @@ privileges through executable metadata. Missing mounts, unsupported kernel
 controls, or verification mismatches abort startup rather than launching
 without a limit.
 
-Writable virtio-fs storage is accepted only when every writable export is on
-the same host filesystem and that filesystem's full capacity is no greater than
-the role ceiling. This deliberately strict check fails on typical larger runner
-filesystems; the future host executor must provide a genuinely size-bounded
-per-invocation backing filesystem or remain unavailable. It is not a per-folder
-quota and the guest cannot use `size=` to limit virtio-fs. Tmpfs ceilings are
-independent of this host filesystem ceiling.
+The trusted host executor mounts one invocation-private Linux **tmpfs** at the
+host-derived invocation directory, with `size=1073741824` for scripts (1 GiB) or
+`size=536870912` for agents (512 MiB), and `mode=0700,nosuid,nodev,noexec`.
+The closed `/output`, `/runtime`, and agent `/session-state` writable virtio-fs
+exports are subdirectories of that single backing store, not separate tmpfs
+mounts. Request and handoff files also consume its budget. Linux charges allocated
+pages across all exports atomically, including concurrent writes and writes into
+sparse-file holes; allocation beyond the aggregate ceiling returns `ENOSPC`.
+Sparse logical lengths do not allocate pages and do not bypass the allocation
+limit. No disk quota, loop device, or guest-only `size=` limit is required, so
+the mechanism uses the supported GitHub-hosted Linux/KVM runner's existing
+mount/virtio-fs path. Guest-internal tmpfs ceilings remain separate.
+
+Host tmpfs pages are charged to the writing virtio-fs process's memory cgroup.
+The enclave-only host `memory.max` therefore includes the fixed storage ceiling
+in addition to 768 MiB guest RAM and the existing 256 MiB VMM overhead:
+2 GiB for scripts and 1.5 GiB for agents. This avoids preempting the storage
+ceiling with the old shared-cgroup budget; it does not enlarge guest RAM or add
+a configurable resource limit. Host memory exhaustion can still terminate an
+invocation rather than return `ENOSPC`, and is treated as executor failure.
+Primary-agent cgroup budgets are unchanged.
+
+Before staging inputs and again before starting virtio-fs daemons, AWF verifies
+canonical export paths, the exact invocation mount in `/proc/self/mountinfo`,
+its tmpfs type, private mount identity, mount options, and exact role capacity
+from `statfs`. This is verification of a kernel-enforced backing store, not
+a free-space preflight. Missing, undersized, oversized, aliased, nested, or
+unverifiable mounts abort startup. There are no caller-selectable storage paths,
+sizes, classes, overrides, or fallback to the runner filesystem.
+
+The existing durable host-executor resource journal records the underlying
+directory before mounting and captures the tmpfs mount identity before use.
+Completion, timeout, cancellation, and partial startup wait for outstanding
+provisioning and VM/virtio-fs teardown before ordinary (never lazy) unmount and
+directory removal. Abandoned-run recovery first reaps the VM cleanup record,
+then verifies recorded directory/mount ownership and removes invocation storage.
+Unmount or ownership-verification failure retains the recovery record, reports
+incomplete cleanup, and keeps admissions closed; it never deletes through a
+live mount.
+
+`src/cloud-hypervisor/enclave-storage.integration.test.ts` exercises the actual
+host backing paths served by the closed writable exports, including role-sized
+aggregate `ENOSPC`, sparse and concurrent writes, invocation isolation, and busy
+unmount failure. It also fills storage in the production host cgroup budget while
+holding the guest-RAM equivalent resident, with swap disabled, to check that
+storage exhaustion is not preempted by a cgroup OOM. Run it as root in a private mount namespace with
+`AWF_TEST_ENCLAVE_STORAGE=1 npm test -- --runInBand enclave-storage.integration.test.ts`.
+Live guest transport conformance additionally requires the release-attested role
+artifacts and KVM runtime wiring.
 
 The rootfs build removes package-manager executables, the importable `pip` and
 `ensurepip` modules (so `python3 -m pip` cannot run or be recreated),
