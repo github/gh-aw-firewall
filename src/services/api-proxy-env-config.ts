@@ -274,7 +274,7 @@ function buildModelPolicyEnv(config: WrapperConfig): Record<string, string> {
       AWF_MODEL_FALLBACK: JSON.stringify(config.modelFallback),
     }),
     // Model policy (allowed/disallowed)
-    ...(config.allowedModels && config.allowedModels.length > 0 && {
+    ...(config.allowedModels !== undefined && {
       AWF_ALLOWED_MODELS: JSON.stringify(config.allowedModels),
     }),
     ...(config.disallowedModels && config.disallowedModels.length > 0 && {

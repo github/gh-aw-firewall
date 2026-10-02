@@ -75,6 +75,16 @@ The `--enable-api-proxy` CLI flag is deprecated and ignored — it is kept only 
 
 ## Usage
 
+### Restrict BYOK models
+
+Set `apiProxy.allowedModels` in the AWF config file to an operator-approved
+list of model IDs (or glob patterns). The proxy rejects a request for any other
+model with HTTP 403, including a fallback model selected by an agent harness.
+For example, `{"apiProxy":{"allowedModels":["gpt-5.6-sol"]}}` rejects a
+request for `gpt-5.4`. An omitted allowlist does not restrict models; an
+empty list or invalid `AWF_ALLOWED_MODELS` value prevents the proxy from
+starting rather than silently disabling the policy.
+
 ### Basic usage
 
 ```bash

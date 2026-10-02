@@ -172,7 +172,7 @@ describe('API proxy sidecar: miscellaneous env forwarding', () => {
           expect(env.AWF_ALLOWED_MODELS).toBe(JSON.stringify(['*sonnet*', '*haiku*']));
         });
 
-        it('should not set AWF_ALLOWED_MODELS when allowedModels is empty array', () => {
+        it('should forward an empty allowedModels array so the proxy rejects the invalid policy', () => {
           const configWithProxy = {
             ...mockConfig,
             enableApiProxy: true,
@@ -181,7 +181,7 @@ describe('API proxy sidecar: miscellaneous env forwarding', () => {
           };
           const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
           const env = result.services['api-proxy'].environment as Record<string, string>;
-          expect(env.AWF_ALLOWED_MODELS).toBeUndefined();
+          expect(env.AWF_ALLOWED_MODELS).toBe('[]');
         });
 
         it('should forward disallowedModels as AWF_DISALLOWED_MODELS (JSON array)', () => {

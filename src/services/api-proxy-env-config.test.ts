@@ -492,9 +492,9 @@ it('buildModelPolicyEnv no longer sets AWF_ROUTING_CONFIG when modelRouting is c
     });
   });
 
-  it('omits AWF_ALLOWED_MODELS when allowedModels is empty', () => {
+  it('forwards an empty allowedModels list so the proxy rejects the invalid policy', () => {
     const env = buildModelPolicyEnv({ ...baseConfig, workDir: '/tmp/awf-test', allowedModels: [] });
-    expect(env.AWF_ALLOWED_MODELS).toBeUndefined();
+    expect(env.AWF_ALLOWED_MODELS).toBe('[]');
   });
 
   it('sets AWF_DISALLOWED_MODELS when disallowedModels is non-empty', () => {

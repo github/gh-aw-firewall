@@ -54,6 +54,21 @@ describe('parseModelPatterns', () => {
   });
 });
 
+describe('configured model policy', () => {
+  it.each(['not-json', '{}', '[]', '[""]', ''])(
+    'fails closed for an invalid allowed-models value %j',
+    value => {
+      process.env.AWF_ALLOWED_MODELS = value;
+      expect(loadGuard).toThrow('AWF_ALLOWED_MODELS must be a non-empty JSON array of model patterns');
+    },
+  );
+
+  it('fails closed for an invalid disallowed-models value', () => {
+    process.env.AWF_DISALLOWED_MODELS = 'not-json';
+    expect(loadGuard).toThrow('AWF_DISALLOWED_MODELS must be a non-empty JSON array of model patterns');
+  });
+});
+
 describe('isModelPermittedByPolicy', () => {
   it('should permit all models when no policy is configured', () => {
     const { isModelPermittedByPolicy } = loadGuard();
