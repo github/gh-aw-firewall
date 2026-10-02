@@ -26,7 +26,7 @@ This firewall solves a specific problem: **egress control for AI agents running 
 
 ---
 
-## Threat Model and Non-Goals
+## Limitations and Non-Goals
 
 AWF does **not** guarantee that source code or secrets remain confidential after
 the agent is fully compromised. The agent can read the files and environment
