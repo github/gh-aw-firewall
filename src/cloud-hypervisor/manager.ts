@@ -256,6 +256,7 @@ export class CloudHypervisorManager {
     profileOrNetworkConfig?: CloudHypervisorWorkloadProfile | CloudHypervisorManagerNetworkConfig,
     legacyGuestConfig?: CloudHypervisorManagerGuestConfig,
     private readonly verifiedArtifacts?: CloudHypervisorPreflightResult,
+    private readonly allowTrustedEnclaveExecution = false,
   ) {
     const profile: CloudHypervisorWorkloadProfile = isWorkloadProfile(profileOrNetworkConfig)
       ? sealCloudHypervisorWorkloadProfile(profileOrNetworkConfig)
@@ -292,6 +293,7 @@ export class CloudHypervisorManager {
       dependencies: this.dependencies,
       paths: this.paths,
       workloadProfile: this.workloadProfile,
+      allowTrustedEnclaveExecution: this.allowTrustedEnclaveExecution,
       verifiedArtifacts: this.verifiedArtifacts,
       stdoutCapture: this.stdoutCapture,
       stderrCapture: this.stderrCapture,

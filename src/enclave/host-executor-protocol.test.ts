@@ -3,6 +3,7 @@ import * as net from 'net';
 import * as os from 'os';
 import * as path from 'path';
 import {
+  HOST_EXECUTOR_PROTOCOL_VERSION,
   HOST_EXECUTOR_MAX_REQUEST_BYTES,
   HOST_EXECUTOR_MAX_RESPONSE_BYTES,
   HOST_EXECUTOR_MAX_PAYLOAD_BYTES,
@@ -14,6 +15,8 @@ import {
   hostExecutorResultDigest,
   isValidHostExecutorResult,
 } from './host-executor-protocol';
+import { finiteSchemaHash } from '../bounded-execution/schema-hash';
+import type { FiniteSchemaNode } from '../bounded-execution/finite-schema';
 import {
   type HostEnclaveExecutorBackend,
   type HostExecutorBackendResult,
@@ -31,6 +34,9 @@ const {
 } = require(path.join(
   __dirname, '..', '..', 'containers', 'enclave', 'mcp-server', 'host-executor-client.js',
 ));
+const { finiteSchemaHash: brokerFiniteSchemaHash } = require(path.join(
+  __dirname, '..', '..', 'containers', 'bounded-execution', 'schema-hash.js',
+));
 /* eslint-enable @typescript-eslint/no-require-imports */
 
 const RUN_ID = 'a'.repeat(32);
@@ -40,7 +46,8 @@ const AGENT_ENTRY_ID = 'agent';
 const INVOCATION_ID = 'b'.repeat(24);
 const SEED_ID = 'c'.repeat(32);
 const ADMISSION_ID = 'd'.repeat(24);
-const SCHEMA_HASH = 'e'.repeat(64);
+const SCHEMA = { type: 'boolean' } as const;
+const SCHEMA_HASH = finiteSchemaHash(SCHEMA as FiniteSchemaNode);
 const CAPABILITY = Buffer.alloc(32, 0xab);
 const CAPABILITY_HEX = CAPABILITY.toString('hex');
 
@@ -52,7 +59,7 @@ function nextRequestId(): string {
 
 function invokeRequest(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
-    version: 1,
+    version: HOST_EXECUTOR_PROTOCOL_VERSION,
     type: 'invoke',
     requestId: nextRequestId(),
     runId: RUN_ID,
@@ -62,6 +69,7 @@ function invokeRequest(overrides: Record<string, unknown> = {}): Record<string, 
     executorKind: 'script',
     seedId: SEED_ID,
     payload: 'print(1)',
+    schema: SCHEMA,
     schemaHash: SCHEMA_HASH,
     admissionId: ADMISSION_ID,
     ...overrides,
@@ -131,12 +139,33 @@ describe('host executor protocol decoding', () => {
     expect(dynamic.ok).toBe(true);
 
     const base = {
-      version: 1, requestId: nextRequestId(), runId: RUN_ID, entryId: ENTRY_ID,
+      version: HOST_EXECUTOR_PROTOCOL_VERSION, requestId: nextRequestId(), runId: RUN_ID, entryId: ENTRY_ID,
       invocationId: INVOCATION_ID, capability: CAPABILITY_HEX,
     };
     expect(decode(encode({ ...base, type: 'cancel', cancelGeneration: 1 })).ok).toBe(true);
     expect(decode(encode({ ...base, type: 'settle', resultDigest: SCHEMA_HASH })).ok).toBe(true);
     expect(decode(encode({ ...base, type: 'status' })).ok).toBe(true);
+  });
+
+  it('matches the broker schema hash for canonical object-key orderings', () => {
+    const schema = {
+      type: 'object',
+      fields: {
+        first: { type: 'string' },
+        second: { type: 'boolean' },
+      },
+    };
+    const reordered = {
+      type: 'object',
+      fields: {
+        second: { type: 'boolean' },
+        first: { type: 'string' },
+      },
+    };
+    const schemaHash = brokerFiniteSchemaHash(schema);
+    expect(finiteSchemaHash(schema)).toBe(schemaHash);
+    expect(finiteSchemaHash(reordered)).toBe(schemaHash);
+    expect(decode(encode(invokeRequest({ schema: reordered, schemaHash }))).ok).toBe(true);
   });
 
   it.each([
@@ -162,8 +191,8 @@ describe('host executor protocol decoding', () => {
   });
 
   it.each([
-    ['unsupported version', { version: 2 }],
-    ['string version', { version: '1' }],
+    ['unsupported version', { version: 1 }],
+    ['string version', { version: String(HOST_EXECUTOR_PROTOCOL_VERSION) }],
     ['unknown type', { type: 'exec' }],
     ['non-random request ID', { requestId: 'abc' }],
     ['path-shaped invocation ID', { invocationId: '../../etc/passwd' }],
@@ -180,6 +209,8 @@ describe('host executor protocol decoding', () => {
     ['oversized payload', { payload: 'x'.repeat(HOST_EXECUTOR_MAX_PAYLOAD_BYTES + 1) }],
     ['lone surrogate payload', { payload: '\ud800' }],
     ['bad schema hash', { schemaHash: 'E'.repeat(64) }],
+    ['schema hash mismatch', { schema: { type: 'string' } }],
+    ['invalid finite schema', { schema: { type: 'object', fields: {} } }],
     ['missing admission ID', { admissionId: undefined }],
   ])('rejects invalid request: %s', (_name, overrides) => {
     expect(decode(encode(invokeRequest(overrides)))).toEqual({ ok: false });
@@ -199,7 +230,7 @@ describe('host executor protocol decoding', () => {
   it('rejects fields borrowed from another request type', () => {
     expect(decode(encode(invokeRequest({ cancelGeneration: 1 })))).toEqual({ ok: false });
     const base = {
-      version: 1, requestId: nextRequestId(), runId: RUN_ID, entryId: ENTRY_ID,
+      version: HOST_EXECUTOR_PROTOCOL_VERSION, requestId: nextRequestId(), runId: RUN_ID, entryId: ENTRY_ID,
       invocationId: INVOCATION_ID, capability: CAPABILITY_HEX,
     };
     expect(decode(encode({ ...base, type: 'status', payload: 'x' }))).toEqual({ ok: false });
@@ -214,7 +245,7 @@ describe('host executor protocol decoding', () => {
     expect(isValidHostExecutorResult('rooted', undefined)).toBe(false);
     // Worst-case JSON escaping of a maximal result still fits the response bound.
     const worst = encodeHostExecutorResponse({
-      version: 1, ok: true, requestId: '0'.repeat(32), invocationId: INVOCATION_ID,
+      version: HOST_EXECUTOR_PROTOCOL_VERSION, ok: true, requestId: '0'.repeat(32), invocationId: INVOCATION_ID,
       state: 'terminal', cancelGeneration: 0, outcome: 'success',
       result: '\u0001'.repeat(8 * 1024), resultDigest: SCHEMA_HASH,
     });
@@ -229,9 +260,9 @@ describe('host executor plan derivation', () => {
     seedsDir: '/var/lib/awf/seeds',
     invocationsDir: '/var/lib/awf/invocations',
     entries: [
-      { entryId: ENTRY_ID, executorKind: 'script', staticSeedIds: [SEED_ID], dynamicAgents: false },
-      { entryId: ALT_ENTRY_ID, executorKind: 'script', staticSeedIds: [SEED_ID], dynamicAgents: false },
-      { entryId: AGENT_ENTRY_ID, executorKind: 'agent', staticSeedIds: [], dynamicAgents: false },
+      { entryId: ENTRY_ID, executorKind: 'script', timeoutMs: 60_000, staticSeedIds: [SEED_ID], dynamicAgents: false },
+      { entryId: ALT_ENTRY_ID, executorKind: 'script', timeoutMs: 60_000, staticSeedIds: [SEED_ID], dynamicAgents: false },
+      { entryId: AGENT_ENTRY_ID, executorKind: 'agent', timeoutMs: 60_000, staticSeedIds: [], dynamicAgents: false },
     ],
   };
 
@@ -252,8 +283,9 @@ describe('host executor plan derivation', () => {
     expect(Object.isFrozen(plan)).toBe(true);
     expect(Object.keys(plan).sort()).toEqual([
       'admissionId', 'entryId', 'executorKind', 'invocationHostDir', 'invocationId', 'payload',
-      'requestHash', 'runId', 'schemaHash', 'seedHostPath', 'seedId',
+      'requestHash', 'runId', 'schema', 'schemaHash', 'seedHostPath', 'seedId', 'timeoutMs',
     ]);
+    expect(plan.timeoutMs).toBe(60_000);
   });
 
   it('denies seeds outside the trusted catalog, disabled kinds, and disabled dynamic admission', () => {
@@ -332,9 +364,9 @@ describe('host executor server', () => {
         seedsDir: path.join(root, 'seeds'),
         invocationsDir: path.join(root, 'invocations'),
         entries: [
-          { entryId: ENTRY_ID, executorKind: 'script', staticSeedIds: [SEED_ID], dynamicAgents: false },
-          { entryId: ALT_ENTRY_ID, executorKind: 'script', staticSeedIds: [SEED_ID], dynamicAgents: false },
-          { entryId: AGENT_ENTRY_ID, executorKind: 'agent', staticSeedIds: [], dynamicAgents: false },
+          { entryId: ENTRY_ID, executorKind: 'script', timeoutMs: 60_000, staticSeedIds: [SEED_ID], dynamicAgents: false },
+          { entryId: ALT_ENTRY_ID, executorKind: 'script', timeoutMs: 60_000, staticSeedIds: [SEED_ID], dynamicAgents: false },
+          { entryId: AGENT_ENTRY_ID, executorKind: 'agent', timeoutMs: 60_000, staticSeedIds: [], dynamicAgents: false },
         ],
         ...overrides,
       },
@@ -356,6 +388,7 @@ describe('host executor server', () => {
     executorKind: 'script',
     seedId: SEED_ID,
     payload: 'print(1)',
+    schema: SCHEMA,
     schemaHash: SCHEMA_HASH,
     admissionId: ADMISSION_ID,
   };
@@ -425,7 +458,7 @@ describe('host executor server', () => {
     const canonical = canonicalDeniedResponse();
     const cases = [
       frameHostExecutorMessage(encode(invokeRequest({ capability: 'f'.repeat(64) }))),
-      frameHostExecutorMessage(encode(invokeRequest({ version: 2 }))),
+      frameHostExecutorMessage(encode(invokeRequest({ version: 1 }))),
       frameHostExecutorMessage(encode(invokeRequest(PROHIBITED_FIELDS))),
       frameHostExecutorMessage(encode(invokeRequest({ command: '/bin/sh' }))),
       frameHostExecutorMessage(Buffer.from([0xff, 0xfe])),
@@ -575,13 +608,13 @@ describe('host executor server', () => {
 
   it('broker response parser rejects unexpected fields and mismatched request IDs', () => {
     const requestId = '1'.repeat(32);
-    const ok = { version: 1, ok: true, requestId, invocationId: INVOCATION_ID, state: 'running', cancelGeneration: 0 };
+    const ok = { version: HOST_EXECUTOR_PROTOCOL_VERSION, ok: true, requestId, invocationId: INVOCATION_ID, state: 'running', cancelGeneration: 0 };
     expect(parseHostExecutorResponse(encode(ok), requestId)).toEqual(ok);
     expect(parseHostExecutorResponse(encode({ ...ok, hostPath: '/' }), requestId)).toBeUndefined();
     expect(parseHostExecutorResponse(encode(ok), '2'.repeat(32))).toBeUndefined();
-    expect(parseHostExecutorResponse(encode({ ...ok, version: 2 }), requestId)).toBeUndefined();
+    expect(parseHostExecutorResponse(encode({ ...ok, version: 1 }), requestId)).toBeUndefined();
     expect(parseHostExecutorResponse(canonicalDeniedResponse(), requestId)).toEqual(
-      { version: 1, ok: false, error: 'denied' },
+      { version: HOST_EXECUTOR_PROTOCOL_VERSION, ok: false, error: 'denied' },
     );
     expect(parseHostExecutorResponse(Buffer.alloc(HOST_EXECUTOR_MAX_RESPONSE_BYTES + 1, 0x20), requestId))
       .toBeUndefined();
@@ -590,7 +623,7 @@ describe('host executor server', () => {
   it('broker response parser enforces lifecycle-specific result fields and bounds', () => {
     const requestId = '1'.repeat(32);
     const base = {
-      version: 1, ok: true, requestId, invocationId: INVOCATION_ID, cancelGeneration: 0,
+      version: HOST_EXECUTOR_PROTOCOL_VERSION, ok: true, requestId, invocationId: INVOCATION_ID, cancelGeneration: 0,
     };
     expect(parseHostExecutorResponse(encode({ ...base, state: 'running', outcome: 'success' }), requestId))
       .toBeUndefined();

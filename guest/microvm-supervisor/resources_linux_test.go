@@ -180,6 +180,52 @@ func TestMountEnclaveAgentRuntimeBindsWritableRuntimeExport(t *testing.T) {
 	}
 }
 
+func TestCreateEnclaveCompatibilityLinks(t *testing.T) {
+	for _, role := range []string{"script", "agent"} {
+		t.Run(role, func(t *testing.T) {
+			root := t.TempDir()
+			for _, directory := range []string{
+				filepath.Join(root, "awf"),
+				filepath.Join(root, "run", "awf-enclave-github"),
+			} {
+				if err := os.MkdirAll(directory, 0755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := createEnclaveCompatibilityLinks(role, root); err != nil {
+				t.Fatal(err)
+			}
+			expected := map[string]string{
+				"awf/seed": "/input-seed",
+				"awf/out":  "/output/out",
+			}
+			if role == "script" {
+				expected["awf/query-script.py"] = "/input-request/query-script.py"
+			} else {
+				expected["awf/task.txt"] = "/input-request/task.txt"
+				expected["awf/schema.json"] = "/input-request/schema.json"
+				expected["awf/session.jsonl"] = "/runtime/session.jsonl"
+				expected["run/awf-enclave-github/agent-id"] = "/session-handoff/github-agent-id"
+				expected["run/awf-enclave-github/bearer"] = "/session-handoff/github-bearer"
+			}
+			for link, target := range expected {
+				got, err := os.Readlink(filepath.Join(root, link))
+				if err != nil {
+					t.Fatalf("read compatibility link %s: %v", link, err)
+				}
+				if got != root+target {
+					t.Errorf("%s target = %q, want %q", link, got, root+target)
+				}
+			}
+			if role == "script" {
+				if _, err := os.Lstat(filepath.Join(root, "awf", "schema.json")); !os.IsNotExist(err) {
+					t.Fatalf("script role unexpectedly exposes agent schema path: %v", err)
+				}
+			}
+		})
+	}
+}
+
 func TestVerifyEnclaveThreadsChecksEveryThread(t *testing.T) {
 	valid := strings.Join([]string{
 		"CapEff:\t0000000000000000",

@@ -77,6 +77,8 @@ export interface HostExecutorRunState {
 export interface HostExecutorEntryPolicy {
   entryId: string;
   executorKind: HostExecutorKind;
+  /** Trusted wall-clock budget for one invocation; never supplied by the broker. */
+  timeoutMs: number;
   /** Static seed IDs admitted by this entry. */
   staticSeedIds: readonly string[];
   /** Whether selector-based agent admission is enabled for this entry. */
@@ -92,9 +94,11 @@ export interface HostExecutorInvocationPlan {
   readonly entryId: string;
   readonly invocationId: string;
   readonly executorKind: HostExecutorKind;
+  readonly timeoutMs: number;
   readonly requestHash: string;
   readonly admissionId: string;
   readonly schemaHash: string;
+  readonly schema: import('../bounded-execution/finite-schema').FiniteSchemaNode;
   readonly payload: string;
   readonly invocationHostDir: string;
   readonly seedId?: string;
@@ -111,6 +115,7 @@ export interface HostExecutorBackendResult {
 /** Trusted executor backend. Receives only closed plans, never raw requests. */
 export interface HostEnclaveExecutorBackend {
   execute(plan: HostExecutorInvocationPlan, signal: AbortSignal): Promise<HostExecutorBackendResult>;
+  close?(): Promise<void>;
 }
 
 export interface HostExecutorServerOptions {
@@ -168,7 +173,10 @@ function validateRunState(runState: HostExecutorRunState): HostExecutorRunState 
     }
     entryIds.add(entry.entryId);
     if (!(HOST_EXECUTOR_KINDS as readonly string[]).includes(entry.executorKind)
-      || (entry.dynamicAgents && entry.executorKind !== 'agent')) {
+      || (entry.dynamicAgents && entry.executorKind !== 'agent')
+      || !Number.isSafeInteger(entry.timeoutMs)
+      || entry.timeoutMs < 1
+      || entry.timeoutMs > 86_400_000) {
       throw new Error('Host executor run state has an unsupported entry policy');
     }
     for (const seedId of entry.staticSeedIds) {
@@ -179,6 +187,7 @@ function validateRunState(runState: HostExecutorRunState): HostExecutorRunState 
     return Object.freeze({
       entryId: entry.entryId,
       executorKind: entry.executorKind,
+      timeoutMs: entry.timeoutMs,
       staticSeedIds: Object.freeze([...entry.staticSeedIds]),
       dynamicAgents: entry.dynamicAgents === true,
     });
@@ -218,9 +227,11 @@ export function deriveHostExecutorInvocationPlan(
     entryId: entry.entryId,
     invocationId: request.invocationId,
     executorKind: request.executorKind,
+    timeoutMs: entry.timeoutMs,
     requestHash: hostExecutorInvokeHash(request),
     admissionId: request.admissionId,
     schemaHash: request.schemaHash,
+    schema: request.schema,
     payload: request.payload,
     invocationHostDir: childPath(
       childPath(runState.invocationsDir, entry.entryId),
@@ -513,9 +524,13 @@ export async function startHostExecutorServer(options: HostExecutorServerOptions
           for (const socket of sockets) socket.destroy();
         });
         await Promise.all([...invocations.values()].map((record) => record.completion));
-        capability.fill(0);
-        fs.rmSync(capabilityPath, { force: true });
-        fs.rmSync(socketPath, { force: true });
+        try {
+          await backend.close?.();
+        } finally {
+          capability.fill(0);
+          fs.rmSync(capabilityPath, { force: true });
+          fs.rmSync(socketPath, { force: true });
+        }
       })();
       return closePromise;
     },

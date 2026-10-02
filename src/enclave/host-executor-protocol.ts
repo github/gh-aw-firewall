@@ -1,5 +1,5 @@
 /**
- * Broker-to-host enclave executor protocol, version 1 (ADR 0002).
+ * Broker-to-host enclave executor protocol, version 2 (ADR 0002).
  *
  * This module is the host-owned half of the wire contract between the
  * AWF-owned `enclave-mcp-server` broker and the AWF host enclave executor.
@@ -45,10 +45,13 @@
 import * as crypto from 'crypto';
 import { TextDecoder } from 'util';
 import { strictParseJson } from '../bounded-execution/strict-json-parser';
+import { validateSchema } from '../bounded-execution/finite-schema';
+import { finiteSchemaHash } from '../bounded-execution/schema-hash';
+import type { FiniteSchemaNode } from '../bounded-execution/finite-schema';
 import { CANONICAL_DYNAMIC_REPOSITORY_PATTERN } from '../types/enclave-options';
 
 /** Exact-match protocol version. There is no downgrade or feature probing. */
-export const HOST_EXECUTOR_PROTOCOL_VERSION = 1;
+export const HOST_EXECUTOR_PROTOCOL_VERSION = 2;
 
 /** Largest accepted request frame payload, in bytes. */
 export const HOST_EXECUTOR_MAX_REQUEST_BYTES = 512 * 1024;
@@ -132,6 +135,7 @@ export const REQUEST_FIELDS: Readonly<Record<HostExecutorRequestType, readonly s
     'seedId',
     'selector',
     'payload',
+    'schema',
     'schemaHash',
     'admissionId',
   ]),
@@ -160,6 +164,8 @@ export interface HostExecutorInvokeRequest extends HostExecutorRequestBase {
   selector?: string;
   /** Bounded script (script executor) or task (agent executor) text. */
   payload: string;
+  /** Original finite-schema grammar; the host validates and normalizes it independently. */
+  schema: FiniteSchemaNode;
   schemaHash: string;
   admissionId: string;
 }
@@ -328,7 +334,9 @@ export function decodeHostExecutorRequest(
 
   switch (type as HostExecutorRequestType) {
     case 'invoke': {
-      const { executorKind, seedId, selector, payload: body, schemaHash, admissionId } = raw;
+      const {
+        executorKind, seedId, selector, payload: body, schema: rawSchema, schemaHash, admissionId,
+      } = raw;
       if (typeof executorKind !== 'string'
         || !(HOST_EXECUTOR_KINDS as readonly string[]).includes(executorKind)) {
         return denied;
@@ -349,11 +357,16 @@ export function decodeHostExecutorRequest(
       if (Buffer.byteLength(body, 'utf8') > HOST_EXECUTOR_MAX_PAYLOAD_BYTES) return denied;
       if (typeof schemaHash !== 'string' || !HOST_EXECUTOR_SHA256_PATTERN.test(schemaHash)) return denied;
       if (typeof admissionId !== 'string' || !HOST_EXECUTOR_ID_PATTERN.test(admissionId)) return denied;
+      const schemaValidation = validateSchema(rawSchema);
+      if (!schemaValidation.valid || finiteSchemaHash(rawSchema) !== schemaHash) {
+        return denied;
+      }
       const request: HostExecutorInvokeRequest = {
         ...base,
         type: 'invoke',
         executorKind: executorKind as HostExecutorKind,
         payload: body,
+        schema: schemaValidation.schema,
         schemaHash,
         admissionId,
       };

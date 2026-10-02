@@ -50,6 +50,8 @@ export interface CloudHypervisorStartContext {
   dependencies: CloudHypervisorManagerDependencies;
   paths: CloudHypervisorRunPaths;
   workloadProfile: CloudHypervisorWorkloadProfile;
+  /** True only for the internal host-executor backend; user runtime selection never sets this. */
+  allowTrustedEnclaveExecution?: boolean;
   verifiedArtifacts?: CloudHypervisorPreflightResult;
   stdoutCapture: BoundedOutputCapture;
   stderrCapture: BoundedOutputCapture;
@@ -73,8 +75,9 @@ export async function startCloudHypervisor(
 ): Promise<CloudHypervisorApiClient> {
   const {
     config, workDir, dependencies, paths, workloadProfile, verifiedArtifacts,
+    allowTrustedEnclaveExecution,
   } = context;
-  assertCloudHypervisorWorkloadLaunchable(workloadProfile);
+  assertCloudHypervisorWorkloadLaunchable(workloadProfile, allowTrustedEnclaveExecution);
   const guestConfig = workloadProfile.guest;
 
   let startupError: unknown;

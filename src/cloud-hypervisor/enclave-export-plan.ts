@@ -42,7 +42,7 @@ const ROLE_EXPORTS = {
     {
       tag: 'enclave-session-handoff',
       target: '/session-handoff',
-      mode: 'rw',
+      mode: 'ro',
       source: 'session-handoff',
     },
     {
@@ -70,16 +70,20 @@ export async function resolveCloudHypervisorEnclaveExportPlan(
     'entryId',
     'invocationId',
     'executorKind',
+    'timeoutMs',
     'requestHash',
     'admissionId',
     'schemaHash',
+    'schema',
     'payload',
     'invocationHostDir',
     'seedId',
     'seedHostPath',
   ], 'invocation plan');
   for (const entry of runState.entries) {
-    assertClosedKeys(entry, ['entryId', 'executorKind', 'staticSeedIds', 'dynamicAgents'], 'entry policy');
+    assertClosedKeys(entry, [
+      'entryId', 'executorKind', 'timeoutMs', 'staticSeedIds', 'dynamicAgents',
+    ], 'entry policy');
   }
   const role = invocation.executorKind;
   if (role !== 'script' && role !== 'agent') {

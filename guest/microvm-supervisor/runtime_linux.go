@@ -135,6 +135,9 @@ func runSupervisorWithCmdline(cmdline string, listen func(uint32) (*vsockListene
 				return err
 			}
 		}
+		if err := mountEnclaveCompatibilityPaths(config.EnclaveRole); err != nil {
+			return err
+		}
 		if err := applyEnclaveRlimits(profile); err != nil {
 			return err
 		}
@@ -248,6 +251,9 @@ func unmountConfiguredFilesystems(config bootConfig) error {
 	}
 	if config.EnclaveRole == "agent" {
 		targets = append(targets, enclaveAgentRuntimeTarget)
+	}
+	if config.EnclaveRole != "" {
+		targets = append(targets, enclaveCompatibilityTarget)
 	}
 	return unmountTargets(targets)
 }

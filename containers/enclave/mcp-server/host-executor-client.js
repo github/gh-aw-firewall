@@ -6,7 +6,7 @@ const net = require('net');
 const { strictParseJson } = require('../../bounded-execution/finite-disclosure');
 
 /**
- * Broker side of the broker-to-host enclave executor protocol, version 1
+ * Broker side of the broker-to-host enclave executor protocol, version 2
  * (ADR 0002).
  *
  * This is the broker-owned mirror of `src/enclave/host-executor-protocol.ts`.
@@ -24,10 +24,11 @@ const { strictParseJson } = require('../../bounded-execution/finite-disclosure')
  * fail-closed until the remaining ADR 0002 gates are implemented.
  */
 
-const PROTOCOL_VERSION = 1;
+const PROTOCOL_VERSION = 2;
 const MAX_REQUEST_BYTES = 512 * 1024;
 const MAX_RESPONSE_BYTES = 64 * 1024;
 const MAX_PAYLOAD_BYTES = 64 * 1024;
+const MAX_SCHEMA_BYTES = 4096;
 const MAX_RESULT_BYTES = 8 * 1024;
 const FRAME_HEADER_BYTES = 4;
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -44,7 +45,7 @@ const OUTCOMES = new Set(['success', 'schema-failure', 'executor-failure', 'time
 const ERRORS = new Set(['denied', 'replayed', 'conflict', 'unknown-invocation', 'invalid-state', 'closed']);
 
 const INVOKE_ARGUMENT_KEYS = new Set([
-  'entryId', 'invocationId', 'executorKind', 'seedId', 'selector', 'payload', 'schemaHash', 'admissionId',
+  'entryId', 'invocationId', 'executorKind', 'seedId', 'selector', 'payload', 'schema', 'schemaHash', 'admissionId',
 ]);
 const SUCCESS_RESPONSE_KEYS = new Set([
   'version', 'ok', 'requestId', 'invocationId', 'state', 'cancelGeneration', 'outcome', 'result', 'resultDigest',
@@ -96,7 +97,7 @@ function readCapability(capabilityPath) {
   }
 }
 
-/** Strictly parses one response payload; returns `undefined` if it is not a valid v1 response. */
+/** Strictly parses one response payload; returns `undefined` if it is not a valid v2 response. */
 function parseHostExecutorResponse(payload, requestId) {
   if (!Buffer.isBuffer(payload) || payload.length === 0 || payload.length > MAX_RESPONSE_BYTES) return undefined;
   let text;
@@ -234,7 +235,9 @@ function createHostExecutorClient(options) {
       if (!isPlainObject(args) || !Object.keys(args).every((key) => INVOKE_ARGUMENT_KEYS.has(key))) {
         throw new Error('Host executor invoke contains an unsupported field');
       }
-      const { entryId, invocationId, executorKind, seedId, selector, payload, schemaHash, admissionId } = args;
+      const {
+        entryId, invocationId, executorKind, seedId, selector, payload, schema, schemaHash, admissionId,
+      } = args;
       if (typeof entryId !== 'string' || !ENTRY_ID_PATTERN.test(entryId)) {
         throw new Error('Host executor request entryId is invalid');
       }
@@ -252,9 +255,13 @@ function createHostExecutorClient(options) {
           || Buffer.byteLength(payload, 'utf8') > MAX_PAYLOAD_BYTES) {
         throw new Error('Host executor request payload is invalid');
       }
+      if (schema === null || typeof schema !== 'object' || Array.isArray(schema)
+          || Buffer.byteLength(JSON.stringify(schema), 'utf8') > MAX_SCHEMA_BYTES) {
+        throw new Error('Host executor request schema is invalid');
+      }
       assertPattern('schemaHash', schemaHash, SHA256_PATTERN);
       assertPattern('admissionId', admissionId, ID_PATTERN);
-      const fields = { executorKind, payload, schemaHash, admissionId };
+      const fields = { executorKind, payload, schema, schemaHash, admissionId };
       if (seedId !== undefined) fields.seedId = seedId;
       else fields.selector = selector;
       return send('invoke', entryId, invocationId, fields);

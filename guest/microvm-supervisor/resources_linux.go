@@ -19,9 +19,11 @@ const (
 	prSetNoNewPrivs = 38
 )
 const (
-	enclaveRuntimeTag         = "enclave-runtime"
-	enclaveRuntimeSource      = "/runtime"
-	enclaveAgentRuntimeTarget = "/agent"
+	enclaveRuntimeTag          = "enclave-runtime"
+	enclaveRuntimeSource       = "/runtime"
+	enclaveAgentRuntimeTarget  = "/agent"
+	enclaveCompatibilityTarget = "/awf"
+	enclaveCompatibilityMax    = 1 * 1024 * 1024
 )
 
 type enclaveResourceProfile struct {
@@ -35,6 +37,7 @@ type enclaveResourceProfile struct {
 }
 
 var makeTmpfsMountTarget = os.MkdirAll
+var createEnclaveSymlink = os.Symlink
 
 func enclaveResourceProfileForRole(role string) (enclaveResourceProfile, error) {
 	switch role {
@@ -107,6 +110,70 @@ func mountEnclaveTmpfs(profile enclaveResourceProfile) error {
 	if profile.primaryTmpfs == "/tmp" {
 		if err := makeTmpfsMountTarget("/run/awf-enclave-github", 0700); err != nil {
 			return fmt.Errorf("create agent enclave runtime directory: %w", err)
+		}
+	}
+	return nil
+}
+
+func mountEnclaveCompatibilityPaths(role string) error {
+	if role != "script" && role != "agent" {
+		return fmt.Errorf("unsupported enclave compatibility role %q", role)
+	}
+	if err := makeTmpfsMountTarget(enclaveCompatibilityTarget, 0755); err != nil {
+		return fmt.Errorf("create enclave compatibility target: %w", err)
+	}
+	if err := mountFilesystem(
+		"tmpfs",
+		enclaveCompatibilityTarget,
+		"tmpfs",
+		syscall.MS_NOSUID|syscall.MS_NODEV|syscall.MS_NOEXEC,
+		fmt.Sprintf("size=%d,mode=0755", enclaveCompatibilityMax),
+	); err != nil {
+		return fmt.Errorf("mount enclave compatibility tmpfs: %w", err)
+	}
+	if err := verifyTmpfsMount(enclaveCompatibilityTarget, enclaveCompatibilityMax); err != nil {
+		verifyErr := fmt.Errorf("verify enclave compatibility tmpfs: %w", err)
+		if unmountErr := unmountFilesystem(enclaveCompatibilityTarget, 0); unmountErr != nil {
+			return fmt.Errorf("%w; unmount failed: %v", verifyErr, unmountErr)
+		}
+		return verifyErr
+	}
+	if err := createEnclaveCompatibilityLinks(role, ""); err != nil {
+		if unmountErr := unmountFilesystem(enclaveCompatibilityTarget, 0); unmountErr != nil {
+			return fmt.Errorf("%w; unmount failed: %v", err, unmountErr)
+		}
+		return err
+	}
+	return nil
+}
+
+func createEnclaveCompatibilityLinks(role, root string) error {
+	links := [][2]string{
+		{"/input-seed", "/awf/seed"},
+		{"/output/out", "/awf/out"},
+	}
+	if role == "script" {
+		links = append(links, [2]string{"/input-request/query-script.py", "/awf/query-script.py"})
+	} else if role == "agent" {
+		links = append(links,
+			[2]string{"/input-request/task.txt", "/awf/task.txt"},
+			[2]string{"/input-request/schema.json", "/awf/schema.json"},
+			[2]string{"/runtime/session.jsonl", "/awf/session.jsonl"},
+			[2]string{"/session-handoff/github-agent-id", "/run/awf-enclave-github/agent-id"},
+			[2]string{"/session-handoff/github-bearer", "/run/awf-enclave-github/bearer"},
+		)
+	} else {
+		return fmt.Errorf("unsupported enclave compatibility role %q", role)
+	}
+	for _, link := range links {
+		target := link[0]
+		linkPath := link[1]
+		if root != "" {
+			target = root + target
+			linkPath = root + linkPath
+		}
+		if err := createEnclaveSymlink(target, linkPath); err != nil {
+			return fmt.Errorf("create enclave compatibility path %q: %w", link[1], err)
 		}
 	}
 	return nil

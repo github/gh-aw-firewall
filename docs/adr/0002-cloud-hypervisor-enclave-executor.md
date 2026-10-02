@@ -2,10 +2,11 @@
 
 ## Status
 
-Proposed for implementation planning. This ADR is a contract, not a statement
-that `cloud-hypervisor` is an available enclave runtime. Until all gates below
-are implemented, a configuration selecting it fails closed; it does not fall
-back to Docker, gVisor, sbx, or the primary-agent Cloud Hypervisor runtime.
+Implementation in progress. The host-side protocol and single-invocation
+backend are implemented, but they are not wired into user-facing runtime
+selection. A configuration selecting Cloud Hypervisor enclaves still fails
+closed; it does not fall back to Docker, gVisor, sbx, or the primary-agent
+Cloud Hypervisor runtime.
 
 ## Context
 
@@ -106,19 +107,19 @@ broker-visible diagnostic.
 
 ## Broker-to-host protocol
 
-Version 1 uses a per-run AF_UNIX stream socket below a `0700` AWF runtime
+Protocol version 2 uses a per-run AF_UNIX stream socket below a `0700` AWF runtime
 directory owned by the AWF control process. Each connection carries one framed
 request and one framed response; the client half-closes after its frame, and the
 host processes the request only after EOF confirms that no trailing bytes were
-sent. Node.js does not expose `SOCK_SEQPACKET` or peer credentials, so v1
+sent. Node.js does not expose `SOCK_SEQPACKET` or peer credentials, so v2
 authorization uses the per-run 256-bit capability alone. The capability is
 written mode `0600`, bound to the run, and destroyed during shutdown. A later
 host-executor integration may add peer-credential checks as defense in depth;
-they are not part of v1 authorization.
+they are not part of v2 authorization.
 
 Each request frame contains one UTF-8 JSON object, at most 512 KiB, with no duplicate
 keys and
-`additionalProperties: false`. It has `version: 1`, `type`, `requestId`,
+`additionalProperties: false`. It has `version: 2`, `type`, `requestId`,
 `runId`, `entryId`, `invocationId`, `capability`, and the following closed payload:
 
 The 512 KiB bound admits a 64 KiB script or task even when JSON escaping expands
@@ -126,7 +127,7 @@ each payload byte to six bytes, while retaining space for required metadata.
 
 | Type | Allowed policy-derived fields |
 | --- | --- |
-| `invoke` | executor kind, static seed ID **or** canonical dynamic selector, bounded script/task bytes, finite result-schema hash, admission/ledger ID |
+| `invoke` | executor kind, static seed ID **or** canonical dynamic selector, bounded script/task bytes, finite result schema and hash, admission/ledger ID |
 | `cancel` | cancellation generation |
 | `settle` | broker acknowledgement of the terminal result |
 | `status` | no additional fields |
@@ -146,15 +147,19 @@ persists enough state to reconcile a broker restart, while never replaying a
 guest workload. A response is similarly bounded to 64 KiB and uses a canonical
 redacted failure for authorization, policy, and infrastructure denial.
 
-Version `1` is exact-match only. There is no downgrade or feature probing:
+Version `2` is exact-match only. There is no downgrade or feature probing:
 unknown versions or types fail closed. A future incompatible change uses a new
 socket protocol version and explicit mutual support; the host-to-guest channel
 continues to use the independently versioned `GUEST_PROTOCOL_VERSION`.
 
-### Version 1 implementation
+### Version 2 implementation
 
-The protocol is implemented, but not yet wired into any runtime. Cloud
-Hypervisor enclave configurations still fail closed.
+The protocol and concrete host executor backend are implemented, including
+release-attested role rootfs preflight, a bounded per-invocation tmpfs, fixed
+guest profiles, schema-validated result collection, deadline/cancellation
+handling, and VM/storage cleanup. The host-executor listener is not yet
+constructed by a runtime, and Cloud Hypervisor enclave configurations still
+fail closed.
 
 | Piece | Owner and location |
 | --- | --- |
@@ -162,6 +167,9 @@ Hypervisor enclave configurations still fail closed.
 | Listener, replay/idempotency state, trusted plan derivation | AWF host, `src/enclave/host-executor-server.ts` |
 | Broker client (mirror of the codec) | `enclave-mcp-server`, `containers/enclave/mcp-server/host-executor-client.js` |
 | Contract and rejection tests | `src/enclave/host-executor-protocol.test.ts` (drives the real client against the real server) |
+| Trusted one-shot VM executor | `src/cloud-hypervisor/host-enclave-executor.ts` |
+| Guest path compatibility | `guest/microvm-supervisor/resources_linux.go` |
+| Bounded output tests | `src/cloud-hypervisor/host-enclave-executor.test.ts` |
 
 **Transport.** Node.js exposes only `SOCK_STREAM` Unix sockets and no peer
 credentials. Each connection carries exactly one request frame (4-byte
@@ -173,7 +181,7 @@ body. Connections have an idle timeout and a concurrency cap. The listener's
 runtime directory is `0700` and owned by the AWF control process; the socket and
 capability file are `0600`. An existing socket or capability file means startup
 fails. Peer credentials are unavailable and are not an authorization input in
-v1; an integration may add them later as defense in depth.
+v2; a later integration may add them as defense in depth.
 
 **Authentication.** The capability is 256 random bits generated per run, written
 once with `O_EXCL|O_NOFOLLOW`, and compared in constant time. It is independent
@@ -188,7 +196,7 @@ type-specific fields are:
 
 | Type | Fields |
 | --- | --- |
-| `invoke` | `executorKind` (`script`/`agent`), exactly one of `seedId` or `selector` (agent only, canonical lowercase `owner/repo`), `payload` (≤ 64 KiB UTF-8), `schemaHash`, `admissionId` |
+| `invoke` | `executorKind` (`script`/`agent`), exactly one of `seedId` or `selector` (agent only, canonical lowercase `owner/repo`), `payload` (≤ 64 KiB UTF-8), finite `schema` (≤ 4 KiB) and `schemaHash`, `admissionId` |
 | `cancel` | `cancelGeneration` (integer ≥ 1, strictly increasing per invocation) |
 | `settle` | `resultDigest` (the digest the host reported for the terminal result) |
 | `status` | none |
@@ -209,7 +217,7 @@ only). A cancelled invocation always reports `cancelled`. An invalid or failing
 backend result reports `executor-failure` with no detail. Failure codes form a
 closed set: `denied`, `replayed`, `conflict`, `unknown-invocation`,
 `invalid-state`, and `closed`. Every failure before or during authentication and
-validation gets the byte-identical response `{"version":1,"ok":false,"error":"denied"}`.
+validation gets the byte-identical response `{"version":2,"ok":false,"error":"denied"}`.
 This covers framing, size, UTF-8, strict JSON, capability, run, version, type,
 unknown or prohibited fields, and value checks. Trusted-policy denials also get
 `denied`. A rejected request has no execution side effect.

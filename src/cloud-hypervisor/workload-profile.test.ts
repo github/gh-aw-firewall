@@ -34,7 +34,7 @@ function exportPlan(
   ];
   if (role === 'agent') {
     exports.push(
-      { tag: 'enclave-session-handoff', source: path.join(invocationHostDir, 'session-handoff'), target: '/session-handoff', mode: 'rw' },
+      { tag: 'enclave-session-handoff', source: path.join(invocationHostDir, 'session-handoff'), target: '/session-handoff', mode: 'ro' },
       { tag: 'enclave-session-state', source: path.join(invocationHostDir, 'session-state'), target: '/session-state', mode: 'rw' },
     );
   }
@@ -383,7 +383,7 @@ describe('Cloud Hypervisor workload profiles', () => {
     );
   });
 
-  it('keeps script-enclave execution fail-closed until host-executor integration', () => {
+  it('keeps script-enclave execution closed except for the trusted host executor', () => {
     const profile = createScriptEnclaveCloudHypervisorProfile({
       enclaveId: 'script-entry',
       invocationId: 'b'.repeat(32),
@@ -393,9 +393,10 @@ describe('Cloud Hypervisor workload profiles', () => {
     expect(() => assertCloudHypervisorWorkloadLaunchable(profile)).toThrow(
       /not implemented; refusing to fall back/,
     );
+    expect(() => assertCloudHypervisorWorkloadLaunchable(profile, true)).not.toThrow();
   });
 
-  it('keeps agent-enclave execution fail-closed until host-executor integration', () => {
+  it('keeps agent-enclave execution closed except for the trusted host executor', () => {
     const profile = createAgentEnclaveCloudHypervisorProfile({
       enclaveId: 'agent-entry',
       invocationId: 'd'.repeat(32),
@@ -406,6 +407,7 @@ describe('Cloud Hypervisor workload profiles', () => {
     expect(() => assertCloudHypervisorWorkloadLaunchable(profile)).toThrow(
       /not implemented; refusing to fall back/,
     );
+    expect(() => assertCloudHypervisorWorkloadLaunchable(profile, true)).not.toThrow();
   });
 
   it('snapshots and freezes trusted profile input', () => {

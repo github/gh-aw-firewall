@@ -108,7 +108,7 @@ function enclaveExportPlan(
         tag: 'enclave-session-handoff',
         source: path.join(invocationHostDir, 'session-handoff'),
         target: '/session-handoff',
-        mode: 'rw',
+        mode: 'ro',
       },
       {
         tag: 'enclave-session-state',

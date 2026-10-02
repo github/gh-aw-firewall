@@ -591,19 +591,24 @@ Squid, API proxy, mcpg, or external-network dependency is created. Durable
 cleanup records the namespace-only state explicitly and does not invent
 primary-agent network resources.
 
-The planned per-invocation microVM executor is a separate host-owned component:
+The per-invocation microVM executor is a separate host-owned component:
 `enclave-mcp-server` remains container-side and submits bounded, authenticated
 requests to it over a private Unix socket.
 Its threat model, network and filesystem matrices, protocol, lifecycle, and
 rollout gates are defined in
 [ADR 0002: Cloud Hypervisor enclave executor](adr/0002-cloud-hypervisor-enclave-executor.md).
 
-The version 1 broker-to-host protocol is implemented but not yet wired into any runtime:
+The version 2 broker-to-host protocol and a trusted one-shot host executor are
+implemented but not yet wired into any runtime:
 `src/enclave/host-executor-protocol.ts` and `src/enclave/host-executor-server.ts`
-(host side) and `containers/enclave/mcp-server/host-executor-client.js` (broker side).
-Requests are capability-authenticated, size-bounded, and restricted to a closed field
-set. The host derives every path and runtime setting from trusted run state. See
-[Version 1 implementation](adr/0002-cloud-hypervisor-enclave-executor.md#version-1-implementation).
+(host side), `containers/enclave/mcp-server/host-executor-client.js` (broker
+side), and `src/cloud-hypervisor/host-enclave-executor.ts` (VM backend).
+Requests are capability-authenticated, size-bounded, and restricted to a closed
+field set. The backend verifies release attestations, derives VM settings from
+trusted host policy, uses bounded invocation storage, and validates structured
+results. User-facing Cloud Hypervisor enclave selection and broker/listener
+wiring remain closed. See
+[Version 2 implementation](adr/0002-cloud-hypervisor-enclave-executor.md#version-2-implementation).
 
 ## Coverage after legacy smoke removal
 

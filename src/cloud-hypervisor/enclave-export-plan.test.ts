@@ -72,6 +72,7 @@ describe('Cloud Hypervisor enclave export plans', () => {
       entries: [{
         entryId,
         executorKind: role,
+        timeoutMs: 60_000,
         staticSeedIds: [seedId],
         dynamicAgents: false,
       }],
@@ -83,7 +84,9 @@ describe('Cloud Hypervisor enclave export plans', () => {
       executorKind: role,
       requestHash: 'd'.repeat(64),
       admissionId: 'e'.repeat(32),
+      timeoutMs: 60_000,
       schemaHash: 'f'.repeat(64),
+      schema: { type: 'boolean' } as const,
       payload: 'trusted bounded payload',
       invocationHostDir,
       seedId,
@@ -104,7 +107,7 @@ describe('Cloud Hypervisor enclave export plans', () => {
       ['enclave-request', 'input-request', 'ro', 'request'],
       ['enclave-output', 'output', 'rw', 'output'],
       ['enclave-runtime', 'runtime', 'rw', 'runtime'],
-      ['enclave-session-handoff', 'session-handoff', 'rw', 'session-handoff'],
+      ['enclave-session-handoff', 'session-handoff', 'ro', 'session-handoff'],
       ['enclave-session-state', 'session-state', 'rw', 'session-state'],
     ]],
   ] as const)('resolves the exact %s role layout with host-enforced access modes', async (role, expected) => {

@@ -338,12 +338,16 @@ export function snapshotCloudHypervisorWorkloadProfile(
 
 export function assertCloudHypervisorWorkloadLaunchable(
   profile: CloudHypervisorWorkloadProfile,
+  allowTrustedEnclaveExecution = false,
 ): void {
   validateCloudHypervisorWorkloadProfile(profile);
-  if (profile.kind !== 'primary-agent') {
+  if (profile.kind !== 'primary-agent' && !allowTrustedEnclaveExecution) {
     throw new Error(
       `Cloud Hypervisor ${profile.kind} execution is not implemented; refusing to fall back to another runtime`,
     );
+  }
+  if (profile.kind === 'primary-agent' && allowTrustedEnclaveExecution) {
+    throw new Error('Trusted enclave execution authorization cannot launch a primary-agent profile');
   }
 }
 

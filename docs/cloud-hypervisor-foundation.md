@@ -280,10 +280,11 @@ through the execution trampoline. The workload must observe `ENOSPC` on each
 bounded tmpfs, `EFBIG`, `EMFILE`, and `EAGAIN` at the file-size, open-file, and
 process limits, `EROFS` on read-only storage, UID/GID 65534 with no groups, and
 empty capabilities with `no_new_privs` on every thread. Booting enclave rootfs
-images under KVM remains gated on the host executor integration. No runtime-required privilege exception is
+images under KVM remains gated on runtime wiring. No runtime-required privilege exception is
 allowlisted. These profiles and guest controls do not enable Cloud Hypervisor
-enclave execution: the host executor and broker integration remain separate
-gates, and current script/agent enclave launch attempts still fail closed.
+enclave execution: the versioned host protocol and one-shot VM backend exist,
+but listener/broker integration and user-facing runtime selection remain
+separate gates, and current script/agent launch attempts still fail closed.
 
 ## Security boundaries
 
@@ -336,9 +337,10 @@ An existing cache entry is fully reverified before reuse; an invalid entry is a
 terminal error and is never silently replaced. The script exports the
 role-specific `AWF_CLOUD_HYPERVISOR_ENCLAVE_SCRIPT_ROOTFS` and
 `AWF_CLOUD_HYPERVISOR_ENCLAVE_AGENT_ROOTFS` paths through `GITHUB_ENV`.
-Cloud Hypervisor enclave execution remains fail-closed until the other ADR 0002
-host-executor gates are implemented, and custom enclave image overrides remain
-unsupported.
+The host-side artifact preflight and one-shot VM backend are implemented, but
+Cloud Hypervisor enclave execution remains fail-closed until ADR 0002 listener,
+broker, and runtime-selection gates are implemented. Custom enclave image
+overrides remain unsupported.
 
 :::danger[Fail-closed verification]
 Do not bypass artifact verification. A substituted VMM, kernel, rootfs,
