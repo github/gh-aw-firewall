@@ -33,7 +33,10 @@ describe('validateEnclavesConfig', () => {
         repos: [{ repo: 'octo/private', sensitivity: 'internal' }],
       },
     ]);
-    expect(validateEnclavesConfig(config({ enclaves }))).toEqual([]);
+    expect(validateEnclavesConfig(config({
+      enclaves,
+      cloudHypervisor: { previewEnabled: true } as WrapperConfig['cloudHypervisor'],
+    }))).toEqual([]);
   });
 
   it('rejects cloud-hypervisor image overrides and dynamic agents without fallback', () => {
@@ -59,6 +62,52 @@ describe('validateEnclavesConfig', () => {
     }), { requireDelegationHandoff: false }).join('\n');
     expect(errors).toMatch(/image is not supported with runtime "cloud-hypervisor".*never falls back/);
     expect(errors).toMatch(/dynamic is not supported with runtime "cloud-hypervisor".*no runtime fallback/);
+  });
+
+  it.each([
+    [{ containerRuntime: 'cloud-hypervisor' }, /primary-agent cloud-hypervisor/],
+    [{ containerRuntime: 'sbx' }, /primary sbx/],
+    [{ containerRuntime: 'nvx' }, /primary nvx/],
+    [{ dockerHostPathPrefix: '/runner' }, /path prefix/],
+    [{ enableDind: true }, /enableDind/],
+    [{ cloudHypervisor: undefined }, /preview.*opt-in/],
+  ] as const)('rejects unsupported Cloud Hypervisor host topology %j', (overrides, expected) => {
+    const enclaves = normalizeEnclavesConfig([{
+      script: {}, runtime: 'cloud-hypervisor',
+      repos: [{ repo: 'octo/private', sensitivity: 'internal' }],
+    }]);
+    const wrapper = config({
+      enclaves,
+      cloudHypervisor: { previewEnabled: true } as WrapperConfig['cloudHypervisor'],
+      ...overrides,
+    });
+    expect(validateEnclavesConfig(wrapper).join('\n')).toMatch(expected);
+  });
+
+  it('rejects mixed microVM/container executor selections before resource effects', () => {
+    const enclaves = normalizeEnclavesConfig([
+      { script: {}, runtime: 'cloud-hypervisor', repos: [{ repo: 'octo/private', sensitivity: 'internal' }] },
+      { agent: { model: 'trusted' }, runtime: 'docker', repos: [{ repo: 'octo/private', sensitivity: 'internal' }] },
+    ]);
+    expect(validateEnclavesConfig(config({
+      enclaves,
+      cloudHypervisor: { previewEnabled: true } as WrapperConfig['cloudHypervisor'],
+      enableApiProxy: true,
+      copilotGithubToken: 'test',
+    })).join('\n')).toMatch(/cannot be mixed.*no runtime fallback/);
+  });
+
+  it('does not replace missing static GitHub executor credentials with gateway-wide authority', () => {
+    const enclaves = normalizeEnclavesConfig([{
+      agent: { model: 'trusted', github: { cli: 'issues-read-v1' } },
+      runtime: 'cloud-hypervisor', repos: [{ repo: 'octo/private', sensitivity: 'internal' }],
+    }]);
+    expect(validateEnclavesConfig(config({
+      enclaves,
+      cloudHypervisor: { previewEnabled: true } as WrapperConfig['cloudHypervisor'],
+      enableApiProxy: true,
+      copilotGithubToken: 'test',
+    })).join('\n')).toMatch(/compiler-scoped executor bearer.*never substitutes a gateway-wide key/);
   });
 
   it('rejects repositories shared with conflicting sensitivities', () => {

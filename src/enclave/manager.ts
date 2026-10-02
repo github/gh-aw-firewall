@@ -38,6 +38,13 @@ import {
   stageEnclaveDynamicDelegationHandoff,
   takeEnclaveDynamicDelegationHandoff,
 } from './dynamic-delegation-handoff';
+import {
+  assertCloudHypervisorEnclavePrerequisites,
+  isCloudHypervisorEnclaveSelected,
+  startCloudHypervisorEnclaveLifecycle,
+  stopCloudHypervisorEnclaveLifecycle,
+  type TrustedCloudHypervisorEnclaveStorageProvider,
+} from './cloud-hypervisor-lifecycle';
 
 export const ENCLAVE_RUN_LABEL = 'awf.enclave.run';
 export function isEnclaveScriptEnabled(config: WrapperConfig): boolean {
@@ -123,6 +130,8 @@ export interface PrepareEnclavesDeps {
   assertScriptRuntimeAvailable?: (config: EnclaveScriptExecutorConfig) => Promise<void>;
   assertAgentRuntimeAvailable?: (config: EnclaveAgentExecutorConfig) => Promise<void>;
   assertPrimaryAvailable?: typeof assertPrimaryRuntimeAvailable;
+  /** Trusted host integration only. No CLI/config/env switch can supply this provider. */
+  cloudHypervisorStorageProvider?: TrustedCloudHypervisorEnclaveStorageProvider;
 }
 
 export async function prepareEnclaves(
@@ -200,12 +209,21 @@ export async function prepareEnclaves(
     throw new Error('Enclave staging credential disappeared during preflight');
   }
 
+  const hostExecutorSelected = isCloudHypervisorEnclaveSelected(config);
+  if (hostExecutorSelected) {
+    const hostPaths = resolveEnclavePaths(config.workDir);
+    assertPrivateRootIsolated(config, {
+      root: hostPaths.hostExecutorJournalDir,
+      ingressRoot: hostPaths.ingressRoot,
+    }, env, process.cwd(), 'Cloud Hypervisor enclave recovery journal');
+  }
+  await assertCloudHypervisorEnclavePrerequisites(config, deps.cloudHypervisorStorageProvider);
   await (deps.assertPrimaryAvailable ?? assertPrimaryRuntimeAvailable)(config.containerRuntime);
-  if (enclaves.executors.script.enabled) {
+  if (enclaves.executors.script.enabled && !hostExecutorSelected) {
     const assertScriptRuntime = deps.assertScriptRuntimeAvailable ?? assertScriptRuntimeAvailable;
     await assertScriptRuntime(enclaves.executors.script);
   }
-  if (enclaves.executors.agent.enabled) {
+  if (enclaves.executors.agent.enabled && !hostExecutorSelected) {
     const assertAgentRuntime = deps.assertAgentRuntimeAvailable ?? assertAgentRuntimeAvailable;
     await assertAgentRuntime(enclaves.executors.agent);
   }
@@ -267,6 +285,15 @@ export async function prepareEnclaves(
       'Enclaves: took private custody of the mcpg delegation-control handoff for dynamic '
       + 'repository admission.',
     );
+  }
+  if (hostExecutorSelected) {
+    await startCloudHypervisorEnclaveLifecycle(config, deps.cloudHypervisorStorageProvider!, env);
+    if (enclaves.executors.script.enabled) {
+      await assertScriptRuntimeAvailable(enclaves.executors.script, undefined, undefined, config);
+    }
+    if (enclaves.executors.agent.enabled) {
+      await assertAgentRuntimeAvailable(enclaves.executors.agent, undefined, undefined, config);
+    }
   }
 }
 
@@ -356,6 +383,7 @@ function removePrivateState(
 export async function teardownEnclaves(config: WrapperConfig): Promise<void> {
   if (!isEnclavesEnabled(config)) return;
   const paths = resolveEnclavePaths(config.workDir);
+  await stopCloudHypervisorEnclaveLifecycle(config);
   const runId = readRunId(paths);
   if (runId) {
     await removeOrphanEnclaveContainers(runId);

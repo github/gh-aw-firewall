@@ -183,6 +183,10 @@ describe('finite-disclosure broker → authenticated Unix host → concrete micr
       upstream.on('data', (chunk) => responseChunks.push(Buffer.from(chunk)));
       upstream.on('end', () => {
         const frame = Buffer.concat(responseChunks);
+        if (frame.length <= 4) {
+          brokerSocket.end(frame);
+          return;
+        }
         const response = JSON.parse(frame.subarray(4).toString());
         if (corrupt === 'truncate') {
           brokerSocket.end(frame.subarray(0, 3));
@@ -322,7 +326,8 @@ describe('finite-disclosure broker → authenticated Unix host → concrete micr
 
   it.each(['script', 'agent'] as const)('validates and settles %s before disclosure without local files', async (role) => {
     const { handler, runner, localWorkspace } = makeHandler(role);
-    await expect(runner.assertAvailable()).rejects.toThrow(/disabled.*real-KVM/);
+    await expect(runner.assertAvailable()).resolves.toBeUndefined();
+    expect(started).not.toHaveBeenCalled();
     const before = handler.ledger.remainingBits('octo/private');
     expect(await call(handler, args(role))).toBe('{"status":"ok","result":true}');
     expect(handler.ledger.remainingBits('octo/private')).toBeLessThan(before);
@@ -364,6 +369,24 @@ describe('finite-disclosure broker → authenticated Unix host → concrete micr
     expect(lane.closed).toBe(true);
     expect(await call(peer, args(role === 'script' ? 'agent' : 'script'))).toBe('{"status":"error"}');
     expect(requests).toHaveLength(count);
+    expect(plans).toHaveLength(0);
+  });
+
+  it('rejects an invalid capability during startup without launching a VM', async () => {
+    const capabilityPath = path.join(root, 'wrong-startup-capability');
+    await fs.writeFile(capabilityPath, 'f'.repeat(64), { mode: 0o600 });
+    const { runner } = makeHandler('script', { capabilityPath });
+    await expect(runner.assertAvailable()).rejects.toThrow(/unavailable.*no runtime fallback/);
+    await expect(runner.reconcileRun()).rejects.toThrow(/unresolved/);
+    expect(started).not.toHaveBeenCalled();
+    expect(plans).toHaveLength(0);
+  });
+
+  it('rejects a missing listener during startup without selecting another runtime', async () => {
+    const { runner } = makeHandler('agent', { socketPath: path.join(root, 'missing.sock') });
+    await expect(runner.assertAvailable()).rejects.toThrow(/unavailable.*no runtime fallback/);
+    await expect(runner.reconcileRun()).rejects.toThrow(/unresolved/);
+    expect(started).not.toHaveBeenCalled();
     expect(plans).toHaveLength(0);
   });
 

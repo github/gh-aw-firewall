@@ -20,8 +20,8 @@ const { strictParseJson } = require('../../bounded-execution/finite-disclosure')
  * credential, image, model, runtime profile, resource limit, or timeout: the
  * host derives all of those from its own trusted run state.
  *
- * The broker adapter uses this protocol internally. Public Cloud Hypervisor
- * startup remains fail-closed until the supported-host real-KVM gate passes.
+ * The broker adapter uses this protocol internally after AWF's trusted
+ * host, artifact, and bounded-storage preflight.
  */
 
 const PROTOCOL_VERSION = 2;

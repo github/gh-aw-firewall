@@ -7,9 +7,8 @@ const { finiteSchemaHash } = require('../../bounded-execution/schema-hash');
 const { parseAndValidateFiniteOutput } = require('../../bounded-execution/finite-disclosure');
 
 /**
- * Internal broker adapter. The public startup proof deliberately stays closed
- * until the supported-host real-KVM gate is validated; no environment can
- * enable it. Repository staging and result files belong exclusively to AWF.
+ * Internal broker adapter. AWF constructs the listener only after trusted
+ * prerequisite checks. Repository staging and result files belong to AWF.
  */
 function createHostExecutorRunner(config, deps = {}) {
   if (config.executorBackend !== 'cloud-hypervisor'
@@ -41,7 +40,19 @@ function createHostExecutorRunner(config, deps = {}) {
   return {
     hostOwned: true,
     async assertAvailable() {
-      throw new Error('Cloud Hypervisor enclave broker execution is disabled pending supported-host real-KVM security/lifecycle validation');
+      if (closed) throw new Error('Host executor admissions are closed');
+      try {
+        const response = await client.status({
+          entryId: config.entryId,
+          invocationId: crypto.randomBytes(16).toString('hex'),
+        });
+        if (!response || response.ok || response.error !== 'unknown-invocation') {
+          throw new Error('Host executor did not confirm authenticated startup');
+        }
+      } catch {
+        closed = true;
+        throw new Error('Cloud Hypervisor enclave host executor is unavailable; no runtime fallback');
+      }
     },
     async reconcileRun() {
       if (closed) throw new Error('Host executor lifecycle is unresolved');

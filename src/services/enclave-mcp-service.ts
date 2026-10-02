@@ -17,6 +17,7 @@ import {
   ENCLAVE_SERVER_GITHUB_AGENT_ID_PATH,
   ENCLAVE_SERVER_CONTROL_DIR,
   ENCLAVE_SERVER_DOCKER_SOCKET_PATH,
+  ENCLAVE_SERVER_HOST_EXECUTOR_DIR,
   ENCLAVE_SERVER_SEED_MAP_PATH,
   ENCLAVE_SERVER_SEEDS_DIR,
   ENCLAVE_SERVER_CAPABILITY_DIR,
@@ -258,6 +259,17 @@ export function buildEnclaveMcpService(params: EnclaveMcpServiceParams): Enclave
   // topology.
   const staticSeedsPresent = enclaves.privateRepos.length > 0;
   const dynamic = agent?.enabled ? agent.dynamic : undefined;
+  const hostExecutor = (script?.enabled && script.runtime === 'cloud-hypervisor')
+    || (agent?.enabled && agent.runtime === 'cloud-hypervisor');
+  const dockerExecutor = (script?.enabled && script.runtime !== 'cloud-hypervisor')
+    || (agent?.enabled && agent.runtime !== 'cloud-hypervisor');
+  if (hostExecutor && dockerExecutor) {
+    throw new Error('Cloud Hypervisor enclaves cannot be mixed with container enclave runtimes');
+  }
+  if (hostExecutor && ((script?.enabled && script.image !== undefined)
+    || (agent?.enabled && (agent.image !== undefined || agent.dynamic !== undefined)))) {
+    throw new Error('Cloud Hypervisor enclaves require static entries and release-attested artifacts');
+  }
 
   const environment: Record<string, string> = {
     AWF_ENCLAVE_PRIMARY_BACKEND: primaryBackend,
@@ -276,17 +288,20 @@ export function buildEnclaveMcpService(params: EnclaveMcpServiceParams): Enclave
   const result: EnclaveMcpBuildResult = { service: {} };
 
   if (script?.enabled) {
-    const { imageRef, source } = resolveScriptImage(imageConfig, script.image);
-    result.scriptImageService = {
-      ...source,
-      network_mode: 'none',
-      entrypoint: ['/bin/true'],
-      ...buildContainerSecurityHardening(imageServiceHardening),
-      restart: 'no',
-    };
-    dependsOn['enclave-script-image'] = { condition: 'service_completed_successfully' };
+    if (script.runtime !== 'cloud-hypervisor') {
+      const { imageRef, source } = resolveScriptImage(imageConfig, script.image);
+      result.scriptImageService = {
+        ...source,
+        network_mode: 'none',
+        entrypoint: ['/bin/true'],
+        ...buildContainerSecurityHardening(imageServiceHardening),
+        restart: 'no',
+      };
+      dependsOn['enclave-script-image'] = { condition: 'service_completed_successfully' };
+      environment.AWF_ENCLAVE_IMAGE = imageRef;
+    }
     Object.assign(environment, {
-      AWF_ENCLAVE_IMAGE: imageRef,
+      ...(script.runtime === 'cloud-hypervisor' && { AWF_ENCLAVE_ENTRY_ID: 'script' }),
       AWF_ENCLAVE_BACKEND: script.runtime,
       AWF_ENCLAVE_TIMEOUT: String(script.timeout),
       AWF_ENCLAVE_MEMORY: script.memoryLimit,
@@ -303,19 +318,22 @@ export function buildEnclaveMcpService(params: EnclaveMcpServiceParams): Enclave
     if (!params.networkConfig) {
       throw new Error('buildEnclaveMcpService: the enclave agent executor requires network configuration');
     }
-    const { imageRef, source } = resolveAgentImage(imageConfig, agent.image);
     const githubEnabled = isEnclaveAgentGithubToolsEnabled(agent);
     const githubGatewayContract = isEnclaveAgentGithubRouteEnabled(agent)
       ? resolveEnclaveGithubGatewayContract(config)
       : undefined;
-    result.agentImageService = {
-      ...source,
-      network_mode: 'none',
-      entrypoint: ['/bin/true'],
-      ...buildContainerSecurityHardening(imageServiceHardening),
-      restart: 'no',
-    };
-    dependsOn['enclave-agent-image'] = { condition: 'service_completed_successfully' };
+    if (agent.runtime !== 'cloud-hypervisor') {
+      const { imageRef, source } = resolveAgentImage(imageConfig, agent.image);
+      result.agentImageService = {
+        ...source,
+        network_mode: 'none',
+        entrypoint: ['/bin/true'],
+        ...buildContainerSecurityHardening(imageServiceHardening),
+        restart: 'no',
+      };
+      dependsOn['enclave-agent-image'] = { condition: 'service_completed_successfully' };
+      environment.AWF_ENCLAVE_AGENT_IMAGE = imageRef;
+    }
     dependsOn['enclave-agent-api-proxy'] = { condition: 'service_healthy' };
     result.agentApiProxyService = buildAgentApiProxyService({
       config,
@@ -327,7 +345,7 @@ export function buildEnclaveMcpService(params: EnclaveMcpServiceParams): Enclave
     });
     const apiPort = resolveEnclaveAgentApiPort(agent.engine, agent.profile);
     Object.assign(environment, {
-      AWF_ENCLAVE_AGENT_IMAGE: imageRef,
+      ...(agent.runtime === 'cloud-hypervisor' && { AWF_ENCLAVE_AGENT_ENTRY_ID: 'agent' }),
       // The server selects a fixed EnclaveRunner from this normalized value.
       // Runtime flags are never accepted from an invocation.
       AWF_ENCLAVE_AGENT_BACKEND: agent.runtime,
@@ -382,17 +400,24 @@ export function buildEnclaveMcpService(params: EnclaveMcpServiceParams): Enclave
   }
 
   const serverVolumes = [
-    `${paths.workDir}:${ENCLAVE_SERVER_WORK_DIR}:rw`,
+    ...(!hostExecutor ? [`${paths.workDir}:${ENCLAVE_SERVER_WORK_DIR}:rw`] : []),
     `${paths.runDir}:${ENCLAVE_SERVER_CAPABILITY_DIR}:ro`,
     `${paths.controlDir}:${ENCLAVE_SERVER_CONTROL_DIR}:rw`,
     `${paths.auditDir}:${ENCLAVE_SERVER_AUDIT_DIR}:rw`,
-    `${dockerSocketPath}:${ENCLAVE_SERVER_DOCKER_SOCKET_PATH}:rw`,
   ];
-  if (staticSeedsPresent) {
+  if (hostExecutor) {
     serverVolumes.push(
-      `${paths.seedsDir}:${ENCLAVE_SERVER_SEEDS_DIR}:ro`,
-      `${paths.seedMapPath}:${ENCLAVE_SERVER_SEED_MAP_PATH}:ro`,
+      `${paths.hostExecutorDir}:${ENCLAVE_SERVER_HOST_EXECUTOR_DIR}:ro`,
     );
+    delete environment.AWF_ENCLAVE_HOST_WORK_DIR;
+    delete environment.AWF_ENCLAVE_AGENT_HOST_WORK_DIR;
+    delete environment.AWF_ENCLAVE_AGENT_HOST_SEEDS_DIR;
+  } else {
+    serverVolumes.push(`${dockerSocketPath}:${ENCLAVE_SERVER_DOCKER_SOCKET_PATH}:rw`);
+  }
+  if (staticSeedsPresent) {
+    serverVolumes.push(`${paths.seedMapPath}:${ENCLAVE_SERVER_SEED_MAP_PATH}:ro`);
+    if (!hostExecutor) serverVolumes.push(`${paths.seedsDir}:${ENCLAVE_SERVER_SEEDS_DIR}:ro`);
   }
   if (dynamic !== undefined) {
     serverVolumes.push(

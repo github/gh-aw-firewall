@@ -21,8 +21,11 @@ import {
 import type { CloudHypervisorCleanupRegistry } from '../cloud-hypervisor/cleanup-registry';
 import type { CloudHypervisorVmmIdentityToolPaths } from '../cloud-hypervisor/vmm-identity';
 
+export const HOST_EXECUTOR_DEFAULT_JOURNAL_DIRECTORY =
+  '/var/lib/awf-cloud-hypervisor/host-executor-journal';
+
 export function hostExecutorJournalDirectory(run: HostExecutorRunState): string {
-  return run.journalDir ?? '/var/lib/awf-cloud-hypervisor/host-executor-journal';
+  return run.journalDir ?? HOST_EXECUTOR_DEFAULT_JOURNAL_DIRECTORY;
 }
 
 export function hostExecutorVmRunId(

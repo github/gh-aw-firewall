@@ -33,6 +33,10 @@ import type { ExternalAgentRuntimeBackend } from '../external-runtime-backend';
 import { resolveExternalRuntimeBackend } from '../external-runtime-backend-resolver';
 import { prepareEnclaves, teardownEnclaves } from '../enclave/manager';
 import {
+  closeCloudHypervisorEnclaveAdmissions,
+  stopCloudHypervisorEnclaveLifecycle,
+} from '../enclave/cloud-hypervisor-lifecycle';
+import {
   startEnclaveDynamicDelegation,
   stopEnclaveDynamicDelegation,
 } from '../enclave/dynamic-delegation';
@@ -198,6 +202,7 @@ async function runCleanup(
   if (signal) {
     logger.info(`Received ${signal}, cleaning up...`);
   }
+  closeCloudHypervisorEnclaveAdmissions(config);
 
   if (externalRuntimeBackend) {
     try {
@@ -221,28 +226,38 @@ async function runCleanup(
   // Let the enclave server emit final cleanup telemetry before preserving
   // container artifacts. Stopped containers remain available to docker cp
   // until the subsequent compose down removes them.
-  if (getContainersStarted()) {
-    let enclaveAuditComplete = true;
-    try {
-      // Revoke every outstanding dynamic identity before the broker and the
-      // gateway go away, so no delegated bearer can outlive the run.
-      await stopEnclaveDynamicDelegation(config);
-    } catch (error) {
-      enclaveAuditComplete = false;
-      logger.warn(
-        'Dynamic enclave delegation shutdown did not complete; mcpg state may be unreconciled.',
-        error,
-      );
+  let containersStarted = false;
+  let enclaveAuditComplete = true;
+  try {
+    containersStarted = getContainersStarted();
+    if (containersStarted) {
+      try {
+        // Revoke every outstanding dynamic identity before the broker and the
+        // gateway go away, so no delegated bearer can outlive the run.
+        await stopEnclaveDynamicDelegation(config);
+      } catch (error) {
+        enclaveAuditComplete = false;
+        logger.warn(
+          'Dynamic enclave delegation shutdown did not complete; mcpg state may be unreconciled.',
+          error,
+        );
+      }
+      try {
+        await shutdownEnclaveGateway(config);
+      } catch (error) {
+        enclaveAuditComplete = false;
+        logger.warn(
+          'Enclave gateway did not complete graceful shutdown; preserved enclave audit is marked incomplete.',
+          error,
+        );
+      }
     }
-    try {
-      await shutdownEnclaveGateway(config);
-    } catch (error) {
-      enclaveAuditComplete = false;
-      logger.warn(
-        'Enclave gateway did not complete graceful shutdown; preserved enclave audit is marked incomplete.',
-        error,
-      );
-    }
+  } finally {
+    // VM cancellation/cleanup must complete before disconnecting its peers or
+    // tearing down sidecars/networks, even when broker draining fails.
+    await stopCloudHypervisorEnclaveLifecycle(config);
+  }
+  if (containersStarted) {
     if (preserveIptablesAudit(
       config.workDir,
       config.auditDir,
