@@ -320,7 +320,10 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
           });
           expect(executionRequest?.env.COPILOT_API_URL)
             .toBe(`http://${ENCLAVE_AGENT_API_PROXY_IP}:10002`);
-          expect(executionRequest?.env.COPILOT_TOKEN).not.toBe(agentPolicy.githubBearer);
+          expect(executionRequest?.env).toMatchObject({
+            COPILOT_GITHUB_TOKEN: '******',
+            COPILOT_TOKEN: '******',
+          });
           expect(stagedHandoff).toEqual({
             agentId: 'agent_123\n',
             bearer: `${agentPolicy.githubBearer}\n`,
