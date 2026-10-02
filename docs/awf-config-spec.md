@@ -2140,6 +2140,13 @@ Directory: configured by `logging.proxyLogsDir` (default: `<workDir>/squid-logs/
 
 Directory: configured by `apiProxy.logging.tokenLogDir` / `AWF_TOKEN_LOG_DIR`
 (default: `/var/log/api-proxy/`; must be `/var/log/api-proxy` or a subdirectory to be preserved by AWF's default bind mount)
+
+On the runner, these files are preserved under `<logging.proxyLogsDir>/api-proxy-logs/`
+(or `/tmp/api-proxy-logs-<ts>/` when `proxyLogsDir` is not set). After cleanup AWF logs
+`Token usage log available at: <path>` and, when `$GITHUB_ENV` is set, exports
+`AWF_TOKEN_USAGE_LOG=<path>` so later workflow steps can locate `token-usage.jsonl`
+without hardcoding a path (see [ARC + DinD](arc-dind.md#locating-api-proxy-token-usage-logs)).
+
 | File | Format | Description | Always written |
 |------|--------|-------------|----------------|
 | `token-usage.jsonl` | JSONL (`token-usage/v<version>` schema) | Per-API-call token usage and cost records | Yes (when API proxy is active) |

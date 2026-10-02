@@ -188,6 +188,38 @@ child `:rw` does not make the rest of the read-only parent writable; the
 workflow/compiler that chooses the log location must also update its
 consumers.
 
+## Locating API proxy token-usage logs
+
+The api-proxy writes `token-usage.jsonl` into `<proxy-logs-dir>/api-proxy-logs/`
+(or `<workDir>/api-proxy-logs/`, moved to `/tmp/api-proxy-logs-<ts>/` after
+cleanup when `--proxy-logs-dir` is not set). Under `runner.topology: arc-dind`
+the gh-aw compiler passes `${RUNNER_TEMP}/gh-aw/...` paths, so the file is
+**not** at the literal `/tmp/gh-aw/sandbox/firewall/logs/...` path a post-run
+step may hardcode.
+
+After cleanup AWF logs the final runner-visible location
+(`Token usage log available at: <path>`) and, when `$GITHUB_ENV` is available,
+exports it for later steps of the same job:
+
+```yaml
+- name: Parse token usage
+  run: |
+    if [ -n "${AWF_TOKEN_USAGE_LOG:-}" ]; then
+      jq -s 'length' "$AWF_TOKEN_USAGE_LOG"
+    fi
+```
+
+`AWF_TOKEN_USAGE_LOG` is only exported when the file exists. Post-run consumers
+should prefer it over hardcoded paths.
+
+`--docker-host-path-prefix` translation is accounted for: with a daemon-only
+prefix (`/host`, `/tmp/gh-aw`, ...) the daemon writes back to the runner path
+unchanged. With a shared `/tmp` prefix, a `--proxy-logs-dir` **outside** `/tmp`
+(for example under `${RUNNER_TEMP}`) is rewritten to `/tmp<dir>`; AWF warns at
+startup, pre-creates that directory so the non-root api-proxy can write to it,
+and reports/exports the `/tmp<dir>/api-proxy-logs/token-usage.jsonl` path.
+Keep `--proxy-logs-dir` under the shared prefix to avoid the rewrite.
+
 ## Writable home under sysroot staging
 
 Sysroot staging drops agent bind mounts whose sources the DinD daemon cannot

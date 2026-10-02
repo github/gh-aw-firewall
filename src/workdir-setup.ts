@@ -30,7 +30,7 @@ function ensureInitSignalDir(workDir: string): string {
  * - {@link ensureInitSignalDir} — iptables-init handshake directory
  */
 export function prepareWorkDirectories(config: WrapperConfig, logPaths: LogPaths): void {
-  prepareLogDirectories(logPaths);
+  prepareLogDirectories(logPaths, config.dockerHostPathPrefix);
   prepareChrootHomeMounts(config);
   ensureInitSignalDir(config.workDir);
 }

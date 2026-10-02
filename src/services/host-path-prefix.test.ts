@@ -1,4 +1,4 @@
-import { applyHostPathPrefixToVolumes, prefixHostPath } from './host-path-prefix';
+import { applyHostPathPrefixToVolumes, prefixHostPath, resolveRunnerVisibleHostPath } from './host-path-prefix';
 
 describe('prefixHostPath', () => {
   it('prepends the normalized prefix to an absolute path', () => {
@@ -36,6 +36,36 @@ describe('prefixHostPath', () => {
 
   it('maps the bare root to the prefix itself', () => {
     expect(prefixHostPath('/', '/host')).toBe('/host');
+  });
+});
+
+describe('resolveRunnerVisibleHostPath', () => {
+  const runnerTempLogs = '/home/runner/_work/_temp/gh-aw/sandbox/firewall/logs';
+
+  it('returns the path unchanged when no prefix is set', () => {
+    expect(resolveRunnerVisibleHostPath(runnerTempLogs, undefined)).toBe(runnerTempLogs);
+  });
+
+  it.each(['/host', '/runner', '/tmp/gh-aw', '/'])(
+    'returns the path unchanged for daemon-only prefix %s (daemon writes back to the runner path)',
+    (prefix) => {
+      expect(resolveRunnerVisibleHostPath(runnerTempLogs, prefix)).toBe(runnerTempLogs);
+    },
+  );
+
+  it('maps a path outside a shared /tmp prefix to where the daemon writes it', () => {
+    expect(resolveRunnerVisibleHostPath(runnerTempLogs, '/tmp')).toBe(`/tmp${runnerTempLogs}`);
+    expect(resolveRunnerVisibleHostPath(runnerTempLogs, '/tmp/')).toBe(`/tmp${runnerTempLogs}`);
+  });
+
+  it('agrees with the bind-mount source rewrite for a shared /tmp prefix', () => {
+    const [mount] = applyHostPathPrefixToVolumes([`${runnerTempLogs}:/var/log/api-proxy:rw`], '/tmp');
+    expect(mount.split(':')[0]).toBe(resolveRunnerVisibleHostPath(runnerTempLogs, '/tmp'));
+  });
+
+  it('leaves paths already under a shared /tmp prefix untouched', () => {
+    expect(resolveRunnerVisibleHostPath('/tmp/gh-aw/sandbox/firewall/logs', '/tmp'))
+      .toBe('/tmp/gh-aw/sandbox/firewall/logs');
   });
 });
 
