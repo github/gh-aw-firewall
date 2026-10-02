@@ -138,7 +138,7 @@ verify_enclave_rootfs() {
   device_listing=$(debugfs -R 'ls -p /dev' "$image" 2>/dev/null)
   if ! printf '%s\n' "$device_listing" | awk -F/ '
     NF > 0 && $6 != "." && $6 != ".." &&
-      !($6 == "shm" && $2 ~ /^040/) { print; bad=1 }
+      !($6 == "shm" && $3 ~ /^040/) { print; bad=1 }
     END { exit bad ? 1 : 0 }'; then
     echo "unexpected embedded device or directory found in $role enclave rootfs" >&2
     return 1
