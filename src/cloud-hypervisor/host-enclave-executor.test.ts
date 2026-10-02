@@ -1,3 +1,4 @@
+import { createHash } from 'crypto';
 import { promises as fs } from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -26,7 +27,7 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
 
   describe('CloudHypervisorHostEnclaveExecutorBackend', () => {
     it('stages a static invocation, stops the VM before reading its bounded result, and cleans storage', async () => {
-      const scratch = await fs.mkdtemp(path.join(os.tmpdir(), 'awf-host-backend-'));
+      const scratch = await fs.mkdtemp(path.join(os.homedir(), '.awf-host-backend-'));
       const root = await fs.realpath(scratch);
       const seedsDir = path.join(root, 'seeds');
       const invocationsDir = path.join(root, 'invocations');
@@ -90,8 +91,8 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
         file: 'enclave-script-rootfs.ext4',
         role: 'script',
         version: 'v0.23.1',
-        sha256: 'f'.repeat(64),
-        sizeBytes: 4096,
+        sha256: createHash('sha256').update('fixture-rootfs').digest('hex'),
+        sizeBytes: Buffer.byteLength('fixture-rootfs'),
         uid: 65534,
         gid: 65534,
         entrypoint: '/usr/local/bin/run-enclave-script',
@@ -135,14 +136,20 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
         preflight,
         enclaveArtifacts: artifacts,
       }, {
-        createArtifactSnapshot: async () => ({
-          directory: path.join(root, 'snapshot'),
-          cloudHypervisorBinary: '/snapshot/cloud-hypervisor',
-          virtiofsdBinary: '/snapshot/virtiofsd',
-          kernelPath: '/snapshot/vmlinux',
-          rootfsPath: '/snapshot/rootfs.ext4',
-          supervisorPath: '/snapshot/supervisor',
-        }),
+        createArtifactSnapshot: async () => {
+          const directory = path.join(root, 'snapshot');
+          await fs.mkdir(directory, { mode: 0o700 });
+          const rootfsPath = path.join(directory, 'rootfs.ext4');
+          await fs.writeFile(rootfsPath, 'fixture-rootfs', { mode: 0o400 });
+          return {
+            directory,
+            cloudHypervisorBinary: '/snapshot/cloud-hypervisor',
+            virtiofsdBinary: '/snapshot/virtiofsd',
+            kernelPath: '/snapshot/vmlinux',
+            rootfsPath,
+            supervisorPath: '/snapshot/supervisor',
+          };
+        },
         copySparseFile: async () => undefined,
         removeArtifactSnapshot: async () => { snapshotRemoved = true; },
         mountTmpfs: async () => undefined,
