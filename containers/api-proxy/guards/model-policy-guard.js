@@ -31,8 +31,8 @@ function parseModelPatterns(raw) {
   try {
     const parsed = JSON.parse(raw.trim());
     if (!Array.isArray(parsed)) return null;
-    const strings = parsed.filter(p => typeof p === 'string' && p.trim()).map(p => p.trim());
-    return strings.length > 0 ? strings : null;
+    if (!parsed.length || !parsed.every(p => typeof p === 'string' && p.trim())) return null;
+    return parsed.map(p => p.trim());
   } catch {
     return null;
   }

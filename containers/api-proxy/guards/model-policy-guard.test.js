@@ -38,9 +38,12 @@ describe('parseModelPatterns', () => {
     expect(parseModelPatterns('[]')).toBeNull();
   });
 
-  it('should return null for arrays with non-string items', () => {
+  it('should return null for arrays with non-string or empty items', () => {
     const { parseModelPatterns } = loadGuard();
     expect(parseModelPatterns('[1, 2]')).toBeNull();
+    expect(parseModelPatterns('["gpt-*", 42]')).toBeNull();
+    expect(parseModelPatterns('["gpt-*", ""]')).toBeNull();
+    expect(parseModelPatterns('["gpt-*", "  "]')).toBeNull();
   });
 
   it('should return the parsed array for a valid JSON array of strings', () => {
@@ -48,14 +51,14 @@ describe('parseModelPatterns', () => {
     expect(parseModelPatterns('["*opus*", "gpt-5*"]')).toEqual(['*opus*', 'gpt-5*']);
   });
 
-  it('should filter out empty strings', () => {
+  it('should reject arrays containing empty strings', () => {
     const { parseModelPatterns } = loadGuard();
-    expect(parseModelPatterns('["*opus*", "", "  "]')).toEqual(['*opus*']);
+    expect(parseModelPatterns('["*opus*", "", "  "]')).toBeNull();
   });
 });
 
 describe('configured model policy', () => {
-  it.each(['not-json', '{}', '[]', '[""]', ''])(
+  it.each(['not-json', '{}', '[]', '[""]', '["gpt-*", 42]', '["gpt-*", ""]', ''])(
     'fails closed for an invalid allowed-models value %j',
     value => {
       process.env.AWF_ALLOWED_MODELS = value;
@@ -63,10 +66,13 @@ describe('configured model policy', () => {
     },
   );
 
-  it('fails closed for an invalid disallowed-models value', () => {
-    process.env.AWF_DISALLOWED_MODELS = 'not-json';
-    expect(loadGuard).toThrow('AWF_DISALLOWED_MODELS must be a non-empty JSON array of model patterns');
-  });
+  it.each(['not-json', '["gpt-*", 42]', '["gpt-*", ""]'])(
+    'fails closed for an invalid disallowed-models value %j',
+    value => {
+      process.env.AWF_DISALLOWED_MODELS = value;
+      expect(loadGuard).toThrow('AWF_DISALLOWED_MODELS must be a non-empty JSON array of model patterns');
+    },
+  );
 });
 
 describe('isModelPermittedByPolicy', () => {
