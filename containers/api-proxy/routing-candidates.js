@@ -46,6 +46,17 @@ function protocolFor(provider, effort, protocols) {
   return null;
 }
 
+function getModelRoutingChoices(providerModel, provider) {
+  if (provider === 'copilot' && providerModel.modelPickerEnabled === false) return [];
+  if (!Array.isArray(providerModel.efforts) || !Array.isArray(providerModel.protocols)) return [];
+  const efforts = normalizeEfforts(providerModel.efforts);
+  if (providerModel.efforts.length > 0 && efforts.length === 0) return [];
+  return (efforts.length === 0 ? [undefined] : efforts).flatMap(effort => {
+    const protocol = protocolFor(provider, effort, providerModel.protocols);
+    return protocol && providerModel.protocols.includes(protocol) ? [{ effort, protocol }] : [];
+  });
+}
+
 function indexModels(models, path, getIdentity) {
   if (!Array.isArray(models)) {
     throw createRoutingError('routing_configuration_error', `${path} must be an array`);
@@ -91,14 +102,8 @@ function buildRoutingCandidates({ catalogue, policy = {} }) {
 
   const pairs = [];
   for (const providerModel of permittedModels.values()) {
-    if (!Array.isArray(providerModel.efforts) || !Array.isArray(providerModel.protocols)) continue;
-    const efforts = normalizeEfforts(providerModel.efforts);
-    if (providerModel.efforts.length > 0 && efforts.length === 0) continue;
-
     const nativeName = stripRedundantProviderPrefix(providerModel.id, providerInfo.canonical);
-    for (const effort of (efforts.length === 0 ? [undefined] : efforts)) {
-      const protocol = protocolFor(provider, effort, providerModel.protocols);
-      if (!protocol || !providerModel.protocols.includes(protocol)) continue;
+    for (const { effort, protocol } of getModelRoutingChoices(providerModel, provider)) {
       pairs.push({
         model: `${providerInfo.canonical}/${nativeName}`,
         effort,
@@ -148,5 +153,6 @@ function buildRoutingCandidates({ catalogue, policy = {} }) {
 
 module.exports = {
   buildRoutingCandidates,
+  getModelRoutingChoices,
   normalizePolicyList,
 };

@@ -120,6 +120,9 @@ function parseProviderModelMetadata(provider, json, options = {}) {
       ...(Array.isArray(entry.supported_endpoints)
         ? { supportedEndpoints: [...entry.supported_endpoints] }
         : {}),
+      ...(typeof entry.model_picker_enabled === 'boolean'
+        ? { modelPickerEnabled: entry.model_picker_enabled }
+        : {}),
       ...(pricing ? { pricing } : {}),
       ...(promotion ? { promotion } : {}),
     };

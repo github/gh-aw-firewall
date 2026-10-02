@@ -77,6 +77,9 @@ function normalizeModel(id, metadata, provider) {
     ...(efforts === undefined ? {} : { efforts }),
     ...(Number.isInteger(contextWindow) && contextWindow > 0 ? { contextWindow } : {}),
     ...(Array.isArray(protocols) ? { protocols: [...new Set(protocols.filter(protocol => providerProtocols.has(protocol)))] } : {}),
+    ...(typeof metadata?.modelPickerEnabled === 'boolean'
+      ? { modelPickerEnabled: metadata.modelPickerEnabled }
+      : {}),
   });
 }
 
