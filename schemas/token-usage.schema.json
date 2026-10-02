@@ -108,6 +108,40 @@
       ],
       "description": "Trusted in-process purpose of the request. Present only for AWF-internal requests such as router classification calls; absent for agent-originated requests."
     },
+    "model_fallback": {
+      "type": "object",
+      "description": "Present only when the ordered fallback chain (apiProxy.fallbackModels / AWF_FALLBACK_MODELS) switched away from the requested model. The top-level 'model' field is the model that actually served the request.",
+      "properties": {
+        "requested_model": {
+          "type": "string",
+          "description": "Model originally requested by the agent (after alias resolution)."
+        },
+        "model": {
+          "type": "string",
+          "description": "Fallback model the request was re-sent with."
+        },
+        "attempt": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "1-based index of the fallback attempt that served the request."
+        },
+        "reason": {
+          "type": "string",
+          "enum": [
+            "upstream_5xx",
+            "upstream_timeout",
+            "upstream_connection_error",
+            "model_not_supported"
+          ],
+          "description": "Why the previous model was abandoned."
+        },
+        "status": {
+          "type": "integer",
+          "description": "Upstream HTTP status of the failed attempt (absent for connection errors)."
+        }
+      },
+      "additionalProperties": true
+    },
     "x_initiator": {
       "type": "string",
       "enum": [

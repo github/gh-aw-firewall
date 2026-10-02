@@ -303,8 +303,9 @@ function extractUsageFromTrackedState(state) {
  * @param {object|null} params.billingInfo
  * @param {string|null} params.initiatorSent
  * @param {object|undefined} params.budgetResult
+ * @param {object|undefined} [params.modelFallback] - Ordered-fallback details when the request was served by a fallback model
  */
-function buildAndWriteTokenRecord(normalized, { requestId, provider, model, reqPath, status, streaming, duration, responseBytes, billingInfo, initiatorSent, budgetResult, purpose }) {
+function buildAndWriteTokenRecord(normalized, { requestId, provider, model, reqPath, status, streaming, duration, responseBytes, billingInfo, initiatorSent, budgetResult, purpose, modelFallback }) {
   const record = buildTokenUsageRecord(normalized, {
     requestId,
     provider,
@@ -320,6 +321,9 @@ function buildAndWriteTokenRecord(normalized, { requestId, provider, model, reqP
   // Include billing/quota info when available (Copilot PRU tracking)
   if (initiatorSent) record.x_initiator = initiatorSent;
   if (billingInfo) record.billing = billingInfo;
+  // Record which model actually served the request when the ordered fallback
+  // chain switched away from the requested model.
+  if (modelFallback) record.model_fallback = modelFallback;
 
   // Include effective token and AI credit budget fields when computed
   mergeBudgetFields(record, budgetResult);
@@ -337,6 +341,7 @@ function buildAndWriteTokenRecord(normalized, { requestId, provider, model, reqP
     cache_read_tokens: normalized.cache_read_tokens,
     cache_write_tokens: normalized.cache_write_tokens,
     streaming,
+    ...(modelFallback ? { requested_model: modelFallback.requested_model, model_fallback_attempt: modelFallback.attempt } : {}),
   });
 }
 
@@ -352,7 +357,7 @@ function buildAndWriteTokenRecord(normalized, { requestId, provider, model, reqP
  * @param {object} opts - Original options passed to trackTokenUsage
  */
 function finalizeHttpTracking(state, proxyRes, opts) {
-  const { requestId, provider, path: reqPath, startTime, metrics: metricsRef, billingInfo, initiatorSent, requestModel, onUsage, onSpanEnd, purpose } = opts;
+  const { requestId, provider, path: reqPath, startTime, metrics: metricsRef, billingInfo, initiatorSent, requestModel, onUsage, onSpanEnd, purpose, modelFallback } = opts;
   const { streaming, compressed, contentEncoding } = state;
 
   // Only process successful responses (2xx)
@@ -435,6 +440,7 @@ function finalizeHttpTracking(state, proxyRes, opts) {
     initiatorSent,
     budgetResult,
     purpose,
+    modelFallback,
   });
 
   if (typeof onSpanEnd === 'function') onSpanEnd(proxyRes.statusCode);
@@ -461,6 +467,7 @@ function finalizeHttpTracking(state, proxyRes, opts) {
  * @param {object|null} opts.billingInfo - Extracted billing/quota headers from response
  * @param {string|null} opts.initiatorSent - X-Initiator value sent on the request
  * @param {string|null} [opts.requestModel] - Model extracted from the request body, used as fallback when response omits model
+ * @param {object} [opts.modelFallback] - Ordered-fallback details ({ requested_model, model, attempt, reason, status }) when a fallback model served the request
  * @param {(normalizedUsage: object, model: string|null) => Record<string, number>|void} [opts.onUsage] - Optional callback invoked after normalized usage is extracted
  * @param {(statusCode: number) => void} [opts.onSpanEnd] - Optional callback invoked at end of finalizeHttpTracking() to signal span completion
  * @param {object} [opts.res] - Downstream client response; watched for 'close' so usage is finalized when the client (e.g. Codex) tears down the connection before the upstream stream ends cleanly

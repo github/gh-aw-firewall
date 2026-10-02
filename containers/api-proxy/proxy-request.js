@@ -79,7 +79,7 @@ const {
   getModelPolicyBlockState,
   buildModelPolicyError,
 } = require('./guards/model-policy-guard');
-const { enforceGuards } = require('./proxy-guards');
+const { enforceGuards, getCurrentGuardChecks } = require('./proxy-guards');
 
 // ── Optional token tracker (graceful degradation when not bundled) ────────────
 let trackTokenUsage;
@@ -199,6 +199,11 @@ const sendUpstreamRequest = createSendUpstreamRequest({
   otel,
   handleRequestError,
   metrics,
+  logRequest,
+  // A fallback model must pass the same guards (model policy, retired models,
+  // multiplier cap, budgets) as the originally requested model.
+  isFallbackModelPermitted: (model, provider) =>
+    getCurrentGuardChecks(model, provider).every(guard => !guard.isBlocked(guard.block)),
 });
 
 // ── Core proxy: HTTP ──────────────────────────────────────────────────────────

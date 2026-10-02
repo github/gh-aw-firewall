@@ -59,6 +59,7 @@ export interface AwfFileConfig {
       strategy?: 'middle_power';
       excludeEngines?: string[];
     };
+    fallbackModels?: string[];
     modelRouter?: {
       providerType?: string;
       baseUrl?: string;

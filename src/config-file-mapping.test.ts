@@ -258,6 +258,13 @@ describe('mapAwfFileConfigToCliOptions', () => {
     expect(result.modelFallback).toEqual({ enabled: false, strategy: 'middle_power' });
   });
 
+  it('maps fallbackModels field', () => {
+    const result = mapAwfFileConfigToCliOptions({
+      apiProxy: { fallbackModels: ['gpt-5.4', 'claude-sonnet-4.6'] },
+    });
+    expect(result.fallbackModels).toEqual(['gpt-5.4', 'claude-sonnet-4.6']);
+  });
+
   it('maps modelFallback.excludeEngines field', () => {
     const result = mapAwfFileConfigToCliOptions({
       apiProxy: {

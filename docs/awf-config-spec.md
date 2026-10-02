@@ -239,6 +239,7 @@ AWF settings MAY be supplied via config files, including stdin (`--config -`).
 - `apiProxy.maxPermissionDenied` → `--max-permission-denied <number>`
 - `apiProxy.requestedModel` → *(config-only; maps to `AWF_REQUESTED_MODEL` for pre-startup validation)*
 - `apiProxy.modelFallback` → *(config-only; model fallback strategy)*
+- `apiProxy.fallbackModels` → *(config-only; maps to `AWF_FALLBACK_MODELS` — ordered model IDs retried on 5xx, timeout, or model-not-supported failures)*
 - `experimental.modelRouting` → *(config-only; experimental opt-in required for `apiProxy.routing`; defaults to off)*
 - `apiProxy.routing` → *(config-only; requires `experimental.modelRouting: true`; task-level routing objective and task conversation input)*
 - `apiProxy.modelRouter.providerType` → *(config-only; maps to `COPILOT_PROVIDER_TYPE`)*
@@ -1890,6 +1891,56 @@ that the specified model is available in at least one provider's model catalogue
 This enables workflow authors to get clear, early feedback when a retired or
 misspelled model is specified, rather than waiting for the first API request to
 fail with an opaque error.
+
+### 12.7 Ordered Fallback Models
+
+When `apiProxy.fallbackModels` is configured, the API proxy retries a failed
+request with the next model in an ordered list. The middle-power fallback above
+picks a model when the request is *resolved*. This chain applies after the
+upstream has *rejected* the model.
+
+```json
+{
+  "apiProxy": {
+    "fallbackModels": ["gpt-5.4", "claude-sonnet-4.6"]
+  }
+}
+```
+
+**Mapping:** `apiProxy.fallbackModels` → `AWF_FALLBACK_MODELS` (JSON array; a
+comma-separated list is also accepted when the variable is set directly)
+
+**Behavior:**
+
+1. Fallback triggers only on model-specific failures:
+   - any upstream `5xx` response (`504` is reported as `upstream_timeout`)
+   - a connection error or timeout before any upstream response
+     (`upstream_connection_error`)
+   - a `400`/`404` whose body says the model is unsupported, not found, or not
+     accessible, such as `model_not_supported`, `model_not_found`, or
+     `not accessible via the … endpoint` (`model_not_supported`)
+2. `401`, `403`, and `429` responses never trigger a fallback. A generic `400`
+   validation error, such as a bad tool schema or a too-long context, is
+   returned to the client unchanged.
+3. The proxy rewrites the request body's `model` field (OpenAI, Anthropic,
+   Copilot). For Gemini, where the body has no `model`, it rewrites the
+   `/models/<model>:<method>` path segment instead. The proxy strips a
+   redundant `<provider>/` prefix on fallback entries.
+4. Entries are tried in order. The proxy skips models already attempted for the
+   request and models rejected by the model-policy, retired-model,
+   multiplier-cap, or budget guards. When the chain is exhausted, the proxy
+   returns the last upstream error to the client.
+5. Each switch emits a `model_fallback` warning log with `from_model`,
+   `to_model`, `requested_model`, `attempt`, `reason`, and `status`. The
+   token-usage record for the successful response holds the model that served
+   the request in `model`, plus a `model_fallback` object with
+   `requested_model`, `model`, `attempt`, `reason`, and `status`. gh-aw can
+   report that model in `GH_AW_INFO_MODEL` and telemetry.
+6. Copilot's existing transient `model not supported` retries and the alias
+   endpoint-blocked candidate retry still run first. The ordered chain applies
+   only after those have been exhausted.
+7. WebSocket (Responses API) upgrades and AWF-internal routing classifier
+   requests are not covered.
 
 ### 12.1 Alias Candidates Are Restricted to Configured Providers
 

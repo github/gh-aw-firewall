@@ -306,4 +306,73 @@ describe('upstream-http', () => {
     // metadata must not depend on the (now-stale) original buffer identity.
     expect(handleUpstreamResponse.mock.calls[1][2].codexCompatibility).toBe(codexCompatibility);
   });
+
+  test('skips fallback models rejected by isFallbackModelPermitted', () => {
+    const proxyReqs = [];
+    const httpsRequest = jest.fn(() => {
+      const proxyReq = { on: jest.fn(), write: jest.fn(), end: jest.fn() };
+      proxyReqs.push(proxyReq);
+      return proxyReq;
+    });
+    const handleUpstreamResponse = jest.fn();
+    const isFallbackModelPermitted = jest.fn(model => model !== 'blocked-model');
+    const logRequest = jest.fn();
+
+    const sendUpstreamRequest = createSendUpstreamRequest({
+      https: { request: httpsRequest },
+      proxyAgent: {},
+      handleUpstreamResponse,
+      sleep: jest.fn(() => Promise.resolve()),
+      otel: { endSpanError: jest.fn() },
+      handleRequestError: jest.fn(),
+      metrics: { increment: jest.fn(), observe: jest.fn() },
+      logRequest,
+      isFallbackModelPermitted,
+      getFallbackModels: () => ['blocked-model', 'allowed-model'],
+    });
+
+    const req = { method: 'POST' };
+    sendUpstreamRequest({ 'content-length': '17' }, createContext({
+      req,
+      res: { headersSent: false },
+      body: Buffer.from('{"model":"first"}'),
+    }));
+
+    // Simulate a connection error before any response.
+    const errorHandler = proxyReqs[0].on.mock.calls.find(([event]) => event === 'error')[1];
+    errorHandler(new Error('ECONNRESET'));
+
+    expect(isFallbackModelPermitted).toHaveBeenCalledWith('blocked-model', 'copilot');
+    expect(httpsRequest).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(proxyReqs[1].write.mock.calls[0][0].toString()).model).toBe('allowed-model');
+    expect(req.awfModelFallback).toMatchObject({
+      requested_model: 'first', model: 'allowed-model', reason: 'upstream_connection_error',
+    });
+    expect(logRequest).toHaveBeenCalledWith('warn', 'model_fallback', expect.objectContaining({
+      from_model: 'first', to_model: 'allowed-model',
+    }));
+  });
+
+  test('does not offer a fallback when every chain entry is rejected', () => {
+    const httpsRequest = jest.fn((_options, cb) => {
+      cb({ statusCode: 503, headers: {} });
+      return { on: jest.fn(), write: jest.fn(), end: jest.fn() };
+    });
+    const handleUpstreamResponse = jest.fn();
+
+    const sendUpstreamRequest = createSendUpstreamRequest({
+      https: { request: httpsRequest },
+      proxyAgent: {},
+      handleUpstreamResponse,
+      sleep: jest.fn(() => Promise.resolve()),
+      otel: { endSpanError: jest.fn() },
+      handleRequestError: jest.fn(),
+      metrics: { increment: jest.fn(), observe: jest.fn() },
+      isFallbackModelPermitted: () => false,
+      getFallbackModels: () => ['blocked-model'],
+    });
+
+    sendUpstreamRequest({}, createContext({ body: Buffer.from('{"model":"first"}') }));
+    expect(handleUpstreamResponse.mock.calls[0][2].onModelFallback).toBeNull();
+  });
 });

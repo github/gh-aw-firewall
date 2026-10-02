@@ -604,6 +604,33 @@ apiProxy:
       fallback: false
 ```
 
+### Ordered fallback models
+
+When the upstream rejects the requested model, you can give the proxy an ordered
+list of models to try next:
+
+```yaml
+apiProxy:
+  fallbackModels:
+    - gpt-5.4
+    - claude-sonnet-4.6
+```
+
+The proxy re-sends the request with the next model only on model-specific
+failures:
+
+- upstream `5xx` responses
+- connection errors or timeouts
+- `400`/`404` responses that report the model as unsupported, not found, or not
+  accessible
+
+`401`, `403`, and `429` never trigger a fallback. The proxy rewrites the
+request's `model`, or the Gemini `/models/<model>:` path segment. Each fallback
+model must pass the same model-policy and budget guards as the original model.
+The token-usage record shows the model that actually served the request in
+`model`, plus a `model_fallback` object that names the `requested_model`. See
+[AWF config spec §12.7](awf-config-spec.md#127-ordered-fallback-models).
+
 ### Health check
 
 Docker healthcheck on the `/health` endpoint (port 10000):

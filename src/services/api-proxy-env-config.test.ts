@@ -422,6 +422,22 @@ describe('buildModelPolicyEnv', () => {
     expect(env.AWF_MODEL_FALLBACK).toBe('{"enabled":false,"strategy":"middle_power"}');
   });
 
+  it('sets AWF_FALLBACK_MODELS when fallbackModels is configured', () => {
+    const env = buildModelPolicyEnv({
+      ...baseConfig,
+      workDir: '/tmp/awf-test',
+      fallbackModels: ['gpt-5.4', 'claude-sonnet-4.6'],
+    });
+    expect(env.AWF_FALLBACK_MODELS).toBe('["gpt-5.4","claude-sonnet-4.6"]');
+  });
+
+  it('omits AWF_FALLBACK_MODELS when fallbackModels is empty or unset', () => {
+    expect(buildModelPolicyEnv({ ...baseConfig, workDir: '/tmp/awf-test', fallbackModels: [] }))
+      .not.toHaveProperty('AWF_FALLBACK_MODELS');
+    expect(buildModelPolicyEnv({ ...baseConfig, workDir: '/tmp/awf-test' }))
+      .not.toHaveProperty('AWF_FALLBACK_MODELS');
+  });
+
 it('buildModelPolicyEnv no longer sets AWF_ROUTING_CONFIG when modelRouting is configured', () => {
     const env = buildModelPolicyEnv({
       ...baseConfig,

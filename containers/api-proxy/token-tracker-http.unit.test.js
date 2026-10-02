@@ -572,6 +572,24 @@ describe('buildAndWriteTokenRecord', () => {
     expect(record.ai_credits_total).toBe(0.05);
   });
 
+  test('records the fallback model details when a fallback model served the request', () => {
+    buildAndWriteTokenRecord(normalizedUsage, baseParams({
+      model: 'gpt-4.1',
+      modelFallback: { requested_model: 'gpt-5', model: 'gpt-4.1', attempt: 1, reason: 'upstream_5xx', status: 503 },
+    }));
+
+    const record = mockStream.writtenRecords[0];
+    expect(record.model).toBe('gpt-4.1');
+    expect(record.model_fallback).toEqual({
+      requested_model: 'gpt-5', model: 'gpt-4.1', attempt: 1, reason: 'upstream_5xx', status: 503,
+    });
+  });
+
+  test('omits model_fallback when no fallback occurred', () => {
+    buildAndWriteTokenRecord(normalizedUsage, baseParams());
+    expect(mockStream.writtenRecords[0]).not.toHaveProperty('model_fallback');
+  });
+
   test('handles null billingInfo and undefined budgetResult gracefully', () => {
     expect(() => buildAndWriteTokenRecord(normalizedUsage, baseParams({
       billingInfo: null,

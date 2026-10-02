@@ -2,6 +2,12 @@
 
 const { parseBodyAsObject } = require('./body-utils');
 const { carryForwardCodexCompatibility } = require('./codex-compat');
+const {
+  getFallbackModels,
+  getRequestModel,
+  selectNextFallbackModel,
+  rewriteRequestModel,
+} = require('./model-fallback-chain');
 
 /**
  * Backoff delays (ms) between successive model-not-supported retries.
@@ -26,7 +32,12 @@ function rebuildBodyFramingHeaders(headers, bodyLength) {
  * Sets up the proxyReq error handler, writes the body, and delegates response
  * handling to handleUpstreamResponse (including the one-shot retry path).
  *
- * @param {{ https: import('https'), http: import('http'), proxyAgent: import('http').Agent, handleUpstreamResponse: Function, sleep: Function, otel: object, handleRequestError: Function, metrics: object }} deps
+ * When an ordered fallback chain is configured (`AWF_FALLBACK_MODELS`), a
+ * model-specific upstream failure (5xx, connection error/timeout, or a
+ * model-not-supported 400/404) re-sends the request with the next model in the
+ * chain. See model-fallback-chain.js.
+ *
+ * @param {{ https: import('https'), http: import('http'), proxyAgent: import('http').Agent, handleUpstreamResponse: Function, sleep: Function, otel: object, handleRequestError: Function, metrics: object, logRequest?: Function, isFallbackModelPermitted?: (model: string, provider: string) => boolean, getFallbackModels?: () => string[] }} deps
  * @returns {(requestHeaders: object, ctx: object) => void}
  */
 function createSendUpstreamRequest({
@@ -38,6 +49,9 @@ function createSendUpstreamRequest({
   otel,
   handleRequestError,
   metrics,
+  logRequest = null,
+  isFallbackModelPermitted = null,
+  getFallbackModels: getFallbackModelsDep = getFallbackModels,
 }) {
   return function sendUpstreamRequest(requestHeaders, {
     body, targetHost, upstreamPath, req, res, provider, requestId, startTime, span, requestBytes,
@@ -46,10 +60,74 @@ function createSendUpstreamRequest({
     modelNotSupportedRetryCount = 0,
     targetScheme = 'https',
     codexCompatibility = null,
+    attemptedModels = null,
   }) {
-    const cancellationSignal = req.awfRequestContext?.purpose === 'routing_classification'
+    const isRoutingClassifier = req.awfRequestContext?.purpose === 'routing_classification';
+    const cancellationSignal = isRoutingClassifier
       ? req.awfRequestContext.signal
       : null;
+
+    // ── Ordered model fallback chain ────────────────────────────────────────
+    // Resolve the next fallback model up front so the response handler only
+    // buffers error bodies when a fallback is actually possible.
+    let onModelFallback = null;
+    if (!isRoutingClassifier) {
+      const chain = getFallbackModelsDep();
+      const current = chain.length > 0 ? getRequestModel(body, upstreamPath) : null;
+      if (current) {
+        const attempted = Array.isArray(attemptedModels) && attemptedModels.length > 0
+          ? attemptedModels
+          : [current.model];
+        const nextModel = selectNextFallbackModel(chain, attempted, provider, isFallbackModelPermitted);
+        const rewritten = nextModel
+          ? rewriteRequestModel({ body, upstreamPath }, current.location, nextModel)
+          : null;
+        if (rewritten) {
+          let fallbackTriggered = false;
+          onModelFallback = ({ statusCode = null, reason = 'upstream_error' } = {}) => {
+            if (fallbackTriggered || res.headersSent) return false;
+            fallbackTriggered = true;
+            const requestedModel = attempted[0];
+            const attempt = attempted.length;
+            req.awfModelFallback = {
+              requested_model: requestedModel,
+              model: nextModel,
+              attempt,
+              reason,
+              ...(statusCode !== null ? { status: statusCode } : {}),
+            };
+            if (typeof logRequest === 'function') {
+              logRequest('warn', 'model_fallback', {
+                request_id: requestId,
+                provider,
+                from_model: current.model,
+                to_model: nextModel,
+                requested_model: requestedModel,
+                attempt,
+                reason,
+                ...(statusCode !== null ? { status: statusCode } : {}),
+                message: `Upstream ${statusCode !== null ? `returned ${statusCode}` : 'request failed'} for model "${current.model}"; falling back to "${nextModel}"`,
+              });
+            }
+            const retryHeaders = rewritten.body === body
+              ? requestHeaders
+              : rebuildBodyFramingHeaders(requestHeaders, rewritten.body.length);
+            sendUpstreamRequest(retryHeaders, {
+              body: rewritten.body, targetHost, upstreamPath: rewritten.upstreamPath, req, res, provider, requestId,
+              startTime, span, requestBytes: rewritten.body.length, requestSigner,
+              hasRetried,
+              modelNotSupportedRetryCount,
+              targetScheme,
+              codexCompatibility: rewritten.body === body
+                ? codexCompatibility
+                : carryForwardCodexCompatibility(codexCompatibility),
+              attemptedModels: [...attempted, nextModel],
+            });
+            return true;
+          };
+        }
+      }
+    }
     let outboundHeaders = requestHeaders;
     if (requestSigner) {
       try {
@@ -87,18 +165,22 @@ function createSendUpstreamRequest({
       ...(cancellationSignal ? { signal: cancellationSignal } : {}),
     };
 
+    let responded = false;
     const proxyReq = mod.request(options, (proxyRes) => {
+      responded = true;
       handleUpstreamResponse(proxyRes, outboundHeaders, {
         body, res, provider, requestId, req, targetHost, startTime, span, requestBytes,
         hasRetried,
         modelNotSupportedRetryCount,
         codexCompatibility,
+        onModelFallback,
         onRetry: (retryHeaders) => sendUpstreamRequest(retryHeaders, {
           body, targetHost, upstreamPath, req, res, provider, requestId, startTime, span, requestBytes, requestSigner,
           hasRetried: true,
           modelNotSupportedRetryCount,
           targetScheme,
           codexCompatibility,
+          attemptedModels,
         }),
         onModelNotSupportedRetry: () => {
           const delayMs = MODEL_NOT_SUPPORTED_RETRY_DELAYS_MS[modelNotSupportedRetryCount] ?? 2000;
@@ -109,6 +191,7 @@ function createSendUpstreamRequest({
               modelNotSupportedRetryCount: modelNotSupportedRetryCount + 1,
               targetScheme,
               codexCompatibility,
+              attemptedModels,
             });
           });
         },
@@ -148,6 +231,7 @@ function createSendUpstreamRequest({
             modelNotSupportedRetryCount,
             targetScheme,
             codexCompatibility: carryForwardCodexCompatibility(codexCompatibility),
+            attemptedModels: [...(Array.isArray(attemptedModels) && attemptedModels.length > 0 ? attemptedModels : [currentModel]), nextModel],
           });
           return true;
         },
@@ -155,6 +239,11 @@ function createSendUpstreamRequest({
     });
 
     proxyReq.on('error', (err) => {
+      // A connection error or timeout before any upstream response is treated
+      // like a 5xx for the ordered fallback chain.
+      if (!responded && onModelFallback && onModelFallback({ reason: 'upstream_connection_error' })) {
+        return;
+      }
       otel.endSpanError(span, err, 502);
       handleRequestError(err, {
         res, requestId, provider, req, targetHost, startTime,

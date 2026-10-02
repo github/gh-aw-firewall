@@ -193,6 +193,7 @@ export function buildConfig(inputs: BuildConfigInputs): WrapperConfig {
     apiProxyCaCert: options.apiProxyCaCert as string | undefined,
     modelFallback:
       options.modelFallback as { enabled?: boolean; strategy?: 'middle_power' } | undefined,
+    fallbackModels: options.fallbackModels as string[] | undefined,
     experimentalModelRouting: options.experimentalModelRouting as boolean | undefined,
     modelRouting: options.modelRouting as WrapperConfig['modelRouting'],
     requestedModel: options.requestedModel as string | undefined,

@@ -6,7 +6,7 @@ const {
   createLogUpstreamErrorResponse,
   buildCopilotAuthErrorMessage,
 } = require('./upstream-log');
-const { handle400WithRetry } = require('./upstream-retry');
+const { handle400WithRetry, handleFallbackEligibleResponse } = require('./upstream-retry');
 const { setupTokenTracking } = require('./upstream-token');
 const { auditTrack, auditUpstreamErrorResponse } = require('./token-persistence');
 const {
@@ -163,6 +163,7 @@ function createUpstreamResponseHandlers({
     hasRetried, onRetry,
     modelNotSupportedRetryCount = 0, onModelNotSupportedRetry,
     onModelEndpointBlockedRetry,
+    onModelFallback = null,
     codexCompatibility = null,
   }) {
     let responseBytes = 0;
@@ -180,16 +181,23 @@ function createUpstreamResponseHandlers({
     // Buffer the 400 response body when we may need to inspect it for either:
     //   (a) a deprecated Anthropic/Copilot beta-header value (first attempt only),
     //   (b) a transient Copilot "model not supported" catalogue error (up to MAX retries), or
-    //   (c) a permanent Copilot "model not accessible via endpoint" error (fallback to next candidate).
+    //   (c) a permanent Copilot "model not accessible via endpoint" error (fallback to next candidate), or
+    //   (d) a model-specific error eligible for the ordered fallback chain (any provider).
     const isRoutingClassifier = req.awfRequestContext?.purpose === 'routing_classification';
+    const canFallback = !isRoutingClassifier && typeof onModelFallback === 'function';
     const shouldBuffer400 =
       !isRoutingClassifier &&
       proxyRes.statusCode === 400 &&
       (
         ((provider === 'anthropic' || provider === 'copilot') && !hasRetried) ||
         (provider === 'copilot' && modelNotSupportedRetryCount < MAX_MODEL_NOT_SUPPORTED_RETRIES) ||
-        (provider === 'copilot' && !!onModelEndpointBlockedRetry)
+        (provider === 'copilot' && !!onModelEndpointBlockedRetry) ||
+        canFallback
       );
+    // 5xx and 404 responses are buffered only when a fallback model is
+    // available, so the original error can be swallowed if we switch models.
+    const shouldBufferForFallback = canFallback &&
+      (proxyRes.statusCode === 404 || (proxyRes.statusCode >= 500 && proxyRes.statusCode <= 599));
     const shouldCaptureUpstreamError = !isRoutingClassifier &&
       (proxyRes.statusCode < 200 || proxyRes.statusCode >= 300);
 
@@ -219,6 +227,7 @@ function createUpstreamResponseHandlers({
           provider, requestId, hasRetried, onRetry,
           modelNotSupportedRetryCount, maxModelNotSupportedRetries: MAX_MODEL_NOT_SUPPORTED_RETRIES, onModelNotSupportedRetry,
           onModelEndpointBlockedRetry,
+          onModelFallback: canFallback ? onModelFallback : null,
           completionCtx, authErrCtx, initiatorSent, billingInfo, res, span,
           parseDeprecatedHeaderFromBody,
           learnAndStripDeprecatedHeaderValue,
@@ -234,6 +243,23 @@ function createUpstreamResponseHandlers({
           requestTools,
         });
         if (didRetry) return;
+      });
+      return;
+    }
+
+    if (shouldBufferForFallback) {
+      const bufferedChunks = [];
+      proxyRes.on('data', (chunk) => {
+        responseBytes += chunk.length;
+        bufferedChunks.push(chunk);
+      });
+      proxyRes.on('end', () => {
+        handleFallbackEligibleResponse(proxyRes, Buffer.concat(bufferedChunks), {
+          onModelFallback,
+          completionCtx, authErrCtx, initiatorSent, billingInfo, res, span, requestId,
+          logRequestCompletion, logUpstreamAuthError, logUpstreamErrorResponse, otel,
+          requestModel, requestTools,
+        });
       });
       return;
     }
