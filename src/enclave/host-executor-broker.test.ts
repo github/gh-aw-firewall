@@ -77,7 +77,7 @@ describe('finite-disclosure broker → authenticated Unix host → concrete micr
       seedsDir: path.join(root, 'seeds'),
       invocationsDir: path.join(root, 'invocations'),
       entries: (['script', 'agent'] as const).map((role) => ({
-        entryId: `${role}-entry`, executorKind: role, timeoutMs: 2000,
+        entryId: `${role}-entry`, executorKind: role, timeoutMs: 30_000,
         staticSeedIds: [seedId], dynamicAgents: false,
       })),
     };
@@ -497,7 +497,7 @@ describe('finite-disclosure broker → authenticated Unix host → concrete micr
 
   it.each(['disconnect', 'notification'] as const)('propagates HTTP %s into real host cancellation', async (mode) => {
     hanging = true;
-    const { handler } = makeHandler('script');
+    const { handler } = makeHandler('script', { timeoutSeconds: 30 });
     httpServer = createMcpServer({
       handlers: { enclave_run_script: handler }, capability: 'capability', maxScriptBytes: 65536,
     });
@@ -513,6 +513,7 @@ describe('finite-disclosure broker → authenticated Unix host → concrete micr
     req.on('error', () => undefined);
     req.on('response', (response) => response.resume());
     await until(() => resolveExecution !== undefined);
+    const cancellationStart = performance.now();
     if (mode === 'disconnect') req.destroy();
     else {
       await new Promise<void>((resolve, reject) => {
@@ -527,7 +528,9 @@ describe('finite-disclosure broker → authenticated Unix host → concrete micr
         });
       });
     }
+    await until(() => cancelled.mock.calls.length > 0);
     await handler.drain();
+    expect(performance.now() - cancellationStart).toBeLessThan(2000);
     expect(cancelled).toHaveBeenCalled();
     expect(requests.map(({ type }) => type)).toContain('settle');
   });

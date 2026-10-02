@@ -210,8 +210,8 @@ function handlerCall(handler, request, signal) {
           status: 'ok',
           result: parsed.value.result,
         },
-      }, { signal });
-    });
+      });
+    }, { signal });
   });
 }
 

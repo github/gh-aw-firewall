@@ -1,7 +1,8 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import {
-  HostExecutorJournal, HostExecutorResourceJournal, reapHostExecutorResources, hostExecutorVmRunId,
+  HostExecutorJournal, HostExecutorResourceJournal, reapHostExecutorResources,
+  hostExecutorVmRunId, hostExecutorJournalDirectory,
 } from './host-executor-journal';
 import type { HostExecutorInvocationPlan, HostExecutorRunState } from './host-executor-server';
 import type { CleanupRegistryDependencies } from '../cloud-hypervisor/cleanup-dependencies';
@@ -85,6 +86,12 @@ describe('durable host executor journal', () => {
     fs.appendFileSync(file, '{"state":');
     expect(() => new HostExecutorJournal(run)).toThrow('EEXIST');
     expect(fs.readFileSync(file, 'utf8')).not.toContain(plan.payload);
+  });
+
+  it('keeps the durable default outside ephemeral invocation storage', () => {
+    expect(hostExecutorJournalDirectory({ ...run, journalDir: undefined }))
+      .toBe('/var/lib/awf-cloud-hypervisor/host-executor-journal');
+    expect(hostExecutorJournalDirectory(run)).toBe(run.journalDir);
   });
 
   it('refuses symlinked or writable journal roots without touching their target', () => {

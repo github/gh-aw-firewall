@@ -305,7 +305,9 @@ export async function reapHostExecutorResources(
   const dependencies = { ...vmDependencies, rootDirectory: directory };
   const bootId = (await dependencies.readFile('/proc/sys/kernel/random/boot_id', 'utf8')).trim();
   for (const name of await dependencies.readdir(directory)) {
-    if (!/^[a-f0-9]{16,64}-[a-f0-9]{16,64}\.resources\.json$/.test(name)) continue;
+    if (!name.endsWith('.resources.json')) continue;
+    const identifiers = name.slice(0, -'.resources.json'.length).split('-');
+    if (identifiers.length !== 2 || !identifiers.every((id) => HOST_EXECUTOR_ID_PATTERN.test(id))) continue;
     const file = path.join(directory, name);
     const stat = await dependencies.lstat(file);
     if (!stat.isFile() || stat.isSymbolicLink() || stat.uid !== dependencies.effectiveUid ||

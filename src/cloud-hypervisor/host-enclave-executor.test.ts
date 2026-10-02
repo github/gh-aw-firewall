@@ -567,33 +567,90 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
             await server.close();
           }
 
-          let releaseMount!: () => void;
-          let mountEntered!: () => void;
-          const mounting = new Promise<void>((resolve) => { mountEntered = resolve; });
-          const delayedBackend = new CloudHypervisorHostEnclaveExecutorBackend(backendOptions, {
-            ...dependencies,
-            mountTmpfs: async () => {
-              mountEntered();
-              await new Promise<void>((resolve) => { releaseMount = resolve; });
-            },
-          });
-          const cancellation = new AbortController();
-          let completed = false;
-          unmounted = false;
-          const delayedExecution = delayedBackend.execute(plan, cancellation.signal).then((result) => {
-            completed = true;
-            return result;
-          });
-          await mounting;
-          cancellation.abort();
-          await new Promise((resolve) => setImmediate(resolve));
-          expect(completed).toBe(false);
-          expect(unmounted).toBe(false);
-          releaseMount();
-          await expect(delayedExecution).resolves.toEqual({ outcome: 'cancelled' });
-          expect(unmounted).toBe(true);
-          expect(await fs.lstat(invocationHostDir).catch(() => undefined)).toBeUndefined();
-          await delayedBackend.close();
+          for (const [index, stage] of ['mount', 'write', 'snapshot'].entries()) {
+            let release!: () => void;
+            let entered!: () => void;
+            const blocked = new Promise<void>((resolve) => { release = resolve; });
+            const reached = new Promise<void>((resolve) => { entered = resolve; });
+            let delayedDependencies: Partial<HostEnclaveExecutorDependencies> = dependencies;
+            if (stage === 'mount') {
+              delayedDependencies = {
+                ...dependencies,
+                mountTmpfs: async (...args) => {
+                  entered();
+                  await blocked;
+                  await dependencies.mountTmpfs!(...args);
+                },
+              };
+            } else if (stage === 'write') {
+              delayedDependencies = {
+                ...dependencies,
+                writeFile: async (file, contents, options) => {
+                  if (file.toString() === path.join(invocationHostDir, 'request', 'query-script.py')) {
+                    entered();
+                    await blocked;
+                  }
+                  await fs.writeFile(file, contents, options);
+                },
+              };
+            } else {
+              delayedDependencies = {
+                ...dependencies,
+                createArtifactSnapshot: async (...args) => {
+                  const created = await dependencies.createArtifactSnapshot!(...args);
+                  entered();
+                  await blocked;
+                  return created;
+                },
+              };
+            }
+            const interruptionRun = { ...runState, runId: String(index + 1).repeat(32) };
+            const interruptedServer = await startHostExecutorServer({
+              runtimeDir: path.join(root, 'h'),
+              runState: interruptionRun,
+              backend: new CloudHypervisorHostEnclaveExecutorBackend({
+                ...backendOptions, runState: interruptionRun,
+              }, delayedDependencies),
+            });
+            try {
+              // eslint-disable-next-line @typescript-eslint/no-require-imports
+              const { createHostExecutorClient } = require('../../containers/enclave/mcp-server/host-executor-client.js');
+              const broker = createHostExecutorClient({
+                socketPath: interruptedServer.socketPath,
+                capabilityPath: interruptedServer.capabilityPath,
+                runId: interruptionRun.runId,
+              });
+              const { finiteSchemaHash } = await import('../bounded-execution/schema-hash');
+              unmounted = false;
+              snapshotRemoved = false;
+              await broker.invoke({
+                entryId, invocationId, admissionId: plan.admissionId, executorKind: role, seedId,
+                payload: plan.payload, schema: plan.schema, schemaHash: finiteSchemaHash(plan.schema),
+              });
+              await reached;
+              await broker.cancel({ entryId, invocationId, cancelGeneration: 1 });
+              expect(await broker.status({ entryId, invocationId }))
+                .toEqual(expect.objectContaining({ state: 'cancelling' }));
+              expect(await broker.settle({ entryId, invocationId, resultDigest: 'f'.repeat(64) }))
+                .toEqual(expect.objectContaining({ ok: false, error: 'invalid-state' }));
+              expect(unmounted).toBe(false);
+              release();
+              let status = await broker.status({ entryId, invocationId });
+              for (let attempt = 0; attempt < 100 && status.state !== 'terminal'; attempt += 1) {
+                await new Promise((resolve) => setTimeout(resolve, 5));
+                status = await broker.status({ entryId, invocationId });
+              }
+              expect(status).toEqual(expect.objectContaining({ state: 'terminal', outcome: 'cancelled' }));
+              expect(unmounted).toBe(true);
+              if (stage !== 'mount') expect(snapshotRemoved).toBe(true);
+              expect(await fs.lstat(invocationHostDir).catch(() => undefined)).toBeUndefined();
+              expect(await broker.settle({ entryId, invocationId, resultDigest: status.resultDigest }))
+                .toEqual(expect.objectContaining({ state: 'settled', outcome: 'cancelled' }));
+            } finally {
+              release();
+              await interruptedServer.close();
+            }
+          }
 
           stopped = false;
           unmounted = false;

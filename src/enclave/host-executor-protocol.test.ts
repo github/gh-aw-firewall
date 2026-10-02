@@ -431,6 +431,16 @@ describe('host executor server', () => {
     await expect(start()).rejects.toThrow('already exists');
   });
 
+  it.each(['journal-inside-runtime', 'runtime-inside-journal'] as const)(
+    'rejects broker-visible journal overlap: %s',
+    async (placement) => {
+      await expect(start({
+        journalDir: placement === 'journal-inside-runtime' ? path.join(root, 'runtime', 'journal') : root,
+      })).rejects.toThrow('must be separate');
+      expect(executions).toHaveLength(0);
+    },
+  );
+
   it('runs a full invoke → status → settle lifecycle through the broker client', async () => {
     await start();
     const broker = client();

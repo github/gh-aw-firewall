@@ -132,6 +132,23 @@ describe('AWF enclave MCP protocol', () => {
     expect(JSON.stringify(response)).not.toContain('isError');
   });
 
+  it('passes the exact request AbortSignal as the handler third argument', async () => {
+    const cancellation = new AbortController();
+    const handle = jest.fn((_request: unknown, respond: (json: string) => void, _options: { signal: AbortSignal }) => {
+      respond('{"status":"ok","result":true}');
+    });
+    await dispatchJsonRpc(rpc('tools/call', {
+      name: TOOL_NAME,
+      arguments: validArguments,
+    }), {
+      handlers: { [TOOL_NAME]: { handle } },
+      maxScriptBytes: 65536,
+      signal: cancellation.signal,
+    });
+    expect(handle).toHaveBeenCalledWith(validArguments, expect.any(Function), { signal: cancellation.signal });
+    expect(handle.mock.calls[0][2].signal).toBe(cancellation.signal);
+  });
+
   it.each([
     CANONICAL_ERROR_RESPONSE_JSON,
     '{"status":"unexpected"}',

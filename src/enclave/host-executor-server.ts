@@ -17,7 +17,7 @@
 import * as fs from 'fs';
 import * as net from 'net';
 import * as path from 'path';
-import { HostExecutorJournal } from './host-executor-journal';
+import { HostExecutorJournal, hostExecutorJournalDirectory } from './host-executor-journal';
 import {
   HOST_EXECUTOR_FRAME_HEADER_BYTES,
   HOST_EXECUTOR_ENTRY_ID_PATTERN,
@@ -306,6 +306,13 @@ export async function startHostExecutorServer(options: HostExecutorServerOptions
   const statusLeaseMs = options.statusLeaseMs ?? HOST_EXECUTOR_DEFAULT_STATUS_LEASE_MS;
   if (!Number.isSafeInteger(statusLeaseMs) || statusLeaseMs < 1 || statusLeaseMs > 60_000) {
     throw new Error('Host executor status lease must be between 1 and 60000 milliseconds');
+  }
+  const journalDir = hostExecutorJournalDirectory(runState);
+  const resolvedRuntimeDir = fs.realpathSync(runtimeDir);
+  if (journalDir === resolvedRuntimeDir ||
+    journalDir.startsWith(`${resolvedRuntimeDir}${path.sep}`) ||
+    resolvedRuntimeDir.startsWith(`${journalDir}${path.sep}`)) {
+    throw new Error('Host executor journal must be separate from the broker runtime directory');
   }
   const journal = new HostExecutorJournal(runState);
 
