@@ -134,9 +134,13 @@ verify_enclave_rootfs() {
   e2fsck -f -n "$image"
   debugfs -R "stat $entrypoint" "$image" 2>&1 | grep -F 'Type: regular'
   debugfs -R 'stat /usr/sbin/awf-supervisor' "$image" 2>&1 | grep -F 'Type: regular'
+  debugfs -R 'stat /dev/shm' "$image" 2>&1 | grep -F 'Type: directory'
   device_listing=$(debugfs -R 'ls -p /dev' "$image" 2>/dev/null)
-  if printf '%s\n' "$device_listing" | debugfs_listing_has_non_dot_entries; then
-    echo "unexpected embedded device found in $role enclave rootfs" >&2
+  if ! printf '%s\n' "$device_listing" | awk -F/ '
+    NF > 0 && $6 != "." && $6 != ".." &&
+      !($6 == "shm" && $2 ~ /^040/) { print; bad=1 }
+    END { exit bad ? 1 : 0 }'; then
+    echo "unexpected embedded device or directory found in $role enclave rootfs" >&2
     return 1
   fi
   role_metadata=$(debugfs -R 'cat /etc/awf/enclave-role.json' "$image" 2>/dev/null)
@@ -149,10 +153,21 @@ verify_enclave_rootfs() {
 
   for forbidden in \
     /sbin/apk \
+    /usr/bin/apk \
     /usr/bin/apt \
     /usr/bin/apt-get \
     /usr/bin/dpkg \
+    /usr/bin/rpm \
+    /usr/bin/dnf \
+    /usr/bin/yum \
+    /usr/bin/zypper \
+    /usr/bin/pacman \
+    /usr/bin/emerge \
+    /usr/bin/npm \
+    /usr/bin/npx \
+    /usr/local/bin/npm \
     /usr/local/bin/pip \
+    /usr/local/bin/pip3 \
     /etc/shadow \
     /etc/gshadow \
     /root/.git-credentials \

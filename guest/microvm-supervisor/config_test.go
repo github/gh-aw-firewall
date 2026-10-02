@@ -38,11 +38,11 @@ func TestParseBootConfigRejectsDuplicateArguments(t *testing.T) {
 }
 
 func TestParseBootConfigAcceptsWorkspaceLessNoNetwork(t *testing.T) {
-	config, err := parseBootConfig("awf.network-mode=none awf.vsock-port=1024 awf.virtiofs=seed:L3NlZWQ:ro")
+	config, err := parseBootConfig("awf.network-mode=none awf.enclave-role=script awf.vsock-port=1024 awf.virtiofs=seed:L3NlZWQ:ro")
 	if err != nil {
 		t.Fatalf("parse no-network config: %v", err)
 	}
-	if !config.NoNetwork || config.WorkspaceMount != "" || config.GuestIP != nil || len(config.VirtiofsMounts) != 1 {
+	if !config.NoNetwork || config.EnclaveRole != "script" || config.WorkspaceMount != "" || config.GuestIP != nil || len(config.VirtiofsMounts) != 1 {
 		t.Fatalf("unexpected no-network config: %#v", config)
 	}
 }
@@ -75,6 +75,7 @@ func TestParseBootConfigRejectsMixedNetworkAndWorkspace(t *testing.T) {
 	}
 	for _, cmdline := range []string{
 		"awf.network-mode=invalid " + validCmdline,
+		"awf.enclave-role=untrusted " + validCmdline,
 		"awf.network-mode= " + validCmdline,
 		"awf.vsock-port=1024",
 		"awf.network-mode=none awf.vsock-port=1024 awf.network-mode=none",

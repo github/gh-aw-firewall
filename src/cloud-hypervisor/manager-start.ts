@@ -218,7 +218,13 @@ export async function startCloudHypervisor(
     await cleanupRecord.captureRunDirectory();
     const cgroup = dependencies.createCgroup(
       paths.cgroupPath,
-      { memoryMib: config.memoryMib, vcpuCount: config.vcpuCount },
+      guestConfig?.enclaveResources
+        ? {
+            memoryMib: guestConfig.enclaveResources.memoryMiB,
+            vcpuCount: guestConfig.enclaveResources.vcpuCount,
+            cpuQuotaMilli: guestConfig.enclaveResources.cpuQuotaMilli,
+          }
+        : { memoryMib: config.memoryMib, vcpuCount: config.vcpuCount },
     );
     context.setCgroup(cgroup);
     await cgroup.setup();
@@ -306,7 +312,11 @@ export async function startCloudHypervisor(
         context.setVirtiofsd(virtiofsd);
         try {
           context.setFsDevices(
-            await virtiofsd.start(guestConfig.exports, guestConfig.mountEnforcement),
+            await virtiofsd.start(
+              guestConfig.exports,
+              guestConfig.mountEnforcement,
+              guestConfig.enclaveResources?.writableStorageBytes,
+            ),
           );
           await cleanupRecord.captureVirtiofsdResources();
         } catch (error) {
@@ -322,6 +332,9 @@ export async function startCloudHypervisor(
         paths,
         networkPlan,
         ...(guestConfig ? { guestConfig: { ...guestConfig, identity: guestIdentity } } : {}),
+        ...(guestConfig?.enclaveResources
+          ? { enclaveResources: guestConfig.enclaveResources }
+          : {}),
         fsDevices: context.getFsDevices(),
       }));
       return client;

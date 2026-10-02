@@ -178,6 +178,21 @@ export interface CloudHypervisorManagerGuestConfig {
    * this to null because their selected seed/output exports are not a workspace.
    */
   readonly workspaceMount?: '/workspace' | null;
+  readonly enclaveResources?: CloudHypervisorEnclaveResourceProfile;
+}
+
+export interface CloudHypervisorEnclaveResourceProfile {
+  readonly role: 'script' | 'agent';
+  readonly memoryMiB: number;
+  readonly vcpuCount: number;
+  readonly cpuQuotaMilli: number;
+  readonly maxProcesses: number;
+  readonly tmpfsBytes: number;
+  readonly maxFileBytes: number;
+  readonly maxOpenFiles: number;
+  readonly writableStorageBytes: number;
+  readonly uid: number;
+  readonly gid: number;
 }
 
 export interface CloudHypervisorIdentity {

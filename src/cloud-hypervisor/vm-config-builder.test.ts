@@ -3,6 +3,7 @@ import { createCloudHypervisorRunPaths } from './manager-types';
 import { buildCloudHypervisorVmConfig } from './vm-config-builder';
 import { createCloudHypervisorOptions as config } from './test-fixtures.test-utils';
 import { createTestNetworkPlan } from './manager.test-utils';
+import { CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES } from './workload-profile';
 
 function networkPlan(): MicrovmNetworkPlan {
   return createTestNetworkPlan();
@@ -48,6 +49,56 @@ describe('buildCloudHypervisorVmConfig', () => {
     expect(vmConfig.landlock_rules).not.toEqual(expect.arrayContaining([
       expect.objectContaining({ path: '/dev/net/tun' }),
     ]));
+  });
+
+  it('applies only the closed enclave VM budget and boots its rootfs read-only', () => {
+    const resources = CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES.script;
+    const vmConfig = buildCloudHypervisorVmConfig({
+      config: config({ vcpuCount: 8, memoryMib: 4096 }),
+      paths,
+      guestConfig: {
+        exports: [{
+          tag: 'enclave-seed',
+          source: '/seed',
+          target: '/input-seed',
+          mode: 'ro',
+        }],
+        supervisorBinaryPath: '/opt/awf-supervisor',
+        supervisorSha256: 'a'.repeat(64),
+        workspaceMount: null,
+        enclaveResources: resources,
+      },
+      enclaveResources: resources,
+    });
+
+    expect(vmConfig.cpus).toEqual({ boot_vcpus: 1, max_vcpus: 1 });
+    expect(vmConfig.memory.size).toBe(768 * 1024 * 1024);
+    expect(vmConfig.disks[0].readonly).toBe(true);
+    expect(vmConfig.payload.cmdline).toContain('awf.enclave-role=script');
+    expect(vmConfig.payload.cmdline).toContain(' ro ');
+    expect(vmConfig.payload.cmdline).not.toContain(' rw ');
+  });
+
+  it('rejects a caller-increased enclave VM budget', () => {
+    const trusted = CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES.script;
+    const resources = { ...trusted, memoryMiB: trusted.memoryMiB + 1 };
+    expect(() => buildCloudHypervisorVmConfig({
+      config: config(),
+      paths,
+      guestConfig: {
+        exports: [{
+          tag: 'enclave-seed',
+          source: '/seed',
+          target: '/input-seed',
+          mode: 'ro',
+        }],
+        supervisorBinaryPath: '/opt/awf-supervisor',
+        supervisorSha256: 'a'.repeat(64),
+        workspaceMount: null,
+        enclaveResources: resources,
+      },
+      enclaveResources: resources,
+    })).toThrow(/closed guest resource profile/);
   });
 
   it('adds virtio-fs, vsock and supervisor cmdline with a guest config', () => {

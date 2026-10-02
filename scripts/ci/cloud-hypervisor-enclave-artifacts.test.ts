@@ -90,10 +90,13 @@ describe('Cloud Hypervisor enclave rootfs artifacts', () => {
     expect(build).toContain('"$tree/sbin/apk"');
     expect(build).toContain('"$tree/usr/bin/apt"');
     expect(build).toContain('"$tree/usr/bin/dpkg"');
+    expect(build).toContain('-name npm -o -name npx -o -name corepack');
+    expect(build).toContain('-name rpm -o -name dnf -o -name yum');
     expect(build).toContain("test -z \"$(sudo find \"$tree/awf/seed\" -mindepth 1 -print -quit)\"");
     expect(build).toContain('sudo chmod 01777 "$tree/tmp"');
     expect(build).toContain('sudo chown -R 0:0 "$tree"');
-    expect(build).toContain('"$tree/dev" "$tree/proc" "$tree/sys" -mindepth 1');
+    expect(build).toContain('"$tree/proc" "$tree/sys" -mindepth 1');
+    expect(build).toContain('"$tree/dev" -mindepth 1 ! -path "$tree/dev/shm"');
   });
 
   it('verifies role, size, digest, compatibility, entrypoint, and forbidden paths', () => {
@@ -112,6 +115,8 @@ describe('Cloud Hypervisor enclave rootfs artifacts', () => {
       expect(verify).toContain(field);
     }
     expect(verify).toContain('forbidden enclave rootfs path present');
+    expect(verify).toContain('/usr/bin/apt');
+    expect(verify).toContain('/usr/bin/dpkg');
     expect(verify).toContain('embedded repository seed found');
     expect(verify).toContain('NF < 7 || ($6 != "." && $6 != "..")');
     expect(verify).toContain(

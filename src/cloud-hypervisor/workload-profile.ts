@@ -12,6 +12,7 @@ import {
 import type { MicrovmControlPeer } from '../microvm/network';
 import type {
   CloudHypervisorManagerGuestConfig,
+  CloudHypervisorEnclaveResourceProfile,
   CloudHypervisorWorkloadIdentity,
 } from './manager-types';
 import { validateCloudHypervisorExports } from './exports';
@@ -82,6 +83,7 @@ export interface CloudHypervisorScriptEnclaveProfile
   readonly network: CloudHypervisorNoNetworkProfile;
   readonly exportPlan: CloudHypervisorEnclaveExportPlan;
   readonly guest: CloudHypervisorManagerGuestConfig;
+  readonly resources: CloudHypervisorEnclaveResourceProfile;
   readonly rawOutput: 'discard';
 }
 
@@ -96,6 +98,7 @@ export interface CloudHypervisorAgentEnclaveProfile
   readonly network: CloudHypervisorEnclaveAgentNetworkProfile;
   readonly exportPlan: CloudHypervisorEnclaveExportPlan;
   readonly guest: CloudHypervisorManagerGuestConfig;
+  readonly resources: CloudHypervisorEnclaveResourceProfile;
   readonly rawOutput: 'discard';
 }
 
@@ -110,6 +113,36 @@ export type CloudHypervisorLaunchableWorkloadProfile =
 
 const SAFE_IDENTITY = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/;
 const SAFE_INTERFACE = /^[A-Za-z0-9_.-]{1,15}$/;
+const MIB = 1024 * 1024;
+
+export const CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES = Object.freeze({
+  script: Object.freeze({
+    role: 'script',
+    memoryMiB: 768,
+    vcpuCount: 1,
+    cpuQuotaMilli: 500,
+    maxProcesses: 47,
+    tmpfsBytes: 256 * MIB,
+    maxFileBytes: 512 * MIB,
+    maxOpenFiles: 1024,
+    writableStorageBytes: 1024 * MIB,
+    uid: 65534,
+    gid: 65534,
+  }),
+  agent: Object.freeze({
+    role: 'agent',
+    memoryMiB: 768,
+    vcpuCount: 1,
+    cpuQuotaMilli: 500,
+    maxProcesses: 47,
+    tmpfsBytes: 96 * MIB,
+    maxFileBytes: 256 * MIB,
+    maxOpenFiles: 1024,
+    writableStorageBytes: 512 * MIB,
+    uid: 65534,
+    gid: 65534,
+  }),
+}) satisfies Readonly<Record<'script' | 'agent', CloudHypervisorEnclaveResourceProfile>>;
 
 export function createPrimaryAgentCloudHypervisorProfile(options: {
   readonly network: Omit<CloudHypervisorPrimaryNetworkProfile, 'mode'>;
@@ -141,8 +174,10 @@ export function createScriptEnclaveCloudHypervisorProfile(options: {
     rootfsRole: 'script-enclave',
     network: { mode: 'none' },
     exportPlan: options.exportPlan,
+    resources: CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES.script,
     guest: {
       ...options.guest,
+      enclaveResources: CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES.script,
       exports: validateCloudHypervisorEnclaveExportPlan(options.exportPlan, 'script', {
         entryId: options.enclaveId,
         invocationId: options.invocationId,
@@ -179,8 +214,10 @@ export function createAgentEnclaveCloudHypervisorProfile(options: {
       ...(options.githubDataPlane ? { githubDataPlane: options.githubDataPlane } : {}),
     },
     exportPlan: options.exportPlan,
+    resources: CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES.agent,
     guest: {
       ...options.guest,
+      enclaveResources: CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES.agent,
       exports: validateCloudHypervisorEnclaveExportPlan(options.exportPlan, 'agent', {
         entryId: options.enclaveId,
         invocationId: options.invocationId,
@@ -207,6 +244,7 @@ export function validateCloudHypervisorWorkloadProfile(
     'network',
     'guest',
     'exportPlan',
+    'resources',
     'rawOutput',
   ],
     'workload profile');
@@ -230,7 +268,8 @@ export function validateCloudHypervisorWorkloadProfile(
       if (
         !profile.identity.invocationId ||
         profile.network.mode !== 'none' ||
-        profile.rawOutput !== 'discard'
+        profile.rawOutput !== 'discard' ||
+        !sameResourceProfile(profile.resources, CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES.script)
       ) {
         throw new Error('Contradictory Cloud Hypervisor script-enclave workload profile');
       }
@@ -241,7 +280,8 @@ export function validateCloudHypervisorWorkloadProfile(
       if (
         !profile.identity.invocationId ||
         profile.network.mode !== 'enclave-agent' ||
-        profile.rawOutput !== 'discard'
+        profile.rawOutput !== 'discard' ||
+        !sameResourceProfile(profile.resources, CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES.agent)
       ) {
         throw new Error('Contradictory Cloud Hypervisor agent-enclave workload profile');
       }
@@ -306,6 +346,16 @@ export function assertCloudHypervisorWorkloadLaunchable(
   }
 }
 
+function sameResourceProfile(
+  actual: CloudHypervisorEnclaveResourceProfile | undefined,
+  expected: CloudHypervisorEnclaveResourceProfile,
+): boolean {
+  if (!actual || typeof actual !== 'object') return false;
+  const keys = Object.keys(expected) as (keyof CloudHypervisorEnclaveResourceProfile)[];
+  return Object.keys(actual).length === keys.length &&
+    keys.every((key) => actual[key] === expected[key]);
+}
+
 function validateGuest(profile: CloudHypervisorWorkloadProfile): void {
   if (profile.kind === 'primary-agent' && profile.guest === undefined) return;
   if (!profile.guest || typeof profile.guest !== 'object') {
@@ -319,6 +369,7 @@ function validateGuest(profile: CloudHypervisorWorkloadProfile): void {
     'vsockPort',
     'identity',
     'workspaceMount',
+    'enclaveResources',
   ], `${profile.kind} guest configuration`);
   if (
     !path.isAbsolute(profile.guest.supervisorBinaryPath) ||
@@ -339,9 +390,13 @@ function validateGuest(profile: CloudHypervisorWorkloadProfile): void {
     throw new Error(`Cloud Hypervisor ${profile.kind} must not declare a primary workspace mount`);
   }
   if (profile.kind !== 'primary-agent') {
+    if (!sameResourceProfile(profile.guest.enclaveResources, profile.resources)) {
+      throw new Error(`Cloud Hypervisor ${profile.kind} guest resource profile is missing or inconsistent`);
+    }
     if (profile.guest.mountEnforcement !== undefined) {
       throw new Error(`Cloud Hypervisor ${profile.kind} must use its closed export access modes`);
     }
+
     const role = profile.kind === 'script-enclave' ? 'script' : 'agent';
     const plannedExports = validateCloudHypervisorEnclaveExportPlan(profile.exportPlan, role, {
       entryId: profile.identity.ownerId,

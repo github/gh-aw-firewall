@@ -217,6 +217,7 @@ export function computeCloudHypervisorLandlockRules(
 export interface CloudHypervisorResourceLimits {
   readonly memoryMib: number;
   readonly vcpuCount: number;
+  readonly cpuQuotaMilli?: number;
 }
 
 export interface CloudHypervisorCgroupLimits {
@@ -281,8 +282,22 @@ const defaultCgroupDependencies: CloudHypervisorCgroupDependencies = {
 export function computeCloudHypervisorCgroupLimits(
   limits: CloudHypervisorResourceLimits,
 ): CloudHypervisorCgroupLimits {
+  if (
+    !Number.isSafeInteger(limits.memoryMib) ||
+    limits.memoryMib < 1 ||
+    !Number.isSafeInteger(limits.vcpuCount) ||
+    limits.vcpuCount < 1 ||
+    (limits.cpuQuotaMilli !== undefined &&
+      (!Number.isSafeInteger(limits.cpuQuotaMilli) ||
+        limits.cpuQuotaMilli < 1 ||
+        limits.cpuQuotaMilli > limits.vcpuCount * 1000))
+  ) {
+    throw new Error('Cloud Hypervisor cgroup resource limits are invalid');
+  }
   const memoryMaxBytes = (limits.memoryMib + CGROUP_MEMORY_HEADROOM_MIB) * 1024 * 1024;
-  const cpuQuotaUs = limits.vcpuCount * CGROUP_V2_PERIOD_US + CGROUP_CPU_HEADROOM_QUOTA_US;
+  const cpuQuotaUs = limits.cpuQuotaMilli === undefined
+    ? limits.vcpuCount * CGROUP_V2_PERIOD_US + CGROUP_CPU_HEADROOM_QUOTA_US
+    : limits.cpuQuotaMilli * CGROUP_V2_PERIOD_US / 1000;
   return {
     memoryMax: String(memoryMaxBytes),
     cpuMax: `${cpuQuotaUs} ${CGROUP_V2_PERIOD_US}`,

@@ -1,4 +1,5 @@
 import {
+  CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES,
   assertCloudHypervisorWorkloadLaunchable,
   createAgentEnclaveCloudHypervisorProfile,
   createPrimaryAgentCloudHypervisorProfile,
@@ -219,6 +220,15 @@ describe('Cloud Hypervisor workload profiles', () => {
   });
 
   it.each([
+    ['script-enclave', scriptProfile, 'script'],
+    ['agent-enclave', agentProfile, 'agent'],
+  ] as const)('pins a closed %s resource budget', (_kind, create, role) => {
+    const profile = create();
+    expect(profile.resources).toEqual(CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES[role]);
+    expect(profile.guest.enclaveResources).toBe(profile.resources);
+  });
+
+  it.each([
     [
       'a contradictory primary output policy',
       primaryProfile,
@@ -274,6 +284,12 @@ describe('Cloud Hypervisor workload profiles', () => {
       scriptProfile,
       (profile: Record<string, any>) => { profile.guest.vsockPort = 0; },
       /vsock port must be in 1-65535/,
+    ],
+    [
+      'an increased enclave memory budget',
+      scriptProfile,
+      (profile: Record<string, any>) => { profile.resources.memoryMiB += 1; },
+      /Contradictory Cloud Hypervisor script-enclave/,
     ],
     [
       'an unknown guest identity field',

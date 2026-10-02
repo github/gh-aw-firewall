@@ -263,14 +263,23 @@ build_enclave_rootfs() {
     -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
   sudo mkdir -p \
     "$tree/dev" \
+    "$tree/dev/shm" \
     "$tree/proc" \
     "$tree/sys" \
     "$tree/run" \
     "$tree/tmp" \
+    "$tree/query" \
+    "$tree/input-seed" \
+    "$tree/input-request" \
+    "$tree/output" \
+    "$tree/runtime" \
+    "$tree/session-handoff" \
+    "$tree/session-state" \
     "$tree/awf/seed" \
     "$tree/awf/out" \
     "$tree/etc/awf"
-  test -z "$(sudo find "$tree/dev" "$tree/proc" "$tree/sys" -mindepth 1 -print -quit)"
+  test -z "$(sudo find "$tree/proc" "$tree/sys" -mindepth 1 -print -quit)"
+  test -z "$(sudo find "$tree/dev" -mindepth 1 ! -path "$tree/dev/shm" -print -quit)"
   sudo install -m 0755 "$supervisor" "$tree/usr/sbin/awf-supervisor"
 
   # Package-management and image-build tooling is never part of an enclave
@@ -287,6 +296,12 @@ build_enclave_rootfs() {
     "$tree/usr/local/bin/pip3" \
     "$tree/etc/shadow" \
     "$tree/etc/gshadow"
+  sudo find "$tree" -xdev \( -type f -o -type l \) \
+    \( -name apk -o -name apt -o -name apt-cache -o -name apt-get -o -name apt-mark \
+       -o -name dpkg -o -name dpkg-deb -o -name dpkg-query \
+       -o -name rpm -o -name dnf -o -name yum -o -name zypper -o -name pacman -o -name emerge \
+       -o -name pip -o -name pip3 -o -name pipx -o -name npm -o -name npx -o -name corepack \
+       -o -name yarn -o -name pnpm -o -name gem -o -name bundle \) -delete
   sudo find "$tree/usr/bin" -maxdepth 1 \
     \( -name 'apt*' -o -name 'dpkg*' \) -delete
   sudo find "$tree/usr/local/bin" -maxdepth 1 \

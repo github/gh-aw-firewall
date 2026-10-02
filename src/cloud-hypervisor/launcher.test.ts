@@ -208,6 +208,26 @@ describe('CloudHypervisorCgroup', () => {
     );
   });
 
+  it('enforces the exact fractional CPU budget for an enclave without VMM headroom', async () => {
+    const deps = dependencies();
+    const cgroup = new CloudHypervisorCgroup(
+      '/sys/fs/cgroup/awf-cloud-hypervisor/enclave-1',
+      { memoryMib: 768, vcpuCount: 1, cpuQuotaMilli: 500 },
+      deps,
+    );
+    await cgroup.setup();
+
+    expect(cgroup.expectedLimits().cpuMax).toBe('50000 100000');
+    expect(deps.writeFile).toHaveBeenCalledWith(
+      '/sys/fs/cgroup/awf-cloud-hypervisor/enclave-1/cpu.max',
+      '50000 100000',
+    );
+    expect(() => new CloudHypervisorCgroup(
+      '/sys/fs/cgroup/awf-cloud-hypervisor/invalid',
+      { memoryMib: 768, vcpuCount: 1, cpuQuotaMilli: 1001 },
+    ).expectedLimits()).toThrow(/resource limits are invalid/);
+  });
+
   it('assigns a PID into cgroup.procs and rejects invalid PIDs', async () => {
     const deps = dependencies();
     const cgroup = new CloudHypervisorCgroup('/sys/fs/cgroup/awf-cloud-hypervisor/run-1', { memoryMib: 512, vcpuCount: 2 }, deps);

@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"syscall"
@@ -85,11 +86,35 @@ func runSupervisorWithCmdline(cmdline string, listen func(uint32) (*vsockListene
 	if err != nil {
 		return err
 	}
+	if config.EnclaveRole != "" {
+		runtime.LockOSThread()
+	}
 	if err := mountConfiguredFilesystems(config); err != nil {
 		return err
 	}
+	if config.EnclaveRole != "" {
+		profile, err := enclaveResourceProfileForRole(config.EnclaveRole)
+		if err != nil {
+			return err
+		}
+		if err := mountEnclaveTmpfs(profile); err != nil {
+			return err
+		}
+		if err := applyEnclaveRlimits(profile); err != nil {
+			return err
+		}
+	}
 	if err := configureNetwork(config); err != nil {
 		return err
+	}
+	if config.EnclaveRole != "" {
+		profile, err := enclaveResourceProfileForRole(config.EnclaveRole)
+		if err != nil {
+			return err
+		}
+		if err := dropEnclaveSupervisorPrivileges(profile); err != nil {
+			return err
+		}
 	}
 	listener, err := listen(config.VsockPort)
 	if err != nil {
@@ -404,6 +429,15 @@ func (s *session) start(frame Frame) error {
 	if frame.UID > int64(^uint32(0)) || frame.GID > int64(^uint32(0)) {
 		return fmt.Errorf("uid and gid must fit Linux credential limits")
 	}
+	if s.config.EnclaveRole != "" {
+		profile, err := enclaveResourceProfileForRole(s.config.EnclaveRole)
+		if err != nil {
+			return err
+		}
+		if frame.UID != int64(profile.uid) || frame.GID != int64(profile.gid) {
+			return typedError{errorInvalidRequest, "enclave uid and gid must match the fixed guest identity"}
+		}
+	}
 	workspace := s.config.WorkspaceMount
 	if s.config.NoNetwork {
 		workspace = "/"
@@ -429,10 +463,23 @@ func (s *session) start(frame Frame) error {
 		cancel()
 		return err
 	}
-	command := exec.Command(resolvedCommand, frame.Argv[1:]...)
+	var command *exec.Cmd
+	if s.config.EnclaveRole != "" {
+		command = exec.Command(
+			"/usr/sbin/awf-supervisor",
+			append([]string{"--awf-enclave-exec", s.config.EnclaveRole, resolvedCommand, frame.Argv[0]}, frame.Argv[1:]...)...,
+		)
+	} else {
+		command = exec.Command(resolvedCommand, frame.Argv[1:]...)
+	}
 	command.Dir = cwd
 	command.Env = environment(frame.Env)
-	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true, Credential: &syscall.Credential{Uid: uint32(frame.UID), Gid: uint32(frame.GID)}}
+	command.SysProcAttr = &syscall.SysProcAttr{
+		Setpgid: true,
+		Credential: &syscall.Credential{
+			Uid: uint32(frame.UID), Gid: uint32(frame.GID), NoSetGroups: true,
+		},
+	}
 	stdin, err := command.StdinPipe()
 	if err != nil {
 		cancel()

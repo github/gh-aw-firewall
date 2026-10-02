@@ -64,6 +64,7 @@ export interface VirtiofsdDependencies
   runTool(command: string, args: readonly string[]): Promise<void>;
   captureTool(command: string, args: readonly string[]): Promise<string>;
   statPath(filePath: string): Promise<MountTreeStats>;
+  statWritableFilesystem(filePath: string): Promise<{ device: string; capacityBytes: number }>;
   realpath(filePath: string): Promise<string>;
   readMountInfo(): Promise<string>;
 }
@@ -109,6 +110,17 @@ const defaultDependencies: VirtiofsdDependencies = {
     return result.stdout;
   },
   statPath: fs.lstat,
+  statWritableFilesystem: async (filePath) => {
+    const [stat, filesystem] = await Promise.all([
+      fs.stat(filePath, { bigint: true }),
+      fs.statfs(filePath, { bigint: true }),
+    ]);
+    const capacityBytes = filesystem.blocks * filesystem.bsize;
+    if (capacityBytes > BigInt(Number.MAX_SAFE_INTEGER)) {
+      throw new Error(`Writable enclave filesystem capacity is not safely representable: ${filePath}`);
+    }
+    return { device: String(stat.dev), capacityBytes: Number(capacityBytes) };
+  },
   realpath: fs.realpath,
   readMountInfo: () => fs.readFile('/proc/self/mountinfo', 'utf8'),
   sleep: (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
@@ -155,9 +167,13 @@ export class VirtiofsdManager {
   async start(
     exports: readonly CloudHypervisorDirectoryExport[],
     enforcement?: VirtiofsdMountEnforcement,
+    writableStorageLimitBytes?: number,
   ): Promise<VirtiofsdDevice[]> {
     try {
       assertPlansMatchExports(enforcement, exports);
+      if (writableStorageLimitBytes !== undefined) {
+        await this.assertWritableStorageBound(exports, writableStorageLimitBytes);
+      }
       for (const [index, directoryExport] of exports.entries()) {
         await this.startOne(directoryExport, index, selectMountPlan(enforcement, directoryExport.tag));
       }
@@ -176,6 +192,32 @@ export class VirtiofsdManager {
         );
       }
       throw error;
+    }
+  }
+
+  private async assertWritableStorageBound(
+    exports: readonly CloudHypervisorDirectoryExport[],
+    maximumBytes: number,
+  ): Promise<void> {
+    if (!Number.isSafeInteger(maximumBytes) || maximumBytes < 1) {
+      throw new Error('Cloud Hypervisor enclave writable-storage limit is invalid');
+    }
+    const writable = exports.filter((entry) => entry.mode === 'rw');
+    if (writable.length === 0) {
+      throw new Error('Cloud Hypervisor enclave requires bounded writable exports');
+    }
+    const filesystems = await Promise.all(writable.map(({ source }) =>
+      this.dependencies.statWritableFilesystem(source)));
+    const first = filesystems[0];
+    if (filesystems.some(({ device, capacityBytes }) =>
+      device !== first.device || capacityBytes !== first.capacityBytes)) {
+      throw new Error('Cloud Hypervisor enclave writable exports must share one bounded host filesystem');
+    }
+    if (first.capacityBytes > maximumBytes) {
+      throw new Error(
+        `Cloud Hypervisor enclave writable export filesystem capacity ${first.capacityBytes} ` +
+        `exceeds its ${maximumBytes}-byte limit`,
+      );
     }
   }
 

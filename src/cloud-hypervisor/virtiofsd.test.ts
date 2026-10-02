@@ -109,6 +109,10 @@ function dependencies(
       isFile: () => false,
       isSymbolicLink: () => false,
     }),
+    statWritableFilesystem: jest.fn().mockResolvedValue({
+      device: '8:1',
+      capacityBytes: 1024,
+    }),
     realpath: jest.fn(async (filePath: string) => filePath),
     readFile,
     readlink: jest.fn(async (filePath: string) => {
@@ -167,6 +171,28 @@ const enforcement = {
 };
 
 describe('VirtiofsdManager', () => {
+  it('requires all writable enclave exports to use one filesystem within the storage budget', async () => {
+    const deps = dependencies();
+    const boundedManager = manager(deps);
+
+    await expect(boundedManager.start([workspace], undefined, 2048)).resolves.toHaveLength(1);
+    await boundedManager.stop();
+
+    await expect(manager(dependencies({
+      statWritableFilesystem: jest.fn().mockResolvedValue({
+        device: '8:1',
+        capacityBytes: 4096,
+      }),
+    })).start([workspace], undefined, 2048)).rejects.toThrow(/exceeds its .*byte limit/);
+
+    await expect(manager(dependencies({
+      statWritableFilesystem: jest.fn()
+        .mockResolvedValueOnce({ device: '8:1', capacityBytes: 1024 })
+        .mockResolvedValueOnce({ device: '8:2', capacityBytes: 1024 }),
+    })).start([workspace, { ...workspace, tag: 'another', source: '/host/other' }], undefined, 2048))
+      .rejects.toThrow(/share one bounded host filesystem/);
+  });
+
   it('uses explicit sandbox, seccomp, cache, and inode policy', () => {
     expect(buildVirtiofsdArgs(cache, '/run/awf/cache.sock', '/run/awf-ro/cache', {
       workspaceIdentity: WORKSPACE_IDENTITY,
