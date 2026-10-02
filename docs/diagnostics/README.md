@@ -64,6 +64,7 @@ npm run diagnostics:check                          # fail if generated output is
 |---|---|---|---|---|
 | A1 | runner | Bind-mounted files are missing inside containers on ARC / DinD split filesystems | workaround | [`findings/runner/A1.json`](./findings/runner/A1.json) |
 | A28 | runner | ARC/DinD streaming logs target a read-only parent mount | workaround | [`findings/runner/A28.json`](./findings/runner/A28.json) |
+| A29 | runner | ARC/DinD api-proxy token-usage log not found at /tmp/gh-aw | workaround | [`findings/runner/A29.json`](./findings/runner/A29.json) |
 | A4 | runner | capsh, /bin/bash, or node missing inside the DinD chroot | workaround | [`findings/runner/A4.json`](./findings/runner/A4.json) |
 | RT-001 | runtime | Alternative container runtime rejects the AWF agent container configuration | needs-evidence | [`findings/runtime/RT-001.json`](./findings/runtime/RT-001.json) |
 | NET-001 | network | Squid denies a request because the domain is not in the allowlist | workaround | [`findings/network/NET-001.json`](./findings/network/NET-001.json) |
@@ -84,6 +85,9 @@ npm run diagnostics:check                          # fail if generated output is
 | Streaming log write fails with read-only file system | A28 | runner | workaround |
 | A successful engine run becomes a failure under arc-dind | A28 | runner | workaround |
 | Safe outputs are missing after a streaming engine run | A28 | runner | workaround |
+| token-usage.jsonl is missing for post-run consumers on arc-dind | A29 | runner | workaround |
+| gh-aw.aic / gen_ai.usage.* telemetry is absent on arc-dind | A29 | runner | workaround |
+| The run succeeds but token-usage telemetry is missing | A29 | runner | workaround |
 | capsh: not found | A4 | runner | workaround |
 | /bin/bash: no such file or directory during chroot startup | A4 | runner | workaround |
 | node: not found when the harness binary starts | A4 | runner | workaround |

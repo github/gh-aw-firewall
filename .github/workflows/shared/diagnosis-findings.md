@@ -15,6 +15,9 @@ Match the narrowest finding ID. When nothing matches, say so and request the sma
 | Streaming log write fails with read-only file system | A28 | runner | workaround |
 | A successful engine run becomes a failure under arc-dind | A28 | runner | workaround |
 | Safe outputs are missing after a streaming engine run | A28 | runner | workaround |
+| token-usage.jsonl is missing for post-run consumers on arc-dind | A29 | runner | workaround |
+| gh-aw.aic / gen_ai.usage.* telemetry is absent on arc-dind | A29 | runner | workaround |
+| The run succeeds but token-usage telemetry is missing | A29 | runner | workaround |
 | capsh: not found | A4 | runner | workaround |
 | /bin/bash: no such file or directory during chroot startup | A4 | runner | workaround |
 | node: not found when the harness binary starts | A4 | runner | workaround |
@@ -70,6 +73,19 @@ Match the narrowest finding ID. When nothing matches, say so and request the sma
 - **Safe probe:** `findmnt -T "${RUNNER_TEMP}/gh-aw" -o TARGET,OPTIONS; findmnt -T "${RUNNER_TEMP}/gh-aw/sandbox/agent" -o TARGET,OPTIONS` → The parent mount is read-only and the sandbox/agent mount is writable; no files are created or modified.
 - **Action:** Use ${RUNNER_TEMP}/gh-aw/sandbox/agent/pi-streaming.jsonl consistently for the streaming-log writer, parser, and artifact upload. Upgrade AWF to the version containing github/gh-aw-firewall#9188; relocating Pi's log in the gh-aw compiler remains unresolved.
 - **Provenance:** issue: ARC/DinD streaming log write failure (https://github.com/github/gh-aw-firewall/issues/9183) · pull-request: Retain writable sandbox/agent mount (https://github.com/github/gh-aw-firewall/pull/9188) · doc: ARC / DinD documentation (docs/arc-dind.md) · test: src/services/agent-volumes-arc-dind-staging.test.ts
+- **Owner:** @github/gh-aw-firewall-maintainers · **Review by:** 2027-03-31
+
+### A29 — ARC/DinD api-proxy token-usage log not found at /tmp/gh-aw
+
+- **Boundary:** runner · **Status:** workaround
+- **Affects:** runner=arc-dind, runtime=any, provider=any, auth=any
+- **Versions:** introduced=unknown, fixed=unknown
+- **Symptoms:** token-usage.jsonl is missing for post-run consumers on arc-dind · gh-aw.aic / gen_ai.usage.* telemetry is absent on arc-dind · The run succeeds but token-usage telemetry is missing
+- **Discriminating conditions:** runner.topology is arc-dind · The compiler passes ${RUNNER_TEMP}/gh-aw log directories but the consumer hardcodes /tmp/gh-aw · A second sub-case uses --docker-host-path-prefix /tmp with --proxy-logs-dir outside /tmp, rewriting the bind source to /tmp<dir>
+- **Root cause:** The token-usage file lives under the runner/daemon-visible log directory, not a fixed /tmp/gh-aw path. Consumers cannot predict that path. With a shared /tmp prefix and a log directory outside /tmp, AWF also reported and repaired the original, empty directory rather than the rewritten bind source.
+- **Safe probe:** `printf '%s\n' "${AWF_TOKEN_USAGE_LOG:-unset}"; ls -l "${AWF_TOKEN_USAGE_LOG:-/dev/null}"` → After a patched AWF run that writes token usage, AWF_TOKEN_USAGE_LOG is set in a later job step and the file exists; no file contents or credentials are printed.
+- **Action:** Upgrade AWF to v0.28.31 or newer, which includes github/gh-aw-firewall#9357. Read $AWF_TOKEN_USAGE_LOG (or the 'Token usage log available at:' log line) instead of hardcoding /tmp/gh-aw. AWF exports the path to $GITHUB_ENV only when the file exists and pre-creates the rewritten api-proxy log directory with mode 0777 and a warning. gh-aw's parse_token_usage.cjs must still adopt AWF_TOKEN_USAGE_LOG; the end-to-end fix remains unresolved.
+- **Provenance:** issue: Missing token-usage telemetry on ARC/DinD (https://github.com/github/gh-aw-firewall/issues/9352) · pull-request: Report and export the api-proxy token-usage log path (released in v0.28.31) (https://github.com/github/gh-aw-firewall/pull/9357) · doc: Locating API proxy token-usage logs (docs/arc-dind.md#locating-api-proxy-token-usage-logs) · test: src/artifact-preservation-token-usage.test.ts
 - **Owner:** @github/gh-aw-firewall-maintainers · **Review by:** 2027-03-31
 
 ### A4 — capsh, /bin/bash, or node missing inside the DinD chroot

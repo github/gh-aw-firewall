@@ -95,6 +95,15 @@ When Compose or legacy-iptables mode reports a missing bridge, an empty options 
 
 If the issue does **not** include enough evidence for a confident match, do not guess. Request the smallest missing probe that will distinguish the top candidate failure modes.
 
+For missing token-usage telemetry on arc-dind (A29), check `AWF_TOKEN_USAGE_LOG` first in a job step after AWF completes:
+
+```bash
+printf '%s\n' "${AWF_TOKEN_USAGE_LOG:-unset}"
+ls -l "${AWF_TOKEN_USAGE_LOG:-/dev/null}"
+```
+
+Expect a set variable and an existing file when token usage was written. If `$GITHUB_ENV` was unavailable, use AWF's `Token usage log available at:` log line. Do not hardcode `/tmp/gh-aw/...` or print the file contents. Upgrade to AWF v0.28.31 or newer for github/gh-aw-firewall#9357; gh-aw's `parse_token_usage.cjs` must still consume the exported path.
+
 ### 3. Match symptom → failure mode
 
 Use the imported knowledge base to map the observed error strings and environment facts to the most likely failure mode ID. Cite the matched ID and linked issue numbers in your output.
@@ -161,6 +170,7 @@ Prefer the narrowest match. Examples:
 - `a network with name awf-net exists but was not created for project`, or a missing bridge in legacy iptables mode → B27 (inspect `docker network inspect awf-net --format '{{json .Options}} {{json .Containers}}'`; an empty options map without `com.docker.network.bridge.name` and an empty containers map identify an unoccupied orphan; fixed in github/gh-aw-firewall#9130)
 - `malformed version:` from `gh pr list --search`, `gh issue list --search`, or `gh search prs or issues` in cli-proxy gh-proxy mode → C5 (fixed in github/gh-aw-firewall#9189; the later-step `GH_HOST` leak remains a gh-aw issue)
 - Streaming log write failure / `read-only file system` under `${RUNNER_TEMP}/gh-aw` on arc-dind → A28 (use `${RUNNER_TEMP}/gh-aw/sandbox/agent/pi-streaming.jsonl`; fixed in github/gh-aw-firewall#9188, compiler relocation remains unresolved)
+- `token-usage.jsonl` not found / missing `gh-aw.aic` or `gen_ai.usage.*` telemetry on arc-dind → A29 (check `AWF_TOKEN_USAGE_LOG` first; AWF path reporting fixed in github/gh-aw-firewall#9357, gh-aw parser adoption remains unresolved)
 - TLS/certificate verification failure from api-proxy against a custom `--openai-api-target`/`--anthropic-api-target` internal endpoint using a private/corporate CA → B28 (api-proxy sidecar had no custom CA trust extension point; fixed in github/gh-aw-firewall#7816 with `apiProxy.caCert`/`--api-proxy-ca-cert`)
 - `context-rebuild circuit breaker tripped` together with a failed `cd` into the expected workspace path → B29 (container-workdir not bind-mounted into the chroot; fixed in github/gh-aw-firewall#8021)
 - `awf logs summary` reports "no log sources found" after a pre-egress startup failure with no Squid `access.log` → B30 (check preserved logs dir for `awf-startup-error.json`; fixed in github/gh-aw-firewall#8023)
@@ -177,6 +187,8 @@ Prefer the narrowest match. Examples:
 If the best match is one of the known open gaps (Kata Containers runtime support, `--enable-dind` cleanup, enterprise header-injection extension points, or the remaining `GH_HOST` leak to user steps), say so explicitly instead of implying there is a shipped fix.
 
 A28 / github/gh-aw-firewall#9183 — gh-aw compiler must relocate Pi's streaming log to `sandbox/agent`.
+
+A29 / github/gh-aw-firewall#9352 — gh-aw `parse_token_usage.cjs` must consume `AWF_TOKEN_USAGE_LOG`.
 
 A13 / github/gh-aw-firewall#5693, github/gh-aw-firewall#5696 — ARC/DinD split-fs base-userland staging is **fixed in AWF v0.27.15**: set `runner.topology: "arc-dind"` in the AWF config JSON. The `sysroot-stage` init container copies the signed `build-tools` image filesystem into a `sysroot` volume mounted at `/host:ro` before the agent starts.
 

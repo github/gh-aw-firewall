@@ -8,6 +8,23 @@ const lockPath = path.join(workflowsDir, 'self-hosted-runner-doctor.lock.yml');
 const portableAgentPath = path.resolve(__dirname, '../../.github/agents/self-hosted-runner-doctor.md');
 
 describe('self-hosted runner doctor workflow config', () => {
+  it('documents A29 token-usage discovery and the remaining gh-aw parser gap', () => {
+    const source = fs.readFileSync(sourcePath, 'utf-8');
+    const shared = fs.readFileSync(sharedPath, 'utf-8');
+
+    expect(shared).toContain('| A29 | On arc-dind, post-run consumers cannot find');
+    expect(shared).toContain('**Fixed in AWF v0.28.31 (PR github/gh-aw-firewall#9357');
+    expect(shared).toContain('is rewritten to `/tmp<dir>`');
+    expect(shared).toContain('pre-creates the rewritten api-proxy log dir (mode 0777)');
+    for (const content of [shared, source]) {
+      expect(content).toContain('`token-usage.jsonl` not found / missing `gh-aw.aic` or `gen_ai.usage.*` telemetry on arc-dind');
+      expect(content).toContain('A29 / github/gh-aw-firewall#9352 — gh-aw `parse_token_usage.cjs` must consume `AWF_TOKEN_USAGE_LOG`');
+      expect(content).toContain('ls -l "${AWF_TOKEN_USAGE_LOG:-/dev/null}"');
+    }
+    expect(source).toContain('check `AWF_TOKEN_USAGE_LOG` first');
+    expect(source).toContain('Do not hardcode `/tmp/gh-aw/...` or print the file contents');
+  });
+
   it('defines a community-facing slash command workflow with the shared failure-mode import', () => {
     const source = fs.readFileSync(sourcePath, 'utf-8');
     const shared = fs.readFileSync(sharedPath, 'utf-8');

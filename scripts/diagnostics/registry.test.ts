@@ -39,6 +39,22 @@ describe('diagnosis registry', () => {
     for (const id of runnerIds) expect(id).toMatch(/^[A-D][0-9]{1,3}$/);
   });
 
+  it('finds A29 for missing ARC/DinD token-usage telemetry and retains the upstream gap', () => {
+    const result = searchFindings(loaded, {
+      text: 'token-usage.jsonl missing gh-aw.aic telemetry on arc-dind',
+      runner: 'arc-dind',
+    });
+    expect(result[0].id).toBe('A29');
+    const finding = loaded.find((entry) => entry.finding.id === result[0].id)!.finding;
+    expect(finding.status).toBe('workaround');
+    expect(finding.action).toContain('v0.28.31');
+    expect(finding.action).toContain('parse_token_usage.cjs must still adopt AWF_TOKEN_USAGE_LOG');
+    expect(finding.probe.command).toBe(
+      'printf \'%s\\n\' "${AWF_TOKEN_USAGE_LOG:-unset}"; ls -l "${AWF_TOKEN_USAGE_LOG:-/dev/null}"'
+    );
+    expect(finding.conditions.join(' ')).toContain('/tmp<dir>');
+  });
+
   it('keeps every probe read-only and secret-safe', () => {
     for (const { finding } of loaded) {
       expect(finding.probe.readOnly).toBe(true);
