@@ -220,14 +220,16 @@ profile, and limits are not expressible.
 **Responses and failures.** Success responses carry the invocation `state`
 (`running`, `cancelling`, `terminal`, `settled`), `cancelGeneration`, and, once
 terminal, `outcome`, `resultDigest`, and a result of at most 8 KiB (`success`
-only). A cancelled invocation always reports `cancelled`. An invalid or failing
-backend result reports `executor-failure` with no detail. Failure codes form a
+only). Confirmed cancellation reports `cancelled`, but cannot mask an executor
+failure. Unconfirmed cleanup remains nonterminal and closes admissions.
+A confirmed failing backend result reports `executor-failure` with no detail. Failure codes form a
 closed set: `denied`, `replayed`, `conflict`, `unknown-invocation`,
 `invalid-state`, and `closed`. Every failure before or during authentication and
 validation gets the byte-identical response `{"version":2,"ok":false,"error":"denied"}`.
 This covers framing, size, UTF-8, strict JSON, capability, run, version, type,
 unknown or prohibited fields, and value checks. Trusted-policy denials also get
-`denied`. A rejected request has no execution side effect.
+`denied`. Authorization and malformed-request rejection cause no launch side
+effects. A lifecycle journal failure also aborts existing execution safely.
 
 **Replay and idempotency.** An authenticated `requestId` is accepted at most
 once per run and replays get `replayed`. Invocation replay is keyed by
@@ -238,7 +240,8 @@ Terminal and settled invocation IDs cannot be invoked again; invocation and
 admission IDs cannot be reused under another entry. Settlement requires
 a terminal invocation and the matching digest.
 It is idempotent once settled and drops the retained result. After
-`closeAdmissions()`, `invoke` returns `closed`, while `cancel`, `status`, and
+`closeAdmissions()`, new invocations return `closed` (in-progress retries remain
+idempotent), while `cancel`, `status`, and
 `settle` keep working so the broker can drain. Request-ID and invocation tables
 are bounded. Reaching either bound closes admissions. A bounded reserve of
 request IDs keeps `cancel`, `status`, and `settle` working for draining.
@@ -250,14 +253,27 @@ information ledger before dispatch. Neither a host response nor switching roles
 resets those budgets. Host-owned invocations bypass broker workspace creation,
 local launch, artifact preservation, and output-file collection.
 
+The internal broker contract uses a read-only bind of only the listener's private
+runtime directory at `/run/awf-enclave-host-executor`, containing `executor.sock`
+and `capability`. The broker must run under the host-authorized identity without
+widening directory/socket/file permissions. Trusted run and role entry IDs must
+match the host catalog. Neither this bind nor the persistent journal is exposed
+to the primary agent or guest. Runtime/Compose activation remains disabled;
+removing the rollout gate must first validate this exact custody and shutdown
+ordering on a supported host.
+
 The host owns the invocation deadline. Authenticated status polling renews a
-bounded host-side liveness lease; broker disappearance expires the lease and
-aborts the invocation. Cancellation carries an increasing generation and affects
+15-second host-side liveness lease (trusted host-only range: 1–60,000 ms);
+broker disappearance expires the lease and aborts the invocation. The broker
+bounds each exchange to four seconds and polls every 25 ms by default.
+Cancellation carries an increasing generation and affects
 only the recorded invocation. Broker shutdown and interrupted MCP requests
 propagate cancellation instead of leaving the VM running.
 
 The host publishes terminal state only after backend execution and cleanup
-return and the terminal journal write succeeds. The broker verifies the terminal
+return and the terminal journal write succeeds. Unconfirmed cleanup remains
+nonterminal and closes admissions; it cannot be reported as a completed timeout
+or cancellation. The broker verifies the terminal
 digest (SHA-256 of JSON `[outcome, result-or-null]`) and finite result schema,
 then acknowledges the same digest with `settle`. A public success is possible
 only after a matching `settled` response. Failure, timeout, and cancellation
@@ -326,7 +342,7 @@ Host VFS policy, not a guest read/write flag, enforces exports.
 | Material | Guest visibility | Mode and lifetime |
 | --- | --- | --- |
 | Selected static seed and immutable inputs | Selected VM only | Read-only, one invocation |
-| Bounded result/output directory | Selected VM only | Writable, size-limited, removed after settlement |
+| Bounded result/output directory | Selected VM only | Writable, size-limited, removed before terminal publication |
 | Rootfs, supervisor, runtime files | VM only | Verified immutable artifacts; invocation-private mutable overlay |
 | Protected host session/audit state | None | Host executor only, mode `0600` |
 | Static GitHub data-plane identity | Agent only when configured | Read-only invocation-private file; removed on teardown |
@@ -358,12 +374,14 @@ it must not silently provide weaker isolation.
 | Guest crash or OOM | Canonical executor failure | Revoke | Same cleanup; preserve redacted cause only |
 | Broker or executor crash | Do not rerun workload automatically | Revoke during recovery | Durable record reconciles resources by boot ID, PID start time, inode/ifindex and lease |
 | mcpg/data-plane failure | Terminal failure | Revoke if minted | Same cleanup |
-| Cleanup/revocation failure | Terminal; admissions close | Retry idempotent revocation during recovery | Preserve validated recovery record; fail closed for later microVM admissions |
+| Cleanup/revocation failure | Nonterminal `cancelling`; admissions close | Retry idempotent revocation during recovery | Preserve validated recovery record; fail closed for later microVM admissions |
 
 Before allocating resources, the executor creates an invocation-labelled,
-root-owned `0600` durable recovery record under the existing Cloud Hypervisor
-recovery hierarchy. Reconciliation never trusts a name or PID alone and is
-idempotent. Settlement is written before destroying protected state.
+root-owned `0600` write-ahead resource record in the persistent host-executor
+journal, alongside the separate Cloud Hypervisor VM cleanup registry.
+Reconciliation never trusts a name or PID alone and is idempotent. Settlement
+is durably acknowledged before dropping the retained in-memory result; run and
+invocation tombstones survive.
 
 Audit records contain opaque invocation/resource identifiers, policy and
 artifact versions, timing and resource buckets, terminal state, revocation, and

@@ -685,11 +685,15 @@ describe('host executor server', () => {
     await start();
     const broker = client();
     await broker.invoke(invokeArgs);
+    await broker.cancel({ entryId: ENTRY_ID, invocationId: INVOCATION_ID, cancelGeneration: 1 });
     pending[0].resolve({ outcome: 'executor-failure', cleanupComplete: false });
     await new Promise((resolve) => setImmediate(resolve));
     expect(await broker.status({ entryId: ENTRY_ID, invocationId: INVOCATION_ID })).toEqual(
       expect.objectContaining({ state: 'cancelling' }),
     );
+    const status = await broker.status({ entryId: ENTRY_ID, invocationId: INVOCATION_ID });
+    expect(status.outcome).toBeUndefined();
+    expect(status.resultDigest).toBeUndefined();
     expect(await broker.invoke({
       ...invokeArgs, invocationId: '1'.repeat(24), admissionId: '2'.repeat(24),
     })).toEqual(expect.objectContaining({ ok: false, error: 'closed' }));
@@ -709,6 +713,56 @@ describe('host executor server', () => {
         expect.objectContaining({ ok: false, error: 'closed' }),
       );
     } finally { sync.mockRestore(); }
+  });
+
+  it('aborts cancellation and closes admissions even when every journal write fails', async () => {
+    await start();
+    const broker = client();
+    await broker.invoke(invokeArgs);
+    const writes = jest.spyOn(HostExecutorJournal.prototype, 'record').mockImplementation(() => {
+      throw new Error('persistent storage failure');
+    });
+    try {
+      expect(await broker.cancel({
+        entryId: ENTRY_ID, invocationId: INVOCATION_ID, cancelGeneration: 1,
+      })).toEqual(expect.objectContaining({ ok: false, error: 'denied' }));
+      expect(signals[0].aborted).toBe(true);
+      expect(await broker.status({ entryId: ENTRY_ID, invocationId: INVOCATION_ID })).toEqual(
+        expect.objectContaining({ state: 'cancelling' }),
+      );
+      expect(await broker.invoke({
+        ...invokeArgs, invocationId: '1'.repeat(24), admissionId: '2'.repeat(24),
+      })).toEqual(expect.objectContaining({ ok: false, error: 'closed' }));
+    } finally { writes.mockRestore(); }
+  });
+
+  it('does not disguise executor failure as cancellation and stops subsequent execution', async () => {
+    await start();
+    const broker = client();
+    await broker.invoke(invokeArgs);
+    await broker.cancel({ entryId: ENTRY_ID, invocationId: INVOCATION_ID, cancelGeneration: 1 });
+    pending[0].resolve({ outcome: 'executor-failure' });
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(await broker.status({ entryId: ENTRY_ID, invocationId: INVOCATION_ID })).toEqual(
+      expect.objectContaining({ state: 'terminal', outcome: 'executor-failure' }),
+    );
+    expect(await broker.invoke({
+      ...invokeArgs, invocationId: '1'.repeat(24), admissionId: '2'.repeat(24),
+    })).toEqual(expect.objectContaining({ ok: false, error: 'closed' }));
+  });
+
+  it('keeps backend rejection nonterminal because cleanup is unconfirmed', async () => {
+    await start({}, { backend: { execute: async () => { throw new Error('unconfirmed cleanup'); } } });
+    const broker = client();
+    await broker.invoke(invokeArgs);
+    await new Promise((resolve) => setImmediate(resolve));
+    const status = await broker.status({ entryId: ENTRY_ID, invocationId: INVOCATION_ID });
+    expect(status).toEqual(expect.objectContaining({ state: 'cancelling' }));
+    expect(status.outcome).toBeUndefined();
+    expect(status.resultDigest).toBeUndefined();
+    expect(await broker.invoke({
+      ...invokeArgs, invocationId: '1'.repeat(24), admissionId: '2'.repeat(24),
+    })).toEqual(expect.objectContaining({ ok: false, error: 'closed' }));
   });
 
   it('keeps the broker client closed to prohibited fields', async () => {

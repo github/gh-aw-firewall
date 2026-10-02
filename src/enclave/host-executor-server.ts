@@ -338,7 +338,8 @@ export async function startHostExecutorServer(options: HostExecutorServerOptions
   const finish = (record: InvocationRecord, outcome: HostExecutorOutcome, result?: string): void => {
     clearTimeout(record.deadline);
     clearTimeout(record.lease);
-    const finalOutcome: HostExecutorOutcome = record.interruptedOutcome ?? outcome;
+    const finalOutcome: HostExecutorOutcome = outcome === 'executor-failure'
+      ? 'executor-failure' : record.interruptedOutcome ?? outcome;
     const finalResult = finalOutcome === 'success' ? result : undefined;
     const digest = hostExecutorResultDigest(finalOutcome, finalResult);
     // Never publish terminal until the backend has returned after cleanup and
@@ -351,6 +352,10 @@ export async function startHostExecutorServer(options: HostExecutorServerOptions
     record.result = finalResult;
     record.resultDigest = digest;
     record.state = 'terminal';
+    if (finalOutcome === 'executor-failure') {
+      admissionsOpen = false;
+      for (const other of invocations.values()) interrupt(other, 'cancelled');
+    }
   };
 
   const interrupt = (record: InvocationRecord, outcome: 'cancelled' | 'timeout'): void => {
@@ -396,26 +401,30 @@ export async function startHostExecutorServer(options: HostExecutorServerOptions
     record.deadline = setTimeout(() => interrupt(record, 'timeout'), plan.timeoutMs);
     record.deadline.unref();
     renewLease(record);
+    const cleanupFailed = (): void => {
+      clearTimeout(record.deadline);
+      clearTimeout(record.lease);
+      admissionsOpen = false;
+      record.state = 'cancelling';
+      record.controller.abort();
+      for (const other of invocations.values()) interrupt(other, 'cancelled');
+      journal.record({
+        entryId: plan.entryId, invocationId: plan.invocationId, state: 'cleanup-pending',
+      });
+    };
     record.completion = Promise.resolve()
       .then(() => backend.execute(plan, controller.signal))
       .then(
         (outcome) => {
           if (outcome?.cleanupComplete === false) {
-            clearTimeout(record.deadline);
-            clearTimeout(record.lease);
-            admissionsOpen = false;
-            record.state = 'cancelling';
-            record.controller.abort();
-            journal.record({
-              entryId: plan.entryId, invocationId: plan.invocationId, state: 'cleanup-pending',
-            });
+            cleanupFailed();
           } else if (outcome && isValidHostExecutorResult(outcome.outcome, outcome.result)) {
             finish(record, outcome.outcome, outcome.result);
           } else {
             finish(record, 'executor-failure');
           }
         },
-        () => finish(record, 'executor-failure'),
+        cleanupFailed,
       ).catch(() => {
         // Persistence failure leaves a nonterminal tombstone; no result may
         // escape and this run may admit no more work.
@@ -451,11 +460,14 @@ export async function startHostExecutorServer(options: HostExecutorServerOptions
   const handleCancel = (request: HostExecutorCancelRequest, record: InvocationRecord): void => {
     if (request.cancelGeneration <= record.cancelGeneration) throw new RequestRejection('replayed');
     record.cancelGeneration = request.cancelGeneration;
-    journal.record({
-      entryId: record.plan.entryId, invocationId: record.plan.invocationId,
-      state: record.state, cancelGeneration: record.cancelGeneration,
-    });
-    interrupt(record, 'cancelled');
+    try {
+      journal.record({
+        entryId: record.plan.entryId, invocationId: record.plan.invocationId,
+        state: record.state, cancelGeneration: record.cancelGeneration,
+      });
+    } finally {
+      interrupt(record, 'cancelled');
+    }
   };
 
   const handleSettle = (request: HostExecutorSettleRequest, record: InvocationRecord): void => {

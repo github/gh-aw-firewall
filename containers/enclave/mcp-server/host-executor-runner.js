@@ -16,14 +16,20 @@ function createHostExecutorRunner(config, deps = {}) {
       || !/^[a-z0-9](?:[a-z0-9-]{0,62})$/.test(config.entryId || '')) {
     throw new Error('Invalid trusted host executor configuration');
   }
+  const requestTimeoutMs = deps.requestTimeoutMs ?? 4_000;
+  const pollMs = deps.pollMs ?? 25;
+  if (!Number.isSafeInteger(requestTimeoutMs) || requestTimeoutMs < 1
+      || !Number.isSafeInteger(pollMs) || pollMs < 1
+      || requestTimeoutMs + pollMs > 5_000) {
+    throw new Error('Invalid trusted host executor polling bounds');
+  }
   const client = createHostExecutorClient({
     socketPath: config.hostExecutorSocketPath,
     capabilityPath: config.hostExecutorCapabilityPath,
     runId: config.runId,
-    timeoutMs: deps.requestTimeoutMs,
+    timeoutMs: requestTimeoutMs,
   });
   const nowMs = deps.nowMs || (() => performance.now());
-  const pollMs = deps.pollMs || 25;
   const drainMs = deps.drainMs || 10_000;
   let closed = false;
 
@@ -35,7 +41,7 @@ function createHostExecutorRunner(config, deps = {}) {
   return {
     hostOwned: true,
     async assertAvailable() {
-      throw new Error('Cloud Hypervisor enclave broker execution is disabled pending supported-host real-KVM validation');
+      throw new Error('Cloud Hypervisor enclave broker execution is disabled pending supported-host real-KVM security/lifecycle validation');
     },
     async reconcileRun() {
       if (closed) throw new Error('Host executor lifecycle is unresolved');

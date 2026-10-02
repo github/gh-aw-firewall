@@ -143,14 +143,16 @@ function createExecutorHandler(params) {
     const invocationId = crypto.randomBytes(12).toString('hex');
     const cancellation = new AbortController();
     const abort = () => cancellation.abort();
-    externalSignal?.addEventListener('abort', abort);
-    if (externalSignal?.aborted) abort();
+    if (runner.hostOwned) {
+      externalSignal?.addEventListener('abort', abort);
+      if (externalSignal?.aborted) abort();
+    }
     activeCancellations.add(cancellation);
     try {
       await executeInvocation(request, respond, invocationId, cancellation.signal);
     } finally {
       activeCancellations.delete(cancellation);
-      externalSignal?.removeEventListener('abort', abort);
+      if (runner.hostOwned) externalSignal?.removeEventListener('abort', abort);
       // A dynamic invocation that reached admission must always settle its
       // reservation and revoke its identity, even if an unexpected error
       // escaped the pipeline. `settleDynamic` is a no-op once an invocation
@@ -477,7 +479,7 @@ function createExecutorHandler(params) {
       invocationsUsed += 1;
 
       const queued = lane.tail.then(() => {
-        if (!accepting || lane.closed || options.signal?.aborted) {
+        if (!accepting || lane.closed || (runner.hostOwned && options.signal?.aborted)) {
           safeRespond(CANONICAL_ERROR_RESPONSE_JSON);
           return;
         }

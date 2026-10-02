@@ -199,9 +199,11 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
           verifySnapshot: async () => undefined,
           complete: async () => undefined,
         }),
-        createArtifactSnapshot: async () => {
+        createArtifactSnapshot: async (_sources, _copy, onDirectoryCreated) => {
           const directory = path.join(root, `snapshot-${++snapshotNumber}`);
           await fs.mkdir(directory, { mode: 0o700 });
+          expect(typeof onDirectoryCreated).toBe('function');
+          await onDirectoryCreated?.(directory);
           const rootfsPath = path.join(directory, 'rootfs.ext4');
           await fs.writeFile(rootfsPath, 'fixture-rootfs', { mode: 0o400 });
           return {
@@ -617,6 +619,8 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
           snapshotRemoved = false;
           await expect(backend.execute(plan, new AbortController().signal))
             .resolves.toEqual({ outcome: 'executor-failure', cleanupComplete: false });
+          await expect(backend.execute(plan, new AbortController().signal))
+            .resolves.toEqual({ outcome: 'executor-failure' });
           managerStopError = false;
         }
         await backend.close();

@@ -1,4 +1,3 @@
-import { randomBytes } from 'crypto';
 import { constants, promises as fs } from 'fs';
 import execa from 'execa';
 import * as os from 'os';
@@ -18,6 +17,7 @@ import { HOST_EXECUTOR_MAX_RESULT_BYTES } from '../enclave/host-executor-protoco
 import {
   HostExecutorResourceJournal,
   hostExecutorJournalDirectory,
+  hostExecutorVmRunId,
   reapHostExecutorResources,
 } from '../enclave/host-executor-journal';
 import { DurableCloudHypervisorCleanupRegistry } from './cleanup-registry';
@@ -870,7 +870,7 @@ export class CloudHypervisorHostEnclaveExecutorBackend implements HostEnclaveExe
     let cleanupError: unknown;
     const pendingWork = new Set<Promise<unknown>>();
     let filesystemCleanupPromise: Promise<void> | undefined;
-    const runId = randomBytes(16).toString('hex');
+    const runId = hostExecutorVmRunId(plan);
     let resourceJournal: Awaited<ReturnType<HostEnclaveExecutorDependencies['createResourceJournal']>> | undefined;
     const cleanupInvocationFilesystem = (): Promise<void> => {
       if (filesystemCleanupPromise) return filesystemCleanupPromise;
@@ -1116,7 +1116,10 @@ export class CloudHypervisorHostEnclaveExecutorBackend implements HostEnclaveExe
         }
       }
     }
-    if (cleanupError !== undefined) return { outcome: 'executor-failure', cleanupComplete: false };
+    if (cleanupError !== undefined) {
+      this.closed = true;
+      return { outcome: 'executor-failure', cleanupComplete: false };
+    }
     return outcome;
   }
 }

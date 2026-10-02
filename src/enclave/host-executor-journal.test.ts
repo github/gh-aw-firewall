@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import {
-  HostExecutorJournal, HostExecutorResourceJournal, reapHostExecutorResources,
+  HostExecutorJournal, HostExecutorResourceJournal, reapHostExecutorResources, hostExecutorVmRunId,
 } from './host-executor-journal';
 import type { HostExecutorInvocationPlan, HostExecutorRunState } from './host-executor-server';
 import type { CleanupRegistryDependencies } from '../cloud-hypervisor/cleanup-dependencies';
@@ -15,7 +15,7 @@ describe('durable host executor journal', () => {
   let mountInfo: string;
   let dependencies: CleanupRegistryDependencies;
   let registry: CloudHypervisorCleanupRegistry;
-  const vmRunId = 'f'.repeat(32);
+  const vmRunId = () => hostExecutorVmRunId(plan);
   const tools = { ip: '/trusted/ip', umount: '/trusted/umount' };
 
   beforeEach(() => {
@@ -56,7 +56,7 @@ describe('durable host executor journal', () => {
   afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
 
   async function resourceJournal() {
-    return HostExecutorResourceJournal.create(run, plan, vmRunId, dependencies);
+    return HostExecutorResourceJournal.create(run, plan, vmRunId(), dependencies);
   }
 
   const reap = () => reapHostExecutorResources(run.journalDir!, registry, tools, dependencies);
@@ -131,6 +131,24 @@ describe('durable host executor journal', () => {
     expect(dependencies.run).not.toHaveBeenCalled();
   });
 
+  it('reconciles a closed run even if the host process is still alive', async () => {
+    const runJournal = new HostExecutorJournal(run);
+    await mountedJournal();
+    runJournal.record({ state: 'closed' });
+    await reap();
+    expect(readRecord().state).toBe('cleaned');
+    expect(fs.existsSync(plan.invocationHostDir)).toBe(false);
+  });
+
+  it('blocks restart on ambiguous storage from a closed run in the same process', async () => {
+    const runJournal = new HostExecutorJournal(run);
+    const journal = await mountedJournal();
+    await journal.prepareSnapshot();
+    runJournal.record({ state: 'closed' });
+    await expect(reap()).rejects.toThrow('Artifact staging identity is uncommitted');
+    expect(dependencies.run).not.toHaveBeenCalled();
+  });
+
   it('forwards trusted VMM account/ACL tools for complete VM recovery', async () => {
     const vmmTools = {
       ip: tools.ip, getfacl: '/trusted/getfacl', groupdel: '/trusted/groupdel',
@@ -153,7 +171,7 @@ describe('durable host executor journal', () => {
   it('retains resources with a still-pending VM record', async () => {
     await mountedJournal();
     fs.mkdirSync(path.join(root, 'vm-registry', 'pending-cleanup'), { recursive: true, mode: 0o700 });
-    fs.writeFileSync(path.join(root, 'vm-registry', 'pending-cleanup', `${vmRunId}.json`), '{}');
+    fs.writeFileSync(path.join(root, 'vm-registry', 'pending-cleanup', `${vmRunId()}.json`), '{}');
     bootId = 'restarted-boot';
     await expect(reap()).rejects.toThrow('VM cleanup must finish');
     expect(dependencies.run).not.toHaveBeenCalled();
@@ -178,18 +196,27 @@ describe('durable host executor journal', () => {
   it('does not guess ownership in the crash gap between mkdir and identity commit', async () => {
     await resourceJournal();
     fs.mkdirSync(plan.invocationHostDir, { mode: 0o700 });
+    fs.writeFileSync(path.join(plan.invocationHostDir, 'partial'), 'uncommitted directory');
     bootId = 'restarted-boot';
     await expect(reap()).rejects.toThrow('without a committed identity');
     expect(fs.existsSync(plan.invocationHostDir)).toBe(true);
+    expect(readRecord().directoryIdentity).toBeUndefined();
+    expect(readRecord().state).toBe('pending');
+    expect(fs.readFileSync(path.join(plan.invocationHostDir, 'partial'), 'utf8')).toBe('uncommitted directory');
   });
 
   it('retains unknown staging intent instead of guessing an artifact directory', async () => {
     const journal = await mountedJournal();
     await journal.prepareSnapshot();
+    const partialSnapshot = path.join(root, 'trusted-artifacts', 'run-uncommitted');
+    fs.mkdirSync(partialSnapshot, { recursive: true, mode: 0o700 });
+    fs.writeFileSync(path.join(partialSnapshot, 'rootfs.partial'), 'partial copy');
     bootId = 'restarted-boot';
     await expect(reap()).rejects.toThrow('Artifact staging identity is uncommitted');
     expect(dependencies.run).not.toHaveBeenCalled();
     expect(readRecord().state).toBe('pending');
+    expect(readRecord().snapshot).toBeUndefined();
+    expect(fs.readFileSync(path.join(partialSnapshot, 'rootfs.partial'), 'utf8')).toBe('partial copy');
   });
 
   it('rejects symlink replacement and does not delete unrelated content', async () => {
@@ -217,16 +244,42 @@ describe('durable host executor journal', () => {
     expect(fs.existsSync(path.join(`${parent}-old`, plan.invocationId))).toBe(true);
   });
 
-  it('recovers staged artifacts by committed directory and ancestor identities', async () => {
+  it('recovers an interrupted partial artifact copy after the early directory callback', async () => {
     const journal = await mountedJournal();
+    await journal.prepareSnapshot();
     const snapshot = path.join(root, 'trusted-artifacts', 'run-fixture');
     fs.mkdirSync(snapshot, { recursive: true, mode: 0o700 });
     await journal.captureSnapshot(snapshot);
-    fs.writeFileSync(path.join(snapshot, 'rootfs'), 'fixture');
+    fs.writeFileSync(path.join(snapshot, 'rootfs.partial'), 'incomplete copy');
     bootId = 'restarted-boot';
     await reap();
     expect(fs.existsSync(snapshot)).toBe(false);
     expect(readRecord().state).toBe('cleaned');
+  });
+
+  it('rejects a validly shaped but unrelated VM run identity', async () => {
+    await mountedJournal();
+    const record = readRecord();
+    record.vmRunId = 'f'.repeat(32);
+    fs.writeFileSync(recordFile(), JSON.stringify(record), { mode: 0o600 });
+    bootId = 'restarted-boot';
+    await expect(reap()).rejects.toThrow('Invalid resource recovery record');
+    expect(dependencies.run).not.toHaveBeenCalled();
+    expect(fs.existsSync(plan.invocationHostDir)).toBe(true);
+  });
+
+  it('rejects snapshot cleanup paths outside trusted artifact storage', async () => {
+    const journal = await mountedJournal();
+    const snapshot = path.join(root, 'trusted-artifacts', 'run-fixture');
+    fs.mkdirSync(snapshot, { recursive: true, mode: 0o700 });
+    await journal.captureSnapshot(snapshot);
+    const record = readRecord();
+    record.snapshot.path = path.join(root, 'unrelated');
+    fs.writeFileSync(recordFile(), JSON.stringify(record), { mode: 0o600 });
+    bootId = 'restarted-boot';
+    await expect(reap()).rejects.toThrow('Invalid snapshot path');
+    expect(dependencies.run).not.toHaveBeenCalled();
+    expect(fs.existsSync(plan.invocationHostDir)).toBe(true);
   });
 
   it('keeps recovery retryable when artifact deletion fails after invocation cleanup', async () => {

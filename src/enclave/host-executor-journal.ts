@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { randomBytes } from 'crypto';
+import { createHash, randomBytes } from 'crypto';
 import type { HostExecutorInvocationPlan, HostExecutorRunState } from './host-executor-server';
 import { HOST_EXECUTOR_ID_PATTERN, HOST_EXECUTOR_ENTRY_ID_PATTERN } from './host-executor-protocol';
 import {
@@ -23,6 +23,14 @@ import type { CloudHypervisorVmmIdentityToolPaths } from '../cloud-hypervisor/vm
 
 export function hostExecutorJournalDirectory(run: HostExecutorRunState): string {
   return run.journalDir ?? '/var/lib/awf-cloud-hypervisor/host-executor-journal';
+}
+
+export function hostExecutorVmRunId(
+  invocation: Pick<HostExecutorInvocationPlan, 'runId' | 'entryId' | 'invocationId'>,
+): string {
+  return createHash('sha256').update(JSON.stringify([
+    'awf-host-enclave-v1', invocation.runId, invocation.entryId, invocation.invocationId,
+  ])).digest('hex').slice(0, 32);
 }
 
 function prepareDirectory(directory: string): void {
@@ -305,7 +313,8 @@ export async function reapHostExecutorResources(
     const record = JSON.parse(await dependencies.readFile(file, 'utf8')) as ResourceRecord;
     validateResourceRecord(record, file);
     if (record.state === 'cleaned') continue;
-    if (record.bootId === bootId && await processMatches(dependencies, record.owner)) continue;
+    if (record.bootId === bootId && await processMatches(dependencies, record.owner) &&
+      !(await runWasClosed(directory, record.runId, dependencies))) continue;
     const release = await claimRecord(dependencies, file);
     if (!release) continue;
     try {
@@ -352,9 +361,36 @@ export async function reapHostExecutorResources(
   }
 }
 
+async function runWasClosed(
+  directory: string,
+  runId: string,
+  dependencies: ResolvedCleanupDependencies,
+): Promise<boolean> {
+  let handle;
+  try {
+    handle = await dependencies.open(path.join(directory, `${runId}.journal`),
+      fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
+    const stat = await handle.stat();
+    if (!stat.isFile() || stat.uid !== dependencies.effectiveUid || (stat.mode & 0o777) !== 0o600) {
+      throw new Error('Unsafe lifecycle recovery tombstone');
+    }
+    const bytes = Buffer.alloc(Math.min(stat.size, 256));
+    const { bytesRead } = await handle.read(bytes, 0, bytes.length, stat.size - bytes.length);
+    return bytes.subarray(0, bytesRead).toString('utf8').endsWith('{"state":"closed"}\n');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+    throw error;
+  } finally {
+    await handle?.close();
+  }
+}
+
 function validateResourceRecord(record: ResourceRecord, file: string): void {
-  if (record?.version !== 1 || !HOST_EXECUTOR_ID_PATTERN.test(record.runId) ||
+  if (record?.version !== 1 || typeof record.runId !== 'string' ||
+    typeof record.invocationId !== 'string' || typeof record.vmRunId !== 'string' ||
+    typeof record.entryId !== 'string' || !HOST_EXECUTOR_ID_PATTERN.test(record.runId) ||
     !HOST_EXECUTOR_ID_PATTERN.test(record.invocationId) || !HOST_EXECUTOR_ID_PATTERN.test(record.vmRunId) ||
+    record.vmRunId !== hostExecutorVmRunId(record) ||
     !HOST_EXECUTOR_ENTRY_ID_PATTERN.test(record.entryId) ||
     path.basename(file) !== `${record.runId}-${record.invocationId}.resources.json` ||
     typeof record.root !== 'string' || !path.isAbsolute(record.root) || path.normalize(record.root) !== record.root ||

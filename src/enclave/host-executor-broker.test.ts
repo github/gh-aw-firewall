@@ -29,11 +29,12 @@ type Role = 'script' | 'agent';
 
 describe('finite-disclosure broker → authenticated Unix host → concrete microVM backend', () => {
   let root: string;
-  let host: HostExecutorServer;
-  let proxy: net.Server;
+  let host: HostExecutorServer | undefined;
+  let proxy: net.Server | undefined;
   let httpServer: http.Server | undefined;
   let output: string;
   let executeError: boolean;
+  let cleanupError: boolean;
   let hanging: boolean;
   let startupHanging: boolean;
   let corrupt: 'digest' | 'schema' | 'settle' | 'truncate' | undefined;
@@ -45,6 +46,7 @@ describe('finite-disclosure broker → authenticated Unix host → concrete micr
   const cleaned = jest.fn();
   const plans: Array<{ entryId: string; invocationId: string; admissionId: string; executorKind: string }> = [];
   const requests: Array<Record<string, unknown>> = [];
+  const journalEvents: string[] = [];
   const seedMap = new Map([['octo/private', { seedId, sensitivity: 'internal' }]]);
   let runState: HostExecutorRunState;
   let backend: CloudHypervisorHostEnclaveExecutorBackend;
@@ -61,11 +63,13 @@ describe('finite-disclosure broker → authenticated Unix host → concrete micr
     hanging = false;
     startupHanging = false;
     executeError = false;
+    cleanupError = false;
     corrupt = undefined;
     offset = 0;
     resolveExecution = undefined;
     plans.length = 0;
     requests.length = 0;
+    journalEvents.length = 0;
     activeHandlers.length = 0;
     for (const spy of [started, stopped, cancelled, cleaned]) spy.mockClear();
     runState = {
@@ -94,9 +98,10 @@ describe('finite-disclosure broker → authenticated Unix host → concrete micr
       },
     } as unknown as VerifiedCloudHypervisorEnclaveArtifacts;
     const dependencies: Partial<HostEnclaveExecutorDependencies> = {
-      createArtifactSnapshot: async () => {
+      createArtifactSnapshot: async (_sources, _copy, onDirectoryCreated) => {
         const directory = path.join(root, `snapshot-${randomBytes(6).toString('hex')}`);
         await fs.mkdir(directory, { mode: 0o700 });
+        await onDirectoryCreated?.(directory);
         const rootfsPath = path.join(directory, 'rootfs');
         await fs.writeFile(rootfsPath, 'fixture', { mode: 0o400 });
         return {
@@ -106,13 +111,18 @@ describe('finite-disclosure broker → authenticated Unix host → concrete micr
         };
       },
       createResourceJournal: async () => ({
-        captureDirectory: noop, captureMount: noop, prepareSnapshot: noop, captureSnapshot: noop,
+        captureDirectory: noop, captureMount: noop,
+        prepareSnapshot: async () => { journalEvents.push('prepare'); },
+        captureSnapshot: async () => { journalEvents.push('capture'); },
         verifyDirectory: noop, verifyMount: noop, verifySnapshot: noop, complete: noop,
-      }) as unknown as Awaited<ReturnType<HostEnclaveExecutorDependencies['createResourceJournal']>>,
+      }),
       copySparseFile: noop,
       removeArtifactSnapshot: async (directory) => fs.rm(directory, { recursive: true, force: true }),
       mountTmpfs: noop,
-      unmount: async () => { cleaned(); },
+      unmount: async () => {
+        cleaned();
+        if (cleanupError) throw new Error('PRIVATE_RAW_CLEANUP_ERROR');
+      },
       chown: noop,
       resolveIdentity: () => ({ uid: process.getuid?.() || 1000, gid: process.getgid?.() || 1000 }),
       createManager: (_config, _workDir, profile) => ({
@@ -160,7 +170,7 @@ describe('finite-disclosure broker → authenticated Unix host → concrete micr
       backend,
     });
     proxy = net.createServer({ allowHalfOpen: true }, (brokerSocket) => {
-      const upstream = net.createConnection(host.socketPath);
+      const upstream = net.createConnection(host!.socketPath);
       const requestChunks: Buffer[] = [];
       const responseChunks: Buffer[] = [];
       brokerSocket.on('data', (chunk) => requestChunks.push(Buffer.from(chunk)));
@@ -193,17 +203,22 @@ describe('finite-disclosure broker → authenticated Unix host → concrete micr
       brokerSocket.on('error', () => upstream.destroy());
       upstream.on('error', () => brokerSocket.destroy());
     });
-    await new Promise<void>((resolve) => proxy.listen(path.join(root, 'proxy.sock'), resolve));
+    await new Promise<void>((resolve) => proxy!.listen(path.join(root, 'proxy.sock'), resolve));
   });
 
   afterEach(async () => {
-    for (const handler of activeHandlers) handler.close();
-    await Promise.all(activeHandlers.map((handler) => handler.drain()));
-    if (httpServer) await new Promise<void>((resolve) => httpServer!.close(() => resolve()));
-    httpServer = undefined;
-    await new Promise<void>((resolve) => proxy.close(() => resolve()));
-    await host.close();
-    await fs.rm(root, { recursive: true, force: true });
+    try {
+      for (const handler of activeHandlers) handler.close();
+      await Promise.all(activeHandlers.map((handler) => handler.drain()));
+      if (httpServer) await new Promise<void>((resolve) => httpServer!.close(() => resolve()));
+      if (proxy?.listening) await new Promise<void>((resolve) => proxy!.close(() => resolve()));
+      await host?.close();
+    } finally {
+      httpServer = undefined;
+      proxy = undefined;
+      host = undefined;
+      await fs.rm(root, { recursive: true, force: true });
+    }
   });
 
   function makeHandler(role: Role, options: {
@@ -219,7 +234,7 @@ describe('finite-disclosure broker → authenticated Unix host → concrete micr
       primaryBackend: 'docker', timeoutSeconds: options.timeoutSeconds ?? 2,
       maxInvocations: 32, maxOutputBytes: 8192,
       hostExecutorSocketPath: options.socketPath || path.join(root, 'proxy.sock'),
-      hostExecutorCapabilityPath: options.capabilityPath || host.capabilityPath,
+      hostExecutorCapabilityPath: options.capabilityPath || host!.capabilityPath,
     };
     const runner = createHostExecutorRunner(config, {
       nowMs: clock.nowMs, pollMs: 2, drainMs: 1000, requestTimeoutMs: 200,
@@ -261,6 +276,48 @@ describe('finite-disclosure broker → authenticated Unix host → concrete micr
     return result;
   }
 
+  it('preserves local runner semantics when the HTTP request signal is cancelled', async () => {
+    let elapsed = 0;
+    const runner = {
+      runInvocation: jest.fn(async ({ signal }: { signal: AbortSignal }) => {
+        expect(signal.aborted).toBe(false);
+        return { exitCode: 0, timedOut: false };
+      }),
+    };
+    const handler = createExecutorHandler({
+      config: { executorBackend: 'docker', timeoutSeconds: 2, maxInvocations: 8, maxOutputBytes: 8192 },
+      runId, seedMap, runner,
+      audit: { failure: jest.fn(), invocation: jest.fn() },
+      workspace: {
+        createInvocationWorkspace: () => ({ outPath: 'unused' }),
+        readQueryOutput: () => 'true',
+        destroyInvocationWorkspace: () => undefined,
+      },
+      clock: { nowMs: () => elapsed, sleep: async (ms: number) => { elapsed += ms; } },
+      responseJitterSource: () => 0,
+    });
+    const cancellation = new AbortController();
+    cancellation.abort();
+    expect(await call(handler, args('script'), cancellation.signal)).toBe('{"status":"ok","result":true}');
+    expect(runner.runInvocation).toHaveBeenCalledTimes(1);
+    expect(requests).toHaveLength(0);
+  });
+
+  it('bounds status-poll exchanges and sleep together to the trusted five-second liveness window', () => {
+    const config = {
+      executorBackend: 'cloud-hypervisor', entryId: 'script-entry', runId,
+      hostExecutorSocketPath: path.join(root, 'proxy.sock'),
+      hostExecutorCapabilityPath: host!.capabilityPath,
+    };
+    expect(() => createHostExecutorRunner(config)).not.toThrow();
+    for (const deps of [
+      { requestTimeoutMs: 5000, pollMs: 1 },
+      { requestTimeoutMs: 1, pollMs: 5000 },
+      { requestTimeoutMs: 0 },
+      { pollMs: 0 },
+    ]) expect(() => createHostExecutorRunner(config, deps)).toThrow(/polling bounds/);
+  });
+
   it.each(['script', 'agent'] as const)('validates and settles %s before disclosure without local files', async (role) => {
     const { handler, runner, localWorkspace } = makeHandler(role);
     await expect(runner.assertAvailable()).rejects.toThrow(/disabled.*real-KVM/);
@@ -273,6 +330,7 @@ describe('finite-disclosure broker → authenticated Unix host → concrete micr
     expect(requests.map(({ type }) => type)).toContain('settle');
     expect(cleaned).toHaveBeenCalledTimes(1);
     expect(stopped).toHaveBeenCalled();
+    expect(journalEvents).toEqual(['prepare', 'capture', 'capture']);
     for (const method of Object.values(localWorkspace)) expect(method).not.toHaveBeenCalled();
     const invoke = requests.find(({ type }) => type === 'invoke')!;
     expect(Object.keys(invoke).sort()).toEqual([
@@ -320,6 +378,17 @@ describe('finite-disclosure broker → authenticated Unix host → concrete micr
     executeError = true;
     expect(await call(handler, args(role))).toBe('{"status":"error"}');
     expect(requests.filter(({ type }) => type === 'settle')).toHaveLength(2);
+  });
+
+  it.each(['script', 'agent'] as const)('never publishes terminal %s when concrete cleanup is unresolved', async (role) => {
+    cleanupError = true;
+    const lane = { tail: Promise.resolve(), closed: false };
+    const { handler } = makeHandler(role, { lane, timeoutSeconds: 0.2 });
+    expect(await call(handler, args(role))).toBe('{"status":"error"}');
+    expect(started).toHaveBeenCalled();
+    expect(cleaned).toHaveBeenCalled();
+    expect(lane.closed).toBe(true);
+    expect(requests.some(({ type }) => type === 'settle')).toBe(false);
   });
 
   it.each((['script', 'agent'] as const).flatMap((role) =>
@@ -387,6 +456,29 @@ describe('finite-disclosure broker → authenticated Unix host → concrete micr
     expect(plans).toHaveLength(1);
     expect(cleaned).toHaveBeenCalledTimes(1);
     expect(requests.map(({ type }) => type)).toContain('settle');
+  });
+
+  it.each(['script', 'agent'] as const)('does not resume %s after host interruption or reset its run identity', async (role) => {
+    hanging = true;
+    const lane = { tail: Promise.resolve(), closed: false };
+    const { handler } = makeHandler(role, { lane });
+    const pending = call(handler, args(role));
+    await until(() => resolveExecution !== undefined);
+    await host!.close();
+    expect(await pending).toBe('{"status":"error"}');
+    expect(cancelled).toHaveBeenCalled();
+    expect(cleaned).toHaveBeenCalledTimes(1);
+    expect(lane.closed).toBe(true);
+    await expect(startHostExecutorServer({
+      runtimeDir: path.join(root, 'restarted-runtime'),
+      runState: { ...runState, journalDir: path.join(root, 'journal') },
+      backend,
+    })).rejects.toThrow(/EEXIST/);
+    expect(await call(handler, args(role))).toBe('{"status":"error"}');
+    expect(plans).toHaveLength(1);
+    const journal = await fs.readFile(path.join(root, 'journal', `${runId}.journal`), 'utf8');
+    expect(journal).toContain('"state":"closed"');
+    expect(journal).not.toMatch(/Return true|PRIVATE_RAW|capability/);
   });
 
   it('shares script/agent ledger and serialization through host settlement', async () => {
@@ -458,6 +550,10 @@ describe('finite-disclosure broker → authenticated Unix host → concrete micr
         expect(config.hostWorkDir).toBeUndefined();
       }
       expect(() => createHostExecutorRunner(script)).toThrow(/capability is unavailable/);
+      process.env.AWF_ENCLAVE_BACKEND = 'attacker-runtime';
+      process.env.AWF_ENCLAVE_AGENT_BACKEND = 'attacker-runtime';
+      expect(() => loadConfig()).toThrow(/AWF_ENCLAVE_BACKEND/);
+      expect(() => loadAgentConfig({ runId })).toThrow(/AWF_ENCLAVE_AGENT_BACKEND/);
     } finally {
       process.env = saved;
     }
