@@ -213,6 +213,7 @@ function cleanupHandleMock(): CloudHypervisorCleanupHandle {
 
 function cleanupRegistryMock(): CloudHypervisorCleanupRegistry {
   return {
+    hasPendingRecord: jest.fn().mockResolvedValue(false),
     reapPending: jest.fn().mockResolvedValue(undefined),
     createPending: jest.fn().mockResolvedValue(cleanupHandleMock()),
     create: jest.fn().mockResolvedValue(cleanupHandleMock()),

@@ -485,6 +485,7 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
           await fs.rm(invocationHostDir, { recursive: true, force: true });
 
           const cleanupRegistry: CloudHypervisorCleanupRegistry = {
+            hasPendingRecord: async () => false,
             reapPending: async () => { throw new Error('fixture startup failure'); },
             createPending: async () => { throw new Error('unexpected cleanup record creation'); },
             create: async () => { throw new Error('unexpected cleanup record creation'); },

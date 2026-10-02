@@ -24,7 +24,10 @@ describe('DurableCloudHypervisorCleanupRegistry orchestration', () => {
       const paths = harness.runPaths('recorded-run');
       const plan = harness.networkPlan(paths.runId);
 
+      expect(await registry.hasPendingRecord(paths.runId)).toBe(false);
       await registry.create(paths, plan, process.execPath, '/usr/bin/ip');
+      expect(await registry.hasPendingRecord(paths.runId)).toBe(true);
+      await expect(registry.hasPendingRecord('../invalid')).rejects.toThrow('Invalid Cloud Hypervisor run ID');
 
       const recordPath = path.join(harness.temporaryRoot, 'pending-cleanup', 'recorded-run.json');
       const record = JSON.parse(await fs.readFile(recordPath, 'utf8')) as {

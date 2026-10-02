@@ -48,14 +48,15 @@ import {
 export const HOST_EXECUTOR_SOCKET_NAME = 'executor.sock';
 export const HOST_EXECUTOR_CAPABILITY_NAME = 'capability';
 
-/** Upper bound on distinct request IDs remembered for replay protection. */
-export const HOST_EXECUTOR_MAX_REQUEST_IDS = 65_536;
+/** Covers 1,024 maximum-duration invocations polled every 10 seconds plus lifecycle requests. */
+export const HOST_EXECUTOR_MAX_REQUEST_IDS = 500_000;
 
 /** Extra request IDs reserved for cancel/status/settle once the bound above is hit. */
 export const HOST_EXECUTOR_DRAIN_REQUEST_IDS = 8_192;
 
 /** Upper bound on invocations admitted in one run. */
 export const HOST_EXECUTOR_MAX_INVOCATIONS = 1_024;
+export const HOST_EXECUTOR_MAX_TIMEOUT_MS = 4_740_000;
 
 const DEFAULT_CONNECTION_TIMEOUT_MS = 5_000;
 const DEFAULT_MAX_CONNECTIONS = 16;
@@ -187,7 +188,7 @@ function validateRunState(runState: HostExecutorRunState): HostExecutorRunState 
       || (entry.dynamicAgents && entry.executorKind !== 'agent')
       || !Number.isSafeInteger(entry.timeoutMs)
       || entry.timeoutMs < 1
-      || entry.timeoutMs > 86_400_000) {
+      || entry.timeoutMs > HOST_EXECUTOR_MAX_TIMEOUT_MS) {
       throw new Error('Host executor run state has an unsupported entry policy');
     }
     for (const seedId of entry.staticSeedIds) {

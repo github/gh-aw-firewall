@@ -303,16 +303,18 @@ describe('finite-disclosure broker → authenticated Unix host → concrete micr
     expect(requests).toHaveLength(0);
   });
 
-  it('bounds status-poll exchanges and sleep together to the trusted five-second liveness window', () => {
+  it('bounds status-poll exchanges and sleep within the host status lease', () => {
     const config = {
       executorBackend: 'cloud-hypervisor', entryId: 'script-entry', runId,
       hostExecutorSocketPath: path.join(root, 'proxy.sock'),
       hostExecutorCapabilityPath: host!.capabilityPath,
     };
     expect(() => createHostExecutorRunner(config)).not.toThrow();
+    expect(() => createHostExecutorRunner(config, { requestTimeoutMs: 4_000, pollMs: 10_000 }))
+      .not.toThrow();
     for (const deps of [
-      { requestTimeoutMs: 5000, pollMs: 1 },
-      { requestTimeoutMs: 1, pollMs: 5000 },
+      { requestTimeoutMs: 5_000, pollMs: 10_000 },
+      { requestTimeoutMs: 1, pollMs: 14_000 },
       { requestTimeoutMs: 0 },
       { pollMs: 0 },
     ]) expect(() => createHostExecutorRunner(config, deps)).toThrow(/polling bounds/);
@@ -399,6 +401,9 @@ describe('finite-disclosure broker → authenticated Unix host → concrete micr
     const { handler } = makeHandler(role, { lane });
     expect(await call(handler, args(role))).toBe('{"status":"error"}');
     expect(lane.closed).toBe(true);
+    if (mode === 'schema') {
+      expect(requests.filter(({ type }) => type === 'settle')).toHaveLength(0);
+    }
     expect(await call(handler, args(role))).toBe('{"status":"error"}');
   });
 

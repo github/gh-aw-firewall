@@ -17,10 +17,10 @@ function createHostExecutorRunner(config, deps = {}) {
     throw new Error('Invalid trusted host executor configuration');
   }
   const requestTimeoutMs = deps.requestTimeoutMs ?? 4_000;
-  const pollMs = deps.pollMs ?? 25;
+  const pollMs = deps.pollMs ?? 10_000;
   if (!Number.isSafeInteger(requestTimeoutMs) || requestTimeoutMs < 1
       || !Number.isSafeInteger(pollMs) || pollMs < 1
-      || requestTimeoutMs + pollMs > 5_000) {
+      || requestTimeoutMs + pollMs > 14_000) {
     throw new Error('Invalid trusted host executor polling bounds');
   }
   const client = createHostExecutorClient({
@@ -118,14 +118,14 @@ function createHostExecutorRunner(config, deps = {}) {
         if (digest !== response.resultDigest) throw new Error('Host executor result digest is invalid');
         const parsed = response.outcome === 'success'
           ? parseAndValidateFiniteOutput(response.result, schema) : undefined;
+        if (response.outcome === 'success' && !parsed?.ok) {
+          throw new Error('Host executor result schema is invalid');
+        }
         const settled = checked(await client.settle({ ...identity, resultDigest: digest }));
         if (settled.state !== 'settled' || settled.resultDigest !== digest
             || settled.outcome !== response.outcome
             || settled.cancelGeneration !== response.cancelGeneration) {
           throw new Error('Host executor settlement is unresolved');
-        }
-        if (response.outcome === 'success' && !parsed?.ok) {
-          throw new Error('Host executor result schema is invalid');
         }
         if (signal?.aborted || cancelPromise || response.outcome === 'cancelled') {
           return { status: 'cancelled', timedOut, exitCode: 1 };

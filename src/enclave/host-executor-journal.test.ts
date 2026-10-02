@@ -53,6 +53,17 @@ describe('durable host executor journal', () => {
       }),
     };
     registry = {
+      hasPendingRecord: jest.fn(async (runId: string) => {
+        try {
+          await fs.promises.lstat(path.join(
+            dependencies.rootDirectory!, 'pending-cleanup', `${runId}.json`,
+          ));
+          return true;
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+          throw error;
+        }
+      }),
       reapPending: jest.fn(async () => undefined),
       create: jest.fn(), createPending: jest.fn(),
     };
@@ -200,6 +211,7 @@ describe('durable host executor journal', () => {
     bootId = 'restarted-boot';
     await expect(reap()).rejects.toThrow('VM cleanup must finish');
     expect(dependencies.run).not.toHaveBeenCalled();
+    expect(registry.hasPendingRecord).toHaveBeenCalledWith(vmRunId());
   });
 
   it.each(['changed-mount', 'uncommitted-mount'] as const)('retains %s without unmounting', async (kind) => {

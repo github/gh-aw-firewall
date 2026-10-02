@@ -65,6 +65,7 @@ export interface CloudHypervisorCleanupHandle {
 }
 
 export interface CloudHypervisorCleanupRegistry {
+  hasPendingRecord(runId: string): Promise<boolean>;
   reapPending(
     ipPath: string,
     umountPath: string,
@@ -93,6 +94,17 @@ export class DurableCloudHypervisorCleanupRegistry implements CloudHypervisorCle
 
   constructor(dependencies: CleanupRegistryDependencies = {}) {
     this.dependencies = resolveCleanupDependencies(dependencies);
+  }
+
+  async hasPendingRecord(runId: string): Promise<boolean> {
+    if (!/^[A-Za-z0-9_.-]+$/.test(runId)) throw new Error('Invalid Cloud Hypervisor run ID');
+    try {
+      await this.dependencies.lstat(path.join(this.dependencies.rootDirectory, `${runId}.json`));
+      return true;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+      throw error;
+    }
   }
 
   async reapPending(

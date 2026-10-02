@@ -65,6 +65,7 @@ import {
     const handle = cleanupHandleMock();
     (handle.complete as jest.Mock).mockImplementation(async () => { order.push('record-complete'); });
     const registry: CloudHypervisorCleanupRegistry = {
+      hasPendingRecord: jest.fn().mockResolvedValue(false),
       reapPending: jest.fn(async () => { order.push('reap'); }),
       createPending: jest.fn(async () => {
         order.push('record-create');
@@ -104,6 +105,7 @@ import {
         release,
       })),
       cleanupRegistry: {
+        hasPendingRecord: jest.fn().mockResolvedValue(false),
         reapPending: jest.fn().mockResolvedValue(undefined),
         createPending: jest.fn().mockRejectedValue(new Error('registry unavailable')),
         create: jest.fn().mockRejectedValue(new Error('registry unavailable')),
@@ -341,4 +343,3 @@ import {
   });
 
   });
-

@@ -316,12 +316,9 @@ export async function reapHostExecutorResources(
       if (record.snapshotPending && !record.snapshot) {
         throw new Error('Artifact staging identity is uncommitted');
       }
-      // A live or unresolved VM record still owns these exports.
-      try {
-        await dependencies.lstat(path.join(vmDependencies.rootDirectory, `${record.vmRunId}.json`));
+      // The registry checks its own recovery root, which may be customized.
+      if (await registry.hasPendingRecord(record.vmRunId)) {
         throw new Error('VM cleanup must finish before invocation recovery');
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
       }
       for (const ancestor of record.ancestors) await assertIdentity(ancestor.path, ancestor.identity, dependencies);
       const mounts = await readMounts(dependencies.readFile);

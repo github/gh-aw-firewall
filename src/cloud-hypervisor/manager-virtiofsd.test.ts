@@ -107,6 +107,7 @@ import {
     (virtiofsd.stop as jest.Mock).mockRejectedValue(new Error('virtiofsd did not exit'));
     const handle = cleanupHandleMock();
     const registry: CloudHypervisorCleanupRegistry = {
+      hasPendingRecord: jest.fn().mockResolvedValue(false),
       reapPending: jest.fn().mockResolvedValue(undefined),
       createPending: jest.fn().mockResolvedValue(handle),
       create: jest.fn().mockResolvedValue(handle),
