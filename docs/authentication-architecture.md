@@ -743,7 +743,7 @@ GitHub JWT  ──►  api.anthropic.com/v1/oauth/token
             ◄──  { access_token: "sk-ant-oat01-...", expires_in: 3600 }
 ```
 
-The federation beta is a routing switch used only for the JWT-bearer exchange. It is not added to static-key requests, forwarded refresh-token exchanges, or subsequent API calls. See Anthropic's [WIF documentation](https://platform.claude.com/docs/en/manage-claude/workload-identity-federation) and [TypeScript SDK exchange implementation](https://github.com/anthropics/anthropic-sdk-typescript/blob/3b45cd3b69c956ac63384fdb09ce1d8109f3fa80/src/lib/credentials/oidc-federation.ts).
+The federation beta is a routing switch used only for the JWT-bearer exchange. It is not added to static-key requests, forwarded refresh-token exchanges, or subsequent API calls. See Anthropic's [WIF documentation](https://platform.claude.com/docs/en/manage-claude/workload-identity-federation) and [TypeScript SDK exchange implementation](https://raw.githubusercontent.com/anthropics/anthropic-sdk-typescript/3b45cd3b69c956ac63384fdb09ce1d8109f3fa80/src/lib/credentials/oidc-federation.ts).
 
 #### Step 4: Credential caching and auto-refresh
 

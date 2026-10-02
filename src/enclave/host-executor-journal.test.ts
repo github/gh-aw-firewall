@@ -96,11 +96,28 @@ describe('durable host executor journal', () => {
     });
     journal.record({ state: 'closed' });
     const file = path.join(run.journalDir!, `${run.runId}.journal`);
-    expect(fs.statSync(file).mode & 0o777).toBe(0o600);
     expect(() => new HostExecutorJournal(run)).toThrow('EEXIST');
-    fs.appendFileSync(file, '{"state":');
-    expect(() => new HostExecutorJournal(run)).toThrow('EEXIST');
-    expect(fs.readFileSync(file, 'utf8')).not.toContain(plan.payload);
+    const fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+    try {
+      expect(fs.fstatSync(fd).mode & 0o777).toBe(0o600);
+      expect(fs.readFileSync(fd, 'utf8')).not.toContain(plan.payload);
+    } finally {
+      fs.closeSync(fd);
+    }
+
+    const malformedRun = { ...run, runId: 'f'.repeat(32) };
+    const malformedFile = path.join(run.journalDir!, `${malformedRun.runId}.journal`);
+    const malformedFd = fs.openSync(
+      malformedFile,
+      fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_NOFOLLOW,
+      0o600,
+    );
+    try {
+      fs.writeFileSync(malformedFd, '{"state":');
+    } finally {
+      fs.closeSync(malformedFd);
+    }
+    expect(() => new HostExecutorJournal(malformedRun)).toThrow('EEXIST');
   });
 
   it('keeps the durable default outside ephemeral invocation storage', () => {

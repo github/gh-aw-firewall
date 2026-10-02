@@ -573,7 +573,7 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
             let entered!: () => void;
             const blocked = new Promise<void>((resolve) => { release = resolve; });
             const reached = new Promise<void>((resolve) => { entered = resolve; });
-            let delayedDependencies: Partial<HostEnclaveExecutorDependencies> = dependencies;
+            let delayedDependencies: Partial<HostEnclaveExecutorDependencies>;
             if (stage === 'mount') {
               delayedDependencies = {
                 ...dependencies,
