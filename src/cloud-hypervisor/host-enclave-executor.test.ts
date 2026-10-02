@@ -26,7 +26,14 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
   });
 
   describe('CloudHypervisorHostEnclaveExecutorBackend', () => {
-    it('stages a static invocation, stops the VM before reading its bounded result, and cleans storage', async () => {
+    it.each([
+      { timeoutMs: 60_000, startupDelayMs: 0, expectedOutcome: 'success' },
+      { timeoutMs: 1_000, startupDelayMs: 1_500, expectedOutcome: 'timeout' },
+    ])('stages a static invocation and enforces its $expectedOutcome deadline', async ({
+      timeoutMs,
+      startupDelayMs,
+      expectedOutcome,
+    }) => {
       const scratch = await fs.mkdtemp(path.join(os.homedir(), '.awf-host-backend-'));
       const root = await fs.realpath(scratch);
       const seedsDir = path.join(root, 'seeds');
@@ -44,7 +51,7 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
         entries: [{
           entryId,
           executorKind: 'script',
-          timeoutMs: 60_000,
+          timeoutMs,
           staticSeedIds: [seedId],
           dynamicAgents: false,
         }],
@@ -55,7 +62,7 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
         entryId,
         invocationId,
         executorKind: 'script',
-        timeoutMs: 60_000,
+        timeoutMs,
         requestHash: 'e'.repeat(64),
         admissionId: 'f'.repeat(32),
         schemaHash: '1'.repeat(64),
@@ -129,6 +136,9 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
       let stopped = false;
       let unmounted = false;
       let snapshotRemoved = false;
+      let mountedIdentity: { uid: number; gid: number } | undefined;
+      let managerBinary: string | undefined;
+      const chownedPaths: string[] = [];
       const backend = new CloudHypervisorHostEnclaveExecutorBackend({
         runState,
         config,
@@ -152,31 +162,53 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
         },
         copySparseFile: async () => undefined,
         removeArtifactSnapshot: async () => { snapshotRemoved = true; },
-        mountTmpfs: async () => undefined,
+        mountTmpfs: async (_directory, _size, mountUid, mountGid) => {
+          mountedIdentity = { uid: mountUid, gid: mountGid };
+        },
         unmount: async () => { unmounted = true; },
+        chown: async (filePathValue) => { chownedPaths.push(filePathValue.toString()); },
         resolveIdentity: () => ({ uid, gid }),
-        createManager: (_config, _workDir, profile) => ({
-          start: async () => undefined,
-          startInstance: async () => undefined,
-          execute: async () => {
-            const output = profile.guest?.exports.find(({ tag }) => tag === 'enclave-output')?.source;
-            if (!output) throw new Error('expected the trusted output export');
-            await fs.writeFile(path.join(output, 'out'), 'false');
-            return { exitCode: 0, signal: null, timedOut: false };
-          },
-          cancel: async () => undefined,
-          stop: async () => {
-            stopped = true;
-            const output = path.join(invocationHostDir, 'output', 'out');
-            await fs.writeFile(output, 'true');
-          },
-          completeCleanupRecord: async () => undefined,
-        }),
+        createManager: (managerConfig, _workDir, profile) => {
+          managerBinary = managerConfig.cloudHypervisorBinary;
+          expect(profile.guest?.identity).toEqual({ uid: 65534, gid: 65534 });
+          return {
+            start: async () => {
+              if (startupDelayMs > 0) {
+                await new Promise((resolve) => setTimeout(resolve, startupDelayMs));
+              }
+            },
+            startInstance: async () => undefined,
+            execute: async () => {
+              const output = profile.guest?.exports.find(({ tag }) => tag === 'enclave-output')?.source;
+              if (!output) throw new Error('expected the trusted output export');
+              const outputStat = await fs.stat(path.join(output, 'out'));
+              expect(outputStat.isFile()).toBe(true);
+              expect(outputStat.mode & 0o777).toBe(0o600);
+              await fs.writeFile(path.join(output, 'out'), 'false');
+              return { exitCode: 0, signal: null, timedOut: false };
+            },
+            cancel: async () => undefined,
+            stop: async () => {
+              stopped = true;
+              const output = path.join(invocationHostDir, 'output', 'out');
+              await fs.writeFile(output, 'true');
+            },
+            completeCleanupRecord: async () => undefined,
+          };
+        },
       });
 
       try {
-        await expect(backend.execute(plan, new AbortController().signal))
-          .resolves.toEqual({ outcome: 'success', result: 'true' });
+        await expect(backend.execute(plan, new AbortController().signal)).resolves.toEqual(
+          expectedOutcome === 'success'
+            ? { outcome: 'success', result: 'true' }
+            : { outcome: 'timeout' },
+        );
+        expect(mountedIdentity).toEqual({ uid: 65534, gid: 65534 });
+        expect(managerBinary).toBe('/snapshot/cloud-hypervisor');
+        expect(chownedPaths).toContain(path.join(invocationHostDir, 'output'));
+        expect(chownedPaths).toContain(path.join(invocationHostDir, 'output', 'out'));
+        expect(chownedPaths).toContain(path.join(invocationHostDir, 'request', 'query-script.py'));
         expect(stopped).toBe(true);
         expect(snapshotRemoved).toBe(true);
         expect(unmounted).toBe(true);
