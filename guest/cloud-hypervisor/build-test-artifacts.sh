@@ -306,6 +306,25 @@ build_enclave_rootfs() {
     \( -name 'apt*' -o -name 'dpkg*' \) -delete
   sudo find "$tree/usr/local/bin" -maxdepth 1 \
     \( -name 'pip*' -o -name 'idle*' -o -name 'pydoc*' \) -delete
+  # Launchers are not enough: `python3 -m pip` and `python3 -m ensurepip`
+  # would still install or recreate a package manager in writable tmpfs.
+  sudo find "$tree" -xdev -type d \
+    \( -path '*/lib/python3*/ensurepip' \
+       -o -path '*/lib/python3*/site-packages/pip' \
+       -o -path '*/lib/python3*/site-packages/pip-*.dist-info' \
+       -o -path '*/lib/python3*/dist-packages/pip' \
+       -o -path '*/lib/python3*/dist-packages/pip-*.dist-info' \) \
+    -prune -exec rm -rf -- {} +
+  test -z "$(sudo find "$tree" -xdev \
+    \( -path '*/lib/python3*/ensurepip' \
+       -o -path '*/lib/python3*/*-packages/pip' \
+       -o -path '*/lib/python3*/*-packages/pip-*.dist-info' \) -print -quit)"
+  for python in /usr/local/bin/python3 /usr/bin/python3; do
+    if sudo test -x "$tree$python"; then
+      sudo chroot "$tree" "$python" -I -c \
+        'import importlib.util, sys; sys.exit(any(importlib.util.find_spec(m) for m in ("pip", "ensurepip")))'
+    fi
+  done
   sudo rm -rf \
     "$tree/root/.cache" \
     "$tree/root/.config" \

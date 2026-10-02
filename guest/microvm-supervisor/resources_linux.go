@@ -14,6 +14,15 @@ import (
 const tmpfsMagic = 0x01021994
 const rlimitNproc = 6
 const enclaveCredentialCapabilities = uint64(1<<6 | 1<<7)
+const (
+	prCapbsetDrop   = 24
+	prSetNoNewPrivs = 38
+)
+const (
+	enclaveRuntimeTag         = "enclave-runtime"
+	enclaveRuntimeSource      = "/runtime"
+	enclaveAgentRuntimeTarget = "/agent"
+)
 
 type enclaveResourceProfile struct {
 	uid             uint32
@@ -211,6 +220,10 @@ func verifyEnclaveRlimits(profile enclaveResourceProfile) error {
 	return nil
 }
 
+// dropEnclaveSupervisorPrivileges restricts every Go runtime thread, not only
+// the calling one. Capabilities, the bounding set, and no_new_privs are
+// per-thread kernel state, so each change is applied with AllThreadsSyscall
+// (which requires a cgo-free binary) and then verified for every task.
 func dropEnclaveSupervisorPrivileges() error {
 	if err := syscall.Setgroups([]int{}); err != nil {
 		return fmt.Errorf("clear enclave supplementary groups: %w", err)
@@ -231,36 +244,85 @@ func dropEnclaveSupervisorPrivileges() error {
 		if enclaveCredentialCapabilities&(1<<uint(capability)) != 0 {
 			continue
 		}
-		if _, _, errno := syscall.RawSyscall(syscall.SYS_PRCTL, 24, uintptr(capability), 0); errno != 0 {
+		if _, _, errno := syscall.AllThreadsSyscall(syscall.SYS_PRCTL, prCapbsetDrop, uintptr(capability), 0); errno != 0 {
 			return fmt.Errorf("drop enclave capability %d from bounding set: %w", capability, errno)
 		}
 	}
-	header := capHeader{version: 0x20080522}
-	data := [2]capData{}
+	header := &capHeader{version: 0x20080522}
+	data := &[2]capData{}
 	for word := range data {
 		data[word].effective = uint32(enclaveCredentialCapabilities >> (word * 32))
 		data[word].permitted = uint32(enclaveCredentialCapabilities >> (word * 32))
 	}
-	if _, _, errno := syscall.RawSyscall(
+	if _, _, errno := syscall.AllThreadsSyscall(
 		syscall.SYS_CAPSET,
-		uintptr(unsafe.Pointer(&header)),
+		uintptr(unsafe.Pointer(header)),
 		uintptr(unsafe.Pointer(&data[0])),
 		0,
 	); errno != 0 {
 		return fmt.Errorf("clear enclave supervisor capabilities: %w", errno)
 	}
-	if _, _, errno := syscall.RawSyscall(syscall.SYS_PRCTL, 38, 1, 0); errno != 0 {
-		return fmt.Errorf("set enclave supervisor no_new_privs: %w", errno)
+	if err := setNoNewPrivilegesAllThreads(); err != nil {
+		return fmt.Errorf("set enclave supervisor no_new_privs: %w", err)
 	}
-	status, err := os.ReadFile("/proc/self/status")
+	return verifyEnclaveThreads("/proc/self/task", validateEnclaveSupervisorCapabilities)
+}
+
+func setNoNewPrivilegesAllThreads() error {
+	if _, _, errno := syscall.AllThreadsSyscall(syscall.SYS_PRCTL, prSetNoNewPrivs, 1, 0); errno != 0 {
+		return errno
+	}
+	return nil
+}
+
+// verifyEnclaveThreads checks the capability state and no_new_privs of every
+// task in the thread group. Threads created afterwards inherit this state.
+func verifyEnclaveThreads(taskDirectory string, validate func(string) error) error {
+	entries, err := os.ReadDir(taskDirectory)
 	if err != nil {
-		return fmt.Errorf("verify enclave supervisor privileges: %w", err)
+		return fmt.Errorf("list enclave process threads: %w", err)
 	}
-	if err := validateEnclaveSupervisorCapabilities(string(status)); err != nil {
-		return err
+	if len(entries) == 0 {
+		return fmt.Errorf("enclave process has no visible threads")
 	}
-	if !hasNoNewPrivileges(string(status)) {
-		return fmt.Errorf("enclave supervisor no_new_privs verification failed")
+	for _, entry := range entries {
+		status, err := os.ReadFile(taskDirectory + "/" + entry.Name() + "/status")
+		if err != nil {
+			return fmt.Errorf("read enclave thread %s privileges: %w", entry.Name(), err)
+		}
+		if err := validate(string(status)); err != nil {
+			return fmt.Errorf("enclave thread %s: %w", entry.Name(), err)
+		}
+		if !hasNoNewPrivileges(string(status)) {
+			return fmt.Errorf("enclave thread %s no_new_privs verification failed", entry.Name())
+		}
+	}
+	return nil
+}
+
+// mountEnclaveAgentRuntime exposes the invocation-private writable /runtime
+// export at /agent, the runtime root the agent entrypoint expects, because
+// the enclave root filesystem is read-only.
+func mountEnclaveAgentRuntime(config bootConfig) error {
+	hasRuntime := false
+	for _, mount := range config.VirtiofsMounts {
+		if mount.Tag == enclaveRuntimeTag && mount.Target == enclaveRuntimeSource && !mount.ReadOnly {
+			hasRuntime = true
+		}
+	}
+	if !hasRuntime {
+		return fmt.Errorf("agent enclave requires its writable runtime export")
+	}
+	if err := makeTmpfsMountTarget(enclaveAgentRuntimeTarget, 0755); err != nil {
+		return fmt.Errorf("create agent enclave runtime target: %w", err)
+	}
+	if err := mountFilesystem(enclaveRuntimeSource, enclaveAgentRuntimeTarget, "", syscall.MS_BIND, ""); err != nil {
+		return fmt.Errorf("bind agent enclave runtime: %w", err)
+	}
+	if err := mountFilesystem("", enclaveAgentRuntimeTarget, "",
+		syscall.MS_BIND|syscall.MS_REMOUNT|syscall.MS_NOSUID|syscall.MS_NODEV, ""); err != nil {
+		unmountFilesystem(enclaveAgentRuntimeTarget, 0)
+		return fmt.Errorf("restrict agent enclave runtime: %w", err)
 	}
 	return nil
 }

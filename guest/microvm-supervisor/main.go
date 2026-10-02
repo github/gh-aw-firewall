@@ -49,18 +49,11 @@ func runEnclaveExec(args []string) error {
 	if len(groups) != 0 {
 		return fmt.Errorf("enclave process has supplementary groups")
 	}
-	if _, _, errno := syscall.RawSyscall(syscall.SYS_PRCTL, 38, 1, 0); errno != 0 {
-		return fmt.Errorf("set enclave process no_new_privs: %w", errno)
+	if err := setNoNewPrivilegesAllThreads(); err != nil {
+		return fmt.Errorf("set enclave process no_new_privs: %w", err)
 	}
-	status, err := os.ReadFile("/proc/self/status")
-	if err != nil {
-		return fmt.Errorf("verify enclave process capabilities: %w", err)
-	}
-	if err := validateEnclaveCapabilities(string(status)); err != nil {
+	if err := verifyEnclaveThreads("/proc/self/task", validateEnclaveCapabilities); err != nil {
 		return err
-	}
-	if !hasNoNewPrivileges(string(status)) {
-		return fmt.Errorf("enclave process no_new_privs verification failed")
 	}
 	if err := verifyEnclaveRlimits(profile); err != nil {
 		return err

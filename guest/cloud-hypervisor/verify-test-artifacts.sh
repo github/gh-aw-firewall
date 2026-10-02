@@ -185,6 +185,28 @@ verify_enclave_rootfs() {
     fi
   done
 
+  # Package-manager modules remain usable through `python3 -m` even without
+  # launchers, so every Python library tree must lack them.
+  local libdir pydir module packages
+  for libdir in /usr/lib /usr/local/lib; do
+    while IFS= read -r pydir; do
+      for module in ensurepip site-packages/pip dist-packages/pip; do
+        if debugfs -R "stat $libdir/$pydir/$module" "$image" 2>&1 | grep -Fq 'Inode:'; then
+          echo "forbidden Python package-manager module present for $role: $libdir/$pydir/$module" >&2
+          return 1
+        fi
+      done
+      for packages in site-packages dist-packages; do
+        if debugfs -R "ls -p $libdir/$pydir/$packages" "$image" 2>/dev/null \
+          | awk -F/ 'NF >= 7 && $6 ~ /^pip-/ { found=1 } END { exit found ? 0 : 1 }'; then
+          echo "forbidden pip distribution metadata present for $role: $libdir/$pydir/$packages" >&2
+          return 1
+        fi
+      done
+    done < <(debugfs -R "ls -p $libdir" "$image" 2>/dev/null \
+      | awk -F/ 'NF >= 7 && $6 ~ /^python3(\.[0-9]+)?$/ { print $6 }')
+  done
+
   seed_listing=$(debugfs -R 'ls -p /awf/seed' "$image" 2>/dev/null)
   if printf '%s\n' "$seed_listing" | debugfs_listing_has_non_dot_entries; then
     echo "embedded repository seed found in $role enclave rootfs" >&2

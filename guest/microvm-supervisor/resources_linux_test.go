@@ -3,8 +3,10 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"syscall"
@@ -125,5 +127,91 @@ func TestEnclavePrivilegeStatusMustBeVerified(t *testing.T) {
 	}
 	if hasNoNewPrivileges(strings.Replace(status, "NoNewPrivs:\t1", "NoNewPrivs:\t0", 1)) {
 		t.Fatal("disabled no_new_privs accepted")
+	}
+}
+
+func TestMountEnclaveAgentRuntimeBindsWritableRuntimeExport(t *testing.T) {
+	originalMount, originalUnmount, originalMkdir := mountFilesystem, unmountFilesystem, makeTmpfsMountTarget
+	defer func() {
+		mountFilesystem, unmountFilesystem = originalMount, originalUnmount
+		makeTmpfsMountTarget = originalMkdir
+	}()
+	makeTmpfsMountTarget = func(_ string, _ os.FileMode) error { return nil }
+	var got []string
+	mountFilesystem = func(source, target, fstype string, flags uintptr, _ string) error {
+		got = append(got, fmt.Sprintf("%s>%s:%s:%#x", source, target, fstype, flags))
+		return nil
+	}
+	config := bootConfig{EnclaveRole: "agent", VirtiofsMounts: []virtiofsMount{
+		{Tag: "enclave-runtime", Target: "/runtime"},
+	}}
+	if err := mountEnclaveAgentRuntime(config); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		fmt.Sprintf("/runtime>/agent::%#x", syscall.MS_BIND),
+		fmt.Sprintf(">/agent::%#x", syscall.MS_BIND|syscall.MS_REMOUNT|syscall.MS_NOSUID|syscall.MS_NODEV),
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("mounts = %#v, want %#v", got, want)
+	}
+
+	for _, mounts := range [][]virtiofsMount{
+		nil,
+		{{Tag: "enclave-runtime", Target: "/runtime", ReadOnly: true}},
+		{{Tag: "enclave-output", Target: "/runtime"}},
+	} {
+		got = nil
+		if err := mountEnclaveAgentRuntime(bootConfig{EnclaveRole: "agent", VirtiofsMounts: mounts}); err == nil || len(got) != 0 {
+			t.Fatalf("agent runtime mounted without trusted writable export: %#v", mounts)
+		}
+	}
+
+	var unmounted []string
+	unmountFilesystem = func(target string, _ int) error {
+		unmounted = append(unmounted, target)
+		return nil
+	}
+	if err := unmountConfiguredFilesystems(config); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(unmounted, []string{"/agent", "/runtime"}) {
+		t.Fatalf("agent runtime must unmount before its export: %#v", unmounted)
+	}
+}
+
+func TestVerifyEnclaveThreadsChecksEveryThread(t *testing.T) {
+	valid := strings.Join([]string{
+		"CapEff:\t0000000000000000",
+		"CapPrm:\t0000000000000000",
+		"CapInh:\t0000000000000000",
+		"CapAmb:\t0000000000000000",
+		"CapBnd:\t00000000000000c0",
+		"NoNewPrivs:\t1",
+	}, "\n")
+	taskDirectory := t.TempDir()
+	write := func(task, status string) {
+		if err := os.MkdirAll(filepath.Join(taskDirectory, task), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(taskDirectory, task, "status"), []byte(status), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("100", valid)
+	write("101", valid)
+	if err := verifyEnclaveThreads(taskDirectory, validateEnclaveCapabilities); err != nil {
+		t.Fatalf("restricted threads rejected: %v", err)
+	}
+	write("102", strings.Replace(valid, "CapEff:\t0000000000000000", "CapEff:\t000001ffffffffff", 1))
+	if err := verifyEnclaveThreads(taskDirectory, validateEnclaveCapabilities); err == nil {
+		t.Fatal("privileged secondary thread accepted")
+	}
+	write("102", strings.Replace(valid, "NoNewPrivs:\t1", "NoNewPrivs:\t0", 1))
+	if err := verifyEnclaveThreads(taskDirectory, validateEnclaveCapabilities); err == nil {
+		t.Fatal("secondary thread without no_new_privs accepted")
+	}
+	if err := verifyEnclaveThreads(t.TempDir(), validateEnclaveCapabilities); err == nil {
+		t.Fatal("empty thread listing accepted")
 	}
 }

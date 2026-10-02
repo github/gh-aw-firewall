@@ -238,14 +238,21 @@ filesystems), then
 verifies the mounted filesystem type and maximum capacity. It applies and reads
 back the process, file-size, and open-file rlimits. The guest root disk is opened
 read-only by Cloud Hypervisor and booted `ro`; the fixed virtio-fs export plan
-provides the only other write locations. Script and agent requests must use the
+provides the only other write locations. Agent guests bind the writable
+`/runtime` export at `/agent` (`nosuid,nodev`), the invocation-private runtime
+root the agent entrypoint expects; boot fails if that export is missing or
+read-only. Enclave boot lines that declare a primary workspace device, mount,
+or `workspace` export are rejected. Script and agent requests must use the
 profile's fixed UID/GID. The supervisor clears supplementary groups and drops
 all capabilities except `CAP_SETGID` and `CAP_SETUID`, which its trusted
-launcher needs to transition the child identity. After that transition, the
+launcher needs to transition the child identity. Capabilities, the bounding
+set, and `no_new_privs` are per-thread kernel state, so the cgo-free supervisor
+applies each change to every Go runtime thread and verifies every entry under
+`/proc/self/task` before serving requests. After the identity transition, the
 execution trampoline verifies UID/GID, empty groups, empty effective,
 permitted, inheritable, and ambient capability sets, the restricted
-`CAP_SETGID`/`CAP_SETUID` bounding set, rlimits, and `no_new_privs` before
-`exec` of workload code. `no_new_privs` prevents the workload from gaining
+`CAP_SETGID`/`CAP_SETUID` bounding set, rlimits, and `no_new_privs` on every
+thread before `exec` of workload code. `no_new_privs` prevents the workload from gaining
 privileges through executable metadata. Missing mounts, unsupported kernel
 controls, or verification mismatches abort startup rather than launching
 without a limit.
@@ -258,10 +265,22 @@ per-invocation backing filesystem or remain unavailable. It is not a per-folder
 quota and the guest cannot use `size=` to limit virtio-fs. Tmpfs ceilings are
 independent of this host filesystem ceiling.
 
-The rootfs build removes package-manager executables, setuid/setgid files, and
-file capabilities before creating either role image. The verifier checks
-required supervisor/runtime paths and the build checks that no privilege bits
-or file capabilities remain. No runtime-required privilege exception is
+The rootfs build removes package-manager executables, the importable `pip` and
+`ensurepip` modules (so `python3 -m pip` cannot run or be recreated),
+setuid/setgid files, and file capabilities before creating either role image.
+The build executes each image's Python to confirm neither module resolves, and
+the verifier checks required supervisor/runtime paths and the absence of those
+modules in every Python library tree. The build also checks that no privilege
+bits or file capabilities remain.
+
+`TestEnclaveGuestLimitsLive` (run as root by the Cloud Hypervisor preview
+workflow) applies the real agent-role tmpfs, rlimit, read-only root, and
+all-thread privilege setup in a private mount namespace and launches a workload
+through the execution trampoline. The workload must observe `ENOSPC` on each
+bounded tmpfs, `EFBIG`, `EMFILE`, and `EAGAIN` at the file-size, open-file, and
+process limits, `EROFS` on read-only storage, UID/GID 65534 with no groups, and
+empty capabilities with `no_new_privs` on every thread. Booting enclave rootfs
+images under KVM remains gated on the host executor integration. No runtime-required privilege exception is
 allowlisted. These profiles and guest controls do not enable Cloud Hypervisor
 enclave execution: the host executor and broker integration remain separate
 gates, and current script/agent enclave launch attempts still fail closed.

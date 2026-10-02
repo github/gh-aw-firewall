@@ -100,6 +100,11 @@ func runSupervisorWithCmdline(cmdline string, listen func(uint32) (*vsockListene
 		if err := mountEnclaveTmpfs(profile); err != nil {
 			return err
 		}
+		if config.EnclaveRole == "agent" {
+			if err := mountEnclaveAgentRuntime(config); err != nil {
+				return err
+			}
+		}
 		if err := applyEnclaveRlimits(profile); err != nil {
 			return err
 		}
@@ -210,6 +215,9 @@ func unmountConfiguredFilesystems(config bootConfig) error {
 	}
 	for _, mount := range config.VirtiofsMounts {
 		targets = append(targets, mount.Target)
+	}
+	if config.EnclaveRole == "agent" {
+		targets = append(targets, enclaveAgentRuntimeTarget)
 	}
 	return unmountTargets(targets)
 }

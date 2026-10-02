@@ -111,6 +111,16 @@ func parseBootConfig(cmdline string) (bootConfig, error) {
 	if err != nil {
 		return bootConfig{}, err
 	}
+	if values["awf.enclave-role"] != "" {
+		if device != "" || workspaceMount != "" {
+			return bootConfig{}, fmt.Errorf("enclave cannot declare a primary workspace")
+		}
+		for _, fsMount := range virtiofsMounts {
+			if fsMount.Tag == "workspace" {
+				return bootConfig{}, fmt.Errorf("enclave cannot declare a primary workspace export")
+			}
+		}
+	}
 	if noNetwork {
 		for _, fsMount := range virtiofsMounts {
 			if fsMount.Tag == "workspace" {
@@ -120,16 +130,6 @@ func parseBootConfig(cmdline string) (bootConfig, error) {
 	} else if workspaceMount == "" {
 		if device != "" {
 			return bootConfig{}, fmt.Errorf("awf.workspace-device requires awf.workspace-mount")
-		}
-		if values["awf.enclave-role"] != "" {
-			if device != "" || workspaceMount != "" {
-				return bootConfig{}, fmt.Errorf("enclave cannot declare a primary workspace")
-			}
-			for _, fsMount := range virtiofsMounts {
-				if fsMount.Tag == "workspace" {
-					return bootConfig{}, fmt.Errorf("enclave cannot declare a primary workspace export")
-				}
-			}
 		}
 		for _, fsMount := range virtiofsMounts {
 			if fsMount.Tag == "workspace" {

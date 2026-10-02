@@ -58,6 +58,17 @@ jobs:
         # below, which is much slower to diagnose.
         run: go test ./...
 
+      - name: Run privileged enclave guest limit probe
+        working-directory: guest/microvm-supervisor
+        # Applies the real enclave tmpfs, rlimit, read-only root, and
+        # all-thread privilege drop in a private mount namespace, then
+        # proves the workload cannot exceed them.
+        run: |
+          CGO_ENABLED=0 go test -c -o "$RUNNER_TEMP/microvm-supervisor.test" .
+          sudo AWF_REQUIRE_LIVE_GUEST_PROBE=1 \
+            "$RUNNER_TEMP/microvm-supervisor.test" \
+            -test.run '^TestEnclaveGuestLimitsLive$' -test.count=1 -test.v
+
       - name: Install deterministic guest build prerequisites
         run: |
           sudo apt-get update

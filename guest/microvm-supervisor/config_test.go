@@ -116,3 +116,16 @@ func TestParseBootConfigRejectsUnsafeVirtiofs(t *testing.T) {
 		}
 	}
 }
+
+func TestParseBootConfigRejectsEnclaveWorkspace(t *testing.T) {
+	network := " awf.vsock-port=1024 awf.guest-ip=192.0.2.2 awf.guest-prefix=24 awf.guest-gateway=192.0.2.1 awf.guest-interface=eth0"
+	for _, cmdline := range []string{
+		"awf.enclave-role=agent awf.workspace-mount=/workspace awf.virtiofs=workspace:L3dvcmtzcGFjZQ:rw" + network,
+		"awf.enclave-role=agent awf.workspace-device=/dev/vdb awf.workspace-mount=/workspace" + network,
+		"awf.enclave-role=agent awf.virtiofs=workspace:L3dvcmtzcGFjZQ:rw" + network,
+	} {
+		if _, err := parseBootConfig(cmdline); err == nil {
+			t.Errorf("enclave workspace accepted: %s", cmdline)
+		}
+	}
+}
