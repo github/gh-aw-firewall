@@ -175,7 +175,7 @@ func TestMountEnclaveAgentRuntimeBindsWritableRuntimeExport(t *testing.T) {
 	if err := unmountConfiguredFilesystems(config); err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(unmounted, []string{"/agent", "/runtime"}) {
+	if !reflect.DeepEqual(unmounted, []string{"/awf", "/agent", "/runtime"}) {
 		t.Fatalf("agent runtime must unmount before its export: %#v", unmounted)
 	}
 }
