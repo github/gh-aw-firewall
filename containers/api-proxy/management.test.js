@@ -1,6 +1,8 @@
 'use strict';
 
 const { buildRoutingModelMetadata, createManagementHandlers } = require('./management');
+const { normalizeModel } = require('./routing-catalogue');
+const { buildRoutingCandidates } = require('./routing-candidates');
 
 describe('routing metadata in /reflect', () => {
   it('combines discovered IDs with maintained provider metadata and marks incomplete models', () => {
@@ -150,5 +152,69 @@ describe('routing metadata in /reflect', () => {
 
   it('returns null until model discovery provides IDs', () => {
     expect(buildRoutingModelMetadata('openai', null, [])).toBeNull();
+  });
+
+  it('uses Copilot routing capabilities and marks models complete only when they produce choices', () => {
+    const records = [
+      {
+        id: 'effort-model',
+        capabilities: { supports: { reasoning_effort: ['low', 'high'] } },
+        supportedEndpoints: ['/responses'],
+      },
+      {
+        id: 'no-effort-model',
+        capabilities: { supports: { streaming: true } },
+        supportedEndpoints: ['/chat/completions'],
+      },
+      {
+        id: 'unusable-endpoint',
+        capabilities: { supports: { reasoning_effort: ['low'] } },
+        supportedEndpoints: ['/unknown'],
+      },
+      {
+        id: 'unknown-effort',
+        capabilities: { supports: { reasoning_effort: ['future'] } },
+        supportedEndpoints: ['/responses'],
+      },
+      {
+        id: 'non-picker',
+        capabilities: { supports: { reasoning_effort: ['low'] } },
+        supportedEndpoints: ['/responses'],
+        modelPickerEnabled: false,
+      },
+    ];
+    const modelIds = records.map(record => record.id);
+    const routingModels = buildRoutingModelMetadata('copilot', modelIds, records);
+    const catalogue = {
+      provider: 'copilot',
+      configured: true,
+      discovery: 'complete',
+      models: records.map(record => normalizeModel(record.id, record, 'copilot')),
+    };
+    const choices = buildRoutingCandidates({ catalogue }).choices;
+
+    expect(routingModels).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        model_id: 'effort-model',
+        source: 'provider',
+        supported_reasoning_efforts: ['low', 'high'],
+        candidate_metadata_complete: true,
+      }),
+      expect.objectContaining({
+        model_id: 'no-effort-model',
+        supported_reasoning_efforts: [],
+        candidate_metadata_complete: true,
+      }),
+      expect.objectContaining({
+        model_id: 'non-picker',
+        candidate_metadata_complete: false,
+        candidate_metadata_reason: 'Model is not enabled in the Copilot model picker',
+      }),
+    ]));
+    expect(new Set(routingModels
+      .filter(model => model.candidate_metadata_complete)
+      .map(model => model.model_id))).toEqual(new Set(
+      choices.map(choice => choice.model.replace('github-copilot/', '')),
+    ));
   });
 });

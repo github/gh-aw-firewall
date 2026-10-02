@@ -779,7 +779,7 @@ Fields:
 - `configured` — `true` if an API key for this provider was found at startup
 - `models` — list of model IDs fetched from the provider at startup; `null` if the provider is not configured or model fetch failed
 - `model_metadata` — sanitized provider metadata, including pricing and provenance when the provider supplies it; currently Copilot supplies runtime pricing
-- `routing_models` — per-discovered-model endpoint, reasoning-effort, and context metadata used by task routing. `source` identifies provider-supplied or maintained fields; `candidate_metadata_complete: false` explains why a discovered model cannot be offered as a route
+- `routing_models` — per-discovered-model endpoint, reasoning-effort, and context metadata used by task routing. `source` identifies provider-supplied or maintained fields; `candidate_metadata_complete: false` means the model cannot be offered as a route. `candidate_metadata_reason` explains known exclusions, such as a Copilot model not enabled in the model picker
 - `model_api_mapping` — maintained endpoint and routing metadata, with source references, for model families where provider `/models` APIs do not publish those limits
 - `models_fetch_complete` — `true` once the startup model-fetch pass has finished
 - `models_url` — URL to query for the live model list

@@ -81,6 +81,20 @@ describe('routing candidates', () => {
     expect(pool.byId['choice-0002'].protocol).toBe('responses');
   });
 
+  it('excludes Copilot models unavailable in the model picker, even when explicitly allowed', () => {
+    const pool = build([
+      model('internal', { modelPickerEnabled: false }),
+      model('public'),
+    ], { allowedModels: ['internal', 'public'] });
+    expect(pool.choices.map(choice => choice.model)).toEqual([
+      'github-copilot/public', 'github-copilot/public',
+    ]);
+    expect(() => build(
+      [model('internal', { modelPickerEnabled: false })],
+      { allowedModels: ['internal'] },
+    )).toThrow(expect.objectContaining({ code: 'no_route' }));
+  });
+
   it('chooses a supported protocol based on effort and the model endpoints', () => {
     const pool = build([
       model('both', { efforts: ['none'] }),

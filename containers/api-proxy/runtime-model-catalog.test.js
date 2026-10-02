@@ -17,6 +17,7 @@ describe('runtime model catalog', () => {
       id: 'gpt-test',
       supportedReasoningEfforts: ['low', 'high'],
       supported_endpoints: ['/responses', '/chat/completions'],
+      model_picker_enabled: false,
       capabilities: { limits: { max_context_window_tokens: 128_000 } },
     };
     const records = parseProviderModelMetadata('copilot', {
@@ -34,10 +35,12 @@ describe('runtime model catalog', () => {
     expect(model).toMatchObject({
       supportedReasoningEfforts: ['low', 'high'],
       supportedEndpoints: ['/responses', '/chat/completions'],
+      modelPickerEnabled: false,
       capabilities: entry.capabilities,
     });
     expect(model.supportedReasoningEfforts).not.toBe(entry.supportedReasoningEfforts);
     expect(model.supportedEndpoints).not.toBe(entry.supported_endpoints);
+    expect(model).not.toHaveProperty('model_picker_enabled');
     entry.supportedReasoningEfforts.push('max');
     entry.supported_endpoints.length = 0;
     expect(model.supportedReasoningEfforts).toEqual(['low', 'high']);
