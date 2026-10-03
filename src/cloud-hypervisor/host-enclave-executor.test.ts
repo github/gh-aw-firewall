@@ -1,6 +1,7 @@
 import { createHash } from 'crypto';
 import { promises as fs } from 'fs';
 import * as path from 'path';
+import * as os from 'os';
 import {
   ENCLAVE_AGENT_API_PROXY_IP,
   ENCLAVE_GITHUB_MCP_PORT,
@@ -53,7 +54,8 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
       startupDelayMs,
       expectedOutcome,
     }) => {
-      const scratch = await fs.mkdtemp(path.join(process.cwd(), '.awf-host-backend-'));
+      // Invocation trust rejects /tmp; the home fixture also keeps Unix sockets short.
+      const scratch = await fs.mkdtemp(path.join(os.homedir(), '.awf-backend-'));
       const root = await fs.realpath(scratch);
       const seedsDir = path.join(root, 'seeds');
       const invocationsDir = path.join(root, 'invocations');
@@ -834,13 +836,15 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
       '{"fixture":"signed"}\n',
     );
     const manifestBundle = '{"fixture":"signed"}\n';
-    const attestationToolPath = await writeTrustedFile('gh', '#!/bin/sh\nexit 0\n');
+    const attestationTracePath = path.join(scratch, 'attestation-arguments');
+    const attestationToolPath = await writeTrustedFile('gh',
+      `#!/bin/sh\nprintf '%s\\n' "$@" >> '${attestationTracePath}'\nprintf '\\n' >> '${attestationTracePath}'\n`);
     await fs.chmod(attestationToolPath, 0o700);
     const scriptProvenancePath = await writeTrustedFile(
       'enclave-script-rootfs.provenance.sigstore.jsonl',
       '{"fixture":"script"}\n',
     );
-    await writeTrustedFile(
+    const agentProvenancePath = await writeTrustedFile(
       'enclave-agent-rootfs.provenance.sigstore.jsonl',
       '{"fixture":"agent"}\n',
     );
@@ -877,6 +881,22 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
           agent: { path: agentRootfsPath, artifact: agentArtifact },
         },
       });
+      const verifications = (await fs.readFile(attestationTracePath, 'utf8')).trim().split('\n\n')
+        .map((invocation) => invocation.split('\n'));
+      expect(verifications).toHaveLength(3);
+      for (const args of verifications) {
+        expect(args.slice(0, 2)).toEqual(['attestation', 'verify']);
+        expect(args.slice(3)).toEqual([
+          '--repo', 'github/gh-aw-firewall',
+          '--bundle', expect.any(String),
+          '--signer-workflow', 'github/gh-aw-firewall/.github/workflows/release.yml',
+          '--deny-self-hosted-runners',
+        ]);
+      }
+      expect(verifications[1][2]).toBe(scriptRootfsPath);
+      expect(verifications[1][6]).toBe(scriptProvenancePath);
+      expect(verifications[2][2]).toBe(agentRootfsPath);
+      expect(verifications[2][6]).toBe(agentProvenancePath);
 
       await fs.chmod(manifestBundlePath, 0o600);
       await fs.writeFile(manifestBundlePath, '');
