@@ -216,9 +216,10 @@ pconn_timeout 2 minutes
 # Set high to accommodate long streaming sessions
 client_lifetime 8 hours
 
-# half_closed_clients: Allow half-closed connections for streaming
-# Critical for SSE where server sends but client doesn't respond
-half_closed_clients on
+# Close clients that send EOF before the TLS ClientHello to avoid Squid's
+# empty-buffer assertion during ssl_bump peek. CONNECT tunnels handle half-close
+# themselves, and SSE does not require a TCP half-close.
+half_closed_clients off
 
 # shutdown_lifetime: Time to wait for active connections during shutdown
 # Set to 0 because this is an ephemeral proxy — no connection draining needed
