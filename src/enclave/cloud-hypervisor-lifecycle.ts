@@ -96,8 +96,7 @@ export function deriveCloudHypervisorEnclaveRunState(
         entryId,
         executorKind: entryId as 'script' | 'agent',
         timeoutMs: entry.timeout * 1000,
-        staticSeedIds: (entryId === 'agent'
-          ? config.enclaves!.executors.agent.repos : config.enclaves!.privateRepos).map((repo) => {
+        staticSeedIds: config.enclaves!.privateRepos.map((repo) => {
           const seed = seeds.get(normalizePrivateRepositoryKey(repo.repo));
           if (!seed) throw new Error('Cloud Hypervisor enclave entry references an unstaged repository');
           return seed;
@@ -148,7 +147,7 @@ export async function startCloudHypervisorEnclaveLifecycle(
     runtimeDir: paths.hostExecutorDir,
     runState: deriveCloudHypervisorEnclaveRunState(config, paths),
     config: config.cloudHypervisor,
-    workDir: config.workDir,
+    workDir: paths.workDir,
     agentPolicies: deriveAgentPolicies(config),
     environment,
   };

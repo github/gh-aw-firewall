@@ -125,6 +125,22 @@ describe('trusted Cloud Hypervisor enclave lifecycle', () => {
     });
   });
 
+  it('authorizes agent invocations against the run-wide static repository catalog', () => {
+    const agentRepository = { repo: 'octo/agent-only', sensitivity: 'internal' as const };
+    config.enclaves!.executors.agent.repos = [agentRepository];
+    config.enclaves!.privateRepos = [...config.enclaves!.privateRepos, agentRepository];
+    const seedId = deriveEnclaveSeedId(runId, agentRepository.repo);
+    const paths = resolveEnclavePaths(workDir);
+    fs.mkdirSync(path.join(paths.seedsDir, seedId));
+    const seedMap = JSON.parse(fs.readFileSync(paths.seedMapPath, 'utf8'));
+    seedMap.seeds.push({ ...agentRepository, seedId });
+    fs.writeFileSync(paths.seedMapPath, JSON.stringify(seedMap));
+
+    const state = deriveCloudHypervisorEnclaveRunState(config, paths);
+    expect(state.entries.find((entry) => entry.entryId === 'agent')?.staticSeedIds)
+      .toEqual([deriveEnclaveSeedId(runId, repository.repo), seedId]);
+  });
+
   it.each(['wrong-run', 'unknown-repo', 'wrong-seed', 'missing-repo'])(
     'rejects %s staged catalog before storage or listener effects', async (failure) => {
       const paths = resolveEnclavePaths(workDir);
@@ -145,6 +161,7 @@ describe('trusted Cloud Hypervisor enclave lifecycle', () => {
     await startCloudHypervisorEnclaveLifecycle(config, provider, {});
     expect(start).toHaveBeenCalledWith(expect.objectContaining({
       runtimeDir: resolveEnclavePaths(workDir).hostExecutorDir,
+      workDir: resolveEnclavePaths(workDir).workDir,
       agentPolicies: {
         agent: {
           model: 'trusted-model', profile: 'openai', maxOutputBytes: 512,
