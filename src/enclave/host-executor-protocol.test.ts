@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as net from 'net';
 import * as path from 'path';
+import * as os from 'os';
 import { HostExecutorJournal } from './host-executor-journal';
 import {
   HOST_EXECUTOR_PROTOCOL_VERSION,
@@ -400,7 +401,7 @@ describe('host executor server', () => {
   };
 
   beforeEach(() => {
-    root = fs.mkdtempSync(path.join(process.cwd(), '.he-'));
+    root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'awf-host-')));
     executions = [];
     pending = [];
     signals = [];

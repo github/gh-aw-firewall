@@ -36,6 +36,7 @@ const page = Buffer.alloc(4096, 1);
   });
 
   afterAll(async () => {
+    expect(mounted.size).toBe(0);
     await fs.rm(root, { recursive: true, force: true });
   });
 

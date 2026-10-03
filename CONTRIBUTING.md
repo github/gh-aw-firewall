@@ -28,7 +28,7 @@ Thank you for your interest in contributing! We welcome contributions from the c
 
 ### Prerequisites
 - **Docker**: Must be running for integration tests
-- **Node.js**: v20.19.0+ and npm
+- **Node.js**: v20.19.0+ and npm for AWF; Node 22.22.2+ on the Node 22 line for Markdown lint tooling
 - **Root/Sudo Access**: Required for testing iptables functionality
 - **Git**: For version control
 
@@ -39,6 +39,7 @@ Thank you for your interest in contributing! We welcome contributions from the c
 - `npm test` - Run tests
 - `npm test:watch` - Run tests in watch mode
 - `npm run lint` - Lint TypeScript files
+- `npm run lint:md` - Lint Markdown with `markdownlint-cli`, including hidden workflow files, using `.markdownlint.json`; excludes dependency directories, `.specify`, and `.claude`
 - `npm run clean` - Clean build artifacts
 
 ## 📝 How to Contribute
