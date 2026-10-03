@@ -16,7 +16,6 @@ const { getCopilotModelFallbackPolicy } = require('./providers/copilot-auth');
 const {
   ALLOWED_MODELS,
   DISALLOWED_MODELS,
-  isModelPermittedByPolicy,
 } = require('./guards/model-policy-guard');
 const { isModelPriceable } = require('./guards/ai-credits-guard');
 
@@ -149,13 +148,7 @@ function makeModelBodyTransform(
     let result = null;
     if (
       canRouteCopilotAutoResponses &&
-      isCopilotAutoResponsesRequest(body, req) &&
-      isModelPermittedByPolicy(
-        'auto',
-        MODEL_POLICY_CONFIG?.allowedModels,
-        MODEL_POLICY_CONFIG?.disallowedModels,
-        'copilot',
-      )
+      isCopilotAutoResponsesRequest(body, req)
     ) {
       const getAutoResolution = () => rewriteCopilotAutoResponsesModelInBody(
         body,

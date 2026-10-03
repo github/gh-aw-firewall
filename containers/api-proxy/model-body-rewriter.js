@@ -104,6 +104,7 @@ function rewriteCopilotAutoResponsesModelInBody(body, availableModels, modelReco
   const candidates = [...available]
     .map(id => recordsById.get(id))
     .filter(record => record &&
+      record.modelPickerEnabled !== false &&
       /(?:^|[-.])codex(?:$|[-.])/i.test(record.id) &&
       Array.isArray(record.supportedEndpoints) &&
       record.supportedEndpoints.some(endpoint => ['/responses', '/v1/responses', 'responses'].includes(endpoint)) &&

@@ -1,8 +1,22 @@
 'use strict';
 
-const { makeModelBodyTransform } = require('./model-config');
+let makeModelBodyTransform;
 
 describe('Copilot Responses auto routing', () => {
+  const originalEnv = { ...process.env };
+
+  beforeEach(() => {
+    delete process.env.AWF_ALLOWED_MODELS;
+    delete process.env.AWF_DISALLOWED_MODELS;
+    jest.isolateModules(() => {
+      ({ makeModelBodyTransform } = require('./model-config'));
+    });
+  });
+
+  afterEach(() => {
+    process.env = { ...originalEnv };
+  });
+
   const models = {
     copilot: ['gpt-5.3-codex', 'gpt-5.4-codex', 'gpt-5.5-chat'],
   };
@@ -40,6 +54,79 @@ describe('Copilot Responses auto routing', () => {
       tools: [{ type: 'custom' }],
     });
     expect(req.awfModelCandidates).toEqual(['gpt-5.4-codex', 'gpt-5.3-codex']);
+  });
+
+  it('skips a disabled higher-version Codex model', async () => {
+    const transform = createTransform({
+      getRuntimeModels: () => metadata.map(record => ({
+        ...record,
+        modelPickerEnabled: record.id !== 'gpt-5.4-codex',
+      })),
+    });
+    const req = { method: 'POST', url: '/responses' };
+
+    const result = await transform(Buffer.from('{"model":"auto"}'), req);
+
+    expect(JSON.parse(result.toString('utf8')).model).toBe('gpt-5.3-codex');
+    expect(req.awfModelCandidates).toEqual(['gpt-5.3-codex']);
+  });
+
+  it.each([
+    ['AWF_ALLOWED_MODELS', ['copilot/gpt-5.3-codex']],
+    ['AWF_DISALLOWED_MODELS', ['copilot/gpt-5.4-codex']],
+  ])('routes auto using concrete-model policy from %s', async (key, patterns) => {
+    process.env[key] = JSON.stringify(patterns);
+    jest.isolateModules(() => {
+      ({ makeModelBodyTransform } = require('./model-config'));
+    });
+    const refresh = jest.fn();
+    const transform = createTransform({ refresh });
+    const req = { method: 'POST', url: '/responses' };
+
+    const result = await transform(Buffer.from('{"model":"copilot/auto"}'), req);
+
+    expect(JSON.parse(result.toString('utf8')).model).toBe('gpt-5.3-codex');
+    expect(req.awfModelCandidates).toEqual(['gpt-5.3-codex']);
+    expect(refresh).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['AWF_ALLOWED_MODELS', ['gpt-5.5-chat']],
+    ['AWF_DISALLOWED_MODELS', ['*codex*']],
+  ])('fails closed after one refresh when %s excludes all compatible models', async (key, patterns) => {
+    process.env[key] = JSON.stringify(patterns);
+    jest.isolateModules(() => {
+      ({ makeModelBodyTransform } = require('./model-config'));
+    });
+    const refresh = jest.fn();
+    const transform = createTransform({ refresh });
+
+    await expect(transform(
+      Buffer.from('{"model":"auto"}'),
+      { method: 'POST', url: '/responses' },
+    )).rejects.toMatchObject({
+      statusCode: 503,
+      code: 'copilot_auto_responses_model_unavailable',
+    });
+    expect(refresh).toHaveBeenCalledTimes(1);
+    expect(refresh).toHaveBeenCalledWith('copilot');
+  });
+
+  it('fails closed when all compatible models are disabled', async () => {
+    const refresh = jest.fn();
+    const transform = createTransform({
+      getRuntimeModels: () => metadata.map(record => ({ ...record, modelPickerEnabled: false })),
+      refresh,
+    });
+
+    await expect(transform(
+      Buffer.from('{"model":"auto"}'),
+      { method: 'POST', url: '/responses' },
+    )).rejects.toMatchObject({
+      statusCode: 503,
+      code: 'copilot_auto_responses_model_unavailable',
+    });
+    expect(refresh).toHaveBeenCalledTimes(1);
   });
 
   it('leaves Chat Completions auto unchanged', async () => {
