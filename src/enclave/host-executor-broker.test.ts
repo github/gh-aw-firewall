@@ -462,6 +462,7 @@ describe('finite-disclosure broker → authenticated Unix host → concrete micr
     (['storage', 'partial-start', 'guest-failure', 'guest-oom', 'guest-timeout'] as const)
       .map((failure) => ({ role, failure })),
   ))('settles $role $failure only after cleanup, without automatically replaying', async ({ role, failure }) => {
+    output = '"PRIVATE_RAW_OUTPUT"';
     storageError = failure === 'storage';
     startupError = failure === 'partial-start';
     if (failure === 'guest-failure') executionResult.exitCode = 1;

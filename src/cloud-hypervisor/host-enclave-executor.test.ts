@@ -844,7 +844,7 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
       'enclave-script-rootfs.provenance.sigstore.jsonl',
       '{"fixture":"script"}\n',
     );
-    await writeTrustedFile(
+    const agentProvenancePath = await writeTrustedFile(
       'enclave-agent-rootfs.provenance.sigstore.jsonl',
       '{"fixture":"agent"}\n',
     );
@@ -896,6 +896,7 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
       expect(verifications[1][2]).toBe(scriptRootfsPath);
       expect(verifications[1][6]).toBe(scriptProvenancePath);
       expect(verifications[2][2]).toBe(agentRootfsPath);
+      expect(verifications[2][6]).toBe(agentProvenancePath);
 
       await fs.chmod(manifestBundlePath, 0o600);
       await fs.writeFile(manifestBundlePath, '');
