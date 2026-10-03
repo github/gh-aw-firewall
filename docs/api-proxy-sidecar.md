@@ -117,11 +117,12 @@ that catalog even when `chatgpt.com` is allowed, so `auto` can fail with
 `The requested model is not supported`.
 
 This OpenAI-native `auto` limitation does not apply to Copilot's own `auto`
-model selector. Harnesses that route through the Copilot provider (port
-`10002`) — including Codex and Pi — can request `auto` (or the LiteLLM-style
-`copilot/auto`) and the api-proxy sidecar forwards `auto` to Copilot after
-stripping the redundant provider prefix, so Copilot resolves it dynamically at
-request time.
+model selector. Pi's Chat Completions requests continue to forward `auto`
+unchanged. For native GitHub Copilot Responses requests, including Codex's
+`copilot/auto`, the sidecar selects the highest-version Codex model in the live
+Copilot inventory that advertises Responses support. It keeps the Copilot
+provider and credentials; if the inventory has no eligible model, the sidecar
+returns an explicit error. Custom Copilot/BYOK targets are not rewritten.
 
 Since [PR #9005](https://github.com/github/gh-aw-firewall/pull/9005), the
 redundant `<provider>/` prefix strip applied above is unconditional for every

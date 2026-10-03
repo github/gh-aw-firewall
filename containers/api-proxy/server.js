@@ -101,6 +101,12 @@ if (!HTTPS_PROXY) {
 }
 
 const { createAllAdapters } = require('./providers');
+const {
+  resolveApiKey,
+  resolveCopilotAuthToken,
+  deriveCopilotApiTarget,
+  isGithubCopilotCatalogTarget,
+} = require('./providers/copilot-auth');
 
 /**
  * Model cache keys of the provider slots that are actually configured for this
@@ -124,6 +130,11 @@ function makeModelBodyTransform(provider) {
     cachedModels,
     refreshProviderModelsForResolution,
     getConfiguredModelCacheKeys,
+    getRuntimeModels,
+    provider === 'copilot' &&
+      !resolveApiKey(process.env) &&
+      Boolean(resolveCopilotAuthToken(process.env)) &&
+      isGithubCopilotCatalogTarget(deriveCopilotApiTarget(process.env)),
   );
 }
 

@@ -170,21 +170,25 @@ docker network rm awf-net
    ```
 4. Review [GitHub Enterprise Configuration](enterprise-configuration.md) for the expected endpoint derivation and allowlist behavior.
 
-### Codex `auto` Model Fails Under AWF
+### OpenAI Codex `auto` Model Fails Under AWF
 
 **Problem:** A Codex run inside AWF fails with messages such as:
 - `Unknown model auto is used`
 - `The requested model is not supported`
 - `chatgpt authentication required for remote plugin catalog; api key auth is not supported`
 
-**Cause:** Codex's `auto` model alias relies on ChatGPT-authenticated remote
-model/plugin metadata. AWF's API proxy uses API-key credential injection, so the
-ChatGPT catalog lookup cannot be used even if `chatgpt.com` is on the network
-allowlist.
+**Cause:** When Codex uses the OpenAI-native endpoint, its `auto` model alias
+relies on ChatGPT-authenticated remote model/plugin metadata. AWF's API proxy
+uses API-key credential injection, so the ChatGPT catalog lookup cannot be used
+even if `chatgpt.com` is on the network allowlist.
 
 **Solution:** Set an explicit Codex model instead of `auto`, for example
 `model: gpt-5.3-codex` in workflow frontmatter or `codex exec --model
 gpt-5.3-codex ...` for direct CLI usage.
+
+When using the GitHub Copilot provider, `copilot/auto` is routed on Responses
+requests using the available Copilot model inventory; Chat Completions requests
+retain Copilot's native `auto` behavior.
 
 ## Permission Issues
 
