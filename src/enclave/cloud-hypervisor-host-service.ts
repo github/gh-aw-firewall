@@ -1,6 +1,7 @@
 import {
   createCloudHypervisorHostEnclaveExecutor,
   type CreateCloudHypervisorHostEnclaveExecutorOptions,
+  type HostEnclaveExecutorDependencies,
 } from '../cloud-hypervisor/host-enclave-executor';
 import {
   startHostExecutorServer,
@@ -11,6 +12,8 @@ export interface CloudHypervisorEnclaveHostServiceOptions
   extends CreateCloudHypervisorHostEnclaveExecutorOptions {
   /** AWF-private directory shared only with the trusted enclave broker. */
   readonly runtimeDir: string;
+  /** Trusted storage implementation hooks, never sourced from configuration or the broker. */
+  readonly backendDependencies?: Partial<HostEnclaveExecutorDependencies>;
 }
 
 /**
@@ -21,7 +24,9 @@ export interface CloudHypervisorEnclaveHostServiceOptions
 export async function startCloudHypervisorEnclaveHostService(
   options: CloudHypervisorEnclaveHostServiceOptions,
 ): Promise<HostExecutorServer> {
-  const backend = await createCloudHypervisorHostEnclaveExecutor(options);
+  const backend = options.backendDependencies
+    ? await createCloudHypervisorHostEnclaveExecutor(options, options.backendDependencies)
+    : await createCloudHypervisorHostEnclaveExecutor(options);
   try {
     return await startHostExecutorServer({
       runtimeDir: options.runtimeDir,

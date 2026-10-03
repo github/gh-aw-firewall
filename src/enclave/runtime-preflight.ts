@@ -3,6 +3,8 @@ import type {
   EnclaveRuntime,
   EnclaveScriptExecutorConfig,
 } from '../types/enclave-options';
+import type { WrapperConfig } from '../types';
+import { assertCloudHypervisorEnclaveLifecycleReady } from './cloud-hypervisor-lifecycle';
 import {
   defaultDockerAvailabilityQuery,
   defaultDockerRuntimeQuery,
@@ -63,6 +65,7 @@ async function assertExecutorRuntimeAvailable(
   label: string,
   queryDockerRuntime: DockerRuntimeQuery,
   queryDockerAvailable: DockerAvailabilityQuery,
+  trustedRun?: WrapperConfig,
 ): Promise<void> {
   if (runtime === 'gvisor') {
     if (!(await queryDockerRuntime(RUNSC_RUNTIME))) {
@@ -79,9 +82,13 @@ async function assertExecutorRuntimeAvailable(
     return;
   }
   if (runtime === 'cloud-hypervisor') {
+    if (trustedRun) {
+      await assertCloudHypervisorEnclaveLifecycleReady(trustedRun);
+      return;
+    }
     throw new Error(
-      `${label} runtime "cloud-hypervisor" is reserved until the ADR 0002 host executor `
-      + 'integration passes supported-host real-KVM security and lifecycle validation; enclaves never fall back',
+      `${label} runtime "cloud-hypervisor" requires trusted full host/artifact/storage preflight `
+      + 'through the AWF-owned host executor; enclaves never fall back',
     );
   }
   throw new Error(`${label} runtime "sbx" is not implemented and never falls back`);
@@ -91,12 +98,14 @@ export function assertScriptRuntimeAvailable(
   config: EnclaveScriptExecutorConfig,
   queryDockerRuntime: DockerRuntimeQuery = defaultDockerRuntimeQuery,
   queryDockerAvailable: DockerAvailabilityQuery = defaultDockerAvailabilityQuery,
+  trustedRun?: WrapperConfig,
 ): Promise<void> {
   return assertExecutorRuntimeAvailable(
     config.runtime,
     'Enclave script executor',
     queryDockerRuntime,
     queryDockerAvailable,
+    trustedRun,
   );
 }
 
@@ -104,11 +113,13 @@ export function assertAgentRuntimeAvailable(
   config: EnclaveAgentExecutorConfig,
   queryDockerRuntime: DockerRuntimeQuery = defaultDockerRuntimeQuery,
   queryDockerAvailable: DockerAvailabilityQuery = defaultDockerAvailabilityQuery,
+  trustedRun?: WrapperConfig,
 ): Promise<void> {
   return assertExecutorRuntimeAvailable(
     config.runtime,
     'Enclave agent executor',
     queryDockerRuntime,
     queryDockerAvailable,
+    trustedRun,
   );
 }

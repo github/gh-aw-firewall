@@ -20,6 +20,7 @@ jest.mock('./validate-options');
 jest.mock('../sbx-manager');
 jest.mock('../enclave/gateway');
 jest.mock('../enclave/github-gateway');
+jest.mock('../enclave/cloud-hypervisor-lifecycle');
 jest.mock('../external-runtime-backend-resolver', () => {
   const actual = jest.requireActual('../external-runtime-backend-resolver');
   return {
@@ -42,6 +43,7 @@ import * as validateOptions from './validate-options';
 import * as sbxManager from '../sbx-manager';
 import * as enclaveGateway from '../enclave/gateway';
 import * as enclaveGithubGateway from '../enclave/github-gateway';
+import * as enclaveHostLifecycle from '../enclave/cloud-hypervisor-lifecycle';
 import * as externalRuntimeResolver from '../external-runtime-backend-resolver';
 import { MAIN_ACTION_STUB_CONFIG, setupMainActionTestHarness } from './main-action.test-utils';
 import type { WrapperConfig } from '../types';
@@ -76,6 +78,7 @@ const mockedEnclaveGateway = enclaveGateway as jest.Mocked<typeof enclaveGateway
 const mockedEnclaveGithubGateway =
   enclaveGithubGateway as jest.Mocked<typeof enclaveGithubGateway>;
 const mockedExternalRuntimeResolver = externalRuntimeResolver as jest.Mocked<typeof externalRuntimeResolver>;
+const mockedEnclaveHostLifecycle = enclaveHostLifecycle as jest.Mocked<typeof enclaveHostLifecycle>;
 
 describe('createMainAction', () => {
   let processExitSpy: jest.SpyInstance;
@@ -754,6 +757,72 @@ describe('createMainAction', () => {
         'External runtime cleanup failed; continuing with infrastructure teardown.',
         runtimeError,
       );
+    });
+
+    describe('Cloud Hypervisor enclave cleanup ordering', () => {
+      it('closes host admissions before broker shutdown on the shared cleanup path', async () => {
+        const cleanup = testHelpers.buildCleanupFn(
+          { ...MAIN_ACTION_STUB_CONFIG }, () => true, () => false,
+        );
+        await cleanup('SIGTERM');
+        expect(mockedEnclaveHostLifecycle.closeCloudHypervisorEnclaveAdmissions)
+          .toHaveBeenCalledWith(expect.objectContaining({ workDir: MAIN_ACTION_STUB_CONFIG.workDir }));
+        expect(mockedEnclaveHostLifecycle.closeCloudHypervisorEnclaveAdmissions.mock.invocationCallOrder[0])
+          .toBeLessThan(mockedEnclaveGateway.shutdownEnclaveGateway.mock.invocationCallOrder[0]);
+        expect(mockedEnclaveGateway.shutdownEnclaveGateway.mock.invocationCallOrder[0])
+          .toBeLessThan(mockedEnclaveHostLifecycle.stopCloudHypervisorEnclaveLifecycle.mock.invocationCallOrder[0]);
+        expect(mockedEnclaveHostLifecycle.stopCloudHypervisorEnclaveLifecycle.mock.invocationCallOrder[0])
+          .toBeLessThan(mockedDockerManager.stopContainers.mock.invocationCallOrder[0]);
+      });
+
+      it('closes the host backend before propagating container teardown failure', async () => {
+        const failure = new Error('compose down failed');
+        mockedDockerManager.stopContainers.mockRejectedValueOnce(failure);
+        const cleanup = testHelpers.buildCleanupFn(
+          { ...MAIN_ACTION_STUB_CONFIG }, () => true, () => false,
+        );
+        await expect(cleanup()).rejects.toBe(failure);
+        expect(mockedEnclaveHostLifecycle.stopCloudHypervisorEnclaveLifecycle).toHaveBeenCalledTimes(1);
+        expect(mockedEnclaveHostLifecycle.stopCloudHypervisorEnclaveLifecycle.mock.invocationCallOrder[0])
+          .toBeLessThan(mockedDockerManager.stopContainers.mock.invocationCallOrder[0]);
+        expect(mockedDockerManager.cleanup).not.toHaveBeenCalled();
+      });
+
+      it('closes the host backend when broker draining fails, before disconnecting its data plane', async () => {
+        mockedEnclaveGateway.shutdownEnclaveGateway.mockRejectedValueOnce(new Error('broker shutdown failed'));
+        const cleanup = testHelpers.buildCleanupFn(
+          { ...MAIN_ACTION_STUB_CONFIG }, () => true, () => false,
+        );
+        await cleanup();
+        expect(mockedEnclaveHostLifecycle.stopCloudHypervisorEnclaveLifecycle).toHaveBeenCalledTimes(1);
+        expect(mockedEnclaveHostLifecycle.stopCloudHypervisorEnclaveLifecycle.mock.invocationCallOrder[0])
+          .toBeLessThan(mockedEnclaveGithubGateway.disconnectEnclaveGithubGateway.mock.invocationCallOrder[0]);
+      });
+
+      it('closes the host backend before propagating audit-preservation failure', async () => {
+        const failure = new Error('audit preservation failed');
+        mockedDockerManager.preserveIptablesAudit.mockImplementationOnce(() => { throw failure; });
+        const cleanup = testHelpers.buildCleanupFn(
+          { ...MAIN_ACTION_STUB_CONFIG }, () => true, () => false,
+        );
+        await expect(cleanup()).rejects.toBe(failure);
+        expect(mockedEnclaveHostLifecycle.stopCloudHypervisorEnclaveLifecycle).toHaveBeenCalledTimes(1);
+        expect(mockedDockerManager.stopContainers).not.toHaveBeenCalled();
+        expect(mockedDockerManager.cleanup).not.toHaveBeenCalled();
+      });
+
+      it('does not delete generic work state when host backend cleanup is uncertain', async () => {
+        mockedEnclaveHostLifecycle.stopCloudHypervisorEnclaveLifecycle
+          .mockRejectedValueOnce(new Error('host cleanup uncertain'));
+        const cleanup = testHelpers.buildCleanupFn(
+          { ...MAIN_ACTION_STUB_CONFIG, enclaves: { enabled: true } } as WrapperConfig,
+          () => true, () => false,
+        );
+        await expect(cleanup()).rejects.toThrow('host cleanup uncertain');
+        expect(mockedDockerManager.stopContainers).not.toHaveBeenCalled();
+        expect(mockedEnclaveGithubGateway.disconnectEnclaveGithubGateway).not.toHaveBeenCalled();
+        expect(mockedDockerManager.cleanup).not.toHaveBeenCalled();
+      });
     });
   });
 

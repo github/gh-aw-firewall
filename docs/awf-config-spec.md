@@ -2372,15 +2372,21 @@ At most one entry MAY exist per executor kind, and each entry MUST declare exact
 
 `gvisor` requires an exactly registered `runsc` runtime and never falls back. `sbx` remains fail-closed for both executors until the audited capability proof lands.
 
-`cloud-hypervisor` is a reserved enclave runtime value governed by
-[ADR 0002](adr/0002-cloud-hypervisor-enclave-executor.md). AWF preserves the
-selection through parsing and validates the shared top-level `cloudHypervisor`
-preview, host, and attested-artifact configuration, but currently fails closed
-before launching an enclave. Execution remains disabled until the host executor,
-dedicated script and agent rootfs artifacts, workload-specific networking,
-resource parity, and durable recovery gates land. The initial scope is static
-script and static agent entries only; dynamic entries and custom `image`
-overrides are rejected, and no configuration falls back to another runtime.
+`cloud-hypervisor` selects the trusted host enclave executor governed by
+[ADR 0002](adr/0002-cloud-hypervisor-enclave-executor.md), not the primary-agent
+VM backend. AWF owns the per-run authenticated private Unix listener, staged
+seed paths, release-attested role artifacts, launch policy, and recovery state.
+The broker uses the unchanged protocol v2 without caller-selectable launch
+controls. Supported GitHub-hosted Ubuntu x86_64 KVM host/artifact preflight and
+the hard-bounded aggregate writable-storage provider from
+[#9394](https://github.com/github/gh-aw-firewall/issues/9394) are mandatory.
+The provider is not installed in this revision, so production selection still
+fails explicitly before staging/listener/VM creation; there is no bypass flag.
+The initial scope is static script and static agent entries only. Dynamic
+entries, custom `image` overrides, mixed container/VM enclave runtimes,
+Docker host path prefixes, primary sbx/NVX/Cloud Hypervisor combinations, and static
+GitHub tools lacking a scoped executor bearer handoff are rejected.
+No unavailable configuration falls back to another runtime.
 
 An enclave-only `cloud-hypervisor` selection requires top-level
 `cloudHypervisor` configuration but does not select Cloud Hypervisor for the

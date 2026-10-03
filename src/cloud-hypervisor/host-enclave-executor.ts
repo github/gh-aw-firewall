@@ -22,6 +22,9 @@ import {
 } from '../enclave/host-executor-journal';
 import { DurableCloudHypervisorCleanupRegistry } from './cleanup-registry';
 import {
+  assertBoundedEnclaveStorage, mountBoundedEnclaveStorage, unmountBoundedEnclaveStorage,
+} from './enclave-storage';
+import {
   ENCLAVE_AGENT_API_PROXY_IP,
   ENCLAVE_AGENT_GITHUB_MCP_IP,
   ENCLAVE_GITHUB_MCP_PORT,
@@ -166,6 +169,7 @@ export interface HostEnclaveExecutorDependencies {
     tools: CloudHypervisorHostToolPaths,
   ) => Promise<void>;
   readonly unmount: (directory: string, tools: CloudHypervisorHostToolPaths) => Promise<void>;
+  readonly verifyStorage: typeof assertBoundedEnclaveStorage;
   readonly mkdir: typeof fs.mkdir;
   readonly realpath: typeof fs.realpath;
   readonly lstat: typeof fs.lstat;
@@ -200,28 +204,9 @@ const defaultDependencies: HostEnclaveExecutorDependencies = {
     artifacts,
     true,
   ),
-  mountTmpfs: async (directory, sizeBytes, uid, gid, tools) => {
-    const mountOptions =
-      `size=${sizeBytes},mode=0700,uid=${uid},gid=${gid},nosuid,nodev,noexec`;
-    const result = await execa(tools.mount, [
-      '-t', 'tmpfs',
-      '-o', mountOptions,
-      'awf-enclave-invocation',
-      directory,
-    ], { reject: false, stdio: ['ignore', 'pipe', 'pipe'] });
-    if (result.exitCode !== 0) {
-      throw new Error(`Unable to mount bounded enclave invocation storage: ${result.stderr.trim()}`);
-    }
-  },
-  unmount: async (directory, tools) => {
-    const result = await execa(tools.umount, [directory], {
-      reject: false,
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-    if (result.exitCode !== 0) {
-      throw new Error(`Unable to unmount enclave invocation storage: ${result.stderr.trim()}`);
-    }
-  },
+  mountTmpfs: mountBoundedEnclaveStorage,
+  unmount: unmountBoundedEnclaveStorage,
+  verifyStorage: assertBoundedEnclaveStorage,
   mkdir: fs.mkdir,
   realpath: fs.realpath,
   lstat: fs.lstat,
@@ -565,6 +550,7 @@ async function prepareInvocationFilesystem(
     tools,
   );
   await onMounted();
+  await dependencies.verifyStorage(plan.invocationHostDir, resourceProfile.writableStorageBytes);
   for (const name of ['request', 'output', 'runtime']) {
     const directory = filePath(plan.invocationHostDir, name);
     await dependencies.mkdir(directory, { mode: 0o700 });

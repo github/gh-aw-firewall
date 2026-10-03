@@ -223,6 +223,7 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
         mountTmpfs: async (_directory, _size, mountUid, mountGid) => {
           mountedIdentity = { uid: mountUid, gid: mountGid };
         },
+        verifyStorage: jest.fn().mockResolvedValue(undefined),
         unmount: async () => { unmounted = true; },
         chown: async (filePathValue) => { chownedPaths.push(filePathValue.toString()); },
         resolveIdentity: () => ({ uid, gid }),
@@ -342,6 +343,24 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
             bearer: `${agentPolicy.githubBearer}\n`,
           });
         } else if (expectedOutcome === 'success') {
+          stopped = false;
+          unmounted = false;
+          snapshotRemoved = false;
+          const invalidStorageBackend = new CloudHypervisorHostEnclaveExecutorBackend(
+            backendOptions,
+            {
+              ...dependencies,
+              verifyStorage: async () => { throw new Error('Unverifiable bounded storage'); },
+              createManager: () => { throw new Error('VM must not be created'); },
+            },
+          );
+          await expect(invalidStorageBackend.execute(plan, new AbortController().signal))
+            .resolves.toEqual({ outcome: 'executor-failure' });
+          expect(unmounted).toBe(true);
+          expect(snapshotRemoved).toBe(false);
+          expect(await fs.lstat(invocationHostDir).catch(() => undefined)).toBeUndefined();
+          await invalidStorageBackend.close();
+
           expect(workloadProfile?.kind).toBe('script-enclave');
           if (expectedOutcome === 'success') {
             expect(executionRequest?.argv).toEqual([scriptArtifact.entrypoint]);

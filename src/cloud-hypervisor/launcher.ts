@@ -218,6 +218,8 @@ export interface CloudHypervisorResourceLimits {
   readonly memoryMib: number;
   readonly vcpuCount: number;
   readonly cpuQuotaMilli?: number;
+  /** Host tmpfs pages charged to virtio-fs, separate from guest RAM. */
+  readonly writableStorageBytes?: number;
 }
 
 export interface CloudHypervisorCgroupLimits {
@@ -287,6 +289,8 @@ export function computeCloudHypervisorCgroupLimits(
     limits.memoryMib < 1 ||
     !Number.isSafeInteger(limits.vcpuCount) ||
     limits.vcpuCount < 1 ||
+    (limits.writableStorageBytes !== undefined &&
+      (!Number.isSafeInteger(limits.writableStorageBytes) || limits.writableStorageBytes < 1)) ||
     (limits.cpuQuotaMilli !== undefined &&
       (!Number.isSafeInteger(limits.cpuQuotaMilli) ||
         limits.cpuQuotaMilli < 1 ||
@@ -294,7 +298,11 @@ export function computeCloudHypervisorCgroupLimits(
   ) {
     throw new Error('Cloud Hypervisor cgroup resource limits are invalid');
   }
-  const memoryMaxBytes = (limits.memoryMib + CGROUP_MEMORY_HEADROOM_MIB) * 1024 * 1024;
+  const memoryMaxBytes = (limits.memoryMib + CGROUP_MEMORY_HEADROOM_MIB) * 1024 * 1024 +
+    (limits.writableStorageBytes ?? 0);
+  if (!Number.isSafeInteger(memoryMaxBytes)) {
+    throw new Error('Cloud Hypervisor cgroup resource limits are invalid');
+  }
   const cpuQuotaUs = limits.cpuQuotaMilli === undefined
     ? limits.vcpuCount * CGROUP_V2_PERIOD_US + CGROUP_CPU_HEADROOM_QUOTA_US
     : limits.cpuQuotaMilli * CGROUP_V2_PERIOD_US / 1000;

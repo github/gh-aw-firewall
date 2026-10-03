@@ -300,6 +300,34 @@ import {
     expect(deps.launch).not.toHaveBeenCalled();
   });
 
+  it('includes the closed storage budget only in the trusted enclave host cgroup', async () => {
+    const deps = dependencies();
+    const profile = createScriptEnclaveCloudHypervisorProfile({
+      enclaveId: 'script-entry',
+      invocationId: 'b'.repeat(32),
+      guest: {
+        supervisorBinaryPath: '/opt/awf-supervisor',
+        supervisorSha256: 'a'.repeat(64),
+      },
+      exportPlan: enclaveExportPlan('script'),
+    });
+    const manager = new CloudHypervisorManager(
+      config(), '/tmp/awf', deps, 'script-storage', profile, undefined, undefined, true,
+    );
+    const client = await manager.start();
+    expect(deps.createCgroup).toHaveBeenCalledWith(
+      expect.any(String),
+      {
+        memoryMib: 768, vcpuCount: 1, cpuQuotaMilli: 500,
+        writableStorageBytes: 1024 * 1024 * 1024,
+      },
+    );
+    expect(client.vmCreate).toHaveBeenCalledWith(expect.objectContaining({
+      memory: expect.objectContaining({ size: 768 * 1024 * 1024 }),
+    }));
+    await manager.stop();
+  });
+
   it('configures one rootfs disk and virtio-fs devices, then stops daemons after the VMM', async () => {
     const order: string[] = [];
     const child = processMock();

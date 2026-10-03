@@ -19,12 +19,26 @@ seconds. Pairing current AWF with v0.4.17 would silently reinterpret a
 120-second TTL as 120 nanoseconds. gh-aw pins the matching default in
 `pkg/constants/version_constants.go` (`DefaultMCPGatewayVersion`).
 
-Cloud Hypervisor is recognized as a reserved executor runtime under
-[ADR 0002](adr/0002-cloud-hypervisor-enclave-executor.md). Configuration,
-host eligibility, and attested artifact requirements fail closed today before
-any enclave is launched. Static script and static agent microVM execution will
-be enabled only after every ADR rollout gate is implemented; dynamic agents and
-custom image overrides remain outside that initial scope.
+Explicit Cloud Hypervisor enclave selection routes through the trusted host
+executor under [ADR 0002](adr/0002-cloud-hypervisor-enclave-executor.md).
+AWF derives run state from validated configuration and staged seeds, verifies
+host/artifact prerequisites, and constructs one authenticated private Unix
+listener before starting the broker. Only the broker mounts the client channel;
+it receives neither the host recovery journal nor launch controls, Docker socket,
+or repository seed trees. Protocol v2 and its settlement contract are unchanged.
+Static script and static agent entries are the initial scope. Dynamic admission,
+custom images, mixed container/VM enclave runtimes, split-filesystem Docker,
+primary sbx/NVX/Cloud Hypervisor combinations, and static GitHub tools without a
+scoped executor bearer handoff fail closed.
+
+Production admission also requires the trusted aggregate writable-storage
+provider from [#9394](https://github.com/github/gh-aw-firewall/issues/9394).
+That provider is not yet installed in this revision: selection reports the
+missing prerequisite before staging or constructing a listener or VM. No
+configuration/environment switch bypasses it, and AWF never falls back to a
+different runtime. The host lifecycle closes admissions before broker shutdown,
+then cancels/closes the executor before releasing storage or deleting private
+state. Unresolved cleanup preserves recovery records and prevents deletion.
 
 ## Architecture
 
