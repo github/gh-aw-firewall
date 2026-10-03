@@ -32,13 +32,23 @@ describe('generateSquidConfig', () => {
       expect(result).toContain('client_lifetime 8 hours');
     });
 
-    it('should enable half_closed_clients for SSE streaming', () => {
+    it.each([
+      {},
+      {
+        sslBump: true,
+        caFiles: { certPath: '/cert.pem', keyPath: '/key.pem' },
+        sslDbPath: '/var/spool/squid_ssl_db',
+      },
+      { apiProxyIp: '172.30.0.30', apiProxyPorts: [10001] },
+    ])('should disable half_closed_clients to safely handle EOF before ClientHello (%j)', (options) => {
       const config: SquidConfig = {
         domains: ['example.com'],
         port: defaultPort,
+        ...options,
       };
       const result = generateSquidConfig(config);
-      expect(result).toContain('half_closed_clients on');
+      expect(result).toMatch(/^half_closed_clients off$/m);
+      expect(result).not.toMatch(/^half_closed_clients on$/m);
     });
 
     it('should include request_timeout', () => {
