@@ -324,3 +324,20 @@ ignore:
     package:
       name: ip-address
       type: npm
+
+  # ── http-cache-semantics bundled inside the vendored npm CLI ──────────────────
+  #
+  # GHSA-ch52-4w7c-c8xp (http-cache-semantics <=4.2.0, HIGH):
+  #   max-stale handling can disclose cross-user cached responses.
+  #
+  #   This is npm's private HTTP-cache dependency, not an AWF application
+  #   dependency. Runtime proxy services execute their Node.js applications
+  #   directly; they do not invoke npm or expose its local package cache to
+  #   callers. No fixed release is published yet, and replacing npm's bundled
+  #   copy without an upstream release would modify the verified npm artifact.
+  #   Revisit when npm ships a release bundling a fixed version.
+  - vulnerability: GHSA-ch52-4w7c-c8xp
+    package:
+      name: http-cache-semantics
+      version: "4.2.0"
+      type: npm
