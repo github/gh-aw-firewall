@@ -84,7 +84,11 @@ const live = process.env.AWF_TEST_ENCLAVE_NETWORK === '1';
   }, 20_000);
 
   afterAll(async () => {
-    server?.kill();
+    if (server && server.exitCode === null && server.signalCode === null) {
+      const exited = new Promise<void>((resolve) => server!.once('close', () => resolve()));
+      server.kill();
+      await exited;
+    }
     for (const ns of [guestNs, peerNs, plan.namespaceName]) {
       await ip(['netns', 'delete', ns]).catch(() => undefined);
     }
@@ -92,6 +96,12 @@ const live = process.env.AWF_TEST_ENCLAVE_NETWORK === '1';
       await ip(['link', 'delete', name]).catch(() => undefined);
     }
     if (rulesFile) await fs.rm(rulesFile, { force: true });
+    const namespaces = (await ip(['netns', 'list'])).stdout.split('\n')
+      .map((line) => line.split(' ')[0]);
+    for (const ns of [guestNs, peerNs, plan.namespaceName]) expect(namespaces).not.toContain(ns);
+    const links = (await ip(['-o', 'link', 'show'])).stdout.split('\n')
+      .map((line) => line.split(': ')[1]?.split('@')[0]);
+    for (const name of [plan.hostVethName, peerHost, bridge]) expect(links).not.toContain(name);
   });
 
   const request = async (ipAddress: string, port: number) =>

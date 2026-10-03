@@ -56,6 +56,18 @@ The test suite is organized in three tiers:
 
 ### Unified enclave coverage
 
+Cloud Hypervisor enclave contract coverage runs in
+`.github/workflows/test-cloud-hypervisor-enclaves.yml`. Its ordinary CI job uses
+the authenticated broker/host boundary with a mock VM manager; its explicitly
+opted-in GitHub-hosted Ubuntu x86_64 KVM job exercises real host storage,
+nftables packets, and supervisor limit probes, **not broker-to-VM acceptance**.
+Privileged enclave probes no longer run in the ordinary artifact-build job.
+Production full-storage admission remains closed: invocation exports are bounded,
+but artifact/rootfs copies and manager state do not yet share that allocation
+domain or recovery contract. See the [enclave conformance evidence and remaining
+live gate](cloud-hypervisor-foundation.md#enclave-conformance-evidence-and-remaining-live-gate)
+for exact blockers and the mandatory, still-unverified live acceptance criteria.
+
 Legacy bounded smoke and runtime-matrix assets were removed from the owned workflow surface. Until a unified gh-aw enclave smoke workflow exists, coverage for the enclave MCP server and executor contracts stays local/unit-focused:
 
 - `src/services/enclave-mcp-service.test.ts`
