@@ -1,0 +1,6 @@
+{
+  "advisory": "GHSA-ch52-4w7c-c8xp",
+  "package": "http-cache-semantics",
+  "expires": "2027-01-03",
+  "reason": "Maintainer-approved risk acceptance for the static docs build only: http-cache-semantics is not exposed at runtime in the deployed static site. No upstream patch is available; Astro 7.3.5 still depends on it. The tested Astro downgrade is incompatible with current Starlight/MDX, Mermaid, and docsLoader functionality. Review before expiry (2027-01-03 00:00 UTC)."
+}
