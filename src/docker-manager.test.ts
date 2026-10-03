@@ -79,6 +79,54 @@ describe('docker-manager (barrel re-exports)', () => {
 
 
 
+  describe('parseDifcProxyHost via barrel', () => {
+    it('returns defaults for empty input', () => {
+      expect(dockerManager.parseDifcProxyHost('  ')).toEqual({ host: 'host.docker.internal', port: '18443' });
+    });
+
+    it('parses host:port and strips scheme', () => {
+      expect(dockerManager.parseDifcProxyHost('https://example.com:443')).toEqual({ host: 'example.com', port: '443' });
+    });
+
+    it('strips IPv6 brackets', () => {
+      expect(dockerManager.parseDifcProxyHost('[::1]:9000')).toEqual({ host: '::1', port: '9000' });
+    });
+
+    it('rejects out-of-range ports', () => {
+      expect(() => dockerManager.parseDifcProxyHost('host:70000')).toThrow();
+    });
+  });
+
+  describe('filterCapDrop with explicit bounding set', () => {
+    const original = process.env.AWF_SKIP_CAP_DROP;
+    afterEach(() => {
+      if (original === undefined) delete process.env.AWF_SKIP_CAP_DROP;
+      else process.env.AWF_SKIP_CAP_DROP = original;
+    });
+
+    it('returns the original list when the bounding set is unknown', () => {
+      delete process.env.AWF_SKIP_CAP_DROP;
+      expect(dockerManager.filterCapDrop(['NET_ADMIN'], null)).toEqual(['NET_ADMIN']);
+    });
+
+    it('keeps ALL and drops capabilities absent from the bounding set', () => {
+      delete process.env.AWF_SKIP_CAP_DROP;
+      const capBnd = BigInt(1) << BigInt(12); // NET_ADMIN only
+      expect(dockerManager.filterCapDrop(['ALL', 'NET_ADMIN', 'SYS_ADMIN'], capBnd)).toEqual(['ALL', 'NET_ADMIN']);
+    });
+
+    it.each(['1', 'true', 'YES'])('returns empty when AWF_SKIP_CAP_DROP=%s', (v) => {
+      process.env.AWF_SKIP_CAP_DROP = v;
+      expect(dockerManager.isCapDropSkipped()).toBe(true);
+      expect(dockerManager.filterCapDrop(['ALL'], null)).toEqual([]);
+    });
+
+    it('does not skip for other values', () => {
+      process.env.AWF_SKIP_CAP_DROP = 'no';
+      expect(dockerManager.isCapDropSkipped()).toBe(false);
+    });
+  });
+
   describe('filterCapDrop via barrel', () => {
     it('returns empty for undefined or empty lists', () => {
       expect(dockerManager.filterCapDrop(undefined, null)).toEqual([]);
