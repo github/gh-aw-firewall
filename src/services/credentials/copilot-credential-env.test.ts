@@ -11,6 +11,7 @@ import { buildCopilotCredentialEnv } from './copilot-credential-env';
 import type { WrapperConfig } from '../../types';
 import { getConfigEnvValue } from '../../env-utils';
 import { COPILOT_PLACEHOLDER_TOKEN } from '../../constants/placeholders';
+import { logger } from '../../logger';
 
 const mockGetConfigEnvValue = getConfigEnvValue as jest.MockedFunction<typeof getConfigEnvValue>;
 
@@ -29,6 +30,44 @@ describe('buildCopilotCredentialEnv', () => {
   it('returns empty object when no copilot credentials configured', () => {
     const result = buildCopilotCredentialEnv({ config: baseConfig, proxyIp });
     expect(result).toEqual({});
+  });
+
+  it.each([
+    { copilotGithubToken: 'ghu_token' },
+    { copilotProviderApiKey: 'provider-key' },
+    { copilotProviderBaseUrl: 'https://provider.example.com/v1' },
+    { additionalEnv: { COPILOT_PROVIDER_API_KEY: 'provider-key' } },
+    { additionalEnv: { COPILOT_PROVIDER_BASE_URL: 'https://provider.example.com/v1' } },
+  ])('warns about offline web tools for a domain allowlist with %p', (copilotConfig) => {
+    const config = { ...baseConfig, ...copilotConfig, allowedDomains: ['osv.dev'] } as WrapperConfig;
+    mockGetConfigEnvValue.mockImplementation((config, key) => {
+      if (key === 'COPILOT_PROVIDER_API_KEY') return config.additionalEnv?.COPILOT_PROVIDER_API_KEY;
+      if (key === 'COPILOT_PROVIDER_BASE_URL') return config.additionalEnv?.COPILOT_PROVIDER_BASE_URL;
+      return undefined;
+    });
+
+    const result = buildCopilotCredentialEnv({ config, proxyIp });
+
+    expect(result.COPILOT_OFFLINE).toBe('true');
+    expect(result.COPILOT_PROVIDER_BASE_URL).toBe(`http://${proxyIp}:10002`);
+    expect(logger.warn).toHaveBeenCalledTimes(1);
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('web_fetch and web_search tools are unavailable'));
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('--allow-url <host> (or --allow-all-urls)'));
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('AWF still enforces the domain allowlist'));
+    expect(Object.values(result)).not.toContain('provider-key');
+    expect(Object.values(result)).not.toContain('ghu_token');
+  });
+
+  it('does not warn about offline web tools when Copilot is not routed through the proxy', () => {
+    const config = { ...baseConfig, allowedDomains: ['osv.dev'] } as WrapperConfig;
+    expect(buildCopilotCredentialEnv({ config, proxyIp })).toEqual({});
+    expect(logger.warn).not.toHaveBeenCalled();
+  });
+
+  it('does not warn about offline web tools when no domains are allowlisted', () => {
+    const config = { ...baseConfig, copilotGithubToken: 'ghu_token', allowedDomains: [] } as WrapperConfig;
+    expect(buildCopilotCredentialEnv({ config, proxyIp }).COPILOT_OFFLINE).toBe('true');
+    expect(logger.warn).not.toHaveBeenCalled();
   });
 
   it('returns env additions when copilotGithubToken is set', () => {

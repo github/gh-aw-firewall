@@ -71,6 +71,14 @@ export function buildCopilotCredentialEnv(params: CopilotCredentialEnvParams): R
     return env;
   }
 
+  if (config.allowedDomains?.length) {
+    logger.warn(
+      'Copilot API proxy mode sets COPILOT_OFFLINE=true: native web_fetch and web_search tools are unavailable, ' +
+      'even for allowlisted domains. Use shell curl with --allow-url <host> (or --allow-all-urls); ' +
+      'AWF still enforces the domain allowlist. See docs/troubleshooting.md#copilot-web-tools-unavailable-in-api-proxy-mode'
+    );
+  }
+
   // Credential-isolation placeholders for the BYOK auth variables. These MUST be
   // set here (in agentEnvAdditions, applied last in compose-generator) rather than
   // only in tool-specific-environment.ts, because `Object.assign(environment,

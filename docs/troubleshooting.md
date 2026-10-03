@@ -26,6 +26,52 @@
    sudo grep "TCP_DENIED" /tmp/squid-logs-<timestamp>/access.log
    ```
 
+### Copilot Web Tools Unavailable in API Proxy Mode
+
+**Problem:** With `engine: copilot`, `tools: web-fetch:` or `tools: web-search:`
+compiles successfully, but Copilot never exposes `web_fetch` or `web_search`.
+Squid sees no requests to the expected domains, even when they are allowlisted.
+
+**Cause:** AWF's Copilot API proxy flow sets `COPILOT_OFFLINE=true` and points
+`COPILOT_PROVIDER_BASE_URL` at the sidecar (by default, `http://172.30.0.30:10002`).
+Offline mode skips GitHub authentication, keeping real credentials exclusively in
+the sidecar, but Copilot CLI also disables its native web tools. `--allow-tool
+web_fetch` / `--allow-tool web_search` cannot enable tools absent from the catalog.
+AWF warns about this limitation when Copilot sidecar routing is active and the
+agent domain allowlist is non-empty.
+
+**Workaround:** Ask the agent to fetch content using `curl` from bash instead.
+Allow both the shell tool and the destination URL in Copilot CLI, as well as the
+domain in AWF. In a gh-aw workflow, use:
+
+```yaml
+engine:
+  id: copilot
+  args: ["--allow-url", "osv.dev"]
+network:
+  allowed: ["osv.dev"]
+tools:
+  bash: ["curl"]
+```
+
+Prompt the agent to run `curl --fail --location https://osv.dev/`. Merge these
+settings with the workflow's existing tools and network allowlist, and allow any
+redirect destinations that are needed. Under `--no-ask-user`, shell permission
+alone is insufficient: without URL permission, Copilot reports
+`Permission denied and could not request permission from user`.
+
+Alternatively, use `engine.args: ["--allow-all-urls"]` to approve URLs at the
+Copilot CLI layer. Neither `--allow-url` nor `--allow-all-urls` bypasses AWF:
+Squid still enforces `network.allowed` (or `--allow-domains` for direct AWF use).
+This workaround fetches known URLs; it does not restore native web search.
+Do not disable offline mode or expose real credentials to the agent to work
+around this limitation.
+
+Compiler-side warning or an MCP fetch fallback is tracked in
+[github/gh-aw#65043](https://github.com/github/gh-aw/issues/65043).
+AWF receives the command and domain allowlist, not gh-aw's `tools` declarations,
+so its startup warning cannot identify which native web tools were requested.
+
 ## Container Issues
 
 ### Container Won't Start
