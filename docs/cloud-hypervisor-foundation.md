@@ -958,6 +958,64 @@ The live job runs only when explicitly enabled by workflow dispatch or the
 After each case, the suite checks for leaked `awfvm-*` namespaces,
 `vmh*`/`vmn*`/`vmt*` interfaces, cgroups, and Cloud Hypervisor processes.
 
+### Enclave conformance evidence and remaining live gate
+
+`.github/workflows/test-cloud-hypervisor-enclaves.yml` separates deterministic
+enclave contract tests from privileged host probes. Ordinary PR CI exercises the
+real broker handler, authenticated Unix host protocol v2, schema validation,
+information ledger, settlement, and lifecycle using a **mock VM manager**. It
+tests both static roles, invalid/oversized/non-UTF-8 output, storage rejection,
+partial startup, guest failure, simulated OOM/timeout, cancellation, recovery
+without replay, and cleanup-before-settlement. Audit calls and the actual host
+journal are checked for raw-output/error sentinels. Artifact tests verify the
+release signer/repository arguments for the manifest and both role rootfs
+subjects; fixture attestations are not evidence of a real release signature.
+
+Privileged probes require either dispatch with `run_host_probes: true` (default
+false) or the `cloud-hypervisor-enclave-conformance` PR label. The job requires
+the production GitHub-hosted Ubuntu x86_64 eligibility check, opening the KVM
+character device as the privileged orchestrator, and a writable cgroup v2
+hierarchy. A missing prerequisite after opt-in fails the job; it does not skip,
+fall back to Docker, grant the runner user KVM access, or relax limits.
+
+These probes exercise the real role-sized host tmpfs stores (script 1 GiB,
+agent 512 MiB), aggregate sparse/concurrent ENOSPC, memory-cgroup accounting,
+busy-unmount failure, and invocation isolation. They also send real TCP packets
+through the agent nftables boundary and execute the supervisor's guest-limit
+probe in a private host mount namespace. They **do not boot an enclave VM**,
+exercise the broker in a VM, or establish preview readiness. No repository is
+staged and no raw guest/seed logs are uploaded; only synthetic test evidence is
+printed. The existing primary-agent KVM smoke is not enclave conformance and
+its development artifact bypass must not be reused for enclaves.
+
+Full issue [#9395](https://github.com/github/gh-aw-firewall/issues/9395) acceptance
+remains blocked even after implementation PRs
+[#9397](https://github.com/github/gh-aw-firewall/pull/9397) and
+[#9398](https://github.com/github/gh-aw-firewall/pull/9398) merged:
+
+| Required boundary | Current implementation evidence |
+| --- | --- |
+| Production storage admission | `prepareEnclaves()` calls `assertCloudHypervisorEnclavePrerequisites()` with its dependency's provider, but production supplies none. It rejects before seeds, runtime probes, listener, or VM creation for script, agent, and combined configurations. |
+| Aggregate invocation storage | `mountBoundedEnclaveStorage()` and `assertBoundedEnclaveStorage()` bound the invocation mount and writable exports. The `TrustedCloudHypervisorEnclaveStorageProvider` contract additionally requires artifact/rootfs snapshots and runtime state to remain bounded until successful close. |
+| Snapshot allocation and executable artifacts | `createArtifactSnapshot()` allocates separately under `/var/lib/awf-cloud-hypervisor/trusted-artifacts/run-*` and requires an executable mount. Invocation tmpfs is `noexec`; copying the binaries there cannot satisfy launch confinement as-is. |
+| Writable VM and preparation state | `createCloudHypervisorRunPaths()` derives manager paths under `/run/awf-cloud-hypervisor`, independently of the invocation mount. `startCloudHypervisor()` also prepares a rootfs under `<workDir>/cloud-hypervisor-rootfs/<vmRunId>` and stages a writable rootfs copy in the manager run directory. None is jointly charged to the invocation tmpfs capacity. |
+| Recovery ownership | `HostExecutorResourceJournal.captureSnapshot()` and `isTrustedArtifactSnapshotDirectory()` accept fixed trusted snapshot roots, not arbitrary invocation children. Redirecting copies alone would break identity-checked recovery. A global bind mount or relaxed path validation would not provide safe invocation isolation. |
+
+An empty provider, a free-space check, or a mock manager cannot close these
+gaps. Completing the expanded storage integration requires a coordinated,
+invocation-owned allocation domain for all writable copies/state, compatible
+executable artifact staging, and durable mount/inode recovery ownership before
+removing the admission gate. This conformance change deliberately does not
+install an incomplete provider.
+
+Until that integration exists, **unverified live assertions** include successful
+release-attested script and agent calls through the public broker; guest UID/GID,
+limits, seed read-only enforcement and capability denial inside those VMs;
+script no-NIC and agent exact-peer/port VM enforcement; guest-visible ENOSPC;
+real VM OOM, timeout/cancellation, partial-start and crash recovery; and absence
+of repository-derived stdout/stderr in real guest diagnostics. Those assertions
+remain mandatory, not waived by passing deterministic or host-only probes.
+
 ## Troubleshooting
 
 ### Preflight rejects the host

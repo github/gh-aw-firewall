@@ -2,6 +2,7 @@ import { createHash, randomBytes } from 'crypto';
 import { promises as fs } from 'fs';
 import * as http from 'http';
 import * as net from 'net';
+import * as os from 'os';
 import * as path from 'path';
 import { performance } from 'perf_hooks';
 import { CloudHypervisorHostEnclaveExecutorBackend } from '../cloud-hypervisor/host-enclave-executor';
@@ -32,9 +33,12 @@ describe('finite-disclosure broker → authenticated Unix host → concrete micr
   let host: HostExecutorServer | undefined;
   let proxy: net.Server | undefined;
   let httpServer: http.Server | undefined;
-  let output: string;
+  let output: string | Buffer;
   let executeError: boolean;
   let cleanupError: boolean;
+  let storageError: boolean;
+  let startupError: boolean;
+  let executionResult: { exitCode: number; timedOut: boolean; signal: string | null };
   let hanging: boolean;
   let startupHanging: boolean;
   let corrupt: 'digest' | 'schema' | 'settle' | 'truncate' | undefined;
@@ -44,17 +48,20 @@ describe('finite-disclosure broker → authenticated Unix host → concrete micr
   const stopped = jest.fn();
   const cancelled = jest.fn();
   const cleaned = jest.fn();
+  const auditFailure = jest.fn();
+  const auditInvocation = jest.fn();
   const plans: Array<{ entryId: string; invocationId: string; admissionId: string; executorKind: string }> = [];
   const requests: Array<Record<string, unknown>> = [];
   const journalEvents: string[] = [];
+  const lifecycleEvents: string[] = [];
   const seedMap = new Map([['octo/private', { seedId, sensitivity: 'internal' }]]);
   let runState: HostExecutorRunState;
   let backend: CloudHypervisorHostEnclaveExecutorBackend;
   const activeHandlers: Array<{ close(): void; drain(): Promise<void> }> = [];
 
   beforeEach(async () => {
-    root = path.join(process.cwd(), `.broker-fixture-${randomBytes(8).toString('hex')}`);
-    await fs.mkdir(root, { mode: 0o700 });
+    // Keep Unix sockets short while retaining trusted, non-world-writable ancestors.
+    root = await fs.mkdtemp(path.join(os.homedir(), '.awf-broker-'));
     root = await fs.realpath(root);
     await fs.mkdir(path.join(root, 'seeds'), { mode: 0o700 });
     await fs.mkdir(path.join(root, 'seeds', seedId), { mode: 0o700 });
@@ -64,14 +71,18 @@ describe('finite-disclosure broker → authenticated Unix host → concrete micr
     startupHanging = false;
     executeError = false;
     cleanupError = false;
+    storageError = false;
+    startupError = false;
+    executionResult = { exitCode: 0, timedOut: false, signal: null };
     corrupt = undefined;
     offset = 0;
     resolveExecution = undefined;
     plans.length = 0;
     requests.length = 0;
     journalEvents.length = 0;
+    lifecycleEvents.length = 0;
     activeHandlers.length = 0;
-    for (const spy of [started, stopped, cancelled, cleaned]) spy.mockClear();
+    for (const spy of [started, stopped, cancelled, cleaned, auditFailure, auditInvocation]) spy.mockClear();
     runState = {
       runId,
       seedsDir: path.join(root, 'seeds'),
@@ -117,18 +128,29 @@ describe('finite-disclosure broker → authenticated Unix host → concrete micr
         verifyDirectory: noop, verifyMount: noop, verifySnapshot: noop, complete: noop,
       }),
       copySparseFile: noop,
-      removeArtifactSnapshot: async (directory) => fs.rm(directory, { recursive: true, force: true }),
+      removeArtifactSnapshot: async (directory) => {
+        await fs.rm(directory, { recursive: true, force: true });
+        lifecycleEvents.push('remove-snapshot');
+      },
+      rm: async (directory, options) => {
+        await fs.rm(directory, options);
+        lifecycleEvents.push('remove-invocation');
+      },
       mountTmpfs: noop,
-      verifyStorage: noop,
+      verifyStorage: async () => {
+        if (storageError) throw new Error('PRIVATE_RAW_STORAGE_ERROR');
+      },
       unmount: async () => {
         cleaned();
         if (cleanupError) throw new Error('PRIVATE_RAW_CLEANUP_ERROR');
+        lifecycleEvents.push('unmount');
       },
       chown: noop,
       resolveIdentity: () => ({ uid: process.getuid?.() || 1000, gid: process.getgid?.() || 1000 }),
       createManager: (_config, _workDir, profile) => ({
         start: async () => {
           started();
+          if (startupError) throw new Error('PRIVATE_RAW_STARTUP_ERROR');
           if (startupHanging) await new Promise<void>((resolve) => { resolveExecution = resolve; });
         },
         startInstance: noop,
@@ -138,7 +160,7 @@ describe('finite-disclosure broker → authenticated Unix host → concrete micr
           const source = profile.guest?.exports.find(({ tag }) => tag === 'enclave-output')?.source;
           if (!source) throw new Error('Missing trusted output export');
           await fs.writeFile(path.join(source, 'out'), output);
-          return { exitCode: 0, timedOut: false, signal: null };
+          return executionResult;
         },
         cancel: async () => { cancelled(); resolveExecution?.(); },
         stop: async () => { stopped(); resolveExecution?.(); },
@@ -179,6 +201,7 @@ describe('finite-disclosure broker → authenticated Unix host → concrete micr
         const frame = Buffer.concat(requestChunks);
         const request = JSON.parse(frame.subarray(4).toString());
         requests.push(request);
+        if (request.type === 'settle') lifecycleEvents.push('settle');
         upstream.end(frame);
       });
       upstream.on('data', (chunk) => responseChunks.push(Buffer.from(chunk)));
@@ -251,7 +274,7 @@ describe('finite-disclosure broker → authenticated Unix host → concrete micr
     };
     const handler = createExecutorHandler({
       config, runId, seedMap, runner, workspace: localWorkspace,
-      audit: { failure: jest.fn(), invocation: jest.fn() },
+      audit: { failure: auditFailure, invocation: auditInvocation },
       clock, responseJitterSource: () => 0, uniformTiming: true,
       executorKind: role, payloadKey: role === 'script' ? 'script' : 'prompt',
       ...(role === 'agent' ? { validateRequest: createAgentRequestValidator(4096) } : {}),
@@ -404,6 +427,64 @@ describe('finite-disclosure broker → authenticated Unix host → concrete micr
     executeError = true;
     expect(await call(handler, args(role))).toBe('{"status":"error"}');
     expect(requests.filter(({ type }) => type === 'settle')).toHaveLength(2);
+  });
+
+  async function assertPrivateDiagnostics() {
+    const journal = await fs.readFile(path.join(root, 'journal', `${runId}.journal`), 'utf8');
+    const diagnostics = JSON.stringify({
+      failures: auditFailure.mock.calls,
+      invocations: auditInvocation.mock.calls,
+    }) + journal;
+    expect(diagnostics).not.toMatch(/PRIVATE_RAW|Return true|"payload"|"capability"/);
+  }
+
+  it.each((['script', 'agent'] as const).flatMap((role) =>
+    (['oversized', 'invalid-utf8', 'non-json', 'wrong-schema'] as const).map((failure) => ({ role, failure })),
+  ))('rejects $role $failure output, settles once, and retains no raw diagnostic data', async ({ role, failure }) => {
+    output = {
+      oversized: `true${' '.repeat(8192)}PRIVATE_RAW_OVERSIZED`,
+      'invalid-utf8': Buffer.from([0xff, 0xfe]),
+      'non-json': 'PRIVATE_RAW_NOT_JSON',
+      'wrong-schema': '{"PRIVATE_RAW_FIELD":true}',
+    }[failure];
+    const { handler } = makeHandler(role);
+    expect(await call(handler, args(role))).toBe('{"status":"error"}');
+    expect(requests.filter(({ type }) => type === 'settle')).toHaveLength(1);
+    expect(lifecycleEvents).toEqual(['remove-snapshot', 'unmount', 'remove-invocation', 'settle']);
+    expect(cleaned).toHaveBeenCalledTimes(1);
+    expect(plans).toHaveLength(1);
+    await assertPrivateDiagnostics();
+    await expect(fs.lstat(path.join(runState.invocationsDir, `${role}-entry`, plans[0].invocationId)))
+      .rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it.each((['script', 'agent'] as const).flatMap((role) =>
+    (['storage', 'partial-start', 'guest-failure', 'guest-oom', 'guest-timeout'] as const)
+      .map((failure) => ({ role, failure })),
+  ))('settles $role $failure only after cleanup, without automatically replaying', async ({ role, failure }) => {
+    storageError = failure === 'storage';
+    startupError = failure === 'partial-start';
+    if (failure === 'guest-failure') executionResult.exitCode = 1;
+    if (failure === 'guest-oom') executionResult = { exitCode: 137, timedOut: false, signal: 'SIGKILL' };
+    if (failure === 'guest-timeout') executionResult.timedOut = true;
+    const { handler } = makeHandler(role);
+    expect(await call(handler, args(role))).toBe('{"status":"error"}');
+    expect(plans).toHaveLength(1);
+    expect(cleaned).toHaveBeenCalledTimes(1);
+    expect(requests.filter(({ type }) => type === 'invoke')).toHaveLength(1);
+    expect(requests.filter(({ type }) => type === 'settle')).toHaveLength(1);
+    expect(lifecycleEvents).toEqual([
+      ...(failure === 'storage' ? [] : ['remove-snapshot']),
+      'unmount', 'remove-invocation', 'settle',
+    ]);
+    if (failure === 'storage') {
+      expect(started).not.toHaveBeenCalled();
+      expect(journalEvents).toEqual([]);
+    } else {
+      expect(started).toHaveBeenCalledTimes(1);
+      expect(stopped).toHaveBeenCalled();
+    }
+    await assertPrivateDiagnostics();
   });
 
   it.each(['script', 'agent'] as const)('never publishes terminal %s when concrete cleanup is unresolved', async (role) => {

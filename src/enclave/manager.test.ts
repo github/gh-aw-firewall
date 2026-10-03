@@ -1,5 +1,4 @@
 import * as fs from 'fs';
-import * as os from 'os';
 import * as path from 'path';
 import execa from 'execa';
 import { normalizeEnclavesConfig } from '../parsers/enclave-parser';
@@ -111,7 +110,7 @@ describe('prepareEnclaves fail-closed preflight', () => {
   beforeEach(() => {
     mockExeca.mockReset();
     mockExeca.mockResolvedValue({ exitCode: 0, stdout: '' });
-    workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-enclave-manager-'));
+    workDir = fs.mkdtempSync(path.join(process.cwd(), '.awf-enclave-manager-'));
   });
 
   afterEach(() => {
@@ -130,10 +129,13 @@ describe('prepareEnclaves fail-closed preflight', () => {
     })).rejects.toThrow(/Unix-socket Docker host/);
   });
 
-  it('fails closed on missing hard-bounded storage before probes, seeds, or host effects', async () => {
-    const wrapperConfig = config(workDir, [{
-      script: {}, runtime: 'cloud-hypervisor', repos: [repository],
-    }]);
+  it.each(['script', 'agent', 'both'] as const)('fails %s closed on missing hard-bounded storage before probes, seeds, or host effects', async (role) => {
+    const entries: EnclaveEntries = [];
+    if (role !== 'agent') entries.push({ script: {}, runtime: 'cloud-hypervisor', repos: [repository] });
+    if (role !== 'script') entries.push({
+      agent: { model: 'trusted-model' }, runtime: 'cloud-hypervisor', repos: [repository],
+    });
+    const wrapperConfig = agentConfig(workDir, entries);
     wrapperConfig.cloudHypervisor = { previewEnabled: true } as WrapperConfig['cloudHypervisor'];
     const primary = jest.fn();
     const executor = jest.fn();
@@ -142,12 +144,14 @@ describe('prepareEnclaves fail-closed preflight', () => {
       env: enclaveEnv(),
       assertPrimaryAvailable: primary,
       assertScriptRuntimeAvailable: executor,
+      assertAgentRuntimeAvailable: executor,
       gitRunner: clone,
     })).rejects.toThrow(/hard-bounded writable-storage provider.*9394/);
     expect(primary).not.toHaveBeenCalled();
     expect(executor).not.toHaveBeenCalled();
     expect(clone).not.toHaveBeenCalled();
     expect(fs.existsSync(resolveEnclavePaths(workDir).root)).toBe(false);
+    expect(fs.existsSync(resolveEnclavePaths(workDir).hostExecutorDir)).toBe(false);
   });
 
   it('rejects unavailable trusted storage before runtime probes or private state effects', async () => {
