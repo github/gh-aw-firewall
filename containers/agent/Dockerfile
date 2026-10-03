@@ -30,7 +30,30 @@ RUN wget -q "https://github.com/cli/cli/archive/refs/tags/v${GH_VERSION}.tar.gz"
 FROM ${BASE_IMAGE} AS one-shot-token-build
 
 COPY one-shot-token/one-shot-token.c /tmp/one-shot-token.c
-RUN if getent hosts azure.archive.ubuntu.com >/dev/null 2>&1; then \
+RUN set -eux; \
+    force_archive_mirror() { \
+      echo "Falling back to archive.ubuntu.com mirror..." >&2; \
+      if [ -f /etc/apt/sources.list ]; then \
+        sed -i 's|http://azure.archive.ubuntu.com|http://archive.ubuntu.com|g' /etc/apt/sources.list; \
+        sed -i 's|http://security.ubuntu.com|http://archive.ubuntu.com|g' /etc/apt/sources.list 2>/dev/null || true; \
+      fi; \
+      if [ -d /etc/apt/sources.list.d ]; then \
+        find /etc/apt/sources.list.d -name '*.sources' -exec \
+          sed -i -e 's|http://azure.archive.ubuntu.com|http://archive.ubuntu.com|g' \
+                 -e 's|http://security.ubuntu.com|http://archive.ubuntu.com|g' {} + 2>/dev/null || true; \
+      fi; \
+      rm -rf /var/lib/apt/lists/* && \
+        apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update; \
+    }; \
+    apt_install_retry() { \
+      apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 \
+        install -y --no-install-recommends "$@" && return 0; \
+      echo "apt-get install failed (likely mirror fetch timeout), forcing archive.ubuntu.com and retrying..." >&2; \
+      force_archive_mirror; \
+      apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 \
+        install -y --no-install-recommends "$@"; \
+    }; \
+    if getent hosts azure.archive.ubuntu.com >/dev/null 2>&1; then \
       if [ -f /etc/apt/sources.list ]; then \
         sed -i 's|http://archive.ubuntu.com|http://azure.archive.ubuntu.com|g' /etc/apt/sources.list; \
         sed -i 's|http://security.ubuntu.com|http://azure.archive.ubuntu.com|g' /etc/apt/sources.list; \
@@ -42,8 +65,7 @@ RUN if getent hosts azure.archive.ubuntu.com >/dev/null 2>&1; then \
       fi; \
     fi && \
     apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update && \
-    apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 \
-      install -y --no-install-recommends gcc libc6-dev binutils && \
+    apt_install_retry gcc libc6-dev binutils && \
     gcc -shared -fPIC -fvisibility=hidden -O2 -Wall -s \
         -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0 \
         -o /tmp/one-shot-token.so /tmp/one-shot-token.c -ldl -lpthread && \
