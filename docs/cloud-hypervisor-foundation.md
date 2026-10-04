@@ -1065,21 +1065,36 @@ the package-matched Cloud Hypervisor archive, manifest and Sigstore bundle,
 plus the enclave rootfs manifest/bundle, role rootfs images, SBOMs, and
 provenance bundles before the live test can proceed.
 
-The live harness also requires canonical error responses for a script guest
-failure and script timeout, aborts an in-flight public request to exercise
-cancellation, and waits for VM resources to be cleaned up. It does not yet
-prove agent guest identity or exact peer/port policy, guest-visible aggregate
-ENOSPC, VM OOM behavior, partial VM startup, or identity-checked recovery after
-a real VM crash. Host-only integration tests cover storage identity-checked
-recovery and no-replay behavior, but that is not a substitute for exercising
-recovery after a real VM failure. These remain explicit follow-up acceptance
-items; neither deterministic tests nor a successful host-only probe may be
-reported as full issue [#9395](https://github.com/github/gh-aw-firewall/issues/9395) acceptance.
-This conformance work is a follow-up to [#9395](https://github.com/github/gh-aw-firewall/issues/9395),
-[#9399](https://github.com/github/gh-aw-firewall/issues/9399), and
+The live harness checks the agent guest UID/GID, capability and privilege
+drop, `no_new_privs`, process/file/open-file limits, the permitted API-proxy
+peer and port, and denial of other proxy ports, peers, GitHub MCP, and public
+egress.
+Both script (1 GiB) and agent (512 MiB) guests must produce actual guest-visible
+aggregate `ENOSPC` within a write bound no larger than their configured role
+ceiling; the probe removes its files before returning a canonical result. A
+guest memory-pressure probe requires an increased guest `oom_kill` counter and
+the memory-consuming child to exit by `SIGKILL`. The harness also requires
+canonical guest-failure and timeout responses, aborts a public request only
+after its guest has reached a marker, waits for resource cleanup, and kills an
+identified VMM plus the AWF host process to verify that restart cleans the
+exact pending journal identity without replaying a successful result.
+
+One live assertion remains blocked: production has no deterministic, safe
+fault-injection control at the partial VM-startup boundary (after invocation
+resources are journaled but before VM startup completes). Exercising that case
+would require a separate production test-control/API change: the executor's
+`createManager` dependency is injectable in tests, but the live CLI exposes no
+safe fault hook around `manager.start()` or `manager.startInstance()`.
+Corrupting or replacing package-matched, release-attested artifacts is not an
+acceptable substitute. Existing deterministic and mock-manager tests cover
+partial startup, but are not live VM evidence. Neither those tests nor a
+successful host-only probe may be reported as full issue
+[#9395](https://github.com/github/gh-aw-firewall/issues/9395) acceptance.
+This conformance work is a follow-up to
+[#9395](https://github.com/github/gh-aw-firewall/issues/9395),
+[#9399](https://github.com/github/gh-aw-firewall/pull/9399), and
 [#9441](https://github.com/github/gh-aw-firewall/pull/9441); it does not claim
-that #9395 or the prior pull requests established those remaining live
-assertions.
+that #9395 or the prior pull requests established these live assertions.
 
 ## Troubleshooting
 

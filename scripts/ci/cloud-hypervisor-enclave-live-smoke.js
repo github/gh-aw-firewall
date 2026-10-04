@@ -108,7 +108,7 @@ function run(command, args, options = {}) {
   return result.stdout;
 }
 
-function requestMcp(endpoint, apiKey, requestId, method, params, abortAfterMs) {
+function requestMcp(endpoint, apiKey, requestId, method, params, signal) {
   return new Promise((resolve, reject) => {
     const payload = Buffer.from(JSON.stringify({ jsonrpc: '2.0', id: requestId, method, params }));
     const request = http.request(endpoint, {
@@ -119,7 +119,7 @@ function requestMcp(endpoint, apiKey, requestId, method, params, abortAfterMs) {
         'content-type': 'application/json',
         'content-length': String(payload.length),
       },
-      timeout: abortAfterMs ? abortAfterMs + 1000 : 4860_000,
+      timeout: 4860_000,
     }, (response) => {
       const chunks = [];
       let size = 0;
@@ -137,20 +137,18 @@ function requestMcp(endpoint, apiKey, requestId, method, params, abortAfterMs) {
       });
     });
     let cancelled = false;
-    const cancelTimer = abortAfterMs
-      ? setTimeout(() => {
-        cancelled = true;
-        request.destroy();
-        resolve(undefined);
-      }, abortAfterMs)
-      : undefined;
+    const cancel = () => {
+      cancelled = true;
+      request.destroy();
+      resolve(undefined);
+    };
+    if (signal?.aborted) cancel();
+    else signal?.addEventListener('abort', cancel, { once: true });
     request.on('error', () => {
       if (!cancelled) reject(new Error('Public enclave MCP request failed'));
     });
-    request.on('close', () => {
-      if (cancelTimer) clearTimeout(cancelTimer);
-    });
-    request.end(payload);
+    request.on('close', () => signal?.removeEventListener('abort', cancel));
+    if (!cancelled) request.end(payload);
   });
 }
 
@@ -204,6 +202,281 @@ function assertCanonicalToolError(response, requestId, label) {
   const result = parsePublicToolResult(response, requestId);
   if (result.status !== 'error') {
     throw new Error(`Live enclave ${label} did not return the canonical bounded error`);
+  }
+}
+
+function assertExpectedToolResult(response, requestId, expected, label) {
+  const result = parsePublicToolResult(response, requestId);
+  if (result.status !== 'ok' || !isDeepStrictEqual(result.result, expected)) {
+    throw new Error(`Live enclave ${label} guest assertion failed`);
+  }
+}
+
+function buildAgentGuestProbe() {
+  const expected = {
+    uid: 65534,
+    gid: 65534,
+    onlyExpectedInterfaces: true,
+    emptyEffectiveCapabilities: true,
+    noNewPrivileges: true,
+    processLimit: 47,
+    fileSizeLimit: 268435456,
+    openFileLimit: 1024,
+    apiProxyReachable: true,
+    wrongPortBlocked: true,
+    wrongPeerBlocked: true,
+    githubPeerBlocked: true,
+    publicEgressBlocked: true,
+  };
+  const properties = Object.fromEntries(
+    Object.entries(expected).map(([key, value]) => [
+      key,
+      { const: value, type: typeof value === 'number' ? 'integer' : typeof value },
+    ]),
+  );
+  const schema = {
+    type: 'object',
+    properties,
+    required: Object.keys(expected),
+    additionalProperties: false,
+  };
+  const python = [
+    'import json, os, re, resource, socket',
+    'status = open("/proc/self/status", encoding="ascii").read()',
+    'effective = int(re.search(r"^CapEff:\\s+([0-9a-f]+)$", status, re.M).group(1), 16)',
+    'no_new_privileges = re.search(r"^NoNewPrivs:\\s+1$", status, re.M) is not None',
+    'interfaces = [name for _, name in socket.if_nameindex()]',
+    'def reachable(ip, port):',
+    '    try:',
+    '        with socket.create_connection((ip, port), timeout=0.75):',
+    '            return True',
+    '    except OSError:',
+    '        return False',
+    'result = {',
+    '    "uid": os.geteuid(), "gid": os.getegid(),',
+    '    "onlyExpectedInterfaces": len(interfaces) == 2 and interfaces.count("lo") == 1,',
+    '    "emptyEffectiveCapabilities": effective == 0, "noNewPrivileges": no_new_privileges,',
+    '    "processLimit": resource.getrlimit(resource.RLIMIT_NPROC)[0],',
+    '    "fileSizeLimit": resource.getrlimit(resource.RLIMIT_FSIZE)[0],',
+    '    "openFileLimit": resource.getrlimit(resource.RLIMIT_NOFILE)[0],',
+    '    "apiProxyReachable": reachable("172.31.0.30", 10002),',
+    '    "wrongPortBlocked": not reachable("172.31.0.30", 10000),',
+    '    "wrongPeerBlocked": not reachable("172.31.0.99", 10002),',
+    '    "githubPeerBlocked": not reachable("172.31.0.40", 8080),',
+    '    "publicEgressBlocked": not reachable("1.1.1.1", 443),',
+    '}',
+    'encoded = json.dumps(result, separators=(",", ":"))',
+    'print(encoded)',
+    'open("/awf/out", "w", encoding="utf8").write(encoded)',
+  ].join('\n');
+  return {
+    expected,
+    schema,
+    prompt: [
+      'Run this exact diagnostic with your shell tool using python3. Do not inspect repository files or make network requests other than those in the script.',
+      '```bash',
+      "python3 - <<'PY'",
+      python,
+      'PY',
+      '```',
+      'Return exactly the JSON object printed by the diagnostic, with no extra fields. Write that exact object to /awf/out as required by your result contract.',
+    ].join('\n'),
+  };
+}
+
+function buildEnospcProbeScript(maxStorageMib = 1024) {
+  if (maxStorageMib !== 512 && maxStorageMib !== 1024) {
+    throw new Error('Live enclave storage probe requires a supported role ceiling');
+  }
+  const maximumFiles = maxStorageMib / 64;
+  return [
+    'import errno, json, os',
+    'directory = "/output"',
+    'chunk = b"x" * (8 * 1024 * 1024)',
+    'created = []',
+    'observed = False',
+    'try:',
+    `    for index in range(${maximumFiles}):`,
+    '        name = os.path.join(directory, ".awf-live-enospc-" + str(index))',
+    '        try:',
+    '            fd = os.open(name, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)',
+    '        except OSError as error:',
+    '            if error.errno != errno.ENOSPC:',
+    '                raise',
+    '            observed = True',
+    '            break',
+    '        created.append(name)',
+    '        try:',
+    '            for _ in range(8):',
+    '                remaining = memoryview(chunk)',
+    '                while remaining:',
+    '                    try:',
+    '                        written = os.write(fd, remaining)',
+    '                    except OSError as error:',
+    '                        if error.errno != errno.ENOSPC:',
+    '                            raise',
+    '                        observed = True',
+    '                        break',
+    '                    if written < 1:',
+    '                        raise OSError(errno.EIO, "zero-byte write during bounded storage probe")',
+    '                    remaining = remaining[written:]',
+    '                if observed:',
+    '                    break',
+    '        finally:',
+    '            os.close(fd)',
+    '        if observed:',
+    '            break',
+    '    result = {"enospcObserved": observed, "probeFilesRemoved": False}',
+    'finally:',
+    '    for name in created:',
+    '        os.unlink(name)',
+    'result["probeFilesRemoved"] = all(not os.path.exists(name) for name in created)',
+    'encoded = json.dumps(result, separators=(",", ":"))',
+    'print(encoded)',
+    'with open("/output/out", "w", encoding="utf8") as output:',
+    '    output.write(encoded)',
+  ].join('\n');
+}
+
+function buildAgentEnospcProbe() {
+  const expected = { enospcObserved: true, probeFilesRemoved: true };
+  return {
+    expected,
+    schema: {
+      type: 'object',
+      properties: {
+        enospcObserved: { type: 'boolean', const: true },
+        probeFilesRemoved: { type: 'boolean', const: true },
+      },
+      required: Object.keys(expected),
+      additionalProperties: false,
+    },
+    prompt: [
+      'Run this exact Python diagnostic in your shell. Do not inspect repository files or make network requests.',
+      '```bash',
+      "python3 - <<'PY'",
+      buildEnospcProbeScript(512),
+      'PY',
+      '```',
+      'Return exactly the JSON object printed by the diagnostic, with no extra fields. Write that exact object to /awf/out as required by your result contract.',
+    ].join('\n'),
+  };
+}
+
+function buildOomProbeScript() {
+  return [
+    'import json, os, subprocess, sys',
+    'def oom_kills():',
+    '    with open("/proc/vmstat", encoding="ascii") as status:',
+    '        for line in status:',
+    '            name, _, value = line.partition(" ")',
+    '            if name == "oom_kill":',
+    '                return int(value)',
+    '    return -1',
+    'before = oom_kills()',
+    'child = subprocess.Popen([',
+    '    sys.executable, "-c",',
+    '    "blocks=[]\\nwhile True:\\n b=bytearray(32*1024*1024)\\n for i in range(0,len(b),4096): b[i]=1\\n blocks.append(b)",',
+    '], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)',
+    'signal = child.wait()',
+    'after = oom_kills()',
+    'result = {',
+    '    "childKilledByOom": signal == -9 and before >= 0 and after > before,',
+    '    "oomKillCounterIncreased": before >= 0 and after > before,',
+    '}',
+    'with open("/awf/out", "w", encoding="utf8") as output:',
+    '    json.dump(result, output, separators=(",", ":"))',
+  ].join('\n');
+}
+
+function resourceRecords(directory) {
+  if (!fs.existsSync(directory)) return [];
+  return fs.readdirSync(directory, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && !entry.isSymbolicLink()
+      && /^[0-9a-f]{32}-[0-9a-f]{32}\.resources\.json$/.test(entry.name))
+    .map((entry) => {
+      const file = path.join(directory, entry.name);
+      return { file, record: JSON.parse(fs.readFileSync(file, 'utf8')) };
+    });
+}
+
+async function waitForInvocationRecord(directory, existing, ownerPid, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const record = resourceRecords(directory).find(({ file, record: value }) =>
+      !existing.has(file)
+      && value.state === 'pending'
+      && value.owner?.pid === ownerPid
+      && value.storage?.directory
+      && value.directoryIdentity
+      && value.snapshot);
+    if (record) return record;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error('Live enclave crash probe did not persist its pending resource identity');
+}
+
+function findProcessForSocket(apiSocketPath) {
+  for (const entry of fs.readdirSync('/proc', { withFileTypes: true })) {
+    if (!entry.isDirectory() || !/^\d+$/.test(entry.name)) continue;
+    let commandLine;
+    try {
+      commandLine = fs.readFileSync(path.join('/proc', entry.name, 'cmdline'));
+    } catch {
+      continue;
+    }
+    if (commandLine.includes(Buffer.from(apiSocketPath, 'utf8'))) return Number(entry.name);
+  }
+  return undefined;
+}
+
+async function waitForPath(file, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const stat = fs.lstatSync(file);
+      if (stat.isFile() && !stat.isSymbolicLink()) return;
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error('Live enclave guest did not reach its bounded crash-probe marker');
+}
+
+function assertNoSuccessfulResult(response) {
+  if (response?.result?.structuredContent?.status === 'ok') {
+    throw new Error('Interrupted live enclave invocation returned a successful result');
+  }
+}
+
+function assertRecoveredInvocation(before, after, records) {
+  const matches = records.filter(({ record }) =>
+    record.runId === before.runId && record.invocationId === before.invocationId);
+  const identityMetadata = (record) => ({
+    directory: record.directory,
+    directoryIdentity: record.directoryIdentity,
+    ancestors: record.ancestors,
+    mount: record.mount,
+    snapshot: record.snapshot,
+    storage: record.storage && {
+      directory: record.storage.directory,
+      parentIdentity: record.storage.parentIdentity,
+      ancestors: record.storage.ancestors,
+      directoryIdentity: record.storage.directoryIdentity,
+      mountedIdentity: record.storage.mountedIdentity,
+      mounts: record.storage.mounts,
+    },
+  });
+  if (matches.length !== 1 || after.state !== 'cleaned'
+      || after.runId !== before.runId
+      || after.invocationId !== before.invocationId
+      || !before.directoryIdentity
+      || !before.storage?.directoryIdentity
+      || !before.storage?.mountedIdentity
+      || !before.snapshot
+      || !isDeepStrictEqual(identityMetadata(after), identityMetadata(before))) {
+    throw new Error('Live VMM crash recovery did not clean the exact interrupted invocation');
   }
 }
 
@@ -298,7 +571,7 @@ function makeConfig(artifacts, workDir, workspace, handoff) {
         },
         runtime: 'cloud-hypervisor',
         timeout: 180,
-        maxInvocations: 2,
+        maxInvocations: 3,
         repos: [enclaveRepository],
       },
     ],
@@ -348,7 +621,41 @@ async function main() {
   const gatewayIdentity = `gh-aw-${environment.GITHUB_RUN_ID}-${environment.GITHUB_RUN_ATTEMPT}-enclave-live`;
   let awf;
   let gatewayStarted = false;
+  let composeStarted = false;
   let keepArtifacts = false;
+  const awfConfigPath = path.join(root, 'awf-config.json');
+  const awfArguments = [
+    path.resolve(__dirname, '../../dist/cli.js'),
+    '--config', awfConfigPath,
+    '--build-local',
+    '--enable-api-proxy',
+    '--max-num-tool-calls', '16',
+    '--work-dir', workDir,
+    '--log-level', 'error',
+    '--agent-timeout', '45',
+    '--',
+    'while [ ! -f /workspace/.awf-enclave-live-stop ]; do sleep 1; done',
+  ];
+  let awfEnvironment;
+  const launchAwf = () => {
+    const stdout = fs.openSync(awfOut, 'a', 0o600);
+    const stderr = fs.openSync(awfErr, 'a', 0o600);
+    try {
+      return spawn(process.execPath, awfArguments, {
+        env: awfEnvironment,
+        stdio: ['ignore', stdout, stderr],
+      });
+    } finally {
+      fs.closeSync(stdout);
+      fs.closeSync(stderr);
+    }
+  };
+  const stopComposeAfterCrash = () => run('docker', [
+    'compose',
+    '--project-directory', workDir,
+    '--file', path.join(workDir, 'docker-compose.yml'),
+    'down', '--volumes', '--remove-orphans', '--timeout', '5',
+  ]);
   try {
     const artifacts = prepareReleaseArtifacts(tag, artifactsDir, environment);
     fs.mkdirSync(workDir, { recursive: true, mode: 0o700 });
@@ -376,45 +683,27 @@ async function main() {
     const mapping = gatewayInspect['8080/tcp']?.[0];
     if (!mapping?.HostPort) throw new Error('Live enclave gateway did not bind its loopback route');
     const endpoint = `http://127.0.0.1:${mapping.HostPort}/mcp/awf-enclave`;
-    const configPath = path.join(root, 'awf-config.json');
     const config = toAwfConfig(makeConfig(artifacts, workDir, workspace, {
       capability,
       gatewayKey,
       endpoint,
       identity: gatewayIdentity,
     }));
-    fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600, flag: 'wx' });
-
-    const cliLogOut = fs.openSync(awfOut, 'wx', 0o600);
-    const cliLogErr = fs.openSync(awfErr, 'wx', 0o600);
-    awf = spawn(process.execPath, [
-      path.resolve(__dirname, '../../dist/cli.js'),
-      '--config', configPath,
-      '--build-local',
-      '--enable-api-proxy',
-      '--max-num-tool-calls', '8',
-      '--work-dir', workDir,
-      '--log-level', 'error',
-      '--agent-timeout', '45',
-      '--',
-      'while [ ! -f /workspace/.awf-enclave-live-stop ]; do sleep 1; done',
-    ], {
-      env: {
-        ...environment,
-        AWF_ENCLAVE_MCP_CAPABILITY: capability,
-        AWF_ENCLAVE_MCP_GATEWAY_CONTAINER: GATEWAY_CONTAINER,
-        AWF_ENCLAVE_MCP_GATEWAY_ENDPOINT: endpoint,
-        AWF_ENCLAVE_MCP_GATEWAY_IDENTITY: gatewayIdentity,
-        AWF_ENCLAVE_MCP_READINESS_TIMEOUT_MS: '120000',
-        MCP_GATEWAY_API_KEY: gatewayKey,
-        GITHUB_WORKSPACE: workspace,
-        GH_TOKEN: environment.GH_TOKEN,
-        GITHUB_TOKEN: environment.GITHUB_TOKEN,
-      },
-      stdio: ['ignore', cliLogOut, cliLogErr],
-    });
-    fs.closeSync(cliLogOut);
-    fs.closeSync(cliLogErr);
+    fs.writeFileSync(awfConfigPath, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600, flag: 'wx' });
+    awfEnvironment = {
+      ...environment,
+      AWF_ENCLAVE_MCP_CAPABILITY: capability,
+      AWF_ENCLAVE_MCP_GATEWAY_CONTAINER: GATEWAY_CONTAINER,
+      AWF_ENCLAVE_MCP_GATEWAY_ENDPOINT: endpoint,
+      AWF_ENCLAVE_MCP_GATEWAY_IDENTITY: gatewayIdentity,
+      AWF_ENCLAVE_MCP_READINESS_TIMEOUT_MS: '120000',
+      MCP_GATEWAY_API_KEY: gatewayKey,
+      GITHUB_WORKSPACE: workspace,
+      GH_TOKEN: environment.GH_TOKEN,
+      GITHUB_TOKEN: environment.GITHUB_TOKEN,
+    };
+    awf = launchAwf();
+    composeStarted = true;
     await waitForBroker(awf, 'awf-enclave-mcp-server', Date.now() + 15 * 60_000);
 
     const initialized = await requestMcp(
@@ -535,8 +824,72 @@ async function main() {
     }
     await waitForVmCleanup(15_000);
 
+    const agentProbe = buildAgentGuestProbe();
+    const agentProbeResponse = await requestMcp(endpoint, gatewayKey, 5, 'tools/call', {
+      name: 'enclave_run_agent',
+      arguments: {
+        privateRepo: 'github/gh-aw-firewall',
+        schema: agentProbe.schema,
+        prompt: agentProbe.prompt,
+      },
+    });
+    assertExpectedToolResult(agentProbeResponse, 5, agentProbe.expected, 'agent identity and network');
+    await waitForVmCleanup(15_000);
+
+    const agentEnospcProbe = buildAgentEnospcProbe();
+    const agentEnospcResponse = await requestMcp(endpoint, gatewayKey, 6, 'tools/call', {
+      name: 'enclave_run_agent',
+      arguments: {
+        privateRepo: 'github/gh-aw-firewall',
+        schema: agentEnospcProbe.schema,
+        prompt: agentEnospcProbe.prompt,
+      },
+    });
+    assertExpectedToolResult(agentEnospcResponse, 6, agentEnospcProbe.expected, 'agent aggregate ENOSPC');
+    await waitForVmCleanup(15_000);
+
+    const enospcExpected = { enospcObserved: true, probeFilesRemoved: true };
+    const enospcResponse = await requestMcp(endpoint, gatewayKey, 7, 'tools/call', {
+      name: 'enclave_run_script',
+      arguments: {
+        privateRepo: 'github/gh-aw-firewall',
+        schema: {
+          type: 'object',
+          properties: {
+            enospcObserved: { type: 'boolean', const: true },
+            probeFilesRemoved: { type: 'boolean', const: true },
+          },
+          required: ['enospcObserved', 'probeFilesRemoved'],
+          additionalProperties: false,
+        },
+        script: buildEnospcProbeScript(),
+      },
+    });
+    assertExpectedToolResult(enospcResponse, 7, enospcExpected, 'script aggregate ENOSPC');
+    await waitForVmCleanup(15_000);
+
+    const oomExpected = { childKilledByOom: true, oomKillCounterIncreased: true };
+    const oomResponse = await requestMcp(endpoint, gatewayKey, 8, 'tools/call', {
+      name: 'enclave_run_script',
+      arguments: {
+        privateRepo: 'github/gh-aw-firewall',
+        schema: {
+          type: 'object',
+          properties: {
+            childKilledByOom: { type: 'boolean', const: true },
+            oomKillCounterIncreased: { type: 'boolean', const: true },
+          },
+          required: ['childKilledByOom', 'oomKillCounterIncreased'],
+          additionalProperties: false,
+        },
+        script: buildOomProbeScript(),
+      },
+    });
+    assertExpectedToolResult(oomResponse, 8, oomExpected, 'guest OOM');
+    await waitForVmCleanup(15_000);
+
     const errorSchema = { type: 'boolean', const: true };
-    const guestFailure = await requestMcp(endpoint, gatewayKey, 5, 'tools/call', {
+    const guestFailure = await requestMcp(endpoint, gatewayKey, 9, 'tools/call', {
       name: 'enclave_run_script',
       arguments: {
         privateRepo: 'github/gh-aw-firewall',
@@ -544,10 +897,10 @@ async function main() {
         script: 'raise SystemExit(23)',
       },
     });
-    assertCanonicalToolError(guestFailure, 5, 'guest failure');
+    assertCanonicalToolError(guestFailure, 9, 'guest failure');
     await waitForVmCleanup(15_000);
 
-    const timeout = await requestMcp(endpoint, gatewayKey, 6, 'tools/call', {
+    const timeout = await requestMcp(endpoint, gatewayKey, 10, 'tools/call', {
       name: 'enclave_run_script',
       arguments: {
         privateRepo: 'github/gh-aw-firewall',
@@ -555,21 +908,98 @@ async function main() {
         script: 'import time; time.sleep(150)',
       },
     });
-    assertCanonicalToolError(timeout, 6, 'timeout');
+    assertCanonicalToolError(timeout, 10, 'timeout');
     await waitForVmCleanup(15_000);
 
-    const cancelled = await requestMcp(endpoint, gatewayKey, 7, 'tools/call', {
+    const journalRoot = '/var/lib/awf-cloud-hypervisor/host-executor-journal';
+    const existingCancellationResources = new Set(resourceRecords(journalRoot).map(({ file }) => file));
+    const cancellationMarker = [
+      'import time',
+      'open("/output/cancel-probe-started", "w", encoding="ascii").write("started")',
+      'while True: time.sleep(1)',
+    ].join('\n');
+    const cancellationController = new AbortController();
+    const cancellationRequest = requestMcp(endpoint, gatewayKey, 11, 'tools/call', {
       name: 'enclave_run_script',
       arguments: {
         privateRepo: 'github/gh-aw-firewall',
         schema: errorSchema,
-        script: 'while True: pass',
+        script: cancellationMarker,
       },
-    }, 30_000);
+    }, cancellationController.signal);
+    const cancellationActive = await waitForInvocationRecord(
+      journalRoot, existingCancellationResources, awf.pid, 90_000,
+    );
+    await waitForPath(path.join(cancellationActive.record.directory, 'output', 'cancel-probe-started'), 90_000);
+    cancellationController.abort();
+    const cancelled = await cancellationRequest;
     if (cancelled !== undefined) {
       throw new Error('Public MCP disconnect did not cancel the live enclave request');
     }
     await waitForVmCleanup(15_000);
+
+    const existingResources = new Set(resourceRecords(journalRoot).map(({ file }) => file));
+    const crashProbe = [
+      'import time',
+      'open("/output/crash-probe-started", "w", encoding="ascii").write("started")',
+      'while True: time.sleep(1)',
+    ].join('\n');
+    const crashRequest = requestMcp(endpoint, gatewayKey, 12, 'tools/call', {
+      name: 'enclave_run_script',
+      arguments: {
+        privateRepo: 'github/gh-aw-firewall',
+        schema: errorSchema,
+        script: crashProbe,
+      },
+    });
+    const crashResponse = crashRequest.then(
+      (response) => ({ response }),
+      () => ({ disconnected: true }),
+    );
+    const active = await waitForInvocationRecord(journalRoot, existingResources, awf.pid, 90_000);
+    const apiSocket = path.join(active.record.storage.directory, 'runs', 'vm', 'api.socket');
+    await waitForPath(path.join(active.record.directory, 'output', 'crash-probe-started'), 90_000);
+    const vmmPid = findProcessForSocket(apiSocket);
+    if (!vmmPid) throw new Error('Live VM crash probe could not identify its exact VMM process');
+
+    try {
+      process.kill(vmmPid, 'SIGKILL');
+      awf.kill('SIGKILL');
+      await new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('AWF host process did not die for recovery probe')), 15_000);
+        awf.once('exit', () => {
+          clearTimeout(timer);
+          resolve();
+        });
+      });
+      awf = undefined;
+      run('docker', [
+        'compose',
+        '--project-directory', workDir,
+        '--file', path.join(workDir, 'docker-compose.yml'),
+        'down', '--volumes', '--remove-orphans', '--timeout', '5',
+      ]);
+      awf = launchAwf();
+      await waitForBroker(awf, 'awf-enclave-mcp-server', Date.now() + 15 * 60_000);
+      const recoveryTools = await requestMcp(endpoint, gatewayKey, 13, 'tools/list', {});
+      if (!Array.isArray(recoveryTools?.result?.tools)) {
+        throw new Error('Live broker did not become ready after host-executor recovery');
+      }
+      const afterCrash = JSON.parse(fs.readFileSync(active.file, 'utf8'));
+      assertRecoveredInvocation(active.record, afterCrash, resourceRecords(journalRoot));
+      assertNoSuccessfulResult((await crashResponse).response);
+      await waitForVmCleanup(15_000);
+    } catch (error) {
+      if (awf && awf.exitCode === null) awf.kill('SIGKILL');
+      if (composeStarted) {
+        try {
+          stopComposeAfterCrash();
+        } catch {
+          keepArtifacts = true;
+        }
+      }
+      throw error;
+    }
 
     const logContents = [
       fs.readFileSync(awfOut, 'utf8'),
@@ -579,7 +1009,6 @@ async function main() {
     ];
     const privateRoot = path.join('/var/tmp', `awf-enclave-private-0-${crypto.createHash('sha256')
       .update(path.resolve(workDir), 'utf8').digest('hex').slice(0, 20)}`);
-    const journalRoot = '/var/lib/awf-cloud-hypervisor/host-executor-journal';
     assertNoSentinelLeak([
       path.join(workDir, 'audit'),
       path.join(workDir, 'proxy-logs'),
@@ -592,7 +1021,7 @@ async function main() {
       run('docker', ['logs', 'awf-enclave-agent-api-proxy'], { maxBuffer: 1024 * 1024 }),
       run('docker', ['logs', 'awf-squid'], { maxBuffer: 1024 * 1024 }),
     ], sentinel);
-    console.log('Live script and agent broker calls, guest failure, timeout, cancellation, cleanup, and output redaction checks passed.');
+    console.log('Live script and agent identity/network, aggregate ENOSPC, guest OOM, failure/timeout/cancellation, VMM crash recovery, cleanup, and output redaction checks passed.');
   } finally {
     if (awf && awf.exitCode === null) {
       fs.writeFileSync(path.join(workspace, '.awf-enclave-live-stop'), 'done\n', { mode: 0o600 });
@@ -603,7 +1032,20 @@ async function main() {
       clearTimeout(timeout);
     }
     if (gatewayStarted) {
-      spawnSync('docker', ['rm', '--force', GATEWAY_CONTAINER], { encoding: 'utf8' });
+      const gateway = spawnSync('docker', [
+        'inspect', '--format', '{{ index .Config.Labels "com.github.gh-aw.mcpg.run" }}',
+        GATEWAY_CONTAINER,
+      ], { encoding: 'utf8' });
+      if (gateway.status === 0 && gateway.stdout.trim() === gatewayIdentity) {
+        const removed = spawnSync('docker', ['rm', '--force', GATEWAY_CONTAINER], { encoding: 'utf8' });
+        if (removed.error || removed.status !== 0) {
+          console.error('Could not remove the identity-checked live gateway fixture');
+          keepArtifacts = true;
+        }
+      } else if (gateway.status !== 1 || gateway.stdout.trim() !== '') {
+        console.error('Could not verify the live gateway fixture identity; it was not removed');
+        keepArtifacts = true;
+      }
     }
     try {
       assertNoVmResidue();
@@ -630,6 +1072,14 @@ module.exports = {
   RELEASE_ASSETS,
   assertReleaseAssets,
   assertNoSentinelLeak,
+  assertExpectedToolResult,
+  assertRecoveredInvocation,
+  assertNoSuccessfulResult,
+  buildAgentGuestProbe,
+  buildAgentEnospcProbe,
+  buildEnospcProbeScript,
+  buildOomProbeScript,
   parsePublicToolResult,
+  requestMcp,
   requestMcp,
 };

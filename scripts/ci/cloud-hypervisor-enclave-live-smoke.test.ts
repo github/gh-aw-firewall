@@ -1,6 +1,8 @@
 import * as fs from 'fs';
+import * as http from 'http';
 import * as os from 'os';
 import * as path from 'path';
+import { execFileSync } from 'child_process';
 
 const root = path.resolve(__dirname, '../..');
 const harnessPath = path.join(root, 'scripts/ci/cloud-hypervisor-enclave-live-smoke.js');
@@ -9,7 +11,59 @@ const harness = require(harnessPath) as {
   RELEASE_ASSETS: string[];
   assertReleaseAssets(required: string[], published: string[]): void;
   assertNoSentinelLeak(directories: string[], logs: string[], sentinel: string): void;
+  assertExpectedToolResult(response: unknown, requestId: number, expected: unknown, label: string): void;
+  assertNoSuccessfulResult(response: unknown): void;
+  assertRecoveredInvocation(
+    before: {
+      runId: string;
+      invocationId: string;
+      directory: string;
+      directoryIdentity: unknown;
+      ancestors: unknown;
+      mount: unknown;
+      snapshot: unknown;
+      storage: {
+        directory: string;
+        parentIdentity: unknown;
+        ancestors: unknown;
+        directoryIdentity: unknown;
+        mountedIdentity: unknown;
+        mounts: unknown;
+      };
+    },
+    after: {
+      runId: string;
+      invocationId: string;
+      state: string;
+      directory: string;
+      directoryIdentity: unknown;
+      ancestors: unknown;
+      mount: unknown;
+      snapshot: unknown;
+      storage: {
+        directory: string;
+        parentIdentity: unknown;
+        ancestors: unknown;
+        directoryIdentity: unknown;
+        mountedIdentity: unknown;
+        mounts: unknown;
+      };
+    },
+    records: Array<{ record: { runId: string; invocationId: string } }>,
+  ): void;
+  buildAgentGuestProbe(): { expected: Record<string, unknown>; schema: unknown; prompt: string };
+  buildAgentEnospcProbe(): { expected: Record<string, unknown>; schema: unknown; prompt: string };
+  buildEnospcProbeScript(maxStorageMib?: number): string;
+  buildOomProbeScript(): string;
   parsePublicToolResult(response: unknown, requestId: number): { status: string; result?: unknown };
+  requestMcp(
+    endpoint: string,
+    apiKey: string,
+    requestId: number,
+    method: string,
+    params: Record<string, unknown>,
+    signal?: AbortSignal,
+  ): Promise<unknown>;
 };
 
 describe('Cloud Hypervisor enclave live acceptance harness', () => {
@@ -47,6 +101,179 @@ describe('Cloud Hypervisor enclave live acceptance harness', () => {
       { jsonrpc: '2.0', id: 3, result: { structuredContent: { status: 'ok', result: true }, content: [{ type: 'text', text: '{"status":"error"}' }] } },
     ]) {
       expect(() => harness.parsePublicToolResult(invalid, 3)).toThrow();
+    }
+  });
+
+  it('requires live agent identity, capabilities, API proxy peer/port, and denial of unrelated routes', () => {
+    const probe = harness.buildAgentGuestProbe();
+    expect(probe.expected).toEqual({
+      uid: 65534,
+      gid: 65534,
+      onlyExpectedInterfaces: true,
+      emptyEffectiveCapabilities: true,
+      noNewPrivileges: true,
+      processLimit: 47,
+      fileSizeLimit: 268435456,
+      openFileLimit: 1024,
+      apiProxyReachable: true,
+      wrongPortBlocked: true,
+      wrongPeerBlocked: true,
+      githubPeerBlocked: true,
+      publicEgressBlocked: true,
+    });
+    expect(probe.prompt).toContain('172.31.0.30", 10002');
+    expect(probe.prompt).toContain('172.31.0.30", 10000');
+    expect(probe.prompt).toContain('172.31.0.99", 10002');
+    expect(probe.prompt).toContain('172.31.0.40", 8080');
+    expect(probe.prompt).toContain('1.1.1.1", 443');
+    const python = probe.prompt.split("python3 - <<'PY'\n")[1].split('\nPY')[0];
+    expect(Buffer.byteLength(probe.prompt)).toBeLessThanOrEqual(4096);
+    expect(() => execFileSync('python3', ['-c', 'import sys; compile(sys.stdin.read(), "<agent-probe>", "exec")'], {
+      input: python,
+    })).not.toThrow();
+    expect(() => harness.assertExpectedToolResult({
+      jsonrpc: '2.0',
+      id: 5,
+      result: {
+        structuredContent: { status: 'ok', result: probe.expected },
+        content: [{ type: 'text', text: JSON.stringify({ status: 'ok', result: probe.expected }) }],
+      },
+    }, 5, probe.expected, 'agent')).not.toThrow();
+    expect(() => harness.assertExpectedToolResult({
+      jsonrpc: '2.0',
+      id: 5,
+      result: {
+        structuredContent: { status: 'ok', result: { ...probe.expected, wrongPortBlocked: false } },
+        content: [{ type: 'text', text: JSON.stringify({
+          status: 'ok', result: { ...probe.expected, wrongPortBlocked: false },
+        }) }],
+      },
+    }, 5, probe.expected, 'agent')).toThrow(/guest assertion failed/);
+  });
+
+  it('exercises guest-visible aggregate ENOSPC and verifies the bounded probe cleans its data', () => {
+    const script = harness.buildEnospcProbeScript();
+    expect(script).toContain('errno.ENOSPC');
+    expect(script).toContain('"/output"');
+    expect(script).toContain('os.unlink(name)');
+    expect(script).toContain('range(16)');
+    expect(() => harness.buildEnospcProbeScript(768)).toThrow(/supported role ceiling/);
+    expect(() => execFileSync('python3', ['-c', 'import sys; compile(sys.stdin.read(), "<enospc-probe>", "exec")'], {
+      input: script,
+    })).not.toThrow();
+    const agentProbe = harness.buildAgentEnospcProbe();
+    expect(agentProbe.expected).toEqual({ enospcObserved: true, probeFilesRemoved: true });
+    expect(Buffer.byteLength(agentProbe.prompt)).toBeLessThanOrEqual(4096);
+    const agentScript = agentProbe.prompt.split("python3 - <<'PY'\n")[1].split('\nPY')[0];
+    expect(agentScript).toContain('range(8)');
+    expect(() => execFileSync('python3', ['-c', 'import sys; compile(sys.stdin.read(), "<agent-enospc-probe>", "exec")'], {
+      input: agentScript,
+    })).not.toThrow();
+    expect(agentProbe.prompt).toContain('print(encoded)');
+    expect(() => harness.assertExpectedToolResult({
+      jsonrpc: '2.0',
+      id: 6,
+      result: {
+        structuredContent: {
+          status: 'ok',
+          result: { enospcObserved: true, probeFilesRemoved: true },
+        },
+        content: [{
+          type: 'text',
+          text: '{"status":"ok","result":{"enospcObserved":true,"probeFilesRemoved":true}}',
+        }],
+      },
+    }, 6, { enospcObserved: true, probeFilesRemoved: true }, 'ENOSPC')).not.toThrow();
+  });
+
+  it('requires a guest OOM kill counter increase, not merely an error response', () => {
+    const script = harness.buildOomProbeScript();
+    expect(script).toContain('"/proc/vmstat"');
+    expect(script).toContain('name == "oom_kill"');
+    expect(script).toContain('signal == -9');
+    expect(script).toContain('after > before');
+    expect(() => execFileSync('python3', ['-c', 'import sys; compile(sys.stdin.read(), "<oom-probe>", "exec")'], {
+      input: script,
+    })).not.toThrow();
+  });
+
+  it('requires identity-checked crash recovery without accepting replayed success', () => {
+    const before = {
+      runId: 'a'.repeat(32),
+      invocationId: 'b'.repeat(32),
+      state: 'pending',
+      directory: '/host/invocation',
+      directoryIdentity: { device: 1, inode: 2 },
+      ancestors: [{ path: '/host', identity: { device: 1, inode: 3 } }],
+      mount: { mountId: 1, device: 2 },
+      snapshot: { path: '/storage/artifacts/run-1', identity: { device: 3, inode: 4 } },
+      storage: {
+        directory: '/storage',
+        parentIdentity: { device: 1, inode: 5 },
+        ancestors: [{ path: '/', identity: { device: 1, inode: 1 } }],
+        directoryIdentity: { device: 4, inode: 5 },
+        mountedIdentity: { device: 4, inode: 6 },
+        mounts: [{ mountId: 7, device: 8 }],
+      },
+    };
+    const cleaned = { ...before, state: 'cleaned' };
+    expect(() => harness.assertRecoveredInvocation(before, cleaned, [{ record: cleaned }]))
+      .not.toThrow();
+    expect(() => harness.assertRecoveredInvocation(before, before, [{ record: before }]))
+      .toThrow(/exact interrupted invocation/);
+    expect(() => harness.assertRecoveredInvocation(before, cleaned, [
+      { record: cleaned }, { record: cleaned },
+    ])).toThrow(/exact interrupted invocation/);
+    expect(() => harness.assertRecoveredInvocation(before, {
+      ...cleaned,
+      storage: { ...before.storage, directoryIdentity: { device: 99, inode: 99 } },
+    }, [{ record: cleaned }])).toThrow(/exact interrupted invocation/);
+    expect(() => harness.assertNoSuccessfulResult({
+      result: { structuredContent: { status: 'ok' } },
+    })).toThrow(/successful result/);
+    expect(() => harness.assertNoSuccessfulResult({
+      error: { code: -32603, message: 'interrupted' },
+    })).not.toThrow();
+    const source = fs.readFileSync(harnessPath, 'utf8');
+    expect(source).toContain("process.kill(vmmPid, 'SIGKILL')");
+    expect(source).toContain("awf.kill('SIGKILL')");
+    expect(source).toContain("awf = launchAwf()");
+    expect(source).toContain("recoveryTools = await requestMcp");
+    expect(source).toContain("open(\"/output/cancel-probe-started\"");
+    expect(source).toContain("cancellationController.abort()");
+  });
+
+  it('propagates public-client cancellation by closing its in-flight MCP request', async () => {
+    let bodyReceived!: () => void;
+    let clientDisconnected!: () => void;
+    const received = new Promise<void>((resolve) => { bodyReceived = resolve; });
+    const disconnected = new Promise<void>((resolve) => { clientDisconnected = resolve; });
+    const server = http.createServer((request, response) => {
+      request.on('end', bodyReceived);
+      request.resume();
+      response.on('close', clientDisconnected);
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('Test MCP server did not bind');
+    try {
+      const controller = new AbortController();
+      const pending = harness.requestMcp(
+        `http://127.0.0.1:${address.port}/mcp`,
+        'test-gateway-key',
+        1,
+        'tools/call',
+        {},
+        controller.signal,
+      );
+      await received;
+      controller.abort();
+      await expect(pending).resolves.toBeUndefined();
+      await disconnected;
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => error ? reject(error) : resolve());
+      });
     }
   });
 
