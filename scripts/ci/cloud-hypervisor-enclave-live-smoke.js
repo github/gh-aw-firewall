@@ -621,7 +621,6 @@ async function main() {
   const gatewayIdentity = `gh-aw-${environment.GITHUB_RUN_ID}-${environment.GITHUB_RUN_ATTEMPT}-enclave-live`;
   let awf;
   let gatewayStarted = false;
-  let composeStarted = false;
   let keepArtifacts = false;
   const awfConfigPath = path.join(root, 'awf-config.json');
   const awfArguments = [
