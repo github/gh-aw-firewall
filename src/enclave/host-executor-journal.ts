@@ -23,6 +23,12 @@ import type { CloudHypervisorVmmIdentityToolPaths } from '../cloud-hypervisor/vm
 
 export const HOST_EXECUTOR_DEFAULT_JOURNAL_DIRECTORY =
   '/var/lib/awf-cloud-hypervisor/host-executor-journal';
+export const HOST_EXECUTOR_STORAGE_ROOT = '/run/awf-cloud-hypervisor/enclave-storage';
+
+export function hostExecutorStorageDirectory(vmRunId: string): string {
+  if (!HOST_EXECUTOR_ID_PATTERN.test(vmRunId)) throw new Error('Invalid invocation storage ID');
+  return path.join(HOST_EXECUTOR_STORAGE_ROOT, vmRunId);
+}
 
 export function hostExecutorJournalDirectory(run: HostExecutorRunState): string {
   return run.journalDir ?? HOST_EXECUTOR_DEFAULT_JOURNAL_DIRECTORY;
@@ -144,6 +150,15 @@ interface ResourceRecord {
   snapshot?: { path: string; identity: FileIdentity; parentIdentity: FileIdentity };
   snapshotPending: boolean;
   state: 'pending' | 'cleaned';
+  storage?: {
+    directory: string;
+    parentIdentity: FileIdentity;
+    ancestors: Array<{ path: string; identity: FileIdentity }>;
+    directoryIdentity?: FileIdentity;
+    mountedIdentity?: FileIdentity;
+    pending?: string;
+    mounts: MountIdentity[];
+  };
 }
 
 async function trustedDirectory(directory: string, dependencies: ResolvedCleanupDependencies): Promise<FileIdentity> {
@@ -161,7 +176,11 @@ async function assertIdentity(directory: string, identity: FileIdentity, depende
   }
 }
 
-/** Durable write-ahead intent for invocation tmpfs and staged artifacts. */
+/**
+ * Durable trusted control metadata, deliberately outside the charged data
+ * superblock so a crash or full invocation cannot erase recovery identities.
+ * No workload payload, credentials, results or artifact bytes are journaled.
+ */
 export class HostExecutorResourceJournal {
   private constructor(
     private readonly file: string,
@@ -218,6 +237,64 @@ export class HostExecutorResourceJournal {
     persist(this.file, this.record);
   }
 
+  async prepareStorage(): Promise<void> {
+    this.record.storage = {
+      directory: hostExecutorStorageDirectory(this.record.vmRunId),
+      parentIdentity: await trustedDirectory(HOST_EXECUTOR_STORAGE_ROOT, this.dependencies),
+      ancestors: await Promise.all(storageAncestors().map(async (directory) => ({
+        path: directory, identity: await trustedDirectory(directory, this.dependencies),
+      }))),
+      mounts: [],
+    };
+    persist(this.file, this.record);
+  }
+
+  async captureStorageDirectory(): Promise<void> {
+    const storage = this.record.storage!;
+    storage.directoryIdentity = await trustedDirectory(storage.directory, this.dependencies);
+    persist(this.file, this.record);
+  }
+
+  async prepareStorageMount(directory: string): Promise<void> {
+    const storage = this.record.storage!;
+    if (!allowedStorageMount(this.record, directory)) throw new Error('Unowned invocation mount');
+    storage.pending = directory;
+    persist(this.file, this.record);
+  }
+
+  async captureStorageMount(): Promise<void> {
+    const storage = this.record.storage!;
+    const mounts = (await readMounts(this.dependencies.readFile))
+      .filter((mount) => mount.mountPoint === storage.pending);
+    if (mounts.length !== 1 || mounts[0].filesystemType !== 'tmpfs' ||
+      mounts[0].source !== 'awf-enclave-invocation') throw new Error('Storage mount identity unavailable');
+    storage.mounts.push(mounts[0]);
+    if (mounts[0].mountPoint === storage.directory) {
+      storage.mountedIdentity = await trustedDirectory(storage.directory, this.dependencies);
+    }
+    delete storage.pending;
+    persist(this.file, this.record);
+  }
+
+  async verifyStorage(): Promise<void> {
+    await verifyStorageRecord(this.record, this.dependencies);
+  }
+
+  async releaseStorageMount(directory: string): Promise<void> {
+    const storage = this.record.storage!;
+    if (!allowedStorageMount(this.record, directory) ||
+      !storage.mounts.some((mount) => mount.mountPoint === directory) ||
+      (await readMounts(this.dependencies.readFile)).some((mount) => mount.mountPoint === directory)) {
+      throw new Error('Invocation storage mount release is unverifiable');
+    }
+    storage.mounts = storage.mounts.filter((mount) => mount.mountPoint !== directory);
+    persist(this.file, this.record);
+  }
+
+  async closeStorage(umount: string): Promise<void> {
+    await closeStorageRecord(this.record, this.dependencies, umount);
+  }
+
   async prepareSnapshot(): Promise<void> {
     this.record.snapshotPending = true;
     persist(this.file, this.record);
@@ -225,9 +302,11 @@ export class HostExecutorResourceJournal {
 
   async captureSnapshot(directory: string): Promise<void> {
     // The snapshot creator chooses this path; a broker never does.
-    if (!isTrustedArtifactSnapshotDirectory(
+    if (!(this.record.storage
+      ? path.dirname(directory) === path.join(this.record.storage.directory, 'artifacts')
+      : isTrustedArtifactSnapshotDirectory(
       directory, path.join(path.dirname(this.record.root), 'runs', this.record.vmRunId),
-    ) || !/^run-[A-Za-z0-9_-]+$/.test(path.basename(directory))) {
+    )) || !/^run-[A-Za-z0-9_-]+$/.test(path.basename(directory))) {
       throw new Error('Snapshot recovery path is outside trusted artifact storage');
     }
     this.record.snapshot = {
@@ -239,10 +318,10 @@ export class HostExecutorResourceJournal {
   }
 
   async verifyMount(): Promise<void> {
-    const current = (await readMounts(this.dependencies.readFile)).find(
+    const mounts = (await readMounts(this.dependencies.readFile)).filter(
       (mount) => mount.mountPoint === this.record.directory,
     );
-    if (!current || !this.record.mount || !sameMountIdentity(current, this.record.mount)) {
+    if (mounts.length !== 1 || !this.record.mount || !sameMountIdentity(mounts[0], this.record.mount)) {
       throw new Error('Invocation mount identity changed');
     }
   }
@@ -261,14 +340,15 @@ export class HostExecutorResourceJournal {
     if (!snapshot) throw new Error('Snapshot identity is uncommitted');
     await assertIdentity(path.dirname(snapshot.path), snapshot.parentIdentity, this.dependencies);
     await assertIdentity(snapshot.path, snapshot.identity, this.dependencies);
-    await assertNoMountsUnder(this.dependencies, snapshot.path);
+    if (this.record.storage) await this.verifyStorage();
+    else await assertNoMountsUnder(this.dependencies, snapshot.path);
   }
 
   async complete(): Promise<void> {
     if (this.record.snapshotPending && !this.record.snapshot) {
       throw new Error('Artifact staging identity is uncommitted');
     }
-    for (const directory of [this.record.directory, this.record.snapshot?.path]) {
+    for (const directory of [this.record.directory, this.record.snapshot?.path, this.record.storage?.directory]) {
       if (!directory) continue;
       try {
         await this.dependencies.lstat(directory);
@@ -326,6 +406,11 @@ export async function reapHostExecutorResources(
       for (const ancestor of record.ancestors) await assertIdentity(ancestor.path, ancestor.identity, dependencies);
       const mounts = await readMounts(dependencies.readFile);
       const current = mounts.find((mount) => mount.mountPoint === record.directory);
+      if (record.storage && record.bootId !== bootId && mounts.some((mount) =>
+        record.storage!.mounts.some((known) => mount.mountPoint === known.mountPoint))) {
+        throw new Error('Invocation storage mount belongs to a different boot');
+      }
+      if (record.storage) await verifyStorageRecord(record, dependencies, true);
       if (current) {
         if (!record.mount || !sameMountIdentity(current, record.mount)) {
           throw new Error('Invocation mount identity is uncommitted or changed');
@@ -340,6 +425,12 @@ export async function reapHostExecutorResources(
         if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
       }
       await removeExactDirectory(record.directory, record.directoryIdentity, dependencies, true);
+      if (record.storage) {
+        await closeStorageRecord(record, dependencies, tools.umount);
+        record.state = 'cleaned';
+        persist(file, record);
+        continue;
+      }
       if (record.snapshot) {
         try {
           await assertIdentity(path.dirname(record.snapshot.path), record.snapshot.parentIdentity, dependencies);
@@ -405,6 +496,12 @@ function validateResourceRecord(record: ResourceRecord, file: string): void {
     ...record.ancestors.map((ancestor) => ancestor.identity),
     ...(record.directoryIdentity === undefined ? [] : [record.directoryIdentity]),
     ...(record.snapshot === undefined ? [] : [record.snapshot.identity, record.snapshot.parentIdentity]),
+    ...(record.storage === undefined ? [] : [
+      record.storage.parentIdentity,
+      ...(record.storage.directoryIdentity ? [record.storage.directoryIdentity] : []),
+      ...(record.storage.mountedIdentity ? [record.storage.mountedIdentity] : []),
+      ...record.storage.ancestors.map((ancestor) => ancestor.identity),
+    ]),
   ]) {
     if (!identity || typeof identity.device !== 'string' || typeof identity.inode !== 'string' ||
       !/^(?:0|[1-9][0-9]{0,19})$/.test(identity.device) ||
@@ -415,17 +512,111 @@ function validateResourceRecord(record: ResourceRecord, file: string): void {
   }
   if (record.snapshot && (!path.isAbsolute(record.snapshot.path) ||
     path.normalize(record.snapshot.path) !== record.snapshot.path ||
-    !isTrustedArtifactSnapshotDirectory(
+    !(record.storage
+      ? path.dirname(record.snapshot.path) === path.join(hostExecutorStorageDirectory(record.vmRunId), 'artifacts')
+      : isTrustedArtifactSnapshotDirectory(
       record.snapshot.path, path.join(path.dirname(record.root), 'runs', record.vmRunId),
-    ) || !/^run-[A-Za-z0-9_-]+$/.test(path.basename(record.snapshot.path)))) {
+    )) || !/^run-[A-Za-z0-9_-]+$/.test(path.basename(record.snapshot.path)))) {
     throw new Error('Invalid snapshot path');
   }
   if (record.mount !== undefined && (!record.mount ||
     !Number.isSafeInteger(record.mount.mountId) || record.mount.mountId <= 0 ||
     typeof record.mount.device !== 'string' || !/^\d+:\d+$/.test(record.mount.device) ||
     !record.mount.device.split(':').every((value) => Number.isSafeInteger(Number(value))) ||
-    record.mount.root !== '/' || record.mount.mountPoint !== record.directory ||
+    record.mount.root !== (record.storage ? '/state' : '/') || record.mount.mountPoint !== record.directory ||
     record.mount.filesystemType !== 'tmpfs' || record.mount.source !== 'awf-enclave-invocation')) {
     throw new Error('Invalid invocation mount record');
   }
+  if (record.storage) {
+    const storage = record.storage;
+    if (storage.directory !== hostExecutorStorageDirectory(record.vmRunId) ||
+      !storage.parentIdentity || !Array.isArray(storage.mounts) ||
+      !Array.isArray(storage.ancestors) || storage.ancestors.length !== storageAncestors().length ||
+      storage.ancestors.some((ancestor, index) => ancestor.path !== storageAncestors()[index]) ||
+      (storage.pending !== undefined && !allowedStorageMount(record, storage.pending)) ||
+      storage.mounts.some((mount) => !allowedStorageMount(record, mount.mountPoint) ||
+        mount.filesystemType !== 'tmpfs' || mount.source !== 'awf-enclave-invocation' ||
+        !/^\d+:\d+$/.test(mount.device) ||
+        !mount.device.split(':').every((value) => Number.isSafeInteger(Number(value))) ||
+        mount.root !== (mount.mountPoint === storage.directory ? '/' :
+          mount.mountPoint === record.directory ? '/state' :
+          path.dirname(mount.mountPoint) === storage.directory ? `/${path.basename(mount.mountPoint)}` :
+            `/artifacts/${path.basename(mount.mountPoint)}`) ||
+        !Number.isSafeInteger(mount.mountId) || mount.mountId <= 0) ||
+      new Set(storage.mounts.map((mount) => mount.mountPoint)).size !== storage.mounts.length ||
+      storage.mounts.some((mount) => mount.device !== storage.mounts[0].device)) {
+      throw new Error('Invalid invocation storage record');
+    }
+  }
+}
+
+function storageAncestors(): string[] {
+  return ['/', '/run', path.dirname(HOST_EXECUTOR_STORAGE_ROOT), HOST_EXECUTOR_STORAGE_ROOT];
+}
+
+function allowedStorageMount(record: ResourceRecord, directory: string): boolean {
+  const root = hostExecutorStorageDirectory(record.vmRunId);
+  return directory === root || directory === record.directory ||
+    directory === path.join(root, 'runs') || directory === path.join(root, 'cloud-hypervisor-rootfs') ||
+    directory === path.join(root, 'artifacts') ||
+    (path.dirname(directory) === path.join(root, 'artifacts') &&
+      /^run-[A-Za-z0-9_-]+$/.test(path.basename(directory)));
+}
+
+async function verifyStorageRecord(
+  record: ResourceRecord, dependencies: ResolvedCleanupDependencies, allowRootMissing = false,
+): Promise<void> {
+  const storage = record.storage!;
+  if (storage.pending || !storage.directoryIdentity) throw new Error('Storage identity is uncommitted');
+  await assertIdentity(HOST_EXECUTOR_STORAGE_ROOT, storage.parentIdentity, dependencies);
+  for (const ancestor of storage.ancestors) {
+    await assertIdentity(ancestor.path, ancestor.identity, dependencies);
+  }
+  const current = await readMounts(dependencies.readFile);
+  if (current.some((mount) => mount.mountPoint === storage.directory)) {
+    if (!storage.mountedIdentity) throw new Error('Mounted storage inode identity is uncommitted');
+    await assertIdentity(storage.directory, storage.mountedIdentity, dependencies);
+  }
+  if (!current.some((mount) => mount.mountPoint === storage.directory)) {
+    if (!allowRootMissing) throw new Error('Invocation storage enforcement is missing');
+    try {
+      await assertIdentity(storage.directory, storage.directoryIdentity, dependencies);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
+  }
+  for (const mount of storage.mounts) {
+    const candidates = current.filter((candidate) => candidate.mountPoint === mount.mountPoint);
+    if ((!allowRootMissing && candidates.length !== 1) || candidates.length > 1 ||
+      (candidates.length === 1 && !sameMountIdentity(candidates[0], mount))) {
+      throw new Error('Invocation storage mount identity changed');
+    }
+  }
+  if (current.some((mount) => (mount.mountPoint === storage.directory ||
+    mount.mountPoint.startsWith(`${storage.directory}/`) ||
+    mount.mountPoint.startsWith(`${record.directory}/`) ||
+    storage.mounts.some((known) => known.device === mount.device)) &&
+    !storage.mounts.some((known) => sameMountIdentity(known, mount)))) {
+    throw new Error('Unrecorded invocation storage mount');
+  }
+}
+
+async function closeStorageRecord(record: ResourceRecord, dependencies: ResolvedCleanupDependencies, umount: string): Promise<void> {
+  await verifyStorageRecord(record, dependencies, true);
+  const storage = record.storage!;
+  for (const mount of [...storage.mounts].reverse()) {
+    const current = (await readMounts(dependencies.readFile)).find((candidate) => candidate.mountPoint === mount.mountPoint);
+    if (!current) continue;
+    if (!sameMountIdentity(current, mount)) throw new Error('Invocation storage mount replaced');
+    const result = await dependencies.run(umount, [mount.mountPoint]);
+    if (result.exitCode !== 0) throw new Error('Invocation storage unmount failed');
+  }
+  try {
+    await assertIdentity(storage.directory, storage.directoryIdentity!, dependencies);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    return;
+  }
+  await assertNoMountsUnder(dependencies, storage.directory);
+  await removeExactDirectory(storage.directory, storage.directoryIdentity, dependencies, true);
 }

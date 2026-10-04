@@ -127,6 +127,18 @@ interface RunningDaemon extends VirtiofsdDevice {
 }
 
 export class VirtiofsdManager {
+  static withStorageVerifier(
+    verifier: VirtiofsdDependencies['assertWritableStorageBound'],
+    ...args: [
+      string, string, string, { uid: number; gid: number }, { uid: number; gid: number },
+      Pick<CloudHypervisorCgroup, 'assign' | 'cgroupPath'>,
+      { readonly mount: string; readonly umount: string }, CloudHypervisorCleanupHandle?,
+    ]
+  ): VirtiofsdManager {
+    const [binary, run, share, identity, workspace, cgroup, tools, cleanup] = args;
+    return new VirtiofsdManager(binary, run, share, identity, workspace, cgroup, tools,
+      { ...defaultDependencies, assertWritableStorageBound: verifier }, cleanup);
+  }
   private readonly running: RunningDaemon[] = [];
   private readonly diagnosticDevices: VirtiofsdDevice[] = [];
   /** Mount trees whose staging failed with residue that still needs unmounting. */

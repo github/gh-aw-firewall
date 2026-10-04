@@ -3,6 +3,7 @@ import * as path from 'path';
 import {
   HostExecutorJournal, HostExecutorResourceJournal, reapHostExecutorResources,
   hostExecutorVmRunId, hostExecutorJournalDirectory,
+  HOST_EXECUTOR_STORAGE_ROOT, hostExecutorStorageDirectory,
 } from './host-executor-journal';
 import type { HostExecutorInvocationPlan, HostExecutorRunState } from './host-executor-server';
 import type { CleanupRegistryDependencies } from '../cloud-hypervisor/cleanup-dependencies';
@@ -110,6 +111,128 @@ describe('durable host executor journal', () => {
     await journal.captureMount();
     return journal;
   }
+
+  async function aggregateStorageJournal() {
+    const storageRoot = hostExecutorStorageDirectory(vmRunId());
+    let storageExists = true;
+    const originalLstat = fs.promises.lstat;
+    dependencies = { ...dependencies, lstat: (async (file: fs.PathLike) => {
+      const directory = String(file);
+      if (['/', '/run', path.dirname(HOST_EXECUTOR_STORAGE_ROOT), HOST_EXECUTOR_STORAGE_ROOT].includes(directory) || directory === storageRoot ||
+        directory.startsWith(`${storageRoot}/`)) {
+        if (!storageExists && (directory === storageRoot || directory.startsWith(`${storageRoot}/`))) {
+          throw Object.assign(new Error('missing'), { code: 'ENOENT' });
+        }
+        return {
+          uid: process.getuid?.() ?? 0, mode: 0o40711, dev: 50,
+          ino: directory === HOST_EXECUTOR_STORAGE_ROOT ? 600 : 700,
+          isDirectory: () => true, isSymbolicLink: () => false,
+        };
+      }
+      return originalLstat(file);
+    }) as typeof fs.promises.lstat,
+    realpath: (async (file: fs.PathLike) => String(file)) as typeof fs.promises.realpath,
+    rm: jest.fn(async (directory, options) => {
+      if (directory === storageRoot) { storageExists = false; return; }
+      await fs.promises.rm(directory, options);
+    }),
+    run: jest.fn(async (_command, args) => {
+      mountInfo = mountInfo.split('\n').filter((line) => !line.includes(` ${args[0]} `)).join('\n');
+      return { exitCode: 0, stdout: '', stderr: '' };
+    }) };
+    const journal = await resourceJournal();
+    await journal.prepareStorage();
+    await journal.captureStorageDirectory();
+    await journal.prepareStorageMount(storageRoot);
+    mountInfo = `1000 1 0:50 / ${storageRoot} rw,nosuid,nodev - tmpfs awf-enclave-invocation rw\n`;
+    await journal.captureStorageMount();
+    fs.mkdirSync(plan.invocationHostDir, { mode: 0o700 });
+    await journal.captureDirectory();
+    await journal.prepareStorageMount(plan.invocationHostDir);
+    mountInfo += `1001 1 0:50 /state ${plan.invocationHostDir} rw,nosuid,nodev,noexec - tmpfs awf-enclave-invocation rw\n`;
+    await journal.captureStorageMount();
+    await journal.captureMount();
+    const snapshot = path.join(storageRoot, 'artifacts', 'run-fixture');
+    await journal.prepareSnapshot();
+    await journal.captureSnapshot(snapshot);
+    await journal.prepareStorageMount(snapshot);
+    mountInfo += `1002 1 0:50 /artifacts/run-fixture ${snapshot} ro,nosuid,nodev - tmpfs awf-enclave-invocation rw\n`;
+    await journal.captureStorageMount();
+    return { journal, storageRoot, snapshot };
+  }
+
+  it('recovers one identity-matched aggregate superblock after VM cleanup, never replaying the invocation', async () => {
+    const { storageRoot, snapshot } = await aggregateStorageJournal();
+    const stale = readRecord();
+    stale.owner.startTime = '999';
+    fs.writeFileSync(recordFile(), JSON.stringify(stale), { mode: 0o600 });
+    await reap();
+    expect(dependencies.run).toHaveBeenNthCalledWith(1, tools.umount, [plan.invocationHostDir]);
+    expect(dependencies.run).toHaveBeenNthCalledWith(2, tools.umount, [snapshot]);
+    expect(dependencies.run).toHaveBeenNthCalledWith(3, tools.umount, [storageRoot]);
+    expect(dependencies.rm).toHaveBeenCalledWith(storageRoot, { recursive: true, force: false });
+    expect(readRecord().state).toBe('cleaned');
+    await expect(resourceJournal()).rejects.toThrow('EEXIST');
+  });
+
+  it('retains the enforcing superblock and durable intent on a failed close', async () => {
+    const { journal, storageRoot } = await aggregateStorageJournal();
+    (dependencies.run as jest.Mock).mockResolvedValue({ exitCode: 1, stdout: '', stderr: 'busy' });
+    await expect(journal.closeStorage(tools.umount)).rejects.toThrow('unmount failed');
+    expect(mountInfo).toContain(storageRoot);
+    expect(dependencies.rm).not.toHaveBeenCalled();
+    expect(readRecord().state).toBe('pending');
+  });
+
+  it('rejects a remounted identity after a kernel reboot instead of guessing from reused IDs', async () => {
+    await aggregateStorageJournal();
+    bootId = 'different-kernel-boot';
+    await expect(reap()).rejects.toThrow('different boot');
+    expect(dependencies.run).not.toHaveBeenCalled();
+    expect(dependencies.rm).not.toHaveBeenCalled();
+  });
+
+  it('requires every committed mount while in use, allowing missing mounts only for idempotent close', async () => {
+    const { journal, snapshot, storageRoot } = await aggregateStorageJournal();
+    mountInfo = mountInfo.split('\n').filter((line) => !line.includes(` ${snapshot} `)).join('\n');
+    await expect(journal.verifyStorage()).rejects.toThrow('mount identity changed');
+    await journal.closeStorage(tools.umount);
+    expect(dependencies.rm).toHaveBeenCalledWith(storageRoot, { recursive: true, force: false });
+  });
+
+  it.each(['mount', 'inode', 'ancestor', 'domain-ancestor', 'alias', 'uncommitted'] as const)(
+    'rejects aggregate storage %s replacement or uncertain recovery without touching resources',
+    async (replacement) => {
+      const { journal, storageRoot } = await aggregateStorageJournal();
+      if (replacement === 'mount') mountInfo = mountInfo.replace('1000 1', '2000 1');
+      if (replacement === 'alias') {
+        mountInfo += `2000 1 0:50 / /outside-global-bind rw - tmpfs awf-enclave-invocation rw\n`;
+      }
+      if (replacement === 'ancestor') {
+        const record = readRecord();
+        record.storage.parentIdentity.inode = '999';
+        fs.writeFileSync(recordFile(), JSON.stringify(record), { mode: 0o600 });
+      }
+      if (replacement === 'inode') {
+        const record = readRecord();
+        record.storage.mountedIdentity.inode = '999';
+        fs.writeFileSync(recordFile(), JSON.stringify(record), { mode: 0o600 });
+      }
+      if (replacement === 'domain-ancestor') {
+        const record = readRecord();
+        record.storage.ancestors[1].identity.inode = '999';
+        fs.writeFileSync(recordFile(), JSON.stringify(record), { mode: 0o600 });
+      }
+      if (replacement === 'uncommitted') await journal.prepareStorageMount(storageRoot);
+      const stale = readRecord();
+      stale.owner.startTime = '999';
+      fs.writeFileSync(recordFile(), JSON.stringify(stale), { mode: 0o600 });
+      await expect(reap()).rejects.toThrow(/changed|Unrecorded|uncommitted/);
+      expect(dependencies.run).not.toHaveBeenCalled();
+      expect(dependencies.rm).not.toHaveBeenCalled();
+      expect(fs.existsSync(recordFile())).toBe(true);
+    },
+  );
 
   it('retains permanent run tombstones, including closed and torn journals', () => {
     const journal = new HostExecutorJournal(run);

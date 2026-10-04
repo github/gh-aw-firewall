@@ -64,6 +64,49 @@ describe('Cloud Hypervisor artifact snapshots', () => {
     );
   });
 
+  it('stages every invocation artifact only inside the exact bounded invocation root', async () => {
+    const root = `/run/awf-cloud-hypervisor/enclave-storage/${'a'.repeat(32)}/artifacts`;
+    const directory = path.join(root, 'run-fixture');
+    jest.spyOn(fs, 'realpath').mockResolvedValue(root);
+    jest.spyOn(fs, 'readFile').mockResolvedValue(`901 1 0:50 /artifacts ${root} rw,nosuid,nodev - tmpfs awf-enclave-invocation rw\n`);
+    const mkdir = jest.spyOn(fs, 'mkdir').mockResolvedValue(undefined);
+    const mkdtemp = jest.spyOn(fs, 'mkdtemp').mockResolvedValue(directory);
+    const copyFile = jest.spyOn(fs, 'copyFile').mockResolvedValue(undefined);
+    const chmod = jest.spyOn(fs, 'chmod').mockResolvedValue(undefined);
+    const sparseCopy = jest.fn().mockResolvedValue(undefined);
+    const capture = jest.fn();
+    const snapshot = await createArtifactSnapshot({
+      ...snapshotSources(), manifestPath: '/source/manifest.json', bundlePath: '/source/bundle.jsonl',
+    }, sparseCopy, capture, root);
+    expect(mkdir).not.toHaveBeenCalled();
+    expect(mkdtemp).toHaveBeenCalledWith(path.join(root, 'run-'));
+    expect(capture).toHaveBeenCalledWith(directory);
+    expect(copyFile).toHaveBeenCalledTimes(6);
+    expect(sparseCopy).toHaveBeenCalledWith('/source/rootfs.ext4', path.join(directory, 'rootfs.ext4'));
+    for (const file of Object.values(snapshot)) expect(String(file).startsWith(`${directory}/`) || file === directory).toBe(true);
+    for (const [, destination] of copyFile.mock.calls) expect(String(destination).startsWith(`${directory}/`)).toBe(true);
+    for (const [destination] of chmod.mock.calls) expect(String(destination).startsWith(`${directory}/`) || destination === directory).toBe(true);
+  });
+
+  it('rejects arbitrary custom artifact roots without creating a global fallback snapshot', async () => {
+    const mkdir = jest.spyOn(fs, 'mkdir').mockResolvedValue(undefined);
+    const mkdtemp = jest.spyOn(fs, 'mkdtemp').mockResolvedValue('/unused');
+    await expect(createArtifactSnapshot(snapshotSources(), jest.fn(), undefined, '/arbitrary/artifacts'))
+      .rejects.toThrow('Invalid invocation artifact root');
+    expect(mkdir).not.toHaveBeenCalled();
+    expect(mkdtemp).not.toHaveBeenCalled();
+  });
+
+  it('requires an exec-capable invocation artifact view before copying binaries', async () => {
+    const root = `/run/awf-cloud-hypervisor/enclave-storage/${'a'.repeat(32)}/artifacts`;
+    jest.spyOn(fs, 'realpath').mockResolvedValue(root);
+    jest.spyOn(fs, 'readFile').mockResolvedValue(`901 1 0:50 /artifacts ${root} rw,nosuid,nodev,noexec - tmpfs awf-enclave-invocation rw\n`);
+    const mkdtemp = jest.spyOn(fs, 'mkdtemp').mockResolvedValue('/unused');
+    await expect(createArtifactSnapshot(snapshotSources(), jest.fn(), undefined, root))
+      .rejects.toThrow('rejects execution');
+    expect(mkdtemp).not.toHaveBeenCalled();
+  });
+
   it('fails closed when the sparse rootfs copy fails', async () => {
     mockedExeca.mockResolvedValue({
       exitCode: 23,

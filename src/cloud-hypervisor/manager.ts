@@ -155,6 +155,12 @@ const defaultDependencies: CloudHypervisorManagerDependencies = {
   resolveIdentity: resolveCloudHypervisorIdentity,
 };
 
+export function resolveCloudHypervisorManagerDependencies(
+  overrides: Partial<CloudHypervisorManagerDependencies> = {},
+): CloudHypervisorManagerDependencies {
+  return { ...defaultDependencies, ...overrides };
+}
+
 /** @internal Exposed only for focused host-adapter tests. */
 export const cloudHypervisorManagerTestHelpers = {
   defaultDependencies,
@@ -279,7 +285,7 @@ export class CloudHypervisorManager {
     this.workloadProfile = isWorkloadProfile(profileOrNetworkConfig)
       ? profile
       : snapshotCloudHypervisorWorkloadProfile(profile);
-    this.paths = createCloudHypervisorRunPaths(
+    this.paths = (dependencies.createRunPaths ?? createCloudHypervisorRunPaths)(
       config.cloudHypervisorBinary,
       runId,
       this.workloadProfile.identity,

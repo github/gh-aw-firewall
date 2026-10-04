@@ -33,10 +33,16 @@ scoped executor bearer handoff fail closed.
 
 Production admission also requires the trusted aggregate writable-storage
 provider from [#9394](https://github.com/github/gh-aw-firewall/issues/9394).
-That provider is not yet installed in this revision: selection reports the
-missing prerequisite before staging or constructing a listener or VM. No
-configuration/environment switch bypasses it, and AWF never falls back to a
-different runtime. The host lifecycle closes admissions before broker shutdown,
+AWF supplies the production provider only on eligible GitHub-hosted Ubuntu
+x86_64 hosts with privileged KVM access and writable cgroup v2. Unsupported
+hosts retain the missing-prerequisite error before staging or constructing a
+listener or VM. No configuration/environment switch bypasses it, and AWF never
+falls back to a different runtime. Each invocation owns one kernel-bounded
+allocation domain: script 1 GiB, agent 512 MiB. Artifact snapshots, rootfs
+preparation and staging, VM runtime state, and writable exports all consume that
+same capacity, including sparse-file allocations and concurrent writers.
+Executable artifacts are sealed read-only; writable state remains `noexec`.
+The host lifecycle closes admissions before broker shutdown,
 then cancels/closes the executor before releasing storage or deleting private
 state. Unresolved cleanup preserves recovery records and prevents deletion.
 
@@ -596,8 +602,8 @@ contract.
 
 ## Cloud Hypervisor enclave executor
 
-Cloud Hypervisor currently runs only the primary-agent preview and still
-rejects enclave runtime selection. Its workload foundation can construct a
+Cloud Hypervisor supports static enclave runtime selection only after trusted
+storage and host/artifact preflight. Its workload foundation constructs a
 script-enclave VM with an explicit closed no-network profile: the host creates
 only an empty per-run network namespace, supplies no virtual NIC, and omits
 guest interface, address, route, and DNS configuration. No bridge, veth, TAP,
@@ -613,15 +619,16 @@ rollout gates are defined in
 [ADR 0002: Cloud Hypervisor enclave executor](adr/0002-cloud-hypervisor-enclave-executor.md).
 
 The version 2 broker-to-host protocol and a trusted one-shot host executor are
-implemented but not yet wired into any runtime:
+implemented and wired for static Cloud Hypervisor enclave roles:
 `src/enclave/host-executor-protocol.ts` and `src/enclave/host-executor-server.ts`
 (host side), `containers/enclave/mcp-server/host-executor-client.js` (broker
 side), and `src/cloud-hypervisor/host-enclave-executor.ts` (VM backend).
 Requests are capability-authenticated, size-bounded, and restricted to a closed
 field set. The backend verifies release attestations, derives VM settings from
 trusted host policy, uses bounded invocation storage, and validates structured
-results. User-facing Cloud Hypervisor enclave selection and broker/listener
-wiring remain closed. See
+results. Admission requires the production bounded-storage provider and all
+existing host/artifact/security gates. Live release-attested broker-to-VM
+acceptance remains a separate gate in #9395. See
 [Version 2 implementation](adr/0002-cloud-hypervisor-enclave-executor.md#version-2-implementation).
 
 ## Coverage after legacy smoke removal

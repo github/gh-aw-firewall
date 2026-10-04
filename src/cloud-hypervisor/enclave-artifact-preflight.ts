@@ -99,6 +99,7 @@ async function readTrustedArtifactBytes(
  */
 export async function preflightCloudHypervisorEnclaveArtifacts(
   options: CloudHypervisorEnclaveArtifactPreflightOptions,
+  verificationDirectoryRoot?: string,
 ): Promise<VerifiedCloudHypervisorEnclaveArtifacts> {
   const uid = resolveTrustedOperatorUid();
   await assertTrustedHostTool('GitHub CLI', options.attestationToolPath);
@@ -115,7 +116,9 @@ export async function preflightCloudHypervisorEnclaveArtifacts(
   });
   const manifestBytes = await readTrustedArtifactBytes(options.manifestPath, uid, 1024 * 1024);
   const bundleBytes = await readTrustedArtifactBytes(options.manifestBundlePath, uid, 8 * 1024 * 1024);
-  const verificationDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'awf-enclave-attestation-'));
+  const verificationDirectory = await fs.mkdtemp(path.join(
+    verificationDirectoryRoot ?? os.tmpdir(), 'awf-enclave-attestation-',
+  ));
   try {
     const verifiedManifestPath = path.join(verificationDirectory, 'manifest.json');
     const verifiedBundlePath = path.join(

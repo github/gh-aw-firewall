@@ -87,6 +87,7 @@ export interface CloudHypervisorRunPaths {
 }
 
 export interface CloudHypervisorManagerDependencies {
+  createRunPaths?: typeof createCloudHypervisorRunPaths;
   preflight: typeof runCloudHypervisorPreflight;
   launch(
     command: string,
@@ -207,14 +208,16 @@ export function createCloudHypervisorRunPaths(
     kind: 'primary-agent',
     ownerId: 'primary-agent',
   },
+  invocationStorageRoot?: string,
 ): CloudHypervisorRunPaths {
   assertSafeMicrovmRunId(runId);
-  const runBaseDir = CLOUD_HYPERVISOR_RUN_ROOT;
-  const runDirectory = path.join(
-    runBaseDir,
-    path.basename(cloudHypervisorBinary),
-    runId,
-  );
+  const runBaseDir = invocationStorageRoot
+    ? path.join(invocationStorageRoot, 'runs') : CLOUD_HYPERVISOR_RUN_ROOT;
+  // The invocation root already contains the VM identity. Repeating it here
+  // would exceed Linux's 108-byte AF_UNIX limit for API/vsock/virtiofsd sockets.
+  const runDirectory = invocationStorageRoot
+    ? path.join(runBaseDir, 'vm')
+    : path.join(runBaseDir, path.basename(cloudHypervisorBinary), runId);
   return {
     runId,
     workloadIdentity,
@@ -226,7 +229,8 @@ export function createCloudHypervisorRunPaths(
     vsockSocketPath: path.join(runDirectory, VSOCK_SOCKET_NAME),
     logPath: path.join(runDirectory, CLOUD_HYPERVISOR_LOG_NAME),
     serialLogPath: path.join(runDirectory, CLOUD_HYPERVISOR_SERIAL_LOG_NAME),
-    virtiofsdShareDirectory: path.join(runBaseDir, 'virtiofsd', runId),
+    virtiofsdShareDirectory: invocationStorageRoot
+      ? path.join(runBaseDir, 'fs') : path.join(runBaseDir, 'virtiofsd', runId),
     cgroupPath: path.join(CGROUP_ROOT, 'awf-cloud-hypervisor', runId),
   };
 }

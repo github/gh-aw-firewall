@@ -75,6 +75,8 @@ jobs:
             src/commands/main-action.test.ts \
             src/cloud-hypervisor/host-enclave-executor.test.ts \
             src/cloud-hypervisor/enclave-storage.test.ts \
+            src/cloud-hypervisor/trusted-enclave-storage.test.ts \
+            src/cloud-hypervisor/trusted-enclave-preflight.test.ts \
             src/cloud-hypervisor/enclave-export-plan.test.ts \
             src/cloud-hypervisor/enclave-network.test.ts \
             src/cloud-hypervisor/workload-profile.test.ts \
@@ -134,6 +136,7 @@ jobs:
             env "PATH=$PATH" AWF_TEST_ENCLAVE_STORAGE=1 AWF_TEST_ENCLAVE_NETWORK=1 \
             ./node_modules/.bin/jest --ci --runInBand --runTestsByPath \
             src/cloud-hypervisor/enclave-storage.integration.test.ts \
+            src/cloud-hypervisor/enclave-trusted-storage.integration.test.ts \
             src/cloud-hypervisor/enclave-network.integration.test.ts
       - name: Probe guest supervisor limits in a private host namespace
         working-directory: guest/microvm-supervisor

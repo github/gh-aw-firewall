@@ -162,9 +162,21 @@ host/artifact preflight with the authenticated listener. The broker's host
 adapter dispatches only after request validation and admission by the shared
 information ledger; both roles use the same authenticated channel. It does not
 stage local workspaces or launch containers for host-owned invocations.
-Cloud Hypervisor enclave configurations still fail closed at runtime selection
-and broker startup pending supported-host real-KVM security validation. There
-is no environment-variable opt-in or fallback to an unconfined runtime.
+Production storage admission uses an invocation-owned kernel-bounded allocation
+domain on eligible GitHub-hosted Ubuntu x86_64 KVM/cgroup-v2 hosts. It charges
+artifact snapshots, prepared/staged rootfs copies, VM runtime state, and all
+writable exports against one role ceiling (script 1 GiB, agent 512 MiB).
+Executable artifact staging is sealed read-only and writable state is `noexec`;
+both share the same allocation accounting. Unsupported hosts fail closed before
+staging, listener, or VM creation. There is no environment-variable opt-in or
+fallback to an unconfined runtime. Live release-attested broker-to-VM security
+acceptance remains tracked separately in #9395; host probes are not that evidence.
+
+Host preflight also uses journaled, short-lived role-bounded storage, sealing
+artifact copies before attestation, parsing, hashing, or privileged version
+probes. Role-attestation temporary files stay in bounded storage. These domains
+are closed before the listener starts; they neither leave shared uncharged
+snapshots nor execute mutable original artifact paths.
 
 | Piece | Owner and location |
 | --- | --- |
@@ -301,6 +313,14 @@ idempotently; changed identities, unsafe paths, partial mount state, malformed
 records, or failed cleanup are retained for operator recovery and prevent new
 execution. Recovery is limited to validated AWF-owned records, never a broad
 directory sweep or a PID/name-only kill.
+
+The production storage domain records its invocation-derived paths and durable
+mount/device/inode ownership before use. Artifact and writable-state views are
+invocation-local, not a global bind mount or an arbitrary trusted path override.
+Ordinary unmount must succeed before the domain is released; a failed close
+retains the backing allocation limit and recovery state. Durable host recovery
+metadata stays outside the ephemeral domain so exhaustion or unmount cannot
+erase the no-replay tombstone.
 
 After interruption, recover orphan resources with the trusted host preflight and
 cleanup path, retain the old run tombstone, and start a fresh run identity and

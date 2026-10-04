@@ -174,8 +174,9 @@ SNAT rules permit replies. This boundary applies even when guest software
 ignores proxy variables. The existing reservation and durable cleanup record
 track the namespace, veth, TAP and scoped bridge rule for rollback and
 idempotent teardown. Cloud Hypervisor enclave selection uses the trusted host
-executor, but production admission rejects the missing hard-bounded storage
-provider (#9394) before any network or VM side effects.
+executor, with a production hard-bounded storage provider on eligible hosts.
+Unavailable storage or host prerequisites reject admission before staging,
+network, or VM side effects.
 The optional `AWF_TEST_ENCLAVE_NETWORK=1` Jest integration test exercises
 permitted and denied TCP packets across this host nftables boundary on a
 privileged Linux host with working network namespaces and veth forwarding.
@@ -222,7 +223,7 @@ raise these fields. The role budgets are:
 | Open files (`RLIMIT_NOFILE`) | 1024 | 1024 |
 | Role work tmpfs | `/query`, 256 MiB | `/tmp`, 96 MiB |
 | Additional tmpfs | `/tmp` 16 MiB, `/run` 16 MiB, `/dev/shm` 32 MiB | `/home/awf-enclave` 32 MiB, `/run` 16 MiB, `/dev/shm` 32 MiB |
-| Writable virtio-fs source filesystem ceiling | 1 GiB | 512 MiB |
+| Aggregate invocation storage ceiling (including artifacts and VM state) | 1 GiB | 512 MiB |
 | Guest UID/GID | 65534:65534 | 65534:65534 |
 
 The VM receives exactly the profile's vCPU count and memory. The host cgroup
@@ -259,12 +260,17 @@ without a limit.
 
 The trusted host executor mounts one invocation-private Linux **tmpfs** at the
 host-derived invocation directory, with `size=1073741824` for scripts (1 GiB) or
-`size=536870912` for agents (512 MiB), and `mode=0700,nosuid,nodev,noexec`.
-The closed `/output`, `/runtime`, and agent `/session-state` writable virtio-fs
-exports are subdirectories of that single backing store, not separate tmpfs
-mounts. Request and handoff files also consume its budget. Linux charges allocated
-pages across all exports atomically, including concurrent writes and writes into
-sparse-file holes; allocation beyond the aggregate ceiling returns `ENOSPC`.
+`size=536870912` for agents (512 MiB). The production provider routes artifact
+snapshots, rootfs preparation and staging, VM run paths, and the closed writable
+virtio-fs exports through this single allocation domain. Request and handoff
+files also consume its budget. Executable artifacts use a sealed read-only view;
+writable state uses `nosuid,nodev,noexec`. These views share one tmpfs
+superblock, not independent capacity limits. Linux charges allocated pages
+atomically, including concurrent writes and writes into sparse-file holes;
+allocation beyond the aggregate ceiling returns `ENOSPC`.
+Artifact and rootfs pages reduce the capacity available to workload writes.
+An artifact set or prepared image that cannot fit fails closed with the same
+ceiling; AWF does not enlarge the profile to accommodate it.
 Sparse logical lengths do not allocate pages and do not bypass the allocation
 limit. No disk quota, loop device, or guest-only `size=` limit is required, so
 the mechanism uses the supported GitHub-hosted Linux/KVM runner's existing
@@ -304,8 +310,9 @@ unmount failure. It also fills storage in the production host cgroup budget whil
 holding the guest-RAM equivalent resident, with swap disabled, to check that
 storage exhaustion is not preempted by a cgroup OOM. Run it as root in a private mount namespace with
 `AWF_TEST_ENCLAVE_STORAGE=1 npm test -- --runInBand enclave-storage.integration.test.ts`.
-The `build-test-artifacts` job in `.github/workflows/test-cloud-hypervisor.yml`
-runs this suite on every matching pull request via `sudo unshare --mount --propagation private`.
+The gated `host-probes` job in `.github/workflows/test-cloud-hypervisor-enclaves.yml`
+runs this suite and `enclave-trusted-storage.integration.test.ts` via
+`sudo unshare --mount --propagation private`.
 Live guest transport conformance additionally requires the release-attested role
 artifacts and KVM runtime wiring.
 
@@ -329,9 +336,9 @@ allowlisted. These profiles and guest controls do not enable Cloud Hypervisor
 enclave execution by themselves. Runtime selection now connects the host-owned
 listener and broker adapter to the one-shot VM backend using unchanged protocol
 v2. The host must first supply the trusted storage provider from #9394 and pass
-supported-host/artifact preflight. This revision has no production storage
-provider, so script/agent launch attempts still fail explicitly without runtime
-fallback. An authenticated broker startup probe uses `status` for an unknown
+supported-host/artifact preflight. Production installs that provider on eligible
+hosts; unsupported hosts still fail explicitly without runtime fallback.
+An authenticated broker startup probe uses `status` for an unknown
 invocation; it launches no VM and introduces no new protocol operation.
 
 ## Security boundaries
@@ -358,7 +365,15 @@ supervisor into a root-owned, non-writable snapshot under
 `/var/lib/awf-cloud-hypervisor/trusted-artifacts/`. That root must be on an
 exec-capable filesystem: AWF resolves its mount and fails closed before copying
 anything when the mount carries `noexec`, instead of surfacing an opaque
-`EACCES` from the later `--version` probe. Verification and execution use
+`EACCES` from the later `--version` probe. Enclaves instead stage the snapshot in
+their invocation-owned allocation domain, using an executable read-only view of
+the same bounded superblock. Run-level enclave preflight verifies immutable
+copies in short-lived, journaled, role-bounded preflight domains, including the
+temporary manifest/bundle files used for role attestation. These domains close
+before listener startup; no unbounded shared snapshot remains. Attestation,
+parsing, digest checks, and executable version probes use the sealed copies,
+never mutable original paths. Invocation copies are verified again against the
+attested digests before launch. Verification and execution use
 only that snapshot, preventing caller-controlled path replacement between
 checking and use. Rootfs snapshot, writable preparation, and run staging
 preserve sparse ext4 holes so the trusted copies do not multiply the image's
@@ -387,10 +402,11 @@ role-specific `AWF_CLOUD_HYPERVISOR_ENCLAVE_SCRIPT_ROOTFS` and
 `AWF_CLOUD_HYPERVISOR_ENCLAVE_AGENT_ROOTFS` paths through `GITHUB_ENV`.
 The host-side artifact preflight, one-shot VM backend, authenticated broker
 dispatch, and per-run runtime wiring are implemented. Production execution
-remains fail-closed without the trusted bounded-storage provider (#9394).
+uses the trusted bounded-storage provider (#9394) on eligible hosts and remains
+fail-closed when it is unavailable.
 Live conformance must exercise the integrated boundary against the
 [ADR 0002 supported-host real-KVM security matrix](adr/0002-cloud-hypervisor-enclave-executor.md#supported-host-real-kvm-validation)
-once that provider is available. Custom enclave image overrides remain
+as the separate live-VM acceptance step. Custom enclave image overrides remain
 unsupported.
 
 :::danger[Fail-closed verification]
@@ -979,8 +995,11 @@ hierarchy. A missing prerequisite after opt-in fails the job; it does not skip,
 fall back to Docker, grant the runner user KVM access, or relax limits.
 
 These probes exercise the real role-sized host tmpfs stores (script 1 GiB,
-agent 512 MiB), aggregate sparse/concurrent ENOSPC, memory-cgroup accounting,
-busy-unmount failure, and invocation isolation. They also send real TCP packets
+agent 512 MiB), aggregate sparse/concurrent ENOSPC across snapshots, prepared
+and staged rootfs, manager state and exports, memory-cgroup accounting,
+busy-unmount failure, and invocation isolation. They check executable/read-only
+artifact views, `noexec` state, and dead-owner recovery that refuses a replaced
+mount and preserves no-replay tombstones. They also send real TCP packets
 through the agent nftables boundary and execute the supervisor's guest-limit
 probe in a private host mount namespace. They **do not boot an enclave VM**,
 exercise the broker in a VM, or establish preview readiness. No repository is
@@ -989,26 +1008,24 @@ printed. The existing primary-agent KVM smoke is not enclave conformance and
 its development artifact bypass must not be reused for enclaves.
 
 Full issue [#9395](https://github.com/github/gh-aw-firewall/issues/9395) acceptance
-remains blocked even after implementation PRs
+remains a separate live-VM gate after implementation PRs
 [#9397](https://github.com/github/gh-aw-firewall/pull/9397) and
 [#9398](https://github.com/github/gh-aw-firewall/pull/9398) merged:
 
 | Required boundary | Current implementation evidence |
 | --- | --- |
-| Production storage admission | `prepareEnclaves()` calls `assertCloudHypervisorEnclavePrerequisites()` with its dependency's provider, but production supplies none. It rejects before seeds, runtime probes, listener, or VM creation for script, agent, and combined configurations. |
-| Aggregate invocation storage | `mountBoundedEnclaveStorage()` and `assertBoundedEnclaveStorage()` bound the invocation mount and writable exports. The `TrustedCloudHypervisorEnclaveStorageProvider` contract additionally requires artifact/rootfs snapshots and runtime state to remain bounded until successful close. |
-| Snapshot allocation and executable artifacts | `createArtifactSnapshot()` allocates separately under `/var/lib/awf-cloud-hypervisor/trusted-artifacts/run-*` and requires an executable mount. Invocation tmpfs is `noexec`; copying the binaries there cannot satisfy launch confinement as-is. |
-| Writable VM and preparation state | `createCloudHypervisorRunPaths()` derives manager paths under `/run/awf-cloud-hypervisor`, independently of the invocation mount. `startCloudHypervisor()` also prepares a rootfs under `<workDir>/cloud-hypervisor-rootfs/<vmRunId>` and stages a writable rootfs copy in the manager run directory. None is jointly charged to the invocation tmpfs capacity. |
-| Recovery ownership | `HostExecutorResourceJournal.captureSnapshot()` and `isTrustedArtifactSnapshotDirectory()` accept fixed trusted snapshot roots, not arbitrary invocation children. Redirecting copies alone would break identity-checked recovery. A global bind mount or relaxed path validation would not provide safe invocation isolation. |
+| Production storage admission | `prepareEnclaves()` supplies the trusted production provider on eligible GitHub-hosted Ubuntu x86_64 KVM/cgroup-v2 hosts. Unsupported hosts retain the existing admission error before seeds, runtime probes, listener, or VM creation. |
+| Aggregate invocation storage | One invocation-owned tmpfs superblock enforces script 1 GiB or agent 512 MiB across snapshots, rootfs copies, runtime state, and writable exports. Sparse and concurrent writes share the kernel allocation ceiling, which remains enforced until successful close. |
+| Snapshot allocation and executable artifacts | Invocation-local executable artifact staging is sealed read-only and shares allocation accounting with `noexec` writable state. Release attestation, digest verification, and launch confinement remain mandatory. |
+| Writable VM and preparation state | Trusted dependency hooks derive rootfs preparation, staged disk, manager run paths, and virtio-fs staging within the invocation domain; no independent runner-filesystem copies are used for enclaves. |
+| Recovery ownership | Durable journals capture invocation-owned mount/device/inode identities. Recovery reaps VM resources first and refuses changed identities or uncommitted mount intents; it never replays work or uses a global bind mount. |
 
-An empty provider, a free-space check, or a mock manager cannot close these
-gaps. Completing the expanded storage integration requires a coordinated,
-invocation-owned allocation domain for all writable copies/state, compatible
-executable artifact staging, and durable mount/inode recovery ownership before
-removing the admission gate. This conformance change deliberately does not
-install an incomplete provider.
+An empty provider, a free-space check, an export-only tmpfs, or a mock manager
+does not meet this contract. The gated privileged storage probes exercise the
+production domain, including aggregate exhaustion across snapshots, rootfs,
+runtime state, and exports. They do not establish live VM acceptance.
 
-Until that integration exists, **unverified live assertions** include successful
+The remaining **unverified live assertions** include successful
 release-attested script and agent calls through the public broker; guest UID/GID,
 limits, seed read-only enforcement and capability denial inside those VMs;
 script no-NIC and agent exact-peer/port VM enforcement; guest-visible ENOSPC;

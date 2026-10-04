@@ -196,6 +196,17 @@ export class DurableCloudHypervisorCleanupRegistry implements CloudHypervisorCle
       mounts: [],
       updatedAt: new Date().toISOString(),
     };
+    if (paths.runBaseDir.startsWith('/run/awf-cloud-hypervisor/enclave-storage/')) {
+      const directory = `/run/awf-cloud-hypervisor/enclave-storage/${paths.runId}`;
+      const mount = (await readMounts(this.dependencies.readFile)).find((mount) => mount.mountPoint === directory);
+      if (!mount) throw new Error('Invocation storage mount identity is unavailable');
+      record.invocationStorage = {
+        bootId: (await this.dependencies.readFile('/proc/sys/kernel/random/boot_id', 'utf8')).trim(),
+        directory, mount,
+        identity: await captureFileIdentity(this.dependencies.lstat, directory),
+        parentIdentity: await captureFileIdentity(this.dependencies.lstat, path.dirname(directory)),
+      };
+    }
     await writeRecord(this.dependencies, recordPath, record, true);
     return createCleanupHandle({
       recordPath,
@@ -240,7 +251,7 @@ export class DurableCloudHypervisorCleanupRegistry implements CloudHypervisorCle
       record.paths.virtiofsdShareDirectory,
       record.identities.virtiofsdShareDirectory,
     );
-    if (record.paths.artifactSnapshotDirectory) {
+    if (record.paths.artifactSnapshotDirectory && !record.invocationStorage) {
       await this.removeDirectoryTree(
         record.paths.artifactSnapshotDirectory,
         record.identities.artifactSnapshotDirectory,

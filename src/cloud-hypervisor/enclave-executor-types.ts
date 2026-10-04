@@ -66,6 +66,18 @@ export interface HostEnclaveExecutorManager {
 }
 
 export interface HostEnclaveExecutorDependencies {
+  readonly preflight?: typeof import('./preflight').runCloudHypervisorPreflight;
+  readonly prepareInvocationStorage?: (
+    run: HostExecutorRunState,
+    plan: HostExecutorInvocationPlan,
+    journal: HostExecutorResourceJournal,
+    tools: CloudHypervisorHostToolPaths,
+  ) => Promise<{
+    dependencies: Partial<HostEnclaveExecutorDependencies>;
+    managerDependencies: CloudHypervisorManagerDependencies;
+    workDir: string;
+    close(): Promise<void>;
+  }>;
   readonly createArtifactSnapshot: (
     sources: CloudHypervisorArtifactSnapshotSources,
     copySparseFile: (source: string, destination: string) => Promise<void>,

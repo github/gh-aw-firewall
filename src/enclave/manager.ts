@@ -45,6 +45,7 @@ import {
   stopCloudHypervisorEnclaveLifecycle,
   type TrustedCloudHypervisorEnclaveStorageProvider,
 } from './cloud-hypervisor-lifecycle';
+import { ProductionTrustedCloudHypervisorEnclaveStorageProvider } from '../cloud-hypervisor/trusted-enclave-storage';
 
 export const ENCLAVE_RUN_LABEL = 'awf.enclave.run';
 export function isEnclaveScriptEnabled(config: WrapperConfig): boolean {
@@ -141,6 +142,8 @@ export async function prepareEnclaves(
   if (!isEnclavesEnabled(config)) return;
   const enclaves = config.enclaves!;
   const env = deps.env ?? process.env;
+  const storageProvider = deps.cloudHypervisorStorageProvider ??
+    new ProductionTrustedCloudHypervisorEnclaveStorageProvider();
   // Take custody of the compiler's AWF-only delegation handoff before anything
   // else can inherit this environment, on every run — including static-only
   // runs, where the values must simply be discarded.
@@ -217,7 +220,7 @@ export async function prepareEnclaves(
       ingressRoot: hostPaths.ingressRoot,
     }, env, process.cwd(), 'Cloud Hypervisor enclave recovery journal');
   }
-  await assertCloudHypervisorEnclavePrerequisites(config, deps.cloudHypervisorStorageProvider);
+  await assertCloudHypervisorEnclavePrerequisites(config, storageProvider);
   await (deps.assertPrimaryAvailable ?? assertPrimaryRuntimeAvailable)(config.containerRuntime);
   if (enclaves.executors.script.enabled && !hostExecutorSelected) {
     const assertScriptRuntime = deps.assertScriptRuntimeAvailable ?? assertScriptRuntimeAvailable;
@@ -287,7 +290,7 @@ export async function prepareEnclaves(
     );
   }
   if (hostExecutorSelected) {
-    await startCloudHypervisorEnclaveLifecycle(config, deps.cloudHypervisorStorageProvider!, env);
+    await startCloudHypervisorEnclaveLifecycle(config, storageProvider, env);
     if (enclaves.executors.script.enabled) {
       await assertScriptRuntimeAvailable(enclaves.executors.script, undefined, undefined, config);
     }

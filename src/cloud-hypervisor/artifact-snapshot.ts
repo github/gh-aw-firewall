@@ -65,20 +65,30 @@ export async function createArtifactSnapshot(
   sources: CloudHypervisorArtifactSnapshotSources,
   copySparseFile: (source: string, destination: string) => Promise<void>,
   onDirectoryCreated?: (directory: string) => Promise<void>,
+  invocationRoot?: string,
 ): Promise<CloudHypervisorArtifactSnapshot> {
-  await fs.mkdir(CLOUD_HYPERVISOR_ARTIFACT_SNAPSHOT_PARENT, {
-    recursive: true,
-    mode: 0o711,
-  });
-  await fs.chmod(CLOUD_HYPERVISOR_ARTIFACT_SNAPSHOT_PARENT, 0o711);
-  await fs.mkdir(CLOUD_HYPERVISOR_ARTIFACT_SNAPSHOT_ROOT, {
-    recursive: true,
-    mode: 0o711,
-  });
-  await fs.chmod(CLOUD_HYPERVISOR_ARTIFACT_SNAPSHOT_ROOT, 0o711);
-  await assertExecCapableArtifactRoot(CLOUD_HYPERVISOR_ARTIFACT_SNAPSHOT_ROOT);
+  if (invocationRoot) {
+    if (!/^\/run\/awf-cloud-hypervisor\/enclave-storage\/[0-9a-f]{32}\/artifacts$/.test(invocationRoot) ||
+      await fs.realpath(invocationRoot) !== invocationRoot) {
+      throw new Error('Invalid invocation artifact root');
+    }
+    await assertExecCapableArtifactRoot(invocationRoot);
+  }
+  if (!invocationRoot) {
+    await fs.mkdir(CLOUD_HYPERVISOR_ARTIFACT_SNAPSHOT_PARENT, {
+      recursive: true,
+      mode: 0o711,
+    });
+    await fs.chmod(CLOUD_HYPERVISOR_ARTIFACT_SNAPSHOT_PARENT, 0o711);
+    await fs.mkdir(CLOUD_HYPERVISOR_ARTIFACT_SNAPSHOT_ROOT, {
+      recursive: true,
+      mode: 0o711,
+    });
+    await fs.chmod(CLOUD_HYPERVISOR_ARTIFACT_SNAPSHOT_ROOT, 0o711);
+    await assertExecCapableArtifactRoot(CLOUD_HYPERVISOR_ARTIFACT_SNAPSHOT_ROOT);
+  }
   const directory = await fs.mkdtemp(
-    path.join(CLOUD_HYPERVISOR_ARTIFACT_SNAPSHOT_ROOT, 'run-'),
+    path.join(invocationRoot ?? CLOUD_HYPERVISOR_ARTIFACT_SNAPSHOT_ROOT, 'run-'),
   );
   const copy = async (
     source: string,

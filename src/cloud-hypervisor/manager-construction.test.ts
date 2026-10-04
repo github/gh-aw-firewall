@@ -1,5 +1,5 @@
 import type { MicrovmNetworkPlan } from '../microvm/network';
-import { cloudHypervisorManagerTestHelpers } from './manager';
+import { cloudHypervisorManagerTestHelpers, resolveCloudHypervisorManagerDependencies } from './manager';
 import { createCloudHypervisorRunPaths } from './manager';
 
 import {
@@ -7,6 +7,17 @@ import {
 } from './manager.test-utils';
 
   describe('construction', () => {
+  it('resolves independent trusted manager adapters without mutating the existing test facade', () => {
+    const original = cloudHypervisorManagerTestHelpers.defaultDependencies;
+    const remove = jest.fn();
+    const resolved = resolveCloudHypervisorManagerDependencies({ rm: remove });
+    expect(resolved).not.toBe(original);
+    expect(resolved.rm).toBe(remove);
+    expect(resolved.createRootfsPreparer).toBe(original.createRootfsPreparer);
+    expect(original.rm).not.toBe(remove);
+    expect(resolveCloudHypervisorManagerDependencies().rm).toBe(original.rm);
+  });
+
   it('constructs the default host adapters and non-root identity', async () => {
     const defaults = cloudHypervisorManagerTestHelpers.defaultDependencies;
     const child = defaults.launch(process.execPath, ['-e', ''], {

@@ -51,6 +51,8 @@ describe('Cloud Hypervisor enclave conformance CI boundary', () => {
       'src/enclave/cloud-hypervisor-lifecycle.test.ts',
       'src/cloud-hypervisor/host-enclave-executor.test.ts',
       'src/cloud-hypervisor/enclave-storage.test.ts',
+      'src/cloud-hypervisor/trusted-enclave-storage.test.ts',
+      'src/cloud-hypervisor/trusted-enclave-preflight.test.ts',
       'src/cloud-hypervisor/workload-profile.test.ts',
     ]));
     const commands = job.steps.map((step) => step.run ?? '').join('\n');
@@ -83,6 +85,8 @@ describe('Cloud Hypervisor enclave conformance CI boundary', () => {
     }
     expect(job.steps.find((step) => step.name.startsWith('Probe real'))!.run)
       .toContain('unshare --mount --propagation private');
+    expect(job.steps.find((step) => step.name.startsWith('Probe real'))!.run)
+      .toContain('src/cloud-hypervisor/enclave-trusted-storage.integration.test.ts');
     expect(job.steps.find((step) => step.name === 'Remove probe executable')?.if).toBe('always()');
   });
 
