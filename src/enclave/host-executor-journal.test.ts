@@ -40,13 +40,36 @@ describe('durable host executor journal', () => {
     };
     bootId = 'initial-boot';
     mountInfo = '';
+    const processStartTime = '12345';
+    const processExecutable = process.execPath;
+    const processNetworkNamespace = 'net:[4026531840]';
     dependencies = {
       rootDirectory: path.join(root, 'vm-registry'),
       readFile: (async (file: fs.PathLike | fs.promises.FileHandle, options?: BufferEncoding) => {
         if (file === '/proc/sys/kernel/random/boot_id') return bootId;
         if (file === '/proc/self/mountinfo') return mountInfo;
+        if (file === `/proc/${process.pid}/stat`) {
+          const fields = Array(20).fill('0');
+          fields[0] = 'S';
+          fields[19] = processStartTime;
+          return `${process.pid} (node) ${fields.join(' ')}`;
+        }
+        if (file === `/proc/${process.pid}/status`) {
+          const uid = process.getuid?.() ?? 0;
+          const gid = process.getgid?.() ?? 0;
+          return `Uid:\t${uid}\t${uid}\t${uid}\t${uid}\nGid:\t${gid}\t${gid}\t${gid}\t${gid}\n`;
+        }
         return fs.promises.readFile(file, options ?? null);
       }) as typeof fs.promises.readFile,
+      readlink: (async (file: fs.PathLike) => {
+        if (file === `/proc/${process.pid}/exe`) return processExecutable;
+        if (file === `/proc/${process.pid}/ns/net`) return processNetworkNamespace;
+        return fs.promises.readlink(file);
+      }) as typeof fs.promises.readlink,
+      stat: (async (file: fs.PathLike, options?: fs.StatOptions) => {
+        if (file === `/proc/${process.pid}/exe`) return fs.promises.stat(processExecutable, options);
+        return fs.promises.stat(file, options);
+      }) as typeof fs.promises.stat,
       run: jest.fn(async () => {
         mountInfo = '';
         return { exitCode: 0, stdout: '', stderr: '' };
