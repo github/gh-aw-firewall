@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'containers/squid/**'
+      - '.github/workflows/test-squid-image.yml'
   workflow_dispatch:
 
 permissions:
@@ -41,6 +42,106 @@ jobs:
           load: true
           platforms: ${{ matrix.platform }}
           tags: awf-squid-test:pr
+
+      - name: Verify pre-ClientHello EOF guard with half-closed clients enabled
+        run: |
+          set -eu
+          docker network create awf-squid-eof-test
+          trap 'docker rm -f awf-squid-eof-proxy awf-squid-eof-target >/dev/null 2>&1 || true; docker network rm awf-squid-eof-test >/dev/null 2>&1 || true' EXIT
+
+          openssl req -x509 -newkey rsa:2048 -nodes \
+            -keyout "$RUNNER_TEMP/squid-eof-key.pem" \
+            -out "$RUNNER_TEMP/squid-eof-cert.pem" \
+            -subj /CN=awf-squid-eof-test -days 1
+          chmod 644 "$RUNNER_TEMP/squid-eof-key.pem" "$RUNNER_TEMP/squid-eof-cert.pem"
+          cat > "$RUNNER_TEMP/squid-eof.conf" <<'EOF'
+          acl all src all
+          acl step1 at_step SslBump1
+          acl CONNECT method CONNECT
+          acl SSL_ports port 443 8443
+          acl Safe_ports port 80 443 8443
+          http_port 0.0.0.0:3128 ssl-bump cert=/etc/squid/squid-eof-cert.pem key=/etc/squid/squid-eof-key.pem generate-host-certificates=off
+          http_access deny !Safe_ports
+          http_access deny CONNECT !SSL_ports
+          http_access allow all
+          ssl_bump peek step1
+          ssl_bump splice all
+          cache deny all
+          cache_log stdio:/dev/stderr
+          access_log stdio:/dev/stdout
+          half_closed_clients on
+          pid_filename none
+          EOF
+
+          docker run --detach \
+            --name awf-squid-eof-target \
+            --network awf-squid-eof-test \
+            --network-alias eof-target \
+            --entrypoint /bin/sh \
+            awf-squid-test:pr \
+            -c 'while true; do nc -l -p 8443 >/dev/null; done'
+          for _ in $(seq 1 30); do
+            if docker exec awf-squid-eof-target nc -z 127.0.0.1 8443; then
+              break
+            fi
+            sleep 1
+          done
+          docker exec awf-squid-eof-target nc -z 127.0.0.1 8443 || {
+            docker logs awf-squid-eof-target
+            exit 1
+          }
+          docker create \
+            --name awf-squid-eof-proxy \
+            --network awf-squid-eof-test \
+            --publish 127.0.0.1:3128:3128 \
+            awf-squid-test:pr
+          docker cp "$RUNNER_TEMP/squid-eof.conf" awf-squid-eof-proxy:/etc/squid/squid.conf
+          docker cp "$RUNNER_TEMP/squid-eof-cert.pem" awf-squid-eof-proxy:/etc/squid/squid-eof-cert.pem
+          docker cp "$RUNNER_TEMP/squid-eof-key.pem" awf-squid-eof-proxy:/etc/squid/squid-eof-key.pem
+          docker start awf-squid-eof-proxy
+
+          for _ in $(seq 1 30); do
+            if nc -z 127.0.0.1 3128; then
+              break
+            fi
+            sleep 1
+          done
+          nc -z 127.0.0.1 3128 || {
+            docker logs awf-squid-eof-proxy
+            exit 1
+          }
+
+          python3 - <<'PY'
+          import socket
+
+          proxy = ('127.0.0.1', 3128)
+          request = b'CONNECT eof-target:8443 HTTP/1.1\r\nHost: eof-target:8443\r\n\r\n'
+          for wait_for_response in (False, True):
+              for half_close in (False, True):
+                  for _ in range(5):
+                      with socket.create_connection(proxy, timeout=5) as sock:
+                          sock.settimeout(10)
+                          sock.sendall(request)
+                          if wait_for_response:
+                              response = b''
+                              while b'\r\n\r\n' not in response:
+                                  chunk = sock.recv(4096)
+                                  if not chunk:
+                                      raise SystemExit('proxy closed before CONNECT response')
+                                  response += chunk
+                              if b' 200 ' not in response.split(b'\r\n', 1)[0]:
+                                  raise SystemExit('allowed CONNECT was rejected')
+                          if half_close:
+                              sock.shutdown(socket.SHUT_WR)
+                              while sock.recv(4096):
+                                  pass
+          PY
+
+          if [ "$(docker inspect --format='{{.State.Running}}' awf-squid-eof-proxy)" != true ]; then
+            docker logs awf-squid-eof-proxy
+            echo "::error::Squid exited after a CONNECT client closed before ClientHello"
+            exit 1
+          fi
 
       - name: Assert Berkeley DB / Sleepycat packages absent
         run: |
