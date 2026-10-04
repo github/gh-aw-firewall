@@ -1511,6 +1511,32 @@ into the api-proxy container, so no extra configuration is needed.
 
 ## Limitations
 
+- **Cursor native token accounting is unsupported when no recognized usage is observable**:
+  routing `apiProxy.targets.openai.host` to `api2.cursor.sh` can successfully
+  proxy `/agent.v1.AgentService/RunSSE` without producing token records.
+  The native protocol is not an OpenAI completion protocol merely because it
+  uses the OpenAI route or advertises `text/event-stream`.
+  Third-party [interoperability implementations](https://github.com/leookun/cursor-byok)
+  describe optional turn-ended counts and Connect-framed protobuf messages,
+  but these do not verify authoritative counts or executed-model metadata for
+  Cursor CLI `2026.07.20-8cc9c0b`. The reported smoke run did not capture the raw
+  response. Cursor's [official SDK contract](https://github.com/cursor/sdk-bridge/blob/main/proto/sdk/v1/sdk_agent_service.proto)
+  exposes cloud usage through a different service, not native RunSSE; AWF does
+  not assume those contracts are interchangeable.
+  Until a native usage contract is verified, a 2xx RunSSE stream without
+  recognized usage emits `TRACK_END` with `result: "unsupported_accounting"`,
+  `protocol: "cursor-runsse"`, `reason: "native_usage_contract_unverified"`,
+  `provider`, `path`, `status`, and `streaming: true` in the always-on
+  `token-tracker-audit.jsonl`, plus a `token_track_unsupported_accounting`
+  warning. Consumers must inspect these records rather than interpret an empty
+  `token-usage.jsonl` as zero cost or an emitter failure. Match the native
+  `path` and `streaming: true`, not just `rid`: BidiAppend calls can reuse the
+  request ID and have their own `no_usage` result.
+  No zero-token record or byte-derived estimate is written. Effective-token
+  and AI-credit budgets cannot account for these responses, so their totals
+  are incomplete and must not be relied on as spending limits for this
+  protocol. Recognized OpenAI, Anthropic, and Gemini usage continues through
+  normal accounting. Inference routing and authentication are unchanged.
 - Keys must be set as environment variables (not file-based)
 - No request/response logging (by design, for security)
 - **AWS Bedrock OIDC signs HTTP requests only**: WebSocket upgrades are rejected, and the signing target is restricted to the exact regional Bedrock Runtime hostname. See [OIDC Authentication > AWS Bedrock](#aws-bedrock).

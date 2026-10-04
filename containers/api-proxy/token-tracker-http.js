@@ -391,6 +391,28 @@ function finalizeHttpTracking(state, proxyRes, opts) {
 
   const normalized = normalizeUsage(usage);
   if (!normalized) {
+    // The native Cursor stream is not an OpenAI completion just because it
+    // uses the OpenAI upstream route. No verified native usage decoder exists.
+    if (streaming && typeof reqPath === 'string'
+      && reqPath.split('?')[0] === '/agent.v1.AgentService/RunSSE') {
+      const accounting = {
+        provider,
+        path: '/agent.v1.AgentService/RunSSE',
+        status: proxyRes.statusCode,
+        streaming,
+        protocol: 'cursor-runsse',
+        reason: 'native_usage_contract_unverified',
+      };
+      auditTrack('TRACK_END', { rid: requestId, result: 'unsupported_accounting', ...accounting });
+      logRequest('warn', 'token_track_unsupported_accounting', {
+        request_id: requestId,
+        ...accounting,
+        message: 'Cursor native token usage could not be extracted: AWF has no verified native usage decoder. ' +
+          'Token and AI-credit budgets cannot account for this response; missing usage does not mean zero cost.',
+      });
+      if (typeof onSpanEnd === 'function') onSpanEnd(proxyRes.statusCode);
+      return;
+    }
     auditTrack('TRACK_END', { rid: requestId, result: 'no_usage', streaming, bytes: state.totalBytes, overflow: state.overflow, ct: state.contentType, ce: contentEncoding });
     // Log at info level so failed extraction is visible in CI without debug mode
     logRequest('info', 'token_track_no_usage', {
