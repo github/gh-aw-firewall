@@ -1050,7 +1050,9 @@ canonical bounded results. The script guest reports and the harness checks
 UID/GID, seed read-only enforcement, no NIC/direct egress, privilege and
 capability drop, `no_new_privs`, and the configured process/file/open-file
 limits. Synthetic guest stdout/stderr sentinels are checked against AWF,
-gateway, broker, audit, proxy, and host-executor journal diagnostics. This
+gateway, broker, audit, proxy, and host-executor journal diagnostics. Diagnostic
+files are opened without following symlinks, checked and read through the same
+descriptor, and read within a hard bound even if they grow during inspection. This
 acceptance job is manually dispatched with `run_live_kvm: true`, distinct from
 the host-only probes, and is not enabled in ordinary CI or by PR labels; this
 avoids passing the Copilot credential to untrusted pull-request code.

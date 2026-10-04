@@ -62,6 +62,36 @@ function parsePublicToolResult(response, requestId) {
   return structured;
 }
 
+function readDiagnosticFile(file) {
+  const maxBytes = 16 * 1024 * 1024;
+  let descriptor;
+  try {
+    descriptor = fs.openSync(file, fs.constants.O_RDONLY
+      | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
+    const stat = fs.fstatSync(descriptor);
+    if (!stat.isFile()) throw new Error('Live enclave diagnostic is not a regular file');
+    if (stat.size > maxBytes) {
+      throw new Error('Live enclave diagnostic file exceeded the scan bound');
+    }
+    const buffer = Buffer.alloc(maxBytes + 1);
+    let size = 0;
+    while (size < buffer.length) {
+      const bytes = fs.readSync(descriptor, buffer, size, buffer.length - size, null);
+      if (bytes === 0) break;
+      size += bytes;
+    }
+    if (size > maxBytes) {
+      throw new Error('Live enclave diagnostic file exceeded the scan bound');
+    }
+    return buffer.subarray(0, size);
+  } catch (error) {
+    if (error.code) throw new Error('Could not inspect live enclave diagnostic file');
+    throw error;
+  } finally {
+    if (descriptor !== undefined) fs.closeSync(descriptor);
+  }
+}
+
 function scanTextDirectory(directory, sentinel, found) {
   let entries;
   try {
@@ -76,11 +106,7 @@ function scanTextDirectory(directory, sentinel, found) {
     if (entry.isDirectory()) {
       scanTextDirectory(file, sentinel, found);
     } else if (entry.isFile() && /\.(?:json|jsonl|log|txt)$/i.test(entry.name)) {
-      const stat = fs.statSync(file);
-      if (stat.size > 16 * 1024 * 1024) {
-        throw new Error('Live enclave diagnostic file exceeded the scan bound');
-      }
-      if (fs.readFileSync(file).includes(Buffer.from(sentinel, 'utf8'))) found.value = true;
+      if (readDiagnosticFile(file).includes(Buffer.from(sentinel, 'utf8'))) found.value = true;
     }
   }
 }

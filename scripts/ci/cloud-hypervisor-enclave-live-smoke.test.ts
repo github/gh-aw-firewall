@@ -298,6 +298,89 @@ describe('Cloud Hypervisor enclave live acceptance harness', () => {
     }
   });
 
+  it('scans the opened diagnostic even if its pathname is replaced during inspection', () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-enclave-scan-race-'));
+    const diagnostic = path.join(directory, 'audit.jsonl');
+    const displaced = path.join(directory, 'audit.original');
+    const sentinel = 'AWF_ENCLAVE_LIVE_OUTPUT_SENTINEL_race';
+    const nodeFs = require('fs') as typeof fs;
+    fs.writeFileSync(diagnostic, sentinel);
+    const originalStat = fs.statSync;
+    const originalFstat = fs.fstatSync;
+    const replace = () => {
+      fs.renameSync(diagnostic, displaced);
+      fs.writeFileSync(diagnostic, 'safe replacement');
+    };
+    const stat = jest.spyOn(nodeFs, 'statSync').mockImplementation((...args) => {
+      const result = originalStat(...args);
+      if (args[0] === diagnostic) replace();
+      return result;
+    });
+    const fstat = jest.spyOn(nodeFs, 'fstatSync').mockImplementation((...args) => {
+      const result = originalFstat(...args);
+      replace();
+      return result;
+    });
+    try {
+      expect(() => harness.assertNoSentinelLeak([directory], [], sentinel))
+        .toThrow(/sentinel escaped/);
+    } finally {
+      stat.mockRestore();
+      fstat.mockRestore();
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects a diagnostic replaced by a symlink before opening without exposing paths', () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-enclave-scan-link-'));
+    const diagnostic = path.join(directory, 'audit.jsonl');
+    const target = path.join(directory, 'private.original');
+    const nodeFs = require('fs') as typeof fs;
+    const originalOpen = fs.openSync;
+    fs.writeFileSync(diagnostic, 'safe');
+    fs.writeFileSync(target, 'private data');
+    const open = jest.spyOn(nodeFs, 'openSync').mockImplementation((...args) => {
+      if (args[0] === diagnostic) {
+        fs.unlinkSync(diagnostic);
+        fs.symlinkSync(target, diagnostic);
+      }
+      return originalOpen(...args);
+    });
+    try {
+      expect(() => harness.assertNoSentinelLeak([directory], [], 'sentinel'))
+        .toThrow('Could not inspect live enclave diagnostic file');
+    } finally {
+      open.mockRestore();
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('bounds reads of a growing diagnostic and closes the descriptor on rejection', () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-enclave-scan-growth-'));
+    const diagnostic = path.join(directory, 'audit.jsonl');
+    const nodeFs = require('fs') as typeof fs;
+    const originalFstat = fs.fstatSync;
+    fs.writeFileSync(diagnostic, 'safe');
+    const fstat = jest.spyOn(nodeFs, 'fstatSync').mockImplementation((...args) => {
+      const result = originalFstat(...args);
+      fs.truncateSync(diagnostic, 16 * 1024 * 1024 + 1);
+      return result;
+    });
+    const read = jest.spyOn(nodeFs, 'readSync');
+    const close = jest.spyOn(nodeFs, 'closeSync');
+    try {
+      expect(() => harness.assertNoSentinelLeak([directory], [], 'sentinel'))
+        .toThrow(/exceeded the scan bound/);
+      expect(read).toHaveBeenCalledTimes(1);
+      expect(close).toHaveBeenCalledWith(fstat.mock.calls[0][0]);
+    } finally {
+      fstat.mockRestore();
+      read.mockRestore();
+      close.mockRestore();
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   it('gates KVM acceptance separately and fails closed after explicit opt-in', () => {
     const workflow = fs.readFileSync(workflowPath, 'utf8');
     expect(workflow).toContain('run_live_kvm:');
