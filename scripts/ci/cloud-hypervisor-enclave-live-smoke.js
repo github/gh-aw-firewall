@@ -991,12 +991,10 @@ async function main() {
       await waitForVmCleanup(15_000);
     } catch (error) {
       if (awf && awf.exitCode === null) awf.kill('SIGKILL');
-      if (composeStarted) {
-        try {
-          stopComposeAfterCrash();
-        } catch {
-          keepArtifacts = true;
-        }
+      try {
+        stopComposeAfterCrash();
+      } catch {
+        keepArtifacts = true;
       }
       throw error;
     }
