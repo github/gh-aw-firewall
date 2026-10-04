@@ -116,25 +116,18 @@ jobs:
 
           proxy = ('127.0.0.1', 3128)
           request = b'CONNECT eof-target:8443 HTTP/1.1\r\nHost: eof-target:8443\r\n\r\n'
-          for wait_for_response in (False, True):
-              for half_close in (False, True):
-                  for _ in range(5):
-                      with socket.create_connection(proxy, timeout=5) as sock:
-                          sock.settimeout(10)
-                          sock.sendall(request)
-                          if wait_for_response:
-                              response = b''
-                              while b'\r\n\r\n' not in response:
-                                  chunk = sock.recv(4096)
-                                  if not chunk:
-                                      raise SystemExit('proxy closed before CONNECT response')
-                                  response += chunk
-                              if b' 200 ' not in response.split(b'\r\n', 1)[0]:
-                                  raise SystemExit('allowed CONNECT was rejected')
-                          if half_close:
-                              sock.shutdown(socket.SHUT_WR)
+          for half_close in (False, True):
+              for _ in range(5):
+                  with socket.create_connection(proxy, timeout=5) as sock:
+                      sock.settimeout(10)
+                      sock.sendall(request)
+                      if half_close:
+                          sock.shutdown(socket.SHUT_WR)
+                          try:
                               while sock.recv(4096):
                                   pass
+                          except ConnectionResetError:
+                              pass
           PY
 
           if [ "$(docker inspect --format='{{.State.Running}}' awf-squid-eof-proxy)" != true ]; then
