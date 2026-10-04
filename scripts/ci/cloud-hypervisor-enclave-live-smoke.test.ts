@@ -3,6 +3,7 @@ import * as http from 'http';
 import * as os from 'os';
 import * as path from 'path';
 import { execFileSync } from 'child_process';
+import { validateSchema, validateValueAgainstSchema } from '../../src/bounded-execution/finite-schema';
 
 const root = path.resolve(__dirname, '../..');
 const harnessPath = path.join(root, 'scripts/ci/cloud-hypervisor-enclave-live-smoke.js');
@@ -53,8 +54,10 @@ const harness = require(harnessPath) as {
   ): void;
   buildAgentGuestProbe(): { expected: Record<string, unknown>; schema: unknown; prompt: string };
   buildAgentEnospcProbe(): { expected: Record<string, unknown>; schema: unknown; prompt: string };
+  buildConstantObjectSchema(expected: Record<string, unknown>): unknown;
   buildEnospcProbeScript(maxStorageMib?: number): string;
   buildOomProbeScript(): string;
+  buildScriptGuestProbe(): { expected: Record<string, unknown>; schema: unknown };
   parsePublicToolResult(response: unknown, requestId: number): { status: string; result?: unknown };
   requestMcp(
     endpoint: string,
@@ -63,6 +66,7 @@ const harness = require(harnessPath) as {
     method: string,
     params: Record<string, unknown>,
     signal?: AbortSignal,
+    timeoutMs?: number,
   ): Promise<unknown>;
 };
 
@@ -197,6 +201,28 @@ describe('Cloud Hypervisor enclave live acceptance harness', () => {
     })).not.toThrow();
   });
 
+  it('uses the production finite-schema grammar for every live response contract', () => {
+    const scriptProbe = harness.buildScriptGuestProbe();
+    const agentProbe = harness.buildAgentGuestProbe();
+    const agentEnospc = harness.buildAgentEnospcProbe();
+    const scriptEnospcExpected = { enospcObserved: true, probeFilesRemoved: true };
+    const oomExpected = { childKilledByOom: true, oomKillCounterIncreased: true };
+    const schemasAndValues = [
+      [scriptProbe.schema, scriptProbe.expected],
+      [agentProbe.schema, agentProbe.expected],
+      [agentEnospc.schema, agentEnospc.expected],
+      [harness.buildConstantObjectSchema(scriptEnospcExpected), scriptEnospcExpected],
+      [harness.buildConstantObjectSchema(oomExpected), oomExpected],
+      [{ type: 'enum', values: ['AWF_ENCLAVE_LIVE_AGENT_RESULT'] }, 'AWF_ENCLAVE_LIVE_AGENT_RESULT'],
+      [{ type: 'const', value: true }, true],
+    ] as const;
+    for (const [rawSchema, value] of schemasAndValues) {
+      const parsed = validateSchema(rawSchema);
+      expect(parsed.valid).toBe(true);
+      if (parsed.valid) expect(validateValueAgainstSchema(parsed.schema, value)).toBe(true);
+    }
+  });
+
   it('requires identity-checked crash recovery without accepting replayed success', () => {
     const before = {
       runId: 'a'.repeat(32),
@@ -243,6 +269,18 @@ describe('Cloud Hypervisor enclave live acceptance harness', () => {
     expect(source).toContain("cancellationController.abort()");
   });
 
+  it('preserves first-run diagnostics and isolates recovery state', () => {
+    const source = fs.readFileSync(harnessPath, 'utf8');
+    expect(source).toContain('...artifacts.enclaveArtifactEnvironment');
+    expect(source).toContain("path.join(root, 'awf-work-recovery')");
+    expect(source).toContain("path.join(root, 'awf-config-recovery.json')");
+    expect(source).toContain('captureStderr: true');
+    expect(source).toContain('...preRestartLogContents');
+    expect(source).toContain('process.exitCode = 1');
+    expect(source).toContain('fs.chmodSync(workspace, 0o755)');
+    expect(source).toContain("mode: 0o644");
+  });
+
   it('propagates public-client cancellation by closing its in-flight MCP request', async () => {
     let bodyReceived!: () => void;
     let clientDisconnected!: () => void;
@@ -270,6 +308,35 @@ describe('Cloud Hypervisor enclave live acceptance harness', () => {
       controller.abort();
       await expect(pending).resolves.toBeUndefined();
       await disconnected;
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => error ? reject(error) : resolve());
+      });
+    }
+  });
+
+  it('destroys stalled public MCP requests when their bounded timeout expires', async () => {
+    let requestClosed!: () => void;
+    const closed = new Promise<void>((resolve) => { requestClosed = resolve; });
+    const server = http.createServer((request, response) => {
+      request.on('close', requestClosed);
+      response.on('close', requestClosed);
+      request.resume();
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('Test MCP server did not bind');
+    try {
+      await expect(harness.requestMcp(
+        `http://127.0.0.1:${address.port}/mcp`,
+        'test-gateway-key',
+        2,
+        'tools/call',
+        {},
+        undefined,
+        25,
+      )).rejects.toThrow(/request failed/);
+      await closed;
     } finally {
       await new Promise<void>((resolve, reject) => {
         server.close((error) => error ? reject(error) : resolve());
