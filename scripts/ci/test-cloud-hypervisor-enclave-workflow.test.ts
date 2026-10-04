@@ -10,6 +10,7 @@ interface Step {
   run?: string;
   uses?: string;
   if?: string;
+  env?: Record<string, string>;
   'continue-on-error'?: boolean;
 }
 interface Job {
@@ -22,7 +23,12 @@ interface Job {
 }
 interface Workflow {
   on: {
-    workflow_dispatch: { inputs: { run_host_probes: { type: string; default: boolean } } };
+    workflow_dispatch: {
+      inputs: {
+        run_host_probes: { type: string; default: boolean };
+        run_live_kvm: { type: string; default: boolean };
+      };
+    };
     pull_request: { types: string[]; paths: string[] };
   };
   permissions: Record<string, string>;
@@ -34,7 +40,7 @@ const workflow = yaml.load(source) as Workflow;
 
 describe('Cloud Hypervisor enclave conformance CI boundary', () => {
   it('runs deterministic conformance without privileged probes or KVM artifacts', () => {
-    expect(Object.keys(workflow.jobs)).toEqual(['deterministic', 'host-probes']);
+    expect(Object.keys(workflow.jobs)).toEqual(['deterministic', 'host-probes', 'live-kvm']);
     expect(workflow.permissions).toEqual({ contents: 'read' });
     const job = workflow.jobs.deterministic;
     expect(job.if).toBeUndefined();
@@ -90,6 +96,27 @@ describe('Cloud Hypervisor enclave conformance CI boundary', () => {
     expect(job.steps.find((step) => step.name === 'Remove probe executable')?.if).toBe('always()');
   });
 
+  it('opts live broker-to-VM acceptance in separately and never substitutes development artifacts', () => {
+    expect(workflow.on.workflow_dispatch.inputs.run_live_kvm).toMatchObject({
+      type: 'boolean', default: false,
+    });
+    const job = workflow.jobs['live-kvm'];
+    expect(job.needs).toBe('deterministic');
+    expect(job['runs-on']).toBe('ubuntu-24.04');
+    expect(job.if).toBe("github.event_name == 'workflow_dispatch' && inputs.run_live_kvm");
+    const harness = job.steps.find((step) => step.name.startsWith('Run release-attested'))!;
+    expect(harness.run).toContain('cloud-hypervisor-enclave-live-smoke.js');
+    expect(harness.env).toMatchObject({
+      COPILOT_GITHUB_TOKEN: '${{ secrets.COPILOT_GITHUB_TOKEN }}',
+    });
+    expect(job.steps.some((step) => step.run?.includes('AWF_CLOUD_HYPERVISOR_DEVELOPMENT_ALLOW_UNATTESTED_ARTIFACTS')))
+      .toBe(false);
+    expect(job.steps.some((step) => step.uses?.includes('upload-artifact'))).toBe(false);
+    const cleanup = job.steps.find((step) => step.name.startsWith('Remove only this job'))!;
+    expect(cleanup.run).toContain('com.github.gh-aw.mcpg.run');
+    expect(cleanup.run).toContain('GITHUB_RUN_ATTEMPT');
+  });
+
   it('keeps privileged enclave probes out of the ordinary artifact build job', () => {
     const primary = yaml.load(fs.readFileSync(
       path.join(root, '.github/workflows/test-cloud-hypervisor.yml'), 'utf8',
@@ -121,6 +148,8 @@ describe('Cloud Hypervisor enclave conformance CI boundary', () => {
       'src/enclave/**', 'src/cloud-hypervisor/**', 'src/microvm/**',
       'containers/enclave/**', 'guest/microvm-supervisor/**',
       'scripts/ci/*cloud-hypervisor*.test.ts',
+      'scripts/ci/cloud-hypervisor-enclave-live-smoke.js',
+      'scripts/ci/cloud-hypervisor-enclave-gateway*',
       '.github/workflows/test-cloud-hypervisor-enclaves.yml',
     ]));
   });

@@ -2380,8 +2380,10 @@ The broker uses the unchanged protocol v2 without caller-selectable launch
 controls. Supported GitHub-hosted Ubuntu x86_64 KVM host/artifact preflight and
 the hard-bounded aggregate writable-storage provider from
 [#9394](https://github.com/github/gh-aw-firewall/issues/9394) are mandatory.
-The provider is not installed in this revision, so production selection still
-fails explicitly before staging/listener/VM creation; there is no bypass flag.
+The production provider is installed and is selected only after the supported
+host and package-matched release-attested artifact preflight pass. Unsupported
+hosts fail explicitly before staging/listener/VM creation; there is no bypass
+flag.
 The initial scope is static script and static agent entries only. Dynamic
 entries, custom `image` overrides, mixed container/VM enclave runtimes,
 Docker host path prefixes, primary sbx/NVX/Cloud Hypervisor combinations, and static

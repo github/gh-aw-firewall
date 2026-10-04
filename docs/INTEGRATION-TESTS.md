@@ -60,15 +60,28 @@ Cloud Hypervisor enclave contract coverage runs in
 `.github/workflows/test-cloud-hypervisor-enclaves.yml`. Its ordinary CI job uses
 the authenticated broker/host boundary with a mock VM manager; its explicitly
 opted-in GitHub-hosted Ubuntu x86_64 KVM job exercises real host storage,
-nftables packets, and supervisor limit probes, **not broker-to-VM acceptance**.
+nftables packets, and supervisor limit probes. A separate, false-by-default
+`live-kvm` gate invokes both static executors through the public broker route
+using package-matched release-attested artifacts and the production storage
+provider. It is manually dispatched with `run_live_kvm: true` to avoid exposing
+the Copilot credential to untrusted pull-request code. It checks canonical
+bounded results, script guest identity and limits, and synthetic-output
+redaction. The live gate has not passed until it runs on an eligible
+GitHub-hosted Ubuntu x86_64 KVM/cgroup-v2 runner; package version `0.23.1`
+currently lacks its required release assets, so opting in fails visibly rather
+than substituting build artifacts.
 Privileged enclave probes no longer run in the ordinary artifact-build job.
-Production full-storage admission remains closed: invocation exports are bounded,
-but artifact/rootfs copies and manager state do not yet share that allocation
-domain or recovery contract. See the [enclave conformance evidence and remaining
-live gate](cloud-hypervisor-foundation.md#enclave-conformance-evidence-and-remaining-live-gate)
-for exact blockers and the mandatory, still-unverified live acceptance criteria.
+Production full-storage admission is enabled only after supported-host and
+release-artifact preflight; invocation exports, artifact/rootfs copies, and
+manager state share the trusted allocation domain and recovery contract. See
+the [enclave conformance evidence and remaining live
+gate](cloud-hypervisor-foundation.md#enclave-conformance-evidence-and-remaining-live-gate)
+for exact blockers and the mandatory, still-unverified live acceptance
+criteria.
 
-Legacy bounded smoke and runtime-matrix assets were removed from the owned workflow surface. Until a unified gh-aw enclave smoke workflow exists, coverage for the enclave MCP server and executor contracts stays local/unit-focused:
+Legacy bounded smoke and runtime-matrix assets were removed from the owned
+workflow surface. Beyond the new static-executor live gate, coverage for
+enclave MCP server and executor contracts remains local/unit-focused:
 
 - `src/services/enclave-mcp-service.test.ts`
 - `src/services/enclave-agent-service.test.ts`

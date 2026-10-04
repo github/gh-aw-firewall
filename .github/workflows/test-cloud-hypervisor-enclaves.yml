@@ -8,6 +8,11 @@ on:
         required: true
         type: boolean
         default: false
+      run_live_kvm:
+        description: Run release-attested script and agent enclave VM acceptance
+        required: true
+        type: boolean
+        default: false
   pull_request:
     types: [opened, synchronize, reopened, labeled]
     paths:
@@ -25,8 +30,11 @@ on:
       - 'containers/bounded-execution/**'
       - 'guest/microvm-supervisor/**'
       - 'scripts/ci/*cloud-hypervisor*.test.ts'
+      - 'scripts/ci/cloud-hypervisor-enclave-live-smoke.js'
+      - 'scripts/ci/cloud-hypervisor-enclave-gateway*'
       - 'docs/cloud-hypervisor-foundation.md'
       - 'docs/INTEGRATION-TESTS.md'
+      - 'docs/awf-config-spec.md'
       - 'package*.json'
       - 'jest.config.js'
 
@@ -87,6 +95,7 @@ jobs:
             src/cloud-hypervisor/cleanup-identity.test.ts \
             src/cloud-hypervisor/host-eligibility.test.ts \
             scripts/ci/cloud-hypervisor-enclave-artifacts.test.ts \
+            scripts/ci/cloud-hypervisor-enclave-live-smoke.test.ts \
             scripts/ci/test-cloud-hypervisor-enclave-workflow.test.ts \
             scripts/ci/test-cloud-hypervisor-workflow.test.ts
 
@@ -148,3 +157,60 @@ jobs:
       - name: Remove probe executable
         if: always()
         run: rm -f "$RUNNER_TEMP/enclave-supervisor.test"
+
+  live-kvm:
+    name: Live enclave broker-to-VM acceptance
+    needs: deterministic
+    if: github.event_name == 'workflow_dispatch' && inputs.run_live_kvm
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install dependencies and build AWF
+        run: npm ci && npm run build && npm run type-check
+      - name: Verify GitHub-hosted Ubuntu x86_64 KVM and cgroup-v2 host
+        run: |
+          set -euo pipefail
+          node -e "require('./dist/cloud-hypervisor/host-eligibility').assertGithubHostedRunnerEligibility()"
+          sudo -n "$(command -v node)" -e '
+            const fs = require("fs");
+            if (!fs.statSync("/dev/kvm").isCharacterDevice()) throw new Error("KVM device required");
+            const fd = fs.openSync("/dev/kvm", "r+");
+            fs.closeSync(fd);
+          '
+          test -r /sys/fs/cgroup/cgroup.controllers
+          sudo -n test -w /sys/fs/cgroup
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            e2fsprogs iproute2 jq nftables rsync util-linux
+      - name: Build the isolated public MCP gateway fixture
+        run: |
+          docker build \
+            --file scripts/ci/cloud-hypervisor-enclave-gateway.Dockerfile \
+            --tag awf-cloud-hypervisor-enclave-live-gateway:test \
+            .
+      - name: Run release-attested live script and agent enclave acceptance
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
+          COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          sudo -n --preserve-env=PATH,HOME,GITHUB_ACTIONS,RUNNER_ENVIRONMENT,ImageOS,RUNNER_TEMP,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,GH_TOKEN,GITHUB_TOKEN,COPILOT_GITHUB_TOKEN \
+            node scripts/ci/cloud-hypervisor-enclave-live-smoke.js
+      - name: Remove only this job's gateway fixture
+        if: always()
+        run: |
+          set -euo pipefail
+          identity="gh-aw-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-enclave-live"
+          if docker inspect \
+            --format '{{ index .Config.Labels "com.github.gh-aw.mcpg.run" }}' \
+            awmg-mcpg 2>/dev/null | grep --fixed-strings --line-regexp --quiet "$identity"; then
+            docker rm --force awmg-mcpg
+          fi
