@@ -1,15 +1,9 @@
 --- a/src/client_side.cc
 +++ b/src/client_side.cc
-@@ -2827,7 +2827,11 @@
-     Must(parsingTlsHandshake);
- 
+@@ -2829 +2829,5 @@
 -    assert(!inBuf.isEmpty());
 +    if (inBuf.isEmpty()) {
 +        debugs(83, 3, "client EOF before TLS ClientHello: " << clientConnection);
 +        clientConnection->close();
 +        return;
 +    }
-     receivedFirstByte();
-     fd_note(clientConnection->fd, "Parsing TLS handshake");
- 
-     // stops being nil if we fail to parse the handshake
