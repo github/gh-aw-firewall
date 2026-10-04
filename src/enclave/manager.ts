@@ -46,6 +46,8 @@ import {
   type TrustedCloudHypervisorEnclaveStorageProvider,
 } from './cloud-hypervisor-lifecycle';
 import { ProductionTrustedCloudHypervisorEnclaveStorageProvider } from '../cloud-hypervisor/trusted-enclave-storage';
+import { HOST_EXECUTOR_STORAGE_ROOT } from './host-executor-journal';
+import * as path from 'path';
 
 export const ENCLAVE_RUN_LABEL = 'awf.enclave.run';
 export function isEnclaveScriptEnabled(config: WrapperConfig): boolean {
@@ -215,10 +217,15 @@ export async function prepareEnclaves(
   const hostExecutorSelected = isCloudHypervisorEnclaveSelected(config);
   if (hostExecutorSelected) {
     const hostPaths = resolveEnclavePaths(config.workDir);
-    assertPrivateRootIsolated(config, {
-      root: hostPaths.hostExecutorJournalDir,
-      ingressRoot: hostPaths.ingressRoot,
-    }, env, process.cwd(), 'Cloud Hypervisor enclave recovery journal');
+    for (const [root, label] of [
+      [hostPaths.hostExecutorJournalDir, 'recovery journal'],
+      [path.join(path.dirname(hostPaths.hostExecutorJournalDir), 'host-invocations'), 'invocation mount points'],
+      [HOST_EXECUTOR_STORAGE_ROOT, 'allocation domains'],
+    ]) {
+      assertPrivateRootIsolated(config, {
+        root, ingressRoot: hostPaths.ingressRoot,
+      }, env, process.cwd(), `Cloud Hypervisor enclave ${label}`);
+    }
   }
   await assertCloudHypervisorEnclavePrerequisites(config, storageProvider);
   await (deps.assertPrimaryAvailable ?? assertPrimaryRuntimeAvailable)(config.containerRuntime);

@@ -11,7 +11,7 @@ import type { CloudHypervisorOptions } from '../types/runtime-options';
 import { assertTrustedAncestorChain, assertTrustedHostTool } from './artifact-trust';
 import { preflightCloudHypervisorEnclaveArtifacts } from './enclave-artifact-preflight';
 import type { CloudHypervisorEnclaveArtifactPreflightOptions } from './enclave-executor-types';
-import { runCloudHypervisorPreflight, type CloudHypervisorHostToolPaths } from './preflight';
+import { copySparseFileWithRsync, runCloudHypervisorPreflight, type CloudHypervisorHostToolPaths } from './preflight';
 import { prepareTrustedInvocationStorage } from './trusted-enclave-storage';
 import { CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES } from './workload-profile';
 
@@ -29,23 +29,44 @@ async function trustedDirectory(directory: string): Promise<void> {
   }
 }
 
-async function storageTools(environment: NodeJS.ProcessEnv): Promise<CloudHypervisorHostToolPaths> {
-  const tools = {} as Record<keyof CloudHypervisorHostToolPaths, string>;
-  for (const tool of ['mount', 'umount'] as const) {
-    for (const directory of (environment.PATH ?? '').split(path.delimiter)) {
-      if (!directory) continue;
-      const candidate = path.join(directory, tool);
-      try {
-        await assertTrustedHostTool(tool, candidate);
-        tools[tool] = candidate;
-        break;
-      } catch {
-        // Do not allocate storage until both privileged tools are trusted.
-      }
-    }
-    if (!tools[tool]) throw new Error(`Bounded enclave preflight requires trusted host tool "${tool}"`);
+async function prepareInvocationRoot(directory: string): Promise<void> {
+  if (!path.isAbsolute(directory) || path.normalize(directory) !== directory) {
+    throw new Error('Preflight storage requires a normalized absolute directory');
   }
-  return tools;
+  let current = path.parse(directory).root;
+  await trustedDirectory(current);
+  for (const component of directory.slice(current.length).split(path.sep)) {
+    current = path.join(current, component);
+    try {
+      await fs.mkdir(current, { mode: 0o700 });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+    }
+    await trustedDirectory(current);
+  }
+}
+
+async function trustedTool(tool: 'mount' | 'umount' | 'rsync', environment: NodeJS.ProcessEnv): Promise<string> {
+  for (const directory of (environment.PATH ?? '').split(path.delimiter)) {
+    if (!directory) continue;
+    const candidate = path.join(directory, tool);
+    try {
+      await assertTrustedHostTool(tool, candidate);
+      return candidate;
+    } catch {
+      // Search only ownership-verified host tools.
+    }
+  }
+  throw new Error(`Bounded enclave preflight requires trusted host tool "${tool}"`);
+}
+
+async function storageTools(
+  environment: NodeJS.ProcessEnv,
+): Promise<Pick<CloudHypervisorHostToolPaths, 'mount' | 'umount'>> {
+  return {
+    mount: await trustedTool('mount', environment),
+    umount: await trustedTool('umount', environment),
+  };
 }
 
 /** Internal preflight uses the same role-sized, journaled domain as execution. */
@@ -72,7 +93,7 @@ export function createBoundedEnclavePreflight(
       throw new Error('Bounded enclave preflight requires a configured static role');
     }
     const tools = await storageTools(options.environment ?? process.env);
-    await trustedDirectory(run.invocationsDir);
+    await prepareInvocationRoot(run.invocationsDir);
     const parent = path.join(run.invocationsDir, entry.entryId);
     await fs.mkdir(parent, { recursive: true, mode: 0o700 });
     await trustedDirectory(parent);
@@ -140,9 +161,11 @@ export function createBoundedEnclavePreflight(
       };
     },
     preflightEnclaveArtifacts: (artifactOptions) => withStorage(async (allocation) => {
+      const rsync = await trustedTool('rsync', options.environment ?? process.env);
       const verificationRoot = path.join(allocation.workDir, 'verification');
       await fs.mkdir(verificationRoot, { mode: 0o700 });
-      return preflightCloudHypervisorEnclaveArtifacts(artifactOptions, verificationRoot);
+      return preflightCloudHypervisorEnclaveArtifacts(artifactOptions, verificationRoot,
+        (source, destination) => copySparseFileWithRsync(rsync, source, destination));
     }),
   };
 }

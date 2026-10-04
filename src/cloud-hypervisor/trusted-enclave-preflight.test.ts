@@ -353,4 +353,16 @@ describe('bounded immutable enclave preflight', () => {
       .rejects.toThrow('root-owned');
     expect(prepareTrustedInvocationStorage).not.toHaveBeenCalled();
   });
+
+  it('rejects a sticky world-writable ancestor rather than relaxing invocation trust', async () => {
+    (fs.lstat as jest.Mock).mockImplementation(async (directory) => ({
+      uid: 0, mode: directory === '/var/tmp' ? 0o41777 : 0o40700,
+      isDirectory: () => true, isSymbolicLink: () => false,
+    }));
+    const input = options();
+    input.runState.invocationsDir = '/var/tmp/private/invocations';
+    await expect(createBoundedEnclavePreflight(input, active).preflight(config)).rejects.toThrow('root-owned trusted');
+    expect(prepareTrustedInvocationStorage).not.toHaveBeenCalled();
+    expect(HostExecutorResourceJournal.create).not.toHaveBeenCalled();
+  });
 });

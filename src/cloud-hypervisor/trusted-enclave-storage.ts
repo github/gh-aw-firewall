@@ -17,7 +17,8 @@ import { assertTrustedAncestorChain } from './artifact-trust';
 import { ENCLAVE_STORAGE_SOURCE } from './enclave-storage';
 import { resolveCloudHypervisorManagerDependencies } from './manager';
 import { createCloudHypervisorRunPaths, type CloudHypervisorManagerDependencies } from './manager-types';
-import { runCloudHypervisorPreflight, type CloudHypervisorHostToolPaths } from './preflight';
+import type { CloudHypervisorHostToolPaths } from './preflight';
+import { createBoundedEnclavePreflight } from './trusted-enclave-preflight';
 import { CLOUD_HYPERVISOR_ENCLAVE_RESOURCE_PROFILES } from './workload-profile';
 import { VirtiofsdManager } from './virtiofsd';
 import { parseMountInfoLine } from './cleanup-identity';
@@ -86,23 +87,25 @@ export class ProductionTrustedCloudHypervisorEnclaveStorageProvider implements T
     }
   }
 
-  async prepareRun(_options: CloudHypervisorEnclaveHostServiceOptions): Promise<Awaited<
+  async prepareRun(options: CloudHypervisorEnclaveHostServiceOptions): Promise<Awaited<
     ReturnType<TrustedCloudHypervisorEnclaveStorageProvider['prepareRun']>
   >> {
     const active = new Set<string>();
     return {
       backendDependencies: {
-        // Validate and attest the immutable input artifacts without creating an
-        // unbounded run-scoped copy. Every invocation copies them inside its cap.
-        preflight: (config) => runCloudHypervisorPreflight(config, {
-          createArtifactSnapshot: async (sources) => ({ ...sources, directory: path.dirname(sources.cloudHypervisorBinary) }),
-          removeArtifactSnapshot: async () => undefined,
-        }),
+        ...createBoundedEnclavePreflight(options, active),
         removeArtifactSnapshot: async () => undefined,
         prepareInvocationStorage: async (run, plan, journal, tools) => {
           const root = hostExecutorStorageDirectory(hostExecutorVmRunId(plan));
           active.add(root);
-          const storage = await prepareTrustedInvocationStorage(run, plan, journal, tools);
+          let storage: Awaited<ReturnType<typeof prepareTrustedInvocationStorage>>;
+          try {
+            storage = await prepareTrustedInvocationStorage(run, plan, journal, tools);
+          } catch (error) {
+            await journal.closeStorage(tools.umount);
+            active.delete(root);
+            throw error;
+          }
           return {
             ...storage,
             close: async () => {
@@ -124,7 +127,7 @@ export async function prepareTrustedInvocationStorage(
   _run: HostExecutorRunState,
   plan: HostExecutorInvocationPlan,
   journal: HostExecutorResourceJournal,
-  tools: CloudHypervisorHostToolPaths,
+  tools: Pick<CloudHypervisorHostToolPaths, 'mount' | 'umount'>,
 ): Promise<NonNullable<Awaited<ReturnType<NonNullable<
   import('./enclave-executor-types').HostEnclaveExecutorDependencies['prepareInvocationStorage']
 >>>>> {

@@ -42,6 +42,11 @@ allocation domain: script 1 GiB, agent 512 MiB. Artifact snapshots, rootfs
 preparation and staging, VM runtime state, and writable exports all consume that
 same capacity, including sparse-file allocations and concurrent writers.
 Executable artifacts are sealed read-only; writable state remains `noexec`.
+Preflight captures immutable artifacts in short-lived domains before attestation
+or executable probes; invocation copies are checked against those digests.
+Host-only mount points use the trusted `/var/lib/awf-cloud-hypervisor/host-invocations`
+tree, not the broker's `/var/tmp` work directory. Allocation roots and mount
+points must remain outside all primary-agent mounts.
 The host lifecycle closes admissions before broker shutdown,
 then cancels/closes the executor before releasing storage or deleting private
 state. Unresolved cleanup preserves recovery records and prevents deletion.

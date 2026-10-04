@@ -178,13 +178,17 @@ describe('prepareEnclaves fail-closed preflight', () => {
     expect(fs.existsSync(resolveEnclavePaths(workDir).hostExecutorDir)).toBe(false);
   });
 
-  it('rejects primary-agent mounts exposing the trusted global recovery journal before effects', async () => {
+  it.each(['journal', 'invocations', 'storage'] as const)(
+    'rejects primary-agent mounts exposing trusted %s paths before effects', async (resource) => {
     const wrapperConfig = config(workDir, [{
       script: {}, runtime: 'cloud-hypervisor', repos: [repository],
     }]);
     wrapperConfig.cloudHypervisor = { previewEnabled: true } as WrapperConfig['cloudHypervisor'];
     const paths = resolveEnclavePaths(workDir);
-    wrapperConfig.volumeMounts = [`${path.dirname(paths.hostExecutorJournalDir)}:/exposed-recovery:rw`];
+    const root = resource === 'journal' ? paths.hostExecutorJournalDir :
+      resource === 'invocations' ? path.join(path.dirname(paths.hostExecutorJournalDir), 'host-invocations') :
+        '/run/awf-cloud-hypervisor/enclave-storage';
+    wrapperConfig.volumeMounts = [`${root}:/exposed-recovery:rw`];
     const primary = jest.fn();
     const clone = jest.fn();
     const available = jest.fn();
@@ -194,7 +198,7 @@ describe('prepareEnclaves fail-closed preflight', () => {
       assertPrimaryAvailable: primary,
       gitRunner: clone,
       cloudHypervisorStorageProvider: { assertAvailable: available, prepareRun },
-    })).rejects.toThrow(/recovery journal.*custom volume/);
+    })).rejects.toThrow(/Cloud Hypervisor enclave.*custom volume/);
     expect(primary).not.toHaveBeenCalled();
     expect(clone).not.toHaveBeenCalled();
     expect(available).not.toHaveBeenCalled();

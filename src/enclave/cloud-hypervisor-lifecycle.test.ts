@@ -110,7 +110,7 @@ describe('trusted Cloud Hypervisor enclave lifecycle', () => {
     expect(deriveCloudHypervisorEnclaveRunState(config, paths)).toEqual({
       runId,
       seedsDir: paths.seedsDir,
-      invocationsDir: paths.workDir,
+      invocationsDir: path.join(path.dirname(paths.hostExecutorJournalDir), 'host-invocations', runId),
       journalDir: paths.hostExecutorJournalDir,
       entries: [
         {

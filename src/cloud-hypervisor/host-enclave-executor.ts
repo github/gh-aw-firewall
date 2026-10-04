@@ -162,7 +162,7 @@ export async function createCloudHypervisorHostEnclaveExecutor(
       options.managerDependencies?.cleanupRegistry ?? new DurableCloudHypervisorCleanupRegistry(),
       preflight.tools,
     );
-    const enclaveArtifacts = await preflightCloudHypervisorEnclaveArtifacts({
+    const enclaveArtifacts = await (dependencies.preflightEnclaveArtifacts ?? preflightCloudHypervisorEnclaveArtifacts)({
       releaseTag,
       manifestPath,
       manifestBundlePath,

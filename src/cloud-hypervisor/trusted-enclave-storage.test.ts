@@ -94,9 +94,29 @@ describe('invocation-wide kernel-enforced storage', () => {
       invocationHostDir: `/private/invocations/script/${'b'.repeat(32)}`,
     } as HostExecutorInvocationPlan;
     await expect(prepared.backendDependencies!.prepareInvocationStorage!(
-      {} as HostExecutorRunState, plan, {} as HostExecutorResourceJournal, tools,
+      {} as HostExecutorRunState, plan, {
+        closeStorage: jest.fn().mockRejectedValue(new Error('mount setup unavailable')),
+      } as unknown as HostExecutorResourceJournal, tools,
     )).rejects.toThrow('mount setup unavailable');
     await expect(prepared.close()).rejects.toThrow('enforcement is preserved');
+  });
+
+  it('releases the run guard after identity-journal cleanup of a failed allocation succeeds', async () => {
+    jest.spyOn(fs, 'lstat').mockResolvedValue({
+      uid: 0, mode: 0o40711, isSymbolicLink: () => false,
+    } as Awaited<ReturnType<typeof fs.lstat>>);
+    jest.spyOn(fs, 'mkdir').mockRejectedValue(new Error('early allocation failure'));
+    const provider = new ProductionTrustedCloudHypervisorEnclaveStorageProvider(host());
+    const prepared = await provider.prepareRun({} as Parameters<typeof provider.prepareRun>[0]);
+    const plan = {
+      runId: 'a'.repeat(32), entryId: 'script', invocationId: 'b'.repeat(32), executorKind: 'script',
+    } as HostExecutorInvocationPlan;
+    const closeStorage = jest.fn().mockResolvedValue(undefined);
+    await expect(prepared.backendDependencies!.prepareInvocationStorage!(
+      {} as HostExecutorRunState, plan, { closeStorage } as unknown as HostExecutorResourceJournal, tools,
+    )).rejects.toThrow('early allocation failure');
+    expect(closeStorage).toHaveBeenCalledWith(tools.umount);
+    await expect(prepared.close()).resolves.toBeUndefined();
   });
 
   it.each(['script', 'agent'] as const)('accounts for every %s path on one superblock, with sealed exec artifacts', async (role) => {

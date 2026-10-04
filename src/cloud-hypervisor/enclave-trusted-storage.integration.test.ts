@@ -190,6 +190,38 @@ const tools = {
     }
   });
 
+  it('cleans identity-known mounts after a partial artifact copy fails without replay', async () => {
+    const { run, plan } = await invocation('agent');
+    const journal = await HostExecutorResourceJournal.create(run, plan, hostExecutorVmRunId(plan));
+    const storage = await prepareTrustedInvocationStorage(run, plan, journal, tools);
+    await fs.mkdir(plan.invocationHostDir, { mode: 0o700 });
+    await journal.captureDirectory();
+    const close = async () => {
+      await storage.close();
+      await journal.verifyDirectory();
+      await fs.rm(plan.invocationHostDir, { recursive: true, force: true });
+      await journal.complete();
+    };
+    cleanup.add(close);
+    await storage.dependencies.mountTmpfs!(
+      plan.invocationHostDir, profiles.agent.writableStorageBytes, profiles.agent.uid, profiles.agent.gid, tools,
+    );
+    await journal.captureMount();
+    await journal.prepareSnapshot();
+    await expect(storage.dependencies.createArtifactSnapshot!({
+      cloudHypervisorBinary: '/usr/bin/true', virtiofsdBinary: '/usr/bin/true',
+      kernelPath: '/usr/bin/true', rootfsPath: '/usr/bin/true', supervisorPath: '/usr/bin/true',
+    }, async (_source, destination) => {
+      await fs.writeFile(destination, 'partial-copy');
+      throw new Error('artifact copy failed');
+    }, (directory) => journal.captureSnapshot(directory))).rejects.toThrow('artifact copy failed');
+    await close();
+    cleanup.delete(close);
+    await expect(fs.lstat(storage.workDir)).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(HostExecutorResourceJournal.create(run, plan, hostExecutorVmRunId(plan)))
+      .rejects.toThrow('EEXIST');
+  });
+
   it('reaps a crashed owner only after exact mount identity matches and never replays the invocation', async () => {
     const { run, plan } = await invocation('agent');
     const root = hostExecutorStorageDirectory(hostExecutorVmRunId(plan));

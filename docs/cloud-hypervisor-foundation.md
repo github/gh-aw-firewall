@@ -258,8 +258,8 @@ privileges through executable metadata. Missing mounts, unsupported kernel
 controls, or verification mismatches abort startup rather than launching
 without a limit.
 
-The trusted host executor mounts one invocation-private Linux **tmpfs** at the
-host-derived invocation directory, with `size=1073741824` for scripts (1 GiB) or
+The trusted host executor mounts one invocation-private Linux **tmpfs** at
+`/run/awf-cloud-hypervisor/enclave-storage/<vmRunId>`, with `size=1073741824` for scripts (1 GiB) or
 `size=536870912` for agents (512 MiB). The production provider routes artifact
 snapshots, rootfs preparation and staging, VM run paths, and the closed writable
 virtio-fs exports through this single allocation domain. Request and handoff
@@ -275,6 +275,16 @@ Sparse logical lengths do not allocate pages and do not bypass the allocation
 limit. No disk quota, loop device, or guest-only `size=` limit is required, so
 the mechanism uses the supported GitHub-hosted Linux/KVM runner's existing
 mount/virtio-fs path. Guest-internal tmpfs ceilings remain separate.
+
+Host-only invocation mount points live under
+`/var/lib/awf-cloud-hypervisor/host-invocations/<runId>/<entryId>/<invocationId>`,
+not the broker's `/var/tmp` work directory. AWF validates every ancestor as a
+root-owned, non-writable real directory without making a sticky-directory
+exception. Each mount point binds the allocation domain's `state` directory;
+it is not a second allocation. Empty mount-point directories and durable
+control journals contain no workload or artifact bytes. Admission rejects
+primary-agent mounts exposing these paths, the allocation roots, or recovery
+journals.
 
 Host tmpfs pages are charged to the writing virtio-fs process's memory cgroup.
 The enclave-only host `memory.max` therefore includes the fixed storage ceiling
@@ -369,7 +379,9 @@ anything when the mount carries `noexec`, instead of surfacing an opaque
 their invocation-owned allocation domain, using an executable read-only view of
 the same bounded superblock. Run-level enclave preflight verifies immutable
 copies in short-lived, journaled, role-bounded preflight domains, including the
-temporary manifest/bundle files used for role attestation. These domains close
+temporary manifest/bundle files used for role attestation. Role rootfs, provenance,
+and SBOM inputs are captured into root-private bounded storage before hashing
+and attestation, with each role copy removed before staging the next. These domains close
 before listener startup; no unbounded shared snapshot remains. Attestation,
 parsing, digest checks, and executable version probes use the sealed copies,
 never mutable original paths. Invocation copies are verified again against the
@@ -1024,6 +1036,10 @@ An empty provider, a free-space check, an export-only tmpfs, or a mock manager
 does not meet this contract. The gated privileged storage probes exercise the
 production domain, including aggregate exhaustion across snapshots, rootfs,
 runtime state, and exports. They do not establish live VM acceptance.
+
+The integrated privileged storage suite must pass on an eligible Linux runner.
+Until that gated job runs successfully, deterministic coverage is not a
+substitute for those probes.
 
 The remaining **unverified live assertions** include successful
 release-attested script and agent calls through the public broker; guest UID/GID,

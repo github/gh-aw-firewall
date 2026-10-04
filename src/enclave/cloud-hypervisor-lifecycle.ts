@@ -88,7 +88,7 @@ export function deriveCloudHypervisorEnclaveRunState(
   return {
     runId,
     seedsDir: paths.seedsDir,
-    invocationsDir: paths.workDir,
+    invocationsDir: path.join(path.dirname(paths.hostExecutorJournalDir), 'host-invocations', runId),
     journalDir: paths.hostExecutorJournalDir,
     entries: Object.entries(config.enclaves!.executors)
       .filter(([, entry]) => entry.enabled)

@@ -292,6 +292,7 @@ export class HostExecutorResourceJournal {
   }
 
   async closeStorage(umount: string): Promise<void> {
+    if (!this.record.storage) return;
     await closeStorageRecord(this.record, this.dependencies, umount);
   }
 

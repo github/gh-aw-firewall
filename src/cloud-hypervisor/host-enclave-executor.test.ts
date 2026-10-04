@@ -21,6 +21,7 @@ import type {
   HostExecutorRunState,
 } from '../enclave/host-executor-server';
 import { startHostExecutorServer } from '../enclave/host-executor-server';
+import * as hostExecutorJournal from '../enclave/host-executor-journal';
 import type { CloudHypervisorOptions } from '../types/runtime-options';
 import type { CloudHypervisorCleanupRegistry } from './cleanup-registry';
 import type {
@@ -550,6 +551,61 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
         }
 
         if (role === 'script' && expectedOutcome === 'success') {
+          const digest = createHash('sha256').update('verified-binary').digest('hex');
+          const boundedPreflight = {
+            ...preflight,
+            artifactDigests: { ...preflight.artifactDigests,
+              cloudHypervisor: digest, virtiofsd: digest, kernel: digest, supervisor: digest },
+          };
+          const boundedManager = jest.fn(dependencies.createManager!);
+          const storageClose = jest.fn(async () => undefined);
+          let replacement: 'cloudHypervisorBinary' | 'virtiofsdBinary' | 'kernelPath' | 'supervisorPath' | 'rootfsPath' | undefined;
+          const boundedSnapshot: HostEnclaveExecutorDependencies['createArtifactSnapshot'] = async (...args) => {
+            const created = await dependencies.createArtifactSnapshot!(...args);
+            const files = {
+              cloudHypervisorBinary: path.join(created.directory, 'cloud-hypervisor'),
+              virtiofsdBinary: path.join(created.directory, 'virtiofsd'),
+              kernelPath: path.join(created.directory, 'vmlinux.bin'),
+              supervisorPath: path.join(created.directory, 'awf-supervisor'),
+            };
+            await Promise.all(Object.values(files).map((file) => fs.writeFile(file, 'verified-binary')));
+            const snapshot = { ...created, ...files };
+            if (replacement) {
+              await fs.chmod(snapshot[replacement], 0o600);
+              await fs.writeFile(snapshot[replacement], 'source-replaced-after-attestation');
+            }
+            return snapshot;
+          };
+          const boundedBackend = new CloudHypervisorHostEnclaveExecutorBackend({
+            ...backendOptions, preflight: boundedPreflight,
+          }, {
+            ...dependencies,
+            prepareInvocationStorage: async () => ({
+              workDir: root,
+              managerDependencies: cloudHypervisorManagerTestHelpers.defaultDependencies,
+              dependencies: { createArtifactSnapshot: boundedSnapshot },
+              close: storageClose,
+            }),
+            createManager: boundedManager,
+          });
+          stopped = false;
+          await expect(boundedBackend.execute(plan, new AbortController().signal))
+            .resolves.toEqual({ outcome: 'success', result: 'true' });
+          expect(boundedManager).toHaveBeenCalledWith(expect.objectContaining({
+            cloudHypervisorBinary: expect.stringContaining('/snapshot-'),
+          }), root, expect.anything(), expect.anything(), expect.anything(), expect.anything());
+          for (const file of ['cloudHypervisorBinary', 'virtiofsdBinary', 'kernelPath', 'supervisorPath', 'rootfsPath'] as const) {
+            replacement = file;
+            boundedManager.mockClear();
+            storageClose.mockClear();
+            snapshotRemoved = false;
+            await expect(boundedBackend.execute(plan, new AbortController().signal))
+              .resolves.toEqual({ outcome: 'executor-failure' });
+            expect(boundedManager).not.toHaveBeenCalled();
+            expect(storageClose).toHaveBeenCalledTimes(1);
+            expect(snapshotRemoved).toBe(true);
+          }
+          await boundedBackend.close();
           stopped = false;
           unmounted = false;
           snapshotRemoved = false;
@@ -746,13 +802,23 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
     };
     await fs.writeFile(path.join(scratch, 'gh'), '', { mode: 0o700 });
     const options = {
-      runState: {} as HostExecutorRunState,
+      runState: { journalDir: path.join(scratch, 'journal') } as HostExecutorRunState,
       config: { artifactReleaseTag: `v${AWF_VERSION}` } as CloudHypervisorOptions,
       workDir: scratch,
+      managerDependencies: {
+        ...cloudHypervisorManagerTestHelpers.defaultDependencies,
+        cleanupRegistry: {
+          reapPending: async () => undefined,
+          hasPendingRecord: async () => false,
+          create: async () => { throw new Error('unexpected cleanup creation'); },
+          createPending: async () => { throw new Error('unexpected cleanup creation'); },
+        },
+      },
       environment,
     };
     const preflight = {
       artifactSnapshotDirectory: path.join(scratch, 'preflight-snapshot'),
+      tools: { ip: '/trusted/ip', umount: '/trusted/umount' },
     } as CloudHypervisorPreflightResult;
     const runPreflight = jest.spyOn(
       cloudHypervisorPreflight,
@@ -763,6 +829,7 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
       'assertTrustedHostTool',
     ).mockResolvedValue();
     const removeSnapshot = jest.fn(async () => undefined);
+    const reap = jest.spyOn(hostExecutorJournal, 'reapHostExecutorResources').mockResolvedValue();
 
     try {
       await expect(createCloudHypervisorHostEnclaveExecutor({
@@ -774,9 +841,19 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
       })).rejects.toThrow();
       expect(runPreflight).toHaveBeenCalledTimes(1);
       expect(removeSnapshot).toHaveBeenCalledWith(preflight.artifactSnapshotDirectory);
+      const boundedArtifactPreflight = jest.fn().mockRejectedValue(new Error('bounded artifact gate'));
+      await expect(createCloudHypervisorHostEnclaveExecutor(options, {
+        preflight: async () => preflight,
+        preflightEnclaveArtifacts: boundedArtifactPreflight,
+        removeArtifactSnapshot: removeSnapshot,
+      })).rejects.toThrow('bounded artifact gate');
+      expect(boundedArtifactPreflight).toHaveBeenCalledWith(expect.objectContaining({
+        manifestPath: environment.AWF_CLOUD_HYPERVISOR_ENCLAVE_MANIFEST,
+      }));
     } finally {
       runPreflight.mockRestore();
       trustedTool.mockRestore();
+      reap.mockRestore();
       await fs.rm(scratch, { recursive: true, force: true });
     }
   });
@@ -897,6 +974,41 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
       expect(verifications[1][6]).toBe(scriptProvenancePath);
       expect(verifications[2][2]).toBe(agentRootfsPath);
       expect(verifications[2][6]).toBe(agentProvenancePath);
+
+      const verificationRoot = path.join(scratch, 'bounded');
+      await fs.mkdir(verificationRoot, { mode: 0o700 });
+      await fs.writeFile(attestationTracePath, '');
+      const contentTrace = path.join(scratch, 'attested-content');
+      await fs.writeFile(attestationToolPath,
+        `#!/bin/sh\nprintf '%s\\n' "$@" >> '${attestationTracePath}'\nprintf '\\n' >> '${attestationTracePath}'\ncat "$3" >> '${contentTrace}'\n`);
+      await expect(preflightCloudHypervisorEnclaveArtifacts({
+        releaseTag, manifestPath, manifestBundlePath, scriptRootfsPath, agentRootfsPath, attestationToolPath,
+      }, verificationRoot, async (source, destination) => {
+        await fs.copyFile(source, destination);
+        // Replace the operator source after capture but before hashing/attestation.
+        await fs.chmod(source, 0o600);
+        await fs.writeFile(source, 'replaced-after-capture');
+        await fs.chmod(source, 0o400);
+      })).resolves.toMatchObject({
+        rootfs: { script: { artifact: scriptArtifact }, agent: { artifact: agentArtifact } },
+      });
+      const capturedAttestations = (await fs.readFile(attestationTracePath, 'utf8')).trim().split('\n\n')
+        .map((invocation) => invocation.split('\n'));
+      for (const args of capturedAttestations) {
+        expect(args[2].startsWith(`${verificationRoot}/`)).toBe(true);
+        expect(args[6].startsWith(`${verificationRoot}/`)).toBe(true);
+      }
+      const attestedContent = await fs.readFile(contentTrace, 'utf8');
+      expect(attestedContent).toContain(scriptRootfs);
+      expect(attestedContent).toContain(agentRootfs);
+      expect(attestedContent).not.toContain('replaced-after-capture');
+      expect(await fs.readdir(verificationRoot)).toEqual([]);
+      await fs.chmod(scriptRootfsPath, 0o600);
+      await fs.writeFile(scriptRootfsPath, scriptRootfs);
+      await fs.chmod(scriptRootfsPath, 0o400);
+      await fs.chmod(agentRootfsPath, 0o600);
+      await fs.writeFile(agentRootfsPath, agentRootfs);
+      await fs.chmod(agentRootfsPath, 0o400);
 
       await fs.chmod(manifestBundlePath, 0o600);
       await fs.writeFile(manifestBundlePath, '');

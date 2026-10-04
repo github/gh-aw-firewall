@@ -100,6 +100,7 @@ async function readTrustedArtifactBytes(
 export async function preflightCloudHypervisorEnclaveArtifacts(
   options: CloudHypervisorEnclaveArtifactPreflightOptions,
   verificationDirectoryRoot?: string,
+  copyRootfs?: (source: string, destination: string) => Promise<void>,
 ): Promise<VerifiedCloudHypervisorEnclaveArtifacts> {
   const uid = resolveTrustedOperatorUid();
   await assertTrustedHostTool('GitHub CLI', options.attestationToolPath);
@@ -165,13 +166,35 @@ export async function preflightCloudHypervisorEnclaveArtifacts(
         (await fs.lstat(sbom)).size > 16 * 1024 * 1024) {
         throw new Error(`${role} enclave rootfs provenance or SBOM exceeds its size limit`);
       }
-      if (rootfsStat.size !== artifact.sizeBytes || await calculateSha256(expectedRootfs) !== artifact.sha256) {
-        throw new Error(`${role} enclave rootfs does not match its trusted manifest digest and size`);
+      const roleDirectory = path.join(verificationDirectory, role);
+      if (copyRootfs) await fs.mkdir(roleDirectory, { mode: 0o700 });
+      try {
+        let verifiedRootfs = expectedRootfs;
+        let verifiedProvenance = provenance;
+        let verifiedSbom = sbom;
+        if (copyRootfs) {
+          verifiedRootfs = path.join(roleDirectory, artifact.file);
+          verifiedProvenance = path.join(roleDirectory, path.basename(provenance));
+          verifiedSbom = path.join(roleDirectory, path.basename(sbom));
+          await copyRootfs(expectedRootfs, verifiedRootfs);
+          await fs.chmod(verifiedRootfs, 0o400);
+          await fs.writeFile(verifiedProvenance, await readTrustedArtifactBytes(provenance, uid, 8 * 1024 * 1024),
+            { flag: 'wx', mode: 0o400 });
+          await fs.writeFile(verifiedSbom, await readTrustedArtifactBytes(sbom, uid, 16 * 1024 * 1024),
+            { flag: 'wx', mode: 0o400 });
+        }
+        if (rootfsStat.size !== artifact.sizeBytes ||
+          (await fs.lstat(verifiedRootfs)).size !== artifact.sizeBytes ||
+          await calculateSha256(verifiedRootfs) !== artifact.sha256) {
+          throw new Error(`${role} enclave rootfs does not match its trusted manifest digest and size`);
+        }
+        if (await calculateSha256(verifiedSbom) !== artifact.sbom.sha256) {
+          throw new Error(`${role} enclave rootfs SBOM does not match its trusted manifest digest`);
+        }
+        await verifyAttestation(options.attestationToolPath, verifiedRootfs, verifiedProvenance);
+      } finally {
+        if (copyRootfs) await fs.rm(roleDirectory, { recursive: true, force: true });
       }
-      if (await calculateSha256(sbom) !== artifact.sbom.sha256) {
-        throw new Error(`${role} enclave rootfs SBOM does not match its trusted manifest digest`);
-      }
-      await verifyAttestation(options.attestationToolPath, expectedRootfs, provenance);
       if (role === 'script') rootfs.script = { path: expectedRootfs, artifact };
       else rootfs.agent = { path: expectedRootfs, artifact };
     }

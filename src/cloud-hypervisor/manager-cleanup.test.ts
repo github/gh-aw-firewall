@@ -7,12 +7,34 @@ import type { CloudHypervisorCgroup } from './launcher';
 import type { CloudHypervisorCleanupRegistry } from './cleanup-registry';
 import type { CloudHypervisorVmmIdentityManager } from './vmm-identity';
 import { CloudHypervisorManager } from './manager';
+import { createCloudHypervisorRunPaths } from './manager-types';
 
 import {
   virtiofsdManagerMock, config, processMock, networkConfig, guestConfig, cleanupHandleMock, vmmIdentityMock, dependencies,
 } from './manager.test-utils';
 
   describe('stop and cleanup', () => {
+  it('removes the invocation-derived short run path before releasing the VMM identity', async () => {
+    const runId = 'a'.repeat(32);
+    const root = `/run/awf-cloud-hypervisor/enclave-storage/${runId}`;
+    const removed: string[] = [];
+    const identity = vmmIdentityMock();
+    (identity.cleanup as jest.Mock).mockImplementation(async () => {
+      expect(removed).toContain(`${root}/runs/vm`);
+    });
+    const deps = dependencies({
+      createRunPaths: (binary, id, workload) => createCloudHypervisorRunPaths(binary, id, workload, root),
+      createVmmIdentity: jest.fn(() => identity),
+      rm: jest.fn(async (directory) => { removed.push(directory); }),
+    });
+    const manager = new CloudHypervisorManager(config(), root, deps, runId, networkConfig());
+    await manager.start();
+    await manager.stop();
+    expect(deps.rm).toHaveBeenCalledWith(`${root}/runs/vm`, { recursive: true, force: true });
+    expect(removed).not.toContain(`${root}/runs/cloud-hypervisor/${runId}`);
+    expect(identity.cleanup).toHaveBeenCalledTimes(1);
+  });
+
   it('cleans up the network and cgroup before removing the run directory', async () => {
     const order: string[] = [];
     const deps = dependencies({

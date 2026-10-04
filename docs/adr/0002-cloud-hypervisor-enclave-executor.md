@@ -177,6 +177,11 @@ artifact copies before attestation, parsing, hashing, or privileged version
 probes. Role-attestation temporary files stay in bounded storage. These domains
 are closed before the listener starts; they neither leave shared uncharged
 snapshots nor execute mutable original artifact paths.
+Role rootfs/provenance/SBOM inputs are captured before verification, and execution
+rejects any invocation copy whose bytes differ from the attested digests.
+Host-only mount points are rooted beneath
+`/var/lib/awf-cloud-hypervisor/host-invocations`, preserving the non-writable
+ancestor checks rather than accepting the broker's sticky `/var/tmp` ancestor.
 
 | Piece | Owner and location |
 | --- | --- |

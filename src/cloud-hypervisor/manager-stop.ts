@@ -138,7 +138,7 @@ export async function stopCloudHypervisor(context: CloudHypervisorStopContext): 
   if (!instanceWasStarted || terminationConfirmed) {
     try {
       await context.dependencies.rm(
-        path.join(context.paths.runBaseDir, path.basename(context.config.cloudHypervisorBinary), context.paths.runId),
+        context.paths.runDirectory,
         { recursive: true, force: true },
       );
     } catch (error) { identityResourcesRemoved = false; errors.push(error); }
