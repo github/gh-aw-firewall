@@ -703,7 +703,6 @@ async function main() {
       GITHUB_TOKEN: environment.GITHUB_TOKEN,
     };
     awf = launchAwf();
-    composeStarted = true;
     await waitForBroker(awf, 'awf-enclave-mcp-server', Date.now() + 15 * 60_000);
 
     const initialized = await requestMcp(
