@@ -17,9 +17,10 @@ const { logRequest } = require('./logging');
 
 const RUN_SSE = '/agent.v1.AgentService/RunSSE';
 
-function trackResponse({ path = RUN_SSE, contentType = 'text/event-stream', status = 200, body = '', ...opts } = {}) {
+function trackResponse({ path = RUN_SSE, contentType = 'text/event-stream', contentEncoding, status = 200, body = '', ...opts } = {}) {
   const response = new EventEmitter();
   response.headers = { 'content-type': contentType };
+  if (contentEncoding) response.headers['content-encoding'] = contentEncoding;
   response.statusCode = status;
   const onUsage = jest.fn();
   const onSpanEnd = jest.fn();
@@ -106,6 +107,33 @@ test.each([
   trackResponse(opts);
   expect(auditTrack).toHaveBeenLastCalledWith('TRACK_END', expect.objectContaining({ result: 'no_usage' }));
   expect(logRequest).not.toHaveBeenCalledWith('warn', 'token_track_unsupported_accounting', expect.anything());
+});
+
+test('successful native streams with unsupported encoding report unsupported accounting without a token record', () => {
+  trackResponse({ contentEncoding: 'zstd', body: 'opaque compressed bytes' });
+  expect(auditTrack).toHaveBeenCalledWith('TRACK_SKIP_ENCODING', {
+    rid: 'shared-native-request',
+    ce: 'zstd',
+  });
+  expect(auditTrack).toHaveBeenLastCalledWith('TRACK_END', {
+    rid: 'shared-native-request',
+    result: 'unsupported_accounting',
+    provider: 'openai',
+    path: RUN_SSE,
+    status: 200,
+    streaming: true,
+    protocol: 'cursor-runsse',
+    reason: 'unsupported_content_encoding_zstd',
+    content_encoding: 'zstd',
+  });
+  expect(logRequest).toHaveBeenCalledWith('warn', 'token_track_unsupported_accounting',
+    expect.objectContaining({
+      protocol: 'cursor-runsse',
+      reason: 'unsupported_content_encoding_zstd',
+      content_encoding: 'zstd',
+    }));
+  expect(writeTokenUsage).not.toHaveBeenCalled();
+  expect(incrementTokenMetrics).not.toHaveBeenCalled();
 });
 
 test('unsuccessful native responses retain skip_status', () => {

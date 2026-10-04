@@ -345,6 +345,25 @@ function buildAndWriteTokenRecord(normalized, { requestId, provider, model, reqP
   });
 }
 
+function reportUnsupportedCursorAccounting(requestId, provider, status, reason, contentEncoding) {
+  const accounting = {
+    provider,
+    path: '/agent.v1.AgentService/RunSSE',
+    status,
+    streaming: true,
+    protocol: 'cursor-runsse',
+    reason,
+    ...(contentEncoding ? { content_encoding: contentEncoding } : {}),
+  };
+  auditTrack('TRACK_END', { rid: requestId, result: 'unsupported_accounting', ...accounting });
+  logRequest('warn', 'token_track_unsupported_accounting', {
+    request_id: requestId,
+    ...accounting,
+    message: 'Cursor native token usage could not be extracted: AWF has no verified native usage decoder. ' +
+      'Token and AI-credit budgets cannot account for this response; missing usage does not mean zero cost.',
+  });
+}
+
 /**
  * Finalize token tracking for an HTTP response.
  *
@@ -395,21 +414,12 @@ function finalizeHttpTracking(state, proxyRes, opts) {
     // uses the OpenAI upstream route. No verified native usage decoder exists.
     if (streaming && typeof reqPath === 'string'
       && reqPath.split('?')[0] === '/agent.v1.AgentService/RunSSE') {
-      const accounting = {
+      reportUnsupportedCursorAccounting(
+        requestId,
         provider,
-        path: '/agent.v1.AgentService/RunSSE',
-        status: proxyRes.statusCode,
-        streaming,
-        protocol: 'cursor-runsse',
-        reason: 'native_usage_contract_unverified',
-      };
-      auditTrack('TRACK_END', { rid: requestId, result: 'unsupported_accounting', ...accounting });
-      logRequest('warn', 'token_track_unsupported_accounting', {
-        request_id: requestId,
-        ...accounting,
-        message: 'Cursor native token usage could not be extracted: AWF has no verified native usage decoder. ' +
-          'Token and AI-credit budgets cannot account for this response; missing usage does not mean zero cost.',
-      });
+        proxyRes.statusCode,
+        'native_usage_contract_unverified',
+      );
       if (typeof onSpanEnd === 'function') onSpanEnd(proxyRes.statusCode);
       return;
     }
@@ -529,6 +539,17 @@ function trackTokenUsage(proxyRes, opts) {
         'The Accept-Encoding sanitizer should have prevented this — check if the client bypassed the proxy header rewrite.',
     });
     diag('HTTP_TRACK_UNSUPPORTED_ENCODING', { request_id: requestId, provider, path: reqPath, content_encoding: contentEncoding });
+    if (proxyRes.statusCode >= 200 && proxyRes.statusCode < 300
+      && streaming && typeof reqPath === 'string'
+      && reqPath.split('?')[0] === '/agent.v1.AgentService/RunSSE') {
+      reportUnsupportedCursorAccounting(
+        requestId,
+        provider,
+        proxyRes.statusCode,
+        `unsupported_content_encoding_${contentEncoding}`,
+        contentEncoding,
+      );
+    }
     if (typeof opts.onSpanEnd === 'function') opts.onSpanEnd(proxyRes.statusCode);
     return;
   }
