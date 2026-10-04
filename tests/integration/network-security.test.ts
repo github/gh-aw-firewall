@@ -95,8 +95,10 @@ describe('Network Security', () => {
           `python3 - <<'PY'
 import os
 import socket
+from urllib.parse import urlparse
 
-proxy = (os.environ['SQUID_PROXY_HOST'], int(os.environ['SQUID_PROXY_PORT']))
+proxy_url = urlparse(os.environ['HTTPS_PROXY'])
+proxy = (proxy_url.hostname, int(os.environ['SQUID_PROXY_PORT']))
 for wait_for_response in (False, True):
     for half_close in (False, True):
         for _ in range(5):
