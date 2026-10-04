@@ -117,13 +117,13 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
         run: |
-          npx --no-install tsx ../scripts/ci/enforce-docs-audit.ts \
+          npx --yes tsx@4.23.15 ../scripts/ci/enforce-docs-audit.ts \
             --check-allowlist audit-allowlist.json
           if jq -e '.error' npm-audit-docs.json >/dev/null; then
             echo "::warning::npm audit advisory service unavailable after retries"
             test "$EVENT_NAME" = "pull_request"
             exit
           fi
-          npx --no-install tsx ../scripts/ci/enforce-docs-audit.ts \
+          npx --yes tsx@4.23.15 ../scripts/ci/enforce-docs-audit.ts \
             npm-audit-docs.json audit-allowlist.json
         working-directory: docs-site

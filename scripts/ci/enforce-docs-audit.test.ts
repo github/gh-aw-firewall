@@ -124,12 +124,19 @@ describe('docs-only advisory acceptance', () => {
     const workflow = yaml.load(fs.readFileSync(
       path.join(__dirname, '../../.github/workflows/dependency-audit.yml'), 'utf8',
     )) as { jobs: Record<string, { steps: Array<{ name: string; run?: string }> }> };
+    const rootPackage = JSON.parse(fs.readFileSync(
+      path.join(__dirname, '../../package.json'), 'utf8',
+    )) as { devDependencies: { tsx: string } };
     const main = workflow.jobs['audit-main'].steps.find((step) => step.name.startsWith('Enforce'))?.run;
     const docs = workflow.jobs['audit-docs'].steps.find((step) => step.name.startsWith('Enforce'))?.run;
     expect(main).not.toContain('enforce-docs-audit');
     expect(main).toContain('(.metadata.vulnerabilities.high == 0)');
     expect(main).toContain('(.metadata.vulnerabilities.critical == 0)');
     expect(docs).toContain('npm-audit-docs.json audit-allowlist.json');
+    expect(docs?.match(/npx --yes tsx@\S+/g)).toEqual([
+      `npx --yes tsx@${rootPackage.devDependencies.tsx}`,
+      `npx --yes tsx@${rootPackage.devDependencies.tsx}`,
+    ]);
     expect(docs?.indexOf('--check-allowlist')).toBeLessThan(docs?.indexOf("if jq -e '.error'") ?? -1);
     for (const script of [main, docs]) {
       expect(script).toContain('echo "::warning::npm audit advisory service unavailable after retries"');
