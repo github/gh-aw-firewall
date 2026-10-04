@@ -1081,5 +1081,4 @@ module.exports = {
   buildOomProbeScript,
   parsePublicToolResult,
   requestMcp,
-  requestMcp,
 };
