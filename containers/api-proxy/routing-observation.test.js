@@ -2,6 +2,8 @@
 
 const { EventEmitter } = require('events');
 const { createRoutingObservation } = require('./routing-observation');
+const { createRateLimitChecker } = require('./rate-limit');
+const { isValidRequestId } = require('./request-headers');
 
 const SELECTION = Object.freeze({
   schema: 'awf-routing-selection/v1',
@@ -404,6 +406,41 @@ describe('advisory routing observation', () => {
     })]);
     expect(harness.failures).toEqual([]);
   });
+
+  it.each(['client-inference-123', undefined, 'unsafe client ID'])(
+    'records pre-proxy rate-limit rejection with its response request ID (%s)',
+    async clientRequestId => {
+      const harness = createHarness();
+      const { req, res } = observe(harness, request({
+        headers: clientRequestId ? { 'x-request-id': clientRequestId } : {},
+      }));
+      const generateRequestId = jest.fn(() => 'generated-inference-123');
+      const checkRateLimit = createRateLimitChecker({
+        limiter: { check: () => ({
+          allowed: false, limitType: 'rpm', limit: 1, retryAfter: 60, remaining: 0, resetAt: 60,
+        }) },
+        metrics: { increment: jest.fn() },
+        logRequest: jest.fn(),
+        generateRequestId,
+        isValidRequestId,
+      });
+      expect(harness.records).toEqual([]);
+      expect(checkRateLimit(req, res, 'copilot', 100)).toBe(true);
+      res.emit('close');
+      const expectedId = clientRequestId === 'client-inference-123' ? clientRequestId : 'generated-inference-123';
+      expect(res.headers['X-Request-ID']).toBe(expectedId);
+      expect(harness.records).toEqual([expect.objectContaining({
+        request_id: expectedId,
+        requested_model: null,
+        requested_effort: null,
+        outcome: 'rejected',
+        status: 429,
+      })]);
+      expect(harness.failures).toEqual([]);
+      expect(generateRequestId).toHaveBeenCalledTimes(clientRequestId === 'client-inference-123' ? 0 : 1);
+      await harness.observation.drain();
+    },
+  );
 
   it('drains a normally completed nonselected provider without duplicate observations', async () => {
     const harness = createHarness();
