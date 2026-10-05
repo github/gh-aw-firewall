@@ -190,7 +190,7 @@ function preserveDirectory({
 }
 
 /** File name the api-proxy sidecar writes per-request token usage records to. */
-export const TOKEN_USAGE_LOG_FILE = 'token-usage.jsonl';
+const TOKEN_USAGE_LOG_FILE = 'token-usage.jsonl';
 
 /**
  * Environment variable exported via `$GITHUB_ENV` with the absolute,
