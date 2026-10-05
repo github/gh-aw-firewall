@@ -152,6 +152,8 @@ function buildProviderRoutingEnv(config: WrapperConfig): Record<string, string> 
     // run and differ between runs/attempts.
     ...(process.env.GITHUB_RUN_ID?.trim() && { GITHUB_RUN_ID: process.env.GITHUB_RUN_ID.trim() }),
     ...(process.env.GITHUB_RUN_ATTEMPT?.trim() && { GITHUB_RUN_ATTEMPT: process.env.GITHUB_RUN_ATTEMPT.trim() }),
+    ...(process.env.GITHUB_REPOSITORY?.trim() && { GITHUB_REPOSITORY: process.env.GITHUB_REPOSITORY.trim() }),
+    ...(process.env.GITHUB_WORKFLOW_REF?.trim() && { GITHUB_WORKFLOW_REF: process.env.GITHUB_WORKFLOW_REF.trim() }),
     ...(getConfigEnvValue(config, 'GITHUB_COPILOT_INTEGRATION_ID') && {
       GITHUB_COPILOT_INTEGRATION_ID: getConfigEnvValue(config, 'GITHUB_COPILOT_INTEGRATION_ID')!,
     }),

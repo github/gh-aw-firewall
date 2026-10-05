@@ -1,5 +1,6 @@
 'use strict';
 
+const { createHash } = require('crypto');
 const { buildRoutingCandidates } = require('./routing-candidates');
 const { extractClassifierOutput, preflightClassifierRequest } = require('./routing-classifier');
 const {
@@ -165,6 +166,7 @@ function createRoutingController(dependencies) {
       assertPlanningRequestSize(classifyRequest);
 
       let classification = null;
+      let successfulClassifier = null;
       let degradedReason = null;
       let classifierPlan;
       try {
@@ -234,6 +236,9 @@ function createRoutingController(dependencies) {
 
         const rawOutput = extractClassifierOutput(mapping.protocol, result.body);
         classification = rawOutput === null ? null : validateClassifierOutput(rawOutput);
+        if (classification !== null) {
+          successfulClassifier = { model: mapping.choice.model, effort: mapping.effort ?? null };
+        }
         if (classification === null) degradedReason = 'invalid_classifier_output';
         break;
       }
@@ -270,6 +275,20 @@ function createRoutingController(dependencies) {
       safeRecord(observer, {
         stage: 'selection',
         objective: config.objective,
+        provider: config.provider || 'copilot',
+        selected_provider: selection.provider,
+        wire_model: selection.wire_model,
+        endpoint: selection.endpoint,
+        labels: classification?.labels ?? null,
+        mode: classification?.mode ?? null,
+        classifier_model: successfulClassifier?.model ?? null,
+        classifier_effort: successfulClassifier?.effort ?? null,
+        router: { name: rawCapabilities.name, version: rawCapabilities.version },
+        ranked_choices: route.ranked_choices.map(choice => ({
+          model: choice.model,
+          effort: choice.effort ?? null,
+        })),
+        conversation_sha256: createHash('sha256').update(JSON.stringify(conversation)).digest('hex'),
         selected_id: selection.choice.id,
         selected_model: selection.choice.model,
         selected_effort: selection.choice.effort ?? null,

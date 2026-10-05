@@ -139,6 +139,16 @@ describe('routing controller', () => {
     const selectionRecord = records.find(record => record.stage === 'selection');
     expect(selectionRecord).toMatchObject({
       objective: { goal: 'cost', mode: 'balanced' },
+      provider: 'copilot',
+      selected_provider: 'copilot',
+      wire_model: 'gpt-test',
+      endpoint: '/responses',
+      labels: VALID_CLASSIFICATION.labels,
+      mode: VALID_CLASSIFICATION.mode,
+      classifier_model: 'github-copilot/gpt-test',
+      classifier_effort: 'low',
+      router: { name: 'gh-aw-router', version: '1.0.0' },
+      ranked_choices: [{ model: 'github-copilot/gpt-test', effort: 'low' }],
       selected_id: 'choice-0001',
       selected_model: 'github-copilot/gpt-test',
       selected_effort: 'low',
@@ -149,6 +159,11 @@ describe('routing controller', () => {
       catalogue_overlap: 1,
     });
     expect(typeof selectionRecord.latency_ms).toBe('number');
+    expect(selectionRecord.conversation_sha256).toBe(
+      require('crypto').createHash('sha256').update(JSON.stringify(CONVERSATION)).digest('hex'),
+    );
+    expect(JSON.stringify(records)).not.toContain('add a test');
+    expect(JSON.stringify(records)).not.toContain('classify the task');
   });
 
   it('routes Anthropic candidates through Messages without changing the selected provider', async () => {
@@ -215,6 +230,84 @@ describe('routing controller', () => {
     expect(planner.route).toHaveBeenCalledTimes(1);
   });
 
+  it('records the successful retry classifier and the full ordered routing ranking', async () => {
+    const { controller, records } = createHarness({
+      models: [
+        { id: 'a-test', efforts: ['low'], protocols: ['responses'], contextWindow: 128_000 },
+        { id: 'b-test', efforts: ['high'], protocols: ['responses'], contextWindow: 128_000 },
+      ],
+      executeResult: attempt => attempt === 1
+        ? { statusCode: 503, body: Buffer.from('{}') }
+        : { statusCode: 200, body: classifierBody(JSON.stringify(VALID_CLASSIFICATION)) },
+      planner: {
+        route: jest.fn(async request => ({
+          ranked_choices: request.models.slice().reverse().map(({ id, model, effort }) => ({ id, model, effort })),
+        })),
+      },
+    });
+    const result = await controller.run();
+    expect(result.ok).toBe(true);
+    expect(records.find(record => record.stage === 'selection')).toMatchObject({
+      classifier_attempts: 2,
+      classifier_model: 'github-copilot/b-test',
+      classifier_effort: 'high',
+      ranked_choices: [
+        { model: 'github-copilot/b-test', effort: 'high' },
+        { model: 'github-copilot/a-test', effort: 'low' },
+      ],
+    });
+  });
+
+  it.each(['success', 'degraded', 'failure', 'unwritable'])('handles real controller %s logs without task or classifier text', async scenario => {
+    const fs = require('fs');
+    const path = require('path');
+    const { createRoutingObserver } = require('./routing-runtime');
+    const directory = fs.mkdtempSync(path.join(require('os').tmpdir(), 'awf-routing-controller-log-'));
+    const saved = process.env.AWF_TOKEN_LOG_DIR;
+    process.env.AWF_TOKEN_LOG_DIR = directory;
+    try {
+      if (scenario === 'unwritable') {
+        process.env.AWF_TOKEN_LOG_DIR = path.join(directory, 'not-a-directory');
+        fs.writeFileSync(process.env.AWF_TOKEN_LOG_DIR, '');
+      }
+      const { controller } = createHarness({
+        ...(scenario === 'degraded' ? {
+          executeResult: () => ({ statusCode: 200, body: classifierBody('private invalid output') }),
+        } : {}),
+        ...(scenario === 'failure' ? {
+          planner: { route: jest.fn(async () => { throw { statusCode: 422, body: { code: 'no_route' } }; }) },
+        } : {}),
+        dependencies: { observer: createRoutingObserver(jest.fn()) },
+      });
+      const result = await controller.run();
+      if (scenario === 'unwritable') {
+        expect(result.ok).toBe(true);
+        expect(result.selection.wire_model).toBe('gpt-test');
+        return;
+      }
+      const text = fs.readFileSync(path.join(directory, 'model-routing.jsonl'), 'utf8');
+      const records = text.trim().split('\n').map(line => JSON.parse(line));
+      expect(records[0]).toMatchObject({ stage: 'classification', attempt: 1 });
+      if (scenario === 'failure') {
+        expect(result.ok).toBe(false);
+        expect(records.at(-1)).toMatchObject({ stage: 'failure', code: 'no_route' });
+      } else {
+        expect(result.ok).toBe(true);
+        expect(records.at(-1)).toMatchObject({
+          stage: 'selection', selected_model: result.selection.choice.model,
+          degraded_classification: scenario === 'degraded',
+        });
+      }
+      for (const privateText of ['add a test', 'classify the task', 'private invalid output']) {
+        expect(text).not.toContain(privateText);
+      }
+    } finally {
+      if (saved === undefined) delete process.env.AWF_TOKEN_LOG_DIR;
+      else process.env.AWF_TOKEN_LOG_DIR = saved;
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   it('omits classification and records degradation for an invalid classifier answer without retrying', async () => {
     const { controller, calls, records } = createHarness({
       models: [
@@ -231,6 +324,10 @@ describe('routing controller', () => {
     expect(result.degradedClassification).toBe(true);
     expect(result.degradedReason).toBe('invalid_classifier_output');
     expect(records.find(record => record.stage === 'selection')).toMatchObject({
+      labels: null,
+      mode: null,
+      classifier_model: null,
+      classifier_effort: null,
       degraded_classification: true,
       degraded_reason: 'invalid_classifier_output',
       classifier_attempts: 1,

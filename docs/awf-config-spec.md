@@ -2102,6 +2102,55 @@ case-insensitive with `*` wildcards, and deny rules take precedence. A
 provider-prefixed `auto` remains subject to dynamic-model verification: under
 a denylist it must also match an explicit allow rule.
 
+### 13a.1 Model-routing audit records
+
+When task-level routing is active, the proxy MUST attempt to persist `model-routing.jsonl`
+in `apiProxy.logging.tokenLogDir` (`AWF_TOKEN_LOG_DIR`, default
+`/var/log/api-proxy`) independently of diagnostic logging. Records MUST include
+`_schema: "model-routing/v<AWF_VERSION>"`, `timestamp` as specified in §13.4,
+`event: "model_routing"`, and `stage` equal to `classification`, `selection`,
+`failure`, or `request`.
+
+Every selection record MUST include:
+
+- `selected_model` as the canonical provider-qualified ID, `selected_effort`
+  (or `null`), and `selected_provider`;
+- `wire_model` and `endpoint` matching the selected route advertised in
+  `/reflect`;
+- `labels` and `mode` from validated classification, or `null` when
+  classification did not succeed;
+- `classifier_model` and `classifier_effort` identifying the successful
+  classifier, or `null` when no classifier succeeded;
+- `router` containing `name` and `version`;
+- `ranked_choices` in router preference order, each with `model` and `effort`;
+- the routing `objective` and configured `provider`;
+- `conversation_sha256`, the SHA-256 digest of the UTF-8 `JSON.stringify`
+  serialization of the validated staged conversation;
+- `interaction_id` from the existing Copilot interaction-ID builder; and
+- `github_repository` and `github_workflow_ref` when available.
+
+Every request record MUST retain the advisory comparison (`routed`,
+`deviations`, `selected_model`, `selected_effort`, `selected_provider`,
+`selected_endpoint`, `requested_model`, and `requested_effort`, with `provider`
+and `pathname` identifying the requested provider and endpoint) and
+include `request_id`, terminal `outcome` (`completed`, `rejected`, `failed`,
+or `aborted`), and `status` (final HTTP status). Request-side model fields
+use the wire representation used for comparison, unlike canonical selection
+model fields. A model-policy rejection MUST NOT be reported as successful
+completion. Stream errors and premature closure MUST NOT be treated as
+completion merely because HTTP headers indicated success. When token usage is
+available, `request_id` MUST correlate with the corresponding
+`token-usage.jsonl` record; not every rejected or aborted call produces usage.
+
+These records MUST NOT contain raw conversation or prompt text, raw classifier
+output, or request/response bodies. Optional conversation capture is not
+implemented and remains outside the routing audit contract. AWF MUST attempt to preserve
+the audit file alongside the other API-proxy logs described in §13.4.
+Audit writes are synchronous and best-effort; disk success is not guaranteed,
+and logging errors MUST NOT change routing or inference behavior. The writer
+MUST use owner-only file permissions (`0600`)
+and MUST NOT follow symbolic links. No explicit flush is required.
+
 ## 13. Model Alias Logging
 
 The API proxy emits structured logging events during model alias resolution.
@@ -2167,7 +2216,7 @@ apiProxy:
 | Property | Type | Default | Env var | Description |
 |----------|------|---------|---------|-------------|
 | `apiProxy.logging.debugTokens` | boolean | `false` | `AWF_DEBUG_TOKENS` | Enable diagnostic token/model-alias logging to file |
-| `apiProxy.logging.tokenLogDir` | string | `/var/log/api-proxy` | `AWF_TOKEN_LOG_DIR` | Directory for `token-usage.jsonl` and `token-diag.jsonl` |
+| `apiProxy.logging.tokenLogDir` | string | `/var/log/api-proxy` | `AWF_TOKEN_LOG_DIR` | Directory for `token-usage.jsonl`, `model-routing.jsonl`, and `token-diag.jsonl` |
 | `apiProxy.diagnostics.captureBlockedRequests` | string \| boolean | `false` | `AWF_CAPTURE_BLOCKED_LLM_REQUESTS` | Capture body-shape info for guard-blocked requests (`false`/`true`/`summary`/`redacted`/`full`; `true` is an alias for `summary`) |
 | `apiProxy.diagnostics.maxCapturedBytes` | integer | `250000` | `AWF_MAX_BLOCKED_CAPTURE_BYTES` | Max bytes per record in `full` capture mode |
 
@@ -2206,6 +2255,7 @@ without hardcoding a path (see [ARC + DinD](arc-dind.md#locating-api-proxy-token
 | File | Format | Description | Always written |
 |------|--------|-------------|----------------|
 | `token-usage.jsonl` | JSONL (`token-usage/v<version>` schema) | Per-API-call token usage and cost records | Yes (when API proxy is active) |
+| `model-routing.jsonl` | JSONL (`model-routing/v<AWF_VERSION>` schema) | Routing classification, selection, failure, and terminal request audit records; metadata only | Yes (when task-level routing is active) |
 | `token-diag.jsonl` | JSONL (`token-diag/v<version>` schema) | Diagnostic events: model resolution steps, alias rewrites, token budget decisions | Only when `apiProxy.logging.debugTokens: true` |
 | `blocked-request-diag.jsonl` | JSONL (`blocked-request-diag/v<version>` schema) | Body-shape diagnostics for guard-blocked requests (effective tokens, AI credits, etc.) | Only when `apiProxy.diagnostics.captureBlockedRequests` is set |
 | `otel.jsonl` | JSONL (OpenTelemetry spans) | Distributed tracing spans; written as local fallback when no OTLP collector is configured | Only when OTEL is active and no collector endpoint set |

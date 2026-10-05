@@ -817,6 +817,55 @@ side. Only genuine routing failures (no selection could be produced, or an
 upstream failure on a request that used the selected provider and model) end
 the run with exit `78`.
 
+### Model-routing audit log
+
+When task-level routing is active, the sidecar always writes
+`model-routing.jsonl` under `AWF_TOKEN_LOG_DIR` (default
+`/var/log/api-proxy`), alongside `token-usage.jsonl`. This audit log does not
+require `AWF_DEBUG_TOKENS`. AWF preserves it with the other API-proxy logs
+under `<logging.proxyLogsDir>/api-proxy-logs/`.
+Writes are synchronous and best-effort: a logging failure does not change
+routing or inference behavior, and no explicit flush is required. The writer uses
+owner-only file permissions (`0600`) and refuses symbolic links.
+
+Every record includes `_schema: "model-routing/v<AWF_VERSION>"`, an ISO 8601
+UTC `timestamp`, `event: "model_routing"`, and a `stage` of `classification`,
+`selection`, `failure`, or `request`.
+
+Selection records describe the decision, not merely the winning model:
+
+| Field | Meaning |
+|-------|---------|
+| `selected_model`, `selected_effort`, `selected_provider` | Canonical provider-qualified model, selected effort (or `null`), and provider. |
+| `wire_model`, `endpoint` | Wire model and endpoint advertised in `/reflect` for the selected model. |
+| `labels`, `mode` | Validated classification labels and mode, or `null` when classification did not succeed. |
+| `classifier_model`, `classifier_effort` | Successful classifier's canonical model and effort, or `null` when no classifier succeeded. |
+| `router` | Router identity as `{name, version}`. |
+| `ranked_choices` | Ordered router choices, each containing `model` and `effort`. |
+| `objective`, `provider` | Routing objective and configured routing provider. |
+| `conversation_sha256` | SHA-256 digest of `JSON.stringify` of the validated staged conversation, not the original file bytes. |
+| `interaction_id` | ID produced by the existing Copilot interaction-ID builder. |
+| `github_repository`, `github_workflow_ref` | GitHub run context, when available. |
+
+Request records retain `routed` (`as_selected` or `deviated`), `deviations`,
+`selected_model`, `selected_effort`, `selected_provider`, `selected_endpoint`,
+`requested_model`, and `requested_effort`; `provider` and `pathname` identify
+the requested provider and endpoint. Selection
+records use a canonical model ID; request records use the request-side model
+representation for comparison. Each request record includes `request_id`,
+`outcome` (`completed`, `rejected`, `failed`, or `aborted`), and `status`
+(the final HTTP status). A policy-rejected deviation remains a rejection, not
+a failure to select a route. HTTP success alone does not imply `completed`:
+stream errors or premature termination can produce `failed` or `aborted`.
+Join `request_id` to `token-usage.jsonl` when a usage record is available;
+rejected or aborted calls may have no token-usage record.
+Classifier usage rows have `purpose: "routing_classification"` and are not
+primary inference request records.
+
+The log contains routing metadata only: no raw conversation, prompt,
+classifier response text, or request/response body is captured. Optional
+conversation capture is not implemented and is outside this contract.
+
 Copilot discovery requests use API version `2026-07-01`. Runtime Copilot prices
 override bundled prices, including default and long-context tiers. Other
 providers continue to use bundled pricing because their model-list APIs do not

@@ -27,6 +27,7 @@ const { parseRoutingConfig } = require('./routing-config');
 const { createRoutingController } = require('./routing-controller');
 const { createRoutingError, RoutingError, toRoutingFailure } = require('./routing-errors');
 const { createRoutingObservation } = require('./routing-observation');
+const { writeRoutingRecord } = require('./routing-persistence');
 const { createRoutingProviderExecutor } = require('./routing-provider-executor');
 const { createRoutingRouterClient } = require('./routing-router-client');
 const { cachedModels } = require('./key-validation');
@@ -66,7 +67,12 @@ function createRoutingObserver(writeLog = logRequest) {
   return Object.freeze({
     record(record) {
       const level = record.stage === 'failure' ? 'warn' : 'info';
-      writeLog(level, 'model_routing', record);
+      try {
+        writeLog(level, 'model_routing', record);
+      } catch {
+        // Console logging must not prevent persistence or affect routing.
+      }
+      writeRoutingRecord(record);
     },
   });
 }

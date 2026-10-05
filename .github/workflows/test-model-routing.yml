@@ -153,7 +153,7 @@ jobs:
           ' "$response"
           SCRIPT
           )"
-          sudo --preserve-env=COPILOT_GITHUB_TOKEN,GITHUB_WORKSPACE,HOME,PATH \
+          sudo --preserve-env=COPILOT_GITHUB_TOKEN,GITHUB_WORKSPACE,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,GITHUB_REPOSITORY,GITHUB_WORKFLOW_REF,HOME,PATH \
             node dist/cli.js --config "${ROUTING_DIR}/awf-config.yml" -- bash -euc "$ROUTED_COMMAND"
 
       - name: Run an effort-routed Copilot inference through AWF
@@ -260,7 +260,7 @@ jobs:
           done
           SCRIPT
           )"
-          sudo --preserve-env=COPILOT_GITHUB_TOKEN,GITHUB_WORKSPACE,HOME,PATH \
+          sudo --preserve-env=COPILOT_GITHUB_TOKEN,GITHUB_WORKSPACE,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,GITHUB_REPOSITORY,GITHUB_WORKFLOW_REF,HOME,PATH \
             node dist/cli.js --config "${ROUTING_DIR}/awf-config.yml" -- bash -euc "$ROUTED_COMMAND"
 
       - name: Route between two Copilot candidates and allow a deviating choice
@@ -268,7 +268,7 @@ jobs:
           COPILOT_GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          ROUTING_DIR="${RUNNER_TEMP}/model-routing-multi"
+          ROUTING_DIR="${GITHUB_WORKSPACE}/.routing-smoke/multi"
           mkdir -m 700 -p "$ROUTING_DIR"
           cat > "${ROUTING_DIR}/conversation.json" <<'JSON'
           [{"role":"user","parts":[{"text":"Reply with exactly ROUTED_OK."}]}]
@@ -339,6 +339,10 @@ jobs:
               );
             }
             const s = routing.selection;
+            require("node:fs").writeFileSync(
+              process.env.ROUTING_EVIDENCE_DIR + "/selection-" + process.env.ROUTING_TARGET + ".json",
+              JSON.stringify(s) + "\n",
+            );
             const candidates = {
               "github-copilot/claude-haiku-4.5": {
                 path: "/chat/completions",
@@ -394,16 +398,117 @@ jobs:
           )"
 
           echo "::group::Routed choice is admitted"
-          sudo --preserve-env=COPILOT_GITHUB_TOKEN,GITHUB_WORKSPACE,HOME,PATH \
-            node dist/cli.js --config "${ROUTING_DIR}/awf-config.yml" --env ROUTING_TARGET=selected -- bash -euc "$ROUTED_COMMAND"
+          sudo --preserve-env=COPILOT_GITHUB_TOKEN,GITHUB_WORKSPACE,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,GITHUB_REPOSITORY,GITHUB_WORKFLOW_REF,HOME,PATH \
+            node dist/cli.js --config "${ROUTING_DIR}/awf-config.yml" \
+            --proxy-logs-dir "${ROUTING_DIR}/logs-selected" \
+            --env ROUTING_EVIDENCE_DIR="${ROUTING_DIR}" --env ROUTING_TARGET=selected -- bash -euc "$ROUTED_COMMAND"
           echo "::endgroup::"
 
           echo "::group::Non-selected candidate is admitted (advisory routing)"
           # A deviating request is not a routing failure: the run must exit 0.
-          sudo --preserve-env=COPILOT_GITHUB_TOKEN,GITHUB_WORKSPACE,HOME,PATH \
-            node dist/cli.js --config "${ROUTING_DIR}/awf-config.yml" --env ROUTING_TARGET=other -- bash -euc "$ROUTED_COMMAND"
+          sudo --preserve-env=COPILOT_GITHUB_TOKEN,GITHUB_WORKSPACE,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,GITHUB_REPOSITORY,GITHUB_WORKFLOW_REF,HOME,PATH \
+            node dist/cli.js --config "${ROUTING_DIR}/awf-config.yml" \
+            --proxy-logs-dir "${ROUTING_DIR}/logs-other" \
+            --env ROUTING_EVIDENCE_DIR="${ROUTING_DIR}" --env ROUTING_TARGET=other -- bash -euc "$ROUTED_COMMAND"
           echo "::endgroup::"
           echo "ROUTED_DEVIATION_EXIT=0"
+
+      - name: Assert preserved routing selection and terminal request records
+        run: |
+          node <<'JS'
+          const assert = require("node:assert/strict");
+          const fs = require("node:fs");
+          const path = require("node:path");
+          const crypto = require("node:crypto");
+          const root = path.join(process.env.GITHUB_WORKSPACE, ".routing-smoke/multi");
+          const readJsonl = file => fs.readFileSync(file, "utf8").trim().split("\n").filter(Boolean).map(JSON.parse);
+          const conversation = JSON.parse(fs.readFileSync(path.join(root, "conversation.json"), "utf8"));
+          const digest = crypto.createHash("sha256").update(JSON.stringify(conversation)).digest("hex");
+          for (const target of ["selected", "other"]) {
+            const reflected = JSON.parse(fs.readFileSync(path.join(root, `selection-${target}.json`), "utf8"));
+            const logs = path.join(root, `logs-${target}`, "api-proxy-logs");
+            const records = readJsonl(path.join(logs, "model-routing.jsonl"));
+            for (const record of records) {
+              assert.match(record._schema, /^model-routing\/v.+$/);
+              assert.equal(record.event, "model_routing");
+              assert.ok(["classification", "selection", "failure", "request"].includes(record.stage));
+              assert.ok(Number.isFinite(Date.parse(record.timestamp)));
+              assert.ok(!JSON.stringify(record).includes("Reply with exactly ROUTED_OK."), "audit captured prompt text");
+              assert.ok(!JSON.stringify(record).includes("This request must be blocked by model policy."), "audit captured rejected prompt text");
+            }
+            const selections = records.filter(record => record.stage === "selection");
+            assert.equal(selections.length, 1, "expected one selection per routed run");
+            const selection = selections[0];
+            assert.equal(selection.selected_model, reflected.model);
+            assert.equal(selection.wire_model, reflected.wire_model);
+            assert.equal(selection.endpoint, reflected.endpoint);
+            assert.equal(selection.selected_effort, reflected.effort);
+            assert.equal(selection.selected_provider, reflected.provider);
+            assert.equal(selection.conversation_sha256, digest);
+            assert.deepEqual(selection.objective, { goal: "cost", mode: "balanced" });
+            assert.equal(selection.provider, "copilot");
+            assert.equal(typeof selection.interaction_id, "string");
+            if (process.env.GITHUB_RUN_ID) {
+              assert.equal(selection.interaction_id, process.env.GITHUB_RUN_ID + "-" + (process.env.GITHUB_RUN_ATTEMPT || "1"));
+            }
+            for (const [field, env] of [["github_repository", "GITHUB_REPOSITORY"], ["github_workflow_ref", "GITHUB_WORKFLOW_REF"]]) {
+              if (process.env[env]) assert.equal(selection[field], process.env[env]);
+            }
+            assert.equal(typeof selection.router.name, "string");
+            assert.equal(typeof selection.router.version, "string");
+            assert.ok(selection.ranked_choices.length > 0);
+            assert.equal(selection.ranked_choices[0].model, reflected.model);
+            assert.equal(selection.ranked_choices[0].effort, reflected.effort);
+            for (const field of ["labels", "mode", "classifier_model", "classifier_effort"]) {
+              assert.ok(Object.hasOwn(selection, field), `missing ${field}`);
+            }
+            const requests = records.filter(record => record.stage === "request");
+            assert.equal(requests.length, target === "selected" ? 1 : 2);
+            const inference = requests.find(record => record.outcome === "completed");
+            assert.ok(inference, "missing completed inference record");
+            assert.equal(inference.status, 200);
+            assert.equal(inference.selected_model, reflected.wire_model);
+            assert.equal(inference.selected_effort, reflected.effort);
+            assert.equal(inference.selected_provider, reflected.provider);
+            assert.equal(inference.selected_endpoint, reflected.endpoint);
+            assert.equal(inference.provider, "copilot");
+            const requestedModel = target === "selected" ? reflected.wire_model
+              : ["claude-haiku-4.5", "gpt-5.4-mini"].find(model => model !== reflected.wire_model);
+            assert.equal(inference.requested_model, requestedModel);
+            const requestedEndpoint = requestedModel === "gpt-5.4-mini" ? "/responses" : "/chat/completions";
+            const requestedEffort = requestedModel === "gpt-5.4-mini" ? (reflected.effort ?? "low") : null;
+            assert.equal(inference.pathname, requestedEndpoint);
+            assert.equal(inference.requested_effort, requestedEffort);
+            assert.equal(inference.routed, target === "selected" ? "as_selected" : "deviated");
+            const deviations = [];
+            if (requestedModel !== reflected.wire_model) deviations.push("model");
+            if (requestedEffort !== reflected.effort) deviations.push("effort");
+            if (requestedEndpoint !== reflected.endpoint) deviations.push("endpoint");
+            assert.deepEqual(inference.deviations, deviations);
+            if (target === "other") {
+              const rejection = requests.find(record => record.requested_model === "gpt-4o");
+              assert.ok(rejection, "missing model-policy rejection record");
+              assert.equal(rejection.outcome, "rejected");
+              assert.equal(rejection.status, 403);
+              assert.equal(rejection.routed, "deviated");
+              assert.ok(rejection.deviations.includes("model"));
+            }
+            assert.ok(!records.some(record => record.stage === "failure"), "advisory deviation caused a routing failure");
+            const usageFile = path.join(logs, "token-usage.jsonl");
+            const usage = fs.existsSync(usageFile) ? readJsonl(usageFile) : [];
+            for (const request of requests) {
+              assert.equal(typeof request.request_id, "string");
+              assert.ok(request.request_id.length > 0);
+            }
+            const correlated = usage.filter(record => record.request_id && record.purpose !== "routing_classification");
+            assert.ok(correlated.length > 0, "completed inference has no token-usage request ID");
+            for (const record of correlated) {
+              assert.ok(requests.some(request => request.request_id === record.request_id),
+                "token usage did not correlate with a terminal routing request");
+            }
+            console.log(`ROUTING_AUDIT=passed target=${target} correlated_usage=${correlated.length}`);
+          }
+          JS
 
       - name: Install the Copilot CLI used by gh-aw
         env:
@@ -481,7 +586,7 @@ jobs:
           echo "ROUTED_COPILOT_CLI=passed model=${model} effort=${effort:-none}"
           SCRIPT
           )"
-          sudo --preserve-env=COPILOT_GITHUB_TOKEN,GITHUB_WORKSPACE,HOME,PATH \
+          sudo --preserve-env=COPILOT_GITHUB_TOKEN,GITHUB_WORKSPACE,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,GITHUB_REPOSITORY,GITHUB_WORKFLOW_REF,HOME,PATH \
             node dist/cli.js --config "${ROUTING_DIR}/awf-config.yml" -- bash -euc "$ROUTED_COMMAND"
 
       - name: Show Docker state on failure
@@ -660,7 +765,7 @@ jobs:
           ' "$response" "$ROUTING_PROVIDER" "$ROUTING_MODEL"
           SCRIPT
           )"
-          sudo --preserve-env=OPENAI_API_KEY,ANTHROPIC_API_KEY,ROUTING_PROVIDER,ROUTING_MODEL,ROUTING_WIRE_MODEL,GITHUB_WORKSPACE,HOME,PATH \
+          sudo --preserve-env=OPENAI_API_KEY,ANTHROPIC_API_KEY,ROUTING_PROVIDER,ROUTING_MODEL,ROUTING_WIRE_MODEL,GITHUB_WORKSPACE,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,GITHUB_REPOSITORY,GITHUB_WORKFLOW_REF,HOME,PATH \
             node dist/cli.js --config "${ROUTING_DIR}/awf-config.yml" \
             --env ROUTING_PROVIDER="${ROUTING_PROVIDER}" --env ROUTING_MODEL="${ROUTING_MODEL}" --env ROUTING_WIRE_MODEL="${ROUTING_WIRE_MODEL}" \
             -- bash -euc "$ROUTED_COMMAND"

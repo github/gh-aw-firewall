@@ -138,6 +138,21 @@ describe('buildProviderRoutingEnv', () => {
     expect(env.COPILOT_INTEGRATION_ID).toBe('my-integration');
   });
 
+  it.each(['GITHUB_REPOSITORY', 'GITHUB_WORKFLOW_REF'])('forwards nonempty %s for routing evidence', (key) => {
+    const saved = process.env[key];
+    try {
+      process.env[key] = '  owner/repo  ';
+      expect(buildProviderRoutingEnv({ ...baseConfig, workDir: '/tmp/awf-test' })[key]).toBe('owner/repo');
+      process.env[key] = '   ';
+      expect(buildProviderRoutingEnv({ ...baseConfig, workDir: '/tmp/awf-test' })[key]).toBeUndefined();
+      delete process.env[key];
+      expect(buildProviderRoutingEnv({ ...baseConfig, workDir: '/tmp/awf-test' })[key]).toBeUndefined();
+    } finally {
+      if (saved !== undefined) process.env[key] = saved;
+      else delete process.env[key];
+    }
+  });
+
   it('omits COPILOT_INTEGRATION_ID when whitespace-only', () => {
     const env = buildProviderRoutingEnv({
       ...baseConfig,

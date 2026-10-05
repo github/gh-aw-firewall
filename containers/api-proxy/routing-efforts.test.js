@@ -105,8 +105,10 @@ function readResult(outputDir, name) {
 
 function sendRequest(session, records, url, payload) {
   const req = { method: 'POST', url, headers: {} };
-  session.observeRequest(req, new FakeResponse(), { name: 'copilot' });
+  const res = new FakeResponse();
+  session.observeRequest(req, res, { name: 'copilot' });
   expect(req.awfRouting.bodyTransform(Buffer.from(JSON.stringify(payload), 'utf8'))).toBeNull();
+  res.end();
   return records.filter(record => record.stage === 'request').at(-1);
 }
 
