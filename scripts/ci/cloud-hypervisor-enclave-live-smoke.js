@@ -607,6 +607,7 @@ function makeConfig(artifacts, workDir, workspace, handoff) {
       artifactManifestBundlePath: path.join(main, RELEASE_ASSETS[2]),
       vcpuCount: 1,
       memoryMib: 768,
+      apiTimeoutMs: require('../../dist/types/runtime-options').CLOUD_HYPERVISOR_DEFAULT_API_TIMEOUT_MS,
     },
     enclaves: [
       {

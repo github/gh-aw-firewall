@@ -107,6 +107,7 @@ describe('host-owned enclave startup faults', () => {
     expect(source).toContain('await super.vmCreate(config)');
     expect(source).toContain('await super.vmBoot()');
     expect(source).toContain('ProductionTrustedCloudHypervisorEnclaveStorageProvider');
+    expect(source).toContain("'host-invocations', runId");
     expect(source).toContain('createHostExecutorClient');
     expect(source).toContain('client.settle');
     expect(source).toContain('validateRecord(cleanup');

@@ -79,6 +79,9 @@ describe('Cloud Hypervisor enclave live acceptance harness', () => {
     const source = fs.readFileSync(harnessPath, 'utf8');
     expect(source).toContain('setup-enclave-artifacts.sh');
     expect(source).toContain("run('gh', [");
+    expect(source).toContain(
+      "apiTimeoutMs: require('../../dist/types/runtime-options').CLOUD_HYPERVISOR_DEFAULT_API_TIMEOUT_MS",
+    );
     expect(source).not.toMatch(/DEVELOPMENT_ALLOW_UNATTESTED|allow-unattested|fake.?vm|mock.?manager/i);
   });
 

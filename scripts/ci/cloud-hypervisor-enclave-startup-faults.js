@@ -88,7 +88,9 @@ async function runStartupFaultProbes(options) {
     require('../../dist/cloud-hypervisor/trusted-enclave-storage');
   const { startCloudHypervisorEnclaveHostService } =
     require('../../dist/enclave/cloud-hypervisor-host-service');
-  const { hostExecutorVmRunId } = require('../../dist/enclave/host-executor-journal');
+  const {
+    HOST_EXECUTOR_DEFAULT_JOURNAL_DIRECTORY, hostExecutorVmRunId,
+  } = require('../../dist/enclave/host-executor-journal');
   const { finiteSchemaHash } = require('../../dist/bounded-execution/schema-hash');
   const { processMatches } = require('../../dist/cloud-hypervisor/cleanup-process');
   const { resolveCleanupDependencies } = require('../../dist/cloud-hypervisor/cleanup-dependencies');
@@ -106,12 +108,15 @@ async function runStartupFaultProbes(options) {
       const runId = crypto.randomBytes(16).toString('hex');
       const invocationId = crypto.randomBytes(16).toString('hex');
       const seedId = crypto.randomBytes(16).toString('hex');
+      const invocationsDir = path.join(
+        path.dirname(HOST_EXECUTOR_DEFAULT_JOURNAL_DIRECTORY), 'host-invocations', runId,
+      );
       const seedsDir = path.join(directory, 'seeds');
       fs.mkdirSync(seedsDir, { mode: 0o700 });
       fs.mkdirSync(path.join(seedsDir, seedId), { mode: 0o700 });
       fs.copyFileSync(path.resolve(__dirname, '../../README.md'), path.join(seedsDir, seedId, 'README.md'));
       const runState = {
-        runId, seedsDir, invocationsDir: path.join(directory, 'invocations'),
+        runId, seedsDir, invocationsDir,
         entries: [{
           entryId: role, executorKind: role, timeoutMs: 180_000,
           staticSeedIds: [seedId], dynamicAgents: false,
