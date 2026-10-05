@@ -101,7 +101,7 @@ function extractGhesDomainsFromEngineApiTarget(
 }
 
 /** OTEL environment variables that carry an OTLP collector endpoint URL. */
-export const OTLP_ENDPOINT_ENV_VARS = [
+const OTLP_ENDPOINT_ENV_VARS = [
   'OTEL_EXPORTER_OTLP_ENDPOINT',
   'OTEL_EXPORTER_OTLP_TRACES_ENDPOINT',
   'OTEL_EXPORTER_OTLP_METRICS_ENDPOINT',

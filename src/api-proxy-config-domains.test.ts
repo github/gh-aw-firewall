@@ -1,3 +1,4 @@
+import * as apiProxyConfigDomains from './api-proxy-config-domains';
 import {
   extractOtlpEndpointsFromEnv,
   resolveApiTargetsToAllowedDomains,
@@ -474,6 +475,10 @@ describe('resolveApiTargetsToAllowedDomains with GHES', () => {
 });
 
 describe('OTLP endpoint resolution', () => {
+  it('keeps the endpoint environment variable list module-private', () => {
+    expect(apiProxyConfigDomains).not.toHaveProperty('OTLP_ENDPOINT_ENV_VARS');
+  });
+
   it('resolves env values with additional env, env-file, then host precedence', () => {
     expect(resolveOtlpEndpointEnv(
       { OTEL_EXPORTER_OTLP_ENDPOINT: 'https://additional.example.com' },

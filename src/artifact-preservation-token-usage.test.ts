@@ -15,10 +15,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { mockExecaSync } from './test-helpers/mock-execa.test-utils';
-import {
-  preserveCleanupArtifacts,
-  TOKEN_USAGE_LOG_ENV_VAR,
-} from './artifact-preservation';
+import { preserveCleanupArtifacts } from './artifact-preservation';
 
 const TOKEN_USAGE_LOG_FILENAME = 'token-usage.jsonl';
 
@@ -64,7 +61,7 @@ describe('preserveCleanupArtifacts – token usage log path', () => {
 
     preserveCleanupArtifacts(workDir, { proxyLogsDir });
 
-    expect(readExports()).toBe(`${TOKEN_USAGE_LOG_ENV_VAR}=${tokenUsage}\n`);
+    expect(readExports()).toBe(`AWF_TOKEN_USAGE_LOG=${tokenUsage}\n`);
   });
 
   it('exports the token-usage path from a configured API-proxy log subdirectory', () => {
@@ -74,7 +71,7 @@ describe('preserveCleanupArtifacts – token usage log path', () => {
 
     preserveCleanupArtifacts(workDir, { proxyLogsDir, tokenLogDir });
 
-    expect(readExports()).toBe(`${TOKEN_USAGE_LOG_ENV_VAR}=${tokenUsage}\n`);
+    expect(readExports()).toBe(`AWF_TOKEN_USAGE_LOG=${tokenUsage}\n`);
   });
 
   it('keeps the RUNNER_TEMP path under arc-dind with a daemon-only /host prefix', () => {
@@ -86,7 +83,7 @@ describe('preserveCleanupArtifacts – token usage log path', () => {
 
     preserveCleanupArtifacts(workDir, { proxyLogsDir, dockerHostPathPrefix: '/host' });
 
-    expect(readExports()).toBe(`${TOKEN_USAGE_LOG_ENV_VAR}=${tokenUsage}\n`);
+    expect(readExports()).toBe(`AWF_TOKEN_USAGE_LOG=${tokenUsage}\n`);
   });
 
   it('follows the shared /tmp prefix translation for a log dir outside /tmp', () => {
@@ -99,7 +96,7 @@ describe('preserveCleanupArtifacts – token usage log path', () => {
 
     preserveCleanupArtifacts(workDir, { proxyLogsDir, dockerHostPathPrefix: '/tmp' });
 
-    expect(readExports()).toBe(`${TOKEN_USAGE_LOG_ENV_VAR}=${tokenUsage}\n`);
+    expect(readExports()).toBe(`AWF_TOKEN_USAGE_LOG=${tokenUsage}\n`);
     expect(fs.existsSync(proxyLogsDir)).toBe(false);
   });
 
@@ -124,7 +121,7 @@ describe('preserveCleanupArtifacts – token usage log path', () => {
     preserveCleanupArtifacts(workDir);
 
     expect(readExports()).toBe(
-      `${TOKEN_USAGE_LOG_ENV_VAR}=${path.join(preserved, TOKEN_USAGE_LOG_FILENAME)}\n`,
+      `AWF_TOKEN_USAGE_LOG=${path.join(preserved, TOKEN_USAGE_LOG_FILENAME)}\n`,
     );
   });
 
