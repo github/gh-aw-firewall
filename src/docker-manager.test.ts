@@ -110,53 +110,6 @@ describe('docker-manager (barrel re-exports)', () => {
     });
   });
 
-  describe('parseDifcProxyHost via barrel', () => {
-    it('defaults for empty input', () => {
-      expect(dockerManager.parseDifcProxyHost('  ')).toEqual({ host: 'host.docker.internal', port: '18443' });
-    });
-
-    it('parses host:port, schemes and bracketed IPv6', () => {
-      expect(dockerManager.parseDifcProxyHost('example.com:9000')).toEqual({ host: 'example.com', port: '9000' });
-      expect(dockerManager.parseDifcProxyHost('https://example.com:443')).toEqual({ host: 'example.com', port: '443' });
-      expect(dockerManager.parseDifcProxyHost('[::1]:8080')).toEqual({ host: '::1', port: '8080' });
-      expect(dockerManager.parseDifcProxyHost('example.com')).toEqual({ host: 'example.com', port: '18443' });
-    });
-
-    it('rejects malformed or out-of-range values', () => {
-      expect(() => dockerManager.parseDifcProxyHost('host:abc')).toThrow(/Invalid --difc-proxy-host/);
-      expect(() => dockerManager.parseDifcProxyHost('host:0')).toThrow(/Invalid --difc-proxy-host/);
-      expect(() => dockerManager.parseDifcProxyHost('host:70000')).toThrow(/Invalid --difc-proxy-host/);
-    });
-  });
-
-  describe('filterComposeCapDrop via barrel', () => {
-    const original = process.env.AWF_SKIP_CAP_DROP;
-    afterEach(() => {
-      if (original === undefined) delete process.env.AWF_SKIP_CAP_DROP;
-      else process.env.AWF_SKIP_CAP_DROP = original;
-    });
-
-    it('filters per service and removes empty cap_drop', () => {
-      delete process.env.AWF_SKIP_CAP_DROP;
-      const cfg = {
-        services: {
-          a: { image: 'x', cap_drop: ['ALL', 'NET_ADMIN', 'SYS_ADMIN'] },
-          b: { image: 'y', cap_drop: ['SYS_ADMIN'] },
-          c: { image: 'z' },
-        },
-      } as any; // eslint-disable-line @typescript-eslint/no-explicit-any
-      const out = dockerManager.filterComposeCapDrop(cfg, BigInt(1) << BigInt(12)) as any; // eslint-disable-line @typescript-eslint/no-explicit-any
-      expect(out.services.a.cap_drop).toEqual(['ALL', 'NET_ADMIN']);
-      expect(out.services.b.cap_drop).toBeUndefined();
-      expect(out.services.c.cap_drop).toBeUndefined();
-    });
-
-    it('returns config unchanged when services are missing', () => {
-      const cfg = {} as any; // eslint-disable-line @typescript-eslint/no-explicit-any
-      expect(dockerManager.filterComposeCapDrop(cfg, null)).toBe(cfg);
-    });
-  });
-
   describe('filterCapDrop via barrel', () => {
     it('returns empty for undefined or empty lists', () => {
       expect(dockerManager.filterCapDrop(undefined, null)).toEqual([]);
