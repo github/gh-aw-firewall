@@ -201,7 +201,7 @@ the runner did not set `GITHUB_PATH`, and the tool's bin directory must already 
 
 ## Token Usage Log in GitHub Actions
 
-When AWF preserves an API-proxy token usage log in GitHub Actions, it exports its runner-visible path as `AWF_TOKEN_USAGE_LOG` via `$GITHUB_ENV`. Later workflow steps can read this variable to locate `token-usage.jsonl`; it is only set when the log file exists. See [ARC/DinD token usage guidance](arc-dind.md#token-usage-log-path).
+When AWF preserves an API-proxy token usage log in GitHub Actions, it exports its runner-visible path as `AWF_TOKEN_USAGE_LOG` via `$GITHUB_ENV`. Later workflow steps can read this variable to locate `token-usage.jsonl`; it is only set when the log file exists. See [ARC/DinD token usage guidance](arc-dind.md#locating-api-proxy-token-usage-logs).
 
 ## Debugging Environment Variables
 
