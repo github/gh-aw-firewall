@@ -1043,7 +1043,7 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
       })).rejects.toThrow('does not match the trusted manifest path');
 
       await fs.chmod(scriptProvenancePath, 0o600);
-      await fs.writeFile(scriptProvenancePath, Buffer.alloc(8 * 1024 * 1024 + 1, 0x61));
+      await fs.truncate(scriptProvenancePath, 8 * 1024 * 1024 + 1);
       await fs.chmod(scriptProvenancePath, 0o400);
       await expect(preflightCloudHypervisorEnclaveArtifacts({
         releaseTag,
@@ -1059,7 +1059,7 @@ describe('readBoundedCloudHypervisorEnclaveResult', () => {
       await fs.chmod(scriptProvenancePath, 0o400);
       const agentSbomPath = path.join(scratch, agentArtifact.sbom.file);
       await fs.chmod(agentSbomPath, 0o600);
-      await fs.writeFile(agentSbomPath, Buffer.alloc(16 * 1024 * 1024 + 1, 0x61));
+      await fs.truncate(agentSbomPath, 16 * 1024 * 1024 + 1);
       await fs.chmod(agentSbomPath, 0o400);
       await expect(preflightCloudHypervisorEnclaveArtifacts({
         releaseTag,
