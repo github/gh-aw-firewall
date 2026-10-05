@@ -138,7 +138,7 @@ jobs:
             ghcr.io/${{ github.repository }}/squid@${{ steps.build_squid.outputs.digest }}
 
       - name: Generate SBOM for Squid image
-        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
         with:
           image: ghcr.io/${{ github.repository }}/squid@${{ steps.build_squid.outputs.digest }}
           format: spdx-json
@@ -210,7 +210,7 @@ jobs:
             ghcr.io/${{ github.repository }}/agent@${{ steps.build_agent.outputs.digest }}
 
       - name: Generate SBOM for Agent image
-        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
         with:
           image: ghcr.io/${{ github.repository }}/agent@${{ steps.build_agent.outputs.digest }}
           format: spdx-json
@@ -275,7 +275,7 @@ jobs:
             ghcr.io/${{ github.repository }}/api-proxy@${{ steps.build_api_proxy.outputs.digest }}
 
       - name: Generate SBOM for API Proxy image
-        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
         with:
           image: ghcr.io/${{ github.repository }}/api-proxy@${{ steps.build_api_proxy.outputs.digest }}
           format: spdx-json
@@ -337,7 +337,7 @@ jobs:
             ghcr.io/${{ github.repository }}/cli-proxy@${{ steps.build_cli_proxy.outputs.digest }}
 
       - name: Generate SBOM for CLI Proxy image
-        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
         with:
           image: ghcr.io/${{ github.repository }}/cli-proxy@${{ steps.build_cli_proxy.outputs.digest }}
           format: spdx-json
@@ -404,7 +404,7 @@ jobs:
             ghcr.io/${{ github.repository }}/enclave-script@${{ steps.build_enclave_script.outputs.digest }}
 
       - name: Generate SBOM for Enclave Script image
-        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
         with:
           image: ghcr.io/${{ github.repository }}/enclave-script@${{ steps.build_enclave_script.outputs.digest }}
           format: spdx-json
@@ -438,7 +438,7 @@ jobs:
             ghcr.io/${{ github.repository }}/enclave-agent@${{ steps.build_enclave_agent.outputs.digest }}
 
       - name: Generate SBOM for Enclave Agent image
-        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
         with:
           image: ghcr.io/${{ github.repository }}/enclave-agent@${{ steps.build_enclave_agent.outputs.digest }}
           format: spdx-json
@@ -472,7 +472,7 @@ jobs:
             ghcr.io/${{ github.repository }}/enclave-mcp-server@${{ steps.build_enclave_mcp_server.outputs.digest }}
 
       - name: Generate SBOM for Enclave MCP Server image
-        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
         with:
           image: ghcr.io/${{ github.repository }}/enclave-mcp-server@${{ steps.build_enclave_mcp_server.outputs.digest }}
           format: spdx-json
@@ -532,7 +532,7 @@ jobs:
             ghcr.io/${{ github.repository }}/agent-act@${{ steps.build_agent_act.outputs.digest }}
 
       - name: Generate SBOM for Agent-Act image
-        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
         with:
           image: ghcr.io/${{ github.repository }}/agent-act@${{ steps.build_agent_act.outputs.digest }}
           format: spdx-json
@@ -611,7 +611,7 @@ jobs:
             ghcr.io/${{ github.repository }}/build-tools@${{ steps.build_build_tools.outputs.digest }}
 
       - name: Generate SBOM for Build-Tools image
-        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
         with:
           image: ghcr.io/${{ github.repository }}/build-tools@${{ steps.build_build_tools.outputs.digest }}
           format: spdx-json
@@ -691,7 +691,7 @@ jobs:
             ghcr.io/${{ github.repository }}/gh-aw-node@${{ steps.build_gh_aw_node.outputs.digest }}
 
       - name: Generate SBOM for gh-aw-node image
-        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
         with:
           image: ghcr.io/${{ github.repository }}/gh-aw-node@${{ steps.build_gh_aw_node.outputs.digest }}
           format: spdx-json
