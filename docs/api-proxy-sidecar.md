@@ -847,7 +847,11 @@ Selection records describe the decision, not merely the winning model:
 | `interaction_id` | ID produced by the existing Copilot interaction-ID builder. |
 | `github_repository`, `github_workflow_ref` | GitHub run context, when available. |
 
-Request records retain `routed` (`as_selected` or `deviated`), `deviations`,
+Request records retain `routed` (`as_selected`, `deviated`, or `unobserved`),
+`deviations`, and `unavailable`. If a request is rejected before its body is
+read, `unavailable` contains `model` and `effort`, and those comparisons are
+omitted from `deviations`; known provider and endpoint differences are still
+reported. This avoids treating unread body fields as confirmed deviations.
 `selected_model`, `selected_effort`, `selected_provider`, `selected_endpoint`,
 `requested_model`, and `requested_effort`; `provider` and `pathname` identify
 the requested provider and endpoint. Selection

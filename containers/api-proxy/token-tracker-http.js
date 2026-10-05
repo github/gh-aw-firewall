@@ -510,6 +510,15 @@ function trackTokenUsage(proxyRes, opts) {
   const contentType = proxyRes.headers['content-type'] || '(none)';
   const contentEncoding = proxyRes.headers['content-encoding'] || '(none)';
   const compressed = isCompressedResponse(proxyRes.headers);
+  let sseInspectionComplete = false;
+  const completeSseInspection = () => {
+    if (sseInspectionComplete) return;
+    sseInspectionComplete = true;
+    try { opts.onSseInspectionComplete?.(); } catch { /* best-effort observer */ }
+  };
+  if (streaming) {
+    try { opts.onSseInspectionStart?.(); } catch { /* best-effort observer */ }
+  }
 
   auditTrack('TRACK_START', { rid: requestId, provider, path: reqPath, streaming, ct: contentType, ce: contentEncoding, status: proxyRes.statusCode });
 
@@ -550,6 +559,7 @@ function trackTokenUsage(proxyRes, opts) {
         contentEncoding,
       );
     }
+    completeSseInspection();
     if (typeof opts.onSpanEnd === 'function') opts.onSpanEnd(proxyRes.statusCode);
     return;
   }
@@ -563,12 +573,24 @@ function trackTokenUsage(proxyRes, opts) {
     if (decompressor) {
       decompressor.on('error', (err) => {
         diag('DECOMPRESS_ERROR', { request_id: requestId, error: err.message });
+        completeSseInspection();
       });
     }
   }
 
   const onChunk = createChunkHandler(state, { requestId, provider, onSseData: opts.onSseData });
-  const onFinalize = () => finalizeHttpTracking(state, proxyRes, opts);
+  const onFinalize = () => {
+    try {
+      if (streaming && state.partialLine.trim()) {
+        for (const line of parseSseDataLines(state.partialLine)) {
+          if (typeof opts.onSseData === 'function') opts.onSseData(line);
+        }
+      }
+      finalizeHttpTracking(state, proxyRes, opts);
+    } finally {
+      completeSseInspection();
+    }
+  };
   wireListeners(proxyRes, decompressor, state, onChunk, onFinalize, res);
 }
 

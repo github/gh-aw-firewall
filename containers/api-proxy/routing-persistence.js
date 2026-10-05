@@ -12,7 +12,7 @@ const FIELDS = new Set([
   'degraded_classification', 'degraded_reason', 'classifier_attempts',
   'eligible_choices', 'catalogue_overlap', 'latency_ms', 'labels', 'mode',
   'router', 'ranked_choices', 'conversation_sha256', 'phase', 'code', 'detail',
-  'request_id', 'routed', 'deviations', 'method', 'pathname',
+  'request_id', 'routed', 'deviations', 'unavailable', 'method', 'pathname',
   'requested_model', 'requested_effort', 'outcome', 'status',
 ]);
 
@@ -47,6 +47,7 @@ function writeRoutingRecord(record) {
       0o600);
     const stat = fs.fstatSync(fd);
     if (!stat.isFile() || stat.nlink !== 1) return;
+    fs.fchmodSync(fd, 0o600);
     fs.writeFileSync(fd, JSON.stringify(line) + '\n');
   } catch {
     // Best-effort tracking.

@@ -126,4 +126,15 @@ describe('routing persistence', () => {
     writeRoutingRecord({ stage: 'selection' });
     expect(fs.readFileSync(target, 'utf8')).toBe('unchanged');
   });
+
+  test('restricts an existing routing log to owner-only permissions before appending', () => {
+    const log = path.join(directory, 'model-routing.jsonl');
+    fs.writeFileSync(log, '', { mode: 0o644 });
+    fs.chmodSync(log, 0o644);
+
+    writeRoutingRecord({ stage: 'selection' });
+
+    expect(fs.statSync(log).mode & 0o777).toBe(0o600);
+    expect(readRecords()).toHaveLength(1);
+  });
 });

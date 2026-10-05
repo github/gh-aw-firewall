@@ -78,13 +78,14 @@ function request(overrides = {}) {
   return { method: 'POST', url: '/responses', headers: {}, ...overrides };
 }
 
-function createHarness(selection = SELECTION) {
+function createHarness(selection = SELECTION, generateRequestId = () => 'generated-inference-123') {
   const failures = [];
   const records = [];
   const observation = createRoutingObservation({
     getSelection: () => selection,
     recordFailure: code => failures.push(code),
     observer: { record: record => records.push(record) },
+    generateRequestId,
   });
   return { observation, failures, records };
 }
@@ -151,6 +152,7 @@ describe('advisory routing observation', () => {
       status: 200,
       routed: 'as_selected',
       deviations: [],
+      unavailable: [],
       method: 'POST',
       pathname: '/v1/responses',
       provider: 'copilot',
@@ -161,6 +163,17 @@ describe('advisory routing observation', () => {
       selected_effort: 'low',
       selected_endpoint: '/responses',
     }]);
+  });
+
+  it('uses a valid caller request ID or generates one before request processing', () => {
+    const generateRequestId = jest.fn(() => 'generated-inference-123');
+    const harness = createHarness(SELECTION, generateRequestId);
+    const supplied = observe(harness, request({ headers: { 'x-request-id': 'caller-id-123' } }));
+    const generated = observe(harness, request({ headers: { 'x-request-id': 'unsafe caller ID' } }));
+
+    expect(supplied.req.awfRouting.requestId).toBe('caller-id-123');
+    expect(generated.req.awfRouting.requestId).toBe('generated-inference-123');
+    expect(generateRequestId).toHaveBeenCalledTimes(1);
   });
 
   it('records a deviating model, effort, and endpoint without rejecting', () => {
@@ -399,6 +412,9 @@ describe('advisory routing observation', () => {
     expect(res.body()).toBe('guard response');
     expect(harness.records).toEqual([expect.objectContaining({
       request_id: 'early-rejection-123',
+      routed: 'unobserved',
+      deviations: [],
+      unavailable: ['model', 'effort'],
       requested_model: null,
       requested_effort: null,
       outcome: 'rejected',
@@ -407,14 +423,28 @@ describe('advisory routing observation', () => {
     expect(harness.failures).toEqual([]);
   });
 
+  it('retains known provider and endpoint deviations when the request body is unread', () => {
+    const harness = createHarness();
+    const { req, res } = observe(harness, request({ url: '/v1/messages' }), { name: 'anthropic' });
+    req.awfRouting.rejected = true;
+    res.statusCode = 403;
+    res.end('policy rejection');
+
+    expect(harness.records).toEqual([expect.objectContaining({
+      routed: 'deviated',
+      deviations: ['provider', 'endpoint'],
+      unavailable: ['model', 'effort'],
+    })]);
+  });
+
   it.each(['client-inference-123', undefined, 'unsafe client ID'])(
     'records pre-proxy rate-limit rejection with its response request ID (%s)',
     async clientRequestId => {
-      const harness = createHarness();
-      const { req, res } = observe(harness, request({
+      const generateRequestId = jest.fn(() => 'generated-inference-123');
+      const harnessWithRequestId = createHarness(SELECTION, generateRequestId);
+      const { req, res } = observe(harnessWithRequestId, request({
         headers: clientRequestId ? { 'x-request-id': clientRequestId } : {},
       }));
-      const generateRequestId = jest.fn(() => 'generated-inference-123');
       const checkRateLimit = createRateLimitChecker({
         limiter: { check: () => ({
           allowed: false, limitType: 'rpm', limit: 1, retryAfter: 60, remaining: 0, resetAt: 60,
@@ -424,21 +454,24 @@ describe('advisory routing observation', () => {
         generateRequestId,
         isValidRequestId,
       });
-      expect(harness.records).toEqual([]);
+      expect(harnessWithRequestId.records).toEqual([]);
       expect(checkRateLimit(req, res, 'copilot', 100)).toBe(true);
       res.emit('close');
       const expectedId = clientRequestId === 'client-inference-123' ? clientRequestId : 'generated-inference-123';
       expect(res.headers['X-Request-ID']).toBe(expectedId);
-      expect(harness.records).toEqual([expect.objectContaining({
+      expect(harnessWithRequestId.records).toEqual([expect.objectContaining({
         request_id: expectedId,
+        routed: 'unobserved',
+        deviations: [],
+        unavailable: ['model', 'effort'],
         requested_model: null,
         requested_effort: null,
         outcome: 'rejected',
         status: 429,
       })]);
-      expect(harness.failures).toEqual([]);
+      expect(harnessWithRequestId.failures).toEqual([]);
       expect(generateRequestId).toHaveBeenCalledTimes(clientRequestId === 'client-inference-123' ? 0 : 1);
-      await harness.observation.drain();
+      await harnessWithRequestId.observation.drain();
     },
   );
 

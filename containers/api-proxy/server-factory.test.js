@@ -2,6 +2,7 @@
 
 const { EventEmitter } = require('events');
 const { createProviderServer } = require('./server-factory');
+const { createRoutingObservation } = require('./routing-observation');
 
 function makeTrackedSocket() {
   const socket = new EventEmitter();
@@ -179,6 +180,55 @@ describe('createProviderServer routing enforcement', () => {
     const bodyTransform = proxyRequest.mock.calls[0][6];
     expect(await bodyTransform(Buffer.from('original'))).toBe(adapterBody);
     expect(observed).toEqual(['original']);
+  });
+
+  test('returns the routing request ID when a provider is not configured', () => {
+    const adapter = {
+      ...routedAdapter(),
+      isEnabled: () => false,
+    };
+    const routing = createRoutingObservation({
+      getSelection: () => ({
+        provider: 'copilot',
+        choice: { effort: 'low' },
+        wire_model: 'gpt-test',
+      }),
+      recordFailure: jest.fn(),
+      generateRequestId: () => 'generated-request-123',
+    });
+    const response = new EventEmitter();
+    response.statusCode = 200;
+    response.writableFinished = false;
+    response.write = jest.fn(() => true);
+    response.writeHead = jest.fn(function(statusCode, headers) {
+      this.statusCode = statusCode;
+      this.headers = headers;
+    });
+    const end = jest.fn(function() {
+      this.writableFinished = true;
+      this.emit('finish');
+    });
+    response.end = end;
+    const server = createProviderServer(adapter, {
+      handleManagementEndpoint: () => false,
+      reflectEndpoints: () => [],
+      checkRateLimit: jest.fn(),
+      proxyRequest: jest.fn(),
+      proxyWebSocket: jest.fn(),
+      routing,
+    });
+    const req = new EventEmitter();
+    req.url = '/responses';
+    req.method = 'POST';
+    req.headers = { 'x-request-id': 'invalid request ID' };
+
+    server.emit('request', req, response);
+
+    expect(response.writeHead).toHaveBeenCalledWith(503, {
+      'Content-Type': 'application/json',
+      'X-Request-ID': 'generated-request-123',
+    });
+    expect(end).toHaveBeenCalled();
   });
 
   test('proxies an upgrade while routing is active', () => {

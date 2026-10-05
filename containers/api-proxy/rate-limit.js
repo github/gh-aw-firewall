@@ -15,9 +15,8 @@ function createRateLimitChecker({ limiter, metrics, logRequest, generateRequestI
     const check = limiter.check(provider, requestBytes);
     if (!check.allowed) {
       const clientRequestId = req.headers['x-request-id'];
-      const requestId = isValidRequestId(clientRequestId)
-        ? clientRequestId
-        : generateRequestId();
+      const requestId = req.awfRouting?.requestId
+        || (isValidRequestId(clientRequestId) ? clientRequestId : generateRequestId());
       if (req.awfRouting) {
         req.awfRouting.requestId = requestId;
         req.awfRouting.rejected = true;

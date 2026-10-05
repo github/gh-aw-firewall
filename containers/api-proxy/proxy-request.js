@@ -223,7 +223,8 @@ const sendUpstreamRequest = createSendUpstreamRequest({
  */
 function proxyRequest(req, res, targetHost, injectHeaders, provider, basePath = '', bodyTransform = null, requestSigner = null, targetScheme = 'https') {
   const clientRequestId = req.headers['x-request-id'];
-  const requestId = isValidRequestId(clientRequestId) ? clientRequestId : generateRequestId();
+  const requestId = req.awfRouting?.requestId
+    || (isValidRequestId(clientRequestId) ? clientRequestId : generateRequestId());
   if (req.awfRouting) req.awfRouting.requestId = requestId;
   const startTime = Date.now();
 

@@ -2130,13 +2130,17 @@ Every selection record MUST include:
 - `github_repository` and `github_workflow_ref` when available.
 
 Every request record MUST retain the advisory comparison (`routed`,
-`deviations`, `selected_model`, `selected_effort`, `selected_provider`,
+`deviations`, `unavailable`, `selected_model`, `selected_effort`, `selected_provider`,
 `selected_endpoint`, `requested_model`, and `requested_effort`, with `provider`
 and `pathname` identifying the requested provider and endpoint) and
 include `request_id`, terminal `outcome` (`completed`, `rejected`, `failed`,
 or `aborted`), and `status` (final HTTP status). Request-side model fields
 use the wire representation used for comparison, unlike canonical selection
-model fields. A model-policy rejection MUST NOT be reported as successful
+model fields. Before the request body is observed, body-dependent comparisons
+MUST be listed in `unavailable` and omitted from `deviations`; known provider
+and endpoint differences remain reportable. `routed` is `unobserved` when no
+known deviation exists but body-dependent comparisons remain unavailable.
+A model-policy rejection MUST NOT be reported as successful
 completion. Stream errors and premature closure MUST NOT be treated as
 completion merely because HTTP headers indicated success. When token usage is
 available, `request_id` MUST correlate with the corresponding

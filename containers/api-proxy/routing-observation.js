@@ -1,6 +1,8 @@
 'use strict';
 
 const { stripRedundantProviderPrefix } = require('./model-utils');
+const { isValidRequestId } = require('./request-headers');
+const { generateRequestId } = require('./logging');
 
 const MAX_TELEMETRY_VALUE_LENGTH = 200;
 const TELEMETRY_EFFORTS = new Set(['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
@@ -59,14 +61,19 @@ function requestedEffortFor(parsed, endpoint) {
  * drains all observed responses before the host reads final
  * routing status.
  */
-function createRoutingObservation({ getSelection, recordFailure, observer }) {
+function createRoutingObservation({
+  getSelection,
+  recordFailure,
+  observer,
+  generateRequestId: makeRequestId = generateRequestId,
+}) {
   let draining = false;
   const active = new Set();
   const waiters = new Set();
 
   function trackResponse(req, res, state) {
     active.add(res);
-    function complete() {
+    function finalize() {
       if (!active.has(res)) return;
       active.delete(res);
       res.removeListener('finish', complete);
@@ -90,8 +97,25 @@ function createRoutingObservation({ getSelection, recordFailure, observer }) {
         waiters.clear();
       }
     }
+    function complete() {
+      if (!active.has(res)) return;
+      if (state.sseInspectionPending) {
+        state.responseComplete = true;
+        return;
+      }
+      finalize();
+    }
     res.once('finish', complete);
     res.once('close', complete);
+    return {
+      sseInspectionStart() {
+        state.sseInspectionPending = true;
+      },
+      sseInspectionComplete() {
+        state.sseInspectionPending = false;
+        if (state.responseComplete) finalize();
+      },
+    };
   }
 
   function observeFailure(res, state) {
@@ -134,9 +158,10 @@ function createRoutingObservation({ getSelection, recordFailure, observer }) {
   }
 
   function requestTelemetry(req, pathname, adapter, selection, body) {
+    const bodyObserved = body !== undefined;
     let parsed;
     try {
-      parsed = JSON.parse(body?.toString('utf8'));
+      parsed = bodyObserved ? JSON.parse(body?.toString('utf8')) : null;
     } catch {
       parsed = null;
     }
@@ -150,14 +175,16 @@ function createRoutingObservation({ getSelection, recordFailure, observer }) {
     const normalizedRequestedEffort = requestedEffortFor(parsed, endpoint);
     const requestedEffort = TELEMETRY_EFFORTS.has(normalizedRequestedEffort) ? normalizedRequestedEffort : null;
     const deviations = [];
+    const unavailable = bodyObserved ? [] : ['model', 'effort'];
     if (adapter.name !== selectedProvider) deviations.push('provider');
-    if (normalizedRequestedModel !== selection.wire_model) deviations.push('model');
-    if (normalizedRequestedEffort !== selectedEffort) deviations.push('effort');
+    if (bodyObserved && normalizedRequestedModel !== selection.wire_model) deviations.push('model');
+    if (bodyObserved && normalizedRequestedEffort !== selectedEffort) deviations.push('effort');
     if (endpoint !== selectedEndpoint) deviations.push('endpoint');
     return {
       stage: 'request',
-      routed: deviations.length === 0 ? 'as_selected' : 'deviated',
+      routed: deviations.length > 0 ? 'deviated' : unavailable.length > 0 ? 'unobserved' : 'as_selected',
       deviations,
+      unavailable,
       method: req.method,
       pathname,
       provider: adapter.name,
@@ -185,6 +212,8 @@ function createRoutingObservation({ getSelection, recordFailure, observer }) {
       }
       const selection = getSelection();
       if (draining || !selection || req.method !== 'POST' || !endpointFor(pathname)) return;
+      const clientRequestId = req.headers?.['x-request-id'];
+      const requestId = isValidRequestId(clientRequestId) ? clientRequestId : makeRequestId();
       // Upstream failures count as routing failures only for a request that
       // used the selected provider and model; a deviating request is the
       // agent's own choice and never ends the routed run.
@@ -193,7 +222,7 @@ function createRoutingObservation({ getSelection, recordFailure, observer }) {
         sseFailed: false,
         telemetry: requestTelemetry(req, pathname, adapter, selection),
       };
-      trackResponse(req, res, state);
+      const responseHooks = trackResponse(req, res, state);
       if (adapter.name === (selection.provider || 'copilot')) {
         observeFailure(res, state);
       }
@@ -224,7 +253,13 @@ function createRoutingObservation({ getSelection, recordFailure, observer }) {
         }
         return null;
       };
-      req.awfRouting = { bodyTransform, onSseData };
+      req.awfRouting = {
+        requestId,
+        bodyTransform,
+        onSseData,
+        onSseInspectionStart: responseHooks.sseInspectionStart,
+        onSseInspectionComplete: responseHooks.sseInspectionComplete,
+      };
     },
     async drain() {
       draining = true;

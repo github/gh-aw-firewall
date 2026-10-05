@@ -163,7 +163,10 @@ function createProviderServer(adapter, deps) {
       const response = adapter.getUnconfiguredResponse
         ? adapter.getUnconfiguredResponse()
         : { statusCode: 503, body: { error: `${adapter.name} proxy not configured` } };
-      res.writeHead(response.statusCode, { 'Content-Type': 'application/json' });
+      res.writeHead(response.statusCode, {
+        'Content-Type': 'application/json',
+        ...(req.awfRouting?.requestId ? { 'X-Request-ID': req.awfRouting.requestId } : {}),
+      });
       res.end(JSON.stringify(response.body));
       return;
     }

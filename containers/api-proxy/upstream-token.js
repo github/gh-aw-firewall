@@ -20,7 +20,11 @@ function setupTokenTracking(proxyRes, body, {
   trackTokenUsage(proxyRes, {
     requestId, provider, path: sanitizeForLog(req.url), res, startTime, metrics, billingInfo, initiatorSent, requestModel, purpose,
     ...(req.awfModelFallback ? { modelFallback: req.awfModelFallback } : {}),
-    ...(req.awfRouting ? { onSseData: req.awfRouting.onSseData } : {}),
+    ...(req.awfRouting ? {
+      onSseData: req.awfRouting.onSseData,
+      onSseInspectionStart: req.awfRouting.onSseInspectionStart,
+      onSseInspectionComplete: req.awfRouting.onSseInspectionComplete,
+    } : {}),
     onUsage: (normalizedUsage, model) => {
       otel.setTokenAttributes(span, { provider, model, normalizedUsage, streaming: isStreaming });
       const budgetResult = computeTokenBudgetUsage({ logRequest, requestId, provider, purpose }, normalizedUsage, model);
