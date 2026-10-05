@@ -201,7 +201,7 @@ export const TOKEN_USAGE_LOG_FILE = 'token-usage.jsonl';
  * under `runner.topology: arc-dind`), so later workflow steps should read this
  * variable instead of hardcoding a `/tmp/gh-aw/...` path.
  */
-export const TOKEN_USAGE_LOG_ENV_VAR = 'AWF_TOKEN_USAGE_LOG';
+const TOKEN_USAGE_LOG_ENV_VAR = 'AWF_TOKEN_USAGE_LOG';
 
 /**
  * Logs the final runner-visible token-usage log path and, inside GitHub
