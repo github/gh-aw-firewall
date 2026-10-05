@@ -12,6 +12,7 @@ interface Step {
   if?: string;
   env?: Record<string, string>;
   'continue-on-error'?: boolean;
+  with?: Record<string, unknown>;
 }
 interface Job {
   'runs-on': string;
@@ -27,6 +28,7 @@ interface Workflow {
       inputs: {
         run_host_probes: { type: string; default: boolean };
         run_live_kvm: { type: string; default: boolean };
+        acceptance_commit: { type: string; default: string };
       };
     };
     pull_request: { types: string[]; paths: string[] };
@@ -117,6 +119,24 @@ describe('Cloud Hypervisor enclave conformance CI boundary', () => {
     expect(cleanup.run).toContain('GITHUB_RUN_ATTEMPT');
   });
 
+  it('requires exact release source and reviewed ancestry before introducing the Copilot secret', () => {
+    expect(workflow.on.workflow_dispatch.inputs.acceptance_commit).toEqual(expect.objectContaining({
+      type: 'string', default: '',
+    }));
+    const job = workflow.jobs['live-kvm'];
+    expect(job.steps[0].with).toMatchObject({ 'fetch-depth': 0, 'fetch-tags': true });
+    const gateIndex = job.steps.findIndex((step) => step.name.startsWith('Require exact published'));
+    const gate = job.steps[gateIndex];
+    expect(gate.run).toContain('cloud-hypervisor-enclave-release-gate.js');
+    expect(gate.run).toContain('gh release view "$tag"');
+    expect(gate.env).toMatchObject({ AWF_ACCEPTANCE_COMMIT: '${{ inputs.acceptance_commit }}' });
+    const secretSteps = job.steps.filter((step) => JSON.stringify(step).includes('secrets.COPILOT_GITHUB_TOKEN'));
+    expect(secretSteps).toHaveLength(1);
+    expect(job.steps.indexOf(secretSteps[0])).toBeGreaterThan(gateIndex);
+    expect(secretSteps[0].run).toContain('GITHUB_REF');
+    expect(secretSteps[0].run).toContain('AWF_ACCEPTANCE_COMMIT');
+  });
+
   it('keeps privileged enclave probes out of the ordinary artifact build job', () => {
     const primary = yaml.load(fs.readFileSync(
       path.join(root, '.github/workflows/test-cloud-hypervisor.yml'), 'utf8',
@@ -149,6 +169,8 @@ describe('Cloud Hypervisor enclave conformance CI boundary', () => {
       'containers/enclave/**', 'guest/microvm-supervisor/**',
       'scripts/ci/*cloud-hypervisor*.test.ts',
       'scripts/ci/cloud-hypervisor-enclave-live-smoke.js',
+      'scripts/ci/cloud-hypervisor-enclave-release-gate.js',
+      'scripts/ci/cloud-hypervisor-enclave-startup-faults.js',
       'scripts/ci/cloud-hypervisor-enclave-gateway*',
       '.github/workflows/test-cloud-hypervisor-enclaves.yml',
     ]));

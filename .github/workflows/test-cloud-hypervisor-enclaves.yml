@@ -13,6 +13,11 @@ on:
         required: true
         type: boolean
         default: false
+      acceptance_commit:
+        description: Full reviewed follow-up SHA that the published release tag must contain (required for live KVM)
+        required: false
+        type: string
+        default: ''
   pull_request:
     types: [opened, synchronize, reopened, labeled]
     paths:
@@ -31,6 +36,8 @@ on:
       - 'guest/microvm-supervisor/**'
       - 'scripts/ci/*cloud-hypervisor*.test.ts'
       - 'scripts/ci/cloud-hypervisor-enclave-live-smoke.js'
+      - 'scripts/ci/cloud-hypervisor-enclave-release-gate.js'
+      - 'scripts/ci/cloud-hypervisor-enclave-startup-faults.js'
       - 'scripts/ci/cloud-hypervisor-enclave-gateway*'
       - 'docs/cloud-hypervisor-foundation.md'
       - 'docs/INTEGRATION-TESTS.md'
@@ -96,6 +103,8 @@ jobs:
             src/cloud-hypervisor/host-eligibility.test.ts \
             scripts/ci/cloud-hypervisor-enclave-artifacts.test.ts \
             scripts/ci/cloud-hypervisor-enclave-live-smoke.test.ts \
+            scripts/ci/cloud-hypervisor-enclave-release-gate.test.ts \
+            scripts/ci/cloud-hypervisor-enclave-startup-faults.test.ts \
             scripts/ci/test-cloud-hypervisor-enclave-workflow.test.ts \
             scripts/ci/test-cloud-hypervisor-workflow.test.ts
 
@@ -167,6 +176,9 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -174,6 +186,16 @@ jobs:
           cache: npm
       - name: Install dependencies and build AWF
         run: npm ci && npm run build && npm run type-check
+      - name: Require exact published release source containing the reviewed acceptance commit
+        env:
+          AWF_ACCEPTANCE_COMMIT: ${{ inputs.acceptance_commit }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          node scripts/ci/cloud-hypervisor-enclave-release-gate.js
+          tag="$(node -p "require('./dist/cloud-hypervisor/artifact-manifest').CLOUD_HYPERVISOR_ARTIFACT_RELEASE_TAG")"
+          gh release view "$tag" --repo github/gh-aw-firewall --json isDraft \
+            --jq 'if .isDraft then error("Acceptance requires a published release") else "Published release verified" end'
       - name: Verify GitHub-hosted Ubuntu x86_64 KVM and cgroup-v2 host
         run: |
           set -euo pipefail
@@ -200,9 +222,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GITHUB_TOKEN: ${{ github.token }}
           COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
+          AWF_ACCEPTANCE_COMMIT: ${{ inputs.acceptance_commit }}
         run: |
           set -euo pipefail
-          sudo -n --preserve-env=PATH,HOME,GITHUB_ACTIONS,RUNNER_ENVIRONMENT,ImageOS,RUNNER_TEMP,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,GH_TOKEN,GITHUB_TOKEN,COPILOT_GITHUB_TOKEN \
+          sudo -n --preserve-env=PATH,HOME,GITHUB_ACTIONS,GITHUB_REF,RUNNER_ENVIRONMENT,ImageOS,RUNNER_TEMP,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,GH_TOKEN,GITHUB_TOKEN,COPILOT_GITHUB_TOKEN,AWF_ACCEPTANCE_COMMIT \
             node scripts/ci/cloud-hypervisor-enclave-live-smoke.js
       - name: Remove only this job's gateway fixture
         if: always()

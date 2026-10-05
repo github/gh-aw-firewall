@@ -67,9 +67,18 @@ provider. It is manually dispatched with `run_live_kvm: true` to avoid exposing
 the Copilot credential to untrusted pull-request code. It checks canonical
 bounded results, script guest identity and limits, and synthetic-output
 redaction. The live gate has not passed until it runs on an eligible
-GitHub-hosted Ubuntu x86_64 KVM/cgroup-v2 runner; package version `0.23.1`
-currently lacks its required release assets, so opting in fails visibly rather
-than substituting build artifacts.
+GitHub-hosted Ubuntu x86_64 KVM/cgroup-v2 runner. Live dispatch must check out
+an exact published release tag containing the explicitly pinned reviewed
+acceptance commit, not `main`. The tag-only release version bump intentionally
+leaves `main` at `0.23.1`; substituting newer artifacts for that package is not
+allowed. A future authorized release containing this harness is required.
+The live job also runs scripts/ci-only startup-failure probes for both roles
+after real VM creation and boot, using the production host executor service,
+authenticated broker protocol v2 client, storage provider, and VM manager.
+Host closures force the errors only after capturing allocated resource
+identities; cleanup and rejection of replay must succeed. Those probes do not
+invoke the public MCP route or execute a workload, unlike the other live
+assertions. Their deterministic transport tests are not KVM evidence.
 Privileged enclave probes no longer run in the ordinary artifact-build job.
 Production full-storage admission is enabled only after supported-host and
 release-artifact preflight; invocation exports, artifact/rootfs copies, and

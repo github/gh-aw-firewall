@@ -1058,14 +1058,19 @@ the host-only probes, and is not enabled in ordinary CI or by PR labels; this
 avoids passing the Copilot credential to untrusted pull-request code.
 
 The job is not evidence of passing live acceptance until it runs successfully
-on the eligible GitHub-hosted Ubuntu x86_64 KVM/cgroup-v2 runner. In this
-checkout, package version `0.23.1` has no package-matched release containing
-the required artifact set. The gate deliberately fails after opt-in until that
-release is published; it must not use a newer release, local build artifacts,
-or an unattested-artifact switch. The supported release pipeline must publish
-the package-matched Cloud Hypervisor archive, manifest and Sigstore bundle,
-plus the enclave rootfs manifest/bundle, role rootfs images, SBOMs, and
-provenance bundles before the live test can proceed.
+on the eligible GitHub-hosted Ubuntu x86_64 KVM/cgroup-v2 runner.
+`main`'s package version `0.23.1` is intentional: the release workflow bumps
+package/lock versions in a tag-only commit rather than updating protected
+`main`. Published `v0.28.31` has package version `0.28.31`, but predates the
+live acceptance follow-up. Acceptance must check out a future published tag
+containing the reviewed implementation, build that tag's package, and use only
+its artifacts. The release gate fails before the Copilot secret is introduced
+on `main`, PR branches, or tags missing the pinned acceptance commit. It must
+not use newer artifacts for older packages, local build artifacts, or an
+unattested-artifact switch. The supported release pipeline must publish the
+package-matched Cloud Hypervisor archive, manifest and Sigstore bundle, plus
+the enclave rootfs manifest/bundle, role rootfs images, SBOMs, and provenance
+bundles. Both manifests must name the checked-out release commit.
 
 The live harness checks the agent guest UID/GID, capability and privilege
 drop, `no_new_privs`, process/file/open-file limits, the permitted API-proxy
@@ -1081,22 +1086,75 @@ after its guest has reached a marker, waits for resource cleanup, and kills an
 identified VMM plus the AWF host process to verify that restart cleans the
 exact pending journal identity without replaying a successful result.
 
-One live assertion remains blocked: production has no deterministic, safe
-fault-injection control at the partial VM-startup boundary (after invocation
-resources are journaled but before VM startup completes). Exercising that case
-would require a separate production test-control/API change: the executor's
-`createManager` dependency is injectable in tests, but the live CLI exposes no
-safe fault hook around `manager.start()` or `manager.startInstance()`.
-Corrupting or replacing package-matched, release-attested artifacts is not an
-acceptable substitute. Existing deterministic and mock-manager tests cover
-partial startup, but are not live VM evidence. Neither those tests nor a
-successful host-only probe may be reported as full issue
+`scripts/ci/cloud-hypervisor-enclave-startup-faults.js` adds a host-only partial
+startup probe without changing production APIs or introducing CLI/config/env
+controls. It uses the existing trusted storage dependency boundary to provide
+an API client that calls the real VMM, then raises a fixed error immediately
+after `vmCreate` (inside `manager.start()`) or `vmBoot` (inside
+`manager.startInstance()`). Both script and agent roles use the real production
+storage provider, artifact preflight, manager, and authenticated broker-to-host
+protocol v2 client/server. These startup probes do not use the public MCP route
+and never reach workload execution or make model requests.
+
+The fault selector and callback are closures owned by the acceptance host,
+not files, guest inputs, environment hooks, or broker fields. The normal CLI
+never imports this module. Before raising the fault, the probe requires pending
+invocation and VM journals with live VMM/virtio-fs, network, cgroup, storage,
+mount and snapshot identities. It requires a terminal executor failure with
+no result, identity-preserving cleaned journal metadata (allowing the
+explicitly released snapshot mount), removal of recorded paths, and rejection
+of replay after settlement. Attested artifacts are not changed; role storage
+limits remain script 1 GiB and agent 512 MiB. Deterministic tests establish
+transport ordering and evidence rejection only, not privileged cleanup or VM
+acceptance. Neither those tests nor a successful host-only probe establishes
+full issue
 [#9395](https://github.com/github/gh-aw-firewall/issues/9395) acceptance.
 This conformance work is a follow-up to
 [#9395](https://github.com/github/gh-aw-firewall/issues/9395),
 [#9399](https://github.com/github/gh-aw-firewall/pull/9399), and
 [#9441](https://github.com/github/gh-aw-firewall/pull/9441); it does not claim
 that #9395 or the prior pull requests established these live assertions.
+
+### Explicit enclave acceptance dispatch
+
+This is a manual, secret-bearing operation requiring separate maintainer
+authorization. Creating the follow-up PR does **not** authorize release
+publication or acceptance dispatch.
+
+1. Merge the reviewed acceptance changes, then separately authorize the
+   [supported release workflow](releasing.md) on `main`. Wait for the complete
+   signed artifact set to be published. Do not infer a version or use `latest`.
+2. Set `RELEASE_TAG` to that exact published tag and `ACCEPTANCE_COMMIT` to the
+   full reviewed follow-up SHA recorded in the PR. Verify the tag contains that
+   SHA and `scripts/ci/cloud-hypervisor-enclave-startup-faults.js`. The workflow
+   enforces both checks with a full-history checkout, and requires tag/package
+   equality. Existing `v0.23.1` lacks the assets; `v0.28.31` predates the
+   acceptance changes. Neither is an acceptable substitute.
+3. Confirm `COPILOT_GITHUB_TOKEN` is configured as a repository secret and
+   usable for the configured Copilot model. After explicit authorization,
+   dispatch **both** gates in the same run:
+
+```bash
+RELEASE_TAG='<exact-published-tag-containing-the-reviewed-follow-up>'
+ACCEPTANCE_COMMIT='<full-reviewed-follow-up-commit-SHA>'
+gh workflow run test-cloud-hypervisor-enclaves.yml \
+  --repo github/gh-aw-firewall --ref "$RELEASE_TAG" \
+  -f run_host_probes=true -f run_live_kvm=true \
+  -f acceptance_commit="$ACCEPTANCE_COMMIT"
+gh run list --repo github/gh-aw-firewall \
+  --workflow test-cloud-hypervisor-enclaves.yml --event workflow_dispatch --limit 5
+# Select the run for that exact tag; then inspect all three jobs.
+gh run view '<run-id>' --repo github/gh-aw-firewall
+```
+
+Keep the PR draft until deterministic conformance, privileged host probes, and
+live broker-to-VM acceptance all pass on the supported GitHub-hosted
+Ubuntu 24.04 x86_64 KVM/cgroup-v2 runner. A skipped job is not acceptance.
+The live job must include the two-role startup probes, resource cleanup,
+crash recovery without replay, and redaction assertions. A primary-agent
+Cloud Hypervisor smoke run is not enclave acceptance. macOS cannot validate
+the privileged mounts or KVM boundaries. Failure diagnostics remain private
+on the ephemeral runner; guest output and credentials are not uploaded.
 
 ## Troubleshooting
 

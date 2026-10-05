@@ -529,11 +529,7 @@ function assertRecoveredInvocation(before, after, records) {
 }
 
 function releaseTag() {
-  const version = require('../../package.json').version;
-  if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(version)) {
-    throw new Error('AWF package version cannot select a trusted release');
-  }
-  return `v${version}`;
+  return require('../../dist/cloud-hypervisor/artifact-manifest').CLOUD_HYPERVISOR_ARTIFACT_RELEASE_TAG;
 }
 
 function prepareReleaseArtifacts(tag, directory, environment) {
@@ -659,6 +655,7 @@ async function main() {
       || !/^ubuntu/.test(process.env.ImageOS || '')) {
     throw new Error('Live enclave acceptance requires an opted-in GitHub-hosted Ubuntu runner as root');
   }
+  const checkout = require('./cloud-hypervisor-enclave-release-gate').verifyAcceptanceCheckout();
   if (!process.env.GH_TOKEN || !process.env.GITHUB_TOKEN) {
     throw new Error('Live enclave acceptance requires GH_TOKEN and GITHUB_TOKEN for public seed staging');
   }
@@ -719,6 +716,13 @@ async function main() {
   ]);
   try {
     const artifacts = prepareReleaseArtifacts(tag, artifactsDir, environment);
+    const { assertManifestSource } = require('./cloud-hypervisor-enclave-release-gate');
+    for (const manifestPath of [
+      path.join(artifacts.directory, RELEASE_ASSETS[1]),
+      artifacts.enclaveArtifactEnvironment.AWF_CLOUD_HYPERVISOR_ENCLAVE_MANIFEST,
+    ]) {
+      assertManifestSource(JSON.parse(fs.readFileSync(manifestPath, 'utf8')), checkout.tag, checkout.commit);
+    }
     fs.mkdirSync(workDir, { recursive: true, mode: 0o700 });
     fs.mkdirSync(workspace, { recursive: true, mode: 0o755 });
     fs.chmodSync(workspace, 0o755);
@@ -960,6 +964,18 @@ async function main() {
     }
     await waitForVmCleanup(15_000);
 
+    try {
+      await require('./cloud-hypervisor-enclave-startup-faults').runStartupFaultProbes({
+        directory: root,
+        config: toAwfConfig(makeConfig(artifacts, workDir, workspace, handoff)).cloudHypervisor,
+        environment: awfEnvironment,
+      });
+    } catch (error) {
+      keepArtifacts = true;
+      throw error;
+    }
+    await waitForVmCleanup(15_000);
+
     const existingResources = new Set(resourceRecords(journalRoot).map(({ file }) => file));
     const crashProbe = [
       'import time',
@@ -1055,7 +1071,7 @@ async function main() {
     ], [
       ...logContents,
     ], sentinel);
-    console.log('Live script and agent identity/network, aggregate ENOSPC, guest OOM, failure/timeout/cancellation, VMM crash recovery, cleanup, and output redaction checks passed.');
+    console.log('Live script and agent identity/network, aggregate ENOSPC, guest OOM, failure/timeout/cancellation, real partial-startup failure, VMM crash recovery, cleanup, and output redaction checks passed.');
   } finally {
     if (awf && awf.exitCode === null) {
       fs.writeFileSync(path.join(workspace, '.awf-enclave-live-stop'), 'done\n', { mode: 0o644 });
@@ -1106,6 +1122,7 @@ if (require.main === module) {
 }
 
 module.exports = {
+  assertNoVmResidue,
   RELEASE_ASSETS,
   assertReleaseAssets,
   assertNoSentinelLeak,

@@ -34,6 +34,33 @@ The workflow will:
 - Generate versioned JSON Schema files with the release tag embedded in their `$id` URLs
 - Publish the GitHub Release with auto-generated changelog
 
+### Release source identity and enclave acceptance
+
+Git tags, not `main`'s `package.json`, are the authoritative published versions.
+The workflow synchronizes the package and lockfile to the latest version tag,
+bumps them, and creates a **tag-only version commit** on the selected source.
+It does not push that commit to protected `main`. All release build jobs check
+out the new tag. Thus `main` remaining at `0.23.1` while `v0.28.31` contains
+package version `0.28.31` is intentional, not an artifact publication bug.
+
+Cloud Hypervisor production preflight requires both artifact sets to match
+the running package version; an arbitrary source checkout must not consume a
+newer release's artifacts. Enclave live acceptance must therefore build AWF
+from the exact published release tag, with that tag containing the reviewed
+acceptance implementation. The acceptance workflow additionally requires a
+full `acceptance_commit` SHA and verifies its ancestry and harness presence
+before the Copilot credential is introduced. Both downloaded manifests must
+identify the checked-out tag commit; signature and digest verification still
+run through production preflight.
+
+A maintainer must merge the acceptance implementation and separately authorize
+the normal release workflow to publish its package-matched signed Cloud
+Hypervisor archive/manifest/bundle and both enclave role rootfs, SBOM and
+provenance sets. No package bump on `main`, retagging, or local artifact
+substitution is needed. See the [explicit acceptance dispatch
+procedure](cloud-hypervisor-foundation.md#explicit-enclave-acceptance-dispatch)
+for the separate, credential-bearing acceptance authorization.
+
 ### 2. Verify Release
 
 Once the workflow completes:
