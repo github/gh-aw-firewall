@@ -33,7 +33,9 @@ RUN apt-get update \
     && rm -f /usr/bin/apt /usr/bin/apt-get /usr/bin/apt-cache
 COPY --from=enclave-agent-build /usr/local/bin/node /usr/local/bin/node
 COPY --from=enclave-agent-build /usr/local/lib/node_modules/@github/copilot/ /usr/local/lib/node_modules/@github/copilot/
-RUN ln -s ../lib/node_modules/@github/copilot/npm-loader.js /usr/local/bin/copilot \
+# Avoid uutils env's executable-name check on shebangs under BuildKit's QEMU.
+RUN sed -i '1c#!/usr/local/bin/node' /usr/local/lib/node_modules/@github/copilot/npm-loader.js \
+    && ln -s ../lib/node_modules/@github/copilot/npm-loader.js /usr/local/bin/copilot \
     && node --version | grep -qE '^v24\.' \
     && copilot --version | grep -q "GitHub Copilot CLI ${COPILOT_CLI_VERSION}" \
     && rm -f /usr/bin/pebble \
