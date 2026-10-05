@@ -80,7 +80,8 @@ describe('enclave image contract', () => {
       ].join('\n');
       fs.writeFileSync(loader, `#!/usr/bin/env node\n${body}`, { mode: 0o755 });
       fs.symlinkSync('npm-loader.js', launcher);
-      execFileSync('sed', ['-i', patch![1].replace('/usr/local/bin/node', process.execPath), loader]);
+      const patchedShebang = patch![1].slice(2).replace('/usr/local/bin/node', process.execPath);
+      fs.writeFileSync(loader, `${patchedShebang}\n${body}`);
       expect(fs.readFileSync(loader, 'utf8')).toBe(`#!${process.execPath}\n${body}`);
       // An empty PATH ensures the launcher cannot fall back to env's Node lookup.
       const options = { encoding: 'utf8' as const, env: { ...process.env, PATH: stage } };
