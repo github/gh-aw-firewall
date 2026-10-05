@@ -6,6 +6,7 @@ import { HostExecutorResourceJournal, hostExecutorStorageDirectory, hostExecutor
 import type { HostExecutorInvocationPlan } from '../enclave/host-executor-server';
 import type { CloudHypervisorOptions } from '../types/runtime-options';
 import type { CloudHypervisorArtifactSnapshotSources } from './artifact-snapshot';
+import { CLOUD_HYPERVISOR_ARTIFACT_RELEASE_TAG } from './artifact-manifest';
 import { assertTrustedHostTool } from './artifact-trust';
 import { preflightCloudHypervisorEnclaveArtifacts } from './enclave-artifact-preflight';
 import type { CloudHypervisorEnclaveArtifactPreflightOptions } from './enclave-executor-types';
@@ -33,7 +34,7 @@ const config: CloudHypervisorOptions = {
   supervisorPath: '/operator/awf-supervisor',
   artifactManifestPath: '/operator/manifest.json',
   artifactManifestBundlePath: '/operator/manifest.sigstore.jsonl',
-  artifactReleaseTag: 'v0.23.1', vcpuCount: 2, memoryMib: 512, apiTimeoutMs: 5000,
+  artifactReleaseTag: CLOUD_HYPERVISOR_ARTIFACT_RELEASE_TAG, vcpuCount: 2, memoryMib: 512, apiTimeoutMs: 5000,
 };
 
 function options(roles: readonly ('script' | 'agent')[] = ['script']): CloudHypervisorEnclaveHostServiceOptions {
@@ -77,8 +78,8 @@ describe('bounded immutable enclave preflight', () => {
       cloudHypervisor: { file: 'cloud-hypervisor', version: '53.0' },
       virtiofsd: { file: 'virtiofsd', version: '1.13.3' },
       kernel: { file: 'vmlinux.bin', version: '6.1.141' },
-      rootfs: { file: 'rootfs.ext4', version: 'v0.23.1' },
-      supervisor: { file: 'awf-supervisor', version: 'v0.23.1' },
+      rootfs: { file: 'rootfs.ext4', version: CLOUD_HYPERVISOR_ARTIFACT_RELEASE_TAG },
+      supervisor: { file: 'awf-supervisor', version: CLOUD_HYPERVISOR_ARTIFACT_RELEASE_TAG },
     };
     sources = new Map(Object.values(artifacts).map((artifact) =>
       [`/operator/${artifact.file}`, artifact.file]));
@@ -87,7 +88,7 @@ describe('bounded immutable enclave preflight', () => {
       release: {
         repository: 'github/gh-aw-firewall',
         workflow: 'github/gh-aw-firewall/.github/workflows/release.yml',
-        tag: 'v0.23.1', sourceCommit: 'b'.repeat(40),
+        tag: CLOUD_HYPERVISOR_ARTIFACT_RELEASE_TAG, sourceCommit: 'b'.repeat(40),
       },
       artifacts: Object.fromEntries(Object.entries(artifacts).map(([name, artifact]) =>
         [name, { ...artifact, sha256: sha256(artifact.file) }])),
@@ -263,7 +264,7 @@ describe('bounded immutable enclave preflight', () => {
     jest.spyOn(fs, 'writeFile').mockResolvedValue(undefined);
     const actual = jest.requireActual('./enclave-artifact-preflight') as typeof import('./enclave-artifact-preflight');
     await expect(actual.preflightCloudHypervisorEnclaveArtifacts({
-      releaseTag: 'v0.23.1', manifestPath, manifestBundlePath: bundlePath,
+      releaseTag: CLOUD_HYPERVISOR_ARTIFACT_RELEASE_TAG, manifestPath, manifestBundlePath: bundlePath,
       scriptRootfsPath: '/operator/script-rootfs', agentRootfsPath: '/operator/agent-rootfs',
       attestationToolPath: '/trusted/gh',
     }, verificationRoot)).rejects.toThrow();
@@ -277,17 +278,42 @@ describe('bounded immutable enclave preflight', () => {
     expect(fs.rm).toHaveBeenCalledWith(directory, { recursive: true, force: true });
   });
 
-  it.each(['attestation', 'digest', 'version', 'basename', 'KVM'] as const)(
-    'preserves the existing %s gate and cleans before rejection', async (gate) => {
+  it.each([
+    { field: 'tag', value: `${CLOUD_HYPERVISOR_ARTIFACT_RELEASE_TAG}-mismatch`, error: /manifest release mismatch/ },
+    { field: 'repository', value: 'attacker/repo', error: /release.repository must be/ },
+    { field: 'workflow', value: 'attacker/repo/.github/workflows/release.yml', error: /release.workflow must be/ },
+    { field: 'sourceCommit', value: 'not-a-commit', error: /lowercase 40-character Git SHA/ },
+  ])('rejects sealed manifest $field mismatches before executing artifact probes', async ({ field, value, error }) => {
+    const manifest: { release: Record<string, string> } = JSON.parse(sources.get(config.artifactManifestPath!)!);
+    manifest.release[field] = value;
+    sources.set(config.artifactManifestPath!, JSON.stringify(manifest));
+    await expect(createBoundedEnclavePreflight(options(), active).preflight(config)).rejects.toThrow(error);
+    expect(probes.verifyManifestAttestation).toHaveBeenCalled();
+    expect(probes.runVersion).not.toHaveBeenCalled();
+    expect(close).toHaveBeenCalled();
+    expect(journal.complete).toHaveBeenCalled();
+    expect(active.size).toBe(0);
+  });
+
+  it.each([
+    { gate: 'attestation', error: /attestation failed/ },
+    { gate: 'digest', error: /SHA-256 mismatch/ },
+    { gate: 'version', error: /pinned to v53\.0/ },
+    { gate: 'basename', error: /must be named cloud-hypervisor/ },
+    { gate: 'KVM', error: /KVM unavailable/ },
+    { gate: 'release', error: /must match this AWF release/ },
+  ])(
+    'preserves the existing $gate gate and cleans before rejection', async ({ gate, error }) => {
       let input = config;
       if (gate === 'attestation') (probes.verifyManifestAttestation as jest.Mock).mockRejectedValue(new Error('attestation failed'));
       if (gate === 'digest') (probes.sha256 as jest.Mock).mockResolvedValue('f'.repeat(64));
       if (gate === 'version') (probes.runVersion as jest.Mock).mockResolvedValue('cloud-hypervisor v52.0');
       if (gate === 'basename') input = { ...config, cloudHypervisorBinary: '/operator/renamed' };
+      if (gate === 'release') input = { ...config, artifactReleaseTag: `${CLOUD_HYPERVISOR_ARTIFACT_RELEASE_TAG}-mismatch` };
       if (gate === 'KVM') (probes.access as jest.Mock).mockImplementation(async (file) => {
         if (file === '/dev/kvm') throw new Error('KVM unavailable');
       });
-      await expect(createBoundedEnclavePreflight(options(), active).preflight(input)).rejects.toThrow();
+      await expect(createBoundedEnclavePreflight(options(), active).preflight(input)).rejects.toThrow(error);
       expect(close).toHaveBeenCalled();
       expect(journal.complete).toHaveBeenCalled();
       expect(active.size).toBe(0);

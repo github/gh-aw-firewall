@@ -5,6 +5,7 @@ import execa from 'execa';
 import * as os from 'os';
 import * as path from 'path';
 import type { CloudHypervisorOptions } from '../types/runtime-options';
+import { CLOUD_HYPERVISOR_ARTIFACT_RELEASE_TAG } from './artifact-manifest';
 import { CloudHypervisorUnsupportedHostError } from './errors';
 import { CLOUD_HYPERVISOR_ARTIFACT_SNAPSHOT_ROOT } from './manager-types';
 import {
@@ -29,15 +30,15 @@ function manifest(): string {
     release: {
       repository: 'github/gh-aw-firewall',
       workflow: 'github/gh-aw-firewall/.github/workflows/release.yml',
-      tag: 'v0.23.1',
+      tag: CLOUD_HYPERVISOR_ARTIFACT_RELEASE_TAG,
       sourceCommit: 'b'.repeat(40),
     },
     artifacts: {
       cloudHypervisor: { file: 'cloud-hypervisor', version: '53.0', sha256: digest },
       virtiofsd: { file: 'virtiofsd', version: '1.13.3', sha256: digest },
       kernel: { file: 'vmlinux.bin', version: '6.1.141', sha256: digest },
-      rootfs: { file: 'rootfs.ext4', version: 'v0.23.1', sha256: digest },
-      supervisor: { file: 'awf-supervisor', version: 'v0.23.1', sha256: digest },
+      rootfs: { file: 'rootfs.ext4', version: CLOUD_HYPERVISOR_ARTIFACT_RELEASE_TAG, sha256: digest },
+      supervisor: { file: 'awf-supervisor', version: CLOUD_HYPERVISOR_ARTIFACT_RELEASE_TAG, sha256: digest },
     },
   });
 }
@@ -52,7 +53,7 @@ function config(overrides: Partial<CloudHypervisorOptions> = {}): CloudHyperviso
     supervisorPath: '/opt/awf-supervisor',
     artifactManifestPath: '/opt/manifest.json',
     artifactManifestBundlePath: '/opt/manifest.sigstore.jsonl',
-    artifactReleaseTag: 'v0.23.1',
+    artifactReleaseTag: CLOUD_HYPERVISOR_ARTIFACT_RELEASE_TAG,
     vcpuCount: 2,
     memoryMib: 512,
     apiTimeoutMs: 5000,

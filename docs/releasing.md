@@ -61,6 +61,19 @@ substitution is needed. See the [explicit acceptance dispatch
 procedure](cloud-hypervisor-foundation.md#explicit-enclave-acceptance-dispatch)
 for the separate, credential-bearing acceptance authorization.
 
+Successful Cloud Hypervisor preflight fixtures must derive their manifest tag,
+rootfs/supervisor versions, and configured release tag from
+`CLOUD_HYPERVISOR_ARTIFACT_RELEASE_TAG`, rather than the version currently on
+`main`. Validate deterministic acceptance and foundation preflight tests with
+the package and lockfile coherently set to another release version as well as
+the source version, then restore both files before committing. Negative tests
+must still reject mismatched release identities and reach their intended gate.
+
+A source fixture fix does not change an immutable published tag. In particular,
+the deterministic fixture failures on `v0.28.33` require a future release
+containing the fix before live acceptance can proceed; rerunning that old tag
+cannot consume the corrected tests.
+
 ### 2. Verify Release
 
 Once the workflow completes:
