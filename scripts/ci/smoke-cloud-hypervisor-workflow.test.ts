@@ -1,6 +1,8 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as yaml from 'js-yaml';
+import * as os from 'os';
+import { execFileSync } from 'child_process';
 
 const workflowsDir = path.resolve(__dirname, '../../.github/workflows');
 const workflowFiles = [
@@ -9,8 +11,19 @@ const workflowFiles = [
 ];
 
 interface WorkflowFrontmatter {
+  on?: {
+    label_command?: {
+      name: string[];
+    };
+  };
+  engine?: {
+    args?: string[];
+  };
   tools?: {
     bash?: string[];
+  };
+  network?: {
+    allowed?: string[];
   };
   sandbox?: {
     agent?: {
@@ -69,9 +82,53 @@ describe('Smoke Cloud Hypervisor token-usage verification', () => {
     const frontmatter = loadFrontmatter(workflowFiles[0]);
     const lock = fs.readFileSync(workflowFiles[1], 'utf-8');
 
-    expect(frontmatter.tools?.bash).toEqual(['curl', 'printf', 'cat']);
+    expect(frontmatter.tools?.bash).toEqual(['curl', 'printf', 'cat', 'jq']);
     expect(lock).toContain("--allow-tool '\\''shell(curl:*)'\\''");
     expect(lock).toContain("--allow-tool '\\''shell(printf)'\\''");
     expect(lock).toContain("--allow-tool '\\''shell(cat)'\\''");
+    expect(lock).toContain("--allow-tool '\\''shell(jq)'\\''");
+  });
+
+  it('approves only the probe URLs at the CLI while preserving firewall denial', () => {
+    const frontmatter = loadFrontmatter(workflowFiles[0]);
+    const lock = fs.readFileSync(workflowFiles[1], 'utf-8');
+    expect(frontmatter.engine?.args).toEqual([
+      '--allow-url=https://github.com',
+      '--allow-url=https://example.com',
+    ]);
+    expect(lock).toContain('--allow-url=https://github.com');
+    expect(lock).toContain('--allow-url=https://example.com');
+    expect(lock).not.toContain('--allow-all-urls');
+    expect(lock).not.toContain('--allow-all-tools');
+    expect(frontmatter.network?.allowed).toEqual(['defaults', 'github']);
+    const workflow = fs.readFileSync(workflowFiles[0], 'utf-8');
+    expect(workflow).toContain('Agent did not call add_comment on a pull_request trigger.');
+    expect(workflow).toContain('runtime: cloud-hypervisor');
+  });
+
+  it('supports an isolated PR rerun without removing the existing shared trigger', () => {
+    expect(loadFrontmatter(workflowFiles[0]).on?.label_command?.name).toEqual([
+      'ready-for-aw', 'test-cloud-hypervisor-copilot',
+    ]);
+    const lock = fs.readFileSync(workflowFiles[1], 'utf8');
+    expect(lock).toContain("github.event.label.name == 'test-cloud-hypervisor-copilot'");
+    expect(lock).toContain('Agent did not call add_comment on a pull_request trigger.');
+  });
+
+  it('encodes a real comment file using the narrowly allowed jq command', () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'awf-smoke-comment-'));
+    const body = 'PASS: file "quotes" and $literal\nFAIL: network probe\n';
+    const file = path.join(directory, 'comment.md');
+    try {
+      fs.writeFileSync(file, body);
+      const output = execFileSync('jq', [
+        '-Rs', '--argjson', 'item_number', '9445',
+        '{item_number: $item_number, body: .}', file,
+      ], { encoding: 'utf8' });
+      expect(JSON.parse(output)).toEqual({ item_number: 9445, body });
+      expect(loadFrontmatter(workflowFiles[0]).tools?.bash).toContain('jq');
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
   });
 });

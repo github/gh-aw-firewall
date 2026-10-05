@@ -4,7 +4,7 @@ on:
   roles: all
   workflow_dispatch:
   label_command:
-    name: ready-for-aw
+    name: [ready-for-aw, test-cloud-hypervisor-copilot]
     events: [pull_request]
     remove_label: false
   reaction: "eyes"
@@ -19,6 +19,9 @@ model: claude-sonnet-5
 engine:
   id: copilot
   version: 1.0.34
+  args:
+    - --allow-url=https://github.com
+    - --allow-url=https://example.com
 network:
   allowed:
     - defaults
@@ -28,6 +31,7 @@ tools:
     - curl
     - printf
     - cat
+    - jq
   github:
     toolsets: [pull_requests]
 safe-outputs:
@@ -84,7 +88,15 @@ post-steps:
 
 # Smoke Test: Cloud Hypervisor + Copilot
 
+The `test-cloud-hypervisor-copilot` PR label runs only this smoke test; use it
+for a focused rerun without reapplying the shared `ready-for-aw` label.
+
 Run these checks inside the Cloud Hypervisor sandbox:
+
+Run each shell check as a separate command. `/tmp/gh-aw/agent` already exists:
+do not prepend `mkdir`, use Python, or install tools. The two CLI URL approvals
+only let `curl` execute; AWF still enforces the network allowlist, so
+`example.com` must remain blocked.
 
 1. Call `github-list_pull_requests` for `${{ github.repository }}` with `limit: 1` and `state: merged`.
 2. Confirm `curl -s -o /dev/null -w "%{http_code}" --max-time 10 https://github.com` returns 200 or 301.
@@ -93,6 +105,17 @@ Run these checks inside the Cloud Hypervisor sandbox:
 
 Keep the summary under 10 lines with a PASS or FAIL for each check.
 
-On a pull request trigger, call `add_comment` with `item_number: ${{ github.event.pull_request.number }}`. If all checks pass, call `add_labels` with the same item number and label `smoke-cloud-hypervisor`.
+The trigger event is `${{ github.event_name }}`. On `pull_request`, call
+`add_comment` with `item_number: ${{ github.event.pull_request.number }}` even if
+a check fails. Write the summary to `/tmp/gh-aw/agent/comment-body.md` with
+`cat` and a quoted heredoc, then invoke the safe-output CLI in a separate command:
+
+```bash
+jq -Rs --argjson item_number '${{ github.event.pull_request.number }}' '{item_number: $item_number, body: .}' /tmp/gh-aw/agent/comment-body.md | safeoutputs add_comment .
+```
+
+Do not use command substitution or Python to construct the payload, and do not
+substitute `noop` for a required PR comment. If all checks pass, call
+`add_labels` with the same item number and label `smoke-cloud-hypervisor`.
 
 On `workflow_dispatch`, call `noop` with the concise summary instead.
