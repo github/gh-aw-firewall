@@ -242,6 +242,22 @@ describe('API proxy sidecar: API targets and auth forwarding', () => {
         expect(env.COPILOT_PROVIDER_WIRE_API).toBe('responses');
       });
 
+      it('should preserve an explicitly configured wire API over the model default', () => {
+        const configWithProxy = {
+          ...mockConfig,
+          enableApiProxy: true,
+          copilotGithubToken: 'ghu_test_token',
+          additionalEnv: {
+            COPILOT_MODEL: 'gpt-5.4-mini',
+            COPILOT_PROVIDER_WIRE_API: 'completions',
+          },
+        };
+        const result = generateDockerCompose(configWithProxy, mockNetworkConfigWithProxy);
+        const agent = result.services.agent;
+        const env = agent.environment as Record<string, string>;
+        expect(env.COPILOT_PROVIDER_WIRE_API).toBe('completions');
+      });
+
       it.each(['gpt-4o', 'o30', 'o3x'])('should not set COPILOT_PROVIDER_WIRE_API in GitHub token mode when COPILOT_MODEL=%s does not require responses API', (copilotModel) => {
         const configWithProxy = {
           ...mockConfig,

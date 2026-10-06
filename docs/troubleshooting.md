@@ -72,6 +72,25 @@ Compiler-side warning or an MCP fetch fallback is tracked in
 AWF receives the command and domain allowlist, not gh-aw's `tools` declarations,
 so its startup warning cannot identify which native web tools were requested.
 
+### Copilot BYOK Sub-Agent Model/API Mismatch
+
+**Problem:** Copilot CLI sub-agents using a model from a different wire-API family
+than the session's main model can fail with an upstream `400` response. For
+example, GPT-5 models use the Responses API, while Claude models use Chat
+Completions. BYOK configures one wire API for the Copilot CLI session, including
+requests made by sub-agents.
+
+**Workaround:** Use sub-agent models that use the same wire API as the main model.
+With model routing, each sub-agent model must also match the wire API of every
+model that can be selected for the main session. AWF preserves an explicitly
+configured `COPILOT_PROVIDER_WIRE_API`; otherwise it selects the Responses API
+when `COPILOT_MODEL` is a GPT-5-family or o3 model.
+
+Copilot CLI does not currently expose per-model BYOK wire-API configuration
+through its provider environment variables. Compile-time warnings and guidance
+in gh-aw's sub-agent reference need to be implemented in the
+[github/gh-aw](https://github.com/github/gh-aw) repository.
+
 ## Container Issues
 
 ### Container Won't Start

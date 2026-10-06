@@ -133,6 +133,17 @@ describe('buildCopilotCredentialEnv', () => {
     expect(result.COPILOT_PROVIDER_WIRE_API).toBe('responses');
   });
 
+  it('preserves an explicitly configured wire API when the model defaults to responses', () => {
+    const config = { ...baseConfig, copilotGithubToken: 'ghu_token' } as WrapperConfig;
+    mockGetConfigEnvValue.mockImplementation((_: unknown, key: string) => {
+      if (key === 'COPILOT_MODEL') return 'gpt-5.4-mini';
+      if (key === 'COPILOT_PROVIDER_WIRE_API') return 'completions';
+      return undefined;
+    });
+    const result = buildCopilotCredentialEnv({ config, proxyIp });
+    expect(result.COPILOT_PROVIDER_WIRE_API).toBeUndefined();
+  });
+
   it('does not set COPILOT_PROVIDER_WIRE_API for non-gpt5/o3 models', () => {
     const config = { ...baseConfig, copilotGithubToken: 'ghu_token' } as WrapperConfig;
     mockGetConfigEnvValue.mockImplementation((_: unknown, key: string) =>
