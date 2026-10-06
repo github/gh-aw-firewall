@@ -17,7 +17,7 @@
     "astro-mermaid": "^2.1.0",
     "esbuild": "^0.28.1",
     "mermaid": "^11.17.2",
-    "sharp": "^0.35.3"
+    "sharp": "^0.35.5"
   },
   "devDependencies": {
     "typescript": "^6.0.3"
