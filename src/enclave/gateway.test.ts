@@ -62,6 +62,7 @@ function listen(
   options: {
     unavailableInitializations?: number;
     unavailableRetryable?: boolean;
+    beforeUnavailableResponse?: () => void;
     initializationStatus?: number;
     initializationBody?: string;
     initializationRpcError?: boolean;
@@ -112,6 +113,7 @@ function listen(
             options.unavailableInitializations
             && initializeAttempts <= options.unavailableInitializations
           ) {
+            options.beforeUnavailableResponse?.();
             response.statusCode = 503;
             response.end(JSON.stringify({
               error: 'backend_unavailable',
@@ -655,15 +657,27 @@ describe('enclave mcpg handoff', () => {
   });
 
   it('times out after retryable backend-unavailable responses exhaust the deadline', async () => {
-    const server = await listen([], { unavailableInitializations: 100 });
+    // Real HTTP and retry sleeps, but the readiness deadline clock advances only
+    // when the gateway answers, so the number of attempts that fit is exact.
+    // Each request budget stays >= 1.5 s, so load cannot turn this into a
+    // per-request timeout; the single retry sleep is RETRY_DELAY_MS (500 ms).
+    const advances = [500, 1_500];
+    let now = 1_000_000;
+    const clock = jest.spyOn(Date, 'now').mockImplementation(() => now);
+    const server = await listen([], {
+      unavailableInitializations: 100,
+      beforeUnavailableResponse: () => { now += advances.shift() ?? 0; },
+    });
     try {
       const wrapper = config();
-      await expect(assertEnclaveGatewayReady(wrapper, env(server.endpoint), 30))
+      await expect(assertEnclaveGatewayReady(wrapper, env(server.endpoint), 2_000))
         .rejects.toThrow(/readiness timed out/);
+      expect(server.initializeAttempts()).toBe(2);
       expect(getEnclaveStartupProgress(wrapper)).toMatchObject({
-        readiness: 'attempted', code: 'readiness-deadline', httpStatus: 503, attempts: 1,
+        readiness: 'attempted', code: 'readiness-deadline', httpStatus: 503, attempts: 2,
       });
     } finally {
+      clock.mockRestore();
       await server.close();
     }
   });
