@@ -62,8 +62,7 @@ function parsePublicToolResult(response, requestId) {
   return structured;
 }
 
-function readDiagnosticFile(file) {
-  const maxBytes = 16 * 1024 * 1024;
+function readDiagnosticFile(file, maxBytes = 16 * 1024 * 1024, requireStable = false) {
   let descriptor;
   try {
     descriptor = fs.openSync(file, fs.constants.O_RDONLY
@@ -82,6 +81,13 @@ function readDiagnosticFile(file) {
     }
     if (size > maxBytes) {
       throw new Error('Live enclave diagnostic file exceeded the scan bound');
+    }
+    if (requireStable) {
+      const after = fs.fstatSync(descriptor);
+      if (after.size !== stat.size || after.mtimeMs !== stat.mtimeMs
+          || after.ctimeMs !== stat.ctimeMs || size !== stat.size) {
+        throw new Error('Live enclave diagnostic file changed during inspection');
+      }
     }
     return buffer.subarray(0, size);
   } catch (error) {
@@ -202,19 +208,124 @@ function requestMcp(endpoint, apiKey, requestId, method, params, signal, timeout
   });
 }
 
-async function waitForBroker(child, container, deadline) {
+// Match only the first fatal header, never stdout, stack frames, or cleanup warnings.
+const STARTUP_CATEGORIES = new Map([
+  ['The Docker primary-agent runtime is unavailable; enclaves never fall back', 'container-runtime'],
+  ['Cloud Hypervisor enclave runtime configuration is missing', 'configuration'],
+  ['Cloud Hypervisor enclaves require a staged trusted run ID', 'configuration'],
+  ['Preflight storage requires root-owned trusted directories', 'host-preflight'],
+  ['Preflight storage requires a normalized absolute directory', 'host-preflight'],
+  ['Trusted enclave artifact has invalid file metadata', 'artifact'],
+  ['Trusted enclave artifact has invalid content size', 'artifact'],
+  ['Enclave artifact manifest bundle must use its fixed release filename', 'artifact'],
+  ['Cloud Hypervisor enclave host service could not start', 'host-service'],
+  ['Unsafe Cloud Hypervisor enclave recovery directory; private state is preserved', 'recovery-state'],
+  ['Trusted enclave MCP gateway container is unavailable', 'broker'],
+  ['Trusted enclave MCP gateway identity could not be inspected', 'broker'],
+  ['Trusted enclave MCP gateway identity did not match the compiler handoff', 'broker'],
+  ['Enclave MCP control network is unavailable', 'broker'],
+  ['Failed to attach the trusted enclave MCP gateway to its private control network', 'broker'],
+]);
+for (const tool of ['mount', 'umount', 'rsync']) {
+  STARTUP_CATEGORIES.set(`Bounded enclave preflight requires trusted host tool "${tool}"`, 'host-preflight');
+}
+for (const role of ['script', 'agent']) {
+  STARTUP_CATEGORIES.set(
+    `${role} enclave rootfs does not match its trusted manifest digest and size`, 'artifact',
+  );
+  STARTUP_CATEGORIES.set(
+    `${role} enclave rootfs SBOM does not match its trusted manifest digest`, 'artifact',
+  );
+}
+const failedSpawns = new WeakSet();
+
+function trackAwfChild(child) {
+  child.on('error', () => failedSpawns.add(child));
+  return child;
+}
+
+function startupDiagnostic(child, reason, stage, stderrFile, startupErrorFile) {
+  let category = 'unknown';
+  let logInspection = 'unavailable';
+  if (reason !== 'spawn-failure' && startupErrorFile) {
+    try {
+      const record = JSON.parse(readDiagnosticFile(startupErrorFile, 16 * 1024, true).toString('utf8'));
+      if (record?.phase === 'startup' && typeof record.message === 'string'
+          && typeof record.timestamp === 'string'
+          && JSON.stringify(Object.keys(record).sort()) === '["message","phase","timestamp"]') {
+        category = STARTUP_CATEGORIES.get(record.message) || 'unknown';
+        logInspection = 'structured';
+      }
+    } catch {
+      // Older releases or interrupted startup may not have persisted this record.
+    }
+  }
+  if (reason !== 'spawn-failure' && logInspection !== 'structured') {
+    try {
+      const stderr = readDiagnosticFile(stderrFile, 64 * 1024, true).toString('utf8');
+      logInspection = 'bounded';
+      const header = stderr.split('\n').find((line) => line.startsWith('[ERROR] Fatal error: '));
+      const prefix = '[ERROR] Fatal error: Error: ';
+      if (header?.startsWith(prefix)) {
+        category = STARTUP_CATEGORIES.get(header.slice(prefix.length)) || 'unknown';
+      } else if (header?.startsWith('[ERROR] Fatal error: CloudHypervisorUnsupportedHostError: ')) {
+        category = 'unsupported-host';
+      }
+    } catch {
+      // Inspection failure is explicit metadata, not a reason to disclose private content.
+      logInspection = 'unavailable';
+    }
+  }
+  return {
+    schemaVersion: 1,
+    phase: 'pre-broker',
+    stage: stage === 'recovery' ? 'recovery' : 'initial',
+    reason: ['exit', 'signal', 'timeout', 'spawn-failure'].includes(reason) ? reason : 'unknown',
+    category,
+    exitCode: Number.isInteger(child?.exitCode) && child.exitCode >= 0 && child.exitCode <= 255
+      ? child.exitCode : null,
+    signal: ['SIGTERM', 'SIGKILL', 'SIGINT', 'SIGHUP', 'SIGABRT', 'SIGSEGV', 'SIGBUS']
+      .includes(child?.signalCode) ? child.signalCode : null,
+    logInspection,
+  };
+}
+
+function emitStartupDiagnostic(child, reason, stage, stderrFile, startupErrorFile) {
+  console.error(`AWF_HOST_STARTUP_DIAGNOSTIC ${JSON.stringify(
+    startupDiagnostic(child, reason, stage, stderrFile, startupErrorFile),
+  )}`);
+}
+
+async function waitForBroker(child, container, deadline, diagnostics) {
+  const fail = (reason, message) => {
+    if (diagnostics) emitStartupDiagnostic(
+      child, reason, diagnostics.stage, diagnostics.stderrFile, diagnostics.startupErrorFile,
+    );
+    throw new Error(message);
+  };
   while (Date.now() < deadline) {
+    if (failedSpawns.has(child)) {
+      fail('spawn-failure', 'Could not spawn AWF before public enclave broker readiness');
+    }
+    if (child.signalCode !== null) {
+      fail('signal', 'AWF was signalled before the public enclave broker became ready');
+    }
     if (child.exitCode !== null) {
-      throw new Error(`AWF exited before the public enclave broker became ready (exit ${child.exitCode})`);
+      fail('exit', 'AWF exited before the public enclave broker became ready');
     }
     const result = spawnSync('docker', [
       'inspect', '--format', '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}',
       container,
-    ], { encoding: 'utf8', maxBuffer: 1024 * 1024 });
+    ], {
+      encoding: 'utf8',
+      maxBuffer: 1024 * 1024,
+      timeout: Math.max(1, Math.min(10_000, deadline - Date.now())),
+      killSignal: 'SIGKILL',
+    });
     if (result.status === 0 && ['healthy', 'running'].includes(result.stdout.trim())) return;
     await new Promise((resolve) => setTimeout(resolve, 1000));
   }
-  throw new Error('Timed out waiting for the live enclave broker');
+  fail('timeout', 'Timed out waiting for the live enclave broker');
 }
 
 function assertNoVmResidue() {
@@ -684,7 +795,7 @@ async function main() {
   let awfConfigPath = path.join(root, 'awf-config.json');
   const runDirectories = [workDir];
   let awfEnvironment;
-  const launchAwf = () => {
+  const launchAwf = (stage) => {
     const awfArguments = [
       path.resolve(__dirname, '../../dist/cli.js'),
       '--config', awfConfigPath,
@@ -697,16 +808,22 @@ async function main() {
       '--',
       'while [ ! -f /workspace/.awf-enclave-live-stop ]; do sleep 1; done',
     ];
-    const stdout = fs.openSync(awfOut, 'a', 0o600);
-    const stderr = fs.openSync(awfErr, 'a', 0o600);
+    let stdout;
+    let stderr;
     try {
-      return spawn(process.execPath, awfArguments, {
-        env: awfEnvironment,
+      stdout = fs.openSync(awfOut, 'w', 0o600);
+      stderr = fs.openSync(awfErr, 'w', 0o600);
+      const child = spawn(process.execPath, awfArguments, {
+        env: { ...awfEnvironment, NO_COLOR: '1', FORCE_COLOR: '0' },
         stdio: ['ignore', stdout, stderr],
       });
+      return trackAwfChild(child);
+    } catch {
+      emitStartupDiagnostic(undefined, 'spawn-failure', stage, awfErr);
+      throw new Error('Could not launch AWF before public enclave broker readiness');
     } finally {
-      fs.closeSync(stdout);
-      fs.closeSync(stderr);
+      if (stdout !== undefined) fs.closeSync(stdout);
+      if (stderr !== undefined) fs.closeSync(stderr);
     }
   };
   const stopComposeAfterCrash = (composeWorkDir = workDir) => run('docker', [
@@ -780,8 +897,11 @@ async function main() {
       GH_TOKEN: environment.GH_TOKEN,
       GITHUB_TOKEN: environment.GITHUB_TOKEN,
     };
-    awf = launchAwf();
-    await waitForBroker(awf, 'awf-enclave-mcp-server', Date.now() + 15 * 60_000);
+    awf = launchAwf('initial');
+    await waitForBroker(awf, 'awf-enclave-mcp-server', Date.now() + 15 * 60_000, {
+      stage: 'initial', stderrFile: awfErr,
+      startupErrorFile: path.join(workDir, 'proxy-logs', 'awf-startup-error.json'),
+    });
 
     const initialized = await requestMcp(
       endpoint, gatewayKey, 1, 'initialize', {
@@ -1028,8 +1148,11 @@ async function main() {
       awfConfigPath = path.join(root, 'awf-config-recovery.json');
       runDirectories.push(workDir);
       writeAwfConfig(workDir, awfConfigPath);
-      awf = launchAwf();
-      await waitForBroker(awf, 'awf-enclave-mcp-server', Date.now() + 15 * 60_000);
+      awf = launchAwf('recovery');
+      await waitForBroker(awf, 'awf-enclave-mcp-server', Date.now() + 15 * 60_000, {
+        stage: 'recovery', stderrFile: awfErr,
+        startupErrorFile: path.join(workDir, 'proxy-logs', 'awf-startup-error.json'),
+      });
       const recoveryTools = await requestMcp(endpoint, gatewayKey, 13, 'tools/list', {});
       if (!Array.isArray(recoveryTools?.result?.tools)) {
         throw new Error('Live broker did not become ready after host-executor recovery');
@@ -1074,45 +1197,93 @@ async function main() {
     ], sentinel);
     console.log('Live script and agent identity/network, aggregate ENOSPC, guest OOM, failure/timeout/cancellation, real partial-startup failure, VMM crash recovery, cleanup, and output redaction checks passed.');
   } finally {
-    if (awf && awf.exitCode === null) {
-      fs.writeFileSync(path.join(workspace, '.awf-enclave-live-stop'), 'done\n', { mode: 0o644 });
-      const timeout = setTimeout(() => {
-        if (awf.exitCode === null) awf.kill('SIGTERM');
-      }, 60_000);
-      await new Promise((resolve) => awf.once('exit', resolve));
-      clearTimeout(timeout);
-    }
-    if (gatewayStarted) {
-      const gateway = spawnSync('docker', [
-        'inspect', '--format', '{{ index .Config.Labels "com.github.gh-aw.mcpg.run" }}',
-        GATEWAY_CONTAINER,
-      ], { encoding: 'utf8' });
-      if (gateway.status === 0 && gateway.stdout.trim() === gatewayIdentity) {
-        const removed = spawnSync('docker', ['rm', '--force', GATEWAY_CONTAINER], { encoding: 'utf8' });
-        if (removed.error || removed.status !== 0) {
-          console.error('Could not remove the identity-checked live gateway fixture');
+    try {
+      if (awf && awf.exitCode === null && awf.signalCode === null && !failedSpawns.has(awf)) {
+        try {
+          fs.writeFileSync(path.join(workspace, '.awf-enclave-live-stop'), 'done\n', { mode: 0o644 });
+          await stopAwf(awf);
+        } catch {
+          console.error('Could not stop AWF within live fixture cleanup');
           keepArtifacts = true;
           process.exitCode = 1;
         }
-      } else {
-        console.error('Could not verify the live gateway fixture identity; it was not removed');
+      }
+      if (gatewayStarted) {
+        const gateway = spawnSync('docker', [
+          'inspect', '--format', '{{ index .Config.Labels "com.github.gh-aw.mcpg.run" }}',
+          GATEWAY_CONTAINER,
+        ], { encoding: 'utf8' });
+        if (gateway.status === 0 && gateway.stdout.trim() === gatewayIdentity) {
+          const removed = spawnSync('docker', ['rm', '--force', GATEWAY_CONTAINER], { encoding: 'utf8' });
+          if (removed.error || removed.status !== 0) {
+            console.error('Could not remove the identity-checked live gateway fixture');
+            keepArtifacts = true;
+            process.exitCode = 1;
+          }
+        } else {
+          console.error('Could not verify the live gateway fixture identity; it was not removed');
+          keepArtifacts = true;
+          process.exitCode = 1;
+        }
+      }
+      try {
+        assertNoVmResidue();
+      } catch (error) {
+        console.error(error.message);
         keepArtifacts = true;
         process.exitCode = 1;
       }
-    }
-    try {
-      assertNoVmResidue();
-    } catch (error) {
-      console.error(error.message);
+    } catch {
+      console.error('Live enclave fixture cleanup failed; private recovery state was preserved');
       keepArtifacts = true;
       process.exitCode = 1;
-    }
-    if (keepArtifacts) {
-      console.error('Live enclave private diagnostics were retained on the ephemeral runner for failure triage.');
-    } else {
-      fs.rmSync(root, { recursive: true, force: true });
+    } finally {
+      try {
+        removePrivateAwfLogs(awfOut, awfErr, runDirectories.map(
+          (directory) => path.join(directory, 'proxy-logs', 'awf-startup-error.json'),
+        ));
+        if (keepArtifacts) {
+          console.error('Live enclave private recovery state was retained on the ephemeral runner; AWF stdout/stderr and startup error records were removed.');
+        } else {
+          fs.rmSync(root, { recursive: true, force: true });
+        }
+      } catch {
+        console.error('Could not remove live enclave private diagnostic files');
+        process.exitCode = 1;
+      }
     }
   }
+}
+
+function removePrivateAwfLogs(stdoutFile, stderrFile, startupErrorFiles = []) {
+  let failed = false;
+  for (const file of [stdoutFile, stderrFile, ...startupErrorFiles]) {
+    try {
+      fs.rmSync(file, { force: true });
+    } catch {
+      failed = true;
+    }
+  }
+  if (failed) throw new Error('Could not remove live enclave private diagnostic files');
+}
+
+function stopAwf(child, graceMs = 60_000, terminateMs = 5000) {
+  return new Promise((resolve, reject) => {
+    const terminate = setTimeout(() => child.kill('SIGTERM'), graceMs);
+    const kill = setTimeout(() => {
+      child.kill('SIGKILL');
+      finish(new Error('AWF did not exit within the live fixture cleanup deadline'));
+    }, graceMs + terminateMs);
+    const finish = (error) => {
+      clearTimeout(terminate);
+      clearTimeout(kill);
+      child.removeListener('exit', onExit);
+      if (error) reject(error);
+      else resolve();
+    };
+    const onExit = () => finish();
+    child.once('exit', onExit);
+  });
 }
 
 if (require.main === module) {
@@ -1123,6 +1294,12 @@ if (require.main === module) {
 }
 
 module.exports = {
+  startupDiagnostic,
+  waitForBroker,
+  failedSpawns,
+  removePrivateAwfLogs,
+  stopAwf,
+  trackAwfChild,
   assertNoVmResidue,
   RELEASE_ASSETS,
   assertReleaseAssets,

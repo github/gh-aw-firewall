@@ -79,6 +79,31 @@ Host closures force the errors only after capturing allocated resource
 identities; cleanup and rejection of replay must succeed. Those probes do not
 invoke the public MCP route or execute a workload, unlike the other live
 assertions. Their deterministic transport tests are not KVM evidence.
+Before broker readiness, an AWF exit, signal, spawn failure, or readiness
+timeout emits one `AWF_HOST_STARTUP_DIAGNOSTIC` JSON line to the job log before
+fixture cleanup. Schema version 1 contains only `phase` (`pre-broker`),
+`stage` (`initial` or `recovery`), a fixed `reason` and `category`, bounded
+`exitCode`, allowlisted `signal`, and `logInspection` (`structured`, `bounded`,
+or `unavailable`). Categories cover exact known configuration, host-preflight,
+artifact, container-runtime, host-service, broker, recovery-state, and
+unsupported-host errors; unmatched errors are explicitly `unknown`, not an
+inferred root cause. The harness first uses the existing host startup record,
+then falls back to the first fatal stderr header for older/interrupted starts.
+The entire diagnostic line is at most 256 bytes; spawn failures never consult
+possibly stale logs.
+It never prints stdout, stderr, record messages, paths, timestamps, causes,
+or subprocess error objects. Descriptor-based, no-follow, regular-file reads
+are limited to 16 KiB for the record and 64 KiB for stderr; changed or unsafe
+files cannot produce a classification. Each launch resets its private logs.
+AWF stdout/stderr and startup error records are removed even when cleanup
+requires retaining private recovery state; no raw artifacts are uploaded.
+Cleanup failures remain failures and do not replace the primary startup error.
+Deterministic regressions cover the output shape and bounds, secrets and
+repository sentinels, malformed/unknown input, unsafe/changing files, each
+failure reason, and bounded cleanup. These diagnostics do not establish that
+an agent or workload ran and do not fix an unidentified startup cause. The
+immutable `v0.28.35` release cannot receive this change; release-pinned live
+acceptance needs a future authorized release containing it.
 Privileged enclave probes no longer run in the ordinary artifact-build job.
 Production full-storage admission is enabled only after supported-host and
 release-artifact preflight; invocation exports, artifact/rootfs copies, and
